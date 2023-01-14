@@ -40,7 +40,10 @@ impl Clone for Box<dyn Operation> {
 }
 
 pub trait Operation: OperationCloneBox + Send + Sync {
-    fn apply<'a>(&'a mut self, cm: &'a mut dyn Transform) -> &'a mut dyn Transform;
+    fn apply<'a: 'b, 'b>(
+        &'a mut self,
+        tf_stack: &'b mut [&'a mut dyn Transform],
+    ) -> &'b mut dyn Transform;
 }
 
 pub struct OperationBase {

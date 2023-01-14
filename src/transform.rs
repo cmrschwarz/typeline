@@ -33,12 +33,14 @@ pub enum StreamChunk<'a> {
     Text(&'a str),
 }
 
+pub type TransformStackIndex = u32;
+
 pub struct TfBase {
     pub data_kind: DataKind,
     pub is_stream: bool,
     pub requires_eval: bool,
     pub dependants: SmallVec<[Box<dyn Transform>; 1]>,
-    pub stack_index: u32,
+    pub stack_index: TransformStackIndex,
 }
 
 pub trait Transform: Send + Sync {

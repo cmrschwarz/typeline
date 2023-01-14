@@ -2,14 +2,14 @@ use smallvec::SmallVec;
 
 use crate::{
     options::{ChainSpec, ContextOptions},
-    transform::{MatchData, StreamChunk, TfBase, Transform},
+    transform::{MatchData, StreamChunk, TfBase, Transform, TransformStackIndex},
 };
 
-use super::{Operation, OperationCatalogMember};
+use super::{Operation, OperationCatalogMember, OperationId};
 
 struct TfParent {
     tfb: TfBase,
-    parent_idx: usize,
+    parent_idx: TransformStackIndex,
 }
 
 impl Transform for TfParent {
@@ -30,19 +30,23 @@ impl Transform for TfParent {
     }
 
     fn data<'a, 'b>(&'a self, tf_stack: &'b [&'a dyn Transform]) -> Option<&'a MatchData> {
-        let pidx = tf_stack.len() - 1 - self.parent_idx;
-        tf_stack[pidx].data(&tf_stack[0..pidx])
+        tf_stack[self.parent_idx as usize].data(&tf_stack[0..self.parent_idx as usize])
     }
 
     fn evaluate<'a, 'b>(&'a mut self, _tf_stack: &'b [&'a dyn Transform]) {}
 }
 
 #[derive(Clone)]
-pub struct OpParent {}
+pub struct OpParent {
+    up_count: TransformStackIndex,
+}
 
 impl Operation for OpParent {
-    fn apply<'a>(&'a mut self, btf: &'a mut dyn Transform) -> &'a mut dyn Transform {
-        let btfb = btf.base_mut();
+    fn apply<'a: 'b, 'b>(
+        &'a mut self,
+        tf_stack: &'b mut [&'a mut dyn Transform],
+    ) -> &'b mut dyn Transform {
+        let btfb = tf_stack.last_mut().unwrap().base_mut();
         let tfp = Box::new(TfParent {
             tfb: TfBase {
                 data_kind: btfb.data_kind,
@@ -51,7 +55,7 @@ impl Operation for OpParent {
                 requires_eval: btfb.requires_eval,
                 dependants: SmallVec::new(),
             },
-            parent_idx: 1,
+            parent_idx: btfb.stack_index + 1 - self.up_count,
         });
         btfb.dependants.push(tfp);
         btfb.dependants.last_mut().unwrap().as_mut()
