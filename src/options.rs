@@ -12,6 +12,7 @@ use crate::{
 use std::{
     collections::VecDeque,
     ffi::OsString,
+    num::NonZeroUsize,
     sync::{Arc, Condvar, Mutex},
 };
 use std::{ops::Deref, sync::atomic::AtomicUsize};
@@ -129,11 +130,17 @@ const DEFAULT_CONTEXT_OPTIONS: ContextOptions = ContextOptions {
 
 impl ContextOptions {
     pub fn build_context(self) -> Context {
-        Context::new(ContextData {
-            parallel_jobs: self
-                .parallel_jobs
+        let parallel_jobs = NonZeroUsize::try_from(
+            self.parallel_jobs
                 .value
                 .unwrap_or(DEFAULT_CONTEXT_OPTIONS.parallel_jobs.unwrap()),
+        )
+        .unwrap_or_else(|_| {
+            std::thread::available_parallelism()
+                .unwrap_or_else(|_| NonZeroUsize::try_from(1).unwrap())
+        });
+        Context::new(ContextData {
+            parallel_jobs,
             documents: self.documents,
             chains: self.chains.into_iter().map(|c| c.build_chain()).collect(),
             operations: self.operations,

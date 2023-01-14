@@ -1,6 +1,7 @@
 use std::borrow::Borrow;
 use std::collections::VecDeque;
 use std::iter;
+use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, RwLock};
 
@@ -20,7 +21,7 @@ pub struct Job {
 }
 
 pub struct ContextData {
-    pub parallel_jobs: usize,
+    pub parallel_jobs: NonZeroUsize,
     pub documents: Vec<Document>,
     pub chains: Vec<Chain>,
     pub operations: Vec<Box<dyn Operation>>,
@@ -41,27 +42,8 @@ pub struct Session {
 pub struct Context {
     pub data: Arc<ContextData>,
     pub session: Arc<Session>,
+    pub main_thread_worker: Worker<Job>,
     pub worker_join_handles: Vec<std::thread::JoinHandle<()>>,
-}
-
-impl Context {
-    pub fn new(data: ContextData) -> Self {
-        let data_arc = Arc::new(data);
-        Self {
-            data: data_arc.clone(),
-            session: Arc::new(Session {
-                injector: Injector::new(),
-                tasks_available: Condvar::new(),
-                session_data: Mutex::new(SessionData {
-                    generation: 0,
-                    terminate: false,
-                    stealers: Vec::new(),
-                    ctx_data: data_arc,
-                }),
-            }),
-            worker_join_handles: Default::default(),
-        }
-    }
 }
 
 struct WorkerThread<'a> {
@@ -72,7 +54,93 @@ struct WorkerThread<'a> {
     session_generation: usize,
 }
 
+impl Context {
+    pub fn new(data: ContextData) -> Self {
+        let data_arc = Arc::new(data);
+        let session_arc = Arc::new(Session {
+            injector: Injector::new(),
+            tasks_available: Condvar::new(),
+            session_data: Mutex::new(SessionData {
+                generation: 0,
+                terminate: false,
+                stealers: Vec::new(),
+                ctx_data: data_arc.clone(),
+            }),
+        });
+        Self {
+            data: data_arc,
+            session: session_arc,
+            main_thread_worker: Worker::new_fifo(),
+            worker_join_handles: Default::default(),
+        }
+    }
+    pub fn gen_jobs_from_docs(&mut self) {
+        let cd = self.data.as_ref();
+        let mut stdin_job_ops: SmallVec<[OperationRef; 2]> = Default::default();
+        for d in &cd.documents {
+            let mut ops_iter = d.target_chains.iter().map(|c| OperationRef::new(*c, 0));
+            match d.source {
+                DocumentSource::Stdin => {
+                    stdin_job_ops.extend(ops_iter);
+                }
+                _ => {
+                    self.session.injector.push(Job {
+                        ops: ops_iter.collect(),
+                        tf: d.source.create_start_transform(),
+                    });
+                }
+            }
+        }
+        if !stdin_job_ops.is_empty() {
+            self.session.injector.push(Job {
+                tf: Box::new(TfReadStdin::new()),
+                ops: stdin_job_ops,
+            });
+        }
+    }
+    pub fn run(&mut self) {
+        self.gen_jobs_from_docs();
+        assert!(self.data.parallel_jobs.get() > self.worker_join_handles.len()); // TODO: handle this case
+        let additional_wts = self.data.parallel_jobs.get() - self.worker_join_handles.len() - 1;
+        let workers = (0..additional_wts)
+            .map(|_| Worker::new_fifo())
+            .collect::<Vec<Worker<Job>>>();
+        self.session
+            .session_data
+            .lock()
+            .unwrap()
+            .stealers
+            .extend(workers.iter().map(|w| w.stealer()));
+        let mut index = self.worker_join_handles.len() + 1;
+        for worker in workers.into_iter() {
+            let ctx_data = self.data.clone();
+            let session = self.session.clone();
+            self.worker_join_handles.push(std::thread::spawn(move || {
+                let sd = session.session_data.lock().unwrap();
+                let mut wt = WorkerThread::new(index, worker, session.as_ref(), &sd);
+                wt.run();
+            }));
+            index += 1;
+        }
+    }
+}
+
 impl WorkerThread<'_> {
+    fn new(index: usize, worker: Worker<Job>, session: &Session, sd: &SessionData) -> Self {
+        Self {
+            worker: worker,
+            session: session,
+            ctx: sd.ctx_data.clone(),
+            stealers: sd
+                .stealers
+                .iter()
+                .enumerate()
+                .filter(|(idx, s)| *idx != index)
+                .map(|(idx, s)| s.clone())
+                .collect(),
+            session_generation: todo!(),
+        }
+    }
     fn run(&mut self) {
         loop {
             if let Some(job) = self.find_job() {
@@ -124,59 +192,4 @@ impl WorkerThread<'_> {
     }
 
     fn run_job(&mut self, job: Job) {}
-}
-
-impl Context {
-    pub fn gen_jobs_from_docs(&mut self) {
-        let cd = self.data.as_ref();
-        let mut stdin_job_ops: SmallVec<[OperationRef; 2]> = Default::default();
-        for d in &cd.documents {
-            let mut ops_iter = d.target_chains.iter().map(|c| OperationRef::new(*c, 0));
-            match d.source {
-                DocumentSource::Stdin => {
-                    stdin_job_ops.extend(ops_iter);
-                }
-                _ => {
-                    self.session.injector.push(Job {
-                        ops: ops_iter.collect(),
-                        tf: d.source.create_start_transform(),
-                    });
-                }
-            }
-        }
-        if !stdin_job_ops.is_empty() {
-            self.session.injector.push(Job {
-                tf: Box::new(TfReadStdin::new()),
-                ops: stdin_job_ops,
-            });
-        }
-    }
-    pub fn run(&mut self) {
-        self.gen_jobs_from_docs();
-        let additional_wts = self.data.parallel_jobs - self.worker_join_handles.len();
-        let workers = (0..additional_wts)
-            .map(|_| Worker::new_fifo())
-            .collect::<Vec<Worker<Job>>>();
-        self.session
-            .session_data
-            .lock()
-            .unwrap()
-            .stealers
-            .extend(workers.iter().map(|w| w.stealer()));
-        for worker in workers.into_iter() {
-            let ctx_data = self.data.clone();
-            let session = self.session.clone();
-            self.worker_join_handles.push(std::thread::spawn(move || {
-                let sess = session.session_data.lock().unwrap();
-                let mut wt = WorkerThread {
-                    worker,
-                    session: session.as_ref(),
-                    ctx: ctx_data.clone(),
-                    stealers: sess.stealers.clone(),
-                    session_generation: sess.generation,
-                };
-                wt.run();
-            }));
-        }
-    }
 }
