@@ -13,6 +13,7 @@ mod selenium;
 mod encoding;
 mod options;
 mod cli;
+mod argument;
 
 use cli::parse_cli_from_env;
 

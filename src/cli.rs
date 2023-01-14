@@ -1,11 +1,5 @@
 use crate::options::ContextOptions;
-use std::ffi::OsString;
-
-#[derive(Clone)]
-pub struct CliArgument {
-    arg_index: Option<u32>,
-    arg_str: Option<OsString>,
-}
+use std::{error::Error, ffi::OsString};
 
 pub fn parse_cli_from_env() -> ContextOptions {
     let args: Vec<_> = std::env::args_os().collect();

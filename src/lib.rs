@@ -12,3 +12,4 @@ mod selenium;
 mod encoding;
 mod options;
 mod cli;
+mod argument;

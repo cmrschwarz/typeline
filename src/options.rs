@@ -1,8 +1,8 @@
 use crossbeam::deque::Injector;
 
 use crate::{
+    argument::Argument,
     chain::{Chain, ChainId},
-    cli::CliArgument,
     context::{Context, ContextData, Session, SessionData},
     document::Document,
     encoding::TextEncoding,
@@ -11,49 +11,13 @@ use crate::{
 };
 use std::{
     collections::VecDeque,
+    error::Error,
     ffi::OsString,
+    fmt::{self, Debug, Display},
     num::NonZeroUsize,
     sync::{Arc, Condvar, Mutex},
 };
 use std::{ops::Deref, sync::atomic::AtomicUsize};
-
-#[derive(Clone)]
-pub struct Argument<T: Clone> {
-    value: Option<T>,
-    arg: Option<CliArgument>,
-}
-
-impl<T: Clone> Default for Argument<T> {
-    fn default() -> Self {
-        Self {
-            value: None,
-            arg: None,
-        }
-    }
-}
-
-impl<T: Clone> Argument<T> {
-    const fn new(t: T) -> Self {
-        Self {
-            value: Some(t),
-            arg: None,
-        }
-    }
-    const fn new_with_arg(t: T, arg: CliArgument) -> Self {
-        Self {
-            value: Some(t),
-            arg: Some(arg),
-        }
-    }
-}
-
-impl<T: Clone> Deref for Argument<T> {
-    type Target = Option<T>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.value
-    }
-}
 
 pub enum ChainSpec {}
 pub enum RangeSpec {}
