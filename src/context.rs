@@ -125,8 +125,8 @@ impl Context {
     }
 }
 
-impl WorkerThread<'_> {
-    fn new(index: usize, worker: Worker<Job>, session: &Session, sd: &SessionData) -> Self {
+impl<'a> WorkerThread<'a> {
+    fn new(index: usize, worker: Worker<Job>, session: &'a Session, sd: &SessionData) -> Self {
         Self {
             worker: worker,
             session: session,
@@ -138,7 +138,7 @@ impl WorkerThread<'_> {
                 .filter(|(idx, s)| *idx != index)
                 .map(|(idx, s)| s.clone())
                 .collect(),
-            session_generation: todo!(),
+            session_generation: sd.generation,
         }
     }
     fn run(&mut self) {
