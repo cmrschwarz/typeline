@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use bstring::BString;
 
 use crate::{
@@ -9,7 +11,7 @@ use crate::{
 #[derive(Clone)]
 pub enum DocumentSource {
     Url(BString),
-    File(BString),
+    File(PathBuf),
     String(String),
     Bytes(BString),
     Stdin,
@@ -18,7 +20,7 @@ impl DocumentSource {
     pub fn create_start_transform(&self) -> Box<dyn Transform> {
         match self {
             DocumentSource::Url(url) => todo!("TfDownload"),
-            DocumentSource::File(url) => todo!("TfReadFile"),
+            DocumentSource::File(p) => todo!("TfReadFile"),
             DocumentSource::String(s) => Box::new(TfStart::new(MatchData::Text(s.clone()))),
             DocumentSource::Bytes(s) => {
                 Box::new(TfStart::new(MatchData::Bytes(s.clone().into_bytes())))

@@ -10,7 +10,13 @@ use bstring::{bstr, BString};
 use lazy_static::{__Deref, lazy_static};
 use regex::Regex;
 use std::{
-    collections::btree_map::Range, error::Error, ffi::OsString, fmt, io::Write, ops::RangeFull,
+    collections::btree_map::Range,
+    error::Error,
+    ffi::{OsStr, OsString},
+    fmt,
+    io::Write,
+    ops::RangeFull,
+    path::PathBuf,
     str::from_utf8,
 };
 #[derive(Debug)]
@@ -138,7 +144,23 @@ fn try_parse_document_source(
         }
         "file" => {
             if let Some(value) = value {
-                Ok(Some(DocumentSource::File(BString::from(value))))
+                #[cfg(unix)]
+                {
+                    let path = PathBuf::from(
+                        <OsStr as std::os::unix::prelude::OsStrExt>::from_bytes(value.as_bytes()),
+                    );
+                    Ok(Some(DocumentSource::File(path)))
+                }
+                #[cfg(windows)]
+                {
+                    let path = PathBuf::from(value.to_str().map_err(|_| {
+                        CliArgumentError::new(
+                            "failed to parse file path argument as unicode",
+                            cli_arg.clone(),
+                        )
+                    })?);
+                    Ok(Some(DocumentSource::File(path)))
+                }
             } else {
                 Err(CliArgumentError::new(
                     "missing path argument for file",
@@ -413,7 +435,7 @@ pub fn parse_cli_from_env() -> Result<ContextOptions, CliArgumentError> {
                 args.push(BString::from(arg));
             } else {
                 return Err(CliArgumentError::new(
-                    "byte sequence cannot be parsed as unicode",
+                    "failed to parse byte sequence as unicode",
                     CliArgument {
                         arg_index: i + 1,
                         arg_str: BString::from(arg.to_string_lossy().as_bytes()),
