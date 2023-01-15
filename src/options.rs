@@ -19,7 +19,9 @@ use std::{
 };
 use std::{ops::Deref, sync::atomic::AtomicUsize};
 
+#[derive(Clone)]
 pub enum ChainSpec {}
+#[derive(Clone)]
 pub enum RangeSpec {}
 #[derive(Clone, Default)]
 pub struct ChainOptions {
@@ -75,8 +77,8 @@ pub struct ContextOptions {
     pub update_selenium_drivers: Vec<Argument<SeleniumVariant>>,
     pub chains: Vec<ChainOptions>,
     pub operations: Vec<Box<dyn Operation>>,
-    //can't use VecDeque here because new it's new is not a const fn
     pub documents: Vec<Document>,
+    pub curr_chain: ChainId, //so we can use this as a builder
 }
 
 const DEFAULT_CONTEXT_OPTIONS: ContextOptions = ContextOptions {
@@ -90,6 +92,7 @@ const DEFAULT_CONTEXT_OPTIONS: ContextOptions = ContextOptions {
     chains: Vec::new(),
     operations: Vec::new(),
     documents: Vec::new(),
+    curr_chain: 0,
 };
 
 impl ContextOptions {

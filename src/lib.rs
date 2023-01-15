@@ -1,15 +1,19 @@
 #![allow(dead_code, unused)] // HACK
-extern crate smallvec;
-extern crate markup5ever_rcdom;
 extern crate crossbeam;
+extern crate markup5ever_rcdom;
+extern crate regex;
+extern crate smallvec;
+#[macro_use()]
+extern crate lazy_static;
 
-mod transform;
-mod document;
-mod context;
-mod chain;
-mod operations;
-mod selenium;
-mod encoding;
-mod options;
-mod cli;
 mod argument;
+mod chain;
+mod cli;
+mod context;
+mod document;
+mod encoding;
+mod operations;
+mod options;
+mod selenium;
+mod transform;
+mod xstr;

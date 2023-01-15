@@ -1,9 +1,11 @@
 use std::{error::Error, ffi::OsString, fmt, ops::Deref};
 
+use crate::xstr::XString;
+
 #[derive(Clone, Debug)]
 pub struct CliArgument {
-    pub arg_index: Option<u32>,
-    pub arg_str: Option<OsString>,
+    pub arg_index: u32,
+    pub arg_str: XString,
 }
 
 #[derive(Clone)]
@@ -14,8 +16,8 @@ pub struct Argument<T: Clone> {
 
 #[derive(Debug)]
 pub struct ArgumentReassignmentError {
-    message: &'static str,
-    cli_arg: Option<CliArgument>,
+    pub message: &'static str,
+    pub cli_arg: Option<CliArgument>,
 }
 impl fmt::Display for ArgumentReassignmentError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

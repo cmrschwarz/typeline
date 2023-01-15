@@ -1,8 +1,10 @@
 use smallvec::SmallVec;
 
 use crate::{
+    chain::ChainId,
     options::{ChainSpec, ContextOptions},
     transform::{MatchData, StreamChunk, TfBase, Transform, TransformStackIndex},
+    xstr::{XStr, XString},
 };
 
 use super::{Operation, OperationCatalogMember, OperationId};
@@ -64,14 +66,14 @@ impl Operation for OpParent {
 
 impl OperationCatalogMember for OpParent {
     fn name_matches(name: &str) -> bool {
-        todo!()
+        "parent".starts_with(name) && name.len() > 1
     }
 
     fn create(
         ctx: &ContextOptions,
         label: String,
-        value: Option<String>,
-        chain: crate::chain::ChainId,
+        value: Option<XString>,
+        curr_chain: ChainId,
         chainspec: Option<ChainSpec>,
     ) -> Result<(), String> {
         todo!()

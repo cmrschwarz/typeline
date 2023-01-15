@@ -7,6 +7,7 @@ pub mod start;
 use crate::chain::ChainId;
 use crate::options::{ChainSpec, ContextOptions};
 use crate::transform::Transform;
+use crate::xstr::{XStr, XString};
 
 use self::parent::OpParent;
 
@@ -55,8 +56,8 @@ pub trait OperationCatalogMember: Operation {
     fn create(
         ctx: &ContextOptions,
         label: String,
-        value: Option<String>,
-        chain: ChainId,
+        value: Option<XString>,
+        curr_chain: ChainId,
         chainspec: Option<ChainSpec>,
     ) -> Result<(), String>;
 }
@@ -66,8 +67,8 @@ pub struct OperationCatalogEntry {
     pub create: fn(
         ctx: &ContextOptions,
         label: String,
-        value: Option<String>,
-        chain: ChainId,
+        value: Option<XString>,
+        curr_chain: ChainId,
         chainspec: Option<ChainSpec>,
     ) -> Result<(), String>,
 }
@@ -79,4 +80,5 @@ pub const fn create_catalog_entry<TS: OperationCatalogMember>() -> OperationCata
     }
 }
 
-const BUILTIN_OPERATIONS_CATALOG: [OperationCatalogEntry; 1] = [create_catalog_entry::<OpParent>()];
+pub const BUILTIN_OPERATIONS_CATALOG: [OperationCatalogEntry; 1] =
+    [create_catalog_entry::<OpParent>()];
