@@ -3,6 +3,7 @@ extern crate crossbeam;
 extern crate markup5ever_rcdom;
 extern crate regex;
 extern crate smallvec;
+extern crate bstring;
 #[macro_use()]
 extern crate lazy_static;
 
@@ -16,4 +17,3 @@ mod operations;
 mod options;
 mod selenium;
 mod transform;
-mod xstr;

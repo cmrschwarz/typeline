@@ -1,10 +1,10 @@
+use bstring::BString;
 use smallvec::SmallVec;
 
 use crate::{
     chain::ChainId,
     options::{ChainSpec, ContextOptions},
     transform::{MatchData, StreamChunk, TfBase, Transform, TransformStackIndex},
-    xstr::{XStr, XString},
 };
 
 use super::{Operation, OperationCatalogMember, OperationId};
@@ -72,7 +72,7 @@ impl OperationCatalogMember for OpParent {
     fn create(
         ctx: &ContextOptions,
         label: String,
-        value: Option<XString>,
+        value: Option<BString>,
         curr_chain: ChainId,
         chainspec: Option<ChainSpec>,
     ) -> Result<(), String> {

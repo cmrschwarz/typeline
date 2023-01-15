@@ -5,11 +5,14 @@ use crate::{
     operations::BUILTIN_OPERATIONS_CATALOG,
     options::{ChainOptions, ChainSpec, ContextOptions},
     selenium::{SeleniumDownloadStrategy, SeleniumVariant},
-    xstr::{XStr, XString},
 };
+use bstring::{bstr, BString};
 use lazy_static::{__Deref, lazy_static};
 use regex::Regex;
-use std::{collections::btree_map::Range, error::Error, fmt, ops::RangeFull, str::from_utf8};
+use std::{
+    collections::btree_map::Range, error::Error, fmt, io::Write, ops::RangeFull,
+    os::unix::prelude::OsStringExt, str::from_utf8,
+};
 #[derive(Debug)]
 pub struct CliArgumentError {
     message: &'static str,
@@ -45,42 +48,118 @@ impl CliArgumentError {
 
 struct CliArgParsed {
     argname: String,
-    value: Option<XString>,
+    value: Option<BString>,
     label: Option<String>,
     chainspec: Option<ChainSpec>,
     cli_arg: CliArgument,
+}
+
+lazy_static! {
+    static ref TRUTHY_REGEX: regex::Regex = regex::RegexBuilder::new("true|tru|tr|t|yes|ye|y|1")
+        .case_insensitive(true)
+        .build()
+        .unwrap();
+    static ref FALSY_REGEX: regex::Regex = regex::RegexBuilder::new("false|fal|fa|f|no|n|0")
+        .case_insensitive(true)
+        .build()
+        .unwrap();
+    static ref CLI_ARG_REGEX: regex::bytes::Regex = regex::bytes::Regex::new(
+        r#"(?P<argname>[^\s@:=]+)(@(?P<label>[^\s@:=]+))?(?P<chainspec>:[^\s@:=]+)?(=(?P<value>.*))?"#
+    )
+    .unwrap();
 }
 
 pub fn print_help() {
     print!("scr [OPTIONS]"); //TODO
 }
 
-fn try_parse_bool(val: &XStr) -> Option<bool> {
-    todo!()
+fn try_parse_bool(val: &bstr) -> Option<bool> {
+    if let Ok(val) = val.to_str() {
+        if TRUTHY_REGEX.is_match(val) {
+            return Some(true);
+        }
+        if FALSY_REGEX.is_match(val) {
+            return Some(false);
+        }
+    }
+    None
 }
 
 fn try_parse_document_source(
     argname: &str,
-    value: Option<&XStr>,
+    value: Option<&bstr>,
+    cli_arg: &CliArgument,
 ) -> Result<Option<DocumentSource>, CliArgumentError> {
-    todo!()
+    match argname {
+        "url" => {
+            if let Some(value) = value {
+                Ok(Some(DocumentSource::Url(BString::from(value))))
+            } else {
+                Err(CliArgumentError::new(
+                    "missing value for url",
+                    cli_arg.clone(),
+                ))
+            }
+        }
+        "str" => {
+            if let Some(value) = value {
+                Ok(Some(DocumentSource::Url(BString::from(value))))
+            } else {
+                Err(CliArgumentError::new(
+                    "missing value argument for str",
+                    cli_arg.clone(),
+                ))
+            }
+        }
+        "bytes" => {
+            if let Some(value) = value {
+                Ok(Some(DocumentSource::Bytes(BString::from(value))))
+            } else {
+                Err(CliArgumentError::new(
+                    "missing value argument for bytes",
+                    cli_arg.clone(),
+                ))
+            }
+        }
+        "file" => {
+            if let Some(value) = value {
+                Ok(Some(DocumentSource::Url(BString::from(value))))
+            } else {
+                Err(CliArgumentError::new(
+                    "missing path argument for file",
+                    cli_arg.clone(),
+                ))
+            }
+        }
+        "stdin" => {
+            if let Some(value) = value {
+                Err(CliArgumentError::new(
+                    "stdin does not take arguments",
+                    cli_arg.clone(),
+                ))
+            } else {
+                Ok(Some(DocumentSource::Stdin))
+            }
+        }
+        _ => Ok(None),
+    }
 }
 
 fn try_parse_selenium_variant(
-    value: Option<&XStr>,
+    value: Option<&bstr>,
     cli_arg: &CliArgument,
 ) -> Result<Option<SeleniumVariant>, CliArgumentError> {
     todo!()
 }
 fn try_parse_selenium_download_strategy(
-    value: Option<&XStr>,
+    value: Option<&bstr>,
     cli_arg: &CliArgument,
 ) -> Result<SeleniumDownloadStrategy, CliArgumentError> {
     todo!()
 }
 
 fn try_parse_bool_arg_or_default(
-    val: Option<&XStr>,
+    val: Option<&bstr>,
     default: bool,
     cli_arg: &CliArgument,
 ) -> Result<bool, CliArgumentError> {
@@ -155,7 +234,7 @@ fn try_parse_as_doc(
     ctx_opts: &mut ContextOptions,
     arg: &CliArgParsed,
 ) -> Result<bool, CliArgumentError> {
-    let doc_source = try_parse_document_source(&arg.argname, arg.value.as_deref())?;
+    let doc_source = try_parse_document_source(&arg.argname, arg.value.as_deref(), &arg.cli_arg)?;
     if let Some(doc_source) = doc_source {
         if arg.label.is_some() {
             return Err(CliArgumentError::new(
@@ -243,11 +322,7 @@ fn try_parse_as_transform(
     return Ok(false);
 }
 
-lazy_static! {
-    static ref CLI_ARG_REGEX: regex::bytes::Regex = regex::bytes::Regex::new("(?P<argname>[a-zA-Z_]+)(@(?P<label>[a-zA-Z_]+))?(?P<chainspec>[/0-9a-zA-Z-^]+)?(=(?P<value>.*))?").unwrap();
-}
-
-pub fn parse_cli(args: &[XString]) -> Result<ContextOptions, CliArgumentError> {
+pub fn parse_cli(args: &[BString]) -> Result<ContextOptions, CliArgumentError> {
     let mut ctx_opts = ContextOptions::default();
     for (i, arg_str) in args.iter().enumerate() {
         let mut cli_arg = CliArgument {
@@ -274,7 +349,7 @@ pub fn parse_cli(args: &[XString]) -> Result<ContextOptions, CliArgumentError> {
 
             let mut arg = CliArgParsed {
                 argname: argname,
-                value: m.name("label").map(|l| XString::from(l.as_bytes())),
+                value: m.name("value").map(|l| BString::from(l.as_bytes())),
                 label: label,
                 chainspec: None, //m.group("chainspec"); // TODO
                 cli_arg: cli_arg,
@@ -307,6 +382,9 @@ pub fn parse_cli(args: &[XString]) -> Result<ContextOptions, CliArgumentError> {
 }
 
 pub fn parse_cli_from_env() -> Result<ContextOptions, CliArgumentError> {
-    let args: Vec<XString> = std::env::args_os().map(|s| s.into()).collect();
+    let args: Vec<BString> = std::env::args_os()
+        .skip(1)
+        .map(|s| BString::from(s.into_vec()))
+        .collect();
     parse_cli(&args)
 }

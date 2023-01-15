@@ -1,3 +1,5 @@
+use bstring::BString;
+
 use crate::{
     chain::ChainId,
     operations::start::TfStart,
@@ -6,9 +8,10 @@ use crate::{
 
 #[derive(Clone)]
 pub enum DocumentSource {
-    Url(String),
-    File(String),
+    Url(BString),
+    File(BString),
     String(String),
+    Bytes(BString),
     Stdin,
 }
 impl DocumentSource {
@@ -17,6 +20,9 @@ impl DocumentSource {
             DocumentSource::Url(url) => todo!("TfDownload"),
             DocumentSource::File(url) => todo!("TfReadFile"),
             DocumentSource::String(s) => Box::new(TfStart::new(MatchData::Text(s.clone()))),
+            DocumentSource::Bytes(s) => {
+                Box::new(TfStart::new(MatchData::Bytes(s.clone().into_bytes())))
+            }
             DocumentSource::Stdin => todo!("shared stream"),
         }
     }

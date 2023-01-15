@@ -1,11 +1,11 @@
 use std::{error::Error, ffi::OsString, fmt, ops::Deref};
 
-use crate::xstr::XString;
+use bstring::BString;
 
 #[derive(Clone, Debug)]
 pub struct CliArgument {
     pub arg_index: u32,
-    pub arg_str: XString,
+    pub arg_str: BString,
 }
 
 #[derive(Clone)]

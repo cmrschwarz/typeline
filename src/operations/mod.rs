@@ -4,10 +4,11 @@ pub mod print;
 pub mod read_stdin;
 pub mod start;
 
+use bstring::BString;
+
 use crate::chain::ChainId;
 use crate::options::{ChainSpec, ContextOptions};
 use crate::transform::Transform;
-use crate::xstr::{XStr, XString};
 
 use self::parent::OpParent;
 
@@ -56,7 +57,7 @@ pub trait OperationCatalogMember: Operation {
     fn create(
         ctx: &ContextOptions,
         label: String,
-        value: Option<XString>,
+        value: Option<BString>,
         curr_chain: ChainId,
         chainspec: Option<ChainSpec>,
     ) -> Result<(), String>;
@@ -67,7 +68,7 @@ pub struct OperationCatalogEntry {
     pub create: fn(
         ctx: &ContextOptions,
         label: String,
-        value: Option<XString>,
+        value: Option<BString>,
         curr_chain: ChainId,
         chainspec: Option<ChainSpec>,
     ) -> Result<(), String>,
