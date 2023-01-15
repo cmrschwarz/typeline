@@ -4,7 +4,7 @@ use bstring::BString;
 
 #[derive(Clone, Debug)]
 pub struct CliArgument {
-    pub arg_index: u32,
+    pub arg_index: usize,
     pub arg_str: BString,
 }
 

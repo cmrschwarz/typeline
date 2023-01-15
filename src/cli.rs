@@ -10,12 +10,12 @@ use bstring::{bstr, BString};
 use lazy_static::{__Deref, lazy_static};
 use regex::Regex;
 use std::{
-    collections::btree_map::Range, error::Error, fmt, io::Write, ops::RangeFull,
-    os::unix::prelude::OsStringExt, str::from_utf8,
+    collections::btree_map::Range, error::Error, ffi::OsString, fmt, io::Write, ops::RangeFull,
+    str::from_utf8,
 };
 #[derive(Debug)]
 pub struct CliArgumentError {
-    message: &'static str,
+    message: String,
     cli_arg: CliArgument,
 }
 impl fmt::Display for CliArgumentError {
@@ -34,14 +34,20 @@ impl Error for CliArgumentError {}
 impl Into<CliArgumentError> for ArgumentReassignmentError {
     fn into(self) -> CliArgumentError {
         CliArgumentError {
-            message: self.message,
+            message: self.message.to_owned(),
             cli_arg: self.cli_arg.unwrap(),
         }
     }
 }
 
 impl CliArgumentError {
-    pub fn new(message: &'static str, cli_arg: CliArgument) -> Self {
+    pub fn new(message: &str, cli_arg: CliArgument) -> Self {
+        Self {
+            message: message.to_owned(),
+            cli_arg,
+        }
+    }
+    pub fn from_owned_msg(message: String, cli_arg: CliArgument) -> Self {
         Self { message, cli_arg }
     }
 }
@@ -103,7 +109,16 @@ fn try_parse_document_source(
         }
         "str" => {
             if let Some(value) = value {
-                Ok(Some(DocumentSource::Url(BString::from(value))))
+                Ok(Some(DocumentSource::String(
+                    from_utf8(value.as_bytes())
+                        .map_err(|_| {
+                            CliArgumentError::new(
+                                "str argument must be valid UTF-8, consider using bytes=...",
+                                cli_arg.clone(),
+                            )
+                        })?
+                        .to_owned(),
+                )))
             } else {
                 Err(CliArgumentError::new(
                     "missing value argument for str",
@@ -123,7 +138,7 @@ fn try_parse_document_source(
         }
         "file" => {
             if let Some(value) = value {
-                Ok(Some(DocumentSource::Url(BString::from(value))))
+                Ok(Some(DocumentSource::File(BString::from(value))))
             } else {
                 Err(CliArgumentError::new(
                     "missing path argument for file",
@@ -167,10 +182,10 @@ fn try_parse_bool_arg_or_default(
         if let Some(b) = try_parse_bool(val) {
             Ok(b)
         } else {
-            Err(CliArgumentError {
-                message: "failed to parse as bool",
-                cli_arg: cli_arg.clone(),
-            })
+            Err(CliArgumentError::new(
+                "failed to parse as bool",
+                cli_arg.clone(),
+            ))
         }
     } else {
         Ok(default)
@@ -326,7 +341,7 @@ pub fn parse_cli(args: &[BString]) -> Result<ContextOptions, CliArgumentError> {
     let mut ctx_opts = ContextOptions::default();
     for (i, arg_str) in args.iter().enumerate() {
         let mut cli_arg = CliArgument {
-            arg_index: i as u32 + 1,
+            arg_index: i + 1,
             arg_str: arg_str.clone(),
         };
         if let Some(m) = CLI_ARG_REGEX.captures(arg_str.as_bytes()) {
@@ -364,13 +379,13 @@ pub fn parse_cli(args: &[BString]) -> Result<ContextOptions, CliArgumentError> {
                 continue;
             }
             if succ_sum > 1 {
-                return Err(CliArgumentError::new(
-                    "ambiguous argument name",
+                return Err(CliArgumentError::from_owned_msg(
+                    format!("ambiguous argument name '{}'", arg.argname),
                     arg.cli_arg,
                 ));
             } else {
-                return Err(CliArgumentError::new(
-                    "ambiguous argument name",
+                return Err(CliArgumentError::from_owned_msg(
+                    format!("ambiguous argument name '{}'", arg.argname),
                     arg.cli_arg,
                 ));
             }
@@ -382,9 +397,30 @@ pub fn parse_cli(args: &[BString]) -> Result<ContextOptions, CliArgumentError> {
 }
 
 pub fn parse_cli_from_env() -> Result<ContextOptions, CliArgumentError> {
-    let args: Vec<BString> = std::env::args_os()
-        .skip(1)
-        .map(|s| BString::from(s.into_vec()))
-        .collect();
-    parse_cli(&args)
+    #[cfg(unix)]
+    {
+        let args: Vec<BString> = std::env::args_os()
+            .skip(1)
+            .map(|s| BString::from(std::os::unix::prelude::OsStringExt::into_vec(s)))
+            .collect();
+        return parse_cli(&args);
+    }
+    #[cfg(windows)]
+    {
+        let args = Vec::new();
+        for (i, arg) in std::env::args_os().skip(1).enumerate() {
+            if let (Some(arg)) = arg.to_str() {
+                args.push(BString::from(arg));
+            } else {
+                return Err(CliArgumentError::new(
+                    "byte sequence cannot be parsed as unicode",
+                    CliArgument {
+                        arg_index: i + 1,
+                        arg_str: BString::from(arg.to_string_lossy().as_bytes()),
+                    },
+                ));
+            }
+        }
+        return parse_cli(&args);
+    }
 }
