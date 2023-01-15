@@ -1,11 +1,14 @@
 use smallvec::SmallVec;
 
+use crate::operations::OperationRef;
+
 #[derive(Clone, Copy)]
 pub enum DataKind {
     Html,
     Text,
     Bytes,
     Png,
+    None,
 }
 
 pub struct HtmlMatchData {}
@@ -53,4 +56,18 @@ pub trait Transform: Send + Sync {
     ) -> Option<&'a StreamChunk>;
     fn evaluate<'a, 'b>(&'a mut self, tf_stack: &'b [&'a dyn Transform]);
     fn data<'a, 'b>(&'a self, tf_stack: &'b [&'a dyn Transform]) -> Option<&'a MatchData>;
+}
+
+impl std::ops::Deref for dyn Transform {
+    type Target = TfBase;
+
+    fn deref(&self) -> &TfBase {
+        self.base()
+    }
+}
+
+impl std::ops::DerefMut for dyn Transform {
+    fn deref_mut(&mut self) -> &mut TfBase {
+        self.base_mut()
+    }
 }

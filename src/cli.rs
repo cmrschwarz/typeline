@@ -47,13 +47,7 @@ impl Into<CliArgumentError> for ArgumentReassignmentError {
 }
 
 impl CliArgumentError {
-    pub fn new(message: &str, cli_arg: CliArgument) -> Self {
-        Self {
-            message: message.to_owned(),
-            cli_arg,
-        }
-    }
-    pub fn from_owned_msg(message: String, cli_arg: CliArgument) -> Self {
+    pub fn new(message: String, cli_arg: CliArgument) -> Self {
         Self { message, cli_arg }
     }
 }
@@ -108,7 +102,7 @@ fn try_parse_document_source(
                 Ok(Some(DocumentSource::Url(BString::from(value))))
             } else {
                 Err(CliArgumentError::new(
-                    "missing value for url",
+                    "missing value for url".to_owned(),
                     cli_arg.clone(),
                 ))
             }
@@ -119,7 +113,8 @@ fn try_parse_document_source(
                     from_utf8(value.as_bytes())
                         .map_err(|_| {
                             CliArgumentError::new(
-                                "str argument must be valid UTF-8, consider using bytes=...",
+                                "str argument must be valid UTF-8, consider using bytes=..."
+                                    .to_owned(),
                                 cli_arg.clone(),
                             )
                         })?
@@ -127,7 +122,7 @@ fn try_parse_document_source(
                 )))
             } else {
                 Err(CliArgumentError::new(
-                    "missing value argument for str",
+                    "missing value argument for str".to_owned(),
                     cli_arg.clone(),
                 ))
             }
@@ -137,7 +132,7 @@ fn try_parse_document_source(
                 Ok(Some(DocumentSource::Bytes(BString::from(value))))
             } else {
                 Err(CliArgumentError::new(
-                    "missing value argument for bytes",
+                    "missing value argument for bytes".to_owned(),
                     cli_arg.clone(),
                 ))
             }
@@ -155,7 +150,7 @@ fn try_parse_document_source(
                 {
                     let path = PathBuf::from(value.to_str().map_err(|_| {
                         CliArgumentError::new(
-                            "failed to parse file path argument as unicode",
+                            "failed to parse file path argument as unicode".to_owned(),
                             cli_arg.clone(),
                         )
                     })?);
@@ -163,7 +158,7 @@ fn try_parse_document_source(
                 }
             } else {
                 Err(CliArgumentError::new(
-                    "missing path argument for file",
+                    "missing path argument for file".to_owned(),
                     cli_arg.clone(),
                 ))
             }
@@ -171,7 +166,7 @@ fn try_parse_document_source(
         "stdin" => {
             if let Some(value) = value {
                 Err(CliArgumentError::new(
-                    "stdin does not take arguments",
+                    "stdin does not take arguments".to_owned(),
                     cli_arg.clone(),
                 ))
             } else {
@@ -205,7 +200,7 @@ fn try_parse_bool_arg_or_default(
             Ok(b)
         } else {
             Err(CliArgumentError::new(
-                "failed to parse as bool",
+                "failed to parse as bool".to_owned(),
                 cli_arg.clone(),
             ))
         }
@@ -253,13 +248,13 @@ fn try_parse_as_context_opt(
     if matched {
         if arg.label.is_some() {
             return Err(CliArgumentError::new(
-                "cannot specify label for global argument",
+                "cannot specify label for global argument".to_owned(),
                 arg.cli_arg.clone(),
             ));
         }
         if arg.chainspec.is_some() {
             return Err(CliArgumentError::new(
-                "cannot specify chain range for global argument",
+                "cannot specify chain range for global argument".to_owned(),
                 arg.cli_arg.clone(),
             ));
         }
@@ -275,7 +270,7 @@ fn try_parse_as_doc(
     if let Some(doc_source) = doc_source {
         if arg.label.is_some() {
             return Err(CliArgumentError::new(
-                "cannot specify label for global argument",
+                "cannot specify label for global argument".to_owned(),
                 arg.cli_arg.clone(),
             ));
         }
@@ -312,7 +307,7 @@ fn try_parse_as_chain_opt(
             todo!("parse text encoding");
         } else {
             return Err(CliArgumentError::new(
-                "missing argument for default text encoding",
+                "missing argument for default text encoding".to_owned(),
                 arg.cli_arg.clone(),
             ));
         }
@@ -348,7 +343,8 @@ fn try_parse_as_transform(
         let create = tf.create;
         let tf_inst = create(
             &ctx_opts,
-            arg.label.clone().unwrap_or_else(|| arg.argname.clone()),
+            arg.argname.clone(),
+            arg.label.clone(),
             arg.value.clone(),
             ctx_opts.curr_chain,
             arg.chainspec.clone(),
@@ -369,14 +365,20 @@ pub fn parse_cli(args: &[BString]) -> Result<ContextOptions, CliArgumentError> {
         if let Some(m) = CLI_ARG_REGEX.captures(arg_str.as_bytes()) {
             let argname = from_utf8(m.name("argname").unwrap().as_bytes())
                 .map_err(|_| {
-                    CliArgumentError::new("argument name must be valid UTF-8", cli_arg.clone())
+                    CliArgumentError::new(
+                        "argument name must be valid UTF-8".to_owned(),
+                        cli_arg.clone(),
+                    )
                 })?
                 .to_owned();
             let label = if let Some(lbl) = m.name("label") {
                 Some(
                     from_utf8(lbl.as_bytes())
                         .map_err(|_| {
-                            CliArgumentError::new("label must be valid UTF-8", cli_arg.clone())
+                            CliArgumentError::new(
+                                "label must be valid UTF-8".to_owned(),
+                                cli_arg.clone(),
+                            )
                         })?
                         .to_owned(),
                 )
@@ -401,18 +403,21 @@ pub fn parse_cli(args: &[BString]) -> Result<ContextOptions, CliArgumentError> {
                 continue;
             }
             if succ_sum > 1 {
-                return Err(CliArgumentError::from_owned_msg(
+                return Err(CliArgumentError::new(
                     format!("ambiguous argument name '{}'", arg.argname),
                     arg.cli_arg,
                 ));
             } else {
-                return Err(CliArgumentError::from_owned_msg(
-                    format!("ambiguous argument name '{}'", arg.argname),
+                return Err(CliArgumentError::new(
+                    format!("unknown argument name '{}'", arg.argname),
                     arg.cli_arg,
                 ));
             }
         } else {
-            return Err(CliArgumentError::new("invalid argument", cli_arg));
+            return Err(CliArgumentError::new(
+                "invalid argument".to_owned(),
+                cli_arg,
+            ));
         }
     }
     return Ok(ctx_opts);
@@ -435,7 +440,7 @@ pub fn parse_cli_from_env() -> Result<ContextOptions, CliArgumentError> {
                 args.push(BString::from(arg));
             } else {
                 return Err(CliArgumentError::new(
-                    "failed to parse byte sequence as unicode",
+                    "failed to parse byte sequence as unicode".to_owned(),
                     CliArgument {
                         arg_index: i + 1,
                         arg_str: BString::from(arg.to_string_lossy().as_bytes()),

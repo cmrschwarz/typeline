@@ -71,7 +71,8 @@ impl OperationCatalogMember for OpParent {
 
     fn create(
         ctx: &ContextOptions,
-        label: String,
+        argname: String,
+        label: Option<String>,
         value: Option<BString>,
         curr_chain: ChainId,
         chainspec: Option<ChainSpec>,
