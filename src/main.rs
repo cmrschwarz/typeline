@@ -1,12 +1,14 @@
 #![allow(dead_code, unused)] // HACK
 extern crate crossbeam;
 extern crate markup5ever_rcdom;
-extern crate smallvec;
+extern crate regex;
 extern crate bstring;
+extern crate num;
+#[macro_use()]
+extern crate smallvec;
 #[macro_use()]
 extern crate lazy_static;
 
-mod argument;
 mod chain;
 mod cli;
 mod context;
@@ -20,8 +22,6 @@ mod transform;
 use std::{process::ExitCode, io::Write, os::unix::prelude::OsStrExt};
 
 use cli::parse_cli_from_env;
-
-use crate::options::ContextOptions;
 
 #[tokio::main]
 async fn main() -> ExitCode {

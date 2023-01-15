@@ -3,46 +3,51 @@ use smallvec::SmallVec;
 
 use crate::{
     chain::ChainId,
-    options::ChainSpec,
+    options::{chain_spec::ChainSpec, context_options::ContextOptions},
     transform::{DataKind, TfBase, Transform},
 };
 
-use super::{Operation, OperationCatalogMember};
+use super::{OpBase, Operation, OperationCatalogMember};
 
 struct TfPrint {
-    tfb: TfBase,
+    tf_base: TfBase,
 }
 
 #[derive(Clone)]
-pub struct OpPrint {}
+pub struct OpPrint {
+    op_base: OpBase,
+}
 
 impl Operation for OpPrint {
+    fn base(&self) -> &super::OpBase {
+        &self.op_base
+    }
+
+    fn base_mut(&mut self) -> &mut super::OpBase {
+        &mut self.op_base
+    }
+
     fn apply<'a: 'b, 'b>(
         &'a mut self,
         tf_stack: &'b mut [&'a mut dyn crate::transform::Transform],
     ) -> &'b mut dyn crate::transform::Transform {
-        let btfb = tf_stack.last_mut().unwrap().base_mut();
-        let tfp = Box::new(TfPrint {
-            tfb: TfBase {
-                data_kind: DataKind::None,
-                is_stream: btfb.is_stream,
-                stack_index: btfb.stack_index + 1,
-                requires_eval: btfb.requires_eval,
-                dependants: SmallVec::new(),
-            },
-        });
-        btfb.dependants.push(tfp);
-        btfb.dependants.last_mut().unwrap().as_mut()
+        let parent = tf_stack.last_mut().unwrap().base_mut();
+        let mut tf_base = TfBase::from_parent(parent);
+        tf_base.needs_stdout = true;
+        tf_base.data_kind = DataKind::None;
+        let tfp = Box::new(TfPrint { tf_base });
+        parent.dependants.push(tfp);
+        parent.dependants.last_mut().unwrap().as_mut()
     }
 }
 
 impl Transform for TfPrint {
     fn base(&self) -> &TfBase {
-        &self.tfb
+        &self.tf_base
     }
 
     fn base_mut(&mut self) -> &mut TfBase {
-        &mut self.tfb
+        &mut self.tf_base
     }
 
     fn process_chunk<'a: 'b, 'b>(
@@ -71,7 +76,7 @@ impl OperationCatalogMember for OpPrint {
     }
 
     fn create(
-        ctx: &crate::options::ContextOptions,
+        ctx: &ContextOptions,
         argname: String,
         label: Option<String>,
         value: Option<BString>,

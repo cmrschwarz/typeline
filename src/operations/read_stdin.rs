@@ -1,7 +1,7 @@
 use smallvec::SmallVec;
 
 use crate::{
-    options::{ChainSpec, ContextOptions},
+    options::{chain_spec::ChainSpec, context_options::ContextOptions},
     transform::{DataKind, MatchData, StreamChunk, TfBase, Transform},
 };
 
@@ -37,6 +37,7 @@ impl TfReadStdin {
     pub fn new() -> Self {
         Self(TfBase {
             data_kind: DataKind::Bytes,
+            needs_stdout: false,
             is_stream: true,
             requires_eval: false,
             dependants: Default::default(),

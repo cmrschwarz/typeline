@@ -11,7 +11,7 @@ use smallvec::SmallVec;
 use crate::chain::Chain;
 use crate::document::{Document, DocumentSource};
 use crate::operations::read_stdin::TfReadStdin;
-use crate::operations::{Operation, OperationBase, OperationRef};
+use crate::operations::{OpBase, Operation, OperationRef};
 use crate::options;
 use crate::transform::Transform;
 

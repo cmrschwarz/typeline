@@ -4,7 +4,7 @@ use crate::{
     selenium::SeleniumDownloadStrategy,
 };
 
-pub type ChainId = u32;
+pub type ChainId = usize;
 
 pub struct Chain {
     pub default_text_encoding: TextEncoding,

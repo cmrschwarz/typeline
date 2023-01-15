@@ -1,9 +1,13 @@
 use crate::{
-    argument::{ArgumentReassignmentError, CliArgument},
     chain::ChainId,
     document::{Document, DocumentReferencePoint, DocumentSource},
     operations::BUILTIN_OPERATIONS_CATALOG,
-    options::{ChainOptions, ChainSpec, ContextOptions},
+    options::{
+        argument::{ArgumentReassignmentError, CliArgument},
+        chain_options::ChainOptions,
+        chain_spec::ChainSpec,
+        context_options::ContextOptions,
+    },
     selenium::{SeleniumDownloadStrategy, SeleniumVariant},
 };
 use bstring::{bstr, BString};

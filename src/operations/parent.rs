@@ -3,24 +3,24 @@ use smallvec::SmallVec;
 
 use crate::{
     chain::ChainId,
-    options::{ChainSpec, ContextOptions},
+    options::{chain_spec::ChainSpec, context_options::ContextOptions},
     transform::{MatchData, StreamChunk, TfBase, Transform, TransformStackIndex},
 };
 
-use super::{Operation, OperationCatalogMember, OperationId};
+use super::{OpBase, Operation, OperationCatalogMember, OperationId};
 
 struct TfParent {
-    tfb: TfBase,
+    tf_base: TfBase,
     parent_idx: TransformStackIndex,
 }
 
 impl Transform for TfParent {
     fn base(&self) -> &TfBase {
-        &self.tfb
+        &self.tf_base
     }
 
     fn base_mut(&mut self) -> &mut TfBase {
-        &mut self.tfb
+        &mut self.tf_base
     }
 
     fn process_chunk<'a: 'b, 'b>(
@@ -40,6 +40,7 @@ impl Transform for TfParent {
 
 #[derive(Clone)]
 pub struct OpParent {
+    op_base: OpBase,
     up_count: TransformStackIndex,
 }
 
@@ -48,19 +49,22 @@ impl Operation for OpParent {
         &'a mut self,
         tf_stack: &'b mut [&'a mut dyn Transform],
     ) -> &'b mut dyn Transform {
-        let btfb = tf_stack.last_mut().unwrap().base_mut();
+        let parent = tf_stack.last_mut().unwrap().base_mut();
+        let tf_base = TfBase::from_parent(parent);
         let tfp = Box::new(TfParent {
-            tfb: TfBase {
-                data_kind: btfb.data_kind,
-                is_stream: btfb.is_stream,
-                stack_index: btfb.stack_index + 1,
-                requires_eval: btfb.requires_eval,
-                dependants: SmallVec::new(),
-            },
-            parent_idx: btfb.stack_index + 1 - self.up_count,
+            tf_base,
+            parent_idx: parent.stack_index + 1 - self.up_count,
         });
-        btfb.dependants.push(tfp);
-        btfb.dependants.last_mut().unwrap().as_mut()
+        parent.dependants.push(tfp);
+        parent.dependants.last_mut().unwrap().as_mut()
+    }
+
+    fn base(&self) -> &super::OpBase {
+        todo!()
+    }
+
+    fn base_mut(&mut self) -> &mut super::OpBase {
+        todo!()
     }
 }
 

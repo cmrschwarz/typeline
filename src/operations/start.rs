@@ -42,6 +42,7 @@ impl TfStart {
                 data_kind: data.kind(),
                 is_stream: false,
                 requires_eval: false,
+                needs_stdout: false,
                 dependants: SmallVec::new(),
                 stack_index: 0,
             },

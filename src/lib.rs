@@ -2,12 +2,13 @@
 extern crate crossbeam;
 extern crate markup5ever_rcdom;
 extern crate regex;
-extern crate smallvec;
 extern crate bstring;
+extern crate num;
+#[macro_use()]
+extern crate smallvec;
 #[macro_use()]
 extern crate lazy_static;
 
-mod argument;
 mod chain;
 mod cli;
 mod context;

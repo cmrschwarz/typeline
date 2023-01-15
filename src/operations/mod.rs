@@ -10,15 +10,15 @@ use bstring::BString;
 use smallvec::SmallVec;
 
 use crate::chain::ChainId;
-use crate::options::{ChainSpec, ContextOptions};
+use crate::options::{chain_spec::ChainSpec, context_options::ContextOptions};
 use crate::transform::Transform;
 
 use self::parent::OpParent;
 use self::print::OpPrint;
 
-pub type OperationId = u32;
+pub type OperationId = usize;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct OperationRef {
     pub cn_id: ChainId,
     pub op_id: OperationId,
@@ -67,20 +67,33 @@ impl Clone for Box<dyn Operation> {
     }
 }
 
+#[derive(Clone)]
 pub struct OpBase {
     argname: String,
-    op_refs: SmallVec<[OperationRef; 1]>,
+    label: String,
+    op_refs: SmallVec<[OperationRef; 2]>,
 }
 
 pub trait Operation: OperationCloneBox + Send + Sync {
+    fn base(&self) -> &OpBase;
+    fn base_mut(&mut self) -> &mut OpBase;
     fn apply<'a: 'b, 'b>(
         &'a mut self,
         tf_stack: &'b mut [&'a mut dyn Transform],
     ) -> &'b mut dyn Transform;
 }
 
-pub struct OperationBase {
-    label: String,
+impl std::ops::Deref for dyn Operation {
+    type Target = OpBase;
+
+    fn deref(&self) -> &Self::Target {
+        self.base()
+    }
+}
+impl std::ops::DerefMut for dyn Operation {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.base_mut()
+    }
 }
 
 pub trait OperationCatalogMember: Operation {
