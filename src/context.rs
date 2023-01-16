@@ -6,14 +6,15 @@ use std::sync::atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, RwLock};
 
 use crossbeam::deque::{Injector, Stealer, Worker};
-use smallvec::SmallVec;
+use smallvec::{smallvec, SmallVec};
 
 use crate::chain::Chain;
 use crate::document::{Document, DocumentSource};
+use crate::operations::parent::TfParent;
 use crate::operations::read_stdin::TfReadStdin;
 use crate::operations::{OpBase, Operation, OperationRef};
 use crate::options;
-use crate::transform::Transform;
+use crate::transform::{TfBase, Transform, TransformStackIndex};
 
 pub struct Job {
     ops: SmallVec<[OperationRef; 2]>,
@@ -191,5 +192,39 @@ impl<'a> WorkerThread<'a> {
         })
     }
 
-    fn run_job(&mut self, job: Job) {}
+    fn run_job(&mut self, job: Job) {
+        let mut tf_stack: SmallVec<[Box<dyn Transform>; 4]> = smallvec![job.tf];
+        for (i, op) in job.ops.iter().enumerate() {
+            let cn = &self.ctx.chains[op.cn_id as usize];
+            for i in op.op_offset as usize..cn.operations.len() {
+                let op = &self.ctx.operations[cn.operations[i] as usize];
+                let tf = op.apply(tf_stack.as_mut_slice());
+                let requires_eval = tf.requires_eval;
+                tf_stack.push(tf);
+                if requires_eval {
+                    break;
+                }
+            }
+            if i + 1 < job.ops.len() {
+                let mut tf_base = TfBase::from_parent(&tf_stack[0]);
+                tf_base.tfs_index = tf_stack.len() as TransformStackIndex;
+                tf_stack.push(Box::new(TfParent {
+                    tf_base,
+                    parent_idx: todo!(),
+                }));
+            }
+        }
+        let mut eval_stack: VecDeque<TransformStackIndex> = Default::default();
+        eval_stack.push_back(0 as TransformStackIndex);
+        while let Some(tfs_id) = eval_stack.pop_front() {
+            let (tf_stack_head, tf_stack_tail) =
+                tf_stack.as_mut_slice().split_at_mut(tfs_id as usize);
+            let tf = &mut tf_stack_tail[0];
+            if tf.evaluate(tf_stack_head) {
+                for dep_id in &tf.dependants {
+                    eval_stack.push_back(*dep_id);
+                }
+            }
+        }
+    }
 }

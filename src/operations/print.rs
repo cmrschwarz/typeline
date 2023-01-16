@@ -1,13 +1,16 @@
+use std::io::Write;
+
 use bstring::BString;
 use smallvec::SmallVec;
 
 use crate::{
     chain::ChainId,
     options::{chain_spec::ChainSpec, context_options::ContextOptions},
-    transform::{DataKind, TfBase, Transform},
+    plattform::{NEWLINE, NEWLINE_BYTES},
+    transform::{DataKind, MatchData, StreamChunk, TfBase, Transform},
 };
 
-use super::{OpBase, Operation, OperationCatalogMember};
+use super::{OpBase, Operation, OperationCatalogMember, OperationError};
 
 struct TfPrint {
     tf_base: TfBase,
@@ -27,17 +30,14 @@ impl Operation for OpPrint {
         &mut self.op_base
     }
 
-    fn apply<'a: 'b, 'b>(
-        &'a mut self,
-        tf_stack: &'b mut [&'a mut dyn crate::transform::Transform],
-    ) -> &'b mut dyn crate::transform::Transform {
+    fn apply(&self, tf_stack: &mut [Box<dyn Transform>]) -> Box<dyn Transform> {
         let parent = tf_stack.last_mut().unwrap().base_mut();
         let mut tf_base = TfBase::from_parent(parent);
         tf_base.needs_stdout = true;
         tf_base.data_kind = DataKind::None;
         let tfp = Box::new(TfPrint { tf_base });
-        parent.dependants.push(tfp);
-        parent.dependants.last_mut().unwrap().as_mut()
+        parent.dependants.push(tfp.tf_base.tfs_index);
+        tfp
     }
 }
 
@@ -52,20 +52,35 @@ impl Transform for TfPrint {
 
     fn process_chunk<'a: 'b, 'b>(
         &'a mut self,
-        tf_stack: &'b [&'a dyn Transform],
-        sc: &'a crate::transform::StreamChunk,
-    ) -> Option<&'a crate::transform::StreamChunk> {
+        _tf_stack: &'a [Box<dyn Transform>],
+        sc: &'b StreamChunk<'b>,
+    ) -> Option<&'b StreamChunk<'b>> {
         todo!()
     }
 
-    fn evaluate<'a, 'b>(&'a mut self, tf_stack: &'b [&'a dyn Transform]) {
-        todo!()
+    fn evaluate(&mut self, tf_stack: &mut [Box<dyn Transform>]) -> bool {
+        match tf_stack[self.tf_base.tfs_index as usize - 1].data(tf_stack) {
+            Some(MatchData::Bytes(b)) => {
+                let mut s = std::io::stdout();
+                s.write(b.as_slice());
+                s.write(NEWLINE_BYTES);
+            }
+            Some(MatchData::Text(s)) => {
+                println!("{}", s);
+            }
+            Some(MatchData::Html(html)) => {
+                println!("{}", html);
+            }
+            Some(MatchData::Png(_)) => {
+                //TODO: error
+                panic!("refusing to print image");
+            }
+            _ => panic!("missing TfSerialize"),
+        }
+        true
     }
 
-    fn data<'a, 'b>(
-        &'a self,
-        tf_stack: &'b [&'a dyn Transform],
-    ) -> Option<&'a crate::transform::MatchData> {
+    fn data<'a>(&'a self, tf_stack: &'a [Box<dyn Transform>]) -> Option<&'a MatchData> {
         todo!()
     }
 }
@@ -80,9 +95,10 @@ impl OperationCatalogMember for OpPrint {
         argname: String,
         label: Option<String>,
         value: Option<BString>,
-        curr_chain: ChainId,
         chainspec: Option<ChainSpec>,
-    ) -> Result<(), String> {
-        todo!()
+    ) -> Result<Box<dyn Operation>, OperationError> {
+        Ok(Box::new(OpPrint {
+            op_base: OpBase::new(argname, label, chainspec),
+        }))
     }
 }

@@ -18,19 +18,17 @@ impl Transform for TfStart {
 
     fn process_chunk<'a: 'b, 'b>(
         &'a mut self,
-        tf_stack: &'b [&'a dyn Transform],
-        sc: &'a StreamChunk,
-    ) -> Option<&'a StreamChunk> {
+        _tf_stack: &'a [Box<dyn Transform>],
+        sc: &'b StreamChunk<'b>,
+    ) -> Option<&'b StreamChunk<'b>> {
         None
     }
 
-    fn evaluate<'a, 'b>(&'a mut self, tf_stack: &'b [&'a dyn Transform]) {
-        for d in &mut self.tfb.dependants {
-            d.evaluate(tf_stack);
-        }
+    fn evaluate(&mut self, tf_stack: &mut [Box<dyn Transform>]) -> bool {
+        true
     }
 
-    fn data<'a, 'b>(&'a self, tf_stack: &'b [&'a dyn Transform]) -> Option<&'a MatchData> {
+    fn data<'a>(&'a self, tf_stack: &'a [Box<dyn Transform>]) -> Option<&'a MatchData> {
         Some(&self.data)
     }
 }
@@ -44,7 +42,7 @@ impl TfStart {
                 requires_eval: false,
                 needs_stdout: false,
                 dependants: SmallVec::new(),
-                stack_index: 0,
+                tfs_index: 0,
             },
             data: data,
         }

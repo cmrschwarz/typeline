@@ -4,7 +4,7 @@ use crate::{
     chain::ChainId,
     context::{Context, ContextData},
     document::Document,
-    operations::Operation,
+    operations::{Operation, OperationOffsetInChain},
     selenium::SeleniumVariant,
 };
 

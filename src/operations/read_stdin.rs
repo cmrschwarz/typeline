@@ -20,17 +20,19 @@ impl Transform for TfReadStdin {
 
     fn process_chunk<'a: 'b, 'b>(
         &'a mut self,
-        _tf_stack: &'b [&'a dyn Transform],
-        sc: &'a StreamChunk,
-    ) -> Option<&'a StreamChunk> {
+        _tf_stack: &'a [Box<dyn Transform>],
+        sc: &'b StreamChunk<'b>,
+    ) -> Option<&'b StreamChunk<'b>> {
         None
     }
 
-    fn data<'a, 'b>(&'a self, tf_stack: &'b [&'a dyn Transform]) -> Option<&'a MatchData> {
+    fn data<'a>(&'a self, tf_stack: &'a [Box<dyn Transform>]) -> Option<&'a MatchData> {
         None
     }
 
-    fn evaluate<'a, 'b>(&'a mut self, tf_stack: &'b [&'a dyn Transform]) {}
+    fn evaluate(&mut self, tf_stack: &mut [Box<dyn Transform>]) -> bool {
+        true
+    }
 }
 
 impl TfReadStdin {
@@ -41,7 +43,7 @@ impl TfReadStdin {
             is_stream: true,
             requires_eval: false,
             dependants: Default::default(),
-            stack_index: 0,
+            tfs_index: 0,
         })
     }
 }

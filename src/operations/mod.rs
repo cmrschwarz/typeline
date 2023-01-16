@@ -16,12 +16,13 @@ use crate::transform::Transform;
 use self::parent::OpParent;
 use self::print::OpPrint;
 
-pub type OperationId = usize;
+pub type OperationId = u32;
+pub type OperationOffsetInChain = u32;
 
 #[derive(Clone, Debug)]
 pub struct OperationRef {
     pub cn_id: ChainId,
-    pub op_id: OperationId,
+    pub op_offset: OperationOffsetInChain,
 }
 
 #[derive(Debug)]
@@ -34,7 +35,7 @@ impl std::fmt::Display for OperationError {
         write!(
             f,
             "in chain {}, op {}: {}",
-            self.op_ref.cn_id, self.op_ref.op_id, self.message
+            self.op_ref.cn_id, self.op_ref.op_offset, self.message
         )
     }
 }
@@ -46,8 +47,8 @@ impl OperationError {
 }
 
 impl OperationRef {
-    pub fn new(cn_id: ChainId, op_id: OperationId) -> Self {
-        Self { cn_id, op_id }
+    pub fn new(cn_id: ChainId, op_offset: OperationOffsetInChain) -> Self {
+        Self { cn_id, op_offset }
     }
 }
 
@@ -70,17 +71,27 @@ impl Clone for Box<dyn Operation> {
 #[derive(Clone)]
 pub struct OpBase {
     argname: String,
-    label: String,
+    label: Option<String>,
+    chainspec: Option<ChainSpec>,
+    // filled during setup once the chainspec can be evaluated
     op_refs: SmallVec<[OperationRef; 2]>,
+}
+
+impl OpBase {
+    pub fn new(argname: String, label: Option<String>, chainspec: Option<ChainSpec>) -> OpBase {
+        OpBase {
+            argname,
+            label,
+            chainspec,
+            op_refs: SmallVec::new(),
+        }
+    }
 }
 
 pub trait Operation: OperationCloneBox + Send + Sync {
     fn base(&self) -> &OpBase;
     fn base_mut(&mut self) -> &mut OpBase;
-    fn apply<'a: 'b, 'b>(
-        &'a mut self,
-        tf_stack: &'b mut [&'a mut dyn Transform],
-    ) -> &'b mut dyn Transform;
+    fn apply(&self, tf_stack: &mut [Box<dyn Transform>]) -> Box<dyn Transform>;
 }
 
 impl std::ops::Deref for dyn Operation {
@@ -103,9 +114,8 @@ pub trait OperationCatalogMember: Operation {
         argname: String,
         label: Option<String>,
         value: Option<BString>,
-        curr_chain: ChainId,
         chainspec: Option<ChainSpec>,
-    ) -> Result<(), String>;
+    ) -> Result<Box<dyn Operation>, OperationError>;
 }
 
 pub struct OperationCatalogEntry {
@@ -115,9 +125,8 @@ pub struct OperationCatalogEntry {
         argname: String,
         label: Option<String>,
         value: Option<BString>,
-        curr_chain: ChainId,
         chainspec: Option<ChainSpec>,
-    ) -> Result<(), String>,
+    ) -> Result<Box<dyn Operation>, OperationError>,
 }
 
 pub const fn create_catalog_entry<TS: OperationCatalogMember>() -> OperationCatalogEntry {

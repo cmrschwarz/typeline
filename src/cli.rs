@@ -350,7 +350,6 @@ fn try_parse_as_transform(
             arg.argname.clone(),
             arg.label.clone(),
             arg.value.clone(),
-            ctx_opts.curr_chain,
             arg.chainspec.clone(),
         );
 

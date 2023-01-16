@@ -7,11 +7,14 @@ use crate::{
     transform::{MatchData, StreamChunk, TfBase, Transform, TransformStackIndex},
 };
 
-use super::{OpBase, Operation, OperationCatalogMember, OperationId};
+use super::{
+    OpBase, Operation, OperationCatalogMember, OperationError, OperationId, OperationOffsetInChain,
+    OperationRef,
+};
 
-struct TfParent {
-    tf_base: TfBase,
-    parent_idx: TransformStackIndex,
+pub struct TfParent {
+    pub tf_base: TfBase,
+    pub parent_idx: TransformStackIndex,
 }
 
 impl Transform for TfParent {
@@ -25,17 +28,19 @@ impl Transform for TfParent {
 
     fn process_chunk<'a: 'b, 'b>(
         &'a mut self,
-        _tf_stack: &'b [&'a dyn Transform],
-        sc: &'a StreamChunk,
-    ) -> Option<&'a StreamChunk> {
+        _tf_stack: &'a [Box<dyn Transform>],
+        sc: &'b StreamChunk<'b>,
+    ) -> Option<&'b StreamChunk<'b>> {
         Some(sc)
     }
 
-    fn data<'a, 'b>(&'a self, tf_stack: &'b [&'a dyn Transform]) -> Option<&'a MatchData> {
+    fn data<'a>(&'a self, tf_stack: &'a [Box<dyn Transform>]) -> Option<&'a MatchData> {
         tf_stack[self.parent_idx as usize].data(&tf_stack[0..self.parent_idx as usize])
     }
 
-    fn evaluate<'a, 'b>(&'a mut self, _tf_stack: &'b [&'a dyn Transform]) {}
+    fn evaluate(&mut self, tf_stack: &mut [Box<dyn Transform>]) -> bool {
+        true
+    }
 }
 
 #[derive(Clone)]
@@ -45,26 +50,23 @@ pub struct OpParent {
 }
 
 impl Operation for OpParent {
-    fn apply<'a: 'b, 'b>(
-        &'a mut self,
-        tf_stack: &'b mut [&'a mut dyn Transform],
-    ) -> &'b mut dyn Transform {
+    fn apply(&self, tf_stack: &mut [Box<dyn Transform>]) -> Box<dyn Transform> {
         let parent = tf_stack.last_mut().unwrap().base_mut();
         let tf_base = TfBase::from_parent(parent);
         let tfp = Box::new(TfParent {
             tf_base,
-            parent_idx: parent.stack_index + 1 - self.up_count,
+            parent_idx: parent.tfs_index + 1 - self.up_count,
         });
-        parent.dependants.push(tfp);
-        parent.dependants.last_mut().unwrap().as_mut()
+        parent.dependants.push(tfp.tf_base.tfs_index);
+        tfp
     }
 
     fn base(&self) -> &super::OpBase {
-        todo!()
+        &self.op_base
     }
 
     fn base_mut(&mut self) -> &mut super::OpBase {
-        todo!()
+        &mut self.op_base
     }
 }
 
@@ -78,9 +80,23 @@ impl OperationCatalogMember for OpParent {
         argname: String,
         label: Option<String>,
         value: Option<BString>,
-        curr_chain: ChainId,
         chainspec: Option<ChainSpec>,
-    ) -> Result<(), String> {
-        todo!()
+    ) -> Result<Box<dyn Operation>, OperationError> {
+        Ok(Box::new(OpParent {
+            op_base: OpBase::new(argname, label, chainspec),
+            up_count: if let Some(value) = value {
+                value.parse::<TransformStackIndex>().map_err(|_| {
+                    OperationError::new(
+                        "failed to parse parent argument as integer".to_owned(),
+                        OperationRef::new(
+                            ctx.curr_chain,
+                            ctx.chains[ctx.curr_chain].operations.len() as OperationOffsetInChain,
+                        ),
+                    )
+                })?
+            } else {
+                1
+            },
+        }))
     }
 }

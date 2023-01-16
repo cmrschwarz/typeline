@@ -1,4 +1,4 @@
-use std::ops::Range;
+use std::{fmt::Display, ops::Range};
 
 use smallvec::SmallVec;
 
@@ -14,6 +14,12 @@ pub enum DataKind {
 }
 
 pub struct HtmlMatchData {}
+
+impl Display for HtmlMatchData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "todo: serialize html!")
+    }
+}
 
 pub enum MatchData {
     Html(HtmlMatchData),
@@ -45,8 +51,8 @@ pub struct TfBase {
     pub is_stream: bool,
     pub needs_stdout: bool,
     pub requires_eval: bool,
-    pub dependants: SmallVec<[Box<dyn Transform>; 1]>,
-    pub stack_index: TransformStackIndex,
+    pub dependants: SmallVec<[TransformStackIndex; 1]>,
+    pub tfs_index: TransformStackIndex,
 }
 
 impl TfBase {
@@ -55,7 +61,7 @@ impl TfBase {
             data_kind: parent.data_kind,
             is_stream: parent.is_stream,
             needs_stdout: parent.needs_stdout,
-            stack_index: parent.stack_index + 1,
+            tfs_index: parent.tfs_index + 1,
             requires_eval: parent.requires_eval,
             dependants: SmallVec::new(),
         }
@@ -67,11 +73,11 @@ pub trait Transform: Send + Sync {
     fn base_mut(&mut self) -> &mut TfBase;
     fn process_chunk<'a: 'b, 'b>(
         &'a mut self,
-        tf_stack: &'b [&'a dyn Transform],
-        sc: &'a StreamChunk,
-    ) -> Option<&'a StreamChunk>;
-    fn evaluate<'a, 'b>(&'a mut self, tf_stack: &'b [&'a dyn Transform]);
-    fn data<'a, 'b>(&'a self, tf_stack: &'b [&'a dyn Transform]) -> Option<&'a MatchData>;
+        _tf_stack: &'a [Box<dyn Transform>],
+        sc: &'b StreamChunk<'b>,
+    ) -> Option<&'b StreamChunk<'b>>;
+    fn evaluate(&mut self, tf_stack: &mut [Box<dyn Transform>]) -> bool;
+    fn data<'a>(&'a self, tf_stack: &'a [Box<dyn Transform>]) -> Option<&'a MatchData>;
 }
 
 impl std::ops::Deref for dyn Transform {
