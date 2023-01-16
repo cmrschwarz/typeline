@@ -5,7 +5,7 @@ use smallvec::SmallVec;
 
 use crate::{
     chain::ChainId,
-    options::{chain_spec::ChainSpec, context_options::ContextOptions},
+    options::{argument::CliArgument, chain_spec::ChainSpec, context_options::ContextOptions},
     plattform::{NEWLINE, NEWLINE_BYTES},
     transform::{DataKind, MatchData, StreamChunk, TfBase, Transform},
 };
@@ -18,7 +18,15 @@ struct TfPrint {
 
 #[derive(Clone)]
 pub struct OpPrint {
-    op_base: OpBase,
+    pub op_base: OpBase,
+}
+
+impl OpPrint {
+    pub fn new(label: Option<String>, chainspec: Option<ChainSpec>) -> OpPrint {
+        OpPrint {
+            op_base: OpBase::new(label, chainspec, None),
+        }
+    }
 }
 
 impl Operation for OpPrint {
@@ -92,13 +100,13 @@ impl OperationCatalogMember for OpPrint {
 
     fn create(
         ctx: &ContextOptions,
-        argname: String,
         label: Option<String>,
-        value: Option<BString>,
         chainspec: Option<ChainSpec>,
+        value: Option<BString>,
+        cli_arg: Option<CliArgument>,
     ) -> Result<Box<dyn Operation>, OperationError> {
-        Ok(Box::new(OpPrint {
-            op_base: OpBase::new(argname, label, chainspec),
-        }))
+        let mut op_print = OpPrint::new(label, chainspec);
+        op_print.op_base.cli_arg = cli_arg;
+        Ok(Box::new(op_print))
     }
 }

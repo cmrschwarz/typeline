@@ -3,7 +3,7 @@ use smallvec::SmallVec;
 
 use crate::{
     chain::ChainId,
-    options::{chain_spec::ChainSpec, context_options::ContextOptions},
+    options::{argument::CliArgument, chain_spec::ChainSpec, context_options::ContextOptions},
     transform::{MatchData, StreamChunk, TfBase, Transform, TransformStackIndex},
 };
 
@@ -49,6 +49,19 @@ pub struct OpParent {
     up_count: TransformStackIndex,
 }
 
+impl OpParent {
+    pub fn new(
+        label: Option<String>,
+        chainspec: Option<ChainSpec>,
+        up_count: TransformStackIndex,
+    ) -> OpParent {
+        OpParent {
+            op_base: OpBase::new(label, chainspec, None),
+            up_count,
+        }
+    }
+}
+
 impl Operation for OpParent {
     fn apply(&self, tf_stack: &mut [Box<dyn Transform>]) -> Box<dyn Transform> {
         let parent = tf_stack.last_mut().unwrap().base_mut();
@@ -74,29 +87,28 @@ impl OperationCatalogMember for OpParent {
     fn name_matches(name: &str) -> bool {
         "parent".starts_with(name) && name.len() > 1
     }
-
     fn create(
         ctx: &ContextOptions,
-        argname: String,
         label: Option<String>,
-        value: Option<BString>,
         chainspec: Option<ChainSpec>,
+        value: Option<BString>,
+        cli_arg: Option<CliArgument>,
     ) -> Result<Box<dyn Operation>, OperationError> {
-        Ok(Box::new(OpParent {
-            op_base: OpBase::new(argname, label, chainspec),
-            up_count: if let Some(value) = value {
-                value.parse::<TransformStackIndex>().map_err(|_| {
-                    OperationError::new(
-                        "failed to parse parent argument as integer".to_owned(),
-                        OperationRef::new(
-                            ctx.curr_chain,
-                            ctx.chains[ctx.curr_chain].operations.len() as OperationOffsetInChain,
-                        ),
-                    )
-                })?
-            } else {
-                1
-            },
-        }))
+        let up_count = if let Some(value) = value {
+            value.parse::<TransformStackIndex>().map_err(|_| {
+                OperationError::new(
+                    "failed to parse parent argument as integer".to_owned(),
+                    OperationRef::new(
+                        ctx.curr_chain,
+                        ctx.chains[ctx.curr_chain].operations.len() as OperationOffsetInChain,
+                    ),
+                )
+            })?
+        } else {
+            1
+        };
+        let mut op_parent = OpParent::new(label, chainspec, up_count);
+        op_parent.op_base.cli_arg = cli_arg;
+        Ok(Box::new(op_parent))
     }
 }

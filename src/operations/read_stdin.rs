@@ -7,15 +7,17 @@ use crate::{
 
 use super::{Operation, OperationCatalogMember};
 
-pub struct TfReadStdin(pub TfBase);
+pub struct TfReadStdin {
+    pub tf_base: TfBase,
+}
 
 impl Transform for TfReadStdin {
     fn base(&self) -> &TfBase {
-        &self.0
+        &self.tf_base
     }
 
     fn base_mut(&mut self) -> &mut TfBase {
-        &mut self.0
+        &mut self.tf_base
     }
 
     fn process_chunk<'a: 'b, 'b>(
@@ -37,13 +39,15 @@ impl Transform for TfReadStdin {
 
 impl TfReadStdin {
     pub fn new() -> Self {
-        Self(TfBase {
-            data_kind: DataKind::Bytes,
-            needs_stdout: false,
-            is_stream: true,
-            requires_eval: false,
-            dependants: Default::default(),
-            tfs_index: 0,
-        })
+        Self {
+            tf_base: TfBase {
+                data_kind: DataKind::Bytes,
+                needs_stdout: false,
+                is_stream: true,
+                requires_eval: false,
+                dependants: Default::default(),
+                tfs_index: 0,
+            },
+        }
     }
 }

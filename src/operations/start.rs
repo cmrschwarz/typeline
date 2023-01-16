@@ -3,17 +3,17 @@ use smallvec::SmallVec;
 use crate::transform::{MatchData, StreamChunk, TfBase, Transform};
 
 pub struct TfStart {
-    pub tfb: TfBase,
+    pub tf_base: TfBase,
     pub data: MatchData,
 }
 
 impl Transform for TfStart {
     fn base(&self) -> &TfBase {
-        &self.tfb
+        &self.tf_base
     }
 
     fn base_mut(&mut self) -> &mut TfBase {
-        &mut self.tfb
+        &mut self.tf_base
     }
 
     fn process_chunk<'a: 'b, 'b>(
@@ -36,7 +36,7 @@ impl Transform for TfStart {
 impl TfStart {
     pub fn new(data: MatchData) -> TfStart {
         Self {
-            tfb: TfBase {
+            tf_base: TfBase {
                 data_kind: data.kind(),
                 is_stream: false,
                 requires_eval: false,

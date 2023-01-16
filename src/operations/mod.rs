@@ -10,6 +10,7 @@ use bstring::BString;
 use smallvec::SmallVec;
 
 use crate::chain::ChainId;
+use crate::options::argument::CliArgument;
 use crate::options::{chain_spec::ChainSpec, context_options::ContextOptions};
 use crate::transform::Transform;
 
@@ -27,8 +28,8 @@ pub struct OperationRef {
 
 #[derive(Debug)]
 pub struct OperationError {
-    message: String,
-    op_ref: OperationRef,
+    pub message: String,
+    pub op_ref: OperationRef,
 }
 impl std::fmt::Display for OperationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -70,19 +71,25 @@ impl Clone for Box<dyn Operation> {
 
 #[derive(Clone)]
 pub struct OpBase {
-    argname: String,
-    label: Option<String>,
-    chainspec: Option<ChainSpec>,
+    pub(crate) label: Option<String>,
+    pub(crate) chainspec: Option<ChainSpec>,
+    pub(crate) curr_chain: Option<ChainId>, // set by the context on add_op
+    pub(crate) cli_arg: Option<CliArgument>,
     // filled during setup once the chainspec can be evaluated
-    op_refs: SmallVec<[OperationRef; 2]>,
+    pub(crate) op_refs: SmallVec<[OperationRef; 2]>,
 }
 
 impl OpBase {
-    pub fn new(argname: String, label: Option<String>, chainspec: Option<ChainSpec>) -> OpBase {
+    pub fn new(
+        label: Option<String>,
+        chainspec: Option<ChainSpec>,
+        cli_arg: Option<CliArgument>,
+    ) -> OpBase {
         OpBase {
-            argname,
             label,
             chainspec,
+            cli_arg,
+            curr_chain: None,
             op_refs: SmallVec::new(),
         }
     }
@@ -111,10 +118,10 @@ pub trait OperationCatalogMember: Operation {
     fn name_matches(name: &str) -> bool;
     fn create(
         ctx: &ContextOptions,
-        argname: String,
         label: Option<String>,
-        value: Option<BString>,
         chainspec: Option<ChainSpec>,
+        value: Option<BString>,
+        cli_arg: Option<CliArgument>,
     ) -> Result<Box<dyn Operation>, OperationError>;
 }
 
@@ -122,10 +129,10 @@ pub struct OperationCatalogEntry {
     pub name_matches: fn(name: &str) -> bool,
     pub create: fn(
         ctx: &ContextOptions,
-        argname: String,
         label: Option<String>,
-        value: Option<BString>,
         chainspec: Option<ChainSpec>,
+        value: Option<BString>,
+        cli_arg: Option<CliArgument>,
     ) -> Result<Box<dyn Operation>, OperationError>,
 }
 

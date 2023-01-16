@@ -56,7 +56,7 @@ impl CliArgumentError {
     }
 }
 
-struct CliArgParsed {
+pub struct ParsedCliArgument {
     argname: String,
     value: Option<BString>,
     label: Option<String>,
@@ -215,7 +215,7 @@ fn try_parse_bool_arg_or_default(
 
 fn try_parse_as_context_opt(
     ctx_opts: &mut ContextOptions,
-    arg: &CliArgParsed,
+    arg: &ParsedCliArgument,
 ) -> Result<bool, CliArgumentError> {
     let mut matched = false;
     if ["--help", "-h"].contains(&&*arg.argname) {
@@ -268,7 +268,7 @@ fn try_parse_as_context_opt(
 
 fn try_parse_as_doc(
     ctx_opts: &mut ContextOptions,
-    arg: &CliArgParsed,
+    arg: &ParsedCliArgument,
 ) -> Result<bool, CliArgumentError> {
     let doc_source = try_parse_document_source(&arg.argname, arg.value.as_deref(), &arg.cli_arg)?;
     if let Some(doc_source) = doc_source {
@@ -291,11 +291,11 @@ fn try_parse_as_doc(
 }
 fn try_parse_as_chain_opt(
     ctx_opts: &mut ContextOptions,
-    arg: &CliArgParsed,
+    arg: &ParsedCliArgument,
 ) -> Result<bool, CliArgumentError> {
     fn apply_to_chains<F>(
         ctx_opts: &mut ContextOptions,
-        arg: &CliArgParsed,
+        arg: &ParsedCliArgument,
         f: F,
     ) -> Result<bool, CliArgumentError>
     where
@@ -335,9 +335,9 @@ fn try_parse_as_chain_opt(
     return Ok(false);
 }
 
-fn try_parse_as_transform(
+fn try_parse_as_operation(
     ctx_opts: &mut ContextOptions,
-    arg: &CliArgParsed,
+    arg: &ParsedCliArgument,
 ) -> Result<bool, CliArgumentError> {
     for tf in &BUILTIN_OPERATIONS_CATALOG {
         let name_matches = tf.name_matches;
@@ -347,12 +347,13 @@ fn try_parse_as_transform(
         let create = tf.create;
         let tf_inst = create(
             &ctx_opts,
-            arg.argname.clone(),
             arg.label.clone(),
-            arg.value.clone(),
             arg.chainspec.clone(),
-        );
-
+            arg.value.clone(),
+            Some(arg.cli_arg.clone()),
+        )
+        .map_err(|op_err| CliArgumentError::new(op_err.message, arg.cli_arg.clone()))?;
+        ctx_opts.add_op(tf_inst);
         return Ok(true);
     }
     return Ok(false);
@@ -389,7 +390,7 @@ pub fn parse_cli(args: &[BString]) -> Result<ContextOptions, CliArgumentError> {
                 None
             };
 
-            let mut arg = CliArgParsed {
+            let mut arg = ParsedCliArgument {
                 argname: argname,
                 value: m.name("value").map(|l| BString::from(l.as_bytes())),
                 label: label,
@@ -400,7 +401,7 @@ pub fn parse_cli(args: &[BString]) -> Result<ContextOptions, CliArgumentError> {
             let succ_ctx = try_parse_as_context_opt(&mut ctx_opts, &arg)?;
             let succ_doc = try_parse_as_doc(&mut ctx_opts, &arg)?;
             let succ_co = try_parse_as_chain_opt(&mut ctx_opts, &arg)?;
-            let succ_tf = try_parse_as_transform(&mut ctx_opts, &arg)?;
+            let succ_tf = try_parse_as_operation(&mut ctx_opts, &arg)?;
             let succ_sum = (succ_ctx as u8 + succ_doc as u8 + succ_co as u8 + succ_tf as u8);
             if succ_sum == 1 {
                 continue;
