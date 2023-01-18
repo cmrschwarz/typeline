@@ -10,7 +10,9 @@ use crate::{
     transform::{DataKind, MatchData, StreamChunk, TfBase, Transform},
 };
 
-use super::{OpBase, Operation, OperationCatalogMember, OperationError};
+use super::{
+    OpBase, Operation, OperationCatalogMember, OperationError, OperationRef, TransformError,
+};
 
 struct TfPrint {
     tf_base: TfBase,
@@ -38,7 +40,11 @@ impl Operation for OpPrint {
         &mut self.op_base
     }
 
-    fn apply(&self, tf_stack: &mut [Box<dyn Transform>]) -> Box<dyn Transform> {
+    fn apply(
+        &self,
+        op_ref: OperationRef,
+        tf_stack: &mut [Box<dyn Transform>],
+    ) -> Box<dyn Transform> {
         let parent = tf_stack.last_mut().unwrap().base_mut();
         let mut tf_base = TfBase::from_parent(parent);
         tf_base.needs_stdout = true;
@@ -66,7 +72,7 @@ impl Transform for TfPrint {
         todo!()
     }
 
-    fn evaluate(&mut self, tf_stack: &mut [Box<dyn Transform>]) -> bool {
+    fn evaluate(&mut self, tf_stack: &mut [Box<dyn Transform>]) -> Result<bool, TransformError> {
         match tf_stack[self.tf_base.tfs_index as usize - 1].data(tf_stack) {
             Some(MatchData::Bytes(b)) => {
                 let mut s = std::io::stdout();
@@ -85,7 +91,7 @@ impl Transform for TfPrint {
             }
             _ => panic!("missing TfSerialize"),
         }
-        true
+        Ok(true)
     }
 
     fn data<'a>(&'a self, tf_stack: &'a [Box<dyn Transform>]) -> Option<&'a MatchData> {

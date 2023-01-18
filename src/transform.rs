@@ -2,7 +2,7 @@ use std::{fmt::Display, ops::Range};
 
 use smallvec::SmallVec;
 
-use crate::operations::OperationRef;
+use crate::operations::{OperationRef, TransformError};
 
 #[derive(Clone, Copy)]
 pub enum DataKind {
@@ -78,7 +78,7 @@ pub trait Transform: Send + Sync {
         _tf_stack: &'a [Box<dyn Transform>],
         sc: &'b StreamChunk<'b>,
     ) -> Option<&'b StreamChunk<'b>>;
-    fn evaluate(&mut self, tf_stack: &mut [Box<dyn Transform>]) -> bool;
+    fn evaluate(&mut self, tf_stack: &mut [Box<dyn Transform>]) -> Result<bool, TransformError>;
     fn data<'a>(&'a self, tf_stack: &'a [Box<dyn Transform>]) -> Option<&'a MatchData>;
 }
 

@@ -2,6 +2,8 @@ use smallvec::SmallVec;
 
 use crate::transform::{MatchData, StreamChunk, TfBase, Transform};
 
+use super::TransformError;
+
 pub struct TfStart {
     pub tf_base: TfBase,
     pub data: MatchData,
@@ -24,8 +26,8 @@ impl Transform for TfStart {
         None
     }
 
-    fn evaluate(&mut self, tf_stack: &mut [Box<dyn Transform>]) -> bool {
-        true
+    fn evaluate(&mut self, tf_stack: &mut [Box<dyn Transform>]) -> Result<bool, TransformError> {
+        Ok(true)
     }
 
     fn data<'a>(&'a self, tf_stack: &'a [Box<dyn Transform>]) -> Option<&'a MatchData> {

@@ -5,7 +5,7 @@ use crate::{
     transform::{DataKind, MatchData, StreamChunk, TfBase, Transform},
 };
 
-use super::{Operation, OperationCatalogMember};
+use super::{Operation, OperationCatalogMember, TransformError};
 
 pub struct TfReadStdin {
     pub tf_base: TfBase,
@@ -32,8 +32,8 @@ impl Transform for TfReadStdin {
         None
     }
 
-    fn evaluate(&mut self, tf_stack: &mut [Box<dyn Transform>]) -> bool {
-        true
+    fn evaluate(&mut self, tf_stack: &mut [Box<dyn Transform>]) -> Result<bool, TransformError> {
+        Ok(true)
     }
 }
 

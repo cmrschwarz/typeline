@@ -21,7 +21,7 @@ use self::print::OpPrint;
 pub type OperationId = u32;
 pub type OperationOffsetInChain = u32;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct OperationError {
     pub message: String,
     pub chain_id: Option<ChainId>,
@@ -56,7 +56,13 @@ impl OperationError {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug, Clone)]
+pub struct TransformError {
+    pub message: String,
+    pub op_ref: Option<OperationRef>,
+}
+
+#[derive(Clone, Copy, Debug)]
 pub struct OperationRef {
     pub chain_id: ChainId,
     pub op_offset: OperationOffsetInChain,
@@ -118,7 +124,11 @@ impl OpBase {
 pub trait Operation: OperationCloneBox + Send + Sync {
     fn base_mut(&mut self) -> &mut OpBase;
     fn base(&self) -> &OpBase;
-    fn apply(&self, tf_stack: &mut [Box<dyn Transform>]) -> Box<dyn Transform>;
+    fn apply(
+        &self,
+        op_ref: OperationRef,
+        tf_stack: &mut [Box<dyn Transform>],
+    ) -> Box<dyn Transform>;
     fn setup(&mut self, chains: &mut Vec<Chain>) -> Result<(), OperationError> {
         if let Some(cs) = &self.base().chainspec {
             todo!("ChainSpec::iter");
