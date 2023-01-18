@@ -9,7 +9,7 @@ use crate::{
 
 use super::{
     OpBase, Operation, OperationCatalogMember, OperationError, OperationId, OperationOffsetInChain,
-    OperationRef, TransformError,
+    OperationRef,
 };
 
 pub struct TfParent {
@@ -47,7 +47,7 @@ impl Transform for TfParent {
         tf_stack[parent_idx].data(&tf_stack[0..parent_idx as usize])
     }
 
-    fn evaluate(&mut self, tf_stack: &mut [Box<dyn Transform>]) -> Result<bool, TransformError> {
+    fn evaluate(&mut self, tf_stack: &mut [Box<dyn Transform>]) -> Result<bool, OperationError> {
         Ok(true)
     }
 }
@@ -77,7 +77,7 @@ impl Operation for OpParent {
         &self,
         op_ref: OperationRef,
         tf_stack: &mut [Box<dyn Transform>],
-    ) -> Box<dyn Transform> {
+    ) -> Result<Box<dyn Transform>, OperationError> {
         let parent = tf_stack.last_mut().unwrap().base_mut();
         let tf_base = TfBase::from_parent(parent);
         let tfp = Box::new(TfParent {
@@ -86,7 +86,7 @@ impl Operation for OpParent {
             offset: self.offset,
         });
         parent.dependants.push(tfp.tf_base.tfs_index);
-        tfp
+        Ok(tfp)
     }
 
     fn base(&self) -> &super::OpBase {

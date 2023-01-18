@@ -12,7 +12,7 @@ use crate::chain::Chain;
 use crate::document::{Document, DocumentSource};
 use crate::operations::parent::TfParent;
 use crate::operations::read_stdin::TfReadStdin;
-use crate::operations::{OpBase, Operation, OperationRef, TransformError};
+use crate::operations::{OpBase, Operation, OperationError, OperationRef};
 use crate::options;
 use crate::transform::{TfBase, Transform, TransformStackIndex};
 
@@ -192,14 +192,14 @@ impl<'a> WorkerThread<'a> {
         })
     }
 
-    fn run_job(&mut self, job: Job) -> Result<(), TransformError> {
+    fn run_job(&mut self, job: Job) -> Result<(), OperationError> {
         assert!(job.tf.begin_of_chain == true);
         let mut tf_stack: SmallVec<[Box<dyn Transform>; 4]> = smallvec![job.tf];
         for (i, op_ref) in job.ops.iter().enumerate() {
             let cn = &self.ctx.chains[op_ref.chain_id as usize];
             for i in op_ref.op_offset as usize..cn.operations.len() {
                 let op = &self.ctx.operations[cn.operations[i] as usize];
-                let tf = op.apply(*op_ref, tf_stack.as_mut_slice());
+                let tf = op.apply(*op_ref, tf_stack.as_mut_slice())?;
                 let requires_eval = tf.requires_eval;
                 tf_stack.push(tf);
                 if requires_eval {

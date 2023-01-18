@@ -10,9 +10,7 @@ use crate::{
     transform::{DataKind, MatchData, StreamChunk, TfBase, Transform},
 };
 
-use super::{
-    OpBase, Operation, OperationCatalogMember, OperationError, OperationRef, TransformError,
-};
+use super::{OpBase, Operation, OperationCatalogMember, OperationError, OperationRef};
 
 struct TfPrint {
     tf_base: TfBase,
@@ -44,14 +42,14 @@ impl Operation for OpPrint {
         &self,
         op_ref: OperationRef,
         tf_stack: &mut [Box<dyn Transform>],
-    ) -> Box<dyn Transform> {
+    ) -> Result<Box<dyn Transform>, OperationError> {
         let parent = tf_stack.last_mut().unwrap().base_mut();
         let mut tf_base = TfBase::from_parent(parent);
         tf_base.needs_stdout = true;
         tf_base.data_kind = DataKind::None;
         let tfp = Box::new(TfPrint { tf_base });
         parent.dependants.push(tfp.tf_base.tfs_index);
-        tfp
+        Ok(tfp)
     }
 }
 
@@ -72,7 +70,7 @@ impl Transform for TfPrint {
         todo!()
     }
 
-    fn evaluate(&mut self, tf_stack: &mut [Box<dyn Transform>]) -> Result<bool, TransformError> {
+    fn evaluate(&mut self, tf_stack: &mut [Box<dyn Transform>]) -> Result<bool, OperationError> {
         match tf_stack[self.tf_base.tfs_index as usize - 1].data(tf_stack) {
             Some(MatchData::Bytes(b)) => {
                 let mut s = std::io::stdout();

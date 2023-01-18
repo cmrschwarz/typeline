@@ -56,12 +56,6 @@ impl OperationError {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct TransformError {
-    pub message: String,
-    pub op_ref: Option<OperationRef>,
-}
-
 #[derive(Clone, Copy, Debug)]
 pub struct OperationRef {
     pub chain_id: ChainId,
@@ -128,7 +122,7 @@ pub trait Operation: OperationCloneBox + Send + Sync {
         &self,
         op_ref: OperationRef,
         tf_stack: &mut [Box<dyn Transform>],
-    ) -> Box<dyn Transform>;
+    ) -> Result<Box<dyn Transform>, OperationError>;
     fn setup(&mut self, chains: &mut Vec<Chain>) -> Result<(), OperationError> {
         if let Some(cs) = &self.base().chainspec {
             todo!("ChainSpec::iter");
