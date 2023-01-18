@@ -61,11 +61,10 @@ impl ContextOptions {
     pub fn get_current_chain(&mut self) -> ChainId {
         self.curr_chain
     }
-    pub fn add_op(&mut self, op: Box<dyn Operation>) -> &mut ContextOptions {
-        let op_id = self.operations.len() as OperationId;
+    pub fn add_op(&mut self, mut op: Box<dyn Operation>) -> &mut ContextOptions {
+        op.curr_chain = Some(self.curr_chain);
+        op.op_id = Some(self.operations.len() as OperationId);
         self.operations.push(op);
-        self.operations.last_mut().unwrap().curr_chain = Some(self.curr_chain);
-        self.chains[self.curr_chain].operations.push(op_id);
         self
     }
     pub fn set_current_chain(&mut self, chain_id: ChainId) -> &mut ContextOptions {
@@ -86,11 +85,15 @@ impl ContextOptions {
             std::thread::available_parallelism()
                 .unwrap_or_else(|_| NonZeroUsize::try_from(1).unwrap())
         });
-        Context::new(ContextData {
+        let mut cd = ContextData {
             parallel_jobs,
             documents: self.documents,
             chains: self.chains.into_iter().map(|c| c.build_chain()).collect(),
             operations: self.operations,
-        })
+        };
+        for op in &mut cd.operations {
+            op.setup(&mut cd.chains);
+        }
+        Context::new(cd)
     }
 }

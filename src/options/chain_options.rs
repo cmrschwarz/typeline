@@ -16,7 +16,6 @@ pub struct ChainOptions {
     pub selenium_download_strategy: Argument<SeleniumDownloadStrategy>,
     pub parent: ChainId,
     pub subchains: Vec<ChainId>,
-    pub operations: Vec<OperationId>,
 }
 const DEFAULT_CHAIN_OPTIONS: ChainOptions = ChainOptions {
     default_text_encoding: Argument::new(TextEncoding::UTF8),
@@ -26,7 +25,6 @@ const DEFAULT_CHAIN_OPTIONS: ChainOptions = ChainOptions {
     selenium_download_strategy: Argument::new(SeleniumDownloadStrategy::Scr),
     parent: 0,
     subchains: Vec::new(),
-    operations: Vec::new(),
 };
 impl ChainOptions {
     pub fn build_chain(self) -> Chain {
@@ -43,9 +41,9 @@ impl ChainOptions {
             selenium_download_strategy: self
                 .selenium_download_strategy
                 .unwrap_or(DEFAULT_CHAIN_OPTIONS.selenium_download_strategy.unwrap()),
-            operations: self.operations,
             subchains: self.subchains,
             aggregation_targets: Vec::new(),
+            operations: Vec::new(),
         }
     }
 }

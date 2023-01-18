@@ -196,7 +196,7 @@ impl<'a> WorkerThread<'a> {
         assert!(job.tf.begin_of_chain == true);
         let mut tf_stack: SmallVec<[Box<dyn Transform>; 4]> = smallvec![job.tf];
         for (i, op) in job.ops.iter().enumerate() {
-            let cn = &self.ctx.chains[op.cn_id as usize];
+            let cn = &self.ctx.chains[op.chain_id as usize];
             for i in op.op_offset as usize..cn.operations.len() {
                 let op = &self.ctx.operations[cn.operations[i] as usize];
                 let tf = op.apply(tf_stack.as_mut_slice());

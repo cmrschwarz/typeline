@@ -9,7 +9,8 @@ use std::error::Error;
 use bstring::BString;
 use smallvec::SmallVec;
 
-use crate::chain::ChainId;
+use crate::chain::{Chain, ChainId};
+use crate::context::Context;
 use crate::options::argument::CliArgument;
 use crate::options::{chain_spec::ChainSpec, context_options::ContextOptions};
 use crate::transform::Transform;
@@ -20,36 +21,53 @@ use self::print::OpPrint;
 pub type OperationId = u32;
 pub type OperationOffsetInChain = u32;
 
-#[derive(Clone, Debug)]
-pub struct OperationRef {
-    pub cn_id: ChainId,
-    pub op_offset: OperationOffsetInChain,
-}
-
 #[derive(Debug)]
 pub struct OperationError {
     pub message: String,
-    pub op_ref: OperationRef,
+    pub chain_id: Option<ChainId>,
+    pub op_offset: Option<OperationOffsetInChain>,
 }
 impl std::fmt::Display for OperationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "in chain {}, op {}: {}",
-            self.op_ref.cn_id, self.op_ref.op_offset, self.message
-        )
+        if let Some(id) = self.chain_id {
+            if let Some(op_offset) = self.op_offset {
+                write!(f, "in chain {}, op {}: {}", id, op_offset, &self.message)?;
+            } else {
+                write!(f, "in chain {}: {}", id, &self.message)?;
+            }
+        } else {
+            f.write_str(&self.message)?;
+        }
+        Ok(())
     }
 }
 impl Error for OperationError {}
 impl OperationError {
-    pub fn new(message: String, op_ref: OperationRef) -> OperationError {
-        OperationError { message, op_ref }
+    pub fn new(
+        message: String,
+        chain_id: Option<ChainId>,
+        op_offset: Option<OperationOffsetInChain>,
+    ) -> OperationError {
+        OperationError {
+            message,
+            chain_id,
+            op_offset,
+        }
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct OperationRef {
+    pub chain_id: ChainId,
+    pub op_offset: OperationOffsetInChain,
+}
+
 impl OperationRef {
-    pub fn new(cn_id: ChainId, op_offset: OperationOffsetInChain) -> Self {
-        Self { cn_id, op_offset }
+    pub fn new(chain_id: ChainId, op_offset: OperationOffsetInChain) -> Self {
+        Self {
+            chain_id,
+            op_offset,
+        }
     }
 }
 
@@ -74,6 +92,7 @@ pub struct OpBase {
     pub(crate) label: Option<String>,
     pub(crate) chainspec: Option<ChainSpec>,
     pub(crate) curr_chain: Option<ChainId>, // set by the context on add_op
+    pub(crate) op_id: Option<OperationId>,  // set by the context on add_op
     pub(crate) cli_arg: Option<CliArgument>,
     // filled during setup once the chainspec can be evaluated
     pub(crate) op_refs: SmallVec<[OperationRef; 2]>,
@@ -90,15 +109,31 @@ impl OpBase {
             chainspec,
             cli_arg,
             curr_chain: None,
+            op_id: None,
             op_refs: SmallVec::new(),
         }
     }
 }
 
 pub trait Operation: OperationCloneBox + Send + Sync {
-    fn base(&self) -> &OpBase;
     fn base_mut(&mut self) -> &mut OpBase;
+    fn base(&self) -> &OpBase;
     fn apply(&self, tf_stack: &mut [Box<dyn Transform>]) -> Box<dyn Transform>;
+    fn setup(&mut self, chains: &mut Vec<Chain>) -> Result<(), OperationError> {
+        if let Some(cs) = &self.base().chainspec {
+            todo!("ChainSpec::iter");
+        } else {
+            let chain_id = self.base().curr_chain.unwrap();
+            chains[chain_id as usize]
+                .operations
+                .push(self.base().op_id.unwrap());
+            self.base_mut().op_refs.push(OperationRef::new(
+                chain_id,
+                chains[chain_id as usize].operations.len() as OperationOffsetInChain,
+            ))
+        }
+        Ok(())
+    }
 }
 
 impl std::ops::Deref for dyn Operation {

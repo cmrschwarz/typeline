@@ -107,10 +107,8 @@ impl OperationCatalogMember for OpParent {
             value.parse::<TransformStackIndex>().map_err(|_| {
                 OperationError::new(
                     "failed to parse parent argument as integer".to_owned(),
-                    OperationRef::new(
-                        ctx.curr_chain,
-                        ctx.chains[ctx.curr_chain].operations.len() as OperationOffsetInChain,
-                    ),
+                    Some(ctx.curr_chain),
+                    None,
                 )
             })?
         } else {
