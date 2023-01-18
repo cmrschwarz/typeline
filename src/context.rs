@@ -193,6 +193,7 @@ impl<'a> WorkerThread<'a> {
     }
 
     fn run_job(&mut self, job: Job) {
+        assert!(job.tf.begin_of_chain == true);
         let mut tf_stack: SmallVec<[Box<dyn Transform>; 4]> = smallvec![job.tf];
         for (i, op) in job.ops.iter().enumerate() {
             let cn = &self.ctx.chains[op.cn_id as usize];
@@ -207,10 +208,11 @@ impl<'a> WorkerThread<'a> {
             }
             if i + 1 < job.ops.len() {
                 let mut tf_base = TfBase::from_parent(&tf_stack[0]);
+                tf_base.begin_of_chain = true;
                 tf_base.tfs_index = tf_stack.len() as TransformStackIndex;
                 tf_stack.push(Box::new(TfParent {
                     tf_base,
-                    parent_idx: todo!(),
+                    offset: tf_stack.len() as TransformStackIndex,
                 }));
             }
         }

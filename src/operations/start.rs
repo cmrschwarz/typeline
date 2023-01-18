@@ -41,6 +41,7 @@ impl TfStart {
                 is_stream: false,
                 requires_eval: false,
                 needs_stdout: false,
+                begin_of_chain: true,
                 dependants: SmallVec::new(),
                 tfs_index: 0,
             },

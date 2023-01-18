@@ -51,6 +51,7 @@ pub struct TfBase {
     pub is_stream: bool,
     pub needs_stdout: bool,
     pub requires_eval: bool,
+    pub begin_of_chain: bool,
     pub dependants: SmallVec<[TransformStackIndex; 1]>,
     pub tfs_index: TransformStackIndex,
 }
@@ -63,6 +64,7 @@ impl TfBase {
             needs_stdout: parent.needs_stdout,
             tfs_index: parent.tfs_index + 1,
             requires_eval: parent.requires_eval,
+            begin_of_chain: false,
             dependants: SmallVec::new(),
         }
     }

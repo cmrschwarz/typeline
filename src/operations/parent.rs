@@ -14,7 +14,7 @@ use super::{
 
 pub struct TfParent {
     pub tf_base: TfBase,
-    pub parent_idx: TransformStackIndex,
+    pub offset: TransformStackIndex,
 }
 
 impl Transform for TfParent {
@@ -35,7 +35,15 @@ impl Transform for TfParent {
     }
 
     fn data<'a>(&'a self, tf_stack: &'a [Box<dyn Transform>]) -> Option<&'a MatchData> {
-        tf_stack[self.parent_idx as usize].data(&tf_stack[0..self.parent_idx as usize])
+        let mut parent_idx = self.tf_base.tfs_index as usize;
+        for i in 0..self.offset {
+            if tf_stack[parent_idx].base().begin_of_chain || parent_idx == 0 {
+                assert!(false);
+            }
+            parent_idx -= 1;
+        }
+
+        tf_stack[parent_idx].data(&tf_stack[0..parent_idx as usize])
     }
 
     fn evaluate(&mut self, tf_stack: &mut [Box<dyn Transform>]) -> bool {
@@ -46,18 +54,19 @@ impl Transform for TfParent {
 #[derive(Clone)]
 pub struct OpParent {
     op_base: OpBase,
-    up_count: TransformStackIndex,
+    offset: TransformStackIndex,
 }
 
 impl OpParent {
     pub fn new(
         label: Option<String>,
         chainspec: Option<ChainSpec>,
-        up_count: TransformStackIndex,
+        offset: TransformStackIndex,
     ) -> OpParent {
+        assert!(offset > 0);
         OpParent {
             op_base: OpBase::new(label, chainspec, None),
-            up_count,
+            offset,
         }
     }
 }
@@ -68,7 +77,7 @@ impl Operation for OpParent {
         let tf_base = TfBase::from_parent(parent);
         let tfp = Box::new(TfParent {
             tf_base,
-            parent_idx: parent.tfs_index + 1 - self.up_count,
+            offset: self.offset,
         });
         parent.dependants.push(tfp.tf_base.tfs_index);
         tfp

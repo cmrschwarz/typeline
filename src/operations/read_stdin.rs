@@ -45,6 +45,7 @@ impl TfReadStdin {
                 needs_stdout: false,
                 is_stream: true,
                 requires_eval: false,
+                begin_of_chain: true,
                 dependants: Default::default(),
                 tfs_index: 0,
             },
