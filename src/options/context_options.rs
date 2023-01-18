@@ -69,7 +69,7 @@ impl ContextOptions {
     }
     pub fn set_current_chain(&mut self, chain_id: ChainId) -> &mut ContextOptions {
         self.curr_chain = chain_id;
-        if self.chains.len() <= chain_id {
+        if self.chains.len() <= chain_id as usize {
             self.chains
                 .resize(chain_id as usize + 1, Default::default());
         }
