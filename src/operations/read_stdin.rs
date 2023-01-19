@@ -1,8 +1,8 @@
 use smallvec::SmallVec;
 
 use crate::{
+    operations::transform::{DataKind, MatchData, StreamChunk, TfBase, Transform},
     options::{chain_spec::ChainSpec, context_options::ContextOptions},
-    transform::{DataKind, MatchData, StreamChunk, TfBase, Transform},
 };
 
 use super::{Operation, OperationCatalogMember, OperationError};
@@ -24,8 +24,9 @@ impl Transform for TfReadStdin {
         &'a mut self,
         _tf_stack: &'a [Box<dyn Transform>],
         sc: &'b StreamChunk<'b>,
-    ) -> Option<&'b StreamChunk<'b>> {
-        None
+        final_chunk: bool,
+    ) -> Result<Option<&'b StreamChunk<'b>>, OperationError> {
+        Ok(None)
     }
 
     fn data<'a>(&'a self, tf_stack: &'a [Box<dyn Transform>]) -> Option<&'a MatchData> {

@@ -12,9 +12,9 @@ use crate::chain::Chain;
 use crate::document::{Document, DocumentSource};
 use crate::operations::parent::TfParent;
 use crate::operations::read_stdin::TfReadStdin;
+use crate::operations::transform::{TfBase, Transform, TransformStackIndex};
 use crate::operations::{OpBase, Operation, OperationError, OperationRef};
 use crate::options;
-use crate::transform::{TfBase, Transform, TransformStackIndex};
 
 pub struct Job {
     ops: SmallVec<[OperationRef; 2]>,

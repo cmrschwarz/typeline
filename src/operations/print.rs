@@ -5,9 +5,9 @@ use smallvec::SmallVec;
 
 use crate::{
     chain::ChainId,
+    operations::transform::{DataKind, MatchData, StreamChunk, TfBase, Transform},
     options::{argument::CliArgument, chain_spec::ChainSpec, context_options::ContextOptions},
     plattform::{NEWLINE, NEWLINE_BYTES},
-    transform::{DataKind, MatchData, StreamChunk, TfBase, Transform},
 };
 
 use super::{OpBase, Operation, OperationCatalogMember, OperationError, OperationRef};
@@ -66,7 +66,8 @@ impl Transform for TfPrint {
         &'a mut self,
         _tf_stack: &'a [Box<dyn Transform>],
         sc: &'b StreamChunk<'b>,
-    ) -> Option<&'b StreamChunk<'b>> {
+        final_chunk: bool,
+    ) -> Result<Option<&'b StreamChunk<'b>>, OperationError> {
         todo!()
     }
 

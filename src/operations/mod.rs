@@ -3,17 +3,18 @@ pub mod parent;
 pub mod print;
 pub mod read_stdin;
 pub mod start;
+pub mod transform;
 
 use std::error::Error;
 
 use bstring::BString;
 use smallvec::SmallVec;
 
+use self::transform::Transform;
 use crate::chain::{Chain, ChainId};
 use crate::context::Context;
 use crate::options::argument::CliArgument;
 use crate::options::{chain_spec::ChainSpec, context_options::ContextOptions};
-use crate::transform::Transform;
 
 use self::parent::OpParent;
 use self::print::OpPrint;

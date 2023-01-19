@@ -3,8 +3,8 @@ use smallvec::SmallVec;
 
 use crate::{
     chain::ChainId,
+    operations::transform::{MatchData, StreamChunk, TfBase, Transform, TransformStackIndex},
     options::{argument::CliArgument, chain_spec::ChainSpec, context_options::ContextOptions},
-    transform::{MatchData, StreamChunk, TfBase, Transform, TransformStackIndex},
 };
 
 use super::{
@@ -31,8 +31,9 @@ impl Transform for TfParent {
         &'a mut self,
         _tf_stack: &'a [Box<dyn Transform>],
         sc: &'b StreamChunk<'b>,
-    ) -> Option<&'b StreamChunk<'b>> {
-        Some(sc)
+        final_chunk: bool,
+    ) -> Result<Option<&'b StreamChunk<'b>>, OperationError> {
+        Ok(Some(sc))
     }
 
     fn data<'a>(&'a self, tf_stack: &'a [Box<dyn Transform>]) -> Option<&'a MatchData> {

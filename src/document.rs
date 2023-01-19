@@ -5,7 +5,7 @@ use bstring::BString;
 use crate::{
     chain::ChainId,
     operations::start::TfStart,
-    transform::{MatchData, Transform},
+    operations::transform::{MatchData, Transform},
 };
 
 #[derive(Clone)]
