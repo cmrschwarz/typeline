@@ -9,7 +9,7 @@ use crate::{
 
 use super::{
     OpBase, Operation, OperationCatalogMember, OperationError, OperationId, OperationOffsetInChain,
-    OperationRef,
+    OperationParameters, OperationRef,
 };
 
 pub struct TfParent {
@@ -60,14 +60,10 @@ pub struct OpParent {
 }
 
 impl OpParent {
-    pub fn new(
-        label: Option<String>,
-        chainspec: Option<ChainSpec>,
-        offset: TransformStackIndex,
-    ) -> OpParent {
+    pub fn new(offset: TransformStackIndex) -> OpParent {
         assert!(offset > 0);
         OpParent {
-            op_base: OpBase::new(label, chainspec, None),
+            op_base: OpBase::new("parent".to_owned(), None, None, None),
             offset,
         }
     }
@@ -105,12 +101,9 @@ impl OperationCatalogMember for OpParent {
     }
     fn create(
         ctx: &ContextOptions,
-        label: Option<String>,
-        chainspec: Option<ChainSpec>,
-        value: Option<BString>,
-        cli_arg: Option<CliArgument>,
+        params: OperationParameters,
     ) -> Result<Box<dyn Operation>, OperationError> {
-        let up_count = if let Some(value) = value {
+        let offset = if let Some(ref value) = params.value {
             value.parse::<TransformStackIndex>().map_err(|_| {
                 OperationError::new(
                     "failed to parse parent argument as integer".to_owned(),
@@ -121,8 +114,9 @@ impl OperationCatalogMember for OpParent {
         } else {
             1
         };
-        let mut op_parent = OpParent::new(label, chainspec, up_count);
-        op_parent.op_base.cli_arg = cli_arg;
-        Ok(Box::new(op_parent))
+        Ok(Box::new(OpParent {
+            op_base: OpBase::from_op_params(params),
+            offset,
+        }))
     }
 }

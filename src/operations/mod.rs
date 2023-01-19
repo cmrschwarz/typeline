@@ -6,6 +6,7 @@ pub mod start;
 pub mod transform;
 
 use std::error::Error;
+use std::mem::swap;
 
 use bstring::BString;
 use smallvec::SmallVec;
@@ -90,6 +91,7 @@ impl Clone for Box<dyn Operation> {
 
 #[derive(Clone)]
 pub struct OpBase {
+    pub(crate) argname: String,
     pub(crate) label: Option<String>,
     pub(crate) chainspec: Option<ChainSpec>,
     pub(crate) curr_chain: Option<ChainId>, // set by the context on add_op
@@ -101,11 +103,13 @@ pub struct OpBase {
 
 impl OpBase {
     pub fn new(
+        argname: String,
         label: Option<String>,
         chainspec: Option<ChainSpec>,
         cli_arg: Option<CliArgument>,
     ) -> OpBase {
         OpBase {
+            argname,
             label,
             chainspec,
             cli_arg,
@@ -113,6 +117,21 @@ impl OpBase {
             op_id: None,
             op_refs: SmallVec::new(),
         }
+    }
+    pub fn from_op_params(params: OperationParameters) -> OpBase {
+        OpBase {
+            argname: params.argname,
+            label: params.label,
+            chainspec: params.chainspec,
+            cli_arg: params.cli_arg,
+            curr_chain: None,
+            op_id: None,
+            op_refs: SmallVec::new(),
+        }
+    }
+    pub fn set_label(&mut self, label: String) -> &mut OpBase {
+        self.label = Some(label);
+        self
     }
 }
 
@@ -154,14 +173,19 @@ impl std::ops::DerefMut for dyn Operation {
     }
 }
 
+pub struct OperationParameters {
+    pub argname: String,
+    pub label: Option<String>,
+    pub chainspec: Option<ChainSpec>,
+    pub value: Option<BString>,
+    pub cli_arg: Option<CliArgument>,
+}
+
 pub trait OperationCatalogMember: Operation {
     fn name_matches(name: &str) -> bool;
     fn create(
         ctx: &ContextOptions,
-        label: Option<String>,
-        chainspec: Option<ChainSpec>,
-        value: Option<BString>,
-        cli_arg: Option<CliArgument>,
+        params: OperationParameters,
     ) -> Result<Box<dyn Operation>, OperationError>;
 }
 
@@ -169,10 +193,7 @@ pub struct OperationCatalogEntry {
     pub name_matches: fn(name: &str) -> bool,
     pub create: fn(
         ctx: &ContextOptions,
-        label: Option<String>,
-        chainspec: Option<ChainSpec>,
-        value: Option<BString>,
-        cli_arg: Option<CliArgument>,
+        params: OperationParameters,
     ) -> Result<Box<dyn Operation>, OperationError>,
 }
 

@@ -1,7 +1,7 @@
 use crate::{
     chain::ChainId,
     document::{Document, DocumentReferencePoint, DocumentSource},
-    operations::BUILTIN_OPERATIONS_CATALOG,
+    operations::{OperationParameters, BUILTIN_OPERATIONS_CATALOG},
     options::{
         argument::{ArgumentReassignmentError, CliArgument},
         chain_options::ChainOptions,
@@ -56,12 +56,25 @@ impl CliArgumentError {
     }
 }
 
+#[derive(Clone)]
 pub struct ParsedCliArgument {
     argname: String,
     value: Option<BString>,
     label: Option<String>,
     chainspec: Option<ChainSpec>,
     cli_arg: CliArgument,
+}
+
+impl From<ParsedCliArgument> for OperationParameters {
+    fn from(value: ParsedCliArgument) -> Self {
+        OperationParameters {
+            argname: value.argname,
+            label: value.label,
+            chainspec: value.chainspec,
+            value: value.value,
+            cli_arg: Some(value.cli_arg),
+        }
+    }
 }
 
 lazy_static! {
@@ -345,14 +358,9 @@ fn try_parse_as_operation(
             continue;
         }
         let create = tf.create;
-        let tf_inst = create(
-            &ctx_opts,
-            arg.label.clone(),
-            arg.chainspec.clone(),
-            arg.value.clone(),
-            Some(arg.cli_arg.clone()),
-        )
-        .map_err(|op_err| CliArgumentError::new(op_err.message, arg.cli_arg.clone()))?;
+        let mut arg_copy = arg.clone();
+        let tf_inst = create(&ctx_opts, OperationParameters::from(arg_copy))
+            .map_err(|op_err| CliArgumentError::new(op_err.message, arg.cli_arg.clone()))?;
         ctx_opts.add_op(tf_inst);
         return Ok(true);
     }

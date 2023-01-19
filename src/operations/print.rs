@@ -10,7 +10,9 @@ use crate::{
     plattform::{NEWLINE, NEWLINE_BYTES},
 };
 
-use super::{OpBase, Operation, OperationCatalogMember, OperationError, OperationRef};
+use super::{
+    OpBase, Operation, OperationCatalogMember, OperationError, OperationParameters, OperationRef,
+};
 
 struct TfPrint {
     tf_base: TfBase,
@@ -22,9 +24,9 @@ pub struct OpPrint {
 }
 
 impl OpPrint {
-    pub fn new(label: Option<String>, chainspec: Option<ChainSpec>) -> OpPrint {
+    pub fn new() -> OpPrint {
         OpPrint {
-            op_base: OpBase::new(label, chainspec, None),
+            op_base: OpBase::new("print".to_owned(), None, None, None),
         }
     }
 }
@@ -105,13 +107,10 @@ impl OperationCatalogMember for OpPrint {
 
     fn create(
         ctx: &ContextOptions,
-        label: Option<String>,
-        chainspec: Option<ChainSpec>,
-        value: Option<BString>,
-        cli_arg: Option<CliArgument>,
+        params: OperationParameters,
     ) -> Result<Box<dyn Operation>, OperationError> {
-        let mut op_print = OpPrint::new(label, chainspec);
-        op_print.op_base.cli_arg = cli_arg;
-        Ok(Box::new(op_print))
+        Ok(Box::new(OpPrint {
+            op_base: OpBase::from_op_params(params),
+        }))
     }
 }
