@@ -1,20 +1,17 @@
-#![allow(dead_code, unused)] // HACK
 extern crate bstring;
 extern crate crossbeam;
 extern crate markup5ever_rcdom;
 extern crate num;
 extern crate regex;
-#[macro_use()]
 extern crate smallvec;
-#[macro_use()]
 extern crate lazy_static;
 
-mod chain;
-mod cli;
-mod context;
-mod document;
-mod encoding;
-mod operations;
-mod options;
-mod plattform;
-mod selenium;
+pub mod chain;
+pub mod cli;
+pub mod context;
+pub mod document;
+pub mod encoding;
+pub mod operations;
+pub mod options;
+pub mod plattform;
+pub mod selenium;

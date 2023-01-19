@@ -1,4 +1,4 @@
-use std::{error::Error, ffi::OsString, fmt, ops::Deref};
+use std::{error::Error, fmt, ops::Deref};
 
 use bstring::BString;
 

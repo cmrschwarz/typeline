@@ -4,11 +4,11 @@ use crate::{
     chain::ChainId,
     context::{Context, ContextData},
     document::Document,
-    operations::{Operation, OperationId, OperationOffsetInChain},
+    operations::{Operation, OperationError, OperationId},
     selenium::SeleniumVariant,
 };
 
-use super::{argument::Argument, chain_options::ChainOptions, chain_spec::ChainSpec};
+use super::{argument::Argument, chain_options::ChainOptions};
 
 #[derive(Clone)]
 pub struct ContextOptions {
@@ -68,7 +68,7 @@ impl ContextOptions {
         self.operations.push(op);
         self
     }
-    pub fn add_op(mut self, mut op: Box<dyn Operation>) -> ContextOptions {
+    pub fn add_op(mut self, op: Box<dyn Operation>) -> ContextOptions {
         self.add_op_to_ref(op);
         self
     }
@@ -80,7 +80,7 @@ impl ContextOptions {
         }
         self
     }
-    pub fn build_context(self) -> Context {
+    pub fn build_context(self) -> Result<Context, OperationError> {
         let parallel_jobs = NonZeroUsize::try_from(
             self.parallel_jobs
                 .value
@@ -97,8 +97,8 @@ impl ContextOptions {
             operations: self.operations,
         };
         for op in &mut cd.operations {
-            op.setup(&mut cd.chains);
+            op.setup(&mut cd.chains)?;
         }
-        Context::new(cd)
+        Ok(Context::new(cd))
     }
 }

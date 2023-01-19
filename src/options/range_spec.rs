@@ -25,14 +25,13 @@ impl<'a, T: Add<Output = T> + Ord + One + Copy> RangeIter<'a, T> {
             .any(|es| es.contains(self.min_bound, self.max_bound, v))
     }
     pub fn new(min_bound: T, max_bound: T, range_spec: &'a RangeSpec<T>) -> RangeIter<T> {
-        let mut ri = RangeIter {
+        RangeIter {
             min_bound,
             max_bound,
             positions: smallvec![range_spec],
             exclude_sets: SmallVec::new(),
             offsets: smallvec![-1],
-        };
-        ri
+        }
     }
 }
 impl<T: Add<Output = T> + Ord + One + Copy> RangeSpec<T> {

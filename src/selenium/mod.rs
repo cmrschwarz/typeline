@@ -25,17 +25,19 @@ pub enum SeleniumVariant {
 }
 
 pub struct SeleniumContext {
-    variant: SeleniumVariant,
-    client: Client,
+    // TODO
+    _variant: SeleniumVariant,
+    _client: Client,
 }
 
 const DEFAULT_PORT: u16 = 4444;
 
 impl SeleniumContext {
-    pub async fn new(variant: SeleniumVariant, port: u16) -> Result<SeleniumContext, String> {
+    pub async fn new(variant: SeleniumVariant, port: Option<u16>) -> Result<SeleniumContext, String> {
+        let port = port.unwrap_or(DEFAULT_PORT);
         Ok(SeleniumContext {
-            variant:  variant,
-            client: ClientBuilder::native().connect(
+            _variant:  variant,
+            _client: ClientBuilder::native().connect(
                 &format!("http://localhost:{}", port)
             ).await.map_err(|_| format!("failed to connect to webdriver at http://localhost:{}", port))?
         })

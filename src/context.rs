@@ -1,9 +1,7 @@
-use std::borrow::Borrow;
 use std::collections::VecDeque;
 use std::iter;
 use std::num::NonZeroUsize;
-use std::sync::atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Arc, Condvar, Mutex, RwLock};
+use std::sync::{Arc, Condvar, Mutex};
 
 use crossbeam::deque::{Injector, Stealer, Worker};
 use smallvec::{smallvec, SmallVec};
@@ -13,8 +11,7 @@ use crate::document::{Document, DocumentSource};
 use crate::operations::parent::TfParent;
 use crate::operations::read_stdin::TfReadStdin;
 use crate::operations::transform::{TfBase, Transform, TransformStackIndex};
-use crate::operations::{OpBase, Operation, OperationError, OperationRef};
-use crate::options;
+use crate::operations::{Operation, OperationError, OperationRef};
 
 pub struct Job {
     ops: SmallVec<[OperationRef; 2]>,
@@ -44,7 +41,7 @@ pub struct Context {
     pub data: Arc<ContextData>,
     pub session: Arc<Session>,
     pub main_thread_worker: Worker<Job>,
-    pub worker_join_handles: Vec<std::thread::JoinHandle<()>>,
+    pub worker_join_handles: Vec<std::thread::JoinHandle<Result<(), OperationError>>>,
 }
 
 struct WorkerThread<'a> {
@@ -79,7 +76,7 @@ impl Context {
         let cd = self.data.as_ref();
         let mut stdin_job_ops: SmallVec<[OperationRef; 2]> = Default::default();
         for d in &cd.documents {
-            let mut ops_iter = d.target_chains.iter().map(|c| OperationRef::new(*c, 0));
+            let ops_iter = d.target_chains.iter().map(|c| OperationRef::new(*c, 0));
             match d.source {
                 DocumentSource::Stdin => {
                     stdin_job_ops.extend(ops_iter);
@@ -99,7 +96,7 @@ impl Context {
             });
         }
     }
-    pub fn run(&mut self) {
+    pub fn run(&mut self) -> Result<(), OperationError> {
         self.gen_jobs_from_docs();
         assert!(self.data.parallel_jobs.get() > self.worker_join_handles.len()); // TODO: handle this case
         let additional_wts = self.data.parallel_jobs.get() - self.worker_join_handles.len() - 1;
@@ -114,15 +111,15 @@ impl Context {
             .extend(workers.iter().map(|w| w.stealer()));
         let mut index = self.worker_join_handles.len() + 1;
         for worker in workers.into_iter() {
-            let ctx_data = self.data.clone();
             let session = self.session.clone();
             self.worker_join_handles.push(std::thread::spawn(move || {
                 let sd = session.session_data.lock().unwrap();
                 let mut wt = WorkerThread::new(index, worker, session.as_ref(), &sd);
-                wt.run();
+                wt.run()
             }));
             index += 1;
         }
+        Ok(()) //TODO
     }
 }
 
@@ -136,19 +133,19 @@ impl<'a> WorkerThread<'a> {
                 .stealers
                 .iter()
                 .enumerate()
-                .filter(|(idx, s)| *idx != index)
-                .map(|(idx, s)| s.clone())
+                .filter(|(idx, _)| *idx != index)
+                .map(|(_, s)| s.clone())
                 .collect(),
             session_generation: sd.generation,
         }
     }
-    fn run(&mut self) {
+    fn run(&mut self) -> Result<(), OperationError> {
         loop {
             if let Some(job) = self.find_job() {
-                self.run_job(job);
+                self.run_job(job)?;
             } else {
                 if !self.get_next_session() {
-                    return;
+                    return Ok(());
                 }
             }
         }

@@ -1,6 +1,5 @@
 use crate::{
-    chain::ChainId,
-    document::{Document, DocumentReferencePoint, DocumentSource},
+    document::{Document, DocumentSource},
     operations::{OperationParameters, BUILTIN_OPERATIONS_CATALOG},
     options::{
         argument::{ArgumentReassignmentError, CliArgument},
@@ -11,18 +10,8 @@ use crate::{
     selenium::{SeleniumDownloadStrategy, SeleniumVariant},
 };
 use bstring::{bstr, BString};
-use lazy_static::{__Deref, lazy_static};
-use regex::Regex;
-use std::{
-    collections::btree_map::Range,
-    error::Error,
-    ffi::{OsStr, OsString},
-    fmt,
-    io::Write,
-    ops::RangeFull,
-    path::PathBuf,
-    str::from_utf8,
-};
+use lazy_static::lazy_static;
+use std::{error::Error, ffi::OsStr, fmt, path::PathBuf, str::from_utf8};
 #[derive(Debug)]
 pub struct CliArgumentError {
     message: String,
@@ -181,7 +170,7 @@ fn try_parse_document_source(
             }
         }
         "stdin" => {
-            if let Some(value) = value {
+            if value.is_some() {
                 Err(CliArgumentError::new(
                     "stdin does not take arguments".to_owned(),
                     cli_arg.clone(),
@@ -195,14 +184,14 @@ fn try_parse_document_source(
 }
 
 fn try_parse_selenium_variant(
-    value: Option<&bstr>,
-    cli_arg: &CliArgument,
+    _value: Option<&bstr>,
+    _cli_arg: &CliArgument,
 ) -> Result<Option<SeleniumVariant>, CliArgumentError> {
     todo!()
 }
 fn try_parse_selenium_download_strategy(
-    value: Option<&bstr>,
-    cli_arg: &CliArgument,
+    _value: Option<&bstr>,
+    _cli_arg: &CliArgument,
 ) -> Result<SeleniumDownloadStrategy, CliArgumentError> {
     todo!()
 }
@@ -320,7 +309,7 @@ fn try_parse_as_chain_opt(
     }
 
     if arg.argname == "dte" {
-        if let Some(val) = &arg.value {
+        if let Some(_val) = &arg.value {
             todo!("parse text encoding");
         } else {
             return Err(CliArgumentError::new(
@@ -358,7 +347,7 @@ fn try_parse_as_operation(
             continue;
         }
         let create = tf.create;
-        let mut arg_copy = arg.clone();
+        let arg_copy = arg.clone();
         let tf_inst = create(&ctx_opts, OperationParameters::from(arg_copy))
             .map_err(|op_err| CliArgumentError::new(op_err.message, arg.cli_arg.clone()))?;
         ctx_opts.add_op_to_ref(tf_inst);
@@ -370,7 +359,7 @@ fn try_parse_as_operation(
 pub fn parse_cli(args: &[BString]) -> Result<ContextOptions, CliArgumentError> {
     let mut ctx_opts = ContextOptions::default();
     for (i, arg_str) in args.iter().enumerate() {
-        let mut cli_arg = CliArgument {
+        let cli_arg = CliArgument {
             arg_index: i + 1,
             arg_str: arg_str.clone(),
         };
@@ -398,7 +387,7 @@ pub fn parse_cli(args: &[BString]) -> Result<ContextOptions, CliArgumentError> {
                 None
             };
 
-            let mut arg = ParsedCliArgument {
+            let arg = ParsedCliArgument {
                 argname: argname,
                 value: m.name("value").map(|l| BString::from(l.as_bytes())),
                 label: label,
@@ -410,7 +399,7 @@ pub fn parse_cli(args: &[BString]) -> Result<ContextOptions, CliArgumentError> {
             let succ_doc = try_parse_as_doc(&mut ctx_opts, &arg)?;
             let succ_co = try_parse_as_chain_opt(&mut ctx_opts, &arg)?;
             let succ_tf = try_parse_as_operation(&mut ctx_opts, &arg)?;
-            let succ_sum = (succ_ctx as u8 + succ_doc as u8 + succ_co as u8 + succ_tf as u8);
+            let succ_sum = succ_ctx as u8 + succ_doc as u8 + succ_co as u8 + succ_tf as u8;
             if succ_sum == 1 {
                 continue;
             }

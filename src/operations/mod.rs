@@ -6,14 +6,12 @@ pub mod start;
 pub mod transform;
 
 use std::error::Error;
-use std::mem::swap;
 
 use bstring::BString;
 use smallvec::SmallVec;
 
 use self::transform::Transform;
 use crate::chain::{Chain, ChainId};
-use crate::context::Context;
 use crate::options::argument::CliArgument;
 use crate::options::{chain_spec::ChainSpec, context_options::ContextOptions};
 
@@ -56,6 +54,13 @@ impl OperationError {
             op_offset,
         }
     }
+    pub fn from_op_ref(message: String, op_ref: OperationRef) -> OperationError {
+        OperationError {
+            message,
+            chain_id: Some(op_ref.chain_id),
+            op_offset: Some(op_ref.op_offset),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -96,7 +101,6 @@ pub struct OpBase {
     pub(crate) chainspec: Option<ChainSpec>,
     pub(crate) curr_chain: Option<ChainId>, // set by the context on add_op
     pub(crate) op_id: Option<OperationId>,  // set by the context on add_op
-    pub(crate) cli_arg: Option<CliArgument>,
     // filled during setup once the chainspec can be evaluated
     pub(crate) op_refs: SmallVec<[OperationRef; 2]>,
 }
@@ -106,13 +110,12 @@ impl OpBase {
         argname: String,
         label: Option<String>,
         chainspec: Option<ChainSpec>,
-        cli_arg: Option<CliArgument>,
+        _cli_arg: Option<CliArgument>,
     ) -> OpBase {
         OpBase {
             argname,
             label,
             chainspec,
-            cli_arg,
             curr_chain: None,
             op_id: None,
             op_refs: SmallVec::new(),
@@ -123,7 +126,6 @@ impl OpBase {
             argname: params.argname,
             label: params.label,
             chainspec: params.chainspec,
-            cli_arg: params.cli_arg,
             curr_chain: None,
             op_id: None,
             op_refs: SmallVec::new(),
@@ -140,7 +142,7 @@ pub trait Operation: OperationCloneBox + Send + Sync {
         tf_stack: &mut [Box<dyn Transform>],
     ) -> Result<Box<dyn Transform>, OperationError>;
     fn setup(&mut self, chains: &mut Vec<Chain>) -> Result<(), OperationError> {
-        if let Some(cs) = &self.base().chainspec {
+        if let Some(_cs) = &self.base().chainspec {
             todo!("ChainSpec::iter");
         } else {
             let chain_id = self.base().curr_chain.unwrap();

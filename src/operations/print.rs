@@ -1,13 +1,9 @@
 use std::io::Write;
 
-use bstring::BString;
-use smallvec::SmallVec;
-
 use crate::{
-    chain::ChainId,
     operations::transform::{DataKind, MatchData, StreamChunk, TfBase, Transform},
-    options::{argument::CliArgument, chain_spec::ChainSpec, context_options::ContextOptions},
-    plattform::{NEWLINE, NEWLINE_BYTES},
+    options::context_options::ContextOptions,
+    plattform::NEWLINE_BYTES,
 };
 
 use super::{
@@ -16,6 +12,7 @@ use super::{
 
 struct TfPrint {
     tf_base: TfBase,
+    op_ref: OperationRef,
 }
 
 #[derive(Clone)]
@@ -49,7 +46,7 @@ impl Operation for OpPrint {
         let mut tf_base = TfBase::from_parent(parent);
         tf_base.needs_stdout = true;
         tf_base.data_kind = DataKind::None;
-        let tfp = Box::new(TfPrint { tf_base });
+        let tfp = Box::new(TfPrint { tf_base, op_ref });
         parent.dependants.push(tfp.tf_base.tfs_index);
         Ok(tfp)
     }
@@ -67,8 +64,8 @@ impl Transform for TfPrint {
     fn process_chunk<'a: 'b, 'b>(
         &'a mut self,
         _tf_stack: &'a [Box<dyn Transform>],
-        sc: &'b StreamChunk<'b>,
-        final_chunk: bool,
+        _sc: &'b StreamChunk<'b>,
+        _final_chunk: bool,
     ) -> Result<Option<&'b StreamChunk<'b>>, OperationError> {
         todo!()
     }
@@ -77,8 +74,9 @@ impl Transform for TfPrint {
         match tf_stack[self.tf_base.tfs_index as usize - 1].data(tf_stack) {
             Some(MatchData::Bytes(b)) => {
                 let mut s = std::io::stdout();
-                s.write(b.as_slice());
-                s.write(NEWLINE_BYTES);
+                s.write(b.as_slice())
+                    .and_then(|_| s.write(NEWLINE_BYTES))
+                    .map_err(|_| OperationError::from_op_ref("io error".to_owned(), self.op_ref))?;
             }
             Some(MatchData::Text(s)) => {
                 println!("{}", s);
@@ -95,7 +93,7 @@ impl Transform for TfPrint {
         Ok(true)
     }
 
-    fn data<'a>(&'a self, tf_stack: &'a [Box<dyn Transform>]) -> Option<&'a MatchData> {
+    fn data<'a>(&'a self, _tf_stack: &'a [Box<dyn Transform>]) -> Option<&'a MatchData> {
         todo!()
     }
 }
@@ -106,7 +104,7 @@ impl OperationCatalogMember for OpPrint {
     }
 
     fn create(
-        ctx: &ContextOptions,
+        _ctx: &ContextOptions,
         params: OperationParameters,
     ) -> Result<Box<dyn Operation>, OperationError> {
         Ok(Box::new(OpPrint {

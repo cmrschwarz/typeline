@@ -1,15 +1,10 @@
-use bstring::BString;
-use smallvec::SmallVec;
-
 use crate::{
-    chain::ChainId,
     operations::transform::{MatchData, StreamChunk, TfBase, Transform, TransformStackIndex},
-    options::{argument::CliArgument, chain_spec::ChainSpec, context_options::ContextOptions},
+    options::context_options::ContextOptions,
 };
 
 use super::{
-    OpBase, Operation, OperationCatalogMember, OperationError, OperationId, OperationOffsetInChain,
-    OperationParameters, OperationRef,
+    OpBase, Operation, OperationCatalogMember, OperationError, OperationParameters, OperationRef,
 };
 
 pub struct TfParent {
@@ -31,14 +26,14 @@ impl Transform for TfParent {
         &'a mut self,
         _tf_stack: &'a [Box<dyn Transform>],
         sc: &'b StreamChunk<'b>,
-        final_chunk: bool,
+        _final_chunk: bool,
     ) -> Result<Option<&'b StreamChunk<'b>>, OperationError> {
         Ok(Some(sc))
     }
 
     fn data<'a>(&'a self, tf_stack: &'a [Box<dyn Transform>]) -> Option<&'a MatchData> {
         let mut parent_idx = self.tf_base.tfs_index as usize;
-        for i in 0..self.offset {
+        for _ in 0..self.offset {
             if tf_stack[parent_idx].base().begin_of_chain || parent_idx == 0 {
                 assert!(false);
             }
@@ -48,7 +43,7 @@ impl Transform for TfParent {
         tf_stack[parent_idx].data(&tf_stack[0..parent_idx as usize])
     }
 
-    fn evaluate(&mut self, tf_stack: &mut [Box<dyn Transform>]) -> Result<bool, OperationError> {
+    fn evaluate(&mut self, _tf_stack: &mut [Box<dyn Transform>]) -> Result<bool, OperationError> {
         Ok(true)
     }
 }

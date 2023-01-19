@@ -21,17 +21,17 @@ impl Transform for TfStart {
     fn process_chunk<'a: 'b, 'b>(
         &'a mut self,
         _tf_stack: &'a [Box<dyn Transform>],
-        sc: &'b StreamChunk<'b>,
-        final_chunk: bool,
+        _sc: &'b StreamChunk<'b>,
+        _final_chunk: bool,
     ) -> Result<Option<&'b StreamChunk<'b>>, OperationError> {
         Ok(None)
     }
 
-    fn evaluate(&mut self, tf_stack: &mut [Box<dyn Transform>]) -> Result<bool, OperationError> {
+    fn evaluate(&mut self, _tf_stack: &mut [Box<dyn Transform>]) -> Result<bool, OperationError> {
         Ok(true)
     }
 
-    fn data<'a>(&'a self, tf_stack: &'a [Box<dyn Transform>]) -> Option<&'a MatchData> {
+    fn data<'a>(&'a self, _tf_stack: &'a [Box<dyn Transform>]) -> Option<&'a MatchData> {
         Some(&self.data)
     }
 }

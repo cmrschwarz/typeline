@@ -1,11 +1,6 @@
-use smallvec::SmallVec;
+use crate::operations::transform::{DataKind, MatchData, StreamChunk, TfBase, Transform};
 
-use crate::{
-    operations::transform::{DataKind, MatchData, StreamChunk, TfBase, Transform},
-    options::{chain_spec::ChainSpec, context_options::ContextOptions},
-};
-
-use super::{Operation, OperationCatalogMember, OperationError};
+use super::OperationError;
 
 pub struct TfReadStdin {
     pub tf_base: TfBase,
@@ -23,17 +18,17 @@ impl Transform for TfReadStdin {
     fn process_chunk<'a: 'b, 'b>(
         &'a mut self,
         _tf_stack: &'a [Box<dyn Transform>],
-        sc: &'b StreamChunk<'b>,
-        final_chunk: bool,
+        _sc: &'b StreamChunk<'b>,
+        _final_chunk: bool,
     ) -> Result<Option<&'b StreamChunk<'b>>, OperationError> {
         Ok(None)
     }
 
-    fn data<'a>(&'a self, tf_stack: &'a [Box<dyn Transform>]) -> Option<&'a MatchData> {
+    fn data<'a>(&'a self, _tf_stack: &'a [Box<dyn Transform>]) -> Option<&'a MatchData> {
         None
     }
 
-    fn evaluate(&mut self, tf_stack: &mut [Box<dyn Transform>]) -> Result<bool, OperationError> {
+    fn evaluate(&mut self, _tf_stack: &mut [Box<dyn Transform>]) -> Result<bool, OperationError> {
         Ok(true)
     }
 }

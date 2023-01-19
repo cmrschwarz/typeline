@@ -1,8 +1,8 @@
-use std::{fmt::Display, ops::Range};
+use std::fmt::Display;
 
 use smallvec::SmallVec;
 
-use crate::operations::{OperationError, OperationRef};
+use crate::operations::OperationError;
 
 #[derive(Clone, Copy)]
 pub enum DataKind {
