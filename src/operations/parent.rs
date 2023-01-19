@@ -1,4 +1,5 @@
 use crate::{
+    context::ContextData,
     operations::transform::{MatchData, StreamChunk, TfBase, Transform, TransformStackIndex},
     options::context_options::ContextOptions,
 };
@@ -8,7 +9,6 @@ use super::{
     OperationCatalogMember, OperationCreationError, OperationParameters, OperationRef,
 };
 
-#[derive(Clone)]
 pub struct TfParent {
     pub tf_base: TfBase,
     pub op_ref: OperationRef,
@@ -26,6 +26,7 @@ impl Transform for TfParent {
 
     fn process_chunk<'a: 'b, 'b>(
         &'a mut self,
+        _ctx: &'a ContextData,
         _tf_stack: &'a [Box<dyn Transform>],
         sc: &'b StreamChunk<'b>,
         _final_chunk: bool,
@@ -35,6 +36,7 @@ impl Transform for TfParent {
 
     fn data<'a>(
         &'a self,
+        ctx: &'a ContextData,
         tf_stack: &'a [Box<dyn Transform>],
     ) -> Result<Option<&'a MatchData>, TransformApplicationError> {
         let mut parent_idx = self.tf_base.tfs_index as usize;
@@ -48,11 +50,12 @@ impl Transform for TfParent {
             parent_idx -= 1;
         }
 
-        tf_stack[parent_idx].data(&tf_stack[0..parent_idx as usize])
+        tf_stack[parent_idx].data(ctx, &tf_stack[0..parent_idx as usize])
     }
 
     fn evaluate(
         &mut self,
+        _ctx: &ContextData,
         _tf_stack: &mut [Box<dyn Transform>],
     ) -> Result<bool, TransformApplicationError> {
         Ok(true)

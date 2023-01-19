@@ -1,5 +1,7 @@
 use std::io::Write;
 
+use regex::Regex;
+
 use crate::{
     context::ContextData,
     operations::transform::{DataKind, MatchData, StreamChunk, TfBase, Transform},
@@ -12,25 +14,27 @@ use super::{
     OperationCatalogMember, OperationCreationError, OperationParameters, OperationRef,
 };
 
-struct TfPrint {
+struct TfRegex {
     tf_base: TfBase,
     op_ref: OperationRef,
 }
 
 #[derive(Clone)]
-pub struct OpPrint {
+pub struct OpRegex {
     pub op_base: OpBase,
+    pub regex: Regex,
 }
 
-impl OpPrint {
-    pub fn new() -> Box<OpPrint> {
-        Box::new(OpPrint {
-            op_base: OpBase::new("print".to_owned(), None, None, None),
+impl OpRegex {
+    pub fn new(regex: Regex) -> Box<OpRegex> {
+        Box::new(OpRegex {
+            op_base: OpBase::new("regex".to_owned(), None, None, None),
+            regex,
         })
     }
 }
 
-impl Operation for OpPrint {
+impl Operation for OpRegex {
     fn base(&self) -> &super::OpBase {
         &self.op_base
     }
@@ -46,15 +50,14 @@ impl Operation for OpPrint {
     ) -> Result<Box<dyn Transform>, OperationApplicationError> {
         let parent = tf_stack.last_mut().unwrap().base_mut();
         let mut tf_base = TfBase::from_parent(parent);
-        tf_base.needs_stdout = true;
-        tf_base.data_kind = DataKind::None;
-        let tfp = Box::new(TfPrint { tf_base, op_ref });
+        tf_base.data_kind = DataKind::Text;
+        let tfp = Box::new(TfRegex { tf_base, op_ref });
         parent.dependants.push(tfp.tf_base.tfs_index);
         Ok(tfp)
     }
 }
 
-impl Transform for TfPrint {
+impl Transform for TfRegex {
     fn base(&self) -> &TfBase {
         &self.tf_base
     }
@@ -70,7 +73,7 @@ impl Transform for TfPrint {
         _sc: &'b StreamChunk<'b>,
         _final_chunk: bool,
     ) -> Result<Option<&'b StreamChunk<'b>>, TransformApplicationError> {
-        todo!()
+        panic!("regex doesn't support streaming mode");
     }
 
     fn evaluate(
@@ -109,23 +112,36 @@ impl Transform for TfPrint {
     }
 }
 
-impl OperationCatalogMember for OpPrint {
+impl OperationCatalogMember for OpRegex {
     fn name_matches(name: &str) -> bool {
-        "print".starts_with(name)
+        "regex".starts_with(name)
     }
 
     fn create(
         _ctx: &ContextOptions,
         params: OperationParameters,
     ) -> Result<Box<dyn Operation>, OperationCreationError> {
-        if params.value.is_some() {
+        if let Some(ref value) = params.value {
+            match value.to_str() {
+                Err(_) => Err(OperationCreationError::new(
+                    "regex pattern must be legal UTF-8",
+                    params.cli_arg.map(|arg| arg.idx),
+                )),
+                Ok(value) => Ok(Box::new(OpRegex {
+                    regex: Regex::new(value).map_err(|_| {
+                        OperationCreationError::new(
+                            "failed to compile regex",
+                            params.cli_arg.as_ref().map(|arg| arg.idx),
+                        )
+                    })?,
+                    op_base: OpBase::from_op_params(params),
+                })),
+            }
+        } else {
             return Err(OperationCreationError::new(
-                "print takes no argument",
+                "regex needs an argument",
                 params.cli_arg.map(|arg| arg.idx),
             ));
         }
-        Ok(Box::new(OpPrint {
-            op_base: OpBase::from_op_params(params),
-        }))
     }
 }

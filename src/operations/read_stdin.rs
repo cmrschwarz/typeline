@@ -1,8 +1,10 @@
-use crate::operations::transform::{DataKind, MatchData, StreamChunk, TfBase, Transform};
+use crate::{
+    context::ContextData,
+    operations::transform::{DataKind, MatchData, StreamChunk, TfBase, Transform},
+};
 
 use super::transform::TransformApplicationError;
 
-#[derive(Clone)]
 pub struct TfReadStdin {
     pub tf_base: TfBase,
 }
@@ -18,6 +20,7 @@ impl Transform for TfReadStdin {
 
     fn process_chunk<'a: 'b, 'b>(
         &'a mut self,
+        _ctx: &'a ContextData,
         _tf_stack: &'a [Box<dyn Transform>],
         _sc: &'b StreamChunk<'b>,
         _final_chunk: bool,
@@ -27,6 +30,7 @@ impl Transform for TfReadStdin {
 
     fn data<'a>(
         &'a self,
+        _ctx: &'a ContextData,
         _tf_stack: &'a [Box<dyn Transform>],
     ) -> Result<Option<&'a MatchData>, TransformApplicationError> {
         panic!("attempted to get MatchData from a stream");
@@ -34,6 +38,7 @@ impl Transform for TfReadStdin {
 
     fn evaluate(
         &mut self,
+        _ctx: &ContextData,
         _tf_stack: &mut [Box<dyn Transform>],
     ) -> Result<bool, TransformApplicationError> {
         Ok(true)

@@ -331,7 +331,7 @@ fn try_parse_as_operation(
     ctx_opts: &mut ContextOptions,
     arg: &ParsedCliArgument,
 ) -> Result<bool, CliArgumentError> {
-    for tf in &BUILTIN_OPERATIONS_CATALOG {
+    for tf in BUILTIN_OPERATIONS_CATALOG {
         let name_matches = tf.name_matches;
         if !name_matches(&&*arg.argname) {
             continue;

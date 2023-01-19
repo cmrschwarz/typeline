@@ -1,10 +1,12 @@
 use smallvec::SmallVec;
 
-use crate::operations::transform::{MatchData, StreamChunk, TfBase, Transform};
+use crate::{
+    context::ContextData,
+    operations::transform::{MatchData, StreamChunk, TfBase, Transform},
+};
 
 use super::transform::TransformApplicationError;
 
-#[derive(Clone)]
 pub struct TfStart {
     pub tf_base: TfBase,
     pub data: MatchData,
@@ -21,6 +23,7 @@ impl Transform for TfStart {
 
     fn process_chunk<'a: 'b, 'b>(
         &'a mut self,
+        _ctx: &'a ContextData,
         _tf_stack: &'a [Box<dyn Transform>],
         _sc: &'b StreamChunk<'b>,
         _final_chunk: bool,
@@ -30,6 +33,7 @@ impl Transform for TfStart {
 
     fn evaluate(
         &mut self,
+        _ctx: &ContextData,
         _tf_stack: &mut [Box<dyn Transform>],
     ) -> Result<bool, TransformApplicationError> {
         Ok(true)
@@ -37,6 +41,7 @@ impl Transform for TfStart {
 
     fn data<'a>(
         &'a self,
+        _ctx: &'a ContextData,
         _tf_stack: &'a [Box<dyn Transform>],
     ) -> Result<Option<&'a MatchData>, TransformApplicationError> {
         Ok(Some(&self.data))

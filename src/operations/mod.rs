@@ -2,12 +2,14 @@ pub mod html;
 pub mod parent;
 pub mod print;
 pub mod read_stdin;
+pub mod regex;
 pub mod start;
 pub mod transform;
 use bstring::BString;
 use smallvec::SmallVec;
 use thiserror::Error;
 
+use self::regex::OpRegex;
 use self::transform::Transform;
 use crate::chain::{Chain, ChainId};
 use crate::options::argument::{CliArgIdx, CliArgument};
@@ -223,7 +225,8 @@ pub const fn create_catalog_entry<TS: OperationCatalogMember>() -> OperationCata
     }
 }
 
-pub const BUILTIN_OPERATIONS_CATALOG: [OperationCatalogEntry; 2] = [
+pub const BUILTIN_OPERATIONS_CATALOG: &[OperationCatalogEntry] = &[
     create_catalog_entry::<OpParent>(),
     create_catalog_entry::<OpPrint>(),
+    create_catalog_entry::<OpRegex>(),
 ];

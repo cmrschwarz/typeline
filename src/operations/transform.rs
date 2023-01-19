@@ -3,6 +3,8 @@ use std::fmt::Display;
 use smallvec::SmallVec;
 use thiserror::Error;
 
+use crate::context::ContextData;
+
 use super::OperationRef;
 
 #[derive(Error, Debug, Clone)]
@@ -90,39 +92,26 @@ impl TfBase {
     }
 }
 
-pub trait TransformCloneBoxed {
-    fn clone_boxed(&self) -> Box<dyn Transform>;
-}
-
-impl<T: Transform + Clone + 'static> TransformCloneBoxed for T {
-    fn clone_boxed(&self) -> Box<dyn Transform> {
-        Box::new(self.clone())
-    }
-}
-
-pub trait Transform: Send + Sync + TransformCloneBoxed {
+pub trait Transform: Send {
     fn base(&self) -> &TfBase;
     fn base_mut(&mut self) -> &mut TfBase;
     fn process_chunk<'a: 'b, 'b>(
         &'a mut self,
+        ctx: &'a ContextData,
         _tf_stack: &'a [Box<dyn Transform>],
         sc: &'b StreamChunk<'b>,
         final_chunk: bool,
     ) -> Result<Option<&'b StreamChunk<'b>>, TransformApplicationError>;
     fn evaluate(
         &mut self,
+        ctx: &ContextData,
         tf_stack: &mut [Box<dyn Transform>],
     ) -> Result<bool, TransformApplicationError>;
     fn data<'a>(
         &'a self,
+        ctx: &'a ContextData,
         tf_stack: &'a [Box<dyn Transform>],
     ) -> Result<Option<&'a MatchData>, TransformApplicationError>;
-}
-
-impl Clone for Box<dyn Transform> {
-    fn clone(&self) -> Self {
-        self.clone_boxed()
-    }
 }
 
 impl std::ops::Deref for dyn Transform {

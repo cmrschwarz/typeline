@@ -225,7 +225,7 @@ impl<'a> WorkerThread<'a> {
             let (tf_stack_head, tf_stack_tail) =
                 tf_stack.as_mut_slice().split_at_mut(tfs_id as usize);
             let tf = &mut tf_stack_tail[0];
-            if tf.evaluate(tf_stack_head)? {
+            if tf.evaluate(&self.ctx, tf_stack_head)? {
                 for dep_id in &tf.dependants {
                     eval_stack.push_back(*dep_id);
                 }
