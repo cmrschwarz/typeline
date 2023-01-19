@@ -7,7 +7,8 @@ use crate::{
 };
 
 use super::{
-    OpBase, Operation, OperationCatalogMember, OperationError, OperationParameters, OperationRef,
+    transform::TransformApplicationError, OpBase, Operation, OperationApplicationError,
+    OperationCatalogMember, OperationCreationError, OperationParameters, OperationRef,
 };
 
 struct TfPrint {
@@ -41,7 +42,7 @@ impl Operation for OpPrint {
         &self,
         op_ref: OperationRef,
         tf_stack: &mut [Box<dyn Transform>],
-    ) -> Result<Box<dyn Transform>, OperationError> {
+    ) -> Result<Box<dyn Transform>, OperationApplicationError> {
         let parent = tf_stack.last_mut().unwrap().base_mut();
         let mut tf_base = TfBase::from_parent(parent);
         tf_base.needs_stdout = true;
@@ -66,17 +67,20 @@ impl Transform for TfPrint {
         _tf_stack: &'a [Box<dyn Transform>],
         _sc: &'b StreamChunk<'b>,
         _final_chunk: bool,
-    ) -> Result<Option<&'b StreamChunk<'b>>, OperationError> {
+    ) -> Result<Option<&'b StreamChunk<'b>>, TransformApplicationError> {
         todo!()
     }
 
-    fn evaluate(&mut self, tf_stack: &mut [Box<dyn Transform>]) -> Result<bool, OperationError> {
+    fn evaluate(
+        &mut self,
+        tf_stack: &mut [Box<dyn Transform>],
+    ) -> Result<bool, TransformApplicationError> {
         match tf_stack[self.tf_base.tfs_index as usize - 1].data(tf_stack) {
             Some(MatchData::Bytes(b)) => {
                 let mut s = std::io::stdout();
                 s.write(b.as_slice())
                     .and_then(|_| s.write(NEWLINE_BYTES))
-                    .map_err(|_| OperationError::from_op_ref("io error".to_owned(), self.op_ref))?;
+                    .map_err(|_| TransformApplicationError::new("io error", self.op_ref))?;
             }
             Some(MatchData::Text(s)) => {
                 println!("{}", s);
@@ -106,7 +110,7 @@ impl OperationCatalogMember for OpPrint {
     fn create(
         _ctx: &ContextOptions,
         params: OperationParameters,
-    ) -> Result<Box<dyn Operation>, OperationError> {
+    ) -> Result<Box<dyn Operation>, OperationCreationError> {
         Ok(Box::new(OpPrint {
             op_base: OpBase::from_op_params(params),
         }))

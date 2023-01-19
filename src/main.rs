@@ -1,5 +1,5 @@
 use std::process::ExitCode;
-use scr::cli::parse_cli_from_env;
+use scr::{cli::parse_cli_from_env, scr_error::ScrError};
 
 
 #[tokio::main]
@@ -8,17 +8,11 @@ async fn main() -> ExitCode {
         eprintln!("[ERROR]: missing arguments, consider supplying --help");
         return ExitCode::FAILURE;
     }
-    let ctx_opts = parse_cli_from_env();
-    match ctx_opts {
-        Ok(ctx_opts) => {
-            match ctx_opts.build_context().and_then(|mut ctx|ctx.run()) {
-                Ok(_) => ExitCode::SUCCESS,
-                Err(err) => {
-                    eprintln!("[ERROR]: {}", err);
-                    ExitCode::FAILURE
-                }
-            }
-        }
+    let res = parse_cli_from_env().map_err(ScrError::from)
+        .and_then(|ctx_opts|ctx_opts.build_context().map_err(ScrError::from))
+        .and_then(|mut ctx|ctx.run());
+    match res {
+        Ok(_) => ExitCode::SUCCESS,
         Err(err) => {
             eprintln!("[ERROR]: {}", err);
             ExitCode::FAILURE

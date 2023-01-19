@@ -4,7 +4,8 @@ use crate::{
 };
 
 use super::{
-    OpBase, Operation, OperationCatalogMember, OperationError, OperationParameters, OperationRef,
+    transform::TransformApplicationError, OpBase, Operation, OperationApplicationError,
+    OperationCatalogMember, OperationCreationError, OperationParameters, OperationRef,
 };
 
 pub struct TfParent {
@@ -27,7 +28,7 @@ impl Transform for TfParent {
         _tf_stack: &'a [Box<dyn Transform>],
         sc: &'b StreamChunk<'b>,
         _final_chunk: bool,
-    ) -> Result<Option<&'b StreamChunk<'b>>, OperationError> {
+    ) -> Result<Option<&'b StreamChunk<'b>>, TransformApplicationError> {
         Ok(Some(sc))
     }
 
@@ -43,7 +44,10 @@ impl Transform for TfParent {
         tf_stack[parent_idx].data(&tf_stack[0..parent_idx as usize])
     }
 
-    fn evaluate(&mut self, _tf_stack: &mut [Box<dyn Transform>]) -> Result<bool, OperationError> {
+    fn evaluate(
+        &mut self,
+        _tf_stack: &mut [Box<dyn Transform>],
+    ) -> Result<bool, TransformApplicationError> {
         Ok(true)
     }
 }
@@ -69,7 +73,7 @@ impl Operation for OpParent {
         &self,
         op_ref: OperationRef,
         tf_stack: &mut [Box<dyn Transform>],
-    ) -> Result<Box<dyn Transform>, OperationError> {
+    ) -> Result<Box<dyn Transform>, OperationApplicationError> {
         let parent = tf_stack.last_mut().unwrap().base_mut();
         let tf_base = TfBase::from_parent(parent);
         let tfp = Box::new(TfParent {
@@ -95,16 +99,12 @@ impl OperationCatalogMember for OpParent {
         "parent".starts_with(name) && name.len() > 1
     }
     fn create(
-        ctx: &ContextOptions,
+        _ctx: &ContextOptions,
         params: OperationParameters,
-    ) -> Result<Box<dyn Operation>, OperationError> {
+    ) -> Result<Box<dyn Operation>, OperationCreationError> {
         let offset = if let Some(ref value) = params.value {
             value.parse::<TransformStackIndex>().map_err(|_| {
-                OperationError::new(
-                    "failed to parse parent argument as integer".to_owned(),
-                    Some(ctx.curr_chain),
-                    None,
-                )
+                OperationCreationError::new("failed to parse parent argument as integer")
             })?
         } else {
             1

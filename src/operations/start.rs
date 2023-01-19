@@ -2,7 +2,7 @@ use smallvec::SmallVec;
 
 use crate::operations::transform::{MatchData, StreamChunk, TfBase, Transform};
 
-use super::OperationError;
+use super::transform::TransformApplicationError;
 
 pub struct TfStart {
     pub tf_base: TfBase,
@@ -23,11 +23,14 @@ impl Transform for TfStart {
         _tf_stack: &'a [Box<dyn Transform>],
         _sc: &'b StreamChunk<'b>,
         _final_chunk: bool,
-    ) -> Result<Option<&'b StreamChunk<'b>>, OperationError> {
+    ) -> Result<Option<&'b StreamChunk<'b>>, TransformApplicationError> {
         Ok(None)
     }
 
-    fn evaluate(&mut self, _tf_stack: &mut [Box<dyn Transform>]) -> Result<bool, OperationError> {
+    fn evaluate(
+        &mut self,
+        _tf_stack: &mut [Box<dyn Transform>],
+    ) -> Result<bool, TransformApplicationError> {
         Ok(true)
     }
 

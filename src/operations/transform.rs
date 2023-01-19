@@ -1,8 +1,25 @@
 use std::fmt::Display;
 
 use smallvec::SmallVec;
+use thiserror::Error;
 
-use crate::operations::OperationError;
+use super::OperationRef;
+
+#[derive(Error, Debug, Clone)]
+#[error("in op {0} of chain {1}: {message}", op_ref.op_offset, op_ref.chain_id)]
+pub struct TransformApplicationError {
+    message: String,
+    op_ref: OperationRef,
+}
+
+impl TransformApplicationError {
+    pub fn new(message: &str, op_ref: OperationRef) -> TransformApplicationError {
+        TransformApplicationError {
+            message: message.to_owned(),
+            op_ref,
+        }
+    }
+}
 
 #[derive(Clone, Copy)]
 pub enum DataKind {
@@ -78,8 +95,11 @@ pub trait Transform: Send + Sync {
         _tf_stack: &'a [Box<dyn Transform>],
         sc: &'b StreamChunk<'b>,
         final_chunk: bool,
-    ) -> Result<Option<&'b StreamChunk<'b>>, OperationError>;
-    fn evaluate(&mut self, tf_stack: &mut [Box<dyn Transform>]) -> Result<bool, OperationError>;
+    ) -> Result<Option<&'b StreamChunk<'b>>, TransformApplicationError>;
+    fn evaluate(
+        &mut self,
+        tf_stack: &mut [Box<dyn Transform>],
+    ) -> Result<bool, TransformApplicationError>;
     fn data<'a>(&'a self, tf_stack: &'a [Box<dyn Transform>]) -> Option<&'a MatchData>;
 }
 

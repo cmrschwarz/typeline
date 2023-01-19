@@ -11,7 +11,8 @@ use crate::document::{Document, DocumentSource};
 use crate::operations::parent::TfParent;
 use crate::operations::read_stdin::TfReadStdin;
 use crate::operations::transform::{TfBase, Transform, TransformStackIndex};
-use crate::operations::{Operation, OperationError, OperationRef};
+use crate::operations::{Operation, OperationRef};
+use crate::scr_error::ScrError;
 
 pub struct Job {
     ops: SmallVec<[OperationRef; 2]>,
@@ -41,7 +42,7 @@ pub struct Context {
     pub data: Arc<ContextData>,
     pub session: Arc<Session>,
     pub main_thread_worker: Worker<Job>,
-    pub worker_join_handles: Vec<std::thread::JoinHandle<Result<(), OperationError>>>,
+    pub worker_join_handles: Vec<std::thread::JoinHandle<Result<(), ScrError>>>,
 }
 
 struct WorkerThread<'a> {
@@ -96,7 +97,7 @@ impl Context {
             });
         }
     }
-    pub fn run(&mut self) -> Result<(), OperationError> {
+    pub fn run(&mut self) -> Result<(), ScrError> {
         self.gen_jobs_from_docs();
         assert!(self.data.parallel_jobs.get() > self.worker_join_handles.len()); // TODO: handle this case
         let additional_wts = self.data.parallel_jobs.get() - self.worker_join_handles.len() - 1;
@@ -139,7 +140,7 @@ impl<'a> WorkerThread<'a> {
             session_generation: sd.generation,
         }
     }
-    fn run(&mut self) -> Result<(), OperationError> {
+    fn run(&mut self) -> Result<(), ScrError> {
         loop {
             if let Some(job) = self.find_job() {
                 self.run_job(job)?;
@@ -189,7 +190,7 @@ impl<'a> WorkerThread<'a> {
         })
     }
 
-    fn run_job(&mut self, job: Job) -> Result<(), OperationError> {
+    fn run_job(&mut self, job: Job) -> Result<(), ScrError> {
         assert!(job.tf.begin_of_chain == true);
         let mut tf_stack: SmallVec<[Box<dyn Transform>; 4]> = smallvec![job.tf];
         for (i, op_ref) in job.ops.iter().enumerate() {

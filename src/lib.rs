@@ -5,6 +5,7 @@ extern crate num;
 extern crate regex;
 extern crate smallvec;
 extern crate lazy_static;
+extern crate thiserror;
 
 pub mod chain;
 pub mod cli;
@@ -15,3 +16,4 @@ pub mod operations;
 pub mod options;
 pub mod plattform;
 pub mod selenium;
+pub mod scr_error;

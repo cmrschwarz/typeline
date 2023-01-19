@@ -4,7 +4,7 @@ use crate::{
     chain::ChainId,
     context::{Context, ContextData},
     document::Document,
-    operations::{Operation, OperationError, OperationId},
+    operations::{Operation, OperationId, OperationSetupError},
     selenium::SeleniumVariant,
 };
 
@@ -80,7 +80,7 @@ impl ContextOptions {
         }
         self
     }
-    pub fn build_context(self) -> Result<Context, OperationError> {
+    pub fn build_context(self) -> Result<Context, OperationSetupError> {
         let parallel_jobs = NonZeroUsize::try_from(
             self.parallel_jobs
                 .value

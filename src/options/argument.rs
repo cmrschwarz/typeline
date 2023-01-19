@@ -4,20 +4,22 @@ use bstring::BString;
 
 #[derive(Clone, Debug)]
 pub struct CliArgument {
-    pub arg_index: usize,
-    pub arg_str: BString,
+    pub idx: CliArgIdx,
+    pub value: BString,
 }
+
+pub type CliArgIdx = u32;
 
 #[derive(Clone)]
 pub struct Argument<T: Clone> {
     pub value: Option<T>,
-    pub cli_arg: Option<CliArgument>,
+    pub cli_arg_idx: Option<CliArgIdx>,
 }
 
 #[derive(Debug)]
 pub struct ArgumentReassignmentError {
     pub message: &'static str,
-    pub cli_arg: Option<CliArgument>,
+    pub cli_arg_idx: Option<CliArgIdx>,
 }
 impl fmt::Display for ArgumentReassignmentError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -30,7 +32,7 @@ impl<T: Clone> Default for Argument<T> {
     fn default() -> Self {
         Self {
             value: None,
-            cli_arg: None,
+            cli_arg_idx: None,
         }
     }
 }
@@ -46,20 +48,20 @@ impl<T: Clone> Argument<T> {
     pub const fn new(t: T) -> Self {
         Self {
             value: Some(t),
-            cli_arg: None,
+            cli_arg_idx: None,
         }
     }
-    pub const fn new_with_arg(t: T, cli_arg: CliArgument) -> Self {
+    pub const fn new_with_arg_idx(t: T, cli_arg_idx: CliArgIdx) -> Self {
         Self {
             value: Some(t),
-            cli_arg: Some(cli_arg),
+            cli_arg_idx: Some(cli_arg_idx),
         }
     }
     pub fn set(&mut self, value: T) -> Result<(), ArgumentReassignmentError> {
         if self.value.is_some() {
             return Err(ArgumentReassignmentError {
                 message: "attempted to reassign value of option",
-                cli_arg: self.cli_arg.clone(),
+                cli_arg_idx: self.cli_arg_idx,
             });
         }
         self.value = Some(value);

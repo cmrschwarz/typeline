@@ -4,11 +4,9 @@ pub mod print;
 pub mod read_stdin;
 pub mod start;
 pub mod transform;
-
-use std::error::Error;
-
 use bstring::BString;
 use smallvec::SmallVec;
+use thiserror::Error;
 
 use self::transform::Transform;
 use crate::chain::{Chain, ChainId};
@@ -21,44 +19,54 @@ use self::print::OpPrint;
 pub type OperationId = u32;
 pub type OperationOffsetInChain = u32;
 
-#[derive(Debug, Clone)]
-pub struct OperationError {
+#[derive(Error, Debug, Clone)]
+#[error("{message}")]
+pub struct OperationCreationError {
     pub message: String,
-    pub chain_id: Option<ChainId>,
-    pub op_offset: Option<OperationOffsetInChain>,
 }
-impl std::fmt::Display for OperationError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if let Some(id) = self.chain_id {
-            if let Some(op_offset) = self.op_offset {
-                write!(f, "in chain {}, op {}: {}", id, op_offset, &self.message)?;
-            } else {
-                write!(f, "in chain {}: {}", id, &self.message)?;
-            }
-        } else {
-            f.write_str(&self.message)?;
+
+impl OperationCreationError {
+    pub fn new(message: &str) -> OperationCreationError {
+        OperationCreationError {
+            message: message.to_owned(),
         }
-        Ok(())
     }
 }
-impl Error for OperationError {}
-impl OperationError {
+
+#[derive(Error, Debug, Clone)]
+#[error("in op id {op_id}: {message}")]
+pub struct OperationSetupError {
+    pub message: String,
+    pub op_id: OperationId,
+}
+
+impl OperationSetupError {
+    pub fn new(message: &str, op_id: OperationId) -> OperationSetupError {
+        OperationSetupError {
+            message: message.to_owned(),
+            op_id,
+        }
+    }
+}
+
+#[derive(Error, Debug, Clone)]
+#[error("in op {0} of chain {1}: {message}", op_ref.op_offset, op_ref.chain_id)]
+pub struct OperationApplicationError {
+    pub message: String,
+    pub op_id: OperationId,
+    pub op_ref: OperationRef,
+}
+
+impl OperationApplicationError {
     pub fn new(
-        message: String,
-        chain_id: Option<ChainId>,
-        op_offset: Option<OperationOffsetInChain>,
-    ) -> OperationError {
-        OperationError {
-            message,
-            chain_id,
-            op_offset,
-        }
-    }
-    pub fn from_op_ref(message: String, op_ref: OperationRef) -> OperationError {
-        OperationError {
-            message,
-            chain_id: Some(op_ref.chain_id),
-            op_offset: Some(op_ref.op_offset),
+        message: &str,
+        op_id: OperationId,
+        op_ref: OperationRef,
+    ) -> OperationApplicationError {
+        OperationApplicationError {
+            message: message.to_owned(),
+            op_id,
+            op_ref,
         }
     }
 }
@@ -140,8 +148,8 @@ pub trait Operation: OperationCloneBox + Send + Sync {
         &self,
         op_ref: OperationRef,
         tf_stack: &mut [Box<dyn Transform>],
-    ) -> Result<Box<dyn Transform>, OperationError>;
-    fn setup(&mut self, chains: &mut Vec<Chain>) -> Result<(), OperationError> {
+    ) -> Result<Box<dyn Transform>, OperationApplicationError>;
+    fn setup(&mut self, chains: &mut Vec<Chain>) -> Result<(), OperationSetupError> {
         if let Some(_cs) = &self.base().chainspec {
             todo!("ChainSpec::iter");
         } else {
@@ -192,7 +200,7 @@ pub trait OperationCatalogMember: Operation {
     fn create(
         ctx: &ContextOptions,
         params: OperationParameters,
-    ) -> Result<Box<dyn Operation>, OperationError>;
+    ) -> Result<Box<dyn Operation>, OperationCreationError>;
 }
 
 pub struct OperationCatalogEntry {
@@ -200,7 +208,7 @@ pub struct OperationCatalogEntry {
     pub create: fn(
         ctx: &ContextOptions,
         params: OperationParameters,
-    ) -> Result<Box<dyn Operation>, OperationError>,
+    ) -> Result<Box<dyn Operation>, OperationCreationError>,
 }
 
 pub const fn create_catalog_entry<TS: OperationCatalogMember>() -> OperationCatalogEntry {
