@@ -24,10 +24,10 @@ pub struct OpPrint {
 }
 
 impl OpPrint {
-    pub fn new() -> OpPrint {
-        OpPrint {
+    pub fn new() -> Box<OpPrint> {
+        Box::new(OpPrint {
             op_base: OpBase::new("print".to_owned(), None, None, None),
-        }
+        })
     }
 }
 

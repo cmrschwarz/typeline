@@ -129,10 +129,6 @@ impl OpBase {
             op_refs: SmallVec::new(),
         }
     }
-    pub fn set_label(&mut self, label: String) -> &mut OpBase {
-        self.label = Some(label);
-        self
-    }
 }
 
 pub trait Operation: OperationCloneBox + Send + Sync {
@@ -160,16 +156,24 @@ pub trait Operation: OperationCloneBox + Send + Sync {
     }
 }
 
-impl std::ops::Deref for dyn Operation {
-    type Target = OpBase;
-
-    fn deref(&self) -> &Self::Target {
-        self.base()
-    }
+pub trait OperationOps {
+    fn set_argname(self, argname: String) -> Self;
+    fn set_label(self, label: String) -> Self;
+    fn set_chainspec(self, chainspec: ChainSpec) -> Self;
 }
-impl std::ops::DerefMut for dyn Operation {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.base_mut()
+
+impl<T: Operation> OperationOps for Box<T> {
+    fn set_argname(mut self, argname: String) -> Self {
+        self.base_mut().argname = argname;
+        self
+    }
+    fn set_label(mut self, label: String) -> Self {
+        self.base_mut().label = Some(label);
+        self
+    }
+    fn set_chainspec(mut self, chainspec: ChainSpec) -> Self {
+        self.base_mut().chainspec = Some(chainspec);
+        self
     }
 }
 

@@ -361,7 +361,7 @@ fn try_parse_as_operation(
         let mut arg_copy = arg.clone();
         let tf_inst = create(&ctx_opts, OperationParameters::from(arg_copy))
             .map_err(|op_err| CliArgumentError::new(op_err.message, arg.cli_arg.clone()))?;
-        ctx_opts.add_op(tf_inst);
+        ctx_opts.add_op_to_ref(tf_inst);
         return Ok(true);
     }
     return Ok(false);

@@ -60,12 +60,12 @@ pub struct OpParent {
 }
 
 impl OpParent {
-    pub fn new(offset: TransformStackIndex) -> OpParent {
+    pub fn new(offset: TransformStackIndex) -> Box<OpParent> {
         assert!(offset > 0);
-        OpParent {
+        Box::new(OpParent {
             op_base: OpBase::new("parent".to_owned(), None, None, None),
             offset,
-        }
+        })
     }
 }
 

@@ -61,10 +61,15 @@ impl ContextOptions {
     pub fn get_current_chain(&mut self) -> ChainId {
         self.curr_chain
     }
-    pub fn add_op(&mut self, mut op: Box<dyn Operation>) -> &mut ContextOptions {
-        op.curr_chain = Some(self.curr_chain);
-        op.op_id = Some(self.operations.len() as OperationId);
+    pub fn add_op_to_ref(&mut self, mut op: Box<dyn Operation>) -> &mut ContextOptions {
+        let op_bm = op.base_mut();
+        op_bm.curr_chain = Some(self.curr_chain);
+        op_bm.op_id = Some(self.operations.len() as OperationId);
         self.operations.push(op);
+        self
+    }
+    pub fn add_op(mut self, mut op: Box<dyn Operation>) -> ContextOptions {
+        self.add_op_to_ref(op);
         self
     }
     pub fn set_current_chain(&mut self, chain_id: ChainId) -> &mut ContextOptions {
