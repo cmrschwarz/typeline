@@ -14,19 +14,18 @@ use crate::operations::transform::{TfBase, Transform, TransformStackIndex};
 use crate::operations::{Operation, OperationRef};
 use crate::scr_error::ScrError;
 
-#[derive(Clone)]
 pub struct Job {
     ops: SmallVec<[OperationRef; 2]>,
     tf: Box<dyn Transform>,
 }
-#[derive(Clone)]
+
 pub struct ContextData {
     pub parallel_jobs: NonZeroUsize,
     pub documents: Vec<Document>,
     pub chains: Vec<Chain>,
     pub operations: Vec<Box<dyn Operation>>,
 }
-#[derive(Clone)]
+
 pub struct SessionData {
     generation: usize,
     terminate: bool,
@@ -211,7 +210,11 @@ impl<'a> WorkerThread<'a> {
                 tf_base.tfs_index = tf_stack.len() as TransformStackIndex;
                 tf_stack.push(Box::new(TfParent {
                     tf_base,
-                    op_ref: None,
+                    op_ref: OperationRef {
+                        //this little lie is fine since we will never error on this one anyways
+                        chain_id: 0,
+                        op_offset: 0,
+                    },
                     offset: tf_stack.len() as TransformStackIndex,
                 }));
             }

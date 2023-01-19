@@ -22,11 +22,14 @@ impl Transform for TfReadStdin {
         _sc: &'b StreamChunk<'b>,
         _final_chunk: bool,
     ) -> Result<Option<&'b StreamChunk<'b>>, TransformApplicationError> {
-        Ok(None)
+        panic!("requested to process data in a data source");
     }
 
-    fn data<'a>(&'a self, _tf_stack: &'a [Box<dyn Transform>]) -> Option<&'a MatchData> {
-        None
+    fn data<'a>(
+        &'a self,
+        _tf_stack: &'a [Box<dyn Transform>],
+    ) -> Result<Option<&'a MatchData>, TransformApplicationError> {
+        panic!("attempted to get MatchData from a stream");
     }
 
     fn evaluate(

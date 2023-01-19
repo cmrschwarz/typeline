@@ -113,7 +113,10 @@ pub trait Transform: Send + Sync + TransformCloneBoxed {
         &mut self,
         tf_stack: &mut [Box<dyn Transform>],
     ) -> Result<bool, TransformApplicationError>;
-    fn data<'a>(&'a self, tf_stack: &'a [Box<dyn Transform>]) -> Option<&'a MatchData>;
+    fn data<'a>(
+        &'a self,
+        tf_stack: &'a [Box<dyn Transform>],
+    ) -> Result<Option<&'a MatchData>, TransformApplicationError>;
 }
 
 impl Clone for Box<dyn Transform> {

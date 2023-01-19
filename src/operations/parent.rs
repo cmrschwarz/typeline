@@ -11,7 +11,7 @@ use super::{
 #[derive(Clone)]
 pub struct TfParent {
     pub tf_base: TfBase,
-    pub op_ref: Option<OperationRef>,
+    pub op_ref: OperationRef,
     pub offset: TransformStackIndex,
 }
 
@@ -33,11 +33,17 @@ impl Transform for TfParent {
         Ok(Some(sc))
     }
 
-    fn data<'a>(&'a self, tf_stack: &'a [Box<dyn Transform>]) -> Option<&'a MatchData> {
+    fn data<'a>(
+        &'a self,
+        tf_stack: &'a [Box<dyn Transform>],
+    ) -> Result<Option<&'a MatchData>, TransformApplicationError> {
         let mut parent_idx = self.tf_base.tfs_index as usize;
         for _ in 0..self.offset {
             if tf_stack[parent_idx].base().begin_of_chain || parent_idx == 0 {
-                assert!(false);
+                return Err(TransformApplicationError::new(
+                    "no element at the requested depth for 'parent'",
+                    self.op_ref,
+                ));
             }
             parent_idx -= 1;
         }
@@ -79,7 +85,7 @@ impl Operation for OpParent {
         let tf_base = TfBase::from_parent(parent);
         let tfp = Box::new(TfParent {
             tf_base,
-            op_ref: Some(op_ref),
+            op_ref: op_ref,
             offset: self.offset,
         });
         parent.dependants.push(tfp.tf_base.tfs_index);

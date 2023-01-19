@@ -35,8 +35,11 @@ impl Transform for TfStart {
         Ok(true)
     }
 
-    fn data<'a>(&'a self, _tf_stack: &'a [Box<dyn Transform>]) -> Option<&'a MatchData> {
-        Some(&self.data)
+    fn data<'a>(
+        &'a self,
+        _tf_stack: &'a [Box<dyn Transform>],
+    ) -> Result<Option<&'a MatchData>, TransformApplicationError> {
+        Ok(Some(&self.data))
     }
 }
 

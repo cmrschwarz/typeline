@@ -76,7 +76,7 @@ impl Transform for TfPrint {
         &mut self,
         tf_stack: &mut [Box<dyn Transform>],
     ) -> Result<bool, TransformApplicationError> {
-        match tf_stack[self.tf_base.tfs_index as usize - 1].data(tf_stack) {
+        match tf_stack[self.tf_base.tfs_index as usize - 1].data(tf_stack)? {
             Some(MatchData::Bytes(b)) => {
                 let mut s = std::io::stdout();
                 s.write(b.as_slice())
@@ -98,7 +98,10 @@ impl Transform for TfPrint {
         Ok(true)
     }
 
-    fn data<'a>(&'a self, _tf_stack: &'a [Box<dyn Transform>]) -> Option<&'a MatchData> {
+    fn data<'a>(
+        &'a self,
+        _tf_stack: &'a [Box<dyn Transform>],
+    ) -> Result<Option<&'a MatchData>, TransformApplicationError> {
         todo!()
     }
 }
