@@ -8,6 +8,7 @@ use super::{
     OperationCatalogMember, OperationCreationError, OperationParameters, OperationRef,
 };
 
+#[derive(Clone)]
 pub struct TfParent {
     pub tf_base: TfBase,
     pub op_ref: Option<OperationRef>,
@@ -104,7 +105,10 @@ impl OperationCatalogMember for OpParent {
     ) -> Result<Box<dyn Operation>, OperationCreationError> {
         let offset = if let Some(ref value) = params.value {
             value.parse::<TransformStackIndex>().map_err(|_| {
-                OperationCreationError::new("failed to parse parent argument as integer")
+                OperationCreationError::new(
+                    "failed to parse parent argument as integer",
+                    params.cli_arg.as_ref().map(|arg| arg.idx),
+                )
             })?
         } else {
             1

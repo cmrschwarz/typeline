@@ -6,6 +6,7 @@ use crate::{
 
 pub type ChainId = u32;
 
+#[derive(Clone)]
 pub struct Chain {
     pub default_text_encoding: TextEncoding,
     pub prefer_parent_text_encoding: bool,

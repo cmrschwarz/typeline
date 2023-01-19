@@ -8,8 +8,8 @@ use super::OperationRef;
 #[derive(Error, Debug, Clone)]
 #[error("in op {0} of chain {1}: {message}", op_ref.op_offset, op_ref.chain_id)]
 pub struct TransformApplicationError {
-    message: String,
-    op_ref: OperationRef,
+    pub message: String,
+    pub op_ref: OperationRef,
 }
 
 impl TransformApplicationError {
@@ -30,6 +30,7 @@ pub enum DataKind {
     None,
 }
 
+#[derive(Clone)]
 pub struct HtmlMatchData {}
 
 impl Display for HtmlMatchData {
@@ -38,6 +39,7 @@ impl Display for HtmlMatchData {
     }
 }
 
+#[derive(Clone)]
 pub enum MatchData {
     Html(HtmlMatchData),
     Text(String),
@@ -63,6 +65,7 @@ pub enum StreamChunk<'a> {
 
 pub type TransformStackIndex = u32;
 
+#[derive(Clone)]
 pub struct TfBase {
     pub data_kind: DataKind,
     pub is_stream: bool,
@@ -87,7 +90,17 @@ impl TfBase {
     }
 }
 
-pub trait Transform: Send + Sync {
+pub trait TransformCloneBoxed {
+    fn clone_boxed(&self) -> Box<dyn Transform>;
+}
+
+impl<T: Transform + Clone + 'static> TransformCloneBoxed for T {
+    fn clone_boxed(&self) -> Box<dyn Transform> {
+        Box::new(self.clone())
+    }
+}
+
+pub trait Transform: Send + Sync + TransformCloneBoxed {
     fn base(&self) -> &TfBase;
     fn base_mut(&mut self) -> &mut TfBase;
     fn process_chunk<'a: 'b, 'b>(
@@ -101,6 +114,12 @@ pub trait Transform: Send + Sync {
         tf_stack: &mut [Box<dyn Transform>],
     ) -> Result<bool, TransformApplicationError>;
     fn data<'a>(&'a self, tf_stack: &'a [Box<dyn Transform>]) -> Option<&'a MatchData>;
+}
+
+impl Clone for Box<dyn Transform> {
+    fn clone(&self) -> Self {
+        self.clone_boxed()
+    }
 }
 
 impl std::ops::Deref for dyn Transform {

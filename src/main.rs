@@ -1,5 +1,5 @@
 use std::process::ExitCode;
-use scr::{cli::parse_cli_from_env, scr_error::ScrError};
+use scr::{cli::{collect_env_args, parse_cli}, scr_error::ScrError};
 
 
 #[tokio::main]
@@ -8,13 +8,26 @@ async fn main() -> ExitCode {
         eprintln!("[ERROR]: missing arguments, consider supplying --help");
         return ExitCode::FAILURE;
     }
-    let res = parse_cli_from_env().map_err(ScrError::from)
-        .and_then(|ctx_opts|ctx_opts.build_context().map_err(ScrError::from))
-        .and_then(|mut ctx|ctx.run());
-    match res {
+    let args = collect_env_args().map_err(ScrError::from);
+    let ctx_opts = args.as_ref().map_err(|e|e.clone())
+        .and_then(|args|parse_cli(&args).map_err(ScrError::from));
+    let mut ctx =
+        ctx_opts.clone().and_then(|ctx_opts|ctx_opts.clone().build_context().map_err(ScrError::from));
+    let result = match &mut ctx {
+        Ok(ctx) => ctx.run(),
+        Err(err) => Err(err.clone())
+    };
+    match result {
         Ok(_) => ExitCode::SUCCESS,
         Err(err) => {
-            eprintln!("[ERROR]: {}", err);
+            eprintln!(
+                "[ERROR]: {}",
+                err.contextualize_message(
+                    args.as_ref().ok().map(|vec|vec.as_slice()),
+                    ctx_opts.as_ref().ok(),
+                    ctx.as_ref().ok()
+                )
+            );
             ExitCode::FAILURE
         }
     }

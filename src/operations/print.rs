@@ -11,6 +11,7 @@ use super::{
     OperationCatalogMember, OperationCreationError, OperationParameters, OperationRef,
 };
 
+#[derive(Clone)]
 struct TfPrint {
     tf_base: TfBase,
     op_ref: OperationRef,
@@ -111,6 +112,12 @@ impl OperationCatalogMember for OpPrint {
         _ctx: &ContextOptions,
         params: OperationParameters,
     ) -> Result<Box<dyn Operation>, OperationCreationError> {
+        if params.value.is_some() {
+            return Err(OperationCreationError::new(
+                "print takes no argument",
+                params.cli_arg.map(|arg| arg.idx),
+            ));
+        }
         Ok(Box::new(OpPrint {
             op_base: OpBase::from_op_params(params),
         }))

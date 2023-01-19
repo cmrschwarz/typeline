@@ -2,6 +2,7 @@ use crate::operations::transform::{DataKind, MatchData, StreamChunk, TfBase, Tra
 
 use super::transform::TransformApplicationError;
 
+#[derive(Clone)]
 pub struct TfReadStdin {
     pub tf_base: TfBase,
 }

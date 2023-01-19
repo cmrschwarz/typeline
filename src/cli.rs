@@ -13,11 +13,11 @@ use bstring::{bstr, BString};
 use lazy_static::lazy_static;
 use std::{ffi::OsStr, path::PathBuf, str::from_utf8};
 use thiserror::Error;
-#[derive(Error, Debug)]
+#[derive(Error, Debug, Clone)]
 #[error("in cli arg {cli_arg_idx}: {message}")]
 pub struct CliArgumentError {
-    message: String,
-    cli_arg_idx: CliArgIdx,
+    pub message: String,
+    pub cli_arg_idx: CliArgIdx,
 }
 
 impl CliArgumentError {
@@ -409,14 +409,13 @@ pub fn parse_cli(args: &[BString]) -> Result<ContextOptions, CliArgumentError> {
     return Ok(ctx_opts);
 }
 
-pub fn parse_cli_from_env() -> Result<ContextOptions, CliArgumentError> {
+pub fn collect_env_args() -> Result<Vec<BString>, CliArgumentError> {
     #[cfg(unix)]
     {
-        let args: Vec<BString> = std::env::args_os()
+        Ok(std::env::args_os()
             .skip(1)
-            .map(|s| BString::from(std::os::unix::prelude::OsStringExt::into_vec(s)))
-            .collect();
-        return parse_cli(&args);
+            .map(|s| std::os::unix::prelude::OsStringExt::into_vec(s).into())
+            .collect::<Vec<BString>>())
     }
     #[cfg(windows)]
     {
@@ -434,6 +433,11 @@ pub fn parse_cli_from_env() -> Result<ContextOptions, CliArgumentError> {
                 ));
             }
         }
-        return parse_cli(&args);
+        Ok(args)
     }
+}
+
+pub fn parse_cli_from_env() -> Result<ContextOptions, CliArgumentError> {
+    let args = collect_env_args()?;
+    parse_cli(&args)
 }

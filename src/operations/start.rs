@@ -4,6 +4,7 @@ use crate::operations::transform::{MatchData, StreamChunk, TfBase, Transform};
 
 use super::transform::TransformApplicationError;
 
+#[derive(Clone)]
 pub struct TfStart {
     pub tf_base: TfBase,
     pub data: MatchData,

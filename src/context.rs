@@ -14,24 +14,25 @@ use crate::operations::transform::{TfBase, Transform, TransformStackIndex};
 use crate::operations::{Operation, OperationRef};
 use crate::scr_error::ScrError;
 
+#[derive(Clone)]
 pub struct Job {
     ops: SmallVec<[OperationRef; 2]>,
     tf: Box<dyn Transform>,
 }
-
+#[derive(Clone)]
 pub struct ContextData {
     pub parallel_jobs: NonZeroUsize,
     pub documents: Vec<Document>,
     pub chains: Vec<Chain>,
     pub operations: Vec<Box<dyn Operation>>,
 }
+#[derive(Clone)]
 pub struct SessionData {
     generation: usize,
     terminate: bool,
     stealers: Vec<Stealer<Job>>,
     ctx_data: Arc<ContextData>,
 }
-
 pub struct Session {
     pub injector: Injector<Job>,
     pub tasks_available: Condvar,

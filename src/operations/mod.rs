@@ -10,7 +10,7 @@ use thiserror::Error;
 
 use self::transform::Transform;
 use crate::chain::{Chain, ChainId};
-use crate::options::argument::CliArgument;
+use crate::options::argument::{CliArgIdx, CliArgument};
 use crate::options::{chain_spec::ChainSpec, context_options::ContextOptions};
 
 use self::parent::OpParent;
@@ -23,12 +23,14 @@ pub type OperationOffsetInChain = u32;
 #[error("{message}")]
 pub struct OperationCreationError {
     pub message: String,
+    pub cli_arg_id: Option<CliArgIdx>,
 }
 
 impl OperationCreationError {
-    pub fn new(message: &str) -> OperationCreationError {
+    pub fn new(message: &str, cli_arg_id: Option<CliArgIdx>) -> OperationCreationError {
         OperationCreationError {
             message: message.to_owned(),
+            cli_arg_id: cli_arg_id,
         }
     }
 }
@@ -86,19 +88,19 @@ impl OperationRef {
     }
 }
 
-pub trait OperationCloneBox {
-    fn clone_box(&self) -> Box<dyn Operation>;
+pub trait OperationCloneBoxed {
+    fn clone_boxed(&self) -> Box<dyn Operation>;
 }
 
-impl<T: Operation + Clone + 'static> OperationCloneBox for T {
-    fn clone_box(&self) -> Box<dyn Operation> {
+impl<T: Operation + Clone + 'static> OperationCloneBoxed for T {
+    fn clone_boxed(&self) -> Box<dyn Operation> {
         Box::new(self.clone())
     }
 }
 
 impl Clone for Box<dyn Operation> {
     fn clone(&self) -> Self {
-        self.clone_box()
+        self.clone_boxed()
     }
 }
 
@@ -111,6 +113,7 @@ pub struct OpBase {
     pub(crate) op_id: Option<OperationId>,  // set by the context on add_op
     // filled during setup once the chainspec can be evaluated
     pub(crate) op_refs: SmallVec<[OperationRef; 2]>,
+    pub(crate) cli_arg_idx: Option<CliArgIdx>,
 }
 
 impl OpBase {
@@ -118,7 +121,7 @@ impl OpBase {
         argname: String,
         label: Option<String>,
         chainspec: Option<ChainSpec>,
-        _cli_arg: Option<CliArgument>,
+        cli_arg_idx: Option<CliArgIdx>,
     ) -> OpBase {
         OpBase {
             argname,
@@ -126,6 +129,7 @@ impl OpBase {
             chainspec,
             curr_chain: None,
             op_id: None,
+            cli_arg_idx,
             op_refs: SmallVec::new(),
         }
     }
@@ -136,12 +140,13 @@ impl OpBase {
             chainspec: params.chainspec,
             curr_chain: None,
             op_id: None,
+            cli_arg_idx: None,
             op_refs: SmallVec::new(),
         }
     }
 }
 
-pub trait Operation: OperationCloneBox + Send + Sync {
+pub trait Operation: OperationCloneBoxed + Send + Sync {
     fn base_mut(&mut self) -> &mut OpBase;
     fn base(&self) -> &OpBase;
     fn apply(
