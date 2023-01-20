@@ -1,6 +1,6 @@
-use fantoccini::{ClientBuilder, Client};
+use fantoccini::{Client, ClientBuilder};
 
-extern crate  fantoccini;
+extern crate fantoccini;
 #[derive(Clone, Copy)]
 pub enum SeleniumDownloadStrategy {
     Scr,
@@ -33,13 +33,22 @@ pub struct SeleniumContext {
 const DEFAULT_PORT: u16 = 4444;
 
 impl SeleniumContext {
-    pub async fn new(variant: SeleniumVariant, port: Option<u16>) -> Result<SeleniumContext, String> {
+    pub async fn new(
+        variant: SeleniumVariant,
+        port: Option<u16>,
+    ) -> Result<SeleniumContext, String> {
         let port = port.unwrap_or(DEFAULT_PORT);
         Ok(SeleniumContext {
-            _variant:  variant,
-            _client: ClientBuilder::native().connect(
-                &format!("http://localhost:{}", port)
-            ).await.map_err(|_| format!("failed to connect to webdriver at http://localhost:{}", port))?
+            _variant: variant,
+            _client: ClientBuilder::native()
+                .connect(&format!("http://localhost:{}", port))
+                .await
+                .map_err(|_| {
+                    format!(
+                        "failed to connect to webdriver at http://localhost:{}",
+                        port
+                    )
+                })?,
         })
     }
 }
