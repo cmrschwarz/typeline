@@ -1,15 +1,17 @@
-use smallvec::SmallVec;
+use std::collections::HashMap;
+
+use smallvec::{smallvec, SmallVec};
 
 use crate::{
     context::ContextData,
-    operations::transform::{MatchData, StreamChunk, TfBase, Transform},
+    operations::transform::{MatchData, MatchIdx, TfBase, Transform},
 };
 
-use super::transform::TransformApplicationError;
+use super::transform::{DataKind, TransformApplicationError, TransformOutput};
 
 pub struct TfStart {
     pub tf_base: TfBase,
-    pub data: MatchData,
+    pub data: Option<MatchData>,
 }
 
 impl Transform for TfStart {
@@ -21,38 +23,27 @@ impl Transform for TfStart {
         &mut self.tf_base
     }
 
-    fn process_chunk<'a: 'b, 'b>(
-        &'a mut self,
-        _ctx: &'a ContextData,
-        _tf_stack: &'a [Box<dyn Transform>],
-        _sc: &'b StreamChunk<'b>,
-        _final_chunk: bool,
-    ) -> Result<Option<&'b StreamChunk<'b>>, TransformApplicationError> {
-        Ok(None)
-    }
-
-    fn evaluate(
+    fn process(
         &mut self,
         _ctx: &ContextData,
-        _tf_stack: &mut [Box<dyn Transform>],
-    ) -> Result<bool, TransformApplicationError> {
-        Ok(true)
-    }
-
-    fn data<'a>(
-        &'a self,
-        _ctx: &'a ContextData,
-        _tf_stack: &'a [Box<dyn Transform>],
-    ) -> Result<Option<&'a MatchData>, TransformApplicationError> {
-        Ok(Some(&self.data))
+        _args: &HashMap<String, MatchData>,
+        tfo: &TransformOutput,
+    ) -> Result<SmallVec<[TransformOutput; 1]>, TransformApplicationError> {
+        debug_assert!(tfo.data.is_none());
+        Ok(smallvec![TransformOutput {
+            match_index: 0 as MatchIdx,
+            data: self.data.take(),
+            args: Vec::default(),
+            is_last_chunk: None,
+        }])
     }
 }
 
 impl TfStart {
-    pub fn new(data: MatchData) -> TfStart {
+    pub fn new(data: Option<MatchData>) -> TfStart {
         Self {
             tf_base: TfBase {
-                data_kind: data.kind(),
+                data_kind: data.as_ref().map_or(DataKind::None, |d| d.kind()),
                 is_stream: false,
                 requires_eval: false,
                 needs_stdout: false,
@@ -60,7 +51,7 @@ impl TfStart {
                 dependants: SmallVec::new(),
                 tfs_index: 0,
             },
-            data: data,
+            data,
         }
     }
 }

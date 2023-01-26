@@ -2,11 +2,7 @@ use std::path::PathBuf;
 
 use bstring::BString;
 
-use crate::{
-    chain::ChainId,
-    operations::start::TfStart,
-    operations::transform::{MatchData, Transform},
-};
+use crate::{chain::ChainId, operations::transform::MatchData};
 
 #[derive(Clone)]
 pub enum DocumentSource {
@@ -17,14 +13,12 @@ pub enum DocumentSource {
     Stdin,
 }
 impl DocumentSource {
-    pub fn create_start_transform(&self) -> Box<dyn Transform> {
+    pub fn create_match_data(&self) -> MatchData {
         match self {
             DocumentSource::Url(_url) => todo!("TfDownload"),
             DocumentSource::File(_p) => todo!("TfReadFile"),
-            DocumentSource::String(s) => Box::new(TfStart::new(MatchData::Text(s.clone()))),
-            DocumentSource::Bytes(s) => {
-                Box::new(TfStart::new(MatchData::Bytes(s.clone().into_bytes())))
-            }
+            DocumentSource::String(s) => MatchData::Text(s.clone()),
+            DocumentSource::Bytes(s) => MatchData::Bytes(s.clone().into_bytes()),
             DocumentSource::Stdin => todo!("shared stream"),
         }
     }

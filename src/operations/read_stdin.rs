@@ -1,9 +1,13 @@
+use std::collections::HashMap;
+
+use smallvec::SmallVec;
+
 use crate::{
     context::ContextData,
-    operations::transform::{DataKind, MatchData, StreamChunk, TfBase, Transform},
+    operations::transform::{DataKind, MatchData, TfBase, Transform},
 };
 
-use super::transform::TransformApplicationError;
+use super::transform::{TransformApplicationError, TransformOutput};
 
 pub struct TfReadStdin {
     pub tf_base: TfBase,
@@ -18,30 +22,13 @@ impl Transform for TfReadStdin {
         &mut self.tf_base
     }
 
-    fn process_chunk<'a: 'b, 'b>(
-        &'a mut self,
-        _ctx: &'a ContextData,
-        _tf_stack: &'a [Box<dyn Transform>],
-        _sc: &'b StreamChunk<'b>,
-        _final_chunk: bool,
-    ) -> Result<Option<&'b StreamChunk<'b>>, TransformApplicationError> {
-        panic!("requested to process data in a data source");
-    }
-
-    fn data<'a>(
-        &'a self,
-        _ctx: &'a ContextData,
-        _tf_stack: &'a [Box<dyn Transform>],
-    ) -> Result<Option<&'a MatchData>, TransformApplicationError> {
-        panic!("attempted to get MatchData from a stream");
-    }
-
-    fn evaluate(
+    fn process(
         &mut self,
         _ctx: &ContextData,
-        _tf_stack: &mut [Box<dyn Transform>],
-    ) -> Result<bool, TransformApplicationError> {
-        Ok(true)
+        _args: &HashMap<String, MatchData>,
+        _tfo: &TransformOutput,
+    ) -> Result<SmallVec<[TransformOutput; 1]>, TransformApplicationError> {
+        panic!("requested to process data in a data source");
     }
 }
 

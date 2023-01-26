@@ -1,12 +1,17 @@
+use std::collections::HashMap;
+
+use smallvec::SmallVec;
+
 use crate::{
     context::ContextData,
-    operations::transform::{MatchData, StreamChunk, TfBase, Transform, TransformStackIndex},
+    operations::transform::{MatchData, TfBase, Transform, TransformStackIndex},
     options::context_options::ContextOptions,
 };
 
 use super::{
-    transform::TransformApplicationError, OpBase, Operation, OperationApplicationError,
-    OperationCatalogMember, OperationCreationError, OperationParameters, OperationRef,
+    transform::{TransformApplicationError, TransformOutput},
+    OpBase, Operation, OperationApplicationError, OperationCatalogMember, OperationCreationError,
+    OperationParameters, OperationRef,
 };
 
 pub struct TfParent {
@@ -24,21 +29,21 @@ impl Transform for TfParent {
         &mut self.tf_base
     }
 
-    fn process_chunk<'a: 'b, 'b>(
-        &'a mut self,
-        _ctx: &'a ContextData,
-        _tf_stack: &'a [Box<dyn Transform>],
-        sc: &'b StreamChunk<'b>,
-        _final_chunk: bool,
-    ) -> Result<Option<&'b StreamChunk<'b>>, TransformApplicationError> {
-        Ok(Some(sc))
+    fn process(
+        &mut self,
+        _ctx: &ContextData,
+        _args: &HashMap<String, MatchData>,
+        tfo: &TransformOutput,
+    ) -> Result<SmallVec<[TransformOutput; 1]>, TransformApplicationError> {
+        debug_assert!(tfo.data.is_none());
+        Ok(SmallVec::default())
     }
 
-    fn data<'a>(
-        &'a self,
-        ctx: &'a ContextData,
-        tf_stack: &'a [Box<dyn Transform>],
-    ) -> Result<Option<&'a MatchData>, TransformApplicationError> {
+    fn add_dependant(
+        &mut self,
+        tf_stack: &mut [Box<dyn Transform>],
+        dependant: TransformStackIndex,
+    ) -> Result<(), TransformApplicationError> {
         let mut parent_idx = self.tf_base.tfs_index as usize;
         for _ in 0..self.offset {
             if tf_stack[parent_idx].base().begin_of_chain || parent_idx == 0 {
@@ -49,16 +54,8 @@ impl Transform for TfParent {
             }
             parent_idx -= 1;
         }
-
-        tf_stack[parent_idx].data(ctx, &tf_stack[0..parent_idx as usize])
-    }
-
-    fn evaluate(
-        &mut self,
-        _ctx: &ContextData,
-        _tf_stack: &mut [Box<dyn Transform>],
-    ) -> Result<bool, TransformApplicationError> {
-        Ok(true)
+        let (head, tail) = tf_stack.split_at_mut(parent_idx);
+        tail[0].add_dependant(head, dependant)
     }
 }
 

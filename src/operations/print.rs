@@ -1,15 +1,18 @@
-use std::io::Write;
+use std::{collections::HashMap, io::Write};
+
+use smallvec::SmallVec;
 
 use crate::{
     context::ContextData,
-    operations::transform::{DataKind, MatchData, StreamChunk, TfBase, Transform},
+    operations::transform::{DataKind, MatchData, TfBase, Transform},
     options::context_options::ContextOptions,
     plattform::NEWLINE_BYTES,
 };
 
 use super::{
-    transform::TransformApplicationError, OpBase, Operation, OperationApplicationError,
-    OperationCatalogMember, OperationCreationError, OperationParameters, OperationRef,
+    transform::{TransformApplicationError, TransformOutput},
+    OpBase, Operation, OperationApplicationError, OperationCatalogMember, OperationCreationError,
+    OperationParameters, OperationRef,
 };
 
 struct TfPrint {
@@ -63,49 +66,40 @@ impl Transform for TfPrint {
         &mut self.tf_base
     }
 
-    fn process_chunk<'a: 'b, 'b>(
-        &'a mut self,
-        _ctx: &'a ContextData,
-        _tf_stack: &'a [Box<dyn Transform>],
-        _sc: &'b StreamChunk<'b>,
-        _final_chunk: bool,
-    ) -> Result<Option<&'b StreamChunk<'b>>, TransformApplicationError> {
-        todo!()
-    }
-
-    fn evaluate(
+    fn process(
         &mut self,
-        ctx: &ContextData,
-        tf_stack: &mut [Box<dyn Transform>],
-    ) -> Result<bool, TransformApplicationError> {
-        match tf_stack[self.tf_base.tfs_index as usize - 1].data(ctx, tf_stack)? {
+        _ctx: &ContextData,
+        _args: &HashMap<String, MatchData>,
+        tfo: &TransformOutput,
+    ) -> Result<SmallVec<[TransformOutput; 1]>, TransformApplicationError> {
+        match &tfo.data {
             Some(MatchData::Bytes(b)) => {
                 let mut s = std::io::stdout();
                 s.write(b.as_slice())
                     .and_then(|_| s.write(NEWLINE_BYTES))
                     .map_err(|_| TransformApplicationError::new("io error", self.op_ref))?;
             }
-            Some(MatchData::Text(s)) => {
-                println!("{}", s);
+            Some(MatchData::Text(t)) => {
+                let mut s = std::io::stdout();
+                s.write(t.as_bytes())
+                    .and_then(|_| s.write(NEWLINE_BYTES))
+                    .map_err(|_| TransformApplicationError::new("io error", self.op_ref))?;
             }
-            Some(MatchData::Html(html)) => {
-                println!("{}", html);
+            Some(MatchData::Html(_)) => {
+                return Err(TransformApplicationError::new(
+                    "the print transform does not support html",
+                    self.op_ref,
+                ));
             }
             Some(MatchData::Png(_)) => {
-                //TODO: error
-                panic!("refusing to print image");
+                return Err(TransformApplicationError::new(
+                    "the print transform does not support images",
+                    self.op_ref,
+                ));
             }
             _ => panic!("missing TfSerialize"),
         }
-        Ok(true)
-    }
-
-    fn data<'a>(
-        &'a self,
-        _ctx: &'a ContextData,
-        _tf_stack: &'a [Box<dyn Transform>],
-    ) -> Result<Option<&'a MatchData>, TransformApplicationError> {
-        todo!()
+        Ok(SmallVec::default())
     }
 }
 

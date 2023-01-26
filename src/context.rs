@@ -1,22 +1,25 @@
-use std::collections::VecDeque;
+use std::collections::HashMap;
 use std::iter;
 use std::num::NonZeroUsize;
 use std::sync::{Arc, Condvar, Mutex};
 
 use crossbeam::deque::{Injector, Stealer, Worker};
-use smallvec::{smallvec, SmallVec};
+use smallvec::SmallVec;
 
 use crate::chain::Chain;
 use crate::document::{Document, DocumentSource};
 use crate::operations::parent::TfParent;
 use crate::operations::read_stdin::TfReadStdin;
-use crate::operations::transform::{TfBase, Transform, TransformStackIndex};
+use crate::operations::start::TfStart;
+use crate::operations::transform::{MatchData, TfBase, Transform, TransformStackIndex};
 use crate::operations::{Operation, OperationRef};
 use crate::scr_error::ScrError;
 
 pub struct Job {
     ops: SmallVec<[OperationRef; 2]>,
-    tf: Box<dyn Transform>,
+    data: Option<MatchData>,
+    args: HashMap<String, MatchData>,
+    is_stdin: bool,
 }
 
 pub struct ContextData {
@@ -85,15 +88,19 @@ impl Context {
                 _ => {
                     self.session.injector.push(Job {
                         ops: ops_iter.collect(),
-                        tf: d.source.create_start_transform(),
+                        data: Some(d.source.create_match_data()),
+                        args: HashMap::default(),
+                        is_stdin: false,
                     });
                 }
             }
         }
         if !stdin_job_ops.is_empty() {
             self.session.injector.push(Job {
-                tf: Box::new(TfReadStdin::new()),
                 ops: stdin_job_ops,
+                data: None,
+                args: HashMap::default(),
+                is_stdin: true,
             });
         }
     }
@@ -191,8 +198,12 @@ impl<'a> WorkerThread<'a> {
     }
 
     fn run_job(&mut self, job: Job) -> Result<(), ScrError> {
-        assert!(job.tf.begin_of_chain == true);
-        let mut tf_stack: SmallVec<[Box<dyn Transform>; 4]> = smallvec![job.tf];
+        let mut tf_stack: SmallVec<[Box<dyn Transform>; 4]> = Default::default();
+        if job.is_stdin {
+            tf_stack.push(Box::new(TfReadStdin::new()))
+        } else {
+            tf_stack.push(Box::new(TfStart::new(job.data)))
+        }
         for (i, op_ref) in job.ops.iter().enumerate() {
             let cn = &self.ctx.chains[op_ref.chain_id as usize];
             for i in op_ref.op_offset as usize..cn.operations.len() {
@@ -219,18 +230,6 @@ impl<'a> WorkerThread<'a> {
                 }));
             }
         }
-        let mut eval_stack: VecDeque<TransformStackIndex> = Default::default();
-        eval_stack.push_back(0 as TransformStackIndex);
-        while let Some(tfs_id) = eval_stack.pop_front() {
-            let (tf_stack_head, tf_stack_tail) =
-                tf_stack.as_mut_slice().split_at_mut(tfs_id as usize);
-            let tf = &mut tf_stack_tail[0];
-            if tf.evaluate(&self.ctx, tf_stack_head)? {
-                for dep_id in &tf.dependants {
-                    eval_stack.push_back(*dep_id);
-                }
-            }
-        }
-        Ok(())
+        todo!();
     }
 }

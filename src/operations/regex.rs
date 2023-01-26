@@ -1,21 +1,23 @@
-use std::io::Write;
+use std::collections::HashMap;
 
 use regex::Regex;
+use smallvec::SmallVec;
 
 use crate::{
     context::ContextData,
-    operations::transform::{DataKind, MatchData, StreamChunk, TfBase, Transform},
+    operations::transform::{DataKind, MatchData, TfBase, Transform},
     options::context_options::ContextOptions,
-    plattform::NEWLINE_BYTES,
 };
 
 use super::{
-    transform::TransformApplicationError, OpBase, Operation, OperationApplicationError,
-    OperationCatalogMember, OperationCreationError, OperationParameters, OperationRef,
+    transform::{TransformApplicationError, TransformOutput},
+    OpBase, Operation, OperationApplicationError, OperationCatalogMember, OperationCreationError,
+    OperationParameters, OperationRef,
 };
 
 struct TfRegex {
     tf_base: TfBase,
+    regex: Regex,
     op_ref: OperationRef,
 }
 
@@ -51,7 +53,11 @@ impl Operation for OpRegex {
         let parent = tf_stack.last_mut().unwrap().base_mut();
         let mut tf_base = TfBase::from_parent(parent);
         tf_base.data_kind = DataKind::Text;
-        let tfp = Box::new(TfRegex { tf_base, op_ref });
+        let tfp = Box::new(TfRegex {
+            tf_base,
+            op_ref,
+            regex: self.regex.clone(),
+        });
         parent.dependants.push(tfp.tf_base.tfs_index);
         Ok(tfp)
     }
@@ -65,50 +71,45 @@ impl Transform for TfRegex {
     fn base_mut(&mut self) -> &mut TfBase {
         &mut self.tf_base
     }
-
-    fn process_chunk<'a: 'b, 'b>(
-        &'a mut self,
-        _ctx: &'a ContextData,
-        _tf_stack: &'a [Box<dyn Transform>],
-        _sc: &'b StreamChunk<'b>,
-        _final_chunk: bool,
-    ) -> Result<Option<&'b StreamChunk<'b>>, TransformApplicationError> {
-        panic!("regex doesn't support streaming mode");
-    }
-
-    fn evaluate(
+    fn process(
         &mut self,
-        ctx: &ContextData,
-        tf_stack: &mut [Box<dyn Transform>],
-    ) -> Result<bool, TransformApplicationError> {
-        match tf_stack[self.tf_base.tfs_index as usize - 1].data(ctx, tf_stack)? {
-            Some(MatchData::Bytes(b)) => {
-                let mut s = std::io::stdout();
-                s.write(b.as_slice())
-                    .and_then(|_| s.write(NEWLINE_BYTES))
-                    .map_err(|_| TransformApplicationError::new("io error", self.op_ref))?;
-            }
-            Some(MatchData::Text(s)) => {
-                println!("{}", s);
-            }
-            Some(MatchData::Html(html)) => {
-                println!("{}", html);
-            }
-            Some(MatchData::Png(_)) => {
-                //TODO: error
-                panic!("refusing to print image");
-            }
-            _ => panic!("missing TfSerialize"),
+        _ctx: &ContextData,
+        _args: &HashMap<String, MatchData>,
+        tfo: &TransformOutput,
+    ) -> Result<SmallVec<[TransformOutput; 1]>, TransformApplicationError> {
+        if tfo.is_last_chunk.is_some() {
+            return Err(TransformApplicationError::new(
+                "the regex transform does not support streams",
+                self.op_ref,
+            ));
         }
-        Ok(true)
-    }
-
-    fn data<'a>(
-        &'a self,
-        _ctx: &'a ContextData,
-        _tf_stack: &'a [Box<dyn Transform>],
-    ) -> Result<Option<&'a MatchData>, TransformApplicationError> {
-        todo!()
+        match &tfo.data {
+            Some(MatchData::Text(text)) => {
+                let mut results = SmallVec::default();
+                let mut match_index = tfo.match_index;
+                for cap in self.regex.captures_iter(text) {
+                    results.push(TransformOutput {
+                        match_index,
+                        data: Some(MatchData::Text(cap.get(0).unwrap().as_str().to_owned())),
+                        args: Vec::default(), //todo
+                        is_last_chunk: None,
+                    });
+                    match_index += 1;
+                }
+                Ok(results)
+            }
+            Some(md) => Err(TransformApplicationError {
+                message: format!(
+                    "the regex transform does not support match data kind '{}'",
+                    md.kind().to_str()
+                ),
+                op_ref: self.op_ref,
+            }),
+            None => Err(TransformApplicationError::new(
+                "unexpected none match for regex transform",
+                self.op_ref,
+            )),
+        }
     }
 }
 

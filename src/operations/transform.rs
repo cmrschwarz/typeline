@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::{collections::HashMap, fmt::Display};
 
 use smallvec::SmallVec;
 use thiserror::Error;
@@ -6,6 +6,8 @@ use thiserror::Error;
 use crate::context::ContextData;
 
 use super::OperationRef;
+
+pub type MatchIdx = u32;
 
 #[derive(Error, Debug, Clone)]
 #[error("in op {0} of chain {1}: {message}", op_ref.op_offset, op_ref.chain_id)]
@@ -30,6 +32,24 @@ pub enum DataKind {
     Bytes,
     Png,
     None,
+}
+
+impl DataKind {
+    pub fn to_str(&self) -> &'static str {
+        match self {
+            DataKind::Html => "html",
+            DataKind::Text => "text",
+            DataKind::Bytes => "bytes",
+            DataKind::Png => "png",
+            DataKind::None => "none",
+        }
+    }
+}
+
+impl Display for DataKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.to_str())
+    }
 }
 
 #[derive(Clone)]
@@ -60,9 +80,11 @@ impl MatchData {
     }
 }
 
-pub enum StreamChunk<'a> {
-    Bytes(&'a [u8]),
-    Text(&'a str),
+pub struct TransformOutput {
+    pub match_index: MatchIdx,
+    pub data: Option<MatchData>,
+    pub args: Vec<(String, MatchData)>,
+    pub is_last_chunk: Option<bool>, //None if not chunked
 }
 
 pub type TransformStackIndex = u32;
@@ -95,23 +117,20 @@ impl TfBase {
 pub trait Transform: Send {
     fn base(&self) -> &TfBase;
     fn base_mut(&mut self) -> &mut TfBase;
-    fn process_chunk<'a: 'b, 'b>(
-        &'a mut self,
-        ctx: &'a ContextData,
-        _tf_stack: &'a [Box<dyn Transform>],
-        sc: &'b StreamChunk<'b>,
-        final_chunk: bool,
-    ) -> Result<Option<&'b StreamChunk<'b>>, TransformApplicationError>;
-    fn evaluate(
+    fn process(
         &mut self,
         ctx: &ContextData,
-        tf_stack: &mut [Box<dyn Transform>],
-    ) -> Result<bool, TransformApplicationError>;
-    fn data<'a>(
-        &'a self,
-        ctx: &'a ContextData,
-        tf_stack: &'a [Box<dyn Transform>],
-    ) -> Result<Option<&'a MatchData>, TransformApplicationError>;
+        args: &HashMap<String, MatchData>,
+        tfo: &TransformOutput,
+    ) -> Result<SmallVec<[TransformOutput; 1]>, TransformApplicationError>;
+    fn add_dependant(
+        &mut self,
+        _tf_stack: &mut [Box<dyn Transform>],
+        dependant: TransformStackIndex,
+    ) -> Result<(), TransformApplicationError> {
+        self.base_mut().dependants.push(dependant);
+        Ok(())
+    }
 }
 
 impl std::ops::Deref for dyn Transform {
