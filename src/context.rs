@@ -50,10 +50,12 @@ pub struct Context {
     worker_join_handles: Vec<std::thread::JoinHandle<Result<(), ScrError>>>,
 }
 
+#[derive(Default)]
 struct MatchContext {
     ref_count: u32,
     args: HashMap<String, SmallVec<[(TransformStackIndex, MatchData); 1]>>,
 }
+
 struct WorkerThread {
     worker: Worker<Job>,
     session: Arc<Session>,
@@ -183,10 +185,9 @@ impl WorkerThread {
     fn run(&mut self, check_for_new_sessions: bool) -> Result<(), ScrError> {
         loop {
             if let Some(job) = self.find_job() {
-                self.run_job(job)?;
-                self.tf_stack.clear();
-                self.matches_ctx.clear();
-                self.tf_outputs.clear();
+                let res = self.run_job(job);
+                self.cleanup_job_data();
+                res?;
             } else {
                 if !check_for_new_sessions || !self.get_next_session() {
                     return Ok(());
@@ -228,6 +229,7 @@ impl WorkerThread {
         })
     }
     fn setup_transform_stack(&mut self, job: &Job) -> Result<(), ScrError> {
+        debug_assert!(self.tf_stack.is_empty());
         if job.is_stdin {
             self.tf_stack.push(Box::new(TfReadStdin::new()))
         } else {
@@ -263,20 +265,35 @@ impl WorkerThread {
         }
         Ok(())
     }
-    fn run_job(&mut self, job: Job) -> Result<(), ScrError> {
-        debug_assert!(self.tf_stack.is_empty());
-        debug_assert!(self.tf_outputs.is_empty());
-        debug_assert!(self.matches_ctx.is_empty());
-        self.setup_transform_stack(&job)?;
-        self.matches_ctx.push_back(MatchContext {
-            ref_count: 1,
-            args: job.args,
-        });
 
+    fn setup_job_data(&mut self, job: &Job) -> Result<(), ScrError> {
+        self.setup_transform_stack(&job)?;
+        self.matches_ctx.extend(
+            std::iter::repeat_with(Default::default)
+                .take(1usize.saturating_sub(self.matches_ctx.len())),
+        );
         self.tf_outputs.extend(
             std::iter::repeat_with(Default::default)
                 .take(self.tf_stack.len().saturating_sub(self.tf_outputs.len())),
         );
+        Ok(())
+    }
+    fn cleanup_job_data(&mut self) {
+        for mc in self.matches_ctx.iter_mut().take(self.tf_stack.len()) {
+            mc.args.clear();
+            mc.ref_count = 0;
+        }
+        for tfo in self.tf_outputs.iter_mut().take(self.tf_stack.len()) {
+            tfo.clear();
+        }
+        self.tf_stack.clear();
+    }
+    fn run_job(&mut self, job: Job) -> Result<(), ScrError> {
+        self.setup_job_data(&job)?;
+        let mut last_tf_with_pending_output = 0;
+        self.matches_ctx[0].ref_count = 1;
+        self.matches_ctx[0].args = job.args;
+
         self.tf_outputs[0].push_back((
             0,
             TransformOutput {
@@ -286,8 +303,7 @@ impl WorkerThread {
                 is_last_chunk: None,
             },
         ));
-        let mut finished_matches: usize = 0;
-        let mut last_tf_with_pending_output = 0;
+
         loop {
             let tf_idx = last_tf_with_pending_output;
             if let Some(tfo) = self.tf_outputs[last_tf_with_pending_output].front_mut() {
@@ -297,14 +313,6 @@ impl WorkerThread {
                     *rc -= 1;
                     if *rc == 0 {
                         self.matches_ctx[match_idx].args.clear();
-                        if match_idx != finished_matches + 1 {
-                            self.matches_ctx[match_idx].args = Default::default();
-                        } else {
-                            while self.matches_ctx[0].ref_count == 0 {
-                                self.matches_ctx.pop_front();
-                                finished_matches += 1;
-                            }
-                        }
                     }
                     self.tf_outputs[last_tf_with_pending_output].pop_front();
                     continue;
@@ -313,12 +321,15 @@ impl WorkerThread {
                 tfo.0 += 1;
                 let res = self.tf_stack[dep_idx].process(
                     &self.ctx,
-                    &self.matches_ctx[match_idx - finished_matches].args,
+                    &self.matches_ctx[match_idx].args,
                     &tfo.1,
                 )?;
                 for res_tfo in &res {
-                    self.matches_ctx[res_tfo.match_index as usize - finished_matches].ref_count +=
-                        1;
+                    let mi = res_tfo.match_index as usize;
+                    while mi >= self.matches_ctx.len() {
+                        self.matches_ctx.push_back(Default::default());
+                    }
+                    self.matches_ctx[mi].ref_count += 1;
                 }
                 if !res.is_empty() {
                     self.tf_outputs[dep_idx].extend(res.into_iter().map(|tfo| (0, tfo)));
