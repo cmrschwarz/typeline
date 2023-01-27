@@ -10,7 +10,7 @@ use smallvec::SmallVec;
 use thiserror::Error;
 
 use self::regex::OpRegex;
-use self::transform::Transform;
+use self::transform::{Transform, TransformApplicationError};
 use crate::chain::{Chain, ChainId};
 use crate::options::argument::{CliArgIdx, CliArgument};
 use crate::options::{chain_spec::ChainSpec, context_options::ContextOptions};
@@ -71,6 +71,16 @@ impl OperationApplicationError {
             message: message.to_owned(),
             op_id,
             op_ref,
+        }
+    }
+    pub fn from_transform_application_error(
+        tae: TransformApplicationError,
+        op_id: OperationId,
+    ) -> OperationApplicationError {
+        OperationApplicationError {
+            message: tae.message,
+            op_ref: tae.op_ref,
+            op_id,
         }
     }
 }

@@ -44,8 +44,8 @@ impl Transform for TfParent {
         tf_stack: &mut [Box<dyn Transform>],
         dependant: TransformStackIndex,
     ) -> Result<(), TransformApplicationError> {
-        let mut parent_idx = self.tf_base.tfs_index as usize;
-        for _ in 0..self.offset {
+        let mut parent_idx = self.tf_base.tfs_index as usize - 1;
+        for _ in 1..self.offset {
             if tf_stack[parent_idx].base().begin_of_chain || parent_idx == 0 {
                 return Err(TransformApplicationError::new(
                     "no element at the requested depth for 'parent'",
@@ -88,7 +88,6 @@ impl Operation for OpParent {
             op_ref: op_ref,
             offset: self.offset,
         });
-        parent.dependants.push(tfp.tf_base.tfs_index);
         Ok(tfp)
     }
 
@@ -119,6 +118,12 @@ impl OperationCatalogMember for OpParent {
         } else {
             1
         };
+        if offset == 0 {
+            return Err(OperationCreationError::new(
+                "parent offset cannot be 0",
+                params.cli_arg.as_ref().map(|arg| arg.idx),
+            ));
+        }
         Ok(Box::new(OpParent {
             op_base: OpBase::from_op_params(params),
             offset,

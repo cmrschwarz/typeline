@@ -50,7 +50,7 @@ impl Operation for OpRegex {
         op_ref: OperationRef,
         tf_stack: &mut [Box<dyn Transform>],
     ) -> Result<Box<dyn Transform>, OperationApplicationError> {
-        let parent = tf_stack.last_mut().unwrap().base_mut();
+        let (parent, tf_stack) = tf_stack.split_last_mut().unwrap();
         let mut tf_base = TfBase::from_parent(parent);
         tf_base.data_kind = DataKind::Text;
         let tfp = Box::new(TfRegex {
@@ -58,7 +58,14 @@ impl Operation for OpRegex {
             op_ref,
             regex: self.regex.clone(),
         });
-        parent.dependants.push(tfp.tf_base.tfs_index);
+        parent
+            .add_dependant(tf_stack, tfp.tf_base.tfs_index)
+            .map_err(|tae| {
+                OperationApplicationError::from_transform_application_error(
+                    tae,
+                    self.op_base.op_id.unwrap(),
+                )
+            })?;
         Ok(tfp)
     }
 }

@@ -96,6 +96,8 @@ pub struct TfBase {
     pub needs_stdout: bool,
     pub requires_eval: bool,
     pub begin_of_chain: bool,
+    // !adding a dependant should be done by calling add_dependant on the transform
+    // to allow e.g. TfParent to redirect it further upwards
     pub dependants: SmallVec<[TransformStackIndex; 1]>,
     pub tfs_index: TransformStackIndex,
 }
