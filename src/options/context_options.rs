@@ -92,6 +92,7 @@ impl ContextOptions {
         });
         let mut cd = ContextData {
             parallel_jobs,
+            is_repl: self.repl.unwrap_or(DEFAULT_CONTEXT_OPTIONS.repl.unwrap()),
             documents: self.documents,
             chains: self.chains.into_iter().map(|c| c.build_chain()).collect(),
             operations: self.operations,

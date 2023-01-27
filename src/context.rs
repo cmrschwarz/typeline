@@ -26,6 +26,7 @@ pub struct Job {
 
 pub struct ContextData {
     pub parallel_jobs: NonZeroUsize,
+    pub is_repl: bool,
     pub documents: Vec<Document>,
     pub chains: Vec<Chain>,
     pub operations: Vec<Box<dyn Operation>>,
@@ -45,14 +46,13 @@ pub struct Session {
 
 pub struct Context {
     pub data: Arc<ContextData>,
-    pub session: Arc<Session>,
-    pub main_thread_worker: Worker<Job>,
-    pub worker_join_handles: Vec<std::thread::JoinHandle<Result<(), ScrError>>>,
+    main_worker_thread: WorkerThread,
+    worker_join_handles: Vec<std::thread::JoinHandle<Result<(), ScrError>>>,
 }
 
-struct WorkerThread<'a> {
+struct WorkerThread {
     worker: Worker<Job>,
-    session: &'a Session,
+    session: Arc<Session>,
     ctx: Arc<ContextData>,
     stealers: Vec<Stealer<Job>>,
     session_generation: usize,
@@ -71,10 +71,10 @@ impl Context {
                 ctx_data: data_arc.clone(),
             }),
         });
+
         Self {
             data: data_arc,
-            session: session_arc,
-            main_thread_worker: Worker::new_fifo(),
+            main_worker_thread: WorkerThread::new(0, Worker::new_fifo(), session_arc.clone()),
             worker_join_handles: Default::default(),
         }
     }
@@ -88,7 +88,7 @@ impl Context {
                     stdin_job_ops.extend(ops_iter);
                 }
                 _ => {
-                    self.session.injector.push(Job {
+                    self.main_worker_thread.session.injector.push(Job {
                         ops: ops_iter.collect(),
                         data: Some(d.source.create_match_data()),
                         args: HashMap::default(),
@@ -98,7 +98,7 @@ impl Context {
             }
         }
         if !stdin_job_ops.is_empty() {
-            self.session.injector.push(Job {
+            self.main_worker_thread.session.injector.push(Job {
                 ops: stdin_job_ops,
                 data: None,
                 args: HashMap::default(),
@@ -113,35 +113,32 @@ impl Context {
         let workers = (0..additional_wts)
             .map(|_| Worker::new_fifo())
             .collect::<Vec<Worker<Job>>>();
-        self.session
+        self.main_worker_thread
+            .session
             .session_data
             .lock()
             .unwrap()
             .stealers
             .extend(workers.iter().map(|w| w.stealer()));
         let mut index = self.worker_join_handles.len() + 1;
+        let is_repl = self.data.is_repl;
         for worker in workers.into_iter() {
-            let session = self.session.clone();
+            let session = self.main_worker_thread.session.clone();
             self.worker_join_handles.push(std::thread::spawn(move || {
-                let mut wt;
-                {
-                    let sd = session.session_data.lock().unwrap();
-                    wt = WorkerThread::new(index, worker, session.as_ref(), &sd);
-                }
-                wt.run()
+                WorkerThread::new(index, worker, session).run(is_repl)
             }));
             index += 1;
         }
+        self.main_worker_thread.run(false)?;
         Ok(()) //TODO
     }
     pub fn terminate(&mut self) -> Result<(), ScrError> {
         {
-            let mut sd = self.session.session_data.lock().unwrap();
+            let mut sd = self.main_worker_thread.session.session_data.lock().unwrap();
             sd.generation += 1;
             sd.terminate = true;
-            self.session.tasks_available.notify_all();
+            self.main_worker_thread.session.tasks_available.notify_all();
         }
-
         let threads = std::mem::replace(&mut self.worker_join_handles, Default::default());
         for wt in threads.into_iter() {
             //TODO: bundle up these errors
@@ -159,11 +156,11 @@ struct MatchContext {
     ref_count: u32,
     args: HashMap<String, SmallVec<[(TransformStackIndex, MatchData); 1]>>,
 }
-impl<'a> WorkerThread<'a> {
-    fn new(index: usize, worker: Worker<Job>, session: &'a Session, sd: &SessionData) -> Self {
+impl WorkerThread {
+    fn new(index: usize, worker: Worker<Job>, session: Arc<Session>) -> Self {
+        let sd = session.session_data.lock().unwrap();
         Self {
             worker: worker,
-            session: session,
             ctx: sd.ctx_data.clone(),
             stealers: sd
                 .stealers
@@ -173,14 +170,15 @@ impl<'a> WorkerThread<'a> {
                 .map(|(_, s)| s.clone())
                 .collect(),
             session_generation: sd.generation,
+            session: session.clone(),
         }
     }
-    fn run(&mut self) -> Result<(), ScrError> {
+    fn run(&mut self, check_for_new_sessions: bool) -> Result<(), ScrError> {
         loop {
             if let Some(job) = self.find_job() {
                 self.run_job(job)?;
             } else {
-                if !self.get_next_session() {
+                if !check_for_new_sessions || !self.get_next_session() {
                     return Ok(());
                 }
             }
@@ -193,21 +191,19 @@ impl<'a> WorkerThread<'a> {
                 return false;
             }
             if session_data.generation != self.session_generation {
-                self.update_session(&session_data);
+                self.session_generation = session_data.generation;
+                self.stealers.extend(
+                    session_data
+                        .stealers
+                        .iter()
+                        .skip(self.stealers.len())
+                        .map(|s| s.clone()),
+                );
+                self.ctx = session_data.ctx_data.clone();
                 return true;
             }
             session_data = self.session.tasks_available.wait(session_data).unwrap();
         }
-    }
-    fn update_session(&mut self, sess: &SessionData) {
-        self.session_generation = sess.generation;
-        self.stealers.extend(
-            sess.stealers
-                .iter()
-                .skip(self.stealers.len())
-                .map(|s| s.clone()),
-        );
-        self.ctx = sess.ctx_data.clone();
     }
     fn find_job(&mut self) -> Option<Job> {
         self.worker.pop().or_else(|| {
