@@ -264,6 +264,9 @@ impl WorkerThread {
         Ok(())
     }
     fn run_job(&mut self, job: Job) -> Result<(), ScrError> {
+        debug_assert!(self.tf_stack.is_empty());
+        debug_assert!(self.tf_outputs.is_empty());
+        debug_assert!(self.matches_ctx.is_empty());
         self.setup_transform_stack(&job)?;
         self.matches_ctx.push_back(MatchContext {
             ref_count: 1,
@@ -317,9 +320,11 @@ impl WorkerThread {
                     self.matches_ctx[res_tfo.match_index as usize - finished_matches].ref_count +=
                         1;
                 }
-                self.tf_outputs[dep_idx].extend(res.into_iter().map(|tfo| (0, tfo)));
-                if dep_idx > last_tf_with_pending_output {
-                    last_tf_with_pending_output = dep_idx;
+                if !res.is_empty() {
+                    self.tf_outputs[dep_idx].extend(res.into_iter().map(|tfo| (0, tfo)));
+                    if dep_idx > last_tf_with_pending_output {
+                        last_tf_with_pending_output = dep_idx;
+                    }
                 }
             } else {
                 if last_tf_with_pending_output == 0 {

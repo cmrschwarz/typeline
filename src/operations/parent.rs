@@ -45,7 +45,7 @@ impl Transform for TfParent {
         dependant: TransformStackIndex,
     ) -> Result<(), TransformApplicationError> {
         let mut parent_idx = self.tf_base.tfs_index as usize - 1;
-        for _ in 1..self.offset {
+        for _ in 0..self.offset {
             if tf_stack[parent_idx].base().begin_of_chain || parent_idx == 0 {
                 return Err(TransformApplicationError::new(
                     "no element at the requested depth for 'parent'",
