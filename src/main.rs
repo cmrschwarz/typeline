@@ -4,7 +4,7 @@ use scr::{
 };
 use std::process::ExitCode;
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() -> ExitCode {
     if std::env::args_os().len() < 2 {
         eprintln!("[ERROR]: missing arguments, consider supplying --help");

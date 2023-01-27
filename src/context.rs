@@ -50,12 +50,20 @@ pub struct Context {
     worker_join_handles: Vec<std::thread::JoinHandle<Result<(), ScrError>>>,
 }
 
+struct MatchContext {
+    ref_count: u32,
+    args: HashMap<String, SmallVec<[(TransformStackIndex, MatchData); 1]>>,
+}
 struct WorkerThread {
     worker: Worker<Job>,
     session: Arc<Session>,
     ctx: Arc<ContextData>,
     stealers: Vec<Stealer<Job>>,
     session_generation: usize,
+
+    tf_stack: Vec<Box<dyn Transform>>,
+    matches_ctx: VecDeque<MatchContext>,
+    tf_outputs: Vec<VecDeque<(usize, TransformOutput)>>,
 }
 
 impl Context {
@@ -152,10 +160,6 @@ impl Context {
         Ok(())
     }
 }
-struct MatchContext {
-    ref_count: u32,
-    args: HashMap<String, SmallVec<[(TransformStackIndex, MatchData); 1]>>,
-}
 impl WorkerThread {
     fn new(index: usize, worker: Worker<Job>, session: Arc<Session>) -> Self {
         let sd = session.session_data.lock().unwrap();
@@ -171,12 +175,18 @@ impl WorkerThread {
                 .collect(),
             session_generation: sd.generation,
             session: session.clone(),
+            tf_outputs: Default::default(),
+            tf_stack: Default::default(),
+            matches_ctx: Default::default(),
         }
     }
     fn run(&mut self, check_for_new_sessions: bool) -> Result<(), ScrError> {
         loop {
             if let Some(job) = self.find_job() {
                 self.run_job(job)?;
+                self.tf_stack.clear();
+                self.matches_ctx.clear();
+                self.tf_outputs.clear();
             } else {
                 if !check_for_new_sessions || !self.get_next_session() {
                     return Ok(());
@@ -217,15 +227,11 @@ impl WorkerThread {
             .and_then(|s| s.success())
         })
     }
-    fn setup_transform_stack(
-        &self,
-        job: &Job,
-    ) -> Result<SmallVec<[Box<dyn Transform>; 4]>, ScrError> {
-        let mut tf_stack: SmallVec<[Box<dyn Transform>; 4]> = Default::default();
+    fn setup_transform_stack(&mut self, job: &Job) -> Result<(), ScrError> {
         if job.is_stdin {
-            tf_stack.push(Box::new(TfReadStdin::new()))
+            self.tf_stack.push(Box::new(TfReadStdin::new()))
         } else {
-            tf_stack.push(Box::new(TfStart::new(
+            self.tf_stack.push(Box::new(TfStart::new(
                 job.data.as_ref().map_or(DataKind::None, |d| d.kind()),
             )))
         }
@@ -233,41 +239,42 @@ impl WorkerThread {
             let cn = &self.ctx.chains[op_ref.chain_id as usize];
             for i in op_ref.op_offset as usize..cn.operations.len() {
                 let op = &self.ctx.operations[cn.operations[i] as usize];
-                let tf = op.apply(*op_ref, tf_stack.as_mut_slice())?;
+                let tf = op.apply(*op_ref, self.tf_stack.as_mut_slice())?;
                 let requires_eval = tf.requires_eval;
-                tf_stack.push(tf);
+                self.tf_stack.push(tf);
                 if requires_eval {
                     break;
                 }
             }
             if i + 1 < job.ops.len() {
-                let mut tf_base = TfBase::from_parent(&tf_stack[0]);
+                let mut tf_base = TfBase::from_parent(&self.tf_stack[0]);
                 tf_base.begin_of_chain = true;
-                tf_base.tfs_index = tf_stack.len() as TransformStackIndex;
-                tf_stack.push(Box::new(TfParent {
+                tf_base.tfs_index = self.tf_stack.len() as TransformStackIndex;
+                self.tf_stack.push(Box::new(TfParent {
                     tf_base,
                     op_ref: OperationRef {
                         //this little lie is fine since we will never error on this one anyways
                         chain_id: 0,
                         op_offset: 0,
                     },
-                    offset: tf_stack.len() as TransformStackIndex,
+                    offset: self.tf_stack.len() as TransformStackIndex,
                 }));
             }
         }
-        Ok(tf_stack)
+        Ok(())
     }
     fn run_job(&mut self, job: Job) -> Result<(), ScrError> {
-        let mut tf_stack = self.setup_transform_stack(&job)?;
-        let mut matches_ctx: VecDeque<MatchContext> = Default::default();
-        matches_ctx.push_back(MatchContext {
+        self.setup_transform_stack(&job)?;
+        self.matches_ctx.push_back(MatchContext {
             ref_count: 1,
             args: job.args,
         });
 
-        let mut outputs: Vec<VecDeque<(usize, TransformOutput)>> = Vec::new();
-        outputs.resize_with(tf_stack.len(), Default::default);
-        outputs[0].push_back((
+        self.tf_outputs.extend(
+            std::iter::repeat_with(Default::default)
+                .take(self.tf_stack.len().saturating_sub(self.tf_outputs.len())),
+        );
+        self.tf_outputs[0].push_back((
             0,
             TransformOutput {
                 match_index: 0 as MatchIdx,
@@ -280,36 +287,37 @@ impl WorkerThread {
         let mut last_tf_with_pending_output = 0;
         loop {
             let tf_idx = last_tf_with_pending_output;
-            if let Some(tfo) = outputs[last_tf_with_pending_output].front_mut() {
+            if let Some(tfo) = self.tf_outputs[last_tf_with_pending_output].front_mut() {
                 let match_idx = tfo.1.match_index as usize;
-                if tfo.0 >= tf_stack[tf_idx].dependants.len() {
-                    let rc = &mut matches_ctx[match_idx].ref_count;
+                if tfo.0 >= self.tf_stack[tf_idx].dependants.len() {
+                    let rc = &mut self.matches_ctx[match_idx].ref_count;
                     *rc -= 1;
                     if *rc == 0 {
-                        matches_ctx[match_idx].args.clear();
+                        self.matches_ctx[match_idx].args.clear();
                         if match_idx != finished_matches + 1 {
-                            matches_ctx[match_idx].args = Default::default();
+                            self.matches_ctx[match_idx].args = Default::default();
                         } else {
-                            while matches_ctx[0].ref_count == 0 {
-                                matches_ctx.pop_front();
+                            while self.matches_ctx[0].ref_count == 0 {
+                                self.matches_ctx.pop_front();
                                 finished_matches += 1;
                             }
                         }
                     }
-                    outputs[last_tf_with_pending_output].pop_front();
+                    self.tf_outputs[last_tf_with_pending_output].pop_front();
                     continue;
                 }
-                let dep_idx = tf_stack[tf_idx].dependants[tfo.0] as usize;
+                let dep_idx = self.tf_stack[tf_idx].dependants[tfo.0] as usize;
                 tfo.0 += 1;
-                let res = tf_stack[dep_idx].process(
+                let res = self.tf_stack[dep_idx].process(
                     &self.ctx,
-                    &matches_ctx[match_idx - finished_matches].args,
+                    &self.matches_ctx[match_idx - finished_matches].args,
                     &tfo.1,
                 )?;
                 for res_tfo in &res {
-                    matches_ctx[res_tfo.match_index as usize - finished_matches].ref_count += 1;
+                    self.matches_ctx[res_tfo.match_index as usize - finished_matches].ref_count +=
+                        1;
                 }
-                outputs[dep_idx].extend(res.into_iter().map(|tfo| (0, tfo)));
+                self.tf_outputs[dep_idx].extend(res.into_iter().map(|tfo| (0, tfo)));
                 if dep_idx > last_tf_with_pending_output {
                     last_tf_with_pending_output = dep_idx;
                 }
