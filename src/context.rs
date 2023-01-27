@@ -106,7 +106,7 @@ impl Context {
             });
         }
     }
-    pub fn run(&mut self) -> Result<(), ScrError> {
+    pub fn perform_jobs(&mut self) -> Result<(), ScrError> {
         self.gen_jobs_from_docs();
         assert!(self.data.parallel_jobs.get() > self.worker_join_handles.len()); // TODO: handle this case
         let additional_wts = self.data.parallel_jobs.get() - self.worker_join_handles.len() - 1;
@@ -123,13 +123,36 @@ impl Context {
         for worker in workers.into_iter() {
             let session = self.session.clone();
             self.worker_join_handles.push(std::thread::spawn(move || {
-                let sd = session.session_data.lock().unwrap();
-                let mut wt = WorkerThread::new(index, worker, session.as_ref(), &sd);
+                let mut wt;
+                {
+                    let sd = session.session_data.lock().unwrap();
+                    wt = WorkerThread::new(index, worker, session.as_ref(), &sd);
+                }
                 wt.run()
             }));
             index += 1;
         }
         Ok(()) //TODO
+    }
+    pub fn terminate(&mut self) -> Result<(), ScrError> {
+        {
+            let mut sd = self.session.session_data.lock().unwrap();
+            sd.generation += 1;
+            sd.terminate = true;
+            self.session.tasks_available.notify_all();
+        }
+
+        let threads = std::mem::replace(&mut self.worker_join_handles, Default::default());
+        for wt in threads.into_iter() {
+            //TODO: bundle up these errors
+            wt.join().unwrap().unwrap();
+        }
+        Ok(())
+    }
+    pub fn run(&mut self) -> Result<(), ScrError> {
+        self.perform_jobs()?;
+        self.terminate()?;
+        Ok(())
     }
 }
 struct MatchContext {
@@ -164,19 +187,16 @@ impl<'a> WorkerThread<'a> {
         }
     }
     fn get_next_session(&mut self) -> bool {
+        let mut session_data = self.session.session_data.lock().unwrap();
         loop {
-            let session_data = self
-                .session
-                .tasks_available
-                .wait(self.session.session_data.lock().unwrap())
-                .unwrap();
+            if session_data.terminate {
+                return false;
+            }
             if session_data.generation != self.session_generation {
-                if session_data.terminate {
-                    return false;
-                }
                 self.update_session(&session_data);
                 return true;
             }
+            session_data = self.session.tasks_available.wait(session_data).unwrap();
         }
     }
     fn update_session(&mut self, sess: &SessionData) {
