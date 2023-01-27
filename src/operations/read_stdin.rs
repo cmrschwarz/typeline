@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 use smallvec::SmallVec;
 
@@ -27,7 +27,8 @@ impl Transform for TfReadStdin {
         _ctx: &ContextData,
         _args: &HashMap<String, SmallVec<[(TransformStackIndex, MatchData); 1]>>,
         _tfo: &TransformOutput,
-    ) -> Result<SmallVec<[TransformOutput; 1]>, TransformApplicationError> {
+        _output: &mut VecDeque<TransformOutput>,
+    ) -> Result<(), TransformApplicationError> {
         panic!("requested to process data in a data source");
     }
 }

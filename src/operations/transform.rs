@@ -1,4 +1,7 @@
-use std::{collections::HashMap, fmt::Display};
+use std::{
+    collections::{HashMap, VecDeque},
+    fmt::Display,
+};
 
 use smallvec::SmallVec;
 use thiserror::Error;
@@ -124,7 +127,8 @@ pub trait Transform: Send {
         ctx: &ContextData,
         args: &HashMap<String, SmallVec<[(TransformStackIndex, MatchData); 1]>>,
         tfo: &TransformOutput,
-    ) -> Result<SmallVec<[TransformOutput; 1]>, TransformApplicationError>;
+        output: &mut VecDeque<TransformOutput>,
+    ) -> Result<(), TransformApplicationError>;
     fn add_dependant(
         &mut self,
         _tf_stack: &mut [Box<dyn Transform>],

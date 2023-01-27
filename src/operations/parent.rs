@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 use smallvec::SmallVec;
 
@@ -34,9 +34,10 @@ impl Transform for TfParent {
         _ctx: &ContextData,
         _args: &HashMap<String, SmallVec<[(TransformStackIndex, MatchData); 1]>>,
         tfo: &TransformOutput,
-    ) -> Result<SmallVec<[TransformOutput; 1]>, TransformApplicationError> {
+        _output: &mut VecDeque<TransformOutput>,
+    ) -> Result<(), TransformApplicationError> {
         debug_assert!(tfo.data.is_none());
-        Ok(SmallVec::default())
+        Ok(())
     }
 
     fn add_dependant(

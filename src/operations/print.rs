@@ -1,4 +1,7 @@
-use std::{collections::HashMap, io::Write};
+use std::{
+    collections::{HashMap, VecDeque},
+    io::Write,
+};
 
 use smallvec::SmallVec;
 
@@ -78,7 +81,8 @@ impl Transform for TfPrint {
         _ctx: &ContextData,
         _args: &HashMap<String, SmallVec<[(TransformStackIndex, MatchData); 1]>>,
         tfo: &TransformOutput,
-    ) -> Result<SmallVec<[TransformOutput; 1]>, TransformApplicationError> {
+        _output: &mut VecDeque<TransformOutput>,
+    ) -> Result<(), TransformApplicationError> {
         match &tfo.data {
             Some(MatchData::Bytes(b)) => {
                 let mut s = std::io::stdout();
@@ -106,7 +110,7 @@ impl Transform for TfPrint {
             }
             _ => panic!("missing TfSerialize"),
         }
-        Ok(SmallVec::default())
+        Ok(())
     }
 }
 

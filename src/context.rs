@@ -55,10 +55,21 @@ struct MatchContext {
     ref_count: u32,
     args: HashMap<String, SmallVec<[(TransformStackIndex, MatchData); 1]>>,
 }
+#[derive(Default)]
+struct TransformOutputsContext {
+    tfos: VecDeque<TransformOutput>,
+    next_dependant_indices: VecDeque<usize>,
+}
 
-struct TransformOutputContext {
-    tfo: TransformOutput,
-    next_dependant_index: usize,
+impl TransformOutputsContext {
+    fn front_mut(&mut self) -> Option<(&mut TransformOutput, &mut usize)> {
+        if let Some(tfo) = self.tfos.front_mut() {
+            if let Some(ndi) = self.next_dependant_indices.front_mut() {
+                return Some((tfo, ndi));
+            }
+        }
+        None
+    }
 }
 
 struct WorkerThread {
@@ -70,7 +81,7 @@ struct WorkerThread {
 
     tf_stack: Vec<Box<dyn Transform>>,
     tf_matches: Vec<MatchContext>,
-    tf_outputs: Vec<VecDeque<TransformOutputContext>>,
+    tf_outputs: Vec<TransformOutputsContext>,
 }
 
 impl Context {
@@ -289,7 +300,8 @@ impl WorkerThread {
             mc.ref_count = 0;
         }
         for tfo in self.tf_outputs.iter_mut().take(self.tf_stack.len()) {
-            tfo.clear();
+            tfo.tfos.clear();
+            tfo.next_dependant_indices.clear();
         }
         self.tf_stack.clear();
     }
@@ -299,51 +311,53 @@ impl WorkerThread {
         self.tf_matches[0].ref_count = 1;
         self.tf_matches[0].args = job.args;
 
-        self.tf_outputs[0].push_back(TransformOutputContext {
-            next_dependant_index: 0,
-            tfo: TransformOutput {
-                match_index: 0 as MatchIdx,
-                data: job.data,
-                args: Vec::default(),
-                is_last_chunk: None,
-            },
+        self.tf_outputs[0].tfos.push_back(TransformOutput {
+            match_index: 0 as MatchIdx,
+            data: job.data,
+            args: Vec::default(),
+            is_last_chunk: None,
         });
+        self.tf_outputs[0].next_dependant_indices.push_back(0);
 
         loop {
             let tf_idx = last_tf_with_pending_output;
-            if let Some(tfo_ctx) = self.tf_outputs[last_tf_with_pending_output].front_mut() {
-                let match_idx = tfo_ctx.tfo.match_index as usize;
-                if tfo_ctx.next_dependant_index >= self.tf_stack[tf_idx].dependants.len() {
+            let (tf_outputs_head, tf_outputs_tail) = self.tf_outputs.split_at_mut(tf_idx + 1);
+            if let Some((tfo, next_dep_index)) = tf_outputs_head[tf_idx].front_mut() {
+                let match_idx = tfo.match_index as usize;
+                if *next_dep_index >= self.tf_stack[tf_idx].dependants.len() {
                     let rc = &mut self.tf_matches[match_idx].ref_count;
                     *rc -= 1;
                     if *rc == 0 {
                         self.tf_matches[match_idx].args.clear();
                     }
-                    self.tf_outputs[last_tf_with_pending_output].pop_front();
+                    let tfo_ctx = &mut self.tf_outputs[last_tf_with_pending_output];
+                    tfo_ctx.tfos.pop_front();
+                    tfo_ctx.next_dependant_indices.pop_front();
                     continue;
                 }
-                let dep_idx =
-                    self.tf_stack[tf_idx].dependants[tfo_ctx.next_dependant_index] as usize;
-                tfo_ctx.next_dependant_index += 1;
-                let res = self.tf_stack[dep_idx].process(
+                let dep_idx = self.tf_stack[tf_idx].dependants[*next_dep_index] as usize;
+                *next_dep_index += 1;
+                let tfos_ctx = &mut tf_outputs_tail[dep_idx - tf_idx - 1];
+                let tfos_len_prev = tfos_ctx.tfos.len();
+                self.tf_stack[dep_idx].process(
                     &self.ctx,
                     &self.tf_matches[match_idx].args,
-                    &tfo_ctx.tfo,
+                    tfo,
+                    &mut tfos_ctx.tfos,
                 )?;
-                for res_tfo in &res {
-                    let mi = res_tfo.match_index as usize;
-                    while mi >= self.tf_matches.len() {
-                        self.tf_matches.push(Default::default());
-                    }
-                    self.tf_matches[mi].ref_count += 1;
-                }
-                if !res.is_empty() {
-                    self.tf_outputs[dep_idx].extend(res.into_iter().map(|tfo| {
-                        TransformOutputContext {
-                            next_dependant_index: 0,
-                            tfo,
+                debug_assert!(tfos_ctx.tfos.len() >= tfos_len_prev);
+                let added_tfo_count = tfos_ctx.tfos.len() - tfos_len_prev;
+                if added_tfo_count != 0 {
+                    tfos_ctx
+                        .next_dependant_indices
+                        .extend(std::iter::repeat(0).take(added_tfo_count));
+                    for res_tfo in tfos_ctx.tfos.iter().skip(tfos_len_prev) {
+                        let mi = res_tfo.match_index as usize;
+                        while mi >= self.tf_matches.len() {
+                            self.tf_matches.push(Default::default());
                         }
-                    }));
+                        self.tf_matches[mi].ref_count += 1;
+                    }
                     if dep_idx > last_tf_with_pending_output {
                         last_tf_with_pending_output = dep_idx;
                     }

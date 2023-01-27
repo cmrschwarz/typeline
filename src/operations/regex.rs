@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 use regex::Regex;
 use smallvec::SmallVec;
@@ -83,7 +83,8 @@ impl Transform for TfRegex {
         _ctx: &ContextData,
         _args: &HashMap<String, SmallVec<[(TransformStackIndex, MatchData); 1]>>,
         tfo: &TransformOutput,
-    ) -> Result<SmallVec<[TransformOutput; 1]>, TransformApplicationError> {
+        output: &mut VecDeque<TransformOutput>,
+    ) -> Result<(), TransformApplicationError> {
         if tfo.is_last_chunk.is_some() {
             return Err(TransformApplicationError::new(
                 "the regex transform does not support streams",
@@ -92,10 +93,9 @@ impl Transform for TfRegex {
         }
         match &tfo.data {
             Some(MatchData::Text(text)) => {
-                let mut results = SmallVec::default();
                 let mut match_index = tfo.match_index;
                 for cap in self.regex.captures_iter(text) {
-                    results.push(TransformOutput {
+                    output.push_back(TransformOutput {
                         match_index,
                         data: Some(MatchData::Text(cap.get(0).unwrap().as_str().to_owned())),
                         args: Vec::default(), //todo
@@ -103,7 +103,7 @@ impl Transform for TfRegex {
                     });
                     match_index += 1;
                 }
-                Ok(results)
+                Ok(())
             }
             Some(md) => Err(TransformApplicationError {
                 message: format!(
