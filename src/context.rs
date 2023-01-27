@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::iter;
 use std::num::NonZeroUsize;
 use std::sync::{Arc, Condvar, Mutex};
@@ -11,14 +11,16 @@ use crate::document::{Document, DocumentSource};
 use crate::operations::parent::TfParent;
 use crate::operations::read_stdin::TfReadStdin;
 use crate::operations::start::TfStart;
-use crate::operations::transform::{MatchData, TfBase, Transform, TransformStackIndex};
+use crate::operations::transform::{
+    DataKind, MatchData, MatchIdx, TfBase, Transform, TransformOutput, TransformStackIndex,
+};
 use crate::operations::{Operation, OperationRef};
 use crate::scr_error::ScrError;
 
 pub struct Job {
     ops: SmallVec<[OperationRef; 2]>,
     data: Option<MatchData>,
-    args: HashMap<String, MatchData>,
+    args: HashMap<String, SmallVec<[(TransformStackIndex, MatchData); 1]>>,
     is_stdin: bool,
 }
 
@@ -130,7 +132,10 @@ impl Context {
         Ok(()) //TODO
     }
 }
-
+struct MatchContext {
+    ref_count: u32,
+    args: HashMap<String, SmallVec<[(TransformStackIndex, MatchData); 1]>>,
+}
 impl<'a> WorkerThread<'a> {
     fn new(index: usize, worker: Worker<Job>, session: &'a Session, sd: &SessionData) -> Self {
         Self {
@@ -196,15 +201,19 @@ impl<'a> WorkerThread<'a> {
             .and_then(|s| s.success())
         })
     }
-
-    fn run_job(&mut self, job: Job) -> Result<(), ScrError> {
+    fn setup_transform_stack(
+        &self,
+        job: &Job,
+    ) -> Result<SmallVec<[Box<dyn Transform>; 4]>, ScrError> {
         let mut tf_stack: SmallVec<[Box<dyn Transform>; 4]> = Default::default();
         if job.is_stdin {
             tf_stack.push(Box::new(TfReadStdin::new()))
         } else {
-            tf_stack.push(Box::new(TfStart::new(job.data)))
+            tf_stack.push(Box::new(TfStart::new(
+                job.data.as_ref().map_or(DataKind::None, |d| d.kind()),
+            )))
         }
-        for (i, op_ref) in job.ops.iter().enumerate() {
+        for (i, op_ref) in job.ops.iter().rev().enumerate() {
             let cn = &self.ctx.chains[op_ref.chain_id as usize];
             for i in op_ref.op_offset as usize..cn.operations.len() {
                 let op = &self.ctx.operations[cn.operations[i] as usize];
@@ -230,6 +239,72 @@ impl<'a> WorkerThread<'a> {
                 }));
             }
         }
-        todo!();
+        Ok(tf_stack)
+    }
+    fn run_job(&mut self, job: Job) -> Result<(), ScrError> {
+        let mut tf_stack = self.setup_transform_stack(&job)?;
+        let mut matches_ctx: VecDeque<MatchContext> = Default::default();
+        matches_ctx.push_back(MatchContext {
+            ref_count: 1,
+            args: job.args,
+        });
+
+        let mut outputs: Vec<VecDeque<(usize, TransformOutput)>> = Vec::new();
+        outputs.resize_with(tf_stack.len(), Default::default);
+        outputs[0].push_back((
+            0,
+            TransformOutput {
+                match_index: 0 as MatchIdx,
+                data: job.data,
+                args: Vec::default(),
+                is_last_chunk: None,
+            },
+        ));
+        let mut finished_matches: usize = 0;
+        let mut last_tf_with_pending_output = 0;
+        loop {
+            let tf_idx = last_tf_with_pending_output;
+            if let Some(tfo) = outputs[last_tf_with_pending_output].front_mut() {
+                let match_idx = tfo.1.match_index as usize;
+                if tfo.0 >= tf_stack[tf_idx].dependants.len() {
+                    let rc = &mut matches_ctx[match_idx].ref_count;
+                    *rc -= 1;
+                    if *rc == 0 {
+                        matches_ctx[match_idx].args.clear();
+                        if match_idx != finished_matches + 1 {
+                            matches_ctx[match_idx].args = Default::default();
+                        } else {
+                            while matches_ctx[0].ref_count == 0 {
+                                matches_ctx.pop_front();
+                                finished_matches += 1;
+                            }
+                        }
+                    }
+                    outputs[last_tf_with_pending_output].pop_front();
+                    continue;
+                }
+                let dep_idx = tf_stack[tf_idx].dependants[tfo.0] as usize;
+                tfo.0 += 1;
+                let res = tf_stack[dep_idx].process(
+                    &self.ctx,
+                    &matches_ctx[match_idx - finished_matches].args,
+                    &tfo.1,
+                )?;
+                for res_tfo in &res {
+                    matches_ctx[res_tfo.match_index as usize - finished_matches].ref_count += 1;
+                }
+                outputs[dep_idx].extend(res.into_iter().map(|tfo| (0, tfo)));
+                if dep_idx > last_tf_with_pending_output {
+                    last_tf_with_pending_output = dep_idx;
+                }
+            } else {
+                if last_tf_with_pending_output == 0 {
+                    break;
+                }
+                last_tf_with_pending_output -= 1;
+            }
+        }
+
+        Ok(())
     }
 }

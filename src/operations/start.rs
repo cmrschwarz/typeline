@@ -1,17 +1,16 @@
 use std::collections::HashMap;
 
-use smallvec::{smallvec, SmallVec};
+use smallvec::SmallVec;
 
 use crate::{
     context::ContextData,
-    operations::transform::{MatchData, MatchIdx, TfBase, Transform},
+    operations::transform::{MatchData, TfBase, Transform},
 };
 
-use super::transform::{DataKind, TransformApplicationError, TransformOutput};
+use super::transform::{DataKind, TransformApplicationError, TransformOutput, TransformStackIndex};
 
 pub struct TfStart {
     pub tf_base: TfBase,
-    pub data: Option<MatchData>,
 }
 
 impl Transform for TfStart {
@@ -26,24 +25,18 @@ impl Transform for TfStart {
     fn process(
         &mut self,
         _ctx: &ContextData,
-        _args: &HashMap<String, MatchData>,
-        tfo: &TransformOutput,
+        _args: &HashMap<String, SmallVec<[(TransformStackIndex, MatchData); 1]>>,
+        _tfo: &TransformOutput,
     ) -> Result<SmallVec<[TransformOutput; 1]>, TransformApplicationError> {
-        debug_assert!(tfo.data.is_none());
-        Ok(smallvec![TransformOutput {
-            match_index: 0 as MatchIdx,
-            data: self.data.take(),
-            args: Vec::default(),
-            is_last_chunk: None,
-        }])
+        panic!("attempted to process TfStart")
     }
 }
 
 impl TfStart {
-    pub fn new(data: Option<MatchData>) -> TfStart {
+    pub fn new(data_kind: DataKind) -> TfStart {
         Self {
             tf_base: TfBase {
-                data_kind: data.as_ref().map_or(DataKind::None, |d| d.kind()),
+                data_kind: data_kind,
                 is_stream: false,
                 requires_eval: false,
                 needs_stdout: false,
@@ -51,7 +44,6 @@ impl TfStart {
                 dependants: SmallVec::new(),
                 tfs_index: 0,
             },
-            data,
         }
     }
 }

@@ -120,7 +120,7 @@ pub trait Transform: Send {
     fn process(
         &mut self,
         ctx: &ContextData,
-        args: &HashMap<String, MatchData>,
+        args: &HashMap<String, SmallVec<[(TransformStackIndex, MatchData); 1]>>,
         tfo: &TransformOutput,
     ) -> Result<SmallVec<[TransformOutput; 1]>, TransformApplicationError>;
     fn add_dependant(

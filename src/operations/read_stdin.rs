@@ -7,7 +7,7 @@ use crate::{
     operations::transform::{DataKind, MatchData, TfBase, Transform},
 };
 
-use super::transform::{TransformApplicationError, TransformOutput};
+use super::transform::{TransformApplicationError, TransformOutput, TransformStackIndex};
 
 pub struct TfReadStdin {
     pub tf_base: TfBase,
@@ -25,7 +25,7 @@ impl Transform for TfReadStdin {
     fn process(
         &mut self,
         _ctx: &ContextData,
-        _args: &HashMap<String, MatchData>,
+        _args: &HashMap<String, SmallVec<[(TransformStackIndex, MatchData); 1]>>,
         _tfo: &TransformOutput,
     ) -> Result<SmallVec<[TransformOutput; 1]>, TransformApplicationError> {
         panic!("requested to process data in a data source");

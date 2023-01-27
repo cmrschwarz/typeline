@@ -10,7 +10,7 @@ use crate::{
 };
 
 use super::{
-    transform::{TransformApplicationError, TransformOutput},
+    transform::{TransformApplicationError, TransformOutput, TransformStackIndex},
     OpBase, Operation, OperationApplicationError, OperationCatalogMember, OperationCreationError,
     OperationParameters, OperationRef,
 };
@@ -74,7 +74,7 @@ impl Transform for TfRegex {
     fn process(
         &mut self,
         _ctx: &ContextData,
-        _args: &HashMap<String, MatchData>,
+        _args: &HashMap<String, SmallVec<[(TransformStackIndex, MatchData); 1]>>,
         tfo: &TransformOutput,
     ) -> Result<SmallVec<[TransformOutput; 1]>, TransformApplicationError> {
         if tfo.is_last_chunk.is_some() {
