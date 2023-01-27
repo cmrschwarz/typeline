@@ -203,6 +203,16 @@ fn try_parse_bool_arg_or_default(
         Ok(default)
     }
 }
+fn try_parse_usize_arg(val: &bstr, cli_arg_idx: CliArgIdx) -> Result<usize, CliArgumentError> {
+    if let Ok(b) = val.parse::<usize>() {
+        Ok(b)
+    } else {
+        Err(CliArgumentError::new(
+            "failed to parse as unsigned integer",
+            cli_arg_idx,
+        ))
+    }
+}
 
 fn try_parse_as_context_opt(
     ctx_opts: &mut ContextOptions,
@@ -238,6 +248,21 @@ fn try_parse_as_context_opt(
                 arg.cli_arg.idx,
             )?)
             .map_err(|e| e.into())?;
+        matched = true
+    }
+    if arg.argname == "j" {
+        if let Some(val) = arg.value.as_deref() {
+            ctx_opts
+                .parallel_jobs
+                .set(try_parse_usize_arg(val, arg.cli_arg.idx)?)
+                .map_err(|e| e.into())?;
+        } else {
+            return Err(CliArgumentError::new(
+                "missing thread count argument",
+                arg.cli_arg.idx,
+            ));
+        }
+
         matched = true
     }
     if matched {
