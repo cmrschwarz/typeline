@@ -14,13 +14,13 @@ use super::{
     OperationParameters, OperationRef,
 };
 
-pub struct TfParent {
+pub struct TfSplit {
     pub tf_base: TfBase,
     pub op_ref: OperationRef,
     pub offset: TransformStackIndex,
 }
 
-impl Transform for TfParent {
+impl Transform for TfSplit {
     fn base(&self) -> &TfBase {
         &self.tf_base
     }
@@ -39,44 +39,25 @@ impl Transform for TfParent {
         debug_assert!(tfo.data.is_none());
         Ok(())
     }
-
-    fn add_dependant(
-        &mut self,
-        tf_stack: &mut [Box<dyn Transform>],
-        dependant: TransformStackIndex,
-    ) -> Result<(), TransformApplicationError> {
-        let mut parent_idx = self.tf_base.tfs_index as usize - 1;
-        for _ in 0..self.offset {
-            if tf_stack[parent_idx].base().begin_of_chain || parent_idx == 0 {
-                return Err(TransformApplicationError::new(
-                    "no element at the requested depth for 'parent'",
-                    self.op_ref,
-                ));
-            }
-            parent_idx -= 1;
-        }
-        let (head, tail) = tf_stack.split_at_mut(parent_idx);
-        tail[0].add_dependant(head, dependant)
-    }
 }
 
 #[derive(Clone)]
-pub struct OpParent {
+pub struct OpSplit {
     op_base: OpBase,
-    offset: TransformStackIndex,
+    range: RangeSpec<ChainId>,
 }
 
-impl OpParent {
-    pub fn new(offset: TransformStackIndex) -> OpParent {
+impl OpSplit {
+    pub fn new(range: RangeSpec<ChainId>) -> OpSplit {
         assert!(offset > 0);
-        OpParent {
-            op_base: OpBase::new("parent".to_owned(), None, None, None),
+        Box::new(OpSplit {
+            op_base: OpBase::new("split".to_owned(), None, None, None),
             offset,
-        }
+        })
     }
 }
 
-impl Operation for OpParent {
+impl Operation for OpSplit {
     fn apply(
         &self,
         op_ref: OperationRef,
@@ -84,7 +65,7 @@ impl Operation for OpParent {
     ) -> Result<Box<dyn Transform>, OperationApplicationError> {
         let parent = tf_stack.last_mut().unwrap().base_mut();
         let tf_base = TfBase::from_parent(parent);
-        let tfp = Box::new(TfParent {
+        let tfp = Box::new(TfSplit {
             tf_base,
             op_ref: op_ref,
             offset: self.offset,
@@ -101,7 +82,7 @@ impl Operation for OpParent {
     }
 }
 
-impl OperationCatalogMember for OpParent {
+impl OperationCatalogMember for OpSplit {
     fn name_matches(name: &str) -> bool {
         "parent".starts_with(name) && name.len() > 1
     }
@@ -125,7 +106,7 @@ impl OperationCatalogMember for OpParent {
                 params.cli_arg.as_ref().map(|arg| arg.idx),
             ));
         }
-        Ok(Box::new(OpParent {
+        Ok(Box::new(OpSplit {
             op_base: OpBase::from_op_params(params),
             offset,
         }))

@@ -4,6 +4,7 @@ pub mod print;
 pub mod read_stdin;
 pub mod regex;
 pub mod start;
+pub mod string_sink;
 pub mod transform;
 use bstring::BString;
 use smallvec::SmallVec;

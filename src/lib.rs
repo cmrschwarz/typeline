@@ -6,6 +6,7 @@ extern crate num;
 extern crate regex;
 extern crate smallvec;
 extern crate thiserror;
+extern crate url;
 
 pub mod chain;
 pub mod cli;
@@ -17,3 +18,6 @@ pub mod options;
 pub mod plattform;
 pub mod scr_error;
 pub mod selenium;
+
+#[cfg(test)]
+mod tests;

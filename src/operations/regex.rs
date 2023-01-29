@@ -28,11 +28,11 @@ pub struct OpRegex {
 }
 
 impl OpRegex {
-    pub fn new(regex: Regex) -> Box<OpRegex> {
-        Box::new(OpRegex {
+    pub fn new(regex: Regex) -> OpRegex {
+        OpRegex {
             op_base: OpBase::new("regex".to_owned(), None, None, None),
             regex,
-        })
+        }
     }
 }
 

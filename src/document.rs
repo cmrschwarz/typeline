@@ -1,12 +1,14 @@
 use std::path::PathBuf;
 
 use bstring::BString;
+use smallvec::SmallVec;
+use url::Url;
 
 use crate::{chain::ChainId, operations::transform::MatchData};
 
 #[derive(Clone)]
 pub enum DocumentSource {
-    Url(BString),
+    Url(Url),
     File(PathBuf),
     String(String),
     Bytes(BString),
@@ -26,13 +28,13 @@ impl DocumentSource {
 
 #[derive(Clone)]
 pub enum DocumentReferencePoint {
-    Url(String),
-    Folder(String),
+    Url(Url),
+    Folder(PathBuf),
 }
 
 #[derive(Clone)]
 pub struct Document {
     pub source: DocumentSource,
     pub reference_point: Option<DocumentReferencePoint>,
-    pub target_chains: Vec<ChainId>,
+    pub target_chains: SmallVec<[ChainId; 2]>,
 }

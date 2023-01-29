@@ -875,6 +875,7 @@ dependencies = [
  "smallvec",
  "thiserror",
  "tokio",
+ "url",
 ]
 
 [[package]]

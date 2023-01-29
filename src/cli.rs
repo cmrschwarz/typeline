@@ -11,8 +11,10 @@ use crate::{
 };
 use bstring::{bstr, BString};
 use lazy_static::lazy_static;
+use smallvec::smallvec;
 use std::{ffi::OsStr, path::PathBuf, str::from_utf8};
 use thiserror::Error;
+use url::Url;
 #[derive(Error, Debug, Clone)]
 #[error("in cli arg {cli_arg_idx}: {message}")]
 pub struct CliArgumentError {
@@ -98,7 +100,14 @@ fn try_parse_document_source(
     match argname {
         "url" => {
             if let Some(value) = value {
-                Ok(Some(DocumentSource::Url(BString::from(value))))
+                let url = Url::parse(from_utf8(value.as_bytes()).map_err(|_| {
+                    CliArgumentError::new(
+                        "str argument must be valid UTF-8, consider using bytes=...",
+                        cli_arg_idx,
+                    )
+                })?)
+                .map_err(|_| CliArgumentError::new("failed to parse url argument", cli_arg_idx))?;
+                Ok(Some(DocumentSource::Url(url)))
             } else {
                 Err(CliArgumentError::new("missing value for url", cli_arg_idx))
             }
@@ -299,7 +308,7 @@ fn try_parse_as_doc(
         ctx_opts.documents.push(Document {
             source: doc_source,
             reference_point: None,
-            target_chains: vec![ctx_opts.curr_chain],
+            target_chains: smallvec![ctx_opts.curr_chain],
         });
         Ok(true)
     } else {
@@ -369,7 +378,7 @@ fn try_parse_as_operation(
                 cli_arg_idx: arg.cli_arg.idx,
             }
         })?;
-        ctx_opts.add_op_to_ref(tf_inst);
+        ctx_opts.add_op(tf_inst);
         return Ok(true);
     }
     return Ok(false);

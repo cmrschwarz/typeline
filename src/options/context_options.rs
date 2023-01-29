@@ -19,9 +19,9 @@ pub struct ContextOptions {
     pub exit_repl: Argument<bool>,
     pub install_selenium_drivers: Vec<Argument<SeleniumVariant>>,
     pub update_selenium_drivers: Vec<Argument<SeleniumVariant>>,
+    pub documents: Vec<Document>,
     pub(crate) chains: Vec<ChainOptions>,
     pub(crate) operations: Vec<Box<dyn Operation>>,
-    pub(crate) documents: Vec<Document>,
     pub(crate) curr_chain: ChainId,
 }
 
@@ -61,24 +61,18 @@ impl ContextOptions {
     pub fn get_current_chain(&mut self) -> ChainId {
         self.curr_chain
     }
-    pub fn add_op_to_ref(&mut self, mut op: Box<dyn Operation>) -> &mut ContextOptions {
+    pub fn add_op(&mut self, mut op: Box<dyn Operation>) {
         let op_bm = op.base_mut();
         op_bm.curr_chain = Some(self.curr_chain);
         op_bm.op_id = Some(self.operations.len() as OperationId);
         self.operations.push(op);
-        self
     }
-    pub fn add_op(mut self, op: Box<dyn Operation>) -> ContextOptions {
-        self.add_op_to_ref(op);
-        self
-    }
-    pub fn set_current_chain(&mut self, chain_id: ChainId) -> &mut ContextOptions {
+    pub fn set_current_chain(&mut self, chain_id: ChainId) {
         self.curr_chain = chain_id;
         if self.chains.len() <= chain_id as usize {
             self.chains
                 .resize(chain_id as usize + 1, Default::default());
         }
-        self
     }
     pub fn build_context(self) -> Result<Context, OperationSetupError> {
         let parallel_jobs = NonZeroUsize::try_from(
