@@ -25,55 +25,6 @@ struct TfRegex {
     op_ref: OperationRef,
 }
 
-#[derive(Clone)]
-pub struct OpRegex {
-    pub op_base: OpBase,
-    pub regex: Regex,
-}
-
-impl OpRegex {
-    pub fn new(regex: Regex) -> OpRegex {
-        OpRegex {
-            op_base: OpBase::new("regex".to_owned(), None, None, None),
-            regex,
-        }
-    }
-}
-
-impl Operation for OpRegex {
-    fn base(&self) -> &OpBase {
-        &self.op_base
-    }
-
-    fn base_mut(&mut self) -> &mut OpBase {
-        &mut self.op_base
-    }
-
-    fn apply(
-        &self,
-        op_ref: OperationRef,
-        tf_stack: &mut [Box<dyn Transform>],
-    ) -> Result<Box<dyn Transform>, OperationApplicationError> {
-        let (parent, tf_stack) = tf_stack.split_last_mut().unwrap();
-        let mut tf_base = TfBase::from_parent(parent);
-        tf_base.data_kind = MatchDataKind::Text;
-        let tfp = Box::new(TfRegex {
-            tf_base,
-            op_ref,
-            regex: self.regex.clone(),
-        });
-        parent
-            .add_dependant(tf_stack, tfp.tf_base.tfs_index)
-            .map_err(|tae| {
-                OperationApplicationError::from_transform_application_error(
-                    tae,
-                    self.op_base.op_id.unwrap(),
-                )
-            })?;
-        Ok(tfp)
-    }
-}
-
 impl Transform for TfRegex {
     fn base(&self) -> &TfBase {
         &self.tf_base
@@ -121,6 +72,55 @@ impl Transform for TfRegex {
                 self.op_ref,
             )),
         }
+    }
+}
+
+#[derive(Clone)]
+pub struct OpRegex {
+    pub op_base: OpBase,
+    pub regex: Regex,
+}
+
+impl OpRegex {
+    pub fn new(regex: Regex) -> OpRegex {
+        OpRegex {
+            op_base: OpBase::new("regex".to_owned(), None, None, None),
+            regex,
+        }
+    }
+}
+
+impl Operation for OpRegex {
+    fn base(&self) -> &OpBase {
+        &self.op_base
+    }
+
+    fn base_mut(&mut self) -> &mut OpBase {
+        &mut self.op_base
+    }
+
+    fn apply(
+        &self,
+        op_ref: OperationRef,
+        tf_stack: &mut [Box<dyn Transform>],
+    ) -> Result<Box<dyn Transform>, OperationApplicationError> {
+        let (parent, tf_stack) = tf_stack.split_last_mut().unwrap();
+        let mut tf_base = TfBase::from_parent(parent);
+        tf_base.data_kind = MatchDataKind::Text;
+        let tfp = Box::new(TfRegex {
+            tf_base,
+            op_ref,
+            regex: self.regex.clone(),
+        });
+        parent
+            .add_dependant(tf_stack, tfp.tf_base.tfs_index)
+            .map_err(|tae| {
+                OperationApplicationError::from_transform_application_error(
+                    tae,
+                    self.op_base.op_id.unwrap(),
+                )
+            })?;
+        Ok(tfp)
     }
 }
 

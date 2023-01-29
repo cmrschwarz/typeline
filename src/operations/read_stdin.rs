@@ -14,6 +14,22 @@ pub struct TfReadStdin {
     pub tf_base: TfBase,
 }
 
+impl TfReadStdin {
+    pub fn new() -> Self {
+        Self {
+            tf_base: TfBase {
+                data_kind: MatchDataKind::Bytes,
+                needs_stdout: false,
+                is_stream: true,
+                requires_eval: false,
+                begin_of_chain: true,
+                dependants: Default::default(),
+                tfs_index: 0,
+            },
+        }
+    }
+}
+
 impl Transform for TfReadStdin {
     fn base(&self) -> &TfBase {
         &self.tf_base
@@ -31,21 +47,5 @@ impl Transform for TfReadStdin {
         _output: &mut VecDeque<TransformOutput>,
     ) -> Result<(), TransformApplicationError> {
         panic!("requested to process data in a data source");
-    }
-}
-
-impl TfReadStdin {
-    pub fn new() -> Self {
-        Self {
-            tf_base: TfBase {
-                data_kind: MatchDataKind::Bytes,
-                needs_stdout: false,
-                is_stream: true,
-                requires_eval: false,
-                begin_of_chain: true,
-                dependants: Default::default(),
-                tfs_index: 0,
-            },
-        }
     }
 }

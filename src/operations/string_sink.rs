@@ -35,6 +35,54 @@ impl StringSinkHandle {
     }
 }
 
+struct TfStringSink {
+    tf_base: TfBase,
+    op_ref: OperationRef,
+    ssh: StringSinkHandle,
+}
+
+impl Transform for TfStringSink {
+    fn base(&self) -> &TfBase {
+        &self.tf_base
+    }
+
+    fn base_mut(&mut self) -> &mut TfBase {
+        &mut self.tf_base
+    }
+
+    fn process(
+        &mut self,
+        _ctx: &ContextData,
+        _args: &HashMap<String, SmallVec<[(TransformStackIndex, MatchData); 1]>>,
+        tfo: &TransformOutput,
+        _output: &mut VecDeque<TransformOutput>,
+    ) -> Result<(), TransformApplicationError> {
+        match &tfo.data {
+            Some(MatchData::Bytes(_)) => {
+                return Err(TransformApplicationError::new(
+                    "the string_sink transform does not support raw bytes",
+                    self.op_ref,
+                ));
+            }
+            Some(MatchData::Text(t)) => self.ssh.get().push_str(t),
+            Some(MatchData::Html(_)) => {
+                return Err(TransformApplicationError::new(
+                    "the print transform does not support html",
+                    self.op_ref,
+                ));
+            }
+            Some(MatchData::Png(_)) => {
+                return Err(TransformApplicationError::new(
+                    "the print transform does not support images",
+                    self.op_ref,
+                ));
+            }
+            _ => panic!("missing TfSerialize"),
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone)]
 pub struct OpStringSink {
     pub op_base: OpBase,
@@ -82,53 +130,5 @@ impl Operation for OpStringSink {
                 )
             })?;
         Ok(tfp)
-    }
-}
-
-struct TfStringSink {
-    tf_base: TfBase,
-    op_ref: OperationRef,
-    ssh: StringSinkHandle,
-}
-
-impl Transform for TfStringSink {
-    fn base(&self) -> &TfBase {
-        &self.tf_base
-    }
-
-    fn base_mut(&mut self) -> &mut TfBase {
-        &mut self.tf_base
-    }
-
-    fn process(
-        &mut self,
-        _ctx: &ContextData,
-        _args: &HashMap<String, SmallVec<[(TransformStackIndex, MatchData); 1]>>,
-        tfo: &TransformOutput,
-        _output: &mut VecDeque<TransformOutput>,
-    ) -> Result<(), TransformApplicationError> {
-        match &tfo.data {
-            Some(MatchData::Bytes(_)) => {
-                return Err(TransformApplicationError::new(
-                    "the string_sink transform does not support raw bytes",
-                    self.op_ref,
-                ));
-            }
-            Some(MatchData::Text(t)) => self.ssh.get().push_str(t),
-            Some(MatchData::Html(_)) => {
-                return Err(TransformApplicationError::new(
-                    "the print transform does not support html",
-                    self.op_ref,
-                ));
-            }
-            Some(MatchData::Png(_)) => {
-                return Err(TransformApplicationError::new(
-                    "the print transform does not support images",
-                    self.op_ref,
-                ));
-            }
-            _ => panic!("missing TfSerialize"),
-        }
-        Ok(())
     }
 }
