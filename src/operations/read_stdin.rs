@@ -4,7 +4,8 @@ use smallvec::SmallVec;
 
 use crate::{
     context::ContextData,
-    operations::transform::{DataKind, MatchData, TfBase, Transform},
+    match_data::{MatchData, MatchDataKind},
+    operations::transform::{TfBase, Transform},
 };
 
 use super::transform::{TransformApplicationError, TransformOutput, TransformStackIndex};
@@ -37,7 +38,7 @@ impl TfReadStdin {
     pub fn new() -> Self {
         Self {
             tf_base: TfBase {
-                data_kind: DataKind::Bytes,
+                data_kind: MatchDataKind::Bytes,
                 needs_stdout: false,
                 is_stream: true,
                 requires_eval: false,

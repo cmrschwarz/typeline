@@ -18,6 +18,7 @@ pub mod options;
 pub mod plattform;
 pub mod scr_error;
 pub mod selenium;
+pub mod match_data;
 
 #[cfg(test)]
 mod tests;

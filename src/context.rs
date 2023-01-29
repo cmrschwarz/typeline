@@ -8,11 +8,12 @@ use smallvec::SmallVec;
 
 use crate::chain::Chain;
 use crate::document::{Document, DocumentSource};
+use crate::match_data::{MatchData, MatchDataKind};
 use crate::operations::parent::TfParent;
 use crate::operations::read_stdin::TfReadStdin;
 use crate::operations::start::TfStart;
 use crate::operations::transform::{
-    DataKind, MatchData, MatchIdx, TfBase, Transform, TransformOutput, TransformStackIndex,
+    MatchIdx, TfBase, Transform, TransformOutput, TransformStackIndex,
 };
 use crate::operations::{Operation, OperationRef};
 use crate::scr_error::ScrError;
@@ -250,7 +251,7 @@ impl WorkerThread {
             self.tf_stack.push(Box::new(TfReadStdin::new()))
         } else {
             self.tf_stack.push(Box::new(TfStart::new(
-                job.data.as_ref().map_or(DataKind::None, |d| d.kind()),
+                job.data.as_ref().map_or(MatchDataKind::None, |d| d.kind()),
             )))
         }
         for (i, op_ref) in job.ops.iter().rev().enumerate() {

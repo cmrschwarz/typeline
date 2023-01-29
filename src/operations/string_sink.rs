@@ -7,7 +7,8 @@ use smallvec::SmallVec;
 
 use crate::{
     context::ContextData,
-    operations::transform::{DataKind, MatchData, TfBase, Transform},
+    match_data::{MatchData, MatchDataKind},
+    operations::transform::{TfBase, Transform},
 };
 
 use super::{
@@ -66,7 +67,7 @@ impl Operation for OpStringSink {
         let (parent, tf_stack) = tf_stack.split_last_mut().unwrap();
         let mut tf_base = TfBase::from_parent(parent);
         tf_base.needs_stdout = true;
-        tf_base.data_kind = DataKind::None;
+        tf_base.data_kind = MatchDataKind::None;
         let tfp = Box::new(TfStringSink {
             tf_base,
             op_ref,

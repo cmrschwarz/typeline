@@ -1,12 +1,12 @@
-use std::{
-    collections::{HashMap, VecDeque},
-    fmt::Display,
-};
+use std::collections::{HashMap, VecDeque};
 
 use smallvec::SmallVec;
 use thiserror::Error;
 
-use crate::context::ContextData;
+use crate::{
+    context::ContextData,
+    match_data::{MatchData, MatchDataKind},
+};
 
 use super::OperationRef;
 
@@ -28,61 +28,6 @@ impl TransformApplicationError {
     }
 }
 
-#[derive(Clone, Copy)]
-pub enum DataKind {
-    Html,
-    Text,
-    Bytes,
-    Png,
-    None,
-}
-
-impl DataKind {
-    pub fn to_str(&self) -> &'static str {
-        match self {
-            DataKind::Html => "html",
-            DataKind::Text => "text",
-            DataKind::Bytes => "bytes",
-            DataKind::Png => "png",
-            DataKind::None => "none",
-        }
-    }
-}
-
-impl Display for DataKind {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.to_str())
-    }
-}
-
-#[derive(Clone)]
-pub struct HtmlMatchData {}
-
-impl Display for HtmlMatchData {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "todo: serialize html!")
-    }
-}
-
-#[derive(Clone)]
-pub enum MatchData {
-    Html(HtmlMatchData),
-    Text(String),
-    Bytes(Vec<u8>),
-    Png(Vec<u8>),
-}
-
-impl MatchData {
-    pub fn kind(&self) -> DataKind {
-        match &self {
-            MatchData::Html(_) => DataKind::Html,
-            MatchData::Text(_) => DataKind::Text,
-            MatchData::Bytes(_) => DataKind::Bytes,
-            MatchData::Png(_) => DataKind::Png,
-        }
-    }
-}
-
 pub struct TransformOutput {
     pub match_index: MatchIdx,
     pub data: Option<MatchData>,
@@ -94,7 +39,7 @@ pub type TransformStackIndex = u32;
 
 #[derive(Clone)]
 pub struct TfBase {
-    pub data_kind: DataKind,
+    pub data_kind: MatchDataKind,
     pub is_stream: bool,
     pub needs_stdout: bool,
     pub requires_eval: bool,

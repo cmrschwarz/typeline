@@ -4,7 +4,8 @@ use smallvec::SmallVec;
 
 use crate::{
     context::ContextData,
-    operations::transform::{MatchData, TfBase, Transform, TransformStackIndex},
+    match_data::MatchData,
+    operations::transform::{TfBase, Transform, TransformStackIndex},
     options::context_options::ContextOptions,
 };
 

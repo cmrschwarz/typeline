@@ -4,10 +4,11 @@ use smallvec::SmallVec;
 
 use crate::{
     context::ContextData,
-    operations::transform::{MatchData, TfBase, Transform},
+    match_data::{MatchData, MatchDataKind},
+    operations::transform::{TfBase, Transform},
 };
 
-use super::transform::{DataKind, TransformApplicationError, TransformOutput, TransformStackIndex};
+use super::transform::{TransformApplicationError, TransformOutput, TransformStackIndex};
 
 pub struct TfStart {
     pub tf_base: TfBase,
@@ -34,7 +35,7 @@ impl Transform for TfStart {
 }
 
 impl TfStart {
-    pub fn new(data_kind: DataKind) -> TfStart {
+    pub fn new(data_kind: MatchDataKind) -> TfStart {
         Self {
             tf_base: TfBase {
                 data_kind: data_kind,

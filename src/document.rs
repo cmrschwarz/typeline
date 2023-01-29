@@ -4,7 +4,7 @@ use bstring::BString;
 use smallvec::SmallVec;
 use url::Url;
 
-use crate::{chain::ChainId, operations::transform::MatchData};
+use crate::{chain::ChainId, match_data::MatchData};
 
 #[derive(Clone)]
 pub enum DocumentSource {
