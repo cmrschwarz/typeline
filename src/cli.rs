@@ -1,6 +1,6 @@
 use crate::{
     document::{Document, DocumentSource},
-    operations::{OperationParameters, BUILTIN_OPERATIONS_CATALOG},
+    operations::{operation::OperationParameters, operation_catalog::BUILTIN_OPERATIONS_CATALOG},
     options::{
         argument::{ArgumentReassignmentError, CliArgIdx, CliArgument},
         chain_options::ChainOptions,

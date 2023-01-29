@@ -12,8 +12,8 @@ use crate::{
 };
 
 use super::{
+    operation::{OpBase, Operation, OperationApplicationError, OperationRef},
     transform::{TransformApplicationError, TransformOutput, TransformStackIndex},
-    OpBase, Operation, OperationApplicationError, OperationRef,
 };
 
 #[derive(Clone)]
@@ -51,11 +51,11 @@ impl OpStringSink {
 }
 
 impl Operation for OpStringSink {
-    fn base(&self) -> &super::OpBase {
+    fn base(&self) -> &OpBase {
         &self.op_base
     }
 
-    fn base_mut(&mut self) -> &mut super::OpBase {
+    fn base_mut(&mut self) -> &mut OpBase {
         &mut self.op_base
     }
 

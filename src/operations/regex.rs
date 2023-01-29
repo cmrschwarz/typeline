@@ -11,9 +11,12 @@ use crate::{
 };
 
 use super::{
+    operation::{
+        OpBase, Operation, OperationApplicationError, OperationCreationError, OperationParameters,
+        OperationRef,
+    },
+    operation_catalog::OperationCatalogMember,
     transform::{TransformApplicationError, TransformOutput, TransformStackIndex},
-    OpBase, Operation, OperationApplicationError, OperationCatalogMember, OperationCreationError,
-    OperationParameters, OperationRef,
 };
 
 struct TfRegex {
@@ -38,11 +41,11 @@ impl OpRegex {
 }
 
 impl Operation for OpRegex {
-    fn base(&self) -> &super::OpBase {
+    fn base(&self) -> &OpBase {
         &self.op_base
     }
 
-    fn base_mut(&mut self) -> &mut super::OpBase {
+    fn base_mut(&mut self) -> &mut OpBase {
         &mut self.op_base
     }
 

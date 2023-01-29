@@ -4,7 +4,7 @@ use crate::{
     chain::ChainId,
     context::{Context, ContextData},
     document::Document,
-    operations::{Operation, OperationId, OperationSetupError},
+    operations::operation::{Operation, OperationId, OperationSetupError},
     selenium::SeleniumVariant,
 };
 

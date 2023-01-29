@@ -8,7 +8,7 @@ use crate::{
     match_data::{MatchData, MatchDataKind},
 };
 
-use super::OperationRef;
+use super::operation::OperationRef;
 
 pub type MatchIdx = u32;
 

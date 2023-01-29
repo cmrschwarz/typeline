@@ -1,6 +1,6 @@
 use crate::{
     encoding::TextEncoding,
-    operations::{OperationId, OperationRef},
+    operations::operation::{OperationId, OperationRef},
     selenium::SeleniumDownloadStrategy,
 };
 

@@ -7,8 +7,11 @@ use crate::{
     cli::CliArgumentError,
     context::Context,
     operations::{
-        transform::TransformApplicationError, OperationApplicationError, OperationCreationError,
-        OperationId, OperationRef, OperationSetupError,
+        operation::{
+            OperationApplicationError, OperationCreationError, OperationId, OperationRef,
+            OperationSetupError,
+        },
+        transform::TransformApplicationError,
     },
     options::{argument::CliArgIdx, context_options::ContextOptions},
 };
