@@ -3,29 +3,30 @@ use std::ops::Add;
 use num::One;
 use smallvec::smallvec;
 use smallvec::SmallVec;
+use thiserror::Error;
 
 #[derive(Clone)]
-pub enum RangeSpec<T: Add + Ord + One + Copy> {
+pub enum RangeSpec<T: Add<Output = T> + Ord + One + Copy> {
     Exclude(Box<RangeSpec<T>>, Box<RangeSpec<T>>),
     Aggregate(SmallVec<[Box<RangeSpec<T>>; 2]>),
     Bounded(Option<T>, Option<T>),
     Value(T),
 }
-pub struct RangeIter<'a, T: Add<Output = T> + Ord + One + Copy> {
+pub struct RangeSpecIter<'a, T: Add<Output = T> + Ord + One + Copy> {
     min_bound: T,
     max_bound: T,
     positions: SmallVec<[&'a RangeSpec<T>; 2]>,
     exclude_sets: SmallVec<[&'a RangeSpec<T>; 2]>,
     offsets: SmallVec<[isize; 2]>,
 }
-impl<'a, T: Add<Output = T> + Ord + One + Copy> RangeIter<'a, T> {
+impl<'a, T: Add<Output = T> + Ord + One + Copy> RangeSpecIter<'a, T> {
     fn contained_in_exclude_sets(&self, v: T) -> bool {
         self.exclude_sets
             .iter()
             .any(|es| es.contains(self.min_bound, self.max_bound, v))
     }
-    pub fn new(min_bound: T, max_bound: T, range_spec: &'a RangeSpec<T>) -> RangeIter<T> {
-        RangeIter {
+    pub fn new(min_bound: T, max_bound: T, range_spec: &'a RangeSpec<T>) -> RangeSpecIter<T> {
+        RangeSpecIter {
             min_bound,
             max_bound,
             positions: smallvec![range_spec],
@@ -126,7 +127,7 @@ impl<T: Add<Output = T> + Ord + One + Copy> RangeSpec<T> {
         }
     }
 }
-impl<'a, T: Add<Output = T> + Ord + One + Copy> Iterator for RangeIter<'a, T> {
+impl<'a, T: Add<Output = T> + Ord + One + Copy> Iterator for RangeSpecIter<'a, T> {
     type Item = T;
     fn next(&mut self) -> Option<T> {
         loop {
@@ -188,5 +189,20 @@ impl<'a, T: Add<Output = T> + Ord + One + Copy> Iterator for RangeIter<'a, T> {
                 None => return None,
             }
         }
+    }
+}
+
+#[derive(Debug, Error)]
+#[error("{message}")]
+pub struct RangeSpecParseError {
+    message: String,
+}
+
+impl<T: Add<Output = T> + Ord + One + Copy> RangeSpec<T> {
+    pub fn iter(&self, min_bound: T, max_bound: T) -> RangeSpecIter<T> {
+        RangeSpecIter::new(min_bound, max_bound, &self)
+    }
+    pub fn parse(_str: &str) -> Result<Self, RangeSpecParseError> {
+        todo!()
     }
 }

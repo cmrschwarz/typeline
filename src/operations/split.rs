@@ -3,24 +3,29 @@ use std::collections::{HashMap, VecDeque};
 use smallvec::SmallVec;
 
 use crate::{
+    chain::ChainId,
     context::ContextData,
-    operations::transform::{MatchData, TfBase, Transform, TransformStackIndex},
-    options::context_options::ContextOptions,
+    match_data::MatchData,
+    operations::transform::{TfBase, Transform, TransformStackIndex},
+    options::{context_options::ContextOptions, range_spec::RangeSpec},
 };
 
 use super::{
+    operation::{
+        OpBase, Operation, OperationApplicationError, OperationCreationError, OperationParameters,
+        OperationRef,
+    },
+    operation_catalog::OperationCatalogMember,
     transform::{TransformApplicationError, TransformOutput},
-    OpBase, Operation, OperationApplicationError, OperationCatalogMember, OperationCreationError,
-    OperationParameters, OperationRef,
 };
 
-pub struct TfSplit {
+pub struct TfSplit<'a> {
     pub tf_base: TfBase,
     pub op_ref: OperationRef,
-    pub offset: TransformStackIndex,
+    pub target_chains: &'a Vec<ChainId>,
 }
 
-impl Transform for TfSplit {
+impl<'a> Transform for TfSplit<'a> {
     fn base(&self) -> &TfBase {
         &self.tf_base
     }
@@ -44,71 +49,81 @@ impl Transform for TfSplit {
 #[derive(Clone)]
 pub struct OpSplit {
     op_base: OpBase,
-    range: RangeSpec<ChainId>,
+    range_spec: RangeSpec<ChainId>,
+    target_chains: HashMap<ChainId, Vec<ChainId>>,
 }
 
 impl OpSplit {
-    pub fn new(range: RangeSpec<ChainId>) -> OpSplit {
-        assert!(offset > 0);
-        Box::new(OpSplit {
+    pub fn new(range_spec: RangeSpec<ChainId>) -> OpSplit {
+        OpSplit {
             op_base: OpBase::new("split".to_owned(), None, None, None),
-            offset,
-        })
+            range_spec,
+            target_chains: HashMap::new(),
+        }
     }
 }
 
 impl Operation for OpSplit {
-    fn apply(
-        &self,
+    fn apply<'a, 'b>(
+        &'a self,
         op_ref: OperationRef,
-        tf_stack: &mut [Box<dyn Transform>],
-    ) -> Result<Box<dyn Transform>, OperationApplicationError> {
+        tf_stack: &mut [Box<dyn Transform + 'b>],
+    ) -> Result<Box<dyn Transform + 'a>, OperationApplicationError> {
         let parent = tf_stack.last_mut().unwrap().base_mut();
         let tf_base = TfBase::from_parent(parent);
         let tfp = Box::new(TfSplit {
             tf_base,
             op_ref: op_ref,
-            offset: self.offset,
+            target_chains: &self.target_chains[&op_ref.chain_id],
         });
         Ok(tfp)
     }
 
-    fn base(&self) -> &super::OpBase {
+    fn base(&self) -> &OpBase {
         &self.op_base
     }
 
-    fn base_mut(&mut self) -> &mut super::OpBase {
+    fn base_mut(&mut self) -> &mut OpBase {
         &mut self.op_base
+    }
+    fn update_current_chain_on_insert(&self, ctx_opts: &mut ContextOptions) -> Option<ChainId> {
+        let cc = &ctx_opts.chains[ctx_opts.curr_chain as usize];
+        let mut rsi = self.range_spec.iter(0, cc.subchains.len() as ChainId + 1);
+        let first = rsi.next();
+        let second = rsi.next();
+        if first.is_none() || second.is_some() {}
+        Some(0)
     }
 }
 
 impl OperationCatalogMember for OpSplit {
     fn name_matches(name: &str) -> bool {
-        "parent".starts_with(name) && name.len() > 1
+        "split".starts_with(name) && name.len() > 1
     }
     fn create(
         _ctx: &ContextOptions,
         params: OperationParameters,
     ) -> Result<Box<dyn Operation>, OperationCreationError> {
-        let offset = if let Some(ref value) = params.value {
-            value.parse::<TransformStackIndex>().map_err(|_| {
+        let range_spec = if let Some(ref value) = params.value {
+            RangeSpec::<ChainId>::parse(value.to_str().map_err(|_| {
                 OperationCreationError::new(
-                    "failed to parse parent argument as integer",
+                    "failed to parse parent argument as range spec: invalid UTF-8",
+                    params.cli_arg.as_ref().map(|arg| arg.idx),
+                )
+            })?)
+            .map_err(|_| {
+                OperationCreationError::new(
+                    "failed to parse parent argument as range spec",
                     params.cli_arg.as_ref().map(|arg| arg.idx),
                 )
             })?
         } else {
-            1
+            RangeSpec::Bounded(Some(0), None)
         };
-        if offset == 0 {
-            return Err(OperationCreationError::new(
-                "parent offset cannot be 0",
-                params.cli_arg.as_ref().map(|arg| arg.idx),
-            ));
-        }
         Ok(Box::new(OpSplit {
             op_base: OpBase::from_op_params(params),
-            offset,
+            range_spec,
+            target_chains: Default::default(),
         }))
     }
 }

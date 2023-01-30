@@ -5,6 +5,7 @@ pub mod parent;
 pub mod print;
 pub mod read_stdin;
 pub mod regex;
+pub mod split;
 pub mod start;
 pub mod string_sink;
 pub mod transform;

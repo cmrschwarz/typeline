@@ -107,13 +107,13 @@ impl Operation for OpStringSink {
         &mut self.op_base
     }
 
-    fn apply(
-        &self,
+    fn apply<'a, 'b>(
+        &'a self,
         op_ref: OperationRef,
-        tf_stack: &mut [Box<dyn Transform>],
-    ) -> Result<Box<dyn Transform>, OperationApplicationError> {
+        tf_stack: &mut [Box<dyn Transform + 'b>],
+    ) -> Result<Box<dyn Transform + 'a>, OperationApplicationError> {
         let (parent, tf_stack) = tf_stack.split_last_mut().unwrap();
-        let mut tf_base = TfBase::from_parent(parent);
+        let mut tf_base = TfBase::from_parent(parent.base());
         tf_base.needs_stdout = true;
         tf_base.data_kind = MatchDataKind::None;
         let tfp = Box::new(TfStringSink {

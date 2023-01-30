@@ -44,9 +44,9 @@ impl Transform for TfParent {
         Ok(())
     }
 
-    fn add_dependant(
+    fn add_dependant<'a>(
         &mut self,
-        tf_stack: &mut [Box<dyn Transform>],
+        tf_stack: &mut [Box<dyn Transform + 'a>],
         dependant: TransformStackIndex,
     ) -> Result<(), TransformApplicationError> {
         let mut parent_idx = self.tf_base.tfs_index as usize - 1;
@@ -81,11 +81,11 @@ impl OpParent {
 }
 
 impl Operation for OpParent {
-    fn apply(
-        &self,
+    fn apply<'a, 'b>(
+        &'a self,
         op_ref: OperationRef,
-        tf_stack: &mut [Box<dyn Transform>],
-    ) -> Result<Box<dyn Transform>, OperationApplicationError> {
+        tf_stack: &mut [Box<dyn Transform + 'b>],
+    ) -> Result<Box<dyn Transform + 'a>, OperationApplicationError> {
         let parent = tf_stack.last_mut().unwrap().base_mut();
         let tf_base = TfBase::from_parent(parent);
         let tfp = Box::new(TfParent {

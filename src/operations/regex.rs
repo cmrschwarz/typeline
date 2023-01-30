@@ -19,13 +19,13 @@ use super::{
     transform::{TransformApplicationError, TransformOutput, TransformStackIndex},
 };
 
-struct TfRegex {
+struct TfRegex<'a> {
     tf_base: TfBase,
-    regex: Regex,
+    regex: &'a Regex,
     op_ref: OperationRef,
 }
 
-impl Transform for TfRegex {
+impl<'a> Transform for TfRegex<'a> {
     fn base(&self) -> &TfBase {
         &self.tf_base
     }
@@ -99,18 +99,18 @@ impl Operation for OpRegex {
         &mut self.op_base
     }
 
-    fn apply(
-        &self,
+    fn apply<'a, 'b>(
+        &'a self,
         op_ref: OperationRef,
-        tf_stack: &mut [Box<dyn Transform>],
-    ) -> Result<Box<dyn Transform>, OperationApplicationError> {
+        tf_stack: &mut [Box<dyn Transform + 'b>],
+    ) -> Result<Box<dyn Transform + 'a>, OperationApplicationError> {
         let (parent, tf_stack) = tf_stack.split_last_mut().unwrap();
-        let mut tf_base = TfBase::from_parent(parent);
+        let mut tf_base = TfBase::from_parent(parent.base());
         tf_base.data_kind = MatchDataKind::Text;
         let tfp = Box::new(TfRegex {
             tf_base,
             op_ref,
-            regex: self.regex.clone(),
+            regex: &self.regex,
         });
         parent
             .add_dependant(tf_stack, tfp.tf_base.tfs_index)

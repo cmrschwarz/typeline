@@ -1,5 +1,6 @@
 use std::collections::{HashMap, VecDeque};
 use std::iter;
+use std::mem::ManuallyDrop;
 use std::num::NonZeroUsize;
 use std::sync::{Arc, Condvar, Mutex};
 
@@ -80,9 +81,13 @@ struct WorkerThread {
     stealers: Vec<Stealer<Job>>,
     session_generation: usize,
 
-    tf_stack: Vec<Box<dyn Transform>>,
     tf_matches: Vec<MatchContext>,
     tf_outputs: Vec<TransformOutputsContext>,
+}
+
+struct WorkerThreadSession<'a> {
+    ctx: &'a ContextData,
+    tf_stack: Vec<Box<dyn Transform + 'a>>,
 }
 
 impl Context {
@@ -195,20 +200,30 @@ impl WorkerThread {
             session_generation: sd.generation,
             session: session.clone(),
             tf_outputs: Default::default(),
-            tf_stack: Default::default(),
             tf_matches: Default::default(),
         }
     }
     fn run(&mut self, check_for_new_sessions: bool) -> Result<(), ScrError> {
+        let mut ctx_arc = self.ctx.clone();
+        let mut sess = ManuallyDrop::new(WorkerThreadSession {
+            ctx: &ctx_arc,
+            tf_stack: Default::default(),
+        });
         loop {
             if let Some(job) = self.find_job() {
-                let res = self.run_job(job);
-                self.cleanup_job_data();
+                let res = self.run_job(job, &mut sess);
+                self.cleanup_job_data(&mut sess);
                 res?;
             } else {
                 if !check_for_new_sessions || !self.get_next_session() {
                     return Ok(());
                 }
+                let _ = ManuallyDrop::into_inner(sess);
+                ctx_arc = self.ctx.clone();
+                sess = ManuallyDrop::new(WorkerThreadSession {
+                    ctx: &ctx_arc,
+                    tf_stack: Default::default(),
+                });
             }
         }
     }
@@ -245,69 +260,82 @@ impl WorkerThread {
             .and_then(|s| s.success())
         })
     }
-    fn setup_transform_stack(&mut self, job: &Job) -> Result<(), ScrError> {
-        debug_assert!(self.tf_stack.is_empty());
+    fn setup_transform_stack<'a>(
+        &mut self,
+        job: &Job,
+        sess: &mut WorkerThreadSession<'a>,
+    ) -> Result<(), ScrError> {
+        debug_assert!(sess.tf_stack.is_empty());
         if job.is_stdin {
-            self.tf_stack.push(Box::new(TfReadStdin::new()))
+            sess.tf_stack.push(Box::new(TfReadStdin::new()))
         } else {
-            self.tf_stack.push(Box::new(TfStart::new(
+            sess.tf_stack.push(Box::new(TfStart::new(
                 job.data.as_ref().map_or(MatchDataKind::None, |d| d.kind()),
             )))
         }
         for (i, op_ref) in job.ops.iter().rev().enumerate() {
             let cn = &self.ctx.chains[op_ref.chain_id as usize];
             for i in op_ref.op_offset as usize..cn.operations.len() {
-                let op = &self.ctx.operations[cn.operations[i] as usize];
-                let tf = op.apply(*op_ref, self.tf_stack.as_mut_slice())?;
-                let requires_eval = tf.requires_eval;
-                self.tf_stack.push(tf);
+                let op = &sess.ctx.operations[cn.operations[i] as usize];
+                let sl = sess.tf_stack.as_mut_slice();
+                let tf = op.apply(*op_ref, sl)?;
+                let requires_eval = tf.base().requires_eval;
+                sess.tf_stack.push(tf);
                 if requires_eval {
                     break;
                 }
             }
             if i + 1 < job.ops.len() {
-                let mut tf_base = TfBase::from_parent(&self.tf_stack[0]);
+                let mut tf_base = TfBase::from_parent(&sess.tf_stack[0].base());
                 tf_base.begin_of_chain = true;
-                tf_base.tfs_index = self.tf_stack.len() as TransformStackIndex;
-                self.tf_stack.push(Box::new(TfParent {
+                tf_base.tfs_index = sess.tf_stack.len() as TransformStackIndex;
+                sess.tf_stack.push(Box::new(TfParent {
                     tf_base,
                     op_ref: OperationRef {
                         //this little lie is fine since we will never error on this one anyways
                         chain_id: 0,
                         op_offset: 0,
                     },
-                    offset: self.tf_stack.len() as TransformStackIndex,
+                    offset: sess.tf_stack.len() as TransformStackIndex,
                 }));
             }
         }
         Ok(())
     }
 
-    fn setup_job_data(&mut self, job: &Job) -> Result<(), ScrError> {
-        self.setup_transform_stack(&job)?;
+    fn setup_job_data<'a>(
+        &mut self,
+        job: &Job,
+        sess: &mut WorkerThreadSession<'a>,
+    ) -> Result<(), ScrError> {
+        self.setup_transform_stack(job, sess)?;
         self.tf_matches.extend(
             std::iter::repeat_with(Default::default)
                 .take(1usize.saturating_sub(self.tf_matches.len())),
         );
         self.tf_outputs.extend(
             std::iter::repeat_with(Default::default)
-                .take(self.tf_stack.len().saturating_sub(self.tf_outputs.len())),
+                .take(sess.tf_stack.len().saturating_sub(self.tf_outputs.len())),
         );
         Ok(())
     }
-    fn cleanup_job_data(&mut self) {
-        for mc in self.tf_matches.iter_mut().take(self.tf_stack.len()) {
+    fn cleanup_job_data<'a>(&mut self, sess: &mut WorkerThreadSession<'a>) {
+        for mc in self.tf_matches.iter_mut().take(sess.tf_stack.len()) {
             mc.args.clear();
             mc.ref_count = 0;
         }
-        for tfo in self.tf_outputs.iter_mut().take(self.tf_stack.len()) {
+        for tfo in self.tf_outputs.iter_mut().take(sess.tf_stack.len()) {
             tfo.tfos.clear();
             tfo.next_dependant_indices.clear();
         }
-        self.tf_stack.clear();
+        sess.tf_stack.clear();
     }
-    fn run_job(&mut self, job: Job) -> Result<(), ScrError> {
-        self.setup_job_data(&job)?;
+    fn run_job<'a>(
+        &mut self,
+        job: Job,
+        sess: &mut WorkerThreadSession<'a>,
+    ) -> Result<(), ScrError> {
+        self.setup_job_data(&job, sess)?;
         let mut last_tf_with_pending_output = 0;
         self.tf_matches[0].ref_count = 1;
         self.tf_matches[0].args = job.args;
@@ -322,10 +350,11 @@ impl WorkerThread {
 
         loop {
             let tf_idx = last_tf_with_pending_output;
+            let tf_dep_count = sess.tf_stack[tf_idx].base().dependants.len();
             let (tf_outputs_head, tf_outputs_tail) = self.tf_outputs.split_at_mut(tf_idx + 1);
             if let Some((tfo, next_dep_index)) = tf_outputs_head[tf_idx].front_mut() {
                 let match_idx = tfo.match_index as usize;
-                if *next_dep_index >= self.tf_stack[tf_idx].dependants.len() {
+                if *next_dep_index >= tf_dep_count {
                     let rc = &mut self.tf_matches[match_idx].ref_count;
                     *rc -= 1;
                     if *rc == 0 {
@@ -336,11 +365,11 @@ impl WorkerThread {
                     tfo_ctx.next_dependant_indices.pop_front();
                     continue;
                 }
-                let dep_idx = self.tf_stack[tf_idx].dependants[*next_dep_index] as usize;
+                let dep_idx = sess.tf_stack[tf_idx].base().dependants[*next_dep_index] as usize;
                 *next_dep_index += 1;
                 let tfos_ctx = &mut tf_outputs_tail[dep_idx - tf_idx - 1];
                 let tfos_len_prev = tfos_ctx.tfos.len();
-                self.tf_stack[dep_idx].process(
+                sess.tf_stack[dep_idx].process(
                     &self.ctx,
                     &self.tf_matches[match_idx].args,
                     tfo,

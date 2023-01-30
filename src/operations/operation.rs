@@ -7,6 +7,7 @@ use crate::{
     options::{
         argument::{CliArgIdx, CliArgument},
         chain_spec::ChainSpec,
+        context_options::ContextOptions,
     },
 };
 
@@ -94,20 +95,12 @@ impl OperationRef {
     }
 }
 
-pub trait OperationCloneBoxed {
-    fn clone_boxed(&self) -> Box<dyn Operation>;
-}
-
-impl<T: Operation + Clone + 'static> OperationCloneBoxed for T {
-    fn clone_boxed(&self) -> Box<dyn Operation> {
-        Box::new(self.clone())
-    }
-}
-
-impl Clone for Box<dyn Operation> {
-    fn clone(&self) -> Self {
-        self.clone_boxed()
-    }
+pub struct OperationParameters {
+    pub argname: String,
+    pub label: Option<String>,
+    pub chainspec: Option<ChainSpec>,
+    pub value: Option<BString>,
+    pub cli_arg: Option<CliArgument>,
 }
 
 #[derive(Clone)]
@@ -151,15 +144,30 @@ impl OpBase {
         }
     }
 }
+pub trait OperationCloneBoxed {
+    fn clone_boxed(&self) -> Box<dyn Operation>;
+}
 
-pub trait Operation: OperationCloneBoxed + Send + Sync {
+impl<'a, T: Operation + Clone + 'static> OperationCloneBoxed for T {
+    fn clone_boxed(&self) -> Box<dyn Operation> {
+        Box::new(self.clone())
+    }
+}
+
+impl Clone for Box<dyn Operation> {
+    fn clone(&self) -> Self {
+        self.clone_boxed()
+    }
+}
+
+pub trait Operation: Send + Sync + OperationCloneBoxed {
     fn base_mut(&mut self) -> &mut OpBase;
     fn base(&self) -> &OpBase;
-    fn apply(
-        &self,
+    fn apply<'a, 'b>(
+        &'a self,
         op_ref: OperationRef,
-        tf_stack: &mut [Box<dyn Transform>],
-    ) -> Result<Box<dyn Transform>, OperationApplicationError>;
+        tf_stack: &mut [Box<dyn Transform + 'b>],
+    ) -> Result<Box<dyn Transform + 'a>, OperationApplicationError>;
     fn setup(&mut self, chains: &mut Vec<Chain>) -> Result<(), OperationSetupError> {
         if let Some(_cs) = &self.base().chainspec {
             todo!("ChainSpec::iter");
@@ -175,12 +183,7 @@ pub trait Operation: OperationCloneBoxed + Send + Sync {
         }
         Ok(())
     }
-}
-
-pub struct OperationParameters {
-    pub argname: String,
-    pub label: Option<String>,
-    pub chainspec: Option<ChainSpec>,
-    pub value: Option<BString>,
-    pub cli_arg: Option<CliArgument>,
+    fn update_current_chain_on_insert(&self, _ctx_opts: &mut ContextOptions) -> Option<ChainId> {
+        None
+    }
 }

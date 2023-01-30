@@ -65,6 +65,7 @@ impl ContextOptions {
         let op_bm = op.base_mut();
         op_bm.curr_chain = Some(self.curr_chain);
         op_bm.op_id = Some(self.operations.len() as OperationId);
+        op.update_current_chain_on_insert(self);
         self.operations.push(op);
     }
     pub fn set_current_chain(&mut self, chain_id: ChainId) {

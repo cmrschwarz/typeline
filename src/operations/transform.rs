@@ -74,26 +74,12 @@ pub trait Transform: Send {
         tfo: &TransformOutput,
         output: &mut VecDeque<TransformOutput>,
     ) -> Result<(), TransformApplicationError>;
-    fn add_dependant(
+    fn add_dependant<'a>(
         &mut self,
-        _tf_stack: &mut [Box<dyn Transform>],
+        _tf_stack: &mut [Box<dyn Transform + 'a>],
         dependant: TransformStackIndex,
     ) -> Result<(), TransformApplicationError> {
         self.base_mut().dependants.push(dependant);
         Ok(())
-    }
-}
-
-impl std::ops::Deref for dyn Transform {
-    type Target = TfBase;
-
-    fn deref(&self) -> &TfBase {
-        self.base()
-    }
-}
-
-impl std::ops::DerefMut for dyn Transform {
-    fn deref_mut(&mut self) -> &mut TfBase {
-        self.base_mut()
     }
 }
