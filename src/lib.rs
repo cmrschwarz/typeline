@@ -11,6 +11,7 @@ extern crate url;
 pub mod chain;
 pub mod cli;
 pub mod context;
+pub mod worker_thread;
 pub mod document;
 pub mod encoding;
 pub mod operations;

@@ -2,7 +2,7 @@ use std::num::NonZeroUsize;
 
 use crate::{
     chain::ChainId,
-    context::{Context, ContextData},
+    context::{Context, SessionData},
     document::Document,
     operations::operation::{Operation, OperationId, OperationSetupError},
     selenium::SeleniumVariant,
@@ -85,20 +85,20 @@ impl ContextOptions {
             std::thread::available_parallelism()
                 .unwrap_or_else(|_| NonZeroUsize::try_from(1).unwrap())
         });
-        let mut cd = ContextData {
+        let mut sd = SessionData {
             max_worker_threads,
             is_repl: self.repl.unwrap_or(DEFAULT_CONTEXT_OPTIONS.repl.unwrap()),
             documents: self.documents,
             chains: self.chains.iter().map(|c| c.build_chain()).collect(),
             operations: self.operations,
         };
-        for op in &mut cd.operations {
-            if let Err(e) = op.setup(&mut cd.chains) {
-                self.documents = cd.documents;
-                self.operations = cd.operations;
+        for op in &mut sd.operations {
+            if let Err(e) = op.setup(&mut sd.chains) {
+                self.documents = sd.documents;
+                self.operations = sd.operations;
                 return Err((self, e));
             }
         }
-        Ok(Context::new(cd))
+        Ok(Context::new(sd))
     }
 }

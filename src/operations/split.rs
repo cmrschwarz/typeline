@@ -4,7 +4,7 @@ use smallvec::SmallVec;
 
 use crate::{
     chain::ChainId,
-    context::ContextData,
+    context::SessionData,
     match_data::MatchData,
     operations::transform::{TfBase, Transform, TransformStackIndex},
     options::{context_options::ContextOptions, range_spec::RangeSpec},
@@ -36,7 +36,7 @@ impl<'a> Transform for TfSplit<'a> {
 
     fn process(
         &mut self,
-        _ctx: &ContextData,
+        _ctx: &SessionData,
         _args: &HashMap<String, SmallVec<[(TransformStackIndex, MatchData); 1]>>,
         tfo: &TransformOutput,
         _output: &mut VecDeque<TransformOutput>,

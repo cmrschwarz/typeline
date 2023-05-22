@@ -3,7 +3,7 @@ use std::collections::{HashMap, VecDeque};
 use smallvec::SmallVec;
 
 use crate::{
-    context::ContextData,
+    context::SessionData,
     match_data::MatchData,
     operations::transform::{TfBase, Transform, TransformStackIndex},
     options::context_options::ContextOptions,
@@ -35,7 +35,7 @@ impl Transform for TfParent {
 
     fn process(
         &mut self,
-        _ctx: &ContextData,
+        _ctx: &SessionData,
         _args: &HashMap<String, SmallVec<[(TransformStackIndex, MatchData); 1]>>,
         _tfo: &TransformOutput,
         _output: &mut VecDeque<TransformOutput>,

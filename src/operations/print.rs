@@ -6,7 +6,7 @@ use std::{
 use smallvec::SmallVec;
 
 use crate::{
-    context::ContextData,
+    context::SessionData,
     match_data::{MatchData, MatchDataKind},
     operations::transform::{TfBase, Transform},
     options::context_options::ContextOptions,
@@ -38,7 +38,7 @@ impl Transform for TfPrint {
 
     fn process(
         &mut self,
-        _ctx: &ContextData,
+        _ctx: &SessionData,
         _args: &HashMap<String, SmallVec<[(TransformStackIndex, MatchData); 1]>>,
         tfo: &TransformOutput,
         _output: &mut VecDeque<TransformOutput>,

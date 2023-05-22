@@ -52,7 +52,7 @@ fn contextualize_op_id(
 ) -> String {
     let ops = ctx_opts
         .map(|o| &o.operations)
-        .or_else(|| ctx.map(|c| &c.data.operations));
+        .or_else(|| ctx.map(|c| &c.curr_session_data.operations));
     let cli_arg_id = ops
         .map(|ops| ops[op_id as usize].base().cli_arg_idx)
         .unwrap_or_default();
@@ -71,7 +71,8 @@ fn contextualize_op_ref(
     ctx: Option<&Context>,
 ) -> String {
     if let Some(c) = ctx {
-        let op_id = c.data.chains[op_ref.chain_id as usize].operations[op_ref.op_offset as usize];
+        let op_id = c.curr_session_data.chains[op_ref.chain_id as usize].operations
+            [op_ref.op_offset as usize];
         contextualize_op_id(msg, op_id, args, ctx_opts, ctx)
     } else {
         format!(

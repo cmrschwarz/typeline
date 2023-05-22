@@ -4,7 +4,7 @@ use smallvec::SmallVec;
 use thiserror::Error;
 
 use crate::{
-    context::ContextData,
+    context::SessionData,
     match_data::{MatchData, MatchDataKind},
 };
 
@@ -69,7 +69,7 @@ pub trait Transform: Send {
     fn base_mut(&mut self) -> &mut TfBase;
     fn process(
         &mut self,
-        ctx: &ContextData,
+        ctx: &SessionData,
         args: &HashMap<String, SmallVec<[(TransformStackIndex, MatchData); 1]>>,
         tfo: &TransformOutput,
         output: &mut VecDeque<TransformOutput>,
