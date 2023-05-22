@@ -27,7 +27,7 @@ pub struct Job {
 }
 
 pub struct ContextData {
-    pub parallel_jobs: NonZeroUsize,
+    pub max_worker_threads: NonZeroUsize,
     pub is_repl: bool,
     pub documents: Vec<Document>,
     pub chains: Vec<Chain>,
@@ -140,9 +140,10 @@ impl Context {
     }
     pub fn perform_jobs(&mut self) -> Result<(), ScrError> {
         self.gen_jobs_from_docs();
-        assert!(self.data.parallel_jobs.get() > self.worker_join_handles.len()); // TODO: handle this case
-        let additional_wts = self.data.parallel_jobs.get() - self.worker_join_handles.len() - 1;
-        let workers = (0..additional_wts)
+        assert!(self.data.max_worker_threads.get() > self.worker_join_handles.len()); // TODO: handle this case
+        let additional_worker_count =
+            self.data.max_worker_threads.get() - self.worker_join_handles.len() - 1;
+        let additional_workers = (0..additional_worker_count)
             .map(|_| Worker::new_fifo())
             .collect::<Vec<Worker<Job>>>();
         self.main_worker_thread
@@ -151,10 +152,10 @@ impl Context {
             .lock()
             .unwrap()
             .stealers
-            .extend(workers.iter().map(|w| w.stealer()));
+            .extend(additional_workers.iter().map(|w| w.stealer()));
         let mut index = self.worker_join_handles.len() + 1;
         let is_repl = self.data.is_repl;
-        for worker in workers.into_iter() {
+        for worker in additional_workers.into_iter() {
             let session = self.main_worker_thread.session.clone();
             self.worker_join_handles.push(std::thread::spawn(move || {
                 WorkerThread::new(index, worker, session).run(is_repl)
@@ -164,7 +165,7 @@ impl Context {
         self.main_worker_thread.run(false)?;
         Ok(()) //TODO
     }
-    pub fn terminate(&mut self) -> Result<(), ScrError> {
+    pub fn terminate(mut self) {
         {
             let mut sd = self.main_worker_thread.session.session_data.lock().unwrap();
             sd.generation += 1;
@@ -176,11 +177,10 @@ impl Context {
             //TODO: bundle up these errors
             wt.join().unwrap().unwrap();
         }
-        Ok(())
     }
-    pub fn run(&mut self) -> Result<(), ScrError> {
+    pub fn run(mut self) -> Result<(), ScrError> {
         self.perform_jobs()?;
-        self.terminate()?;
+        self.terminate();
         Ok(())
     }
 }

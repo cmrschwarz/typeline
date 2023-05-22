@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use bstring::BString;
 use smallvec::SmallVec;
 use thiserror::Error;
@@ -7,7 +9,6 @@ use crate::{
     options::{
         argument::{CliArgIdx, CliArgument},
         chain_spec::ChainSpec,
-        context_options::ContextOptions,
     },
 };
 
@@ -19,14 +20,14 @@ pub type OperationOffsetInChain = u32;
 #[derive(Error, Debug, Clone)]
 #[error("{message}")]
 pub struct OperationCreationError {
-    pub message: String,
+    pub message: Cow<'static, str>,
     pub cli_arg_id: Option<CliArgIdx>,
 }
 
 impl OperationCreationError {
-    pub fn new(message: &str, cli_arg_id: Option<CliArgIdx>) -> OperationCreationError {
+    pub fn new(message: &'static str, cli_arg_id: Option<CliArgIdx>) -> OperationCreationError {
         OperationCreationError {
-            message: message.to_owned(),
+            message: message.into(),
             cli_arg_id: cli_arg_id,
         }
     }
@@ -52,30 +53,22 @@ impl OperationSetupError {
 #[error("in op {0} of chain {1}: {message}", op_ref.op_offset, op_ref.chain_id)]
 pub struct OperationApplicationError {
     pub message: String,
-    pub op_id: OperationId,
     pub op_ref: OperationRef,
 }
 
 impl OperationApplicationError {
-    pub fn new(
-        message: &str,
-        op_id: OperationId,
-        op_ref: OperationRef,
-    ) -> OperationApplicationError {
+    pub fn new(message: &str, op_ref: OperationRef) -> OperationApplicationError {
         OperationApplicationError {
             message: message.to_owned(),
-            op_id,
             op_ref,
         }
     }
     pub fn from_transform_application_error(
         tae: TransformApplicationError,
-        op_id: OperationId,
     ) -> OperationApplicationError {
         OperationApplicationError {
             message: tae.message,
             op_ref: tae.op_ref,
-            op_id,
         }
     }
 }
@@ -182,8 +175,5 @@ pub trait Operation: Send + Sync + OperationCloneBoxed {
             ))
         }
         Ok(())
-    }
-    fn update_current_chain_on_insert(&self, _ctx_opts: &mut ContextOptions) -> Option<ChainId> {
-        None
     }
 }

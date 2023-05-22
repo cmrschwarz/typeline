@@ -1,5 +1,5 @@
 use crate::{
-    chain::{Chain, ChainId},
+    chain::{Chain, ChainId, ChainSettings},
     encoding::TextEncoding,
     selenium::{SeleniumDownloadStrategy, SeleniumVariant},
 };
@@ -14,7 +14,6 @@ pub struct ChainOptions {
     pub selenium_variant: Argument<Option<SeleniumVariant>>,
     pub selenium_download_strategy: Argument<SeleniumDownloadStrategy>,
     pub parent: ChainId,
-    pub subchains: Vec<ChainId>,
 }
 const DEFAULT_CHAIN_OPTIONS: ChainOptions = ChainOptions {
     default_text_encoding: Argument::new(TextEncoding::UTF8),
@@ -23,24 +22,25 @@ const DEFAULT_CHAIN_OPTIONS: ChainOptions = ChainOptions {
     selenium_variant: Argument::new(None),
     selenium_download_strategy: Argument::new(SeleniumDownloadStrategy::Scr),
     parent: 0,
-    subchains: Vec::new(),
 };
 impl ChainOptions {
-    pub fn build_chain(self) -> Chain {
+    pub fn build_chain(&self) -> Chain {
         Chain {
-            default_text_encoding: self
-                .default_text_encoding
-                .unwrap_or(DEFAULT_CHAIN_OPTIONS.default_text_encoding.unwrap()),
-            prefer_parent_text_encoding: self
-                .prefer_parent_text_encoding
-                .unwrap_or(DEFAULT_CHAIN_OPTIONS.prefer_parent_text_encoding.unwrap()),
-            force_text_encoding: self
-                .force_text_encoding
-                .unwrap_or(DEFAULT_CHAIN_OPTIONS.force_text_encoding.unwrap()),
-            selenium_download_strategy: self
-                .selenium_download_strategy
-                .unwrap_or(DEFAULT_CHAIN_OPTIONS.selenium_download_strategy.unwrap()),
-            subchains: self.subchains,
+            settings: ChainSettings {
+                default_text_encoding: self
+                    .default_text_encoding
+                    .unwrap_or(DEFAULT_CHAIN_OPTIONS.default_text_encoding.unwrap()),
+                prefer_parent_text_encoding: self
+                    .prefer_parent_text_encoding
+                    .unwrap_or(DEFAULT_CHAIN_OPTIONS.prefer_parent_text_encoding.unwrap()),
+                force_text_encoding: self
+                    .force_text_encoding
+                    .unwrap_or(DEFAULT_CHAIN_OPTIONS.force_text_encoding.unwrap()),
+                selenium_download_strategy: self
+                    .selenium_download_strategy
+                    .unwrap_or(DEFAULT_CHAIN_OPTIONS.selenium_download_strategy.unwrap()),
+            },
+            subchains: Vec::new(),
             aggregation_targets: Vec::new(),
             operations: Vec::new(),
         }

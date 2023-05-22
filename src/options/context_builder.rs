@@ -68,10 +68,9 @@ impl ContextBuilder {
         self
     }
     pub fn build(self) -> Result<Context, ScrError> {
-        Ok(self.opts.build_context()?)
+        Ok(self.opts.build_context().map_err(|e| e.1)?)
     }
     pub fn run(self) -> Result<(), ScrError> {
-        let mut ctx = self.opts.build_context()?;
-        ctx.run()
+        self.build()?.run()
     }
 }

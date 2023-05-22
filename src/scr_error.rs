@@ -39,7 +39,7 @@ fn contextualize_cli_arg(msg: &str, args: Option<&[BString]>, cli_arg_idx: CliAr
             msg
         )
     } else {
-        format!("{}", msg)
+        msg.to_owned()
     }
 }
 
@@ -70,9 +70,9 @@ fn contextualize_op_ref(
     ctx_opts: Option<&ContextOptions>,
     ctx: Option<&Context>,
 ) -> String {
-    if let Some(ctx) = ctx {
-        let op_id = ctx.data.chains[op_ref.chain_id as usize].operations[op_ref.op_offset as usize];
-        contextualize_op_id(msg, op_id, args, ctx_opts, Some(ctx))
+    if let Some(c) = ctx {
+        let op_id = c.data.chains[op_ref.chain_id as usize].operations[op_ref.op_offset as usize];
+        contextualize_op_id(msg, op_id, args, ctx_opts, ctx)
     } else {
         format!(
             "in op {} of chain {}: {}",
@@ -83,19 +83,19 @@ fn contextualize_op_ref(
 
 impl ScrError {
     pub fn contextualize_message(
-        &self,
+        self,
         args: Option<&[BString]>,
         ctx_opts: Option<&ContextOptions>,
         ctx: Option<&Context>,
     ) -> String {
         match self {
             ScrError::CliArgumentError(e) => contextualize_cli_arg(&e.message, args, e.cli_arg_idx),
-            ScrError::OperationCreationError(e) => e.message.clone(),
+            ScrError::OperationCreationError(e) => e.message.to_string(),
             ScrError::OperationSetupError(e) => {
                 contextualize_op_id(&e.message, e.op_id, args, ctx_opts, ctx)
             }
             ScrError::OperationApplicationError(e) => {
-                contextualize_op_id(&e.message, e.op_id, args, ctx_opts, ctx)
+                contextualize_op_ref(&e.message, e.op_ref, args, ctx_opts, ctx)
             }
             ScrError::TransformApplicationError(e) => {
                 contextualize_op_ref(&e.message, e.op_ref, args, ctx_opts, ctx)

@@ -37,11 +37,10 @@ impl Transform for TfParent {
         &mut self,
         _ctx: &ContextData,
         _args: &HashMap<String, SmallVec<[(TransformStackIndex, MatchData); 1]>>,
-        tfo: &TransformOutput,
+        _tfo: &TransformOutput,
         _output: &mut VecDeque<TransformOutput>,
     ) -> Result<(), TransformApplicationError> {
-        debug_assert!(tfo.data.is_none());
-        Ok(())
+        panic!("TfParent does not process elements");
     }
 
     fn add_dependant<'a>(

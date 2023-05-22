@@ -123,12 +123,7 @@ impl Operation for OpStringSink {
         });
         parent
             .add_dependant(tf_stack, tfp.base().tfs_index)
-            .map_err(|tae| {
-                OperationApplicationError::from_transform_application_error(
-                    tae,
-                    self.op_base.op_id.unwrap(),
-                )
-            })?;
+            .map_err(|tae| OperationApplicationError::from_transform_application_error(tae))?;
         Ok(tfp)
     }
 }

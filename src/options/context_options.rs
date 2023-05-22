@@ -12,7 +12,7 @@ use super::{argument::Argument, chain_options::ChainOptions};
 
 #[derive(Clone)]
 pub struct ContextOptions {
-    pub parallel_jobs: Argument<usize>,
+    pub max_worker_threads: Argument<usize>,
     pub print_help: Argument<bool>,
     pub print_version: Argument<bool>,
     pub repl: Argument<bool>,
@@ -28,7 +28,7 @@ pub struct ContextOptions {
 impl Default for ContextOptions {
     fn default() -> Self {
         Self {
-            parallel_jobs: Default::default(),
+            max_worker_threads: Default::default(),
             print_help: Default::default(),
             print_version: Default::default(),
             repl: Default::default(),
@@ -44,7 +44,7 @@ impl Default for ContextOptions {
 }
 
 const DEFAULT_CONTEXT_OPTIONS: ContextOptions = ContextOptions {
-    parallel_jobs: Argument::new(0),
+    max_worker_threads: Argument::new(0),
     print_help: Argument::new(false),
     print_version: Argument::new(false),
     repl: Argument::new(false),
@@ -65,7 +65,7 @@ impl ContextOptions {
         let op_bm = op.base_mut();
         op_bm.curr_chain = Some(self.curr_chain);
         op_bm.op_id = Some(self.operations.len() as OperationId);
-        op.update_current_chain_on_insert(self);
+        //TODO: update current chain e.g. in case of split
         self.operations.push(op);
     }
     pub fn set_current_chain(&mut self, chain_id: ChainId) {
@@ -75,25 +75,29 @@ impl ContextOptions {
                 .resize(chain_id as usize + 1, Default::default());
         }
     }
-    pub fn build_context(self) -> Result<Context, OperationSetupError> {
-        let parallel_jobs = NonZeroUsize::try_from(
-            self.parallel_jobs
+    pub fn build_context(mut self) -> Result<Context, (ContextOptions, OperationSetupError)> {
+        let max_worker_threads = NonZeroUsize::try_from(
+            self.max_worker_threads
                 .value
-                .unwrap_or(DEFAULT_CONTEXT_OPTIONS.parallel_jobs.unwrap()),
+                .unwrap_or(DEFAULT_CONTEXT_OPTIONS.max_worker_threads.unwrap()),
         )
         .unwrap_or_else(|_| {
             std::thread::available_parallelism()
                 .unwrap_or_else(|_| NonZeroUsize::try_from(1).unwrap())
         });
         let mut cd = ContextData {
-            parallel_jobs,
+            max_worker_threads,
             is_repl: self.repl.unwrap_or(DEFAULT_CONTEXT_OPTIONS.repl.unwrap()),
             documents: self.documents,
-            chains: self.chains.into_iter().map(|c| c.build_chain()).collect(),
+            chains: self.chains.iter().map(|c| c.build_chain()).collect(),
             operations: self.operations,
         };
         for op in &mut cd.operations {
-            op.setup(&mut cd.chains)?;
+            if let Err(e) = op.setup(&mut cd.chains) {
+                self.documents = cd.documents;
+                self.operations = cd.operations;
+                return Err((self, e));
+            }
         }
         Ok(Context::new(cd))
     }

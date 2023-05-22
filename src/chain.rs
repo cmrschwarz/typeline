@@ -7,12 +7,16 @@ use crate::{
 pub type ChainId = u32;
 
 #[derive(Clone)]
-pub struct Chain {
+pub struct ChainSettings {
     pub default_text_encoding: TextEncoding,
     pub prefer_parent_text_encoding: bool,
     pub force_text_encoding: bool,
-
     pub selenium_download_strategy: SeleniumDownloadStrategy,
+}
+
+#[derive(Clone)]
+pub struct Chain {
+    pub settings: ChainSettings,
 
     pub operations: Vec<OperationId>,
 

@@ -86,14 +86,6 @@ impl Operation for OpSplit {
     fn base_mut(&mut self) -> &mut OpBase {
         &mut self.op_base
     }
-    fn update_current_chain_on_insert(&self, ctx_opts: &mut ContextOptions) -> Option<ChainId> {
-        let cc = &ctx_opts.chains[ctx_opts.curr_chain as usize];
-        let mut rsi = self.range_spec.iter(0, cc.subchains.len() as ChainId + 1);
-        let first = rsi.next();
-        let second = rsi.next();
-        if first.is_none() || second.is_some() {}
-        Some(0)
-    }
 }
 
 impl OperationCatalogMember for OpSplit {

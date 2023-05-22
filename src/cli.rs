@@ -12,20 +12,20 @@ use crate::{
 use bstring::{bstr, BString};
 use lazy_static::lazy_static;
 use smallvec::smallvec;
-use std::{ffi::OsStr, path::PathBuf, str::from_utf8};
+use std::{borrow::Cow, ffi::OsStr, path::PathBuf, str::from_utf8};
 use thiserror::Error;
 use url::Url;
 #[derive(Error, Debug, Clone)]
 #[error("in cli arg {cli_arg_idx}: {message}")]
 pub struct CliArgumentError {
-    pub message: String,
+    pub message: Cow<'static, str>,
     pub cli_arg_idx: CliArgIdx,
 }
 
 impl CliArgumentError {
-    pub fn new(message: &str, cli_arg_idx: CliArgIdx) -> Self {
+    pub fn new(message: &'static str, cli_arg_idx: CliArgIdx) -> Self {
         Self {
-            message: message.to_owned(),
+            message: Cow::Borrowed(message),
             cli_arg_idx,
         }
     }
@@ -34,7 +34,7 @@ impl CliArgumentError {
 impl Into<CliArgumentError> for ArgumentReassignmentError {
     fn into(self) -> CliArgumentError {
         CliArgumentError {
-            message: self.message.to_owned(),
+            message: Cow::Borrowed(self.message),
             cli_arg_idx: self.cli_arg_idx.unwrap(),
         }
     }
@@ -262,7 +262,7 @@ fn try_parse_as_context_opt(
     if arg.argname == "j" {
         if let Some(val) = arg.value.as_deref() {
             ctx_opts
-                .parallel_jobs
+                .max_worker_threads
                 .set(try_parse_usize_arg(val, arg.cli_arg.idx)?)
                 .map_err(|e| e.into())?;
         } else {
@@ -427,12 +427,12 @@ pub fn parse_cli(args: &[BString]) -> Result<ContextOptions, CliArgumentError> {
             }
             if succ_sum > 1 {
                 return Err(CliArgumentError {
-                    message: format!("ambiguous argument name '{}'", arg.argname),
+                    message: format!("ambiguous argument name '{}'", arg.argname).into(),
                     cli_arg_idx: arg.cli_arg.idx,
                 });
             } else {
                 return Err(CliArgumentError {
-                    message: format!("unknown argument name '{}'", arg.argname),
+                    message: format!("unknown argument name '{}'", arg.argname).into(),
                     cli_arg_idx: arg.cli_arg.idx,
                 });
             }
