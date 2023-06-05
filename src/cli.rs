@@ -11,6 +11,7 @@ use crate::{
         chain_options::ChainOptions,
         chain_spec::ChainSpec,
         context_options::ContextOptions,
+        operator_base_options::OperatorBaseOptions,
     },
     selenium::{SeleniumDownloadStrategy, SeleniumVariant},
 };
@@ -390,7 +391,7 @@ fn try_parse_as_operation<'a>(
             .label
             .map(|l| ctx_opts.string_store_mut().intern_cloned(l));
         ctx_opts.add_op(
-            OperatorBase::new(argname, label, arg.chainspec, Some(arg.cli_arg.idx)),
+            OperatorBaseOptions::new(argname, label, arg.chainspec, Some(arg.cli_arg.idx)),
             op_data,
         );
         Ok(None)

@@ -73,31 +73,8 @@ impl OperatorRef {
     }
 }
 
-#[derive(Clone)]
 pub struct OperatorBase {
-    //TODO: argname and label will be interned later, store them as strings for now
-    pub(crate) argname: StringStoreEntry,
-    pub(crate) label: Option<StringStoreEntry>,
-    pub(crate) chainspec: Option<ChainSpec>,
-    pub(crate) cli_arg_idx: Option<CliArgIdx>,
-    pub(crate) curr_chain: Option<ChainId>, // set by the context on add_op
-    pub(crate) op_id: Option<OperatorId>,   // set by the context on add_op
-}
-
-impl OperatorBase {
-    pub fn new(
-        argname: StringStoreEntry,
-        label: Option<StringStoreEntry>,
-        chainspec: Option<ChainSpec>,
-        cli_arg_idx: Option<CliArgIdx>,
-    ) -> OperatorBase {
-        OperatorBase {
-            argname,
-            label,
-            chainspec,
-            cli_arg_idx,
-            curr_chain: None,
-            op_id: None,
-        }
-    }
+    pub argname: StringStoreEntry,
+    pub label: Option<StringStoreEntry>,
+    pub cli_arg_idx: Option<CliArgIdx>,
 }

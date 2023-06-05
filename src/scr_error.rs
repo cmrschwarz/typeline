@@ -45,12 +45,11 @@ fn contextualize_op_id(
     ctx_opts: Option<&ContextOptions>,
     ctx: Option<&Context>,
 ) -> String {
-    let ops = ctx_opts
-        .map(|o| &o.operator_bases)
-        .or_else(|| ctx.map(|c| &c.curr_session_data.operator_bases));
-    let cli_arg_id = ops
-        .map(|ops| ops[op_id as usize].cli_arg_idx)
-        .unwrap_or_default();
+    let cli_arg_id = ctx_opts
+        .and_then(|o| o.operator_base_options[op_id as usize].cli_arg_idx)
+        .or_else(|| {
+            ctx.and_then(|c| c.curr_session_data.operator_bases[op_id as usize].cli_arg_idx)
+        });
     if let (Some(args), Some(cli_arg_id)) = (args, cli_arg_id) {
         contextualize_cli_arg(msg, Some(args), cli_arg_id)
     } else {

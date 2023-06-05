@@ -2,11 +2,11 @@ use crate::{
     chain::ChainId,
     context::Context,
     document::{Document, DocumentSource},
-    operations::{operator_base::OperatorBase, operator_data::OperatorData},
+    operations::operator_data::OperatorData,
     scr_error::ScrError,
 };
 
-use super::context_options::ContextOptions;
+use super::{context_options::ContextOptions, operator_base_options::OperatorBaseOptions};
 use smallvec::smallvec;
 
 pub struct ContextBuilder {
@@ -22,7 +22,7 @@ impl Default for ContextBuilder {
 }
 
 impl ContextBuilder {
-    pub fn add_op(mut self, op_base: OperatorBase, op_data: OperatorData) -> Self {
+    pub fn add_op(mut self, op_base: OperatorBaseOptions, op_data: OperatorData) -> Self {
         self.opts.add_op(op_base, op_data);
         self
     }

@@ -15,7 +15,9 @@ use crate::{
     string_store::StringStore,
 };
 
-use super::{argument::Argument, chain_options::ChainOptions};
+use super::{
+    argument::Argument, chain_options::ChainOptions, operator_base_options::OperatorBaseOptions,
+};
 
 //TODO: refactor this into SessionOptions
 
@@ -29,7 +31,7 @@ pub struct ContextOptions {
     pub update_selenium_drivers: Vec<Argument<SeleniumVariant>>,
     pub documents: Vec<Document>,
     pub(crate) string_store: Option<StringStore>,
-    pub(crate) operator_bases: Vec<OperatorBase>,
+    pub(crate) operator_base_options: Vec<OperatorBaseOptions>,
     pub(crate) operator_data: Vec<OperatorData>,
     pub(crate) chains: Vec<ChainOptions>,
     pub(crate) curr_chain: ChainId,
@@ -49,7 +51,7 @@ impl Default for ContextOptions {
             chains: vec![ChainOptions::default()],
             documents: Default::default(),
             curr_chain: Default::default(),
-            operator_bases: Default::default(),
+            operator_base_options: Default::default(),
             operator_data: Default::default(),
             string_store: Default::default(),
             cli_args: Default::default(),
@@ -66,7 +68,7 @@ const DEFAULT_CONTEXT_OPTIONS: ContextOptions = ContextOptions {
     install_selenium_drivers: Vec::new(),
     update_selenium_drivers: Vec::new(),
     chains: Vec::new(),
-    operator_bases: Vec::new(),
+    operator_base_options: Vec::new(),
     operator_data: Vec::new(),
     documents: Vec::new(),
     string_store: None,
@@ -81,10 +83,10 @@ impl ContextOptions {
     pub fn string_store_mut(&mut self) -> &mut StringStore {
         self.string_store.get_or_insert_with(Default::default)
     }
-    pub fn add_op(&mut self, mut op_base: OperatorBase, op_data: OperatorData) {
-        op_base.curr_chain = Some(self.curr_chain);
-        op_base.op_id = Some(self.operator_data.len() as OperatorId);
-        self.operator_bases.push(op_base);
+    pub fn add_op(&mut self, mut op_base_opts: OperatorBaseOptions, op_data: OperatorData) {
+        op_base_opts.curr_chain = Some(self.curr_chain);
+        op_base_opts.op_id = Some(self.operator_data.len() as OperatorId);
+        self.operator_base_options.push(op_base_opts);
         self.operator_data.push(op_data);
         //TODO: where do we update the current chain e.g. in case of split?
     }
@@ -105,13 +107,22 @@ impl ContextOptions {
             std::thread::available_parallelism()
                 .unwrap_or_else(|_| NonZeroUsize::try_from(1).unwrap())
         });
+        //TODO: handle chainspec and operator duplication
         let mut sd = SessionData {
             max_worker_threads,
             is_repl: self.repl.unwrap_or(DEFAULT_CONTEXT_OPTIONS.repl.unwrap()),
             documents: self.documents,
             chains: self.chains.iter().map(|c| c.build_chain()).collect(),
             operator_data: self.operator_data,
-            operator_bases: self.operator_bases,
+            operator_bases: self
+                .operator_base_options
+                .iter()
+                .map(|obo| OperatorBase {
+                    argname: obo.argname,
+                    label: obo.label,
+                    cli_arg_idx: obo.cli_arg_idx,
+                })
+                .collect(),
             cli_args: self.cli_args,
             string_store: self.string_store.unwrap_or_default(),
         };
@@ -121,7 +132,6 @@ impl ContextOptions {
                 self.documents = sd.documents;
                 self.string_store = Some(sd.string_store);
                 self.operator_data = sd.operator_data;
-                self.operator_bases = sd.operator_bases;
                 self.cli_args = sd.cli_args;
                 return Err((self, e));
             }
