@@ -1,8 +1,13 @@
 use crate::{
     document::{Document, DocumentSource},
-    operations::{operation::OperationParameters, operation_catalog::BUILTIN_OPERATIONS_CATALOG},
+    operations::{
+        control_flow_ops::parse_split_op,
+        operator_base::{OperatorBase, OperatorCreationError},
+        operator_data::OperatorData,
+        regex::parse_regex_op,
+    },
     options::{
-        argument::{ArgumentReassignmentError, CliArgIdx, CliArgument},
+        argument::{ArgumentReassignmentError, CliArgIdx},
         chain_options::ChainOptions,
         chain_spec::ChainSpec,
         context_options::ContextOptions,
@@ -40,25 +45,19 @@ impl Into<CliArgumentError> for ArgumentReassignmentError {
     }
 }
 
-#[derive(Clone)]
-pub struct ParsedCliArgument {
-    argname: String,
-    value: Option<BString>,
-    label: Option<String>,
-    chainspec: Option<ChainSpec>,
-    cli_arg: CliArgument,
+#[derive(Clone, Debug)]
+pub struct CliArgument<'a> {
+    pub idx: CliArgIdx,
+    pub value: &'a BString,
 }
 
-impl From<ParsedCliArgument> for OperationParameters {
-    fn from(value: ParsedCliArgument) -> Self {
-        OperationParameters {
-            argname: value.argname,
-            label: value.label,
-            chainspec: value.chainspec,
-            value: value.value,
-            cli_arg: Some(value.cli_arg),
-        }
-    }
+#[derive(Clone)]
+pub struct ParsedCliArgument<'a> {
+    argname: &'a str,
+    value: Option<&'a bstr>,
+    label: Option<&'a str>,
+    chainspec: Option<ChainSpec>,
+    cli_arg: CliArgument<'a>,
 }
 
 lazy_static! {
@@ -291,30 +290,6 @@ fn try_parse_as_context_opt(
     return Ok(matched);
 }
 
-fn try_parse_as_doc(
-    ctx_opts: &mut ContextOptions,
-    arg: &ParsedCliArgument,
-) -> Result<bool, CliArgumentError> {
-    let doc_source =
-        try_parse_document_source(&arg.argname, arg.value.as_deref(), arg.cli_arg.idx)?;
-    if let Some(doc_source) = doc_source {
-        if arg.label.is_some() {
-            return Err(CliArgumentError::new(
-                "cannot specify label for global argument",
-                arg.cli_arg.idx,
-            ));
-        }
-        assert!(arg.chainspec.is_none()); //TODO
-        ctx_opts.documents.push(Document {
-            source: doc_source,
-            reference_point: None,
-            target_chains: smallvec![ctx_opts.curr_chain],
-        });
-        Ok(true)
-    } else {
-        Ok(false)
-    }
-}
 fn try_parse_as_chain_opt(
     ctx_opts: &mut ContextOptions,
     arg: &ParsedCliArgument,
@@ -361,86 +336,124 @@ fn try_parse_as_chain_opt(
     return Ok(false);
 }
 
-fn try_parse_as_operation(
+fn try_parse_as_doc<'a>(
     ctx_opts: &mut ContextOptions,
-    arg: &ParsedCliArgument,
-) -> Result<bool, CliArgumentError> {
-    for tf in BUILTIN_OPERATIONS_CATALOG {
-        let name_matches = tf.name_matches;
-        if !name_matches(&&*arg.argname) {
-            continue;
+    arg: ParsedCliArgument<'a>,
+) -> Result<Option<ParsedCliArgument<'a>>, CliArgumentError> {
+    let doc_source =
+        try_parse_document_source(&arg.argname, arg.value.as_deref(), arg.cli_arg.idx)?;
+    if let Some(doc_source) = doc_source {
+        if arg.label.is_some() {
+            return Err(CliArgumentError::new(
+                "cannot specify label for global argument",
+                arg.cli_arg.idx,
+            ));
         }
-        let create = tf.create;
-        let arg_copy = arg.clone();
-        let tf_inst = create(&ctx_opts, OperationParameters::from(arg_copy)).map_err(|op_err| {
+        assert!(arg.chainspec.is_none()); //TODO
+        ctx_opts.documents.push(Document {
+            source: doc_source,
+            reference_point: None,
+            target_chains: smallvec![ctx_opts.curr_chain],
+        });
+        Ok(None)
+    } else {
+        Ok(Some(arg))
+    }
+}
+
+fn parse_operation(
+    argname: &str,
+    value: Option<&bstr>,
+    idx: Option<CliArgIdx>,
+) -> Result<Option<OperatorData>, OperatorCreationError> {
+    Ok(match argname {
+        "r" | "re" | "regex" => Some(OperatorData::Regex(parse_regex_op(value, idx)?)),
+        "s" | "split" => Some(OperatorData::Split(parse_split_op(value, idx)?)),
+        _ => None,
+    })
+}
+
+fn try_parse_as_operation<'a>(
+    ctx_opts: &mut ContextOptions,
+    arg: ParsedCliArgument<'a>,
+) -> Result<Option<ParsedCliArgument<'a>>, CliArgumentError> {
+    let op_data =
+        parse_operation(&arg.argname, arg.value, Some(arg.cli_arg.idx)).map_err(|oce| {
             CliArgumentError {
-                message: op_err.message,
+                message: oce.message,
                 cli_arg_idx: arg.cli_arg.idx,
             }
         })?;
-        ctx_opts.add_op(tf_inst);
-        return Ok(true);
+    if let Some(op_data) = op_data {
+        let argname = ctx_opts.string_store_mut().intern_cloned(arg.argname);
+        let label = arg
+            .label
+            .map(|l| ctx_opts.string_store_mut().intern_cloned(l));
+        ctx_opts.add_op(
+            OperatorBase::new(argname, label, arg.chainspec, Some(arg.cli_arg.idx)),
+            op_data,
+        );
+        Ok(None)
+    } else {
+        Ok(Some(arg))
     }
-    return Ok(false);
 }
 
-pub fn parse_cli(args: &[BString]) -> Result<ContextOptions, CliArgumentError> {
+pub fn parse_cli_retain_args(args: &Vec<BString>) -> Result<ContextOptions, CliArgumentError> {
     let mut ctx_opts = ContextOptions::default();
     for (i, arg_str) in args.iter().enumerate() {
         let cli_arg = CliArgument {
             idx: i as CliArgIdx + 1,
-            value: arg_str.clone(),
+            value: arg_str,
         };
         if let Some(m) = CLI_ARG_REGEX.captures(arg_str.as_bytes()) {
-            let argname = from_utf8(m.name("argname").unwrap().as_bytes())
-                .map_err(|_| {
-                    CliArgumentError::new("argument name must be valid UTF-8", cli_arg.idx)
-                })?
-                .to_owned();
-            let label = if let Some(lbl) = m.name("label") {
-                Some(
-                    from_utf8(lbl.as_bytes())
-                        .map_err(|_| {
-                            CliArgumentError::new("label must be valid UTF-8", cli_arg.idx)
-                        })?
-                        .to_owned(),
-                )
-            } else {
-                None
-            };
+            let argname = from_utf8(m.name("argname").unwrap().as_bytes()).map_err(|_| {
+                CliArgumentError::new("argument name must be valid UTF-8", cli_arg.idx)
+            })?;
+            let label =
+                if let Some(lbl) = m.name("label") {
+                    Some(from_utf8(lbl.as_bytes()).map_err(|_| {
+                        CliArgumentError::new("label must be valid UTF-8", cli_arg.idx)
+                    })?)
+                } else {
+                    None
+                };
 
             let arg = ParsedCliArgument {
-                argname: argname,
-                value: m.name("value").map(|l| BString::from(l.as_bytes())),
+                argname,
+                value: m.name("value").map(|v| <&bstr>::from(v.as_bytes())),
                 label: label,
                 chainspec: None, //m.group("chainspec"); // TODO
                 cli_arg: cli_arg,
             };
-
-            let succ_ctx = try_parse_as_context_opt(&mut ctx_opts, &arg)?;
-            let succ_doc = try_parse_as_doc(&mut ctx_opts, &arg)?;
-            let succ_co = try_parse_as_chain_opt(&mut ctx_opts, &arg)?;
-            let succ_tf = try_parse_as_operation(&mut ctx_opts, &arg)?;
-            let succ_sum = succ_ctx as u8 + succ_doc as u8 + succ_co as u8 + succ_tf as u8;
-            if succ_sum == 1 {
+            if try_parse_as_context_opt(&mut ctx_opts, &arg)? {
                 continue;
             }
-            if succ_sum > 1 {
-                return Err(CliArgumentError {
-                    message: format!("ambiguous argument name '{}'", arg.argname).into(),
-                    cli_arg_idx: arg.cli_arg.idx,
-                });
-            } else {
-                return Err(CliArgumentError {
-                    message: format!("unknown argument name '{}'", arg.argname).into(),
-                    cli_arg_idx: arg.cli_arg.idx,
-                });
+            if try_parse_as_chain_opt(&mut ctx_opts, &arg)? {
+                continue;
+            }
+            if let Some(arg) = try_parse_as_doc(&mut ctx_opts, arg)? {
+                if let Some(arg) = try_parse_as_operation(&mut ctx_opts, arg)? {
+                    return Err(CliArgumentError {
+                        message: format!("unknown argument name '{}'", arg.argname).into(),
+                        cli_arg_idx: arg.cli_arg.idx,
+                    });
+                }
             }
         } else {
             return Err(CliArgumentError::new("invalid argument", cli_arg.idx));
         }
     }
     return Ok(ctx_opts);
+}
+pub fn parse_cli(args: Vec<BString>) -> Result<ContextOptions, (Vec<BString>, CliArgumentError)> {
+    match parse_cli_retain_args(&args) {
+        Ok(mut ctx) => {
+            ctx.cli_args = Some(args);
+            Ok(ctx)
+        }
+        Err(e) => Err((args, e)),
+    }
 }
 
 pub fn collect_env_args() -> Result<Vec<BString>, CliArgumentError> {
@@ -473,5 +486,5 @@ pub fn collect_env_args() -> Result<Vec<BString>, CliArgumentError> {
 
 pub fn parse_cli_from_env() -> Result<ContextOptions, CliArgumentError> {
     let args = collect_env_args()?;
-    parse_cli(&args)
+    parse_cli(args).map_err(|(_, e)| e)
 }

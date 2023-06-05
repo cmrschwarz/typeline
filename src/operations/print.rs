@@ -14,17 +14,17 @@ use crate::{
 };
 
 use super::{
-    operation::{
-        OpBase, Operation, OperationApplicationError, OperationCreationError, OperationParameters,
-        OperationRef,
-    },
     operation_catalog::OperationCatalogMember,
+    operator::{
+        Operation, OperationParameters, OperatorApplicationError, OperatorBase,
+        OperatorCreationError, OperatorRef,
+    },
     transform::{TransformApplicationError, TransformOutput, TransformStackIndex},
 };
 
 struct TfPrint {
     tf_base: TfBase,
-    op_ref: OperationRef,
+    op_ref: OperatorRef,
 }
 
 impl Transform for TfPrint {
@@ -76,13 +76,13 @@ impl Transform for TfPrint {
 
 #[derive(Clone)]
 pub struct OpPrint {
-    pub op_base: OpBase,
+    pub op_base: OperatorBase,
 }
 
 impl OpPrint {
     pub fn new() -> OpPrint {
         OpPrint {
-            op_base: OpBase::new("print".to_owned(), None, None, None),
+            op_base: OperatorBase::new("print".to_owned(), None, None, None),
         }
     }
 }
@@ -101,19 +101,19 @@ pub fn split_last_mut_box_aray<'a, 'b>(
 }
 
 impl Operation for OpPrint {
-    fn base(&self) -> &OpBase {
+    fn base(&self) -> &OperatorBase {
         &self.op_base
     }
 
-    fn base_mut(&mut self) -> &mut OpBase {
+    fn base_mut(&mut self) -> &mut OperatorBase {
         &mut self.op_base
     }
 
     fn apply<'a, 'b>(
         &'a self,
-        op_ref: OperationRef,
+        op_ref: OperatorRef,
         tf_stack: &mut [Box<dyn Transform + 'b>],
-    ) -> Result<Box<dyn Transform + 'a>, OperationApplicationError> {
+    ) -> Result<Box<dyn Transform + 'a>, OperatorApplicationError> {
         let (parent, tf_stack) = tf_stack.split_last_mut().unwrap();
         let mut tf_base = TfBase::from_parent(parent.base());
         tf_base.needs_stdout = true;
@@ -121,7 +121,7 @@ impl Operation for OpPrint {
         let tfp = Box::new(TfPrint { tf_base, op_ref });
         parent
             .add_dependant(tf_stack, tfp.base().tfs_index)
-            .map_err(|tae| OperationApplicationError::from_transform_application_error(tae))?;
+            .map_err(|tae| OperatorApplicationError::from_transform_application_error(tae))?;
         Ok(tfp)
     }
 }
@@ -134,15 +134,15 @@ impl OperationCatalogMember for OpPrint {
     fn create(
         _ctx: &ContextOptions,
         params: OperationParameters,
-    ) -> Result<Box<dyn Operation>, OperationCreationError> {
+    ) -> Result<Box<dyn Operation>, OperatorCreationError> {
         if params.value.is_some() {
-            return Err(OperationCreationError::new(
+            return Err(OperatorCreationError::new(
                 "print takes no argument",
                 params.cli_arg.map(|arg| arg.idx),
             ));
         }
         Ok(Box::new(OpPrint {
-            op_base: OpBase::from_op_params(params),
+            op_base: OperatorBase::from_op_params(params),
         }))
     }
 }

@@ -10,17 +10,17 @@ use crate::{
 };
 
 use super::{
-    operation::{
-        OpBase, Operation, OperationApplicationError, OperationCreationError, OperationParameters,
-        OperationRef,
-    },
     operation_catalog::OperationCatalogMember,
+    operator::{
+        Operation, OperationParameters, OperatorApplicationError, OperatorBase,
+        OperatorCreationError, OperatorRef,
+    },
     transform::{TransformApplicationError, TransformOutput},
 };
 
 pub struct TfParent {
     pub tf_base: TfBase,
-    pub op_ref: OperationRef,
+    pub op_ref: OperatorRef,
     pub offset: TransformStackIndex,
 }
 
@@ -63,17 +63,11 @@ impl Transform for TfParent {
     }
 }
 
-#[derive(Clone)]
-pub struct OpParent {
-    op_base: OpBase,
-    offset: TransformStackIndex,
-}
-
 impl OpParent {
     pub fn new(offset: TransformStackIndex) -> OpParent {
         assert!(offset > 0);
         OpParent {
-            op_base: OpBase::new("parent".to_owned(), None, None, None),
+            op_base: OperatorBase::new("parent".to_owned(), None, None, None),
             offset,
         }
     }
@@ -82,9 +76,9 @@ impl OpParent {
 impl Operation for OpParent {
     fn apply<'a, 'b>(
         &'a self,
-        op_ref: OperationRef,
+        op_ref: OperatorRef,
         tf_stack: &mut [Box<dyn Transform + 'b>],
-    ) -> Result<Box<dyn Transform + 'a>, OperationApplicationError> {
+    ) -> Result<Box<dyn Transform + 'a>, OperatorApplicationError> {
         let parent = tf_stack.last_mut().unwrap().base_mut();
         let tf_base = TfBase::from_parent(parent);
         let tfp = Box::new(TfParent {
@@ -95,11 +89,11 @@ impl Operation for OpParent {
         Ok(tfp)
     }
 
-    fn base(&self) -> &OpBase {
+    fn base(&self) -> &OperatorBase {
         &self.op_base
     }
 
-    fn base_mut(&mut self) -> &mut OpBase {
+    fn base_mut(&mut self) -> &mut OperatorBase {
         &mut self.op_base
     }
 }
@@ -111,10 +105,10 @@ impl OperationCatalogMember for OpParent {
     fn create(
         _ctx: &ContextOptions,
         params: OperationParameters,
-    ) -> Result<Box<dyn Operation>, OperationCreationError> {
+    ) -> Result<Box<dyn Operation>, OperatorCreationError> {
         let offset = if let Some(ref value) = params.value {
             value.parse::<TransformStackIndex>().map_err(|_| {
-                OperationCreationError::new(
+                OperatorCreationError::new(
                     "failed to parse parent argument as integer",
                     params.cli_arg.as_ref().map(|arg| arg.idx),
                 )
@@ -123,13 +117,13 @@ impl OperationCatalogMember for OpParent {
             1
         };
         if offset == 0 {
-            return Err(OperationCreationError::new(
+            return Err(OperatorCreationError::new(
                 "parent offset cannot be 0",
                 params.cli_arg.as_ref().map(|arg| arg.idx),
             ));
         }
         Ok(Box::new(OpParent {
-            op_base: OpBase::from_op_params(params),
+            op_base: OperatorBase::from_op_params(params),
             offset,
         }))
     }

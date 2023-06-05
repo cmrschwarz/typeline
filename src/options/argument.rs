@@ -1,13 +1,5 @@
 use std::{error::Error, fmt, ops::Deref};
 
-use bstring::BString;
-
-#[derive(Clone, Debug)]
-pub struct CliArgument {
-    pub idx: CliArgIdx,
-    pub value: BString,
-}
-
 pub type CliArgIdx = u32;
 
 #[derive(Clone)]

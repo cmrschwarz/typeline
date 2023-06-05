@@ -1,16 +1,24 @@
 use std::num::NonZeroUsize;
 
+use bstring::BString;
+
 use crate::{
     chain::ChainId,
     context::{Context, SessionData},
     document::Document,
-    operations::operation::{Operation, OperationId, OperationSetupError},
+    operations::{
+        operator_base::{OperatorBase, OperatorId, OperatorSetupError},
+        operator_data::OperatorData,
+        setup_operator,
+    },
     selenium::SeleniumVariant,
+    string_store::StringStore,
 };
 
 use super::{argument::Argument, chain_options::ChainOptions};
 
-#[derive(Clone)]
+//TODO: refactor this into SessionOptions
+
 pub struct ContextOptions {
     pub max_worker_threads: Argument<usize>,
     pub print_help: Argument<bool>,
@@ -20,9 +28,12 @@ pub struct ContextOptions {
     pub install_selenium_drivers: Vec<Argument<SeleniumVariant>>,
     pub update_selenium_drivers: Vec<Argument<SeleniumVariant>>,
     pub documents: Vec<Document>,
+    pub(crate) string_store: Option<StringStore>,
+    pub(crate) operator_bases: Vec<OperatorBase>,
+    pub(crate) operator_data: Vec<OperatorData>,
     pub(crate) chains: Vec<ChainOptions>,
-    pub(crate) operations: Vec<Box<dyn Operation>>,
     pub(crate) curr_chain: ChainId,
+    pub cli_args: Option<Vec<BString>>,
 }
 
 impl Default for ContextOptions {
@@ -36,9 +47,12 @@ impl Default for ContextOptions {
             install_selenium_drivers: Default::default(),
             update_selenium_drivers: Default::default(),
             chains: vec![ChainOptions::default()],
-            operations: Default::default(),
             documents: Default::default(),
             curr_chain: Default::default(),
+            operator_bases: Default::default(),
+            operator_data: Default::default(),
+            string_store: Default::default(),
+            cli_args: Default::default(),
         }
     }
 }
@@ -52,8 +66,11 @@ const DEFAULT_CONTEXT_OPTIONS: ContextOptions = ContextOptions {
     install_selenium_drivers: Vec::new(),
     update_selenium_drivers: Vec::new(),
     chains: Vec::new(),
-    operations: Vec::new(),
+    operator_bases: Vec::new(),
+    operator_data: Vec::new(),
     documents: Vec::new(),
+    string_store: None,
+    cli_args: None,
     curr_chain: 0,
 };
 
@@ -61,12 +78,15 @@ impl ContextOptions {
     pub fn get_current_chain(&mut self) -> ChainId {
         self.curr_chain
     }
-    pub fn add_op(&mut self, mut op: Box<dyn Operation>) {
-        let op_bm = op.base_mut();
-        op_bm.curr_chain = Some(self.curr_chain);
-        op_bm.op_id = Some(self.operations.len() as OperationId);
-        //TODO: update current chain e.g. in case of split
-        self.operations.push(op);
+    pub fn string_store_mut(&mut self) -> &mut StringStore {
+        self.string_store.get_or_insert_with(Default::default)
+    }
+    pub fn add_op(&mut self, mut op_base: OperatorBase, op_data: OperatorData) {
+        op_base.curr_chain = Some(self.curr_chain);
+        op_base.op_id = Some(self.operator_data.len() as OperatorId);
+        self.operator_bases.push(op_base);
+        self.operator_data.push(op_data);
+        //TODO: where do we update the current chain e.g. in case of split?
     }
     pub fn set_current_chain(&mut self, chain_id: ChainId) {
         self.curr_chain = chain_id;
@@ -75,7 +95,7 @@ impl ContextOptions {
                 .resize(chain_id as usize + 1, Default::default());
         }
     }
-    pub fn build_context(mut self) -> Result<Context, (ContextOptions, OperationSetupError)> {
+    pub fn build_context(mut self) -> Result<Context, (ContextOptions, OperatorSetupError)> {
         let max_worker_threads = NonZeroUsize::try_from(
             self.max_worker_threads
                 .value
@@ -90,12 +110,19 @@ impl ContextOptions {
             is_repl: self.repl.unwrap_or(DEFAULT_CONTEXT_OPTIONS.repl.unwrap()),
             documents: self.documents,
             chains: self.chains.iter().map(|c| c.build_chain()).collect(),
-            operations: self.operations,
+            operator_data: self.operator_data,
+            operator_bases: self.operator_bases,
+            cli_args: self.cli_args,
+            string_store: self.string_store.unwrap_or_default(),
         };
-        for op in &mut sd.operations {
-            if let Err(e) = op.setup(&mut sd.chains) {
+        for i in 0..sd.operator_data.len() {
+            if let Err(e) = setup_operator(&mut sd, i as OperatorId) {
+                //moving back into context options
                 self.documents = sd.documents;
-                self.operations = sd.operations;
+                self.string_store = Some(sd.string_store);
+                self.operator_data = sd.operator_data;
+                self.operator_bases = sd.operator_bases;
+                self.cli_args = sd.cli_args;
                 return Err((self, e));
             }
         }

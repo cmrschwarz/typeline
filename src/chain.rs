@@ -1,6 +1,6 @@
 use crate::{
     encoding::TextEncoding,
-    operations::operation::{OperationId, OperationRef},
+    operations::operator_base::{OperatorId, OperatorRef},
     selenium::SeleniumDownloadStrategy,
 };
 
@@ -18,9 +18,9 @@ pub struct ChainSettings {
 pub struct Chain {
     pub settings: ChainSettings,
 
-    pub operations: Vec<OperationId>,
+    pub operations: Vec<OperatorId>,
 
     pub subchains: Vec<ChainId>,
 
-    pub aggregation_targets: Vec<OperationRef>,
+    pub aggregation_targets: Vec<OperatorRef>,
 }

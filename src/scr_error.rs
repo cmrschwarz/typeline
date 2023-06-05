@@ -6,12 +6,9 @@ use thiserror::Error;
 use crate::{
     cli::CliArgumentError,
     context::Context,
-    operations::{
-        operation::{
-            OperationApplicationError, OperationCreationError, OperationId, OperationRef,
-            OperationSetupError,
-        },
-        transform::TransformApplicationError,
+    operations::operator_base::{
+        OperatorApplicationError, OperatorCreationError, OperatorId, OperatorRef,
+        OperatorSetupError,
     },
     options::{argument::CliArgIdx, context_options::ContextOptions},
 };
@@ -21,16 +18,14 @@ pub enum ScrError {
     #[error(transparent)]
     CliArgumentError(#[from] CliArgumentError),
     #[error(transparent)]
-    OperationCreationError(#[from] OperationCreationError),
+    OperationCreationError(#[from] OperatorCreationError),
     #[error(transparent)]
-    OperationSetupError(#[from] OperationSetupError),
+    OperationSetupError(#[from] OperatorSetupError),
     #[error(transparent)]
-    OperationApplicationError(#[from] OperationApplicationError),
-    #[error(transparent)]
-    TransformApplicationError(#[from] TransformApplicationError),
+    OperationApplicationError(#[from] OperatorApplicationError),
 }
 
-fn contextualize_cli_arg(msg: &str, args: Option<&[BString]>, cli_arg_idx: CliArgIdx) -> String {
+fn contextualize_cli_arg(msg: &str, args: Option<&Vec<BString>>, cli_arg_idx: CliArgIdx) -> String {
     if let Some(args) = args {
         format!(
             "in cli arg {} `{}`: {}",
@@ -45,16 +40,16 @@ fn contextualize_cli_arg(msg: &str, args: Option<&[BString]>, cli_arg_idx: CliAr
 
 fn contextualize_op_id(
     msg: &str,
-    op_id: OperationId,
-    args: Option<&[BString]>,
+    op_id: OperatorId,
+    args: Option<&Vec<BString>>,
     ctx_opts: Option<&ContextOptions>,
     ctx: Option<&Context>,
 ) -> String {
     let ops = ctx_opts
-        .map(|o| &o.operations)
-        .or_else(|| ctx.map(|c| &c.curr_session_data.operations));
+        .map(|o| &o.operator_bases)
+        .or_else(|| ctx.map(|c| &c.curr_session_data.operator_bases));
     let cli_arg_id = ops
-        .map(|ops| ops[op_id as usize].base().cli_arg_idx)
+        .map(|ops| ops[op_id as usize].cli_arg_idx)
         .unwrap_or_default();
     if let (Some(args), Some(cli_arg_id)) = (args, cli_arg_id) {
         contextualize_cli_arg(msg, Some(args), cli_arg_id)
@@ -65,8 +60,8 @@ fn contextualize_op_id(
 
 fn contextualize_op_ref(
     msg: &str,
-    op_ref: OperationRef,
-    args: Option<&[BString]>,
+    op_ref: OperatorRef,
+    args: Option<&Vec<BString>>,
     ctx_opts: Option<&ContextOptions>,
     ctx: Option<&Context>,
 ) -> String {
@@ -85,21 +80,23 @@ fn contextualize_op_ref(
 impl ScrError {
     pub fn contextualize_message(
         self,
-        args: Option<&[BString]>,
+        args: Option<&Vec<BString>>,
         ctx_opts: Option<&ContextOptions>,
         ctx: Option<&Context>,
     ) -> String {
+        let args_gathered = args
+            .or_else(|| ctx_opts.and_then(|o| o.cli_args.as_ref()))
+            .or_else(|| ctx.and_then(|c| c.curr_session_data.cli_args.as_ref()));
         match self {
-            ScrError::CliArgumentError(e) => contextualize_cli_arg(&e.message, args, e.cli_arg_idx),
+            ScrError::CliArgumentError(e) => {
+                contextualize_cli_arg(&e.message, args_gathered, e.cli_arg_idx)
+            }
             ScrError::OperationCreationError(e) => e.message.to_string(),
             ScrError::OperationSetupError(e) => {
-                contextualize_op_id(&e.message, e.op_id, args, ctx_opts, ctx)
+                contextualize_op_id(&e.message, e.op_id, args_gathered, ctx_opts, ctx)
             }
             ScrError::OperationApplicationError(e) => {
-                contextualize_op_ref(&e.message, e.op_ref, args, ctx_opts, ctx)
-            }
-            ScrError::TransformApplicationError(e) => {
-                contextualize_op_ref(&e.message, e.op_ref, args, ctx_opts, ctx)
+                contextualize_op_ref(&e.message, e.op_ref, args_gathered, ctx_opts, ctx)
             }
         }
     }

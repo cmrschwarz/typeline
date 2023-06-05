@@ -10,6 +10,7 @@ extern crate url;
 
 pub mod chain;
 pub mod cli;
+pub mod string_store;
 pub mod context;
 pub mod worker_thread;
 pub mod document;
@@ -19,7 +20,8 @@ pub mod options;
 pub mod plattform;
 pub mod scr_error;
 pub mod selenium;
-pub mod match_data;
+pub mod match_set;
+pub mod match_value;
 
 #[cfg(test)]
 mod tests;

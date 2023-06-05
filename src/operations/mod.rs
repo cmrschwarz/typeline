@@ -1,11 +1,13 @@
-pub mod html;
-pub mod operation;
-pub mod operation_catalog;
-pub mod parent;
-pub mod print;
-pub mod read_stdin;
+use crate::context::SessionData;
+
+use self::operator_base::{OperatorId, OperatorSetupError};
+
+pub mod control_flow_ops;
+pub mod format;
+pub mod operator_base;
+pub mod operator_data;
 pub mod regex;
-pub mod split;
-pub mod start;
-pub mod string_sink;
-pub mod transform;
+
+pub fn setup_operator(_sd: &mut SessionData, _op_id: OperatorId) -> Result<(), OperatorSetupError> {
+    todo!();
+}

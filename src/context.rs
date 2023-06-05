@@ -1,14 +1,16 @@
-use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use std::sync::{Arc, Condvar, Mutex};
 
+use bstring::BString;
 use crossbeam::deque::{Injector, Stealer, Worker};
 use smallvec::SmallVec;
 
 use crate::chain::Chain;
 use crate::document::{Document, DocumentSource};
-use crate::operations::operation::{Operation, OperationRef};
+use crate::operations::operator_base::{OperatorBase, OperatorRef};
+use crate::operations::operator_data::OperatorData;
 use crate::scr_error::ScrError;
+use crate::string_store::StringStore;
 use crate::worker_thread::{Job, WorkerThread};
 
 pub struct SessionData {
@@ -16,7 +18,10 @@ pub struct SessionData {
     pub is_repl: bool,
     pub documents: Vec<Document>,
     pub chains: Vec<Chain>,
-    pub operations: Vec<Box<dyn Operation>>,
+    pub operator_bases: Vec<OperatorBase>,
+    pub operator_data: Vec<OperatorData>,
+    pub cli_args: Option<Vec<BString>>,
+    pub string_store: StringStore,
 }
 
 pub(crate) struct Session {
@@ -35,7 +40,7 @@ pub(crate) struct ContextData {
 
 pub struct Context {
     // we need pub(crate) to contextualize error messages for ScrError
-    pub(crate) curr_session_data: Arc<SessionData>,
+    pub curr_session_data: Arc<SessionData>,
     main_worker_thread: WorkerThread,
     worker_join_handles: Vec<std::thread::JoinHandle<Result<(), ScrError>>>,
 }
@@ -62,29 +67,25 @@ impl Context {
     }
     pub fn gen_jobs_from_docs(&mut self) {
         let sd = self.curr_session_data.as_ref();
-        let mut stdin_job_ops: SmallVec<[OperationRef; 2]> = Default::default();
+        let mut stdin_job_ops: SmallVec<[OperatorRef; 2]> = Default::default();
         for d in &sd.documents {
-            let ops_iter = d.target_chains.iter().map(|c| OperationRef::new(*c, 0));
+            let ops_iter = d.target_chains.iter().map(|c| OperatorRef::new(*c, 0));
             match d.source {
                 DocumentSource::Stdin => {
                     stdin_job_ops.extend(ops_iter);
                 }
                 _ => {
                     self.main_worker_thread.context_data.injector.push(Job {
-                        ops: ops_iter.collect(),
-                        data: Some(d.source.create_match_data()),
-                        args: HashMap::default(),
-                        is_stdin: false,
+                        starting_ops: ops_iter.collect(),
+                        match_sets: todo!("match sets"),
                     });
                 }
             }
         }
         if !stdin_job_ops.is_empty() {
             self.main_worker_thread.context_data.injector.push(Job {
-                ops: stdin_job_ops,
-                data: None,
-                args: HashMap::default(),
-                is_stdin: true,
+                starting_ops: stdin_job_ops,
+                match_sets: todo!("stdin match sets"),
             });
         }
         self.main_worker_thread

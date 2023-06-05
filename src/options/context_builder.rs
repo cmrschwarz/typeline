@@ -2,36 +2,15 @@ use crate::{
     chain::ChainId,
     context::Context,
     document::{Document, DocumentSource},
-    operations::operation::Operation,
+    operations::{operator_base::OperatorBase, operator_data::OperatorData},
     scr_error::ScrError,
 };
 
-use super::{chain_spec::ChainSpec, context_options::ContextOptions};
+use super::context_options::ContextOptions;
 use smallvec::smallvec;
 
 pub struct ContextBuilder {
     opts: Box<ContextOptions>,
-}
-
-pub trait OperationOps {
-    fn set_argname(self, argname: String) -> Self;
-    fn set_label(self, label: String) -> Self;
-    fn set_chainspec(self, chainspec: ChainSpec) -> Self;
-}
-
-impl<T: Operation> OperationOps for Box<T> {
-    fn set_argname(mut self, argname: String) -> Self {
-        self.base_mut().argname = argname;
-        self
-    }
-    fn set_label(mut self, label: String) -> Self {
-        self.base_mut().label = Some(label);
-        self
-    }
-    fn set_chainspec(mut self, chainspec: ChainSpec) -> Self {
-        self.base_mut().chainspec = Some(chainspec);
-        self
-    }
 }
 
 impl Default for ContextBuilder {
@@ -43,12 +22,8 @@ impl Default for ContextBuilder {
 }
 
 impl ContextBuilder {
-    pub fn add_op<OP: Operation + 'static>(mut self, op: OP) -> Self {
-        self.opts.add_op(Box::new(op));
-        self
-    }
-    pub fn add_op_box(mut self, op: Box<dyn Operation>) -> Self {
-        self.opts.add_op(op);
+    pub fn add_op(mut self, op_base: OperatorBase, op_data: OperatorData) -> Self {
+        self.opts.add_op(op_base, op_data);
         self
     }
     pub fn add_doc(mut self, doc_src: DocumentSource) -> Self {
