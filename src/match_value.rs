@@ -1,4 +1,8 @@
+use indexmap::IndexMap;
+
+use crate::match_value_into_iter::MatchValueIntoIter;
 use crate::operations::operator_base::OperatorApplicationError;
+use crate::string_store::StringStoreEntry;
 use std::mem::transmute;
 use std::ops::Deref;
 use std::{
@@ -8,36 +12,7 @@ use std::{
 };
 
 //TODO: put this into separate module
-pub struct HtmlMatchData {}
-
-#[derive(Clone, Copy, PartialEq)]
-pub enum MatchValueKind {
-    TypedArray,
-    Array,
-    Object,
-    Bytes,
-    Text,
-    Error,
-    Html,
-    Integer,
-    Null,
-}
-
-impl MatchValueKind {
-    pub fn to_str(&self) -> &'static str {
-        match self {
-            MatchValueKind::TypedArray => "array",
-            MatchValueKind::Array => "array",
-            MatchValueKind::Object => "object",
-            MatchValueKind::Bytes => "bytes",
-            MatchValueKind::Error => "error",
-            MatchValueKind::Html => "html",
-            MatchValueKind::Null => "null",
-            MatchValueKind::Text => "text",
-            MatchValueKind::Integer => "int",
-        }
-    }
-}
+pub struct Html {}
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum MatchValueRepresentation {
@@ -45,26 +20,26 @@ pub enum MatchValueRepresentation {
     Shared,
 }
 
-#[derive(Clone, Copy, PartialEq)]
+pub type MatchValueIndex = usize;
+
+//PERF: Arc :(
+pub enum MatchValueKind {
+    Complex,
+    Bytes,
+    Text,
+    Error,
+    Html,
+    Integer,
+    Null,
+    TypedArray(Arc<MatchValueFormat>),
+    Array(Arc<[MatchValueFormat]>),
+    Object(Arc<IndexMap<StringStoreEntry, MatchValueFormat>>),
+}
+
 pub struct MatchValueFormat {
     pub kind: MatchValueKind,
     pub repr: MatchValueRepresentation,
     pub stream: bool,
-}
-
-impl MatchValueFormat {
-    pub fn is_valid(self) -> bool {
-        match self.kind {
-            MatchValueKind::Bytes | MatchValueKind::Text | MatchValueKind::TypedArray => true,
-            MatchValueKind::Array | MatchValueKind::Object => !self.stream,
-            MatchValueKind::Html
-            | MatchValueKind::Error
-            | MatchValueKind::Null
-            | MatchValueKind::Integer => {
-                !self.stream && (self.repr == MatchValueRepresentation::Local)
-            }
-        }
-    }
 }
 
 pub trait MatchValueType {
@@ -98,41 +73,86 @@ pub trait MatchValueType {
     unsafe fn value_shared(val: &MatchValue) -> &Self::ValueType {
         &*Self::storage_shared(val)
     }
+    #[inline(always)]
+    unsafe fn value(repr: MatchValueRepresentation, val: &MatchValue) -> &Self::ValueType {
+        match repr {
+            MatchValueRepresentation::Local => Self::value_local(val),
+            MatchValueRepresentation::Shared => Self::value_shared(val),
+        }
+    }
+}
+#[repr(C)]
+pub struct TypedArray<MV: MatchValueAny> {
+    elements_format: MatchValueFormat,
+    values: ManuallyDrop<Vec<MV>>,
+}
+impl<MV: MatchValueAny> MatchValueType for TypedArray<MV> {
+    type ValueType = Self;
+    type StorageTypeLocal = Rc<Self>;
+    type StorageTypeShared = Arc<Self>;
+    const KIND: MatchValueKind = MatchValueKind::Complex;
+}
+impl<MV: MatchValueAny> Drop for TypedArray<MV> {
+    fn drop(&mut self) {
+        let _ = MatchValueIntoIter::new(
+            &self.elements_format,
+            unsafe { ManuallyDrop::take(&mut self.values) }.into_iter(),
+        );
+    }
 }
 
-pub struct TypedArray();
-impl MatchValueType for TypedArray {
-    type ValueType = Vec<MatchValueShared>;
-    type StorageTypeLocal = Rc<Vec<MatchValueShared>>;
-    type StorageTypeShared = Arc<Vec<MatchValueShared>>;
-    const KIND: MatchValueKind = MatchValueKind::TypedArray;
+#[repr(C)]
+pub struct Array<MV: MatchValueAny> {
+    element_formats: Arc<Vec<MatchValueFormat>>,
+    values: ManuallyDrop<Vec<MV>>,
+}
+impl<MV: MatchValueAny> MatchValueType for Array<MV> {
+    type ValueType = Self;
+    type StorageTypeLocal = Rc<Self>;
+    type StorageTypeShared = Arc<Self>;
+    const KIND: MatchValueKind = MatchValueKind::Complex;
+}
+impl<MV: MatchValueAny> Drop for Array<MV> {
+    fn drop(&mut self) {
+        for (i, value) in unsafe { ManuallyDrop::take(&mut self.values) }
+            .into_iter()
+            .enumerate()
+        {
+            let _ = MatchValueIntoIter::new(&self.element_formats[i], std::iter::once(value));
+        }
+    }
 }
 
-pub struct Array();
-impl MatchValueType for Array {
-    type ValueType = [MatchValueShared];
-    type StorageTypeLocal = Rc<[MatchValueShared]>;
-    type StorageTypeShared = Arc<[MatchValueShared]>;
-    const KIND: MatchValueKind = MatchValueKind::Array;
+#[repr(C)]
+pub struct Object<MV: MatchValueAny> {
+    element_formats: Arc<IndexMap<StringStoreEntry, MatchValueFormat>>,
+    values: Vec<ManuallyDrop<MV>>,
+}
+impl<MV: MatchValueAny> MatchValueType for Object<MV> {
+    type ValueType = Self;
+    type StorageTypeLocal = Rc<Self>;
+    type StorageTypeShared = Arc<Self>;
+    const KIND: MatchValueKind = MatchValueKind::Complex;
+}
+impl<MV: MatchValueAny> Drop for Object<MV> {
+    fn drop(&mut self) {
+        for (i, shape) in self.element_formats.values().enumerate() {
+            let _ = MatchValueIntoIter::new(
+                &shape,
+                std::iter::once(unsafe { ManuallyDrop::take(&mut self.values[i]) }),
+            );
+        }
+    }
 }
 
-pub struct Object();
-impl MatchValueType for Object {
-    type ValueType = [MatchValueShared];
-    type StorageTypeLocal = Rc<[MatchValueShared]>;
-    type StorageTypeShared = Arc<[MatchValueShared]>;
-    const KIND: MatchValueKind = MatchValueKind::Object;
-}
-
-pub struct Html();
 impl MatchValueType for Html {
-    type ValueType = HtmlMatchData;
-    type StorageTypeLocal = Rc<HtmlMatchData>;
-    type StorageTypeShared = Arc<HtmlMatchData>;
+    type ValueType = Html;
+    type StorageTypeLocal = Rc<Html>;
+    type StorageTypeShared = Arc<Html>;
     const KIND: MatchValueKind = MatchValueKind::Html;
 }
 
-pub struct Bytes();
+pub struct Bytes;
 impl MatchValueType for Bytes {
     type ValueType = [u8];
     type StorageTypeLocal = Rc<[u8]>;
@@ -140,7 +160,7 @@ impl MatchValueType for Bytes {
     const KIND: MatchValueKind = MatchValueKind::Bytes;
 }
 
-pub struct Text();
+pub struct Text;
 impl MatchValueType for Text {
     type ValueType = str;
     type StorageTypeLocal = Rc<str>;
@@ -174,11 +194,21 @@ impl MatchValueType for Error {
     const KIND: MatchValueKind = MatchValueKind::Error;
 }
 
+pub unsafe trait MatchValueAny: 'static + Sized {
+    fn as_match_value(&self) -> &MatchValue {
+        unsafe { transmute(self) }
+    }
+
+    fn as_match_value_mut(&mut self) -> &mut MatchValue {
+        unsafe { transmute(self) }
+    }
+}
+
 #[repr(C)]
 pub union MatchValueShared {
-    typed_array: ManuallyDrop<<TypedArray as MatchValueType>::StorageTypeShared>,
-    array: ManuallyDrop<<Array as MatchValueType>::StorageTypeShared>,
-    object: ManuallyDrop<<Object as MatchValueType>::StorageTypeShared>,
+    typed_array: ManuallyDrop<<TypedArray<MatchValueShared> as MatchValueType>::StorageTypeShared>,
+    array: ManuallyDrop<<Array<MatchValueShared> as MatchValueType>::StorageTypeShared>,
+    object: ManuallyDrop<<Object<MatchValueShared> as MatchValueType>::StorageTypeShared>,
     html: ManuallyDrop<<Html as MatchValueType>::StorageTypeShared>,
     bytes: ManuallyDrop<<Bytes as MatchValueType>::StorageTypeShared>,
     text: ManuallyDrop<<Text as MatchValueType>::StorageTypeShared>,
@@ -186,24 +216,27 @@ pub union MatchValueShared {
     error: ManuallyDrop<<Error as MatchValueType>::StorageTypeShared>,
     ensure_size: ManuallyDrop<[u8; size_of::<MatchValueLocal>()]>,
 }
+unsafe impl MatchValueAny for MatchValueShared {}
 
 #[repr(C)]
 pub union MatchValueLocal {
-    typed_array: ManuallyDrop<<TypedArray as MatchValueType>::StorageTypeLocal>,
-    array: ManuallyDrop<<Array as MatchValueType>::StorageTypeLocal>,
-    object: ManuallyDrop<<Object as MatchValueType>::StorageTypeLocal>,
+    typed_array: ManuallyDrop<<TypedArray<MatchValue> as MatchValueType>::StorageTypeLocal>,
+    array: ManuallyDrop<<Array<MatchValue> as MatchValueType>::StorageTypeLocal>,
+    object: ManuallyDrop<<Object<MatchValue> as MatchValueType>::StorageTypeLocal>,
     html: ManuallyDrop<<Html as MatchValueType>::StorageTypeLocal>,
     bytes: ManuallyDrop<<Bytes as MatchValueType>::StorageTypeLocal>,
     text: ManuallyDrop<<Text as MatchValueType>::StorageTypeLocal>,
     integer: ManuallyDrop<<Integer as MatchValueType>::StorageTypeLocal>,
     error: ManuallyDrop<<Error as MatchValueType>::StorageTypeLocal>,
 }
+unsafe impl MatchValueAny for MatchValueLocal {}
 
 #[repr(C)]
 pub union MatchValue {
     shared: ManuallyDrop<MatchValueShared>,
     local: ManuallyDrop<MatchValueLocal>,
 }
+unsafe impl MatchValueAny for MatchValue {}
 
 impl Drop for MatchValue {
     fn drop(&mut self) {

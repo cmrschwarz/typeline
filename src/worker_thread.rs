@@ -112,6 +112,7 @@ impl WorkerThread {
 impl<'a> WorkerThreadSession<'a> {
     fn run_job(&mut self, mut job: Job) -> Result<(), ScrError> {
         self.match_sets[0].extend(job.match_sets.into_iter().map(MatchSet::from));
+
         Ok(())
     }
 }

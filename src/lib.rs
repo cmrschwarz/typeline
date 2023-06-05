@@ -7,6 +7,7 @@ extern crate regex;
 extern crate smallvec;
 extern crate thiserror;
 extern crate url;
+extern crate indexmap;
 
 pub mod chain;
 pub mod cli;
@@ -22,6 +23,7 @@ pub mod scr_error;
 pub mod selenium;
 pub mod match_set;
 pub mod match_value;
+pub mod match_value_into_iter;
 
 #[cfg(test)]
 mod tests;
