@@ -7,7 +7,7 @@ use smallvec::SmallVec;
 
 use crate::chain::Chain;
 use crate::document::{Document, DocumentSource};
-use crate::operations::operator_base::{OperatorBase, OperatorRef};
+use crate::operations::operator_base::{OperatorBase, OperatorId};
 use crate::operations::operator_data::OperatorData;
 use crate::scr_error::ScrError;
 use crate::string_store::StringStore;
@@ -67,9 +67,12 @@ impl Context {
     }
     pub fn gen_jobs_from_docs(&mut self) {
         let sd = self.curr_session_data.as_ref();
-        let mut stdin_job_ops: SmallVec<[OperatorRef; 2]> = Default::default();
+        let mut stdin_job_ops: SmallVec<[OperatorId; 2]> = Default::default();
         for d in &sd.documents {
-            let ops_iter = d.target_chains.iter().map(|c| OperatorRef::new(*c, 0));
+            let ops_iter = d
+                .target_chains
+                .iter()
+                .filter_map(|c| sd.chains[*c as usize].operations.first().map(|o| *o));
             match d.source {
                 DocumentSource::Stdin => {
                     stdin_job_ops.extend(ops_iter);

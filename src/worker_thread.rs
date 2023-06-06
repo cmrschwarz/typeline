@@ -8,12 +8,12 @@ use smallvec::SmallVec;
 
 use crate::context::{ContextData, SessionData};
 use crate::match_set::{MatchSet, MatchSetShared};
-use crate::operations::operator_base::OperatorRef;
+use crate::operations::operator_base::OperatorId;
 use crate::operations::operator_data::TransformData;
 use crate::scr_error::ScrError;
 
 pub(crate) struct Job {
-    pub starting_ops: SmallVec<[OperatorRef; 2]>,
+    pub starting_ops: SmallVec<[OperatorId; 2]>,
     pub match_sets: SmallVec<[MatchSetShared; 1]>,
 }
 

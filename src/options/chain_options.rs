@@ -41,7 +41,6 @@ impl ChainOptions {
                     .unwrap_or(DEFAULT_CHAIN_OPTIONS.selenium_download_strategy.unwrap()),
             },
             subchains: Vec::new(),
-            aggregation_targets: Vec::new(),
             operations: Vec::new(),
         }
     }

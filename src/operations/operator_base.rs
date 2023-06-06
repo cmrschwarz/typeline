@@ -11,12 +11,6 @@ use crate::{
 pub type OperatorId = u32;
 pub type OperatorOffsetInChain = u32;
 
-#[derive(Clone, Copy, Debug)]
-pub struct OperatorRef {
-    pub chain_id: ChainId,
-    pub op_offset: OperatorOffsetInChain,
-}
-
 #[derive(Error, Debug, Clone)]
 #[error("{message}")]
 pub struct OperatorCreationError {
@@ -32,10 +26,10 @@ pub struct OperatorSetupError {
 }
 
 #[derive(Error, Debug, Clone)]
-#[error("in op {0} of chain {1}: {message}", op_ref.op_offset, op_ref.chain_id)]
+#[error("in op id {0}: {message}", op_id)]
 pub struct OperatorApplicationError {
     pub message: Cow<'static, str>,
-    pub op_ref: OperatorRef,
+    pub op_id: OperatorId,
 }
 
 impl OperatorCreationError {
@@ -56,19 +50,10 @@ impl OperatorSetupError {
 }
 
 impl OperatorApplicationError {
-    pub fn new(message: &'static str, op_ref: OperatorRef) -> OperatorApplicationError {
+    pub fn new(message: &'static str, op_id: OperatorId) -> OperatorApplicationError {
         OperatorApplicationError {
             message: Cow::Borrowed(message),
-            op_ref,
-        }
-    }
-}
-
-impl OperatorRef {
-    pub fn new(chain_id: ChainId, op_offset: OperatorOffsetInChain) -> Self {
-        Self {
-            chain_id,
-            op_offset,
+            op_id,
         }
     }
 }
@@ -77,4 +62,6 @@ pub struct OperatorBase {
     pub argname: StringStoreEntry,
     pub label: Option<StringStoreEntry>,
     pub cli_arg_idx: Option<CliArgIdx>,
+    pub chain_id: ChainId,
+    pub offset_in_chain: OperatorOffsetInChain,
 }

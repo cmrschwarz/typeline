@@ -7,8 +7,7 @@ use crate::{
     cli::CliArgumentError,
     context::Context,
     operations::operator_base::{
-        OperatorApplicationError, OperatorCreationError, OperatorId, OperatorRef,
-        OperatorSetupError,
+        OperatorApplicationError, OperatorCreationError, OperatorId, OperatorSetupError,
     },
     options::{argument::CliArgIdx, context_options::ContextOptions},
 };
@@ -53,26 +52,19 @@ fn contextualize_op_id(
     if let (Some(args), Some(cli_arg_id)) = (args, cli_arg_id) {
         contextualize_cli_arg(msg, Some(args), cli_arg_id)
     } else {
-        format!("in global op id {}: {}", op_id, msg)
-    }
-}
-
-fn contextualize_op_ref(
-    msg: &str,
-    op_ref: OperatorRef,
-    args: Option<&Vec<BString>>,
-    ctx_opts: Option<&ContextOptions>,
-    ctx: Option<&Context>,
-) -> String {
-    if let Some(c) = ctx {
-        let op_id = c.curr_session_data.chains[op_ref.chain_id as usize].operations
-            [op_ref.op_offset as usize];
-        contextualize_op_id(msg, op_id, args, ctx_opts, ctx)
-    } else {
-        format!(
-            "in op {} of chain {}: {}",
-            op_ref.op_offset, op_ref.chain_id, msg
-        )
+        if let Some(sess) = ctx.map(|c| &*c.curr_session_data) {
+            let op_base = &sess.operator_bases[op_id as usize];
+            //TODO: stringify chain id
+            format!(
+                "in op {} '{}' of chain {}: {}",
+                op_base.offset_in_chain,
+                sess.string_store.lookup(op_base.argname),
+                op_base.chain_id,
+                msg
+            )
+        } else {
+            format!("in global op id {}: {}", op_id, msg)
+        }
     }
 }
 
@@ -95,7 +87,7 @@ impl ScrError {
                 contextualize_op_id(&e.message, e.op_id, args_gathered, ctx_opts, ctx)
             }
             ScrError::OperationApplicationError(e) => {
-                contextualize_op_ref(&e.message, e.op_ref, args_gathered, ctx_opts, ctx)
+                contextualize_op_id(&e.message, e.op_id, args_gathered, ctx_opts, ctx)
             }
         }
     }
