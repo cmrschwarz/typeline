@@ -1,10 +1,8 @@
 use crate::{
     document::{Document, DocumentSource},
     operations::{
-        control_flow_ops::parse_split_op,
-        operator_base::{OperatorBase, OperatorCreationError},
-        operator_data::OperatorData,
-        regex::parse_regex_op,
+        control_flow_ops::parse_split_op, operator_base::OperatorCreationError,
+        operator_data::OperatorData, regex::parse_regex_op,
     },
     options::{
         argument::{ArgumentReassignmentError, CliArgIdx},

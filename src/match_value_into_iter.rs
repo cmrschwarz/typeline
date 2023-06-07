@@ -1,22 +1,21 @@
 use std::mem::ManuallyDrop;
 
-use crate::match_value::{
-    self, MatchValueAny, MatchValueFormat, MatchValueRepresentation, MatchValueType,
+use crate::{
+    match_value::{self, MatchValue, MatchValueAnySync, MatchValueFormat, MatchValueType},
+    sync_variant::{self, SyncVariant, SyncVariantImpl},
 };
 
-pub struct MatchValueIntoIter<'a, MV, ValueIter>
+pub struct MatchValueIntoIter<'a, ValueIter>
 where
-    MV: MatchValueAny,
-    ValueIter: Iterator<Item = MV>,
+    ValueIter: Iterator<Item = MatchValue>,
 {
     format: &'a MatchValueFormat,
     value_iter: ManuallyDrop<ValueIter>,
 }
 
-impl<'a, MV, ValueIter> MatchValueIntoIter<'a, MV, ValueIter>
+impl<'a, ValueIter> MatchValueIntoIter<'a, ValueIter>
 where
-    MV: MatchValueAny,
-    ValueIter: Iterator<Item = MV>,
+    ValueIter: Iterator<Item = MatchValue>,
 {
     pub fn new(format: &'a MatchValueFormat, value_iter: ValueIter) -> Self {
         Self {
@@ -26,12 +25,11 @@ where
     }
 }
 
-impl<'a, MV, ValueIter> Iterator for MatchValueIntoIter<'a, MV, ValueIter>
+impl<'a, ValueIter> Iterator for MatchValueIntoIter<'a, ValueIter>
 where
-    MV: MatchValueAny,
-    ValueIter: Iterator<Item = MV>,
+    ValueIter: Iterator<Item = MatchValue>,
 {
-    type Item = MV;
+    type Item = MatchValue;
     fn next(&mut self) -> Option<Self::Item> {
         self.value_iter.next()
     }
@@ -39,29 +37,43 @@ where
 
 #[inline(always)]
 unsafe fn drop_typed_values<'a, T: MatchValueType>(
-    repr: MatchValueRepresentation,
-    mut iter: impl Iterator<Item = impl MatchValueAny>,
+    repr: SyncVariantImpl,
+    mut iter: impl Iterator<Item = impl MatchValueAnySync>,
 ) {
-    loop {
-        let mut next = iter.next();
-        if next.is_none() {
-            break;
-        }
-        match repr {
-            MatchValueRepresentation::Local => ManuallyDrop::drop(T::storage_local_mut(
-                next.take().unwrap().as_match_value_mut(),
-            )),
-            MatchValueRepresentation::Shared => ManuallyDrop::drop(T::storage_shared_mut(
-                next.take().unwrap().as_match_value_mut(),
-            )),
-        }
+    match repr {
+        SyncVariantImpl::Unique => loop {
+            let mut next = iter.next();
+            if next.is_none() {
+                break;
+            }
+            ManuallyDrop::drop(T::storage_md_mut::<sync_variant::Unique>(
+                &mut next.take().unwrap(),
+            ))
+        },
+        SyncVariantImpl::Local => loop {
+            let mut next = iter.next();
+            if next.is_none() {
+                break;
+            }
+            ManuallyDrop::drop(T::storage_md_mut::<sync_variant::Local>(
+                &mut next.take().unwrap(),
+            ))
+        },
+        SyncVariantImpl::Shared => loop {
+            let mut next = iter.next();
+            if next.is_none() {
+                break;
+            }
+            ManuallyDrop::drop(T::storage_md_mut::<sync_variant::Shared>(
+                &mut next.take().unwrap(),
+            ))
+        },
     }
 }
 
-impl<'a, MV, ValueIter> Drop for MatchValueIntoIter<'a, MV, ValueIter>
+impl<'a, ValueIter> Drop for MatchValueIntoIter<'a, ValueIter>
 where
-    MV: MatchValueAny,
-    ValueIter: Iterator<Item = MV>,
+    ValueIter: Iterator<Item = MatchValue>,
 {
     fn drop(&mut self) {
         use match_value::*;
@@ -70,17 +82,13 @@ where
             let repr = self.format.repr;
             match &self.format.kind {
                 MatchValueKind::Text => drop_typed_values::<Text>(repr, iter),
-                MatchValueKind::Bytes => drop_typed_values::<Bytes>(repr, iter),
+                MatchValueKind::Bytes => drop_typed_values::<BytesType>(repr, iter),
                 MatchValueKind::Error => drop_typed_values::<Error>(repr, iter),
-                MatchValueKind::Html => drop_typed_values::<Html>(repr, iter),
+                MatchValueKind::Html => drop_typed_values::<HtmlType>(repr, iter),
                 MatchValueKind::Integer | MatchValueKind::Null => (),
-                MatchValueKind::Complex => unreachable!(),
-                //TODO: maybe do some optimizations / recursion limitiations here
-                MatchValueKind::TypedArray(_fmt) => {
-                    drop_typed_values::<TypedArray<MatchValue>>(repr, iter)
-                }
-                MatchValueKind::Array(_fmt) => drop_typed_values::<Array<MatchValue>>(repr, iter),
-                MatchValueKind::Object(_fmt) => drop_typed_values::<Object<MatchValue>>(repr, iter),
+                MatchValueKind::TypedArray => drop_typed_values::<TypedArray>(repr, iter),
+                MatchValueKind::Array => drop_typed_values::<Array>(repr, iter),
+                MatchValueKind::Object => drop_typed_values::<Object>(repr, iter),
             }
         }
     }

@@ -1,61 +1,34 @@
-use std::{collections::VecDeque, mem::ManuallyDrop};
-
 use indexmap::IndexMap;
 
+use crate::match_value::{MatchValueFormat, MatchValueKind, MatchValueTypeErased, ObjectLayout};
+use crate::string_store::StringStoreEntry;
 use crate::{
-    match_value::{MatchValue, MatchValueFormat, MatchValueShared},
-    match_value_into_iter::MatchValueIntoIter,
-    string_store::StringStoreEntry,
+    match_value::MatchValue, match_value_into_iter::MatchValueIntoIter, sync_variant::SyncVariant,
 };
+use std::mem::transmute_copy;
+use std::{collections::VecDeque, mem::ManuallyDrop};
+
+//if the u32 overflows we just split into two values
+type RunLength = u32;
+
+type EntryId = usize;
+
+struct RleFieldValue {
+    kind: MatchValueKind,
+    flags: u8, // is_stream, value_shared_with_next,
+    run_length: u32,
+}
+
+struct Field {
+    data: VecDeque<u8>,
+}
+
+type FieldIndex = usize;
 
 #[repr(C)]
 pub struct MatchSet {
-    values: Vec<ManuallyDrop<VecDeque<MatchValue>>>,
-    format: ManuallyDrop<IndexMap<StringStoreEntry, MatchValueFormat>>,
-}
-
-#[repr(C)]
-pub struct MatchSetShared {
-    values: Vec<VecDeque<MatchValueShared>>,
-    format: IndexMap<StringStoreEntry, MatchValueFormat>,
-}
-
-impl From<MatchSetShared> for MatchSet {
-    fn from(mss: MatchSetShared) -> Self {
-        MatchSet {
-            values: unsafe { std::mem::transmute(mss.values) },
-            format: ManuallyDrop::new(mss.format),
-        }
-    }
-}
-
-impl MatchSet {
-    #[inline(always)]
-    pub fn format(&self) -> &IndexMap<StringStoreEntry, MatchValueFormat> {
-        &self.format
-    }
-
-    #[inline(always)]
-    pub fn values_per_match(&self) -> usize {
-        self.format.len()
-    }
-
-    #[inline(always)]
-    pub fn len(&self) -> usize {
-        self.values.len() / self.values_per_match()
-    }
-}
-
-impl Drop for MatchSet {
-    fn drop(&mut self) {
-        for (i, format) in unsafe { ManuallyDrop::take(&mut self.format) }
-            .into_values()
-            .enumerate()
-        {
-            let _drop_me = MatchValueIntoIter::new(
-                &format,
-                unsafe { ManuallyDrop::take(&mut self.values[i]) }.into_iter(),
-            );
-        }
-    }
+    indices_field: Field,
+    working_set_updates: Vec<(EntryId, FieldIndex)>,
+    working_set: Vec<FieldIndex>,
+    fields: IndexMap<StringStoreEntry, Field>,
 }

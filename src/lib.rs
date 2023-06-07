@@ -24,6 +24,7 @@ pub mod selenium;
 pub mod match_set;
 pub mod match_value;
 pub mod match_value_into_iter;
+pub mod sync_variant;
 
 #[cfg(test)]
 mod tests;
