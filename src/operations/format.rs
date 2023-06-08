@@ -34,7 +34,3 @@ pub enum FormatPart {
 pub struct OpFormat {
     pub parts: Vec<FormatPart>,
 }
-
-pub struct TfFormat<'a> {
-    pub parts: &'a [FormatPart],
-}

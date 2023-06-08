@@ -8,14 +8,14 @@ use smallvec::SmallVec;
 
 use crate::context::{ContextData, SessionData};
 use crate::document::{Document, DocumentId};
-use crate::match_set::MatchSet;
 use crate::operations::operator_base::OperatorId;
 
 use crate::scr_error::ScrError;
-use crate::worker_thread_session::WorkerThreadSession;
+use crate::string_store::StringStoreEntry;
+use crate::worker_thread_session::{FieldData, WorkerThreadSession};
 
 pub enum JobData {
-    MatchSet(MatchSet),
+    FieldData(Vec<(Option<StringStoreEntry>, FieldData)>),
     Documents(Vec<Document>),
     DocumentIds(Vec<DocumentId>),
     Stdin,

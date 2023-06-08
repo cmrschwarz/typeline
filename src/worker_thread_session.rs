@@ -1,38 +1,96 @@
 use std::{
-    collections::{HashSet, VecDeque},
+    collections::{hash_map, BinaryHeap, HashMap, HashSet},
     iter,
+    num::NonZeroUsize,
 };
 
 use regex::Regex;
 
 use crate::{
     context::SessionData,
-    match_set::{FieldId, MatchSet, FIELD_ID_INPUT},
-    operations::{format::TfFormat, operator_base::OperatorId, operator_data::OperatorData},
+    match_value::MatchValueKind,
+    operations::{format::FormatPart, operator_base::OperatorId, operator_data::OperatorData},
     scr_error::ScrError,
+    string_store::StringStoreEntry,
+    sync_variant::SyncVariantImpl,
+    universe::Universe,
     worker_thread::{Job, JobData},
 };
 
 pub type TransformId = usize;
 
+//if the u32 overflows we just split into two values
+pub type RunLength = u32;
+
+#[allow(dead_code)] //TODO
+struct FieldValueHeader {
+    kind: MatchValueKind,
+    sync_variant: SyncVariantImpl,
+    flags: u8, // is_stream, value_shared_with_next,
+    run_length: RunLength,
+}
+
 #[derive(Default)]
-struct FieldInterest {
+pub struct FieldData {
+    header: Vec<FieldValueHeader>,
+    data: Vec<u8>,
+}
+
+impl FieldData {
+    pub fn clear(&mut self) {
+        self.header.clear();
+        self.data.clear();
+    }
+}
+
+pub type EntryId = usize;
+
+impl FieldData {
+    pub fn is_empty(&self) -> bool {
+        self.data.is_empty()
+    }
+}
+
+#[derive(Default)]
+struct Field {
     // number of tfs that might read this field
     // if this drops to zero, remove the field
     ref_count: usize,
-    permanent: HashSet<TransformId>,
-    temporary: Vec<TransformId>,
+    match_set: MatchSetId,
+    permanent_interest: HashSet<TransformId>,
+    temporary_interest: Vec<TransformId>,
+    name: Option<StringStoreEntry>,
+    // entry in the working set if this field is enabled
+    // the indices field (id 0) is always enabled, but stores None here
+    // so we can use NonZeroUsize
+    #[allow(dead_code)] //TODO
+    working_set_idx: Option<NonZeroUsize>,
+    field_data: FieldData,
+}
+
+pub type FieldId = usize;
+
+pub const FIELD_ID_JOB_INPUT_INDICES: FieldId = 0;
+pub const FIELD_ID_JOB_INPUT: FieldId = 1;
+
+type MatchSetId = usize;
+
+#[derive(Default)]
+#[repr(C)]
+pub struct MatchSet {
+    working_set_updates: Vec<(EntryId, FieldId)>,
+    working_set: Vec<FieldId>,
+    field_name_map: HashMap<StringStoreEntry, HashSet<FieldId>>,
 }
 
 pub struct WorkerThreadSession<'a> {
     session_data: &'a SessionData,
 
-    match_set: MatchSet,
-    transforms: Vec<TransformState<'a>>,
-    unused_transform_ids: Vec<TransformId>,
+    match_sets: Universe<MatchSetId, MatchSet>,
+    transforms: Universe<TransformId, TransformState<'a>>,
+    fields: Universe<FieldId, Field>,
 
-    ready_queue: VecDeque<(TransformId, FieldId)>,
-    field_interest: Vec<FieldInterest>,
+    ready_queue: BinaryHeap<TransformId>,
 }
 
 struct TransformState<'a> {
@@ -40,10 +98,15 @@ struct TransformState<'a> {
     data: TransformData<'a>,
 }
 
+pub struct TfFormat<'a> {
+    pub output_field: FieldId,
+    pub parts: &'a [FormatPart],
+}
+
 pub enum TransformData<'a> {
     Disabled,
     Print,
-    Split(&'a [OperatorId]),
+    Split(TransformId, &'a [OperatorId]),
     Regex(Regex),
     Format(TfFormat<'a>),
 }
@@ -52,41 +115,70 @@ impl<'a> WorkerThreadSession<'a> {
     pub fn new(sess: &'a SessionData) -> Self {
         WorkerThreadSession {
             session_data: sess,
-            match_set: Default::default(),
+            match_sets: Default::default(),
             transforms: Default::default(),
-            unused_transform_ids: Default::default(),
             ready_queue: Default::default(),
-            field_interest: Default::default(),
+            fields: Default::default(),
         }
+    }
+    pub fn add_field(&mut self, ms_id: MatchSetId, name: Option<StringStoreEntry>) -> FieldId {
+        let field_id = self.fields.claim();
+        let field = &mut self.fields[field_id as FieldId];
+        field.name = name;
+        field.match_set = ms_id;
+        if let Some(name) = name {
+            match self.match_sets[ms_id as usize].field_name_map.entry(name) {
+                hash_map::Entry::Occupied(ref mut e) => {
+                    e.get_mut().insert(field_id);
+                }
+                hash_map::Entry::Vacant(e) => {
+                    e.insert(HashSet::from_iter(iter::once(field_id)));
+                }
+            }
+        }
+        field_id
+    }
+    pub fn remove_field(&mut self, id: FieldId) {
+        let field = &mut self.fields[id as usize];
+        let match_set = &mut self.match_sets[field.match_set as usize];
+        if let Some(ref name) = field.name {
+            match_set.field_name_map.get_mut(name).unwrap().remove(&id);
+        }
+        field.permanent_interest.clear();
+        field.temporary_interest.clear();
+        field.ref_count = 0;
+        field.field_data.clear();
+        self.fields.release(id);
     }
     fn add_transform(&mut self, tf: TransformState<'a>) -> TransformId {
-        if let Some(unused_id) = self.unused_transform_ids.pop() {
-            self.transforms[unused_id] = tf;
-            unused_id
-        } else {
-            let id = self.transforms.len() as TransformId;
-            self.transforms.push(tf);
-            id
-        }
+        self.transforms.push(tf)
     }
     fn remove_transform(&mut self, tf_id: TransformId, triggering_field: FieldId) {
-        self.transforms[tf_id as usize].data = TransformData::Disabled;
-        self.unused_transform_ids.push(tf_id);
-        let fi = &mut self.field_interest[triggering_field as usize];
+        self.transforms[tf_id].data = TransformData::Disabled;
+        self.transforms.release(tf_id);
+        let field = &mut self.fields[triggering_field];
 
-        fi.permanent.remove(&triggering_field);
-        fi.ref_count -= 1;
-        if fi.ref_count == 0 {
-            self.match_set.remove_field(triggering_field);
+        field.permanent_interest.remove(&tf_id);
+        field.ref_count -= 1;
+        if field.ref_count == 0 {
+            self.remove_field(triggering_field);
         }
     }
+    fn add_match_set(&mut self) -> MatchSetId {
+        let id = self.match_sets.claim();
+        id
+    }
     #[allow(dead_code)] //TODO
-    fn inform_field_filled(&mut self, field: FieldId) {
-        let fi = &mut self.field_interest[field as usize];
-        for tf in fi.permanent.iter().chain(fi.temporary.iter()) {
-            self.ready_queue.push_back((*tf, field));
+    fn inform_field_filled(&mut self, field_id: FieldId) {
+        let field = &mut self.fields[field_id as usize];
+        for tf in field
+            .permanent_interest
+            .iter()
+            .chain(field.temporary_interest.iter())
+        {
+            self.ready_queue.push(*tf);
         }
-        fi.temporary.clear();
+        field.temporary_interest.clear();
     }
     fn setup_transforms_from_op(
         &mut self,
@@ -94,17 +186,28 @@ impl<'a> WorkerThreadSession<'a> {
         start_op_id: OperatorId,
         input_field_id: FieldId,
     ) -> TransformId {
+        let ms_id = self.add_match_set();
         let mut start_tf_id = None;
         let start_op = &self.session_data.operator_bases[start_op_id as usize];
+        let mut prev_field_id = input_field_id;
         for op_id in &self.session_data.chains[start_op.chain_id as usize].operations
             [start_op.offset_in_chain as usize..]
         {
             let op_data = &self.session_data.operator_data[*op_id as usize];
             let tf_data = match op_data {
                 OperatorData::Print => TransformData::Print,
-                OperatorData::Split(sd) => TransformData::Split(sd.target_operators.as_slice()),
+                OperatorData::Split(sd) => {
+                    TransformData::Split(prev_field_id, sd.target_operators.as_slice())
+                }
                 OperatorData::Regex(rd) => TransformData::Regex(rd.regex.clone()),
-                OperatorData::Format(fmt) => TransformData::Format(TfFormat { parts: &fmt.parts }),
+                OperatorData::Format(fmt) => {
+                    let output_field = self.add_field(ms_id, None);
+                    prev_field_id = output_field;
+                    TransformData::Format(TfFormat {
+                        output_field,
+                        parts: &fmt.parts,
+                    })
+                }
             };
             if start_tf_id.is_none() {
                 let id = self.add_transform(TransformState {
@@ -113,7 +216,7 @@ impl<'a> WorkerThreadSession<'a> {
                 });
                 start_tf_id = Some(id);
                 if start_ready {
-                    self.ready_queue.push_back((id, input_field_id));
+                    self.ready_queue.push(id);
                 }
             } else {
                 self.add_transform(TransformState {
@@ -126,49 +229,48 @@ impl<'a> WorkerThreadSession<'a> {
     }
 
     fn setup_job(&mut self, job: Job) {
+        self.match_sets.clear();
+        self.match_sets.push(Default::default());
+        let ms = &mut self.match_sets[0];
+        ms.working_set
+            .extend_from_slice([FIELD_ID_JOB_INPUT_INDICES, FIELD_ID_JOB_INPUT].as_slice());
+        self.fields.clear();
         match job.data {
-            JobData::MatchSet(ms) => {
-                self.match_set = ms;
-            }
+            JobData::FieldData(_fd) => loop {
+                break; //TODO
+            },
             JobData::Documents(_docs) => {
-                self.match_set = Default::default();
                 todo!()
             }
             JobData::DocumentIds(_ids) => {
-                self.match_set = Default::default();
                 todo!()
             }
             JobData::Stdin => {
-                self.match_set = Default::default();
                 todo!()
             }
         }
         self.ready_queue.clear();
-        self.transforms.clear();
-        self.field_interest.clear();
-        self.field_interest
-            .extend(iter::repeat_with(|| Default::default()).take(self.match_set.field_count()));
 
         for op in job.starting_ops {
-            self.setup_transforms_from_op(true, op, FIELD_ID_INPUT);
+            self.setup_transforms_from_op(true, op, FIELD_ID_JOB_INPUT);
         }
     }
 
     pub(crate) fn run_job(&mut self, job: Job) -> Result<(), ScrError> {
         self.setup_job(job);
 
-        while !self.match_set.is_empty() {
-            self.ready_queue.push_back((0, FIELD_ID_INPUT));
-            while let Some((tf_id, triggering_field_id)) = self.ready_queue.pop_front() {
+        while !self.fields[FIELD_ID_JOB_INPUT].field_data.is_empty() {
+            self.ready_queue.push(0 as TransformId);
+            while let Some(tf_id) = self.ready_queue.pop() {
                 let tf = &mut self.transforms[tf_id as usize];
                 tf.ready = false;
                 match tf.data {
                     TransformData::Disabled => unreachable!(),
-                    TransformData::Split(targets) => {
+                    TransformData::Split(input_field_id, targets) => {
                         for op_id in targets {
-                            self.setup_transforms_from_op(true, *op_id, triggering_field_id);
+                            self.setup_transforms_from_op(true, *op_id, input_field_id);
                         }
-                        self.remove_transform(tf_id, triggering_field_id);
+                        self.remove_transform(tf_id, input_field_id);
                     }
                     TransformData::Print => todo!(),
                     TransformData::Regex(_) => todo!(),
