@@ -7,15 +7,23 @@ use crossbeam::deque::{Stealer, Worker};
 use smallvec::SmallVec;
 
 use crate::context::{ContextData, SessionData};
+use crate::document::{Document, DocumentId};
 use crate::match_set::MatchSet;
 use crate::operations::operator_base::OperatorId;
 
 use crate::scr_error::ScrError;
 use crate::worker_thread_session::WorkerThreadSession;
 
+pub enum JobData {
+    MatchSet(MatchSet),
+    Documents(Vec<Document>),
+    DocumentIds(Vec<DocumentId>),
+    Stdin,
+}
+
 pub(crate) struct Job {
     pub starting_ops: SmallVec<[OperatorId; 2]>,
-    pub match_set: MatchSet,
+    pub data: JobData,
 }
 
 pub(crate) struct WorkerThread {

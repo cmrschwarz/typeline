@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use bstring::bstr;
 
 use crate::{

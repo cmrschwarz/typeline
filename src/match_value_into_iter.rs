@@ -2,7 +2,7 @@ use std::mem::ManuallyDrop;
 
 use crate::{
     match_value::{self, MatchValue, MatchValueAnySync, MatchValueFormat, MatchValueType},
-    sync_variant::{self, SyncVariant, SyncVariantImpl},
+    sync_variant::{self, SyncVariantImpl},
 };
 
 pub struct MatchValueIntoIter<'a, ValueIter>
@@ -85,7 +85,9 @@ where
                 MatchValueKind::Bytes => drop_typed_values::<BytesType>(repr, iter),
                 MatchValueKind::Error => drop_typed_values::<Error>(repr, iter),
                 MatchValueKind::Html => drop_typed_values::<HtmlType>(repr, iter),
-                MatchValueKind::Integer | MatchValueKind::Null => (),
+                MatchValueKind::Integer
+                | MatchValueKind::Null
+                | MatchValueKind::MatchValueIndex => (),
                 MatchValueKind::TypedArray => drop_typed_values::<TypedArray>(repr, iter),
                 MatchValueKind::Array => drop_typed_values::<Array>(repr, iter),
                 MatchValueKind::Object => drop_typed_values::<Object>(repr, iter),

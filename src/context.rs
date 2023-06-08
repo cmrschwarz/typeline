@@ -11,7 +11,7 @@ use crate::operations::operator_base::{OperatorBase, OperatorId};
 use crate::operations::operator_data::OperatorData;
 use crate::scr_error::ScrError;
 use crate::string_store::StringStore;
-use crate::worker_thread::{Job, WorkerThread};
+use crate::worker_thread::{Job, JobData, WorkerThread};
 
 pub struct SessionData {
     pub max_worker_threads: NonZeroUsize,
@@ -68,19 +68,19 @@ impl Context {
     pub fn gen_jobs_from_docs(&mut self) {
         let sd = self.curr_session_data.as_ref();
         let mut stdin_job_ops: SmallVec<[OperatorId; 2]> = Default::default();
-        for d in &sd.documents {
-            let ops_iter = d
+        for (doc_id, doc) in sd.documents.iter().enumerate() {
+            let ops_iter = doc
                 .target_chains
                 .iter()
                 .filter_map(|c| sd.chains[*c as usize].operations.first().map(|o| *o));
-            match d.source {
+            match doc.source {
                 DocumentSource::Stdin => {
                     stdin_job_ops.extend(ops_iter);
                 }
                 _ => {
                     self.main_worker_thread.context_data.injector.push(Job {
                         starting_ops: ops_iter.collect(),
-                        match_sets: todo!("match sets"),
+                        data: JobData::DocumentIds(vec![doc_id]),
                     });
                 }
             }
@@ -88,7 +88,7 @@ impl Context {
         if !stdin_job_ops.is_empty() {
             self.main_worker_thread.context_data.injector.push(Job {
                 starting_ops: stdin_job_ops,
-                match_sets: todo!("stdin match sets"),
+                data: JobData::Stdin,
             });
         }
         self.main_worker_thread

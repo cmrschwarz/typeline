@@ -1,5 +1,5 @@
 use indexmap::IndexMap;
-use regex::Match;
+
 use std::ops::Deref;
 
 use crate::match_value_into_iter::MatchValueIntoIter;
@@ -13,6 +13,7 @@ pub type MatchValueIndex = usize;
 
 //PERF: Arc :(
 pub enum MatchValueKind {
+    MatchValueIndex,
     Bytes,
     Text,
     Error,
@@ -69,6 +70,24 @@ pub trait MatchValueType {
             SyncVariantImpl::Shared => Self::value::<sync_variant::Shared>(val),
         }
     }
+}
+
+struct MatchValueIndexType;
+impl MatchValueType for MatchValueIndexType {
+    type ValueType = MatchValueIndex;
+
+    type StorageType<SV: SyncVariant> = SelfDeref<MatchValueIndex>;
+
+    const KIND: MatchValueKind = MatchValueKind::MatchValueIndex;
+}
+
+struct NullType;
+impl MatchValueType for NullType {
+    type ValueType = [u8; 0];
+
+    type StorageType<SV: SyncVariant> = SelfDeref<Self::ValueType>;
+
+    const KIND: MatchValueKind = MatchValueKind::Null;
 }
 
 #[repr(C)]

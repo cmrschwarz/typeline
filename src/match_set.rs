@@ -4,13 +4,17 @@ use std::{
     num::NonZeroUsize,
 };
 
-use crate::{match_value::MatchValueKind, string_store::StringStoreEntry};
+use crate::{
+    match_value::MatchValueKind, string_store::StringStoreEntry, sync_variant::SyncVariantImpl,
+};
 
 #[derive(Default)]
+
 struct Field {
     // entry in the working set if this field is enabled
     // the indices field (id 0) is always enabled, but stores None here
     // so we can use NonZeroUsize
+    #[allow(dead_code)] //TODO
     working_set_idx: Option<NonZeroUsize>,
     data: VecDeque<u8>,
 }
@@ -22,8 +26,10 @@ pub type RunLength = u32;
 
 pub type EntryId = usize;
 
+#[allow(dead_code)] //TODO
 struct RleFieldValue {
     kind: MatchValueKind,
+    sync_variant: SyncVariantImpl,
     flags: u8, // is_stream, value_shared_with_next,
     run_length: u32,
 }
@@ -60,8 +66,8 @@ impl MatchSet {
         };
         if let Some(name) = name {
             match self.field_name_map.entry(name) {
-                hash_map::Entry::Occupied(e) => {
-                    e.get().insert(id);
+                hash_map::Entry::Occupied(ref mut e) => {
+                    e.get_mut().insert(id);
                 }
                 hash_map::Entry::Vacant(e) => {
                     e.insert(HashSet::from_iter(iter::once(id)));
@@ -74,7 +80,7 @@ impl MatchSet {
         let index = id as usize;
         let name_opt = &mut self.field_names[index];
         if let Some(name) = name_opt {
-            self.field_name_map.get(name).unwrap().remove(&id);
+            self.field_name_map.get_mut(name).unwrap().remove(&id);
             *name_opt = None;
         }
         self.fields[index].clear()

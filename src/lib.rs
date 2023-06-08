@@ -22,10 +22,10 @@ pub mod plattform;
 pub mod scr_error;
 pub mod selenium;
 pub mod match_set;
-pub mod match_value;
-pub mod match_value_into_iter;
-pub mod sync_variant;
-pub mod worker_thread_session;
+mod match_value;
+mod match_value_into_iter;
+mod sync_variant;
+mod worker_thread_session;
 
 #[cfg(test)]
 mod tests;
