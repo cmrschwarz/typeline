@@ -15,23 +15,3 @@ pub enum OperatorData {
     Regex(OpRegex),
     Format(OpFormat),
 }
-
-pub enum TransformData<'a> {
-    Print,
-    Split(&'a [ChainId]),
-    Regex(Regex),
-    Format(TfFormat<'a>),
-}
-
-fn setup_transform_data<'a>(
-    sd: &'a SessionData,
-    chain: ChainId,
-    vals: impl Iterator<Item = OperatorId>,
-) -> impl Iterator<Item = TransformData<'a>> {
-    vals.map(move |op_id| match &sd.operator_data[op_id as usize] {
-        OperatorData::Print => TransformData::Print,
-        OperatorData::Split(sd) => TransformData::Split(&sd.target_chains[&chain]),
-        OperatorData::Regex(rd) => TransformData::Regex(rd.regex.clone()),
-        OperatorData::Format(_) => todo!(),
-    })
-}

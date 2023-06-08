@@ -7,12 +7,12 @@ use crate::{
     options::{argument::CliArgIdx, range_spec::RangeSpec},
 };
 
-use super::operator_base::OperatorCreationError;
+use super::operator_base::{OperatorCreationError, OperatorId};
 
 #[derive(Clone)]
 pub struct OpSplit {
     pub range_spec: RangeSpec<ChainId>,
-    pub target_chains: HashMap<ChainId, Vec<ChainId>>,
+    pub target_operators: Vec<OperatorId>,
 }
 
 pub fn parse_split_op(
@@ -34,6 +34,6 @@ pub fn parse_split_op(
     };
     Ok(OpSplit {
         range_spec,
-        target_chains: HashMap::new(),
+        target_operators: Default::default(),
     })
 }

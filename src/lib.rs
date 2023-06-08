@@ -25,6 +25,7 @@ pub mod match_set;
 pub mod match_value;
 pub mod match_value_into_iter;
 pub mod sync_variant;
+pub mod worker_thread_session;
 
 #[cfg(test)]
 mod tests;

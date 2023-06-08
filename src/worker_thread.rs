@@ -1,8 +1,6 @@
-use std::collections::VecDeque;
 use std::iter;
 use std::mem::ManuallyDrop;
-use std::ops::Range;
-use std::rc::Rc;
+
 use std::sync::Arc;
 
 use crossbeam::deque::{Stealer, Worker};
@@ -11,13 +9,13 @@ use smallvec::SmallVec;
 use crate::context::{ContextData, SessionData};
 use crate::match_set::MatchSet;
 use crate::operations::operator_base::OperatorId;
-use crate::operations::operator_data::TransformData;
+
 use crate::scr_error::ScrError;
-use crate::sync_variant;
+use crate::worker_thread_session::WorkerThreadSession;
 
 pub(crate) struct Job {
     pub starting_ops: SmallVec<[OperatorId; 2]>,
-    pub match_sets: SmallVec<[MatchSet; 1]>,
+    pub match_set: MatchSet,
 }
 
 pub(crate) struct WorkerThread {
@@ -28,30 +26,6 @@ pub(crate) struct WorkerThread {
     // aquired from context_data->session at the start of each generation
     session_generation: usize,
     session_data: Arc<SessionData>,
-}
-type LayoutId = usize;
-type MatchIndex = usize;
-
-#[derive(Clone, Copy)]
-struct RangeButItWorks<T>(T, T); // T_T
-
-#[derive(Clone)]
-struct MailboxEntry {
-    op_id: OperatorId,
-    layout: LayoutId,
-    matches: RangeButItWorks<MatchIndex>,
-}
-
-struct TransformState<'a> {
-    mailbox: Vec<MailboxEntry>,
-    tf_data: TransformData<'a>,
-}
-
-struct WorkerThreadSession<'a> {
-    session_data: &'a SessionData,
-    tf_data: Vec<TransformData<'a>>,
-
-    match_sets: Vec<VecDeque<MatchSet>>,
 }
 
 impl WorkerThread {
@@ -73,11 +47,7 @@ impl WorkerThread {
     }
     pub(crate) fn run(&mut self, check_for_new_generations: bool) -> Result<(), ScrError> {
         let mut sess_data_arc = self.session_data.clone();
-        let mut sess = ManuallyDrop::new(WorkerThreadSession {
-            session_data: &sess_data_arc,
-            tf_data: Default::default(),
-            match_sets: Default::default(),
-        });
+        let mut sess = ManuallyDrop::new(WorkerThreadSession::new(&sess_data_arc));
         loop {
             if let Some(job) = self.find_job() {
                 let res = sess.run_job(job);
@@ -88,11 +58,7 @@ impl WorkerThread {
                 }
                 let _ = ManuallyDrop::into_inner(sess);
                 sess_data_arc = self.session_data.clone();
-                sess = ManuallyDrop::new(WorkerThreadSession {
-                    session_data: &sess_data_arc,
-                    tf_data: Default::default(),
-                    match_sets: Default::default(),
-                });
+                sess = ManuallyDrop::new(WorkerThreadSession::new(&sess_data_arc));
             }
         }
     }
@@ -127,13 +93,5 @@ impl WorkerThread {
             .find(|s| !s.is_retry())
             .and_then(|s| s.success())
         })
-    }
-}
-
-impl<'a> WorkerThreadSession<'a> {
-    fn run_job(&mut self, mut job: Job) -> Result<(), ScrError> {
-        //TODO
-
-        Ok(())
     }
 }
