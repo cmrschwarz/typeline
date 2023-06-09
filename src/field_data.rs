@@ -1,17 +1,12 @@
 use std::{
-    collections::{binary_heap::Iter, HashMap},
     marker::PhantomData,
-    mem::{size_of, ManuallyDrop},
+    mem::size_of,
     ptr::{drop_in_place, NonNull},
-    slice,
 };
 
 use indexmap::IndexMap;
 
-use crate::{
-    match_value::MatchValueKind, operations::operator_base::OperatorApplicationError,
-    string_store::StringStoreEntry, sync_variant::SyncVariantImpl,
-};
+use crate::operations::operator_base::OperatorApplicationError;
 
 //if the u32 overflows we just split into two values
 pub type RunLength = u32;
@@ -204,6 +199,48 @@ impl FieldData {
             self.header.pop();
         }
         self.data.truncate(remaining_size);
+    }
+    pub fn dup_nth(&mut self, n: usize, new_run_len: RunLength) {
+        let mut hi = self.header.len();
+        let mut i = 0;
+        while i < n {
+            hi -= 1;
+            i += self.header[hi].run_length as usize;
+        }
+        let h = &mut self.header[hi];
+        let mut tgt = *h;
+        tgt.run_length = new_run_len;
+        debug_assert!(h.run_length > 0 && (h.shared_value || h.run_length > 1));
+        if h.shared_value {
+            tgt.run_length -= 1;
+            if let Some(rl) = h.run_length.checked_add(tgt.run_length) {
+                h.run_length = rl;
+            } else {
+                self.header.insert(hi, tgt);
+            }
+        } else if i == n + 1 {
+            //nth is first of this header, insert it at the start
+            h.run_length -= 1;
+            if h.run_length == 1 {
+                h.shared_value = true;
+            }
+            self.header.insert(hi + 1, tgt);
+        } else if i == n + h.run_length as usize {
+            //nth is last of this header, insert it as the start
+            h.run_length -= 1;
+            if h.run_length == 1 {
+                h.shared_value = true;
+            }
+            self.header.insert(hi, tgt);
+        } else {
+            // nth is sandwiched in this header, insert two
+            let rl_after = (i - n) as RunLength;
+            h.run_length = rl_after;
+            hi += 1;
+            let mut tgt2 = tgt;
+            tgt2.run_length = h.run_length - rl_after;
+            self.header.splice(hi..hi, [tgt, tgt2]);
+        }
     }
 }
 
