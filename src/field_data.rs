@@ -130,6 +130,7 @@ impl Clone for FieldData {
     }
 }
 
+#[derive(Clone)]
 pub struct FieldDataIterator<'a> {
     header: *const FieldValueHeader,
     header_r_end: *const FieldValueHeader,
@@ -190,7 +191,52 @@ impl<'a> FieldDataIterator<'a> {
             }
         }
     }
+
+    pub fn bounded(self, max_len: usize) -> BoundedFieldDataIterator<'a, Self> {
+        BoundedFieldDataIterator::new(max_len, self)
+    }
 }
+
+#[derive(Clone)]
+pub struct BoundedFieldDataIterator<'a, I: Iterator<Item = (RunLength, FieldValueRef<'a>)>> {
+    iter: I,
+    remaining_len: usize,
+}
+
+impl<'a, I: Iterator<Item = (RunLength, FieldValueRef<'a>)>> Iterator
+    for BoundedFieldDataIterator<'a, I>
+{
+    type Item = I::Item;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.remaining_len == 0 {
+            return None;
+        }
+        match self.iter.next() {
+            None => {
+                self.remaining_len = 0;
+                None
+            }
+            Some((mut len, val)) => {
+                if len as usize > self.remaining_len {
+                    len = self.remaining_len as RunLength;
+                }
+                self.remaining_len -= len as usize;
+                Some((len, val))
+            }
+        }
+    }
+}
+
+impl<'a, I: Iterator<Item = (RunLength, FieldValueRef<'a>)>> BoundedFieldDataIterator<'a, I> {
+    pub fn new(max_len: usize, iter: I) -> Self {
+        BoundedFieldDataIterator {
+            iter,
+            remaining_len: max_len,
+        }
+    }
+}
+
 impl FieldData {
     pub fn clear(&mut self) {
         self.header.clear();
@@ -313,6 +359,9 @@ impl FieldData {
             tgt2.run_length = h.run_length - rl_after;
             self.header.splice(hi..hi, [tgt, tgt2]);
         }
+    }
+    pub fn iter<'a>(&'a self) -> FieldDataIterator<'a> {
+        FieldDataIterator::new(self)
     }
 }
 

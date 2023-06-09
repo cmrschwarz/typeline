@@ -13,6 +13,7 @@ pub struct ChainOptions {
     pub force_text_encoding: Argument<bool>,
     pub selenium_variant: Argument<Option<SeleniumVariant>>,
     pub selenium_download_strategy: Argument<SeleniumDownloadStrategy>,
+    pub default_batch_size: Argument<usize>,
     pub parent: ChainId,
 }
 const DEFAULT_CHAIN_OPTIONS: ChainOptions = ChainOptions {
@@ -21,6 +22,7 @@ const DEFAULT_CHAIN_OPTIONS: ChainOptions = ChainOptions {
     force_text_encoding: Argument::new(false),
     selenium_variant: Argument::new(None),
     selenium_download_strategy: Argument::new(SeleniumDownloadStrategy::Scr),
+    default_batch_size: Argument::new(128),
     parent: 0,
 };
 impl ChainOptions {
@@ -39,6 +41,9 @@ impl ChainOptions {
                 selenium_download_strategy: self
                     .selenium_download_strategy
                     .unwrap_or(DEFAULT_CHAIN_OPTIONS.selenium_download_strategy.unwrap()),
+                default_batch_size: self
+                    .default_batch_size
+                    .unwrap_or(DEFAULT_CHAIN_OPTIONS.default_batch_size.unwrap()),
             },
             subchains: Vec::new(),
             operations: Vec::new(),

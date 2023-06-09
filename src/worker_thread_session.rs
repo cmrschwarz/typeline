@@ -9,7 +9,7 @@ use smallvec::{smallvec, SmallVec};
 
 use crate::{
     context::SessionData,
-    field_data::{EntryId, FieldData},
+    field_data::{EntryId, FieldData, RunLength},
     operations::{format::FormatPart, operator_base::OperatorId, operator_data::OperatorData},
     scr_error::ScrError,
     scratch_vec::ScratchVec,
@@ -70,9 +70,10 @@ pub struct WorkerThreadSession<'a> {
 struct TransformState<'a> {
     successor: Option<TransformId>,
     stream_successor: Option<TransformId>,
-    stream_producers_slot_index: usize,
+    stream_producers_slot_index: Option<NonMaxUsize>,
     input_field: FieldId,
     available_batch_size: usize,
+    desired_batch_size: usize,
     match_set_id: MatchSetId,
     data: TransformData<'a>,
 }
@@ -171,6 +172,9 @@ impl<'a> WorkerThreadSession<'a> {
     ) -> TransformId {
         let mut start_tf_id = None;
         let start_op = &self.session_data.operator_bases[start_op_id as usize];
+        let default_batch_size = self.session_data.chains[start_op.chain_id as usize]
+            .settings
+            .default_batch_size;
         let mut prev_tf = None;
         let mut prev_field_id = input_field_id;
         let mut output_field = input_field_id;
@@ -207,7 +211,8 @@ impl<'a> WorkerThreadSession<'a> {
                     input_field: prev_field_id,
                     match_set_id,
                     stream_successor: None,
-                    stream_producers_slot_index: 0,
+                    stream_producers_slot_index: None,
+                    desired_batch_size: default_batch_size,
                     successor: None,
                 });
                 start_tf_id = Some(id);
@@ -222,7 +227,8 @@ impl<'a> WorkerThreadSession<'a> {
                     input_field: prev_field_id,
                     match_set_id,
                     stream_successor: None,
-                    stream_producers_slot_index: 0,
+                    stream_producers_slot_index: None,
+                    desired_batch_size: default_batch_size,
                     successor: None,
                 })
             };
@@ -274,20 +280,32 @@ impl<'a> WorkerThreadSession<'a> {
                     field_names_set: Default::default(),
                 })),
                 available_batch_size: entry_count,
-                stream_producers_slot_index: 0,
+                stream_producers_slot_index: None,
                 stream_successor: None,
                 match_set_id: ms_id,
                 successor: None,
+                desired_batch_size: job.starting_ops.iter().fold(
+                    usize::MAX,
+                    |minimum_batch_size, op| {
+                        let cid = self.session_data.operator_bases[*op as usize].chain_id;
+                        minimum_batch_size.min(
+                            self.session_data.chains[cid as usize]
+                                .settings
+                                .default_batch_size,
+                        )
+                    },
+                ),
             });
         } else {
             self.setup_transforms_from_op(0usize.try_into().unwrap(), 0, 0, FIELD_ID_JOB_INPUT);
         }
     }
-    fn handle_split(&mut self, tf_id: TransformId, mut s: TfSplit) -> TfSplit {
+    fn handle_split(&mut self, stream_mode: bool, tf_id: TransformId, mut s: TfSplit) -> TfSplit {
         let tf = &mut self.transforms[tf_id];
         let tf_ms_id = tf.match_set_id;
         let bs = tf.available_batch_size;
         tf.available_batch_size = 0;
+        self.ready_queue.pop();
         if !s.expanded {
             for i in 0..s.targets.len() {
                 let op = s.targets[i];
@@ -301,7 +319,7 @@ impl<'a> WorkerThreadSession<'a> {
                 );
             }
         }
-        if self.match_sets[tf_ms_id].stream_batch_size != 0 {
+        if stream_mode {
             todo!();
         } else {
             //TODO: detect invalidations somehow instead
@@ -347,10 +365,10 @@ impl<'a> WorkerThreadSession<'a> {
                 source.unwrap().copy_n(bs, targets_arr.as_mut_slice());
             }
         }
+        debug_assert!(self.transforms[tf_id].successor.is_none());
         s
     }
-    pub(crate) fn run_job(&mut self, job: Job) -> Result<(), ScrError> {
-        self.setup_job(job);
+    fn run_batch_mode(&mut self) -> Result<bool, ScrError> {
         while !self.fields[FIELD_ID_JOB_INPUT].field_data.is_empty() {
             self.ready_queue.push(0usize.try_into().unwrap()); //TODO
             while let Some(tf_id) = self.ready_queue.peek().map(|t| *t) {
@@ -360,17 +378,83 @@ impl<'a> WorkerThreadSession<'a> {
                     TransformData::Disabled => unreachable!(),
                     TransformData::Split(ref mut split_orig) => {
                         let mut s = split_orig.take().unwrap();
-                        s = self.handle_split(tf_id, s);
-                        if let TransformData::Split(ref mut s_restored) =
-                            self.transforms[tf_id].data
-                        {
-                            *s_restored = Some(s);
+                        s = self.handle_split(false, tf_id, s);
+                        match self.transforms[tf_id].data {
+                            TransformData::Split(ref mut s_restored) => *s_restored = Some(s),
+                            _ => unreachable!(),
                         }
                     }
-                    TransformData::Print => todo!(),
+                    TransformData::Print => {
+                        let batch = tf.desired_batch_size.min(tf.available_batch_size);
+                        tf.available_batch_size -= batch;
+                        if tf.available_batch_size == 0 {
+                            self.ready_queue.pop();
+                        }
+                        let mut entries = ScratchVec::new(&mut self.scrach_memory);
+                        let print_error_text = "<Type Error>";
+                        //TODO: much optmization much wow
+                        entries.extend(
+                            self.fields[tf.input_field]
+                                .field_data
+                                .iter()
+                                .bounded(batch)
+                                .map(|(len, v)| match v {
+                                    crate::field_data::FieldValueRef::Text(sv) => match sv {
+                                        crate::field_data::FieldValueTextRef::Plain(txt) => {
+                                            (len, txt)
+                                        }
+                                        _ => (len, print_error_text),
+                                    },
+                                    _ => (len, print_error_text),
+                                }),
+                        );
+                        for (len, text) in entries.iter() {
+                            for i in 0..*len {
+                                println!("{text}");
+                            }
+                        }
+                    }
                     TransformData::Regex(_) => todo!(),
                     TransformData::Format(_) => todo!(),
                 }
+            }
+        }
+        Ok(true)
+    }
+    fn run_stream_mode(&mut self) -> Result<bool, ScrError> {
+        while !self.fields[FIELD_ID_JOB_INPUT].field_data.is_empty() {
+            self.ready_queue.push(0usize.try_into().unwrap()); //TODO
+            while let Some(tf_id) = self.ready_queue.peek().map(|t| *t) {
+                let tf = &mut self.transforms[tf_id];
+
+                match tf.data {
+                    TransformData::Disabled => unreachable!(),
+                    TransformData::Split(ref mut split_orig) => {
+                        let mut s = split_orig.take().unwrap();
+                        s = self.handle_split(true, tf_id, s);
+                        match self.transforms[tf_id].data {
+                            TransformData::Split(ref mut s_restored) => *s_restored = Some(s),
+                            _ => unreachable!(),
+                        }
+                    }
+                    TransformData::Print => {
+                        todo!();
+                    }
+                    TransformData::Regex(_) => todo!(),
+                    TransformData::Format(_) => todo!(),
+                }
+            }
+        }
+        Ok(true)
+    }
+    pub(crate) fn run_job(&mut self, job: Job) -> Result<(), ScrError> {
+        self.setup_job(job);
+        loop {
+            if self.run_batch_mode()? == true {
+                break;
+            }
+            if self.run_stream_mode()? == true {
+                break;
             }
         }
 

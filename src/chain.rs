@@ -11,6 +11,7 @@ pub struct ChainSettings {
     pub prefer_parent_text_encoding: bool,
     pub force_text_encoding: bool,
     pub selenium_download_strategy: SeleniumDownloadStrategy,
+    pub default_batch_size: usize,
 }
 
 #[derive(Clone)]
