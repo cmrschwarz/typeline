@@ -26,6 +26,7 @@ mod match_value;
 mod match_value_into_iter;
 mod sync_variant;
 mod worker_thread_session;
+mod field_data;
 
 #[cfg(test)]
 mod tests;

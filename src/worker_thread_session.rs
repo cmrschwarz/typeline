@@ -8,48 +8,15 @@ use regex::Regex;
 
 use crate::{
     context::SessionData,
-    match_value::MatchValueKind,
+    field_data::{EntryId, FieldData},
     operations::{format::FormatPart, operator_base::OperatorId, operator_data::OperatorData},
     scr_error::ScrError,
     string_store::StringStoreEntry,
-    sync_variant::SyncVariantImpl,
     universe::Universe,
     worker_thread::{Job, JobData},
 };
 
 pub type TransformId = usize;
-
-//if the u32 overflows we just split into two values
-pub type RunLength = u32;
-
-#[allow(dead_code)] //TODO
-struct FieldValueHeader {
-    kind: MatchValueKind,
-    sync_variant: SyncVariantImpl,
-    flags: u8, // is_stream, value_shared_with_next,
-    run_length: RunLength,
-}
-
-#[derive(Default)]
-pub struct FieldData {
-    header: Vec<FieldValueHeader>,
-    data: Vec<u8>,
-}
-
-impl FieldData {
-    pub fn clear(&mut self) {
-        self.header.clear();
-        self.data.clear();
-    }
-}
-
-pub type EntryId = usize;
-
-impl FieldData {
-    pub fn is_empty(&self) -> bool {
-        self.data.is_empty()
-    }
-}
 
 #[derive(Default)]
 struct Field {
@@ -127,7 +94,7 @@ impl<'a> WorkerThreadSession<'a> {
         field.name = name;
         field.match_set = ms_id;
         if let Some(name) = name {
-            match self.match_sets[ms_id as usize].field_name_map.entry(name) {
+            match self.match_sets[ms_id].field_name_map.entry(name) {
                 hash_map::Entry::Occupied(ref mut e) => {
                     e.get_mut().insert(field_id);
                 }
@@ -139,8 +106,8 @@ impl<'a> WorkerThreadSession<'a> {
         field_id
     }
     pub fn remove_field(&mut self, id: FieldId) {
-        let field = &mut self.fields[id as usize];
-        let match_set = &mut self.match_sets[field.match_set as usize];
+        let field = &mut self.fields[id];
+        let match_set = &mut self.match_sets[field.match_set];
         if let Some(ref name) = field.name {
             match_set.field_name_map.get_mut(name).unwrap().remove(&id);
         }
@@ -170,7 +137,7 @@ impl<'a> WorkerThreadSession<'a> {
     }
     #[allow(dead_code)] //TODO
     fn inform_field_filled(&mut self, field_id: FieldId) {
-        let field = &mut self.fields[field_id as usize];
+        let field = &mut self.fields[field_id];
         for tf in field
             .permanent_interest
             .iter()
@@ -262,7 +229,7 @@ impl<'a> WorkerThreadSession<'a> {
         while !self.fields[FIELD_ID_JOB_INPUT].field_data.is_empty() {
             self.ready_queue.push(0 as TransformId);
             while let Some(tf_id) = self.ready_queue.pop() {
-                let tf = &mut self.transforms[tf_id as usize];
+                let tf = &mut self.transforms[tf_id];
                 tf.ready = false;
                 match tf.data {
                     TransformData::Disabled => unreachable!(),

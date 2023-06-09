@@ -8,11 +8,12 @@ use smallvec::SmallVec;
 
 use crate::context::{ContextData, SessionData};
 use crate::document::{Document, DocumentId};
+use crate::field_data::FieldData;
 use crate::operations::operator_base::OperatorId;
 
 use crate::scr_error::ScrError;
 use crate::string_store::StringStoreEntry;
-use crate::worker_thread_session::{FieldData, WorkerThreadSession};
+use crate::worker_thread_session::WorkerThreadSession;
 
 pub enum JobData {
     FieldData(Vec<(Option<StringStoreEntry>, FieldData)>),
