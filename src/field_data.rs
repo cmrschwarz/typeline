@@ -125,7 +125,7 @@ impl Clone for FieldData {
             data: Vec::with_capacity(self.data.len()),
             header: self.header.clone(),
         };
-        //TODO
+        self.copy_n(usize::MAX, &mut [&mut res]);
         res
     }
 }
@@ -224,24 +224,52 @@ impl FieldData {
         self.data.truncate(remaining_size);
     }
 
-    pub fn copy_n<'a>(&self, n: usize, targets: &[&'a mut FieldData]) {
+    pub fn copy_n<'a>(&self, n: usize, targets: &mut [&'a mut FieldData]) {
         let mut examination_range = self.data.len()..self.data.len();
         let mut remaining_elements = n;
         let mut header_idx = self.header.len();
-        loop {
+        while remaining_elements > 0 && header_idx > 0 {
             header_idx -= 1;
             let mut h = self.header[header_idx];
+            if header_idx == 0 {
+                remaining_elements = h.run_length as usize;
+            }
             if h.run_length as usize >= remaining_elements {
                 h.run_length = remaining_elements as RunLength;
                 remaining_elements = 0;
-                for t in targets {
-                    if let Some(ref h_tgt) = t.header.last() {
-                        if !h.shared_value && !h_tgt.shared_value && h_tgt.kind == h.kind {}
+                for t in targets.iter_mut() {
+                    if let Some(h_tgt) = t.header.last_mut() {
+                        if !h.shared_value && !h_tgt.shared_value && h_tgt.kind == h.kind {
+                            if let Some(rl) = h_tgt.run_length.checked_add(h.run_length) {
+                                h_tgt.run_length = rl;
+                                if header_idx + 1 != self.header.len() {
+                                    t.header.extend(&self.header[header_idx + 1..]);
+                                }
+                                continue;
+                            }
+                        }
                     }
+                    t.header.extend(&self.header[header_idx..]);
                 }
             } else {
                 remaining_elements -= h.run_length as usize;
             }
+            if h.kind.needs_copy() {
+                let size = examination_range.end - examination_range.start;
+                unsafe {
+                    let start = self.data.as_ptr().add(examination_range.start);
+                    append_data_memcpy(start, size, targets);
+                    append_data(h, start.add(size), targets)
+                }
+                examination_range.end = examination_range.start;
+            } else {
+                examination_range.start -= h.run_length as usize * h.size as usize;
+            }
+        }
+        let size = examination_range.end - examination_range.start;
+        unsafe {
+            let start = self.data.as_ptr().add(examination_range.start);
+            append_data_memcpy(start, size, targets);
         }
     }
     pub fn dup_nth(&mut self, n: usize, new_run_len: RunLength) {
@@ -368,11 +396,7 @@ unsafe fn drop_data(fmt: FieldValueHeader, ptr: *mut u8) {
     }
 }
 
-unsafe fn append_data_memcpy<'a>(
-    ptr: *mut u8,
-    size: usize,
-    targets: impl Iterator<Item = &'a mut FieldData>,
-) {
+unsafe fn append_data_memcpy<'a>(ptr: *const u8, size: usize, targets: &mut [&'a mut FieldData]) {
     let source = slice::from_raw_parts(ptr, size);
     for tgt in targets {
         tgt.data.extend_from_slice(source);
@@ -392,8 +416,8 @@ unsafe fn extend_with_clones<T: Clone>(tgt: &mut Vec<u8>, src: *const T, count: 
 
 unsafe fn append_data<'a>(
     fmt: FieldValueHeader,
-    source: *mut u8,
-    targets: impl Iterator<Item = &'a mut FieldData>,
+    source: *const u8,
+    targets: &mut [&'a mut FieldData],
 ) {
     let count = if fmt.shared_value {
         1

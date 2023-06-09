@@ -344,7 +344,7 @@ impl<'a> WorkerThreadSession<'a> {
                     rem = rem_new;
                 }
 
-                source.unwrap().copy_n(bs, targets_arr.as_slice());
+                source.unwrap().copy_n(bs, targets_arr.as_mut_slice());
             }
         }
         s
