@@ -1,12 +1,44 @@
-use std::ops::{Index, IndexMut};
+use std::ops::{Deref, Index, IndexMut};
 
-#[derive(Clone)]
-pub struct Universe<I: From<usize> + Into<usize>, T> {
-    data: Vec<T>,
-    unused_ids: Vec<I>,
+pub trait UniverseIndex: Clone + Copy + TryFrom<usize> + Into<usize> {}
+
+impl<I: Clone + Copy + TryFrom<usize> + Into<usize>> UniverseIndex for I {}
+
+#[derive(Clone, Copy)]
+struct UniverseIdx<I: UniverseIndex>(I);
+
+impl<I: UniverseIndex> UniverseIdx<I> {
+    fn from_usize(val: usize) -> Self {
+        UniverseIdx(unsafe { val.try_into().unwrap_unchecked() })
+    }
+    fn to_usize(self) -> usize {
+        self.0.into()
+    }
 }
 
-impl<I: From<usize> + Into<usize>, T> Default for Universe<I, T> {
+impl<I: UniverseIndex> Deref for UniverseIdx<I> {
+    type Target = I;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+#[derive(Clone)]
+pub struct Universe<I: UniverseIndex, T> {
+    data: Vec<T>,
+    unused_ids: Vec<UniverseIdx<I>>,
+}
+
+impl<I: UniverseIndex, T> Deref for Universe<I, T> {
+    type Target = Vec<T>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.data
+    }
+}
+
+impl<I: UniverseIndex, T> Default for Universe<I, T> {
     fn default() -> Self {
         Self {
             data: Default::default(),
@@ -15,25 +47,24 @@ impl<I: From<usize> + Into<usize>, T> Default for Universe<I, T> {
     }
 }
 
-impl<I: From<usize> + Into<usize>, T> Universe<I, T> {
+impl<I: UniverseIndex, T> Universe<I, T> {
     pub fn push(&mut self, val: T) -> I {
         if let Some(id) = self.unused_ids.pop() {
-            let index = id.into();
-            self.data[index] = val;
-            index.into()
+            self.data[id.to_usize()] = val;
+            *id
         } else {
-            let id = self.data.len().into();
+            let id = UniverseIdx::from_usize(self.data.len());
             self.data.push(val);
-            id
+            *id
         }
     }
     pub fn release(&mut self, id: I) {
-        let index = id.into();
+        let index = UniverseIdx(id).to_usize();
         if self.data.len() == index + 1 {
             self.data.pop();
             return;
         }
-        self.unused_ids.push(index.into());
+        self.unused_ids.push(UniverseIdx(id));
     }
 
     pub fn len(&self) -> usize {
@@ -43,9 +74,12 @@ impl<I: From<usize> + Into<usize>, T> Universe<I, T> {
         self.unused_ids.clear();
         self.data.clear();
     }
+    pub fn as_mut_slice(&mut self) -> &mut [T] {
+        self.data.as_mut_slice()
+    }
 }
 
-impl<I: From<usize> + Into<usize>, T> Index<I> for Universe<I, T> {
+impl<I: UniverseIndex, T> Index<I> for Universe<I, T> {
     type Output = T;
 
     fn index(&self, index: I) -> &Self::Output {
@@ -53,20 +87,20 @@ impl<I: From<usize> + Into<usize>, T> Index<I> for Universe<I, T> {
     }
 }
 
-impl<I: From<usize> + Into<usize>, T> IndexMut<I> for Universe<I, T> {
+impl<I: UniverseIndex, T> IndexMut<I> for Universe<I, T> {
     fn index_mut(&mut self, index: I) -> &mut Self::Output {
         &mut self.data[index.into()]
     }
 }
 
-impl<I: From<usize> + Into<usize>, T: Default> Universe<I, T> {
+impl<I: UniverseIndex, T: Default> Universe<I, T> {
     pub fn claim(&mut self) -> I {
         if let Some(id) = self.unused_ids.pop() {
-            id
+            *id
         } else {
             let id = self.data.len();
             self.data.push(Default::default());
-            id.into()
+            *UniverseIdx::from_usize(id)
         }
     }
 }

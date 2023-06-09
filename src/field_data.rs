@@ -1,7 +1,8 @@
 use std::{
     marker::PhantomData,
-    mem::size_of,
+    mem::{size_of, ManuallyDrop},
     ptr::{drop_in_place, NonNull},
+    slice,
 };
 
 use indexmap::IndexMap;
@@ -11,7 +12,7 @@ use crate::operations::operator_base::OperatorApplicationError;
 //if the u32 overflows we just split into two values
 pub type RunLength = u32;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub enum StreamKind {
     Plain,
     StreamChunk(bool),
@@ -19,13 +20,13 @@ pub enum StreamKind {
     BufferFile(bool),
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub enum FieldValueKind {
     Unset,
     EntryId,
     Text(StreamKind),
     Bytes(StreamKind),
-    Array(StreamKind), //TODO
+    Array(StreamKind),
     Error,
     Html,
     Integer, //TODO: bigint, float, decimal, ...
@@ -47,6 +48,9 @@ impl FieldValueKind {
             Object => true,
         }
     }
+    pub fn needs_copy(self) -> bool {
+        self.needs_drop()
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -59,6 +63,14 @@ pub enum FieldValueBytesRef<'a> {
 
 #[derive(Clone, Copy)]
 pub enum FieldValueTextRef<'a> {
+    Plain(&'a str),
+    StreamChunk(&'a str, bool),
+    BufferMem(&'a String, bool),
+    BufferFile(u8, bool), //TODO
+}
+
+#[derive(Clone, Copy)]
+pub enum FieldValueArrayRef<'a> {
     Plain(&'a str),
     StreamChunk(&'a str, bool),
     BufferMem(&'a String, bool),
@@ -103,8 +115,19 @@ struct FieldValueHeader {
 
 #[derive(Default)]
 pub struct FieldData {
-    header: Vec<FieldValueHeader>,
     data: Vec<u8>,
+    header: Vec<FieldValueHeader>,
+}
+
+impl Clone for FieldData {
+    fn clone(&self) -> Self {
+        let mut res = Self {
+            data: Vec::with_capacity(self.data.len()),
+            header: self.header.clone(),
+        };
+        //TODO
+        res
+    }
 }
 
 pub struct FieldDataIterator<'a> {
@@ -173,17 +196,17 @@ impl FieldData {
         self.header.clear();
         self.data.clear();
     }
-    pub fn drop_n(&mut self, n: RunLength) {
+    pub fn drop_n(&mut self, n: usize) {
         let mut remaining_size = self.data.len();
         let mut remaining_drops = n;
         while remaining_drops > 0 {
             let h = self.header.last_mut().unwrap();
-            if h.run_length > remaining_drops {
+            if h.run_length as usize > remaining_drops {
                 self.data.truncate(remaining_size);
-                h.run_length -= remaining_drops;
+                h.run_length -= remaining_drops as RunLength;
                 return;
             }
-            remaining_drops -= h.run_length;
+            remaining_drops -= h.run_length as usize;
             let drop_count = if h.shared_value { 1 } else { h.run_length };
 
             if h.kind.needs_drop() {
@@ -199,6 +222,27 @@ impl FieldData {
             self.header.pop();
         }
         self.data.truncate(remaining_size);
+    }
+
+    pub fn copy_n<'a>(&self, n: usize, targets: &[&'a mut FieldData]) {
+        let mut examination_range = self.data.len()..self.data.len();
+        let mut remaining_elements = n;
+        let mut header_idx = self.header.len();
+        loop {
+            header_idx -= 1;
+            let mut h = self.header[header_idx];
+            if h.run_length as usize >= remaining_elements {
+                h.run_length = remaining_elements as RunLength;
+                remaining_elements = 0;
+                for t in targets {
+                    if let Some(ref h_tgt) = t.header.last() {
+                        if !h.shared_value && !h_tgt.shared_value && h_tgt.kind == h.kind {}
+                    }
+                }
+            } else {
+                remaining_elements -= h.run_length as usize;
+            }
+        }
     }
     pub fn dup_nth(&mut self, n: usize, new_run_len: RunLength) {
         let mut hi = self.header.len();
@@ -320,6 +364,80 @@ unsafe fn drop_data(fmt: FieldValueHeader, ptr: *mut u8) {
             Error => drop_in_place(ptr as *mut OperatorApplicationError),
             Html => todo!(),
             Object => drop_in_place(ptr as *mut crate::field_data::Object),
+        }
+    }
+}
+
+unsafe fn append_data_memcpy<'a>(
+    ptr: *mut u8,
+    size: usize,
+    targets: impl Iterator<Item = &'a mut FieldData>,
+) {
+    let source = slice::from_raw_parts(ptr, size);
+    for tgt in targets {
+        tgt.data.extend_from_slice(source);
+    }
+}
+
+unsafe fn as_u8_slice<T: Sized>(p: &T) -> &[u8] {
+    slice::from_raw_parts((p as *const T) as *const u8, size_of::<T>())
+}
+
+unsafe fn extend_with_clones<T: Clone>(tgt: &mut Vec<u8>, src: *const T, count: usize) {
+    let source = slice::from_raw_parts(src as *const ManuallyDrop<Vec<T>>, count);
+    for v in source {
+        tgt.extend_from_slice(as_u8_slice(&v.clone()));
+    }
+}
+
+unsafe fn append_data<'a>(
+    fmt: FieldValueHeader,
+    source: *mut u8,
+    targets: impl Iterator<Item = &'a mut FieldData>,
+) {
+    let count = if fmt.shared_value {
+        1
+    } else {
+        fmt.run_length as usize
+    };
+    use FieldValueKind::*;
+    for tgt in targets {
+        match fmt.kind {
+            Unset | EntryId | Integer | Null => unreachable!(),
+            Text(sk) | Bytes(sk) => match sk {
+                StreamKind::Plain | StreamKind::StreamChunk(_) => unreachable!(),
+                StreamKind::BufferMem(_) => unsafe {
+                    extend_with_clones(&mut tgt.data, source as *const Vec<u8>, count)
+                },
+
+                StreamKind::BufferFile(_) => todo!(),
+            },
+            Array(sk) => match sk {
+                StreamKind::Plain | StreamKind::StreamChunk(_) => unreachable!(),
+                StreamKind::BufferMem(_) => unsafe {
+                    extend_with_clones(&mut tgt.data, source as *const FieldData, count)
+                },
+
+                StreamKind::BufferFile(_) => todo!(),
+            },
+            Error => unsafe {
+                extend_with_clones(
+                    &mut tgt.data,
+                    source as *const OperatorApplicationError,
+                    count,
+                )
+            },
+
+            Html => todo!(),
+            Object => {
+                let source = slice::from_raw_parts(
+                    source as *const ManuallyDrop<Vec<crate::field_data::Object>>,
+                    count,
+                );
+                for v in source {
+                    tgt.data.extend_from_slice(as_u8_slice(&v.clone()));
+                }
+            }
         }
     }
 }
