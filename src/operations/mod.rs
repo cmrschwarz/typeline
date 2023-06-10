@@ -12,5 +12,6 @@ pub mod split;
 pub mod transform_state;
 
 pub fn setup_operator(_sd: &mut SessionData, _op_id: OperatorId) -> Result<(), OperatorSetupError> {
-    todo!();
+    //TODO: typechecking
+    Ok(())
 }

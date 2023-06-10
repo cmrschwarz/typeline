@@ -201,8 +201,20 @@ impl<'a> WorkerThreadSession<'a> {
             JobData::Documents(_docs) => {
                 todo!()
             }
-            JobData::DocumentIds(_ids) => {
-                todo!()
+            JobData::DocumentIds(doc_ids) => {
+                for ds in doc_ids
+                    .iter()
+                    .map(|d| &self.session_data.documents[*d as usize].source)
+                {
+                    match ds {
+                        crate::document::DocumentSource::Url(_) => todo!(),
+                        crate::document::DocumentSource::File(_) => todo!(),
+                        crate::document::DocumentSource::String(_) => todo!(),
+                        crate::document::DocumentSource::Bytes(_) => todo!(),
+                        crate::document::DocumentSource::Stdin => todo!(),
+                    }
+                    self.fields[FIELD_ID_JOB_INPUT].field_data.ad
+                }
             }
             JobData::Stdin => {
                 todo!()
