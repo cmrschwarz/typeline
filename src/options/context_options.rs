@@ -1,4 +1,4 @@
-use std::num::NonZeroUsize;
+use std::{borrow::Cow, num::NonZeroUsize};
 
 use bstring::BString;
 
@@ -7,7 +7,7 @@ use crate::{
     context::{Context, SessionData},
     document::Document,
     operations::{
-        operator_base::{setup_operator, OperatorBase, OperatorId},
+        operator_base::{OperatorBase, OperatorId, OperatorOffsetInChain},
         operator_data::OperatorData,
         OperatorSetupError,
     },
@@ -97,6 +97,27 @@ impl ContextOptions {
                 .resize(chain_id as usize + 1, Default::default());
         }
     }
+    pub fn setup_operators(sess: &mut SessionData) -> Result<(), OperatorSetupError> {
+        if sess.operator_bases.len() >= OperatorOffsetInChain::MAX as usize {
+            return Err(OperatorSetupError {
+                message: Cow::Owned(
+                    format!(
+                        "cannot have more than {} operators",
+                        OperatorOffsetInChain::MAX
+                    )
+                    .to_owned(),
+                ),
+                op_id: OperatorOffsetInChain::MAX,
+            });
+        }
+        for i in 0..sess.operator_bases.len() {
+            let op = &mut sess.operator_bases[i];
+            let chain = &mut sess.chains[op.chain_id as usize];
+            op.offset_in_chain = chain.operations.len() as OperatorOffsetInChain;
+            chain.operations.push(i as OperatorId);
+        }
+        Ok(())
+    }
     pub fn build_context(mut self) -> Result<Context, (ContextOptions, OperatorSetupError)> {
         let max_worker_threads = NonZeroUsize::try_from(
             self.max_worker_threads
@@ -128,15 +149,13 @@ impl ContextOptions {
             cli_args: self.cli_args,
             string_store: self.string_store.unwrap_or_default(),
         };
-        for i in 0..sd.operator_data.len() {
-            if let Err(e) = setup_operator(&mut sd, i as OperatorId) {
-                //moving back into context options
-                self.documents = sd.documents;
-                self.string_store = Some(sd.string_store);
-                self.operator_data = sd.operator_data;
-                self.cli_args = sd.cli_args;
-                return Err((self, e));
-            }
+        if let Err(e) = ContextOptions::setup_operators(&mut sd) {
+            //moving back into context options
+            self.documents = sd.documents;
+            self.string_store = Some(sd.string_store);
+            self.operator_data = sd.operator_data;
+            self.cli_args = sd.cli_args;
+            return Err((self, e));
         }
         Ok(Context::new(sd))
     }

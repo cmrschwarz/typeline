@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     iter,
     marker::PhantomData,
     mem::{align_of, size_of, ManuallyDrop},
@@ -6,9 +7,7 @@ use std::{
     slice,
 };
 
-use indexmap::IndexMap;
-
-use crate::operations::OperatorApplicationError;
+use crate::{operations::OperatorApplicationError, string_store::StringStoreEntry};
 
 //if the u32 overflows we just split into two values
 pub type RunLength = u32;
@@ -97,15 +96,16 @@ pub enum FieldValueArrayRef<'a> {
     BufferFile(&'a ArrayBufferFile, bool), //TODO
 }
 
+#[derive(Clone)]
 struct ObjectEntry {
     kind: FieldValueKind,
-    offset: usize,
+    data_offset: usize,
 }
 
+#[derive(Clone)]
 pub struct Object {
-    //TODO mesasure
-    keys: IndexMap<String, ObjectEntry>,
-    data: Vec<u8>,
+    data: FieldData,
+    table: HashMap<StringStoreEntry, ObjectEntry>,
 }
 
 pub struct Html {
@@ -161,10 +161,27 @@ type FieldValueSize = u16;
 struct FieldValueHeader {
     kind: FieldValueKind, //TODO: pack to one byte and add convenience functions
     shared_value: bool,
-    // this may include up to (kind.align() - 1) many padding bytes inserted
-    // before this field to make it aligned
+    // this does NOT include potential padding before this
+    // field in case it has to be aligned
     size: FieldValueSize,
     run_length: RunLength,
+}
+
+impl FieldValueHeader {
+    fn data_element_count(&self) -> usize {
+        if self.shared_value {
+            1
+        } else {
+            self.run_length as usize
+        }
+    }
+    fn data_size(&self) -> usize {
+        if self.shared_value {
+            self.size as usize
+        } else {
+            self.size as usize * self.run_length as usize
+        }
+    }
 }
 
 #[derive(Default)]
@@ -300,16 +317,16 @@ impl FieldData {
     pub fn drop_n(&mut self, n: usize) {
         let mut remaining_size = self.data.len();
         let mut remaining_drops = n;
+        let mut header_idx = self.header.len();
         while remaining_drops > 0 && remaining_size > 0 {
-            let h = self.header.last_mut().unwrap();
+            header_idx -= 1;
+            let h = &mut self.header[header_idx];
             if h.run_length as usize > remaining_drops {
-                self.data.truncate(remaining_size);
                 h.run_length -= remaining_drops as RunLength;
-                return;
+                break;
             }
             remaining_drops -= h.run_length as usize;
             let drop_count = if h.shared_value { 1 } else { h.run_length };
-
             if h.kind.needs_drop() {
                 for _ in 0..drop_count {
                     remaining_size -= h.size as usize;
@@ -320,8 +337,11 @@ impl FieldData {
             } else {
                 remaining_size -= drop_count as usize * h.size as usize;
             }
-            self.header.pop();
+            if h.kind.needs_alignment() {
+                remaining_size -= remaining_size % MAX_FIELD_ALIGN;
+            }
         }
+        self.header.truncate(header_idx);
         self.data.truncate(remaining_size);
     }
     pub fn dup_nth(&mut self, n: usize, new_run_len: RunLength) {
@@ -366,63 +386,125 @@ impl FieldData {
             self.header.splice(hi..hi, [tgt, tgt2]);
         }
     }
+    // can't make this pub as it can be used to break the type layout
+    fn pad_to_align(&mut self) {
+        self.data
+            .extend(iter::repeat(0).take(self.data.len() % MAX_FIELD_ALIGN));
+    }
     pub fn copy_n<'a>(&self, n: usize, targets: &mut [&'a mut FieldData]) {
-        let mut examination_range = self.data.len()..self.data.len();
+        let mut h;
+
+        // search backwards to the first header that we need to copy
         let mut remaining_elements = n;
         let mut header_idx = self.header.len();
-        while remaining_elements > 0 && header_idx > 0 {
+        debug_assert!(!self.header.is_empty());
+        let headers_len = self.header.len();
+        let data_size_total = self.data.len();
+        let mut copy_data_size = 0;
+        // this includes the align
+        let mut copy_data_size_at_first_aligned_field = data_size_total;
+        let mut first_aligned_field_idx = headers_len;
+        let mut first_aligned_field_padding = 0;
+        loop {
             header_idx -= 1;
-            let mut h = self.header[header_idx];
-            if header_idx == 0 {
-                remaining_elements = h.run_length as usize;
-            }
+            h = self.header[header_idx];
             if h.run_length as usize >= remaining_elements {
                 h.run_length = remaining_elements as RunLength;
-                remaining_elements = 0;
-                for t in targets.iter_mut() {
-                    if let Some(h_tgt) = t.header.last_mut() {
-                        if !h.shared_value && !h_tgt.shared_value && h_tgt.kind == h.kind {
-                            if let Some(rl) = h_tgt.run_length.checked_add(h.run_length) {
-                                h_tgt.run_length = rl;
-                                if header_idx + 1 != self.header.len() {
-                                    t.header.extend(&self.header[header_idx + 1..]);
-                                }
-                                continue;
-                            }
-                        }
-                    }
-                    t.header.extend(&self.header[header_idx..]);
-                }
-            } else {
-                remaining_elements -= h.run_length as usize;
+                break;
             }
-            if h.kind.needs_copy() {
-                let size = examination_range.end - examination_range.start;
-                unsafe {
-                    let start = self.data.as_ptr().add(examination_range.start);
-                    append_data_memcpy(start, size, targets);
-                    append_data(h, start.add(size), targets)
-                }
-                examination_range.end = examination_range.start;
-            } else {
-                examination_range.start -= h.run_length as usize * h.size as usize;
+            if header_idx == 0 {
+                break;
+            }
+            remaining_elements -= h.run_length as usize;
+
+            copy_data_size += h.data_size();
+            if h.kind.needs_alignment() {
+                copy_data_size_at_first_aligned_field = copy_data_size;
+                first_aligned_field_idx = header_idx;
+                first_aligned_field_padding = (data_size_total - copy_data_size) % MAX_FIELD_ALIGN;
+                copy_data_size += first_aligned_field_padding;
             }
         }
-        let size = examination_range.end - examination_range.start;
+
+        // copy the headers over to the targets
+        for t in targets.iter_mut() {
+            if let Some(h_tgt) = t.header.last_mut() {
+                if !h.shared_value && !h_tgt.shared_value && h_tgt.kind == h.kind {
+                    if let Some(rl) = h_tgt.run_length.checked_add(h.run_length) {
+                        h_tgt.run_length = rl;
+                        if header_idx + 1 != self.header.len() {
+                            t.header.extend(&self.header[header_idx + 1..]);
+                        }
+                        continue;
+                    }
+                }
+            }
+            t.header.extend(&self.header[header_idx..]);
+        }
+
+        // copy over leading unaligned data
+        let data_start = data_size_total - copy_data_size;
+        let first_aligned_field_start = data_size_total - copy_data_size_at_first_aligned_field;
+
+        if first_aligned_field_start != data_start {
+            unsafe {
+                append_data_memcpy(
+                    self.data.as_ptr().add(data_start),
+                    first_aligned_field_start - data_start - first_aligned_field_padding,
+                    targets,
+                );
+            }
+            h = self.header[first_aligned_field_idx];
+        }
+
+        // if all memory was unaligned, we're done here
+        if first_aligned_field_start == data_size_total {
+            return;
+        }
+
+        // add padding so all targets are aligned
+        for t in targets.iter_mut() {
+            t.pad_to_align();
+        }
+
+        // copy over the remaining data, using the fact that source and
+        // all targets are aligned at this point
+        let mut uncopied_data_start = first_aligned_field_start;
+        let mut header_idx = first_aligned_field_idx;
+        let mut data_pos = first_aligned_field_start;
+        loop {
+            let field_data_size = h.data_size();
+            if h.kind.needs_copy() {
+                unsafe {
+                    let start = self.data.as_ptr().add(uncopied_data_start);
+                    append_data_memcpy(start, data_pos - uncopied_data_start, targets);
+                    append_data(h, self.data.as_ptr().add(data_pos), targets)
+                }
+                data_pos += field_data_size;
+                uncopied_data_start = data_pos;
+            } else {
+                data_pos += field_data_size;
+            }
+            header_idx += 1;
+            if header_idx == headers_len {
+                break;
+            }
+            h = self.header[header_idx];
+            if h.kind.needs_alignment() {
+                data_pos += data_pos % MAX_FIELD_ALIGN;
+            }
+        }
         unsafe {
-            let start = self.data.as_ptr().add(examination_range.start);
-            append_data_memcpy(start, size, targets);
+            let start = self.data.as_ptr().add(uncopied_data_start);
+            append_data_memcpy(start, data_pos - uncopied_data_start, targets);
         }
     }
     pub fn push_str(&mut self, data: &str, run_length: RunLength) {
         let inline = data.len() < INLINE_STR_MAX_LEN;
-        let (align, tgt_kind) = if inline {
-            (0, FieldValueKind::Text(StreamKind::Plain))
+        let tgt_kind = if inline {
+            FieldValueKind::Text(StreamKind::Plain)
         } else {
-            (
-                self.data.len() % MAX_FIELD_ALIGN,
-                FieldValueKind::Text(StreamKind::BufferMem(true)),
-            )
+            FieldValueKind::Text(StreamKind::BufferMem(true))
         };
         let mut could_amend_header = false;
         if let Some(h) = self.header.last_mut() {
@@ -441,7 +523,7 @@ impl FieldData {
                 size: if inline {
                     data.len()
                 } else {
-                    size_of::<String>() + align
+                    size_of::<String>()
                 } as FieldValueSize,
                 run_length,
             })
@@ -449,7 +531,7 @@ impl FieldData {
         if inline {
             self.data.extend_from_slice(data.as_bytes());
         } else {
-            self.data.extend(iter::repeat(0).take(align));
+            self.pad_to_align();
             let owned_str = ManuallyDrop::new(data.to_owned());
             self.data
                 .extend_from_slice(unsafe { as_u8_slice(&owned_str) });
@@ -595,15 +677,11 @@ unsafe fn append_data<'a>(
             },
 
             Html => todo!(),
-            Object => {
-                let source = slice::from_raw_parts(
-                    source as *const ManuallyDrop<Vec<crate::field_data::Object>>,
-                    count,
-                );
-                for v in source {
-                    tgt.data.extend_from_slice(as_u8_slice(&v.clone()));
-                }
-            }
+            Object => extend_with_clones(
+                &mut tgt.data,
+                source as *const crate::field_data::Object,
+                count,
+            ),
         }
     }
 }

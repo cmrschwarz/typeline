@@ -228,6 +228,7 @@ impl<'a> WorkerThreadSession<'a> {
             )
             .into());
         }
+        assert!(!job.starting_ops.is_empty());
         if job.starting_ops.len() > 1 {
             let tf = setup_ts_split_as_entry_point(
                 self,
