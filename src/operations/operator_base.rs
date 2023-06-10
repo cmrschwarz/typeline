@@ -1,59 +1,12 @@
-use std::borrow::Cow;
+use crate::{
+    chain::ChainId, context::SessionData, options::argument::CliArgIdx,
+    string_store::StringStoreEntry,
+};
 
-use crate::string_store::StringStoreEntry;
-use thiserror::Error;
-
-use crate::{chain::ChainId, options::argument::CliArgIdx};
+use super::OperatorSetupError;
 
 pub type OperatorId = u32;
 pub type OperatorOffsetInChain = u32;
-
-#[derive(Error, Debug, Clone)]
-#[error("{message}")]
-pub struct OperatorCreationError {
-    pub cli_arg_idx: Option<CliArgIdx>,
-    pub message: Cow<'static, str>,
-}
-
-#[derive(Error, Debug, Clone)]
-#[error("in op id {op_id}: {message}")]
-pub struct OperatorSetupError {
-    pub op_id: OperatorId,
-    pub message: Cow<'static, str>,
-}
-
-#[derive(Error, Debug, Clone)]
-#[error("in op id {0}: {message}", op_id)]
-pub struct OperatorApplicationError {
-    pub op_id: OperatorId,
-    pub message: Cow<'static, str>,
-}
-
-impl OperatorCreationError {
-    pub fn new(message: &'static str, cli_arg_idx: Option<CliArgIdx>) -> OperatorCreationError {
-        OperatorCreationError {
-            message: message.into(),
-            cli_arg_idx,
-        }
-    }
-}
-impl OperatorSetupError {
-    pub fn new(message: &'static str, op_id: OperatorId) -> OperatorSetupError {
-        OperatorSetupError {
-            message: Cow::Borrowed(message),
-            op_id,
-        }
-    }
-}
-
-impl OperatorApplicationError {
-    pub fn new(message: &'static str, op_id: OperatorId) -> OperatorApplicationError {
-        OperatorApplicationError {
-            message: Cow::Borrowed(message),
-            op_id,
-        }
-    }
-}
 
 pub struct OperatorBase {
     pub argname: StringStoreEntry,
@@ -61,4 +14,9 @@ pub struct OperatorBase {
     pub cli_arg_idx: Option<CliArgIdx>,
     pub chain_id: ChainId,
     pub offset_in_chain: OperatorOffsetInChain,
+}
+
+pub fn setup_operator(_sd: &mut SessionData, _op_id: OperatorId) -> Result<(), OperatorSetupError> {
+    //TODO: typechecking
+    Ok(())
 }

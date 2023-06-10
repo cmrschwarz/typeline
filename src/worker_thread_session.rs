@@ -11,11 +11,12 @@ use crate::{
     field_data::{EntryId, FieldData},
     operations::{
         format::setup_tf_format,
-        operator_base::{OperatorId, OperatorSetupError},
+        operator_base::OperatorId,
         operator_data::OperatorData,
         print::handle_print_batch_mode,
         split::{handle_split, setup_tf_split, setup_ts_split_as_entry_point},
         transform_state::{TransformData, TransformState},
+        OperatorSetupError,
     },
     scr_error::ScrError,
     string_store::StringStoreEntry,
@@ -291,7 +292,7 @@ impl<'a> WorkerThreadSession<'a> {
         Ok(true)
     }
     pub(crate) fn run_job(&mut self, job: Job) -> Result<(), ScrError> {
-        self.setup_job(job);
+        self.setup_job(job)?;
         loop {
             if self.run_batch_mode()? == true {
                 break;

@@ -3,7 +3,7 @@ use regex::Regex;
 
 use crate::options::argument::CliArgIdx;
 
-use super::operator_base::OperatorCreationError;
+use super::OperatorCreationError;
 
 pub struct OpRegex {
     pub regex: Regex,

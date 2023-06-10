@@ -8,7 +8,7 @@ use std::{
 
 use indexmap::IndexMap;
 
-use crate::operations::operator_base::OperatorApplicationError;
+use crate::operations::OperatorApplicationError;
 
 //if the u32 overflows we just split into two values
 pub type RunLength = u32;
@@ -150,8 +150,8 @@ union FieldValueUnion {
 const MAX_FIELD_ALIGN: usize = align_of::<FieldValueUnion>();
 
 unsafe fn to_aligned_ref<'a, T>(ptr: *const u8) -> &'a T {
-    const align_mask: usize = !(MAX_FIELD_ALIGN - 1);
-    &*((ptr as usize & !align_mask) as *const T)
+    const ALIGN_MASK: usize = !(MAX_FIELD_ALIGN - 1);
+    &*((ptr as usize & ALIGN_MASK) as *const T)
 }
 
 type FieldValueSize = u16;

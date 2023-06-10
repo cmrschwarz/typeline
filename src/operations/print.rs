@@ -6,7 +6,7 @@ use crate::{
     worker_thread_session::{TransformId, WorkerThreadSession},
 };
 
-use super::{operator_base::OperatorCreationError, operator_data::OperatorData};
+use super::{operator_data::OperatorData, OperatorCreationError};
 
 pub fn parse_print_op(
     value: Option<&bstr>,

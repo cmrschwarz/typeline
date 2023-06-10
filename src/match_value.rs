@@ -3,7 +3,7 @@ use indexmap::IndexMap;
 use std::ops::Deref;
 
 use crate::match_value_into_iter::MatchValueIntoIter;
-use crate::operations::operator_base::OperatorApplicationError;
+use crate::operations::OperatorApplicationError;
 use crate::string_store::StringStoreEntry;
 use crate::sync_variant::{self, SyncVariant, SyncVariantImpl};
 use std::mem::transmute;

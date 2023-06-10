@@ -6,8 +6,9 @@ use thiserror::Error;
 use crate::{
     cli::CliArgumentError,
     context::Context,
-    operations::operator_base::{
-        OperatorApplicationError, OperatorCreationError, OperatorId, OperatorSetupError,
+    operations::{
+        operator_base::OperatorId, OperatorApplicationError, OperatorCreationError,
+        OperatorSetupError,
     },
     options::{argument::CliArgIdx, context_options::ContextOptions},
 };

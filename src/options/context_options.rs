@@ -7,9 +7,9 @@ use crate::{
     context::{Context, SessionData},
     document::Document,
     operations::{
-        operator_base::{OperatorBase, OperatorId, OperatorSetupError},
+        operator_base::{setup_operator, OperatorBase, OperatorId},
         operator_data::OperatorData,
-        setup_operator,
+        OperatorSetupError,
     },
     selenium::SeleniumVariant,
     string_store::StringStore,
