@@ -319,3 +319,19 @@ impl<'a, I: FieldDataIterator<'a>> Iterator for ValuesOnlyFieldDataIterator<'a, 
         None
     }
 }
+
+impl<'a, I: FieldDataIterator<'a>> ValuesOnlyFieldDataIterator<'a, I> {
+    pub fn peek(&mut self) -> Option<<Self as Iterator>::Item> {
+        if self.remaining_run_len > 0 {
+            return Some(self.cached_value);
+        }
+        if let Some((len, val)) = self.iter.next() {
+            (self.remaining_run_len, self.cached_value) = (len, val);
+            return Some(val);
+        }
+        None
+    }
+    pub fn drop_n(&mut self, n: usize) -> usize {
+        self.iter.drop_n_fields(n)
+    }
+}
