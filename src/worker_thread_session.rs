@@ -4,15 +4,19 @@ use std::{
 };
 
 use nonmax::NonMaxUsize;
-use regex::Regex;
-use smallvec::{smallvec, SmallVec};
 
 use crate::{
     context::SessionData,
-    field_data::{EntryId, FieldData, RunLength},
-    operations::{format::FormatPart, operator_base::OperatorId, operator_data::OperatorData},
+    field_data::{EntryId, FieldData},
+    operations::{
+        format::setup_tf_format,
+        operator_base::OperatorId,
+        operator_data::OperatorData,
+        print::handle_print_batch_mode,
+        split::{handle_split, setup_tf_split, setup_ts_split_as_entry_point},
+        transform_state::{TransformData, TransformState},
+    },
     scr_error::ScrError,
-    scratch_vec::ScratchVec,
     string_store::StringStoreEntry,
     universe::Universe,
     worker_thread::{Job, JobData},
@@ -21,19 +25,19 @@ use crate::{
 pub type TransformId = NonMaxUsize;
 
 #[derive(Default)]
-struct Field {
+pub struct Field {
     // number of tfs that might read this field
     // if this drops to zero, remove the field
     // TODO:
     // (unless this is named, we have a fwd, and this is not shadowed before it)
-    ref_count: usize,
-    match_set: MatchSetId,
-    shadowed_after_tf: TransformId,
+    pub ref_count: usize,
+    pub match_set: MatchSetId,
+    pub shadowed_after_tf: TransformId,
 
-    name: Option<StringStoreEntry>,
+    pub name: Option<StringStoreEntry>,
     #[allow(dead_code)] //TODO
-    working_set_idx: Option<NonMaxUsize>,
-    field_data: FieldData,
+    pub working_set_idx: Option<NonMaxUsize>,
+    pub field_data: FieldData,
 }
 
 pub type FieldId = NonMaxUsize;
@@ -41,68 +45,30 @@ pub type FieldId = NonMaxUsize;
 pub const FIELD_ID_JOB_INPUT_INDICES: FieldId = unsafe { NonMaxUsize::new_unchecked(0) };
 pub const FIELD_ID_JOB_INPUT: FieldId = unsafe { NonMaxUsize::new_unchecked(1) };
 
-type MatchSetId = NonMaxUsize;
+pub type MatchSetId = NonMaxUsize;
 
 #[derive(Default)]
 #[repr(C)]
 pub struct MatchSet {
-    stream_batch_size: usize,
-    stream_participants: Vec<TransformId>,
-    working_set_updates: Vec<(EntryId, FieldId)>,
+    pub stream_batch_size: usize,
+    pub stream_participants: Vec<TransformId>,
+    pub working_set_updates: Vec<(EntryId, FieldId)>,
     //should not contain tf input fields (?)
-    working_set: Vec<FieldId>,
-    field_name_map: HashMap<StringStoreEntry, VecDeque<FieldId>>,
+    pub working_set: Vec<FieldId>,
+    pub field_name_map: HashMap<StringStoreEntry, VecDeque<FieldId>>,
 }
 
 pub struct WorkerThreadSession<'a> {
-    session_data: &'a SessionData,
+    pub session_data: &'a SessionData,
+    pub transforms: Universe<TransformId, TransformState<'a>>,
 
-    match_sets: Universe<MatchSetId, MatchSet>,
-    transforms: Universe<TransformId, TransformState<'a>>,
-    fields: Universe<FieldId, Field>,
-    stream_producers: Vec<TransformId>,
+    pub match_sets: Universe<MatchSetId, MatchSet>,
+    pub fields: Universe<FieldId, Field>,
+    pub stream_producers: Vec<TransformId>,
 
-    scrach_memory: Vec<&'static u8>,
+    pub ready_queue: BinaryHeap<TransformId>,
 
-    ready_queue: BinaryHeap<TransformId>,
-}
-
-struct TransformState<'a> {
-    successor: Option<TransformId>,
-    stream_successor: Option<TransformId>,
-    stream_producers_slot_index: Option<NonMaxUsize>,
-    input_field: FieldId,
-    available_batch_size: usize,
-    desired_batch_size: usize,
-    match_set_id: MatchSetId,
-    data: TransformData<'a>,
-}
-
-pub struct TfFormat<'a> {
-    pub output_field: FieldId,
-    pub parts: &'a [FormatPart],
-}
-
-pub struct TfSplit {
-    expanded: bool,
-    forwarded_stream_elements: usize,
-    // Operator Ids before expansion, transform ids after
-    targets: Vec<NonMaxUsize>,
-    field_names_set: HashMap<StringStoreEntry, SmallVec<[FieldId; 2]>>,
-}
-
-pub enum TransformData<'a> {
-    Disabled,
-    Print,
-    Split(Option<TfSplit>),
-    Regex(Regex),
-    Format(TfFormat<'a>),
-}
-
-impl Default for TransformData<'_> {
-    fn default() -> Self {
-        Self::Disabled
-    }
+    pub scrach_memory: Vec<&'static u8>,
 }
 
 impl<'a> WorkerThreadSession<'a> {
@@ -146,10 +112,10 @@ impl<'a> WorkerThreadSession<'a> {
         field.field_data.clear();
         self.fields.release(id);
     }
-    fn add_transform(&mut self, tf: TransformState<'a>) -> TransformId {
+    pub fn add_transform(&mut self, tf: TransformState<'a>) -> TransformId {
         self.transforms.push(tf)
     }
-    fn remove_transform(&mut self, tf_id: TransformId, triggering_field: FieldId) {
+    pub fn remove_transform(&mut self, tf_id: TransformId, triggering_field: FieldId) {
         self.transforms[tf_id].data = TransformData::Disabled;
         self.transforms.release(tf_id);
         let field = &mut self.fields[triggering_field];
@@ -159,11 +125,11 @@ impl<'a> WorkerThreadSession<'a> {
             self.remove_field(triggering_field);
         }
     }
-    fn add_match_set(&mut self) -> MatchSetId {
+    pub fn add_match_set(&mut self) -> MatchSetId {
         let id = self.match_sets.claim();
         id
     }
-    fn setup_transforms_from_op(
+    pub fn setup_transforms_from_op(
         &mut self,
         match_set_id: MatchSetId,
         available_batch_size: usize,
@@ -184,53 +150,32 @@ impl<'a> WorkerThreadSession<'a> {
             let op_data = &self.session_data.operator_data[*op_id as usize];
             let data = match op_data {
                 OperatorData::Print => TransformData::Print,
-                OperatorData::Split(sd) => TransformData::Split(Some(TfSplit {
-                    expanded: false,
-                    targets: sd
-                        .target_operators
-                        .iter()
-                        .map(|op| (*op as usize).try_into().unwrap())
-                        .collect(),
-                    forwarded_stream_elements: 0,
-                    field_names_set: Default::default(),
-                })),
+                OperatorData::Split(ref sd) => TransformData::Split(setup_tf_split(sd)),
                 OperatorData::Regex(rd) => TransformData::Regex(rd.regex.clone()),
-                OperatorData::Format(fmt) => {
+                OperatorData::Format(ref fmt) => {
                     output_field = self.add_field(match_set_id, None);
-                    TransformData::Format(TfFormat {
-                        output_field,
-                        parts: &fmt.parts,
-                    })
+                    TransformData::Format(setup_tf_format(self, output_field, fmt))
                 }
             };
-
+            let ts_state = TransformState {
+                available_batch_size,
+                data,
+                input_field: prev_field_id,
+                match_set_id,
+                stream_successor: None,
+                stream_producers_slot_index: None,
+                desired_batch_size: default_batch_size,
+                successor: None,
+            };
             let tf_id = if start_tf_id.is_none() {
-                let id = self.add_transform(TransformState {
-                    available_batch_size,
-                    data,
-                    input_field: prev_field_id,
-                    match_set_id,
-                    stream_successor: None,
-                    stream_producers_slot_index: None,
-                    desired_batch_size: default_batch_size,
-                    successor: None,
-                });
+                let id = self.add_transform(ts_state);
                 start_tf_id = Some(id);
                 if available_batch_size > 0 {
                     self.ready_queue.push(id);
                 }
                 id
             } else {
-                self.add_transform(TransformState {
-                    available_batch_size,
-                    data,
-                    input_field: prev_field_id,
-                    match_set_id,
-                    stream_successor: None,
-                    stream_producers_slot_index: None,
-                    desired_batch_size: default_batch_size,
-                    successor: None,
-                })
+                self.add_transform(ts_state)
             };
             if let Some(tf_id) = prev_tf {
                 self.transforms[tf_id].successor = Some(tf_id);
@@ -267,107 +212,14 @@ impl<'a> WorkerThreadSession<'a> {
 
         if job.starting_ops.len() > 1 {
             let ms_id = self.add_match_set();
-            self.add_transform(TransformState {
-                input_field: FIELD_ID_JOB_INPUT,
-                data: TransformData::Split(Some(TfSplit {
-                    expanded: false,
-                    forwarded_stream_elements: 0,
-                    targets: job
-                        .starting_ops
-                        .iter()
-                        .map(|op| (*op as usize).try_into().unwrap())
-                        .collect(),
-                    field_names_set: Default::default(),
-                })),
-                available_batch_size: entry_count,
-                stream_producers_slot_index: None,
-                stream_successor: None,
-                match_set_id: ms_id,
-                successor: None,
-                desired_batch_size: job.starting_ops.iter().fold(
-                    usize::MAX,
-                    |minimum_batch_size, op| {
-                        let cid = self.session_data.operator_bases[*op as usize].chain_id;
-                        minimum_batch_size.min(
-                            self.session_data.chains[cid as usize]
-                                .settings
-                                .default_batch_size,
-                        )
-                    },
-                ),
-            });
+            let tf =
+                setup_ts_split_as_entry_point(self, ms_id, entry_count, job.starting_ops.iter());
+            self.add_transform(tf);
         } else {
             self.setup_transforms_from_op(0usize.try_into().unwrap(), 0, 0, FIELD_ID_JOB_INPUT);
         }
     }
-    fn handle_split(&mut self, stream_mode: bool, tf_id: TransformId, mut s: TfSplit) -> TfSplit {
-        let tf = &mut self.transforms[tf_id];
-        let tf_ms_id = tf.match_set_id;
-        let bs = tf.available_batch_size;
-        tf.available_batch_size = 0;
-        self.ready_queue.pop();
-        if !s.expanded {
-            for i in 0..s.targets.len() {
-                let op = s.targets[i];
-                let ms_id = self.add_match_set();
-                let input_field = self.add_field(tf_ms_id, None);
-                let _tf = self.setup_transforms_from_op(
-                    ms_id,
-                    0,
-                    <NonMaxUsize as TryInto<usize>>::try_into(op).unwrap() as OperatorId,
-                    input_field,
-                );
-            }
-        }
-        if stream_mode {
-            todo!();
-        } else {
-            //TODO: detect invalidations somehow instead
-            s.field_names_set.clear();
-            //TODO: do something clever, per target, cow, etc. instead of this dumb copy
-            for field_id in self.match_sets[tf_ms_id].working_set.iter() {
-                // we should only have named fields in the working set (?)
-                if let Some(name) = self.fields[*field_id].name {
-                    s.field_names_set
-                        .entry(name)
-                        .or_insert_with(|| smallvec![])
-                        .push(*field_id);
-                }
-            }
-            for (name, targets) in &mut s.field_names_set {
-                let source_id = *self.match_sets[tf_ms_id]
-                    .field_name_map
-                    .get(&name)
-                    .unwrap()
-                    .back()
-                    .unwrap();
-                let mut offset: usize = 0;
-                let mut source = None;
-                let mut rem = self.fields.as_mut_slice();
 
-                // the following is a annoyingly complicated way to gathering a
-                // list of mutable references from a list of indices without using unsafe
-                let mut targets_arr = ScratchVec::new(&mut self.scrach_memory);
-                targets.sort();
-
-                for i in targets.iter() {
-                    let (tgt, rem_new) = rem.split_at_mut(usize::from(*i) as usize - offset + 1);
-                    offset += tgt.len();
-                    let fd = &mut tgt[tgt.len() - 1].field_data;
-                    if source_id == *i {
-                        source = Some(fd);
-                    } else {
-                        targets_arr.push(fd);
-                    }
-                    rem = rem_new;
-                }
-
-                source.unwrap().copy_n(bs, targets_arr.as_mut_slice());
-            }
-        }
-        debug_assert!(self.transforms[tf_id].successor.is_none());
-        s
-    }
     fn run_batch_mode(&mut self) -> Result<bool, ScrError> {
         while !self.fields[FIELD_ID_JOB_INPUT].field_data.is_empty() {
             self.ready_queue.push(0usize.try_into().unwrap()); //TODO
@@ -378,41 +230,14 @@ impl<'a> WorkerThreadSession<'a> {
                     TransformData::Disabled => unreachable!(),
                     TransformData::Split(ref mut split_orig) => {
                         let mut s = split_orig.take().unwrap();
-                        s = self.handle_split(false, tf_id, s);
+                        s = handle_split(self, false, tf_id, s);
                         match self.transforms[tf_id].data {
                             TransformData::Split(ref mut s_restored) => *s_restored = Some(s),
                             _ => unreachable!(),
                         }
                     }
                     TransformData::Print => {
-                        let batch = tf.desired_batch_size.min(tf.available_batch_size);
-                        tf.available_batch_size -= batch;
-                        if tf.available_batch_size == 0 {
-                            self.ready_queue.pop();
-                        }
-                        let mut entries = ScratchVec::new(&mut self.scrach_memory);
-                        let print_error_text = "<Type Error>";
-                        //TODO: much optmization much wow
-                        entries.extend(
-                            self.fields[tf.input_field]
-                                .field_data
-                                .iter()
-                                .bounded(batch)
-                                .map(|(len, v)| match v {
-                                    crate::field_data::FieldValueRef::Text(sv) => match sv {
-                                        crate::field_data::FieldValueTextRef::Plain(txt) => {
-                                            (len, txt)
-                                        }
-                                        _ => (len, print_error_text),
-                                    },
-                                    _ => (len, print_error_text),
-                                }),
-                        );
-                        for (len, text) in entries.iter() {
-                            for i in 0..*len {
-                                println!("{text}");
-                            }
-                        }
+                        handle_print_batch_mode(self, tf_id);
                     }
                     TransformData::Regex(_) => todo!(),
                     TransformData::Format(_) => todo!(),
@@ -431,7 +256,7 @@ impl<'a> WorkerThreadSession<'a> {
                     TransformData::Disabled => unreachable!(),
                     TransformData::Split(ref mut split_orig) => {
                         let mut s = split_orig.take().unwrap();
-                        s = self.handle_split(true, tf_id, s);
+                        s = handle_split(self, true, tf_id, s);
                         match self.transforms[tf_id].data {
                             TransformData::Split(ref mut s_restored) => *s_restored = Some(s),
                             _ => unreachable!(),

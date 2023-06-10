@@ -437,7 +437,7 @@ unsafe fn drop_data(fmt: FieldValueHeader, ptr: *mut u8) {
                 StreamKind::BufferMem(_) => drop_in_place(ptr as *mut Vec<u8>),
                 StreamKind::BufferFile(_) => todo!(),
             },
-            Array(sk) => todo!(),
+            Array(_sk) => todo!(),
             Error => drop_in_place(ptr as *mut OperatorApplicationError),
             Html => todo!(),
             Object => drop_in_place(ptr as *mut crate::field_data::Object),

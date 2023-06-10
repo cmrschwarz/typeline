@@ -1,148 +1,52 @@
-use std::{
-    collections::{HashMap, VecDeque},
-    io::Write,
-};
-
-use smallvec::SmallVec;
+use bstring::bstr;
 
 use crate::{
-    context::SessionData,
-    match_data::{MatchData, MatchDataKind},
-    operations::transform::{TfBase, Transform},
-    options::context_options::ContextOptions,
-    plattform::NEWLINE_BYTES,
+    options::argument::CliArgIdx,
+    scratch_vec::ScratchVec,
+    worker_thread_session::{TransformId, WorkerThreadSession},
 };
 
-use super::{
-    operation_catalog::OperationCatalogMember,
-    operator::{
-        Operation, OperationParameters, OperatorApplicationError, OperatorBase,
-        OperatorCreationError, OperatorRef,
-    },
-    transform::{TransformApplicationError, TransformOutput, TransformStackIndex},
-};
+use super::{operator_base::OperatorCreationError, operator_data::OperatorData};
 
-struct TfPrint {
-    tf_base: TfBase,
-    op_ref: OperatorRef,
+pub fn parse_print_op(
+    value: Option<&bstr>,
+    arg_idx: Option<CliArgIdx>,
+) -> Result<OperatorData, OperatorCreationError> {
+    if value.is_some() {
+        return Err(OperatorCreationError::new(
+            "print takes no arguments (for now)",
+            arg_idx,
+        ));
+    }
+    Ok(OperatorData::Print)
 }
 
-impl Transform for TfPrint {
-    fn base(&self) -> &TfBase {
-        &self.tf_base
+pub fn handle_print_batch_mode(sess: &mut WorkerThreadSession<'_>, tf_id: TransformId) {
+    let tf = &mut sess.transforms[tf_id];
+    let batch = tf.desired_batch_size.min(tf.available_batch_size);
+    tf.available_batch_size -= batch;
+    if tf.available_batch_size == 0 {
+        sess.ready_queue.pop();
     }
-
-    fn base_mut(&mut self) -> &mut TfBase {
-        &mut self.tf_base
-    }
-
-    fn process(
-        &mut self,
-        _ctx: &SessionData,
-        _args: &HashMap<String, SmallVec<[(TransformStackIndex, MatchData); 1]>>,
-        tfo: &TransformOutput,
-        _output: &mut VecDeque<TransformOutput>,
-    ) -> Result<(), TransformApplicationError> {
-        match &tfo.data {
-            Some(MatchData::Bytes(b)) => {
-                let mut s = std::io::stdout();
-                s.write(b.as_slice())
-                    .and_then(|_| s.write(NEWLINE_BYTES))
-                    .map_err(|_| TransformApplicationError::new("io error", self.op_ref))?;
-            }
-            Some(MatchData::Text(t)) => {
-                let mut s = std::io::stdout();
-                s.write(t.as_bytes())
-                    .and_then(|_| s.write(NEWLINE_BYTES))
-                    .map_err(|_| TransformApplicationError::new("io error", self.op_ref))?;
-            }
-            Some(MatchData::Html(_)) => {
-                return Err(TransformApplicationError::new(
-                    "the print transform does not support html",
-                    self.op_ref,
-                ));
-            }
-            Some(MatchData::Png(_)) => {
-                return Err(TransformApplicationError::new(
-                    "the print transform does not support images",
-                    self.op_ref,
-                ));
-            }
-            _ => panic!("missing TfSerialize"),
+    let mut entries = ScratchVec::new(&mut sess.scrach_memory);
+    let print_error_text = "<Type Error>";
+    //TODO: much optmization much wow
+    entries.extend(
+        sess.fields[tf.input_field]
+            .field_data
+            .iter()
+            .bounded(batch)
+            .map(|(len, v)| match v {
+                crate::field_data::FieldValueRef::Text(sv) => match sv {
+                    crate::field_data::FieldValueTextRef::Plain(txt) => (len, txt),
+                    _ => (len, print_error_text),
+                },
+                _ => (len, print_error_text),
+            }),
+    );
+    for (len, text) in entries.iter() {
+        for _ in 0..*len {
+            println!("{text}");
         }
-        Ok(())
-    }
-}
-
-#[derive(Clone)]
-pub struct OpPrint {
-    pub op_base: OperatorBase,
-}
-
-impl OpPrint {
-    pub fn new() -> OpPrint {
-        OpPrint {
-            op_base: OperatorBase::new("print".to_owned(), None, None, None),
-        }
-    }
-}
-
-pub fn split_last_mut_box_aray<'a, 'b>(
-    arg: &'b mut [Box<dyn Transform + 'a>],
-) -> Option<(
-    &'b mut Box<dyn Transform + 'a>,
-    &'b mut [Box<dyn Transform + 'a>],
-)> {
-    if let [init @ .., last] = arg {
-        Some((last, init))
-    } else {
-        None
-    }
-}
-
-impl Operation for OpPrint {
-    fn base(&self) -> &OperatorBase {
-        &self.op_base
-    }
-
-    fn base_mut(&mut self) -> &mut OperatorBase {
-        &mut self.op_base
-    }
-
-    fn apply<'a, 'b>(
-        &'a self,
-        op_ref: OperatorRef,
-        tf_stack: &mut [Box<dyn Transform + 'b>],
-    ) -> Result<Box<dyn Transform + 'a>, OperatorApplicationError> {
-        let (parent, tf_stack) = tf_stack.split_last_mut().unwrap();
-        let mut tf_base = TfBase::from_parent(parent.base());
-        tf_base.needs_stdout = true;
-        tf_base.data_kind = MatchDataKind::None;
-        let tfp = Box::new(TfPrint { tf_base, op_ref });
-        parent
-            .add_dependant(tf_stack, tfp.base().tfs_index)
-            .map_err(|tae| OperatorApplicationError::from_transform_application_error(tae))?;
-        Ok(tfp)
-    }
-}
-
-impl OperationCatalogMember for OpPrint {
-    fn name_matches(name: &str) -> bool {
-        "print".starts_with(name)
-    }
-
-    fn create(
-        _ctx: &ContextOptions,
-        params: OperationParameters,
-    ) -> Result<Box<dyn Operation>, OperatorCreationError> {
-        if params.value.is_some() {
-            return Err(OperatorCreationError::new(
-                "print takes no argument",
-                params.cli_arg.map(|arg| arg.idx),
-            ));
-        }
-        Ok(Box::new(OpPrint {
-            op_base: OperatorBase::from_op_params(params),
-        }))
     }
 }

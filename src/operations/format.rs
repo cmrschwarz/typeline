@@ -2,7 +2,10 @@ use std::collections::HashMap;
 
 use bstring::BString;
 
-use crate::chain::ChainId;
+use crate::{
+    chain::ChainId,
+    worker_thread_session::{FieldId, MatchSetId, WorkerThreadSession},
+};
 
 use super::operator_base::OperatorOffsetInChain;
 
@@ -33,4 +36,20 @@ pub enum FormatPart {
 
 pub struct OpFormat {
     pub parts: Vec<FormatPart>,
+}
+
+pub struct TfFormat<'a> {
+    pub output_field: FieldId,
+    pub parts: &'a [FormatPart],
+}
+
+pub fn setup_tf_format<'a, 'b>(
+    sess: &'_ mut WorkerThreadSession<'a>,
+    output_field: FieldId,
+    op: &'b OpFormat,
+) -> TfFormat<'b> {
+    TfFormat {
+        output_field,
+        parts: &op.parts,
+    }
 }

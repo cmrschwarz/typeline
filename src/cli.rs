@@ -1,8 +1,9 @@
+use crate::operations::print::parse_print_op;
+use crate::operations::split::parse_split_op;
 use crate::{
     document::{Document, DocumentSource},
     operations::{
-        control_flow_ops::parse_split_op, operator_base::OperatorCreationError,
-        operator_data::OperatorData, regex::parse_regex_op,
+        operator_base::OperatorCreationError, operator_data::OperatorData, regex::parse_regex_op,
     },
     options::{
         argument::{ArgumentReassignmentError, CliArgIdx},
@@ -368,6 +369,7 @@ fn parse_operation(
     Ok(match argname {
         "r" | "re" | "regex" => Some(OperatorData::Regex(parse_regex_op(value, idx)?)),
         "s" | "split" => Some(OperatorData::Split(parse_split_op(value, idx)?)),
+        "p" | "print" => Some(parse_print_op(value, idx)?),
         _ => None,
     })
 }

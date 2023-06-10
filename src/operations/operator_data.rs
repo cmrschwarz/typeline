@@ -1,4 +1,4 @@
-use super::{control_flow_ops::OpSplit, format::OpFormat, regex::OpRegex};
+use super::{format::OpFormat, regex::OpRegex, split::OpSplit};
 
 pub enum OperatorData {
     Print,
