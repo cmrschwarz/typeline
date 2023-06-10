@@ -23,9 +23,6 @@ pub mod scr_error;
 pub mod selenium;
 pub mod universe;
 pub mod field_data_iter;
-mod match_value;
-mod match_value_into_iter;
-mod sync_variant;
 mod worker_thread_session;
 #[allow(dead_code)]
 mod field_data;
