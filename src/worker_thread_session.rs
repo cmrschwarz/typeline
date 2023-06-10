@@ -128,6 +128,15 @@ impl<'a> WorkerThreadSession<'a> {
         let id = self.match_sets.claim();
         id
     }
+    pub fn inform_successor_batch_available(&mut self, tf_id: TransformId, batch_size: usize) {
+        if let Some(succ_tf_id) = self.transforms[tf_id].successor {
+            let succ = &mut self.transforms[succ_tf_id];
+            if succ.available_batch_size == 0 {
+                self.ready_queue.push(succ_tf_id);
+            }
+            succ.available_batch_size += batch_size;
+        }
+    }
     pub fn setup_transforms_from_op(
         &mut self,
         match_set_id: MatchSetId,
@@ -157,7 +166,7 @@ impl<'a> WorkerThreadSession<'a> {
                 }
             };
             let ts_state = TransformState {
-                available_batch_size,
+                available_batch_size: start_tf_id.map(|_| 0).unwrap_or(available_batch_size),
                 data,
                 input_field: prev_field_id,
                 match_set_id,
@@ -168,16 +177,17 @@ impl<'a> WorkerThreadSession<'a> {
             };
             let tf_id = if start_tf_id.is_none() {
                 let id = self.add_transform(ts_state);
-                start_tf_id = Some(id);
                 if available_batch_size > 0 {
                     self.ready_queue.push(id);
                 }
+                start_tf_id = Some(id);
+
                 id
             } else {
                 self.add_transform(ts_state)
             };
-            if let Some(tf_id) = prev_tf {
-                self.transforms[tf_id].successor = Some(tf_id);
+            if let Some(prev_tf) = prev_tf {
+                self.transforms[prev_tf].successor = Some(tf_id);
             }
             prev_tf = Some(tf_id);
             prev_field_id = output_field;

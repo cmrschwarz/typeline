@@ -1,39 +1,82 @@
 use bstring::bstr;
-use regex::Regex;
+use regex::{CaptureLocations, Regex};
 
-use crate::options::argument::CliArgIdx;
+use crate::{
+    field_data_iter::FieldDataIterator,
+    options::argument::CliArgIdx,
+    scratch_vec::ScratchVec,
+    string_store::{StringStore, StringStoreEntry},
+    worker_thread_session::{FieldId, MatchSetId, TransformId, WorkerThreadSession},
+};
 
 use super::OperatorCreationError;
 
 pub struct OpRegex {
     pub regex: Regex,
+    pub capture_group_names: Vec<StringStoreEntry>,
 }
 
-pub struct TfRegex<'a> {
-    pub regex: &'a Regex,
+pub struct TfRegex {
+    pub regex: Regex,
+    pub capture_locs: CaptureLocations,
+    pub capture_group_fields: Vec<FieldId>,
 }
 
 pub fn parse_regex_op(
+    string_store: &mut StringStore,
     value: Option<&bstr>,
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OpRegex, OperatorCreationError> {
-    if let Some(value) = value {
+    let regex = if let Some(value) = value {
         match value.to_str() {
             //TODO: we should support byte regex
-            Err(_) => Err(OperatorCreationError::new(
-                "regex pattern must be legal UTF-8",
-                arg_idx,
-            )),
-            Ok(value) => Ok(OpRegex {
-                regex: Regex::new(value)
-                    .map_err(|_| OperatorCreationError::new("failed to compile regex", arg_idx))?,
-            }),
+            Err(_) => {
+                return Err(OperatorCreationError::new(
+                    "regex pattern must be legal UTF-8",
+                    arg_idx,
+                ));
+            }
+            Ok(value) => Regex::new(value)
+                .map_err(|_| OperatorCreationError::new("failed to compile regex", arg_idx))?,
         }
     } else {
         return Err(OperatorCreationError::new(
             "regex needs an argument",
             arg_idx,
         ));
+    };
+    let mut unnamed_capture_groups: usize = 0;
+    let capture_group_names = regex
+        .capture_names()
+        .into_iter()
+        .map(|name| match name {
+            Some(name) => string_store.intern_cloned(name),
+            None => {
+                unnamed_capture_groups += 1;
+                string_store.intern_moved(unnamed_capture_groups.to_string())
+            }
+        })
+        .collect();
+
+    Ok(OpRegex {
+        regex,
+        capture_group_names,
+    })
+}
+
+pub fn setup_tf_regex<'a>(
+    sess: &mut WorkerThreadSession,
+    ms_id: MatchSetId,
+    op: &'a OpRegex,
+) -> TfRegex {
+    TfRegex {
+        regex: op.regex.clone(),
+        capture_group_fields: op
+            .capture_group_names
+            .iter()
+            .map(|name| sess.add_field(ms_id, Some(*name)))
+            .collect(),
+        capture_locs: op.regex.capture_locations(),
     }
 }
 
@@ -79,3 +122,37 @@ fn process(
     }
 }
 */
+
+pub fn handle_print_batch_mode(sess: &mut WorkerThreadSession<'_>, tf_id: TransformId) {
+    let tf = &mut sess.transforms[tf_id];
+    let batch = tf.desired_batch_size.min(tf.available_batch_size);
+    tf.available_batch_size -= batch;
+    if tf.available_batch_size == 0 {
+        sess.ready_queue.pop();
+    }
+    {
+        let mut entries = ScratchVec::new(&mut sess.scrach_memory);
+        let print_error_text = "<Type Error>";
+        //TODO: much optmization much wow
+        entries.extend(
+            sess.fields[tf.input_field]
+                .field_data
+                .iter()
+                .bounded(batch)
+                .map(|(len, v)| match v {
+                    crate::field_data::FieldValueRef::Text(sv) => match sv {
+                        crate::field_data::FieldValueTextRef::Plain(txt) => (len, txt),
+                        _ => (len, print_error_text),
+                    },
+                    _ => (len, print_error_text),
+                }),
+        );
+
+        for (len, text) in entries.iter() {
+            for _ in 0..*len {
+                println!("{text}");
+            }
+        }
+    }
+    sess.inform_successor_batch_available(tf_id, batch);
+}

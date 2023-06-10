@@ -1,6 +1,7 @@
 use std::{borrow::Cow, num::NonZeroUsize};
 
 use bstring::BString;
+use lazy_static::lazy_static;
 
 use crate::{
     chain::ChainId,
@@ -30,7 +31,7 @@ pub struct ContextOptions {
     pub install_selenium_drivers: Vec<Argument<SeleniumVariant>>,
     pub update_selenium_drivers: Vec<Argument<SeleniumVariant>>,
     pub documents: Vec<Document>,
-    pub(crate) string_store: Option<StringStore>,
+    pub(crate) string_store: StringStore,
     pub(crate) operator_base_options: Vec<OperatorBaseOptions>,
     pub(crate) operator_data: Vec<OperatorData>,
     pub(crate) chains: Vec<ChainOptions>,
@@ -59,29 +60,28 @@ impl Default for ContextOptions {
     }
 }
 
-const DEFAULT_CONTEXT_OPTIONS: ContextOptions = ContextOptions {
-    max_worker_threads: Argument::new(0),
-    print_help: Argument::new(false),
-    print_version: Argument::new(false),
-    repl: Argument::new(false),
-    exit_repl: Argument::new(false),
-    install_selenium_drivers: Vec::new(),
-    update_selenium_drivers: Vec::new(),
-    chains: Vec::new(),
-    operator_base_options: Vec::new(),
-    operator_data: Vec::new(),
-    documents: Vec::new(),
-    string_store: None,
-    cli_args: None,
-    curr_chain: 0,
-};
+lazy_static! {
+    static ref DEFAULT_CONTEXT_OPTIONS: ContextOptions = ContextOptions {
+        max_worker_threads: Argument::new(0),
+        print_help: Argument::new(false),
+        print_version: Argument::new(false),
+        repl: Argument::new(false),
+        exit_repl: Argument::new(false),
+        install_selenium_drivers: Vec::new(),
+        update_selenium_drivers: Vec::new(),
+        chains: Vec::new(),
+        operator_base_options: Vec::new(),
+        operator_data: Vec::new(),
+        documents: Vec::new(),
+        string_store: StringStore::default(),
+        cli_args: None,
+        curr_chain: 0,
+    };
+}
 
 impl ContextOptions {
     pub fn get_current_chain(&mut self) -> ChainId {
         self.curr_chain
-    }
-    pub fn string_store_mut(&mut self) -> &mut StringStore {
-        self.string_store.get_or_insert_with(Default::default)
     }
     pub fn add_op(&mut self, mut op_base_opts: OperatorBaseOptions, op_data: OperatorData) {
         op_base_opts.curr_chain = Some(self.curr_chain);
@@ -147,12 +147,12 @@ impl ContextOptions {
                 })
                 .collect(),
             cli_args: self.cli_args,
-            string_store: self.string_store.unwrap_or_default(),
+            string_store: self.string_store,
         };
         if let Err(e) = ContextOptions::setup_operators(&mut sd) {
             //moving back into context options
             self.documents = sd.documents;
-            self.string_store = Some(sd.string_store);
+            self.string_store = sd.string_store;
             self.operator_data = sd.operator_data;
             self.cli_args = sd.cli_args;
             return Err((self, e));

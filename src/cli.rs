@@ -361,12 +361,17 @@ fn try_parse_as_doc<'a>(
 }
 
 fn parse_operation(
+    ctx_opts: &mut ContextOptions,
     argname: &str,
     value: Option<&bstr>,
     idx: Option<CliArgIdx>,
 ) -> Result<Option<OperatorData>, OperatorCreationError> {
     Ok(match argname {
-        "r" | "re" | "regex" => Some(OperatorData::Regex(parse_regex_op(value, idx)?)),
+        "r" | "re" | "regex" => Some(OperatorData::Regex(parse_regex_op(
+            &mut ctx_opts.string_store,
+            value,
+            idx,
+        )?)),
         "s" | "split" => Some(OperatorData::Split(parse_split_op(value, idx)?)),
         "p" | "print" => Some(parse_print_op(value, idx)?),
         _ => None,
@@ -377,18 +382,14 @@ fn try_parse_as_operation<'a>(
     ctx_opts: &mut ContextOptions,
     arg: ParsedCliArgument<'a>,
 ) -> Result<Option<ParsedCliArgument<'a>>, CliArgumentError> {
-    let op_data =
-        parse_operation(&arg.argname, arg.value, Some(arg.cli_arg.idx)).map_err(|oce| {
-            CliArgumentError {
-                message: oce.message,
-                cli_arg_idx: arg.cli_arg.idx,
-            }
+    let op_data = parse_operation(ctx_opts, &arg.argname, arg.value, Some(arg.cli_arg.idx))
+        .map_err(|oce| CliArgumentError {
+            message: oce.message,
+            cli_arg_idx: arg.cli_arg.idx,
         })?;
     if let Some(op_data) = op_data {
-        let argname = ctx_opts.string_store_mut().intern_cloned(arg.argname);
-        let label = arg
-            .label
-            .map(|l| ctx_opts.string_store_mut().intern_cloned(l));
+        let argname = ctx_opts.string_store.intern_cloned(arg.argname);
+        let label = arg.label.map(|l| ctx_opts.string_store.intern_cloned(l));
         ctx_opts.add_op(
             OperatorBaseOptions::new(argname, label, arg.chainspec, Some(arg.cli_arg.idx)),
             op_data,

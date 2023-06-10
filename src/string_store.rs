@@ -13,9 +13,9 @@ impl Default for StringStore {
     fn default() -> Self {
         Self {
             table_str_to_idx: Default::default(),
-            table_idx_to_str: vec![&""], // zero'th slot is a dummy string so we can use NonZeroU32 for the index type
+            table_idx_to_str: Default::default(),
             arena: vec![Vec::with_capacity(1024)],
-            existing_strings: vec![Vec::with_capacity(8)],
+            existing_strings: Default::default(),
         }
     }
 }
@@ -41,8 +41,8 @@ impl StringStore {
         //safety: this is fine because these never get handed out
         let str_ref_static = unsafe { transmute::<&[u8], &'static str>(str_ref) };
 
-        let idx: StringStoreEntry = (self.table_idx_to_str.len() as u32).try_into().unwrap();
         self.table_idx_to_str.push(str_ref_static);
+        let idx: StringStoreEntry = (self.table_idx_to_str.len() as u32).try_into().unwrap();
         self.table_str_to_idx.insert(str_ref_static, idx);
         idx
     }
@@ -64,13 +64,13 @@ impl StringStore {
         //safety: this is fine because these never get handed out
         let str_ref_static = unsafe { transmute::<&str, &'static str>(str_ref) };
 
-        let idx: StringStoreEntry = (self.table_idx_to_str.len() as u32).try_into().unwrap();
         self.table_idx_to_str.push(str_ref_static);
+        let idx: StringStoreEntry = (self.table_idx_to_str.len() as u32).try_into().unwrap();
         self.table_str_to_idx.insert(str_ref_static, idx);
         idx
     }
 
     pub fn lookup(&self, entry: StringStoreEntry) -> &str {
-        &self.table_idx_to_str[u32::from(entry) as usize]
+        &self.table_idx_to_str[u32::from(entry) as usize - 1]
     }
 }

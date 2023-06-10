@@ -87,7 +87,7 @@ pub fn setup_ts_split_as_entry_point<'a, 'b>(
     }
 }
 
-pub fn setup_tf_split<'a, 'b>(op: &OpSplit) -> Option<TfSplit> {
+pub fn setup_tf_split(op: &OpSplit) -> Option<TfSplit> {
     Some(TfSplit {
         expanded: false,
         targets: op
@@ -99,7 +99,7 @@ pub fn setup_tf_split<'a, 'b>(op: &OpSplit) -> Option<TfSplit> {
     })
 }
 
-pub fn handle_split<'a>(
+pub fn handle_split(
     sess: &mut WorkerThreadSession,
     stream_mode: bool,
     tf_id: TransformId,
