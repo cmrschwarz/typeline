@@ -1,4 +1,5 @@
 use std::{
+    iter,
     marker::PhantomData,
     mem::{align_of, size_of, ManuallyDrop},
     ptr::{drop_in_place, NonNull},
@@ -23,14 +24,14 @@ pub enum StreamKind {
 #[derive(Clone, Copy, PartialEq)]
 pub enum FieldValueKind {
     Unset,
+    Null,
     EntryId,
-    Text(StreamKind),
-    Bytes(StreamKind),
-    Array(StreamKind),
     Error,
     Html,
     Integer, //TODO: bigint, float, decimal, ...
-    Null,
+    Text(StreamKind),
+    Bytes(StreamKind),
+    Array(StreamKind),
     Object,
 }
 
@@ -48,30 +49,15 @@ impl FieldValueKind {
             Object => true,
         }
     }
-    pub fn align(self) -> usize {
+    pub fn needs_alignment(self) -> bool {
         use FieldValueKind::*;
         match self {
-            Null | Unset => 0,
-            EntryId => align_of::<usize>(),
-            Integer => align_of::<i64>(),
-            Error => align_of::<OperatorApplicationError>(),
-            Html => align_of::<crate::field_data::Html>(),
-            Object => align_of::<crate::field_data::Object>(),
-            Text(sk) => match sk {
-                StreamKind::Plain | StreamKind::StreamChunk(_) => align_of::<u8>(),
-                StreamKind::BufferMem(_) => align_of::<String>(),
-                StreamKind::BufferFile(_) => align_of::<TextBufferFile>(),
+            Null | Unset => false,
+            Text(sk) | Bytes(sk) => match sk {
+                StreamKind::Plain | StreamKind::StreamChunk(_) => false,
+                _ => true,
             },
-            Bytes(sk) => match sk {
-                StreamKind::Plain | StreamKind::StreamChunk(_) => align_of::<u8>(),
-                StreamKind::BufferMem(_) => align_of::<Vec<u8>>(),
-                StreamKind::BufferFile(_) => align_of::<BytesBufferFile>(),
-            },
-            Array(sk) => match sk {
-                StreamKind::Plain | StreamKind::StreamChunk(_) => align_of::<u8>(),
-                StreamKind::BufferMem(_) => align_of::<u8>(),
-                StreamKind::BufferFile(_) => align_of::<ArrayBufferFile>(),
-            },
+            _ => true,
         }
     }
     pub fn needs_copy(self) -> bool {
@@ -96,7 +82,7 @@ pub enum FieldValueTextRef<'a> {
 }
 
 #[derive(Clone, Copy)]
-struct InlineArrayRef<'a> {
+pub struct InlineArrayRef<'a> {
     //data lives after the headers. not storing a header slice here to keep provenance
     headers: *const FieldValueHeader,
     count: usize,
@@ -150,6 +136,24 @@ pub enum FieldValueRef<'a> {
     Object(&'a Object),
 }
 
+//used to figure out the maximum alignment
+#[repr(C)]
+union FieldValueUnion {
+    text: ManuallyDrop<String>,
+    text_file: ManuallyDrop<TextBufferFile>,
+    bytes: ManuallyDrop<Vec<u8>>,
+    bytes_file: ManuallyDrop<TextBufferFile>,
+    array_file: ManuallyDrop<TextBufferFile>,
+    object: ManuallyDrop<Object>,
+}
+
+const MAX_FIELD_ALIGN: usize = align_of::<FieldValueUnion>();
+
+unsafe fn to_aligned_ref<'a, T>(ptr: *const u8) -> &'a T {
+    const align_mask: usize = !(MAX_FIELD_ALIGN - 1);
+    &*((ptr as usize & !align_mask) as *const T)
+}
+
 type FieldValueSize = u16;
 
 #[allow(dead_code)] //TODO
@@ -157,6 +161,8 @@ type FieldValueSize = u16;
 struct FieldValueHeader {
     kind: FieldValueKind, //TODO: pack to one byte and add convenience functions
     shared_value: bool,
+    // this may include up to (kind.align() - 1) many padding bytes inserted
+    // before this field to make it aligned
     size: FieldValueSize,
     run_length: RunLength,
 }
@@ -285,6 +291,8 @@ impl<'a, I: Iterator<Item = (RunLength, FieldValueRef<'a>)>> BoundedFieldDataIte
     }
 }
 
+const INLINE_STR_MAX_LEN: usize = 8192;
+
 impl FieldData {
     pub fn clear(&mut self) {
         self.drop_n(usize::MAX);
@@ -316,7 +324,48 @@ impl FieldData {
         }
         self.data.truncate(remaining_size);
     }
-
+    pub fn dup_nth(&mut self, n: usize, new_run_len: RunLength) {
+        let mut hi = self.header.len();
+        let mut i = 0;
+        while i < n {
+            hi -= 1;
+            i += self.header[hi].run_length as usize;
+        }
+        let h = &mut self.header[hi];
+        let mut tgt = *h;
+        tgt.run_length = new_run_len;
+        debug_assert!(h.run_length > 0 && (h.shared_value || h.run_length > 1));
+        if h.shared_value {
+            tgt.run_length -= 1;
+            if let Some(rl) = h.run_length.checked_add(tgt.run_length) {
+                h.run_length = rl;
+            } else {
+                self.header.insert(hi, tgt);
+            }
+        } else if i == n + 1 {
+            //nth is first of this header, insert it at the start
+            h.run_length -= 1;
+            if h.run_length == 1 {
+                h.shared_value = true;
+            }
+            self.header.insert(hi + 1, tgt);
+        } else if i == n + h.run_length as usize {
+            //nth is last of this header, insert it as the start
+            h.run_length -= 1;
+            if h.run_length == 1 {
+                h.shared_value = true;
+            }
+            self.header.insert(hi, tgt);
+        } else {
+            // nth is sandwiched in this header, insert two
+            let rl_after = (i - n) as RunLength;
+            h.run_length = rl_after;
+            hi += 1;
+            let mut tgt2 = tgt;
+            tgt2.run_length = h.run_length - rl_after;
+            self.header.splice(hi..hi, [tgt, tgt2]);
+        }
+    }
     pub fn copy_n<'a>(&self, n: usize, targets: &mut [&'a mut FieldData]) {
         let mut examination_range = self.data.len()..self.data.len();
         let mut remaining_elements = n;
@@ -365,50 +414,46 @@ impl FieldData {
             append_data_memcpy(start, size, targets);
         }
     }
-    pub fn dup_nth(&mut self, n: usize, new_run_len: RunLength) {
-        let mut hi = self.header.len();
-        let mut i = 0;
-        while i < n {
-            hi -= 1;
-            i += self.header[hi].run_length as usize;
-        }
-        let h = &mut self.header[hi];
-        let mut tgt = *h;
-        tgt.run_length = new_run_len;
-        debug_assert!(h.run_length > 0 && (h.shared_value || h.run_length > 1));
-        if h.shared_value {
-            tgt.run_length -= 1;
-            if let Some(rl) = h.run_length.checked_add(tgt.run_length) {
-                h.run_length = rl;
-            } else {
-                self.header.insert(hi, tgt);
-            }
-        } else if i == n + 1 {
-            //nth is first of this header, insert it at the start
-            h.run_length -= 1;
-            if h.run_length == 1 {
-                h.shared_value = true;
-            }
-            self.header.insert(hi + 1, tgt);
-        } else if i == n + h.run_length as usize {
-            //nth is last of this header, insert it as the start
-            h.run_length -= 1;
-            if h.run_length == 1 {
-                h.shared_value = true;
-            }
-            self.header.insert(hi, tgt);
+    pub fn push_str(&mut self, data: &str, run_length: RunLength) {
+        let inline = data.len() < INLINE_STR_MAX_LEN;
+        let (align, tgt_kind) = if inline {
+            (0, FieldValueKind::Text(StreamKind::Plain))
         } else {
-            // nth is sandwiched in this header, insert two
-            let rl_after = (i - n) as RunLength;
-            h.run_length = rl_after;
-            hi += 1;
-            let mut tgt2 = tgt;
-            tgt2.run_length = h.run_length - rl_after;
-            self.header.splice(hi..hi, [tgt, tgt2]);
+            (
+                self.data.len() % MAX_FIELD_ALIGN,
+                FieldValueKind::Text(StreamKind::BufferMem(true)),
+            )
+        };
+        let mut could_amend_header = false;
+        if let Some(h) = self.header.last_mut() {
+            if !h.shared_value && h.kind == tgt_kind {
+                if let Some(rl) = h.run_length.checked_add(1) {
+                    h.run_length = rl;
+                    could_amend_header = true;
+                }
+            }
         }
-    }
-    pub fn push_str(data: &str, run_length: RunLength) {
-        todo!()
+
+        if !could_amend_header {
+            self.header.push(FieldValueHeader {
+                kind: tgt_kind,
+                shared_value: false,
+                size: if inline {
+                    data.len()
+                } else {
+                    size_of::<String>() + align
+                } as FieldValueSize,
+                run_length,
+            })
+        }
+        if inline {
+            self.data.extend_from_slice(data.as_bytes());
+        } else {
+            self.data.extend(iter::repeat(0).take(align));
+            let owned_str = ManuallyDrop::new(data.to_owned());
+            self.data
+                .extend_from_slice(unsafe { as_u8_slice(&owned_str) });
+        }
     }
     pub fn iter<'a>(&'a self) -> FieldDataIterator<'a> {
         FieldDataIterator::new(self)
@@ -416,13 +461,6 @@ impl FieldData {
 }
 
 pub type EntryId = usize;
-
-const LEN_SIZE: usize = size_of::<usize>();
-const ALIGN: usize = size_of::<usize>();
-
-fn ceil_to_align(size: usize) -> usize {
-    (size + ALIGN - 1) / ALIGN * ALIGN
-}
 
 unsafe fn load_slice<'a>(ptr: *const u8, size: FieldValueSize) -> &'a [u8] {
     std::slice::from_raw_parts(ptr, size as usize)
@@ -492,7 +530,7 @@ unsafe fn drop_data(fmt: FieldValueHeader, ptr: *mut u8) {
                 StreamKind::BufferMem(_) => drop_in_place(ptr as *mut Vec<u8>),
                 StreamKind::BufferFile(_) => drop_in_place(ptr as *mut BytesBufferFile),
             },
-            Array(sk) => todo!(),
+            Array(_) => todo!(),
             Error => drop_in_place(ptr as *mut OperatorApplicationError),
             Html => todo!(),
             Object => drop_in_place(ptr as *mut crate::field_data::Object),

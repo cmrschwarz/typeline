@@ -4,7 +4,7 @@ use bstring::BString;
 
 use crate::{
     chain::ChainId,
-    worker_thread_session::{FieldId, MatchSetId, WorkerThreadSession},
+    worker_thread_session::{FieldId, WorkerThreadSession},
 };
 
 use super::operator_base::OperatorOffsetInChain;
@@ -44,10 +44,11 @@ pub struct TfFormat<'a> {
 }
 
 pub fn setup_tf_format<'a, 'b>(
-    sess: &'_ mut WorkerThreadSession<'a>,
+    _sess: &'_ mut WorkerThreadSession<'a>,
     output_field: FieldId,
     op: &'b OpFormat,
 ) -> TfFormat<'b> {
+    //TODO: cache field indices...
     TfFormat {
         output_field,
         parts: &op.parts,

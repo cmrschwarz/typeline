@@ -9,9 +9,7 @@ use crate::{
     options::{argument::CliArgIdx, range_spec::RangeSpec},
     scratch_vec::ScratchVec,
     string_store::StringStoreEntry,
-    worker_thread_session::{
-        FieldId, MatchSetId, TransformId, WorkerThreadSession, FIELD_ID_JOB_INPUT,
-    },
+    worker_thread_session::{FieldId, MatchSetId, TransformId, WorkerThreadSession},
 };
 
 use super::{
@@ -27,7 +25,6 @@ pub struct OpSplit {
 
 pub struct TfSplit {
     expanded: bool,
-    forwarded_stream_elements: usize,
     // Operator Ids before expansion, transform ids after
     targets: Vec<NonMaxUsize>,
     field_names_set: HashMap<StringStoreEntry, SmallVec<[FieldId; 2]>>,
@@ -58,15 +55,15 @@ pub fn parse_split_op(
 
 pub fn setup_ts_split_as_entry_point<'a, 'b>(
     sess: &mut WorkerThreadSession<'a>,
+    input_field: FieldId,
     ms_id: MatchSetId,
     entry_count: usize,
     ops: impl Iterator<Item = &'b OperatorId> + Clone,
 ) -> TransformState<'a> {
     TransformState {
-        input_field: FIELD_ID_JOB_INPUT,
+        input_field: input_field,
         data: TransformData::Split(Some(TfSplit {
             expanded: false,
-            forwarded_stream_elements: 0,
             targets: ops
                 .clone()
                 .map(|op| (*op as usize).try_into().unwrap())
@@ -97,7 +94,6 @@ pub fn setup_tf_split<'a, 'b>(op: &OpSplit) -> Option<TfSplit> {
             .iter()
             .map(|op| (*op as usize).try_into().unwrap())
             .collect(),
-        forwarded_stream_elements: 0,
         field_names_set: Default::default(),
     })
 }

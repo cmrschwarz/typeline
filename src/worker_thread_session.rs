@@ -7,10 +7,11 @@ use nonmax::NonMaxUsize;
 
 use crate::{
     context::SessionData,
+    document::DocumentSource,
     field_data::{EntryId, FieldData},
     operations::{
         format::setup_tf_format,
-        operator_base::OperatorId,
+        operator_base::{OperatorId, OperatorSetupError},
         operator_data::OperatorData,
         print::handle_print_batch_mode,
         split::{handle_split, setup_tf_split, setup_ts_split_as_entry_point},
@@ -41,9 +42,6 @@ pub struct Field {
 }
 
 pub type FieldId = NonMaxUsize;
-
-pub const FIELD_ID_JOB_INPUT_INDICES: FieldId = unsafe { NonMaxUsize::new_unchecked(0) };
-pub const FIELD_ID_JOB_INPUT: FieldId = unsafe { NonMaxUsize::new_unchecked(1) };
 
 pub type MatchSetId = NonMaxUsize;
 
@@ -186,14 +184,13 @@ impl<'a> WorkerThreadSession<'a> {
         start_tf_id.unwrap()
     }
 
-    fn setup_job(&mut self, job: Job) {
+    fn setup_job(&mut self, job: Job) -> Result<(), ScrError> {
         self.match_sets.clear();
-        self.match_sets.push(Default::default());
-        let ms = &mut self.match_sets[0usize.try_into().unwrap()];
-        ms.working_set
-            .extend_from_slice([FIELD_ID_JOB_INPUT_INDICES, FIELD_ID_JOB_INPUT].as_slice());
         self.fields.clear();
-        let entry_count: usize = 0;
+        self.ready_queue.clear();
+        let ms_id = self.add_match_set();
+        let input_data = self.add_field(ms_id, None);
+        let mut entry_count: usize = 0;
         match job.data {
             JobData::FieldData(_fd) => loop {
                 break; //TODO
@@ -204,82 +201,91 @@ impl<'a> WorkerThreadSession<'a> {
             JobData::DocumentIds(doc_ids) => {
                 for ds in doc_ids
                     .iter()
+                    .rev()
                     .map(|d| &self.session_data.documents[*d as usize].source)
                 {
                     match ds {
-                        crate::document::DocumentSource::Url(_) => todo!(),
-                        crate::document::DocumentSource::File(_) => todo!(),
-                        crate::document::DocumentSource::String(_) => todo!(),
-                        crate::document::DocumentSource::Bytes(_) => todo!(),
-                        crate::document::DocumentSource::Stdin => todo!(),
+                        DocumentSource::Url(_) => todo!(),
+                        DocumentSource::File(_) => todo!(),
+                        DocumentSource::Bytes(_) => todo!(),
+                        DocumentSource::Stdin => todo!(),
+                        DocumentSource::String(str) => {
+                            self.fields[input_data].field_data.push_str(str, 1);
+                            entry_count += 1;
+                        }
                     }
-                    self.fields[FIELD_ID_JOB_INPUT].field_data.ad
                 }
             }
             JobData::Stdin => {
                 todo!()
             }
         }
-        self.ready_queue.clear();
-
-        if job.starting_ops.len() > 1 {
-            let ms_id = self.add_match_set();
-            let tf =
-                setup_ts_split_as_entry_point(self, ms_id, entry_count, job.starting_ops.iter());
-            self.add_transform(tf);
-        } else {
-            self.setup_transforms_from_op(0usize.try_into().unwrap(), 0, 0, FIELD_ID_JOB_INPUT);
+        if entry_count == 0 {
+            return Err(OperatorSetupError::new(
+                "must supply at least one initial data element",
+                job.starting_ops[0],
+            )
+            .into());
         }
+        if job.starting_ops.len() > 1 {
+            let tf = setup_ts_split_as_entry_point(
+                self,
+                input_data,
+                ms_id,
+                entry_count,
+                job.starting_ops.iter(),
+            );
+            let tf_id = self.add_transform(tf);
+            self.ready_queue.push(tf_id);
+        } else {
+            self.setup_transforms_from_op(ms_id, entry_count, job.starting_ops[0], input_data);
+        }
+        Ok(())
     }
 
     fn run_batch_mode(&mut self) -> Result<bool, ScrError> {
-        while !self.fields[FIELD_ID_JOB_INPUT].field_data.is_empty() {
-            self.ready_queue.push(0usize.try_into().unwrap()); //TODO
-            while let Some(tf_id) = self.ready_queue.peek().map(|t| *t) {
-                let tf = &mut self.transforms[tf_id];
+        while let Some(tf_id) = self.ready_queue.peek().map(|t| *t) {
+            let tf = &mut self.transforms[tf_id];
 
-                match tf.data {
-                    TransformData::Disabled => unreachable!(),
-                    TransformData::Split(ref mut split_orig) => {
-                        let mut s = split_orig.take().unwrap();
-                        s = handle_split(self, false, tf_id, s);
-                        match self.transforms[tf_id].data {
-                            TransformData::Split(ref mut s_restored) => *s_restored = Some(s),
-                            _ => unreachable!(),
-                        }
+            match tf.data {
+                TransformData::Disabled => unreachable!(),
+                TransformData::Split(ref mut split_orig) => {
+                    let mut s = split_orig.take().unwrap();
+                    s = handle_split(self, false, tf_id, s);
+                    match self.transforms[tf_id].data {
+                        TransformData::Split(ref mut s_restored) => *s_restored = Some(s),
+                        _ => unreachable!(),
                     }
-                    TransformData::Print => {
-                        handle_print_batch_mode(self, tf_id);
-                    }
-                    TransformData::Regex(_) => todo!(),
-                    TransformData::Format(_) => todo!(),
                 }
+                TransformData::Print => {
+                    handle_print_batch_mode(self, tf_id);
+                }
+                TransformData::Regex(_) => todo!(),
+                TransformData::Format(_) => todo!(),
             }
         }
+
         Ok(true)
     }
     fn run_stream_mode(&mut self) -> Result<bool, ScrError> {
-        while !self.fields[FIELD_ID_JOB_INPUT].field_data.is_empty() {
-            self.ready_queue.push(0usize.try_into().unwrap()); //TODO
-            while let Some(tf_id) = self.ready_queue.peek().map(|t| *t) {
-                let tf = &mut self.transforms[tf_id];
+        while let Some(tf_id) = self.ready_queue.peek().map(|t| *t) {
+            let tf = &mut self.transforms[tf_id];
 
-                match tf.data {
-                    TransformData::Disabled => unreachable!(),
-                    TransformData::Split(ref mut split_orig) => {
-                        let mut s = split_orig.take().unwrap();
-                        s = handle_split(self, true, tf_id, s);
-                        match self.transforms[tf_id].data {
-                            TransformData::Split(ref mut s_restored) => *s_restored = Some(s),
-                            _ => unreachable!(),
-                        }
+            match tf.data {
+                TransformData::Disabled => unreachable!(),
+                TransformData::Split(ref mut split_orig) => {
+                    let mut s = split_orig.take().unwrap();
+                    s = handle_split(self, true, tf_id, s);
+                    match self.transforms[tf_id].data {
+                        TransformData::Split(ref mut s_restored) => *s_restored = Some(s),
+                        _ => unreachable!(),
                     }
-                    TransformData::Print => {
-                        todo!();
-                    }
-                    TransformData::Regex(_) => todo!(),
-                    TransformData::Format(_) => todo!(),
                 }
+                TransformData::Print => {
+                    todo!();
+                }
+                TransformData::Regex(_) => todo!(),
+                TransformData::Format(_) => todo!(),
             }
         }
         Ok(true)
