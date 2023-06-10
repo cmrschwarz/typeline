@@ -218,18 +218,19 @@ impl<'a> Iterator for FieldDataIterator<'a> {
             return None;
         }
         unsafe {
-            let h = *self.header;
+            let hp = self.header.sub(1);
+            let h = *hp;
             let ptr = self.data.as_ptr().sub(h.size as usize);
             let val = get_field_value_ref(h, ptr);
             self.data = NonNull::new_unchecked(ptr);
             if h.shared_value {
-                self.header = self.header.add(1);
+                self.header = hp;
                 Some((h.run_length, val))
             } else {
                 self.handled_run_len += 1;
                 if self.handled_run_len == h.run_length {
                     self.handled_run_len = 0;
-                    self.header = self.header.add(1);
+                    self.header = hp;
                 }
                 Some((1, val))
             }
@@ -242,7 +243,7 @@ impl<'a> FieldDataIterator<'a> {
         FieldDataIterator {
             header: field_data.header.as_ptr_range().end,
             header_r_end: field_data.header.as_ptr_range().start,
-            data: unsafe { NonNull::new_unchecked(field_data.data.as_ptr() as *mut u8) },
+            data: unsafe { NonNull::new_unchecked(field_data.data.as_ptr_range().end as *mut u8) },
             handled_run_len: 0,
             _phantom_data: PhantomData::default(),
         }
@@ -545,7 +546,7 @@ impl FieldData {
 pub type EntryId = usize;
 
 unsafe fn load_slice<'a>(ptr: *const u8, size: FieldValueSize) -> &'a [u8] {
-    std::slice::from_raw_parts(ptr, size as usize)
+    slice::from_raw_parts(ptr, size as usize)
 }
 
 unsafe fn load_str_slice<'a>(ptr: *const u8, size: FieldValueSize) -> &'a str {
