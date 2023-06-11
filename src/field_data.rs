@@ -5,12 +5,14 @@ use std::{
     mem::{align_of, size_of, ManuallyDrop},
     ops::Range,
     ptr::drop_in_place,
-    slice,
+    slice, u8,
 };
 
 use crate::{
-    field_data_iter::FieldDataIter, operations::OperatorApplicationError,
-    string_store::StringStoreEntry, worker_thread_session::FieldId,
+    field_data_iter::{FieldDataIter, RawFieldDataIter, RleTypesFieldDataIter},
+    operations::OperatorApplicationError,
+    string_store::StringStoreEntry,
+    worker_thread_session::FieldId,
 };
 
 //if the u32 overflows we just split into two values
@@ -66,6 +68,24 @@ impl FieldValueKind {
     }
     pub fn needs_copy(self) -> bool {
         self.needs_drop()
+    }
+    #[inline(always)]
+    pub fn align_size(self, size: usize) -> usize {
+        if self.needs_alignment() {
+            size & FIELD_ALIGN_MASK
+        } else {
+            size
+        }
+    }
+    #[inline(always)]
+    pub unsafe fn align_ptr(self, ptr: *mut u8) -> *mut u8 {
+        if self.needs_alignment() {
+            // doing this instead of the straight conversion to usize
+            // to avoid loosing provenance
+            unsafe { ptr.sub(ptr as usize & MAX_FIELD_ALIGN) }
+        } else {
+            ptr
+        }
     }
 }
 
@@ -146,7 +166,10 @@ union FieldValueUnion {
     object: ManuallyDrop<Object>,
 }
 
-const MAX_FIELD_ALIGN: usize = align_of::<FieldValueUnion>();
+pub const MAX_FIELD_ALIGN: usize = align_of::<FieldValueUnion>();
+
+const_assert!(MAX_FIELD_ALIGN.is_power_of_two());
+pub const FIELD_ALIGN_MASK: usize = !MAX_FIELD_ALIGN;
 
 unsafe fn to_aligned_ref<'a, T>(ptr: *const u8) -> &'a T {
     const ALIGN_MASK: usize = !(MAX_FIELD_ALIGN - 1);
@@ -167,14 +190,14 @@ pub struct FieldValueHeader {
 }
 
 impl FieldValueHeader {
-    fn data_element_count(&self) -> usize {
+    pub fn data_element_count(&self) -> usize {
         if self.shared_value {
             1
         } else {
             self.run_length as usize
         }
     }
-    fn data_size(&self) -> usize {
+    pub fn data_size(&self) -> usize {
         if self.shared_value {
             self.size as usize
         } else {
@@ -430,7 +453,10 @@ impl FieldData {
         }
     }
     pub fn iter<'a>(&'a self) -> FieldDataIter<'a> {
-        FieldDataIter::new(self)
+        FieldDataIter::new(RawFieldDataIter::new(self))
+    }
+    pub fn iter_rle_types<'a>(&'a self) -> RleTypesFieldDataIter<'a> {
+        RleTypesFieldDataIter::new(RawFieldDataIter::new(self))
     }
 }
 
@@ -552,7 +578,7 @@ unsafe fn as_u8_slice<T: Sized>(p: &T) -> &[u8] {
 }
 
 unsafe fn extend_with_clones<T: Clone>(tgt: &mut Vec<u8>, src: *const T, count: usize) {
-    let source = slice::from_raw_parts(src as *const ManuallyDrop<Vec<T>>, count);
+    let source = slice::from_raw_parts(src as *const T, count);
     for v in source {
         tgt.extend_from_slice(as_u8_slice(&v.clone()));
     }

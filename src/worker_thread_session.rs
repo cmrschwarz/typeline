@@ -127,6 +127,16 @@ impl<'a> JobData<'a> {
     pub fn remove_match_set(&mut self, _ms_id: MatchSetId) {
         todo!()
     }
+    pub fn claim_batch(&mut self, tf_id: TransformId) -> (usize, FieldId) {
+        let tf = &mut self.transforms[tf_id];
+        let batch = tf.desired_batch_size.min(tf.available_batch_size);
+        tf.available_batch_size -= batch;
+        if tf.available_batch_size == 0 {
+            let top = self.ready_queue.pop();
+            debug_assert!(top == Some(tf_id));
+        }
+        (batch, tf.input_field)
+    }
     pub fn inform_successor_batch_available(&mut self, tf_id: TransformId, batch_size: usize) {
         if let Some(succ_tf_id) = self.transforms[tf_id].successor {
             let succ = &mut self.transforms[succ_tf_id];

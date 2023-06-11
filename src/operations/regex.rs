@@ -2,9 +2,9 @@ use bstring::bstr;
 use regex::{CaptureLocations, Regex};
 
 use crate::{
-    field_data_iter::FieldDataIterator,
+    field_data::{FieldValueRef, FieldValueTextRef},
+    field_data_iter::{FieldDataIterator, IntoFieldValueRefIter},
     options::argument::CliArgIdx,
-    scratch_vec::ScratchVec,
     string_store::{StringStore, StringStoreEntry},
     worker_thread_session::{FieldId, JobData, MatchSetId, TransformId, WorkerThreadSession},
 };
@@ -128,34 +128,23 @@ pub fn handle_tf_regex_batch_mode(
     tf_id: TransformId,
     _tf_data: &mut TfRegex,
 ) {
-    let tf = &mut sess.transforms[tf_id];
-    let batch = tf.desired_batch_size.min(tf.available_batch_size);
-    tf.available_batch_size -= batch;
-    if tf.available_batch_size == 0 {
-        sess.ready_queue.pop();
-    }
+    let (batch, input_field) = sess.claim_batch(tf_id);
+    for (len, v) in sess.fields[input_field]
+        .field_data
+        .iter()
+        .bounded(batch)
+        .value_refs()
+        .len_only()
     {
-        let mut entries = ScratchVec::new(&mut sess.scratch_memory);
-        let print_error_text = "<Type Error>";
-        //TODO: much optmization much wow
-        entries.extend(
-            sess.fields[tf.input_field]
-                .field_data
-                .iter()
-                .bounded(batch)
-                .map(|(len, v)| match v {
-                    crate::field_data::FieldValueRef::Text(sv) => match sv {
-                        crate::field_data::FieldValueTextRef::Plain(txt) => (len, txt),
-                        _ => (len, print_error_text),
-                    },
-                    _ => (len, print_error_text),
-                }),
-        );
-
-        for (len, text) in entries.iter() {
-            for _ in 0..*len {
-                println!("{text}");
-            }
+        let (len, text) = match v {
+            FieldValueRef::Text(sv) => match sv {
+                FieldValueTextRef::Plain(_txt) => (len, 0),
+                _ => (len, 0),
+            },
+            _ => (len, 0),
+        };
+        for _ in 0..len {
+            println!("{text}");
         }
     }
     sess.inform_successor_batch_available(tf_id, batch);
