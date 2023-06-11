@@ -6,7 +6,7 @@ use crate::{
     options::argument::CliArgIdx,
     scratch_vec::ScratchVec,
     string_store::{StringStore, StringStoreEntry},
-    worker_thread_session::{FieldId, MatchSetId, TransformId, WorkerThreadSession},
+    worker_thread_session::{FieldId, JobData, MatchSetId, TransformId, WorkerThreadSession},
 };
 
 use super::OperatorCreationError;
@@ -123,7 +123,11 @@ fn process(
 }
 */
 
-pub fn handle_print_batch_mode(sess: &mut WorkerThreadSession<'_>, tf_id: TransformId) {
+pub fn handle_tf_regex_batch_mode(
+    sess: &mut JobData<'_>,
+    tf_id: TransformId,
+    _tf_data: &mut TfRegex,
+) {
     let tf = &mut sess.transforms[tf_id];
     let batch = tf.desired_batch_size.min(tf.available_batch_size);
     tf.available_batch_size -= batch;
@@ -131,7 +135,7 @@ pub fn handle_print_batch_mode(sess: &mut WorkerThreadSession<'_>, tf_id: Transf
         sess.ready_queue.pop();
     }
     {
-        let mut entries = ScratchVec::new(&mut sess.scrach_memory);
+        let mut entries = ScratchVec::new(&mut sess.scratch_memory);
         let print_error_text = "<Type Error>";
         //TODO: much optmization much wow
         entries.extend(

@@ -15,7 +15,7 @@ use crate::scr_error::ScrError;
 use crate::string_store::StringStoreEntry;
 use crate::worker_thread_session::WorkerThreadSession;
 
-pub enum JobData {
+pub enum JobInput {
     FieldData(Vec<(Option<StringStoreEntry>, FieldData)>),
     Documents(Vec<Document>),
     DocumentIds(Vec<DocumentId>),
@@ -24,7 +24,7 @@ pub enum JobData {
 
 pub(crate) struct Job {
     pub starting_ops: SmallVec<[OperatorId; 2]>,
-    pub data: JobData,
+    pub data: JobInput,
 }
 
 pub(crate) struct WorkerThread {

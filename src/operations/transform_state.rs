@@ -1,17 +1,14 @@
 use nonmax::NonMaxUsize;
-use regex::Regex;
 
 use crate::worker_thread_session::{FieldId, MatchSetId, TransformId};
 
-use super::{format::TfFormat, split::TfSplit};
-
-type Type = Option<TfSplit>;
+use super::{format::TfFormat, regex::TfRegex, split::TfSplit};
 
 pub enum TransformData<'a> {
     Disabled,
     Print,
-    Split(Type),
-    Regex(Regex),
+    Split(TfSplit),
+    Regex(TfRegex),
     Format(TfFormat<'a>),
 }
 
@@ -21,7 +18,7 @@ impl Default for TransformData<'_> {
     }
 }
 
-pub struct TransformState<'a> {
+pub struct TransformState {
     pub successor: Option<TransformId>,
     pub stream_successor: Option<TransformId>,
     pub stream_producers_slot_index: Option<NonMaxUsize>,
@@ -29,5 +26,4 @@ pub struct TransformState<'a> {
     pub available_batch_size: usize,
     pub desired_batch_size: usize,
     pub match_set_id: MatchSetId,
-    pub data: TransformData<'a>,
 }

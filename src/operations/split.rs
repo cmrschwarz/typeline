@@ -9,7 +9,7 @@ use crate::{
     options::{argument::CliArgIdx, range_spec::RangeSpec},
     scratch_vec::ScratchVec,
     string_store::StringStoreEntry,
-    worker_thread_session::{FieldId, MatchSetId, TransformId, WorkerThreadSession},
+    worker_thread_session::{FieldId, JobData, MatchSetId, TransformId},
 };
 
 use super::{
@@ -25,10 +25,10 @@ pub struct OpSplit {
 }
 
 pub struct TfSplit {
-    expanded: bool,
+    pub expanded: bool,
     // Operator Ids before expansion, transform ids after
-    targets: Vec<NonMaxUsize>,
-    field_names_set: HashMap<StringStoreEntry, SmallVec<[FieldId; 2]>>,
+    pub targets: Vec<NonMaxUsize>,
+    pub field_names_set: HashMap<StringStoreEntry, SmallVec<[FieldId; 2]>>,
 }
 
 pub fn parse_split_op(
@@ -55,22 +55,14 @@ pub fn parse_split_op(
 }
 
 pub fn setup_ts_split_as_entry_point<'a, 'b>(
-    sess: &mut WorkerThreadSession<'a>,
+    sess: &mut JobData<'a>,
     input_field: FieldId,
     ms_id: MatchSetId,
     entry_count: usize,
     ops: impl Iterator<Item = &'b OperatorId> + Clone,
-) -> TransformState<'a> {
-    TransformState {
+) -> (TransformState, TransformData<'a>) {
+    let state = TransformState {
         input_field: input_field,
-        data: TransformData::Split(Some(TfSplit {
-            expanded: false,
-            targets: ops
-                .clone()
-                .map(|op| (*op as usize).try_into().unwrap())
-                .collect(),
-            field_names_set: Default::default(),
-        })),
         available_batch_size: entry_count,
         stream_producers_slot_index: None,
         stream_successor: None,
@@ -84,11 +76,20 @@ pub fn setup_ts_split_as_entry_point<'a, 'b>(
                     .default_batch_size,
             )
         }),
-    }
+    };
+    let data = TransformData::Split(TfSplit {
+        expanded: false,
+        targets: ops
+            .clone()
+            .map(|op| (*op as usize).try_into().unwrap())
+            .collect(),
+        field_names_set: Default::default(),
+    });
+    (state, data)
 }
 
-pub fn setup_tf_split(op: &OpSplit) -> Option<TfSplit> {
-    Some(TfSplit {
+pub fn setup_tf_split(op: &OpSplit) -> TfSplit {
+    TfSplit {
         expanded: false,
         targets: op
             .target_operators
@@ -96,33 +97,15 @@ pub fn setup_tf_split(op: &OpSplit) -> Option<TfSplit> {
             .map(|op| (*op as usize).try_into().unwrap())
             .collect(),
         field_names_set: Default::default(),
-    })
+    }
 }
 
-pub fn handle_split(
-    sess: &mut WorkerThreadSession,
-    stream_mode: bool,
-    tf_id: TransformId,
-    mut s: TfSplit,
-) -> TfSplit {
+pub fn handle_tf_split(sess: &mut JobData, tf_id: TransformId, s: &mut TfSplit, stream_mode: bool) {
     let tf = &mut sess.transforms[tf_id];
     let tf_ms_id = tf.match_set_id;
     let bs = tf.available_batch_size;
     tf.available_batch_size = 0;
     sess.ready_queue.pop();
-    if !s.expanded {
-        for i in 0..s.targets.len() {
-            let op = s.targets[i];
-            let ms_id = sess.add_match_set();
-            let input_field = sess.add_field(tf_ms_id, None);
-            let _tf = sess.setup_transforms_from_op(
-                ms_id,
-                0,
-                <NonMaxUsize as TryInto<usize>>::try_into(op).unwrap() as OperatorId,
-                input_field,
-            );
-        }
-    }
     if stream_mode {
         todo!();
     } else {
@@ -151,7 +134,7 @@ pub fn handle_split(
 
             // the following is a annoyingly complicated way to gathering a
             // list of mutable references from a list of indices without using unsafe
-            let mut targets_arr = ScratchVec::new(&mut sess.scrach_memory);
+            let mut targets_arr = ScratchVec::new(&mut sess.scratch_memory);
             targets.sort();
 
             for i in targets.iter() {
@@ -170,5 +153,4 @@ pub fn handle_split(
         }
     }
     debug_assert!(sess.transforms[tf_id].successor.is_none());
-    s
 }

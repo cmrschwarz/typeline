@@ -4,7 +4,7 @@ use crate::{
     field_data_iter::FieldDataIterator,
     options::argument::CliArgIdx,
     scratch_vec::ScratchVec,
-    worker_thread_session::{TransformId, WorkerThreadSession},
+    worker_thread_session::{JobData, TransformId},
 };
 
 use super::{operator_data::OperatorData, OperatorCreationError};
@@ -22,7 +22,7 @@ pub fn parse_print_op(
     Ok(OperatorData::Print)
 }
 
-pub fn handle_print_batch_mode(sess: &mut WorkerThreadSession<'_>, tf_id: TransformId) {
+pub fn handle_print_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId) {
     let tf = &mut sess.transforms[tf_id];
     let batch = tf.desired_batch_size.min(tf.available_batch_size);
     tf.available_batch_size -= batch;
@@ -30,7 +30,7 @@ pub fn handle_print_batch_mode(sess: &mut WorkerThreadSession<'_>, tf_id: Transf
         sess.ready_queue.pop();
     }
     {
-        let mut entries = ScratchVec::new(&mut sess.scrach_memory);
+        let mut entries = ScratchVec::new(&mut sess.scratch_memory);
         let print_error_text = "<Type Error>";
         //TODO: much optmization much wow
         entries.extend(

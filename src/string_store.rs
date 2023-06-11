@@ -15,7 +15,7 @@ impl Default for StringStore {
             table_str_to_idx: Default::default(),
             table_idx_to_str: Default::default(),
             arena: vec![Vec::with_capacity(1024)],
-            existing_strings: Default::default(),
+            existing_strings: vec![Vec::with_capacity(8)],
         }
     }
 }

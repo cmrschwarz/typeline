@@ -11,7 +11,7 @@ use crate::operations::operator_base::{OperatorBase, OperatorId};
 use crate::operations::operator_data::OperatorData;
 use crate::scr_error::ScrError;
 use crate::string_store::StringStore;
-use crate::worker_thread::{Job, JobData, WorkerThread};
+use crate::worker_thread::{Job, JobInput, WorkerThread};
 
 pub struct SessionData {
     pub max_worker_threads: NonZeroUsize,
@@ -80,7 +80,7 @@ impl Context {
                 _ => {
                     self.main_worker_thread.context_data.injector.push(Job {
                         starting_ops: ops_iter.collect(),
-                        data: JobData::DocumentIds(vec![doc_id]),
+                        data: JobInput::DocumentIds(vec![doc_id]),
                     });
                 }
             }
@@ -88,7 +88,7 @@ impl Context {
         if !stdin_job_ops.is_empty() {
             self.main_worker_thread.context_data.injector.push(Job {
                 starting_ops: stdin_job_ops,
-                data: JobData::Stdin,
+                data: JobInput::Stdin,
             });
         }
         self.main_worker_thread
