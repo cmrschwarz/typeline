@@ -1,7 +1,6 @@
 use std::{
     collections::HashMap,
     iter,
-    marker::PhantomData,
     mem::{align_of, size_of, ManuallyDrop},
     ops::Range,
     ptr::drop_in_place,
@@ -22,22 +21,25 @@ pub type RunLength = u32;
 pub enum StreamKind {
     Plain,
     Reference,
-    StreamChunk(bool),
-    BufferMem(bool),
-    BufferFile(bool),
+    BufferMem,
+    BufferFile,
 }
 
+type FieldValueKindIntegralType = u8;
+
 #[derive(Clone, Copy, PartialEq)]
+#[repr(u8)]
 pub enum FieldValueKind {
     Unset,
     Null,
     EntryId,
+    Integer, //TODO: bigint, float, decimal, ...
+    Reference,
     Error,
     Html,
-    Integer, //TODO: bigint, float, decimal, ...
-    Text(StreamKind),
-    Bytes(StreamKind),
-    Array(StreamKind),
+    BytesInline,
+    BytesBuffer,
+    BytesFile,
     Object,
 }
 
@@ -45,24 +47,14 @@ impl FieldValueKind {
     pub fn needs_drop(self) -> bool {
         use FieldValueKind::*;
         match self {
-            Unset | EntryId | Integer | Null => false,
-            Text(sk) | Bytes(sk) | Array(sk) => match sk {
-                StreamKind::BufferMem(_) | StreamKind::BufferFile(_) => true,
-                StreamKind::Plain | StreamKind::Reference | StreamKind::StreamChunk(_) => false,
-            },
-            Error => true,
-            Html => true,
-            Object => true,
+            Unset | Null | EntryId | Integer | Reference => false,
+            Error | Html | BytesInline | BytesBuffer | BytesFile | Object => true,
         }
     }
     pub fn needs_alignment(self) -> bool {
         use FieldValueKind::*;
         match self {
-            Null | Unset => false,
-            Text(sk) | Bytes(sk) => match sk {
-                StreamKind::Plain | StreamKind::StreamChunk(_) => false,
-                _ => true,
-            },
+            Unset | Null | BytesInline => false,
             _ => true,
         }
     }
@@ -89,41 +81,6 @@ impl FieldValueKind {
     }
 }
 
-#[derive(Clone, Copy)]
-pub enum FieldValueBytesRef<'a> {
-    Plain(&'a [u8]),
-    Reference(&'a CrossFieldReference),
-    StreamChunk(&'a [u8], bool),
-    BufferMem(&'a Vec<u8>, bool),
-    BufferFile(&'a BytesBufferFile, bool), //TODO
-}
-
-#[derive(Clone, Copy)]
-pub enum FieldValueTextRef<'a> {
-    Plain(&'a str),
-    Reference(&'a CrossFieldReference),
-    StreamChunk(&'a str, bool),
-    BufferMem(&'a String, bool),
-    BufferFile(&'a TextBufferFile, bool), //TODO
-}
-
-#[derive(Clone, Copy)]
-pub struct InlineArrayRef<'a> {
-    //data lives after the headers. not storing a header slice here to keep provenance
-    headers: *const FieldValueHeader,
-    count: usize,
-    _phantom_data: PhantomData<&'a [FieldValueHeader]>,
-}
-
-#[derive(Clone, Copy)]
-pub enum FieldValueArrayRef<'a> {
-    Plain(InlineArrayRef<'a>),
-    Reference(&'a CrossFieldReference),
-    StreamChunk(InlineArrayRef<'a>, bool),
-    BufferMem(&'a FieldData, bool),
-    BufferFile(&'a ArrayBufferFile, bool), //TODO
-}
-
 #[derive(Clone)]
 struct ObjectEntry {
     kind: FieldValueKind,
@@ -141,17 +98,13 @@ pub struct CrossFieldReference {
     range: Range<usize>,
 }
 
+#[derive(Clone)]
 pub struct Html {
     //TODO
 }
 
-pub struct TextBufferFile {
-    //TODO
-}
+#[derive(Clone)]
 pub struct BytesBufferFile {
-    //TODO
-}
-pub struct ArrayBufferFile {
     //TODO
 }
 
@@ -159,10 +112,8 @@ pub struct ArrayBufferFile {
 #[repr(C)]
 union FieldValueUnion {
     text: ManuallyDrop<String>,
-    text_file: ManuallyDrop<TextBufferFile>,
     bytes: ManuallyDrop<Vec<u8>>,
     bytes_file: ManuallyDrop<BytesBufferFile>,
-    array_file: ManuallyDrop<ArrayBufferFile>,
     object: ManuallyDrop<Object>,
 }
 
@@ -171,11 +122,6 @@ pub const MAX_FIELD_ALIGN: usize = align_of::<FieldValueUnion>();
 const_assert!(MAX_FIELD_ALIGN.is_power_of_two());
 pub const FIELD_ALIGN_MASK: usize = !MAX_FIELD_ALIGN;
 
-unsafe fn to_aligned_ref<'a, T>(ptr: *const u8) -> &'a T {
-    const ALIGN_MASK: usize = !(MAX_FIELD_ALIGN - 1);
-    &*((ptr as usize & ALIGN_MASK) as *const T)
-}
-
 type FieldValueSize = u16;
 
 #[allow(dead_code)] //TODO
@@ -183,6 +129,8 @@ type FieldValueSize = u16;
 pub struct FieldValueHeader {
     pub kind: FieldValueKind, //TODO: pack to one byte and add convenience functions
     pub shared_value: bool,
+    pub end_of_stream: bool,
+    pub bytes_are_utf8: bool,
     // this does NOT include potential padding before this
     // field in case it has to be aligned
     pub size: FieldValueSize,
@@ -417,13 +365,13 @@ impl FieldData {
     pub fn push_str(&mut self, data: &str, run_length: RunLength) {
         let inline = data.len() < INLINE_STR_MAX_LEN;
         let tgt_kind = if inline {
-            FieldValueKind::Text(StreamKind::Plain)
+            FieldValueKind::BytesInline
         } else {
-            FieldValueKind::Text(StreamKind::BufferMem(true))
+            FieldValueKind::BytesBuffer
         };
         let mut could_amend_header = false;
         if let Some(h) = self.header.last_mut() {
-            if !h.shared_value && h.kind == tgt_kind {
+            if !h.shared_value && h.kind == tgt_kind && h.end_of_stream == true {
                 if let Some(rl) = h.run_length.checked_add(1) {
                     h.run_length = rl;
                     could_amend_header = true;
@@ -435,6 +383,8 @@ impl FieldData {
             self.header.push(FieldValueHeader {
                 kind: tgt_kind,
                 shared_value: false,
+                end_of_stream: true,
+                bytes_are_utf8: false,
                 size: if inline {
                     data.len()
                 } else {
@@ -470,97 +420,15 @@ unsafe fn load_str_slice<'a>(ptr: *const u8, size: FieldValueSize) -> &'a str {
     std::str::from_utf8_unchecked(load_slice(ptr, size))
 }
 
-#[derive(Clone, Copy)]
-pub enum FieldValueRef<'a> {
-    Unset,
-    EntryId(EntryId),
-    Bytes(FieldValueBytesRef<'a>),
-    Text(FieldValueTextRef<'a>),
-    Array(FieldValueArrayRef<'a>),
-    Error(&'a OperatorApplicationError),
-    #[allow(dead_code)] //TODO
-    Html(u8),
-    Integer(i64),
-    Null,
-    Object(&'a Object),
-}
-
-pub unsafe fn get_field_value_ref<'a>(fmt: FieldValueHeader, ptr: *const u8) -> FieldValueRef<'a> {
-    let size = fmt.size;
-    match fmt.kind {
-        FieldValueKind::Unset => FieldValueRef::Unset,
-        FieldValueKind::EntryId => FieldValueRef::EntryId(*(ptr as *const EntryId)),
-        FieldValueKind::Text(variant) => match variant {
-            StreamKind::Plain => {
-                FieldValueRef::Text(FieldValueTextRef::Plain(load_str_slice(ptr, size)))
-            }
-            StreamKind::Reference => FieldValueRef::Text(FieldValueTextRef::Reference(
-                &*(ptr as *const CrossFieldReference),
-            )),
-            StreamKind::StreamChunk(eos) => FieldValueRef::Text(FieldValueTextRef::StreamChunk(
-                load_str_slice(ptr, size),
-                eos,
-            )),
-            StreamKind::BufferMem(eos) => {
-                FieldValueRef::Text(FieldValueTextRef::BufferMem(&*(ptr as *const String), eos))
-            }
-            StreamKind::BufferFile(_eos) => todo!(),
-        },
-        FieldValueKind::Bytes(variant) => match variant {
-            StreamKind::Plain => {
-                FieldValueRef::Bytes(FieldValueBytesRef::Plain(load_slice(ptr, size)))
-            }
-            StreamKind::Reference => FieldValueRef::Bytes(FieldValueBytesRef::Reference(
-                &*(ptr as *const CrossFieldReference),
-            )),
-            StreamKind::StreamChunk(eos) => {
-                FieldValueRef::Bytes(FieldValueBytesRef::StreamChunk(load_slice(ptr, size), eos))
-            }
-            StreamKind::BufferMem(eos) => FieldValueRef::Bytes(FieldValueBytesRef::BufferMem(
-                &*(ptr as *const Vec<u8>),
-                eos,
-            )),
-            StreamKind::BufferFile(_eos) => todo!(),
-        },
-        FieldValueKind::Array(variant) => match variant {
-            StreamKind::Plain => todo!(),
-            StreamKind::Reference => FieldValueRef::Array(FieldValueArrayRef::Reference(
-                &*(ptr as *const CrossFieldReference),
-            )),
-            StreamKind::StreamChunk(_eos) => todo!(),
-            StreamKind::BufferMem(_eos) => todo!(),
-            StreamKind::BufferFile(_eos) => todo!(),
-        },
-        FieldValueKind::Error => FieldValueRef::Error(&*(ptr as *const OperatorApplicationError)),
-        FieldValueKind::Html => todo!(),
-        FieldValueKind::Integer => FieldValueRef::Integer(*(ptr as *const i64)),
-        FieldValueKind::Null => FieldValueRef::Null,
-        FieldValueKind::Object => FieldValueRef::Object(&*(*ptr as *const Object)),
-    }
-}
-
 unsafe fn drop_data(fmt: FieldValueHeader, ptr: *mut u8) {
     use FieldValueKind::*;
     unsafe {
         match fmt.kind {
-            Unset | EntryId | Integer | Null => unreachable!(),
-            Text(sk) => match sk {
-                StreamKind::Plain | StreamKind::Reference | StreamKind::StreamChunk(_) => {
-                    unreachable!()
-                }
-                StreamKind::BufferMem(_) => drop_in_place(ptr as *mut String),
-                StreamKind::BufferFile(_) => drop_in_place(ptr as *mut TextBufferFile),
-            },
-            Bytes(sk) => match sk {
-                StreamKind::Plain | StreamKind::Reference | StreamKind::StreamChunk(_) => {
-                    unreachable!()
-                }
-                StreamKind::BufferMem(_) => drop_in_place(ptr as *mut Vec<u8>),
-                StreamKind::BufferFile(_) => drop_in_place(ptr as *mut BytesBufferFile),
-            },
-            Array(_) => todo!(),
+            Unset | Null | EntryId | Integer | Reference | BytesInline => unreachable!(),
+            BytesBuffer => drop_in_place(ptr as *mut Vec<u8>),
+            BytesFile => drop_in_place(ptr as *mut crate::field_data::BytesBufferFile),
             Error => drop_in_place(ptr as *mut OperatorApplicationError),
-            Html => todo!(),
+            Html => drop_in_place(ptr as *mut crate::field_data::Html),
             Object => drop_in_place(ptr as *mut crate::field_data::Object),
         }
     }
@@ -597,27 +465,13 @@ unsafe fn append_data<'a>(
     use FieldValueKind::*;
     for tgt in targets {
         match fmt.kind {
-            Unset | EntryId | Integer | Null => unreachable!(),
-            Text(sk) | Bytes(sk) => match sk {
-                StreamKind::Plain | StreamKind::Reference | StreamKind::StreamChunk(_) => {
-                    unreachable!()
-                }
-                StreamKind::BufferMem(_) => unsafe {
-                    extend_with_clones(&mut tgt.data, source as *const Vec<u8>, count)
-                },
-
-                StreamKind::BufferFile(_) => todo!(),
-            },
-            Array(sk) => match sk {
-                StreamKind::Plain | StreamKind::Reference | StreamKind::StreamChunk(_) => {
-                    unreachable!()
-                }
-                StreamKind::BufferMem(_) => unsafe {
-                    extend_with_clones(&mut tgt.data, source as *const FieldData, count)
-                },
-
-                StreamKind::BufferFile(_) => todo!(),
-            },
+            Unset | Null | EntryId | Integer | Reference | BytesInline => unreachable!(),
+            BytesBuffer => extend_with_clones(&mut tgt.data, source as *const Vec<u8>, count),
+            BytesFile => extend_with_clones(
+                &mut tgt.data,
+                source as *const crate::field_data::BytesBufferFile,
+                count,
+            ),
             Error => unsafe {
                 extend_with_clones(
                     &mut tgt.data,
@@ -625,8 +479,11 @@ unsafe fn append_data<'a>(
                     count,
                 )
             },
-
-            Html => todo!(),
+            Html => extend_with_clones(
+                &mut tgt.data,
+                source as *const crate::field_data::Html,
+                count,
+            ),
             Object => extend_with_clones(
                 &mut tgt.data,
                 source as *const crate::field_data::Object,

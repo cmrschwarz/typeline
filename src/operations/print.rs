@@ -1,8 +1,7 @@
 use bstring::bstr;
 
 use crate::{
-    field_data::{FieldValueRef, FieldValueTextRef},
-    field_data_iter::{FieldDataIterator, IntoFieldValueRefIter},
+    field_data_iter::FieldDataIterator,
     options::argument::CliArgIdx,
     worker_thread_session::{JobData, TransformId},
 };
@@ -30,19 +29,9 @@ pub fn handle_print_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId) {
         .field_data
         .iter()
         .bounded(batch)
-        .value_refs()
-        .len_only()
+        .header_to_len()
     {
-        let (len, text) = match v {
-            FieldValueRef::Text(sv) => match sv {
-                FieldValueTextRef::Plain(txt) => (len, txt),
-                _ => (len, ERROR_TEXT),
-            },
-            _ => (len, ERROR_TEXT),
-        };
-        for _ in 0..len {
-            println!("{text}");
-        }
+        todo!();
     }
     sess.inform_successor_batch_available(tf_id, batch);
 }

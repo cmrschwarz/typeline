@@ -1,8 +1,6 @@
 use std::{marker::PhantomData, ptr::NonNull};
 
-use crate::field_data::{
-    get_field_value_ref, FieldData, FieldValueHeader, FieldValueKind, FieldValueRef, RunLength,
-};
+use crate::field_data::{FieldData, FieldValueHeader, FieldValueKind, RunLength};
 
 #[derive(Clone)]
 pub struct RawFieldDataIter<'a> {
@@ -65,7 +63,7 @@ impl<'a> RawFieldDataIter<'a> {
 }
 
 // SAFETY:
-// this trait is unsafe because other (especially transformative) iterators
+// these traits are unsafe because other (especially transformative) iterators
 // of this trait assume that everyone upholds the FieldData contracts
 pub unsafe trait FieldDataIterator<'a>:
     Iterator<Item = (FieldValueHeader, Self::ValueType)> + Sized
@@ -78,6 +76,17 @@ pub unsafe trait FieldDataIterator<'a>:
             _phantom_data: PhantomData::default(),
         }
     }
+    fn header_to_len(self) -> HeaderToLenFieldDataIterator<'a, Self> {
+        HeaderToLenFieldDataIterator {
+            iter: self,
+            _phantom_data: PhantomData::default(),
+        }
+    }
+    fn peek(&self) -> Option<Self::Item>;
+    fn drop_n_fields(&mut self, n: usize) -> usize;
+}
+
+pub unsafe trait NonRleTypesFieldDataIterator<'a>: FieldDataIterator<'a> {
     fn unfold_values(self) -> UnfoldedValuesFieldDataIterator<'a, Self> {
         UnfoldedValuesFieldDataIterator {
             iter: self,
@@ -85,14 +94,6 @@ pub unsafe trait FieldDataIterator<'a>:
             remaining_run_len: 0,
         }
     }
-    fn len_only(self) -> LenOnlyFieldDataIterator<'a, Self> {
-        LenOnlyFieldDataIterator {
-            iter: self,
-            _phantom_data: PhantomData::default(),
-        }
-    }
-    fn peek(&self) -> Option<Self::Item>;
-    fn drop_n_fields(&mut self, n: usize) -> usize;
 }
 
 #[derive(Clone)]
@@ -164,6 +165,8 @@ impl<'a> FieldDataIter<'a> {
             last_header: FieldValueHeader {
                 kind: FieldValueKind::Unset,
                 shared_value: false,
+                end_of_stream: true,
+                bytes_are_utf8: false,
                 size: 0,
                 run_length: 0,
             },
@@ -196,7 +199,6 @@ impl<'a> Iterator for FieldDataIter<'a> {
         None
     }
 }
-
 unsafe impl<'a> FieldDataIterator<'a> for FieldDataIter<'a> {
     type ValueType = *mut u8;
     fn drop_n_fields(&mut self, n: usize) -> usize {
@@ -237,6 +239,7 @@ unsafe impl<'a> FieldDataIterator<'a> for FieldDataIter<'a> {
         None
     }
 }
+unsafe impl<'a> NonRleTypesFieldDataIterator<'a> for FieldDataIter<'a> {}
 
 #[derive(Clone)]
 pub struct BoundedFieldDataIterator<'a, I: FieldDataIterator<'a>> {
@@ -286,55 +289,12 @@ unsafe impl<'a, I: FieldDataIterator<'a>> FieldDataIterator<'a>
         self.iter.drop_n_fields(n)
     }
 }
-
-pub trait IntoFieldValueRefIter<'a, I: FieldDataIterator<'a, ValueType = *mut u8>> {
-    fn value_refs(self) -> FieldValueRefIter<'a, I>;
-}
-impl<'a, I: FieldDataIterator<'a, ValueType = *mut u8>> IntoFieldValueRefIter<'a, I> for I {
-    fn value_refs(self) -> FieldValueRefIter<'a, I> {
-        FieldValueRefIter {
-            iter: self,
-            _phantom_data: PhantomData::default(),
-        }
-    }
-}
-
-#[derive(Clone)]
-pub struct FieldValueRefIter<'a, I> {
-    iter: I,
-    _phantom_data: PhantomData<&'a FieldData>,
-}
-
-unsafe fn resolve_field_ref<'a>(
-    v: Option<(FieldValueHeader, *mut u8)>,
-) -> Option<(FieldValueHeader, FieldValueRef<'a>)> {
-    match v {
-        Some((h, ptr)) => Some((h, unsafe { get_field_value_ref(h, ptr) })),
-        _ => None,
-    }
-}
-
-impl<'a, I: FieldDataIterator<'a, ValueType = *mut u8>> Iterator for FieldValueRefIter<'a, I> {
-    type Item = (FieldValueHeader, FieldValueRef<'a>);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        unsafe { resolve_field_ref(self.iter.next()) }
-    }
-}
-
-unsafe impl<'a, I: FieldDataIterator<'a, ValueType = *mut u8>> FieldDataIterator<'a>
-    for FieldValueRefIter<'a, I>
+unsafe impl<'a, I: NonRleTypesFieldDataIterator<'a>> NonRleTypesFieldDataIterator<'a>
+    for BoundedFieldDataIterator<'a, I>
 {
-    type ValueType = FieldValueRef<'a>;
-
-    fn peek(&self) -> Option<Self::Item> {
-        unsafe { resolve_field_ref(self.iter.peek()) }
-    }
-
-    fn drop_n_fields(&mut self, n: usize) -> usize {
-        todo!()
-    }
 }
+
+pub trait IntoFieldValueRefIter<'a, I: FieldDataIterator<'a, ValueType = *mut u8>> {}
 
 pub struct UnfoldedValuesFieldDataIterator<'a, I: FieldDataIterator<'a>> {
     iter: I,
@@ -359,9 +319,7 @@ impl<'a, I: FieldDataIterator<'a>> Iterator for UnfoldedValuesFieldDataIterator<
     }
 }
 
-impl<'a, I: FieldDataIterator<'a, ValueType = FieldValueRef<'a>>>
-    UnfoldedValuesFieldDataIterator<'a, I>
-{
+impl<'a, I: FieldDataIterator<'a>> UnfoldedValuesFieldDataIterator<'a, I> {
     pub fn peek(&mut self) -> Option<<Self as Iterator>::Item> {
         if self.remaining_run_len > 0 {
             return self.cached_value;
@@ -378,12 +336,12 @@ impl<'a, I: FieldDataIterator<'a, ValueType = FieldValueRef<'a>>>
     }
 }
 
-pub struct LenOnlyFieldDataIterator<'a, I: FieldDataIterator<'a>> {
+pub struct HeaderToLenFieldDataIterator<'a, I: FieldDataIterator<'a>> {
     iter: I,
     _phantom_data: PhantomData<&'a FieldData>,
 }
 
-impl<'a, I: FieldDataIterator<'a>> Iterator for LenOnlyFieldDataIterator<'a, I> {
+impl<'a, I: FieldDataIterator<'a>> Iterator for HeaderToLenFieldDataIterator<'a, I> {
     type Item = (RunLength, I::ValueType);
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -391,7 +349,7 @@ impl<'a, I: FieldDataIterator<'a>> Iterator for LenOnlyFieldDataIterator<'a, I> 
     }
 }
 
-impl<'a, I: FieldDataIterator<'a, ValueType = FieldValueRef<'a>>> LenOnlyFieldDataIterator<'a, I> {
+impl<'a, I: FieldDataIterator<'a>> HeaderToLenFieldDataIterator<'a, I> {
     pub fn peek(&mut self) -> Option<<Self as Iterator>::Item> {
         self.iter.peek().map(|(h, v)| (h.run_length, v))
     }
@@ -399,3 +357,15 @@ impl<'a, I: FieldDataIterator<'a, ValueType = FieldValueRef<'a>>> LenOnlyFieldDa
         self.iter.drop_n_fields(n)
     }
 }
+
+/*
+struct InlineDataFieldIterator<'a, const KIND: Foo, T, I: FieldDataIterator<'a>> {
+    iter: I,
+    _phantom_data: PhantomData<&'a T>,
+}
+
+impl<'a, const KIND: FieldValueKind, T, I: FieldDataIterator<'a>> Iterator
+    for InlineDataFieldIterator<'a, KIND, T, I>
+{
+}
+*/

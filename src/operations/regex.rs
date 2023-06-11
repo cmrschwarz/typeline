@@ -2,8 +2,7 @@ use bstring::bstr;
 use regex::{CaptureLocations, Regex};
 
 use crate::{
-    field_data::{FieldValueRef, FieldValueTextRef},
-    field_data_iter::{FieldDataIterator, IntoFieldValueRefIter},
+    field_data_iter::FieldDataIterator,
     options::argument::CliArgIdx,
     string_store::{StringStore, StringStoreEntry},
     worker_thread_session::{FieldId, JobData, MatchSetId, TransformId, WorkerThreadSession},
@@ -133,19 +132,9 @@ pub fn handle_tf_regex_batch_mode(
         .field_data
         .iter()
         .bounded(batch)
-        .value_refs()
-        .len_only()
+        .header_to_len()
     {
-        let (len, text) = match v {
-            FieldValueRef::Text(sv) => match sv {
-                FieldValueTextRef::Plain(_txt) => (len, 0),
-                _ => (len, 0),
-            },
-            _ => (len, 0),
-        };
-        for _ in 0..len {
-            println!("{text}");
-        }
+        todo!();
     }
     sess.inform_successor_batch_available(tf_id, batch);
 }
