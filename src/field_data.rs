@@ -10,7 +10,9 @@ use std::{
 use std::ops::Deref;
 
 use crate::{
-    field_data_iter::{FieldDataIter, NoRleTypesFieldDataIter, RawFieldDataIter},
+    field_data_iter::{
+        FieldDataIter, NoRleTypesFieldDataIter, RawFieldDataIter, SingleTypeFieldDataIter,
+    },
     operations::OperatorApplicationError,
     string_store::StringStoreEntry,
     worker_thread_session::FieldId,
@@ -44,7 +46,22 @@ pub enum FieldValueKind {
     BytesFile,
     Object,
 }
-
+// because these enum values as generics is annoying
+pub mod FieldValueKindValues {
+    use super::FieldValueKind::*;
+    use super::FieldValueKindIntegralType as KindType;
+    pub const UNSET: KindType = Unset as KindType;
+    pub const NULL: KindType = Null as KindType;
+    pub const ENTRY_ID: KindType = EntryId as KindType;
+    pub const INTEGER: KindType = Integer as KindType;
+    pub const REFERENCE: KindType = Reference as KindType;
+    pub const ERROR: KindType = Error as KindType;
+    pub const HTML: KindType = Html as KindType;
+    pub const BYTES_INLINE: KindType = BytesInline as KindType;
+    pub const BYTES_BUFFER: KindType = BytesBuffer as KindType;
+    pub const BYTES_FILE: KindType = BytesFile as KindType;
+    pub const OBJECT: KindType = Object as KindType;
+}
 impl FieldValueKind {
     pub fn needs_drop(self) -> bool {
         use FieldValueKind::*;
@@ -459,10 +476,13 @@ impl FieldData {
                 .extend_from_slice(unsafe { as_u8_slice(&owned_str) });
         }
     }
-    pub fn iter<'a>(&'a self) -> FieldDataIter<'a> {
+    pub fn iter<'a>(&'a self) -> SingleTypeFieldDataIter<'a, FieldDataIter<'a>> {
+        SingleTypeFieldDataIter::new(FieldDataIter::new(RawFieldDataIter::new(&self)))
+    }
+    pub fn iter_flat<'a>(&'a self) -> FieldDataIter<'a> {
         FieldDataIter::new(RawFieldDataIter::new(self))
     }
-    pub fn iter_no_rle_types<'a>(&'a self) -> NoRleTypesFieldDataIter<'a> {
+    pub fn iter_flat_no_rle_types<'a>(&'a self) -> NoRleTypesFieldDataIter<'a> {
         NoRleTypesFieldDataIter::new(RawFieldDataIter::new(self))
     }
 }

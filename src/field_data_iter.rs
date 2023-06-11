@@ -1,9 +1,12 @@
 use std::{marker::PhantomData, mem::size_of, ptr::NonNull, slice};
 
 use crate::field_data::{
-    FieldData, FieldValueHeader, FieldValueHeaderFlags, FieldValueHeaderFormat, FieldValueKind,
-    FieldValueKindIntegralType, RunLength,
+    EntryId, FieldData, FieldValueHeader, FieldValueHeaderFlags, FieldValueHeaderFormat,
+    FieldValueKind, FieldValueKindIntegralType, FieldValueKindValues, RunLength,
 };
+
+use FieldValueHeaderFlags::BYTES_ARE_UTF8;
+use FieldValueKindValues::*;
 
 #[derive(Clone)]
 pub struct RawFieldDataIter<'a> {
@@ -434,22 +437,24 @@ impl<'a, I: FieldDataIterator<'a>> HeaderToLenFieldDataIterator<'a, I> {
 
 struct InlineBytesFieldDataIterator<
     'a,
+    'b,
     const FLAGS_MASK: FieldValueHeaderFlags::Type,
     const FLAGS_VALUE: FieldValueHeaderFlags::Type,
     I: FieldDataIterator<'a, ValueType = *const u8>,
 > {
-    iter: I,
+    iter: &'b mut I,
     _phantom_data: PhantomData<&'a FieldData>,
 }
 
 impl<
         'a,
+        'b,
         const FLAGS_MASK: FieldValueHeaderFlags::Type,
         const FLAGS_VALUE: FieldValueHeaderFlags::Type,
         I: FieldDataIterator<'a, ValueType = *const u8>,
-    > Iterator for InlineBytesFieldDataIterator<'a, FLAGS_MASK, FLAGS_VALUE, I>
+    > Iterator for InlineBytesFieldDataIterator<'a, 'b, FLAGS_MASK, FLAGS_VALUE, I>
 {
-    type Item = (FieldValueHeader, &'a [u8]);
+    type Item = (FieldValueHeader, &'b [u8]);
 
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(h) = self.iter.peek_header_fmt() {
@@ -466,28 +471,101 @@ impl<
     }
 }
 
+impl<
+        'a,
+        'b,
+        const FLAGS_MASK: FieldValueHeaderFlags::Type,
+        const FLAGS_VALUE: FieldValueHeaderFlags::Type,
+        I: FieldDataIterator<'a, ValueType = *const u8>,
+    > Drop for InlineBytesFieldDataIterator<'a, 'b, FLAGS_MASK, FLAGS_VALUE, I>
+{
+    fn drop(&mut self) {
+        while self.next().is_some() {} //TODO: do something cleverer
+    }
+}
+
+impl<
+        'a,
+        'b,
+        const FLAGS_MASK: FieldValueHeaderFlags::Type,
+        const FLAGS_VALUE: FieldValueHeaderFlags::Type,
+        I: FieldDataIterator<'a, ValueType = *const u8>,
+    > InlineBytesFieldDataIterator<'a, 'b, FLAGS_MASK, FLAGS_VALUE, I>
+{
+    fn new(iter: &'b mut I) -> Self {
+        Self {
+            iter,
+            _phantom_data: PhantomData::default(),
+        }
+    }
+}
+
+struct InlineStrFieldDataIterator<
+    'a,
+    'b,
+    const FLAGS_MASK: FieldValueHeaderFlags::Type,
+    const FLAGS_VALUE: FieldValueHeaderFlags::Type,
+    I: FieldDataIterator<'a, ValueType = *const u8>,
+> {
+    iter: InlineBytesFieldDataIterator<'a, 'b, FLAGS_MASK, FLAGS_VALUE, I>,
+    _phantom_data: PhantomData<&'a FieldData>,
+}
+impl<
+        'a,
+        'b,
+        const FLAGS_MASK: FieldValueHeaderFlags::Type,
+        const FLAGS_VALUE: FieldValueHeaderFlags::Type,
+        I: FieldDataIterator<'a, ValueType = *const u8>,
+    > Iterator for InlineStrFieldDataIterator<'a, 'b, FLAGS_MASK, FLAGS_VALUE, I>
+{
+    type Item = (FieldValueHeader, &'b str);
+    fn next(&mut self) -> Option<Self::Item> {
+        debug_assert!(FLAGS_MASK & FLAGS_VALUE & BYTES_ARE_UTF8 == BYTES_ARE_UTF8);
+        self.iter
+            .next()
+            .map(|(h, v)| (h, unsafe { std::str::from_utf8_unchecked(v) }))
+    }
+}
+impl<
+        'a,
+        'b,
+        const FLAGS_MASK: FieldValueHeaderFlags::Type,
+        const FLAGS_VALUE: FieldValueHeaderFlags::Type,
+        I: FieldDataIterator<'a, ValueType = *const u8>,
+    > InlineStrFieldDataIterator<'a, 'b, FLAGS_MASK, FLAGS_VALUE, I>
+{
+    fn new(iter: &'b mut I) -> Self {
+        Self {
+            iter: InlineBytesFieldDataIterator::new(iter),
+            _phantom_data: PhantomData::default(),
+        }
+    }
+}
+
 struct FixedTypeSlicesFieldDataIterator<
     'a,
+    'b,
     const KIND: FieldValueKindIntegralType,
     const FLAGS_MASK: FieldValueHeaderFlags::Type,
     const FLAGS_VALUE: FieldValueHeaderFlags::Type,
-    T: Sized,
+    T: Sized + 'b,
     I: FieldDataIterator<'a, ValueType = *const u8>,
 > {
-    iter: I,
+    iter: &'b mut I,
     _phantom_data: PhantomData<&'a T>,
 }
 
 impl<
         'a,
+        'b,
         const KIND: FieldValueKindIntegralType,
         const FLAGS_MASK: FieldValueHeaderFlags::Type,
         const FLAGS_VALUE: FieldValueHeaderFlags::Type,
-        T: Sized,
+        T: Sized + 'b,
         I: FieldDataIterator<'a, ValueType = *const u8>,
-    > Iterator for FixedTypeSlicesFieldDataIterator<'a, KIND, FLAGS_MASK, FLAGS_VALUE, T, I>
+    > Iterator for FixedTypeSlicesFieldDataIterator<'a, 'b, KIND, FLAGS_MASK, FLAGS_VALUE, T, I>
 {
-    type Item = (FieldValueHeader, &'a [T]);
+    type Item = (FieldValueHeader, &'b [T]);
 
     fn next(&mut self) -> Option<Self::Item> {
         if let Some((h, v)) = self.iter.next() {
@@ -502,29 +580,64 @@ impl<
     }
 }
 
+impl<
+        'a,
+        'b,
+        const KIND: FieldValueKindIntegralType,
+        const FLAGS_MASK: FieldValueHeaderFlags::Type,
+        const FLAGS_VALUE: FieldValueHeaderFlags::Type,
+        T: Sized + 'b,
+        I: FieldDataIterator<'a, ValueType = *const u8>,
+    > Drop for FixedTypeSlicesFieldDataIterator<'a, 'b, KIND, FLAGS_MASK, FLAGS_VALUE, T, I>
+{
+    fn drop(&mut self) {
+        while self.next().is_some() {} //TODO: do something cleverer
+    }
+}
+
+impl<
+        'a,
+        'b,
+        const KIND: FieldValueKindIntegralType,
+        const FLAGS_MASK: FieldValueHeaderFlags::Type,
+        const FLAGS_VALUE: FieldValueHeaderFlags::Type,
+        T: Sized + 'b,
+        I: FieldDataIterator<'a, ValueType = *const u8>,
+    > FixedTypeSlicesFieldDataIterator<'a, 'b, KIND, FLAGS_MASK, FLAGS_VALUE, T, I>
+{
+    fn new(iter: &'b mut I) -> Self {
+        Self {
+            iter,
+            _phantom_data: PhantomData::default(),
+        }
+    }
+}
+
 struct FixedTypeFieldDataIterator<
     'a,
+    'b,
     const KIND: FieldValueKindIntegralType,
     const FLAGS_MASK: FieldValueHeaderFlags::Type,
     const FLAGS_VALUE: FieldValueHeaderFlags::Type,
-    T: Sized,
+    T: Sized + 'b,
     I: FieldDataIterator<'a, ValueType = *const u8>,
 > {
-    iter: I,
+    iter: &'b mut I,
     last_header: FieldValueHeader,
     _phantom_data: PhantomData<&'a T>,
 }
 
 impl<
         'a,
+        'b,
         const KIND: FieldValueKindIntegralType,
         const FLAGS_MASK: FieldValueHeaderFlags::Type,
         const FLAGS_VALUE: FieldValueHeaderFlags::Type,
-        T: Sized,
+        T: Sized + 'b,
         I: FieldDataIterator<'a, ValueType = *const u8>,
-    > Iterator for FixedTypeFieldDataIterator<'a, KIND, FLAGS_MASK, FLAGS_VALUE, T, I>
+    > Iterator for FixedTypeFieldDataIterator<'a, 'b, KIND, FLAGS_MASK, FLAGS_VALUE, T, I>
 {
-    type Item = (FieldValueHeader, &'a T);
+    type Item = (FieldValueHeader, &'b T);
 
     fn next(&mut self) -> Option<Self::Item> {
         let mut h;
@@ -552,5 +665,120 @@ impl<
         return Some((h, unsafe {
             &*(ptr.add(self.last_header.run_length as usize * size_of::<T>()) as *const T)
         }));
+    }
+}
+
+impl<
+        'a,
+        'b,
+        const KIND: FieldValueKindIntegralType,
+        const FLAGS_MASK: FieldValueHeaderFlags::Type,
+        const FLAGS_VALUE: FieldValueHeaderFlags::Type,
+        T: Sized,
+        I: FieldDataIterator<'a, ValueType = *const u8>,
+    > Drop for FixedTypeFieldDataIterator<'a, 'b, KIND, FLAGS_MASK, FLAGS_VALUE, T, I>
+{
+    fn drop(&mut self) {
+        while self.next().is_some() {} //TODO: do something cleverer
+    }
+}
+
+impl<
+        'a,
+        'b,
+        const KIND: FieldValueKindIntegralType,
+        const FLAGS_MASK: FieldValueHeaderFlags::Type,
+        const FLAGS_VALUE: FieldValueHeaderFlags::Type,
+        T: Sized + 'b,
+        I: FieldDataIterator<'a, ValueType = *const u8>,
+    > FixedTypeFieldDataIterator<'a, 'b, KIND, FLAGS_MASK, FLAGS_VALUE, T, I>
+{
+    fn new(iter: &'b mut I) -> Self {
+        Self {
+            iter,
+            last_header: Default::default(),
+            _phantom_data: PhantomData::default(),
+        }
+    }
+}
+
+enum SingleTypeFieldDataIterator<'a, 'b, I: FieldDataIterator<'a, ValueType = *const u8>> {
+    Unset(RunLength),
+    Null(RunLength),
+    EntryId(FixedTypeFieldDataIterator<'a, 'b, ENTRY_ID, 0, 0, EntryId, I>),
+    Integer(FixedTypeSlicesFieldDataIterator<'a, 'b, INTEGER, 0, 0, EntryId, I>),
+    Reference(FixedTypeSlicesFieldDataIterator<'a, 'b, REFERENCE, 0, 0, EntryId, I>),
+    Error(FixedTypeSlicesFieldDataIterator<'a, 'b, ERROR, 0, 0, EntryId, I>),
+    Html(FixedTypeSlicesFieldDataIterator<'a, 'b, HTML, 0, 0, EntryId, I>),
+    TextInline(InlineStrFieldDataIterator<'a, 'b, BYTES_ARE_UTF8, BYTES_ARE_UTF8, I>),
+    BytesInline(InlineBytesFieldDataIterator<'a, 'b, 0, BYTES_ARE_UTF8, I>),
+    BytesBuffer(
+        FixedTypeSlicesFieldDataIterator<'a, 'b, BYTES_BUFFER, 0, BYTES_ARE_UTF8, EntryId, I>,
+    ),
+    BytesFile(FixedTypeSlicesFieldDataIterator<'a, 'b, BYTES_FILE, 0, BYTES_ARE_UTF8, EntryId, I>),
+    Object(FixedTypeSlicesFieldDataIterator<'a, 'b, OBJECT, 0, 0, EntryId, I>),
+}
+
+pub struct SingleTypeFieldDataIter<'a, I: FieldDataIterator<'a, ValueType = *const u8>> {
+    iter: I,
+    _phantom_data: PhantomData<&'a FieldData>,
+}
+
+impl<'a, I: FieldDataIterator<'a, ValueType = *const u8>> SingleTypeFieldDataIter<'a, I> {
+    fn next<'b>(&'b mut self) -> Option<SingleTypeFieldDataIterator<'a, 'b, I>> {
+        if let Some(h) = self.iter.peek_header_fmt() {
+            Some(match h.kind {
+                FieldValueKind::Unset => SingleTypeFieldDataIterator::Unset(
+                    unsafe { self.iter.next().unwrap_unchecked() }.0.run_length,
+                ),
+                FieldValueKind::Null => SingleTypeFieldDataIterator::Null(
+                    unsafe { self.iter.next().unwrap_unchecked() }.0.run_length,
+                ),
+                FieldValueKind::EntryId => SingleTypeFieldDataIterator::EntryId(
+                    FixedTypeFieldDataIterator::new(&mut self.iter),
+                ),
+                FieldValueKind::Integer => SingleTypeFieldDataIterator::Integer(
+                    FixedTypeSlicesFieldDataIterator::new(&mut self.iter),
+                ),
+                FieldValueKind::Reference => SingleTypeFieldDataIterator::Reference(
+                    FixedTypeSlicesFieldDataIterator::new(&mut self.iter),
+                ),
+                FieldValueKind::Error => SingleTypeFieldDataIterator::Error(
+                    FixedTypeSlicesFieldDataIterator::new(&mut self.iter),
+                ),
+                FieldValueKind::Html => SingleTypeFieldDataIterator::Html(
+                    FixedTypeSlicesFieldDataIterator::new(&mut self.iter),
+                ),
+                FieldValueKind::BytesInline => {
+                    if h.bytes_are_utf8() {
+                        SingleTypeFieldDataIterator::TextInline(InlineStrFieldDataIterator::new(
+                            &mut self.iter,
+                        ))
+                    } else {
+                        SingleTypeFieldDataIterator::BytesInline(InlineBytesFieldDataIterator::new(
+                            &mut self.iter,
+                        ))
+                    }
+                }
+                FieldValueKind::BytesBuffer => SingleTypeFieldDataIterator::BytesBuffer(
+                    FixedTypeSlicesFieldDataIterator::new(&mut self.iter),
+                ),
+                FieldValueKind::BytesFile => todo!(),
+                FieldValueKind::Object => SingleTypeFieldDataIterator::Object(
+                    FixedTypeSlicesFieldDataIterator::new(&mut self.iter),
+                ),
+            })
+        } else {
+            None
+        }
+    }
+}
+
+impl<'a, I: FieldDataIterator<'a, ValueType = *const u8>> SingleTypeFieldDataIter<'a, I> {
+    pub fn new(iter: I) -> Self {
+        Self {
+            iter,
+            _phantom_data: PhantomData::default(),
+        }
     }
 }

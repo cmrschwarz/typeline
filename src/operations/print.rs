@@ -30,8 +30,6 @@ pub fn handle_print_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId) {
         .iter()
         .bounded(batch)
         .header_to_len()
-    {
-        todo!();
-    }
+    {}
     sess.inform_successor_batch_available(tf_id, batch);
 }
