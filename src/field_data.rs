@@ -476,13 +476,10 @@ impl FieldData {
                 .extend_from_slice(unsafe { as_u8_slice(&owned_str) });
         }
     }
-    pub fn iter<'a>(&'a self) -> SingleTypeFieldDataIter<'a, FieldDataIter<'a>> {
-        SingleTypeFieldDataIter::new(FieldDataIter::new(RawFieldDataIter::new(&self)))
-    }
-    pub fn iter_flat<'a>(&'a self) -> FieldDataIter<'a> {
+    pub fn iter<'a>(&'a self) -> FieldDataIter<'a> {
         FieldDataIter::new(RawFieldDataIter::new(self))
     }
-    pub fn iter_flat_no_rle_types<'a>(&'a self) -> NoRleTypesFieldDataIter<'a> {
+    pub fn iter_no_rle_types<'a>(&'a self) -> NoRleTypesFieldDataIter<'a> {
         NoRleTypesFieldDataIter::new(RawFieldDataIter::new(self))
     }
 }
