@@ -2,13 +2,15 @@ use std::{
     collections::HashMap,
     iter,
     mem::{align_of, size_of, ManuallyDrop},
-    ops::Range,
+    ops::{DerefMut, Range},
     ptr::drop_in_place,
     slice, u8,
 };
 
+use std::ops::Deref;
+
 use crate::{
-    field_data_iter::{FieldDataIter, RawFieldDataIter, RleTypesFieldDataIter},
+    field_data_iter::{FieldDataIter, NoRleTypesFieldDataIter, RawFieldDataIter},
     operations::OperatorApplicationError,
     string_store::StringStoreEntry,
     worker_thread_session::FieldId,
@@ -25,7 +27,7 @@ pub enum StreamKind {
     BufferFile,
 }
 
-type FieldValueKindIntegralType = u8;
+pub type FieldValueKindIntegralType = u8;
 
 #[derive(Clone, Copy, PartialEq)]
 #[repr(u8)]
@@ -124,29 +126,84 @@ pub const FIELD_ALIGN_MASK: usize = !MAX_FIELD_ALIGN;
 
 type FieldValueSize = u16;
 
-#[allow(dead_code)] //TODO
+pub mod FieldValueHeaderFlags {
+    pub type Type = u8;
+    pub const SHARED_VALUE: Type = 0;
+    pub const END_OF_STREAM: Type = 1;
+    pub const BYTES_ARE_UTF8: Type = 2;
+    pub const DEFAULT_FLAGS: Type = END_OF_STREAM;
+}
+
 #[derive(Clone, Copy)]
-pub struct FieldValueHeader {
-    pub kind: FieldValueKind, //TODO: pack to one byte and add convenience functions
-    pub shared_value: bool,
-    pub end_of_stream: bool,
-    pub bytes_are_utf8: bool,
+pub struct FieldValueHeaderFormat {
+    pub kind: FieldValueKind,
+    pub flags: FieldValueHeaderFlags::Type,
     // this does NOT include potential padding before this
     // field in case it has to be aligned
     pub size: FieldValueSize,
+}
+
+impl Default for FieldValueHeaderFormat {
+    fn default() -> Self {
+        Self {
+            kind: FieldValueKind::Unset,
+            flags: FieldValueHeaderFlags::DEFAULT_FLAGS,
+            size: 0,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Default)]
+pub struct FieldValueHeader {
+    pub fmt: FieldValueHeaderFormat,
     pub run_length: RunLength,
+}
+
+impl FieldValueHeaderFormat {
+    pub fn shared_value(self) -> bool {
+        self.flags & FieldValueHeaderFlags::SHARED_VALUE != 0
+    }
+    pub fn set_shared_value(&mut self, val: bool) {
+        self.flags |= (val as FieldValueHeaderFlags::Type) << FieldValueHeaderFlags::SHARED_VALUE;
+    }
+    pub fn end_of_stream(self) -> bool {
+        self.flags & FieldValueHeaderFlags::END_OF_STREAM != 0
+    }
+    pub fn set_end_of_stream(&mut self, val: bool) {
+        self.flags |= (val as FieldValueHeaderFlags::Type) << FieldValueHeaderFlags::END_OF_STREAM;
+    }
+    pub fn bytes_are_utf8(self) -> bool {
+        self.flags & FieldValueHeaderFlags::BYTES_ARE_UTF8 != 0
+    }
+    pub fn set_bytes_are_utf8(&mut self, val: bool) {
+        self.flags |= (val as FieldValueHeaderFlags::Type) << FieldValueHeaderFlags::BYTES_ARE_UTF8;
+    }
+}
+
+impl Deref for FieldValueHeader {
+    type Target = FieldValueHeaderFormat;
+
+    fn deref(&self) -> &Self::Target {
+        &self.fmt
+    }
+}
+
+impl DerefMut for FieldValueHeader {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.fmt
+    }
 }
 
 impl FieldValueHeader {
     pub fn data_element_count(&self) -> usize {
-        if self.shared_value {
+        if self.shared_value() {
             1
         } else {
             self.run_length as usize
         }
     }
     pub fn data_size(&self) -> usize {
-        if self.shared_value {
+        if self.shared_value() {
             self.size as usize
         } else {
             self.size as usize * self.run_length as usize
@@ -189,7 +246,7 @@ impl FieldData {
                 break;
             }
             remaining_drops -= h.run_length as usize;
-            let drop_count = if h.shared_value { 1 } else { h.run_length };
+            let drop_count = if h.shared_value() { 1 } else { h.run_length };
             if h.kind.needs_drop() {
                 for _ in 0..drop_count {
                     remaining_size -= h.size as usize;
@@ -217,8 +274,8 @@ impl FieldData {
         let h = &mut self.header[hi];
         let mut tgt = *h;
         tgt.run_length = new_run_len;
-        debug_assert!(h.run_length > 0 && (h.shared_value || h.run_length > 1));
-        if h.shared_value {
+        debug_assert!(h.run_length > 0 && (h.shared_value() || h.run_length > 1));
+        if h.shared_value() {
             tgt.run_length -= 1;
             if let Some(rl) = h.run_length.checked_add(tgt.run_length) {
                 h.run_length = rl;
@@ -229,14 +286,14 @@ impl FieldData {
             //nth is first of this header, insert it at the start
             h.run_length -= 1;
             if h.run_length == 1 {
-                h.shared_value = true;
+                h.set_shared_value(true);
             }
             self.header.insert(hi + 1, tgt);
         } else if i == n + h.run_length as usize {
             //nth is last of this header, insert it as the start
             h.run_length -= 1;
             if h.run_length == 1 {
-                h.shared_value = true;
+                h.set_shared_value(true);
             }
             self.header.insert(hi, tgt);
         } else {
@@ -292,7 +349,7 @@ impl FieldData {
         // copy the headers over to the targets
         for t in targets.iter_mut() {
             if let Some(h_tgt) = t.header.last_mut() {
-                if !h.shared_value && !h_tgt.shared_value && h_tgt.kind == h.kind {
+                if !h.shared_value() && !h_tgt.shared_value() && h_tgt.kind == h.kind {
                     if let Some(rl) = h_tgt.run_length.checked_add(h.run_length) {
                         h_tgt.run_length = rl;
                         if header_idx + 1 != self.header.len() {
@@ -371,7 +428,7 @@ impl FieldData {
         };
         let mut could_amend_header = false;
         if let Some(h) = self.header.last_mut() {
-            if !h.shared_value && h.kind == tgt_kind && h.end_of_stream == true {
+            if !h.shared_value() && h.kind == tgt_kind && h.end_of_stream() == true {
                 if let Some(rl) = h.run_length.checked_add(1) {
                     h.run_length = rl;
                     could_amend_header = true;
@@ -381,15 +438,15 @@ impl FieldData {
 
         if !could_amend_header {
             self.header.push(FieldValueHeader {
-                kind: tgt_kind,
-                shared_value: false,
-                end_of_stream: true,
-                bytes_are_utf8: false,
-                size: if inline {
-                    data.len()
-                } else {
-                    size_of::<String>()
-                } as FieldValueSize,
+                fmt: FieldValueHeaderFormat {
+                    kind: tgt_kind,
+                    flags: Default::default(),
+                    size: if inline {
+                        data.len()
+                    } else {
+                        size_of::<String>()
+                    } as FieldValueSize,
+                },
                 run_length,
             })
         }
@@ -405,8 +462,8 @@ impl FieldData {
     pub fn iter<'a>(&'a self) -> FieldDataIter<'a> {
         FieldDataIter::new(RawFieldDataIter::new(self))
     }
-    pub fn iter_rle_types<'a>(&'a self) -> RleTypesFieldDataIter<'a> {
-        RleTypesFieldDataIter::new(RawFieldDataIter::new(self))
+    pub fn iter_no_rle_types<'a>(&'a self) -> NoRleTypesFieldDataIter<'a> {
+        NoRleTypesFieldDataIter::new(RawFieldDataIter::new(self))
     }
 }
 
@@ -453,18 +510,18 @@ unsafe fn extend_with_clones<T: Clone>(tgt: &mut Vec<u8>, src: *const T, count: 
 }
 
 unsafe fn append_data<'a>(
-    fmt: FieldValueHeader,
+    h: FieldValueHeader,
     source: *const u8,
     targets: &mut [&'a mut FieldData],
 ) {
-    let count = if fmt.shared_value {
+    let count = if h.shared_value() {
         1
     } else {
-        fmt.run_length as usize
+        h.run_length as usize
     };
     use FieldValueKind::*;
     for tgt in targets {
-        match fmt.kind {
+        match h.kind {
             Unset | Null | EntryId | Integer | Reference | BytesInline => unreachable!(),
             BytesBuffer => extend_with_clones(&mut tgt.data, source as *const Vec<u8>, count),
             BytesFile => extend_with_clones(
