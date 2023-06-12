@@ -19,7 +19,6 @@ pub mod document;
 pub mod encoding;
 #[allow(dead_code)]
 mod field_data;
-pub mod field_data_iter;
 pub mod operations;
 pub mod options;
 pub mod plattform;
@@ -29,6 +28,7 @@ pub mod selenium;
 pub mod string_store;
 pub mod universe;
 pub mod worker_thread;
+pub mod field_data_iterator;
 mod worker_thread_session;
 
 #[cfg(test)]

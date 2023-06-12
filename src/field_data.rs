@@ -10,12 +10,8 @@ use std::{
 use std::ops::Deref;
 
 use crate::{
-    field_data_iter::{
-        FieldDataIter, NoRleTypesFieldDataIter, RawFieldDataIter, SingleTypeFieldDataIter,
-    },
-    operations::OperatorApplicationError,
-    string_store::StringStoreEntry,
-    worker_thread_session::FieldId,
+    field_data_iterator::FDIter, operations::OperatorApplicationError,
+    string_store::StringStoreEntry, worker_thread_session::FieldId,
 };
 
 //if the u32 overflows we just split into two values
@@ -112,7 +108,7 @@ pub struct Object {
     table: HashMap<StringStoreEntry, ObjectEntry>,
 }
 
-pub struct CrossFieldReference {
+pub struct FieldReference {
     field: FieldId,
     range: Range<usize>,
 }
@@ -138,33 +134,39 @@ union FieldValueUnion {
 
 pub const MAX_FIELD_ALIGN: usize = align_of::<FieldValueUnion>();
 
-const_assert!(MAX_FIELD_ALIGN.is_power_of_two());
+const_assert!(MAX_FIELD_ALIGN.is_power_of_two() && MAX_FIELD_ALIGN <= 16);
 pub const FIELD_ALIGN_MASK: usize = !MAX_FIELD_ALIGN;
 
 type FieldValueSize = u16;
 
-pub mod FieldValueHeaderFlags {
+pub mod FieldValueFlags {
     pub type Type = u8;
-    pub const SHARED_VALUE: Type = 0;
-    pub const END_OF_STREAM: Type = 1;
-    pub const BYTES_ARE_UTF8: Type = 2;
-    pub const DEFAULT_FLAGS: Type = END_OF_STREAM;
+    //offset must be zero so we don't have to shift
+    pub const ALIGNMENT_AFTER: Type = 0xF;
+
+    pub const SHARED_VALUE_OFFSET: Type = 4;
+    pub const BYTES_ARE_UTF8_OFFSET: Type = 5;
+    pub const NON_FINAL_STREAM_CHUNK_OFFSET: Type = 6;
+
+    pub const SHARED_VALUE: Type = 1 << SHARED_VALUE_OFFSET;
+    pub const BYTES_ARE_UTF8: Type = 1 << BYTES_ARE_UTF8_OFFSET;
+    pub const NON_FINAL_STREAM_CHUNK: Type = 1 << NON_FINAL_STREAM_CHUNK_OFFSET;
 }
 
 #[derive(Clone, Copy)]
-pub struct FieldValueHeaderFormat {
+pub struct FieldValueFormat {
     pub kind: FieldValueKind,
-    pub flags: FieldValueHeaderFlags::Type,
+    pub flags: FieldValueFlags::Type,
     // this does NOT include potential padding before this
     // field in case it has to be aligned
     pub size: FieldValueSize,
 }
 
-impl Default for FieldValueHeaderFormat {
+impl Default for FieldValueFormat {
     fn default() -> Self {
         Self {
             kind: FieldValueKind::Unset,
-            flags: FieldValueHeaderFlags::DEFAULT_FLAGS,
+            flags: 0,
             size: 0,
         }
     }
@@ -172,33 +174,41 @@ impl Default for FieldValueHeaderFormat {
 
 #[derive(Clone, Copy, Default)]
 pub struct FieldValueHeader {
-    pub fmt: FieldValueHeaderFormat,
+    pub fmt: FieldValueFormat,
     pub run_length: RunLength,
 }
 
-impl FieldValueHeaderFormat {
+impl FieldValueFormat {
     pub fn shared_value(self) -> bool {
-        self.flags & FieldValueHeaderFlags::SHARED_VALUE != 0
+        self.flags & FieldValueFlags::SHARED_VALUE != 0
     }
     pub fn set_shared_value(&mut self, val: bool) {
-        self.flags |= (val as FieldValueHeaderFlags::Type) << FieldValueHeaderFlags::SHARED_VALUE;
+        self.flags |= (val as FieldValueFlags::Type) << FieldValueFlags::SHARED_VALUE_OFFSET;
     }
-    pub fn end_of_stream(self) -> bool {
-        self.flags & FieldValueHeaderFlags::END_OF_STREAM != 0
+    pub fn non_final_stream_chunk(self) -> bool {
+        self.flags & FieldValueFlags::NON_FINAL_STREAM_CHUNK != 0
     }
-    pub fn set_end_of_stream(&mut self, val: bool) {
-        self.flags |= (val as FieldValueHeaderFlags::Type) << FieldValueHeaderFlags::END_OF_STREAM;
+    pub fn set_non_final_stream_chunk(&mut self, val: bool) {
+        self.flags |=
+            (val as FieldValueFlags::Type) << FieldValueFlags::NON_FINAL_STREAM_CHUNK_OFFSET;
     }
     pub fn bytes_are_utf8(self) -> bool {
-        self.flags & FieldValueHeaderFlags::BYTES_ARE_UTF8 != 0
+        self.flags & FieldValueFlags::BYTES_ARE_UTF8 != 0
     }
     pub fn set_bytes_are_utf8(&mut self, val: bool) {
-        self.flags |= (val as FieldValueHeaderFlags::Type) << FieldValueHeaderFlags::BYTES_ARE_UTF8;
+        self.flags |= (val as FieldValueFlags::Type) << FieldValueFlags::BYTES_ARE_UTF8_OFFSET;
+    }
+    pub fn alignment_after(self) -> usize {
+        (self.flags & FieldValueFlags::ALIGNMENT_AFTER) as usize
+    }
+    pub fn set_alignment_after(&mut self, val: usize) {
+        debug_assert!(val & !(FieldValueFlags::ALIGNMENT_AFTER as usize) == 0);
+        self.flags |= (val as u8) & FieldValueFlags::ALIGNMENT_AFTER;
     }
 }
 
 impl Deref for FieldValueHeader {
-    type Target = FieldValueHeaderFormat;
+    type Target = FieldValueFormat;
 
     fn deref(&self) -> &Self::Target {
         &self.fmt
@@ -225,6 +235,9 @@ impl FieldValueHeader {
         } else {
             self.size as usize * self.run_length as usize
         }
+    }
+    pub fn total_size(&self) -> usize {
+        self.data_size() + self.alignment_after()
     }
 }
 
@@ -324,9 +337,10 @@ impl FieldData {
         }
     }
     // can't make this pub as it can be used to break the type layout
-    fn pad_to_align(&mut self) {
-        self.data
-            .extend(iter::repeat(0).take(self.data.len() % MAX_FIELD_ALIGN));
+    fn pad_to_align(&mut self) -> usize {
+        let align = self.data.len() % MAX_FIELD_ALIGN;
+        self.data.extend(iter::repeat(0).take(align));
+        align
     }
     pub fn copy_n<'a>(&self, n: usize, targets: &mut [&'a mut FieldData]) {
         let mut h;
@@ -445,7 +459,7 @@ impl FieldData {
         };
         let mut could_amend_header = false;
         if let Some(h) = self.header.last_mut() {
-            if !h.shared_value() && h.kind == tgt_kind && h.end_of_stream() == true {
+            if !h.shared_value() && h.kind == tgt_kind && h.non_final_stream_chunk() == true {
                 if let Some(rl) = h.run_length.checked_add(1) {
                     h.run_length = rl;
                     could_amend_header = true;
@@ -455,9 +469,9 @@ impl FieldData {
 
         if !could_amend_header {
             self.header.push(FieldValueHeader {
-                fmt: FieldValueHeaderFormat {
+                fmt: FieldValueFormat {
                     kind: tgt_kind,
-                    flags: Default::default(),
+                    flags: FieldValueFlags::BYTES_ARE_UTF8,
                     size: if inline {
                         data.len()
                     } else {
@@ -476,11 +490,11 @@ impl FieldData {
                 .extend_from_slice(unsafe { as_u8_slice(&owned_str) });
         }
     }
-    pub fn iter<'a>(&'a self) -> FieldDataIter<'a> {
-        FieldDataIter::new(RawFieldDataIter::new(self))
+    pub fn iter<'a>(&'a self) -> FDIter<'a> {
+        FDIter::from_end(self)
     }
-    pub fn iter_no_rle_types<'a>(&'a self) -> NoRleTypesFieldDataIter<'a> {
-        NoRleTypesFieldDataIter::new(RawFieldDataIter::new(self))
+    pub fn iter_from_last<'a>(&'a self) -> FDIter<'a> {
+        FDIter::from_start(self)
     }
 }
 
