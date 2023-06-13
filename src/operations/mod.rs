@@ -29,7 +29,7 @@ pub struct OperatorSetupError {
     pub message: Cow<'static, str>,
 }
 
-#[derive(Error, Debug, Clone)]
+#[derive(Error, Debug, Clone, PartialEq)]
 #[error("in op id {0}: {message}", op_id)]
 pub struct OperatorApplicationError {
     pub op_id: OperatorId,

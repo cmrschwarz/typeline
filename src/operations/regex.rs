@@ -2,14 +2,14 @@ use bstring::bstr;
 use regex::{CaptureLocations, Regex};
 
 use crate::{
-    field_data::field_value_flags,
-    field_data_iterator::FDIterator,
+    field_data::{field_value_flags, FieldData},
+    field_data_iterator::{FDIterator, FDTypedRange, FDTypedSlice},
     options::argument::CliArgIdx,
     string_store::{StringStore, StringStoreEntry},
     worker_thread_session::{FieldId, JobData, MatchSetId, TransformId, WorkerThreadSession},
 };
 
-use super::OperatorCreationError;
+use super::{OperatorApplicationError, OperatorCreationError};
 
 pub struct OpRegex {
     pub regex: Regex,
@@ -123,19 +123,37 @@ fn process(
 }
 */
 
-pub fn handle_tf_regex_batch_mode(
-    sess: &mut JobData<'_>,
-    tf_id: TransformId,
-    _tf_data: &mut TfRegex,
-) {
+pub fn handle_tf_regex_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRegex) {
     let (batch, input_field) = sess.claim_batch(tf_id);
-    while let Some(_range) = sess.fields[input_field]
-        .field_data
-        .iter()
-        .bounded(0, batch)
-        .typed_range_bwd(usize::MAX, field_value_flags::BYTES_ARE_UTF8)
-    {
-        todo!();
+    let op_id = sess.transforms[tf_id].op_id;
+    let mut iter = sess.fields[input_field].field_data.iter();
+    iter.prev_n_fields(batch);
+    while let Some(range) = iter.typed_range_fwd(usize::MAX, field_value_flags::BYTES_ARE_UTF8) {
+        match range.data {
+            FDTypedSlice::Unset(_)
+            | FDTypedSlice::Null(_)
+            | FDTypedSlice::Integer(_)
+            | FDTypedSlice::Reference(_)
+            | FDTypedSlice::Error(_)
+            | FDTypedSlice::Html(_)
+            | FDTypedSlice::BytesInline(_)
+            | FDTypedSlice::TextInline(_)
+            | FDTypedSlice::Object(_) => {
+                for f in re.capture_group_fields.iter() {
+                    let field_ref = &sess.fields[*f].field_data;
+                    unsafe {
+                        // HACK // EVIL: this is UB
+                        std::mem::transmute::<*mut FieldData, &mut FieldData>(
+                            std::mem::transmute::<&FieldData, *mut FieldData>(field_ref),
+                        )
+                    }
+                    .push_error(
+                        OperatorApplicationError::new("regex type error", op_id),
+                        range.field_count,
+                    );
+                }
+            }
+        }
     }
     sess.inform_successor_batch_available(tf_id, batch);
 }

@@ -76,6 +76,7 @@ pub fn setup_ts_split_as_entry_point<'a, 'b>(
                     .default_batch_size,
             )
         }),
+        op_id: OperatorId::MAX,
     };
     let data = TransformData::Split(TfSplit {
         expanded: false,

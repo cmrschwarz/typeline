@@ -183,7 +183,9 @@ impl<'a> WorkerThreadSession<'a> {
                             entry_count += 1;
                         }
                         DocumentSource::String(str) => {
-                            self.job_data.fields[input_data].field_data.push_str(str, 1);
+                            self.job_data.fields[input_data]
+                                .field_data
+                                .push_str(str, 1, true);
                             entry_count += 1;
                         }
                     }
@@ -352,6 +354,7 @@ impl<'a> WorkerThreadSession<'a> {
                 stream_producers_slot_index: None,
                 desired_batch_size: default_batch_size,
                 successor: None,
+                op_id: *op_id,
             };
             let tf_id = if start_tf_id.is_none() {
                 let id = self.add_transform(tf_state, tf_data);

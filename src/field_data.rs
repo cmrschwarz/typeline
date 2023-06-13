@@ -10,9 +10,12 @@ use std::{
 use std::ops::Deref;
 
 use crate::{
-    field_data_iterator::FDIter, operations::OperatorApplicationError,
-    string_store::StringStoreEntry, worker_thread_session::FieldId,
+    field_data::field_value_flags::TYPE_RELEVANT, field_data_iterator::FDIter,
+    operations::OperatorApplicationError, string_store::StringStoreEntry,
+    worker_thread_session::FieldId,
 };
+
+use self::field_value_flags::SHARED_VALUE;
 
 //if the u32 overflows we just split into two values
 pub type RunLength = u32;
@@ -170,9 +173,11 @@ pub mod field_value_flags {
     pub const NON_FINAL_STREAM_CHUNK: Type = 1 << NON_FINAL_STREAM_CHUNK_OFFSET;
 
     pub const DEFAULT: Type = 0;
+
+    pub const TYPE_RELEVANT: Type = BYTES_ARE_UTF8_OFFSET | NON_FINAL_STREAM_CHUNK_OFFSET;
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub struct FieldValueFormat {
     pub kind: FieldValueKind,
     pub flags: FieldValueFlags,
@@ -470,76 +475,163 @@ impl FieldData {
             append_data_memcpy(start, data_pos - uncopied_data_start, targets);
         }
     }
-    pub fn push_inline_str(&mut self, data: &str, run_length: RunLength) {
+    pub fn push_inline_str(&mut self, data: &str, run_length: usize, try_rle: bool) {
+        let mut run_length = run_length;
         assert!(data.len() < INLINE_STR_MAX_LEN);
-        //TODO: maybe try for rle?
+        let fmt = FieldValueFormat {
+            kind: FieldValueKind::BytesInline,
+            flags: field_value_flags::BYTES_ARE_UTF8
+                | if run_length > 1 { SHARED_VALUE } else { 0 },
+            size: data.len() as FieldValueSize,
+        };
+        if try_rle {
+            if let Some(h) = self.header.last_mut() {
+                if h.fmt == fmt {
+                    let len = h.size as usize;
+                    let prev_data = unsafe {
+                        std::str::from_utf8_unchecked(slice::from_raw_parts(
+                            self.data.as_ptr().sub(len) as *const u8,
+                            len,
+                        ))
+                    };
+                    if prev_data == data {
+                        let rem = (RunLength::MAX - h.run_length) as usize;
+                        h.set_shared_value(true);
+                        if rem > run_length {
+                            h.run_length += run_length as RunLength;
+                            return;
+                        } else {
+                            run_length -= rem;
+                            h.run_length = RunLength::MAX;
+                        }
+                    }
+                }
+            }
+        }
+        while run_length > RunLength::MAX as usize {
+            self.header.push(FieldValueHeader {
+                fmt,
+                run_length: RunLength::MAX,
+            });
+            run_length -= RunLength::MAX as usize;
+            self.data.extend_from_slice(data.as_bytes());
+        }
         self.header.push(FieldValueHeader {
-            fmt: FieldValueFormat {
-                kind: FieldValueKind::BytesInline,
-                flags: field_value_flags::BYTES_ARE_UTF8,
-                size: data.len() as FieldValueSize,
-            },
-            run_length,
+            fmt,
+            run_length: run_length as RunLength,
         });
         self.data.extend_from_slice(data.as_bytes());
     }
-    unsafe fn push_fixed_size_type<T>(
+    unsafe fn push_fixed_size_type<T: PartialEq + Clone>(
         &mut self,
         kind: FieldValueKind,
         flags: field_value_flags::Type,
         data: T,
-        run_length: RunLength,
+        run_length: usize,
+        try_rle: bool,
     ) {
-        let mut could_amend_header = false;
+        debug_assert!(flags & !TYPE_RELEVANT == 0);
+        let mut run_length = run_length;
         if let Some(h) = self.header.last_mut() {
+            let mut try_amend_header = false;
+            let mut same_value = false;
             if kind.needs_alignment() && !h.kind.needs_alignment() {
                 h.set_alignment_after(kind.align_size_up(self.data.len()) - self.data.len());
-            } else if !h.shared_value() && h.kind == kind && h.flags == flags {
-                if let Some(rl) = h.run_length.checked_add(run_length) {
-                    h.run_length = rl;
-                    could_amend_header = true;
+            } else if h.kind == kind && (h.flags & TYPE_RELEVANT) == flags {
+                if try_rle {
+                    let prev_data = unsafe {
+                        &*(self
+                            .data
+                            .as_ptr()
+                            .sub(h.size as usize + h.alignment_after())
+                            as *const T)
+                    };
+                    if prev_data == &data {
+                        same_value = true;
+                        if !h.shared_value() && h.run_length > 1 {
+                            h.run_length -= 1;
+                            run_length += 1;
+                        } else {
+                            h.set_shared_value(true);
+                            try_amend_header = true;
+                        }
+                    }
+                } else if !h.shared_value() {
+                    try_amend_header = true;
+                }
+            }
+            if try_amend_header {
+                let space_rem = (RunLength::MAX - h.run_length) as usize;
+                if space_rem > run_length {
+                    h.run_length += run_length as RunLength;
+                    if same_value {
+                        return;
+                    }
+                } else {
+                    run_length -= space_rem;
+                    h.run_length = RunLength::MAX;
                 }
             }
         }
-        if !could_amend_header {
-            self.header.push(FieldValueHeader {
-                fmt: FieldValueFormat {
-                    kind,
-                    flags,
-                    size: size_of::<T>() as FieldValueSize,
-                },
-                run_length,
-            })
-        }
         self.pad_to_align();
-        let owned_str = ManuallyDrop::new(data);
-        self.data
-            .extend_from_slice(unsafe { as_u8_slice(&owned_str) });
+        let fmt = FieldValueFormat {
+            kind,
+            flags,
+            size: size_of::<T>() as FieldValueSize,
+        };
+        while run_length > RunLength::MAX as usize {
+            self.header.push(FieldValueHeader {
+                fmt,
+                run_length: RunLength::MAX,
+            });
+            run_length -= RunLength::MAX as usize;
+            self.data
+                .extend_from_slice(unsafe { as_u8_slice(&data.clone()) });
+        }
+        self.header.push(FieldValueHeader {
+            fmt,
+            run_length: run_length as RunLength,
+        });
+        let data = ManuallyDrop::new(data);
+        self.data.extend_from_slice(unsafe { as_u8_slice(&data) });
     }
-    pub fn push_str_buffer(&mut self, data: &str, run_length: RunLength) {
+    pub fn push_str_buffer(&mut self, data: &str, run_length: usize, try_rle: bool) {
         unsafe {
             self.push_fixed_size_type(
                 FieldValueKind::BytesBuffer,
                 field_value_flags::BYTES_ARE_UTF8,
                 data.to_owned(),
                 run_length,
+                true,
             );
         }
     }
-    pub fn push_str(&mut self, data: &str, run_length: RunLength) {
+    pub fn push_str(&mut self, data: &str, run_length: usize, try_rle: bool) {
         if data.len() < INLINE_STR_MAX_LEN {
-            self.push_inline_str(data, run_length);
+            self.push_inline_str(data, run_length, try_rle);
         } else {
-            self.push_str_buffer(data, run_length);
+            self.push_str_buffer(data, run_length, try_rle);
         }
     }
-    pub fn push_int(&mut self, data: i64, run_length: RunLength) {
+    pub fn push_int(&mut self, data: i64, run_length: usize) {
         unsafe {
             self.push_fixed_size_type(
                 FieldValueKind::Integer,
                 field_value_flags::DEFAULT,
                 data.to_owned(),
                 run_length,
+                true,
+            );
+        }
+    }
+    pub fn push_error(&mut self, err: OperatorApplicationError, run_length: usize) {
+        unsafe {
+            self.push_fixed_size_type(
+                FieldValueKind::Error,
+                field_value_flags::DEFAULT,
+                err,
+                run_length,
+                true,
             );
         }
     }

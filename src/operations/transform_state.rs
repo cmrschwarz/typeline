@@ -2,7 +2,7 @@ use nonmax::NonMaxUsize;
 
 use crate::worker_thread_session::{FieldId, MatchSetId, TransformId};
 
-use super::{format::TfFormat, regex::TfRegex, split::TfSplit};
+use super::{format::TfFormat, operator_base::OperatorId, regex::TfRegex, split::TfSplit};
 
 pub enum TransformData<'a> {
     Disabled,
@@ -26,4 +26,5 @@ pub struct TransformState {
     pub available_batch_size: usize,
     pub desired_batch_size: usize,
     pub match_set_id: MatchSetId,
+    pub op_id: OperatorId,
 }
