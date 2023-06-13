@@ -2,7 +2,7 @@ use bstring::bstr;
 
 use crate::{
     field_data::field_value_flags,
-    field_data_iterator::{FDIterator, FDTypedData},
+    field_data_iterator::{FDIterator, FDTypedSlice},
     options::argument::CliArgIdx,
     worker_thread_session::{JobData, TransformId},
 };
@@ -27,11 +27,9 @@ const ERROR_TEXT: &'static str = "<Type Error>";
 pub fn handle_print_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId) {
     let (batch, input_field) = sess.claim_batch(tf_id);
     let mut iter = sess.fields[input_field].field_data.iter().bounded(batch, 0);
-    while let Some(range) =
-        iter.consume_typed_range_bwd(usize::MAX, field_value_flags::BYTES_ARE_UTF8)
-    {
+    while let Some(range) = iter.typed_range_bwd(usize::MAX, field_value_flags::BYTES_ARE_UTF8) {
         match range.data {
-            FDTypedData::TextInline(text) => {
+            FDTypedSlice::TextInline(text) => {
                 let mut data_end = text.len();
                 for i in (0..range.field_count).rev() {
                     let data_start = data_end - range.headers[i].size as usize;
@@ -41,20 +39,20 @@ pub fn handle_print_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId) {
                     data_end = data_start;
                 }
             }
-            FDTypedData::Integer(ints) => {
+            FDTypedSlice::Integer(ints) => {
                 for i in (0..range.field_count).rev() {
                     for _ in 0..range.headers[i].run_length {
                         println!("{}", ints[i]);
                     }
                 }
             }
-            FDTypedData::Unset(_)
-            | FDTypedData::Null(_)
-            | FDTypedData::Reference(_)
-            | FDTypedData::Error(_)
-            | FDTypedData::Html(_)
-            | FDTypedData::BytesInline(_)
-            | FDTypedData::Object(_) => {
+            FDTypedSlice::Unset(_)
+            | FDTypedSlice::Null(_)
+            | FDTypedSlice::Reference(_)
+            | FDTypedSlice::Error(_)
+            | FDTypedSlice::Html(_)
+            | FDTypedSlice::BytesInline(_)
+            | FDTypedSlice::Object(_) => {
                 for _ in 0..range.field_count {
                     println!("{}", ERROR_TEXT);
                 }

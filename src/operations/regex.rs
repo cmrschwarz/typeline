@@ -133,7 +133,7 @@ pub fn handle_tf_regex_batch_mode(
         .field_data
         .iter()
         .bounded(0, batch)
-        .consume_typed_range_bwd(usize::MAX, field_value_flags::BYTES_ARE_UTF8)
+        .typed_range_bwd(usize::MAX, field_value_flags::BYTES_ARE_UTF8)
     {
         todo!();
     }

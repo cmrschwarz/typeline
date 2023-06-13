@@ -8,7 +8,7 @@ use crate::{
     operations::OperatorApplicationError,
 };
 
-pub enum FDTypedData<'a> {
+pub enum FDTypedSlice<'a> {
     Unset(&'a [()]),
     Null(&'a [()]),
     Integer(&'a [i64]),
@@ -20,16 +20,33 @@ pub enum FDTypedData<'a> {
     Object(&'a [Object]),
 }
 
+pub enum FDTypedValue<'a> {
+    Unset(()),
+    Null(()),
+    Integer(i64),
+    Reference(&'a FieldReference),
+    Error(&'a OperatorApplicationError),
+    Html(&'a Html),
+    BytesInline(&'a [u8]),
+    TextInline(&'a str),
+    Object(&'a Object),
+}
+
 pub struct FDTypedRange<'a> {
     pub headers: &'a [FieldValueHeader],
-    pub data: FDTypedData<'a>,
+    pub data: FDTypedSlice<'a>,
     pub field_count: usize,
 }
+pub struct FDTypedField<'a> {
+    pub header: FieldValueHeader,
+    pub value: FDTypedValue<'a>,
+}
+
 impl<'a> Default for FDTypedRange<'a> {
     fn default() -> Self {
         Self {
             headers: &[],
-            data: FDTypedData::Unset(&[]),
+            data: FDTypedSlice::Unset(&[]),
             field_count: 0,
         }
     }
@@ -42,6 +59,10 @@ unsafe fn to_slice<T: Sized>(fd: &FieldData, data_begin: usize, len: usize) -> &
     )
 }
 
+unsafe fn to_ref<T: Sized>(fd: &FieldData, data_begin: usize) -> &T {
+    std::mem::transmute::<&u8, &T>(&fd.data[data_begin])
+}
+
 unsafe fn to_typed_range<'a>(
     fd: &'a FieldData,
     flag_mask: FieldValueFlags,
@@ -51,35 +72,71 @@ unsafe fn to_typed_range<'a>(
     field_count: usize,
     header_begin: usize,
     header_end: usize,
-) -> Option<FDTypedRange<'a>> {
+) -> FDTypedRange<'a> {
     let headers = &fd.header[header_begin..header_end];
     let data = match fmt.kind {
-        FieldValueKind::Unset => FDTypedData::Unset(to_slice(fd, data_begin, field_count)),
-        FieldValueKind::Null => FDTypedData::Null(to_slice(fd, data_begin, field_count)),
+        FieldValueKind::Unset => FDTypedSlice::Unset(to_slice(fd, data_begin, field_count)),
+        FieldValueKind::Null => FDTypedSlice::Null(to_slice(fd, data_begin, field_count)),
         FieldValueKind::BytesInline => {
             if fmt.flags & flag_mask & field_value_flags::BYTES_ARE_UTF8 != 0 {
-                FDTypedData::TextInline(std::str::from_utf8_unchecked(to_slice(
+                FDTypedSlice::TextInline(std::str::from_utf8_unchecked(to_slice(
                     fd,
                     data_begin,
                     data_end - data_begin,
                 )))
             } else {
-                FDTypedData::BytesInline(to_slice(fd, data_begin, data_end - data_begin))
+                FDTypedSlice::BytesInline(to_slice(fd, data_begin, data_end - data_begin))
             }
         }
         FieldValueKind::EntryId => todo!(),
-        FieldValueKind::Integer => FDTypedData::Integer(to_slice(fd, data_begin, field_count)),
-        FieldValueKind::Reference => FDTypedData::Reference(to_slice(fd, data_begin, field_count)),
-        FieldValueKind::Error => FDTypedData::Error(to_slice(fd, data_begin, field_count)),
-        FieldValueKind::Html => FDTypedData::Html(to_slice(fd, data_begin, field_count)),
-        FieldValueKind::Object => FDTypedData::Object(to_slice(fd, data_begin, field_count)),
+        FieldValueKind::Integer => FDTypedSlice::Integer(to_slice(fd, data_begin, field_count)),
+        FieldValueKind::Reference => FDTypedSlice::Reference(to_slice(fd, data_begin, field_count)),
+        FieldValueKind::Error => FDTypedSlice::Error(to_slice(fd, data_begin, field_count)),
+        FieldValueKind::Html => FDTypedSlice::Html(to_slice(fd, data_begin, field_count)),
+        FieldValueKind::Object => FDTypedSlice::Object(to_slice(fd, data_begin, field_count)),
         _ => todo!(),
     };
-    Some(FDTypedRange {
+    FDTypedRange {
         headers,
         data,
         field_count,
-    })
+    }
+}
+unsafe fn to_typed_field<'a>(
+    fd: &'a FieldData,
+    fmt: FieldValueFormat,
+    data_begin: usize,
+    run_len: RunLength,
+) -> FDTypedField<'a> {
+    let value = match fmt.kind {
+        FieldValueKind::Unset => FDTypedValue::Unset(()),
+        FieldValueKind::Null => FDTypedValue::Null(()),
+        FieldValueKind::BytesInline => {
+            if fmt.flags & field_value_flags::BYTES_ARE_UTF8 != 0 {
+                FDTypedValue::TextInline(std::str::from_utf8_unchecked(to_slice(
+                    fd,
+                    data_begin,
+                    fmt.size as usize - data_begin,
+                )))
+            } else {
+                FDTypedValue::BytesInline(to_slice(fd, data_begin, fmt.size as usize - data_begin))
+            }
+        }
+        FieldValueKind::EntryId => todo!(),
+        FieldValueKind::Integer => FDTypedValue::Integer(*to_ref(fd, data_begin)),
+        FieldValueKind::Reference => FDTypedValue::Reference(to_ref(fd, data_begin)),
+        FieldValueKind::Error => FDTypedValue::Error(to_ref(fd, data_begin)),
+        FieldValueKind::Html => FDTypedValue::Html(to_ref(fd, data_begin)),
+        FieldValueKind::Object => FDTypedValue::Object(to_ref(fd, data_begin)),
+        _ => todo!(),
+    };
+    FDTypedField {
+        header: FieldValueHeader {
+            fmt: fmt,
+            run_length: run_len,
+        },
+        value,
+    }
 }
 
 pub trait FDIterator<'a>: Sized {
@@ -91,6 +148,7 @@ pub trait FDIterator<'a>: Sized {
     fn get_next_header(&self) -> FieldValueHeader;
     fn get_next_header_data(&self) -> usize;
     fn get_next_header_index(&self) -> usize;
+    fn get_next_typed_field(&mut self) -> FDTypedField<'a>;
     fn field_run_length_fwd(&mut self) -> RunLength;
     fn field_run_length_bwd(&mut self) -> RunLength;
     fn next_header(&mut self) -> RunLength;
@@ -117,12 +175,14 @@ pub trait FDIterator<'a>: Sized {
     fn prev_n_fields(&mut self, n: usize) -> usize {
         self.prev_n_fields_with_fmt(n, None, 0, 0)
     }
-    fn consume_typed_range_fwd(
+    fn typed_field_fwd(&mut self, limit: RunLength) -> Option<FDTypedField<'a>>;
+    fn typed_field_bwd(&mut self, limit: RunLength) -> Option<FDTypedField<'a>>;
+    fn typed_range_fwd(
         &mut self,
         limit: usize,
         flag_mask: FieldValueFlags,
     ) -> Option<FDTypedRange<'a>>;
-    fn consume_typed_range_bwd(
+    fn typed_range_bwd(
         &mut self,
         limit: usize,
         flag_mask: FieldValueFlags,
@@ -191,6 +251,16 @@ impl<'a> FDIterator<'a> for FDIter<'a> {
     }
     fn get_next_header_index(&self) -> usize {
         self.header_idx
+    }
+    fn get_next_typed_field(&mut self) -> FDTypedField<'a> {
+        assert!(self.is_next_valid());
+        let data = self.get_next_field_data();
+        let run_len = if self.header_fmt.shared_value() {
+            self.field_run_length_fwd()
+        } else {
+            1
+        };
+        unsafe { to_typed_field(self.fd, self.header_fmt, data, run_len) }
     }
     fn field_run_length_fwd(&mut self) -> RunLength {
         self.header_rl_total - self.header_rl_offset
@@ -308,7 +378,50 @@ impl<'a> FDIterator<'a> for FDIter<'a> {
             }
         }
     }
-    fn consume_typed_range_fwd(
+    fn typed_field_fwd(&mut self, limit: RunLength) -> Option<FDTypedField<'a>> {
+        if limit == 0 || !self.is_next_valid() {
+            None
+        } else {
+            let data = self.get_next_field_data();
+            let fmt = self.header_fmt;
+            let run_len = if self.header_fmt.shared_value() {
+                let rl = self.field_run_length_fwd();
+                if rl >= limit {
+                    self.next_header();
+                    rl
+                } else {
+                    self.header_rl_offset += limit;
+                    limit
+                }
+            } else {
+                self.next_field();
+                1
+            };
+            Some(unsafe { to_typed_field(self.fd, fmt, data, run_len) })
+        }
+    }
+    fn typed_field_bwd(&mut self, limit: RunLength) -> Option<FDTypedField<'a>> {
+        if limit == 0 || self.prev_field() == 0 {
+            None
+        } else {
+            let data = self.get_next_field_data();
+            let fmt = self.header_fmt;
+            let run_len = if self.header_fmt.shared_value() {
+                let rl = self.field_run_length_bwd() + 1;
+                if rl >= limit {
+                    self.prev_header();
+                    rl
+                } else {
+                    self.header_rl_offset -= limit - 1;
+                    limit
+                }
+            } else {
+                1
+            };
+            Some(unsafe { to_typed_field(self.fd, fmt, data, run_len) })
+        }
+    }
+    fn typed_range_fwd(
         &mut self,
         limit: usize,
         flag_mask: FieldValueFlags,
@@ -336,9 +449,10 @@ impl<'a> FDIterator<'a> for FDIter<'a> {
                 header_start,
                 self.header_idx,
             )
+            .into()
         }
     }
-    fn consume_typed_range_bwd(
+    fn typed_range_bwd(
         &mut self,
         limit: usize,
         flag_mask: FieldValueFlags,
@@ -369,6 +483,7 @@ impl<'a> FDIterator<'a> for FDIter<'a> {
                 header_end,
             )
         }
+        .into()
     }
 }
 
@@ -435,7 +550,12 @@ where
         self.iter.get_next_header_data()
     }
     fn get_next_header_index(&self) -> usize {
+        debug_assert!(self.is_next_valid());
         self.iter.get_next_header_index()
+    }
+    fn get_next_typed_field(&mut self) -> FDTypedField<'a> {
+        debug_assert!(self.is_next_valid());
+        self.iter.get_next_typed_field()
     }
     fn field_run_length_fwd(&mut self) -> RunLength {
         self.range_fwd()
@@ -501,20 +621,28 @@ where
         let n = n.min(self.range_bwd());
         self.iter.prev_n_fields_with_fmt(n, kind, flag_mask, flags)
     }
-    fn consume_typed_range_fwd(
+    fn typed_field_fwd(&mut self, limit: RunLength) -> Option<FDTypedField<'a>> {
+        self.iter
+            .typed_field_fwd((limit as usize).min(self.range_fwd()) as RunLength)
+    }
+    fn typed_field_bwd(&mut self, limit: RunLength) -> Option<FDTypedField<'a>> {
+        self.iter
+            .typed_field_bwd((limit as usize).min(self.range_bwd()) as RunLength)
+    }
+    fn typed_range_fwd(
         &mut self,
         limit: usize,
         flag_mask: FieldValueFlags,
     ) -> Option<FDTypedRange<'a>> {
         let limit = limit.min(self.range_fwd());
-        self.iter.consume_typed_range_fwd(limit, flag_mask)
+        self.iter.typed_range_fwd(limit, flag_mask)
     }
-    fn consume_typed_range_bwd(
+    fn typed_range_bwd(
         &mut self,
         limit: usize,
         flag_mask: FieldValueFlags,
     ) -> Option<FDTypedRange<'a>> {
         let limit = limit.min(self.range_bwd());
-        self.iter.consume_typed_range_bwd(limit, flag_mask)
+        self.iter.typed_range_bwd(limit, flag_mask)
     }
 }
