@@ -269,28 +269,24 @@ impl<'a> FDIterator<'a> for FDIter<'a> {
         self.header_rl_offset
     }
     fn next_header(&mut self) -> RunLength {
-        let idx = self.header_idx.wrapping_add(1);
-        if idx >= self.fd.header.len() {
-            self.header_idx = self.fd.header.len();
-            self.header_rl_offset = 0;
-            self.header_rl_total = 0;
+        let stride = self.header_rl_total - self.header_rl_offset;
+        if stride == 0 {
             return 0;
         }
-        self.header_idx = idx;
-        let h = self.fd.header[idx];
-        let stride = self.header_rl_total - self.header_rl_offset;
-        self.data += h.total_size();
-        self.header_fmt = h.fmt;
-        self.header_idx += 1;
+        self.data += self.fd.header[self.header_idx].total_size();
         self.header_rl_offset = 0;
+        self.header_idx += 1;
+        if self.header_idx == self.fd.header.len() {
+            self.header_rl_total = 0;
+            return stride;
+        }
+        let h = self.fd.header[self.header_idx];
+        self.header_fmt = h.fmt;
         self.header_rl_total = h.run_length;
         return stride;
     }
     fn prev_header(&mut self) -> RunLength {
-        if self.header_idx == 0 || self.header_idx == usize::MAX {
-            self.header_idx = usize::MAX;
-            self.header_rl_offset = 0;
-            self.header_rl_total = 0;
+        if self.header_idx == 0 {
             return 0;
         }
         self.header_idx -= 1;
@@ -434,7 +430,11 @@ impl<'a> FDIterator<'a> for FDIter<'a> {
         let header_start = self.header_idx;
         let field_count =
             self.next_n_fields_with_fmt(limit, Some(fmt.kind), flag_mask, fmt.flags & flag_mask);
-        let mut data_end = self.get_next_field_data();
+        let mut data_end = if self.is_next_valid() {
+            self.get_next_field_data()
+        } else {
+            self.data
+        };
         if self.header_rl_offset == 0 && self.header_idx > 0 {
             data_end -= self.fd.header[self.header_idx - 1].alignment_after();
         }

@@ -2,11 +2,13 @@ use bstring::bstr;
 use regex::{CaptureLocations, Regex};
 
 use crate::{
-    field_data::{field_value_flags, FieldData},
-    field_data_iterator::{FDIterator, FDTypedRange, FDTypedSlice},
+    field_data::{field_value_flags, FieldData, FieldReference},
+    field_data_iterator::{FDIterator, FDTypedSlice},
     options::argument::CliArgIdx,
     string_store::{StringStore, StringStoreEntry},
-    worker_thread_session::{FieldId, JobData, MatchSetId, TransformId, WorkerThreadSession},
+    worker_thread_session::{
+        Field, FieldId, JobData, MatchSetId, TransformId, WorkerThreadSession,
+    },
 };
 
 use super::{OperatorApplicationError, OperatorCreationError};
@@ -52,8 +54,9 @@ pub fn parse_regex_op(
         .map(|name| match name {
             Some(name) => string_store.intern_cloned(name),
             None => {
+                let id = string_store.intern_moved(unnamed_capture_groups.to_string());
                 unnamed_capture_groups += 1;
-                string_store.intern_moved(unnamed_capture_groups.to_string())
+                id
             }
         })
         .collect();
@@ -68,68 +71,69 @@ pub fn setup_tf_regex<'a>(
     sess: &mut WorkerThreadSession,
     ms_id: MatchSetId,
     op: &'a OpRegex,
-) -> TfRegex {
-    TfRegex {
+) -> (TfRegex, FieldId) {
+    let mut cgfs: Vec<FieldId> = op
+        .capture_group_names
+        .iter()
+        .map(|name| sess.add_field(ms_id, Some(*name)))
+        .collect();
+    cgfs.sort();
+    let output_field = cgfs[0];
+    let re = TfRegex {
         regex: op.regex.clone(),
-        capture_group_fields: op
-            .capture_group_names
-            .iter()
-            .map(|name| sess.add_field(ms_id, Some(*name)))
-            .collect(),
+        capture_group_fields: cgfs,
         capture_locs: op.regex.capture_locations(),
-    }
+    };
+    (re, output_field)
 }
-
-/*
-fn process(
-    &mut self,
-    _ctx: &SessionData,
-    _args: &HashMap<String, SmallVec<[(TransformStackIndex, MatchData); 1]>>,
-    tfo: &TransformOutput,
-    output: &mut VecDeque<TransformOutput>,
-) -> Result<(), TransformApplicationError> {
-    if tfo.is_last_chunk.is_some() {
-        return Err(TransformApplicationError::new(
-            "the regex transform does not support streams",
-            self.op_ref,
-        ));
-    }
-    match &tfo.data {
-        Some(MatchData::Text(text)) => {
-            let mut match_index = tfo.match_index;
-            for cap in self.regex.captures_iter(text) {
-                output.push_back(TransformOutput {
-                    match_index,
-                    data: Some(MatchData::Text(cap.get(0).unwrap().as_str().to_owned())),
-                    args: Vec::default(), //todo
-                    is_last_chunk: None,
-                });
-                match_index += 1;
-            }
-            Ok(())
-        }
-        Some(md) => Err(TransformApplicationError {
-            message: format!(
-                "the regex transform does not support match data kind '{}'",
-                md.kind().to_str()
-            ),
-            op_ref: self.op_ref,
-        }),
-        None => Err(TransformApplicationError::new(
-            "unexpected none match for regex transform",
-            self.op_ref,
-        )),
-    }
-}
-*/
 
 pub fn handle_tf_regex_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRegex) {
     let (batch, input_field) = sess.claim_batch(tf_id);
     let op_id = sess.transforms[tf_id].op_id;
-    let mut iter = sess.fields[input_field].field_data.iter();
+    let input_field_ref = &sess.fields[input_field];
+    let field_ref = unsafe {
+        // HACK // EVIL: this is UB
+        std::mem::transmute::<*mut Field, &mut Field>(std::mem::transmute::<&Field, *mut Field>(
+            input_field_ref,
+        ))
+    };
+    let mut iter = field_ref.field_data.iter();
     iter.prev_n_fields(batch);
     while let Some(range) = iter.typed_range_fwd(usize::MAX, field_value_flags::BYTES_ARE_UTF8) {
         match range.data {
+            FDTypedSlice::TextInline(text) => {
+                let mut data_start = 0usize;
+                let mut data_end = 0usize;
+                for h in range.headers.iter() {
+                    data_end += h.size as usize;
+                    if re
+                        .regex
+                        .captures_read(&mut re.capture_locs, &text[data_start..data_end])
+                        .is_some()
+                    {
+                        for c in 0..re.capture_locs.len() {
+                            if let Some((cg_begin, cg_end)) = re.capture_locs.get(c) {
+                                sess.fields[re.capture_group_fields[c]]
+                                    .field_data
+                                    .push_reference(
+                                        FieldReference {
+                                            field: input_field,
+                                            begin: cg_begin,
+                                            end: cg_end,
+                                        },
+                                        h.run_length as usize,
+                                    );
+                            }
+                        }
+                    } else {
+                        for f in re.capture_group_fields.iter() {
+                            sess.fields[*f].field_data.push_null(h.run_length as usize);
+                        }
+                    }
+
+                    data_start = data_end;
+                }
+            }
             FDTypedSlice::Unset(_)
             | FDTypedSlice::Null(_)
             | FDTypedSlice::Integer(_)
@@ -137,7 +141,6 @@ pub fn handle_tf_regex_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, re
             | FDTypedSlice::Error(_)
             | FDTypedSlice::Html(_)
             | FDTypedSlice::BytesInline(_)
-            | FDTypedSlice::TextInline(_)
             | FDTypedSlice::Object(_) => {
                 for f in re.capture_group_fields.iter() {
                     let field_ref = &sess.fields[*f].field_data;

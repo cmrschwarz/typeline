@@ -2,7 +2,7 @@ use std::{
     collections::HashMap,
     iter,
     mem::{align_of, size_of, ManuallyDrop},
-    ops::{DerefMut, Range},
+    ops::DerefMut,
     ptr::drop_in_place,
     slice, u8,
 };
@@ -127,9 +127,11 @@ pub struct Object {
     table: HashMap<StringStoreEntry, ObjectEntry>,
 }
 
+#[derive(Copy, Clone, PartialEq)]
 pub struct FieldReference {
-    field: FieldId,
-    range: Range<usize>,
+    pub field: FieldId,
+    pub begin: usize,
+    pub end: usize,
 }
 
 #[derive(Clone)]
@@ -602,7 +604,7 @@ impl FieldData {
                 field_value_flags::BYTES_ARE_UTF8,
                 data.to_owned(),
                 run_length,
-                true,
+                try_rle,
             );
         }
     }
@@ -630,6 +632,28 @@ impl FieldData {
                 FieldValueKind::Error,
                 field_value_flags::DEFAULT,
                 err,
+                run_length,
+                true,
+            );
+        }
+    }
+    pub fn push_reference(&mut self, reference: FieldReference, run_length: usize) {
+        unsafe {
+            self.push_fixed_size_type(
+                FieldValueKind::Reference,
+                field_value_flags::DEFAULT,
+                reference,
+                run_length,
+                true,
+            );
+        }
+    }
+    pub fn push_null(&mut self, run_length: usize) {
+        unsafe {
+            self.push_fixed_size_type(
+                FieldValueKind::Null,
+                field_value_flags::DEFAULT,
+                (),
                 run_length,
                 true,
             );

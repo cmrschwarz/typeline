@@ -339,7 +339,9 @@ impl<'a> WorkerThreadSession<'a> {
                 OperatorData::Print => TransformData::Print,
                 OperatorData::Split(ref split) => TransformData::Split(setup_tf_split(split)),
                 OperatorData::Regex(re) => {
-                    TransformData::Regex(setup_tf_regex(self, match_set_id, re))
+                    let (re, of) = setup_tf_regex(self, match_set_id, re);
+                    output_field = of;
+                    TransformData::Regex(re)
                 }
                 OperatorData::Format(ref fmt) => {
                     output_field = self.add_field(match_set_id, None);
