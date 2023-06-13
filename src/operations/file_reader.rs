@@ -100,10 +100,9 @@ pub fn handle_tf_file_reader_producer_mode(
     let mut stream_end = true;
     match res {
         Ok(n) => {
-            let mut flags = field_value_flags::DEFAULT;
+            let flags = field_value_flags::DEFAULT;
             if n != 0 {
                 stream_end = false;
-                flags |= field_value_flags::NON_FINAL_STREAM_CHUNK;
             }
             fd.header.push(FieldValueHeader {
                 fmt: FieldValueFormat {

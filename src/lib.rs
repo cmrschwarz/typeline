@@ -24,13 +24,14 @@ pub mod operations;
 pub mod options;
 pub mod plattform;
 pub mod scr_error;
-mod scratch_vec;
+pub mod scratch_vec;
 pub mod selenium;
 pub mod string_store;
 pub mod universe;
 pub mod worker_thread;
 pub mod field_data_iterator;
-mod worker_thread_session;
+pub mod stream_field_data;
+pub mod worker_thread_session;
 
 #[cfg(test)]
 mod tests;

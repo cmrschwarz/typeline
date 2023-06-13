@@ -20,14 +20,6 @@ use self::field_value_flags::SHARED_VALUE;
 //if the u32 overflows we just split into two values
 pub type RunLength = u32;
 
-#[derive(Clone, Copy, PartialEq)]
-pub enum StreamKind {
-    Plain,
-    Reference,
-    BufferMem,
-    BufferFile,
-}
-
 pub type FieldValueKindIntegralType = u8;
 
 #[derive(Clone, Copy, PartialEq)]
@@ -168,15 +160,13 @@ pub mod field_value_flags {
 
     pub const SHARED_VALUE_OFFSET: Type = 4;
     pub const BYTES_ARE_UTF8_OFFSET: Type = 5;
-    pub const NON_FINAL_STREAM_CHUNK_OFFSET: Type = 6;
 
     pub const SHARED_VALUE: Type = 1 << SHARED_VALUE_OFFSET;
     pub const BYTES_ARE_UTF8: Type = 1 << BYTES_ARE_UTF8_OFFSET;
-    pub const NON_FINAL_STREAM_CHUNK: Type = 1 << NON_FINAL_STREAM_CHUNK_OFFSET;
 
     pub const DEFAULT: Type = 0;
 
-    pub const TYPE_RELEVANT: Type = BYTES_ARE_UTF8_OFFSET | NON_FINAL_STREAM_CHUNK_OFFSET;
+    pub const TYPE_RELEVANT: Type = BYTES_ARE_UTF8_OFFSET;
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -210,13 +200,6 @@ impl FieldValueFormat {
     }
     pub fn set_shared_value(&mut self, val: bool) {
         self.flags |= (val as field_value_flags::Type) << field_value_flags::SHARED_VALUE_OFFSET;
-    }
-    pub fn non_final_stream_chunk(self) -> bool {
-        self.flags & field_value_flags::NON_FINAL_STREAM_CHUNK != 0
-    }
-    pub fn set_non_final_stream_chunk(&mut self, val: bool) {
-        self.flags |=
-            (val as field_value_flags::Type) << field_value_flags::NON_FINAL_STREAM_CHUNK_OFFSET;
     }
     pub fn bytes_are_utf8(self) -> bool {
         self.flags & field_value_flags::BYTES_ARE_UTF8 != 0
