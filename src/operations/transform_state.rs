@@ -1,8 +1,17 @@
+use std::num::NonZeroUsize;
+
 use nonmax::NonMaxUsize;
 
-use crate::worker_thread_session::{FieldId, MatchSetId, TransformId};
+use crate::worker_thread_session::{FieldId, MatchSetId};
 
-use super::{format::TfFormat, operator_base::OperatorId, regex::TfRegex, split::TfSplit};
+use super::{
+    file_reader::TfFileReader, format::TfFormat, operator_base::OperatorId, regex::TfRegex,
+    split::TfSplit,
+};
+
+pub type TransformId = NonMaxUsize;
+// intentionally incompatible with TransformId to avoid mixups
+pub type TransformOrderingId = NonZeroUsize;
 
 pub enum TransformData<'a> {
     Disabled,
@@ -10,6 +19,7 @@ pub enum TransformData<'a> {
     Split(TfSplit),
     Regex(TfRegex),
     Format(TfFormat<'a>),
+    FileReader(TfFileReader<'a>),
 }
 
 impl Default for TransformData<'_> {
@@ -27,4 +37,5 @@ pub struct TransformState {
     pub desired_batch_size: usize,
     pub match_set_id: MatchSetId,
     pub op_id: OperatorId,
+    pub ordering_id: TransformOrderingId,
 }

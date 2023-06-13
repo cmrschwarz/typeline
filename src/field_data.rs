@@ -284,7 +284,7 @@ impl Clone for FieldData {
     }
 }
 
-const INLINE_STR_MAX_LEN: usize = 8192;
+pub const INLINE_STR_MAX_LEN: usize = 8192;
 
 impl FieldData {
     pub fn clear(&mut self) {
@@ -479,7 +479,7 @@ impl FieldData {
     }
     pub fn push_inline_str(&mut self, data: &str, run_length: usize, try_rle: bool) {
         let mut run_length = run_length;
-        assert!(data.len() < INLINE_STR_MAX_LEN);
+        assert!(data.len() <= INLINE_STR_MAX_LEN);
         let fmt = FieldValueFormat {
             kind: FieldValueKind::BytesInline,
             flags: field_value_flags::BYTES_ARE_UTF8
@@ -611,7 +611,7 @@ impl FieldData {
         }
     }
     pub fn push_str(&mut self, data: &str, run_length: usize, try_rle: bool) {
-        if data.len() < INLINE_STR_MAX_LEN {
+        if data.len() <= INLINE_STR_MAX_LEN {
             self.push_inline_str(data, run_length, try_rle);
         } else {
             self.push_str_buffer(data, run_length, try_rle);
@@ -650,22 +650,23 @@ impl FieldData {
             );
         }
     }
-    pub fn push_null(&mut self, run_length: usize) {
+    pub fn push_zst(&mut self, kind: FieldValueKind, run_length: usize) {
+        assert!(kind == FieldValueKind::Null || kind == FieldValueKind::Unset);
         unsafe {
-            self.push_fixed_size_type(
-                FieldValueKind::Null,
-                field_value_flags::DEFAULT,
-                (),
-                run_length,
-                true,
-            );
+            self.push_fixed_size_type(kind, field_value_flags::DEFAULT, (), run_length, true);
         }
     }
-    pub fn iter<'a>(&'a self) -> FDIter<'a> {
-        FDIter::from_end(self)
+    pub fn push_null(&mut self, run_length: usize) {
+        self.push_zst(FieldValueKind::Null, run_length);
     }
-    pub fn iter_from_last<'a>(&'a self) -> FDIter<'a> {
+    pub fn push_unset(&mut self, run_length: usize) {
+        self.push_zst(FieldValueKind::Unset, run_length);
+    }
+    pub fn iter<'a>(&'a self) -> FDIter<'a> {
         FDIter::from_start(self)
+    }
+    pub fn iter_from_end<'a>(&'a self) -> FDIter<'a> {
+        FDIter::from_end(self)
     }
 }
 

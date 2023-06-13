@@ -135,8 +135,17 @@ impl Context {
         }
         let threads = std::mem::replace(&mut self.worker_join_handles, Default::default());
         for wt in threads.into_iter() {
-            //TODO: bundle up these errors somehow
-            wt.join().unwrap().unwrap();
+            //TODO: bundle up these errors somehow ?
+            if let Err(e) = wt.join().unwrap() {
+                println!(
+                    "error: {}",
+                    e.contextualize_message(
+                        self.curr_session_data.cli_args.as_ref(),
+                        None,
+                        Some(&self)
+                    )
+                );
+            }
         }
     }
     pub fn run(mut self) -> Result<(), ScrError> {

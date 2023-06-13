@@ -2,6 +2,7 @@
 extern crate static_assertions;
 
 extern crate bstring;
+extern crate atty;
 extern crate crossbeam;
 extern crate indexmap;
 extern crate lazy_static;

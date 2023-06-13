@@ -5,6 +5,7 @@ use std::{
     ops::DerefMut,
 };
 
+use atty::Stream;
 use nonmax::NonMaxUsize;
 
 use crate::{
@@ -12,13 +13,17 @@ use crate::{
     document::DocumentSource,
     field_data::{EntryId, FieldData},
     operations::{
+        file_reader::{
+            handle_tf_file_reader_batch_mode, handle_tf_file_reader_producer_mode,
+            handle_tf_file_reader_stream_mode, setup_tf_file_reader_as_entry_point, FileType,
+        },
         format::setup_tf_format,
         operator_base::OperatorId,
         operator_data::OperatorData,
-        print::handle_print_batch_mode,
+        print::{handle_tf_print_batch_mode, handle_tf_print_stream_mode},
         regex::{handle_tf_regex_batch_mode, setup_tf_regex},
         split::{handle_tf_split, setup_tf_split, setup_ts_split_as_entry_point},
-        transform_state::{TransformData, TransformState},
+        transform_state::{TransformData, TransformId, TransformOrderingId, TransformState},
         OperatorSetupError,
     },
     scr_error::ScrError,
@@ -26,8 +31,6 @@ use crate::{
     universe::Universe,
     worker_thread::{Job, JobInput},
 };
-
-pub type TransformId = NonMaxUsize;
 
 #[derive(Default)]
 pub struct Field {
@@ -78,17 +81,27 @@ impl<'a> DerefMut for WorkerThreadSession<'a> {
     }
 }
 
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+pub struct ReadyQueueEntry {
+    ord_id: TransformOrderingId,
+    tf_id: TransformId,
+}
+
 pub struct JobData<'a> {
+    pub transform_ordering_id: TransformOrderingId,
     pub transforms: Universe<TransformId, TransformState>,
     pub session_data: &'a SessionData,
     pub match_sets: Universe<MatchSetId, MatchSet>,
     pub fields: Universe<FieldId, Field>,
-    pub stream_producers: Vec<TransformId>,
+    pub stream_producers: VecDeque<TransformId>,
 
-    pub ready_queue: BinaryHeap<TransformId>,
+    pub ready_queue: BinaryHeap<ReadyQueueEntry>,
 
     pub scratch_memory: Vec<&'static u8>,
 }
+
+pub type EnterStreamModeFlag = bool;
+pub type StreamProducerDoneFlag = bool;
 
 impl<'a> JobData<'a> {
     pub fn add_field(&mut self, ms_id: MatchSetId, name: Option<StringStoreEntry>) -> FieldId {
@@ -127,13 +140,17 @@ impl<'a> JobData<'a> {
     pub fn remove_match_set(&mut self, _ms_id: MatchSetId) {
         todo!()
     }
+    pub fn claim_transform_ordering_id(&mut self) -> TransformOrderingId {
+        self.transform_ordering_id = self.transform_ordering_id.checked_add(1).unwrap();
+        self.transform_ordering_id
+    }
     pub fn claim_batch(&mut self, tf_id: TransformId) -> (usize, FieldId) {
         let tf = &mut self.transforms[tf_id];
         let batch = tf.desired_batch_size.min(tf.available_batch_size);
         tf.available_batch_size -= batch;
         if tf.available_batch_size == 0 {
             let top = self.ready_queue.pop();
-            debug_assert!(top == Some(tf_id));
+            debug_assert!(top.unwrap().tf_id == tf_id);
         }
         (batch, tf.input_field)
     }
@@ -141,10 +158,18 @@ impl<'a> JobData<'a> {
         if let Some(succ_tf_id) = self.transforms[tf_id].successor {
             let succ = &mut self.transforms[succ_tf_id];
             if succ.available_batch_size == 0 {
-                self.ready_queue.push(succ_tf_id);
+                self.ready_queue.push(ReadyQueueEntry {
+                    ord_id: succ.ordering_id,
+                    tf_id: succ_tf_id,
+                });
             }
             succ.available_batch_size += batch_size;
         }
+    }
+    pub fn advertise_stream_batch_size(&mut self, tf_id: TransformId, batch_size: usize) {
+        let ms_id = self.transforms[tf_id].match_set_id;
+        let sbs = &mut self.match_sets[ms_id].stream_batch_size;
+        *sbs = (*sbs).max(batch_size);
     }
 }
 
@@ -159,10 +184,10 @@ impl<'a> WorkerThreadSession<'a> {
 
         match job.data {
             JobInput::FieldData(_fd) => loop {
-                break; //TODO
+                todo!();
             },
             JobInput::Documents(_docs) => {
-                todo!()
+                todo!();
             }
             JobInput::DocumentIds(doc_ids) => {
                 let jd = &mut self.job_data;
@@ -189,18 +214,35 @@ impl<'a> WorkerThreadSession<'a> {
                             entry_count += 1;
                         }
                     }
+                    if entry_count == 0 {
+                        return Err(OperatorSetupError::new(
+                            "must supply at least one initial data element",
+                            job.starting_ops[0],
+                        )
+                        .into());
+                    }
                 }
             }
             JobInput::Stdin => {
-                todo!()
+                let file = if atty::is(Stream::Stdout) {
+                    FileType::StdinIsATty(std::io::stdin().lock())
+                } else {
+                    FileType::StdinIsNoTty(std::io::stdin().lock())
+                };
+                let (state, data) = setup_tf_file_reader_as_entry_point(
+                    &mut self.job_data,
+                    input_data,
+                    input_data,
+                    ms_id,
+                    1,
+                    file,
+                );
+                let ord_id = state.ordering_id;
+                let tf_id = self.add_transform(state, data);
+                self.ready_queue.push(ReadyQueueEntry { ord_id, tf_id });
+                // no immediately available batch size for following transforms
+                entry_count = 0;
             }
-        }
-        if entry_count == 0 {
-            return Err(OperatorSetupError::new(
-                "must supply at least one initial data element",
-                job.starting_ops[0],
-            )
-            .into());
         }
         assert!(!job.starting_ops.is_empty());
         if job.starting_ops.len() > 1 {
@@ -211,8 +253,9 @@ impl<'a> WorkerThreadSession<'a> {
                 entry_count,
                 job.starting_ops.iter(),
             );
+            let ord_id = tf_state.ordering_id;
             let tf_id = self.add_transform(tf_state, tf_data);
-            self.ready_queue.push(tf_id);
+            self.ready_queue.push(ReadyQueueEntry { ord_id, tf_id });
         } else {
             self.setup_transforms_from_op(ms_id, entry_count, job.starting_ops[0], input_data);
         }
@@ -229,6 +272,7 @@ impl<'a> WorkerThreadSession<'a> {
                 fields: Default::default(),
                 stream_producers: Default::default(),
                 scratch_memory: Default::default(),
+                transform_ordering_id: TransformOrderingId::new(1).unwrap(),
             },
         }
     }
@@ -274,7 +318,8 @@ impl<'a> WorkerThreadSession<'a> {
     }
 
     fn run_batch_mode(&mut self) -> Result<bool, ScrError> {
-        while let Some(tf_id) = self.ready_queue.peek().map(|t| *t) {
+        while let Some(ReadyQueueEntry { ord_id: _, tf_id }) = self.ready_queue.peek().map(|t| *t) {
+            let jd = &mut self.job_data;
             match self.transform_data[usize::from(tf_id)] {
                 TransformData::Disabled => unreachable!(),
                 TransformData::Split(ref mut split) => {
@@ -285,36 +330,64 @@ impl<'a> WorkerThreadSession<'a> {
                     }
                 }
                 TransformData::Print => {
-                    handle_print_batch_mode(self, tf_id);
+                    handle_tf_print_batch_mode(self, tf_id);
                 }
                 TransformData::Regex(ref mut regex) => {
-                    handle_tf_regex_batch_mode(&mut self.job_data, tf_id, regex);
+                    handle_tf_regex_batch_mode(jd, tf_id, regex);
                 }
                 TransformData::Format(_) => todo!(),
+                TransformData::FileReader(ref mut fr) => {
+                    if handle_tf_file_reader_batch_mode(jd, tf_id, fr) {
+                        return Ok(false);
+                    }
+                }
             }
         }
 
         Ok(true)
     }
-    fn run_stream_mode(&mut self) -> Result<bool, ScrError> {
-        while let Some(tf_id) = self.ready_queue.peek().map(|t| *t) {
-            match self.transform_data[usize::from(tf_id)] {
-                TransformData::Disabled => unreachable!(),
-                TransformData::Split(ref mut split) => {
-                    if !split.expanded {
-                        self.handle_split_expansion(tf_id);
-                    } else {
-                        handle_tf_split(&mut self.job_data, tf_id, split, false);
+    fn run_stream_mode(&mut self) -> Result<(), ScrError> {
+        loop {
+            let prod_tf_id;
+            if let Some(prod) = self.stream_producers.pop_front() {
+                prod_tf_id = prod;
+            } else {
+                return Ok(());
+            }
+            let jd = &mut self.job_data;
+            let done = match self.transform_data[usize::from(prod_tf_id)] {
+                TransformData::FileReader(ref mut fr) => {
+                    handle_tf_file_reader_producer_mode(jd, prod_tf_id, fr)
+                }
+                _ => panic!("transform is not a valid producer"),
+            };
+            if !done {
+                self.stream_producers.push_back(prod_tf_id);
+            }
+            while let Some(ReadyQueueEntry { ord_id: _, tf_id }) =
+                self.ready_queue.peek().map(|t| *t)
+            {
+                let jd = &mut self.job_data;
+                match self.transform_data[usize::from(tf_id)] {
+                    TransformData::Disabled => unreachable!(),
+                    TransformData::Split(ref mut split) => {
+                        if !split.expanded {
+                            self.handle_split_expansion(tf_id);
+                        } else {
+                            handle_tf_split(&mut self.job_data, tf_id, split, false);
+                        }
+                    }
+                    TransformData::Print => {
+                        handle_tf_print_stream_mode(jd, tf_id);
+                    }
+                    TransformData::Regex(_) => todo!(),
+                    TransformData::Format(_) => todo!(),
+                    TransformData::FileReader(ref mut fr) => {
+                        handle_tf_file_reader_stream_mode(jd, tf_id, fr);
                     }
                 }
-                TransformData::Print => {
-                    todo!();
-                }
-                TransformData::Regex(_) => todo!(),
-                TransformData::Format(_) => todo!(),
             }
         }
-        Ok(true)
     }
     pub fn setup_transforms_from_op(
         &mut self,
@@ -331,9 +404,9 @@ impl<'a> WorkerThreadSession<'a> {
         let mut prev_tf = None;
         let mut prev_field_id = input_field_id;
         let mut output_field = input_field_id;
-        for op_id in &self.session_data.chains[start_op.chain_id as usize].operations
-            [start_op.offset_in_chain as usize..]
-        {
+        let ops = &self.session_data.chains[start_op.chain_id as usize].operations
+            [start_op.offset_in_chain as usize..];
+        for op_id in ops {
             let op_data = &self.session_data.operator_data[*op_id as usize];
             let tf_data = match op_data {
                 OperatorData::Print => TransformData::Print,
@@ -357,11 +430,13 @@ impl<'a> WorkerThreadSession<'a> {
                 desired_batch_size: default_batch_size,
                 successor: None,
                 op_id: *op_id,
+                ordering_id: self.claim_transform_ordering_id(),
             };
             let tf_id = if start_tf_id.is_none() {
+                let ord_id = tf_state.ordering_id;
                 let id = self.add_transform(tf_state, tf_data);
                 if available_batch_size > 0 {
-                    self.ready_queue.push(id);
+                    self.ready_queue.push(ReadyQueueEntry { ord_id, tf_id: id });
                 }
                 start_tf_id = Some(id);
 
@@ -392,9 +467,7 @@ impl<'a> WorkerThreadSession<'a> {
             if self.run_batch_mode()? == true {
                 break;
             }
-            if self.run_stream_mode()? == true {
-                break;
-            }
+            self.run_stream_mode()?;
         }
 
         Ok(())

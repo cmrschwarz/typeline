@@ -9,12 +9,12 @@ use crate::{
     options::{argument::CliArgIdx, range_spec::RangeSpec},
     scratch_vec::ScratchVec,
     string_store::StringStoreEntry,
-    worker_thread_session::{FieldId, JobData, MatchSetId, TransformId},
+    worker_thread_session::{FieldId, JobData, MatchSetId},
 };
 
 use super::{
     operator_base::OperatorId,
-    transform_state::{TransformData, TransformState},
+    transform_state::{TransformData, TransformId, TransformState},
     OperatorCreationError,
 };
 
@@ -77,6 +77,7 @@ pub fn setup_ts_split_as_entry_point<'a, 'b>(
             )
         }),
         op_id: OperatorId::MAX,
+        ordering_id: sess.claim_transform_ordering_id(),
     };
     let data = TransformData::Split(TfSplit {
         expanded: false,

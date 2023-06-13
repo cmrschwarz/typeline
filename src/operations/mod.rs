@@ -6,6 +6,7 @@ use crate::options::argument::CliArgIdx;
 
 use self::operator_base::OperatorId;
 
+pub mod file_reader;
 #[allow(dead_code)] //TODO
 pub mod format;
 pub mod operator_base;

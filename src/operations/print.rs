@@ -1,13 +1,17 @@
 use bstring::bstr;
 
 use crate::{
-    field_data::{field_value_flags, FieldData},
+    field_data::field_value_flags,
     field_data_iterator::{FDIterator, FDTypedSlice},
     options::argument::CliArgIdx,
-    worker_thread_session::{JobData, TransformId},
+    worker_thread_session::JobData,
 };
 
-use super::{operator_data::OperatorData, OperatorCreationError};
+use super::{operator_data::OperatorData, transform_state::TransformId, OperatorCreationError};
+
+struct TfPrint {
+    consumed_stream_elements: usize,
+}
 
 pub fn parse_print_op(
     value: Option<&bstr>,
@@ -24,15 +28,14 @@ pub fn parse_print_op(
 
 const ERROR_TEXT: &'static str = "<Type Error>";
 
-pub fn handle_print_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId) {
+pub fn handle_tf_print_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId) {
     let (batch, input_field) = sess.claim_batch(tf_id);
     let mut iter = sess.fields[input_field].field_data.iter().bounded(batch, 0);
-    let mut entry_offset = 0;
-    while let Some(range) = iter.typed_range_bwd(usize::MAX, field_value_flags::BYTES_ARE_UTF8) {
+    while let Some(range) = iter.typed_range_fwd(usize::MAX, field_value_flags::BYTES_ARE_UTF8) {
         match range.data {
             FDTypedSlice::TextInline(text) => {
                 let mut data_end = text.len();
-                for i in (0..range.field_count).rev() {
+                for i in 0..range.field_count {
                     let data_start = data_end - range.headers[i].size as usize;
                     for _ in 0..range.headers[i].run_length {
                         println!("{}", &text[data_start..data_end]);
@@ -41,14 +44,14 @@ pub fn handle_print_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId) {
                 }
             }
             FDTypedSlice::Integer(ints) => {
-                for i in (0..range.field_count).rev() {
+                for i in 0..range.field_count {
                     for _ in 0..range.headers[i].run_length {
                         println!("{}", ints[i]);
                     }
                 }
             }
             FDTypedSlice::Reference(refs) => {
-                for i in (0..range.field_count).rev() {
+                for i in 0..range.field_count {
                     for _ in 0..range.headers[i].run_length {
                         print!(
                             "reference: -> {} [{}, {})",
@@ -72,7 +75,8 @@ pub fn handle_print_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId) {
                 }
             }
         }
-        entry_offset += range.field_count;
     }
     sess.inform_successor_batch_available(tf_id, batch);
 }
+
+pub fn handle_tf_print_stream_mode(_sess: &mut JobData<'_>, _tf_id: TransformId) {}

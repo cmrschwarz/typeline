@@ -1,10 +1,12 @@
 use std::ops::{Deref, Index, IndexMut};
 
-pub trait UniverseIndex: Clone + Copy + TryFrom<usize> + Into<usize> {}
+pub trait UniverseIndex:
+    Clone + Copy + Default + TryFrom<usize> + Into<usize> + PartialEq + Eq + PartialOrd + Ord
+{
+}
+impl<I> UniverseIndex for I where I: Clone + Copy + Default + TryFrom<usize> + Into<usize> + Ord {}
 
-impl<I: Clone + Copy + TryFrom<usize> + Into<usize>> UniverseIndex for I {}
-
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
 struct UniverseIdx<I: UniverseIndex>(I);
 
 impl<I: UniverseIndex> UniverseIdx<I> {
@@ -18,7 +20,6 @@ impl<I: UniverseIndex> UniverseIdx<I> {
 
 impl<I: UniverseIndex> Deref for UniverseIdx<I> {
     type Target = I;
-
     fn deref(&self) -> &Self::Target {
         &self.0
     }
@@ -30,7 +31,7 @@ pub struct Universe<I: UniverseIndex, T> {
     unused_ids: Vec<UniverseIdx<I>>,
 }
 
-impl<I: UniverseIndex, T> Deref for Universe<I, T> {
+impl<I: UniverseIndex, T: Default> Deref for Universe<I, T> {
     type Target = Vec<T>;
 
     fn deref(&self) -> &Self::Target {
@@ -77,6 +78,25 @@ impl<I: UniverseIndex, T> Universe<I, T> {
     pub fn as_mut_slice(&mut self) -> &mut [T] {
         self.data.as_mut_slice()
     }
+    // makes sure that the next n `claim`s that are not interrupted
+    // by `release`s or `clear`s will get ascending ids
+    pub fn reserve_ordered(&mut self, n: usize) {
+        let len = self.unused_ids.len().min(n);
+        self.unused_ids[0..len].sort();
+    }
+}
+
+// separate impl since only available if T: Default
+impl<I: UniverseIndex, T: Default> Universe<I, T> {
+    pub fn claim(&mut self) -> I {
+        if let Some(id) = self.unused_ids.pop() {
+            *id
+        } else {
+            let id = self.data.len();
+            self.data.push(Default::default());
+            *UniverseIdx::from_usize(id)
+        }
+    }
 }
 
 impl<I: UniverseIndex, T> Index<I> for Universe<I, T> {
@@ -90,17 +110,5 @@ impl<I: UniverseIndex, T> Index<I> for Universe<I, T> {
 impl<I: UniverseIndex, T> IndexMut<I> for Universe<I, T> {
     fn index_mut(&mut self, index: I) -> &mut Self::Output {
         &mut self.data[index.into()]
-    }
-}
-
-impl<I: UniverseIndex, T: Default> Universe<I, T> {
-    pub fn claim(&mut self) -> I {
-        if let Some(id) = self.unused_ids.pop() {
-            *id
-        } else {
-            let id = self.data.len();
-            self.data.push(Default::default());
-            *UniverseIdx::from_usize(id)
-        }
     }
 }

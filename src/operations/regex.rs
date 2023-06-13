@@ -6,12 +6,10 @@ use crate::{
     field_data_iterator::{FDIterator, FDTypedSlice},
     options::argument::CliArgIdx,
     string_store::{StringStore, StringStoreEntry},
-    worker_thread_session::{
-        Field, FieldId, JobData, MatchSetId, TransformId, WorkerThreadSession,
-    },
+    worker_thread_session::{Field, FieldId, JobData, MatchSetId, WorkerThreadSession},
 };
 
-use super::{OperatorApplicationError, OperatorCreationError};
+use super::{transform_state::TransformId, OperatorApplicationError, OperatorCreationError};
 
 pub struct OpRegex {
     pub regex: Regex,
@@ -98,7 +96,6 @@ pub fn handle_tf_regex_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, re
         ))
     };
     let mut iter = field_ref.field_data.iter();
-    iter.prev_n_fields(batch);
     while let Some(range) = iter.typed_range_fwd(usize::MAX, field_value_flags::BYTES_ARE_UTF8) {
         match range.data {
             FDTypedSlice::TextInline(text) => {
