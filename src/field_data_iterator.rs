@@ -1,4 +1,4 @@
-use std::marker::PhantomData;
+use std::{marker::PhantomData, ptr::NonNull};
 
 use crate::{
     field_data::{
@@ -51,6 +51,9 @@ impl<'a> Default for FDTypedRange<'a> {
         }
     }
 }
+unsafe fn to_zst_slice<T: Sized>(len: usize) -> &'static [T] {
+    std::slice::from_raw_parts(NonNull::dangling().as_ptr() as *const T, len)
+}
 
 unsafe fn to_slice<T: Sized>(fd: &FieldData, data_begin: usize, len: usize) -> &[T] {
     std::slice::from_raw_parts(
@@ -75,8 +78,8 @@ unsafe fn to_typed_range<'a>(
 ) -> FDTypedRange<'a> {
     let headers = &fd.header[header_begin..header_end];
     let data = match fmt.kind {
-        FieldValueKind::Unset => FDTypedSlice::Unset(to_slice(fd, data_begin, field_count)),
-        FieldValueKind::Null => FDTypedSlice::Null(to_slice(fd, data_begin, field_count)),
+        FieldValueKind::Unset => FDTypedSlice::Unset(to_zst_slice(field_count)),
+        FieldValueKind::Null => FDTypedSlice::Null(to_zst_slice(field_count)),
         FieldValueKind::BytesInline => {
             if fmt.flags & flag_mask & field_value_flags::BYTES_ARE_UTF8 != 0 {
                 FDTypedSlice::TextInline(std::str::from_utf8_unchecked(to_slice(

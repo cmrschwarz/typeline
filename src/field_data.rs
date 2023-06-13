@@ -575,7 +575,9 @@ impl FieldData {
                 }
             }
         }
-        self.pad_to_align();
+        if kind.needs_alignment() {
+            self.pad_to_align();
+        }
         let fmt = FieldValueFormat {
             kind,
             flags,
