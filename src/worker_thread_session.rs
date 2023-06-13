@@ -176,6 +176,12 @@ impl<'a> WorkerThreadSession<'a> {
                         DocumentSource::File(_) => todo!(),
                         DocumentSource::Bytes(_) => todo!(),
                         DocumentSource::Stdin => todo!(),
+                        DocumentSource::Integer(int) => {
+                            self.job_data.fields[input_data]
+                                .field_data
+                                .push_int(*int, 1);
+                            entry_count += 1;
+                        }
                         DocumentSource::String(str) => {
                             self.job_data.fields[input_data].field_data.push_str(str, 1);
                             entry_count += 1;

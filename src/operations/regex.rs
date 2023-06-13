@@ -2,7 +2,7 @@ use bstring::bstr;
 use regex::{CaptureLocations, Regex};
 
 use crate::{
-    field_data::FieldValueFlags,
+    field_data::field_value_flags,
     field_data_iterator::FDIterator,
     options::argument::CliArgIdx,
     string_store::{StringStore, StringStoreEntry},
@@ -129,11 +129,11 @@ pub fn handle_tf_regex_batch_mode(
     _tf_data: &mut TfRegex,
 ) {
     let (batch, input_field) = sess.claim_batch(tf_id);
-    while let Some(range) = sess.fields[input_field]
+    while let Some(_range) = sess.fields[input_field]
         .field_data
         .iter()
         .bounded(0, batch)
-        .consume_typed_range_bwd(usize::MAX, FieldValueFlags::BYTES_ARE_UTF8)
+        .consume_typed_range_bwd(usize::MAX, field_value_flags::BYTES_ARE_UTF8)
     {
         todo!();
     }

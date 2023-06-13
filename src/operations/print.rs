@@ -1,8 +1,8 @@
 use bstring::bstr;
 
 use crate::{
-    field_data::FieldValueFlags,
-    field_data_iterator::{BoundedFDIter, FDIter, FDIterator, FDTypedData, FDTypedRange},
+    field_data::field_value_flags,
+    field_data_iterator::{FDIterator, FDTypedData},
     options::argument::CliArgIdx,
     worker_thread_session::{JobData, TransformId},
 };
@@ -28,7 +28,7 @@ pub fn handle_print_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId) {
     let (batch, input_field) = sess.claim_batch(tf_id);
     let mut iter = sess.fields[input_field].field_data.iter().bounded(batch, 0);
     while let Some(range) =
-        iter.consume_typed_range_bwd(usize::MAX, FieldValueFlags::BYTES_ARE_UTF8)
+        iter.consume_typed_range_bwd(usize::MAX, field_value_flags::BYTES_ARE_UTF8)
     {
         match range.data {
             FDTypedData::TextInline(text) => {
@@ -41,9 +41,15 @@ pub fn handle_print_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId) {
                     data_end = data_start;
                 }
             }
+            FDTypedData::Integer(ints) => {
+                for i in (0..range.field_count).rev() {
+                    for _ in 0..range.headers[i].run_length {
+                        println!("{}", ints[i]);
+                    }
+                }
+            }
             FDTypedData::Unset(_)
             | FDTypedData::Null(_)
-            | FDTypedData::Integer(_)
             | FDTypedData::Reference(_)
             | FDTypedData::Error(_)
             | FDTypedData::Html(_)

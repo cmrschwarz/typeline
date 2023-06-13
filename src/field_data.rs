@@ -43,7 +43,7 @@ pub enum FieldValueKind {
     Object,
 }
 // because these enum values as generics is annoying
-pub mod FieldValueKindValues {
+pub mod field_value_kind {
     use super::FieldValueKind::*;
     use super::FieldValueKindIntegralType as KindType;
     pub const UNSET: KindType = Unset as KindType;
@@ -77,7 +77,15 @@ impl FieldValueKind {
         self.needs_drop()
     }
     #[inline(always)]
-    pub fn align_size(self, size: usize) -> usize {
+    pub fn align_size_up(self, size: usize) -> usize {
+        if self.needs_alignment() {
+            (size + FIELD_ALIGN_MASK) & FIELD_ALIGN_MASK
+        } else {
+            size
+        }
+    }
+    #[inline(always)]
+    pub fn align_size_down(self, size: usize) -> usize {
         if self.needs_alignment() {
             size & FIELD_ALIGN_MASK
         } else {
@@ -85,11 +93,19 @@ impl FieldValueKind {
         }
     }
     #[inline(always)]
-    pub unsafe fn align_ptr(self, ptr: *mut u8) -> *mut u8 {
+    pub unsafe fn align_ptr_down(self, ptr: *mut u8) -> *mut u8 {
         if self.needs_alignment() {
             // doing this instead of the straight conversion to usize
             // to avoid loosing provenance
             unsafe { ptr.sub(ptr as usize & MAX_FIELD_ALIGN) }
+        } else {
+            ptr
+        }
+    }
+    #[inline(always)]
+    pub unsafe fn align_ptr_up(self, ptr: *mut u8) -> *mut u8 {
+        if self.needs_alignment() {
+            unsafe { ptr.sub((ptr as usize + MAX_FIELD_ALIGN) & MAX_FIELD_ALIGN) }
         } else {
             ptr
         }
@@ -137,9 +153,10 @@ pub const MAX_FIELD_ALIGN: usize = align_of::<FieldValueUnion>();
 const_assert!(MAX_FIELD_ALIGN.is_power_of_two() && MAX_FIELD_ALIGN <= 16);
 pub const FIELD_ALIGN_MASK: usize = !MAX_FIELD_ALIGN;
 
-type FieldValueSize = u16;
+pub type FieldValueSize = u16;
+pub type FieldValueFlags = field_value_flags::Type;
 
-pub mod FieldValueFlags {
+pub mod field_value_flags {
     pub type Type = u8;
     //offset must be zero so we don't have to shift
     pub const ALIGNMENT_AFTER: Type = 0xF;
@@ -151,12 +168,14 @@ pub mod FieldValueFlags {
     pub const SHARED_VALUE: Type = 1 << SHARED_VALUE_OFFSET;
     pub const BYTES_ARE_UTF8: Type = 1 << BYTES_ARE_UTF8_OFFSET;
     pub const NON_FINAL_STREAM_CHUNK: Type = 1 << NON_FINAL_STREAM_CHUNK_OFFSET;
+
+    pub const DEFAULT: Type = 0;
 }
 
 #[derive(Clone, Copy)]
 pub struct FieldValueFormat {
     pub kind: FieldValueKind,
-    pub flags: FieldValueFlags::Type,
+    pub flags: FieldValueFlags,
     // this does NOT include potential padding before this
     // field in case it has to be aligned
     pub size: FieldValueSize,
@@ -166,7 +185,7 @@ impl Default for FieldValueFormat {
     fn default() -> Self {
         Self {
             kind: FieldValueKind::Unset,
-            flags: 0,
+            flags: field_value_flags::DEFAULT,
             size: 0,
         }
     }
@@ -180,30 +199,30 @@ pub struct FieldValueHeader {
 
 impl FieldValueFormat {
     pub fn shared_value(self) -> bool {
-        self.flags & FieldValueFlags::SHARED_VALUE != 0
+        self.flags & field_value_flags::SHARED_VALUE != 0
     }
     pub fn set_shared_value(&mut self, val: bool) {
-        self.flags |= (val as FieldValueFlags::Type) << FieldValueFlags::SHARED_VALUE_OFFSET;
+        self.flags |= (val as field_value_flags::Type) << field_value_flags::SHARED_VALUE_OFFSET;
     }
     pub fn non_final_stream_chunk(self) -> bool {
-        self.flags & FieldValueFlags::NON_FINAL_STREAM_CHUNK != 0
+        self.flags & field_value_flags::NON_FINAL_STREAM_CHUNK != 0
     }
     pub fn set_non_final_stream_chunk(&mut self, val: bool) {
         self.flags |=
-            (val as FieldValueFlags::Type) << FieldValueFlags::NON_FINAL_STREAM_CHUNK_OFFSET;
+            (val as field_value_flags::Type) << field_value_flags::NON_FINAL_STREAM_CHUNK_OFFSET;
     }
     pub fn bytes_are_utf8(self) -> bool {
-        self.flags & FieldValueFlags::BYTES_ARE_UTF8 != 0
+        self.flags & field_value_flags::BYTES_ARE_UTF8 != 0
     }
     pub fn set_bytes_are_utf8(&mut self, val: bool) {
-        self.flags |= (val as FieldValueFlags::Type) << FieldValueFlags::BYTES_ARE_UTF8_OFFSET;
+        self.flags |= (val as field_value_flags::Type) << field_value_flags::BYTES_ARE_UTF8_OFFSET;
     }
     pub fn alignment_after(self) -> usize {
-        (self.flags & FieldValueFlags::ALIGNMENT_AFTER) as usize
+        (self.flags & field_value_flags::ALIGNMENT_AFTER) as usize
     }
     pub fn set_alignment_after(&mut self, val: usize) {
-        debug_assert!(val & !(FieldValueFlags::ALIGNMENT_AFTER as usize) == 0);
-        self.flags |= (val as u8) & FieldValueFlags::ALIGNMENT_AFTER;
+        debug_assert!(val & !(field_value_flags::ALIGNMENT_AFTER as usize) == 0);
+        self.flags |= (val as u8) & field_value_flags::ALIGNMENT_AFTER;
     }
 }
 
@@ -340,6 +359,7 @@ impl FieldData {
     fn pad_to_align(&mut self) -> usize {
         let align = self.data.len() % MAX_FIELD_ALIGN;
         self.data.extend(iter::repeat(0).take(align));
+        self.header.last_mut().map(|h| h.set_alignment_after(align));
         align
     }
     pub fn copy_n<'a>(&self, n: usize, targets: &mut [&'a mut FieldData]) {
@@ -450,44 +470,77 @@ impl FieldData {
             append_data_memcpy(start, data_pos - uncopied_data_start, targets);
         }
     }
-    pub fn push_str(&mut self, data: &str, run_length: RunLength) {
-        let inline = data.len() < INLINE_STR_MAX_LEN;
-        let tgt_kind = if inline {
-            FieldValueKind::BytesInline
-        } else {
-            FieldValueKind::BytesBuffer
-        };
+    pub fn push_inline_str(&mut self, data: &str, run_length: RunLength) {
+        assert!(data.len() < INLINE_STR_MAX_LEN);
+        //TODO: maybe try for rle?
+        self.header.push(FieldValueHeader {
+            fmt: FieldValueFormat {
+                kind: FieldValueKind::BytesInline,
+                flags: field_value_flags::BYTES_ARE_UTF8,
+                size: data.len() as FieldValueSize,
+            },
+            run_length,
+        });
+        self.data.extend_from_slice(data.as_bytes());
+    }
+    unsafe fn push_fixed_size_type<T>(
+        &mut self,
+        kind: FieldValueKind,
+        flags: field_value_flags::Type,
+        data: T,
+        run_length: RunLength,
+    ) {
         let mut could_amend_header = false;
         if let Some(h) = self.header.last_mut() {
-            if !h.shared_value() && h.kind == tgt_kind && h.non_final_stream_chunk() == true {
-                if let Some(rl) = h.run_length.checked_add(1) {
+            if kind.needs_alignment() && !h.kind.needs_alignment() {
+                h.set_alignment_after(kind.align_size_up(self.data.len()) - self.data.len());
+            } else if !h.shared_value() && h.kind == kind && h.flags == flags {
+                if let Some(rl) = h.run_length.checked_add(run_length) {
                     h.run_length = rl;
                     could_amend_header = true;
                 }
             }
         }
-
         if !could_amend_header {
             self.header.push(FieldValueHeader {
                 fmt: FieldValueFormat {
-                    kind: tgt_kind,
-                    flags: FieldValueFlags::BYTES_ARE_UTF8,
-                    size: if inline {
-                        data.len()
-                    } else {
-                        size_of::<String>()
-                    } as FieldValueSize,
+                    kind,
+                    flags,
+                    size: size_of::<T>() as FieldValueSize,
                 },
                 run_length,
             })
         }
-        if inline {
-            self.data.extend_from_slice(data.as_bytes());
+        self.pad_to_align();
+        let owned_str = ManuallyDrop::new(data);
+        self.data
+            .extend_from_slice(unsafe { as_u8_slice(&owned_str) });
+    }
+    pub fn push_str_buffer(&mut self, data: &str, run_length: RunLength) {
+        unsafe {
+            self.push_fixed_size_type(
+                FieldValueKind::BytesBuffer,
+                field_value_flags::BYTES_ARE_UTF8,
+                data.to_owned(),
+                run_length,
+            );
+        }
+    }
+    pub fn push_str(&mut self, data: &str, run_length: RunLength) {
+        if data.len() < INLINE_STR_MAX_LEN {
+            self.push_inline_str(data, run_length);
         } else {
-            self.pad_to_align();
-            let owned_str = ManuallyDrop::new(data.to_owned());
-            self.data
-                .extend_from_slice(unsafe { as_u8_slice(&owned_str) });
+            self.push_str_buffer(data, run_length);
+        }
+    }
+    pub fn push_int(&mut self, data: i64, run_length: RunLength) {
+        unsafe {
+            self.push_fixed_size_type(
+                FieldValueKind::Integer,
+                field_value_flags::DEFAULT,
+                data.to_owned(),
+                run_length,
+            );
         }
     }
     pub fn iter<'a>(&'a self) -> FDIter<'a> {

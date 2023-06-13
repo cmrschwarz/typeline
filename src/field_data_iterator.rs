@@ -1,14 +1,12 @@
-use std::{marker::PhantomData, mem::transmute, os::fd, slice::from_raw_parts};
+use std::marker::PhantomData;
 
 use crate::{
     field_data::{
-        FieldData, FieldReference, FieldValueFlags, FieldValueFormat, FieldValueHeader,
-        FieldValueKind, Html, Object, RunLength,
+        field_value_flags, FieldData, FieldReference, FieldValueFlags, FieldValueFormat,
+        FieldValueHeader, FieldValueKind, Html, Object, RunLength,
     },
     operations::OperatorApplicationError,
 };
-
-use FieldValueFlags::Type as Flags;
 
 pub enum FDTypedData<'a> {
     Unset(&'a [()]),
@@ -46,7 +44,7 @@ unsafe fn to_slice<T: Sized>(fd: &FieldData, data_begin: usize, len: usize) -> &
 
 unsafe fn to_typed_range<'a>(
     fd: &'a FieldData,
-    flag_mask: Flags,
+    flag_mask: FieldValueFlags,
     fmt: FieldValueFormat,
     data_begin: usize,
     data_end: usize,
@@ -59,7 +57,7 @@ unsafe fn to_typed_range<'a>(
         FieldValueKind::Unset => FDTypedData::Unset(to_slice(fd, data_begin, field_count)),
         FieldValueKind::Null => FDTypedData::Null(to_slice(fd, data_begin, field_count)),
         FieldValueKind::BytesInline => {
-            if fmt.flags & flag_mask & FieldValueFlags::BYTES_ARE_UTF8 != 0 {
+            if fmt.flags & flag_mask & field_value_flags::BYTES_ARE_UTF8 != 0 {
                 FDTypedData::TextInline(std::str::from_utf8_unchecked(to_slice(
                     fd,
                     data_begin,
@@ -103,15 +101,15 @@ pub trait FDIterator<'a>: Sized {
         &mut self,
         n: usize,
         kind: Option<FieldValueKind>,
-        flag_mask: Flags,
-        flags: Flags,
+        flag_mask: FieldValueFlags,
+        flags: FieldValueFlags,
     ) -> usize;
     fn prev_n_fields_with_fmt(
         &mut self,
         n: usize,
         kind: Option<FieldValueKind>,
-        flag_mask: Flags,
-        flags: Flags,
+        flag_mask: FieldValueFlags,
+        flags: FieldValueFlags,
     ) -> usize;
     fn next_n_fields(&mut self, n: usize) -> usize {
         self.next_n_fields_with_fmt(n, None, 0, 0)
@@ -122,12 +120,12 @@ pub trait FDIterator<'a>: Sized {
     fn consume_typed_range_fwd(
         &mut self,
         limit: usize,
-        flag_mask: Flags,
+        flag_mask: FieldValueFlags,
     ) -> Option<FDTypedRange<'a>>;
     fn consume_typed_range_bwd(
         &mut self,
         limit: usize,
-        flag_mask: Flags,
+        flag_mask: FieldValueFlags,
     ) -> Option<FDTypedRange<'a>>;
     fn bounded(self, before: usize, after: usize) -> BoundedFDIter<'a, Self> {
         BoundedFDIter::new(self, 0, before, before + after + 1)
@@ -255,8 +253,8 @@ impl<'a> FDIterator<'a> for FDIter<'a> {
         &mut self,
         n: usize,
         kind: Option<FieldValueKind>,
-        flag_mask: Flags,
-        flags: Flags,
+        flag_mask: FieldValueFlags,
+        flags: FieldValueFlags,
     ) -> usize {
         let mut stride_rem = n;
         let curr_header_rem = (self.header_rl_total - self.header_rl_offset) as usize;
@@ -285,8 +283,8 @@ impl<'a> FDIterator<'a> for FDIter<'a> {
         &mut self,
         n: usize,
         kind: Option<FieldValueKind>,
-        flag_mask: Flags,
-        flags: Flags,
+        flag_mask: FieldValueFlags,
+        flags: FieldValueFlags,
     ) -> usize {
         if n == 0 || self.prev_field() == 0 || (self.header_fmt.flags & flag_mask) != flags {
             return 0;
@@ -313,7 +311,7 @@ impl<'a> FDIterator<'a> for FDIter<'a> {
     fn consume_typed_range_fwd(
         &mut self,
         limit: usize,
-        flag_mask: Flags,
+        flag_mask: FieldValueFlags,
     ) -> Option<FDTypedRange<'a>> {
         if limit == 0 || !self.is_next_valid() {
             return None;
@@ -343,7 +341,7 @@ impl<'a> FDIterator<'a> for FDIter<'a> {
     fn consume_typed_range_bwd(
         &mut self,
         limit: usize,
-        flag_mask: Flags,
+        flag_mask: FieldValueFlags,
     ) -> Option<FDTypedRange<'a>> {
         if limit == 0 || self.prev_field() == 0 {
             return None;
@@ -487,8 +485,8 @@ where
         &mut self,
         n: usize,
         kind: Option<FieldValueKind>,
-        flag_mask: Flags,
-        flags: Flags,
+        flag_mask: FieldValueFlags,
+        flags: FieldValueFlags,
     ) -> usize {
         let n = n.min(self.range_fwd());
         self.iter.next_n_fields_with_fmt(n, kind, flag_mask, flags)
@@ -497,8 +495,8 @@ where
         &mut self,
         n: usize,
         kind: Option<FieldValueKind>,
-        flag_mask: Flags,
-        flags: Flags,
+        flag_mask: FieldValueFlags,
+        flags: FieldValueFlags,
     ) -> usize {
         let n = n.min(self.range_bwd());
         self.iter.prev_n_fields_with_fmt(n, kind, flag_mask, flags)
@@ -506,7 +504,7 @@ where
     fn consume_typed_range_fwd(
         &mut self,
         limit: usize,
-        flag_mask: Flags,
+        flag_mask: FieldValueFlags,
     ) -> Option<FDTypedRange<'a>> {
         let limit = limit.min(self.range_fwd());
         self.iter.consume_typed_range_fwd(limit, flag_mask)
@@ -514,7 +512,7 @@ where
     fn consume_typed_range_bwd(
         &mut self,
         limit: usize,
-        flag_mask: Flags,
+        flag_mask: FieldValueFlags,
     ) -> Option<FDTypedRange<'a>> {
         let limit = limit.min(self.range_bwd());
         self.iter.consume_typed_range_bwd(limit, flag_mask)

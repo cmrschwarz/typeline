@@ -12,6 +12,7 @@ pub enum DocumentSource {
     File(PathBuf),
     String(String),
     Bytes(BString),
+    Integer(i64),
     Stdin,
 }
 

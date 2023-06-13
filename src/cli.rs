@@ -129,6 +129,20 @@ fn try_parse_document_source(
                 ))
             }
         }
+        "int" => {
+            if let Some(value) = value {
+                let value = str::parse::<i64>(from_utf8(value.as_bytes()).map_err(|_| {
+                    CliArgumentError::new(
+                        "failed to parse value as integer (invalid utf-8)",
+                        cli_arg_idx,
+                    )
+                })?)
+                .map_err(|_| CliArgumentError::new("failed to value as integer", cli_arg_idx))?;
+                Ok(Some(DocumentSource::Integer(value)))
+            } else {
+                Err(CliArgumentError::new("missing value for int", cli_arg_idx))
+            }
+        }
         "bytes" => {
             if let Some(value) = value {
                 Ok(Some(DocumentSource::Bytes(BString::from(value))))
