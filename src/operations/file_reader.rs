@@ -100,13 +100,16 @@ pub fn handle_tf_file_reader_batch_mode(
 ) -> EnterStreamModeFlag {
     if let Some(f) = &mut fr.file {
         let out_field = &mut sess.fields[fr.output_field];
-        let size_before = out_field.field_data.data.len();
-        //HACK: this should require unsafe, because we could be lying about the layout here
-        let res = read_chunk(&mut out_field.field_data.data, f, INLINE_STR_MAX_LEN);
+
+        // we want to write the chunk straight into field data to avoid a copy
+        let (field_headers, field_data) = unsafe { out_field.field_data.internals() };
+
+        let size_before = field_data.len();
+        let res = read_chunk(field_data, f, INLINE_STR_MAX_LEN);
         let chunk_size = match res {
             Ok((size, eof)) => {
                 if eof {
-                    out_field.field_data.header.push(FieldValueHeader {
+                    field_headers.push(FieldValueHeader {
                         fmt: FieldValueFormat {
                             kind: FieldValueKind::BytesInline,
                             flags: field_value_flags::DEFAULT,
@@ -129,7 +132,7 @@ pub fn handle_tf_file_reader_batch_mode(
             }
         };
         let mut buf = Vec::with_capacity(chunk_size);
-        buf.extend_from_slice(&out_field.field_data.data[size_before..size_before + chunk_size]);
+        buf.extend_from_slice(&field_data[size_before..size_before + chunk_size]);
         out_field
             .stream_field_data
             .values
@@ -171,11 +174,11 @@ pub fn handle_tf_file_reader_producer_mode(
     let mut sv = sfd.get_value_mut(&sfd.values, fr.stream_value);
     let mut update = true;
     let res = match &mut sv.data {
-        StreamFieldValueData::BytesChunk(bc) => {
+        StreamFieldValueData::BytesChunk(ref mut bc) => {
             bc.clear();
             read_chunk(bc, fr.file.as_mut().unwrap(), INLINE_STR_MAX_LEN)
         }
-        StreamFieldValueData::BytesBuffer(bb) => {
+        StreamFieldValueData::BytesBuffer(ref mut bb) => {
             update = false;
             read_chunk(bb, fr.file.as_mut().unwrap(), INLINE_STR_MAX_LEN)
         }

@@ -11,6 +11,7 @@ use nonmax::NonMaxUsize;
 use crate::{
     context::SessionData,
     document::DocumentSource,
+    field_data::field_data_iterator::FDIter,
     field_data::{EntryId, FieldData},
     operations::{
         errors::{OperatorApplicationError, OperatorSetupError},
@@ -27,8 +28,8 @@ use crate::{
     },
     scr_error::ScrError,
     stream_field_data::StreamFieldData,
-    string_store::StringStoreEntry,
-    universe::Universe,
+    utils::string_store::StringStoreEntry,
+    utils::universe::Universe,
     worker_thread::{Job, JobInput},
 };
 

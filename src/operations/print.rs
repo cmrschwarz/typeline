@@ -3,8 +3,10 @@ use std::io::Write;
 use bstring::bstr;
 
 use crate::{
-    field_data::{field_value_flags, FieldReference},
-    field_data_iterator::{FDIterator, FDTypedSlice, FDTypedValue},
+    field_data::{
+        field_data_iterator::{FDIterator, FDTypedSlice, FDTypedValue},
+        field_value_flags, FieldReference,
+    },
     options::argument::CliArgIdx,
     stream_field_data::{StreamFieldValue, StreamFieldValueData, StreamValueId},
     worker_thread_session::{FieldId, JobData, MatchSetId, WorkerThreadSession},

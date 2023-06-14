@@ -12,7 +12,7 @@ use crate::{
         operator::{OperatorBase, OperatorData, OperatorId, OperatorOffsetInChain},
     },
     selenium::SeleniumVariant,
-    string_store::StringStore,
+    utils::string_store::StringStore,
 };
 
 use super::{

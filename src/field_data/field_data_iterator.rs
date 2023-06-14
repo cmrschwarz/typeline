@@ -100,7 +100,11 @@ unsafe fn to_typed_range<'a>(
         FieldValueKind::Error => FDTypedSlice::Error(to_slice(fd, data_begin, field_count)),
         FieldValueKind::Html => FDTypedSlice::Html(to_slice(fd, data_begin, field_count)),
         FieldValueKind::Object => FDTypedSlice::Object(to_slice(fd, data_begin, field_count)),
-        _ => todo!(),
+        FieldValueKind::StreamValueId => {
+            FDTypedSlice::StreamValueId(to_slice(fd, data_begin, field_count))
+        }
+        FieldValueKind::BytesBuffer => todo!(),
+        FieldValueKind::BytesFile => todo!(),
     };
     FDTypedRange {
         headers,
@@ -130,11 +134,13 @@ unsafe fn to_typed_field<'a>(
         }
         FieldValueKind::EntryId => todo!(),
         FieldValueKind::Integer => FDTypedValue::Integer(*to_ref(fd, data_begin)),
+        FieldValueKind::StreamValueId => FDTypedValue::StreamValueId(*to_ref(fd, data_begin)),
         FieldValueKind::Reference => FDTypedValue::Reference(to_ref(fd, data_begin)),
         FieldValueKind::Error => FDTypedValue::Error(to_ref(fd, data_begin)),
         FieldValueKind::Html => FDTypedValue::Html(to_ref(fd, data_begin)),
         FieldValueKind::Object => FDTypedValue::Object(to_ref(fd, data_begin)),
-        _ => todo!(),
+        FieldValueKind::BytesBuffer => todo!(),
+        FieldValueKind::BytesFile => todo!(),
     };
     FDTypedField {
         header: FieldValueHeader {

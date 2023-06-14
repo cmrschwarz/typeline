@@ -1,6 +1,6 @@
 use crate::{
     chain::{Chain, ChainId, ChainSettings},
-    encoding::TextEncoding,
+    document::TextEncoding,
     selenium::{SeleniumDownloadStrategy, SeleniumVariant},
 };
 

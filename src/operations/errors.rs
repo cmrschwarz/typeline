@@ -2,7 +2,7 @@ use std::borrow::Cow;
 
 use thiserror::Error;
 
-use crate::{options::argument::CliArgIdx, universe::Universe};
+use crate::{options::argument::CliArgIdx, utils::universe::Universe};
 
 use super::{
     operator::OperatorId,

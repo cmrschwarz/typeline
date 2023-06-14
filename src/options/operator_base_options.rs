@@ -1,4 +1,6 @@
-use crate::{chain::ChainId, operations::operator::OperatorId, string_store::StringStoreEntry};
+use crate::{
+    chain::ChainId, operations::operator::OperatorId, utils::string_store::StringStoreEntry,
+};
 
 use super::{argument::CliArgIdx, chain_spec::ChainSpec};
 

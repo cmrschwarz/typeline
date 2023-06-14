@@ -2,10 +2,10 @@ use bstring::bstr;
 use regex::{CaptureLocations, Regex};
 
 use crate::{
+    field_data::field_data_iterator::{FDIterator, FDTypedSlice},
     field_data::{field_value_flags, FieldData, FieldReference},
-    field_data_iterator::{FDIterator, FDTypedSlice},
     options::argument::CliArgIdx,
-    string_store::{StringStore, StringStoreEntry},
+    utils::string_store::{StringStore, StringStoreEntry},
     worker_thread_session::{Field, FieldId, JobData, MatchSetId, WorkerThreadSession},
 };
 

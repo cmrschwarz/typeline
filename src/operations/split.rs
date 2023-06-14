@@ -7,8 +7,8 @@ use smallvec::{smallvec, SmallVec};
 use crate::{
     chain::ChainId,
     options::{argument::CliArgIdx, range_spec::RangeSpec},
-    scratch_vec::ScratchVec,
-    string_store::StringStoreEntry,
+    utils::scratch_vec::ScratchVec,
+    utils::string_store::StringStoreEntry,
     worker_thread_session::{FieldId, JobData, MatchSetId, WorkerThreadSession},
 };
 

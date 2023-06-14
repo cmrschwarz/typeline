@@ -6,6 +6,14 @@ use url::Url;
 
 use crate::chain::ChainId;
 
+#[derive(Clone, Copy)]
+pub enum TextEncoding {
+    ASCII,
+    UTF8,
+    UTF16,
+    UTF32,
+}
+
 #[derive(Clone)]
 pub enum DocumentSource {
     Url(Url),

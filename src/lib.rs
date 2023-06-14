@@ -17,21 +17,18 @@ pub mod chain;
 pub mod cli;
 pub mod context;
 pub mod document;
-pub mod encoding;
-#[allow(dead_code)]
-mod field_data;
 pub mod operations;
 pub mod options;
-pub mod plattform;
+
 pub mod scr_error;
-pub mod scratch_vec;
+pub mod utils;
 pub mod selenium;
-pub mod string_store;
-pub mod universe;
+
 pub mod worker_thread;
-pub mod field_data_iterator;
 pub mod stream_field_data;
 pub mod worker_thread_session;
 
 #[cfg(test)]
 mod tests;
+
+mod field_data;

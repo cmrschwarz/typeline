@@ -10,7 +10,7 @@ use crate::{
     document::{Document, DocumentSource},
     operations::operator::{OperatorBase, OperatorData, OperatorId},
     scr_error::ScrError,
-    string_store::StringStore,
+    utils::string_store::StringStore,
     worker_thread::{Job, JobInput, WorkerThread},
 };
 

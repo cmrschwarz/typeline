@@ -1,3 +1,5 @@
+pub mod field_data_iterator;
+
 use std::{
     collections::HashMap,
     iter,
@@ -10,17 +12,15 @@ use std::{
 use std::ops::Deref;
 
 use crate::{
-    field_data::field_value_flags::TYPE_RELEVANT, field_data_iterator::FDIter,
-    operations::errors::OperatorApplicationError, stream_field_data::StreamValueId,
-    string_store::StringStoreEntry, worker_thread_session::FieldId,
+    field_data::field_value_flags::TYPE_RELEVANT, operations::errors::OperatorApplicationError,
+    stream_field_data::StreamValueId, utils::string_store::StringStoreEntry,
+    worker_thread_session::FieldId,
 };
 
-use self::field_value_flags::SHARED_VALUE;
+use self::{field_data_iterator::FDIter, field_value_flags::SHARED_VALUE};
 
 //if the u32 overflows we just split into two values
 pub type RunLength = u32;
-
-pub type FieldValueKindIntegralType = u8;
 
 #[derive(Clone, Copy, PartialEq)]
 #[repr(u8)]
@@ -38,22 +38,7 @@ pub enum FieldValueKind {
     BytesFile,
     Object,
 }
-// because these enum values as generics is annoying
-pub mod field_value_kind {
-    use super::FieldValueKind::*;
-    use super::FieldValueKindIntegralType as KindType;
-    pub const UNSET: KindType = Unset as KindType;
-    pub const NULL: KindType = Null as KindType;
-    pub const ENTRY_ID: KindType = EntryId as KindType;
-    pub const INTEGER: KindType = Integer as KindType;
-    pub const REFERENCE: KindType = Reference as KindType;
-    pub const ERROR: KindType = Error as KindType;
-    pub const HTML: KindType = Html as KindType;
-    pub const BYTES_INLINE: KindType = BytesInline as KindType;
-    pub const BYTES_BUFFER: KindType = BytesBuffer as KindType;
-    pub const BYTES_FILE: KindType = BytesFile as KindType;
-    pub const OBJECT: KindType = Object as KindType;
-}
+
 impl FieldValueKind {
     pub fn needs_drop(self) -> bool {
         use FieldValueKind::*;
@@ -109,11 +94,12 @@ impl FieldValueKind {
 }
 
 #[derive(Clone)]
+#[allow(dead_code)] //TODO
 struct ObjectEntry {
     kind: FieldValueKind,
     data_offset: usize,
 }
-
+#[allow(dead_code)] //TODO
 #[derive(Clone)]
 pub struct Object {
     data: FieldData,
@@ -253,8 +239,8 @@ impl FieldValueHeader {
 
 #[derive(Default)]
 pub struct FieldData {
-    pub(crate) data: Vec<u8>,
-    pub(crate) header: Vec<FieldValueHeader>,
+    pub(in crate::field_data) data: Vec<u8>,
+    pub(in crate::field_data) header: Vec<FieldValueHeader>,
 }
 
 impl Clone for FieldData {
@@ -663,17 +649,13 @@ impl FieldData {
     pub fn iter_from_end<'a>(&'a self) -> FDIter<'a> {
         FDIter::from_end(self)
     }
+
+    pub unsafe fn internals(&mut self) -> (&mut Vec<FieldValueHeader>, &mut Vec<u8>) {
+        (&mut self.header, &mut self.data)
+    }
 }
 
 pub type EntryId = usize;
-
-unsafe fn load_slice<'a>(ptr: *const u8, size: FieldValueSize) -> &'a [u8] {
-    slice::from_raw_parts(ptr, size as usize)
-}
-
-unsafe fn load_str_slice<'a>(ptr: *const u8, size: FieldValueSize) -> &'a str {
-    std::str::from_utf8_unchecked(load_slice(ptr, size))
-}
 
 unsafe fn drop_data(fmt: FieldValueHeader, ptr: *mut u8) {
     use FieldValueKind::*;
@@ -683,7 +665,7 @@ unsafe fn drop_data(fmt: FieldValueHeader, ptr: *mut u8) {
                 unreachable!()
             }
             BytesBuffer => drop_in_place(ptr as *mut Vec<u8>),
-            BytesFile => drop_in_place(ptr as *mut crate::field_data::BytesBufferFile),
+            BytesFile => drop_in_place(ptr as *mut BytesBufferFile),
             Error => drop_in_place(ptr as *mut OperatorApplicationError),
             Html => drop_in_place(ptr as *mut crate::field_data::Html),
             Object => drop_in_place(ptr as *mut crate::field_data::Object),

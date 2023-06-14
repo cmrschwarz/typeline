@@ -6,14 +6,15 @@ use std::sync::Arc;
 use crossbeam::deque::{Stealer, Worker};
 use smallvec::SmallVec;
 
-use crate::context::{ContextData, SessionData};
-use crate::document::{Document, DocumentId};
-use crate::field_data::FieldData;
-use crate::operations::operator::OperatorId;
-
-use crate::scr_error::ScrError;
-use crate::string_store::StringStoreEntry;
-use crate::worker_thread_session::WorkerThreadSession;
+use crate::{
+    context::{ContextData, SessionData},
+    document::{Document, DocumentId},
+    field_data::FieldData,
+    operations::operator::OperatorId,
+    scr_error::ScrError,
+    utils::string_store::StringStoreEntry,
+    worker_thread_session::WorkerThreadSession,
+};
 
 pub enum JobInput {
     FieldData(Vec<(Option<StringStoreEntry>, FieldData)>),

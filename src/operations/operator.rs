@@ -1,4 +1,4 @@
-use crate::{chain::ChainId, options::argument::CliArgIdx, string_store::StringStoreEntry};
+use crate::{chain::ChainId, options::argument::CliArgIdx, utils::string_store::StringStoreEntry};
 
 use super::{format::OpFormat, regex::OpRegex, split::OpSplit};
 
