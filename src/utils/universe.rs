@@ -1,17 +1,34 @@
-use std::ops::{Deref, Index, IndexMut};
+use std::{
+    fmt::Debug,
+    ops::{Deref, Index, IndexMut},
+};
 
 pub trait UniverseIndex:
-    Clone + Copy + Default + TryFrom<usize> + Into<usize> + PartialEq + Eq + PartialOrd + Ord
+    Clone
+    + Copy
+    + Default
+    + TryFrom<usize, Error = Self::TryFromErrorType>
+    + Into<usize>
+    + PartialEq
+    + Eq
+    + PartialOrd
+    + Ord
 {
+    type TryFromErrorType: Debug;
 }
-impl<I> UniverseIndex for I where I: Clone + Copy + Default + TryFrom<usize> + Into<usize> + Ord {}
+impl<I, ET: Debug> UniverseIndex for I
+where
+    I: Clone + Copy + Default + TryFrom<usize, Error = ET> + Into<usize> + Ord,
+{
+    type TryFromErrorType = ET;
+}
 
 #[derive(Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
 struct UniverseIdx<I: UniverseIndex>(I);
 
 impl<I: UniverseIndex> UniverseIdx<I> {
     fn from_usize(val: usize) -> Self {
-        UniverseIdx(unsafe { val.try_into().unwrap_unchecked() })
+        UniverseIdx(<I as TryFrom<usize>>::try_from(val).unwrap())
     }
     fn to_usize(self) -> usize {
         self.0.into()

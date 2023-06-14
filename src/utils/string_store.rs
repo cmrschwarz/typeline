@@ -38,7 +38,7 @@ impl StringStore {
         }
         bucket.extend_from_slice(entry.as_bytes());
         let str_ref = &bucket[bucket_len..bucket_len + len];
-        //safety: this is fine because these never get handed out
+        // SAFETY: this is fine because these never get handed out
         let str_ref_static = unsafe { transmute::<&[u8], &'static str>(str_ref) };
 
         self.table_idx_to_str.push(str_ref_static);
@@ -61,7 +61,7 @@ impl StringStore {
         }
         bucket.push(entry.into_boxed_str());
         let str_ref = &**bucket.last().unwrap();
-        //safety: this is fine because these never get handed out
+        // SAFETY: this is fine because these never get handed out
         let str_ref_static = unsafe { transmute::<&str, &'static str>(str_ref) };
 
         self.table_idx_to_str.push(str_ref_static);

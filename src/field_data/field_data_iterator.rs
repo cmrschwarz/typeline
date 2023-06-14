@@ -265,6 +265,7 @@ impl<'a> FDIterator<'a> for FDIter<'a> {
         self.header_idx
     }
     fn get_next_typed_field(&mut self) -> FDTypedField<'a> {
+        // SAFETY: debug assert is not enough here because we use unsafe below
         assert!(self.is_next_valid());
         let data = self.get_next_field_data();
         let run_len = if self.header_fmt.shared_value() {

@@ -1,3 +1,11 @@
+// This module implements a run-length encoded, dynamically typed data structure (FieldData)
+// the type information for each entry is stored in a separate vec from the main data
+// the type information itself is run-length encoded even if the data for the two entries is different
+
+// SAFETY: due to its nature, this datastructure requires a lot of unsafe code,
+// some of which is very repetitive. So far, nobody could be bothered
+// with annotating every little piece of it.
+
 pub mod field_data_iterator;
 
 use std::{
@@ -78,7 +86,7 @@ impl FieldValueKind {
         if self.needs_alignment() {
             // doing this instead of the straight conversion to usize
             // to avoid loosing provenance
-            unsafe { ptr.sub(ptr as usize & MAX_FIELD_ALIGN) }
+            ptr.sub(ptr as usize & MAX_FIELD_ALIGN)
         } else {
             ptr
         }
@@ -86,7 +94,7 @@ impl FieldValueKind {
     #[inline(always)]
     pub unsafe fn align_ptr_up(self, ptr: *mut u8) -> *mut u8 {
         if self.needs_alignment() {
-            unsafe { ptr.sub((ptr as usize + MAX_FIELD_ALIGN) & MAX_FIELD_ALIGN) }
+            ptr.sub((ptr as usize + MAX_FIELD_ALIGN) & MAX_FIELD_ALIGN)
         } else {
             ptr
         }

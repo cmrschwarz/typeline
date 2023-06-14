@@ -24,6 +24,8 @@ impl<M, T> DerefMut for ScratchVec<'_, M, T> {
 impl<M, T> Drop for ScratchVec<'_, M, T> {
     fn drop(&mut self) {
         self.data.clear();
+        // SAFETY: this reverses the conversion done in ScratchVec::new,
+        // where we already asserted the necessary invariants
         *self.memory_source = unsafe {
             Vec::from_raw_parts(
                 self.data.as_mut_ptr() as *mut M,
@@ -47,13 +49,15 @@ impl<'a, M, T> ScratchVec<'a, M, T> {
         );
         memory_source.clear();
         let mut source_temp = ManuallyDrop::new(std::mem::replace(&mut *memory_source, Vec::new()));
-        let data = unsafe {
-            ManuallyDrop::new(Vec::from_raw_parts(
+        // SAFETY: we're basically converting source_temp from Vec<M> to Vec<T>.
+        // this is valid because we've asserted the invariants of Vec::from_raw_parts right before this call
+        let data = ManuallyDrop::new(unsafe {
+            Vec::from_raw_parts(
                 source_temp.as_mut_ptr() as *mut T,
                 0,
                 source_buf_size / size_of::<T>(),
-            ))
-        };
+            )
+        });
         ScratchVec {
             memory_source,
             data,

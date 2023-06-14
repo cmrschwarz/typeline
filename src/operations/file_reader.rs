@@ -75,7 +75,7 @@ fn read_chunk(
                 .by_ref()
                 .take(limit as u64)
                 .read_until('\n' as u8, target)?;
-            eof = if size > 0 && target[size] == '\n' as u8 {
+            eof = if size > 0 && target[size - 1] == '\n' as u8 {
                 false
             } else {
                 true
@@ -101,6 +101,9 @@ fn start_prodicing_file(
     let mut out_field = sess.entry_data.fields[fr.output_field].borrow_mut();
 
     // we want to write the chunk straight into field data to avoid a copy
+    // SAFETY: this relies on the memory layout in field_data.
+    // since that is a submodule of us, this is fine.
+    // ideally though, FieldData would expose some way to do this safely.
     let (field_headers, field_data) = unsafe { out_field.field_data.internals() };
 
     let size_before = field_data.len();
