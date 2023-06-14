@@ -29,6 +29,7 @@ pub enum FieldValueKind {
     Null,
     EntryId,
     Integer, //TODO: bigint, float, decimal, ...
+    StreamValueId,
     Reference,
     Error,
     Html,
@@ -57,7 +58,7 @@ impl FieldValueKind {
     pub fn needs_drop(self) -> bool {
         use FieldValueKind::*;
         match self {
-            Unset | Null | EntryId | Integer | Reference => false,
+            Unset | Null | EntryId | Integer | Reference | StreamValueId => false,
             Error | Html | BytesInline | BytesBuffer | BytesFile | Object => true,
         }
     }
@@ -667,7 +668,9 @@ unsafe fn drop_data(fmt: FieldValueHeader, ptr: *mut u8) {
     use FieldValueKind::*;
     unsafe {
         match fmt.kind {
-            Unset | Null | EntryId | Integer | Reference | BytesInline => unreachable!(),
+            Unset | Null | EntryId | Integer | Reference | BytesInline | StreamValueId => {
+                unreachable!()
+            }
             BytesBuffer => drop_in_place(ptr as *mut Vec<u8>),
             BytesFile => drop_in_place(ptr as *mut crate::field_data::BytesBufferFile),
             Error => drop_in_place(ptr as *mut OperatorApplicationError),
@@ -708,7 +711,9 @@ unsafe fn append_data<'a>(
     use FieldValueKind::*;
     for tgt in targets {
         match h.kind {
-            Unset | Null | EntryId | Integer | Reference | BytesInline => unreachable!(),
+            Unset | Null | EntryId | Integer | Reference | BytesInline | StreamValueId => {
+                unreachable!()
+            }
             BytesBuffer => extend_with_clones(&mut tgt.data, source as *const Vec<u8>, count),
             BytesFile => extend_with_clones(
                 &mut tgt.data,

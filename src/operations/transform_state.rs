@@ -5,8 +5,8 @@ use nonmax::NonMaxUsize;
 use crate::worker_thread_session::{FieldId, MatchSetId};
 
 use super::{
-    file_reader::TfFileReader, format::TfFormat, operator_base::OperatorId, regex::TfRegex,
-    split::TfSplit,
+    file_reader::TfFileReader, format::TfFormat, operator_base::OperatorId, print::TfPrint,
+    regex::TfRegex, split::TfSplit,
 };
 
 pub type TransformId = NonMaxUsize;
@@ -15,7 +15,7 @@ pub type TransformOrderingId = NonZeroUsize;
 
 pub enum TransformData<'a> {
     Disabled,
-    Print,
+    Print(TfPrint),
     Split(TfSplit),
     Regex(TfRegex),
     Format(TfFormat<'a>),
@@ -30,7 +30,8 @@ impl Default for TransformData<'_> {
 
 pub struct TransformState {
     pub successor: Option<TransformId>,
-    pub stream_successor: Option<TransformId>,
+    // when a producer gets ready in stream mode we need to round robin
+    // instead of picking him
     pub stream_producers_slot_index: Option<NonMaxUsize>,
     pub input_field: FieldId,
     pub available_batch_size: usize,

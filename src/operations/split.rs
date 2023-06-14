@@ -9,7 +9,7 @@ use crate::{
     options::{argument::CliArgIdx, range_spec::RangeSpec},
     scratch_vec::ScratchVec,
     string_store::StringStoreEntry,
-    worker_thread_session::{FieldId, JobData, MatchSetId},
+    worker_thread_session::{FieldId, JobData, MatchSetId, WorkerThreadSession},
 };
 
 use super::{
@@ -65,7 +65,6 @@ pub fn setup_ts_split_as_entry_point<'a, 'b>(
         input_field: input_field,
         available_batch_size: entry_count,
         stream_producers_slot_index: None,
-        stream_successor: None,
         match_set_id: ms_id,
         successor: None,
         desired_batch_size: ops.clone().fold(usize::MAX, |minimum_batch_size, op| {
@@ -90,8 +89,13 @@ pub fn setup_ts_split_as_entry_point<'a, 'b>(
     (state, data)
 }
 
-pub fn setup_tf_split(op: &OpSplit) -> TfSplit {
-    TfSplit {
+pub fn setup_tf_split<'a>(
+    _sess: &mut WorkerThreadSession,
+    _ms_id: MatchSetId,
+    input_field: FieldId,
+    op: &'a OpSplit,
+) -> (TransformData<'static>, FieldId) {
+    let tf = TfSplit {
         expanded: false,
         targets: op
             .target_operators
@@ -99,7 +103,8 @@ pub fn setup_tf_split(op: &OpSplit) -> TfSplit {
             .map(|op| (*op as usize).try_into().unwrap())
             .collect(),
         field_names_set: Default::default(),
-    }
+    };
+    (TransformData::Split(tf), input_field)
 }
 
 pub fn handle_tf_split(sess: &mut JobData, tf_id: TransformId, s: &mut TfSplit, stream_mode: bool) {

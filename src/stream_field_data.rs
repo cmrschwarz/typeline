@@ -1,4 +1,6 @@
-use crate::field_data::RunLength;
+use std::collections::VecDeque;
+
+use nonmax::NonMaxUsize;
 
 pub enum StreamFieldValueData {
     TextChunk(String),
@@ -14,18 +16,21 @@ pub enum StreamFieldValueData {
 }
 
 pub struct StreamFieldValue {
-    data: StreamFieldValueData,
-    start: StreamEntryId,
-    end: StreamEntryId,
-    update_entry: Option<UpdateEntryId>,
+    pub data: StreamFieldValueData,
+    pub update_entry: Option<UpdateEntryId>,
+    pub refcount: usize,
+    pub done: bool,
 }
 
-pub type UpdateEntryId = u32;
-pub type StreamValueId = u32;
-pub type StreamEntryId = usize;
+pub type UpdateEntryId = NonMaxUsize;
+pub type StreamValueId = usize;
 
+#[derive(Default)]
 pub struct StreamFieldData {
-    values: Vec<StreamFieldValue>,
-    fields: Vec<StreamValueId>,
-    updates: Vec<StreamValueId>,
+    pub id_offset: usize,
+    pub values: VecDeque<StreamFieldValue>,
+    pub updates: Vec<StreamValueId>,
+    pub values_dropped: usize,
+    pub entries_dropped: usize,
+    pub entries_added: usize,
 }

@@ -6,12 +6,14 @@ use crate::{
         FieldValueHeader, FieldValueKind, Html, Object, RunLength,
     },
     operations::OperatorApplicationError,
+    stream_field_data::StreamValueId,
 };
 
 pub enum FDTypedSlice<'a> {
     Unset(&'a [()]),
     Null(&'a [()]),
     Integer(&'a [i64]),
+    StreamValueId(&'a [StreamValueId]),
     Reference(&'a [FieldReference]),
     Error(&'a [OperatorApplicationError]),
     Html(&'a [Html]),
@@ -24,6 +26,7 @@ pub enum FDTypedValue<'a> {
     Unset(()),
     Null(()),
     Integer(i64),
+    StreamValueId(StreamValueId),
     Reference(&'a FieldReference),
     Error(&'a OperatorApplicationError),
     Html(&'a Html),

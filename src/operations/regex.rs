@@ -9,7 +9,10 @@ use crate::{
     worker_thread_session::{Field, FieldId, JobData, MatchSetId, WorkerThreadSession},
 };
 
-use super::{transform_state::TransformId, OperatorApplicationError, OperatorCreationError};
+use super::{
+    transform_state::{TransformData, TransformId},
+    OperatorApplicationError, OperatorCreationError,
+};
 
 pub struct OpRegex {
     pub regex: Regex,
@@ -68,8 +71,9 @@ pub fn parse_regex_op(
 pub fn setup_tf_regex<'a>(
     sess: &mut WorkerThreadSession,
     ms_id: MatchSetId,
+    _input_field: FieldId,
     op: &'a OpRegex,
-) -> (TfRegex, FieldId) {
+) -> (TransformData<'a>, FieldId) {
     let mut cgfs: Vec<FieldId> = op
         .capture_group_names
         .iter()
@@ -82,7 +86,7 @@ pub fn setup_tf_regex<'a>(
         capture_group_fields: cgfs,
         capture_locs: op.regex.capture_locations(),
     };
-    (re, output_field)
+    (TransformData::Regex(re), output_field)
 }
 
 pub fn handle_tf_regex_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRegex) {
@@ -138,6 +142,7 @@ pub fn handle_tf_regex_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, re
             | FDTypedSlice::Error(_)
             | FDTypedSlice::Html(_)
             | FDTypedSlice::BytesInline(_)
+            | FDTypedSlice::StreamValueId(_)
             | FDTypedSlice::Object(_) => {
                 for f in re.capture_group_fields.iter() {
                     let field_ref = &sess.fields[*f].field_data;

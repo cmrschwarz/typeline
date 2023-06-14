@@ -43,7 +43,6 @@ pub fn setup_tf_file_reader_as_entry_point<'a>(
         input_field,
         available_batch_size: 1,
         stream_producers_slot_index: None,
-        stream_successor: None,
         match_set_id: ms_id,
         successor: None,
         desired_batch_size,
