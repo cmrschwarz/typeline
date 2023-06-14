@@ -7,6 +7,7 @@ use std::{
 use crate::operations::errors::OperatorApplicationError;
 
 pub enum StreamFieldValueData {
+    Dropped,
     Error(OperatorApplicationError),
     BytesChunk(Vec<u8>),
     BytesBuffer(Vec<u8>),
@@ -39,18 +40,15 @@ pub struct StreamFieldData {
 }
 
 impl StreamFieldData {
-    pub fn get_value_mut<'a>(
-        &self,
-        values: &'a VecDeque<Rc<RefCell<StreamFieldValue>>>,
-        id: StreamValueId,
-    ) -> RefMut<'a, StreamFieldValue> {
-        values[id - self.id_offset].borrow_mut()
+    pub fn get_value_mut<'a>(&'a self, id: StreamValueId) -> RefMut<'a, StreamFieldValue> {
+        self.values[id - self.id_offset].borrow_mut()
     }
-    pub fn get_value<'a>(
-        &self,
-        values: &'a VecDeque<Rc<RefCell<StreamFieldValue>>>,
-        id: StreamValueId,
-    ) -> Ref<'a, StreamFieldValue> {
-        values[id - self.id_offset].borrow()
+    pub fn get_value<'a>(&'a self, id: StreamValueId) -> Ref<'a, StreamFieldValue> {
+        self.values[id - self.id_offset].borrow()
+    }
+    pub fn push_value(&mut self, value: StreamFieldValue) -> StreamValueId {
+        let id = self.values.len() + self.id_offset;
+        self.values.push_back(Rc::new(RefCell::new(value)));
+        id
     }
 }

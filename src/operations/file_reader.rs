@@ -1,8 +1,6 @@
 use std::{
-    cell::RefCell,
     fs::File,
     io::{BufRead, Read, StdinLock},
-    rc::Rc,
 };
 
 use crate::{
@@ -46,14 +44,14 @@ pub fn setup_tf_file_reader_as_entry_point<'a>(
     let state = TransformState {
         input_field,
         available_batch_size: 1,
-        stream_producers_slot_index: None,
         match_set_id: ms_id,
         successor: None,
         desired_batch_size,
         op_id: OperatorId::MAX,
         ordering_id: tf_mgr.claim_transform_ordering_id(),
+        is_ready: false,
+        is_stream_producer: false,
     };
-
     let data = TransformData::FileReader(TfFileReader {
         file: Some(file),
         output_field: output_field,
@@ -75,19 +73,15 @@ fn read_chunk(
                 .by_ref()
                 .take(limit as u64)
                 .read_until('\n' as u8, target)?;
-            eof = if size > 0 && target[size - 1] == '\n' as u8 {
-                false
-            } else {
-                true
-            };
+            eof = size == 0 || target[size - 1] != '\n' as u8;
         }
         FileType::StdinIsNoTty(ref mut f) => {
             size = f.by_ref().take(limit as u64).read_to_end(target)?;
-            eof = size > 0;
+            eof = size != limit;
         }
         FileType::File(ref mut f) => {
             size = f.by_ref().take(limit as u64).read_to_end(target)?;
-            eof = size > 0;
+            eof = size != limit;
         }
     };
     Ok((size, eof))
@@ -98,6 +92,8 @@ fn start_prodicing_file(
     tf_id: TransformId,
     fr: &mut TfFileReader,
 ) -> EnterStreamModeFlag {
+    let (batch_size, _) = sess.tf_mgr.claim_batch(tf_id);
+    debug_assert!(batch_size == 1);
     let mut out_field = sess.entry_data.fields[fr.output_field].borrow_mut();
 
     // we want to write the chunk straight into field data to avoid a copy
@@ -107,7 +103,8 @@ fn start_prodicing_file(
     let (field_headers, field_data) = unsafe { out_field.field_data.internals() };
 
     let size_before = field_data.len();
-    let res = read_chunk(field_data, fr.file.as_mut().unwrap(), INLINE_STR_MAX_LEN);
+    //NOCHECKIN: the 5 here is for testing the stream api. it should really be INLINE_STR_MAX
+    let res = read_chunk(field_data, fr.file.as_mut().unwrap(), 5);
     let chunk_size = match res {
         Ok((size, eof)) => {
             if eof {
@@ -126,7 +123,7 @@ fn start_prodicing_file(
             size
         }
         Err(err) => {
-            let err = io_error_to_op_error(&sess.tf_mgr.transforms, tf_id, err);
+            let err = io_error_to_op_error(sess.tf_mgr.transforms[tf_id].op_id, err);
             out_field.field_data.push_error(err, 1);
             fr.file.take();
             sess.tf_mgr.inform_successor_batch_available(tf_id, 1);
@@ -136,21 +133,17 @@ fn start_prodicing_file(
 
     let mut buf = Vec::with_capacity(chunk_size);
     buf.extend_from_slice(&field_data[size_before..size_before + chunk_size]);
-    out_field
-        .stream_field_data
-        .values
-        .push_back(Rc::new(RefCell::new(StreamFieldValue {
-            data: StreamFieldValueData::BytesBuffer(buf),
-            done: false,
-            bytes_are_utf8: false,
-        })));
-    fr.stream_value =
-        out_field.stream_field_data.values.len() + out_field.stream_field_data.id_offset;
+    field_data.resize(size_before, 0);
+    fr.stream_value = out_field.stream_field_data.push_value(StreamFieldValue {
+        data: StreamFieldValueData::BytesChunk(buf),
+        done: false,
+        bytes_are_utf8: false,
+    });
     out_field
         .field_data
         .push_stream_value_id(fr.stream_value, 1);
-    sess.tf_mgr.stream_producers.push_back(tf_id);
-    return false;
+    sess.tf_mgr.push_successor_in_ready_queue(tf_id);
+    return true;
 }
 
 pub fn handle_tf_file_reader_batch_mode(
@@ -168,7 +161,9 @@ pub fn handle_tf_file_reader_batch_mode(
         return false;
     }
     let enter_stream_mode = start_prodicing_file(sess, tf_id, fr);
-    sess.advertise_stream_batch_size(tf_id, 1);
+    if enter_stream_mode {
+        sess.tf_mgr.stream_producers.push_back(tf_id);
+    }
     enter_stream_mode
 }
 
@@ -185,40 +180,50 @@ pub fn handle_tf_file_reader_producer_mode(
     tf_id: TransformId,
     fr: &mut TfFileReader,
 ) -> StreamProducerDoneFlag {
-    let mut input = sess.entry_data.fields[fr.output_field].borrow_mut();
-    let sfd = &mut input.stream_field_data;
-    let mut sv = sfd.get_value_mut(&sfd.values, fr.stream_value);
     let mut update = true;
-    let res = match &mut sv.data {
-        StreamFieldValueData::BytesChunk(ref mut bc) => {
-            bc.clear();
-            read_chunk(bc, fr.file.as_mut().unwrap(), INLINE_STR_MAX_LEN)
-        }
-        StreamFieldValueData::BytesBuffer(ref mut bb) => {
-            update = false;
-            read_chunk(bb, fr.file.as_mut().unwrap(), INLINE_STR_MAX_LEN)
-        }
-        StreamFieldValueData::Error(_) => {
-            fr.file.take();
-            Ok((0, true))
-        }
-    };
-    if update {
-        sfd.updates.push(fr.stream_value);
-    }
-    match res {
-        Ok((_size, eof)) => {
-            if eof {
-                sv.done = true;
+    {
+        let mut input = sess.entry_data.fields[fr.output_field].borrow_mut();
+        let sfd = &mut input.stream_field_data;
+        {
+            let mut sv = sfd.get_value_mut(fr.stream_value);
+            if sv.done {
+                sv.data = StreamFieldValueData::Dropped;
                 return true;
             }
-            false
-        }
-        Err(err) => {
-            let err = io_error_to_op_error(&sess.tf_mgr.transforms, tf_id, err);
-            sv.data = StreamFieldValueData::Error(err);
-            sv.done = true;
-            true
+            let res = match &mut sv.data {
+                StreamFieldValueData::BytesChunk(ref mut bc) => {
+                    bc.clear();
+                    read_chunk(bc, fr.file.as_mut().unwrap(), INLINE_STR_MAX_LEN)
+                }
+                StreamFieldValueData::BytesBuffer(ref mut bb) => {
+                    update = false;
+                    read_chunk(bb, fr.file.as_mut().unwrap(), INLINE_STR_MAX_LEN)
+                }
+                StreamFieldValueData::Error(_) => {
+                    fr.file.take();
+                    Ok((0, true))
+                }
+                StreamFieldValueData::Dropped => panic!("dropped stream value ovserved"),
+            };
+            match res {
+                Ok((_size, eof)) => {
+                    if eof {
+                        sv.done = true;
+                    }
+                }
+                Err(err) => {
+                    let err = io_error_to_op_error(sess.tf_mgr.transforms[tf_id].op_id, err);
+                    sv.data = StreamFieldValueData::Error(err);
+                    sv.done = true;
+                }
+            }
+        };
+        if update {
+            sfd.updates.push(fr.stream_value);
         }
     }
+    if update {
+        sess.tf_mgr.push_successor_in_ready_queue(tf_id);
+    }
+    false
 }

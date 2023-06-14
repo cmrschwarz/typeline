@@ -65,7 +65,6 @@ pub fn setup_ts_split_as_entry_point<'a, 'b>(
     let state = TransformState {
         input_field: input_field,
         available_batch_size: entry_count,
-        stream_producers_slot_index: None,
         match_set_id: ms_id,
         successor: None,
         desired_batch_size: ops.clone().fold(usize::MAX, |minimum_batch_size, op| {
@@ -78,6 +77,8 @@ pub fn setup_ts_split_as_entry_point<'a, 'b>(
         }),
         op_id: OperatorId::MAX,
         ordering_id: sess.tf_mgr.claim_transform_ordering_id(),
+        is_ready: false,
+        is_stream_producer: false,
     };
     let data = TransformData::Split(TfSplit {
         expanded: false,

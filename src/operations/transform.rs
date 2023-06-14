@@ -30,13 +30,12 @@ impl Default for TransformData<'_> {
 
 pub struct TransformState {
     pub successor: Option<TransformId>,
-    // when a producer gets ready in stream mode we need to round robin
-    // instead of picking him
-    pub stream_producers_slot_index: Option<NonMaxUsize>,
     pub input_field: FieldId,
     pub available_batch_size: usize,
     pub desired_batch_size: usize,
     pub match_set_id: MatchSetId,
     pub op_id: OperatorId,
     pub ordering_id: TransformOrderingId,
+    pub is_stream_producer: bool,
+    pub is_ready: bool,
 }

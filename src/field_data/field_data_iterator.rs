@@ -531,7 +531,7 @@ where
         }
     }
     pub fn range_fwd(&self) -> usize {
-        self.max - self.pos
+        self.max - self.pos - 1
     }
     pub fn range_bwd(&self) -> usize {
         self.pos - self.min
@@ -605,14 +605,18 @@ where
         if self.pos == self.max {
             0
         } else {
-            self.iter.next_field()
+            let stride = self.iter.next_field();
+            self.pos += stride as usize;
+            stride
         }
     }
     fn prev_field(&mut self) -> RunLength {
         if self.pos == self.min {
             0
         } else {
-            self.iter.prev_field()
+            let stride = self.iter.prev_field();
+            self.pos -= stride as usize;
+            stride
         }
     }
     fn next_n_fields_with_fmt(
@@ -623,7 +627,9 @@ where
         flags: FieldValueFlags,
     ) -> usize {
         let n = n.min(self.range_fwd());
-        self.iter.next_n_fields_with_fmt(n, kind, flag_mask, flags)
+        let stride = self.iter.next_n_fields_with_fmt(n, kind, flag_mask, flags);
+        self.pos += stride;
+        stride
     }
     fn prev_n_fields_with_fmt(
         &mut self,
@@ -633,15 +639,27 @@ where
         flags: FieldValueFlags,
     ) -> usize {
         let n = n.min(self.range_bwd());
-        self.iter.prev_n_fields_with_fmt(n, kind, flag_mask, flags)
+        let stride = self.iter.prev_n_fields_with_fmt(n, kind, flag_mask, flags);
+        self.pos -= stride;
+        stride
     }
     fn typed_field_fwd(&mut self, limit: RunLength) -> Option<FDTypedField<'a>> {
-        self.iter
-            .typed_field_fwd((limit as usize).min(self.range_fwd()) as RunLength)
+        let res = self
+            .iter
+            .typed_field_fwd((limit as usize).min(self.range_fwd()) as RunLength);
+        if res.is_some() {
+            self.pos += 1;
+        }
+        res
     }
     fn typed_field_bwd(&mut self, limit: RunLength) -> Option<FDTypedField<'a>> {
-        self.iter
-            .typed_field_bwd((limit as usize).min(self.range_bwd()) as RunLength)
+        let res = self
+            .iter
+            .typed_field_bwd((limit as usize).min(self.range_bwd()) as RunLength);
+        if res.is_some() {
+            self.pos -= 1;
+        }
+        res
     }
     fn typed_range_fwd(
         &mut self,
@@ -649,7 +667,11 @@ where
         flag_mask: FieldValueFlags,
     ) -> Option<FDTypedRange<'a>> {
         let limit = limit.min(self.range_fwd());
-        self.iter.typed_range_fwd(limit, flag_mask)
+        let res = self.iter.typed_range_fwd(limit, flag_mask);
+        if let Some(r) = &res {
+            self.pos += r.field_count;
+        }
+        res
     }
     fn typed_range_bwd(
         &mut self,
@@ -657,6 +679,10 @@ where
         flag_mask: FieldValueFlags,
     ) -> Option<FDTypedRange<'a>> {
         let limit = limit.min(self.range_bwd());
-        self.iter.typed_range_bwd(limit, flag_mask)
+        let res = self.iter.typed_range_bwd(limit, flag_mask);
+        if let Some(r) = &res {
+            self.pos -= r.field_count;
+        }
+        res
     }
 }
