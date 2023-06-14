@@ -214,13 +214,14 @@ pub struct FDIter<'a> {
 }
 impl<'a> FDIter<'a> {
     pub fn from_start(fd: &'a FieldData) -> Self {
+        let first_header = fd.header.first();
         Self {
             fd,
             data: 0,
             header_idx: 0,
             header_rl_offset: 0,
-            header_rl_total: fd.header.first().map_or(0, |h| h.run_length),
-            header_fmt: Default::default(),
+            header_rl_total: first_header.map_or(0, |h| h.run_length),
+            header_fmt: first_header.map(|h| h.fmt).unwrap_or_default(),
         }
     }
     pub fn from_end(fd: &'a FieldData) -> Self {
