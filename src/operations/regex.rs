@@ -3,10 +3,10 @@ use regex::{CaptureLocations, Regex};
 
 use crate::{
     field_data::field_data_iterator::{FDIterator, FDTypedSlice},
-    field_data::{field_value_flags, FieldData, FieldReference},
+    field_data::{field_value_flags, FieldReference},
     options::argument::CliArgIdx,
     utils::string_store::{StringStore, StringStoreEntry},
-    worker_thread_session::{Field, FieldId, JobData, MatchSetId, WorkerThreadSession},
+    worker_thread_session::{FieldId, JobData, MatchSetId},
 };
 
 use super::{
@@ -69,7 +69,7 @@ pub fn parse_regex_op(
 }
 
 pub fn setup_tf_regex<'a>(
-    sess: &mut WorkerThreadSession,
+    sess: &mut JobData,
     ms_id: MatchSetId,
     _input_field: FieldId,
     op: &'a OpRegex,
@@ -77,7 +77,7 @@ pub fn setup_tf_regex<'a>(
     let mut cgfs: Vec<FieldId> = op
         .capture_group_names
         .iter()
-        .map(|name| sess.add_field(ms_id, Some(*name)))
+        .map(|name| sess.entry_data.add_field(ms_id, Some(*name)))
         .collect();
     cgfs.sort();
     let output_field = cgfs[0];
@@ -90,16 +90,11 @@ pub fn setup_tf_regex<'a>(
 }
 
 pub fn handle_tf_regex_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRegex) {
-    let (batch, input_field) = sess.claim_batch(tf_id);
-    let op_id = sess.transforms[tf_id].op_id;
-    let input_field_ref = &sess.fields[input_field];
-    let field_ref = unsafe {
-        // HACK // EVIL: this is UB
-        std::mem::transmute::<*mut Field, &mut Field>(std::mem::transmute::<&Field, *mut Field>(
-            input_field_ref,
-        ))
-    };
-    let mut iter = field_ref.field_data.iter();
+    let (batch, input_field_id) = sess.tf_mgr.claim_batch(tf_id);
+    let op_id = sess.tf_mgr.transforms[tf_id].op_id;
+    let input_field = sess.entry_data.fields[input_field_id].borrow();
+
+    let mut iter = input_field.field_data.iter();
     while let Some(range) = iter.typed_range_fwd(usize::MAX, field_value_flags::BYTES_ARE_UTF8) {
         match range.data {
             FDTypedSlice::TextInline(text) => {
@@ -114,11 +109,12 @@ pub fn handle_tf_regex_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, re
                     {
                         for c in 0..re.capture_locs.len() {
                             if let Some((cg_begin, cg_end)) = re.capture_locs.get(c) {
-                                sess.fields[re.capture_group_fields[c]]
+                                sess.entry_data.fields[re.capture_group_fields[c]]
+                                    .borrow_mut()
                                     .field_data
                                     .push_reference(
                                         FieldReference {
-                                            field: input_field,
+                                            field: input_field_id,
                                             begin: cg_begin,
                                             end: cg_end,
                                         },
@@ -128,7 +124,10 @@ pub fn handle_tf_regex_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, re
                         }
                     } else {
                         for f in re.capture_group_fields.iter() {
-                            sess.fields[*f].field_data.push_null(h.run_length as usize);
+                            sess.entry_data.fields[*f]
+                                .borrow_mut()
+                                .field_data
+                                .push_null(h.run_length as usize);
                         }
                     }
 
@@ -145,20 +144,16 @@ pub fn handle_tf_regex_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, re
             | FDTypedSlice::StreamValueId(_)
             | FDTypedSlice::Object(_) => {
                 for f in re.capture_group_fields.iter() {
-                    let field_ref = &sess.fields[*f].field_data;
-                    unsafe {
-                        // HACK // EVIL: this is UB
-                        std::mem::transmute::<*mut FieldData, &mut FieldData>(
-                            std::mem::transmute::<&FieldData, *mut FieldData>(field_ref),
-                        )
-                    }
-                    .push_error(
-                        OperatorApplicationError::new("regex type error", op_id),
-                        range.field_count,
-                    );
+                    sess.entry_data.fields[*f]
+                        .borrow_mut()
+                        .field_data
+                        .push_error(
+                            OperatorApplicationError::new("regex type error", op_id),
+                            range.field_count,
+                        );
                 }
             }
         }
     }
-    sess.inform_successor_batch_available(tf_id, batch);
+    sess.tf_mgr.inform_successor_batch_available(tf_id, batch);
 }

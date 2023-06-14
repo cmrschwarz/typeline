@@ -9,7 +9,7 @@ use crate::{
     },
     options::argument::CliArgIdx,
     stream_field_data::{StreamFieldValue, StreamFieldValueData, StreamValueId},
-    worker_thread_session::{FieldId, JobData, MatchSetId, WorkerThreadSession},
+    worker_thread_session::{FieldId, JobData, MatchSetId},
 };
 
 use super::{
@@ -38,7 +38,7 @@ pub fn parse_print_op(
 }
 
 pub fn setup_tf_print(
-    _sess: &mut WorkerThreadSession,
+    _sess: &mut JobData,
     _ms_id: MatchSetId,
     input_field: FieldId,
 ) -> (TransformData<'static>, FieldId) {
@@ -109,8 +109,9 @@ fn print_stream_val_check_done(sv: &StreamFieldValue) -> Result<bool, std::io::E
 }
 
 pub fn handle_tf_print_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, _tf: &mut TfPrint) {
-    let (batch, input_field) = sess.claim_batch(tf_id);
-    let mut iter = sess.fields[input_field].field_data.iter().bounded(batch, 0);
+    let (batch, input_field) = sess.tf_mgr.claim_batch(tf_id);
+    let field = sess.entry_data.fields[input_field].borrow();
+    let mut iter = field.field_data.iter().bounded(batch, 0);
     while let Some(range) = iter.typed_range_fwd(usize::MAX, field_value_flags::BYTES_ARE_UTF8) {
         match range.data {
             FDTypedSlice::TextInline(text) => {
@@ -153,7 +154,7 @@ pub fn handle_tf_print_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, _t
             }
         }
     }
-    sess.inform_successor_batch_available(tf_id, batch);
+    sess.tf_mgr.inform_successor_batch_available(tf_id, batch);
 }
 
 pub fn handle_tf_print_stream_mode(
@@ -161,10 +162,10 @@ pub fn handle_tf_print_stream_mode(
     tf_id: TransformId,
     tf_print: &mut TfPrint,
 ) {
-    let tf = &mut sess.transforms[tf_id];
+    let tf = &mut sess.tf_mgr.transforms[tf_id];
     let input_field_id = tf.input_field;
-    let input_field = &mut sess.fields[input_field_id];
-    let sfd = &mut input_field.stream_field_data;
+    let input_field = sess.entry_data.fields[input_field_id].borrow();
+    let sfd = &input_field.stream_field_data;
     tf_print.dropped_entries += sfd.entries_dropped;
 
     if let Some(id) = tf_print.current_stream_val {
@@ -173,14 +174,13 @@ pub fn handle_tf_print_stream_mode(
             Ok(false) => (),
             Ok(true) => tf_print.current_stream_val = None,
             Err(err) => {
-                let _err = io_error_to_op_error(&sess.transforms, tf_id, err);
+                let _err = io_error_to_op_error(&sess.tf_mgr.transforms, tf_id, err);
                 //TODO: we need the field ref manager for this
-                //sess.push_entry_error(sess.transforms[tf_id].match_set_id, err);
+                //sess.push_entry_error(sess.tf_mgr.transforms[tf_id].match_set_id, err);
                 tf_print.current_stream_val = None;
             }
         }
     }
-    let input_field = &sess.fields[input_field_id];
     if tf_print.current_stream_val.is_none() {
         let mut iter = input_field.field_data.iter();
         iter.next_n_fields(tf_print.consumed_entries - tf_print.dropped_entries);
@@ -216,8 +216,8 @@ pub fn handle_tf_print_stream_mode(
                         }
                         Ok(true) => (),
                         Err(err) => {
-                            let _err = io_error_to_op_error(&sess.transforms, tf_id, err);
-                            let _ms_id = sess.transforms[tf_id].match_set_id;
+                            let _err = io_error_to_op_error(&sess.tf_mgr.transforms, tf_id, err);
+                            let _ms_id = sess.tf_mgr.transforms[tf_id].match_set_id;
                             tf_print.current_stream_val = None;
                             //TODO: we need the field ref manager for this
                             //sess.push_entry_error(ms_id, err);

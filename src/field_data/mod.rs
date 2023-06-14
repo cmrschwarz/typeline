@@ -245,12 +245,13 @@ pub struct FieldData {
 
 impl Clone for FieldData {
     fn clone(&self) -> Self {
-        let mut res = Self {
+        let mut fd = Self {
             data: Vec::with_capacity(self.data.len()),
             header: self.header.clone(),
         };
-        self.copy_n(usize::MAX, &mut [&mut res]);
-        res
+        let fd_ref = &mut fd;
+        self.copy_n(usize::MAX, move |f| f(fd_ref));
+        fd
     }
 }
 
@@ -339,7 +340,12 @@ impl FieldData {
         self.header.last_mut().map(|h| h.set_alignment_after(align));
         align
     }
-    pub fn copy_n<'a>(&self, n: usize, targets: &mut [&'a mut FieldData]) {
+
+    pub fn copy_n<'a, TargetApplicatorFn: FnMut(&dyn Fn(&mut FieldData))>(
+        &self,
+        n: usize,
+        mut targets_applicator: TargetApplicatorFn,
+    ) {
         let mut h;
 
         // search backwards to the first header that we need to copy
@@ -375,7 +381,8 @@ impl FieldData {
         }
 
         // copy the headers over to the targets
-        for t in targets.iter_mut() {
+
+        targets_applicator(&|t: &mut FieldData| {
             if let Some(h_tgt) = t.header.last_mut() {
                 if !h.shared_value() && !h_tgt.shared_value() && h_tgt.kind == h.kind {
                     if let Some(rl) = h_tgt.run_length.checked_add(h.run_length) {
@@ -383,12 +390,12 @@ impl FieldData {
                         if header_idx + 1 != self.header.len() {
                             t.header.extend(&self.header[header_idx + 1..]);
                         }
-                        continue;
+                        return;
                     }
                 }
             }
             t.header.extend(&self.header[header_idx..]);
-        }
+        });
 
         // copy over leading unaligned data
         let data_start = data_size_total - copy_data_size;
@@ -399,7 +406,7 @@ impl FieldData {
                 append_data_memcpy(
                     self.data.as_ptr().add(data_start),
                     first_aligned_field_start - data_start - first_aligned_field_padding,
-                    targets,
+                    &mut targets_applicator,
                 );
             }
             h = self.header[first_aligned_field_idx];
@@ -411,9 +418,9 @@ impl FieldData {
         }
 
         // add padding so all targets are aligned
-        for t in targets.iter_mut() {
+        targets_applicator(&|t: &mut FieldData| {
             t.pad_to_align();
-        }
+        });
 
         // copy over the remaining data, using the fact that source and
         // all targets are aligned at this point
@@ -425,8 +432,12 @@ impl FieldData {
             if h.kind.needs_copy() {
                 unsafe {
                     let start = self.data.as_ptr().add(uncopied_data_start);
-                    append_data_memcpy(start, data_pos - uncopied_data_start, targets);
-                    append_data(h, self.data.as_ptr().add(data_pos), targets)
+                    append_data_memcpy(
+                        start,
+                        data_pos - uncopied_data_start,
+                        &mut targets_applicator,
+                    );
+                    append_data(h, self.data.as_ptr().add(data_pos), &mut targets_applicator)
                 }
                 data_pos += field_data_size;
                 uncopied_data_start = data_pos;
@@ -444,7 +455,11 @@ impl FieldData {
         }
         unsafe {
             let start = self.data.as_ptr().add(uncopied_data_start);
-            append_data_memcpy(start, data_pos - uncopied_data_start, targets);
+            append_data_memcpy(
+                start,
+                data_pos - uncopied_data_start,
+                &mut targets_applicator,
+            );
         }
     }
     pub fn push_inline_str(&mut self, data: &str, run_length: usize, try_rle: bool) {
@@ -673,11 +688,15 @@ unsafe fn drop_data(fmt: FieldValueHeader, ptr: *mut u8) {
     }
 }
 
-unsafe fn append_data_memcpy<'a>(ptr: *const u8, size: usize, targets: &mut [&'a mut FieldData]) {
+unsafe fn append_data_memcpy<'a, TargetApplicatorFn: FnMut(&dyn Fn(&mut FieldData))>(
+    ptr: *const u8,
+    size: usize,
+    target_applicator: &mut TargetApplicatorFn,
+) {
     let source = slice::from_raw_parts(ptr, size);
-    for tgt in targets {
+    target_applicator(&|tgt| {
         tgt.data.extend_from_slice(source);
-    }
+    });
 }
 
 unsafe fn as_u8_slice<T: Sized>(p: &T) -> &[u8] {
@@ -691,10 +710,10 @@ unsafe fn extend_with_clones<T: Clone>(tgt: &mut Vec<u8>, src: *const T, count: 
     }
 }
 
-unsafe fn append_data<'a>(
+unsafe fn append_data<'a, TargetApplicatorFn: FnMut(&dyn Fn(&mut FieldData))>(
     h: FieldValueHeader,
     source: *const u8,
-    targets: &mut [&'a mut FieldData],
+    target_applicator: &mut TargetApplicatorFn,
 ) {
     let count = if h.shared_value() {
         1
@@ -702,36 +721,34 @@ unsafe fn append_data<'a>(
         h.run_length as usize
     };
     use FieldValueKind::*;
-    for tgt in targets {
-        match h.kind {
-            Unset | Null | EntryId | Integer | Reference | BytesInline | StreamValueId => {
-                unreachable!()
-            }
-            BytesBuffer => extend_with_clones(&mut tgt.data, source as *const Vec<u8>, count),
-            BytesFile => extend_with_clones(
-                &mut tgt.data,
-                source as *const crate::field_data::BytesBufferFile,
-                count,
-            ),
-            Error => unsafe {
-                extend_with_clones(
-                    &mut tgt.data,
-                    source as *const OperatorApplicationError,
-                    count,
-                )
-            },
-            Html => extend_with_clones(
-                &mut tgt.data,
-                source as *const crate::field_data::Html,
-                count,
-            ),
-            Object => extend_with_clones(
-                &mut tgt.data,
-                source as *const crate::field_data::Object,
-                count,
-            ),
+    target_applicator(&|tgt| match h.kind {
+        Unset | Null | EntryId | Integer | Reference | BytesInline | StreamValueId => {
+            unreachable!()
         }
-    }
+        BytesBuffer => extend_with_clones(&mut tgt.data, source as *const Vec<u8>, count),
+        BytesFile => extend_with_clones(
+            &mut tgt.data,
+            source as *const crate::field_data::BytesBufferFile,
+            count,
+        ),
+        Error => unsafe {
+            extend_with_clones(
+                &mut tgt.data,
+                source as *const OperatorApplicationError,
+                count,
+            )
+        },
+        Html => extend_with_clones(
+            &mut tgt.data,
+            source as *const crate::field_data::Html,
+            count,
+        ),
+        Object => extend_with_clones(
+            &mut tgt.data,
+            source as *const crate::field_data::Object,
+            count,
+        ),
+    });
 }
 
 impl FieldData {

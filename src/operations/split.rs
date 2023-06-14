@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use bstring::bstr;
+
 use nonmax::NonMaxUsize;
 use smallvec::{smallvec, SmallVec};
 
@@ -9,7 +10,7 @@ use crate::{
     options::{argument::CliArgIdx, range_spec::RangeSpec},
     utils::scratch_vec::ScratchVec,
     utils::string_store::StringStoreEntry,
-    worker_thread_session::{FieldId, JobData, MatchSetId, WorkerThreadSession},
+    worker_thread_session::{FieldId, JobData, MatchSetId},
 };
 
 use super::{
@@ -76,7 +77,7 @@ pub fn setup_ts_split_as_entry_point<'a, 'b>(
             )
         }),
         op_id: OperatorId::MAX,
-        ordering_id: sess.claim_transform_ordering_id(),
+        ordering_id: sess.tf_mgr.claim_transform_ordering_id(),
     };
     let data = TransformData::Split(TfSplit {
         expanded: false,
@@ -90,7 +91,7 @@ pub fn setup_ts_split_as_entry_point<'a, 'b>(
 }
 
 pub fn setup_tf_split<'a>(
-    _sess: &mut WorkerThreadSession,
+    _sess: &mut JobData,
     _ms_id: MatchSetId,
     input_field: FieldId,
     op: &'a OpSplit,
@@ -108,20 +109,20 @@ pub fn setup_tf_split<'a>(
 }
 
 pub fn handle_tf_split(sess: &mut JobData, tf_id: TransformId, s: &mut TfSplit, stream_mode: bool) {
-    let tf = &mut sess.transforms[tf_id];
+    let tf = &mut sess.tf_mgr.transforms[tf_id];
     let tf_ms_id = tf.match_set_id;
     let bs = tf.available_batch_size;
     tf.available_batch_size = 0;
-    sess.ready_queue.pop();
+    sess.tf_mgr.ready_queue.pop();
     if stream_mode {
         todo!();
     } else {
         //TODO: detect invalidations somehow instead
         s.field_names_set.clear();
         //TODO: do something clever, per target, cow, etc. instead of this dumb copy
-        for field_id in sess.match_sets[tf_ms_id].working_set.iter() {
+        for field_id in sess.entry_data.match_sets[tf_ms_id].working_set.iter() {
             // we should only have named fields in the working set (?)
-            if let Some(name) = sess.fields[*field_id].name {
+            if let Some(name) = sess.entry_data.fields[*field_id].borrow().name {
                 s.field_names_set
                     .entry(name)
                     .or_insert_with(|| smallvec![])
@@ -129,35 +130,23 @@ pub fn handle_tf_split(sess: &mut JobData, tf_id: TransformId, s: &mut TfSplit, 
             }
         }
         for (name, targets) in &mut s.field_names_set {
-            let source_id = *sess.match_sets[tf_ms_id]
+            let source_id = *sess.entry_data.match_sets[tf_ms_id]
                 .field_name_map
                 .get(&name)
                 .unwrap()
                 .back()
                 .unwrap();
-            let mut offset: usize = 0;
-            let mut source = None;
-            let mut rem = sess.fields.as_mut_slice();
-
-            // the following is a annoyingly complicated way to gathering a
-            // list of mutable references from a list of indices without using unsafe
-            let mut targets_arr = ScratchVec::new(&mut sess.scratch_memory);
-            targets.sort();
-
+            let source = sess.entry_data.fields[source_id].borrow();
+            let mut targets_borrows_arr = ScratchVec::new(&mut sess.scratch_memory_1);
             for i in targets.iter() {
-                let (tgt, rem_new) = rem.split_at_mut(usize::from(*i) as usize - offset + 1);
-                offset += tgt.len();
-                let fd = &mut tgt[tgt.len() - 1].field_data;
-                if source_id == *i {
-                    source = Some(fd);
-                } else {
-                    targets_arr.push(fd);
-                }
-                rem = rem_new;
+                targets_borrows_arr.push(sess.entry_data.fields[*i].borrow_mut());
             }
-
-            source.unwrap().copy_n(bs, targets_arr.as_mut_slice());
+            source.field_data.copy_n(bs, |f| {
+                targets_borrows_arr
+                    .iter_mut()
+                    .for_each(|fd| f(&mut fd.field_data));
+            });
         }
     }
-    debug_assert!(sess.transforms[tf_id].successor.is_none());
+    debug_assert!(sess.tf_mgr.transforms[tf_id].successor.is_none());
 }

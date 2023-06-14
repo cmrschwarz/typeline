@@ -1,8 +1,7 @@
 use std::{
+    cell::RefCell,
     collections::{hash_map, BinaryHeap, HashMap, VecDeque},
     iter,
-    ops::Deref,
-    ops::DerefMut,
 };
 
 use atty::Stream;
@@ -11,7 +10,6 @@ use nonmax::NonMaxUsize;
 use crate::{
     context::SessionData,
     document::DocumentSource,
-    field_data::field_data_iterator::FDIter,
     field_data::{EntryId, FieldData},
     operations::{
         errors::{OperatorApplicationError, OperatorSetupError},
@@ -70,78 +68,38 @@ pub struct WorkerThreadSession<'a> {
     pub job_data: JobData<'a>,
 }
 
-impl<'a> Deref for WorkerThreadSession<'a> {
-    type Target = JobData<'a>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.job_data
-    }
-}
-impl<'a> DerefMut for WorkerThreadSession<'a> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.job_data
-    }
-}
-
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub struct ReadyQueueEntry {
     ord_id: TransformOrderingId,
     tf_id: TransformId,
 }
 
-pub struct JobData<'a> {
+pub struct TransformManager {
     pub transform_ordering_id: TransformOrderingId,
     pub transforms: Universe<TransformId, TransformState>,
-    pub session_data: &'a SessionData,
-    pub match_sets: Universe<MatchSetId, MatchSet>,
-    pub fields: Universe<FieldId, Field>,
-    pub stream_producers: VecDeque<TransformId>,
-
     pub ready_queue: BinaryHeap<ReadyQueueEntry>,
+    pub stream_producers: VecDeque<TransformId>,
+}
 
-    pub scratch_memory: Vec<&'static u8>,
+pub struct EntryData {
+    pub match_sets: Universe<MatchSetId, MatchSet>,
+    pub fields: Universe<FieldId, RefCell<Field>>,
+}
+
+pub struct JobData<'a> {
+    pub session_data: &'a SessionData,
+
+    pub tf_mgr: TransformManager,
+    pub entry_data: EntryData,
+
+    pub scratch_memory_1: Vec<&'static u8>,
+    pub scratch_memory_2: Vec<&'static u8>,
 }
 
 pub type EnterStreamModeFlag = bool;
 pub type StreamProducerDoneFlag = bool;
 
-impl<'a> JobData<'a> {
-    pub fn add_field(&mut self, ms_id: MatchSetId, name: Option<StringStoreEntry>) -> FieldId {
-        let field_id = self.fields.claim();
-        let field = &mut self.fields[field_id as FieldId];
-        field.name = name;
-        field.match_set = ms_id;
-        if let Some(name) = name {
-            match self.match_sets[ms_id].field_name_map.entry(name) {
-                hash_map::Entry::Occupied(ref mut e) => {
-                    e.get_mut().push_back(field_id);
-                }
-                hash_map::Entry::Vacant(e) => {
-                    e.insert(VecDeque::from_iter(iter::once(field_id)));
-                }
-            }
-        }
-        field_id
-    }
-    pub fn remove_field(&mut self, id: FieldId) {
-        let field = &mut self.fields[id];
-        let match_set = &mut self.match_sets[field.match_set];
-        if let Some(ref name) = field.name {
-            let refs = match_set.field_name_map.get_mut(name).unwrap();
-            debug_assert!(*refs.front().unwrap() == id);
-            refs.pop_front();
-        }
-        field.ref_count = 0;
-        field.field_data.clear();
-        self.fields.release(id);
-    }
-    pub fn add_match_set(&mut self) -> MatchSetId {
-        let id = self.match_sets.claim();
-        id
-    }
-    pub fn remove_match_set(&mut self, _ms_id: MatchSetId) {
-        todo!()
-    }
+impl TransformManager {
     pub fn claim_transform_ordering_id(&mut self) -> TransformOrderingId {
         self.transform_ordering_id = self.transform_ordering_id.checked_add(1).unwrap();
         self.transform_ordering_id
@@ -168,23 +126,67 @@ impl<'a> JobData<'a> {
             succ.available_batch_size += batch_size;
         }
     }
-    pub fn advertise_stream_batch_size(&mut self, tf_id: TransformId, batch_size: usize) {
-        let ms_id = self.transforms[tf_id].match_set_id;
-        let sbs = &mut self.match_sets[ms_id].stream_batch_size;
-        *sbs = (*sbs).max(batch_size);
+}
+
+impl EntryData {
+    pub fn add_field(&mut self, ms_id: MatchSetId, name: Option<StringStoreEntry>) -> FieldId {
+        let field_id = self.fields.claim();
+        let mut field = self.fields[field_id as FieldId].borrow_mut();
+        field.name = name;
+        field.match_set = ms_id;
+        if let Some(name) = name {
+            match self.match_sets[ms_id].field_name_map.entry(name) {
+                hash_map::Entry::Occupied(ref mut e) => {
+                    e.get_mut().push_back(field_id);
+                }
+                hash_map::Entry::Vacant(e) => {
+                    e.insert(VecDeque::from_iter(iter::once(field_id)));
+                }
+            }
+        }
+        field_id
+    }
+    pub fn remove_field(&mut self, id: FieldId) {
+        {
+            let mut field = self.fields[id].borrow_mut();
+            let match_set = &mut self.match_sets[field.match_set];
+            if let Some(ref name) = field.name {
+                let refs = match_set.field_name_map.get_mut(name).unwrap();
+                debug_assert!(*refs.front().unwrap() == id);
+                refs.pop_front();
+            }
+            field.ref_count = 0;
+            field.field_data.clear();
+        }
+        self.fields.release(id);
+    }
+    pub fn add_match_set(&mut self) -> MatchSetId {
+        let id = self.match_sets.claim();
+        id
+    }
+    pub fn remove_match_set(&mut self, _ms_id: MatchSetId) {
+        todo!()
     }
     pub fn push_entry_error(&mut self, _ms_id: MatchSetId, _err: OperatorApplicationError) {
         todo!()
     }
 }
 
+impl<'a> JobData<'a> {
+    pub fn advertise_stream_batch_size(&mut self, tf_id: TransformId, batch_size: usize) {
+        let ms_id = self.tf_mgr.transforms[tf_id].match_set_id;
+        let sbs = &mut self.entry_data.match_sets[ms_id].stream_batch_size;
+        *sbs = (*sbs).max(batch_size);
+    }
+}
+
 impl<'a> WorkerThreadSession<'a> {
     fn setup_job(&mut self, job: Job) -> Result<(), ScrError> {
-        self.match_sets.clear();
-        self.fields.clear();
-        self.ready_queue.clear();
-        let ms_id = self.add_match_set();
-        let input_data = self.add_field(ms_id, None);
+        self.job_data.entry_data.match_sets.clear();
+        self.job_data.entry_data.fields.clear();
+        self.job_data.tf_mgr.ready_queue.clear();
+        let ms_id = self.job_data.entry_data.add_match_set();
+        let input_data = self.job_data.entry_data.add_field(ms_id, None);
         let mut entry_count: usize = 0;
 
         match job.data {
@@ -207,13 +209,15 @@ impl<'a> WorkerThreadSession<'a> {
                         DocumentSource::Bytes(_) => todo!(),
                         DocumentSource::Stdin => todo!(),
                         DocumentSource::Integer(int) => {
-                            self.job_data.fields[input_data]
+                            self.job_data.entry_data.fields[input_data]
+                                .borrow_mut()
                                 .field_data
                                 .push_int(*int, 1);
                             entry_count += 1;
                         }
                         DocumentSource::String(str) => {
-                            self.job_data.fields[input_data]
+                            self.job_data.entry_data.fields[input_data]
+                                .borrow_mut()
                                 .field_data
                                 .push_str(str, 1, true);
                             entry_count += 1;
@@ -235,7 +239,7 @@ impl<'a> WorkerThreadSession<'a> {
                     FileType::StdinIsNoTty(std::io::stdin().lock())
                 };
                 let (state, data) = setup_tf_file_reader_as_entry_point(
-                    &mut self.job_data,
+                    &mut self.job_data.tf_mgr,
                     input_data,
                     input_data,
                     ms_id,
@@ -244,7 +248,10 @@ impl<'a> WorkerThreadSession<'a> {
                 );
                 let ord_id = state.ordering_id;
                 let tf_id = self.add_transform(state, data);
-                self.ready_queue.push(ReadyQueueEntry { ord_id, tf_id });
+                self.job_data
+                    .tf_mgr
+                    .ready_queue
+                    .push(ReadyQueueEntry { ord_id, tf_id });
                 // no immediately available batch size for following transforms
                 entry_count = 0;
             }
@@ -252,7 +259,7 @@ impl<'a> WorkerThreadSession<'a> {
         assert!(!job.starting_ops.is_empty());
         if job.starting_ops.len() > 1 {
             let (tf_state, tf_data) = setup_ts_split_as_entry_point(
-                self,
+                &mut self.job_data,
                 input_data,
                 ms_id,
                 entry_count,
@@ -260,7 +267,10 @@ impl<'a> WorkerThreadSession<'a> {
             );
             let ord_id = tf_state.ordering_id;
             let tf_id = self.add_transform(tf_state, tf_data);
-            self.ready_queue.push(ReadyQueueEntry { ord_id, tf_id });
+            self.job_data
+                .tf_mgr
+                .ready_queue
+                .push(ReadyQueueEntry { ord_id, tf_id });
         } else {
             self.setup_transforms_from_op(ms_id, entry_count, job.starting_ops[0], input_data);
         }
@@ -270,26 +280,35 @@ impl<'a> WorkerThreadSession<'a> {
         WorkerThreadSession {
             transform_data: Default::default(),
             job_data: JobData {
-                transforms: Default::default(),
                 session_data: sess,
-                match_sets: Default::default(),
-                ready_queue: Default::default(),
-                fields: Default::default(),
-                stream_producers: Default::default(),
-                scratch_memory: Default::default(),
-                transform_ordering_id: TransformOrderingId::new(1).unwrap(),
+
+                tf_mgr: TransformManager {
+                    transforms: Default::default(),
+                    transform_ordering_id: TransformOrderingId::new(1).unwrap(),
+                    ready_queue: Default::default(),
+                    stream_producers: Default::default(),
+                },
+                entry_data: EntryData {
+                    fields: Default::default(),
+                    match_sets: Default::default(),
+                },
+                scratch_memory_1: Default::default(),
+                scratch_memory_2: Default::default(),
             },
         }
     }
 
     pub fn remove_transform(&mut self, tf_id: TransformId, triggering_field: FieldId) {
-        self.transforms.release(tf_id);
-        self.transform_data[usize::from(tf_id)] = TransformData::Disabled;
-        let field = &mut self.fields[triggering_field];
+        let rc = {
+            self.job_data.tf_mgr.transforms.release(tf_id);
+            self.transform_data[usize::from(tf_id)] = TransformData::Disabled;
+            let mut field = self.job_data.entry_data.fields[triggering_field].borrow_mut();
 
-        field.ref_count -= 1;
-        if field.ref_count == 0 {
-            self.remove_field(triggering_field);
+            field.ref_count -= 1;
+            field.ref_count
+        };
+        if rc == 0 {
+            self.job_data.entry_data.remove_field(triggering_field);
         }
     }
 
@@ -305,8 +324,8 @@ impl<'a> WorkerThreadSession<'a> {
         }
         for i in 0..targets.len() {
             let op = targets[i];
-            let ms_id = self.add_match_set();
-            let input_field = self.add_field(ms_id, None);
+            let ms_id = self.job_data.entry_data.add_match_set();
+            let input_field = self.job_data.entry_data.add_field(ms_id, None);
             targets[i] = self.setup_transforms_from_op(
                 ms_id,
                 0,
@@ -323,7 +342,9 @@ impl<'a> WorkerThreadSession<'a> {
     }
 
     fn run_batch_mode(&mut self) -> Result<bool, ScrError> {
-        while let Some(ReadyQueueEntry { ord_id: _, tf_id }) = self.ready_queue.peek().map(|t| *t) {
+        while let Some(ReadyQueueEntry { ord_id: _, tf_id }) =
+            self.job_data.tf_mgr.ready_queue.peek().map(|t| *t)
+        {
             let jd = &mut self.job_data;
             match self.transform_data[usize::from(tf_id)] {
                 TransformData::Disabled => unreachable!(),
@@ -354,7 +375,7 @@ impl<'a> WorkerThreadSession<'a> {
     fn run_stream_mode(&mut self) -> Result<(), ScrError> {
         loop {
             let prod_tf_id;
-            if let Some(prod) = self.stream_producers.pop_front() {
+            if let Some(prod) = self.job_data.tf_mgr.stream_producers.pop_front() {
                 prod_tf_id = prod;
             } else {
                 return Ok(());
@@ -367,10 +388,10 @@ impl<'a> WorkerThreadSession<'a> {
                 _ => panic!("transform is not a valid producer"),
             };
             if !done {
-                self.stream_producers.push_back(prod_tf_id);
+                self.job_data.tf_mgr.stream_producers.push_back(prod_tf_id);
             }
             while let Some(ReadyQueueEntry { ord_id: _, tf_id }) =
-                self.ready_queue.peek().map(|t| *t)
+                self.job_data.tf_mgr.ready_queue.peek().map(|t| *t)
             {
                 let jd = &mut self.job_data;
                 match &mut self.transform_data[usize::from(tf_id)] {
@@ -402,26 +423,24 @@ impl<'a> WorkerThreadSession<'a> {
         input_field_id: FieldId,
     ) -> TransformId {
         let mut start_tf_id = None;
-        let start_op = &self.session_data.operator_bases[start_op_id as usize];
-        let default_batch_size = self.session_data.chains[start_op.chain_id as usize]
+        let start_op = &self.job_data.session_data.operator_bases[start_op_id as usize];
+        let default_batch_size = self.job_data.session_data.chains[start_op.chain_id as usize]
             .settings
             .default_batch_size;
         let mut prev_tf = None;
         let mut prev_field_id = input_field_id;
         let mut output_field;
-        let ops = &self.session_data.chains[start_op.chain_id as usize].operations
+        let ops = &self.job_data.session_data.chains[start_op.chain_id as usize].operations
             [start_op.offset_in_chain as usize..];
         for op_id in ops {
-            let op_data = &self.session_data.operator_data[*op_id as usize];
+            let op_data = &self.job_data.session_data.operator_data[*op_id as usize];
             let tf_data;
-
+            let jd = &mut self.job_data;
             (tf_data, output_field) = match op_data {
-                OperatorData::Split(ref split) => {
-                    setup_tf_split(self, ms_id, input_field_id, split)
-                }
-                OperatorData::Print => setup_tf_print(self, ms_id, input_field_id),
-                OperatorData::Regex(ref re) => setup_tf_regex(self, ms_id, input_field_id, re),
-                OperatorData::Format(ref fmt) => setup_tf_format(self, ms_id, input_field_id, fmt),
+                OperatorData::Split(ref split) => setup_tf_split(jd, ms_id, input_field_id, split),
+                OperatorData::Print => setup_tf_print(jd, ms_id, input_field_id),
+                OperatorData::Regex(ref re) => setup_tf_regex(jd, ms_id, input_field_id, re),
+                OperatorData::Format(ref fmt) => setup_tf_format(jd, ms_id, input_field_id, fmt),
             };
             let tf_state = TransformState {
                 available_batch_size: start_tf_id.map(|_| 0).unwrap_or(available_batch_size),
@@ -431,13 +450,16 @@ impl<'a> WorkerThreadSession<'a> {
                 desired_batch_size: default_batch_size,
                 successor: None,
                 op_id: *op_id,
-                ordering_id: self.claim_transform_ordering_id(),
+                ordering_id: self.job_data.tf_mgr.claim_transform_ordering_id(),
             };
             let tf_id = if start_tf_id.is_none() {
                 let ord_id = tf_state.ordering_id;
                 let id = self.add_transform(tf_state, tf_data);
                 if available_batch_size > 0 {
-                    self.ready_queue.push(ReadyQueueEntry { ord_id, tf_id: id });
+                    self.job_data
+                        .tf_mgr
+                        .ready_queue
+                        .push(ReadyQueueEntry { ord_id, tf_id: id });
                 }
                 start_tf_id = Some(id);
 
@@ -446,7 +468,7 @@ impl<'a> WorkerThreadSession<'a> {
                 self.add_transform(tf_state, tf_data)
             };
             if let Some(prev_tf) = prev_tf {
-                self.transforms[prev_tf].successor = Some(tf_id);
+                self.job_data.tf_mgr.transforms[prev_tf].successor = Some(tf_id);
             }
             prev_tf = Some(tf_id);
             prev_field_id = output_field;
@@ -454,10 +476,12 @@ impl<'a> WorkerThreadSession<'a> {
         start_tf_id.unwrap()
     }
     pub fn add_transform(&mut self, state: TransformState, data: TransformData<'a>) -> TransformId {
-        let id = self.transforms.push(state);
-        if self.transform_data.len() < self.transforms.len() {
+        let id = self.job_data.tf_mgr.transforms.push(state);
+        if self.transform_data.len() < self.job_data.tf_mgr.transforms.len() {
             self.transform_data
-                .resize_with(self.transforms.len(), || TransformData::Disabled);
+                .resize_with(self.job_data.tf_mgr.transforms.len(), || {
+                    TransformData::Disabled
+                });
         }
         self.transform_data[usize::from(id)] = data;
         id
