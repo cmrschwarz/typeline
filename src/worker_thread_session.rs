@@ -13,7 +13,7 @@ use crate::{
     document::DocumentSource,
     field_data::{EntryId, FieldData},
     operations::{
-        errors::OperatorSetupError,
+        errors::{OperatorApplicationError, OperatorSetupError},
         file_reader::{
             handle_tf_file_reader_batch_mode, handle_tf_file_reader_producer_mode,
             handle_tf_file_reader_stream_mode, setup_tf_file_reader_as_entry_point, FileType,
@@ -171,6 +171,9 @@ impl<'a> JobData<'a> {
         let ms_id = self.transforms[tf_id].match_set_id;
         let sbs = &mut self.match_sets[ms_id].stream_batch_size;
         *sbs = (*sbs).max(batch_size);
+    }
+    pub fn push_entry_error(&mut self, _ms_id: MatchSetId, _err: OperatorApplicationError) {
+        todo!()
     }
 }
 

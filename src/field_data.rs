@@ -11,8 +11,8 @@ use std::ops::Deref;
 
 use crate::{
     field_data::field_value_flags::TYPE_RELEVANT, field_data_iterator::FDIter,
-    operations::errors::OperatorApplicationError, string_store::StringStoreEntry,
-    worker_thread_session::FieldId,
+    operations::errors::OperatorApplicationError, stream_field_data::StreamValueId,
+    string_store::StringStoreEntry, worker_thread_session::FieldId,
 };
 
 use self::field_value_flags::SHARED_VALUE;
@@ -607,6 +607,17 @@ impl FieldData {
                 FieldValueKind::Integer,
                 field_value_flags::DEFAULT,
                 data.to_owned(),
+                run_length,
+                true,
+            );
+        }
+    }
+    pub fn push_stream_value_id(&mut self, id: StreamValueId, run_length: usize) {
+        unsafe {
+            self.push_fixed_size_type(
+                FieldValueKind::StreamValueId,
+                field_value_flags::DEFAULT,
+                id,
                 run_length,
                 true,
             );

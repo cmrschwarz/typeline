@@ -2,9 +2,12 @@ use std::borrow::Cow;
 
 use thiserror::Error;
 
-use crate::options::argument::CliArgIdx;
+use crate::{options::argument::CliArgIdx, universe::Universe};
 
-use super::operator::OperatorId;
+use super::{
+    operator::OperatorId,
+    transform::{TransformId, TransformState},
+};
 
 #[derive(Error, Debug, Clone)]
 #[error("{message}")]
@@ -50,5 +53,16 @@ impl OperatorApplicationError {
             message: Cow::Borrowed(message),
             op_id,
         }
+    }
+}
+
+pub fn io_error_to_op_error(
+    transforms: &Universe<TransformId, TransformState>,
+    tf_id: TransformId,
+    err: std::io::Error,
+) -> OperatorApplicationError {
+    OperatorApplicationError {
+        op_id: transforms[tf_id].op_id,
+        message: Cow::Owned(err.to_string()),
     }
 }

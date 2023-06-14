@@ -1,3 +1,5 @@
+use std::io::Write;
+
 use bstring::bstr;
 
 use crate::{
@@ -9,7 +11,7 @@ use crate::{
 };
 
 use super::{
-    errors::{OperatorApplicationError, OperatorCreationError},
+    errors::{io_error_to_op_error, OperatorApplicationError, OperatorCreationError},
     operator::OperatorData,
     transform::{TransformData, TransformId},
 };
@@ -82,22 +84,26 @@ pub fn print_type_error(run_len: usize) {
         println!("<Type Error>");
     }
 }
-fn print_stream_val(sv: &StreamFieldValue) -> bool {
+fn print_stream_val_check_done(sv: &StreamFieldValue) -> Result<bool, std::io::Error> {
     match &sv.data {
-        StreamFieldValueData::TextChunk(c) => {
-            if !sv.done {
-                print!("{c}")
-            } else {
-                println!("{c}");
+        StreamFieldValueData::BytesChunk(c) => {
+            let mut stdout = std::io::stdout().lock();
+            stdout.write(c)?;
+            if sv.done {
+                stdout.write(&['\n' as u8])?;
             }
         }
-        StreamFieldValueData::TextBuffer(b) => {
+        StreamFieldValueData::BytesBuffer(b) => {
             if sv.done {
-                println!("{b}");
+                std::io::stdout().lock().write(b)?;
             }
+        }
+        StreamFieldValueData::Error(err) => {
+            debug_assert!(sv.done);
+            println!("error: {err}");
         }
     }
-    sv.done
+    Ok(sv.done)
 }
 
 pub fn handle_tf_print_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, _tf: &mut TfPrint) {
@@ -154,17 +160,27 @@ pub fn handle_tf_print_stream_mode(
     tf_print: &mut TfPrint,
 ) {
     let tf = &mut sess.transforms[tf_id];
-    let input_field = tf.input_field;
-    let sfd = &sess.fields[input_field].stream_field_data;
+    let input_field_id = tf.input_field;
+    let input_field = &mut sess.fields[input_field_id];
+    let sfd = &mut input_field.stream_field_data;
     tf_print.dropped_entries += sfd.entries_dropped;
 
     if let Some(id) = tf_print.current_stream_val {
-        if print_stream_val(&sfd.values[id]) {
-            tf_print.current_stream_val = None;
+        let res = print_stream_val_check_done(&sfd.get_value_mut(&sfd.values, id));
+        match res {
+            Ok(false) => (),
+            Ok(true) => tf_print.current_stream_val = None,
+            Err(err) => {
+                let _err = io_error_to_op_error(&sess.transforms, tf_id, err);
+                //TODO: we need the field ref manager for this
+                //sess.push_entry_error(sess.transforms[tf_id].match_set_id, err);
+                tf_print.current_stream_val = None;
+            }
         }
     }
+    let input_field = &sess.fields[input_field_id];
     if tf_print.current_stream_val.is_none() {
-        let mut iter = sess.fields[input_field].field_data.iter();
+        let mut iter = input_field.field_data.iter();
         iter.next_n_fields(tf_print.consumed_entries - tf_print.dropped_entries);
         while iter.is_next_valid() {
             let field_val = iter.get_next_typed_field();
@@ -189,10 +205,21 @@ pub fn handle_tf_print_stream_mode(
                     print_type_error(1);
                 }
                 FDTypedValue::StreamValueId(id) => {
-                    let sv = &sfd.values[id];
-                    if !print_stream_val(sv) {
-                        tf_print.current_stream_val = Some(id);
-                        break;
+                    let sfd = &input_field.stream_field_data;
+                    let sv = sfd.get_value(&sfd.values, id);
+                    match print_stream_val_check_done(&sv) {
+                        Ok(false) => {
+                            tf_print.current_stream_val = Some(id);
+                            break;
+                        }
+                        Ok(true) => (),
+                        Err(err) => {
+                            let _err = io_error_to_op_error(&sess.transforms, tf_id, err);
+                            let _ms_id = sess.transforms[tf_id].match_set_id;
+                            tf_print.current_stream_val = None;
+                            //TODO: we need the field ref manager for this
+                            //sess.push_entry_error(ms_id, err);
+                        }
                     }
                 }
             }
