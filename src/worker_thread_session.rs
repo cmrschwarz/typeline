@@ -13,18 +13,17 @@ use crate::{
     document::DocumentSource,
     field_data::{EntryId, FieldData},
     operations::{
+        errors::OperatorSetupError,
         file_reader::{
             handle_tf_file_reader_batch_mode, handle_tf_file_reader_producer_mode,
             handle_tf_file_reader_stream_mode, setup_tf_file_reader_as_entry_point, FileType,
         },
         format::setup_tf_format,
-        operator_base::OperatorId,
-        operator_data::OperatorData,
+        operator::{OperatorData, OperatorId},
         print::{handle_tf_print_batch_mode, handle_tf_print_stream_mode, setup_tf_print},
         regex::{handle_tf_regex_batch_mode, setup_tf_regex},
         split::{handle_tf_split, setup_tf_split, setup_ts_split_as_entry_point},
-        transform_state::{TransformData, TransformId, TransformOrderingId, TransformState},
-        OperatorSetupError,
+        transform::{TransformData, TransformId, TransformOrderingId, TransformState},
     },
     scr_error::ScrError,
     stream_field_data::StreamFieldData,
@@ -417,7 +416,7 @@ impl<'a> WorkerThreadSession<'a> {
                     setup_tf_split(self, ms_id, input_field_id, split)
                 }
                 OperatorData::Print => setup_tf_print(self, ms_id, input_field_id),
-                OperatorData::Regex(re) => setup_tf_regex(self, ms_id, input_field_id, re),
+                OperatorData::Regex(ref re) => setup_tf_regex(self, ms_id, input_field_id, re),
                 OperatorData::Format(ref fmt) => setup_tf_format(self, ms_id, input_field_id, fmt),
             };
             let tf_state = TransformState {

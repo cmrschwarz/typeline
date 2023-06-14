@@ -9,9 +9,9 @@ use crate::{
 };
 
 use super::{
-    operator_data::OperatorData,
-    transform_state::{TransformData, TransformId},
-    OperatorApplicationError, OperatorCreationError,
+    errors::{OperatorApplicationError, OperatorCreationError},
+    operator::OperatorData,
+    transform::{TransformData, TransformId},
 };
 
 pub struct TfPrint {

@@ -7,8 +7,8 @@ use crate::{
     cli::CliArgumentError,
     context::Context,
     operations::{
-        operator_base::OperatorId, OperatorApplicationError, OperatorCreationError,
-        OperatorSetupError,
+        errors::{OperatorApplicationError, OperatorCreationError, OperatorSetupError},
+        operator::OperatorId,
     },
     options::{argument::CliArgIdx, context_options::ContextOptions},
 };

@@ -2,7 +2,7 @@ use crate::{
     chain::ChainId,
     context::Context,
     document::{Document, DocumentSource},
-    operations::operator_data::OperatorData,
+    operations::operator::OperatorData,
     scr_error::ScrError,
 };
 

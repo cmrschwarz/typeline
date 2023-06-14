@@ -8,9 +8,8 @@ use crate::{
     context::{Context, SessionData},
     document::Document,
     operations::{
-        operator_base::{OperatorBase, OperatorId, OperatorOffsetInChain},
-        operator_data::OperatorData,
-        OperatorSetupError,
+        errors::OperatorSetupError,
+        operator::{OperatorBase, OperatorData, OperatorId, OperatorOffsetInChain},
     },
     selenium::SeleniumVariant,
     string_store::StringStore,

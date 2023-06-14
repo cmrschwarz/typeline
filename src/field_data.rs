@@ -11,7 +11,7 @@ use std::ops::Deref;
 
 use crate::{
     field_data::field_value_flags::TYPE_RELEVANT, field_data_iterator::FDIter,
-    operations::OperatorApplicationError, string_store::StringStoreEntry,
+    operations::errors::OperatorApplicationError, string_store::StringStoreEntry,
     worker_thread_session::FieldId,
 };
 

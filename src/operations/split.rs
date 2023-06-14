@@ -13,9 +13,9 @@ use crate::{
 };
 
 use super::{
-    operator_base::OperatorId,
-    transform_state::{TransformData, TransformId, TransformState},
-    OperatorCreationError,
+    errors::OperatorCreationError,
+    operator::OperatorId,
+    transform::{TransformData, TransformId, TransformState},
 };
 
 #[derive(Clone)]

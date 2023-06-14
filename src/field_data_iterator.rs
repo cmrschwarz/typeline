@@ -5,7 +5,7 @@ use crate::{
         field_value_flags, FieldData, FieldReference, FieldValueFlags, FieldValueFormat,
         FieldValueHeader, FieldValueKind, Html, Object, RunLength,
     },
-    operations::OperatorApplicationError,
+    operations::errors::OperatorApplicationError,
     stream_field_data::StreamValueId,
 };
 

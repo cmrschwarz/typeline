@@ -1,6 +1,5 @@
 use crate::{
-    encoding::TextEncoding, operations::operator_base::OperatorId,
-    selenium::SeleniumDownloadStrategy,
+    encoding::TextEncoding, operations::operator::OperatorId, selenium::SeleniumDownloadStrategy,
 };
 
 pub type ChainId = u32;

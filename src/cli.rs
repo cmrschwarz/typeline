@@ -1,9 +1,10 @@
+use crate::operations::errors::OperatorCreationError;
+use crate::operations::operator::OperatorData;
 use crate::operations::print::parse_print_op;
 use crate::operations::split::parse_split_op;
-use crate::operations::OperatorCreationError;
 use crate::{
     document::{Document, DocumentSource},
-    operations::{operator_data::OperatorData, regex::parse_regex_op},
+    operations::regex::parse_regex_op,
     options::{
         argument::{ArgumentReassignmentError, CliArgIdx},
         chain_options::ChainOptions,

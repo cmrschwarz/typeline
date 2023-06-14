@@ -9,7 +9,7 @@ use smallvec::SmallVec;
 use crate::context::{ContextData, SessionData};
 use crate::document::{Document, DocumentId};
 use crate::field_data::FieldData;
-use crate::operations::operator_base::OperatorId;
+use crate::operations::operator::OperatorId;
 
 use crate::scr_error::ScrError;
 use crate::string_store::StringStoreEntry;

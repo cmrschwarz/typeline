@@ -5,13 +5,14 @@ use bstring::BString;
 use crossbeam::deque::{Injector, Stealer, Worker};
 use smallvec::SmallVec;
 
-use crate::chain::Chain;
-use crate::document::{Document, DocumentSource};
-use crate::operations::operator_base::{OperatorBase, OperatorId};
-use crate::operations::operator_data::OperatorData;
-use crate::scr_error::ScrError;
-use crate::string_store::StringStore;
-use crate::worker_thread::{Job, JobInput, WorkerThread};
+use crate::{
+    chain::Chain,
+    document::{Document, DocumentSource},
+    operations::operator::{OperatorBase, OperatorData, OperatorId},
+    scr_error::ScrError,
+    string_store::StringStore,
+    worker_thread::{Job, JobInput, WorkerThread},
+};
 
 pub struct SessionData {
     pub max_worker_threads: NonZeroUsize,

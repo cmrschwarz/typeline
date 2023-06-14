@@ -10,8 +10,8 @@ use crate::{
 };
 
 use super::{
-    transform_state::{TransformData, TransformId},
-    OperatorApplicationError, OperatorCreationError,
+    errors::{OperatorApplicationError, OperatorCreationError},
+    transform::{TransformData, TransformId},
 };
 
 pub struct OpRegex {

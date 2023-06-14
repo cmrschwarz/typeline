@@ -7,7 +7,7 @@ use crate::{
     worker_thread_session::{FieldId, MatchSetId, WorkerThreadSession},
 };
 
-use super::{operator_base::OperatorOffsetInChain, transform_state::TransformData};
+use super::{operator::OperatorOffsetInChain, transform::TransformData};
 
 enum FormatKeyLocationReference {
     Index(u32),

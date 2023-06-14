@@ -5,7 +5,7 @@ use nonmax::NonMaxUsize;
 use crate::worker_thread_session::{FieldId, MatchSetId};
 
 use super::{
-    file_reader::TfFileReader, format::TfFormat, operator_base::OperatorId, print::TfPrint,
+    file_reader::TfFileReader, format::TfFormat, operator::OperatorId, print::TfPrint,
     regex::TfRegex, split::TfSplit,
 };
 

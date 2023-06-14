@@ -1,7 +1,16 @@
 use crate::{chain::ChainId, options::argument::CliArgIdx, string_store::StringStoreEntry};
 
+use super::{format::OpFormat, regex::OpRegex, split::OpSplit};
+
 pub type OperatorId = u32;
 pub type OperatorOffsetInChain = u32;
+
+pub enum OperatorData {
+    Print,
+    Split(OpSplit),
+    Regex(OpRegex),
+    Format(OpFormat),
+}
 
 pub struct OperatorBase {
     pub argname: StringStoreEntry,

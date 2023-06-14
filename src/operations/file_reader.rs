@@ -14,8 +14,8 @@ use crate::{
 };
 
 use super::{
-    operator_base::OperatorId,
-    transform_state::{TransformData, TransformId, TransformState},
+    operator::OperatorId,
+    transform::{TransformData, TransformId, TransformState},
 };
 
 pub enum FileType<'a> {

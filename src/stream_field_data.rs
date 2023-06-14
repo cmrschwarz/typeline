@@ -1,6 +1,4 @@
-use std::collections::VecDeque;
-
-use nonmax::NonMaxUsize;
+use std::{collections::VecDeque, rc::Rc};
 
 pub enum StreamFieldValueData {
     TextChunk(String),
@@ -17,18 +15,15 @@ pub enum StreamFieldValueData {
 
 pub struct StreamFieldValue {
     pub data: StreamFieldValueData,
-    pub update_entry: Option<UpdateEntryId>,
-    pub refcount: usize,
     pub done: bool,
 }
 
-pub type UpdateEntryId = NonMaxUsize;
 pub type StreamValueId = usize;
 
 #[derive(Default)]
 pub struct StreamFieldData {
     pub id_offset: usize,
-    pub values: VecDeque<StreamFieldValue>,
+    pub values: VecDeque<Rc<StreamFieldValue>>,
     pub updates: Vec<StreamValueId>,
     pub values_dropped: usize,
     pub entries_dropped: usize,
