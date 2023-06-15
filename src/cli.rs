@@ -1,3 +1,4 @@
+use crate::chain::BufferingMode;
 use crate::operations::errors::OperatorCreationError;
 use crate::operations::operator::OperatorData;
 use crate::operations::print::parse_print_op;
@@ -284,7 +285,6 @@ fn try_parse_as_context_opt(
                 arg.cli_arg.idx,
             ));
         }
-
         matched = true
     }
     if matched {
@@ -346,6 +346,39 @@ fn try_parse_as_chain_opt(
     if arg.argname == "sds" {
         let sds = try_parse_selenium_download_strategy(arg.value.as_deref(), &arg.cli_arg)?;
         return apply_to_chains(ctx_opts, arg, |c| c.selenium_download_strategy.set(sds));
+    }
+    if arg.argname == "lb" {
+        let buffering_mode = if let Some(val) = arg.value.as_deref() {
+            if let Some(v) = try_parse_bool(val) {
+                if v {
+                    BufferingMode::LineBuffer
+                } else {
+                    BufferingMode::BlockBuffer
+                }
+            } else {
+                let res = if let Ok(val) = val.to_str() {
+                    match val {
+                        "stdin" => Some(BufferingMode::LineBufferStdin),
+                        "tty" => Some(BufferingMode::LineBufferStdin),
+                        "stdin-if-tty" => Some(BufferingMode::LineBufferStdinIfTTY),
+                        _ => None,
+                    }
+                } else {
+                    None
+                };
+                if let Some(bm) = res {
+                    bm
+                } else {
+                    return Err(CliArgumentError{
+                            message: Cow::Owned(format!("unknown line buffering mode '{}', options are yes, no, stdin, tty, and stdin-if-tty", val.to_string_lossy())),
+                            cli_arg_idx: arg.cli_arg.idx
+                        });
+                }
+            }
+        } else {
+            BufferingMode::LineBuffer
+        };
+        return apply_to_chains(ctx_opts, arg, |c| c.buffering_mode.set(buffering_mode));
     }
     return Ok(false);
 }

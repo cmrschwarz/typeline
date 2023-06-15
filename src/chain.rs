@@ -4,6 +4,14 @@ use crate::{
 
 pub type ChainId = u32;
 
+#[derive(Clone, Copy)]
+pub enum BufferingMode {
+    BlockBuffer,
+    LineBuffer,
+    LineBufferStdin,
+    LineBufferStdinIfTTY,
+}
+
 #[derive(Clone)]
 pub struct ChainSettings {
     pub default_text_encoding: TextEncoding,
@@ -11,6 +19,7 @@ pub struct ChainSettings {
     pub force_text_encoding: bool,
     pub selenium_download_strategy: SeleniumDownloadStrategy,
     pub default_batch_size: usize,
+    pub buffering_mode: BufferingMode,
 }
 
 #[derive(Clone)]

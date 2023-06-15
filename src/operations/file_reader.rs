@@ -1,6 +1,6 @@
 use std::{
     fs::File,
-    io::{BufRead, Read, StdinLock},
+    io::{BufRead, BufReader, Read, StdinLock},
 };
 
 use crate::{
@@ -21,25 +21,27 @@ use super::{
 };
 
 pub enum FileType<'a> {
-    StdinIsATty(StdinLock<'a>),
-    StdinIsNoTty(StdinLock<'a>),
+    Stdin(StdinLock<'a>),
     File(File),
+    BufferedFile(BufReader<File>),
 }
 
 pub struct TfFileReader<'a> {
     file: Option<FileType<'a>>,
     output_field: FieldId,
     stream_value: StreamValueId,
+    line_buffered: bool,
 }
 
-//TODO: add this as an operator aswell, only used for stdin for now
+//TODO: add this as an operator aswell, only used for stdin/file for now
 pub fn setup_tf_file_reader_as_entry_point<'a>(
     tf_mgr: &mut TransformManager,
     input_field: FieldId,
     output_field: FieldId,
     ms_id: MatchSetId,
     desired_batch_size: usize,
-    file: FileType<'a>,
+    mut file: FileType<'a>,
+    line_buffered: bool,
 ) -> (TransformState, TransformData<'a>) {
     let state = TransformState {
         input_field,
@@ -52,38 +54,68 @@ pub fn setup_tf_file_reader_as_entry_point<'a>(
         is_ready: false,
         is_stream_producer: false,
     };
+    if line_buffered {
+        if let FileType::File(f) = file {
+            file = FileType::BufferedFile(BufReader::new(f));
+        }
+    }
     let data = TransformData::FileReader(TfFileReader {
         file: Some(file),
         output_field: output_field,
         stream_value: 0,
+        line_buffered,
     });
     (state, data)
+}
+
+fn read_size_limited<F: Read>(
+    f: &mut F,
+    limit: usize,
+    target: &mut Vec<u8>,
+) -> Result<(usize, bool), std::io::Error> {
+    let size = f
+        .take(limit as u64)
+        .read_to_end(target)
+        .map(|size| size as usize)?;
+    let eof = size != limit;
+    Ok((size, eof))
+}
+fn read_line_buffered<F: BufRead>(
+    f: &mut F,
+    limit: usize,
+    target: &mut Vec<u8>,
+) -> Result<(usize, bool), std::io::Error> {
+    let size = f
+        .take(limit as u64)
+        .read_until('\n' as u8, target)
+        .map(|size| size as usize)?;
+    let eof = size == 0 || target[size - 1] != '\n' as u8;
+    Ok((size, eof))
+}
+fn read_mode_based<F: BufRead>(
+    f: &mut F,
+    limit: usize,
+    target: &mut Vec<u8>,
+    line_buffered: bool,
+) -> Result<(usize, bool), std::io::Error> {
+    if line_buffered {
+        read_line_buffered(f, limit, target)
+    } else {
+        read_size_limited(f, limit, target)
+    }
 }
 
 fn read_chunk(
     target: &mut Vec<u8>,
     file: &mut FileType,
     limit: usize,
+    line_buffered: bool,
 ) -> Result<(usize, bool), std::io::Error> {
-    let size;
-    let eof;
-    match file {
-        FileType::StdinIsATty(ref mut f) => {
-            size = f
-                .by_ref()
-                .take(limit as u64)
-                .read_until('\n' as u8, target)?;
-            eof = size == 0 || target[size - 1] != '\n' as u8;
-        }
-        FileType::StdinIsNoTty(ref mut f) => {
-            size = f.by_ref().take(limit as u64).read_to_end(target)?;
-            eof = size != limit;
-        }
-        FileType::File(ref mut f) => {
-            size = f.by_ref().take(limit as u64).read_to_end(target)?;
-            eof = size != limit;
-        }
-    };
+    let (size, eof) = match file {
+        FileType::BufferedFile(f) => read_mode_based(f, limit, target, line_buffered),
+        FileType::Stdin(f) => read_mode_based(f, limit, target, line_buffered),
+        FileType::File(f) => read_size_limited(f, limit, target),
+    }?;
     Ok((size, eof))
 }
 
@@ -103,8 +135,12 @@ fn start_prodicing_file(
     let (field_headers, field_data) = unsafe { out_field.field_data.internals() };
 
     let size_before = field_data.len();
-    //NOCHECKIN: the 5 here is for testing the stream api. it should really be INLINE_STR_MAX
-    let res = read_chunk(field_data, fr.file.as_mut().unwrap(), 5);
+    let res = read_chunk(
+        field_data,
+        fr.file.as_mut().unwrap(),
+        INLINE_STR_MAX_LEN,
+        fr.line_buffered,
+    );
     let chunk_size = match res {
         Ok((size, eof)) => {
             if eof {
@@ -193,11 +229,21 @@ pub fn handle_tf_file_reader_producer_mode(
             let res = match &mut sv.data {
                 StreamFieldValueData::BytesChunk(ref mut bc) => {
                     bc.clear();
-                    read_chunk(bc, fr.file.as_mut().unwrap(), INLINE_STR_MAX_LEN)
+                    read_chunk(
+                        bc,
+                        fr.file.as_mut().unwrap(),
+                        INLINE_STR_MAX_LEN,
+                        fr.line_buffered,
+                    )
                 }
                 StreamFieldValueData::BytesBuffer(ref mut bb) => {
                     update = false;
-                    read_chunk(bb, fr.file.as_mut().unwrap(), INLINE_STR_MAX_LEN)
+                    read_chunk(
+                        bb,
+                        fr.file.as_mut().unwrap(),
+                        INLINE_STR_MAX_LEN,
+                        fr.line_buffered,
+                    )
                 }
                 StreamFieldValueData::Error(_) => {
                     fr.file.take();

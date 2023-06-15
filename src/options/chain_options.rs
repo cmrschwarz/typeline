@@ -1,5 +1,5 @@
 use crate::{
-    chain::{Chain, ChainId, ChainSettings},
+    chain::{BufferingMode, Chain, ChainId, ChainSettings},
     document::TextEncoding,
     selenium::{SeleniumDownloadStrategy, SeleniumVariant},
 };
@@ -14,6 +14,7 @@ pub struct ChainOptions {
     pub selenium_variant: Argument<Option<SeleniumVariant>>,
     pub selenium_download_strategy: Argument<SeleniumDownloadStrategy>,
     pub default_batch_size: Argument<usize>,
+    pub buffering_mode: Argument<BufferingMode>,
     pub parent: ChainId,
 }
 const DEFAULT_CHAIN_OPTIONS: ChainOptions = ChainOptions {
@@ -23,6 +24,7 @@ const DEFAULT_CHAIN_OPTIONS: ChainOptions = ChainOptions {
     selenium_variant: Argument::new(None),
     selenium_download_strategy: Argument::new(SeleniumDownloadStrategy::Scr),
     default_batch_size: Argument::new(128),
+    buffering_mode: Argument::new(BufferingMode::LineBufferStdinIfTTY),
     parent: 0,
 };
 impl ChainOptions {
@@ -44,6 +46,9 @@ impl ChainOptions {
                 default_batch_size: self
                     .default_batch_size
                     .unwrap_or(DEFAULT_CHAIN_OPTIONS.default_batch_size.unwrap()),
+                buffering_mode: self
+                    .buffering_mode
+                    .unwrap_or(DEFAULT_CHAIN_OPTIONS.buffering_mode.unwrap()),
             },
             subchains: Vec::new(),
             operations: Vec::new(),

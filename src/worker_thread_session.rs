@@ -9,6 +9,7 @@ use atty::Stream;
 use nonmax::NonMaxUsize;
 
 use crate::{
+    chain::BufferingMode,
     context::SessionData,
     document::DocumentSource,
     field_data::{EntryId, FieldData},
@@ -119,7 +120,7 @@ impl TransformManager {
     pub fn inform_transform_batch_available(&mut self, tf_id: TransformId, batch_size: usize) {
         let tf = &mut self.transforms[tf_id];
         tf.available_batch_size += batch_size;
-        if tf.available_batch_size == 0 {
+        if tf.available_batch_size == batch_size {
             self.push_tf_in_ready_queue(tf_id);
         }
     }
@@ -207,16 +208,25 @@ impl<'a> WorkerThreadSession<'a> {
             }
             JobInput::DocumentIds(doc_ids) => {
                 let jd = &mut self.job_data;
-                for ds in doc_ids
+                for doc in doc_ids
                     .iter()
                     .rev()
-                    .map(|d| &jd.session_data.documents[*d as usize].source)
+                    .map(|d| &jd.session_data.documents[*d as usize])
                 {
-                    match ds {
+                    match &doc.source {
                         DocumentSource::Url(_) => todo!(),
                         DocumentSource::File(path) => match std::fs::File::open(path) {
                             Ok(f) => {
                                 let file = FileType::File(f);
+                                let line_buffer = if let BufferingMode::LineBuffer =
+                                    self.job_data.session_data.chains[doc.target_chains[0] as usize]
+                                        .settings
+                                        .buffering_mode
+                                {
+                                    true
+                                } else {
+                                    false
+                                };
                                 let (state, data) = setup_tf_file_reader_as_entry_point(
                                     &mut self.job_data.tf_mgr,
                                     input_data,
@@ -224,6 +234,7 @@ impl<'a> WorkerThreadSession<'a> {
                                     ms_id,
                                     1,
                                     file,
+                                    line_buffer,
                                 );
                                 let tf_id = self.add_transform(state, data);
                                 self.job_data.tf_mgr.push_tf_in_ready_queue(tf_id);
@@ -265,18 +276,21 @@ impl<'a> WorkerThreadSession<'a> {
                 }
             }
             JobInput::Stdin => {
-                let file = if atty::is(Stream::Stdout) {
-                    FileType::StdinIsATty(std::io::stdin().lock())
-                } else {
-                    FileType::StdinIsNoTty(std::io::stdin().lock())
-                };
+                //TODO: figure out which chain this setting should come from
+                let line_buffered =
+                    match self.job_data.session_data.chains[0].settings.buffering_mode {
+                        BufferingMode::BlockBuffer => false,
+                        BufferingMode::LineBuffer | BufferingMode::LineBufferStdin => true,
+                        BufferingMode::LineBufferStdinIfTTY => atty::is(Stream::Stdin),
+                    };
                 let (state, data) = setup_tf_file_reader_as_entry_point(
                     &mut self.job_data.tf_mgr,
                     input_data,
                     input_data,
                     ms_id,
                     1,
-                    file,
+                    FileType::Stdin(std::io::stdin().lock()),
+                    line_buffered,
                 );
                 let tf_id = self.add_transform(state, data);
                 self.job_data.tf_mgr.push_tf_in_ready_queue(tf_id);

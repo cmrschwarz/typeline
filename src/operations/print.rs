@@ -252,4 +252,5 @@ pub fn handle_tf_print_stream_mode(
     if tf_print.flush_on_every_print {
         let _ = std::io::stdout().flush();
     }
+    sess.tf_mgr.push_successor_in_ready_queue(tf_id);
 }
