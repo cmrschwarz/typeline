@@ -359,7 +359,7 @@ fn try_parse_as_chain_opt(
                 let res = if let Ok(val) = val.to_str() {
                     match val {
                         "stdin" => Some(BufferingMode::LineBufferStdin),
-                        "tty" => Some(BufferingMode::LineBufferStdin),
+                        "tty" => Some(BufferingMode::LineBufferIfTTY),
                         "stdin-if-tty" => Some(BufferingMode::LineBufferStdinIfTTY),
                         _ => None,
                     }

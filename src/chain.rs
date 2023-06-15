@@ -9,6 +9,7 @@ pub enum BufferingMode {
     BlockBuffer,
     LineBuffer,
     LineBufferStdin,
+    LineBufferIfTTY,
     LineBufferStdinIfTTY,
 }
 

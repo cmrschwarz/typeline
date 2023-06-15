@@ -190,6 +190,19 @@ impl EntryData {
     }
 }
 
+#[cfg(unix)]
+pub fn is_file_tty(file: &std::fs::File) -> bool {
+    use std::os::fd::AsRawFd;
+
+    extern crate libc;
+    unsafe { libc::isatty(file.as_raw_fd()) != 0 }
+}
+
+#[cfg(not(unix))]
+pub fn is_file_tty(file: &File) -> bool {
+    false //TODO
+}
+
 impl<'a> WorkerThreadSession<'a> {
     fn setup_job(&mut self, job: Job) -> Result<(), ScrError> {
         self.job_data.entry_data.match_sets.clear();
@@ -217,16 +230,18 @@ impl<'a> WorkerThreadSession<'a> {
                         DocumentSource::Url(_) => todo!(),
                         DocumentSource::File(path) => match std::fs::File::open(path) {
                             Ok(f) => {
-                                let file = FileType::File(f);
-                                let line_buffer = if let BufferingMode::LineBuffer =
-                                    self.job_data.session_data.chains[doc.target_chains[0] as usize]
-                                        .settings
-                                        .buffering_mode
+                                let line_buffer = match self.job_data.session_data.chains
+                                    [doc.target_chains[0] as usize]
+                                    .settings
+                                    .buffering_mode
                                 {
-                                    true
-                                } else {
-                                    false
+                                    BufferingMode::LineBuffer => true,
+                                    BufferingMode::LineBufferIfTTY => is_file_tty(&f),
+                                    BufferingMode::BlockBuffer
+                                    | BufferingMode::LineBufferStdin
+                                    | BufferingMode::LineBufferStdinIfTTY => false,
                                 };
+                                let file = FileType::File(f);
                                 let (state, data) = setup_tf_file_reader_as_entry_point(
                                     &mut self.job_data.tf_mgr,
                                     input_data,
@@ -281,7 +296,9 @@ impl<'a> WorkerThreadSession<'a> {
                     match self.job_data.session_data.chains[0].settings.buffering_mode {
                         BufferingMode::BlockBuffer => false,
                         BufferingMode::LineBuffer | BufferingMode::LineBufferStdin => true,
-                        BufferingMode::LineBufferStdinIfTTY => atty::is(Stream::Stdin),
+                        BufferingMode::LineBufferStdinIfTTY | BufferingMode::LineBufferIfTTY => {
+                            atty::is(Stream::Stdin)
+                        }
                     };
                 let (state, data) = setup_tf_file_reader_as_entry_point(
                     &mut self.job_data.tf_mgr,
