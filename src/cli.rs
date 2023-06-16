@@ -2,6 +2,7 @@ use crate::chain::BufferingMode;
 use crate::operations::errors::OperatorCreationError;
 use crate::operations::operator::OperatorData;
 use crate::operations::print::parse_print_op;
+use crate::operations::regex::RegexOptions;
 use crate::operations::split::parse_split_op;
 use crate::{
     document::{Document, DocumentSource},
@@ -17,6 +18,7 @@ use crate::{
 };
 use bstring::{bstr, BString};
 use lazy_static::lazy_static;
+use regex::{Regex, RegexBuilder};
 use smallvec::smallvec;
 use std::{borrow::Cow, ffi::OsStr, path::PathBuf, str::from_utf8};
 use thiserror::Error;
@@ -62,18 +64,33 @@ pub struct ParsedCliArgument<'a> {
 }
 
 lazy_static! {
-    static ref TRUTHY_REGEX: regex::Regex = regex::RegexBuilder::new("true|tru|tr|t|yes|ye|y|1")
-        .case_insensitive(true)
-        .build()
-        .unwrap();
-    static ref FALSY_REGEX: regex::Regex = regex::RegexBuilder::new("false|fal|fa|f|no|n|0")
-        .case_insensitive(true)
-        .build()
-        .unwrap();
+    static ref TRUTHY_REGEX: regex::bytes::Regex =
+        regex::bytes::RegexBuilder::new("^true|tru|tr|t|yes|ye|y|1$")
+            .case_insensitive(true)
+            .build()
+            .unwrap();
+    static ref FALSY_REGEX: regex::bytes::Regex =
+        regex::bytes::RegexBuilder::new("^false|fal|fa|f|no|n|0$")
+            .case_insensitive(true)
+            .build()
+            .unwrap();
     static ref CLI_ARG_REGEX: regex::bytes::Regex = regex::bytes::Regex::new(
-        r#"(?P<argname>[^\s@:=]+)(@(?P<label>[^\s@:=]+))?(?P<chainspec>:[^\s@:=]+)?(=(?P<value>.*))?"#
+        r#"^(?<argname>[^\s@:=]+)(@(?<label>[^\s@:=]+))?(?<chainspec>:[^\s@:=]+)?(=(?<value>.*))?$"#
     )
     .unwrap();
+
+
+    static ref REGEX_CLI_ARG_REGEX: Regex =
+        RegexBuilder::new("^r((?<i>i)|(?<m>m)|(?<l>l)|(?<d>d)|(?<b>b)|(?<a>a)|(?<u>u))*$")
+            .case_insensitive(true)
+            .build()
+            .unwrap();
+
+    //static ref REGEX_CLI_ARG_REGEX: Regex =
+    //    RegexBuilder::new("^r((?<i>i))*$")
+    //        .case_insensitive(true)
+    //        .build()
+    //        .unwrap();
 }
 
 pub fn print_help() {
@@ -81,13 +98,11 @@ pub fn print_help() {
 }
 
 fn try_parse_bool(val: &bstr) -> Option<bool> {
-    if let Ok(val) = val.to_str() {
-        if TRUTHY_REGEX.is_match(val) {
-            return Some(true);
-        }
-        if FALSY_REGEX.is_match(val) {
-            return Some(false);
-        }
+    if TRUTHY_REGEX.is_match(val.as_bytes()) {
+        return Some(true);
+    }
+    if FALSY_REGEX.is_match(val.as_bytes()) {
+        return Some(false);
     }
     None
 }
@@ -414,12 +429,52 @@ fn parse_operation(
     value: Option<&bstr>,
     idx: Option<CliArgIdx>,
 ) -> Result<Option<OperatorData>, OperatorCreationError> {
-    Ok(match argname {
-        "r" | "re" | "regex" => Some(OperatorData::Regex(parse_regex_op(
+    if let Some(c) = REGEX_CLI_ARG_REGEX.captures(argname) {
+        let mut opts = RegexOptions::default();
+        let mut binary_regex = false;
+        let mut unicode_mode = false;
+        if c.name("l").is_some() {
+            opts.line_based = true;
+        }
+        if c.name("i").is_some() {
+            opts.case_insensitive = true;
+        }
+        if c.name("m").is_some() {
+            opts.multimatch = true;
+        }
+        if c.name("d").is_some() {
+            opts.dotall = true;
+        }
+        if c.name("a").is_some() {
+            opts.ascii_mode = true;
+        }
+        if c.name("u").is_some() {
+            unicode_mode = true;
+        }
+        if c.name("b").is_some() {
+            binary_regex = true;
+        }
+        if opts.ascii_mode && unicode_mode {
+            return Err(OperatorCreationError::new(
+                "[a]scii and [u]nicode mode are mutually exclusive on any regex",
+                idx,
+            ));
+        }
+        if binary_regex {
+            if !unicode_mode {
+                opts.ascii_mode = true;
+            }
+            todo!();
+        }
+        return Ok(Some(OperatorData::Regex(parse_regex_op(
             &mut ctx_opts.string_store,
             value,
             idx,
-        )?)),
+            opts,
+        )?)));
+    }
+
+    Ok(match argname {
         "s" | "split" => Some(OperatorData::Split(parse_split_op(value, idx)?)),
         "p" | "print" => Some(parse_print_op(value, idx)?),
         _ => None,

@@ -1,8 +1,8 @@
 #[macro_use]
 extern crate static_assertions;
 
+extern crate encoding_rs;
 extern crate bstring;
-extern crate atty;
 extern crate crossbeam;
 extern crate indexmap;
 extern crate lazy_static;
@@ -19,6 +19,7 @@ pub mod context;
 pub mod document;
 pub mod operations;
 pub mod options;
+pub mod encoding;
 
 pub mod scr_error;
 pub mod utils;

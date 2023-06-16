@@ -8,9 +8,10 @@ use crate::{
     context::{Context, SessionData},
     document::Document,
     operations::{
-        errors::OperatorSetupError,
+        errors::{ChainSetupError, OperatorSetupError},
         operator::{OperatorBase, OperatorData, OperatorId, OperatorOffsetInChain},
     },
+    scr_error::{result_into, ScrError},
     selenium::SeleniumVariant,
     utils::string_store::StringStore,
 };
@@ -96,19 +97,32 @@ impl ContextOptions {
                 .resize(chain_id as usize + 1, Default::default());
         }
     }
-    pub fn setup_operators(sess: &mut SessionData) -> Result<(), OperatorSetupError> {
+    pub fn verify_bounds(sess: &mut SessionData) -> Result<(), ScrError> {
         if sess.operator_bases.len() >= OperatorOffsetInChain::MAX as usize {
             return Err(OperatorSetupError {
                 message: Cow::Owned(
                     format!(
                         "cannot have more than {} operators",
-                        OperatorOffsetInChain::MAX
+                        OperatorOffsetInChain::MAX - 1
                     )
                     .to_owned(),
                 ),
                 op_id: OperatorOffsetInChain::MAX,
-            });
+            }
+            .into());
         }
+        if sess.chains.len() >= ChainId::MAX as usize {
+            return Err(ChainSetupError {
+                message: Cow::Owned(
+                    format!("cannot have more than {} chains", ChainId::MAX - 1).to_owned(),
+                ),
+                chain_id: ChainId::MAX,
+            }
+            .into());
+        }
+        return Ok(());
+    }
+    pub fn setup_operators(sess: &mut SessionData) -> Result<(), OperatorSetupError> {
         for i in 0..sess.operator_bases.len() {
             let op = &mut sess.operator_bases[i];
             let chain = &mut sess.chains[op.chain_id as usize];
@@ -117,7 +131,19 @@ impl ContextOptions {
         }
         Ok(())
     }
-    pub fn build_context(mut self) -> Result<Context, (ContextOptions, OperatorSetupError)> {
+    pub fn setup_chains(sess: &mut SessionData) -> Result<(), ChainSetupError> {
+        for i in 0..sess.chains.len() {
+            let chain = &mut sess.chains[i];
+            if chain.operations.is_empty() {
+                return Err(ChainSetupError::new(
+                    "chain must habe at least one operation",
+                    i as ChainId,
+                ));
+            }
+        }
+        Ok(())
+    }
+    pub fn build_context(mut self) -> Result<Context, (ContextOptions, ScrError)> {
         let max_worker_threads = NonZeroUsize::try_from(
             self.max_worker_threads
                 .value
@@ -148,7 +174,10 @@ impl ContextOptions {
             cli_args: self.cli_args,
             string_store: self.string_store,
         };
-        if let Err(e) = ContextOptions::setup_operators(&mut sd) {
+        let res = ContextOptions::verify_bounds(&mut sd)
+            .and(result_into(ContextOptions::setup_operators(&mut sd)))
+            .and(result_into(ContextOptions::setup_chains(&mut sd)));
+        if let Err(e) = res {
             //moving back into context options
             self.documents = sd.documents;
             self.string_store = sd.string_store;

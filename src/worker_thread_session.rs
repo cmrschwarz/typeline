@@ -5,7 +5,7 @@ use std::{
     iter,
 };
 
-use atty::Stream;
+use is_terminal::IsTerminal;
 use nonmax::NonMaxUsize;
 
 use crate::{
@@ -190,19 +190,6 @@ impl EntryData {
     }
 }
 
-#[cfg(unix)]
-pub fn is_file_tty(file: &std::fs::File) -> bool {
-    use std::os::fd::AsRawFd;
-
-    extern crate libc;
-    unsafe { libc::isatty(file.as_raw_fd()) != 0 }
-}
-
-#[cfg(not(unix))]
-pub fn is_file_tty(file: &File) -> bool {
-    false //TODO
-}
-
 impl<'a> WorkerThreadSession<'a> {
     fn setup_job(&mut self, job: Job) -> Result<(), ScrError> {
         self.job_data.entry_data.match_sets.clear();
@@ -236,7 +223,7 @@ impl<'a> WorkerThreadSession<'a> {
                                     .buffering_mode
                                 {
                                     BufferingMode::LineBuffer => true,
-                                    BufferingMode::LineBufferIfTTY => is_file_tty(&f),
+                                    BufferingMode::LineBufferIfTTY => f.is_terminal(),
                                     BufferingMode::BlockBuffer
                                     | BufferingMode::LineBufferStdin
                                     | BufferingMode::LineBufferStdinIfTTY => false,
@@ -297,7 +284,7 @@ impl<'a> WorkerThreadSession<'a> {
                         BufferingMode::BlockBuffer => false,
                         BufferingMode::LineBuffer | BufferingMode::LineBufferStdin => true,
                         BufferingMode::LineBufferStdinIfTTY | BufferingMode::LineBufferIfTTY => {
-                            atty::is(Stream::Stdin)
+                            std::io::stdout().is_terminal()
                         }
                     };
                 let (state, data) = setup_tf_file_reader_as_entry_point(
@@ -314,7 +301,7 @@ impl<'a> WorkerThreadSession<'a> {
                 starting_tfs.push(tf_id);
             }
         }
-        assert!(!job.starting_ops.is_empty());
+        debug_assert!(!job.starting_ops.is_empty());
         let first_tf = if job.starting_ops.len() > 1 {
             let (tf_state, tf_data) = setup_ts_split_as_entry_point(
                 &mut self.job_data,

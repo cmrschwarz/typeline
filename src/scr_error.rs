@@ -7,7 +7,9 @@ use crate::{
     cli::CliArgumentError,
     context::Context,
     operations::{
-        errors::{OperatorApplicationError, OperatorCreationError, OperatorSetupError},
+        errors::{
+            ChainSetupError, OperatorApplicationError, OperatorCreationError, OperatorSetupError,
+        },
         operator::OperatorId,
     },
     options::{argument::CliArgIdx, context_options::ContextOptions},
@@ -22,9 +24,17 @@ pub enum ScrError {
     #[error(transparent)]
     OperationSetupError(#[from] OperatorSetupError),
     #[error(transparent)]
+    ChainSetupError(#[from] ChainSetupError),
+    #[error(transparent)]
     OperationApplicationError(#[from] OperatorApplicationError),
 }
 
+pub fn result_into<T, E, EFrom: Into<E>>(result: Result<T, EFrom>) -> Result<T, E> {
+    match result {
+        Ok(v) => Ok(v),
+        Err(e) => Err(e.into()),
+    }
+}
 fn contextualize_cli_arg(msg: &str, args: Option<&Vec<BString>>, cli_arg_idx: CliArgIdx) -> String {
     if let Some(args) = args {
         format!(
@@ -83,6 +93,7 @@ impl ScrError {
             ScrError::CliArgumentError(e) => {
                 contextualize_cli_arg(&e.message, args_gathered, e.cli_arg_idx)
             }
+            ScrError::ChainSetupError(e) => e.to_string(),
             ScrError::OperationCreationError(e) => e.message.to_string(),
             ScrError::OperationSetupError(e) => {
                 contextualize_op_id(&e.message, e.op_id, args_gathered, ctx_opts, ctx)

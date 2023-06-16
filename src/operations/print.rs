@@ -1,6 +1,7 @@
 use std::io::Write;
 
 use bstring::bstr;
+use is_terminal::IsTerminal;
 
 use crate::{
     field_data::{
@@ -44,7 +45,8 @@ pub fn setup_tf_print(
     input_field: FieldId,
 ) -> (TransformData<'static>, FieldId) {
     let tf = TfPrint {
-        flush_on_every_print: atty::is(atty::Stream::Stdout),
+        // TODO: should we make a config option for this?
+        flush_on_every_print: std::io::stdout().is_terminal(),
         consumed_entries: 0,
         dropped_entries: 0,
         current_stream_val: None,
