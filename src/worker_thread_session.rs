@@ -12,6 +12,7 @@ use crate::{
     chain::BufferingMode,
     context::SessionData,
     document::DocumentSource,
+    field_data::field_data_iterator::FDIter,
     field_data::{EntryId, FieldData},
     operations::{
         errors::{OperatorApplicationError, OperatorSetupError},
@@ -187,6 +188,16 @@ impl EntryData {
     }
     pub fn push_entry_error(&mut self, _ms_id: MatchSetId, _err: OperatorApplicationError) {
         todo!()
+    }
+    pub fn drop_n_entries_at<'a>(
+        &mut self,
+        tf_mgf: &TransformManager,
+        tf_id: TransformId,
+        field_idx: usize,
+        drop_count: usize,
+        preserve_iter: FDIter<'a>,
+    ) -> FDIter<'a> {
+        preserve_iter
     }
 }
 

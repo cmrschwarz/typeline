@@ -158,89 +158,54 @@ pub fn setup_tf_regex<'a>(
     (TransformData::Regex(re), output_field)
 }
 
-pub fn match_regex_bytes(
-    sess: &JobData<'_>,
-    re: &mut TfRegex,
-    input: &[u8],
-    input_field_id: FieldId,
-    run_length: RunLength,
-) -> usize {
-    let mut match_count = 0;
-    let mut end_of_last_match = 0;
-    //for parity with match_regex_text..
-    let regex = &mut re.regex;
-    let capture_locs = &mut re.capture_locs;
-    while regex
-        .captures_read_at(capture_locs, &input, end_of_last_match)
-        .is_some()
-    {
-        for c in 0..capture_locs.len() {
-            let field = &mut sess.entry_data.fields[re.capture_group_fields[c]]
-                .borrow_mut()
-                .field_data;
-            if let Some((cg_begin, cg_end)) = capture_locs.get(c) {
-                field.push_reference(
-                    FieldReference {
-                        field: input_field_id,
-                        begin: cg_begin,
-                        end: cg_end,
-                    },
-                    run_length as usize,
-                );
-            } else {
-                field.push_null(run_length as usize);
-            }
-        }
-        match_count += 1;
-        if !re.multimatch {
-            return match_count;
-        }
-        let end = capture_locs.get(0).unwrap().1;
-        if end == end_of_last_match {
-            end_of_last_match += 1;
-        } else {
-            end_of_last_match = end;
-        }
-    }
-    return match_count;
-}
-
-pub fn match_regex_text(
-    sess: &JobData<'_>,
-    re: &mut TfRegex,
-    input: &str,
-    input_field_id: FieldId,
-    run_length: RunLength,
-) -> usize {
-    let mut match_count = 0;
-    if let Some((regex, capture_locs)) = &mut re.text_only_regex {
+macro_rules! match_regex_inner {
+    (   $sess: ident,           // &JobData
+        $tf_id: ident,          // TransformId
+        $re: ident,             // &mut TfRegex
+        $input: ident,          // &str / &u8
+        $input_field_id: ident, // usize
+        $run_length: ident,     // usize
+        $regex: ident,          // &mut Regex / &mut bytes::Regex
+        $capture_locs: ident,   // &mut CaptureLocations / &mut bytes::CaptureLocations
+        $field_offset: ident,   // usize
+        $drop_count: ident      // usize
+    ) => {
+        let mut match_count = 0;
         let mut end_of_last_match = 0;
-        while regex
-            .captures_read_at(capture_locs, &input, end_of_last_match)
+        while $regex
+            .captures_read_at($capture_locs, &$input, end_of_last_match)
             .is_some()
         {
-            for c in 0..capture_locs.len() {
-                let field = &mut sess.entry_data.fields[re.capture_group_fields[c]]
+            if $drop_count > 0 {
+                $sess.entry_data.drop_n_entries_at(
+                    &$sess.tf_mgr,
+                    $tf_id,
+                    $field_offset,
+                    $drop_count,
+                )
+            }
+            for c in 0..$capture_locs.len() {
+                let field = &mut $sess.entry_data.fields[$re.capture_group_fields[c]]
                     .borrow_mut()
                     .field_data;
-                if let Some((cg_begin, cg_end)) = capture_locs.get(c) {
+                if let Some((cg_begin, cg_end)) = $capture_locs.get(c) {
                     field.push_reference(
                         FieldReference {
-                            field: input_field_id,
+                            field: $input_field_id,
                             begin: cg_begin,
                             end: cg_end,
                         },
-                        run_length as usize,
+                        $run_length as usize,
                     );
                 } else {
-                    field.push_null(run_length as usize);
+                    field.push_null($run_length as usize);
                 }
             }
             match_count += 1;
-            if !re.multimatch {
+            if !$re.multimatch {
                 return match_count;
             }
-            let end = capture_locs.get(0).unwrap().1;
+            let end = $capture_locs.get(0).unwrap().1;
             if end == end_of_last_match {
                 end_of_last_match += 1;
             } else {
@@ -248,9 +213,69 @@ pub fn match_regex_text(
             }
         }
         return match_count;
-    } else {
-        todo!();
+    };
+}
+
+pub fn match_regex_bytes(
+    sess: &JobData<'_>,
+    tf_id: TransformId,
+    re: &mut TfRegex,
+    input: &[u8],
+    input_field_id: FieldId,
+    run_length: RunLength,
+    field_offset: usize,
+    drop_count: usize,
+) -> usize {
+    let regex = &mut re.regex;
+    let capture_locs = &mut re.capture_locs;
+    match_regex_inner!(
+        sess,
+        tf_id,
+        re,
+        input,
+        input_field_id,
+        run_length,
+        regex,
+        capture_locs,
+        field_offset,
+        drop_count
+    );
+}
+
+pub fn match_regex_text(
+    sess: &JobData<'_>,
+    tf_id: TransformId,
+    re: &mut TfRegex,
+    input: &str,
+    input_field_id: FieldId,
+    run_length: RunLength,
+    field_offset: usize,
+    drop_count: usize,
+) -> usize {
+    if let Some((regex, capture_locs)) = &mut re.text_only_regex {
+        match_regex_inner!(
+            sess,
+            tf_id,
+            re,
+            input,
+            input_field_id,
+            run_length,
+            regex,
+            capture_locs,
+            field_offset,
+            drop_count
+        );
     }
+    match_regex_bytes(
+        sess,
+        tf_id,
+        re,
+        input.as_bytes(),
+        input_field_id,
+        run_length,
+        field_offset,
+        drop_count,
+    )
 }
 
 pub fn handle_tf_regex_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRegex) {
@@ -260,6 +285,7 @@ pub fn handle_tf_regex_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, re
 
     let mut iter = input_field.field_data.iter();
     let mut field_index = 0;
+    let mut drop_count = 0;
     while let Some(range) = iter.typed_range_fwd(usize::MAX, field_value_flags::BYTES_ARE_UTF8) {
         field_index += range.field_count;
         match range.data {
@@ -270,11 +296,20 @@ pub fn handle_tf_regex_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, re
                     data_end += h.size as usize;
                     let match_count = match_regex_text(
                         sess,
+                        tf_id,
                         re,
                         &text[data_start..data_end],
                         input_field_id,
                         h.run_length,
+                        field_index,
+                        drop_count,
                     );
+                    if match_count == 0 {
+                        drop_count += 1;
+                    } else {
+                        drop_count = 0;
+                        field_index += match_count - 1;
+                    }
                     data_start = data_end;
                 }
             }
@@ -283,12 +318,15 @@ pub fn handle_tf_regex_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, re
                 let mut data_end = 0usize;
                 for h in range.headers.iter() {
                     data_end += h.size as usize;
-                    match_regex_bytes(
+                    let match_count = match_regex_bytes(
                         sess,
+                        tf_id,
                         re,
                         &bytes[data_start..data_end],
                         input_field_id,
                         h.run_length,
+                        field_index,
+                        drop_count,
                     );
                     data_start = data_end;
                 }
