@@ -100,7 +100,7 @@ pub struct JobData<'a> {
     pub scratch_memory_2: Vec<&'static u8>,
 }
 
-pub struct FDIterWithRef<'a> {
+pub(crate) struct FDIterWithRef<'a> {
     pub field: std::cell::Ref<'a, Field>,
     pub iter: FDIter<'a>,
 }

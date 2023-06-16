@@ -39,7 +39,23 @@ pub struct FDTypedRange<'a> {
     pub headers: &'a [FieldValueHeader],
     pub data: FDTypedSlice<'a>,
     pub field_count: usize,
+    pub first_header_run_length_oversize: RunLength,
+    pub last_header_run_length_oversize: RunLength,
 }
+
+impl<'a> FDTypedRange<'a> {
+    pub fn run_length(&self, header_offset: usize) -> RunLength {
+        let mut header_rl = self.headers[header_offset].run_length;
+        if header_offset == 0 {
+            header_rl -= self.first_header_run_length_oversize;
+        }
+        if header_offset + 1 == self.last_header_run_length_oversize {
+            header_rl -= self.last_header_run_length_oversize;
+        }
+        header_rl
+    }
+}
+
 pub struct FDTypedField<'a> {
     pub header: FieldValueHeader,
     pub value: FDTypedValue<'a>,
@@ -51,6 +67,8 @@ impl<'a> Default for FDTypedRange<'a> {
             headers: &[],
             data: FDTypedSlice::Unset(&[]),
             field_count: 0,
+            first_header_run_length_oversize: 0,
+            last_header_run_length_oversize: 0,
         }
     }
 }
@@ -78,6 +96,8 @@ unsafe fn to_typed_range<'a>(
     field_count: usize,
     header_begin: usize,
     header_end: usize,
+    first_header_run_length_oversize: RunLength,
+    last_header_run_length_oversize: RunLength,
 ) -> FDTypedRange<'a> {
     let headers = &fd.header[header_begin..header_end];
     let data = match fmt.kind {
@@ -110,6 +130,8 @@ unsafe fn to_typed_range<'a>(
         headers,
         data,
         field_count,
+        first_header_run_length_oversize,
+        last_header_run_length_oversize,
     }
 }
 unsafe fn to_typed_field<'a>(
@@ -153,6 +175,7 @@ unsafe fn to_typed_field<'a>(
 
 pub trait FDIterator<'a>: Sized {
     fn is_next_valid(&self) -> bool;
+    fn is_prev_valid(&self) -> bool;
     fn get_next_field_format(&self) -> FieldValueFormat;
     fn get_next_field_data(&self) -> usize;
     // if the cursor is in the middle of a header, *that* header will be
@@ -204,6 +227,7 @@ pub trait FDIterator<'a>: Sized {
     }
 }
 
+#[repr(C)]
 pub struct FDIter<'a> {
     fd: &'a FieldData,
     data: usize,
@@ -212,6 +236,17 @@ pub struct FDIter<'a> {
     header_rl_total: RunLength,
     header_fmt: FieldValueFormat,
 }
+
+#[repr(C)]
+pub struct FDIterMut<'a> {
+    pub(super) fd: &'a mut FieldData,
+    data: usize,
+    header_idx: usize,
+    header_rl_offset: RunLength,
+    header_rl_total: RunLength,
+    header_fmt: FieldValueFormat,
+}
+
 impl<'a> FDIter<'a> {
     pub fn from_start(fd: &'a FieldData) -> Self {
         let first_header = fd.header.first();
@@ -238,6 +273,9 @@ impl<'a> FDIter<'a> {
 impl<'a> FDIterator<'a> for FDIter<'a> {
     fn is_next_valid(&self) -> bool {
         self.header_rl_total != 0
+    }
+    fn is_prev_valid(&self) -> bool {
+        !(self.header_idx == 0 && self.header_rl_offset == 0)
     }
     fn get_next_field_format(&self) -> FieldValueFormat {
         debug_assert!(self.is_next_valid());
@@ -439,8 +477,12 @@ impl<'a> FDIterator<'a> for FDIter<'a> {
         if limit == 0 || !self.is_next_valid() {
             return None;
         }
-        let data_begin = self.data;
+        let mut data_begin = self.data;
         let fmt = self.header_fmt;
+        let oversize_start = self.header_rl_offset;
+        if !fmt.shared_value() {
+            data_begin += oversize_start as usize * fmt.size as usize;
+        }
         let header_start = self.header_idx;
         let field_count =
             self.next_n_fields_with_fmt(limit, Some(fmt.kind), flag_mask, fmt.flags & flag_mask);
@@ -449,6 +491,7 @@ impl<'a> FDIterator<'a> for FDIter<'a> {
         } else {
             self.data
         };
+        let mut oversize_end = self.header_rl_total - self.header_rl_offset - 1;
         if self.header_rl_offset == 0 && self.header_idx > 0 {
             data_end -= self.fd.header[self.header_idx - 1].alignment_after();
         }
@@ -462,6 +505,8 @@ impl<'a> FDIterator<'a> for FDIter<'a> {
                 field_count,
                 header_start,
                 self.header_idx,
+                oversize_start,
+                oversize_end,
             )
             .into()
         }
@@ -471,12 +516,13 @@ impl<'a> FDIterator<'a> for FDIter<'a> {
         limit: usize,
         flag_mask: FieldValueFlags,
     ) -> Option<FDTypedRange<'a>> {
-        if limit == 0 || self.prev_field() == 0 {
+        if limit == 0 || !self.is_prev_valid() {
             return None;
-        };
+        }
+        let oversize_end = self.header_rl_total - self.header_rl_offset - 1;
+        self.prev_field();
         let fmt = self.header_fmt;
-        let mut data_end = self.get_next_field_data();
-        data_end += fmt.size as usize;
+        let data_end = self.get_next_field_data() + fmt.size as usize;
         let header_end = self.header_idx + 1;
         let field_count = self.prev_n_fields_with_fmt(
             limit - 1,
@@ -485,6 +531,7 @@ impl<'a> FDIterator<'a> for FDIter<'a> {
             fmt.flags & flag_mask,
         ) + 1;
         let header_start = self.header_idx;
+        let data_start = self.get_next_field_data();
         unsafe {
             to_typed_range(
                 self.fd,
@@ -495,6 +542,8 @@ impl<'a> FDIterator<'a> for FDIter<'a> {
                 field_count,
                 header_start,
                 header_end,
+                self.header_rl_offset,
+                oversize_end,
             )
         }
         .into()
@@ -684,5 +733,132 @@ where
             self.pos -= r.field_count;
         }
         res
+    }
+}
+
+impl<'a> FDIterMut<'a> {
+    pub fn from_start(fd: &'a mut FieldData) -> Self {
+        let first_header = fd.header.first();
+        Self {
+            fd,
+            data: 0,
+            header_idx: 0,
+            header_rl_offset: 0,
+            header_rl_total: first_header.map_or(0, |h| h.run_length),
+            header_fmt: first_header.map(|h| h.fmt).unwrap_or_default(),
+        }
+    }
+    pub fn from_end(fd: &'a mut FieldData) -> Self {
+        Self {
+            fd,
+            data: fd.data.len(),
+            header_idx: fd.header.len(),
+            header_rl_offset: 0,
+            header_rl_total: 0,
+            header_fmt: Default::default(),
+        }
+    }
+    pub fn as_fd_iter(&mut self) -> &mut FDIter<'a> {
+        unsafe { std::mem::transmute(self) }
+    }
+}
+
+impl<'a> FDIterator<'a> for FDIterMut<'a> {
+    fn is_next_valid(&self) -> bool {
+        self.as_fd_iter().is_next_valid()
+    }
+
+    fn get_next_field_format(&self) -> FieldValueFormat {
+        self.as_fd_iter().get_next_field_format()
+    }
+
+    fn get_next_field_data(&self) -> usize {
+        self.as_fd_iter().get_next_field_data()
+    }
+
+    fn get_next_header(&self) -> FieldValueHeader {
+        self.as_fd_iter().get_next_header()
+    }
+
+    fn get_next_header_data(&self) -> usize {
+        self.as_fd_iter().get_next_header_data()
+    }
+
+    fn get_next_header_index(&self) -> usize {
+        self.as_fd_iter().get_next_header_index()
+    }
+
+    fn get_next_typed_field(&mut self) -> FDTypedField<'a> {
+        self.as_fd_iter().get_next_typed_field()
+    }
+
+    fn field_run_length_fwd(&mut self) -> RunLength {
+        self.as_fd_iter().field_run_length_fwd()
+    }
+
+    fn field_run_length_bwd(&mut self) -> RunLength {
+        self.as_fd_iter().field_run_length_bwd()
+    }
+
+    fn next_header(&mut self) -> RunLength {
+        self.as_fd_iter().next_header()
+    }
+
+    fn prev_header(&mut self) -> RunLength {
+        self.as_fd_iter().prev_header()
+    }
+
+    fn next_field(&mut self) -> RunLength {
+        self.as_fd_iter().next_field()
+    }
+
+    fn prev_field(&mut self) -> RunLength {
+        self.as_fd_iter().prev_field()
+    }
+
+    fn next_n_fields_with_fmt(
+        &mut self,
+        n: usize,
+        kind: Option<FieldValueKind>,
+        flag_mask: FieldValueFlags,
+        flags: FieldValueFlags,
+    ) -> usize {
+        self.as_fd_iter()
+            .next_n_fields_with_fmt(n, kind, flag_mask, flags)
+    }
+
+    fn prev_n_fields_with_fmt(
+        &mut self,
+        n: usize,
+        kind: Option<FieldValueKind>,
+        flag_mask: FieldValueFlags,
+        flags: FieldValueFlags,
+    ) -> usize {
+        self.as_fd_iter()
+            .prev_n_fields_with_fmt(n, kind, flag_mask, flags)
+    }
+
+    fn typed_field_fwd(&mut self, limit: RunLength) -> Option<FDTypedField<'a>> {
+        self.as_fd_iter().typed_field_fwd(limit)
+    }
+
+    fn typed_field_bwd(&mut self, limit: RunLength) -> Option<FDTypedField<'a>> {
+        self.as_fd_iter().typed_field_bwd(limit)
+    }
+
+    fn typed_range_fwd(
+        &mut self,
+        limit: usize,
+        flag_mask: FieldValueFlags,
+    ) -> Option<FDTypedRange<'a>> {
+        self.as_fd_iter().typed_range_fwd(limit, flag_mask)
+    }
+
+    fn typed_range_bwd(
+        &mut self,
+        limit: usize,
+        flag_mask: FieldValueFlags,
+    ) -> Option<FDTypedRange<'a>> {
+        self.as_fd_iter().typed_range_bwd(limit, flag_mask)
     }
 }

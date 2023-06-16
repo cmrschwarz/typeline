@@ -241,7 +241,7 @@ pub fn handle_tf_regex_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, re
             FDTypedSlice::TextInline(text) => {
                 let mut data_start = 0usize;
                 let mut data_end = 0usize;
-                for h in range.headers.iter() {
+                for (i, h) in range.headers.iter().enumerate() {
                     data_end += h.size as usize;
                     if let Some((regex, capture_locs)) = &mut re.text_only_regex {
                         (field_index, drop_count, fd_iter) = match_regex_inner!(
@@ -250,7 +250,7 @@ pub fn handle_tf_regex_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, re
                             re,
                             &text[data_start..data_end],
                             input_field_id,
-                            h.run_length,
+                            range.run_length(i),
                             regex,
                             capture_locs,
                             field_index,
@@ -264,7 +264,7 @@ pub fn handle_tf_regex_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, re
                             re,
                             &text[data_start..data_end].as_bytes(),
                             input_field_id,
-                            h.run_length,
+                            range.run_length(i),
                             &mut re.regex,
                             &mut re.capture_locs,
                             field_index,
@@ -279,7 +279,7 @@ pub fn handle_tf_regex_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, re
                 let mut data_start = 0usize;
                 let mut data_end = 0usize;
 
-                for h in range.headers.iter() {
+                for (i, h) in range.headers.iter().enumerate() {
                     data_end += h.size as usize;
                     (field_index, drop_count, fd_iter) = match_regex_inner!(
                         sess,
@@ -287,7 +287,7 @@ pub fn handle_tf_regex_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, re
                         re,
                         &bytes[data_start..data_end],
                         input_field_id,
-                        h.run_length,
+                        range.run_length(i),
                         &mut re.regex,
                         &mut re.capture_locs,
                         field_index,

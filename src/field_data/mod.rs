@@ -25,7 +25,10 @@ use crate::{
     worker_thread_session::FieldId,
 };
 
-use self::{field_data_iterator::FDIter, field_value_flags::SHARED_VALUE};
+use self::{
+    field_data_iterator::{FDIter, FDIterMut, FDIterator, FDTypedSlice},
+    field_value_flags::SHARED_VALUE,
+};
 
 //if the u32 overflows we just split into two values
 pub type RunLength = u32;
@@ -141,28 +144,29 @@ union FieldValueUnion {
 }
 
 pub const MAX_FIELD_ALIGN: usize = align_of::<FieldValueUnion>();
-
-const_assert!(MAX_FIELD_ALIGN.is_power_of_two() && MAX_FIELD_ALIGN <= 16);
 pub const FIELD_ALIGN_MASK: usize = !MAX_FIELD_ALIGN;
 
 pub type FieldValueSize = u16;
-pub type FieldValueFlags = field_value_flags::Type;
 
 pub mod field_value_flags {
-    pub type Type = u8;
+    use super::MAX_FIELD_ALIGN;
+    pub type FieldValueFlags = u8;
     //offset must be zero so we don't have to shift
-    pub const ALIGNMENT_AFTER: Type = 0xF;
+    const_assert!(MAX_FIELD_ALIGN.is_power_of_two() && MAX_FIELD_ALIGN <= 16);
+    pub const ALIGNMENT_AFTER: FieldValueFlags = 0xF; //consumes offsets 0 through 3
+    pub const SHARED_VALUE_OFFSET: FieldValueFlags = 5;
+    pub const BYTES_ARE_UTF8_OFFSET: FieldValueFlags = 6;
+    pub const DELETED_OFFSET: FieldValueFlags = 7;
 
-    pub const SHARED_VALUE_OFFSET: Type = 4;
-    pub const BYTES_ARE_UTF8_OFFSET: Type = 5;
+    pub const SHARED_VALUE: FieldValueFlags = 1 << SHARED_VALUE_OFFSET;
+    pub const BYTES_ARE_UTF8: FieldValueFlags = 1 << BYTES_ARE_UTF8_OFFSET;
+    pub const DELETED: FieldValueFlags = 1 << DELETED;
 
-    pub const SHARED_VALUE: Type = 1 << SHARED_VALUE_OFFSET;
-    pub const BYTES_ARE_UTF8: Type = 1 << BYTES_ARE_UTF8_OFFSET;
+    pub const DEFAULT: FieldValueFlags = 0;
 
-    pub const DEFAULT: Type = 0;
-
-    pub const TYPE_RELEVANT: Type = BYTES_ARE_UTF8_OFFSET;
+    pub const TYPE_RELEVANT: FieldValueFlags = BYTES_ARE_UTF8_OFFSET;
 }
+pub use field_value_flags::FieldValueFlags;
 
 #[derive(Clone, Copy, PartialEq)]
 pub struct FieldValueFormat {
@@ -194,13 +198,13 @@ impl FieldValueFormat {
         self.flags & field_value_flags::SHARED_VALUE != 0
     }
     pub fn set_shared_value(&mut self, val: bool) {
-        self.flags |= (val as field_value_flags::Type) << field_value_flags::SHARED_VALUE_OFFSET;
+        self.flags |= (val as FieldValueFlags) << field_value_flags::SHARED_VALUE_OFFSET;
     }
     pub fn bytes_are_utf8(self) -> bool {
         self.flags & field_value_flags::BYTES_ARE_UTF8 != 0
     }
     pub fn set_bytes_are_utf8(&mut self, val: bool) {
-        self.flags |= (val as field_value_flags::Type) << field_value_flags::BYTES_ARE_UTF8_OFFSET;
+        self.flags |= (val as FieldValueFlags) << field_value_flags::BYTES_ARE_UTF8_OFFSET;
     }
     pub fn alignment_after(self) -> usize {
         (self.flags & field_value_flags::ALIGNMENT_AFTER) as usize
@@ -208,6 +212,12 @@ impl FieldValueFormat {
     pub fn set_alignment_after(&mut self, val: usize) {
         debug_assert!(val & !(field_value_flags::ALIGNMENT_AFTER as usize) == 0);
         self.flags |= (val as u8) & field_value_flags::ALIGNMENT_AFTER;
+    }
+    pub fn deleted(self) -> bool {
+        self.flags & field_value_flags::DELETED != 0
+    }
+    pub fn set_deleted(&mut self, val: bool) {
+        self.flags |= (val as FieldValueFlags) << field_value_flags::DELETED_OFFSET;
     }
 }
 
@@ -265,39 +275,136 @@ impl Clone for FieldData {
 
 pub const INLINE_STR_MAX_LEN: usize = 8192;
 
+unsafe fn drop_slice<T>(slice: &[T]) {
+    let droppable = std::mem::transmute::<&[T], &[ManuallyDrop<T>]>(slice);
+    for e in droppable.iter_mut() {
+        ManuallyDrop::drop(e);
+    }
+}
+
 impl FieldData {
     pub fn clear(&mut self) {
-        self.drop_n(usize::MAX);
-    }
-    pub fn drop_n(&mut self, n: usize) {
-        let mut remaining_size = self.data.len();
-        let mut remaining_drops = n;
-        let mut header_idx = self.header.len();
-        while remaining_drops > 0 && remaining_size > 0 {
-            header_idx -= 1;
-            let h = &mut self.header[header_idx];
-            if h.run_length as usize > remaining_drops {
-                h.run_length -= remaining_drops as RunLength;
-                break;
-            }
-            remaining_drops -= h.run_length as usize;
-            let drop_count = if h.shared_value() { 1 } else { h.run_length };
-            if h.kind.needs_drop() {
-                for _ in 0..drop_count {
-                    remaining_size -= h.size as usize;
-                    unsafe {
-                        drop_data(*h, self.data.as_mut_ptr().add(remaining_size));
-                    }
+        let mut iter = self.iter();
+        while let Some(range) = iter.typed_range_fwd(usize::MAX, 0) {
+            unsafe {
+                match range.data {
+                    FDTypedSlice::Unset(_) => (),
+                    FDTypedSlice::Null(_) => (),
+                    FDTypedSlice::Integer(_) => (),
+                    FDTypedSlice::BytesInline(_) => (),
+                    FDTypedSlice::TextInline(_) => (),
+                    FDTypedSlice::StreamValueId(s) => drop_slice(s),
+                    FDTypedSlice::Reference(s) => drop_slice(s),
+                    FDTypedSlice::Error(s) => drop_slice(s),
+                    FDTypedSlice::Html(s) => drop_slice(s),
+                    FDTypedSlice::Object(s) => drop_slice(s),
                 }
-            } else {
-                remaining_size -= drop_count as usize * h.size as usize;
-            }
-            if h.kind.needs_alignment() {
-                remaining_size -= remaining_size % MAX_FIELD_ALIGN;
             }
         }
-        self.header.truncate(header_idx);
-        self.data.truncate(remaining_size);
+        self.header.clear();
+        self.data.clear();
+    }
+    pub fn adjust_deletion_header_bounds(
+        &mut self,
+        first_header_idx: usize,
+        first_header_oversize: RunLength,
+        last_header_idx: usize,
+        last_header_oversize: RunLength,
+    ) {
+        let mut headers_to_insert = 0;
+        if first_header_oversize > 0 {
+            headers_to_insert += 1;
+        }
+        if last_header_oversize > 0 {
+            headers_to_insert += 1;
+        }
+        if headers_to_insert == 0 {
+            return;
+        }
+        if headers_to_insert == 1 {
+            if first_header_oversize > 0 {
+                let h = &mut self.header[first_header_idx];
+                self.header.insert(
+                    first_header_idx + 1,
+                    FieldValueHeader {
+                        fmt: h.fmt,
+                        run_length: h.run_length - first_header_oversize,
+                    },
+                );
+                h.run_length = first_header_oversize;
+                h.set_deleted(false);
+                return;
+            }
+            let h = &mut self.header[last_header_idx];
+            h.run_length -= last_header_oversize;
+            let mut fmt = h.fmt;
+            fmt.set_deleted(false);
+            self.header.insert(
+                last_header_idx + 1,
+                FieldValueHeader {
+                    fmt: h.fmt,
+                    run_length: last_header_oversize,
+                },
+            );
+            return;
+        }
+        unsafe {
+            self.header.reserve(2);
+            let buf = self.header.as_mut_ptr();
+            std::ptr::copy(
+                buf.add(last_header_idx),
+                buf.add(last_header_idx + 2),
+                self.header.len() - last_header_idx,
+            );
+            std::ptr::copy(
+                buf.add(first_header_idx),
+                buf.add(first_header_idx + 1),
+                last_header_idx - first_header_idx,
+            );
+            *buf.add(last_header_idx + 1) = *buf.add(last_header_idx + 2);
+        }
+        self.header[first_header_idx].set_deleted(false);
+        self.header[first_header_idx].run_length = first_header_oversize;
+        self.header[first_header_idx + 1].run_length -= first_header_oversize;
+
+        self.header[last_header_idx + 1].run_length -= last_header_oversize;
+        self.header[last_header_idx + 2].set_deleted(false);
+        self.header[last_header_idx + 2].run_length = last_header_oversize;
+    }
+    pub fn delete_n_bwd<'a>(mut iter: FDIterMut<'a>, n: usize) -> FDIterMut<'a> {
+        if n == 0 {
+            return iter;
+        }
+        let mut drops_rem = n;
+        let mut last_header_idx;
+        let mut first_header_oversize;
+        let mut last_header_oversize;
+        let mut last = true;
+        while let Some(range) = iter.typed_range_bwd(drops_rem, 0) {
+            if last {
+                last_header_idx = unsafe {
+                    (range.headers.last().unwrap_unchecked() as *const FieldValueHeader)
+                        .offset_from(iter.fd.header.as_ptr()) as usize
+                };
+                last_header_oversize = range.first_header_run_length_oversize;
+                last = false;
+            }
+            drops_rem -= range.field_count;
+            for h in range.headers.iter_mut() {
+                h.set_deleted(true);
+            }
+            first_header_oversize = range.first_header_run_length_oversize;
+        }
+        debug_assert!(drops_rem == 0);
+
+        let first_header_idx = iter.get_next_header_index();
+        iter.fd.adjust_deletion_header_bounds(
+            first_header_idx,
+            first_header_oversize,
+            last_header_idx,
+            last_header_oversize,
+        );
+        iter
     }
     pub fn dup_nth(&mut self, n: usize, new_run_len: RunLength) {
         let mut hi = self.header.len();
