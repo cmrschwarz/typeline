@@ -7,10 +7,10 @@ use regex::bytes;
 
 use crate::{
     field_data::field_data_iterator::{FDIterator, FDTypedSlice},
-    field_data::{field_value_flags, FieldReference, RunLength},
+    field_data::{field_value_flags, FieldReference},
     options::argument::CliArgIdx,
     utils::string_store::{StringStore, StringStoreEntry},
-    worker_thread_session::{FieldId, JobData, MatchSetId},
+    worker_thread_session::{FDIterWithRef, FieldId, JobData, MatchSetId},
 };
 
 use super::{
@@ -159,30 +159,32 @@ pub fn setup_tf_regex<'a>(
 }
 
 macro_rules! match_regex_inner {
-    (   $sess: ident,           // &JobData
-        $tf_id: ident,          // TransformId
-        $re: ident,             // &mut TfRegex
-        $input: ident,          // &str / &u8
-        $input_field_id: ident, // usize
-        $run_length: ident,     // usize
-        $regex: ident,          // &mut Regex / &mut bytes::Regex
-        $capture_locs: ident,   // &mut CaptureLocations / &mut bytes::CaptureLocations
-        $field_offset: ident,   // usize
-        $drop_count: ident      // usize
-    ) => {
-        let mut match_count = 0;
+    (   $sess: expr,             // &JobData
+        $tf_id: expr,            // TransformId
+        $re: expr,               // &mut TfRegex
+        $input: expr,            // &str / &u8
+        $input_field_id: expr,   // usize
+        $run_length: expr,       // usize
+        $regex: expr,            // &mut Regex / &mut bytes::Regex
+        $capture_locs: expr,     // &mut CaptureLocations / &mut bytes::CaptureLocations
+        $field_index: expr,      // usize
+        $drop_count: expr,       // usize
+        $fd_iter_with_ref: expr  // FDIterWithRef
+    ) => {{
         let mut end_of_last_match = 0;
+        let mut fd_iter = $fd_iter_with_ref;
+        let mut fidx = $field_index;
+        let mut dc = $drop_count;
+        let mut match_count = 0;
         while $regex
-            .captures_read_at($capture_locs, &$input, end_of_last_match)
+            .captures_read_at($capture_locs, $input, end_of_last_match)
             .is_some()
         {
+            match_count += 1;
             if $drop_count > 0 {
-                $sess.entry_data.drop_n_entries_at(
-                    &$sess.tf_mgr,
-                    $tf_id,
-                    $field_offset,
-                    $drop_count,
-                )
+                fd_iter = $sess.drop_n_entries_at($tf_id, $input_field_id, dc, fd_iter);
+                fidx -= dc;
+                dc = 0;
             }
             for c in 0..$capture_locs.len() {
                 let field = &mut $sess.entry_data.fields[$re.capture_group_fields[c]]
@@ -201,9 +203,8 @@ macro_rules! match_regex_inner {
                     field.push_null($run_length as usize);
                 }
             }
-            match_count += 1;
             if !$re.multimatch {
-                return match_count;
+                break;
             }
             let end = $capture_locs.get(0).unwrap().1;
             if end == end_of_last_match {
@@ -212,81 +213,29 @@ macro_rules! match_regex_inner {
                 end_of_last_match = end;
             }
         }
-        return match_count;
-    };
-}
-
-pub fn match_regex_bytes(
-    sess: &JobData<'_>,
-    tf_id: TransformId,
-    re: &mut TfRegex,
-    input: &[u8],
-    input_field_id: FieldId,
-    run_length: RunLength,
-    field_offset: usize,
-    drop_count: usize,
-) -> usize {
-    let regex = &mut re.regex;
-    let capture_locs = &mut re.capture_locs;
-    match_regex_inner!(
-        sess,
-        tf_id,
-        re,
-        input,
-        input_field_id,
-        run_length,
-        regex,
-        capture_locs,
-        field_offset,
-        drop_count
-    );
-}
-
-pub fn match_regex_text(
-    sess: &JobData<'_>,
-    tf_id: TransformId,
-    re: &mut TfRegex,
-    input: &str,
-    input_field_id: FieldId,
-    run_length: RunLength,
-    field_offset: usize,
-    drop_count: usize,
-) -> usize {
-    if let Some((regex, capture_locs)) = &mut re.text_only_regex {
-        match_regex_inner!(
-            sess,
-            tf_id,
-            re,
-            input,
-            input_field_id,
-            run_length,
-            regex,
-            capture_locs,
-            field_offset,
-            drop_count
-        );
-    }
-    match_regex_bytes(
-        sess,
-        tf_id,
-        re,
-        input.as_bytes(),
-        input_field_id,
-        run_length,
-        field_offset,
-        drop_count,
-    )
+        fidx += match_count;
+        if match_count == 0 {
+            fd_iter = $sess.drop_n_entries_at($tf_id, $input_field_id, dc, fd_iter);
+            fidx -= dc;
+            dc = 0;
+        }
+        (fidx, dc, fd_iter)
+    }};
 }
 
 pub fn handle_tf_regex_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRegex) {
     let (batch, input_field_id) = sess.tf_mgr.claim_batch(tf_id);
     let op_id = sess.tf_mgr.transforms[tf_id].op_id;
-    let input_field = sess.entry_data.fields[input_field_id].borrow();
 
-    let mut iter = input_field.field_data.iter();
+    let input_field = sess.entry_data.fields[input_field_id].borrow();
+    let mut fd_iter = FDIterWithRef::new(input_field);
+
     let mut field_index = 0;
     let mut drop_count = 0;
-    while let Some(range) = iter.typed_range_fwd(usize::MAX, field_value_flags::BYTES_ARE_UTF8) {
+    while let Some(range) = fd_iter
+        .iter
+        .typed_range_fwd(usize::MAX, field_value_flags::BYTES_ARE_UTF8)
+    {
         field_index += range.field_count;
         match range.data {
             FDTypedSlice::TextInline(text) => {
@@ -294,21 +243,34 @@ pub fn handle_tf_regex_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, re
                 let mut data_end = 0usize;
                 for h in range.headers.iter() {
                     data_end += h.size as usize;
-                    let match_count = match_regex_text(
-                        sess,
-                        tf_id,
-                        re,
-                        &text[data_start..data_end],
-                        input_field_id,
-                        h.run_length,
-                        field_index,
-                        drop_count,
-                    );
-                    if match_count == 0 {
-                        drop_count += 1;
+                    if let Some((regex, capture_locs)) = &mut re.text_only_regex {
+                        (field_index, drop_count, fd_iter) = match_regex_inner!(
+                            sess,
+                            tf_id,
+                            re,
+                            &text[data_start..data_end],
+                            input_field_id,
+                            h.run_length,
+                            regex,
+                            capture_locs,
+                            field_index,
+                            drop_count,
+                            fd_iter
+                        );
                     } else {
-                        drop_count = 0;
-                        field_index += match_count - 1;
+                        (field_index, drop_count, fd_iter) = match_regex_inner!(
+                            sess,
+                            tf_id,
+                            re,
+                            &text[data_start..data_end].as_bytes(),
+                            input_field_id,
+                            h.run_length,
+                            &mut re.regex,
+                            &mut re.capture_locs,
+                            field_index,
+                            drop_count,
+                            fd_iter
+                        );
                     }
                     data_start = data_end;
                 }
@@ -316,17 +278,21 @@ pub fn handle_tf_regex_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, re
             FDTypedSlice::BytesInline(bytes) => {
                 let mut data_start = 0usize;
                 let mut data_end = 0usize;
+
                 for h in range.headers.iter() {
                     data_end += h.size as usize;
-                    let match_count = match_regex_bytes(
+                    (field_index, drop_count, fd_iter) = match_regex_inner!(
                         sess,
                         tf_id,
                         re,
                         &bytes[data_start..data_end],
                         input_field_id,
                         h.run_length,
+                        &mut re.regex,
+                        &mut re.capture_locs,
                         field_index,
                         drop_count,
+                        fd_iter
                     );
                     data_start = data_end;
                 }

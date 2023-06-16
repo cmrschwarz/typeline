@@ -7,6 +7,7 @@ use std::{
 
 use is_terminal::IsTerminal;
 use nonmax::NonMaxUsize;
+use std::ops::Deref;
 
 use crate::{
     chain::BufferingMode,
@@ -99,6 +100,21 @@ pub struct JobData<'a> {
     pub scratch_memory_2: Vec<&'static u8>,
 }
 
+pub struct FDIterWithRef<'a> {
+    pub field: std::cell::Ref<'a, Field>,
+    pub iter: FDIter<'a>,
+}
+
+impl<'a> FDIterWithRef<'a> {
+    pub fn new(field: std::cell::Ref<'a, Field>) -> Self {
+        let field_ptr = field.deref() as *const Field;
+        Self {
+            field,
+            iter: unsafe { (*field_ptr).field_data.iter() },
+        }
+    }
+}
+
 pub type EnterStreamModeFlag = bool;
 pub type StreamProducerDoneFlag = bool;
 
@@ -189,15 +205,17 @@ impl EntryData {
     pub fn push_entry_error(&mut self, _ms_id: MatchSetId, _err: OperatorApplicationError) {
         todo!()
     }
-    pub fn drop_n_entries_at<'a>(
-        &mut self,
-        tf_mgf: &TransformManager,
-        tf_id: TransformId,
-        field_idx: usize,
-        drop_count: usize,
-        preserve_iter: FDIter<'a>,
-    ) -> FDIter<'a> {
-        preserve_iter
+}
+
+impl<'a> JobData<'a> {
+    pub fn drop_n_entries_at(
+        &self,
+        _tf_id: TransformId,
+        _field_idx: FieldId,
+        _drop_count: usize,
+        _preserve_iter: FDIterWithRef<'a>,
+    ) -> FDIterWithRef<'a> {
+        todo!()
     }
 }
 
