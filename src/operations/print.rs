@@ -5,7 +5,7 @@ use is_terminal::IsTerminal;
 
 use crate::{
     field_data::{
-        field_data_iterator::{FDIterator, FDTypedSlice, FDTypedValue},
+        fd_iter::{FDIterator, FDTypedSlice, FDTypedValue},
         field_value_flags, FieldReference,
     },
     options::argument::CliArgIdx,

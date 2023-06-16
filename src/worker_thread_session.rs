@@ -7,14 +7,12 @@ use std::{
 
 use is_terminal::IsTerminal;
 use nonmax::NonMaxUsize;
-use std::ops::Deref;
 
 use crate::{
     chain::BufferingMode,
     context::SessionData,
     document::DocumentSource,
-    field_data::field_data_iterator::FDIter,
-    field_data::{EntryId, FieldData},
+    field_data::{fd_iter::FDIterMut, EntryId, FieldData},
     operations::{
         errors::{OperatorApplicationError, OperatorSetupError},
         file_reader::{
@@ -98,21 +96,6 @@ pub struct JobData<'a> {
 
     pub scratch_memory_1: Vec<&'static u8>,
     pub scratch_memory_2: Vec<&'static u8>,
-}
-
-pub(crate) struct FDIterWithRef<'a> {
-    pub field: std::cell::Ref<'a, Field>,
-    pub iter: FDIter<'a>,
-}
-
-impl<'a> FDIterWithRef<'a> {
-    pub fn new(field: std::cell::Ref<'a, Field>) -> Self {
-        let field_ptr = field.deref() as *const Field;
-        Self {
-            field,
-            iter: unsafe { (*field_ptr).field_data.iter() },
-        }
-    }
 }
 
 pub type EnterStreamModeFlag = bool;
@@ -208,13 +191,13 @@ impl EntryData {
 }
 
 impl<'a> JobData<'a> {
-    pub fn drop_n_entries_at(
+    pub(crate) fn drop_n_entries_at(
         &self,
         _tf_id: TransformId,
         _field_idx: FieldId,
         _drop_count: usize,
-        _preserve_iter: FDIterWithRef<'a>,
-    ) -> FDIterWithRef<'a> {
+        _preserve_iter: FDIterMut<'a>,
+    ) -> FDIterMut<'a> {
         todo!()
     }
 }

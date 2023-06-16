@@ -6,11 +6,14 @@ use regex;
 use regex::bytes;
 
 use crate::{
-    field_data::field_data_iterator::{FDIterator, FDTypedSlice},
-    field_data::{field_value_flags, FieldReference},
+    field_data::fd_iter::FDTypedSlice,
+    field_data::{
+        fd_iter::{FDIterMut, FDIterator},
+        field_value_flags, FieldReference,
+    },
     options::argument::CliArgIdx,
     utils::string_store::{StringStore, StringStoreEntry},
-    worker_thread_session::{FDIterWithRef, FieldId, JobData, MatchSetId},
+    worker_thread_session::{FieldId, JobData, MatchSetId},
 };
 
 use super::{
@@ -215,7 +218,7 @@ macro_rules! match_regex_inner {
         }
         fidx += match_count;
         if match_count == 0 {
-            fd_iter = $sess.drop_n_entries_at($tf_id, $input_field_id, dc, fd_iter);
+            fd_iter = $sess.drop_n_entries_at($tf_id, $input_field_id, dc + 1, fd_iter);
             fidx -= dc;
             dc = 0;
         }
@@ -227,15 +230,12 @@ pub fn handle_tf_regex_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, re
     let (batch, input_field_id) = sess.tf_mgr.claim_batch(tf_id);
     let op_id = sess.tf_mgr.transforms[tf_id].op_id;
 
-    let input_field = sess.entry_data.fields[input_field_id].borrow();
-    let mut fd_iter = FDIterWithRef::new(input_field);
+    let mut input_field = sess.entry_data.fields[input_field_id].borrow_mut();
+    let mut fd_iter = FDIterMut::from_start(&mut input_field.field_data);
 
     let mut field_index = 0;
     let mut drop_count = 0;
-    while let Some(range) = fd_iter
-        .iter
-        .typed_range_fwd(usize::MAX, field_value_flags::BYTES_ARE_UTF8)
-    {
+    while let Some(range) = fd_iter.typed_range_fwd(usize::MAX, field_value_flags::BYTES_ARE_UTF8) {
         field_index += range.field_count;
         match range.data {
             FDTypedSlice::TextInline(text) => {

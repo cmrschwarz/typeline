@@ -6,27 +6,29 @@
 // some of which is very repetitive. So far, nobody could be bothered
 // with annotating every little piece of it.
 
-pub mod field_data_iterator;
+pub mod fd_iter;
+pub mod fd_iter_hall;
 
 use std::{
     collections::HashMap,
     iter,
     mem::{align_of, size_of, ManuallyDrop},
     ops::DerefMut,
-    ptr::drop_in_place,
-    slice, u8,
+    ptr, slice, u8,
 };
 
 use std::ops::Deref;
 
 use crate::{
-    field_data::field_value_flags::TYPE_RELEVANT, operations::errors::OperatorApplicationError,
-    stream_field_data::StreamValueId, utils::string_store::StringStoreEntry,
+    field_data::{fd_iter::FDTypedValue, field_value_flags::TYPE_RELEVANT},
+    operations::errors::OperatorApplicationError,
+    stream_field_data::StreamValueId,
+    utils::string_store::StringStoreEntry,
     worker_thread_session::FieldId,
 };
 
 use self::{
-    field_data_iterator::{FDIter, FDIterMut, FDIterator, FDTypedSlice},
+    fd_iter::{FDIter, FDIterMut, FDIterator, FDTypedSlice},
     field_value_flags::SHARED_VALUE,
 };
 
@@ -160,7 +162,7 @@ pub mod field_value_flags {
 
     pub const SHARED_VALUE: FieldValueFlags = 1 << SHARED_VALUE_OFFSET;
     pub const BYTES_ARE_UTF8: FieldValueFlags = 1 << BYTES_ARE_UTF8_OFFSET;
-    pub const DELETED: FieldValueFlags = 1 << DELETED;
+    pub const DELETED: FieldValueFlags = 1 << DELETED_OFFSET;
 
     pub const DEFAULT: FieldValueFlags = 0;
 
@@ -276,7 +278,7 @@ impl Clone for FieldData {
 pub const INLINE_STR_MAX_LEN: usize = 8192;
 
 unsafe fn drop_slice<T>(slice: &[T]) {
-    let droppable = std::mem::transmute::<&[T], &[ManuallyDrop<T>]>(slice);
+    let droppable = slice::from_raw_parts_mut(slice.as_ptr() as *mut ManuallyDrop<T>, slice.len());
     for e in droppable.iter_mut() {
         ManuallyDrop::drop(e);
     }
@@ -304,7 +306,7 @@ impl FieldData {
         self.header.clear();
         self.data.clear();
     }
-    pub fn adjust_deletion_header_bounds(
+    fn adjust_deletion_header_bounds(
         &mut self,
         first_header_idx: usize,
         first_header_oversize: RunLength,
@@ -323,7 +325,7 @@ impl FieldData {
         }
         if headers_to_insert == 1 {
             if first_header_oversize > 0 {
-                let h = &mut self.header[first_header_idx];
+                let h = self.header[first_header_idx];
                 self.header.insert(
                     first_header_idx + 1,
                     FieldValueHeader {
@@ -331,14 +333,12 @@ impl FieldData {
                         run_length: h.run_length - first_header_oversize,
                     },
                 );
-                h.run_length = first_header_oversize;
-                h.set_deleted(false);
+                self.header[first_header_idx].run_length = first_header_oversize;
+                self.header[first_header_idx].set_deleted(false);
                 return;
             }
-            let h = &mut self.header[last_header_idx];
-            h.run_length -= last_header_oversize;
-            let mut fmt = h.fmt;
-            fmt.set_deleted(false);
+            let mut h = self.header[last_header_idx];
+            h.set_deleted(false);
             self.header.insert(
                 last_header_idx + 1,
                 FieldValueHeader {
@@ -346,6 +346,7 @@ impl FieldData {
                     run_length: last_header_oversize,
                 },
             );
+            self.header[last_header_idx].run_length -= last_header_oversize;
             return;
         }
         unsafe {
@@ -376,22 +377,25 @@ impl FieldData {
             return iter;
         }
         let mut drops_rem = n;
-        let mut last_header_idx;
-        let mut first_header_oversize;
-        let mut last_header_oversize;
         let mut last = true;
+        // we have to initialize these because rust can't know that we
+        // eliminated the empty range through the check above
+        let mut last_header_idx = 0;
+        let mut first_header_oversize = 0;
+        let mut last_header_oversize = 0;
         while let Some(range) = iter.typed_range_bwd(drops_rem, 0) {
+            let header_idx = unsafe {
+                (range.headers.last().unwrap_unchecked() as *const FieldValueHeader)
+                    .offset_from(iter.fd.header.as_ptr()) as usize
+            };
             if last {
-                last_header_idx = unsafe {
-                    (range.headers.last().unwrap_unchecked() as *const FieldValueHeader)
-                        .offset_from(iter.fd.header.as_ptr()) as usize
-                };
+                last_header_idx = header_idx;
                 last_header_oversize = range.first_header_run_length_oversize;
                 last = false;
             }
             drops_rem -= range.field_count;
-            for h in range.headers.iter_mut() {
-                h.set_deleted(true);
+            for i in 0..range.headers.len() {
+                iter.fd.header[i].set_deleted(true);
             }
             first_header_oversize = range.first_header_run_length_oversize;
         }
@@ -406,46 +410,67 @@ impl FieldData {
         );
         iter
     }
-    pub fn dup_nth(&mut self, n: usize, new_run_len: RunLength) {
-        let mut hi = self.header.len();
-        let mut i = 0;
-        while i < n {
-            hi -= 1;
-            i += self.header[hi].run_length as usize;
-        }
-        let h = &mut self.header[hi];
-        let mut tgt = *h;
-        tgt.run_length = new_run_len;
-        debug_assert!(h.run_length > 0 && (h.shared_value() || h.run_length > 1));
+    pub fn dup_nth(&mut self, n: usize, mut added_run_len: RunLength) {
+        let mut iter = FDIterMut::from_start(self);
+        let skipped_fields = iter.next_n_fields(n);
+        assert!(n == skipped_fields);
+        let hi = iter.get_next_header_index();
+        let h = &mut iter.fd.header[hi];
+
         if h.shared_value() {
-            tgt.run_length -= 1;
-            if let Some(rl) = h.run_length.checked_add(tgt.run_length) {
-                h.run_length = rl;
-            } else {
-                self.header.insert(hi, tgt);
+            let free_rl = RunLength::MAX - h.run_length;
+            if free_rl > added_run_len {
+                h.run_length += free_rl;
+                return;
             }
-        } else if i == n + 1 {
-            //nth is first of this header, insert it at the start
-            h.run_length -= 1;
-            if h.run_length == 1 {
-                h.set_shared_value(true);
+            h.run_length += free_rl;
+            added_run_len -= free_rl;
+            //TODO: we could check the next header here...
+        } else if h.run_length == 1 && added_run_len != RunLength::MAX {
+            h.run_length += added_run_len;
+            h.set_shared_value(true);
+            return;
+        }
+        let mut hn = *h;
+        hn.run_length = added_run_len;
+        iter.fd.header.insert(hi + 1, hn);
+        let data_end = iter.data + hn.data_size();
+        let data_end_padded = data_end + hn.alignment_after();
+        let mut data_end_after_insert = data_end + hn.size as usize;
+        let misalign_before = data_end_padded & FIELD_ALIGN_MASK;
+        if (data_end_after_insert & FIELD_ALIGN_MASK) != misalign_before {
+            data_end_after_insert =
+                ((data_end_after_insert + FIELD_ALIGN_MASK) & FIELD_ALIGN_MASK) + misalign_before;
+        }
+        let target_loc;
+        unsafe {
+            let buf = iter.fd.data.as_mut_ptr();
+            std::ptr::copy(
+                buf.add(data_end_padded),
+                buf.add(data_end_after_insert),
+                iter.fd.data.len() - data_end_padded,
+            );
+            target_loc = buf.add(data_end);
+
+            let fd = iter.get_next_typed_field();
+            match fd.value {
+                FDTypedValue::Unset(_) => (),
+                FDTypedValue::Null(_) => (),
+                FDTypedValue::Integer(v) => ptr::write(target_loc as *mut i64, v),
+                FDTypedValue::StreamValueId(v) => ptr::write(target_loc as *mut usize, v),
+                FDTypedValue::Reference(v) => ptr::write(target_loc as *mut FieldReference, *v),
+                FDTypedValue::Error(v) => {
+                    ptr::write(target_loc as *mut OperatorApplicationError, v.clone())
+                }
+                FDTypedValue::Html(v) => ptr::write(target_loc as *mut Html, v.clone()),
+                FDTypedValue::Object(v) => ptr::write(target_loc as *mut Object, v.clone()),
+                FDTypedValue::BytesInline(v) => {
+                    ptr::copy(v.as_ptr(), target_loc as *mut u8, v.len())
+                }
+                FDTypedValue::TextInline(v) => {
+                    ptr::copy(v.as_ptr(), target_loc as *mut u8, v.len())
+                }
             }
-            self.header.insert(hi + 1, tgt);
-        } else if i == n + h.run_length as usize {
-            //nth is last of this header, insert it as the start
-            h.run_length -= 1;
-            if h.run_length == 1 {
-                h.set_shared_value(true);
-            }
-            self.header.insert(hi, tgt);
-        } else {
-            // nth is sandwiched in this header, insert two
-            let rl_after = (i - n) as RunLength;
-            h.run_length = rl_after;
-            hi += 1;
-            let mut tgt2 = tgt;
-            tgt2.run_length = h.run_length - rl_after;
-            self.header.splice(hi..hi, [tgt, tgt2]);
         }
     }
     // can't make this pub as it can be used to break the type layout
@@ -627,7 +652,7 @@ impl FieldData {
     unsafe fn push_fixed_size_type<T: PartialEq + Clone>(
         &mut self,
         kind: FieldValueKind,
-        flags: field_value_flags::Type,
+        flags: FieldValueFlags,
         data: T,
         run_length: usize,
         try_rle: bool,
@@ -786,22 +811,6 @@ impl FieldData {
 }
 
 pub type EntryId = usize;
-
-unsafe fn drop_data(fmt: FieldValueHeader, ptr: *mut u8) {
-    use FieldValueKind::*;
-    unsafe {
-        match fmt.kind {
-            Unset | Null | EntryId | Integer | Reference | BytesInline | StreamValueId => {
-                unreachable!()
-            }
-            BytesBuffer => drop_in_place(ptr as *mut Vec<u8>),
-            BytesFile => drop_in_place(ptr as *mut BytesBufferFile),
-            Error => drop_in_place(ptr as *mut OperatorApplicationError),
-            Html => drop_in_place(ptr as *mut crate::field_data::Html),
-            Object => drop_in_place(ptr as *mut crate::field_data::Object),
-        }
-    }
-}
 
 unsafe fn append_data_memcpy<'a, TargetApplicatorFn: FnMut(&dyn Fn(&mut FieldData))>(
     ptr: *const u8,
