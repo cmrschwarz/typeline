@@ -46,6 +46,23 @@ impl FDIterHall {
             header_fmt: h.fmt,
         }
     }
+    pub fn get_iter_mut<'a>(&'a mut self, iter_id: FDIterId) -> FDIter<'a> {
+        let state = self.iters[iter_id].get();
+        let h = self
+            .fd
+            .header
+            .get(state.header_idx)
+            .map(|h| *h)
+            .unwrap_or_default();
+        FDIter {
+            fd: &mut self.fd,
+            data: state.data,
+            header_idx: state.header_idx,
+            header_rl_offset: state.header_rl_offset,
+            header_rl_total: h.run_length,
+            header_fmt: h.fmt,
+        }
+    }
     pub fn store_iter<'a>(&'a self, iter_id: FDIterId, iter: FDIter<'a>) {
         assert!(iter.fd as *const FieldData == &self.fd as *const FieldData);
         let mut state = self.iters[iter_id].get();

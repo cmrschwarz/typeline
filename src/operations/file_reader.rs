@@ -48,6 +48,7 @@ pub fn setup_tf_file_reader_as_entry_point<'a>(
         available_batch_size: 1,
         match_set_id: ms_id,
         successor: None,
+        predecessor: None,
         desired_batch_size,
         op_id: OperatorId::MAX,
         ordering_id: tf_mgr.claim_transform_ordering_id(),

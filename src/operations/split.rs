@@ -67,6 +67,7 @@ pub fn setup_ts_split_as_entry_point<'a, 'b>(
         available_batch_size: entry_count,
         match_set_id: ms_id,
         successor: None,
+        predecessor: None,
         desired_batch_size: ops.clone().fold(usize::MAX, |minimum_batch_size, op| {
             let cid = sess.session_data.operator_bases[*op as usize].chain_id;
             minimum_batch_size.min(

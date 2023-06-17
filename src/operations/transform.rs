@@ -30,6 +30,7 @@ impl Default for TransformData<'_> {
 
 pub struct TransformState {
     pub successor: Option<TransformId>,
+    pub predecessor: Option<TransformId>,
     pub input_field: FieldId,
     pub available_batch_size: usize,
     pub desired_batch_size: usize,

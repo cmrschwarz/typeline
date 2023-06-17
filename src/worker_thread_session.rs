@@ -3,6 +3,7 @@ use std::{
     cell::RefCell,
     collections::{hash_map, BinaryHeap, HashMap, VecDeque},
     iter,
+    ops::DerefMut,
 };
 
 use is_terminal::IsTerminal;
@@ -12,7 +13,11 @@ use crate::{
     chain::BufferingMode,
     context::SessionData,
     document::DocumentSource,
-    field_data::{fd_iter_hall::FDIterHall, EntryId},
+    field_data::{
+        fd_iter::{FDIterMut, FDIterator},
+        fd_iter_hall::FDIterHall,
+        EntryId, FieldData,
+    },
     operations::{
         errors::{OperatorApplicationError, OperatorSetupError},
         file_reader::{
@@ -201,8 +206,43 @@ impl EntryData {
 }
 
 impl<'a> JobData<'a> {
-    pub(crate) fn apply_field_actions(&self, _tf_id: TransformId, _actions: &mut Vec<FieldAction>) {
-        todo!();
+    pub(crate) fn apply_field_actions(&self, tf_id: TransformId, actions: &mut Vec<FieldAction>) {
+        let mut tf = &self.tf_mgr.transforms[tf_id];
+        loop {
+            let field = &mut self.entry_data.fields[tf.input_field].borrow_mut();
+            let mut field_offset: isize = 0;
+
+            for act in actions.iter() {
+                match act.kind {
+                    FieldActionKind::Dup => {
+                        field
+                            .field_data
+                            .dup_nth((act.entry_id as isize + field_offset) as usize, act.run_len);
+                        field_offset += act.run_len as isize;
+                    }
+                    FieldActionKind::Drop => {
+                        //TODO: optimize, this is horrible
+                        let mut field_iter = FDIterMut::from_start(field.field_data.deref_mut());
+                        field_iter.next_n_fields(
+                            (act.entry_id as isize + field_offset + act.run_len as isize) as usize,
+                        );
+                        FieldData::delete_n_bwd(field_iter, act.run_len);
+                        field_offset -= act.run_len as isize;
+                    }
+                }
+            }
+            let last_field = tf.input_field;
+            loop {
+                if let Some(prev_tf_id) = self.tf_mgr.transforms[tf_id].predecessor {
+                    tf = &self.tf_mgr.transforms[prev_tf_id];
+                    if tf.input_field != last_field {
+                        break;
+                    }
+                } else {
+                    break;
+                }
+            }
+        }
     }
 }
 
@@ -515,6 +555,7 @@ impl<'a> WorkerThreadSession<'a> {
                 match_set_id: ms_id,
                 desired_batch_size: default_batch_size,
                 successor: None,
+                predecessor: prev_tf,
                 op_id: *op_id,
                 ordering_id: self.job_data.tf_mgr.claim_transform_ordering_id(),
                 is_ready: false,

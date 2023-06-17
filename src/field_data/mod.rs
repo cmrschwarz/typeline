@@ -410,7 +410,7 @@ impl FieldData {
         );
         iter
     }
-    pub fn dup_nth(&mut self, n: usize, mut added_run_len: RunLength) {
+    pub fn dup_nth(&mut self, n: usize, mut added_run_len: usize) {
         let mut iter = FDIterMut::from_start(self);
         let skipped_fields = iter.next_n_fields(n);
         assert!(n == skipped_fields);
@@ -419,20 +419,21 @@ impl FieldData {
 
         if h.shared_value() {
             let free_rl = RunLength::MAX - h.run_length;
-            if free_rl > added_run_len {
+            if free_rl as usize > added_run_len {
                 h.run_length += free_rl;
                 return;
             }
             h.run_length += free_rl;
-            added_run_len -= free_rl;
+            added_run_len -= free_rl as usize;
             //TODO: we could check the next header here...
-        } else if h.run_length == 1 && added_run_len != RunLength::MAX {
-            h.run_length += added_run_len;
+        } else if h.run_length == 1 && added_run_len < RunLength::MAX as usize {
+            h.run_length += added_run_len as RunLength;
             h.set_shared_value(true);
             return;
         }
         let mut hn = *h;
-        hn.run_length = added_run_len;
+        assert!(added_run_len < RunLength::MAX as usize); //TODO
+        hn.run_length = added_run_len as RunLength;
         iter.fd.header.insert(hi + 1, hn);
         let data_end = iter.data + hn.data_size();
         let data_end_padded = data_end + hn.alignment_after();
