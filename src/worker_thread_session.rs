@@ -12,7 +12,7 @@ use crate::{
     chain::BufferingMode,
     context::SessionData,
     document::DocumentSource,
-    field_data::{fd_iter::FDIterMut, EntryId, FieldData},
+    field_data::{fd_iter_hall::FDIterHall, EntryId},
     operations::{
         errors::{OperatorApplicationError, OperatorSetupError},
         file_reader::{
@@ -46,7 +46,7 @@ pub struct Field {
     pub name: Option<StringStoreEntry>,
     #[allow(dead_code)] //TODO
     pub working_set_idx: Option<NonMaxUsize>,
-    pub field_data: FieldData,
+    pub field_data: FDIterHall,
     pub stream_field_data: StreamFieldData,
 }
 
@@ -96,6 +96,16 @@ pub struct JobData<'a> {
 
     pub scratch_memory_1: Vec<&'static u8>,
     pub scratch_memory_2: Vec<&'static u8>,
+}
+
+pub enum FieldActionKind {
+    Dup,
+    Drop,
+}
+pub(crate) struct FieldAction {
+    pub kind: FieldActionKind,
+    pub entry_id: EntryId,
+    pub run_len: usize,
 }
 
 pub type EnterStreamModeFlag = bool;
@@ -191,14 +201,8 @@ impl EntryData {
 }
 
 impl<'a> JobData<'a> {
-    pub(crate) fn drop_n_entries_at(
-        &self,
-        _tf_id: TransformId,
-        _field_idx: FieldId,
-        _drop_count: usize,
-        _preserve_iter: FDIterMut<'a>,
-    ) -> FDIterMut<'a> {
-        todo!()
+    pub(crate) fn apply_field_actions(&self, _tf_id: TransformId, _actions: &mut Vec<FieldAction>) {
+        todo!();
     }
 }
 

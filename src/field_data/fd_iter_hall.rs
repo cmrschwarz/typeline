@@ -1,13 +1,18 @@
+use std::{
+    cell::Cell,
+    ops::{Deref, DerefMut},
+};
+
 use crate::utils::universe::Universe;
 
 use super::{fd_iter::FDIter, FieldData, RunLength};
 
-type FDIteratorId = usize;
+pub type FDIterId = usize;
 
 #[derive(Default)]
 pub struct FDIterHall {
     fd: FieldData,
-    iters: Universe<FDIteratorId, FDIterState>,
+    iters: Universe<FDIterId, Cell<FDIterState>>,
 }
 
 #[derive(Default, Clone, Copy)]
@@ -18,14 +23,14 @@ struct FDIterState {
 }
 
 impl FDIterHall {
-    pub fn claim_iter(&mut self) -> FDIteratorId {
+    pub fn claim_iter(&mut self) -> FDIterId {
         self.iters.claim()
     }
-    pub fn release_iter(&mut self, iter_id: FDIteratorId) {
+    pub fn release_iter(&mut self, iter_id: FDIterId) {
         self.iters.release(iter_id)
     }
-    pub fn get_iter<'a>(&'a self, iter_id: FDIteratorId) -> FDIter<'a> {
-        let state = self.iters[iter_id];
+    pub fn get_iter<'a>(&'a self, iter_id: FDIterId) -> FDIter<'a> {
+        let state = self.iters[iter_id].get();
         let h = self
             .fd
             .header
@@ -41,11 +46,26 @@ impl FDIterHall {
             header_fmt: h.fmt,
         }
     }
-    pub fn store_iter<'a>(&'a mut self, iter_id: FDIteratorId, iter: FDIter<'a>) {
+    pub fn store_iter<'a>(&'a self, iter_id: FDIterId, iter: FDIter<'a>) {
         assert!(iter.fd as *const FieldData == &self.fd as *const FieldData);
-        let state = &mut self.iters[iter_id];
+        let mut state = self.iters[iter_id].get();
         state.data = iter.data;
         state.header_idx = iter.header_idx;
         state.header_rl_offset = iter.header_rl_offset;
+        self.iters[iter_id].set(state);
+    }
+}
+
+//HACK: this is completely unsound, but helps with testing for now
+impl Deref for FDIterHall {
+    type Target = FieldData;
+
+    fn deref(&self) -> &Self::Target {
+        &self.fd
+    }
+}
+impl DerefMut for FDIterHall {
+    fn deref_mut(&mut self) -> &mut FieldData {
+        &mut self.fd
     }
 }
