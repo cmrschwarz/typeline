@@ -6,7 +6,6 @@ use regex;
 use regex::bytes;
 
 use crate::field_data::RunLength;
-use crate::utils::scratch_vec::repurpose_vec;
 use crate::worker_thread_session::{FieldAction, FieldActionKind};
 use crate::{
     field_data::fd_iter::FDTypedSlice,
@@ -28,11 +27,18 @@ pub struct OpRegex {
     pub capture_group_names: Vec<StringStoreEntry>,
 }
 
+#[derive(Clone, Copy)]
+pub struct CaptureGroupIndices {
+    field_id: FieldId,
+    iter_id: FDIterId,
+}
+
 pub struct TfRegex {
     pub regex: bytes::Regex,
     pub capture_locs: bytes::CaptureLocations,
     pub text_only_regex: Option<(regex::Regex, regex::CaptureLocations)>,
-    pub capture_group_fields: Vec<(FieldId, FDIterId)>,
+    pub capture_group_fields: Vec<CaptureGroupIndices>,
+    pub input_field_iter_id: FDIterId,
     pub multimatch: bool,
 }
 
@@ -138,10 +144,10 @@ pub fn parse_regex_op(
 pub fn setup_tf_regex<'a>(
     sess: &mut JobData,
     ms_id: MatchSetId,
-    _input_field: FieldId,
+    input_field: FieldId,
     op: &'a OpRegex,
 ) -> (TransformData<'a>, FieldId) {
-    let mut cgfs: Vec<(FieldId, FDIterId)> = op
+    let mut cgfs: Vec<CaptureGroupIndices> = op
         .capture_group_names
         .iter()
         .map(|name| {
@@ -150,11 +156,14 @@ pub fn setup_tf_regex<'a>(
                 .borrow_mut()
                 .field_data
                 .claim_iter();
-            (fid, iter)
+            CaptureGroupIndices {
+                field_id: fid,
+                iter_id: iter,
+            }
         })
         .collect();
-    cgfs.sort();
-    let output_field = cgfs[0].0;
+    cgfs.sort_by(|lhs, rhs| lhs.field_id.cmp(&rhs.field_id));
+    let output_field = cgfs[0].field_id;
     let re = TfRegex {
         regex: op.regex.clone(),
         text_only_regex: op
@@ -164,6 +173,10 @@ pub fn setup_tf_regex<'a>(
         capture_group_fields: cgfs,
         capture_locs: op.regex.capture_locations(),
         multimatch: op.multimatch,
+        input_field_iter_id: sess.entry_data.fields[input_field]
+            .borrow_mut()
+            .field_data
+            .claim_iter(),
     };
     (TransformData::Regex(re), output_field)
 }
@@ -207,7 +220,7 @@ fn match_regex_inner<'a, 'b, 'c>(
     input_field_id: FieldId,
     run_length: RunLength,
     mut regex: AnyRegex<'a, 'b>,
-    capture_group_fields: &Vec<(FieldId, FDIterId)>,
+    capture_group_fields: &Vec<CaptureGroupIndices>,
     multimatch: bool,
     mut field_index: usize,
     mut drop_count: usize,
@@ -226,7 +239,7 @@ fn match_regex_inner<'a, 'b, 'c>(
             drop_count = 0;
         }
         for c in 0..regex.captures_locs_len() {
-            let field = &mut sess.entry_data.fields[capture_group_fields[c].0]
+            let field = &mut sess.entry_data.fields[capture_group_fields[c].field_id]
                 .borrow_mut()
                 .field_data;
             if let Some((cg_begin, cg_end)) = regex.captures_locs_get(c) {
@@ -277,11 +290,13 @@ pub fn handle_tf_regex_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, re
     let (batch, input_field_id) = sess.tf_mgr.claim_batch(tf_id);
     let op_id = sess.tf_mgr.transforms[tf_id].op_id;
 
-    let mut actions: Vec<FieldAction> = repurpose_vec(&mut sess.scratch_memory_1);
+    let mut actions: Vec<FieldAction> = std::mem::take(&mut sess.actions_temp_buffer);
 
     let input_field = sess.entry_data.fields[input_field_id].borrow_mut();
-    let iter_id = re.capture_group_fields[0].1;
-    let mut iter = input_field.deref().field_data.get_iter(iter_id);
+    let mut iter = input_field
+        .deref()
+        .field_data
+        .get_iter(re.input_field_iter_id);
 
     let mut field_index = 0;
     let mut drop_count = 0;
@@ -347,8 +362,8 @@ pub fn handle_tf_regex_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, re
             | FDTypedSlice::Html(_)
             | FDTypedSlice::StreamValueId(_)
             | FDTypedSlice::Object(_) => {
-                for f in &re.capture_group_fields {
-                    sess.entry_data.fields[f.0]
+                for cgi in &re.capture_group_fields {
+                    sess.entry_data.fields[cgi.field_id]
                         .borrow_mut()
                         .field_data
                         .push_error(
@@ -359,7 +374,8 @@ pub fn handle_tf_regex_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, re
             }
         }
     }
+    drop(input_field);
     sess.tf_mgr.inform_successor_batch_available(tf_id, batch);
     sess.apply_field_actions(tf_id, &mut actions);
-    sess.scratch_memory_1 = repurpose_vec(&mut actions);
+    sess.actions_temp_buffer = std::mem::take(&mut actions);
 }

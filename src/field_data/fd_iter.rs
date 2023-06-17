@@ -521,7 +521,11 @@ impl<'a> FDIterator<'a> for FDIter<'a> {
         if limit == 0 || !self.is_prev_valid() {
             return None;
         }
-        let oversize_end = self.header_rl_total - self.header_rl_offset - 1;
+        let oversize_end = if self.is_next_valid() {
+            self.header_rl_total - self.header_rl_offset - 1
+        } else {
+            0
+        };
         self.prev_field();
         let fmt = self.header_fmt;
         let data_end = self.get_next_field_data() + fmt.size as usize;

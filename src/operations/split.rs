@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{cell::RefMut, collections::HashMap};
 
 use bstring::bstr;
 
@@ -8,9 +8,8 @@ use smallvec::{smallvec, SmallVec};
 use crate::{
     chain::ChainId,
     options::{argument::CliArgIdx, range_spec::RangeSpec},
-    utils::scratch_vec::ScratchVec,
     utils::string_store::StringStoreEntry,
-    worker_thread_session::{FieldId, JobData, MatchSetId},
+    worker_thread_session::{Field, FieldId, JobData, MatchSetId},
 };
 
 use super::{
@@ -139,7 +138,7 @@ pub fn handle_tf_split(sess: &mut JobData, tf_id: TransformId, s: &mut TfSplit, 
                 .back()
                 .unwrap();
             let source = sess.entry_data.fields[source_id].borrow();
-            let mut targets_borrows_arr = ScratchVec::new(&mut sess.scratch_memory_1);
+            let mut targets_borrows_arr: SmallVec<[RefMut<'_, Field>; 8]> = Default::default();
             for i in targets.iter() {
                 targets_borrows_arr.push(sess.entry_data.fields[*i].borrow_mut());
             }

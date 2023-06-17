@@ -34,7 +34,7 @@ use crate::{
     scr_error::ScrError,
     stream_field_data::StreamFieldData,
     utils::string_store::StringStoreEntry,
-    utils::{scratch_vec::repurpose_vec, universe::Universe},
+    utils::universe::Universe,
     worker_thread::{Job, JobInput},
 };
 
@@ -99,11 +99,11 @@ pub struct JobData<'a> {
     pub tf_mgr: TransformManager,
     pub entry_data: EntryData,
 
-    pub scratch_memory_1: Vec<&'static u8>,
-    pub scratch_memory_2: Vec<&'static u8>,
+    pub(crate) actions_temp_buffer: Vec<FieldAction>,
+    pub(crate) ids_temp_buffer: Vec<NonMaxUsize>,
 }
 
-pub enum FieldActionKind {
+pub(crate) enum FieldActionKind {
     Dup,
     Drop,
 }
@@ -208,7 +208,7 @@ impl EntryData {
 impl<'a> JobData<'a> {
     pub(crate) fn apply_field_actions(&self, tf_id: TransformId, actions: &mut Vec<FieldAction>) {
         let mut tf = &self.tf_mgr.transforms[tf_id];
-        loop {
+        'transforms_loop: loop {
             let field = &mut self.entry_data.fields[tf.input_field].borrow_mut();
             let mut field_offset: isize = 0;
 
@@ -239,7 +239,7 @@ impl<'a> JobData<'a> {
                         break;
                     }
                 } else {
-                    break;
+                    break 'transforms_loop;
                 }
             }
         }
@@ -254,7 +254,7 @@ impl<'a> WorkerThreadSession<'a> {
         let ms_id = self.job_data.entry_data.add_match_set();
         let input_data = self.job_data.entry_data.add_field(ms_id, None);
         let mut entry_count: usize = 0;
-        let mut starting_tfs = repurpose_vec(&mut self.job_data.scratch_memory_1);
+        let mut starting_tfs = std::mem::take(&mut self.job_data.ids_temp_buffer);
         match job.data {
             JobInput::FieldData(_fd) => loop {
                 todo!();
@@ -375,7 +375,7 @@ impl<'a> WorkerThreadSession<'a> {
         for tf in &starting_tfs {
             self.job_data.tf_mgr.transforms[*tf].successor = Some(first_tf);
         }
-        self.job_data.scratch_memory_1 = repurpose_vec(&mut starting_tfs);
+        self.job_data.ids_temp_buffer = std::mem::take(&mut starting_tfs);
         Ok(())
     }
     pub fn new(sess: &'a SessionData) -> Self {
@@ -394,8 +394,8 @@ impl<'a> WorkerThreadSession<'a> {
                     fields: Default::default(),
                     match_sets: Default::default(),
                 },
-                scratch_memory_1: Default::default(),
-                scratch_memory_2: Default::default(),
+                ids_temp_buffer: Default::default(),
+                actions_temp_buffer: Default::default(),
             },
         }
     }
