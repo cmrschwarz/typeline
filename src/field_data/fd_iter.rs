@@ -174,6 +174,7 @@ unsafe fn to_typed_field<'a>(
 }
 
 pub trait FDIterator<'a>: Sized {
+    fn get_field_pos(&self) -> usize;
     fn is_next_valid(&self) -> bool;
     fn is_prev_valid(&self) -> bool;
     fn get_next_field_format(&self) -> FieldValueFormat;
@@ -222,14 +223,15 @@ pub trait FDIterator<'a>: Sized {
         limit: usize,
         flag_mask: FieldValueFlags,
     ) -> Option<FDTypedRange<'a>>;
-    fn bounded(self, before: usize, after: usize) -> BoundedFDIter<'a, Self> {
-        BoundedFDIter::new(self, 0, before, before + after + 1)
+    fn bounded(self, backwards: usize, forwards: usize) -> BoundedFDIter<'a, Self> {
+        BoundedFDIter::new_relative(self, backwards, forwards)
     }
 }
 
 #[repr(C)]
 pub struct FDIter<'a> {
     pub(super) fd: &'a FieldData,
+    pub(super) field_pos: usize,
     pub(super) data: usize,
     pub(super) header_idx: usize,
     pub(super) header_rl_offset: RunLength,
@@ -240,6 +242,7 @@ pub struct FDIter<'a> {
 #[repr(C)]
 pub struct FDIterMut<'a> {
     pub(super) fd: &'a mut FieldData,
+    pub(super) field_pos: usize,
     pub(super) data: usize,
     pub(super) header_idx: usize,
     pub(super) header_rl_offset: RunLength,
@@ -252,6 +255,7 @@ impl<'a> FDIter<'a> {
         let first_header = fd.header.first();
         Self {
             fd,
+            field_pos: 0,
             data: 0,
             header_idx: 0,
             header_rl_offset: 0,
@@ -262,6 +266,7 @@ impl<'a> FDIter<'a> {
     pub fn from_end(fd: &'a FieldData) -> Self {
         Self {
             fd,
+            field_pos: fd.field_count,
             data: fd.data.len(),
             header_idx: fd.header.len(),
             header_rl_offset: 0,
@@ -271,6 +276,9 @@ impl<'a> FDIter<'a> {
     }
 }
 impl<'a> FDIterator<'a> for FDIter<'a> {
+    fn get_field_pos(&self) -> usize {
+        self.field_pos
+    }
     fn is_next_valid(&self) -> bool {
         self.header_rl_total != 0
     }
@@ -330,11 +338,13 @@ impl<'a> FDIterator<'a> for FDIter<'a> {
         self.header_idx += 1;
         if self.header_idx == self.fd.header.len() {
             self.header_rl_total = 0;
+            self.field_pos += stride as usize;
             return stride;
         }
         let h = self.fd.header[self.header_idx];
         self.header_fmt = h.fmt;
         self.header_rl_total = h.run_length;
+        self.field_pos += stride as usize;
         return stride;
     }
     fn prev_header(&mut self) -> RunLength {
@@ -351,11 +361,13 @@ impl<'a> FDIterator<'a> for FDIter<'a> {
         self.header_fmt = h.fmt;
         self.header_rl_total = h.run_length;
         self.header_rl_offset = self.header_rl_total - 1;
+        self.field_pos += stride as usize;
         return stride;
     }
     fn next_field(&mut self) -> RunLength {
         if self.header_rl_offset + 1 < self.header_rl_total {
             self.header_rl_offset += 1;
+            self.field_pos += 1;
             return 1;
         }
         return self.next_header();
@@ -363,6 +375,7 @@ impl<'a> FDIterator<'a> for FDIter<'a> {
     fn prev_field(&mut self) -> RunLength {
         if self.header_rl_offset > 0 {
             self.header_rl_offset -= 1;
+            self.field_pos -= 1;
             return 1;
         }
         return self.prev_header();
@@ -381,6 +394,7 @@ impl<'a> FDIterator<'a> for FDIter<'a> {
         }
         if curr_header_rem > stride_rem {
             self.header_rl_offset += stride_rem as RunLength;
+            self.field_pos += stride_rem;
             return stride_rem;
         }
         loop {
@@ -410,6 +424,7 @@ impl<'a> FDIterator<'a> for FDIter<'a> {
         let mut stride_rem = n - 1;
         if self.header_rl_offset as usize > stride_rem {
             self.header_rl_offset -= stride_rem as RunLength;
+            self.field_pos -= stride_rem;
             return stride_rem;
         }
         loop {
@@ -439,6 +454,7 @@ impl<'a> FDIterator<'a> for FDIter<'a> {
                     rl
                 } else {
                     self.header_rl_offset += limit;
+                    self.field_pos += limit as usize;
                     limit
                 }
             } else {
@@ -461,6 +477,7 @@ impl<'a> FDIterator<'a> for FDIter<'a> {
                     rl
                 } else {
                     self.header_rl_offset -= limit - 1;
+                    self.field_pos -= (limit - 1) as usize;
                     limit
                 }
             } else {
@@ -561,7 +578,6 @@ where
     I: FDIterator<'a>,
 {
     iter: I,
-    pos: usize,
     min: usize,
     max: usize,
     _phantom_data: PhantomData<&'a FieldData>,
@@ -573,37 +589,52 @@ where
     pub fn new(
         iter: I,
         min: usize, // inclusive
-        pos: usize,
         max: usize, // exclusive
     ) -> Self {
+        let pos = iter.get_field_pos();
         assert!(pos >= min && pos < max);
         Self {
             iter,
-            pos,
             min,
             max,
             _phantom_data: PhantomData::default(),
         }
     }
+    pub fn new_relative(
+        iter: I,
+        backwards: usize, // inclusive
+        forward: usize,   // inclusive
+    ) -> Self {
+        let pos = iter.get_field_pos();
+        Self {
+            iter,
+            min: pos.saturating_sub(backwards),
+            max: pos.saturating_add(forward),
+            _phantom_data: PhantomData::default(),
+        }
+    }
     pub fn range_fwd(&self) -> usize {
-        self.max - self.pos - 1
+        self.max - self.get_field_pos() - 1
     }
     pub fn range_bwd(&self) -> usize {
-        self.pos - self.min
+        self.get_field_pos() - self.min
     }
 }
 impl<'a, I> FDIterator<'a> for BoundedFDIter<'a, I>
 where
     I: FDIterator<'a>,
 {
+    fn get_field_pos(&self) -> usize {
+        self.iter.get_field_pos()
+    }
     fn is_next_valid(&self) -> bool {
-        if self.pos == self.max {
+        if self.get_field_pos() == self.max {
             return false;
         }
         self.iter.is_next_valid()
     }
     fn is_prev_valid(&self) -> bool {
-        if self.pos == self.min {
+        if self.get_field_pos() == self.min {
             return false;
         }
         self.iter.is_prev_valid()
@@ -644,10 +675,8 @@ where
         let range = self.range_fwd();
         let rl_rem = self.iter.field_run_length_fwd() as usize;
         if range < rl_rem {
-            self.pos = self.max;
             self.iter.next_n_fields(range) as RunLength
         } else {
-            self.pos += rl_rem as usize;
             self.iter.next_header()
         }
     }
@@ -655,28 +684,24 @@ where
         let range = self.range_fwd();
         let rl_rem = self.iter.field_run_length_bwd() as usize;
         if range < rl_rem {
-            self.pos = self.min;
             self.iter.prev_n_fields(range) as RunLength
         } else {
-            self.pos += rl_rem as usize;
             self.iter.prev_header()
         }
     }
     fn next_field(&mut self) -> RunLength {
-        if self.pos == self.max {
+        if self.get_field_pos() == self.max {
             0
         } else {
             let stride = self.iter.next_field();
-            self.pos += stride as usize;
             stride
         }
     }
     fn prev_field(&mut self) -> RunLength {
-        if self.pos == self.min {
+        if self.get_field_pos() == self.min {
             0
         } else {
             let stride = self.iter.prev_field();
-            self.pos -= stride as usize;
             stride
         }
     }
@@ -689,7 +714,6 @@ where
     ) -> usize {
         let n = n.min(self.range_fwd());
         let stride = self.iter.next_n_fields_with_fmt(n, kind, flag_mask, flags);
-        self.pos += stride;
         stride
     }
     fn prev_n_fields_with_fmt(
@@ -701,50 +725,31 @@ where
     ) -> usize {
         let n = n.min(self.range_bwd());
         let stride = self.iter.prev_n_fields_with_fmt(n, kind, flag_mask, flags);
-        self.pos -= stride;
         stride
     }
     fn typed_field_fwd(&mut self, limit: RunLength) -> Option<FDTypedField<'a>> {
-        let res = self
-            .iter
-            .typed_field_fwd((limit as usize).min(self.range_fwd()) as RunLength);
-        if res.is_some() {
-            self.pos += 1;
-        }
-        res
+        self.iter
+            .typed_field_fwd((limit as usize).min(self.range_fwd()) as RunLength)
     }
     fn typed_field_bwd(&mut self, limit: RunLength) -> Option<FDTypedField<'a>> {
-        let res = self
-            .iter
-            .typed_field_bwd((limit as usize).min(self.range_bwd()) as RunLength);
-        if res.is_some() {
-            self.pos -= 1;
-        }
-        res
+        self.iter
+            .typed_field_bwd((limit as usize).min(self.range_bwd()) as RunLength)
     }
     fn typed_range_fwd(
         &mut self,
         limit: usize,
         flag_mask: FieldValueFlags,
     ) -> Option<FDTypedRange<'a>> {
-        let limit = limit.min(self.range_fwd());
-        let res = self.iter.typed_range_fwd(limit, flag_mask);
-        if let Some(r) = &res {
-            self.pos += r.field_count;
-        }
-        res
+        self.iter
+            .typed_range_fwd(limit.min(self.range_fwd()), flag_mask)
     }
     fn typed_range_bwd(
         &mut self,
         limit: usize,
         flag_mask: FieldValueFlags,
     ) -> Option<FDTypedRange<'a>> {
-        let limit = limit.min(self.range_bwd());
-        let res = self.iter.typed_range_bwd(limit, flag_mask);
-        if let Some(r) = &res {
-            self.pos -= r.field_count;
-        }
-        res
+        self.iter
+            .typed_range_bwd(limit.min(self.range_bwd()), flag_mask)
     }
 }
 
@@ -753,6 +758,7 @@ impl<'a> FDIterMut<'a> {
         let first_header = fd.header.first().map(|h| *h);
         Self {
             fd,
+            field_pos: 0,
             data: 0,
             header_idx: 0,
             header_rl_offset: 0,
@@ -763,8 +769,10 @@ impl<'a> FDIterMut<'a> {
     pub fn from_end(fd: &'a mut FieldData) -> Self {
         let header_len = fd.header.len();
         let data_len = fd.data.len();
+        let field_count = fd.field_count;
         Self {
             fd,
+            field_pos: field_count,
             data: data_len,
             header_idx: header_len,
             header_rl_offset: 0,
@@ -781,6 +789,9 @@ impl<'a> FDIterMut<'a> {
 }
 
 impl<'a> FDIterator<'a> for FDIterMut<'a> {
+    fn get_field_pos(&self) -> usize {
+        self.as_fd_iter().get_field_pos()
+    }
     fn is_next_valid(&self) -> bool {
         self.as_fd_iter().is_next_valid()
     }

@@ -259,6 +259,7 @@ impl FieldValueHeader {
 
 #[derive(Default)]
 pub struct FieldData {
+    pub(in crate::field_data) field_count: usize,
     pub(in crate::field_data) data: Vec<u8>,
     pub(in crate::field_data) header: Vec<FieldValueHeader>,
 }
@@ -268,6 +269,7 @@ impl Clone for FieldData {
         let mut fd = Self {
             data: Vec::with_capacity(self.data.len()),
             header: self.header.clone(),
+            field_count: self.field_count,
         };
         let fd_ref = &mut fd;
         self.copy_n(usize::MAX, move |f| f(fd_ref));

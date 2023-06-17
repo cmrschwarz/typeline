@@ -5,7 +5,10 @@ use std::{
 
 use crate::utils::universe::Universe;
 
-use super::{fd_iter::FDIter, FieldData, RunLength};
+use super::{
+    fd_iter::{FDIter, FDIterMut},
+    FieldData, RunLength,
+};
 
 pub type FDIterId = usize;
 
@@ -17,6 +20,7 @@ pub struct FDIterHall {
 
 #[derive(Default, Clone, Copy)]
 struct FDIterState {
+    field_pos: usize,
     data: usize,
     header_idx: usize,
     header_rl_offset: RunLength,
@@ -39,6 +43,7 @@ impl FDIterHall {
             .unwrap_or_default();
         FDIter {
             fd: &self.fd,
+            field_pos: state.field_pos,
             data: state.data,
             header_idx: state.header_idx,
             header_rl_offset: state.header_rl_offset,
@@ -46,7 +51,7 @@ impl FDIterHall {
             header_fmt: h.fmt,
         }
     }
-    pub fn get_iter_mut<'a>(&'a mut self, iter_id: FDIterId) -> FDIter<'a> {
+    pub fn get_iter_mut<'a>(&'a mut self, iter_id: FDIterId) -> FDIterMut<'a> {
         let state = self.iters[iter_id].get();
         let h = self
             .fd
@@ -54,8 +59,9 @@ impl FDIterHall {
             .get(state.header_idx)
             .map(|h| *h)
             .unwrap_or_default();
-        FDIter {
+        FDIterMut {
             fd: &mut self.fd,
+            field_pos: state.field_pos,
             data: state.data,
             header_idx: state.header_idx,
             header_rl_offset: state.header_rl_offset,
