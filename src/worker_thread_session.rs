@@ -16,6 +16,7 @@ use crate::{
     field_data::{
         fd_iter::{FDIterMut, FDIterator},
         fd_iter_hall::FDIterHall,
+        fd_operations::{FieldAction, FieldActionKind},
         EntryId, FieldData,
     },
     operations::{
@@ -101,16 +102,6 @@ pub struct JobData<'a> {
 
     pub(crate) actions_temp_buffer: Vec<FieldAction>,
     pub(crate) ids_temp_buffer: Vec<NonMaxUsize>,
-}
-
-pub(crate) enum FieldActionKind {
-    Dup,
-    Drop,
-}
-pub(crate) struct FieldAction {
-    pub kind: FieldActionKind,
-    pub entry_id: EntryId,
-    pub run_len: usize,
 }
 
 pub type EnterStreamModeFlag = bool;
@@ -215,16 +206,17 @@ impl<'a> JobData<'a> {
             for act in actions.iter() {
                 match act.kind {
                     FieldActionKind::Dup => {
-                        field
-                            .field_data
-                            .dup_nth((act.entry_id as isize + field_offset) as usize, act.run_len);
+                        field.field_data.dup_nth(
+                            (act.field_idx as isize + field_offset) as usize,
+                            act.run_len,
+                        );
                         field_offset += act.run_len as isize;
                     }
                     FieldActionKind::Drop => {
                         //TODO: optimize, this is horrible
                         let mut field_iter = FDIterMut::from_start(field.field_data.deref_mut());
                         field_iter.next_n_fields(
-                            (act.entry_id as isize + field_offset + act.run_len as isize) as usize,
+                            (act.field_idx as isize + field_offset + act.run_len as isize) as usize,
                         );
                         FieldData::delete_n_bwd(field_iter, act.run_len);
                         field_offset -= act.run_len as isize;

@@ -5,8 +5,8 @@ use lazy_static::{__Deref, lazy_static};
 use regex;
 use regex::bytes;
 
+use crate::field_data::fd_operations::{push_action_with_usize_rl, FieldAction, FieldActionKind};
 use crate::field_data::RunLength;
-use crate::worker_thread_session::{FieldAction, FieldActionKind};
 use crate::{
     field_data::fd_iter::FDTypedSlice,
     field_data::{fd_iter::FDIterator, fd_iter_hall::FDIterId, field_value_flags, FieldReference},
@@ -225,19 +225,14 @@ fn match_regex_inner<'a, 'b, 'c>(
     mut field_index: usize,
     mut drop_count: usize,
     actions: &mut Vec<FieldAction>,
-) -> (usize, usize) {
+) -> usize {
     let mut end_of_last_match = 0;
     let mut match_count = 0;
     while regex.captures_read_at(end_of_last_match) {
         match_count += 1;
-        if drop_count > 0 {
-            actions.push(FieldAction {
-                kind: FieldActionKind::Drop,
-                entry_id: field_index,
-                run_len: drop_count,
-            });
-            drop_count = 0;
-        }
+
+        push_action_with_usize_rl(actions, FieldActionKind::Drop, field_index, drop_count);
+
         for c in 0..regex.captures_locs_len() {
             let field = &mut sess.entry_data.fields[capture_group_fields[c].field_id]
                 .borrow_mut()
@@ -265,25 +260,14 @@ fn match_regex_inner<'a, 'b, 'c>(
             end_of_last_match = end;
         }
     }
-    field_index += match_count;
     if match_count == 0 {
-        actions.push(FieldAction {
-            kind: FieldActionKind::Drop,
-            entry_id: field_index,
-            run_len: drop_count + 1,
-        });
-        drop_count = 0;
-        field_index -= drop_count;
+        push_action_with_usize_rl(actions, FieldActionKind::Drop, field_index, drop_count + 1);
         drop_count = 0;
     } else if match_count > 1 {
-        actions.push(FieldAction {
-            kind: FieldActionKind::Drop,
-            entry_id: field_index,
-            run_len: match_count - 1,
-        });
-        drop_count = 0;
+        debug_assert!(drop_count == 0);
+        push_action_with_usize_rl(actions, FieldActionKind::Dup, field_index, match_count - 1);
     }
-    (field_index, drop_count)
+    drop_count
 }
 
 pub fn handle_tf_regex_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRegex) {
@@ -317,7 +301,7 @@ pub fn handle_tf_regex_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, re
                             &text[data_start..data_end].as_bytes(),
                         )
                     };
-                    (field_index, drop_count) = match_regex_inner(
+                    drop_count = match_regex_inner(
                         sess,
                         tf_id,
                         range.run_length(i),
@@ -336,7 +320,7 @@ pub fn handle_tf_regex_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, re
                 let mut data_end = 0usize;
                 for (i, h) in range.headers.iter().enumerate() {
                     data_end += h.size as usize;
-                    (field_index, drop_count) = match_regex_inner(
+                    drop_count = match_regex_inner(
                         sess,
                         input_field_id,
                         range.run_length(i),

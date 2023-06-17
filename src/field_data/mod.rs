@@ -8,6 +8,7 @@
 
 pub mod fd_iter;
 pub mod fd_iter_hall;
+pub mod fd_operations;
 
 use std::{
     collections::HashMap,
@@ -156,6 +157,7 @@ pub mod field_value_flags {
     //offset must be zero so we don't have to shift
     const_assert!(MAX_FIELD_ALIGN.is_power_of_two() && MAX_FIELD_ALIGN <= 16);
     pub const ALIGNMENT_AFTER: FieldValueFlags = 0xF; //consumes offsets 0 through 3
+    pub const SAME_VALUE_AS_PREVIOUS: FieldValueFlags = 4;
     pub const SHARED_VALUE_OFFSET: FieldValueFlags = 5;
     pub const BYTES_ARE_UTF8_OFFSET: FieldValueFlags = 6;
     pub const DELETED_OFFSET: FieldValueFlags = 7;
@@ -308,110 +310,7 @@ impl FieldData {
         self.header.clear();
         self.data.clear();
     }
-    fn adjust_deletion_header_bounds(
-        &mut self,
-        first_header_idx: usize,
-        first_header_oversize: RunLength,
-        last_header_idx: usize,
-        last_header_oversize: RunLength,
-    ) {
-        let mut headers_to_insert = 0;
-        if first_header_oversize > 0 {
-            headers_to_insert += 1;
-        }
-        if last_header_oversize > 0 {
-            headers_to_insert += 1;
-        }
-        if headers_to_insert == 0 {
-            return;
-        }
-        if headers_to_insert == 1 {
-            if first_header_oversize > 0 {
-                let h = self.header[first_header_idx];
-                self.header.insert(
-                    first_header_idx + 1,
-                    FieldValueHeader {
-                        fmt: h.fmt,
-                        run_length: h.run_length - first_header_oversize,
-                    },
-                );
-                self.header[first_header_idx].run_length = first_header_oversize;
-                self.header[first_header_idx].set_deleted(false);
-                return;
-            }
-            let mut h = self.header[last_header_idx];
-            h.set_deleted(false);
-            self.header.insert(
-                last_header_idx + 1,
-                FieldValueHeader {
-                    fmt: h.fmt,
-                    run_length: last_header_oversize,
-                },
-            );
-            self.header[last_header_idx].run_length -= last_header_oversize;
-            return;
-        }
-        unsafe {
-            self.header.reserve(2);
-            let buf = self.header.as_mut_ptr();
-            std::ptr::copy(
-                buf.add(last_header_idx),
-                buf.add(last_header_idx + 2),
-                self.header.len() - last_header_idx,
-            );
-            std::ptr::copy(
-                buf.add(first_header_idx),
-                buf.add(first_header_idx + 1),
-                last_header_idx - first_header_idx,
-            );
-            *buf.add(last_header_idx + 1) = *buf.add(last_header_idx + 2);
-        }
-        self.header[first_header_idx].set_deleted(false);
-        self.header[first_header_idx].run_length = first_header_oversize;
-        self.header[first_header_idx + 1].run_length -= first_header_oversize;
 
-        self.header[last_header_idx + 1].run_length -= last_header_oversize;
-        self.header[last_header_idx + 2].set_deleted(false);
-        self.header[last_header_idx + 2].run_length = last_header_oversize;
-    }
-    pub fn delete_n_bwd<'a>(mut iter: FDIterMut<'a>, n: usize) -> FDIterMut<'a> {
-        if n == 0 {
-            return iter;
-        }
-        let mut drops_rem = n;
-        let mut last = true;
-        // we have to initialize these because rust can't know that we
-        // eliminated the empty range through the check above
-        let mut last_header_idx = 0;
-        let mut first_header_oversize = 0;
-        let mut last_header_oversize = 0;
-        while let Some(range) = iter.typed_range_bwd(drops_rem, 0) {
-            let header_idx = unsafe {
-                (range.headers.last().unwrap_unchecked() as *const FieldValueHeader)
-                    .offset_from(iter.fd.header.as_ptr()) as usize
-            };
-            if last {
-                last_header_idx = header_idx;
-                last_header_oversize = range.first_header_run_length_oversize;
-                last = false;
-            }
-            drops_rem -= range.field_count;
-            for i in 0..range.headers.len() {
-                iter.fd.header[i].set_deleted(true);
-            }
-            first_header_oversize = range.first_header_run_length_oversize;
-        }
-        debug_assert!(drops_rem == 0);
-
-        let first_header_idx = iter.get_next_header_index();
-        iter.fd.adjust_deletion_header_bounds(
-            first_header_idx,
-            first_header_oversize,
-            last_header_idx,
-            last_header_oversize,
-        );
-        iter
-    }
     pub fn dup_nth(&mut self, n: usize, mut added_run_len: usize) {
         let mut iter = FDIterMut::from_start(self);
         let skipped_fields = iter.next_n_fields(n);
