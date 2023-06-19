@@ -16,7 +16,7 @@ use crate::{
     field_data::{
         fd_iter::{FDIterMut, FDIterator},
         fd_iter_hall::FDIterHall,
-        fd_operations::{FieldAction, FieldActionKind},
+        field_command_buffer::FieldCommandBuffer,
         EntryId, FieldData,
     },
     operations::{
@@ -68,6 +68,7 @@ pub struct MatchSet {
     pub working_set_updates: Vec<(EntryId, FieldId)>,
     //should not contain tf input fields (?)
     pub working_set: Vec<FieldId>,
+    pub command_buffer: FieldCommandBuffer,
     pub field_name_map: HashMap<StringStoreEntry, VecDeque<FieldId>>,
 }
 
@@ -100,7 +101,6 @@ pub struct JobData<'a> {
     pub tf_mgr: TransformManager,
     pub entry_data: EntryData,
 
-    pub(crate) actions_temp_buffer: Vec<FieldAction>,
     pub(crate) ids_temp_buffer: Vec<NonMaxUsize>,
 }
 
@@ -197,32 +197,13 @@ impl EntryData {
 }
 
 impl<'a> JobData<'a> {
-    pub(crate) fn apply_field_actions(&self, tf_id: TransformId, actions: &mut Vec<FieldAction>) {
+    pub(crate) fn apply_field_actions(&self, tf_id: TransformId) {
         let mut tf = &self.tf_mgr.transforms[tf_id];
         'transforms_loop: loop {
             let field = &mut self.entry_data.fields[tf.input_field].borrow_mut();
             let mut field_offset: isize = 0;
 
-            for act in actions.iter() {
-                match act.kind {
-                    FieldActionKind::Dup => {
-                        field.field_data.dup_nth(
-                            (act.field_idx as isize + field_offset) as usize,
-                            act.run_len,
-                        );
-                        field_offset += act.run_len as isize;
-                    }
-                    FieldActionKind::Drop => {
-                        //TODO: optimize, this is horrible
-                        let mut field_iter = FDIterMut::from_start(field.field_data.deref_mut());
-                        field_iter.next_n_fields(
-                            (act.field_idx as isize + field_offset + act.run_len as isize) as usize,
-                        );
-                        FieldData::delete_n_bwd(field_iter, act.run_len);
-                        field_offset -= act.run_len as isize;
-                    }
-                }
-            }
+            //TODO
             let last_field = tf.input_field;
             loop {
                 if let Some(prev_tf_id) = self.tf_mgr.transforms[tf_id].predecessor {

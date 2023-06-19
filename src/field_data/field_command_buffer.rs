@@ -1,4 +1,4 @@
-use crate::{field_data::fd_iter::FDIterator, worker_thread_session::Field};
+use crate::field_data::fd_iter::FDIterator;
 
 use super::{fd_iter::FDIterMut, FieldData, FieldValueFormat, FieldValueHeader, RunLength};
 
@@ -46,7 +46,13 @@ impl FieldCommandBuffer {
             run_length -= rl_to_push as usize;
         }
     }
-
+    pub fn push_action(&mut self, kind: FieldActionKind, field_idx: usize, run_length: RunLength) {
+        self.actions.push(FieldAction {
+            kind: FieldActionKind::Drop,
+            field_idx,
+            run_len: run_length,
+        });
+    }
     pub fn execute(&mut self, fd: &mut FieldData) {
         self.execute_from_iter(FDIterMut::from_start(fd));
         self.execute_from_header_index_and_field_position(fd, 0, 0);
@@ -78,6 +84,7 @@ impl FieldCommandBuffer {
             .sort_by(|lhs, rhs| lhs.field_idx.cmp(&rhs.field_idx));
         self.insertions.clear();
         self.perform_actions(fd, header_idx, field_pos);
+        self.execute_commands(fd);
     }
     fn push_copy_command(
         &mut self,
@@ -328,6 +335,28 @@ impl FieldCommandBuffer {
                     }
                 }
             }
+        }
+    }
+    fn execute_commands(&mut self, fd: &mut FieldData) {
+        let new_size = self
+            .insertions
+            .last()
+            .map(|i| i.index + 1)
+            .unwrap_or(0)
+            .max(self.copies.last().map(|c| c.target + c.len).unwrap_or(0));
+        fd.header.reserve(new_size - fd.header.len());
+
+        let header_ptr = fd.header.as_mut_ptr();
+        // PERF: it *might* be faster to interleave the insertions and copies for
+        // better cache utilization
+        unsafe {
+            for i in self.insertions.iter() {
+                (*header_ptr.add(i.index)) = i.value;
+            }
+            for c in self.copies.iter().rev() {
+                std::ptr::copy(header_ptr.add(c.source), header_ptr.add(c.target), c.len);
+            }
+            fd.header.set_len(new_size);
         }
     }
 }

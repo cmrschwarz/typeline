@@ -1,12 +1,16 @@
 use std::borrow::Cow;
+use std::cell::RefCell;
 
 use bstring::bstr;
 use lazy_static::{__Deref, lazy_static};
+use nonmax::NonMaxUsize;
 use regex;
 use regex::bytes;
 
-use crate::field_data::fd_operations::{push_action_with_usize_rl, FieldAction, FieldActionKind};
+use crate::field_data::field_command_buffer::{FieldActionKind, FieldCommandBuffer};
 use crate::field_data::RunLength;
+use crate::utils::universe::Universe;
+use crate::worker_thread_session::Field;
 use crate::{
     field_data::fd_iter::FDTypedSlice,
     field_data::{fd_iter::FDIterator, fd_iter_hall::FDIterId, field_value_flags, FieldReference},
@@ -216,7 +220,6 @@ impl<'a, 'b> AnyRegex<'a, 'b> {
 }
 
 fn match_regex_inner<'a, 'b, 'c>(
-    sess: &'c JobData,
     input_field_id: FieldId,
     run_length: RunLength,
     mut regex: AnyRegex<'a, 'b>,
@@ -224,17 +227,17 @@ fn match_regex_inner<'a, 'b, 'c>(
     multimatch: bool,
     mut field_index: usize,
     mut drop_count: usize,
-    actions: &mut Vec<FieldAction>,
+    fields: &Universe<NonMaxUsize, RefCell<Field>>,
+    command_buffer: &mut FieldCommandBuffer,
 ) -> usize {
     let mut end_of_last_match = 0;
-    let mut match_count = 0;
+    let mut match_count: RunLength = 0;
     while regex.captures_read_at(end_of_last_match) {
         match_count += 1;
-
-        push_action_with_usize_rl(actions, FieldActionKind::Drop, field_index, drop_count);
+        command_buffer.push_action_with_usize_rl(FieldActionKind::Drop, field_index, drop_count);
 
         for c in 0..regex.captures_locs_len() {
-            let field = &mut sess.entry_data.fields[capture_group_fields[c].field_id]
+            let field = &mut fields[capture_group_fields[c].field_id]
                 .borrow_mut()
                 .field_data;
             if let Some((cg_begin, cg_end)) = regex.captures_locs_get(c) {
@@ -261,21 +264,24 @@ fn match_regex_inner<'a, 'b, 'c>(
         }
     }
     if match_count == 0 {
-        push_action_with_usize_rl(actions, FieldActionKind::Drop, field_index, drop_count + 1);
+        command_buffer.push_action_with_usize_rl(
+            FieldActionKind::Drop,
+            field_index,
+            drop_count + 1,
+        );
         drop_count = 0;
     } else if match_count > 1 {
         debug_assert!(drop_count == 0);
-        push_action_with_usize_rl(actions, FieldActionKind::Dup, field_index, match_count - 1);
+        command_buffer.push_action(FieldActionKind::Dup, field_index, match_count - 1);
     }
     drop_count
 }
 
 pub fn handle_tf_regex_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRegex) {
     let (batch, input_field_id) = sess.tf_mgr.claim_batch(tf_id);
-    let op_id = sess.tf_mgr.transforms[tf_id].op_id;
-
-    let mut actions: Vec<FieldAction> = std::mem::take(&mut sess.actions_temp_buffer);
-
+    let tf = &sess.tf_mgr.transforms[tf_id];
+    let op_id = tf.op_id;
+    let command_buffer = &mut sess.entry_data.match_sets[tf.match_set_id].command_buffer;
     let input_field = sess.entry_data.fields[input_field_id].borrow_mut();
     let mut iter = input_field
         .deref()
@@ -284,6 +290,7 @@ pub fn handle_tf_regex_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, re
 
     let mut field_index = 0;
     let mut drop_count = 0;
+
     while let Some(range) = iter.typed_range_fwd(usize::MAX, field_value_flags::BYTES_ARE_UTF8) {
         field_index += range.field_count;
         match range.data {
@@ -302,7 +309,6 @@ pub fn handle_tf_regex_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, re
                         )
                     };
                     drop_count = match_regex_inner(
-                        sess,
                         tf_id,
                         range.run_length(i),
                         any_regex,
@@ -310,7 +316,8 @@ pub fn handle_tf_regex_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, re
                         re.multimatch,
                         field_index,
                         drop_count,
-                        &mut actions,
+                        &sess.entry_data.fields,
+                        command_buffer,
                     );
                     data_start = data_end;
                 }
@@ -321,7 +328,6 @@ pub fn handle_tf_regex_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, re
                 for (i, h) in range.headers.iter().enumerate() {
                     data_end += h.size as usize;
                     drop_count = match_regex_inner(
-                        sess,
                         input_field_id,
                         range.run_length(i),
                         AnyRegex::Bytes(
@@ -333,7 +339,8 @@ pub fn handle_tf_regex_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, re
                         re.multimatch,
                         field_index,
                         drop_count,
-                        &mut actions,
+                        &sess.entry_data.fields,
+                        command_buffer,
                     );
                     data_start = data_end;
                 }
@@ -360,6 +367,5 @@ pub fn handle_tf_regex_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, re
     }
     drop(input_field);
     sess.tf_mgr.inform_successor_batch_available(tf_id, batch);
-    sess.apply_field_actions(tf_id, &mut actions);
-    sess.actions_temp_buffer = std::mem::take(&mut actions);
+    sess.apply_field_actions(tf_id);
 }

@@ -8,7 +8,7 @@
 
 pub mod fd_iter;
 pub mod fd_iter_hall;
-pub mod fd_operations;
+pub mod field_command_buffer;
 
 use std::{
     collections::HashMap,
@@ -21,10 +21,8 @@ use std::{
 use std::ops::Deref;
 
 use crate::{
-    field_data::{fd_iter::FDTypedValue, field_value_flags::TYPE_RELEVANT},
-    operations::errors::OperatorApplicationError,
-    stream_field_data::StreamValueId,
-    utils::string_store::StringStoreEntry,
+    field_data::fd_iter::FDTypedValue, operations::errors::OperatorApplicationError,
+    stream_field_data::StreamValueId, utils::string_store::StringStoreEntry,
     worker_thread_session::FieldId,
 };
 
