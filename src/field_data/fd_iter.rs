@@ -174,7 +174,7 @@ unsafe fn to_typed_field<'a>(
 }
 
 pub trait FDIterator<'a>: Sized {
-    fn get_field_pos(&self) -> usize;
+    fn get_next_field_pos(&self) -> usize;
     fn is_next_valid(&self) -> bool;
     fn is_prev_valid(&self) -> bool;
     fn get_next_field_format(&self) -> FieldValueFormat;
@@ -276,7 +276,7 @@ impl<'a> FDIter<'a> {
     }
 }
 impl<'a> FDIterator<'a> for FDIter<'a> {
-    fn get_field_pos(&self) -> usize {
+    fn get_next_field_pos(&self) -> usize {
         self.field_pos
     }
     fn is_next_valid(&self) -> bool {
@@ -591,7 +591,7 @@ where
         min: usize, // inclusive
         max: usize, // exclusive
     ) -> Self {
-        let pos = iter.get_field_pos();
+        let pos = iter.get_next_field_pos();
         assert!(pos >= min && pos < max);
         Self {
             iter,
@@ -605,7 +605,7 @@ where
         backwards: usize, // inclusive
         forward: usize,   // inclusive
     ) -> Self {
-        let pos = iter.get_field_pos();
+        let pos = iter.get_next_field_pos();
         Self {
             iter,
             min: pos.saturating_sub(backwards),
@@ -614,27 +614,27 @@ where
         }
     }
     pub fn range_fwd(&self) -> usize {
-        self.max - self.get_field_pos() - 1
+        self.max - self.get_next_field_pos() - 1
     }
     pub fn range_bwd(&self) -> usize {
-        self.get_field_pos() - self.min
+        self.get_next_field_pos() - self.min
     }
 }
 impl<'a, I> FDIterator<'a> for BoundedFDIter<'a, I>
 where
     I: FDIterator<'a>,
 {
-    fn get_field_pos(&self) -> usize {
-        self.iter.get_field_pos()
+    fn get_next_field_pos(&self) -> usize {
+        self.iter.get_next_field_pos()
     }
     fn is_next_valid(&self) -> bool {
-        if self.get_field_pos() == self.max {
+        if self.get_next_field_pos() == self.max {
             return false;
         }
         self.iter.is_next_valid()
     }
     fn is_prev_valid(&self) -> bool {
-        if self.get_field_pos() == self.min {
+        if self.get_next_field_pos() == self.min {
             return false;
         }
         self.iter.is_prev_valid()
@@ -690,7 +690,7 @@ where
         }
     }
     fn next_field(&mut self) -> RunLength {
-        if self.get_field_pos() == self.max {
+        if self.get_next_field_pos() == self.max {
             0
         } else {
             let stride = self.iter.next_field();
@@ -698,7 +698,7 @@ where
         }
     }
     fn prev_field(&mut self) -> RunLength {
-        if self.get_field_pos() == self.min {
+        if self.get_next_field_pos() == self.min {
             0
         } else {
             let stride = self.iter.prev_field();
@@ -789,8 +789,8 @@ impl<'a> FDIterMut<'a> {
 }
 
 impl<'a> FDIterator<'a> for FDIterMut<'a> {
-    fn get_field_pos(&self) -> usize {
-        self.as_fd_iter().get_field_pos()
+    fn get_next_field_pos(&self) -> usize {
+        self.as_fd_iter().get_next_field_pos()
     }
     fn is_next_valid(&self) -> bool {
         self.as_fd_iter().is_next_valid()

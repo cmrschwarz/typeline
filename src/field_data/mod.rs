@@ -167,8 +167,6 @@ pub mod field_value_flags {
     pub const DELETED: FieldValueFlags = 1 << DELETED_OFFSET;
 
     pub const DEFAULT: FieldValueFlags = 0;
-
-    pub const TYPE_RELEVANT: FieldValueFlags = BYTES_ARE_UTF8_OFFSET;
 }
 pub use field_value_flags::FieldValueFlags;
 
@@ -222,6 +220,12 @@ impl FieldValueFormat {
     }
     pub fn set_deleted(&mut self, val: bool) {
         self.flags |= (val as FieldValueFlags) << field_value_flags::DELETED_OFFSET;
+    }
+    pub fn same_value_as_previous(self) -> bool {
+        self.flags & field_value_flags::SAME_VALUE_AS_PREVIOUS != 0
+    }
+    pub fn set_same_value_as_previous(&mut self, val: bool) {
+        self.flags |= (val as FieldValueFlags) << field_value_flags::SAME_VALUE_AS_PREVIOUS;
     }
 }
 
@@ -504,34 +508,44 @@ impl FieldData {
             );
         }
     }
-    pub fn push_inline_str(&mut self, data: &str, run_length: usize, try_rle: bool) {
+
+    // SAFETY: can't be pub because you could lie about is_str
+    fn push_inline_bytes_raw(
+        &mut self,
+        data: &[u8],
+        run_length: usize,
+        try_rle: bool,
+        is_str: bool,
+    ) {
         let mut run_length = run_length;
         assert!(data.len() <= INLINE_STR_MAX_LEN);
-        let fmt = FieldValueFormat {
+        let mut fmt = FieldValueFormat {
             kind: FieldValueKind::BytesInline,
-            flags: field_value_flags::BYTES_ARE_UTF8
-                | if run_length > 1 { SHARED_VALUE } else { 0 },
+            flags: if is_str {
+                field_value_flags::BYTES_ARE_UTF8
+            } else {
+                0
+            } | SHARED_VALUE,
             size: data.len() as FieldValueSize,
         };
+        let mut data_shared = false;
         if try_rle {
             if let Some(h) = self.header.last_mut() {
                 if h.fmt == fmt {
                     let len = h.size as usize;
                     let prev_data = unsafe {
-                        std::str::from_utf8_unchecked(slice::from_raw_parts(
-                            self.data.as_ptr().sub(len) as *const u8,
-                            len,
-                        ))
+                        slice::from_raw_parts(self.data.as_ptr().sub(len) as *const u8, len)
                     };
                     if prev_data == data {
                         let rem = (RunLength::MAX - h.run_length) as usize;
-                        h.set_shared_value(true);
                         if rem > run_length {
                             h.run_length += run_length as RunLength;
                             return;
                         } else {
                             run_length -= rem;
                             h.run_length = RunLength::MAX;
+                            fmt.set_same_value_as_previous(true);
+                            data_shared = true;
                         }
                     }
                 }
@@ -543,13 +557,21 @@ impl FieldData {
                 run_length: RunLength::MAX,
             });
             run_length -= RunLength::MAX as usize;
-            self.data.extend_from_slice(data.as_bytes());
+            fmt.set_same_value_as_previous(true);
         }
         self.header.push(FieldValueHeader {
             fmt,
             run_length: run_length as RunLength,
         });
-        self.data.extend_from_slice(data.as_bytes());
+        if !data_shared {
+            self.data.extend_from_slice(data);
+        }
+    }
+    pub fn push_inline_bytes(&mut self, data: &[u8], run_length: usize, try_rle: bool) {
+        self.push_inline_bytes_raw(data, run_length, try_rle, false);
+    }
+    pub fn push_inline_str(&mut self, data: &str, run_length: usize, try_rle: bool) {
+        self.push_inline_bytes_raw(data.as_bytes(), run_length, try_rle, true);
     }
     unsafe fn push_fixed_size_type<T: PartialEq + Clone>(
         &mut self,
@@ -559,14 +581,14 @@ impl FieldData {
         run_length: usize,
         try_rle: bool,
     ) {
-        debug_assert!(flags & !TYPE_RELEVANT == 0);
         let mut run_length = run_length;
         if let Some(h) = self.header.last_mut() {
             let mut try_amend_header = false;
             let mut same_value = false;
             if kind.needs_alignment() && !h.kind.needs_alignment() {
                 h.set_alignment_after(kind.align_size_up(self.data.len()) - self.data.len());
-            } else if h.kind == kind && (h.flags & TYPE_RELEVANT) == flags {
+                self.pad_to_align();
+            } else if h.kind == kind {
                 if try_rle {
                     let prev_data = unsafe {
                         &*(self
@@ -577,16 +599,24 @@ impl FieldData {
                     };
                     if prev_data == &data {
                         same_value = true;
-                        if !h.shared_value() && h.run_length > 1 {
-                            h.run_length -= 1;
-                            run_length += 1;
-                        } else {
-                            h.set_shared_value(true);
-                            try_amend_header = true;
-                        }
                     }
-                } else if !h.shared_value() {
-                    try_amend_header = true;
+                    if !h.shared_value() {
+                        h.run_length -= 1;
+                        if h.run_length == 1 {
+                            h.set_shared_value(true);
+                        }
+                        run_length += 1;
+                    } else {
+                        same_value = true;
+                        try_amend_header = true;
+                    }
+                } else {
+                    if !h.shared_value() {
+                        try_amend_header = true;
+                    } else if h.run_length == 1 {
+                        try_amend_header = true;
+                        h.set_shared_value(false);
+                    }
                 }
             }
             if try_amend_header {
@@ -602,12 +632,9 @@ impl FieldData {
                 }
             }
         }
-        if kind.needs_alignment() {
-            self.pad_to_align();
-        }
-        let fmt = FieldValueFormat {
+        let mut fmt = FieldValueFormat {
             kind,
-            flags,
+            flags: flags | SHARED_VALUE,
             size: size_of::<T>() as FieldValueSize,
         };
         while run_length > RunLength::MAX as usize {
@@ -616,8 +643,7 @@ impl FieldData {
                 run_length: RunLength::MAX,
             });
             run_length -= RunLength::MAX as usize;
-            self.data
-                .extend_from_slice(unsafe { as_u8_slice(&data.clone()) });
+            fmt.set_same_value_as_previous(true);
         }
         self.header.push(FieldValueHeader {
             fmt,
