@@ -612,7 +612,7 @@ where
         Self {
             iter,
             min: pos.saturating_sub(backwards),
-            max: pos.saturating_add(forward),
+            max: pos.saturating_add(forward).saturating_add(1),
             _phantom_data: PhantomData::default(),
         }
     }

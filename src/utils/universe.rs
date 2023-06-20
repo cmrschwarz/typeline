@@ -1,6 +1,7 @@
 use std::{
     fmt::Debug,
     ops::{Deref, Index, IndexMut},
+    slice::IterMut,
 };
 
 pub trait UniverseIndex:
@@ -100,6 +101,10 @@ impl<I: UniverseIndex, T> Universe<I, T> {
     pub fn reserve_ordered(&mut self, n: usize) {
         let len = self.unused_ids.len().min(n);
         self.unused_ids[0..len].sort();
+    }
+
+    pub fn iter_mut(&mut self) -> IterMut<T> {
+        self.data.iter_mut()
     }
 }
 

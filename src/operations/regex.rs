@@ -32,19 +32,19 @@ pub struct OpRegex {
     pub capture_group_names: Vec<StringStoreEntry>,
 }
 
-#[derive(Clone, Copy)]
-pub struct CaptureGroupIndices {
-    field_id: FieldId,
-    iter_id: FDIterId,
-}
-
 pub struct TfRegex {
     pub regex: bytes::Regex,
     pub capture_locs: bytes::CaptureLocations,
     pub text_only_regex: Option<(regex::Regex, regex::CaptureLocations)>,
-    pub capture_group_fields: Vec<CaptureGroupIndices>,
+    pub capture_group_fields: Vec<FieldId>,
     pub input_field_iter_id: FDIterId,
     pub multimatch: bool,
+}
+
+struct RegexBatchState {
+    drop_count: usize,
+    field_idx: usize,
+    match_count: usize,
 }
 
 #[derive(Default)]
@@ -152,23 +152,13 @@ pub fn setup_tf_regex<'a>(
     input_field: FieldId,
     op: &'a OpRegex,
 ) -> (TransformData<'a>, FieldId) {
-    let mut cgfs: Vec<CaptureGroupIndices> = op
+    let mut cgfs: Vec<FieldId> = op
         .capture_group_names
         .iter()
-        .map(|name| {
-            let fid = sess.entry_data.add_field(ms_id, Some(*name));
-            let iter = sess.entry_data.fields[fid]
-                .borrow_mut()
-                .field_data
-                .claim_iter();
-            CaptureGroupIndices {
-                field_id: fid,
-                iter_id: iter,
-            }
-        })
+        .map(|name| sess.entry_data.add_field(ms_id, Some(*name)))
         .collect();
-    cgfs.sort_by(|lhs, rhs| lhs.field_id.cmp(&rhs.field_id));
-    let output_field = cgfs[0].field_id;
+    cgfs.sort_unstable();
+    let output_field = cgfs[0];
     let re = TfRegex {
         regex: op.regex.clone(),
         text_only_regex: op
@@ -224,23 +214,25 @@ fn match_regex_inner<'a, 'b, 'c>(
     input_field_id: FieldId,
     run_length: RunLength,
     mut regex: AnyRegex<'a, 'b>,
-    capture_group_fields: &Vec<CaptureGroupIndices>,
+    capture_group_fields: &Vec<FieldId>,
     multimatch: bool,
-    field_index: usize,
-    mut drop_count: usize,
+    rbs: &mut RegexBatchState,
     fields: &Universe<NonMaxUsize, RefCell<Field>>,
     command_buffer: &mut FDCommandBuffer,
-) -> usize {
+) {
     let mut end_of_last_match = 0;
     let mut match_count: RunLength = 0;
     while regex.captures_read_at(end_of_last_match) {
         match_count += 1;
-        command_buffer.push_action_with_usize_rl(FieldActionKind::Drop, field_index, drop_count);
-
+        rbs.field_idx -= rbs.drop_count;
+        command_buffer.push_action_with_usize_rl(
+            FieldActionKind::Drop,
+            rbs.field_idx,
+            rbs.drop_count,
+        );
+        rbs.drop_count = 0;
         for c in 0..regex.captures_locs_len() {
-            let field = &mut fields[capture_group_fields[c].field_id]
-                .borrow_mut()
-                .field_data;
+            let field = &mut fields[capture_group_fields[c]].borrow_mut().field_data;
             if let Some((cg_begin, cg_end)) = regex.captures_locs_get(c) {
                 field.push_reference(
                     FieldReference {
@@ -254,6 +246,7 @@ fn match_regex_inner<'a, 'b, 'c>(
                 field.push_null(run_length as usize);
             }
         }
+        rbs.field_idx += 1;
         if !multimatch {
             break;
         }
@@ -265,17 +258,18 @@ fn match_regex_inner<'a, 'b, 'c>(
         }
     }
     if match_count == 0 {
+        rbs.field_idx -= rbs.drop_count + 1;
         command_buffer.push_action_with_usize_rl(
             FieldActionKind::Drop,
-            field_index,
-            drop_count + 1,
+            rbs.field_idx,
+            rbs.drop_count + 1,
         );
-        drop_count = 0;
+        rbs.drop_count = 0;
     } else if match_count > 1 {
-        debug_assert!(drop_count == 0);
-        command_buffer.push_action(FieldActionKind::Dup, field_index, match_count - 1);
+        debug_assert!(rbs.drop_count == 0);
+        command_buffer.push_action(FieldActionKind::Dup, rbs.field_idx, match_count - 1);
     }
-    drop_count
+    rbs.match_count += match_count as usize;
 }
 
 pub fn handle_tf_regex_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRegex) {
@@ -283,17 +277,20 @@ pub fn handle_tf_regex_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, re
     let tf = &sess.tf_mgr.transforms[tf_id];
     let op_id = tf.op_id;
     let command_buffer = &mut sess.entry_data.match_sets[tf.match_set_id].command_buffer;
+    command_buffer.begin_action_set(tf.ordering_id.into());
     let input_field = sess.entry_data.fields[input_field_id].borrow_mut();
     let mut iter = input_field
         .deref()
         .field_data
         .get_iter(re.input_field_iter_id);
 
-    let mut field_index = 0;
-    let mut drop_count = 0;
+    let mut rbs = RegexBatchState {
+        drop_count: 0,
+        field_idx: iter.get_next_field_pos(),
+        match_count: 0,
+    };
 
     while let Some(range) = iter.typed_range_fwd(usize::MAX, field_value_flags::BYTES_ARE_UTF8) {
-        field_index += range.field_count;
         match range.data {
             FDTypedSlice::TextInline(text) => {
                 let mut data_start = 0usize;
@@ -309,14 +306,13 @@ pub fn handle_tf_regex_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, re
                             &text[data_start..data_end].as_bytes(),
                         )
                     };
-                    drop_count = match_regex_inner(
+                    match_regex_inner(
                         tf_id,
                         range.run_length(i),
                         any_regex,
                         &re.capture_group_fields,
                         re.multimatch,
-                        field_index,
-                        drop_count,
+                        &mut rbs,
                         &sess.entry_data.fields,
                         command_buffer,
                     );
@@ -328,7 +324,7 @@ pub fn handle_tf_regex_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, re
                 let mut data_end = 0usize;
                 for (i, h) in range.headers.iter().enumerate() {
                     data_end += h.size as usize;
-                    drop_count = match_regex_inner(
+                    match_regex_inner(
                         input_field_id,
                         range.run_length(i),
                         AnyRegex::Bytes(
@@ -338,8 +334,7 @@ pub fn handle_tf_regex_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, re
                         ),
                         &re.capture_group_fields,
                         re.multimatch,
-                        field_index,
-                        drop_count,
+                        &mut rbs,
                         &sess.entry_data.fields,
                         command_buffer,
                     );
@@ -354,8 +349,9 @@ pub fn handle_tf_regex_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, re
             | FDTypedSlice::Html(_)
             | FDTypedSlice::StreamValueId(_)
             | FDTypedSlice::Object(_) => {
+                rbs.field_idx += range.field_count;
                 for cgi in &re.capture_group_fields {
-                    sess.entry_data.fields[cgi.field_id]
+                    sess.entry_data.fields[*cgi]
                         .borrow_mut()
                         .field_data
                         .push_error(
@@ -366,7 +362,8 @@ pub fn handle_tf_regex_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, re
             }
         }
     }
+
     drop(input_field);
-    sess.tf_mgr.inform_successor_batch_available(tf_id, batch);
-    sess.apply_field_actions(tf_id);
+    sess.tf_mgr
+        .inform_successor_batch_available(tf_id, rbs.match_count);
 }

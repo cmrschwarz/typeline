@@ -109,6 +109,19 @@ impl FDIterHall {
     }
 
     pub fn clear(&mut self) {
+        self.initial_field_offset += self.field_count;
+        for it in self.iters.iter_mut() {
+            let it = it.get_mut();
+            it.data = 0;
+            it.header_rl_offset = 0;
+            it.header_idx = 0;
+            it.field_pos = self.initial_field_offset;
+        }
+        self.field_count = 0;
+        self.fd.clear();
+    }
+    pub fn reset(&mut self) {
+        self.initial_field_offset = 0;
         self.field_count = 0;
         self.fd.clear();
     }
