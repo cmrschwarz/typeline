@@ -3,7 +3,6 @@ use std::{
     cell::RefCell,
     collections::{hash_map, BinaryHeap, HashMap, VecDeque},
     iter,
-    ops::DerefMut,
 };
 
 use is_terminal::IsTerminal;
@@ -13,12 +12,7 @@ use crate::{
     chain::BufferingMode,
     context::SessionData,
     document::DocumentSource,
-    field_data::{
-        fd_iter::{FDIterMut, FDIterator},
-        fd_iter_hall::FDIterHall,
-        field_command_buffer::FieldCommandBuffer,
-        EntryId, FieldData,
-    },
+    field_data::{fd_iter_hall::FDIterHall, field_command_buffer::FieldCommandBuffer, EntryId},
     operations::{
         errors::{OperatorApplicationError, OperatorSetupError},
         file_reader::{
@@ -368,7 +362,6 @@ impl<'a> WorkerThreadSession<'a> {
                     match_sets: Default::default(),
                 },
                 ids_temp_buffer: Default::default(),
-                actions_temp_buffer: Default::default(),
             },
         }
     }

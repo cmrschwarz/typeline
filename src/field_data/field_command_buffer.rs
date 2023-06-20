@@ -1,22 +1,40 @@
+use std::mem::MaybeUninit;
+
 use crate::field_data::fd_iter::FDIterator;
 
 use super::{fd_iter::FDIterMut, FieldData, FieldValueFormat, FieldValueHeader, RunLength};
 
+#[derive(Clone, Copy)]
 pub enum FieldActionKind {
     Dup,
     Drop,
 }
+
+#[derive(Clone, Copy)]
 pub struct FieldAction {
     pub kind: FieldActionKind,
     pub run_len: RunLength,
     pub field_idx: usize,
 }
 
-pub struct InsertionCommand {
+struct ActionSet {
+    set_index: usize,
+    actions_start: usize,
+    action_count: usize,
+}
+
+#[derive(Clone, Copy)]
+struct ActionSetMergeResult {
+    merge_set_index: usize,
+    actions_start: usize,
+    action_count: usize,
+}
+
+struct InsertionCommand {
     index: usize,
     value: FieldValueHeader,
 }
-pub struct CopyCommand {
+struct CopyCommand {
     source: usize,
     target: usize,
     len: usize,
@@ -24,12 +42,28 @@ pub struct CopyCommand {
 
 #[derive(Default)]
 pub struct FieldCommandBuffer {
-    pub actions: Vec<FieldAction>,
+    actions: [Vec<FieldAction>; 4],
+    action_sets: Vec<ActionSet>,
     copies: Vec<CopyCommand>,
     insertions: Vec<InsertionCommand>,
 }
 
+const ACTIONS_RAW_IDX: usize = 0;
+const ACTIONS_FINAL_IDX: usize = 1;
+
 impl FieldCommandBuffer {
+    pub fn is_legal_field_idx_for_action(&self, field_idx: usize) -> bool {
+        if let Some(acs) = self.action_sets.last() {
+            if acs.action_count != 0 {
+                self.actions[ACTIONS_RAW_IDX][acs.actions_start + acs.action_count - 1].field_idx
+                    <= field_idx
+            } else {
+                true
+            }
+        } else {
+            false
+        }
+    }
     pub fn push_action_with_usize_rl(
         &mut self,
         kind: FieldActionKind,
@@ -38,30 +72,43 @@ impl FieldCommandBuffer {
     ) {
         while run_length > 0 {
             let rl_to_push = run_length.min(RunLength::MAX as usize) as RunLength;
-            self.actions.push(FieldAction {
-                kind: FieldActionKind::Drop,
-                field_idx,
-                run_len: rl_to_push,
-            });
+            self.push_action(kind, field_idx, rl_to_push);
             run_length -= rl_to_push as usize;
         }
     }
     pub fn push_action(&mut self, kind: FieldActionKind, field_idx: usize, run_length: RunLength) {
-        self.actions.push(FieldAction {
-            kind: FieldActionKind::Drop,
+        assert!(self.is_legal_field_idx_for_action(field_idx));
+        self.actions[ACTIONS_RAW_IDX].push(FieldAction {
+            kind,
             field_idx,
             run_len: run_length,
         });
     }
+    pub fn begin_action_set(&mut self, set_index: usize) {
+        if let Some(acs) = self.action_sets.last_mut() {
+            if acs.action_count == 0 {
+                acs.set_index = set_index;
+                return;
+            }
+        }
+        self.action_sets.push(ActionSet {
+            set_index,
+            actions_start: self.actions[ACTIONS_RAW_IDX].len(),
+            action_count: 0,
+        })
+    }
+    pub fn clear(&mut self) {
+        self.actions[0].clear();
+        self.action_sets.clear();
+    }
     pub fn execute(&mut self, fd: &mut FieldData) {
-        self.execute_from_iter(FDIterMut::from_start(fd));
         self.execute_from_header_index_and_field_position(fd, 0, 0);
     }
     pub fn execute_from_iter<'a>(&mut self, mut iter: FDIterMut<'a>) {
-        if self.actions.len() == 0 {
+        if self.actions[0].len() == 0 {
             return;
         }
-        let first_idx = self.actions[0].field_idx;
+        let first_idx = self.actions[ACTIONS_RAW_IDX][0].field_idx;
         let iter_idx = iter.get_next_field_pos();
         if iter_idx > first_idx {
             iter.prev_n_fields(iter_idx - first_idx);
@@ -75,17 +122,134 @@ impl FieldCommandBuffer {
     fn execute_from_header_index_and_field_position(
         &mut self,
         fd: &mut FieldData,
-        mut header_idx: usize,
-        mut field_pos: usize,
+        header_idx: usize,
+        field_pos: usize,
     ) {
-        //stable sort so a dup stays before a drop
-        //TODO: make action indices respect previous actions
-        self.actions
-            .sort_by(|lhs, rhs| lhs.field_idx.cmp(&rhs.field_idx));
-        self.insertions.clear();
-        self.perform_actions(fd, header_idx, field_pos);
+        self.prepare_actions();
+        self.generate_commands_from_actions(fd, header_idx, field_pos);
         self.execute_commands(fd);
+        self.cleanup();
     }
+    fn cleanup(&mut self) {
+        for ms in self.actions.iter_mut().skip(1) {
+            ms.clear();
+        }
+        self.insertions.clear();
+        self.copies.clear();
+    }
+}
+
+// prepare final actions list from actions_raw
+impl FieldCommandBuffer {
+    fn merge_two_action_sets_raw(
+        sets: [&[FieldAction]; 2],
+        target: &mut [MaybeUninit<FieldAction>],
+    ) {
+        let mut indices = [0usize; 2];
+        let mut offsets = [0usize; 2];
+    }
+    fn get_merge_result_slice<'a>(
+        &self,
+        full_slice: &'a [FieldAction],
+        asmr: ActionSetMergeResult,
+    ) -> &'a [FieldAction] {
+        &full_slice[asmr.actions_start..asmr.actions_start + asmr.action_count]
+    }
+    fn unclaim_merge_space(&mut self, asmr: ActionSetMergeResult) {
+        let ms = &mut self.actions[asmr.merge_set_index];
+        debug_assert!(ms.len() == asmr.actions_start + asmr.action_count);
+        ms.truncate(asmr.actions_start);
+    }
+    fn merge_two_action_sets(
+        &mut self,
+        first: ActionSetMergeResult,
+        second: ActionSetMergeResult,
+        target_merge_set: usize,
+    ) -> ActionSetMergeResult {
+        let first_slice_full;
+        let second_slice_full;
+        let res_ms;
+        unsafe {
+            debug_assert!(first.merge_set_index != target_merge_set);
+            debug_assert!(second.merge_set_index != target_merge_set);
+            debug_assert!(first.merge_set_index != second.merge_set_index);
+            let asp = self.actions.as_mut_ptr();
+            first_slice_full = (*asp.add(first.merge_set_index)).as_slice();
+            second_slice_full = (*asp.add(second.merge_set_index)).as_slice();
+            res_ms = &mut *asp.add(target_merge_set);
+        }
+
+        let first_slice = self.get_merge_result_slice(first_slice_full, first);
+        let second_slice = self.get_merge_result_slice(second_slice_full, second);
+
+        let res_size = first_slice.len() + second_slice.len();
+        res_ms.reserve(res_size);
+        let res_len_before = res_ms.len();
+        let target = unsafe {
+            let ptr = res_ms.as_mut_ptr().add(res_len_before);
+            std::slice::from_raw_parts_mut(ptr as *mut MaybeUninit<FieldAction>, res_size)
+        };
+        FieldCommandBuffer::merge_two_action_sets_raw([first_slice, second_slice], target);
+        unsafe {
+            res_ms.set_len(res_len_before + res_size);
+        }
+        self.unclaim_merge_space(first);
+        self.unclaim_merge_space(second);
+        ActionSetMergeResult {
+            merge_set_index: target_merge_set,
+            actions_start: res_len_before,
+            action_count: res_size,
+        }
+    }
+    fn action_set_as_result(&self, action_set_idx: usize) -> ActionSetMergeResult {
+        let acs = &self.action_sets[action_set_idx];
+        ActionSetMergeResult {
+            merge_set_index: 0,
+            actions_start: acs.actions_start,
+            action_count: acs.action_count,
+        }
+    }
+    fn merge_action_sets(
+        &mut self,
+        action_sets_start: usize,
+        action_sets_len: usize,
+        target_merge_set: usize,
+    ) -> ActionSetMergeResult {
+        if action_sets_len == 1 {
+            let acs = &self.action_sets[action_sets_start];
+            return ActionSetMergeResult {
+                merge_set_index: 0,
+                actions_start: acs.actions_start,
+                action_count: acs.action_count,
+            };
+        }
+        if action_sets_len == 2 {
+            return self.merge_two_action_sets(
+                self.action_set_as_result(action_sets_start),
+                self.action_set_as_result(action_sets_start + 1),
+                target_merge_set,
+            );
+        }
+        let len_half = action_sets_len / 2;
+        let merge_first_half = self.merge_action_sets(
+            action_sets_start,
+            len_half,
+            ((target_merge_set + 1) % 3) + 1,
+        );
+        let merge_rest = self.merge_action_sets(
+            action_sets_start + len_half,
+            action_sets_len - len_half,
+            ((target_merge_set + 2) % 3) + 1,
+        );
+        self.merge_two_action_sets(merge_first_half, merge_rest, target_merge_set)
+    }
+    fn prepare_actions(&mut self) {
+        self.merge_action_sets(0, self.action_sets.len(), ACTIONS_FINAL_IDX);
+    }
+}
+
+// generate_commands_from_actions machinery
+impl FieldCommandBuffer {
     fn push_copy_command(
         &mut self,
         header_idx_new: usize,
@@ -209,7 +373,12 @@ impl FieldCommandBuffer {
         header.set_shared_value(post == 1);
         return;
     }
-    fn perform_actions(&mut self, fd: &mut FieldData, mut header_idx: usize, mut field_pos: usize) {
+    fn generate_commands_from_actions(
+        &mut self,
+        fd: &mut FieldData,
+        mut header_idx: usize,
+        mut field_pos: usize,
+    ) {
         let mut header = &mut fd.header[header_idx];
         let mut header_idx_new = header_idx;
 
@@ -219,10 +388,11 @@ impl FieldCommandBuffer {
         let mut copy_range_start = 0;
         let mut copy_range_start_new = 0;
         'advance_action: loop {
-            if action_idx_next == self.actions.len() {
-                return;
+            let actions = &self.actions[ACTIONS_FINAL_IDX];
+            if action_idx_next == actions.len() {
+                break;
             }
-            action = self.actions[action_idx_next];
+            action = actions[action_idx_next];
             action_idx_next += 1;
             'advance_header: loop {
                 loop {
@@ -336,7 +506,16 @@ impl FieldCommandBuffer {
                 }
             }
         }
+        self.push_copy_command(
+            header_idx_new,
+            &mut copy_range_start,
+            &mut copy_range_start_new,
+        );
     }
+}
+
+// final execution step
+impl FieldCommandBuffer {
     fn execute_commands(&mut self, fd: &mut FieldData) {
         let new_size = self
             .insertions

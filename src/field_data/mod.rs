@@ -580,12 +580,11 @@ impl FieldData {
         try_rle: bool,
     ) {
         let mut run_length = run_length;
+        let mut same_value = false;
         if let Some(h) = self.header.last_mut() {
             let mut try_amend_header = false;
-            let mut same_value = false;
             if kind.needs_alignment() && !h.kind.needs_alignment() {
                 h.set_alignment_after(kind.align_size_up(self.data.len()) - self.data.len());
-                self.pad_to_align();
             } else if h.kind == kind {
                 if try_rle {
                     let prev_data = unsafe {
@@ -647,8 +646,13 @@ impl FieldData {
             fmt,
             run_length: run_length as RunLength,
         });
-        let data = ManuallyDrop::new(data);
-        self.data.extend_from_slice(unsafe { as_u8_slice(&data) });
+        if !same_value {
+            if kind.needs_alignment() {
+                self.pad_to_align();
+            }
+            let data = ManuallyDrop::new(data);
+            self.data.extend_from_slice(unsafe { as_u8_slice(&data) });
+        }
     }
     pub fn push_str_buffer(&mut self, data: &str, run_length: usize, try_rle: bool) {
         unsafe {

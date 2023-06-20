@@ -225,7 +225,7 @@ fn match_regex_inner<'a, 'b, 'c>(
     mut regex: AnyRegex<'a, 'b>,
     capture_group_fields: &Vec<CaptureGroupIndices>,
     multimatch: bool,
-    mut field_index: usize,
+    field_index: usize,
     mut drop_count: usize,
     fields: &Universe<NonMaxUsize, RefCell<Field>>,
     command_buffer: &mut FieldCommandBuffer,
