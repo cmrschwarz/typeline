@@ -141,61 +141,107 @@ impl FieldCommandBuffer {
 
 // prepare final actions list from actions_raw
 impl FieldCommandBuffer {
-    fn merge_two_action_sets_raw(
-        sets: [&mut [FieldAction]; 2],
-        target: &mut [MaybeUninit<FieldAction>],
-    ) -> usize {
+    fn merge_two_action_sets_raw(sets: [&[FieldAction]; 2], target: &mut Vec<FieldAction>) {
         const LEFT: usize = 0;
         const RIGHT: usize = 1;
         const COUNT: usize = 2;
 
         let mut offsets = [0isize; COUNT];
         let mut indices = [0usize; COUNT];
-        let mut starts = [0; COUNT];
-        let mut target_idx = 0;
-        for i in 0..COUNT {
-            starts[i] = sets[i][indices[i]].field_idx;
-        }
+        let mut starts = [0usize; COUNT];
 
         loop {
+            for i in 0..COUNT {
+                starts[i] = (sets[i][indices[i]].field_idx as isize + offsets[i]) as usize;
+            }
             if starts[LEFT] <= starts[RIGHT] {
                 let left = &sets[LEFT][indices[LEFT]];
+                let field_idx = (left.field_idx as isize + offsets[LEFT]) as usize;
+                let drops_4_left = &mut offsets[RIGHT];
+                let mut run_len = left.run_len;
+                let mut kind = left.kind;
                 match left.kind {
                     FieldActionKind::Dup => {
-                        offsets[RIGHT] += left.run_len as isize;
+                        if *drops_4_left >= run_len as isize {
+                            kind = FieldActionKind::Drop;
+                            *drops_4_left -= run_len as isize;
+                            let mut space_to_next = sets[LEFT]
+                                .get(indices[LEFT] + 1)
+                                .map(|a| a.field_idx - left.field_idx)
+                                .unwrap_or(usize::MAX);
+                            while space_to_next > *drops_4_left as usize
+                                && *drops_4_left > RunLength::MAX as isize
+                            {
+                                *drops_4_left -= RunLength::MAX as isize;
+                                space_to_next -= RunLength::MAX as usize;
+                                target.push(FieldAction {
+                                    kind,
+                                    run_len: RunLength::MAX,
+                                    field_idx,
+                                });
+                            }
+                            run_len = (*drops_4_left).min(space_to_next as isize) as RunLength;
+                            *drops_4_left -= run_len as isize;
+                        } else {
+                            run_len -= *drops_4_left as RunLength;
+                            *drops_4_left = 0;
+                        }
                     }
                     FieldActionKind::Drop => {
-                        offsets[RIGHT] -= left.run_len as isize;
+                        let mut space_to_next = sets[LEFT]
+                            .get(indices[LEFT] + 1)
+                            .map(|a| a.field_idx - left.field_idx)
+                            .unwrap_or(usize::MAX);
+                        *drops_4_left += run_len as isize;
+                        while space_to_next > *drops_4_left as usize
+                            && *drops_4_left > RunLength::MAX as isize
+                        {
+                            *drops_4_left -= RunLength::MAX as isize;
+                            space_to_next -= RunLength::MAX as usize;
+                            target.push(FieldAction {
+                                kind,
+                                run_len: RunLength::MAX,
+                                field_idx,
+                            });
+                        }
+                        run_len = (*drops_4_left).min(space_to_next as isize) as RunLength;
+                        *drops_4_left -= run_len as isize;
                     }
                 }
-                target[target_idx] = MaybeUninit::new(FieldAction {
-                    kind: left.kind,
-                    run_len: left.run_len,
-                    field_idx: (left.field_idx as isize + offsets[LEFT]) as usize,
+                target.push(FieldAction {
+                    kind,
+                    run_len,
+                    field_idx,
                 });
-                target_idx += 1;
                 indices[LEFT] += 1;
                 if indices[LEFT] == sets[LEFT].len() {
                     break;
                 }
-                starts[LEFT] = sets[LEFT][indices[LEFT]].field_idx;
             } else {
                 let right = &sets[RIGHT][indices[RIGHT]];
+                let field_idx = (right.field_idx as isize + offsets[RIGHT]) as usize;
+                let mut run_len = right.run_len;
+
                 match right.kind {
                     FieldActionKind::Dup => {
                         offsets[LEFT] += right.run_len as isize;
                     }
                     FieldActionKind::Drop => {
-                        offsets[RIGHT] -= left.run_len as isize;
+                        let gap_to_start_left = starts[LEFT] - starts[RIGHT];
+                        if gap_to_start_left < right.run_len as usize {
+                            let gap_rl = gap_to_start_left as RunLength;
+                            run_len = gap_rl;
+                            offsets[RIGHT] += (right.run_len - gap_rl) as isize;
+                        }
+                        offsets[LEFT] -= run_len as isize;
                     }
                 }
-                target[target_idx] = MaybeUninit::new(FieldAction {
-                    kind: left.kind,
-                    run_len: left.run_len,
-                    field_idx: (left.field_idx as isize + offsets[LEFT]) as usize,
+                target.push(FieldAction {
+                    kind: right.kind,
+                    run_len,
+                    field_idx,
                 });
-                target_idx += 1;
-                indices[LEFT] += 1;
+                indices[RIGHT] += 1;
             }
         }
         for i in 0..COUNT {
@@ -203,17 +249,15 @@ impl FieldCommandBuffer {
                 let other = (i + 1) % COUNT;
                 for i in indices[other]..sets[other].len() {
                     let action = &sets[other][i];
-                    target[target_idx] = MaybeUninit::new(FieldAction {
+                    target.push(FieldAction {
                         kind: action.kind,
                         run_len: action.run_len,
                         field_idx: (action.field_idx as isize + offsets[other]) as usize,
                     });
-                    target_idx += 1;
                 }
                 break;
             }
         }
-        return target_idx;
     }
     fn get_merge_result_slice<'a>(
         &self,
@@ -240,10 +284,10 @@ impl FieldCommandBuffer {
             debug_assert!(first.merge_set_index != target_merge_set);
             debug_assert!(second.merge_set_index != target_merge_set);
             debug_assert!(first.merge_set_index != second.merge_set_index);
-            let asp = self.actions.as_mut_ptr();
-            first_slice_full = (*asp.add(first.merge_set_index)).as_slice();
-            second_slice_full = (*asp.add(second.merge_set_index)).as_slice();
-            res_ms = &mut *asp.add(target_merge_set);
+            let ac_sets_ptrs = self.actions.as_mut_ptr();
+            first_slice_full = (*ac_sets_ptrs.add(first.merge_set_index)).as_slice();
+            second_slice_full = (*ac_sets_ptrs.add(second.merge_set_index)).as_slice();
+            res_ms = &mut *ac_sets_ptrs.add(target_merge_set);
         }
 
         let first_slice = self.get_merge_result_slice(first_slice_full, first);
@@ -252,21 +296,14 @@ impl FieldCommandBuffer {
         let res_size = first_slice.len() + second_slice.len();
         res_ms.reserve(res_size);
         let res_len_before = res_ms.len();
-        let target = unsafe {
-            let ptr = res_ms.as_mut_ptr().add(res_len_before);
-            std::slice::from_raw_parts_mut(ptr as *mut MaybeUninit<FieldAction>, res_size)
-        };
-        let used_len =
-            FieldCommandBuffer::merge_two_action_sets_raw([first_slice, second_slice], target);
-        unsafe {
-            res_ms.set_len(res_len_before + used_len);
-        }
+        FieldCommandBuffer::merge_two_action_sets_raw([first_slice, second_slice], res_ms);
+        let res_len_after = res_ms.len();
         self.unclaim_merge_space(first);
         self.unclaim_merge_space(second);
         ActionSetMergeResult {
             merge_set_index: target_merge_set,
             actions_start: res_len_before,
-            action_count: res_size,
+            action_count: res_len_after - res_len_before,
         }
     }
     fn action_set_as_result(&self, action_set_idx: usize) -> ActionSetMergeResult {
