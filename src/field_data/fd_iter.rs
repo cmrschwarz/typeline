@@ -24,6 +24,65 @@ pub enum FDTypedSlice<'a> {
     Object(&'a [Object]),
 }
 
+pub fn iterate_typed_slice<'a, T>(
+    values: &'a [T],
+    headers: &[FieldValueHeader],
+    mut func: impl FnMut(&T, RunLength),
+) {
+    let mut value_idx = 0;
+    for h in headers.iter() {
+        if h.shared_value() {
+            if h.same_value_as_previous() && value_idx > 0 {
+                value_idx -= 1;
+            }
+            func(&values[value_idx], h.run_length);
+            value_idx += 1;
+        } else {
+            for _ in 0..h.run_length {
+                func(&values[value_idx], 1);
+                value_idx += 1;
+            }
+        }
+    }
+}
+pub fn iterate_typed_slice_for_inline_bytes<'a>(
+    values: &'a [u8],
+    headers: &[FieldValueHeader],
+    mut func: impl FnMut(&[u8], RunLength),
+) {
+    let mut data_start = 0;
+    let mut prev_data_size = 0;
+    for h in headers.iter() {
+        if h.same_value_as_previous() {
+            data_start -= prev_data_size;
+        }
+        func(
+            &values[data_start..data_start + h.size as usize],
+            h.run_length,
+        );
+        prev_data_size = h.size as usize;
+    }
+}
+
+pub fn iterate_typed_slice_for_inline_text<'a>(
+    values: &'a str,
+    headers: &[FieldValueHeader],
+    mut func: impl FnMut(&str, RunLength),
+) {
+    let mut data_start = 0;
+    let mut prev_data_size = 0;
+    for h in headers.iter() {
+        if h.same_value_as_previous() {
+            data_start -= prev_data_size;
+        }
+        func(
+            &values[data_start..data_start + h.size as usize],
+            h.run_length,
+        );
+        prev_data_size = h.size as usize;
+    }
+}
+
 pub enum FDTypedValue<'a> {
     Unset(()),
     Null(()),

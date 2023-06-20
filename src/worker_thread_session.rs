@@ -199,29 +199,6 @@ impl EntryData {
     }
 }
 
-impl<'a> JobData<'a> {
-    pub(crate) fn apply_field_actions(&self, tf_id: TransformId) {
-        let mut tf = &self.tf_mgr.transforms[tf_id];
-        'transforms_loop: loop {
-            let field = &mut self.entry_data.fields[tf.input_field].borrow_mut();
-            let mut field_offset: isize = 0;
-
-            //TODO
-            let last_field = tf.input_field;
-            loop {
-                if let Some(prev_tf_id) = self.tf_mgr.transforms[tf_id].predecessor {
-                    tf = &self.tf_mgr.transforms[prev_tf_id];
-                    if tf.input_field != last_field {
-                        break;
-                    }
-                } else {
-                    break 'transforms_loop;
-                }
-            }
-        }
-    }
-}
-
 impl<'a> WorkerThreadSession<'a> {
     fn setup_job(&mut self, job: Job) -> Result<(), ScrError> {
         self.job_data.entry_data.match_sets.clear();

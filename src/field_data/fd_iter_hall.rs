@@ -3,7 +3,7 @@ use std::cell::Cell;
 use crate::utils::universe::Universe;
 
 use super::{
-    fd_iter::{BoundedFDIter, FDIter, FDIterMut, FDIterator},
+    fd_iter::{FDIter, FDIterMut, FDIterator},
     FieldData, RunLength,
 };
 

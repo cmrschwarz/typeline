@@ -5,7 +5,10 @@ use is_terminal::IsTerminal;
 
 use crate::{
     field_data::{
-        fd_iter::{FDIterator, FDTypedSlice, FDTypedValue},
+        fd_iter::{
+            iterate_typed_slice, iterate_typed_slice_for_inline_bytes,
+            iterate_typed_slice_for_inline_text, FDIterator, FDTypedSlice, FDTypedValue,
+        },
         fd_iter_hall::FDIterId,
         field_value_flags, FieldReference,
     },
@@ -84,8 +87,7 @@ pub fn print_integer(v: i64, run_len: usize) {
 }
 pub fn print_ref(_sess: &JobData, r: &FieldReference, run_len: usize) {
     for _ in 0..run_len {
-        //TODO
-        println!("reference: -> {} [{}, {})", r.field, r.begin, r.end);
+        println!("reference: -> {} [{}, {})", r.field, r.begin, r.end)
     }
 }
 pub fn print_null(run_len: usize) {
@@ -139,44 +141,28 @@ pub fn handle_tf_print_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, tf
     while let Some(range) = iter.typed_range_fwd(batch, field_value_flags::BYTES_ARE_UTF8) {
         match range.data {
             FDTypedSlice::TextInline(text) => {
-                let mut data_end = text.len();
-                for i in 0..range.field_count {
-                    let data_start = data_end - range.headers[i].size as usize;
-                    print_inline_text(
-                        &text[data_start..data_end],
-                        range.headers[i].run_length as usize,
-                    );
-                    data_end = data_start;
-                }
+                iterate_typed_slice_for_inline_text(text, range.headers, |v, rl| {
+                    print_inline_text(v, rl as usize);
+                });
             }
             FDTypedSlice::BytesInline(bytes) => {
-                let mut data_end = bytes.len();
-                for i in 0..range.field_count {
-                    let data_start = data_end - range.headers[i].size as usize;
-                    print_inline_bytes(
-                        &bytes[data_start..data_end],
-                        range.headers[i].run_length as usize,
-                    );
-                    data_end = data_start;
-                }
+                iterate_typed_slice_for_inline_bytes(bytes, range.headers, |v, rl| {
+                    print_inline_bytes(v, rl as usize);
+                });
             }
             FDTypedSlice::Integer(ints) => {
-                for i in 0..range.field_count {
-                    print_integer(ints[i], range.headers[i].run_length as usize);
-                }
+                iterate_typed_slice(ints, range.headers, |v, rl| print_integer(*v, rl as usize));
             }
             FDTypedSlice::Reference(refs) => {
-                for i in 0..range.field_count {
-                    print_ref(sess, &refs[i], range.headers[i].run_length as usize);
-                }
+                iterate_typed_slice(refs, range.headers, |v, rl| print_ref(sess, v, rl as usize));
             }
             FDTypedSlice::Null(_) => {
                 print_null(range.field_count);
             }
             FDTypedSlice::Error(errs) => {
-                for (i, e) in errs.iter().enumerate() {
-                    print_error(sess, e, range.headers[i].run_length as usize)
-                }
+                iterate_typed_slice(errs, range.headers, |v, rl| {
+                    print_error(sess, v, rl as usize)
+                });
             }
             FDTypedSlice::Unset(_) => {
                 print_unset(range.field_count);

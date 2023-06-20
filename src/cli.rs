@@ -74,9 +74,9 @@ lazy_static! {
             .case_insensitive(true)
             .build()
             .unwrap();
-    static ref CLI_ARG_REGEX: regex::bytes::Regex = regex::bytes::Regex::new(
-        r#"^(?<argname>[^\s@:=]+)(@(?<label>[^\s@:=]+))?(?<chainspec>:[^\s@:=]+)?(=(?<value>.*))?$"#
-    )
+    static ref CLI_ARG_REGEX: regex::bytes::Regex = regex::bytes::RegexBuilder::new(
+        r#"^(?<argname>[^\s@:=]+)(@(?<label>[^\s@:=]+))?(?<chainspec>:[^\s@:=]+)?(=(?<value>(?:.|[\r\n])*))?$"#
+    ).build()
     .unwrap();
 
 
@@ -545,7 +545,10 @@ pub fn parse_cli_retain_args(args: &Vec<BString>) -> Result<ContextOptions, CliA
                 }
             }
         } else {
-            return Err(CliArgumentError::new("invalid argument", cli_arg.idx));
+            return Err(CliArgumentError::new(
+                "invalid argument syntax",
+                cli_arg.idx,
+            ));
         }
     }
     return Ok(ctx_opts);
