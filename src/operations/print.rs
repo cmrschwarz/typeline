@@ -6,6 +6,7 @@ use is_terminal::IsTerminal;
 use crate::{
     field_data::{
         fd_iter::{FDIterator, FDTypedSlice, FDTypedValue},
+        fd_iter_hall::FDIterId,
         field_value_flags, FieldReference,
     },
     options::argument::CliArgIdx,
@@ -24,6 +25,7 @@ pub struct TfPrint {
     consumed_entries: usize,
     dropped_entries: usize,
     current_stream_val: Option<StreamValueId>,
+    batch_iter: FDIterId,
 }
 
 pub fn parse_print_op(
@@ -40,7 +42,7 @@ pub fn parse_print_op(
 }
 
 pub fn setup_tf_print(
-    _sess: &mut JobData,
+    sess: &mut JobData,
     _ms_id: MatchSetId,
     input_field: FieldId,
 ) -> (TransformData<'static>, FieldId) {
@@ -50,6 +52,10 @@ pub fn setup_tf_print(
         consumed_entries: 0,
         dropped_entries: 0,
         current_stream_val: None,
+        batch_iter: sess.entry_data.fields[input_field]
+            .borrow_mut()
+            .field_data
+            .claim_iter(),
     };
     (TransformData::Print(tf), input_field)
 }
@@ -125,11 +131,12 @@ fn print_stream_val_check_done(sv: &StreamFieldValue) -> Result<bool, std::io::E
     Ok(sv.done)
 }
 
-pub fn handle_tf_print_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, _tf: &mut TfPrint) {
+pub fn handle_tf_print_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, tf: &mut TfPrint) {
     let (batch, input_field) = sess.tf_mgr.claim_batch(tf_id);
     let field = sess.entry_data.fields[input_field].borrow();
-    let mut iter = field.field_data.iter().bounded(0, 1);
-    while let Some(range) = iter.typed_range_fwd(usize::MAX, field_value_flags::BYTES_ARE_UTF8) {
+    let mut iter = field.field_data.get_iter(tf.batch_iter);
+    let starting_pos = iter.get_next_field_pos();
+    while let Some(range) = iter.typed_range_fwd(batch, field_value_flags::BYTES_ARE_UTF8) {
         match range.data {
             FDTypedSlice::TextInline(text) => {
                 let mut data_end = text.len();
@@ -183,7 +190,8 @@ pub fn handle_tf_print_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, _t
         }
     }
     //test whether we got the batch that was advertised
-    debug_assert!(iter.range_fwd() == 0);
+    debug_assert!(iter.get_next_field_pos() - starting_pos == batch);
+    field.field_data.store_iter(tf.batch_iter, iter);
     sess.tf_mgr.inform_successor_batch_available(tf_id, batch);
 }
 

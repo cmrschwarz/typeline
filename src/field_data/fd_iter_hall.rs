@@ -3,7 +3,7 @@ use std::cell::Cell;
 use crate::utils::universe::Universe;
 
 use super::{
-    fd_iter::{FDIter, FDIterMut},
+    fd_iter::{BoundedFDIter, FDIter, FDIterMut, FDIterator},
     FieldData, RunLength,
 };
 
@@ -33,7 +33,14 @@ struct FDIterState {
 
 impl FDIterHall {
     pub fn claim_iter(&mut self) -> FDIterId {
-        self.iters.claim()
+        let iter_id = self.iters.claim();
+        self.iters[iter_id].set(FDIterState {
+            field_pos: self.initial_field_offset,
+            data: 0,
+            header_idx: 0,
+            header_rl_offset: 0,
+        });
+        iter_id
     }
     pub fn release_iter(&mut self, iter_id: FDIterId) {
         self.iters.release(iter_id)
@@ -77,7 +84,8 @@ impl FDIterHall {
             header_fmt: h.fmt,
         }
     }
-    pub fn store_iter<'a>(&'a self, iter_id: FDIterId, iter: FDIter<'a>) {
+    pub fn store_iter<'a>(&'a self, iter_id: FDIterId, iter: impl FDIterator<'a>) {
+        let iter = iter.as_base_iter();
         assert!(iter.fd as *const FieldData == &self.fd as *const FieldData);
         let mut state = self.iters[iter_id].get();
         state.data = iter.data;
@@ -107,7 +115,12 @@ impl FDIterHall {
         };
         self.fd.copy_n(n, adapted_target_applicator);
     }
-
+    pub fn field_count(&self) -> usize {
+        self.field_count
+    }
+    pub fn field_index_offset(&self) -> usize {
+        self.initial_field_offset
+    }
     pub fn clear(&mut self) {
         self.initial_field_offset += self.field_count;
         for it in self.iters.iter_mut() {

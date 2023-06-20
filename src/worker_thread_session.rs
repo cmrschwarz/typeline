@@ -191,6 +191,12 @@ impl EntryData {
     pub fn push_entry_error(&mut self, _ms_id: MatchSetId, _err: OperatorApplicationError) {
         todo!()
     }
+    pub fn try_clear_field_from_batch(&mut self, field: FieldId, batch: usize) {
+        let mut f = self.fields[field].borrow_mut();
+        if f.field_data.field_count() == batch {
+            f.field_data.clear();
+        }
+    }
 }
 
 impl<'a> JobData<'a> {
@@ -496,7 +502,7 @@ impl<'a> WorkerThreadSession<'a> {
         ms_id: MatchSetId,
         available_batch_size: usize,
         start_op_id: OperatorId,
-        input_field_id: FieldId,
+        chain_input_field_id: FieldId,
     ) -> TransformId {
         let mut start_tf_id = None;
         let start_op = &self.job_data.session_data.operator_bases[start_op_id as usize];
@@ -504,7 +510,7 @@ impl<'a> WorkerThreadSession<'a> {
             .settings
             .default_batch_size;
         let mut prev_tf = None;
-        let mut prev_field_id = input_field_id;
+        let mut prev_field_id = chain_input_field_id;
         let mut output_field;
         let ops = &self.job_data.session_data.chains[start_op.chain_id as usize].operations
             [start_op.offset_in_chain as usize..];
@@ -513,10 +519,10 @@ impl<'a> WorkerThreadSession<'a> {
             let tf_data;
             let jd = &mut self.job_data;
             (tf_data, output_field) = match op_data {
-                OperatorData::Split(ref split) => setup_tf_split(jd, ms_id, input_field_id, split),
-                OperatorData::Print => setup_tf_print(jd, ms_id, input_field_id),
-                OperatorData::Regex(ref re) => setup_tf_regex(jd, ms_id, input_field_id, re),
-                OperatorData::Format(ref fmt) => setup_tf_format(jd, ms_id, input_field_id, fmt),
+                OperatorData::Split(ref split) => setup_tf_split(jd, ms_id, prev_field_id, split),
+                OperatorData::Print => setup_tf_print(jd, ms_id, prev_field_id),
+                OperatorData::Regex(ref re) => setup_tf_regex(jd, ms_id, prev_field_id, re),
+                OperatorData::Format(ref fmt) => setup_tf_format(jd, ms_id, prev_field_id, fmt),
             };
             let tf_state = TransformState {
                 available_batch_size: start_tf_id.map(|_| 0).unwrap_or(available_batch_size),

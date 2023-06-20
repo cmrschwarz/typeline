@@ -228,6 +228,7 @@ pub trait FDIterator<'a>: Sized {
     fn bounded(self, backwards: usize, forwards: usize) -> BoundedFDIter<'a, Self> {
         BoundedFDIter::new_relative(self, backwards, forwards)
     }
+    fn as_base_iter(self) -> FDIter<'a>;
 }
 
 #[repr(C)]
@@ -574,15 +575,19 @@ impl<'a> FDIterator<'a> for FDIter<'a> {
         }
         .into()
     }
+
+    fn as_base_iter(self) -> FDIter<'a> {
+        self
+    }
 }
 
 pub struct BoundedFDIter<'a, I>
 where
     I: FDIterator<'a>,
 {
-    iter: I,
-    min: usize,
-    max: usize,
+    pub(super) iter: I,
+    pub(super) min: usize,
+    pub(super) max: usize,
     _phantom_data: PhantomData<&'a FieldData>,
 }
 impl<'a, I> BoundedFDIter<'a, I>
@@ -754,6 +759,10 @@ where
         self.iter
             .typed_range_bwd(limit.min(self.range_bwd()), flag_mask)
     }
+
+    fn as_base_iter(self) -> FDIter<'a> {
+        self.iter.as_base_iter()
+    }
 }
 
 impl<'a> FDIterMut<'a> {
@@ -782,6 +791,9 @@ impl<'a> FDIterMut<'a> {
             header_rl_total: 0,
             header_fmt: Default::default(),
         }
+    }
+    pub fn into_fd_iter(self) -> FDIter<'a> {
+        unsafe { std::mem::transmute(self) }
     }
     pub fn as_fd_iter(&self) -> &FDIter<'a> {
         unsafe { std::mem::transmute(self) }
@@ -894,5 +906,9 @@ impl<'a> FDIterator<'a> for FDIterMut<'a> {
         flag_mask: FieldValueFlags,
     ) -> Option<FDTypedRange<'a>> {
         self.as_fd_iter_mut().typed_range_bwd(limit, flag_mask)
+    }
+
+    fn as_base_iter(self) -> FDIter<'a> {
+        self.into_fd_iter()
     }
 }
