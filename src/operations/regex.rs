@@ -7,7 +7,8 @@ use nonmax::NonMaxUsize;
 use regex;
 use regex::bytes;
 
-use crate::field_data::field_command_buffer::{FieldActionKind, FieldCommandBuffer};
+use crate::field_data::fd_command_buffer::{FDCommandBuffer, FieldActionKind};
+use crate::field_data::fd_push_interface::FDPushInterface;
 use crate::field_data::RunLength;
 use crate::utils::universe::Universe;
 use crate::worker_thread_session::Field;
@@ -228,7 +229,7 @@ fn match_regex_inner<'a, 'b, 'c>(
     field_index: usize,
     mut drop_count: usize,
     fields: &Universe<NonMaxUsize, RefCell<Field>>,
-    command_buffer: &mut FieldCommandBuffer,
+    command_buffer: &mut FDCommandBuffer,
 ) -> usize {
     let mut end_of_last_match = 0;
     let mut match_count: RunLength = 0;

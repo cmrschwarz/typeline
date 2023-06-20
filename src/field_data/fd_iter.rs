@@ -9,6 +9,8 @@ use crate::{
     stream_field_data::StreamValueId,
 };
 
+use super::fd_iter_hall::FDIterHall;
+
 pub enum FDTypedSlice<'a> {
     Unset(&'a [()]),
     Null(&'a [()]),
@@ -263,12 +265,13 @@ impl<'a> FDIter<'a> {
             header_fmt: first_header.map(|h| h.fmt).unwrap_or_default(),
         }
     }
-    pub fn from_end(fd: &'a FieldData) -> Self {
+    pub fn from_end(fdih: &'a FDIterHall) -> Self {
+        let field_count = fdih.initial_field_offset + fdih.field_count;
         Self {
-            fd,
-            field_pos: fd.field_count,
-            data: fd.data.len(),
-            header_idx: fd.header.len(),
+            fd: &fdih.fd,
+            field_pos: field_count,
+            data: fdih.fd.data.len(),
+            header_idx: fdih.fd.header.len(),
             header_rl_offset: 0,
             header_rl_total: 0,
             header_fmt: Default::default(),
@@ -766,13 +769,13 @@ impl<'a> FDIterMut<'a> {
             header_fmt: first_header.map(|h| h.fmt).unwrap_or_default(),
         }
     }
-    pub fn from_end(fd: &'a mut FieldData) -> Self {
-        let header_len = fd.header.len();
-        let data_len = fd.data.len();
-        let field_count = fd.field_count;
+    pub fn from_end(fdih: &'a mut FDIterHall) -> Self {
+        let header_len = fdih.fd.header.len();
+        let data_len = fdih.fd.data.len();
+        let field_pos = fdih.field_count + fdih.initial_field_offset;
         Self {
-            fd,
-            field_pos: field_count,
+            fd: &mut fdih.fd,
+            field_pos,
             data: data_len,
             header_idx: header_len,
             header_rl_offset: 0,

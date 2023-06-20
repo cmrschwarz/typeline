@@ -5,8 +5,8 @@ use std::{
 
 use crate::{
     field_data::{
-        field_value_flags, FieldValueFormat, FieldValueHeader, FieldValueKind, FieldValueSize,
-        INLINE_STR_MAX_LEN,
+        fd_push_interface::FDPushInterface, field_value_flags, FieldValueFormat, FieldValueHeader,
+        FieldValueKind, FieldValueSize, INLINE_STR_MAX_LEN,
     },
     stream_field_data::{StreamFieldValue, StreamFieldValueData, StreamValueId},
     worker_thread_session::{
@@ -133,7 +133,10 @@ fn start_prodicing_file(
     // SAFETY: this relies on the memory layout in field_data.
     // since that is a submodule of us, this is fine.
     // ideally though, FieldData would expose some way to do this safely.
-    let (field_headers, field_data) = unsafe { out_field.field_data.internals() };
+    let ((field_headers, field_data), field_count) = unsafe {
+        let internals = out_field.field_data.internals();
+        (internals.fd.internals(), internals.field_count)
+    };
 
     let size_before = field_data.len();
     let res = read_chunk(
@@ -155,6 +158,7 @@ fn start_prodicing_file(
                 });
                 sess.tf_mgr.inform_successor_batch_available(tf_id, 1);
                 fr.file.take();
+                *field_count += 1;
                 return false;
             }
             size

@@ -1,5 +1,3 @@
-use std::mem::MaybeUninit;
-
 use crate::field_data::fd_iter::FDIterator;
 
 use super::{fd_iter::FDIterMut, FieldData, FieldValueFormat, FieldValueHeader, RunLength};
@@ -41,7 +39,7 @@ struct CopyCommand {
 }
 
 #[derive(Default)]
-pub struct FieldCommandBuffer {
+pub struct FDCommandBuffer {
     actions: [Vec<FieldAction>; 4],
     action_sets: Vec<ActionSet>,
     copies: Vec<CopyCommand>,
@@ -51,7 +49,7 @@ pub struct FieldCommandBuffer {
 const ACTIONS_RAW_IDX: usize = 0;
 const ACTIONS_FINAL_IDX: usize = 1;
 
-impl FieldCommandBuffer {
+impl FDCommandBuffer {
     pub fn is_legal_field_idx_for_action(&self, field_idx: usize) -> bool {
         if let Some(acs) = self.action_sets.last() {
             if acs.action_count != 0 {
@@ -140,7 +138,7 @@ impl FieldCommandBuffer {
 }
 
 // prepare final actions list from actions_raw
-impl FieldCommandBuffer {
+impl FDCommandBuffer {
     fn merge_two_action_sets_raw(sets: [&[FieldAction]; 2], target: &mut Vec<FieldAction>) {
         const LEFT: usize = 0;
         const RIGHT: usize = 1;
@@ -296,7 +294,7 @@ impl FieldCommandBuffer {
         let res_size = first_slice.len() + second_slice.len();
         res_ms.reserve(res_size);
         let res_len_before = res_ms.len();
-        FieldCommandBuffer::merge_two_action_sets_raw([first_slice, second_slice], res_ms);
+        FDCommandBuffer::merge_two_action_sets_raw([first_slice, second_slice], res_ms);
         let res_len_after = res_ms.len();
         self.unclaim_merge_space(first);
         self.unclaim_merge_space(second);
@@ -354,7 +352,7 @@ impl FieldCommandBuffer {
 }
 
 // generate_commands_from_actions machinery
-impl FieldCommandBuffer {
+impl FDCommandBuffer {
     fn push_copy_command(
         &mut self,
         header_idx_new: usize,
@@ -620,7 +618,7 @@ impl FieldCommandBuffer {
 }
 
 // final execution step
-impl FieldCommandBuffer {
+impl FDCommandBuffer {
     fn execute_commands(&mut self, fd: &mut FieldData) {
         let new_size = self
             .insertions

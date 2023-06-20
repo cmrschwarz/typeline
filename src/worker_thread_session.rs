@@ -12,7 +12,10 @@ use crate::{
     chain::BufferingMode,
     context::SessionData,
     document::DocumentSource,
-    field_data::{fd_iter_hall::FDIterHall, field_command_buffer::FieldCommandBuffer, EntryId},
+    field_data::{
+        fd_command_buffer::FDCommandBuffer, fd_iter_hall::FDIterHall,
+        fd_push_interface::FDPushInterface, EntryId,
+    },
     operations::{
         errors::{OperatorApplicationError, OperatorSetupError},
         file_reader::{
@@ -62,7 +65,7 @@ pub struct MatchSet {
     pub working_set_updates: Vec<(EntryId, FieldId)>,
     //should not contain tf input fields (?)
     pub working_set: Vec<FieldId>,
-    pub command_buffer: FieldCommandBuffer,
+    pub command_buffer: FDCommandBuffer,
     pub field_name_map: HashMap<StringStoreEntry, VecDeque<FieldId>>,
 }
 

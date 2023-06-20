@@ -1,7 +1,4 @@
-use std::{
-    cell::Cell,
-    ops::{Deref, DerefMut},
-};
+use std::cell::Cell;
 
 use crate::utils::universe::Universe;
 
@@ -14,8 +11,16 @@ pub type FDIterId = usize;
 
 #[derive(Default)]
 pub struct FDIterHall {
-    fd: FieldData,
+    pub(super) fd: FieldData,
+    pub(super) initial_field_offset: usize,
+    pub(super) field_count: usize,
     iters: Universe<FDIterId, Cell<FDIterState>>,
+}
+
+pub struct FDIterHallInternals<'a> {
+    pub fd: &'a mut FieldData,
+    pub initial_field_offset: &'a mut usize,
+    pub field_count: &'a mut usize,
 }
 
 #[derive(Default, Clone, Copy)]
@@ -32,6 +37,9 @@ impl FDIterHall {
     }
     pub fn release_iter(&mut self, iter_id: FDIterId) {
         self.iters.release(iter_id)
+    }
+    pub fn iter<'a>(&'a self) -> FDIter<'a> {
+        self.fd.iter()
     }
     pub fn get_iter<'a>(&'a self, iter_id: FDIterId) -> FDIter<'a> {
         let state = self.iters[iter_id].get();
@@ -77,18 +85,31 @@ impl FDIterHall {
         state.header_rl_offset = iter.header_rl_offset;
         self.iters[iter_id].set(state);
     }
-}
 
-//HACK: this is completely unsound, but helps with testing for now
-impl Deref for FDIterHall {
-    type Target = FieldData;
-
-    fn deref(&self) -> &Self::Target {
-        &self.fd
+    /// returns a tuple of (FieldData, initial_field_offset, field_count)
+    pub unsafe fn internals(&mut self) -> FDIterHallInternals {
+        FDIterHallInternals {
+            fd: &mut self.fd,
+            initial_field_offset: &mut self.initial_field_offset,
+            field_count: &mut self.field_count,
+        }
     }
-}
-impl DerefMut for FDIterHall {
-    fn deref_mut(&mut self) -> &mut FieldData {
-        &mut self.fd
+
+    pub fn copy_n<'a, TargetApplicatorFn: FnMut(&dyn Fn(&mut FDIterHall))>(
+        &self,
+        n: usize,
+        mut targets_applicator: TargetApplicatorFn,
+    ) {
+        targets_applicator(&|fdih| fdih.field_count += n);
+        let adapted_target_applicator = &mut |f: &dyn Fn(&mut FieldData)| {
+            let g = &|fdih: &mut FDIterHall| f(&mut fdih.fd);
+            targets_applicator(g);
+        };
+        self.fd.copy_n(n, adapted_target_applicator);
+    }
+
+    pub fn clear(&mut self) {
+        self.field_count = 0;
+        self.fd.clear();
     }
 }
