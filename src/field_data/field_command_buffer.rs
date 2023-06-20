@@ -142,11 +142,78 @@ impl FieldCommandBuffer {
 // prepare final actions list from actions_raw
 impl FieldCommandBuffer {
     fn merge_two_action_sets_raw(
-        sets: [&[FieldAction]; 2],
+        sets: [&mut [FieldAction]; 2],
         target: &mut [MaybeUninit<FieldAction>],
-    ) {
-        let mut indices = [0usize; 2];
-        let mut offsets = [0usize; 2];
+    ) -> usize {
+        const LEFT: usize = 0;
+        const RIGHT: usize = 1;
+        const COUNT: usize = 2;
+
+        let mut offsets = [0isize; COUNT];
+        let mut indices = [0usize; COUNT];
+        let mut starts = [0; COUNT];
+        let mut target_idx = 0;
+        for i in 0..COUNT {
+            starts[i] = sets[i][indices[i]].field_idx;
+        }
+
+        loop {
+            if starts[LEFT] <= starts[RIGHT] {
+                let left = &sets[LEFT][indices[LEFT]];
+                match left.kind {
+                    FieldActionKind::Dup => {
+                        offsets[RIGHT] += left.run_len as isize;
+                    }
+                    FieldActionKind::Drop => {
+                        offsets[RIGHT] -= left.run_len as isize;
+                    }
+                }
+                target[target_idx] = MaybeUninit::new(FieldAction {
+                    kind: left.kind,
+                    run_len: left.run_len,
+                    field_idx: (left.field_idx as isize + offsets[LEFT]) as usize,
+                });
+                target_idx += 1;
+                indices[LEFT] += 1;
+                if indices[LEFT] == sets[LEFT].len() {
+                    break;
+                }
+                starts[LEFT] = sets[LEFT][indices[LEFT]].field_idx;
+            } else {
+                let right = &sets[RIGHT][indices[RIGHT]];
+                match right.kind {
+                    FieldActionKind::Dup => {
+                        offsets[LEFT] += right.run_len as isize;
+                    }
+                    FieldActionKind::Drop => {
+                        offsets[RIGHT] -= left.run_len as isize;
+                    }
+                }
+                target[target_idx] = MaybeUninit::new(FieldAction {
+                    kind: left.kind,
+                    run_len: left.run_len,
+                    field_idx: (left.field_idx as isize + offsets[LEFT]) as usize,
+                });
+                target_idx += 1;
+                indices[LEFT] += 1;
+            }
+        }
+        for i in 0..COUNT {
+            if indices[i] == sets[i].len() {
+                let other = (i + 1) % COUNT;
+                for i in indices[other]..sets[other].len() {
+                    let action = &sets[other][i];
+                    target[target_idx] = MaybeUninit::new(FieldAction {
+                        kind: action.kind,
+                        run_len: action.run_len,
+                        field_idx: (action.field_idx as isize + offsets[other]) as usize,
+                    });
+                    target_idx += 1;
+                }
+                break;
+            }
+        }
+        return target_idx;
     }
     fn get_merge_result_slice<'a>(
         &self,
@@ -189,9 +256,10 @@ impl FieldCommandBuffer {
             let ptr = res_ms.as_mut_ptr().add(res_len_before);
             std::slice::from_raw_parts_mut(ptr as *mut MaybeUninit<FieldAction>, res_size)
         };
-        FieldCommandBuffer::merge_two_action_sets_raw([first_slice, second_slice], target);
+        let used_len =
+            FieldCommandBuffer::merge_two_action_sets_raw([first_slice, second_slice], target);
         unsafe {
-            res_ms.set_len(res_len_before + res_size);
+            res_ms.set_len(res_len_before + used_len);
         }
         self.unclaim_merge_space(first);
         self.unclaim_merge_space(second);
