@@ -16,13 +16,13 @@ use std::{
     iter,
     mem::{align_of, size_of, ManuallyDrop},
     ops::DerefMut,
-    ptr, slice, u8,
+    slice, u8,
 };
 
 use std::ops::Deref;
 
 use crate::{
-    field_data::fd_iter::FDTypedValue, operations::errors::OperatorApplicationError,
+    operations::errors::OperatorApplicationError, stream_field_data::StreamValueId,
     utils::string_store::StringStoreEntry, worker_thread_session::FieldId,
 };
 
@@ -100,6 +100,22 @@ impl FieldValueKind {
             ptr
         }
     }
+    pub fn size(self) -> usize {
+        match self {
+            FieldValueKind::Unset => 0,
+            FieldValueKind::Null => 0,
+            FieldValueKind::EntryId => std::mem::size_of::<EntryId>(),
+            FieldValueKind::Integer => std::mem::size_of::<i64>(),
+            FieldValueKind::StreamValueId => std::mem::size_of::<StreamValueId>(),
+            FieldValueKind::Reference => std::mem::size_of::<FieldReference>(),
+            FieldValueKind::Error => std::mem::size_of::<OperatorApplicationError>(),
+            FieldValueKind::Html => std::mem::size_of::<Html>(),
+            FieldValueKind::BytesBuffer => std::mem::size_of::<Vec<u8>>(),
+            FieldValueKind::BytesFile => std::mem::size_of::<BytesBufferFile>(),
+            FieldValueKind::Object => std::mem::size_of::<Object>(),
+            FieldValueKind::BytesInline => panic!("BytesInline has no size"),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -151,7 +167,7 @@ pub mod field_value_flags {
     pub type FieldValueFlags = u8;
     //offset must be zero so we don't have to shift
     const_assert!(MAX_FIELD_ALIGN.is_power_of_two() && MAX_FIELD_ALIGN <= 16);
-    pub const ALIGNMENT_AFTER: FieldValueFlags = 0xF; //consumes offsets 0 through 3
+    pub const LEADING_PADDING: FieldValueFlags = 0xF; //consumes offsets 0 through 3
     pub const SAME_VALUE_AS_PREVIOUS: FieldValueFlags = 4;
     pub const SHARED_VALUE_OFFSET: FieldValueFlags = 5;
     pub const BYTES_ARE_UTF8_OFFSET: FieldValueFlags = 6;
@@ -203,12 +219,12 @@ impl FieldValueFormat {
     pub fn set_bytes_are_utf8(&mut self, val: bool) {
         self.flags |= (val as FieldValueFlags) << field_value_flags::BYTES_ARE_UTF8_OFFSET;
     }
-    pub fn alignment_after(self) -> usize {
-        (self.flags & field_value_flags::ALIGNMENT_AFTER) as usize
+    pub fn leading_padding(self) -> usize {
+        (self.flags & field_value_flags::LEADING_PADDING) as usize
     }
-    pub fn set_alignment_after(&mut self, val: usize) {
-        debug_assert!(val & !(field_value_flags::ALIGNMENT_AFTER as usize) == 0);
-        self.flags |= (val as u8) & field_value_flags::ALIGNMENT_AFTER;
+    pub fn set_leading_padding(&mut self, val: usize) {
+        debug_assert!(val & !(field_value_flags::LEADING_PADDING as usize) == 0);
+        self.flags |= (val as u8) & field_value_flags::LEADING_PADDING;
     }
     pub fn deleted(self) -> bool {
         self.flags & field_value_flags::DELETED != 0
@@ -254,7 +270,10 @@ impl FieldValueHeader {
         }
     }
     pub fn total_size(&self) -> usize {
-        self.data_size() + self.alignment_after()
+        self.data_size() + self.leading_padding()
+    }
+    pub fn run_len_rem(&self) -> RunLength {
+        RunLength::MAX - self.run_length
     }
 }
 
@@ -271,7 +290,7 @@ impl Clone for FieldData {
             header: self.header.clone(),
         };
         let fd_ref = &mut fd;
-        self.copy_n(usize::MAX, move |f| f(fd_ref));
+        FieldData::copy(self.iter(), move |f| f(fd_ref));
         fd
     }
 }
@@ -308,202 +327,86 @@ impl FieldData {
         self.data.clear();
     }
 
-    pub fn dup_nth(&mut self, n: usize, mut added_run_len: usize) {
-        let mut iter = FDIterMut::from_start(self);
-        let skipped_fields = iter.next_n_fields(n);
-        assert!(n == skipped_fields);
-        let hi = iter.get_next_header_index();
-        let h = &mut iter.fd.header[hi];
-
-        if h.shared_value() {
-            let free_rl = RunLength::MAX - h.run_length;
-            if free_rl as usize > added_run_len {
-                h.run_length += free_rl;
-                return;
-            }
-            h.run_length += free_rl;
-            added_run_len -= free_rl as usize;
-            //TODO: we could check the next header here...
-        } else if h.run_length == 1 && added_run_len < RunLength::MAX as usize {
-            h.run_length += added_run_len as RunLength;
-            h.set_shared_value(true);
-            return;
-        }
-        let mut hn = *h;
-        assert!(added_run_len < RunLength::MAX as usize); //TODO
-        hn.run_length = added_run_len as RunLength;
-        iter.fd.header.insert(hi + 1, hn);
-        let data_end = iter.data + hn.data_size();
-        let data_end_padded = data_end + hn.alignment_after();
-        let mut data_end_after_insert = data_end + hn.size as usize;
-        let misalign_before = data_end_padded & FIELD_ALIGN_MASK;
-        if (data_end_after_insert & FIELD_ALIGN_MASK) != misalign_before {
-            data_end_after_insert =
-                ((data_end_after_insert + FIELD_ALIGN_MASK) & FIELD_ALIGN_MASK) + misalign_before;
-        }
-        let target_loc;
-        unsafe {
-            let buf = iter.fd.data.as_mut_ptr();
-            std::ptr::copy(
-                buf.add(data_end_padded),
-                buf.add(data_end_after_insert),
-                iter.fd.data.len() - data_end_padded,
-            );
-            target_loc = buf.add(data_end);
-
-            let fd = iter.get_next_typed_field();
-            match fd.value {
-                FDTypedValue::Unset(_) => (),
-                FDTypedValue::Null(_) => (),
-                FDTypedValue::Integer(v) => ptr::write(target_loc as *mut i64, v),
-                FDTypedValue::StreamValueId(v) => ptr::write(target_loc as *mut usize, v),
-                FDTypedValue::Reference(v) => ptr::write(target_loc as *mut FieldReference, *v),
-                FDTypedValue::Error(v) => {
-                    ptr::write(target_loc as *mut OperatorApplicationError, v.clone())
-                }
-                FDTypedValue::Html(v) => ptr::write(target_loc as *mut Html, v.clone()),
-                FDTypedValue::Object(v) => ptr::write(target_loc as *mut Object, v.clone()),
-                FDTypedValue::BytesInline(v) => {
-                    ptr::copy(v.as_ptr(), target_loc as *mut u8, v.len())
-                }
-                FDTypedValue::TextInline(v) => {
-                    ptr::copy(v.as_ptr(), target_loc as *mut u8, v.len())
-                }
-            }
-        }
-    }
     // can't make this pub as it can be used to break the type layout
     fn pad_to_align(&mut self) -> usize {
         let align = self.data.len() % MAX_FIELD_ALIGN;
-        self.data.extend(iter::repeat(0).take(align));
-        self.header.last_mut().map(|h| h.set_alignment_after(align));
+        if align != 0 {
+            self.data.extend(iter::repeat(0).take(align));
+        }
         align
     }
 
-    pub fn copy_n<'a, TargetApplicatorFn: FnMut(&dyn Fn(&mut FieldData))>(
-        &self,
-        n: usize,
-        mut targets_applicator: TargetApplicatorFn,
-    ) {
-        let mut h;
-
-        // search backwards to the first header that we need to copy
-        let mut remaining_elements = n;
-        let mut header_idx = self.header.len();
-        debug_assert!(!self.header.is_empty());
-        let headers_len = self.header.len();
-        let data_size_total = self.data.len();
-        let mut copy_data_size = 0;
-        // this includes the align
-        let mut copy_data_size_at_first_aligned_field = data_size_total;
-        let mut first_aligned_field_idx = headers_len;
-        let mut first_aligned_field_padding = 0;
+    pub fn copy<'a>(
+        mut iter: impl FDIterator<'a> + Clone,
+        mut targets_applicator: impl FnMut(&mut dyn FnMut(&mut FieldData)),
+    ) -> usize {
+        if !iter.is_next_valid() {
+            return 0;
+        }
+        let src_fd = iter.clone().as_base_iter().fd;
+        let mut header_idx_start = iter.get_next_header_index();
+        let mut first_header = iter.get_next_header();
+        first_header.run_length -= iter.field_run_length_bwd();
+        let mut data_pos = iter.get_next_field_data();
+        let mut copied_fields = 0;
         loop {
-            header_idx -= 1;
-            h = self.header[header_idx];
-            if h.run_length as usize >= remaining_elements {
-                h.run_length = remaining_elements as RunLength;
-                break;
-            }
-            if header_idx == 0 {
-                break;
-            }
-            remaining_elements -= h.run_length as usize;
-
-            copy_data_size += h.data_size();
-            if h.kind.needs_alignment() {
-                copy_data_size_at_first_aligned_field = copy_data_size;
-                first_aligned_field_idx = header_idx;
-                first_aligned_field_padding = (data_size_total - copy_data_size) % MAX_FIELD_ALIGN;
-                copy_data_size += first_aligned_field_padding;
-            }
-        }
-
-        // copy the headers over to the targets
-
-        targets_applicator(&|t: &mut FieldData| {
-            if let Some(h_tgt) = t.header.last_mut() {
-                if !h.shared_value() && !h_tgt.shared_value() && h_tgt.kind == h.kind {
-                    if let Some(rl) = h_tgt.run_length.checked_add(h.run_length) {
-                        h_tgt.run_length = rl;
-                        if header_idx + 1 != self.header.len() {
-                            t.header.extend(&self.header[header_idx + 1..]);
-                        }
-                        return;
-                    }
-                }
-            }
-            t.header.extend(&self.header[header_idx..]);
-        });
-
-        // copy over leading unaligned data
-        let data_start = data_size_total - copy_data_size;
-        let first_aligned_field_start = data_size_total - copy_data_size_at_first_aligned_field;
-
-        if first_aligned_field_start != data_start {
-            unsafe {
-                append_data_memcpy(
-                    self.data.as_ptr().add(data_start),
-                    first_aligned_field_start - data_start - first_aligned_field_padding,
-                    &mut targets_applicator,
-                );
-            }
-            h = self.header[first_aligned_field_idx];
-        }
-
-        // if all memory was unaligned, we're done here
-        if first_aligned_field_start == data_size_total {
-            return;
-        }
-
-        // add padding so all targets are aligned
-        targets_applicator(&|t: &mut FieldData| {
-            t.pad_to_align();
-        });
-
-        // copy over the remaining data, using the fact that source and
-        // all targets are aligned at this point
-        let mut uncopied_data_start = first_aligned_field_start;
-        let mut header_idx = first_aligned_field_idx;
-        let mut data_pos = first_aligned_field_start;
-        loop {
-            let field_data_size = h.data_size();
-            if h.kind.needs_copy() {
-                unsafe {
-                    let start = self.data.as_ptr().add(uncopied_data_start);
-                    append_data_memcpy(
-                        start,
-                        data_pos - uncopied_data_start,
-                        &mut targets_applicator,
-                    );
-                    append_data(h, self.data.as_ptr().add(data_pos), &mut targets_applicator)
-                }
-                data_pos += field_data_size;
-                uncopied_data_start = data_pos;
-            } else {
-                data_pos += field_data_size;
-            }
-            header_idx += 1;
-            if header_idx == headers_len {
-                break;
-            }
-            h = self.header[header_idx];
-            if h.kind.needs_alignment() {
-                data_pos += data_pos % MAX_FIELD_ALIGN;
-            }
-        }
-        unsafe {
-            let start = self.data.as_ptr().add(uncopied_data_start);
-            append_data_memcpy(
-                start,
-                data_pos - uncopied_data_start,
-                &mut targets_applicator,
+            // we have to loop here because this could be interrupted by deleted fields
+            let leading_inline_byte_fields = iter.next_n_fields_with_fmt(
+                usize::MAX,
+                [FieldValueKind::BytesInline],
+                field_value_flags::DELETED,
+                0,
             );
+            if leading_inline_byte_fields == 0 {
+                break;
+            }
+            copied_fields += leading_inline_byte_fields;
+            let data_pos_after = iter.get_prev_field_data_end();
+            let header_idx_end = iter.get_prev_header_index() + 1;
+
+            let src = &src_fd.data[data_pos..data_pos_after];
+            let headers_src = &src_fd.header[header_idx_start + 1..header_idx_end];
+            targets_applicator(&mut |fd| {
+                fd.data.extend_from_slice(src);
+                fd.header.push(first_header);
+                fd.header.extend_from_slice(headers_src)
+            });
+            if !iter.is_next_valid() {
+                return copied_fields;
+            }
+            header_idx_start = iter.get_next_header_index();
+            first_header = iter.get_next_header();
+            data_pos = iter.get_next_field_data();
         }
+        // treat the first header after inline bytes separately so we can make
+        // sure every target is aligned afterwards
+        let rl = iter.field_run_length_fwd() as usize;
+        let tr = iter.typed_range_fwd(rl, 0).unwrap();
+        let ts = tr.data;
+        targets_applicator(&mut |fd| {
+            first_header.set_leading_padding(fd.pad_to_align());
+            fd.header.push(first_header);
+            unsafe {
+                append_data(ts, &mut |func| func(fd));
+            }
+        });
+        // now that everybody is aligned, copy over the rest
+        // PERF: this could be optimized if we know that there are no deleted
+        // headers
+        copied_fields += tr.field_count;
+        while let Some(tr) = iter.typed_range_fwd(usize::MAX, 0) {
+            copied_fields += tr.field_count;
+            targets_applicator(&mut |fd| fd.header.extend_from_slice(tr.headers));
+            unsafe { append_data(tr.data, &mut targets_applicator) };
+        }
+        copied_fields
     }
 
     pub fn iter<'a>(&'a self) -> FDIter<'a> {
         FDIter::from_start(self)
+    }
+    pub fn iter_mut<'a>(&'a mut self) -> FDIterMut<'a> {
+        FDIterMut::from_start(self)
     }
     pub unsafe fn internals(&mut self) -> (&mut Vec<FieldValueHeader>, &mut Vec<u8>) {
         (&mut self.header, &mut self.data)
@@ -512,67 +415,51 @@ impl FieldData {
 
 pub type EntryId = usize;
 
-unsafe fn append_data_memcpy<'a, TargetApplicatorFn: FnMut(&dyn Fn(&mut FieldData))>(
-    ptr: *const u8,
-    size: usize,
-    target_applicator: &mut TargetApplicatorFn,
-) {
-    let source = slice::from_raw_parts(ptr, size);
-    target_applicator(&|tgt| {
-        tgt.data.extend_from_slice(source);
-    });
-}
-
 unsafe fn as_u8_slice<T: Sized>(p: &T) -> &[u8] {
     slice::from_raw_parts((p as *const T) as *const u8, size_of::<T>())
 }
 
-unsafe fn extend_with_clones<T: Clone>(tgt: &mut Vec<u8>, src: *const T, count: usize) {
-    let source = slice::from_raw_parts(src as *const T, count);
-    for v in source {
-        tgt.extend_from_slice(as_u8_slice(&v.clone()));
-    }
+unsafe fn extend_with_clones<T: Clone>(
+    target_applicator: &mut impl FnMut(&mut dyn FnMut(&mut FieldData)),
+    src: &[T],
+) {
+    let src_size = src.len() * std::mem::size_of::<T>();
+    target_applicator(&mut |fd| {
+        fd.data.reserve(src_size);
+        unsafe {
+            let mut tgt = fd.data.as_mut_ptr_range().end as *mut T;
+            for v in src {
+                std::ptr::write(tgt, v.clone());
+                tgt = tgt.add(1);
+            }
+            fd.data.set_len(fd.data.len() + src_size);
+        }
+    });
+}
+unsafe fn extend_raw<T: Sized>(
+    target_applicator: &mut impl FnMut(&mut dyn FnMut(&mut FieldData)),
+    src: &[T],
+) {
+    let src_bytes = std::mem::transmute::<&[T], &[u8]>(src);
+    target_applicator(&mut |fd| fd.data.extend_from_slice(src_bytes));
 }
 
-unsafe fn append_data<'a, TargetApplicatorFn: FnMut(&dyn Fn(&mut FieldData))>(
-    h: FieldValueHeader,
-    source: *const u8,
-    target_applicator: &mut TargetApplicatorFn,
+unsafe fn append_data<'a>(
+    ts: FDTypedSlice<'a>,
+    target_applicator: &mut impl FnMut(&mut dyn FnMut(&mut FieldData)),
 ) {
-    let count = if h.shared_value() {
-        1
-    } else {
-        h.run_length as usize
+    match ts {
+        FDTypedSlice::Unset(_) | FDTypedSlice::Null(_) => (),
+        FDTypedSlice::Integer(v) => extend_raw(target_applicator, v),
+        FDTypedSlice::StreamValueId(v) => extend_raw(target_applicator, v),
+        FDTypedSlice::Reference(v) => extend_raw(target_applicator, v),
+        FDTypedSlice::BytesInline(v) => extend_raw(target_applicator, v),
+        FDTypedSlice::TextInline(v) => extend_raw(target_applicator, v.as_bytes()),
+
+        FDTypedSlice::Error(v) => extend_with_clones(target_applicator, v),
+        FDTypedSlice::Html(v) => extend_with_clones(target_applicator, v),
+        FDTypedSlice::Object(v) => extend_with_clones(target_applicator, v),
     };
-    use FieldValueKind::*;
-    target_applicator(&|tgt| match h.kind {
-        Unset | Null | EntryId | Integer | Reference | BytesInline | StreamValueId => {
-            unreachable!()
-        }
-        BytesBuffer => extend_with_clones(&mut tgt.data, source as *const Vec<u8>, count),
-        BytesFile => extend_with_clones(
-            &mut tgt.data,
-            source as *const crate::field_data::BytesBufferFile,
-            count,
-        ),
-        Error => unsafe {
-            extend_with_clones(
-                &mut tgt.data,
-                source as *const OperatorApplicationError,
-                count,
-            )
-        },
-        Html => extend_with_clones(
-            &mut tgt.data,
-            source as *const crate::field_data::Html,
-            count,
-        ),
-        Object => extend_with_clones(
-            &mut tgt.data,
-            source as *const crate::field_data::Object,
-            count,
-        ),
-    });
 }
 
 impl FieldData {

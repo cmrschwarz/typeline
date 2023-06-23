@@ -8,6 +8,9 @@ use regex;
 use regex::bytes;
 
 use crate::field_data::fd_command_buffer::{FDCommandBuffer, FieldActionKind};
+use crate::field_data::fd_iter::{
+    iterate_typed_slice_for_inline_bytes, iterate_typed_slice_for_inline_text,
+};
 use crate::field_data::fd_push_interface::FDPushInterface;
 use crate::field_data::RunLength;
 use crate::utils::universe::Universe;
@@ -241,9 +244,11 @@ fn match_regex_inner<'a, 'b, 'c>(
                         end: cg_end,
                     },
                     run_length as usize,
+                    true,
+                    true,
                 );
             } else {
-                field.push_null(run_length as usize);
+                field.push_null(run_length as usize, true);
             }
         }
         rbs.field_idx += 1;
@@ -294,22 +299,15 @@ pub fn handle_tf_regex_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, re
     while let Some(range) = iter.typed_range_fwd(usize::MAX, field_value_flags::BYTES_ARE_UTF8) {
         match range.data {
             FDTypedSlice::TextInline(text) => {
-                let mut data_start = 0usize;
-                let mut data_end = 0usize;
-                for (i, h) in range.headers.iter().enumerate() {
-                    data_end += h.size as usize;
+                iterate_typed_slice_for_inline_text(text, range.headers, |v, rl| {
                     let any_regex = if let Some((regex, capture_locs)) = &mut re.text_only_regex {
-                        AnyRegex::Text(regex, capture_locs, &text[data_start..data_end])
+                        AnyRegex::Text(regex, capture_locs, v)
                     } else {
-                        AnyRegex::Bytes(
-                            &mut re.regex,
-                            &mut re.capture_locs,
-                            &text[data_start..data_end].as_bytes(),
-                        )
+                        AnyRegex::Bytes(&mut re.regex, &mut re.capture_locs, v.as_bytes())
                     };
                     match_regex_inner(
                         tf_id,
-                        range.run_length(i),
+                        rl,
                         any_regex,
                         &re.capture_group_fields,
                         re.multimatch,
@@ -317,30 +315,21 @@ pub fn handle_tf_regex_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, re
                         &sess.entry_data.fields,
                         command_buffer,
                     );
-                    data_start = data_end;
-                }
+                });
             }
             FDTypedSlice::BytesInline(bytes) => {
-                let mut data_start = 0usize;
-                let mut data_end = 0usize;
-                for (i, h) in range.headers.iter().enumerate() {
-                    data_end += h.size as usize;
+                iterate_typed_slice_for_inline_bytes(bytes, range.headers, |v, rl| {
                     match_regex_inner(
                         input_field_id,
-                        range.run_length(i),
-                        AnyRegex::Bytes(
-                            &mut re.regex,
-                            &mut re.capture_locs,
-                            &bytes[data_start..data_end],
-                        ),
+                        rl,
+                        AnyRegex::Bytes(&mut re.regex, &mut re.capture_locs, v),
                         &re.capture_group_fields,
                         re.multimatch,
                         &mut rbs,
                         &sess.entry_data.fields,
                         command_buffer,
                     );
-                    data_start = data_end;
-                }
+                });
             }
             FDTypedSlice::Unset(_)
             | FDTypedSlice::Null(_)
@@ -358,6 +347,8 @@ pub fn handle_tf_regex_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, re
                         .push_error(
                             OperatorApplicationError::new("regex type error", op_id),
                             range.field_count,
+                            true,
+                            true,
                         );
                 }
             }

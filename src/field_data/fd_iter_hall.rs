@@ -103,17 +103,17 @@ impl FDIterHall {
         }
     }
 
-    pub fn copy_n<'a, TargetApplicatorFn: FnMut(&dyn Fn(&mut FDIterHall))>(
-        &self,
-        n: usize,
+    pub fn copy<'a, TargetApplicatorFn: FnMut(&mut dyn FnMut(&mut FDIterHall))>(
+        iter: impl FDIterator<'a> + Clone,
         mut targets_applicator: TargetApplicatorFn,
-    ) {
-        targets_applicator(&|fdih| fdih.field_count += n);
-        let adapted_target_applicator = &mut |f: &dyn Fn(&mut FieldData)| {
-            let g = &|fdih: &mut FDIterHall| f(&mut fdih.fd);
+    ) -> usize {
+        let adapted_target_applicator = &mut |f: &mut dyn FnMut(&mut FieldData)| {
+            let g = &mut |fdih: &mut FDIterHall| f(&mut fdih.fd);
             targets_applicator(g);
         };
-        self.fd.copy_n(n, adapted_target_applicator);
+        let copied_fields = FieldData::copy(iter, adapted_target_applicator);
+        targets_applicator(&mut |fdih| fdih.field_count += copied_fields);
+        copied_fields
     }
     pub fn field_count(&self) -> usize {
         self.field_count

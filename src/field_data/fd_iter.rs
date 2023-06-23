@@ -11,6 +11,7 @@ use crate::{
 
 use super::fd_iter_hall::FDIterHall;
 
+#[derive(Clone, Copy)]
 pub enum FDTypedSlice<'a> {
     Unset(&'a [()]),
     Null(&'a [()]),
@@ -102,19 +103,6 @@ pub struct FDTypedRange<'a> {
     pub field_count: usize,
     pub first_header_run_length_oversize: RunLength,
     pub last_header_run_length_oversize: RunLength,
-}
-
-impl<'a> FDTypedRange<'a> {
-    pub fn run_length(&self, header_offset: usize) -> RunLength {
-        let mut header_rl = self.headers[header_offset].run_length;
-        if header_offset == 0 {
-            header_rl -= self.first_header_run_length_oversize;
-        }
-        if header_offset + 1 == self.headers.len() {
-            header_rl -= self.last_header_run_length_oversize;
-        }
-        header_rl
-    }
 }
 
 pub struct FDTypedField<'a> {
@@ -240,11 +228,13 @@ pub trait FDIterator<'a>: Sized {
     fn is_prev_valid(&self) -> bool;
     fn get_next_field_format(&self) -> FieldValueFormat;
     fn get_next_field_data(&self) -> usize;
+    fn get_prev_field_data_end(&self) -> usize;
     // if the cursor is in the middle of a header, *that* header will be
     // returned, not the one after it
     fn get_next_header(&self) -> FieldValueHeader;
     fn get_next_header_data(&self) -> usize;
     fn get_next_header_index(&self) -> usize;
+    fn get_prev_header_index(&self) -> usize;
     fn get_next_typed_field(&mut self) -> FDTypedField<'a>;
     fn field_run_length_fwd(&mut self) -> RunLength;
     fn field_run_length_bwd(&mut self) -> RunLength;
@@ -252,25 +242,25 @@ pub trait FDIterator<'a>: Sized {
     fn prev_header(&mut self) -> RunLength;
     fn next_field(&mut self) -> RunLength;
     fn prev_field(&mut self) -> RunLength;
-    fn next_n_fields_with_fmt(
+    fn next_n_fields_with_fmt<const N: usize>(
         &mut self,
         n: usize,
-        kind: Option<FieldValueKind>,
+        kinds: [FieldValueKind; N],
         flag_mask: FieldValueFlags,
         flags: FieldValueFlags,
     ) -> usize;
-    fn prev_n_fields_with_fmt(
+    fn prev_n_fields_with_fmt<const N: usize>(
         &mut self,
         n: usize,
-        kind: Option<FieldValueKind>,
+        kinds: [FieldValueKind; N],
         flag_mask: FieldValueFlags,
         flags: FieldValueFlags,
     ) -> usize;
     fn next_n_fields(&mut self, n: usize) -> usize {
-        self.next_n_fields_with_fmt(n, None, 0, 0)
+        self.next_n_fields_with_fmt(n, [], 0, 0)
     }
     fn prev_n_fields(&mut self, n: usize) -> usize {
-        self.prev_n_fields_with_fmt(n, None, 0, 0)
+        self.prev_n_fields_with_fmt(n, [], 0, 0)
     }
     fn typed_field_fwd(&mut self, limit: RunLength) -> Option<FDTypedField<'a>>;
     fn typed_field_bwd(&mut self, limit: RunLength) -> Option<FDTypedField<'a>>;
@@ -291,6 +281,7 @@ pub trait FDIterator<'a>: Sized {
 }
 
 #[repr(C)]
+#[derive(Clone)]
 pub struct FDIter<'a> {
     pub(super) fd: &'a FieldData,
     pub(super) field_pos: usize,
@@ -360,6 +351,16 @@ impl<'a> FDIterator<'a> for FDIter<'a> {
             self.data + self.header_rl_offset as usize * self.header_fmt.size as usize
         }
     }
+    fn get_prev_field_data_end(&self) -> usize {
+        debug_assert!(self.is_prev_valid());
+        if self.header_rl_offset > 0 {
+            if self.header_fmt.shared_value() {
+                return self.data;
+            }
+            return self.data + (self.header_rl_offset as usize) * self.header_fmt.size as usize;
+        }
+        self.data - self.header_fmt.leading_padding()
+    }
     fn get_next_header(&self) -> FieldValueHeader {
         debug_assert!(self.is_next_valid());
         FieldValueHeader {
@@ -372,7 +373,16 @@ impl<'a> FDIterator<'a> for FDIter<'a> {
         self.data
     }
     fn get_next_header_index(&self) -> usize {
+        debug_assert!(self.is_next_valid());
         self.header_idx
+    }
+    fn get_prev_header_index(&self) -> usize {
+        debug_assert!(self.is_prev_valid());
+        if self.header_rl_offset == 0 {
+            self.header_idx - 1
+        } else {
+            self.header_idx
+        }
     }
     fn get_next_typed_field(&mut self) -> FDTypedField<'a> {
         // SAFETY: debug assert is not enough here because we use unsafe below
@@ -396,36 +406,49 @@ impl<'a> FDIterator<'a> for FDIter<'a> {
         if stride == 0 {
             return 0;
         }
-        self.data += self.fd.header[self.header_idx].total_size();
         self.header_rl_offset = 0;
-        self.header_idx += 1;
-        if self.header_idx == self.fd.header.len() {
-            self.header_rl_total = 0;
+        self.data += self.fd.header[self.header_idx].data_size();
+        self.field_pos += stride as usize;
+        loop {
+            self.header_idx += 1;
+            if self.header_idx == self.fd.header.len() {
+                self.header_rl_total = 0;
+                return stride;
+            }
+
+            let h = self.fd.header[self.header_idx];
+            if h.deleted() {
+                self.data += h.total_size();
+                continue;
+            }
+            self.data += h.leading_padding();
+            self.header_fmt = h.fmt;
+            self.header_rl_total = h.run_length;
+            return stride;
+        }
+    }
+    fn prev_header(&mut self) -> RunLength {
+        let mut data_offset = self.header_fmt.leading_padding();
+        loop {
+            if self.header_idx == 0 {
+                return 0;
+            }
+            self.header_idx -= 1;
+            let h = self.fd.header[self.header_idx];
+
+            data_offset += h.total_size();
+            if h.deleted() {
+                continue;
+            }
+
+            let stride = self.header_rl_offset + 1;
+            self.data -= data_offset;
+            self.header_fmt = h.fmt;
+            self.header_rl_total = h.run_length;
+            self.header_rl_offset = self.header_rl_total - 1;
             self.field_pos += stride as usize;
             return stride;
         }
-        let h = self.fd.header[self.header_idx];
-        self.header_fmt = h.fmt;
-        self.header_rl_total = h.run_length;
-        self.field_pos += stride as usize;
-        return stride;
-    }
-    fn prev_header(&mut self) -> RunLength {
-        if self.header_idx == 0 {
-            return 0;
-        }
-        self.header_idx -= 1;
-        let stride = self.header_rl_offset + 1;
-
-        let h = self.fd.header[self.header_idx];
-
-        self.data -= h.total_size();
-
-        self.header_fmt = h.fmt;
-        self.header_rl_total = h.run_length;
-        self.header_rl_offset = self.header_rl_total - 1;
-        self.field_pos += stride as usize;
-        return stride;
     }
     fn next_field(&mut self) -> RunLength {
         if self.header_rl_offset + 1 < self.header_rl_total {
@@ -443,16 +466,19 @@ impl<'a> FDIterator<'a> for FDIter<'a> {
         }
         return self.prev_header();
     }
-    fn next_n_fields_with_fmt(
+    fn next_n_fields_with_fmt<const N: usize>(
         &mut self,
         n: usize,
-        kind: Option<FieldValueKind>,
+        kinds: [FieldValueKind; N],
         flag_mask: FieldValueFlags,
         flags: FieldValueFlags,
     ) -> usize {
         let mut stride_rem = n;
         let curr_header_rem = (self.header_rl_total - self.header_rl_offset) as usize;
-        if curr_header_rem == 0 || (self.header_fmt.flags & flag_mask) != flags {
+        if curr_header_rem == 0
+            || (self.header_fmt.flags & flag_mask) != flags
+            || (!kinds.is_empty() && !kinds.contains(&self.header_fmt.kind))
+        {
             return 0;
         }
         if curr_header_rem > stride_rem {
@@ -461,10 +487,16 @@ impl<'a> FDIterator<'a> for FDIter<'a> {
             return stride_rem;
         }
         loop {
+            if flag_mask & field_value_flags::DELETED != 0
+                && self.fd.header.len() != self.header_idx + 1
+                && self.fd.header[self.header_idx + 1].deleted()
+            {
+                return n - stride_rem;
+            }
             stride_rem -= self.next_header() as usize;
             if !self.is_next_valid()
                 || (self.header_fmt.flags & flag_mask) != flags
-                || kind.map_or(false, |k| k != self.header_fmt.kind)
+                || (!kinds.is_empty() && !kinds.contains(&self.header_fmt.kind))
             {
                 return n - stride_rem;
             }
@@ -474,14 +506,18 @@ impl<'a> FDIterator<'a> for FDIter<'a> {
             }
         }
     }
-    fn prev_n_fields_with_fmt(
+    fn prev_n_fields_with_fmt<const N: usize>(
         &mut self,
         n: usize,
-        kind: Option<FieldValueKind>,
+        kinds: [FieldValueKind; N],
         flag_mask: FieldValueFlags,
         flags: FieldValueFlags,
     ) -> usize {
-        if n == 0 || self.prev_field() == 0 || (self.header_fmt.flags & flag_mask) != flags {
+        if n == 0
+            || self.prev_field() == 0
+            || (self.header_fmt.flags & flag_mask) != flags
+            || (!kinds.is_empty() && !kinds.contains(&self.header_fmt.kind))
+        {
             return 0;
         }
         let mut stride_rem = n - 1;
@@ -491,10 +527,16 @@ impl<'a> FDIterator<'a> for FDIter<'a> {
             return stride_rem;
         }
         loop {
+            if flag_mask & field_value_flags::DELETED != 0
+                && self.header_idx != 0
+                && self.fd.header[self.header_idx - 1].deleted()
+            {
+                return n - stride_rem;
+            }
             stride_rem -= self.prev_header() as usize;
             if !self.is_next_valid()
                 || (self.header_fmt.flags & flag_mask) != flags
-                || kind.map_or(false, |k| k != self.header_fmt.kind)
+                || (!kinds.is_empty() && !kinds.contains(&self.header_fmt.kind))
             {
                 return n - stride_rem;
             }
@@ -557,6 +599,7 @@ impl<'a> FDIterator<'a> for FDIter<'a> {
         if limit == 0 || !self.is_next_valid() {
             return None;
         }
+        let flag_mask = flag_mask | field_value_flags::DELETED;
         let mut data_begin = self.data;
         let fmt = self.header_fmt;
         let oversize_start = self.header_rl_offset;
@@ -565,18 +608,13 @@ impl<'a> FDIterator<'a> for FDIter<'a> {
         }
         let header_start = self.header_idx;
         let field_count =
-            self.next_n_fields_with_fmt(limit, Some(fmt.kind), flag_mask, fmt.flags & flag_mask);
-        let mut data_end;
+            self.next_n_fields_with_fmt(limit, [fmt.kind], flag_mask, fmt.flags & flag_mask);
+        let data_end = self.get_prev_field_data_end();
         let mut oversize_end = 0;
         if self.is_next_valid() {
-            data_end = self.get_next_field_data();
             oversize_end = self.header_rl_total - self.header_rl_offset - 1;
-        } else {
-            data_end = self.data;
-        };
-        if self.header_rl_offset == 0 && self.header_idx > 0 {
-            data_end -= self.fd.header[self.header_idx - 1].alignment_after();
         }
+
         unsafe {
             to_typed_range(
                 self.fd,
@@ -601,6 +639,7 @@ impl<'a> FDIterator<'a> for FDIter<'a> {
         if limit == 0 || !self.is_prev_valid() {
             return None;
         }
+        let flag_mask = flag_mask | field_value_flags::DELETED;
         let oversize_end = if self.is_next_valid() {
             self.header_rl_total - self.header_rl_offset - 1
         } else {
@@ -610,12 +649,9 @@ impl<'a> FDIterator<'a> for FDIter<'a> {
         let fmt = self.header_fmt;
         let data_end = self.get_next_field_data() + fmt.size as usize;
         let header_end = self.header_idx + 1;
-        let field_count = self.prev_n_fields_with_fmt(
-            limit - 1,
-            Some(fmt.kind),
-            flag_mask,
-            fmt.flags & flag_mask,
-        ) + 1;
+        let field_count =
+            self.prev_n_fields_with_fmt(limit - 1, [fmt.kind], flag_mask, fmt.flags & flag_mask)
+                + 1;
         let header_start = self.header_idx;
         let data_start = self.get_next_field_data();
         unsafe {
@@ -640,6 +676,7 @@ impl<'a> FDIterator<'a> for FDIter<'a> {
     }
 }
 
+#[derive(Clone)]
 pub struct BoundedFDIter<'a, I>
 where
     I: FDIterator<'a>,
@@ -714,6 +751,10 @@ where
         debug_assert!(self.is_next_valid());
         self.iter.get_next_field_data()
     }
+    fn get_prev_field_data_end(&self) -> usize {
+        debug_assert!(self.is_next_valid());
+        self.iter.get_prev_field_data_end()
+    }
     fn get_next_header(&self) -> FieldValueHeader {
         debug_assert!(self.is_next_valid());
         self.iter.get_next_header()
@@ -725,6 +766,10 @@ where
     fn get_next_header_index(&self) -> usize {
         debug_assert!(self.is_next_valid());
         self.iter.get_next_header_index()
+    }
+    fn get_prev_header_index(&self) -> usize {
+        debug_assert!(self.is_prev_valid());
+        self.iter.get_prev_header_index()
     }
     fn get_next_typed_field(&mut self) -> FDTypedField<'a> {
         debug_assert!(self.is_next_valid());
@@ -772,26 +817,26 @@ where
             stride
         }
     }
-    fn next_n_fields_with_fmt(
+    fn next_n_fields_with_fmt<const N: usize>(
         &mut self,
         n: usize,
-        kind: Option<FieldValueKind>,
+        kinds: [FieldValueKind; N],
         flag_mask: FieldValueFlags,
         flags: FieldValueFlags,
     ) -> usize {
         let n = n.min(self.range_fwd());
-        let stride = self.iter.next_n_fields_with_fmt(n, kind, flag_mask, flags);
+        let stride = self.iter.next_n_fields_with_fmt(n, kinds, flag_mask, flags);
         stride
     }
-    fn prev_n_fields_with_fmt(
+    fn prev_n_fields_with_fmt<const N: usize>(
         &mut self,
         n: usize,
-        kind: Option<FieldValueKind>,
+        kinds: [FieldValueKind; N],
         flag_mask: FieldValueFlags,
         flags: FieldValueFlags,
     ) -> usize {
         let n = n.min(self.range_bwd());
-        let stride = self.iter.prev_n_fields_with_fmt(n, kind, flag_mask, flags);
+        let stride = self.iter.prev_n_fields_with_fmt(n, kinds, flag_mask, flags);
         stride
     }
     fn typed_field_fwd(&mut self, limit: RunLength) -> Option<FDTypedField<'a>> {
@@ -880,7 +925,9 @@ impl<'a> FDIterator<'a> for FDIterMut<'a> {
     fn get_next_field_data(&self) -> usize {
         self.as_fd_iter().get_next_field_data()
     }
-
+    fn get_prev_field_data_end(&self) -> usize {
+        self.as_fd_iter().get_prev_field_data_end()
+    }
     fn get_next_header(&self) -> FieldValueHeader {
         self.as_fd_iter().get_next_header()
     }
@@ -891,6 +938,9 @@ impl<'a> FDIterator<'a> for FDIterMut<'a> {
 
     fn get_next_header_index(&self) -> usize {
         self.as_fd_iter().get_next_header_index()
+    }
+    fn get_prev_header_index(&self) -> usize {
+        self.as_fd_iter().get_prev_header_index()
     }
 
     fn get_next_typed_field(&mut self) -> FDTypedField<'a> {
@@ -921,26 +971,26 @@ impl<'a> FDIterator<'a> for FDIterMut<'a> {
         self.as_fd_iter_mut().prev_field()
     }
 
-    fn next_n_fields_with_fmt(
+    fn next_n_fields_with_fmt<const N: usize>(
         &mut self,
         n: usize,
-        kind: Option<FieldValueKind>,
+        kinds: [FieldValueKind; N],
         flag_mask: FieldValueFlags,
         flags: FieldValueFlags,
     ) -> usize {
         self.as_fd_iter_mut()
-            .next_n_fields_with_fmt(n, kind, flag_mask, flags)
+            .next_n_fields_with_fmt(n, kinds, flag_mask, flags)
     }
 
-    fn prev_n_fields_with_fmt(
+    fn prev_n_fields_with_fmt<const N: usize>(
         &mut self,
         n: usize,
-        kind: Option<FieldValueKind>,
+        kinds: [FieldValueKind; N],
         flag_mask: FieldValueFlags,
         flags: FieldValueFlags,
     ) -> usize {
         self.as_fd_iter_mut()
-            .prev_n_fields_with_fmt(n, kind, flag_mask, flags)
+            .prev_n_fields_with_fmt(n, kinds, flag_mask, flags)
     }
 
     fn typed_field_fwd(&mut self, limit: RunLength) -> Option<FDTypedField<'a>> {

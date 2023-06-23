@@ -266,14 +266,14 @@ impl<'a> WorkerThreadSession<'a> {
                             self.job_data.entry_data.fields[input_data]
                                 .borrow_mut()
                                 .field_data
-                                .push_int(*int, 1);
+                                .push_int(*int, 1, true, true);
                             entry_count += 1;
                         }
                         DocumentSource::String(str) => {
                             self.job_data.entry_data.fields[input_data]
                                 .borrow_mut()
                                 .field_data
-                                .push_str(str, 1, true);
+                                .push_str(str, 1, true, true);
                             entry_count += 1;
                         }
                     }

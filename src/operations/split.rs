@@ -7,6 +7,7 @@ use smallvec::{smallvec, SmallVec};
 
 use crate::{
     chain::ChainId,
+    field_data::{fd_iter::FDIterator, fd_iter_hall::FDIterHall},
     options::{argument::CliArgIdx, range_spec::RangeSpec},
     utils::string_store::StringStoreEntry,
     worker_thread_session::{Field, FieldId, JobData, MatchSetId},
@@ -142,7 +143,7 @@ pub fn handle_tf_split(sess: &mut JobData, tf_id: TransformId, s: &mut TfSplit, 
             for i in targets.iter() {
                 targets_borrows_arr.push(sess.entry_data.fields[*i].borrow_mut());
             }
-            source.field_data.copy_n(bs, |f| {
+            FDIterHall::copy(source.field_data.iter().bounded(0, bs), |f| {
                 targets_borrows_arr
                     .iter_mut()
                     .for_each(|fd| f(&mut fd.field_data));

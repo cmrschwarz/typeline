@@ -120,7 +120,7 @@ fn read_chunk(
     Ok((size, eof))
 }
 
-fn start_prodicing_file(
+fn start_streaming_file(
     sess: &mut JobData<'_>,
     tf_id: TransformId,
     fr: &mut TfFileReader,
@@ -165,7 +165,7 @@ fn start_prodicing_file(
         }
         Err(err) => {
             let err = io_error_to_op_error(sess.tf_mgr.transforms[tf_id].op_id, err);
-            out_field.field_data.push_error(err, 1);
+            out_field.field_data.push_error(err, 1, false, false);
             fr.file.take();
             sess.tf_mgr.inform_successor_batch_available(tf_id, 1);
             return false;
@@ -182,7 +182,7 @@ fn start_prodicing_file(
     });
     out_field
         .field_data
-        .push_stream_value_id(fr.stream_value, 1);
+        .push_stream_value_id(fr.stream_value, 1, false, false);
     sess.tf_mgr.push_successor_in_ready_queue(tf_id);
     return true;
 }
@@ -197,11 +197,11 @@ pub fn handle_tf_file_reader_batch_mode(
         sess.entry_data.fields[fr.output_field]
             .borrow_mut()
             .field_data
-            .push_unset(batch);
+            .push_unset(batch, true);
         sess.tf_mgr.inform_successor_batch_available(tf_id, batch);
         return false;
     }
-    let enter_stream_mode = start_prodicing_file(sess, tf_id, fr);
+    let enter_stream_mode = start_streaming_file(sess, tf_id, fr);
     if enter_stream_mode {
         sess.tf_mgr.stream_producers.push_back(tf_id);
     }
