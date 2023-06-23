@@ -256,6 +256,14 @@ pub trait FDIterator<'a>: Sized {
         flag_mask: FieldValueFlags,
         flags: FieldValueFlags,
     ) -> usize;
+    fn move_to_field_pos(&mut self, field_pos: usize) {
+        let curr = self.get_next_field_pos();
+        if curr > field_pos {
+            self.prev_n_fields(curr - field_pos);
+        } else if curr < field_pos {
+            self.next_n_fields(field_pos - curr);
+        }
+    }
     fn next_n_fields(&mut self, n: usize) -> usize {
         self.next_n_fields_with_fmt(n, [], 0, 0)
     }

@@ -13,8 +13,10 @@ use crate::{
     context::SessionData,
     document::DocumentSource,
     field_data::{
-        fd_command_buffer::FDCommandBuffer, fd_iter_hall::FDIterHall,
-        fd_push_interface::FDPushInterface, EntryId,
+        fd_command_buffer::FDCommandBuffer,
+        fd_iter_hall::{FDIterHall, FDIterId},
+        fd_push_interface::FDPushInterface,
+        EntryId,
     },
     operations::{
         errors::{OperatorApplicationError, OperatorSetupError},
@@ -36,6 +38,8 @@ use crate::{
     worker_thread::{Job, JobInput},
 };
 
+pub const FIELD_REF_LOOKUP_ITER_ID: FDIterId = 0 as FDIterId;
+
 #[derive(Default)]
 pub struct Field {
     // number of tfs that might read this field
@@ -45,9 +49,9 @@ pub struct Field {
     pub ref_count: usize,
     pub match_set: MatchSetId,
     pub shadowed_after_tf: TransformId,
+    pub commands_applied: bool,
 
     pub name: Option<StringStoreEntry>,
-    #[allow(dead_code)] //TODO
     pub working_set_idx: Option<NonMaxUsize>,
     pub field_data: FDIterHall,
     pub stream_field_data: StreamFieldData,
@@ -153,6 +157,7 @@ impl EntryData {
     pub fn add_field(&mut self, ms_id: MatchSetId, name: Option<StringStoreEntry>) -> FieldId {
         let field_id = self.fields.claim();
         let mut field = self.fields[field_id as FieldId].borrow_mut();
+        field.field_data.reserve_iter_id(FIELD_REF_LOOKUP_ITER_ID);
         field.name = name;
         field.match_set = ms_id;
         if let Some(name) = name {
@@ -191,10 +196,20 @@ impl EntryData {
     pub fn push_entry_error(&mut self, _ms_id: MatchSetId, _err: OperatorApplicationError) {
         todo!()
     }
-    pub fn try_clear_field_from_batch(&mut self, field: FieldId, batch: usize) {
+    pub fn batch_consumed(&mut self, field: FieldId, batch: usize) {
         let mut f = self.fields[field].borrow_mut();
         if f.field_data.field_count() == batch {
             f.field_data.clear();
+        }
+        f.commands_applied = false;
+    }
+    pub fn apply_commands(&mut self, field: FieldId, batch: usize) {
+        let mut f = self.fields[field].borrow_mut();
+        if f.commands_applied == false {
+            f.commands_applied = true;
+            self.match_sets[f.match_set]
+                .command_buffer
+                .execute(f.field_data);
         }
     }
 }

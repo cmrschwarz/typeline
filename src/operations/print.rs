@@ -10,11 +10,11 @@ use crate::{
             iterate_typed_slice_for_inline_text, FDIterator, FDTypedSlice, FDTypedValue,
         },
         fd_iter_hall::FDIterId,
-        field_value_flags, FieldReference,
+        field_value_flags, FieldReference, RunLength,
     },
     options::argument::CliArgIdx,
     stream_field_data::{StreamFieldValue, StreamFieldValueData, StreamValueId},
-    worker_thread_session::{FieldId, JobData, MatchSetId},
+    worker_thread_session::{FieldId, JobData, MatchSetId, FIELD_REF_LOOKUP_ITER_ID},
 };
 
 use super::{
@@ -85,11 +85,7 @@ pub fn print_integer(v: i64, run_len: usize) {
         println!("{v}");
     }
 }
-pub fn print_ref(_sess: &JobData, r: &FieldReference, run_len: usize) {
-    for _ in 0..run_len {
-        println!("reference: -> {} [{}, {})", r.field, r.begin, r.end)
-    }
-}
+
 pub fn print_null(run_len: usize) {
     for _ in 0..run_len {
         println!("null");
@@ -132,12 +128,38 @@ fn print_stream_val_check_done(sv: &StreamFieldValue) -> Result<bool, std::io::E
     }
     Ok(sv.done)
 }
+fn print_values_behind_field_ref<'a>(
+    r: &FieldReference,
+    iter: &mut impl FDIterator<'a>,
+    mut rl: RunLength,
+) {
+    while rl > 0 {
+        let tr = iter.typed_range_fwd(rl as usize, 0).unwrap();
+        rl -= tr.field_count as RunLength;
+        match tr.data {
+            FDTypedSlice::StreamValueId(_) => panic!("hit stream value in batch mode"),
+            FDTypedSlice::BytesInline(v) => {
+                iterate_typed_slice_for_inline_bytes(v, tr.headers, |bytes, rl| {
+                    print_inline_bytes(&bytes[r.begin..r.end], rl as usize)
+                });
+            }
+            FDTypedSlice::TextInline(v) => {
+                iterate_typed_slice_for_inline_text(v, tr.headers, |text, rl| {
+                    print_inline_text(&text[r.begin..r.end], rl as usize)
+                });
+            }
+            _ => panic!("Field Reference must refer to byte stream"),
+        }
+    }
+}
 
 pub fn handle_tf_print_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, tf: &mut TfPrint) {
-    let (batch, input_field) = sess.tf_mgr.claim_batch(tf_id);
-    let field = sess.entry_data.fields[input_field].borrow();
-    let mut iter = field.field_data.get_iter(tf.batch_iter);
+    let (batch, input_field_id) = sess.tf_mgr.claim_batch(tf_id);
+    let input_field = sess.entry_data.fields[input_field_id].borrow();
+    let mut iter = input_field.field_data.get_iter(tf.batch_iter);
     let starting_pos = iter.get_next_field_pos();
+    let mut field_pos_before_batch = starting_pos;
+
     while let Some(range) = iter.typed_range_fwd(batch, field_value_flags::BYTES_ARE_UTF8) {
         match range.data {
             FDTypedSlice::TextInline(text) => {
@@ -154,7 +176,17 @@ pub fn handle_tf_print_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, tf
                 iterate_typed_slice(ints, range.headers, |v, rl| print_integer(*v, rl as usize));
             }
             FDTypedSlice::Reference(refs) => {
-                iterate_typed_slice(refs, range.headers, |v, rl| print_ref(sess, v, rl as usize));
+                let mut field_pos = field_pos_before_batch;
+                let sess_ref = &sess;
+                iterate_typed_slice(refs, range.headers, move |r, rl| {
+                    // PERF: this is terrible
+                    let field = sess_ref.entry_data.fields[r.field].borrow();
+                    let mut iter = field.field_data.get_iter(FIELD_REF_LOOKUP_ITER_ID);
+                    iter.move_to_field_pos(field_pos);
+                    field_pos += rl as usize;
+                    print_values_behind_field_ref(r, &mut iter, rl);
+                    field.field_data.store_iter(FIELD_REF_LOOKUP_ITER_ID, iter);
+                });
             }
             FDTypedSlice::Null(_) => {
                 print_null(range.field_count);
@@ -174,11 +206,14 @@ pub fn handle_tf_print_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, tf
                 print_type_error(range.field_count);
             }
         }
+        field_pos_before_batch += range.field_count;
     }
     //test whether we got the batch that was advertised
     debug_assert!(iter.get_next_field_pos() - starting_pos == batch);
-    field.field_data.store_iter(tf.batch_iter, iter);
+    input_field.field_data.store_iter(tf.batch_iter, iter);
+    drop(input_field);
     sess.tf_mgr.inform_successor_batch_available(tf_id, batch);
+    sess.entry_data.batch_consumed(input_field_id, batch);
 }
 
 pub fn handle_tf_print_stream_mode(
@@ -217,7 +252,13 @@ pub fn handle_tf_print_stream_mode(
                 FDTypedValue::Unset(_) => print_unset(1),
                 FDTypedValue::Null(_) => print_null(1),
                 FDTypedValue::Integer(v) => print_integer(v, 1),
-                FDTypedValue::Reference(r) => print_ref(sess, r, 1),
+                FDTypedValue::Reference(r) => {
+                    let fd = &sess.entry_data.fields[r.field].borrow().field_data;
+                    let mut iter = fd.get_iter(FIELD_REF_LOOKUP_ITER_ID);
+                    iter.move_to_field_pos(iter.get_next_field_pos());
+                    print_values_behind_field_ref(r, &mut iter, field_val.header.run_length);
+                    fd.store_iter(FIELD_REF_LOOKUP_ITER_ID, iter);
+                }
                 FDTypedValue::TextInline(text) => print_inline_text(text, 1),
                 FDTypedValue::BytesInline(bytes) => print_inline_bytes(bytes, 1),
                 FDTypedValue::Error(error) => print_error(sess, error, 1),

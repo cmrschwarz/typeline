@@ -85,7 +85,6 @@ impl<I: UniverseIndex, T> Universe<I, T> {
         }
         self.unused_ids.push(UniverseIdx(id));
     }
-
     pub fn len(&self) -> usize {
         self.data.len()
     }
@@ -106,6 +105,19 @@ impl<I: UniverseIndex, T> Universe<I, T> {
     pub fn iter_mut(&mut self) -> IterMut<T> {
         self.data.iter_mut()
     }
+
+    pub fn reserve_id_with(&mut self, id: I, func: impl FnMut() -> T) {
+        let index = UniverseIdx(id).to_usize();
+        let prev_len = self.data.len();
+        if prev_len <= index {
+            self.data.resize_with(index + 1, func);
+            self.unused_ids.extend(
+                (prev_len..index)
+                    .into_iter()
+                    .map(|idx| UniverseIdx::from_usize(idx)),
+            );
+        }
+    }
 }
 
 // separate impl since only available if T: Default
@@ -118,6 +130,9 @@ impl<I: UniverseIndex, T: Default> Universe<I, T> {
             self.data.push(Default::default());
             *UniverseIdx::from_usize(id)
         }
+    }
+    pub fn reserve_id(&mut self, id: I) {
+        self.reserve_id_with(id, Default::default);
     }
 }
 

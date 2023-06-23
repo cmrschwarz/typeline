@@ -358,8 +358,6 @@ pub fn handle_tf_regex_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, re
         .field_data
         .store_iter(re.input_field_iter_id, iter);
     drop(input_field);
-    sess.entry_data
-        .try_clear_field_from_batch(input_field_id, batch);
-    sess.tf_mgr
-        .inform_successor_batch_available(tf_id, rbs.match_count);
+    sess.entry_data.batch_consumed(input_field_id, batch);
+    sess.tf_mgr.inform_successor_batch_available(tf_id, batch);
 }

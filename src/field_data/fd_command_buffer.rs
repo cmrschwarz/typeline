@@ -1,6 +1,10 @@
 use crate::field_data::fd_iter::FDIterator;
 
-use super::{fd_iter::FDIterMut, FieldData, FieldValueFormat, FieldValueHeader, RunLength};
+use super::{
+    fd_iter::FDIterMut,
+    fd_iter_hall::{FDIterHall, FDIterState},
+    FieldData, FieldValueFormat, FieldValueHeader, RunLength,
+};
 
 #[derive(Clone, Copy)]
 pub enum FieldActionKind {
@@ -42,6 +46,7 @@ struct CopyCommand {
 pub struct FDCommandBuffer {
     actions: [Vec<FieldAction>; 4],
     action_sets: Vec<ActionSet>,
+    iter_states: Vec<&'static FDIterState>,
     copies: Vec<CopyCommand>,
     insertions: Vec<InsertionCommand>,
 }
@@ -96,26 +101,16 @@ impl FDCommandBuffer {
         })
     }
     pub fn clear(&mut self) {
-        self.actions[0].clear();
+        self.actions[ACTIONS_RAW_IDX].clear();
         self.action_sets.clear();
     }
-    pub fn execute(&mut self, fd: &mut FieldData) {
+    pub fn execute_raw_fd(&mut self, fd: &mut FieldData) {
         self.execute_from_header_index_and_field_position(fd, 0, 0);
+        self.cleanup();
     }
-    pub fn execute_from_iter<'a>(&mut self, mut iter: FDIterMut<'a>) {
-        if self.actions[0].len() == 0 {
-            return;
-        }
-        let first_idx = self.actions[ACTIONS_RAW_IDX][0].field_idx;
-        let iter_idx = iter.get_next_field_pos();
-        if iter_idx > first_idx {
-            iter.prev_n_fields(iter_idx - first_idx);
-        }
-        self.execute_from_header_index_and_field_position(
-            iter.fd,
-            iter.get_next_header_index(),
-            iter.get_next_field_pos(),
-        );
+    pub fn execute(&mut self, fdih: &mut FDIterHall) {
+        self.execute_from_header_index_and_field_position(&mut fdih.fd, 0, 0);
+        self.cleanup();
     }
     fn execute_from_header_index_and_field_position(
         &mut self,
@@ -126,7 +121,6 @@ impl FDCommandBuffer {
         self.prepare_actions();
         self.generate_commands_from_actions(fd, header_idx, field_pos);
         self.execute_commands(fd);
-        self.cleanup();
     }
     fn cleanup(&mut self) {
         for ms in self.actions.iter_mut().skip(1) {
@@ -620,6 +614,7 @@ impl FDCommandBuffer {
 // final execution step
 impl FDCommandBuffer {
     fn execute_commands(&mut self, fd: &mut FieldData) {
+        let mut field_count_diff = 0;
         let new_size = self
             .insertions
             .last()
@@ -639,6 +634,31 @@ impl FDCommandBuffer {
                 std::ptr::copy(header_ptr.add(c.source), header_ptr.add(c.target), c.len);
             }
             fd.header.set_len(new_size);
+        }
+    }
+}
+
+impl FDCommandBuffer {
+    fn apply_actions_to_iter_hall(&mut self, fdih: &mut FDIterHall) {
+        debug_assert!(self.iter_states.is_empty());
+        self.iter_states.extend(fdih.iters.iter().map(|it| unsafe {
+            std::mem::transmute::<&'_ FDIterState, &'static FDIterState>(it.get_mut())
+        }));
+        self.iter_states
+            .sort_by(|lhs, rhs| lhs.field_pos.cmp(&rhs.field_pos));
+        let actions = &self.actions[ACTIONS_FINAL_IDX];
+        let iter_state_idx = 0;
+        let field_pos_diff = 0;
+        let header_idx_diff = 0;
+        for a in actions {
+            match a.kind {
+                FieldActionKind::Dup => {
+                    fdih.field_count += a.run_len as usize;
+                }
+                FieldActionKind::Drop => {
+                    fdih.field_count -= a.run_len as usize;
+                }
+            }
         }
     }
 }

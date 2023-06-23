@@ -14,7 +14,7 @@ pub struct FDIterHall {
     pub(super) fd: FieldData,
     pub(super) initial_field_offset: usize,
     pub(super) field_count: usize,
-    iters: Universe<FDIterId, Cell<FDIterState>>,
+    pub(super) iters: Universe<FDIterId, Cell<FDIterState>>,
 }
 
 pub struct FDIterHallInternals<'a> {
@@ -24,11 +24,11 @@ pub struct FDIterHallInternals<'a> {
 }
 
 #[derive(Default, Clone, Copy)]
-struct FDIterState {
-    field_pos: usize,
-    data: usize,
-    header_idx: usize,
-    header_rl_offset: RunLength,
+pub(super) struct FDIterState {
+    pub(super) field_pos: usize,
+    pub(super) data: usize,
+    pub(super) header_idx: usize,
+    pub(super) header_rl_offset: RunLength,
 }
 
 impl FDIterHall {
@@ -41,6 +41,9 @@ impl FDIterHall {
             header_rl_offset: 0,
         });
         iter_id
+    }
+    pub fn reserve_iter_id(&mut self, iter_id: FDIterId) {
+        self.iters.reserve_id(iter_id);
     }
     pub fn release_iter(&mut self, iter_id: FDIterId) {
         self.iters.release(iter_id)
