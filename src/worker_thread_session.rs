@@ -203,14 +203,17 @@ impl EntryData {
         }
         f.commands_applied = false;
     }
-    pub fn apply_commands(&mut self, field: FieldId, batch: usize) {
+    pub fn apply_commands(&mut self, field: FieldId, tf_ord_id: TransformOrderingId) {
         let mut f = self.fields[field].borrow_mut();
         if f.commands_applied == false {
             f.commands_applied = true;
             self.match_sets[f.match_set]
                 .command_buffer
-                .execute(f.field_data);
+                .execute(&mut f.field_data, usize::from(tf_ord_id));
         }
+        self.match_sets[f.match_set]
+            .command_buffer
+            .erase_action_sets(usize::from(tf_ord_id));
     }
 }
 

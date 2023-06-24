@@ -31,6 +31,14 @@ pub(super) struct FDIterState {
     pub(super) header_rl_offset: RunLength,
 }
 
+impl FDIterState {
+    pub fn is_valid(&self) -> bool {
+        self.field_pos != usize::MAX
+    }
+    pub fn invalidate(&mut self) {
+        self.field_pos = usize::MAX
+    }
+}
 impl FDIterHall {
     pub fn claim_iter(&mut self) -> FDIterId {
         let iter_id = self.iters.claim();
@@ -46,6 +54,7 @@ impl FDIterHall {
         self.iters.reserve_id(iter_id);
     }
     pub fn release_iter(&mut self, iter_id: FDIterId) {
+        self.iters[iter_id].get_mut().invalidate();
         self.iters.release(iter_id)
     }
     pub fn iter<'a>(&'a self) -> FDIter<'a> {

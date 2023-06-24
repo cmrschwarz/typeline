@@ -1,18 +1,16 @@
-use crate::field_data::fd_iter::FDIterator;
-
 use super::{
-    fd_iter::FDIterMut,
     fd_iter_hall::{FDIterHall, FDIterState},
     FieldData, FieldValueFormat, FieldValueHeader, RunLength,
 };
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
 pub enum FieldActionKind {
+    #[default]
     Dup,
     Drop,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Default)]
 pub struct FieldAction {
     pub kind: FieldActionKind,
     pub run_len: RunLength,
@@ -46,7 +44,7 @@ struct CopyCommand {
 pub struct FDCommandBuffer {
     actions: [Vec<FieldAction>; 4],
     action_sets: Vec<ActionSet>,
-    iter_states: Vec<&'static FDIterState>,
+    iter_states: Vec<&'static mut FDIterState>,
     copies: Vec<CopyCommand>,
     insertions: Vec<InsertionCommand>,
 }
@@ -104,12 +102,24 @@ impl FDCommandBuffer {
         self.actions[ACTIONS_RAW_IDX].clear();
         self.action_sets.clear();
     }
-    pub fn execute_raw_fd(&mut self, fd: &mut FieldData) {
-        self.execute_from_header_index_and_field_position(fd, 0, 0);
+    pub fn execute_raw_fd(&mut self, fd: &mut FieldData, max_action_set_id: usize) {
+        self.execute_from_header_index_and_field_position(fd, 0, 0, max_action_set_id);
         self.cleanup();
     }
-    pub fn execute(&mut self, fdih: &mut FDIterHall) {
-        self.execute_from_header_index_and_field_position(&mut fdih.fd, 0, 0);
+    pub fn execute(&mut self, fdih: &mut FDIterHall, max_action_set_id: usize) {
+        self.iter_states
+            .extend(fdih.iters.iter_mut().filter_map(|it| {
+                it.get_mut().is_valid().then(|| unsafe {
+                    std::mem::transmute::<&'_ mut FDIterState, &'static mut FDIterState>(
+                        it.get_mut(),
+                    )
+                })
+            }));
+        // we reverse the sort order so we can pop back
+        self.iter_states
+            .sort_by(|lhs, rhs| lhs.field_pos.cmp(&rhs.field_pos).reverse());
+        self.execute_from_header_index_and_field_position(&mut fdih.fd, 0, 0, max_action_set_id);
+        self.iter_states.clear();
         self.cleanup();
     }
     fn execute_from_header_index_and_field_position(
@@ -117,8 +127,9 @@ impl FDCommandBuffer {
         fd: &mut FieldData,
         header_idx: usize,
         field_pos: usize,
+        max_action_set_id: usize,
     ) {
-        self.prepare_actions();
+        self.prepare_actions(max_action_set_id);
         self.generate_commands_from_actions(fd, header_idx, field_pos);
         self.execute_commands(fd);
     }
@@ -128,6 +139,19 @@ impl FDCommandBuffer {
         }
         self.insertions.clear();
         self.copies.clear();
+    }
+    fn max_action_set_id_to_idx(&self, max_action_set_id: usize) -> usize {
+        match self
+            .action_sets
+            .binary_search_by(|acs| acs.set_index.cmp(&max_action_set_id))
+        {
+            Ok(idx) => idx,
+            Err(idx) => idx,
+        }
+    }
+    pub fn erase_action_sets(&mut self, start_at_id: usize) {
+        self.action_sets
+            .truncate(self.max_action_set_id_to_idx(start_at_id));
     }
 }
 
@@ -340,9 +364,19 @@ impl FDCommandBuffer {
         );
         self.merge_two_action_sets(merge_first_half, merge_rest, target_merge_set)
     }
-    fn prepare_actions(&mut self) {
-        self.merge_action_sets(0, self.action_sets.len(), ACTIONS_FINAL_IDX);
+    fn prepare_actions(&mut self, max_action_set_id: usize) {
+        self.merge_action_sets(
+            0,
+            self.max_action_set_id_to_idx(max_action_set_id),
+            ACTIONS_FINAL_IDX,
+        );
     }
+}
+
+#[derive(Clone, Copy)]
+enum CommandHandlerContinuation {
+    AdvanceAction,
+    AdvanceHeader,
 }
 
 // generate_commands_from_actions machinery
@@ -395,7 +429,8 @@ impl FDCommandBuffer {
     }
     fn handle_dup(
         &mut self,
-        action: FieldAction,
+        field_idx: usize,
+        run_len: usize,
         header: &mut FieldValueHeader,
         field_pos: &mut usize,
         header_idx_new: &mut usize,
@@ -403,28 +438,27 @@ impl FDCommandBuffer {
         copy_range_start_new: &mut usize,
     ) {
         if header.shared_value() {
-            let mut rl_res = header.run_length as usize + action.run_len as usize;
+            let mut rl_res = header.run_length as usize + run_len as usize;
             if rl_res > RunLength::MAX as usize {
                 self.push_copy_command(*header_idx_new, copy_range_start, copy_range_start_new);
-                self.push_insert_command(
-                    header_idx_new,
-                    copy_range_start_new,
-                    header.fmt,
-                    RunLength::MAX,
-                );
-                header.set_same_value_as_previous(true);
-                *field_pos += RunLength::MAX as usize;
-                rl_res -= RunLength::MAX as usize;
+                while rl_res > RunLength::MAX as usize {
+                    self.push_insert_command(
+                        header_idx_new,
+                        copy_range_start_new,
+                        header.fmt,
+                        RunLength::MAX,
+                    );
+                    header.set_same_value_as_previous(true);
+                    *field_pos += RunLength::MAX as usize;
+                    rl_res -= RunLength::MAX as usize;
+                }
             }
             header.run_length = rl_res as RunLength;
             return;
         }
-        let pre = (action.field_idx - *field_pos) as RunLength;
-        let (mid1, mid2) = if action.run_len == RunLength::MAX {
-            (RunLength::MAX, 1)
-        } else {
-            (action.run_len + 1, 0)
-        };
+        let pre = (field_idx - *field_pos) as RunLength;
+        let mid_full_count = run_len / RunLength::MAX as usize;
+        let mid_rem = (run_len - (mid_full_count * RunLength::MAX as usize)) as RunLength;
         let post = (header.run_length - pre).saturating_sub(1);
         self.push_copy_command(*header_idx_new, copy_range_start, copy_range_start_new);
         self.push_insert_command_check_run_length(
@@ -434,41 +468,131 @@ impl FDCommandBuffer {
             pre,
         );
         *field_pos += pre as usize;
-        if post == 0 && mid2 == 0 {
-            header.run_length = mid1;
+        if post == 0 && mid_full_count == 0 {
+            header.run_length = mid_rem;
             header.set_shared_value(true);
             return;
         }
-        self.push_insert_command_check_run_length(
-            header_idx_new,
-            copy_range_start_new,
-            header.fmt,
-            mid1,
-        );
-        *field_pos += mid1 as usize;
-        if mid2 == 0 {
+        let mut fmt_mid = header.fmt;
+        fmt_mid.set_shared_value(true);
+        if mid_full_count != 0 {
+            for _ in 0..mid_full_count {
+                self.push_insert_command_check_run_length(
+                    header_idx_new,
+                    copy_range_start_new,
+                    fmt_mid,
+                    RunLength::MAX,
+                );
+                fmt_mid.set_same_value_as_previous(true);
+            }
+        }
+
+        *field_pos += mid_full_count * RunLength::MAX as usize;
+        if mid_rem == 0 {
             header.run_length = post;
             header.set_shared_value(post == 1);
             return;
         }
-        let mut fmt_mid2 = header.fmt;
-        fmt_mid2.set_shared_value(true);
-        fmt_mid2.set_same_value_as_previous(true);
+
         if post == 0 {
-            header.run_length = mid2;
-            header.fmt = fmt_mid2;
+            header.run_length = mid_rem;
+            header.fmt = fmt_mid;
             return;
         }
         self.push_insert_command_check_run_length(
             header_idx_new,
             copy_range_start_new,
-            fmt_mid2,
-            mid2,
+            fmt_mid,
+            mid_rem,
         );
-        *field_pos += mid2 as usize;
+        *field_pos += mid_rem as usize;
         header.run_length = post;
         header.set_shared_value(post == 1);
         return;
+    }
+    fn handle_drop(
+        &mut self,
+        action: &mut FieldAction,
+        header: &mut FieldValueHeader,
+        field_pos: &mut usize,
+        header_idx_new: &mut usize,
+        copy_range_start: &mut usize,
+        copy_range_start_new: &mut usize,
+    ) -> CommandHandlerContinuation {
+        let rl_to_del = action.run_len;
+        let rl_pre = (action.field_idx - *field_pos) as RunLength;
+        if rl_pre > 0 {
+            let rl_rem = header.run_length - rl_pre;
+            if header.shared_value() && action.run_len <= rl_rem {
+                header.run_length -= action.run_len;
+                return CommandHandlerContinuation::AdvanceAction;
+            }
+            self.push_copy_command(*header_idx_new, copy_range_start, copy_range_start_new);
+            self.push_insert_command_check_run_length(
+                header_idx_new,
+                copy_range_start_new,
+                header.fmt,
+                rl_pre,
+            );
+            *field_pos += rl_pre as usize;
+            if action.run_len <= rl_rem {
+                debug_assert!(!header.shared_value());
+                if action.run_len == rl_rem {
+                    header.set_deleted(true);
+                    return CommandHandlerContinuation::AdvanceAction;
+                }
+                let mut fmt_del = header.fmt;
+                fmt_del.set_deleted(true);
+                self.push_insert_command_check_run_length(
+                    header_idx_new,
+                    copy_range_start_new,
+                    fmt_del,
+                    rl_rem,
+                );
+                header.run_length -= action.run_len;
+                if header.run_length == 1 {
+                    header.set_shared_value(true);
+                }
+                return CommandHandlerContinuation::AdvanceAction;
+            }
+            if header.shared_value() {
+                header.set_deleted(true);
+                action.run_len -= rl_rem;
+                *copy_range_start += 1;
+                *copy_range_start_new += 1;
+                return CommandHandlerContinuation::AdvanceHeader;
+            }
+            header.set_deleted(true);
+            if action.run_len == rl_rem {
+                return CommandHandlerContinuation::AdvanceAction;
+            }
+            action.run_len -= rl_rem;
+            return CommandHandlerContinuation::AdvanceHeader;
+        }
+        if rl_to_del > header.run_length {
+            header.set_deleted(true);
+            action.run_len -= header.run_length;
+            return CommandHandlerContinuation::AdvanceHeader;
+        }
+        if rl_to_del == header.run_length {
+            header.set_deleted(true);
+            return CommandHandlerContinuation::AdvanceAction;
+        }
+        if !header.shared_value() {
+            self.push_copy_command(*header_idx_new, copy_range_start, copy_range_start_new);
+            let mut fmt_del = header.fmt;
+            fmt_del.set_deleted(true);
+            self.push_insert_command_check_run_length(
+                header_idx_new,
+                copy_range_start_new,
+                fmt_del,
+                rl_to_del,
+            );
+            header.run_length -= rl_to_del;
+            return CommandHandlerContinuation::AdvanceAction;
+        }
+        header.run_length -= rl_to_del;
+        return CommandHandlerContinuation::AdvanceAction;
     }
     fn generate_commands_from_actions(
         &mut self,
@@ -479,127 +603,85 @@ impl FDCommandBuffer {
         let mut header = &mut fd.header[header_idx];
         let mut header_idx_new = header_idx;
 
-        let mut action;
+        let mut action = Default::default();
         let mut action_idx_next = 0;
-
+        let mut prev_action_field_idx = usize::MAX;
         let mut copy_range_start = 0;
         let mut copy_range_start_new = 0;
+        let mut field_pos_old = field_pos;
+        let mut curr_header_outstanding_dups = 0;
         'advance_action: loop {
             let actions = &self.actions[ACTIONS_FINAL_IDX];
-            if action_idx_next == actions.len() {
-                break;
+            loop {
+                if action_idx_next == actions.len() {
+                    if curr_header_outstanding_dups > 0 {
+                        break;
+                    }
+                    break 'advance_action;
+                }
+                if curr_header_outstanding_dups > 0
+                    && actions[action_idx_next].field_idx != prev_action_field_idx
+                {
+                    break;
+                }
+                action = actions[action_idx_next];
+                action_idx_next += 1;
+                prev_action_field_idx = action.field_idx;
+                match action.kind {
+                    FieldActionKind::Dup => {
+                        curr_header_outstanding_dups += action.run_len as usize;
+                    }
+                    FieldActionKind::Drop => {
+                        if curr_header_outstanding_dups > action.run_len as usize {
+                            curr_header_outstanding_dups -= action.run_len as usize;
+                        } else {
+                            action.run_len -= curr_header_outstanding_dups as RunLength;
+                            break;
+                        }
+                    }
+                }
             }
-            action = actions[action_idx_next];
-            action_idx_next += 1;
             'advance_header: loop {
                 loop {
                     if !header.deleted() {
                         let field_pos_new = field_pos + header.run_length as usize;
-                        if field_pos_new > action.field_idx {
+                        if field_pos_new > prev_action_field_idx {
                             break;
                         }
                         field_pos = field_pos_new;
+                        field_pos_old += header.run_length as usize;
                     }
                     header_idx += 1;
                     header_idx_new += 1;
                     header = &mut fd.header[header_idx];
                 }
-                match action.kind {
-                    FieldActionKind::Dup => {
-                        self.handle_dup(
-                            action,
-                            header,
-                            &mut field_pos,
-                            &mut header_idx_new,
-                            &mut copy_range_start,
-                            &mut copy_range_start_new,
-                        );
-                        continue 'advance_action;
-                    }
-                    FieldActionKind::Drop => {
-                        let rl_to_del = action.run_len;
-                        let rl_pre = (action.field_idx - field_pos) as RunLength;
-                        if rl_pre > 0 {
-                            let rl_rem = header.run_length - rl_pre;
-                            if header.shared_value() && action.run_len <= rl_rem {
-                                header.run_length -= action.run_len;
-                                continue 'advance_action;
-                            }
-                            self.push_copy_command(
-                                header_idx_new,
-                                &mut copy_range_start,
-                                &mut copy_range_start_new,
-                            );
-                            self.push_insert_command_check_run_length(
-                                &mut header_idx_new,
-                                &mut copy_range_start_new,
-                                header.fmt,
-                                rl_pre,
-                            );
-                            field_pos += rl_pre as usize;
-                            if action.run_len <= rl_rem {
-                                debug_assert!(!header.shared_value());
-                                if action.run_len == rl_rem {
-                                    header.set_deleted(true);
-                                    continue 'advance_action;
-                                }
-                                let mut fmt_del = header.fmt;
-                                fmt_del.set_deleted(true);
-                                self.push_insert_command_check_run_length(
-                                    &mut header_idx_new,
-                                    &mut copy_range_start_new,
-                                    fmt_del,
-                                    rl_rem,
-                                );
-                                header.run_length -= action.run_len;
-                                if header.run_length == 1 {
-                                    header.set_shared_value(true);
-                                }
-                                continue 'advance_action;
-                            }
-                            if header.shared_value() {
-                                header.set_deleted(true);
-                                action.run_len -= rl_rem;
-                                copy_range_start += 1;
-                                copy_range_start_new += 1;
-                                continue 'advance_header;
-                            }
-                            header.set_deleted(true);
-                            if action.run_len == rl_rem {
-                                continue 'advance_action;
-                            }
-                            action.run_len -= rl_rem;
-                            continue 'advance_header;
-                        }
-                        if rl_to_del > header.run_length {
-                            header.set_deleted(true);
-                            action.run_len -= header.run_length;
-                            continue 'advance_header;
-                        }
-                        if rl_to_del == header.run_length {
-                            header.set_deleted(true);
-                            continue 'advance_action;
-                        }
-                        if !header.shared_value() {
-                            self.push_copy_command(
-                                header_idx_new,
-                                &mut copy_range_start,
-                                &mut copy_range_start_new,
-                            );
-                            let mut fmt_del = header.fmt;
-                            fmt_del.set_deleted(true);
-                            self.push_insert_command_check_run_length(
-                                &mut header_idx_new,
-                                &mut copy_range_start_new,
-                                fmt_del,
-                                rl_to_del,
-                            );
-                            header.run_length -= rl_to_del;
-                            continue 'advance_action;
-                        }
-                        header.run_length -= rl_to_del;
-                        continue 'advance_action;
-                    }
+                if curr_header_outstanding_dups > 0 {
+                    self.handle_dup(
+                        prev_action_field_idx,
+                        curr_header_outstanding_dups,
+                        header,
+                        &mut field_pos,
+                        &mut header_idx_new,
+                        &mut copy_range_start,
+                        &mut copy_range_start_new,
+                    );
+                    curr_header_outstanding_dups = 0;
+                }
+                if action.kind != FieldActionKind::Drop {
+                    continue 'advance_header;
+                }
+                let continuation = self.handle_drop(
+                    &mut action,
+                    header,
+                    &mut field_pos,
+                    &mut header_idx_new,
+                    &mut copy_range_start,
+                    &mut copy_range_start_new,
+                );
+                if let CommandHandlerContinuation::AdvanceAction = continuation {
+                    continue 'advance_action;
+                } else {
+                    continue 'advance_header;
                 }
             }
         }
@@ -634,31 +716,6 @@ impl FDCommandBuffer {
                 std::ptr::copy(header_ptr.add(c.source), header_ptr.add(c.target), c.len);
             }
             fd.header.set_len(new_size);
-        }
-    }
-}
-
-impl FDCommandBuffer {
-    fn apply_actions_to_iter_hall(&mut self, fdih: &mut FDIterHall) {
-        debug_assert!(self.iter_states.is_empty());
-        self.iter_states.extend(fdih.iters.iter().map(|it| unsafe {
-            std::mem::transmute::<&'_ FDIterState, &'static FDIterState>(it.get_mut())
-        }));
-        self.iter_states
-            .sort_by(|lhs, rhs| lhs.field_pos.cmp(&rhs.field_pos));
-        let actions = &self.actions[ACTIONS_FINAL_IDX];
-        let iter_state_idx = 0;
-        let field_pos_diff = 0;
-        let header_idx_diff = 0;
-        for a in actions {
-            match a.kind {
-                FieldActionKind::Dup => {
-                    fdih.field_count += a.run_len as usize;
-                }
-                FieldActionKind::Drop => {
-                    fdih.field_count -= a.run_len as usize;
-                }
-            }
         }
     }
 }
