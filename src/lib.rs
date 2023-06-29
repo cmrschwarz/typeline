@@ -1,7 +1,7 @@
 #[macro_use]
 extern crate static_assertions;
 extern crate arrayvec;
-extern crate bstring;
+extern crate bstr;
 extern crate crossbeam;
 extern crate encoding_rs;
 extern crate indexmap;
@@ -10,6 +10,7 @@ extern crate markup5ever_rcdom;
 extern crate num;
 extern crate regex;
 extern crate smallvec;
+extern crate smallstr;
 extern crate thiserror;
 extern crate url;
 

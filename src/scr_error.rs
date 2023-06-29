@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 
-use bstring::BString;
+use bstr::{BString, ByteSlice};
 use thiserror::Error;
 
 use crate::{
@@ -40,7 +40,7 @@ fn contextualize_cli_arg(msg: &str, args: Option<&Vec<BString>>, cli_arg_idx: Cl
         format!(
             "in cli arg {} `{}`: {}",
             cli_arg_idx,
-            args[cli_arg_idx as usize - 1].to_string_lossy(),
+            args[cli_arg_idx as usize - 1].to_str_lossy(),
             msg
         )
     } else {

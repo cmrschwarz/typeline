@@ -16,7 +16,7 @@ use crate::{
     },
     selenium::{SeleniumDownloadStrategy, SeleniumVariant},
 };
-use bstring::{bstr, BString};
+use bstr::{BStr, BString, ByteSlice};
 use lazy_static::lazy_static;
 use regex::{Regex, RegexBuilder};
 use smallvec::smallvec;
@@ -57,7 +57,7 @@ pub struct CliArgument<'a> {
 #[derive(Clone)]
 pub struct ParsedCliArgument<'a> {
     argname: &'a str,
-    value: Option<&'a bstr>,
+    value: Option<&'a BStr>,
     label: Option<&'a str>,
     chainspec: Option<ChainSpec>,
     cli_arg: CliArgument<'a>,
@@ -97,7 +97,7 @@ pub fn print_help() {
     print!("scr [OPTIONS]"); //TODO
 }
 
-fn try_parse_bool(val: &bstr) -> Option<bool> {
+fn try_parse_bool(val: &BStr) -> Option<bool> {
     if TRUTHY_REGEX.is_match(val.as_bytes()) {
         return Some(true);
     }
@@ -109,7 +109,7 @@ fn try_parse_bool(val: &bstr) -> Option<bool> {
 
 fn try_parse_document_source(
     argname: &str,
-    value: Option<&bstr>,
+    value: Option<&BStr>,
     cli_arg_idx: CliArgIdx,
 ) -> Result<Option<DocumentSource>, CliArgumentError> {
     match argname {
@@ -211,20 +211,20 @@ fn try_parse_document_source(
 }
 
 fn try_parse_selenium_variant(
-    _value: Option<&bstr>,
+    _value: Option<&BStr>,
     _cli_arg: &CliArgument,
 ) -> Result<Option<SeleniumVariant>, CliArgumentError> {
     todo!()
 }
 fn try_parse_selenium_download_strategy(
-    _value: Option<&bstr>,
+    _value: Option<&BStr>,
     _cli_arg: &CliArgument,
 ) -> Result<SeleniumDownloadStrategy, CliArgumentError> {
     todo!()
 }
 
 fn try_parse_bool_arg_or_default(
-    val: Option<&bstr>,
+    val: Option<&BStr>,
     default: bool,
     cli_arg_idx: CliArgIdx,
 ) -> Result<bool, CliArgumentError> {
@@ -241,8 +241,8 @@ fn try_parse_bool_arg_or_default(
         Ok(default)
     }
 }
-fn try_parse_usize_arg(val: &bstr, cli_arg_idx: CliArgIdx) -> Result<usize, CliArgumentError> {
-    if let Ok(b) = val.parse::<usize>() {
+fn try_parse_usize_arg(val: &BStr, cli_arg_idx: CliArgIdx) -> Result<usize, CliArgumentError> {
+    if let Some(b) = val.to_str().ok().and_then(|v| v.parse::<usize>().ok()) {
         Ok(b)
     } else {
         Err(CliArgumentError::new(
@@ -385,7 +385,7 @@ fn try_parse_as_chain_opt(
                     bm
                 } else {
                     return Err(CliArgumentError{
-                            message: Cow::Owned(format!("unknown line buffering mode '{}', options are yes, no, stdin, tty, and stdin-if-tty", val.to_string_lossy())),
+                            message: Cow::Owned(format!("unknown line buffering mode '{}', options are yes, no, stdin, tty, and stdin-if-tty", val.to_str_lossy())),
                             cli_arg_idx: arg.cli_arg.idx
                         });
                 }
@@ -424,9 +424,8 @@ fn try_parse_as_doc<'a>(
 }
 
 fn parse_operation(
-    ctx_opts: &mut ContextOptions,
     argname: &str,
-    value: Option<&bstr>,
+    value: Option<&BStr>,
     idx: Option<CliArgIdx>,
 ) -> Result<Option<OperatorData>, OperatorCreationError> {
     if let Some(c) = REGEX_CLI_ARG_REGEX.captures(argname) {
@@ -466,12 +465,7 @@ fn parse_operation(
             }
             todo!();
         }
-        return Ok(Some(OperatorData::Regex(parse_regex_op(
-            &mut ctx_opts.string_store,
-            value,
-            idx,
-            opts,
-        )?)));
+        return Ok(Some(OperatorData::Regex(parse_regex_op(value, idx, opts)?)));
     }
 
     Ok(match argname {
@@ -485,10 +479,12 @@ fn try_parse_as_operation<'a>(
     ctx_opts: &mut ContextOptions,
     arg: ParsedCliArgument<'a>,
 ) -> Result<Option<ParsedCliArgument<'a>>, CliArgumentError> {
-    let op_data = parse_operation(ctx_opts, &arg.argname, arg.value, Some(arg.cli_arg.idx))
-        .map_err(|oce| CliArgumentError {
-            message: oce.message,
-            cli_arg_idx: arg.cli_arg.idx,
+    let op_data =
+        parse_operation(&arg.argname, arg.value, Some(arg.cli_arg.idx)).map_err(|oce| {
+            CliArgumentError {
+                message: oce.message,
+                cli_arg_idx: arg.cli_arg.idx,
+            }
         })?;
     if let Some(op_data) = op_data {
         let argname = ctx_opts.string_store.intern_cloned(arg.argname);
@@ -525,7 +521,7 @@ pub fn parse_cli_retain_args(args: &Vec<BString>) -> Result<ContextOptions, CliA
 
             let arg = ParsedCliArgument {
                 argname,
-                value: m.name("value").map(|v| <&bstr>::from(v.as_bytes())),
+                value: m.name("value").map(|v| <&BStr>::from(v.as_bytes())),
                 label: label,
                 chainspec: None, //m.group("chainspec"); // TODO
                 cli_arg: cli_arg,

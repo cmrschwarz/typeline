@@ -1,6 +1,6 @@
 use std::{borrow::Cow, num::NonZeroUsize};
 
-use bstring::BString;
+use bstr::BString;
 use lazy_static::lazy_static;
 
 use crate::{
@@ -10,6 +10,7 @@ use crate::{
     operations::{
         errors::{ChainSetupError, OperatorSetupError},
         operator::{OperatorBase, OperatorData, OperatorId, OperatorOffsetInChain},
+        regex::setup_op_regex,
     },
     scr_error::{result_into, ScrError},
     selenium::SeleniumVariant,
@@ -128,6 +129,10 @@ impl ContextOptions {
             let chain = &mut sess.chains[op.chain_id as usize];
             op.offset_in_chain = chain.operations.len() as OperatorOffsetInChain;
             chain.operations.push(i as OperatorId);
+            match &mut sess.operator_data[i] {
+                OperatorData::Regex(re) => setup_op_regex(&mut sess.string_store, re)?,
+                OperatorData::Split(_) | OperatorData::Format(_) | OperatorData::Print => (),
+            }
         }
         Ok(())
     }

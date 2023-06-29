@@ -1,4 +1,4 @@
-use std::{cmp::min, collections::HashMap, mem::transmute, num::NonZeroU32};
+use std::{borrow::Cow, cmp::min, collections::HashMap, mem::transmute, num::NonZeroU32};
 
 pub type StringStoreEntry = NonZeroU32;
 
@@ -69,7 +69,12 @@ impl StringStore {
         self.table_str_to_idx.insert(str_ref_static, idx);
         idx
     }
-
+    pub fn intern_cow(&mut self, cow: Cow<'static, str>) -> StringStoreEntry {
+        match cow {
+            Cow::Borrowed(s) => self.intern_cloned(s),
+            Cow::Owned(s) => self.intern_moved(s),
+        }
+    }
     pub fn lookup(&self, entry: StringStoreEntry) -> &str {
         &self.table_idx_to_str[u32::from(entry) as usize - 1]
     }

@@ -1,6 +1,6 @@
 use std::io::Write;
 
-use bstring::bstr;
+use bstr::BStr;
 use is_terminal::IsTerminal;
 
 use crate::{
@@ -31,7 +31,7 @@ pub struct TfPrint {
 }
 
 pub fn parse_print_op(
-    value: Option<&bstr>,
+    value: Option<&BStr>,
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
     if value.is_some() {

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use bstring::BString;
+use bstr::BString;
 
 use crate::{
     chain::ChainId,

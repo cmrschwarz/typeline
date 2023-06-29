@@ -1,6 +1,6 @@
 use std::{cell::RefMut, collections::HashMap};
 
-use bstring::bstr;
+use bstr::{BStr, ByteSlice};
 
 use nonmax::NonMaxUsize;
 use smallvec::{smallvec, SmallVec};
@@ -33,7 +33,7 @@ pub struct TfSplit {
 }
 
 pub fn parse_split_op(
-    value: Option<&bstr>,
+    value: Option<&BStr>,
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OpSplit, OperatorCreationError> {
     let range_spec = if let Some(value) = value {

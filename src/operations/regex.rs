@@ -1,11 +1,11 @@
-use std::borrow::Cow;
-use std::cell::RefCell;
-
-use bstring::bstr;
+use bstr::{BStr, ByteSlice};
 use lazy_static::{__Deref, lazy_static};
 use nonmax::NonMaxUsize;
 use regex;
 use regex::bytes;
+use smallstr::SmallString;
+use std::borrow::Cow;
+use std::cell::RefCell;
 
 use crate::field_data::fd_command_buffer::{FDCommandBuffer, FieldActionKind};
 use crate::field_data::fd_iter::{InlineBytesIter, InlineTextIter};
@@ -21,6 +21,7 @@ use crate::{
     worker_thread_session::{FieldId, JobData, MatchSetId},
 };
 
+use super::errors::OperatorSetupError;
 use super::{
     errors::{OperatorApplicationError, OperatorCreationError},
     transform::{TransformData, TransformId},
@@ -29,7 +30,7 @@ use super::{
 pub struct OpRegex {
     pub regex: bytes::Regex,
     pub text_only_regex: Option<regex::Regex>,
-    pub multimatch: bool,
+    pub opts: RegexOptions,
     pub capture_group_names: Vec<StringStoreEntry>,
 }
 
@@ -50,24 +51,46 @@ struct RegexBatchState {
 
 #[derive(Default)]
 pub struct RegexOptions {
-    // makes ^ and $ match lines in addition to start / end of stream
-    // (commonly called multiline)
-    pub line_based: bool,
+    // disable unicode for character classes making e.g. \w  only
+    // match ascii characters
+    // for byte sequences, having this disabled means that '.' will match
+    // any byte sequence that looks like a valid UTF-8 character
+    pub ascii_mode: bool,
 
     // return multiple matches instead of only the first
     pub multimatch: bool,
+
+    // makes ^ and $ match lines in addition to start / end of stream
+    // (commonly called multiline)
+    pub line_based: bool,
 
     // makes . match \n
     pub dotall: bool,
 
     // enables case insensitive matches
     pub case_insensitive: bool,
+}
 
-    // disable unicode for character classes making e.g. \w  only
-    // match ascii characters
-    // for byte sequences, having this disabled means that '.' will match
-    // any byte sequence that looks like a valid UTF-8 character
-    pub ascii_mode: bool,
+impl RegexOptions {
+    pub fn default_op_name(&self) -> SmallString<[u8; 16]> {
+        let mut res = SmallString::from_str("r");
+        if self.ascii_mode {
+            res.push('b');
+        }
+        if self.multimatch {
+            res.push('m');
+        }
+        if self.line_based {
+            res.push('l');
+        }
+        if self.dotall {
+            res.push('d');
+        }
+        if self.case_insensitive {
+            res.push('i');
+        }
+        res
+    }
 }
 
 lazy_static! {
@@ -78,8 +101,7 @@ lazy_static! {
 }
 
 pub fn parse_regex_op(
-    string_store: &mut StringStore,
-    value: Option<&bstr>,
+    value: Option<&BStr>,
     arg_idx: Option<CliArgIdx>,
     opts: RegexOptions,
 ) -> Result<OpRegex, OperatorCreationError> {
@@ -125,26 +147,35 @@ pub fn parse_regex_op(
             arg_idx,
         ));
     };
+
+    Ok(OpRegex {
+        regex,
+        text_only_regex,
+        capture_group_names: Default::default(),
+        opts,
+    })
+}
+
+pub fn create_regex_op(value: &str, opts: RegexOptions) -> Result<OpRegex, OperatorCreationError> {
+    parse_regex_op(Some(value.as_bytes().as_bstr()), None, opts)
+}
+
+pub fn setup_op_regex(
+    string_store: &mut StringStore,
+    op: &mut OpRegex,
+) -> Result<(), OperatorSetupError> {
     let mut unnamed_capture_groups: usize = 0;
-    let capture_group_names = regex
-        .capture_names()
-        .into_iter()
-        .map(|name| match name {
+
+    op.capture_group_names
+        .extend(op.regex.capture_names().into_iter().map(|name| match name {
             Some(name) => string_store.intern_cloned(name),
             None => {
                 let id = string_store.intern_moved(unnamed_capture_groups.to_string());
                 unnamed_capture_groups += 1;
                 id
             }
-        })
-        .collect();
-
-    Ok(OpRegex {
-        regex,
-        text_only_regex,
-        capture_group_names,
-        multimatch: opts.multimatch,
-    })
+        }));
+    Ok(())
 }
 
 pub fn setup_tf_regex<'a>(
@@ -168,7 +199,7 @@ pub fn setup_tf_regex<'a>(
             .map(|r| (r.clone(), r.capture_locations())),
         capture_group_fields: cgfs,
         capture_locs: op.regex.capture_locations(),
-        multimatch: op.multimatch,
+        multimatch: op.opts.multimatch,
         input_field_iter_id: sess.entry_data.fields[input_field]
             .borrow_mut()
             .field_data

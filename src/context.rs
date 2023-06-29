@@ -1,7 +1,7 @@
 use std::num::NonZeroUsize;
 use std::sync::{Arc, Condvar, Mutex};
 
-use bstring::BString;
+use bstr::BString;
 use crossbeam::deque::{Injector, Stealer, Worker};
 use smallvec::SmallVec;
 

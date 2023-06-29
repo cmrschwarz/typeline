@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use bstring::BString;
+use bstr::BString;
 use smallvec::SmallVec;
 use url::Url;
 
