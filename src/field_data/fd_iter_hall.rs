@@ -70,7 +70,7 @@ impl FDIterHall {
             .unwrap_or_default();
         FDIter {
             fd: &self.fd,
-            field_pos: state.field_pos,
+            field_pos: state.field_pos - self.initial_field_offset,
             data: state.data,
             header_idx: state.header_idx,
             header_rl_offset: state.header_rl_offset,
@@ -88,7 +88,7 @@ impl FDIterHall {
             .unwrap_or_default();
         FDIterMut {
             fd: &mut self.fd,
-            field_pos: state.field_pos,
+            field_pos: state.field_pos - self.initial_field_offset,
             data: state.data,
             header_idx: state.header_idx,
             header_rl_offset: state.header_rl_offset,

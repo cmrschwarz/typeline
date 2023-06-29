@@ -52,6 +52,7 @@ pub fn setup_tf_file_reader_as_entry_point<'a>(
         desired_batch_size,
         op_id: OperatorId::MAX,
         ordering_id: tf_mgr.claim_transform_ordering_id(),
+        last_consumed_batch_size: 0,
         is_ready: false,
         is_stream_producer: false,
     };
@@ -125,7 +126,7 @@ fn start_streaming_file(
     tf_id: TransformId,
     fr: &mut TfFileReader,
 ) -> EnterStreamModeFlag {
-    let (batch_size, _) = sess.tf_mgr.claim_batch(tf_id);
+    let (batch_size, _) = sess.claim_batch(tf_id, &[fr.output_field]);
     debug_assert!(batch_size == 1);
     let mut out_field = sess.entry_data.fields[fr.output_field].borrow_mut();
 
@@ -193,7 +194,7 @@ pub fn handle_tf_file_reader_batch_mode(
     fr: &mut TfFileReader,
 ) -> EnterStreamModeFlag {
     if fr.file.is_none() {
-        let (batch, _) = sess.tf_mgr.claim_batch(tf_id);
+        let (batch, _) = sess.claim_batch(tf_id, &[fr.output_field]);
         sess.entry_data.fields[fr.output_field]
             .borrow_mut()
             .field_data

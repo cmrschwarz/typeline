@@ -1,3 +1,7 @@
+use std::cell::RefMut;
+
+use crate::worker_thread_session::Field;
+
 use super::{
     fd_iter_hall::{FDIterHall, FDIterState},
     FieldData, FieldValueFormat, FieldValueHeader, RunLength,
@@ -27,7 +31,7 @@ struct ActionSet {
 struct ActionSetMergeResult {
     merge_set_index: usize,
     actions_start: usize,
-    action_count: usize,
+    actions_end: usize,
 }
 
 struct InsertionCommand {
@@ -50,7 +54,6 @@ pub struct FDCommandBuffer {
 }
 
 const ACTIONS_RAW_IDX: usize = 0;
-const ACTIONS_FINAL_IDX: usize = 1;
 
 impl FDCommandBuffer {
     pub fn is_legal_field_idx_for_action(&self, field_idx: usize) -> bool {
@@ -79,6 +82,7 @@ impl FDCommandBuffer {
     }
     pub fn push_action(&mut self, kind: FieldActionKind, field_idx: usize, run_length: RunLength) {
         assert!(self.is_legal_field_idx_for_action(field_idx));
+        self.action_sets.last_mut().unwrap().action_count += 1;
         self.actions[ACTIONS_RAW_IDX].push(FieldAction {
             kind,
             field_idx,
@@ -102,37 +106,45 @@ impl FDCommandBuffer {
         self.actions[ACTIONS_RAW_IDX].clear();
         self.action_sets.clear();
     }
-    pub fn execute_raw_fd(&mut self, fd: &mut FieldData, max_action_set_id: usize) {
-        self.execute_from_header_index_and_field_position(fd, 0, 0, max_action_set_id);
-        self.cleanup();
+    pub fn last_action_set_id(&self) -> usize {
+        self.action_sets
+            .last()
+            .map(|acs| acs.set_index)
+            .unwrap_or(0)
     }
-    pub fn execute(&mut self, fdih: &mut FDIterHall, max_action_set_id: usize) {
-        self.iter_states
-            .extend(fdih.iters.iter_mut().filter_map(|it| {
-                it.get_mut().is_valid().then(|| unsafe {
-                    std::mem::transmute::<&'_ mut FDIterState, &'static mut FDIterState>(
-                        it.get_mut(),
-                    )
-                })
-            }));
-        // we reverse the sort order so we can pop back
-        self.iter_states
-            .sort_by(|lhs, rhs| lhs.field_pos.cmp(&rhs.field_pos).reverse());
-        self.execute_from_header_index_and_field_position(&mut fdih.fd, 0, 0, max_action_set_id);
-        self.iter_states.clear();
-        self.cleanup();
-    }
-    fn execute_from_header_index_and_field_position(
+    pub fn execute<'a, 'b>(
         &mut self,
-        fd: &mut FieldData,
-        header_idx: usize,
-        field_pos: usize,
+        fd_iter_halls: impl Iterator<Item = RefMut<'a, Field>>,
+        min_action_set_id: usize,
         max_action_set_id: usize,
     ) {
-        self.prepare_actions(max_action_set_id);
-        self.generate_commands_from_actions(fd, header_idx, field_pos);
-        self.execute_commands(fd);
+        let merged_acs_idx = self.prepare_actions(min_action_set_id, max_action_set_id);
+
+        for mut fdih in fd_iter_halls.into_iter() {
+            self.iter_states
+                .extend(fdih.field_data.iters.iter_mut().filter_map(|it| {
+                    it.get_mut().is_valid().then(|| unsafe {
+                        std::mem::transmute::<&'_ mut FDIterState, &'static mut FDIterState>(
+                            it.get_mut(),
+                        )
+                    })
+                }));
+            // we reverse the sort order so we can pop back
+            self.iter_states
+                .sort_by(|lhs, rhs| lhs.field_pos.cmp(&rhs.field_pos).reverse());
+            let field_offset = fdih.field_data.initial_field_offset;
+            self.generate_commands_from_actions(
+                merged_acs_idx,
+                &mut fdih.field_data.fd,
+                0,
+                field_offset,
+            );
+            self.execute_commands(&mut fdih.field_data.fd);
+            self.iter_states.clear();
+            self.cleanup();
+        }
     }
+
     fn cleanup(&mut self) {
         for ms in self.actions.iter_mut().skip(1) {
             ms.clear();
@@ -140,18 +152,18 @@ impl FDCommandBuffer {
         self.insertions.clear();
         self.copies.clear();
     }
-    fn max_action_set_id_to_idx(&self, max_action_set_id: usize) -> usize {
+    fn action_set_id_to_idx(&self, action_set_id: usize) -> usize {
         match self
             .action_sets
-            .binary_search_by(|acs| acs.set_index.cmp(&max_action_set_id))
+            .binary_search_by(|acs| acs.set_index.cmp(&action_set_id))
         {
             Ok(idx) => idx,
             Err(idx) => idx,
         }
     }
-    pub fn erase_action_sets(&mut self, start_at_id: usize) {
+    pub fn erase_action_sets(&mut self, lowest_id_to_remove: usize) {
         self.action_sets
-            .truncate(self.max_action_set_id_to_idx(start_at_id));
+            .truncate(self.action_set_id_to_idx(lowest_id_to_remove));
     }
 }
 
@@ -280,11 +292,11 @@ impl FDCommandBuffer {
         full_slice: &'a [FieldAction],
         asmr: ActionSetMergeResult,
     ) -> &'a [FieldAction] {
-        &full_slice[asmr.actions_start..asmr.actions_start + asmr.action_count]
+        &full_slice[asmr.actions_start..asmr.actions_end]
     }
     fn unclaim_merge_space(&mut self, asmr: ActionSetMergeResult) {
         let ms = &mut self.actions[asmr.merge_set_index];
-        debug_assert!(ms.len() == asmr.actions_start + asmr.action_count);
+        debug_assert!(ms.len() == asmr.actions_end);
         ms.truncate(asmr.actions_start);
     }
     fn merge_two_action_sets(
@@ -319,15 +331,15 @@ impl FDCommandBuffer {
         ActionSetMergeResult {
             merge_set_index: target_merge_set,
             actions_start: res_len_before,
-            action_count: res_len_after - res_len_before,
+            actions_end: res_len_after,
         }
     }
     fn action_set_as_result(&self, action_set_idx: usize) -> ActionSetMergeResult {
         let acs = &self.action_sets[action_set_idx];
         ActionSetMergeResult {
-            merge_set_index: 0,
+            merge_set_index: ACTIONS_RAW_IDX,
             actions_start: acs.actions_start,
-            action_count: acs.action_count,
+            actions_end: acs.actions_start + acs.action_count,
         }
     }
     fn merge_action_sets(
@@ -337,12 +349,7 @@ impl FDCommandBuffer {
         target_merge_set: usize,
     ) -> ActionSetMergeResult {
         if action_sets_len == 1 {
-            let acs = &self.action_sets[action_sets_start];
-            return ActionSetMergeResult {
-                merge_set_index: 0,
-                actions_start: acs.actions_start,
-                action_count: acs.action_count,
-            };
+            return self.action_set_as_result(action_sets_start);
         }
         if action_sets_len == 2 {
             return self.merge_two_action_sets(
@@ -364,12 +371,14 @@ impl FDCommandBuffer {
         );
         self.merge_two_action_sets(merge_first_half, merge_rest, target_merge_set)
     }
-    fn prepare_actions(&mut self, max_action_set_id: usize) {
-        self.merge_action_sets(
-            0,
-            self.max_action_set_id_to_idx(max_action_set_id),
-            ACTIONS_FINAL_IDX,
-        );
+    fn prepare_actions(
+        &mut self,
+        min_action_set_id: usize,
+        max_action_set_id: usize,
+    ) -> ActionSetMergeResult {
+        let first = self.action_set_id_to_idx(min_action_set_id);
+        let last = self.action_set_id_to_idx(max_action_set_id);
+        self.merge_action_sets(first, last - first + 1, ACTIONS_RAW_IDX + 1)
     }
 }
 
@@ -596,6 +605,7 @@ impl FDCommandBuffer {
     }
     fn generate_commands_from_actions(
         &mut self,
+        merged_actions: ActionSetMergeResult,
         fd: &mut FieldData,
         mut header_idx: usize,
         mut field_pos: usize,
@@ -611,7 +621,8 @@ impl FDCommandBuffer {
         let mut field_pos_old = field_pos;
         let mut curr_header_outstanding_dups = 0;
         'advance_action: loop {
-            let actions = &self.actions[ACTIONS_FINAL_IDX];
+            let actions = &self.actions[merged_actions.merge_set_index]
+                [merged_actions.actions_start..merged_actions.actions_end];
             loop {
                 if action_idx_next == actions.len() {
                     if curr_header_outstanding_dups > 0 {
@@ -642,6 +653,19 @@ impl FDCommandBuffer {
                 }
             }
             'advance_header: loop {
+                if curr_header_outstanding_dups > 0 {
+                    self.handle_dup(
+                        prev_action_field_idx,
+                        curr_header_outstanding_dups,
+                        header,
+                        &mut field_pos,
+                        &mut header_idx_new,
+                        &mut copy_range_start,
+                        &mut copy_range_start_new,
+                    );
+                    curr_header_outstanding_dups = 0;
+                    continue 'advance_action;
+                }
                 loop {
                     if !header.deleted() {
                         let field_pos_new = field_pos + header.run_length as usize;
@@ -654,18 +678,6 @@ impl FDCommandBuffer {
                     header_idx += 1;
                     header_idx_new += 1;
                     header = &mut fd.header[header_idx];
-                }
-                if curr_header_outstanding_dups > 0 {
-                    self.handle_dup(
-                        prev_action_field_idx,
-                        curr_header_outstanding_dups,
-                        header,
-                        &mut field_pos,
-                        &mut header_idx_new,
-                        &mut copy_range_start,
-                        &mut copy_range_start_new,
-                    );
-                    curr_header_outstanding_dups = 0;
                 }
                 if action.kind != FieldActionKind::Drop {
                     continue 'advance_header;
@@ -696,7 +708,9 @@ impl FDCommandBuffer {
 // final execution step
 impl FDCommandBuffer {
     fn execute_commands(&mut self, fd: &mut FieldData) {
-        let mut field_count_diff = 0;
+        if self.copies.len() == 0 && self.insertions.len() == 0 {
+            return;
+        }
         let new_size = self
             .insertions
             .last()
@@ -709,12 +723,18 @@ impl FDCommandBuffer {
         // PERF: it *might* be faster to interleave the insertions and copies for
         // better cache utilization
         unsafe {
+            for c in self.copies.iter().skip(1).rev() {
+                std::ptr::copy(header_ptr.add(c.source), header_ptr.add(c.target), c.len);
+            }
+            if let Some(c) = self.copies.first() {
+                if c.source != c.target {
+                    std::ptr::copy(header_ptr.add(c.source), header_ptr.add(c.target), c.len);
+                }
+            }
             for i in self.insertions.iter() {
                 (*header_ptr.add(i.index)) = i.value;
             }
-            for c in self.copies.iter().rev() {
-                std::ptr::copy(header_ptr.add(c.source), header_ptr.add(c.target), c.len);
-            }
+
             fd.header.set_len(new_size);
         }
     }

@@ -32,6 +32,9 @@ pub struct TransformState {
     pub successor: Option<TransformId>,
     pub predecessor: Option<TransformId>,
     pub input_field: FieldId,
+    // at the start of the next batch, this is used to drop the fields from the
+    // previous batch swe cannot do this earlier because of field references
+    pub last_consumed_batch_size: usize,
     pub available_batch_size: usize,
     pub desired_batch_size: usize,
     pub match_set_id: MatchSetId,

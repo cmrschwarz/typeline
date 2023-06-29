@@ -25,6 +25,50 @@ pub enum FDTypedSlice<'a> {
     Object(&'a [Object]),
 }
 
+pub struct TypedSliceIter<'a, T> {
+    values: &'a [T],
+    headers: std::slice::Iter<'a, FieldValueHeader>,
+    value_idx: usize,
+    value_idx_max: usize,
+}
+
+impl<'a, T> Iterator for TypedSliceIter<'a, T> {
+    type Item = (&'a T, RunLength);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.value_idx != self.value_idx_max {
+            self.value_idx += 1;
+            return Some((&self.values[self.value_idx - 1], 1));
+        }
+        if let Some(h) = self.headers.next() {
+            if h.shared_value() {
+                let vi = self.value_idx;
+                if !h.same_value_as_previous() {
+                    self.value_idx += 1;
+                }
+                self.value_idx_max = self.value_idx;
+                return Some((&self.values[vi], h.run_length));
+            } else {
+                self.value_idx_max = self.value_idx + h.run_length as usize;
+                self.value_idx += 1;
+                return Some((&self.values[self.value_idx - 1], 1));
+            }
+        }
+        return None;
+    }
+}
+
+impl<'a, T> TypedSliceIter<'a, T> {
+    pub fn new(values: &'a [T], headers: &'a [FieldValueHeader]) -> Self {
+        Self {
+            values,
+            headers: headers.into_iter(),
+            value_idx: 0,
+            value_idx_max: 0,
+        }
+    }
+}
+
 pub fn iterate_typed_slice<'a, T>(
     values: &'a [T],
     headers: &[FieldValueHeader],

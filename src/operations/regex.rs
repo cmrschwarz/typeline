@@ -225,6 +225,7 @@ fn match_regex_inner<'a, 'b, 'c>(
 ) {
     let mut end_of_last_match = 0;
     let mut match_count: RunLength = 0;
+    let starting_field_idx = rbs.field_idx;
     while regex.captures_read_at(end_of_last_match) {
         match_count += 1;
         rbs.field_idx -= rbs.drop_count;
@@ -272,13 +273,13 @@ fn match_regex_inner<'a, 'b, 'c>(
         rbs.drop_count = 0;
     } else if match_count > 1 {
         debug_assert!(rbs.drop_count == 0);
-        command_buffer.push_action(FieldActionKind::Dup, rbs.field_idx, match_count - 1);
+        command_buffer.push_action(FieldActionKind::Dup, starting_field_idx, match_count - 1);
     }
     rbs.match_count += match_count as usize;
 }
 
 pub fn handle_tf_regex_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRegex) {
-    let (batch, input_field_id) = sess.tf_mgr.claim_batch(tf_id);
+    let (batch, input_field_id) = sess.claim_batch(tf_id, &re.capture_group_fields);
     let tf = &sess.tf_mgr.transforms[tf_id];
     let op_id = tf.op_id;
     let command_buffer = &mut sess.entry_data.match_sets[tf.match_set_id].command_buffer;
@@ -358,6 +359,5 @@ pub fn handle_tf_regex_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, re
         .field_data
         .store_iter(re.input_field_iter_id, iter);
     drop(input_field);
-    sess.entry_data.batch_consumed(input_field_id, batch);
     sess.tf_mgr.inform_successor_batch_available(tf_id, batch);
 }

@@ -8,13 +8,14 @@ use crate::{
         fd_iter::{
             iterate_typed_slice, iterate_typed_slice_for_inline_bytes,
             iterate_typed_slice_for_inline_text, FDIterator, FDTypedSlice, FDTypedValue,
+            TypedSliceIter,
         },
         fd_iter_hall::FDIterId,
         field_value_flags, FieldReference, RunLength,
     },
     options::argument::CliArgIdx,
     stream_field_data::{StreamFieldValue, StreamFieldValueData, StreamValueId},
-    worker_thread_session::{FieldId, JobData, MatchSetId, FIELD_REF_LOOKUP_ITER_ID},
+    worker_thread_session::{EntryData, FieldId, JobData, MatchSetId, FIELD_REF_LOOKUP_ITER_ID},
 };
 
 use super::{
@@ -154,7 +155,7 @@ fn print_values_behind_field_ref<'a>(
 }
 
 pub fn handle_tf_print_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, tf: &mut TfPrint) {
-    let (batch, input_field_id) = sess.tf_mgr.claim_batch(tf_id);
+    let (batch, input_field_id) = sess.claim_batch(tf_id, &[]);
     let input_field = sess.entry_data.fields[input_field_id].borrow();
     let mut iter = input_field.field_data.get_iter(tf.batch_iter);
     let starting_pos = iter.get_next_field_pos();
@@ -177,16 +178,20 @@ pub fn handle_tf_print_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, tf
             }
             FDTypedSlice::Reference(refs) => {
                 let mut field_pos = field_pos_before_batch;
-                let sess_ref = &sess;
-                iterate_typed_slice(refs, range.headers, move |r, rl| {
+                for (r, rl) in TypedSliceIter::new(refs, range.headers) {
                     // PERF: this is terrible
-                    let field = sess_ref.entry_data.fields[r.field].borrow();
+                    EntryData::apply_field_commands(
+                        &sess.entry_data.fields,
+                        &mut sess.entry_data.match_sets,
+                        r.field,
+                    );
+                    let field = sess.entry_data.fields[r.field].borrow();
                     let mut iter = field.field_data.get_iter(FIELD_REF_LOOKUP_ITER_ID);
                     iter.move_to_field_pos(field_pos);
                     field_pos += rl as usize;
                     print_values_behind_field_ref(r, &mut iter, rl);
                     field.field_data.store_iter(FIELD_REF_LOOKUP_ITER_ID, iter);
-                });
+                }
             }
             FDTypedSlice::Null(_) => {
                 print_null(range.field_count);
@@ -213,7 +218,6 @@ pub fn handle_tf_print_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, tf
     input_field.field_data.store_iter(tf.batch_iter, iter);
     drop(input_field);
     sess.tf_mgr.inform_successor_batch_available(tf_id, batch);
-    sess.entry_data.batch_consumed(input_field_id, batch);
 }
 
 pub fn handle_tf_print_stream_mode(

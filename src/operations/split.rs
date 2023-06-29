@@ -78,6 +78,7 @@ pub fn setup_ts_split_as_entry_point<'a, 'b>(
         }),
         op_id: OperatorId::MAX,
         ordering_id: sess.tf_mgr.claim_transform_ordering_id(),
+        last_consumed_batch_size: 0,
         is_ready: false,
         is_stream_producer: false,
     };

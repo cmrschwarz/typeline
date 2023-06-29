@@ -49,7 +49,8 @@ pub struct Field {
     pub ref_count: usize,
     pub match_set: MatchSetId,
     pub shadowed_after_tf: TransformId,
-    pub commands_applied: bool,
+    pub producing_transform_action_set_id: usize,
+    pub last_applied_action_set_id: usize,
 
     pub name: Option<StringStoreEntry>,
     pub working_set_idx: Option<NonMaxUsize>,
@@ -112,17 +113,6 @@ impl TransformManager {
     pub fn claim_transform_ordering_id(&mut self) -> TransformOrderingId {
         self.transform_ordering_id = self.transform_ordering_id.checked_add(1).unwrap();
         self.transform_ordering_id
-    }
-    pub fn claim_batch(&mut self, tf_id: TransformId) -> (usize, FieldId) {
-        let tf = &mut self.transforms[tf_id];
-        let batch = tf.desired_batch_size.min(tf.available_batch_size);
-        tf.available_batch_size -= batch;
-        if tf.available_batch_size == 0 {
-            let top = self.ready_queue.pop();
-            debug_assert!(top.unwrap().tf_id == tf_id);
-            tf.is_ready = false;
-        }
-        (batch, tf.input_field)
     }
     pub fn inform_transform_batch_available(&mut self, tf_id: TransformId, batch_size: usize) {
         let tf = &mut self.transforms[tf_id];
@@ -196,24 +186,87 @@ impl EntryData {
     pub fn push_entry_error(&mut self, _ms_id: MatchSetId, _err: OperatorApplicationError) {
         todo!()
     }
-    pub fn batch_consumed(&mut self, field: FieldId, batch: usize) {
-        let mut f = self.fields[field].borrow_mut();
-        if f.field_data.field_count() == batch {
-            f.field_data.clear();
+    // this is usually called while iterating over an input field that contains field references
+    // we therefore do NOT want to require a mutable reference over the field data, because that forces the caller to kill their iterator
+    // instead we `split up` this struct to only require a mutable reference for the MatchSets, which we need to modify the command buffer
+    pub fn apply_field_commands(
+        fields: &Universe<FieldId, RefCell<Field>>,
+        match_sets: &mut Universe<MatchSetId, MatchSet>,
+        field: FieldId,
+    ) {
+        let mut f = fields[field].borrow_mut();
+        let match_set = f.match_set;
+        let cb = &mut match_sets[match_set].command_buffer;
+        let last_acs = cb.last_action_set_id();
+        let last_applied_acs = f.last_applied_action_set_id;
+        if last_applied_acs < last_acs {
+            f.last_applied_action_set_id = last_acs;
+            cb.execute([f].into_iter(), last_applied_acs, last_acs);
         }
-        f.commands_applied = false;
     }
-    pub fn apply_commands(&mut self, field: FieldId, tf_ord_id: TransformOrderingId) {
-        let mut f = self.fields[field].borrow_mut();
-        if f.commands_applied == false {
-            f.commands_applied = true;
-            self.match_sets[f.match_set]
-                .command_buffer
-                .execute(&mut f.field_data, usize::from(tf_ord_id));
+}
+
+impl JobData<'_> {
+    pub fn claim_batch(
+        &mut self,
+        tf_id: TransformId,
+        output_fields: &[FieldId],
+    ) -> (usize, FieldId) {
+        let tf = &mut self.tf_mgr.transforms[tf_id];
+        let tf_ord_id = usize::from(tf.ordering_id);
+        let cb = &mut self.entry_data.match_sets[tf.match_set_id].command_buffer;
+        let max_action_set_id = cb.last_action_set_id();
+        let mut regular_command_application_needed = false;
+        let mut custom_command_application_needed = false;
+        const CLEARED_MARKER_IDX: usize = 0;
+        const REGULAR_MARKER_IDX: usize = 1;
+        const CUSTOM_MARKER_IDX: usize = 2;
+        if tf.last_consumed_batch_size > 0 {
+            for ofid in output_fields {
+                let mut f = self.entry_data.fields[*ofid].borrow_mut();
+                if f.field_data.field_count() == tf.last_consumed_batch_size {
+                    f.field_data.clear();
+                    f.producing_transform_action_set_id = CLEARED_MARKER_IDX;
+                    f.last_applied_action_set_id = tf_ord_id;
+                } else {
+                    if f.last_applied_action_set_id == tf_ord_id {
+                        f.producing_transform_action_set_id = REGULAR_MARKER_IDX;
+                        regular_command_application_needed = true;
+                    } else if f.last_applied_action_set_id != max_action_set_id {
+                        f.producing_transform_action_set_id = CUSTOM_MARKER_IDX;
+                        custom_command_application_needed = true;
+                    }
+                }
+            }
+            tf.last_consumed_batch_size = 0;
         }
-        self.match_sets[f.match_set]
-            .command_buffer
-            .erase_action_sets(usize::from(tf_ord_id));
+
+        if regular_command_application_needed && tf_ord_id < max_action_set_id {
+            let iter = output_fields
+                .iter()
+                .map(|fid| self.entry_data.fields[*fid].borrow_mut())
+                .filter(|fid| fid.producing_transform_action_set_id == REGULAR_MARKER_IDX);
+            cb.execute(iter, tf_ord_id, max_action_set_id);
+        }
+        if custom_command_application_needed {
+            let iter = output_fields
+                .iter()
+                .map(|fid| self.entry_data.fields[*fid].borrow_mut())
+                .filter(|fid| fid.producing_transform_action_set_id == CUSTOM_MARKER_IDX);
+            for f in iter {
+                let min_idx = f.last_applied_action_set_id;
+                cb.execute(iter::once(f), min_idx, max_action_set_id);
+            }
+        }
+        cb.erase_action_sets(tf_ord_id);
+        let batch = tf.desired_batch_size.min(tf.available_batch_size);
+        tf.available_batch_size -= batch;
+        if tf.available_batch_size == 0 {
+            let top = self.tf_mgr.ready_queue.pop();
+            debug_assert!(top.unwrap().tf_id == tf_id);
+            tf.is_ready = false;
+        }
+        (batch, tf.input_field)
     }
 }
 
@@ -529,6 +582,7 @@ impl<'a> WorkerThreadSession<'a> {
                 op_id: *op_id,
                 ordering_id: self.job_data.tf_mgr.claim_transform_ordering_id(),
                 is_ready: false,
+                last_consumed_batch_size: 0,
                 is_stream_producer: false,
             };
             let tf_id = if start_tf_id.is_none() {
