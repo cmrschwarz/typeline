@@ -1,4 +1,7 @@
-use std::io::Write;
+use std::{
+    borrow::Cow,
+    io::{StdoutLock, Write},
+};
 
 use bstr::BStr;
 use is_terminal::IsTerminal;
@@ -30,7 +33,7 @@ pub struct TfPrint {
     batch_iter: FDIterId,
 }
 
-pub fn parse_print_op(
+pub fn parse_op_print(
     value: Option<&BStr>,
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
@@ -62,49 +65,81 @@ pub fn setup_tf_print(
     (TransformData::Print(tf), input_field)
 }
 
-pub fn print_inline_text(text: &str, run_len: usize) {
-    for _ in 0..run_len {
-        println!("{text}");
+pub fn print_inline_text(
+    stdout: &mut StdoutLock<'_>,
+    text: &str,
+    run_len: usize,
+) -> Result<(), (usize, std::io::Error)> {
+    for i in 0..run_len {
+        stdout
+            .write(text.as_bytes())
+            .and_then(|_| stdout.write(b"\n"))
+            .map_err(|e| (i, e))?;
     }
+    Ok(())
 }
-pub fn print_inline_bytes(text: &[u8], run_len: usize) {
-    let mut stdout = std::io::stdout().lock();
-    for _ in 0..run_len {
-        // TODO: handle errors here
-        // HACK
+pub fn print_inline_bytes(
+    stdout: &mut StdoutLock<'_>,
+    text: &[u8],
+    run_len: usize,
+) -> Result<(), (usize, std::io::Error)> {
+    for i in 0..run_len {
         stdout
             .write(text)
-            .and_then(|_| stdout.write(&['\n' as u8]))
-            .unwrap();
+            .and_then(|_| stdout.write(b"\n"))
+            .map_err(|e| (i, e))?;
     }
+    Ok(())
 }
 
-pub fn print_integer(v: i64, run_len: usize) {
-    for _ in 0..run_len {
-        println!("{v}");
+pub fn print_integer(
+    stdout: &mut StdoutLock,
+    v: i64,
+    run_len: usize,
+) -> Result<(), (usize, std::io::Error)> {
+    for i in 0..run_len {
+        stdout
+            .write_fmt(format_args!("{v}\n"))
+            .map_err(|e| (i, e))?;
     }
+    Ok(())
+}
+pub fn print_raw_bytes(
+    stdout: &mut StdoutLock,
+    bytes: &[u8],
+    run_len: usize,
+) -> Result<(), (usize, std::io::Error)> {
+    for i in 0..run_len {
+        stdout.write(bytes).map_err(|e| (i, e))?;
+    }
+    Ok(())
+}
+pub fn print_null(stdout: &mut StdoutLock, run_len: usize) -> Result<(), (usize, std::io::Error)> {
+    print_raw_bytes(stdout, b"null\n", run_len)
+}
+pub fn print_unset(stdout: &mut StdoutLock, run_len: usize) -> Result<(), (usize, std::io::Error)> {
+    print_raw_bytes(stdout, b"<Unset>\n", run_len)
+}
+pub fn print_type_error(
+    stdout: &mut StdoutLock,
+    run_len: usize,
+) -> Result<(), (usize, std::io::Error)> {
+    print_raw_bytes(stdout, b"<Type Error>", run_len)
 }
 
-pub fn print_null(run_len: usize) {
-    for _ in 0..run_len {
-        println!("null");
+pub fn print_error(
+    stdout: &mut StdoutLock,
+    e: &OperatorApplicationError,
+    run_len: usize,
+) -> Result<(), (usize, std::io::Error)> {
+    for i in 0..run_len {
+        stdout
+            .write_fmt(format_args!("{e}\n"))
+            .map_err(|e| (i, e))?;
     }
+    Ok(())
 }
-pub fn print_unset(run_len: usize) {
-    for _ in 0..run_len {
-        println!("<unset>");
-    }
-}
-pub fn print_error(_sess: &JobData, e: &OperatorApplicationError, run_len: usize) {
-    for _ in 0..run_len {
-        println!("{}", e); //TODO: improve this
-    }
-}
-pub fn print_type_error(run_len: usize) {
-    for _ in 0..run_len {
-        println!("<Type Error>");
-    }
-}
+
 fn print_stream_val_check_done(sv: &StreamFieldValue) -> Result<bool, std::io::Error> {
     match &sv.data {
         StreamFieldValueData::BytesChunk(c) => {
@@ -128,10 +163,12 @@ fn print_stream_val_check_done(sv: &StreamFieldValue) -> Result<bool, std::io::E
     Ok(sv.done)
 }
 fn print_values_behind_field_ref<'a>(
+    stdout: &mut StdoutLock<'_>,
     r: &FieldReference,
     iter: &mut impl FDIterator<'a>,
     mut rl: RunLength,
-) {
+) -> Result<(), (usize, std::io::Error)> {
+    let mut handled_elements = 0;
     while rl > 0 {
         let tr = iter.typed_range_fwd(rl as usize, 0).unwrap();
         rl -= tr.field_count as RunLength;
@@ -139,20 +176,30 @@ fn print_values_behind_field_ref<'a>(
             FDTypedSlice::StreamValueId(_) => panic!("hit stream value in batch mode"),
             FDTypedSlice::BytesInline(v) => {
                 for (bytes, rl) in InlineBytesIter::from_typed_range(&tr, v) {
-                    print_inline_bytes(&bytes[r.begin..r.end], rl as usize)
+                    print_inline_bytes(stdout, &bytes[r.begin..r.end], rl as usize)
+                        .map_err(|(i, e)| (i + handled_elements, e))?;
                 }
             }
             FDTypedSlice::TextInline(v) => {
                 for (text, rl) in InlineTextIter::from_typed_range(&tr, v) {
-                    print_inline_text(&text[r.begin..r.end], rl as usize)
+                    print_inline_text(stdout, &text[r.begin..r.end], rl as usize)
+                        .map_err(|(i, e)| (i + handled_elements, e))?;
                 }
             }
             _ => panic!("Field Reference must refer to byte stream"),
         }
+        handled_elements += tr.field_count;
     }
+    Ok(())
 }
 
-pub fn handle_tf_print_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, tf: &mut TfPrint) {
+pub fn handle_tf_print_batch_mode_raw(
+    sess: &mut JobData<'_>,
+    tf_id: TransformId,
+    tf: &mut TfPrint,
+    field_pos: &mut usize,
+    field_pos_batch_end: &mut usize,
+) -> Result<(), (usize, std::io::Error)> {
     let (batch, input_field_id) = sess.claim_batch(tf_id, &[]);
     let input_field = sess.entry_data.fields[input_field_id].borrow();
     let mut iter = input_field
@@ -160,27 +207,29 @@ pub fn handle_tf_print_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, tf
         .get_iter(tf.batch_iter)
         .bounded(0, batch);
     let starting_pos = iter.get_next_field_pos();
-    let mut field_pos_before_batch = starting_pos;
+    *field_pos = starting_pos;
+    *field_pos_batch_end = starting_pos + batch;
+    let mut stdout = std::io::stdout().lock();
 
     while let Some(range) = iter.typed_range_fwd(usize::MAX, field_value_flags::BYTES_ARE_UTF8) {
         match range.data {
             FDTypedSlice::TextInline(text) => {
                 for (v, rl) in InlineTextIter::from_typed_range(&range, text) {
-                    print_inline_text(v, rl as usize);
+                    print_inline_text(&mut stdout, v, rl as usize)?;
                 }
             }
             FDTypedSlice::BytesInline(bytes) => {
                 for (v, rl) in InlineBytesIter::from_typed_range(&range, bytes) {
-                    print_inline_bytes(v, rl as usize);
+                    print_inline_bytes(&mut stdout, v, rl as usize)?;
                 }
             }
             FDTypedSlice::Integer(ints) => {
                 for (v, rl) in TypedSliceIter::from_typed_range(&range, ints) {
-                    print_integer(*v, rl as usize);
+                    print_integer(&mut stdout, *v, rl as usize)?;
                 }
             }
             FDTypedSlice::Reference(refs) => {
-                let mut field_pos = field_pos_before_batch;
+                let mut field_pos = starting_pos;
                 for (r, rl) in TypedSliceIter::from_typed_range(&range, refs) {
                     // PERF: this is terrible
                     EntryData::apply_field_commands(
@@ -192,46 +241,68 @@ pub fn handle_tf_print_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, tf
                     let mut iter = field.field_data.get_iter(FIELD_REF_LOOKUP_ITER_ID);
                     iter.move_to_field_pos(field_pos);
                     field_pos += rl as usize;
-                    print_values_behind_field_ref(r, &mut iter, rl);
+                    print_values_behind_field_ref(&mut stdout, r, &mut iter, rl)?;
                     field.field_data.store_iter(FIELD_REF_LOOKUP_ITER_ID, iter);
                 }
             }
             FDTypedSlice::Null(_) => {
-                print_null(range.field_count);
+                print_null(&mut stdout, range.field_count)?;
             }
             FDTypedSlice::Error(errs) => {
                 for (v, rl) in TypedSliceIter::from_typed_range(&range, errs) {
-                    print_error(sess, v, rl as usize)
+                    print_error(&mut stdout, v, rl as usize)?;
                 }
             }
             FDTypedSlice::Unset(_) => {
-                print_unset(range.field_count);
+                print_unset(&mut stdout, range.field_count)?;
             }
             FDTypedSlice::StreamValueId(_) => {
                 panic!("hit stream value in batch mode");
             }
             FDTypedSlice::Html(_) | FDTypedSlice::Object(_) => {
-                print_type_error(range.field_count);
+                print_type_error(&mut stdout, range.field_count)?;
             }
         }
-        field_pos_before_batch += range.field_count;
+        *field_pos += range.field_count;
     }
     //test whether we got the batch that was advertised
     debug_assert!(iter.get_next_field_pos() - starting_pos == batch);
     input_field.field_data.store_iter(tf.batch_iter, iter);
     drop(input_field);
     sess.tf_mgr.inform_successor_batch_available(tf_id, batch);
+    Ok(())
 }
 
-pub fn handle_tf_print_stream_mode(
+pub fn handle_tf_print_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, tf: &mut TfPrint) {
+    let mut field_pos: usize = 0;
+    let mut field_pos_batch_end: usize = 0;
+    if let Err((i, err)) =
+        handle_tf_print_batch_mode_raw(sess, tf_id, tf, &mut field_pos, &mut field_pos_batch_end)
+    {
+        let fp = field_pos + i;
+        sess.entry_data.push_entry_error(
+            sess.tf_mgr.transforms[tf_id].match_set_id,
+            fp,
+            OperatorApplicationError {
+                op_id: sess.tf_mgr.transforms[tf_id].op_id,
+                message: Cow::Owned(err.to_string()),
+            },
+            field_pos_batch_end - fp,
+        );
+    }
+}
+
+pub fn handle_tf_print_stream_mode_raw(
     sess: &mut JobData<'_>,
     tf_id: TransformId,
     tf_print: &mut TfPrint,
-) {
+    field_pos: &mut usize,
+) -> Result<(), (usize, std::io::Error)> {
     let tf = &mut sess.tf_mgr.transforms[tf_id];
     let input_field_id = tf.input_field;
     let input_field = sess.entry_data.fields[input_field_id].borrow();
     let sfd = &input_field.stream_field_data;
+    let mut stdout = std::io::stdout().lock();
     tf_print.dropped_entries += sfd.entries_dropped;
 
     if let Some(id) = tf_print.current_stream_val {
@@ -255,39 +326,33 @@ pub fn handle_tf_print_stream_mode(
         iter.next_n_fields(tf_print.consumed_entries - tf_print.dropped_entries);
         while iter.is_next_valid() {
             let field_val = iter.get_next_typed_field();
+            *field_pos = iter.get_next_field_pos();
             match field_val.value {
-                FDTypedValue::Unset(_) => print_unset(1),
-                FDTypedValue::Null(_) => print_null(1),
-                FDTypedValue::Integer(v) => print_integer(v, 1),
+                FDTypedValue::Unset(_) => print_unset(&mut stdout, 1)?,
+                FDTypedValue::Null(_) => print_null(&mut stdout, 1)?,
+                FDTypedValue::Integer(v) => print_integer(&mut stdout, v, 1)?,
                 FDTypedValue::Reference(r) => {
                     let fd = &sess.entry_data.fields[r.field].borrow().field_data;
                     let mut iter = fd.get_iter(FIELD_REF_LOOKUP_ITER_ID);
                     iter.move_to_field_pos(iter.get_next_field_pos());
-                    print_values_behind_field_ref(r, &mut iter, field_val.header.run_length);
+                    print_values_behind_field_ref(
+                        &mut stdout,
+                        r,
+                        &mut iter,
+                        field_val.header.run_length,
+                    )?;
                     fd.store_iter(FIELD_REF_LOOKUP_ITER_ID, iter);
                 }
-                FDTypedValue::TextInline(text) => print_inline_text(text, 1),
-                FDTypedValue::BytesInline(bytes) => print_inline_bytes(bytes, 1),
-                FDTypedValue::Error(error) => print_error(sess, error, 1),
-                FDTypedValue::Html(_) | FDTypedValue::Object(_) => print_type_error(1),
+                FDTypedValue::TextInline(text) => print_inline_text(&mut stdout, text, 1)?,
+                FDTypedValue::BytesInline(bytes) => print_inline_bytes(&mut stdout, bytes, 1)?,
+                FDTypedValue::Error(error) => print_error(&mut stdout, error, 1)?,
+                FDTypedValue::Html(_) | FDTypedValue::Object(_) => {
+                    print_type_error(&mut stdout, 1)?
+                }
                 FDTypedValue::StreamValueId(id) => {
                     let sfd = &input_field.stream_field_data;
                     let sv = sfd.get_value(id);
-                    match print_stream_val_check_done(&sv) {
-                        Ok(false) => {
-                            tf_print.current_stream_val = Some(id);
-                            break;
-                        }
-                        Ok(true) => (),
-                        Err(err) => {
-                            let _err =
-                                io_error_to_op_error(sess.tf_mgr.transforms[tf_id].op_id, err);
-                            let _ms_id = sess.tf_mgr.transforms[tf_id].match_set_id;
-                            tf_print.current_stream_val = None;
-                            //TODO: we need the field ref manager for this
-                            //sess.push_entry_error(ms_id, err);
-                        }
-                    }
+                    print_stream_val_check_done(&sv).map_err(|e| (0, e))?;
                 }
             }
             tf_print.consumed_entries += 1;
@@ -297,4 +362,20 @@ pub fn handle_tf_print_stream_mode(
         let _ = std::io::stdout().flush();
     }
     sess.tf_mgr.push_successor_in_ready_queue(tf_id);
+    Ok(())
+}
+
+pub fn handle_tf_print_stream_mode(sess: &mut JobData<'_>, tf_id: TransformId, tf: &mut TfPrint) {
+    let mut field_pos: usize = 0;
+    if let Err((i, err)) = handle_tf_print_stream_mode_raw(sess, tf_id, tf, &mut field_pos) {
+        sess.entry_data.push_entry_error(
+            sess.tf_mgr.transforms[tf_id].match_set_id,
+            field_pos + i,
+            OperatorApplicationError {
+                op_id: sess.tf_mgr.transforms[tf_id].op_id,
+                message: Cow::Owned(err.to_string()),
+            },
+            1,
+        );
+    };
 }

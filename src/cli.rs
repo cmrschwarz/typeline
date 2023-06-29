@@ -1,12 +1,11 @@
 use crate::chain::BufferingMode;
 use crate::operations::errors::OperatorCreationError;
 use crate::operations::operator::OperatorData;
-use crate::operations::print::parse_print_op;
-use crate::operations::regex::RegexOptions;
-use crate::operations::split::parse_split_op;
+use crate::operations::print::parse_op_print;
+use crate::operations::regex::{parse_op_regex, RegexOptions};
+use crate::operations::split::parse_op_split;
 use crate::{
     document::{Document, DocumentSource},
-    operations::regex::parse_regex_op,
     options::{
         argument::{ArgumentReassignmentError, CliArgIdx},
         chain_options::ChainOptions,
@@ -465,12 +464,12 @@ fn parse_operation(
             }
             todo!();
         }
-        return Ok(Some(OperatorData::Regex(parse_regex_op(value, idx, opts)?)));
+        return Ok(Some(OperatorData::Regex(parse_op_regex(value, idx, opts)?)));
     }
 
     Ok(match argname {
-        "s" | "split" => Some(OperatorData::Split(parse_split_op(value, idx)?)),
-        "p" | "print" => Some(parse_print_op(value, idx)?),
+        "s" | "split" => Some(OperatorData::Split(parse_op_split(value, idx)?)),
+        "p" | "print" => Some(parse_op_print(value, idx)?),
         _ => None,
     })
 }

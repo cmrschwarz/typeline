@@ -32,7 +32,7 @@ pub struct TfSplit {
     pub field_names_set: HashMap<StringStoreEntry, SmallVec<[FieldId; 2]>>,
 }
 
-pub fn parse_split_op(
+pub fn parse_op_split(
     value: Option<&BStr>,
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OpSplit, OperatorCreationError> {

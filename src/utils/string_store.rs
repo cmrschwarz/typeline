@@ -21,6 +21,10 @@ impl Default for StringStore {
 }
 
 impl StringStore {
+    pub fn claim_id_without_lookup(&mut self, entry: &'static str) -> StringStoreEntry {
+        self.table_idx_to_str.push(entry);
+        (self.table_idx_to_str.len() as u32).try_into().unwrap()
+    }
     pub fn intern_cloned(&mut self, entry: &str) -> StringStoreEntry {
         if let Some(key) = self.table_str_to_idx.get(entry) {
             return *key;
@@ -41,10 +45,7 @@ impl StringStore {
         // SAFETY: this is fine because these never get handed out
         let str_ref_static = unsafe { transmute::<&[u8], &'static str>(str_ref) };
 
-        self.table_idx_to_str.push(str_ref_static);
-        let idx: StringStoreEntry = (self.table_idx_to_str.len() as u32).try_into().unwrap();
-        self.table_str_to_idx.insert(str_ref_static, idx);
-        idx
+        self.claim_id_without_lookup(str_ref_static)
     }
 
     pub fn intern_moved(&mut self, entry: String) -> StringStoreEntry {
@@ -64,10 +65,7 @@ impl StringStore {
         // SAFETY: this is fine because these never get handed out
         let str_ref_static = unsafe { transmute::<&str, &'static str>(str_ref) };
 
-        self.table_idx_to_str.push(str_ref_static);
-        let idx: StringStoreEntry = (self.table_idx_to_str.len() as u32).try_into().unwrap();
-        self.table_str_to_idx.insert(str_ref_static, idx);
-        idx
+        self.claim_id_without_lookup(str_ref_static)
     }
     pub fn intern_cow(&mut self, cow: Cow<'static, str>) -> StringStoreEntry {
         match cow {

@@ -615,6 +615,8 @@ impl FDCommandBuffer {
         let mut prev_action_field_idx = usize::MAX;
         let mut copy_range_start = 0;
         let mut copy_range_start_new = 0;
+        //TODO: update iterators
+        #[allow(unused_variables)]
         let mut field_pos_old = field_pos;
         let mut curr_header_outstanding_dups = 0;
         'advance_action: loop {

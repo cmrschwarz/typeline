@@ -29,6 +29,10 @@ use crate::{
         print::{handle_tf_print_batch_mode, handle_tf_print_stream_mode, setup_tf_print},
         regex::{handle_tf_regex_batch_mode, setup_tf_regex},
         split::{handle_tf_split, setup_tf_split, setup_ts_split_as_entry_point},
+        string_sink::{
+            handle_tf_string_sink_batch_mode, handle_tf_string_sink_stream_mode,
+            setup_tf_string_sink,
+        },
         transform::{TransformData, TransformId, TransformOrderingId, TransformState},
     },
     scr_error::ScrError,
@@ -39,6 +43,7 @@ use crate::{
 };
 
 pub const FIELD_REF_LOOKUP_ITER_ID: FDIterId = 0 as FDIterId;
+pub const ERROR_FIELD_PSEUDO_STR: usize = 0;
 
 #[derive(Default)]
 pub struct Field {
@@ -72,6 +77,7 @@ pub struct MatchSet {
     pub working_set: Vec<FieldId>,
     pub command_buffer: FDCommandBuffer,
     pub field_name_map: HashMap<StringStoreEntry, VecDeque<FieldId>>,
+    pub err_field: Option<FieldId>,
 }
 
 pub struct WorkerThreadSession<'a> {
@@ -183,8 +189,29 @@ impl EntryData {
     pub fn remove_match_set(&mut self, _ms_id: MatchSetId) {
         todo!()
     }
-    pub fn push_entry_error(&mut self, _ms_id: MatchSetId, _err: OperatorApplicationError) {
-        todo!()
+    pub fn push_entry_error(
+        &mut self,
+        ms_id: MatchSetId,
+        field_pos: usize,
+        err: OperatorApplicationError,
+        run_length: usize,
+    ) {
+        let ms = &mut self.match_sets[ms_id];
+        if let Some(err_field_id) = ms.err_field {
+            let mut ef = self.fields[err_field_id].borrow_mut();
+            let fd = &mut ef.field_data;
+            let last_pos = fd.field_count() + fd.field_index_offset();
+            debug_assert!(last_pos < field_pos);
+            fd.push_unset(field_pos - last_pos, false);
+            fd.push_error(err, run_length, true, true);
+            return;
+        }
+        let id = self.add_field(ms_id, None);
+        self.match_sets[ms_id].err_field = Some(id);
+        self.fields[id]
+            .borrow_mut()
+            .field_data
+            .push_error(err, run_length, false, false);
     }
     // this is usually called while iterating over an input field that contains field references
     // we therefore do NOT want to require a mutable reference over the field data, because that forces the caller to kill their iterator
@@ -471,27 +498,24 @@ impl<'a> WorkerThreadSession<'a> {
             self.job_data.tf_mgr.ready_queue.peek().map(|t| *t)
         {
             let jd = &mut self.job_data;
-            match self.transform_data[usize::from(tf_id)] {
-                TransformData::Disabled => unreachable!(),
-                TransformData::Split(ref mut split) => {
+            match &mut self.transform_data[usize::from(tf_id)] {
+                TransformData::Split(split) => {
                     if !split.expanded {
                         self.handle_split_expansion(tf_id);
                     } else {
                         handle_tf_split(&mut self.job_data, tf_id, split, false);
                     }
                 }
-                TransformData::Print(ref mut tf) => {
-                    handle_tf_print_batch_mode(jd, tf_id, tf);
-                }
-                TransformData::Regex(ref mut tf) => {
-                    handle_tf_regex_batch_mode(jd, tf_id, tf);
-                }
-                TransformData::Format(_) => todo!(),
-                TransformData::FileReader(ref mut tf) => {
+                TransformData::Print(tf) => handle_tf_print_batch_mode(jd, tf_id, tf),
+                TransformData::Regex(tf) => handle_tf_regex_batch_mode(jd, tf_id, tf),
+                TransformData::StringSink(tf) => handle_tf_string_sink_batch_mode(jd, tf_id, tf),
+                TransformData::Format(_tf) => todo!(),
+                TransformData::FileReader(tf) => {
                     if handle_tf_file_reader_batch_mode(jd, tf_id, tf) {
                         return Ok(false);
                     }
                 }
+                TransformData::Disabled => unreachable!(),
             }
         }
 
@@ -512,18 +536,19 @@ impl<'a> WorkerThreadSession<'a> {
                     TransformData::Disabled => unreachable!(),
                     TransformData::Split(split) => {
                         if !split.expanded {
-                            self.handle_split_expansion(tf_id);
+                            self.handle_split_expansion(tf_id)
                         } else {
-                            handle_tf_split(&mut self.job_data, tf_id, split, false);
+                            handle_tf_split(&mut self.job_data, tf_id, split, false)
                         }
                     }
-                    TransformData::Print(tf) => {
-                        handle_tf_print_stream_mode(jd, tf_id, tf);
-                    }
+                    TransformData::Print(tf) => handle_tf_print_stream_mode(jd, tf_id, tf),
                     TransformData::Regex(_) => todo!(),
                     TransformData::Format(_) => todo!(),
                     TransformData::FileReader(fr) => {
-                        handle_tf_file_reader_stream_mode(jd, tf_id, fr);
+                        handle_tf_file_reader_stream_mode(jd, tf_id, fr)
+                    }
+                    TransformData::StringSink(tf) => {
+                        handle_tf_string_sink_stream_mode(jd, tf_id, tf)
                     }
                 }
             }
@@ -571,6 +596,9 @@ impl<'a> WorkerThreadSession<'a> {
                 OperatorData::Print => setup_tf_print(jd, ms_id, prev_field_id),
                 OperatorData::Regex(ref re) => setup_tf_regex(jd, ms_id, prev_field_id, re),
                 OperatorData::Format(ref fmt) => setup_tf_format(jd, ms_id, prev_field_id, fmt),
+                OperatorData::StringSink(ref ss) => {
+                    setup_tf_string_sink(jd, ms_id, prev_field_id, ss)
+                }
             };
             let tf_state = TransformState {
                 available_batch_size: start_tf_id.map(|_| 0).unwrap_or(available_batch_size),

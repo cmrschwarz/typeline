@@ -6,7 +6,7 @@ use crate::worker_thread_session::{FieldId, MatchSetId};
 
 use super::{
     file_reader::TfFileReader, format::TfFormat, operator::OperatorId, print::TfPrint,
-    regex::TfRegex, split::TfSplit,
+    regex::TfRegex, split::TfSplit, string_sink::TfStringSink,
 };
 
 pub type TransformId = NonMaxUsize;
@@ -16,6 +16,7 @@ pub type TransformOrderingId = NonZeroUsize;
 pub enum TransformData<'a> {
     Disabled,
     Print(TfPrint),
+    StringSink(TfStringSink<'a>),
     Split(TfSplit),
     Regex(TfRegex),
     Format(TfFormat<'a>),

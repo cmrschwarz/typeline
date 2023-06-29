@@ -100,7 +100,7 @@ lazy_static! {
     .unwrap();
 }
 
-pub fn parse_regex_op(
+pub fn parse_op_regex(
     value: Option<&BStr>,
     arg_idx: Option<CliArgIdx>,
     opts: RegexOptions,
@@ -156,8 +156,8 @@ pub fn parse_regex_op(
     })
 }
 
-pub fn create_regex_op(value: &str, opts: RegexOptions) -> Result<OpRegex, OperatorCreationError> {
-    parse_regex_op(Some(value.as_bytes().as_bstr()), None, opts)
+pub fn create_op_regex(value: &str, opts: RegexOptions) -> Result<OpRegex, OperatorCreationError> {
+    parse_op_regex(Some(value.as_bytes().as_bstr()), None, opts)
 }
 
 pub fn setup_op_regex(

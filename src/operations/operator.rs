@@ -2,7 +2,7 @@ use smallstr::SmallString;
 
 use crate::{chain::ChainId, options::argument::CliArgIdx, utils::string_store::StringStoreEntry};
 
-use super::{format::OpFormat, regex::OpRegex, split::OpSplit};
+use super::{format::OpFormat, regex::OpRegex, split::OpSplit, string_sink::OpStringSink};
 
 pub type OperatorId = u32;
 pub type OperatorOffsetInChain = u32;
@@ -12,6 +12,7 @@ pub enum OperatorData {
     Split(OpSplit),
     Regex(OpRegex),
     Format(OpFormat),
+    StringSink(OpStringSink),
 }
 
 pub struct OperatorBase {
@@ -29,6 +30,7 @@ impl OperatorData {
             OperatorData::Split(_) => SmallString::from("split"),
             OperatorData::Regex(re) => re.opts.default_op_name(),
             OperatorData::Format(_) => SmallString::from("f"),
+            OperatorData::StringSink(_) => SmallString::from("__string_sink__"),
         }
     }
 }

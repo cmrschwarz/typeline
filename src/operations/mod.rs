@@ -4,6 +4,7 @@ pub mod operator;
 pub mod print;
 pub mod regex;
 pub mod split;
+pub mod string_sink;
 pub mod transform;
 
 #[allow(dead_code)] //TODO

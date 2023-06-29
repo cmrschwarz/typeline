@@ -131,7 +131,10 @@ impl ContextOptions {
             chain.operations.push(i as OperatorId);
             match &mut sess.operator_data[i] {
                 OperatorData::Regex(re) => setup_op_regex(&mut sess.string_store, re)?,
-                OperatorData::Split(_) | OperatorData::Format(_) | OperatorData::Print => (),
+                OperatorData::StringSink(_)
+                | OperatorData::Split(_)
+                | OperatorData::Format(_)
+                | OperatorData::Print => (),
             }
         }
         Ok(())
