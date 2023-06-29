@@ -8,9 +8,7 @@ use regex;
 use regex::bytes;
 
 use crate::field_data::fd_command_buffer::{FDCommandBuffer, FieldActionKind};
-use crate::field_data::fd_iter::{
-    iterate_typed_slice_for_inline_bytes, iterate_typed_slice_for_inline_text,
-};
+use crate::field_data::fd_iter::{InlineBytesIter, InlineTextIter};
 use crate::field_data::fd_push_interface::FDPushInterface;
 use crate::field_data::RunLength;
 use crate::utils::universe::Universe;
@@ -300,7 +298,7 @@ pub fn handle_tf_regex_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, re
     while let Some(range) = iter.typed_range_fwd(usize::MAX, field_value_flags::BYTES_ARE_UTF8) {
         match range.data {
             FDTypedSlice::TextInline(text) => {
-                iterate_typed_slice_for_inline_text(text, range.headers, |v, rl| {
+                for (v, rl) in InlineTextIter::from_typed_range(&range, text) {
                     let any_regex = if let Some((regex, capture_locs)) = &mut re.text_only_regex {
                         AnyRegex::Text(regex, capture_locs, v)
                     } else {
@@ -316,10 +314,10 @@ pub fn handle_tf_regex_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, re
                         &sess.entry_data.fields,
                         command_buffer,
                     );
-                });
+                }
             }
             FDTypedSlice::BytesInline(bytes) => {
-                iterate_typed_slice_for_inline_bytes(bytes, range.headers, |v, rl| {
+                for (v, rl) in InlineBytesIter::from_typed_range(&range, bytes) {
                     match_regex_inner(
                         input_field_id,
                         rl,
@@ -330,7 +328,7 @@ pub fn handle_tf_regex_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, re
                         &sess.entry_data.fields,
                         command_buffer,
                     );
-                });
+                }
             }
             FDTypedSlice::Unset(_)
             | FDTypedSlice::Null(_)
@@ -359,5 +357,6 @@ pub fn handle_tf_regex_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, re
         .field_data
         .store_iter(re.input_field_iter_id, iter);
     drop(input_field);
-    sess.tf_mgr.inform_successor_batch_available(tf_id, batch);
+    sess.tf_mgr
+        .inform_successor_batch_available(tf_id, rbs.match_count);
 }

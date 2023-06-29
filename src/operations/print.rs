@@ -6,9 +6,7 @@ use is_terminal::IsTerminal;
 use crate::{
     field_data::{
         fd_iter::{
-            iterate_typed_slice, iterate_typed_slice_for_inline_bytes,
-            iterate_typed_slice_for_inline_text, FDIterator, FDTypedSlice, FDTypedValue,
-            TypedSliceIter,
+            FDIterator, FDTypedSlice, FDTypedValue, InlineBytesIter, InlineTextIter, TypedSliceIter,
         },
         fd_iter_hall::FDIterId,
         field_value_flags, FieldReference, RunLength,
@@ -140,14 +138,14 @@ fn print_values_behind_field_ref<'a>(
         match tr.data {
             FDTypedSlice::StreamValueId(_) => panic!("hit stream value in batch mode"),
             FDTypedSlice::BytesInline(v) => {
-                iterate_typed_slice_for_inline_bytes(v, tr.headers, |bytes, rl| {
+                for (bytes, rl) in InlineBytesIter::from_typed_range(&tr, v) {
                     print_inline_bytes(&bytes[r.begin..r.end], rl as usize)
-                });
+                }
             }
             FDTypedSlice::TextInline(v) => {
-                iterate_typed_slice_for_inline_text(v, tr.headers, |text, rl| {
+                for (text, rl) in InlineTextIter::from_typed_range(&tr, v) {
                     print_inline_text(&text[r.begin..r.end], rl as usize)
-                });
+                }
             }
             _ => panic!("Field Reference must refer to byte stream"),
         }
@@ -157,28 +155,33 @@ fn print_values_behind_field_ref<'a>(
 pub fn handle_tf_print_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, tf: &mut TfPrint) {
     let (batch, input_field_id) = sess.claim_batch(tf_id, &[]);
     let input_field = sess.entry_data.fields[input_field_id].borrow();
-    let mut iter = input_field.field_data.get_iter(tf.batch_iter);
+    let mut iter = input_field
+        .field_data
+        .get_iter(tf.batch_iter)
+        .bounded(0, batch);
     let starting_pos = iter.get_next_field_pos();
     let mut field_pos_before_batch = starting_pos;
 
-    while let Some(range) = iter.typed_range_fwd(batch, field_value_flags::BYTES_ARE_UTF8) {
+    while let Some(range) = iter.typed_range_fwd(usize::MAX, field_value_flags::BYTES_ARE_UTF8) {
         match range.data {
             FDTypedSlice::TextInline(text) => {
-                iterate_typed_slice_for_inline_text(text, range.headers, |v, rl| {
+                for (v, rl) in InlineTextIter::from_typed_range(&range, text) {
                     print_inline_text(v, rl as usize);
-                });
+                }
             }
             FDTypedSlice::BytesInline(bytes) => {
-                iterate_typed_slice_for_inline_bytes(bytes, range.headers, |v, rl| {
+                for (v, rl) in InlineBytesIter::from_typed_range(&range, bytes) {
                     print_inline_bytes(v, rl as usize);
-                });
+                }
             }
             FDTypedSlice::Integer(ints) => {
-                iterate_typed_slice(ints, range.headers, |v, rl| print_integer(*v, rl as usize));
+                for (v, rl) in TypedSliceIter::from_typed_range(&range, ints) {
+                    print_integer(*v, rl as usize);
+                }
             }
             FDTypedSlice::Reference(refs) => {
                 let mut field_pos = field_pos_before_batch;
-                for (r, rl) in TypedSliceIter::new(refs, range.headers) {
+                for (r, rl) in TypedSliceIter::from_typed_range(&range, refs) {
                     // PERF: this is terrible
                     EntryData::apply_field_commands(
                         &sess.entry_data.fields,
@@ -197,9 +200,9 @@ pub fn handle_tf_print_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, tf
                 print_null(range.field_count);
             }
             FDTypedSlice::Error(errs) => {
-                iterate_typed_slice(errs, range.headers, |v, rl| {
+                for (v, rl) in TypedSliceIter::from_typed_range(&range, errs) {
                     print_error(sess, v, rl as usize)
-                });
+                }
             }
             FDTypedSlice::Unset(_) => {
                 print_unset(range.field_count);

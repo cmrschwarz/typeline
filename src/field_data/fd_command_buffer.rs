@@ -2,10 +2,7 @@ use std::cell::RefMut;
 
 use crate::worker_thread_session::Field;
 
-use super::{
-    fd_iter_hall::{FDIterHall, FDIterState},
-    FieldData, FieldValueFormat, FieldValueHeader, RunLength,
-};
+use super::{fd_iter_hall::FDIterState, FieldData, FieldValueFormat, FieldValueHeader, RunLength};
 
 #[derive(Clone, Copy, PartialEq, Eq, Default)]
 pub enum FieldActionKind {
@@ -723,18 +720,12 @@ impl FDCommandBuffer {
         // PERF: it *might* be faster to interleave the insertions and copies for
         // better cache utilization
         unsafe {
-            for c in self.copies.iter().skip(1).rev() {
+            for c in self.copies.iter().rev() {
                 std::ptr::copy(header_ptr.add(c.source), header_ptr.add(c.target), c.len);
-            }
-            if let Some(c) = self.copies.first() {
-                if c.source != c.target {
-                    std::ptr::copy(header_ptr.add(c.source), header_ptr.add(c.target), c.len);
-                }
             }
             for i in self.insertions.iter() {
                 (*header_ptr.add(i.index)) = i.value;
             }
-
             fd.header.set_len(new_size);
         }
     }

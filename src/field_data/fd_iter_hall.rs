@@ -103,6 +103,7 @@ impl FDIterHall {
         state.data = iter.data;
         state.header_idx = iter.header_idx;
         state.header_rl_offset = iter.header_rl_offset;
+        state.field_pos = iter.field_pos;
         self.iters[iter_id].set(state);
     }
 

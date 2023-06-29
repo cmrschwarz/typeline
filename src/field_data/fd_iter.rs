@@ -27,9 +27,39 @@ pub enum FDTypedSlice<'a> {
 
 pub struct TypedSliceIter<'a, T> {
     values: &'a [T],
-    headers: std::slice::Iter<'a, FieldValueHeader>,
+    headers: &'a [FieldValueHeader],
+    headers_idx: usize,
+    first_oversize: RunLength,
+    last_oversize: RunLength,
     value_idx: usize,
     value_idx_max: usize,
+}
+
+impl<'a, T> TypedSliceIter<'a, T> {
+    pub fn new(
+        values: &'a [T],
+        headers: &'a [FieldValueHeader],
+        first_oversize: RunLength,
+        last_oversize: RunLength,
+    ) -> Self {
+        Self {
+            values,
+            headers: headers,
+            headers_idx: 0,
+            first_oversize,
+            last_oversize,
+            value_idx: 0,
+            value_idx_max: 0,
+        }
+    }
+    pub fn from_typed_range(range: &'a FDTypedRange<'a>, values: &'a [T]) -> Self {
+        Self::new(
+            values,
+            range.headers,
+            range.first_header_run_length_oversize,
+            range.last_header_run_length_oversize,
+        )
+    }
 }
 
 impl<'a, T> Iterator for TypedSliceIter<'a, T> {
@@ -40,91 +70,152 @@ impl<'a, T> Iterator for TypedSliceIter<'a, T> {
             self.value_idx += 1;
             return Some((&self.values[self.value_idx - 1], 1));
         }
-        if let Some(h) = self.headers.next() {
-            if h.shared_value() {
-                let vi = self.value_idx;
-                if !h.same_value_as_previous() {
-                    self.value_idx += 1;
-                }
-                self.value_idx_max = self.value_idx;
-                return Some((&self.values[vi], h.run_length));
-            } else {
-                self.value_idx_max = self.value_idx + h.run_length as usize;
-                self.value_idx += 1;
-                return Some((&self.values[self.value_idx - 1], 1));
-            }
+        if self.headers_idx == self.headers.len() {
+            return None;
         }
-        return None;
-    }
-}
-
-impl<'a, T> TypedSliceIter<'a, T> {
-    pub fn new(values: &'a [T], headers: &'a [FieldValueHeader]) -> Self {
-        Self {
-            values,
-            headers: headers.into_iter(),
-            value_idx: 0,
-            value_idx_max: 0,
-        }
-    }
-}
-
-pub fn iterate_typed_slice<'a, T>(
-    values: &'a [T],
-    headers: &[FieldValueHeader],
-    mut func: impl FnMut(&T, RunLength),
-) {
-    let mut value_idx = 0;
-    for h in headers.iter() {
+        let h = self.headers[self.headers_idx];
+        self.headers_idx += 1;
         if h.shared_value() {
-            if h.same_value_as_previous() && value_idx > 0 {
-                value_idx -= 1;
+            let vi = self.value_idx;
+            if !h.same_value_as_previous() {
+                self.value_idx += 1;
             }
-            func(&values[value_idx], h.run_length);
-            value_idx += 1;
-        } else {
-            for _ in 0..h.run_length {
-                func(&values[value_idx], 1);
-                value_idx += 1;
+            self.value_idx_max = self.value_idx;
+            let mut rl = h.run_length;
+            if self.headers_idx == 0 {
+                rl -= self.first_oversize;
             }
+            if self.headers_idx + 1 == self.headers.len() {
+                rl -= self.last_oversize;
+            }
+            return Some((&self.values[vi], rl));
         }
-    }
-}
-pub fn iterate_typed_slice_for_inline_bytes<'a>(
-    values: &'a [u8],
-    headers: &[FieldValueHeader],
-    mut func: impl FnMut(&[u8], RunLength),
-) {
-    let mut data_start = 0;
-    let mut prev_data_size = 0;
-    for h in headers.iter() {
-        if h.same_value_as_previous() {
-            data_start -= prev_data_size;
+        self.value_idx_max = self.value_idx + h.run_length as usize;
+        self.value_idx += 1;
+        if self.headers_idx == 0 {
+            self.value_idx += self.first_oversize as usize;
         }
-        func(
-            &values[data_start..data_start + h.size as usize],
-            h.run_length,
-        );
-        prev_data_size = h.size as usize;
+        if self.headers_idx + 1 == self.headers.len() {
+            self.value_idx_max -= self.last_oversize as usize;
+        }
+        return Some((&self.values[self.value_idx - 1], 1));
     }
 }
 
-pub fn iterate_typed_slice_for_inline_text<'a>(
-    values: &'a str,
-    headers: &[FieldValueHeader],
-    mut func: impl FnMut(&str, RunLength),
-) {
-    let mut data_start = 0;
-    let mut prev_data_size = 0;
-    for h in headers.iter() {
-        if h.same_value_as_previous() {
-            data_start -= prev_data_size;
+pub struct InlineBytesIter<'a> {
+    data: &'a [u8],
+    headers: &'a [FieldValueHeader],
+    headers_idx: usize,
+    first_oversize: RunLength,
+    last_oversize: RunLength,
+    header_rl_rem: RunLength,
+    header_data_size: RunLength,
+    data_offset: usize,
+}
+
+impl<'a> InlineBytesIter<'a> {
+    pub fn new(
+        data: &'a [u8],
+        headers: &'a [FieldValueHeader],
+        first_oversize: RunLength,
+        last_oversize: RunLength,
+    ) -> Self {
+        Self {
+            data,
+            headers: headers,
+            headers_idx: 0,
+            first_oversize,
+            last_oversize,
+            header_rl_rem: 0,
+            header_data_size: 0,
+            data_offset: 0,
         }
-        func(
-            &values[data_start..data_start + h.size as usize],
-            h.run_length,
-        );
-        prev_data_size = h.size as usize;
+    }
+    pub fn from_typed_range(range: &'a FDTypedRange<'a>, data: &'a [u8]) -> Self {
+        Self::new(
+            data,
+            range.headers,
+            range.first_header_run_length_oversize,
+            range.last_header_run_length_oversize,
+        )
+    }
+}
+
+impl<'a> Iterator for InlineBytesIter<'a> {
+    type Item = (&'a [u8], RunLength);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.header_rl_rem != 0 {
+            self.header_rl_rem -= 1;
+            let data_offset_prev = self.data_offset;
+            self.data_offset += self.header_data_size as usize;
+            return Some((&self.data[data_offset_prev..self.data_offset], 1));
+        }
+        if self.headers_idx == self.headers.len() {
+            return None;
+        }
+        let h = self.headers[self.headers_idx];
+        self.headers_idx += 1;
+        if h.shared_value() {
+            let data_offset_prev = self.data_offset;
+            if !h.same_value_as_previous() {
+                self.data_offset += h.size as usize;
+            }
+            let mut rl = h.run_length;
+            if self.headers_idx == 1 {
+                rl -= self.first_oversize;
+            }
+            if self.headers_idx == self.headers.len() {
+                rl -= self.last_oversize;
+            }
+            return Some((
+                &self.data[data_offset_prev..data_offset_prev + h.size as usize],
+                rl,
+            ));
+        }
+
+        self.header_rl_rem = h.run_length;
+        if self.headers_idx == 1 {
+            self.header_rl_rem -= self.first_oversize;
+        }
+        if self.headers_idx == self.headers.len() {
+            self.data_offset += self.last_oversize as usize * h.size as usize;
+            self.header_rl_rem -= self.last_oversize;
+        }
+        let data_offset_prev = self.data_offset;
+        self.data_offset += h.size as usize;
+        return Some((&self.data[data_offset_prev..self.data_offset], 1));
+    }
+}
+
+pub struct InlineTextIter<'a> {
+    iter: InlineBytesIter<'a>,
+}
+
+impl<'a> InlineTextIter<'a> {
+    pub fn new(
+        data: &'a str,
+        headers: &'a [FieldValueHeader],
+        first_oversize: RunLength,
+        last_oversize: RunLength,
+    ) -> Self {
+        Self {
+            iter: InlineBytesIter::new(data.as_bytes(), headers, first_oversize, last_oversize),
+        }
+    }
+    pub fn from_typed_range(range: &'a FDTypedRange<'a>, data: &'a str) -> Self {
+        Self {
+            iter: InlineBytesIter::from_typed_range(range, data.as_bytes()),
+        }
+    }
+}
+
+impl<'a> Iterator for InlineTextIter<'a> {
+    type Item = (&'a str, RunLength);
+    fn next(&mut self) -> Option<Self::Item> {
+        self.iter
+            .next()
+            .map(|(v, rl)| (unsafe { std::str::from_utf8_unchecked(v) }, rl))
     }
 }
 
@@ -407,7 +498,7 @@ impl<'a> FDIterator<'a> for FDIter<'a> {
         debug_assert!(self.is_prev_valid());
         if self.header_rl_offset > 0 {
             if self.header_fmt.shared_value() {
-                return self.data;
+                return self.data + self.header_fmt.size as usize;
             }
             return self.data + (self.header_rl_offset as usize) * self.header_fmt.size as usize;
         }
@@ -663,8 +754,12 @@ impl<'a> FDIterator<'a> for FDIter<'a> {
             self.next_n_fields_with_fmt(limit, [fmt.kind], flag_mask, fmt.flags & flag_mask);
         let data_end = self.get_prev_field_data_end();
         let mut oversize_end = 0;
+        let mut header_end = self.header_idx;
         if self.is_next_valid() {
-            oversize_end = self.header_rl_total - self.header_rl_offset - 1;
+            if self.field_run_length_bwd() != 0 {
+                header_end += 1;
+            }
+            oversize_end = self.header_rl_total - self.header_rl_offset;
         }
 
         unsafe {
@@ -676,7 +771,7 @@ impl<'a> FDIterator<'a> for FDIter<'a> {
                 data_end,
                 field_count,
                 header_start,
-                self.header_idx,
+                header_end,
                 oversize_start,
                 oversize_end,
             )
