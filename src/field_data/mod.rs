@@ -306,7 +306,20 @@ unsafe fn drop_slice<T>(slice: &[T]) {
 
 impl FieldData {
     pub fn clear(&mut self) {
-        let mut iter = self.iter();
+        FieldData::set_end(self.iter_mut());
+    }
+    pub fn set_end<'a>(iter: FDIterMut<'a>) {
+        let fd = unsafe { &mut *(iter.fd as *mut FieldData) };
+        let mut iter = iter.as_base_iter();
+        let header_end;
+        let data_end;
+        if !iter.is_prev_valid() {
+            header_end = 0;
+            data_end = 0;
+        } else {
+            header_end = iter.get_prev_header_index() + 1;
+            data_end = iter.get_prev_field_data_end();
+        }
         while let Some(range) = iter.typed_range_fwd(usize::MAX, 0) {
             unsafe {
                 match range.data {
@@ -323,8 +336,8 @@ impl FieldData {
                 }
             }
         }
-        self.header.clear();
-        self.data.clear();
+        fd.header.truncate(header_end);
+        fd.data.truncate(data_end);
     }
 
     // can't make this pub as it can be used to break the type layout
