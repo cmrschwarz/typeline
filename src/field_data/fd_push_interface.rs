@@ -230,7 +230,7 @@ impl private_impl::FDUnsafePushInterface for FieldData {
             size: std::mem::size_of::<T>() as FieldValueSize,
         };
         if kind.needs_alignment() {
-            let align = self.pad_to_align();
+            let align = unsafe { self.pad_to_align() };
             if align != 0 {
                 self.add_header_padded_for_single_value(fmt, run_length, align);
                 return;

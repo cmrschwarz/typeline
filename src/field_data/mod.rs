@@ -340,8 +340,7 @@ impl FieldData {
         fd.data.truncate(data_end);
     }
 
-    // can't make this pub as it can be used to break the type layout
-    fn pad_to_align(&mut self) -> usize {
+    unsafe fn pad_to_align(&mut self) -> usize {
         let align = self.data.len() % MAX_FIELD_ALIGN;
         if align != 0 {
             self.data.extend(iter::repeat(0).take(align));
@@ -396,12 +395,10 @@ impl FieldData {
         let rl = iter.field_run_length_fwd() as usize;
         let tr = iter.typed_range_fwd(rl, 0).unwrap();
         let ts = tr.data;
-        targets_applicator(&mut |fd| {
+        targets_applicator(&mut |fd| unsafe {
             first_header.set_leading_padding(fd.pad_to_align());
             fd.header.push(first_header);
-            unsafe {
-                append_data(ts, &mut |func| func(fd));
-            }
+            append_data(ts, &mut |func| func(fd));
         });
         // now that everybody is aligned, copy over the rest
         // PERF: this could be optimized if we know that there are no deleted
