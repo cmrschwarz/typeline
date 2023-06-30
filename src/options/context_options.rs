@@ -25,8 +25,6 @@ use super::{
 
 pub struct ContextOptions {
     pub max_worker_threads: Argument<usize>,
-    pub print_help: Argument<bool>,
-    pub print_version: Argument<bool>,
     pub repl: Argument<bool>,
     pub exit_repl: Argument<bool>,
     pub install_selenium_drivers: Vec<Argument<SeleniumVariant>>,
@@ -44,8 +42,6 @@ impl Default for ContextOptions {
     fn default() -> Self {
         Self {
             max_worker_threads: Default::default(),
-            print_help: Default::default(),
-            print_version: Default::default(),
             repl: Default::default(),
             exit_repl: Default::default(),
             install_selenium_drivers: Default::default(),
@@ -64,8 +60,6 @@ impl Default for ContextOptions {
 lazy_static! {
     static ref DEFAULT_CONTEXT_OPTIONS: ContextOptions = ContextOptions {
         max_worker_threads: Argument::new(1),
-        print_help: Argument::new(false),
-        print_version: Argument::new(false),
         repl: Argument::new(false),
         exit_repl: Argument::new(false),
         install_selenium_drivers: Vec::new(),

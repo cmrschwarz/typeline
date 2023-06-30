@@ -4,6 +4,7 @@ use crate::operations::operator::OperatorData;
 use crate::operations::print::parse_op_print;
 use crate::operations::regex::{parse_op_regex, RegexOptions};
 use crate::operations::split::parse_op_split;
+use crate::scr_error::ScrError;
 use crate::{
     document::{Document, DocumentSource},
     options::{
@@ -19,6 +20,7 @@ use bstr::{BStr, BString, ByteSlice};
 use lazy_static::lazy_static;
 use regex::{Regex, RegexBuilder};
 use smallvec::smallvec;
+use std::fmt::Display;
 use std::{borrow::Cow, ffi::OsStr, path::PathBuf, str::from_utf8};
 use thiserror::Error;
 use url::Url;
@@ -38,12 +40,36 @@ impl CliArgumentError {
     }
 }
 
-impl Into<CliArgumentError> for ArgumentReassignmentError {
-    fn into(self) -> CliArgumentError {
+impl From<ArgumentReassignmentError> for CliArgumentError {
+    fn from(v: ArgumentReassignmentError) -> Self {
         CliArgumentError {
-            message: Cow::Borrowed(self.message),
-            cli_arg_idx: self.cli_arg_idx.unwrap(),
+            message: Cow::Borrowed(v.message),
+            cli_arg_idx: v.cli_arg_idx.unwrap(),
         }
+    }
+}
+
+#[derive(Error, Debug, Clone)]
+pub enum PrintInfoAndExitError {
+    Help,
+    Version,
+}
+
+impl Display for PrintInfoAndExitError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PrintInfoAndExitError::Help => print_help(f),
+            PrintInfoAndExitError::Version => print_version(f),
+        }
+    }
+}
+
+#[derive(Error, Debug, Clone)]
+pub struct MissingArgumentsError;
+
+impl Display for MissingArgumentsError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "missing arguments, consider supplying --help")
     }
 }
 
@@ -90,10 +116,6 @@ lazy_static! {
     //        .case_insensitive(true)
     //        .build()
     //        .unwrap();
-}
-
-pub fn print_help() {
-    print!("scr [OPTIONS]"); //TODO
 }
 
 fn try_parse_bool(val: &BStr) -> Option<bool> {
@@ -251,53 +273,53 @@ fn try_parse_usize_arg(val: &BStr, cli_arg_idx: CliArgIdx) -> Result<usize, CliA
     }
 }
 
+fn print_help(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(f, "scr [OPTIONS]")?;
+    Ok(())
+}
+fn print_version(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    const VERSION: &'static str = env!("CARGO_PKG_VERSION");
+    write!(f, "scr {}", VERSION)?;
+    Ok(())
+}
+
 fn try_parse_as_context_opt(
     ctx_opts: &mut ContextOptions,
     arg: &ParsedCliArgument,
-) -> Result<bool, CliArgumentError> {
+) -> Result<bool, ScrError> {
     let mut matched = false;
     if ["--help", "-h"].contains(&&*arg.argname) {
-        ctx_opts.print_help.set(true).map_err(|e| e.into())?;
-        matched = true;
+        return Err(PrintInfoAndExitError::Help.into());
     }
     if ["--version", "-v"].contains(&&*arg.argname) {
-        ctx_opts.print_help.set(true).map_err(|e| e.into())?;
+        return Err(PrintInfoAndExitError::Version.into());
+    }
+    if arg.argname == "help" {
+        let print_help =
+            try_parse_bool_arg_or_default(arg.value.as_deref(), true, arg.cli_arg.idx)?;
+        if print_help {
+            return Err(PrintInfoAndExitError::Help.into());
+        }
         matched = true;
     }
-
-    if arg.argname == "help" {
-        ctx_opts
-            .print_help
-            .set(try_parse_bool_arg_or_default(
-                arg.value.as_deref(),
-                true,
-                arg.cli_arg.idx,
-            )?)
-            .map_err(|e| e.into())?;
-        matched = true
-    }
     if arg.argname == "version" {
-        ctx_opts
-            .print_version
-            .set(try_parse_bool_arg_or_default(
-                arg.value.as_deref(),
-                true,
-                arg.cli_arg.idx,
-            )?)
-            .map_err(|e| e.into())?;
-        matched = true
+        let print_version =
+            try_parse_bool_arg_or_default(arg.value.as_deref(), true, arg.cli_arg.idx)?;
+        if print_version {
+            return Err(PrintInfoAndExitError::Version.into());
+        }
+        matched = true;
     }
     if arg.argname == "j" {
         if let Some(val) = arg.value.as_deref() {
             ctx_opts
                 .max_worker_threads
                 .set(try_parse_usize_arg(val, arg.cli_arg.idx)?)
-                .map_err(|e| e.into())?;
+                .map_err(|e| ScrError::from(CliArgumentError::from(e)))?;
         } else {
-            return Err(CliArgumentError::new(
-                "missing thread count argument",
-                arg.cli_arg.idx,
-            ));
+            return Err(
+                CliArgumentError::new("missing thread count argument", arg.cli_arg.idx).into(),
+            );
         }
         matched = true
     }
@@ -306,13 +328,15 @@ fn try_parse_as_context_opt(
             return Err(CliArgumentError::new(
                 "cannot specify label for global argument",
                 arg.cli_arg.idx,
-            ));
+            )
+            .into());
         }
         if arg.chainspec.is_some() {
             return Err(CliArgumentError::new(
                 "cannot specify chain range for global argument",
                 arg.cli_arg.idx,
-            ));
+            )
+            .into());
         }
     }
     return Ok(matched);
@@ -331,7 +355,8 @@ fn try_parse_as_chain_opt(
         F: FnOnce(&mut ChainOptions) -> Result<(), ArgumentReassignmentError>,
     {
         assert!(arg.chainspec.is_none()); //TODO
-        f(&mut ctx_opts.chains[ctx_opts.curr_chain as usize]).map_err(|e| e.into())?;
+        f(&mut ctx_opts.chains[ctx_opts.curr_chain as usize])
+            .map_err(|e| CliArgumentError::from(e))?;
         Ok(true)
     }
 
@@ -498,7 +523,10 @@ fn try_parse_as_operation<'a>(
     }
 }
 
-pub fn parse_cli_retain_args(args: &Vec<BString>) -> Result<ContextOptions, CliArgumentError> {
+pub fn parse_cli_retain_args(args: &Vec<BString>) -> Result<ContextOptions, ScrError> {
+    if args.is_empty() {
+        return Err(MissingArgumentsError.into());
+    }
     let mut ctx_opts = ContextOptions::default();
     for (i, arg_str) in args.iter().enumerate() {
         let cli_arg = CliArgument {
@@ -536,19 +564,17 @@ pub fn parse_cli_retain_args(args: &Vec<BString>) -> Result<ContextOptions, CliA
                     return Err(CliArgumentError {
                         message: format!("unknown argument name '{}'", arg.argname).into(),
                         cli_arg_idx: arg.cli_arg.idx,
-                    });
+                    }
+                    .into());
                 }
             }
         } else {
-            return Err(CliArgumentError::new(
-                "invalid argument syntax",
-                cli_arg.idx,
-            ));
+            return Err(CliArgumentError::new("invalid argument syntax", cli_arg.idx).into());
         }
     }
     return Ok(ctx_opts);
 }
-pub fn parse_cli(args: Vec<BString>) -> Result<ContextOptions, (Vec<BString>, CliArgumentError)> {
+pub fn parse_cli(args: Vec<BString>) -> Result<ContextOptions, (Vec<BString>, ScrError)> {
     match parse_cli_retain_args(&args) {
         Ok(mut ctx) => {
             ctx.cli_args = Some(args);
@@ -586,7 +612,7 @@ pub fn collect_env_args() -> Result<Vec<BString>, CliArgumentError> {
     }
 }
 
-pub fn parse_cli_from_env() -> Result<ContextOptions, CliArgumentError> {
+pub fn parse_cli_from_env() -> Result<ContextOptions, ScrError> {
     let args = collect_env_args()?;
     parse_cli(args).map_err(|(_, e)| e)
 }

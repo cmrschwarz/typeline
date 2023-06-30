@@ -4,7 +4,7 @@ use bstr::{BString, ByteSlice};
 use thiserror::Error;
 
 use crate::{
-    cli::CliArgumentError,
+    cli::{CliArgumentError, MissingArgumentsError, PrintInfoAndExitError},
     context::Context,
     operations::{
         errors::{
@@ -18,13 +18,23 @@ use crate::{
 #[derive(Error, Debug, Clone)]
 pub enum ScrError {
     #[error(transparent)]
+    PrintInfoAndExitError(#[from] PrintInfoAndExitError),
+
+    #[error(transparent)]
+    MissingArgumentsError(#[from] MissingArgumentsError),
+
+    #[error(transparent)]
     CliArgumentError(#[from] CliArgumentError),
+
     #[error(transparent)]
     OperationCreationError(#[from] OperatorCreationError),
+
     #[error(transparent)]
     OperationSetupError(#[from] OperatorSetupError),
+
     #[error(transparent)]
     ChainSetupError(#[from] ChainSetupError),
+
     #[error(transparent)]
     OperationApplicationError(#[from] OperatorApplicationError),
 }
@@ -101,6 +111,8 @@ impl ScrError {
             ScrError::OperationApplicationError(e) => {
                 contextualize_op_id(&e.message, e.op_id, args_gathered, ctx_opts, ctx)
             }
+            ScrError::PrintInfoAndExitError(e) => format!("{}", e),
+            ScrError::MissingArgumentsError(e) => format!("{}", e),
         }
     }
 }
