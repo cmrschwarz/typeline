@@ -292,7 +292,11 @@ impl FDCommandBuffer {
         &full_slice[asmr.actions_start..asmr.actions_end]
     }
     fn unclaim_merge_space(&mut self, asmr: ActionSetMergeResult) {
+        if asmr.merge_set_index == 0 {
+            return;
+        }
         let ms = &mut self.actions[asmr.merge_set_index];
+
         debug_assert!(ms.len() == asmr.actions_end);
         ms.truncate(asmr.actions_start);
     }
@@ -308,7 +312,6 @@ impl FDCommandBuffer {
         unsafe {
             debug_assert!(first.merge_set_index != target_merge_set);
             debug_assert!(second.merge_set_index != target_merge_set);
-            debug_assert!(first.merge_set_index != second.merge_set_index);
             let ac_sets_ptrs = self.actions.as_mut_ptr();
             first_slice_full = (*ac_sets_ptrs.add(first.merge_set_index)).as_slice();
             second_slice_full = (*ac_sets_ptrs.add(second.merge_set_index)).as_slice();
@@ -374,7 +377,10 @@ impl FDCommandBuffer {
         max_action_set_id: usize,
     ) -> ActionSetMergeResult {
         let first = self.action_set_id_to_idx(min_action_set_id);
-        let last = self.action_set_id_to_idx(max_action_set_id);
+        let mut last = self.action_set_id_to_idx(max_action_set_id);
+        if last > first && self.action_sets[last].action_count == 0 {
+            last -= 1;
+        }
         self.merge_action_sets(first, last - first + 1, ACTIONS_RAW_IDX + 1)
     }
 }

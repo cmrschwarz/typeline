@@ -1,18 +1,17 @@
 use arrayvec::ArrayString;
 use bstr::{BStr, ByteSlice};
-use lazy_static::__Deref;
 use nonmax::NonMaxUsize;
-use regex;
-use regex::bytes;
+use regex::{self, bytes};
 use smallstr::SmallString;
-
 use std::borrow::Cow;
 use std::cell::RefCell;
+use std::ops::Deref;
 
 use std::num::NonZeroUsize;
 
+use crate::fd_ref_iter::FDRefIterLazy;
 use crate::field_data::fd_command_buffer::{FDCommandBuffer, FieldActionKind};
-use crate::field_data::fd_iter::{InlineBytesIter, InlineTextIter};
+use crate::field_data::fd_iter::{FDTypedValue, InlineBytesIter, InlineTextIter};
 use crate::field_data::fd_push_interface::FDPushInterface;
 use crate::field_data::RunLength;
 use crate::utils::universe::Universe;
@@ -335,10 +334,28 @@ enum AnyRegex<'a, 'b> {
 }
 
 impl<'a, 'b> AnyRegex<'a, 'b> {
-    fn captures_read_at(&mut self, start: usize) -> bool {
+    fn captures_read_at(&mut self, start: usize) -> Option<(usize, usize)> {
         match self {
-            AnyRegex::Text(re, cl, input) => re.captures_read_at(cl, input, start).is_some(),
-            AnyRegex::Bytes(re, cl, input) => re.captures_read_at(cl, input, start).is_some(),
+            AnyRegex::Text(re, cl, input) => re
+                .captures_read_at(cl, input, start)
+                .map(|m| (m.start(), m.end())),
+            AnyRegex::Bytes(re, cl, input) => re
+                .captures_read_at(cl, input, start)
+                .map(|m| (m.start(), m.end())),
+        }
+    }
+    fn next_after_empty(&mut self, end: usize) -> usize {
+        match self {
+            AnyRegex::Text(_re, _cl, input) => {
+                let mut res = end + 1;
+                // this is stupid. if this was nightly rust, we could use
+                // ceil_char_boundary(end + 1) instead
+                while !input.is_char_boundary(res) {
+                    res += 1;
+                }
+                res
+            }
+            AnyRegex::Bytes(_re, _cl, _input) => end + 1,
         }
     }
     fn captures_locs_len(&mut self) -> usize {
@@ -353,11 +370,37 @@ impl<'a, 'b> AnyRegex<'a, 'b> {
             AnyRegex::Bytes(_re, cl, _input) => cl.get(i),
         }
     }
+    fn data(&mut self) -> &[u8] {
+        match self {
+            AnyRegex::Text(_re, _cl, input) => input.as_bytes(),
+            AnyRegex::Bytes(_re, _cl, input) => input,
+        }
+    }
+    fn next(&mut self, last_end: &mut Option<usize>, next_start: &mut usize) -> bool {
+        if *next_start > self.data().len() {
+            return false;
+        }
+        let (s, e) = match self.captures_read_at(*next_start) {
+            None => return false,
+            Some((s, e)) => (s, e),
+        };
+        if s == e {
+            *next_start = self.next_after_empty(e);
+            if Some(e) == *last_end {
+                return self.next(last_end, next_start);
+            }
+        } else {
+            *next_start = e;
+        }
+        *last_end = Some(e);
+        true
+    }
 }
 
 fn match_regex_inner<'a, 'b, 'c>(
     input_field_id: FieldId,
     run_length: RunLength,
+    offset: usize,
     mut regex: AnyRegex<'a, 'b>,
     capture_group_fields: &Vec<FieldId>,
     multimatch: bool,
@@ -365,10 +408,11 @@ fn match_regex_inner<'a, 'b, 'c>(
     fields: &Universe<NonMaxUsize, RefCell<Field>>,
     command_buffer: &mut FDCommandBuffer,
 ) {
-    let mut end_of_last_match = 0;
+    let mut last_end = None;
+    let mut next_start = 0;
     let mut match_count: RunLength = 0;
     let starting_field_idx = rbs.field_idx;
-    while regex.captures_read_at(end_of_last_match) {
+    while regex.next(&mut last_end, &mut next_start) {
         match_count += 1;
         rbs.field_idx -= rbs.drop_count;
         command_buffer.push_action_with_usize_rl(
@@ -383,8 +427,8 @@ fn match_regex_inner<'a, 'b, 'c>(
                 field.push_reference(
                     FieldReference {
                         field: input_field_id,
-                        begin: cg_begin,
-                        end: cg_end,
+                        begin: offset + cg_begin,
+                        end: offset + cg_end,
                     },
                     run_length as usize,
                     true,
@@ -397,12 +441,6 @@ fn match_regex_inner<'a, 'b, 'c>(
         rbs.field_idx += 1;
         if !multimatch {
             break;
-        }
-        let end = regex.captures_locs_get(0).unwrap().1;
-        if end == end_of_last_match {
-            end_of_last_match += 1;
-        } else {
-            end_of_last_match = end;
         }
     }
     if match_count == 0 {
@@ -427,6 +465,7 @@ pub fn handle_tf_regex_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, re
     let command_buffer = &mut sess.entry_data.match_sets[tf.match_set_id].command_buffer;
     command_buffer.begin_action_set(tf.ordering_id.into());
     let input_field = sess.entry_data.fields[input_field_id].borrow_mut();
+    let mut fd_ref_iter = FDRefIterLazy::default();
     let mut iter = input_field
         .deref()
         .field_data
@@ -449,8 +488,9 @@ pub fn handle_tf_regex_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, re
                         AnyRegex::Bytes(&mut re.regex, &mut re.capture_locs, v.as_bytes())
                     };
                     match_regex_inner(
-                        tf_id,
+                        input_field_id,
                         rl,
+                        0,
                         any_regex,
                         &re.capture_group_fields,
                         re.multimatch,
@@ -465,7 +505,44 @@ pub fn handle_tf_regex_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, re
                     match_regex_inner(
                         input_field_id,
                         rl,
+                        0,
                         AnyRegex::Bytes(&mut re.regex, &mut re.capture_locs, v),
+                        &re.capture_group_fields,
+                        re.multimatch,
+                        &mut rbs,
+                        &sess.entry_data.fields,
+                        command_buffer,
+                    );
+                }
+            }
+            FDTypedSlice::Reference(refs) => {
+                for fr in fd_ref_iter.get_iter(&sess.entry_data.fields, rbs.field_idx, &range, refs)
+                {
+                    let any_regex = match fr.data {
+                        FDTypedValue::StreamValueId(_) => todo!(),
+                        FDTypedValue::BytesInline(v) => AnyRegex::Bytes(
+                            &mut re.regex,
+                            &mut re.capture_locs,
+                            &v.as_bytes()[fr.begin..fr.end],
+                        ),
+                        FDTypedValue::TextInline(v) => {
+                            if let Some((regex, capture_locs)) = &mut re.text_only_regex {
+                                AnyRegex::Text(regex, capture_locs, &v[fr.begin..fr.end])
+                            } else {
+                                AnyRegex::Bytes(
+                                    &mut re.regex,
+                                    &mut re.capture_locs,
+                                    &v.as_bytes()[fr.begin..fr.end],
+                                )
+                            }
+                        }
+                        _ => panic!("invalid target type for FieldReference"),
+                    };
+                    match_regex_inner(
+                        fr.field,
+                        fr.run_len,
+                        fr.begin,
+                        any_regex,
                         &re.capture_group_fields,
                         re.multimatch,
                         &mut rbs,
@@ -477,7 +554,6 @@ pub fn handle_tf_regex_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, re
             FDTypedSlice::Unset(_)
             | FDTypedSlice::Null(_)
             | FDTypedSlice::Integer(_)
-            | FDTypedSlice::Reference(_)
             | FDTypedSlice::Error(_)
             | FDTypedSlice::Html(_)
             | FDTypedSlice::StreamValueId(_)

@@ -25,14 +25,14 @@ pub enum FDTypedSlice<'a> {
     Object(&'a [Object]),
 }
 
+#[derive(Clone)]
 pub struct TypedSliceIter<'a, T> {
-    values: &'a [T],
-    headers: &'a [FieldValueHeader],
-    headers_idx: usize,
-    first_oversize: RunLength,
+    values: NonNull<T>,
+    header: *const FieldValueHeader,
+    header_end: *const FieldValueHeader,
+    header_rl_rem: RunLength,
     last_oversize: RunLength,
-    value_idx: usize,
-    value_idx_max: usize,
+    _phantom_data: PhantomData<&'a FieldValueHeader>,
 }
 
 impl<'a, T> TypedSliceIter<'a, T> {
@@ -42,14 +42,26 @@ impl<'a, T> TypedSliceIter<'a, T> {
         first_oversize: RunLength,
         last_oversize: RunLength,
     ) -> Self {
+        let mut header_rl_rem = 0;
+        if !headers.is_empty() {
+            header_rl_rem = headers[0].run_length - first_oversize
+        };
+        if headers.len() == 1 {
+            header_rl_rem -= last_oversize;
+        }
+        let headers_range = headers.as_ptr_range();
+        let values = if values.is_empty() {
+            NonNull::dangling()
+        } else {
+            NonNull::from(&values[0])
+        };
         Self {
             values,
-            headers: headers,
-            headers_idx: 0,
-            first_oversize,
+            header: headers_range.start,
+            header_end: headers_range.end,
+            header_rl_rem,
             last_oversize,
-            value_idx: 0,
-            value_idx_max: 0,
+            _phantom_data: PhantomData::default(),
         }
     }
     pub fn from_typed_range(range: &'a FDTypedRange<'a>, values: &'a [T]) -> Self {
@@ -60,49 +72,122 @@ impl<'a, T> TypedSliceIter<'a, T> {
             range.last_header_run_length_oversize,
         )
     }
-}
-
-impl<'a, T> Iterator for TypedSliceIter<'a, T> {
-    type Item = (&'a T, RunLength);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.value_idx != self.value_idx_max {
-            self.value_idx += 1;
-            return Some((&self.values[self.value_idx - 1], 1));
-        }
-        if self.headers_idx == self.headers.len() {
+    pub fn peek(&self) -> Option<<Self as Iterator>::Item> {
+        if self.header == self.header_end {
             return None;
         }
-        let h = self.headers[self.headers_idx];
-        self.headers_idx += 1;
-        if h.shared_value() {
-            let vi = self.value_idx;
-            if !h.same_value_as_previous() {
-                self.value_idx += 1;
-            }
-            self.value_idx_max = self.value_idx;
-            let mut rl = h.run_length;
-            if self.headers_idx == 0 {
-                rl -= self.first_oversize;
-            }
-            if self.headers_idx + 1 == self.headers.len() {
-                rl -= self.last_oversize;
-            }
-            return Some((&self.values[vi], rl));
+        unsafe {
+            let rl = if (*self.header).shared_value() {
+                self.header_rl_rem
+            } else {
+                1
+            };
+            return Some((self.values.as_ref(), rl));
         }
-        self.value_idx_max = self.value_idx + h.run_length as usize;
-        self.value_idx += 1;
-        if self.headers_idx == 0 {
-            self.value_idx += self.first_oversize as usize;
+    }
+    pub fn next_no_sv(&mut self) -> Option<&'a T> {
+        if self.header == self.header_end {
+            return None;
         }
-        if self.headers_idx + 1 == self.headers.len() {
-            self.value_idx_max -= self.last_oversize as usize;
+        unsafe {
+            let value = self.values.as_ref();
+            self.header_rl_rem -= 1;
+            if self.header_rl_rem == 0 {
+                self.next_header();
+                if !(*self.header).same_value_as_previous() {
+                    self.next_value();
+                }
+            } else if !(*self.header).shared_value() {
+                self.next_value();
+            }
+            return Some(value);
         }
-        return Some((&self.values[self.value_idx - 1], 1));
+    }
+    pub fn next_n_fields(&mut self, mut n: usize) {
+        if self.header == self.header_end {
+            return;
+        }
+        loop {
+            if self.header_rl_rem as usize > n {
+                self.header_rl_rem -= n as RunLength;
+                unsafe {
+                    if !(*self.header).shared_value() {
+                        self.advance_value(n);
+                    }
+                }
+                return;
+            }
+            n -= self.header_rl_rem as usize;
+            unsafe {
+                if !(*self.header).shared_value() {
+                    self.advance_value(self.header_rl_rem as usize);
+                } else if !(*self.header).same_value_as_previous() {
+                    self.next_value();
+                }
+                self.next_header();
+            }
+        }
+    }
+    unsafe fn next_header(&mut self) {
+        self.header = self.header.add(1);
+        if self.header == self.header_end {
+            return;
+        }
+        let h = *self.header;
+        self.header_rl_rem = h.run_length;
+        if self.header.add(1) == self.header_end {
+            self.header_rl_rem -= self.last_oversize;
+        }
+    }
+    unsafe fn advance_value(&mut self, n: usize) {
+        self.values = NonNull::new_unchecked(self.values.as_ptr().add(n));
+    }
+    unsafe fn next_value(&mut self) {
+        self.advance_value(1);
+    }
+    pub fn has_next(&mut self) -> bool {
+        return self.header_rl_rem > 0 || self.header != self.header_end;
+    }
+    pub fn clear(&mut self) {
+        self.header_rl_rem = 0;
+        self.header = self.header_end;
     }
 }
 
+impl<'a, T: 'a> Iterator for TypedSliceIter<'a, T> {
+    type Item = (&'a T, RunLength);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.header == self.header_end {
+            return None;
+        }
+        unsafe {
+            let value = self.values.as_ref();
+            if (*self.header).shared_value() {
+                let rl = self.header_rl_rem;
+                self.next_header();
+                if !(*self.header).same_value_as_previous() {
+                    self.next_value();
+                }
+                return Some((value, rl));
+            }
+            self.header_rl_rem -= 1;
+            if self.header_rl_rem == 0 {
+                self.next_header();
+                if !(*self.header).same_value_as_previous() {
+                    self.next_value();
+                }
+            } else {
+                self.next_value();
+            }
+            return Some((value, 1));
+        }
+    }
+}
+
+#[derive(Clone)]
 pub struct InlineBytesIter<'a> {
+    //TODO: rework this similarly to typed slice
     data: &'a [u8],
     headers: &'a [FieldValueHeader],
     headers_idx: usize,
@@ -701,7 +786,7 @@ impl<'a> FDIterator<'a> for FDIter<'a> {
             let fmt = self.header_fmt;
             let run_len = if self.header_fmt.shared_value() {
                 let rl = self.field_run_length_fwd();
-                if rl >= limit {
+                if rl <= limit {
                     self.next_header();
                     rl
                 } else {
@@ -724,7 +809,7 @@ impl<'a> FDIterator<'a> for FDIter<'a> {
             let fmt = self.header_fmt;
             let run_len = if self.header_fmt.shared_value() {
                 let rl = self.field_run_length_bwd() + 1;
-                if rl >= limit {
+                if rl <= limit {
                     self.prev_header();
                     rl
                 } else {
