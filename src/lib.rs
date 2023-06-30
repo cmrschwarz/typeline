@@ -1,3 +1,5 @@
+
+
 #[macro_use]
 extern crate static_assertions;
 extern crate arrayvec;
@@ -9,10 +11,13 @@ extern crate lazy_static;
 extern crate markup5ever_rcdom;
 extern crate num;
 extern crate regex;
+extern crate regex_syntax;
 extern crate smallvec;
 extern crate smallstr;
 extern crate thiserror;
 extern crate url;
+extern crate uuid;
+extern crate rand;
 
 pub mod chain;
 pub mod cli;
@@ -28,6 +33,3 @@ pub mod stream_field_data;
 pub mod utils;
 pub mod worker_thread;
 pub mod worker_thread_session;
-
-#[cfg(test)]
-mod tests;

@@ -2,6 +2,8 @@ use std::{borrow::Cow, cmp::min, collections::HashMap, mem::transmute, num::NonZ
 
 pub type StringStoreEntry = NonZeroU32;
 
+pub const INVALID_STRING_STORE_ENTRY: NonZeroU32 = NonZeroU32::MAX;
+
 pub struct StringStore {
     arena: Vec<Vec<u8>>,
     existing_strings: Vec<Vec<Box<str>>>,
@@ -23,7 +25,9 @@ impl Default for StringStore {
 impl StringStore {
     pub fn claim_id_without_lookup(&mut self, entry: &'static str) -> StringStoreEntry {
         self.table_idx_to_str.push(entry);
-        (self.table_idx_to_str.len() as u32).try_into().unwrap()
+        let id = self.table_idx_to_str.len() as u32;
+        assert!(id < u32::try_from(INVALID_STRING_STORE_ENTRY).unwrap());
+        StringStoreEntry::try_from(id).unwrap()
     }
     pub fn intern_cloned(&mut self, entry: &str) -> StringStoreEntry {
         if let Some(key) = self.table_str_to_idx.get(entry) {

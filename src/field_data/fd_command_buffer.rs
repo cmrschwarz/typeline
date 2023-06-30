@@ -463,8 +463,8 @@ impl FDCommandBuffer {
             return;
         }
         let pre = (field_idx - *field_pos) as RunLength;
-        let mid_full_count = run_len / RunLength::MAX as usize;
-        let mid_rem = (run_len - (mid_full_count * RunLength::MAX as usize)) as RunLength;
+        let mid_full_count = (run_len + 1) / RunLength::MAX as usize;
+        let mid_rem = ((run_len + 1) - (mid_full_count * RunLength::MAX as usize)) as RunLength;
         let post = (header.run_length - pre).saturating_sub(1);
         self.push_copy_command(*header_idx_new, copy_range_start, copy_range_start_new);
         self.push_insert_command_check_run_length(
@@ -623,16 +623,15 @@ impl FDCommandBuffer {
             let actions = &self.actions[merged_actions.merge_set_index]
                 [merged_actions.actions_start..merged_actions.actions_end];
             loop {
-                if action_idx_next == actions.len() {
-                    if curr_header_outstanding_dups > 0 {
-                        break;
-                    }
-                    break 'advance_action;
-                }
+                let end_of_actions = action_idx_next == actions.len();
                 if curr_header_outstanding_dups > 0
-                    && actions[action_idx_next].field_idx != prev_action_field_idx
+                    && (end_of_actions
+                        || actions[action_idx_next].field_idx != prev_action_field_idx)
                 {
                     break;
+                }
+                if end_of_actions {
+                    break 'advance_action;
                 }
                 action = actions[action_idx_next];
                 action_idx_next += 1;

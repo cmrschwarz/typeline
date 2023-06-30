@@ -63,7 +63,7 @@ impl Default for ContextOptions {
 
 lazy_static! {
     static ref DEFAULT_CONTEXT_OPTIONS: ContextOptions = ContextOptions {
-        max_worker_threads: Argument::new(0),
+        max_worker_threads: Argument::new(1),
         print_help: Argument::new(false),
         print_version: Argument::new(false),
         repl: Argument::new(false),

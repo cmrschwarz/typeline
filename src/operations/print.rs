@@ -1,9 +1,6 @@
-use std::{
-    borrow::Cow,
-    io::{StdoutLock, Write},
-};
+use std::{borrow::Cow, io::Write};
 
-use bstr::BStr;
+use bstr::{BStr, ByteSlice};
 use is_terminal::IsTerminal;
 
 use crate::{
@@ -65,93 +62,122 @@ pub fn setup_tf_print(
     (TransformData::Print(tf), input_field)
 }
 
-pub fn print_inline_text(
-    stdout: &mut StdoutLock<'_>,
+pub fn write_inline_text<const NEWLINE: bool>(
+    stream: &mut impl Write,
     text: &str,
     run_len: usize,
 ) -> Result<(), (usize, std::io::Error)> {
     for i in 0..run_len {
-        stdout
+        stream
             .write(text.as_bytes())
-            .and_then(|_| stdout.write(b"\n"))
+            .and_then(|_| if NEWLINE { stream.write(b"\n") } else { Ok(0) })
             .map_err(|e| (i, e))?;
     }
     Ok(())
 }
-pub fn print_inline_bytes(
-    stdout: &mut StdoutLock<'_>,
-    text: &[u8],
+pub fn write_inline_bytes<const NEWLINE: bool>(
+    stream: &mut impl Write,
+    bytes: &[u8],
     run_len: usize,
 ) -> Result<(), (usize, std::io::Error)> {
     for i in 0..run_len {
-        stdout
-            .write(text)
-            .and_then(|_| stdout.write(b"\n"))
+        stream
+            .write(bytes)
+            .and_then(|_| if NEWLINE { stream.write(b"\n") } else { Ok(0) })
             .map_err(|e| (i, e))?;
     }
     Ok(())
 }
 
-pub fn print_integer(
-    stdout: &mut StdoutLock,
+pub fn write_inline_bytes_utf8_lossy<const NEWLINE: bool>(
+    stream: &mut impl Write,
+    bytes: &[u8],
+    run_len: usize,
+) -> Result<(), (usize, std::io::Error)> {
+    for i in 0..run_len {
+        stream
+            .write_fmt(format_args!("{}", bytes.to_str_lossy()))
+            .and_then(|_| if NEWLINE { stream.write(b"\n") } else { Ok(0) })
+            .map_err(|e| (i, e))?;
+    }
+    Ok(())
+}
+
+pub fn write_integer<const NEWLINE: bool>(
+    stream: &mut impl Write,
     v: i64,
     run_len: usize,
 ) -> Result<(), (usize, std::io::Error)> {
     for i in 0..run_len {
-        stdout
+        stream
             .write_fmt(format_args!("{v}\n"))
             .map_err(|e| (i, e))?;
     }
     Ok(())
 }
-pub fn print_raw_bytes(
-    stdout: &mut StdoutLock,
+pub fn write_raw_bytes<const NEWLINE: bool>(
+    stream: &mut impl Write,
     bytes: &[u8],
     run_len: usize,
 ) -> Result<(), (usize, std::io::Error)> {
     for i in 0..run_len {
-        stdout.write(bytes).map_err(|e| (i, e))?;
+        stream
+            .write(bytes)
+            .and_then(|_| if NEWLINE { stream.write(b"\n") } else { Ok(0) })
+            .map_err(|e| (i, e))?;
     }
     Ok(())
 }
-pub fn print_null(stdout: &mut StdoutLock, run_len: usize) -> Result<(), (usize, std::io::Error)> {
-    print_raw_bytes(stdout, b"null\n", run_len)
-}
-pub fn print_unset(stdout: &mut StdoutLock, run_len: usize) -> Result<(), (usize, std::io::Error)> {
-    print_raw_bytes(stdout, b"<Unset>\n", run_len)
-}
-pub fn print_type_error(
-    stdout: &mut StdoutLock,
+pub fn write_null<const NEWLINE: bool>(
+    stream: &mut impl Write,
     run_len: usize,
 ) -> Result<(), (usize, std::io::Error)> {
-    print_raw_bytes(stdout, b"<Type Error>", run_len)
+    write_raw_bytes::<NEWLINE>(stream, b"null", run_len)
+}
+pub fn write_unset<const NEWLINE: bool>(
+    stream: &mut impl Write,
+    run_len: usize,
+) -> Result<(), (usize, std::io::Error)> {
+    write_raw_bytes::<NEWLINE>(stream, b"<Unset>", run_len)
+}
+pub fn write_type_error<const NEWLINE: bool>(
+    stdout: &mut impl Write,
+    run_len: usize,
+) -> Result<(), (usize, std::io::Error)> {
+    write_raw_bytes::<NEWLINE>(stdout, b"<Type Error>", run_len)
 }
 
-pub fn print_error(
-    stdout: &mut StdoutLock,
+pub fn write_error<const NEWLINE: bool>(
+    stream: &mut impl Write,
     e: &OperatorApplicationError,
     run_len: usize,
 ) -> Result<(), (usize, std::io::Error)> {
     for i in 0..run_len {
-        stdout
+        stream
             .write_fmt(format_args!("{e}\n"))
+            .and_then(|_| if NEWLINE { stream.write(b"\n") } else { Ok(0) })
             .map_err(|e| (i, e))?;
     }
     Ok(())
 }
 
-fn print_stream_val_check_done(sv: &StreamFieldValue) -> Result<bool, std::io::Error> {
+fn write_stream_val_check_done<const NEWLINE: bool>(
+    stream: &mut impl Write,
+    sv: &StreamFieldValue,
+) -> Result<bool, std::io::Error> {
     match &sv.data {
         StreamFieldValueData::BytesChunk(c) => {
-            let mut stdout = std::io::stdout().lock();
-            stdout.write(c)?;
-            if sv.done {
-                stdout.write(&['\n' as u8])?;
+            stream.write(c)?;
+            if sv.done && NEWLINE {
+                stream.write(b"\n")?;
             }
         }
         StreamFieldValueData::BytesBuffer(b) => {
             if sv.done {
-                std::io::stdout().lock().write(b)?;
+                stream.write(b)?;
+                if NEWLINE {
+                    stream.write(b"\n")?;
+                }
             }
         }
         StreamFieldValueData::Error(err) => {
@@ -162,8 +188,8 @@ fn print_stream_val_check_done(sv: &StreamFieldValue) -> Result<bool, std::io::E
     }
     Ok(sv.done)
 }
-fn print_values_behind_field_ref<'a>(
-    stdout: &mut StdoutLock<'_>,
+pub fn write_values_behind_field_ref<'a, const NEWLINE: bool>(
+    stream: &mut impl Write,
     r: &FieldReference,
     iter: &mut impl FDIterator<'a>,
     mut rl: RunLength,
@@ -176,13 +202,13 @@ fn print_values_behind_field_ref<'a>(
             FDTypedSlice::StreamValueId(_) => panic!("hit stream value in batch mode"),
             FDTypedSlice::BytesInline(v) => {
                 for (bytes, rl) in InlineBytesIter::from_typed_range(&tr, v) {
-                    print_inline_bytes(stdout, &bytes[r.begin..r.end], rl as usize)
+                    write_inline_bytes::<NEWLINE>(stream, &bytes[r.begin..r.end], rl as usize)
                         .map_err(|(i, e)| (i + handled_elements, e))?;
                 }
             }
             FDTypedSlice::TextInline(v) => {
                 for (text, rl) in InlineTextIter::from_typed_range(&tr, v) {
-                    print_inline_text(stdout, &text[r.begin..r.end], rl as usize)
+                    write_inline_text::<NEWLINE>(stream, &text[r.begin..r.end], rl as usize)
                         .map_err(|(i, e)| (i + handled_elements, e))?;
                 }
             }
@@ -215,17 +241,17 @@ pub fn handle_tf_print_batch_mode_raw(
         match range.data {
             FDTypedSlice::TextInline(text) => {
                 for (v, rl) in InlineTextIter::from_typed_range(&range, text) {
-                    print_inline_text(&mut stdout, v, rl as usize)?;
+                    write_inline_text::<true>(&mut stdout, v, rl as usize)?;
                 }
             }
             FDTypedSlice::BytesInline(bytes) => {
                 for (v, rl) in InlineBytesIter::from_typed_range(&range, bytes) {
-                    print_inline_bytes(&mut stdout, v, rl as usize)?;
+                    write_inline_bytes::<true>(&mut stdout, v, rl as usize)?;
                 }
             }
             FDTypedSlice::Integer(ints) => {
                 for (v, rl) in TypedSliceIter::from_typed_range(&range, ints) {
-                    print_integer(&mut stdout, *v, rl as usize)?;
+                    write_integer::<true>(&mut stdout, *v, rl as usize)?;
                 }
             }
             FDTypedSlice::Reference(refs) => {
@@ -241,26 +267,26 @@ pub fn handle_tf_print_batch_mode_raw(
                     let mut iter = field.field_data.get_iter(FIELD_REF_LOOKUP_ITER_ID);
                     iter.move_to_field_pos(field_pos);
                     field_pos += rl as usize;
-                    print_values_behind_field_ref(&mut stdout, r, &mut iter, rl)?;
+                    write_values_behind_field_ref::<true>(&mut stdout, r, &mut iter, rl)?;
                     field.field_data.store_iter(FIELD_REF_LOOKUP_ITER_ID, iter);
                 }
             }
             FDTypedSlice::Null(_) => {
-                print_null(&mut stdout, range.field_count)?;
+                write_null::<true>(&mut stdout, range.field_count)?;
             }
             FDTypedSlice::Error(errs) => {
                 for (v, rl) in TypedSliceIter::from_typed_range(&range, errs) {
-                    print_error(&mut stdout, v, rl as usize)?;
+                    write_error::<true>(&mut stdout, v, rl as usize)?;
                 }
             }
             FDTypedSlice::Unset(_) => {
-                print_unset(&mut stdout, range.field_count)?;
+                write_unset::<true>(&mut stdout, range.field_count)?;
             }
             FDTypedSlice::StreamValueId(_) => {
                 panic!("hit stream value in batch mode");
             }
             FDTypedSlice::Html(_) | FDTypedSlice::Object(_) => {
-                print_type_error(&mut stdout, range.field_count)?;
+                write_type_error::<true>(&mut stdout, range.field_count)?;
             }
         }
         *field_pos += range.field_count;
@@ -306,7 +332,7 @@ pub fn handle_tf_print_stream_mode_raw(
     tf_print.dropped_entries += sfd.entries_dropped;
 
     if let Some(id) = tf_print.current_stream_val {
-        let res = print_stream_val_check_done(&sfd.get_value_mut(id));
+        let res = write_stream_val_check_done::<true>(&mut stdout, &sfd.get_value_mut(id));
         match res {
             Ok(false) => (),
             Ok(true) => {
@@ -328,14 +354,14 @@ pub fn handle_tf_print_stream_mode_raw(
             let field_val = iter.get_next_typed_field();
             *field_pos = iter.get_next_field_pos();
             match field_val.value {
-                FDTypedValue::Unset(_) => print_unset(&mut stdout, 1)?,
-                FDTypedValue::Null(_) => print_null(&mut stdout, 1)?,
-                FDTypedValue::Integer(v) => print_integer(&mut stdout, v, 1)?,
+                FDTypedValue::Unset(_) => write_unset::<true>(&mut stdout, 1)?,
+                FDTypedValue::Null(_) => write_null::<true>(&mut stdout, 1)?,
+                FDTypedValue::Integer(v) => write_integer::<true>(&mut stdout, v, 1)?,
                 FDTypedValue::Reference(r) => {
                     let fd = &sess.entry_data.fields[r.field].borrow().field_data;
                     let mut iter = fd.get_iter(FIELD_REF_LOOKUP_ITER_ID);
                     iter.move_to_field_pos(iter.get_next_field_pos());
-                    print_values_behind_field_ref(
+                    write_values_behind_field_ref::<true>(
                         &mut stdout,
                         r,
                         &mut iter,
@@ -343,16 +369,18 @@ pub fn handle_tf_print_stream_mode_raw(
                     )?;
                     fd.store_iter(FIELD_REF_LOOKUP_ITER_ID, iter);
                 }
-                FDTypedValue::TextInline(text) => print_inline_text(&mut stdout, text, 1)?,
-                FDTypedValue::BytesInline(bytes) => print_inline_bytes(&mut stdout, bytes, 1)?,
-                FDTypedValue::Error(error) => print_error(&mut stdout, error, 1)?,
+                FDTypedValue::TextInline(text) => write_inline_text::<true>(&mut stdout, text, 1)?,
+                FDTypedValue::BytesInline(bytes) => {
+                    write_inline_bytes::<true>(&mut stdout, bytes, 1)?
+                }
+                FDTypedValue::Error(error) => write_error::<true>(&mut stdout, error, 1)?,
                 FDTypedValue::Html(_) | FDTypedValue::Object(_) => {
-                    print_type_error(&mut stdout, 1)?
+                    write_type_error::<true>(&mut stdout, 1)?
                 }
                 FDTypedValue::StreamValueId(id) => {
                     let sfd = &input_field.stream_field_data;
                     let sv = sfd.get_value(id);
-                    print_stream_val_check_done(&sv).map_err(|e| (0, e))?;
+                    write_stream_val_check_done::<true>(&mut stdout, &sv).map_err(|e| (0, e))?;
                 }
             }
             tf_print.consumed_entries += 1;

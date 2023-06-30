@@ -1,17 +1,22 @@
+use arrayvec::ArrayString;
 use bstr::{BStr, ByteSlice};
-use lazy_static::{__Deref, lazy_static};
+use lazy_static::__Deref;
 use nonmax::NonMaxUsize;
 use regex;
 use regex::bytes;
 use smallstr::SmallString;
+
 use std::borrow::Cow;
 use std::cell::RefCell;
+
+use std::num::NonZeroUsize;
 
 use crate::field_data::fd_command_buffer::{FDCommandBuffer, FieldActionKind};
 use crate::field_data::fd_iter::{InlineBytesIter, InlineTextIter};
 use crate::field_data::fd_push_interface::FDPushInterface;
 use crate::field_data::RunLength;
 use crate::utils::universe::Universe;
+use crate::utils::{self, USIZE_MAX_DECIMAL_DIGITS};
 use crate::worker_thread_session::Field;
 use crate::{
     field_data::fd_iter::FDTypedSlice,
@@ -22,6 +27,7 @@ use crate::{
 };
 
 use super::errors::OperatorSetupError;
+use super::operator::OperatorData;
 use super::{
     errors::{OperatorApplicationError, OperatorCreationError},
     transform::{TransformData, TransformId},
@@ -31,7 +37,8 @@ pub struct OpRegex {
     pub regex: bytes::Regex,
     pub text_only_regex: Option<regex::Regex>,
     pub opts: RegexOptions,
-    pub capture_group_names: Vec<StringStoreEntry>,
+    pub output_group_id: usize,
+    pub capture_group_names: Vec<Option<StringStoreEntry>>,
 }
 
 pub struct TfRegex {
@@ -93,11 +100,67 @@ impl RegexOptions {
     }
 }
 
-lazy_static! {
-    static ref REGEX_CAPTURE_GROUP_REGEX: bytes::Regex = bytes::Regex::new(
-        r"(?:^|[^\\])(?:[^\\]|\\\\)*\(\?P?<(?<capture_group_name>([^>\\]|\\[^])*)>"
-    )
-    .unwrap();
+const MAX_DEFAULT_CAPTURE_GROUP_NAME_LEN: usize = USIZE_MAX_DECIMAL_DIGITS + 1;
+
+pub fn preparse_replace_empty_capture_group<'a>(
+    regex_str: &'a str,
+    opts: &RegexOptions,
+) -> Result<
+    (
+        Cow<'a, str>,
+        Option<ArrayString<MAX_DEFAULT_CAPTURE_GROUP_NAME_LEN>>,
+    ),
+    Cow<'static, str>,
+> {
+    let parser = regex_syntax::ParserBuilder::new()
+        .multi_line(opts.line_based)
+        .dot_matches_new_line(opts.dotall)
+        .case_insensitive(opts.case_insensitive)
+        .unicode(!opts.ascii_mode)
+        .build();
+    let mut re = Cow::Borrowed(regex_str);
+    let mut parse_res = parser.clone().parse(&re);
+    let mut opt_empty_group_replacement_str = None;
+    if let Err(regex_syntax::Error::Parse(pe)) = parse_res {
+        if let regex_syntax::ast::ErrorKind::GroupNameEmpty = pe.kind() {
+            let mut owned = re.into_owned();
+            let empty_group_span = *pe.span();
+            let mut span = empty_group_span;
+            let mut empty_group_replacement_str = ArrayString::new();
+            loop {
+                empty_group_replacement_str.clear();
+                empty_group_replacement_str.push('_');
+                empty_group_replacement_str
+                    .push_str(&utils::non_zero_usize_to_str(rand::random::<NonZeroUsize>()));
+                owned.replace_range(
+                    span.start.offset..span.end.offset,
+                    &empty_group_replacement_str,
+                );
+                parse_res = parser.clone().parse(&owned);
+                if let Err(regex_syntax::Error::Parse(pe)) = &parse_res {
+                    match pe.kind() {
+                        regex_syntax::ast::ErrorKind::GroupNameEmpty => {
+                            return Err(Cow::Borrowed(
+                                "the regex can only contain one group with an empty name",
+                            ));
+                        }
+                        regex_syntax::ast::ErrorKind::GroupNameDuplicate { original: og_span } => {
+                            if og_span.start.offset == empty_group_span.start.offset {
+                                span = *pe.span();
+                                continue;
+                            }
+                            break;
+                        }
+                        _ => break,
+                    }
+                }
+                break;
+            }
+            opt_empty_group_replacement_str = Some(empty_group_replacement_str);
+            re = Cow::Owned(owned);
+        }
+    }
+    return Ok((re, opt_empty_group_replacement_str));
 }
 
 pub fn parse_op_regex(
@@ -107,6 +170,7 @@ pub fn parse_op_regex(
 ) -> Result<OpRegex, OperatorCreationError> {
     let regex;
     let text_only_regex;
+    let mut output_group_id = 0;
 
     if let Some(value) = value {
         match value.to_str() {
@@ -117,7 +181,16 @@ pub fn parse_op_regex(
                 ));
             }
             Ok(value) => {
-                regex = bytes::RegexBuilder::new(value)
+                let (re, empty_group_replacement) =
+                    preparse_replace_empty_capture_group(value, &opts).map_err(|e| {
+                        OperatorCreationError {
+                            cli_arg_idx: arg_idx,
+                            message: e,
+                        }
+                        .into()
+                    })?;
+
+                regex = bytes::RegexBuilder::new(&re)
                     .multi_line(opts.line_based)
                     .dot_matches_new_line(opts.dotall)
                     .case_insensitive(opts.case_insensitive)
@@ -127,18 +200,23 @@ pub fn parse_op_regex(
                         message: Cow::Owned(format!("failed to compile regex: {}", e)),
                         cli_arg_idx: arg_idx,
                     })?;
-                text_only_regex = Some(
-                    regex::RegexBuilder::new(value)
-                        .multi_line(opts.line_based)
-                        .dot_matches_new_line(opts.dotall)
-                        .case_insensitive(opts.case_insensitive)
-                        .unicode(!opts.ascii_mode)
-                        .build()
-                        .map_err(|e| OperatorCreationError {
-                            message: Cow::Owned(format!("failed to compile regex: {}", e)),
-                            cli_arg_idx: arg_idx,
-                        })?,
-                );
+
+                if let Some(egr) = empty_group_replacement {
+                    output_group_id = regex
+                        .capture_names()
+                        .enumerate()
+                        .find(|(_i, cn)| cn.is_some_and(|cn| cn == &egr))
+                        .map(|(i, _cn)| i)
+                        .unwrap();
+                }
+
+                text_only_regex = regex::RegexBuilder::new(&re)
+                    .multi_line(opts.line_based)
+                    .dot_matches_new_line(opts.dotall)
+                    .case_insensitive(opts.case_insensitive)
+                    .unicode(!opts.ascii_mode)
+                    .build()
+                    .ok();
             }
         }
     } else {
@@ -152,12 +230,35 @@ pub fn parse_op_regex(
         regex,
         text_only_regex,
         capture_group_names: Default::default(),
+        output_group_id,
         opts,
     })
 }
 
-pub fn create_op_regex(value: &str, opts: RegexOptions) -> Result<OpRegex, OperatorCreationError> {
-    parse_op_regex(Some(value.as_bytes().as_bstr()), None, opts)
+pub fn create_op_regex(
+    value: &str,
+    opts: RegexOptions,
+) -> Result<OperatorData, OperatorCreationError> {
+    Ok(OperatorData::Regex(parse_op_regex(
+        Some(value.as_bytes().as_bstr()),
+        None,
+        opts,
+    )?))
+}
+
+pub fn create_op_regex_lines() -> OperatorData {
+    OperatorData::Regex(
+        parse_op_regex(
+            Some("(?<>.+)\r?\n".as_bytes().as_bstr()),
+            None,
+            RegexOptions {
+                ascii_mode: true,
+                multimatch: true,
+                ..Default::default()
+            },
+        )
+        .unwrap(),
+    )
 }
 
 pub fn setup_op_regex(
@@ -167,14 +268,26 @@ pub fn setup_op_regex(
     let mut unnamed_capture_groups: usize = 0;
 
     op.capture_group_names
-        .extend(op.regex.capture_names().into_iter().map(|name| match name {
-            Some(name) => string_store.intern_cloned(name),
-            None => {
-                let id = string_store.intern_moved(unnamed_capture_groups.to_string());
-                unnamed_capture_groups += 1;
-                id
-            }
-        }));
+        .extend(
+            op.regex
+                .capture_names()
+                .enumerate()
+                .into_iter()
+                .map(|(i, name)| match name {
+                    Some(name) => {
+                        if i == op.output_group_id {
+                            None
+                        } else {
+                            Some(string_store.intern_cloned(name))
+                        }
+                    }
+                    None => {
+                        let id = string_store.intern_moved(unnamed_capture_groups.to_string());
+                        unnamed_capture_groups += 1;
+                        Some(id)
+                    }
+                }),
+        );
     Ok(())
 }
 
@@ -187,10 +300,10 @@ pub fn setup_tf_regex<'a>(
     let mut cgfs: Vec<FieldId> = op
         .capture_group_names
         .iter()
-        .map(|name| sess.entry_data.add_field(ms_id, Some(*name)))
+        .map(|name| sess.entry_data.add_field(ms_id, *name))
         .collect();
     cgfs.sort_unstable();
-    let output_field = cgfs[0];
+    let output_field = cgfs[op.output_group_id];
     let re = TfRegex {
         regex: op.regex.clone(),
         text_only_regex: op

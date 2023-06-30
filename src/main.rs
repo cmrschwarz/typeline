@@ -25,7 +25,6 @@ fn run() -> Result<(), Cow<'static, str>> {
     Ok(())
 }
 
-//#[tokio::main(flavor = "current_thread")] async
 fn main() -> ExitCode {
     match run() {
         Ok(_) => ExitCode::SUCCESS,

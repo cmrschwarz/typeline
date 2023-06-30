@@ -67,7 +67,6 @@ pub type FieldId = NonMaxUsize;
 
 pub type MatchSetId = NonMaxUsize;
 
-#[derive(Default)]
 #[repr(C)]
 pub struct MatchSet {
     pub stream_batch_size: usize,
@@ -77,7 +76,7 @@ pub struct MatchSet {
     pub working_set: Vec<FieldId>,
     pub command_buffer: FDCommandBuffer,
     pub field_name_map: HashMap<StringStoreEntry, VecDeque<FieldId>>,
-    pub err_field: Option<FieldId>,
+    pub err_field_id: FieldId,
 }
 
 pub struct WorkerThreadSession<'a> {
@@ -183,35 +182,36 @@ impl EntryData {
         self.fields.release(id);
     }
     pub fn add_match_set(&mut self) -> MatchSetId {
-        let id = self.match_sets.claim();
-        id
+        let id = self.match_sets.peek_claim_id();
+        let ef = self.add_field(id, None);
+        self.match_sets.claim_with(|| MatchSet {
+            stream_batch_size: 0,
+            stream_participants: Default::default(),
+            working_set_updates: Default::default(),
+            working_set: Vec::new(),
+            command_buffer: Default::default(),
+            field_name_map: Default::default(),
+            err_field_id: ef,
+        })
     }
     pub fn remove_match_set(&mut self, _ms_id: MatchSetId) {
         todo!()
     }
     pub fn push_entry_error(
-        &mut self,
+        &self,
         ms_id: MatchSetId,
         field_pos: usize,
         err: OperatorApplicationError,
         run_length: usize,
     ) {
-        let ms = &mut self.match_sets[ms_id];
-        if let Some(err_field_id) = ms.err_field {
-            let mut ef = self.fields[err_field_id].borrow_mut();
-            let fd = &mut ef.field_data;
-            let last_pos = fd.field_count() + fd.field_index_offset();
-            debug_assert!(last_pos < field_pos);
-            fd.push_unset(field_pos - last_pos, false);
-            fd.push_error(err, run_length, true, true);
-            return;
-        }
-        let id = self.add_field(ms_id, None);
-        self.match_sets[ms_id].err_field = Some(id);
-        self.fields[id]
-            .borrow_mut()
-            .field_data
-            .push_error(err, run_length, false, false);
+        let ms = &self.match_sets[ms_id];
+        let mut ef = self.fields[ms.err_field_id].borrow_mut();
+        let fd = &mut ef.field_data;
+        let last_pos = fd.field_count() + fd.field_index_offset();
+        debug_assert!(last_pos < field_pos);
+        fd.push_unset(field_pos - last_pos, false);
+        fd.push_error(err, run_length, true, true);
+        return;
     }
     // this is usually called while iterating over an input field that contains field references
     // we therefore do NOT want to require a mutable reference over the field data, because that forces the caller to kill their iterator

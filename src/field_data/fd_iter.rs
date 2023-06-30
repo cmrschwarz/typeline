@@ -108,8 +108,9 @@ pub struct InlineBytesIter<'a> {
     headers_idx: usize,
     first_oversize: RunLength,
     last_oversize: RunLength,
-    header_rl_rem: RunLength,
-    header_data_size: RunLength,
+    header_rl_offset: RunLength,
+    header_rl_total: RunLength,
+    header_value_size: u16,
     data_offset: usize,
 }
 
@@ -126,8 +127,9 @@ impl<'a> InlineBytesIter<'a> {
             headers_idx: 0,
             first_oversize,
             last_oversize,
-            header_rl_rem: 0,
-            header_data_size: 0,
+            header_rl_offset: 0,
+            header_rl_total: 0,
+            header_value_size: 0,
             data_offset: 0,
         }
     }
@@ -145,10 +147,10 @@ impl<'a> Iterator for InlineBytesIter<'a> {
     type Item = (&'a [u8], RunLength);
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.header_rl_rem != 0 {
-            self.header_rl_rem -= 1;
+        if self.header_rl_offset != self.header_rl_total {
+            self.header_rl_offset += 1;
             let data_offset_prev = self.data_offset;
-            self.data_offset += self.header_data_size as usize;
+            self.data_offset += self.header_value_size as usize;
             return Some((&self.data[data_offset_prev..self.data_offset], 1));
         }
         if self.headers_idx == self.headers.len() {
@@ -173,15 +175,17 @@ impl<'a> Iterator for InlineBytesIter<'a> {
                 rl,
             ));
         }
-
-        self.header_rl_rem = h.run_length;
+        self.header_rl_offset = 0;
+        self.header_rl_total = h.run_length;
         if self.headers_idx == 1 {
-            self.header_rl_rem -= self.first_oversize;
+            self.header_rl_offset += self.first_oversize;
         }
         if self.headers_idx == self.headers.len() {
             self.data_offset += self.last_oversize as usize * h.size as usize;
-            self.header_rl_rem -= self.last_oversize;
+            self.header_rl_total -= self.last_oversize;
         }
+        self.header_value_size = h.size;
+        self.header_rl_offset += 1;
         let data_offset_prev = self.data_offset;
         self.data_offset += h.size as usize;
         return Some((&self.data[data_offset_prev..self.data_offset], 1));

@@ -118,18 +118,30 @@ impl<I: UniverseIndex, T> Universe<I, T> {
             );
         }
     }
+    // returns the id that will be used by the next claim
+    // useful for cases where claim_with needs to know the id beforehand
+    pub fn peek_claim_id(&self) -> I {
+        if let Some(id) = self.unused_ids.last() {
+            **id
+        } else {
+            *UniverseIdx::from_usize(self.data.len())
+        }
+    }
+    pub fn claim_with(&mut self, f: impl FnOnce() -> T) -> I {
+        if let Some(id) = self.unused_ids.pop() {
+            *id
+        } else {
+            let id = self.data.len();
+            self.data.push(f());
+            *UniverseIdx::from_usize(id)
+        }
+    }
 }
 
 // separate impl since only available if T: Default
 impl<I: UniverseIndex, T: Default> Universe<I, T> {
     pub fn claim(&mut self) -> I {
-        if let Some(id) = self.unused_ids.pop() {
-            *id
-        } else {
-            let id = self.data.len();
-            self.data.push(Default::default());
-            *UniverseIdx::from_usize(id)
-        }
+        self.claim_with(Default::default)
     }
     pub fn reserve_id(&mut self, id: I) {
         self.reserve_id_with(id, Default::default);
