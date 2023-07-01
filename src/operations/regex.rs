@@ -543,6 +543,11 @@ pub fn handle_tf_regex_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, re
                                 )
                             }
                         }
+                        FDTypedValue::BytesBuffer(v) => AnyRegex::Bytes(
+                            &mut re.regex,
+                            &mut re.capture_locs,
+                            &v.as_bytes()[fr.begin..fr.end],
+                        ),
                         _ => panic!("invalid target type for FieldReference"),
                     };
                     match_regex_inner(

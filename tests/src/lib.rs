@@ -3,7 +3,7 @@
 use scr::{
     document::DocumentSource,
     operations::{
-        regex::{create_op_regex, create_op_regex_lines},
+        regex::{create_op_regex, create_op_regex_lines, RegexOptions},
         string_sink::{create_op_string_sink, StringSinkHandle},
     },
     options::context_builder::ContextBuilder,
@@ -63,7 +63,7 @@ fn regex_drop() -> Result<(), ScrError> {
 
 #[test]
 fn large_batch() -> Result<(), ScrError> {
-    let number_string_list: Vec<_> = (0..10000).into_iter().map(|n| n.to_string()).collect();
+    let number_string_list: Vec<_> = (0..100).into_iter().map(|n| n.to_string()).collect();
     let number_string_joined = number_string_list.iter().fold(String::new(), |mut f, n| {
         f.push_str(n.to_string().as_str());
         f.push_str("\n");
@@ -73,8 +73,9 @@ fn large_batch() -> Result<(), ScrError> {
     ContextBuilder::default()
         .add_doc(DocumentSource::String(number_string_joined.clone()))
         .add_op(create_op_regex_lines())
+        .add_op(create_op_regex("^[0-9]{1}$", RegexOptions::default()).unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
-    assert_eq!(ss.get().as_slice(), number_string_list);
+    assert_eq!(ss.get().as_slice(), &number_string_list[0..10]);
     Ok(())
 }

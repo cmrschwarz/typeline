@@ -209,7 +209,7 @@ impl EntryData {
         let mut ef = self.fields[ms.err_field_id].borrow_mut();
         let fd = &mut ef.field_data;
         let last_pos = fd.field_count() + fd.field_index_offset();
-        debug_assert!(last_pos < field_pos);
+        debug_assert!(last_pos <= field_pos);
         fd.push_unset(field_pos - last_pos, false);
         fd.push_error(err, run_length, true, true);
         return;

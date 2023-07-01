@@ -1,3 +1,5 @@
+use std::mem::ManuallyDrop;
+
 use crate::{
     field_data::{
         fd_push_interface::private_impl::FDUnsafeHeaderPushInterface,
@@ -194,7 +196,7 @@ impl private_impl::FDUnsafePushInterface for FieldData {
                         let len = h.size as usize;
                         let prev_data = unsafe {
                             std::slice::from_raw_parts(
-                                self.data.as_ptr().sub(len) as *const u8,
+                                self.data.as_ptr_range().end.sub(len) as *const u8,
                                 len,
                             )
                         };
@@ -242,7 +244,8 @@ impl private_impl::FDUnsafePushInterface for FieldData {
                     header_rle = true;
                     if try_data_rle {
                         data_rle = unsafe {
-                            data == *(self.data.as_ptr().sub(std::mem::size_of::<T>()) as *const T)
+                            data == *(self.data.as_ptr_range().end.sub(std::mem::size_of::<T>())
+                                as *const T)
                         };
                     }
                 }
@@ -250,6 +253,7 @@ impl private_impl::FDUnsafePushInterface for FieldData {
         }
         self.add_header_for_single_value(fmt, run_length, header_rle, data_rle);
         if !data_rle {
+            let data = ManuallyDrop::new(data);
             self.data.extend_from_slice(unsafe { as_u8_slice(&data) });
         }
     }
@@ -368,7 +372,7 @@ pub trait FDPushInterface: private_impl::FDUnsafePushInterface {
         self.push_fixed_size_type(
             FieldValueKind::BytesBuffer,
             field_value_flags::BYTES_ARE_UTF8,
-            data.to_owned(),
+            data.as_bytes().to_vec(),
             run_length,
             try_header_rle,
             try_data_rle,
