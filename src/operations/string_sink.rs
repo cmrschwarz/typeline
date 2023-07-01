@@ -167,24 +167,15 @@ pub fn handle_tf_string_sink_batch_mode(
                 {
                     match fr.data {
                         FDTypedValue::StreamValueId(_) => todo!(),
-                        FDTypedValue::BytesInline(v) => write_raw_bytes::<false>(
-                            &mut buf,
-                            &v[fr.begin..fr.end],
-                            fr.run_len as usize,
-                        )
-                        .unwrap(),
-                        FDTypedValue::BytesBuffer(v) => write_raw_bytes::<false>(
-                            &mut buf,
-                            &v[fr.begin..fr.end],
-                            fr.run_len as usize,
-                        )
-                        .unwrap(),
-                        FDTypedValue::TextInline(v) => write_inline_text::<false>(
-                            &mut buf,
-                            &v[fr.begin..fr.end],
-                            fr.run_len as usize,
-                        )
-                        .unwrap(),
+                        FDTypedValue::BytesInline(v) => {
+                            write_raw_bytes::<false>(&mut buf, &v[fr.begin..fr.end], 1).unwrap()
+                        }
+                        FDTypedValue::BytesBuffer(v) => {
+                            write_raw_bytes::<false>(&mut buf, &v[fr.begin..fr.end], 1).unwrap()
+                        }
+                        FDTypedValue::TextInline(v) => {
+                            write_inline_text::<false>(&mut buf, &v[fr.begin..fr.end], 1).unwrap()
+                        }
                         _ => panic!("invalid target type for FieldReference"),
                     }
                     push_string_clear_buf(

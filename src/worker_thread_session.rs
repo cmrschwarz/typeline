@@ -123,7 +123,7 @@ impl TransformManager {
     pub fn inform_transform_batch_available(&mut self, tf_id: TransformId, batch_size: usize) {
         let tf = &mut self.transforms[tf_id];
         tf.available_batch_size += batch_size;
-        if tf.available_batch_size == batch_size {
+        if tf.available_batch_size == batch_size && batch_size > 0 {
             self.push_tf_in_ready_queue(tf_id);
         }
     }
@@ -266,7 +266,6 @@ impl JobData<'_> {
                     }
                 }
             }
-            tf.last_consumed_batch_size = 0;
         }
 
         if regular_command_application_needed && tf_ord_id < max_action_set_id {
@@ -289,6 +288,7 @@ impl JobData<'_> {
         cb.erase_action_sets(tf_ord_id + 1);
         let batch = tf.desired_batch_size.min(tf.available_batch_size);
         tf.available_batch_size -= batch;
+        tf.last_consumed_batch_size = batch;
         if tf.available_batch_size == 0 {
             let top = self.tf_mgr.ready_queue.pop();
             debug_assert!(top.unwrap().tf_id == tf_id);
