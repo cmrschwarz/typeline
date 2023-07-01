@@ -15,25 +15,19 @@ use crate::{
         EntryId, FieldData,
     },
     operations::{
-        data_inserter::{handle_tf_data_inserter_batch_mode, setup_tf_data_inserter},
+        data_inserter::{handle_tf_data_inserter, setup_tf_data_inserter},
         errors::OperatorApplicationError,
-        file_reader::{
-            handle_tf_file_reader_batch_mode, handle_tf_file_reader_producer_mode,
-            handle_tf_file_reader_stream_mode, setup_tf_file_reader,
-        },
+        file_reader::{handle_tf_file_reader, setup_tf_file_reader},
         format::setup_tf_format,
         operator::{OperatorData, OperatorId},
-        print::{handle_tf_print_batch_mode, handle_tf_print_stream_mode, setup_tf_print},
-        regex::{handle_tf_regex_batch_mode, setup_tf_regex},
+        print::{handle_tf_print, setup_tf_print},
+        regex::{handle_tf_regex, setup_tf_regex},
         split::{handle_tf_split, setup_tf_split, setup_ts_split_as_entry_point},
-        string_sink::{
-            handle_tf_string_sink_batch_mode, handle_tf_string_sink_stream_mode,
-            setup_tf_string_sink,
-        },
+        string_sink::{handle_tf_string_sink, setup_tf_string_sink},
         transform::{TransformData, TransformId, TransformOrderingId, TransformState},
     },
     scr_error::ScrError,
-    stream_field_data::StreamFieldData,
+    stream_value::{StreamValue, StreamValueId},
     utils::string_store::StringStoreEntry,
     utils::universe::Universe,
     worker_thread::Job,
@@ -57,7 +51,6 @@ pub struct Field {
     pub name: Option<StringStoreEntry>,
     pub working_set_idx: Option<NonMaxUsize>,
     pub field_data: FDIterHall,
-    pub stream_field_data: StreamFieldData,
 }
 
 pub type FieldId = NonMaxUsize;
@@ -83,7 +76,7 @@ pub struct WorkerThreadSession<'a> {
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub struct ReadyQueueEntry {
-    ord_id: TransformOrderingId,
+    ord_id: usize,
     tf_id: TransformId,
 }
 
@@ -101,13 +94,10 @@ pub struct EntryData {
 
 pub struct JobData<'a> {
     pub session_data: &'a SessionData,
-
     pub tf_mgr: TransformManager,
     pub entry_data: EntryData,
+    pub stream_values: Universe<StreamValueId, StreamValue>,
 }
-
-pub type EnterStreamModeFlag = bool;
-pub type StreamProducerDoneFlag = bool;
 
 impl TransformManager {
     pub fn claim_transform_ordering_id(&mut self) -> TransformOrderingId {
@@ -131,8 +121,13 @@ impl TransformManager {
         let tf = &mut self.transforms[tf_id];
         if !tf.is_ready {
             tf.is_ready = true;
+
+            let mut ordering = usize::from(tf.ordering_id);
+            if tf.is_stream_subscriber {
+                ordering += isize::MAX as usize;
+            };
             self.ready_queue.push(ReadyQueueEntry {
-                ord_id: tf.ordering_id,
+                ord_id: ordering,
                 tf_id: tf_id,
             });
         }
@@ -140,6 +135,32 @@ impl TransformManager {
     pub fn push_successor_in_ready_queue(&mut self, tf_id: TransformId) {
         if let Some(succ_tf_id) = self.transforms[tf_id].successor {
             self.push_tf_in_ready_queue(succ_tf_id);
+        }
+    }
+    pub fn make_stream_producer(&mut self, tf_id: TransformId) {
+        let tf = &mut self.transforms[tf_id];
+        tf.is_stream_producer = true;
+        self.stream_producers.push_back(tf_id);
+    }
+    pub fn unlink_transform(&mut self, tf_id: TransformId, available_batch_for_successor: usize) {
+        let tf = &self.transforms[tf_id];
+        let predecessor = tf.predecessor;
+        let bs = tf.available_batch_size;
+        let successor = tf.successor;
+
+        if let Some(pred_id) = predecessor {
+            self.transforms[pred_id].successor = successor;
+        }
+        if let Some(succ_id) = successor {
+            self.transforms[succ_id].predecessor = predecessor;
+            self.inform_transform_batch_available(succ_id, bs + available_batch_for_successor);
+        }
+    }
+    pub fn update_ready_state(&mut self, tf_id: TransformId) {
+        let tf = &self.transforms[tf_id];
+        debug_assert!(!tf.is_ready);
+        if tf.is_stream_subscriber || tf.available_batch_size > 0 {
+            self.push_tf_in_ready_queue(tf_id);
         }
     }
 }
@@ -311,15 +332,11 @@ impl JobData<'_> {
                 cb.execute(iter::once(f), min_idx + 1, max_action_set_id);
             }
         }
+        //TODO: this is incorrect. merge instead
         cb.erase_action_sets(tf_ord_id + 1);
         let batch = tf.desired_batch_size.min(tf.available_batch_size);
         tf.available_batch_size -= batch;
         tf.last_consumed_batch_size = batch;
-        if tf.available_batch_size == 0 {
-            let top = self.tf_mgr.ready_queue.pop();
-            debug_assert!(top.unwrap().tf_id == tf_id);
-            tf.is_ready = false;
-        }
         (batch, tf.input_field)
     }
 }
@@ -389,6 +406,7 @@ impl<'a> WorkerThreadSession<'a> {
                     fields: Default::default(),
                     match_sets: Default::default(),
                 },
+                stream_values: Default::default(),
             },
         }
     }
@@ -430,92 +448,12 @@ impl<'a> WorkerThreadSession<'a> {
         }
         if let TransformData::Split(ref mut split) = self.transform_data[usize::from(tf_id)] {
             split.targets = targets;
-            handle_tf_split(&mut self.job_data, tf_id, split, false);
+            handle_tf_split(&mut self.job_data, tf_id, split);
         } else {
             debug_assert!(false, "unexpected transform type");
         }
     }
 
-    fn run_batch_mode(&mut self) -> Result<bool, ScrError> {
-        while let Some(ReadyQueueEntry { ord_id: _, tf_id }) =
-            self.job_data.tf_mgr.ready_queue.peek().map(|t| *t)
-        {
-            let jd = &mut self.job_data;
-            match &mut self.transform_data[usize::from(tf_id)] {
-                TransformData::Split(split) => {
-                    if !split.expanded {
-                        self.handle_split_expansion(tf_id);
-                    } else {
-                        handle_tf_split(&mut self.job_data, tf_id, split, false);
-                    }
-                }
-                TransformData::Print(tf) => handle_tf_print_batch_mode(jd, tf_id, tf),
-                TransformData::Regex(tf) => handle_tf_regex_batch_mode(jd, tf_id, tf),
-                TransformData::StringSink(tf) => handle_tf_string_sink_batch_mode(jd, tf_id, tf),
-                TransformData::Format(_tf) => todo!(),
-                TransformData::FileReader(tf) => {
-                    if handle_tf_file_reader_batch_mode(jd, tf_id, tf) {
-                        return Ok(false);
-                    }
-                }
-                TransformData::DataInserter(tf) => {
-                    handle_tf_data_inserter_batch_mode(jd, tf_id, tf)
-                }
-                TransformData::Disabled => unreachable!(),
-            }
-        }
-        Ok(true)
-    }
-    fn run_stream_mode(&mut self) -> Result<(), ScrError> {
-        loop {
-            while let Some(rqe) = self.job_data.tf_mgr.ready_queue.pop() {
-                let ReadyQueueEntry { tf_id, ord_id: _ } = rqe;
-                let jd = &mut self.job_data;
-                let tf = &mut jd.tf_mgr.transforms[tf_id];
-                if tf.is_stream_producer {
-                    self.job_data.tf_mgr.ready_queue.push(rqe);
-                    break;
-                }
-                tf.is_ready = false;
-                match &mut self.transform_data[usize::from(tf_id)] {
-                    TransformData::Disabled => unreachable!(),
-                    TransformData::Split(split) => {
-                        if !split.expanded {
-                            self.handle_split_expansion(tf_id)
-                        } else {
-                            handle_tf_split(&mut self.job_data, tf_id, split, false)
-                        }
-                    }
-                    TransformData::Print(tf) => handle_tf_print_stream_mode(jd, tf_id, tf),
-                    TransformData::Regex(_) => todo!(),
-                    TransformData::Format(_) => todo!(),
-                    TransformData::FileReader(fr) => {
-                        handle_tf_file_reader_stream_mode(jd, tf_id, fr)
-                    }
-                    TransformData::StringSink(tf) => {
-                        handle_tf_string_sink_stream_mode(jd, tf_id, tf)
-                    }
-                    TransformData::DataInserter(_tf) => todo!(),
-                }
-            }
-            let prod_tf_id;
-            if let Some(prod) = self.job_data.tf_mgr.stream_producers.pop_front() {
-                prod_tf_id = prod;
-            } else {
-                return Ok(());
-            }
-            let jd = &mut self.job_data;
-            let done = match self.transform_data[usize::from(prod_tf_id)] {
-                TransformData::FileReader(ref mut fr) => {
-                    handle_tf_file_reader_producer_mode(jd, prod_tf_id, fr)
-                }
-                _ => panic!("transform is not a valid producer"),
-            };
-            if !done {
-                self.job_data.tf_mgr.stream_producers.push_back(prod_tf_id);
-            }
-        }
-    }
     pub fn setup_transforms_from_op(
         &mut self,
         ms_id: MatchSetId,
@@ -550,6 +488,7 @@ impl<'a> WorkerThreadSession<'a> {
                 last_consumed_batch_size: 0,
                 is_stream_producer: false,
                 is_batch_producer: false,
+                is_stream_subscriber: false,
             };
             (tf_data, output_field) = match &op_data {
                 OperatorData::Split(split) => setup_tf_split(jd, split, &mut tf_state),
@@ -591,13 +530,38 @@ impl<'a> WorkerThreadSession<'a> {
     }
     pub(crate) fn run_job(&mut self, job: Job) -> Result<(), ScrError> {
         self.setup_job(job)?;
-        loop {
-            if self.run_batch_mode()? == true {
-                break;
-            }
-            self.run_stream_mode()?;
-        }
+        while let Some(rqe) = self.job_data.tf_mgr.ready_queue.pop() {
+            let ReadyQueueEntry {
+                mut tf_id,
+                ord_id: _,
+            } = rqe;
 
+            let mut tf = &mut self.job_data.tf_mgr.transforms[tf_id];
+            if tf.is_stream_producer {
+                tf_id = self.job_data.tf_mgr.stream_producers.pop_front().unwrap();
+                tf = &mut self.job_data.tf_mgr.transforms[tf_id];
+                tf.is_stream_producer = false;
+            }
+            tf.is_ready = false;
+            let jd = &mut self.job_data;
+            match &mut self.transform_data[usize::from(tf_id)] {
+                TransformData::Split(split) => {
+                    if !split.expanded {
+                        self.handle_split_expansion(tf_id);
+                    } else {
+                        handle_tf_split(&mut self.job_data, tf_id, split);
+                    }
+                }
+                TransformData::Print(tf) => handle_tf_print(jd, tf_id, tf),
+                TransformData::Regex(tf) => handle_tf_regex(jd, tf_id, tf),
+                TransformData::StringSink(tf) => handle_tf_string_sink(jd, tf_id, tf),
+                TransformData::Format(_tf) => todo!(),
+                TransformData::FileReader(tf) => handle_tf_file_reader(jd, tf_id, tf),
+                TransformData::DataInserter(tf) => handle_tf_data_inserter(jd, tf_id, tf),
+                TransformData::Disabled => unreachable!(),
+            }
+        }
+        //TODO: inspect errors field?
         Ok(())
     }
 }

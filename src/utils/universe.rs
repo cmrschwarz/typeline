@@ -139,6 +139,16 @@ impl<I: UniverseIndex, T> Universe<I, T> {
             *UniverseIdx::from_usize(id)
         }
     }
+    pub fn claim_with_value(&mut self, value: T) -> I {
+        if let Some(id) = self.unused_ids.pop() {
+            self[*id] = value;
+            *id
+        } else {
+            let id = self.data.len();
+            self.data.push(value);
+            *UniverseIdx::from_usize(id)
+        }
+    }
 }
 
 // separate impl since only available if T: Default

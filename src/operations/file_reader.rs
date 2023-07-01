@@ -15,8 +15,8 @@ use crate::{
         FieldValueKind, FieldValueSize, INLINE_STR_MAX_LEN,
     },
     options::argument::CliArgIdx,
-    stream_field_data::{StreamFieldValue, StreamFieldValueData, StreamValueId},
-    worker_thread_session::{EnterStreamModeFlag, FieldId, JobData, StreamProducerDoneFlag},
+    stream_value::{StreamFieldValueData, StreamValue, StreamValueId},
+    worker_thread_session::{FieldId, JobData},
 };
 
 use super::{
@@ -55,7 +55,7 @@ pub struct OpFileReader {
 pub struct TfFileReader {
     // in case of errors, we close this by take()ing the file, therefore option
     file: Option<AnyFile>,
-    stream_value: StreamValueId,
+    stream_value: Option<StreamValueId>,
     line_buffered: bool,
 }
 
@@ -80,7 +80,7 @@ pub fn setup_tf_file_reader<'a>(
     };
     let data = TransformData::FileReader(TfFileReader {
         file: Some(file),
-        stream_value: 0,
+        stream_value: None,
         line_buffered: op.line_buffered,
     });
     (data, tf_state.input_field)
@@ -138,14 +138,9 @@ fn read_chunk(
     Ok((size, eof))
 }
 
-fn start_streaming_file(
-    sess: &mut JobData<'_>,
-    tf_id: TransformId,
-    fr: &mut TfFileReader,
-) -> EnterStreamModeFlag {
-    let (mut batch_size, input_field) = sess.claim_batch(tf_id, &[]);
-    let mut out_field = sess.entry_data.fields[input_field].borrow_mut();
-    batch_size += 1;
+fn start_streaming_file(sess: &mut JobData<'_>, tf_id: TransformId, fr: &mut TfFileReader) {
+    let mut out_field =
+        sess.entry_data.fields[sess.tf_mgr.transforms[tf_id].input_field].borrow_mut();
     // we want to write the chunk straight into field data to avoid a copy
     // SAFETY: this relies on the memory layout in field_data.
     // since that is a submodule of us, this is fine.
@@ -171,11 +166,10 @@ fn start_streaming_file(
                     },
                     run_length: 1,
                 });
-                sess.tf_mgr
-                    .inform_successor_batch_available(tf_id, batch_size);
-                fr.file.take();
                 *field_count += 1;
-                return false;
+                fr.file.take();
+                sess.tf_mgr.unlink_transform(tf_id, 1);
+                return;
             }
             size
         }
@@ -183,119 +177,73 @@ fn start_streaming_file(
             let err = io_error_to_op_error(sess.tf_mgr.transforms[tf_id].op_id, err);
             out_field.field_data.push_error(err, 1, false, false);
             fr.file.take();
-            sess.tf_mgr
-                .inform_successor_batch_available(tf_id, batch_size);
-            return false;
+            sess.tf_mgr.unlink_transform(tf_id, 1);
+            return;
         }
     };
 
     let mut buf = Vec::with_capacity(chunk_size);
     buf.extend_from_slice(&field_data[size_before..size_before + chunk_size]);
     field_data.resize(size_before, 0);
-    fr.stream_value = out_field.stream_field_data.push_value(StreamFieldValue {
+    fr.stream_value = Some(sess.stream_values.claim_with_value(StreamValue {
         data: StreamFieldValueData::BytesChunk(buf),
         done: false,
         bytes_are_utf8: false,
-    });
-    out_field
-        .field_data
-        .push_stream_value_id(fr.stream_value, 1, false, false);
+        subscribers: Default::default(),
+    }));
+    sess.tf_mgr.make_stream_producer(tf_id);
     sess.tf_mgr.push_successor_in_ready_queue(tf_id);
-    return true;
 }
 
-pub fn handle_tf_file_reader_batch_mode(
-    sess: &mut JobData<'_>,
-    tf_id: TransformId,
-    fr: &mut TfFileReader,
-) -> EnterStreamModeFlag {
-    if fr.file.is_none() {
-        let (batch, field) = sess.claim_batch(tf_id, &[]);
-        sess.entry_data.fields[field]
-            .borrow_mut()
-            .field_data
-            .push_unset(batch, true);
-        sess.tf_mgr.inform_successor_batch_available(tf_id, batch);
-        return false;
-    }
-    let enter_stream_mode = start_streaming_file(sess, tf_id, fr);
-    if enter_stream_mode {
-        sess.tf_mgr.stream_producers.push_back(tf_id);
-    }
-    enter_stream_mode
-}
+pub fn handle_tf_file_reader(sess: &mut JobData<'_>, tf_id: TransformId, fr: &mut TfFileReader) {
+    let sv_id = if let Some(sv_id) = fr.stream_value {
+        sv_id
+    } else {
+        start_streaming_file(sess, tf_id, fr);
+        return;
+    };
 
-pub fn handle_tf_file_reader_stream_mode(
-    _sess: &mut JobData<'_>,
-    _tf_id: TransformId,
-    _fr: &mut TfFileReader,
-) {
-    //TODO: ???
-}
-
-pub fn handle_tf_file_reader_producer_mode(
-    sess: &mut JobData<'_>,
-    tf_id: TransformId,
-    fr: &mut TfFileReader,
-) -> StreamProducerDoneFlag {
-    let mut update = true;
-    {
-        let input_field = sess.tf_mgr.transforms[tf_id].input_field;
-        let mut input = sess.entry_data.fields[input_field].borrow_mut();
-        let sfd = &mut input.stream_field_data;
-        {
-            let mut sv = sfd.get_value_mut(fr.stream_value);
-            if sv.done {
-                sv.data = StreamFieldValueData::Dropped;
-                return true;
+    let sv = &mut sess.stream_values[sv_id];
+    let res = match &mut sv.data {
+        StreamFieldValueData::BytesChunk(ref mut bc) => {
+            bc.clear();
+            read_chunk(
+                bc,
+                fr.file.as_mut().unwrap(),
+                INLINE_STR_MAX_LEN,
+                fr.line_buffered,
+            )
+        }
+        StreamFieldValueData::BytesBuffer(ref mut bb) => read_chunk(
+            bb,
+            fr.file.as_mut().unwrap(),
+            INLINE_STR_MAX_LEN,
+            fr.line_buffered,
+        ),
+        StreamFieldValueData::Error(_) => {
+            fr.file.take();
+            Ok((0, true))
+        }
+        StreamFieldValueData::Dropped => panic!("dropped stream value ovserved"),
+    };
+    match res {
+        Ok((_size, eof)) => {
+            if !eof {
+                sess.tf_mgr.stream_producers.push_back(tf_id);
+                sess.tf_mgr.update_ready_state(tf_id);
+                return;
             }
-            let res = match &mut sv.data {
-                StreamFieldValueData::BytesChunk(ref mut bc) => {
-                    bc.clear();
-                    read_chunk(
-                        bc,
-                        fr.file.as_mut().unwrap(),
-                        INLINE_STR_MAX_LEN,
-                        fr.line_buffered,
-                    )
-                }
-                StreamFieldValueData::BytesBuffer(ref mut bb) => {
-                    update = false;
-                    read_chunk(
-                        bb,
-                        fr.file.as_mut().unwrap(),
-                        INLINE_STR_MAX_LEN,
-                        fr.line_buffered,
-                    )
-                }
-                StreamFieldValueData::Error(_) => {
-                    fr.file.take();
-                    Ok((0, true))
-                }
-                StreamFieldValueData::Dropped => panic!("dropped stream value ovserved"),
-            };
-            match res {
-                Ok((_size, eof)) => {
-                    if eof {
-                        sv.done = true;
-                    }
-                }
-                Err(err) => {
-                    let err = io_error_to_op_error(sess.tf_mgr.transforms[tf_id].op_id, err);
-                    sv.data = StreamFieldValueData::Error(err);
-                    sv.done = true;
-                }
-            }
-        };
-        if update {
-            sfd.updates.push(fr.stream_value);
+            sv.done = true;
+        }
+        Err(err) => {
+            let err = io_error_to_op_error(sess.tf_mgr.transforms[tf_id].op_id, err);
+            sv.data = StreamFieldValueData::Error(err);
+            sv.done = true;
         }
     }
-    if update {
-        sess.tf_mgr.push_successor_in_ready_queue(tf_id);
-    }
-    false
+    sess.tf_mgr.unlink_transform(tf_id, 0);
 }
+
 pub fn parse_op_file(
     value: Option<&BStr>,
     arg_idx: Option<CliArgIdx>,

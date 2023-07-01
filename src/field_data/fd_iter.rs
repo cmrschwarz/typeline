@@ -6,7 +6,7 @@ use crate::{
         FieldValueHeader, FieldValueKind, Html, Object, RunLength,
     },
     operations::errors::OperatorApplicationError,
-    stream_field_data::StreamValueId,
+    stream_value::StreamValueId,
 };
 
 #[derive(Clone, Copy)]

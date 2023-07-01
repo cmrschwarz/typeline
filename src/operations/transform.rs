@@ -45,5 +45,6 @@ pub struct TransformState {
     pub ordering_id: TransformOrderingId,
     pub is_stream_producer: bool,
     pub is_batch_producer: bool,
+    pub is_stream_subscriber: bool,
     pub is_ready: bool,
 }

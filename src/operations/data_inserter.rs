@@ -49,27 +49,19 @@ pub fn setup_tf_data_inserter<'a>(
     (data, tf_state.input_field)
 }
 
-pub fn handle_tf_data_inserter_batch_mode(
+pub fn handle_tf_data_inserter(
     sess: &mut JobData<'_>,
     tf_id: TransformId,
     di: &mut TfDataInserter,
 ) {
     let (batch, field) = sess.claim_batch(tf_id, &[]);
-    let tf_state = &mut sess.tf_mgr.transforms[tf_id];
     let mut input_field = sess.entry_data.fields[field].borrow_mut();
     match di.data {
         AnyData::Bytes(b) => input_field.field_data.push_bytes(b, 1, true, false),
         AnyData::String(s) => input_field.field_data.push_str(s, 1, true, false),
         AnyData::Int(i) => input_field.field_data.push_int(*i, 1, true, false),
     }
-    let original_succ = tf_state.successor;
-    let original_pred = tf_state.predecessor;
-    if let Some(succ) = original_succ {
-        sess.tf_mgr.transforms[succ].predecessor = original_pred;
-        sess.tf_mgr
-            .inform_transform_batch_available(succ, batch + 1);
-        //TODO: remove transform
-    }
+    sess.tf_mgr.unlink_transform(tf_id, batch + 1);
 }
 
 pub fn parse_op_str(

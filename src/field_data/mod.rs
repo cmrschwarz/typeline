@@ -23,7 +23,7 @@ use std::{
 use std::ops::Deref;
 
 use crate::{
-    operations::errors::OperatorApplicationError, stream_field_data::StreamValueId,
+    operations::errors::OperatorApplicationError, stream_value::StreamValueId,
     utils::string_store::StringStoreEntry, worker_thread_session::FieldId,
 };
 

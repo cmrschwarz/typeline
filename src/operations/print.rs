@@ -13,22 +13,21 @@ use crate::{
         field_value_flags,
     },
     options::argument::CliArgIdx,
-    stream_field_data::{StreamFieldValue, StreamFieldValueData, StreamValueId},
+    stream_value::{StreamFieldValueData, StreamValue, StreamValueId},
     worker_thread_session::{FieldId, JobData},
 };
 
 use super::{
-    errors::{io_error_to_op_error, OperatorApplicationError, OperatorCreationError},
+    errors::{OperatorApplicationError, OperatorCreationError},
     operator::OperatorData,
     transform::{TransformData, TransformId, TransformState},
 };
 
 pub struct TfPrint {
     flush_on_every_print: bool,
-    consumed_entries: usize,
-    dropped_entries: usize,
+    pending_batch_size: usize,
     current_stream_val: Option<StreamValueId>,
-    batch_iter: FDIterId,
+    iter_id: FDIterId,
 }
 
 pub fn parse_op_print(
@@ -51,10 +50,9 @@ pub fn setup_tf_print(
     let tf = TfPrint {
         // TODO: should we make a config option for this?
         flush_on_every_print: std::io::stdout().is_terminal(),
-        consumed_entries: 0,
-        dropped_entries: 0,
+        pending_batch_size: 0,
         current_stream_val: None,
-        batch_iter: sess.entry_data.fields[tf_state.input_field]
+        iter_id: sess.entry_data.fields[tf_state.input_field]
             .borrow_mut()
             .field_data
             .claim_iter(),
@@ -142,7 +140,7 @@ pub fn write_error<const NEWLINE: bool>(
 
 fn write_stream_val_check_done<const NEWLINE: bool>(
     stream: &mut impl Write,
-    sv: &StreamFieldValue,
+    sv: &StreamValue,
 ) -> Result<bool, std::io::Error> {
     match &sv.data {
         StreamFieldValueData::BytesChunk(c) => {
@@ -168,26 +166,51 @@ fn write_stream_val_check_done<const NEWLINE: bool>(
     Ok(sv.done)
 }
 
-pub fn handle_tf_print_batch_mode_raw(
+pub fn handle_tf_print_raw(
     sess: &mut JobData<'_>,
     tf_id: TransformId,
     tf: &mut TfPrint,
     field_pos: &mut usize,
     field_pos_batch_end: &mut usize,
 ) -> Result<(), (usize, std::io::Error)> {
-    let (batch, input_field_id) = sess.claim_batch(tf_id, &[]);
+    let mut stdout = std::io::stdout().lock();
+
+    if let Some(id) = tf.current_stream_val {
+        let stream_val = &sess.stream_values[id];
+        let res = write_stream_val_check_done::<true>(&mut stdout, stream_val);
+        match res {
+            Ok(false) => return Ok(()),
+            Ok(true) => {
+                tf.current_stream_val = None;
+            }
+            Err(err) => {
+                tf.current_stream_val = None;
+                return Err((1, err));
+            }
+        }
+    }
+    let (batch, input_field_id);
+    if tf.pending_batch_size == 0 {
+        (batch, input_field_id) = sess.claim_batch(tf_id, &[]);
+        tf.pending_batch_size = batch;
+    } else {
+        input_field_id = sess.tf_mgr.transforms[tf_id].input_field;
+        batch = tf.pending_batch_size;
+    }
     let input_field = sess.entry_data.fields[input_field_id].borrow();
     let mut iter = input_field
         .field_data
-        .get_iter(tf.batch_iter)
+        .get_iter(tf.iter_id)
         .bounded(0, batch);
     let starting_pos = iter.get_next_field_pos();
     *field_pos = starting_pos;
     *field_pos_batch_end = starting_pos + batch;
-    let mut stdout = std::io::stdout().lock();
+
     let mut fd_ref_iter = FDRefIterLazy::default();
 
-    while let Some(range) = iter.typed_range_fwd(usize::MAX, field_value_flags::BYTES_ARE_UTF8) {
+    'iter: while let Some(range) =
+        iter.typed_range_fwd(usize::MAX, field_value_flags::BYTES_ARE_UTF8)
+    {
         match range.data {
             FDTypedSlice::TextInline(text) => {
                 for (v, rl) in InlineTextIter::from_typed_range(&range, text) {
@@ -247,8 +270,30 @@ pub fn handle_tf_print_batch_mode_raw(
             FDTypedSlice::Unset(_) => {
                 write_unset::<true>(&mut stdout, range.field_count)?;
             }
-            FDTypedSlice::StreamValueId(_) => {
-                panic!("hit stream value in batch mode");
+            FDTypedSlice::StreamValueId(svs) => {
+                for (sv_id, rl) in TypedSliceIter::from_typed_range(&range, svs) {
+                    let sv = &mut sess.stream_values[*sv_id];
+                    if !sv.done && rl > 1 {
+                        sv.promote_to_buffer();
+                        tf.current_stream_val = Some(*sv_id);
+                        iter.move_to_field_pos(*field_pos);
+                        break 'iter;
+                    }
+                    match write_stream_val_check_done::<true>(&mut stdout, sv) {
+                        Ok(false) => {
+                            sv.subscribe(tf_id);
+                            tf.current_stream_val = Some(*sv_id);
+                            iter.move_to_field_pos(*field_pos);
+                            break 'iter;
+                        }
+                        Ok(true) => {}
+                        Err(err) => {
+                            tf.current_stream_val = None;
+                            return Err((1, err));
+                        }
+                    }
+                    *field_pos += rl as usize;
+                }
             }
             FDTypedSlice::Html(_) | FDTypedSlice::Object(_) => {
                 write_type_error::<true>(&mut stdout, range.field_count)?;
@@ -256,19 +301,25 @@ pub fn handle_tf_print_batch_mode_raw(
         }
         *field_pos += range.field_count;
     }
-    //test whether we got the batch that was advertised
-    debug_assert!(iter.get_next_field_pos() - starting_pos == batch);
-    input_field.field_data.store_iter(tf.batch_iter, iter);
+    input_field.field_data.store_iter(tf.iter_id, iter);
     drop(input_field);
-    sess.tf_mgr.inform_successor_batch_available(tf_id, batch);
+    if tf.flush_on_every_print {
+        drop(stdout.flush());
+    }
+    let consumed_fields = *field_pos - starting_pos;
+    sess.tf_mgr.transforms[tf_id].is_stream_subscriber = tf.current_stream_val.is_some();
+    sess.tf_mgr.update_ready_state(tf_id);
+    sess.tf_mgr
+        .inform_successor_batch_available(tf_id, consumed_fields);
+
     Ok(())
 }
 
-pub fn handle_tf_print_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, tf: &mut TfPrint) {
+pub fn handle_tf_print(sess: &mut JobData<'_>, tf_id: TransformId, tf: &mut TfPrint) {
     let mut field_pos: usize = 0;
     let mut field_pos_batch_end: usize = 0;
     if let Err((i, err)) =
-        handle_tf_print_batch_mode_raw(sess, tf_id, tf, &mut field_pos, &mut field_pos_batch_end)
+        handle_tf_print_raw(sess, tf_id, tf, &mut field_pos, &mut field_pos_batch_end)
     {
         let fp = field_pos + i;
         sess.entry_data.push_entry_error(
@@ -281,109 +332,4 @@ pub fn handle_tf_print_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, tf
             field_pos_batch_end - fp,
         );
     }
-}
-
-pub fn handle_tf_print_stream_mode_raw(
-    sess: &mut JobData<'_>,
-    tf_id: TransformId,
-    tf_print: &mut TfPrint,
-    field_pos: &mut usize,
-) -> Result<(), (usize, std::io::Error)> {
-    let tf = &mut sess.tf_mgr.transforms[tf_id];
-    let input_field_id = tf.input_field;
-    let input_field = sess.entry_data.fields[input_field_id].borrow();
-    let sfd = &input_field.stream_field_data;
-    let mut stdout = std::io::stdout().lock();
-    tf_print.dropped_entries += sfd.entries_dropped;
-    let mut fd_ref_iter = FDRefIterLazy::default();
-
-    if let Some(id) = tf_print.current_stream_val {
-        let res = write_stream_val_check_done::<true>(&mut stdout, &sfd.get_value_mut(id));
-        match res {
-            Ok(false) => (),
-            Ok(true) => {
-                tf_print.consumed_entries += 1;
-                tf_print.current_stream_val = None;
-            }
-            Err(err) => {
-                let _err = io_error_to_op_error(sess.tf_mgr.transforms[tf_id].op_id, err);
-                //TODO: we need the field ref manager for this
-                //sess.push_entry_error(sess.tf_mgr.transforms[tf_id].match_set_id, err);
-                tf_print.current_stream_val = None;
-            }
-        }
-    }
-    if tf_print.current_stream_val.is_none() {
-        let mut iter = input_field.field_data.iter();
-        iter.next_n_fields(tf_print.consumed_entries - tf_print.dropped_entries);
-        while iter.is_next_valid() {
-            let field_val = iter.get_next_typed_field();
-            *field_pos = iter.get_next_field_pos();
-            match field_val.value {
-                FDTypedValue::Unset(_) => write_unset::<true>(&mut stdout, 1)?,
-                FDTypedValue::Null(_) => write_null::<true>(&mut stdout, 1)?,
-                FDTypedValue::Integer(v) => write_integer::<true>(&mut stdout, v, 1)?,
-                FDTypedValue::Reference(fr) => {
-                    let mut iter = fd_ref_iter.setup_iter_from_typed_field(
-                        &sess.entry_data.fields,
-                        &mut sess.entry_data.match_sets,
-                        *field_pos,
-                        fr,
-                        &field_val,
-                    );
-                    while let Some(fr) =
-                        iter.typed_range_fwd(&mut sess.entry_data.match_sets, usize::MAX)
-                    {
-                        match fr.data {
-                            FDTypedValue::StreamValueId(_) => todo!(),
-                            FDTypedValue::BytesInline(v) => write_raw_bytes::<true>(
-                                &mut stdout,
-                                &v[fr.begin..fr.end],
-                                fr.run_len as usize,
-                            )?,
-                            FDTypedValue::TextInline(v) => write_inline_text::<true>(
-                                &mut stdout,
-                                &v[fr.begin..fr.end],
-                                fr.run_len as usize,
-                            )?,
-                            _ => panic!("invalid target type for FieldReference"),
-                        }
-                    }
-                }
-                FDTypedValue::TextInline(text) => write_inline_text::<true>(&mut stdout, text, 1)?,
-                FDTypedValue::BytesInline(bytes) => write_raw_bytes::<true>(&mut stdout, bytes, 1)?,
-                FDTypedValue::BytesBuffer(bytes) => write_raw_bytes::<true>(&mut stdout, bytes, 1)?,
-                FDTypedValue::Error(error) => write_error::<true>(&mut stdout, error, 1)?,
-                FDTypedValue::Html(_) | FDTypedValue::Object(_) => {
-                    write_type_error::<true>(&mut stdout, 1)?
-                }
-                FDTypedValue::StreamValueId(id) => {
-                    let sfd = &input_field.stream_field_data;
-                    let sv = sfd.get_value(id);
-                    write_stream_val_check_done::<true>(&mut stdout, &sv).map_err(|e| (0, e))?;
-                }
-            }
-            tf_print.consumed_entries += 1;
-        }
-    }
-    if tf_print.flush_on_every_print {
-        let _ = std::io::stdout().flush();
-    }
-    sess.tf_mgr.push_successor_in_ready_queue(tf_id);
-    Ok(())
-}
-
-pub fn handle_tf_print_stream_mode(sess: &mut JobData<'_>, tf_id: TransformId, tf: &mut TfPrint) {
-    let mut field_pos: usize = 0;
-    if let Err((i, err)) = handle_tf_print_stream_mode_raw(sess, tf_id, tf, &mut field_pos) {
-        sess.entry_data.push_entry_error(
-            sess.tf_mgr.transforms[tf_id].match_set_id,
-            field_pos + i,
-            OperatorApplicationError {
-                op_id: sess.tf_mgr.transforms[tf_id].op_id,
-                message: Cow::Owned(err.to_string()),
-            },
-            1,
-        );
-    };
 }

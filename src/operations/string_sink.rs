@@ -110,7 +110,7 @@ fn push_string_clear_buf(
     push_string(sess, tf_id, field_pos, out, data, run_len);
 }
 
-pub fn handle_tf_string_sink_batch_mode(
+pub fn handle_tf_string_sink(
     sess: &mut JobData<'_>,
     tf_id: TransformId,
     tf: &mut TfStringSink<'_>,
@@ -208,7 +208,7 @@ pub fn handle_tf_string_sink_batch_mode(
                 );
             }
             FDTypedSlice::StreamValueId(_) => {
-                panic!("hit stream value in batch mode");
+                todo!();
             }
             FDTypedSlice::Html(_) | FDTypedSlice::Object(_) => {
                 write_type_error::<false>(&mut buf, range.field_count).unwrap();
@@ -221,12 +221,4 @@ pub fn handle_tf_string_sink_batch_mode(
     input_field.field_data.store_iter(tf.batch_iter, iter);
     drop(input_field);
     sess.tf_mgr.inform_successor_batch_available(tf_id, batch);
-}
-
-pub fn handle_tf_string_sink_stream_mode(
-    _sess: &mut JobData<'_>,
-    _tf_id: TransformId,
-    _tf: &mut TfStringSink<'_>,
-) {
-    todo!()
 }

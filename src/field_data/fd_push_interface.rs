@@ -6,7 +6,7 @@ use crate::{
         INLINE_STR_MAX_LEN,
     },
     operations::errors::OperatorApplicationError,
-    stream_field_data::StreamValueId,
+    stream_value::StreamValueId,
 };
 
 use super::{

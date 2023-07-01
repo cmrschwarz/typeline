@@ -443,7 +443,7 @@ fn match_regex_inner<'a, 'b, 'c>(
     rbs.match_count += match_count as usize;
 }
 
-pub fn handle_tf_regex_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRegex) {
+pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRegex) {
     let (batch, input_field_id) = sess.claim_batch(tf_id, &re.capture_group_fields);
     let tf = &sess.tf_mgr.transforms[tf_id];
     let op_id = tf.op_id;
