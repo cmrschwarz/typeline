@@ -63,6 +63,10 @@ pub fn setup_tf_print(
     (TransformData::Print(tf), input_field)
 }
 
+pub fn create_op_print() -> OperatorData {
+    OperatorData::Print
+}
+
 pub fn write_raw_bytes<const NEWLINE: bool>(
     stream: &mut impl Write,
     bytes: &[u8],

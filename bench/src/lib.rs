@@ -10,7 +10,18 @@ use scr::{
         string_sink::{create_op_string_sink, StringSinkHandle},
     },
     options::context_builder::ContextBuilder,
+    scr_error::ScrError,
 };
+
+#[bench]
+fn empty_context(b: &mut test::Bencher) {
+    b.iter(|| {
+        let res = ContextBuilder::default()
+            .add_doc(DocumentSource::String("foobar".to_owned()))
+            .run();
+        assert!(matches!(res, Err(ScrError::ChainSetupError(_))));
+    });
+}
 
 #[bench]
 fn regex_drop(b: &mut test::Bencher) {
