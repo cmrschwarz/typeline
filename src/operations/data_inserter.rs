@@ -42,7 +42,6 @@ pub fn setup_tf_data_inserter<'a>(
     op: &'a OpDataInserter,
     tf_state: &mut TransformState,
 ) -> (TransformData<'a>, FieldId) {
-    tf_state.is_batch_producer = true;
     // we will forward the whole input in one go and unlink us from the chain
     tf_state.desired_batch_size = usize::MAX;
     let data = TransformData::DataInserter(TfDataInserter { data: &op.data });

@@ -383,9 +383,7 @@ impl<'a> WorkerThreadSession<'a> {
                 input_data,
             )
         };
-        let first_tf = &mut self.job_data.tf_mgr.transforms[first_tf_id];
         if input_record_count == 0 {
-            debug_assert!(first_tf.is_batch_producer);
             self.job_data.tf_mgr.push_tf_in_ready_queue(first_tf_id);
         }
         Ok(())
@@ -487,7 +485,6 @@ impl<'a> WorkerThreadSession<'a> {
                 is_ready: false,
                 last_consumed_batch_size: 0,
                 is_stream_producer: false,
-                is_batch_producer: false,
                 is_stream_subscriber: false,
             };
             (tf_data, output_field) = match &op_data {
