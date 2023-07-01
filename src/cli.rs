@@ -1,12 +1,13 @@
 use crate::chain::BufferingMode;
+use crate::operations::data_inserter::{parse_op_bytes, parse_op_int, parse_op_str};
 use crate::operations::errors::OperatorCreationError;
+use crate::operations::file_reader::{parse_op_file, parse_op_stdin};
 use crate::operations::operator::OperatorData;
 use crate::operations::print::parse_op_print;
 use crate::operations::regex::{parse_op_regex, RegexOptions};
 use crate::operations::split::parse_op_split;
 use crate::scr_error::ScrError;
 use crate::{
-    document::{Document, DocumentSource},
     options::{
         argument::{ArgumentReassignmentError, CliArgIdx},
         chain_options::ChainOptions,
@@ -19,11 +20,10 @@ use crate::{
 use bstr::{BStr, BString, ByteSlice};
 use lazy_static::lazy_static;
 use regex::{Regex, RegexBuilder};
-use smallvec::smallvec;
-use std::fmt::Display;
-use std::{borrow::Cow, ffi::OsStr, path::PathBuf, str::from_utf8};
+
+use std::{borrow::Cow, fmt::Display, str::from_utf8};
 use thiserror::Error;
-use url::Url;
+
 #[derive(Error, Debug, Clone)]
 #[error("in cli arg {cli_arg_idx}: {message}")]
 pub struct CliArgumentError {
@@ -126,109 +126,6 @@ fn try_parse_bool(val: &BStr) -> Option<bool> {
         return Some(false);
     }
     None
-}
-
-fn try_parse_document_source(
-    argname: &str,
-    value: Option<&BStr>,
-    cli_arg_idx: CliArgIdx,
-) -> Result<Option<DocumentSource>, CliArgumentError> {
-    match argname {
-        "url" => {
-            if let Some(value) = value {
-                let url = Url::parse(from_utf8(value.as_bytes()).map_err(|_| {
-                    CliArgumentError::new(
-                        "str argument must be valid UTF-8, consider using bytes=...",
-                        cli_arg_idx,
-                    )
-                })?)
-                .map_err(|_| CliArgumentError::new("failed to parse url argument", cli_arg_idx))?;
-                Ok(Some(DocumentSource::Url(url)))
-            } else {
-                Err(CliArgumentError::new("missing value for url", cli_arg_idx))
-            }
-        }
-        "str" => {
-            if let Some(value) = value {
-                Ok(Some(DocumentSource::String(
-                    from_utf8(value.as_bytes())
-                        .map_err(|_| {
-                            CliArgumentError::new(
-                                "str argument must be valid UTF-8, consider using bytes=...",
-                                cli_arg_idx,
-                            )
-                        })?
-                        .to_owned(),
-                )))
-            } else {
-                Err(CliArgumentError::new(
-                    "missing value argument for str",
-                    cli_arg_idx,
-                ))
-            }
-        }
-        "int" => {
-            if let Some(value) = value {
-                let value = str::parse::<i64>(from_utf8(value.as_bytes()).map_err(|_| {
-                    CliArgumentError::new(
-                        "failed to parse value as integer (invalid utf-8)",
-                        cli_arg_idx,
-                    )
-                })?)
-                .map_err(|_| CliArgumentError::new("failed to value as integer", cli_arg_idx))?;
-                Ok(Some(DocumentSource::Integer(value)))
-            } else {
-                Err(CliArgumentError::new("missing value for int", cli_arg_idx))
-            }
-        }
-        "bytes" => {
-            if let Some(value) = value {
-                Ok(Some(DocumentSource::Bytes(BString::from(value))))
-            } else {
-                Err(CliArgumentError::new(
-                    "missing value argument for bytes",
-                    cli_arg_idx,
-                ))
-            }
-        }
-        "file" => {
-            if let Some(value) = value {
-                #[cfg(unix)]
-                {
-                    let path = PathBuf::from(
-                        <OsStr as std::os::unix::prelude::OsStrExt>::from_bytes(value.as_bytes()),
-                    );
-                    Ok(Some(DocumentSource::File(path)))
-                }
-                #[cfg(windows)]
-                {
-                    let path = PathBuf::from(value.to_str().map_err(|_| {
-                        CliArgumentError::new(
-                            "failed to parse file path argument as unicode",
-                            cli_arg_idx,
-                        )
-                    })?);
-                    Ok(Some(DocumentSource::File(path)))
-                }
-            } else {
-                Err(CliArgumentError::new(
-                    "missing path argument for file",
-                    cli_arg_idx,
-                ))
-            }
-        }
-        "stdin" => {
-            if value.is_some() {
-                Err(CliArgumentError::new(
-                    "stdin does not take arguments",
-                    cli_arg_idx,
-                ))
-            } else {
-                Ok(Some(DocumentSource::Stdin))
-            }
-        }
-        _ => Ok(None),
-    }
 }
 
 fn try_parse_selenium_variant(
@@ -359,91 +256,67 @@ fn try_parse_as_chain_opt(
             .map_err(|e| CliArgumentError::from(e))?;
         Ok(true)
     }
-
-    if arg.argname == "dte" {
-        if let Some(_val) = &arg.value {
-            todo!("parse text encoding");
-        } else {
-            return Err(CliArgumentError::new(
-                "missing argument for default text encoding",
-                arg.cli_arg.idx,
-            ));
-        }
-    }
-    if arg.argname == "ppte" {
-        let ppte = try_parse_bool_arg_or_default(arg.value.as_deref(), true, arg.cli_arg.idx)?;
-        return apply_to_chains(ctx_opts, arg, |c| c.prefer_parent_text_encoding.set(ppte));
-    }
-    if arg.argname == "fte" {
-        let fte = try_parse_bool_arg_or_default(arg.value.as_deref(), true, arg.cli_arg.idx)?;
-        return apply_to_chains(ctx_opts, arg, |c| c.force_text_encoding.set(fte));
-    }
     if "selenium".starts_with(&arg.argname) {
         let sv = try_parse_selenium_variant(arg.value.as_deref(), &arg.cli_arg)?;
         return apply_to_chains(ctx_opts, arg, |c| c.selenium_variant.set(sv));
     }
-    if arg.argname == "sds" {
-        let sds = try_parse_selenium_download_strategy(arg.value.as_deref(), &arg.cli_arg)?;
-        return apply_to_chains(ctx_opts, arg, |c| c.selenium_download_strategy.set(sds));
-    }
-    if arg.argname == "lb" {
-        let buffering_mode = if let Some(val) = arg.value.as_deref() {
-            if let Some(v) = try_parse_bool(val) {
-                if v {
-                    BufferingMode::LineBuffer
-                } else {
-                    BufferingMode::BlockBuffer
-                }
+    match arg.argname {
+        "dte" => {
+            if let Some(_val) = &arg.value {
+                todo!("parse text encoding");
             } else {
-                let res = if let Ok(val) = val.to_str() {
-                    match val {
-                        "stdin" => Some(BufferingMode::LineBufferStdin),
-                        "tty" => Some(BufferingMode::LineBufferIfTTY),
-                        "stdin-if-tty" => Some(BufferingMode::LineBufferStdinIfTTY),
-                        _ => None,
+                Err(CliArgumentError::new(
+                    "missing argument for default text encoding",
+                    arg.cli_arg.idx,
+                ))
+            }
+        }
+        "ppte" => {
+            let ppte = try_parse_bool_arg_or_default(arg.value.as_deref(), true, arg.cli_arg.idx)?;
+            apply_to_chains(ctx_opts, arg, |c| c.prefer_parent_text_encoding.set(ppte))
+        }
+        "fte" => {
+            let fte = try_parse_bool_arg_or_default(arg.value.as_deref(), true, arg.cli_arg.idx)?;
+            apply_to_chains(ctx_opts, arg, |c| c.force_text_encoding.set(fte))
+        }
+        "sds" => {
+            let sds = try_parse_selenium_download_strategy(arg.value.as_deref(), &arg.cli_arg)?;
+            apply_to_chains(ctx_opts, arg, |c| c.selenium_download_strategy.set(sds))
+        }
+        "lb" => {
+            let buffering_mode = if let Some(val) = arg.value.as_deref() {
+                if let Some(v) = try_parse_bool(val) {
+                    if v {
+                        BufferingMode::LineBuffer
+                    } else {
+                        BufferingMode::BlockBuffer
                     }
                 } else {
-                    None
-                };
-                if let Some(bm) = res {
-                    bm
-                } else {
-                    return Err(CliArgumentError{
+                    let res = if let Ok(val) = val.to_str() {
+                        match val {
+                            "stdin" => Some(BufferingMode::LineBufferStdin),
+                            "tty" => Some(BufferingMode::LineBufferIfTTY),
+                            "stdin-if-tty" => Some(BufferingMode::LineBufferStdinIfTTY),
+                            _ => None,
+                        }
+                    } else {
+                        None
+                    };
+                    if let Some(bm) = res {
+                        bm
+                    } else {
+                        return Err(CliArgumentError{
                             message: Cow::Owned(format!("unknown line buffering mode '{}', options are yes, no, stdin, tty, and stdin-if-tty", val.to_str_lossy())),
                             cli_arg_idx: arg.cli_arg.idx
                         });
+                    }
                 }
-            }
-        } else {
-            BufferingMode::LineBuffer
-        };
-        return apply_to_chains(ctx_opts, arg, |c| c.buffering_mode.set(buffering_mode));
-    }
-    return Ok(false);
-}
-
-fn try_parse_as_doc<'a>(
-    ctx_opts: &mut ContextOptions,
-    arg: ParsedCliArgument<'a>,
-) -> Result<Option<ParsedCliArgument<'a>>, CliArgumentError> {
-    let doc_source =
-        try_parse_document_source(&arg.argname, arg.value.as_deref(), arg.cli_arg.idx)?;
-    if let Some(doc_source) = doc_source {
-        if arg.label.is_some() {
-            return Err(CliArgumentError::new(
-                "cannot specify label for global argument",
-                arg.cli_arg.idx,
-            ));
+            } else {
+                BufferingMode::LineBuffer
+            };
+            apply_to_chains(ctx_opts, arg, |c| c.buffering_mode.set(buffering_mode))
         }
-        assert!(arg.chainspec.is_none()); //TODO
-        ctx_opts.documents.push(Document {
-            source: doc_source,
-            reference_point: None,
-            target_chains: smallvec![ctx_opts.curr_chain],
-        });
-        Ok(None)
-    } else {
-        Ok(Some(arg))
+        _ => Ok(false),
     }
 }
 
@@ -493,8 +366,14 @@ fn parse_operation(
     }
 
     Ok(match argname {
-        "s" | "split" => Some(OperatorData::Split(parse_op_split(value, idx)?)),
+        "s" | "split" => Some(parse_op_split(value, idx)?),
         "p" | "print" => Some(parse_op_print(value, idx)?),
+        "url" => todo!(),
+        "str" => Some(parse_op_str(value, idx)?),
+        "int" => Some(parse_op_int(value, idx)?),
+        "bytes" => Some(parse_op_bytes(value, idx)?),
+        "file" => Some(parse_op_file(value, idx)?),
+        "stdin" => Some(parse_op_stdin(value, idx)?),
         _ => None,
     })
 }
@@ -559,14 +438,12 @@ pub fn parse_cli_retain_args(args: &Vec<BString>) -> Result<ContextOptions, ScrE
             if try_parse_as_chain_opt(&mut ctx_opts, &arg)? {
                 continue;
             }
-            if let Some(arg) = try_parse_as_doc(&mut ctx_opts, arg)? {
-                if let Some(arg) = try_parse_as_operation(&mut ctx_opts, arg)? {
-                    return Err(CliArgumentError {
-                        message: format!("unknown argument name '{}'", arg.argname).into(),
-                        cli_arg_idx: arg.cli_arg.idx,
-                    }
-                    .into());
+            if let Some(arg) = try_parse_as_operation(&mut ctx_opts, arg)? {
+                return Err(CliArgumentError {
+                    message: format!("unknown argument name '{}'", arg.argname).into(),
+                    cli_arg_idx: arg.cli_arg.idx,
                 }
+                .into());
             }
         } else {
             return Err(CliArgumentError::new("invalid argument syntax", cli_arg.idx).into());

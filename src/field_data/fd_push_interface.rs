@@ -378,6 +378,22 @@ pub trait FDPushInterface: private_impl::FDUnsafePushInterface {
             try_data_rle,
         );
     }
+    fn push_bytes_buffer(
+        &mut self,
+        data: &[u8],
+        run_length: usize,
+        try_header_rle: bool,
+        try_data_rle: bool,
+    ) {
+        self.push_fixed_size_type(
+            FieldValueKind::BytesBuffer,
+            field_value_flags::DEFAULT,
+            data.to_vec(),
+            run_length,
+            try_header_rle,
+            try_data_rle,
+        );
+    }
     fn push_str(
         &mut self,
         data: &str,
@@ -389,6 +405,19 @@ pub trait FDPushInterface: private_impl::FDUnsafePushInterface {
             self.push_inline_str(data, run_length, try_header_rle, try_data_rle);
         } else {
             self.push_str_buffer(data, run_length, try_header_rle, try_data_rle);
+        }
+    }
+    fn push_bytes(
+        &mut self,
+        data: &[u8],
+        run_length: usize,
+        try_header_rle: bool,
+        try_data_rle: bool,
+    ) {
+        if data.len() <= INLINE_STR_MAX_LEN {
+            self.push_inline_bytes(data, run_length, try_header_rle, try_data_rle);
+        } else {
+            self.push_bytes_buffer(data, run_length, try_header_rle, try_data_rle);
         }
     }
     fn push_int(&mut self, data: i64, run_length: usize, try_header_rle: bool, try_data_rle: bool) {

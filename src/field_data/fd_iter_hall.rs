@@ -151,4 +151,14 @@ impl FDIterHall {
         self.field_count = 0;
         self.fd.clear();
     }
+    pub fn reset_with_data(&mut self, fd: FieldData) {
+        self.reset();
+        self.fd = fd;
+    }
+    pub fn new_with_data(fd: FieldData) -> Self {
+        Self {
+            fd,
+            ..Default::default()
+        }
+    }
 }

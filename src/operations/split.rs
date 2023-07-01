@@ -15,7 +15,7 @@ use crate::{
 
 use super::{
     errors::OperatorCreationError,
-    operator::OperatorId,
+    operator::{OperatorData, OperatorId},
     transform::{TransformData, TransformId, TransformState},
 };
 
@@ -35,7 +35,7 @@ pub struct TfSplit {
 pub fn parse_op_split(
     value: Option<&BStr>,
     arg_idx: Option<CliArgIdx>,
-) -> Result<OpSplit, OperatorCreationError> {
+) -> Result<OperatorData, OperatorCreationError> {
     let range_spec = if let Some(value) = value {
         RangeSpec::<ChainId>::parse(value.to_str().map_err(|_| {
             OperatorCreationError::new(
@@ -49,10 +49,10 @@ pub fn parse_op_split(
     } else {
         RangeSpec::Bounded(Some(0), None)
     };
-    Ok(OpSplit {
+    Ok(OperatorData::Split(OpSplit {
         range_spec,
         target_operators: Default::default(),
-    })
+    }))
 }
 
 pub fn setup_ts_split_as_entry_point<'a, 'b>(
@@ -63,7 +63,7 @@ pub fn setup_ts_split_as_entry_point<'a, 'b>(
     ops: impl Iterator<Item = &'b OperatorId> + Clone,
 ) -> (TransformState, TransformData<'a>) {
     let state = TransformState {
-        input_field: input_field,
+        input_field,
         available_batch_size: entry_count,
         match_set_id: ms_id,
         successor: None,
@@ -81,6 +81,7 @@ pub fn setup_ts_split_as_entry_point<'a, 'b>(
         last_consumed_batch_size: 0,
         is_ready: false,
         is_stream_producer: false,
+        is_batch_producer: false,
     };
     let data = TransformData::Split(TfSplit {
         expanded: false,
@@ -95,9 +96,8 @@ pub fn setup_ts_split_as_entry_point<'a, 'b>(
 
 pub fn setup_tf_split<'a>(
     _sess: &mut JobData,
-    _ms_id: MatchSetId,
-    input_field: FieldId,
     op: &'a OpSplit,
+    tf_state: &mut TransformState,
 ) -> (TransformData<'static>, FieldId) {
     let tf = TfSplit {
         expanded: false,
@@ -108,7 +108,7 @@ pub fn setup_tf_split<'a>(
             .collect(),
         field_names_set: Default::default(),
     };
-    (TransformData::Split(tf), input_field)
+    (TransformData::Split(tf), tf_state.input_field)
 }
 
 pub fn handle_tf_split(sess: &mut JobData, tf_id: TransformId, s: &mut TfSplit, stream_mode: bool) {

@@ -1,73 +1,89 @@
 use std::{
+    ffi::OsStr,
     fs::File,
     io::{BufRead, BufReader, Read, StdinLock},
+    path::PathBuf,
 };
+
+use bstr::BStr;
+use html5ever::tendril::fmt::Slice;
+use smallstr::SmallString;
 
 use crate::{
     field_data::{
         fd_push_interface::FDPushInterface, field_value_flags, FieldValueFormat, FieldValueHeader,
         FieldValueKind, FieldValueSize, INLINE_STR_MAX_LEN,
     },
+    options::argument::CliArgIdx,
     stream_field_data::{StreamFieldValue, StreamFieldValueData, StreamValueId},
-    worker_thread_session::{
-        EnterStreamModeFlag, FieldId, JobData, MatchSetId, StreamProducerDoneFlag, TransformManager,
-    },
+    worker_thread_session::{EnterStreamModeFlag, FieldId, JobData, StreamProducerDoneFlag},
 };
 
 use super::{
-    errors::io_error_to_op_error,
-    operator::OperatorId,
+    errors::{io_error_to_op_error, OperatorCreationError},
+    operator::{OperatorData, DEFAULT_OP_NAME_SMALL_STR_LEN},
     transform::{TransformData, TransformId, TransformState},
 };
 
-pub enum FileType<'a> {
-    Stdin(StdinLock<'a>),
-    File(File),
-    BufferedFile(BufReader<File>),
+pub enum FileKind {
+    Stdin,
+    File(PathBuf),
 }
 
-pub struct TfFileReader<'a> {
-    file: Option<FileType<'a>>,
-    output_field: FieldId,
+impl FileKind {
+    pub fn default_op_name(&self) -> SmallString<[u8; DEFAULT_OP_NAME_SMALL_STR_LEN]> {
+        match self {
+            super::file_reader::FileKind::Stdin => SmallString::from("stdin"),
+            super::file_reader::FileKind::File(_) => SmallString::from("file"),
+        }
+    }
+}
+
+pub enum AnyFile {
+    Stdin(StdinLock<'static>),
+    File(File),
+    BufferedFile(BufReader<File>),
+    //option so we can take it and raise it as an error later
+    FileOpenIoError(Option<std::io::Error>),
+}
+
+pub struct OpFileReader {
+    pub file_kind: FileKind,
+    pub line_buffered: bool,
+}
+
+pub struct TfFileReader {
+    // in case of errors, we close this by take()ing the file, therefore option
+    file: Option<AnyFile>,
     stream_value: StreamValueId,
     line_buffered: bool,
 }
 
-//TODO: add this as an operator aswell, only used for stdin/file for now
-pub fn setup_tf_file_reader_as_entry_point<'a>(
-    tf_mgr: &mut TransformManager,
-    input_field: FieldId,
-    output_field: FieldId,
-    ms_id: MatchSetId,
-    desired_batch_size: usize,
-    mut file: FileType<'a>,
-    line_buffered: bool,
-) -> (TransformState, TransformData<'a>) {
-    let state = TransformState {
-        input_field,
-        available_batch_size: 1,
-        match_set_id: ms_id,
-        successor: None,
-        predecessor: None,
-        desired_batch_size,
-        op_id: OperatorId::MAX,
-        ordering_id: tf_mgr.claim_transform_ordering_id(),
-        last_consumed_batch_size: 0,
-        is_ready: false,
-        is_stream_producer: false,
+pub fn setup_tf_file_reader<'a>(
+    _sess: &mut JobData,
+    op: &'a OpFileReader,
+    tf_state: &mut TransformState,
+) -> (TransformData<'a>, FieldId) {
+    //TODO: properly set up line buffering
+    let file = match &op.file_kind {
+        FileKind::Stdin => AnyFile::Stdin(std::io::stdin().lock()),
+        FileKind::File(path) => match File::open(path) {
+            Ok(f) => {
+                if op.line_buffered {
+                    AnyFile::File(f)
+                } else {
+                    AnyFile::BufferedFile(BufReader::new(f))
+                }
+            }
+            Err(e) => AnyFile::FileOpenIoError(Some(e)),
+        },
     };
-    if line_buffered {
-        if let FileType::File(f) = file {
-            file = FileType::BufferedFile(BufReader::new(f));
-        }
-    }
     let data = TransformData::FileReader(TfFileReader {
         file: Some(file),
-        output_field: output_field,
         stream_value: 0,
-        line_buffered,
+        line_buffered: op.line_buffered,
     });
-    (state, data)
+    (data, tf_state.input_field)
 }
 
 fn read_size_limited<F: Read>(
@@ -109,14 +125,15 @@ fn read_mode_based<F: BufRead>(
 
 fn read_chunk(
     target: &mut Vec<u8>,
-    file: &mut FileType,
+    file: &mut AnyFile,
     limit: usize,
     line_buffered: bool,
 ) -> Result<(usize, bool), std::io::Error> {
     let (size, eof) = match file {
-        FileType::BufferedFile(f) => read_mode_based(f, limit, target, line_buffered),
-        FileType::Stdin(f) => read_mode_based(f, limit, target, line_buffered),
-        FileType::File(f) => read_size_limited(f, limit, target),
+        AnyFile::BufferedFile(f) => read_mode_based(f, limit, target, line_buffered),
+        AnyFile::Stdin(f) => read_mode_based(f, limit, target, line_buffered),
+        AnyFile::File(f) => read_size_limited(f, limit, target),
+        AnyFile::FileOpenIoError(e) => Err(e.take().unwrap()),
     }?;
     Ok((size, eof))
 }
@@ -126,10 +143,9 @@ fn start_streaming_file(
     tf_id: TransformId,
     fr: &mut TfFileReader,
 ) -> EnterStreamModeFlag {
-    let (batch_size, _) = sess.claim_batch(tf_id, &[fr.output_field]);
-    debug_assert!(batch_size == 1);
-    let mut out_field = sess.entry_data.fields[fr.output_field].borrow_mut();
-
+    let (mut batch_size, input_field) = sess.claim_batch(tf_id, &[]);
+    let mut out_field = sess.entry_data.fields[input_field].borrow_mut();
+    batch_size += 1;
     // we want to write the chunk straight into field data to avoid a copy
     // SAFETY: this relies on the memory layout in field_data.
     // since that is a submodule of us, this is fine.
@@ -157,7 +173,8 @@ fn start_streaming_file(
                     },
                     run_length: 1,
                 });
-                sess.tf_mgr.inform_successor_batch_available(tf_id, 1);
+                sess.tf_mgr
+                    .inform_successor_batch_available(tf_id, batch_size);
                 fr.file.take();
                 *field_count += 1;
                 return false;
@@ -168,7 +185,8 @@ fn start_streaming_file(
             let err = io_error_to_op_error(sess.tf_mgr.transforms[tf_id].op_id, err);
             out_field.field_data.push_error(err, 1, false, false);
             fr.file.take();
-            sess.tf_mgr.inform_successor_batch_available(tf_id, 1);
+            sess.tf_mgr
+                .inform_successor_batch_available(tf_id, batch_size);
             return false;
         }
     };
@@ -194,8 +212,8 @@ pub fn handle_tf_file_reader_batch_mode(
     fr: &mut TfFileReader,
 ) -> EnterStreamModeFlag {
     if fr.file.is_none() {
-        let (batch, _) = sess.claim_batch(tf_id, &[fr.output_field]);
-        sess.entry_data.fields[fr.output_field]
+        let (batch, field) = sess.claim_batch(tf_id, &[]);
+        sess.entry_data.fields[field]
             .borrow_mut()
             .field_data
             .push_unset(batch, true);
@@ -224,7 +242,8 @@ pub fn handle_tf_file_reader_producer_mode(
 ) -> StreamProducerDoneFlag {
     let mut update = true;
     {
-        let mut input = sess.entry_data.fields[fr.output_field].borrow_mut();
+        let input_field = sess.tf_mgr.transforms[tf_id].input_field;
+        let mut input = sess.entry_data.fields[input_field].borrow_mut();
         let sfd = &mut input.stream_field_data;
         {
             let mut sv = sfd.get_value_mut(fr.stream_value);
@@ -278,4 +297,50 @@ pub fn handle_tf_file_reader_producer_mode(
         sess.tf_mgr.push_successor_in_ready_queue(tf_id);
     }
     false
+}
+pub fn parse_op_file(
+    value: Option<&BStr>,
+    arg_idx: Option<CliArgIdx>,
+) -> Result<OperatorData, OperatorCreationError> {
+    let path = if let Some(value) = value {
+        #[cfg(unix)]
+        {
+            PathBuf::from(<OsStr as std::os::unix::prelude::OsStrExt>::from_bytes(
+                value.as_bytes(),
+            ))
+        }
+        #[cfg(windows)]
+        {
+            PathBuf::from(value.to_str().map_err(|_| {
+                OperatorCreationError::new("failed to parse file path argument as unicode", arg_idx)
+            })?)
+        }
+    } else {
+        return Err(OperatorCreationError::new(
+            "missing path argument for file",
+            arg_idx,
+        ));
+    };
+
+    Ok(OperatorData::FileReader(OpFileReader {
+        file_kind: FileKind::File(path),
+        line_buffered: false, //this will be set based on the chain setting during setup
+    }))
+}
+
+pub fn parse_op_stdin(
+    value: Option<&BStr>,
+    arg_idx: Option<CliArgIdx>,
+) -> Result<OperatorData, OperatorCreationError> {
+    if value.is_some() {
+        return Err(OperatorCreationError::new(
+            "stdin does not take arguments",
+            arg_idx,
+        ));
+    };
+
+    Ok(OperatorData::FileReader(OpFileReader {
+        file_kind: FileKind::Stdin,
+        line_buffered: false, //this will be set based on the chain setting during setup
+    }))
 }

@@ -16,13 +16,13 @@ use crate::{
         write_error, write_inline_text, write_integer, write_null, write_raw_bytes,
         write_type_error, write_unset,
     },
-    worker_thread_session::{FieldId, JobData, MatchSetId},
+    worker_thread_session::{FieldId, JobData},
 };
 
 use super::{
     errors::OperatorApplicationError,
     operator::OperatorData,
-    transform::{TransformData, TransformId},
+    transform::{TransformData, TransformId, TransformState},
 };
 
 #[derive(Clone)]
@@ -59,18 +59,17 @@ pub struct TfStringSink<'a> {
 
 pub fn setup_tf_string_sink<'a>(
     sess: &mut JobData,
-    _ms_id: MatchSetId,
-    input_field: FieldId,
     ss: &'a OpStringSink,
+    tf_state: &mut TransformState,
 ) -> (TransformData<'a>, FieldId) {
     let tf = TfStringSink {
         handle: &ss.handle.data,
-        batch_iter: sess.entry_data.fields[input_field]
+        batch_iter: sess.entry_data.fields[tf_state.input_field]
             .borrow_mut()
             .field_data
             .claim_iter(),
     };
-    (TransformData::StringSink(tf), input_field)
+    (TransformData::StringSink(tf), tf_state.input_field)
 }
 
 fn push_string(

@@ -1,28 +1,25 @@
 use std::{
-    borrow::Cow,
     cell::RefCell,
     collections::{hash_map, BinaryHeap, HashMap, VecDeque},
     iter,
 };
 
-use is_terminal::IsTerminal;
 use nonmax::NonMaxUsize;
 
 use crate::{
-    chain::BufferingMode,
     context::SessionData,
-    document::DocumentSource,
     field_data::{
         fd_command_buffer::FDCommandBuffer,
         fd_iter_hall::{FDIterHall, FDIterId},
         fd_push_interface::FDPushInterface,
-        EntryId,
+        EntryId, FieldData,
     },
     operations::{
-        errors::{OperatorApplicationError, OperatorSetupError},
+        data_inserter::{handle_tf_data_inserter_batch_mode, setup_tf_data_inserter},
+        errors::OperatorApplicationError,
         file_reader::{
             handle_tf_file_reader_batch_mode, handle_tf_file_reader_producer_mode,
-            handle_tf_file_reader_stream_mode, setup_tf_file_reader_as_entry_point, FileType,
+            handle_tf_file_reader_stream_mode, setup_tf_file_reader,
         },
         format::setup_tf_format,
         operator::{OperatorData, OperatorId},
@@ -39,7 +36,7 @@ use crate::{
     stream_field_data::StreamFieldData,
     utils::string_store::StringStoreEntry,
     utils::universe::Universe,
-    worker_thread::{Job, JobInput},
+    worker_thread::Job,
 };
 
 pub const FIELD_REF_LOOKUP_ITER_ID: FDIterId = 0 as FDIterId;
@@ -107,8 +104,6 @@ pub struct JobData<'a> {
 
     pub tf_mgr: TransformManager,
     pub entry_data: EntryData,
-
-    pub(crate) ids_temp_buffer: Vec<NonMaxUsize>,
 }
 
 pub type EnterStreamModeFlag = bool;
@@ -150,8 +145,12 @@ impl TransformManager {
 }
 
 impl EntryData {
-    pub fn add_field(&mut self, ms_id: MatchSetId, name: Option<StringStoreEntry>) -> FieldId {
-        let field_id = self.fields.claim();
+    fn setup_field(
+        &mut self,
+        field_id: FieldId,
+        ms_id: MatchSetId,
+        name: Option<StringStoreEntry>,
+    ) {
         let mut field = self.fields[field_id as FieldId].borrow_mut();
         field.field_data.reserve_iter_id(FIELD_REF_LOOKUP_ITER_ID);
         field.name = name;
@@ -166,20 +165,47 @@ impl EntryData {
                 }
             }
         }
+    }
+    pub fn add_field(&mut self, ms_id: MatchSetId, name: Option<StringStoreEntry>) -> FieldId {
+        let field_id = self.fields.claim();
+        self.setup_field(field_id, ms_id, name);
+        field_id
+    }
+    pub fn add_field_with_data(
+        &mut self,
+        ms_id: MatchSetId,
+        name: Option<StringStoreEntry>,
+        data: FieldData,
+    ) -> FieldId {
+        let field_id = if self.fields.has_unclaimed_entries() {
+            let id = self.fields.claim();
+            self.fields[id]
+                .borrow_mut()
+                .field_data
+                .reset_with_data(data);
+            id
+        } else {
+            self.fields.claim_with(|| {
+                RefCell::new(Field {
+                    field_data: FDIterHall::new_with_data(data),
+                    ..Default::default()
+                })
+            })
+        };
+        self.setup_field(field_id, ms_id, name);
         field_id
     }
     pub fn remove_field(&mut self, id: FieldId) {
-        {
-            let mut field = self.fields[id].borrow_mut();
-            let match_set = &mut self.match_sets[field.match_set];
-            if let Some(ref name) = field.name {
-                let refs = match_set.field_name_map.get_mut(name).unwrap();
-                debug_assert!(*refs.front().unwrap() == id);
-                refs.pop_front();
-            }
-            field.ref_count = 0;
-            field.field_data.clear();
+        let mut field = self.fields[id].borrow_mut();
+        let match_set = &mut self.match_sets[field.match_set];
+        if let Some(ref name) = field.name {
+            let refs = match_set.field_name_map.get_mut(name).unwrap();
+            debug_assert!(*refs.front().unwrap() == id);
+            refs.pop_front();
         }
+        field.ref_count = 0;
+        field.field_data.reset();
+        drop(field);
         self.fields.release(id);
     }
     pub fn add_match_set(&mut self) -> MatchSetId {
@@ -304,130 +330,43 @@ impl<'a> WorkerThreadSession<'a> {
         self.job_data.entry_data.fields.clear();
         self.job_data.tf_mgr.ready_queue.clear();
         let ms_id = self.job_data.entry_data.add_match_set();
+        //TODO: unpack record set properly here
+        let input_record_count = job
+            .data
+            .fields
+            .iter()
+            .map(|f| f.data.field_count())
+            .max()
+            .unwrap_or(0);
         let input_data = self.job_data.entry_data.add_field(ms_id, None);
-        let mut entry_count: usize = 0;
-        let mut starting_tfs = std::mem::take(&mut self.job_data.ids_temp_buffer);
-        match job.data {
-            JobInput::FieldData(_fd) => loop {
-                todo!();
-            },
-            JobInput::Documents(_docs) => {
-                todo!();
-            }
-            JobInput::DocumentIds(doc_ids) => {
-                let jd = &mut self.job_data;
-                for doc in doc_ids
-                    .iter()
-                    .rev()
-                    .map(|d| &jd.session_data.documents[*d as usize])
-                {
-                    match &doc.source {
-                        DocumentSource::Url(_) => todo!(),
-                        DocumentSource::File(path) => match std::fs::File::open(path) {
-                            Ok(f) => {
-                                let line_buffer = match self.job_data.session_data.chains
-                                    [doc.target_chains[0] as usize]
-                                    .settings
-                                    .buffering_mode
-                                {
-                                    BufferingMode::LineBuffer => true,
-                                    BufferingMode::LineBufferIfTTY => f.is_terminal(),
-                                    BufferingMode::BlockBuffer
-                                    | BufferingMode::LineBufferStdin
-                                    | BufferingMode::LineBufferStdinIfTTY => false,
-                                };
-                                let file = FileType::File(f);
-                                let (state, data) = setup_tf_file_reader_as_entry_point(
-                                    &mut self.job_data.tf_mgr,
-                                    input_data,
-                                    input_data,
-                                    ms_id,
-                                    1,
-                                    file,
-                                    line_buffer,
-                                );
-                                let tf_id = self.add_transform(state, data);
-                                self.job_data.tf_mgr.push_tf_in_ready_queue(tf_id);
-                                starting_tfs.push(tf_id);
-                                break;
-                            }
-                            Err(err) => {
-                                return Err(OperatorSetupError {
-                                    message: Cow::Owned(err.to_string()),
-                                    op_id: job.starting_ops[0],
-                                }
-                                .into());
-                            }
-                        },
-                        DocumentSource::Bytes(_) => todo!(),
-                        DocumentSource::Stdin => todo!(),
-                        DocumentSource::Integer(int) => {
-                            self.job_data.entry_data.fields[input_data]
-                                .borrow_mut()
-                                .field_data
-                                .push_int(*int, 1, true, true);
-                            entry_count += 1;
-                        }
-                        DocumentSource::String(str) => {
-                            self.job_data.entry_data.fields[input_data]
-                                .borrow_mut()
-                                .field_data
-                                .push_str(str, 1, true, true);
-                            entry_count += 1;
-                        }
-                    }
-                }
-                if entry_count == 0 && starting_tfs.len() == 0 {
-                    return Err(OperatorSetupError::new(
-                        "must supply at least one initial data element",
-                        job.starting_ops[0],
-                    )
-                    .into());
-                }
-            }
-            JobInput::Stdin => {
-                //TODO: figure out which chain this setting should come from
-                let line_buffered =
-                    match self.job_data.session_data.chains[0].settings.buffering_mode {
-                        BufferingMode::BlockBuffer => false,
-                        BufferingMode::LineBuffer | BufferingMode::LineBufferStdin => true,
-                        BufferingMode::LineBufferStdinIfTTY | BufferingMode::LineBufferIfTTY => {
-                            std::io::stdout().is_terminal()
-                        }
-                    };
-                let (state, data) = setup_tf_file_reader_as_entry_point(
-                    &mut self.job_data.tf_mgr,
-                    input_data,
-                    input_data,
-                    ms_id,
-                    1,
-                    FileType::Stdin(std::io::stdin().lock()),
-                    line_buffered,
-                );
-                let tf_id = self.add_transform(state, data);
-                self.job_data.tf_mgr.push_tf_in_ready_queue(tf_id);
-                starting_tfs.push(tf_id);
-            }
-        }
+
         debug_assert!(!job.starting_ops.is_empty());
-        let first_tf = if job.starting_ops.len() > 1 {
+        let first_tf_id = if job.starting_ops.len() > 1 {
             let (tf_state, tf_data) = setup_ts_split_as_entry_point(
                 &mut self.job_data,
                 input_data,
                 ms_id,
-                entry_count,
+                input_record_count,
                 job.starting_ops.iter(),
             );
             let tf_id = self.add_transform(tf_state, tf_data);
             self.job_data.tf_mgr.push_tf_in_ready_queue(tf_id);
             tf_id
         } else {
-            self.setup_transforms_from_op(ms_id, entry_count, job.starting_ops[0], input_data)
+            self.setup_transforms_from_op(
+                ms_id,
+                input_record_count,
+                job.starting_ops[0],
+                input_data,
+            )
         };
-        for tf in &starting_tfs {
-            self.job_data.tf_mgr.transforms[*tf].successor = Some(first_tf);
-        }
-        self.job_data.ids_temp_buffer = std::mem::take(&mut starting_tfs);
+        let first_tf = &mut self.job_data.tf_mgr.transforms[first_tf_id];
+        debug_assert!(!first_tf.is_batch_producer); //should be checked by setup
+        first_tf.is_ready = true;
+        self.job_data.tf_mgr.ready_queue.push(ReadyQueueEntry {
+            ord_id: first_tf.ordering_id,
+            tf_id: first_tf_id,
+        });
         Ok(())
     }
     pub fn new(sess: &'a SessionData) -> Self {
@@ -446,7 +385,6 @@ impl<'a> WorkerThreadSession<'a> {
                     fields: Default::default(),
                     match_sets: Default::default(),
                 },
-                ids_temp_buffer: Default::default(),
             },
         }
     }
@@ -516,10 +454,12 @@ impl<'a> WorkerThreadSession<'a> {
                         return Ok(false);
                     }
                 }
+                TransformData::DataInserter(tf) => {
+                    handle_tf_data_inserter_batch_mode(jd, tf_id, tf)
+                }
                 TransformData::Disabled => unreachable!(),
             }
         }
-
         Ok(true)
     }
     fn run_stream_mode(&mut self) -> Result<(), ScrError> {
@@ -551,6 +491,7 @@ impl<'a> WorkerThreadSession<'a> {
                     TransformData::StringSink(tf) => {
                         handle_tf_string_sink_stream_mode(jd, tf_id, tf)
                     }
+                    TransformData::DataInserter(_tf) => todo!(),
                 }
             }
             let prod_tf_id;
@@ -592,16 +533,7 @@ impl<'a> WorkerThreadSession<'a> {
             let op_data = &self.job_data.session_data.operator_data[*op_id as usize];
             let tf_data;
             let jd = &mut self.job_data;
-            (tf_data, output_field) = match op_data {
-                OperatorData::Split(ref split) => setup_tf_split(jd, ms_id, prev_field_id, split),
-                OperatorData::Print => setup_tf_print(jd, ms_id, prev_field_id),
-                OperatorData::Regex(ref re) => setup_tf_regex(jd, ms_id, prev_field_id, re),
-                OperatorData::Format(ref fmt) => setup_tf_format(jd, ms_id, prev_field_id, fmt),
-                OperatorData::StringSink(ref ss) => {
-                    setup_tf_string_sink(jd, ms_id, prev_field_id, ss)
-                }
-            };
-            let tf_state = TransformState {
+            let mut tf_state = TransformState {
                 available_batch_size: start_tf_id.map(|_| 0).unwrap_or(available_batch_size),
                 input_field: prev_field_id,
                 match_set_id: ms_id,
@@ -609,10 +541,20 @@ impl<'a> WorkerThreadSession<'a> {
                 successor: None,
                 predecessor: prev_tf,
                 op_id: *op_id,
-                ordering_id: self.job_data.tf_mgr.claim_transform_ordering_id(),
+                ordering_id: jd.tf_mgr.claim_transform_ordering_id(),
                 is_ready: false,
                 last_consumed_batch_size: 0,
                 is_stream_producer: false,
+                is_batch_producer: false,
+            };
+            (tf_data, output_field) = match &op_data {
+                OperatorData::Split(split) => setup_tf_split(jd, split, &mut tf_state),
+                OperatorData::Print => setup_tf_print(jd, &mut tf_state),
+                OperatorData::Regex(op) => setup_tf_regex(jd, op, &mut tf_state),
+                OperatorData::Format(op) => setup_tf_format(jd, op, &mut tf_state),
+                OperatorData::StringSink(op) => setup_tf_string_sink(jd, op, &mut tf_state),
+                OperatorData::FileReader(op) => setup_tf_file_reader(jd, op, &mut tf_state),
+                OperatorData::DataInserter(op) => setup_tf_data_inserter(jd, op, &mut tf_state),
             };
             let tf_id = if start_tf_id.is_none() {
                 let tf_id = self.add_transform(tf_state, tf_data);

@@ -8,7 +8,6 @@ use smallvec::SmallVec;
 
 use crate::{
     context::{ContextData, SessionData},
-    document::{Document, DocumentId},
     field_data::FieldData,
     operations::operator::OperatorId,
     scr_error::ScrError,
@@ -16,16 +15,20 @@ use crate::{
     worker_thread_session::WorkerThreadSession,
 };
 
-pub enum JobInput {
-    FieldData(Vec<(Option<StringStoreEntry>, FieldData)>),
-    Documents(Vec<Document>),
-    DocumentIds(Vec<DocumentId>),
-    Stdin,
+#[derive(Default, Clone)]
+pub struct InputField {
+    pub name: Option<StringStoreEntry>,
+    pub data: FieldData,
+}
+
+#[derive(Default, Clone)]
+pub struct RecordSet {
+    pub fields: SmallVec<[InputField; 2]>,
 }
 
 pub(crate) struct Job {
     pub starting_ops: SmallVec<[OperatorId; 2]>,
-    pub data: JobInput,
+    pub data: RecordSet,
 }
 
 pub(crate) struct WorkerThread {

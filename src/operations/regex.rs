@@ -22,11 +22,12 @@ use crate::{
     field_data::{fd_iter::FDIterator, fd_iter_hall::FDIterId, field_value_flags, FieldReference},
     options::argument::CliArgIdx,
     utils::string_store::{StringStore, StringStoreEntry},
-    worker_thread_session::{FieldId, JobData, MatchSetId},
+    worker_thread_session::{FieldId, JobData},
 };
 
 use super::errors::OperatorSetupError;
 use super::operator::OperatorData;
+use super::transform::TransformState;
 use super::{
     errors::{OperatorApplicationError, OperatorCreationError},
     transform::{TransformData, TransformId},
@@ -291,14 +292,13 @@ pub fn setup_op_regex(
 
 pub fn setup_tf_regex<'a>(
     sess: &mut JobData,
-    ms_id: MatchSetId,
-    input_field: FieldId,
     op: &'a OpRegex,
+    tf_state: &mut TransformState,
 ) -> (TransformData<'a>, FieldId) {
     let mut cgfs: Vec<FieldId> = op
         .capture_group_names
         .iter()
-        .map(|name| sess.entry_data.add_field(ms_id, *name))
+        .map(|name| sess.entry_data.add_field(tf_state.match_set_id, *name))
         .collect();
     cgfs.sort_unstable();
     let output_field = cgfs[op.output_group_id];
@@ -311,7 +311,7 @@ pub fn setup_tf_regex<'a>(
         capture_group_fields: cgfs,
         capture_locs: op.regex.capture_locations(),
         multimatch: op.opts.multimatch,
-        input_field_iter_id: sess.entry_data.fields[input_field]
+        input_field_iter_id: sess.entry_data.fields[tf_state.input_field]
             .borrow_mut()
             .field_data
             .claim_iter(),

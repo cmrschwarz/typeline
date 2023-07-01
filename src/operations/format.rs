@@ -4,10 +4,13 @@ use bstr::BString;
 
 use crate::{
     chain::ChainId,
-    worker_thread_session::{FieldId, JobData, MatchSetId},
+    worker_thread_session::{FieldId, JobData},
 };
 
-use super::{operator::OperatorOffsetInChain, transform::TransformData};
+use super::{
+    operator::OperatorOffsetInChain,
+    transform::{TransformData, TransformState},
+};
 
 enum FormatKeyLocationReference {
     Index(u32),
@@ -43,14 +46,13 @@ pub struct TfFormat<'a> {
     pub parts: &'a [FormatPart],
 }
 
-pub fn setup_tf_format<'a, 'b>(
-    sess: &'_ mut JobData<'a>,
-    match_set_id: MatchSetId,
-    _input_field: FieldId,
-    op: &'b OpFormat,
-) -> (TransformData<'b>, FieldId) {
+pub fn setup_tf_format<'a>(
+    sess: &mut JobData,
+    op: &'a OpFormat,
+    tf_state: &mut TransformState,
+) -> (TransformData<'a>, FieldId) {
     //TODO: cache field indices...
-    let output_field = sess.entry_data.add_field(match_set_id, None);
+    let output_field = sess.entry_data.add_field(tf_state.match_set_id, None);
     let tf = TfFormat {
         output_field,
         parts: &op.parts,

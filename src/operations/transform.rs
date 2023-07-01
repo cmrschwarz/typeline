@@ -5,8 +5,9 @@ use nonmax::NonMaxUsize;
 use crate::worker_thread_session::{FieldId, MatchSetId};
 
 use super::{
-    file_reader::TfFileReader, format::TfFormat, operator::OperatorId, print::TfPrint,
-    regex::TfRegex, split::TfSplit, string_sink::TfStringSink,
+    data_inserter::TfDataInserter, file_reader::TfFileReader, format::TfFormat,
+    operator::OperatorId, print::TfPrint, regex::TfRegex, split::TfSplit,
+    string_sink::TfStringSink,
 };
 
 pub type TransformId = NonMaxUsize;
@@ -20,7 +21,8 @@ pub enum TransformData<'a> {
     Split(TfSplit),
     Regex(TfRegex),
     Format(TfFormat<'a>),
-    FileReader(TfFileReader<'a>),
+    FileReader(TfFileReader),
+    DataInserter(TfDataInserter<'a>),
 }
 
 impl Default for TransformData<'_> {
@@ -42,5 +44,6 @@ pub struct TransformState {
     pub op_id: OperatorId,
     pub ordering_id: TransformOrderingId,
     pub is_stream_producer: bool,
+    pub is_batch_producer: bool,
     pub is_ready: bool,
 }

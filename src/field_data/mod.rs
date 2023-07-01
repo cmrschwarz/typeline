@@ -286,6 +286,7 @@ impl FieldValueHeader {
 pub struct FieldData {
     pub(self) data: Vec<u8>,
     pub(self) header: Vec<FieldValueHeader>,
+    pub(self) field_count: usize,
 }
 
 impl Clone for FieldData {
@@ -293,6 +294,7 @@ impl Clone for FieldData {
         let mut fd = Self {
             data: Vec::with_capacity(self.data.len()),
             header: self.header.clone(),
+            field_count: self.field_count,
         };
         let fd_ref = &mut fd;
         FieldData::copy(self.iter(), move |f| f(fd_ref));
@@ -426,6 +428,9 @@ impl FieldData {
     }
     pub unsafe fn internals(&mut self) -> (&mut Vec<FieldValueHeader>, &mut Vec<u8>) {
         (&mut self.header, &mut self.data)
+    }
+    pub fn field_count(&self) -> usize {
+        self.field_count
     }
 }
 

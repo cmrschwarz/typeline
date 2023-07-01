@@ -3,21 +3,21 @@ use std::sync::{Arc, Condvar, Mutex};
 
 use bstr::BString;
 use crossbeam::deque::{Injector, Stealer, Worker};
-use smallvec::SmallVec;
+use smallvec::smallvec;
 
+use crate::worker_thread::RecordSet;
 use crate::{
     chain::Chain,
-    document::{Document, DocumentSource},
-    operations::operator::{OperatorBase, OperatorData, OperatorId},
+    operations::operator::{OperatorBase, OperatorData},
     scr_error::ScrError,
     utils::string_store::StringStore,
-    worker_thread::{Job, JobInput, WorkerThread},
+    worker_thread::{Job, WorkerThread},
 };
 
 pub struct SessionData {
     pub max_worker_threads: NonZeroUsize,
     pub is_repl: bool,
-    pub documents: Vec<Document>,
+    pub input_data: RecordSet,
     pub chains: Vec<Chain>,
     pub operator_bases: Vec<OperatorBase>,
     pub operator_data: Vec<OperatorData>,
@@ -66,39 +66,19 @@ impl Context {
             worker_join_handles: Default::default(),
         }
     }
-    pub fn gen_jobs_from_docs(&mut self) {
+    pub fn gen_job_from_input_data(&mut self) {
         let sd = self.curr_session_data.as_ref();
-        let mut stdin_job_ops: SmallVec<[OperatorId; 2]> = Default::default();
-        for (doc_id, doc) in sd.documents.iter().enumerate() {
-            let ops_iter = doc
-                .target_chains
-                .iter()
-                .filter_map(|c| sd.chains[*c as usize].operations.first().map(|o| *o));
-            match doc.source {
-                DocumentSource::Stdin => {
-                    stdin_job_ops.extend(ops_iter);
-                }
-                _ => {
-                    self.main_worker_thread.context_data.injector.push(Job {
-                        starting_ops: ops_iter.collect(),
-                        data: JobInput::DocumentIds(vec![doc_id]),
-                    });
-                }
-            }
-        }
-        if !stdin_job_ops.is_empty() {
-            self.main_worker_thread.context_data.injector.push(Job {
-                starting_ops: stdin_job_ops,
-                data: JobInput::Stdin,
-            });
-        }
+        self.main_worker_thread.context_data.injector.push(Job {
+            starting_ops: smallvec![sd.chains[0].operations[0]],
+            data: sd.input_data.clone(), //TODO: figure out a way to avoid this
+        });
         self.main_worker_thread
             .context_data
             .tasks_available
             .notify_all();
     }
     pub fn perform_jobs(&mut self) -> Result<(), ScrError> {
-        self.gen_jobs_from_docs();
+        self.gen_job_from_input_data();
         assert!(self.curr_session_data.max_worker_threads.get() > self.worker_join_handles.len()); // TODO: handle this case
         let additional_worker_count =
             self.curr_session_data.max_worker_threads.get() - self.worker_join_handles.len() - 1;

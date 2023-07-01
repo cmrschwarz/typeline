@@ -6,7 +6,6 @@ use lazy_static::lazy_static;
 use crate::{
     chain::ChainId,
     context::{Context, SessionData},
-    document::Document,
     operations::{
         errors::{ChainSetupError, OperatorSetupError},
         operator::{OperatorBase, OperatorData, OperatorId, OperatorOffsetInChain},
@@ -15,6 +14,7 @@ use crate::{
     scr_error::{result_into, ScrError},
     selenium::SeleniumVariant,
     utils::string_store::StringStore,
+    worker_thread::RecordSet,
 };
 
 use super::{
@@ -29,7 +29,7 @@ pub struct ContextOptions {
     pub exit_repl: Argument<bool>,
     pub install_selenium_drivers: Vec<Argument<SeleniumVariant>>,
     pub update_selenium_drivers: Vec<Argument<SeleniumVariant>>,
-    pub documents: Vec<Document>,
+    pub input_data: RecordSet,
     pub(crate) string_store: StringStore,
     pub(crate) operator_base_options: Vec<OperatorBaseOptions>,
     pub(crate) operator_data: Vec<OperatorData>,
@@ -47,7 +47,7 @@ impl Default for ContextOptions {
             install_selenium_drivers: Default::default(),
             update_selenium_drivers: Default::default(),
             chains: vec![ChainOptions::default()],
-            documents: Default::default(),
+            input_data: Default::default(),
             curr_chain: Default::default(),
             operator_base_options: Default::default(),
             operator_data: Default::default(),
@@ -67,7 +67,7 @@ lazy_static! {
         chains: Vec::new(),
         operator_base_options: Vec::new(),
         operator_data: Vec::new(),
-        documents: Vec::new(),
+        input_data: Default::default(),
         string_store: StringStore::default(),
         cli_args: None,
         curr_chain: 0,
@@ -128,6 +128,8 @@ impl ContextOptions {
                 OperatorData::StringSink(_)
                 | OperatorData::Split(_)
                 | OperatorData::Format(_)
+                | OperatorData::DataInserter(_)
+                | OperatorData::FileReader(_)
                 | OperatorData::Print => (),
             }
         }
@@ -159,7 +161,7 @@ impl ContextOptions {
         let mut sd = SessionData {
             max_worker_threads,
             is_repl: self.repl.unwrap_or(DEFAULT_CONTEXT_OPTIONS.repl.unwrap()),
-            documents: self.documents,
+            input_data: self.input_data,
             chains: self.chains.iter().map(|c| c.build_chain()).collect(),
             operator_data: self.operator_data,
             operator_bases: self
@@ -181,7 +183,7 @@ impl ContextOptions {
             .and(result_into(ContextOptions::setup_chains(&mut sd)));
         if let Err(e) = res {
             //moving back into context options
-            self.documents = sd.documents;
+            self.input_data = sd.input_data;
             self.string_store = sd.string_store;
             self.operator_data = sd.operator_data;
             self.cli_args = sd.cli_args;

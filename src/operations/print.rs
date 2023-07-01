@@ -14,13 +14,13 @@ use crate::{
     },
     options::argument::CliArgIdx,
     stream_field_data::{StreamFieldValue, StreamFieldValueData, StreamValueId},
-    worker_thread_session::{FieldId, JobData, MatchSetId},
+    worker_thread_session::{FieldId, JobData},
 };
 
 use super::{
     errors::{io_error_to_op_error, OperatorApplicationError, OperatorCreationError},
     operator::OperatorData,
-    transform::{TransformData, TransformId},
+    transform::{TransformData, TransformId, TransformState},
 };
 
 pub struct TfPrint {
@@ -46,8 +46,7 @@ pub fn parse_op_print(
 
 pub fn setup_tf_print(
     sess: &mut JobData,
-    _ms_id: MatchSetId,
-    input_field: FieldId,
+    tf_state: &mut TransformState,
 ) -> (TransformData<'static>, FieldId) {
     let tf = TfPrint {
         // TODO: should we make a config option for this?
@@ -55,12 +54,12 @@ pub fn setup_tf_print(
         consumed_entries: 0,
         dropped_entries: 0,
         current_stream_val: None,
-        batch_iter: sess.entry_data.fields[input_field]
+        batch_iter: sess.entry_data.fields[tf_state.input_field]
             .borrow_mut()
             .field_data
             .claim_iter(),
     };
-    (TransformData::Print(tf), input_field)
+    (TransformData::Print(tf), tf_state.input_field)
 }
 
 pub fn create_op_print() -> OperatorData {
