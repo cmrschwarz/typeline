@@ -1,7 +1,7 @@
 use crate::{
     field_data::{
-        fd_iter::{FDIter, FDIterator, FDTypedRange, FDTypedValue, TypedSliceIter},
-        FieldReference, RunLength,
+        fd_iter::{FDIter, FDIterator, FDTypedField, FDTypedRange, FDTypedValue, TypedSliceIter},
+        FieldReference, FieldValueHeader, RunLength,
     },
     utils::universe::Universe,
     worker_thread_session::{Field, FieldId, MatchSet, MatchSetId, FIELD_REF_LOOKUP_ITER_ID},
@@ -153,7 +153,7 @@ impl<'a: 'b, 'b> FDRefIterLazy<'a> {
             .and_then(|it| it.typed_range_fwd(match_sets, limit))
     }
     pub fn setup_iter(
-        &'b mut self,
+        &mut self,
         fields: &'a Universe<FieldId, RefCell<Field>>,
         match_sets: &'b mut Universe<MatchSetId, MatchSet>,
         field_pos: usize,
@@ -173,6 +173,35 @@ impl<'a: 'b, 'b> FDRefIterLazy<'a> {
             range.last_header_run_length_oversize,
         );
         let field = refs[0].field;
+
+        if let Some(iter) = &mut self.iter {
+            iter.set_refs_iter(refs_iter);
+            iter.move_to_field_pos(match_sets, field, field_pos);
+        } else {
+            self.iter = Some(FDRefIter::new(
+                refs_iter, fields, match_sets, field, field_pos,
+            ))
+        }
+    }
+    pub fn setup_iter_from_single_field(
+        &mut self,
+        fields: &'a Universe<FieldId, RefCell<Field>>,
+        match_sets: &'b mut Universe<MatchSetId, MatchSet>,
+        field_pos: usize,
+        field_ref: &'b FieldReference,
+        field: &'b FDTypedField,
+    ) {
+        let (header, refs) = unsafe {
+            std::mem::transmute::<
+                (&'b [FieldValueHeader], &'b [FieldReference]),
+                (&'a [FieldValueHeader], &'a [FieldReference]),
+            >((
+                std::slice::from_ref(&field.header),
+                std::slice::from_ref(field_ref),
+            ))
+        };
+        let refs_iter = TypedSliceIter::new(refs, header, 0, 0);
+        let field = field_ref.field;
 
         if let Some(iter) = &mut self.iter {
             iter.set_refs_iter(refs_iter);

@@ -47,13 +47,16 @@ fn lines_regex() -> Result<(), ScrError> {
 
 #[test]
 fn regex_drop() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
+    let ss1 = StringSinkHandle::new();
+    let ss2 = StringSinkHandle::new();
     ContextBuilder::default()
         .add_doc(DocumentSource::String("foo\nbar\nbaz\n".to_owned()))
         .add_op(create_op_regex_lines())
+        .add_op(create_op_string_sink(&ss1))
         .add_op(create_op_regex(".*[^r]$", Default::default()).unwrap())
-        .add_op(create_op_string_sink(&ss))
+        .add_op(create_op_string_sink(&ss2))
         .run()?;
-    assert_eq!(ss.get().as_slice(), ["foo", "baz"]);
+    assert_eq!(ss1.get().as_slice(), ["foo", "bar", "baz"]);
+    assert_eq!(ss2.get().as_slice(), ["foo", "baz"]);
     Ok(())
 }
