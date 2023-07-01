@@ -10,7 +10,7 @@ use crate::{
         field_value_flags,
     },
     operations::print::{
-        write_error, write_inline_bytes, write_inline_text, write_integer, write_null,
+        write_error, write_inline_text, write_integer, write_null, write_raw_bytes,
         write_type_error, write_unset, write_values_behind_field_ref,
     },
     worker_thread_session::{EntryData, FieldId, JobData, MatchSetId, FIELD_REF_LOOKUP_ITER_ID},
@@ -125,7 +125,7 @@ pub fn handle_tf_string_sink_batch_mode(
             }
             FDTypedSlice::BytesInline(bytes) => {
                 for (v, rl) in InlineBytesIter::from_typed_range(&range, bytes) {
-                    write_inline_bytes::<false>(&mut buf, v, 1).unwrap();
+                    write_raw_bytes::<false>(&mut buf, v, 1).unwrap();
                     push_string(sess, tf_id, field_pos, &mut out, &mut buf, rl as usize);
                 }
             }

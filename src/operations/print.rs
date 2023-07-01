@@ -4,6 +4,7 @@ use bstr::{BStr, ByteSlice};
 use is_terminal::IsTerminal;
 
 use crate::{
+    fd_ref_iter::FDRefIterLazy,
     field_data::{
         fd_iter::{
             FDIterator, FDTypedSlice, FDTypedValue, InlineBytesIter, InlineTextIter, TypedSliceIter,
@@ -13,7 +14,7 @@ use crate::{
     },
     options::argument::CliArgIdx,
     stream_field_data::{StreamFieldValue, StreamFieldValueData, StreamValueId},
-    worker_thread_session::{EntryData, FieldId, JobData, MatchSetId, FIELD_REF_LOOKUP_ITER_ID},
+    worker_thread_session::{FieldId, JobData, MatchSetId, FIELD_REF_LOOKUP_ITER_ID},
 };
 
 use super::{
@@ -211,6 +212,7 @@ pub fn handle_tf_print_batch_mode_raw(
     *field_pos = starting_pos;
     *field_pos_batch_end = starting_pos + batch;
     let mut stdout = std::io::stdout().lock();
+    let mut fd_ref_iter = FDRefIterLazy::default();
 
     while let Some(range) = iter.typed_range_fwd(usize::MAX, field_value_flags::BYTES_ARE_UTF8) {
         match range.data {
@@ -230,20 +232,30 @@ pub fn handle_tf_print_batch_mode_raw(
                 }
             }
             FDTypedSlice::Reference(refs) => {
-                let mut field_pos = starting_pos;
-                for (r, rl) in TypedSliceIter::from_typed_range(&range, refs) {
-                    // PERF: this is terrible
-                    EntryData::apply_field_commands(
-                        &sess.entry_data.fields,
-                        &mut sess.entry_data.match_sets,
-                        r.field,
-                    );
-                    let field = sess.entry_data.fields[r.field].borrow();
-                    let mut iter = field.field_data.get_iter(FIELD_REF_LOOKUP_ITER_ID);
-                    iter.move_to_field_pos(field_pos);
-                    field_pos += rl as usize;
-                    write_values_behind_field_ref::<true>(&mut stdout, r, &mut iter, rl)?;
-                    field.field_data.store_iter(FIELD_REF_LOOKUP_ITER_ID, iter);
+                fd_ref_iter.setup_iter(
+                    &sess.entry_data.fields,
+                    &mut sess.entry_data.match_sets,
+                    *field_pos,
+                    &range,
+                    refs,
+                );
+                while let Some(fr) =
+                    fd_ref_iter.typed_range_fwd(&mut sess.entry_data.match_sets, usize::MAX)
+                {
+                    match fr.data {
+                        FDTypedValue::StreamValueId(_) => todo!(),
+                        FDTypedValue::BytesInline(v) => write_raw_bytes::<true>(
+                            &mut stdout,
+                            &v.as_bytes()[fr.begin..fr.end],
+                            fr.run_len as usize,
+                        )?,
+                        FDTypedValue::TextInline(v) => write_inline_text::<true>(
+                            &mut stdout,
+                            &v[fr.begin..fr.end],
+                            fr.run_len as usize,
+                        )?,
+                        _ => panic!("invalid target type for FieldReference"),
+                    }
                 }
             }
             FDTypedSlice::Null(_) => {
@@ -345,9 +357,7 @@ pub fn handle_tf_print_stream_mode_raw(
                     fd.store_iter(FIELD_REF_LOOKUP_ITER_ID, iter);
                 }
                 FDTypedValue::TextInline(text) => write_inline_text::<true>(&mut stdout, text, 1)?,
-                FDTypedValue::BytesInline(bytes) => {
-                    write_inline_bytes::<true>(&mut stdout, bytes, 1)?
-                }
+                FDTypedValue::BytesInline(bytes) => write_raw_bytes::<true>(&mut stdout, bytes, 1)?,
                 FDTypedValue::Error(error) => write_error::<true>(&mut stdout, error, 1)?,
                 FDTypedValue::Html(_) | FDTypedValue::Object(_) => {
                     write_type_error::<true>(&mut stdout, 1)?
