@@ -283,6 +283,17 @@ fn try_parse_as_chain_opt(
             let sds = try_parse_selenium_download_strategy(arg.value.as_deref(), &arg.cli_arg)?;
             apply_to_chains(ctx_opts, arg, |c| c.selenium_download_strategy.set(sds))
         }
+        "bs" => {
+            if let Some(val) = arg.value {
+                let bs = try_parse_usize_arg(val, arg.cli_arg.idx)?;
+                apply_to_chains(ctx_opts, arg, |c| c.default_batch_size.set(bs))
+            } else {
+                Err(CliArgumentError::new(
+                    "missing argument for batch size",
+                    arg.cli_arg.idx,
+                ))
+            }
+        }
         "lb" => {
             let buffering_mode = if let Some(val) = arg.value.as_deref() {
                 if let Some(v) = try_parse_bool(val) {
