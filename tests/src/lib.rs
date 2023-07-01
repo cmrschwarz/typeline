@@ -1,8 +1,11 @@
 #![cfg(test)]
 
+use std::io::Read;
+
 use scr::{
     field_data::{fd_push_interface::FDPushInterface, record_set::RecordSet},
     operations::{
+        file_reader::create_op_file_reader_custom,
         regex::{create_op_regex, create_op_regex_lines, RegexOptions},
         string_sink::{create_op_string_sink, StringSinkHandle},
     },
@@ -79,5 +82,36 @@ fn large_batch() -> Result<(), ScrError> {
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(ss.get().as_slice(), &number_string_list[0..1000]);
+    Ok(())
+}
+
+#[test]
+fn trickling_stream() -> Result<(), ScrError> {
+    const SIZE: usize = 10000;
+    struct TestStream {
+        total_size: usize,
+    }
+
+    impl Read for TestStream {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            if self.total_size == 0 || buf.len() == 0 {
+                return Ok(0);
+            }
+            buf[0] = 'a' as u8;
+            self.total_size -= 1;
+            return Ok(1);
+        }
+    }
+    let ss = StringSinkHandle::new();
+    ContextBuilder::default()
+        .add_op(create_op_file_reader_custom(Box::new(TestStream {
+            total_size: SIZE,
+        })))
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(
+        ss.get().as_slice(),
+        [std::iter::repeat("a").take(SIZE).collect::<String>()]
+    );
     Ok(())
 }

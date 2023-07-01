@@ -3,6 +3,7 @@ use std::{
     fs::File,
     io::{BufRead, BufReader, Read, StdinLock},
     path::PathBuf,
+    sync::Mutex,
 };
 
 use bstr::BStr;
@@ -28,13 +29,15 @@ use super::{
 pub enum FileKind {
     Stdin,
     File(PathBuf),
+    Custom(Mutex<Option<Box<dyn Read + Send>>>),
 }
 
 impl FileKind {
     pub fn default_op_name(&self) -> SmallString<[u8; DEFAULT_OP_NAME_SMALL_STR_LEN]> {
         match self {
-            super::file_reader::FileKind::Stdin => SmallString::from("stdin"),
-            super::file_reader::FileKind::File(_) => SmallString::from("file"),
+            FileKind::Stdin => SmallString::from("stdin"),
+            FileKind::File(_) => SmallString::from("file"),
+            FileKind::Custom(_) => SmallString::from("__custom_file_stream__"),
         }
     }
 }
@@ -43,6 +46,7 @@ pub enum AnyFile {
     Stdin(StdinLock<'static>),
     File(File),
     BufferedFile(BufReader<File>),
+    Custom(Box<dyn Read>),
     //option so we can take it and raise it as an error later
     FileOpenIoError(Option<std::io::Error>),
 }
@@ -77,6 +81,13 @@ pub fn setup_tf_file_reader<'a>(
             }
             Err(e) => AnyFile::FileOpenIoError(Some(e)),
         },
+        FileKind::Custom(reader) => AnyFile::Custom(
+            reader
+                .lock()
+                .unwrap()
+                .take()
+                .expect("attempted to create two transforms from a single custom FileKind"),
+        ),
     };
     let data = TransformData::FileReader(TfFileReader {
         file: Some(file),
@@ -134,6 +145,7 @@ fn read_chunk(
         AnyFile::Stdin(f) => read_mode_based(f, limit, target, line_buffered),
         AnyFile::File(f) => read_size_limited(f, limit, target),
         AnyFile::FileOpenIoError(e) => Err(e.take().unwrap()),
+        AnyFile::Custom(r) => read_size_limited(r, limit, target),
     }?;
     Ok((size, eof))
 }
@@ -289,4 +301,11 @@ pub fn parse_op_stdin(
         file_kind: FileKind::Stdin,
         line_buffered: false, //this will be set based on the chain setting during setup
     }))
+}
+
+pub fn create_op_file_reader_custom(read: Box<dyn Read + Send>) -> OperatorData {
+    OperatorData::FileReader(OpFileReader {
+        file_kind: FileKind::Custom(Mutex::new(Some(read))),
+        line_buffered: false,
+    })
 }
