@@ -116,8 +116,9 @@ pub type StreamProducerDoneFlag = bool;
 
 impl TransformManager {
     pub fn claim_transform_ordering_id(&mut self) -> TransformOrderingId {
+        let res = self.transform_ordering_id;
         self.transform_ordering_id = self.transform_ordering_id.checked_add(1).unwrap();
-        self.transform_ordering_id
+        res
     }
     pub fn inform_transform_batch_available(&mut self, tf_id: TransformId, batch_size: usize) {
         let tf = &mut self.transforms[tf_id];
@@ -273,7 +274,7 @@ impl JobData<'_> {
                 .iter()
                 .map(|fid| self.entry_data.fields[*fid].borrow_mut())
                 .filter(|fid| fid.producing_transform_action_set_id == REGULAR_MARKER_IDX);
-            cb.execute(iter, tf_ord_id, max_action_set_id);
+            cb.execute(iter, tf_ord_id + 1, max_action_set_id);
         }
         if custom_command_application_needed {
             let iter = output_fields
@@ -282,10 +283,10 @@ impl JobData<'_> {
                 .filter(|fid| fid.producing_transform_action_set_id == CUSTOM_MARKER_IDX);
             for f in iter {
                 let min_idx = f.last_applied_action_set_id;
-                cb.execute(iter::once(f), min_idx, max_action_set_id);
+                cb.execute(iter::once(f), min_idx + 1, max_action_set_id);
             }
         }
-        cb.erase_action_sets(tf_ord_id);
+        cb.erase_action_sets(tf_ord_id + 1);
         let batch = tf.desired_batch_size.min(tf.available_batch_size);
         tf.available_batch_size -= batch;
         if tf.available_batch_size == 0 {

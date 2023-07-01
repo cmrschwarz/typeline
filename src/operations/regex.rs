@@ -50,7 +50,6 @@ pub struct TfRegex {
 }
 
 struct RegexBatchState {
-    drop_count: usize,
     field_idx: usize,
     match_count: usize,
 }
@@ -204,7 +203,7 @@ pub fn parse_op_regex(
                     output_group_id = regex
                         .capture_names()
                         .enumerate()
-                        .find(|(_i, cn)| cn.is_some_and(|cn| cn == &egr))
+                        .find(|(_i, cn)| *cn == Some(&egr.as_str()))
                         .map(|(i, _cn)| i)
                         .unwrap();
                 }
@@ -414,13 +413,6 @@ fn match_regex_inner<'a, 'b, 'c>(
     let starting_field_idx = rbs.field_idx;
     while regex.next(&mut last_end, &mut next_start) {
         match_count += 1;
-        rbs.field_idx -= rbs.drop_count;
-        command_buffer.push_action_with_usize_rl(
-            FieldActionKind::Drop,
-            rbs.field_idx,
-            rbs.drop_count,
-        );
-        rbs.drop_count = 0;
         for c in 0..regex.captures_locs_len() {
             let field = &mut fields[capture_group_fields[c]].borrow_mut().field_data;
             if let Some((cg_begin, cg_end)) = regex.captures_locs_get(c) {
@@ -444,15 +436,8 @@ fn match_regex_inner<'a, 'b, 'c>(
         }
     }
     if match_count == 0 {
-        rbs.field_idx -= rbs.drop_count + 1;
-        command_buffer.push_action_with_usize_rl(
-            FieldActionKind::Drop,
-            rbs.field_idx,
-            rbs.drop_count + 1,
-        );
-        rbs.drop_count = 0;
+        command_buffer.push_action(FieldActionKind::Drop, rbs.field_idx, 1);
     } else if match_count > 1 {
-        debug_assert!(rbs.drop_count == 0);
         command_buffer.push_action(FieldActionKind::Dup, starting_field_idx, match_count - 1);
     }
     rbs.match_count += match_count as usize;
@@ -462,7 +447,7 @@ pub fn handle_tf_regex_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, re
     let (batch, input_field_id) = sess.claim_batch(tf_id, &re.capture_group_fields);
     let tf = &sess.tf_mgr.transforms[tf_id];
     let op_id = tf.op_id;
-    let command_buffer = &mut sess.entry_data.match_sets[tf.match_set_id].command_buffer;
+    let mut command_buffer = &mut sess.entry_data.match_sets[tf.match_set_id].command_buffer;
     command_buffer.begin_action_set(tf.ordering_id.into());
     let input_field = sess.entry_data.fields[input_field_id].borrow_mut();
     let mut fd_ref_iter = FDRefIterLazy::default();
@@ -473,7 +458,6 @@ pub fn handle_tf_regex_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, re
         .bounded(0, batch);
 
     let mut rbs = RegexBatchState {
-        drop_count: 0,
         field_idx: iter.get_next_field_pos(),
         match_count: 0,
     };
@@ -516,7 +500,15 @@ pub fn handle_tf_regex_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, re
                 }
             }
             FDTypedSlice::Reference(refs) => {
-                for fr in fd_ref_iter.get_iter(&sess.entry_data.fields, rbs.field_idx, &range, refs)
+                fd_ref_iter.setup_iter(
+                    &sess.entry_data.fields,
+                    &mut sess.entry_data.match_sets,
+                    rbs.field_idx,
+                    &range,
+                    refs,
+                );
+                while let Some(fr) =
+                    fd_ref_iter.typed_range_fwd(&mut sess.entry_data.match_sets, usize::MAX)
                 {
                     let any_regex = match fr.data {
                         FDTypedValue::StreamValueId(_) => todo!(),
@@ -547,9 +539,10 @@ pub fn handle_tf_regex_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, re
                         re.multimatch,
                         &mut rbs,
                         &sess.entry_data.fields,
-                        command_buffer,
+                        &mut sess.entry_data.match_sets[tf.match_set_id].command_buffer,
                     );
                 }
+                command_buffer = &mut sess.entry_data.match_sets[tf.match_set_id].command_buffer;
             }
             FDTypedSlice::Unset(_)
             | FDTypedSlice::Null(_)

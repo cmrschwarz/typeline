@@ -79,7 +79,19 @@ impl FDCommandBuffer {
     }
     pub fn push_action(&mut self, kind: FieldActionKind, field_idx: usize, run_length: RunLength) {
         assert!(self.is_legal_field_idx_for_action(field_idx));
-        self.action_sets.last_mut().unwrap().action_count += 1;
+        let acs = self.action_sets.last_mut().unwrap();
+        if acs.action_count > 0 && kind == FieldActionKind::Drop {
+            // very simple early merging of drops to hopefully save some memory
+            // this also allows operations to be slightly more 'wasteful' with their action pushes
+            let last = &mut self.actions[ACTIONS_RAW_IDX][acs.actions_start + acs.action_count - 1];
+            if last.kind == kind
+                && RunLength::MAX as usize > last.run_len as usize + run_length as usize
+            {
+                last.run_len += run_length;
+                return;
+            }
+        }
+        acs.action_count += 1;
         self.actions[ACTIONS_RAW_IDX].push(FieldAction {
             kind,
             field_idx,
