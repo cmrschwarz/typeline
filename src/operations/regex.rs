@@ -500,7 +500,7 @@ pub fn handle_tf_regex_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, re
                 }
             }
             FDTypedSlice::Reference(refs) => {
-                fd_ref_iter.setup_iter(
+                let mut iter = fd_ref_iter.setup_iter_from_typed_range(
                     &sess.entry_data.fields,
                     &mut sess.entry_data.match_sets,
                     rbs.field_idx,
@@ -508,7 +508,7 @@ pub fn handle_tf_regex_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, re
                     refs,
                 );
                 while let Some(fr) =
-                    fd_ref_iter.typed_range_fwd(&mut sess.entry_data.match_sets, usize::MAX)
+                    iter.typed_range_fwd(&mut sess.entry_data.match_sets, usize::MAX)
                 {
                     let any_regex = match fr.data {
                         FDTypedValue::StreamValueId(_) => todo!(),

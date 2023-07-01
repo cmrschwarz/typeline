@@ -202,7 +202,7 @@ pub fn handle_tf_print_batch_mode_raw(
                 }
             }
             FDTypedSlice::Reference(refs) => {
-                fd_ref_iter.setup_iter(
+                let mut iter = fd_ref_iter.setup_iter_from_typed_range(
                     &sess.entry_data.fields,
                     &mut sess.entry_data.match_sets,
                     *field_pos,
@@ -210,7 +210,7 @@ pub fn handle_tf_print_batch_mode_raw(
                     refs,
                 );
                 while let Some(fr) =
-                    fd_ref_iter.typed_range_fwd(&mut sess.entry_data.match_sets, usize::MAX)
+                    iter.typed_range_fwd(&mut sess.entry_data.match_sets, usize::MAX)
                 {
                     match fr.data {
                         FDTypedValue::StreamValueId(_) => todo!(),
@@ -316,7 +316,7 @@ pub fn handle_tf_print_stream_mode_raw(
                 FDTypedValue::Null(_) => write_null::<true>(&mut stdout, 1)?,
                 FDTypedValue::Integer(v) => write_integer::<true>(&mut stdout, v, 1)?,
                 FDTypedValue::Reference(fr) => {
-                    fd_ref_iter.setup_iter_from_single_field(
+                    let mut iter = fd_ref_iter.setup_iter_from_typed_field(
                         &sess.entry_data.fields,
                         &mut sess.entry_data.match_sets,
                         *field_pos,
@@ -324,7 +324,7 @@ pub fn handle_tf_print_stream_mode_raw(
                         &field_val,
                     );
                     while let Some(fr) =
-                        fd_ref_iter.typed_range_fwd(&mut sess.entry_data.match_sets, usize::MAX)
+                        iter.typed_range_fwd(&mut sess.entry_data.match_sets, usize::MAX)
                     {
                         match fr.data {
                             FDTypedValue::StreamValueId(_) => todo!(),

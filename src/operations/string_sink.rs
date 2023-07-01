@@ -140,7 +140,7 @@ pub fn handle_tf_string_sink_batch_mode(
                 }
             }
             FDTypedSlice::Reference(refs) => {
-                fd_ref_iter.setup_iter(
+                let mut iter = fd_ref_iter.setup_iter_from_typed_range(
                     &sess.entry_data.fields,
                     &mut sess.entry_data.match_sets,
                     field_pos,
@@ -148,7 +148,7 @@ pub fn handle_tf_string_sink_batch_mode(
                     refs,
                 );
                 while let Some(fr) =
-                    fd_ref_iter.typed_range_fwd(&mut sess.entry_data.match_sets, usize::MAX)
+                    iter.typed_range_fwd(&mut sess.entry_data.match_sets, usize::MAX)
                 {
                     match fr.data {
                         FDTypedValue::StreamValueId(_) => todo!(),
