@@ -62,20 +62,7 @@ pub fn setup_tf_print(
     (TransformData::Print(tf), input_field)
 }
 
-pub fn write_inline_text<const NEWLINE: bool>(
-    stream: &mut impl Write,
-    text: &str,
-    run_len: usize,
-) -> Result<(), (usize, std::io::Error)> {
-    for i in 0..run_len {
-        stream
-            .write(text.as_bytes())
-            .and_then(|_| if NEWLINE { stream.write(b"\n") } else { Ok(0) })
-            .map_err(|e| (i, e))?;
-    }
-    Ok(())
-}
-pub fn write_inline_bytes<const NEWLINE: bool>(
+pub fn write_raw_bytes<const NEWLINE: bool>(
     stream: &mut impl Write,
     bytes: &[u8],
     run_len: usize,
@@ -88,19 +75,20 @@ pub fn write_inline_bytes<const NEWLINE: bool>(
     }
     Ok(())
 }
+pub fn write_inline_text<const NEWLINE: bool>(
+    stream: &mut impl Write,
+    text: &str,
+    run_len: usize,
+) -> Result<(), (usize, std::io::Error)> {
+    write_raw_bytes::<NEWLINE>(stream, text.as_bytes(), run_len)
+}
 
 pub fn write_inline_bytes_utf8_lossy<const NEWLINE: bool>(
     stream: &mut impl Write,
     bytes: &[u8],
     run_len: usize,
 ) -> Result<(), (usize, std::io::Error)> {
-    for i in 0..run_len {
-        stream
-            .write_fmt(format_args!("{}", bytes.to_str_lossy()))
-            .and_then(|_| if NEWLINE { stream.write(b"\n") } else { Ok(0) })
-            .map_err(|e| (i, e))?;
-    }
-    Ok(())
+    write_raw_bytes::<NEWLINE>(stream, bytes.to_str_lossy().as_bytes(), run_len)
 }
 
 pub fn write_integer<const NEWLINE: bool>(
@@ -111,19 +99,6 @@ pub fn write_integer<const NEWLINE: bool>(
     for i in 0..run_len {
         stream
             .write_fmt(format_args!("{v}\n"))
-            .map_err(|e| (i, e))?;
-    }
-    Ok(())
-}
-pub fn write_raw_bytes<const NEWLINE: bool>(
-    stream: &mut impl Write,
-    bytes: &[u8],
-    run_len: usize,
-) -> Result<(), (usize, std::io::Error)> {
-    for i in 0..run_len {
-        stream
-            .write(bytes)
-            .and_then(|_| if NEWLINE { stream.write(b"\n") } else { Ok(0) })
             .map_err(|e| (i, e))?;
     }
     Ok(())
@@ -202,7 +177,7 @@ pub fn write_values_behind_field_ref<'a, const NEWLINE: bool>(
             FDTypedSlice::StreamValueId(_) => panic!("hit stream value in batch mode"),
             FDTypedSlice::BytesInline(v) => {
                 for (bytes, rl) in InlineBytesIter::from_typed_range(&tr, v) {
-                    write_inline_bytes::<NEWLINE>(stream, &bytes[r.begin..r.end], rl as usize)
+                    write_raw_bytes::<NEWLINE>(stream, &bytes[r.begin..r.end], rl as usize)
                         .map_err(|(i, e)| (i + handled_elements, e))?;
                 }
             }
@@ -246,7 +221,7 @@ pub fn handle_tf_print_batch_mode_raw(
             }
             FDTypedSlice::BytesInline(bytes) => {
                 for (v, rl) in InlineBytesIter::from_typed_range(&range, bytes) {
-                    write_inline_bytes::<true>(&mut stdout, v, rl as usize)?;
+                    write_raw_bytes::<true>(&mut stdout, v, rl as usize)?;
                 }
             }
             FDTypedSlice::Integer(ints) => {
