@@ -6,6 +6,7 @@ use lazy_static::lazy_static;
 use crate::{
     chain::ChainId,
     context::{Context, SessionData},
+    field_data::record_set::RecordSet,
     operations::{
         errors::{ChainSetupError, OperatorSetupError},
         operator::{OperatorBase, OperatorData, OperatorId, OperatorOffsetInChain},
@@ -14,7 +15,6 @@ use crate::{
     scr_error::{result_into, ScrError},
     selenium::SeleniumVariant,
     utils::string_store::StringStore,
-    worker_thread::RecordSet,
 };
 
 use super::{

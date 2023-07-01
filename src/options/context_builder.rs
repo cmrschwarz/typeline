@@ -1,5 +1,9 @@
 use crate::{
-    chain::ChainId, context::Context, operations::operator::OperatorData, scr_error::ScrError,
+    chain::ChainId,
+    context::Context,
+    field_data::{fd_push_interface::FDPushInterface, record_set::RecordSet},
+    operations::operator::OperatorData,
+    scr_error::ScrError,
 };
 
 use super::{context_options::ContextOptions, operator_base_options::OperatorBaseOptions};
@@ -37,7 +41,10 @@ impl ContextBuilder {
         self.opts.add_op(base, op_data);
         self
     }
-
+    pub fn set_input(mut self, rs: RecordSet) -> Self {
+        self.opts.input_data = rs;
+        self
+    }
     pub fn set_current_chain(mut self, chain_id: ChainId) -> Self {
         self.opts.set_current_chain(chain_id);
         self
@@ -47,5 +54,28 @@ impl ContextBuilder {
     }
     pub fn run(self) -> Result<(), ScrError> {
         self.build()?.run()
+    }
+}
+
+impl ContextBuilder {
+    pub fn push_str(mut self, v: &str, run_length: usize) -> Self {
+        self.opts.input_data.push_str(v, run_length, true, false);
+        self
+    }
+    pub fn push_string(mut self, v: String, run_length: usize) -> Self {
+        self.opts.input_data.push_string(v, run_length, true, false);
+        self
+    }
+    pub fn push_int(mut self, v: i64, run_length: usize) -> Self {
+        self.opts.input_data.push_int(v, run_length, true, false);
+        self
+    }
+    pub fn push_bytes(mut self, v: &[u8], run_length: usize) -> Self {
+        self.opts.input_data.push_bytes(v, run_length, true, false);
+        self
+    }
+    pub fn push_null(mut self, run_length: usize) -> Self {
+        self.opts.input_data.push_null(run_length, true);
+        self
     }
 }

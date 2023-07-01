@@ -1,7 +1,7 @@
 #![cfg(test)]
 
 use scr::{
-    document::DocumentSource,
+    field_data::{fd_push_interface::FDPushInterface, record_set::RecordSet},
     operations::{
         regex::{create_op_regex, create_op_regex_lines, RegexOptions},
         string_sink::{create_op_string_sink, StringSinkHandle},
@@ -14,7 +14,7 @@ use scr::{
 fn string_sink() -> Result<(), ScrError> {
     let ss = StringSinkHandle::new();
     ContextBuilder::default()
-        .add_doc(DocumentSource::String("foo".to_owned()))
+        .push_str("foo", 1)
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(ss.get().as_slice(), ["foo"]);
@@ -25,8 +25,8 @@ fn string_sink() -> Result<(), ScrError> {
 fn multi_doc() -> Result<(), ScrError> {
     let ss = StringSinkHandle::new();
     ContextBuilder::default()
-        .add_doc(DocumentSource::String("foo".to_owned()))
-        .add_doc(DocumentSource::String("bar".to_owned()))
+        .push_str("foo", 1)
+        .push_str("bar", 1)
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(ss.get().as_slice(), ["foo", "bar"]);
@@ -37,7 +37,7 @@ fn multi_doc() -> Result<(), ScrError> {
 fn lines_regex() -> Result<(), ScrError> {
     let ss = StringSinkHandle::new();
     ContextBuilder::default()
-        .add_doc(DocumentSource::String("foo\nbar\nbaz\n".to_owned()))
+        .push_str("foo\nbar\nbaz\n", 1)
         .add_op(create_op_regex_lines())
         .add_op(create_op_string_sink(&ss))
         .run()?;
@@ -49,8 +49,10 @@ fn lines_regex() -> Result<(), ScrError> {
 fn regex_drop() -> Result<(), ScrError> {
     let ss1 = StringSinkHandle::new();
     let ss2 = StringSinkHandle::new();
+    let mut rs = RecordSet::default();
+    rs.push_str("foo\nbar\nbaz\n", 1, false, false);
     ContextBuilder::default()
-        .add_doc(DocumentSource::String("foo\nbar\nbaz\n".to_owned()))
+        .set_input(rs)
         .add_op(create_op_regex_lines())
         .add_op(create_op_string_sink(&ss1))
         .add_op(create_op_regex(".*[^r]$", Default::default()).unwrap())
@@ -71,7 +73,7 @@ fn large_batch() -> Result<(), ScrError> {
     });
     let ss = StringSinkHandle::new();
     ContextBuilder::default()
-        .add_doc(DocumentSource::String(number_string_joined.clone()))
+        .push_str(&number_string_joined, 1)
         .add_op(create_op_regex_lines())
         .add_op(create_op_regex("^[0-9]{1,3}$", RegexOptions::default()).unwrap())
         .add_op(create_op_string_sink(&ss))

@@ -2,7 +2,6 @@ use std::mem::ManuallyDrop;
 
 use crate::{
     field_data::{
-        fd_push_interface::private_impl::FDUnsafeHeaderPushInterface,
         field_value_flags::{self, BYTES_ARE_UTF8, SHARED_VALUE},
         INLINE_STR_MAX_LEN,
     },
@@ -15,65 +14,57 @@ use super::{
     FieldValueFormat, FieldValueHeader, FieldValueKind, FieldValueSize, RunLength,
 };
 
-// SAFETY: this trait must be made private because it's functions have no way
-// to check whether the supplied data matches the given FieldValueKind
-// which makes them unsound for a public API.
-// This feels preferrable in this case over making basically everything in this
-// module unsafe, which would severely obscure the *really* unsafe things
-mod private_impl {
-    use crate::field_data::{FieldValueFlags, FieldValueFormat, FieldValueKind};
-    pub trait FDUnsafeHeaderPushInterface {
-        fn push_header_raw(&mut self, fmt: FieldValueFormat, run_length: usize);
-        fn push_header_raw_same_value_after_first(
-            &mut self,
-            fmt: FieldValueFormat,
-            run_length: usize,
-        );
-        fn add_header_for_single_value(
-            &mut self,
-            fmt: FieldValueFormat,
-            run_length: usize,
-            header_rle: bool,
-            data_rle: bool,
-        );
-        fn add_header_padded_for_single_value(
-            &mut self,
-            fmt: FieldValueFormat,
-            run_length: usize,
-            padding: usize,
-        );
-    }
-    pub trait FDUnsafePushInterface {
-        fn push_variable_sized_type(
-            &mut self,
-            kind: FieldValueKind,
-            flags: FieldValueFlags,
-            data: &[u8],
-            run_length: usize,
-            try_header_rle: bool,
-            try_data_rle: bool,
-        );
-        fn push_fixed_size_type<T: PartialEq + Clone + Unpin>(
-            &mut self,
-            kind: FieldValueKind,
-            flags: FieldValueFlags,
-            data: T,
-            run_length: usize,
-            try_header_rle: bool,
-            try_data_rle: bool,
-        );
-        fn push_zst(
-            &mut self,
-            kind: FieldValueKind,
-            flags: FieldValueFlags,
-            run_length: usize,
-            try_header_rle: bool,
-        );
-    }
+pub trait FDUnsafeHeaderPushInterface {
+    unsafe fn push_header_raw(&mut self, fmt: FieldValueFormat, run_length: usize);
+    unsafe fn push_header_raw_same_value_after_first(
+        &mut self,
+        fmt: FieldValueFormat,
+        run_length: usize,
+    );
+    unsafe fn add_header_for_single_value(
+        &mut self,
+        fmt: FieldValueFormat,
+        run_length: usize,
+        header_rle: bool,
+        data_rle: bool,
+    );
+    unsafe fn add_header_padded_for_single_value(
+        &mut self,
+        fmt: FieldValueFormat,
+        run_length: usize,
+        padding: usize,
+    );
 }
-impl private_impl::FDUnsafeHeaderPushInterface for FieldData {
+pub unsafe trait FDRawPushInterface {
+    unsafe fn push_variable_sized_type(
+        &mut self,
+        kind: FieldValueKind,
+        flags: FieldValueFlags,
+        data: &[u8],
+        run_length: usize,
+        try_header_rle: bool,
+        try_data_rle: bool,
+    );
+    unsafe fn push_fixed_size_type<T: PartialEq + Clone + Unpin>(
+        &mut self,
+        kind: FieldValueKind,
+        flags: FieldValueFlags,
+        data: T,
+        run_length: usize,
+        try_header_rle: bool,
+        try_data_rle: bool,
+    );
+    unsafe fn push_zst(
+        &mut self,
+        kind: FieldValueKind,
+        flags: FieldValueFlags,
+        run_length: usize,
+        try_header_rle: bool,
+    );
+}
+impl FDUnsafeHeaderPushInterface for FieldData {
     #[inline(always)]
-    fn push_header_raw(&mut self, fmt: FieldValueFormat, mut run_length: usize) {
+    unsafe fn push_header_raw(&mut self, fmt: FieldValueFormat, mut run_length: usize) {
         while run_length > RunLength::MAX as usize {
             self.header.push(FieldValueHeader {
                 fmt: fmt,
@@ -87,7 +78,7 @@ impl private_impl::FDUnsafeHeaderPushInterface for FieldData {
         });
     }
     #[inline(always)]
-    fn push_header_raw_same_value_after_first(
+    unsafe fn push_header_raw_same_value_after_first(
         &mut self,
         mut fmt: FieldValueFormat,
         run_length: usize,
@@ -103,7 +94,7 @@ impl private_impl::FDUnsafeHeaderPushInterface for FieldData {
         }
     }
     #[inline(always)]
-    fn add_header_for_single_value(
+    unsafe fn add_header_for_single_value(
         &mut self,
         mut fmt: FieldValueFormat,
         mut run_length: usize,
@@ -147,7 +138,7 @@ impl private_impl::FDUnsafeHeaderPushInterface for FieldData {
         }
         self.push_header_raw_same_value_after_first(fmt, run_length);
     }
-    fn add_header_padded_for_single_value(
+    unsafe fn add_header_padded_for_single_value(
         &mut self,
         mut fmt: FieldValueFormat,
         mut run_length: usize,
@@ -169,8 +160,8 @@ impl private_impl::FDUnsafeHeaderPushInterface for FieldData {
     }
 }
 
-impl private_impl::FDUnsafePushInterface for FieldData {
-    fn push_variable_sized_type(
+unsafe impl FDRawPushInterface for FieldData {
+    unsafe fn push_variable_sized_type(
         &mut self,
         kind: FieldValueKind,
         flags: FieldValueFlags,
@@ -179,6 +170,7 @@ impl private_impl::FDUnsafePushInterface for FieldData {
         try_header_rle: bool,
         try_data_rle: bool,
     ) {
+        self.field_count += run_length;
         debug_assert!(data.len() <= INLINE_STR_MAX_LEN);
         let size = data.len() as FieldValueSize;
 
@@ -215,7 +207,7 @@ impl private_impl::FDUnsafePushInterface for FieldData {
             self.data.extend_from_slice(data);
         }
     }
-    fn push_fixed_size_type<T: PartialEq + Clone + Unpin>(
+    unsafe fn push_fixed_size_type<T: PartialEq + Clone + Unpin>(
         &mut self,
         kind: FieldValueKind,
         flags: FieldValueFlags,
@@ -224,6 +216,7 @@ impl private_impl::FDUnsafePushInterface for FieldData {
         try_header_rle: bool,
         try_data_rle: bool,
     ) {
+        self.field_count += run_length;
         let mut data_rle = false;
         let mut header_rle = false;
         let fmt = FieldValueFormat {
@@ -257,7 +250,7 @@ impl private_impl::FDUnsafePushInterface for FieldData {
             self.data.extend_from_slice(unsafe { as_u8_slice(&data) });
         }
     }
-    fn push_zst(
+    unsafe fn push_zst(
         &mut self,
         kind: FieldValueKind,
         flags: FieldValueFlags,
@@ -265,6 +258,7 @@ impl private_impl::FDUnsafePushInterface for FieldData {
         try_header_rle: bool,
     ) {
         debug_assert!(kind == FieldValueKind::Null || kind == FieldValueKind::Unset);
+        self.field_count += run_length;
         let fmt = FieldValueFormat {
             kind: kind,
             flags: flags | SHARED_VALUE,
@@ -281,8 +275,8 @@ impl private_impl::FDUnsafePushInterface for FieldData {
         self.add_header_for_single_value(fmt, run_length, header_rle, header_rle);
     }
 }
-impl private_impl::FDUnsafePushInterface for FDIterHall {
-    fn push_variable_sized_type(
+unsafe impl FDRawPushInterface for FDIterHall {
+    unsafe fn push_variable_sized_type(
         &mut self,
         kind: FieldValueKind,
         flags: FieldValueFlags,
@@ -291,7 +285,6 @@ impl private_impl::FDUnsafePushInterface for FDIterHall {
         try_header_rle: bool,
         try_data_rle: bool,
     ) {
-        self.field_count += run_length;
         self.fd.push_variable_sized_type(
             kind,
             flags,
@@ -302,7 +295,7 @@ impl private_impl::FDUnsafePushInterface for FDIterHall {
         );
     }
 
-    fn push_fixed_size_type<T: PartialEq + Clone + Unpin>(
+    unsafe fn push_fixed_size_type<T: PartialEq + Clone + Unpin>(
         &mut self,
         kind: FieldValueKind,
         flags: FieldValueFlags,
@@ -311,24 +304,22 @@ impl private_impl::FDUnsafePushInterface for FDIterHall {
         try_header_rle: bool,
         try_data_rle: bool,
     ) {
-        self.field_count += run_length;
         self.fd
             .push_fixed_size_type(kind, flags, data, run_length, try_header_rle, try_data_rle);
     }
 
-    fn push_zst(
+    unsafe fn push_zst(
         &mut self,
         kind: FieldValueKind,
         flags: FieldValueFlags,
         run_length: usize,
         try_header_rle: bool,
     ) {
-        self.field_count += run_length;
         self.fd.push_zst(kind, flags, run_length, try_header_rle);
     }
 }
 
-pub trait FDPushInterface: private_impl::FDUnsafePushInterface {
+pub trait FDPushInterface: FDRawPushInterface {
     fn push_inline_bytes(
         &mut self,
         data: &[u8],
@@ -336,14 +327,16 @@ pub trait FDPushInterface: private_impl::FDUnsafePushInterface {
         try_header_rle: bool,
         try_data_rle: bool,
     ) {
-        self.push_variable_sized_type(
-            FieldValueKind::BytesInline,
-            field_value_flags::DEFAULT,
-            data,
-            run_length,
-            try_header_rle,
-            try_data_rle,
-        );
+        unsafe {
+            self.push_variable_sized_type(
+                FieldValueKind::BytesInline,
+                field_value_flags::DEFAULT,
+                data,
+                run_length,
+                try_header_rle,
+                try_data_rle,
+            );
+        }
     }
     fn push_inline_str(
         &mut self,
@@ -352,47 +345,88 @@ pub trait FDPushInterface: private_impl::FDUnsafePushInterface {
         try_header_rle: bool,
         try_data_rle: bool,
     ) {
-        self.push_variable_sized_type(
-            FieldValueKind::BytesInline,
-            field_value_flags::DEFAULT,
-            data.as_bytes(),
-            run_length,
-            try_header_rle,
-            try_data_rle,
-        );
+        unsafe {
+            self.push_variable_sized_type(
+                FieldValueKind::BytesInline,
+                field_value_flags::DEFAULT,
+                data.as_bytes(),
+                run_length,
+                try_header_rle,
+                try_data_rle,
+            );
+        }
     }
-
-    fn push_str_buffer(
+    fn push_string(
+        &mut self,
+        data: String,
+        run_length: usize,
+        try_header_rle: bool,
+        try_data_rle: bool,
+    ) {
+        unsafe {
+            self.push_fixed_size_type(
+                FieldValueKind::BytesBuffer,
+                field_value_flags::BYTES_ARE_UTF8,
+                data.into_bytes(),
+                run_length,
+                try_header_rle,
+                try_data_rle,
+            );
+        }
+    }
+    fn push_bytes_buffer(
+        &mut self,
+        data: Vec<u8>,
+        run_length: usize,
+        try_header_rle: bool,
+        try_data_rle: bool,
+    ) {
+        unsafe {
+            self.push_fixed_size_type(
+                FieldValueKind::BytesBuffer,
+                field_value_flags::DEFAULT,
+                data,
+                run_length,
+                try_header_rle,
+                try_data_rle,
+            );
+        }
+    }
+    fn push_str_as_buffer(
         &mut self,
         data: &str,
         run_length: usize,
         try_header_rle: bool,
         try_data_rle: bool,
     ) {
-        self.push_fixed_size_type(
-            FieldValueKind::BytesBuffer,
-            field_value_flags::BYTES_ARE_UTF8,
-            data.as_bytes().to_vec(),
-            run_length,
-            try_header_rle,
-            try_data_rle,
-        );
+        unsafe {
+            self.push_fixed_size_type(
+                FieldValueKind::BytesBuffer,
+                field_value_flags::BYTES_ARE_UTF8,
+                data.as_bytes().to_vec(),
+                run_length,
+                try_header_rle,
+                try_data_rle,
+            );
+        }
     }
-    fn push_bytes_buffer(
+    fn push_bytes_as_buffer(
         &mut self,
         data: &[u8],
         run_length: usize,
         try_header_rle: bool,
         try_data_rle: bool,
     ) {
-        self.push_fixed_size_type(
-            FieldValueKind::BytesBuffer,
-            field_value_flags::DEFAULT,
-            data.to_vec(),
-            run_length,
-            try_header_rle,
-            try_data_rle,
-        );
+        unsafe {
+            self.push_fixed_size_type(
+                FieldValueKind::BytesBuffer,
+                field_value_flags::DEFAULT,
+                data.to_vec(),
+                run_length,
+                try_header_rle,
+                try_data_rle,
+            );
+        }
     }
     fn push_str(
         &mut self,
@@ -404,7 +438,7 @@ pub trait FDPushInterface: private_impl::FDUnsafePushInterface {
         if data.len() <= INLINE_STR_MAX_LEN {
             self.push_inline_str(data, run_length, try_header_rle, try_data_rle);
         } else {
-            self.push_str_buffer(data, run_length, try_header_rle, try_data_rle);
+            self.push_str_as_buffer(data, run_length, try_header_rle, try_data_rle);
         }
     }
     fn push_bytes(
@@ -417,18 +451,20 @@ pub trait FDPushInterface: private_impl::FDUnsafePushInterface {
         if data.len() <= INLINE_STR_MAX_LEN {
             self.push_inline_bytes(data, run_length, try_header_rle, try_data_rle);
         } else {
-            self.push_bytes_buffer(data, run_length, try_header_rle, try_data_rle);
+            self.push_bytes_as_buffer(data, run_length, try_header_rle, try_data_rle);
         }
     }
     fn push_int(&mut self, data: i64, run_length: usize, try_header_rle: bool, try_data_rle: bool) {
-        self.push_fixed_size_type(
-            FieldValueKind::Integer,
-            field_value_flags::DEFAULT,
-            data.to_owned(),
-            run_length,
-            try_header_rle,
-            try_data_rle,
-        );
+        unsafe {
+            self.push_fixed_size_type(
+                FieldValueKind::Integer,
+                field_value_flags::DEFAULT,
+                data.to_owned(),
+                run_length,
+                try_header_rle,
+                try_data_rle,
+            );
+        }
     }
     fn push_stream_value_id(
         &mut self,
@@ -437,14 +473,16 @@ pub trait FDPushInterface: private_impl::FDUnsafePushInterface {
         try_header_rle: bool,
         try_data_rle: bool,
     ) {
-        self.push_fixed_size_type(
-            FieldValueKind::StreamValueId,
-            field_value_flags::DEFAULT,
-            id,
-            run_length,
-            try_header_rle,
-            try_data_rle,
-        );
+        unsafe {
+            self.push_fixed_size_type(
+                FieldValueKind::StreamValueId,
+                field_value_flags::DEFAULT,
+                id,
+                run_length,
+                try_header_rle,
+                try_data_rle,
+            );
+        }
     }
     fn push_error(
         &mut self,
@@ -453,14 +491,16 @@ pub trait FDPushInterface: private_impl::FDUnsafePushInterface {
         try_header_rle: bool,
         try_data_rle: bool,
     ) {
-        self.push_fixed_size_type(
-            FieldValueKind::Error,
-            field_value_flags::DEFAULT,
-            err,
-            run_length,
-            try_header_rle,
-            try_data_rle,
-        );
+        unsafe {
+            self.push_fixed_size_type(
+                FieldValueKind::Error,
+                field_value_flags::DEFAULT,
+                err,
+                run_length,
+                try_header_rle,
+                try_data_rle,
+            );
+        }
     }
     fn push_reference(
         &mut self,
@@ -469,31 +509,37 @@ pub trait FDPushInterface: private_impl::FDUnsafePushInterface {
         try_header_rle: bool,
         try_data_rle: bool,
     ) {
-        self.push_fixed_size_type(
-            FieldValueKind::Reference,
-            field_value_flags::DEFAULT,
-            reference,
-            run_length,
-            try_header_rle,
-            try_data_rle,
-        );
+        unsafe {
+            self.push_fixed_size_type(
+                FieldValueKind::Reference,
+                field_value_flags::DEFAULT,
+                reference,
+                run_length,
+                try_header_rle,
+                try_data_rle,
+            );
+        }
     }
     fn push_null(&mut self, run_length: usize, try_header_rle: bool) {
-        self.push_zst(
-            FieldValueKind::Null,
-            field_value_flags::DEFAULT,
-            run_length,
-            try_header_rle,
-        );
+        unsafe {
+            self.push_zst(
+                FieldValueKind::Null,
+                field_value_flags::DEFAULT,
+                run_length,
+                try_header_rle,
+            );
+        }
     }
     fn push_unset(&mut self, run_length: usize, try_header_rle: bool) {
-        self.push_zst(
-            FieldValueKind::Unset,
-            field_value_flags::DEFAULT,
-            run_length,
-            try_header_rle,
-        );
+        unsafe {
+            self.push_zst(
+                FieldValueKind::Unset,
+                field_value_flags::DEFAULT,
+                run_length,
+                try_header_rle,
+            );
+        }
     }
 }
 
-impl<T: private_impl::FDUnsafePushInterface> FDPushInterface for T {}
+impl<T: FDRawPushInterface> FDPushInterface for T {}

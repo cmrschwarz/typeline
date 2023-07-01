@@ -325,20 +325,26 @@ impl JobData<'_> {
 }
 
 impl<'a> WorkerThreadSession<'a> {
-    fn setup_job(&mut self, job: Job) -> Result<(), ScrError> {
+    fn setup_job(&mut self, mut job: Job) -> Result<(), ScrError> {
         self.job_data.entry_data.match_sets.clear();
         self.job_data.entry_data.fields.clear();
         self.job_data.tf_mgr.ready_queue.clear();
         let ms_id = self.job_data.entry_data.add_match_set();
         //TODO: unpack record set properly here
-        let input_record_count = job
-            .data
-            .fields
-            .iter()
-            .map(|f| f.data.field_count())
-            .max()
-            .unwrap_or(0);
-        let input_data = self.job_data.entry_data.add_field(ms_id, None);
+        let input_record_count = job.data.adjust_field_lengths();
+        let mut input_data = None;
+        for fd in job.data.fields.into_iter() {
+            let field_id = self
+                .job_data
+                .entry_data
+                .add_field_with_data(ms_id, fd.name, fd.data);
+            if input_data.is_none() {
+                input_data = Some(field_id);
+            }
+            //TODO: add all to working set?
+        }
+        let input_data =
+            input_data.unwrap_or_else(|| self.job_data.entry_data.add_field(ms_id, None));
 
         debug_assert!(!job.starting_ops.is_empty());
         let first_tf_id = if job.starting_ops.len() > 1 {
@@ -361,12 +367,10 @@ impl<'a> WorkerThreadSession<'a> {
             )
         };
         let first_tf = &mut self.job_data.tf_mgr.transforms[first_tf_id];
-        debug_assert!(!first_tf.is_batch_producer); //should be checked by setup
-        first_tf.is_ready = true;
-        self.job_data.tf_mgr.ready_queue.push(ReadyQueueEntry {
-            ord_id: first_tf.ordering_id,
-            tf_id: first_tf_id,
-        });
+        if input_record_count == 0 {
+            debug_assert!(first_tf.is_batch_producer);
+            self.job_data.tf_mgr.push_tf_in_ready_queue(first_tf_id);
+        }
         Ok(())
     }
     pub fn new(sess: &'a SessionData) -> Self {

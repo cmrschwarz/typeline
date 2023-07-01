@@ -1,0 +1,105 @@
+use smallvec::{smallvec, SmallVec};
+
+use crate::utils::string_store::StringStoreEntry;
+
+use super::{
+    fd_push_interface::{FDPushInterface, FDRawPushInterface},
+    FieldData,
+};
+
+#[derive(Default, Clone)]
+pub struct NamedField {
+    pub name: Option<StringStoreEntry>,
+    pub data: FieldData,
+}
+
+#[derive(Clone)]
+pub struct RecordSet {
+    pub fields: SmallVec<[NamedField; 1]>,
+}
+
+impl Default for RecordSet {
+    fn default() -> Self {
+        Self {
+            fields: smallvec![NamedField::default()],
+        }
+    }
+}
+
+unsafe impl FDRawPushInterface for RecordSet {
+    unsafe fn push_variable_sized_type(
+        &mut self,
+        kind: super::FieldValueKind,
+        flags: super::FieldValueFlags,
+        data: &[u8],
+        run_length: usize,
+        try_header_rle: bool,
+        try_data_rle: bool,
+    ) {
+        self.fields
+            .first_mut()
+            .unwrap()
+            .data
+            .push_variable_sized_type(kind, flags, data, run_length, try_header_rle, try_data_rle);
+        for f in self.fields.iter_mut().skip(1) {
+            f.data.push_unset(run_length, true);
+        }
+    }
+
+    unsafe fn push_fixed_size_type<T: PartialEq + Clone + Unpin>(
+        &mut self,
+        kind: super::FieldValueKind,
+        flags: super::FieldValueFlags,
+        data: T,
+        run_length: usize,
+        try_header_rle: bool,
+        try_data_rle: bool,
+    ) {
+        self.fields.first_mut().unwrap().data.push_fixed_size_type(
+            kind,
+            flags,
+            data,
+            run_length,
+            try_header_rle,
+            try_data_rle,
+        );
+        for f in self.fields.iter_mut().skip(1) {
+            f.data.push_unset(run_length, true);
+        }
+    }
+
+    unsafe fn push_zst(
+        &mut self,
+        kind: super::FieldValueKind,
+        flags: super::FieldValueFlags,
+        run_length: usize,
+        try_header_rle: bool,
+    ) {
+        self.fields
+            .first_mut()
+            .unwrap()
+            .data
+            .push_zst(kind, flags, run_length, try_header_rle);
+        for f in self.fields.iter_mut().skip(1) {
+            f.data.push_unset(run_length, true);
+        }
+    }
+}
+
+impl RecordSet {
+    pub fn adjust_field_lengths(&mut self) -> usize {
+        let max_field_len = self
+            .fields
+            .iter()
+            .map(|f| f.data.field_count())
+            .max()
+            .unwrap_or(0);
+        for f in self.fields.iter_mut() {
+            let len = f.data.field_count();
+            if len < max_field_len {
+                f.data.push_unset(max_field_len - len, true);
+            }
+        }
+        max_field_len
+    }
+}

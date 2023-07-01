@@ -8,23 +8,11 @@ use smallvec::SmallVec;
 
 use crate::{
     context::{ContextData, SessionData},
-    field_data::FieldData,
+    field_data::record_set::RecordSet,
     operations::operator::OperatorId,
     scr_error::ScrError,
-    utils::string_store::StringStoreEntry,
     worker_thread_session::WorkerThreadSession,
 };
-
-#[derive(Default, Clone)]
-pub struct InputField {
-    pub name: Option<StringStoreEntry>,
-    pub data: FieldData,
-}
-
-#[derive(Default, Clone)]
-pub struct RecordSet {
-    pub fields: SmallVec<[InputField; 2]>,
-}
 
 pub(crate) struct Job {
     pub starting_ops: SmallVec<[OperatorId; 2]>,

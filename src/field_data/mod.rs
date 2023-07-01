@@ -10,6 +10,7 @@ pub mod fd_command_buffer;
 pub mod fd_iter;
 pub mod fd_iter_hall;
 pub mod fd_push_interface;
+pub mod record_set;
 
 use std::{
     collections::HashMap,
@@ -113,8 +114,19 @@ impl FieldValueKind {
             FieldValueKind::BytesBuffer => std::mem::size_of::<Vec<u8>>(),
             FieldValueKind::BytesFile => std::mem::size_of::<BytesBufferFile>(),
             FieldValueKind::Object => std::mem::size_of::<Object>(),
-            FieldValueKind::BytesInline => panic!("BytesInline has no size"),
+            // should not be used for size calculations
+            // but is used for example in is_zst
+            FieldValueKind::BytesInline => usize::MAX,
         }
+    }
+    pub fn is_variable_sized_type(self) -> bool {
+        self == FieldValueKind::BytesInline
+    }
+    pub fn is_zst(self) -> bool {
+        self.size() == 0
+    }
+    pub fn is_fixed_size_type(self) -> bool {
+        !self.is_variable_sized_type() && !self.is_zst()
     }
 }
 
@@ -282,6 +294,8 @@ impl FieldValueHeader {
     }
 }
 
+pub const INLINE_STR_MAX_LEN: usize = 8192;
+
 #[derive(Default)]
 pub struct FieldData {
     pub(self) data: Vec<u8>,
@@ -293,16 +307,14 @@ impl Clone for FieldData {
     fn clone(&self) -> Self {
         let mut fd = Self {
             data: Vec::with_capacity(self.data.len()),
-            header: self.header.clone(),
-            field_count: self.field_count,
+            header: Vec::with_capacity(self.header.len()),
+            field_count: 0,
         };
         let fd_ref = &mut fd;
         FieldData::copy(self.iter(), move |f| f(fd_ref));
         fd
     }
 }
-
-pub const INLINE_STR_MAX_LEN: usize = 8192;
 
 unsafe fn drop_slice<T>(slice: &[T]) {
     let droppable = slice::from_raw_parts_mut(slice.as_ptr() as *mut ManuallyDrop<T>, slice.len());
@@ -313,6 +325,7 @@ unsafe fn drop_slice<T>(slice: &[T]) {
 
 impl FieldData {
     pub fn clear(&mut self) {
+        self.field_count = 0;
         FieldData::set_end(self.iter_mut());
     }
     pub fn set_end<'a>(iter: FDIterMut<'a>) {
@@ -392,6 +405,7 @@ impl FieldData {
                 fd.header.extend_from_slice(headers_src)
             });
             if !iter.is_next_valid() {
+                targets_applicator(&mut |fd| fd.field_count += copied_fields);
                 return copied_fields;
             }
             header_idx_start = iter.get_next_header_index();
@@ -417,17 +431,18 @@ impl FieldData {
             targets_applicator(&mut |fd| fd.header.extend_from_slice(tr.headers));
             unsafe { append_data(tr.data, &mut targets_applicator) };
         }
+        targets_applicator(&mut |fd| fd.field_count += copied_fields);
         copied_fields
     }
 
     pub fn iter<'a>(&'a self) -> FDIter<'a> {
-        FDIter::from_start(self)
+        FDIter::from_start(self, 0)
     }
     pub fn iter_mut<'a>(&'a mut self) -> FDIterMut<'a> {
-        FDIterMut::from_start(self)
+        FDIterMut::from_start(self, 0)
     }
-    pub unsafe fn internals(&mut self) -> (&mut Vec<FieldValueHeader>, &mut Vec<u8>) {
-        (&mut self.header, &mut self.data)
+    pub unsafe fn internals(&mut self) -> (&mut Vec<FieldValueHeader>, &mut Vec<u8>, &mut usize) {
+        (&mut self.header, &mut self.data, &mut self.field_count)
     }
     pub fn field_count(&self) -> usize {
         self.field_count

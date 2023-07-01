@@ -150,10 +150,8 @@ fn start_streaming_file(
     // SAFETY: this relies on the memory layout in field_data.
     // since that is a submodule of us, this is fine.
     // ideally though, FieldData would expose some way to do this safely.
-    let ((field_headers, field_data), field_count) = unsafe {
-        let internals = out_field.field_data.internals();
-        (internals.fd.internals(), internals.field_count)
-    };
+    let (field_headers, field_data, field_count) =
+        unsafe { out_field.field_data.internals().fd.internals() };
 
     let size_before = field_data.len();
     let res = read_chunk(

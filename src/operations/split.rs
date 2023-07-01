@@ -81,7 +81,7 @@ pub fn setup_ts_split_as_entry_point<'a, 'b>(
         last_consumed_batch_size: 0,
         is_ready: false,
         is_stream_producer: false,
-        is_batch_producer: false,
+        is_batch_producer: true,
     };
     let data = TransformData::Split(TfSplit {
         expanded: false,

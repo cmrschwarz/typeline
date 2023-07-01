@@ -5,7 +5,7 @@ use bstr::BString;
 use crossbeam::deque::{Injector, Stealer, Worker};
 use smallvec::smallvec;
 
-use crate::worker_thread::RecordSet;
+use crate::field_data::record_set::RecordSet;
 use crate::{
     chain::Chain,
     operations::operator::{OperatorBase, OperatorData},

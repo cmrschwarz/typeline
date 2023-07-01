@@ -9,8 +9,6 @@ use crate::{
     stream_field_data::StreamValueId,
 };
 
-use super::fd_iter_hall::FDIterHall;
-
 #[derive(Clone, Copy)]
 pub enum FDTypedSlice<'a> {
     Unset(&'a [()]),
@@ -540,11 +538,11 @@ pub struct FDIterMut<'a> {
 }
 
 impl<'a> FDIter<'a> {
-    pub fn from_start(fd: &'a FieldData) -> Self {
+    pub fn from_start(fd: &'a FieldData, initial_field_offset: usize) -> Self {
         let first_header = fd.header.first();
         Self {
             fd,
-            field_pos: 0,
+            field_pos: initial_field_offset,
             data: 0,
             header_idx: 0,
             header_rl_offset: 0,
@@ -552,13 +550,12 @@ impl<'a> FDIter<'a> {
             header_fmt: first_header.map(|h| h.fmt).unwrap_or_default(),
         }
     }
-    pub fn from_end(fdih: &'a FDIterHall) -> Self {
-        let field_count = fdih.initial_field_offset + fdih.field_count;
+    pub fn from_end(fd: &'a FieldData, initial_field_offset: usize) -> Self {
         Self {
-            fd: &fdih.fd,
-            field_pos: field_count,
-            data: fdih.fd.data.len(),
-            header_idx: fdih.fd.header.len(),
+            fd,
+            field_pos: initial_field_offset + fd.field_count,
+            data: fd.data.len(),
+            header_idx: fd.header.len(),
             header_rl_offset: 0,
             header_rl_total: 0,
             header_fmt: Default::default(),
@@ -1110,11 +1107,11 @@ where
 }
 
 impl<'a> FDIterMut<'a> {
-    pub fn from_start(fd: &'a mut FieldData) -> Self {
+    pub fn from_start(fd: &'a mut FieldData, initial_field_offset: usize) -> Self {
         let first_header = fd.header.first().map(|h| *h);
         Self {
             fd,
-            field_pos: 0,
+            field_pos: initial_field_offset,
             data: 0,
             header_idx: 0,
             header_rl_offset: 0,
@@ -1122,13 +1119,13 @@ impl<'a> FDIterMut<'a> {
             header_fmt: first_header.map(|h| h.fmt).unwrap_or_default(),
         }
     }
-    pub fn from_end(fdih: &'a mut FDIterHall) -> Self {
-        let header_len = fdih.fd.header.len();
-        let data_len = fdih.fd.data.len();
-        let field_pos = fdih.field_count + fdih.initial_field_offset;
+    pub fn from_end(fd: &'a mut FieldData, initial_field_offset: usize) -> Self {
+        let header_len = fd.header.len();
+        let data_len = fd.data.len();
+        let field_count = fd.field_count;
         Self {
-            fd: &mut fdih.fd,
-            field_pos,
+            fd,
+            field_pos: field_count + initial_field_offset,
             data: data_len,
             header_idx: header_len,
             header_rl_offset: 0,

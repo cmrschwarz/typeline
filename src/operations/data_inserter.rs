@@ -66,7 +66,8 @@ pub fn handle_tf_data_inserter_batch_mode(
     let original_pred = tf_state.predecessor;
     if let Some(succ) = original_succ {
         sess.tf_mgr.transforms[succ].predecessor = original_pred;
-        sess.tf_mgr.inform_transform_batch_available(succ, batch);
+        sess.tf_mgr
+            .inform_transform_batch_available(succ, batch + 1);
         //TODO: remove transform
     }
 }

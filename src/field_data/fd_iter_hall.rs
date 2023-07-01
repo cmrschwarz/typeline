@@ -13,14 +13,12 @@ pub type FDIterId = usize;
 pub struct FDIterHall {
     pub(super) fd: FieldData,
     pub(super) initial_field_offset: usize,
-    pub(super) field_count: usize,
     pub(super) iters: Universe<FDIterId, Cell<FDIterState>>,
 }
 
 pub struct FDIterHallInternals<'a> {
     pub fd: &'a mut FieldData,
     pub initial_field_offset: &'a mut usize,
-    pub field_count: &'a mut usize,
 }
 
 #[derive(Default, Clone, Copy)]
@@ -112,7 +110,6 @@ impl FDIterHall {
         FDIterHallInternals {
             fd: &mut self.fd,
             initial_field_offset: &mut self.initial_field_offset,
-            field_count: &mut self.field_count,
         }
     }
 
@@ -125,17 +122,16 @@ impl FDIterHall {
             targets_applicator(g);
         };
         let copied_fields = FieldData::copy(iter, adapted_target_applicator);
-        targets_applicator(&mut |fdih| fdih.field_count += copied_fields);
         copied_fields
     }
     pub fn field_count(&self) -> usize {
-        self.field_count
+        self.fd.field_count
     }
     pub fn field_index_offset(&self) -> usize {
         self.initial_field_offset
     }
     pub fn clear(&mut self) {
-        self.initial_field_offset += self.field_count;
+        self.initial_field_offset += self.fd.field_count;
         for it in self.iters.iter_mut() {
             let it = it.get_mut();
             it.data = 0;
@@ -143,12 +139,10 @@ impl FDIterHall {
             it.header_idx = 0;
             it.field_pos = self.initial_field_offset;
         }
-        self.field_count = 0;
         self.fd.clear();
     }
     pub fn reset(&mut self) {
         self.initial_field_offset = 0;
-        self.field_count = 0;
         self.fd.clear();
     }
     pub fn reset_with_data(&mut self, fd: FieldData) {
