@@ -200,6 +200,11 @@ pub fn handle_tf_print_batch_mode_raw(
                     write_raw_bytes::<true>(&mut stdout, v, rl as usize)?;
                 }
             }
+            FDTypedSlice::BytesBuffer(bytes) => {
+                for (v, rl) in TypedSliceIter::from_typed_range(&range, bytes) {
+                    write_raw_bytes::<true>(&mut stdout, v, rl as usize)?;
+                }
+            }
             FDTypedSlice::Integer(ints) => {
                 for (v, rl) in TypedSliceIter::from_typed_range(&range, ints) {
                     write_integer::<true>(&mut stdout, *v, rl as usize)?;
@@ -348,6 +353,7 @@ pub fn handle_tf_print_stream_mode_raw(
                 }
                 FDTypedValue::TextInline(text) => write_inline_text::<true>(&mut stdout, text, 1)?,
                 FDTypedValue::BytesInline(bytes) => write_raw_bytes::<true>(&mut stdout, bytes, 1)?,
+                FDTypedValue::BytesBuffer(bytes) => write_raw_bytes::<true>(&mut stdout, bytes, 1)?,
                 FDTypedValue::Error(error) => write_error::<true>(&mut stdout, error, 1)?,
                 FDTypedValue::Html(_) | FDTypedValue::Object(_) => {
                     write_type_error::<true>(&mut stdout, 1)?

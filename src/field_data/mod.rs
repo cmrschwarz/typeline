@@ -211,12 +211,14 @@ impl FieldValueFormat {
         self.flags & field_value_flags::SHARED_VALUE != 0
     }
     pub fn set_shared_value(&mut self, val: bool) {
+        self.flags &= !field_value_flags::SHARED_VALUE;
         self.flags |= (val as FieldValueFlags) << field_value_flags::SHARED_VALUE_OFFSET;
     }
     pub fn bytes_are_utf8(self) -> bool {
         self.flags & field_value_flags::BYTES_ARE_UTF8 != 0
     }
     pub fn set_bytes_are_utf8(&mut self, val: bool) {
+        self.flags &= !field_value_flags::BYTES_ARE_UTF8;
         self.flags |= (val as FieldValueFlags) << field_value_flags::BYTES_ARE_UTF8_OFFSET;
     }
     pub fn leading_padding(self) -> usize {
@@ -224,18 +226,21 @@ impl FieldValueFormat {
     }
     pub fn set_leading_padding(&mut self, val: usize) {
         debug_assert!(val & !(field_value_flags::LEADING_PADDING as usize) == 0);
+        self.flags &= !field_value_flags::LEADING_PADDING;
         self.flags |= (val as u8) & field_value_flags::LEADING_PADDING;
     }
     pub fn deleted(self) -> bool {
         self.flags & field_value_flags::DELETED != 0
     }
     pub fn set_deleted(&mut self, val: bool) {
+        self.flags &= !field_value_flags::DELETED;
         self.flags |= (val as FieldValueFlags) << field_value_flags::DELETED_OFFSET;
     }
     pub fn same_value_as_previous(self) -> bool {
         self.flags & field_value_flags::SAME_VALUE_AS_PREVIOUS != 0
     }
     pub fn set_same_value_as_previous(&mut self, val: bool) {
+        self.flags &= !field_value_flags::SAME_VALUE_AS_PREVIOUS;
         self.flags |= (val as FieldValueFlags) << field_value_flags::SAME_VALUE_AS_PREVIOUS;
     }
 }
@@ -333,6 +338,7 @@ impl FieldData {
                     FDTypedSlice::Error(s) => drop_slice(s),
                     FDTypedSlice::Html(s) => drop_slice(s),
                     FDTypedSlice::Object(s) => drop_slice(s),
+                    FDTypedSlice::BytesBuffer(s) => drop_slice(s),
                 }
             }
         }
@@ -465,7 +471,7 @@ unsafe fn append_data<'a>(
         FDTypedSlice::Reference(v) => extend_raw(target_applicator, v),
         FDTypedSlice::BytesInline(v) => extend_raw(target_applicator, v),
         FDTypedSlice::TextInline(v) => extend_raw(target_applicator, v.as_bytes()),
-
+        FDTypedSlice::BytesBuffer(v) => extend_with_clones(target_applicator, v),
         FDTypedSlice::Error(v) => extend_with_clones(target_applicator, v),
         FDTypedSlice::Html(v) => extend_with_clones(target_applicator, v),
         FDTypedSlice::Object(v) => extend_with_clones(target_applicator, v),

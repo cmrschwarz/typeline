@@ -22,6 +22,7 @@ pub enum FDTypedSlice<'a> {
     Html(&'a [Html]),
     BytesInline(&'a [u8]),
     TextInline(&'a str),
+    BytesBuffer(&'a [Vec<u8>]),
     Object(&'a [Object]),
 }
 
@@ -318,6 +319,7 @@ pub enum FDTypedValue<'a> {
     Html(&'a Html),
     BytesInline(&'a [u8]),
     TextInline(&'a str),
+    BytesBuffer(&'a Vec<u8>),
     Object(&'a Object),
 }
 
@@ -396,7 +398,9 @@ unsafe fn to_typed_range<'a>(
         FieldValueKind::StreamValueId => {
             FDTypedSlice::StreamValueId(to_slice(fd, data_begin, field_count))
         }
-        FieldValueKind::BytesBuffer => todo!(),
+        FieldValueKind::BytesBuffer => {
+            FDTypedSlice::BytesBuffer(to_slice(fd, data_begin, field_count))
+        }
         FieldValueKind::BytesFile => todo!(),
     };
     FDTypedRange {
@@ -434,7 +438,7 @@ unsafe fn to_typed_field<'a>(
         FieldValueKind::Error => FDTypedValue::Error(to_ref(fd, data_begin)),
         FieldValueKind::Html => FDTypedValue::Html(to_ref(fd, data_begin)),
         FieldValueKind::Object => FDTypedValue::Object(to_ref(fd, data_begin)),
-        FieldValueKind::BytesBuffer => todo!(),
+        FieldValueKind::BytesBuffer => FDTypedValue::BytesBuffer(to_ref(fd, data_begin)),
         FieldValueKind::BytesFile => todo!(),
     };
     FDTypedField {

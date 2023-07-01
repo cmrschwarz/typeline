@@ -11,7 +11,7 @@ use std::num::NonZeroUsize;
 
 use crate::fd_ref_iter::FDRefIterLazy;
 use crate::field_data::fd_command_buffer::{FDCommandBuffer, FieldActionKind};
-use crate::field_data::fd_iter::{FDTypedValue, InlineBytesIter, InlineTextIter};
+use crate::field_data::fd_iter::{FDTypedValue, InlineBytesIter, InlineTextIter, TypedSliceIter};
 use crate::field_data::fd_push_interface::FDPushInterface;
 use crate::field_data::RunLength;
 use crate::utils::universe::Universe;
@@ -486,6 +486,21 @@ pub fn handle_tf_regex_batch_mode(sess: &mut JobData<'_>, tf_id: TransformId, re
             }
             FDTypedSlice::BytesInline(bytes) => {
                 for (v, rl) in InlineBytesIter::from_typed_range(&range, bytes) {
+                    match_regex_inner(
+                        input_field_id,
+                        rl,
+                        0,
+                        AnyRegex::Bytes(&mut re.regex, &mut re.capture_locs, v),
+                        &re.capture_group_fields,
+                        re.multimatch,
+                        &mut rbs,
+                        &sess.entry_data.fields,
+                        command_buffer,
+                    );
+                }
+            }
+            FDTypedSlice::BytesBuffer(bytes) => {
+                for (v, rl) in TypedSliceIter::from_typed_range(&range, bytes) {
                     match_regex_inner(
                         input_field_id,
                         rl,

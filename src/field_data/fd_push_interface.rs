@@ -114,7 +114,7 @@ impl private_impl::FDUnsafeHeaderPushInterface for FieldData {
         }
         let last_header = self.header.last_mut().unwrap();
         if last_header.run_length == 1 {
-            last_header.set_shared_value(true);
+            last_header.set_shared_value(data_rle);
         }
         if last_header.shared_value() {
             if data_rle {
@@ -139,8 +139,8 @@ impl private_impl::FDUnsafeHeaderPushInterface for FieldData {
             self.push_header_raw_same_value_after_first(fmt, run_length + 1);
             return;
         }
-        if run_length == 1 && last_header.run_length != RunLength::MAX {
-            last_header.run_length += 1;
+        if header_rle && last_header.run_length as usize + run_length < RunLength::MAX as usize {
+            last_header.run_length += run_length as RunLength;
             return;
         }
         self.push_header_raw_same_value_after_first(fmt, run_length);

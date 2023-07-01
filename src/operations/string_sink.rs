@@ -78,11 +78,10 @@ fn push_string(
     tf_id: TransformId,
     field_pos: usize,
     out: &mut Vec<String>,
-    buf: &mut Vec<u8>,
+    buf: Vec<u8>,
     run_len: usize,
 ) {
-    let data = std::mem::replace::<Vec<u8>>(buf, Vec::new());
-    let str = match String::from_utf8(data) {
+    let str = match String::from_utf8(buf) {
         Ok(s) => s,
         Err(e) => {
             sess.entry_data.push_entry_error(
@@ -99,6 +98,17 @@ fn push_string(
     };
     out.extend(std::iter::repeat_with(|| str.clone()).take(run_len - 1));
     out.push(str);
+}
+fn push_string_clear_buf(
+    sess: &JobData<'_>,
+    tf_id: TransformId,
+    field_pos: usize,
+    out: &mut Vec<String>,
+    buf: &mut Vec<u8>,
+    run_len: usize,
+) {
+    let data = std::mem::replace::<Vec<u8>>(buf, Vec::new());
+    push_string(sess, tf_id, field_pos, out, data, run_len);
 }
 
 pub fn handle_tf_string_sink_batch_mode(
@@ -124,19 +134,24 @@ pub fn handle_tf_string_sink_batch_mode(
             FDTypedSlice::TextInline(text) => {
                 for (v, rl) in InlineTextIter::from_typed_range(&range, text) {
                     write_inline_text::<false>(&mut buf, v, 1).unwrap();
-                    push_string(sess, tf_id, field_pos, &mut out, &mut buf, rl as usize);
+                    push_string_clear_buf(sess, tf_id, field_pos, &mut out, &mut buf, rl as usize);
                 }
             }
             FDTypedSlice::BytesInline(bytes) => {
                 for (v, rl) in InlineBytesIter::from_typed_range(&range, bytes) {
                     write_raw_bytes::<false>(&mut buf, v, 1).unwrap();
-                    push_string(sess, tf_id, field_pos, &mut out, &mut buf, rl as usize);
+                    push_string_clear_buf(sess, tf_id, field_pos, &mut out, &mut buf, rl as usize);
+                }
+            }
+            FDTypedSlice::BytesBuffer(bytes) => {
+                for (v, rl) in TypedSliceIter::from_typed_range(&range, bytes) {
+                    push_string(sess, tf_id, field_pos, &mut out, v.clone(), rl as usize);
                 }
             }
             FDTypedSlice::Integer(ints) => {
                 for (v, rl) in TypedSliceIter::from_typed_range(&range, ints) {
                     write_integer::<false>(&mut buf, *v, 1).unwrap();
-                    push_string(sess, tf_id, field_pos, &mut out, &mut buf, rl as usize);
+                    push_string_clear_buf(sess, tf_id, field_pos, &mut out, &mut buf, rl as usize);
                 }
             }
             FDTypedSlice::Reference(refs) => {
@@ -158,6 +173,12 @@ pub fn handle_tf_string_sink_batch_mode(
                             fr.run_len as usize,
                         )
                         .unwrap(),
+                        FDTypedValue::BytesBuffer(v) => write_raw_bytes::<false>(
+                            &mut buf,
+                            &v[fr.begin..fr.end],
+                            fr.run_len as usize,
+                        )
+                        .unwrap(),
                         FDTypedValue::TextInline(v) => write_inline_text::<false>(
                             &mut buf,
                             &v[fr.begin..fr.end],
@@ -166,7 +187,7 @@ pub fn handle_tf_string_sink_batch_mode(
                         .unwrap(),
                         _ => panic!("invalid target type for FieldReference"),
                     }
-                    push_string(
+                    push_string_clear_buf(
                         sess,
                         tf_id,
                         field_pos,
@@ -182,12 +203,12 @@ pub fn handle_tf_string_sink_batch_mode(
             FDTypedSlice::Error(errs) => {
                 for (v, rl) in TypedSliceIter::from_typed_range(&range, errs) {
                     write_error::<false>(&mut buf, v, 1).unwrap();
-                    push_string(sess, tf_id, field_pos, &mut out, &mut buf, rl as usize);
+                    push_string_clear_buf(sess, tf_id, field_pos, &mut out, &mut buf, rl as usize);
                 }
             }
             FDTypedSlice::Unset(_) => {
                 write_unset::<false>(&mut buf, 1).unwrap();
-                push_string(
+                push_string_clear_buf(
                     sess,
                     tf_id,
                     field_pos,
