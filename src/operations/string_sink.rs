@@ -207,7 +207,7 @@ pub fn handle_tf_string_sink(
                     range.field_count,
                 );
             }
-            FDTypedSlice::StreamValueId(_) => {
+            FDTypedSlice::StreamValueId(_svs) => {
                 todo!();
             }
             FDTypedSlice::Html(_) | FDTypedSlice::Object(_) => {
@@ -216,9 +216,9 @@ pub fn handle_tf_string_sink(
         }
         field_pos += range.field_count;
     }
-    //test whether we got the batch that was advertised
-    debug_assert!(iter.get_next_field_pos() - starting_pos == batch);
+    let consumed_fields = field_pos - starting_pos;
     input_field.field_data.store_iter(tf.batch_iter, iter);
     drop(input_field);
-    sess.tf_mgr.inform_successor_batch_available(tf_id, batch);
+    sess.tf_mgr
+        .inform_successor_batch_available(tf_id, consumed_fields);
 }

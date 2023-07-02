@@ -59,4 +59,8 @@ impl<T: Clone> Argument<T> {
         self.value = Some(value);
         Ok(())
     }
+    pub fn force_set(&mut self, value: T) {
+        self.value = Some(value);
+        self.cli_arg_idx = None;
+    }
 }

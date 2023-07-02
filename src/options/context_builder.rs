@@ -79,3 +79,12 @@ impl ContextBuilder {
         self
     }
 }
+
+impl ContextBuilder {
+    pub fn set_batch_size(mut self, bs: usize) -> Self {
+        self.opts.chains[self.opts.curr_chain as usize]
+            .default_batch_size
+            .force_set(bs);
+        self
+    }
+}

@@ -104,6 +104,7 @@ fn trickling_stream() -> Result<(), ScrError> {
     }
     let ss = StringSinkHandle::new();
     ContextBuilder::default()
+        .set_batch_size(SIZE)
         .add_op(create_op_file_reader_custom(Box::new(TestStream {
             total_size: SIZE,
         })))

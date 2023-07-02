@@ -61,10 +61,11 @@ pub struct TfFileReader {
     file: Option<AnyFile>,
     stream_value: Option<StreamValueId>,
     line_buffered: bool,
+    stream_buffer_size: usize,
 }
 
 pub fn setup_tf_file_reader<'a>(
-    _sess: &mut JobData,
+    sess: &mut JobData,
     op: &'a OpFileReader,
     tf_state: &mut TransformState,
 ) -> (TransformData<'a>, FieldId) {
@@ -89,10 +90,15 @@ pub fn setup_tf_file_reader<'a>(
                 .expect("attempted to create two transforms from a single custom FileKind"),
         ),
     };
+
     let data = TransformData::FileReader(TfFileReader {
         file: Some(file),
         stream_value: None,
         line_buffered: op.line_buffered,
+        stream_buffer_size: sess.session_data.chains
+            [sess.session_data.operator_bases[tf_state.op_id as usize].chain_id as usize]
+            .settings
+            .stream_buffer_size,
     });
     (data, tf_state.input_field)
 }
@@ -164,7 +170,7 @@ fn start_streaming_file(sess: &mut JobData<'_>, tf_id: TransformId, fr: &mut TfF
     let res = read_chunk(
         field_data,
         fr.file.as_mut().unwrap(),
-        INLINE_STR_MAX_LEN,
+        INLINE_STR_MAX_LEN.min(fr.stream_buffer_size),
         fr.line_buffered,
     );
     let chunk_size = match res {
@@ -197,14 +203,18 @@ fn start_streaming_file(sess: &mut JobData<'_>, tf_id: TransformId, fr: &mut TfF
     let mut buf = Vec::with_capacity(chunk_size);
     buf.extend_from_slice(&field_data[size_before..size_before + chunk_size]);
     field_data.resize(size_before, 0);
-    fr.stream_value = Some(sess.stream_values.claim_with_value(StreamValue {
+    let sv_id = sess.stream_values.claim_with_value(StreamValue {
         data: StreamFieldValueData::BytesChunk(buf),
         done: false,
         bytes_are_utf8: false,
         subscribers: Default::default(),
-    }));
+    });
+    fr.stream_value = Some(sv_id);
+    out_field
+        .field_data
+        .push_stream_value_id(sv_id, 1, true, false);
     sess.tf_mgr.make_stream_producer(tf_id);
-    sess.tf_mgr.push_successor_in_ready_queue(tf_id);
+    sess.tf_mgr.inform_successor_batch_available(tf_id, 1);
 }
 
 pub fn handle_tf_file_reader(sess: &mut JobData<'_>, tf_id: TransformId, fr: &mut TfFileReader) {
@@ -222,14 +232,14 @@ pub fn handle_tf_file_reader(sess: &mut JobData<'_>, tf_id: TransformId, fr: &mu
             read_chunk(
                 bc,
                 fr.file.as_mut().unwrap(),
-                INLINE_STR_MAX_LEN,
+                fr.stream_buffer_size,
                 fr.line_buffered,
             )
         }
         StreamFieldValueData::BytesBuffer(ref mut bb) => read_chunk(
             bb,
             fr.file.as_mut().unwrap(),
-            INLINE_STR_MAX_LEN,
+            fr.stream_buffer_size,
             fr.line_buffered,
         ),
         StreamFieldValueData::Error(_) => {
