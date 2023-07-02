@@ -339,6 +339,15 @@ impl JobData<'_> {
         tf.last_consumed_batch_size = batch;
         (batch, tf.input_field)
     }
+    pub fn inform_stream_value_subscribers(&self, svid: StreamValueId, done: bool) {
+        let sv = &self.stream_values[svid];
+        for sub in &sv.subscribers {
+            if !sub.notify_only_once_done || done {
+                let _tf = &self.tf_mgr.transforms[sub.tfid];
+                todo!();
+            }
+        }
+    }
 }
 
 impl<'a> WorkerThreadSession<'a> {

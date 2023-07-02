@@ -206,6 +206,7 @@ fn start_streaming_file(sess: &mut JobData<'_>, tf_id: TransformId, fr: &mut TfF
     let sv_id = sess.stream_values.claim_with_value(StreamValue {
         data: StreamFieldValueData::BytesChunk(buf),
         done: false,
+        ref_count: 1,
         bytes_are_utf8: false,
         subscribers: Default::default(),
     });
@@ -253,6 +254,7 @@ pub fn handle_tf_file_reader(sess: &mut JobData<'_>, tf_id: TransformId, fr: &mu
             if !eof {
                 sess.tf_mgr.stream_producers.push_back(tf_id);
                 sess.tf_mgr.update_ready_state(tf_id);
+                sess.inform_stream_value_subscribers(sv_id, false);
                 return;
             }
             sv.done = true;
@@ -263,6 +265,8 @@ pub fn handle_tf_file_reader(sess: &mut JobData<'_>, tf_id: TransformId, fr: &mu
             sv.done = true;
         }
     }
+    sess.inform_stream_value_subscribers(sv_id, true);
+    sess.stream_values[sv_id].drop_subscription();
     sess.tf_mgr.unlink_transform(tf_id, 0);
 }
 

@@ -1,7 +1,11 @@
 use std::{
     borrow::Cow,
+    io::Write,
     sync::{Arc, Mutex, MutexGuard},
 };
+
+use bstr::ByteSlice;
+use smallvec::SmallVec;
 
 use crate::{
     fd_ref_iter::FDRefIterLazy,
@@ -13,15 +17,17 @@ use crate::{
         field_value_flags,
     },
     operations::print::{
-        write_error, write_inline_text, write_integer, write_null, write_raw_bytes,
-        write_type_error, write_unset,
+        write_error, write_integer, write_null, write_raw_bytes, write_type_error, write_unset,
     },
+    stream_value::{StreamFieldValueData, StreamValue, StreamValueId},
+    utils::universe::Universe,
     worker_thread_session::{FieldId, JobData},
 };
 
 use super::{
-    errors::OperatorApplicationError,
-    operator::OperatorData,
+    errors::{io_error_to_op_error, OperatorApplicationError},
+    operator::{OperatorData, OperatorId},
+    print::{write_stream_val_check_done, write_text},
     transform::{TransformData, TransformId, TransformState},
 };
 
@@ -52,9 +58,17 @@ pub fn create_op_string_sink(handle: &'_ StringSinkHandle) -> OperatorData {
     })
 }
 
+pub struct StreamValueHandle {
+    start_idx: usize,
+    run_len: usize,
+    contains_error: bool,
+}
+
 pub struct TfStringSink<'a> {
     handle: &'a Mutex<Vec<String>>,
     batch_iter: FDIterId,
+    stream_value_handles: Universe<usize, StreamValueHandle>,
+    buf: Vec<u8>,
 }
 
 pub fn setup_tf_string_sink<'a>(
@@ -68,6 +82,8 @@ pub fn setup_tf_string_sink<'a>(
             .borrow_mut()
             .field_data
             .claim_iter(),
+        stream_value_handles: Default::default(),
+        buf: Default::default(),
     };
     (TransformData::StringSink(tf), tf_state.input_field)
 }
@@ -110,6 +126,69 @@ fn push_string_clear_buf(
     push_string(sess, tf_id, field_pos, out, data, run_len);
 }
 
+fn append_stream_val(
+    op_id: OperatorId,
+    sv: &StreamValue,
+    out: &mut Vec<String>,
+    start_idx: usize,
+    run_len: usize,
+) -> Result<(), OperatorApplicationError> {
+    let end_idx = start_idx + run_len;
+    match &sv.data {
+        StreamFieldValueData::BytesChunk(c) => {
+            for i in start_idx..end_idx {
+                match c.to_str() {
+                    Ok(text) => {
+                        for i in start_idx..end_idx {
+                            out[i].push_str(text);
+                        }
+                    }
+                    Err(_) => {
+                        let lossy = String::from_utf8_lossy(c.as_bytes());
+                        for i in start_idx..end_idx {
+                            out[i].push_str(&lossy);
+                        }
+                        return Err(OperatorApplicationError {
+                            op_id: op_id,
+                            message: Cow::Borrowed("invalid utf-8"),
+                        });
+                    }
+                }
+            }
+        }
+        StreamFieldValueData::BytesBuffer(b) => {
+            if sv.done {
+                match b.to_str() {
+                    Ok(s) => {
+                        for i in start_idx..end_idx {
+                            out[i].push_str(s);
+                        }
+                    }
+                    Err(_) => {
+                        let lossy = String::from_utf8_lossy(b);
+                        for i in (start_idx..end_idx).skip(1) {
+                            out[i].push_str(&lossy);
+                        }
+                        out[start_idx] = lossy.to_string();
+                        return Err(OperatorApplicationError {
+                            op_id: op_id,
+                            message: Cow::Borrowed("invalid utf-8"),
+                        });
+                    }
+                }
+            }
+        }
+        StreamFieldValueData::Error(e) => {
+            debug_assert!(sv.done);
+            for i in start_idx..end_idx {
+                write_error::<false>(unsafe { out[i].as_mut_vec() }, e, 1).unwrap();
+            }
+        }
+        StreamFieldValueData::Dropped => panic!("dropped stream value observed"),
+    }
+    Ok(())
+}
+
 pub fn handle_tf_string_sink(
     sess: &mut JobData<'_>,
     tf_id: TransformId,
@@ -126,20 +205,20 @@ pub fn handle_tf_string_sink(
     let mut out = tf.handle.lock().unwrap();
     let mut fd_ref_iter = FDRefIterLazy::default();
 
-    let mut buf = Vec::new();
+    let buf = &mut tf.buf;
 
     while let Some(range) = iter.typed_range_fwd(usize::MAX, field_value_flags::BYTES_ARE_UTF8) {
         match range.data {
             FDTypedSlice::TextInline(text) => {
                 for (v, rl) in InlineTextIter::from_typed_range(&range, text) {
-                    write_inline_text::<false>(&mut buf, v, 1).unwrap();
-                    push_string_clear_buf(sess, tf_id, field_pos, &mut out, &mut buf, rl as usize);
+                    write_text::<false>(buf, v, 1).unwrap();
+                    push_string_clear_buf(sess, tf_id, field_pos, &mut out, buf, rl as usize);
                 }
             }
             FDTypedSlice::BytesInline(bytes) => {
                 for (v, rl) in InlineBytesIter::from_typed_range(&range, bytes) {
-                    write_raw_bytes::<false>(&mut buf, v, 1).unwrap();
-                    push_string_clear_buf(sess, tf_id, field_pos, &mut out, &mut buf, rl as usize);
+                    write_raw_bytes::<false>(buf, v, 1).unwrap();
+                    push_string_clear_buf(sess, tf_id, field_pos, &mut out, buf, rl as usize);
                 }
             }
             FDTypedSlice::BytesBuffer(bytes) => {
@@ -149,8 +228,8 @@ pub fn handle_tf_string_sink(
             }
             FDTypedSlice::Integer(ints) => {
                 for (v, rl) in TypedSliceIter::from_typed_range(&range, ints) {
-                    write_integer::<false>(&mut buf, *v, 1).unwrap();
-                    push_string_clear_buf(sess, tf_id, field_pos, &mut out, &mut buf, rl as usize);
+                    write_integer::<false>(buf, *v, 1).unwrap();
+                    push_string_clear_buf(sess, tf_id, field_pos, &mut out, buf, rl as usize);
                 }
             }
             FDTypedSlice::Reference(refs) => {
@@ -167,13 +246,13 @@ pub fn handle_tf_string_sink(
                     match fr.data {
                         FDTypedValue::StreamValueId(_) => todo!(),
                         FDTypedValue::BytesInline(v) => {
-                            write_raw_bytes::<false>(&mut buf, &v[fr.begin..fr.end], 1).unwrap()
+                            write_raw_bytes::<false>(buf, &v[fr.begin..fr.end], 1).unwrap()
                         }
                         FDTypedValue::BytesBuffer(v) => {
-                            write_raw_bytes::<false>(&mut buf, &v[fr.begin..fr.end], 1).unwrap()
+                            write_raw_bytes::<false>(buf, &v[fr.begin..fr.end], 1).unwrap()
                         }
                         FDTypedValue::TextInline(v) => {
-                            write_inline_text::<false>(&mut buf, &v[fr.begin..fr.end], 1).unwrap()
+                            write_text::<false>(buf, &v[fr.begin..fr.end], 1).unwrap()
                         }
                         _ => panic!("invalid target type for FieldReference"),
                     }
@@ -182,36 +261,40 @@ pub fn handle_tf_string_sink(
                         tf_id,
                         field_pos,
                         &mut out,
-                        &mut buf,
+                        buf,
                         fr.run_len as usize,
                     );
                 }
             }
             FDTypedSlice::Null(_) => {
-                write_null::<false>(&mut buf, range.field_count).unwrap();
+                write_null::<false>(buf, range.field_count).unwrap();
             }
             FDTypedSlice::Error(errs) => {
                 for (v, rl) in TypedSliceIter::from_typed_range(&range, errs) {
-                    write_error::<false>(&mut buf, v, 1).unwrap();
-                    push_string_clear_buf(sess, tf_id, field_pos, &mut out, &mut buf, rl as usize);
+                    write_error::<false>(buf, v, 1).unwrap();
+                    push_string_clear_buf(sess, tf_id, field_pos, &mut out, buf, rl as usize);
                 }
             }
             FDTypedSlice::Unset(_) => {
-                write_unset::<false>(&mut buf, 1).unwrap();
-                push_string_clear_buf(
-                    sess,
-                    tf_id,
-                    field_pos,
-                    &mut out,
-                    &mut buf,
-                    range.field_count,
-                );
+                write_unset::<false>(buf, 1).unwrap();
+                push_string_clear_buf(sess, tf_id, field_pos, &mut out, buf, range.field_count);
             }
-            FDTypedSlice::StreamValueId(_svs) => {
-                todo!();
+            FDTypedSlice::StreamValueId(svs) => {
+                for (svid, rl) in TypedSliceIter::from_typed_range(&range, svs) {
+                    let sv = &mut sess.stream_values[*svid];
+                    if !write_stream_val_check_done::<false>(buf, sv, 1).unwrap() {
+                        sv.subscribe(tf_id, tf.stream_value_handles.len(), sv.is_buffered());
+                        tf.stream_value_handles.push(StreamValueHandle {
+                            start_idx: out.len(),
+                            run_len: rl as usize,
+                            contains_error: false,
+                        });
+                    }
+                    push_string_clear_buf(sess, tf_id, field_pos, &mut out, buf, rl as usize);
+                }
             }
             FDTypedSlice::Html(_) | FDTypedSlice::Object(_) => {
-                write_type_error::<false>(&mut buf, range.field_count).unwrap();
+                write_type_error::<false>(buf, range.field_count).unwrap();
             }
         }
         field_pos += range.field_count;
@@ -221,4 +304,40 @@ pub fn handle_tf_string_sink(
     drop(input_field);
     sess.tf_mgr
         .inform_successor_batch_available(tf_id, consumed_fields);
+}
+
+pub fn handle_tf_string_sink_stream_value_update(
+    sess: &mut JobData<'_>,
+    tf_id: TransformId,
+    tf: &mut TfStringSink<'_>,
+    svid: StreamValueId,
+    custom: usize,
+) {
+    let mut out = tf.handle.lock().unwrap();
+    let svh = &mut tf.stream_value_handles[custom];
+    let sv = &mut sess.stream_values[svid];
+    match append_stream_val(
+        sess.tf_mgr.transforms[tf_id].op_id,
+        sv,
+        &mut out,
+        svh.start_idx,
+        svh.run_len,
+    ) {
+        Ok(_) => (),
+        Err(oae) => {
+            if !svh.contains_error {
+                sess.entry_data.push_entry_error(
+                    sess.tf_mgr.transforms[tf_id].match_set_id,
+                    svh.start_idx,
+                    oae,
+                    svh.run_len,
+                );
+                svh.contains_error = true;
+            }
+        }
+    }
+    if sv.done {
+        sv.drop_subscription();
+        tf.stream_value_handles.release(custom);
+    }
 }

@@ -10,7 +10,7 @@ use crate::{
             FDIterator, FDTypedSlice, FDTypedValue, InlineBytesIter, InlineTextIter, TypedSliceIter,
         },
         fd_iter_hall::FDIterId,
-        field_value_flags,
+        field_value_flags, RunLength,
     },
     options::argument::CliArgIdx,
     stream_value::{StreamFieldValueData, StreamValue, StreamValueId},
@@ -77,7 +77,7 @@ pub fn write_raw_bytes<const NEWLINE: bool>(
     }
     Ok(())
 }
-pub fn write_inline_text<const NEWLINE: bool>(
+pub fn write_text<const NEWLINE: bool>(
     stream: &mut impl Write,
     text: &str,
     run_len: usize,
@@ -85,7 +85,7 @@ pub fn write_inline_text<const NEWLINE: bool>(
     write_raw_bytes::<NEWLINE>(stream, text.as_bytes(), run_len)
 }
 
-pub fn write_inline_bytes_utf8_lossy<const NEWLINE: bool>(
+pub fn write_bytes_utf8_lossy<const NEWLINE: bool>(
     stream: &mut impl Write,
     bytes: &[u8],
     run_len: usize,
@@ -124,6 +124,7 @@ pub fn write_type_error<const NEWLINE: bool>(
     write_raw_bytes::<NEWLINE>(stdout, b"<Type Error>", run_len)
 }
 
+// SAFETY: guaranteed to write valid utf-8
 pub fn write_error<const NEWLINE: bool>(
     stream: &mut impl Write,
     e: &OperatorApplicationError,
@@ -138,28 +139,38 @@ pub fn write_error<const NEWLINE: bool>(
     Ok(())
 }
 
-fn write_stream_val_check_done<const NEWLINE: bool>(
+pub fn write_stream_val_check_done<const NEWLINE: bool>(
     stream: &mut impl Write,
     sv: &StreamValue,
-) -> Result<bool, std::io::Error> {
+    run_len: usize,
+) -> Result<bool, (usize, std::io::Error)> {
+    let rl_to_attempt = if sv.done || run_len == 0 {
+        run_len as usize
+    } else {
+        1
+    };
     match &sv.data {
         StreamFieldValueData::BytesChunk(c) => {
-            stream.write(c)?;
-            if sv.done && NEWLINE {
-                stream.write(b"\n")?;
+            for i in 0..rl_to_attempt {
+                stream
+                    .write(c)
+                    .and_then(|_| if NEWLINE { stream.write(b"\n") } else { Ok(0) })
+                    .map_err(|e| (i, e))?;
             }
         }
         StreamFieldValueData::BytesBuffer(b) => {
             if sv.done {
-                stream.write(b)?;
-                if NEWLINE {
-                    stream.write(b"\n")?;
+                for i in 0..rl_to_attempt {
+                    stream
+                        .write(b)
+                        .and_then(|_| if NEWLINE { stream.write(b"\n") } else { Ok(0) })
+                        .map_err(|e| (i, e))?;
                 }
             }
         }
-        StreamFieldValueData::Error(err) => {
+        StreamFieldValueData::Error(e) => {
             debug_assert!(sv.done);
-            println!("error: {err}");
+            write_error::<NEWLINE>(stream, e, run_len)?;
         }
         StreamFieldValueData::Dropped => panic!("dropped stream value observed"),
     }
@@ -174,21 +185,7 @@ pub fn handle_tf_print_raw(
     field_pos_batch_end: &mut usize,
 ) -> Result<(), (usize, std::io::Error)> {
     let mut stdout = std::io::stdout().lock();
-
-    if let Some(id) = tf.current_stream_val {
-        let stream_val = &sess.stream_values[id];
-        let res = write_stream_val_check_done::<true>(&mut stdout, stream_val);
-        match res {
-            Ok(false) => return Ok(()),
-            Ok(true) => {
-                tf.current_stream_val = None;
-            }
-            Err(err) => {
-                tf.current_stream_val = None;
-                return Err((1, err));
-            }
-        }
-    }
+    debug_assert!(!tf.current_stream_val.is_some());
     let (batch, input_field_id);
     if tf.pending_batch_size == 0 {
         (batch, input_field_id) = sess.claim_batch(tf_id, &[]);
@@ -214,7 +211,7 @@ pub fn handle_tf_print_raw(
         match range.data {
             FDTypedSlice::TextInline(text) => {
                 for (v, rl) in InlineTextIter::from_typed_range(&range, text) {
-                    write_inline_text::<true>(&mut stdout, v, rl as usize)?;
+                    write_text::<true>(&mut stdout, v, rl as usize)?;
                 }
             }
             FDTypedSlice::BytesInline(bytes) => {
@@ -250,7 +247,7 @@ pub fn handle_tf_print_raw(
                             &v[fr.begin..fr.end],
                             fr.run_len as usize,
                         )?,
-                        FDTypedValue::TextInline(v) => write_inline_text::<true>(
+                        FDTypedValue::TextInline(v) => write_text::<true>(
                             &mut stdout,
                             &v[fr.begin..fr.end],
                             fr.run_len as usize,
@@ -273,27 +270,18 @@ pub fn handle_tf_print_raw(
             FDTypedSlice::StreamValueId(svs) => {
                 for (sv_id, rl) in TypedSliceIter::from_typed_range(&range, svs) {
                     let sv = &mut sess.stream_values[*sv_id];
-                    if !sv.done && rl > 1 {
-                        sv.promote_to_buffer();
+                    if !write_stream_val_check_done::<true>(&mut stdout, sv, rl as usize)? {
                         tf.current_stream_val = Some(*sv_id);
                         iter.move_to_field_pos(*field_pos);
+                        if rl > 1 {
+                            sv.promote_to_buffer();
+                        }
+                        sv.subscribe(tf_id, rl as usize, false);
                         break 'iter;
-                    }
-                    match write_stream_val_check_done::<true>(&mut stdout, sv) {
-                        Ok(false) => {
-                            sv.subscribe(tf_id);
-                            tf.current_stream_val = Some(*sv_id);
-                            iter.move_to_field_pos(*field_pos);
-                            break 'iter;
-                        }
-                        Ok(true) => {}
-                        Err(err) => {
-                            tf.current_stream_val = None;
-                            return Err((1, err));
-                        }
                     }
                     *field_pos += rl as usize;
                 }
+                continue; // skip the field pos increase at the bottom of this loop because we already did that
             }
             FDTypedSlice::Html(_) | FDTypedSlice::Object(_) => {
                 write_type_error::<true>(&mut stdout, range.field_count)?;
@@ -331,5 +319,38 @@ pub fn handle_tf_print(sess: &mut JobData<'_>, tf_id: TransformId, tf: &mut TfPr
             },
             field_pos_batch_end - fp,
         );
+    }
+}
+
+pub fn handle_tf_print_stream_value_update(
+    sess: &mut JobData<'_>,
+    tf_id: TransformId,
+    tf: &mut TfPrint,
+    svid: StreamValueId,
+    custom: usize,
+) {
+    let mut stdout = std::io::stdout().lock();
+    let sv = &sess.stream_values[svid];
+    let run_len = custom;
+    match write_stream_val_check_done::<true>(&mut stdout, sv, run_len) {
+        Ok(true) => sess.tf_mgr.update_ready_state(tf_id),
+        Ok(false) => (),
+        Err((i, e)) => {
+            sess.entry_data.push_entry_error(
+                sess.tf_mgr.transforms[tf_id].match_set_id,
+                sess.entry_data.fields[sess.tf_mgr.transforms[tf_id].input_field]
+                    .borrow()
+                    .field_data
+                    .get_iter(tf.iter_id)
+                    .get_next_field_pos()
+                    - run_len
+                    + i,
+                OperatorApplicationError {
+                    op_id: sess.tf_mgr.transforms[tf_id].op_id,
+                    message: Cow::Owned(e.to_string()),
+                },
+                run_len - i,
+            );
+        }
     }
 }
