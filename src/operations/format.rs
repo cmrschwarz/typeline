@@ -4,34 +4,48 @@ use bstr::BString;
 
 use crate::{
     chain::ChainId,
+    utils::string_store::StringStoreEntry,
     worker_thread_session::{FieldId, JobData},
 };
 
-use super::{
-    operator::OperatorOffsetInChain,
-    transform::{TransformData, TransformState},
-};
+use super::transform::{TransformData, TransformState};
 
-enum FormatKeyLocationReference {
-    Index(u32),
-    Name(String), //TODO: string interning
+pub enum FormatFillAlignment {
+    Left,
+    Center,
+    Right,
 }
 
-enum FormatKeyFormat {
-    Plain,
-    ZeroPaddedInt(u32),
-    NDecimalFloat(u32),
-    ZeroPaddedNDecimalFloat(u32, u32),
+pub enum FormatWidthSpec {
+    Ref(Option<StringStoreEntry>),
+    Value(usize),
+}
+
+pub enum NumberFormat {
+    Plain,    // the default value representation
+    Binary,   // print integers with base 2, e.g 101010 instead of 42
+    Octal,    // print integers with base 8, e.g 52 instead of 42
+    Hex,      // print integers in lower case hexadecimal, e.g 2a instead of 42
+    UpperHex, // print integers in upper case hexadecimal, e.g 2A instead of 42
+    LowerExp, // print numbers in upper case scientific notation, e.g. 4.2e1 instead of 42
+    UpperExp, // print numbers in lower case scientific notation, e.g. 4.2E1 instead of 42
 }
 
 pub struct FormatKey {
-    location_ref: FormatKeyLocationReference,
-    chain_offsets: HashMap<ChainId, Option<OperatorOffsetInChain>>,
-    format: FormatKeyFormat,
+    identifier: Option<StringStoreEntry>,
+    fill: char,
+    align: FormatFillAlignment,
+    add_plus_sign: bool,
+    zero_pad_numbers: bool,
+    width: FormatWidthSpec,
+    float_precision: FormatWidthSpec,
+    alternate_form: bool, // prefix 0x for hex, 0o for octal and 0b for binary, pretty print objects / arrays
+    number_format: NumberFormat,
+    debug: bool,
+    unicode: bool,
 }
 
 pub enum FormatPart {
-    //TODO: string interning
     ByteLiteral(BString),
     TextLiteral(String),
     Key(FormatKey),
