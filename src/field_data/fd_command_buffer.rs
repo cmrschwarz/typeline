@@ -816,14 +816,17 @@ mod test {
     };
 
     use super::{FDCommandBuffer, FieldAction, FieldActionKind};
-    fn test_actions_on_range(
+
+    fn test_actions_on_range_with_rle_opts(
         input: impl Iterator<Item = i64>,
+        header_rle: bool,
+        value_rle: bool,
         actions: &[FieldAction],
         output: &[(i64, RunLength)],
     ) {
         let mut fd = FieldData::default();
         for v in input {
-            fd.push_int(v, 1, true, true);
+            fd.push_int(v, 1, header_rle, value_rle);
         }
         let mut cb = FDCommandBuffer::default();
         cb.begin_action_set(0);
@@ -843,6 +846,21 @@ mod test {
         }
         assert_eq!(results, output);
     }
+    fn test_actions_on_range(
+        input: impl Iterator<Item = i64>,
+        actions: &[FieldAction],
+        output: &[(i64, RunLength)],
+    ) {
+        test_actions_on_range_with_rle_opts(input, true, true, actions, output);
+    }
+    fn test_actions_on_range_no_rle(
+        input: impl Iterator<Item = i64>,
+        actions: &[FieldAction],
+        output: &[(i64, RunLength)],
+    ) {
+        test_actions_on_range_with_rle_opts(input, false, false, actions, output);
+    }
+
     #[test]
     fn drop_after_dup() {
         //  Before  Dup(0, 2)  Drop(1, 1)
@@ -861,7 +879,7 @@ mod test {
             0..3,
             &[FieldAction::new(Dup, 0, 2), FieldAction::new(Drop, 1, 1)],
             &[(0, 2), (1, 1), (2, 1)],
-        )
+        );
     }
     #[test]
     fn in_between_drop() {
@@ -884,6 +902,11 @@ mod test {
             std::iter::repeat(0).take(3),
             &[FieldAction::new(Drop, 1, 1)],
             &[(0, 2)],
+        );
+        test_actions_on_range_no_rle(
+            std::iter::repeat(0).take(3),
+            &[FieldAction::new(Drop, 1, 1)],
+            &[(0, 1), (0, 1)],
         );
     }
 }
