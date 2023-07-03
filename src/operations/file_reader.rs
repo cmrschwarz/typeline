@@ -254,7 +254,7 @@ pub fn handle_tf_file_reader(sess: &mut JobData<'_>, tf_id: TransformId, fr: &mu
         Ok((_size, eof)) => {
             if !eof {
                 sess.tf_mgr.make_stream_producer(tf_id);
-                sess.tf_mgr.update_ready_state(tf_id);
+                sess.tf_mgr.push_tf_in_ready_queue(tf_id);
                 sess.sv_mgr.inform_stream_value_subscribers(sv_id, false);
                 return;
             }

@@ -87,4 +87,10 @@ impl ContextBuilder {
             .force_set(bs);
         self
     }
+    pub fn set_stream_buffer_size(mut self, sbs: usize) -> Self {
+        self.opts.chains[self.opts.curr_chain as usize]
+            .stream_buffer_size
+            .force_set(sbs);
+        self
+    }
 }

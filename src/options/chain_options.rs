@@ -49,7 +49,7 @@ impl ChainOptions {
                     .default_batch_size
                     .unwrap_or(DEFAULT_CHAIN_OPTIONS.default_batch_size.unwrap()),
                 stream_buffer_size: self
-                    .default_batch_size
+                    .stream_buffer_size
                     .unwrap_or(DEFAULT_CHAIN_OPTIONS.stream_buffer_size.unwrap()),
                 buffering_mode: self
                     .buffering_mode

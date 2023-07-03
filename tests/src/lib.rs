@@ -87,7 +87,7 @@ fn large_batch() -> Result<(), ScrError> {
 
 #[test]
 fn trickling_stream() -> Result<(), ScrError> {
-    const SIZE: usize = 10000;
+    const SIZE: usize = 4096;
     struct TestStream {
         total_size: usize,
     }
@@ -104,7 +104,7 @@ fn trickling_stream() -> Result<(), ScrError> {
     }
     let ss = StringSinkHandle::new();
     ContextBuilder::default()
-        .set_batch_size(SIZE)
+        .set_stream_buffer_size(3)
         .add_op(create_op_file_reader_custom(Box::new(TestStream {
             total_size: SIZE,
         })))

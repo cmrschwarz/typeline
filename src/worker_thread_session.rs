@@ -621,9 +621,9 @@ impl<'a> WorkerThreadSession<'a> {
                     TransformData::Print(tf) => handle_tf_print(jd, tf_id, tf),
                     TransformData::Regex(tf) => handle_tf_regex(jd, tf_id, tf),
                     TransformData::StringSink(tf) => handle_tf_string_sink(jd, tf_id, tf),
-                    TransformData::Format(_tf) => todo!(),
                     TransformData::FileReader(tf) => handle_tf_file_reader(jd, tf_id, tf),
                     TransformData::DataInserter(tf) => handle_tf_data_inserter(jd, tf_id, tf),
+                    TransformData::Format(_tf) => todo!(),
                     TransformData::Disabled => unreachable!(),
                 }
                 continue;
