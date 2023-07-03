@@ -286,7 +286,7 @@ impl RecordManager {
         let last_applied_acs = f.last_applied_action_set_id;
         if last_applied_acs < last_acs {
             f.last_applied_action_set_id = last_acs;
-            cb.execute([f].into_iter(), last_applied_acs, last_acs);
+            cb.execute_for_iter_halls([f].into_iter(), last_applied_acs, last_acs);
         }
     }
     pub fn apply_field_commands_for_tf_outputs(
@@ -310,7 +310,7 @@ impl RecordManager {
                     } else if f.last_applied_action_set_id < max_action_set_id {
                         let start = f.last_applied_action_set_id + 1;
                         f.last_applied_action_set_id = max_action_set_id;
-                        cb.execute(iter::once(f), start, max_action_set_id);
+                        cb.execute_for_iter_halls(iter::once(f), start, max_action_set_id);
                     }
                 }
             }
@@ -320,7 +320,7 @@ impl RecordManager {
                 .iter()
                 .map(|fid| self.fields[*fid].borrow_mut())
                 .filter(|fid| fid.last_applied_action_set_id == max_action_set_id);
-            cb.execute(iter, ord_id + 1, max_action_set_id);
+            cb.execute_for_iter_halls(iter, ord_id + 1, max_action_set_id);
         }
         //TODO: this is incorrect. merge instead
         cb.erase_action_sets(ord_id + 1);

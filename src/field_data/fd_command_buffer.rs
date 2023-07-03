@@ -14,8 +14,18 @@ pub enum FieldActionKind {
 #[derive(Clone, Copy, Default)]
 pub struct FieldAction {
     pub kind: FieldActionKind,
-    pub run_len: RunLength,
     pub field_idx: usize,
+    pub run_len: RunLength,
+}
+
+impl FieldAction {
+    pub fn new(kind: FieldActionKind, field_idx: usize, run_len: RunLength) -> Self {
+        Self {
+            kind,
+            field_idx,
+            run_len,
+        }
+    }
 }
 
 struct ActionSet {
@@ -121,7 +131,7 @@ impl FDCommandBuffer {
             .map(|acs| acs.set_index)
             .unwrap_or(0)
     }
-    pub fn execute<'a, 'b>(
+    pub fn execute_for_iter_halls<'a>(
         &mut self,
         fd_iter_halls: impl Iterator<Item = RefMut<'a, Field>>,
         min_action_set_id: usize,
@@ -150,6 +160,21 @@ impl FDCommandBuffer {
             );
             self.execute_commands(&mut fdih.field_data.fd);
             self.iter_states.clear();
+            self.cleanup();
+        }
+    }
+    pub fn execute<'a>(
+        &mut self,
+        fields: impl Iterator<Item = &'a mut FieldData>,
+        min_action_set_id: usize,
+        max_action_set_id: usize,
+    ) {
+        let merged_acs_idx = self.prepare_actions(min_action_set_id, max_action_set_id);
+
+        for mut fd in fields.into_iter() {
+            // we reverse the sort order so we can pop back
+            self.generate_commands_from_actions(merged_acs_idx, &mut fd, 0, 0);
+            self.execute_commands(fd);
             self.cleanup();
         }
     }
@@ -183,33 +208,34 @@ impl FDCommandBuffer {
         const RIGHT: usize = 1;
         const COUNT: usize = 2;
 
-        let mut offsets = [0isize; COUNT];
-        let mut indices = [0usize; COUNT];
-        let mut starts = [0usize; COUNT];
+        let mut curr_action_idx = [0usize; COUNT];
+        let mut next_action_field_idx = [0usize; COUNT];
+        let mut field_pos_offset = [0isize; COUNT];
 
         loop {
             for i in 0..COUNT {
-                starts[i] = (sets[i][indices[i]].field_idx as isize + offsets[i]) as usize;
+                next_action_field_idx[i] =
+                    (sets[i][curr_action_idx[i]].field_idx as isize + field_pos_offset[i]) as usize;
             }
-            if starts[LEFT] <= starts[RIGHT] {
-                let left = &sets[LEFT][indices[LEFT]];
-                let field_idx = (left.field_idx as isize + offsets[LEFT]) as usize;
-                let drops_4_left = &mut offsets[RIGHT];
+            if next_action_field_idx[LEFT] <= next_action_field_idx[RIGHT] {
+                let left = &sets[LEFT][curr_action_idx[LEFT]];
+                let field_idx = (left.field_idx as isize + field_pos_offset[LEFT]) as usize;
+                let outstanding_drops = &mut field_pos_offset[RIGHT];
                 let mut run_len = left.run_len;
                 let mut kind = left.kind;
                 match left.kind {
                     FieldActionKind::Dup => {
-                        if *drops_4_left >= run_len as isize {
+                        if *outstanding_drops >= run_len as isize {
                             kind = FieldActionKind::Drop;
-                            *drops_4_left -= run_len as isize;
+                            *outstanding_drops -= run_len as isize;
                             let mut space_to_next = sets[LEFT]
-                                .get(indices[LEFT] + 1)
+                                .get(curr_action_idx[LEFT] + 1)
                                 .map(|a| a.field_idx - left.field_idx)
                                 .unwrap_or(usize::MAX);
-                            while space_to_next > *drops_4_left as usize
-                                && *drops_4_left > RunLength::MAX as isize
+                            while space_to_next > *outstanding_drops as usize
+                                && *outstanding_drops > RunLength::MAX as isize
                             {
-                                *drops_4_left -= RunLength::MAX as isize;
+                                *outstanding_drops -= RunLength::MAX as isize;
                                 space_to_next -= RunLength::MAX as usize;
                                 target.push(FieldAction {
                                     kind,
@@ -217,23 +243,23 @@ impl FDCommandBuffer {
                                     field_idx,
                                 });
                             }
-                            run_len = (*drops_4_left).min(space_to_next as isize) as RunLength;
-                            *drops_4_left -= run_len as isize;
+                            run_len = (*outstanding_drops).min(space_to_next as isize) as RunLength;
+                            *outstanding_drops -= run_len as isize;
                         } else {
-                            run_len -= *drops_4_left as RunLength;
-                            *drops_4_left = 0;
+                            run_len -= *outstanding_drops as RunLength;
+                            *outstanding_drops = 0;
                         }
                     }
                     FieldActionKind::Drop => {
                         let mut space_to_next = sets[LEFT]
-                            .get(indices[LEFT] + 1)
+                            .get(curr_action_idx[LEFT] + 1)
                             .map(|a| a.field_idx - left.field_idx)
                             .unwrap_or(usize::MAX);
-                        *drops_4_left += run_len as isize;
-                        while space_to_next > *drops_4_left as usize
-                            && *drops_4_left > RunLength::MAX as isize
+                        *outstanding_drops += run_len as isize;
+                        while space_to_next > *outstanding_drops as usize
+                            && *outstanding_drops > RunLength::MAX as isize
                         {
-                            *drops_4_left -= RunLength::MAX as isize;
+                            *outstanding_drops -= RunLength::MAX as isize;
                             space_to_next -= RunLength::MAX as usize;
                             target.push(FieldAction {
                                 kind,
@@ -241,8 +267,8 @@ impl FDCommandBuffer {
                                 field_idx,
                             });
                         }
-                        run_len = (*drops_4_left).min(space_to_next as isize) as RunLength;
-                        *drops_4_left -= run_len as isize;
+                        run_len = (*outstanding_drops).min(space_to_next as isize) as RunLength;
+                        *outstanding_drops -= run_len as isize;
                     }
                 }
                 target.push(FieldAction {
@@ -250,27 +276,28 @@ impl FDCommandBuffer {
                     run_len,
                     field_idx,
                 });
-                indices[LEFT] += 1;
-                if indices[LEFT] == sets[LEFT].len() {
+                curr_action_idx[LEFT] += 1;
+                if curr_action_idx[LEFT] == sets[LEFT].len() {
                     break;
                 }
             } else {
-                let right = &sets[RIGHT][indices[RIGHT]];
-                let field_idx = (right.field_idx as isize + offsets[RIGHT]) as usize;
+                let right = &sets[RIGHT][curr_action_idx[RIGHT]];
+                let field_idx = (right.field_idx as isize + field_pos_offset[RIGHT]) as usize;
                 let mut run_len = right.run_len;
 
                 match right.kind {
                     FieldActionKind::Dup => {
-                        offsets[LEFT] += right.run_len as isize;
+                        field_pos_offset[LEFT] += right.run_len as isize;
                     }
                     FieldActionKind::Drop => {
-                        let gap_to_start_left = starts[LEFT] - starts[RIGHT];
+                        let gap_to_start_left =
+                            next_action_field_idx[LEFT] - next_action_field_idx[RIGHT];
                         if gap_to_start_left < right.run_len as usize {
                             let gap_rl = gap_to_start_left as RunLength;
                             run_len = gap_rl;
-                            offsets[RIGHT] += (right.run_len - gap_rl) as isize;
+                            field_pos_offset[RIGHT] += (right.run_len - gap_rl) as isize;
                         }
-                        offsets[LEFT] -= run_len as isize;
+                        field_pos_offset[LEFT] -= run_len as isize;
                     }
                 }
                 target.push(FieldAction {
@@ -278,18 +305,18 @@ impl FDCommandBuffer {
                     run_len,
                     field_idx,
                 });
-                indices[RIGHT] += 1;
+                curr_action_idx[RIGHT] += 1;
             }
         }
         for i in 0..COUNT {
-            if indices[i] == sets[i].len() {
+            if curr_action_idx[i] == sets[i].len() {
                 let other = (i + 1) % COUNT;
-                for i in indices[other]..sets[other].len() {
+                for i in curr_action_idx[other]..sets[other].len() {
                     let action = &sets[other][i];
                     target.push(FieldAction {
                         kind: action.kind,
                         run_len: action.run_len,
-                        field_idx: (action.field_idx as isize + offsets[other]) as usize,
+                        field_idx: (action.field_idx as isize + field_pos_offset[other]) as usize,
                     });
                 }
                 break;
@@ -395,12 +422,6 @@ impl FDCommandBuffer {
         }
         self.merge_action_sets(first, last - first + 1, ACTIONS_RAW_IDX + 1)
     }
-}
-
-#[derive(Clone, Copy)]
-enum CommandHandlerContinuation {
-    AdvanceAction,
-    AdvanceHeader,
 }
 
 // generate_commands_from_actions machinery
@@ -536,20 +557,22 @@ impl FDCommandBuffer {
     }
     fn handle_drop(
         &mut self,
-        action: &mut FieldAction,
+        action_pos: usize,
+        curr_action_pos_outstanding_drops: &mut RunLength,
         header: &mut FieldValueHeader,
         field_pos: &mut usize,
         header_idx_new: &mut usize,
         copy_range_start: &mut usize,
         copy_range_start_new: &mut usize,
-    ) -> CommandHandlerContinuation {
-        let rl_to_del = action.run_len;
-        let rl_pre = (action.field_idx - *field_pos) as RunLength;
+    ) {
+        let rl_to_del = *curr_action_pos_outstanding_drops;
+        let rl_pre = (action_pos - *field_pos) as RunLength;
         if rl_pre > 0 {
             let rl_rem = header.run_length - rl_pre;
-            if header.shared_value() && action.run_len <= rl_rem {
-                header.run_length -= action.run_len;
-                return CommandHandlerContinuation::AdvanceAction;
+            if header.shared_value() && rl_to_del <= rl_rem {
+                header.run_length -= rl_to_del;
+                *curr_action_pos_outstanding_drops = 0;
+                return;
             }
             self.push_copy_command(*header_idx_new, copy_range_start, copy_range_start_new);
             self.push_insert_command_check_run_length(
@@ -560,11 +583,12 @@ impl FDCommandBuffer {
             );
             *field_pos += rl_pre as usize;
             header.run_length -= rl_pre;
-            if action.run_len <= rl_rem {
+            if rl_to_del <= rl_rem {
                 debug_assert!(!header.shared_value());
-                if action.run_len == rl_rem {
+                if rl_to_del == rl_rem {
                     header.set_deleted(true);
-                    return CommandHandlerContinuation::AdvanceAction;
+                    *curr_action_pos_outstanding_drops = 0;
+                    return;
                 }
                 let mut fmt_del = header.fmt;
                 fmt_del.set_deleted(true);
@@ -572,36 +596,39 @@ impl FDCommandBuffer {
                     header_idx_new,
                     copy_range_start_new,
                     fmt_del,
-                    action.run_len,
+                    rl_to_del,
                 );
-                header.run_length -= action.run_len;
+                header.run_length -= rl_to_del;
                 if header.run_length == 1 {
                     header.set_shared_value(true);
                 }
-                return CommandHandlerContinuation::AdvanceAction;
+                *curr_action_pos_outstanding_drops = 0;
+                return;
             }
             if header.shared_value() {
                 header.set_deleted(true);
-                action.run_len -= rl_rem;
                 *copy_range_start += 1;
                 *copy_range_start_new += 1;
-                return CommandHandlerContinuation::AdvanceHeader;
+                *curr_action_pos_outstanding_drops -= rl_rem;
+                return;
             }
             header.set_deleted(true);
-            if action.run_len == rl_rem {
-                return CommandHandlerContinuation::AdvanceAction;
+            if rl_to_del == rl_rem {
+                *curr_action_pos_outstanding_drops = 0;
+                return;
             }
-            action.run_len -= rl_rem;
-            return CommandHandlerContinuation::AdvanceHeader;
+            *curr_action_pos_outstanding_drops -= rl_rem;
+            return;
         }
         if rl_to_del > header.run_length {
             header.set_deleted(true);
-            action.run_len -= header.run_length;
-            return CommandHandlerContinuation::AdvanceHeader;
+            *curr_action_pos_outstanding_drops -= header.run_length;
+            return;
         }
+        *curr_action_pos_outstanding_drops = 0;
         if rl_to_del == header.run_length {
             header.set_deleted(true);
-            return CommandHandlerContinuation::AdvanceAction;
+            return;
         }
         if !header.shared_value() {
             self.push_copy_command(*header_idx_new, copy_range_start, copy_range_start_new);
@@ -614,10 +641,10 @@ impl FDCommandBuffer {
                 rl_to_del,
             );
             header.run_length -= rl_to_del;
-            return CommandHandlerContinuation::AdvanceAction;
+            return;
         }
         header.run_length -= rl_to_del;
-        return CommandHandlerContinuation::AdvanceAction;
+        return;
     }
     fn generate_commands_from_actions(
         &mut self,
@@ -629,64 +656,88 @@ impl FDCommandBuffer {
         let mut header = &mut fd.header[header_idx];
         let mut header_idx_new = header_idx;
 
-        let mut action = Default::default();
         let mut action_idx_next = 0;
-        let mut prev_action_field_idx = usize::MAX;
         let mut copy_range_start = 0;
         let mut copy_range_start_new = 0;
         //TODO: update iterators
         #[allow(unused_variables)]
         let mut field_pos_old = field_pos;
-        let mut curr_header_outstanding_dups = 0;
+        let mut curr_action_pos = 0;
+        let mut curr_action_pos_outstanding_dups = 0;
+        let mut curr_action_pos_outstanding_drops = 0;
         'advance_action: loop {
             let actions = &self.actions[merged_actions.merge_set_index]
                 [merged_actions.actions_start..merged_actions.actions_end];
             loop {
                 let end_of_actions = action_idx_next == actions.len();
-                if curr_header_outstanding_dups > 0
-                    && (end_of_actions
-                        || actions[action_idx_next].field_idx != prev_action_field_idx)
-                {
-                    break;
-                }
                 if end_of_actions {
+                    if curr_action_pos_outstanding_dups > 0 {
+                        break;
+                    }
                     break 'advance_action;
                 }
-                action = actions[action_idx_next];
+                let action = actions[action_idx_next];
                 action_idx_next += 1;
-                prev_action_field_idx = action.field_idx;
                 match action.kind {
                     FieldActionKind::Dup => {
-                        curr_header_outstanding_dups += action.run_len as usize;
+                        if action.field_idx != curr_action_pos {
+                            if curr_action_pos_outstanding_dups > 0 {
+                                action_idx_next -= 1;
+                                break;
+                            }
+                            curr_action_pos = action.field_idx;
+                        }
+                        curr_action_pos_outstanding_dups += action.run_len as usize;
                     }
                     FieldActionKind::Drop => {
-                        if curr_header_outstanding_dups > action.run_len as usize {
-                            curr_header_outstanding_dups -= action.run_len as usize;
-                        } else {
-                            action.run_len -= curr_header_outstanding_dups as RunLength;
+                        if curr_action_pos_outstanding_dups == 0 {
+                            curr_action_pos = action.field_idx;
+                            curr_action_pos_outstanding_drops = action.run_len;
                             break;
+                        }
+                        let action_gap = action.field_idx - curr_action_pos;
+                        if curr_action_pos_outstanding_dups < action_gap {
+                            action_idx_next -= 1;
+                            break;
+                        }
+                        if curr_action_pos_outstanding_dups >= action_gap + action.run_len as usize
+                        {
+                            curr_action_pos_outstanding_dups -= action.run_len as usize;
+                        } else if action_gap == 0 {
+                            curr_action_pos_outstanding_dups = 0;
+                            curr_action_pos_outstanding_drops =
+                                action.run_len - curr_action_pos_outstanding_dups as RunLength;
+                            break;
+                        } else {
+                            curr_action_pos_outstanding_drops = action.run_len
+                                - (curr_action_pos_outstanding_dups - action_gap) as RunLength;
+                            curr_action_pos_outstanding_dups = action_gap;
                         }
                     }
                 }
             }
-            'advance_header: loop {
-                if curr_header_outstanding_dups > 0 {
-                    self.handle_dup(
-                        prev_action_field_idx,
-                        curr_header_outstanding_dups,
-                        header,
-                        &mut field_pos,
-                        &mut header_idx_new,
-                        &mut copy_range_start,
-                        &mut copy_range_start_new,
-                    );
-                    curr_header_outstanding_dups = 0;
+            if curr_action_pos_outstanding_dups > 0 {
+                self.handle_dup(
+                    curr_action_pos,
+                    curr_action_pos_outstanding_dups,
+                    header,
+                    &mut field_pos,
+                    &mut header_idx_new,
+                    &mut copy_range_start,
+                    &mut copy_range_start_new,
+                );
+                let prev_dups = curr_action_pos_outstanding_dups;
+                curr_action_pos_outstanding_dups = 0;
+                if curr_action_pos_outstanding_drops == 0 {
                     continue 'advance_action;
                 }
+                curr_action_pos += prev_dups;
+            }
+            'advance_header: loop {
                 loop {
                     if !header.deleted() {
                         let field_pos_new = field_pos + header.run_length as usize;
-                        if field_pos_new > prev_action_field_idx {
+                        if field_pos_new > curr_action_pos {
                             break;
                         }
                         field_pos = field_pos_new;
@@ -696,18 +747,16 @@ impl FDCommandBuffer {
                     header_idx_new += 1;
                     header = &mut fd.header[header_idx];
                 }
-                if action.kind != FieldActionKind::Drop {
-                    continue 'advance_header;
-                }
-                let continuation = self.handle_drop(
-                    &mut action,
+                self.handle_drop(
+                    curr_action_pos,
+                    &mut curr_action_pos_outstanding_drops,
                     header,
                     &mut field_pos,
                     &mut header_idx_new,
                     &mut copy_range_start,
                     &mut copy_range_start_new,
                 );
-                if let CommandHandlerContinuation::AdvanceAction = continuation {
+                if curr_action_pos_outstanding_drops == 0 {
                     continue 'advance_action;
                 } else {
                     continue 'advance_header;
@@ -755,5 +804,86 @@ impl FDCommandBuffer {
             }
             fd.header.set_len(new_size);
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::field_data::{
+        fd_iter::{FDIterator, FDTypedSlice, TypedSliceIter},
+        fd_push_interface::FDPushInterface,
+        FieldData, RunLength,
+    };
+
+    use super::{FDCommandBuffer, FieldAction, FieldActionKind};
+    fn test_actions_on_range(
+        input: impl Iterator<Item = i64>,
+        actions: &[FieldAction],
+        output: &[(i64, RunLength)],
+    ) {
+        let mut fd = FieldData::default();
+        for v in input {
+            fd.push_int(v, 1, true, true);
+        }
+        let mut cb = FDCommandBuffer::default();
+        cb.begin_action_set(0);
+        for a in actions {
+            cb.push_action(a.kind, a.field_idx, a.run_len);
+        }
+        cb.execute(std::iter::once(&mut fd), 0, 0);
+        let mut iter = fd.iter();
+        let mut results = Vec::new();
+        while let Some(range) = iter.typed_range_fwd(usize::MAX, 0) {
+            if let FDTypedSlice::Integer(ints) = range.data {
+                results
+                    .extend(TypedSliceIter::from_typed_range(&range, ints).map(|(i, rl)| (*i, rl)));
+            } else {
+                panic!("resulting field data has wrong type");
+            }
+        }
+        assert_eq!(results, output);
+    }
+    #[test]
+    fn drop_after_dup() {
+        //  Before  Dup(0, 2)  Drop(1, 1)
+        //    0         0           0
+        //    1         0           0
+        //    2         0           1
+        //              1           2
+        //              2
+        use FieldActionKind::*;
+        test_actions_on_range(
+            0..3,
+            &[FieldAction::new(Dup, 0, 2)],
+            &[(0, 3), (1, 1), (2, 1)],
+        );
+        test_actions_on_range(
+            0..3,
+            &[FieldAction::new(Dup, 0, 2), FieldAction::new(Drop, 1, 1)],
+            &[(0, 2), (1, 1), (2, 1)],
+        )
+    }
+    #[test]
+    fn in_between_drop() {
+        //  Before   Drop(1, 1)
+        //    0           0
+        //    1           2
+        //    2
+        use FieldActionKind::*;
+        test_actions_on_range(0..3, &[FieldAction::new(Drop, 1, 1)], &[(0, 1), (2, 1)]);
+    }
+
+    #[test]
+    fn pure_run_length_drop() {
+        //  Before   Drop(1, 1)
+        //    0           0
+        //    0           0
+        //    0
+        use FieldActionKind::*;
+        test_actions_on_range(
+            std::iter::repeat(0).take(3),
+            &[FieldAction::new(Drop, 1, 1)],
+            &[(0, 2)],
+        );
     }
 }

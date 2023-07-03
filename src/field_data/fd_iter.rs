@@ -724,6 +724,7 @@ impl<'a> FDIterator<'a> for FDIter<'a> {
                 && self.fd.header.len() != self.header_idx + 1
                 && self.fd.header[self.header_idx + 1].deleted()
             {
+                stride_rem -= self.next_header() as usize;
                 return n - stride_rem;
             }
             stride_rem -= self.next_header() as usize;
@@ -764,6 +765,7 @@ impl<'a> FDIterator<'a> for FDIter<'a> {
                 && self.header_idx != 0
                 && self.fd.header[self.header_idx - 1].deleted()
             {
+                stride_rem -= self.prev_header() as usize;
                 return n - stride_rem;
             }
             stride_rem -= self.prev_header() as usize;
@@ -842,14 +844,19 @@ impl<'a> FDIterator<'a> for FDIter<'a> {
         let header_start = self.header_idx;
         let field_count =
             self.next_n_fields_with_fmt(limit, [fmt.kind], flag_mask, fmt.flags & flag_mask);
-        let data_end = self.get_prev_field_data_end();
+        let mut data_end = self.get_prev_field_data_end();
         let mut oversize_end = 0;
         let mut header_end = self.header_idx;
         if self.is_next_valid() {
             if self.field_run_length_bwd() != 0 {
                 header_end += 1;
+                oversize_end = self.header_rl_total - self.header_rl_offset;
+            } else {
+                while header_end > 0 && self.fd.header[header_end - 1].deleted() {
+                    header_end -= 1;
+                    data_end -= self.fd.header[header_end].data_size();
+                }
             }
-            oversize_end = self.header_rl_total - self.header_rl_offset;
         }
 
         unsafe {
@@ -1108,7 +1115,7 @@ where
 
 impl<'a> FDIterMut<'a> {
     pub fn from_start(fd: &'a mut FieldData, initial_field_offset: usize) -> Self {
-        let first_header = fd.header.first().map(|h| *h);
+        let first_header = fd.header.first().cloned();
         Self {
             fd,
             field_pos: initial_field_offset,

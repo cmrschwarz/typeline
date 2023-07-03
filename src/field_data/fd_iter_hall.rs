@@ -64,7 +64,7 @@ impl FDIterHall {
             .fd
             .header
             .get(state.header_idx)
-            .map(|h| *h)
+            .cloned()
             .unwrap_or_default();
         FDIter {
             fd: &self.fd,
@@ -82,7 +82,7 @@ impl FDIterHall {
             .fd
             .header
             .get(state.header_idx)
-            .map(|h| *h)
+            .cloned()
             .unwrap_or_default();
         FDIterMut {
             fd: &mut self.fd,

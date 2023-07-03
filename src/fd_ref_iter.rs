@@ -64,7 +64,7 @@ impl<'a> FDRefIter<'a> {
             if field_ref_mut.last_applied_action_set_id != last_acs {
                 let start = field_ref_mut.last_applied_action_set_id + 1;
                 field_ref_mut.last_applied_action_set_id = last_acs;
-                cb.execute(std::iter::once(field_ref_mut), start, last_acs);
+                cb.execute_for_iter_halls(std::iter::once(field_ref_mut), start, last_acs);
             } else {
                 drop(field_ref_mut);
             }

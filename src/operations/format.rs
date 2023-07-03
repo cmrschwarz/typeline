@@ -1,9 +1,6 @@
-use std::collections::HashMap;
-
 use bstr::BString;
 
 use crate::{
-    chain::ChainId,
     utils::string_store::StringStoreEntry,
     worker_thread_session::{FieldId, JobData},
 };
