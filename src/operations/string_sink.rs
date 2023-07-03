@@ -188,7 +188,7 @@ pub fn handle_tf_string_sink(
     tf_id: TransformId,
     tf: &mut TfStringSink<'_>,
 ) {
-    let (batch, input_field_id) = sess.claim_batch(tf_id, &[]);
+    let (batch, input_field_id) = sess.claim_batch(tf_id);
     let input_field = sess.record_mgr.fields[input_field_id].borrow();
     let mut iter = input_field
         .field_data

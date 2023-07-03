@@ -170,60 +170,49 @@ pub fn parse_op_regex(
     let regex;
     let text_only_regex;
     let mut output_group_id = 0;
+    let value_str = value
+        .ok_or_else(|| {
+            OperatorCreationError::new("missing argument for the regex operator", arg_idx)
+        })?
+        .to_str()
+        .map_err(|_| OperatorCreationError::new("regex pattern must be legal UTF-8", arg_idx))?;
 
-    if let Some(value) = value {
-        match value.to_str() {
-            Err(_) => {
-                return Err(OperatorCreationError::new(
-                    "regex pattern must be legal UTF-8",
-                    arg_idx,
-                ));
+    let (re, empty_group_replacement) = preparse_replace_empty_capture_group(value_str, &opts)
+        .map_err(|e| {
+            OperatorCreationError {
+                cli_arg_idx: arg_idx,
+                message: e,
             }
-            Ok(value) => {
-                let (re, empty_group_replacement) =
-                    preparse_replace_empty_capture_group(value, &opts).map_err(|e| {
-                        OperatorCreationError {
-                            cli_arg_idx: arg_idx,
-                            message: e,
-                        }
-                        .into()
-                    })?;
+            .into()
+        })?;
 
-                regex = bytes::RegexBuilder::new(&re)
-                    .multi_line(opts.line_based)
-                    .dot_matches_new_line(opts.dotall)
-                    .case_insensitive(opts.case_insensitive)
-                    .unicode(!opts.ascii_mode)
-                    .build()
-                    .map_err(|e| OperatorCreationError {
-                        message: Cow::Owned(format!("failed to compile regex: {}", e)),
-                        cli_arg_idx: arg_idx,
-                    })?;
+    regex = bytes::RegexBuilder::new(&re)
+        .multi_line(opts.line_based)
+        .dot_matches_new_line(opts.dotall)
+        .case_insensitive(opts.case_insensitive)
+        .unicode(!opts.ascii_mode)
+        .build()
+        .map_err(|e| OperatorCreationError {
+            message: Cow::Owned(format!("failed to compile regex: {}", e)),
+            cli_arg_idx: arg_idx,
+        })?;
 
-                if let Some(egr) = empty_group_replacement {
-                    output_group_id = regex
-                        .capture_names()
-                        .enumerate()
-                        .find(|(_i, cn)| *cn == Some(&egr.as_str()))
-                        .map(|(i, _cn)| i)
-                        .unwrap();
-                }
+    if let Some(egr) = empty_group_replacement {
+        output_group_id = regex
+            .capture_names()
+            .enumerate()
+            .find(|(_i, cn)| *cn == Some(&egr.as_str()))
+            .map(|(i, _cn)| i)
+            .unwrap();
+    }
 
-                text_only_regex = regex::RegexBuilder::new(&re)
-                    .multi_line(opts.line_based)
-                    .dot_matches_new_line(opts.dotall)
-                    .case_insensitive(opts.case_insensitive)
-                    .unicode(!opts.ascii_mode)
-                    .build()
-                    .ok();
-            }
-        }
-    } else {
-        return Err(OperatorCreationError::new(
-            "the regex operator needs a regular expression as an argument",
-            arg_idx,
-        ));
-    };
+    text_only_regex = regex::RegexBuilder::new(&re)
+        .multi_line(opts.line_based)
+        .dot_matches_new_line(opts.dotall)
+        .case_insensitive(opts.case_insensitive)
+        .unicode(!opts.ascii_mode)
+        .build()
+        .ok();
 
     Ok(OpRegex {
         regex,
@@ -444,7 +433,11 @@ fn match_regex_inner<'a, 'b, 'c>(
 }
 
 pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRegex) {
-    let (batch, input_field_id) = sess.claim_batch(tf_id, &re.capture_group_fields);
+    sess.record_mgr.apply_field_commands_for_tf_outputs(
+        &sess.tf_mgr.transforms[tf_id],
+        &re.capture_group_fields,
+    );
+    let (batch, input_field_id) = sess.claim_batch(tf_id);
     let tf = &sess.tf_mgr.transforms[tf_id];
     let op_id = tf.op_id;
     let mut command_buffer = &mut sess.record_mgr.match_sets[tf.match_set_id].command_buffer;

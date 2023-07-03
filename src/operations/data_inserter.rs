@@ -53,39 +53,31 @@ pub fn handle_tf_data_inserter(
     tf_id: TransformId,
     di: &mut TfDataInserter,
 ) {
-    let (batch, field) = sess.claim_batch(tf_id, &[]);
-    let mut input_field = sess.record_mgr.fields[field].borrow_mut();
+    let mut input_field =
+        sess.record_mgr.fields[sess.tf_mgr.transforms[tf_id].input_field].borrow_mut();
     match di.data {
         AnyData::Bytes(b) => input_field.field_data.push_bytes(b, 1, true, false),
         AnyData::String(s) => input_field.field_data.push_str(s, 1, true, false),
         AnyData::Int(i) => input_field.field_data.push_int(*i, 1, true, false),
     }
-    sess.tf_mgr.unlink_transform(tf_id, batch + 1);
+    sess.tf_mgr.unlink_transform(tf_id, 1);
 }
 
 pub fn parse_op_str(
     value: Option<&BStr>,
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
-    let parsed_value = if let Some(value) = value {
-        value
-            .as_bytes()
-            .to_str()
-            .map_err(|_| {
-                OperatorCreationError::new(
-                    "str argument must be valid UTF-8, consider using bytes=...",
-                    arg_idx,
-                )
-            })?
-            .to_owned()
-    } else {
-        return Err(OperatorCreationError::new(
-            "missing value argument for str",
-            arg_idx,
-        ));
-    };
+    let value_str = value
+        .ok_or_else(|| OperatorCreationError::new("missing value for str", arg_idx))?
+        .to_str()
+        .map_err(|_| {
+            OperatorCreationError::new(
+                "str argument must be valid UTF-8, consider using bytes=...",
+                arg_idx,
+            )
+        })?;
     Ok(OperatorData::DataInserter(OpDataInserter {
-        data: AnyData::String(parsed_value),
+        data: AnyData::String(value_str.to_owned()),
     }))
 }
 
@@ -93,15 +85,14 @@ pub fn parse_op_int(
     value: Option<&BStr>,
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
-    let parsed_value = if let Some(value) = value {
-        let value = str::parse::<i64>(value.as_bytes().to_str().map_err(|_| {
+    let value_str = value
+        .ok_or_else(|| OperatorCreationError::new("missing value for int", arg_idx))?
+        .to_str()
+        .map_err(|_| {
             OperatorCreationError::new("failed to parse value as integer (invalid utf-8)", arg_idx)
-        })?)
+        })?;
+    let parsed_value = str::parse::<i64>(value_str)
         .map_err(|_| OperatorCreationError::new("failed to value as integer", arg_idx))?;
-        value
-    } else {
-        return Err(OperatorCreationError::new("missing value for int", arg_idx));
-    };
     Ok(OperatorData::DataInserter(OpDataInserter {
         data: AnyData::Int(parsed_value),
     }))
@@ -113,7 +104,10 @@ pub fn parse_op_bytes(
     let parsed_value = if let Some(value) = value {
         value.to_owned()
     } else {
-        return Err(OperatorCreationError::new("missing value for int", arg_idx));
+        return Err(OperatorCreationError::new(
+            "missing value for bytes",
+            arg_idx,
+        ));
     };
     Ok(OperatorData::DataInserter(OpDataInserter {
         data: AnyData::Bytes(parsed_value),

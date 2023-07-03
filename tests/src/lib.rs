@@ -7,6 +7,7 @@ use scr::{
     operations::{
         file_reader::create_op_file_reader_custom,
         regex::{create_op_regex, create_op_regex_lines, RegexOptions},
+        sequence::create_op_seq,
         string_sink::{create_op_string_sink, StringSinkHandle},
     },
     options::context_builder::ContextBuilder,
@@ -114,5 +115,16 @@ fn trickling_stream() -> Result<(), ScrError> {
         ss.get().as_slice(),
         [std::iter::repeat("a").take(SIZE).collect::<String>()]
     );
+    Ok(())
+}
+
+#[test]
+fn sequence() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::new();
+    ContextBuilder::default()
+        .add_op(create_op_seq(0, 3, 1).unwrap())
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(ss.get().as_slice(), ["0", "1", "2"]);
     Ok(())
 }

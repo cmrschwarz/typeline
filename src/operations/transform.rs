@@ -6,7 +6,7 @@ use crate::worker_thread_session::{FieldId, MatchSetId};
 
 use super::{
     data_inserter::TfDataInserter, file_reader::TfFileReader, format::TfFormat,
-    operator::OperatorId, print::TfPrint, regex::TfRegex, split::TfSplit,
+    operator::OperatorId, print::TfPrint, regex::TfRegex, sequence::TfSequence, split::TfSplit,
     string_sink::TfStringSink,
 };
 
@@ -23,6 +23,7 @@ pub enum TransformData<'a> {
     Format(TfFormat<'a>),
     FileReader(TfFileReader),
     DataInserter(TfDataInserter<'a>),
+    Sequence(TfSequence),
 }
 
 impl Default for TransformData<'_> {

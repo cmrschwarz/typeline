@@ -128,6 +128,7 @@ impl ContextOptions {
                 OperatorData::StringSink(_)
                 | OperatorData::Split(_)
                 | OperatorData::Format(_)
+                | OperatorData::Sequence(_)
                 | OperatorData::DataInserter(_)
                 | OperatorData::FileReader(_)
                 | OperatorData::Print => (),

@@ -98,9 +98,10 @@ pub fn write_integer<const NEWLINE: bool>(
     v: i64,
     run_len: usize,
 ) -> Result<(), (usize, std::io::Error)> {
+    let nl = if NEWLINE { "\n" } else { "" };
     for i in 0..run_len {
         stream
-            .write_fmt(format_args!("{v}\n"))
+            .write_fmt(format_args!("{v}{nl}"))
             .map_err(|e| (i, e))?;
     }
     Ok(())
@@ -188,7 +189,7 @@ pub fn handle_tf_print_raw(
     debug_assert!(!tf.current_stream_val.is_some());
     let (batch, input_field_id);
     if tf.pending_batch_size == 0 {
-        (batch, input_field_id) = sess.claim_batch(tf_id, &[]);
+        (batch, input_field_id) = sess.claim_batch(tf_id);
         tf.pending_batch_size = batch;
     } else {
         input_field_id = sess.tf_mgr.transforms[tf_id].input_field;

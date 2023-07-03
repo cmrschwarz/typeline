@@ -22,6 +22,7 @@ use crate::{
         operator::{OperatorData, OperatorId},
         print::{handle_tf_print, handle_tf_print_stream_value_update, setup_tf_print},
         regex::{handle_tf_regex, setup_tf_regex},
+        sequence::{handle_tf_sequence, setup_tf_sequence},
         split::{handle_tf_split, setup_tf_split, setup_ts_split_as_entry_point},
         string_sink::{
             handle_tf_string_sink, handle_tf_string_sink_stream_value_update, setup_tf_string_sink,
@@ -288,6 +289,42 @@ impl RecordManager {
             cb.execute([f].into_iter(), last_applied_acs, last_acs);
         }
     }
+    pub fn apply_field_commands_for_tf_outputs(
+        &mut self,
+        tf: &TransformState,
+        output_fields: &[FieldId],
+    ) {
+        let cb = &mut self.match_sets[tf.match_set_id].command_buffer;
+        let max_action_set_id = cb.last_action_set_id();
+        let mut regular_command_application_needed = false;
+        let ord_id = usize::from(tf.ordering_id);
+        if tf.last_consumed_batch_size > 0 {
+            for ofid in output_fields {
+                let mut f = self.fields[*ofid].borrow_mut();
+                if f.field_data.field_count() == tf.last_consumed_batch_size {
+                    f.field_data.clear();
+                    f.last_applied_action_set_id = ord_id;
+                } else {
+                    if f.last_applied_action_set_id == ord_id {
+                        regular_command_application_needed = true;
+                    } else if f.last_applied_action_set_id < max_action_set_id {
+                        let start = f.last_applied_action_set_id + 1;
+                        f.last_applied_action_set_id = max_action_set_id;
+                        cb.execute(iter::once(f), start, max_action_set_id);
+                    }
+                }
+            }
+        }
+        if regular_command_application_needed && ord_id < max_action_set_id {
+            let iter = output_fields
+                .iter()
+                .map(|fid| self.fields[*fid].borrow_mut())
+                .filter(|fid| fid.last_applied_action_set_id == max_action_set_id);
+            cb.execute(iter, ord_id + 1, max_action_set_id);
+        }
+        //TODO: this is incorrect. merge instead
+        cb.erase_action_sets(ord_id + 1);
+    }
 }
 
 impl StreamValueManager {
@@ -325,58 +362,8 @@ impl StreamValueManager {
 }
 
 impl JobData<'_> {
-    pub fn claim_batch(
-        &mut self,
-        tf_id: TransformId,
-        output_fields: &[FieldId],
-    ) -> (usize, FieldId) {
+    pub fn claim_batch(&mut self, tf_id: TransformId) -> (usize, FieldId) {
         let tf = &mut self.tf_mgr.transforms[tf_id];
-        let tf_ord_id = usize::from(tf.ordering_id);
-        let cb = &mut self.record_mgr.match_sets[tf.match_set_id].command_buffer;
-        let max_action_set_id = cb.last_action_set_id();
-        let mut regular_command_application_needed = false;
-        let mut custom_command_application_needed = false;
-        const CLEARED_MARKER_IDX: usize = 0;
-        const REGULAR_MARKER_IDX: usize = 1;
-        const CUSTOM_MARKER_IDX: usize = 2;
-        if tf.last_consumed_batch_size > 0 {
-            for ofid in output_fields {
-                let mut f = self.record_mgr.fields[*ofid].borrow_mut();
-                if f.field_data.field_count() == tf.last_consumed_batch_size {
-                    f.field_data.clear();
-                    f.producing_transform_action_set_id = CLEARED_MARKER_IDX;
-                    f.last_applied_action_set_id = tf_ord_id;
-                } else {
-                    if f.last_applied_action_set_id == tf_ord_id {
-                        f.producing_transform_action_set_id = REGULAR_MARKER_IDX;
-                        regular_command_application_needed = true;
-                    } else if f.last_applied_action_set_id != max_action_set_id {
-                        f.producing_transform_action_set_id = CUSTOM_MARKER_IDX;
-                        custom_command_application_needed = true;
-                    }
-                }
-            }
-        }
-
-        if regular_command_application_needed && tf_ord_id < max_action_set_id {
-            let iter = output_fields
-                .iter()
-                .map(|fid| self.record_mgr.fields[*fid].borrow_mut())
-                .filter(|fid| fid.producing_transform_action_set_id == REGULAR_MARKER_IDX);
-            cb.execute(iter, tf_ord_id + 1, max_action_set_id);
-        }
-        if custom_command_application_needed {
-            let iter = output_fields
-                .iter()
-                .map(|fid| self.record_mgr.fields[*fid].borrow_mut())
-                .filter(|fid| fid.producing_transform_action_set_id == CUSTOM_MARKER_IDX);
-            for f in iter {
-                let min_idx = f.last_applied_action_set_id;
-                cb.execute(iter::once(f), min_idx + 1, max_action_set_id);
-            }
-        }
-        //TODO: this is incorrect. merge instead
-        cb.erase_action_sets(tf_ord_id + 1);
         let batch = tf.desired_batch_size.min(tf.available_batch_size);
         tf.available_batch_size -= batch;
         tf.last_consumed_batch_size = batch;
@@ -538,6 +525,7 @@ impl<'a> WorkerThreadSession<'a> {
                 OperatorData::StringSink(op) => setup_tf_string_sink(jd, op, &mut tf_state),
                 OperatorData::FileReader(op) => setup_tf_file_reader(jd, op, &mut tf_state),
                 OperatorData::DataInserter(op) => setup_tf_data_inserter(jd, op, &mut tf_state),
+                OperatorData::Sequence(op) => setup_tf_sequence(jd, op, &mut tf_state),
             };
             let tf_id = if start_tf_id.is_none() {
                 let tf_id = self.add_transform(tf_state, tf_data);
@@ -591,6 +579,7 @@ impl<'a> WorkerThreadSession<'a> {
                     TransformData::Regex(_) => todo!(),
                     TransformData::Format(_) => todo!(),
                     TransformData::FileReader(_) => unreachable!(),
+                    TransformData::Sequence(_) => unreachable!(),
                     TransformData::Disabled => unreachable!(),
                     TransformData::DataInserter(_) => unreachable!(),
                 }
@@ -623,6 +612,7 @@ impl<'a> WorkerThreadSession<'a> {
                     TransformData::StringSink(tf) => handle_tf_string_sink(jd, tf_id, tf),
                     TransformData::FileReader(tf) => handle_tf_file_reader(jd, tf_id, tf),
                     TransformData::DataInserter(tf) => handle_tf_data_inserter(jd, tf_id, tf),
+                    TransformData::Sequence(seq) => handle_tf_sequence(jd, tf_id, seq),
                     TransformData::Format(_tf) => todo!(),
                     TransformData::Disabled => unreachable!(),
                 }

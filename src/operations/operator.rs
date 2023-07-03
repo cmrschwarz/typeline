@@ -4,7 +4,7 @@ use crate::{chain::ChainId, options::argument::CliArgIdx, utils::string_store::S
 
 use super::{
     data_inserter::OpDataInserter, file_reader::OpFileReader, format::OpFormat, regex::OpRegex,
-    split::OpSplit, string_sink::OpStringSink,
+    sequence::OpSequence, split::OpSplit, string_sink::OpStringSink,
 };
 
 pub type OperatorId = u32;
@@ -18,6 +18,7 @@ pub enum OperatorData {
     StringSink(OpStringSink),
     FileReader(OpFileReader),
     DataInserter(OpDataInserter),
+    Sequence(OpSequence),
 }
 
 pub struct OperatorBase {
@@ -34,6 +35,7 @@ impl OperatorData {
     pub fn default_op_name(&self) -> SmallString<[u8; DEFAULT_OP_NAME_SMALL_STR_LEN]> {
         match self {
             OperatorData::Print => SmallString::from("p"),
+            OperatorData::Sequence(_) => SmallString::from("seq"),
             OperatorData::Split(_) => SmallString::from("split"),
             OperatorData::Regex(re) => re.opts.default_op_name(),
             OperatorData::FileReader(fr) => fr.file_kind.default_op_name(),
