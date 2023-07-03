@@ -559,6 +559,7 @@ impl FDCommandBuffer {
                 rl_pre,
             );
             *field_pos += rl_pre as usize;
+            header.run_length -= rl_pre;
             if action.run_len <= rl_rem {
                 debug_assert!(!header.shared_value());
                 if action.run_len == rl_rem {
@@ -571,7 +572,7 @@ impl FDCommandBuffer {
                     header_idx_new,
                     copy_range_start_new,
                     fmt_del,
-                    rl_rem,
+                    action.run_len,
                 );
                 header.run_length -= action.run_len;
                 if header.run_length == 1 {
@@ -713,6 +714,8 @@ impl FDCommandBuffer {
                 }
             }
         }
+        let headers_rem = fd.header.len() - header_idx;
+        header_idx_new += headers_rem;
         self.push_copy_command(
             header_idx_new,
             &mut copy_range_start,
@@ -732,7 +735,12 @@ impl FDCommandBuffer {
             .last()
             .map(|i| i.index + 1)
             .unwrap_or(0)
-            .max(self.copies.last().map(|c| c.target + c.len).unwrap_or(0));
+            .max(
+                self.copies
+                    .last()
+                    .map(|c| c.target + c.len)
+                    .unwrap_or(fd.header.len()),
+            );
         fd.header.reserve(new_size - fd.header.len());
 
         let header_ptr = fd.header.as_mut_ptr();

@@ -128,3 +128,17 @@ fn sequence() -> Result<(), ScrError> {
     assert_eq!(ss.get().as_slice(), ["0", "1", "2"]);
     Ok(())
 }
+
+#[test]
+fn in_between_drop() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::new();
+    ContextBuilder::default()
+        .push_str("a", 1)
+        .push_str("b", 1)
+        .push_str("c", 1)
+        .add_op(create_op_regex("[^b]", RegexOptions::default()).unwrap())
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(ss.get().as_slice(), ["a", "c"]);
+    Ok(())
+}

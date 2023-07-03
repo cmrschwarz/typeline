@@ -423,10 +423,10 @@ unsafe fn to_typed_field<'a>(
                 FDTypedValue::TextInline(std::str::from_utf8_unchecked(to_slice(
                     fd,
                     data_begin,
-                    fmt.size as usize - data_begin,
+                    fmt.size as usize,
                 )))
             } else {
-                FDTypedValue::BytesInline(to_slice(fd, data_begin, fmt.size as usize - data_begin))
+                FDTypedValue::BytesInline(to_slice(fd, data_begin, fmt.size as usize))
             }
         }
         FieldValueKind::EntryId => todo!(),
