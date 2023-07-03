@@ -120,9 +120,9 @@ pub fn handle_tf_split(sess: &mut JobData, tf_id: TransformId, s: &mut TfSplit) 
     //TODO: detect invalidations somehow instead
     s.field_names_set.clear();
     //TODO: do something clever, per target, cow, etc. instead of this dumb copy
-    for field_id in sess.entry_data.match_sets[tf_ms_id].working_set.iter() {
+    for field_id in sess.record_mgr.match_sets[tf_ms_id].working_set.iter() {
         // we should only have named fields in the working set (?)
-        if let Some(name) = sess.entry_data.fields[*field_id].borrow().name {
+        if let Some(name) = sess.record_mgr.fields[*field_id].borrow().name {
             s.field_names_set
                 .entry(name)
                 .or_insert_with(|| smallvec![])
@@ -130,16 +130,16 @@ pub fn handle_tf_split(sess: &mut JobData, tf_id: TransformId, s: &mut TfSplit) 
         }
     }
     for (name, targets) in &mut s.field_names_set {
-        let source_id = *sess.entry_data.match_sets[tf_ms_id]
+        let source_id = *sess.record_mgr.match_sets[tf_ms_id]
             .field_name_map
             .get(&name)
             .unwrap()
             .back()
             .unwrap();
-        let source = sess.entry_data.fields[source_id].borrow();
+        let source = sess.record_mgr.fields[source_id].borrow();
         let mut targets_borrows_arr: SmallVec<[RefMut<'_, Field>; 8]> = Default::default();
         for i in targets.iter() {
-            targets_borrows_arr.push(sess.entry_data.fields[*i].borrow_mut());
+            targets_borrows_arr.push(sess.record_mgr.fields[*i].borrow_mut());
         }
         FDIterHall::copy(source.field_data.iter().bounded(0, bs), |f| {
             targets_borrows_arr

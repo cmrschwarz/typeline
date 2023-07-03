@@ -130,6 +130,9 @@ impl<I: UniverseIndex, T> Universe<I, T> {
     pub fn has_unclaimed_entries(&self) -> bool {
         !self.unused_ids.is_empty()
     }
+    pub fn claimed_entry_count(&self) -> usize {
+        self.data.len() - self.unused_ids.len()
+    }
     pub fn claim_with(&mut self, f: impl FnOnce() -> T) -> I {
         if let Some(id) = self.unused_ids.pop() {
             *id

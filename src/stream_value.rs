@@ -1,11 +1,8 @@
 use smallvec::SmallVec;
 
-use crate::{
-    field_data::RunLength,
-    operations::{errors::OperatorApplicationError, transform::TransformId},
-};
+use crate::operations::{errors::OperatorApplicationError, transform::TransformId};
 
-pub enum StreamFieldValueData {
+pub enum StreamValueData {
     Dropped,
     Error(OperatorApplicationError),
     BytesChunk(Vec<u8>),
@@ -21,13 +18,13 @@ pub enum StreamFieldValueData {
 }
 
 pub struct StreamValueSubscription {
-    pub tfid: TransformId,
+    pub tf_id: TransformId,
     pub custom_data: usize,
     pub notify_only_once_done: bool,
 }
 
 pub struct StreamValue {
-    pub data: StreamFieldValueData,
+    pub data: StreamValueData,
     pub bytes_are_utf8: bool,
     pub done: bool,
     // transforms that want to be readied as soon as this receives any data
@@ -38,38 +35,33 @@ pub struct StreamValue {
 impl StreamValue {
     pub fn promote_to_buffer(&mut self) {
         match &mut self.data {
-            StreamFieldValueData::Dropped => (),
-            StreamFieldValueData::Error(_) => (),
-            StreamFieldValueData::BytesChunk(bc) => {
-                self.data =
-                    StreamFieldValueData::BytesBuffer(std::mem::replace(bc, Default::default()));
+            StreamValueData::Dropped => (),
+            StreamValueData::Error(_) => (),
+            StreamValueData::BytesChunk(bc) => {
+                self.data = StreamValueData::BytesBuffer(std::mem::replace(bc, Default::default()));
             }
-            StreamFieldValueData::BytesBuffer(_) => (),
+            StreamValueData::BytesBuffer(_) => (),
         }
     }
     pub fn subscribe(
         &mut self,
-        tfid: TransformId,
+        tf_id: TransformId,
         custom_data: usize,
         notify_only_once_done: bool,
     ) {
         self.subscribers.push(StreamValueSubscription {
-            tfid,
+            tf_id,
             custom_data,
             notify_only_once_done,
         });
         self.ref_count += 1;
     }
-    pub fn drop_subscription(&mut self) {
-        self.ref_count -= 1;
-        //TODO
-    }
     pub fn is_buffered(&self) -> bool {
         match self.data {
-            StreamFieldValueData::Dropped => true,
-            StreamFieldValueData::Error(_) => true,
-            StreamFieldValueData::BytesBuffer(_) => true,
-            StreamFieldValueData::BytesChunk(_) => false,
+            StreamValueData::Dropped => true,
+            StreamValueData::Error(_) => true,
+            StreamValueData::BytesBuffer(_) => true,
+            StreamValueData::BytesChunk(_) => false,
         }
     }
 }

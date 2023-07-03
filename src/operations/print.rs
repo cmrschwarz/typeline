@@ -10,10 +10,10 @@ use crate::{
             FDIterator, FDTypedSlice, FDTypedValue, InlineBytesIter, InlineTextIter, TypedSliceIter,
         },
         fd_iter_hall::FDIterId,
-        field_value_flags, RunLength,
+        field_value_flags,
     },
     options::argument::CliArgIdx,
-    stream_value::{StreamFieldValueData, StreamValue, StreamValueId},
+    stream_value::{StreamValue, StreamValueData, StreamValueId},
     worker_thread_session::{FieldId, JobData},
 };
 
@@ -52,7 +52,7 @@ pub fn setup_tf_print(
         flush_on_every_print: std::io::stdout().is_terminal(),
         pending_batch_size: 0,
         current_stream_val: None,
-        iter_id: sess.entry_data.fields[tf_state.input_field]
+        iter_id: sess.record_mgr.fields[tf_state.input_field]
             .borrow_mut()
             .field_data
             .claim_iter(),
@@ -150,7 +150,7 @@ pub fn write_stream_val_check_done<const NEWLINE: bool>(
         1
     };
     match &sv.data {
-        StreamFieldValueData::BytesChunk(c) => {
+        StreamValueData::BytesChunk(c) => {
             for i in 0..rl_to_attempt {
                 stream
                     .write(c)
@@ -158,7 +158,7 @@ pub fn write_stream_val_check_done<const NEWLINE: bool>(
                     .map_err(|e| (i, e))?;
             }
         }
-        StreamFieldValueData::BytesBuffer(b) => {
+        StreamValueData::BytesBuffer(b) => {
             if sv.done {
                 for i in 0..rl_to_attempt {
                     stream
@@ -168,11 +168,11 @@ pub fn write_stream_val_check_done<const NEWLINE: bool>(
                 }
             }
         }
-        StreamFieldValueData::Error(e) => {
+        StreamValueData::Error(e) => {
             debug_assert!(sv.done);
             write_error::<NEWLINE>(stream, e, run_len)?;
         }
-        StreamFieldValueData::Dropped => panic!("dropped stream value observed"),
+        StreamValueData::Dropped => panic!("dropped stream value observed"),
     }
     Ok(sv.done)
 }
@@ -194,7 +194,7 @@ pub fn handle_tf_print_raw(
         input_field_id = sess.tf_mgr.transforms[tf_id].input_field;
         batch = tf.pending_batch_size;
     }
-    let input_field = sess.entry_data.fields[input_field_id].borrow();
+    let input_field = sess.record_mgr.fields[input_field_id].borrow();
     let mut iter = input_field
         .field_data
         .get_iter(tf.iter_id)
@@ -231,14 +231,14 @@ pub fn handle_tf_print_raw(
             }
             FDTypedSlice::Reference(refs) => {
                 let mut iter = fd_ref_iter.setup_iter_from_typed_range(
-                    &sess.entry_data.fields,
-                    &mut sess.entry_data.match_sets,
+                    &sess.record_mgr.fields,
+                    &mut sess.record_mgr.match_sets,
                     *field_pos,
                     &range,
                     refs,
                 );
                 while let Some(fr) =
-                    iter.typed_range_fwd(&mut sess.entry_data.match_sets, usize::MAX)
+                    iter.typed_range_fwd(&mut sess.record_mgr.match_sets, usize::MAX)
                 {
                     match fr.data {
                         FDTypedValue::StreamValueId(_) => todo!(),
@@ -269,7 +269,7 @@ pub fn handle_tf_print_raw(
             }
             FDTypedSlice::StreamValueId(svs) => {
                 for (sv_id, rl) in TypedSliceIter::from_typed_range(&range, svs) {
-                    let sv = &mut sess.stream_values[*sv_id];
+                    let sv = &mut sess.sv_mgr.stream_values[*sv_id];
                     if !write_stream_val_check_done::<true>(&mut stdout, sv, rl as usize)? {
                         tf.current_stream_val = Some(*sv_id);
                         iter.move_to_field_pos(*field_pos);
@@ -310,7 +310,7 @@ pub fn handle_tf_print(sess: &mut JobData<'_>, tf_id: TransformId, tf: &mut TfPr
         handle_tf_print_raw(sess, tf_id, tf, &mut field_pos, &mut field_pos_batch_end)
     {
         let fp = field_pos + i;
-        sess.entry_data.push_entry_error(
+        sess.record_mgr.push_entry_error(
             sess.tf_mgr.transforms[tf_id].match_set_id,
             fp,
             OperatorApplicationError {
@@ -330,15 +330,15 @@ pub fn handle_tf_print_stream_value_update(
     custom: usize,
 ) {
     let mut stdout = std::io::stdout().lock();
-    let sv = &sess.stream_values[svid];
+    let sv = &sess.sv_mgr.stream_values[svid];
     let run_len = custom;
     match write_stream_val_check_done::<true>(&mut stdout, sv, run_len) {
         Ok(true) => sess.tf_mgr.update_ready_state(tf_id),
         Ok(false) => (),
         Err((i, e)) => {
-            sess.entry_data.push_entry_error(
+            sess.record_mgr.push_entry_error(
                 sess.tf_mgr.transforms[tf_id].match_set_id,
-                sess.entry_data.fields[sess.tf_mgr.transforms[tf_id].input_field]
+                sess.record_mgr.fields[sess.tf_mgr.transforms[tf_id].input_field]
                     .borrow()
                     .field_data
                     .get_iter(tf.iter_id)

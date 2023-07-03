@@ -52,7 +52,7 @@ pub fn setup_tf_format<'a>(
     tf_state: &mut TransformState,
 ) -> (TransformData<'a>, FieldId) {
     //TODO: cache field indices...
-    let output_field = sess.entry_data.add_field(tf_state.match_set_id, None);
+    let output_field = sess.record_mgr.add_field(tf_state.match_set_id, None);
     let tf = TfFormat {
         output_field,
         parts: &op.parts,

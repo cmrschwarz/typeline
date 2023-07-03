@@ -20,14 +20,16 @@ use crate::{
         file_reader::{handle_tf_file_reader, setup_tf_file_reader},
         format::setup_tf_format,
         operator::{OperatorData, OperatorId},
-        print::{handle_tf_print, setup_tf_print},
+        print::{handle_tf_print, handle_tf_print_stream_value_update, setup_tf_print},
         regex::{handle_tf_regex, setup_tf_regex},
         split::{handle_tf_split, setup_tf_split, setup_ts_split_as_entry_point},
-        string_sink::{handle_tf_string_sink, setup_tf_string_sink},
+        string_sink::{
+            handle_tf_string_sink, handle_tf_string_sink_stream_value_update, setup_tf_string_sink,
+        },
         transform::{TransformData, TransformId, TransformOrderingId, TransformState},
     },
     scr_error::ScrError,
-    stream_value::{StreamValue, StreamValueId},
+    stream_value::{StreamValue, StreamValueData, StreamValueId},
     utils::string_store::StringStoreEntry,
     utils::universe::Universe,
     worker_thread::Job,
@@ -76,7 +78,7 @@ pub struct WorkerThreadSession<'a> {
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub struct ReadyQueueEntry {
-    ord_id: usize,
+    ord_id: TransformOrderingId,
     tf_id: TransformId,
 }
 
@@ -87,16 +89,28 @@ pub struct TransformManager {
     pub stream_producers: VecDeque<TransformId>,
 }
 
-pub struct EntryData {
+pub struct RecordManager {
     pub match_sets: Universe<MatchSetId, MatchSet>,
     pub fields: Universe<FieldId, RefCell<Field>>,
+}
+
+pub struct StreamValueUpdate {
+    sv_id: StreamValueId,
+    tf_id: TransformId,
+    custom: usize,
+}
+
+#[derive(Default)]
+pub struct StreamValueManager {
+    pub stream_values: Universe<StreamValueId, StreamValue>,
+    pub updates: VecDeque<StreamValueUpdate>,
 }
 
 pub struct JobData<'a> {
     pub session_data: &'a SessionData,
     pub tf_mgr: TransformManager,
-    pub entry_data: EntryData,
-    pub stream_values: Universe<StreamValueId, StreamValue>,
+    pub record_mgr: RecordManager,
+    pub sv_mgr: StreamValueManager,
 }
 
 impl TransformManager {
@@ -108,7 +122,7 @@ impl TransformManager {
     pub fn inform_transform_batch_available(&mut self, tf_id: TransformId, batch_size: usize) {
         let tf = &mut self.transforms[tf_id];
         tf.available_batch_size += batch_size;
-        if tf.available_batch_size == batch_size && batch_size > 0 {
+        if tf.available_batch_size > 0 && !tf.is_ready {
             self.push_tf_in_ready_queue(tf_id);
         }
     }
@@ -121,13 +135,8 @@ impl TransformManager {
         let tf = &mut self.transforms[tf_id];
         if !tf.is_ready {
             tf.is_ready = true;
-
-            let mut ordering = usize::from(tf.ordering_id);
-            if tf.is_stream_subscriber {
-                ordering += isize::MAX as usize;
-            };
             self.ready_queue.push(ReadyQueueEntry {
-                ord_id: ordering,
+                ord_id: tf.ordering_id,
                 tf_id: tf_id,
             });
         }
@@ -159,13 +168,13 @@ impl TransformManager {
     pub fn update_ready_state(&mut self, tf_id: TransformId) {
         let tf = &self.transforms[tf_id];
         debug_assert!(!tf.is_ready);
-        if tf.is_stream_subscriber || tf.available_batch_size > 0 {
+        if tf.available_batch_size > 0 {
             self.push_tf_in_ready_queue(tf_id);
         }
     }
 }
 
-impl EntryData {
+impl RecordManager {
     fn setup_field(
         &mut self,
         field_id: FieldId,
@@ -281,6 +290,40 @@ impl EntryData {
     }
 }
 
+impl StreamValueManager {
+    pub fn inform_stream_value_subscribers(&mut self, sv_id: StreamValueId, done: bool) {
+        let sv = &self.stream_values[sv_id];
+        for sub in &sv.subscribers {
+            if !sub.notify_only_once_done || done {
+                self.updates.push_back(StreamValueUpdate {
+                    sv_id: sv_id,
+                    tf_id: sub.tf_id,
+                    custom: sub.custom_data,
+                });
+            }
+        }
+    }
+    pub fn drop_field_value_subscription(
+        &mut self,
+        sv_id: StreamValueId,
+        tf_id_to_remove: Option<TransformId>,
+    ) {
+        let sv = &mut self.stream_values[sv_id];
+        sv.ref_count -= 1;
+        if sv.ref_count == 0 {
+            sv.data = StreamValueData::Dropped;
+            self.stream_values.release(sv_id);
+        } else if let Some(tf_id) = tf_id_to_remove {
+            sv.subscribers.swap_remove(
+                sv.subscribers
+                    .iter()
+                    .position(|sub| sub.tf_id == tf_id)
+                    .unwrap(),
+            );
+        }
+    }
+}
+
 impl JobData<'_> {
     pub fn claim_batch(
         &mut self,
@@ -289,7 +332,7 @@ impl JobData<'_> {
     ) -> (usize, FieldId) {
         let tf = &mut self.tf_mgr.transforms[tf_id];
         let tf_ord_id = usize::from(tf.ordering_id);
-        let cb = &mut self.entry_data.match_sets[tf.match_set_id].command_buffer;
+        let cb = &mut self.record_mgr.match_sets[tf.match_set_id].command_buffer;
         let max_action_set_id = cb.last_action_set_id();
         let mut regular_command_application_needed = false;
         let mut custom_command_application_needed = false;
@@ -298,7 +341,7 @@ impl JobData<'_> {
         const CUSTOM_MARKER_IDX: usize = 2;
         if tf.last_consumed_batch_size > 0 {
             for ofid in output_fields {
-                let mut f = self.entry_data.fields[*ofid].borrow_mut();
+                let mut f = self.record_mgr.fields[*ofid].borrow_mut();
                 if f.field_data.field_count() == tf.last_consumed_batch_size {
                     f.field_data.clear();
                     f.producing_transform_action_set_id = CLEARED_MARKER_IDX;
@@ -318,14 +361,14 @@ impl JobData<'_> {
         if regular_command_application_needed && tf_ord_id < max_action_set_id {
             let iter = output_fields
                 .iter()
-                .map(|fid| self.entry_data.fields[*fid].borrow_mut())
+                .map(|fid| self.record_mgr.fields[*fid].borrow_mut())
                 .filter(|fid| fid.producing_transform_action_set_id == REGULAR_MARKER_IDX);
             cb.execute(iter, tf_ord_id + 1, max_action_set_id);
         }
         if custom_command_application_needed {
             let iter = output_fields
                 .iter()
-                .map(|fid| self.entry_data.fields[*fid].borrow_mut())
+                .map(|fid| self.record_mgr.fields[*fid].borrow_mut())
                 .filter(|fid| fid.producing_transform_action_set_id == CUSTOM_MARKER_IDX);
             for f in iter {
                 let min_idx = f.last_applied_action_set_id;
@@ -339,30 +382,21 @@ impl JobData<'_> {
         tf.last_consumed_batch_size = batch;
         (batch, tf.input_field)
     }
-    pub fn inform_stream_value_subscribers(&self, svid: StreamValueId, done: bool) {
-        let sv = &self.stream_values[svid];
-        for sub in &sv.subscribers {
-            if !sub.notify_only_once_done || done {
-                let _tf = &self.tf_mgr.transforms[sub.tfid];
-                todo!();
-            }
-        }
-    }
 }
 
 impl<'a> WorkerThreadSession<'a> {
     fn setup_job(&mut self, mut job: Job) -> Result<(), ScrError> {
-        self.job_data.entry_data.match_sets.clear();
-        self.job_data.entry_data.fields.clear();
+        self.job_data.record_mgr.match_sets.clear();
+        self.job_data.record_mgr.fields.clear();
         self.job_data.tf_mgr.ready_queue.clear();
-        let ms_id = self.job_data.entry_data.add_match_set();
+        let ms_id = self.job_data.record_mgr.add_match_set();
         //TODO: unpack record set properly here
         let input_record_count = job.data.adjust_field_lengths();
         let mut input_data = None;
         for fd in job.data.fields.into_iter() {
             let field_id = self
                 .job_data
-                .entry_data
+                .record_mgr
                 .add_field_with_data(ms_id, fd.name, fd.data);
             if input_data.is_none() {
                 input_data = Some(field_id);
@@ -370,7 +404,7 @@ impl<'a> WorkerThreadSession<'a> {
             //TODO: add all to working set?
         }
         let input_data =
-            input_data.unwrap_or_else(|| self.job_data.entry_data.add_field(ms_id, None));
+            input_data.unwrap_or_else(|| self.job_data.record_mgr.add_field(ms_id, None));
 
         debug_assert!(!job.starting_ops.is_empty());
         let first_tf_id = if job.starting_ops.len() > 1 {
@@ -409,11 +443,11 @@ impl<'a> WorkerThreadSession<'a> {
                     ready_queue: Default::default(),
                     stream_producers: Default::default(),
                 },
-                entry_data: EntryData {
+                record_mgr: RecordManager {
                     fields: Default::default(),
                     match_sets: Default::default(),
                 },
-                stream_values: Default::default(),
+                sv_mgr: Default::default(),
             },
         }
     }
@@ -422,13 +456,13 @@ impl<'a> WorkerThreadSession<'a> {
         let rc = {
             self.job_data.tf_mgr.transforms.release(tf_id);
             self.transform_data[usize::from(tf_id)] = TransformData::Disabled;
-            let mut field = self.job_data.entry_data.fields[triggering_field].borrow_mut();
+            let mut field = self.job_data.record_mgr.fields[triggering_field].borrow_mut();
 
             field.ref_count -= 1;
             field.ref_count
         };
         if rc == 0 {
-            self.job_data.entry_data.remove_field(triggering_field);
+            self.job_data.record_mgr.remove_field(triggering_field);
         }
     }
 
@@ -444,8 +478,8 @@ impl<'a> WorkerThreadSession<'a> {
         }
         for i in 0..targets.len() {
             let op = targets[i];
-            let ms_id = self.job_data.entry_data.add_match_set();
-            let input_field = self.job_data.entry_data.add_field(ms_id, None);
+            let ms_id = self.job_data.record_mgr.add_match_set();
+            let input_field = self.job_data.record_mgr.add_field(ms_id, None);
             targets[i] = self.setup_transforms_from_op(
                 ms_id,
                 0,
@@ -536,36 +570,65 @@ impl<'a> WorkerThreadSession<'a> {
     }
     pub(crate) fn run_job(&mut self, job: Job) -> Result<(), ScrError> {
         self.setup_job(job)?;
-        while let Some(rqe) = self.job_data.tf_mgr.ready_queue.pop() {
-            let ReadyQueueEntry {
-                mut tf_id,
-                ord_id: _,
-            } = rqe;
-
-            let mut tf = &mut self.job_data.tf_mgr.transforms[tf_id];
-            if tf.is_stream_producer {
-                tf_id = self.job_data.tf_mgr.stream_producers.pop_front().unwrap();
-                tf = &mut self.job_data.tf_mgr.transforms[tf_id];
-                tf.is_stream_producer = false;
-            }
-            tf.is_ready = false;
-            let jd = &mut self.job_data;
-            match &mut self.transform_data[usize::from(tf_id)] {
-                TransformData::Split(split) => {
-                    if !split.expanded {
-                        self.handle_split_expansion(tf_id);
-                    } else {
-                        handle_tf_split(&mut self.job_data, tf_id, split);
-                    }
+        loop {
+            if let Some(svu) = self.job_data.sv_mgr.updates.pop_back() {
+                match &mut self.transform_data[usize::from(svu.tf_id)] {
+                    TransformData::Print(tf) => handle_tf_print_stream_value_update(
+                        &mut self.job_data,
+                        svu.tf_id,
+                        tf,
+                        svu.sv_id,
+                        svu.custom,
+                    ),
+                    TransformData::StringSink(tf) => handle_tf_string_sink_stream_value_update(
+                        &mut self.job_data,
+                        svu.tf_id,
+                        tf,
+                        svu.sv_id,
+                        svu.custom,
+                    ),
+                    TransformData::Split(_) => todo!(),
+                    TransformData::Regex(_) => todo!(),
+                    TransformData::Format(_) => todo!(),
+                    TransformData::FileReader(_) => unreachable!(),
+                    TransformData::Disabled => unreachable!(),
+                    TransformData::DataInserter(_) => unreachable!(),
                 }
-                TransformData::Print(tf) => handle_tf_print(jd, tf_id, tf),
-                TransformData::Regex(tf) => handle_tf_regex(jd, tf_id, tf),
-                TransformData::StringSink(tf) => handle_tf_string_sink(jd, tf_id, tf),
-                TransformData::Format(_tf) => todo!(),
-                TransformData::FileReader(tf) => handle_tf_file_reader(jd, tf_id, tf),
-                TransformData::DataInserter(tf) => handle_tf_data_inserter(jd, tf_id, tf),
-                TransformData::Disabled => unreachable!(),
+                continue;
             }
+            if let Some(rqe) = self.job_data.tf_mgr.ready_queue.pop() {
+                let ReadyQueueEntry {
+                    mut tf_id,
+                    ord_id: _,
+                } = rqe;
+
+                let mut tf = &mut self.job_data.tf_mgr.transforms[tf_id];
+                if tf.is_stream_producer {
+                    tf_id = self.job_data.tf_mgr.stream_producers.pop_front().unwrap();
+                    tf = &mut self.job_data.tf_mgr.transforms[tf_id];
+                    tf.is_stream_producer = false;
+                }
+                tf.is_ready = false;
+                let jd = &mut self.job_data;
+                match &mut self.transform_data[usize::from(tf_id)] {
+                    TransformData::Split(split) => {
+                        if !split.expanded {
+                            self.handle_split_expansion(tf_id);
+                        } else {
+                            handle_tf_split(&mut self.job_data, tf_id, split);
+                        }
+                    }
+                    TransformData::Print(tf) => handle_tf_print(jd, tf_id, tf),
+                    TransformData::Regex(tf) => handle_tf_regex(jd, tf_id, tf),
+                    TransformData::StringSink(tf) => handle_tf_string_sink(jd, tf_id, tf),
+                    TransformData::Format(_tf) => todo!(),
+                    TransformData::FileReader(tf) => handle_tf_file_reader(jd, tf_id, tf),
+                    TransformData::DataInserter(tf) => handle_tf_data_inserter(jd, tf_id, tf),
+                    TransformData::Disabled => unreachable!(),
+                }
+                continue;
+            }
+            break;
         }
         //TODO: inspect errors field?
         Ok(())

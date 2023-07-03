@@ -298,7 +298,7 @@ pub fn setup_tf_regex<'a>(
     let mut cgfs: Vec<FieldId> = op
         .capture_group_names
         .iter()
-        .map(|name| sess.entry_data.add_field(tf_state.match_set_id, *name))
+        .map(|name| sess.record_mgr.add_field(tf_state.match_set_id, *name))
         .collect();
     cgfs.sort_unstable();
     let output_field = cgfs[op.output_group_id];
@@ -311,7 +311,7 @@ pub fn setup_tf_regex<'a>(
         capture_group_fields: cgfs,
         capture_locs: op.regex.capture_locations(),
         multimatch: op.opts.multimatch,
-        input_field_iter_id: sess.entry_data.fields[tf_state.input_field]
+        input_field_iter_id: sess.record_mgr.fields[tf_state.input_field]
             .borrow_mut()
             .field_data
             .claim_iter(),
@@ -447,9 +447,9 @@ pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRe
     let (batch, input_field_id) = sess.claim_batch(tf_id, &re.capture_group_fields);
     let tf = &sess.tf_mgr.transforms[tf_id];
     let op_id = tf.op_id;
-    let mut command_buffer = &mut sess.entry_data.match_sets[tf.match_set_id].command_buffer;
+    let mut command_buffer = &mut sess.record_mgr.match_sets[tf.match_set_id].command_buffer;
     command_buffer.begin_action_set(tf.ordering_id.into());
-    let input_field = sess.entry_data.fields[input_field_id].borrow_mut();
+    let input_field = sess.record_mgr.fields[input_field_id].borrow_mut();
     let mut fd_ref_iter = FDRefIterLazy::default();
     let mut iter = input_field
         .deref()
@@ -479,7 +479,7 @@ pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRe
                         &re.capture_group_fields,
                         re.multimatch,
                         &mut rbs,
-                        &sess.entry_data.fields,
+                        &sess.record_mgr.fields,
                         command_buffer,
                     );
                 }
@@ -494,7 +494,7 @@ pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRe
                         &re.capture_group_fields,
                         re.multimatch,
                         &mut rbs,
-                        &sess.entry_data.fields,
+                        &sess.record_mgr.fields,
                         command_buffer,
                     );
                 }
@@ -509,21 +509,21 @@ pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRe
                         &re.capture_group_fields,
                         re.multimatch,
                         &mut rbs,
-                        &sess.entry_data.fields,
+                        &sess.record_mgr.fields,
                         command_buffer,
                     );
                 }
             }
             FDTypedSlice::Reference(refs) => {
                 let mut iter = fd_ref_iter.setup_iter_from_typed_range(
-                    &sess.entry_data.fields,
-                    &mut sess.entry_data.match_sets,
+                    &sess.record_mgr.fields,
+                    &mut sess.record_mgr.match_sets,
                     rbs.field_idx,
                     &range,
                     refs,
                 );
                 while let Some(fr) =
-                    iter.typed_range_fwd(&mut sess.entry_data.match_sets, usize::MAX)
+                    iter.typed_range_fwd(&mut sess.record_mgr.match_sets, usize::MAX)
                 {
                     let any_regex = match fr.data {
                         FDTypedValue::StreamValueId(_) => todo!(),
@@ -558,11 +558,11 @@ pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRe
                         &re.capture_group_fields,
                         re.multimatch,
                         &mut rbs,
-                        &sess.entry_data.fields,
-                        &mut sess.entry_data.match_sets[tf.match_set_id].command_buffer,
+                        &sess.record_mgr.fields,
+                        &mut sess.record_mgr.match_sets[tf.match_set_id].command_buffer,
                     );
                 }
-                command_buffer = &mut sess.entry_data.match_sets[tf.match_set_id].command_buffer;
+                command_buffer = &mut sess.record_mgr.match_sets[tf.match_set_id].command_buffer;
             }
             FDTypedSlice::Unset(_)
             | FDTypedSlice::Null(_)
@@ -573,7 +573,7 @@ pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRe
             | FDTypedSlice::Object(_) => {
                 rbs.field_idx += range.field_count;
                 for cgi in &re.capture_group_fields {
-                    sess.entry_data.fields[*cgi]
+                    sess.record_mgr.fields[*cgi]
                         .borrow_mut()
                         .field_data
                         .push_error(
@@ -590,6 +590,7 @@ pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRe
         .field_data
         .store_iter(re.input_field_iter_id, iter);
     drop(input_field);
+    sess.tf_mgr.update_ready_state(tf_id);
     sess.tf_mgr
         .inform_successor_batch_available(tf_id, rbs.match_count);
 }

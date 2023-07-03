@@ -54,7 +54,7 @@ pub fn handle_tf_data_inserter(
     di: &mut TfDataInserter,
 ) {
     let (batch, field) = sess.claim_batch(tf_id, &[]);
-    let mut input_field = sess.entry_data.fields[field].borrow_mut();
+    let mut input_field = sess.record_mgr.fields[field].borrow_mut();
     match di.data {
         AnyData::Bytes(b) => input_field.field_data.push_bytes(b, 1, true, false),
         AnyData::String(s) => input_field.field_data.push_str(s, 1, true, false),
