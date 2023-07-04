@@ -253,8 +253,9 @@ impl<'a, I: FDIterator<'a>> FDAutoDerefIter<'a, I> {
         fields: &'a Universe<FieldId, RefCell<Field>>,
         match_sets: &'_ mut Universe<MatchSetId, MatchSet>,
         iter: I,
-        field_id: FieldId,
+        field_id: Option<FieldId>,
     ) -> Self {
+        let field_id = field_id.unwrap_or_else(|| match_sets.any_used().unwrap().err_field_id);
         let ref_iter = FDRefIter::new(
             TypedSliceIter::default(),
             fields,
@@ -274,6 +275,9 @@ impl<'a, I: FDIterator<'a>> FDAutoDerefIter<'a, I> {
     }
     pub fn into_base_iter(self) -> I {
         self.iter
+    }
+    pub fn move_to_field_pos(&mut self, _field_pos: usize) {
+        todo!();
     }
     pub fn typed_range_fwd<'b>(
         &'b mut self,

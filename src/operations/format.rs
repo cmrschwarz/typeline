@@ -427,7 +427,7 @@ pub fn handle_tf_format(sess: &mut JobData<'_>, tf_id: TransformId, fmt: &mut Tf
                     &sess.record_mgr.fields,
                     &mut sess.record_mgr.match_sets,
                     field.field_data.get_iter(ident_ref.iter_id),
-                    ident_ref.field_id,
+                    Some(ident_ref.field_id),
                 );
 
                 while let Some(range) =

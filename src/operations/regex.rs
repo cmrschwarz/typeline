@@ -453,12 +453,11 @@ pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRe
         field_idx: iter_base.get_next_field_pos(),
         match_count: 0,
     };
-    let dummy_field_id = sess.record_mgr.match_sets[tf.match_set_id].err_field_id;
     let mut iter = FDAutoDerefIter::new(
         &sess.record_mgr.fields,
         &mut sess.record_mgr.match_sets,
         iter_base,
-        dummy_field_id,
+        None,
     );
 
     while let Some(range) = iter.typed_range_fwd(&mut sess.record_mgr.match_sets, usize::MAX) {

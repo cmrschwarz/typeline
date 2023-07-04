@@ -89,11 +89,28 @@ impl<I: UniverseIndex, T> Universe<I, T> {
     // by `release`s or `clear`s will get ascending ids
     pub fn reserve_ordered(&mut self, n: usize) {
         let len = self.unused_ids.len().min(n);
-        self.unused_ids[0..len].sort();
+        self.unused_ids[0..len].sort_unstable();
     }
 
     pub fn iter_mut(&mut self) -> IterMut<T> {
         self.data.iter_mut()
+    }
+
+    pub fn any_used(&mut self) -> Option<&mut T> {
+        self.unused_ids.sort_unstable();
+        let mut i = 0;
+        let mut unused_iter = self.unused_ids.iter().peekable();
+        loop {
+            if i == self.data.len() {
+                return None;
+            }
+            if Some(i) == unused_iter.peek().map(|id| id.to_usize()) {
+                i += 1;
+                unused_iter.next();
+                continue;
+            }
+            return Some(&mut self.data[i]);
+        }
     }
 
     pub fn reserve_id_with(&mut self, id: I, func: impl FnMut() -> T) {
