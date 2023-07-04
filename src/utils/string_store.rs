@@ -25,9 +25,10 @@ impl Default for StringStore {
 impl StringStore {
     pub fn claim_id_without_lookup(&mut self, entry: &'static str) -> StringStoreEntry {
         self.table_idx_to_str.push(entry);
-        let id = self.table_idx_to_str.len() as u32;
-        assert!(id < u32::try_from(INVALID_STRING_STORE_ENTRY).unwrap());
-        StringStoreEntry::try_from(id).unwrap()
+        let id = StringStoreEntry::try_from(self.table_idx_to_str.len() as u32).unwrap();
+        assert!(id < INVALID_STRING_STORE_ENTRY);
+        self.table_str_to_idx.insert(entry, id);
+        id
     }
     pub fn intern_cloned(&mut self, entry: &str) -> StringStoreEntry {
         if let Some(key) = self.table_str_to_idx.get(entry) {
@@ -48,7 +49,6 @@ impl StringStore {
         let str_ref = &bucket[bucket_len..bucket_len + len];
         // SAFETY: this is fine because these never get handed out
         let str_ref_static = unsafe { transmute::<&[u8], &'static str>(str_ref) };
-
         self.claim_id_without_lookup(str_ref_static)
     }
 
@@ -68,7 +68,6 @@ impl StringStore {
         let str_ref = &**bucket.last().unwrap();
         // SAFETY: this is fine because these never get handed out
         let str_ref_static = unsafe { transmute::<&str, &'static str>(str_ref) };
-
         self.claim_id_without_lookup(str_ref_static)
     }
     pub fn intern_cow(&mut self, cow: Cow<'static, str>) -> StringStoreEntry {
