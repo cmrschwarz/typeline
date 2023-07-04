@@ -456,6 +456,7 @@ pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRe
     let mut iter = FDAutoDerefIter::new(
         &sess.record_mgr.fields,
         &mut sess.record_mgr.match_sets,
+        input_field_id,
         iter_base,
         None,
     );
@@ -471,7 +472,7 @@ pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRe
                         AnyRegex::Bytes(&mut re.regex, &mut re.capture_locs, v.as_bytes())
                     };
                     match_regex_inner(
-                        input_field_id,
+                        range.field_id,
                         rl,
                         0,
                         any_regex,
@@ -486,7 +487,7 @@ pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRe
             FDTypedSlice::BytesInline(bytes) => {
                 for (v, rl) in InlineBytesIter::from_typed_range(&range, bytes) {
                     match_regex_inner(
-                        input_field_id,
+                        range.field_id,
                         rl,
                         0,
                         AnyRegex::Bytes(&mut re.regex, &mut re.capture_locs, v),
@@ -501,7 +502,7 @@ pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRe
             FDTypedSlice::BytesBuffer(bytes) => {
                 for (v, rl) in TypedSliceIter::from_typed_range(&range, bytes) {
                     match_regex_inner(
-                        input_field_id,
+                        range.field_id,
                         rl,
                         0,
                         AnyRegex::Bytes(&mut re.regex, &mut re.capture_locs, v),

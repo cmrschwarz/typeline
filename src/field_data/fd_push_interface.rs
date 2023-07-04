@@ -348,7 +348,7 @@ pub trait FDPushInterface: FDRawPushInterface {
         unsafe {
             self.push_variable_sized_type(
                 FieldValueKind::BytesInline,
-                field_value_flags::DEFAULT,
+                field_value_flags::BYTES_ARE_UTF8,
                 data.as_bytes(),
                 run_length,
                 try_header_rle,

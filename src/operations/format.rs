@@ -426,6 +426,7 @@ pub fn handle_tf_format(sess: &mut JobData<'_>, tf_id: TransformId, fmt: &mut Tf
                 let mut iter = FDAutoDerefIter::new(
                     &sess.record_mgr.fields,
                     &mut sess.record_mgr.match_sets,
+                    ident_ref.field_id,
                     field.field_data.get_iter(ident_ref.iter_id),
                     Some(ident_ref.field_id),
                 );

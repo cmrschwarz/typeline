@@ -207,6 +207,7 @@ pub fn handle_tf_print_raw(
     let mut iter = FDAutoDerefIter::new(
         &sess.record_mgr.fields,
         &mut sess.record_mgr.match_sets,
+        input_field_id,
         base_iter,
         None,
     );

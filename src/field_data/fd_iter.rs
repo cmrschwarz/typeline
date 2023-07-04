@@ -335,7 +335,7 @@ pub enum FDTypedValue<'a> {
 }
 
 impl<'a> FDTypedValue<'a> {
-    pub fn as_slice(&'a self) -> FDTypedSlice<'a> {
+    pub fn as_slice(&'a self, begin: usize, end: usize) -> FDTypedSlice<'a> {
         match self {
             FDTypedValue::Unset(v) => FDTypedSlice::Unset(std::slice::from_ref(v)),
             FDTypedValue::Null(v) => FDTypedSlice::Null(std::slice::from_ref(v)),
@@ -344,9 +344,9 @@ impl<'a> FDTypedValue<'a> {
             FDTypedValue::Reference(v) => FDTypedSlice::Reference(std::slice::from_ref(v)),
             FDTypedValue::Error(v) => FDTypedSlice::Error(std::slice::from_ref(v)),
             FDTypedValue::Html(v) => FDTypedSlice::Html(std::slice::from_ref(v)),
-            FDTypedValue::BytesInline(v) => FDTypedSlice::BytesInline(v),
-            FDTypedValue::TextInline(v) => FDTypedSlice::TextInline(v),
-            FDTypedValue::BytesBuffer(v) => FDTypedSlice::BytesBuffer(std::slice::from_ref(v)),
+            FDTypedValue::BytesInline(v) => FDTypedSlice::BytesInline(&v[begin..end]),
+            FDTypedValue::TextInline(v) => FDTypedSlice::TextInline(&v[begin..end]),
+            FDTypedValue::BytesBuffer(v) => FDTypedSlice::BytesInline(&v.as_slice()[begin..end]),
             FDTypedValue::Object(v) => FDTypedSlice::Object(std::slice::from_ref(v)),
         }
     }

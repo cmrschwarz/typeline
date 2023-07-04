@@ -80,6 +80,17 @@ impl<'a> FDRefIter<'a> {
             .get_iter(FIELD_REF_LOOKUP_ITER_ID);
         (fields[field_id].borrow(), data_iter)
     }
+    pub fn reset(
+        &mut self,
+        match_sets: &'_ mut Universe<MatchSetId, MatchSet>,
+        refs_iter: TypedSliceIter<'a, FieldReference>,
+        field: FieldId,
+        field_pos: usize,
+    ) {
+        self.refs_iter = refs_iter;
+        self.move_to_field_pos(match_sets, field, field_pos);
+    }
+
     fn move_to_field(
         &mut self,
         match_sets: &'_ mut Universe<MatchSetId, MatchSet>,
@@ -244,28 +255,44 @@ impl<'a: 'b, 'b> FDRefIterLazy<'a> {
 
 pub struct FDAutoDerefIter<'a, I: FDIterator<'a>> {
     iter: I,
+    iter_field_id: FieldId,
     ref_iter: FDRefIter<'a>,
     dummy_header: FieldValueHeader,
     dummy_val: FDTypedValue<'a>,
 }
+pub struct FDTypedRangeWithField<'a> {
+    pub base: FDTypedRange<'a>,
+    pub field_id: FieldId,
+}
+impl<'a> Deref for FDTypedRangeWithField<'a> {
+    type Target = FDTypedRange<'a>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.base
+    }
+}
+
 impl<'a, I: FDIterator<'a>> FDAutoDerefIter<'a, I> {
     pub fn new(
         fields: &'a Universe<FieldId, RefCell<Field>>,
         match_sets: &'_ mut Universe<MatchSetId, MatchSet>,
+        iter_field_id: FieldId,
         iter: I,
-        field_id: Option<FieldId>,
+        refs_field_id: Option<FieldId>,
     ) -> Self {
-        let field_id = field_id.unwrap_or_else(|| match_sets.any_used().unwrap().err_field_id);
+        let refs_field_id =
+            refs_field_id.unwrap_or_else(|| match_sets.any_used().unwrap().err_field_id);
         let ref_iter = FDRefIter::new(
             TypedSliceIter::default(),
             fields,
             match_sets,
-            field_id,
+            refs_field_id,
             iter.get_next_field_pos(),
         );
         Self {
             iter,
             ref_iter,
+            iter_field_id,
             dummy_header: FieldValueHeader {
                 fmt: FieldValueFormat::default(),
                 run_length: 0,
@@ -283,18 +310,24 @@ impl<'a, I: FDIterator<'a>> FDAutoDerefIter<'a, I> {
         &'b mut self,
         match_sets: &'_ mut Universe<MatchSetId, MatchSet>,
         limit: usize,
-    ) -> Option<FDTypedRange<'b>> {
+    ) -> Option<FDTypedRangeWithField<'b>> {
         loop {
             if let Some(fru) = self.ref_iter.typed_field_fwd(match_sets, limit) {
                 //TODO: do something more clever to batch this more
                 self.dummy_header = fru.header;
+                if fru.header.fmt.kind.is_variable_sized_type() {
+                    self.dummy_header.size = (fru.end - fru.begin) as u16;
+                }
                 self.dummy_val = fru.data;
-                return Some(FDTypedRange {
-                    headers: std::slice::from_ref(&self.dummy_header),
-                    data: self.dummy_val.as_slice(),
-                    field_count: fru.header.run_length as usize,
-                    first_header_run_length_oversize: 0,
-                    last_header_run_length_oversize: 0,
+                return Some(FDTypedRangeWithField {
+                    base: FDTypedRange {
+                        headers: std::slice::from_ref(&self.dummy_header),
+                        data: self.dummy_val.as_slice(fru.begin, fru.end),
+                        field_count: fru.header.run_length as usize,
+                        first_header_run_length_oversize: 0,
+                        last_header_run_length_oversize: 0,
+                    },
+                    field_id: fru.field,
                 });
             }
             let field_pos = self.iter.get_next_field_pos();
@@ -303,15 +336,16 @@ impl<'a, I: FDIterator<'a>> FDAutoDerefIter<'a, I> {
                 .typed_range_fwd(limit, field_value_flags::BYTES_ARE_UTF8)
             {
                 if let FDTypedSlice::Reference(refs) = range.data {
-                    let fields = self.ref_iter.fields;
-                    drop(&mut self.ref_iter);
                     let refs_iter = TypedSliceIter::from_typed_range(&range, refs);
                     let field_id = refs_iter.peek().unwrap().0.field;
-                    self.ref_iter =
-                        FDRefIter::new(refs_iter, fields, match_sets, field_id, field_pos);
+                    self.ref_iter
+                        .reset(match_sets, refs_iter, field_id, field_pos);
                     continue;
                 }
-                return Some(range);
+                return Some(FDTypedRangeWithField {
+                    base: range,
+                    field_id: self.iter_field_id,
+                });
             } else {
                 return None;
             }
