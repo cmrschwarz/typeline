@@ -9,9 +9,9 @@ use std::ops::Deref;
 
 use std::num::NonZeroUsize;
 
-use crate::fd_ref_iter::FDRefIterLazy;
+use crate::fd_ref_iter::FDAutoDerefIter;
 use crate::field_data::fd_command_buffer::{FDCommandBuffer, FieldActionKind};
-use crate::field_data::fd_iter::{FDTypedValue, InlineBytesIter, InlineTextIter, TypedSliceIter};
+use crate::field_data::fd_iter::{InlineBytesIter, InlineTextIter, TypedSliceIter};
 use crate::field_data::fd_push_interface::FDPushInterface;
 use crate::field_data::RunLength;
 use crate::utils::universe::Universe;
@@ -19,7 +19,7 @@ use crate::utils::{self, USIZE_MAX_DECIMAL_DIGITS};
 use crate::worker_thread_session::Field;
 use crate::{
     field_data::fd_iter::FDTypedSlice,
-    field_data::{fd_iter::FDIterator, fd_iter_hall::FDIterId, field_value_flags, FieldReference},
+    field_data::{fd_iter::FDIterator, fd_iter_hall::FDIterId, FieldReference},
     options::argument::CliArgIdx,
     utils::string_store::{StringStore, StringStoreEntry},
     worker_thread_session::{FieldId, JobData},
@@ -439,22 +439,30 @@ pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRe
     let (batch, input_field_id) = sess.claim_batch(tf_id);
     let tf = &sess.tf_mgr.transforms[tf_id];
     let op_id = tf.op_id;
-    let mut command_buffer = &mut sess.record_mgr.match_sets[tf.match_set_id].command_buffer;
-    command_buffer.begin_action_set(tf.ordering_id.into());
+
+    sess.record_mgr.match_sets[tf.match_set_id]
+        .command_buffer
+        .begin_action_set(tf.ordering_id.into());
     let input_field = sess.record_mgr.fields[input_field_id].borrow_mut();
-    let mut fd_ref_iter = FDRefIterLazy::default();
-    let mut iter = input_field
+    let iter_base = input_field
         .deref()
         .field_data
         .get_iter(re.input_field_iter_id)
         .bounded(0, batch);
-
     let mut rbs = RegexBatchState {
-        field_idx: iter.get_next_field_pos(),
+        field_idx: iter_base.get_next_field_pos(),
         match_count: 0,
     };
+    let dummy_field_id = sess.record_mgr.match_sets[tf.match_set_id].err_field_id;
+    let mut iter = FDAutoDerefIter::new(
+        &sess.record_mgr.fields,
+        &mut sess.record_mgr.match_sets,
+        iter_base,
+        dummy_field_id,
+    );
 
-    while let Some(range) = iter.typed_range_fwd(usize::MAX, field_value_flags::BYTES_ARE_UTF8) {
+    while let Some(range) = iter.typed_range_fwd(&mut sess.record_mgr.match_sets, usize::MAX) {
+        let command_buffer = &mut sess.record_mgr.match_sets[tf.match_set_id].command_buffer;
         match range.data {
             FDTypedSlice::TextInline(text) => {
                 for (v, rl) in InlineTextIter::from_typed_range(&range, text) {
@@ -506,56 +514,7 @@ pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRe
                     );
                 }
             }
-            FDTypedSlice::Reference(refs) => {
-                let mut iter = fd_ref_iter.setup_iter_from_typed_range(
-                    &sess.record_mgr.fields,
-                    &mut sess.record_mgr.match_sets,
-                    rbs.field_idx,
-                    &range,
-                    refs,
-                );
-                while let Some(fr) =
-                    iter.typed_range_fwd(&mut sess.record_mgr.match_sets, usize::MAX)
-                {
-                    let any_regex = match fr.data {
-                        FDTypedValue::StreamValueId(_) => todo!(),
-                        FDTypedValue::BytesInline(v) => AnyRegex::Bytes(
-                            &mut re.regex,
-                            &mut re.capture_locs,
-                            &v.as_bytes()[fr.begin..fr.end],
-                        ),
-                        FDTypedValue::TextInline(v) => {
-                            if let Some((regex, capture_locs)) = &mut re.text_only_regex {
-                                AnyRegex::Text(regex, capture_locs, &v[fr.begin..fr.end])
-                            } else {
-                                AnyRegex::Bytes(
-                                    &mut re.regex,
-                                    &mut re.capture_locs,
-                                    &v.as_bytes()[fr.begin..fr.end],
-                                )
-                            }
-                        }
-                        FDTypedValue::BytesBuffer(v) => AnyRegex::Bytes(
-                            &mut re.regex,
-                            &mut re.capture_locs,
-                            &v.as_bytes()[fr.begin..fr.end],
-                        ),
-                        _ => panic!("invalid target type for FieldReference"),
-                    };
-                    match_regex_inner(
-                        fr.field,
-                        fr.header.run_length,
-                        fr.begin,
-                        any_regex,
-                        &re.capture_group_fields,
-                        re.multimatch,
-                        &mut rbs,
-                        &sess.record_mgr.fields,
-                        &mut sess.record_mgr.match_sets[tf.match_set_id].command_buffer,
-                    );
-                }
-                command_buffer = &mut sess.record_mgr.match_sets[tf.match_set_id].command_buffer;
-            }
+            FDTypedSlice::Reference(_) => unreachable!(),
             FDTypedSlice::Unset(_)
             | FDTypedSlice::Null(_)
             | FDTypedSlice::Integer(_)
@@ -580,7 +539,7 @@ pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRe
     }
     input_field
         .field_data
-        .store_iter(re.input_field_iter_id, iter);
+        .store_iter(re.input_field_iter_id, iter.into_base_iter());
     drop(input_field);
     sess.tf_mgr.update_ready_state(tf_id);
     sess.tf_mgr

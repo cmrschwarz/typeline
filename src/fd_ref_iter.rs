@@ -4,7 +4,7 @@ use crate::{
             FDIter, FDIterator, FDTypedField, FDTypedRange, FDTypedSlice, FDTypedValue,
             TypedSliceIter,
         },
-        field_value_flags::{self, FieldValueFlags},
+        field_value_flags::{self},
         FieldReference, FieldValueFormat, FieldValueHeader, RunLength,
     },
     utils::universe::Universe,
@@ -242,17 +242,17 @@ impl<'a: 'b, 'b> FDRefIterLazy<'a> {
     }
 }
 
-pub struct FDAutoDerefIter<'a> {
-    iter: FDIter<'a>,
+pub struct FDAutoDerefIter<'a, I: FDIterator<'a>> {
+    iter: I,
     ref_iter: FDRefIter<'a>,
     dummy_header: FieldValueHeader,
     dummy_val: FDTypedValue<'a>,
 }
-impl<'a> FDAutoDerefIter<'a> {
+impl<'a, I: FDIterator<'a>> FDAutoDerefIter<'a, I> {
     pub fn new(
         fields: &'a Universe<FieldId, RefCell<Field>>,
         match_sets: &'_ mut Universe<MatchSetId, MatchSet>,
-        iter: FDIter<'a>,
+        iter: I,
         field_id: FieldId,
     ) -> Self {
         let ref_iter = FDRefIter::new(
@@ -271,6 +271,9 @@ impl<'a> FDAutoDerefIter<'a> {
             },
             dummy_val: FDTypedValue::Unset(()),
         }
+    }
+    pub fn into_base_iter(self) -> I {
+        self.iter
     }
     pub fn typed_range_fwd<'b>(
         &'b mut self,
@@ -296,13 +299,12 @@ impl<'a> FDAutoDerefIter<'a> {
                 .typed_range_fwd(limit, field_value_flags::BYTES_ARE_UTF8)
             {
                 if let FDTypedSlice::Reference(refs) = range.data {
-                    self.ref_iter = FDRefIter::new(
-                        TypedSliceIter::from_typed_range(&range, refs),
-                        self.ref_iter.fields,
-                        match_sets,
-                        self.ref_iter.last_field_id,
-                        field_pos,
-                    );
+                    let fields = self.ref_iter.fields;
+                    drop(&mut self.ref_iter);
+                    let refs_iter = TypedSliceIter::from_typed_range(&range, refs);
+                    let field_id = refs_iter.peek().unwrap().0.field;
+                    self.ref_iter =
+                        FDRefIter::new(refs_iter, fields, match_sets, field_id, field_pos);
                     continue;
                 }
                 return Some(range);

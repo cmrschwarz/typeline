@@ -1,15 +1,14 @@
-use std::{borrow::Cow, intrinsics::unreachable};
+use std::borrow::Cow;
 
 use bstr::{BStr, BString, ByteSlice, ByteVec};
 use smallstr::SmallString;
 
 use crate::{
-    fd_ref_iter::{FDAutoDerefIter, FDRefIterLazy},
+    fd_ref_iter::FDAutoDerefIter,
     field_data::{
-        fd_iter::{FDIterator, FDTypedSlice, InlineBytesIter, InlineTextIter, TypedSliceIter},
+        fd_iter::{FDTypedSlice, InlineBytesIter, InlineTextIter, TypedSliceIter},
         fd_iter_hall::FDIterId,
         fd_push_interface::FDPushInterface,
-        field_value_flags,
     },
     options::argument::CliArgIdx,
     stream_value::StreamValueId,
@@ -414,14 +413,10 @@ pub fn handle_tf_format(sess: &mut JobData<'_>, tf_id: TransformId, fmt: &mut Tf
     let (batch, _input_field_id) = sess.claim_batch(tf_id);
     let tf = &sess.tf_mgr.transforms[tf_id];
     let op_id = tf.op_id;
-    let output_field = sess.record_mgr.fields[fmt.output_field].borrow_mut();
-    let starting_pos =
-        output_field.field_data.field_count() + output_field.field_data.field_index_offset();
-    let mut fd_ref_iter = FDRefIterLazy::default();
+    let mut output_field = sess.record_mgr.fields[fmt.output_field].borrow_mut();
     fmt.output_lengths.clear();
     fmt.output_lengths.resize(batch, 0);
     for part in fmt.parts.iter() {
-        let mut field_pos = starting_pos;
         match part {
             FormatPart::ByteLiteral(v) => fmt.output_lengths.iter_mut().for_each(|l| *l += v.len()),
             FormatPart::TextLiteral(v) => fmt.output_lengths.iter_mut().for_each(|l| *l += v.len()),
@@ -439,7 +434,7 @@ pub fn handle_tf_format(sess: &mut JobData<'_>, tf_id: TransformId, fmt: &mut Tf
                     iter.typed_range_fwd(&mut sess.record_mgr.match_sets, usize::MAX)
                 {
                     match range.data {
-                        FDTypedSlice::Reference(refs) => unreachable!(),
+                        FDTypedSlice::Reference(_) => unreachable!(),
                         FDTypedSlice::TextInline(text) => {
                             for (_v, _rl) in InlineTextIter::from_typed_range(&range, text) {
                                 todo!();
@@ -462,18 +457,14 @@ pub fn handle_tf_format(sess: &mut JobData<'_>, tf_id: TransformId, fmt: &mut Tf
                         | FDTypedSlice::Html(_)
                         | FDTypedSlice::StreamValueId(_)
                         | FDTypedSlice::Object(_) => {
-                            sess.record_mgr.fields[fmt.output_field]
-                                .borrow_mut()
-                                .field_data
-                                .push_error(
-                                    OperatorApplicationError::new("format type error", op_id),
-                                    range.field_count,
-                                    true,
-                                    true,
-                                );
+                            output_field.field_data.push_error(
+                                OperatorApplicationError::new("format type error", op_id),
+                                range.field_count,
+                                true,
+                                true,
+                            );
                         }
                     }
-                    field_pos += range.field_count;
                 }
             }
         }
@@ -502,7 +493,8 @@ mod test {
 
     #[test]
     fn empty_format_string() {
-        assert_eq!(parse_format_string(&[].as_bstr()).unwrap(), &[]);
+        let mut dummy = Default::default();
+        assert_eq!(parse_format_string(&[].as_bstr(), &mut dummy).unwrap(), &[]);
     }
 
     #[test]
@@ -518,8 +510,9 @@ mod test {
             ("foo{{bar", "foo{bar"),
             ("{{foo{{{{bar}}baz}}}}", "{foo{{bar}baz}}"),
         ] {
+            let mut dummy = Default::default();
             assert_eq!(
-                parse_format_string(lit.as_bytes().as_bstr()).unwrap(),
+                parse_format_string(lit.as_bytes().as_bstr(), &mut dummy).unwrap(),
                 &[FormatPart::TextLiteral(res.to_owned())]
             );
         }
@@ -527,12 +520,13 @@ mod test {
 
     #[test]
     fn two_keys() {
+        let mut idents = Default::default();
         let mut a = FormatKey::default();
-        a.identifier = Some("a".to_owned());
+        a.identifier = 0;
         let mut b = FormatKey::default();
-        b.identifier = Some("b".to_owned());
+        b.identifier = 1;
         assert_eq!(
-            parse_format_string("foo{{{a}}}__{b}".as_bytes().as_bstr()).unwrap(),
+            parse_format_string("foo{{{a}}}__{b}".as_bytes().as_bstr(), &mut idents).unwrap(),
             &[
                 FormatPart::TextLiteral("foo{".to_owned()),
                 FormatPart::Key(a),
@@ -540,5 +534,6 @@ mod test {
                 FormatPart::Key(b),
             ]
         );
+        assert_eq!(idents, &[Some("a".to_owned()), Some("b".to_owned())])
     }
 }

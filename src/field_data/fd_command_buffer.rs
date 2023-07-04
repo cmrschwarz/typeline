@@ -653,7 +653,7 @@ impl FDCommandBuffer {
         mut header_idx: usize,
         mut field_pos: usize,
     ) {
-        let mut header = &mut fd.header[header_idx];
+        let mut header;
         let mut header_idx_new = header_idx;
 
         let mut action_idx_next = 0;
@@ -716,25 +716,9 @@ impl FDCommandBuffer {
                     }
                 }
             }
-            if curr_action_pos_outstanding_dups > 0 {
-                self.handle_dup(
-                    curr_action_pos,
-                    curr_action_pos_outstanding_dups,
-                    header,
-                    &mut field_pos,
-                    &mut header_idx_new,
-                    &mut copy_range_start,
-                    &mut copy_range_start_new,
-                );
-                let prev_dups = curr_action_pos_outstanding_dups;
-                curr_action_pos_outstanding_dups = 0;
-                if curr_action_pos_outstanding_drops == 0 {
-                    continue 'advance_action;
-                }
-                curr_action_pos += prev_dups;
-            }
             'advance_header: loop {
                 loop {
+                    header = &mut fd.header[header_idx];
                     if !header.deleted() {
                         let field_pos_new = field_pos + header.run_length as usize;
                         if field_pos_new > curr_action_pos {
@@ -745,7 +729,23 @@ impl FDCommandBuffer {
                     }
                     header_idx += 1;
                     header_idx_new += 1;
-                    header = &mut fd.header[header_idx];
+                }
+                if curr_action_pos_outstanding_dups > 0 {
+                    self.handle_dup(
+                        curr_action_pos,
+                        curr_action_pos_outstanding_dups,
+                        header,
+                        &mut field_pos,
+                        &mut header_idx_new,
+                        &mut copy_range_start,
+                        &mut copy_range_start_new,
+                    );
+                    let prev_dups = curr_action_pos_outstanding_dups;
+                    curr_action_pos_outstanding_dups = 0;
+                    if curr_action_pos_outstanding_drops == 0 {
+                        continue 'advance_action;
+                    }
+                    curr_action_pos += prev_dups;
                 }
                 self.handle_drop(
                     curr_action_pos,
