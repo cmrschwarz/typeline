@@ -278,7 +278,7 @@ pub fn handle_tf_string_sink(
                     let sv = &mut sess.sv_mgr.stream_values[*svid];
                     if !write_stream_val_check_done::<false>(buf, sv, 1).unwrap() {
                         sv.subscribe(tf_id, tf.stream_value_handles.len(), sv.is_buffered());
-                        tf.stream_value_handles.push(StreamValueHandle {
+                        tf.stream_value_handles.claim_with_value(StreamValueHandle {
                             start_idx: out.len(),
                             run_len: rl as usize,
                             contains_error: false,

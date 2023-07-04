@@ -284,12 +284,11 @@ pub fn setup_tf_regex<'a>(
     op: &'a OpRegex,
     tf_state: &mut TransformState,
 ) -> (TransformData<'a>, FieldId) {
-    let mut cgfs: Vec<FieldId> = op
+    let cgfs: Vec<FieldId> = op
         .capture_group_names
         .iter()
         .map(|name| sess.record_mgr.add_field(tf_state.match_set_id, *name))
         .collect();
-    cgfs.sort_unstable();
     let output_field = cgfs[op.output_group_id];
     let re = TfRegex {
         regex: op.regex.clone(),

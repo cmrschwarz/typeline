@@ -18,7 +18,7 @@ use crate::{
         data_inserter::{handle_tf_data_inserter, setup_tf_data_inserter},
         errors::OperatorApplicationError,
         file_reader::{handle_tf_file_reader, setup_tf_file_reader},
-        format::setup_tf_format,
+        format::{handle_tf_format, handle_tf_format_stream_value_update, setup_tf_format},
         operator::{OperatorData, OperatorId},
         print::{handle_tf_print, handle_tf_print_stream_value_update, setup_tf_print},
         regex::{handle_tf_regex, setup_tf_regex},
@@ -47,7 +47,7 @@ pub struct Field {
     // (unless this is named, we have a fwd, and this is not shadowed before it)
     pub ref_count: usize,
     pub match_set: MatchSetId,
-    pub shadowed_after_tf: TransformId,
+    pub added_as_placeholder_by_tf: Option<TransformId>,
     pub producing_transform_action_set_id: usize,
     pub last_applied_action_set_id: usize,
 
@@ -181,11 +181,14 @@ impl RecordManager {
         field_id: FieldId,
         ms_id: MatchSetId,
         name: Option<StringStoreEntry>,
-    ) {
+    ) -> FieldId {
         let mut field = self.fields[field_id as FieldId].borrow_mut();
+        field.field_data.reset();
         field.field_data.reserve_iter_id(FIELD_REF_LOOKUP_ITER_ID);
         field.name = name;
         field.match_set = ms_id;
+        field.added_as_placeholder_by_tf = None;
+        field.working_set_idx = None;
         if let Some(name) = name {
             match self.match_sets[ms_id].field_name_map.entry(name) {
                 hash_map::Entry::Occupied(ref mut e) => {
@@ -196,11 +199,11 @@ impl RecordManager {
                 }
             }
         }
+        field_id
     }
     pub fn add_field(&mut self, ms_id: MatchSetId, name: Option<StringStoreEntry>) -> FieldId {
-        let field_id = self.fields.claim();
-        self.setup_field(field_id, ms_id, name);
-        field_id
+        let id = self.fields.claim();
+        self.setup_field(id, ms_id, name)
     }
     pub fn add_field_with_data(
         &mut self,
@@ -208,23 +211,12 @@ impl RecordManager {
         name: Option<StringStoreEntry>,
         data: FieldData,
     ) -> FieldId {
-        let field_id = if self.fields.has_unclaimed_entries() {
-            let id = self.fields.claim();
-            self.fields[id]
-                .borrow_mut()
-                .field_data
-                .reset_with_data(data);
-            id
-        } else {
-            self.fields.claim_with(|| {
-                RefCell::new(Field {
-                    field_data: FDIterHall::new_with_data(data),
-                    ..Default::default()
-                })
-            })
-        };
-        self.setup_field(field_id, ms_id, name);
-        field_id
+        let id = self.add_field(ms_id, name);
+        self.fields[id]
+            .borrow_mut()
+            .field_data
+            .reset_with_data(data);
+        id
     }
     pub fn remove_field(&mut self, id: FieldId) {
         let mut field = self.fields[id].borrow_mut();
@@ -517,26 +509,25 @@ impl<'a> WorkerThreadSession<'a> {
                 is_stream_producer: false,
                 is_stream_subscriber: false,
             };
+            let tf_id_peek = jd.tf_mgr.transforms.peek_claim_id();
             (tf_data, output_field) = match &op_data {
                 OperatorData::Split(split) => setup_tf_split(jd, split, &mut tf_state),
                 OperatorData::Print => setup_tf_print(jd, &mut tf_state),
                 OperatorData::Regex(op) => setup_tf_regex(jd, op, &mut tf_state),
-                OperatorData::Format(op) => setup_tf_format(jd, op, &mut tf_state),
+                OperatorData::Format(op) => setup_tf_format(jd, op, &mut tf_state, tf_id_peek),
                 OperatorData::StringSink(op) => setup_tf_string_sink(jd, op, &mut tf_state),
                 OperatorData::FileReader(op) => setup_tf_file_reader(jd, op, &mut tf_state),
                 OperatorData::DataInserter(op) => setup_tf_data_inserter(jd, op, &mut tf_state),
                 OperatorData::Sequence(op) => setup_tf_sequence(jd, op, &mut tf_state),
             };
-            let tf_id = if start_tf_id.is_none() {
-                let tf_id = self.add_transform(tf_state, tf_data);
+            let tf_id = self.add_transform(tf_state, tf_data);
+            debug_assert!(tf_id_peek == tf_id);
+            if start_tf_id.is_none() {
                 if available_batch_size > 0 {
                     self.job_data.tf_mgr.push_tf_in_ready_queue(tf_id);
                 }
                 start_tf_id = Some(tf_id);
-                tf_id
-            } else {
-                self.add_transform(tf_state, tf_data)
-            };
+            }
             if let Some(prev_tf) = prev_tf {
                 self.job_data.tf_mgr.transforms[prev_tf].successor = Some(tf_id);
             }
@@ -546,7 +537,7 @@ impl<'a> WorkerThreadSession<'a> {
         start_tf_id.unwrap()
     }
     pub fn add_transform(&mut self, state: TransformState, data: TransformData<'a>) -> TransformId {
-        let id = self.job_data.tf_mgr.transforms.push(state);
+        let id = self.job_data.tf_mgr.transforms.claim_with_value(state);
         if self.transform_data.len() < self.job_data.tf_mgr.transforms.len() {
             self.transform_data
                 .resize_with(self.job_data.tf_mgr.transforms.len(), || {
@@ -575,9 +566,15 @@ impl<'a> WorkerThreadSession<'a> {
                         svu.sv_id,
                         svu.custom,
                     ),
+                    TransformData::Format(tf) => handle_tf_format_stream_value_update(
+                        &mut self.job_data,
+                        svu.tf_id,
+                        tf,
+                        svu.sv_id,
+                        svu.custom,
+                    ),
                     TransformData::Split(_) => todo!(),
                     TransformData::Regex(_) => todo!(),
-                    TransformData::Format(_) => todo!(),
                     TransformData::FileReader(_) => unreachable!(),
                     TransformData::Sequence(_) => unreachable!(),
                     TransformData::Disabled => unreachable!(),
@@ -612,8 +609,8 @@ impl<'a> WorkerThreadSession<'a> {
                     TransformData::StringSink(tf) => handle_tf_string_sink(jd, tf_id, tf),
                     TransformData::FileReader(tf) => handle_tf_file_reader(jd, tf_id, tf),
                     TransformData::DataInserter(tf) => handle_tf_data_inserter(jd, tf_id, tf),
-                    TransformData::Sequence(seq) => handle_tf_sequence(jd, tf_id, seq),
-                    TransformData::Format(_tf) => todo!(),
+                    TransformData::Sequence(tf) => handle_tf_sequence(jd, tf_id, tf),
+                    TransformData::Format(tf) => handle_tf_format(jd, tf_id, tf),
                     TransformData::Disabled => unreachable!(),
                 }
                 continue;

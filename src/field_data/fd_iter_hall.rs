@@ -146,7 +146,7 @@ impl FDIterHall {
         self.fd.clear();
     }
     pub fn reset_with_data(&mut self, fd: FieldData) {
-        self.reset();
+        self.initial_field_offset = 0;
         self.fd = fd;
     }
     pub fn new_with_data(fd: FieldData) -> Self {

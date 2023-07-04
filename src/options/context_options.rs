@@ -9,6 +9,7 @@ use crate::{
     field_data::record_set::RecordSet,
     operations::{
         errors::{ChainSetupError, OperatorSetupError},
+        format::setup_op_format,
         operator::{OperatorBase, OperatorData, OperatorId, OperatorOffsetInChain},
         regex::setup_op_regex,
     },
@@ -125,9 +126,9 @@ impl ContextOptions {
             chain.operations.push(i as OperatorId);
             match &mut sess.operator_data[i] {
                 OperatorData::Regex(re) => setup_op_regex(&mut sess.string_store, re)?,
+                OperatorData::Format(fmt) => setup_op_format(&mut sess.string_store, fmt)?,
                 OperatorData::StringSink(_)
                 | OperatorData::Split(_)
-                | OperatorData::Format(_)
                 | OperatorData::Sequence(_)
                 | OperatorData::DataInserter(_)
                 | OperatorData::FileReader(_)

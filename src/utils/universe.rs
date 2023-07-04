@@ -67,16 +67,6 @@ impl<I: UniverseIndex, T> Default for Universe<I, T> {
 }
 
 impl<I: UniverseIndex, T> Universe<I, T> {
-    pub fn push(&mut self, val: T) -> I {
-        if let Some(id) = self.unused_ids.pop() {
-            self.data[id.to_usize()] = val;
-            *id
-        } else {
-            let id = UniverseIdx::from_usize(self.data.len());
-            self.data.push(val);
-            *id
-        }
-    }
     pub fn release(&mut self, id: I) {
         let index = UniverseIdx(id).to_usize();
         if self.data.len() == index + 1 {
@@ -151,6 +141,12 @@ impl<I: UniverseIndex, T> Universe<I, T> {
             self.data.push(value);
             *UniverseIdx::from_usize(id)
         }
+    }
+    pub fn calc_id(&self, entry: &T) -> I {
+        let range = self.data.as_ptr_range();
+        let ptr = entry as *const T;
+        assert!(range.contains(&ptr));
+        *UniverseIdx::from_usize(unsafe { ptr.offset_from(range.start) } as usize)
     }
 }
 
