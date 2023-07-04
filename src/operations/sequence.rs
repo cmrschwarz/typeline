@@ -60,7 +60,7 @@ pub fn handle_tf_sequence(sess: &mut JobData<'_>, tf_id: TransformId, seq: &mut 
         bs_rem -= 1;
     }
     if seq.ss.start == seq.ss.end {
-        sess.tf_mgr.unlink_transform(tf_id, batch_size);
+        sess.tf_mgr.unlink_transform(tf_id, batch_size - bs_rem);
     } else {
         sess.tf_mgr.push_tf_in_ready_queue(tf_id);
     }
@@ -108,12 +108,12 @@ pub fn parse_op_seq(
     }]
     .parse::<i64>()
     .map_err(|_| OperatorCreationError::new("failed to parse sequence end as integer", arg_idx))?;
-    create_op_seq_with_cli_arg_idx(start, step, end, arg_idx)
+    create_op_seq_with_cli_arg_idx(start, end, step, arg_idx)
 }
 
 fn create_op_seq_with_cli_arg_idx(
     start: i64,
-    end: i64,
+    mut end: i64,
     step: i64,
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
@@ -123,17 +123,26 @@ fn create_op_seq_with_cli_arg_idx(
             arg_idx,
         ));
     }
-    if step > 0 && end < start {
-        return Err(OperatorCreationError::new(
-            "end of sequence with positive step size must be at least as large as it's start",
-            arg_idx,
-        ));
+    if step > 0 {
+        if end < start {
+            return Err(OperatorCreationError::new(
+                "end of sequence with positive step size must be at least as large as it's start",
+                arg_idx,
+            ));
+        }
+        end += (end - start) % step;
     }
-    if step < 0 && end > start {
-        return Err(OperatorCreationError::new(
-            "end of sequence with negative step size must not be larger than it's start",
-            arg_idx,
-        ));
+    if step < 0 {
+        if end > start {
+            return Err(OperatorCreationError::new(
+                "end of sequence with negative step size must not be larger than it's start",
+                arg_idx,
+            ));
+        }
+        let rem = (start - end) % (-step);
+        if rem > 0 {
+            end -= -step - rem;
+        }
     }
     Ok(OperatorData::Sequence(OpSequence {
         ss: SequenceSpec { start, step, end },
