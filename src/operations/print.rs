@@ -252,12 +252,12 @@ pub fn handle_tf_print_raw(
                         FDTypedValue::BytesInline(v) => write_raw_bytes::<true>(
                             &mut stdout,
                             &v[fr.begin..fr.end],
-                            fr.run_len as usize,
+                            fr.header.run_length as usize,
                         )?,
                         FDTypedValue::TextInline(v) => write_text::<true>(
                             &mut stdout,
                             &v[fr.begin..fr.end],
-                            fr.run_len as usize,
+                            fr.header.run_length as usize,
                         )?,
                         _ => panic!("invalid target type for FieldReference"),
                     }

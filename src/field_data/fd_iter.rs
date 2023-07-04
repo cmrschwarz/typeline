@@ -34,6 +34,19 @@ pub struct TypedSliceIter<'a, T> {
     _phantom_data: PhantomData<&'a FieldValueHeader>,
 }
 
+impl<'a, T> Default for TypedSliceIter<'a, T> {
+    fn default() -> Self {
+        Self {
+            values: NonNull::dangling(),
+            header: std::ptr::null(),
+            header_end: std::ptr::null(),
+            header_rl_rem: 0,
+            last_oversize: 0,
+            _phantom_data: Default::default(),
+        }
+    }
+}
+
 impl<'a, T> TypedSliceIter<'a, T> {
     pub fn new(
         values: &'a [T],
@@ -63,7 +76,7 @@ impl<'a, T> TypedSliceIter<'a, T> {
             _phantom_data: PhantomData::default(),
         }
     }
-    pub fn from_typed_range(range: &'a FDTypedRange<'a>, values: &'a [T]) -> Self {
+    pub fn from_typed_range(range: &FDTypedRange<'a>, values: &'a [T]) -> Self {
         Self::new(
             values,
             range.headers,
@@ -319,6 +332,24 @@ pub enum FDTypedValue<'a> {
     TextInline(&'a str),
     BytesBuffer(&'a Vec<u8>),
     Object(&'a Object),
+}
+
+impl<'a> FDTypedValue<'a> {
+    pub fn as_slice(&'a self) -> FDTypedSlice<'a> {
+        match self {
+            FDTypedValue::Unset(v) => FDTypedSlice::Unset(std::slice::from_ref(v)),
+            FDTypedValue::Null(v) => FDTypedSlice::Null(std::slice::from_ref(v)),
+            FDTypedValue::Integer(v) => FDTypedSlice::Integer(std::slice::from_ref(v)),
+            FDTypedValue::StreamValueId(v) => FDTypedSlice::StreamValueId(std::slice::from_ref(v)),
+            FDTypedValue::Reference(v) => FDTypedSlice::Reference(std::slice::from_ref(v)),
+            FDTypedValue::Error(v) => FDTypedSlice::Error(std::slice::from_ref(v)),
+            FDTypedValue::Html(v) => FDTypedSlice::Html(std::slice::from_ref(v)),
+            FDTypedValue::BytesInline(v) => FDTypedSlice::BytesInline(v),
+            FDTypedValue::TextInline(v) => FDTypedSlice::TextInline(v),
+            FDTypedValue::BytesBuffer(v) => FDTypedSlice::BytesBuffer(std::slice::from_ref(v)),
+            FDTypedValue::Object(v) => FDTypedSlice::Object(std::slice::from_ref(v)),
+        }
+    }
 }
 
 pub struct FDTypedRange<'a> {

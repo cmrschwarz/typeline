@@ -256,7 +256,7 @@ pub fn handle_tf_string_sink(
                         field_pos,
                         &mut out,
                         buf,
-                        fr.run_len as usize,
+                        fr.header.run_length as usize,
                     );
                 }
             }

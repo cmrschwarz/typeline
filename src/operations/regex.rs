@@ -544,7 +544,7 @@ pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRe
                     };
                     match_regex_inner(
                         fr.field,
-                        fr.run_len,
+                        fr.header.run_length,
                         fr.begin,
                         any_regex,
                         &re.capture_group_fields,

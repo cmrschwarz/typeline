@@ -1,7 +1,11 @@
 use crate::{
     field_data::{
-        fd_iter::{FDIter, FDIterator, FDTypedField, FDTypedRange, FDTypedValue, TypedSliceIter},
-        FieldReference, FieldValueHeader, RunLength,
+        fd_iter::{
+            FDIter, FDIterator, FDTypedField, FDTypedRange, FDTypedSlice, FDTypedValue,
+            TypedSliceIter,
+        },
+        field_value_flags::{self, FieldValueFlags},
+        FieldReference, FieldValueFormat, FieldValueHeader, RunLength,
     },
     utils::universe::Universe,
     worker_thread_session::{Field, FieldId, MatchSet, MatchSetId, FIELD_REF_LOOKUP_ITER_ID},
@@ -14,8 +18,8 @@ pub struct FDRefIter<'a> {
     last_field_id: FieldId,
 
     // SAFETY: We have a chain of lifetime dependencies here:
-    // data_iter -> field_ref -> fields
-    // As long as we hold entry_data, we can safely hold the others.
+    // fields -owns-> field_ref -owns-> data_iter
+    // As long as we hold fields, we can safely hold the others.
     // Since the borrow checker does not understand this, we have to
     // cheat and use unsafe here.
     data_iter: FDIter<'a>,
@@ -28,7 +32,7 @@ pub struct FieldRefUnpacked<'a> {
     pub begin: usize,
     pub end: usize,
     pub data: FDTypedValue<'a>,
-    pub run_len: RunLength,
+    pub header: FieldValueHeader,
 }
 
 impl<'a> FDRefIter<'a> {
@@ -115,7 +119,7 @@ impl<'a> FDRefIter<'a> {
     pub fn set_refs_iter(&mut self, refs_iter: TypedSliceIter<'a, FieldReference>) {
         self.refs_iter = refs_iter;
     }
-    pub fn typed_range_fwd(
+    pub fn typed_field_fwd(
         &mut self,
         match_sets: &'_ mut Universe<MatchSetId, MatchSet>,
         limit: usize,
@@ -132,7 +136,7 @@ impl<'a> FDRefIter<'a> {
             begin: field_ref.begin,
             end: field_ref.end,
             data: tf.value,
-            run_len: tf.header.run_length,
+            header: tf.header,
         })
     }
 }
@@ -162,7 +166,7 @@ impl<'a, 'b> FDRefIterLazyGuard<'a, 'b> {
         match_sets: &'_ mut Universe<MatchSetId, MatchSet>,
         limit: usize,
     ) -> Option<FieldRefUnpacked<'a>> {
-        self.iter.typed_range_fwd(match_sets, limit)
+        self.iter.typed_field_fwd(match_sets, limit)
     }
 }
 
@@ -235,5 +239,76 @@ impl<'a: 'b, 'b> FDRefIterLazy<'a> {
             0,
             0,
         )
+    }
+}
+
+pub struct FDAutoDerefIter<'a> {
+    iter: FDIter<'a>,
+    ref_iter: FDRefIter<'a>,
+    dummy_header: FieldValueHeader,
+    dummy_val: FDTypedValue<'a>,
+}
+impl<'a> FDAutoDerefIter<'a> {
+    pub fn new(
+        fields: &'a Universe<FieldId, RefCell<Field>>,
+        match_sets: &'_ mut Universe<MatchSetId, MatchSet>,
+        iter: FDIter<'a>,
+        field_id: FieldId,
+    ) -> Self {
+        let ref_iter = FDRefIter::new(
+            TypedSliceIter::default(),
+            fields,
+            match_sets,
+            field_id,
+            iter.get_next_field_pos(),
+        );
+        Self {
+            iter,
+            ref_iter,
+            dummy_header: FieldValueHeader {
+                fmt: FieldValueFormat::default(),
+                run_length: 0,
+            },
+            dummy_val: FDTypedValue::Unset(()),
+        }
+    }
+    pub fn typed_range_fwd<'b>(
+        &'b mut self,
+        match_sets: &'_ mut Universe<MatchSetId, MatchSet>,
+        limit: usize,
+    ) -> Option<FDTypedRange<'b>> {
+        loop {
+            if let Some(fru) = self.ref_iter.typed_field_fwd(match_sets, limit) {
+                //TODO: do something more clever to batch this more
+                self.dummy_header = fru.header;
+                self.dummy_val = fru.data;
+                return Some(FDTypedRange {
+                    headers: std::slice::from_ref(&self.dummy_header),
+                    data: self.dummy_val.as_slice(),
+                    field_count: fru.header.run_length as usize,
+                    first_header_run_length_oversize: 0,
+                    last_header_run_length_oversize: 0,
+                });
+            }
+            let field_pos = self.iter.get_next_field_pos();
+            if let Some(range) = self
+                .iter
+                .typed_range_fwd(limit, field_value_flags::BYTES_ARE_UTF8)
+            {
+                if let FDTypedSlice::Reference(refs) = range.data {
+                    self.ref_iter = FDRefIter::new(
+                        TypedSliceIter::from_typed_range(&range, refs),
+                        self.ref_iter.fields,
+                        match_sets,
+                        self.ref_iter.last_field_id,
+                        field_pos,
+                    );
+                    continue;
+                }
+                return Some(range);
+            } else {
+                return None;
+            }
+        }
     }
 }

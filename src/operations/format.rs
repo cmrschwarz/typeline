@@ -1,10 +1,10 @@
-use std::borrow::Cow;
+use std::{borrow::Cow, intrinsics::unreachable};
 
 use bstr::{BStr, BString, ByteSlice, ByteVec};
 use smallstr::SmallString;
 
 use crate::{
-    fd_ref_iter::FDRefIterLazy,
+    fd_ref_iter::{FDAutoDerefIter, FDRefIterLazy},
     field_data::{
         fd_iter::{FDIterator, FDTypedSlice, InlineBytesIter, InlineTextIter, TypedSliceIter},
         fd_iter_hall::FDIterId,
@@ -32,12 +32,12 @@ pub enum FormatFillAlignment {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum FormatWidthSpec<IdentifierType> {
+pub enum FormatWidthSpec {
     Value(usize),
-    Ref(Option<IdentifierType>),
+    Ref(FormatKeyRefId),
 }
 
-impl<T> Default for FormatWidthSpec<T> {
+impl Default for FormatWidthSpec {
     fn default() -> Self {
         FormatWidthSpec::Value(0)
     }
@@ -56,13 +56,13 @@ pub enum NumberFormat {
 }
 
 #[derive(Debug, PartialEq, Eq, Default)]
-pub struct FormatKey<IdentifierType> {
-    identifier: Option<IdentifierType>,
+pub struct FormatKey {
+    identifier: FormatKeyRefId,
     fill: Option<(char, FormatFillAlignment)>,
     add_plus_sign: bool,
     zero_pad_numbers: bool,
-    width: FormatWidthSpec<IdentifierType>,
-    float_precision: FormatWidthSpec<IdentifierType>,
+    width: FormatWidthSpec,
+    float_precision: FormatWidthSpec,
     alternate_form: bool, // prefix 0x for hex, 0o for octal and 0b for binary, pretty print objects / arrays
     number_format: NumberFormat,
     debug: bool,
@@ -70,85 +70,39 @@ pub struct FormatKey<IdentifierType> {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum FormatPart<IdentifierType> {
+pub enum FormatPart {
     ByteLiteral(BString),
     TextLiteral(String),
-    Key(FormatKey<IdentifierType>),
+    Key(FormatKey),
 }
 
 type FormatKeyRefId = usize;
 
-pub enum OpFormatParts {
-    PreSetup(Vec<FormatPart<String>>),
-    Interned(Vec<FormatPart<FormatKeyRefId>>),
+pub struct OpFormat {
+    pub parts: Vec<FormatPart>,
+    pub refs_str: Vec<Option<String>>,
+    pub refs_idx: Vec<Option<StringStoreEntry>>,
 }
 
-pub struct OpFormat {
-    pub parts: OpFormatParts,
-    pub refs: Vec<StringStoreEntry>,
+pub struct FormatIdentRef {
+    field_id: FieldId,
+    iter_id: FDIterId,
 }
 
 pub struct TfFormat<'a> {
     pub output_field: FieldId,
-    pub input_field_iter_id: FDIterId,
-    pub parts: &'a Vec<FormatPart<FormatKeyRefId>>,
-    pub refs: Vec<FieldId>,
-}
-
-fn intern_format_width_spec(
-    ss: &mut StringStore,
-    refs: &mut Vec<StringStoreEntry>,
-    fws: FormatWidthSpec<String>,
-) -> FormatWidthSpec<FormatKeyRefId> {
-    match fws {
-        FormatWidthSpec::Value(v) => FormatWidthSpec::Value(v),
-        FormatWidthSpec::Ref(id) => FormatWidthSpec::Ref(id.map(|id| {
-            refs.push(ss.intern_moved(id));
-            refs.len() - 1
-        })),
-    }
-}
-
-fn intern_format_part(
-    ss: &mut StringStore,
-    refs: &mut Vec<StringStoreEntry>,
-    fp: FormatPart<String>,
-) -> FormatPart<FormatKeyRefId> {
-    match fp {
-        FormatPart::ByteLiteral(v) => FormatPart::ByteLiteral(v),
-        FormatPart::TextLiteral(v) => FormatPart::TextLiteral(v),
-        FormatPart::Key(k) => FormatPart::Key(FormatKey {
-            identifier: k.identifier.map(|id| {
-                refs.push(ss.intern_moved(id));
-                refs.len() - 1
-            }),
-            fill: k.fill,
-            add_plus_sign: k.add_plus_sign,
-            zero_pad_numbers: k.zero_pad_numbers,
-            width: intern_format_width_spec(ss, refs, k.width),
-            float_precision: intern_format_width_spec(ss, refs, k.float_precision),
-            alternate_form: k.alternate_form,
-            number_format: k.number_format,
-            debug: k.debug,
-            unicode: k.unicode,
-        }),
-    }
+    pub parts: &'a Vec<FormatPart>,
+    pub refs: Vec<FormatIdentRef>,
+    pub input_fields_unique: Vec<FieldId>,
+    pub output_lengths: Vec<usize>,
 }
 
 pub fn setup_op_format(
     string_store: &mut StringStore,
     op: &mut OpFormat,
 ) -> Result<(), OperatorSetupError> {
-    let parts = std::mem::replace(&mut op.parts, OpFormatParts::Interned(Vec::default()));
-    if let OpFormatParts::PreSetup(parts) = parts {
-        op.parts = OpFormatParts::Interned(
-            parts
-                .into_iter()
-                .map(|p| intern_format_part(string_store, &mut op.refs, p))
-                .collect(),
-        )
-    } else {
-        unreachable!();
+    for r in std::mem::replace(&mut op.refs_str, Default::default()).into_iter() {
+        op.refs_idx.push(r.map(|r| string_store.intern_moved(r)));
     }
     Ok(())
 }
@@ -161,39 +115,46 @@ pub fn setup_tf_format<'a>(
 ) -> (TransformData<'a>, FieldId) {
     //TODO: cache field indices...
     let output_field = sess.record_mgr.add_field(tf_state.match_set_id, None);
-    let parts = if let OpFormatParts::Interned(ref parts) = op.parts {
-        parts
-    } else {
-        panic!("attempted to create a TfFormat without calling setup_op_format first")
-    };
-    let input_field_iter_id = sess.record_mgr.fields[tf_state.input_field]
-        .borrow_mut()
-        .field_data
-        .claim_iter();
-    let tf = TfFormat {
-        output_field,
-        input_field_iter_id,
-        parts,
-        refs: op
-            .refs
-            .iter()
-            .map(|r| {
+    let refs: Vec<_> = op
+        .refs_idx
+        .iter()
+        .map(|name| {
+            let (field_id, iter_id) = if let Some(name) = name {
                 let id = sess.record_mgr.match_sets[tf_state.match_set_id]
                     .field_name_map
-                    .get(r)
+                    .get(name)
                     .and_then(|fields| fields.back().cloned())
-                    .unwrap_or_else(|| sess.record_mgr.add_field(tf_state.match_set_id, Some(*r)));
-                sess.record_mgr.fields[id]
+                    .unwrap_or_else(|| {
+                        sess.record_mgr
+                            .add_field(tf_state.match_set_id, Some(*name))
+                    });
+                let mut f = sess.record_mgr.fields[id].borrow_mut();
+                f.added_as_placeholder_by_tf = Some(tf_id);
+                (id, f.field_data.claim_iter())
+            } else {
+                let iter_id = sess.record_mgr.fields[tf_state.input_field]
                     .borrow_mut()
-                    .added_as_placeholder_by_tf = Some(tf_id);
-                id
-            })
-            .collect(),
+                    .field_data
+                    .claim_iter();
+                (tf_state.input_field, iter_id)
+            };
+            FormatIdentRef { field_id, iter_id }
+        })
+        .collect();
+    let mut input_fields_unique: Vec<_> = refs.iter().map(|fir| fir.field_id).collect();
+    input_fields_unique.sort_unstable();
+    input_fields_unique.dedup();
+    let tf = TfFormat {
+        output_field,
+        parts: &op.parts,
+        refs,
+        input_fields_unique,
+        output_lengths: Default::default(),
     };
     (TransformData::Format(tf), output_field)
 }
 
-fn create_format_literal(fmt: BString) -> FormatPart<String> {
+fn create_format_literal(fmt: BString) -> FormatPart {
     match String::try_from(fmt) {
         Ok(v) => FormatPart::TextLiteral(v),
         Err(err) => FormatPart::ByteLiteral(BString::from(err.into_vec())),
@@ -205,7 +166,8 @@ const NO_CLOSING_BRACE_ERR: Cow<'static, str> = Cow::Borrowed("format key has no
 pub fn parse_format_width_spec<const FOR_FLOAT_PREC: bool>(
     fmt: &BStr,
     start: usize,
-) -> Result<(FormatWidthSpec<String>, usize), (usize, Cow<'static, str>)> {
+    refs: &mut Vec<Option<String>>,
+) -> Result<(FormatWidthSpec, usize), (usize, Cow<'static, str>)> {
     let context = if FOR_FLOAT_PREC {
         "format key float precision "
     } else {
@@ -249,10 +211,14 @@ pub fn parse_format_width_spec<const FOR_FLOAT_PREC: bool>(
             i = end;
             let c0 = fmt[i] as char;
             if c0 == '$' {
-                return Ok((
-                    FormatWidthSpec::Ref(Some(format_width_ident.into_string())),
-                    i,
-                ));
+                let fmt_ref = if format_width_ident.is_empty() {
+                    None
+                } else {
+                    Some(format_width_ident.into_string())
+                };
+                refs.push(fmt_ref);
+                let ref_id = refs.len() - 1;
+                return Ok((FormatWidthSpec::Ref(ref_id), i));
             }
             let c1 = *fmt.get(i + 1).ok_or_else(|| no_closing_dollar(i))? as char;
             if c0 != c1 {
@@ -273,7 +239,8 @@ pub fn parse_format_width_spec<const FOR_FLOAT_PREC: bool>(
 pub fn parse_format_flags(
     fmt: &BStr,
     start: usize,
-    key: &mut FormatKey<String>,
+    key: &mut FormatKey,
+    refs: &mut Vec<Option<String>>,
 ) -> Result<usize, (usize, Cow<'static, str>)> {
     fn next(fmt: &BStr, i: usize) -> Result<char, (usize, Cow<'static, str>)> {
         Ok(*fmt.get(i).ok_or((i, NO_CLOSING_BRACE_ERR))? as char)
@@ -319,11 +286,11 @@ pub fn parse_format_flags(
         c = next(fmt, i)?;
     }
     if c != '}' && c != '.' {
-        (key.width, i) = parse_format_width_spec::<false>(fmt, i)?;
+        (key.width, i) = parse_format_width_spec::<false>(fmt, i, refs)?;
         c = next(fmt, i)?;
     }
     if c == '.' {
-        (key.float_precision, i) = parse_format_width_spec::<true>(fmt, i + 1)?;
+        (key.float_precision, i) = parse_format_width_spec::<true>(fmt, i + 1, refs)?;
         c = next(fmt, i)?;
     }
     if c != '}' {
@@ -334,15 +301,16 @@ pub fn parse_format_flags(
 pub fn parse_format_key(
     fmt: &BStr,
     start: usize,
-) -> Result<(FormatKey<String>, usize), (usize, Cow<'static, str>)> {
+    refs: &mut Vec<Option<String>>,
+) -> Result<(FormatKey, usize), (usize, Cow<'static, str>)> {
     debug_assert!(fmt[start] == '{' as u8);
     let mut i = start + 1;
     let mut key = FormatKey::default();
     if let Some(mut end) = (&fmt[i..]).find_byteset("}:") {
         end += i;
         let c0 = fmt[end] as char;
-        if end > i {
-            key.identifier = Some(
+        let ref_val = if end > i {
+            Some(
                 (&fmt[i..end])
                     .to_str()
                     .map_err(|e| {
@@ -353,11 +321,15 @@ pub fn parse_format_key(
                         )
                     })?
                     .to_owned(),
-            );
-        }
+            )
+        } else {
+            None
+        };
+        refs.push(ref_val);
+        key.identifier = refs.len() - 1;
         i = end;
         if c0 == ':' {
-            i = parse_format_flags(fmt, i, &mut key)?;
+            i = parse_format_flags(fmt, i, &mut key, refs)?;
         }
         return Ok((key, i + 1));
     }
@@ -366,7 +338,8 @@ pub fn parse_format_key(
 
 pub fn parse_format_string(
     fmt: &BStr,
-) -> Result<Vec<FormatPart<String>>, (usize, Cow<'static, str>)> {
+    refs: &mut Vec<Option<String>>,
+) -> Result<Vec<FormatPart>, (usize, Cow<'static, str>)> {
     let mut parts = Vec::new();
     let mut pending_literal = BString::default();
     let mut i = 0;
@@ -393,7 +366,7 @@ pub fn parse_format_string(
                 parts.push(create_format_literal(pending_literal));
                 pending_literal = Default::default();
             }
-            let (key, end) = parse_format_key(fmt, i)?;
+            let (key, end) = parse_format_key(fmt, i, refs)?;
             parts.push(FormatPart::Key(key));
             i = end;
         } else {
@@ -413,14 +386,17 @@ pub fn parse_op_format(
     let val = value.ok_or_else(|| {
         OperatorCreationError::new("missing argument for the regex operator", arg_idx)
     })?;
+    let mut refs_str = Vec::new();
+    let parts =
+        parse_format_string(val, &mut refs_str).map_err(|(i, msg)| OperatorCreationError {
+            message: format!("format string index {}: {}", i, msg).into(),
+            cli_arg_idx: arg_idx,
+        })?;
+    let refs_idx = Vec::with_capacity(refs_str.len());
     Ok(OperatorData::Format(OpFormat {
-        parts: OpFormatParts::PreSetup(parse_format_string(val).map_err(|(i, msg)| {
-            OperatorCreationError {
-                message: format!("format string index {}: {}", i, msg).into(),
-                cli_arg_idx: arg_idx,
-            }
-        })?),
-        refs: Vec::default(),
+        parts,
+        refs_str,
+        refs_idx,
     }))
 }
 pub fn create_op_format(val: &BStr) -> Result<OperatorData, OperatorCreationError> {
@@ -435,72 +411,73 @@ pub fn handle_tf_format(sess: &mut JobData<'_>, tf_id: TransformId, fmt: &mut Tf
         &sess.tf_mgr.transforms[tf_id],
         std::slice::from_ref(&fmt.output_field),
     );
-    let (batch, input_field_id) = sess.claim_batch(tf_id);
+    let (batch, _input_field_id) = sess.claim_batch(tf_id);
     let tf = &sess.tf_mgr.transforms[tf_id];
     let op_id = tf.op_id;
-    let input_field = sess.record_mgr.fields[input_field_id].borrow_mut();
+    let output_field = sess.record_mgr.fields[fmt.output_field].borrow_mut();
+    let starting_pos =
+        output_field.field_data.field_count() + output_field.field_data.field_index_offset();
     let mut fd_ref_iter = FDRefIterLazy::default();
-    let mut iter = input_field
-        .field_data
-        .get_iter(fmt.input_field_iter_id)
-        .bounded(0, batch);
-    let mut field_idx = iter.get_next_field_pos();
-
-    while let Some(range) = iter.typed_range_fwd(usize::MAX, field_value_flags::BYTES_ARE_UTF8) {
-        match range.data {
-            FDTypedSlice::TextInline(text) => {
-                for (_v, _rl) in InlineTextIter::from_typed_range(&range, text) {
-                    todo!();
-                }
-            }
-            FDTypedSlice::BytesInline(bytes) => {
-                for (_v, _rl) in InlineBytesIter::from_typed_range(&range, bytes) {
-                    todo!();
-                }
-            }
-            FDTypedSlice::BytesBuffer(bytes) => {
-                for (_v, _rl) in TypedSliceIter::from_typed_range(&range, bytes) {
-                    todo!();
-                }
-            }
-            FDTypedSlice::Reference(refs) => {
-                let mut iter = fd_ref_iter.setup_iter_from_typed_range(
+    fmt.output_lengths.clear();
+    fmt.output_lengths.resize(batch, 0);
+    for part in fmt.parts.iter() {
+        let mut field_pos = starting_pos;
+        match part {
+            FormatPart::ByteLiteral(v) => fmt.output_lengths.iter_mut().for_each(|l| *l += v.len()),
+            FormatPart::TextLiteral(v) => fmt.output_lengths.iter_mut().for_each(|l| *l += v.len()),
+            FormatPart::Key(k) => {
+                let ident_ref = &fmt.refs[k.identifier];
+                let field = &mut sess.record_mgr.fields[ident_ref.field_id].borrow();
+                let mut iter = FDAutoDerefIter::new(
                     &sess.record_mgr.fields,
                     &mut sess.record_mgr.match_sets,
-                    field_idx,
-                    &range,
-                    refs,
+                    field.field_data.get_iter(ident_ref.iter_id),
+                    ident_ref.field_id,
                 );
-                while let Some(_fr) =
+
+                while let Some(range) =
                     iter.typed_range_fwd(&mut sess.record_mgr.match_sets, usize::MAX)
                 {
-                    todo!();
+                    match range.data {
+                        FDTypedSlice::Reference(refs) => unreachable!(),
+                        FDTypedSlice::TextInline(text) => {
+                            for (_v, _rl) in InlineTextIter::from_typed_range(&range, text) {
+                                todo!();
+                            }
+                        }
+                        FDTypedSlice::BytesInline(bytes) => {
+                            for (_v, _rl) in InlineBytesIter::from_typed_range(&range, bytes) {
+                                todo!();
+                            }
+                        }
+                        FDTypedSlice::BytesBuffer(bytes) => {
+                            for (_v, _rl) in TypedSliceIter::from_typed_range(&range, bytes) {
+                                todo!();
+                            }
+                        }
+                        FDTypedSlice::Unset(_)
+                        | FDTypedSlice::Null(_)
+                        | FDTypedSlice::Integer(_)
+                        | FDTypedSlice::Error(_)
+                        | FDTypedSlice::Html(_)
+                        | FDTypedSlice::StreamValueId(_)
+                        | FDTypedSlice::Object(_) => {
+                            sess.record_mgr.fields[fmt.output_field]
+                                .borrow_mut()
+                                .field_data
+                                .push_error(
+                                    OperatorApplicationError::new("format type error", op_id),
+                                    range.field_count,
+                                    true,
+                                    true,
+                                );
+                        }
+                    }
+                    field_pos += range.field_count;
                 }
             }
-            FDTypedSlice::Unset(_)
-            | FDTypedSlice::Null(_)
-            | FDTypedSlice::Integer(_)
-            | FDTypedSlice::Error(_)
-            | FDTypedSlice::Html(_)
-            | FDTypedSlice::StreamValueId(_)
-            | FDTypedSlice::Object(_) => {
-                sess.record_mgr.fields[fmt.output_field]
-                    .borrow_mut()
-                    .field_data
-                    .push_error(
-                        OperatorApplicationError::new("format type error", op_id),
-                        range.field_count,
-                        true,
-                        true,
-                    );
-            }
         }
-        field_idx += range.field_count;
     }
-    input_field
-        .field_data
-        .store_iter(fmt.input_field_iter_id, iter);
-    drop(input_field);
     sess.tf_mgr.update_ready_state(tf_id);
     sess.tf_mgr.inform_successor_batch_available(tf_id, batch);
 }
