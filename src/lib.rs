@@ -3,7 +3,6 @@ extern crate static_assertions;
 
 extern crate arrayvec;
 extern crate bstr;
-extern crate const_format;
 extern crate crossbeam;
 extern crate encoding_rs;
 extern crate indexmap;

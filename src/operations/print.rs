@@ -155,7 +155,13 @@ pub fn write_stream_val_check_done<const NEWLINE: bool>(
             for i in 0..rl_to_attempt {
                 stream
                     .write(c)
-                    .and_then(|_| if NEWLINE { stream.write(b"\n") } else { Ok(0) })
+                    .and_then(|_| {
+                        if NEWLINE && sv.done {
+                            stream.write(b"\n")
+                        } else {
+                            Ok(0)
+                        }
+                    })
                     .map_err(|e| (i, e))?;
             }
         }

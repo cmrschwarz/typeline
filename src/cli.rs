@@ -294,6 +294,17 @@ fn try_parse_as_chain_opt(
                 ))
             }
         }
+        "sbs" => {
+            if let Some(val) = arg.value {
+                let bs = try_parse_usize_arg(val, arg.cli_arg.idx)?;
+                apply_to_chains(ctx_opts, arg, |c| c.stream_buffer_size.set(bs))
+            } else {
+                Err(CliArgumentError::new(
+                    "missing argument for stream buffer size",
+                    arg.cli_arg.idx,
+                ))
+            }
+        }
         "lb" => {
             let buffering_mode = if let Some(val) = arg.value.as_deref() {
                 if let Some(v) = try_parse_bool(val) {
