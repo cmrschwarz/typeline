@@ -474,7 +474,7 @@ pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRe
                     match_regex_inner(
                         range.field_id,
                         rl,
-                        0,
+                        range.offset,
                         any_regex,
                         &re.capture_group_fields,
                         re.multimatch,
@@ -489,7 +489,7 @@ pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRe
                     match_regex_inner(
                         range.field_id,
                         rl,
-                        0,
+                        range.offset,
                         AnyRegex::Bytes(&mut re.regex, &mut re.capture_locs, v),
                         &re.capture_group_fields,
                         re.multimatch,
@@ -504,7 +504,7 @@ pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRe
                     match_regex_inner(
                         range.field_id,
                         rl,
-                        0,
+                        range.offset,
                         AnyRegex::Bytes(&mut re.regex, &mut re.capture_locs, v),
                         &re.capture_group_fields,
                         re.multimatch,

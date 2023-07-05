@@ -263,6 +263,7 @@ pub struct FDAutoDerefIter<'a, I: FDIterator<'a>> {
 pub struct FDTypedRangeWithField<'a> {
     pub base: FDTypedRange<'a>,
     pub field_id: FieldId,
+    pub offset: usize,
 }
 impl<'a> Deref for FDTypedRangeWithField<'a> {
     type Target = FDTypedRange<'a>;
@@ -328,6 +329,7 @@ impl<'a, I: FDIterator<'a>> FDAutoDerefIter<'a, I> {
                         last_header_run_length_oversize: 0,
                     },
                     field_id: fru.field,
+                    offset: fru.begin,
                 });
             }
             let field_pos = self.iter.get_next_field_pos();
@@ -345,6 +347,7 @@ impl<'a, I: FDIterator<'a>> FDAutoDerefIter<'a, I> {
                 return Some(FDTypedRangeWithField {
                     base: range,
                     field_id: self.iter_field_id,
+                    offset: 0,
                 });
             } else {
                 return None;
