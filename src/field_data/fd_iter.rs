@@ -334,24 +334,6 @@ pub enum FDTypedValue<'a> {
     Object(&'a Object),
 }
 
-impl<'a> FDTypedValue<'a> {
-    pub fn as_slice(&'a self, begin: usize, end: usize) -> FDTypedSlice<'a> {
-        match self {
-            FDTypedValue::Unset(v) => FDTypedSlice::Unset(std::slice::from_ref(v)),
-            FDTypedValue::Null(v) => FDTypedSlice::Null(std::slice::from_ref(v)),
-            FDTypedValue::Integer(v) => FDTypedSlice::Integer(std::slice::from_ref(v)),
-            FDTypedValue::StreamValueId(v) => FDTypedSlice::StreamValueId(std::slice::from_ref(v)),
-            FDTypedValue::Reference(v) => FDTypedSlice::Reference(std::slice::from_ref(v)),
-            FDTypedValue::Error(v) => FDTypedSlice::Error(std::slice::from_ref(v)),
-            FDTypedValue::Html(v) => FDTypedSlice::Html(std::slice::from_ref(v)),
-            FDTypedValue::BytesInline(v) => FDTypedSlice::BytesInline(&v[begin..end]),
-            FDTypedValue::TextInline(v) => FDTypedSlice::TextInline(&v[begin..end]),
-            FDTypedValue::BytesBuffer(v) => FDTypedSlice::BytesInline(&v.as_slice()[begin..end]),
-            FDTypedValue::Object(v) => FDTypedSlice::Object(std::slice::from_ref(v)),
-        }
-    }
-}
-
 pub struct FDTypedRange<'a> {
     pub headers: &'a [FieldValueHeader],
     pub data: FDTypedSlice<'a>,

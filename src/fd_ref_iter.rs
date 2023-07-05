@@ -5,7 +5,7 @@ use crate::{
             TypedSliceIter,
         },
         field_value_flags::{self},
-        FieldReference, FieldValueFormat, FieldValueHeader, RunLength,
+        FieldReference, FieldValueFormat, FieldValueHeader, FieldValueKind, RunLength,
     },
     utils::universe::Universe,
     worker_thread_session::{Field, FieldId, MatchSet, MatchSetId, FIELD_REF_LOOKUP_ITER_ID},
@@ -307,6 +307,35 @@ impl<'a, I: FDIterator<'a>> FDAutoDerefIter<'a, I> {
     pub fn move_to_field_pos(&mut self, _field_pos: usize) {
         todo!();
     }
+    fn as_slice<'b>(
+        data: &'b FDTypedValue<'b>,
+        header: &mut FieldValueHeader,
+        begin: usize,
+        end: usize,
+    ) -> FDTypedSlice<'b> {
+        let data = match data {
+            FDTypedValue::Unset(v) => FDTypedSlice::Unset(std::slice::from_ref(v)),
+            FDTypedValue::Null(v) => FDTypedSlice::Null(std::slice::from_ref(v)),
+            FDTypedValue::Integer(v) => FDTypedSlice::Integer(std::slice::from_ref(v)),
+            FDTypedValue::StreamValueId(v) => FDTypedSlice::StreamValueId(std::slice::from_ref(v)),
+            FDTypedValue::Reference(v) => FDTypedSlice::Reference(std::slice::from_ref(v)),
+            FDTypedValue::Error(v) => FDTypedSlice::Error(std::slice::from_ref(v)),
+            FDTypedValue::Html(v) => FDTypedSlice::Html(std::slice::from_ref(v)),
+            FDTypedValue::BytesInline(v) => FDTypedSlice::BytesInline(&v[begin..end]),
+            FDTypedValue::TextInline(v) => FDTypedSlice::TextInline(&v[begin..end]),
+            FDTypedValue::BytesBuffer(v) => {
+                header.fmt.kind = FieldValueKind::BytesInline;
+                FDTypedSlice::BytesInline(&v.as_slice()[begin..end])
+            }
+            FDTypedValue::Object(v) => FDTypedSlice::Object(std::slice::from_ref(v)),
+        };
+        if header.fmt.kind.is_variable_sized_type() {
+            //HACK: this can easily overflow for BytesBuffer
+            //TODO: think about a proper solution
+            header.fmt.size = (end - begin) as u16;
+        }
+        data
+    }
     pub fn typed_range_fwd<'b>(
         &'b mut self,
         match_sets: &'_ mut Universe<MatchSetId, MatchSet>,
@@ -316,14 +345,14 @@ impl<'a, I: FDIterator<'a>> FDAutoDerefIter<'a, I> {
             if let Some(fru) = self.ref_iter.typed_field_fwd(match_sets, limit) {
                 //TODO: do something more clever to batch this more
                 self.dummy_header = fru.header;
-                if fru.header.fmt.kind.is_variable_sized_type() {
-                    self.dummy_header.size = (fru.end - fru.begin) as u16;
-                }
                 self.dummy_val = fru.data;
+
+                let data =
+                    Self::as_slice(&self.dummy_val, &mut self.dummy_header, fru.begin, fru.end);
                 return Some(FDTypedRangeWithField {
                     base: FDTypedRange {
                         headers: std::slice::from_ref(&self.dummy_header),
-                        data: self.dummy_val.as_slice(fru.begin, fru.end),
+                        data,
                         field_count: fru.header.run_length as usize,
                         first_header_run_length_oversize: 0,
                         last_header_run_length_oversize: 0,
