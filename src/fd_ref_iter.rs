@@ -1,9 +1,6 @@
 use crate::{
     field_data::{
-        fd_iter::{
-            FDIter, FDIterator, FDTypedField, FDTypedRange, FDTypedSlice, FDTypedValue,
-            TypedSliceIter,
-        },
+        fd_iter::{FDIter, FDIterator, FDTypedRange, FDTypedSlice, FDTypedValue, TypedSliceIter},
         field_value_flags::{self},
         FieldReference, FieldValueFormat, FieldValueHeader, FieldValueKind, RunLength,
     },
@@ -149,107 +146,6 @@ impl<'a> FDRefIter<'a> {
             data: tf.value,
             header: tf.header,
         })
-    }
-}
-
-#[derive(Default)]
-pub struct FDRefIterLazy<'a> {
-    iter: Option<FDRefIter<'a>>,
-}
-
-pub struct FDRefIterLazyGuard<'a, 'b> {
-    iter: &'b mut FDRefIter<'a>,
-}
-
-impl<'a, 'b> Drop for FDRefIterLazyGuard<'a, 'b> {
-    fn drop(&mut self) {
-        // SAFETY:
-        // make sure these aren't used after the lifetime of the supplied headers/refs ('b) has ended
-        // because this iter only stores pointers, it suffices to set them into a state where they will
-        // never be accessed again
-        self.iter.refs_iter.clear();
-    }
-}
-
-impl<'a, 'b> FDRefIterLazyGuard<'a, 'b> {
-    pub fn typed_range_fwd(
-        &mut self,
-        match_sets: &'_ mut Universe<MatchSetId, MatchSet>,
-        limit: usize,
-    ) -> Option<FieldRefUnpacked<'a>> {
-        self.iter.typed_field_fwd(match_sets, limit)
-    }
-}
-
-impl<'a: 'b, 'b> FDRefIterLazy<'a> {
-    pub fn setup_iter(
-        &'b mut self,
-        fields: &'a Universe<FieldId, RefCell<Field>>,
-        match_sets: &'_ mut Universe<MatchSetId, MatchSet>,
-        field_pos: usize,
-        headers: &'b [FieldValueHeader],
-        refs: &'b [FieldReference],
-        oversize_start: RunLength,
-        oversize_end: RunLength,
-    ) -> FDRefIterLazyGuard<'a, 'b> {
-        // SAFETY: this is fine because FDRefIterLazyGuard may only live for 'b and will clear
-        // the refs in it's drop impl
-        let (headers, refs) = unsafe {
-            std::mem::transmute::<
-                (&'b [FieldValueHeader], &'b [FieldReference]),
-                (&'a [FieldValueHeader], &'a [FieldReference]),
-            >((headers, refs))
-        };
-        let refs_iter = TypedSliceIter::new(refs, headers, oversize_start, oversize_end);
-        let field = refs[0].field;
-
-        if let Some(iter) = &mut self.iter {
-            iter.set_refs_iter(refs_iter);
-            iter.move_to_field_pos(match_sets, field, field_pos);
-        } else {
-            self.iter = Some(FDRefIter::new(
-                refs_iter, fields, match_sets, field, field_pos,
-            ))
-        }
-        FDRefIterLazyGuard {
-            iter: self.iter.as_mut().unwrap(),
-        }
-    }
-    pub fn setup_iter_from_typed_range(
-        &'b mut self,
-        fields: &'a Universe<FieldId, RefCell<Field>>,
-        match_sets: &'_ mut Universe<MatchSetId, MatchSet>,
-        field_pos: usize,
-        range: &'b FDTypedRange,
-        refs: &'b [FieldReference],
-    ) -> FDRefIterLazyGuard<'a, 'b> {
-        self.setup_iter(
-            fields,
-            match_sets,
-            field_pos,
-            range.headers,
-            refs,
-            range.first_header_run_length_oversize,
-            range.last_header_run_length_oversize,
-        )
-    }
-    pub fn setup_iter_from_typed_field(
-        &'b mut self,
-        fields: &'a Universe<FieldId, RefCell<Field>>,
-        match_sets: &'_ mut Universe<MatchSetId, MatchSet>,
-        field_pos: usize,
-        field_ref: &'b FieldReference,
-        field: &'b FDTypedField,
-    ) -> FDRefIterLazyGuard<'a, 'b> {
-        self.setup_iter(
-            fields,
-            match_sets,
-            field_pos,
-            std::slice::from_ref(&field.header),
-            std::slice::from_ref(field_ref),
-            0,
-            0,
-        )
     }
 }
 
