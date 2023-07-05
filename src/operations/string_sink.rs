@@ -6,13 +6,10 @@ use std::{
 use bstr::ByteSlice;
 
 use crate::{
-    fd_ref_iter::FDRefIterLazy,
+    fd_ref_iter::FDAutoDerefIter,
     field_data::{
-        fd_iter::{
-            FDIterator, FDTypedSlice, FDTypedValue, InlineBytesIter, InlineTextIter, TypedSliceIter,
-        },
+        fd_iter::{FDIterator, FDTypedSlice, InlineBytesIter, InlineTextIter, TypedSliceIter},
         fd_iter_hall::FDIterId,
-        field_value_flags,
     },
     operations::print::{
         write_error, write_integer, write_null, write_raw_bytes, write_type_error, write_unset,
@@ -190,18 +187,23 @@ pub fn handle_tf_string_sink(
 ) {
     let (batch, input_field_id) = sess.claim_batch(tf_id);
     let input_field = sess.record_mgr.fields[input_field_id].borrow();
-    let mut iter = input_field
+    let base_iter = input_field
         .field_data
         .get_iter(tf.batch_iter)
         .bounded(0, batch);
-    let starting_pos = iter.get_next_field_pos();
+    let starting_pos = base_iter.get_next_field_pos();
+    let mut iter = FDAutoDerefIter::new(
+        &sess.record_mgr.fields,
+        &mut sess.record_mgr.match_sets,
+        input_field_id,
+        base_iter,
+        None,
+    );
     let mut field_pos = starting_pos;
     let mut out = tf.handle.lock().unwrap();
-    let mut fd_ref_iter = FDRefIterLazy::default();
-
     let buf = &mut tf.buf;
 
-    while let Some(range) = iter.typed_range_fwd(usize::MAX, field_value_flags::BYTES_ARE_UTF8) {
+    while let Some(range) = iter.typed_range_fwd(&mut sess.record_mgr.match_sets, usize::MAX) {
         match range.data {
             FDTypedSlice::TextInline(text) => {
                 for (v, rl) in InlineTextIter::from_typed_range(&range, text) {
@@ -226,40 +228,7 @@ pub fn handle_tf_string_sink(
                     push_string_clear_buf(sess, tf_id, field_pos, &mut out, buf, rl as usize);
                 }
             }
-            FDTypedSlice::Reference(refs) => {
-                let mut iter = fd_ref_iter.setup_iter_from_typed_range(
-                    &sess.record_mgr.fields,
-                    &mut sess.record_mgr.match_sets,
-                    field_pos,
-                    &range,
-                    refs,
-                );
-                while let Some(fr) =
-                    iter.typed_range_fwd(&mut sess.record_mgr.match_sets, usize::MAX)
-                {
-                    match fr.data {
-                        FDTypedValue::StreamValueId(_) => todo!(),
-                        FDTypedValue::BytesInline(v) => {
-                            write_raw_bytes::<false>(buf, &v[fr.begin..fr.end], 1).unwrap()
-                        }
-                        FDTypedValue::BytesBuffer(v) => {
-                            write_raw_bytes::<false>(buf, &v[fr.begin..fr.end], 1).unwrap()
-                        }
-                        FDTypedValue::TextInline(v) => {
-                            write_text::<false>(buf, &v[fr.begin..fr.end], 1).unwrap()
-                        }
-                        _ => panic!("invalid target type for FieldReference"),
-                    }
-                    push_string_clear_buf(
-                        sess,
-                        tf_id,
-                        field_pos,
-                        &mut out,
-                        buf,
-                        fr.header.run_length as usize,
-                    );
-                }
-            }
+            FDTypedSlice::Reference(_) => unreachable!(),
             FDTypedSlice::Null(_) => {
                 write_null::<false>(buf, range.field_count).unwrap();
             }
@@ -294,7 +263,9 @@ pub fn handle_tf_string_sink(
         field_pos += range.field_count;
     }
     let consumed_fields = field_pos - starting_pos;
-    input_field.field_data.store_iter(tf.batch_iter, iter);
+    input_field
+        .field_data
+        .store_iter(tf.batch_iter, iter.into_base_iter());
     drop(input_field);
     if tf.stream_value_handles.claimed_entry_count() == 0 {
         sess.tf_mgr.update_ready_state(tf_id);
