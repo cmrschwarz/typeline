@@ -3,7 +3,7 @@ use smallvec::{smallvec, SmallVec};
 use crate::utils::string_store::StringStoreEntry;
 
 use super::{
-    fd_push_interface::{FDPushInterface, FDRawPushInterface},
+    push_interface::{PushInterface, RawPushInterface},
     FieldData,
 };
 
@@ -26,7 +26,7 @@ impl Default for RecordSet {
     }
 }
 
-unsafe impl FDRawPushInterface for RecordSet {
+unsafe impl RawPushInterface for RecordSet {
     unsafe fn push_variable_sized_type(
         &mut self,
         kind: super::FieldValueKind,

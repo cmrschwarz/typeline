@@ -6,10 +6,12 @@ use std::{
 use bstr::ByteSlice;
 
 use crate::{
-    fd_ref_iter::FDAutoDerefIter,
+    fd_ref_iter::AutoDerefIter,
     field_data::{
-        fd_iter::{FDIterator, FDTypedSlice, InlineBytesIter, InlineTextIter, TypedSliceIter},
-        fd_iter_hall::FDIterId,
+        iters::FieldIterator,
+        typed::TypedSlice,
+        typed_iters::{InlineBytesIter, InlineTextIter,TypedSliceIter},
+        iter_hall::IterId,
     },
     operations::print::{
         write_error, write_integer, write_null, write_raw_bytes, write_type_error, write_unset,
@@ -61,7 +63,7 @@ pub struct StreamValueHandle {
 
 pub struct TfStringSink<'a> {
     handle: &'a Mutex<Vec<String>>,
-    batch_iter: FDIterId,
+    batch_iter: IterId,
     stream_value_handles: Universe<usize, StreamValueHandle>,
     buf: Vec<u8>,
 }
@@ -192,7 +194,7 @@ pub fn handle_tf_string_sink(
         .get_iter(tf.batch_iter)
         .bounded(0, batch);
     let starting_pos = base_iter.get_next_field_pos();
-    let mut iter = FDAutoDerefIter::new(
+    let mut iter = AutoDerefIter::new(
         &sess.record_mgr.fields,
         &mut sess.record_mgr.match_sets,
         input_field_id,
@@ -205,44 +207,44 @@ pub fn handle_tf_string_sink(
 
     while let Some(range) = iter.typed_range_fwd(&mut sess.record_mgr.match_sets, usize::MAX) {
         match range.data {
-            FDTypedSlice::TextInline(text) => {
+            TypedSlice::TextInline(text) => {
                 for (v, rl) in InlineTextIter::from_typed_range(&range, text) {
                     write_text::<false>(buf, v, 1).unwrap();
                     push_string_clear_buf(sess, tf_id, field_pos, &mut out, buf, rl as usize);
                 }
             }
-            FDTypedSlice::BytesInline(bytes) => {
+            TypedSlice::BytesInline(bytes) => {
                 for (v, rl) in InlineBytesIter::from_typed_range(&range, bytes) {
                     write_raw_bytes::<false>(buf, v, 1).unwrap();
                     push_string_clear_buf(sess, tf_id, field_pos, &mut out, buf, rl as usize);
                 }
             }
-            FDTypedSlice::BytesBuffer(bytes) => {
+            TypedSlice::BytesBuffer(bytes) => {
                 for (v, rl) in TypedSliceIter::from_typed_range(&range, bytes) {
                     push_string(sess, tf_id, field_pos, &mut out, v.clone(), rl as usize);
                 }
             }
-            FDTypedSlice::Integer(ints) => {
+            TypedSlice::Integer(ints) => {
                 for (v, rl) in TypedSliceIter::from_typed_range(&range, ints) {
                     write_integer::<false>(buf, *v, 1).unwrap();
                     push_string_clear_buf(sess, tf_id, field_pos, &mut out, buf, rl as usize);
                 }
             }
-            FDTypedSlice::Reference(_) => unreachable!(),
-            FDTypedSlice::Null(_) => {
+            TypedSlice::Reference(_) => unreachable!(),
+            TypedSlice::Null(_) => {
                 write_null::<false>(buf, range.field_count).unwrap();
             }
-            FDTypedSlice::Error(errs) => {
+            TypedSlice::Error(errs) => {
                 for (v, rl) in TypedSliceIter::from_typed_range(&range, errs) {
                     write_error::<false>(buf, v, 1).unwrap();
                     push_string_clear_buf(sess, tf_id, field_pos, &mut out, buf, rl as usize);
                 }
             }
-            FDTypedSlice::Unset(_) => {
+            TypedSlice::Unset(_) => {
                 write_unset::<false>(buf, 1).unwrap();
                 push_string_clear_buf(sess, tf_id, field_pos, &mut out, buf, range.field_count);
             }
-            FDTypedSlice::StreamValueId(svs) => {
+            TypedSlice::StreamValueId(svs) => {
                 for (svid, rl) in TypedSliceIter::from_typed_range(&range, svs) {
                     let sv = &mut sess.sv_mgr.stream_values[*svid];
                     if !write_stream_val_check_done::<false>(buf, sv, 1).unwrap() {
@@ -256,7 +258,7 @@ pub fn handle_tf_string_sink(
                     push_string_clear_buf(sess, tf_id, field_pos, &mut out, buf, rl as usize);
                 }
             }
-            FDTypedSlice::Html(_) | FDTypedSlice::Object(_) => {
+            TypedSlice::Html(_) | TypedSlice::Object(_) => {
                 write_type_error::<false>(buf, range.field_count).unwrap();
             }
         }

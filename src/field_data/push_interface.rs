@@ -10,11 +10,11 @@ use crate::{
 };
 
 use super::{
-    as_u8_slice, fd_iter_hall::FDIterHall, FieldData, FieldReference, FieldValueFlags,
+    as_u8_slice, iter_hall::IterHall, FieldData, FieldReference, FieldValueFlags,
     FieldValueFormat, FieldValueHeader, FieldValueKind, FieldValueSize, RunLength,
 };
 
-pub trait FDUnsafeHeaderPushInterface {
+pub trait UnsafeHeaderPushInterface {
     unsafe fn push_header_raw(&mut self, fmt: FieldValueFormat, run_length: usize);
     unsafe fn push_header_raw_same_value_after_first(
         &mut self,
@@ -35,7 +35,7 @@ pub trait FDUnsafeHeaderPushInterface {
         padding: usize,
     );
 }
-pub unsafe trait FDRawPushInterface {
+pub unsafe trait RawPushInterface {
     unsafe fn push_variable_sized_type(
         &mut self,
         kind: FieldValueKind,
@@ -62,7 +62,7 @@ pub unsafe trait FDRawPushInterface {
         try_header_rle: bool,
     );
 }
-impl FDUnsafeHeaderPushInterface for FieldData {
+impl UnsafeHeaderPushInterface for FieldData {
     #[inline(always)]
     unsafe fn push_header_raw(&mut self, fmt: FieldValueFormat, mut run_length: usize) {
         while run_length > RunLength::MAX as usize {
@@ -160,7 +160,7 @@ impl FDUnsafeHeaderPushInterface for FieldData {
     }
 }
 
-unsafe impl FDRawPushInterface for FieldData {
+unsafe impl RawPushInterface for FieldData {
     unsafe fn push_variable_sized_type(
         &mut self,
         kind: FieldValueKind,
@@ -275,7 +275,7 @@ unsafe impl FDRawPushInterface for FieldData {
         self.add_header_for_single_value(fmt, run_length, header_rle, header_rle);
     }
 }
-unsafe impl FDRawPushInterface for FDIterHall {
+unsafe impl RawPushInterface for IterHall {
     unsafe fn push_variable_sized_type(
         &mut self,
         kind: FieldValueKind,
@@ -319,7 +319,7 @@ unsafe impl FDRawPushInterface for FDIterHall {
     }
 }
 
-pub trait FDPushInterface: FDRawPushInterface {
+pub trait PushInterface: RawPushInterface {
     fn push_inline_bytes(
         &mut self,
         data: &[u8],
@@ -542,4 +542,4 @@ pub trait FDPushInterface: FDRawPushInterface {
     }
 }
 
-impl<T: FDRawPushInterface> FDPushInterface for T {}
+impl<T: RawPushInterface> PushInterface for T {}

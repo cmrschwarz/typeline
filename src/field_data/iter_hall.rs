@@ -3,33 +3,33 @@ use std::cell::Cell;
 use crate::utils::universe::Universe;
 
 use super::{
-    fd_iter::{FDIter, FDIterMut, FDIterator},
+    iters::{Iter, IterMut, FieldIterator},
     FieldData, RunLength,
 };
 
-pub type FDIterId = usize;
+pub type IterId = usize;
 
 #[derive(Default)]
-pub struct FDIterHall {
+pub struct IterHall {
     pub(super) fd: FieldData,
     pub(super) initial_field_offset: usize,
-    pub(super) iters: Universe<FDIterId, Cell<FDIterState>>,
+    pub(super) iters: Universe<IterId, Cell<IterState>>,
 }
 
-pub struct FDIterHallInternals<'a> {
+pub struct IterHallInternals<'a> {
     pub fd: &'a mut FieldData,
     pub initial_field_offset: &'a mut usize,
 }
 
 #[derive(Default, Clone, Copy)]
-pub(super) struct FDIterState {
+pub(super) struct IterState {
     pub(super) field_pos: usize,
     pub(super) data: usize,
     pub(super) header_idx: usize,
     pub(super) header_rl_offset: RunLength,
 }
 
-impl FDIterState {
+impl IterState {
     pub fn is_valid(&self) -> bool {
         self.field_pos != usize::MAX
     }
@@ -37,10 +37,10 @@ impl FDIterState {
         self.field_pos = usize::MAX
     }
 }
-impl FDIterHall {
-    pub fn claim_iter(&mut self) -> FDIterId {
+impl IterHall {
+    pub fn claim_iter(&mut self) -> IterId {
         let iter_id = self.iters.claim();
-        self.iters[iter_id].set(FDIterState {
+        self.iters[iter_id].set(IterState {
             field_pos: self.initial_field_offset,
             data: 0,
             header_idx: 0,
@@ -48,17 +48,17 @@ impl FDIterHall {
         });
         iter_id
     }
-    pub fn reserve_iter_id(&mut self, iter_id: FDIterId) {
+    pub fn reserve_iter_id(&mut self, iter_id: IterId) {
         self.iters.reserve_id(iter_id);
     }
-    pub fn release_iter(&mut self, iter_id: FDIterId) {
+    pub fn release_iter(&mut self, iter_id: IterId) {
         self.iters[iter_id].get_mut().invalidate();
         self.iters.release(iter_id)
     }
-    pub fn iter<'a>(&'a self) -> FDIter<'a> {
+    pub fn iter<'a>(&'a self) -> Iter<'a> {
         self.fd.iter()
     }
-    pub fn get_iter<'a>(&'a self, iter_id: FDIterId) -> FDIter<'a> {
+    pub fn get_iter<'a>(&'a self, iter_id: IterId) -> Iter<'a> {
         let state = self.iters[iter_id].get();
         let h = self
             .fd
@@ -66,7 +66,7 @@ impl FDIterHall {
             .get(state.header_idx)
             .cloned()
             .unwrap_or_default();
-        FDIter {
+        Iter {
             fd: &self.fd,
             field_pos: state.field_pos - self.initial_field_offset,
             data: state.data,
@@ -76,7 +76,7 @@ impl FDIterHall {
             header_fmt: h.fmt,
         }
     }
-    pub fn get_iter_mut<'a>(&'a mut self, iter_id: FDIterId) -> FDIterMut<'a> {
+    pub fn get_iter_mut<'a>(&'a mut self, iter_id: IterId) -> IterMut<'a> {
         let state = self.iters[iter_id].get();
         let h = self
             .fd
@@ -84,7 +84,7 @@ impl FDIterHall {
             .get(state.header_idx)
             .cloned()
             .unwrap_or_default();
-        FDIterMut {
+        IterMut {
             fd: &mut self.fd,
             field_pos: state.field_pos - self.initial_field_offset,
             data: state.data,
@@ -94,7 +94,7 @@ impl FDIterHall {
             header_fmt: h.fmt,
         }
     }
-    pub fn store_iter<'a>(&'a self, iter_id: FDIterId, iter: impl FDIterator<'a>) {
+    pub fn store_iter<'a>(&'a self, iter_id: IterId, iter: impl FieldIterator<'a>) {
         let iter = iter.as_base_iter();
         assert!(iter.fd as *const FieldData == &self.fd as *const FieldData);
         let mut state = self.iters[iter_id].get();
@@ -106,19 +106,19 @@ impl FDIterHall {
     }
 
     /// returns a tuple of (FieldData, initial_field_offset, field_count)
-    pub unsafe fn internals(&mut self) -> FDIterHallInternals {
-        FDIterHallInternals {
+    pub unsafe fn internals(&mut self) -> IterHallInternals {
+        IterHallInternals {
             fd: &mut self.fd,
             initial_field_offset: &mut self.initial_field_offset,
         }
     }
 
-    pub fn copy<'a, TargetApplicatorFn: FnMut(&mut dyn FnMut(&mut FDIterHall))>(
-        iter: impl FDIterator<'a> + Clone,
+    pub fn copy<'a, TargetApplicatorFn: FnMut(&mut dyn FnMut(&mut IterHall))>(
+        iter: impl FieldIterator<'a> + Clone,
         mut targets_applicator: TargetApplicatorFn,
     ) -> usize {
         let adapted_target_applicator = &mut |f: &mut dyn FnMut(&mut FieldData)| {
-            let g = &mut |fdih: &mut FDIterHall| f(&mut fdih.fd);
+            let g = &mut |fdih: &mut IterHall| f(&mut fdih.fd);
             targets_applicator(g);
         };
         let copied_fields = FieldData::copy(iter, adapted_target_applicator);

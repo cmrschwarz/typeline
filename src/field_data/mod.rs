@@ -6,12 +6,13 @@
 // some of which is very repetitive. So far, nobody could be bothered
 // with annotating every little piece of it.
 
-pub mod fd_command_buffer;
-pub mod fd_iter;
-pub mod fd_iter_hall;
-pub mod fd_push_interface;
+pub mod command_buffer;
+pub mod iter_hall;
+pub mod iters;
+pub mod push_interface;
 pub mod record_set;
-
+pub mod typed;
+pub mod typed_iters;
 use std::{
     collections::HashMap,
     iter,
@@ -27,7 +28,7 @@ use crate::{
     utils::string_store::StringStoreEntry, worker_thread_session::FieldId,
 };
 
-use self::fd_iter::{FDIter, FDIterMut, FDIterator, FDTypedSlice};
+use self::{iters::{Iter, IterMut, FieldIterator}, typed::TypedSlice};
 
 //if the u32 overflows we just split into two values
 pub type RunLength = u32;
@@ -328,7 +329,7 @@ impl FieldData {
         self.field_count = 0;
         FieldData::set_end(self.iter_mut());
     }
-    pub fn set_end<'a>(iter: FDIterMut<'a>) {
+    pub fn set_end<'a>(iter: IterMut<'a>) {
         let fd = unsafe { &mut *(iter.fd as *mut FieldData) };
         let mut iter = iter.as_base_iter();
         let header_end;
@@ -343,17 +344,17 @@ impl FieldData {
         while let Some(range) = iter.typed_range_fwd(usize::MAX, 0) {
             unsafe {
                 match range.data {
-                    FDTypedSlice::Unset(_) => (),
-                    FDTypedSlice::Null(_) => (),
-                    FDTypedSlice::Integer(_) => (),
-                    FDTypedSlice::BytesInline(_) => (),
-                    FDTypedSlice::TextInline(_) => (),
-                    FDTypedSlice::StreamValueId(s) => drop_slice(s),
-                    FDTypedSlice::Reference(s) => drop_slice(s),
-                    FDTypedSlice::Error(s) => drop_slice(s),
-                    FDTypedSlice::Html(s) => drop_slice(s),
-                    FDTypedSlice::Object(s) => drop_slice(s),
-                    FDTypedSlice::BytesBuffer(s) => drop_slice(s),
+                    TypedSlice::Unset(_) => (),
+                    TypedSlice::Null(_) => (),
+                    TypedSlice::Integer(_) => (),
+                    TypedSlice::BytesInline(_) => (),
+                    TypedSlice::TextInline(_) => (),
+                    TypedSlice::StreamValueId(s) => drop_slice(s),
+                    TypedSlice::Reference(s) => drop_slice(s),
+                    TypedSlice::Error(s) => drop_slice(s),
+                    TypedSlice::Html(s) => drop_slice(s),
+                    TypedSlice::Object(s) => drop_slice(s),
+                    TypedSlice::BytesBuffer(s) => drop_slice(s),
                 }
             }
         }
@@ -370,7 +371,7 @@ impl FieldData {
     }
 
     pub fn copy<'a>(
-        mut iter: impl FDIterator<'a> + Clone,
+        mut iter: impl FieldIterator<'a> + Clone,
         mut targets_applicator: impl FnMut(&mut dyn FnMut(&mut FieldData)),
     ) -> usize {
         if !iter.is_next_valid() {
@@ -435,11 +436,11 @@ impl FieldData {
         copied_fields
     }
 
-    pub fn iter<'a>(&'a self) -> FDIter<'a> {
-        FDIter::from_start(self, 0)
+    pub fn iter<'a>(&'a self) -> Iter<'a> {
+        Iter::from_start(self, 0)
     }
-    pub fn iter_mut<'a>(&'a mut self) -> FDIterMut<'a> {
-        FDIterMut::from_start(self, 0)
+    pub fn iter_mut<'a>(&'a mut self) -> IterMut<'a> {
+        IterMut::from_start(self, 0)
     }
     pub unsafe fn internals(&mut self) -> (&mut Vec<FieldValueHeader>, &mut Vec<u8>, &mut usize) {
         (&mut self.header, &mut self.data, &mut self.field_count)
@@ -481,20 +482,20 @@ unsafe fn extend_raw<T: Sized>(
 }
 
 unsafe fn append_data<'a>(
-    ts: FDTypedSlice<'a>,
+    ts: TypedSlice<'a>,
     target_applicator: &mut impl FnMut(&mut dyn FnMut(&mut FieldData)),
 ) {
     match ts {
-        FDTypedSlice::Unset(_) | FDTypedSlice::Null(_) => (),
-        FDTypedSlice::Integer(v) => extend_raw(target_applicator, v),
-        FDTypedSlice::StreamValueId(v) => extend_raw(target_applicator, v),
-        FDTypedSlice::Reference(v) => extend_raw(target_applicator, v),
-        FDTypedSlice::BytesInline(v) => extend_raw(target_applicator, v),
-        FDTypedSlice::TextInline(v) => extend_raw(target_applicator, v.as_bytes()),
-        FDTypedSlice::BytesBuffer(v) => extend_with_clones(target_applicator, v),
-        FDTypedSlice::Error(v) => extend_with_clones(target_applicator, v),
-        FDTypedSlice::Html(v) => extend_with_clones(target_applicator, v),
-        FDTypedSlice::Object(v) => extend_with_clones(target_applicator, v),
+        TypedSlice::Unset(_) | TypedSlice::Null(_) => (),
+        TypedSlice::Integer(v) => extend_raw(target_applicator, v),
+        TypedSlice::StreamValueId(v) => extend_raw(target_applicator, v),
+        TypedSlice::Reference(v) => extend_raw(target_applicator, v),
+        TypedSlice::BytesInline(v) => extend_raw(target_applicator, v),
+        TypedSlice::TextInline(v) => extend_raw(target_applicator, v.as_bytes()),
+        TypedSlice::BytesBuffer(v) => extend_with_clones(target_applicator, v),
+        TypedSlice::Error(v) => extend_with_clones(target_applicator, v),
+        TypedSlice::Html(v) => extend_with_clones(target_applicator, v),
+        TypedSlice::Object(v) => extend_with_clones(target_applicator, v),
     };
 }
 

@@ -4,11 +4,12 @@ use bstr::{BStr, BString, ByteSlice, ByteVec};
 use smallstr::SmallString;
 
 use crate::{
-    fd_ref_iter::FDAutoDerefIter,
+    fd_ref_iter::AutoDerefIter,
     field_data::{
-        fd_iter::{FDTypedSlice, InlineBytesIter, InlineTextIter, TypedSliceIter},
-        fd_iter_hall::FDIterId,
-        fd_push_interface::FDPushInterface,
+        typed::TypedSlice,
+        typed_iters::{InlineBytesIter, InlineTextIter,  TypedSliceIter},
+        push_interface::PushInterface,
+        iter_hall::IterId,
     },
     options::argument::CliArgIdx,
     stream_value::StreamValueId,
@@ -85,7 +86,7 @@ pub struct OpFormat {
 
 pub struct FormatIdentRef {
     field_id: FieldId,
-    iter_id: FDIterId,
+    iter_id: IterId,
 }
 
 pub struct TfFormat<'a> {
@@ -423,7 +424,7 @@ pub fn handle_tf_format(sess: &mut JobData<'_>, tf_id: TransformId, fmt: &mut Tf
             FormatPart::Key(k) => {
                 let ident_ref = &fmt.refs[k.identifier];
                 let field = &mut sess.record_mgr.fields[ident_ref.field_id].borrow();
-                let mut iter = FDAutoDerefIter::new(
+                let mut iter = AutoDerefIter::new(
                     &sess.record_mgr.fields,
                     &mut sess.record_mgr.match_sets,
                     ident_ref.field_id,
@@ -435,29 +436,29 @@ pub fn handle_tf_format(sess: &mut JobData<'_>, tf_id: TransformId, fmt: &mut Tf
                     iter.typed_range_fwd(&mut sess.record_mgr.match_sets, usize::MAX)
                 {
                     match range.data {
-                        FDTypedSlice::Reference(_) => unreachable!(),
-                        FDTypedSlice::TextInline(text) => {
+                        TypedSlice::Reference(_) => unreachable!(),
+                        TypedSlice::TextInline(text) => {
                             for (_v, _rl) in InlineTextIter::from_typed_range(&range, text) {
                                 todo!();
                             }
                         }
-                        FDTypedSlice::BytesInline(bytes) => {
+                        TypedSlice::BytesInline(bytes) => {
                             for (_v, _rl) in InlineBytesIter::from_typed_range(&range, bytes) {
                                 todo!();
                             }
                         }
-                        FDTypedSlice::BytesBuffer(bytes) => {
+                        TypedSlice::BytesBuffer(bytes) => {
                             for (_v, _rl) in TypedSliceIter::from_typed_range(&range, bytes) {
                                 todo!();
                             }
                         }
-                        FDTypedSlice::Unset(_)
-                        | FDTypedSlice::Null(_)
-                        | FDTypedSlice::Integer(_)
-                        | FDTypedSlice::Error(_)
-                        | FDTypedSlice::Html(_)
-                        | FDTypedSlice::StreamValueId(_)
-                        | FDTypedSlice::Object(_) => {
+                        TypedSlice::Unset(_)
+                        | TypedSlice::Null(_)
+                        | TypedSlice::Integer(_)
+                        | TypedSlice::Error(_)
+                        | TypedSlice::Html(_)
+                        | TypedSlice::StreamValueId(_)
+                        | TypedSlice::Object(_) => {
                             output_field.field_data.push_error(
                                 OperatorApplicationError::new("format type error", op_id),
                                 range.field_count,

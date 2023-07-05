@@ -1,0 +1,10 @@
+[package]
+name = "scr_bench"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "scr_bench"
+
+[dependencies]
+scr = { path = ".." }

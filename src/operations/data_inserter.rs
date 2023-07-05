@@ -2,7 +2,7 @@ use bstr::{BStr, BString, ByteSlice};
 use smallstr::SmallString;
 
 use crate::{
-    field_data::fd_push_interface::FDPushInterface,
+    field_data::push_interface::PushInterface,
     options::argument::CliArgIdx,
     worker_thread_session::{FieldId, JobData},
 };

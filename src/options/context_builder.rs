@@ -1,7 +1,7 @@
 use crate::{
     chain::ChainId,
     context::Context,
-    field_data::{fd_push_interface::FDPushInterface, record_set::RecordSet},
+    field_data::{push_interface::PushInterface, record_set::RecordSet},
     operations::operator::OperatorData,
     scr_error::ScrError,
 };

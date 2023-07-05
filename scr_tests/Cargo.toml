@@ -1,0 +1,10 @@
+[package]
+name = "scr_tests"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "scr_tests"
+
+[dependencies]
+scr = { path = ".." }

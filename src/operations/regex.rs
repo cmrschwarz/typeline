@@ -9,17 +9,17 @@ use std::ops::Deref;
 
 use std::num::NonZeroUsize;
 
-use crate::fd_ref_iter::FDAutoDerefIter;
-use crate::field_data::fd_command_buffer::{FDCommandBuffer, FieldActionKind};
-use crate::field_data::fd_iter::{InlineBytesIter, InlineTextIter, TypedSliceIter};
-use crate::field_data::fd_push_interface::FDPushInterface;
+use crate::fd_ref_iter::AutoDerefIter;
+use crate::field_data::command_buffer::{CommandBuffer, FieldActionKind};
+use crate::field_data::typed_iters::{InlineBytesIter, InlineTextIter, TypedSliceIter};
+use crate::field_data::push_interface::PushInterface;
 use crate::field_data::RunLength;
 use crate::utils::universe::Universe;
 use crate::utils::{self, USIZE_MAX_DECIMAL_DIGITS};
 use crate::worker_thread_session::Field;
 use crate::{
-    field_data::fd_iter::FDTypedSlice,
-    field_data::{fd_iter::FDIterator, fd_iter_hall::FDIterId, FieldReference},
+    field_data::typed::TypedSlice,
+    field_data::{iters::FieldIterator, iter_hall::IterId, FieldReference},
     options::argument::CliArgIdx,
     utils::string_store::{StringStore, StringStoreEntry},
     worker_thread_session::{FieldId, JobData},
@@ -46,7 +46,7 @@ pub struct TfRegex {
     pub capture_locs: bytes::CaptureLocations,
     pub text_only_regex: Option<(regex::Regex, regex::CaptureLocations)>,
     pub capture_group_fields: Vec<FieldId>,
-    pub input_field_iter_id: FDIterId,
+    pub input_field_iter_id: IterId,
     pub multimatch: bool,
 }
 
@@ -393,7 +393,7 @@ fn match_regex_inner<'a, 'b, 'c>(
     multimatch: bool,
     rbs: &mut RegexBatchState,
     fields: &Universe<NonMaxUsize, RefCell<Field>>,
-    command_buffer: &mut FDCommandBuffer,
+    command_buffer: &mut CommandBuffer,
 ) {
     let mut last_end = None;
     let mut next_start = 0;
@@ -453,7 +453,7 @@ pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRe
         field_idx: iter_base.get_next_field_pos(),
         match_count: 0,
     };
-    let mut iter = FDAutoDerefIter::new(
+    let mut iter = AutoDerefIter::new(
         &sess.record_mgr.fields,
         &mut sess.record_mgr.match_sets,
         input_field_id,
@@ -464,7 +464,7 @@ pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRe
     while let Some(range) = iter.typed_range_fwd(&mut sess.record_mgr.match_sets, usize::MAX) {
         let command_buffer = &mut sess.record_mgr.match_sets[tf.match_set_id].command_buffer;
         match range.data {
-            FDTypedSlice::TextInline(text) => {
+            TypedSlice::TextInline(text) => {
                 for (v, rl) in InlineTextIter::from_typed_range(&range, text) {
                     let any_regex = if let Some((regex, capture_locs)) = &mut re.text_only_regex {
                         AnyRegex::Text(regex, capture_locs, v)
@@ -484,7 +484,7 @@ pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRe
                     );
                 }
             }
-            FDTypedSlice::BytesInline(bytes) => {
+            TypedSlice::BytesInline(bytes) => {
                 for (v, rl) in InlineBytesIter::from_typed_range(&range, bytes) {
                     match_regex_inner(
                         range.field_id,
@@ -499,7 +499,7 @@ pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRe
                     );
                 }
             }
-            FDTypedSlice::BytesBuffer(bytes) => {
+            TypedSlice::BytesBuffer(bytes) => {
                 for (v, rl) in TypedSliceIter::from_typed_range(&range, bytes) {
                     match_regex_inner(
                         range.field_id,
@@ -514,14 +514,14 @@ pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRe
                     );
                 }
             }
-            FDTypedSlice::Reference(_) => unreachable!(),
-            FDTypedSlice::Unset(_)
-            | FDTypedSlice::Null(_)
-            | FDTypedSlice::Integer(_)
-            | FDTypedSlice::Error(_)
-            | FDTypedSlice::Html(_)
-            | FDTypedSlice::StreamValueId(_)
-            | FDTypedSlice::Object(_) => {
+            TypedSlice::Reference(_) => unreachable!(),
+            TypedSlice::Unset(_)
+            | TypedSlice::Null(_)
+            | TypedSlice::Integer(_)
+            | TypedSlice::Error(_)
+            | TypedSlice::Html(_)
+            | TypedSlice::StreamValueId(_)
+            | TypedSlice::Object(_) => {
                 rbs.field_idx += range.field_count;
                 for cgi in &re.capture_group_fields {
                     sess.record_mgr.fields[*cgi]

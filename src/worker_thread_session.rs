@@ -9,9 +9,9 @@ use nonmax::NonMaxUsize;
 use crate::{
     context::SessionData,
     field_data::{
-        fd_command_buffer::FDCommandBuffer,
-        fd_iter_hall::{FDIterHall, FDIterId},
-        fd_push_interface::FDPushInterface,
+        command_buffer::CommandBuffer,
+        push_interface::PushInterface,
+        iter_hall::{IterHall, IterId},
         EntryId, FieldData,
     },
     operations::{
@@ -36,7 +36,7 @@ use crate::{
     worker_thread::Job,
 };
 
-pub const FIELD_REF_LOOKUP_ITER_ID: FDIterId = 0 as FDIterId;
+pub const FIELD_REF_LOOKUP_ITER_ID: IterId = 0 as IterId;
 pub const ERROR_FIELD_PSEUDO_STR: usize = 0;
 
 #[derive(Default)]
@@ -53,7 +53,7 @@ pub struct Field {
 
     pub name: Option<StringStoreEntry>,
     pub working_set_idx: Option<NonMaxUsize>,
-    pub field_data: FDIterHall,
+    pub field_data: IterHall,
 }
 
 pub type FieldId = NonMaxUsize;
@@ -67,7 +67,7 @@ pub struct MatchSet {
     pub working_set_updates: Vec<(EntryId, FieldId)>,
     //should not contain tf input fields (?)
     pub working_set: Vec<FieldId>,
-    pub command_buffer: FDCommandBuffer,
+    pub command_buffer: CommandBuffer,
     pub field_name_map: HashMap<StringStoreEntry, VecDeque<FieldId>>,
     pub err_field_id: FieldId,
 }

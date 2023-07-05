@@ -2,7 +2,7 @@ use std::cell::RefMut;
 
 use crate::worker_thread_session::Field;
 
-use super::{fd_iter_hall::FDIterState, FieldData, FieldValueFormat, FieldValueHeader, RunLength};
+use super::{iter_hall::IterState, FieldData, FieldValueFormat, FieldValueHeader, RunLength};
 
 #[derive(Clone, Copy, PartialEq, Eq, Default)]
 pub enum FieldActionKind {
@@ -52,17 +52,17 @@ struct CopyCommand {
 }
 
 #[derive(Default)]
-pub struct FDCommandBuffer {
+pub struct CommandBuffer {
     actions: [Vec<FieldAction>; 4],
     action_sets: Vec<ActionSet>,
-    iter_states: Vec<&'static mut FDIterState>,
+    iter_states: Vec<&'static mut IterState>,
     copies: Vec<CopyCommand>,
     insertions: Vec<InsertionCommand>,
 }
 
 const ACTIONS_RAW_IDX: usize = 0;
 
-impl FDCommandBuffer {
+impl CommandBuffer {
     pub fn is_legal_field_idx_for_action(&self, field_idx: usize) -> bool {
         if let Some(acs) = self.action_sets.last() {
             if acs.action_count != 0 {
@@ -143,7 +143,7 @@ impl FDCommandBuffer {
             self.iter_states
                 .extend(fdih.field_data.iters.iter_mut().filter_map(|it| {
                     it.get_mut().is_valid().then(|| unsafe {
-                        std::mem::transmute::<&'_ mut FDIterState, &'static mut FDIterState>(
+                        std::mem::transmute::<&'_ mut IterState, &'static mut IterState>(
                             it.get_mut(),
                         )
                     })
@@ -202,7 +202,7 @@ impl FDCommandBuffer {
 }
 
 // prepare final actions list from actions_raw
-impl FDCommandBuffer {
+impl CommandBuffer {
     fn merge_two_action_sets_raw(sets: [&[FieldAction]; 2], target: &mut Vec<FieldAction>) {
         const LEFT: usize = 0;
         const RIGHT: usize = 1;
@@ -363,7 +363,7 @@ impl FDCommandBuffer {
         let res_size = first_slice.len() + second_slice.len();
         res_ms.reserve(res_size);
         let res_len_before = res_ms.len();
-        FDCommandBuffer::merge_two_action_sets_raw([first_slice, second_slice], res_ms);
+        CommandBuffer::merge_two_action_sets_raw([first_slice, second_slice], res_ms);
         let res_len_after = res_ms.len();
         self.unclaim_merge_space(first);
         self.unclaim_merge_space(second);
@@ -425,7 +425,7 @@ impl FDCommandBuffer {
 }
 
 // generate_commands_from_actions machinery
-impl FDCommandBuffer {
+impl CommandBuffer {
     fn push_copy_command(
         &mut self,
         header_idx_new: usize,
@@ -774,7 +774,7 @@ impl FDCommandBuffer {
 }
 
 // final execution step
-impl FDCommandBuffer {
+impl CommandBuffer {
     fn execute_commands(&mut self, fd: &mut FieldData) {
         if self.copies.len() == 0 && self.insertions.len() == 0 {
             return;
@@ -810,12 +810,12 @@ impl FDCommandBuffer {
 #[cfg(test)]
 mod test {
     use crate::field_data::{
-        fd_iter::{FDIterator, FDTypedSlice, TypedSliceIter},
-        fd_push_interface::FDPushInterface,
-        FieldData, RunLength,
+        iters::FieldIterator,
+        push_interface::PushInterface,
+        FieldData, RunLength, typed::TypedSlice, typed_iters::TypedSliceIter,
     };
 
-    use super::{FDCommandBuffer, FieldAction, FieldActionKind};
+    use super::{CommandBuffer, FieldAction, FieldActionKind};
 
     fn test_actions_on_range_with_rle_opts(
         input: impl Iterator<Item = i64>,
@@ -828,7 +828,7 @@ mod test {
         for v in input {
             fd.push_int(v, 1, header_rle, value_rle);
         }
-        let mut cb = FDCommandBuffer::default();
+        let mut cb = CommandBuffer::default();
         cb.begin_action_set(0);
         for a in actions {
             cb.push_action(a.kind, a.field_idx, a.run_len);
@@ -837,7 +837,7 @@ mod test {
         let mut iter = fd.iter();
         let mut results = Vec::new();
         while let Some(range) = iter.typed_range_fwd(usize::MAX, 0) {
-            if let FDTypedSlice::Integer(ints) = range.data {
+            if let TypedSlice::Integer(ints) = range.data {
                 results
                     .extend(TypedSliceIter::from_typed_range(&range, ints).map(|(i, rl)| (*i, rl)));
             } else {

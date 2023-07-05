@@ -3,6 +3,13 @@ name = "scr"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "scr"
+
+[[bin]]
+name="scr"
+
+
 [dependencies]
 html5ever = "0.26.0"
 markup5ever_rcdom = "0.2.0"
@@ -32,7 +39,10 @@ features = ["fast-legacy-encode"]
 version = "1.4.0"
 features = ["v4","fast-rng"]
 
+
+
 [workspace]
 members = [
-  "tests", "bench"
+    "scr_tests",
+    "scr_bench"
 ]
