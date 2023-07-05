@@ -1,7 +1,10 @@
 use crate::{
     field_data::{
-        fd_iter::{FDIter, FDIterator, FDTypedRange, FDTypedSlice, FDTypedValue, TypedSliceIter},
-        field_value_flags::{self},
+        fd_iter::{
+            to_typed_range, to_typed_slice, FDIter, FDIterator, FDTypedRange, FDTypedSlice,
+            FDTypedValue, TypedSliceIter,
+        },
+        field_value_flags::{self, FieldValueFlags},
         FieldReference, FieldValueFormat, FieldValueHeader, FieldValueKind, RunLength,
     },
     utils::universe::Universe,
@@ -147,26 +150,119 @@ impl<'a> FDRefIter<'a> {
             header: tf.header,
         })
     }
+    pub fn typed_range_fwd(
+        &mut self,
+        match_sets: &'_ mut Universe<MatchSetId, MatchSet>,
+        limit: usize,
+        flag_mask: FieldValueFlags,
+    ) -> Option<(FDTypedRange<'a>, &'a [FieldReference])> {
+        let (field_ref, field_rl) = self.refs_iter.peek()?;
+        let field = field_ref.field;
+        let refs_shared_val = field_rl != 1;
+
+        self.move_to_field_keep_pos(match_sets, field);
+        let fmt = self.data_iter.get_next_field_format();
+        let data_rl = self.data_iter.field_run_length_fwd();
+        let data_shared_val = fmt.shared_value() && data_rl != 1;
+
+        let mut refs_rl = self.refs_iter.field_run_length_fwd();
+        if refs_shared_val != data_shared_val {
+            debug_assert!(refs_rl != 0);
+            refs_rl = 1;
+        }
+
+        let header_ref = self.data_iter.get_next_header_ref();
+        let header_start = self.data_iter.get_next_header_index();
+        let oversize_start = self.data_iter.field_run_length_bwd();
+        let data_start = self.data_iter.get_next_field_data();
+        let refs_data_start = self.refs_iter.data_ptr();
+
+        if refs_rl != data_rl {
+            let rl = (refs_rl.min(data_rl) as usize).min(limit) as RunLength;
+            let tf = self.data_iter.typed_field_fwd(rl).unwrap();
+            self.refs_iter.next_n_fields(tf.header.run_length as usize);
+            return Some((
+                FDTypedRange {
+                    headers: std::slice::from_ref(header_ref),
+                    data: tf.value.as_slice(),
+                    field_count: tf.header.run_length as usize,
+                    first_header_run_length_oversize: oversize_start,
+                    last_header_run_length_oversize: data_rl - rl,
+                },
+                std::slice::from_ref(field_ref),
+            ));
+        }
+        let mut header_count = 0;
+        let mut field_count = 0;
+        let mut oversize_end = 0;
+        loop {
+            field_count += self.data_iter.next_header() as usize;
+            self.refs_iter.next();
+            header_count += 1;
+
+            if let Some((field_ref, rl)) = self.refs_iter.peek() {
+                if field_ref.field != field {
+                    break;
+                }
+                let next_fmt = self.data_iter.get_next_field_format();
+                if next_fmt.kind != fmt.kind || next_fmt.flags & flag_mask != fmt.flags & flag_mask
+                {
+                    break;
+                }
+                let data_rl = self.data_iter.field_run_length_fwd();
+                let data_shared_val = next_fmt.shared_value() && data_rl != 1;
+
+                let mut refs_rl = self.refs_iter.field_run_length_fwd();
+                let refs_shared_val = field_rl != 1;
+                if refs_rl != data_rl {
+                    debug_assert!(refs_rl != 0);
+                    refs_rl = 1;
+                }
+
+                if refs_rl != data_rl {
+                    let rl = (refs_rl.min(data_rl) as usize).min(limit) as RunLength;
+                    oversize_end = data_rl - rl;
+                    header_count += 1;
+                    self.data_iter.next_n_fields(rl as usize);
+                    self.refs_iter.next_n_fields(rl as usize);
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+        Some((
+            FDTypedRange {
+                headers: unsafe {
+                    std::slice::from_raw_parts(header_ref as *const FieldValueHeader, header_count)
+                },
+                data: unsafe {
+                    to_typed_slice(
+                        self.data_iter.field_data_ref(),
+                        header_ref.fmt,
+                        true,
+                        data_start,
+                        self.data_iter.get_prev_field_data_end(),
+                        field_count,
+                    )
+                },
+                field_count: field_count,
+                first_header_run_length_oversize: oversize_start,
+                last_header_run_length_oversize: oversize_end,
+            },
+            std::slice::from_ref(field_ref),
+        ))
+    }
 }
 
 pub struct FDAutoDerefIter<'a, I: FDIterator<'a>> {
     iter: I,
     iter_field_id: FieldId,
     ref_iter: FDRefIter<'a>,
-    dummy_header: FieldValueHeader,
-    dummy_val: FDTypedValue<'a>,
 }
-pub struct FDTypedRangeWithField<'a> {
+pub struct FDReferenceAwareTypedRange<'a> {
     pub base: FDTypedRange<'a>,
-    pub field_id: FieldId,
-    pub offset: usize,
-}
-impl<'a> Deref for FDTypedRangeWithField<'a> {
-    type Target = FDTypedRange<'a>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.base
-    }
+    pub refs: Option<&'a [FieldReference]>,
 }
 
 impl<'a, I: FDIterator<'a>> FDAutoDerefIter<'a, I> {
@@ -190,11 +286,6 @@ impl<'a, I: FDIterator<'a>> FDAutoDerefIter<'a, I> {
             iter,
             ref_iter,
             iter_field_id,
-            dummy_header: FieldValueHeader {
-                fmt: FieldValueFormat::default(),
-                run_length: 0,
-            },
-            dummy_val: FDTypedValue::Unset(()),
         }
     }
     pub fn into_base_iter(self) -> I {
@@ -236,25 +327,15 @@ impl<'a, I: FDIterator<'a>> FDAutoDerefIter<'a, I> {
         &'b mut self,
         match_sets: &'_ mut Universe<MatchSetId, MatchSet>,
         limit: usize,
-    ) -> Option<FDTypedRangeWithField<'b>> {
+    ) -> Option<FDReferenceAwareTypedRange<'b>> {
         loop {
-            if let Some(fru) = self.ref_iter.typed_field_fwd(match_sets, limit) {
-                //TODO: do something more clever to batch this more
-                self.dummy_header = fru.header;
-                self.dummy_val = fru.data;
-
-                let data =
-                    Self::as_slice(&self.dummy_val, &mut self.dummy_header, fru.begin, fru.end);
-                return Some(FDTypedRangeWithField {
-                    base: FDTypedRange {
-                        headers: std::slice::from_ref(&self.dummy_header),
-                        data,
-                        field_count: fru.header.run_length as usize,
-                        first_header_run_length_oversize: 0,
-                        last_header_run_length_oversize: 0,
-                    },
-                    field_id: fru.field,
-                    offset: fru.begin,
+            if let Some((range, refs)) =
+                self.ref_iter
+                    .typed_range_fwd(match_sets, limit, field_value_flags::BYTES_ARE_UTF8)
+            {
+                return Some(FDReferenceAwareTypedRange {
+                    base: range,
+                    refs: Some(refs),
                 });
             }
             let field_pos = self.iter.get_next_field_pos();
@@ -269,10 +350,9 @@ impl<'a, I: FDIterator<'a>> FDAutoDerefIter<'a, I> {
                         .reset(match_sets, refs_iter, field_id, field_pos);
                     continue;
                 }
-                return Some(FDTypedRangeWithField {
+                return Some(FDReferenceAwareTypedRange {
                     base: range,
-                    field_id: self.iter_field_id,
-                    offset: 0,
+                    refs: None,
                 });
             } else {
                 return None;

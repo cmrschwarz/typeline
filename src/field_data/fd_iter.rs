@@ -1,5 +1,7 @@
 use std::{marker::PhantomData, ptr::NonNull};
 
+use html5ever::data;
+
 use crate::{
     field_data::{
         field_value_flags, FieldData, FieldReference, FieldValueFlags, FieldValueFormat,
@@ -96,6 +98,18 @@ impl<'a, T> TypedSliceIter<'a, T> {
             };
             return Some((self.values.as_ref(), rl));
         }
+    }
+    pub fn field_run_length_bwd(&self) -> RunLength {
+        if self.header == self.header_end {
+            return 0;
+        }
+        unsafe { *self.header }.run_length - self.header_rl_rem
+    }
+    pub fn field_run_length_fwd(&self) -> RunLength {
+        self.header_rl_rem
+    }
+    pub fn data_ptr(&self) -> *const T {
+        self.values.as_ptr()
     }
     pub fn next_no_sv(&mut self) -> Option<&'a T> {
         if self.header == self.header_end {
@@ -334,6 +348,24 @@ pub enum FDTypedValue<'a> {
     Object(&'a Object),
 }
 
+impl<'a> FDTypedValue<'a> {
+    pub fn as_slice(&'a self) -> FDTypedSlice<'a> {
+        match self {
+            FDTypedValue::Unset(v) => FDTypedSlice::Unset(std::slice::from_ref(v)),
+            FDTypedValue::Null(v) => FDTypedSlice::Null(std::slice::from_ref(v)),
+            FDTypedValue::Integer(v) => FDTypedSlice::Integer(std::slice::from_ref(v)),
+            FDTypedValue::StreamValueId(v) => FDTypedSlice::StreamValueId(std::slice::from_ref(v)),
+            FDTypedValue::Reference(v) => FDTypedSlice::Reference(std::slice::from_ref(v)),
+            FDTypedValue::Error(v) => FDTypedSlice::Error(std::slice::from_ref(v)),
+            FDTypedValue::Html(v) => FDTypedSlice::Html(std::slice::from_ref(v)),
+            FDTypedValue::BytesInline(v) => FDTypedSlice::BytesInline(v),
+            FDTypedValue::TextInline(v) => FDTypedSlice::TextInline(v),
+            FDTypedValue::BytesBuffer(v) => FDTypedSlice::BytesBuffer(std::slice::from_ref(v)),
+            FDTypedValue::Object(v) => FDTypedSlice::Object(std::slice::from_ref(v)),
+        }
+    }
+}
+
 pub struct FDTypedRange<'a> {
     pub headers: &'a [FieldValueHeader],
     pub data: FDTypedSlice<'a>,
@@ -362,20 +394,54 @@ unsafe fn to_zst_slice<T: Sized>(len: usize) -> &'static [T] {
     std::slice::from_raw_parts(NonNull::dangling().as_ptr() as *const T, len)
 }
 
-unsafe fn to_slice<T: Sized>(fd: &FieldData, data_begin: usize, len: usize) -> &[T] {
+unsafe fn to_slice<T: Sized>(fd: &FieldData, data_begin: usize, data_end: usize) -> &[T] {
     std::slice::from_raw_parts(
         std::mem::transmute::<&u8, &T>(&fd.data[data_begin]) as *const T,
-        len,
+        (data_end - data_begin) / std::mem::size_of::<T>(),
     )
 }
 
 unsafe fn to_ref<T: Sized>(fd: &FieldData, data_begin: usize) -> &T {
     std::mem::transmute::<&u8, &T>(&fd.data[data_begin])
 }
-
-unsafe fn to_typed_range<'a>(
+pub unsafe fn to_typed_slice<'a>(
     fd: &'a FieldData,
-    flag_mask: FieldValueFlags,
+    fmt: FieldValueFormat,
+    make_utf_bytes_text: bool,
+    data_begin: usize,
+    data_end: usize,
+    field_count: usize,
+) -> FDTypedSlice<'a> {
+    match fmt.kind {
+        FieldValueKind::Unset => FDTypedSlice::Unset(to_zst_slice(field_count)),
+        FieldValueKind::Null => FDTypedSlice::Null(to_zst_slice(field_count)),
+        FieldValueKind::BytesInline => {
+            if make_utf_bytes_text && fmt.flags & field_value_flags::BYTES_ARE_UTF8 != 0 {
+                FDTypedSlice::TextInline(std::str::from_utf8_unchecked(to_slice(
+                    fd, data_begin, data_end,
+                )))
+            } else {
+                FDTypedSlice::BytesInline(to_slice(fd, data_begin, data_end))
+            }
+        }
+        FieldValueKind::EntryId => todo!(),
+        FieldValueKind::Integer => FDTypedSlice::Integer(to_slice(fd, data_begin, data_end)),
+        FieldValueKind::Reference => FDTypedSlice::Reference(to_slice(fd, data_begin, data_end)),
+        FieldValueKind::Error => FDTypedSlice::Error(to_slice(fd, data_begin, data_end)),
+        FieldValueKind::Html => FDTypedSlice::Html(to_slice(fd, data_begin, data_end)),
+        FieldValueKind::Object => FDTypedSlice::Object(to_slice(fd, data_begin, data_end)),
+        FieldValueKind::StreamValueId => {
+            FDTypedSlice::StreamValueId(to_slice(fd, data_begin, data_end))
+        }
+        FieldValueKind::BytesBuffer => {
+            FDTypedSlice::BytesBuffer(to_slice(fd, data_begin, data_end))
+        }
+        FieldValueKind::BytesFile => todo!(),
+    }
+}
+pub unsafe fn to_typed_range<'a>(
+    fd: &'a FieldData,
+    make_utf_bytes_text: bool,
     fmt: FieldValueFormat,
     data_begin: usize,
     data_end: usize,
@@ -386,34 +452,14 @@ unsafe fn to_typed_range<'a>(
     last_header_run_length_oversize: RunLength,
 ) -> FDTypedRange<'a> {
     let headers = &fd.header[header_begin..header_end];
-    let data = match fmt.kind {
-        FieldValueKind::Unset => FDTypedSlice::Unset(to_zst_slice(field_count)),
-        FieldValueKind::Null => FDTypedSlice::Null(to_zst_slice(field_count)),
-        FieldValueKind::BytesInline => {
-            if fmt.flags & flag_mask & field_value_flags::BYTES_ARE_UTF8 != 0 {
-                FDTypedSlice::TextInline(std::str::from_utf8_unchecked(to_slice(
-                    fd,
-                    data_begin,
-                    data_end - data_begin,
-                )))
-            } else {
-                FDTypedSlice::BytesInline(to_slice(fd, data_begin, data_end - data_begin))
-            }
-        }
-        FieldValueKind::EntryId => todo!(),
-        FieldValueKind::Integer => FDTypedSlice::Integer(to_slice(fd, data_begin, field_count)),
-        FieldValueKind::Reference => FDTypedSlice::Reference(to_slice(fd, data_begin, field_count)),
-        FieldValueKind::Error => FDTypedSlice::Error(to_slice(fd, data_begin, field_count)),
-        FieldValueKind::Html => FDTypedSlice::Html(to_slice(fd, data_begin, field_count)),
-        FieldValueKind::Object => FDTypedSlice::Object(to_slice(fd, data_begin, field_count)),
-        FieldValueKind::StreamValueId => {
-            FDTypedSlice::StreamValueId(to_slice(fd, data_begin, field_count))
-        }
-        FieldValueKind::BytesBuffer => {
-            FDTypedSlice::BytesBuffer(to_slice(fd, data_begin, field_count))
-        }
-        FieldValueKind::BytesFile => todo!(),
-    };
+    let data = to_typed_slice(
+        fd,
+        fmt,
+        make_utf_bytes_text,
+        data_begin,
+        data_end,
+        field_count,
+    );
     FDTypedRange {
         headers,
         data,
@@ -422,7 +468,7 @@ unsafe fn to_typed_range<'a>(
         last_header_run_length_oversize,
     }
 }
-unsafe fn to_typed_field<'a>(
+pub unsafe fn to_typed_field<'a>(
     fd: &'a FieldData,
     fmt: FieldValueFormat,
     data_begin: usize,
@@ -462,6 +508,7 @@ unsafe fn to_typed_field<'a>(
 }
 
 pub trait FDIterator<'a>: Sized {
+    fn field_data_ref(&self) -> &FieldData;
     fn get_next_field_pos(&self) -> usize;
     fn is_next_valid(&self) -> bool;
     fn is_prev_valid(&self) -> bool;
@@ -472,6 +519,9 @@ pub trait FDIterator<'a>: Sized {
     // returned, not the one after it
     fn get_next_header(&self) -> FieldValueHeader;
     fn get_next_header_data(&self) -> usize;
+    fn get_next_header_ref(&self) -> &FieldValueHeader {
+        &self.field_data_ref().header[self.get_next_header_index()]
+    }
     fn get_next_header_index(&self) -> usize;
     fn get_prev_header_index(&self) -> usize;
     fn get_next_typed_field(&mut self) -> FDTypedField<'a>;
@@ -596,6 +646,9 @@ impl<'a> FDIter<'a> {
     }
 }
 impl<'a> FDIterator<'a> for FDIter<'a> {
+    fn field_data_ref(&self) -> &FieldData {
+        self.fd
+    }
     fn get_next_field_pos(&self) -> usize {
         self.field_pos
     }
@@ -903,7 +956,7 @@ impl<'a> FDIterator<'a> for FDIter<'a> {
         unsafe {
             to_typed_range(
                 self.fd,
-                flag_mask,
+                (flag_mask & field_value_flags::BYTES_ARE_UTF8) != 0,
                 fmt,
                 data_begin,
                 data_end,
@@ -942,7 +995,7 @@ impl<'a> FDIterator<'a> for FDIter<'a> {
         unsafe {
             to_typed_range(
                 self.fd,
-                flag_mask,
+                (flag_mask & field_value_flags::BYTES_ARE_UTF8) != 0,
                 fmt,
                 data_start,
                 data_end,
