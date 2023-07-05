@@ -481,12 +481,30 @@ pub trait FDIterator<'a>: Sized {
     fn prev_header(&mut self) -> RunLength;
     fn next_field(&mut self) -> RunLength;
     fn prev_field(&mut self) -> RunLength;
+    fn next_n_fields_with_fmt_and_data_check<const N: usize>(
+        &mut self,
+        n: usize,
+        kinds: [FieldValueKind; N],
+        flag_mask: FieldValueFlags,
+        flags: FieldValueFlags,
+        data_check: impl Fn(&FieldValueFormat, *const u8) -> bool,
+    ) -> usize;
     fn next_n_fields_with_fmt<const N: usize>(
         &mut self,
         n: usize,
         kinds: [FieldValueKind; N],
         flag_mask: FieldValueFlags,
         flags: FieldValueFlags,
+    ) -> usize {
+        self.next_n_fields_with_fmt_and_data_check(n, kinds, flag_mask, flags, |_, _| true)
+    }
+    fn prev_n_fields_with_fmt_and_data_check<const N: usize>(
+        &mut self,
+        n: usize,
+        kinds: [FieldValueKind; N],
+        flag_mask: FieldValueFlags,
+        flags: FieldValueFlags,
+        data_check: impl Fn(&FieldValueFormat, *const u8) -> bool,
     ) -> usize;
     fn prev_n_fields_with_fmt<const N: usize>(
         &mut self,
@@ -494,7 +512,9 @@ pub trait FDIterator<'a>: Sized {
         kinds: [FieldValueKind; N],
         flag_mask: FieldValueFlags,
         flags: FieldValueFlags,
-    ) -> usize;
+    ) -> usize {
+        self.prev_n_fields_with_fmt_and_data_check(n, kinds, flag_mask, flags, |_, _| true)
+    }
     fn move_to_field_pos(&mut self, field_pos: usize) {
         let curr = self.get_next_field_pos();
         if curr > field_pos {
@@ -712,12 +732,13 @@ impl<'a> FDIterator<'a> for FDIter<'a> {
         }
         return self.prev_header();
     }
-    fn next_n_fields_with_fmt<const N: usize>(
+    fn next_n_fields_with_fmt_and_data_check<const N: usize>(
         &mut self,
         n: usize,
         kinds: [FieldValueKind; N],
         flag_mask: FieldValueFlags,
         flags: FieldValueFlags,
+        data_check: impl Fn(&FieldValueFormat, *const u8) -> bool,
     ) -> usize {
         let mut stride_rem = n;
         let curr_header_rem = (self.header_rl_total - self.header_rl_offset) as usize;
@@ -744,6 +765,9 @@ impl<'a> FDIterator<'a> for FDIter<'a> {
             if !self.is_next_valid()
                 || (self.header_fmt.flags & flag_mask) != flags
                 || (!kinds.is_empty() && !kinds.contains(&self.header_fmt.kind))
+                || !data_check(&self.header_fmt, unsafe {
+                    self.fd.data.as_ptr().add(self.get_next_field_data())
+                })
             {
                 return n - stride_rem;
             }
@@ -753,12 +777,13 @@ impl<'a> FDIterator<'a> for FDIter<'a> {
             }
         }
     }
-    fn prev_n_fields_with_fmt<const N: usize>(
+    fn prev_n_fields_with_fmt_and_data_check<const N: usize>(
         &mut self,
         n: usize,
         kinds: [FieldValueKind; N],
         flag_mask: FieldValueFlags,
         flags: FieldValueFlags,
+        data_check: impl Fn(&FieldValueFormat, *const u8) -> bool,
     ) -> usize {
         if n == 0
             || self.prev_field() == 0
@@ -782,9 +807,12 @@ impl<'a> FDIterator<'a> for FDIter<'a> {
                 return n - stride_rem;
             }
             stride_rem -= self.prev_header() as usize;
-            if !self.is_next_valid()
+            if !self.is_prev_valid()
                 || (self.header_fmt.flags & flag_mask) != flags
                 || (!kinds.is_empty() && !kinds.contains(&self.header_fmt.kind))
+                || !data_check(&self.header_fmt, unsafe {
+                    self.fd.data.as_ptr().add(self.get_next_field_data())
+                })
             {
                 return n - stride_rem;
             }
@@ -1074,26 +1102,32 @@ where
             stride
         }
     }
-    fn next_n_fields_with_fmt<const N: usize>(
+    fn next_n_fields_with_fmt_and_data_check<const N: usize>(
         &mut self,
         n: usize,
         kinds: [FieldValueKind; N],
         flag_mask: FieldValueFlags,
         flags: FieldValueFlags,
+        data_check: impl Fn(&FieldValueFormat, *const u8) -> bool,
     ) -> usize {
         let n = n.min(self.range_fwd());
-        let stride = self.iter.next_n_fields_with_fmt(n, kinds, flag_mask, flags);
+        let stride = self
+            .iter
+            .next_n_fields_with_fmt_and_data_check(n, kinds, flag_mask, flags, data_check);
         stride
     }
-    fn prev_n_fields_with_fmt<const N: usize>(
+    fn prev_n_fields_with_fmt_and_data_check<const N: usize>(
         &mut self,
         n: usize,
         kinds: [FieldValueKind; N],
         flag_mask: FieldValueFlags,
         flags: FieldValueFlags,
+        data_check: impl Fn(&FieldValueFormat, *const u8) -> bool,
     ) -> usize {
         let n = n.min(self.range_bwd());
-        let stride = self.iter.prev_n_fields_with_fmt(n, kinds, flag_mask, flags);
+        let stride = self
+            .iter
+            .prev_n_fields_with_fmt_and_data_check(n, kinds, flag_mask, flags, data_check);
         stride
     }
     fn typed_field_fwd(&mut self, limit: RunLength) -> Option<FDTypedField<'a>> {
@@ -1228,26 +1262,28 @@ impl<'a> FDIterator<'a> for FDIterMut<'a> {
         self.as_fd_iter_mut().prev_field()
     }
 
-    fn next_n_fields_with_fmt<const N: usize>(
+    fn next_n_fields_with_fmt_and_data_check<const N: usize>(
         &mut self,
         n: usize,
         kinds: [FieldValueKind; N],
         flag_mask: FieldValueFlags,
         flags: FieldValueFlags,
+        data_check: impl Fn(&FieldValueFormat, *const u8) -> bool,
     ) -> usize {
         self.as_fd_iter_mut()
-            .next_n_fields_with_fmt(n, kinds, flag_mask, flags)
+            .next_n_fields_with_fmt_and_data_check(n, kinds, flag_mask, flags, data_check)
     }
 
-    fn prev_n_fields_with_fmt<const N: usize>(
+    fn prev_n_fields_with_fmt_and_data_check<const N: usize>(
         &mut self,
         n: usize,
         kinds: [FieldValueKind; N],
         flag_mask: FieldValueFlags,
         flags: FieldValueFlags,
+        data_check: impl Fn(&FieldValueFormat, *const u8) -> bool,
     ) -> usize {
         self.as_fd_iter_mut()
-            .prev_n_fields_with_fmt(n, kinds, flag_mask, flags)
+            .prev_n_fields_with_fmt_and_data_check(n, kinds, flag_mask, flags, data_check)
     }
 
     fn typed_field_fwd(&mut self, limit: RunLength) -> Option<FDTypedField<'a>> {
