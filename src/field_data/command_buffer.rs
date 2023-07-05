@@ -839,7 +839,7 @@ mod test {
         while let Some(range) = iter.typed_range_fwd(usize::MAX, 0) {
             if let TypedSlice::Integer(ints) = range.data {
                 results
-                    .extend(TypedSliceIter::from_typed_range(&range, ints).map(|(i, rl)| (*i, rl)));
+                    .extend(TypedSliceIter::from_range(&range, ints).map(|(i, rl)| (*i, rl)));
             } else {
                 panic!("resulting field data has wrong type");
             }

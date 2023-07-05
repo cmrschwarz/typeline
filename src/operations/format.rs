@@ -4,10 +4,9 @@ use bstr::{BStr, BString, ByteSlice, ByteVec};
 use smallstr::SmallString;
 
 use crate::{
-    fd_ref_iter::AutoDerefIter,
+    ref_iter::{AutoDerefIter, RefAwareInlineTextIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter},
     field_data::{
         typed::TypedSlice,
-        typed_iters::{InlineBytesIter, InlineTextIter,  TypedSliceIter},
         push_interface::PushInterface,
         iter_hall::IterId,
     },
@@ -435,20 +434,20 @@ pub fn handle_tf_format(sess: &mut JobData<'_>, tf_id: TransformId, fmt: &mut Tf
                 while let Some(range) =
                     iter.typed_range_fwd(&mut sess.record_mgr.match_sets, usize::MAX)
                 {
-                    match range.data {
+                    match range.base.data {
                         TypedSlice::Reference(_) => unreachable!(),
                         TypedSlice::TextInline(text) => {
-                            for (_v, _rl) in InlineTextIter::from_typed_range(&range, text) {
+                            for (_v, _rl, _offs) in RefAwareInlineTextIter::from_range(&range, text) {
                                 todo!();
                             }
                         }
                         TypedSlice::BytesInline(bytes) => {
-                            for (_v, _rl) in InlineBytesIter::from_typed_range(&range, bytes) {
+                            for (_v, _rl, _offs) in RefAwareInlineBytesIter::from_range(&range, bytes) {
                                 todo!();
                             }
                         }
                         TypedSlice::BytesBuffer(bytes) => {
-                            for (_v, _rl) in TypedSliceIter::from_typed_range(&range, bytes) {
+                            for (_v, _rl, _offs) in RefAwareBytesBufferIter::from_range(&range, bytes) {
                                 todo!();
                             }
                         }
@@ -461,7 +460,7 @@ pub fn handle_tf_format(sess: &mut JobData<'_>, tf_id: TransformId, fmt: &mut Tf
                         | TypedSlice::Object(_) => {
                             output_field.field_data.push_error(
                                 OperatorApplicationError::new("format type error", op_id),
-                                range.field_count,
+                                range.base.field_count,
                                 true,
                                 true,
                             );

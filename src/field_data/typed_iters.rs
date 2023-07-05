@@ -54,7 +54,7 @@ impl<'a, T> TypedSliceIter<'a, T> {
             _phantom_data: PhantomData::default(),
         }
     }
-    pub fn from_typed_range(range: &TypedRange<'a>, values: &'a [T]) -> Self {
+    pub fn from_range(range: &TypedRange<'a>, values: &'a [T]) -> Self {
         Self::new(
             values,
             range.headers,
@@ -74,6 +74,12 @@ impl<'a, T> TypedSliceIter<'a, T> {
             };
             return Some((self.values.as_ref(), rl));
         }
+    }
+    pub fn peek_header(&self) -> Option<&FieldValueHeader> {
+        if self.header == self.header_end {
+            return None;
+        }
+        Some(unsafe {&*self.header})
     }
     pub fn field_run_length_bwd(&self) -> RunLength {
         if self.header == self.header_end {
@@ -154,6 +160,9 @@ impl<'a, T> TypedSliceIter<'a, T> {
         self.header_rl_rem = 0;
         self.header = self.header_end;
     }
+    pub fn headers_remaining(&self) -> usize {
+        unsafe {self.header_end.offset_from(self.header) as usize }
+    }
 }
 
 impl<'a, T: 'a> Iterator for TypedSliceIter<'a, T> {
@@ -220,13 +229,16 @@ impl<'a> InlineBytesIter<'a> {
             data_offset: 0,
         }
     }
-    pub fn from_typed_range(range: &'a TypedRange<'a>, data: &'a [u8]) -> Self {
+    pub fn from_range(range: &'a TypedRange<'a>, data: &'a [u8]) -> Self {
         Self::new(
             data,
             range.headers,
             range.first_header_run_length_oversize,
             range.last_header_run_length_oversize,
         )
+    }
+    pub fn headers_remaining(&self) -> usize {
+        self.headers.len() - self.headers_idx
     }
 }
 
@@ -294,10 +306,13 @@ impl<'a> InlineTextIter<'a> {
             iter: InlineBytesIter::new(data.as_bytes(), headers, first_oversize, last_oversize),
         }
     }
-    pub fn from_typed_range(range: &'a TypedRange<'a>, data: &'a str) -> Self {
+    pub fn from_range(range: &'a TypedRange<'a>, data: &'a str) -> Self {
         Self {
-            iter: InlineBytesIter::from_typed_range(range, data.as_bytes()),
+            iter: InlineBytesIter::from_range(range, data.as_bytes()),
         }
+    }
+    pub fn headers_remaining(&self) -> usize {
+        self.iter.headers_remaining()
     }
 }
 

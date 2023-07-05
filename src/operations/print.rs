@@ -4,11 +4,11 @@ use bstr::{BStr, ByteSlice};
 use is_terminal::IsTerminal;
 
 use crate::{
-    fd_ref_iter::AutoDerefIter,
+    ref_iter::{AutoDerefIter, RefAwareInlineTextIter, RefAwareInlineBytesIter, RefAwareBytesBufferIter},
     field_data::{
         iters::FieldIterator,
         typed::TypedSlice,
-        typed_iters::{InlineBytesIter, InlineTextIter, TypedSliceIter},
+        typed_iters::TypedSliceIter,
         iter_hall::IterId,
     },
     options::argument::CliArgIdx,
@@ -218,40 +218,40 @@ pub fn handle_tf_print_raw(
 
     'iter: while let Some(range) = iter.typed_range_fwd(&mut sess.record_mgr.match_sets, usize::MAX)
     {
-        match range.data {
+        match range.base.data {
             TypedSlice::TextInline(text) => {
-                for (v, rl) in InlineTextIter::from_typed_range(&range, text) {
+                for (v, rl, _offs) in RefAwareInlineTextIter::from_range(&range, text) {
                     write_text::<true>(&mut stdout, v, rl as usize)?;
                 }
             }
             TypedSlice::BytesInline(bytes) => {
-                for (v, rl) in InlineBytesIter::from_typed_range(&range, bytes) {
+                for (v, rl, _offs) in RefAwareInlineBytesIter::from_range(&range, bytes) {
                     write_raw_bytes::<true>(&mut stdout, v, rl as usize)?;
                 }
             }
             TypedSlice::BytesBuffer(bytes) => {
-                for (v, rl) in TypedSliceIter::from_typed_range(&range, bytes) {
+                for (v, rl, _offs) in RefAwareBytesBufferIter::from_range(&range, bytes) {
                     write_raw_bytes::<true>(&mut stdout, v, rl as usize)?;
                 }
             }
             TypedSlice::Integer(ints) => {
-                for (v, rl) in TypedSliceIter::from_typed_range(&range, ints) {
+                for (v, rl) in TypedSliceIter::from_range(&range.base, ints) {
                     write_integer::<true>(&mut stdout, *v, rl as usize)?;
                 }
             }
             TypedSlice::Null(_) => {
-                write_null::<true>(&mut stdout, range.field_count)?;
+                write_null::<true>(&mut stdout, range.base.field_count)?;
             }
             TypedSlice::Error(errs) => {
-                for (v, rl) in TypedSliceIter::from_typed_range(&range, errs) {
+                for (v, rl) in TypedSliceIter::from_range(&range.base, errs) {
                     write_error::<true>(&mut stdout, v, rl as usize)?;
                 }
             }
             TypedSlice::Unset(_) => {
-                write_unset::<true>(&mut stdout, range.field_count)?;
+                write_unset::<true>(&mut stdout, range.base.field_count)?;
             }
             TypedSlice::StreamValueId(svs) => {
-                for (sv_id, rl) in TypedSliceIter::from_typed_range(&range, svs) {
+                for (sv_id, rl) in TypedSliceIter::from_range(&range.base, svs) {
                     let sv = &mut sess.sv_mgr.stream_values[*sv_id];
                     if !write_stream_val_check_done::<true>(&mut stdout, sv, rl as usize)? {
                         tf.current_stream_val = Some(*sv_id);
@@ -267,11 +267,11 @@ pub fn handle_tf_print_raw(
                 continue; // skip the field pos increase at the bottom of this loop because we already did that
             }
             TypedSlice::Html(_) | TypedSlice::Object(_) => {
-                write_type_error::<true>(&mut stdout, range.field_count)?;
+                write_type_error::<true>(&mut stdout, range.base.field_count)?;
             }
             TypedSlice::Reference(_) => unreachable!(),
         }
-        *field_pos += range.field_count;
+        *field_pos += range.base.field_count;
     }
     input_field
         .field_data

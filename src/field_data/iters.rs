@@ -21,7 +21,7 @@ impl<'a> Default for TypedRange<'a> {
 }
 
 pub trait FieldIterator<'a>: Sized {
-    fn field_data_ref(&self) -> &FieldData;
+    fn field_data_ref(&self) -> &'a FieldData;
     fn get_next_field_pos(&self) -> usize;
     fn is_next_valid(&self) -> bool;
     fn is_prev_valid(&self) -> bool;
@@ -32,14 +32,14 @@ pub trait FieldIterator<'a>: Sized {
     // returned, not the one after it
     fn get_next_header(&self) -> FieldValueHeader;
     fn get_next_header_data(&self) -> usize;
-    fn get_next_header_ref(&self) -> &FieldValueHeader {
+    fn get_next_header_ref(&self) -> &'a FieldValueHeader {
         &self.field_data_ref().header[self.get_next_header_index()]
     }
     fn get_next_header_index(&self) -> usize;
     fn get_prev_header_index(&self) -> usize;
     fn get_next_typed_field(&mut self) -> TypedField<'a>;
-    fn field_run_length_fwd(&mut self) -> RunLength;
-    fn field_run_length_bwd(&mut self) -> RunLength;
+    fn field_run_length_fwd(& self) -> RunLength;
+    fn field_run_length_bwd(& self) -> RunLength;
     fn next_header(&mut self) -> RunLength;
     fn prev_header(&mut self) -> RunLength;
     fn next_field(&mut self) -> RunLength;
@@ -159,7 +159,7 @@ impl<'a> Iter<'a> {
     }
 }
 impl<'a> FieldIterator<'a> for Iter<'a> {
-    fn field_data_ref(&self) -> &FieldData {
+    fn field_data_ref(&self) -> &'a FieldData {
         self.fd
     }
     fn get_next_field_pos(&self) -> usize {
@@ -227,10 +227,10 @@ impl<'a> FieldIterator<'a> for Iter<'a> {
         };
         unsafe { TypedField::new(self.fd, self.header_fmt, data, run_len) }
     }
-    fn field_run_length_fwd(&mut self) -> RunLength {
+    fn field_run_length_fwd(&self) -> RunLength {
         self.header_rl_total - self.header_rl_offset
     }
-    fn field_run_length_bwd(&mut self) -> RunLength {
+    fn field_run_length_bwd(&self) -> RunLength {
         self.header_rl_offset
     }
     fn next_header(&mut self) -> RunLength {
@@ -579,7 +579,7 @@ impl<'a, I> FieldIterator<'a> for BoundedIter<'a, I>
 where
     I: FieldIterator<'a>,
 {
-    fn field_data_ref(&self) -> &FieldData {
+    fn field_data_ref(&self) -> &'a FieldData {
         self.iter.field_data_ref()
     }
     fn get_next_field_pos(&self) -> usize {
@@ -629,11 +629,11 @@ where
         debug_assert!(self.is_next_valid());
         self.iter.get_next_typed_field()
     }
-    fn field_run_length_fwd(&mut self) -> RunLength {
+    fn field_run_length_fwd(& self) -> RunLength {
         self.range_fwd()
             .min(self.iter.field_run_length_fwd() as usize) as RunLength
     }
-    fn field_run_length_bwd(&mut self) -> RunLength {
+    fn field_run_length_bwd(& self) -> RunLength {
         self.range_bwd()
             .min(self.iter.field_run_length_bwd() as usize) as RunLength
     }
@@ -756,82 +756,82 @@ impl<'a> IterMut<'a> {
             header_fmt: Default::default(),
         }
     }
-    pub fn into_fd_iter(self) -> Iter<'a> {
+    pub fn into_base_iter(self) -> Iter<'a> {
         unsafe { std::mem::transmute(self) }
     }
-    pub fn as_fd_iter(&self) -> &Iter<'a> {
+    pub fn as_base_iter(&self) -> &Iter<'a> {
         unsafe { std::mem::transmute(self) }
     }
-    pub fn as_fd_iter_mut(&mut self) -> &mut Iter<'a> {
+    pub fn as_base_iter_mut(&mut self) -> &mut Iter<'a> {
         unsafe { std::mem::transmute(self) }
     }
 }
 
 impl<'a> FieldIterator<'a> for IterMut<'a> {
-    fn field_data_ref(&self) -> &FieldData {
-        self.as_fd_iter().field_data_ref()
+    fn field_data_ref(&self) -> &'a FieldData {
+        self.as_base_iter().field_data_ref()
     }
     fn get_next_field_pos(&self) -> usize {
-        self.as_fd_iter().get_next_field_pos()
+        self.as_base_iter().get_next_field_pos()
     }
     fn is_next_valid(&self) -> bool {
-        self.as_fd_iter().is_next_valid()
+        self.as_base_iter().is_next_valid()
     }
     fn is_prev_valid(&self) -> bool {
-        self.as_fd_iter().is_prev_valid()
+        self.as_base_iter().is_prev_valid()
     }
 
     fn get_next_field_format(&self) -> FieldValueFormat {
-        self.as_fd_iter().get_next_field_format()
+        self.as_base_iter().get_next_field_format()
     }
 
     fn get_next_field_data(&self) -> usize {
-        self.as_fd_iter().get_next_field_data()
+        self.as_base_iter().get_next_field_data()
     }
     fn get_prev_field_data_end(&self) -> usize {
-        self.as_fd_iter().get_prev_field_data_end()
+        self.as_base_iter().get_prev_field_data_end()
     }
     fn get_next_header(&self) -> FieldValueHeader {
-        self.as_fd_iter().get_next_header()
+        self.as_base_iter().get_next_header()
     }
 
     fn get_next_header_data(&self) -> usize {
-        self.as_fd_iter().get_next_header_data()
+        self.as_base_iter().get_next_header_data()
     }
 
     fn get_next_header_index(&self) -> usize {
-        self.as_fd_iter().get_next_header_index()
+        self.as_base_iter().get_next_header_index()
     }
     fn get_prev_header_index(&self) -> usize {
-        self.as_fd_iter().get_prev_header_index()
+        self.as_base_iter().get_prev_header_index()
     }
 
     fn get_next_typed_field(&mut self) -> TypedField<'a> {
-        self.as_fd_iter_mut().get_next_typed_field()
+        self.as_base_iter_mut().get_next_typed_field()
     }
 
-    fn field_run_length_fwd(&mut self) -> RunLength {
-        self.as_fd_iter_mut().field_run_length_fwd()
+    fn field_run_length_fwd(& self) -> RunLength {
+        self.as_base_iter().field_run_length_fwd()
     }
 
-    fn field_run_length_bwd(&mut self) -> RunLength {
-        self.as_fd_iter_mut().field_run_length_bwd()
+    fn field_run_length_bwd(& self) -> RunLength {
+        self.as_base_iter().field_run_length_bwd()
     }
 
     fn next_header(&mut self) -> RunLength {
-        self.as_fd_iter_mut().next_header()
+        self.as_base_iter_mut().next_header()
     }
 
     fn prev_header(&mut self) -> RunLength {
-        self.as_fd_iter_mut().prev_header()
+        self.as_base_iter_mut().prev_header()
     }
 
     fn next_field(&mut self) -> RunLength {
-        self.as_fd_iter_mut().next_field()
+        self.as_base_iter_mut().next_field()
     }
 
     fn prev_field(&mut self) -> RunLength {
-        self.as_fd_iter_mut().prev_field()
+        self.as_base_iter_mut().prev_field()
     }
 
     fn next_n_fields_with_fmt_and_data_check<const N: usize>(
@@ -842,7 +842,7 @@ impl<'a> FieldIterator<'a> for IterMut<'a> {
         flags: FieldValueFlags,
         data_check: impl Fn(&FieldValueFormat, *const u8) -> bool,
     ) -> usize {
-        self.as_fd_iter_mut()
+        self.as_base_iter_mut()
             .next_n_fields_with_fmt_and_data_check(n, kinds, flag_mask, flags, data_check)
     }
 
@@ -854,16 +854,16 @@ impl<'a> FieldIterator<'a> for IterMut<'a> {
         flags: FieldValueFlags,
         data_check: impl Fn(&FieldValueFormat, *const u8) -> bool,
     ) -> usize {
-        self.as_fd_iter_mut()
+        self.as_base_iter_mut()
             .prev_n_fields_with_fmt_and_data_check(n, kinds, flag_mask, flags, data_check)
     }
 
     fn typed_field_fwd(&mut self, limit: RunLength) -> Option<TypedField<'a>> {
-        self.as_fd_iter_mut().typed_field_fwd(limit)
+        self.as_base_iter_mut().typed_field_fwd(limit)
     }
 
     fn typed_field_bwd(&mut self, limit: RunLength) -> Option<TypedField<'a>> {
-        self.as_fd_iter_mut().typed_field_bwd(limit)
+        self.as_base_iter_mut().typed_field_bwd(limit)
     }
 
     fn typed_range_fwd(
@@ -871,7 +871,7 @@ impl<'a> FieldIterator<'a> for IterMut<'a> {
         limit: usize,
         flag_mask: FieldValueFlags,
     ) -> Option<TypedRange<'a>> {
-        self.as_fd_iter_mut().typed_range_fwd(limit, flag_mask)
+        self.as_base_iter_mut().typed_range_fwd(limit, flag_mask)
     }
 
     fn typed_range_bwd(
@@ -879,10 +879,10 @@ impl<'a> FieldIterator<'a> for IterMut<'a> {
         limit: usize,
         flag_mask: FieldValueFlags,
     ) -> Option<TypedRange<'a>> {
-        self.as_fd_iter_mut().typed_range_bwd(limit, flag_mask)
+        self.as_base_iter_mut().typed_range_bwd(limit, flag_mask)
     }
 
     fn as_base_iter(self) -> Iter<'a> {
-        self.into_fd_iter()
+        self.into_base_iter()
     }
 }

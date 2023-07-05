@@ -23,7 +23,7 @@ pub mod cli;
 pub mod context;
 pub mod document;
 pub mod encoding;
-pub mod fd_ref_iter;
+pub mod ref_iter;
 pub mod field_data;
 pub mod operations;
 pub mod options;

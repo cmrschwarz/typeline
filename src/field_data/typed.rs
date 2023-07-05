@@ -10,8 +10,8 @@ use super::{
 pub enum TypedValue<'a> {
     Unset(()),
     Null(()),
-    Integer(i64),
-    StreamValueId(StreamValueId),
+    Integer(&'a i64),
+    StreamValueId(&'a StreamValueId),
     Reference(&'a FieldReference),
     Error(&'a OperatorApplicationError),
     Html(&'a Html),
@@ -48,10 +48,10 @@ impl<'a> TypedValue<'a> {
             FieldValueKind::BytesFile => todo!(),
         }
     }
-    pub fn as_slice(&'a self) -> TypedSlice<'a> {
+    pub fn as_slice(&self) -> TypedSlice<'a> {
         match self {
-            TypedValue::Unset(v) => TypedSlice::Unset(std::slice::from_ref(v)),
-            TypedValue::Null(v) => TypedSlice::Null(std::slice::from_ref(v)),
+            TypedValue::Unset(_) => TypedSlice::Unset(& [()]),
+            TypedValue::Null(_) => TypedSlice::Null(& [()]),
             TypedValue::Integer(v) => TypedSlice::Integer(std::slice::from_ref(v)),
             TypedValue::StreamValueId(v) => TypedSlice::StreamValueId(std::slice::from_ref(v)),
             TypedValue::Reference(v) => TypedSlice::Reference(std::slice::from_ref(v)),
