@@ -340,15 +340,11 @@ impl<'a> InlineBytesIter<'a> {
         if self.header == self.header_end {
             return;
         }
-        if self.header_rl_rem > 0 {
-            let h = unsafe { *self.header };
-            if !h.same_value_as_previous() {
-                let elem_count = if h.shared_value() {
-                    1
-                } else {
-                    self.header_rl_rem
-                };
-                unsafe { self.advance_value(elem_count as usize * h.size as usize) };
+        let h = unsafe { *self.header };
+        let mut prev_size = h.size as usize;
+        if self.header_rl_rem > 1 {
+            if !h.shared_value() {
+                unsafe { self.advance_value((self.header_rl_rem - 1) as usize * prev_size) };
             }
         }
         let mut h;
@@ -361,14 +357,22 @@ impl<'a> InlineBytesIter<'a> {
             if !h.deleted() {
                 break;
             }
-            unsafe { self.advance_value(h.unique_data_element_count() as usize * h.size as usize) };
-        }
-        if !h.same_value_as_previous() {
-            unsafe { self.advance_value(h.size as usize) };
+            if !h.same_value_as_previous() {
+                unsafe { self.advance_value(prev_size) };
+                if !h.shared_value() {
+                    unsafe { self.advance_value((h.run_length - 1) as usize * h.size as usize) };
+                }
+            }
+            prev_size = h.size as usize;
         }
         self.header_rl_rem = h.run_length;
-        if unsafe { self.header.add(1) } == self.header_end {
-            self.header_rl_rem -= self.last_oversize;
+        unsafe {
+            if !h.same_value_as_previous() {
+                self.advance_value(prev_size);
+            }
+            if self.header.add(1) == self.header_end {
+                self.header_rl_rem -= self.last_oversize;
+            }
         }
     }
     unsafe fn advance_value(&mut self, n: usize) {
@@ -481,7 +485,7 @@ impl<'a> Iterator for InlineTextIter<'a> {
 }
 
 #[cfg(test)]
-mod test {
+mod test_slice_iter {
     use crate::field_data::{push_interface::PushInterface, FieldData, RunLength};
 
     use super::TypedSliceIter;
@@ -539,5 +543,105 @@ mod test {
         }
         fd.push_int(3, 3, false, false);
         compare_iter_output::<i64>(&fd, &[(1, 1), (1, 5), (3, 3)]);
+    }
+
+    #[test]
+    fn with_same_as_previous_after_deleted() {
+        let mut fd = FieldData::default();
+        fd.push_int(0, 1, false, false);
+        fd.push_int(1, 1, false, false);
+        unsafe {
+            let (h, _d, c) = fd.internals();
+            h.extend_from_within(1..2);
+            h[2].set_same_value_as_previous(true);
+            h[2].run_length = 5;
+            h[2].set_shared_value(true);
+            *c += 5;
+            h[1].set_deleted(true);
+            *c -= 1;
+        }
+        fd.push_int(3, 3, false, false);
+        compare_iter_output::<i64>(&fd, &[(0, 1), (1, 5), (3, 3)]);
+    }
+}
+
+#[cfg(test)]
+mod test_text_iter {
+    use crate::field_data::{
+        push_interface::PushInterface, typed_iters::InlineTextIter, FieldData, RunLength,
+    };
+
+    fn compare_iter_output(fd: &FieldData, expected: &[(&'static str, RunLength)]) {
+        let iter = InlineTextIter::new(
+            unsafe {
+                std::str::from_utf8(std::slice::from_raw_parts(fd.data.as_ptr() as *const u8, 3))
+                    .unwrap()
+            },
+            &fd.header,
+            0,
+            0,
+        );
+        assert_eq!(
+            iter.map(|(v, rl)| (v.clone(), rl)).collect::<Vec<_>>(),
+            expected
+        );
+    }
+
+    #[test]
+    fn simple() {
+        let mut fd = FieldData::default();
+        fd.push_str("a", 1, false, false);
+        fd.push_str("bb", 2, false, false);
+        fd.push_str("ccc", 3, false, false);
+        compare_iter_output(&fd, &[("a", 1), ("bb", 2), ("ccc", 3)]);
+    }
+
+    #[test]
+    fn with_deletion() {
+        let mut fd = FieldData::default();
+        fd.push_str("a", 1, false, false);
+        fd.push_str("bb", 2, false, false);
+        fd.push_str("ccc", 3, false, false);
+        unsafe {
+            let (h, _d, c) = fd.internals();
+            h[1].set_deleted(true);
+            *c -= 2;
+        }
+        compare_iter_output(&fd, &[("a", 1), ("ccc", 3)]);
+    }
+
+    #[test]
+    fn with_same_as_previous() {
+        let mut fd = FieldData::default();
+        fd.push_str("aaa", 1, false, false);
+        unsafe {
+            let (h, _d, c) = fd.internals();
+            h.extend_from_within(0..1);
+            h[1].set_same_value_as_previous(true);
+            h[1].run_length = 5;
+            h[1].set_shared_value(true);
+            *c += 5;
+        }
+        fd.push_str("c", 3, false, false);
+        compare_iter_output(&fd, &[("aaa", 1), ("aaa", 5), ("c", 3)]);
+    }
+
+    #[test]
+    fn with_same_as_previous_after_deleted() {
+        let mut fd = FieldData::default();
+        fd.push_str("00", 1, false, false);
+        fd.push_str("1", 1, false, false);
+        unsafe {
+            let (h, _d, c) = fd.internals();
+            h.extend_from_within(1..2);
+            h[2].set_same_value_as_previous(true);
+            h[2].run_length = 5;
+            h[2].set_shared_value(true);
+            *c += 5;
+            h[1].set_deleted(true);
+            *c -= 1;
+        }
+        fd.push_str("333", 3, false, false);
+        compare_iter_output(&fd, &[("00", 1), ("1", 5), ("333", 3)]);
     }
 }
