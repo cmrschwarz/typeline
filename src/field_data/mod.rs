@@ -184,7 +184,7 @@ pub mod field_value_flags {
     //offset must be zero so we don't have to shift
     const_assert!(MAX_FIELD_ALIGN.is_power_of_two() && MAX_FIELD_ALIGN <= 16);
     pub const LEADING_PADDING: FieldValueFlags = 0xF; //consumes offsets 0 through 3
-    pub const SAME_VALUE_AS_PREVIOUS: FieldValueFlags = 4;
+    pub const SAME_VALUE_AS_PREVIOUS_OFFSET: FieldValueFlags = 4;
     pub const SHARED_VALUE_OFFSET: FieldValueFlags = 5;
     pub const BYTES_ARE_UTF8_OFFSET: FieldValueFlags = 6;
     pub const DELETED_OFFSET: FieldValueFlags = 7;
@@ -192,6 +192,7 @@ pub mod field_value_flags {
     pub const SHARED_VALUE: FieldValueFlags = 1 << SHARED_VALUE_OFFSET;
     pub const BYTES_ARE_UTF8: FieldValueFlags = 1 << BYTES_ARE_UTF8_OFFSET;
     pub const DELETED: FieldValueFlags = 1 << DELETED_OFFSET;
+    pub const SAME_VALUE_AS_PREVIOUS: FieldValueFlags = 1 << SAME_VALUE_AS_PREVIOUS_OFFSET;
 
     pub const DEFAULT: FieldValueFlags = 0;
 }
@@ -257,7 +258,7 @@ impl FieldValueFormat {
     }
     pub fn set_same_value_as_previous(&mut self, val: bool) {
         self.flags &= !field_value_flags::SAME_VALUE_AS_PREVIOUS;
-        self.flags |= (val as FieldValueFlags) << field_value_flags::SAME_VALUE_AS_PREVIOUS;
+        self.flags |= (val as FieldValueFlags) << field_value_flags::SAME_VALUE_AS_PREVIOUS_OFFSET;
     }
 }
 
@@ -339,6 +340,17 @@ unsafe fn drop_slice<T>(slice: &[T]) {
 }
 
 impl FieldData {
+    pub unsafe fn from_raw_parts(
+        header: Vec<FieldValueHeader>,
+        data: Vec<u8>,
+        field_count: usize,
+    ) -> Self {
+        Self {
+            header,
+            data,
+            field_count,
+        }
+    }
     pub fn clear(&mut self) {
         self.field_count = 0;
         FieldData::set_end(self.iter_mut());

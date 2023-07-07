@@ -136,6 +136,9 @@ impl<'a, T> TypedSliceIter<'a, T> {
         }
     }
     pub fn next_header(&mut self) {
+        if self.header == self.header_end {
+            return;
+        }
         if self.header_rl_rem > 1 {
             let h = unsafe { *self.header };
             if !h.shared_value() {
@@ -144,11 +147,10 @@ impl<'a, T> TypedSliceIter<'a, T> {
         }
         let mut h;
         loop {
-            let next = unsafe { self.header.add(1) };
-            if next == self.header_end {
+            self.header = unsafe { self.header.add(1) };
+            if self.header == self.header_end {
                 return;
             }
-            self.header = next;
             h = unsafe { *self.header };
             if !h.deleted() {
                 break;
@@ -335,6 +337,9 @@ impl<'a> InlineBytesIter<'a> {
         }
     }
     pub fn next_header(&mut self) {
+        if self.header == self.header_end {
+            return;
+        }
         if self.header_rl_rem > 0 {
             let h = unsafe { *self.header };
             if !h.same_value_as_previous() {
@@ -348,11 +353,10 @@ impl<'a> InlineBytesIter<'a> {
         }
         let mut h;
         loop {
-            let next = unsafe { self.header.add(1) };
-            if next == self.header_end {
+            self.header = unsafe { self.header.add(1) };
+            if self.header == self.header_end {
                 return;
             }
-            self.header = next;
             h = unsafe { *self.header };
             if !h.deleted() {
                 break;
@@ -473,5 +477,67 @@ impl<'a> Iterator for InlineTextIter<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         let (v, rl) = self.iter.next()?;
         return Some((unsafe { std::str::from_utf8_unchecked(v) }, rl));
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::field_data::{push_interface::PushInterface, FieldData, RunLength};
+
+    use super::TypedSliceIter;
+
+    fn compare_iter_output<T: Eq + std::fmt::Debug + Clone>(
+        fd: &FieldData,
+        expected: &[(T, RunLength)],
+    ) {
+        let iter = TypedSliceIter::new(
+            unsafe { std::slice::from_raw_parts(fd.data.as_ptr() as *const T, 3) },
+            &fd.header,
+            0,
+            0,
+        );
+        assert_eq!(
+            iter.map(|(v, rl)| (v.clone(), rl)).collect::<Vec<_>>(),
+            expected
+        );
+    }
+
+    #[test]
+    fn simple() {
+        let mut fd = FieldData::default();
+        fd.push_int(1, 1, false, false);
+        fd.push_int(2, 2, false, false);
+        fd.push_int(3, 3, false, false);
+        compare_iter_output::<i64>(&fd, &[(1, 1), (2, 2), (3, 3)]);
+    }
+
+    #[test]
+    fn with_deletion() {
+        let mut fd = FieldData::default();
+        fd.push_int(1, 1, false, false);
+        fd.push_int(2, 2, false, false);
+        fd.push_int(3, 3, false, false);
+        unsafe {
+            let (h, _d, c) = fd.internals();
+            h[1].set_deleted(true);
+            *c -= 2;
+        }
+        compare_iter_output::<i64>(&fd, &[(1, 1), (3, 3)]);
+    }
+
+    #[test]
+    fn with_same_as_previous() {
+        let mut fd = FieldData::default();
+        fd.push_int(1, 1, false, false);
+        unsafe {
+            let (h, _d, c) = fd.internals();
+            h.extend_from_within(0..1);
+            h[1].set_same_value_as_previous(true);
+            h[1].run_length = 5;
+            h[1].set_shared_value(true);
+            *c += 5;
+        }
+        fd.push_int(3, 3, false, false);
+        compare_iter_output::<i64>(&fd, &[(1, 1), (1, 5), (3, 3)]);
     }
 }
