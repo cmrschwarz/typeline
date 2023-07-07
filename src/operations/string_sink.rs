@@ -5,21 +5,21 @@ use std::{
 
 use bstr::ByteSlice;
 
+use crate::field_data::{
+    iter_hall::IterId, iters::FieldIterator, typed::TypedSlice, typed_iters::TypedSliceIter,
+};
 use crate::{
-    ref_iter::{AutoDerefIter, RefAwareInlineTextIter, RefAwareInlineBytesIter, RefAwareBytesBufferIter},
+    field_data::field_value_flags,
     operations::print::{
         write_error, write_integer, write_null, write_raw_bytes, write_type_error, write_unset,
+    },
+    ref_iter::{
+        AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter, RefAwareInlineTextIter,
     },
     stream_value::{StreamValue, StreamValueData, StreamValueId},
     utils::universe::Universe,
     worker_thread_session::{FieldId, JobData},
 };
-use crate::field_data::{
-        iters::FieldIterator,
-        typed::TypedSlice,
-        typed_iters::TypedSliceIter,
-        iter_hall::IterId,
-    };
 
 use super::{
     errors::OperatorApplicationError,
@@ -205,7 +205,11 @@ pub fn handle_tf_string_sink(
     let mut out = tf.handle.lock().unwrap();
     let buf = &mut tf.buf;
 
-    while let Some(range) = iter.typed_range_fwd(&mut sess.record_mgr.match_sets, usize::MAX) {
+    while let Some(range) = iter.typed_range_fwd(
+        &mut sess.record_mgr.match_sets,
+        usize::MAX,
+        field_value_flags::BYTES_ARE_UTF8,
+    ) {
         match range.base.data {
             TypedSlice::TextInline(text) => {
                 for (v, rl, _offs) in RefAwareInlineTextIter::from_range(&range, text) {
@@ -242,7 +246,14 @@ pub fn handle_tf_string_sink(
             }
             TypedSlice::Unset(_) => {
                 write_unset::<false>(buf, 1).unwrap();
-                push_string_clear_buf(sess, tf_id, field_pos, &mut out, buf, range.base.field_count);
+                push_string_clear_buf(
+                    sess,
+                    tf_id,
+                    field_pos,
+                    &mut out,
+                    buf,
+                    range.base.field_count,
+                );
             }
             TypedSlice::StreamValueId(svs) => {
                 for (svid, rl) in TypedSliceIter::from_range(&range.base, svs) {

@@ -5,7 +5,7 @@ use crate::field_data::{
     FieldValueKind, RunLength,
 };
 
-use super::typed::{TypedField, TypedRange, TypedSlice};
+use super::typed::{TypedField, TypedRange, TypedSlice, ValidTypedRange};
 
 impl<'a> Default for TypedRange<'a> {
     fn default() -> Self {
@@ -103,12 +103,12 @@ pub trait FieldIterator<'a>: Sized {
         &mut self,
         limit: usize,
         flag_mask: FieldValueFlags,
-    ) -> Option<TypedRange<'a>>;
+    ) -> Option<ValidTypedRange<'a>>;
     fn typed_range_bwd(
         &mut self,
         limit: usize,
         flag_mask: FieldValueFlags,
-    ) -> Option<TypedRange<'a>>;
+    ) -> Option<ValidTypedRange<'a>>;
     fn bounded(self, backwards: usize, forwards: usize) -> BoundedIter<'a, Self> {
         BoundedIter::new_relative(self, backwards, forwards)
     }
@@ -181,7 +181,6 @@ impl<'a> FieldIterator<'a> for Iter<'a> {
         self.header_fmt
     }
     fn get_next_field_data(&self) -> usize {
-        debug_assert!(self.is_next_valid());
         if self.header_fmt.shared_value() {
             self.data
         } else {
@@ -189,7 +188,6 @@ impl<'a> FieldIterator<'a> for Iter<'a> {
         }
     }
     fn get_prev_field_data_end(&self) -> usize {
-        debug_assert!(self.is_prev_valid());
         if self.header_rl_offset > 0 {
             if self.header_fmt.shared_value() {
                 return self.data + self.header_fmt.size as usize;
@@ -210,7 +208,6 @@ impl<'a> FieldIterator<'a> for Iter<'a> {
         self.data
     }
     fn get_next_header_index(&self) -> usize {
-        debug_assert!(self.is_next_valid());
         self.header_idx
     }
     fn get_prev_header_index(&self) -> usize {
@@ -308,9 +305,10 @@ impl<'a> FieldIterator<'a> for Iter<'a> {
         n: usize,
         kinds: [FieldValueKind; N],
         flag_mask: FieldValueFlags,
-        flags: FieldValueFlags,
+        mut flags: FieldValueFlags,
         data_check: impl Fn(&FieldValueFormat, *const u8) -> bool,
     ) -> usize {
+        flags &= flag_mask;
         let mut stride_rem = n;
         let curr_header_rem = (self.header_rl_total - self.header_rl_offset) as usize;
         if curr_header_rem == 0
@@ -353,9 +351,10 @@ impl<'a> FieldIterator<'a> for Iter<'a> {
         n: usize,
         kinds: [FieldValueKind; N],
         flag_mask: FieldValueFlags,
-        flags: FieldValueFlags,
+        mut flags: FieldValueFlags,
         data_check: impl Fn(&FieldValueFormat, *const u8) -> bool,
     ) -> usize {
+        flags &= flag_mask;
         if n == 0
             || self.prev_field() == 0
             || (self.header_fmt.flags & flag_mask) != flags
@@ -442,7 +441,7 @@ impl<'a> FieldIterator<'a> for Iter<'a> {
         &mut self,
         limit: usize,
         flag_mask: FieldValueFlags,
-    ) -> Option<TypedRange<'a>> {
+    ) -> Option<ValidTypedRange<'a>> {
         if limit == 0 || !self.is_next_valid() {
             return None;
         }
@@ -472,7 +471,7 @@ impl<'a> FieldIterator<'a> for Iter<'a> {
         }
 
         unsafe {
-            TypedRange::new(
+            ValidTypedRange(TypedRange::new(
                 self.fd,
                 (flag_mask & field_value_flags::BYTES_ARE_UTF8) != 0,
                 fmt,
@@ -483,7 +482,7 @@ impl<'a> FieldIterator<'a> for Iter<'a> {
                 header_end,
                 oversize_start,
                 oversize_end,
-            )
+            ))
             .into()
         }
     }
@@ -491,7 +490,7 @@ impl<'a> FieldIterator<'a> for Iter<'a> {
         &mut self,
         limit: usize,
         flag_mask: FieldValueFlags,
-    ) -> Option<TypedRange<'a>> {
+    ) -> Option<ValidTypedRange<'a>> {
         if limit == 0 || !self.is_prev_valid() {
             return None;
         }
@@ -511,7 +510,7 @@ impl<'a> FieldIterator<'a> for Iter<'a> {
         let header_start = self.header_idx;
         let data_start = self.get_next_field_data();
         unsafe {
-            TypedRange::new(
+            ValidTypedRange(TypedRange::new(
                 self.fd,
                 (flag_mask & field_value_flags::BYTES_ARE_UTF8) != 0,
                 fmt,
@@ -522,7 +521,7 @@ impl<'a> FieldIterator<'a> for Iter<'a> {
                 header_end,
                 self.header_rl_offset,
                 oversize_end,
-            )
+            ))
         }
         .into()
     }
@@ -607,11 +606,9 @@ where
         self.iter.get_next_field_format()
     }
     fn get_next_field_data(&self) -> usize {
-        debug_assert!(self.is_next_valid());
         self.iter.get_next_field_data()
     }
     fn get_prev_field_data_end(&self) -> usize {
-        debug_assert!(self.is_next_valid());
         self.iter.get_prev_field_data_end()
     }
     fn get_next_header(&self) -> FieldValueHeader {
@@ -623,7 +620,6 @@ where
         self.iter.get_next_header_data()
     }
     fn get_next_header_index(&self) -> usize {
-        debug_assert!(self.is_next_valid());
         self.iter.get_next_header_index()
     }
     fn get_prev_header_index(&self) -> usize {
@@ -716,7 +712,7 @@ where
         &mut self,
         limit: usize,
         flag_mask: FieldValueFlags,
-    ) -> Option<TypedRange<'a>> {
+    ) -> Option<ValidTypedRange<'a>> {
         self.iter
             .typed_range_fwd(limit.min(self.range_fwd()), flag_mask)
     }
@@ -724,7 +720,7 @@ where
         &mut self,
         limit: usize,
         flag_mask: FieldValueFlags,
-    ) -> Option<TypedRange<'a>> {
+    ) -> Option<ValidTypedRange<'a>> {
         self.iter
             .typed_range_bwd(limit.min(self.range_bwd()), flag_mask)
     }
@@ -875,7 +871,7 @@ impl<'a> FieldIterator<'a> for IterMut<'a> {
         &mut self,
         limit: usize,
         flag_mask: FieldValueFlags,
-    ) -> Option<TypedRange<'a>> {
+    ) -> Option<ValidTypedRange<'a>> {
         self.as_base_iter_mut().typed_range_fwd(limit, flag_mask)
     }
 
@@ -883,7 +879,7 @@ impl<'a> FieldIterator<'a> for IterMut<'a> {
         &mut self,
         limit: usize,
         flag_mask: FieldValueFlags,
-    ) -> Option<TypedRange<'a>> {
+    ) -> Option<ValidTypedRange<'a>> {
         self.as_base_iter_mut().typed_range_bwd(limit, flag_mask)
     }
 

@@ -9,16 +9,18 @@ use std::ops::Deref;
 
 use std::num::NonZeroUsize;
 
-use crate::ref_iter::{AutoDerefIter, RefAwareInlineTextIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter};
 use crate::field_data::command_buffer::{CommandBuffer, FieldActionKind};
 use crate::field_data::push_interface::PushInterface;
-use crate::field_data::RunLength;
+use crate::field_data::{field_value_flags, RunLength};
+use crate::ref_iter::{
+    AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter, RefAwareInlineTextIter,
+};
 use crate::utils::universe::Universe;
 use crate::utils::{self, USIZE_MAX_DECIMAL_DIGITS};
 use crate::worker_thread_session::Field;
 use crate::{
     field_data::typed::TypedSlice,
-    field_data::{iters::FieldIterator, iter_hall::IterId, FieldReference},
+    field_data::{iter_hall::IterId, iters::FieldIterator, FieldReference},
     options::argument::CliArgIdx,
     utils::string_store::{StringStore, StringStoreEntry},
     worker_thread_session::{FieldId, JobData},
@@ -460,7 +462,11 @@ pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRe
         None,
     );
 
-    while let Some(range) = iter.typed_range_fwd(&mut sess.record_mgr.match_sets, usize::MAX) {
+    while let Some(range) = iter.typed_range_fwd(
+        &mut sess.record_mgr.match_sets,
+        usize::MAX,
+        field_value_flags::BYTES_ARE_UTF8,
+    ) {
         let command_buffer = &mut sess.record_mgr.match_sets[tf.match_set_id].command_buffer;
         match range.base.data {
             TypedSlice::TextInline(text) => {

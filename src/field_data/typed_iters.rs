@@ -1,6 +1,9 @@
 use std::{marker::PhantomData, ptr::NonNull};
 
-use super::{typed::TypedRange, FieldValueHeader, RunLength};
+use super::{
+    typed::{TypedRange, ValidTypedRange},
+    FieldValueHeader, RunLength,
+};
 
 #[derive(Clone)]
 pub struct TypedSliceIter<'a, T> {
@@ -25,8 +28,8 @@ impl<'a, T> Default for TypedSliceIter<'a, T> {
     }
 }
 
-impl<'a, T> TypedSliceIter<'a, T> {
-    pub fn new(
+impl<'a, T: 'static> TypedSliceIter<'a, T> {
+    pub unsafe fn new(
         values: &'a [T],
         headers: &'a [FieldValueHeader],
         first_oversize: RunLength,
@@ -54,13 +57,16 @@ impl<'a, T> TypedSliceIter<'a, T> {
             _phantom_data: PhantomData::default(),
         }
     }
-    pub fn from_range(range: &TypedRange<'a>, values: &'a [T]) -> Self {
-        Self::new(
-            values,
-            range.headers,
-            range.first_header_run_length_oversize,
-            range.last_header_run_length_oversize,
-        )
+    pub fn from_range(range: &ValidTypedRange<'a>, values: &'a [T]) -> Self {
+        assert!(range.data.matches_values(values));
+        unsafe {
+            Self::new(
+                values,
+                range.headers,
+                range.first_header_run_length_oversize,
+                range.last_header_run_length_oversize,
+            )
+        }
     }
     pub fn peek(&self) -> Option<<Self as Iterator>::Item> {
         if self.header == self.header_end {
@@ -125,14 +131,7 @@ impl<'a, T> TypedSliceIter<'a, T> {
                 return;
             }
             n -= self.header_rl_rem as usize;
-            unsafe {
-                if !(*self.header).shared_value() {
-                    self.advance_value(self.header_rl_rem as usize);
-                } else if !(*self.header).same_value_as_previous() {
-                    self.next_value();
-                }
-                self.next_header();
-            }
+            self.next_header();
         }
     }
     pub fn next_header(&mut self) {
@@ -185,7 +184,7 @@ impl<'a, T> TypedSliceIter<'a, T> {
     }
 }
 
-impl<'a, T: 'a> Iterator for TypedSliceIter<'a, T> {
+impl<'a, T: 'static> Iterator for TypedSliceIter<'a, T> {
     type Item = (&'a T, RunLength);
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -490,16 +489,21 @@ mod test_slice_iter {
 
     use super::TypedSliceIter;
 
-    fn compare_iter_output<T: Eq + std::fmt::Debug + Clone>(
+    fn compare_iter_output<T: Eq + std::fmt::Debug + Clone + 'static>(
         fd: &FieldData,
         expected: &[(T, RunLength)],
     ) {
-        let iter = TypedSliceIter::new(
-            unsafe { std::slice::from_raw_parts(fd.data.as_ptr() as *const T, 3) },
-            &fd.header,
-            0,
-            0,
-        );
+        let iter = unsafe {
+            TypedSliceIter::new(
+                std::slice::from_raw_parts(
+                    fd.data.as_ptr() as *const T,
+                    fd.data.len() / std::mem::size_of::<T>(),
+                ),
+                &fd.header,
+                0,
+                0,
+            )
+        };
         assert_eq!(
             iter.map(|(v, rl)| (v.clone(), rl)).collect::<Vec<_>>(),
             expected
@@ -574,8 +578,11 @@ mod test_text_iter {
     fn compare_iter_output(fd: &FieldData, expected: &[(&'static str, RunLength)]) {
         let iter = InlineTextIter::new(
             unsafe {
-                std::str::from_utf8(std::slice::from_raw_parts(fd.data.as_ptr() as *const u8, 3))
-                    .unwrap()
+                std::str::from_utf8(std::slice::from_raw_parts(
+                    fd.data.as_ptr() as *const u8,
+                    fd.data.len(),
+                ))
+                .unwrap()
             },
             &fd.header,
             0,

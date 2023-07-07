@@ -1,11 +1,11 @@
-use std::ptr::NonNull;
-
-use crate::{operations::errors::OperatorApplicationError, stream_value::StreamValueId};
+use std::{any::TypeId, ptr::NonNull};
 
 use super::{
     field_value_flags, FieldData, FieldReference, FieldValueFormat, FieldValueHeader,
     FieldValueKind, Html, Object, RunLength,
 };
+use crate::{operations::errors::OperatorApplicationError, stream_value::StreamValueId};
+use std::ops::Deref;
 
 pub enum TypedValue<'a> {
     Unset(()),
@@ -50,8 +50,8 @@ impl<'a> TypedValue<'a> {
     }
     pub fn as_slice(&self) -> TypedSlice<'a> {
         match self {
-            TypedValue::Unset(_) => TypedSlice::Unset(& [()]),
-            TypedValue::Null(_) => TypedSlice::Null(& [()]),
+            TypedValue::Unset(_) => TypedSlice::Unset(&[()]),
+            TypedValue::Null(_) => TypedSlice::Null(&[()]),
             TypedValue::Integer(v) => TypedSlice::Integer(std::slice::from_ref(v)),
             TypedValue::StreamValueId(v) => TypedSlice::StreamValueId(std::slice::from_ref(v)),
             TypedValue::Reference(v) => TypedSlice::Reference(std::slice::from_ref(v)),
@@ -103,6 +103,12 @@ pub enum TypedSlice<'a> {
     Object(&'a [Object]),
 }
 
+pub fn slice_as_bytes<T>(v: &[T]) -> &[u8] {
+    unsafe {
+        std::slice::from_raw_parts(v.as_ptr() as *const u8, v.len() * std::mem::size_of::<T>())
+    }
+}
+
 impl<'a> TypedSlice<'a> {
     pub unsafe fn new(
         fd: &'a FieldData,
@@ -138,6 +144,40 @@ impl<'a> TypedSlice<'a> {
             }
             FieldValueKind::BytesFile => todo!(),
         }
+    }
+    pub fn as_bytes(&self) -> &[u8] {
+        match self {
+            TypedSlice::Unset(_) => &[],
+            TypedSlice::Null(_) => &[],
+            TypedSlice::Integer(v) => slice_as_bytes(v),
+            TypedSlice::StreamValueId(v) => slice_as_bytes(v),
+            TypedSlice::Reference(v) => slice_as_bytes(v),
+            TypedSlice::Error(v) => slice_as_bytes(v),
+            TypedSlice::Html(v) => slice_as_bytes(v),
+            TypedSlice::BytesInline(v) => v,
+            TypedSlice::TextInline(v) => v.as_bytes(),
+            TypedSlice::BytesBuffer(v) => slice_as_bytes(v),
+            TypedSlice::Object(v) => slice_as_bytes(v),
+        }
+    }
+    pub fn type_id(&self) -> TypeId {
+        match self {
+            TypedSlice::Unset(_) => TypeId::of::<()>(),
+            TypedSlice::Null(_) => TypeId::of::<()>(),
+            TypedSlice::Integer(_) => TypeId::of::<i64>(),
+            TypedSlice::StreamValueId(_) => TypeId::of::<StreamValueId>(),
+            TypedSlice::Reference(_) => TypeId::of::<FieldReference>(),
+            TypedSlice::Error(_) => TypeId::of::<OperatorApplicationError>(),
+            TypedSlice::Html(_) => TypeId::of::<Html>(),
+            TypedSlice::BytesInline(_) => TypeId::of::<u8>(),
+            TypedSlice::TextInline(_) => TypeId::of::<u8>(),
+            TypedSlice::BytesBuffer(_) => TypeId::of::<Vec<u8>>(),
+            TypedSlice::Object(_) => TypeId::of::<Object>(),
+        }
+    }
+    pub fn matches_values<T: 'static>(&self, values: &[T]) -> bool {
+        TypeId::of::<T>() == self.type_id()
+            && self.as_bytes().as_ptr_range() == slice_as_bytes(values).as_ptr_range()
     }
 }
 
@@ -178,6 +218,24 @@ impl<'a> TypedRange<'a> {
             first_header_run_length_oversize,
             last_header_run_length_oversize,
         }
+    }
+}
+
+// SAFETY: the range contained in this header is non writable outside of this module.
+// Therefore, nobody outside this module can (safely) construct a ValidTypedRange.
+// We can therefore assume all instances to be valid (header matches data)
+pub struct ValidTypedRange<'a>(pub(super) TypedRange<'a>);
+
+impl<'a> Deref for ValidTypedRange<'a> {
+    type Target = TypedRange<'a>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl<'a> ValidTypedRange<'a> {
+    pub unsafe fn new(range: TypedRange<'a>) -> Self {
+        Self(range)
     }
 }
 

@@ -113,11 +113,17 @@ impl<I: UniverseIndex, T> Universe<I, T> {
         }
     }
 
-    pub fn reserve_id_with(&mut self, id: I, func: impl FnMut() -> T) {
+    pub fn reserve_id_with(
+        &mut self,
+        id: I,
+        defaults_func: impl FnMut() -> T,
+        func: impl FnOnce() -> T,
+    ) {
         let index = UniverseIdx(id).to_usize();
         let prev_len = self.data.len();
         if prev_len <= index {
-            self.data.resize_with(index + 1, func);
+            self.data.resize_with(index, defaults_func);
+            self.data.push(func());
             self.unused_ids.extend(
                 (prev_len..index)
                     .into_iter()
@@ -173,7 +179,7 @@ impl<I: UniverseIndex, T: Default> Universe<I, T> {
         self.claim_with(Default::default)
     }
     pub fn reserve_id(&mut self, id: I) {
-        self.reserve_id_with(id, Default::default);
+        self.reserve_id_with(id, Default::default, Default::default);
     }
 }
 

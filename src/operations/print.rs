@@ -4,14 +4,14 @@ use bstr::{BStr, ByteSlice};
 use is_terminal::IsTerminal;
 
 use crate::{
-    ref_iter::{AutoDerefIter, RefAwareInlineTextIter, RefAwareInlineBytesIter, RefAwareBytesBufferIter},
     field_data::{
-        iters::FieldIterator,
-        typed::TypedSlice,
+        field_value_flags, iter_hall::IterId, iters::FieldIterator, typed::TypedSlice,
         typed_iters::TypedSliceIter,
-        iter_hall::IterId,
     },
     options::argument::CliArgIdx,
+    ref_iter::{
+        AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter, RefAwareInlineTextIter,
+    },
     stream_value::{StreamValue, StreamValueData, StreamValueId},
     worker_thread_session::{FieldId, JobData},
 };
@@ -216,8 +216,11 @@ pub fn handle_tf_print_raw(
     *field_pos = starting_pos;
     *field_pos_batch_end = starting_pos + batch;
 
-    'iter: while let Some(range) = iter.typed_range_fwd(&mut sess.record_mgr.match_sets, usize::MAX)
-    {
+    'iter: while let Some(range) = iter.typed_range_fwd(
+        &mut sess.record_mgr.match_sets,
+        usize::MAX,
+        field_value_flags::BYTES_ARE_UTF8,
+    ) {
         match range.base.data {
             TypedSlice::TextInline(text) => {
                 for (v, rl, _offs) in RefAwareInlineTextIter::from_range(&range, text) {

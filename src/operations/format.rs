@@ -4,13 +4,13 @@ use bstr::{BStr, BString, ByteSlice, ByteVec};
 use smallstr::SmallString;
 
 use crate::{
-    ref_iter::{AutoDerefIter, RefAwareInlineTextIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter},
     field_data::{
-        typed::TypedSlice,
-        push_interface::PushInterface,
-        iter_hall::IterId,
+        field_value_flags, iter_hall::IterId, push_interface::PushInterface, typed::TypedSlice,
     },
     options::argument::CliArgIdx,
+    ref_iter::{
+        AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter, RefAwareInlineTextIter,
+    },
     stream_value::StreamValueId,
     utils::string_store::{StringStore, StringStoreEntry},
     worker_thread_session::{FieldId, JobData},
@@ -431,23 +431,30 @@ pub fn handle_tf_format(sess: &mut JobData<'_>, tf_id: TransformId, fmt: &mut Tf
                     Some(ident_ref.field_id),
                 );
 
-                while let Some(range) =
-                    iter.typed_range_fwd(&mut sess.record_mgr.match_sets, usize::MAX)
-                {
+                while let Some(range) = iter.typed_range_fwd(
+                    &mut sess.record_mgr.match_sets,
+                    usize::MAX,
+                    field_value_flags::BYTES_ARE_UTF8,
+                ) {
                     match range.base.data {
                         TypedSlice::Reference(_) => unreachable!(),
                         TypedSlice::TextInline(text) => {
-                            for (_v, _rl, _offs) in RefAwareInlineTextIter::from_range(&range, text) {
+                            for (_v, _rl, _offs) in RefAwareInlineTextIter::from_range(&range, text)
+                            {
                                 todo!();
                             }
                         }
                         TypedSlice::BytesInline(bytes) => {
-                            for (_v, _rl, _offs) in RefAwareInlineBytesIter::from_range(&range, bytes) {
+                            for (_v, _rl, _offs) in
+                                RefAwareInlineBytesIter::from_range(&range, bytes)
+                            {
                                 todo!();
                             }
                         }
                         TypedSlice::BytesBuffer(bytes) => {
-                            for (_v, _rl, _offs) in RefAwareBytesBufferIter::from_range(&range, bytes) {
+                            for (_v, _rl, _offs) in
+                                RefAwareBytesBufferIter::from_range(&range, bytes)
+                            {
                                 todo!();
                             }
                         }

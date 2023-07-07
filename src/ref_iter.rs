@@ -1,8 +1,8 @@
 use crate::{
     field_data::{
-        field_value_flags::{self, FieldValueFlags},
+        field_value_flags::FieldValueFlags,
         iters::{FieldIterator, Iter},
-        typed::{TypedRange, TypedSlice, TypedValue},
+        typed::{TypedRange, TypedSlice, TypedValue, ValidTypedRange},
         typed_iters::{InlineBytesIter, TypedSliceIter},
         FieldReference, FieldValueHeader, RunLength,
     },
@@ -154,9 +154,9 @@ impl<'a> RefIter<'a> {
         match_sets: &'_ mut Universe<MatchSetId, MatchSet>,
         mut limit: usize,
         flag_mask: FieldValueFlags,
-    ) -> Option<(TypedRange<'a>, TypedSliceIter<'a, FieldReference>)> {
-        let refs_data_start = self.refs_iter.data_ptr();
+    ) -> Option<(ValidTypedRange<'a>, TypedSliceIter<'a, FieldReference>)> {
         let refs_headers_start = self.refs_iter.peek_header()?;
+        let refs_data_start = self.refs_iter.data_ptr();
         let refs_oversize_start = self.refs_iter.field_run_length_bwd();
         let ref_header_idx = self.refs_iter.headers_remaining();
         let (mut field_ref, mut field_rl) = self.refs_iter.next()?;
@@ -176,8 +176,8 @@ impl<'a> RefIter<'a> {
             let data_stride = self.data_iter.next_n_fields_with_fmt(
                 (field_rl as usize).min(limit),
                 [fmt.kind],
-                fmt.flags,
                 flag_mask,
+                fmt.flags,
             );
             field_count += data_stride;
             limit -= data_stride;
@@ -195,46 +195,39 @@ impl<'a> RefIter<'a> {
                 break;
             }
         }
-
-        Some((
-            TypedRange {
-                headers: unsafe {
-                    std::slice::from_raw_parts(
+        unsafe {
+            Some((
+                ValidTypedRange::new(TypedRange {
+                    headers: std::slice::from_raw_parts(
                         header_ref as *const FieldValueHeader,
                         self.data_iter.get_next_header_index() - header_idx,
-                    )
-                },
-                data: unsafe {
-                    TypedSlice::new(
+                    ),
+                    data: TypedSlice::new(
                         self.data_iter.field_data_ref(),
                         header_ref.fmt,
                         true,
                         data_start,
                         self.data_iter.get_prev_field_data_end(),
                         field_count,
-                    )
-                },
-                field_count: field_count,
-                first_header_run_length_oversize: oversize_start,
-                last_header_run_length_oversize: self.data_iter.field_run_length_fwd_oversize(),
-            },
-            TypedSliceIter::new(
-                unsafe {
+                    ),
+                    field_count: field_count,
+                    first_header_run_length_oversize: oversize_start,
+                    last_header_run_length_oversize: self.data_iter.field_run_length_fwd_oversize(),
+                }),
+                TypedSliceIter::new(
                     std::slice::from_raw_parts(
                         refs_data_start,
                         self.refs_iter.data_ptr().offset_from(refs_data_start) as usize,
-                    )
-                },
-                unsafe {
+                    ),
                     std::slice::from_raw_parts(
                         refs_headers_start as *const FieldValueHeader,
                         ref_header_idx - self.refs_iter.headers_remaining(),
-                    )
-                },
-                refs_oversize_start,
-                refs_oversize_end,
-            ),
-        ))
+                    ),
+                    refs_oversize_start,
+                    refs_oversize_end,
+                ),
+            ))
+        }
     }
 }
 
@@ -244,7 +237,7 @@ pub struct AutoDerefIter<'a, I: FieldIterator<'a>> {
     ref_iter: RefIter<'a>,
 }
 pub struct RefAwareTypedRange<'a> {
-    pub base: TypedRange<'a>,
+    pub base: ValidTypedRange<'a>,
     pub refs: Option<TypedSliceIter<'a, FieldReference>>,
     pub field_id: FieldId,
 }
@@ -291,12 +284,10 @@ impl<'a, I: FieldIterator<'a>> AutoDerefIter<'a, I> {
         &mut self,
         match_sets: &'_ mut Universe<MatchSetId, MatchSet>,
         limit: usize,
+        flags: FieldValueFlags,
     ) -> Option<RefAwareTypedRange<'a>> {
         loop {
-            if let Some((range, refs)) =
-                self.ref_iter
-                    .typed_range_fwd(match_sets, limit, field_value_flags::BYTES_ARE_UTF8)
-            {
+            if let Some((range, refs)) = self.ref_iter.typed_range_fwd(match_sets, limit, flags) {
                 let (fr, _) = refs.peek().unwrap();
                 return Some(RefAwareTypedRange {
                     base: range,
@@ -305,10 +296,7 @@ impl<'a, I: FieldIterator<'a>> AutoDerefIter<'a, I> {
                 });
             }
             let field_pos = self.iter.get_next_field_pos();
-            if let Some(range) = self
-                .iter
-                .typed_range_fwd(limit, field_value_flags::BYTES_ARE_UTF8)
-            {
+            if let Some(range) = self.iter.typed_range_fwd(limit, flags) {
                 if let TypedSlice::Reference(refs) = range.data {
                     let refs_iter = TypedSliceIter::from_range(&range, refs);
                     let field_id = refs_iter.peek().unwrap().0.field;
@@ -416,7 +404,7 @@ pub struct RefAwareBytesBufferIter<'a> {
 }
 
 impl<'a> RefAwareBytesBufferIter<'a> {
-    pub fn new(
+    pub unsafe fn new(
         values: &'a [Vec<u8>],
         headers: &'a [FieldValueHeader],
         first_oversize: RunLength,
@@ -452,4 +440,179 @@ impl<'a> Iterator for RefAwareBytesBufferIter<'a> {
             Some((data, rl, 0))
         }
     }
+}
+
+#[cfg(test)]
+mod ref_iter_tests {
+    use std::cell::RefCell;
+
+    use nonmax::NonMaxUsize;
+
+    use crate::{
+        field_data::{
+            field_value_flags, push_interface::PushInterface, typed::TypedSlice, FieldData,
+            FieldReference, RunLength,
+        },
+        ref_iter::{AutoDerefIter, RefAwareInlineTextIter},
+        utils::universe::Universe,
+        worker_thread_session::{Field, FieldId, MatchSet, MatchSetId, FIELD_REF_LOOKUP_ITER_ID},
+    };
+
+    fn push_field(
+        u: &mut Universe<FieldId, RefCell<Field>>,
+        fd: FieldData,
+        id: Option<FieldId>,
+    ) -> FieldId {
+        let mut field = Field::default();
+        field.field_data.reset_with_data(fd);
+        field.field_data.reserve_iter_id(FIELD_REF_LOOKUP_ITER_ID);
+        if let Some(id) = id {
+            u.reserve_id_with(id, Default::default, || RefCell::new(field));
+            id
+        } else {
+            u.claim_with_value(RefCell::new(field))
+        }
+    }
+    fn compare_iter_output(
+        fd: FieldData,
+        fd_refs: FieldData,
+        expected: &[(&'static str, RunLength, usize)],
+    ) {
+        let mut fields = Universe::<FieldId, RefCell<Field>>::default();
+
+        let field_id = push_field(&mut fields, fd, Default::default());
+        let refs_field_id = push_field(&mut fields, fd_refs, None);
+        let mut match_sets = Universe::<MatchSetId, MatchSet>::default();
+        match_sets.claim_with_value(MatchSet {
+            stream_batch_size: Default::default(),
+            stream_participants: Default::default(),
+            working_set_updates: Default::default(),
+            working_set: Default::default(),
+            command_buffer: Default::default(),
+            field_name_map: Default::default(),
+            err_field_id: fields.claim(),
+        });
+
+        let refs_borrow = fields[refs_field_id].borrow();
+        let mut ref_iter = AutoDerefIter::new(
+            &fields,
+            &mut match_sets,
+            field_id,
+            refs_borrow.field_data.iter(),
+            Some(field_id),
+        );
+        let range = ref_iter
+            .typed_range_fwd(
+                &mut match_sets,
+                usize::MAX,
+                field_value_flags::BYTES_ARE_UTF8,
+            )
+            .unwrap();
+        let iter = match range.base.data {
+            TypedSlice::TextInline(v) => RefAwareInlineTextIter::from_range(&range, v),
+            _ => panic!("wrong data type"),
+        };
+
+        assert_eq!(iter.collect::<Vec<_>>(), expected);
+    }
+    fn compare_iter_output_parallel_ref(fd: FieldData, expected: &[(&'static str, RunLength)]) {
+        let mut fd_refs = FieldData::default();
+        let mut expected_out = Vec::default();
+        for (v, rl) in expected {
+            push_ref(&mut fd_refs, 0, v.len(), *rl as usize);
+            expected_out.push((*v, *rl, 0));
+        }
+        compare_iter_output(fd, fd_refs, &expected_out);
+    }
+    fn push_ref(fd: &mut FieldData, begin: usize, end: usize, rl: usize) {
+        fd.push_reference(
+            FieldReference {
+                field: NonMaxUsize::default(),
+                begin: begin,
+                end: end,
+            },
+            rl,
+            false,
+            false,
+        );
+    }
+
+    #[test]
+    fn simple() {
+        let mut fd = FieldData::default();
+        fd.push_str("a", 1, false, false);
+        fd.push_str("bb", 2, false, false);
+        fd.push_str("ccc", 3, false, false);
+        compare_iter_output_parallel_ref(fd, &[("a", 1), ("bb", 2), ("ccc", 3)]);
+    }
+
+    #[test]
+    fn shared_ref() {
+        let mut fd = FieldData::default();
+        fd.push_str("aaa", 1, false, false);
+        fd.push_str("bbbb", 2, false, false);
+        fd.push_str("ccccc", 3, false, false);
+        let mut fdr = FieldData::default();
+        push_ref(&mut fdr, 1, 3, 6);
+        compare_iter_output(fd, fdr, &[("aa", 1, 1), ("bb", 2, 1), ("cc", 3, 1)]);
+    }
+
+    #[test]
+    fn with_deletion() {
+        let mut fd = FieldData::default();
+        fd.push_str("a", 1, false, false);
+        fd.push_str("bb", 2, false, false);
+        fd.push_str("ccc", 3, false, false);
+
+        let mut fdr = FieldData::default();
+        push_ref(&mut fdr, 0, 1, 1);
+        push_ref(&mut fdr, 0, 2, 2);
+        push_ref(&mut fdr, 0, 3, 3);
+
+        unsafe {
+            let (h, _d, c) = fd.internals();
+            h[1].set_deleted(true);
+            *c -= 2;
+            let (h, _d, c) = fdr.internals();
+            h[1].set_deleted(true);
+            *c -= 2;
+        }
+
+        compare_iter_output(fd, fdr, &[("a", 1, 0), ("ccc", 3, 0)]);
+    }
+    /*
+    #[test]
+    fn with_same_as_previous() {
+        let mut fd = FieldData::default();
+        fd.push_str("aaa", 1, false, false);
+        unsafe {
+            let (h, _d, c) = fd.internals();
+            h.extend_from_within(0..1);
+            h[1].set_same_value_as_previous(true);
+            h[1].run_length = 5;
+            h[1].set_shared_value(true);
+            *c += 5;
+        }
+        fd.push_str("c", 3, false, false);
+        compare_iter_output_simple_ref(fd, &[("aaa", 1), ("aaa", 5), ("c", 3)]);
+    }
+
+    #[test]
+    fn with_same_as_previous_after_deleted() {
+        let mut fd = FieldData::default();
+        fd.push_str("00", 1, false, false);
+        fd.push_str("1", 1, false, false);
+        unsafe {
+            let (h, _d, c) = fd.internals();
+            h.extend_from_within(1..2);
+            h[2].set_same_value_as_previous(true);
+            h[2].run_length = 5;
+            h[2].set_shared_value(true);
+            *c += 5;
+            h[1].set_deleted(true);
+            *c -= 1;
+        }
+        fd.push_str("333", 3, false, false);
+        compare_iter_output(fd, &[("00", 1), ("1", 5), ("333", 3)]);
+    }*/
 }
