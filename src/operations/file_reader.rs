@@ -12,7 +12,7 @@ use smallstr::SmallString;
 
 use crate::{
     field_data::{
-        push_interface::PushInterface, field_value_flags, FieldValueFormat, FieldValueHeader,
+        field_value_flags, push_interface::PushInterface, FieldValueFormat, FieldValueHeader,
         FieldValueKind, FieldValueSize, INLINE_STR_MAX_LEN,
     },
     options::argument::CliArgIdx,
@@ -32,16 +32,6 @@ pub enum FileKind {
     Custom(Mutex<Option<Box<dyn Read + Send>>>),
 }
 
-impl FileKind {
-    pub fn default_op_name(&self) -> SmallString<[u8; DEFAULT_OP_NAME_SMALL_STR_LEN]> {
-        match self {
-            FileKind::Stdin => SmallString::from("stdin"),
-            FileKind::File(_) => SmallString::from("file"),
-            FileKind::Custom(_) => SmallString::from("__custom_file_stream__"),
-        }
-    }
-}
-
 pub enum AnyFile {
     Stdin(StdinLock<'static>),
     File(File),
@@ -52,8 +42,18 @@ pub enum AnyFile {
 }
 
 pub struct OpFileReader {
-    pub file_kind: FileKind,
-    pub line_buffered: bool,
+    file_kind: FileKind,
+    line_buffered: bool,
+}
+
+impl OpFileReader {
+    pub fn default_op_name(&self) -> SmallString<[u8; DEFAULT_OP_NAME_SMALL_STR_LEN]> {
+        match self.file_kind {
+            FileKind::Stdin => SmallString::from("stdin"),
+            FileKind::File(_) => SmallString::from("file"),
+            FileKind::Custom(_) => SmallString::from("__custom_file_stream__"),
+        }
+    }
 }
 
 pub struct TfFileReader {

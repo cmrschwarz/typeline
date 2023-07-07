@@ -12,7 +12,10 @@ use crate::{
         AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter, RefAwareInlineTextIter,
     },
     stream_value::StreamValueId,
-    utils::string_store::{StringStore, StringStoreEntry},
+    utils::{
+        string_store::{StringStore, StringStoreEntry},
+        universe::Universe,
+    },
     worker_thread_session::{FieldId, JobData},
 };
 
@@ -78,9 +81,9 @@ pub enum FormatPart {
 type FormatKeyRefId = usize;
 
 pub struct OpFormat {
-    pub parts: Vec<FormatPart>,
-    pub refs_str: Vec<Option<String>>,
-    pub refs_idx: Vec<Option<StringStoreEntry>>,
+    parts: Vec<FormatPart>,
+    refs_str: Vec<Option<String>>,
+    refs_idx: Vec<Option<StringStoreEntry>>,
 }
 
 pub struct FormatIdentRef {
@@ -88,12 +91,18 @@ pub struct FormatIdentRef {
     iter_id: IterId,
 }
 
+struct TfFormatStreamValueHandle {
+    part_idx: usize,
+    handled_len: usize,
+}
+
 pub struct TfFormat<'a> {
-    pub output_field: FieldId,
-    pub parts: &'a Vec<FormatPart>,
-    pub refs: Vec<FormatIdentRef>,
-    pub input_fields_unique: Vec<FieldId>,
-    pub output_lengths: Vec<usize>,
+    output_field: FieldId,
+    parts: &'a Vec<FormatPart>,
+    refs: Vec<FormatIdentRef>,
+    input_fields_unique: Vec<FieldId>,
+    output_lengths: Vec<usize>,
+    stream_value_handles: Universe<usize, TfFormatStreamValueHandle>,
 }
 
 pub fn setup_op_format(
@@ -149,6 +158,7 @@ pub fn setup_tf_format<'a>(
         refs,
         input_fields_unique,
         output_lengths: Default::default(),
+        stream_value_handles: Default::default(),
     };
     (TransformData::Format(tf), output_field)
 }

@@ -37,11 +37,11 @@ impl OperatorData {
             OperatorData::Print => SmallString::from("p"),
             OperatorData::Sequence(_) => SmallString::from("seq"),
             OperatorData::Split(_) => SmallString::from("split"),
-            OperatorData::Regex(re) => re.opts.default_op_name(),
-            OperatorData::FileReader(fr) => fr.file_kind.default_op_name(),
+            OperatorData::Regex(re) => re.default_op_name(),
+            OperatorData::FileReader(fr) => fr.default_op_name(),
             OperatorData::Format(_) => SmallString::from("f"),
             OperatorData::StringSink(_) => SmallString::from("__string_sink__"),
-            OperatorData::DataInserter(di) => di.data.default_op_name(),
+            OperatorData::DataInserter(di) => di.default_op_name(),
         }
     }
 }

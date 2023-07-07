@@ -35,20 +35,20 @@ use super::{
 };
 
 pub struct OpRegex {
-    pub regex: bytes::Regex,
-    pub text_only_regex: Option<regex::Regex>,
-    pub opts: RegexOptions,
-    pub output_group_id: usize,
-    pub capture_group_names: Vec<Option<StringStoreEntry>>,
+    regex: bytes::Regex,
+    text_only_regex: Option<regex::Regex>,
+    opts: RegexOptions,
+    output_group_id: usize,
+    capture_group_names: Vec<Option<StringStoreEntry>>,
 }
 
 pub struct TfRegex {
-    pub regex: bytes::Regex,
-    pub capture_locs: bytes::CaptureLocations,
-    pub text_only_regex: Option<(regex::Regex, regex::CaptureLocations)>,
-    pub capture_group_fields: Vec<FieldId>,
-    pub input_field_iter_id: IterId,
-    pub multimatch: bool,
+    regex: bytes::Regex,
+    capture_locs: bytes::CaptureLocations,
+    text_only_regex: Option<(regex::Regex, regex::CaptureLocations)>,
+    capture_group_fields: Vec<FieldId>,
+    input_field_iter_id: IterId,
+    multimatch: bool,
 }
 
 struct RegexBatchState {
@@ -78,22 +78,22 @@ pub struct RegexOptions {
     pub case_insensitive: bool,
 }
 
-impl RegexOptions {
+impl OpRegex {
     pub fn default_op_name(&self) -> SmallString<[u8; 16]> {
         let mut res = SmallString::from_str("r");
-        if self.ascii_mode {
+        if self.opts.ascii_mode {
             res.push('b');
         }
-        if self.multimatch {
+        if self.opts.multimatch {
             res.push('m');
         }
-        if self.line_based {
+        if self.opts.line_based {
             res.push('l');
         }
-        if self.dotall {
+        if self.opts.dotall {
             res.push('d');
         }
-        if self.case_insensitive {
+        if self.opts.case_insensitive {
             res.push('i');
         }
         res

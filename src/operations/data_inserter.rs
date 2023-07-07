@@ -19,22 +19,22 @@ pub enum AnyData {
     Int(i64),
 }
 
-impl AnyData {
+pub struct OpDataInserter {
+    data: AnyData,
+}
+
+pub struct TfDataInserter<'a> {
+    data: &'a AnyData,
+}
+
+impl OpDataInserter {
     pub fn default_op_name(&self) -> SmallString<[u8; DEFAULT_OP_NAME_SMALL_STR_LEN]> {
-        match self {
+        match self.data {
             AnyData::Bytes(_) => SmallString::from("bytes"),
             AnyData::String(_) => SmallString::from("str"),
             AnyData::Int(_) => SmallString::from("int"),
         }
     }
-}
-
-pub struct OpDataInserter {
-    pub data: AnyData,
-}
-
-pub struct TfDataInserter<'a> {
-    data: &'a AnyData,
 }
 
 pub fn setup_tf_data_inserter<'a>(
