@@ -1,9 +1,10 @@
 use crate::{
     field_data::{
         field_value_flags::{self, FieldValueFlags},
-        iters::{ Iter, FieldIterator},
-        typed_iters::{TypedSliceIter, InlineBytesIter, InlineTextIter},
-        FieldReference, FieldValueHeader, RunLength, typed::{TypedValue, TypedRange, TypedSlice}
+        iters::{FieldIterator, Iter},
+        typed::{TypedRange, TypedSlice, TypedValue},
+        typed_iters::{InlineBytesIter, TypedSliceIter},
+        FieldReference, FieldValueHeader, RunLength,
     },
     utils::universe::Universe,
     worker_thread_session::{Field, FieldId, MatchSet, MatchSetId, FIELD_REF_LOOKUP_ITER_ID},
@@ -151,87 +152,57 @@ impl<'a> RefIter<'a> {
     pub fn typed_range_fwd(
         &mut self,
         match_sets: &'_ mut Universe<MatchSetId, MatchSet>,
-        limit: usize,
+        mut limit: usize,
         flag_mask: FieldValueFlags,
-    ) -> Option<(TypedRange<'a>, &'a [FieldReference])> {
-        let (field_ref, field_rl) = self.refs_iter.peek()?;
+    ) -> Option<(TypedRange<'a>, TypedSliceIter<'a, FieldReference>)> {
+        let refs_data_start = self.refs_iter.data_ptr();
+        let refs_headers_start = self.refs_iter.peek_header()?;
+        let refs_oversize_start = self.refs_iter.field_run_length_bwd();
+        let ref_header_idx = self.refs_iter.headers_remaining();
+        let (mut field_ref, mut field_rl) = self.refs_iter.next()?;
         let field = field_ref.field;
-        let refs_shared_val = field_rl != 1;
 
         self.move_to_field_keep_pos(match_sets, field);
         let fmt = self.data_iter.get_next_field_format();
-        let data_rl = self.data_iter.field_run_length_fwd();
-        let data_shared_val = fmt.shared_value() && data_rl != 1;
 
-        let mut refs_rl = self.refs_iter.field_run_length_fwd();
-        if refs_shared_val != data_shared_val {
-            debug_assert!(refs_rl != 0);
-            refs_rl = 1;
-        }
-
+        let data_start = self.data_iter.get_next_field_data();
         let header_ref = self.data_iter.get_next_header_ref();
         let oversize_start = self.data_iter.field_run_length_bwd();
-        let data_start = self.data_iter.get_next_field_data();
-        let refs_data_start = self.refs_iter.data_ptr();
+        let header_idx = self.data_iter.get_next_header_index();
 
-        if refs_rl != data_rl {
-            let rl = (refs_rl.min(data_rl) as usize).min(limit) as RunLength;
-            let tf = self.data_iter.typed_field_fwd(rl).unwrap();
-            self.refs_iter.next_n_fields(tf.header.run_length as usize);
-            return Some((
-                TypedRange {
-                    headers: std::slice::from_ref(header_ref),
-                    data: tf.value.as_slice(),
-                    field_count: tf.header.run_length as usize,
-                    first_header_run_length_oversize: oversize_start,
-                    last_header_run_length_oversize: data_rl - rl,
-                },
-                std::slice::from_ref(field_ref),
-            ));
-        }
-        let mut header_count = 0;
+        let mut refs_oversize_end = 0;
         let mut field_count = 0;
-        let mut oversize_end = 0;
         loop {
-            field_count += self.data_iter.next_header() as usize;
-            self.refs_iter.next();
-            header_count += 1;
+            let data_stride = self.data_iter.next_n_fields_with_fmt(
+                (field_rl as usize).min(limit),
+                [fmt.kind],
+                fmt.flags,
+                flag_mask,
+            );
+            field_count += data_stride;
+            limit -= data_stride;
+            if data_stride != field_rl as usize {
+                refs_oversize_end = field_rl - data_stride as RunLength;
+                break;
+            }
 
-            if let Some((field_ref, field_rl)) = self.refs_iter.peek() {
+            if let Some(v) = self.refs_iter.next() {
+                (field_ref, field_rl) = v;
                 if field_ref.field != field {
-                    break;
-                }
-                let next_fmt = self.data_iter.get_next_field_format();
-                if next_fmt.kind != fmt.kind || next_fmt.flags & flag_mask != fmt.flags & flag_mask
-                {
-                    break;
-                }
-                let data_rl = self.data_iter.field_run_length_fwd();
-                let data_shared_val = next_fmt.shared_value() && data_rl != 1;
-
-                let mut refs_rl = self.refs_iter.field_run_length_fwd();
-                let refs_shared_val = field_rl != 1;
-                if data_shared_val != refs_shared_val {
-                    debug_assert!(refs_rl != 0);
-                    refs_rl = 1;
-                }
-
-                if refs_rl != data_rl {
-                    let rl = (refs_rl.min(data_rl) as usize).min(limit) as RunLength;
-                    oversize_end = data_rl - rl;
-                    header_count += 1;
-                    self.data_iter.next_n_fields(rl as usize);
-                    self.refs_iter.next_n_fields(rl as usize);
                     break;
                 }
             } else {
                 break;
             }
         }
+
         Some((
             TypedRange {
                 headers: unsafe {
-                    std::slice::from_raw_parts(header_ref as *const FieldValueHeader, header_count)
+                    std::slice::from_raw_parts(
+                        header_ref as *const FieldValueHeader,
+                        self.data_iter.get_next_header_index() - header_idx,
+                    )
                 },
                 data: unsafe {
                     TypedSlice::new(
@@ -245,9 +216,24 @@ impl<'a> RefIter<'a> {
                 },
                 field_count: field_count,
                 first_header_run_length_oversize: oversize_start,
-                last_header_run_length_oversize: oversize_end,
+                last_header_run_length_oversize: self.data_iter.field_run_length_fwd_oversize(),
             },
-            unsafe { std::slice::from_raw_parts(refs_data_start as *const FieldReference, header_count) }
+            TypedSliceIter::new(
+                unsafe {
+                    std::slice::from_raw_parts(
+                        refs_data_start,
+                        self.refs_iter.data_ptr().offset_from(refs_data_start) as usize,
+                    )
+                },
+                unsafe {
+                    std::slice::from_raw_parts(
+                        refs_headers_start as *const FieldValueHeader,
+                        ref_header_idx - self.refs_iter.headers_remaining(),
+                    )
+                },
+                refs_oversize_start,
+                refs_oversize_end,
+            ),
         ))
     }
 }
@@ -259,8 +245,8 @@ pub struct AutoDerefIter<'a, I: FieldIterator<'a>> {
 }
 pub struct RefAwareTypedRange<'a> {
     pub base: TypedRange<'a>,
-    pub refs: Option<&'a [FieldReference]>,
-    pub field_id: FieldId
+    pub refs: Option<TypedSliceIter<'a, FieldReference>>,
+    pub field_id: FieldId,
 }
 
 /*
@@ -301,20 +287,21 @@ impl<'a, I: FieldIterator<'a>> AutoDerefIter<'a, I> {
     pub fn move_to_field_pos(&mut self, _field_pos: usize) {
         todo!();
     }
-    pub fn typed_range_fwd<'b>(
-        &'b mut self,
+    pub fn typed_range_fwd(
+        &mut self,
         match_sets: &'_ mut Universe<MatchSetId, MatchSet>,
         limit: usize,
-    ) -> Option<RefAwareTypedRange<'b>> {
+    ) -> Option<RefAwareTypedRange<'a>> {
         loop {
             if let Some((range, refs)) =
                 self.ref_iter
                     .typed_range_fwd(match_sets, limit, field_value_flags::BYTES_ARE_UTF8)
             {
+                let (fr, _) = refs.peek().unwrap();
                 return Some(RefAwareTypedRange {
                     base: range,
                     refs: Some(refs),
-                    field_id: refs[0].field
+                    field_id: fr.field,
                 });
             }
             let field_pos = self.iter.get_next_field_pos();
@@ -332,7 +319,7 @@ impl<'a, I: FieldIterator<'a>> AutoDerefIter<'a, I> {
                 return Some(RefAwareTypedRange {
                     base: range,
                     refs: None,
-                    field_id: self.iter_field_id
+                    field_id: self.iter_field_id,
                 });
             } else {
                 return None;
@@ -343,20 +330,27 @@ impl<'a, I: FieldIterator<'a>> AutoDerefIter<'a, I> {
 
 pub struct RefAwareInlineBytesIter<'a> {
     iter: InlineBytesIter<'a>,
-    refs: Option<&'a [FieldReference]>
+    refs: Option<TypedSliceIter<'a, FieldReference>>,
 }
 
 impl<'a> RefAwareInlineBytesIter<'a> {
-    pub fn new( data: &'a [u8],
+    pub fn new(
+        data: &'a [u8],
         headers: &'a [FieldValueHeader],
         first_oversize: RunLength,
         last_oversize: RunLength,
-        refs: Option<&'a [FieldReference]>
+        refs: Option<TypedSliceIter<'a, FieldReference>>,
     ) -> Self {
-        Self { iter: InlineBytesIter::new(data, headers, first_oversize, last_oversize), refs }
+        Self {
+            iter: InlineBytesIter::new(data, headers, first_oversize, last_oversize),
+            refs,
+        }
     }
-    pub fn from_range(range: &'a RefAwareTypedRange, data: &'a [u8]) -> Self{
-        Self {iter: InlineBytesIter::from_range(&range.base, data), refs: range.refs}
+    pub fn from_range(range: &'a RefAwareTypedRange, data: &'a [u8]) -> Self {
+        Self {
+            iter: InlineBytesIter::from_range(&range.base, data),
+            refs: range.refs.clone(),
+        }
     }
 }
 
@@ -364,34 +358,46 @@ impl<'a> Iterator for RefAwareInlineBytesIter<'a> {
     type Item = (&'a [u8], RunLength, usize);
 
     fn next(&mut self) -> Option<Self::Item> {
-        let (mut data, rl) = self.iter.next()?;
-        let mut offset = 0;
-        if let Some(refs) = self.refs {
-            let idx = refs.len() - self.iter.headers_remaining() - 1;
-            let r = &refs[idx];
-            data = &data[r.begin..r.end];
-            offset = r.begin;
+        if let Some(ref mut refs_iter) = self.refs {
+            let (fr, rl_ref) = refs_iter.peek()?;
+            let (data, rl_data) = self.iter.peek()?;
+            let run_len = rl_ref.min(rl_data);
+            self.iter.next_n_fields(run_len as usize);
+            refs_iter.next_n_fields(run_len as usize);
+            Some((&data[fr.begin..fr.end], run_len, fr.begin))
+        } else {
+            let (data, rl) = self.iter.next()?;
+            Some((data, rl, 0))
         }
-        Some((data, rl, offset))
     }
 }
 
 pub struct RefAwareInlineTextIter<'a> {
-    iter: InlineTextIter<'a>,
-    refs: Option<&'a [FieldReference]>
+    iter: RefAwareInlineBytesIter<'a>,
 }
 
 impl<'a> RefAwareInlineTextIter<'a> {
-    pub fn new( data: &'a str,
+    pub fn new(
+        data: &'a str,
         headers: &'a [FieldValueHeader],
         first_oversize: RunLength,
         last_oversize: RunLength,
-        refs: Option<&'a [FieldReference]>
+        refs: Option<TypedSliceIter<'a, FieldReference>>,
     ) -> Self {
-        Self { iter: InlineTextIter::new(data, headers, first_oversize, last_oversize), refs }
+        Self {
+            iter: RefAwareInlineBytesIter::new(
+                data.as_bytes(),
+                headers,
+                first_oversize,
+                last_oversize,
+                refs,
+            ),
+        }
     }
-    pub fn from_range(range: &'a RefAwareTypedRange, data: &'a str) -> Self{
-        Self {iter: InlineTextIter::from_range(&range.base, data), refs: range.refs}
+    pub fn from_range(range: &'a RefAwareTypedRange, data: &'a str) -> Self {
+        Self {
+            iter: RefAwareInlineBytesIter::from_range(&range, data.as_bytes()),
+        }
     }
 }
 
@@ -399,91 +405,51 @@ impl<'a> Iterator for RefAwareInlineTextIter<'a> {
     type Item = (&'a str, RunLength, usize);
 
     fn next(&mut self) -> Option<Self::Item> {
-        let (mut data, rl) = self.iter.next()?;
-        let mut offset=0;
-        if let Some(refs) = self.refs {
-            let idx = refs.len() - self.iter.headers_remaining() - 1;
-            let r = &refs[idx];
-            data = &data[r.begin..r.end];
-            offset = r.begin;
-        }
-        Some((data,  rl, offset))
+        let (data, rl, offset) = self.iter.next()?;
+        return Some((unsafe { std::str::from_utf8_unchecked(data) }, rl, offset));
     }
 }
 
 pub struct RefAwareBytesBufferIter<'a> {
     iter: TypedSliceIter<'a, Vec<u8>>,
-    refs: Option<&'a [FieldReference]>
+    refs: Option<TypedSliceIter<'a, FieldReference>>,
 }
 
 impl<'a> RefAwareBytesBufferIter<'a> {
-    pub fn new( values: &'a [Vec<u8>],
+    pub fn new(
+        values: &'a [Vec<u8>],
         headers: &'a [FieldValueHeader],
         first_oversize: RunLength,
         last_oversize: RunLength,
-        refs: Option<&'a [FieldReference]>
+        refs: Option<TypedSliceIter<'a, FieldReference>>,
     ) -> Self {
-        Self { iter: TypedSliceIter::new(values, headers, first_oversize, last_oversize), refs }
+        Self {
+            iter: TypedSliceIter::new(values, headers, first_oversize, last_oversize),
+            refs,
+        }
     }
-    pub fn from_range(range: &'a RefAwareTypedRange, values: &'a [Vec<u8>]) -> Self{
-        Self {iter: TypedSliceIter::from_range(&range.base, values), refs: range.refs}
+    pub fn from_range(range: &'a RefAwareTypedRange, values: &'a [Vec<u8>]) -> Self {
+        Self {
+            iter: TypedSliceIter::from_range(&range.base, values),
+            refs: range.refs.clone(),
+        }
     }
 }
 
 impl<'a> Iterator for RefAwareBytesBufferIter<'a> {
-    type Item = (&'a [u8], RunLength,  usize);
+    type Item = (&'a [u8], RunLength, usize);
 
     fn next(&mut self) -> Option<Self::Item> {
-        let (buf, rl) = self.iter.next()?;
-        let mut data = buf.as_slice();
-        let mut offset = 0;
-        if let Some(refs) = self.refs {
-            let idx = refs.len() - self.iter.headers_remaining() - 1;
-            let r = &refs[idx];
-            data = &data[r.begin..r.end];
-            offset = r.begin;
+        if let Some(ref mut refs_iter) = self.refs {
+            let (fr, rl_ref) = refs_iter.peek()?;
+            let (data, rl_data) = self.iter.peek()?;
+            let run_len = rl_ref.min(rl_data);
+            self.iter.next_n_fields(run_len as usize);
+            refs_iter.next_n_fields(run_len as usize);
+            Some((&data.as_slice()[fr.begin..fr.end], run_len, fr.begin))
+        } else {
+            let (data, rl) = self.iter.next()?;
+            Some((data, rl, 0))
         }
-        Some((data,  rl, offset))
-    }
-}
-
-pub struct RefAwareTextBufferIter<'a> {
-    iter: TypedSliceIter<'a, String>,
-    refs: Option<&'a [FieldReference]>
-}
-
-impl<'a> RefAwareTextBufferIter<'a> {
-    pub fn new( values: &'a [String],
-        headers: &'a [FieldValueHeader],
-        first_oversize: RunLength,
-        last_oversize: RunLength,
-        refs: Option<&'a [FieldReference]>
-    ) -> Self {
-        debug_assert!(headers.first().map(|h|h.bytes_are_utf8()).unwrap_or(true));
-        Self { iter: TypedSliceIter::new(values, headers, first_oversize, last_oversize), refs }
-    }
-    pub fn from_range(range: &'a RefAwareTypedRange, values: &'a [String]) -> Self{
-        Self {iter: TypedSliceIter::from_range(&range.base, values), refs: range.refs}
-    }
-}
-
-impl<'a> Iterator for RefAwareTextBufferIter<'a> {
-    type Item = (&'a str, RunLength, usize);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        // SAFETY: because we store TextBuffers as Vec<u8> we have to do this
-        // check here so the unsafe conversion to str below is sound
-        // because it would be possible to construct this
-        assert!(self.iter.peek_header()?.bytes_are_utf8());
-        let (buf, rl) = self.iter.next()?;
-        let mut data = buf.as_str();
-        let mut offset=0;
-        if let Some(refs) = self.refs {
-            let idx = refs.len() - self.iter.headers_remaining() - 1;
-            let r = &refs[idx];
-            data = &data[r.begin..r.end];
-            offset = r.begin;
-        }
-        Some((data,  rl, offset))
     }
 }

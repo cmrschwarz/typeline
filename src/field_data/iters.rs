@@ -1,12 +1,11 @@
 use std::marker::PhantomData;
 
 use crate::field_data::{
-        field_value_flags, FieldData, FieldValueFlags, FieldValueFormat,
-        FieldValueHeader, FieldValueKind, RunLength,
-    };
+    field_value_flags, FieldData, FieldValueFlags, FieldValueFormat, FieldValueHeader,
+    FieldValueKind, RunLength,
+};
 
-use super::typed::{TypedSlice, TypedRange, TypedField};
-
+use super::typed::{TypedField, TypedRange, TypedSlice};
 
 impl<'a> Default for TypedRange<'a> {
     fn default() -> Self {
@@ -38,8 +37,14 @@ pub trait FieldIterator<'a>: Sized {
     fn get_next_header_index(&self) -> usize;
     fn get_prev_header_index(&self) -> usize;
     fn get_next_typed_field(&mut self) -> TypedField<'a>;
-    fn field_run_length_fwd(& self) -> RunLength;
-    fn field_run_length_bwd(& self) -> RunLength;
+    fn field_run_length_fwd(&self) -> RunLength;
+    fn field_run_length_bwd(&self) -> RunLength;
+    fn field_run_length_fwd_oversize(&self) -> RunLength {
+        if self.field_run_length_bwd() != 0 {
+            return self.field_run_length_fwd();
+        }
+        0
+    }
     fn next_header(&mut self) -> RunLength;
     fn prev_header(&mut self) -> RunLength;
     fn next_field(&mut self) -> RunLength;
@@ -629,11 +634,11 @@ where
         debug_assert!(self.is_next_valid());
         self.iter.get_next_typed_field()
     }
-    fn field_run_length_fwd(& self) -> RunLength {
+    fn field_run_length_fwd(&self) -> RunLength {
         self.range_fwd()
             .min(self.iter.field_run_length_fwd() as usize) as RunLength
     }
-    fn field_run_length_bwd(& self) -> RunLength {
+    fn field_run_length_bwd(&self) -> RunLength {
         self.range_bwd()
             .min(self.iter.field_run_length_bwd() as usize) as RunLength
     }
@@ -810,11 +815,11 @@ impl<'a> FieldIterator<'a> for IterMut<'a> {
         self.as_base_iter_mut().get_next_typed_field()
     }
 
-    fn field_run_length_fwd(& self) -> RunLength {
+    fn field_run_length_fwd(&self) -> RunLength {
         self.as_base_iter().field_run_length_fwd()
     }
 
-    fn field_run_length_bwd(& self) -> RunLength {
+    fn field_run_length_bwd(&self) -> RunLength {
         self.as_base_iter().field_run_length_bwd()
     }
 

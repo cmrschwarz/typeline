@@ -28,7 +28,10 @@ use crate::{
     utils::string_store::StringStoreEntry, worker_thread_session::FieldId,
 };
 
-use self::{iters::{Iter, IterMut, FieldIterator}, typed::TypedSlice};
+use self::{
+    iters::{FieldIterator, Iter, IterMut},
+    typed::TypedSlice,
+};
 
 //if the u32 overflows we just split into two values
 pub type RunLength = u32;
@@ -273,11 +276,22 @@ impl DerefMut for FieldValueHeader {
 }
 
 impl FieldValueHeader {
-    pub fn data_element_count(&self) -> usize {
+    pub fn unique_data_element_count(&self) -> RunLength {
+        if self.shared_value() {
+            if self.same_value_as_previous() {
+                0
+            } else {
+                1
+            }
+        } else {
+            self.run_length
+        }
+    }
+    pub fn data_element_count(&self) -> RunLength {
         if self.shared_value() {
             1
         } else {
-            self.run_length as usize
+            self.run_length
         }
     }
     pub fn data_size(&self) -> usize {
