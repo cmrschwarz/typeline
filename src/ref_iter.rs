@@ -459,7 +459,7 @@ mod ref_iter_tests {
     use crate::{
         field_data::{
             field_value_flags, push_interface::PushInterface, typed::TypedSlice, FieldData,
-            FieldReference, RunLength,
+            FieldReference, FieldValueFormat, FieldValueHeader, FieldValueKind, RunLength,
         },
         ref_iter::{AutoDerefIter, RefAwareInlineTextIter},
         utils::universe::Universe,
@@ -523,14 +523,40 @@ mod ref_iter_tests {
 
         assert_eq!(iter.collect::<Vec<_>>(), expected);
     }
-    fn compare_iter_output_parallel_ref(fd: FieldData, expected: &[(&'static str, RunLength)]) {
+    fn compare_iter_output_parallel_ref(mut fd: FieldData, expected: &[(&'static str, RunLength)]) {
         let mut fd_refs = FieldData::default();
-        let mut expected_out = Vec::default();
-        for (v, rl) in expected {
-            push_ref(&mut fd_refs, 0, v.len(), *rl as usize);
-            expected_out.push((*v, *rl, 0));
+        let (header, _, _) = unsafe { fd.internals() };
+        for h in header.iter_mut() {
+            if !h.same_value_as_previous() {
+                push_ref(&mut fd_refs, 0, h.size as usize, h.run_length as usize);
+                let (headers_ref, _, _) = unsafe { fd_refs.internals() };
+                let h_ref = headers_ref.last_mut().unwrap();
+                h_ref.flags |=
+                    h.flags & (field_value_flags::DELETED | field_value_flags::SHARED_VALUE);
+            } else {
+                let (headers_ref, _, _) = unsafe { fd_refs.internals() };
+                headers_ref.push(FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        kind: FieldValueKind::Reference,
+                        flags: h.flags
+                            & (field_value_flags::DELETED
+                                | field_value_flags::SHARED_VALUE
+                                | field_value_flags::SAME_VALUE_AS_PREVIOUS),
+                        size: std::mem::size_of::<FieldReference>() as u16,
+                    },
+                    run_length: h.run_length,
+                });
+            }
         }
-        compare_iter_output(fd, fd_refs, &expected_out);
+
+        compare_iter_output(
+            fd,
+            fd_refs,
+            &expected
+                .iter()
+                .map(|(v, rl)| (*v, *rl, 0))
+                .collect::<Vec<_>>(),
+        );
     }
     fn push_ref(fd: &mut FieldData, begin: usize, end: usize, rl: usize) {
         fd.push_reference(
@@ -588,7 +614,7 @@ mod ref_iter_tests {
 
         compare_iter_output(fd, fdr, &[("a", 1, 0), ("ccc", 3, 0)]);
     }
-    /*
+
     #[test]
     fn with_same_as_previous() {
         let mut fd = FieldData::default();
@@ -602,7 +628,7 @@ mod ref_iter_tests {
             *c += 5;
         }
         fd.push_str("c", 3, false, false);
-        compare_iter_output_simple_ref(fd, &[("aaa", 1), ("aaa", 5), ("c", 3)]);
+        compare_iter_output_parallel_ref(fd, &[("aaa", 1), ("aaa", 5), ("c", 3)]);
     }
 
     #[test]
@@ -621,6 +647,6 @@ mod ref_iter_tests {
             *c -= 1;
         }
         fd.push_str("333", 3, false, false);
-        compare_iter_output(fd, &[("00", 1), ("1", 5), ("333", 3)]);
-    }*/
+        compare_iter_output_parallel_ref(fd, &[("00", 1), ("1", 5), ("333", 3)]);
+    }
 }
