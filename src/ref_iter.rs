@@ -195,12 +195,23 @@ impl<'a> RefIter<'a> {
                 break;
             }
         }
+        let mut header_count = self.data_iter.get_next_header_index() - header_idx;
+        if self.data_iter.field_run_length_bwd() != 0 {
+            header_count += 1;
+        }
+        let mut refs_header_count = ref_header_idx - self.refs_iter.headers_remaining();
+        let mut refs_data_len =
+            unsafe { self.refs_iter.data_ptr().offset_from(refs_data_start) as usize };
+        if self.refs_iter.field_run_length_bwd() != 0 {
+            refs_header_count += 1;
+            refs_data_len += 1;
+        }
         unsafe {
             Some((
                 ValidTypedRange::new(TypedRange {
                     headers: std::slice::from_raw_parts(
                         header_ref as *const FieldValueHeader,
-                        self.data_iter.get_next_header_index() - header_idx,
+                        header_count,
                     ),
                     data: TypedSlice::new(
                         self.data_iter.field_data_ref(),
@@ -215,13 +226,10 @@ impl<'a> RefIter<'a> {
                     last_header_run_length_oversize: self.data_iter.field_run_length_fwd_oversize(),
                 }),
                 TypedSliceIter::new(
-                    std::slice::from_raw_parts(
-                        refs_data_start,
-                        self.refs_iter.data_ptr().offset_from(refs_data_start) as usize,
-                    ),
+                    std::slice::from_raw_parts(refs_data_start, refs_data_len),
                     std::slice::from_raw_parts(
                         refs_headers_start as *const FieldValueHeader,
-                        ref_header_idx - self.refs_iter.headers_remaining(),
+                        refs_header_count,
                     ),
                     refs_oversize_start,
                     refs_oversize_end,

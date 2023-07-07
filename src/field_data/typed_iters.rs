@@ -148,6 +148,7 @@ impl<'a, T: 'static> TypedSliceIter<'a, T> {
         loop {
             self.header = unsafe { self.header.add(1) };
             if self.header == self.header_end {
+                unsafe { self.next_value() };
                 return;
             }
             h = unsafe { *self.header };
@@ -350,6 +351,7 @@ impl<'a> InlineBytesIter<'a> {
         loop {
             self.header = unsafe { self.header.add(1) };
             if self.header == self.header_end {
+                unsafe { self.advance_value(prev_size) };
                 return;
             }
             h = unsafe { *self.header };

@@ -445,7 +445,6 @@ impl<'a> FieldIterator<'a> for Iter<'a> {
         if limit == 0 || !self.is_next_valid() {
             return None;
         }
-        let flag_mask = flag_mask | field_value_flags::DELETED;
         let mut data_begin = self.data;
         let fmt = self.header_fmt;
         let oversize_start = self.header_rl_offset;
@@ -494,7 +493,6 @@ impl<'a> FieldIterator<'a> for Iter<'a> {
         if limit == 0 || !self.is_prev_valid() {
             return None;
         }
-        let flag_mask = flag_mask | field_value_flags::DELETED;
         let oversize_end = if self.is_next_valid() {
             self.header_rl_total - self.header_rl_offset - 1
         } else {
