@@ -7,7 +7,7 @@ use smallvec::{smallvec, SmallVec};
 
 use crate::{
     chain::ChainId,
-    field_data::{iters::FieldIterator, iter_hall::IterHall},
+    field_data::{iter_hall::IterHall, iters::FieldIterator},
     options::{argument::CliArgIdx, range_spec::RangeSpec},
     utils::string_store::StringStoreEntry,
     worker_thread_session::{Field, FieldId, JobData, MatchSetId},
@@ -78,10 +78,10 @@ pub fn setup_ts_split_as_entry_point<'a, 'b>(
         }),
         op_id: OperatorId::MAX,
         ordering_id: sess.tf_mgr.claim_transform_ordering_id(),
-        last_consumed_batch_size: 0,
         is_ready: false,
         is_stream_producer: false,
         is_stream_subscriber: false,
+        preferred_input_type: None,
     };
     let data = TransformData::Split(TfSplit {
         expanded: false,

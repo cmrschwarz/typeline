@@ -2,7 +2,10 @@ use std::num::NonZeroUsize;
 
 use nonmax::NonMaxUsize;
 
-use crate::worker_thread_session::{FieldId, MatchSetId};
+use crate::{
+    field_data::FieldValueKind,
+    worker_thread_session::{FieldId, MatchSetId},
+};
 
 use super::{
     data_inserter::TfDataInserter, file_reader::TfFileReader, format::TfFormat,
@@ -36,9 +39,6 @@ pub struct TransformState {
     pub successor: Option<TransformId>,
     pub predecessor: Option<TransformId>,
     pub input_field: FieldId,
-    // at the start of the next batch, this is used to drop the fields from the
-    // previous batch swe cannot do this earlier because of field references
-    pub last_consumed_batch_size: usize,
     pub available_batch_size: usize,
     pub desired_batch_size: usize,
     pub match_set_id: MatchSetId,
@@ -47,4 +47,5 @@ pub struct TransformState {
     pub is_stream_producer: bool,
     pub is_stream_subscriber: bool,
     pub is_ready: bool,
+    pub preferred_input_type: Option<FieldValueKind>,
 }

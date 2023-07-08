@@ -2,8 +2,9 @@ use arrayvec::ArrayVec;
 use bstr::{BStr, ByteSlice};
 
 use crate::{
-    field_data::push_interface::PushInterface,
+    field_data::{push_interface::PushInterface, FieldValueKind},
     options::argument::CliArgIdx,
+    utils::{i64_to_str, I64_MAX_DECIMAL_DIGITS},
     worker_thread_session::{FieldId, JobData},
 };
 
@@ -39,32 +40,86 @@ pub fn setup_tf_sequence<'a>(
     (data, tf_state.input_field)
 }
 
+pub fn increment_int_str(data: &mut ArrayVec<u8, I64_MAX_DECIMAL_DIGITS>) {
+    let mut i = data.len() - 1;
+    loop {
+        if data[i] < '9' as u8 {
+            data[i] += 1;
+            return;
+        }
+        data[i] = '0' as u8;
+        if i == 0 {
+            break;
+        }
+        i -= 1;
+    }
+    data.insert(0, '1' as u8);
+}
+
+const FAST_SEQ_MAX_STEP: i64 = 200;
+
 pub fn handle_tf_sequence(sess: &mut JobData<'_>, tf_id: TransformId, seq: &mut TfSequence) {
     let mut input_field =
         sess.record_mgr.fields[sess.tf_mgr.transforms[tf_id].input_field].borrow_mut();
-    let batch_size = if let Some(succ) = sess.tf_mgr.transforms[tf_id].successor {
-        sess.tf_mgr.transforms[succ]
-            .desired_batch_size
-            .saturating_sub(sess.tf_mgr.transforms[succ].available_batch_size)
+
+    input_field.field_data.clear();
+
+    let batch_size;
+    let succ_wants_text;
+    if let Some(succ) = sess.tf_mgr.transforms[tf_id].successor {
+        let s = &mut sess.tf_mgr.transforms[succ];
+        batch_size = s.desired_batch_size.saturating_sub(s.available_batch_size);
+        succ_wants_text = s.preferred_input_type == Some(FieldValueKind::BytesInline);
     } else {
-        sess.tf_mgr.transforms[tf_id].desired_batch_size
+        batch_size = sess.tf_mgr.transforms[tf_id].desired_batch_size;
+        succ_wants_text = false;
     };
 
     let mut bs_rem = batch_size;
-    while seq.ss.start != seq.ss.end && bs_rem > 0 {
-        //PERF: batch this
-        input_field
-            .field_data
-            .push_int(seq.ss.start, 1, true, false);
-        seq.ss.start += seq.ss.step;
-        bs_rem -= 1;
+
+    //PERF: batch this
+    if !succ_wants_text {
+        while seq.ss.start != seq.ss.end && bs_rem > 0 {
+            input_field
+                .field_data
+                .push_int(seq.ss.start, 1, true, false);
+            seq.ss.start += seq.ss.step;
+            bs_rem -= 1;
+        }
+    } else {
+        if seq.ss.start >= 0 && seq.ss.step > 0 && seq.ss.step < FAST_SEQ_MAX_STEP {
+            let mut int_str = ArrayVec::new();
+            int_str.extend(i64_to_str(false, seq.ss.start).as_bytes().iter().cloned());
+            while seq.ss.start != seq.ss.end && bs_rem != 0 {
+                input_field.field_data.push_inline_str(
+                    unsafe { std::str::from_utf8_unchecked(&int_str) },
+                    1,
+                    true,
+                    false,
+                );
+                for _ in 0..seq.ss.step {
+                    increment_int_str(&mut int_str);
+                }
+                seq.ss.start += seq.ss.step;
+                bs_rem -= 1;
+            }
+        } else {
+            while seq.ss.start != seq.ss.end && bs_rem > 0 {
+                input_field
+                    .field_data
+                    .push_str(&i64_to_str(false, seq.ss.start), 1, true, false);
+                seq.ss.start += seq.ss.step;
+                bs_rem -= 1;
+            }
+        }
     }
+
     if seq.ss.start == seq.ss.end {
         sess.tf_mgr.unlink_transform(tf_id, batch_size - bs_rem);
     } else {
         sess.tf_mgr.push_tf_in_ready_queue(tf_id);
         sess.tf_mgr
-            .inform_transform_batch_available(tf_id, batch_size);
+            .inform_successor_batch_available(tf_id, batch_size);
     }
 }
 

@@ -61,16 +61,12 @@ impl<'a> RefIter<'a> {
         let mut field_ref = fields[field_id].borrow();
         let cb = &mut match_sets[field_ref.match_set].command_buffer;
         let last_acs = cb.last_action_set_id();
-        {
+        if field_ref.last_applied_action_set_id != last_acs {
             drop(field_ref);
             let mut field_ref_mut = fields[field_id].borrow_mut();
-            if field_ref_mut.last_applied_action_set_id != last_acs {
-                let start = field_ref_mut.last_applied_action_set_id + 1;
-                field_ref_mut.last_applied_action_set_id = last_acs;
-                cb.execute_for_iter_halls(std::iter::once(field_ref_mut), start, last_acs);
-            } else {
-                drop(field_ref_mut);
-            }
+            let start = field_ref_mut.last_applied_action_set_id + 1;
+            field_ref_mut.last_applied_action_set_id = last_acs;
+            cb.execute_for_iter_halls(std::iter::once(field_ref_mut), start, last_acs);
             field_ref = fields[field_id].borrow();
         }
         let field_ref_laundered = unsafe { &*(field_ref.deref() as *const Field) as &'b Field };

@@ -10,9 +10,10 @@ use std::ops::Deref;
 use std::num::NonZeroUsize;
 
 use crate::field_data::command_buffer::{CommandBuffer, FieldActionKind};
+use crate::field_data::iter_hall::IterHall;
 use crate::field_data::push_interface::PushInterface;
 use crate::field_data::typed_iters::TypedSliceIter;
-use crate::field_data::{field_value_flags, RunLength};
+use crate::field_data::{field_value_flags, FieldValueKind, RunLength};
 use crate::ref_iter::{
     AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter, RefAwareInlineTextIter,
 };
@@ -291,6 +292,7 @@ pub fn setup_tf_regex<'a>(
         .iter()
         .map(|name| sess.record_mgr.add_field(tf_state.match_set_id, *name))
         .collect();
+    tf_state.preferred_input_type = Some(FieldValueKind::BytesInline);
     let output_field = cgfs[op.output_group_id];
     let re = TfRegex {
         regex: op.regex.clone(),
@@ -311,62 +313,24 @@ pub fn setup_tf_regex<'a>(
     (TransformData::Regex(re), output_field)
 }
 
-enum AnyRegex<'a, 'b> {
-    Text(
-        &'a mut regex::Regex,
-        &'a mut regex::CaptureLocations,
-        &'b str,
-    ),
-    Bytes(
-        &'a mut bytes::Regex,
-        &'a mut bytes::CaptureLocations,
-        &'b [u8],
-    ),
+struct TextRegex<'a> {
+    re: &'a mut regex::Regex,
+    cl: &'a mut regex::CaptureLocations,
+    data: &'a str,
 }
 
-impl<'a, 'b> AnyRegex<'a, 'b> {
-    fn captures_read_at(&mut self, start: usize) -> Option<(usize, usize)> {
-        match self {
-            AnyRegex::Text(re, cl, input) => re
-                .captures_read_at(cl, input, start)
-                .map(|m| (m.start(), m.end())),
-            AnyRegex::Bytes(re, cl, input) => re
-                .captures_read_at(cl, input, start)
-                .map(|m| (m.start(), m.end())),
-        }
-    }
-    fn next_after_empty(&mut self, end: usize) -> usize {
-        match self {
-            AnyRegex::Text(_re, _cl, input) => {
-                let mut res = end + 1;
-                // this is stupid. if this was nightly rust, we could use
-                // ceil_char_boundary(end + 1) instead
-                while !input.is_char_boundary(res) {
-                    res += 1;
-                }
-                res
-            }
-            AnyRegex::Bytes(_re, _cl, _input) => end + 1,
-        }
-    }
-    fn captures_locs_len(&mut self) -> usize {
-        match self {
-            AnyRegex::Text(_re, cl, _input) => cl.len(),
-            AnyRegex::Bytes(_re, cl, _input) => cl.len(),
-        }
-    }
-    fn captures_locs_get(&mut self, i: usize) -> Option<(usize, usize)> {
-        match self {
-            AnyRegex::Text(_re, cl, _input) => cl.get(i),
-            AnyRegex::Bytes(_re, cl, _input) => cl.get(i),
-        }
-    }
-    fn data(&mut self) -> &[u8] {
-        match self {
-            AnyRegex::Text(_re, _cl, input) => input.as_bytes(),
-            AnyRegex::Bytes(_re, _cl, input) => input,
-        }
-    }
+struct BytesRegex<'a> {
+    re: &'a mut bytes::Regex,
+    cl: &'a mut bytes::CaptureLocations,
+    data: &'a [u8],
+}
+
+trait AnyRegex {
+    fn captures_read_at(&mut self, start: usize) -> Option<(usize, usize)>;
+    fn next_after_empty(&mut self, end: usize) -> usize;
+    fn captures_locs_len(&mut self) -> usize;
+    fn captures_locs_get(&mut self, i: usize) -> Option<(usize, usize)>;
+    fn data(&mut self) -> &[u8];
     fn next(&mut self, last_end: &mut Option<usize>, next_start: &mut usize) -> bool {
         if *next_start > self.data().len() {
             return false;
@@ -386,13 +350,66 @@ impl<'a, 'b> AnyRegex<'a, 'b> {
         *last_end = Some(e);
         true
     }
+    fn push(&self, fd: &mut IterHall, start: usize, end: usize, rl: usize);
+}
+
+impl<'a> AnyRegex for TextRegex<'a> {
+    fn captures_read_at(&mut self, start: usize) -> Option<(usize, usize)> {
+        self.re
+            .captures_read_at(self.cl, self.data, start)
+            .map(|m| (m.start(), m.end()))
+    }
+    fn next_after_empty(&mut self, end: usize) -> usize {
+        let mut res = end + 1;
+        // this is stupid. if this was nightly rust, we could use
+        // ceil_char_boundary(end + 1) instead
+        while !self.data.is_char_boundary(res) {
+            res += 1;
+        }
+        res
+    }
+    fn captures_locs_len(&mut self) -> usize {
+        self.cl.len()
+    }
+    fn captures_locs_get(&mut self, i: usize) -> Option<(usize, usize)> {
+        self.cl.get(i)
+    }
+    fn data(&mut self) -> &[u8] {
+        self.data.as_bytes()
+    }
+    fn push(&self, fd: &mut IterHall, start: usize, end: usize, rl: usize) {
+        fd.push_str(&self.data[start..end], rl, true, false)
+    }
+}
+
+impl<'a> AnyRegex for BytesRegex<'a> {
+    fn captures_read_at(&mut self, start: usize) -> Option<(usize, usize)> {
+        self.re
+            .captures_read_at(self.cl, self.data, start)
+            .map(|m| (m.start(), m.end()))
+    }
+    fn next_after_empty(&mut self, end: usize) -> usize {
+        end + 1
+    }
+    fn captures_locs_len(&mut self) -> usize {
+        self.cl.len()
+    }
+    fn captures_locs_get(&mut self, i: usize) -> Option<(usize, usize)> {
+        self.cl.get(i)
+    }
+    fn data(&mut self) -> &[u8] {
+        self.data
+    }
+    fn push(&self, fd: &mut IterHall, start: usize, end: usize, rl: usize) {
+        fd.push_bytes(&self.data[start..end], rl, true, false)
+    }
 }
 
 fn match_regex_inner<'a, 'b, const PUSH_REF: bool>(
     input_field_id: FieldId,
     run_length: RunLength,
     offset: usize,
-    mut regex: AnyRegex<'a, 'b>,
+    mut regex: impl AnyRegex,
     capture_group_fields: &Vec<FieldId>,
     multimatch: bool,
     rbs: &mut RegexBatchState,
@@ -421,14 +438,7 @@ fn match_regex_inner<'a, 'b, const PUSH_REF: bool>(
                         true,
                     );
                 } else {
-                    match regex {
-                        AnyRegex::Text(_, _, text) => {
-                            field.push_str(&text[cg_begin..cg_end], rl, true, false)
-                        }
-                        AnyRegex::Bytes(_, _, bytes) => {
-                            field.push_bytes(&bytes[cg_begin..cg_end], rl, true, false)
-                        }
-                    }
+                    regex.push(field, cg_begin, cg_end, rl);
                 }
             } else {
                 field.push_null(run_length as usize, true);
@@ -486,22 +496,39 @@ pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRe
         match range.base.data {
             TypedSlice::TextInline(text) => {
                 for (v, rl, offset) in RefAwareInlineTextIter::from_range(&range, text) {
-                    let any_regex = if let Some((regex, capture_locs)) = &mut re.text_only_regex {
-                        AnyRegex::Text(regex, capture_locs, v)
+                    if let Some((regex, capture_locs)) = &mut re.text_only_regex {
+                        match_regex_inner::<true>(
+                            range.field_id,
+                            rl,
+                            offset,
+                            TextRegex {
+                                re: regex,
+                                cl: capture_locs,
+                                data: v,
+                            },
+                            &re.capture_group_fields,
+                            re.multimatch,
+                            &mut rbs,
+                            &sess.record_mgr.fields,
+                            command_buffer,
+                        );
                     } else {
-                        AnyRegex::Bytes(&mut re.regex, &mut re.capture_locs, v.as_bytes())
+                        match_regex_inner::<true>(
+                            range.field_id,
+                            rl,
+                            offset,
+                            BytesRegex {
+                                re: &mut re.regex,
+                                cl: &mut re.capture_locs,
+                                data: v.as_bytes(),
+                            },
+                            &re.capture_group_fields,
+                            re.multimatch,
+                            &mut rbs,
+                            &sess.record_mgr.fields,
+                            command_buffer,
+                        );
                     };
-                    match_regex_inner::<true>(
-                        range.field_id,
-                        rl,
-                        offset,
-                        any_regex,
-                        &re.capture_group_fields,
-                        re.multimatch,
-                        &mut rbs,
-                        &sess.record_mgr.fields,
-                        command_buffer,
-                    );
                 }
             }
             TypedSlice::BytesInline(bytes) => {
@@ -510,7 +537,11 @@ pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRe
                         range.field_id,
                         rl,
                         offset,
-                        AnyRegex::Bytes(&mut re.regex, &mut re.capture_locs, v),
+                        BytesRegex {
+                            re: &mut re.regex,
+                            cl: &mut re.capture_locs,
+                            data: v,
+                        },
                         &re.capture_group_fields,
                         re.multimatch,
                         &mut rbs,
@@ -525,7 +556,11 @@ pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRe
                         range.field_id,
                         rl,
                         offset,
-                        AnyRegex::Bytes(&mut re.regex, &mut re.capture_locs, v),
+                        BytesRegex {
+                            re: &mut re.regex,
+                            cl: &mut re.capture_locs,
+                            data: v,
+                        },
                         &re.capture_group_fields,
                         re.multimatch,
                         &mut rbs,
@@ -535,25 +570,45 @@ pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRe
                 }
             }
             TypedSlice::Integer(ints) => {
-                for (v, rl) in TypedSliceIter::from_range(&range.base, ints) {
-                    let text = i64_to_str(false, *v);
-                    let any_regex = if let Some((regex, capture_locs)) = &mut re.text_only_regex {
-                        AnyRegex::Text(regex, capture_locs, text.as_str())
-                    } else {
-                        AnyRegex::Bytes(&mut re.regex, &mut re.capture_locs, text.as_bytes())
-                    };
-                    match_regex_inner::<false>(
-                        range.field_id,
-                        rl,
-                        0,
-                        any_regex,
-                        &re.capture_group_fields,
-                        re.multimatch,
-                        &mut rbs,
-                        &sess.record_mgr.fields,
-                        command_buffer,
-                    );
-                }
+                if let Some((regex, capture_locs)) = &mut re.text_only_regex {
+                    for (v, rl) in TypedSliceIter::from_range(&range.base, ints) {
+                        let text = i64_to_str(false, *v);
+                        match_regex_inner::<false>(
+                            range.field_id,
+                            rl,
+                            0,
+                            TextRegex {
+                                re: regex,
+                                cl: capture_locs,
+                                data: text.as_str(),
+                            },
+                            &re.capture_group_fields,
+                            re.multimatch,
+                            &mut rbs,
+                            &sess.record_mgr.fields,
+                            command_buffer,
+                        );
+                    }
+                } else {
+                    for (v, rl) in TypedSliceIter::from_range(&range.base, ints) {
+                        let text = i64_to_str(false, *v);
+                        match_regex_inner::<false>(
+                            range.field_id,
+                            rl,
+                            0,
+                            BytesRegex {
+                                re: &mut re.regex,
+                                cl: &mut re.capture_locs,
+                                data: text.as_bytes(),
+                            },
+                            &re.capture_group_fields,
+                            re.multimatch,
+                            &mut rbs,
+                            &sess.record_mgr.fields,
+                            command_buffer,
+                        );
+                    }
+                };
             }
             TypedSlice::Reference(_) => unreachable!(),
             TypedSlice::Unset(_)

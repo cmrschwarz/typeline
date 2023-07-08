@@ -3,8 +3,8 @@ use std::cell::Cell;
 use crate::utils::universe::Universe;
 
 use super::{
-    iters::{Iter, IterMut, FieldIterator},
-    FieldData, RunLength,
+    iters::{FieldIterator, Iter, IterMut},
+    FieldData, FieldValueHeader, RunLength,
 };
 
 pub type IterId = usize;
@@ -58,14 +58,22 @@ impl IterHall {
     pub fn iter<'a>(&'a self) -> Iter<'a> {
         self.fd.iter()
     }
-    pub fn get_iter<'a>(&'a self, iter_id: IterId) -> Iter<'a> {
-        let state = self.iters[iter_id].get();
+    fn get_iter_state(&self, iter_id: IterId) -> (IterState, FieldValueHeader) {
+        let mut state = self.iters[iter_id].get();
         let h = self
             .fd
             .header
             .get(state.header_idx)
             .cloned()
             .unwrap_or_default();
+        if h.run_length == state.header_rl_offset {
+            state.header_idx += 1;
+            state.header_rl_offset = 0;
+        }
+        (state, h)
+    }
+    pub fn get_iter<'a>(&'a self, iter_id: IterId) -> Iter<'a> {
+        let (state, h) = self.get_iter_state(iter_id);
         Iter {
             fd: &self.fd,
             field_pos: state.field_pos - self.initial_field_offset,
@@ -77,13 +85,7 @@ impl IterHall {
         }
     }
     pub fn get_iter_mut<'a>(&'a mut self, iter_id: IterId) -> IterMut<'a> {
-        let state = self.iters[iter_id].get();
-        let h = self
-            .fd
-            .header
-            .get(state.header_idx)
-            .cloned()
-            .unwrap_or_default();
+        let (state, h) = self.get_iter_state(iter_id);
         IterMut {
             fd: &mut self.fd,
             field_pos: state.field_pos - self.initial_field_offset,
@@ -95,13 +97,18 @@ impl IterHall {
         }
     }
     pub fn store_iter<'a>(&'a self, iter_id: IterId, iter: impl FieldIterator<'a>) {
-        let iter = iter.as_base_iter();
+        let mut iter = iter.as_base_iter();
         assert!(iter.fd as *const FieldData == &self.fd as *const FieldData);
         let mut state = self.iters[iter_id].get();
+        if iter.header_idx == self.fd.header.len() && iter.header_idx > 0 {
+            iter.prev_field();
+            state.header_rl_offset += 1;
+        }
         state.data = iter.data;
         state.header_idx = iter.header_idx;
         state.header_rl_offset = iter.header_rl_offset;
         state.field_pos = iter.field_pos;
+
         self.iters[iter_id].set(state);
     }
 

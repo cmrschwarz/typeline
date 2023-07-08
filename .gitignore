@@ -2,3 +2,9 @@
 /chromedriver*
 /geckodriver*
 /.vscode
+
+
+# benchmarking output
+/flamegraph.svg
+/perf.data
+/perf.data.old

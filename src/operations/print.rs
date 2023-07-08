@@ -1,4 +1,7 @@
-use std::{borrow::Cow, io::Write};
+use std::{
+    borrow::Cow,
+    io::{BufWriter, Write},
+};
 
 use bstr::{BStr, ByteSlice};
 use is_terminal::IsTerminal;
@@ -6,7 +9,7 @@ use is_terminal::IsTerminal;
 use crate::{
     field_data::{
         field_value_flags, iter_hall::IterId, iters::FieldIterator, typed::TypedSlice,
-        typed_iters::TypedSliceIter,
+        typed_iters::TypedSliceIter, FieldValueKind,
     },
     options::argument::CliArgIdx,
     ref_iter::{
@@ -24,7 +27,6 @@ use super::{
 
 pub struct TfPrint {
     flush_on_every_print: bool,
-    pending_batch_size: usize,
     current_stream_val: Option<StreamValueId>,
     iter_id: IterId,
 }
@@ -49,13 +51,13 @@ pub fn setup_tf_print(
     let tf = TfPrint {
         // TODO: should we make a config option for this?
         flush_on_every_print: std::io::stdout().is_terminal(),
-        pending_batch_size: 0,
         current_stream_val: None,
         iter_id: sess.record_mgr.fields[tf_state.input_field]
             .borrow_mut()
             .field_data
             .claim_iter(),
     };
+    tf_state.preferred_input_type = Some(FieldValueKind::BytesInline);
     (TransformData::Print(tf), tf_state.input_field)
 }
 
@@ -190,16 +192,10 @@ pub fn handle_tf_print_raw(
     field_pos: &mut usize,
     field_pos_batch_end: &mut usize,
 ) -> Result<(), (usize, std::io::Error)> {
-    let mut stdout = std::io::stdout().lock();
+    let mut stdout = BufWriter::new(std::io::stdout().lock());
     debug_assert!(!tf.current_stream_val.is_some());
     let (batch, input_field_id);
-    if tf.pending_batch_size == 0 {
-        (batch, input_field_id) = sess.claim_batch(tf_id);
-        tf.pending_batch_size = batch;
-    } else {
-        input_field_id = sess.tf_mgr.transforms[tf_id].input_field;
-        batch = tf.pending_batch_size;
-    }
+    (batch, input_field_id) = sess.claim_batch(tf_id);
     let input_field = sess.record_mgr.fields[input_field_id].borrow();
     let base_iter = input_field
         .field_data
@@ -281,7 +277,7 @@ pub fn handle_tf_print_raw(
         .store_iter(tf.iter_id, iter.into_base_iter());
     drop(input_field);
     if tf.flush_on_every_print {
-        drop(stdout.flush());
+        stdout.flush().ok();
     }
     let consumed_fields = *field_pos - starting_pos;
     sess.tf_mgr.transforms[tf_id].is_stream_subscriber = tf.current_stream_val.is_some();

@@ -296,32 +296,11 @@ impl RecordManager {
         output_fields: &[FieldId],
     ) {
         let cb = &mut self.match_sets[tf.match_set_id].command_buffer;
-        let max_action_set_id = cb.last_action_set_id();
-        let mut regular_command_application_needed = false;
         let ord_id = usize::from(tf.ordering_id);
-        if tf.last_consumed_batch_size > 0 {
-            for ofid in output_fields {
-                let mut f = self.fields[*ofid].borrow_mut();
-                if f.field_data.field_count() == tf.last_consumed_batch_size {
-                    f.field_data.clear();
-                    f.last_applied_action_set_id = ord_id;
-                } else {
-                    if f.last_applied_action_set_id == ord_id {
-                        regular_command_application_needed = true;
-                    } else if f.last_applied_action_set_id < max_action_set_id {
-                        let start = f.last_applied_action_set_id + 1;
-                        f.last_applied_action_set_id = ord_id;
-                        cb.execute_for_iter_halls(iter::once(f), start, max_action_set_id);
-                    }
-                }
-            }
-        }
-        if regular_command_application_needed && ord_id < max_action_set_id {
-            let iter = output_fields
-                .iter()
-                .map(|fid| self.fields[*fid].borrow_mut())
-                .filter(|fid| fid.last_applied_action_set_id == max_action_set_id);
-            cb.execute_for_iter_halls(iter, ord_id + 1, max_action_set_id);
+        for ofid in output_fields {
+            let mut f = self.fields[*ofid].borrow_mut();
+            f.field_data.clear();
+            f.last_applied_action_set_id = ord_id;
         }
         //TODO: this is incorrect. merge instead
         cb.erase_action_sets(ord_id + 1);
@@ -367,7 +346,6 @@ impl JobData<'_> {
         let tf = &mut self.tf_mgr.transforms[tf_id];
         let batch = tf.desired_batch_size.min(tf.available_batch_size);
         tf.available_batch_size -= batch;
-        tf.last_consumed_batch_size = batch;
         (batch, tf.input_field)
     }
 }
@@ -514,9 +492,9 @@ impl<'a> WorkerThreadSession<'a> {
                 op_id: *op_id,
                 ordering_id: jd.tf_mgr.claim_transform_ordering_id(),
                 is_ready: false,
-                last_consumed_batch_size: 0,
                 is_stream_producer: false,
                 is_stream_subscriber: false,
+                preferred_input_type: None,
             };
             let tf_id_peek = jd.tf_mgr.transforms.peek_claim_id();
             (tf_data, output_field) = match &op_data {
