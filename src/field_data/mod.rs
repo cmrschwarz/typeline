@@ -339,6 +339,11 @@ unsafe fn drop_slice<T>(slice: &[T]) {
     }
 }
 
+pub struct FieldDataInternals<'a> {
+    pub data: &'a mut Vec<u8>,
+    pub header: &'a mut Vec<FieldValueHeader>,
+    pub field_count: &'a mut usize,
+}
 impl FieldData {
     pub unsafe fn from_raw_parts(
         header: Vec<FieldValueHeader>,
@@ -468,8 +473,12 @@ impl FieldData {
     pub fn iter_mut<'a>(&'a mut self) -> IterMut<'a> {
         IterMut::from_start(self, 0)
     }
-    pub unsafe fn internals(&mut self) -> (&mut Vec<FieldValueHeader>, &mut Vec<u8>, &mut usize) {
-        (&mut self.header, &mut self.data, &mut self.field_count)
+    pub unsafe fn internals(&mut self) -> FieldDataInternals {
+        FieldDataInternals {
+            data: &mut self.data,
+            header: &mut self.header,
+            field_count: &mut self.field_count,
+        }
     }
     pub fn field_count(&self) -> usize {
         self.field_count

@@ -15,9 +15,7 @@ use scr::{
 #[bench]
 fn empty_context(b: &mut test::Bencher) {
     b.iter(|| {
-        let res = ContextBuilder::default()
-            .push_str("foobar", 1)
-            .run();
+        let res = ContextBuilder::default().push_str("foobar", 1).run();
         assert!(matches!(res, Err(ScrError::ChainSetupError(_))));
     });
 }

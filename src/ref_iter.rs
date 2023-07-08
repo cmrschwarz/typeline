@@ -525,17 +525,17 @@ mod ref_iter_tests {
     }
     fn compare_iter_output_parallel_ref(mut fd: FieldData, expected: &[(&'static str, RunLength)]) {
         let mut fd_refs = FieldData::default();
-        let (header, _, _) = unsafe { fd.internals() };
-        for h in header.iter_mut() {
+        let fdi = unsafe { fd.internals() };
+        for h in fdi.header.iter_mut() {
             if !h.same_value_as_previous() {
                 push_ref(&mut fd_refs, 0, h.size as usize, h.run_length as usize);
-                let (headers_ref, _, _) = unsafe { fd_refs.internals() };
-                let h_ref = headers_ref.last_mut().unwrap();
+                let fdi = unsafe { fd_refs.internals() };
+                let h_ref = fdi.header.last_mut().unwrap();
                 h_ref.flags |=
                     h.flags & (field_value_flags::DELETED | field_value_flags::SHARED_VALUE);
             } else {
-                let (headers_ref, _, _) = unsafe { fd_refs.internals() };
-                headers_ref.push(FieldValueHeader {
+                let fdi = unsafe { fd_refs.internals() };
+                fdi.header.push(FieldValueHeader {
                     fmt: FieldValueFormat {
                         kind: FieldValueKind::Reference,
                         flags: h.flags
@@ -604,12 +604,12 @@ mod ref_iter_tests {
         push_ref(&mut fdr, 0, 3, 3);
 
         unsafe {
-            let (h, _d, c) = fd.internals();
-            h[1].set_deleted(true);
-            *c -= 2;
-            let (h, _d, c) = fdr.internals();
-            h[1].set_deleted(true);
-            *c -= 2;
+            let fdi = fd.internals();
+            fdi.header[1].set_deleted(true);
+            *fdi.field_count -= 2;
+            let fdi = fdr.internals();
+            fdi.header[1].set_deleted(true);
+            *fdi.field_count -= 2;
         }
 
         compare_iter_output(fd, fdr, &[("a", 1, 0), ("ccc", 3, 0)]);
@@ -620,12 +620,12 @@ mod ref_iter_tests {
         let mut fd = FieldData::default();
         fd.push_str("aaa", 1, false, false);
         unsafe {
-            let (h, _d, c) = fd.internals();
-            h.extend_from_within(0..1);
-            h[1].set_same_value_as_previous(true);
-            h[1].run_length = 5;
-            h[1].set_shared_value(true);
-            *c += 5;
+            let fdi = fd.internals();
+            fdi.header.extend_from_within(0..1);
+            fdi.header[1].set_same_value_as_previous(true);
+            fdi.header[1].run_length = 5;
+            fdi.header[1].set_shared_value(true);
+            *fdi.field_count += 5;
         }
         fd.push_str("c", 3, false, false);
         compare_iter_output_parallel_ref(fd, &[("aaa", 1), ("aaa", 5), ("c", 3)]);
@@ -637,14 +637,14 @@ mod ref_iter_tests {
         fd.push_str("00", 1, false, false);
         fd.push_str("1", 1, false, false);
         unsafe {
-            let (h, _d, c) = fd.internals();
-            h.extend_from_within(1..2);
-            h[2].set_same_value_as_previous(true);
-            h[2].run_length = 5;
-            h[2].set_shared_value(true);
-            *c += 5;
-            h[1].set_deleted(true);
-            *c -= 1;
+            let fdi = fd.internals();
+            fdi.header.extend_from_within(1..2);
+            fdi.header[2].set_same_value_as_previous(true);
+            fdi.header[2].run_length = 5;
+            fdi.header[2].set_shared_value(true);
+            *fdi.field_count += 5;
+            fdi.header[1].set_deleted(true);
+            *fdi.field_count -= 1;
         }
         fd.push_str("333", 3, false, false);
         compare_iter_output_parallel_ref(fd, &[("00", 1), ("1", 5), ("333", 3)]);

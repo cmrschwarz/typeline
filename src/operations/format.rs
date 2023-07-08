@@ -1,11 +1,19 @@
-use std::borrow::Cow;
+use std::{
+    borrow::Cow,
+    cell::{RefCell, RefMut},
+};
 
 use bstr::{BStr, BString, ByteSlice, ByteVec};
+use nonmax::NonMaxUsize;
 use smallstr::SmallString;
 
 use crate::{
     field_data::{
-        field_value_flags, iter_hall::IterId, push_interface::PushInterface, typed::TypedSlice,
+        field_value_flags,
+        iter_hall::IterId,
+        push_interface::{PushInterface, RawPushInterface},
+        typed::TypedSlice,
+        FieldValueKind, INLINE_STR_MAX_LEN,
     },
     options::argument::CliArgIdx,
     ref_iter::{
@@ -16,11 +24,11 @@ use crate::{
         string_store::{StringStore, StringStoreEntry},
         universe::Universe,
     },
-    worker_thread_session::{FieldId, JobData},
+    worker_thread_session::{Field, FieldId, JobData, MatchSet, MatchSetId},
 };
 
 use super::{
-    errors::{OperatorApplicationError, OperatorCreationError, OperatorSetupError},
+    errors::{OperatorCreationError, OperatorSetupError},
     operator::OperatorData,
     transform::{TransformData, TransformId, TransformState},
 };
@@ -95,13 +103,40 @@ struct TfFormatStreamValueHandle {
     part_idx: usize,
     handled_len: usize,
 }
+#[derive(Clone, Copy)]
+struct OutputState {
+    next: usize,
+    len: usize,
+    run_len: usize,
+    contains_raw_bytes: bool,
+    error_occured: bool,
+}
+
+struct OutputTarget {
+    run_len: usize,
+    target: *mut u8,
+    target_buffer_offset: Option<NonMaxUsize>,
+}
+
+impl Default for OutputState {
+    fn default() -> Self {
+        Self {
+            next: 0,
+            len: Default::default(),
+            contains_raw_bytes: false,
+            error_occured: false,
+            run_len: 0,
+        }
+    }
+}
 
 pub struct TfFormat<'a> {
     output_field: FieldId,
     parts: &'a Vec<FormatPart>,
     refs: Vec<FormatIdentRef>,
     input_fields_unique: Vec<FieldId>,
-    output_lengths: Vec<usize>,
+    output_states: Vec<OutputState>,
+    output_targets: Vec<OutputTarget>,
     stream_value_handles: Universe<usize, TfFormatStreamValueHandle>,
 }
 
@@ -157,7 +192,8 @@ pub fn setup_tf_format<'a>(
         parts: &op.parts,
         refs,
         input_fields_unique,
-        output_lengths: Default::default(),
+        output_states: Default::default(),
+        output_targets: Default::default(),
         stream_value_handles: Default::default(),
     };
     (TransformData::Format(tf), output_field)
@@ -414,79 +450,264 @@ pub fn create_op_format(val: &BStr) -> Result<OperatorData, OperatorCreationErro
 pub fn create_op_format_from_str(val: &str) -> Result<OperatorData, OperatorCreationError> {
     parse_op_format(Some(val.as_bytes().as_bstr()), None)
 }
+fn iter_output_states(
+    fmt: &mut TfFormat,
+    output_idx: &mut usize,
+    mut run_len: usize,
+    func: impl Fn(&mut OutputState),
+) {
+    let next = fmt.output_states.len();
+    let o = &mut fmt.output_states[*output_idx];
+    if run_len < o.run_len {
+        let mut o2 = *o;
+        o.next = next;
+        let rl_rem = o.run_len - run_len;
+        o.run_len = run_len;
+        o2.run_len = rl_rem;
+        fmt.output_states.push(o2);
+    }
+    while run_len > 0 {
+        let o = &mut fmt.output_states[*output_idx];
+        func(o);
+        *output_idx = o.next;
+        run_len -= o.run_len;
+    }
+}
+pub fn setup_key_output_state(
+    fields: &Universe<FieldId, RefCell<Field>>,
+    match_sets: &mut Universe<MatchSetId, MatchSet>,
+    fmt: &mut TfFormat,
+    k: &FormatKey,
+) {
+    let ident_ref = &fmt.refs[k.identifier];
+    let field = &mut fields[ident_ref.field_id].borrow();
+    let mut iter = AutoDerefIter::new(
+        fields,
+        match_sets,
+        ident_ref.field_id,
+        field.field_data.get_iter(ident_ref.iter_id),
+        Some(ident_ref.field_id),
+    );
 
+    let mut output_index = 0;
+    while let Some(range) =
+        iter.typed_range_fwd(match_sets, usize::MAX, field_value_flags::BYTES_ARE_UTF8)
+    {
+        match range.base.data {
+            TypedSlice::Reference(_) => unreachable!(),
+            TypedSlice::TextInline(text) => {
+                for (v, rl, _offs) in RefAwareInlineTextIter::from_range(&range, text) {
+                    iter_output_states(fmt, &mut output_index, rl as usize, |o| {
+                        o.len += v.len();
+                    });
+                }
+            }
+            TypedSlice::BytesInline(bytes) => {
+                for (v, rl, _offs) in RefAwareInlineBytesIter::from_range(&range, bytes) {
+                    iter_output_states(fmt, &mut output_index, rl as usize, |o| {
+                        o.len += v.len();
+                        o.contains_raw_bytes = true;
+                    });
+                }
+            }
+            TypedSlice::BytesBuffer(bytes) => {
+                for (v, rl, _offs) in RefAwareBytesBufferIter::from_range(&range, bytes) {
+                    iter_output_states(fmt, &mut output_index, rl as usize, |o| {
+                        o.len += v.len();
+                        o.contains_raw_bytes = true;
+                    });
+                }
+            }
+            TypedSlice::Unset(_)
+            | TypedSlice::Null(_)
+            | TypedSlice::Integer(_)
+            | TypedSlice::Error(_)
+            | TypedSlice::Html(_)
+            | TypedSlice::StreamValueId(_)
+            | TypedSlice::Object(_) => {
+                iter_output_states(fmt, &mut output_index, range.base.field_count, |o| {
+                    o.error_occured = true;
+                });
+            }
+        }
+    }
+}
+unsafe fn write_bytes(
+    fmt: &mut TfFormat,
+    output_index: &mut usize,
+    bytes: &[u8],
+    mut run_len: usize,
+) {
+    while run_len > 0 {
+        let o = &mut fmt.output_targets[*output_index];
+        unsafe {
+            std::ptr::copy_nonoverlapping(bytes.as_ptr(), o.target, bytes.len());
+            o.target = o.target.add(bytes.len());
+        }
+        run_len -= o.run_len;
+        *output_index += 1;
+    }
+}
+fn setup_output_targets(fmt: &mut TfFormat, output_field: &mut RefMut<Field>) {
+    fmt.output_targets.reserve(fmt.output_states.len());
+    let mut output_idx = 0;
+    loop {
+        let os = &mut fmt.output_states[output_idx];
+        let target;
+        let mut target_buffer_offset = None;
+        if os.len < INLINE_STR_MAX_LEN {
+            unsafe {
+                target = output_field.field_data.push_variable_sized_type_uninit(
+                    FieldValueKind::BytesInline,
+                    if os.contains_raw_bytes {
+                        0
+                    } else {
+                        field_value_flags::BYTES_ARE_UTF8
+                    },
+                    os.len,
+                    os.run_len,
+                );
+            }
+        } else {
+            let mut buf = Vec::with_capacity(os.len);
+            target = buf.as_mut_ptr();
+            unsafe {
+                target_buffer_offset = Some(NonMaxUsize::new_unchecked(
+                    output_field
+                        .field_data
+                        .internals()
+                        .fd
+                        .internals()
+                        .data
+                        .len(),
+                ));
+            }
+            output_field
+                .field_data
+                .push_bytes_buffer(buf, os.run_len, true, false);
+        };
+        fmt.output_targets.push(OutputTarget {
+            run_len: os.run_len,
+            target,
+            target_buffer_offset,
+        });
+        output_idx = os.next;
+        if output_idx == 0 {
+            break;
+        }
+    }
+}
+fn bump_output_targets_buffer_lengths(fmt: &mut TfFormat, output_field: &mut RefMut<Field>) {
+    for t in &fmt.output_targets {
+        if let Some(tbo) = t.target_buffer_offset {
+            unsafe {
+                let buf = &mut *(output_field
+                    .field_data
+                    .internals()
+                    .fd
+                    .internals()
+                    .data
+                    .as_mut_ptr()
+                    .add(tbo.get()) as *mut Vec<u8>);
+                buf.set_len(t.target.offset_from(buf.as_ptr()) as usize);
+            }
+        }
+    }
+}
+fn write_fmt_key(
+    fields: &Universe<FieldId, RefCell<Field>>,
+    match_sets: &mut Universe<MatchSetId, MatchSet>,
+    fmt: &mut TfFormat,
+    k: &FormatKey,
+) {
+    let ident_ref = &fmt.refs[k.identifier];
+    let field = &mut fields[ident_ref.field_id].borrow();
+    let mut iter = AutoDerefIter::new(
+        fields,
+        match_sets,
+        ident_ref.field_id,
+        field.field_data.get_iter(ident_ref.iter_id),
+        Some(ident_ref.field_id),
+    );
+
+    let mut output_index = 0;
+    while let Some(range) = iter.typed_range_fwd(match_sets, usize::MAX, field_value_flags::DEFAULT)
+    {
+        //TODO: respect format options
+        match range.base.data {
+            TypedSlice::Reference(_) => unreachable!(),
+            TypedSlice::TextInline(_) => unreachable!(),
+            TypedSlice::BytesInline(bytes) => {
+                for (v, rl, _offs) in RefAwareInlineBytesIter::from_range(&range, bytes) {
+                    unsafe { write_bytes(fmt, &mut output_index, v.as_bytes(), rl as usize) };
+                }
+            }
+            TypedSlice::BytesBuffer(bytes) => {
+                for (v, rl, _offs) in RefAwareBytesBufferIter::from_range(&range, bytes) {
+                    unsafe { write_bytes(fmt, &mut output_index, v.as_bytes(), rl as usize) };
+                }
+            }
+            TypedSlice::StreamValueId(_) => todo!(),
+            TypedSlice::Unset(_)
+            | TypedSlice::Null(_)
+            | TypedSlice::Integer(_)
+            | TypedSlice::Error(_)
+            | TypedSlice::Html(_)
+            | TypedSlice::Object(_) => {
+                let mut rl = range.base.field_count;
+                while rl > 0 {
+                    let o = &mut fmt.output_states[output_index];
+                    rl -= o.run_len;
+                    output_index = o.next;
+                }
+            }
+        }
+    }
+}
 pub fn handle_tf_format(sess: &mut JobData<'_>, tf_id: TransformId, fmt: &mut TfFormat) {
     sess.record_mgr.apply_field_commands_for_tf_outputs(
         &sess.tf_mgr.transforms[tf_id],
         std::slice::from_ref(&fmt.output_field),
     );
     let (batch, _input_field_id) = sess.claim_batch(tf_id);
-    let tf = &sess.tf_mgr.transforms[tf_id];
-    let op_id = tf.op_id;
     let mut output_field = sess.record_mgr.fields[fmt.output_field].borrow_mut();
-    fmt.output_lengths.clear();
-    fmt.output_lengths.resize(batch, 0);
+    fmt.output_states.push(OutputState {
+        run_len: batch,
+        ..Default::default()
+    });
     for part in fmt.parts.iter() {
         match part {
-            FormatPart::ByteLiteral(v) => fmt.output_lengths.iter_mut().for_each(|l| *l += v.len()),
-            FormatPart::TextLiteral(v) => fmt.output_lengths.iter_mut().for_each(|l| *l += v.len()),
-            FormatPart::Key(k) => {
-                let ident_ref = &fmt.refs[k.identifier];
-                let field = &mut sess.record_mgr.fields[ident_ref.field_id].borrow();
-                let mut iter = AutoDerefIter::new(
-                    &sess.record_mgr.fields,
-                    &mut sess.record_mgr.match_sets,
-                    ident_ref.field_id,
-                    field.field_data.get_iter(ident_ref.iter_id),
-                    Some(ident_ref.field_id),
-                );
-
-                while let Some(range) = iter.typed_range_fwd(
-                    &mut sess.record_mgr.match_sets,
-                    usize::MAX,
-                    field_value_flags::BYTES_ARE_UTF8,
-                ) {
-                    match range.base.data {
-                        TypedSlice::Reference(_) => unreachable!(),
-                        TypedSlice::TextInline(text) => {
-                            for (_v, _rl, _offs) in RefAwareInlineTextIter::from_range(&range, text)
-                            {
-                                todo!();
-                            }
-                        }
-                        TypedSlice::BytesInline(bytes) => {
-                            for (_v, _rl, _offs) in
-                                RefAwareInlineBytesIter::from_range(&range, bytes)
-                            {
-                                todo!();
-                            }
-                        }
-                        TypedSlice::BytesBuffer(bytes) => {
-                            for (_v, _rl, _offs) in
-                                RefAwareBytesBufferIter::from_range(&range, bytes)
-                            {
-                                todo!();
-                            }
-                        }
-                        TypedSlice::Unset(_)
-                        | TypedSlice::Null(_)
-                        | TypedSlice::Integer(_)
-                        | TypedSlice::Error(_)
-                        | TypedSlice::Html(_)
-                        | TypedSlice::StreamValueId(_)
-                        | TypedSlice::Object(_) => {
-                            output_field.field_data.push_error(
-                                OperatorApplicationError::new("format type error", op_id),
-                                range.base.field_count,
-                                true,
-                                true,
-                            );
-                        }
-                    }
-                }
+            FormatPart::ByteLiteral(v) => fmt.output_states.iter_mut().for_each(|s| {
+                s.len += v.len();
+                s.contains_raw_bytes = true;
+            }),
+            FormatPart::TextLiteral(v) => {
+                fmt.output_states.iter_mut().for_each(|s| s.len += v.len())
             }
+            FormatPart::Key(k) => setup_key_output_state(
+                &sess.record_mgr.fields,
+                &mut sess.record_mgr.match_sets,
+                fmt,
+                k,
+            ),
         }
     }
+    setup_output_targets(fmt, &mut output_field);
+    for part in fmt.parts.iter() {
+        match part {
+            FormatPart::ByteLiteral(v) => unsafe { write_bytes(fmt, &mut 0, v.as_bytes(), batch) },
+            FormatPart::TextLiteral(v) => unsafe { write_bytes(fmt, &mut 0, v.as_bytes(), batch) },
+            FormatPart::Key(k) => write_fmt_key(
+                &sess.record_mgr.fields,
+                &mut sess.record_mgr.match_sets,
+                fmt,
+                k,
+            ),
+        }
+    }
+    bump_output_targets_buffer_lengths(fmt, &mut output_field);
+    fmt.output_states.clear();
+    fmt.output_targets.clear();
     sess.tf_mgr.update_ready_state(tf_id);
     sess.tf_mgr.inform_successor_batch_available(tf_id, batch);
 }

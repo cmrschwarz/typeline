@@ -163,12 +163,11 @@ fn start_streaming_file(sess: &mut JobData<'_>, tf_id: TransformId, fr: &mut TfF
     // SAFETY: this relies on the memory layout in field_data.
     // since that is a submodule of us, this is fine.
     // ideally though, FieldData would expose some way to do this safely.
-    let (field_headers, field_data, field_count) =
-        unsafe { out_field.field_data.internals().fd.internals() };
+    let fdi = unsafe { out_field.field_data.internals().fd.internals() };
 
-    let size_before = field_data.len();
+    let size_before = fdi.data.len();
     let res = read_chunk(
-        field_data,
+        fdi.data,
         fr.file.as_mut().unwrap(),
         INLINE_STR_MAX_LEN.min(fr.stream_buffer_size),
         fr.line_buffered,
@@ -176,7 +175,7 @@ fn start_streaming_file(sess: &mut JobData<'_>, tf_id: TransformId, fr: &mut TfF
     let chunk_size = match res {
         Ok((size, eof)) => {
             if eof {
-                field_headers.push(FieldValueHeader {
+                fdi.header.push(FieldValueHeader {
                     fmt: FieldValueFormat {
                         kind: FieldValueKind::BytesInline,
                         flags: field_value_flags::DEFAULT,
@@ -184,7 +183,7 @@ fn start_streaming_file(sess: &mut JobData<'_>, tf_id: TransformId, fr: &mut TfF
                     },
                     run_length: 1,
                 });
-                *field_count += 1;
+                *fdi.field_count += 1;
                 fr.file.take();
                 sess.tf_mgr.unlink_transform(tf_id, 1);
                 return;
@@ -201,8 +200,8 @@ fn start_streaming_file(sess: &mut JobData<'_>, tf_id: TransformId, fr: &mut TfF
     };
 
     let mut buf = Vec::with_capacity(chunk_size);
-    buf.extend_from_slice(&field_data[size_before..size_before + chunk_size]);
-    field_data.resize(size_before, 0);
+    buf.extend_from_slice(&fdi.data[size_before..size_before + chunk_size]);
+    fdi.data.resize(size_before, 0);
     let sv_id = sess.sv_mgr.stream_values.claim_with_value(StreamValue {
         data: StreamValueData::BytesChunk(buf),
         done: false,

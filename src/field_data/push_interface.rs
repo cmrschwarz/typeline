@@ -10,8 +10,8 @@ use crate::{
 };
 
 use super::{
-    as_u8_slice, iter_hall::IterHall, FieldData, FieldReference, FieldValueFlags,
-    FieldValueFormat, FieldValueHeader, FieldValueKind, FieldValueSize, RunLength,
+    as_u8_slice, iter_hall::IterHall, FieldData, FieldReference, FieldValueFlags, FieldValueFormat,
+    FieldValueHeader, FieldValueKind, FieldValueSize, RunLength,
 };
 
 pub trait UnsafeHeaderPushInterface {
@@ -61,6 +61,13 @@ pub unsafe trait RawPushInterface {
         run_length: usize,
         try_header_rle: bool,
     );
+    unsafe fn push_variable_sized_type_uninit(
+        &mut self,
+        kind: FieldValueKind,
+        flags: FieldValueFlags,
+        data_len: usize,
+        run_length: usize,
+    ) -> *mut u8;
 }
 impl UnsafeHeaderPushInterface for FieldData {
     #[inline(always)]
@@ -274,6 +281,24 @@ unsafe impl RawPushInterface for FieldData {
         // the type has no value
         self.add_header_for_single_value(fmt, run_length, header_rle, header_rle);
     }
+
+    unsafe fn push_variable_sized_type_uninit(
+        &mut self,
+        kind: FieldValueKind,
+        flags: FieldValueFlags,
+        data_len: usize,
+        run_length: usize,
+    ) -> *mut u8 {
+        self.field_count += run_length as usize;
+        debug_assert!(data_len <= INLINE_STR_MAX_LEN);
+        let size = data_len as FieldValueSize;
+        self.push_header_raw_same_value_after_first(
+            FieldValueFormat { kind, flags, size },
+            run_length,
+        );
+        self.data.reserve(data_len);
+        self.data.as_mut_ptr_range().end.sub(data_len)
+    }
 }
 unsafe impl RawPushInterface for IterHall {
     unsafe fn push_variable_sized_type(
@@ -316,6 +341,16 @@ unsafe impl RawPushInterface for IterHall {
         try_header_rle: bool,
     ) {
         self.fd.push_zst(kind, flags, run_length, try_header_rle);
+    }
+    unsafe fn push_variable_sized_type_uninit(
+        &mut self,
+        kind: FieldValueKind,
+        flags: FieldValueFlags,
+        data_len: usize,
+        run_length: usize,
+    ) -> *mut u8 {
+        self.fd
+            .push_variable_sized_type_uninit(kind, flags, data_len, run_length)
     }
 }
 
