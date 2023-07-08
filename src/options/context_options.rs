@@ -10,6 +10,7 @@ use crate::{
     operations::{
         errors::{ChainSetupError, OperatorSetupError},
         format::setup_op_format,
+        key::setup_op_key,
         operator::{OperatorBase, OperatorData, OperatorId, OperatorOffsetInChain},
         regex::setup_op_regex,
     },
@@ -125,8 +126,9 @@ impl ContextOptions {
             op.offset_in_chain = chain.operations.len() as OperatorOffsetInChain;
             chain.operations.push(i as OperatorId);
             match &mut sess.operator_data[i] {
-                OperatorData::Regex(re) => setup_op_regex(&mut sess.string_store, re)?,
-                OperatorData::Format(fmt) => setup_op_format(&mut sess.string_store, fmt)?,
+                OperatorData::Regex(op) => setup_op_regex(&mut sess.string_store, op)?,
+                OperatorData::Format(op) => setup_op_format(&mut sess.string_store, op)?,
+                OperatorData::Key(op) => setup_op_key(&mut sess.string_store, op)?,
                 OperatorData::StringSink(_)
                 | OperatorData::Split(_)
                 | OperatorData::Sequence(_)

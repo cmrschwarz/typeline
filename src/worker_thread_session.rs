@@ -200,6 +200,18 @@ impl RecordManager {
         }
         field_id
     }
+    pub fn add_field_name(&mut self, field_id: FieldId, name: StringStoreEntry) {
+        let mut field = self.fields[field_id].borrow_mut();
+        if field.name.is_none() {
+            field.name = Some(name);
+        }
+        match self.match_sets[field.match_set].field_name_map.entry(name) {
+            hash_map::Entry::Occupied(mut e) => e.get_mut().push_back(field_id),
+            hash_map::Entry::Vacant(e) => {
+                e.insert(VecDeque::from_iter([field_id].into_iter()));
+            }
+        }
+    }
     pub fn add_field(&mut self, ms_id: MatchSetId, name: Option<StringStoreEntry>) -> FieldId {
         let id = self.fields.claim();
         self.setup_field(id, ms_id, name)
@@ -482,6 +494,10 @@ impl<'a> WorkerThreadSession<'a> {
             let op_data = &self.job_data.session_data.operator_data[*op_id as usize];
             let tf_data;
             let jd = &mut self.job_data;
+            if let OperatorData::Key(op) = op_data {
+                jd.record_mgr.add_field_name(prev_field_id, op.key_sse);
+                continue;
+            }
             let mut tf_state = TransformState {
                 available_batch_size: start_tf_id.map(|_| 0).unwrap_or(available_batch_size),
                 input_field: prev_field_id,
@@ -506,6 +522,7 @@ impl<'a> WorkerThreadSession<'a> {
                 OperatorData::FileReader(op) => setup_tf_file_reader(jd, op, &mut tf_state),
                 OperatorData::DataInserter(op) => setup_tf_data_inserter(jd, op, &mut tf_state),
                 OperatorData::Sequence(op) => setup_tf_sequence(jd, op, &mut tf_state),
+                OperatorData::Key(_) => unreachable!(),
             };
             let tf_id = self.add_transform(tf_state, tf_data);
             debug_assert!(tf_id_peek == tf_id);

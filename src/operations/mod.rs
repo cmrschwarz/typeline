@@ -11,3 +11,4 @@ pub mod transform;
 
 #[allow(dead_code)] //TODO
 pub mod format;
+pub mod key;

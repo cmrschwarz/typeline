@@ -3,6 +3,7 @@ use crate::operations::data_inserter::{parse_op_bytes, parse_op_int, parse_op_st
 use crate::operations::errors::OperatorCreationError;
 use crate::operations::file_reader::{parse_op_file, parse_op_stdin};
 use crate::operations::format::parse_op_format;
+use crate::operations::key::parse_op_key;
 use crate::operations::operator::OperatorData;
 use crate::operations::print::parse_op_print;
 use crate::operations::regex::{parse_op_regex, RegexOptions};
@@ -392,7 +393,8 @@ fn parse_operation(
     Ok(match argname {
         "s" | "split" => Some(parse_op_split(value, idx)?),
         "p" | "print" => Some(parse_op_print(value, idx)?),
-        "f" | "format" => Some(parse_op_format(value, idx)?),
+        "f" | "fmt" | "format" => Some(parse_op_format(value, idx)?),
+        "key" => Some(parse_op_key(value, idx)?),
         "seq" => Some(parse_op_seq(value, idx)?),
         "url" => todo!(),
         "str" => Some(parse_op_str(value, idx)?),
