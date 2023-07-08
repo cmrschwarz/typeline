@@ -570,6 +570,7 @@ fn setup_output_targets(
     let mut output_idx = 0;
     let mut dummy: u8 = 0;
     let dummy_ptr = Some(NonNull::new(&mut dummy as *mut u8).unwrap());
+    let mut prev_len = usize::MAX;
     loop {
         let os = &mut fmt.output_states[output_idx];
         let target: Option<NonNull<u8>>;
@@ -583,10 +584,11 @@ fn setup_output_targets(
                 true,
                 false,
             );
+            prev_len = usize::MAX;
         } else if os.len < INLINE_STR_MAX_LEN {
             unsafe {
                 let fd = output_field.field_data.internals().fd;
-                fd.push_header_raw_same_value_after_first(
+                fd.add_header_for_single_value(
                     FieldValueFormat {
                         kind: FieldValueKind::BytesInline,
                         flags: if os.contains_raw_bytes {
@@ -597,12 +599,15 @@ fn setup_output_targets(
                         size: os.len as FieldValueSize,
                     },
                     os.run_len,
+                    os.len == prev_len,
+                    false,
                 );
                 *fd.internals().field_count += os.run_len;
-                target = dummy_ptr;
                 target_buffer_offset = Some(NonMaxUsize::new_unchecked(os.len));
-                inline_len += os.len;
             }
+            target = dummy_ptr;
+            inline_len += os.len;
+            prev_len = os.len;
         } else {
             let mut buf = Vec::with_capacity(os.len);
             unsafe {
@@ -620,6 +625,7 @@ fn setup_output_targets(
             output_field
                 .field_data
                 .push_bytes_buffer(buf, os.run_len, true, false);
+            prev_len = usize::MAX;
         };
         fmt.output_targets.push(OutputTarget {
             run_len: os.run_len,
