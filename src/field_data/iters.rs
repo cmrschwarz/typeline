@@ -472,7 +472,7 @@ impl<'a> FieldIterator<'a> for Iter<'a> {
         unsafe {
             ValidTypedRange(TypedRange::new(
                 self.fd,
-                (flag_mask & field_value_flags::BYTES_ARE_UTF8) != 0,
+                flag_mask,
                 fmt,
                 data_begin,
                 data_end,
@@ -510,7 +510,7 @@ impl<'a> FieldIterator<'a> for Iter<'a> {
         unsafe {
             ValidTypedRange(TypedRange::new(
                 self.fd,
-                (flag_mask & field_value_flags::BYTES_ARE_UTF8) != 0,
+                flag_mask,
                 fmt,
                 data_start,
                 data_end,

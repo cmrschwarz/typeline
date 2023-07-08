@@ -212,7 +212,7 @@ impl<'a> RefIter<'a> {
                     data: TypedSlice::new(
                         self.data_iter.field_data_ref(),
                         header_ref.fmt,
-                        true,
+                        flag_mask,
                         data_start,
                         self.data_iter.get_prev_field_data_end(),
                         field_count,

@@ -1,8 +1,8 @@
 use std::{any::TypeId, ptr::NonNull};
 
 use super::{
-    field_value_flags, FieldData, FieldReference, FieldValueFormat, FieldValueHeader,
-    FieldValueKind, Html, Object, RunLength,
+    field_value_flags, FieldData, FieldReference, FieldValueFlags, FieldValueFormat,
+    FieldValueHeader, FieldValueKind, Html, Object, RunLength,
 };
 use crate::{operations::errors::OperatorApplicationError, stream_value::StreamValueId};
 use std::ops::Deref;
@@ -113,7 +113,7 @@ impl<'a> TypedSlice<'a> {
     pub unsafe fn new(
         fd: &'a FieldData,
         fmt: FieldValueFormat,
-        make_utf_bytes_text: bool,
+        flag_mask: FieldValueFlags,
         data_begin: usize,
         data_end: usize,
         field_count: usize,
@@ -122,7 +122,7 @@ impl<'a> TypedSlice<'a> {
             FieldValueKind::Unset => TypedSlice::Unset(to_zst_slice(field_count)),
             FieldValueKind::Null => TypedSlice::Null(to_zst_slice(field_count)),
             FieldValueKind::BytesInline => {
-                if make_utf_bytes_text && fmt.flags & field_value_flags::BYTES_ARE_UTF8 != 0 {
+                if fmt.flags & flag_mask & field_value_flags::BYTES_ARE_UTF8 != 0 {
                     TypedSlice::TextInline(std::str::from_utf8_unchecked(to_slice(
                         fd, data_begin, data_end,
                     )))
@@ -192,7 +192,7 @@ pub struct TypedRange<'a> {
 impl<'a> TypedRange<'a> {
     pub unsafe fn new(
         fd: &'a FieldData,
-        make_utf_bytes_text: bool,
+        flag_mask: FieldValueFlags,
         fmt: FieldValueFormat,
         data_begin: usize,
         data_end: usize,
@@ -203,14 +203,7 @@ impl<'a> TypedRange<'a> {
         last_header_run_length_oversize: RunLength,
     ) -> TypedRange<'a> {
         let headers = &fd.header[header_begin..header_end];
-        let data = TypedSlice::new(
-            fd,
-            fmt,
-            make_utf_bytes_text,
-            data_begin,
-            data_end,
-            field_count,
-        );
+        let data = TypedSlice::new(fd, fmt, flag_mask, data_begin, data_end, field_count);
         TypedRange {
             headers,
             data,
