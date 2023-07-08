@@ -11,12 +11,13 @@ use std::num::NonZeroUsize;
 
 use crate::field_data::command_buffer::{CommandBuffer, FieldActionKind};
 use crate::field_data::push_interface::PushInterface;
+use crate::field_data::typed_iters::TypedSliceIter;
 use crate::field_data::{field_value_flags, RunLength};
 use crate::ref_iter::{
     AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter, RefAwareInlineTextIter,
 };
 use crate::utils::universe::Universe;
-use crate::utils::{self, USIZE_MAX_DECIMAL_DIGITS};
+use crate::utils::{self, i64_to_str, USIZE_MAX_DECIMAL_DIGITS};
 use crate::worker_thread_session::Field;
 use crate::{
     field_data::typed::TypedSlice,
@@ -305,6 +306,8 @@ pub fn setup_tf_regex<'a>(
             .field_data
             .claim_iter(),
     };
+    sess.record_mgr
+        .initialize_tf_output_fields(tf_state.ordering_id, &re.capture_group_fields);
     (TransformData::Regex(re), output_field)
 }
 
@@ -385,7 +388,7 @@ impl<'a, 'b> AnyRegex<'a, 'b> {
     }
 }
 
-fn match_regex_inner<'a, 'b, 'c>(
+fn match_regex_inner<'a, 'b, const PUSH_REF: bool>(
     input_field_id: FieldId,
     run_length: RunLength,
     offset: usize,
@@ -400,21 +403,33 @@ fn match_regex_inner<'a, 'b, 'c>(
     let mut next_start = 0;
     let mut match_count: RunLength = 0;
     let starting_field_idx = rbs.field_idx;
+    let rl = run_length as usize;
     while regex.next(&mut last_end, &mut next_start) {
         match_count += 1;
         for c in 0..regex.captures_locs_len() {
             let field = &mut fields[capture_group_fields[c]].borrow_mut().field_data;
             if let Some((cg_begin, cg_end)) = regex.captures_locs_get(c) {
-                field.push_reference(
-                    FieldReference {
-                        field: input_field_id,
-                        begin: offset + cg_begin,
-                        end: offset + cg_end,
-                    },
-                    run_length as usize,
-                    true,
-                    true,
-                );
+                if PUSH_REF {
+                    field.push_reference(
+                        FieldReference {
+                            field: input_field_id,
+                            begin: offset + cg_begin,
+                            end: offset + cg_end,
+                        },
+                        rl,
+                        true,
+                        true,
+                    );
+                } else {
+                    match regex {
+                        AnyRegex::Text(_, _, text) => {
+                            field.push_str(&text[cg_begin..cg_end], rl, true, false)
+                        }
+                        AnyRegex::Bytes(_, _, bytes) => {
+                            field.push_bytes(&bytes[cg_begin..cg_end], rl, true, false)
+                        }
+                    }
+                }
             } else {
                 field.push_null(run_length as usize, true);
             }
@@ -476,7 +491,7 @@ pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRe
                     } else {
                         AnyRegex::Bytes(&mut re.regex, &mut re.capture_locs, v.as_bytes())
                     };
-                    match_regex_inner(
+                    match_regex_inner::<true>(
                         range.field_id,
                         rl,
                         offset,
@@ -491,7 +506,7 @@ pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRe
             }
             TypedSlice::BytesInline(bytes) => {
                 for (v, rl, offset) in RefAwareInlineBytesIter::from_range(&range, bytes) {
-                    match_regex_inner(
+                    match_regex_inner::<true>(
                         range.field_id,
                         rl,
                         offset,
@@ -506,7 +521,7 @@ pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRe
             }
             TypedSlice::BytesBuffer(bytes) => {
                 for (v, rl, offset) in RefAwareBytesBufferIter::from_range(&range, bytes) {
-                    match_regex_inner(
+                    match_regex_inner::<true>(
                         range.field_id,
                         rl,
                         offset,
@@ -519,10 +534,30 @@ pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRe
                     );
                 }
             }
+            TypedSlice::Integer(ints) => {
+                for (v, rl) in TypedSliceIter::from_range(&range.base, ints) {
+                    let text = i64_to_str(false, *v);
+                    let any_regex = if let Some((regex, capture_locs)) = &mut re.text_only_regex {
+                        AnyRegex::Text(regex, capture_locs, text.as_str())
+                    } else {
+                        AnyRegex::Bytes(&mut re.regex, &mut re.capture_locs, text.as_bytes())
+                    };
+                    match_regex_inner::<false>(
+                        range.field_id,
+                        rl,
+                        0,
+                        any_regex,
+                        &re.capture_group_fields,
+                        re.multimatch,
+                        &mut rbs,
+                        &sess.record_mgr.fields,
+                        command_buffer,
+                    );
+                }
+            }
             TypedSlice::Reference(_) => unreachable!(),
             TypedSlice::Unset(_)
             | TypedSlice::Null(_)
-            | TypedSlice::Integer(_)
             | TypedSlice::Error(_)
             | TypedSlice::Html(_)
             | TypedSlice::StreamValueId(_)

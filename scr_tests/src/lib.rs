@@ -142,3 +142,42 @@ fn in_between_drop() -> Result<(), ScrError> {
     assert_eq!(ss.get().as_slice(), ["a", "c"]);
     Ok(())
 }
+
+#[test]
+fn multi_batch_seq_with_regex() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::new();
+    const COUNT: usize = 6;
+    ContextBuilder::default()
+        .set_batch_size(COUNT / 2)
+        .add_op(create_op_seq(0, COUNT as i64, 1).unwrap())
+        .add_op(create_op_regex("^\\d{1,2}$", RegexOptions::default()).unwrap())
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(
+        ss.get().as_slice(),
+        &(0..COUNT)
+            .into_iter()
+            .map(|i| i.to_string())
+            .collect::<Vec<_>>()
+    );
+    Ok(())
+}
+
+#[test]
+fn large_seq_with_regex() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::new();
+    const COUNT: usize = 10000;
+    ContextBuilder::default()
+        .add_op(create_op_seq(0, COUNT as i64, 1).unwrap())
+        .add_op(create_op_regex("^\\d{1,3}$", RegexOptions::default()).unwrap())
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(
+        ss.get().as_slice(),
+        &(0..1000)
+            .into_iter()
+            .map(|i| i.to_string())
+            .collect::<Vec<_>>()
+    );
+    Ok(())
+}

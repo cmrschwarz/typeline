@@ -10,8 +10,8 @@ use crate::{
     context::SessionData,
     field_data::{
         command_buffer::CommandBuffer,
-        push_interface::PushInterface,
         iter_hall::{IterHall, IterId},
+        push_interface::PushInterface,
         EntryId, FieldData,
     },
     operations::{
@@ -48,7 +48,6 @@ pub struct Field {
     pub ref_count: usize,
     pub match_set: MatchSetId,
     pub added_as_placeholder_by_tf: Option<TransformId>,
-    pub producing_transform_action_set_id: usize,
     pub last_applied_action_set_id: usize,
 
     pub name: Option<StringStoreEntry>,
@@ -281,6 +280,16 @@ impl RecordManager {
             cb.execute_for_iter_halls([f].into_iter(), last_applied_acs, last_acs);
         }
     }
+    pub fn initialize_tf_output_fields(
+        &mut self,
+        ord_id: TransformOrderingId,
+        output_fields: &[FieldId],
+    ) {
+        for ofid in output_fields {
+            let mut f = self.fields[*ofid].borrow_mut();
+            f.last_applied_action_set_id = usize::from(ord_id);
+        }
+    }
     pub fn apply_field_commands_for_tf_outputs(
         &mut self,
         tf: &TransformState,
@@ -301,7 +310,7 @@ impl RecordManager {
                         regular_command_application_needed = true;
                     } else if f.last_applied_action_set_id < max_action_set_id {
                         let start = f.last_applied_action_set_id + 1;
-                        f.last_applied_action_set_id = max_action_set_id;
+                        f.last_applied_action_set_id = ord_id;
                         cb.execute_for_iter_halls(iter::once(f), start, max_action_set_id);
                     }
                 }

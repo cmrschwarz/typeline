@@ -63,6 +63,8 @@ pub fn handle_tf_sequence(sess: &mut JobData<'_>, tf_id: TransformId, seq: &mut 
         sess.tf_mgr.unlink_transform(tf_id, batch_size - bs_rem);
     } else {
         sess.tf_mgr.push_tf_in_ready_queue(tf_id);
+        sess.tf_mgr
+            .inform_transform_batch_available(tf_id, batch_size);
     }
 }
 

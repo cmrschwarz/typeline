@@ -810,9 +810,8 @@ impl CommandBuffer {
 #[cfg(test)]
 mod test {
     use crate::field_data::{
-        iters::FieldIterator,
-        push_interface::PushInterface,
-        FieldData, RunLength, typed::TypedSlice, typed_iters::TypedSliceIter,
+        iters::FieldIterator, push_interface::PushInterface, typed::TypedSlice,
+        typed_iters::TypedSliceIter, FieldData, RunLength,
     };
 
     use super::{CommandBuffer, FieldAction, FieldActionKind};
@@ -838,8 +837,7 @@ mod test {
         let mut results = Vec::new();
         while let Some(range) = iter.typed_range_fwd(usize::MAX, 0) {
             if let TypedSlice::Integer(ints) = range.data {
-                results
-                    .extend(TypedSliceIter::from_range(&range, ints).map(|(i, rl)| (*i, rl)));
+                results.extend(TypedSliceIter::from_range(&range, ints).map(|(i, rl)| (*i, rl)));
             } else {
                 panic!("resulting field data has wrong type");
             }
