@@ -1,11 +1,13 @@
 #![cfg(test)]
 
-use std::io::Read;
-
+use scr::bstr::ByteSlice;
 use scr::{
     field_data::{push_interface::PushInterface, record_set::RecordSet},
     operations::{
+        data_inserter::{create_op_data_inserter, AnyData},
         file_reader::create_op_file_reader_custom,
+        format::create_op_format,
+        key::create_op_key,
         regex::{create_op_regex, create_op_regex_lines, RegexOptions},
         sequence::create_op_seq,
         string_sink::{create_op_string_sink, StringSinkHandle},
@@ -13,6 +15,7 @@ use scr::{
     options::context_builder::ContextBuilder,
     scr_error::ScrError,
 };
+use std::io::Read;
 
 #[test]
 fn string_sink() -> Result<(), ScrError> {
@@ -179,5 +182,19 @@ fn large_seq_with_regex() -> Result<(), ScrError> {
             .map(|i| i.to_string())
             .collect::<Vec<_>>()
     );
+    Ok(())
+}
+
+#[test]
+fn key_with_fmt() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::new();
+    ContextBuilder::default()
+        .add_op(create_op_data_inserter(AnyData::Int(42)))
+        .add_op(create_op_key("foo".to_owned()))
+        .add_op(create_op_key("bar".to_owned()))
+        .add_op(create_op_format("foo: {foo}, bar: {bar}".as_bytes().as_bstr()).unwrap())
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(ss.get().as_slice(), &["foo: 42, bar: 42"]);
     Ok(())
 }

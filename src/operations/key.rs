@@ -36,3 +36,10 @@ pub fn setup_op_key(
     op.key_sse = string_store.intern_moved(std::mem::replace(&mut op.key, Default::default()));
     Ok(())
 }
+
+pub fn create_op_key(key: String) -> OperatorData {
+    OperatorData::Key(OpKey {
+        key: key,
+        key_sse: INVALID_STRING_STORE_ENTRY,
+    })
+}

@@ -1,8 +1,9 @@
 #[macro_use]
 extern crate static_assertions;
 
+pub extern crate bstr;
+
 extern crate arrayvec;
-extern crate bstr;
 extern crate crossbeam;
 extern crate encoding_rs;
 extern crate indexmap;
@@ -23,10 +24,10 @@ pub mod cli;
 pub mod context;
 pub mod document;
 pub mod encoding;
-pub mod ref_iter;
 pub mod field_data;
 pub mod operations;
 pub mod options;
+pub mod ref_iter;
 pub mod scr_error;
 pub mod selenium;
 pub mod stream_value;

@@ -113,3 +113,7 @@ pub fn parse_op_bytes(
         data: AnyData::Bytes(parsed_value),
     }))
 }
+
+pub fn create_op_data_inserter(data: AnyData) -> OperatorData {
+    OperatorData::DataInserter(OpDataInserter { data })
+}
