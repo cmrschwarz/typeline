@@ -1,6 +1,7 @@
 use std::{
     borrow::Cow,
     cell::{RefCell, RefMut},
+    ptr::NonNull,
 };
 
 use bstr::{BStr, BString, ByteSlice, ByteVec};
@@ -11,9 +12,10 @@ use crate::{
     field_data::{
         field_value_flags,
         iter_hall::IterId,
-        push_interface::{PushInterface, RawPushInterface},
+        push_interface::{PushInterface, UnsafeHeaderPushInterface},
         typed::TypedSlice,
-        FieldValueKind, INLINE_STR_MAX_LEN,
+        typed_iters::TypedSliceIter,
+        FieldValueFormat, FieldValueKind, FieldValueSize, INLINE_STR_MAX_LEN,
     },
     options::argument::CliArgIdx,
     ref_iter::{
@@ -21,6 +23,7 @@ use crate::{
     },
     stream_value::StreamValueId,
     utils::{
+        i64_digits, i64_to_str,
         string_store::{StringStore, StringStoreEntry},
         universe::Universe,
     },
@@ -28,8 +31,8 @@ use crate::{
 };
 
 use super::{
-    errors::{OperatorCreationError, OperatorSetupError},
-    operator::OperatorData,
+    errors::{OperatorApplicationError, OperatorCreationError, OperatorSetupError},
+    operator::{OperatorData, OperatorId},
     transform::{TransformData, TransformId, TransformState},
 };
 
@@ -114,7 +117,7 @@ struct OutputState {
 
 struct OutputTarget {
     run_len: usize,
-    target: *mut u8,
+    target: Option<NonNull<u8>>,
     target_buffer_offset: Option<NonMaxUsize>,
 }
 
@@ -486,7 +489,7 @@ pub fn setup_key_output_state(
         match_sets,
         ident_ref.field_id,
         field.field_data.get_iter(ident_ref.iter_id),
-        Some(ident_ref.field_id),
+        None,
     );
 
     let mut output_index = 0;
@@ -518,9 +521,16 @@ pub fn setup_key_output_state(
                     });
                 }
             }
+            TypedSlice::Integer(ints) => {
+                for (v, rl) in TypedSliceIter::from_range(&range.base, ints) {
+                    let digits = i64_digits(k.add_plus_sign, *v);
+                    iter_output_states(fmt, &mut output_index, rl as usize, |o| {
+                        o.len += digits;
+                    });
+                }
+            }
             TypedSlice::Unset(_)
             | TypedSlice::Null(_)
-            | TypedSlice::Integer(_)
             | TypedSlice::Error(_)
             | TypedSlice::Html(_)
             | TypedSlice::StreamValueId(_)
@@ -540,38 +550,63 @@ unsafe fn write_bytes(
 ) {
     while run_len > 0 {
         let o = &mut fmt.output_targets[*output_index];
-        unsafe {
-            std::ptr::copy_nonoverlapping(bytes.as_ptr(), o.target, bytes.len());
-            o.target = o.target.add(bytes.len());
+        if let Some(target) = &mut o.target {
+            unsafe {
+                std::ptr::copy_nonoverlapping(bytes.as_ptr(), target.as_ptr(), bytes.len());
+                *target = NonNull::new_unchecked(target.as_ptr().add(bytes.len()));
+            }
         }
         run_len -= o.run_len;
         *output_index += 1;
     }
 }
-fn setup_output_targets(fmt: &mut TfFormat, output_field: &mut RefMut<Field>) {
+fn setup_output_targets(
+    op_id: OperatorId,
+    fmt: &mut TfFormat,
+    output_field: &mut RefMut<Field>,
+) -> usize {
+    let mut inline_len = 0;
     fmt.output_targets.reserve(fmt.output_states.len());
     let mut output_idx = 0;
+    let mut dummy: u8 = 0;
+    let dummy_ptr = Some(NonNull::new(&mut dummy as *mut u8).unwrap());
     loop {
         let os = &mut fmt.output_states[output_idx];
-        let target;
-        let mut target_buffer_offset = None;
-        if os.len < INLINE_STR_MAX_LEN {
+        let target: Option<NonNull<u8>>;
+        let target_buffer_offset;
+        if os.error_occured {
+            target = None;
+            target_buffer_offset = None;
+            output_field.field_data.push_error(
+                OperatorApplicationError::new("Type Error", op_id),
+                os.run_len,
+                true,
+                false,
+            );
+        } else if os.len < INLINE_STR_MAX_LEN {
             unsafe {
-                target = output_field.field_data.push_variable_sized_type_uninit(
-                    FieldValueKind::BytesInline,
-                    if os.contains_raw_bytes {
-                        0
-                    } else {
-                        field_value_flags::BYTES_ARE_UTF8
+                let fd = output_field.field_data.internals().fd;
+                fd.push_header_raw_same_value_after_first(
+                    FieldValueFormat {
+                        kind: FieldValueKind::BytesInline,
+                        flags: if os.contains_raw_bytes {
+                            0
+                        } else {
+                            field_value_flags::BYTES_ARE_UTF8
+                        },
+                        size: os.len as FieldValueSize,
                     },
-                    os.len,
                     os.run_len,
                 );
+                *fd.internals().field_count += os.run_len;
+                target = dummy_ptr;
+                target_buffer_offset = Some(NonMaxUsize::new_unchecked(os.len));
+                inline_len += os.len;
             }
         } else {
             let mut buf = Vec::with_capacity(os.len);
-            target = buf.as_mut_ptr();
             unsafe {
+                target = Some(NonNull::new_unchecked(buf.as_mut_ptr()));
                 target_buffer_offset = Some(NonMaxUsize::new_unchecked(
                     output_field
                         .field_data
@@ -596,6 +631,22 @@ fn setup_output_targets(fmt: &mut TfFormat, output_field: &mut RefMut<Field>) {
             break;
         }
     }
+    let mut target = unsafe {
+        let fdi = output_field.field_data.internals().fd.internals();
+        fdi.data.reserve(inline_len);
+        fdi.data.as_mut_ptr_range().end
+    };
+    for tgt in fmt.output_targets.iter_mut() {
+        if tgt.target == dummy_ptr {
+            unsafe {
+                let len = tgt.target_buffer_offset.unwrap_unchecked().get();
+                tgt.target = Some(NonNull::new_unchecked(target));
+                target = target.add(len);
+            }
+            tgt.target_buffer_offset = None;
+        }
+    }
+    inline_len
 }
 fn bump_output_targets_buffer_lengths(fmt: &mut TfFormat, output_field: &mut RefMut<Field>) {
     for t in &fmt.output_targets {
@@ -609,7 +660,12 @@ fn bump_output_targets_buffer_lengths(fmt: &mut TfFormat, output_field: &mut Ref
                     .data
                     .as_mut_ptr()
                     .add(tbo.get()) as *mut Vec<u8>);
-                buf.set_len(t.target.offset_from(buf.as_ptr()) as usize);
+                buf.set_len(
+                    t.target
+                        .unwrap_unchecked()
+                        .as_ptr()
+                        .offset_from(buf.as_ptr()) as usize,
+                );
             }
         }
     }
@@ -627,7 +683,7 @@ fn write_fmt_key(
         match_sets,
         ident_ref.field_id,
         field.field_data.get_iter(ident_ref.iter_id),
-        Some(ident_ref.field_id),
+        None,
     );
 
     let mut output_index = 0;
@@ -647,10 +703,21 @@ fn write_fmt_key(
                     unsafe { write_bytes(fmt, &mut output_index, v.as_bytes(), rl as usize) };
                 }
             }
+            TypedSlice::Integer(ints) => {
+                for (v, rl) in TypedSliceIter::from_range(&range.base, ints) {
+                    unsafe {
+                        write_bytes(
+                            fmt,
+                            &mut output_index,
+                            i64_to_str(k.add_plus_sign, *v).as_bytes(),
+                            rl as usize,
+                        )
+                    };
+                }
+            }
             TypedSlice::StreamValueId(_) => todo!(),
             TypedSlice::Unset(_)
             | TypedSlice::Null(_)
-            | TypedSlice::Integer(_)
             | TypedSlice::Error(_)
             | TypedSlice::Html(_)
             | TypedSlice::Object(_) => {
@@ -670,6 +737,7 @@ pub fn handle_tf_format(sess: &mut JobData<'_>, tf_id: TransformId, fmt: &mut Tf
         std::slice::from_ref(&fmt.output_field),
     );
     let (batch, _input_field_id) = sess.claim_batch(tf_id);
+    let op_id = sess.tf_mgr.transforms[tf_id].op_id;
     let mut output_field = sess.record_mgr.fields[fmt.output_field].borrow_mut();
     fmt.output_states.push(OutputState {
         run_len: batch,
@@ -692,7 +760,7 @@ pub fn handle_tf_format(sess: &mut JobData<'_>, tf_id: TransformId, fmt: &mut Tf
             ),
         }
     }
-    setup_output_targets(fmt, &mut output_field);
+    let inline_len = setup_output_targets(op_id, fmt, &mut output_field);
     for part in fmt.parts.iter() {
         match part {
             FormatPart::ByteLiteral(v) => unsafe { write_bytes(fmt, &mut 0, v.as_bytes(), batch) },
@@ -704,6 +772,10 @@ pub fn handle_tf_format(sess: &mut JobData<'_>, tf_id: TransformId, fmt: &mut Tf
                 k,
             ),
         }
+    }
+    unsafe {
+        let data = &mut output_field.field_data.internals().fd.internals().data;
+        data.set_len(data.len() + inline_len);
     }
     bump_output_targets_buffer_lengths(fmt, &mut output_field);
     fmt.output_states.clear();

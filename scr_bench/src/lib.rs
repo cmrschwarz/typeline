@@ -36,7 +36,7 @@ fn regex_drop(b: &mut test::Bencher) {
 
 #[bench]
 fn large_batch(b: &mut test::Bencher) {
-    let number_string_list: Vec<_> = (0..10000).into_iter().map(|n| n.to_string()).collect();
+    let number_string_list: Vec<_> = (0..50000).into_iter().map(|n| n.to_string()).collect();
     let number_string_joined = number_string_list.iter().fold(String::new(), |mut f, n| {
         f.push_str(n.to_string().as_str());
         f.push_str("\n");

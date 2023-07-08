@@ -132,7 +132,7 @@ pub fn write_error<const NEWLINE: bool>(
 ) -> Result<(), (usize, std::io::Error)> {
     for i in 0..run_len {
         stream
-            .write_fmt(format_args!("{e}\n"))
+            .write_fmt(format_args!("{e}"))
             .and_then(|_| if NEWLINE { stream.write(b"\n") } else { Ok(0) })
             .map_err(|e| (i, e))?;
     }
