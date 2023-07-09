@@ -199,7 +199,8 @@ fn start_streaming_file(sess: &mut JobData<'_>, tf_id: TransformId, fr: &mut TfF
                 });
                 *fdi.field_count += 1;
                 fr.file.take();
-                sess.tf_mgr.unlink_transform(tf_id, 1);
+                drop(out_field);
+                sess.unlink_transform(tf_id, 1);
                 return;
             }
             size
@@ -208,7 +209,8 @@ fn start_streaming_file(sess: &mut JobData<'_>, tf_id: TransformId, fr: &mut TfF
             let err = io_error_to_op_error(sess.tf_mgr.transforms[tf_id].op_id, err);
             out_field.field_data.push_error(err, 1, false, false);
             fr.file.take();
-            sess.tf_mgr.unlink_transform(tf_id, 1);
+            drop(out_field);
+            sess.unlink_transform(tf_id, 1);
             return;
         }
     };
@@ -281,7 +283,7 @@ pub fn handle_tf_file_reader(sess: &mut JobData<'_>, tf_id: TransformId, fr: &mu
     }
     sess.sv_mgr.inform_stream_value_subscribers(sv_id, true);
     sess.sv_mgr.drop_field_value_subscription(sv_id, None);
-    sess.tf_mgr.unlink_transform(tf_id, 0);
+    sess.unlink_transform(tf_id, 0);
 }
 
 pub fn parse_op_file(

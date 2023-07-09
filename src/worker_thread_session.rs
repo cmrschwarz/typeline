@@ -126,12 +126,6 @@ impl TransformManager {
             self.push_tf_in_ready_queue(tf_id);
         }
     }
-    pub fn inform_transform_pred_done(&mut self, tf_id: TransformId) {
-        let tf = &mut self.transforms[tf_id];
-        if !tf.is_ready && !tf.is_stream_producer && !tf.is_stream_subscriber {
-            self.unlink_transform(tf_id, 0);
-        }
-    }
     pub fn inform_successor_batch_available(&mut self, tf_id: TransformId, batch_size: usize) {
         if let Some(succ_tf_id) = self.transforms[tf_id].successor {
             self.inform_transform_batch_available(succ_tf_id, batch_size);
@@ -156,41 +150,6 @@ impl TransformManager {
         let tf = &mut self.transforms[tf_id];
         tf.is_stream_producer = true;
         self.stream_producers.push_back(tf_id);
-    }
-    pub fn unlink_transform(&mut self, tf_id: TransformId, available_batch_for_successor: usize) {
-        let tf = &self.transforms[tf_id];
-        let predecessor = tf.predecessor;
-        let successor = tf.successor;
-        let continuation = tf.continuation;
-        let available_batch = tf.available_batch_size + available_batch_for_successor;
-        if let Some(cont_id) = continuation {
-            let cont = &mut self.transforms[cont_id];
-            cont.successor = successor;
-            cont.predecessor = predecessor;
-            if let Some(pred_id) = predecessor {
-                self.transforms[pred_id].successor = continuation;
-            }
-            if let Some(succ_id) = successor {
-                let succ = &mut self.transforms[succ_id];
-                succ.predecessor = continuation;
-                succ.available_batch_size += available_batch;
-                if succ.available_batch_size >= succ.desired_batch_size {
-                    self.push_tf_in_ready_queue(succ_id);
-                    self.transforms[cont_id].is_appending = false;
-                }
-            }
-            self.push_tf_in_ready_queue(cont_id);
-            return;
-        }
-        //TODO: update field refcounts
-        if let Some(pred_id) = predecessor {
-            self.transforms[pred_id].successor = successor;
-        }
-        if let Some(succ_id) = successor {
-            self.transforms[succ_id].predecessor = predecessor;
-            self.inform_transform_batch_available(succ_id, available_batch);
-            self.inform_transform_pred_done(succ_id);
-        }
     }
     pub fn update_ready_state(&mut self, tf_id: TransformId) {
         let tf = &self.transforms[tf_id];
@@ -385,7 +344,57 @@ impl JobData<'_> {
                 f.last_applied_action_set_id = ord_id;
             }
         }
-        cb.merge_upper_action_sets(ord_id + 1);
+        if tf.predecessor.is_none() {
+            cb.clear();
+        } else {
+            cb.merge_upper_action_sets(ord_id + 1);
+        }
+    }
+    pub fn inform_transform_pred_done(&mut self, tf_id: TransformId) {
+        let tf = &mut self.tf_mgr.transforms[tf_id];
+        if !tf.is_ready && !tf.is_stream_producer && !tf.is_stream_subscriber {
+            self.unlink_transform(tf_id, 0);
+        }
+    }
+    pub fn unlink_transform(&mut self, tf_id: TransformId, available_batch_for_successor: usize) {
+        let tf = &self.tf_mgr.transforms[tf_id];
+        let predecessor = tf.predecessor;
+        let successor = tf.successor;
+        let continuation = tf.continuation;
+        let available_batch = tf.available_batch_size + available_batch_for_successor;
+        if let Some(cont_id) = continuation {
+            let cont = &mut self.tf_mgr.transforms[cont_id];
+            cont.successor = successor;
+            cont.predecessor = predecessor;
+            if let Some(pred_id) = predecessor {
+                self.tf_mgr.transforms[pred_id].successor = continuation;
+            }
+            if let Some(succ_id) = successor {
+                let succ = &mut self.tf_mgr.transforms[succ_id];
+                succ.predecessor = continuation;
+                succ.available_batch_size += available_batch;
+                if succ.available_batch_size >= succ.desired_batch_size {
+                    self.tf_mgr.push_tf_in_ready_queue(succ_id);
+                    self.tf_mgr.transforms[cont_id].is_appending = false;
+                }
+            }
+            self.tf_mgr.push_tf_in_ready_queue(cont_id);
+            return;
+        }
+        //TODO: update field refcounts
+        if let Some(pred_id) = predecessor {
+            self.tf_mgr.transforms[pred_id].successor = successor;
+        } else {
+            self.record_mgr.match_sets[tf.match_set_id]
+                .command_buffer
+                .clear();
+        }
+        if let Some(succ_id) = successor {
+            self.tf_mgr.transforms[succ_id].predecessor = predecessor;
+            self.tf_mgr
+                .inform_transform_batch_available(succ_id, available_batch);
+            self.inform_transform_pred_done(succ_id);
+        }
     }
 }
 

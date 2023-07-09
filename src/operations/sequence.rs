@@ -134,12 +134,13 @@ pub fn handle_tf_sequence(sess: &mut JobData<'_>, tf_id: TransformId, seq: &mut 
     }
 
     if seq.ss.start == seq.ss.end {
-        sess.tf_mgr.unlink_transform(tf_id, batch_size - bs_rem);
-    } else {
-        sess.tf_mgr.push_tf_in_ready_queue(tf_id);
-        sess.tf_mgr
-            .inform_successor_batch_available(tf_id, batch_size);
+        drop(output_field);
+        sess.unlink_transform(tf_id, batch_size - bs_rem);
+        return;
     }
+    sess.tf_mgr.push_tf_in_ready_queue(tf_id);
+    sess.tf_mgr
+        .inform_successor_batch_available(tf_id, batch_size);
 }
 
 pub fn parse_op_seq(

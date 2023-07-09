@@ -73,7 +73,8 @@ pub fn handle_tf_data_inserter(
         AnyData::String(s) => output_field.field_data.push_str(s, 1, true, false),
         AnyData::Int(i) => output_field.field_data.push_int(*i, 1, true, false),
     }
-    sess.tf_mgr.unlink_transform(tf_id, 1);
+    drop(output_field);
+    sess.unlink_transform(tf_id, 1);
 }
 
 pub fn parse_op_str(
