@@ -235,6 +235,10 @@ unsafe impl RawPushInterface for FieldData {
             let align = unsafe { self.pad_to_align() };
             if align != 0 {
                 self.add_header_padded_for_single_value(fmt, run_length, align);
+                if !data_rle {
+                    let data = ManuallyDrop::new(data);
+                    self.data.extend_from_slice(unsafe { as_u8_slice(&data) });
+                }
                 return;
             }
         }

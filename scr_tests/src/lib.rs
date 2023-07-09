@@ -201,6 +201,25 @@ fn key_with_fmt() -> Result<(), ScrError> {
 }
 
 #[test]
+fn chained_seq() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::new();
+    ContextBuilder::default()
+        .push_int(0, 1)
+        .add_op(create_op_seq(1, 6, 1, true).unwrap())
+        .add_op(create_op_seq(6, 11, 1, true).unwrap())
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(
+        ss.get().as_slice(),
+        &(0..11)
+            .into_iter()
+            .map(|v| v.to_string())
+            .collect::<Vec<_>>()
+    );
+    Ok(())
+}
+
+#[test]
 fn format_width_spec() -> Result<(), ScrError> {
     let ss = StringSinkHandle::new();
     ContextBuilder::default()

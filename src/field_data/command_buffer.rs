@@ -199,6 +199,30 @@ impl CommandBuffer {
         self.action_sets
             .truncate(self.action_set_id_to_idx(lowest_id_to_remove));
     }
+    pub fn merge_upper_action_sets(&mut self, lowest_id_to_remove: usize) {
+        let start = self.action_set_id_to_idx(lowest_id_to_remove);
+        if start == 0 {
+            self.action_sets.clear();
+            return;
+        }
+        let acs_count = self.action_sets.len();
+        if start == acs_count {
+            return;
+        }
+        let new_last = start - 1;
+
+        const MERGE_TARGET_ACS: usize = ACTIONS_RAW_IDX + 1;
+        let merge_res = self.merge_action_sets(new_last, acs_count - new_last, MERGE_TARGET_ACS);
+        debug_assert!(merge_res.merge_set_index == MERGE_TARGET_ACS);
+
+        let unaffected_actions_end = self.action_sets[new_last].actions_start;
+        self.actions[ACTIONS_RAW_IDX].truncate(unaffected_actions_end);
+
+        const_assert!(ACTIONS_RAW_IDX == 0 && MERGE_TARGET_ACS == 1);
+        let (tgt, src) = self.actions.split_first_mut().unwrap();
+        tgt.extend(&src[0][merge_res.actions_start..merge_res.actions_end]);
+        self.action_sets.truncate(start);
+    }
 }
 
 // prepare final actions list from actions_raw

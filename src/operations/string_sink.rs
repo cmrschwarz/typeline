@@ -7,6 +7,7 @@ use bstr::ByteSlice;
 
 use crate::field_data::{
     iter_hall::IterId, iters::FieldIterator, typed::TypedSlice, typed_iters::TypedSliceIter,
+    FieldValueKind,
 };
 use crate::{
     field_data::field_value_flags,
@@ -73,6 +74,7 @@ pub fn setup_tf_string_sink<'a>(
     ss: &'a OpStringSink,
     tf_state: &mut TransformState,
 ) -> (TransformData<'a>, FieldId) {
+    tf_state.preferred_input_type = Some(FieldValueKind::BytesInline);
     let tf = TfStringSink {
         handle: &ss.handle.data,
         batch_iter: sess.record_mgr.fields[tf_state.input_field]

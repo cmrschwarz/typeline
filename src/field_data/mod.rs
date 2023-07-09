@@ -512,7 +512,10 @@ unsafe fn extend_raw<T: Sized>(
     target_applicator: &mut impl FnMut(&mut dyn FnMut(&mut FieldData)),
     src: &[T],
 ) {
-    let src_bytes = std::mem::transmute::<&[T], &[u8]>(src);
+    let src_bytes = std::slice::from_raw_parts(
+        src.as_ptr() as *const u8,
+        src.len() * std::mem::size_of::<T>(),
+    );
     target_applicator(&mut |fd| fd.data.extend_from_slice(src_bytes));
 }
 

@@ -237,7 +237,7 @@ unsafe fn to_zst_slice<T: Sized>(len: usize) -> &'static [T] {
 }
 
 unsafe fn to_slice<T: Sized>(fd: &FieldData, data_begin: usize, data_end: usize) -> &[T] {
-    std::slice::from_raw_parts(
+    std::slice::from_raw_parts::<T>(
         std::mem::transmute::<&u8, &T>(&fd.data[data_begin]) as *const T,
         (data_end - data_begin) / std::mem::size_of::<T>(),
     )

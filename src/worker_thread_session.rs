@@ -126,6 +126,12 @@ impl TransformManager {
             self.push_tf_in_ready_queue(tf_id);
         }
     }
+    pub fn inform_transform_pred_done(&mut self, tf_id: TransformId) {
+        let tf = &mut self.transforms[tf_id];
+        if !tf.is_ready && !tf.is_stream_producer && !tf.is_stream_subscriber {
+            self.unlink_transform(tf_id, 0);
+        }
+    }
     pub fn inform_successor_batch_available(&mut self, tf_id: TransformId, batch_size: usize) {
         if let Some(succ_tf_id) = self.transforms[tf_id].successor {
             self.inform_transform_batch_available(succ_tf_id, batch_size);
@@ -154,15 +160,36 @@ impl TransformManager {
     pub fn unlink_transform(&mut self, tf_id: TransformId, available_batch_for_successor: usize) {
         let tf = &self.transforms[tf_id];
         let predecessor = tf.predecessor;
-        let bs = tf.available_batch_size;
         let successor = tf.successor;
-
+        let continuation = tf.continuation;
+        let available_batch = tf.available_batch_size + available_batch_for_successor;
+        if let Some(cont_id) = continuation {
+            let cont = &mut self.transforms[cont_id];
+            cont.successor = successor;
+            cont.predecessor = predecessor;
+            if let Some(pred_id) = predecessor {
+                self.transforms[pred_id].successor = continuation;
+            }
+            if let Some(succ_id) = successor {
+                let succ = &mut self.transforms[succ_id];
+                succ.predecessor = continuation;
+                succ.available_batch_size += available_batch;
+                if succ.available_batch_size >= succ.desired_batch_size {
+                    self.push_tf_in_ready_queue(succ_id);
+                    self.transforms[cont_id].is_appending = false;
+                }
+            }
+            self.push_tf_in_ready_queue(cont_id);
+            return;
+        }
+        //TODO: update field refcounts
         if let Some(pred_id) = predecessor {
             self.transforms[pred_id].successor = successor;
         }
         if let Some(succ_id) = successor {
             self.transforms[succ_id].predecessor = predecessor;
-            self.inform_transform_batch_available(succ_id, bs + available_batch_for_successor);
+            self.inform_transform_batch_available(succ_id, available_batch);
+            self.inform_transform_pred_done(succ_id);
         }
     }
     pub fn update_ready_state(&mut self, tf_id: TransformId) {
@@ -358,8 +385,7 @@ impl JobData<'_> {
                 f.last_applied_action_set_id = ord_id;
             }
         }
-        //TODO: this is incorrect. merge instead
-        cb.erase_action_sets(ord_id + 1);
+        cb.merge_upper_action_sets(ord_id + 1);
     }
 }
 
@@ -386,7 +412,7 @@ impl<'a> WorkerThreadSession<'a> {
             input_data.unwrap_or_else(|| self.job_data.record_mgr.add_field(ms_id, None));
 
         debug_assert!(!job.starting_ops.is_empty());
-        let first_tf_id = if job.starting_ops.len() > 1 {
+        if job.starting_ops.len() > 1 {
             let (tf_state, tf_data) = setup_ts_split_as_entry_point(
                 &mut self.job_data,
                 input_data,
@@ -394,19 +420,25 @@ impl<'a> WorkerThreadSession<'a> {
                 input_record_count,
                 job.starting_ops.iter(),
             );
-            let tf_id = self.add_transform(tf_state, tf_data);
-            self.job_data.tf_mgr.push_tf_in_ready_queue(tf_id);
-            tf_id
+            let start_tf_id = self.add_transform(tf_state, tf_data);
+            self.job_data.tf_mgr.push_tf_in_ready_queue(start_tf_id);
         } else {
-            self.setup_transforms_from_op(
-                ms_id,
-                input_record_count,
-                job.starting_ops[0],
-                input_data,
-            )
-        };
-        if input_record_count == 0 {
-            self.job_data.tf_mgr.push_tf_in_ready_queue(first_tf_id);
+            let start_tf_id = self.setup_transforms_from_op(ms_id, job.starting_ops[0], input_data);
+
+            let tf = &mut self.job_data.tf_mgr.transforms[start_tf_id];
+            if tf.is_appending {
+                if let Some(succ) = tf.successor {
+                    let tf_succ = &mut self.job_data.tf_mgr.transforms[succ];
+                    tf_succ.available_batch_size = input_record_count;
+                    if tf_succ.desired_batch_size <= input_record_count {
+                        self.job_data.tf_mgr.transforms[start_tf_id].is_appending = false;
+                        self.job_data.tf_mgr.push_tf_in_ready_queue(succ);
+                    }
+                }
+            } else {
+                tf.available_batch_size = input_record_count;
+            }
+            self.job_data.tf_mgr.push_tf_in_ready_queue(start_tf_id);
         }
         Ok(())
     }
@@ -461,7 +493,6 @@ impl<'a> WorkerThreadSession<'a> {
             let input_field = self.job_data.record_mgr.add_field(ms_id, None);
             targets[i] = self.setup_transforms_from_op(
                 ms_id,
-                0,
                 <NonMaxUsize as TryInto<usize>>::try_into(op).unwrap() as OperatorId,
                 input_field,
             );
@@ -477,7 +508,6 @@ impl<'a> WorkerThreadSession<'a> {
     pub fn setup_transforms_from_op(
         &mut self,
         ms_id: MatchSetId,
-        available_batch_size: usize,
         start_op_id: OperatorId,
         chain_input_field_id: FieldId,
     ) -> TransformId {
@@ -487,6 +517,7 @@ impl<'a> WorkerThreadSession<'a> {
             .settings
             .default_batch_size;
         let mut prev_tf = None;
+        let mut predecessor_tf = None;
         let mut prev_field_id = chain_input_field_id;
         let mut output_field;
         let ops = &self.job_data.session_data.chains[start_op.chain_id as usize].operations
@@ -500,13 +531,13 @@ impl<'a> WorkerThreadSession<'a> {
                 continue;
             }
             let mut tf_state = TransformState {
-                available_batch_size: start_tf_id.map(|_| 0).unwrap_or(available_batch_size),
+                available_batch_size: 0,
                 input_field: prev_field_id,
                 match_set_id: ms_id,
                 desired_batch_size: default_batch_size,
                 successor: None,
                 continuation: None,
-                predecessor: prev_tf,
+                predecessor: predecessor_tf,
                 op_id: *op_id,
                 ordering_id: jd.tf_mgr.claim_transform_ordering_id(),
                 is_ready: false,
@@ -527,19 +558,29 @@ impl<'a> WorkerThreadSession<'a> {
                 OperatorData::Sequence(op) => setup_tf_sequence(jd, op, &mut tf_state),
                 OperatorData::Key(_) => unreachable!(),
             };
+            let appending = tf_state.is_appending;
             let tf_id = self.add_transform(tf_state, tf_data);
             debug_assert!(tf_id_peek == tf_id);
-            if start_tf_id.is_none() {
-                if available_batch_size > 0 {
-                    self.job_data.tf_mgr.push_tf_in_ready_queue(tf_id);
+
+            if appending {
+                if let Some(prev) = prev_tf {
+                    self.job_data.tf_mgr.transforms[prev].continuation = Some(tf_id);
                 }
-                start_tf_id = Some(tf_id);
+            } else {
+                if let Some(pred) = predecessor_tf {
+                    self.job_data.tf_mgr.transforms[pred].successor = Some(tf_id);
+                }
             }
-            if let Some(prev_tf) = prev_tf {
-                self.job_data.tf_mgr.transforms[prev_tf].successor = Some(tf_id);
+
+            if start_tf_id.is_none() {
+                start_tf_id = Some(tf_id);
+                predecessor_tf = Some(tf_id);
             }
             prev_tf = Some(tf_id);
             prev_field_id = output_field;
+            if !appending {
+                predecessor_tf = Some(tf_id);
+            }
         }
         start_tf_id.unwrap()
     }
