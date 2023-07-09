@@ -8,8 +8,8 @@ use is_terminal::IsTerminal;
 
 use crate::{
     field_data::{
-        field_value_flags, iter_hall::IterId, iters::FieldIterator, typed::TypedSlice,
-        typed_iters::TypedSliceIter, FieldValueKind,
+        field_value_flags, iter_hall::IterId, iters::FieldIterator, push_interface::PushInterface,
+        typed::TypedSlice, typed_iters::TypedSliceIter, FieldValueKind,
     },
     options::argument::CliArgIdx,
     ref_iter::{
@@ -29,6 +29,7 @@ pub struct TfPrint {
     flush_on_every_print: bool,
     current_stream_val: Option<StreamValueId>,
     iter_id: IterId,
+    output_field: FieldId,
 }
 
 pub fn parse_op_print(
@@ -48,6 +49,7 @@ pub fn setup_tf_print(
     sess: &mut JobData,
     tf_state: &mut TransformState,
 ) -> (TransformData<'static>, FieldId) {
+    let output_field = sess.record_mgr.add_field(tf_state.match_set_id, None);
     let tf = TfPrint {
         // TODO: should we make a config option for this?
         flush_on_every_print: std::io::stdout().is_terminal(),
@@ -56,9 +58,11 @@ pub fn setup_tf_print(
             .borrow_mut()
             .field_data
             .claim_iter(),
+        output_field,
     };
+
     tf_state.preferred_input_type = Some(FieldValueKind::BytesInline);
-    (TransformData::Print(tf), tf_state.input_field)
+    (TransformData::Print(tf), output_field)
 }
 
 pub fn create_op_print() -> OperatorData {
@@ -118,6 +122,12 @@ pub fn write_unset<const NEWLINE: bool>(
     run_len: usize,
 ) -> Result<(), (usize, std::io::Error)> {
     write_raw_bytes::<NEWLINE>(stream, b"<Unset>", run_len)
+}
+pub fn write_success<const NEWLINE: bool>(
+    stream: &mut impl Write,
+    run_len: usize,
+) -> Result<(), (usize, std::io::Error)> {
+    write_raw_bytes::<NEWLINE>(stream, b"<Success>", run_len)
 }
 pub fn write_type_error<const NEWLINE: bool>(
     stdout: &mut impl Write,
@@ -189,19 +199,19 @@ pub fn handle_tf_print_raw(
     sess: &mut JobData<'_>,
     tf_id: TransformId,
     tf: &mut TfPrint,
-    field_pos: &mut usize,
-    field_pos_batch_end: &mut usize,
+    batch: usize,
+    handled_field_count: &mut usize,
 ) -> Result<(), (usize, std::io::Error)> {
     let mut stdout = BufWriter::new(std::io::stdout().lock());
     debug_assert!(!tf.current_stream_val.is_some());
-    let (batch, input_field_id);
-    (batch, input_field_id) = sess.claim_batch(tf_id);
+    let input_field_id = sess.tf_mgr.transforms[tf_id].input_field;
     let input_field = sess.record_mgr.fields[input_field_id].borrow();
     let base_iter = input_field
         .field_data
         .get_iter(tf.iter_id)
         .bounded(0, batch);
     let starting_pos = base_iter.get_next_field_pos();
+    let mut field_pos = starting_pos;
     let mut iter = AutoDerefIter::new(
         &sess.record_mgr.fields,
         &mut sess.record_mgr.match_sets,
@@ -209,8 +219,6 @@ pub fn handle_tf_print_raw(
         base_iter,
         None,
     );
-    *field_pos = starting_pos;
-    *field_pos_batch_end = starting_pos + batch;
 
     'iter: while let Some(range) = iter.typed_range_fwd(
         &mut sess.record_mgr.match_sets,
@@ -249,19 +257,22 @@ pub fn handle_tf_print_raw(
             TypedSlice::Unset(_) => {
                 write_unset::<true>(&mut stdout, range.base.field_count)?;
             }
+            TypedSlice::Success(_) => {
+                write_success::<true>(&mut stdout, range.base.field_count)?;
+            }
             TypedSlice::StreamValueId(svs) => {
                 for (sv_id, rl) in TypedSliceIter::from_range(&range.base, svs) {
                     let sv = &mut sess.sv_mgr.stream_values[*sv_id];
                     if !write_stream_val_check_done::<true>(&mut stdout, sv, rl as usize)? {
                         tf.current_stream_val = Some(*sv_id);
-                        iter.move_to_field_pos(*field_pos);
+                        iter.move_to_field_pos(field_pos);
                         if rl > 1 {
                             sv.promote_to_buffer();
                         }
                         sv.subscribe(tf_id, rl as usize, false);
                         break 'iter;
                     }
-                    *field_pos += rl as usize;
+                    field_pos += rl as usize;
                 }
                 continue; // skip the field pos increase at the bottom of this loop because we already did that
             }
@@ -270,7 +281,8 @@ pub fn handle_tf_print_raw(
             }
             TypedSlice::Reference(_) => unreachable!(),
         }
-        *field_pos += range.base.field_count;
+        field_pos += range.base.field_count;
+        *handled_field_count += range.base.field_count;
     }
     input_field
         .field_data
@@ -279,7 +291,7 @@ pub fn handle_tf_print_raw(
     if tf.flush_on_every_print {
         stdout.flush().ok();
     }
-    let consumed_fields = *field_pos - starting_pos;
+    let consumed_fields = field_pos - starting_pos;
     sess.tf_mgr.transforms[tf_id].is_stream_subscriber = tf.current_stream_val.is_some();
     sess.tf_mgr.update_ready_state(tf_id);
     sess.tf_mgr
@@ -289,21 +301,26 @@ pub fn handle_tf_print_raw(
 }
 
 pub fn handle_tf_print(sess: &mut JobData<'_>, tf_id: TransformId, tf: &mut TfPrint) {
-    let mut field_pos: usize = 0;
-    let mut field_pos_batch_end: usize = 0;
-    if let Err((i, err)) =
-        handle_tf_print_raw(sess, tf_id, tf, &mut field_pos, &mut field_pos_batch_end)
-    {
-        let fp = field_pos + i;
-        sess.record_mgr.push_entry_error(
-            sess.tf_mgr.transforms[tf_id].match_set_id,
-            fp,
-            OperatorApplicationError {
+    let (batch, _) = sess.claim_batch(tf_id);
+    let mut handled_field_count = 0;
+    let res = handle_tf_print_raw(sess, tf_id, tf, batch, &mut handled_field_count);
+    let mut output_field = sess.record_mgr.fields[tf.output_field].borrow_mut();
+    match res {
+        Ok(()) => output_field
+            .field_data
+            .push_success(handled_field_count, true),
+        Err((err_idx, err)) => {
+            let nsucc = handled_field_count + err_idx;
+            let nfail = batch - nsucc;
+            if nsucc > 0 {
+                output_field.field_data.push_success(nsucc, true);
+            }
+            let e = OperatorApplicationError {
                 op_id: sess.tf_mgr.transforms[tf_id].op_id,
                 message: Cow::Owned(err.to_string()),
-            },
-            field_pos_batch_end - fp,
-        );
+            };
+            output_field.field_data.push_error(e, nfail, false, true);
+        }
     }
 }
 
@@ -311,31 +328,31 @@ pub fn handle_tf_print_stream_value_update(
     sess: &mut JobData<'_>,
     tf_id: TransformId,
     tf: &mut TfPrint,
-    svid: StreamValueId,
+    sv_id: StreamValueId,
     custom: usize,
 ) {
     let mut stdout = std::io::stdout().lock();
-    let sv = &sess.sv_mgr.stream_values[svid];
+    let sv = &mut sess.sv_mgr.stream_values[sv_id];
     let run_len = custom;
     match write_stream_val_check_done::<true>(&mut stdout, sv, run_len) {
         Ok(true) => sess.tf_mgr.update_ready_state(tf_id),
         Ok(false) => (),
-        Err((i, e)) => {
-            sess.record_mgr.push_entry_error(
-                sess.tf_mgr.transforms[tf_id].match_set_id,
-                sess.record_mgr.fields[sess.tf_mgr.transforms[tf_id].input_field]
-                    .borrow()
-                    .field_data
-                    .get_iter(tf.iter_id)
-                    .get_next_field_pos()
-                    - run_len
-                    + i,
-                OperatorApplicationError {
-                    op_id: sess.tf_mgr.transforms[tf_id].op_id,
-                    message: Cow::Owned(e.to_string()),
-                },
-                run_len - i,
-            );
+        Err((idx, e)) => {
+            debug_assert!(idx == 0);
+            sess.record_mgr.fields[tf.output_field]
+                .borrow_mut()
+                .field_data
+                .push_error(
+                    OperatorApplicationError {
+                        op_id: sess.tf_mgr.transforms[tf_id].op_id,
+                        message: Cow::Owned(e.to_string()),
+                    },
+                    run_len,
+                    true,
+                    false,
+                );
+            sess.sv_mgr
+                .drop_field_value_subscription(sv_id, Some(tf_id));
         }
     }
 }

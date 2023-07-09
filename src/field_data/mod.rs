@@ -39,6 +39,7 @@ pub type RunLength = u32;
 #[derive(Clone, Copy, PartialEq)]
 #[repr(u8)]
 pub enum FieldValueKind {
+    Success,
     Unset,
     Null,
     EntryId,
@@ -57,14 +58,14 @@ impl FieldValueKind {
     pub fn needs_drop(self) -> bool {
         use FieldValueKind::*;
         match self {
-            Unset | Null | EntryId | Integer | Reference | StreamValueId => false,
+            Success | Unset | Null | EntryId | Integer | Reference | StreamValueId => false,
             Error | Html | BytesInline | BytesBuffer | BytesFile | Object => true,
         }
     }
     pub fn needs_alignment(self) -> bool {
         use FieldValueKind::*;
         match self {
-            Unset | Null | BytesInline => false,
+            Success | Unset | Null | BytesInline => false,
             _ => true,
         }
     }
@@ -107,6 +108,7 @@ impl FieldValueKind {
     }
     pub fn size(self) -> usize {
         match self {
+            FieldValueKind::Success => 0,
             FieldValueKind::Unset => 0,
             FieldValueKind::Null => 0,
             FieldValueKind::EntryId => std::mem::size_of::<EntryId>(),
@@ -133,6 +135,10 @@ impl FieldValueKind {
         !self.is_variable_sized_type() && !self.is_zst()
     }
 }
+
+pub struct Unset;
+pub struct Null;
+pub struct Success;
 
 #[derive(Clone)]
 #[allow(dead_code)] //TODO
@@ -376,6 +382,7 @@ impl FieldData {
             unsafe {
                 match range.data {
                     TypedSlice::Unset(_) => (),
+                    TypedSlice::Success(_) => (),
                     TypedSlice::Null(_) => (),
                     TypedSlice::Integer(_) => (),
                     TypedSlice::BytesInline(_) => (),
@@ -524,7 +531,7 @@ unsafe fn append_data<'a>(
     target_applicator: &mut impl FnMut(&mut dyn FnMut(&mut FieldData)),
 ) {
     match ts {
-        TypedSlice::Unset(_) | TypedSlice::Null(_) => (),
+        TypedSlice::Unset(_) | TypedSlice::Null(_) | TypedSlice::Success(_) => (),
         TypedSlice::Integer(v) => extend_raw(target_applicator, v),
         TypedSlice::StreamValueId(v) => extend_raw(target_applicator, v),
         TypedSlice::Reference(v) => extend_raw(target_applicator, v),

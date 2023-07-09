@@ -54,7 +54,6 @@ debug = true
 [profile.release]
 panic = "abort"
 lto = "thin"
-debug = true
 
 [features]
 unstable = []

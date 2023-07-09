@@ -2,14 +2,15 @@ use std::{any::TypeId, ptr::NonNull};
 
 use super::{
     field_value_flags, FieldData, FieldReference, FieldValueFlags, FieldValueFormat,
-    FieldValueHeader, FieldValueKind, Html, Object, RunLength,
+    FieldValueHeader, FieldValueKind, Html, Null, Object, RunLength, Success, Unset,
 };
 use crate::{operations::errors::OperatorApplicationError, stream_value::StreamValueId};
 use std::ops::Deref;
 
 pub enum TypedValue<'a> {
-    Unset(()),
-    Null(()),
+    Unset(Unset),
+    Null(Null),
+    Success(Success),
     Integer(&'a i64),
     StreamValueId(&'a StreamValueId),
     Reference(&'a FieldReference),
@@ -24,8 +25,9 @@ pub enum TypedValue<'a> {
 impl<'a> TypedValue<'a> {
     pub unsafe fn new(fd: &'a FieldData, fmt: FieldValueFormat, data_begin: usize) -> Self {
         match fmt.kind {
-            FieldValueKind::Unset => TypedValue::Unset(()),
-            FieldValueKind::Null => TypedValue::Null(()),
+            FieldValueKind::Unset => TypedValue::Unset(Unset),
+            FieldValueKind::Null => TypedValue::Null(Null),
+            FieldValueKind::Success => TypedValue::Success(Success),
             FieldValueKind::BytesInline => {
                 if fmt.flags & field_value_flags::BYTES_ARE_UTF8 != 0 {
                     TypedValue::TextInline(std::str::from_utf8_unchecked(to_slice(
@@ -50,8 +52,9 @@ impl<'a> TypedValue<'a> {
     }
     pub fn as_slice(&self) -> TypedSlice<'a> {
         match self {
-            TypedValue::Unset(_) => TypedSlice::Unset(&[()]),
-            TypedValue::Null(_) => TypedSlice::Null(&[()]),
+            TypedValue::Success(_) => TypedSlice::Success(&[Success]),
+            TypedValue::Unset(_) => TypedSlice::Unset(&[Unset]),
+            TypedValue::Null(_) => TypedSlice::Null(&[Null]),
             TypedValue::Integer(v) => TypedSlice::Integer(std::slice::from_ref(v)),
             TypedValue::StreamValueId(v) => TypedSlice::StreamValueId(std::slice::from_ref(v)),
             TypedValue::Reference(v) => TypedSlice::Reference(std::slice::from_ref(v)),
@@ -90,8 +93,9 @@ impl<'a> TypedField<'a> {
 
 #[derive(Clone, Copy)]
 pub enum TypedSlice<'a> {
-    Unset(&'a [()]),
-    Null(&'a [()]),
+    Success(&'a [Success]),
+    Unset(&'a [Unset]),
+    Null(&'a [Null]),
     Integer(&'a [i64]),
     StreamValueId(&'a [StreamValueId]),
     Reference(&'a [FieldReference]),
@@ -119,6 +123,7 @@ impl<'a> TypedSlice<'a> {
         field_count: usize,
     ) -> TypedSlice<'a> {
         match fmt.kind {
+            FieldValueKind::Success => TypedSlice::Success(to_zst_slice(field_count)),
             FieldValueKind::Unset => TypedSlice::Unset(to_zst_slice(field_count)),
             FieldValueKind::Null => TypedSlice::Null(to_zst_slice(field_count)),
             FieldValueKind::BytesInline => {
@@ -148,6 +153,7 @@ impl<'a> TypedSlice<'a> {
     pub fn as_bytes(&self) -> &[u8] {
         match self {
             TypedSlice::Unset(_) => &[],
+            TypedSlice::Success(_) => &[],
             TypedSlice::Null(_) => &[],
             TypedSlice::Integer(v) => slice_as_bytes(v),
             TypedSlice::StreamValueId(v) => slice_as_bytes(v),
@@ -162,8 +168,9 @@ impl<'a> TypedSlice<'a> {
     }
     pub fn type_id(&self) -> TypeId {
         match self {
-            TypedSlice::Unset(_) => TypeId::of::<()>(),
-            TypedSlice::Null(_) => TypeId::of::<()>(),
+            TypedSlice::Unset(_) => TypeId::of::<Unset>(),
+            TypedSlice::Success(_) => TypeId::of::<Success>(),
+            TypedSlice::Null(_) => TypeId::of::<Null>(),
             TypedSlice::Integer(_) => TypeId::of::<i64>(),
             TypedSlice::StreamValueId(_) => TypeId::of::<StreamValueId>(),
             TypedSlice::Reference(_) => TypeId::of::<FieldReference>(),

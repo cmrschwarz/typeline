@@ -22,7 +22,7 @@ fn string_sink() -> Result<(), ScrError> {
         .push_str("foo", 1)
         .add_op(create_op_string_sink(&ss))
         .run()?;
-    assert_eq!(ss.get().as_slice(), ["foo"]);
+    assert_eq!(ss.get_data().unwrap().as_slice(), ["foo"]);
     Ok(())
 }
 
@@ -34,7 +34,7 @@ fn multi_doc() -> Result<(), ScrError> {
         .push_str("bar", 1)
         .add_op(create_op_string_sink(&ss))
         .run()?;
-    assert_eq!(ss.get().as_slice(), ["foo", "bar"]);
+    assert_eq!(ss.get_data().unwrap().as_slice(), ["foo", "bar"]);
     Ok(())
 }
 
@@ -46,7 +46,7 @@ fn lines_regex() -> Result<(), ScrError> {
         .add_op(create_op_regex_lines())
         .add_op(create_op_string_sink(&ss))
         .run()?;
-    assert_eq!(ss.get().as_slice(), ["foo", "bar", "baz"]);
+    assert_eq!(ss.get_data().unwrap().as_slice(), ["foo", "bar", "baz"]);
     Ok(())
 }
 
@@ -63,8 +63,8 @@ fn regex_drop() -> Result<(), ScrError> {
         .add_op(create_op_regex(".*[^r]$", Default::default()).unwrap())
         .add_op(create_op_string_sink(&ss2))
         .run()?;
-    assert_eq!(ss1.get().as_slice(), ["foo", "bar", "baz"]);
-    assert_eq!(ss2.get().as_slice(), ["foo", "baz"]);
+    assert_eq!(ss1.get_data().unwrap().as_slice(), ["foo", "bar", "baz"]);
+    assert_eq!(ss2.get_data().unwrap().as_slice(), ["foo", "baz"]);
     Ok(())
 }
 
@@ -83,7 +83,10 @@ fn large_batch() -> Result<(), ScrError> {
         .add_op(create_op_regex("^[0-9]{1,3}$", RegexOptions::default()).unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
-    assert_eq!(ss.get().as_slice(), &number_string_list[0..1000]);
+    assert_eq!(
+        ss.get_data().unwrap().as_slice(),
+        &number_string_list[0..1000]
+    );
     Ok(())
 }
 
@@ -114,7 +117,7 @@ fn trickling_stream() -> Result<(), ScrError> {
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(
-        ss.get().as_slice(),
+        ss.get_data().unwrap().as_slice(),
         [std::iter::repeat("a").take(SIZE).collect::<String>()]
     );
     Ok(())
@@ -127,7 +130,7 @@ fn sequence() -> Result<(), ScrError> {
         .add_op(create_op_seq(0, 3, 1, false).unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
-    assert_eq!(ss.get().as_slice(), ["0", "1", "2"]);
+    assert_eq!(ss.get_data().unwrap().as_slice(), ["0", "1", "2"]);
     Ok(())
 }
 
@@ -141,7 +144,7 @@ fn in_between_drop() -> Result<(), ScrError> {
         .add_op(create_op_regex("[^b]", RegexOptions::default()).unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
-    assert_eq!(ss.get().as_slice(), ["a", "c"]);
+    assert_eq!(ss.get_data().unwrap().as_slice(), ["a", "c"]);
     Ok(())
 }
 
@@ -156,7 +159,7 @@ fn multi_batch_seq_with_regex() -> Result<(), ScrError> {
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(
-        ss.get().as_slice(),
+        ss.get_data().unwrap().as_slice(),
         &(0..COUNT)
             .into_iter()
             .map(|i| i.to_string())
@@ -175,7 +178,7 @@ fn large_seq_with_regex() -> Result<(), ScrError> {
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(
-        ss.get().as_slice(),
+        ss.get_data().unwrap().as_slice(),
         &(0..1000)
             .into_iter()
             .map(|i| i.to_string())
@@ -194,7 +197,7 @@ fn key_with_fmt() -> Result<(), ScrError> {
         .add_op(create_op_format("foo: {foo}, bar: {bar}".as_bytes().as_bstr()).unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
-    assert_eq!(ss.get().as_slice(), &["foo: 42, bar: 42"]);
+    assert_eq!(ss.get_data().unwrap().as_slice(), &["foo: 42, bar: 42"]);
     Ok(())
 }
 
@@ -208,7 +211,7 @@ fn chained_seq() -> Result<(), ScrError> {
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(
-        ss.get().as_slice(),
+        ss.get_data().unwrap().as_slice(),
         &(0..11)
             .into_iter()
             .map(|v| v.to_string())
@@ -229,8 +232,23 @@ fn format_width_spec() -> Result<(), ScrError> {
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(
-        ss.get().as_slice(),
+        ss.get_data().unwrap().as_slice(),
         &["x", "x", "x~", "~x~", "~x~~", "~~x~~"]
     );
+    Ok(())
+}
+
+#[test]
+fn unset_value() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::new();
+    ContextBuilder::default()
+        .push_str("x", 1)
+        .add_op(create_op_key("foo".to_owned()))
+        .add_op(create_op_seq(0, 2, 1, false).unwrap())
+        .add_op(create_op_key("bar".to_owned()))
+        .add_op(create_op_format("{foo}{bar}".as_bytes().as_bstr()).unwrap())
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(ss.get_data().unwrap().as_slice(), &["x0", "1"]);
     Ok(())
 }

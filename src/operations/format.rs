@@ -636,6 +636,7 @@ pub fn setup_key_output_state(
                 }
             }
             TypedSlice::Unset(_)
+            | TypedSlice::Success(_)
             | TypedSlice::Null(_)
             | TypedSlice::Error(_)
             | TypedSlice::Html(_)
@@ -905,6 +906,7 @@ fn write_fmt_key(
             }
             TypedSlice::StreamValueId(_) => todo!(),
             TypedSlice::Unset(_)
+            | TypedSlice::Success(_)
             | TypedSlice::Null(_)
             | TypedSlice::Error(_)
             | TypedSlice::Html(_)

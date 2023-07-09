@@ -1,9 +1,12 @@
 use std::{
     borrow::Cow,
+    ops::Deref,
+    ops::DerefMut,
     sync::{Arc, Mutex, MutexGuard},
 };
 
 use bstr::ByteSlice;
+use indexmap::IndexMap;
 
 use crate::field_data::{
     iter_hall::IterId, iters::FieldIterator, typed::TypedSlice, typed_iters::TypedSliceIter,
@@ -25,23 +28,54 @@ use crate::{
 use super::{
     errors::OperatorApplicationError,
     operator::{OperatorData, OperatorId},
-    print::{write_stream_val_check_done, write_text},
+    print::{write_stream_val_check_done, write_success, write_text},
     transform::{TransformData, TransformId, TransformState},
 };
 
+pub struct StringSink {
+    data: Vec<String>,
+    errors: IndexMap<usize, Arc<OperatorApplicationError>>,
+}
+
 #[derive(Clone)]
 pub struct StringSinkHandle {
-    data: Arc<Mutex<Vec<String>>>,
+    data: Arc<Mutex<StringSink>>,
+}
+
+pub struct StringSinkDataGuard<'a> {
+    data_guard: MutexGuard<'a, StringSink>,
+}
+impl<'a> Deref for StringSinkDataGuard<'a> {
+    type Target = Vec<String>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.data_guard.data
+    }
+}
+impl<'a> DerefMut for StringSinkDataGuard<'a> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.data_guard.data
+    }
 }
 
 impl StringSinkHandle {
     pub fn new() -> StringSinkHandle {
         StringSinkHandle {
-            data: Arc::new(Mutex::new(Vec::new())),
+            data: Arc::new(Mutex::new(StringSink {
+                data: Default::default(),
+                errors: Default::default(),
+            })),
         }
     }
-    pub fn get(&self) -> MutexGuard<Vec<String>> {
+    pub fn get(&self) -> MutexGuard<StringSink> {
         self.data.lock().unwrap()
+    }
+    pub fn get_data(&self) -> Result<StringSinkDataGuard, Arc<OperatorApplicationError>> {
+        let guard = self.data.lock().unwrap();
+        if let Some((_, err)) = guard.errors.first() {
+            return Err(err.clone());
+        }
+        Ok(StringSinkDataGuard { data_guard: guard })
     }
 }
 
@@ -63,7 +97,7 @@ pub struct StreamValueHandle {
 }
 
 pub struct TfStringSink<'a> {
-    handle: &'a Mutex<Vec<String>>,
+    handle: &'a Mutex<StringSink>,
     batch_iter: IterId,
     stream_value_handles: Universe<usize, StreamValueHandle>,
     buf: Vec<u8>,
@@ -91,33 +125,32 @@ fn push_string(
     sess: &JobData<'_>,
     tf_id: TransformId,
     field_pos: usize,
-    out: &mut Vec<String>,
+    out: &mut StringSink,
     buf: Vec<u8>,
     run_len: usize,
 ) {
     let str = match String::from_utf8(buf) {
         Ok(s) => s,
         Err(e) => {
-            sess.record_mgr.push_entry_error(
-                sess.tf_mgr.transforms[tf_id].match_set_id,
-                field_pos,
-                OperatorApplicationError {
-                    op_id: sess.tf_mgr.transforms[tf_id].op_id,
-                    message: Cow::Borrowed("invalid utf-8"),
-                },
-                run_len,
-            );
+            let err = Arc::new(OperatorApplicationError {
+                op_id: sess.tf_mgr.transforms[tf_id].op_id,
+                message: Cow::Borrowed("invalid utf-8"),
+            });
+            for i in field_pos..field_pos + run_len {
+                out.errors.insert(i, err.clone());
+            }
             String::from_utf8_lossy(e.as_bytes()).to_string()
         }
     };
-    out.extend(std::iter::repeat_with(|| str.clone()).take(run_len - 1));
-    out.push(str);
+    out.data
+        .extend(std::iter::repeat_with(|| str.clone()).take(run_len - 1));
+    out.data.push(str);
 }
 fn push_string_clear_buf(
     sess: &JobData<'_>,
     tf_id: TransformId,
     field_pos: usize,
-    out: &mut Vec<String>,
+    out: &mut StringSink,
     buf: &mut Vec<u8>,
     run_len: usize,
 ) {
@@ -128,27 +161,34 @@ fn push_string_clear_buf(
 fn append_stream_val(
     op_id: OperatorId,
     sv: &StreamValue,
-    out: &mut Vec<String>,
+    sv_handle: &mut StreamValueHandle,
+    out: &mut StringSink,
     start_idx: usize,
     run_len: usize,
-) -> Result<(), OperatorApplicationError> {
+) {
     let end_idx = start_idx + run_len;
     match &sv.data {
         StreamValueData::BytesChunk(c) => match c.to_str() {
             Ok(text) => {
                 for i in start_idx..end_idx {
-                    out[i].push_str(text);
+                    out.data[i].push_str(text);
                 }
             }
             Err(_) => {
+                if !sv_handle.contains_error {
+                    sv_handle.contains_error = true;
+                    let err = Arc::new(OperatorApplicationError {
+                        op_id: op_id,
+                        message: Cow::Borrowed("invalid utf-8"),
+                    });
+                    for i in start_idx..end_idx {
+                        out.errors.insert(i, err.clone());
+                    }
+                }
                 let lossy = String::from_utf8_lossy(c.as_bytes());
                 for i in start_idx..end_idx {
-                    out[i].push_str(&lossy);
+                    out.data[i].push_str(&lossy);
                 }
-                return Err(OperatorApplicationError {
-                    op_id: op_id,
-                    message: Cow::Borrowed("invalid utf-8"),
-                });
             }
         },
         StreamValueData::BytesBuffer(b) => {
@@ -156,32 +196,34 @@ fn append_stream_val(
                 match b.to_str() {
                     Ok(s) => {
                         for i in start_idx..end_idx {
-                            out[i].push_str(s);
+                            out.data[i].push_str(s);
                         }
                     }
                     Err(_) => {
-                        let lossy = String::from_utf8_lossy(b);
-                        for i in (start_idx..end_idx).skip(1) {
-                            out[i].push_str(&lossy);
-                        }
-                        out[start_idx] = lossy.to_string();
-                        return Err(OperatorApplicationError {
+                        let err = Arc::new(OperatorApplicationError {
                             op_id: op_id,
                             message: Cow::Borrowed("invalid utf-8"),
                         });
+                        let lossy = String::from_utf8_lossy(b);
+                        for i in (start_idx..end_idx).skip(1) {
+                            out.data[i] = lossy.to_string();
+                            out.errors.insert(i, err.clone());
+                        }
+                        out.data[start_idx] = lossy.to_string();
                     }
                 }
             }
         }
         StreamValueData::Error(e) => {
             debug_assert!(sv.done);
+            let err = Arc::new(e.clone());
             for i in start_idx..end_idx {
-                write_error::<false>(unsafe { out[i].as_mut_vec() }, e, 1).unwrap();
+                write_error::<false>(unsafe { out.data[i].as_mut_vec() }, e, 1).unwrap();
+                out.errors.insert(i, err.clone());
             }
         }
         StreamValueData::Dropped => panic!("dropped stream value observed"),
     }
-    Ok(())
 }
 
 pub fn handle_tf_string_sink(
@@ -257,13 +299,24 @@ pub fn handle_tf_string_sink(
                     range.base.field_count,
                 );
             }
+            TypedSlice::Success(_) => {
+                write_success::<false>(buf, 1).unwrap();
+                push_string_clear_buf(
+                    sess,
+                    tf_id,
+                    field_pos,
+                    &mut out,
+                    buf,
+                    range.base.field_count,
+                );
+            }
             TypedSlice::StreamValueId(svs) => {
                 for (svid, rl) in TypedSliceIter::from_range(&range.base, svs) {
                     let sv = &mut sess.sv_mgr.stream_values[*svid];
                     if !write_stream_val_check_done::<false>(buf, sv, 1).unwrap() {
                         sv.subscribe(tf_id, tf.stream_value_handles.len(), sv.is_buffered());
                         tf.stream_value_handles.claim_with_value(StreamValueHandle {
-                            start_idx: out.len(),
+                            start_idx: out.data.len(),
                             run_len: rl as usize,
                             contains_error: false,
                         });
@@ -299,26 +352,14 @@ pub fn handle_tf_string_sink_stream_value_update(
     let mut out = tf.handle.lock().unwrap();
     let svh = &mut tf.stream_value_handles[custom];
     let sv = &mut sess.sv_mgr.stream_values[sv_id];
-    match append_stream_val(
+    append_stream_val(
         sess.tf_mgr.transforms[tf_id].op_id,
         sv,
+        svh,
         &mut out,
         svh.start_idx,
         svh.run_len,
-    ) {
-        Ok(_) => (),
-        Err(oae) => {
-            if !svh.contains_error {
-                sess.record_mgr.push_entry_error(
-                    sess.tf_mgr.transforms[tf_id].match_set_id,
-                    svh.start_idx,
-                    oae,
-                    svh.run_len,
-                );
-                svh.contains_error = true;
-            }
-        }
-    }
+    );
     if sv.done {
         sess.sv_mgr.drop_field_value_subscription(sv_id, None);
         tf.stream_value_handles.release(custom);

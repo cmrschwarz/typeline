@@ -466,7 +466,7 @@ pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRe
     sess.record_mgr.match_sets[tf.match_set_id]
         .command_buffer
         .begin_action_set(tf.ordering_id.into());
-    let input_field = sess.record_mgr.fields[input_field_id].borrow_mut();
+    let input_field = sess.record_mgr.fields[input_field_id].borrow();
     let iter_base = input_field
         .deref()
         .field_data
@@ -610,6 +610,7 @@ pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRe
             TypedSlice::Reference(_) => unreachable!(),
             TypedSlice::Unset(_)
             | TypedSlice::Null(_)
+            | TypedSlice::Success(_)
             | TypedSlice::Error(_)
             | TypedSlice::Html(_)
             | TypedSlice::StreamValueId(_)

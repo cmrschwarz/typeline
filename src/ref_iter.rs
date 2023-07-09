@@ -238,22 +238,14 @@ impl<'a> RefIter<'a> {
 pub struct AutoDerefIter<'a, I: FieldIterator<'a>> {
     iter: I,
     iter_field_id: FieldId,
-    ref_iter: RefIter<'a>,
+    ref_iter: Option<RefIter<'a>>,
+    fields: &'a Universe<FieldId, RefCell<Field>>,
 }
 pub struct RefAwareTypedRange<'a> {
     pub base: ValidTypedRange<'a>,
     pub refs: Option<TypedSliceIter<'a, FieldReference>>,
     pub field_id: FieldId,
 }
-
-/*
-impl<'a> Deref for RefAwareTypedRange<'a> {
-    type Target = TypedRange<'a>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.base
-    }
-}*/
 
 impl<'a, I: FieldIterator<'a>> AutoDerefIter<'a, I> {
     pub fn new(
@@ -263,18 +255,19 @@ impl<'a, I: FieldIterator<'a>> AutoDerefIter<'a, I> {
         iter: I,
         refs_field_id: Option<FieldId>,
     ) -> Self {
-        let refs_field_id =
-            refs_field_id.unwrap_or_else(|| match_sets.any_used().unwrap().err_field_id);
-        let ref_iter = RefIter::new(
-            TypedSliceIter::default(),
-            fields,
-            match_sets,
-            refs_field_id,
-            iter.get_next_field_pos(),
-        );
+        let ref_iter = refs_field_id.map(|refs_field_id| {
+            RefIter::new(
+                TypedSliceIter::default(),
+                fields,
+                match_sets,
+                refs_field_id,
+                iter.get_next_field_pos(),
+            )
+        });
         Self {
             iter,
             ref_iter,
+            fields,
             iter_field_id,
         }
     }
@@ -291,21 +284,33 @@ impl<'a, I: FieldIterator<'a>> AutoDerefIter<'a, I> {
         flags: FieldValueFlags,
     ) -> Option<RefAwareTypedRange<'a>> {
         loop {
-            if let Some((range, refs)) = self.ref_iter.typed_range_fwd(match_sets, limit, flags) {
-                let (fr, _) = refs.peek().unwrap();
-                return Some(RefAwareTypedRange {
-                    base: range,
-                    refs: Some(refs),
-                    field_id: fr.field,
-                });
+            if let Some(ri) = &mut self.ref_iter {
+                if let Some((range, refs)) = ri.typed_range_fwd(match_sets, limit, flags) {
+                    let (fr, _) = refs.peek().unwrap();
+                    return Some(RefAwareTypedRange {
+                        base: range,
+                        refs: Some(refs),
+                        field_id: fr.field,
+                    });
+                }
             }
             let field_pos = self.iter.get_next_field_pos();
             if let Some(range) = self.iter.typed_range_fwd(limit, flags) {
                 if let TypedSlice::Reference(refs) = range.data {
                     let refs_iter = TypedSliceIter::from_range(&range, refs);
                     let field_id = refs_iter.peek().unwrap().0.field;
-                    self.ref_iter
-                        .reset(match_sets, refs_iter, field_id, field_pos);
+                    if let Some(ri) = &mut self.ref_iter {
+                        ri.reset(match_sets, refs_iter, field_id, field_pos);
+                    } else {
+                        self.ref_iter = Some(RefIter::new(
+                            refs_iter,
+                            self.fields,
+                            match_sets,
+                            field_id,
+                            field_pos,
+                        ));
+                    }
+
                     continue;
                 }
                 return Some(RefAwareTypedRange {
@@ -494,7 +499,6 @@ mod ref_iter_tests {
             working_set: Default::default(),
             command_buffer: Default::default(),
             field_name_map: Default::default(),
-            err_field_id: fields.claim(),
         });
 
         let refs_borrow = fields[refs_field_id].borrow();
