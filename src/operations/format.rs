@@ -529,6 +529,7 @@ fn iter_output_targets(
             func(o)
         }
         run_len -= o.run_len;
+        *output_idx += 1;
     }
 }
 fn calc_text_len(k: &FormatKey, base_len: usize, width_lookup: usize) -> usize {
@@ -542,6 +543,7 @@ pub fn lookup_widths(
     fields: &Universe<FieldId, RefCell<Field>>,
     fmt: &mut TfFormat,
     k: &FormatKey,
+    update_iter: bool,
     succ_func: impl Fn(&mut TfFormat, &mut usize, usize, usize), //output idx, width, run length
     err_func: impl Fn(&mut TfFormat, &mut usize, usize),         //output idx, width, run length
 ) {
@@ -564,7 +566,9 @@ pub fn lookup_widths(
             _ => err_func(fmt, &mut output_index, range.field_count),
         }
     }
-    field.field_data.store_iter(ident_ref.iter_id, iter);
+    if update_iter {
+        field.field_data.store_iter(ident_ref.iter_id, iter);
+    }
 }
 pub fn setup_key_output_state(
     fields: &Universe<FieldId, RefCell<Field>>,
@@ -576,6 +580,7 @@ pub fn setup_key_output_state(
         fields,
         fmt,
         k,
+        false,
         |fmt, output_idx, width, run_len| {
             iter_output_states(fmt, output_idx, run_len, |os| os.width_lookup = width)
         },
@@ -642,9 +647,10 @@ pub fn setup_key_output_state(
             }
         }
     }
+    /*
     field
         .field_data
-        .store_iter(ident_ref.iter_id, iter.into_base_iter());
+        .store_iter(ident_ref.iter_id, iter.into_base_iter());*/
 }
 unsafe fn write_bytes_to_target(tgt: &mut OutputTarget, bytes: &[u8]) {
     unsafe {
@@ -665,7 +671,7 @@ unsafe fn write_padding_to_tgt(tgt: &mut OutputTarget, fill_char: char, mut len:
         buf.extend(char_slice.as_bytes().iter().cloned());
     }
     unsafe {
-        while chars_cap > len {
+        while len > chars_cap {
             write_bytes_to_target(tgt, buf.as_slice());
             len -= chars_cap;
         }
@@ -815,6 +821,7 @@ unsafe fn write_padded_bytes(
 unsafe fn write_formatted_int(k: &FormatKey, tgt: &mut OutputTarget, value: i64) {
     if !k.width.is_some() {
         write_bytes_to_target(tgt, i64_to_str(k.add_plus_sign, value).as_bytes());
+        return;
     }
     if !k.zero_pad_numbers {
         let val = i64_to_str(k.add_plus_sign, value);
@@ -845,6 +852,7 @@ fn write_fmt_key(
         fields,
         fmt,
         k,
+        true,
         |fmt, output_idx, width, run_len| {
             iter_output_targets(fmt, output_idx, run_len, |ot| ot.width_lookup = width)
         },

@@ -361,7 +361,6 @@ impl JobData<'_> {
         let predecessor = tf.predecessor;
         let successor = tf.successor;
         let continuation = tf.continuation;
-        let available_batch = tf.available_batch_size + available_batch_for_successor;
         if let Some(cont_id) = continuation {
             let cont = &mut self.tf_mgr.transforms[cont_id];
             cont.successor = successor;
@@ -372,7 +371,7 @@ impl JobData<'_> {
             if let Some(succ_id) = successor {
                 let succ = &mut self.tf_mgr.transforms[succ_id];
                 succ.predecessor = continuation;
-                succ.available_batch_size += available_batch;
+                succ.available_batch_size += available_batch_for_successor;
                 if succ.available_batch_size >= succ.desired_batch_size {
                     self.tf_mgr.push_tf_in_ready_queue(succ_id);
                     self.tf_mgr.transforms[cont_id].is_appending = false;
@@ -392,7 +391,7 @@ impl JobData<'_> {
         if let Some(succ_id) = successor {
             self.tf_mgr.transforms[succ_id].predecessor = predecessor;
             self.tf_mgr
-                .inform_transform_batch_available(succ_id, available_batch);
+                .inform_transform_batch_available(succ_id, available_batch_for_successor);
             self.inform_transform_pred_done(succ_id);
         }
     }

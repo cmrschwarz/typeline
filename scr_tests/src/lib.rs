@@ -223,7 +223,7 @@ fn chained_seq() -> Result<(), ScrError> {
 fn format_width_spec() -> Result<(), ScrError> {
     let ss = StringSinkHandle::new();
     ContextBuilder::default()
-        .push_str("x", 5)
+        .push_str("x", 6)
         .add_op(create_op_key("foo".to_owned()))
         .add_op(create_op_seq(0, 6, 1, false).unwrap())
         .add_op(create_op_key("bar".to_owned()))
