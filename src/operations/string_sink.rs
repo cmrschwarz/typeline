@@ -33,8 +33,8 @@ use super::{
 };
 
 pub struct StringSink {
-    data: Vec<String>,
-    errors: IndexMap<usize, Arc<OperatorApplicationError>>,
+    pub data: Vec<String>,
+    pub errors: IndexMap<usize, Arc<OperatorApplicationError>>,
 }
 
 #[derive(Clone)]
@@ -283,9 +283,15 @@ pub fn handle_tf_string_sink(
                 write_null::<false>(buf, range.base.field_count).unwrap();
             }
             TypedSlice::Error(errs) => {
+                let mut pos = field_pos;
                 for (v, rl) in TypedSliceIter::from_range(&range.base, errs) {
                     write_error::<false>(buf, v, 1).unwrap();
                     push_string_clear_buf(sess, tf_id, field_pos, &mut out, buf, rl as usize);
+                    let e = Arc::new(v.clone());
+                    for i in 0..rl as usize {
+                        out.errors.insert(pos + i, e.clone());
+                    }
+                    pos += rl as usize;
                 }
             }
             TypedSlice::Unset(_) => {

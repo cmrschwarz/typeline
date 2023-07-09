@@ -1,4 +1,5 @@
 use scr::bstr::ByteSlice;
+
 use scr::{
     field_data::{push_interface::PushInterface, record_set::RecordSet},
     operations::{
@@ -13,6 +14,7 @@ use scr::{
     options::context_builder::ContextBuilder,
     scr_error::ScrError,
 };
+
 use std::io::Read;
 
 #[test]
@@ -250,5 +252,21 @@ fn unset_value() -> Result<(), ScrError> {
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(ss.get_data().unwrap().as_slice(), &["x0", "1"]);
+    Ok(())
+}
+
+#[test]
+fn nonexisting_key() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::new();
+    ContextBuilder::default()
+        .push_str("x", 3)
+        .add_op(create_op_format("{foo}".as_bytes().as_bstr()).unwrap())
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert!(ss.get_data().is_err());
+    assert_eq!(
+        ss.get().errors.get_index(0).map(|(i, v)| (*i, &*v.message)),
+        Some((0, "Format Error")) //TODO: better error message
+    );
     Ok(())
 }

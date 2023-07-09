@@ -133,15 +133,15 @@ pub fn handle_tf_sequence(sess: &mut JobData<'_>, tf_id: TransformId, seq: &mut 
             }
         }
     }
-
+    let fields_added = batch_size - bs_rem;
     if seq.ss.start == seq.ss.end {
         drop(output_field);
-        sess.unlink_transform(tf_id, batch_size - bs_rem);
+        sess.unlink_transform(tf_id, fields_added);
         return;
     }
     sess.tf_mgr.push_tf_in_ready_queue(tf_id);
     sess.tf_mgr
-        .inform_successor_batch_available(tf_id, batch_size);
+        .inform_successor_batch_available(tf_id, fields_added);
 }
 
 pub fn parse_op_seq(

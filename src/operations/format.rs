@@ -161,7 +161,6 @@ pub struct TfFormat<'a> {
     output_field: FieldId,
     parts: &'a Vec<FormatPart>,
     refs: Vec<FormatIdentRef>,
-    input_fields_unique: Vec<FieldId>,
     output_states: Vec<OutputState>,
     output_targets: Vec<OutputTarget>,
     stream_value_handles: Universe<usize, TfFormatStreamValueHandle>,
@@ -211,14 +210,10 @@ pub fn setup_tf_format<'a>(
             FormatIdentRef { field_id, iter_id }
         })
         .collect();
-    let mut input_fields_unique: Vec<_> = refs.iter().map(|fir| fir.field_id).collect();
-    input_fields_unique.sort_unstable();
-    input_fields_unique.dedup();
     let tf = TfFormat {
         output_field,
         parts: &op.parts,
         refs,
-        input_fields_unique,
         output_states: Default::default(),
         output_targets: Default::default(),
         stream_value_handles: Default::default(),
@@ -580,6 +575,7 @@ pub fn setup_key_output_state(
     fields: &Universe<FieldId, RefCell<Field>>,
     match_sets: &mut Universe<MatchSetId, MatchSet>,
     fmt: &mut TfFormat,
+    batch_size: usize,
     k: &FormatKey,
 ) {
     lookup_widths(
@@ -600,7 +596,10 @@ pub fn setup_key_output_state(
         fields,
         match_sets,
         ident_ref.field_id,
-        field.field_data.get_iter(ident_ref.iter_id),
+        field
+            .field_data
+            .get_iter(ident_ref.iter_id)
+            .bounded(0, batch_size),
         None,
     );
 
@@ -654,6 +653,10 @@ pub fn setup_key_output_state(
             }
         }
     }
+    let uninitialized_fields = batch_size - output_index;
+    iter_output_states(fmt, &mut output_index, uninitialized_fields, |os| {
+        os.error_occured = true
+    });
     /*
     field
         .field_data
@@ -924,12 +927,12 @@ fn write_fmt_key(
     }
 }
 pub fn handle_tf_format(sess: &mut JobData<'_>, tf_id: TransformId, fmt: &mut TfFormat) {
-    let (batch, _input_field_id) = sess.claim_batch(tf_id);
+    let (batch_size, _input_field_id) = sess.claim_batch(tf_id);
     sess.prepare_for_output(tf_id, std::slice::from_ref(&fmt.output_field));
     let op_id = sess.tf_mgr.transforms[tf_id].op_id;
     let mut output_field = sess.record_mgr.fields[fmt.output_field].borrow_mut();
     fmt.output_states.push(OutputState {
-        run_len: batch,
+        run_len: batch_size,
         ..Default::default()
     });
     for part in fmt.parts.iter() {
@@ -945,6 +948,7 @@ pub fn handle_tf_format(sess: &mut JobData<'_>, tf_id: TransformId, fmt: &mut Tf
                 &sess.record_mgr.fields,
                 &mut sess.record_mgr.match_sets,
                 fmt,
+                batch_size,
                 k,
             ),
         }
@@ -953,12 +957,12 @@ pub fn handle_tf_format(sess: &mut JobData<'_>, tf_id: TransformId, fmt: &mut Tf
     for part in fmt.parts.iter() {
         match part {
             FormatPart::ByteLiteral(v) => {
-                iter_output_targets(fmt, &mut 0, batch, |tgt| unsafe {
+                iter_output_targets(fmt, &mut 0, batch_size, |tgt| unsafe {
                     write_bytes_to_target(tgt, v)
                 });
             }
             FormatPart::TextLiteral(v) => {
-                iter_output_targets(fmt, &mut 0, batch, |tgt| unsafe {
+                iter_output_targets(fmt, &mut 0, batch_size, |tgt| unsafe {
                     write_bytes_to_target(tgt, v.as_bytes())
                 });
             }
@@ -978,7 +982,8 @@ pub fn handle_tf_format(sess: &mut JobData<'_>, tf_id: TransformId, fmt: &mut Tf
     fmt.output_states.clear();
     fmt.output_targets.clear();
     sess.tf_mgr.update_ready_state(tf_id);
-    sess.tf_mgr.inform_successor_batch_available(tf_id, batch);
+    sess.tf_mgr
+        .inform_successor_batch_available(tf_id, batch_size);
 }
 
 pub fn handle_tf_format_stream_value_update(
