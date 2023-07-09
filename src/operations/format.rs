@@ -236,22 +236,29 @@ pub fn parse_format_width_spec<const FOR_FLOAT_PREC: bool>(
     if c0.is_ascii_digit() {
         loop {
             i += 1;
-            if fmt.get(i).map(|c| c.is_ascii_digit()).unwrap_or(false) {
-                let val = unsafe { (&fmt[start..i]).to_str_unchecked() }
-                    .parse::<usize>()
-                    .map_err(|e| {
-                        (
-                            start,
-                            format!("failed to parse the {context} as an integer: {e}").into(),
-                        )
-                    })?;
-                return Ok((FormatWidthSpec::Value(val), i));
+            let c = *fmt.get(i).ok_or((i, NO_CLOSING_BRACE_ERR))? as char;
+            if c.is_ascii_digit() {
+                continue;
             }
+            let val = unsafe { (&fmt[start..i]).to_str_unchecked() };
+            if c == '$' {
+                let ref_id = refs.len();
+                refs.push(Some(val.to_owned()));
+                return Ok((FormatWidthSpec::Ref(ref_id), i as usize + 1));
+            }
+            let number = val.parse::<usize>().map_err(|e| {
+                (
+                    start,
+                    format!("failed to parse the {context} as an integer: {e}").into(),
+                )
+            })?;
+            return Ok((FormatWidthSpec::Value(number), i as usize));
         }
     }
     let mut format_width_ident = SmallString::<[u8; 64]>::new();
     loop {
-        if let Some(end) = (&fmt[i..]).find_byteset("${}") {
+        if let Some(mut end) = (&fmt[i..]).find_byteset("${}") {
+            end += i;
             format_width_ident.push_str((&fmt[i..end]).to_str().map_err(|e| {
                 (
                     i + e.valid_up_to(),
@@ -266,9 +273,9 @@ pub fn parse_format_width_spec<const FOR_FLOAT_PREC: bool>(
                 } else {
                     Some(format_width_ident.into_string())
                 };
+                let ref_id = refs.len();
                 refs.push(fmt_ref);
-                let ref_id = refs.len() - 1;
-                return Ok((FormatWidthSpec::Ref(ref_id), i));
+                return Ok((FormatWidthSpec::Ref(ref_id), i + 1));
             }
             let c1 = *fmt.get(i + 1).ok_or_else(|| no_closing_dollar(i))? as char;
             if c0 != c1 {
@@ -804,9 +811,11 @@ pub fn handle_tf_format_stream_value_update(
 
 #[cfg(test)]
 mod test {
+    use std::borrow::Cow;
+
     use bstr::ByteSlice;
 
-    use crate::operations::format::FormatKey;
+    use crate::operations::format::{FormatFillAlignment, FormatKey, FormatWidthSpec};
 
     use super::{parse_format_string, FormatPart};
 
@@ -854,5 +863,42 @@ mod test {
             ]
         );
         assert_eq!(idents, &[Some("a".to_owned()), Some("b".to_owned())])
+    }
+
+    #[test]
+    fn fill_options() {
+        let mut idents = Default::default();
+        let mut a = FormatKey::default();
+        a.identifier = 0;
+        a.width = FormatWidthSpec::Value(5);
+        a.fill = Some(('+', FormatFillAlignment::Left));
+        assert_eq!(
+            parse_format_string("{a:+<5}".as_bytes().as_bstr(), &mut idents).unwrap(),
+            &[FormatPart::Key(a),]
+        );
+        assert_eq!(idents, &[Some("a".to_owned())])
+    }
+
+    #[test]
+    fn float_precision() {
+        let mut idents = Default::default();
+        let mut a = FormatKey::default();
+        a.identifier = 0;
+        a.width = FormatWidthSpec::Value(3);
+        a.float_precision = FormatWidthSpec::Ref(1);
+        assert_eq!(
+            parse_format_string("{a:3.b$}".as_bytes().as_bstr(), &mut idents).unwrap(),
+            &[FormatPart::Key(a)]
+        );
+        assert_eq!(idents, &[Some("a".to_owned()), Some("b".to_owned())])
+    }
+
+    #[test]
+    fn width_not_an_ident() {
+        let mut idents = Default::default();
+        assert_eq!(
+            parse_format_string("{a:1x$}".as_bytes().as_bstr(), &mut idents),
+            Err((4, Cow::Borrowed("expected '}' to terminate format key"))) //TODO: better error message for this case
+        );
     }
 }
