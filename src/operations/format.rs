@@ -12,6 +12,7 @@ use crate::{
     field_data::{
         field_value_flags,
         iter_hall::IterId,
+        iters::FieldIterator,
         push_interface::{PushInterface, UnsafeHeaderPushInterface},
         typed::TypedSlice,
         typed_iters::TypedSliceIter,
@@ -74,8 +75,8 @@ pub struct FormatKey {
     fill: Option<(char, FormatFillAlignment)>,
     add_plus_sign: bool,
     zero_pad_numbers: bool,
-    width: FormatWidthSpec,
-    float_precision: FormatWidthSpec,
+    width: Option<FormatWidthSpec>,
+    float_precision: Option<FormatWidthSpec>,
     alternate_form: bool, // prefix 0x for hex, 0o for octal and 0b for binary, pretty print objects / arrays
     number_format: NumberFormat,
     debug: bool,
@@ -97,6 +98,7 @@ pub struct OpFormat {
     refs_idx: Vec<Option<StringStoreEntry>>,
 }
 
+#[derive(Clone, Copy)]
 pub struct FormatIdentRef {
     field_id: FieldId,
     iter_id: IterId,
@@ -110,6 +112,7 @@ struct TfFormatStreamValueHandle {
 struct OutputState {
     next: usize,
     len: usize,
+    width_lookup: usize,
     run_len: usize,
     contains_raw_bytes: bool,
     error_occured: bool,
@@ -129,6 +132,7 @@ impl Default for OutputState {
             contains_raw_bytes: false,
             error_occured: false,
             run_len: 0,
+            width_lookup: 0,
         }
     }
 }
@@ -217,7 +221,7 @@ pub fn parse_format_width_spec<const FOR_FLOAT_PREC: bool>(
     fmt: &BStr,
     start: usize,
     refs: &mut Vec<Option<String>>,
-) -> Result<(FormatWidthSpec, usize), (usize, Cow<'static, str>)> {
+) -> Result<(Option<FormatWidthSpec>, usize), (usize, Cow<'static, str>)> {
     let context = if FOR_FLOAT_PREC {
         "format key float precision "
     } else {
@@ -244,7 +248,7 @@ pub fn parse_format_width_spec<const FOR_FLOAT_PREC: bool>(
             if c == '$' {
                 let ref_id = refs.len();
                 refs.push(Some(val.to_owned()));
-                return Ok((FormatWidthSpec::Ref(ref_id), i as usize + 1));
+                return Ok((Some(FormatWidthSpec::Ref(ref_id)), i as usize + 1));
             }
             let number = val.parse::<usize>().map_err(|e| {
                 (
@@ -252,7 +256,7 @@ pub fn parse_format_width_spec<const FOR_FLOAT_PREC: bool>(
                     format!("failed to parse the {context} as an integer: {e}").into(),
                 )
             })?;
-            return Ok((FormatWidthSpec::Value(number), i as usize));
+            return Ok((Some(FormatWidthSpec::Value(number)), i as usize));
         }
     }
     let mut format_width_ident = SmallString::<[u8; 64]>::new();
@@ -275,7 +279,7 @@ pub fn parse_format_width_spec<const FOR_FLOAT_PREC: bool>(
                 };
                 let ref_id = refs.len();
                 refs.push(fmt_ref);
-                return Ok((FormatWidthSpec::Ref(ref_id), i + 1));
+                return Ok((Some(FormatWidthSpec::Ref(ref_id)), i + 1));
             }
             let c1 = *fmt.get(i + 1).ok_or_else(|| no_closing_dollar(i))? as char;
             if c0 != c1 {
@@ -485,13 +489,53 @@ fn iter_output_states(
         run_len -= o.run_len;
     }
 }
+fn calc_text_len(k: &FormatKey, base_len: usize, width_lookup: usize) -> usize {
+    match k.width {
+        Some(FormatWidthSpec::Ref(_)) => base_len.max(width_lookup),
+        Some(FormatWidthSpec::Value(v)) => base_len.max(v),
+        None => base_len,
+    }
+}
+pub fn lookup_widths(
+    fields: &Universe<FieldId, RefCell<Field>>,
+    fmt: &mut TfFormat,
+    k: &FormatKey,
+) {
+    let ident_ref = if let Some(FormatWidthSpec::Ref(ident)) = k.width {
+        fmt.refs[ident]
+    } else {
+        return;
+    };
+    let field = &mut fields[ident_ref.field_id].borrow();
+    let mut iter = field.field_data.get_iter(ident_ref.iter_id);
+    let mut output_index = 0;
+    while let Some(range) = iter.typed_range_fwd(usize::MAX, 0) {
+        match range.data {
+            TypedSlice::Integer(ints) => {
+                for (v, rl) in TypedSliceIter::from_range(&range, ints) {
+                    let width = if *v < 0 { 0 } else { *v as usize };
+                    iter_output_states(fmt, &mut output_index, rl as usize, |o| {
+                        o.width_lookup = width;
+                    });
+                }
+            }
+            _ => {
+                iter_output_states(fmt, &mut output_index, range.field_count, |o| {
+                    o.error_occured = true;
+                });
+            }
+        }
+    }
+    field.field_data.store_iter(ident_ref.iter_id, iter);
+}
 pub fn setup_key_output_state(
     fields: &Universe<FieldId, RefCell<Field>>,
     match_sets: &mut Universe<MatchSetId, MatchSet>,
     fmt: &mut TfFormat,
     k: &FormatKey,
 ) {
-    let ident_ref = &fmt.refs[k.identifier];
+    lookup_widths(fields, fmt, k);
+    let ident_ref = fmt.refs[k.identifier];
     let field = &mut fields[ident_ref.field_id].borrow();
     let mut iter = AutoDerefIter::new(
         fields,
@@ -510,14 +554,14 @@ pub fn setup_key_output_state(
             TypedSlice::TextInline(text) => {
                 for (v, rl, _offs) in RefAwareInlineTextIter::from_range(&range, text) {
                     iter_output_states(fmt, &mut output_index, rl as usize, |o| {
-                        o.len += v.len();
+                        o.len += calc_text_len(k, v.len(), o.width_lookup);
                     });
                 }
             }
             TypedSlice::BytesInline(bytes) => {
                 for (v, rl, _offs) in RefAwareInlineBytesIter::from_range(&range, bytes) {
                     iter_output_states(fmt, &mut output_index, rl as usize, |o| {
-                        o.len += v.len();
+                        o.len += calc_text_len(k, v.len(), o.width_lookup);
                         o.contains_raw_bytes = true;
                     });
                 }
@@ -525,7 +569,7 @@ pub fn setup_key_output_state(
             TypedSlice::BytesBuffer(bytes) => {
                 for (v, rl, _offs) in RefAwareBytesBufferIter::from_range(&range, bytes) {
                     iter_output_states(fmt, &mut output_index, rl as usize, |o| {
-                        o.len += v.len();
+                        o.len += calc_text_len(k, v.len(), o.width_lookup);
                         o.contains_raw_bytes = true;
                     });
                 }
@@ -534,7 +578,7 @@ pub fn setup_key_output_state(
                 for (v, rl) in TypedSliceIter::from_range(&range.base, ints) {
                     let digits = i64_digits(k.add_plus_sign, *v);
                     iter_output_states(fmt, &mut output_index, rl as usize, |o| {
-                        o.len += digits;
+                        o.len += calc_text_len(k, digits, o.width_lookup);
                     });
                 }
             }
@@ -550,6 +594,9 @@ pub fn setup_key_output_state(
             }
         }
     }
+    field
+        .field_data
+        .store_iter(ident_ref.iter_id, iter.into_base_iter());
 }
 unsafe fn write_bytes(
     fmt: &mut TfFormat,
@@ -588,7 +635,7 @@ fn setup_output_targets(
             target = None;
             target_buffer_offset = None;
             output_field.field_data.push_error(
-                OperatorApplicationError::new("Type Error", op_id),
+                OperatorApplicationError::new("Format Error", op_id), //TODO: give more context
                 os.run_len,
                 true,
                 false,
@@ -870,7 +917,7 @@ mod test {
         let mut idents = Default::default();
         let mut a = FormatKey::default();
         a.identifier = 0;
-        a.width = FormatWidthSpec::Value(5);
+        a.width = Some(FormatWidthSpec::Value(5));
         a.fill = Some(('+', FormatFillAlignment::Left));
         assert_eq!(
             parse_format_string("{a:+<5}".as_bytes().as_bstr(), &mut idents).unwrap(),
@@ -884,8 +931,8 @@ mod test {
         let mut idents = Default::default();
         let mut a = FormatKey::default();
         a.identifier = 0;
-        a.width = FormatWidthSpec::Value(3);
-        a.float_precision = FormatWidthSpec::Ref(1);
+        a.width = Some(FormatWidthSpec::Value(3));
+        a.float_precision = Some(FormatWidthSpec::Ref(1));
         assert_eq!(
             parse_format_string("{a:3.b$}".as_bytes().as_bstr(), &mut idents).unwrap(),
             &[FormatPart::Key(a)]

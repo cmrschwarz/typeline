@@ -109,9 +109,10 @@ fn trickling_stream() -> Result<(), ScrError> {
     let ss = StringSinkHandle::new();
     ContextBuilder::default()
         .set_stream_buffer_size(3)
-        .add_op(create_op_file_reader_custom(Box::new(TestStream {
-            total_size: SIZE,
-        })))
+        .add_op(create_op_file_reader_custom(
+            Box::new(TestStream { total_size: SIZE }),
+            true,
+        ))
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(
@@ -125,7 +126,7 @@ fn trickling_stream() -> Result<(), ScrError> {
 fn sequence() -> Result<(), ScrError> {
     let ss = StringSinkHandle::new();
     ContextBuilder::default()
-        .add_op(create_op_seq(0, 3, 1).unwrap())
+        .add_op(create_op_seq(0, 3, 1, false).unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(ss.get().as_slice(), ["0", "1", "2"]);
@@ -152,7 +153,7 @@ fn multi_batch_seq_with_regex() -> Result<(), ScrError> {
     const COUNT: usize = 6;
     ContextBuilder::default()
         .set_batch_size(COUNT / 2)
-        .add_op(create_op_seq(0, COUNT as i64, 1).unwrap())
+        .add_op(create_op_seq(0, COUNT as i64, 1, true).unwrap())
         .add_op(create_op_regex("^\\d{1,2}$", RegexOptions::default()).unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
@@ -171,7 +172,7 @@ fn large_seq_with_regex() -> Result<(), ScrError> {
     let ss = StringSinkHandle::new();
     const COUNT: usize = 10000;
     ContextBuilder::default()
-        .add_op(create_op_seq(0, COUNT as i64, 1).unwrap())
+        .add_op(create_op_seq(0, COUNT as i64, 1, false).unwrap())
         .add_op(create_op_regex("^\\d{1,3}$", RegexOptions::default()).unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
@@ -189,12 +190,30 @@ fn large_seq_with_regex() -> Result<(), ScrError> {
 fn key_with_fmt() -> Result<(), ScrError> {
     let ss = StringSinkHandle::new();
     ContextBuilder::default()
-        .add_op(create_op_data_inserter(AnyData::Int(42)))
+        .add_op(create_op_data_inserter(AnyData::Int(42), true))
         .add_op(create_op_key("foo".to_owned()))
         .add_op(create_op_key("bar".to_owned()))
         .add_op(create_op_format("foo: {foo}, bar: {bar}".as_bytes().as_bstr()).unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(ss.get().as_slice(), &["foo: 42, bar: 42"]);
+    Ok(())
+}
+
+#[test]
+fn format_width_spec() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::new();
+    ContextBuilder::default()
+        .push_str("x", 5)
+        .add_op(create_op_key("foo".to_owned()))
+        .add_op(create_op_seq(0, 6, 1, false).unwrap())
+        .add_op(create_op_key("bar".to_owned()))
+        .add_op(create_op_format("{foo:~^bar$}".as_bytes().as_bstr()).unwrap())
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(
+        ss.get().as_slice(),
+        &["x", "x", "x~", "~x~", "~x~~", "~~x~~"]
+    );
     Ok(())
 }

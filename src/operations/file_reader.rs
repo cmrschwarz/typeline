@@ -44,15 +44,21 @@ pub enum AnyFile {
 pub struct OpFileReader {
     file_kind: FileKind,
     line_buffered: bool,
+    append: bool,
 }
 
 impl OpFileReader {
     pub fn default_op_name(&self) -> SmallString<[u8; DEFAULT_OP_NAME_SMALL_STR_LEN]> {
-        match self.file_kind {
-            FileKind::Stdin => SmallString::from("stdin"),
-            FileKind::File(_) => SmallString::from("file"),
-            FileKind::Custom(_) => SmallString::from("__custom_file_stream__"),
+        let mut res = SmallString::new();
+        if self.append {
+            res.push('+');
         }
+        match self.file_kind {
+            FileKind::Stdin => res.push_str("stdin"),
+            FileKind::File(_) => res.push_str("file"),
+            FileKind::Custom(_) => res.push_str("<custom_file_stream>"),
+        }
+        res
     }
 }
 
@@ -62,6 +68,7 @@ pub struct TfFileReader {
     stream_value: Option<StreamValueId>,
     line_buffered: bool,
     stream_buffer_size: usize,
+    output_field: FieldId,
 }
 
 pub fn setup_tf_file_reader<'a>(
@@ -90,6 +97,11 @@ pub fn setup_tf_file_reader<'a>(
                 .expect("attempted to create two transforms from a single custom FileKind"),
         ),
     };
+    let output_field = if op.append {
+        tf_state.input_field
+    } else {
+        sess.record_mgr.add_field(tf_state.match_set_id, None)
+    };
 
     let data = TransformData::FileReader(TfFileReader {
         file: Some(file),
@@ -99,8 +111,9 @@ pub fn setup_tf_file_reader<'a>(
             [sess.session_data.operator_bases[tf_state.op_id as usize].chain_id as usize]
             .settings
             .stream_buffer_size,
+        output_field,
     });
-    (data, tf_state.input_field)
+    (data, output_field)
 }
 
 fn read_size_limited<F: Read>(
@@ -157,8 +170,7 @@ fn read_chunk(
 }
 
 fn start_streaming_file(sess: &mut JobData<'_>, tf_id: TransformId, fr: &mut TfFileReader) {
-    let mut out_field =
-        sess.record_mgr.fields[sess.tf_mgr.transforms[tf_id].input_field].borrow_mut();
+    let mut out_field = sess.record_mgr.fields[fr.output_field].borrow_mut();
     // we want to write the chunk straight into field data to avoid a copy
     // SAFETY: this relies on the memory layout in field_data.
     // since that is a submodule of us, this is fine.
@@ -272,6 +284,7 @@ pub fn handle_tf_file_reader(sess: &mut JobData<'_>, tf_id: TransformId, fr: &mu
 
 pub fn parse_op_file(
     value: Option<&BStr>,
+    append: bool,
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
     let path = if let Some(value) = value {
@@ -297,11 +310,13 @@ pub fn parse_op_file(
     Ok(OperatorData::FileReader(OpFileReader {
         file_kind: FileKind::File(path),
         line_buffered: false, //this will be set based on the chain setting during setup
+        append,
     }))
 }
 
 pub fn parse_op_stdin(
     value: Option<&BStr>,
+    append: bool,
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
     if value.is_some() {
@@ -314,12 +329,14 @@ pub fn parse_op_stdin(
     Ok(OperatorData::FileReader(OpFileReader {
         file_kind: FileKind::Stdin,
         line_buffered: false, //this will be set based on the chain setting during setup
+        append,
     }))
 }
 
-pub fn create_op_file_reader_custom(read: Box<dyn Read + Send>) -> OperatorData {
+pub fn create_op_file_reader_custom(read: Box<dyn Read + Send>, append: bool) -> OperatorData {
     OperatorData::FileReader(OpFileReader {
         file_kind: FileKind::Custom(Mutex::new(Some(read))),
         line_buffered: false,
+        append,
     })
 }

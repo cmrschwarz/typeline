@@ -36,14 +36,14 @@ impl OperatorData {
     pub fn default_op_name(&self) -> SmallString<[u8; DEFAULT_OP_NAME_SMALL_STR_LEN]> {
         match self {
             OperatorData::Print => SmallString::from("p"),
-            OperatorData::Sequence(_) => SmallString::from("seq"),
+            OperatorData::Sequence(op) => op.default_op_name(),
             OperatorData::Split(_) => SmallString::from("split"),
             OperatorData::Key(_) => SmallString::from("key"),
-            OperatorData::Regex(re) => re.default_op_name(),
-            OperatorData::FileReader(fr) => fr.default_op_name(),
+            OperatorData::Regex(op) => op.default_op_name(),
+            OperatorData::FileReader(op) => op.default_op_name(),
             OperatorData::Format(_) => SmallString::from("f"),
             OperatorData::StringSink(_) => SmallString::from("__string_sink__"),
-            OperatorData::DataInserter(di) => di.default_op_name(),
+            OperatorData::DataInserter(op) => op.default_op_name(),
         }
     }
 }

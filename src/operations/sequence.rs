@@ -1,5 +1,6 @@
 use arrayvec::ArrayVec;
 use bstr::{BStr, ByteSlice};
+use smallstr::SmallString;
 
 use crate::{
     field_data::{push_interface::PushInterface, FieldValueKind},
@@ -10,7 +11,7 @@ use crate::{
 
 use super::{
     errors::OperatorCreationError,
-    operator::OperatorData,
+    operator::{OperatorData, DEFAULT_OP_NAME_SMALL_STR_LEN},
     transform::{TransformData, TransformId, TransformState},
 };
 
@@ -23,21 +24,41 @@ pub struct SequenceSpec {
 
 pub struct OpSequence {
     ss: SequenceSpec,
+    append: bool,
+}
+
+impl OpSequence {
+    pub fn default_op_name(&self) -> SmallString<[u8; DEFAULT_OP_NAME_SMALL_STR_LEN]> {
+        if self.append {
+            "+seq".into()
+        } else {
+            "seq".into()
+        }
+    }
 }
 
 pub struct TfSequence {
     ss: SequenceSpec,
+    output_field: FieldId,
 }
 
 pub fn setup_tf_sequence<'a>(
-    _sess: &mut JobData,
+    sess: &mut JobData,
     op: &'a OpSequence,
     tf_state: &mut TransformState,
 ) -> (TransformData<'a>, FieldId) {
     // we will forward the whole input in one go and unlink us from the chain
     tf_state.desired_batch_size = usize::MAX;
-    let data = TransformData::Sequence(TfSequence { ss: op.ss });
-    (data, tf_state.input_field)
+    let output_field = if op.append {
+        tf_state.input_field
+    } else {
+        sess.record_mgr.add_field(tf_state.match_set_id, None)
+    };
+    let data = TransformData::Sequence(TfSequence {
+        ss: op.ss,
+        output_field,
+    });
+    (data, output_field)
 }
 
 pub fn increment_int_str(data: &mut ArrayVec<u8, I64_MAX_DECIMAL_DIGITS>) {
@@ -59,10 +80,7 @@ pub fn increment_int_str(data: &mut ArrayVec<u8, I64_MAX_DECIMAL_DIGITS>) {
 const FAST_SEQ_MAX_STEP: i64 = 200;
 
 pub fn handle_tf_sequence(sess: &mut JobData<'_>, tf_id: TransformId, seq: &mut TfSequence) {
-    let mut input_field =
-        sess.record_mgr.fields[sess.tf_mgr.transforms[tf_id].input_field].borrow_mut();
-
-    input_field.field_data.clear();
+    let mut output_field = sess.record_mgr.fields[seq.output_field].borrow_mut();
 
     let batch_size;
     let succ_wants_text;
@@ -80,7 +98,7 @@ pub fn handle_tf_sequence(sess: &mut JobData<'_>, tf_id: TransformId, seq: &mut 
     //PERF: batch this
     if !succ_wants_text {
         while seq.ss.start != seq.ss.end && bs_rem > 0 {
-            input_field
+            output_field
                 .field_data
                 .push_int(seq.ss.start, 1, true, false);
             seq.ss.start += seq.ss.step;
@@ -91,7 +109,7 @@ pub fn handle_tf_sequence(sess: &mut JobData<'_>, tf_id: TransformId, seq: &mut 
             let mut int_str = ArrayVec::new();
             int_str.extend(i64_to_str(false, seq.ss.start).as_bytes().iter().cloned());
             while seq.ss.start != seq.ss.end && bs_rem != 0 {
-                input_field.field_data.push_inline_str(
+                output_field.field_data.push_inline_str(
                     unsafe { std::str::from_utf8_unchecked(&int_str) },
                     1,
                     true,
@@ -105,7 +123,7 @@ pub fn handle_tf_sequence(sess: &mut JobData<'_>, tf_id: TransformId, seq: &mut 
             }
         } else {
             while seq.ss.start != seq.ss.end && bs_rem > 0 {
-                input_field
+                output_field
                     .field_data
                     .push_str(&i64_to_str(false, seq.ss.start), 1, true, false);
                 seq.ss.start += seq.ss.step;
@@ -125,19 +143,23 @@ pub fn handle_tf_sequence(sess: &mut JobData<'_>, tf_id: TransformId, seq: &mut 
 
 pub fn parse_op_seq(
     value: Option<&BStr>,
+    append: bool,
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
     let value_str = value
-        .ok_or_else(|| OperatorCreationError::new("missing value for int", arg_idx))?
+        .ok_or_else(|| OperatorCreationError::new("missing parameter for sequence", arg_idx))?
         .as_bytes()
         .to_str()
         .map_err(|_| {
-            OperatorCreationError::new("failed to parse value as integer (invalid utf-8)", arg_idx)
+            OperatorCreationError::new(
+                "failed to parse sequence parameter (invalid utf-8)",
+                arg_idx,
+            )
         })?;
     let parts: ArrayVec<&str, 4> = value_str.split(",").take(4).collect();
     if parts.len() == 4 {
         return Err(OperatorCreationError::new(
-            "failed to parse sequence, got more than 3 comma separated values",
+            "failed to parse sequence parameter, got more than 3 comma separated values",
             arg_idx,
         ));
     }
@@ -165,13 +187,14 @@ pub fn parse_op_seq(
     }]
     .parse::<i64>()
     .map_err(|_| OperatorCreationError::new("failed to parse sequence end as integer", arg_idx))?;
-    create_op_seq_with_cli_arg_idx(start, end, step, arg_idx)
+    create_op_seq_with_cli_arg_idx(start, end, step, append, arg_idx)
 }
 
 fn create_op_seq_with_cli_arg_idx(
     start: i64,
     mut end: i64,
     step: i64,
+    append: bool,
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
     if step == 0 {
@@ -203,6 +226,7 @@ fn create_op_seq_with_cli_arg_idx(
     }
     Ok(OperatorData::Sequence(OpSequence {
         ss: SequenceSpec { start, step, end },
+        append,
     }))
 }
 
@@ -210,6 +234,7 @@ pub fn create_op_seq(
     start: i64,
     end: i64,
     step: i64,
+    append: bool,
 ) -> Result<OperatorData, OperatorCreationError> {
-    create_op_seq_with_cli_arg_idx(start, end, step, None)
+    create_op_seq_with_cli_arg_idx(start, end, step, append, None)
 }

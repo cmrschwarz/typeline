@@ -389,19 +389,21 @@ fn parse_operation(
         }
         return Ok(Some(OperatorData::Regex(parse_op_regex(value, idx, opts)?)));
     }
-
+    let append = &argname[0..1] == "+";
     Ok(match argname {
         "s" | "split" => Some(parse_op_split(value, idx)?),
         "p" | "print" => Some(parse_op_print(value, idx)?),
         "f" | "fmt" | "format" => Some(parse_op_format(value, idx)?),
         "key" => Some(parse_op_key(value, idx)?),
-        "seq" => Some(parse_op_seq(value, idx)?),
-        "url" => todo!(),
-        "str" => Some(parse_op_str(value, idx)?),
-        "int" => Some(parse_op_int(value, idx)?),
-        "bytes" => Some(parse_op_bytes(value, idx)?),
-        "file" => Some(parse_op_file(value, idx)?),
-        "stdin" => Some(parse_op_stdin(value, idx)?),
+
+        "+file" | "file" => Some(parse_op_file(value, append, idx)?),
+        "+seq" | "seq" => Some(parse_op_seq(value, append, idx)?),
+
+        "+url" | "url" => todo!(),
+        "+str" | "str" => Some(parse_op_str(value, append, idx)?),
+        "+int" | "int" => Some(parse_op_int(value, append, idx)?),
+        "+bytes" | "bytes" => Some(parse_op_bytes(value, append, idx)?),
+        "+stdin" | "stdin" => Some(parse_op_stdin(value, append, idx)?),
         _ => None,
     })
 }

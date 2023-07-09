@@ -6,7 +6,10 @@ use crate::{
     scr_error::ScrError,
 };
 
-use super::{context_options::ContextOptions, operator_base_options::OperatorBaseOptions};
+use super::{
+    chain_spec::ChainSpec, context_options::ContextOptions,
+    operator_base_options::OperatorBaseOptions,
+};
 
 pub struct ContextBuilder {
     opts: Box<ContextOptions>,
@@ -21,7 +24,24 @@ impl Default for ContextBuilder {
 }
 
 impl ContextBuilder {
-    pub fn add_op_raw(mut self, op_base: OperatorBaseOptions, op_data: OperatorData) -> Self {
+    pub fn add_op_with_opts(
+        mut self,
+        op_data: OperatorData,
+        argname: Option<&str>,
+        label: Option<&str>,
+        chainspec: Option<ChainSpec>,
+    ) -> Self {
+        let op_base = OperatorBaseOptions {
+            argname: self
+                .opts
+                .string_store
+                .intern_cloned(argname.unwrap_or(op_data.default_op_name().as_str())),
+            label: label.map(|lbl| self.opts.string_store.intern_cloned(lbl)),
+            chainspec,
+            cli_arg_idx: None,
+            curr_chain: None,
+            op_id: None,
+        };
         self.opts.add_op(op_base, op_data);
         self
     }
@@ -30,7 +50,7 @@ impl ContextBuilder {
             .opts
             .string_store
             .intern_cloned(op_data.default_op_name().as_str());
-        let base = OperatorBaseOptions {
+        let op_base = OperatorBaseOptions {
             argname: argname,
             label: None,
             chainspec: None,
@@ -38,7 +58,7 @@ impl ContextBuilder {
             curr_chain: None,
             op_id: None,
         };
-        self.opts.add_op(base, op_data);
+        self.opts.add_op(op_base, op_data);
         self
     }
     pub fn set_input(mut self, rs: RecordSet) -> Self {
