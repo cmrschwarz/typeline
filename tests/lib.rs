@@ -233,7 +233,7 @@ fn format_width_spec() -> Result<(), ScrError> {
         .run()?;
     assert_eq!(
         ss.get_data().unwrap().as_slice(),
-        &["x", "x", "x~", "~x~", "~x~~", "~~x~~"]
+        &["x", "x", "~x", "~x~", "~~x~", "~~x~~"]
     );
     Ok(())
 }

@@ -809,7 +809,7 @@ unsafe fn write_padded_bytes(
         let padding = width - len;
         let (pad_left, pad_right) = match fill_spec.alignment {
             FormatFillAlignment::Left => (padding, 0),
-            FormatFillAlignment::Center => (padding / 2, (padding + 1) / 2),
+            FormatFillAlignment::Center => ((padding + 1) / 2, padding / 2),
             FormatFillAlignment::Right => (0, padding),
         };
         write_padding_to_tgt(tgt, fill_spec.fill_char, pad_left);
