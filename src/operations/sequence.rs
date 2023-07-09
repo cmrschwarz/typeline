@@ -88,7 +88,8 @@ pub fn handle_tf_sequence(sess: &mut JobData<'_>, tf_id: TransformId, seq: &mut 
     if let Some(succ) = sess.tf_mgr.transforms[tf_id].successor {
         let s = &mut sess.tf_mgr.transforms[succ];
         batch_size = s.desired_batch_size.saturating_sub(s.available_batch_size);
-        succ_wants_text = s.preferred_input_type == Some(FieldValueKind::BytesInline);
+        succ_wants_text = s.preferred_input_type == Some(FieldValueKind::BytesInline)
+            && output_field.name == None;
     } else {
         batch_size = sess.tf_mgr.transforms[tf_id].desired_batch_size;
         succ_wants_text = false;

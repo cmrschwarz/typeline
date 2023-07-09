@@ -49,24 +49,16 @@ pub enum FormatFillAlignment {
     Center,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct FormatFillSpec {
-    fill_char: char,
+    fill_char: Option<char>,
     alignment: FormatFillAlignment,
 }
 
-impl Default for FormatFillSpec {
-    fn default() -> Self {
-        Self {
-            fill_char: ' ',
-            alignment: Default::default(),
-        }
-    }
-}
 impl FormatFillSpec {
-    pub fn new(fill_char: char, alignment: FormatFillAlignment) -> Self {
+    pub fn new(fill_char: Option<char>, alignment: FormatFillAlignment) -> Self {
         Self {
-            fill_char,
+            fill_char: fill_char,
             alignment,
         }
     }
@@ -341,14 +333,28 @@ pub fn parse_format_flags(
     if c == '}' {
         return Ok(1);
     }
-    key.fill = match next(fmt, i + 1)? {
-        '<' => Some(FormatFillSpec::new(c, FormatFillAlignment::Left)),
-        '^' => Some(FormatFillSpec::new(c, FormatFillAlignment::Center)),
-        '>' => Some(FormatFillSpec::new(c, FormatFillAlignment::Right)),
+    const ALIGNMENT_SPECS: [char; 3] = ['<', '>', '^'];
+
+    let mut align_spec = None;
+    let mut align_char = None;
+    if ALIGNMENT_SPECS.contains(&c) {
+        align_spec = Some(c);
+        i += 1;
+    } else if c != '}' {
+        let c2 = next(fmt, i + 1)?;
+        if ALIGNMENT_SPECS.contains(&c2) {
+            align_char = Some(c);
+            align_spec = Some(c2);
+            i += 2;
+        }
+    }
+    key.fill = match align_spec {
+        Some('<') => Some(FormatFillSpec::new(align_char, FormatFillAlignment::Left)),
+        Some('^') => Some(FormatFillSpec::new(align_char, FormatFillAlignment::Center)),
+        Some('>') => Some(FormatFillSpec::new(align_char, FormatFillAlignment::Right)),
         _ => None,
     };
     if key.fill.is_some() {
-        i += 2;
         c = next(fmt, i)?;
         if c == '}' {
             return Ok(1);
@@ -660,12 +666,12 @@ unsafe fn write_bytes_to_target(tgt: &mut OutputTarget, bytes: &[u8]) {
         tgt.target = Some(NonNull::new_unchecked(ptr.add(bytes.len())));
     }
 }
-unsafe fn write_padding_to_tgt(tgt: &mut OutputTarget, fill_char: char, mut len: usize) {
+unsafe fn write_padding_to_tgt(tgt: &mut OutputTarget, fill_char: Option<char>, mut len: usize) {
     if len == 0 {
         return;
     }
     let mut char_enc = [0 as u8; MAX_UTF8_CHAR_LEN];
-    let char_slice = fill_char.encode_utf8(&mut char_enc);
+    let char_slice = fill_char.unwrap_or(' ').encode_utf8(&mut char_enc);
     let mut buf = ArrayVec::<u8, 32>::new();
     let chars_cap = divide_by_char_len(buf.capacity(), char_slice.len());
     for _ in 0..chars_cap.min(len) {
@@ -840,7 +846,7 @@ unsafe fn write_formatted_int(k: &FormatKey, tgt: &mut OutputTarget, value: i64)
     let val = u64_to_str(false, value.unsigned_abs());
     len += val.len();
     let tgt_len = calc_text_len(k, len, tgt.width_lookup);
-    write_padding_to_tgt(tgt, '0', tgt_len - len);
+    write_padding_to_tgt(tgt, Some('0'), tgt_len - len);
     write_bytes_to_target(tgt, val.as_bytes());
 }
 fn write_fmt_key(
@@ -857,7 +863,7 @@ fn write_fmt_key(
         |fmt, output_idx, width, run_len| {
             iter_output_targets(fmt, output_idx, run_len, |ot| ot.width_lookup = width)
         },
-        |_fmt, _output_idx, _run_len| unreachable!(),
+        |_fmt, _output_idx, _run_len| (),
     );
     let ident_ref = &fmt.refs[k.identifier];
     let field = &mut fields[ident_ref.field_id].borrow();
@@ -1049,7 +1055,7 @@ mod test {
         let mut a = FormatKey::default();
         a.identifier = 0;
         a.width = Some(FormatWidthSpec::Value(5));
-        a.fill = Some(FormatFillSpec::new('+', FormatFillAlignment::Left));
+        a.fill = Some(FormatFillSpec::new(Some('+'), FormatFillAlignment::Left));
         assert_eq!(
             parse_format_string("{a:+<5}".as_bytes().as_bstr(), &mut idents).unwrap(),
             &[FormatPart::Key(a),]
@@ -1077,6 +1083,18 @@ mod test {
         assert_eq!(
             parse_format_string("{a:1x$}".as_bytes().as_bstr(), &mut idents),
             Err((4, Cow::Borrowed("expected '}' to terminate format key"))) //TODO: better error message for this case
+        );
+    }
+
+    #[test]
+    fn fill_char_is_optional_not_an_ident() {
+        let mut idents = Default::default();
+        let mut a = FormatKey::default();
+        a.width = Some(FormatWidthSpec::Value(2));
+        a.fill = Some(FormatFillSpec::new(None, FormatFillAlignment::Center));
+        assert_eq!(
+            parse_format_string("{a:^2}".as_bytes().as_bstr(), &mut idents).unwrap(),
+            &[FormatPart::Key(a)]
         );
     }
 }
