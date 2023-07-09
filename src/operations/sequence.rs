@@ -50,6 +50,7 @@ pub fn setup_tf_sequence<'a>(
     // we will forward the whole input in one go and unlink us from the chain
     tf_state.desired_batch_size = usize::MAX;
     let output_field = if op.append {
+        tf_state.is_appending = true;
         tf_state.input_field
     } else {
         sess.record_mgr.add_field(tf_state.match_set_id, None)
@@ -80,8 +81,9 @@ pub fn increment_int_str(data: &mut ArrayVec<u8, I64_MAX_DECIMAL_DIGITS>) {
 const FAST_SEQ_MAX_STEP: i64 = 200;
 
 pub fn handle_tf_sequence(sess: &mut JobData<'_>, tf_id: TransformId, seq: &mut TfSequence) {
+    sess.prepare_for_output(tf_id, &[seq.output_field]);
     let mut output_field = sess.record_mgr.fields[seq.output_field].borrow_mut();
-
+    output_field.field_data.clear();
     let batch_size;
     let succ_wants_text;
     if let Some(succ) = sess.tf_mgr.transforms[tf_id].successor {

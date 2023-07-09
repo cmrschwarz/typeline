@@ -302,21 +302,6 @@ impl RecordManager {
             f.last_applied_action_set_id = usize::from(ord_id);
         }
     }
-    pub fn apply_field_commands_for_tf_outputs(
-        &mut self,
-        tf: &TransformState,
-        output_fields: &[FieldId],
-    ) {
-        let cb = &mut self.match_sets[tf.match_set_id].command_buffer;
-        let ord_id = usize::from(tf.ordering_id);
-        for ofid in output_fields {
-            let mut f = self.fields[*ofid].borrow_mut();
-            f.field_data.clear();
-            f.last_applied_action_set_id = ord_id;
-        }
-        //TODO: this is incorrect. merge instead
-        cb.erase_action_sets(ord_id + 1);
-    }
 }
 
 impl StreamValueManager {
@@ -359,6 +344,22 @@ impl JobData<'_> {
         let batch = tf.desired_batch_size.min(tf.available_batch_size);
         tf.available_batch_size -= batch;
         (batch, tf.input_field)
+    }
+    pub fn prepare_for_output(&mut self, tf_id: TransformId, output_fields: &[FieldId]) {
+        let tf = &mut self.tf_mgr.transforms[tf_id];
+        let cb = &mut self.record_mgr.match_sets[tf.match_set_id].command_buffer;
+        let ord_id = usize::from(tf.ordering_id);
+        if tf.is_appending {
+            tf.is_appending = false;
+        } else {
+            for ofid in output_fields {
+                let mut f = self.record_mgr.fields[*ofid].borrow_mut();
+                f.field_data.clear();
+                f.last_applied_action_set_id = ord_id;
+            }
+        }
+        //TODO: this is incorrect. merge instead
+        cb.erase_action_sets(ord_id + 1);
     }
 }
 
@@ -504,12 +505,14 @@ impl<'a> WorkerThreadSession<'a> {
                 match_set_id: ms_id,
                 desired_batch_size: default_batch_size,
                 successor: None,
+                continuation: None,
                 predecessor: prev_tf,
                 op_id: *op_id,
                 ordering_id: jd.tf_mgr.claim_transform_ordering_id(),
                 is_ready: false,
                 is_stream_producer: false,
                 is_stream_subscriber: false,
+                is_appending: false,
                 preferred_input_type: None,
             };
             let tf_id_peek = jd.tf_mgr.transforms.peek_claim_id();

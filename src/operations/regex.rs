@@ -458,11 +458,8 @@ fn match_regex_inner<'a, 'b, const PUSH_REF: bool>(
 }
 
 pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRegex) {
-    sess.record_mgr.apply_field_commands_for_tf_outputs(
-        &sess.tf_mgr.transforms[tf_id],
-        &re.capture_group_fields,
-    );
     let (batch, input_field_id) = sess.claim_batch(tf_id);
+    sess.prepare_for_output(tf_id, &re.capture_group_fields);
     let tf = &sess.tf_mgr.transforms[tf_id];
     let op_id = tf.op_id;
 

@@ -38,6 +38,7 @@ impl Default for TransformData<'_> {
 pub struct TransformState {
     pub successor: Option<TransformId>,
     pub predecessor: Option<TransformId>,
+    pub continuation: Option<TransformId>, // next transform in line that is in append mode
     pub input_field: FieldId,
     pub available_batch_size: usize,
     pub desired_batch_size: usize,
@@ -47,5 +48,6 @@ pub struct TransformState {
     pub is_stream_producer: bool,
     pub is_stream_subscriber: bool,
     pub is_ready: bool,
+    pub is_appending: bool,
     pub preferred_input_type: Option<FieldValueKind>,
 }

@@ -50,8 +50,7 @@ pub fn setup_tf_data_inserter<'a>(
     tf_state: &mut TransformState,
 ) -> (TransformData<'a>, FieldId) {
     let output_field = if op.append {
-        // we will forward the whole input in one go and unlink us from the chain
-        tf_state.desired_batch_size = usize::MAX;
+        tf_state.is_appending = true;
         tf_state.input_field
     } else {
         sess.record_mgr.add_field(tf_state.match_set_id, None)

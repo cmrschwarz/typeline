@@ -67,6 +67,7 @@ pub fn setup_ts_split_as_entry_point<'a, 'b>(
         available_batch_size: entry_count,
         match_set_id: ms_id,
         successor: None,
+        continuation: None,
         predecessor: None,
         desired_batch_size: ops.clone().fold(usize::MAX, |minimum_batch_size, op| {
             let cid = sess.session_data.operator_bases[*op as usize].chain_id;
@@ -81,6 +82,7 @@ pub fn setup_ts_split_as_entry_point<'a, 'b>(
         is_ready: false,
         is_stream_producer: false,
         is_stream_subscriber: false,
+        is_appending: false,
         preferred_input_type: None,
     };
     let data = TransformData::Split(TfSplit {

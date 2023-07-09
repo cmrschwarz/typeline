@@ -98,6 +98,7 @@ pub fn setup_tf_file_reader<'a>(
         ),
     };
     let output_field = if op.append {
+        tf_state.is_appending = true;
         tf_state.input_field
     } else {
         sess.record_mgr.add_field(tf_state.match_set_id, None)
@@ -170,6 +171,7 @@ fn read_chunk(
 }
 
 fn start_streaming_file(sess: &mut JobData<'_>, tf_id: TransformId, fr: &mut TfFileReader) {
+    sess.prepare_for_output(tf_id, &[fr.output_field]);
     let mut out_field = sess.record_mgr.fields[fr.output_field].borrow_mut();
     // we want to write the chunk straight into field data to avoid a copy
     // SAFETY: this relies on the memory layout in field_data.
