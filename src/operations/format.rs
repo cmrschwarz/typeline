@@ -4,8 +4,10 @@ use std::{
     ptr::NonNull,
 };
 
+use arrayvec::ArrayVec;
 use bstr::{BStr, BString, ByteSlice, ByteVec};
 use nonmax::NonMaxUsize;
+
 use smallstr::SmallString;
 
 use crate::{
@@ -24,9 +26,11 @@ use crate::{
     },
     stream_value::StreamValueId,
     utils::{
-        i64_digits, i64_to_str,
+        divide_by_char_len, i64_digits, i64_to_str,
         string_store::{StringStore, StringStoreEntry},
+        u64_to_str,
         universe::Universe,
+        MAX_UTF8_CHAR_LEN,
     },
     worker_thread_session::{Field, FieldId, JobData, MatchSet, MatchSetId},
 };
@@ -37,12 +41,35 @@ use super::{
     transform::{TransformData, TransformId, TransformState},
 };
 
-#[derive(Debug, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum FormatFillAlignment {
     #[default]
+    Right,
     Left,
     Center,
-    Right,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FormatFillSpec {
+    fill_char: char,
+    alignment: FormatFillAlignment,
+}
+
+impl Default for FormatFillSpec {
+    fn default() -> Self {
+        Self {
+            fill_char: ' ',
+            alignment: Default::default(),
+        }
+    }
+}
+impl FormatFillSpec {
+    pub fn new(fill_char: char, alignment: FormatFillAlignment) -> Self {
+        Self {
+            fill_char,
+            alignment,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -72,7 +99,7 @@ pub enum NumberFormat {
 #[derive(Debug, PartialEq, Eq, Default)]
 pub struct FormatKey {
     identifier: FormatKeyRefId,
-    fill: Option<(char, FormatFillAlignment)>,
+    fill: Option<FormatFillSpec>,
     add_plus_sign: bool,
     zero_pad_numbers: bool,
     width: Option<FormatWidthSpec>,
@@ -120,6 +147,7 @@ struct OutputState {
 
 struct OutputTarget {
     run_len: usize,
+    width_lookup: usize,
     target: Option<NonNull<u8>>,
     target_buffer_offset: Option<NonMaxUsize>,
 }
@@ -314,9 +342,9 @@ pub fn parse_format_flags(
         return Ok(1);
     }
     key.fill = match next(fmt, i + 1)? {
-        '<' => Some((c, FormatFillAlignment::Left)),
-        '^' => Some((c, FormatFillAlignment::Center)),
-        '>' => Some((c, FormatFillAlignment::Right)),
+        '<' => Some(FormatFillSpec::new(c, FormatFillAlignment::Left)),
+        '^' => Some(FormatFillSpec::new(c, FormatFillAlignment::Center)),
+        '>' => Some(FormatFillSpec::new(c, FormatFillAlignment::Right)),
         _ => None,
     };
     if key.fill.is_some() {
@@ -489,6 +517,20 @@ fn iter_output_states(
         run_len -= o.run_len;
     }
 }
+fn iter_output_targets(
+    fmt: &mut TfFormat,
+    output_idx: &mut usize,
+    mut run_len: usize,
+    func: impl Fn(&mut OutputTarget),
+) {
+    while run_len > 0 {
+        let o = &mut fmt.output_targets[*output_idx];
+        if o.target.is_some() {
+            func(o)
+        }
+        run_len -= o.run_len;
+    }
+}
 fn calc_text_len(k: &FormatKey, base_len: usize, width_lookup: usize) -> usize {
     match k.width {
         Some(FormatWidthSpec::Ref(_)) => base_len.max(width_lookup),
@@ -500,6 +542,8 @@ pub fn lookup_widths(
     fields: &Universe<FieldId, RefCell<Field>>,
     fmt: &mut TfFormat,
     k: &FormatKey,
+    succ_func: impl Fn(&mut TfFormat, &mut usize, usize, usize), //output idx, width, run length
+    err_func: impl Fn(&mut TfFormat, &mut usize, usize),         //output idx, width, run length
 ) {
     let ident_ref = if let Some(FormatWidthSpec::Ref(ident)) = k.width {
         fmt.refs[ident]
@@ -514,16 +558,10 @@ pub fn lookup_widths(
             TypedSlice::Integer(ints) => {
                 for (v, rl) in TypedSliceIter::from_range(&range, ints) {
                     let width = if *v < 0 { 0 } else { *v as usize };
-                    iter_output_states(fmt, &mut output_index, rl as usize, |o| {
-                        o.width_lookup = width;
-                    });
+                    succ_func(fmt, &mut output_index, width, rl as usize);
                 }
             }
-            _ => {
-                iter_output_states(fmt, &mut output_index, range.field_count, |o| {
-                    o.error_occured = true;
-                });
-            }
+            _ => err_func(fmt, &mut output_index, range.field_count),
         }
     }
     field.field_data.store_iter(ident_ref.iter_id, iter);
@@ -534,7 +572,17 @@ pub fn setup_key_output_state(
     fmt: &mut TfFormat,
     k: &FormatKey,
 ) {
-    lookup_widths(fields, fmt, k);
+    lookup_widths(
+        fields,
+        fmt,
+        k,
+        |fmt, output_idx, width, run_len| {
+            iter_output_states(fmt, output_idx, run_len, |os| os.width_lookup = width)
+        },
+        |fmt, output_idx, run_len| {
+            iter_output_states(fmt, output_idx, run_len, |os| os.error_occured = true)
+        },
+    );
     let ident_ref = fmt.refs[k.identifier];
     let field = &mut fields[ident_ref.field_id].borrow();
     let mut iter = AutoDerefIter::new(
@@ -554,7 +602,7 @@ pub fn setup_key_output_state(
             TypedSlice::TextInline(text) => {
                 for (v, rl, _offs) in RefAwareInlineTextIter::from_range(&range, text) {
                     iter_output_states(fmt, &mut output_index, rl as usize, |o| {
-                        o.len += calc_text_len(k, v.len(), o.width_lookup);
+                        o.len += calc_text_len(k, v.chars().count(), o.width_lookup);
                     });
                 }
             }
@@ -598,22 +646,30 @@ pub fn setup_key_output_state(
         .field_data
         .store_iter(ident_ref.iter_id, iter.into_base_iter());
 }
-unsafe fn write_bytes(
-    fmt: &mut TfFormat,
-    output_index: &mut usize,
-    bytes: &[u8],
-    mut run_len: usize,
-) {
-    while run_len > 0 {
-        let o = &mut fmt.output_targets[*output_index];
-        if let Some(target) = &mut o.target {
-            unsafe {
-                std::ptr::copy_nonoverlapping(bytes.as_ptr(), target.as_ptr(), bytes.len());
-                *target = NonNull::new_unchecked(target.as_ptr().add(bytes.len()));
-            }
+unsafe fn write_bytes_to_target(tgt: &mut OutputTarget, bytes: &[u8]) {
+    unsafe {
+        let ptr = tgt.target.unwrap().as_ptr();
+        std::ptr::copy_nonoverlapping(bytes.as_ptr(), ptr, bytes.len());
+        tgt.target = Some(NonNull::new_unchecked(ptr.add(bytes.len())));
+    }
+}
+unsafe fn write_padding_to_tgt(tgt: &mut OutputTarget, fill_char: char, mut len: usize) {
+    if len == 0 {
+        return;
+    }
+    let mut char_enc = [0 as u8; MAX_UTF8_CHAR_LEN];
+    let char_slice = fill_char.encode_utf8(&mut char_enc);
+    let mut buf = ArrayVec::<u8, 32>::new();
+    let chars_cap = divide_by_char_len(buf.capacity(), char_slice.len());
+    for _ in 0..chars_cap.min(len) {
+        buf.extend(char_slice.as_bytes().iter().cloned());
+    }
+    unsafe {
+        while chars_cap > len {
+            write_bytes_to_target(tgt, buf.as_slice());
+            len -= chars_cap;
         }
-        run_len -= o.run_len;
-        *output_index += 1;
+        write_bytes_to_target(tgt, &buf.as_slice()[0..len * char_slice.len()]);
     }
 }
 fn setup_output_targets(
@@ -687,6 +743,7 @@ fn setup_output_targets(
             run_len: os.run_len,
             target,
             target_buffer_offset,
+            width_lookup: os.width_lookup,
         });
         output_idx = os.next;
         if output_idx == 0 {
@@ -732,12 +789,67 @@ fn bump_output_targets_buffer_lengths(fmt: &mut TfFormat, output_field: &mut Ref
         }
     }
 }
+unsafe fn write_padded_bytes(
+    k: &FormatKey,
+    tgt: &mut OutputTarget,
+    data: &[u8],
+    data_units_len: impl FnOnce() -> usize,
+) {
+    if k.width.is_some() {
+        let fill_spec = k.fill.as_ref().cloned().unwrap_or_default();
+        let len = data_units_len();
+        let width = calc_text_len(k, len, tgt.width_lookup);
+        let padding = width - len;
+        let (pad_left, pad_right) = match fill_spec.alignment {
+            FormatFillAlignment::Left => (padding, 0),
+            FormatFillAlignment::Center => (padding / 2, (padding + 1) / 2),
+            FormatFillAlignment::Right => (0, padding),
+        };
+        write_padding_to_tgt(tgt, fill_spec.fill_char, pad_left);
+        write_bytes_to_target(tgt, data);
+        write_padding_to_tgt(tgt, fill_spec.fill_char, pad_right);
+    } else {
+        write_bytes_to_target(tgt, data);
+    }
+}
+unsafe fn write_formatted_int(k: &FormatKey, tgt: &mut OutputTarget, value: i64) {
+    if !k.width.is_some() {
+        write_bytes_to_target(tgt, i64_to_str(k.add_plus_sign, value).as_bytes());
+    }
+    if !k.zero_pad_numbers {
+        let val = i64_to_str(k.add_plus_sign, value);
+        write_padded_bytes(k, tgt, val.as_bytes(), || val.len());
+        return;
+    }
+    let mut len = 0;
+    if value < 0 {
+        write_bytes_to_target(tgt, "-".as_bytes());
+        len += 1;
+    } else if k.add_plus_sign {
+        write_bytes_to_target(tgt, "+".as_bytes());
+        len += 1;
+    }
+    let val = u64_to_str(false, value.unsigned_abs());
+    len += val.len();
+    let tgt_len = calc_text_len(k, len, tgt.width_lookup);
+    write_padding_to_tgt(tgt, '0', tgt_len - len);
+    write_bytes_to_target(tgt, val.as_bytes());
+}
 fn write_fmt_key(
     fields: &Universe<FieldId, RefCell<Field>>,
     match_sets: &mut Universe<MatchSetId, MatchSet>,
     fmt: &mut TfFormat,
     k: &FormatKey,
 ) {
+    lookup_widths(
+        fields,
+        fmt,
+        k,
+        |fmt, output_idx, width, run_len| {
+            iter_output_targets(fmt, output_idx, run_len, |ot| ot.width_lookup = width)
+        },
+        |_fmt, _output_idx, _run_len| unreachable!(),
+    );
     let ident_ref = &fmt.refs[k.identifier];
     let field = &mut fields[ident_ref.field_id].borrow();
     let mut iter = AutoDerefIter::new(
@@ -749,32 +861,38 @@ fn write_fmt_key(
     );
 
     let mut output_index = 0;
-    while let Some(range) = iter.typed_range_fwd(match_sets, usize::MAX, field_value_flags::DEFAULT)
+    while let Some(range) =
+        iter.typed_range_fwd(match_sets, usize::MAX, field_value_flags::BYTES_ARE_UTF8)
     {
         //TODO: respect format options
         match range.base.data {
             TypedSlice::Reference(_) => unreachable!(),
-            TypedSlice::TextInline(_) => unreachable!(),
+            TypedSlice::TextInline(text) => {
+                for (v, rl, _offs) in RefAwareInlineTextIter::from_range(&range, text) {
+                    iter_output_targets(fmt, &mut output_index, rl as usize, |tgt| unsafe {
+                        write_padded_bytes(k, tgt, v.as_bytes(), || v.chars().count());
+                    });
+                }
+            }
             TypedSlice::BytesInline(bytes) => {
                 for (v, rl, _offs) in RefAwareInlineBytesIter::from_range(&range, bytes) {
-                    unsafe { write_bytes(fmt, &mut output_index, v.as_bytes(), rl as usize) };
+                    iter_output_targets(fmt, &mut output_index, rl as usize, |tgt| unsafe {
+                        write_padded_bytes(k, tgt, v, || v.len());
+                    });
                 }
             }
             TypedSlice::BytesBuffer(bytes) => {
                 for (v, rl, _offs) in RefAwareBytesBufferIter::from_range(&range, bytes) {
-                    unsafe { write_bytes(fmt, &mut output_index, v.as_bytes(), rl as usize) };
+                    iter_output_targets(fmt, &mut output_index, rl as usize, |tgt| unsafe {
+                        write_padded_bytes(k, tgt, v, || v.len());
+                    });
                 }
             }
             TypedSlice::Integer(ints) => {
                 for (v, rl) in TypedSliceIter::from_range(&range.base, ints) {
-                    unsafe {
-                        write_bytes(
-                            fmt,
-                            &mut output_index,
-                            i64_to_str(k.add_plus_sign, *v).as_bytes(),
-                            rl as usize,
-                        )
-                    };
+                    iter_output_targets(fmt, &mut output_index, rl as usize, |tgt| unsafe {
+                        write_formatted_int(k, tgt, *v)
+                    });
                 }
             }
             TypedSlice::StreamValueId(_) => todo!(),
@@ -783,12 +901,8 @@ fn write_fmt_key(
             | TypedSlice::Error(_)
             | TypedSlice::Html(_)
             | TypedSlice::Object(_) => {
-                let mut rl = range.base.field_count;
-                while rl > 0 {
-                    let o = &mut fmt.output_states[output_index];
-                    rl -= o.run_len;
-                    output_index = o.next;
-                }
+                // just to increase output index
+                iter_output_targets(fmt, &mut output_index, range.base.field_count, |_tgt| ());
             }
         }
     }
@@ -822,8 +936,16 @@ pub fn handle_tf_format(sess: &mut JobData<'_>, tf_id: TransformId, fmt: &mut Tf
     let inline_len = setup_output_targets(op_id, fmt, &mut output_field);
     for part in fmt.parts.iter() {
         match part {
-            FormatPart::ByteLiteral(v) => unsafe { write_bytes(fmt, &mut 0, v.as_bytes(), batch) },
-            FormatPart::TextLiteral(v) => unsafe { write_bytes(fmt, &mut 0, v.as_bytes(), batch) },
+            FormatPart::ByteLiteral(v) => {
+                iter_output_targets(fmt, &mut 0, batch, |tgt| unsafe {
+                    write_bytes_to_target(tgt, v)
+                });
+            }
+            FormatPart::TextLiteral(v) => {
+                iter_output_targets(fmt, &mut 0, batch, |tgt| unsafe {
+                    write_bytes_to_target(tgt, v.as_bytes())
+                });
+            }
             FormatPart::Key(k) => write_fmt_key(
                 &sess.record_mgr.fields,
                 &mut sess.record_mgr.match_sets,

@@ -133,7 +133,7 @@ pub fn preparse_replace_empty_capture_group<'a>(
                 empty_group_replacement_str.clear();
                 empty_group_replacement_str.push('_');
                 empty_group_replacement_str
-                    .push_str(&utils::usize_to_str(rand::random::<NonZeroUsize>()));
+                    .push_str(&utils::usize_to_str(rand::random::<NonZeroUsize>().get()));
                 owned.replace_range(
                     span.start.offset..span.end.offset,
                     &empty_group_replacement_str,
