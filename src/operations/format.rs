@@ -989,7 +989,9 @@ mod test {
 
     use bstr::ByteSlice;
 
-    use crate::operations::format::{FormatFillAlignment, FormatKey, FormatWidthSpec};
+    use crate::operations::format::{
+        FormatFillAlignment, FormatFillSpec, FormatKey, FormatWidthSpec,
+    };
 
     use super::{parse_format_string, FormatPart};
 
@@ -1045,7 +1047,7 @@ mod test {
         let mut a = FormatKey::default();
         a.identifier = 0;
         a.width = Some(FormatWidthSpec::Value(5));
-        a.fill = Some(('+', FormatFillAlignment::Left));
+        a.fill = Some(FormatFillSpec::new('+', FormatFillAlignment::Left));
         assert_eq!(
             parse_format_string("{a:+<5}".as_bytes().as_bstr(), &mut idents).unwrap(),
             &[FormatPart::Key(a),]

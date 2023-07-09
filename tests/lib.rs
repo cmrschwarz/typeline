@@ -1,5 +1,3 @@
-#![cfg(test)]
-
 use scr::bstr::ByteSlice;
 use scr::{
     field_data::{push_interface::PushInterface, record_set::RecordSet},

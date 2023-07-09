@@ -7,8 +7,15 @@ edition = "2021"
 name = "scr"
 
 [[bin]]
-name="scr"
+name = "scr"
 
+[[test]]
+path = "tests/lib.rs"
+name = "integration"
+
+[[bench]]
+name = "bench"
+path = "bench/lib.rs"
 
 [dependencies]
 html5ever = "0.26.0"
@@ -37,15 +44,8 @@ features = ["fast-legacy-encode"]
 
 [dependencies.uuid]
 version = "1.4.0"
-features = ["v4","fast-rng"]
+features = ["v4", "fast-rng"]
 
-
-
-[workspace]
-members = [
-    "scr_tests",
-    "scr_bench"
-]
 
 [profile.release-with-debug]
 inherits = "release"
@@ -55,3 +55,6 @@ debug = true
 panic = "abort"
 lto = "thin"
 debug = true
+
+[features]
+unstable = []

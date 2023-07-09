@@ -1,6 +1,5 @@
-#![cfg(test)]
+#![cfg(feature = "unstable")]
 #![feature(test)]
-
 extern crate test;
 
 use scr::{
