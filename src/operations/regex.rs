@@ -420,7 +420,7 @@ fn match_regex_inner<'a, 'b, const PUSH_REF: bool, R: AnyRegex>(
     offset: usize,
 ) -> bool {
     let mut match_count: usize = 0;
-    let starting_field_idx = rmis.batch_state.field_pos_output;
+    let has_previous_matches = rmis.batch_state.last_end.is_some();
     let rl = run_length as usize;
     let mut bse = false;
     while regex.next(
@@ -452,7 +452,7 @@ fn match_regex_inner<'a, 'b, const PUSH_REF: bool, R: AnyRegex>(
                 field.push_null(run_length as usize, true);
             }
         }
-        if rmis.batch_state.match_count + match_count == rmis.batch_state.batch_size {
+        if rmis.batch_state.field_pos_output == rmis.batch_state.batch_end_field_pos_output {
             bse = true;
             break;
         }
@@ -460,22 +460,34 @@ fn match_regex_inner<'a, 'b, const PUSH_REF: bool, R: AnyRegex>(
             break;
         }
     }
-    rmis.batch_state.last_end = None;
-    rmis.batch_state.next_start = 0;
-    if match_count == 0 {
-        rmis.command_buffer.push_action(
-            FieldActionKind::Drop,
-            rmis.batch_state.field_pos_output,
-            1,
-        );
-    } else if match_count > 1 {
+
+    if has_previous_matches {
         rmis.command_buffer.push_action_with_usize_rl(
             FieldActionKind::Dup,
-            starting_field_idx,
-            match_count - 1,
+            rmis.batch_state.field_pos_output,
+            match_count,
         );
+    } else {
+        if match_count > 1 {
+            rmis.command_buffer.push_action_with_usize_rl(
+                FieldActionKind::Dup,
+                rmis.batch_state.field_pos_output,
+                match_count - 1,
+            );
+        } else {
+            if match_count == 0 {
+                rmis.command_buffer.push_action(
+                    FieldActionKind::Drop,
+                    rmis.batch_state.field_pos_output,
+                    1,
+                );
+            }
+        }
     }
-    rmis.batch_state.match_count += match_count as usize;
+    if !bse {
+        rmis.batch_state.last_end = None;
+        rmis.batch_state.next_start = 0;
+    }
     rmis.batch_state.field_pos_output += match_count as usize;
     if !bse {
         rmis.batch_state.field_pos_input += run_length as usize;
@@ -484,10 +496,9 @@ fn match_regex_inner<'a, 'b, const PUSH_REF: bool, R: AnyRegex>(
 }
 
 struct RegexBatchState<'a> {
-    batch_size: usize,
     field_pos_input: usize,
     field_pos_output: usize,
-    match_count: usize,
+    batch_end_field_pos_output: usize,
     multimatch: bool,
     last_end: Option<usize>,
     next_start: usize,
@@ -516,12 +527,11 @@ pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRe
         .field_data
         .get_iter(re.input_field_iter_id)
         .bounded(0, batch_size);
-    let mut field_pos = iter_base.get_next_field_pos();
+    let field_pos_start = iter_base.get_next_field_pos();
     let mut rbs = RegexBatchState {
-        batch_size,
-        field_pos_input: field_pos,
-        field_pos_output: field_pos,
-        match_count: 0,
+        batch_end_field_pos_output: field_pos_start + tf.desired_batch_size,
+        field_pos_input: field_pos_start,
+        field_pos_output: field_pos_start,
         multimatch: re.multimatch,
         capture_group_fields: &re.capture_group_fields,
         fields: &sess.record_mgr.fields,
@@ -585,7 +595,6 @@ pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRe
                     if bse {
                         break 'batch;
                     }
-                    field_pos += rl as usize;
                 }
             }
             TypedSlice::BytesBuffer(bytes) => {
@@ -654,12 +663,15 @@ pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRe
     let mut base_iter = iter.into_base_iter();
     if bse {
         base_iter.move_to_field_pos(rbs.field_pos_input);
+        sess.tf_mgr.transforms[tf_id].available_batch_size +=
+            batch_size - (rbs.field_pos_input - field_pos_start);
+        sess.tf_mgr.push_tf_in_ready_queue(tf_id);
+    } else {
+        sess.tf_mgr.update_ready_state(tf_id);
     }
     input_field
         .field_data
         .store_iter(re.input_field_iter_id, base_iter);
-    drop(input_field);
-    sess.tf_mgr.update_ready_state(tf_id);
     sess.tf_mgr
-        .inform_successor_batch_available(tf_id, rbs.match_count);
+        .inform_successor_batch_available(tf_id, rbs.field_pos_output - field_pos_start);
 }

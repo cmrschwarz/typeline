@@ -322,11 +322,9 @@ impl JobData<'_> {
                 f.last_applied_action_set_id = ord_id;
             }
         }
-        if tf.predecessor.is_none() {
-            cb.clear();
-        } else {
-            cb.merge_upper_action_sets(ord_id + 1);
-        }
+        //TODO: if nobody accesses the earlier fields, we can
+        // delete these actions here
+        cb.merge_upper_action_sets(ord_id + 1);
     }
     pub fn inform_transform_pred_done(&mut self, tf_id: TransformId) {
         let tf = &mut self.tf_mgr.transforms[tf_id];

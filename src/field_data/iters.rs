@@ -280,7 +280,7 @@ impl<'a> FieldIterator<'a> for Iter<'a> {
             self.header_fmt = h.fmt;
             self.header_rl_total = h.run_length;
             self.header_rl_offset = self.header_rl_total - 1;
-            self.field_pos += stride as usize;
+            self.field_pos -= stride as usize;
             return stride;
         }
     }

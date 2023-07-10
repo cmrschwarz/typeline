@@ -15,14 +15,8 @@ use std::cell::{Ref, RefCell};
 pub struct RefIter<'a> {
     refs_iter: TypedSliceIter<'a, FieldReference>,
     last_field_id: FieldId,
-
-    // SAFETY: We have a chain of lifetime dependencies here:
-    // fields -owns-> field_ref -owns-> data_iter
-    // As long as we hold fields, we can safely hold the others.
-    // Since the borrow checker does not understand this, we have to
-    // cheat and use unsafe here.
-    data_iter: Iter<'a>,
-    field_ref: Ref<'a, Field>,
+    data_iter: Option<Iter<'a>>,
+    field_ref: Option<Ref<'a, Field>>,
     fields: &'a Universe<FieldId, RefCell<Field>>,
 }
 
@@ -42,38 +36,42 @@ impl<'a> RefIter<'a> {
         last_field_id: FieldId,
         field_pos: usize,
     ) -> Self {
+        Self::apply_field_actions(fields, match_sets, last_field_id);
         let (field_ref, mut data_iter) =
-            unsafe { RefIter::get_field_ref_and_iter(fields, match_sets, last_field_id) };
+            unsafe { Self::get_field_ref_and_iter(fields, last_field_id) };
         data_iter.move_to_field_pos(field_pos);
         Self {
             refs_iter,
             fields,
             last_field_id,
-            data_iter,
-            field_ref,
+            data_iter: Some(data_iter),
+            field_ref: Some(field_ref),
+        }
+    }
+    fn apply_field_actions<'b>(
+        fields: &'b Universe<FieldId, RefCell<Field>>,
+        match_sets: &'_ mut Universe<MatchSetId, MatchSet>,
+        field_id: FieldId,
+    ) {
+        let mut field_ref = fields[field_id].borrow_mut();
+        let cb = &mut match_sets[field_ref.match_set].command_buffer;
+        let last_acs = cb.last_action_set_id();
+        if field_ref.last_applied_action_set_id != last_acs {
+            let start = field_ref.last_applied_action_set_id + 1;
+            field_ref.last_applied_action_set_id = last_acs;
+            cb.execute_for_iter_halls(std::iter::once(field_ref), start, last_acs);
         }
     }
     unsafe fn get_field_ref_and_iter<'b>(
         fields: &'b Universe<FieldId, RefCell<Field>>,
-        match_sets: &'_ mut Universe<MatchSetId, MatchSet>,
         field_id: FieldId,
     ) -> (Ref<'b, Field>, Iter<'b>) {
-        let mut field_ref = fields[field_id].borrow();
-        let cb = &mut match_sets[field_ref.match_set].command_buffer;
-        let last_acs = cb.last_action_set_id();
-        if field_ref.last_applied_action_set_id != last_acs {
-            drop(field_ref);
-            let mut field_ref_mut = fields[field_id].borrow_mut();
-            let start = field_ref_mut.last_applied_action_set_id + 1;
-            field_ref_mut.last_applied_action_set_id = last_acs;
-            cb.execute_for_iter_halls(std::iter::once(field_ref_mut), start, last_acs);
-            field_ref = fields[field_id].borrow();
-        }
+        let field_ref = fields[field_id].borrow();
         let field_ref_laundered = unsafe { &*(field_ref.deref() as *const Field) as &'b Field };
         let data_iter = field_ref_laundered
             .field_data
             .get_iter(FIELD_REF_LOOKUP_ITER_ID);
-        (fields[field_id].borrow(), data_iter)
+        (field_ref, data_iter)
     }
     pub fn reset(
         &mut self,
@@ -89,38 +87,43 @@ impl<'a> RefIter<'a> {
     fn move_to_field(
         &mut self,
         match_sets: &'_ mut Universe<MatchSetId, MatchSet>,
-        field: FieldId,
+        field_id: FieldId,
     ) {
-        let (field_ref, data_iter) =
-            unsafe { RefIter::get_field_ref_and_iter(self.fields, match_sets, field) };
+        self.field_ref
+            .take()
+            .unwrap()
+            .field_data
+            .store_iter(FIELD_REF_LOOKUP_ITER_ID, self.data_iter.take().unwrap());
+        Self::apply_field_actions(self.fields, match_sets, field_id);
+        let (field_ref, data_iter) = unsafe { Self::get_field_ref_and_iter(self.fields, field_id) };
         // SAFETY: we have to reassign data_iter first, because the old one still
         // has a pointer into the data of the old field_ref
-        self.data_iter = data_iter;
-        self.field_ref = field_ref;
-        self.last_field_id = field;
+        self.field_ref = Some(field_ref);
+        self.data_iter = Some(data_iter);
+        self.last_field_id = field_id;
     }
     pub fn move_to_field_keep_pos(
         &mut self,
         match_sets: &'_ mut Universe<MatchSetId, MatchSet>,
-        field: FieldId,
+        field_id: FieldId,
     ) {
-        if self.last_field_id == field {
-            return;
-        }
-        let field_pos = self.data_iter.get_next_field_pos();
-        self.move_to_field(match_sets, field);
-        self.data_iter.move_to_field_pos(field_pos);
+        self.move_to_field_pos(
+            match_sets,
+            field_id,
+            self.data_iter.as_ref().unwrap().get_next_field_pos(),
+        );
     }
     pub fn move_to_field_pos(
         &mut self,
         match_sets: &'_ mut Universe<MatchSetId, MatchSet>,
-        field: FieldId,
+        field_id: FieldId,
         field_pos: usize,
     ) {
-        if self.last_field_id != field {
-            self.move_to_field(match_sets, field);
-        }
-        self.data_iter.move_to_field_pos(field_pos);
+        self.move_to_field(match_sets, field_id);
+        self.data_iter
+            .as_mut()
+            .unwrap()
+            .move_to_field_pos(field_pos);
     }
     pub fn set_refs_iter(&mut self, refs_iter: TypedSliceIter<'a, FieldReference>) {
         self.refs_iter = refs_iter;
@@ -132,8 +135,8 @@ impl<'a> RefIter<'a> {
     ) -> Option<FieldRefUnpacked<'a>> {
         let (field_ref, rl) = self.refs_iter.peek()?;
         self.move_to_field_keep_pos(match_sets, field_ref.field);
-        let tf = self
-            .data_iter
+        let iter = self.data_iter.as_mut().unwrap();
+        let tf = iter
             .typed_field_fwd((rl as usize).min(limit) as RunLength)
             .unwrap();
         self.refs_iter.next_n_fields(tf.header.run_length as usize);
@@ -159,17 +162,18 @@ impl<'a> RefIter<'a> {
         let field = field_ref.field;
 
         self.move_to_field_keep_pos(match_sets, field);
-        let fmt = self.data_iter.get_next_field_format();
+        let iter = self.data_iter.as_mut().unwrap();
+        let fmt = iter.get_next_field_format();
 
-        let data_start = self.data_iter.get_next_field_data();
-        let header_ref = self.data_iter.get_next_header_ref();
-        let oversize_start = self.data_iter.field_run_length_bwd();
-        let header_idx = self.data_iter.get_next_header_index();
+        let data_start = iter.get_next_field_data();
+        let header_ref = iter.get_next_header_ref();
+        let oversize_start = iter.field_run_length_bwd();
+        let header_idx = iter.get_next_header_index();
 
         let mut refs_oversize_end = 0;
         let mut field_count = 0;
         loop {
-            let data_stride = self.data_iter.next_n_fields_with_fmt(
+            let data_stride = iter.next_n_fields_with_fmt(
                 (field_rl as usize).min(limit),
                 [fmt.kind],
                 flag_mask,
@@ -191,8 +195,8 @@ impl<'a> RefIter<'a> {
                 break;
             }
         }
-        let mut header_count = self.data_iter.get_next_header_index() - header_idx;
-        if self.data_iter.field_run_length_bwd() != 0 {
+        let mut header_count = iter.get_next_header_index() - header_idx;
+        if iter.field_run_length_bwd() != 0 {
             header_count += 1;
         }
         let mut refs_header_count = ref_header_idx - self.refs_iter.headers_remaining();
@@ -210,16 +214,16 @@ impl<'a> RefIter<'a> {
                         header_count,
                     ),
                     data: TypedSlice::new(
-                        self.data_iter.field_data_ref(),
+                        iter.field_data_ref(),
                         header_ref.fmt,
                         flag_mask,
                         data_start,
-                        self.data_iter.get_prev_field_data_end(),
+                        iter.get_prev_field_data_end(),
                         field_count,
                     ),
                     field_count: field_count,
                     first_header_run_length_oversize: oversize_start,
-                    last_header_run_length_oversize: self.data_iter.field_run_length_fwd_oversize(),
+                    last_header_run_length_oversize: iter.field_run_length_fwd_oversize(),
                 }),
                 TypedSliceIter::new(
                     std::slice::from_raw_parts(refs_data_start, refs_data_len),
