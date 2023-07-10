@@ -6,7 +6,6 @@ use std::{
 
 use arrayvec::ArrayVec;
 use bstr::{BStr, BString, ByteSlice, ByteVec};
-use nonmax::NonMaxUsize;
 
 use smallstr::SmallString;
 
@@ -32,7 +31,7 @@ use crate::{
         universe::Universe,
         MAX_UTF8_CHAR_LEN,
     },
-    worker_thread_session::{Field, FieldId, JobData, MatchSet, MatchSetId},
+    worker_thread_session::{Field, FieldId, JobData, MatchSet, MatchSetId, RecordManager},
 };
 
 use super::{
@@ -544,8 +543,10 @@ fn calc_text_len(k: &FormatKey, base_len: usize, width_lookup: usize) -> usize {
 }
 pub fn lookup_widths(
     fields: &Universe<FieldId, RefCell<Field>>,
+    match_sets: &mut Universe<MatchSetId, MatchSet>,
     fmt: &mut TfFormat,
     k: &FormatKey,
+    apply_actions: bool,
     update_iter: bool,
     succ_func: impl Fn(&mut TfFormat, &mut usize, usize, usize), //output idx, width, run length
     err_func: impl Fn(&mut TfFormat, &mut usize, usize),         //output idx, width, run length
@@ -555,6 +556,9 @@ pub fn lookup_widths(
     } else {
         return;
     };
+    if apply_actions {
+        RecordManager::apply_field_actions(fields, match_sets, ident_ref.field_id);
+    }
     let field = &mut fields[ident_ref.field_id].borrow();
     let mut iter = field.field_data.get_iter(ident_ref.iter_id);
     let mut output_index = 0;
@@ -582,8 +586,10 @@ pub fn setup_key_output_state(
 ) {
     lookup_widths(
         fields,
+        match_sets,
         fmt,
         k,
+        true,
         false,
         |fmt, output_idx, width, run_len| {
             iter_output_states(fmt, output_idx, run_len, |os| os.width_lookup = width)
@@ -593,7 +599,9 @@ pub fn setup_key_output_state(
         },
     );
     let ident_ref = fmt.refs[k.identifier];
+    RecordManager::apply_field_actions(fields, match_sets, ident_ref.field_id);
     let field = &mut fields[ident_ref.field_id].borrow();
+
     let mut iter = AutoDerefIter::new(
         fields,
         match_sets,
@@ -831,8 +839,10 @@ fn write_fmt_key(
 ) {
     lookup_widths(
         fields,
+        match_sets,
         fmt,
         k,
+        false,
         true,
         |fmt, output_idx, width, run_len| {
             iter_output_targets(fmt, output_idx, run_len, |ot| ot.width_lookup = width)

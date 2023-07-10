@@ -68,6 +68,8 @@ pub struct MatchSet {
     pub field_name_map: HashMap<StringStoreEntry, VecDeque<FieldId>>,
 }
 
+impl MatchSet {}
+
 pub struct WorkerThreadSession<'a> {
     pub transform_data: Vec<TransformData<'a>>,
     pub job_data: JobData<'a>,
@@ -241,7 +243,7 @@ impl RecordManager {
     // this is usually called while iterating over an input field that contains field references
     // we therefore do NOT want to require a mutable reference over the field data, because that forces the caller to kill their iterator
     // instead we `split up` this struct to only require a mutable reference for the MatchSets, which we need to modify the command buffer
-    pub fn apply_field_commands(
+    pub fn apply_field_actions(
         fields: &Universe<FieldId, RefCell<Field>>,
         match_sets: &mut Universe<MatchSetId, MatchSet>,
         field: FieldId,

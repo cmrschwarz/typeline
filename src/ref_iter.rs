@@ -7,7 +7,9 @@ use crate::{
         FieldReference, FieldValueHeader, RunLength,
     },
     utils::universe::Universe,
-    worker_thread_session::{Field, FieldId, MatchSet, MatchSetId, FIELD_REF_LOOKUP_ITER_ID},
+    worker_thread_session::{
+        Field, FieldId, MatchSet, MatchSetId, RecordManager, FIELD_REF_LOOKUP_ITER_ID,
+    },
 };
 use core::ops::Deref;
 use std::cell::{Ref, RefCell};
@@ -36,7 +38,7 @@ impl<'a> RefIter<'a> {
         last_field_id: FieldId,
         field_pos: usize,
     ) -> Self {
-        Self::apply_field_actions(fields, match_sets, last_field_id);
+        RecordManager::apply_field_actions(fields, match_sets, last_field_id);
         let (field_ref, mut data_iter) =
             unsafe { Self::get_field_ref_and_iter(fields, last_field_id) };
         data_iter.move_to_field_pos(field_pos);
@@ -46,20 +48,6 @@ impl<'a> RefIter<'a> {
             last_field_id,
             data_iter: Some(data_iter),
             field_ref: Some(field_ref),
-        }
-    }
-    fn apply_field_actions<'b>(
-        fields: &'b Universe<FieldId, RefCell<Field>>,
-        match_sets: &'_ mut Universe<MatchSetId, MatchSet>,
-        field_id: FieldId,
-    ) {
-        let mut field_ref = fields[field_id].borrow_mut();
-        let cb = &mut match_sets[field_ref.match_set].command_buffer;
-        let last_acs = cb.last_action_set_id();
-        if field_ref.last_applied_action_set_id != last_acs {
-            let start = field_ref.last_applied_action_set_id + 1;
-            field_ref.last_applied_action_set_id = last_acs;
-            cb.execute_for_iter_halls(std::iter::once(field_ref), start, last_acs);
         }
     }
     unsafe fn get_field_ref_and_iter<'b>(
@@ -94,7 +82,7 @@ impl<'a> RefIter<'a> {
             .unwrap()
             .field_data
             .store_iter(FIELD_REF_LOOKUP_ITER_ID, self.data_iter.take().unwrap());
-        Self::apply_field_actions(self.fields, match_sets, field_id);
+        RecordManager::apply_field_actions(self.fields, match_sets, field_id);
         let (field_ref, data_iter) = unsafe { Self::get_field_ref_and_iter(self.fields, field_id) };
         // SAFETY: we have to reassign data_iter first, because the old one still
         // has a pointer into the data of the old field_ref
