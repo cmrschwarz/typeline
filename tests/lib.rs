@@ -1,5 +1,6 @@
 use scr::bstr::ByteSlice;
 
+use scr::operations::sequence::{create_op_enum, create_op_seq_append};
 use scr::{
     field_data::{push_interface::PushInterface, record_set::RecordSet},
     operations::{
@@ -129,7 +130,7 @@ fn trickling_stream() -> Result<(), ScrError> {
 fn sequence() -> Result<(), ScrError> {
     let ss = StringSinkHandle::new();
     ContextBuilder::default()
-        .add_op(create_op_seq(0, 3, 1, false).unwrap())
+        .add_op(create_op_seq(0, 3, 1).unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(ss.get_data().unwrap().as_slice(), ["0", "1", "2"]);
@@ -156,7 +157,7 @@ fn multi_batch_seq_with_regex() -> Result<(), ScrError> {
     const COUNT: usize = 6;
     ContextBuilder::default()
         .set_batch_size(COUNT / 2)
-        .add_op(create_op_seq(0, COUNT as i64, 1, true).unwrap())
+        .add_op(create_op_seq(0, COUNT as i64, 1).unwrap())
         .add_op(create_op_regex("^\\d{1,2}$", RegexOptions::default()).unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
@@ -175,7 +176,7 @@ fn large_seq_with_regex() -> Result<(), ScrError> {
     let ss = StringSinkHandle::new();
     const COUNT: usize = 10000;
     ContextBuilder::default()
-        .add_op(create_op_seq(0, COUNT as i64, 1, false).unwrap())
+        .add_op(create_op_seq(0, COUNT as i64, 1).unwrap())
         .add_op(create_op_regex("^\\d{1,3}$", RegexOptions::default()).unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
@@ -208,8 +209,8 @@ fn chained_seq() -> Result<(), ScrError> {
     let ss = StringSinkHandle::new();
     ContextBuilder::default()
         .push_int(0, 1)
-        .add_op(create_op_seq(1, 6, 1, true).unwrap())
-        .add_op(create_op_seq(6, 11, 1, true).unwrap())
+        .add_op(create_op_seq_append(1, 6, 1).unwrap())
+        .add_op(create_op_seq_append(6, 11, 1).unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(
@@ -228,7 +229,7 @@ fn format_width_spec() -> Result<(), ScrError> {
     ContextBuilder::default()
         .push_str("x", 6)
         .add_op(create_op_key("foo".to_owned()))
-        .add_op(create_op_seq(0, 6, 1, false).unwrap())
+        .add_op(create_op_seq(0, 6, 1).unwrap())
         .add_op(create_op_key("bar".to_owned()))
         .add_op(create_op_format("{foo:~^bar$}".as_bytes().as_bstr()).unwrap())
         .add_op(create_op_string_sink(&ss))
@@ -246,7 +247,7 @@ fn unset_value() -> Result<(), ScrError> {
     ContextBuilder::default()
         .push_str("x", 1)
         .add_op(create_op_key("foo".to_owned()))
-        .add_op(create_op_seq(0, 2, 1, false).unwrap())
+        .add_op(create_op_seq(0, 2, 1).unwrap())
         .add_op(create_op_key("bar".to_owned()))
         .add_op(create_op_format("{foo}{bar}".as_bytes().as_bstr()).unwrap())
         .add_op(create_op_string_sink(&ss))
@@ -275,5 +276,19 @@ fn nonexisting_key() -> Result<(), ScrError> {
         ss.get().errors.get(&0).map(|v| (&*v.message)),
         Some("Format Error") //TODO: better error message
     );
+    Ok(())
+}
+
+#[test]
+fn seq_enum() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::new();
+    ContextBuilder::default()
+        .push_str("x", 3)
+        .add_op(create_op_key("foo".to_owned()))
+        .add_op(create_op_enum(0, 5, 1).unwrap())
+        .add_op(create_op_format("{foo}{}".as_bytes().as_bstr()).unwrap())
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(ss.get_data().unwrap().as_slice(), &["x0", "x1", "x2"]);
     Ok(())
 }

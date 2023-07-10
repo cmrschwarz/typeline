@@ -29,7 +29,7 @@ fn regex_drop(b: &mut test::Bencher) {
             .add_op(create_op_string_sink(&ss))
             .run()
             .unwrap();
-        assert_eq!(ss.get().as_slice(), ["foo", "bar", "baz"]);
+        assert_eq!(ss.get_data().unwrap().as_slice(), ["foo", "bar", "baz"]);
     });
 }
 
@@ -50,6 +50,9 @@ fn large_batch(b: &mut test::Bencher) {
             .add_op(create_op_string_sink(&ss))
             .run()
             .unwrap();
-        assert_eq!(ss.get().as_slice(), &number_string_list[0..1000]);
+        assert_eq!(
+            ss.get_data().unwrap().as_slice(),
+            &number_string_list[0..1000]
+        );
     });
 }

@@ -22,17 +22,30 @@ pub struct SequenceSpec {
     pub step: i64,
 }
 
+#[derive(PartialEq, Eq, Clone, Copy)]
+pub enum SequenceMode {
+    //  seq: write the full sequence to a separate column
+    Default,
+
+    // +seq: append to the end of the previous column
+    Append,
+
+    // enum: write one element of the sequence to a separate colum for each input
+    //       stop if the inputs end, write unset after the sequence ended
+    Enumerate,
+}
+
 pub struct OpSequence {
     ss: SequenceSpec,
-    append: bool,
+    mode: SequenceMode,
 }
 
 impl OpSequence {
     pub fn default_op_name(&self) -> SmallString<[u8; DEFAULT_OP_NAME_SMALL_STR_LEN]> {
-        if self.append {
-            "+seq".into()
-        } else {
-            "seq".into()
+        match self.mode {
+            SequenceMode::Default => "seq".into(),
+            SequenceMode::Append => "+seq".into(),
+            SequenceMode::Enumerate => "enum".into(),
         }
     }
 }
@@ -40,6 +53,7 @@ impl OpSequence {
 pub struct TfSequence {
     ss: SequenceSpec,
     output_field: FieldId,
+    mode: SequenceMode,
 }
 
 pub fn setup_tf_sequence<'a>(
@@ -49,7 +63,7 @@ pub fn setup_tf_sequence<'a>(
 ) -> (TransformData<'a>, FieldId) {
     // we will forward the whole input in one go and unlink us from the chain
     tf_state.desired_batch_size = usize::MAX;
-    let output_field = if op.append {
+    let output_field = if op.mode == SequenceMode::Append {
         tf_state.is_appending = true;
         tf_state.input_field
     } else {
@@ -58,6 +72,7 @@ pub fn setup_tf_sequence<'a>(
     let data = TransformData::Sequence(TfSequence {
         ss: op.ss,
         output_field,
+        mode: op.mode,
     });
     (data, output_field)
 }
@@ -82,12 +97,29 @@ const FAST_SEQ_MAX_STEP: i64 = 200;
 
 pub fn handle_tf_sequence(sess: &mut JobData<'_>, tf_id: TransformId, seq: &mut TfSequence) {
     sess.prepare_for_output(tf_id, &[seq.output_field]);
-    if seq.ss.start == seq.ss.end {
+
+    let seq_end = seq.ss.start == seq.ss.end;
+    if seq_end && seq.mode != SequenceMode::Enumerate {
         sess.unlink_transform(tf_id, 0);
         return;
     }
+
     let (mut batch_size, _) = sess.claim_batch(tf_id);
+
+    if batch_size == 0 && seq.mode == SequenceMode::Enumerate {
+        sess.unlink_transform(tf_id, 0);
+        return;
+    }
+
     let mut output_field = sess.record_mgr.fields[seq.output_field].borrow_mut();
+
+    if seq_end && seq.mode == SequenceMode::Enumerate {
+        output_field.field_data.push_unset(batch_size, true);
+        sess.tf_mgr
+            .inform_successor_batch_available(tf_id, batch_size);
+        return;
+    }
+
     let succ_wants_text = if let Some(succ) = sess.tf_mgr.transforms[tf_id].successor {
         let s = &sess.tf_mgr.transforms[succ];
         if batch_size == 0 {
@@ -144,7 +176,7 @@ pub fn handle_tf_sequence(sess: &mut JobData<'_>, tf_id: TransformId, seq: &mut 
 
 pub fn parse_op_seq(
     value: Option<&BStr>,
-    append: bool,
+    mode: SequenceMode,
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
     let value_str = value
@@ -188,14 +220,14 @@ pub fn parse_op_seq(
     }]
     .parse::<i64>()
     .map_err(|_| OperatorCreationError::new("failed to parse sequence end as integer", arg_idx))?;
-    create_op_seq_with_cli_arg_idx(start, end, step, append, arg_idx)
+    create_op_seq_with_cli_arg_idx(start, end, step, mode, arg_idx)
 }
 
 fn create_op_seq_with_cli_arg_idx(
     start: i64,
     mut end: i64,
     step: i64,
-    append: bool,
+    mode: SequenceMode,
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
     if step == 0 {
@@ -227,15 +259,39 @@ fn create_op_seq_with_cli_arg_idx(
     }
     Ok(OperatorData::Sequence(OpSequence {
         ss: SequenceSpec { start, step, end },
-        append,
+        mode,
     }))
+}
+
+pub fn create_op_sequence(
+    start: i64,
+    end: i64,
+    step: i64,
+    mode: SequenceMode,
+) -> Result<OperatorData, OperatorCreationError> {
+    create_op_seq_with_cli_arg_idx(start, end, step, mode, None)
 }
 
 pub fn create_op_seq(
     start: i64,
     end: i64,
     step: i64,
-    append: bool,
 ) -> Result<OperatorData, OperatorCreationError> {
-    create_op_seq_with_cli_arg_idx(start, end, step, append, None)
+    create_op_seq_with_cli_arg_idx(start, end, step, SequenceMode::Default, None)
+}
+
+pub fn create_op_seq_append(
+    start: i64,
+    end: i64,
+    step: i64,
+) -> Result<OperatorData, OperatorCreationError> {
+    create_op_seq_with_cli_arg_idx(start, end, step, SequenceMode::Append, None)
+}
+
+pub fn create_op_enum(
+    start: i64,
+    end: i64,
+    step: i64,
+) -> Result<OperatorData, OperatorCreationError> {
+    create_op_seq_with_cli_arg_idx(start, end, step, SequenceMode::Enumerate, None)
 }
