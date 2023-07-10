@@ -51,6 +51,8 @@ pub struct TfRegex {
     capture_group_fields: Vec<FieldId>,
     input_field_iter_id: IterId,
     multimatch: bool,
+    last_end: Option<usize>,
+    next_start: usize,
 }
 
 #[derive(Default)]
@@ -302,6 +304,8 @@ pub fn setup_tf_regex<'a>(
             .borrow_mut()
             .field_data
             .claim_iter(),
+        last_end: None,
+        next_start: 0,
     };
     sess.record_mgr
         .initialize_tf_output_fields(tf_state.ordering_id, &re.capture_group_fields);
@@ -407,19 +411,23 @@ impl<'a> AnyRegex for BytesRegex<'a> {
     }
 }
 
+#[inline(always)]
 fn match_regex_inner<'a, 'b, const PUSH_REF: bool, R: AnyRegex>(
     rmis: &mut RegexMatchInnerState<'a, 'b>,
     regex: &mut R,
     data: &R::Data,
     run_length: RunLength,
     offset: usize,
-) {
-    let mut last_end = None;
-    let mut next_start = 0;
-    let mut match_count: RunLength = 0;
-    let starting_field_idx = rmis.batch_state.field_idx;
+) -> bool {
+    let mut match_count: usize = 0;
+    let starting_field_idx = rmis.batch_state.field_pos_output;
     let rl = run_length as usize;
-    while regex.next(data, &mut last_end, &mut next_start) {
+    let mut bse = false;
+    while regex.next(
+        data,
+        &mut rmis.batch_state.last_end,
+        &mut rmis.batch_state.next_start,
+    ) {
         match_count += 1;
         for c in 0..regex.captures_locs_len() {
             let field = &mut rmis.batch_state.fields[rmis.batch_state.capture_group_fields[c]]
@@ -444,25 +452,45 @@ fn match_regex_inner<'a, 'b, const PUSH_REF: bool, R: AnyRegex>(
                 field.push_null(run_length as usize, true);
             }
         }
-        rmis.batch_state.field_idx += 1;
+        if rmis.batch_state.match_count + match_count == rmis.batch_state.batch_size {
+            bse = true;
+            break;
+        }
         if !rmis.batch_state.multimatch {
             break;
         }
     }
+    rmis.batch_state.last_end = None;
+    rmis.batch_state.next_start = 0;
     if match_count == 0 {
-        rmis.command_buffer
-            .push_action(FieldActionKind::Drop, rmis.batch_state.field_idx, 1);
+        rmis.command_buffer.push_action(
+            FieldActionKind::Drop,
+            rmis.batch_state.field_pos_output,
+            1,
+        );
     } else if match_count > 1 {
-        rmis.command_buffer
-            .push_action(FieldActionKind::Dup, starting_field_idx, match_count - 1);
+        rmis.command_buffer.push_action_with_usize_rl(
+            FieldActionKind::Dup,
+            starting_field_idx,
+            match_count - 1,
+        );
     }
     rmis.batch_state.match_count += match_count as usize;
+    rmis.batch_state.field_pos_output += match_count as usize;
+    if !bse {
+        rmis.batch_state.field_pos_input += run_length as usize;
+    }
+    return bse;
 }
 
 struct RegexBatchState<'a> {
-    field_idx: usize,
+    batch_size: usize,
+    field_pos_input: usize,
+    field_pos_output: usize,
     match_count: usize,
     multimatch: bool,
+    last_end: Option<usize>,
+    next_start: usize,
     capture_group_fields: &'a Vec<FieldId>,
     fields: &'a Universe<NonMaxUsize, RefCell<Field>>,
 }
@@ -474,7 +502,7 @@ struct RegexMatchInnerState<'a, 'b> {
 }
 
 pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRegex) {
-    let (batch, input_field_id) = sess.claim_batch(tf_id);
+    let (batch_size, input_field_id) = sess.claim_batch(tf_id);
     sess.prepare_for_output(tf_id, &re.capture_group_fields);
     let tf = &sess.tf_mgr.transforms[tf_id];
     let op_id = tf.op_id;
@@ -487,14 +515,20 @@ pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRe
         .deref()
         .field_data
         .get_iter(re.input_field_iter_id)
-        .bounded(0, batch);
+        .bounded(0, batch_size);
+    let mut field_pos = iter_base.get_next_field_pos();
     let mut rbs = RegexBatchState {
-        field_idx: iter_base.get_next_field_pos(),
+        batch_size,
+        field_pos_input: field_pos,
+        field_pos_output: field_pos,
         match_count: 0,
         multimatch: re.multimatch,
         capture_group_fields: &re.capture_group_fields,
         fields: &sess.record_mgr.fields,
+        last_end: re.last_end,
+        next_start: re.next_start,
     };
+
     let mut iter = AutoDerefIter::new(
         &sess.record_mgr.fields,
         &mut sess.record_mgr.match_sets,
@@ -515,7 +549,8 @@ pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRe
         cl: &mut re.capture_locs,
     };
 
-    while let Some(range) = iter.typed_range_fwd(
+    let mut bse = false; // 'batch size exceeded'
+    'batch: while let Some(range) = iter.typed_range_fwd(
         &mut sess.record_mgr.match_sets,
         usize::MAX,
         field_value_flags::BYTES_ARE_UTF8,
@@ -529,9 +564,9 @@ pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRe
             TypedSlice::TextInline(text) => {
                 for (v, rl, offset) in RefAwareInlineTextIter::from_range(&range, text) {
                     if let Some(tr) = &mut text_regex {
-                        match_regex_inner::<true, _>(&mut rmis, tr, v, rl, offset);
+                        bse = match_regex_inner::<true, _>(&mut rmis, tr, v, rl, offset);
                     } else {
-                        match_regex_inner::<true, _>(
+                        bse = match_regex_inner::<true, _>(
                             &mut rmis,
                             &mut bytes_regex,
                             v.as_bytes(),
@@ -539,32 +574,54 @@ pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRe
                             offset,
                         );
                     };
+                    if bse {
+                        break 'batch;
+                    }
                 }
             }
             TypedSlice::BytesInline(bytes) => {
                 for (v, rl, offset) in RefAwareInlineBytesIter::from_range(&range, bytes) {
-                    match_regex_inner::<true, _>(&mut rmis, &mut bytes_regex, v, rl, offset);
+                    bse = match_regex_inner::<true, _>(&mut rmis, &mut bytes_regex, v, rl, offset);
+                    if bse {
+                        break 'batch;
+                    }
+                    field_pos += rl as usize;
                 }
             }
             TypedSlice::BytesBuffer(bytes) => {
                 for (v, rl, offset) in RefAwareBytesBufferIter::from_range(&range, bytes) {
-                    match_regex_inner::<true, _>(&mut rmis, &mut bytes_regex, v, rl, offset);
+                    bse = match_regex_inner::<true, _>(&mut rmis, &mut bytes_regex, v, rl, offset);
+                    if bse {
+                        break 'batch;
+                    }
                 }
             }
             TypedSlice::Integer(ints) => {
                 if let Some(tr) = &mut text_regex {
                     for (v, rl) in TypedSliceIter::from_range(&range.base, ints) {
-                        match_regex_inner::<false, _>(&mut rmis, tr, &i64_to_str(false, *v), rl, 0);
+                        bse = match_regex_inner::<false, _>(
+                            &mut rmis,
+                            tr,
+                            &i64_to_str(false, *v),
+                            rl,
+                            0,
+                        );
+                        if bse {
+                            break 'batch;
+                        }
                     }
                 } else {
                     for (v, rl) in TypedSliceIter::from_range(&range.base, ints) {
-                        match_regex_inner::<false, _>(
+                        bse = match_regex_inner::<false, _>(
                             &mut rmis,
                             &mut bytes_regex,
                             i64_to_str(false, *v).as_bytes(),
                             rl,
                             0,
                         );
+                        if bse {
+                            break 'batch;
+                        }
                     }
                 };
             }
@@ -576,7 +633,8 @@ pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRe
             | TypedSlice::Html(_)
             | TypedSlice::StreamValueId(_)
             | TypedSlice::Object(_) => {
-                rbs.field_idx += range.base.field_count;
+                rbs.field_pos_input += range.base.field_count;
+                rbs.field_pos_output += range.base.field_count;
                 for cgi in &re.capture_group_fields {
                     sess.record_mgr.fields[*cgi]
                         .borrow_mut()
@@ -591,9 +649,15 @@ pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRe
             }
         }
     }
+    re.last_end = rbs.last_end;
+    re.next_start = rbs.next_start;
+    let mut base_iter = iter.into_base_iter();
+    if bse {
+        base_iter.move_to_field_pos(rbs.field_pos_input);
+    }
     input_field
         .field_data
-        .store_iter(re.input_field_iter_id, iter.into_base_iter());
+        .store_iter(re.input_field_iter_id, base_iter);
     drop(input_field);
     sess.tf_mgr.update_ready_state(tf_id);
     sess.tf_mgr
