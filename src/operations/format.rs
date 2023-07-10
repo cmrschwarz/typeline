@@ -754,7 +754,7 @@ fn setup_output_targets(op_id: OperatorId, fmt: &mut TfFormat, output_field: &mu
                 target = Some(NonNull::new_unchecked(
                     output_field.field_data.push_variable_sized_type_uninit(
                         FieldValueKind::BytesInline,
-                        flags,
+                        flags | field_value_flags::SHARED_VALUE,
                         os.len,
                         os.run_len,
                     ),
