@@ -859,6 +859,7 @@ fn write_fmt_key(
     fields: &Universe<FieldId, RefCell<Field>>,
     match_sets: &mut Universe<MatchSetId, MatchSet>,
     fmt: &mut TfFormat,
+    batch_size: usize,
     k: &FormatKey,
 ) {
     lookup_widths(
@@ -877,7 +878,10 @@ fn write_fmt_key(
         fields,
         match_sets,
         ident_ref.field_id,
-        field.field_data.get_iter(ident_ref.iter_id),
+        field
+            .field_data
+            .get_iter(ident_ref.iter_id)
+            .bounded(0, batch_size),
         None,
     );
 
@@ -976,6 +980,7 @@ pub fn handle_tf_format(sess: &mut JobData<'_>, tf_id: TransformId, fmt: &mut Tf
                 &sess.record_mgr.fields,
                 &mut sess.record_mgr.match_sets,
                 fmt,
+                batch_size,
                 k,
             ),
         }

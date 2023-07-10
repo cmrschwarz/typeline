@@ -292,3 +292,21 @@ fn seq_enum() -> Result<(), ScrError> {
     assert_eq!(ss.get_data().unwrap().as_slice(), &["x0", "x1", "x2"]);
     Ok(())
 }
+
+#[test]
+fn dup_between_format_and_key() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::new();
+    let mut regex_opts = RegexOptions::default();
+    regex_opts.multimatch = true;
+    ContextBuilder::default()
+        .set_batch_size(2)
+        .push_str("xxx", 1)
+        .add_op(create_op_key("foo".to_owned()))
+        .add_op(create_op_regex(".", regex_opts).unwrap())
+        .add_op(create_op_format("{foo}".as_bytes().as_bstr()).unwrap())
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    println!("{:?}", ss.get().data);
+    assert_eq!(ss.get_data().unwrap().as_slice(), &["xxx", "xxx", "xxx"]);
+    Ok(())
+}
