@@ -15,10 +15,10 @@ use crate::{
         field_value_flags,
         iter_hall::IterId,
         iters::FieldIterator,
-        push_interface::{PushInterface, UnsafeHeaderPushInterface},
+        push_interface::{PushInterface, RawPushInterface},
         typed::TypedSlice,
         typed_iters::TypedSliceIter,
-        FieldValueFormat, FieldValueKind, FieldValueSize, INLINE_STR_MAX_LEN,
+        FieldValueKind, INLINE_STR_MAX_LEN,
     },
     options::argument::CliArgIdx,
     ref_iter::{
@@ -141,7 +141,6 @@ struct OutputTarget {
     run_len: usize,
     width_lookup: usize,
     target: Option<NonNull<u8>>,
-    target_buffer_offset: Option<NonMaxUsize>,
 }
 
 impl Default for OutputState {
@@ -691,77 +690,82 @@ unsafe fn write_padding_to_tgt(tgt: &mut OutputTarget, fill_char: Option<char>, 
         write_bytes_to_target(tgt, &buf.as_slice()[0..len * char_slice.len()]);
     }
 }
-fn setup_output_targets(
-    op_id: OperatorId,
-    fmt: &mut TfFormat,
-    output_field: &mut RefMut<Field>,
-) -> usize {
-    let mut inline_len = 0;
+fn setup_output_targets(op_id: OperatorId, fmt: &mut TfFormat, output_field: &mut RefMut<Field>) {
     fmt.output_targets.reserve(fmt.output_states.len());
     let mut output_idx = 0;
-    let mut dummy: u8 = 0;
-    let dummy_ptr = Some(NonNull::new(&mut dummy as *mut u8).unwrap());
-    let mut prev_len = usize::MAX;
+
+    let starting_len = unsafe {
+        output_field
+            .field_data
+            .internals()
+            .fd
+            .internals()
+            .data
+            .len()
+    };
+    let mut tgt_len = starting_len;
+    for os in fmt.output_states.iter() {
+        if os.error_occured {
+            tgt_len = FieldValueKind::Error.align_size_up(tgt_len);
+            tgt_len += std::mem::size_of::<OperatorApplicationError>();
+        } else if os.len <= INLINE_STR_MAX_LEN {
+            tgt_len += os.len;
+        } else {
+            tgt_len = FieldValueKind::BytesBuffer.align_size_up(tgt_len);
+            tgt_len += std::mem::size_of::<Vec<u8>>();
+        }
+    }
+    unsafe {
+        output_field
+            .field_data
+            .internals()
+            .fd
+            .internals()
+            .data
+            .reserve(tgt_len - starting_len);
+    }
+
     loop {
         let os = &mut fmt.output_states[output_idx];
         let target: Option<NonNull<u8>>;
-        let target_buffer_offset;
         if os.error_occured {
             target = None;
-            target_buffer_offset = None;
             output_field.field_data.push_error(
                 OperatorApplicationError::new("Format Error", op_id), //TODO: give more context
                 os.run_len,
                 true,
                 false,
             );
-            prev_len = usize::MAX;
-        } else if os.len < INLINE_STR_MAX_LEN {
+        } else if os.len <= INLINE_STR_MAX_LEN {
+            let flags = if os.contains_raw_bytes {
+                0
+            } else {
+                field_value_flags::BYTES_ARE_UTF8
+            };
             unsafe {
-                let fd = output_field.field_data.internals().fd;
-                fd.add_header_for_single_value(
-                    FieldValueFormat {
-                        kind: FieldValueKind::BytesInline,
-                        flags: if os.contains_raw_bytes {
-                            0
-                        } else {
-                            field_value_flags::BYTES_ARE_UTF8
-                        },
-                        size: os.len as FieldValueSize,
-                    },
-                    os.run_len,
-                    os.len == prev_len,
-                    false,
-                );
-                *fd.internals().field_count += os.run_len;
-                target_buffer_offset = Some(NonMaxUsize::new_unchecked(os.len));
+                target = Some(NonNull::new_unchecked(
+                    output_field.field_data.push_variable_sized_type_uninit(
+                        FieldValueKind::BytesInline,
+                        flags,
+                        os.len,
+                        os.run_len,
+                    ),
+                ));
             }
-            target = dummy_ptr;
-            inline_len += os.len;
-            prev_len = os.len;
         } else {
             let mut buf = Vec::with_capacity(os.len);
             unsafe {
                 target = Some(NonNull::new_unchecked(buf.as_mut_ptr()));
-                target_buffer_offset = Some(NonMaxUsize::new_unchecked(
-                    output_field
-                        .field_data
-                        .internals()
-                        .fd
-                        .internals()
-                        .data
-                        .len(),
-                ));
             }
+            // just to be 'rust compliant' ...
+            buf.extend(std::iter::repeat(0).take(os.len));
             output_field
                 .field_data
                 .push_bytes_buffer(buf, os.run_len, true, false);
-            prev_len = usize::MAX;
         };
         fmt.output_targets.push(OutputTarget {
             run_len: os.run_len,
             target,
-            target_buffer_offset,
             width_lookup: os.width_lookup,
         });
         output_idx = os.next;
@@ -769,45 +773,8 @@ fn setup_output_targets(
             break;
         }
     }
-    let mut target = unsafe {
-        let fdi = output_field.field_data.internals().fd.internals();
-        fdi.data.reserve(inline_len);
-        fdi.data.as_mut_ptr_range().end
-    };
-    for tgt in fmt.output_targets.iter_mut() {
-        if tgt.target == dummy_ptr {
-            unsafe {
-                let len = tgt.target_buffer_offset.unwrap_unchecked().get();
-                tgt.target = Some(NonNull::new_unchecked(target));
-                target = target.add(len);
-            }
-            tgt.target_buffer_offset = None;
-        }
-    }
-    inline_len
 }
-fn bump_output_targets_buffer_lengths(fmt: &mut TfFormat, output_field: &mut RefMut<Field>) {
-    for t in &fmt.output_targets {
-        if let Some(tbo) = t.target_buffer_offset {
-            unsafe {
-                let buf = &mut *(output_field
-                    .field_data
-                    .internals()
-                    .fd
-                    .internals()
-                    .data
-                    .as_mut_ptr()
-                    .add(tbo.get()) as *mut Vec<u8>);
-                buf.set_len(
-                    t.target
-                        .unwrap_unchecked()
-                        .as_ptr()
-                        .offset_from(buf.as_ptr()) as usize,
-                );
-            }
-        }
-    }
-}
+
 unsafe fn write_padded_bytes(
     k: &FormatKey,
     tgt: &mut OutputTarget,
@@ -963,7 +930,7 @@ pub fn handle_tf_format(sess: &mut JobData<'_>, tf_id: TransformId, fmt: &mut Tf
             ),
         }
     }
-    let inline_len = setup_output_targets(op_id, fmt, &mut output_field);
+    setup_output_targets(op_id, fmt, &mut output_field);
     for part in fmt.parts.iter() {
         match part {
             FormatPart::ByteLiteral(v) => {
@@ -985,11 +952,6 @@ pub fn handle_tf_format(sess: &mut JobData<'_>, tf_id: TransformId, fmt: &mut Tf
             ),
         }
     }
-    unsafe {
-        let data = &mut output_field.field_data.internals().fd.internals().data;
-        data.set_len(data.len() + inline_len);
-    }
-    bump_output_targets_buffer_lengths(fmt, &mut output_field);
     fmt.output_states.clear();
     fmt.output_targets.clear();
     sess.tf_mgr.update_ready_state(tf_id);

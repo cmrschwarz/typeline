@@ -75,7 +75,7 @@ impl FieldValueKind {
     #[inline(always)]
     pub fn align_size_up(self, size: usize) -> usize {
         if self.needs_alignment() {
-            (size + FIELD_ALIGN_MASK) & FIELD_ALIGN_MASK
+            (size + !FIELD_ALIGN_MASK) & FIELD_ALIGN_MASK
         } else {
             size
         }
@@ -180,7 +180,7 @@ union FieldValueUnion {
 }
 
 pub const MAX_FIELD_ALIGN: usize = align_of::<FieldValueUnion>();
-pub const FIELD_ALIGN_MASK: usize = !MAX_FIELD_ALIGN;
+pub const FIELD_ALIGN_MASK: usize = !(MAX_FIELD_ALIGN - 1);
 
 pub type FieldValueSize = u16;
 
@@ -401,10 +401,12 @@ impl FieldData {
     }
 
     unsafe fn pad_to_align(&mut self) -> usize {
-        let align = self.data.len() % MAX_FIELD_ALIGN;
-        if align != 0 {
-            self.data.extend(iter::repeat(0).take(align));
+        let mut align = self.data.len() % MAX_FIELD_ALIGN;
+        if align == 0 {
+            return 0;
         }
+        align = MAX_FIELD_ALIGN - align;
+        self.data.extend(iter::repeat(0).take(align));
         align
     }
 

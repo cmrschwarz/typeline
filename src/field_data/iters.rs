@@ -247,6 +247,8 @@ impl<'a> FieldIterator<'a> for Iter<'a> {
             self.header_idx += 1;
             if self.header_idx == self.fd.header.len() {
                 self.header_rl_total = 0;
+                // to make sure there's no padding
+                self.header_fmt = Default::default();
                 return stride;
             }
 
