@@ -501,6 +501,9 @@ fn iter_output_states(
     mut run_len: usize,
     func: impl Fn(&mut OutputState),
 ) {
+    if run_len == 0 {
+        return;
+    }
     let next = fmt.output_states.len();
     let o = &mut fmt.output_states[*output_idx];
     if run_len < o.run_len {
@@ -604,6 +607,7 @@ pub fn setup_key_output_state(
     );
 
     let mut output_index = 0;
+    let mut handled_fields = 0;
     while let Some(range) =
         iter.typed_range_fwd(match_sets, usize::MAX, field_value_flags::BYTES_ARE_UTF8)
     {
@@ -652,15 +656,14 @@ pub fn setup_key_output_state(
                 });
             }
         }
+        handled_fields += range.base.field_count;
     }
-    let uninitialized_fields = batch_size - output_index;
+    let uninitialized_fields = batch_size - handled_fields;
     iter_output_states(fmt, &mut output_index, uninitialized_fields, |os| {
         os.error_occured = true
     });
-    /*
-    field
-        .field_data
-        .store_iter(ident_ref.iter_id, iter.into_base_iter());*/
+    // we don't store the iter state back here because we need to iterate a second time
+    // for the actual write
 }
 unsafe fn write_bytes_to_target(tgt: &mut OutputTarget, bytes: &[u8]) {
     unsafe {
@@ -868,7 +871,7 @@ fn write_fmt_key(
         },
         |_fmt, _output_idx, _run_len| (),
     );
-    let ident_ref = &fmt.refs[k.identifier];
+    let ident_ref = fmt.refs[k.identifier];
     let field = &mut fields[ident_ref.field_id].borrow();
     let mut iter = AutoDerefIter::new(
         fields,
@@ -925,10 +928,13 @@ fn write_fmt_key(
             }
         }
     }
+    field
+        .field_data
+        .store_iter(ident_ref.iter_id, iter.into_base_iter());
 }
 pub fn handle_tf_format(sess: &mut JobData<'_>, tf_id: TransformId, fmt: &mut TfFormat) {
-    let (batch_size, _input_field_id) = sess.claim_batch(tf_id);
     sess.prepare_for_output(tf_id, std::slice::from_ref(&fmt.output_field));
+    let (batch_size, _input_field_id) = sess.claim_batch(tf_id);
     let op_id = sess.tf_mgr.transforms[tf_id].op_id;
     let mut output_field = sess.record_mgr.fields[fmt.output_field].borrow_mut();
     fmt.output_states.push(OutputState {

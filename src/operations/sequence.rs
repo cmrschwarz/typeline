@@ -82,17 +82,20 @@ const FAST_SEQ_MAX_STEP: i64 = 200;
 
 pub fn handle_tf_sequence(sess: &mut JobData<'_>, tf_id: TransformId, seq: &mut TfSequence) {
     sess.prepare_for_output(tf_id, &[seq.output_field]);
+    if seq.ss.start == seq.ss.end {
+        sess.unlink_transform(tf_id, 0);
+        return;
+    }
+    let (mut batch_size, _) = sess.claim_batch(tf_id);
     let mut output_field = sess.record_mgr.fields[seq.output_field].borrow_mut();
-    let batch_size;
-    let succ_wants_text;
-    if let Some(succ) = sess.tf_mgr.transforms[tf_id].successor {
-        let s = &mut sess.tf_mgr.transforms[succ];
-        batch_size = s.desired_batch_size.saturating_sub(s.available_batch_size);
-        succ_wants_text = s.preferred_input_type == Some(FieldValueKind::BytesInline)
-            && output_field.name == None;
+    let succ_wants_text = if let Some(succ) = sess.tf_mgr.transforms[tf_id].successor {
+        let s = &sess.tf_mgr.transforms[succ];
+        if batch_size == 0 {
+            batch_size = s.desired_batch_size.saturating_sub(s.available_batch_size)
+        }
+        s.preferred_input_type == Some(FieldValueKind::BytesInline) && output_field.name == None
     } else {
-        batch_size = sess.tf_mgr.transforms[tf_id].desired_batch_size;
-        succ_wants_text = false;
+        false
     };
 
     let mut bs_rem = batch_size;
@@ -134,11 +137,6 @@ pub fn handle_tf_sequence(sess: &mut JobData<'_>, tf_id: TransformId, seq: &mut 
         }
     }
     let fields_added = batch_size - bs_rem;
-    if seq.ss.start == seq.ss.end {
-        drop(output_field);
-        sess.unlink_transform(tf_id, fields_added);
-        return;
-    }
     sess.tf_mgr.push_tf_in_ready_queue(tf_id);
     sess.tf_mgr
         .inform_successor_batch_available(tf_id, fields_added);

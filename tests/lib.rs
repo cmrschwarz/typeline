@@ -251,7 +251,14 @@ fn unset_value() -> Result<(), ScrError> {
         .add_op(create_op_format("{foo}{bar}".as_bytes().as_bstr()).unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
-    assert_eq!(ss.get_data().unwrap().as_slice(), &["x0", "1"]);
+    assert_eq!(
+        ss.get().data.as_slice(),
+        &["x0", "in op id 3: Format Error"]
+    );
+    assert_eq!(
+        ss.get().errors.get(&1).map(|v| (&*v.message)),
+        Some("Format Error") //TODO: better error message
+    );
     Ok(())
 }
 
@@ -265,8 +272,8 @@ fn nonexisting_key() -> Result<(), ScrError> {
         .run()?;
     assert!(ss.get_data().is_err());
     assert_eq!(
-        ss.get().errors.get_index(0).map(|(i, v)| (*i, &*v.message)),
-        Some((0, "Format Error")) //TODO: better error message
+        ss.get().errors.get(&0).map(|v| (&*v.message)),
+        Some("Format Error") //TODO: better error message
     );
     Ok(())
 }

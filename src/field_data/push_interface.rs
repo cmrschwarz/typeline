@@ -268,7 +268,7 @@ unsafe impl RawPushInterface for FieldData {
         run_length: usize,
         try_header_rle: bool,
     ) {
-        debug_assert!(kind == FieldValueKind::Null || kind == FieldValueKind::Unset);
+        debug_assert!(kind.is_zst());
         self.field_count += run_length;
         let fmt = FieldValueFormat {
             kind: kind,

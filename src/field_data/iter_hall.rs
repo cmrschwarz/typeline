@@ -60,7 +60,7 @@ impl IterHall {
     }
     fn get_iter_state(&self, iter_id: IterId) -> (IterState, FieldValueHeader) {
         let mut state = self.iters[iter_id].get();
-        let h = self
+        let mut h = self
             .fd
             .header
             .get(state.header_idx)
@@ -69,6 +69,9 @@ impl IterHall {
         if h.run_length == state.header_rl_offset {
             state.header_idx += 1;
             state.header_rl_offset = 0;
+            if state.header_idx == self.fd.header.len() {
+                h.run_length = 0;
+            }
         }
         (state, h)
     }
@@ -76,7 +79,7 @@ impl IterHall {
         let (state, h) = self.get_iter_state(iter_id);
         Iter {
             fd: &self.fd,
-            field_pos: state.field_pos - self.initial_field_offset,
+            field_pos: state.field_pos,
             data: state.data,
             header_idx: state.header_idx,
             header_rl_offset: state.header_rl_offset,
@@ -88,7 +91,7 @@ impl IterHall {
         let (state, h) = self.get_iter_state(iter_id);
         IterMut {
             fd: &mut self.fd,
-            field_pos: state.field_pos - self.initial_field_offset,
+            field_pos: state.field_pos,
             data: state.data,
             header_idx: state.header_idx,
             header_rl_offset: state.header_rl_offset,
@@ -100,14 +103,16 @@ impl IterHall {
         let mut iter = iter.as_base_iter();
         assert!(iter.fd as *const FieldData == &self.fd as *const FieldData);
         let mut state = self.iters[iter_id].get();
+
+        state.field_pos = iter.field_pos;
+        state.data = iter.data;
+        state.header_rl_offset = iter.header_rl_offset;
+        state.header_idx = iter.header_idx;
         if iter.header_idx == self.fd.header.len() && iter.header_idx > 0 {
             iter.prev_field();
-            state.header_rl_offset += 1;
+            state.header_idx = iter.header_idx;
+            state.header_rl_offset = iter.field_run_length_bwd() + 1;
         }
-        state.data = iter.data;
-        state.header_idx = iter.header_idx;
-        state.header_rl_offset = iter.header_rl_offset;
-        state.field_pos = iter.field_pos;
 
         self.iters[iter_id].set(state);
     }
