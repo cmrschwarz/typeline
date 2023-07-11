@@ -272,8 +272,9 @@ impl<'a, I: FieldIterator<'a>> AutoDerefIter<'a, I> {
     pub fn into_base_iter(self) -> I {
         self.iter
     }
-    pub fn move_to_field_pos(&mut self, _field_pos: usize) {
-        todo!();
+    pub fn move_to_field_pos(&mut self, field_pos: usize) {
+        self.ref_iter = None;
+        self.iter.move_to_field_pos(field_pos);
     }
     pub fn typed_range_fwd(
         &mut self,
