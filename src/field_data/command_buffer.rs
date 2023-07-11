@@ -137,7 +137,12 @@ impl CommandBuffer {
         min_action_set_id: usize,
         max_action_set_id: usize,
     ) {
-        let merged_acs_idx = self.prepare_actions(min_action_set_id, max_action_set_id);
+        let merged_acs_idx =
+            if let Some(acs) = self.prepare_actions(min_action_set_id, max_action_set_id) {
+                acs
+            } else {
+                return;
+            };
 
         for mut fdih in fd_iter_halls.into_iter() {
             self.iter_states
@@ -169,7 +174,12 @@ impl CommandBuffer {
         min_action_set_id: usize,
         max_action_set_id: usize,
     ) {
-        let merged_acs_idx = self.prepare_actions(min_action_set_id, max_action_set_id);
+        let merged_acs_idx =
+            if let Some(acs) = self.prepare_actions(min_action_set_id, max_action_set_id) {
+                acs
+            } else {
+                return;
+            };
 
         for mut fd in fields.into_iter() {
             // we reverse the sort order so we can pop back
@@ -438,13 +448,17 @@ impl CommandBuffer {
         &mut self,
         min_action_set_id: usize,
         max_action_set_id: usize,
-    ) -> ActionSetMergeResult {
+    ) -> Option<ActionSetMergeResult> {
+        if self.action_sets.is_empty() {
+            return None;
+        }
         let first = self.action_set_id_to_idx(min_action_set_id);
         let mut last = self.action_set_id_to_idx(max_action_set_id);
+
         if last > first && self.action_sets[last].action_count == 0 {
             last -= 1;
         }
-        self.merge_action_sets(first, last - first + 1, ACTIONS_RAW_IDX + 1)
+        Some(self.merge_action_sets(first, last - first + 1, ACTIONS_RAW_IDX + 1))
     }
 }
 
