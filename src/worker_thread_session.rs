@@ -396,25 +396,18 @@ impl<'a> WorkerThreadSession<'a> {
             let start_tf_id = self.setup_transforms_from_op(ms_id, job.starting_ops[0], input_data);
 
             let tf = &mut self.job_data.tf_mgr.transforms[start_tf_id];
-            if input_record_count == 0 {
-                if tf.is_appending {
-                    tf.is_appending = false;
-                } else {
-                    tf.available_batch_size = 1;
+
+            if tf.is_appending {
+                if let Some(succ) = tf.successor {
+                    let tf_succ = &mut self.job_data.tf_mgr.transforms[succ];
+                    tf_succ.available_batch_size = input_record_count;
+                    if tf_succ.desired_batch_size <= input_record_count {
+                        self.job_data.tf_mgr.transforms[start_tf_id].is_appending = false;
+                        self.job_data.tf_mgr.push_tf_in_ready_queue(succ);
+                    }
                 }
             } else {
-                if tf.is_appending {
-                    if let Some(succ) = tf.successor {
-                        let tf_succ = &mut self.job_data.tf_mgr.transforms[succ];
-                        tf_succ.available_batch_size = input_record_count;
-                        if tf_succ.desired_batch_size <= input_record_count {
-                            self.job_data.tf_mgr.transforms[start_tf_id].is_appending = false;
-                            self.job_data.tf_mgr.push_tf_in_ready_queue(succ);
-                        }
-                    }
-                } else {
-                    tf.available_batch_size = input_record_count;
-                }
+                tf.available_batch_size = input_record_count;
             }
 
             self.job_data.tf_mgr.push_tf_in_ready_queue(start_tf_id);

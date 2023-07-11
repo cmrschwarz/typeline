@@ -69,6 +69,7 @@ pub fn setup_tf_sequence<'a>(
     } else {
         sess.record_mgr.add_field(tf_state.match_set_id, None)
     };
+    tf_state.done_if_input_done = false;
     let data = TransformData::Sequence(TfSequence {
         ss: op.ss,
         output_field,

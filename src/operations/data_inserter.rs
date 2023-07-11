@@ -109,6 +109,10 @@ pub fn handle_tf_data_inserter(
             unlink_after = true;
         } else {
             batch_size = sess.claim_batch(tf_id);
+            if batch_size == 0 {
+                batch_size = 1;
+                unlink_after = true;
+            }
         }
     }
     insert(sess, di, batch_size);
