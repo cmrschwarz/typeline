@@ -325,3 +325,40 @@ fn dup_between_format_and_key() -> Result<(), ScrError> {
     assert_eq!(ss.get_data().unwrap().as_slice(), &["xxx", "xxx", "xxx"]);
     Ok(())
 }
+
+struct SliceReader<'a> {
+    data: &'a [u8],
+}
+
+impl<'a> Read for SliceReader<'a> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let len = self.data.len();
+        if buf.len() >= len {
+            buf[0..len].copy_from_slice(self.data);
+            self.data = &[];
+            return Ok(len);
+        }
+        let (lhs, rhs) = self.data.split_at(buf.len());
+        buf.copy_from_slice(lhs);
+        self.data = rhs;
+        Ok(lhs.len())
+    }
+}
+
+#[test]
+fn stream_into_regex() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::new();
+    ContextBuilder::default()
+        .set_stream_buffer_size(1)
+        .add_op(create_op_file_reader_custom(
+            Box::new(SliceReader {
+                data: "1\n2\n3\n".as_bytes(),
+            }),
+            true,
+        ))
+        .add_op(create_op_regex_lines())
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(ss.get_data().unwrap().as_slice(), ["1", "2", "3"]);
+    Ok(())
+}

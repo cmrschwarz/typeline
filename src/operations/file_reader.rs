@@ -8,9 +8,11 @@ use std::{
 
 use bstr::BStr;
 use html5ever::tendril::fmt::Slice;
+use is_terminal::IsTerminal;
 use smallstr::SmallString;
 
 use crate::{
+    chain::{BufferingMode, Chain},
     field_data::{
         field_value_flags, push_interface::PushInterface, FieldValueFormat, FieldValueHeader,
         FieldValueKind, FieldValueSize, INLINE_STR_MAX_LEN,
@@ -21,7 +23,7 @@ use crate::{
 };
 
 use super::{
-    errors::{io_error_to_op_error, OperatorCreationError},
+    errors::{io_error_to_op_error, OperatorCreationError, OperatorSetupError},
     operator::{OperatorData, DEFAULT_OP_NAME_SMALL_STR_LEN},
     transform::{TransformData, TransformId, TransformState},
 };
@@ -41,9 +43,15 @@ pub enum AnyFile {
     FileOpenIoError(Option<std::io::Error>),
 }
 
+enum LineBufferedSetting {
+    Yes,
+    No,
+    IfTTY,
+}
+
 pub struct OpFileReader {
     file_kind: FileKind,
-    line_buffered: bool,
+    line_buffered: LineBufferedSetting,
     append: bool,
 }
 
@@ -77,14 +85,30 @@ pub fn setup_tf_file_reader<'a>(
     tf_state: &mut TransformState,
 ) -> (TransformData<'a>, FieldId) {
     //TODO: properly set up line buffering
+    let mut check_if_tty = false;
+    let mut line_buffered = match op.line_buffered {
+        LineBufferedSetting::Yes => true,
+        LineBufferedSetting::No => false,
+        LineBufferedSetting::IfTTY => {
+            check_if_tty = true;
+            false
+        }
+    };
     let file = match &op.file_kind {
-        FileKind::Stdin => AnyFile::Stdin(std::io::stdin().lock()),
+        FileKind::Stdin => {
+            let stdin = std::io::stdin().lock();
+            if check_if_tty {
+                line_buffered = stdin.is_terminal();
+            }
+            AnyFile::Stdin(stdin)
+        }
         FileKind::File(path) => match File::open(path) {
             Ok(f) => {
-                if op.line_buffered {
-                    AnyFile::File(f)
-                } else {
+                if check_if_tty && f.is_terminal() {
+                    line_buffered = true;
                     AnyFile::BufferedFile(BufReader::new(f))
+                } else {
+                    AnyFile::File(f)
                 }
             }
             Err(e) => AnyFile::FileOpenIoError(Some(e)),
@@ -107,7 +131,7 @@ pub fn setup_tf_file_reader<'a>(
     let data = TransformData::FileReader(TfFileReader {
         file: Some(file),
         stream_value: None,
-        line_buffered: op.line_buffered,
+        line_buffered,
         stream_buffer_size: sess.session_data.chains
             [sess.session_data.operator_bases[tf_state.op_id as usize].chain_id as usize]
             .settings
@@ -313,7 +337,7 @@ pub fn parse_op_file(
 
     Ok(OperatorData::FileReader(OpFileReader {
         file_kind: FileKind::File(path),
-        line_buffered: false, //this will be set based on the chain setting during setup
+        line_buffered: LineBufferedSetting::No, //this will be set based on the chain setting during setup
         append,
     }))
 }
@@ -332,7 +356,7 @@ pub fn parse_op_stdin(
 
     Ok(OperatorData::FileReader(OpFileReader {
         file_kind: FileKind::Stdin,
-        line_buffered: false, //this will be set based on the chain setting during setup
+        line_buffered: LineBufferedSetting::No, //this will be set based on the chain setting during setup
         append,
     }))
 }
@@ -340,7 +364,27 @@ pub fn parse_op_stdin(
 pub fn create_op_file_reader_custom(read: Box<dyn Read + Send>, append: bool) -> OperatorData {
     OperatorData::FileReader(OpFileReader {
         file_kind: FileKind::Custom(Mutex::new(Some(read))),
-        line_buffered: false,
+        line_buffered: LineBufferedSetting::No,
         append,
     })
+}
+
+pub fn setup_op_file_reader(
+    chain: &Chain,
+    op: &mut OpFileReader,
+) -> Result<(), OperatorSetupError> {
+    op.line_buffered = match chain.settings.buffering_mode {
+        BufferingMode::BlockBuffer => LineBufferedSetting::No,
+        BufferingMode::LineBuffer => LineBufferedSetting::Yes,
+        BufferingMode::LineBufferStdin => match op.file_kind {
+            FileKind::Stdin => LineBufferedSetting::Yes,
+            _ => LineBufferedSetting::No,
+        },
+        BufferingMode::LineBufferIfTTY => LineBufferedSetting::IfTTY,
+        BufferingMode::LineBufferStdinIfTTY => match op.file_kind {
+            FileKind::Stdin => LineBufferedSetting::IfTTY,
+            _ => LineBufferedSetting::No,
+        },
+    };
+    Ok(())
 }

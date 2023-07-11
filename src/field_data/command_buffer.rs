@@ -449,7 +449,7 @@ impl CommandBuffer {
         min_action_set_id: usize,
         max_action_set_id: usize,
     ) -> Option<ActionSetMergeResult> {
-        if self.action_sets.is_empty() {
+        if self.action_sets.is_empty() || max_action_set_id < min_action_set_id {
             return None;
         }
         let first = self.action_set_id_to_idx(min_action_set_id);

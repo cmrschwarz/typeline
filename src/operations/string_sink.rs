@@ -8,10 +8,6 @@ use std::{
 use bstr::ByteSlice;
 use indexmap::IndexMap;
 
-use crate::field_data::{
-    iter_hall::IterId, iters::FieldIterator, typed::TypedSlice, typed_iters::TypedSliceIter,
-    FieldValueKind,
-};
 use crate::{
     field_data::field_value_flags,
     operations::print::{
@@ -23,6 +19,13 @@ use crate::{
     stream_value::{StreamValue, StreamValueData, StreamValueId},
     utils::universe::Universe,
     worker_thread_session::{FieldId, JobData},
+};
+use crate::{
+    field_data::{
+        iter_hall::IterId, iters::FieldIterator, typed::TypedSlice, typed_iters::TypedSliceIter,
+        FieldValueKind,
+    },
+    ref_iter::RefAwareStreamValueIter,
 };
 
 use super::{
@@ -318,9 +321,9 @@ pub fn handle_tf_string_sink(
                 );
             }
             TypedSlice::StreamValueId(svs) => {
-                for (svid, rl) in TypedSliceIter::from_range(&range.base, svs) {
-                    let sv = &mut sess.sv_mgr.stream_values[*svid];
-                    if !write_stream_val_check_done::<false>(buf, sv, 1).unwrap() {
+                for (svid, offsets, rl) in RefAwareStreamValueIter::from_range(&range, svs) {
+                    let sv = &mut sess.sv_mgr.stream_values[svid];
+                    if !write_stream_val_check_done::<false>(buf, sv, offsets, 1).unwrap() {
                         sv.subscribe(tf_id, tf.stream_value_handles.len(), sv.is_buffered());
                         tf.stream_value_handles.claim_with_value(StreamValueHandle {
                             start_idx: out.data.len(),

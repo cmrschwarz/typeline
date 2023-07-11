@@ -14,6 +14,7 @@ use crate::{
     options::argument::CliArgIdx,
     ref_iter::{
         AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter, RefAwareInlineTextIter,
+        RefAwareStreamValueIter,
     },
     stream_value::{StreamValue, StreamValueData, StreamValueId},
     worker_thread_session::{FieldId, JobData},
@@ -154,6 +155,7 @@ pub fn write_error<const NEWLINE: bool>(
 pub fn write_stream_val_check_done<const NEWLINE: bool>(
     stream: &mut impl Write,
     sv: &StreamValue,
+    offsets: Option<core::ops::Range<usize>>,
     run_len: usize,
 ) -> Result<bool, (usize, std::io::Error)> {
     let rl_to_attempt = if sv.done || run_len == 0 {
@@ -161,6 +163,7 @@ pub fn write_stream_val_check_done<const NEWLINE: bool>(
     } else {
         1
     };
+    debug_assert!(sv.done || offsets.is_none());
     match &sv.data {
         StreamValueData::BytesChunk(c) => {
             for i in 0..rl_to_attempt {
@@ -178,9 +181,10 @@ pub fn write_stream_val_check_done<const NEWLINE: bool>(
         }
         StreamValueData::BytesBuffer(b) => {
             if sv.done {
+                let data = &b[offsets.unwrap_or(0..b.len())];
                 for i in 0..rl_to_attempt {
                     stream
-                        .write(b)
+                        .write(data)
                         .and_then(|_| if NEWLINE { stream.write(b"\n") } else { Ok(0) })
                         .map_err(|e| (i, e))?;
                 }
@@ -188,6 +192,7 @@ pub fn write_stream_val_check_done<const NEWLINE: bool>(
         }
         StreamValueData::Error(e) => {
             debug_assert!(sv.done);
+            debug_assert!(offsets.is_none());
             write_error::<NEWLINE>(stream, e, run_len)?;
         }
         StreamValueData::Dropped => panic!("dropped stream value observed"),
@@ -261,10 +266,11 @@ pub fn handle_tf_print_raw(
                 write_success::<true>(&mut stdout, range.base.field_count)?;
             }
             TypedSlice::StreamValueId(svs) => {
-                for (sv_id, rl) in TypedSliceIter::from_range(&range.base, svs) {
-                    let sv = &mut sess.sv_mgr.stream_values[*sv_id];
-                    if !write_stream_val_check_done::<true>(&mut stdout, sv, rl as usize)? {
-                        tf.current_stream_val = Some(*sv_id);
+                for (sv_id, offsets, rl) in RefAwareStreamValueIter::from_range(&range, svs) {
+                    let sv = &mut sess.sv_mgr.stream_values[sv_id];
+                    if !write_stream_val_check_done::<true>(&mut stdout, sv, offsets, rl as usize)?
+                    {
+                        tf.current_stream_val = Some(sv_id);
                         iter.move_to_field_pos(field_pos);
                         if rl > 1 {
                             sv.promote_to_buffer();
@@ -334,7 +340,7 @@ pub fn handle_tf_print_stream_value_update(
     let mut stdout = std::io::stdout().lock();
     let sv = &mut sess.sv_mgr.stream_values[sv_id];
     let run_len = custom;
-    match write_stream_val_check_done::<true>(&mut stdout, sv, run_len) {
+    match write_stream_val_check_done::<true>(&mut stdout, sv, None, run_len) {
         Ok(true) => sess.tf_mgr.update_ready_state(tf_id),
         Ok(false) => (),
         Err((idx, e)) => {

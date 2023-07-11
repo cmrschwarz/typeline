@@ -6,6 +6,7 @@ use crate::{
         typed_iters::{InlineBytesIter, TypedSliceIter},
         FieldReference, FieldValueHeader, RunLength,
     },
+    stream_value::StreamValueId,
     utils::universe::Universe,
     worker_thread_session::{
         Field, FieldId, MatchSet, MatchSetId, RecordManager, FIELD_REF_LOOKUP_ITER_ID,
@@ -439,6 +440,50 @@ impl<'a> Iterator for RefAwareBytesBufferIter<'a> {
         } else {
             let (data, rl) = self.iter.next()?;
             Some((data, rl, 0))
+        }
+    }
+}
+
+pub struct RefAwareStreamValueIter<'a> {
+    iter: TypedSliceIter<'a, StreamValueId>,
+    refs: Option<TypedSliceIter<'a, FieldReference>>,
+}
+
+impl<'a> RefAwareStreamValueIter<'a> {
+    pub unsafe fn new(
+        values: &'a [StreamValueId],
+        headers: &'a [FieldValueHeader],
+        first_oversize: RunLength,
+        last_oversize: RunLength,
+        refs: Option<TypedSliceIter<'a, FieldReference>>,
+    ) -> Self {
+        Self {
+            iter: TypedSliceIter::new(values, headers, first_oversize, last_oversize),
+            refs,
+        }
+    }
+    pub fn from_range(range: &'a RefAwareTypedRange, values: &'a [StreamValueId]) -> Self {
+        Self {
+            iter: TypedSliceIter::from_range(&range.base, values),
+            refs: range.refs.clone(),
+        }
+    }
+}
+
+impl<'a> Iterator for RefAwareStreamValueIter<'a> {
+    type Item = (StreamValueId, Option<core::ops::Range<usize>>, RunLength);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(ref mut refs_iter) = self.refs {
+            let (fr, rl_ref) = refs_iter.peek()?;
+            let (data, rl_data) = self.iter.peek()?;
+            let run_len = rl_ref.min(rl_data);
+            self.iter.next_n_fields(run_len as usize);
+            refs_iter.next_n_fields(run_len as usize);
+            Some((*data, Some(fr.begin..fr.end), run_len))
+        } else {
+            let (data, rl) = self.iter.next()?;
+            Some((*data, None, rl))
         }
     }
 }

@@ -16,7 +16,9 @@ use crate::field_data::typed_iters::TypedSliceIter;
 use crate::field_data::{field_value_flags, FieldValueKind, RunLength};
 use crate::ref_iter::{
     AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter, RefAwareInlineTextIter,
+    RefAwareStreamValueIter,
 };
+use crate::stream_value::{StreamValueData, StreamValueId};
 use crate::utils::universe::Universe;
 use crate::utils::{self, i64_to_str, USIZE_MAX_DECIMAL_DIGITS};
 use crate::worker_thread_session::Field;
@@ -637,13 +639,74 @@ pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRe
                     }
                 };
             }
+            TypedSlice::StreamValueId(svs) => {
+                for (v, offsets, rl) in RefAwareStreamValueIter::from_range(&range, svs) {
+                    let sv = &mut sess.sv_mgr.stream_values[v];
+                    if sv.done {
+                        let data;
+                        match &sv.data {
+                            StreamValueData::Dropped => unreachable!(),
+                            StreamValueData::Error(e) => {
+                                for cgi in &re.capture_group_fields {
+                                    sess.record_mgr.fields[*cgi]
+                                        .borrow_mut()
+                                        .field_data
+                                        .push_error(e.clone(), rl as usize, true, false);
+                                }
+                                continue;
+                            }
+                            StreamValueData::BytesChunk(bc) => {
+                                data = &bc.as_bytes()[offsets.unwrap_or(0..bc.len())];
+                            }
+                            StreamValueData::BytesBuffer(bb) => {
+                                data = &bb.as_bytes()[offsets.unwrap_or(0..bb.len())];
+                            }
+                        }
+                        bse = if let Some(tr) = &mut text_regex {
+                            if sv.bytes_are_utf8 {
+                                match_regex_inner::<true, _>(
+                                    &mut rmis,
+                                    tr,
+                                    unsafe { std::str::from_utf8_unchecked(data) },
+                                    rl,
+                                    0,
+                                )
+                            } else {
+                                match_regex_inner::<true, _>(
+                                    &mut rmis,
+                                    &mut bytes_regex,
+                                    data,
+                                    rl,
+                                    0,
+                                )
+                            }
+                        } else {
+                            match_regex_inner::<true, _>(&mut rmis, &mut bytes_regex, data, rl, 0)
+                        }
+                    } else {
+                        sv.promote_to_buffer();
+                        sv.subscribe(tf_id, rl as usize, true);
+                        //TODO: if multimatch is false and we are in strict mode
+                        // (don't drop if not applicable, another TODO), we can continue here
+                        re.last_end = rbs.last_end;
+                        re.next_start = rbs.next_start;
+                        let mut base_iter = iter.into_base_iter();
+                        base_iter.move_to_field_pos(rbs.field_pos_input);
+                        sess.tf_mgr.transforms[tf_id].available_batch_size +=
+                            batch_size - (rbs.field_pos_input - field_pos_start);
+                        return;
+                    }
+                    if bse {
+                        break 'batch;
+                    }
+                }
+            }
             TypedSlice::Reference(_) => unreachable!(),
             TypedSlice::Unset(_)
             | TypedSlice::Null(_)
             | TypedSlice::Success(_)
             | TypedSlice::Error(_)
             | TypedSlice::Html(_)
-            | TypedSlice::StreamValueId(_)
             | TypedSlice::Object(_) => {
                 rbs.field_pos_input += range.base.field_count;
                 rbs.field_pos_output += range.base.field_count;
@@ -677,4 +740,15 @@ pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRe
         .store_iter(re.input_field_iter_id, base_iter);
     sess.tf_mgr
         .inform_successor_batch_available(tf_id, rbs.field_pos_output - field_pos_start);
+}
+
+pub fn handle_tf_regex_stream_value_update(
+    sess: &mut JobData<'_>,
+    tf_id: TransformId,
+    _tf: &mut TfRegex,
+    sv_id: StreamValueId,
+    _custom: usize,
+) {
+    debug_assert!(sess.sv_mgr.stream_values[sv_id].done);
+    sess.tf_mgr.push_tf_in_ready_queue(tf_id);
 }
