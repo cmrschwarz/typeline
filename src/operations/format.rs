@@ -546,6 +546,7 @@ pub fn lookup_widths(
     match_sets: &mut Universe<MatchSetId, MatchSet>,
     fmt: &mut TfFormat,
     k: &FormatKey,
+    batch_size: usize,
     apply_actions: bool,
     update_iter: bool,
     succ_func: impl Fn(&mut TfFormat, &mut usize, usize, usize), //output idx, width, run length
@@ -560,8 +561,12 @@ pub fn lookup_widths(
         RecordManager::apply_field_actions(fields, match_sets, ident_ref.field_id);
     }
     let field = &mut fields[ident_ref.field_id].borrow();
-    let mut iter = field.field_data.get_iter(ident_ref.iter_id);
+    let mut iter = field
+        .field_data
+        .get_iter(ident_ref.iter_id)
+        .bounded(0, batch_size);
     let mut output_index = 0;
+    let mut handled_fields = 0;
     while let Some(range) = iter.typed_range_fwd(usize::MAX, 0) {
         match range.data {
             TypedSlice::Integer(ints) => {
@@ -572,7 +577,11 @@ pub fn lookup_widths(
             }
             _ => err_func(fmt, &mut output_index, range.field_count),
         }
+        handled_fields += range.field_count;
     }
+    iter_output_states(fmt, &mut output_index, batch_size - handled_fields, |os| {
+        os.error_occured = true
+    });
     if update_iter {
         field.field_data.store_iter(ident_ref.iter_id, iter);
     }
@@ -589,6 +598,7 @@ pub fn setup_key_output_state(
         match_sets,
         fmt,
         k,
+        batch_size,
         true,
         false,
         |fmt, output_idx, width, run_len| {
@@ -842,6 +852,7 @@ fn write_fmt_key(
         match_sets,
         fmt,
         k,
+        batch_size,
         false,
         true,
         |fmt, output_idx, width, run_len| {
@@ -1071,6 +1082,15 @@ mod test {
         let mut idents = Default::default();
         assert_eq!(
             parse_format_string("{a:1x$}".as_bytes().as_bstr(), &mut idents),
+            Err((4, Cow::Borrowed("expected '}' to terminate format key"))) //TODO: better error message for this case
+        );
+    }
+
+    #[test]
+    fn no_alignment_char() {
+        let mut idents = Default::default();
+        assert_eq!(
+            parse_format_string("{:~id$}".as_bytes().as_bstr(), &mut idents),
             Err((4, Cow::Borrowed("expected '}' to terminate format key"))) //TODO: better error message for this case
         );
     }

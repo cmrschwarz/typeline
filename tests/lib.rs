@@ -278,6 +278,21 @@ fn nonexisting_key() -> Result<(), ScrError> {
     );
     Ok(())
 }
+#[test]
+fn nonexisting_format_width_key() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::new();
+    ContextBuilder::default()
+        .push_str("x", 3)
+        .add_op(create_op_format("{:foo$}".as_bytes().as_bstr()).unwrap())
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert!(ss.get_data().is_err());
+    assert_eq!(
+        ss.get().errors.get(&0).map(|v| (&*v.message)),
+        Some("Format Error") //TODO: better error message
+    );
+    Ok(())
+}
 
 #[test]
 fn seq_enum() -> Result<(), ScrError> {
