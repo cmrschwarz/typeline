@@ -504,6 +504,7 @@ impl<'a> WorkerThreadSession<'a> {
         let ops = &self.job_data.session_data.chains[start_op.chain_id as usize].operations
             [start_op.offset_in_chain as usize..];
         for op_id in ops {
+            let op_base = &self.job_data.session_data.operator_bases[*op_id as usize];
             let op_data = &self.job_data.session_data.operator_data[*op_id as usize];
             let tf_data;
             let jd = &mut self.job_data;
@@ -539,6 +540,10 @@ impl<'a> WorkerThreadSession<'a> {
                 OperatorData::Sequence(op) => setup_tf_sequence(jd, op, &mut tf_state),
                 OperatorData::Key(_) => unreachable!(),
             };
+            if let Some(lbl) = op_base.label {
+                jd.record_mgr.add_field_name(output_field, lbl);
+            }
+
             let appending = tf_state.is_appending;
             let tf_id = self.add_transform(tf_state, tf_data);
             debug_assert!(tf_id_peek == tf_id);
