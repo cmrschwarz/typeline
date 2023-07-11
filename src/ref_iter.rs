@@ -78,6 +78,9 @@ impl<'a> RefIter<'a> {
         match_sets: &'_ mut Universe<MatchSetId, MatchSet>,
         field_id: FieldId,
     ) {
+        if self.last_field_id == field_id {
+            return;
+        }
         self.field_ref
             .take()
             .unwrap()
@@ -96,6 +99,9 @@ impl<'a> RefIter<'a> {
         match_sets: &'_ mut Universe<MatchSetId, MatchSet>,
         field_id: FieldId,
     ) {
+        if self.last_field_id == field_id {
+            return;
+        }
         self.move_to_field_pos(
             match_sets,
             field_id,
@@ -149,7 +155,6 @@ impl<'a> RefIter<'a> {
         let ref_header_idx = self.refs_iter.headers_remaining();
         let (mut field_ref, mut field_rl) = self.refs_iter.next()?;
         let field = field_ref.field;
-
         self.move_to_field_keep_pos(match_sets, field);
         let iter = self.data_iter.as_mut().unwrap();
         let fmt = iter.get_next_field_format();

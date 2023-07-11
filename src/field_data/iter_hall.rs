@@ -69,6 +69,7 @@ impl IterHall {
         if h.run_length == state.header_rl_offset {
             state.header_idx += 1;
             state.header_rl_offset = 0;
+            state.data += h.total_size();
             if state.header_idx == self.fd.header.len() {
                 h.run_length = 0;
             }
@@ -103,17 +104,14 @@ impl IterHall {
         let mut iter = iter.as_base_iter();
         assert!(iter.fd as *const FieldData == &self.fd as *const FieldData);
         let mut state = self.iters[iter_id].get();
-
         state.field_pos = iter.field_pos;
-        state.data = iter.data;
         state.header_rl_offset = iter.header_rl_offset;
-        state.header_idx = iter.header_idx;
         if iter.header_idx == self.fd.header.len() && iter.header_idx > 0 {
             iter.prev_field();
-            state.header_idx = iter.header_idx;
             state.header_rl_offset = iter.field_run_length_bwd() + 1;
         }
-
+        state.header_idx = iter.header_idx;
+        state.data = iter.data;
         self.iters[iter_id].set(state);
     }
 

@@ -350,14 +350,7 @@ impl JobData<'_> {
             self.tf_mgr.push_tf_in_ready_queue(cont_id);
             return;
         }
-        //TODO: update field refcounts
-        if let Some(pred_id) = predecessor {
-            self.tf_mgr.transforms[pred_id].successor = successor;
-        } else {
-            self.record_mgr.match_sets[tf.match_set_id]
-                .command_buffer
-                .clear();
-        }
+
         if let Some(succ_id) = successor {
             self.tf_mgr.transforms[succ_id].predecessor = predecessor;
             self.tf_mgr
