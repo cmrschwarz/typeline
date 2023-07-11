@@ -152,7 +152,10 @@ pub fn preparse_replace_empty_capture_group<'a>(
                             }
                             break;
                         }
-                        _ => break,
+                        // if there is a 'real' error in the regex,
+                        // make sure to display the error based on the original regex,
+                        // not the tampered one
+                        _ => return Ok((Cow::Borrowed(regex_str), None)),
                     }
                 }
                 break;
@@ -751,4 +754,25 @@ pub fn handle_tf_regex_stream_value_update(
 ) {
     debug_assert!(sess.sv_mgr.stream_values[sv_id].done);
     sess.tf_mgr.push_tf_in_ready_queue(tf_id);
+}
+
+#[cfg(test)]
+mod test {
+    use bstr::ByteSlice;
+
+    use super::{parse_op_regex, RegexOptions};
+
+    #[test]
+    fn empty_capture_group_does_not_mess_with_error_string() {
+        let res = parse_op_regex(
+            Some("?(<>)(".as_bytes().as_bstr()),
+            None,
+            RegexOptions::default(),
+        );
+        assert!(res.is_err_and(|e| {
+            //TODO: improve this error message
+            assert_eq!(e.message, "failed to compile regex: regex parse error:\n    ?(<>)(\n    ^\nerror: repetition operator missing expression");
+            true
+        }));
+    }
 }
