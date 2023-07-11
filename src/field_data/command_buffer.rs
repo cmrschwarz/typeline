@@ -1,6 +1,8 @@
-use std::cell::RefMut;
+use std::{cell::RefMut, num::NonZeroUsize};
 
-use crate::worker_thread_session::Field;
+use nonmax::NonMaxUsize;
+
+use crate::{utils::universe::Universe, worker_thread_session::Field};
 
 use super::{iter_hall::IterState, FieldData, FieldValueFormat, FieldValueHeader, RunLength};
 
@@ -28,12 +30,6 @@ impl FieldAction {
     }
 }
 
-struct ActionSet {
-    set_index: usize,
-    actions_start: usize,
-    action_count: usize,
-}
-
 #[derive(Clone, Copy)]
 struct ActionSetMergeResult {
     merge_set_index: usize,
@@ -51,10 +47,32 @@ struct CopyCommand {
     len: usize,
 }
 
+type ActionSetIndex = NonZeroUsize;
+type ActionProducingFieldIndex = NonMaxUsize;
+
+struct ActionSet {
+    curr_action_set_in_prev_apf: Option<ActionSetIndex>,
+    actions_start: usize,
+    action_count: usize,
+}
+
+struct ActionMergeSets {
+    min_ordering_id: usize,
+    action_set_index_offset: usize,
+    action_sets: Vec<ActionSet>,
+    actions: Vec<FieldAction>,
+}
+
+struct ActionProducingField {
+    prev: Option<ActionProducingFieldIndex>,
+    next: Option<ActionProducingFieldIndex>,
+    //merge_sets[0].min_ordering_id is the ordering id of this APF
+    merge_sets: Vec<ActionMergeSets>,
+}
+
 #[derive(Default)]
 pub struct CommandBuffer {
-    actions: [Vec<FieldAction>; 4],
-    action_sets: Vec<ActionSet>,
+    action_producing_fields: Universe<ActionProducingFieldIndex, ActionProducingField>,
     iter_states: Vec<&'static mut IterState>,
     copies: Vec<CopyCommand>,
     insertions: Vec<InsertionCommand>,
@@ -95,6 +113,7 @@ impl CommandBuffer {
             // this also allows operations to be slightly more 'wasteful' with their action pushes
             let last = &mut self.actions[ACTIONS_RAW_IDX][acs.actions_start + acs.action_count - 1];
             if last.kind == kind
+                && last.field_idx == field_idx
                 && RunLength::MAX as usize > last.run_len as usize + run_length as usize
             {
                 last.run_len += run_length;
