@@ -49,5 +49,6 @@ pub struct TransformState {
     pub is_stream_subscriber: bool,
     pub is_ready: bool,
     pub is_appending: bool,
+    pub done_if_input_done: bool,
     pub preferred_input_type: Option<FieldValueKind>,
 }

@@ -84,6 +84,7 @@ pub fn setup_ts_split_as_entry_point<'a, 'b>(
         is_stream_subscriber: false,
         is_appending: false,
         preferred_input_type: None,
+        done_if_input_done: true,
     };
     let data = TransformData::Split(TfSplit {
         expanded: false,

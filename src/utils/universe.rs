@@ -1,7 +1,6 @@
 use std::{
     fmt::Debug,
     ops::{Deref, Index, IndexMut},
-    slice::IterMut,
 };
 
 pub trait UniverseIndex:
@@ -45,16 +44,8 @@ impl<I: UniverseIndex> Deref for UniverseIdx<I> {
 
 #[derive(Clone)]
 pub struct Universe<I: UniverseIndex, T> {
-    data: Vec<T>,
+    data: Vec<Option<T>>,
     unused_ids: Vec<UniverseIdx<I>>,
-}
-
-impl<I: UniverseIndex, T: Default> Deref for Universe<I, T> {
-    type Target = Vec<T>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.data
-    }
 }
 
 impl<I: UniverseIndex, T> Default for Universe<I, T> {
@@ -82,7 +73,7 @@ impl<I: UniverseIndex, T> Universe<I, T> {
         self.unused_ids.clear();
         self.data.clear();
     }
-    pub fn as_mut_slice(&mut self) -> &mut [T] {
+    pub fn as_mut_slice(&mut self) -> &mut [Option<T>] {
         self.data.as_mut_slice()
     }
     // makes sure that the next n `claim`s that are not interrupted
@@ -92,38 +83,30 @@ impl<I: UniverseIndex, T> Universe<I, T> {
         self.unused_ids[0..len].sort_unstable();
     }
 
-    pub fn iter_mut(&mut self) -> IterMut<T> {
-        self.data.iter_mut()
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut T> {
+        self.data.iter_mut().filter_map(|x| x.as_mut())
     }
 
     pub fn any_used(&mut self) -> Option<&mut T> {
-        self.unused_ids.sort_unstable();
-        let mut i = 0;
-        let mut unused_iter = self.unused_ids.iter().peekable();
-        loop {
-            if i == self.data.len() {
-                return None;
+        for d in &mut self.data {
+            if d.is_some() {
+                return d.as_mut();
             }
-            if Some(i) == unused_iter.peek().map(|id| id.to_usize()) {
-                i += 1;
-                unused_iter.next();
-                continue;
-            }
-            return Some(&mut self.data[i]);
         }
+        None
     }
 
     pub fn reserve_id_with(
         &mut self,
         id: I,
-        defaults_func: impl FnMut() -> T,
+        mut defaults_func: impl FnMut() -> T,
         func: impl FnOnce() -> T,
     ) {
         let index = UniverseIdx(id).to_usize();
         let prev_len = self.data.len();
         if prev_len <= index {
-            self.data.resize_with(index, defaults_func);
-            self.data.push(func());
+            self.data.resize_with(index, || Some(defaults_func()));
+            self.data.push(Some(func()));
             self.unused_ids.extend(
                 (prev_len..index)
                     .into_iter()
@@ -151,7 +134,7 @@ impl<I: UniverseIndex, T> Universe<I, T> {
             *id
         } else {
             let id = self.data.len();
-            self.data.push(f());
+            self.data.push(Some(f()));
             *UniverseIdx::from_usize(id)
         }
     }
@@ -161,15 +144,35 @@ impl<I: UniverseIndex, T> Universe<I, T> {
             *id
         } else {
             let id = self.data.len();
-            self.data.push(value);
+            self.data.push(Some(value));
             *UniverseIdx::from_usize(id)
         }
     }
     pub fn calc_id(&self, entry: &T) -> I {
+        let offset_in_option = if let Some(v) = &self.data[0] {
+            unsafe {
+                (v as *const T as *const u8).offset_from(self.data.as_ptr() as *const u8) as usize
+            }
+        } else {
+            unreachable!();
+        };
+        let ptr =
+            unsafe { (entry as *const T as *const u8).sub(offset_in_option) as *const Option<T> };
         let range = self.data.as_ptr_range();
-        let ptr = entry as *const T;
         assert!(range.contains(&ptr));
         *UniverseIdx::from_usize(unsafe { ptr.offset_from(range.start) } as usize)
+    }
+    pub fn get(&self, id: I) -> Option<&T> {
+        match self.data.get(usize::try_from(id).ok()?) {
+            Some(v) => v.as_ref(),
+            None => None,
+        }
+    }
+    pub fn ge_mut(&mut self, id: I) -> Option<&mut T> {
+        match self.data.get_mut(usize::try_from(id).ok()?) {
+            Some(v) => v.as_mut(),
+            None => None,
+        }
     }
 }
 
@@ -187,12 +190,12 @@ impl<I: UniverseIndex, T> Index<I> for Universe<I, T> {
     type Output = T;
 
     fn index(&self, index: I) -> &Self::Output {
-        &self.data[index.into()]
+        self.data[index.into()].as_ref().unwrap()
     }
 }
 
 impl<I: UniverseIndex, T> IndexMut<I> for Universe<I, T> {
     fn index_mut(&mut self, index: I) -> &mut Self::Output {
-        &mut self.data[index.into()]
+        self.data[index.into()].as_mut().unwrap()
     }
 }

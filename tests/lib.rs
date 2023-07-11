@@ -4,7 +4,7 @@ use scr::operations::sequence::{create_op_enum, create_op_seq_append};
 use scr::{
     field_data::{push_interface::PushInterface, record_set::RecordSet},
     operations::{
-        data_inserter::{create_op_data_inserter, AnyData},
+        data_inserter::{create_op_data_inserter, DataToInsert},
         file_reader::create_op_file_reader_custom,
         format::create_op_format,
         key::create_op_key,
@@ -26,6 +26,36 @@ fn string_sink() -> Result<(), ScrError> {
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(ss.get_data().unwrap().as_slice(), ["foo"]);
+    Ok(())
+}
+
+#[test]
+fn data_inserter() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::new();
+    ContextBuilder::default()
+        .add_op(create_op_data_inserter(
+            DataToInsert::String("foo".to_owned()),
+            None,
+            false,
+        ))
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(ss.get_data().unwrap().as_slice(), ["foo"]);
+    Ok(())
+}
+
+#[test]
+fn counted_data_inserter() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::new();
+    ContextBuilder::default()
+        .add_op(create_op_data_inserter(
+            DataToInsert::String("x".to_owned()),
+            Some(3),
+            false,
+        ))
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(ss.get_data().unwrap().as_slice(), ["x", "x", "x"]);
     Ok(())
 }
 
@@ -194,7 +224,7 @@ fn large_seq_with_regex() -> Result<(), ScrError> {
 fn key_with_fmt() -> Result<(), ScrError> {
     let ss = StringSinkHandle::new();
     ContextBuilder::default()
-        .add_op(create_op_data_inserter(AnyData::Int(42), true))
+        .add_op(create_op_data_inserter(DataToInsert::Int(42), None, true))
         .add_op(create_op_key("foo".to_owned()))
         .add_op(create_op_key("bar".to_owned()))
         .add_op(create_op_format("foo: {foo}, bar: {bar}".as_bytes().as_bstr()).unwrap())

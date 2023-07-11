@@ -1,5 +1,5 @@
 use crate::chain::BufferingMode;
-use crate::operations::data_inserter::{parse_op_bytes, parse_op_int, parse_op_str};
+use crate::operations::data_inserter::{argument_matches_data_inserter, parse_data_inserter};
 use crate::operations::errors::OperatorCreationError;
 use crate::operations::file_reader::{parse_op_file, parse_op_stdin};
 use crate::operations::format::parse_op_format;
@@ -389,6 +389,9 @@ fn parse_operation(
         }
         return Ok(Some(OperatorData::Regex(parse_op_regex(value, idx, opts)?)));
     }
+    if argument_matches_data_inserter(argname) {
+        return Ok(Some(parse_data_inserter(argname, value, idx)?));
+    }
     let append = &argname[0..1] == "+";
     Ok(match argname {
         "s" | "split" => Some(parse_op_split(value, idx)?),
@@ -397,16 +400,11 @@ fn parse_operation(
         "key" => Some(parse_op_key(value, idx)?),
 
         "+file" | "file" => Some(parse_op_file(value, append, idx)?),
+        "+stdin" | "stdin" => Some(parse_op_stdin(value, append, idx)?),
 
         "seq" => Some(parse_op_seq(value, SequenceMode::Default, idx)?),
         "+seq" => Some(parse_op_seq(value, SequenceMode::Append, idx)?),
         "enum" => Some(parse_op_seq(value, SequenceMode::Enumerate, idx)?),
-
-        "+url" | "url" => todo!(),
-        "+str" | "str" => Some(parse_op_str(value, append, idx)?),
-        "+int" | "int" => Some(parse_op_int(value, append, idx)?),
-        "+bytes" | "bytes" => Some(parse_op_bytes(value, append, idx)?),
-        "+stdin" | "stdin" => Some(parse_op_stdin(value, append, idx)?),
         _ => None,
     })
 }

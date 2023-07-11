@@ -307,6 +307,9 @@ impl JobData<'_> {
         tf.available_batch_size -= batch_size;
         batch_size
     }
+    pub fn unclaim_batch_size(&mut self, tf_id: TransformId, batch_size: usize) {
+        self.tf_mgr.transforms[tf_id].available_batch_size += batch_size;
+    }
     pub fn prepare_for_output(&mut self, tf_id: TransformId, output_fields: &[FieldId]) {
         let tf = &mut self.tf_mgr.transforms[tf_id];
         let cb = &mut self.record_mgr.match_sets[tf.match_set_id].command_buffer;
@@ -322,12 +325,6 @@ impl JobData<'_> {
         //TODO: if nobody accesses the earlier fields, we can
         // delete these actions here
         cb.merge_upper_action_sets(ord_id);
-    }
-    pub fn inform_transform_pred_done(&mut self, tf_id: TransformId) {
-        let tf = &mut self.tf_mgr.transforms[tf_id];
-        if !tf.is_ready && !tf.is_stream_producer && !tf.is_stream_subscriber {
-            self.unlink_transform(tf_id, 0);
-        }
     }
     pub fn unlink_transform(&mut self, tf_id: TransformId, available_batch_for_successor: usize) {
         let tf = &self.tf_mgr.transforms[tf_id];
@@ -365,7 +362,6 @@ impl JobData<'_> {
             self.tf_mgr.transforms[succ_id].predecessor = predecessor;
             self.tf_mgr
                 .inform_transform_batch_available(succ_id, available_batch_for_successor);
-            self.inform_transform_pred_done(succ_id);
         }
     }
 }
@@ -407,18 +403,27 @@ impl<'a> WorkerThreadSession<'a> {
             let start_tf_id = self.setup_transforms_from_op(ms_id, job.starting_ops[0], input_data);
 
             let tf = &mut self.job_data.tf_mgr.transforms[start_tf_id];
-            if tf.is_appending {
-                if let Some(succ) = tf.successor {
-                    let tf_succ = &mut self.job_data.tf_mgr.transforms[succ];
-                    tf_succ.available_batch_size = input_record_count;
-                    if tf_succ.desired_batch_size <= input_record_count {
-                        self.job_data.tf_mgr.transforms[start_tf_id].is_appending = false;
-                        self.job_data.tf_mgr.push_tf_in_ready_queue(succ);
-                    }
+            if input_record_count == 0 {
+                if tf.is_appending {
+                    tf.is_appending = false;
+                } else {
+                    tf.available_batch_size = 1;
                 }
             } else {
-                tf.available_batch_size = input_record_count;
+                if tf.is_appending {
+                    if let Some(succ) = tf.successor {
+                        let tf_succ = &mut self.job_data.tf_mgr.transforms[succ];
+                        tf_succ.available_batch_size = input_record_count;
+                        if tf_succ.desired_batch_size <= input_record_count {
+                            self.job_data.tf_mgr.transforms[start_tf_id].is_appending = false;
+                            self.job_data.tf_mgr.push_tf_in_ready_queue(succ);
+                        }
+                    }
+                } else {
+                    tf.available_batch_size = input_record_count;
+                }
             }
+
             self.job_data.tf_mgr.push_tf_in_ready_queue(start_tf_id);
         }
         Ok(())
@@ -527,6 +532,7 @@ impl<'a> WorkerThreadSession<'a> {
                 is_stream_subscriber: false,
                 is_appending: false,
                 preferred_input_type: None,
+                done_if_input_done: true,
             };
             let tf_id_peek = jd.tf_mgr.transforms.peek_claim_id();
             (tf_data, output_field) = match &op_data {
@@ -653,6 +659,12 @@ impl<'a> WorkerThreadSession<'a> {
                     TransformData::Format(tf) => handle_tf_format(jd, tf_id, tf),
                     TransformData::Disabled => unreachable!(),
                 }
+                if let Some(tf) = self.job_data.tf_mgr.transforms.get(tf_id) {
+                    if tf.available_batch_size == 0 && !tf.is_ready && tf.done_if_input_done {
+                        self.job_data.unlink_transform(tf_id, 0);
+                    }
+                }
+
                 continue;
             }
             break;
