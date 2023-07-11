@@ -141,7 +141,7 @@ pub struct IterMut<'a> {
 impl<'a> Iter<'a> {
     pub fn from_start(fd: &'a FieldData, initial_field_offset: usize) -> Self {
         let first_header = fd.header.first();
-        Self {
+        let mut res = Self {
             fd,
             field_pos: initial_field_offset,
             data: 0,
@@ -149,7 +149,11 @@ impl<'a> Iter<'a> {
             header_rl_offset: 0,
             header_rl_total: first_header.map_or(0, |h| h.run_length),
             header_fmt: first_header.map(|h| h.fmt).unwrap_or_default(),
+        };
+        while res.header_fmt.deleted() {
+            res.next_header();
         }
+        res
     }
     pub fn from_end(fd: &'a FieldData, initial_field_offset: usize) -> Self {
         Self {
@@ -160,6 +164,11 @@ impl<'a> Iter<'a> {
             header_rl_offset: 0,
             header_rl_total: 0,
             header_fmt: Default::default(),
+        }
+    }
+    fn skip_dead_fields(&mut self) {
+        while self.header_fmt.deleted() {
+            self.next_header();
         }
     }
 }
