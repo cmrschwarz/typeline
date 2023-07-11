@@ -78,7 +78,8 @@ pub fn handle_tf_data_inserter(
     di: &mut TfDataInserter,
 ) {
     let amend_mode = di.output_field == sess.tf_mgr.transforms[tf_id].input_field;
-    if amend_mode {
+    let yield_to_succ = sess.tf_mgr.transforms[tf_id].continuation.is_some();
+    if amend_mode || yield_to_succ {
         insert(sess, di, 1);
         sess.unlink_transform(tf_id, 1);
         return;
