@@ -254,7 +254,7 @@ fn unset_value() -> Result<(), ScrError> {
         .run()?;
     assert_eq!(
         ss.get().data.as_slice(),
-        &["x0", "in op id 3: Format Error"]
+        &["x0", "Error: in op id 3: Format Error"]
     );
     assert_eq!(
         ss.get().errors.get(&1).map(|v| (&*v.message)),

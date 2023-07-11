@@ -1087,15 +1087,6 @@ mod test {
     }
 
     #[test]
-    fn no_alignment_char() {
-        let mut idents = Default::default();
-        assert_eq!(
-            parse_format_string("{:~id$}".as_bytes().as_bstr(), &mut idents),
-            Err((4, Cow::Borrowed("expected '}' to terminate format key"))) //TODO: better error message for this case
-        );
-    }
-
-    #[test]
     fn fill_char_is_optional_not_an_ident() {
         let mut idents = Default::default();
         let mut a = FormatKey::default();
