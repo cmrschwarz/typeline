@@ -452,7 +452,9 @@ fn match_regex_inner<'a, 'b, const PUSH_REF: bool, R: AnyRegex>(
                 field.push_null(run_length as usize, true);
             }
         }
-        if rmis.batch_state.field_pos_output == rmis.batch_state.batch_end_field_pos_output {
+        if rmis.batch_state.field_pos_output + match_count
+            == rmis.batch_state.batch_end_field_pos_output
+        {
             bse = true;
             break;
         }
@@ -513,9 +515,10 @@ struct RegexMatchInnerState<'a, 'b> {
 }
 
 pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRegex) {
-    let (batch_size, input_field_id) = sess.claim_batch(tf_id);
+    let batch_size = sess.claim_batch(tf_id);
     sess.prepare_for_output(tf_id, &re.capture_group_fields);
     let tf = &sess.tf_mgr.transforms[tf_id];
+    let input_field_id = tf.input_field;
     let op_id = tf.op_id;
 
     sess.record_mgr.match_sets[tf.match_set_id]

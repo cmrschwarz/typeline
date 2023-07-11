@@ -231,12 +231,13 @@ pub fn handle_tf_string_sink(
     tf_id: TransformId,
     tf: &mut TfStringSink<'_>,
 ) {
-    let (batch, input_field_id) = sess.claim_batch(tf_id);
+    let batch_size = sess.claim_batch(tf_id);
+    let input_field_id = sess.tf_mgr.transforms[tf_id].input_field;
     let input_field = sess.record_mgr.fields[input_field_id].borrow();
     let base_iter = input_field
         .field_data
         .get_iter(tf.batch_iter)
-        .bounded(0, batch);
+        .bounded(0, batch_size);
     let starting_pos = base_iter.get_next_field_pos();
     let mut iter = AutoDerefIter::new(
         &sess.record_mgr.fields,

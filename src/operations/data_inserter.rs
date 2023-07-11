@@ -62,19 +62,33 @@ pub fn setup_tf_data_inserter<'a>(
     (data, output_field)
 }
 
+fn insert(sess: &mut JobData<'_>, di: &mut TfDataInserter, run_length: usize) {
+    let mut output_field = sess.record_mgr.fields[di.output_field].borrow_mut();
+    match di.data {
+        AnyData::Bytes(b) => output_field
+            .field_data
+            .push_bytes(b, run_length, true, true),
+        AnyData::String(s) => output_field.field_data.push_str(s, run_length, true, true),
+        AnyData::Int(i) => output_field.field_data.push_int(*i, run_length, true, true),
+    }
+}
 pub fn handle_tf_data_inserter(
     sess: &mut JobData<'_>,
     tf_id: TransformId,
     di: &mut TfDataInserter,
 ) {
-    let mut output_field = sess.record_mgr.fields[di.output_field].borrow_mut();
-    match di.data {
-        AnyData::Bytes(b) => output_field.field_data.push_bytes(b, 1, true, false),
-        AnyData::String(s) => output_field.field_data.push_str(s, 1, true, false),
-        AnyData::Int(i) => output_field.field_data.push_int(*i, 1, true, false),
+    let amend_mode = di.output_field == sess.tf_mgr.transforms[tf_id].input_field;
+    if amend_mode {
+        insert(sess, di, 1);
+        sess.unlink_transform(tf_id, 1);
+        return;
     }
-    drop(output_field);
-    sess.unlink_transform(tf_id, 1);
+    sess.prepare_for_output(tf_id, &[di.output_field]);
+    let batch_size = sess.claim_batch(tf_id);
+    insert(sess, di, batch_size);
+    sess.tf_mgr
+        .inform_successor_batch_available(tf_id, batch_size);
+    sess.tf_mgr.update_ready_state(tf_id);
 }
 
 pub fn parse_op_str(

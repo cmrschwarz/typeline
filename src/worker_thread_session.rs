@@ -46,7 +46,7 @@ pub struct Field {
     pub ref_count: usize,
     pub match_set: MatchSetId,
     pub added_as_placeholder_by_tf: Option<TransformId>,
-    pub last_applied_action_set_id: usize,
+    pub min_action_set_to_apply: usize,
 
     pub name: Option<StringStoreEntry>,
     pub working_set_idx: Option<NonMaxUsize>,
@@ -248,15 +248,11 @@ impl RecordManager {
         match_sets: &mut Universe<MatchSetId, MatchSet>,
         field: FieldId,
     ) {
-        let mut f = fields[field].borrow_mut();
+        let f = fields[field].borrow_mut();
         let match_set = f.match_set;
         let cb = &mut match_sets[match_set].command_buffer;
-        let last_acs = cb.last_action_set_id();
-        let last_applied_acs = f.last_applied_action_set_id;
-        if last_applied_acs < last_acs {
-            f.last_applied_action_set_id = last_acs;
-            cb.execute_for_iter_halls([f].into_iter(), last_applied_acs, last_acs);
-        }
+        let min_acs = f.min_action_set_to_apply;
+        cb.execute_for_iter_halls([f].into_iter(), min_acs, cb.last_action_set_id());
     }
     pub fn initialize_tf_output_fields(
         &mut self,
@@ -265,7 +261,7 @@ impl RecordManager {
     ) {
         for ofid in output_fields {
             let mut f = self.fields[*ofid].borrow_mut();
-            f.last_applied_action_set_id = usize::from(ord_id);
+            f.min_action_set_to_apply = usize::from(ord_id) + 1;
         }
     }
 }
@@ -305,11 +301,11 @@ impl StreamValueManager {
 }
 
 impl JobData<'_> {
-    pub fn claim_batch(&mut self, tf_id: TransformId) -> (usize, FieldId) {
+    pub fn claim_batch(&mut self, tf_id: TransformId) -> usize {
         let tf = &mut self.tf_mgr.transforms[tf_id];
-        let batch = tf.desired_batch_size.min(tf.available_batch_size);
-        tf.available_batch_size -= batch;
-        (batch, tf.input_field)
+        let batch_size = tf.desired_batch_size.min(tf.available_batch_size);
+        tf.available_batch_size -= batch_size;
+        batch_size
     }
     pub fn prepare_for_output(&mut self, tf_id: TransformId, output_fields: &[FieldId]) {
         let tf = &mut self.tf_mgr.transforms[tf_id];
@@ -321,12 +317,11 @@ impl JobData<'_> {
             for ofid in output_fields {
                 let mut f = self.record_mgr.fields[*ofid].borrow_mut();
                 f.field_data.clear();
-                f.last_applied_action_set_id = ord_id;
             }
         }
         //TODO: if nobody accesses the earlier fields, we can
         // delete these actions here
-        cb.merge_upper_action_sets(ord_id + 1);
+        cb.merge_upper_action_sets(ord_id);
     }
     pub fn inform_transform_pred_done(&mut self, tf_id: TransformId) {
         let tf = &mut self.tf_mgr.transforms[tf_id];

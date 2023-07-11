@@ -104,7 +104,7 @@ pub fn handle_tf_sequence(sess: &mut JobData<'_>, tf_id: TransformId, seq: &mut 
         return;
     }
 
-    let (mut batch_size, _) = sess.claim_batch(tf_id);
+    let mut batch_size = sess.claim_batch(tf_id);
 
     if batch_size == 0 && seq.mode == SequenceMode::Enumerate {
         sess.unlink_transform(tf_id, 0);

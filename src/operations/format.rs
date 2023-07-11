@@ -915,8 +915,9 @@ fn write_fmt_key(
 }
 pub fn handle_tf_format(sess: &mut JobData<'_>, tf_id: TransformId, fmt: &mut TfFormat) {
     sess.prepare_for_output(tf_id, std::slice::from_ref(&fmt.output_field));
-    let (batch_size, _input_field_id) = sess.claim_batch(tf_id);
-    let op_id = sess.tf_mgr.transforms[tf_id].op_id;
+    let batch_size = sess.claim_batch(tf_id);
+    let tf = &sess.tf_mgr.transforms[tf_id];
+    let op_id = tf.op_id;
     let mut output_field = sess.record_mgr.fields[fmt.output_field].borrow_mut();
     fmt.output_states.push(OutputState {
         run_len: batch_size,
