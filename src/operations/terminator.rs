@@ -28,4 +28,5 @@ pub fn handle_tf_terminator(sess: &mut JobData<'_>, tf_id: TransformId, t1000: &
     cb.begin_action_list(t1000.apf_idx);
     cb.push_action_with_usize_rl(t1000.apf_idx, FieldActionKind::Drop, 0, batch_size);
     sess.tf_mgr.update_ready_state(tf_id);
+    cb.end_action_list(t1000.apf_idx);
 }

@@ -742,6 +742,9 @@ pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRe
             }
         }
     }
+    sess.record_mgr.match_sets[tf.match_set_id]
+        .command_buffer
+        .end_action_list(re.apf_idx);
     re.last_end = rbs.last_end;
     re.next_start = rbs.next_start;
     let mut base_iter = iter.into_base_iter();

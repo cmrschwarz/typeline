@@ -435,12 +435,12 @@ fn batched_format_after_drop() -> Result<(), ScrError> {
     let ss = StringSinkHandle::new();
     ContextBuilder::default()
         .set_batch_size(1)
-        .add_op(create_op_seq(0, 10, 1).unwrap())
-        .add_op(create_op_regex("[3-5]", RegexOptions::default()).unwrap())
+        .add_op(create_op_seq(0, 20, 1).unwrap())
+        .add_op(create_op_regex(".*[3].*", RegexOptions::default()).unwrap())
         .add_op(create_op_key("a".to_owned()))
         .add_op(create_op_format("{a}".as_bytes().as_bstr()).unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
-    assert_eq!(ss.get_data().unwrap().as_slice(), ["3", "4", "5"]);
+    assert_eq!(ss.get_data().unwrap().as_slice(), ["3", "13"]);
     Ok(())
 }

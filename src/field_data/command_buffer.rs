@@ -163,11 +163,6 @@ impl MergedActionLists {
 impl CommandBuffer {
     pub fn begin_action_list(&mut self, apf_idx: ActionProducingFieldIndex) {
         let apf = &self.action_producing_fields[apf_idx];
-        if let Some(acs) = apf.merged_action_lists[0].action_lists.last() {
-            if acs.actions_end == acs.actions_start {
-                return;
-            }
-        }
         let start = apf.merged_action_lists[0].actions.len();
         let first_unapplied_idx = apf.merged_action_lists[0]
             .prev_apf_idx
@@ -187,6 +182,14 @@ impl CommandBuffer {
                 actions_start: start,
                 actions_end: start,
             });
+    }
+    pub fn end_action_list(&mut self, apf_idx: ActionProducingFieldIndex) {
+        let apf = &mut self.action_producing_fields[apf_idx];
+        let mal = &mut apf.merged_action_lists[0];
+        let al = mal.action_lists.last().unwrap();
+        if al.actions_end == al.actions_start {
+            mal.action_lists.pop();
+        }
     }
     pub fn push_action(
         &mut self,
@@ -272,6 +275,25 @@ impl CommandBuffer {
         self.execute_commands(&mut field.field_data.fd);
         self.cleanup();
         self.iter_states.clear();
+    }
+    pub fn clear_field_dropping_commands<'a>(&mut self, field: &mut Field) {
+        if self.first_apf_idx.is_none() {
+            return;
+        }
+        if field.min_apf_idx.is_none() {
+            field.min_apf_idx = self.first_apf_idx;
+        }
+        if field.curr_apf_idx.is_none() {
+            field.curr_apf_idx = field.min_apf_idx;
+        }
+
+        let min_apf_idx = field.min_apf_idx.unwrap();
+        let curr_apf_idx = field.curr_apf_idx.as_mut().unwrap();
+        let first_unapplied_al_idx = &mut field.first_unapplied_al;
+        //TODO: this is pretty wasteful. figure out a better way to do this
+        self.prepare_action_lists(min_apf_idx, curr_apf_idx, first_unapplied_al_idx);
+        self.cleanup();
+        field.field_data.clear();
     }
     pub fn execute_for_field_data<'a>(
         &mut self,
@@ -527,7 +549,7 @@ impl CommandBuffer {
         let first_ref = self.get_merge_result_mal_ref(&first);
         let second_ref = self.get_merge_result_mal_ref(&second);
         let first_slice = self.get_merge_resuls_slice(first_ref.as_ref().map(|r| &**r), &first);
-        let second_slice = self.get_merge_resuls_slice(first_ref.as_ref().map(|r| &**r), &first);
+        let second_slice = self.get_merge_resuls_slice(second_ref.as_ref().map(|r| &**r), &second);
         let res_size = first_slice.len() + second_slice.len();
         let res_len_before;
         let res_len_after;
@@ -589,7 +611,7 @@ impl CommandBuffer {
             0
         };
         loop {
-            if last_end >= required_al_idx_end {
+            if last_end + 1 >= required_al_idx_end {
                 return;
             }
             let end = last_end + 2;
@@ -681,27 +703,19 @@ impl CommandBuffer {
         loop {
             let apf = &self.action_producing_fields[apf_idx];
             let mal = &apf.merged_action_lists[mal_idx];
-            let lmal = &mal.locally_merged_action_lists[local_merge_idx];
-            let mut width = lmal.al_idx_end - lmal.al_idx_start;
-            let mut end;
-            loop {
-                end = lmal.al_idx_end - width;
-                if end < al_idx_start {
-                    break;
-                }
-                width /= 2;
-                if width == 1 {
-                    break;
-                }
+            let mut lmal = &mal.locally_merged_action_lists[local_merge_idx];
+            while lmal.al_idx_start < al_idx_start {
                 local_merge_idx -= 1;
+                lmal = &mal.locally_merged_action_lists[local_merge_idx];
             }
-            if width == 1 {
-                let lhs = self.action_list_as_result(apf_idx, mal_idx, lmal.al_idx_end - 1);
+            if lmal.al_idx_start == al_idx_start + 1 {
+                let lhs = self.action_list_as_result(apf_idx, mal_idx, lmal.al_idx_start - 1);
                 return self.merge_two_action_lists(lhs, rhs);
             }
             let lhs = self.locally_merged_action_list_as_result(apf_idx, mal_idx, local_merge_idx);
+            let lmal_start = lmal.al_idx_start;
             rhs = self.merge_two_action_lists(lhs, rhs);
-            if end == al_idx_start {
+            if lmal_start == al_idx_start {
                 return rhs;
             }
         }

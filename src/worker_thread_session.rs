@@ -319,9 +319,10 @@ impl JobData<'_> {
         if tf.is_appending {
             tf.is_appending = false;
         } else {
+            let cb = &mut self.record_mgr.match_sets[tf.match_set_id].command_buffer;
             for ofid in output_fields {
                 let mut f = self.record_mgr.fields[*ofid].borrow_mut();
-                f.field_data.clear();
+                cb.clear_field_dropping_commands(&mut f);
             }
         }
     }
