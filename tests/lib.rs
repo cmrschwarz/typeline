@@ -1,6 +1,7 @@
 use scr::bstr::ByteSlice;
 
 use scr::operations::sequence::{create_op_enum, create_op_seq_append};
+use scr::utils::i64_to_str;
 use scr::{
     field_data::{push_interface::PushInterface, record_set::RecordSet},
     operations::{
@@ -103,7 +104,9 @@ fn regex_drop() -> Result<(), ScrError> {
 
 #[test]
 fn large_batch() -> Result<(), ScrError> {
-    let number_string_list: Vec<_> = (0..10000).into_iter().map(|n| n.to_string()).collect();
+    const COUNT: usize = 10000;
+    const PASS: usize = 1000;
+    let number_string_list: Vec<_> = (0..COUNT).into_iter().map(|n| n.to_string()).collect();
     let number_string_joined = number_string_list.iter().fold(String::new(), |mut f, n| {
         f.push_str(n.to_string().as_str());
         f.push_str("\n");
@@ -118,7 +121,31 @@ fn large_batch() -> Result<(), ScrError> {
         .run()?;
     assert_eq!(
         ss.get_data().unwrap().as_slice(),
-        &number_string_list[0..1000]
+        &number_string_list[0..PASS]
+    );
+    Ok(())
+}
+#[test]
+fn large_batch_seq() -> Result<(), ScrError> {
+    const COUNT: i64 = 10000;
+    const PASS: i64 = 1000;
+    let ss = StringSinkHandle::new();
+    let re = regex::Regex::new(r"\d{1,3}").unwrap();
+    ContextBuilder::default()
+        .set_batch_size(COUNT as usize)
+        .add_op(create_op_seq(0, COUNT, 1).unwrap())
+        .add_op(create_op_regex(r"\d{1,3}", RegexOptions::default()).unwrap())
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(
+        ss.get_data().unwrap().as_slice(),
+        &(0..PASS)
+            .filter_map(|v| {
+                let v = i64_to_str(false, v).to_string();
+                re.captures(v.as_str())
+                    .and_then(|v| v.get(0).map(|v| v.as_str().to_owned()))
+            })
+            .collect::<Vec<_>>()
     );
     Ok(())
 }

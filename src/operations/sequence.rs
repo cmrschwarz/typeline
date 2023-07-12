@@ -124,14 +124,18 @@ pub fn handle_tf_sequence(sess: &mut JobData<'_>, tf_id: TransformId, seq: &mut 
             .inform_successor_batch_available(tf_id, batch_size);
         return;
     }
-
+    let mut done = false;
     let succ_wants_text = if let Some(succ) = sess.tf_mgr.transforms[tf_id].successor {
         let s = &sess.tf_mgr.transforms[succ];
         if batch_size == 0 {
-            batch_size = s.desired_batch_size.saturating_sub(s.available_batch_size)
+            batch_size = s.desired_batch_size.saturating_sub(s.available_batch_size);
+            done = true;
         }
         s.preferred_input_type == Some(FieldValueKind::BytesInline) && output_field.name == None
     } else {
+        if batch_size == 0 {
+            done = true;
+        }
         false
     };
 
@@ -174,9 +178,14 @@ pub fn handle_tf_sequence(sess: &mut JobData<'_>, tf_id: TransformId, seq: &mut 
         }
     }
     let fields_added = batch_size - bs_rem;
-    sess.tf_mgr.push_tf_in_ready_queue(tf_id);
-    sess.tf_mgr
-        .inform_successor_batch_available(tf_id, fields_added);
+    drop(output_field);
+    if done {
+        sess.unlink_transform(tf_id, fields_added);
+    } else {
+        sess.tf_mgr.push_tf_in_ready_queue(tf_id);
+        sess.tf_mgr
+            .inform_successor_batch_available(tf_id, fields_added);
+    }
 }
 
 pub fn parse_op_seq(
