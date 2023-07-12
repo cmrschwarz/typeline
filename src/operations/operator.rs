@@ -4,14 +4,15 @@ use crate::{chain::ChainId, options::argument::CliArgIdx, utils::string_store::S
 
 use super::{
     data_inserter::OpDataInserter, file_reader::OpFileReader, format::OpFormat, key::OpKey,
-    regex::OpRegex, sequence::OpSequence, split::OpSplit, string_sink::OpStringSink,
+    print::OpPrint, regex::OpRegex, sequence::OpSequence, split::OpSplit,
+    string_sink::OpStringSink,
 };
 
 pub type OperatorId = u32;
 pub type OperatorOffsetInChain = u32;
 
 pub enum OperatorData {
-    Print,
+    Print(OpPrint),
     Split(OpSplit),
     Key(OpKey),
     Regex(OpRegex),
@@ -35,14 +36,14 @@ pub const DEFAULT_OP_NAME_SMALL_STR_LEN: usize = 16;
 impl OperatorData {
     pub fn default_op_name(&self) -> SmallString<[u8; DEFAULT_OP_NAME_SMALL_STR_LEN]> {
         match self {
-            OperatorData::Print => SmallString::from("p"),
+            OperatorData::Print(_) => SmallString::from("p"),
             OperatorData::Sequence(op) => op.default_op_name(),
             OperatorData::Split(_) => SmallString::from("split"),
             OperatorData::Key(_) => SmallString::from("key"),
             OperatorData::Regex(op) => op.default_op_name(),
             OperatorData::FileReader(op) => op.default_op_name(),
             OperatorData::Format(_) => SmallString::from("f"),
-            OperatorData::StringSink(_) => SmallString::from("__string_sink__"),
+            OperatorData::StringSink(_) => SmallString::from("<String Sink>"),
             OperatorData::DataInserter(op) => op.default_op_name(),
         }
     }

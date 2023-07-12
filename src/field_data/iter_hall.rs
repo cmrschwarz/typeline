@@ -4,7 +4,7 @@ use crate::utils::universe::Universe;
 
 use super::{
     iters::{FieldIterator, Iter},
-    FieldData, FieldValueHeader, RunLength,
+    FieldData, FieldDataInternals, FieldValueHeader, RunLength,
 };
 
 pub type IterId = usize;
@@ -12,13 +12,7 @@ pub type IterId = usize;
 #[derive(Default)]
 pub struct IterHall {
     pub(super) fd: FieldData,
-    pub(super) initial_field_offset: usize,
     pub(super) iters: Universe<IterId, Cell<IterState>>,
-}
-
-pub struct IterHallInternals<'a> {
-    pub fd: &'a mut FieldData,
-    pub initial_field_offset: &'a mut usize,
 }
 
 #[derive(Default, Clone, Copy)]
@@ -41,7 +35,7 @@ impl IterHall {
     pub fn claim_iter(&mut self) -> IterId {
         let iter_id = self.iters.claim();
         self.iters[iter_id].set(IterState {
-            field_pos: self.initial_field_offset,
+            field_pos: 0,
             data: 0,
             header_idx: 0,
             header_rl_offset: 0,
@@ -106,11 +100,8 @@ impl IterHall {
     }
 
     /// returns a tuple of (FieldData, initial_field_offset, field_count)
-    pub unsafe fn internals(&mut self) -> IterHallInternals {
-        IterHallInternals {
-            fd: &mut self.fd,
-            initial_field_offset: &mut self.initial_field_offset,
-        }
+    pub unsafe fn internals(&mut self) -> FieldDataInternals {
+        self.fd.internals()
     }
 
     pub fn copy<'a, TargetApplicatorFn: FnMut(&mut dyn FnMut(&mut IterHall))>(
@@ -127,26 +118,20 @@ impl IterHall {
     pub fn field_count(&self) -> usize {
         self.fd.field_count
     }
-    pub fn field_index_offset(&self) -> usize {
-        self.initial_field_offset
-    }
     pub fn clear(&mut self) {
-        self.initial_field_offset += self.fd.field_count;
         for it in self.iters.iter_mut() {
             let it = it.get_mut();
             it.data = 0;
             it.header_rl_offset = 0;
             it.header_idx = 0;
-            it.field_pos = self.initial_field_offset;
+            it.field_pos = 0;
         }
         self.fd.clear();
     }
     pub fn reset(&mut self) {
-        self.initial_field_offset = 0;
         self.fd.clear();
     }
     pub fn reset_with_data(&mut self, fd: FieldData) {
-        self.initial_field_offset = 0;
         self.fd = fd;
     }
     pub fn new_with_data(fd: FieldData) -> Self {

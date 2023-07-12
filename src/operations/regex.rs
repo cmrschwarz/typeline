@@ -537,7 +537,7 @@ pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRe
     sess.prepare_for_output(tf_id, &re.capture_group_fields);
     let tf = &sess.tf_mgr.transforms[tf_id];
     let input_field_id = tf.input_field;
-    let op_id = tf.op_id;
+    let op_id = tf.op_id.unwrap();
 
     sess.record_mgr.match_sets[tf.match_set_id]
         .command_buffer

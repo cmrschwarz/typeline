@@ -25,6 +25,7 @@ use crate::{
         string_sink::{
             handle_tf_string_sink, handle_tf_string_sink_stream_value_update, setup_tf_string_sink,
         },
+        terminator::{handle_tf_terminator, setup_tf_terminator},
         transform::{TransformData, TransformId, TransformOrderingId, TransformState},
     },
     scr_error::ScrError,
@@ -505,27 +506,19 @@ impl<'a> WorkerThreadSession<'a> {
                 jd.record_mgr.add_field_name(prev_field_id, op.key_sse);
                 continue;
             }
-            let mut tf_state = TransformState {
-                available_batch_size: 0,
-                input_field: prev_field_id,
-                match_set_id: ms_id,
-                desired_batch_size: default_batch_size,
-                successor: None,
-                continuation: None,
-                predecessor: predecessor_tf,
-                op_id: *op_id,
-                ordering_id: jd.tf_mgr.claim_transform_ordering_id(),
-                is_ready: false,
-                is_stream_producer: false,
-                is_stream_subscriber: false,
-                is_appending: false,
-                preferred_input_type: None,
-                done_if_input_done: true,
-            };
+            let mut tf_state = TransformState::new(
+                prev_field_id,
+                ms_id,
+                default_batch_size,
+                predecessor_tf,
+                Some(*op_id),
+                jd.tf_mgr.claim_transform_ordering_id(),
+            );
+
             let tf_id_peek = jd.tf_mgr.transforms.peek_claim_id();
             (tf_data, output_field) = match &op_data {
                 OperatorData::Split(split) => setup_tf_split(jd, split, &mut tf_state),
-                OperatorData::Print => setup_tf_print(jd, &mut tf_state),
+                OperatorData::Print(op) => setup_tf_print(jd, op, &mut tf_state),
                 OperatorData::Regex(op) => setup_tf_regex(jd, op, &mut tf_state),
                 OperatorData::Format(op) => setup_tf_format(jd, op, &mut tf_state, tf_id_peek),
                 OperatorData::StringSink(op) => setup_tf_string_sink(jd, op, &mut tf_state),
@@ -562,6 +555,16 @@ impl<'a> WorkerThreadSession<'a> {
                 predecessor_tf = Some(tf_id);
             }
         }
+        let mut term_state = TransformState::new(
+            prev_field_id,
+            ms_id,
+            default_batch_size,
+            predecessor_tf,
+            None,
+            self.job_data.tf_mgr.claim_transform_ordering_id(),
+        );
+        let term_data = setup_tf_terminator(&mut self.job_data, &mut term_state);
+        self.add_transform(term_state, term_data);
         start_tf_id.unwrap()
     }
     pub fn add_transform(&mut self, state: TransformState, data: TransformData<'a>) -> TransformId {
@@ -609,6 +612,7 @@ impl<'a> WorkerThreadSession<'a> {
                         svu.custom,
                     ),
                     TransformData::Split(_) => todo!(),
+                    TransformData::Terminator(_) => unreachable!(),
                     TransformData::FileReader(_) => unreachable!(),
                     TransformData::Sequence(_) => unreachable!(),
                     TransformData::Disabled => unreachable!(),
@@ -645,6 +649,7 @@ impl<'a> WorkerThreadSession<'a> {
                     TransformData::DataInserter(tf) => handle_tf_data_inserter(jd, tf_id, tf),
                     TransformData::Sequence(tf) => handle_tf_sequence(jd, tf_id, tf),
                     TransformData::Format(tf) => handle_tf_format(jd, tf_id, tf),
+                    TransformData::Terminator(tf) => handle_tf_terminator(jd, tf_id, tf),
                     TransformData::Disabled => unreachable!(),
                 }
                 if let Some(tf) = self.job_data.tf_mgr.transforms.get(tf_id) {

@@ -62,14 +62,10 @@ pub fn setup_ts_split_as_entry_point<'a, 'b>(
     entry_count: usize,
     ops: impl Iterator<Item = &'b OperatorId> + Clone,
 ) -> (TransformState, TransformData<'a>) {
-    let state = TransformState {
+    let mut state = TransformState::new(
         input_field,
-        available_batch_size: entry_count,
-        match_set_id: ms_id,
-        successor: None,
-        continuation: None,
-        predecessor: None,
-        desired_batch_size: ops.clone().fold(usize::MAX, |minimum_batch_size, op| {
+        ms_id,
+        ops.clone().fold(usize::MAX, |minimum_batch_size, op| {
             let cid = sess.session_data.operator_bases[*op as usize].chain_id;
             minimum_batch_size.min(
                 sess.session_data.chains[cid as usize]
@@ -77,15 +73,11 @@ pub fn setup_ts_split_as_entry_point<'a, 'b>(
                     .default_batch_size,
             )
         }),
-        op_id: OperatorId::MAX,
-        ordering_id: sess.tf_mgr.claim_transform_ordering_id(),
-        is_ready: false,
-        is_stream_producer: false,
-        is_stream_subscriber: false,
-        is_appending: false,
-        preferred_input_type: None,
-        done_if_input_done: true,
-    };
+        None,
+        None,
+        sess.tf_mgr.claim_transform_ordering_id(),
+    );
+    state.available_batch_size = entry_count;
     let data = TransformData::Split(TfSplit {
         expanded: false,
         targets: ops

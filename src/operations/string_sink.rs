@@ -136,7 +136,7 @@ fn push_string(
         Ok(s) => s,
         Err(e) => {
             let err = Arc::new(OperatorApplicationError {
-                op_id: sess.tf_mgr.transforms[tf_id].op_id,
+                op_id: sess.tf_mgr.transforms[tf_id].op_id.unwrap(),
                 message: Cow::Borrowed("invalid utf-8"),
             });
             for i in field_pos..field_pos + run_len {
@@ -249,9 +249,9 @@ pub fn handle_tf_string_sink(
         base_iter,
         None,
     );
-    let mut field_pos = starting_pos;
     let mut out = tf.handle.lock().unwrap();
     let buf = &mut tf.buf;
+    let mut field_pos = out.data.len();
 
     while let Some(range) = iter.typed_range_fwd(
         &mut sess.record_mgr.match_sets,
@@ -363,7 +363,7 @@ pub fn handle_tf_string_sink_stream_value_update(
     let svh = &mut tf.stream_value_handles[custom];
     let sv = &mut sess.sv_mgr.stream_values[sv_id];
     append_stream_val(
-        sess.tf_mgr.transforms[tf_id].op_id,
+        sess.tf_mgr.transforms[tf_id].op_id.unwrap(),
         sv,
         svh,
         &mut out,

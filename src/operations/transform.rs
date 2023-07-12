@@ -10,7 +10,7 @@ use crate::{
 use super::{
     data_inserter::TfDataInserter, file_reader::TfFileReader, format::TfFormat,
     operator::OperatorId, print::TfPrint, regex::TfRegex, sequence::TfSequence, split::TfSplit,
-    string_sink::TfStringSink,
+    string_sink::TfStringSink, terminator::TfTerminator,
 };
 
 pub type TransformId = NonMaxUsize;
@@ -27,6 +27,7 @@ pub enum TransformData<'a> {
     FileReader(TfFileReader),
     DataInserter(TfDataInserter<'a>),
     Sequence(TfSequence),
+    Terminator(TfTerminator),
 }
 
 impl Default for TransformData<'_> {
@@ -43,7 +44,7 @@ pub struct TransformState {
     pub available_batch_size: usize,
     pub desired_batch_size: usize,
     pub match_set_id: MatchSetId,
-    pub op_id: OperatorId,
+    pub op_id: Option<OperatorId>,
     pub ordering_id: TransformOrderingId,
     pub is_stream_producer: bool,
     pub is_stream_subscriber: bool,
@@ -51,4 +52,33 @@ pub struct TransformState {
     pub is_appending: bool,
     pub done_if_input_done: bool,
     pub preferred_input_type: Option<FieldValueKind>,
+}
+
+impl TransformState {
+    pub fn new(
+        input_field: FieldId,
+        ms_id: MatchSetId,
+        desired_batch_size: usize,
+        predecessor: Option<TransformId>,
+        op_id: Option<OperatorId>,
+        ordering_id: TransformOrderingId,
+    ) -> Self {
+        TransformState {
+            available_batch_size: 0,
+            input_field,
+            match_set_id: ms_id,
+            desired_batch_size,
+            successor: None,
+            continuation: None,
+            predecessor: predecessor,
+            op_id,
+            ordering_id,
+            is_ready: false,
+            is_stream_producer: false,
+            is_stream_subscriber: false,
+            is_appending: false,
+            preferred_input_type: None,
+            done_if_input_done: true,
+        }
+    }
 }

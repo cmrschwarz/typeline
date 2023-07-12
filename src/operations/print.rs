@@ -26,6 +26,7 @@ use super::{
     transform::{TransformData, TransformId, TransformState},
 };
 
+pub struct OpPrint {}
 pub struct TfPrint {
     flush_on_every_print: bool,
     current_stream_val: Option<StreamValueId>,
@@ -43,11 +44,12 @@ pub fn parse_op_print(
             arg_idx,
         ));
     }
-    Ok(OperatorData::Print)
+    Ok(OperatorData::Print(OpPrint {}))
 }
 
 pub fn setup_tf_print(
     sess: &mut JobData,
+    _op: &OpPrint,
     tf_state: &mut TransformState,
 ) -> (TransformData<'static>, FieldId) {
     let output_field = sess.record_mgr.add_field(tf_state.match_set_id, None);
@@ -67,7 +69,7 @@ pub fn setup_tf_print(
 }
 
 pub fn create_op_print() -> OperatorData {
-    OperatorData::Print
+    OperatorData::Print(OpPrint {})
 }
 
 pub fn write_raw_bytes<const NEWLINE: bool>(
@@ -322,7 +324,7 @@ pub fn handle_tf_print(sess: &mut JobData<'_>, tf_id: TransformId, tf: &mut TfPr
                 output_field.field_data.push_success(nsucc, true);
             }
             let e = OperatorApplicationError {
-                op_id: sess.tf_mgr.transforms[tf_id].op_id,
+                op_id: sess.tf_mgr.transforms[tf_id].op_id.unwrap(),
                 message: Cow::Owned(err.to_string()),
             };
             output_field.field_data.push_error(e, nfail, false, true);
@@ -350,7 +352,7 @@ pub fn handle_tf_print_stream_value_update(
                 .field_data
                 .push_error(
                     OperatorApplicationError {
-                        op_id: sess.tf_mgr.transforms[tf_id].op_id,
+                        op_id: sess.tf_mgr.transforms[tf_id].op_id.unwrap(),
                         message: Cow::Owned(e.to_string()),
                     },
                     run_len,

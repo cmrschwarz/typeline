@@ -133,7 +133,7 @@ pub fn setup_tf_file_reader<'a>(
         stream_value: None,
         line_buffered,
         stream_buffer_size: sess.session_data.chains
-            [sess.session_data.operator_bases[tf_state.op_id as usize].chain_id as usize]
+            [sess.session_data.operator_bases[tf_state.op_id.unwrap() as usize].chain_id as usize]
             .settings
             .stream_buffer_size,
         output_field,
@@ -201,7 +201,7 @@ fn start_streaming_file(sess: &mut JobData<'_>, tf_id: TransformId, fr: &mut TfF
     // SAFETY: this relies on the memory layout in field_data.
     // since that is a submodule of us, this is fine.
     // ideally though, FieldData would expose some way to do this safely.
-    let fdi = unsafe { out_field.field_data.internals().fd.internals() };
+    let fdi = unsafe { out_field.field_data.internals() };
 
     let size_before = fdi.data.len();
     let res = read_chunk(
@@ -230,7 +230,7 @@ fn start_streaming_file(sess: &mut JobData<'_>, tf_id: TransformId, fr: &mut TfF
             size
         }
         Err(err) => {
-            let err = io_error_to_op_error(sess.tf_mgr.transforms[tf_id].op_id, err);
+            let err = io_error_to_op_error(sess.tf_mgr.transforms[tf_id].op_id.unwrap(), err);
             out_field.field_data.push_error(err, 1, false, false);
             fr.file.take();
             drop(out_field);
@@ -300,7 +300,7 @@ pub fn handle_tf_file_reader(sess: &mut JobData<'_>, tf_id: TransformId, fr: &mu
             sv.done = true;
         }
         Err(err) => {
-            let err = io_error_to_op_error(sess.tf_mgr.transforms[tf_id].op_id, err);
+            let err = io_error_to_op_error(sess.tf_mgr.transforms[tf_id].op_id.unwrap(), err);
             sv.data = StreamValueData::Error(err);
             sv.done = true;
         }

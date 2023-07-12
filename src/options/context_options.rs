@@ -135,7 +135,7 @@ impl ContextOptions {
                 | OperatorData::Split(_)
                 | OperatorData::Sequence(_)
                 | OperatorData::DataInserter(_)
-                | OperatorData::Print => (),
+                | OperatorData::Print(_) => (),
             }
         }
         Ok(())
