@@ -2,6 +2,7 @@ use std::{
     fmt::Debug,
     ops::{Deref, Index, IndexMut},
 };
+//TODO: create a Vec using this Index type but without the whole reclaiming mechainic
 
 pub trait UniverseIndex:
     Clone
