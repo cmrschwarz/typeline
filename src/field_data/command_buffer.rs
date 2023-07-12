@@ -112,8 +112,8 @@ pub struct CommandBuffer {
 impl MergedActionLists {
     pub fn is_legal_field_idx_for_action(&self, field_idx: usize) -> bool {
         if let Some(acs) = self.action_lists.last() {
-            if acs.actions_end != 0 {
-                self.actions[acs.actions_start + acs.actions_end - 1].field_idx <= field_idx
+            if acs.actions_end != acs.actions_start {
+                self.actions[acs.actions_end - 1].field_idx <= field_idx
             } else {
                 true
             }
@@ -136,10 +136,10 @@ impl MergedActionLists {
     pub fn push_action(&mut self, kind: FieldActionKind, field_idx: usize, run_length: RunLength) {
         assert!(self.is_legal_field_idx_for_action(field_idx));
         let al = self.action_lists.last_mut().unwrap();
-        if al.actions_end > 0 {
+        if al.actions_end > al.actions_start {
             // very simple early merging of actions to hopefully save some memory
             // this also allows operations to be slightly more 'wasteful' with their action pushes
-            let last = &mut self.actions[al.actions_start + al.actions_end - 1];
+            let last = &mut self.actions[al.actions_end - 1];
             if last.kind == kind
                 && last.field_idx == field_idx
                 && RunLength::MAX as usize > last.run_len as usize + run_length as usize
@@ -453,7 +453,7 @@ impl CommandBuffer {
             ActionListMergeLocation::CbActionList { idx } => idx,
         };
         let mal = &mut self.merged_actions[idx].borrow_mut();
-        debug_assert!(mal.len() == almr.actions_end);
+        debug_assert!(mal.len() == almr.actions_end - almr.actions_start);
         mal.truncate(almr.actions_start);
     }
     fn merge_two_action_lists(
@@ -507,7 +507,7 @@ impl CommandBuffer {
         ActionListMergeResult {
             location: ActionListMergeLocation::ApfMal { apf_idx, mal_idx },
             actions_start: al.actions_start,
-            actions_end: al.actions_start + al.actions_end,
+            actions_end: al.actions_end,
         }
     }
     fn locally_merged_action_list_as_result(
@@ -521,7 +521,7 @@ impl CommandBuffer {
         ActionListMergeResult {
             location: ActionListMergeLocation::ApfLocal { apf_idx, mal_idx },
             actions_start: al.actions_start,
-            actions_end: al.actions_start + al.actions_end,
+            actions_end: al.actions_end,
         }
     }
     fn construct_missing_local_merges(
