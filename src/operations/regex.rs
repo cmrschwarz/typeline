@@ -292,13 +292,21 @@ pub fn setup_tf_regex<'a>(
     op: &'a OpRegex,
     tf_state: &mut TransformState,
 ) -> (TransformData<'a>, FieldId) {
+    let cb = &mut sess.record_mgr.match_sets[tf_state.match_set_id].command_buffer;
+    let apf_idx = cb.claim_apf(tf_state.ordering_id);
+    let apf_succ = cb.peek_next_apf_id();
+
     let cgfs: Vec<FieldId> = op
         .capture_group_names
         .iter()
-        .map(|name| sess.record_mgr.add_field(tf_state.match_set_id, *name))
+        .map(|name| {
+            sess.record_mgr
+                .add_field(tf_state.match_set_id, Some(apf_succ), *name)
+        })
         .collect();
     tf_state.preferred_input_type = Some(FieldValueKind::BytesInline);
     let output_field = cgfs[op.output_group_id];
+
     let re = TfRegex {
         regex: op.regex.clone(),
         text_only_regex: op
@@ -314,15 +322,8 @@ pub fn setup_tf_regex<'a>(
             .claim_iter(),
         last_end: None,
         next_start: 0,
-        apf_idx: sess.record_mgr.match_sets[tf_state.match_set_id]
-            .command_buffer
-            .claim_apf(tf_state.ordering_id),
+        apf_idx,
     };
-    sess.record_mgr.initialize_tf_output_fields(
-        tf_state.match_set_id,
-        tf_state.ordering_id,
-        &re.capture_group_fields,
-    );
     (TransformData::Regex(re), output_field)
 }
 

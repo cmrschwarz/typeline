@@ -67,7 +67,11 @@ pub fn setup_tf_sequence<'a>(
         tf_state.is_appending = true;
         tf_state.input_field
     } else {
-        sess.record_mgr.add_field(tf_state.match_set_id, None)
+        sess.record_mgr.add_field(
+            tf_state.match_set_id,
+            sess.record_mgr.get_min_apf_idx(tf_state.input_field),
+            None,
+        )
     };
     tf_state.done_if_input_done = false;
     let data = TransformData::Sequence(TfSequence {

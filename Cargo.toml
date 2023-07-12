@@ -57,3 +57,4 @@ lto = "thin"
 
 [features]
 unstable = []
+debug_logging= []

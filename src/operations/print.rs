@@ -52,7 +52,11 @@ pub fn setup_tf_print(
     _op: &OpPrint,
     tf_state: &mut TransformState,
 ) -> (TransformData<'static>, FieldId) {
-    let output_field = sess.record_mgr.add_field(tf_state.match_set_id, None);
+    let output_field = sess.record_mgr.add_field(
+        tf_state.match_set_id,
+        sess.record_mgr.get_min_apf_idx(tf_state.input_field),
+        None,
+    );
     let tf = TfPrint {
         // TODO: should we make a config option for this?
         flush_on_every_print: std::io::stdout().is_terminal(),

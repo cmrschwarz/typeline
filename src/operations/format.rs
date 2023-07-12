@@ -181,7 +181,11 @@ pub fn setup_tf_format<'a>(
     tf_id: TransformId,
 ) -> (TransformData<'a>, FieldId) {
     //TODO: cache field indices...
-    let output_field = sess.record_mgr.add_field(tf_state.match_set_id, None);
+    let output_field = sess.record_mgr.add_field(
+        tf_state.match_set_id,
+        sess.record_mgr.get_min_apf_idx(tf_state.input_field),
+        None,
+    );
     let refs: Vec<_> = op
         .refs_idx
         .iter()
@@ -192,8 +196,11 @@ pub fn setup_tf_format<'a>(
                     .get(name)
                     .and_then(|fields| fields.back().cloned())
                     .unwrap_or_else(|| {
-                        sess.record_mgr
-                            .add_field(tf_state.match_set_id, Some(*name))
+                        sess.record_mgr.add_field(
+                            tf_state.match_set_id,
+                            sess.record_mgr.get_min_apf_idx(tf_state.input_field),
+                            Some(*name),
+                        )
                     });
                 let mut f = sess.record_mgr.fields[id].borrow_mut();
                 f.added_as_placeholder_by_tf = Some(tf_id);
@@ -216,11 +223,6 @@ pub fn setup_tf_format<'a>(
         output_targets: Default::default(),
         stream_value_handles: Default::default(),
     };
-    sess.record_mgr.initialize_tf_output_fields(
-        tf_state.match_set_id,
-        tf_state.ordering_id,
-        &[output_field],
-    );
     (TransformData::Format(tf), output_field)
 }
 

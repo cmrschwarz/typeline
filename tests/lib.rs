@@ -415,3 +415,21 @@ fn stream_into_regex() -> Result<(), ScrError> {
     assert_eq!(ss.get_data().unwrap().as_slice(), ["1", "2", "3"]);
     Ok(())
 }
+
+#[test]
+fn format_after_surrounding_drop() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::new();
+    ContextBuilder::default()
+        .add_op(create_op_seq(0, 10, 1).unwrap())
+        .add_op_with_opts(
+            create_op_regex("[3-5]", RegexOptions::default()).unwrap(),
+            None,
+            Some("a"),
+            None,
+        )
+        .add_op(create_op_format("{a}".as_bytes().as_bstr()).unwrap())
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(ss.get_data().unwrap().as_slice(), ["3", "4", "5"]);
+    Ok(())
+}

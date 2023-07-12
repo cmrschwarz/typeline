@@ -48,7 +48,7 @@ pub struct Field {
     pub match_set: MatchSetId,
     pub added_as_placeholder_by_tf: Option<TransformId>,
     pub min_apf_idx: Option<ActionProducingFieldIndex>,
-    pub max_apf_idx: Option<ActionProducingFieldIndex>,
+    pub curr_apf_idx: Option<ActionProducingFieldIndex>,
     pub first_unapplied_al: ActionListIndex,
 
     pub name: Option<StringStoreEntry>,
@@ -163,10 +163,15 @@ impl TransformManager {
 }
 
 impl RecordManager {
+    pub fn get_min_apf_idx(&self, field_id: FieldId) -> Option<ActionProducingFieldIndex> {
+        let field = self.fields[field_id].borrow();
+        field.min_apf_idx
+    }
     fn setup_field(
         &mut self,
         field_id: FieldId,
         ms_id: MatchSetId,
+        min_apf: Option<ActionProducingFieldIndex>,
         name: Option<StringStoreEntry>,
     ) -> FieldId {
         let mut field = self.fields[field_id as FieldId].borrow_mut();
@@ -176,6 +181,7 @@ impl RecordManager {
         field.match_set = ms_id;
         field.added_as_placeholder_by_tf = None;
         field.working_set_idx = None;
+        field.min_apf_idx = min_apf;
         if let Some(name) = name {
             match self.match_sets[ms_id].field_name_map.entry(name) {
                 hash_map::Entry::Occupied(ref mut e) => {
@@ -200,17 +206,23 @@ impl RecordManager {
             }
         }
     }
-    pub fn add_field(&mut self, ms_id: MatchSetId, name: Option<StringStoreEntry>) -> FieldId {
+    pub fn add_field(
+        &mut self,
+        ms_id: MatchSetId,
+        min_apf: Option<ActionProducingFieldIndex>,
+        name: Option<StringStoreEntry>,
+    ) -> FieldId {
         let id = self.fields.claim();
-        self.setup_field(id, ms_id, name)
+        self.setup_field(id, ms_id, min_apf, name)
     }
     pub fn add_field_with_data(
         &mut self,
         ms_id: MatchSetId,
+        min_apf: Option<ActionProducingFieldIndex>,
         name: Option<StringStoreEntry>,
         data: FieldData,
     ) -> FieldId {
-        let id = self.add_field(ms_id, name);
+        let id = self.add_field(ms_id, min_apf, name);
         self.fields[id]
             .borrow_mut()
             .field_data
@@ -255,22 +267,6 @@ impl RecordManager {
         let match_set = f.match_set;
         let cb = &mut match_sets[match_set].command_buffer;
         cb.execute_for_field(&mut f);
-    }
-    pub fn initialize_tf_output_fields(
-        &mut self,
-        ms_id: MatchSetId,
-        tf_ordering_id: TransformOrderingId,
-        output_fields: &[FieldId],
-    ) {
-        let min_apf_idx = self.match_sets[ms_id]
-            .command_buffer
-            .get_min_apf_idx(tf_ordering_id);
-        for ofid in output_fields {
-            let mut f = self.fields[*ofid].borrow_mut();
-            f.min_apf_idx = min_apf_idx;
-            f.max_apf_idx = min_apf_idx;
-            f.first_unapplied_al = 0;
-        }
     }
 }
 
@@ -375,14 +371,14 @@ impl<'a> WorkerThreadSession<'a> {
             let field_id = self
                 .job_data
                 .record_mgr
-                .add_field_with_data(ms_id, fd.name, fd.data);
+                .add_field_with_data(ms_id, None, fd.name, fd.data);
             if input_data.is_none() {
                 input_data = Some(field_id);
             }
             //TODO: add all to working set?
         }
         let input_data =
-            input_data.unwrap_or_else(|| self.job_data.record_mgr.add_field(ms_id, None));
+            input_data.unwrap_or_else(|| self.job_data.record_mgr.add_field(ms_id, None, None));
 
         debug_assert!(!job.starting_ops.is_empty());
         if job.starting_ops.len() > 1 {
@@ -465,7 +461,7 @@ impl<'a> WorkerThreadSession<'a> {
         for i in 0..targets.len() {
             let op = targets[i];
             let ms_id = self.job_data.record_mgr.add_match_set();
-            let input_field = self.job_data.record_mgr.add_field(ms_id, None);
+            let input_field = self.job_data.record_mgr.add_field(ms_id, None, None);
             targets[i] = self.setup_transforms_from_op(
                 ms_id,
                 <NonMaxUsize as TryInto<usize>>::try_into(op).unwrap() as OperatorId,
