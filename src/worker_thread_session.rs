@@ -9,7 +9,7 @@ use nonmax::NonMaxUsize;
 use crate::{
     context::SessionData,
     field_data::{
-        command_buffer::CommandBuffer,
+        command_buffer::{ActionListIndex, ActionProducingFieldIndex, CommandBuffer},
         iter_hall::{IterHall, IterId},
         EntryId, FieldData,
     },
@@ -46,7 +46,9 @@ pub struct Field {
     pub ref_count: usize,
     pub match_set: MatchSetId,
     pub added_as_placeholder_by_tf: Option<TransformId>,
-    pub min_action_set_to_apply: usize,
+    pub min_apf_idx: ActionProducingFieldIndex,
+    pub max_apf_idx: ActionProducingFieldIndex,
+    pub first_unapplied_al: ActionListIndex,
 
     pub name: Option<StringStoreEntry>,
     pub working_set_idx: Option<NonMaxUsize>,
@@ -248,11 +250,10 @@ impl RecordManager {
         match_sets: &mut Universe<MatchSetId, MatchSet>,
         field: FieldId,
     ) {
-        let f = fields[field].borrow_mut();
+        let mut f = fields[field].borrow_mut();
         let match_set = f.match_set;
         let cb = &mut match_sets[match_set].command_buffer;
-        let min_acs = f.min_action_set_to_apply;
-        cb.execute_for_iter_halls([f].into_iter(), min_acs, cb.last_action_set_id());
+        cb.execute_for_field(&mut f);
     }
     pub fn initialize_tf_output_fields(
         &mut self,
@@ -261,7 +262,7 @@ impl RecordManager {
     ) {
         for ofid in output_fields {
             let mut f = self.fields[*ofid].borrow_mut();
-            f.min_action_set_to_apply = usize::from(ord_id) + 1;
+            f.field_data.clear();
         }
     }
 }
@@ -322,9 +323,6 @@ impl JobData<'_> {
                 f.field_data.clear();
             }
         }
-        //TODO: if nobody accesses the earlier fields, we can
-        // delete these actions here
-        cb.merge_upper_action_sets(ord_id);
     }
     pub fn unlink_transform(&mut self, tf_id: TransformId, available_batch_for_successor: usize) {
         let tf = &self.tf_mgr.transforms[tf_id];

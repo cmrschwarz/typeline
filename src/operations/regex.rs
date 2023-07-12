@@ -9,7 +9,9 @@ use std::ops::Deref;
 
 use std::num::NonZeroUsize;
 
-use crate::field_data::command_buffer::{CommandBuffer, FieldActionKind};
+use crate::field_data::command_buffer::{
+    ActionProducingFieldIndex, CommandBuffer, FieldActionKind,
+};
 use crate::field_data::iter_hall::IterHall;
 use crate::field_data::push_interface::PushInterface;
 use crate::field_data::typed_iters::TypedSliceIter;
@@ -55,6 +57,7 @@ pub struct TfRegex {
     multimatch: bool,
     last_end: Option<usize>,
     next_start: usize,
+    apf_idx: ActionProducingFieldIndex,
 }
 
 #[derive(Default)]
@@ -311,6 +314,9 @@ pub fn setup_tf_regex<'a>(
             .claim_iter(),
         last_end: None,
         next_start: 0,
+        apf_idx: sess.record_mgr.match_sets[tf_state.match_set_id]
+            .command_buffer
+            .claim_apf(tf_state.ordering_id),
     };
     sess.record_mgr
         .initialize_tf_output_fields(tf_state.ordering_id, &re.capture_group_fields);
@@ -470,6 +476,7 @@ fn match_regex_inner<'a, 'b, const PUSH_REF: bool, R: AnyRegex>(
 
     if has_previous_matches {
         rmis.command_buffer.push_action_with_usize_rl(
+            rmis.batch_state.apf_idx,
             FieldActionKind::Dup,
             rmis.batch_state.field_pos_output,
             match_count,
@@ -477,6 +484,7 @@ fn match_regex_inner<'a, 'b, const PUSH_REF: bool, R: AnyRegex>(
     } else {
         if match_count > 1 {
             rmis.command_buffer.push_action_with_usize_rl(
+                rmis.batch_state.apf_idx,
                 FieldActionKind::Dup,
                 rmis.batch_state.field_pos_output,
                 match_count - 1,
@@ -484,6 +492,7 @@ fn match_regex_inner<'a, 'b, const PUSH_REF: bool, R: AnyRegex>(
         } else {
             if match_count == 0 {
                 rmis.command_buffer.push_action(
+                    rmis.batch_state.apf_idx,
                     FieldActionKind::Drop,
                     rmis.batch_state.field_pos_output,
                     1,
@@ -503,6 +512,7 @@ fn match_regex_inner<'a, 'b, const PUSH_REF: bool, R: AnyRegex>(
 }
 
 struct RegexBatchState<'a> {
+    apf_idx: ActionProducingFieldIndex,
     field_pos_input: usize,
     field_pos_output: usize,
     batch_end_field_pos_output: usize,
@@ -528,7 +538,7 @@ pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRe
 
     sess.record_mgr.match_sets[tf.match_set_id]
         .command_buffer
-        .begin_action_set(tf.ordering_id.into());
+        .begin_action_list(re.apf_idx);
     let input_field = sess.record_mgr.fields[input_field_id].borrow();
     let iter_base = input_field
         .deref()
@@ -545,6 +555,7 @@ pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRe
         fields: &sess.record_mgr.fields,
         last_end: re.last_end,
         next_start: re.next_start,
+        apf_idx: re.apf_idx,
     };
 
     let mut iter = AutoDerefIter::new(
