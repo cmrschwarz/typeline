@@ -1,7 +1,4 @@
-use std::{
-    cell::{RefCell, RefMut},
-    num::NonZeroUsize,
-};
+use std::{cell::Ref, num::NonZeroUsize};
 
 use nonmax::NonMaxUsize;
 
@@ -85,6 +82,7 @@ struct LocallyMergedActionList {
     actions_end: usize,
 }
 
+#[allow(dead_code)]
 struct MergedActionLists {
     prev_apf_idx: Option<ActionProducingFieldIndex>,
     next_apf_idx: Option<ActionProducingFieldIndex>,
@@ -96,13 +94,11 @@ struct MergedActionLists {
 }
 
 struct ActionProducingField {
-    ordering_id: ActionProducingFieldOrderingId,
     merged_action_lists: Vec<MergedActionLists>,
 }
 
 #[derive(Default)]
 pub struct CommandBuffer {
-    first_apf_idx: Option<ActionProducingFieldIndex>,
     last_apf_idx: Option<ActionProducingFieldIndex>,
     action_producing_fields: Universe<ActionProducingFieldIndex, ActionProducingField>,
     merged_actions: [std::cell::RefCell<Vec<FieldAction>>; 3],
@@ -204,7 +200,7 @@ impl CommandBuffer {
         self.action_producing_fields[apf_idx].merged_action_lists[0]
             .push_action_with_usize_rl(kind, field_idx, run_length);
     }
-    pub fn execute_for_field<'a>(&mut self, mut field: &mut Field) {
+    pub fn execute_for_field<'a>(&mut self, field: &mut Field) {
         self.iter_states
             .extend(field.field_data.iters.iter_mut().filter_map(|it| {
                 it.get_mut().is_valid().then(|| unsafe {
@@ -251,10 +247,9 @@ impl CommandBuffer {
     ) -> ActionProducingFieldIndex {
         let mal_count = ordering_id.trailing_zeros() as usize + 1;
         let mut apf = ActionProducingField {
-            ordering_id,
             merged_action_lists: Vec::with_capacity(mal_count),
         };
-        for i in 0..mal_count {
+        for _ in 0..mal_count {
             apf.merged_action_lists.push(MergedActionLists {
                 prev_apf_idx: self.last_apf_idx,
                 next_apf_idx: None,
@@ -393,21 +388,30 @@ impl CommandBuffer {
             }
         }
     }
-    fn get_merge_result_slice<'a>(
-        action_producing_fields: &'a Universe<ActionProducingFieldIndex, ActionProducingField>,
-        merged_actions: &'a [RefCell<Vec<FieldAction>>; 3],
+    fn get_merge_result_mal_ref<'a>(
+        &'a self,
+        almr: &ActionListMergeResult,
+    ) -> Option<Ref<'a, Vec<FieldAction>>> {
+        if let ActionListMergeLocation::CbActionList { idx } = almr.location {
+            return Some(self.merged_actions[idx].borrow());
+        }
+        return None;
+    }
+    fn get_merge_resuls_slice<'a>(
+        &'a self,
+        mal_ref: Option<&'a Vec<FieldAction>>,
         almr: &ActionListMergeResult,
     ) -> &'a [FieldAction] {
         let range = almr.actions_start..almr.actions_end;
         match almr.location {
             ActionListMergeLocation::ApfMal { apf_idx, mal_idx } => {
-                &action_producing_fields[apf_idx].merged_action_lists[mal_idx].actions[range]
+                &self.action_producing_fields[apf_idx].merged_action_lists[mal_idx].actions[range]
             }
             ActionListMergeLocation::ApfLocal { apf_idx, mal_idx } => {
-                &action_producing_fields[apf_idx].merged_action_lists[mal_idx]
+                &self.action_producing_fields[apf_idx].merged_action_lists[mal_idx]
                     .locally_merged_actions[range]
             }
-            ActionListMergeLocation::CbActionList { idx } => &merged_actions[idx].borrow()[range],
+            ActionListMergeLocation::CbActionList { .. } => &mal_ref.as_ref().unwrap()[range],
             ActionListMergeLocation::Empty => &[],
         }
     }
@@ -418,7 +422,7 @@ impl CommandBuffer {
             ActionListMergeLocation::Empty => return,
             ActionListMergeLocation::CbActionList { idx } => idx,
         };
-        let mal = &mut self.merged_actions[idx].borrow();
+        let mal = &mut self.merged_actions[idx].borrow_mut();
         debug_assert!(mal.len() == almr.actions_end);
         mal.truncate(almr.actions_start);
     }
@@ -438,17 +442,11 @@ impl CommandBuffer {
                 target_idx += 1;
             }
         }
-        let first_slice = Self::get_merge_result_slice(
-            &self.action_producing_fields,
-            &self.merged_actions,
-            &first,
-        );
-        let second_slice = Self::get_merge_result_slice(
-            &self.action_producing_fields,
-            &self.merged_actions,
-            &second,
-        );
 
+        let first_ref = self.get_merge_result_mal_ref(&first);
+        let second_ref = self.get_merge_result_mal_ref(&second);
+        let first_slice = self.get_merge_resuls_slice(first_ref.as_ref().map(|r| &**r), &first);
+        let second_slice = self.get_merge_resuls_slice(first_ref.as_ref().map(|r| &**r), &first);
         let res_size = first_slice.len() + second_slice.len();
         let res_len_before;
         let res_len_after;
@@ -458,6 +456,8 @@ impl CommandBuffer {
         CommandBuffer::merge_two_action_lists_raw([first_slice, second_slice], &mut res_ms);
         res_len_after = res_ms.len();
         drop(res_ms);
+        drop(first_ref);
+        drop(second_ref);
         self.unclaim_merge_space(first);
         self.unclaim_merge_space(second);
         ActionListMergeResult {
@@ -515,14 +515,14 @@ impl CommandBuffer {
             let max_width = 1 << end.trailing_zeros();
             let l1 = &mal.action_lists[end - 2];
             let l2 = &mal.action_lists[end - 1];
-            let mut lists = [
+            let lists = [
                 &mal.actions[l1.actions_start..l1.actions_end],
                 &mal.actions[l2.actions_start..l2.actions_end],
             ];
             let actions_start = mal.locally_merged_actions.len();
             Self::merge_two_action_lists_raw(lists, &mut mal.locally_merged_actions);
 
-            let mut lmal = LocallyMergedActionList {
+            let lmal = LocallyMergedActionList {
                 al_idx_start: end - 2,
                 al_idx_end: end,
                 actions_start,
@@ -535,13 +535,13 @@ impl CommandBuffer {
             while width <= max_width {
                 let l1 = &mal.locally_merged_action_lists[prev];
                 let l2 = &mal.locally_merged_action_lists[curr];
-                let mut lists = [
+                let lists = [
                     &mal.actions[l1.actions_start..l1.actions_end],
                     &mal.actions[l2.actions_start..l2.actions_end],
                 ];
                 let actions_start = mal.locally_merged_actions.len();
                 Self::merge_two_action_lists_raw(lists, &mut mal.locally_merged_actions);
-                let mut lmal = LocallyMergedActionList {
+                let lmal = LocallyMergedActionList {
                     al_idx_start: end - width,
                     al_idx_end: end,
                     actions_start,
@@ -637,7 +637,7 @@ impl CommandBuffer {
             return self.merge_apf_action_lists_mal_0(apf_idx, first_unapplied_al_idx_in_mal);
         }
         let apf = &self.action_producing_fields[apf_idx];
-        let mal = &apf.merged_action_lists[mal_idx];
+        let _mal = &apf.merged_action_lists[mal_idx];
 
         return ActionListMergeResult::default(); //TODO
     }
@@ -938,11 +938,9 @@ impl CommandBuffer {
         let mut curr_action_pos_outstanding_drops = 0;
 
         'advance_action: loop {
-            let actions = Self::get_merge_result_slice(
-                &self.action_producing_fields,
-                &self.merged_actions,
-                &merged_actions,
-            );
+            let mal_ref = self.get_merge_result_mal_ref(&merged_actions);
+            let actions =
+                self.get_merge_resuls_slice(mal_ref.as_ref().map(|r| &**r), &merged_actions);
             loop {
                 let end_of_actions = action_idx_next == actions.len();
                 if end_of_actions {
@@ -991,6 +989,7 @@ impl CommandBuffer {
                     }
                 }
             }
+            drop(mal_ref);
             'advance_header: loop {
                 loop {
                     header = &mut fd.header[header_idx];

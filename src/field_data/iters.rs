@@ -150,9 +150,7 @@ impl<'a> Iter<'a> {
             header_rl_total: first_header.map_or(0, |h| h.run_length),
             header_fmt: first_header.map(|h| h.fmt).unwrap_or_default(),
         };
-        while res.header_fmt.deleted() {
-            res.next_header();
-        }
+        res.skip_dead_fields();
         res
     }
     pub fn from_end(fd: &'a FieldData, initial_field_offset: usize) -> Self {

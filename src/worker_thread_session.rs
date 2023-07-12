@@ -255,11 +255,7 @@ impl RecordManager {
         let cb = &mut match_sets[match_set].command_buffer;
         cb.execute_for_field(&mut f);
     }
-    pub fn initialize_tf_output_fields(
-        &mut self,
-        ord_id: TransformOrderingId,
-        output_fields: &[FieldId],
-    ) {
+    pub fn initialize_tf_output_fields(&mut self, output_fields: &[FieldId]) {
         for ofid in output_fields {
             let mut f = self.fields[*ofid].borrow_mut();
             f.field_data.clear();
@@ -313,8 +309,6 @@ impl JobData<'_> {
     }
     pub fn prepare_for_output(&mut self, tf_id: TransformId, output_fields: &[FieldId]) {
         let tf = &mut self.tf_mgr.transforms[tf_id];
-        let cb = &mut self.record_mgr.match_sets[tf.match_set_id].command_buffer;
-        let ord_id = usize::from(tf.ordering_id);
         if tf.is_appending {
             tf.is_appending = false;
         } else {
