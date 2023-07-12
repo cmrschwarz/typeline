@@ -84,6 +84,9 @@ impl<I: UniverseIndex, T> Universe<I, T> {
         self.unused_ids[0..len].sort_unstable();
     }
 
+    pub fn iter(&mut self) -> impl Iterator<Item = &T> {
+        self.data.iter().filter_map(|x| x.as_ref())
+    }
     pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut T> {
         self.data.iter_mut().filter_map(|x| x.as_mut())
     }

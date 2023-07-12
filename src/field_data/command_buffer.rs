@@ -231,15 +231,42 @@ impl CommandBuffer {
         let min_apf_idx = field.min_apf_idx.unwrap();
         let curr_apf_idx = field.curr_apf_idx.as_mut().unwrap();
         let first_unapplied_al_idx = &mut field.first_unapplied_al;
+        #[cfg(feature = "debug_logging")]
+        {
+            println!("--------------    command buffer      --------------");
+            for apf in self.action_producing_fields.iter() {
+                if apf.merged_action_lists[0].action_lists.is_empty() {
+                    println!("apf {}: empty", apf.ordering_id);
+                } else {
+                    println!("apf {}:", apf.ordering_id);
+                    for al in &apf.merged_action_lists[0].action_lists {
+                        println!("  al {}:", al.ordering_id);
+                        let actions =
+                            &apf.merged_action_lists[0].actions[al.actions_start..al.actions_end];
+                        if actions.is_empty() {
+                            println!("    > empty")
+                        } else {
+                            for a in actions {
+                                println!("    > {:?}:", a);
+                            }
+                        }
+                    }
+                }
+            }
+        }
         let als = self.prepare_action_lists(min_apf_idx, curr_apf_idx, first_unapplied_al_idx);
         #[cfg(feature = "debug_logging")]
         {
-            println!("executing commandsfor field {:?}:", field.name);
+            println!(
+                "\nexecuting commands for field {:?}  ( apfs {} -> {}[al idx: {}] ): ",
+                field.name, min_apf_idx, curr_apf_idx, first_unapplied_al_idx
+            );
             let refs = self.get_merge_result_mal_ref(&als);
             let actions = self.get_merge_resuls_slice(refs.as_ref().map(|r| &**r), &als);
             for a in actions {
                 println!("    > {:?}:", a);
             }
+            println!("-------------------------------------------------------");
         }
         self.generate_commands_from_actions(als, &mut field.field_data.fd, 0, 0);
         self.execute_commands(&mut field.field_data.fd);
@@ -582,7 +609,12 @@ impl CommandBuffer {
             };
             mal.locally_merged_action_lists.push(lmal);
             let mut curr = mal.locally_merged_action_lists.len() - 1;
-            let mut prev = curr - last_end.trailing_zeros() as usize;
+            let mut prev = curr
+                - if last_end == 0 {
+                    0
+                } else {
+                    last_end.trailing_zeros() as usize
+                };
             let mut width = 4;
             while width <= max_width {
                 let l1 = &mal.locally_merged_action_lists[prev];
