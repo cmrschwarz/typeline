@@ -348,38 +348,50 @@ impl CommandBuffer {
 // action list merging
 impl CommandBuffer {
     fn merge_two_action_lists_raw(sets: [&[FieldAction]; 2], target: &mut Vec<FieldAction>) {
-        const LEFT: usize = 0;
-        const RIGHT: usize = 1;
-        const COUNT: usize = 2;
-
-        let mut curr_action_idx = [0usize; COUNT];
-        let mut next_action_field_idx = [0usize; COUNT];
-        let mut field_pos_offset = [0isize; COUNT];
-
-        loop {
-            for i in 0..COUNT {
-                next_action_field_idx[i] =
-                    (sets[i][curr_action_idx[i]].field_idx as isize + field_pos_offset[i]) as usize;
+        for i in 0..2 {
+            if sets[i].is_empty() {
+                target.extend(sets[(i + 1) % 2]);
+                return;
             }
-            if next_action_field_idx[LEFT] <= next_action_field_idx[RIGHT] {
-                let left = &sets[LEFT][curr_action_idx[LEFT]];
-                let field_idx = (left.field_idx as isize + field_pos_offset[LEFT]) as usize;
-                let outstanding_drops = &mut field_pos_offset[RIGHT];
+        }
+        let left_list = sets[0];
+        let right_list = sets[1];
+
+        let (mut curr_action_idx_left, mut curr_action_idx_right) = (0, 0);
+        let mut next_action_field_idx_left;
+        let mut next_action_field_idx_right = 0;
+        let mut field_pos_offset_left = 0isize;
+        let mut field_pos_offset_right = 0usize;
+        loop {
+            if curr_action_idx_left == left_list.len() {
+                break;
+            }
+            if !curr_action_idx_right == right_list.len() {
+                next_action_field_idx_right =
+                    right_list[curr_action_idx_right].field_idx + field_pos_offset_right;
+            }
+            next_action_field_idx_left = (left_list[curr_action_idx_left].field_idx as isize
+                + field_pos_offset_left) as usize;
+            if next_action_field_idx_left <= next_action_field_idx_right {
+                let left = &left_list[curr_action_idx_left];
+                let field_idx = (left.field_idx as isize + field_pos_offset_left) as usize;
+                let mut outstanding_drops = field_pos_offset_right as usize;
                 let mut run_len = left.run_len;
                 let mut kind = left.kind;
+                let mut space_to_next = left_list
+                    .get(curr_action_idx_left + 1)
+                    .map(|a| (a.field_idx - left.field_idx) as usize)
+                    .unwrap_or(usize::MAX);
                 match left.kind {
                     FieldActionKind::Dup => {
-                        if *outstanding_drops >= run_len as isize {
+                        if outstanding_drops >= run_len as usize {
                             kind = FieldActionKind::Drop;
-                            *outstanding_drops -= run_len as isize;
-                            let mut space_to_next = sets[LEFT]
-                                .get(curr_action_idx[LEFT] + 1)
-                                .map(|a| a.field_idx - left.field_idx)
-                                .unwrap_or(usize::MAX);
-                            while space_to_next > *outstanding_drops as usize
-                                && *outstanding_drops > RunLength::MAX as isize
+                            outstanding_drops -= run_len as usize;
+
+                            while space_to_next > outstanding_drops
+                                && outstanding_drops > RunLength::MAX as usize
                             {
-                                *outstanding_drops -= RunLength::MAX as isize;
+                                outstanding_drops -= RunLength::MAX as usize;
                                 space_to_next -= RunLength::MAX as usize;
                                 target.push(FieldAction {
                                     kind,
@@ -387,23 +399,19 @@ impl CommandBuffer {
                                     field_idx,
                                 });
                             }
-                            run_len = (*outstanding_drops).min(space_to_next as isize) as RunLength;
-                            *outstanding_drops -= run_len as isize;
+                            run_len = (outstanding_drops).min(space_to_next) as RunLength;
+                            outstanding_drops -= run_len as usize;
                         } else {
-                            run_len -= *outstanding_drops as RunLength;
-                            *outstanding_drops = 0;
+                            run_len -= outstanding_drops as RunLength;
+                            outstanding_drops = 0;
                         }
                     }
                     FieldActionKind::Drop => {
-                        let mut space_to_next = sets[LEFT]
-                            .get(curr_action_idx[LEFT] + 1)
-                            .map(|a| a.field_idx - left.field_idx)
-                            .unwrap_or(usize::MAX);
-                        *outstanding_drops += run_len as isize;
-                        while space_to_next > *outstanding_drops as usize
-                            && *outstanding_drops > RunLength::MAX as isize
+                        outstanding_drops += run_len as usize;
+                        while space_to_next > outstanding_drops
+                            && outstanding_drops > RunLength::MAX as usize
                         {
-                            *outstanding_drops -= RunLength::MAX as isize;
+                            outstanding_drops -= RunLength::MAX as usize;
                             space_to_next -= RunLength::MAX as usize;
                             target.push(FieldAction {
                                 kind,
@@ -411,37 +419,37 @@ impl CommandBuffer {
                                 field_idx,
                             });
                         }
-                        run_len = (*outstanding_drops).min(space_to_next as isize) as RunLength;
-                        *outstanding_drops -= run_len as isize;
+                        run_len = (outstanding_drops).min(space_to_next) as RunLength;
+                        outstanding_drops -= run_len as usize;
                     }
                 }
-                target.push(FieldAction {
-                    kind,
-                    run_len,
-                    field_idx,
-                });
-                curr_action_idx[LEFT] += 1;
-                if curr_action_idx[LEFT] == sets[LEFT].len() {
-                    break;
+                field_pos_offset_right = outstanding_drops;
+                if run_len > 0 {
+                    target.push(FieldAction {
+                        kind,
+                        run_len,
+                        field_idx,
+                    });
                 }
+                curr_action_idx_left += 1;
             } else {
-                let right = &sets[RIGHT][curr_action_idx[RIGHT]];
-                let field_idx = (right.field_idx as isize + field_pos_offset[RIGHT]) as usize;
+                let right = &right_list[curr_action_idx_right];
+                let field_idx = right.field_idx + field_pos_offset_right;
                 let mut run_len = right.run_len;
 
                 match right.kind {
                     FieldActionKind::Dup => {
-                        field_pos_offset[LEFT] += right.run_len as isize;
+                        field_pos_offset_left += right.run_len as isize;
                     }
                     FieldActionKind::Drop => {
                         let gap_to_start_left =
-                            next_action_field_idx[LEFT] - next_action_field_idx[RIGHT];
+                            next_action_field_idx_left - next_action_field_idx_right;
                         if gap_to_start_left < right.run_len as usize {
                             let gap_rl = gap_to_start_left as RunLength;
                             run_len = gap_rl;
-                            field_pos_offset[RIGHT] += (right.run_len - gap_rl) as isize;
+                            field_pos_offset_right += (right.run_len - gap_rl) as usize;
                         }
-                        field_pos_offset[LEFT] -= run_len as isize;
+                        field_pos_offset_left -= run_len as isize;
                     }
                 }
                 target.push(FieldAction {
@@ -449,22 +457,16 @@ impl CommandBuffer {
                     run_len,
                     field_idx,
                 });
-                curr_action_idx[RIGHT] += 1;
+                curr_action_idx_right += 1;
             }
         }
-        for i in 0..COUNT {
-            if curr_action_idx[i] == sets[i].len() {
-                let other = (i + 1) % COUNT;
-                for i in curr_action_idx[other]..sets[other].len() {
-                    let action = &sets[other][i];
-                    target.push(FieldAction {
-                        kind: action.kind,
-                        run_len: action.run_len,
-                        field_idx: (action.field_idx as isize + field_pos_offset[other]) as usize,
-                    });
-                }
-                break;
-            }
+        for i in curr_action_idx_right..right_list.len() {
+            let action = &right_list[i];
+            target.push(FieldAction {
+                kind: action.kind,
+                run_len: action.run_len,
+                field_idx: action.field_idx as usize,
+            });
         }
     }
     fn get_merge_result_mal_ref<'a>(
@@ -587,10 +589,10 @@ impl CommandBuffer {
             0
         };
         loop {
-            let end = last_end + 2;
-            if end >= required_al_idx_end {
+            if last_end >= required_al_idx_end {
                 return;
             }
+            let end = last_end + 2;
             let max_width = 1 << end.trailing_zeros();
             let l1 = &mal.action_lists[end - 2];
             let l2 = &mal.action_lists[end - 1];
@@ -620,11 +622,16 @@ impl CommandBuffer {
                 let l1 = &mal.locally_merged_action_lists[prev];
                 let l2 = &mal.locally_merged_action_lists[curr];
                 let lists = [
-                    &mal.actions[l1.actions_start..l1.actions_end],
-                    &mal.actions[l2.actions_start..l2.actions_end],
+                    &mal.locally_merged_actions[l1.actions_start..l1.actions_end],
+                    &mal.locally_merged_actions[l2.actions_start..l2.actions_end],
                 ];
                 let actions_start = mal.locally_merged_actions.len();
-                Self::merge_two_action_lists_raw(lists, &mut mal.locally_merged_actions);
+                let mut temp = self.merged_actions[0].borrow_mut();
+                let len_before = temp.len();
+                Self::merge_two_action_lists_raw(lists, &mut temp);
+                mal.locally_merged_actions.extend(&temp[len_before..]);
+                temp.truncate(len_before);
+                drop(temp);
                 let lmal = LocallyMergedActionList {
                     al_idx_start: end - width,
                     al_idx_end: end,
@@ -689,7 +696,7 @@ impl CommandBuffer {
                 local_merge_idx -= 1;
             }
             if width == 1 {
-                let lhs = self.action_list_as_result(apf_idx, mal_idx, lmal.actions_end - 1);
+                let lhs = self.action_list_as_result(apf_idx, mal_idx, lmal.al_idx_end - 1);
                 return self.merge_two_action_lists(lhs, rhs);
             }
             let lhs = self.locally_merged_action_list_as_result(apf_idx, mal_idx, local_merge_idx);
