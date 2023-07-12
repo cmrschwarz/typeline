@@ -434,6 +434,9 @@ fn match_regex_inner<'a, 'b, const PUSH_REF: bool, R: AnyRegex>(
     run_length: RunLength,
     offset: usize,
 ) -> bool {
+    if rmis.batch_state.field_pos_output == rmis.batch_state.batch_end_field_pos_output {
+        return true;
+    }
     let mut match_count: usize = 0;
     let has_previous_matches = rmis.batch_state.last_end.is_some();
     let rl = run_length as usize;
@@ -467,13 +470,13 @@ fn match_regex_inner<'a, 'b, const PUSH_REF: bool, R: AnyRegex>(
                 field.push_null(run_length as usize, true);
             }
         }
+        if !rmis.batch_state.multimatch {
+            break;
+        }
         if rmis.batch_state.field_pos_output + match_count
             == rmis.batch_state.batch_end_field_pos_output
         {
             bse = true;
-            break;
-        }
-        if !rmis.batch_state.multimatch {
             break;
         }
     }

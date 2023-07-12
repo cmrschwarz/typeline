@@ -327,10 +327,12 @@ impl JobData<'_> {
         }
     }
     pub fn unlink_transform(&mut self, tf_id: TransformId, available_batch_for_successor: usize) {
-        let tf = &self.tf_mgr.transforms[tf_id];
+        let tf = &mut self.tf_mgr.transforms[tf_id];
+        tf.mark_for_removal = true;
         let predecessor = tf.predecessor;
         let successor = tf.successor;
         let continuation = tf.continuation;
+
         if let Some(cont_id) = continuation {
             let cont = &mut self.tf_mgr.transforms[cont_id];
             cont.successor = successor;
@@ -435,18 +437,10 @@ impl<'a> WorkerThreadSession<'a> {
         }
     }
 
-    pub fn remove_transform(&mut self, tf_id: TransformId, triggering_field: FieldId) {
-        let rc = {
-            self.job_data.tf_mgr.transforms.release(tf_id);
-            self.transform_data[usize::from(tf_id)] = TransformData::Disabled;
-            let mut field = self.job_data.record_mgr.fields[triggering_field].borrow_mut();
-
-            field.ref_count -= 1;
-            field.ref_count
-        };
-        if rc == 0 {
-            self.job_data.record_mgr.remove_field(triggering_field);
-        }
+    pub fn remove_transform(&mut self, tf_id: TransformId) {
+        self.job_data.tf_mgr.transforms.release(tf_id);
+        self.transform_data[usize::from(tf_id)] = TransformData::Disabled;
+        //TODO: field refcounting
     }
 
     fn handle_split_expansion(&mut self, tf_id: TransformId) {
@@ -650,7 +644,13 @@ impl<'a> WorkerThreadSession<'a> {
                     TransformData::Disabled => unreachable!(),
                 }
                 if let Some(tf) = self.job_data.tf_mgr.transforms.get(tf_id) {
-                    if tf.available_batch_size == 0 && !tf.is_ready && tf.done_if_input_done {
+                    if tf.mark_for_removal {
+                        self.remove_transform(tf_id);
+                    } else if tf.predecessor.is_none()
+                        && tf.available_batch_size == 0
+                        && !tf.is_ready
+                        && tf.done_if_input_done
+                    {
                         self.job_data.unlink_transform(tf_id, 0);
                     }
                 }

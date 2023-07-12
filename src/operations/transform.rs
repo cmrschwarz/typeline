@@ -51,6 +51,7 @@ pub struct TransformState {
     pub is_ready: bool,
     pub is_appending: bool,
     pub done_if_input_done: bool,
+    pub mark_for_removal: bool,
     pub preferred_input_type: Option<FieldValueKind>,
 }
 
@@ -79,6 +80,7 @@ impl TransformState {
             is_appending: false,
             preferred_input_type: None,
             done_if_input_done: true,
+            mark_for_removal: false,
         }
     }
 }
