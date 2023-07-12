@@ -377,6 +377,9 @@ impl<'a> FieldIterator<'a> for Iter<'a> {
             return 0;
         }
         let mut stride_rem = n - 1;
+        if stride_rem == 0 {
+            return 1;
+        }
         if self.header_rl_offset as usize > stride_rem {
             self.header_rl_offset -= stride_rem as RunLength;
             self.field_pos -= stride_rem;
