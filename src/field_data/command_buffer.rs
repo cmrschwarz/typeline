@@ -70,16 +70,15 @@ type ActionProducingFieldIndex = NonMaxUsize;
 
 struct ActionList {
     first_unapplied_al_idx_in_prev_apf: ActionListIndex,
-    next_al_idx_in_local_merge: ActionListIndex,
     actions_start: usize,
-    action_count: usize,
+    actions_end: usize,
 }
 
 struct LocallyMergedActionList {
-    first_al_idx: ActionListIndex,
-    last_al_idx: ActionListIndex,
+    al_idx_start: ActionListIndex,
+    al_idx_end: ActionListIndex,
     actions_start: usize,
-    action_end: usize,
+    actions_end: usize,
 }
 
 struct MergedActionLists {
@@ -109,8 +108,8 @@ pub struct CommandBuffer {
 impl MergedActionLists {
     pub fn is_legal_field_idx_for_action(&self, field_idx: usize) -> bool {
         if let Some(acs) = self.action_lists.last() {
-            if acs.action_count != 0 {
-                self.actions[acs.actions_start + acs.action_count - 1].field_idx <= field_idx
+            if acs.actions_end != 0 {
+                self.actions[acs.actions_start + acs.actions_end - 1].field_idx <= field_idx
             } else {
                 true
             }
@@ -133,10 +132,10 @@ impl MergedActionLists {
     pub fn push_action(&mut self, kind: FieldActionKind, field_idx: usize, run_length: RunLength) {
         assert!(self.is_legal_field_idx_for_action(field_idx));
         let al = self.action_lists.last_mut().unwrap();
-        if al.action_count > 0 {
+        if al.actions_end > 0 {
             // very simple early merging of actions to hopefully save some memory
             // this also allows operations to be slightly more 'wasteful' with their action pushes
-            let last = &mut self.actions[al.actions_start + al.action_count - 1];
+            let last = &mut self.actions[al.actions_start + al.actions_end - 1];
             if last.kind == kind
                 && last.field_idx == field_idx
                 && RunLength::MAX as usize > last.run_len as usize + run_length as usize
@@ -145,7 +144,7 @@ impl MergedActionLists {
                 return;
             }
         }
-        al.action_count += 1;
+        al.actions_end += 1;
         self.actions.push(FieldAction {
             kind,
             field_idx,
@@ -158,10 +157,11 @@ impl CommandBuffer {
     pub fn begin_action_list(&mut self, apf_idx: ActionProducingFieldIndex) {
         let apf = &mut self.action_producing_fields[apf_idx];
         if let Some(acs) = apf.merged_action_lists[0].action_lists.last_mut() {
-            if acs.action_count == 0 {
+            if acs.actions_end == acs.actions_start {
                 return;
             }
         }
+        let start = apf.merged_action_lists[0].actions.len();
         apf.merged_action_lists[0].action_lists.push(ActionList {
             first_unapplied_al_idx_in_prev_apf: apf.merged_action_lists[0]
                 .prev_apf_idx
@@ -171,11 +171,8 @@ impl CommandBuffer {
                         .len()
                 })
                 .unwrap_or(0),
-            actions_start: apf.merged_action_lists[0].actions.len(),
-            action_count: 0,
-            next_al_idx_in_local_merge: apf.merged_action_lists[0]
-                .locally_merged_action_lists
-                .len(),
+            actions_start: start,
+            actions_end: start,
         });
     }
     pub fn push_action(
@@ -234,7 +231,7 @@ impl CommandBuffer {
 
 // action list merging
 impl CommandBuffer {
-    fn merge_two_action_sets_raw(sets: [&[FieldAction]; 2], target: &mut Vec<FieldAction>) {
+    fn merge_two_action_lists_raw(sets: [&[FieldAction]; 2], target: &mut Vec<FieldAction>) {
         const LEFT: usize = 0;
         const RIGHT: usize = 1;
         const COUNT: usize = 2;
@@ -404,7 +401,7 @@ impl CommandBuffer {
         let res_ms = &mut self.merged_actions[target_idx];
         res_ms.reserve(res_size);
         let res_len_before = res_ms.len();
-        CommandBuffer::merge_two_action_sets_raw([first_slice, second_slice], res_ms);
+        CommandBuffer::merge_two_action_lists_raw([first_slice, second_slice], res_ms);
         let res_len_after = res_ms.len();
         self.unclaim_merge_space(first);
         self.unclaim_merge_space(second);
@@ -425,19 +422,85 @@ impl CommandBuffer {
         ActionListMergeResult {
             location: ActionListMergeLocation::ApfMal { apf_idx, mal_idx },
             actions_start: al.actions_start,
-            actions_end: al.actions_start + al.action_count,
+            actions_end: al.actions_start + al.actions_end,
+        }
+    }
+    fn construct_missing_local_merges(
+        &self,
+        apf_idx: ActionProducingFieldIndex,
+        mal_idx: MergedActionListsIndex,
+        first_unapplied_al_idx_in_mal: ActionListIndex,
+    ) {
+        let apf = &mut self.action_producing_fields[apf_idx];
+        let mal = &mut apf.merged_action_lists[mal_idx];
+        let mut last_end = if let Some(last) = mal.locally_merged_action_lists.last() {
+            last.al_idx_end
+        } else {
+            0
+        };
+        loop {
+            let end = last_end + 2;
+            if end > 1 + first_unapplied_al_idx_in_mal {
+                return;
+            }
+            let max_width = 1 << end.trailing_zeros();
+            let l1 = &mal.action_lists[end - 2];
+            let l2 = &mal.action_lists[end - 1];
+            let mut lists = [
+                &mal.actions[l1.actions_start..l1.actions_end],
+                &mal.actions[l2.actions_start..l2.actions_end],
+            ];
+            let actions_start = mal.locally_merged_actions.len();
+            Self::merge_two_action_lists_raw(lists, &mut mal.locally_merged_actions);
+            let mut lmal = LocallyMergedActionList {
+                al_idx_start: end - 2,
+                al_idx_end: end,
+                actions_start,
+                actions_end: mal.locally_merged_actions.len(),
+            };
+            mal.locally_merged_action_lists.push(lmal);
+            let mut width = 2;
+            let mut curr = mal.locally_merged_action_lists.len() - 1;
+            let mut prev = curr - last_end.trailing_zeros() as usize;
+            while width < max_width {
+                let l1 = &mal.locally_merged_action_lists[prev];
+                let l2 = &mal.locally_merged_action_lists[curr];
+                let mut lists = [
+                    &mal.actions[l1.actions_start..l1.actions_end],
+                    &mal.actions[l2.actions_start..l2.actions_end],
+                ];
+                let actions_start = mal.locally_merged_actions.len();
+                Self::merge_two_action_lists_raw(lists, &mut mal.locally_merged_actions);
+                let mut lmal = LocallyMergedActionList {
+                    al_idx_start: end - width,
+                    al_idx_end: end,
+                    actions_start,
+                    actions_end: mal.locally_merged_actions.len(),
+                };
+                mal.locally_merged_action_lists.push(lmal);
+                prev += 1;
+                curr += 1;
+                width *= 2;
+            }
+            last_end = end;
         }
     }
     fn merge_single_apf_plain_action_lists(
         &self,
         apf_idx: ActionProducingFieldIndex,
-        first_unapplied_al_idx_in_max_apf: ActionListIndex,
+        first_unapplied_al_idx_in_mal: ActionListIndex,
     ) -> ActionListMergeResult {
         let apf = &self.action_producing_fields[apf_idx];
         let mal = apf.merged_action_lists[0];
-        if first_unapplied_al_idx_in_max_apf == mal.action_lists.len() {
+        if first_unapplied_al_idx_in_mal == mal.action_lists.len() {
             return ActionListMergeResult::default();
         }
+        debug_assert!(first_unapplied_al_idx_in_mal < mal.action_lists.len());
+        self.construct_missing_local_merges(
+            apf_idx,
+            0 as MergedActionListsIndex,
+            first_unapplied_al_idx_in_mal,
+        );
 
         return ActionListMergeResult::default(); //TODO
     }
@@ -445,12 +508,13 @@ impl CommandBuffer {
         &self,
         apf_idx: ActionProducingFieldIndex,
         mal_idx: MergedActionListsIndex,
-        first_unapplied_al_idx_in_max_apf: ActionListIndex,
+        first_unapplied_al_idx_in_mal: ActionListIndex,
     ) -> ActionListMergeResult {
         if mal_idx == 0 {
             return self
-                .merge_single_apf_plain_action_lists(apf_idx, first_unapplied_al_idx_in_max_apf);
+                .merge_single_apf_plain_action_lists(apf_idx, first_unapplied_al_idx_in_mal);
         }
+        self.construct_missing_local_merges(apf_idx, mal_idx, first_unapplied_al_idx_in_mal);
         let apf = &self.action_producing_fields[apf_idx];
         let mal = apf.merged_action_lists[mal_idx];
 
