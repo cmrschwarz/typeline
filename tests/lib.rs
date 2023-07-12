@@ -182,7 +182,7 @@ fn in_between_drop() -> Result<(), ScrError> {
 }
 
 #[test]
-fn surrounding_drop() -> Result<(), ScrError> {
+fn drops_surrounding_single_val() -> Result<(), ScrError> {
     let ss = StringSinkHandle::new();
     ContextBuilder::default()
         .add_op(create_op_seq(0, 3, 1).unwrap())
@@ -190,6 +190,17 @@ fn surrounding_drop() -> Result<(), ScrError> {
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(ss.get_data().unwrap().as_slice(), ["1"]);
+    Ok(())
+}
+#[test]
+fn drops_surrounding_range() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::new();
+    ContextBuilder::default()
+        .add_op(create_op_seq(0, 8, 1).unwrap())
+        .add_op(create_op_regex("[2-5]", RegexOptions::default()).unwrap())
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(ss.get_data().unwrap().as_slice(), ["2", "3", "4", "5"]);
     Ok(())
 }
 

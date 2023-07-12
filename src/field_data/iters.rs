@@ -272,19 +272,24 @@ impl<'a> FieldIterator<'a> for Iter<'a> {
     }
     fn prev_header(&mut self) -> RunLength {
         let mut data_offset = self.header_fmt.leading_padding();
+        let mut i = self.header_idx;
         loop {
-            if self.header_idx == 0 {
+            if i == 0 {
                 return 0;
             }
-            self.header_idx -= 1;
-            let h = self.fd.header[self.header_idx];
+            i -= 1;
+            let h = self.fd.header[i];
 
             data_offset += h.total_size();
             if h.deleted() {
+                if i == 0 {
+                    return 0;
+                }
                 continue;
             }
 
             let stride = self.header_rl_offset + 1;
+            self.header_idx = i;
             self.data -= data_offset;
             self.header_fmt = h.fmt;
             self.header_rl_total = h.run_length;

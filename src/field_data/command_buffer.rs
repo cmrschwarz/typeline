@@ -686,15 +686,10 @@ impl CommandBuffer {
     fn merge_action_lists(
         &mut self,
         min_apf_idx: ActionProducingFieldIndex,
-        first_unapplied_al_idx_in_min_apf: Option<ActionListIndex>,
         mut max_apf_idx: ActionProducingFieldIndex,
         mut first_unapplied_al_idx_in_max_apf: ActionListIndex,
     ) -> ActionListMergeResult {
         if min_apf_idx == max_apf_idx {
-            if let Some(fual) = first_unapplied_al_idx_in_min_apf {
-                debug_assert!(fual <= first_unapplied_al_idx_in_max_apf);
-                first_unapplied_al_idx_in_max_apf = fual;
-            }
             return self
                 .merge_apf_action_list_mal_0(min_apf_idx, first_unapplied_al_idx_in_max_apf);
         }
@@ -710,7 +705,6 @@ impl CommandBuffer {
             }
             return self.merge_action_lists(
                 min_apf_idx,
-                first_unapplied_al_idx_in_min_apf,
                 max_apf_idx,
                 first_unapplied_al_idx_in_max_apf,
             );
@@ -727,12 +721,7 @@ impl CommandBuffer {
         let prev_apf_first_unapplied_al =
             mal.action_lists[first_unapplied_al_idx_in_max_apf].first_unapplied_al_idx_in_prev_apf;
 
-        let prev = self.merge_action_lists(
-            min_apf_idx,
-            first_unapplied_al_idx_in_min_apf,
-            prev_apf_idx,
-            prev_apf_first_unapplied_al,
-        );
+        let prev = self.merge_action_lists(min_apf_idx, prev_apf_idx, prev_apf_first_unapplied_al);
         let curr = self.merge_apf_action_lists_with_crossover(
             max_apf_idx,
             mal_idx,
@@ -751,36 +740,11 @@ impl CommandBuffer {
         max_apf_idx: &mut ActionProducingFieldIndex,
         first_unapplied_al_idx_in_max_apf: &mut ActionListIndex,
     ) -> ActionListMergeResult {
-        let mut last_apf_idx = *max_apf_idx;
-        while let Some(next) =
-            self.action_producing_fields[last_apf_idx].merged_action_lists[0].next_apf_idx
-        {
-            last_apf_idx = next;
-        }
-        let res;
-        if last_apf_idx != *max_apf_idx {
-            let rhs = self.merge_action_lists(
-                *max_apf_idx,
-                Some(*first_unapplied_al_idx_in_max_apf),
-                last_apf_idx,
-                0,
-            );
-            let lhs = self.merge_action_lists(
-                min_apf_idx,
-                None,
-                *max_apf_idx,
-                *first_unapplied_al_idx_in_max_apf,
-            );
-            res = self.merge_two_action_lists(lhs, rhs);
-            *max_apf_idx = last_apf_idx;
-        } else {
-            res = self.merge_action_lists(
-                min_apf_idx,
-                None,
-                *max_apf_idx,
-                *first_unapplied_al_idx_in_max_apf,
-            );
-        }
+        let res = self.merge_action_lists(
+            min_apf_idx,
+            *max_apf_idx,
+            *first_unapplied_al_idx_in_max_apf,
+        );
         *first_unapplied_al_idx_in_max_apf = self.action_producing_fields[*max_apf_idx]
             .merged_action_lists[0]
             .action_lists
