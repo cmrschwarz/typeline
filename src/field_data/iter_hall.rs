@@ -3,7 +3,7 @@ use std::cell::Cell;
 use crate::utils::universe::Universe;
 
 use super::{
-    iters::{FieldIterator, Iter, IterMut},
+    iters::{FieldIterator, Iter},
     FieldData, FieldValueHeader, RunLength,
 };
 
@@ -78,7 +78,7 @@ impl IterHall {
     }
     pub fn get_iter<'a>(&'a self, iter_id: IterId) -> Iter<'a> {
         let (state, h) = self.get_iter_state(iter_id);
-        Iter {
+        let mut res = Iter {
             fd: &self.fd,
             field_pos: state.field_pos,
             data: state.data,
@@ -86,19 +86,9 @@ impl IterHall {
             header_rl_offset: state.header_rl_offset,
             header_rl_total: h.run_length,
             header_fmt: h.fmt,
-        }
-    }
-    pub fn get_iter_mut<'a>(&'a mut self, iter_id: IterId) -> IterMut<'a> {
-        let (state, h) = self.get_iter_state(iter_id);
-        IterMut {
-            fd: &mut self.fd,
-            field_pos: state.field_pos,
-            data: state.data,
-            header_idx: state.header_idx,
-            header_rl_offset: state.header_rl_offset,
-            header_rl_total: h.run_length,
-            header_fmt: h.fmt,
-        }
+        };
+        res.skip_dead_fields();
+        res
     }
     pub fn store_iter<'a>(&'a self, iter_id: IterId, iter: impl FieldIterator<'a>) {
         let mut iter = iter.as_base_iter();

@@ -270,6 +270,9 @@ impl CommandBuffer {
         }
         let idx = self.action_producing_fields.claim_with_value(apf);
         self.last_apf_idx = Some(idx);
+        if self.first_apf_idx.is_none() {
+            self.first_apf_idx = Some(idx);
+        }
         idx
     }
     pub fn get_min_apf_idx(

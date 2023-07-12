@@ -182,6 +182,18 @@ fn in_between_drop() -> Result<(), ScrError> {
 }
 
 #[test]
+fn surrounding_drop() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::new();
+    ContextBuilder::default()
+        .add_op(create_op_seq(0, 3, 1).unwrap())
+        .add_op(create_op_regex("[1]", RegexOptions::default()).unwrap())
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(ss.get_data().unwrap().as_slice(), ["1"]);
+    Ok(())
+}
+
+#[test]
 fn multi_batch_seq_with_regex() -> Result<(), ScrError> {
     let ss = StringSinkHandle::new();
     const COUNT: usize = 6;

@@ -164,7 +164,7 @@ impl<'a> Iter<'a> {
             header_fmt: Default::default(),
         }
     }
-    fn skip_dead_fields(&mut self) {
+    pub(super) fn skip_dead_fields(&mut self) {
         while self.header_fmt.deleted() {
             self.next_header();
         }
