@@ -46,8 +46,8 @@ pub struct Field {
     pub ref_count: usize,
     pub match_set: MatchSetId,
     pub added_as_placeholder_by_tf: Option<TransformId>,
-    pub min_apf_idx: ActionProducingFieldIndex,
-    pub max_apf_idx: ActionProducingFieldIndex,
+    pub min_apf_idx: Option<ActionProducingFieldIndex>,
+    pub max_apf_idx: Option<ActionProducingFieldIndex>,
     pub first_unapplied_al: ActionListIndex,
 
     pub name: Option<StringStoreEntry>,
@@ -255,10 +255,20 @@ impl RecordManager {
         let cb = &mut match_sets[match_set].command_buffer;
         cb.execute_for_field(&mut f);
     }
-    pub fn initialize_tf_output_fields(&mut self, output_fields: &[FieldId]) {
+    pub fn initialize_tf_output_fields(
+        &mut self,
+        ms_id: MatchSetId,
+        tf_ordering_id: TransformOrderingId,
+        output_fields: &[FieldId],
+    ) {
+        let min_apf_idx = self.match_sets[ms_id]
+            .command_buffer
+            .get_min_apf_idx(tf_ordering_id);
         for ofid in output_fields {
             let mut f = self.fields[*ofid].borrow_mut();
-            f.field_data.clear();
+            f.min_apf_idx = min_apf_idx;
+            f.max_apf_idx = min_apf_idx;
+            f.first_unapplied_al = 0;
         }
     }
 }

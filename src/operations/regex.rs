@@ -318,8 +318,11 @@ pub fn setup_tf_regex<'a>(
             .command_buffer
             .claim_apf(tf_state.ordering_id),
     };
-    sess.record_mgr
-        .initialize_tf_output_fields(&re.capture_group_fields);
+    sess.record_mgr.initialize_tf_output_fields(
+        tf_state.match_set_id,
+        tf_state.ordering_id,
+        &re.capture_group_fields,
+    );
     (TransformData::Regex(re), output_field)
 }
 

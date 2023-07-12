@@ -216,7 +216,11 @@ pub fn setup_tf_format<'a>(
         output_targets: Default::default(),
         stream_value_handles: Default::default(),
     };
-    sess.record_mgr.initialize_tf_output_fields(&[output_field]);
+    sess.record_mgr.initialize_tf_output_fields(
+        tf_state.match_set_id,
+        tf_state.ordering_id,
+        &[output_field],
+    );
     (TransformData::Format(tf), output_field)
 }
 
