@@ -1524,7 +1524,7 @@ mod test {
                 run_len: 1,
             },
             FieldAction {
-                kind: FieldActionKind::Drop,
+                kind: FieldActionKind::Dup,
                 field_idx: 8,
                 run_len: 1,
             },

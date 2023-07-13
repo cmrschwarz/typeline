@@ -488,14 +488,44 @@ impl<'a> WorkerThreadSession<'a> {
         let mut output_field;
         let ops = &self.job_data.session_data.chains[start_op.chain_id as usize].operations
             [start_op.offset_in_chain as usize..];
+        let mut mark_prev_field_as_placeholder = false;
         for op_id in ops {
             let op_base = &self.job_data.session_data.operator_bases[*op_id as usize];
             let op_data = &self.job_data.session_data.operator_data[*op_id as usize];
             let tf_data;
             let jd = &mut self.job_data;
-            if let OperatorData::Key(op) = op_data {
-                jd.record_mgr.add_field_name(prev_field_id, op.key_sse);
-                continue;
+            match op_data {
+                OperatorData::Key(op) => {
+                    jd.record_mgr.add_field_name(prev_field_id, op.key_interned);
+                    if let Some(lbl) = op_base.label {
+                        jd.record_mgr.add_field_name(prev_field_id, lbl);
+                    }
+                    continue;
+                }
+                OperatorData::Select(op) => {
+                    if let Some(field_id) = jd.record_mgr.match_sets[ms_id]
+                        .field_name_map
+                        .get(&op.key_interned)
+                        .and_then(|e| e.back())
+                        .cloned()
+                    {
+                        prev_field_id = field_id;
+                        if let Some(lbl) = op_base.label {
+                            jd.record_mgr.add_field_name(field_id, lbl);
+                        }
+                    } else {
+                        let field_id = jd.record_mgr.add_field(
+                            ms_id,
+                            jd.record_mgr.get_min_apf_idx(prev_field_id),
+                            Some(op.key_interned),
+                        );
+                        prev_field_id = field_id;
+                        //TODO: think about field refcounting
+                        mark_prev_field_as_placeholder = true;
+                    }
+                    continue;
+                }
+                _ => (),
             }
             let mut tf_state = TransformState::new(
                 prev_field_id,
@@ -507,6 +537,11 @@ impl<'a> WorkerThreadSession<'a> {
             );
 
             let tf_id_peek = jd.tf_mgr.transforms.peek_claim_id();
+            if mark_prev_field_as_placeholder {
+                let mut f = jd.record_mgr.fields[prev_field_id].borrow_mut();
+                f.added_as_placeholder_by_tf = Some(tf_id_peek);
+                mark_prev_field_as_placeholder = false;
+            }
             (tf_data, output_field) = match &op_data {
                 OperatorData::Split(split) => setup_tf_split(jd, split, &mut tf_state),
                 OperatorData::Print(op) => setup_tf_print(jd, op, &mut tf_state),
@@ -517,7 +552,9 @@ impl<'a> WorkerThreadSession<'a> {
                 OperatorData::DataInserter(op) => setup_tf_data_inserter(jd, op, &mut tf_state),
                 OperatorData::Sequence(op) => setup_tf_sequence(jd, op, &mut tf_state),
                 OperatorData::Key(_) => unreachable!(),
+                OperatorData::Select(_) => unreachable!(),
             };
+
             if let Some(lbl) = op_base.label {
                 jd.record_mgr.add_field_name(output_field, lbl);
             }

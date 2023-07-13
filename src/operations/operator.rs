@@ -4,7 +4,7 @@ use crate::{chain::ChainId, options::argument::CliArgIdx, utils::string_store::S
 
 use super::{
     data_inserter::OpDataInserter, file_reader::OpFileReader, format::OpFormat, key::OpKey,
-    print::OpPrint, regex::OpRegex, sequence::OpSequence, split::OpSplit,
+    print::OpPrint, regex::OpRegex, select::OpSelect, sequence::OpSequence, split::OpSplit,
     string_sink::OpStringSink,
 };
 
@@ -15,6 +15,7 @@ pub enum OperatorData {
     Print(OpPrint),
     Split(OpSplit),
     Key(OpKey),
+    Select(OpSelect),
     Regex(OpRegex),
     Format(OpFormat),
     StringSink(OpStringSink),
@@ -43,6 +44,7 @@ impl OperatorData {
             OperatorData::Regex(op) => op.default_op_name(),
             OperatorData::FileReader(op) => op.default_op_name(),
             OperatorData::Format(_) => SmallString::from("f"),
+            OperatorData::Select(_) => SmallString::from("select"),
             OperatorData::StringSink(_) => SmallString::from("<String Sink>"),
             OperatorData::DataInserter(op) => op.default_op_name(),
         }

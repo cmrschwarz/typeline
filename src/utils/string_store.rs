@@ -38,7 +38,7 @@ impl StringStore {
         let mut bucket = self.arena.last_mut().unwrap();
         let mut bucket_cap = bucket.capacity();
         let mut bucket_len = bucket.len();
-        if bucket_cap - bucket_len >= len {
+        if bucket_cap - bucket_len < len {
             bucket_cap *= 2;
             self.arena
                 .push(Vec::with_capacity(min(bucket_cap, len.next_power_of_two())));

@@ -7,6 +7,7 @@ use crate::operations::key::parse_op_key;
 use crate::operations::operator::OperatorData;
 use crate::operations::print::parse_op_print;
 use crate::operations::regex::{parse_op_regex, RegexOptions};
+use crate::operations::select::parse_op_select;
 use crate::operations::sequence::{parse_op_seq, SequenceMode};
 use crate::operations::split::parse_op_split;
 use crate::scr_error::ScrError;
@@ -397,6 +398,7 @@ fn parse_operation(
         "p" => Some(parse_op_print(value, idx)?),
         "f" | "fmt" => Some(parse_op_format(value, idx)?),
         "key" => Some(parse_op_key(value, idx)?),
+        "select" => Some(parse_op_select(value, idx)?),
 
         "+file" | "file" => Some(parse_op_file(value, append, idx)?),
         "+stdin" | "stdin" => Some(parse_op_stdin(value, append, idx)?),

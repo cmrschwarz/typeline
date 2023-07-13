@@ -14,6 +14,7 @@ use crate::{
         key::setup_op_key,
         operator::{OperatorBase, OperatorData, OperatorId, OperatorOffsetInChain},
         regex::setup_op_regex,
+        select::setup_op_select,
     },
     scr_error::{result_into, ScrError},
     selenium::SeleniumVariant,
@@ -130,6 +131,7 @@ impl ContextOptions {
                 OperatorData::Regex(op) => setup_op_regex(&mut sess.string_store, op)?,
                 OperatorData::Format(op) => setup_op_format(&mut sess.string_store, op)?,
                 OperatorData::Key(op) => setup_op_key(&mut sess.string_store, op)?,
+                OperatorData::Select(op) => setup_op_select(&mut sess.string_store, op)?,
                 OperatorData::FileReader(op) => setup_op_file_reader(chain, op)?,
                 OperatorData::StringSink(_)
                 | OperatorData::Split(_)

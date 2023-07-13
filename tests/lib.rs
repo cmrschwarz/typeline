@@ -1,5 +1,6 @@
 use scr::bstr::ByteSlice;
 
+use scr::operations::select::create_op_select;
 use scr::operations::sequence::{create_op_enum, create_op_seq_append};
 use scr::utils::i64_to_str;
 use scr::{
@@ -490,5 +491,43 @@ fn double_drop() -> Result<(), ScrError> {
         ss.get_data().unwrap().as_slice(),
         ["1", "10", "11", "12", "13", "14"]
     );
+    Ok(())
+}
+
+#[test]
+fn select() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::new();
+    ContextBuilder::default()
+        .set_batch_size(5)
+        .add_op_with_opts(
+            create_op_data_inserter(DataToInsert::String("foo".to_owned()), Some(3), false),
+            None,
+            Some("a"),
+            None,
+        )
+        .add_op(create_op_enum(0, 3, 1).unwrap())
+        .add_op(create_op_select("a".to_owned()))
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(ss.get_data().unwrap().as_slice(), ["foo", "foo", "foo"]);
+    Ok(())
+}
+
+#[test]
+fn select_after_key() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::new();
+    ContextBuilder::default()
+        .set_batch_size(5)
+        .add_op(create_op_data_inserter(
+            DataToInsert::String("foo".to_owned()),
+            None,
+            false,
+        ))
+        .add_op(create_op_key("a".to_owned()))
+        .add_op(create_op_enum(0, 3, 1).unwrap())
+        .add_op(create_op_select("a".to_owned()))
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(ss.get_data().unwrap().as_slice(), ["foo"]);
     Ok(())
 }
