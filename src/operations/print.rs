@@ -171,7 +171,10 @@ pub fn write_stream_val_check_done<const NEWLINE: bool>(
     };
     debug_assert!(sv.done || offsets.is_none());
     match &sv.data {
-        StreamValueData::BytesChunk(c) => {
+        StreamValueData::Bytes(c) => {
+            if !sv.bytes_are_chunk && !sv.done {
+                return Ok(false);
+            }
             for i in 0..rl_to_attempt {
                 stream
                     .write(c)
@@ -183,17 +186,6 @@ pub fn write_stream_val_check_done<const NEWLINE: bool>(
                         }
                     })
                     .map_err(|e| (i, e))?;
-            }
-        }
-        StreamValueData::BytesBuffer(b) => {
-            if sv.done {
-                let data = &b[offsets.unwrap_or(0..b.len())];
-                for i in 0..rl_to_attempt {
-                    stream
-                        .write(data)
-                        .and_then(|_| if NEWLINE { stream.write(b"\n") } else { Ok(0) })
-                        .map_err(|e| (i, e))?;
-                }
             }
         }
         StreamValueData::Error(e) => {

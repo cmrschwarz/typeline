@@ -5,8 +5,7 @@ use crate::operations::{errors::OperatorApplicationError, transform::TransformId
 pub enum StreamValueData {
     Dropped,
     Error(OperatorApplicationError),
-    BytesChunk(Vec<u8>),
-    BytesBuffer(Vec<u8>),
+    Bytes(Vec<u8>),
     /* // TODO
     BytesChunk(Vec<u8>),
     BytesBuffer(Vec<u8>),
@@ -26,6 +25,7 @@ pub struct StreamValueSubscription {
 pub struct StreamValue {
     pub data: StreamValueData,
     pub bytes_are_utf8: bool,
+    pub bytes_are_chunk: bool,
     pub done: bool,
     // transforms that want to be readied as soon as this receives any data
     pub subscribers: SmallVec<[StreamValueSubscription; 1]>,
@@ -34,13 +34,8 @@ pub struct StreamValue {
 
 impl StreamValue {
     pub fn promote_to_buffer(&mut self) {
-        match &mut self.data {
-            StreamValueData::Dropped => (),
-            StreamValueData::Error(_) => (),
-            StreamValueData::BytesChunk(bc) => {
-                self.data = StreamValueData::BytesBuffer(std::mem::replace(bc, Default::default()));
-            }
-            StreamValueData::BytesBuffer(_) => (),
+        if let StreamValueData::Bytes(_) = self.data {
+            self.bytes_are_chunk = true;
         }
     }
     pub fn subscribe(
@@ -60,8 +55,7 @@ impl StreamValue {
         match self.data {
             StreamValueData::Dropped => true,
             StreamValueData::Error(_) => true,
-            StreamValueData::BytesBuffer(_) => true,
-            StreamValueData::BytesChunk(_) => false,
+            StreamValueData::Bytes(_) => !self.bytes_are_chunk,
         }
     }
 }

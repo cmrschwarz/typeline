@@ -247,10 +247,11 @@ fn start_streaming_file(sess: &mut JobData<'_>, tf_id: TransformId, fr: &mut TfF
     buf.extend_from_slice(&fdi.data[size_before..size_before + chunk_size]);
     fdi.data.resize(size_before, 0);
     let sv_id = sess.sv_mgr.stream_values.claim_with_value(StreamValue {
-        data: StreamValueData::BytesChunk(buf),
+        data: StreamValueData::Bytes(buf),
         done: false,
         ref_count: 1,
         bytes_are_utf8: false,
+        bytes_are_chunk: true,
         subscribers: Default::default(),
     });
     fr.stream_value = Some(sv_id);
@@ -272,8 +273,10 @@ pub fn handle_tf_file_reader(sess: &mut JobData<'_>, tf_id: TransformId, fr: &mu
 
     let sv = &mut sess.sv_mgr.stream_values[sv_id];
     let res = match &mut sv.data {
-        StreamValueData::BytesChunk(ref mut bc) => {
-            bc.clear();
+        StreamValueData::Bytes(ref mut bc) => {
+            if sv.bytes_are_chunk {
+                bc.clear();
+            }
             read_chunk(
                 bc,
                 fr.file.as_mut().unwrap(),
@@ -281,12 +284,6 @@ pub fn handle_tf_file_reader(sess: &mut JobData<'_>, tf_id: TransformId, fr: &mu
                 fr.line_buffered,
             )
         }
-        StreamValueData::BytesBuffer(ref mut bb) => read_chunk(
-            bb,
-            fr.file.as_mut().unwrap(),
-            fr.stream_buffer_size,
-            fr.line_buffered,
-        ),
         StreamValueData::Error(_) => {
             fr.file.take();
             Ok((0, true))

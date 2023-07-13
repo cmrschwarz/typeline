@@ -169,52 +169,47 @@ fn append_stream_val(
     start_idx: usize,
     run_len: usize,
 ) {
+    debug_assert!(run_len > 0);
     let end_idx = start_idx + run_len;
     match &sv.data {
-        StreamValueData::BytesChunk(c) => match c.to_str() {
-            Ok(text) => {
-                for i in start_idx..end_idx {
-                    out.data[i].push_str(text);
-                }
+        StreamValueData::Bytes(b) => {
+            if !sv.bytes_are_chunk && !sv.done {
+                return;
             }
-            Err(_) => {
-                if !sv_handle.contains_error {
-                    sv_handle.contains_error = true;
-                    let err = Arc::new(OperatorApplicationError {
-                        op_id: op_id,
-                        message: Cow::Borrowed("invalid utf-8"),
-                    });
-                    for i in start_idx..end_idx {
-                        out.errors.insert(i, err.clone());
-                    }
-                }
-                let lossy = String::from_utf8_lossy(c.as_bytes());
-                for i in start_idx..end_idx {
-                    out.data[i].push_str(&lossy);
-                }
-            }
-        },
-        StreamValueData::BytesBuffer(b) => {
-            if sv.done {
-                match b.to_str() {
-                    Ok(s) => {
-                        for i in start_idx..end_idx {
-                            out.data[i].push_str(s);
-                        }
-                    }
+            let buf = if sv.bytes_are_chunk {
+                b.as_slice()
+            } else {
+                // this could have been promoted to buffer after
+                // we started treating it as a chunk, so skip any
+                // data we already have
+                &b[out.data[start_idx].len()..]
+            };
+            let text = if sv.bytes_are_utf8 {
+                unsafe { std::str::from_utf8_unchecked(buf) }
+            } else {
+                match buf.to_str() {
+                    Ok(text) => text,
                     Err(_) => {
-                        let err = Arc::new(OperatorApplicationError {
-                            op_id: op_id,
-                            message: Cow::Borrowed("invalid utf-8"),
-                        });
-                        let lossy = String::from_utf8_lossy(b);
-                        for i in (start_idx..end_idx).skip(1) {
-                            out.data[i] = lossy.to_string();
-                            out.errors.insert(i, err.clone());
+                        if !sv_handle.contains_error {
+                            sv_handle.contains_error = true;
+                            let err = Arc::new(OperatorApplicationError {
+                                op_id: op_id,
+                                message: Cow::Borrowed("invalid utf-8"),
+                            });
+                            for i in start_idx..end_idx {
+                                out.errors.insert(i, err.clone());
+                            }
                         }
-                        out.data[start_idx] = lossy.to_string();
+                        let lossy = String::from_utf8_lossy(buf);
+                        for i in start_idx..end_idx {
+                            out.data[i].push_str(&lossy);
+                        }
+                        return;
                     }
                 }
+            };
+            for i in start_idx..end_idx {
+                out.data[i].push_str(text);
             }
         }
         StreamValueData::Error(e) => {

@@ -676,11 +676,8 @@ pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRe
                                 }
                                 continue;
                             }
-                            StreamValueData::BytesChunk(bc) => {
-                                data = &bc.as_bytes()[offsets.unwrap_or(0..bc.len())];
-                            }
-                            StreamValueData::BytesBuffer(bb) => {
-                                data = &bb.as_bytes()[offsets.unwrap_or(0..bb.len())];
+                            StreamValueData::Bytes(b) => {
+                                data = &b.as_bytes()[offsets.unwrap_or(0..b.len())];
                             }
                         }
                         bse = if let Some(tr) = &mut text_regex {
