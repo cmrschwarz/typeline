@@ -2,7 +2,6 @@ use std::{cell::RefMut, collections::HashMap};
 
 use bstr::{BStr, ByteSlice};
 
-use nonmax::NonMaxUsize;
 use smallvec::{smallvec, SmallVec};
 
 use crate::{
@@ -28,7 +27,7 @@ pub struct OpSplit {
 pub struct TfSplit {
     pub expanded: bool,
     // Operator Ids before expansion, transform ids after
-    pub targets: Vec<NonMaxUsize>,
+    pub targets: Vec<TransformId>,
     pub field_names_set: HashMap<StringStoreEntry, SmallVec<[FieldId; 2]>>,
 }
 

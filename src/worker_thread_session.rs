@@ -459,7 +459,7 @@ impl<'a> WorkerThreadSession<'a> {
             let input_field = self.job_data.record_mgr.add_field(ms_id, None, None);
             targets[i] = self.setup_transforms_from_op(
                 ms_id,
-                <NonMaxUsize as TryInto<usize>>::try_into(op).unwrap() as OperatorId,
+                <TransformId as TryInto<usize>>::try_into(op).unwrap() as OperatorId,
                 input_field,
             );
         }
