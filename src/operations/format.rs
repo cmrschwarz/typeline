@@ -37,6 +37,7 @@ use crate::{
 use super::{
     errors::{OperatorApplicationError, OperatorCreationError, OperatorSetupError},
     operator::{OperatorData, OperatorId},
+    print::{error_to_string, write_error},
     transform::{TransformData, TransformId, TransformState},
 };
 
@@ -163,6 +164,7 @@ pub struct TfFormat<'a> {
     output_targets: Vec<OutputTarget>,
     stream_value_handles: Universe<usize, TfFormatStreamValueHandle>,
 }
+const NULL_LEN: usize = "null".len();
 
 pub fn setup_op_format(
     string_store: &mut StringStore,
@@ -378,7 +380,8 @@ pub fn parse_format_flags(
         i += 1;
         c = next(fmt, i)?;
     }
-    if c != '}' && c != '.' {
+    let c2 = next(fmt, i + 1)?;
+    if !".}?".contains(c) && c2 != '?' {
         (key.width, i) = parse_format_width_spec::<false>(fmt, i, refs)?;
         c = next(fmt, i)?;
     }
@@ -386,8 +389,36 @@ pub fn parse_format_flags(
         (key.float_precision, i) = parse_format_width_spec::<true>(fmt, i + 1, refs)?;
         c = next(fmt, i)?;
     }
+
+    if c == '?' {
+        key.alternate_form = true;
+        i += 1;
+        c = next(fmt, i)?;
+    } else {
+        if c == '}' {
+            return Ok(i);
+        }
+        let c2 = next(fmt, i + 1)?;
+        if c2 != '?' {
+            return Err((i, format!("expected '?' after type specifier '{c}'").into()));
+        }
+        match c {
+            'x' => key.number_format = NumberFormat::Hex,
+            'X' => key.number_format = NumberFormat::UpperHex,
+            'o' => key.number_format = NumberFormat::Octal,
+            'b' => key.number_format = NumberFormat::Binary,
+            'e' => key.number_format = NumberFormat::LowerExp,
+            'E' => key.number_format = NumberFormat::UpperExp,
+            _ => return Err((i, format!("unknown type specifier '{c}?' ").into())),
+        }
+        i += 2;
+        c = next(fmt, i)?;
+    }
     if c != '}' {
-        return Err((i, "expected '}' to terminate format key".into()));
+        return Err((
+            i,
+            format!("expected '}}' to terminate format key, found '{c}'").into(),
+        ));
     }
     Ok(i)
 }
@@ -666,9 +697,21 @@ pub fn setup_key_output_state(
                     });
                 }
             }
+            TypedSlice::Null(ints) => {
+                if k.alternate_form {
+                    for (v, rl) in TypedSliceIter::from_range(&range.base, ints) {
+                        iter_output_states(fmt, &mut output_index, rl as usize, |o| {
+                            o.len += calc_text_len(k, NULL_LEN, o.width_lookup);
+                        });
+                    }
+                } else {
+                    iter_output_states(fmt, &mut output_index, range.base.field_count, |o| {
+                        o.error_occured = true;
+                    });
+                }
+            }
             TypedSlice::Unset(_)
             | TypedSlice::Success(_)
-            | TypedSlice::Null(_)
             | TypedSlice::Error(_)
             | TypedSlice::Html(_)
             | TypedSlice::StreamValueId(_)
@@ -903,6 +946,25 @@ fn write_fmt_key(
                     });
                 }
             }
+            TypedSlice::Null(_) if k.alternate_form => {
+                iter_output_targets(
+                    fmt,
+                    &mut output_index,
+                    range.base.field_count,
+                    |tgt| unsafe {
+                        write_padded_bytes(k, tgt, "null".as_bytes(), || NULL_LEN);
+                    },
+                );
+            }
+            TypedSlice::Error(errs) if k.alternate_form => {
+                for (v, rl) in TypedSliceIter::from_range(&range.base, errs) {
+                    let err_str = error_to_string(v);
+                    iter_output_targets(fmt, &mut output_index, rl as usize, |tgt| unsafe {
+                        write_padded_bytes(k, tgt, &err_str.as_bytes(), || err_str.chars().count())
+                    });
+                }
+            }
+
             TypedSlice::StreamValueId(_) => todo!(),
             TypedSlice::Unset(_)
             | TypedSlice::Success(_)

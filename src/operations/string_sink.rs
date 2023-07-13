@@ -280,6 +280,14 @@ pub fn handle_tf_string_sink(
             TypedSlice::Reference(_) => unreachable!(),
             TypedSlice::Null(_) => {
                 write_null::<false>(buf, range.base.field_count).unwrap();
+                push_string_clear_buf(
+                    sess,
+                    tf_id,
+                    field_pos,
+                    &mut out,
+                    buf,
+                    range.base.field_count,
+                );
             }
             TypedSlice::Error(errs) => {
                 let mut pos = field_pos;

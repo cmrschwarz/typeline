@@ -102,23 +102,21 @@ const FAST_SEQ_MAX_STEP: i64 = 200;
 
 pub fn handle_tf_sequence(sess: &mut JobData<'_>, tf_id: TransformId, seq: &mut TfSequence) {
     sess.prepare_for_output(tf_id, &[seq.output_field]);
-
-    let seq_end = seq.ss.start == seq.ss.end;
-    if seq_end && seq.mode != SequenceMode::Enumerate {
-        sess.unlink_transform(tf_id, 0);
-        return;
-    }
-
     let mut batch_size = sess.claim_batch(tf_id);
 
-    if batch_size == 0 && seq.mode == SequenceMode::Enumerate {
-        sess.unlink_transform(tf_id, 0);
-        return;
+    let mut unlink_if_done = false;
+
+    if batch_size == 0 {
+        if seq.mode == SequenceMode::Enumerate {
+            sess.unlink_transform(tf_id, 0);
+            return;
+        }
+        unlink_if_done = true;
     }
 
     let mut output_field = sess.record_mgr.fields[seq.output_field].borrow_mut();
 
-    if seq_end && seq.mode == SequenceMode::Enumerate {
+    if seq.mode == SequenceMode::Enumerate && seq.ss.start == seq.ss.end {
         output_field.field_data.push_unset(batch_size, true);
         sess.tf_mgr
             .inform_successor_batch_available(tf_id, batch_size);
@@ -174,6 +172,10 @@ pub fn handle_tf_sequence(sess: &mut JobData<'_>, tf_id: TransformId, seq: &mut 
     }
     let fields_added = batch_size - bs_rem;
     drop(output_field);
+    if unlink_if_done && seq.ss.start == seq.ss.end {
+        sess.unlink_transform(tf_id, fields_added);
+        return;
+    }
     sess.tf_mgr.push_tf_in_ready_queue(tf_id);
     sess.tf_mgr
         .inform_successor_batch_available(tf_id, fields_added);

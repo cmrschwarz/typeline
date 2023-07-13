@@ -182,9 +182,27 @@ impl<'a> TypedSlice<'a> {
             TypedSlice::Object(_) => TypeId::of::<Object>(),
         }
     }
+    pub fn len(&self) -> usize {
+        match self {
+            TypedSlice::Unset(v) => v.len(),
+            TypedSlice::Success(v) => v.len(),
+            TypedSlice::Null(v) => v.len(),
+            TypedSlice::Integer(v) => v.len(),
+            TypedSlice::StreamValueId(v) => v.len(),
+            TypedSlice::Reference(v) => v.len(),
+            TypedSlice::Error(v) => v.len(),
+            TypedSlice::Html(v) => v.len(),
+            TypedSlice::BytesInline(v) => v.len(),
+            TypedSlice::TextInline(v) => v.len(),
+            TypedSlice::BytesBuffer(v) => v.len(),
+            TypedSlice::Object(v) => v.len(),
+        }
+    }
     pub fn matches_values<T: 'static>(&self, values: &[T]) -> bool {
-        TypeId::of::<T>() == self.type_id()
-            && self.as_bytes().as_ptr_range() == slice_as_bytes(values).as_ptr_range()
+        if TypeId::of::<T>() != self.type_id() {
+            return false;
+        }
+        return values.len() == self.len();
     }
 }
 

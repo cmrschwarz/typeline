@@ -22,7 +22,7 @@ Settings:
 Operators (`h=<operator>` for details):
     p                     Print previous results to stdout
     f=<fstr>              Format text using rust format strings
-    r[abdilmu]=<regex>    Apply a regular expression
+    r[abdilmou]=<regex>   Apply a regular expression
     key=<IDENT>           Give a name to the previous column.
 
     [+]file[t]=<path>     Read in bytes (or text) from a file

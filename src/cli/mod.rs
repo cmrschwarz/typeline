@@ -110,7 +110,7 @@ lazy_static! {
 
 
     static ref REGEX_CLI_ARG_REGEX: Regex =
-        RegexBuilder::new("^r((?<i>i)|(?<m>m)|(?<l>l)|(?<d>d)|(?<b>b)|(?<a>a)|(?<u>u))*$")
+        RegexBuilder::new("^r((?<a>a)|(?<b>b)|(?<d>d)|(?<i>i)|(?<l>l)|(?<m>m)|(?<o>o)|(?<u>u))*$")
             .case_insensitive(true)
             .build()
             .unwrap();
@@ -353,40 +353,40 @@ fn parse_operation(
 ) -> Result<Option<OperatorData>, OperatorCreationError> {
     if let Some(c) = REGEX_CLI_ARG_REGEX.captures(argname) {
         let mut opts = RegexOptions::default();
-        let mut binary_regex = false;
         let mut unicode_mode = false;
-        if c.name("l").is_some() {
-            opts.line_based = true;
+        if c.name("a").is_some() {
+            opts.ascii_mode = true;
         }
-        if c.name("i").is_some() {
-            opts.case_insensitive = true;
-        }
-        if c.name("m").is_some() {
-            opts.multimatch = true;
+        if c.name("b").is_some() {
+            opts.binary_mode = true;
         }
         if c.name("d").is_some() {
             opts.dotall = true;
         }
-        if c.name("a").is_some() {
-            opts.ascii_mode = true;
+        if c.name("i").is_some() {
+            opts.case_insensitive = true;
+        }
+        if c.name("l").is_some() {
+            opts.line_based = true;
+        }
+        if c.name("m").is_some() {
+            opts.multimatch = true;
+        }
+        if c.name("o").is_some() {
+            opts.optional = true;
         }
         if c.name("u").is_some() {
             unicode_mode = true;
         }
-        if c.name("b").is_some() {
-            binary_regex = true;
-        }
+
         if opts.ascii_mode && unicode_mode {
             return Err(OperatorCreationError::new(
-                "[a]scii and [u]nicode mode are mutually exclusive on any regex",
+                "[a]scii and [u]nicode mode on regex are mutually exclusive",
                 idx,
             ));
         }
-        if binary_regex {
-            if !unicode_mode {
-                opts.ascii_mode = true;
-            }
-            todo!();
+        if opts.binary_mode && !unicode_mode {
+            opts.ascii_mode = true;
         }
         return Ok(Some(OperatorData::Regex(parse_op_regex(value, idx, opts)?)));
     }

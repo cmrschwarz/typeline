@@ -35,7 +35,7 @@ pub struct StreamValue {
 impl StreamValue {
     pub fn promote_to_buffer(&mut self) {
         if let StreamValueData::Bytes(_) = self.data {
-            self.bytes_are_chunk = true;
+            self.bytes_are_chunk = false;
         }
     }
     pub fn subscribe(

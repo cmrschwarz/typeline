@@ -54,10 +54,11 @@ pub struct TfRegex {
     text_only_regex: Option<(regex::Regex, regex::CaptureLocations)>,
     capture_group_fields: Vec<FieldId>,
     input_field_iter_id: IterId,
-    multimatch: bool,
     last_end: Option<usize>,
     next_start: usize,
     apf_idx: ActionProducingFieldIndex,
+    multimatch: bool,
+    optional: bool,
 }
 
 #[derive(Default)]
@@ -68,8 +69,16 @@ pub struct RegexOptions {
     // any byte sequence that looks like a valid UTF-8 character
     pub ascii_mode: bool,
 
+    // don't attempt to preserve strings as strings and turn everything into
+    // byte sequences
+    // !!! if used from the cli, this implies ascii mode unless 'u' is specified
+    pub binary_mode: bool,
+
     // return multiple matches instead of only the first
     pub multimatch: bool,
+
+    // produce null values instead of dropping the entry if the there fails
+    pub optional: bool,
 
     // makes ^ and $ match lines in addition to start / end of stream
     // (commonly called multiline)
@@ -85,14 +94,11 @@ pub struct RegexOptions {
 impl OpRegex {
     pub fn default_op_name(&self) -> SmallString<[u8; 16]> {
         let mut res = SmallString::from_str("r");
-        if self.opts.ascii_mode {
+        if self.opts.ascii_mode && !self.opts.binary_mode {
+            res.push('a');
+        }
+        if self.opts.binary_mode {
             res.push('b');
-        }
-        if self.opts.multimatch {
-            res.push('m');
-        }
-        if self.opts.line_based {
-            res.push('l');
         }
         if self.opts.dotall {
             res.push('d');
@@ -100,6 +106,19 @@ impl OpRegex {
         if self.opts.case_insensitive {
             res.push('i');
         }
+        if self.opts.line_based {
+            res.push('l');
+        }
+        if self.opts.multimatch {
+            res.push('m');
+        }
+        if self.opts.optional {
+            res.push('o');
+        }
+        if self.opts.binary_mode && !self.opts.ascii_mode {
+            res.push('u');
+        }
+
         res
     }
 }
@@ -213,14 +232,17 @@ pub fn parse_op_regex(
             .map(|(i, _cn)| i)
             .unwrap();
     }
-
-    text_only_regex = regex::RegexBuilder::new(&re)
-        .multi_line(opts.line_based)
-        .dot_matches_new_line(opts.dotall)
-        .case_insensitive(opts.case_insensitive)
-        .unicode(!opts.ascii_mode)
-        .build()
-        .ok();
+    text_only_regex = if !opts.binary_mode {
+        regex::RegexBuilder::new(&re)
+            .multi_line(opts.line_based)
+            .dot_matches_new_line(opts.dotall)
+            .case_insensitive(opts.case_insensitive)
+            .unicode(!opts.ascii_mode)
+            .build()
+            .ok()
+    } else {
+        None
+    };
 
     Ok(OpRegex {
         regex,
@@ -316,6 +338,7 @@ pub fn setup_tf_regex<'a>(
         capture_group_fields: cgfs,
         capture_locs: op.regex.capture_locations(),
         multimatch: op.opts.multimatch,
+        optional: op.opts.optional,
         input_field_iter_id: sess.record_mgr.fields[tf_state.input_field]
             .borrow_mut()
             .field_data
@@ -496,8 +519,17 @@ fn match_regex_inner<'a, 'b, const PUSH_REF: bool, R: AnyRegex>(
                 rmis.batch_state.field_pos_output,
                 match_count - 1,
             );
-        } else {
-            if match_count == 0 {
+        } else if match_count == 0 {
+            if rmis.batch_state.optional {
+                for c in 0..regex.captures_locs_len() {
+                    let field = &mut rmis.batch_state.fields
+                        [rmis.batch_state.capture_group_fields[c]]
+                        .borrow_mut()
+                        .field_data;
+                    field.push_null(rl, true);
+                }
+                match_count = 1;
+            } else {
                 rmis.command_buffer.push_action(
                     rmis.batch_state.apf_idx,
                     FieldActionKind::Drop,
@@ -524,6 +556,7 @@ struct RegexBatchState<'a> {
     field_pos_output: usize,
     batch_end_field_pos_output: usize,
     multimatch: bool,
+    optional: bool,
     last_end: Option<usize>,
     next_start: usize,
     capture_group_fields: &'a Vec<FieldId>,
@@ -558,6 +591,7 @@ pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRe
         field_pos_input: field_pos_start,
         field_pos_output: field_pos_start,
         multimatch: re.multimatch,
+        optional: re.optional,
         capture_group_fields: &re.capture_group_fields,
         fields: &sess.record_mgr.fields,
         last_end: re.last_end,

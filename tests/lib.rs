@@ -531,3 +531,30 @@ fn select_after_key() -> Result<(), ScrError> {
     assert_eq!(ss.get_data().unwrap().as_slice(), ["foo"]);
     Ok(())
 }
+#[test]
+fn optional_regex() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::new();
+    ContextBuilder::default()
+        .add_op(create_op_seq(9, 12, 1).unwrap())
+        .add_op(create_op_seq_append(20, 22, 1).unwrap())
+        .add_op(create_op_key("n".to_string()))
+        .add_op(
+            create_op_regex(
+                "1",
+                RegexOptions {
+                    optional: true,
+                    multimatch: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap(),
+        )
+        .add_op(create_op_format("{n}: {:?}".as_bytes().as_bstr()).unwrap())
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(
+        ss.get_data().unwrap().as_slice(),
+        ["9: null", "10: 1", "11: 1", "11: 1", "20: null", "21: 1"]
+    );
+    Ok(())
+}

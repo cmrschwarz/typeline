@@ -355,7 +355,8 @@ impl<'a> FieldIterator<'a> for Iter<'a> {
                 return n - stride_rem;
             }
             if self.header_rl_total as usize > stride_rem {
-                self.header_rl_offset = stride_rem as RunLength;
+                self.field_pos += stride_rem;
+                self.header_rl_offset += stride_rem as RunLength;
                 return n;
             }
         }
@@ -405,6 +406,7 @@ impl<'a> FieldIterator<'a> for Iter<'a> {
             }
             if self.header_rl_total as usize > stride_rem {
                 self.header_rl_offset -= stride_rem as RunLength;
+                self.field_pos -= stride_rem;
                 return n;
             }
         }

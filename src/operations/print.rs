@@ -158,6 +158,10 @@ pub fn write_error<const NEWLINE: bool>(
     Ok(())
 }
 
+pub fn error_to_string(e: &OperatorApplicationError) -> String {
+    format_args!("Error: {e}").to_string()
+}
+
 pub fn write_stream_val_check_done<const NEWLINE: bool>(
     stream: &mut impl Write,
     sv: &StreamValue,
@@ -175,9 +179,14 @@ pub fn write_stream_val_check_done<const NEWLINE: bool>(
             if !sv.bytes_are_chunk && !sv.done {
                 return Ok(false);
             }
+            let mut data = c.as_slice();
+            if let Some(offsets) = offsets {
+                debug_assert!(sv.is_buffered());
+                data = &data[offsets];
+            }
             for i in 0..rl_to_attempt {
                 stream
-                    .write(c)
+                    .write(data)
                     .and_then(|_| {
                         if NEWLINE && sv.done {
                             stream.write(b"\n")

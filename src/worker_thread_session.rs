@@ -689,6 +689,7 @@ impl<'a> WorkerThreadSession<'a> {
                         && tf.done_if_input_done
                     {
                         self.job_data.unlink_transform(tf_id, 0);
+                        self.remove_transform(tf_id);
                     }
                 }
 
