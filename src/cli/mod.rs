@@ -174,7 +174,7 @@ fn try_parse_usize_arg(val: &BStr, cli_arg_idx: CliArgIdx) -> Result<usize, CliA
 }
 
 fn print_help(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    write!(f, "scr [OPTIONS]")?;
+    write!(f, include_str!("cli_help_text.txt"))?;
     Ok(())
 }
 fn print_version(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -259,12 +259,12 @@ fn try_parse_as_chain_opt(
             .map_err(|e| CliArgumentError::from(e))?;
         Ok(true)
     }
-    if "selenium".starts_with(&arg.argname) {
-        let sv = try_parse_selenium_variant(arg.value.as_deref(), &arg.cli_arg)?;
-        return apply_to_chains(ctx_opts, arg, |c| c.selenium_variant.set(sv));
-    }
     match arg.argname {
-        "dte" => {
+        "sel" => {
+            let sv = try_parse_selenium_variant(arg.value.as_deref(), &arg.cli_arg)?;
+            return apply_to_chains(ctx_opts, arg, |c| c.selenium_variant.set(sv));
+        }
+        "denc" => {
             if let Some(_val) = &arg.value {
                 todo!("parse text encoding");
             } else {
@@ -274,11 +274,11 @@ fn try_parse_as_chain_opt(
                 ))
             }
         }
-        "ppte" => {
+        "ppenc" => {
             let ppte = try_parse_bool_arg_or_default(arg.value.as_deref(), true, arg.cli_arg.idx)?;
             apply_to_chains(ctx_opts, arg, |c| c.prefer_parent_text_encoding.set(ppte))
         }
-        "fte" => {
+        "fenc" => {
             let fte = try_parse_bool_arg_or_default(arg.value.as_deref(), true, arg.cli_arg.idx)?;
             apply_to_chains(ctx_opts, arg, |c| c.force_text_encoding.set(fte))
         }
@@ -394,9 +394,8 @@ fn parse_operation(
     }
     let append = &argname[0..1] == "+";
     Ok(match argname {
-        "s" | "split" => Some(parse_op_split(value, idx)?),
-        "p" | "print" => Some(parse_op_print(value, idx)?),
-        "f" | "fmt" | "format" => Some(parse_op_format(value, idx)?),
+        "p" => Some(parse_op_print(value, idx)?),
+        "f" | "fmt" => Some(parse_op_format(value, idx)?),
         "key" => Some(parse_op_key(value, idx)?),
 
         "+file" | "file" => Some(parse_op_file(value, append, idx)?),
@@ -405,6 +404,8 @@ fn parse_operation(
         "seq" => Some(parse_op_seq(value, SequenceMode::Default, idx)?),
         "+seq" => Some(parse_op_seq(value, SequenceMode::Append, idx)?),
         "enum" => Some(parse_op_seq(value, SequenceMode::Enumerate, idx)?),
+
+        "split" => Some(parse_op_split(value, idx)?),
         _ => None,
     })
 }
