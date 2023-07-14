@@ -11,6 +11,7 @@ use super::{
     operator_base_options::OperatorBaseOptions,
 };
 
+#[derive(Clone)]
 pub struct ContextBuilder {
     opts: Box<ContextOptions>,
 }

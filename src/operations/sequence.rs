@@ -35,6 +35,7 @@ pub enum SequenceMode {
     Enumerate,
 }
 
+#[derive(Clone)]
 pub struct OpSequence {
     ss: SequenceSpec,
     mode: SequenceMode,

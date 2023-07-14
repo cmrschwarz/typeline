@@ -67,7 +67,7 @@ impl FormatFillSpec {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FormatWidthSpec {
     Value(usize),
     Ref(FormatKeyRefId),
@@ -88,7 +88,7 @@ impl Default for FormatWidthSpec {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Default)]
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub enum NumberFormat {
     #[default]
     Plain, // the default value representation
@@ -100,7 +100,7 @@ pub enum NumberFormat {
     UpperExp, // print numbers in lower case scientific notation, e.g. 4.2E1 instead of 42
 }
 
-#[derive(Debug, PartialEq, Eq, Default)]
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct FormatKey {
     identifier: FormatKeyRefId,
     fill: Option<FormatFillSpec>,
@@ -114,7 +114,7 @@ pub struct FormatKey {
     unicode: bool,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FormatPart {
     ByteLiteral(BString),
     TextLiteral(String),
@@ -123,6 +123,7 @@ pub enum FormatPart {
 
 type FormatKeyRefId = usize;
 
+#[derive(Clone)]
 pub struct OpFormat {
     parts: Vec<FormatPart>,
     refs_str: Vec<Option<String>>,

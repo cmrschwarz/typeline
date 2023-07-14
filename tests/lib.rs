@@ -4,6 +4,7 @@ use scr::bstr::ByteSlice;
 
 use scr::operations::select::create_op_select;
 use scr::operations::sequence::{create_op_enum, create_op_seq_append};
+use scr::options::chain_options::DEFAULT_CHAIN_OPTIONS;
 use scr::utils::i64_to_str;
 use scr::{
     field_data::{push_interface::PushInterface, record_set::RecordSet},
@@ -554,7 +555,7 @@ fn stream_into_format() -> Result<(), ScrError> {
 #[test]
 fn stream_into_multiple_different_formats() -> Result<(), ScrError> {
     let ss = StringSinkHandle::new();
-    ContextBuilder::default()
+    let cb = ContextBuilder::default()
         .push_str("foo", 1)
         .push_str("bar", 1)
         .add_op(create_op_key("label".to_owned()))
@@ -565,29 +566,12 @@ fn stream_into_multiple_different_formats() -> Result<(), ScrError> {
             false,
         ))
         .add_op(create_op_format("{label}: {}".as_bytes().as_bstr()).unwrap())
-        .add_op(create_op_string_sink(&ss))
-        .run()?;
-    assert_eq!(ss.get_data().unwrap().as_slice(), ["foo: xxx", "bar: xxx"]);
-    Ok(())
-}
+        .add_op(create_op_string_sink(&ss));
 
-#[test]
-fn force_file_reader_buffering() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
-    ContextBuilder::default()
-        .push_str("foo", 1)
-        .push_str("bar", 1)
-        .set_batch_size(1)
-        .add_op(create_op_key("label".to_owned()))
-        .add_op(create_op_file_reader_custom(
-            Box::new(SliceReader {
-                data: "xxx".as_bytes(),
-            }),
-            false,
-        ))
-        .add_op(create_op_format("{label}: {}".as_bytes().as_bstr()).unwrap())
-        .add_op(create_op_string_sink(&ss))
-        .run()?;
-    assert_eq!(ss.get().data.as_slice(), ["foo: xxx", "bar: xxx"]);
+    for batch_size in [1, DEFAULT_CHAIN_OPTIONS.default_batch_size.unwrap()] {
+        ss.clear();
+        cb.clone().set_batch_size(batch_size).run()?;
+        assert_eq!(ss.get_data().unwrap().as_slice(), ["foo: xxx", "bar: xxx"]);
+    }
     Ok(())
 }

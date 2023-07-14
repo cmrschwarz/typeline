@@ -29,10 +29,44 @@ use super::{
     transform::{TransformData, TransformId, TransformState},
 };
 
+pub trait ReadSendCloneDyn: Read + Send {
+    fn clone_dyn(&self) -> Box<dyn ReadSendCloneDyn>;
+    fn clone_as_read(&self) -> Box<dyn Read>;
+}
+impl<T: Read + Send + Clone + 'static> ReadSendCloneDyn for T {
+    fn clone_dyn(&self) -> Box<dyn ReadSendCloneDyn> {
+        Box::new(self.clone())
+    }
+    fn clone_as_read(&self) -> Box<dyn Read> {
+        Box::new(self.clone())
+    }
+}
+
 pub enum FileKind {
     Stdin,
     File(PathBuf),
-    Custom(Mutex<Option<Box<dyn Read + Send>>>),
+    Custom(Mutex<Option<Box<dyn ReadSendCloneDyn>>>),
+    CustomNotCloneable(Mutex<Option<Box<dyn Read + Send>>>),
+}
+
+impl Clone for FileKind {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Stdin => Self::Stdin,
+            Self::File(path) => Self::File(path.clone()),
+            Self::CustomNotCloneable(_) => {
+                panic!("attempted to clone a OpFileReader containing FileKind::CustomNotCloneable. Consider Using FileKind::Custom instead");
+            }
+            Self::Custom(cust) => Self::Custom(Mutex::new({
+                let guard = cust.lock().unwrap();
+                if let Some(v) = &*guard {
+                    Some(v.clone_dyn())
+                } else {
+                    None
+                }
+            })),
+        }
+    }
 }
 
 pub enum AnyFile {
@@ -44,12 +78,14 @@ pub enum AnyFile {
     FileOpenIoError(Option<std::io::Error>),
 }
 
+#[derive(Clone)]
 enum LineBufferedSetting {
     Yes,
     No,
     IfTTY,
 }
 
+#[derive(Clone)]
 pub struct OpFileReader {
     file_kind: FileKind,
     line_buffered: LineBufferedSetting,
@@ -66,6 +102,7 @@ impl OpFileReader {
             FileKind::Stdin => res.push_str("stdin"),
             FileKind::File(_) => res.push_str("file"),
             FileKind::Custom(_) => res.push_str("<custom_file_stream>"),
+            FileKind::CustomNotCloneable(_) => res.push_str("<custom_file_stream_not_cloneable>"),
         }
         res
     }
@@ -114,13 +151,31 @@ pub fn setup_tf_file_reader<'a>(
             }
             Err(e) => AnyFile::FileOpenIoError(Some(e)),
         },
-        FileKind::Custom(reader) => AnyFile::Custom(
+        FileKind::CustomNotCloneable(reader) => AnyFile::Custom(
             reader
                 .lock()
                 .unwrap()
                 .take()
                 .expect("attempted to create two transforms from a single custom FileKind"),
         ),
+        FileKind::Custom(reader) => {
+            let thebox = reader
+                .lock()
+                .unwrap()
+                .take()
+                .expect("attempted to create two transforms from a single custom FileKind");
+            let trait_casted_box: Box<dyn Read>;
+            #[cfg(feature = "trait_upcasting")]
+            {
+                trait_casted_box = thebox;
+            }
+            #[cfg(not(feature = "trait_upcasting"))]
+            {
+                // this is sad
+                trait_casted_box = thebox.clone_as_read();
+            }
+            AnyFile::Custom(trait_casted_box)
+        }
     };
     let output_field = if op.append {
         tf_state.is_appending = true;
@@ -402,9 +457,23 @@ pub fn parse_op_stdin(
     }))
 }
 
-pub fn create_op_file_reader_custom(read: Box<dyn Read + Send>, append: bool) -> OperatorData {
+pub fn create_op_file_reader_custom(read: Box<dyn ReadSendCloneDyn>, append: bool) -> OperatorData {
     OperatorData::FileReader(OpFileReader {
         file_kind: FileKind::Custom(Mutex::new(Some(read))),
+        line_buffered: LineBufferedSetting::No,
+        append,
+    })
+}
+
+// this is an escape hatch if the custom Read to be used does not implement clone
+// if this is used, attempting to clone this Operator
+// (e.g. while cloning the Context / ContextBuilder that it belongs to) will *panic*
+pub fn create_op_file_reader_custom_not_cloneable(
+    read: Box<dyn Read + Send>,
+    append: bool,
+) -> OperatorData {
+    OperatorData::FileReader(OpFileReader {
+        file_kind: FileKind::CustomNotCloneable(Mutex::new(Some(read))),
         line_buffered: LineBufferedSetting::No,
         append,
     })

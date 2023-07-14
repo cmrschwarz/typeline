@@ -63,4 +63,10 @@ impl<T: Clone> Argument<T> {
         self.value = Some(value);
         self.cli_arg_idx = None;
     }
+    pub fn get(&self) -> Option<T> {
+        self.value.clone()
+    }
+    pub fn unwrap(&self) -> T {
+        self.value.as_ref().unwrap().clone()
+    }
 }

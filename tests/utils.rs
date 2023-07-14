@@ -1,5 +1,6 @@
 use std::io::Read;
 
+#[derive(Clone)]
 pub struct SliceReader<'a> {
     pub data: &'a [u8],
 }
@@ -19,6 +20,7 @@ impl<'a> Read for SliceReader<'a> {
     }
 }
 
+#[derive(Clone)]
 pub struct TricklingStream<'a> {
     pub total_size: usize,
     pub data_to_repeat: &'a [u8],

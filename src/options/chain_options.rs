@@ -18,7 +18,8 @@ pub struct ChainOptions {
     pub buffering_mode: Argument<BufferingMode>,
     pub parent: ChainId,
 }
-const DEFAULT_CHAIN_OPTIONS: ChainOptions = ChainOptions {
+
+pub const DEFAULT_CHAIN_OPTIONS: ChainOptions = ChainOptions {
     default_text_encoding: Argument::new(TextEncoding::UTF8),
     prefer_parent_text_encoding: Argument::new(false),
     force_text_encoding: Argument::new(false),

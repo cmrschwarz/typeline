@@ -27,6 +27,7 @@ use super::{
 
 //TODO: refactor this into SessionOptions
 
+#[derive(Clone)]
 pub struct ContextOptions {
     pub max_worker_threads: Argument<usize>,
     pub repl: Argument<bool>,

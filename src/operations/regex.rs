@@ -40,6 +40,7 @@ use super::{
     transform::{TransformData, TransformId},
 };
 
+#[derive(Clone)]
 pub struct OpRegex {
     regex: bytes::Regex,
     text_only_regex: Option<regex::Regex>,
@@ -61,7 +62,7 @@ pub struct TfRegex {
     optional: bool,
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct RegexOptions {
     // disable unicode for character classes making e.g. \w  only
     // match ascii characters

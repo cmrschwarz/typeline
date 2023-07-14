@@ -78,6 +78,11 @@ impl StringSinkHandle {
         }
         Ok(StringSinkDataGuard { data_guard: guard })
     }
+    pub fn clear(&self) {
+        let mut guard = self.get();
+        guard.data.clear();
+        guard.errors.clear();
+    }
 }
 
 #[derive(Clone)]

@@ -4,6 +4,7 @@ use crate::{
 
 use super::{argument::CliArgIdx, chain_spec::ChainSpec};
 
+#[derive(Clone)]
 pub struct OperatorBaseOptions {
     pub argname: StringStoreEntry,
     pub label: Option<StringStoreEntry>,

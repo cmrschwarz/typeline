@@ -11,6 +11,7 @@ use super::{
 pub type OperatorId = u32;
 pub type OperatorOffsetInChain = u32;
 
+#[derive(Clone)]
 pub enum OperatorData {
     Print(OpPrint),
     Split(OpSplit),

@@ -10,6 +10,7 @@ use super::{
     operator::OperatorData,
 };
 
+#[derive(Clone)]
 pub struct OpKey {
     key: String,
     pub key_interned: StringStoreEntry,

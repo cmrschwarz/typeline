@@ -14,12 +14,14 @@ use super::{
     transform::{TransformData, TransformId, TransformState},
 };
 
+#[derive(Clone)]
 pub enum DataToInsert {
     Bytes(BString),
     String(String),
     Int(i64),
 }
 
+#[derive(Clone)]
 pub struct OpDataInserter {
     data: DataToInsert,
     append: bool,

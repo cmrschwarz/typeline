@@ -26,6 +26,7 @@ use super::{
     transform::{TransformData, TransformId, TransformState},
 };
 
+#[derive(Clone)]
 pub struct OpPrint {}
 pub struct TfPrint {
     flush_on_every_print: bool,
