@@ -1,3 +1,5 @@
+mod utils;
+
 use scr::bstr::ByteSlice;
 
 use scr::operations::select::create_op_select;
@@ -18,7 +20,7 @@ use scr::{
     scr_error::ScrError,
 };
 
-use std::io::Read;
+use crate::utils::{SliceReader, TricklingStream};
 
 #[test]
 fn string_sink() -> Result<(), ScrError> {
@@ -156,25 +158,16 @@ fn large_batch_seq() -> Result<(), ScrError> {
 #[test]
 fn trickling_stream() -> Result<(), ScrError> {
     const SIZE: usize = 4096;
-    struct TestStream {
-        total_size: usize,
-    }
 
-    impl Read for TestStream {
-        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-            if self.total_size == 0 || buf.len() == 0 {
-                return Ok(0);
-            }
-            buf[0] = 'a' as u8;
-            self.total_size -= 1;
-            return Ok(1);
-        }
-    }
     let ss = StringSinkHandle::new();
     ContextBuilder::default()
         .set_stream_buffer_size(3)
         .add_op(create_op_file_reader_custom(
-            Box::new(TestStream { total_size: SIZE }),
+            Box::new(TricklingStream {
+                total_size: SIZE,
+                data_to_repeat: "a".as_bytes(),
+                data_pos: 0,
+            }),
             true,
         ))
         .add_op(create_op_string_sink(&ss))
@@ -409,25 +402,6 @@ fn dup_between_format_and_key() -> Result<(), ScrError> {
     Ok(())
 }
 
-struct SliceReader<'a> {
-    data: &'a [u8],
-}
-
-impl<'a> Read for SliceReader<'a> {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        let len = self.data.len();
-        if buf.len() >= len {
-            buf[0..len].copy_from_slice(self.data);
-            self.data = &[];
-            return Ok(len);
-        }
-        let (lhs, rhs) = self.data.split_at(buf.len());
-        buf.copy_from_slice(lhs);
-        self.data = rhs;
-        Ok(lhs.len())
-    }
-}
-
 #[test]
 fn stream_into_regex() -> Result<(), ScrError> {
     let ss = StringSinkHandle::new();
@@ -556,5 +530,23 @@ fn optional_regex() -> Result<(), ScrError> {
         ss.get_data().unwrap().as_slice(),
         ["9: null", "10: 1", "11: 1", "11: 1", "20: null", "21: 1"]
     );
+    Ok(())
+}
+
+#[test]
+fn stream_into_format() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::new();
+    ContextBuilder::default()
+        .set_stream_buffer_size(1)
+        .add_op(create_op_file_reader_custom(
+            Box::new(SliceReader {
+                data: "xxx".as_bytes(),
+            }),
+            false,
+        ))
+        .add_op(create_op_format("a -> {} -> b".as_bytes().as_bstr()).unwrap())
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(ss.get_data().unwrap().as_slice(), ["a -> xxx -> b"]);
     Ok(())
 }

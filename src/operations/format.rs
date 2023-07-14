@@ -1,5 +1,6 @@
 use arrayvec::ArrayVec;
 use bstr::{BStr, BString, ByteSlice, ByteVec};
+use nonmax::NonMaxUsize;
 use std::{
     borrow::Cow,
     cell::{RefCell, RefMut},
@@ -16,14 +17,14 @@ use crate::{
         push_interface::{PushInterface, RawPushInterface},
         typed::TypedSlice,
         typed_iters::TypedSliceIter,
-        FieldValueKind, INLINE_STR_MAX_LEN,
+        FieldValueKind, RunLength, INLINE_STR_MAX_LEN,
     },
     options::argument::CliArgIdx,
     ref_iter::{
         AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter, RefAwareInlineTextIter,
         RefAwareStreamValueIter,
     },
-    stream_value::{StreamValueData, StreamValueId},
+    stream_value::{StreamValue, StreamValueData, StreamValueId},
     utils::{
         divide_by_char_len, i64_digits, i64_to_str,
         string_store::{StringStore, StringStoreEntry},
@@ -137,10 +138,12 @@ pub struct FormatIdentRef {
 struct TfFormatStreamValueHandle {
     part_idx: usize,
     handled_len: usize,
-    part_iter_id: IterId,
+    width_lookup: usize,
     target_sv_id: StreamValueId,
     wait_to_end: bool,
 }
+type TfFormatStreamValueHandleId = NonMaxUsize;
+
 #[derive(Clone, Copy)]
 struct OutputState {
     next: usize,
@@ -149,7 +152,7 @@ struct OutputState {
     run_len: usize,
     contains_raw_bytes: bool,
     error_occured: bool,
-    unconsumable_stream_value: bool,
+    incomplete_stream_value_handle: Option<TfFormatStreamValueHandleId>,
 }
 
 struct OutputTarget {
@@ -165,7 +168,7 @@ impl Default for OutputState {
             len: Default::default(),
             contains_raw_bytes: false,
             error_occured: false,
-            unconsumable_stream_value: false,
+            incomplete_stream_value_handle: None,
             run_len: 0,
             width_lookup: 0,
         }
@@ -178,7 +181,7 @@ pub struct TfFormat<'a> {
     refs: Vec<FormatIdentRef>,
     output_states: Vec<OutputState>,
     output_targets: Vec<OutputTarget>,
-    stream_value_handles: Universe<usize, TfFormatStreamValueHandle>,
+    stream_value_handles: Universe<TfFormatStreamValueHandleId, TfFormatStreamValueHandle>,
 }
 
 pub fn setup_op_format(
@@ -547,25 +550,33 @@ pub fn create_op_format_from_str(val: &str) -> Result<OperatorData, OperatorCrea
 fn iter_output_states(
     fmt: &mut TfFormat,
     output_idx: &mut usize,
+    run_len: RunLength,
+    func: impl FnMut(&mut OutputState),
+) {
+    iter_output_states_advanced(&mut fmt.output_states, output_idx, run_len as usize, func);
+}
+fn iter_output_states_advanced(
+    output_states: &mut Vec<OutputState>,
+    output_idx: &mut usize,
     mut run_len: usize,
     mut func: impl FnMut(&mut OutputState),
 ) {
     if run_len == 0 {
         return;
     }
-    let next = fmt.output_states.len();
-    let o = &mut fmt.output_states[*output_idx];
+    let next = output_states.len();
+    let o = &mut output_states[*output_idx];
     if run_len < o.run_len {
         let mut o2 = *o;
         o.next = next;
         let rl_rem = o.run_len - run_len;
         o.run_len = run_len;
         o2.run_len = rl_rem;
-        fmt.output_states.push(o2);
+        output_states.push(o2);
     }
     while run_len > 0 {
-        let o = &mut fmt.output_states[*output_idx];
-        if !o.error_occured && !o.unconsumable_stream_value {
+        let o = &mut output_states[*output_idx];
+        if !o.error_occured && o.incomplete_stream_value_handle.is_none() {
             func(o);
         }
         *output_idx = o.next;
@@ -674,9 +685,12 @@ pub fn lookup_widths(
         }
         handled_fields += range.field_count;
     }
-    iter_output_states(fmt, &mut output_index, batch_size - handled_fields, |os| {
-        os.error_occured = true
-    });
+    iter_output_states_advanced(
+        &mut fmt.output_states,
+        &mut output_index,
+        batch_size - handled_fields,
+        |os| os.error_occured = true,
+    );
     if update_iter {
         field.field_data.store_iter(ident_ref.iter_id, iter);
     }
@@ -700,10 +714,14 @@ pub fn setup_key_output_state(
         true,
         false,
         |fmt, output_idx, width, run_len| {
-            iter_output_states(fmt, output_idx, run_len, |os| os.width_lookup = width)
+            iter_output_states_advanced(&mut fmt.output_states, output_idx, run_len, |os| {
+                os.width_lookup = width
+            })
         },
         |fmt, output_idx, run_len| {
-            iter_output_states(fmt, output_idx, run_len, |os| os.error_occured = true)
+            iter_output_states_advanced(&mut fmt.output_states, output_idx, run_len, |os| {
+                os.error_occured = true
+            })
         },
     );
     let ident_ref = fmt.refs[k.identifier];
@@ -731,7 +749,7 @@ pub fn setup_key_output_state(
             TypedSlice::TextInline(text) => {
                 for (v, rl, _offs) in RefAwareInlineTextIter::from_range(&range, text) {
                     let mut chars_count = cached!(v.chars().count());
-                    iter_output_states(fmt, &mut output_index, rl as usize, |o| {
+                    iter_output_states(fmt, &mut output_index, rl, |o| {
                         o.len += calc_text_len(k, v.len(), o.width_lookup, &mut chars_count);
                     });
                 }
@@ -739,7 +757,7 @@ pub fn setup_key_output_state(
             TypedSlice::BytesInline(bytes) => {
                 for (v, rl, _offs) in RefAwareInlineBytesIter::from_range(&range, bytes) {
                     let mut chars_count = cached!(v.chars().count());
-                    iter_output_states(fmt, &mut output_index, rl as usize, |o| {
+                    iter_output_states(fmt, &mut output_index, rl, |o| {
                         o.len += calc_text_len(k, v.len(), o.width_lookup, &mut chars_count);
                         o.contains_raw_bytes = true;
                     });
@@ -748,7 +766,7 @@ pub fn setup_key_output_state(
             TypedSlice::BytesBuffer(bytes) => {
                 for (v, rl, _offs) in RefAwareBytesBufferIter::from_range(&range, bytes) {
                     let mut chars_count = cached!(v.chars().count());
-                    iter_output_states(fmt, &mut output_index, rl as usize, |o| {
+                    iter_output_states(fmt, &mut output_index, rl, |o| {
                         o.len += calc_text_len(k, v.len(), o.width_lookup, &mut chars_count);
                         o.contains_raw_bytes = true;
                     });
@@ -757,7 +775,7 @@ pub fn setup_key_output_state(
             TypedSlice::Integer(ints) => {
                 for (v, rl) in TypedSliceIter::from_range(&range.base, ints) {
                     let digits = i64_digits(k.add_plus_sign, *v);
-                    iter_output_states(fmt, &mut output_index, rl as usize, |o| {
+                    iter_output_states(fmt, &mut output_index, rl, |o| {
                         o.len += calc_text_len(k, digits, o.width_lookup, &mut || digits);
                     });
                 }
@@ -765,11 +783,12 @@ pub fn setup_key_output_state(
             TypedSlice::StreamValueId(svs) => {
                 for (v, range, rl) in RefAwareStreamValueIter::from_range(&range, svs) {
                     let sv = &mut sv_mgr.stream_values[v];
+
                     match &sv.data {
                         StreamValueData::Dropped => unreachable!(),
                         StreamValueData::Error(e) => {
                             if k.alternate_form {
-                                iter_output_states(fmt, &mut output_index, rl as usize, |o| {
+                                iter_output_states(fmt, &mut output_index, rl, |o| {
                                     o.len += calc_text_len(
                                         k,
                                         ERROR_PREFIX_STR.len() + e.message.len(),
@@ -781,13 +800,12 @@ pub fn setup_key_output_state(
                                     );
                                 });
                             } else {
-                                iter_output_states(fmt, &mut output_index, rl as usize, |o| {
+                                iter_output_states(fmt, &mut output_index, rl, |o| {
                                     o.error_occured = true;
                                 });
                             }
                         }
                         StreamValueData::Bytes(b) => {
-                            let mut need_buffer = false;
                             let mut complete = sv.done;
                             let mut data = b.as_slice();
                             let mut idx_end = None;
@@ -796,10 +814,11 @@ pub fn setup_key_output_state(
                                 complete = true;
                             }
                             let mut char_count = cached!(data.chars().count());
+                            let mut need_buffer = false;
                             if !complete && !sv.is_buffered() {
                                 if let Some(width_spec) = &k.width {
                                     let mut i = output_index;
-                                    iter_output_states(fmt, &mut i, rl as usize, |o| {
+                                    iter_output_states(fmt, &mut i, rl, |o| {
                                         if width_spec.width(o.width_lookup)
                                             > data.len() / MAX_UTF8_CHAR_LEN
                                         {
@@ -811,7 +830,7 @@ pub fn setup_key_output_state(
                             }
                             if complete || !need_buffer {
                                 let mut i = output_index;
-                                iter_output_states(fmt, &mut i, rl as usize, |o| {
+                                iter_output_states(fmt, &mut i, rl, |o| {
                                     o.len += calc_text_len(
                                         k,
                                         data.len(),
@@ -824,30 +843,48 @@ pub fn setup_key_output_state(
                                 });
                                 idx_end = Some(i);
                             }
+
                             if need_buffer {
                                 sv.promote_to_buffer();
+                            }
+                            if !complete {
                                 let mut i = output_index;
-                                iter_output_states(fmt, &mut i, rl as usize, |o| {
-                                    o.unconsumable_stream_value = true;
-                                });
+
+                                iter_output_states_advanced(
+                                    &mut fmt.output_states,
+                                    &mut i,
+                                    rl as usize,
+                                    |o| {
+                                        sv_mgr.stream_values[v].subscribe(
+                                            tf_id,
+                                            fmt.stream_value_handles.peek_claim_id().into(),
+                                            need_buffer,
+                                        );
+                                        let target_sv_id =
+                                            sv_mgr.stream_values.claim_with_value(StreamValue {
+                                                data: StreamValueData::Bytes(Vec::new()),
+                                                bytes_are_utf8: true,
+                                                bytes_are_chunk: true,
+                                                done: false,
+                                                subscribers: Default::default(),
+                                                ref_count: 0,
+                                            });
+                                        o.incomplete_stream_value_handle =
+                                            Some(fmt.stream_value_handles.claim_with_value(
+                                                TfFormatStreamValueHandle {
+                                                    part_idx,
+                                                    target_sv_id,
+                                                    handled_len: 0,
+                                                    width_lookup: o.width_lookup,
+                                                    wait_to_end: need_buffer,
+                                                },
+                                            ));
+                                    },
+                                );
+
                                 idx_end = Some(i);
                             }
 
-                            if !complete {
-                                sv.subscribe(
-                                    tf_id,
-                                    fmt.stream_value_handles.claim_with(|| {
-                                        TfFormatStreamValueHandle {
-                                            part_idx,
-                                            handled_len: 0,
-                                            target_sv_id: 0,
-                                            part_iter_id: 0,
-                                            wait_to_end: need_buffer,
-                                        }
-                                    }),
-                                    need_buffer,
-                                );
-                            }
                             output_index = idx_end.unwrap();
                         }
                     }
@@ -855,7 +892,7 @@ pub fn setup_key_output_state(
             }
             TypedSlice::Unset(ints) if k.alternate_form => {
                 for (_, rl) in TypedSliceIter::from_range(&range.base, ints) {
-                    iter_output_states(fmt, &mut output_index, rl as usize, |o| {
+                    iter_output_states(fmt, &mut output_index, rl, |o| {
                         o.len += calc_text_len(k, UNSET_STR.len(), o.width_lookup, &mut || {
                             UNSET_STR.len()
                         });
@@ -864,7 +901,7 @@ pub fn setup_key_output_state(
             }
             TypedSlice::Success(ints) if k.alternate_form => {
                 for (_, rl) in TypedSliceIter::from_range(&range.base, ints) {
-                    iter_output_states(fmt, &mut output_index, rl as usize, |o| {
+                    iter_output_states(fmt, &mut output_index, rl, |o| {
                         o.len += calc_text_len(k, SUCCESS_STR.len(), o.width_lookup, &mut || {
                             SUCCESS_STR.len()
                         });
@@ -873,7 +910,7 @@ pub fn setup_key_output_state(
             }
             TypedSlice::Null(ints) if k.alternate_form => {
                 for (_, rl) in TypedSliceIter::from_range(&range.base, ints) {
-                    iter_output_states(fmt, &mut output_index, rl as usize, |o| {
+                    iter_output_states(fmt, &mut output_index, rl, |o| {
                         o.len += calc_text_len(k, NULL_STR.len(), o.width_lookup, &mut || {
                             NULL_STR.len()
                         });
@@ -885,7 +922,7 @@ pub fn setup_key_output_state(
                     let len = ERROR_PREFIX_STR.len() + v.message.len();
                     let mut char_count =
                         cached!(ERROR_PREFIX_STR.len() + v.message.chars().count());
-                    iter_output_states(fmt, &mut output_index, rl as usize, |o| {
+                    iter_output_states(fmt, &mut output_index, rl, |o| {
                         o.len += calc_text_len(k, len, o.width_lookup, &mut char_count);
                     });
                 }
@@ -895,22 +932,28 @@ pub fn setup_key_output_state(
             | TypedSlice::Null(_)
             | TypedSlice::Error(_) => {
                 debug_assert!(!k.alternate_form);
-                iter_output_states(fmt, &mut output_index, range.base.field_count, |o| {
-                    o.error_occured = true;
-                });
+                iter_output_states_advanced(
+                    &mut fmt.output_states,
+                    &mut output_index,
+                    range.base.field_count,
+                    |o| {
+                        o.error_occured = true;
+                    },
+                );
             }
             TypedSlice::Html(_) | TypedSlice::Object(_) => {
-                iter_output_states(fmt, &mut output_index, range.base.field_count, |o| {
-                    o.error_occured = true;
-                });
+                todo!();
             }
         }
         handled_fields += range.base.field_count;
     }
     let uninitialized_fields = batch_size - handled_fields;
-    iter_output_states(fmt, &mut output_index, uninitialized_fields, |os| {
-        os.error_occured = true
-    });
+    iter_output_states_advanced(
+        &mut fmt.output_states,
+        &mut output_index,
+        uninitialized_fields,
+        |os| os.error_occured = true,
+    );
     // we don't store the iter state back here because we need to iterate a second time
     // for the actual write
 }
@@ -942,7 +985,7 @@ unsafe fn write_padding_to_tgt(tgt: &mut OutputTarget, fill_char: Option<char>, 
 }
 fn setup_output_targets(
     fmt: &mut TfFormat,
-    _batch_size: usize,
+    sv_mgr: &mut StreamValueManager,
     op_id: OperatorId,
     output_field: &mut RefMut<Field>,
 ) {
@@ -952,15 +995,17 @@ fn setup_output_targets(
     let starting_len = unsafe { output_field.field_data.internals().data.len() };
     let mut tgt_len = starting_len;
     for os in fmt.output_states.iter() {
-        if os.unconsumable_stream_value {}
         if os.error_occured {
             tgt_len = FieldValueKind::Error.align_size_up(tgt_len);
-            tgt_len += std::mem::size_of::<OperatorApplicationError>();
+            tgt_len += FieldValueKind::Error.size();
+        } else if os.incomplete_stream_value_handle.is_some() {
+            tgt_len = FieldValueKind::StreamValueId.align_size_up(tgt_len);
+            tgt_len += FieldValueKind::StreamValueId.size();
         } else if os.len <= INLINE_STR_MAX_LEN {
             tgt_len += os.len;
         } else {
             tgt_len = FieldValueKind::BytesBuffer.align_size_up(tgt_len);
-            tgt_len += std::mem::size_of::<Vec<u8>>();
+            tgt_len += FieldValueKind::BytesBuffer.size();
         }
     }
     unsafe {
@@ -978,6 +1023,25 @@ fn setup_output_targets(
             target = None;
             output_field.field_data.push_error(
                 OperatorApplicationError::new("Format Error", op_id), //TODO: give more context
+                os.run_len,
+                true,
+                false,
+            );
+        } else if let Some(handle_id) = os.incomplete_stream_value_handle {
+            let handle = &fmt.stream_value_handles[handle_id];
+            if let StreamValueData::Bytes(buf) = &mut sv_mgr.stream_values[handle.target_sv_id].data
+            {
+                buf.reserve(os.len);
+                unsafe {
+                    target = Some(NonNull::new_unchecked(buf.as_mut_ptr()));
+                }
+                // just to be 'rust compliant' ...
+                buf.extend(std::iter::repeat(0).take(os.len));
+            } else {
+                unreachable!();
+            }
+            output_field.field_data.push_stream_value_id(
+                handle.target_sv_id,
                 os.run_len,
                 true,
                 false,
@@ -1224,7 +1288,7 @@ pub fn handle_tf_format(sess: &mut JobData<'_>, tf_id: TransformId, fmt: &mut Tf
             ),
         }
     }
-    setup_output_targets(fmt, batch_size, op_id, &mut output_field);
+    setup_output_targets(fmt, &mut sess.sv_mgr, op_id, &mut output_field);
     for part in fmt.parts.iter() {
         match part {
             FormatPart::ByteLiteral(v) => {
@@ -1261,40 +1325,68 @@ pub fn handle_tf_format_stream_value_update(
     sv_id: StreamValueId,
     custom: usize,
 ) {
-    let handle = &mut tf.stream_value_handles[custom];
+    let handle_id = NonMaxUsize::new(custom).unwrap();
+    let handle = &mut tf.stream_value_handles[handle_id];
     let (sv, out_sv) = sess
         .sv_mgr
         .stream_values
         .get_two_distinct_mut(sv_id, handle.target_sv_id);
     let (sv, mut out_sv) = (sv.unwrap(), out_sv.unwrap());
-    let mut done = false;
     match &sv.data {
         StreamValueData::Error(err) => {
+            debug_assert!(sv.done);
             out_sv.data = StreamValueData::Error(err.clone());
-            done = true;
         }
-        StreamValueData::Bytes(b) => {
-            match &mut out_sv.data {
-                StreamValueData::Dropped => unreachable!(),
-                StreamValueData::Error(_) => unreachable!(),
-                StreamValueData::Bytes(bb) => {
-                    bb.extend(b);
+        StreamValueData::Bytes(data) => match &mut out_sv.data {
+            StreamValueData::Dropped => unreachable!(),
+            StreamValueData::Error(_) => unreachable!(),
+            StreamValueData::Bytes(tgt_buf) => {
+                if !sv.bytes_are_chunk {
+                    if !handle.wait_to_end {
+                        if sv.done {
+                            tgt_buf.extend(&data[handle.handled_len..]);
+                        } else {
+                            //TODO: change the subscription type
+                        }
+                    }
+                    if sv.done {
+                        if let FormatPart::Key(k) = &tf.parts[handle.part_idx] {
+                            let len =
+                                calc_text_len(k, data.len(), handle.width_lookup, &mut || {
+                                    data.chars().count()
+                                });
+                            tgt_buf.reserve(len);
+                            unsafe {
+                                //TODO: this is a hack, create a separate impl
+                                let mut output_target = OutputTarget {
+                                    run_len: 1,
+                                    width_lookup: handle.width_lookup,
+                                    target: Some(NonNull::new_unchecked(
+                                        tgt_buf.as_mut_ptr_range().end,
+                                    )),
+                                };
+                                write_padded_bytes(k, &mut output_target, data);
+                            };
+                        } else {
+                            unreachable!();
+                        }
+                    }
+                } else {
+                    handle.handled_len += data.len();
+                    tgt_buf.extend(data);
                 }
             }
-            if sv.done {
-                done = true;
-            }
-        }
+        },
         StreamValueData::Dropped => unreachable!(),
     }
-    if !done {
+    if !sv.done {
         return;
     }
 
     sess.sv_mgr
         .drop_field_value_subscription(sv_id, Some(tf_id));
     out_sv = &mut sess.sv_mgr.stream_values[handle.target_sv_id];
-    let i = handle.part_idx;
+    let mut i = handle.part_idx + 1;
     if let StreamValueData::Bytes(bb) = &mut out_sv.data {
         while i < tf.parts.len() {
             match &tf.parts[i] {
@@ -1305,16 +1397,20 @@ pub fn handle_tf_format_stream_value_update(
                 FormatPart::TextLiteral(l) => {
                     bb.extend_from_slice(l.as_bytes());
                 }
-                FormatPart::Key(k) => {
+                FormatPart::Key(_k) => {
                     todo!();
                 }
             }
+            i += 1;
         }
+        handle.part_idx = i;
     } else {
         unreachable!();
     }
-
-    tf.stream_value_handles.release(custom);
+    out_sv.done = true;
+    sess.sv_mgr
+        .inform_stream_value_subscribers(handle.target_sv_id, true);
+    tf.stream_value_handles.release(handle_id);
     if tf.stream_value_handles.claimed_entry_count() > 0 {
         sess.tf_mgr.update_ready_state(tf_id);
     }

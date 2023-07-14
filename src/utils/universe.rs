@@ -182,12 +182,12 @@ impl<I: UniverseIndex, T> Universe<I, T> {
         let mut idx1 = usize::try_from(id).unwrap();
         let mut idx2 = usize::try_from(id2).unwrap();
         assert!(idx1 != idx2);
-        let descending = idx2 > idx1;
+        let descending = idx2 < idx1;
         if descending {
             std::mem::swap(&mut idx1, &mut idx2);
         }
         let (p1, p2) = self.data.split_at_mut(idx1 + 1);
-        let (v1, v2) = (p1[0].as_mut(), p2[idx2 - idx1].as_mut());
+        let (v1, v2) = (p1[0].as_mut(), p2[idx2 - idx1 - 1].as_mut());
         if descending {
             (v2, v1)
         } else {
