@@ -3,14 +3,13 @@ use regex::Regex;
 use smallstr::SmallString;
 
 use crate::{
-    field_data::push_interface::PushInterface,
-    options::argument::CliArgIdx,
-    worker_thread_session::{FieldId, JobData},
+    field_data::push_interface::PushInterface, options::argument::CliArgIdx,
+    worker_thread_session::JobData,
 };
 
 use super::{
     errors::OperatorCreationError,
-    operator::{OperatorData, DEFAULT_OP_NAME_SMALL_STR_LEN},
+    operator::{OperatorBase, OperatorData, DEFAULT_OP_NAME_SMALL_STR_LEN},
     transform::{TransformData, TransformId, TransformState},
 };
 
@@ -24,22 +23,17 @@ pub enum DataToInsert {
 #[derive(Clone)]
 pub struct OpDataInserter {
     data: DataToInsert,
-    append: bool,
     insert_count: Option<usize>,
 }
 
 pub struct TfDataInserter<'a> {
     data: &'a DataToInsert,
-    output_field: FieldId,
     insert_count: Option<usize>,
 }
 
 impl OpDataInserter {
     pub fn default_op_name(&self) -> SmallString<[u8; DEFAULT_OP_NAME_SMALL_STR_LEN]> {
         let mut res = SmallString::new();
-        if self.append {
-            res.push('+');
-        }
         match self.data {
             DataToInsert::Bytes(_) => res.push_str("bytes"),
             DataToInsert::String(_) => res.push_str("str"),
@@ -50,44 +44,22 @@ impl OpDataInserter {
 }
 
 pub fn setup_tf_data_inserter<'a>(
-    sess: &mut JobData,
+    _sess: &mut JobData,
+    _op_base: &OperatorBase,
     op: &'a OpDataInserter,
-    tf_state: &mut TransformState,
-) -> (TransformData<'a>, FieldId) {
-    let output_field = if op.append {
-        tf_state.is_appending = true;
-        tf_state.input_field
-    } else {
-        sess.record_mgr.add_field(
-            tf_state.match_set_id,
-            sess.record_mgr.get_min_apf_idx(tf_state.input_field),
-            None,
-        )
-    };
-    let data = TransformData::DataInserter(TfDataInserter {
+    _tf_state: &mut TransformState,
+) -> TransformData<'a> {
+    TransformData::DataInserter(TfDataInserter {
         data: &op.data,
-        output_field,
         insert_count: op.insert_count,
-    });
-    (data, output_field)
+    })
 }
 
-fn insert(sess: &mut JobData<'_>, di: &mut TfDataInserter, run_length: usize) {
-    let mut output_field = sess.record_mgr.fields[di.output_field].borrow_mut();
-    match di.data {
-        DataToInsert::Bytes(b) => output_field
-            .field_data
-            .push_bytes(b, run_length, true, true),
-        DataToInsert::String(s) => output_field.field_data.push_str(s, run_length, true, true),
-        DataToInsert::Int(i) => output_field.field_data.push_int(*i, run_length, true, true),
-    }
-}
 pub fn handle_tf_data_inserter(
     sess: &mut JobData<'_>,
     tf_id: TransformId,
     di: &mut TfDataInserter,
 ) {
-    sess.prepare_for_output(tf_id, &[di.output_field]);
     let (mut batch_size, input_done);
     let mut unlink_after = false;
     if let Some(ic) = di.insert_count {
@@ -108,7 +80,7 @@ pub fn handle_tf_data_inserter(
         di.insert_count = Some(ic - batch_size);
     } else {
         let tf = &sess.tf_mgr.transforms[tf_id];
-        let amend_mode = di.output_field == tf.input_field;
+        let amend_mode = tf.continuation.is_some();
         let yield_to_succ = tf.continuation.is_some();
         if amend_mode || yield_to_succ {
             batch_size = 1;
@@ -122,7 +94,15 @@ pub fn handle_tf_data_inserter(
             }
         }
     }
-    insert(sess, di, batch_size);
+    let mut output_field = sess.prepare_output_field(tf_id);
+    match di.data {
+        DataToInsert::Bytes(b) => output_field
+            .field_data
+            .push_bytes(b, batch_size, true, true),
+        DataToInsert::String(s) => output_field.field_data.push_str(s, batch_size, true, true),
+        DataToInsert::Int(i) => output_field.field_data.push_int(*i, batch_size, true, true),
+    }
+    drop(output_field);
     if unlink_after {
         sess.unlink_transform(tf_id, batch_size);
         return;
@@ -135,7 +115,6 @@ pub fn handle_tf_data_inserter(
 pub fn parse_op_str(
     value: Option<&BStr>,
     insert_count: Option<usize>,
-    append: bool,
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
     let value_str = value
@@ -150,14 +129,12 @@ pub fn parse_op_str(
     Ok(OperatorData::DataInserter(OpDataInserter {
         data: DataToInsert::String(value_str.to_owned()),
         insert_count,
-        append,
     }))
 }
 
 pub fn parse_op_int(
     value: Option<&BStr>,
     insert_count: Option<usize>,
-    append: bool,
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
     let value_str = value
@@ -171,13 +148,11 @@ pub fn parse_op_int(
     Ok(OperatorData::DataInserter(OpDataInserter {
         data: DataToInsert::Int(parsed_value),
         insert_count,
-        append,
     }))
 }
 pub fn parse_op_bytes(
     value: Option<&BStr>,
     insert_count: Option<usize>,
-    append: bool,
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
     let parsed_value = if let Some(value) = value {
@@ -191,7 +166,6 @@ pub fn parse_op_bytes(
     Ok(OperatorData::DataInserter(OpDataInserter {
         data: DataToInsert::Bytes(parsed_value),
         insert_count,
-        append,
     }))
 }
 
@@ -212,7 +186,6 @@ pub fn parse_data_inserter(
     let args = ARG_REGEX.captures(&argument).ok_or_else(|| {
         OperatorCreationError::new("invalid argument syntax for data inserter", arg_idx)
     })?;
-    let append = args.name("append").is_some();
     let insert_count = args
         .name("insert_count")
         .map(|ic| {
@@ -222,21 +195,13 @@ pub fn parse_data_inserter(
         })
         .transpose()?;
     match args.name("type").unwrap().as_str() {
-        "int" => parse_op_int(value, insert_count, append, arg_idx),
-        "bytes" => parse_op_bytes(value, insert_count, append, arg_idx),
-        "str" => parse_op_str(value, insert_count, append, arg_idx),
+        "int" => parse_op_int(value, insert_count, arg_idx),
+        "bytes" => parse_op_bytes(value, insert_count, arg_idx),
+        "str" => parse_op_str(value, insert_count, arg_idx),
         _ => unreachable!(),
     }
 }
 
-pub fn create_op_data_inserter(
-    data: DataToInsert,
-    insert_count: Option<usize>,
-    append: bool,
-) -> OperatorData {
-    OperatorData::DataInserter(OpDataInserter {
-        data,
-        insert_count,
-        append,
-    })
+pub fn create_op_data_inserter(data: DataToInsert, insert_count: Option<usize>) -> OperatorData {
+    OperatorData::DataInserter(OpDataInserter { data, insert_count })
 }

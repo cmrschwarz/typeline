@@ -8,7 +8,7 @@ use crate::operations::operator::OperatorData;
 use crate::operations::print::parse_op_print;
 use crate::operations::regex::{parse_op_regex, RegexOptions};
 use crate::operations::select::parse_op_select;
-use crate::operations::sequence::{parse_op_seq, SequenceMode};
+use crate::operations::sequence::parse_op_seq;
 use crate::operations::split::parse_op_split;
 use crate::scr_error::ScrError;
 use crate::{
@@ -90,6 +90,7 @@ pub struct ParsedCliArgument<'a> {
     label: Option<&'a str>,
     chainspec: Option<ChainSpec>,
     cli_arg: CliArgument<'a>,
+    append_mode: bool,
 }
 
 lazy_static! {
@@ -104,7 +105,7 @@ lazy_static! {
             .build()
             .unwrap();
     static ref CLI_ARG_REGEX: regex::bytes::Regex = regex::bytes::RegexBuilder::new(
-        r#"^(?<argname>[^\s@:=]+)(@(?<label>[^\s@:=]+))?(?<chainspec>:[^\s@:=]+)?(=(?<value>(?:.|[\r\n])*))?$"#
+        r#"^(?<append_mode>\+)?(?<argname>[^\s@:=]+)(@(?<label>[^\s@:=]+))?(?<chainspec>:[^\s@:=]+)?(=(?<value>(?:.|[\r\n])*))?$"#
     ).build()
     .unwrap();
 
@@ -174,16 +175,6 @@ fn try_parse_usize_arg(val: &BStr, cli_arg_idx: CliArgIdx) -> Result<usize, CliA
     }
 }
 
-fn print_help(
-    f: &mut std::fmt::Formatter<'_>,
-    section: &Option<Cow<'static, str>>,
-) -> std::fmt::Result {
-    match section.as_ref() {
-        None => write!(f, include_str!("help_sections/main.txt")),
-        None => write!(f, include_str!("help_sections/format.txt")),
-        Some(v) => write!(f, "[ERROR]: unknown help section '{}'", v),
-    }
-}
 fn print_version(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     const VERSION: &'static str = env!("CARGO_PKG_VERSION");
     write!(f, "scr {}", VERSION)?;
@@ -409,13 +400,13 @@ fn parse_operation(
         "key" => Some(parse_op_key(value, idx)?),
         "select" => Some(parse_op_select(value, idx)?),
 
-        "file" => Some(parse_op_file(value, append, idx)?),
-        "stdin" => Some(parse_op_stdin(value, append, idx)?),
+        "file" => Some(parse_op_file(value, idx)?),
+        "stdin" => Some(parse_op_stdin(value, idx)?),
 
-        "seq" => Some(parse_op_seq(value, SequenceMode::Default, false, idx)?),
-        "seqn" => Some(parse_op_seq(value, SequenceMode::Default, true, idx)?),
-        "enum" => Some(parse_op_seq(value, SequenceMode::Enumerate, false, idx)?),
-        "enumn" => Some(parse_op_seq(value, SequenceMode::Enumerate, true, idx)?),
+        "seq" => Some(parse_op_seq(value, false, false, idx)?),
+        "seqn" => Some(parse_op_seq(value, false, true, idx)?),
+        "enum" => Some(parse_op_seq(value, true, false, idx)?),
+        "enumn" => Some(parse_op_seq(value, true, false, idx)?),
 
         "split" => Some(parse_op_split(value, idx)?),
         _ => None,
@@ -437,7 +428,13 @@ fn try_parse_as_operation<'a>(
         let argname = ctx_opts.string_store.intern_cloned(arg.argname);
         let label = arg.label.map(|l| ctx_opts.string_store.intern_cloned(l));
         ctx_opts.add_op(
-            OperatorBaseOptions::new(argname, label, arg.chainspec, Some(arg.cli_arg.idx)),
+            OperatorBaseOptions::new(
+                argname,
+                label,
+                arg.chainspec,
+                arg.append_mode,
+                Some(arg.cli_arg.idx),
+            ),
             op_data,
         );
         Ok(None)
@@ -475,6 +472,7 @@ pub fn parse_cli_retain_args(args: &Vec<BString>) -> Result<ContextOptions, ScrE
                 label: label,
                 chainspec: None, //m.group("chainspec"); // TODO
                 cli_arg: cli_arg,
+                append_mode: m.name("append_mode").is_some(),
             };
             if try_parse_as_context_opt(&mut ctx_opts, &arg)? {
                 continue;

@@ -181,6 +181,7 @@ impl ContextOptions {
                     cli_arg_idx: obo.cli_arg_idx,
                     chain_id: obo.curr_chain.unwrap(),
                     offset_in_chain: u32::MAX, //set during setup
+                    append_mode: obo.append_mode,
                 })
                 .collect(),
             cli_args: self.cli_args,

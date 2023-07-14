@@ -31,6 +31,7 @@ pub struct OperatorBase {
     pub cli_arg_idx: Option<CliArgIdx>,
     pub chain_id: ChainId,
     pub offset_in_chain: OperatorOffsetInChain,
+    pub append_mode: bool,
 }
 
 pub const DEFAULT_OP_NAME_SMALL_STR_LEN: usize = 16;

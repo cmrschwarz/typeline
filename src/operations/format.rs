@@ -39,7 +39,7 @@ use crate::{
 
 use super::{
     errors::{OperatorApplicationError, OperatorCreationError, OperatorSetupError},
-    operator::{OperatorData, OperatorId},
+    operator::{OperatorBase, OperatorData, OperatorId},
     print::{error_to_string, ERROR_PREFIX_STR, NULL_STR, SUCCESS_STR, UNSET_STR},
     transform::{TransformData, TransformId, TransformState},
 };
@@ -179,7 +179,6 @@ impl Default for OutputState {
 }
 
 pub struct TfFormat<'a> {
-    output_field: FieldId,
     parts: &'a Vec<FormatPart>,
     refs: Vec<FormatIdentRef>,
     output_states: Vec<OutputState>,
@@ -199,16 +198,11 @@ pub fn setup_op_format(
 
 pub fn setup_tf_format<'a>(
     sess: &mut JobData,
+    _op_base: &OperatorBase,
     op: &'a OpFormat,
-    tf_state: &mut TransformState,
     tf_id: TransformId,
-) -> (TransformData<'a>, FieldId) {
-    //TODO: cache field indices...
-    let output_field = sess.record_mgr.add_field(
-        tf_state.match_set_id,
-        sess.record_mgr.get_min_apf_idx(tf_state.input_field),
-        None,
-    );
+    tf_state: &mut TransformState,
+) -> TransformData<'a> {
     let refs: Vec<_> = op
         .refs_idx
         .iter()
@@ -239,14 +233,13 @@ pub fn setup_tf_format<'a>(
         })
         .collect();
     let tf = TfFormat {
-        output_field,
         parts: &op.parts,
         refs,
         output_states: Default::default(),
         output_targets: Default::default(),
         stream_value_handles: Default::default(),
     };
-    (TransformData::Format(tf), output_field)
+    TransformData::Format(tf)
 }
 
 fn create_format_literal(fmt: BString) -> FormatPart {
@@ -1266,11 +1259,12 @@ fn write_fmt_key(
         .store_iter(ident_ref.iter_id, iter.into_base_iter());
 }
 pub fn handle_tf_format(sess: &mut JobData<'_>, tf_id: TransformId, fmt: &mut TfFormat) {
-    sess.prepare_for_output(tf_id, std::slice::from_ref(&fmt.output_field));
-    let (batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
     let tf = &sess.tf_mgr.transforms[tf_id];
     let op_id = tf.op_id.unwrap();
-    let mut output_field = sess.record_mgr.fields[fmt.output_field].borrow_mut();
+    let output_field_id = tf.output_field;
+    let (batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
+    sess.prepare_for_output(tf_id, &[output_field_id]);
+    let mut output_field = sess.record_mgr.fields[output_field_id].borrow_mut();
     fmt.output_states.push(OutputState {
         run_len: batch_size,
         next: FINAL_OUTPUT_INDEX_NEXT_VAL,

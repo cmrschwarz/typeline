@@ -41,6 +41,7 @@ pub struct TransformState {
     pub predecessor: Option<TransformId>,
     pub continuation: Option<TransformId>, // next transform in line that is in append mode
     pub input_field: FieldId,
+    pub output_field: FieldId,
     pub available_batch_size: usize,
     pub desired_batch_size: usize,
     pub match_set_id: MatchSetId,
@@ -58,6 +59,7 @@ pub struct TransformState {
 impl TransformState {
     pub fn new(
         input_field: FieldId,
+        output_field: FieldId,
         ms_id: MatchSetId,
         desired_batch_size: usize,
         predecessor: Option<TransformId>,
@@ -67,6 +69,7 @@ impl TransformState {
         TransformState {
             available_batch_size: 0,
             input_field,
+            output_field,
             match_set_id: ms_id,
             desired_batch_size,
             successor: None,

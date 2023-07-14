@@ -1,5 +1,5 @@
 use std::{
-    cell::RefCell,
+    cell::{RefCell, RefMut},
     collections::{hash_map, BinaryHeap, HashMap, VecDeque},
     iter,
 };
@@ -327,6 +327,11 @@ impl JobData<'_> {
             }
         }
     }
+    pub fn prepare_output_field<'a>(&'a mut self, tf_id: TransformId) -> RefMut<'a, Field> {
+        let output_field_id = self.tf_mgr.transforms[tf_id].output_field;
+        self.prepare_for_output(tf_id, &[output_field_id]);
+        self.record_mgr.fields[output_field_id].borrow_mut()
+    }
     pub fn unlink_transform(&mut self, tf_id: TransformId, available_batch_for_successor: usize) {
         let tf = &mut self.tf_mgr.transforms[tf_id];
         tf.mark_for_removal = true;
@@ -490,21 +495,21 @@ impl<'a> WorkerThreadSession<'a> {
             .default_batch_size;
         let mut prev_tf = None;
         let mut predecessor_tf = None;
-        let mut prev_field_id = chain_input_field_id;
-        let mut output_field;
+        let mut next_input_field = chain_input_field_id;
+        let mut prev_output_field = chain_input_field_id;
         let ops = &self.job_data.session_data.chains[start_op.chain_id as usize].operations
             [start_op.offset_in_chain as usize..];
         let mut mark_prev_field_as_placeholder = false;
         for op_id in ops {
             let op_base = &self.job_data.session_data.operator_bases[*op_id as usize];
             let op_data = &self.job_data.session_data.operator_data[*op_id as usize];
-            let tf_data;
             let jd = &mut self.job_data;
             match op_data {
                 OperatorData::Key(op) => {
-                    jd.record_mgr.add_field_name(prev_field_id, op.key_interned);
+                    jd.record_mgr
+                        .add_field_name(prev_output_field, op.key_interned);
                     if let Some(lbl) = op_base.label {
-                        jd.record_mgr.add_field_name(prev_field_id, lbl);
+                        jd.record_mgr.add_field_name(prev_output_field, lbl);
                     }
                     continue;
                 }
@@ -515,17 +520,17 @@ impl<'a> WorkerThreadSession<'a> {
                         .and_then(|e| e.back())
                         .cloned()
                     {
-                        prev_field_id = field_id;
+                        next_input_field = field_id;
                         if let Some(lbl) = op_base.label {
                             jd.record_mgr.add_field_name(field_id, lbl);
                         }
                     } else {
                         let field_id = jd.record_mgr.add_field(
                             ms_id,
-                            jd.record_mgr.get_min_apf_idx(prev_field_id),
+                            jd.record_mgr.get_min_apf_idx(next_input_field),
                             Some(op.key_interned),
                         );
-                        prev_field_id = field_id;
+                        next_input_field = field_id;
                         //TODO: think about field refcounting
                         mark_prev_field_as_placeholder = true;
                     }
@@ -533,37 +538,48 @@ impl<'a> WorkerThreadSession<'a> {
                 }
                 _ => (),
             }
+            let output_field = if op_base.append_mode {
+                if let Some(lbl) = op_base.label {
+                    jd.record_mgr.add_field_name(prev_output_field, lbl);
+                }
+                prev_output_field
+            } else {
+                let min_apf = jd.record_mgr.get_min_apf_idx(next_input_field);
+                jd.record_mgr.add_field(ms_id, min_apf, op_base.label)
+            };
+
             let mut tf_state = TransformState::new(
-                prev_field_id,
+                next_input_field,
+                output_field,
                 ms_id,
                 default_batch_size,
                 predecessor_tf,
                 Some(*op_id),
                 jd.tf_mgr.claim_transform_ordering_id(),
             );
+            tf_state.is_appending = op_base.append_mode;
 
             let tf_id_peek = jd.tf_mgr.transforms.peek_claim_id();
             if mark_prev_field_as_placeholder {
-                let mut f = jd.record_mgr.fields[prev_field_id].borrow_mut();
+                let mut f = jd.record_mgr.fields[next_input_field].borrow_mut();
                 f.added_as_placeholder_by_tf = Some(tf_id_peek);
                 mark_prev_field_as_placeholder = false;
             }
-            (tf_data, output_field) = match &op_data {
-                OperatorData::Split(split) => setup_tf_split(jd, split, &mut tf_state),
-                OperatorData::Print(op) => setup_tf_print(jd, op, &mut tf_state),
-                OperatorData::Regex(op) => setup_tf_regex(jd, op, &mut tf_state),
-                OperatorData::Format(op) => setup_tf_format(jd, op, &mut tf_state, tf_id_peek),
-                OperatorData::StringSink(op) => setup_tf_string_sink(jd, op, &mut tf_state),
-                OperatorData::FileReader(op) => setup_tf_file_reader(jd, op, &mut tf_state),
-                OperatorData::DataInserter(op) => setup_tf_data_inserter(jd, op, &mut tf_state),
-                OperatorData::Sequence(op) => setup_tf_sequence(jd, op, &mut tf_state),
+            let b = op_base;
+            let tf_data = match &op_data {
+                OperatorData::Split(op) => setup_tf_split(jd, b, op, &mut tf_state),
+                OperatorData::Print(op) => setup_tf_print(jd, b, op, &mut tf_state),
+                OperatorData::Regex(op) => setup_tf_regex(jd, b, op, &mut tf_state),
+                OperatorData::Format(op) => setup_tf_format(jd, b, op, tf_id_peek, &mut tf_state),
+                OperatorData::StringSink(op) => setup_tf_string_sink(jd, b, op, &mut tf_state),
+                OperatorData::FileReader(op) => setup_tf_file_reader(jd, b, op, &mut tf_state),
+                OperatorData::DataInserter(op) => {
+                    setup_tf_data_inserter(jd, op_base, op, &mut tf_state)
+                }
+                OperatorData::Sequence(op) => setup_tf_sequence(jd, op_base, op, &mut tf_state),
                 OperatorData::Key(_) => unreachable!(),
                 OperatorData::Select(_) => unreachable!(),
             };
-
-            if let Some(lbl) = op_base.label {
-                jd.record_mgr.add_field_name(output_field, lbl);
-            }
 
             let appending = tf_state.is_appending;
             let tf_id = self.add_transform(tf_state, tf_data);
@@ -584,13 +600,15 @@ impl<'a> WorkerThreadSession<'a> {
                 predecessor_tf = Some(tf_id);
             }
             prev_tf = Some(tf_id);
-            prev_field_id = output_field;
             if !appending {
                 predecessor_tf = Some(tf_id);
+                next_input_field = prev_output_field;
+                prev_output_field = output_field;
             }
         }
         let mut term_state = TransformState::new(
-            prev_field_id,
+            prev_output_field,
+            prev_output_field,
             ms_id,
             default_batch_size,
             predecessor_tf,

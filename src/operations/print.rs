@@ -22,7 +22,7 @@ use crate::{
 
 use super::{
     errors::{OperatorApplicationError, OperatorCreationError},
-    operator::OperatorData,
+    operator::{OperatorBase, OperatorData},
     transform::{TransformData, TransformId, TransformState},
 };
 
@@ -50,15 +50,17 @@ pub fn parse_op_print(
 
 pub fn setup_tf_print(
     sess: &mut JobData,
+    _op_base: &OperatorBase,
     _op: &OpPrint,
     tf_state: &mut TransformState,
-) -> (TransformData<'static>, FieldId) {
+) -> TransformData<'static> {
     let output_field = sess.record_mgr.add_field(
         tf_state.match_set_id,
         sess.record_mgr.get_min_apf_idx(tf_state.input_field),
         None,
     );
-    let tf = TfPrint {
+    tf_state.preferred_input_type = Some(FieldValueKind::BytesInline);
+    TransformData::Print(TfPrint {
         // TODO: should we make a config option for this?
         flush_on_every_print: std::io::stdout().is_terminal(),
         current_stream_val: None,
@@ -67,10 +69,7 @@ pub fn setup_tf_print(
             .field_data
             .claim_iter(),
         output_field,
-    };
-
-    tf_state.preferred_input_type = Some(FieldValueKind::BytesInline);
-    (TransformData::Print(tf), output_field)
+    })
 }
 
 pub fn create_op_print() -> OperatorData {

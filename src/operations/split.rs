@@ -14,7 +14,7 @@ use crate::{
 
 use super::{
     errors::OperatorCreationError,
-    operator::{OperatorData, OperatorId},
+    operator::{OperatorBase, OperatorData, OperatorId},
     transform::{TransformData, TransformId, TransformState},
 };
 
@@ -63,6 +63,7 @@ pub fn setup_ts_split_as_entry_point<'a, 'b>(
 ) -> (TransformState, TransformData<'a>) {
     let mut state = TransformState::new(
         input_field,
+        input_field, // HACK
         ms_id,
         ops.clone().fold(usize::MAX, |minimum_batch_size, op| {
             let cid = sess.session_data.operator_bases[*op as usize].chain_id;
@@ -91,9 +92,10 @@ pub fn setup_ts_split_as_entry_point<'a, 'b>(
 
 pub fn setup_tf_split<'a>(
     _sess: &mut JobData,
+    _op_base: &OperatorBase,
     op: &'a OpSplit,
-    tf_state: &mut TransformState,
-) -> (TransformData<'static>, FieldId) {
+    _tf_state: &mut TransformState,
+) -> TransformData<'static> {
     let tf = TfSplit {
         expanded: false,
         targets: op
@@ -103,7 +105,7 @@ pub fn setup_tf_split<'a>(
             .collect(),
         field_names_set: Default::default(),
     };
-    (TransformData::Split(tf), tf_state.input_field)
+    TransformData::Split(tf)
 }
 
 pub fn handle_tf_split(sess: &mut JobData, tf_id: TransformId, s: &mut TfSplit) {

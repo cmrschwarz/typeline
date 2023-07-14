@@ -10,6 +10,7 @@ pub struct OperatorBaseOptions {
     pub label: Option<StringStoreEntry>,
     pub chainspec: Option<ChainSpec>,
     pub cli_arg_idx: Option<CliArgIdx>,
+    pub append_mode: bool,
     pub curr_chain: Option<ChainId>, // set by the context on add_op
     pub op_id: Option<OperatorId>,   // set by the context on add_op
 }
@@ -19,6 +20,7 @@ impl OperatorBaseOptions {
         argname: StringStoreEntry,
         label: Option<StringStoreEntry>,
         chainspec: Option<ChainSpec>,
+        append_mode: bool,
         cli_arg_idx: Option<CliArgIdx>,
     ) -> OperatorBaseOptions {
         OperatorBaseOptions {
@@ -26,6 +28,7 @@ impl OperatorBaseOptions {
             label,
             chainspec,
             cli_arg_idx,
+            append_mode,
             curr_chain: None,
             op_id: None,
         }

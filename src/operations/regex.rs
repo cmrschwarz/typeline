@@ -33,7 +33,7 @@ use crate::{
 };
 
 use super::errors::OperatorSetupError;
-use super::operator::OperatorData;
+use super::operator::{OperatorBase, OperatorData};
 use super::transform::TransformState;
 use super::{
     errors::{OperatorApplicationError, OperatorCreationError},
@@ -312,25 +312,32 @@ pub fn setup_op_regex(
 
 pub fn setup_tf_regex<'a>(
     sess: &mut JobData,
+    _op_base: &OperatorBase,
     op: &'a OpRegex,
     tf_state: &mut TransformState,
-) -> (TransformData<'a>, FieldId) {
+) -> TransformData<'a> {
     let cb = &mut sess.record_mgr.match_sets[tf_state.match_set_id].command_buffer;
     let apf_idx = cb.claim_apf(tf_state.ordering_id);
     let apf_succ = cb.peek_next_apf_id();
-
     let cgfs: Vec<FieldId> = op
         .capture_group_names
         .iter()
-        .map(|name| {
-            sess.record_mgr
-                .add_field(tf_state.match_set_id, Some(apf_succ), *name)
+        .enumerate()
+        .map(|(i, name)| {
+            if i == op.output_group_id {
+                if let Some(name) = name {
+                    sess.record_mgr.add_field_name(tf_state.output_field, *name);
+                }
+                tf_state.output_field
+            } else {
+                sess.record_mgr
+                    .add_field(tf_state.match_set_id, Some(apf_succ), *name)
+            }
         })
         .collect();
     tf_state.preferred_input_type = Some(FieldValueKind::BytesInline);
-    let output_field = cgfs[op.output_group_id];
 
-    let re = TfRegex {
+    TransformData::Regex(TfRegex {
         regex: op.regex.clone(),
         text_only_regex: op
             .text_only_regex
@@ -347,8 +354,7 @@ pub fn setup_tf_regex<'a>(
         last_end: None,
         next_start: 0,
         apf_idx,
-    };
-    (TransformData::Regex(re), output_field)
+    })
 }
 
 struct TextRegex<'a> {

@@ -20,12 +20,12 @@ use crate::{
     },
     options::argument::CliArgIdx,
     stream_value::{StreamValue, StreamValueData, StreamValueId},
-    worker_thread_session::{FieldId, JobData},
+    worker_thread_session::JobData,
 };
 
 use super::{
     errors::{io_error_to_op_error, OperatorCreationError, OperatorSetupError},
-    operator::{OperatorData, DEFAULT_OP_NAME_SMALL_STR_LEN},
+    operator::{OperatorBase, OperatorData, DEFAULT_OP_NAME_SMALL_STR_LEN},
     transform::{TransformData, TransformId, TransformState},
 };
 
@@ -89,15 +89,11 @@ enum LineBufferedSetting {
 pub struct OpFileReader {
     file_kind: FileKind,
     line_buffered: LineBufferedSetting,
-    append: bool,
 }
 
 impl OpFileReader {
     pub fn default_op_name(&self) -> SmallString<[u8; DEFAULT_OP_NAME_SMALL_STR_LEN]> {
         let mut res = SmallString::new();
-        if self.append {
-            res.push('+');
-        }
         match self.file_kind {
             FileKind::Stdin => res.push_str("stdin"),
             FileKind::File(_) => res.push_str("file"),
@@ -114,14 +110,14 @@ pub struct TfFileReader {
     stream_value: Option<StreamValueId>,
     line_buffered: bool,
     stream_buffer_size: usize,
-    output_field: FieldId,
 }
 
 pub fn setup_tf_file_reader<'a>(
     sess: &mut JobData,
+    _op_base: &OperatorBase,
     op: &'a OpFileReader,
     tf_state: &mut TransformState,
-) -> (TransformData<'a>, FieldId) {
+) -> TransformData<'a> {
     //TODO: properly set up line buffering
     let mut check_if_tty = false;
     let mut line_buffered = match op.line_buffered {
@@ -177,18 +173,8 @@ pub fn setup_tf_file_reader<'a>(
             AnyFile::Custom(trait_casted_box)
         }
     };
-    let output_field = if op.append {
-        tf_state.is_appending = true;
-        tf_state.input_field
-    } else {
-        sess.record_mgr.add_field(
-            tf_state.match_set_id,
-            sess.record_mgr.get_min_apf_idx(tf_state.input_field),
-            None,
-        )
-    };
 
-    let data = TransformData::FileReader(TfFileReader {
+    TransformData::FileReader(TfFileReader {
         file: Some(file),
         stream_value: None,
         line_buffered,
@@ -196,9 +182,7 @@ pub fn setup_tf_file_reader<'a>(
             [sess.session_data.operator_bases[tf_state.op_id.unwrap() as usize].chain_id as usize]
             .settings
             .stream_buffer_size,
-        output_field,
-    });
-    (data, output_field)
+    })
 }
 
 fn read_size_limited<F: Read>(
@@ -255,7 +239,8 @@ fn read_chunk(
 }
 
 fn start_streaming_file(sess: &mut JobData<'_>, tf_id: TransformId, fr: &mut TfFileReader) {
-    sess.prepare_for_output(tf_id, &[fr.output_field]);
+    let output_field_id = sess.tf_mgr.transforms[tf_id].output_field;
+    sess.prepare_for_output(tf_id, &[output_field_id]);
     // if there might be more records later we must always buffer the file data
 
     let (mut batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
@@ -263,7 +248,7 @@ fn start_streaming_file(sess: &mut JobData<'_>, tf_id: TransformId, fr: &mut TfF
         debug_assert!(input_done);
         batch_size = 1;
     }
-    let mut out_field = sess.record_mgr.fields[fr.output_field].borrow_mut();
+    let mut out_field = sess.record_mgr.fields[output_field_id].borrow_mut();
     // we want to write the chunk straight into field data to avoid a copy
     // SAFETY: this relies on the memory layout in field_data.
     // since that is a submodule of us, this is fine.
@@ -348,9 +333,8 @@ pub fn handle_tf_file_reader(sess: &mut JobData<'_>, tf_id: TransformId, fr: &mu
 
     let (additional_batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
     if additional_batch_size > 0 {
-        sess.prepare_for_output(tf_id, &[fr.output_field]);
-        let mut out_field = sess.record_mgr.fields[fr.output_field].borrow_mut();
-        out_field
+        let mut output_field = sess.prepare_output_field(tf_id);
+        output_field
             .field_data
             .push_stream_value_id(sv_id, additional_batch_size, true, true);
     }
@@ -408,7 +392,6 @@ pub fn handle_tf_file_reader(sess: &mut JobData<'_>, tf_id: TransformId, fr: &mu
 
 pub fn parse_op_file(
     value: Option<&BStr>,
-    append: bool,
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
     let path = if let Some(value) = value {
@@ -434,13 +417,11 @@ pub fn parse_op_file(
     Ok(OperatorData::FileReader(OpFileReader {
         file_kind: FileKind::File(path),
         line_buffered: LineBufferedSetting::No, //this will be set based on the chain setting during setup
-        append,
     }))
 }
 
 pub fn parse_op_stdin(
     value: Option<&BStr>,
-    append: bool,
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
     if value.is_some() {
@@ -453,29 +434,23 @@ pub fn parse_op_stdin(
     Ok(OperatorData::FileReader(OpFileReader {
         file_kind: FileKind::Stdin,
         line_buffered: LineBufferedSetting::No, //this will be set based on the chain setting during setup
-        append,
     }))
 }
 
-pub fn create_op_file_reader_custom(read: Box<dyn ReadSendCloneDyn>, append: bool) -> OperatorData {
+pub fn create_op_file_reader_custom(read: Box<dyn ReadSendCloneDyn>) -> OperatorData {
     OperatorData::FileReader(OpFileReader {
         file_kind: FileKind::Custom(Mutex::new(Some(read))),
         line_buffered: LineBufferedSetting::No,
-        append,
     })
 }
 
 // this is an escape hatch if the custom Read to be used does not implement clone
 // if this is used, attempting to clone this Operator
 // (e.g. while cloning the Context / ContextBuilder that it belongs to) will *panic*
-pub fn create_op_file_reader_custom_not_cloneable(
-    read: Box<dyn Read + Send>,
-    append: bool,
-) -> OperatorData {
+pub fn create_op_file_reader_custom_not_cloneable(read: Box<dyn Read + Send>) -> OperatorData {
     OperatorData::FileReader(OpFileReader {
         file_kind: FileKind::CustomNotCloneable(Mutex::new(Some(read))),
         line_buffered: LineBufferedSetting::No,
-        append,
     })
 }
 

@@ -9,14 +9,14 @@ use bstr::ByteSlice;
 use indexmap::IndexMap;
 
 use crate::{
-    field_data::field_value_flags,
+    field_data::{field_value_flags, push_interface::PushInterface},
     operations::print::{write_error, write_integer, write_null, write_raw_bytes, write_unset},
     ref_iter::{
         AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter, RefAwareInlineTextIter,
     },
     stream_value::{StreamValue, StreamValueData, StreamValueId},
     utils::universe::Universe,
-    worker_thread_session::{FieldId, JobData},
+    worker_thread_session::JobData,
 };
 use crate::{
     field_data::{
@@ -28,7 +28,7 @@ use crate::{
 
 use super::{
     errors::OperatorApplicationError,
-    operator::{OperatorData, OperatorId},
+    operator::{OperatorBase, OperatorData, OperatorId},
     print::{write_stream_val_check_done, write_success, write_text},
     transform::{TransformData, TransformId, TransformState},
 };
@@ -111,11 +111,12 @@ pub struct TfStringSink<'a> {
 
 pub fn setup_tf_string_sink<'a>(
     sess: &mut JobData,
+    _op_base: &OperatorBase,
     ss: &'a OpStringSink,
     tf_state: &mut TransformState,
-) -> (TransformData<'a>, FieldId) {
+) -> TransformData<'a> {
     tf_state.preferred_input_type = Some(FieldValueKind::BytesInline);
-    let tf = TfStringSink {
+    TransformData::StringSink(TfStringSink {
         handle: &ss.handle.data,
         batch_iter: sess.record_mgr.fields[tf_state.input_field]
             .borrow_mut()
@@ -123,8 +124,7 @@ pub fn setup_tf_string_sink<'a>(
             .claim_iter(),
         stream_value_handles: Default::default(),
         buf: Default::default(),
-    };
-    (TransformData::StringSink(tf), tf_state.input_field)
+    })
 }
 
 fn push_string(
@@ -230,27 +230,29 @@ fn append_stream_val(
 pub fn handle_tf_string_sink(
     sess: &mut JobData<'_>,
     tf_id: TransformId,
-    tf: &mut TfStringSink<'_>,
+    ss: &mut TfStringSink<'_>,
 ) {
     let (batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
-    let input_field_id = sess.tf_mgr.transforms[tf_id].input_field;
-    let input_field = sess.record_mgr.fields[input_field_id].borrow();
+    let tf = &sess.tf_mgr.transforms[tf_id];
+    let input_field = sess.record_mgr.fields[tf.input_field].borrow();
+    let mut output_field = sess.record_mgr.fields[tf.output_field].borrow_mut();
     let base_iter = input_field
         .field_data
-        .get_iter(tf.batch_iter)
+        .get_iter(ss.batch_iter)
         .bounded(0, batch_size);
     let starting_pos = base_iter.get_next_field_pos();
     let mut iter = AutoDerefIter::new(
         &sess.record_mgr.fields,
         &mut sess.record_mgr.match_sets,
-        input_field_id,
+        tf.input_field,
         base_iter,
         None,
     );
-    let mut out = tf.handle.lock().unwrap();
-    let buf = &mut tf.buf;
+    let mut out = ss.handle.lock().unwrap();
+    let buf = &mut ss.buf;
     let mut field_pos = out.data.len();
 
+    let mut last_errror_end = 0;
     while let Some(range) = iter.typed_range_fwd(
         &mut sess.record_mgr.match_sets,
         usize::MAX,
@@ -302,6 +304,20 @@ pub fn handle_tf_string_sink(
                         out.errors.insert(pos + i, e.clone());
                     }
                     pos += rl as usize;
+                    let successes_so_far = pos - last_errror_end;
+                    if successes_so_far > 0 {
+                        output_field
+                            .field_data
+                            .push_success(pos - last_errror_end, true);
+                        output_field
+                            .field_data
+                            .push_error(v.clone(), rl as usize, false, false);
+                    } else {
+                        output_field
+                            .field_data
+                            .push_error(v.clone(), rl as usize, true, true);
+                    }
+                    last_errror_end = pos;
                 }
             }
             TypedSlice::Unset(_) => {
@@ -330,8 +346,8 @@ pub fn handle_tf_string_sink(
                 for (svid, offsets, rl) in RefAwareStreamValueIter::from_range(&range, svs) {
                     let sv = &mut sess.sv_mgr.stream_values[svid];
                     if !write_stream_val_check_done::<false>(buf, sv, offsets, 1).unwrap() {
-                        sv.subscribe(tf_id, tf.stream_value_handles.len(), sv.is_buffered());
-                        tf.stream_value_handles.claim_with_value(StreamValueHandle {
+                        sv.subscribe(tf_id, ss.stream_value_handles.len(), sv.is_buffered());
+                        ss.stream_value_handles.claim_with_value(StreamValueHandle {
                             start_idx: out.data.len(),
                             run_len: rl as usize,
                             contains_error: false,
@@ -349,9 +365,13 @@ pub fn handle_tf_string_sink(
     let consumed_fields = field_pos - starting_pos;
     input_field
         .field_data
-        .store_iter(tf.batch_iter, iter.into_base_iter());
+        .store_iter(ss.batch_iter, iter.into_base_iter());
+    output_field
+        .field_data
+        .push_success(field_pos - last_errror_end, true);
     drop(input_field);
-    let streams_done = tf.stream_value_handles.claimed_entry_count() == 0;
+    drop(output_field);
+    let streams_done = ss.stream_value_handles.claimed_entry_count() == 0;
     if streams_done {
         sess.tf_mgr.update_ready_state(tf_id);
     }
