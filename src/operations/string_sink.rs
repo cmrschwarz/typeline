@@ -10,9 +10,7 @@ use indexmap::IndexMap;
 
 use crate::{
     field_data::field_value_flags,
-    operations::print::{
-        write_error, write_integer, write_null, write_raw_bytes, write_type_error, write_unset,
-    },
+    operations::print::{write_error, write_integer, write_null, write_raw_bytes, write_unset},
     ref_iter::{
         AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter, RefAwareInlineTextIter,
     },
@@ -338,7 +336,7 @@ pub fn handle_tf_string_sink(
                 }
             }
             TypedSlice::Html(_) | TypedSlice::Object(_) => {
-                write_type_error::<false>(buf, range.base.field_count).unwrap();
+                todo!();
             }
         }
         field_pos += range.base.field_count;

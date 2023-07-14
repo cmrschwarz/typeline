@@ -74,3 +74,43 @@ pub fn divide_by_char_len(len: usize, char_len: usize) -> usize {
         _ => unreachable!(),
     }
 }
+
+pub enum CachingCallable<T, CTOR: FnOnce() -> T> {
+    Unevaluated(CTOR),
+    Cached(T),
+    Dummy,
+}
+
+pub trait ValueProducingCallable<T> {
+    fn call(&mut self) -> T;
+}
+
+impl<T: Clone, CTOR: FnOnce() -> T> ValueProducingCallable<T> for CachingCallable<T, CTOR> {
+    fn call(&mut self) -> T {
+        if let CachingCallable::Cached(v) = &self {
+            return v.clone();
+        }
+        let v = std::mem::replace(self, CachingCallable::Dummy);
+        let res = match v {
+            CachingCallable::Unevaluated(func) => func(),
+            _ => unreachable!(),
+        };
+        *self = CachingCallable::Cached(res.clone());
+        res
+    }
+}
+impl<T, F: FnMut() -> T> ValueProducingCallable<T> for F {
+    fn call(&mut self) -> T {
+        self()
+    }
+}
+
+macro_rules! cached {
+    ($b: block) => {{
+        use crate::utils::CachingCallable;
+        CachingCallable::Unevaluated(|| $b)
+    }};
+    ($x: expr) => {
+        cached!({ $x })
+    };
+}

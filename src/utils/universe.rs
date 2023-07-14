@@ -167,15 +167,31 @@ impl<I: UniverseIndex, T> Universe<I, T> {
         *UniverseIdx::from_usize(unsafe { ptr.offset_from(range.start) } as usize)
     }
     pub fn get(&self, id: I) -> Option<&T> {
-        match self.data.get(usize::try_from(id).ok()?) {
+        match self.data.get(usize::try_from(id).unwrap()) {
             Some(v) => v.as_ref(),
             None => None,
         }
     }
-    pub fn ge_mut(&mut self, id: I) -> Option<&mut T> {
-        match self.data.get_mut(usize::try_from(id).ok()?) {
+    pub fn get_mut(&mut self, id: I) -> Option<&mut T> {
+        match self.data.get_mut(usize::try_from(id).unwrap()) {
             Some(v) => v.as_mut(),
             None => None,
+        }
+    }
+    pub fn get_two_distinct_mut(&mut self, id: I, id2: I) -> (Option<&mut T>, Option<&mut T>) {
+        let mut idx1 = usize::try_from(id).unwrap();
+        let mut idx2 = usize::try_from(id2).unwrap();
+        assert!(idx1 != idx2);
+        let descending = idx2 > idx1;
+        if descending {
+            std::mem::swap(&mut idx1, &mut idx2);
+        }
+        let (p1, p2) = self.data.split_at_mut(idx1 + 1);
+        let (v1, v2) = (p1[0].as_mut(), p2[idx2 - idx1].as_mut());
+        if descending {
+            (v2, v1)
+        } else {
+            (v1, v2)
         }
     }
 }

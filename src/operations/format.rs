@@ -1,11 +1,10 @@
+use arrayvec::ArrayVec;
+use bstr::{BStr, BString, ByteSlice, ByteVec};
 use std::{
     borrow::Cow,
     cell::{RefCell, RefMut},
     ptr::NonNull,
 };
-
-use arrayvec::ArrayVec;
-use bstr::{BStr, BString, ByteSlice, ByteVec};
 
 use smallstr::SmallString;
 
@@ -22,22 +21,25 @@ use crate::{
     options::argument::CliArgIdx,
     ref_iter::{
         AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter, RefAwareInlineTextIter,
+        RefAwareStreamValueIter,
     },
-    stream_value::StreamValueId,
+    stream_value::{StreamValueData, StreamValueId},
     utils::{
         divide_by_char_len, i64_digits, i64_to_str,
         string_store::{StringStore, StringStoreEntry},
         u64_to_str,
         universe::Universe,
-        MAX_UTF8_CHAR_LEN,
+        ValueProducingCallable, MAX_UTF8_CHAR_LEN,
     },
-    worker_thread_session::{Field, FieldId, JobData, MatchSet, MatchSetId, RecordManager},
+    worker_thread_session::{
+        Field, FieldId, JobData, MatchSet, MatchSetId, RecordManager, StreamValueManager,
+    },
 };
 
 use super::{
     errors::{OperatorApplicationError, OperatorCreationError, OperatorSetupError},
     operator::{OperatorData, OperatorId},
-    print::{error_to_string, write_error},
+    print::{error_to_string, ERROR_PREFIX_STR, NULL_STR, SUCCESS_STR, UNSET_STR},
     transform::{TransformData, TransformId, TransformState},
 };
 
@@ -68,6 +70,15 @@ impl FormatFillSpec {
 pub enum FormatWidthSpec {
     Value(usize),
     Ref(FormatKeyRefId),
+}
+
+impl FormatWidthSpec {
+    pub fn width(&self, width_lookup: usize) -> usize {
+        match self {
+            FormatWidthSpec::Value(v) => *v,
+            FormatWidthSpec::Ref(_) => width_lookup,
+        }
+    }
 }
 
 impl Default for FormatWidthSpec {
@@ -126,6 +137,8 @@ pub struct FormatIdentRef {
 struct TfFormatStreamValueHandle {
     part_idx: usize,
     handled_len: usize,
+    part_iter_id: IterId,
+    target_sv_id: StreamValueId,
 }
 #[derive(Clone, Copy)]
 struct OutputState {
@@ -135,6 +148,7 @@ struct OutputState {
     run_len: usize,
     contains_raw_bytes: bool,
     error_occured: bool,
+    unfinished_stream_value_found: bool,
 }
 
 struct OutputTarget {
@@ -150,6 +164,7 @@ impl Default for OutputState {
             len: Default::default(),
             contains_raw_bytes: false,
             error_occured: false,
+            unfinished_stream_value_found: false,
             run_len: 0,
             width_lookup: 0,
         }
@@ -164,7 +179,6 @@ pub struct TfFormat<'a> {
     output_targets: Vec<OutputTarget>,
     stream_value_handles: Universe<usize, TfFormatStreamValueHandle>,
 }
-const NULL_LEN: usize = "null".len();
 
 pub fn setup_op_format(
     string_store: &mut StringStore,
@@ -533,7 +547,7 @@ fn iter_output_states(
     fmt: &mut TfFormat,
     output_idx: &mut usize,
     mut run_len: usize,
-    func: impl Fn(&mut OutputState),
+    mut func: impl FnMut(&mut OutputState),
 ) {
     if run_len == 0 {
         return;
@@ -550,7 +564,9 @@ fn iter_output_states(
     }
     while run_len > 0 {
         let o = &mut fmt.output_states[*output_idx];
-        func(o);
+        if !o.error_occured && !o.unfinished_stream_value_found {
+            func(o);
+        }
         *output_idx = o.next;
         run_len -= o.run_len;
     }
@@ -570,11 +586,53 @@ fn iter_output_targets(
         *output_idx += 1;
     }
 }
-fn calc_text_len(k: &FormatKey, base_len: usize, width_lookup: usize) -> usize {
-    match k.width {
-        Some(FormatWidthSpec::Ref(_)) => base_len.max(width_lookup),
-        Some(FormatWidthSpec::Value(v)) => base_len.max(v),
-        None => base_len,
+fn calc_text_len(
+    k: &FormatKey,
+    text_len: usize,
+    width_lookup: usize,
+    text_char_count: &mut impl ValueProducingCallable<usize>,
+) -> usize {
+    let max_width = match k.width {
+        Some(FormatWidthSpec::Ref(_)) => width_lookup,
+        Some(FormatWidthSpec::Value(v)) => v,
+        None => 0,
+    };
+    if (text_len / MAX_UTF8_CHAR_LEN) >= max_width {
+        text_len
+    } else {
+        let char_count = text_char_count.call();
+        if char_count >= max_width {
+            text_len
+        } else {
+            text_len
+                + (max_width - char_count)
+                    * k.fill
+                        .as_ref()
+                        .map(|f| f.fill_char.map(|c| c.len_utf8()).unwrap_or(1))
+                        .unwrap_or(1)
+        }
+    }
+}
+fn calc_text_padding(
+    k: &FormatKey,
+    text_len: usize,
+    width_lookup: usize,
+    text_char_count: impl FnOnce() -> usize,
+) -> usize {
+    let max_width = match k.width {
+        Some(FormatWidthSpec::Ref(_)) => width_lookup,
+        Some(FormatWidthSpec::Value(v)) => v,
+        None => 0,
+    };
+    if (text_len >> MAX_UTF8_CHAR_LEN) >= max_width {
+        0
+    } else {
+        let char_count = text_char_count();
+        if char_count >= max_width {
+            0
+        } else {
+            max_width - char_count
+        }
     }
 }
 pub fn lookup_widths(
@@ -623,8 +681,11 @@ pub fn lookup_widths(
     }
 }
 pub fn setup_key_output_state(
+    sv_mgr: &mut StreamValueManager,
     fields: &Universe<FieldId, RefCell<Field>>,
     match_sets: &mut Universe<MatchSetId, MatchSet>,
+    tf_id: TransformId,
+    part_idx: usize,
     fmt: &mut TfFormat,
     batch_size: usize,
     k: &FormatKey,
@@ -668,23 +729,26 @@ pub fn setup_key_output_state(
             TypedSlice::Reference(_) => unreachable!(),
             TypedSlice::TextInline(text) => {
                 for (v, rl, _offs) in RefAwareInlineTextIter::from_range(&range, text) {
+                    let mut chars_count = cached!(v.chars().count());
                     iter_output_states(fmt, &mut output_index, rl as usize, |o| {
-                        o.len += calc_text_len(k, v.chars().count(), o.width_lookup);
+                        o.len += calc_text_len(k, v.len(), o.width_lookup, &mut chars_count);
                     });
                 }
             }
             TypedSlice::BytesInline(bytes) => {
                 for (v, rl, _offs) in RefAwareInlineBytesIter::from_range(&range, bytes) {
+                    let mut chars_count = cached!(v.chars().count());
                     iter_output_states(fmt, &mut output_index, rl as usize, |o| {
-                        o.len += calc_text_len(k, v.len(), o.width_lookup);
+                        o.len += calc_text_len(k, v.len(), o.width_lookup, &mut chars_count);
                         o.contains_raw_bytes = true;
                     });
                 }
             }
             TypedSlice::BytesBuffer(bytes) => {
                 for (v, rl, _offs) in RefAwareBytesBufferIter::from_range(&range, bytes) {
+                    let mut chars_count = cached!(v.chars().count());
                     iter_output_states(fmt, &mut output_index, rl as usize, |o| {
-                        o.len += calc_text_len(k, v.len(), o.width_lookup);
+                        o.len += calc_text_len(k, v.len(), o.width_lookup, &mut chars_count);
                         o.contains_raw_bytes = true;
                     });
                 }
@@ -693,29 +757,129 @@ pub fn setup_key_output_state(
                 for (v, rl) in TypedSliceIter::from_range(&range.base, ints) {
                     let digits = i64_digits(k.add_plus_sign, *v);
                     iter_output_states(fmt, &mut output_index, rl as usize, |o| {
-                        o.len += calc_text_len(k, digits, o.width_lookup);
+                        o.len += calc_text_len(k, digits, o.width_lookup, &mut || digits);
                     });
                 }
             }
-            TypedSlice::Null(ints) => {
-                if k.alternate_form {
-                    for (v, rl) in TypedSliceIter::from_range(&range.base, ints) {
-                        iter_output_states(fmt, &mut output_index, rl as usize, |o| {
-                            o.len += calc_text_len(k, NULL_LEN, o.width_lookup);
-                        });
+            TypedSlice::StreamValueId(svs) => {
+                for (v, range, rl) in RefAwareStreamValueIter::from_range(&range, svs) {
+                    let sv = &mut sv_mgr.stream_values[v];
+                    match &sv.data {
+                        StreamValueData::Dropped => unreachable!(),
+                        StreamValueData::Error(e) => {
+                            if k.alternate_form {
+                                iter_output_states(fmt, &mut output_index, rl as usize, |o| {
+                                    o.len += calc_text_len(
+                                        k,
+                                        ERROR_PREFIX_STR.len() + e.message.len(),
+                                        o.width_lookup,
+                                        &mut || {
+                                            ERROR_PREFIX_STR.chars().count()
+                                                + e.message.chars().count()
+                                        },
+                                    );
+                                });
+                            } else {
+                                iter_output_states(fmt, &mut output_index, rl as usize, |o| {
+                                    o.error_occured = true;
+                                });
+                            }
+                        }
+                        StreamValueData::Bytes(b) => {
+                            let mut need_buffer = false;
+                            let data = range.map(|r| &b[r]).unwrap_or(b);
+                            let mut char_count = cached!(data.chars().count());
+                            if !sv.is_buffered() {
+                                if let Some(width_spec) = &k.width {
+                                    let mut i = output_index;
+                                    iter_output_states(fmt, &mut i, rl as usize, |o| {
+                                        if width_spec.width(o.width_lookup)
+                                            > data.len() / MAX_UTF8_CHAR_LEN
+                                        {
+                                            need_buffer = true;
+                                        }
+                                    });
+                                }
+                            }
+                            iter_output_states(fmt, &mut output_index, rl as usize, |o| {
+                                o.len +=
+                                    calc_text_len(k, data.len(), o.width_lookup, &mut char_count);
+                                if sv.bytes_are_utf8 {
+                                    o.contains_raw_bytes = true;
+                                }
+                            });
+                            if need_buffer {
+                                sv.promote_to_buffer();
+                            }
+                            let mut idx = output_index;
+                            if !sv.done {
+                                iter_output_states(fmt, &mut idx, rl as usize, |o| {
+                                    o.unfinished_stream_value_found = true;
+                                });
+                                sv.subscribe(
+                                    tf_id,
+                                    fmt.stream_value_handles.claim_with(|| {
+                                        TfFormatStreamValueHandle {
+                                            part_idx,
+                                            handled_len: 0,
+                                            target_sv_id: 0,
+                                            part_iter_id: 0,
+                                        }
+                                    }),
+                                    need_buffer,
+                                );
+                            }
+                        }
                     }
-                } else {
-                    iter_output_states(fmt, &mut output_index, range.base.field_count, |o| {
-                        o.error_occured = true;
+                }
+            }
+            TypedSlice::Unset(ints) if k.alternate_form => {
+                for (_, rl) in TypedSliceIter::from_range(&range.base, ints) {
+                    iter_output_states(fmt, &mut output_index, rl as usize, |o| {
+                        o.len += calc_text_len(k, UNSET_STR.len(), o.width_lookup, &mut || {
+                            UNSET_STR.len()
+                        });
+                    });
+                }
+            }
+            TypedSlice::Success(ints) if k.alternate_form => {
+                for (_, rl) in TypedSliceIter::from_range(&range.base, ints) {
+                    iter_output_states(fmt, &mut output_index, rl as usize, |o| {
+                        o.len += calc_text_len(k, SUCCESS_STR.len(), o.width_lookup, &mut || {
+                            SUCCESS_STR.len()
+                        });
+                    });
+                }
+            }
+            TypedSlice::Null(ints) if k.alternate_form => {
+                for (_, rl) in TypedSliceIter::from_range(&range.base, ints) {
+                    iter_output_states(fmt, &mut output_index, rl as usize, |o| {
+                        o.len += calc_text_len(k, NULL_STR.len(), o.width_lookup, &mut || {
+                            NULL_STR.len()
+                        });
+                    });
+                }
+            }
+            TypedSlice::Error(errs) if k.alternate_form => {
+                for (v, rl) in TypedSliceIter::from_range(&range.base, errs) {
+                    let len = ERROR_PREFIX_STR.len() + v.message.len();
+                    let mut char_count =
+                        cached!(ERROR_PREFIX_STR.len() + v.message.chars().count());
+                    iter_output_states(fmt, &mut output_index, rl as usize, |o| {
+                        o.len += calc_text_len(k, len, o.width_lookup, &mut char_count);
                     });
                 }
             }
             TypedSlice::Unset(_)
             | TypedSlice::Success(_)
-            | TypedSlice::Error(_)
-            | TypedSlice::Html(_)
-            | TypedSlice::StreamValueId(_)
-            | TypedSlice::Object(_) => {
+            | TypedSlice::Null(_)
+            | TypedSlice::Error(_) => {
+                debug_assert!(!k.alternate_form);
+                iter_output_states(fmt, &mut output_index, range.base.field_count, |o| {
+                    o.error_occured = true;
+                });
+            }
+            TypedSlice::Html(_) | TypedSlice::Object(_) => {
                 iter_output_states(fmt, &mut output_index, range.base.field_count, |o| {
                     o.error_occured = true;
                 });
@@ -831,17 +995,10 @@ fn setup_output_targets(op_id: OperatorId, fmt: &mut TfFormat, output_field: &mu
     }
 }
 
-unsafe fn write_padded_bytes(
-    k: &FormatKey,
-    tgt: &mut OutputTarget,
-    data: &[u8],
-    data_units_len: impl FnOnce() -> usize,
-) {
+unsafe fn write_padded_bytes(k: &FormatKey, tgt: &mut OutputTarget, data: &[u8]) {
     if k.width.is_some() {
         let fill_spec = k.fill.as_ref().cloned().unwrap_or_default();
-        let len = data_units_len();
-        let width = calc_text_len(k, len, tgt.width_lookup);
-        let padding = width - len;
+        let padding = calc_text_padding(k, data.len(), tgt.width_lookup, || data.chars().count());
         let (pad_left, pad_right) = match fill_spec.alignment {
             FormatFillAlignment::Left => (padding, 0),
             FormatFillAlignment::Center => ((padding + 1) / 2, padding / 2),
@@ -861,7 +1018,7 @@ unsafe fn write_formatted_int(k: &FormatKey, tgt: &mut OutputTarget, value: i64)
     }
     if !k.zero_pad_numbers {
         let val = i64_to_str(k.add_plus_sign, value);
-        write_padded_bytes(k, tgt, val.as_bytes(), || val.len());
+        write_padded_bytes(k, tgt, val.as_bytes());
         return;
     }
     let mut len = 0;
@@ -874,11 +1031,12 @@ unsafe fn write_formatted_int(k: &FormatKey, tgt: &mut OutputTarget, value: i64)
     }
     let val = u64_to_str(false, value.unsigned_abs());
     len += val.len();
-    let tgt_len = calc_text_len(k, len, tgt.width_lookup);
-    write_padding_to_tgt(tgt, Some('0'), tgt_len - len);
+    let padding = calc_text_padding(k, len, tgt.width_lookup, || val.len());
+    write_padding_to_tgt(tgt, Some('0'), padding);
     write_bytes_to_target(tgt, val.as_bytes());
 }
 fn write_fmt_key(
+    sv_mgr: &mut StreamValueManager,
     fields: &Universe<FieldId, RefCell<Field>>,
     match_sets: &mut Universe<MatchSetId, MatchSet>,
     fmt: &mut TfFormat,
@@ -921,21 +1079,21 @@ fn write_fmt_key(
             TypedSlice::TextInline(text) => {
                 for (v, rl, _offs) in RefAwareInlineTextIter::from_range(&range, text) {
                     iter_output_targets(fmt, &mut output_index, rl as usize, |tgt| unsafe {
-                        write_padded_bytes(k, tgt, v.as_bytes(), || v.chars().count());
+                        write_padded_bytes(k, tgt, v.as_bytes());
                     });
                 }
             }
             TypedSlice::BytesInline(bytes) => {
                 for (v, rl, _offs) in RefAwareInlineBytesIter::from_range(&range, bytes) {
                     iter_output_targets(fmt, &mut output_index, rl as usize, |tgt| unsafe {
-                        write_padded_bytes(k, tgt, v, || v.len());
+                        write_padded_bytes(k, tgt, v);
                     });
                 }
             }
             TypedSlice::BytesBuffer(bytes) => {
                 for (v, rl, _offs) in RefAwareBytesBufferIter::from_range(&range, bytes) {
                     iter_output_targets(fmt, &mut output_index, rl as usize, |tgt| unsafe {
-                        write_padded_bytes(k, tgt, v, || v.len());
+                        write_padded_bytes(k, tgt, v);
                     });
                 }
             }
@@ -952,7 +1110,7 @@ fn write_fmt_key(
                     &mut output_index,
                     range.base.field_count,
                     |tgt| unsafe {
-                        write_padded_bytes(k, tgt, "null".as_bytes(), || NULL_LEN);
+                        write_padded_bytes(k, tgt, NULL_STR.as_bytes());
                     },
                 );
             }
@@ -960,12 +1118,47 @@ fn write_fmt_key(
                 for (v, rl) in TypedSliceIter::from_range(&range.base, errs) {
                     let err_str = error_to_string(v);
                     iter_output_targets(fmt, &mut output_index, rl as usize, |tgt| unsafe {
-                        write_padded_bytes(k, tgt, &err_str.as_bytes(), || err_str.chars().count())
+                        write_padded_bytes(k, tgt, &err_str.as_bytes())
                     });
                 }
             }
 
-            TypedSlice::StreamValueId(_) => todo!(),
+            TypedSlice::StreamValueId(svs) => {
+                for (v, range, rl) in RefAwareStreamValueIter::from_range(&range, svs) {
+                    let sv = &sv_mgr.stream_values[v];
+                    if !sv.done {
+                        iter_output_states(fmt, &mut output_index, rl as usize, |o| {
+                            o.unfinished_stream_value_found = true;
+                        });
+                    } else {
+                        match &sv.data {
+                            StreamValueData::Dropped => unreachable!(),
+                            StreamValueData::Error(e) => {
+                                let err_str = error_to_string(e);
+                                iter_output_targets(
+                                    fmt,
+                                    &mut output_index,
+                                    rl as usize,
+                                    |tgt| unsafe {
+                                        write_padded_bytes(k, tgt, &err_str.as_bytes())
+                                    },
+                                );
+                            }
+                            StreamValueData::Bytes(b) => {
+                                let data = range.map(|r| &b[r]).unwrap_or(b);
+                                if sv.done {
+                                    iter_output_targets(
+                                        fmt,
+                                        &mut output_index,
+                                        rl as usize,
+                                        |tgt| unsafe { write_padded_bytes(k, tgt, data) },
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             TypedSlice::Unset(_)
             | TypedSlice::Success(_)
             | TypedSlice::Null(_)
@@ -991,7 +1184,7 @@ pub fn handle_tf_format(sess: &mut JobData<'_>, tf_id: TransformId, fmt: &mut Tf
         run_len: batch_size,
         ..Default::default()
     });
-    for part in fmt.parts.iter() {
+    for (part_idx, part) in fmt.parts.iter().enumerate() {
         match part {
             FormatPart::ByteLiteral(v) => fmt.output_states.iter_mut().for_each(|s| {
                 s.len += v.len();
@@ -1001,8 +1194,11 @@ pub fn handle_tf_format(sess: &mut JobData<'_>, tf_id: TransformId, fmt: &mut Tf
                 fmt.output_states.iter_mut().for_each(|s| s.len += v.len())
             }
             FormatPart::Key(k) => setup_key_output_state(
+                &mut sess.sv_mgr,
                 &sess.record_mgr.fields,
                 &mut sess.record_mgr.match_sets,
+                tf_id,
+                part_idx,
                 fmt,
                 batch_size,
                 k,
@@ -1023,6 +1219,7 @@ pub fn handle_tf_format(sess: &mut JobData<'_>, tf_id: TransformId, fmt: &mut Tf
                 });
             }
             FormatPart::Key(k) => write_fmt_key(
+                &mut sess.sv_mgr,
                 &sess.record_mgr.fields,
                 &mut sess.record_mgr.match_sets,
                 fmt,
@@ -1039,13 +1236,33 @@ pub fn handle_tf_format(sess: &mut JobData<'_>, tf_id: TransformId, fmt: &mut Tf
 }
 
 pub fn handle_tf_format_stream_value_update(
-    _sess: &mut JobData<'_>,
+    sess: &mut JobData<'_>,
     _tf_id: TransformId,
-    _tf: &mut TfFormat,
-    _svid: StreamValueId,
-    _custom: usize,
+    tf: &mut TfFormat,
+    sv_id: StreamValueId,
+    custom: usize,
 ) {
-    todo!();
+    let handle = &mut tf.stream_value_handles[custom];
+    let (sv, out_sv) = sess
+        .sv_mgr
+        .stream_values
+        .get_two_distinct_mut(sv_id, handle.target_sv_id);
+    let (sv, out_sv) = (sv.unwrap(), out_sv.unwrap());
+    match &sv.data {
+        StreamValueData::Error(_) => todo!(),
+        StreamValueData::Bytes(b) => {
+            if sv.done {
+                match &mut out_sv.data {
+                    StreamValueData::Dropped => unreachable!(),
+                    StreamValueData::Error(_) => unreachable!(),
+                    StreamValueData::Bytes(bb) => {
+                        todo!();
+                    }
+                }
+            }
+        }
+        StreamValueData::Dropped => unreachable!(),
+    }
 }
 
 #[cfg(test)]
@@ -1139,7 +1356,7 @@ mod test {
         let mut idents = Default::default();
         assert_eq!(
             parse_format_string("{a:1x$}".as_bytes().as_bstr(), &mut idents),
-            Err((4, Cow::Borrowed("expected '}' to terminate format key"))) //TODO: better error message for this case
+            Err((4, Cow::Borrowed("expected '?' after type specifier 'x'"))) //TODO: better error message for this case
         );
     }
 

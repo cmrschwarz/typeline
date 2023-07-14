@@ -118,29 +118,28 @@ pub fn write_integer<const NEWLINE: bool>(
     }
     Ok(())
 }
+pub const NULL_STR: &'static str = "null";
+pub const SUCCESS_STR: &'static str = "<Success>";
+pub const UNSET_STR: &'static str = "<Unset>";
+pub const ERROR_PREFIX_STR: &'static str = "Error: ";
+
 pub fn write_null<const NEWLINE: bool>(
     stream: &mut impl Write,
     run_len: usize,
 ) -> Result<(), (usize, std::io::Error)> {
-    write_raw_bytes::<NEWLINE>(stream, b"null", run_len)
+    write_raw_bytes::<NEWLINE>(stream, NULL_STR.as_bytes(), run_len)
 }
 pub fn write_unset<const NEWLINE: bool>(
     stream: &mut impl Write,
     run_len: usize,
 ) -> Result<(), (usize, std::io::Error)> {
-    write_raw_bytes::<NEWLINE>(stream, b"<Unset>", run_len)
+    write_raw_bytes::<NEWLINE>(stream, UNSET_STR.as_bytes(), run_len)
 }
 pub fn write_success<const NEWLINE: bool>(
     stream: &mut impl Write,
     run_len: usize,
 ) -> Result<(), (usize, std::io::Error)> {
-    write_raw_bytes::<NEWLINE>(stream, b"<Success>", run_len)
-}
-pub fn write_type_error<const NEWLINE: bool>(
-    stdout: &mut impl Write,
-    run_len: usize,
-) -> Result<(), (usize, std::io::Error)> {
-    write_raw_bytes::<NEWLINE>(stdout, b"<Type Error>", run_len)
+    write_raw_bytes::<NEWLINE>(stream, SUCCESS_STR.as_bytes(), run_len)
 }
 
 // SAFETY: guaranteed to write valid utf-8
@@ -290,7 +289,7 @@ pub fn handle_tf_print_raw(
                 continue; // skip the field pos increase at the bottom of this loop because we already did that
             }
             TypedSlice::Html(_) | TypedSlice::Object(_) => {
-                write_type_error::<true>(&mut stdout, range.base.field_count)?;
+                todo!();
             }
             TypedSlice::Reference(_) => unreachable!(),
         }

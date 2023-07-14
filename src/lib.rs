@@ -19,6 +19,9 @@ extern crate thiserror;
 extern crate url;
 extern crate uuid;
 
+#[macro_use]
+pub mod utils;
+
 pub mod chain;
 pub mod cli;
 pub mod context;
@@ -31,6 +34,5 @@ pub mod ref_iter;
 pub mod scr_error;
 pub mod selenium;
 pub mod stream_value;
-pub mod utils;
 pub mod worker_thread;
 pub mod worker_thread_session;
