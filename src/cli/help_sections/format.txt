@@ -1,0 +1,25 @@
+scr f - Format data using the Rust / Python format string syntax
+
+General:
+    # TODO: write a general explanation section
+
+Examples:
+    scr seqn=3 f="{:03}" join="," p     # 001,002,003
+
+    # TODO: more examples
+
+
+Format String Syntax:
+    format_string := text [ '{{' | '}}' | format | text ] *
+    format := '{' [argument] [ ':' format_spec ] [ws] * '}'
+    argument := integer | identifier
+
+    format_spec := [[fill]align][sign]['#']['0'][width]['.' precision]type
+    fill := character
+    align := '<' | '^' | '>'
+    sign := '+' | '-'
+    width := count
+    precision := count | '*'
+    type := '' | '?' | 'x?' | 'X?' | identifier
+    count := parameter | integer
+    parameter := argument '$'

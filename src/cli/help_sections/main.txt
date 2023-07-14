@@ -5,7 +5,7 @@ Flags:
     -v | --version        Print version info and exit
 
 Settings:
-    h=<cmd>               Print help about a Setting or Operator and exit
+    h=<cmd>               Print help about a Setting or an Operator and exit
 
     bs=<N>                Batch size
     sbs=<N>               Stream buffer size
@@ -19,20 +19,24 @@ Settings:
     sel=<driver>          Enable Selenium (see list of drivers in `h=sel`)
     sds=<strategy>        Selenium Download Stragegy (list in `h=sds`)
 
-Operators (`h=<operator>` for details):
+Operators (see help sections using `scr h=<operator>` for details):
     p                     Print previous results to stdout
     f=<fstr>              Format text using rust format strings
     r[abdilmou]=<regex>   Apply a regular expression
-    key=<IDENT>           Give a name to the previous column.
+    key=<IDENT>           Give a name to the previous output column.
 
-    [+]file[t]=<path>     Read in bytes (or text) from a file
-    [+]stdin[t]           Read in bytes (or text) form stdin
+    file[t]=<path>        Read in bytes (or text) from a file
+    stdin[t]              Read in bytes (or text) form stdin
 
-    [+]seq=<B>,<E>,<S>    Produce a sequence of Integers
-    enum=<B>,<E>,<S>      Insert one sequence element for every match
+    seq[n]=<B>,<E>,<S>    Produce a sequence of Integers
+    enum[n]=<B>,<E>,<S>   Insert one sequence element for every match
 
-    [+]str<N>=<str>       Insert string data  (<N> times)
-    [+]bytes<N>=<bytes>   Insert raw bytes    (<N> times)
-    [+]int<N>=<int>       Insert an integer   (<N> times)
+    str<N>=<str>          Insert a string   (<N> times)
+    int<N>=<int>          Insert an integer (<N> times)
+    bytes<N>=<bytes>      Insert raw bytes  (<N> times)
 
     split=<chainspec>     Forward matches to other chains
+
+Operator modifiers
+    +OP                   Append Mode: Use the same columns as the previous OP
+    OP@<label>            Syntactic sugar for `operator key=<label>`

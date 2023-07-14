@@ -55,14 +55,14 @@ impl From<ArgumentReassignmentError> for CliArgumentError {
 
 #[derive(Error, Debug, Clone)]
 pub enum PrintInfoAndExitError {
-    Help,
+    Help(Cow<'static, str>),
     Version,
 }
 
 impl Display for PrintInfoAndExitError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            PrintInfoAndExitError::Help => print_help(f),
+            PrintInfoAndExitError::Help(help_text) => f.write_str(&help_text),
             PrintInfoAndExitError::Version => print_version(f),
         }
     }
@@ -174,9 +174,15 @@ fn try_parse_usize_arg(val: &BStr, cli_arg_idx: CliArgIdx) -> Result<usize, CliA
     }
 }
 
-fn print_help(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    write!(f, include_str!("cli_help_text.txt"))?;
-    Ok(())
+fn print_help(
+    f: &mut std::fmt::Formatter<'_>,
+    section: &Option<Cow<'static, str>>,
+) -> std::fmt::Result {
+    match section.as_ref() {
+        None => write!(f, include_str!("help_sections/main.txt")),
+        None => write!(f, include_str!("help_sections/format.txt")),
+        Some(v) => write!(f, "[ERROR]: unknown help section '{}'", v),
+    }
 }
 fn print_version(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     const VERSION: &'static str = env!("CARGO_PKG_VERSION");
@@ -189,27 +195,27 @@ fn try_parse_as_context_opt(
     arg: &ParsedCliArgument,
 ) -> Result<bool, ScrError> {
     let mut matched = false;
-    if ["--help", "-h"].contains(&&*arg.argname) {
-        return Err(PrintInfoAndExitError::Help.into());
-    }
     if ["--version", "-v"].contains(&&*arg.argname) {
         return Err(PrintInfoAndExitError::Version.into());
     }
-    if arg.argname == "help" {
-        let print_help =
-            try_parse_bool_arg_or_default(arg.value.as_deref(), true, arg.cli_arg.idx)?;
-        if print_help {
-            return Err(PrintInfoAndExitError::Help.into());
-        }
-        matched = true;
-    }
-    if arg.argname == "version" {
-        let print_version =
-            try_parse_bool_arg_or_default(arg.value.as_deref(), true, arg.cli_arg.idx)?;
-        if print_version {
-            return Err(PrintInfoAndExitError::Version.into());
-        }
-        matched = true;
+    if ["--help", "-h", "help", "h"].contains(&&*arg.argname) {
+        let text = if let Some(v) = arg.value {
+            let section = v.to_str_lossy();
+            match section.as_ref() {
+                "f" => include_str!("help_sections/format.txt"),
+                _ => {
+                    return Err(CliArgumentError {
+                        message: format!("no help section for '{section}'").into(),
+                        cli_arg_idx: arg.cli_arg.idx,
+                    }
+                    .into())
+                }
+            }
+        } else {
+            include_str!("help_sections/main.txt")
+        };
+
+        return Err(PrintInfoAndExitError::Help(text.into()).into());
     }
     if arg.argname == "j" {
         if let Some(val) = arg.value.as_deref() {
@@ -347,7 +353,7 @@ fn try_parse_as_chain_opt(
 }
 
 fn parse_operation(
-    argname: &str,
+    mut argname: &str,
     value: Option<&BStr>,
     idx: Option<CliArgIdx>,
 ) -> Result<Option<OperatorData>, OperatorCreationError> {
@@ -394,18 +400,22 @@ fn parse_operation(
         return Ok(Some(parse_data_inserter(argname, value, idx)?));
     }
     let append = &argname[0..1] == "+";
+    if append {
+        argname = &argname[1..];
+    }
     Ok(match argname {
         "p" => Some(parse_op_print(value, idx)?),
         "f" | "fmt" => Some(parse_op_format(value, idx)?),
         "key" => Some(parse_op_key(value, idx)?),
         "select" => Some(parse_op_select(value, idx)?),
 
-        "+file" | "file" => Some(parse_op_file(value, append, idx)?),
-        "+stdin" | "stdin" => Some(parse_op_stdin(value, append, idx)?),
+        "file" => Some(parse_op_file(value, append, idx)?),
+        "stdin" => Some(parse_op_stdin(value, append, idx)?),
 
-        "seq" => Some(parse_op_seq(value, SequenceMode::Default, idx)?),
-        "+seq" => Some(parse_op_seq(value, SequenceMode::Append, idx)?),
-        "enum" => Some(parse_op_seq(value, SequenceMode::Enumerate, idx)?),
+        "seq" => Some(parse_op_seq(value, SequenceMode::Default, false, idx)?),
+        "seqn" => Some(parse_op_seq(value, SequenceMode::Default, true, idx)?),
+        "enum" => Some(parse_op_seq(value, SequenceMode::Enumerate, false, idx)?),
+        "enumn" => Some(parse_op_seq(value, SequenceMode::Enumerate, true, idx)?),
 
         "split" => Some(parse_op_split(value, idx)?),
         _ => None,
