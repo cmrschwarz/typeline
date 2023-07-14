@@ -62,7 +62,6 @@ pub fn setup_tf_data_inserter<'a>(
             None,
         )
     };
-    tf_state.done_if_input_done = !op.insert_count.is_some();
     let data = TransformData::DataInserter(TfDataInserter {
         data: &op.data,
         output_field,
@@ -97,7 +96,7 @@ pub fn handle_tf_data_inserter(
             unlink_after = true;
         } else {
             let tf = &sess.tf_mgr.transforms[tf_id];
-            if tf.predecessor.is_none() {
+            if tf.input_is_done {
                 if batch_size < tf.desired_batch_size {
                     batch_size = ic.min(tf.desired_batch_size);
                 }
@@ -106,16 +105,20 @@ pub fn handle_tf_data_inserter(
         }
         di.insert_count = Some(ic - batch_size);
     } else {
-        let amend_mode = di.output_field == sess.tf_mgr.transforms[tf_id].input_field;
-        let yield_to_succ = sess.tf_mgr.transforms[tf_id].continuation.is_some();
+        let tf = &sess.tf_mgr.transforms[tf_id];
+        let amend_mode = di.output_field == tf.input_field;
+        let yield_to_succ = tf.continuation.is_some();
         if amend_mode || yield_to_succ {
             batch_size = 1;
             unlink_after = true;
         } else {
+            if tf.input_is_done {
+                unlink_after = true;
+            }
             batch_size = sess.claim_batch(tf_id);
             if batch_size == 0 {
+                debug_assert!(unlink_after);
                 batch_size = 1;
-                unlink_after = true;
             }
         }
     }

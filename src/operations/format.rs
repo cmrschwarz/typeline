@@ -4,6 +4,7 @@ use nonmax::NonMaxUsize;
 use std::{
     borrow::Cow,
     cell::{RefCell, RefMut},
+    io::{stdout, Write},
     ptr::NonNull,
 };
 
@@ -1230,13 +1231,18 @@ fn write_fmt_key(
                         }
                         StreamValueData::Bytes(b) => {
                             let data = range.as_ref().cloned().map(|r| &b[r]).unwrap_or(b);
+
                             if range.is_some() || sv.done || !sv.is_buffered() {
-                                iter_output_targets(
-                                    fmt,
-                                    &mut output_index,
-                                    rl as usize,
-                                    |tgt| unsafe { write_padded_bytes(k, tgt, data) },
-                                );
+                                iter_output_targets(fmt, &mut output_index, rl as usize, |tgt| {
+                                    unsafe { write_padded_bytes(k, tgt, data) }
+                                    if !sv.done {
+                                        tgt.target = None;
+                                    }
+                                });
+                            } else {
+                                iter_output_targets(fmt, &mut output_index, rl as usize, |tgt| {
+                                    tgt.target = None;
+                                });
                             }
                         }
                     }
@@ -1270,11 +1276,17 @@ pub fn handle_tf_format(sess: &mut JobData<'_>, tf_id: TransformId, fmt: &mut Tf
     for (part_idx, part) in fmt.parts.iter().enumerate() {
         match part {
             FormatPart::ByteLiteral(v) => fmt.output_states.iter_mut().for_each(|s| {
-                s.len += v.len();
-                s.contains_raw_bytes = true;
+                if s.incomplete_stream_value_handle.is_none() {
+                    s.len += v.len();
+                    s.contains_raw_bytes = true;
+                }
             }),
             FormatPart::TextLiteral(v) => {
-                fmt.output_states.iter_mut().for_each(|s| s.len += v.len())
+                fmt.output_states.iter_mut().for_each(|s| {
+                    if s.incomplete_stream_value_handle.is_none() {
+                        s.len += v.len()
+                    }
+                });
             }
             FormatPart::Key(k) => setup_key_output_state(
                 &mut sess.sv_mgr,
@@ -1332,6 +1344,7 @@ pub fn handle_tf_format_stream_value_update(
         .stream_values
         .get_two_distinct_mut(sv_id, handle.target_sv_id);
     let (sv, mut out_sv) = (sv.unwrap(), out_sv.unwrap());
+    let done = sv.done;
     match &sv.data {
         StreamValueData::Error(err) => {
             debug_assert!(sv.done);
@@ -1341,6 +1354,8 @@ pub fn handle_tf_format_stream_value_update(
             StreamValueData::Dropped => unreachable!(),
             StreamValueData::Error(_) => unreachable!(),
             StreamValueData::Bytes(tgt_buf) => {
+                println!("buf so far: {}", tgt_buf.as_bytes().to_str().unwrap());
+                stdout().flush();
                 if !sv.bytes_are_chunk {
                     if !handle.wait_to_end {
                         if sv.done {
@@ -1372,14 +1387,19 @@ pub fn handle_tf_format_stream_value_update(
                         }
                     }
                 } else {
+                    if out_sv.bytes_are_chunk {
+                        tgt_buf.clear();
+                    }
                     handle.handled_len += data.len();
                     tgt_buf.extend(data);
+                    sess.sv_mgr
+                        .inform_stream_value_subscribers(handle.target_sv_id, true);
                 }
             }
         },
         StreamValueData::Dropped => unreachable!(),
     }
-    if !sv.done {
+    if !done {
         return;
     }
 
@@ -1408,8 +1428,6 @@ pub fn handle_tf_format_stream_value_update(
         unreachable!();
     }
     out_sv.done = true;
-    sess.sv_mgr
-        .inform_stream_value_subscribers(handle.target_sv_id, true);
     tf.stream_value_handles.release(handle_id);
     if tf.stream_value_handles.claimed_entry_count() > 0 {
         sess.tf_mgr.update_ready_state(tf_id);

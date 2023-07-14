@@ -342,6 +342,7 @@ impl JobData<'_> {
             }
             if let Some(succ_id) = successor {
                 let succ = &mut self.tf_mgr.transforms[succ_id];
+                succ.input_is_done = true;
                 succ.predecessor = continuation;
                 succ.available_batch_size += available_batch_for_successor;
                 if succ.available_batch_size >= succ.desired_batch_size {
@@ -398,7 +399,7 @@ impl<'a> WorkerThreadSession<'a> {
             let start_tf_id = self.setup_transforms_from_op(ms_id, job.starting_ops[0], input_data);
 
             let tf = &mut self.job_data.tf_mgr.transforms[start_tf_id];
-
+            tf.input_is_done = true;
             if tf.is_appending {
                 if let Some(succ) = tf.successor {
                     let tf_succ = &mut self.job_data.tf_mgr.transforms[succ];
@@ -682,13 +683,6 @@ impl<'a> WorkerThreadSession<'a> {
                 }
                 if let Some(tf) = self.job_data.tf_mgr.transforms.get(tf_id) {
                     if tf.mark_for_removal {
-                        self.remove_transform(tf_id);
-                    } else if tf.predecessor.is_none()
-                        && tf.available_batch_size == 0
-                        && !tf.is_ready
-                        && tf.done_if_input_done
-                    {
-                        self.job_data.unlink_transform(tf_id, 0);
                         self.remove_transform(tf_id);
                     }
                 }

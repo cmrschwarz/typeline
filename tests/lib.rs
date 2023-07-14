@@ -550,3 +550,20 @@ fn stream_into_format() -> Result<(), ScrError> {
     assert_eq!(ss.get_data().unwrap().as_slice(), ["a -> xxx -> b"]);
     Ok(())
 }
+
+fn stream_into_multiple_different_formats() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::new();
+    ContextBuilder::default()
+        .set_stream_buffer_size(1)
+        .add_op(create_op_file_reader_custom(
+            Box::new(SliceReader {
+                data: "xxx".as_bytes(),
+            }),
+            false,
+        ))
+        .add_op(create_op_format("a -> {} -> b".as_bytes().as_bstr()).unwrap())
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(ss.get_data().unwrap().as_slice(), ["a -> xxx -> b"]);
+    Ok(())
+}

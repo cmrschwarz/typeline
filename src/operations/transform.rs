@@ -50,7 +50,7 @@ pub struct TransformState {
     pub is_stream_subscriber: bool,
     pub is_ready: bool,
     pub is_appending: bool,
-    pub done_if_input_done: bool,
+    pub input_is_done: bool,
     pub mark_for_removal: bool,
     pub preferred_input_type: Option<FieldValueKind>,
 }
@@ -78,8 +78,8 @@ impl TransformState {
             is_stream_producer: false,
             is_stream_subscriber: false,
             is_appending: false,
+            input_is_done: false,
             preferred_input_type: None,
-            done_if_input_done: true,
             mark_for_removal: false,
         }
     }

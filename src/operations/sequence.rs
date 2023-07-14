@@ -73,7 +73,6 @@ pub fn setup_tf_sequence<'a>(
             None,
         )
     };
-    tf_state.done_if_input_done = false;
     let data = TransformData::Sequence(TfSequence {
         ss: op.ss,
         output_field,
