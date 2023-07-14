@@ -904,3 +904,46 @@ impl<'a> FieldIterator<'a> for IterMut<'a> {
         self.into_base_iter()
     }
 }
+
+pub struct UnfoldRunLength<I, T> {
+    iter: I,
+    last: Option<T>,
+    remaining_run_len: RunLength,
+}
+
+impl<I: Iterator<Item = (T, RunLength)>, T: Clone> UnfoldRunLength<I, T> {
+    pub fn new(iter: I) -> Self {
+        Self {
+            iter,
+            last: None,
+            remaining_run_len: 0,
+        }
+    }
+}
+
+pub trait UnfoldIterRunLength<T>: Sized {
+    fn unfold_rl(self) -> UnfoldRunLength<Self, T>;
+}
+
+impl<T: Clone, I: Iterator<Item = (T, RunLength)>> UnfoldIterRunLength<T> for I {
+    fn unfold_rl(self) -> UnfoldRunLength<Self, T> {
+        UnfoldRunLength::new(self)
+    }
+}
+
+impl<I: Iterator<Item = (T, RunLength)>, T: Clone> Iterator for UnfoldRunLength<I, T> {
+    type Item = T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.remaining_run_len > 0 {
+            self.remaining_run_len -= 1;
+            return self.last.clone();
+        } else if let Some((v, rl)) = self.iter.next() {
+            self.remaining_run_len = rl - 1;
+            self.last = Some(v);
+        } else {
+            self.last = None;
+        }
+        self.last.clone()
+    }
+}

@@ -494,6 +494,51 @@ impl<'a> Iterator for RefAwareStreamValueIter<'a> {
     }
 }
 
+pub struct RefAwareUnfoldRunLength<I, T> {
+    iter: I,
+    last: Option<(T, usize)>,
+    remaining_run_len: RunLength,
+}
+
+impl<I: Iterator<Item = (T, RunLength)>, T: Clone> RefAwareUnfoldRunLength<I, T> {
+    pub fn new(iter: I) -> Self {
+        Self {
+            iter,
+            last: None,
+            remaining_run_len: 0,
+        }
+    }
+}
+
+pub trait RefAwareUnfoldIterRunLength<T>: Sized {
+    fn unfold_rl(self) -> RefAwareUnfoldRunLength<Self, T>;
+}
+
+impl<T: Clone, I: Iterator<Item = (T, RunLength)>> UnfoldIterRunLength<T> for I {
+    fn unfold_rl(self) -> RefAwareUnfoldRunLength<Self, T> {
+        RefAwareUnfoldRunLength::new(self)
+    }
+}
+
+impl<I: Iterator<Item = (T, RunLength, usize)>, T: Clone> Iterator
+    for RefAwareUnfoldRunLength<I, T>
+{
+    type Item = (T, usize);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.remaining_run_len > 0 {
+            self.remaining_run_len -= 1;
+            return self.last.clone();
+        } else if let Some((v, rl, offset)) = self.iter.next() {
+            self.remaining_run_len = rl - 1;
+            self.last = Some((v, offset));
+        } else {
+            self.last = None;
+        }
+        self.last.clone()
+    }
+}
+
 #[cfg(test)]
 mod ref_iter_tests {
     use std::cell::RefCell;
