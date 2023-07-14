@@ -568,7 +568,7 @@ fn stream_into_multiple_different_formats() -> Result<(), ScrError> {
         .add_op(create_op_format("{label}: {}".as_bytes().as_bstr()).unwrap())
         .add_op(create_op_string_sink(&ss));
 
-    for batch_size in [1, DEFAULT_CHAIN_OPTIONS.default_batch_size.unwrap()] {
+    for batch_size in [1, 2, 3, DEFAULT_CHAIN_OPTIONS.default_batch_size.unwrap()] {
         ss.clear();
         cb.clone().set_batch_size(batch_size).run()?;
         assert_eq!(ss.get_data().unwrap().as_slice(), ["foo: xxx", "bar: xxx"]);
