@@ -144,6 +144,8 @@ struct TfFormatStreamValueHandle {
 }
 type TfFormatStreamValueHandleId = NonMaxUsize;
 
+const FINAL_OUTPUT_INDEX_NEXT_VAL: usize = usize::MAX;
+
 #[derive(Clone, Copy)]
 struct OutputState {
     next: usize,
@@ -1079,7 +1081,7 @@ fn setup_output_targets(
             width_lookup: os.width_lookup,
         });
         output_idx = os.next;
-        if output_idx == 0 {
+        if output_idx == FINAL_OUTPUT_INDEX_NEXT_VAL {
             break;
         }
     }
@@ -1264,13 +1266,18 @@ fn write_fmt_key(
 }
 pub fn handle_tf_format(sess: &mut JobData<'_>, tf_id: TransformId, fmt: &mut TfFormat) {
     sess.prepare_for_output(tf_id, std::slice::from_ref(&fmt.output_field));
-    let (batch_size, input_done) = sess.claim_batch(tf_id);
+    let (batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
     let tf = &sess.tf_mgr.transforms[tf_id];
     let op_id = tf.op_id.unwrap();
     let mut output_field = sess.record_mgr.fields[fmt.output_field].borrow_mut();
     fmt.output_states.push(OutputState {
         run_len: batch_size,
-        ..Default::default()
+        next: FINAL_OUTPUT_INDEX_NEXT_VAL,
+        len: 0,
+        width_lookup: 0,
+        contains_raw_bytes: false,
+        error_occured: false,
+        incomplete_stream_value_handle: None,
     });
     for (part_idx, part) in fmt.parts.iter().enumerate() {
         match part {
@@ -1395,7 +1402,7 @@ pub fn handle_tf_format_stream_value_update(
                     handle.handled_len += data.len();
                     tgt_buf.extend(data);
                     sess.sv_mgr
-                        .inform_stream_value_subscribers(handle.target_sv_id, true);
+                        .inform_stream_value_subscribers(handle.target_sv_id);
                 }
             }
         },

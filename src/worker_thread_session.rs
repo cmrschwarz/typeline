@@ -116,6 +116,16 @@ pub struct JobData<'a> {
 }
 
 impl TransformManager {
+    pub fn claim_batch(&mut self, tf_id: TransformId) -> (usize, bool) {
+        let tf = &mut self.transforms[tf_id];
+        let batch_size = tf.desired_batch_size.min(tf.available_batch_size);
+        tf.available_batch_size -= batch_size;
+        let input_done = tf.input_is_done && tf.available_batch_size == 0;
+        (batch_size, input_done)
+    }
+    pub fn unclaim_batch_size(&mut self, tf_id: TransformId, batch_size: usize) {
+        self.transforms[tf_id].available_batch_size += batch_size;
+    }
     pub fn claim_transform_ordering_id(&mut self) -> TransformOrderingId {
         let res = self.transform_ordering_id;
         self.transform_ordering_id = self.transform_ordering_id.checked_add(1).unwrap();
@@ -271,10 +281,10 @@ impl RecordManager {
 }
 
 impl StreamValueManager {
-    pub fn inform_stream_value_subscribers(&mut self, sv_id: StreamValueId, done: bool) {
+    pub fn inform_stream_value_subscribers(&mut self, sv_id: StreamValueId) {
         let sv = &self.stream_values[sv_id];
         for sub in &sv.subscribers {
-            if !sub.notify_only_once_done || done {
+            if !sub.notify_only_once_done || sv.done {
                 self.updates.push_back(StreamValueUpdate {
                     sv_id: sv_id,
                     tf_id: sub.tf_id,
@@ -305,16 +315,6 @@ impl StreamValueManager {
 }
 
 impl JobData<'_> {
-    pub fn claim_batch(&mut self, tf_id: TransformId) -> (usize, bool) {
-        let tf = &mut self.tf_mgr.transforms[tf_id];
-        let batch_size = tf.desired_batch_size.min(tf.available_batch_size);
-        tf.available_batch_size -= batch_size;
-        let input_done = tf.input_is_done && tf.available_batch_size == 0;
-        (batch_size, input_done)
-    }
-    pub fn unclaim_batch_size(&mut self, tf_id: TransformId, batch_size: usize) {
-        self.tf_mgr.transforms[tf_id].available_batch_size += batch_size;
-    }
     pub fn prepare_for_output(&mut self, tf_id: TransformId, output_fields: &[FieldId]) {
         let tf = &mut self.tf_mgr.transforms[tf_id];
         if tf.is_appending {

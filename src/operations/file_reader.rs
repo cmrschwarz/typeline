@@ -203,7 +203,7 @@ fn start_streaming_file(sess: &mut JobData<'_>, tf_id: TransformId, fr: &mut TfF
     sess.prepare_for_output(tf_id, &[fr.output_field]);
     // if there might be more records later we must always buffer the file data
 
-    let (mut batch_size, input_done) = sess.claim_batch(tf_id);
+    let (mut batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
     if batch_size == 0 {
         debug_assert!(input_done);
         batch_size = 1;
@@ -225,6 +225,9 @@ fn start_streaming_file(sess: &mut JobData<'_>, tf_id: TransformId, fr: &mut TfF
     let mut done = false;
     let chunk_size = match res {
         Ok((size, eof)) => {
+            if eof {
+                fr.file.take();
+            }
             if !input_done {
                 done = eof;
             } else if eof {
@@ -241,7 +244,6 @@ fn start_streaming_file(sess: &mut JobData<'_>, tf_id: TransformId, fr: &mut TfF
                         false,
                     );
                 }
-                fr.file.take();
                 drop(out_field);
                 sess.unlink_transform(tf_id, batch_size);
                 return;
@@ -289,16 +291,15 @@ pub fn handle_tf_file_reader(sess: &mut JobData<'_>, tf_id: TransformId, fr: &mu
         return;
     };
 
-    let (additional_batch_size, input_done) = sess.claim_batch(tf_id);
+    let (additional_batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
     if additional_batch_size > 0 {
         sess.prepare_for_output(tf_id, &[fr.output_field]);
         let mut out_field = sess.record_mgr.fields[fr.output_field].borrow_mut();
         out_field
             .field_data
             .push_stream_value_id(sv_id, additional_batch_size, true, true);
-        sess.tf_mgr
-            .inform_successor_batch_available(tf_id, additional_batch_size);
     }
+    let mut file_eof = true;
     if let Some(file) = &mut fr.file {
         let sv = &mut sess.sv_mgr.stream_values[sv_id];
         let res = match &mut sv.data {
@@ -308,33 +309,45 @@ pub fn handle_tf_file_reader(sess: &mut JobData<'_>, tf_id: TransformId, fr: &mu
                 }
                 read_chunk(bc, file, fr.stream_buffer_size, fr.line_buffered)
             }
-            StreamValueData::Error(_) => {
-                fr.file.take();
-                Ok((0, true))
-            }
+            StreamValueData::Error(_) => Ok((0, true)),
             StreamValueData::Dropped => panic!("dropped stream value ovserved"),
         };
         match res {
             Ok((_size, eof)) => {
                 if !eof {
-                    sess.tf_mgr.make_stream_producer(tf_id);
-                    sess.tf_mgr.push_tf_in_ready_queue(tf_id);
-                    sess.sv_mgr.inform_stream_value_subscribers(sv_id, false);
-                    return;
+                    file_eof = false;
+                } else {
+                    fr.file.take();
+                    sv.done = true;
                 }
-                sv.done = true;
             }
             Err(err) => {
                 let err = io_error_to_op_error(sess.tf_mgr.transforms[tf_id].op_id.unwrap(), err);
                 sv.data = StreamValueData::Error(err);
                 sv.done = true;
+                fr.file.take();
             }
         }
-        sess.sv_mgr.inform_stream_value_subscribers(sv_id, true);
+        sess.sv_mgr.inform_stream_value_subscribers(sv_id);
     }
-    if input_done {
-        sess.sv_mgr.drop_field_value_subscription(sv_id, None);
-        sess.unlink_transform(tf_id, 0);
+    if !file_eof {
+        sess.tf_mgr.make_stream_producer(tf_id);
+        sess.tf_mgr.push_tf_in_ready_queue(tf_id);
+        sess.tf_mgr
+            .inform_successor_batch_available(tf_id, additional_batch_size);
+    } else if input_done {
+        if additional_batch_size > 0 {
+            sess.tf_mgr
+                .inform_successor_batch_available(tf_id, additional_batch_size);
+            // so we can drop the field value once that last batch of input is done with it
+            sess.tf_mgr.push_tf_in_ready_queue(tf_id);
+        } else {
+            sess.sv_mgr.drop_field_value_subscription(sv_id, None);
+            sess.unlink_transform(tf_id, additional_batch_size);
+        }
+    } else {
+        sess.tf_mgr
+            .inform_successor_batch_available(tf_id, additional_batch_size);
     }
 }
 

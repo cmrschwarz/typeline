@@ -318,7 +318,7 @@ pub fn handle_tf_print_raw(
 }
 
 pub fn handle_tf_print(sess: &mut JobData<'_>, tf_id: TransformId, tf: &mut TfPrint) {
-    let (batch, input_done) = sess.claim_batch(tf_id);
+    let (batch, input_done) = sess.tf_mgr.claim_batch(tf_id);
     let mut handled_field_count = 0;
     let res = handle_tf_print_raw(sess, tf_id, tf, batch, input_done, &mut handled_field_count);
     let mut output_field = sess.record_mgr.fields[tf.output_field].borrow_mut();

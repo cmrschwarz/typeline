@@ -588,6 +588,6 @@ fn force_file_reader_buffering() -> Result<(), ScrError> {
         .add_op(create_op_format("{label}: {}".as_bytes().as_bstr()).unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
-    assert_eq!(ss.get_data().unwrap().as_slice(), ["foo: xxx", "bar: xxx"]);
+    assert_eq!(ss.get().data.as_slice(), ["foo: xxx", "bar: xxx"]);
     Ok(())
 }

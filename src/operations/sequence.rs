@@ -101,7 +101,7 @@ const FAST_SEQ_MAX_STEP: i64 = 200;
 
 pub fn handle_tf_sequence(sess: &mut JobData<'_>, tf_id: TransformId, seq: &mut TfSequence) {
     sess.prepare_for_output(tf_id, &[seq.output_field]);
-    let (mut batch_size, input_done) = sess.claim_batch(tf_id);
+    let (mut batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
 
     let mut unlink_if_done = false;
 

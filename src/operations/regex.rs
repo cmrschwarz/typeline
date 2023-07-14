@@ -570,7 +570,7 @@ struct RegexMatchInnerState<'a, 'b> {
 }
 
 pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRegex) {
-    let (batch_size, input_done) = sess.claim_batch(tf_id);
+    let (batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
     sess.prepare_for_output(tf_id, &re.capture_group_fields);
     let tf = &sess.tf_mgr.transforms[tf_id];
     let input_field_id = tf.input_field;
@@ -620,6 +620,7 @@ pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRe
     };
 
     let mut bse = false; // 'batch size exceeded'
+    let mut hit_stream_val = false;
     'batch: while let Some(range) = iter.typed_range_fwd(
         &mut sess.record_mgr.match_sets,
         usize::MAX,
@@ -738,15 +739,11 @@ pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRe
                     } else {
                         sv.promote_to_buffer();
                         sv.subscribe(tf_id, rl as usize, true);
-                        //TODO: if multimatch is false and we are in strict mode
-                        // (don't drop if not applicable, another TODO), we can continue here
-                        re.last_end = rbs.last_end;
-                        re.next_start = rbs.next_start;
-                        let mut base_iter = iter.into_base_iter();
-                        base_iter.move_to_field_pos(rbs.field_pos_input);
-                        sess.tf_mgr.transforms[tf_id].available_batch_size +=
-                            batch_size - (rbs.field_pos_input - field_pos_start);
-                        return;
+                        // TODO: if multimatch is false and we are in optional mode
+                        // we can theoretically continue here, because there will always be exactly one match
+                        // we would need StreamValueData to support null for that though
+                        hit_stream_val = true;
+                        break 'batch;
                     }
                     if bse {
                         break 'batch;
@@ -784,19 +781,26 @@ pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRe
     let mut base_iter = iter.into_base_iter();
 
     let produced_records = rbs.field_pos_output - field_pos_start;
-    if bse {
-        base_iter.move_to_field_pos(rbs.field_pos_input);
-        sess.tf_mgr.transforms[tf_id].available_batch_size +=
-            batch_size - (rbs.field_pos_input - field_pos_start);
-        sess.tf_mgr.push_tf_in_ready_queue(tf_id);
-    } else {
+    if bse || hit_stream_val {
+        let unclaimed_batch_size = batch_size - (rbs.field_pos_input - field_pos_start);
+        sess.tf_mgr.unclaim_batch_size(tf_id, unclaimed_batch_size);
+    }
+    if !bse && !hit_stream_val {
         if input_done {
             drop(input_field);
             sess.unlink_transform(tf_id, produced_records);
             return;
         }
+    }
+    if bse || hit_stream_val {
+        base_iter.move_to_field_pos(rbs.field_pos_input);
+        if !hit_stream_val {
+            sess.tf_mgr.push_tf_in_ready_queue(tf_id);
+        }
+    } else {
         sess.tf_mgr.update_ready_state(tf_id);
     }
+
     input_field
         .field_data
         .store_iter(re.input_field_iter_id, base_iter);

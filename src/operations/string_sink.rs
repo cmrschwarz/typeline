@@ -227,7 +227,7 @@ pub fn handle_tf_string_sink(
     tf_id: TransformId,
     tf: &mut TfStringSink<'_>,
 ) {
-    let (batch_size, input_done) = sess.claim_batch(tf_id);
+    let (batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
     let input_field_id = sess.tf_mgr.transforms[tf_id].input_field;
     let input_field = sess.record_mgr.fields[input_field_id].borrow();
     let base_iter = input_field
