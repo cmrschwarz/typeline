@@ -538,13 +538,13 @@ impl<'a> WorkerThreadSession<'a> {
                 }
                 _ => (),
             }
-            let output_field = if op_base.append_mode {
+            let mut output_field = if op_base.append_mode {
                 if let Some(lbl) = op_base.label {
                     jd.record_mgr.add_field_name(prev_output_field, lbl);
                 }
                 prev_output_field
             } else {
-                let min_apf = jd.record_mgr.get_min_apf_idx(next_input_field);
+                let min_apf = jd.record_mgr.get_min_apf_idx(prev_output_field);
                 jd.record_mgr.add_field(ms_id, min_apf, op_base.label)
             };
 
@@ -580,7 +580,7 @@ impl<'a> WorkerThreadSession<'a> {
                 OperatorData::Key(_) => unreachable!(),
                 OperatorData::Select(_) => unreachable!(),
             };
-
+            output_field = tf_state.output_field;
             let appending = tf_state.is_appending;
             let tf_id = self.add_transform(tf_state, tf_data);
             debug_assert!(tf_id_peek == tf_id);
@@ -600,10 +600,10 @@ impl<'a> WorkerThreadSession<'a> {
                 predecessor_tf = Some(tf_id);
             }
             prev_tf = Some(tf_id);
+            prev_output_field = output_field;
             if !appending {
                 predecessor_tf = Some(tf_id);
-                next_input_field = prev_output_field;
-                prev_output_field = output_field;
+                next_input_field = output_field;
             }
         }
         let mut term_state = TransformState::new(

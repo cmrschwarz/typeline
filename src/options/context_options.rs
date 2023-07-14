@@ -15,6 +15,7 @@ use crate::{
         operator::{OperatorBase, OperatorData, OperatorId, OperatorOffsetInChain},
         regex::setup_op_regex,
         select::setup_op_select,
+        string_sink::setup_op_string_sink,
     },
     scr_error::{result_into, ScrError},
     selenium::SeleniumVariant,
@@ -124,18 +125,19 @@ impl ContextOptions {
     }
     pub fn setup_operators(sess: &mut SessionData) -> Result<(), OperatorSetupError> {
         for i in 0..sess.operator_bases.len() {
-            let op = &mut sess.operator_bases[i];
-            let chain = &mut sess.chains[op.chain_id as usize];
-            op.offset_in_chain = chain.operations.len() as OperatorOffsetInChain;
-            chain.operations.push(i as OperatorId);
+            let op_id = i as OperatorId;
+            let op_base = &mut sess.operator_bases[i];
+            let chain = &mut sess.chains[op_base.chain_id as usize];
+            op_base.offset_in_chain = chain.operations.len() as OperatorOffsetInChain;
+            chain.operations.push(op_id);
             match &mut sess.operator_data[i] {
                 OperatorData::Regex(op) => setup_op_regex(&mut sess.string_store, op)?,
                 OperatorData::Format(op) => setup_op_format(&mut sess.string_store, op)?,
                 OperatorData::Key(op) => setup_op_key(&mut sess.string_store, op)?,
                 OperatorData::Select(op) => setup_op_select(&mut sess.string_store, op)?,
                 OperatorData::FileReader(op) => setup_op_file_reader(chain, op)?,
-                OperatorData::StringSink(_)
-                | OperatorData::Split(_)
+                OperatorData::StringSink(op) => setup_op_string_sink(op_id, &op_base, op)?,
+                OperatorData::Split(_)
                 | OperatorData::Sequence(_)
                 | OperatorData::DataInserter(_)
                 | OperatorData::Print(_) => (),

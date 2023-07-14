@@ -47,7 +47,7 @@ impl OperatorData {
             OperatorData::FileReader(op) => op.default_op_name(),
             OperatorData::Format(_) => SmallString::from("f"),
             OperatorData::Select(_) => SmallString::from("select"),
-            OperatorData::StringSink(_) => SmallString::from("<String Sink>"),
+            OperatorData::StringSink(op) => op.default_op_name(),
             OperatorData::DataInserter(op) => op.default_op_name(),
         }
     }

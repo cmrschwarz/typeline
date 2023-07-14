@@ -319,6 +319,9 @@ pub fn setup_tf_regex<'a>(
     let cb = &mut sess.record_mgr.match_sets[tf_state.match_set_id].command_buffer;
     let apf_idx = cb.claim_apf(tf_state.ordering_id);
     let apf_succ = cb.peek_next_apf_id();
+    sess.record_mgr.fields[tf_state.output_field]
+        .borrow_mut()
+        .min_apf_idx = Some(apf_succ);
     let cgfs: Vec<FieldId> = op
         .capture_group_names
         .iter()
