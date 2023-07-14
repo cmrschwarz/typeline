@@ -103,6 +103,9 @@ impl IterHall {
     pub unsafe fn internals(&mut self) -> FieldDataInternals {
         self.fd.internals()
     }
+    pub unsafe fn raw(&mut self) -> &mut FieldData {
+        &mut self.fd
+    }
 
     pub fn copy<'a, TargetApplicatorFn: FnMut(&mut dyn FnMut(&mut IterHall))>(
         iter: impl FieldIterator<'a> + Clone,

@@ -227,7 +227,7 @@ pub fn handle_tf_string_sink(
     tf_id: TransformId,
     tf: &mut TfStringSink<'_>,
 ) {
-    let batch_size = sess.claim_batch(tf_id);
+    let (batch_size, input_done) = sess.claim_batch(tf_id);
     let input_field_id = sess.tf_mgr.transforms[tf_id].input_field;
     let input_field = sess.record_mgr.fields[input_field_id].borrow();
     let base_iter = input_field
@@ -346,11 +346,16 @@ pub fn handle_tf_string_sink(
         .field_data
         .store_iter(tf.batch_iter, iter.into_base_iter());
     drop(input_field);
-    if tf.stream_value_handles.claimed_entry_count() == 0 {
+    let streams_done = tf.stream_value_handles.claimed_entry_count() == 0;
+    if streams_done {
         sess.tf_mgr.update_ready_state(tf_id);
     }
-    sess.tf_mgr
-        .inform_successor_batch_available(tf_id, consumed_fields);
+    if input_done && streams_done {
+        sess.unlink_transform(tf_id, consumed_fields);
+    } else {
+        sess.tf_mgr
+            .inform_successor_batch_available(tf_id, consumed_fields);
+    }
 }
 
 pub fn handle_tf_string_sink_stream_value_update(

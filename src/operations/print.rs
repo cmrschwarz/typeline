@@ -211,6 +211,7 @@ pub fn handle_tf_print_raw(
     tf_id: TransformId,
     tf: &mut TfPrint,
     batch: usize,
+    input_done: bool,
     handled_field_count: &mut usize,
 ) -> Result<(), (usize, std::io::Error)> {
     let mut stdout = BufWriter::new(std::io::stdout().lock());
@@ -305,17 +306,21 @@ pub fn handle_tf_print_raw(
     }
     let consumed_fields = field_pos - starting_pos;
     sess.tf_mgr.transforms[tf_id].is_stream_subscriber = tf.current_stream_val.is_some();
-    sess.tf_mgr.update_ready_state(tf_id);
-    sess.tf_mgr
-        .inform_successor_batch_available(tf_id, consumed_fields);
+    if input_done {
+        sess.unlink_transform(tf_id, consumed_fields);
+    } else {
+        sess.tf_mgr.update_ready_state(tf_id);
+        sess.tf_mgr
+            .inform_successor_batch_available(tf_id, consumed_fields);
+    }
 
     Ok(())
 }
 
 pub fn handle_tf_print(sess: &mut JobData<'_>, tf_id: TransformId, tf: &mut TfPrint) {
-    let batch = sess.claim_batch(tf_id);
+    let (batch, input_done) = sess.claim_batch(tf_id);
     let mut handled_field_count = 0;
-    let res = handle_tf_print_raw(sess, tf_id, tf, batch, &mut handled_field_count);
+    let res = handle_tf_print_raw(sess, tf_id, tf, batch, input_done, &mut handled_field_count);
     let mut output_field = sess.record_mgr.fields[tf.output_field].borrow_mut();
     match res {
         Ok(()) => output_field

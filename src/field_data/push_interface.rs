@@ -108,6 +108,7 @@ impl UnsafeHeaderPushInterface for FieldData {
         header_rle: bool,
         data_rle: bool,
     ) {
+        debug_assert!(fmt.shared_value());
         if !header_rle && !data_rle {
             self.push_header_raw_same_value_after_first(fmt, run_length);
             return;

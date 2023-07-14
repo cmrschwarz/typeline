@@ -77,6 +77,7 @@ pub fn setup_ts_split_as_entry_point<'a, 'b>(
         sess.tf_mgr.claim_transform_ordering_id(),
     );
     state.available_batch_size = entry_count;
+    state.input_is_done = true;
     let data = TransformData::Split(TfSplit {
         expanded: false,
         targets: ops

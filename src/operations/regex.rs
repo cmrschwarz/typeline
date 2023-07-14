@@ -570,7 +570,7 @@ struct RegexMatchInnerState<'a, 'b> {
 }
 
 pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRegex) {
-    let batch_size = sess.claim_batch(tf_id);
+    let (batch_size, input_done) = sess.claim_batch(tf_id);
     sess.prepare_for_output(tf_id, &re.capture_group_fields);
     let tf = &sess.tf_mgr.transforms[tf_id];
     let input_field_id = tf.input_field;
@@ -782,19 +782,26 @@ pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRe
     re.last_end = rbs.last_end;
     re.next_start = rbs.next_start;
     let mut base_iter = iter.into_base_iter();
+
+    let produced_records = rbs.field_pos_output - field_pos_start;
     if bse {
         base_iter.move_to_field_pos(rbs.field_pos_input);
         sess.tf_mgr.transforms[tf_id].available_batch_size +=
             batch_size - (rbs.field_pos_input - field_pos_start);
         sess.tf_mgr.push_tf_in_ready_queue(tf_id);
     } else {
+        if input_done {
+            drop(input_field);
+            sess.unlink_transform(tf_id, produced_records);
+            return;
+        }
         sess.tf_mgr.update_ready_state(tf_id);
     }
     input_field
         .field_data
         .store_iter(re.input_field_iter_id, base_iter);
     sess.tf_mgr
-        .inform_successor_batch_available(tf_id, rbs.field_pos_output - field_pos_start);
+        .inform_successor_batch_available(tf_id, produced_records);
 }
 
 pub fn handle_tf_regex_stream_value_update(

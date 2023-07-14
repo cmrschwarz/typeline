@@ -305,11 +305,12 @@ impl StreamValueManager {
 }
 
 impl JobData<'_> {
-    pub fn claim_batch(&mut self, tf_id: TransformId) -> usize {
+    pub fn claim_batch(&mut self, tf_id: TransformId) -> (usize, bool) {
         let tf = &mut self.tf_mgr.transforms[tf_id];
         let batch_size = tf.desired_batch_size.min(tf.available_batch_size);
         tf.available_batch_size -= batch_size;
-        batch_size
+        let input_done = tf.input_is_done && tf.available_batch_size == 0;
+        (batch_size, input_done)
     }
     pub fn unclaim_batch_size(&mut self, tf_id: TransformId, batch_size: usize) {
         self.tf_mgr.transforms[tf_id].available_batch_size += batch_size;
@@ -332,9 +333,11 @@ impl JobData<'_> {
         let predecessor = tf.predecessor;
         let successor = tf.successor;
         let continuation = tf.continuation;
+        let input_is_done = tf.input_is_done;
 
         if let Some(cont_id) = continuation {
             let cont = &mut self.tf_mgr.transforms[cont_id];
+            cont.input_is_done = input_is_done;
             cont.successor = successor;
             cont.predecessor = predecessor;
             if let Some(pred_id) = predecessor {
@@ -355,7 +358,9 @@ impl JobData<'_> {
         }
 
         if let Some(succ_id) = successor {
-            self.tf_mgr.transforms[succ_id].predecessor = predecessor;
+            let succ = &mut self.tf_mgr.transforms[succ_id];
+            succ.predecessor = predecessor;
+            succ.input_is_done = true;
             self.tf_mgr
                 .inform_transform_batch_available(succ_id, available_batch_for_successor);
         }

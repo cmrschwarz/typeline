@@ -4,7 +4,6 @@ use nonmax::NonMaxUsize;
 use std::{
     borrow::Cow,
     cell::{RefCell, RefMut},
-    io::{stdout, Write},
     ptr::NonNull,
 };
 
@@ -868,7 +867,7 @@ pub fn setup_key_output_state(
                                                 bytes_are_chunk: true,
                                                 done: false,
                                                 subscribers: Default::default(),
-                                                ref_count: 0,
+                                                ref_count: 1,
                                             });
                                         o.incomplete_stream_value_handle =
                                             Some(fmt.stream_value_handles.claim_with_value(
@@ -1265,7 +1264,7 @@ fn write_fmt_key(
 }
 pub fn handle_tf_format(sess: &mut JobData<'_>, tf_id: TransformId, fmt: &mut TfFormat) {
     sess.prepare_for_output(tf_id, std::slice::from_ref(&fmt.output_field));
-    let batch_size = sess.claim_batch(tf_id);
+    let (batch_size, input_done) = sess.claim_batch(tf_id);
     let tf = &sess.tf_mgr.transforms[tf_id];
     let op_id = tf.op_id.unwrap();
     let mut output_field = sess.record_mgr.fields[fmt.output_field].borrow_mut();
@@ -1325,9 +1324,14 @@ pub fn handle_tf_format(sess: &mut JobData<'_>, tf_id: TransformId, fmt: &mut Tf
     }
     fmt.output_states.clear();
     fmt.output_targets.clear();
-    sess.tf_mgr.update_ready_state(tf_id);
-    sess.tf_mgr
-        .inform_successor_batch_available(tf_id, batch_size);
+    drop(output_field);
+    if input_done {
+        sess.unlink_transform(tf_id, batch_size);
+    } else {
+        sess.tf_mgr.update_ready_state(tf_id);
+        sess.tf_mgr
+            .inform_successor_batch_available(tf_id, batch_size);
+    }
 }
 
 pub fn handle_tf_format_stream_value_update(
@@ -1354,8 +1358,6 @@ pub fn handle_tf_format_stream_value_update(
             StreamValueData::Dropped => unreachable!(),
             StreamValueData::Error(_) => unreachable!(),
             StreamValueData::Bytes(tgt_buf) => {
-                println!("buf so far: {}", tgt_buf.as_bytes().to_str().unwrap());
-                stdout().flush();
                 if !sv.bytes_are_chunk {
                     if !handle.wait_to_end {
                         if sv.done {
@@ -1428,6 +1430,8 @@ pub fn handle_tf_format_stream_value_update(
         unreachable!();
     }
     out_sv.done = true;
+    sess.sv_mgr
+        .drop_field_value_subscription(handle.target_sv_id, None);
     tf.stream_value_handles.release(handle_id);
     if tf.stream_value_handles.claimed_entry_count() > 0 {
         sess.tf_mgr.update_ready_state(tf_id);

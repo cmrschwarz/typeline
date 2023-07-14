@@ -86,17 +86,17 @@ pub fn handle_tf_data_inserter(
     di: &mut TfDataInserter,
 ) {
     sess.prepare_for_output(tf_id, &[di.output_field]);
-    let mut batch_size;
+    let (mut batch_size, input_done);
     let mut unlink_after = false;
     if let Some(ic) = di.insert_count {
-        batch_size = sess.claim_batch(tf_id);
+        (batch_size, input_done) = sess.claim_batch(tf_id);
         if batch_size >= ic {
             sess.unclaim_batch_size(tf_id, batch_size - ic);
             batch_size = ic;
             unlink_after = true;
         } else {
             let tf = &sess.tf_mgr.transforms[tf_id];
-            if tf.input_is_done {
+            if input_done {
                 if batch_size < tf.desired_batch_size {
                     batch_size = ic.min(tf.desired_batch_size);
                 }
@@ -112,12 +112,10 @@ pub fn handle_tf_data_inserter(
             batch_size = 1;
             unlink_after = true;
         } else {
-            if tf.input_is_done {
-                unlink_after = true;
-            }
-            batch_size = sess.claim_batch(tf_id);
+            (batch_size, input_done) = sess.claim_batch(tf_id);
+            unlink_after = input_done;
             if batch_size == 0 {
-                debug_assert!(unlink_after);
+                debug_assert!(input_done);
                 batch_size = 1;
             }
         }

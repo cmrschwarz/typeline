@@ -101,11 +101,12 @@ const FAST_SEQ_MAX_STEP: i64 = 200;
 
 pub fn handle_tf_sequence(sess: &mut JobData<'_>, tf_id: TransformId, seq: &mut TfSequence) {
     sess.prepare_for_output(tf_id, &[seq.output_field]);
-    let mut batch_size = sess.claim_batch(tf_id);
+    let (mut batch_size, input_done) = sess.claim_batch(tf_id);
 
     let mut unlink_if_done = false;
 
     if batch_size == 0 {
+        debug_assert!(input_done);
         if seq.mode == SequenceMode::Enumerate {
             sess.unlink_transform(tf_id, 0);
             return;
@@ -175,7 +176,11 @@ pub fn handle_tf_sequence(sess: &mut JobData<'_>, tf_id: TransformId, seq: &mut 
         sess.unlink_transform(tf_id, fields_added);
         return;
     }
-    sess.tf_mgr.push_tf_in_ready_queue(tf_id);
+    if input_done {
+        sess.tf_mgr.push_tf_in_ready_queue(tf_id);
+    } else {
+        sess.tf_mgr.update_ready_state(tf_id);
+    }
     sess.tf_mgr
         .inform_successor_batch_available(tf_id, fields_added);
 }

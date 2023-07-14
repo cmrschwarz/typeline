@@ -551,19 +551,43 @@ fn stream_into_format() -> Result<(), ScrError> {
     Ok(())
 }
 
+#[test]
 fn stream_into_multiple_different_formats() -> Result<(), ScrError> {
     let ss = StringSinkHandle::new();
     ContextBuilder::default()
-        .set_stream_buffer_size(1)
+        .push_str("foo", 1)
+        .push_str("bar", 1)
+        .add_op(create_op_key("label".to_owned()))
         .add_op(create_op_file_reader_custom(
             Box::new(SliceReader {
                 data: "xxx".as_bytes(),
             }),
             false,
         ))
-        .add_op(create_op_format("a -> {} -> b".as_bytes().as_bstr()).unwrap())
+        .add_op(create_op_format("{label}: {}".as_bytes().as_bstr()).unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
-    assert_eq!(ss.get_data().unwrap().as_slice(), ["a -> xxx -> b"]);
+    assert_eq!(ss.get_data().unwrap().as_slice(), ["foo: xxx", "bar: xxx"]);
+    Ok(())
+}
+
+#[test]
+fn force_file_reader_buffering() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::new();
+    ContextBuilder::default()
+        .push_str("foo", 1)
+        .push_str("bar", 1)
+        .set_batch_size(1)
+        .add_op(create_op_key("label".to_owned()))
+        .add_op(create_op_file_reader_custom(
+            Box::new(SliceReader {
+                data: "xxx".as_bytes(),
+            }),
+            false,
+        ))
+        .add_op(create_op_format("{label}: {}".as_bytes().as_bstr()).unwrap())
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(ss.get_data().unwrap().as_slice(), ["foo: xxx", "bar: xxx"]);
     Ok(())
 }
