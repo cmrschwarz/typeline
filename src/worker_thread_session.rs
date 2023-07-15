@@ -1,8 +1,9 @@
 use std::{
     cell::{RefCell, RefMut},
-    collections::{hash_map, BinaryHeap, HashMap, VecDeque},
+    collections::{BinaryHeap, HashMap, VecDeque},
 };
 
+use itertools::Itertools;
 use nonmax::NonMaxUsize;
 use smallvec::SmallVec;
 
@@ -11,7 +12,7 @@ use crate::{
     field_data::{
         command_buffer::{ActionListIndex, ActionProducingFieldIndex, CommandBuffer},
         iter_hall::{IterHall, IterId},
-        EntryId, FieldData,
+        FieldData,
     },
     operations::{
         data_inserter::{handle_tf_data_inserter, setup_tf_data_inserter},
@@ -49,11 +50,8 @@ pub struct Field {
     pub curr_apf_idx: Option<ActionProducingFieldIndex>,
     pub first_unapplied_al: ActionListIndex,
 
-    pub name: Option<StringStoreEntry>,
-    pub prev_same_name: Option<FieldId>,
-    pub next_same_name: Option<FieldId>,
+    pub names: SmallVec<[StringStoreEntry; 4]>,
 
-    pub working_set_idx: Option<NonMaxUsize>,
     pub field_data: IterHall,
 }
 
@@ -63,11 +61,7 @@ pub type MatchSetId = NonMaxUsize;
 
 #[repr(C)]
 pub struct MatchSet {
-    pub stream_batch_size: usize,
     pub stream_participants: Vec<TransformId>,
-    pub working_set_updates: Vec<(EntryId, FieldId)>,
-    //should not contain tf input fields (?)
-    pub working_set: Vec<FieldId>,
     pub command_buffer: CommandBuffer,
     pub field_name_map: HashMap<StringStoreEntry, FieldId>,
 }
@@ -191,62 +185,34 @@ impl RecordManager {
         field.ref_count = 1;
         field.match_set = ms_id;
         field.added_as_placeholder_by_tf = None;
-        field.working_set_idx = None;
         field.min_apf_idx = min_apf;
         drop(field);
-        self.set_field_name(field_id, name);
+        if let Some(name) = name {
+            self.add_field_name(field_id, name);
+        }
         field_id
     }
-    pub fn try_set_field_name(
-        &mut self,
-        field_id: FieldId,
-        name: StringStoreEntry,
-    ) -> Result<(), StringStoreEntry> {
-        let field = self.fields[field_id].borrow();
-        if let Some(curr_name) = field.name {
-            if curr_name == name {
-                return Ok(());
-            }
-            return Err(curr_name);
-        }
-        drop(field);
-        self.set_field_name(field_id, Some(name));
-        Ok(())
-    }
-    pub fn set_field_name(&mut self, field_id: FieldId, name: Option<StringStoreEntry>) {
+
+    pub fn add_field_name(&mut self, field_id: FieldId, name: StringStoreEntry) {
         let mut field = self.fields[field_id].borrow_mut();
-        if field.name == name {
-            return;
-        }
-        if let Some(curr_name) = field.name {
-            if let Some(next) = field.next_same_name {
-                self.fields[next].borrow_mut().prev_same_name = field.prev_same_name;
-            } else {
-                let fnm = &mut self.match_sets[field.match_set].field_name_map;
-                if let Some(prev) = field.prev_same_name {
-                    fnm.insert(curr_name, prev);
-                } else {
-                    fnm.remove(&curr_name);
-                }
+        if let Some(prev_field_id) = self.match_sets[field.match_set]
+            .field_name_map
+            .insert(name, field_id)
+        {
+            if prev_field_id != field_id {
+                field.names.push(name);
+                let mut prev_field = self.fields[prev_field_id].borrow_mut();
+                let pos = prev_field
+                    .names
+                    .iter()
+                    .cloned()
+                    .find_position(|v| *v == name)
+                    .unwrap()
+                    .0;
+                prev_field.names.swap_remove(pos);
             }
-            if let Some(prev) = field.prev_same_name {
-                self.fields[prev].borrow_mut().next_same_name = field.next_same_name;
-            }
-        }
-        if let Some(name) = name {
-            match self.match_sets[field.match_set].field_name_map.entry(name) {
-                hash_map::Entry::Occupied(mut e) => {
-                    let prev = e.insert(field_id);
-                    field.prev_same_name = Some(prev);
-                    self.fields[prev].borrow_mut().next_same_name = Some(field_id);
-                    field.next_same_name = None;
-                }
-                hash_map::Entry::Vacant(e) => {
-                    e.insert(field_id);
-                    field.prev_same_name = None;
-                    field.next_same_name = None;
-                }
-            }
+        } else {
+            field.names.push(name);
         }
     }
     pub fn add_field(
@@ -273,8 +239,10 @@ impl RecordManager {
         id
     }
     pub fn remove_field(&mut self, id: FieldId) {
-        self.set_field_name(id, None);
         let field = self.fields[id].borrow_mut();
+        for n in &field.names {
+            self.match_sets[field.match_set].field_name_map.remove(n);
+        }
         #[cfg(feature = "debug_logging")]
         println!("removing field id {id}");
         drop(field);
@@ -282,10 +250,7 @@ impl RecordManager {
     }
     pub fn add_match_set(&mut self) -> MatchSetId {
         self.match_sets.claim_with(|| MatchSet {
-            stream_batch_size: 0,
             stream_participants: Default::default(),
-            working_set_updates: Default::default(),
-            working_set: Vec::new(),
             command_buffer: Default::default(),
             field_name_map: Default::default(),
         })
@@ -579,17 +544,8 @@ impl<'a> WorkerThreadSession<'a> {
                 OperatorData::Key(op) => {
                     assert!(op_base.label.is_none()); //TODO
                     jd.record_mgr
-                        .try_set_field_name(prev_output_field, op.key_interned)
-                        .map_err(|lbl| {
-                            TransformSetupError::new_s(
-                                *op_id,
-                                format!(
-                                    "cannot give key '{}' to field: already named '{}'",
-                                    jd.session_data.string_store.lookup(lbl),
-                                    jd.session_data.string_store.lookup(lbl)
-                                ),
-                            )
-                        })?;
+                        .add_field_name(prev_output_field, op.key_interned);
+
                     continue;
                 }
                 OperatorData::Select(op) => {
@@ -615,18 +571,7 @@ impl<'a> WorkerThreadSession<'a> {
             }
             let mut output_field = if op_base.append_mode {
                 if let Some(lbl) = op_base.label {
-                    jd.record_mgr
-                        .try_set_field_name(prev_output_field, lbl)
-                        .map_err(|lbl| {
-                            TransformSetupError::new_s(
-                                *op_id,
-                                format!(
-                                    "cannot give label '{}' to field: already named '{}'",
-                                    jd.session_data.string_store.lookup(lbl),
-                                    jd.session_data.string_store.lookup(lbl)
-                                ),
-                            )
-                        })?;
+                    jd.record_mgr.add_field_name(prev_output_field, lbl);
                 }
                 jd.record_mgr.bump_field_refcount(prev_output_field);
                 prev_output_field

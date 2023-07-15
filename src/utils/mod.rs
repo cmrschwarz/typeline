@@ -2,6 +2,7 @@ use std::fmt::Write;
 
 use arrayvec::ArrayString;
 
+pub mod identity_hasher;
 pub mod plattform;
 pub mod string_store;
 pub mod universe;
@@ -113,4 +114,16 @@ macro_rules! cached {
     ($x: expr) => {
         cached!({ $x })
     };
+}
+
+pub fn get_two_distinct_mut<'a, T>(
+    slice: &'a mut [T],
+    idx1: usize,
+    idx2: usize,
+) -> (&'a mut T, &'a mut T) {
+    assert!(idx1 != idx2 && idx1 < slice.len() && idx2 < slice.len());
+    unsafe {
+        let ptr = slice.as_mut_ptr();
+        (&mut *ptr.add(idx1), &mut *ptr.add(idx2))
+    }
 }

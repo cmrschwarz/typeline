@@ -3,6 +3,8 @@ use std::{borrow::Cow, cmp::min, collections::HashMap, mem::transmute, num::NonZ
 pub type StringStoreEntry = NonZeroU32;
 
 pub const INVALID_STRING_STORE_ENTRY: NonZeroU32 = unsafe { NonZeroU32::new_unchecked(u32::MAX) };
+pub const INVALID_STRING_STORE_ENTRY_2: NonZeroU32 =
+    unsafe { NonZeroU32::new_unchecked(u32::MAX - 1) };
 
 pub struct StringStore {
     arena: Vec<Vec<u8>>,

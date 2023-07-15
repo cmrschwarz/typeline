@@ -46,7 +46,7 @@ pub struct OpRegex {
     text_only_regex: Option<regex::Regex>,
     opts: RegexOptions,
     output_group_id: usize,
-    capture_group_names: Vec<Option<StringStoreEntry>>,
+    pub capture_group_names: Vec<Option<StringStoreEntry>>,
 }
 
 pub struct TfRegex {
@@ -321,7 +321,6 @@ pub fn setup_tf_regex<'a>(
     let apf_succ = cb.peek_next_apf_id();
     let mut output_field = sess.record_mgr.fields[tf_state.output_field].borrow_mut();
     output_field.min_apf_idx = Some(apf_succ);
-    let curr_output_field_name = output_field.name;
     drop(output_field);
     let cgfs: Vec<FieldId> = op
         .capture_group_names
@@ -330,24 +329,16 @@ pub fn setup_tf_regex<'a>(
         .map(|(i, name)| {
             if i == op.output_group_id {
                 if let Some(name) = name {
-                    if let Some(curr_name) = curr_output_field_name {
-                        if curr_name != *name {
-                            return Err(TransformSetupError {
-                                message: Cow::Owned(format!("default capture group name '{name}' contradicts operator label '{curr_name}'")),
-                                op_id: tf_state.op_id.unwrap(),
-                            });
-                        }
-                    } else {
-                        sess.record_mgr
-                            .set_field_name(tf_state.output_field, Some(*name));
-                    }
+                    sess.record_mgr.add_field_name(tf_state.output_field, *name);
                 }
-               Ok( tf_state.output_field)
+                Ok(tf_state.output_field)
             } else {
-                Ok(sess.record_mgr
+                Ok(sess
+                    .record_mgr
                     .add_field(tf_state.match_set_id, Some(apf_succ), *name))
             }
-        }).collect::<Result<Vec<FieldId>, TransformSetupError>>()?;
+        })
+        .collect::<Result<Vec<FieldId>, TransformSetupError>>()?;
     tf_state.preferred_input_type = Some(FieldValueKind::BytesInline);
 
     Ok(TransformData::Regex(TfRegex {

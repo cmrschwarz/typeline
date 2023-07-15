@@ -90,8 +90,8 @@ impl StringSinkHandle {
 
 #[derive(Clone)]
 pub struct OpStringSink {
-    handle: StringSinkHandle,
-    transparent: bool,
+    pub handle: StringSinkHandle,
+    pub transparent: bool,
 }
 
 impl OpStringSink {

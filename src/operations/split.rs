@@ -1,15 +1,14 @@
-use std::{cell::RefMut, collections::HashMap};
+use std::collections::HashMap;
 
-use bstr::{BStr, ByteSlice};
+use bstr::BStr;
 
-use smallvec::{smallvec, SmallVec};
+use smallvec::SmallVec;
 
 use crate::{
     chain::ChainId,
-    field_data::{iter_hall::IterHall, iters::FieldIterator},
-    options::{argument::CliArgIdx, range_spec::RangeSpec},
+    options::argument::CliArgIdx,
     utils::string_store::StringStoreEntry,
-    worker_thread_session::{Field, FieldId, JobData, MatchSetId},
+    worker_thread_session::{FieldId, JobData, MatchSetId},
 };
 
 use super::{
@@ -20,8 +19,7 @@ use super::{
 
 #[derive(Clone)]
 pub struct OpSplit {
-    pub range_spec: RangeSpec<ChainId>,
-    pub target_operators: Vec<OperatorId>,
+    pub target_chains: Vec<ChainId>,
 }
 
 pub struct TfSplit {
@@ -32,26 +30,10 @@ pub struct TfSplit {
 }
 
 pub fn parse_op_split(
-    value: Option<&BStr>,
-    arg_idx: Option<CliArgIdx>,
+    _value: Option<&BStr>,
+    _arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
-    let range_spec = if let Some(value) = value {
-        RangeSpec::<ChainId>::parse(value.to_str().map_err(|_| {
-            OperatorCreationError::new(
-                "failed to parse split argument as range spec: invalid UTF-8",
-                arg_idx,
-            )
-        })?)
-        .map_err(|_| {
-            OperatorCreationError::new("failed to parse split argument as range spec", arg_idx)
-        })?
-    } else {
-        RangeSpec::Bounded(Some(0), None)
-    };
-    Ok(OperatorData::Split(OpSplit {
-        range_spec,
-        target_operators: Default::default(),
-    }))
+    todo!();
 }
 
 pub fn setup_ts_split_as_entry_point<'a, 'b>(
@@ -79,66 +61,18 @@ pub fn setup_ts_split_as_entry_point<'a, 'b>(
     );
     state.available_batch_size = entry_count;
     state.input_is_done = true;
-    let data = TransformData::Split(TfSplit {
-        expanded: false,
-        targets: ops
-            .clone()
-            .map(|op| (*op as usize).try_into().unwrap())
-            .collect(),
-        field_names_set: Default::default(),
-    });
-    (state, data)
+    todo!();
 }
 
 pub fn setup_tf_split<'a>(
     _sess: &mut JobData,
     _op_base: &OperatorBase,
-    op: &'a OpSplit,
+    _op: &'a OpSplit,
     _tf_state: &mut TransformState,
 ) -> TransformData<'static> {
-    let tf = TfSplit {
-        expanded: false,
-        targets: op
-            .target_operators
-            .iter()
-            .map(|op| (*op as usize).try_into().unwrap())
-            .collect(),
-        field_names_set: Default::default(),
-    };
-    TransformData::Split(tf)
+    todo!();
 }
 
-pub fn handle_tf_split(sess: &mut JobData, tf_id: TransformId, s: &mut TfSplit) {
-    let tf = &mut sess.tf_mgr.transforms[tf_id];
-    let tf_ms_id = tf.match_set_id;
-    let bs = tf.available_batch_size;
-    tf.available_batch_size = 0;
-    sess.tf_mgr.ready_queue.pop();
-    //TODO: detect invalidations somehow instead
-    s.field_names_set.clear();
-    //TODO: do something clever, per target, cow, etc. instead of this dumb copy
-    for field_id in sess.record_mgr.match_sets[tf_ms_id].working_set.iter() {
-        // we should only have named fields in the working set (?)
-        if let Some(name) = sess.record_mgr.fields[*field_id].borrow().name {
-            s.field_names_set
-                .entry(name)
-                .or_insert_with(|| smallvec![])
-                .push(*field_id);
-        }
-    }
-    for (name, _field_id) in &mut s.field_names_set {
-        let source_id = *sess.record_mgr.match_sets[tf_ms_id]
-            .field_name_map
-            .get(&name)
-            .unwrap();
-        let source = sess.record_mgr.fields[source_id].borrow();
-        let mut targets_borrows_arr: SmallVec<[RefMut<'_, Field>; 8]> = Default::default();
-        IterHall::copy(source.field_data.iter().bounded(0, bs), |f| {
-            targets_borrows_arr
-                .iter_mut()
-                .for_each(|fd| f(&mut fd.field_data));
-        });
-        todo!();
-    }
-    debug_assert!(sess.tf_mgr.transforms[tf_id].successor.is_none());
+pub fn handle_tf_split(_sess: &mut JobData, _tf_id: TransformId, _s: &mut TfSplit) {
+    todo!();
 }

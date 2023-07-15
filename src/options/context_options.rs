@@ -4,7 +4,7 @@ use bstr::BString;
 use lazy_static::lazy_static;
 
 use crate::{
-    chain::ChainId,
+    chain::{compute_field_livenses, ChainId},
     context::{Context, SessionData},
     field_data::record_set::RecordSet,
     operations::{
@@ -155,6 +155,7 @@ impl ContextOptions {
                 ));
             }
         }
+        compute_field_livenses(sess);
         Ok(())
     }
     pub fn build_context(mut self) -> Result<Context, (ContextOptions, ScrError)> {
@@ -167,12 +168,23 @@ impl ContextOptions {
             std::thread::available_parallelism()
                 .unwrap_or_else(|_| NonZeroUsize::try_from(1).unwrap())
         });
-        //TODO: handle chainspec and operator duplication
+
+        let mut chains = Vec::with_capacity(self.chains.len());
+        for i in 0..self.chains.len() {
+            let parent = if i == 0 {
+                None
+            } else {
+                Some(&chains[self.chains[i].parent as usize])
+            };
+            let chain = self.chains[i].build_chain(parent);
+            chains.push(chain);
+        }
+
         let mut sd = SessionData {
             max_worker_threads,
             is_repl: self.repl.unwrap_or(DEFAULT_CONTEXT_OPTIONS.repl.unwrap()),
             input_data: self.input_data,
-            chains: self.chains.iter().map(|c| c.build_chain()).collect(),
+            chains,
             operator_data: self.operator_data,
             operator_bases: self
                 .operator_base_options

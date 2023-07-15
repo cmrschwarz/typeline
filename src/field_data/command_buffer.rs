@@ -262,7 +262,7 @@ impl CommandBuffer {
         {
             println!(
                 "\nexecuting commands for field {:?}  ( apfs {} -> {}[al idx: {}] ): ",
-                field.name, min_apf_idx, curr_apf_idx, first_unapplied_al_idx
+                field.names, min_apf_idx, curr_apf_idx, first_unapplied_al_idx
             );
             let refs = self.get_merge_result_mal_ref(&als);
             let actions = self.get_merge_resuls_slice(refs.as_ref().map(|r| &**r), &als);

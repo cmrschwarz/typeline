@@ -125,9 +125,9 @@ type FormatKeyRefId = usize;
 
 #[derive(Clone)]
 pub struct OpFormat {
-    parts: Vec<FormatPart>,
-    refs_str: Vec<Option<String>>,
-    refs_idx: Vec<Option<StringStoreEntry>>,
+    pub parts: Vec<FormatPart>,
+    pub refs_str: Vec<Option<String>>,
+    pub refs_idx: Vec<Option<StringStoreEntry>>,
 }
 
 #[derive(Clone, Copy)]

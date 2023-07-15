@@ -581,10 +581,7 @@ mod ref_iter_tests {
         let refs_field_id = push_field(&mut fields, fd_refs, None);
         let mut match_sets = Universe::<MatchSetId, MatchSet>::default();
         match_sets.claim_with_value(MatchSet {
-            stream_batch_size: Default::default(),
             stream_participants: Default::default(),
-            working_set_updates: Default::default(),
-            working_set: Default::default(),
             command_buffer: Default::default(),
             field_name_map: Default::default(),
         });

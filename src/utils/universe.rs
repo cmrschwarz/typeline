@@ -2,6 +2,8 @@ use std::{
     fmt::Debug,
     ops::{Deref, Index, IndexMut},
 };
+
+use super::get_two_distinct_mut;
 //TODO: create a Vec using this Index type but without the whole reclaiming mechainic
 
 pub trait UniverseIndex:
@@ -179,20 +181,11 @@ impl<I: UniverseIndex, T> Universe<I, T> {
         }
     }
     pub fn get_two_distinct_mut(&mut self, id: I, id2: I) -> (Option<&mut T>, Option<&mut T>) {
-        let mut idx1 = usize::try_from(id).unwrap();
-        let mut idx2 = usize::try_from(id2).unwrap();
-        assert!(idx1 != idx2);
-        let descending = idx2 < idx1;
-        if descending {
-            std::mem::swap(&mut idx1, &mut idx2);
-        }
-        let (p1, p2) = self.data.split_at_mut(idx1 + 1);
-        let (v1, v2) = (p1[0].as_mut(), p2[idx2 - idx1 - 1].as_mut());
-        if descending {
-            (v2, v1)
-        } else {
-            (v1, v2)
-        }
+        let idx1 = usize::try_from(id).unwrap();
+        let idx2 = usize::try_from(id2).unwrap();
+
+        let (a, b) = get_two_distinct_mut(&mut self.data, idx1, idx2);
+        (a.as_mut(), b.as_mut())
     }
 }
 

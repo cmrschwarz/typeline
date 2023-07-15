@@ -2,12 +2,14 @@ use crate::{
     chain::{BufferingMode, Chain, ChainId, ChainSettings},
     document::TextEncoding,
     selenium::{SeleniumDownloadStrategy, SeleniumVariant},
+    utils::string_store::StringStoreEntry,
 };
 
 use super::argument::Argument;
 
 #[derive(Clone, Default)]
 pub struct ChainOptions {
+    pub label: Option<StringStoreEntry>,
     pub default_text_encoding: Argument<TextEncoding>,
     pub prefer_parent_text_encoding: Argument<bool>,
     pub force_text_encoding: Argument<bool>,
@@ -20,6 +22,7 @@ pub struct ChainOptions {
 }
 
 pub const DEFAULT_CHAIN_OPTIONS: ChainOptions = ChainOptions {
+    label: None,
     default_text_encoding: Argument::new(TextEncoding::UTF8),
     prefer_parent_text_encoding: Argument::new(false),
     force_text_encoding: Argument::new(false),
@@ -31,33 +34,42 @@ pub const DEFAULT_CHAIN_OPTIONS: ChainOptions = ChainOptions {
     parent: 0,
 };
 impl ChainOptions {
-    pub fn build_chain(&self) -> Chain {
+    pub fn build_chain(&self, parent: Option<&Chain>) -> Chain {
         Chain {
+            label: self.label,
             settings: ChainSettings {
                 default_text_encoding: self
                     .default_text_encoding
+                    .or_else(|| parent.map(|p| p.settings.default_text_encoding))
                     .unwrap_or(DEFAULT_CHAIN_OPTIONS.default_text_encoding.unwrap()),
                 prefer_parent_text_encoding: self
                     .prefer_parent_text_encoding
+                    .or_else(|| parent.map(|p| p.settings.prefer_parent_text_encoding))
                     .unwrap_or(DEFAULT_CHAIN_OPTIONS.prefer_parent_text_encoding.unwrap()),
                 force_text_encoding: self
                     .force_text_encoding
+                    .or_else(|| parent.map(|p| p.settings.force_text_encoding))
                     .unwrap_or(DEFAULT_CHAIN_OPTIONS.force_text_encoding.unwrap()),
                 selenium_download_strategy: self
                     .selenium_download_strategy
+                    .or_else(|| parent.map(|p| p.settings.selenium_download_strategy))
                     .unwrap_or(DEFAULT_CHAIN_OPTIONS.selenium_download_strategy.unwrap()),
                 default_batch_size: self
                     .default_batch_size
+                    .or_else(|| parent.map(|p| p.settings.default_batch_size))
                     .unwrap_or(DEFAULT_CHAIN_OPTIONS.default_batch_size.unwrap()),
                 stream_buffer_size: self
                     .stream_buffer_size
+                    .or_else(|| parent.map(|p| p.settings.stream_buffer_size))
                     .unwrap_or(DEFAULT_CHAIN_OPTIONS.stream_buffer_size.unwrap()),
                 buffering_mode: self
                     .buffering_mode
+                    .or_else(|| parent.map(|p| p.settings.buffering_mode))
                     .unwrap_or(DEFAULT_CHAIN_OPTIONS.buffering_mode.unwrap()),
             },
             subchains: Vec::new(),
             operations: Vec::new(),
+            liveness_data: Default::default(),
         }
     }
 }

@@ -104,7 +104,7 @@ pub fn handle_tf_sequence(sess: &mut JobData<'_>, tf_id: TransformId, seq: &mut 
         if batch_size == 0 {
             batch_size = s.desired_batch_size.saturating_sub(s.available_batch_size);
         }
-        s.preferred_input_type == Some(FieldValueKind::BytesInline) && output_field.name == None
+        s.preferred_input_type == Some(FieldValueKind::BytesInline) && output_field.names.is_empty()
     } else {
         false
     };
