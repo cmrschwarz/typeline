@@ -37,6 +37,7 @@ is-terminal = "0.4.7"
 arrayvec = "0.7.3"
 static_assertions = "1.1.0"
 rand = "0.8.5"
+itertools = "0.11.0"
 
 [dependencies.encoding_rs]
 version = "0.8.32"

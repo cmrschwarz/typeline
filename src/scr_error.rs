@@ -9,6 +9,7 @@ use crate::{
     operations::{
         errors::{
             ChainSetupError, OperatorApplicationError, OperatorCreationError, OperatorSetupError,
+            TransformSetupError,
         },
         operator::OperatorId,
     },
@@ -31,6 +32,9 @@ pub enum ScrError {
 
     #[error(transparent)]
     OperationSetupError(#[from] OperatorSetupError),
+
+    #[error(transparent)]
+    TransformSetupError(#[from] TransformSetupError),
 
     #[error(transparent)]
     ChainSetupError(#[from] ChainSetupError),
@@ -106,6 +110,9 @@ impl ScrError {
             ScrError::ChainSetupError(e) => e.to_string(),
             ScrError::OperationCreationError(e) => e.message.to_string(),
             ScrError::OperationSetupError(e) => {
+                contextualize_op_id(&e.message, e.op_id, args_gathered, ctx_opts, ctx)
+            }
+            ScrError::TransformSetupError(e) => {
                 contextualize_op_id(&e.message, e.op_id, args_gathered, ctx_opts, ctx)
             }
             ScrError::OperationApplicationError(e) => {

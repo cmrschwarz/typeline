@@ -32,7 +32,7 @@ use crate::{
     worker_thread_session::{FieldId, JobData},
 };
 
-use super::errors::OperatorSetupError;
+use super::errors::{OperatorSetupError, TransformSetupError};
 use super::operator::{OperatorBase, OperatorData};
 use super::transform::TransformState;
 use super::{
@@ -315,13 +315,14 @@ pub fn setup_tf_regex<'a>(
     _op_base: &OperatorBase,
     op: &'a OpRegex,
     tf_state: &mut TransformState,
-) -> TransformData<'a> {
+) -> Result<TransformData<'a>, TransformSetupError> {
     let cb = &mut sess.record_mgr.match_sets[tf_state.match_set_id].command_buffer;
     let apf_idx = cb.claim_apf(tf_state.ordering_id);
     let apf_succ = cb.peek_next_apf_id();
-    sess.record_mgr.fields[tf_state.output_field]
-        .borrow_mut()
-        .min_apf_idx = Some(apf_succ);
+    let mut output_field = sess.record_mgr.fields[tf_state.output_field].borrow_mut();
+    output_field.min_apf_idx = Some(apf_succ);
+    let curr_output_field_name = output_field.name;
+    drop(output_field);
     let cgfs: Vec<FieldId> = op
         .capture_group_names
         .iter()
@@ -329,18 +330,27 @@ pub fn setup_tf_regex<'a>(
         .map(|(i, name)| {
             if i == op.output_group_id {
                 if let Some(name) = name {
-                    sess.record_mgr.add_field_name(tf_state.output_field, *name);
+                    if let Some(curr_name) = curr_output_field_name {
+                        if curr_name != *name {
+                            return Err(TransformSetupError {
+                                message: Cow::Owned(format!("default capture group name '{name}' contradicts operator label '{curr_name}'")),
+                                op_id: tf_state.op_id.unwrap(),
+                            });
+                        }
+                    } else {
+                        sess.record_mgr
+                            .set_field_name(tf_state.output_field, Some(*name));
+                    }
                 }
-                tf_state.output_field
+               Ok( tf_state.output_field)
             } else {
-                sess.record_mgr
-                    .add_field(tf_state.match_set_id, Some(apf_succ), *name)
+                Ok(sess.record_mgr
+                    .add_field(tf_state.match_set_id, Some(apf_succ), *name))
             }
-        })
-        .collect();
+        }).collect::<Result<Vec<FieldId>, TransformSetupError>>()?;
     tf_state.preferred_input_type = Some(FieldValueKind::BytesInline);
 
-    TransformData::Regex(TfRegex {
+    Ok(TransformData::Regex(TfRegex {
         regex: op.regex.clone(),
         text_only_regex: op
             .text_only_regex
@@ -357,7 +367,7 @@ pub fn setup_tf_regex<'a>(
         last_end: None,
         next_start: 0,
         apf_idx,
-    })
+    }))
 }
 
 struct TextRegex<'a> {

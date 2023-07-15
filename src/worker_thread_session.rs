@@ -1,10 +1,10 @@
 use std::{
     cell::{RefCell, RefMut},
     collections::{hash_map, BinaryHeap, HashMap, VecDeque},
-    iter,
 };
 
 use nonmax::NonMaxUsize;
+use smallvec::SmallVec;
 
 use crate::{
     context::SessionData,
@@ -15,6 +15,7 @@ use crate::{
     },
     operations::{
         data_inserter::{handle_tf_data_inserter, setup_tf_data_inserter},
+        errors::TransformSetupError,
         file_reader::{handle_tf_file_reader, setup_tf_file_reader},
         format::{handle_tf_format, handle_tf_format_stream_value_update, setup_tf_format},
         operator::{OperatorData, OperatorId},
@@ -40,18 +41,18 @@ pub const ERROR_FIELD_PSEUDO_STR: usize = 0;
 
 #[derive(Default)]
 pub struct Field {
-    // number of tfs that might read this field
-    // if this drops to zero, remove the field
-    // TODO:
-    // (unless this is named, we have a fwd, and this is not shadowed before it)
     pub ref_count: usize,
     pub match_set: MatchSetId,
     pub added_as_placeholder_by_tf: Option<TransformId>,
+
     pub min_apf_idx: Option<ActionProducingFieldIndex>,
     pub curr_apf_idx: Option<ActionProducingFieldIndex>,
     pub first_unapplied_al: ActionListIndex,
 
     pub name: Option<StringStoreEntry>,
+    pub prev_same_name: Option<FieldId>,
+    pub next_same_name: Option<FieldId>,
+
     pub working_set_idx: Option<NonMaxUsize>,
     pub field_data: IterHall,
 }
@@ -68,7 +69,7 @@ pub struct MatchSet {
     //should not contain tf input fields (?)
     pub working_set: Vec<FieldId>,
     pub command_buffer: CommandBuffer,
-    pub field_name_map: HashMap<StringStoreEntry, VecDeque<FieldId>>,
+    pub field_name_map: HashMap<StringStoreEntry, FieldId>,
 }
 
 impl MatchSet {}
@@ -187,32 +188,64 @@ impl RecordManager {
         let mut field = self.fields[field_id as FieldId].borrow_mut();
         field.field_data.reset();
         field.field_data.reserve_iter_id(FIELD_REF_LOOKUP_ITER_ID);
-        field.name = name;
+        field.ref_count = 1;
         field.match_set = ms_id;
         field.added_as_placeholder_by_tf = None;
         field.working_set_idx = None;
         field.min_apf_idx = min_apf;
-        if let Some(name) = name {
-            match self.match_sets[ms_id].field_name_map.entry(name) {
-                hash_map::Entry::Occupied(ref mut e) => {
-                    e.get_mut().push_back(field_id);
-                }
-                hash_map::Entry::Vacant(e) => {
-                    e.insert(VecDeque::from_iter(iter::once(field_id)));
-                }
-            }
-        }
+        drop(field);
+        self.set_field_name(field_id, name);
         field_id
     }
-    pub fn add_field_name(&mut self, field_id: FieldId, name: StringStoreEntry) {
-        let mut field = self.fields[field_id].borrow_mut();
-        if field.name.is_none() {
-            field.name = Some(name);
+    pub fn try_set_field_name(
+        &mut self,
+        field_id: FieldId,
+        name: StringStoreEntry,
+    ) -> Result<(), StringStoreEntry> {
+        let field = self.fields[field_id].borrow();
+        if let Some(curr_name) = field.name {
+            if curr_name == name {
+                return Ok(());
+            }
+            return Err(curr_name);
         }
-        match self.match_sets[field.match_set].field_name_map.entry(name) {
-            hash_map::Entry::Occupied(mut e) => e.get_mut().push_back(field_id),
-            hash_map::Entry::Vacant(e) => {
-                e.insert(VecDeque::from_iter([field_id].into_iter()));
+        drop(field);
+        self.set_field_name(field_id, Some(name));
+        Ok(())
+    }
+    pub fn set_field_name(&mut self, field_id: FieldId, name: Option<StringStoreEntry>) {
+        let mut field = self.fields[field_id].borrow_mut();
+        if field.name == name {
+            return;
+        }
+        if let Some(curr_name) = field.name {
+            if let Some(next) = field.next_same_name {
+                self.fields[next].borrow_mut().prev_same_name = field.prev_same_name;
+            } else {
+                let fnm = &mut self.match_sets[field.match_set].field_name_map;
+                if let Some(prev) = field.prev_same_name {
+                    fnm.insert(curr_name, prev);
+                } else {
+                    fnm.remove(&curr_name);
+                }
+            }
+            if let Some(prev) = field.prev_same_name {
+                self.fields[prev].borrow_mut().next_same_name = field.next_same_name;
+            }
+        }
+        if let Some(name) = name {
+            match self.match_sets[field.match_set].field_name_map.entry(name) {
+                hash_map::Entry::Occupied(mut e) => {
+                    let prev = e.insert(field_id);
+                    field.prev_same_name = Some(prev);
+                    self.fields[prev].borrow_mut().next_same_name = Some(field_id);
+                    field.next_same_name = None;
+                }
+                hash_map::Entry::Vacant(e) => {
+                    e.insert(field_id);
+                    field.prev_same_name = None;
+                    field.next_same_name = None;
+                }
             }
         }
     }
@@ -240,15 +273,10 @@ impl RecordManager {
         id
     }
     pub fn remove_field(&mut self, id: FieldId) {
-        let mut field = self.fields[id].borrow_mut();
-        let match_set = &mut self.match_sets[field.match_set];
-        if let Some(ref name) = field.name {
-            let refs = match_set.field_name_map.get_mut(name).unwrap();
-            debug_assert!(*refs.front().unwrap() == id);
-            refs.pop_front();
-        }
-        field.ref_count = 0;
-        field.field_data.reset();
+        self.set_field_name(id, None);
+        let field = self.fields[id].borrow_mut();
+        #[cfg(feature = "debug_logging")]
+        println!("removing field id {id}");
         drop(field);
         self.fields.release(id);
     }
@@ -277,6 +305,17 @@ impl RecordManager {
         let match_set = f.match_set;
         let cb = &mut match_sets[match_set].command_buffer;
         cb.execute_for_field(&mut f);
+    }
+    pub fn bump_field_refcount(&self, field_id: FieldId) {
+        self.fields[field_id].borrow_mut().ref_count += 1;
+    }
+    pub fn drop_field_refcount(&mut self, field_id: FieldId) {
+        let mut field = self.fields[field_id].borrow_mut();
+        field.ref_count -= 1;
+        if field.ref_count == 0 {
+            drop(field);
+            self.remove_field(field_id);
+        }
     }
 }
 
@@ -381,18 +420,22 @@ impl<'a> WorkerThreadSession<'a> {
         //TODO: unpack record set properly here
         let input_record_count = job.data.adjust_field_lengths();
         let mut input_data = None;
+        let mut input_data_fields = SmallVec::<[FieldId; 4]>::new();
         for fd in job.data.fields.into_iter() {
             let field_id = self
                 .job_data
                 .record_mgr
                 .add_field_with_data(ms_id, None, fd.name, fd.data);
+            input_data_fields.push(field_id);
             if input_data.is_none() {
                 input_data = Some(field_id);
             }
-            //TODO: add all to working set?
         }
-        let input_data =
-            input_data.unwrap_or_else(|| self.job_data.record_mgr.add_field(ms_id, None, None));
+        let input_data = input_data.unwrap_or_else(|| {
+            let field_id = self.job_data.record_mgr.add_field(ms_id, None, None);
+            input_data_fields.push(field_id);
+            field_id
+        });
 
         debug_assert!(!job.starting_ops.is_empty());
         if job.starting_ops.len() > 1 {
@@ -406,7 +449,8 @@ impl<'a> WorkerThreadSession<'a> {
             let start_tf_id = self.add_transform(tf_state, tf_data);
             self.job_data.tf_mgr.push_tf_in_ready_queue(start_tf_id);
         } else {
-            let start_tf_id = self.setup_transforms_from_op(ms_id, job.starting_ops[0], input_data);
+            let start_tf_id =
+                self.setup_transforms_from_op(ms_id, job.starting_ops[0], input_data)?;
 
             let tf = &mut self.job_data.tf_mgr.transforms[start_tf_id];
             tf.input_is_done = true;
@@ -424,6 +468,9 @@ impl<'a> WorkerThreadSession<'a> {
             }
 
             self.job_data.tf_mgr.push_tf_in_ready_queue(start_tf_id);
+        }
+        for input_field_id in input_data_fields {
+            self.job_data.record_mgr.drop_field_refcount(input_field_id);
         }
         Ok(())
     }
@@ -449,37 +496,61 @@ impl<'a> WorkerThreadSession<'a> {
     }
 
     pub fn remove_transform(&mut self, tf_id: TransformId) {
+        let tf = &self.job_data.tf_mgr.transforms[tf_id];
+        self.job_data.record_mgr.drop_field_refcount(tf.input_field);
+        self.job_data
+            .record_mgr
+            .drop_field_refcount(tf.output_field);
+        #[cfg(feature = "debug_logging")]
+        {
+            let opname = if let Some(op_id) = tf.op_id {
+                self.job_data
+                    .session_data
+                    .string_store
+                    .lookup(self.job_data.session_data.operator_bases[op_id as usize].argname)
+            } else {
+                "<unknown op>"
+            };
+            println!("removing transform id {tf_id}: {opname}");
+        }
         self.job_data.tf_mgr.transforms.release(tf_id);
         self.transform_data[usize::from(tf_id)] = TransformData::Disabled;
-        //TODO: field refcounting
     }
 
-    fn handle_split_expansion(&mut self, tf_id: TransformId) {
+    fn handle_split_expansion(&mut self, tf_id: TransformId) -> Result<(), TransformSetupError> {
         // we have to temporarily move the targets out of split so we can modify
         // self while accessing them
         let mut targets;
         if let TransformData::Split(ref mut split) = self.transform_data[usize::from(tf_id)] {
             targets = std::mem::replace(&mut split.targets, Default::default());
         } else {
-            debug_assert!(false, "unexpected transform type");
-            return;
+            panic!("unexpected transform type");
         }
+        let mut res = Ok(());
         for i in 0..targets.len() {
             let op = targets[i];
             let ms_id = self.job_data.record_mgr.add_match_set();
             let input_field = self.job_data.record_mgr.add_field(ms_id, None, None);
-            targets[i] = self.setup_transforms_from_op(
+            let tf = self.setup_transforms_from_op(
                 ms_id,
                 <TransformId as TryInto<usize>>::try_into(op).unwrap() as OperatorId,
                 input_field,
             );
+            match tf {
+                Ok(tf) => targets[i] = tf,
+                Err(err) => {
+                    res = Err(err);
+                    break;
+                }
+            }
         }
         if let TransformData::Split(ref mut split) = self.transform_data[usize::from(tf_id)] {
             split.targets = targets;
             handle_tf_split(&mut self.job_data, tf_id, split);
         } else {
-            debug_assert!(false, "unexpected transform type");
+            unreachable!();
         }
+        return res;
     }
 
     pub fn setup_transforms_from_op(
@@ -487,7 +558,7 @@ impl<'a> WorkerThreadSession<'a> {
         ms_id: MatchSetId,
         start_op_id: OperatorId,
         chain_input_field_id: FieldId,
-    ) -> TransformId {
+    ) -> Result<TransformId, TransformSetupError> {
         let mut start_tf_id = None;
         let start_op = &self.job_data.session_data.operator_bases[start_op_id as usize];
         let default_batch_size = self.job_data.session_data.chains[start_op.chain_id as usize]
@@ -506,24 +577,28 @@ impl<'a> WorkerThreadSession<'a> {
             let jd = &mut self.job_data;
             match op_data {
                 OperatorData::Key(op) => {
+                    assert!(op_base.label.is_none()); //TODO
                     jd.record_mgr
-                        .add_field_name(prev_output_field, op.key_interned);
-                    if let Some(lbl) = op_base.label {
-                        jd.record_mgr.add_field_name(prev_output_field, lbl);
-                    }
+                        .try_set_field_name(prev_output_field, op.key_interned)
+                        .map_err(|lbl| {
+                            TransformSetupError::new_s(
+                                *op_id,
+                                format!(
+                                    "cannot give key '{}' to field: already named '{}'",
+                                    jd.session_data.string_store.lookup(lbl),
+                                    jd.session_data.string_store.lookup(lbl)
+                                ),
+                            )
+                        })?;
                     continue;
                 }
                 OperatorData::Select(op) => {
                     if let Some(field_id) = jd.record_mgr.match_sets[ms_id]
                         .field_name_map
                         .get(&op.key_interned)
-                        .and_then(|e| e.back())
                         .cloned()
                     {
                         next_input_field = field_id;
-                        if let Some(lbl) = op_base.label {
-                            jd.record_mgr.add_field_name(field_id, lbl);
-                        }
                     } else {
                         let field_id = jd.record_mgr.add_field(
                             ms_id,
@@ -540,14 +615,27 @@ impl<'a> WorkerThreadSession<'a> {
             }
             let mut output_field = if op_base.append_mode {
                 if let Some(lbl) = op_base.label {
-                    jd.record_mgr.add_field_name(prev_output_field, lbl);
+                    jd.record_mgr
+                        .try_set_field_name(prev_output_field, lbl)
+                        .map_err(|lbl| {
+                            TransformSetupError::new_s(
+                                *op_id,
+                                format!(
+                                    "cannot give label '{}' to field: already named '{}'",
+                                    jd.session_data.string_store.lookup(lbl),
+                                    jd.session_data.string_store.lookup(lbl)
+                                ),
+                            )
+                        })?;
                 }
+                jd.record_mgr.bump_field_refcount(prev_output_field);
                 prev_output_field
             } else {
                 let min_apf = jd.record_mgr.get_min_apf_idx(prev_output_field);
                 jd.record_mgr.add_field(ms_id, min_apf, op_base.label)
             };
 
+            jd.record_mgr.bump_field_refcount(next_input_field);
             let mut tf_state = TransformState::new(
                 next_input_field,
                 output_field,
@@ -569,7 +657,7 @@ impl<'a> WorkerThreadSession<'a> {
             let tf_data = match &op_data {
                 OperatorData::Split(op) => setup_tf_split(jd, b, op, &mut tf_state),
                 OperatorData::Print(op) => setup_tf_print(jd, b, op, &mut tf_state),
-                OperatorData::Regex(op) => setup_tf_regex(jd, b, op, &mut tf_state),
+                OperatorData::Regex(op) => setup_tf_regex(jd, b, op, &mut tf_state)?,
                 OperatorData::Format(op) => setup_tf_format(jd, b, op, tf_id_peek, &mut tf_state),
                 OperatorData::StringSink(op) => setup_tf_string_sink(jd, b, op, &mut tf_state),
                 OperatorData::FileReader(op) => setup_tf_file_reader(jd, b, op, &mut tf_state),
@@ -617,7 +705,7 @@ impl<'a> WorkerThreadSession<'a> {
         );
         let term_data = setup_tf_terminator(&mut self.job_data, &mut term_state);
         self.add_transform(term_state, term_data);
-        start_tf_id.unwrap()
+        Ok(start_tf_id.unwrap())
     }
     pub fn add_transform(&mut self, state: TransformState, data: TransformData<'a>) -> TransformId {
         let id = self.job_data.tf_mgr.transforms.claim_with_value(state);
@@ -689,7 +777,7 @@ impl<'a> WorkerThreadSession<'a> {
                 match &mut self.transform_data[usize::from(tf_id)] {
                     TransformData::Split(split) => {
                         if !split.expanded {
-                            self.handle_split_expansion(tf_id);
+                            self.handle_split_expansion(tf_id)?;
                         } else {
                             handle_tf_split(&mut self.job_data, tf_id, split);
                         }

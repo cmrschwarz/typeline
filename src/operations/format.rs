@@ -211,7 +211,7 @@ pub fn setup_tf_format<'a>(
                 let id = sess.record_mgr.match_sets[tf_state.match_set_id]
                     .field_name_map
                     .get(name)
-                    .and_then(|fields| fields.back().cloned())
+                    .cloned()
                     .unwrap_or_else(|| {
                         sess.record_mgr.add_field(
                             tf_state.match_set_id,

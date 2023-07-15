@@ -153,9 +153,8 @@ pub fn setup_tf_string_sink<'a>(
 ) -> TransformData<'a> {
     tf_state.preferred_input_type = Some(FieldValueKind::BytesInline);
     let output_field = if ss.transparent {
-        if !tf_state.is_appending {
-            sess.record_mgr.remove_field(tf_state.output_field);
-        }
+        sess.record_mgr.drop_field_refcount(tf_state.output_field);
+        sess.record_mgr.bump_field_refcount(tf_state.input_field);
         tf_state.output_field = tf_state.input_field;
         None
     } else {

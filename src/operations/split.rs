@@ -126,23 +126,19 @@ pub fn handle_tf_split(sess: &mut JobData, tf_id: TransformId, s: &mut TfSplit) 
                 .push(*field_id);
         }
     }
-    for (name, targets) in &mut s.field_names_set {
+    for (name, _field_id) in &mut s.field_names_set {
         let source_id = *sess.record_mgr.match_sets[tf_ms_id]
             .field_name_map
             .get(&name)
-            .unwrap()
-            .back()
             .unwrap();
         let source = sess.record_mgr.fields[source_id].borrow();
         let mut targets_borrows_arr: SmallVec<[RefMut<'_, Field>; 8]> = Default::default();
-        for i in targets.iter() {
-            targets_borrows_arr.push(sess.record_mgr.fields[*i].borrow_mut());
-        }
         IterHall::copy(source.field_data.iter().bounded(0, bs), |f| {
             targets_borrows_arr
                 .iter_mut()
                 .for_each(|fd| f(&mut fd.field_data));
         });
+        todo!();
     }
     debug_assert!(sess.tf_mgr.transforms[tf_id].successor.is_none());
 }

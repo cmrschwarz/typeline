@@ -7,6 +7,7 @@ extern crate arrayvec;
 extern crate crossbeam;
 extern crate encoding_rs;
 extern crate indexmap;
+extern crate itertools;
 extern crate lazy_static;
 extern crate markup5ever_rcdom;
 extern crate num;
