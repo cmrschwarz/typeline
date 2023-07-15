@@ -21,7 +21,7 @@ pub fn parse_op_select(
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
     let value_str = value
-        .ok_or_else(|| OperatorCreationError::new("missing key argument for select", arg_idx))?
+        .ok_or_else(|| OperatorCreationError::new("missing argument with key for select", arg_idx))?
         .to_str()
         .map_err(|_| OperatorCreationError::new("key must be valid UTF-8", arg_idx))?;
     Ok(OperatorData::Select(OpSelect {

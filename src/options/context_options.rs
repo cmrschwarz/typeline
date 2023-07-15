@@ -85,18 +85,40 @@ impl ContextOptions {
         self.curr_chain
     }
     pub fn add_op(&mut self, mut op_base_opts: OperatorBaseOptions, op_data: OperatorData) {
-        op_base_opts.curr_chain = Some(self.curr_chain);
         op_base_opts.op_id = Some(self.operator_data.len() as OperatorId);
+        op_base_opts.chain_id = Some(self.curr_chain);
+        match &op_data {
+            OperatorData::Print(_) => (),
+            OperatorData::Key(_) => (),
+            OperatorData::Select(_) => (),
+            OperatorData::Regex(_) => (),
+            OperatorData::Format(_) => (),
+            OperatorData::StringSink(_) => (),
+            OperatorData::FileReader(_) => (),
+            OperatorData::DataInserter(_) => (),
+            OperatorData::Sequence(_) => (),
+            OperatorData::Split(_) => {
+                let mut new_chain = ChainOptions::default();
+                new_chain.parent = self.curr_chain;
+                self.curr_chain = self.chains.len() as ChainId;
+                self.chains.push(new_chain);
+            }
+            OperatorData::Next(_) => {
+                let mut new_chain = ChainOptions::default();
+                new_chain.parent = self.chains[self.curr_chain as usize].parent;
+                self.curr_chain = self.chains.len() as ChainId;
+                self.chains.push(new_chain);
+                op_base_opts.chain_id = None;
+            }
+            OperatorData::Up(up) => {
+                for _ in 0..up.step.get() {
+                    self.curr_chain = self.chains[self.curr_chain as usize].parent;
+                }
+                op_base_opts.chain_id = None;
+            }
+        }
         self.operator_base_options.push(op_base_opts);
         self.operator_data.push(op_data);
-        //TODO: where do we update the current chain e.g. in case of split?
-    }
-    pub fn set_current_chain(&mut self, chain_id: ChainId) {
-        self.curr_chain = chain_id;
-        if self.chains.len() <= chain_id as usize {
-            self.chains
-                .resize(chain_id as usize + 1, Default::default());
-        }
     }
     pub fn verify_bounds(sess: &mut SessionData) -> Result<(), ScrError> {
         if sess.operator_bases.len() >= OperatorOffsetInChain::MAX as usize {
@@ -137,10 +159,12 @@ impl ContextOptions {
                 OperatorData::Select(op) => setup_op_select(&mut sess.string_store, op)?,
                 OperatorData::FileReader(op) => setup_op_file_reader(chain, op)?,
                 OperatorData::StringSink(op) => setup_op_string_sink(op_id, &op_base, op)?,
-                OperatorData::Split(_)
-                | OperatorData::Sequence(_)
-                | OperatorData::DataInserter(_)
-                | OperatorData::Print(_) => (),
+                OperatorData::Split(_) => (),
+                OperatorData::Sequence(_) => (),
+                OperatorData::DataInserter(_) => (),
+                OperatorData::Print(_) => (),
+                OperatorData::Next(_) => (),
+                OperatorData::Up(_) => (),
             }
         }
         Ok(())
@@ -193,7 +217,7 @@ impl ContextOptions {
                     argname: obo.argname,
                     label: obo.label,
                     cli_arg_idx: obo.cli_arg_idx,
-                    chain_id: obo.curr_chain.unwrap(),
+                    chain_id: obo.chain_id.unwrap(),
                     offset_in_chain: u32::MAX, //set during setup
                     append_mode: obo.append_mode,
                 })

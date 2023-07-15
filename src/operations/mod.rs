@@ -1,3 +1,4 @@
+pub mod chain_navigation_ops;
 pub mod data_inserter;
 pub mod errors;
 pub mod file_reader;

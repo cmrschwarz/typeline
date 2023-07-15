@@ -11,8 +11,8 @@ pub struct OperatorBaseOptions {
     pub chainspec: Option<ChainSpec>,
     pub cli_arg_idx: Option<CliArgIdx>,
     pub append_mode: bool,
-    pub curr_chain: Option<ChainId>, // set by the context on add_op
-    pub op_id: Option<OperatorId>,   // set by the context on add_op
+    pub chain_id: Option<ChainId>, // set by the context on add_op
+    pub op_id: Option<OperatorId>, // set by the context on add_op
 }
 
 impl OperatorBaseOptions {
@@ -29,7 +29,7 @@ impl OperatorBaseOptions {
             chainspec,
             cli_arg_idx,
             append_mode,
-            curr_chain: None,
+            chain_id: None,
             op_id: None,
         }
     }

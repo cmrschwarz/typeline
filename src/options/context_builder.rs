@@ -1,5 +1,4 @@
 use crate::{
-    chain::ChainId,
     context::Context,
     field_data::{push_interface::PushInterface, record_set::RecordSet},
     operations::operator::OperatorData,
@@ -42,7 +41,7 @@ impl ContextBuilder {
             chainspec,
             append_mode,
             cli_arg_idx: None,
-            curr_chain: None,
+            chain_id: None,
             op_id: None,
         };
         self.opts.add_op(op_base, op_data);
@@ -58,10 +57,6 @@ impl ContextBuilder {
     }
     pub fn set_input(mut self, rs: RecordSet) -> Self {
         self.opts.input_data = rs;
-        self
-    }
-    pub fn set_current_chain(mut self, chain_id: ChainId) -> Self {
-        self.opts.set_current_chain(chain_id);
         self
     }
     pub fn build(self) -> Result<Context, ScrError> {

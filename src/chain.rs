@@ -142,8 +142,8 @@ pub fn compute_local_liveness_data(sess: &mut SessionData, chain_id: ChainId) {
                 cn.liveness_data.access_field_unless_anon(curr_field, false);
                 curr_field = output_field;
             }
-            OperatorData::Split(split) => {
-                for tgt in &split.target_chains {
+            OperatorData::Split(_) => {
+                for tgt in &cn.subchains {
                     cn.liveness_data.add_successor(*tgt);
                 }
             }
@@ -182,6 +182,8 @@ pub fn compute_local_liveness_data(sess: &mut SessionData, chain_id: ChainId) {
             OperatorData::Sequence(_) => {
                 curr_field = output_field;
             }
+            OperatorData::Next(_) => unreachable!(),
+            OperatorData::Up(_) => unreachable!(),
         }
         if let Some(label) = sess.operator_bases[op_id as usize].label {
             cn.liveness_data

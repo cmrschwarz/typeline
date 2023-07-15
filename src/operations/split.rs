@@ -5,7 +5,6 @@ use bstr::BStr;
 use smallvec::SmallVec;
 
 use crate::{
-    chain::ChainId,
     options::argument::CliArgIdx,
     utils::string_store::StringStoreEntry,
     worker_thread_session::{FieldId, JobData, MatchSetId},
@@ -18,9 +17,7 @@ use super::{
 };
 
 #[derive(Clone)]
-pub struct OpSplit {
-    pub target_chains: Vec<ChainId>,
-}
+pub struct OpSplit {}
 
 pub struct TfSplit {
     pub expanded: bool,

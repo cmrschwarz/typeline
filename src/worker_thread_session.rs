@@ -599,7 +599,7 @@ impl<'a> WorkerThreadSession<'a> {
                 mark_prev_field_as_placeholder = false;
             }
             let b = op_base;
-            let tf_data = match &op_data {
+            let tf_data = match op_data {
                 OperatorData::Split(op) => setup_tf_split(jd, b, op, &mut tf_state),
                 OperatorData::Print(op) => setup_tf_print(jd, b, op, &mut tf_state),
                 OperatorData::Regex(op) => setup_tf_regex(jd, b, op, &mut tf_state)?,
@@ -612,6 +612,8 @@ impl<'a> WorkerThreadSession<'a> {
                 OperatorData::Sequence(op) => setup_tf_sequence(jd, op_base, op, &mut tf_state),
                 OperatorData::Key(_) => unreachable!(),
                 OperatorData::Select(_) => unreachable!(),
+                OperatorData::Next(_) => unreachable!(),
+                OperatorData::Up(_) => unreachable!(),
             };
             output_field = tf_state.output_field;
             let appending = tf_state.is_appending;
