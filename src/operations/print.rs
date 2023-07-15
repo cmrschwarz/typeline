@@ -3,22 +3,27 @@ use std::{
     io::{BufWriter, Write},
 };
 
-use bstr::{BStr, ByteSlice};
-use is_terminal::IsTerminal;
-
 use crate::{
     field_data::{
-        field_value_flags, iter_hall::IterId, iters::FieldIterator, push_interface::PushInterface,
-        typed::TypedSlice, typed_iters::TypedSliceIter, FieldValueKind,
+        field_value_flags,
+        iter_hall::IterId,
+        iters::{FieldIterator, UnfoldIterRunLength},
+        push_interface::PushInterface,
+        typed::TypedSlice,
+        typed_iters::TypedSliceIter,
+        FieldValueKind,
     },
     options::argument::CliArgIdx,
     ref_iter::{
         AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter, RefAwareInlineTextIter,
-        RefAwareStreamValueIter,
+        RefAwareStreamValueIter, RefAwareUnfoldIterRunLength,
     },
     stream_value::{StreamValue, StreamValueData, StreamValueId},
+    utils::i64_to_str,
     worker_thread_session::{FieldId, JobData},
 };
+use bstr::BStr;
+use is_terminal::IsTerminal;
 
 use super::{
     errors::{OperatorApplicationError, OperatorCreationError},
@@ -76,92 +81,24 @@ pub fn create_op_print() -> OperatorData {
     OperatorData::Print(OpPrint {})
 }
 
-pub fn write_raw_bytes<const NEWLINE: bool>(
-    stream: &mut impl Write,
-    bytes: &[u8],
-    run_len: usize,
-) -> Result<(), (usize, std::io::Error)> {
-    for i in 0..run_len {
-        stream
-            .write(bytes)
-            .and_then(|_| if NEWLINE { stream.write(b"\n") } else { Ok(0) })
-            .map_err(|e| (i, e))?;
-    }
-    Ok(())
-}
-pub fn write_text<const NEWLINE: bool>(
-    stream: &mut impl Write,
-    text: &str,
-    run_len: usize,
-) -> Result<(), (usize, std::io::Error)> {
-    write_raw_bytes::<NEWLINE>(stream, text.as_bytes(), run_len)
-}
-
-pub fn write_bytes_utf8_lossy<const NEWLINE: bool>(
-    stream: &mut impl Write,
-    bytes: &[u8],
-    run_len: usize,
-) -> Result<(), (usize, std::io::Error)> {
-    write_raw_bytes::<NEWLINE>(stream, bytes.to_str_lossy().as_bytes(), run_len)
-}
-
-pub fn write_integer<const NEWLINE: bool>(
-    stream: &mut impl Write,
-    v: i64,
-    run_len: usize,
-) -> Result<(), (usize, std::io::Error)> {
-    let nl = if NEWLINE { "\n" } else { "" };
-    for i in 0..run_len {
-        stream
-            .write_fmt(format_args!("{v}{nl}"))
-            .map_err(|e| (i, e))?;
-    }
-    Ok(())
-}
 pub const NULL_STR: &'static str = "null";
 pub const SUCCESS_STR: &'static str = "<Success>";
 pub const UNSET_STR: &'static str = "<Unset>";
 pub const ERROR_PREFIX_STR: &'static str = "Error: ";
 
-pub fn write_null<const NEWLINE: bool>(
-    stream: &mut impl Write,
-    run_len: usize,
-) -> Result<(), (usize, std::io::Error)> {
-    write_raw_bytes::<NEWLINE>(stream, NULL_STR.as_bytes(), run_len)
-}
-pub fn write_unset<const NEWLINE: bool>(
-    stream: &mut impl Write,
-    run_len: usize,
-) -> Result<(), (usize, std::io::Error)> {
-    write_raw_bytes::<NEWLINE>(stream, UNSET_STR.as_bytes(), run_len)
-}
-pub fn write_success<const NEWLINE: bool>(
-    stream: &mut impl Write,
-    run_len: usize,
-) -> Result<(), (usize, std::io::Error)> {
-    write_raw_bytes::<NEWLINE>(stream, SUCCESS_STR.as_bytes(), run_len)
-}
-
 // SAFETY: guaranteed to write valid utf-8
-pub fn write_error<const NEWLINE: bool>(
+pub fn write_error(
     stream: &mut impl Write,
     e: &OperatorApplicationError,
-    run_len: usize,
-) -> Result<(), (usize, std::io::Error)> {
-    for i in 0..run_len {
-        stream
-            .write_fmt(format_args!("Error: {e}"))
-            .and_then(|_| if NEWLINE { stream.write(b"\n") } else { Ok(0) })
-            .map_err(|e| (i, e))?;
-    }
-    Ok(())
+) -> Result<(), std::io::Error> {
+    stream.write_fmt(format_args!("{ERROR_PREFIX_STR}{e}"))
 }
 
 pub fn error_to_string(e: &OperatorApplicationError) -> String {
     format_args!("Error: {e}").to_string()
 }
 
-pub fn write_stream_val_check_done<const NEWLINE: bool>(
+pub fn write_stream_val_check_done(
     stream: &mut impl Write,
     sv: &StreamValue,
     offsets: Option<core::ops::Range<usize>>,
@@ -186,20 +123,18 @@ pub fn write_stream_val_check_done<const NEWLINE: bool>(
             for i in 0..rl_to_attempt {
                 stream
                     .write(data)
-                    .and_then(|_| {
-                        if NEWLINE && sv.done {
-                            stream.write(b"\n")
-                        } else {
-                            Ok(0)
-                        }
-                    })
+                    .and_then(|_| if sv.done { stream.write(b"\n") } else { Ok(0) })
                     .map_err(|e| (i, e))?;
             }
         }
         StreamValueData::Error(e) => {
             debug_assert!(sv.done);
             debug_assert!(offsets.is_none());
-            write_error::<NEWLINE>(stream, e, run_len)?;
+            for i in 0..rl_to_attempt {
+                stream
+                    .write_fmt(format_args!("{ERROR_PREFIX_STR}{e}\n"))
+                    .map_err(|e| (i, e))?;
+            }
         }
         StreamValueData::Dropped => panic!("dropped stream value observed"),
     }
@@ -213,7 +148,7 @@ pub fn handle_tf_print_raw(
     batch: usize,
     input_done: bool,
     handled_field_count: &mut usize,
-) -> Result<(), (usize, std::io::Error)> {
+) -> Result<(), std::io::Error> {
     let mut stdout = BufWriter::new(std::io::stdout().lock());
     debug_assert!(!tf.current_stream_val.is_some());
     let input_field_id = sess.tf_mgr.transforms[tf_id].input_field;
@@ -239,55 +174,81 @@ pub fn handle_tf_print_raw(
     ) {
         match range.base.data {
             TypedSlice::TextInline(text) => {
-                for (v, rl, _offs) in RefAwareInlineTextIter::from_range(&range, text) {
-                    write_text::<true>(&mut stdout, v, rl as usize)?;
+                for v in RefAwareInlineTextIter::from_range(&range, text).unfold_rl() {
+                    stdout.write(v.as_bytes())?;
+                    stdout.write(b"\n")?;
+                    *handled_field_count += 1;
                 }
             }
             TypedSlice::BytesInline(bytes) => {
-                for (v, rl, _offs) in RefAwareInlineBytesIter::from_range(&range, bytes) {
-                    write_raw_bytes::<true>(&mut stdout, v, rl as usize)?;
+                for v in RefAwareInlineBytesIter::from_range(&range, bytes).unfold_rl() {
+                    stdout.write(v)?;
+                    stdout.write(b"\n")?;
+                    *handled_field_count += 1;
                 }
             }
             TypedSlice::BytesBuffer(bytes) => {
-                for (v, rl, _offs) in RefAwareBytesBufferIter::from_range(&range, bytes) {
-                    write_raw_bytes::<true>(&mut stdout, v, rl as usize)?;
+                for v in RefAwareBytesBufferIter::from_range(&range, bytes).unfold_rl() {
+                    stdout.write(v)?;
+                    stdout.write(b"\n")?;
+                    *handled_field_count += 1;
                 }
             }
             TypedSlice::Integer(ints) => {
                 for (v, rl) in TypedSliceIter::from_range(&range.base, ints) {
-                    write_integer::<true>(&mut stdout, *v, rl as usize)?;
+                    let v = i64_to_str(false, *v);
+                    for _ in 0..rl {
+                        stdout.write(v.as_bytes())?;
+                        stdout.write(b"\n")?;
+                        *handled_field_count += 1;
+                    }
                 }
             }
             TypedSlice::Null(_) => {
-                write_null::<true>(&mut stdout, range.base.field_count)?;
+                for _ in 0..range.base.field_count {
+                    stdout.write_fmt(format_args!("{NULL_STR}\n"))?;
+                    *handled_field_count += 1;
+                }
             }
             TypedSlice::Error(errs) => {
-                for (v, rl) in TypedSliceIter::from_range(&range.base, errs) {
-                    write_error::<true>(&mut stdout, v, rl as usize)?;
+                for v in TypedSliceIter::from_range(&range.base, errs).unfold_rl() {
+                    stdout.write_fmt(format_args!("{v}\n"))?;
+                    *handled_field_count += 1;
                 }
             }
             TypedSlice::Unset(_) => {
-                write_unset::<true>(&mut stdout, range.base.field_count)?;
+                for _ in 0..range.base.field_count {
+                    stdout.write_fmt(format_args!("{UNSET_STR}\n"))?;
+                    *handled_field_count += 1;
+                }
             }
             TypedSlice::Success(_) => {
-                write_success::<true>(&mut stdout, range.base.field_count)?;
+                for _ in 0..range.base.field_count {
+                    stdout.write_fmt(format_args!("{SUCCESS_STR}\n"))?;
+                    *handled_field_count += 1;
+                }
             }
             TypedSlice::StreamValueId(svs) => {
+                let mut pos = field_pos;
                 for (sv_id, offsets, rl) in RefAwareStreamValueIter::from_range(&range, svs) {
                     let sv = &mut sess.sv_mgr.stream_values[sv_id];
-                    if !write_stream_val_check_done::<true>(&mut stdout, sv, offsets, rl as usize)?
-                    {
+                    if !write_stream_val_check_done(&mut stdout, sv, offsets, rl as usize).map_err(
+                        |(i, e)| {
+                            *handled_field_count += i;
+                            e
+                        },
+                    )? {
                         tf.current_stream_val = Some(sv_id);
-                        iter.move_to_field_pos(field_pos);
+                        iter.move_to_field_pos(pos);
                         if rl > 1 {
                             sv.promote_to_buffer();
                         }
                         sv.subscribe(tf_id, rl as usize, false);
                         break 'iter;
                     }
-                    field_pos += rl as usize;
+                    *handled_field_count += rl as usize;
+                    pos += rl as usize;
                 }
-                continue; // skip the field pos increase at the bottom of this loop because we already did that
             }
             TypedSlice::Html(_) | TypedSlice::Object(_) => {
                 todo!();
@@ -295,7 +256,6 @@ pub fn handle_tf_print_raw(
             TypedSlice::Reference(_) => unreachable!(),
         }
         field_pos += range.base.field_count;
-        *handled_field_count += range.base.field_count;
     }
     input_field
         .field_data
@@ -326,8 +286,8 @@ pub fn handle_tf_print(sess: &mut JobData<'_>, tf_id: TransformId, tf: &mut TfPr
         Ok(()) => output_field
             .field_data
             .push_success(handled_field_count, true),
-        Err((err_idx, err)) => {
-            let nsucc = handled_field_count + err_idx;
+        Err(err) => {
+            let nsucc = handled_field_count;
             let nfail = batch - nsucc;
             if nsucc > 0 {
                 output_field.field_data.push_success(nsucc, true);
@@ -351,7 +311,7 @@ pub fn handle_tf_print_stream_value_update(
     let mut stdout = std::io::stdout().lock();
     let sv = &mut sess.sv_mgr.stream_values[sv_id];
     let run_len = custom;
-    match write_stream_val_check_done::<true>(&mut stdout, sv, None, run_len) {
+    match write_stream_val_check_done(&mut stdout, sv, None, run_len) {
         Ok(true) => sess.tf_mgr.update_ready_state(tf_id),
         Ok(false) => (),
         Err((idx, e)) => {

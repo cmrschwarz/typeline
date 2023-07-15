@@ -1,23 +1,25 @@
 use std::{
     borrow::Cow,
+    cell::RefMut,
     ops::Deref,
     ops::DerefMut,
     sync::{Arc, Mutex, MutexGuard},
 };
 
 use bstr::ByteSlice;
+
 use indexmap::IndexMap;
 use smallstr::SmallString;
 
 use crate::{
     field_data::{field_value_flags, push_interface::PushInterface},
-    operations::print::{write_error, write_integer, write_null, write_raw_bytes, write_unset},
+    operations::print::error_to_string,
     ref_iter::{
         AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter, RefAwareInlineTextIter,
     },
     stream_value::{StreamValue, StreamValueData, StreamValueId},
-    utils::universe::Universe,
-    worker_thread_session::{FieldId, JobData},
+    utils::{i64_to_str, universe::Universe},
+    worker_thread_session::{Field, FieldId, JobData},
 };
 use crate::{
     field_data::{
@@ -30,7 +32,7 @@ use crate::{
 use super::{
     errors::{OperatorApplicationError, OperatorSetupError},
     operator::{OperatorBase, OperatorData, OperatorId, DEFAULT_OP_NAME_SMALL_STR_LEN},
-    print::{write_stream_val_check_done, write_success, write_text},
+    print::{NULL_STR, SUCCESS_STR, UNSET_STR},
     transform::{TransformData, TransformId, TransformState},
 };
 
@@ -126,7 +128,6 @@ pub struct TfStringSink<'a> {
     handle: &'a Mutex<StringSink>,
     batch_iter: IterId,
     stream_value_handles: Universe<usize, StreamValueHandle>,
-    buf: Vec<u8>,
     output_field: Option<FieldId>,
 }
 
@@ -167,46 +168,45 @@ pub fn setup_tf_string_sink<'a>(
             .field_data
             .claim_iter(),
         stream_value_handles: Default::default(),
-        buf: Default::default(),
         output_field,
     })
 }
-
-fn push_string(
-    sess: &JobData<'_>,
-    tf_id: TransformId,
-    field_pos: usize,
-    out: &mut StringSink,
-    buf: Vec<u8>,
-    run_len: usize,
-) {
-    let str = match String::from_utf8(buf) {
-        Ok(s) => s,
-        Err(e) => {
-            let err = Arc::new(OperatorApplicationError {
-                op_id: sess.tf_mgr.transforms[tf_id].op_id.unwrap(),
-                message: Cow::Borrowed("invalid utf-8"),
-            });
-            for i in field_pos..field_pos + run_len {
-                out.errors.insert(i, err.clone());
-            }
-            String::from_utf8_lossy(e.as_bytes()).to_string()
-        }
-    };
+fn push_string(out: &mut StringSink, string: String, run_len: usize) {
     out.data
-        .extend(std::iter::repeat_with(|| str.clone()).take(run_len - 1));
-    out.data.push(str);
+        .extend(std::iter::repeat_with(|| string.clone()).take(run_len - 1));
+    out.data.push(string);
 }
-fn push_string_clear_buf(
-    sess: &JobData<'_>,
-    tf_id: TransformId,
+fn push_str(out: &mut StringSink, str: &str, run_len: usize) {
+    push_string(out, str.to_owned(), run_len);
+}
+fn push_invalid_utf8(
+    op_id: OperatorId,
     field_pos: usize,
     out: &mut StringSink,
-    buf: &mut Vec<u8>,
+    bytes: &[u8],
     run_len: usize,
 ) {
-    let data = std::mem::replace::<Vec<u8>>(buf, Vec::new());
-    push_string(sess, tf_id, field_pos, out, data, run_len);
+    let err = Arc::new(OperatorApplicationError {
+        op_id,
+        message: Cow::Borrowed("invalid utf-8"),
+    });
+    for i in field_pos..field_pos + run_len {
+        out.errors.insert(i, err.clone());
+    }
+    push_string(out, String::from_utf8_lossy(bytes).to_string(), run_len);
+}
+
+fn push_bytes(
+    op_id: OperatorId,
+    field_pos: usize,
+    out: &mut StringSink,
+    bytes: &[u8],
+    run_len: usize,
+) {
+    match std::str::from_utf8(bytes) {
+        Ok(s) => push_str(out, s, run_len),
+        Err(_) => push_invalid_utf8(op_id, field_pos, out, bytes, run_len),
+    }
 }
 
 fn append_stream_val(
@@ -263,15 +263,42 @@ fn append_stream_val(
         StreamValueData::Error(e) => {
             debug_assert!(sv.done);
             let err = Arc::new(e.clone());
+            push_string(out, error_to_string(e), run_len);
             for i in start_idx..end_idx {
-                write_error::<false>(unsafe { out.data[i].as_mut_vec() }, e, 1).unwrap();
                 out.errors.insert(i, err.clone());
             }
         }
         StreamValueData::Dropped => panic!("dropped stream value observed"),
     }
 }
-
+pub fn push_errors<'a>(
+    out: &mut StringSink,
+    err: &OperatorApplicationError,
+    run_length: usize,
+    mut field_pos: usize,
+    last_error_end: &mut usize,
+    output_field: &mut Option<RefMut<'a, Field>>,
+) {
+    push_string(out, error_to_string(err), run_length);
+    let e = Arc::new(err.clone());
+    for i in 0..run_length as usize {
+        out.errors.insert(field_pos + i, e.clone());
+    }
+    field_pos += run_length;
+    let successes_so_far = field_pos - *last_error_end;
+    output_field.as_mut().map(|of| {
+        if successes_so_far > 0 {
+            of.field_data
+                .push_success(field_pos - *last_error_end, true);
+            of.field_data
+                .push_error(err.clone(), run_length, false, false);
+        } else {
+            of.field_data
+                .push_error(err.clone(), run_length, true, true);
+        }
+    });
+    *last_error_end = field_pos;
+}
 pub fn handle_tf_string_sink(
     sess: &mut JobData<'_>,
     tf_id: TransformId,
@@ -279,6 +306,7 @@ pub fn handle_tf_string_sink(
 ) {
     let (batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
     let tf = &sess.tf_mgr.transforms[tf_id];
+    let op_id = tf.op_id.unwrap();
     let input_field = sess.record_mgr.fields[tf.input_field].borrow();
     let mut output_field = ss
         .output_field
@@ -296,10 +324,9 @@ pub fn handle_tf_string_sink(
         None,
     );
     let mut out = ss.handle.lock().unwrap();
-    let buf = &mut ss.buf;
     let mut field_pos = out.data.len();
 
-    let mut last_errror_end = 0;
+    let mut last_error_end = 0;
     while let Some(range) = iter.typed_range_fwd(
         &mut sess.record_mgr.match_sets,
         usize::MAX,
@@ -308,96 +335,95 @@ pub fn handle_tf_string_sink(
         match range.base.data {
             TypedSlice::TextInline(text) => {
                 for (v, rl, _offs) in RefAwareInlineTextIter::from_range(&range, text) {
-                    write_text::<false>(buf, v, 1).unwrap();
-                    push_string_clear_buf(sess, tf_id, field_pos, &mut out, buf, rl as usize);
+                    push_str(&mut out, v, rl as usize);
                 }
             }
             TypedSlice::BytesInline(bytes) => {
                 for (v, rl, _offs) in RefAwareInlineBytesIter::from_range(&range, bytes) {
-                    write_raw_bytes::<false>(buf, v, 1).unwrap();
-                    push_string_clear_buf(sess, tf_id, field_pos, &mut out, buf, rl as usize);
+                    push_bytes(op_id, field_pos, &mut out, v, rl as usize);
                 }
             }
             TypedSlice::BytesBuffer(bytes) => {
                 for (v, rl, _offs) in RefAwareBytesBufferIter::from_range(&range, bytes) {
-                    push_string(sess, tf_id, field_pos, &mut out, v.to_owned(), rl as usize);
+                    push_bytes(op_id, field_pos, &mut out, v, rl as usize);
                 }
             }
             TypedSlice::Integer(ints) => {
                 for (v, rl) in TypedSliceIter::from_range(&range.base, ints) {
-                    write_integer::<false>(buf, *v, 1).unwrap();
-                    push_string_clear_buf(sess, tf_id, field_pos, &mut out, buf, rl as usize);
+                    let v = i64_to_str(false, *v);
+                    push_str(&mut out, v.as_str(), rl as usize);
                 }
             }
             TypedSlice::Reference(_) => unreachable!(),
             TypedSlice::Null(_) => {
-                write_null::<false>(buf, range.base.field_count).unwrap();
-                push_string_clear_buf(
-                    sess,
-                    tf_id,
-                    field_pos,
-                    &mut out,
-                    buf,
-                    range.base.field_count,
-                );
+                push_str(&mut out, NULL_STR, range.base.field_count);
             }
             TypedSlice::Error(errs) => {
                 let mut pos = field_pos;
                 for (v, rl) in TypedSliceIter::from_range(&range.base, errs) {
-                    write_error::<false>(buf, v, 1).unwrap();
-                    push_string_clear_buf(sess, tf_id, field_pos, &mut out, buf, rl as usize);
-                    let e = Arc::new(v.clone());
-                    for i in 0..rl as usize {
-                        out.errors.insert(pos + i, e.clone());
-                    }
+                    push_errors(
+                        &mut out,
+                        v,
+                        rl as usize,
+                        pos,
+                        &mut last_error_end,
+                        &mut output_field,
+                    );
                     pos += rl as usize;
-                    let successes_so_far = pos - last_errror_end;
-                    output_field.as_mut().map(|of| {
-                        if successes_so_far > 0 {
-                            of.field_data.push_success(pos - last_errror_end, true);
-                            of.field_data
-                                .push_error(v.clone(), rl as usize, false, false);
-                        } else {
-                            of.field_data.push_error(v.clone(), rl as usize, true, true);
-                        }
-                    });
-                    last_errror_end = pos;
                 }
             }
             TypedSlice::Unset(_) => {
-                write_unset::<false>(buf, 1).unwrap();
-                push_string_clear_buf(
-                    sess,
-                    tf_id,
-                    field_pos,
-                    &mut out,
-                    buf,
-                    range.base.field_count,
-                );
+                push_str(&mut out, UNSET_STR, range.base.field_count);
             }
             TypedSlice::Success(_) => {
-                write_success::<false>(buf, 1).unwrap();
-                push_string_clear_buf(
-                    sess,
-                    tf_id,
-                    field_pos,
-                    &mut out,
-                    buf,
-                    range.base.field_count,
-                );
+                push_str(&mut out, SUCCESS_STR, range.base.field_count);
             }
             TypedSlice::StreamValueId(svs) => {
-                for (svid, offsets, rl) in RefAwareStreamValueIter::from_range(&range, svs) {
+                let mut pos = field_pos;
+                for (svid, range, rl) in RefAwareStreamValueIter::from_range(&range, svs) {
                     let sv = &mut sess.sv_mgr.stream_values[svid];
-                    if !write_stream_val_check_done::<false>(buf, sv, offsets, 1).unwrap() {
-                        sv.subscribe(tf_id, ss.stream_value_handles.len(), sv.is_buffered());
-                        ss.stream_value_handles.claim_with_value(StreamValueHandle {
-                            start_idx: out.data.len(),
-                            run_len: rl as usize,
-                            contains_error: false,
-                        });
+
+                    match &sv.data {
+                        StreamValueData::Bytes(bytes) => {
+                            let data = range.map(|r| &bytes[r]).unwrap_or(bytes);
+                            if sv.done || sv.bytes_are_chunk {
+                                if sv.bytes_are_utf8 {
+                                    push_bytes(op_id, pos, &mut out, data, rl as usize);
+                                } else {
+                                    push_str(
+                                        &mut out,
+                                        unsafe { std::str::from_utf8_unchecked(data) },
+                                        rl as usize,
+                                    );
+                                }
+                            } else {
+                                //to initialize the slots
+                                push_string(&mut out, String::new(), rl as usize);
+                            }
+                            if !sv.done {
+                                sv.subscribe(
+                                    tf_id,
+                                    ss.stream_value_handles.len(),
+                                    sv.is_buffered(),
+                                );
+                                ss.stream_value_handles.claim_with_value(StreamValueHandle {
+                                    start_idx: pos,
+                                    run_len: rl as usize,
+                                    contains_error: false,
+                                });
+                            }
+                        }
+                        StreamValueData::Error(e) => push_errors(
+                            &mut out,
+                            e,
+                            rl as usize,
+                            pos,
+                            &mut last_error_end,
+                            &mut output_field,
+                        ),
+                        StreamValueData::Dropped => unreachable!(),
                     }
-                    push_string_clear_buf(sess, tf_id, field_pos, &mut out, buf, rl as usize);
+                    pos += rl as usize;
                 }
             }
             TypedSlice::Html(_) | TypedSlice::Object(_) => {
@@ -411,8 +437,7 @@ pub fn handle_tf_string_sink(
         .field_data
         .store_iter(ss.batch_iter, iter.into_base_iter());
     output_field.as_mut().map(|of| {
-        of.field_data
-            .push_success(field_pos - last_errror_end, true);
+        of.field_data.push_success(field_pos - last_error_end, true);
     });
     drop(input_field);
     drop(output_field);

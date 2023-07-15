@@ -496,11 +496,11 @@ impl<'a> Iterator for RefAwareStreamValueIter<'a> {
 
 pub struct RefAwareUnfoldRunLength<I, T> {
     iter: I,
-    last: Option<(T, usize)>,
+    last: Option<T>,
     remaining_run_len: RunLength,
 }
 
-impl<I: Iterator<Item = (T, RunLength)>, T: Clone> RefAwareUnfoldRunLength<I, T> {
+impl<I: Iterator<Item = (T, RunLength, usize)>, T: Clone> RefAwareUnfoldRunLength<I, T> {
     pub fn new(iter: I) -> Self {
         Self {
             iter,
@@ -514,7 +514,7 @@ pub trait RefAwareUnfoldIterRunLength<T>: Sized {
     fn unfold_rl(self) -> RefAwareUnfoldRunLength<Self, T>;
 }
 
-impl<T: Clone, I: Iterator<Item = (T, RunLength)>> UnfoldIterRunLength<T> for I {
+impl<T: Clone, I: Iterator<Item = (T, RunLength, usize)>> RefAwareUnfoldIterRunLength<T> for I {
     fn unfold_rl(self) -> RefAwareUnfoldRunLength<Self, T> {
         RefAwareUnfoldRunLength::new(self)
     }
@@ -523,15 +523,15 @@ impl<T: Clone, I: Iterator<Item = (T, RunLength)>> UnfoldIterRunLength<T> for I 
 impl<I: Iterator<Item = (T, RunLength, usize)>, T: Clone> Iterator
     for RefAwareUnfoldRunLength<I, T>
 {
-    type Item = (T, usize);
+    type Item = T;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.remaining_run_len > 0 {
             self.remaining_run_len -= 1;
             return self.last.clone();
-        } else if let Some((v, rl, offset)) = self.iter.next() {
+        } else if let Some((v, rl, _offset)) = self.iter.next() {
             self.remaining_run_len = rl - 1;
-            self.last = Some((v, offset));
+            self.last = Some(v);
         } else {
             self.last = None;
         }

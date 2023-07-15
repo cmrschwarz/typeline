@@ -84,10 +84,10 @@ struct LocallyMergedActionList {
     actions_end: usize,
 }
 
-#[allow(dead_code)]
 struct MergedActionLists {
     prev_apf_idx: Option<ActionProducingFieldIndex>,
     next_apf_idx: Option<ActionProducingFieldIndex>,
+    #[allow(dead_code)] //TODO: remove fields
     action_lists_index_offset: usize,
     locally_merged_action_lists: Vec<LocallyMergedActionList>,
     locally_merged_actions: Vec<FieldAction>,
