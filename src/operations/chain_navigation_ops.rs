@@ -13,6 +13,8 @@ pub struct OpUp {
     pub step: NonZeroUsize,
 }
 
+pub struct OpSplit {}
+
 pub fn parse_op_next(
     value: Option<&BStr>,
     arg_idx: Option<CliArgIdx>,
@@ -25,6 +27,7 @@ pub fn parse_op_next(
     }
     Ok(OperatorData::Next(OpNext {}))
 }
+
 pub fn parse_op_up(
     value: Option<&BStr>,
     arg_idx: Option<CliArgIdx>,

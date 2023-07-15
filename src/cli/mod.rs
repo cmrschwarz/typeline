@@ -344,7 +344,7 @@ fn try_parse_as_chain_opt(
 }
 
 fn parse_operation(
-    mut argname: &str,
+    argname: &str,
     value: Option<&BStr>,
     idx: Option<CliArgIdx>,
 ) -> Result<Option<OperatorData>, OperatorCreationError> {
@@ -390,10 +390,6 @@ fn parse_operation(
     if argument_matches_data_inserter(argname) {
         return Ok(Some(parse_data_inserter(argname, value, idx)?));
     }
-    let append = &argname[0..1] == "+";
-    if append {
-        argname = &argname[1..];
-    }
     Ok(match argname {
         "p" => Some(parse_op_print(value, idx)?),
         "f" | "fmt" => Some(parse_op_format(value, idx)?),
@@ -409,6 +405,8 @@ fn parse_operation(
         "enumn" => Some(parse_op_seq(value, true, false, idx)?),
 
         "split" => Some(parse_op_split(value, idx)?),
+        "next" => Some(parse_op_split(value, idx)?),
+        "up" => Some(parse_op_split(value, idx)?),
         _ => None,
     })
 }

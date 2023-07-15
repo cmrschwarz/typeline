@@ -8,6 +8,7 @@ use nonmax::NonMaxUsize;
 use smallvec::SmallVec;
 
 use crate::{
+    chain::DEFAULT_INPUT_FIELD,
     context::SessionData,
     field_data::{
         command_buffer::{ActionListIndex, ActionProducingFieldIndex, CommandBuffer},
@@ -23,7 +24,10 @@ use crate::{
         print::{handle_tf_print, handle_tf_print_stream_value_update, setup_tf_print},
         regex::{handle_tf_regex, handle_tf_regex_stream_value_update, setup_tf_regex},
         sequence::{handle_tf_sequence, setup_tf_sequence},
-        split::{handle_tf_split, setup_tf_split, setup_ts_split_as_entry_point},
+        split::{
+            handle_tf_split, setup_tf_split, setup_ts_split_as_entry_point, TfSplitFieldMapping,
+            TfSplitTarget,
+        },
         string_sink::{
             handle_tf_string_sink, handle_tf_string_sink_stream_value_update, setup_tf_string_sink,
         },
@@ -51,7 +55,7 @@ pub struct Field {
     pub first_unapplied_al: ActionListIndex,
 
     pub names: SmallVec<[StringStoreEntry; 4]>,
-
+    pub cow: Option<FieldId>,
     pub field_data: IterHall,
 }
 
@@ -180,7 +184,6 @@ impl RecordManager {
         name: Option<StringStoreEntry>,
     ) -> FieldId {
         let mut field = self.fields[field_id as FieldId].borrow_mut();
-        field.field_data.reset();
         field.field_data.reserve_iter_id(FIELD_REF_LOOKUP_ITER_ID);
         field.ref_count = 1;
         field.match_set = ms_id;
@@ -491,23 +494,105 @@ impl<'a> WorkerThreadSession<'a> {
         } else {
             panic!("unexpected transform type");
         }
-        let mut res = Ok(());
-        for i in 0..targets.len() {
-            let op = targets[i];
-            let ms_id = self.job_data.record_mgr.add_match_set();
-            let input_field = self.job_data.record_mgr.add_field(ms_id, None, None);
-            let tf = self.setup_transforms_from_op(
-                ms_id,
-                <TransformId as TryInto<usize>>::try_into(op).unwrap() as OperatorId,
-                input_field,
-            );
-            match tf {
-                Ok(tf) => targets[i] = tf,
-                Err(err) => {
-                    res = Err(err);
-                    break;
+        let tf = &self.job_data.tf_mgr.transforms[tf_id];
+        let split_input_field_id = tf.input_field;
+        let split_ms_id = tf.match_set_id;
+        let split_op_id = tf.op_id.unwrap() as usize;
+        let split_chain_id =
+            self.job_data.session_data.operator_bases[split_op_id].chain_id as usize;
+
+        for i in 0..self.job_data.session_data.chains[split_chain_id]
+            .subchains
+            .len()
+        {
+            let subchain_id =
+                self.job_data.session_data.chains[split_chain_id].subchains[i] as usize;
+            let target_ms_id = self.job_data.record_mgr.add_match_set();
+            let match_sets = &mut self.job_data.record_mgr.match_sets;
+            let (split_match_set, target_match_set) =
+                match_sets.two_distinct_mut(split_ms_id, target_ms_id);
+            let mut target_fields = Vec::new();
+            let accessed_fields_map = &self.job_data.session_data.chains[subchain_id]
+                .liveness_data
+                .fields_accessed_before_assignment;
+            let mut chain_input_field_id = split_input_field_id;
+            for (name, writes) in accessed_fields_map {
+                match target_match_set.field_name_map.entry(*name) {
+                    std::collections::hash_map::Entry::Occupied(_) => continue,
+                    std::collections::hash_map::Entry::Vacant(e) => {
+                        let src_field_id =
+                            if let Some(src_field_id) = split_match_set.field_name_map.get(name) {
+                                *src_field_id
+                            } else if *name == DEFAULT_INPUT_FIELD {
+                                split_input_field_id
+                            } else {
+                                let target_field_id = self.job_data.record_mgr.fields.claim();
+                                let mut tgt =
+                                    self.job_data.record_mgr.fields[target_field_id].borrow_mut();
+                                tgt.match_set = target_ms_id;
+                                tgt.added_as_placeholder_by_tf = Some(tf_id);
+                                e.insert(target_field_id);
+                                continue;
+                            };
+                        let mut src_field = self.job_data.record_mgr.fields[src_field_id].borrow();
+                        let mut any_writes = *writes;
+                        if any_writes == false {
+                            for other_name in &src_field.names {
+                                if name == other_name {
+                                    continue;
+                                }
+                                if let Some(true) = accessed_fields_map.get(other_name) {
+                                    any_writes = true;
+                                    break;
+                                }
+                            }
+                        }
+                        drop(src_field);
+                        let target_field_id = if any_writes {
+                            let target = self.job_data.record_mgr.fields.claim();
+                            target_fields.push(TfSplitFieldMapping {
+                                source: src_field_id,
+                                target,
+                            });
+                            target
+                        } else {
+                            src_field_id
+                        };
+                        src_field = self.job_data.record_mgr.fields[src_field_id].borrow();
+                        let mut tgt_field = if any_writes {
+                            let mut tgt =
+                                self.job_data.record_mgr.fields[src_field_id].borrow_mut();
+                            tgt.match_set = target_ms_id;
+                            tgt.cow = Some(src_field_id);
+                            Some(tgt)
+                        } else {
+                            None
+                        };
+                        e.insert(target_field_id);
+                        for other_name in &src_field.names {
+                            if name == other_name {
+                                continue;
+                            }
+                            if accessed_fields_map.contains_key(other_name) {
+                                target_match_set
+                                    .field_name_map
+                                    .insert(*other_name, target_field_id);
+                                tgt_field.as_mut().map(|f| f.names.push(*other_name));
+                            }
+                        }
+                        if *name == DEFAULT_INPUT_FIELD {
+                            chain_input_field_id = target_field_id;
+                        }
+                    }
                 }
             }
+            let start_op = self.job_data.session_data.chains[subchain_id].operations[0];
+            let tf_id =
+                self.setup_transforms_from_op(target_ms_id, start_op, chain_input_field_id)?;
+            targets.push(TfSplitTarget {
+                tf_id,
+                fields: target_fields,
+            });
         }
         if let TransformData::Split(ref mut split) = self.transform_data[usize::from(tf_id)] {
             split.targets = targets;
@@ -515,7 +600,7 @@ impl<'a> WorkerThreadSession<'a> {
         } else {
             unreachable!();
         }
-        return res;
+        return Ok(());
     }
 
     pub fn setup_transforms_from_op(
@@ -598,9 +683,13 @@ impl<'a> WorkerThreadSession<'a> {
                 f.added_as_placeholder_by_tf = Some(tf_id_peek);
                 mark_prev_field_as_placeholder = false;
             }
+            let mut expand_split = false;
             let b = op_base;
             let tf_data = match op_data {
-                OperatorData::Split(op) => setup_tf_split(jd, b, op, &mut tf_state),
+                OperatorData::Split(op) => {
+                    expand_split = true;
+                    setup_tf_split(jd, b, op, &mut tf_state)
+                }
                 OperatorData::Print(op) => setup_tf_print(jd, b, op, &mut tf_state),
                 OperatorData::Regex(op) => setup_tf_regex(jd, b, op, &mut tf_state)?,
                 OperatorData::Format(op) => setup_tf_format(jd, b, op, tf_id_peek, &mut tf_state),
@@ -640,7 +729,11 @@ impl<'a> WorkerThreadSession<'a> {
                 predecessor_tf = Some(tf_id);
                 next_input_field = output_field;
             }
+            if expand_split {
+                self.handle_split_expansion(tf_id)?;
+            }
         }
+
         let mut term_state = TransformState::new(
             prev_output_field,
             prev_output_field,
@@ -723,11 +816,7 @@ impl<'a> WorkerThreadSession<'a> {
                 let jd = &mut self.job_data;
                 match &mut self.transform_data[usize::from(tf_id)] {
                     TransformData::Split(split) => {
-                        if !split.expanded {
-                            self.handle_split_expansion(tf_id)?;
-                        } else {
-                            handle_tf_split(&mut self.job_data, tf_id, split);
-                        }
+                        handle_tf_split(&mut self.job_data, tf_id, split)
                     }
                     TransformData::Print(tf) => handle_tf_print(jd, tf_id, tf),
                     TransformData::Regex(tf) => handle_tf_regex(jd, tf_id, tf),

@@ -36,7 +36,7 @@ pub struct ChainSettings {
     pub buffering_mode: BufferingMode,
 }
 
-const DEFAULT_INPUT_FIELD: StringStoreEntry = INVALID_STRING_STORE_ENTRY;
+pub const DEFAULT_INPUT_FIELD: StringStoreEntry = INVALID_STRING_STORE_ENTRY;
 const ANONYMOUS_INPUT_FIELD: StringStoreEntry = INVALID_STRING_STORE_ENTRY_2;
 
 #[derive(Clone, Default)]

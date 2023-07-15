@@ -1,12 +1,7 @@
-use std::collections::HashMap;
-
 use bstr::BStr;
-
-use smallvec::SmallVec;
 
 use crate::{
     options::argument::CliArgIdx,
-    utils::string_store::StringStoreEntry,
     worker_thread_session::{FieldId, JobData, MatchSetId},
 };
 
@@ -19,20 +14,32 @@ use super::{
 #[derive(Clone)]
 pub struct OpSplit {}
 
+pub struct TfSplitFieldMapping {
+    pub source: FieldId,
+    pub target: FieldId,
+}
+
+pub struct TfSplitTarget {
+    pub tf_id: TransformId,
+    pub fields: Vec<TfSplitFieldMapping>,
+}
+
 pub struct TfSplit {
-    pub expanded: bool,
-    // Operator Ids before expansion, transform ids after
-    pub targets: Vec<TransformId>,
-    pub field_names_set: HashMap<StringStoreEntry, SmallVec<[FieldId; 2]>>,
+    pub targets: Vec<TfSplitTarget>,
 }
 
 pub fn parse_op_split(
-    _value: Option<&BStr>,
-    _arg_idx: Option<CliArgIdx>,
+    value: Option<&BStr>,
+    arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
-    todo!();
+    if value.is_some() {
+        return Err(OperatorCreationError::new(
+            "this operator takes no arguments",
+            arg_idx,
+        ));
+    }
+    Ok(OperatorData::Split(OpSplit {}))
 }
-
 pub fn setup_ts_split_as_entry_point<'a, 'b>(
     sess: &mut JobData<'a>,
     input_field: FieldId,

@@ -180,12 +180,16 @@ impl<I: UniverseIndex, T> Universe<I, T> {
             None => None,
         }
     }
-    pub fn get_two_distinct_mut(&mut self, id: I, id2: I) -> (Option<&mut T>, Option<&mut T>) {
-        let idx1 = usize::try_from(id).unwrap();
+    pub fn get_two_distinct_mut(&mut self, id1: I, id2: I) -> (Option<&mut T>, Option<&mut T>) {
+        let idx1 = usize::try_from(id1).unwrap();
         let idx2 = usize::try_from(id2).unwrap();
 
         let (a, b) = get_two_distinct_mut(&mut self.data, idx1, idx2);
         (a.as_mut(), b.as_mut())
+    }
+    pub fn two_distinct_mut(&mut self, id1: I, id2: I) -> (&mut T, &mut T) {
+        let (a, b) = self.get_two_distinct_mut(id1, id2);
+        (a.unwrap(), b.unwrap())
     }
 }
 
