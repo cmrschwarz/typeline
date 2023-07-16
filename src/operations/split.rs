@@ -257,3 +257,7 @@ pub fn handle_split_expansion(
     }
     return Ok(());
 }
+
+pub fn create_op_split() -> OperatorData {
+    OperatorData::Split(OpSplit {})
+}

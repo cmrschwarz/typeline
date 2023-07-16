@@ -2,8 +2,10 @@ mod utils;
 
 use scr::bstr::ByteSlice;
 
+use scr::operations::chain_navigation_ops::create_op_next;
 use scr::operations::select::create_op_select;
 use scr::operations::sequence::create_op_enum;
+use scr::operations::split::create_op_split;
 use scr::operations::string_sink::create_op_string_sink_transparent;
 use scr::options::chain_options::DEFAULT_CHAIN_OPTIONS;
 use scr::utils::i64_to_str;
@@ -560,5 +562,52 @@ fn stream_into_multiple_different_formats() -> Result<(), ScrError> {
         cb.clone().set_batch_size(batch_size).run()?;
         assert_eq!(ss.get_data().unwrap().as_slice(), ["foo: xxx", "bar: xxx"]);
     }
+    Ok(())
+}
+
+#[test]
+fn basic_cow() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::new();
+    ContextBuilder::default()
+        .push_str("123", 1)
+        .add_op(create_op_split())
+        .add_op(
+            create_op_regex(
+                ".",
+                RegexOptions {
+                    multimatch: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap(),
+        )
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(ss.get_data().unwrap().as_slice(), ["1", "2", "3"]);
+    Ok(())
+}
+#[test]
+fn cow_not_affecting_original() -> Result<(), ScrError> {
+    let ss1 = StringSinkHandle::new();
+    let ss2 = StringSinkHandle::new();
+    ContextBuilder::default()
+        .push_str("123", 1)
+        .add_op(create_op_split())
+        .add_op(
+            create_op_regex(
+                ".",
+                RegexOptions {
+                    multimatch: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap(),
+        )
+        .add_op(create_op_string_sink(&ss1))
+        .add_op(create_op_next())
+        .add_op(create_op_string_sink(&ss2))
+        .run()?;
+    assert_eq!(ss1.get_data().unwrap().as_slice(), ["1", "2", "3"]);
+    assert_eq!(ss2.get_data().unwrap().as_slice(), ["123"]);
     Ok(())
 }

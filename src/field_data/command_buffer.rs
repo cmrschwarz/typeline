@@ -4,7 +4,7 @@ use nonmax::NonMaxUsize;
 
 use crate::{utils::universe::Universe, worker_thread_session::Field};
 
-use super::{iter_hall::IterState, FieldData, FieldValueFormat, FieldValueHeader, RunLength};
+use super::{FieldData, FieldValueFormat, FieldValueHeader, RunLength};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum FieldActionKind {
@@ -107,7 +107,6 @@ pub struct CommandBuffer {
     last_apf_idx: Option<ActionProducingFieldIndex>,
     action_producing_fields: Universe<ActionProducingFieldIndex, ActionProducingField>,
     merged_actions: [std::cell::RefCell<Vec<FieldAction>>; 3],
-    iter_states: Vec<&'static mut IterState>,
     copies: Vec<CopyCommand>,
     insertions: Vec<InsertionCommand>,
 }

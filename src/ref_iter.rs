@@ -576,12 +576,7 @@ mod ref_iter_tests {
         });
 
         let refs_borrow = fields[refs_field_id].borrow();
-        let mut ref_iter = AutoDerefIter::new(
-            &fields,
-            &mut match_sets,
-            field_id,
-            refs_borrow.field_data.iter(),
-        );
+        let mut ref_iter = AutoDerefIter::new(&fields, field_id, refs_borrow.field_data.iter());
         let range = ref_iter
             .typed_range_fwd(
                 &mut match_sets,

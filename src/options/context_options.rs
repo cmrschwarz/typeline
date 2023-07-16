@@ -4,7 +4,7 @@ use bstr::BString;
 use lazy_static::lazy_static;
 
 use crate::{
-    chain::{compute_field_livenses, Chain, ChainId},
+    chain::{compute_field_livenses, Chain, ChainId, INVALID_CHAIN_ID},
     context::{Context, SessionData},
     field_data::record_set::RecordSet,
     operations::{
@@ -149,6 +149,9 @@ impl ContextOptions {
         for i in 0..sess.operator_bases.len() {
             let op_id = i as OperatorId;
             let op_base = &mut sess.operator_bases[i];
+            if op_base.chain_id == INVALID_CHAIN_ID {
+                continue;
+            }
             let chain = &mut sess.chains[op_base.chain_id as usize];
             op_base.offset_in_chain = chain.operations.len() as OperatorOffsetInChain;
             chain.operations.push(op_id);
@@ -163,8 +166,8 @@ impl ContextOptions {
                 OperatorData::Sequence(_) => (),
                 OperatorData::DataInserter(_) => (),
                 OperatorData::Print(_) => (),
-                OperatorData::Next(_) => (),
-                OperatorData::Up(_) => (),
+                OperatorData::Next(_) => unreachable!(),
+                OperatorData::Up(_) => unreachable!(),
             }
         }
         Ok(())
@@ -215,13 +218,15 @@ impl ContextOptions {
             operator_bases: self
                 .operator_base_options
                 .iter()
-                .map(|obo| OperatorBase {
-                    argname: obo.argname,
-                    label: obo.label,
-                    cli_arg_idx: obo.cli_arg_idx,
-                    chain_id: obo.chain_id.unwrap(),
-                    offset_in_chain: u32::MAX, //set during setup
-                    append_mode: obo.append_mode,
+                .map(|obo| {
+                    OperatorBase {
+                        argname: obo.argname,
+                        label: obo.label,
+                        cli_arg_idx: obo.cli_arg_idx,
+                        chain_id: obo.chain_id.unwrap_or(INVALID_CHAIN_ID),
+                        offset_in_chain: u32::MAX, //set during setup
+                        append_mode: obo.append_mode,
+                    }
                 })
                 .collect(),
             cli_args: self.cli_args,

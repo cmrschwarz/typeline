@@ -15,6 +15,7 @@ use crate::{
 };
 
 pub type ChainId = u32;
+pub const INVALID_CHAIN_ID: ChainId = ChainId::MAX;
 
 #[derive(Clone, Copy)]
 pub enum BufferingMode {
@@ -225,13 +226,21 @@ pub fn compute_field_livenses(sess: &mut SessionData) {
     let chains = &mut sess.chains;
     // compute predecessors by reversing successors
     for i in 0..chains.len() {
-        for succ in 0..chains[i].liveness_data.successors.len() {
-            chains[succ].liveness_data.predecessors.push(i as ChainId);
+        let chain_id = i as ChainId;
+        for succ_idx in 0..chains[i].liveness_data.successors.len() {
+            let succ = chains[i].liveness_data.successors[succ_idx];
+            chains[succ as usize]
+                .liveness_data
+                .predecessors
+                .push(chain_id);
         }
     }
     // propagate liveness until it stabilizes
     let mut stack: Vec<ChainId> = Vec::new();
-    stack.push(0 as ChainId);
+    for i in 0..chains.len() {
+        chains[i].liveness_data.liveness_analysis_outdated = true;
+    }
+    stack.extend(0..chains.len() as ChainId);
     while let Some(chain_id) = stack.pop() {
         let chain_id = chain_id as usize;
         chains[chain_id].liveness_data.liveness_analysis_outdated = false;
@@ -261,7 +270,7 @@ pub fn compute_field_livenses(sess: &mut SessionData) {
                 let pred = &mut chains[pred_id];
                 if pred.liveness_data.liveness_analysis_outdated == false {
                     pred.liveness_data.liveness_analysis_outdated = true;
-                    stack.push(pred_n as ChainId);
+                    stack.push(pred_id as ChainId);
                 }
             }
         }
