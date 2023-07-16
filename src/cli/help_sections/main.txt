@@ -4,12 +4,12 @@ Flags:
     -h | --help           Print this help and exit
     -v | --version        Print version info and exit
 
-Settings:
+Settings (call `scr h=<SETTING>` for details):
     h=<cmd>               Print help about a Setting or an Operator and exit
 
     bs=<N>                Batch size
     sbs=<N>               Stream buffer size
-    j=<N>                 Max number of threads (default 1, use 0 for core count)
+    j=<N>                 Max thread count (default 1, use 0 for core count)
     lb=<yes|no|...>       Line Buffering Mode (see mode descriptions in `h=lb`)
 
     denc=<encoding>       Default text encoding (see encodings list in `h=enc`)
@@ -19,7 +19,7 @@ Settings:
     sel=<driver>          Enable Selenium (see list of drivers in `h=sel`)
     sds=<strategy>        Selenium Download Stragegy (list in `h=sds`)
 
-Operators (see help sections using `scr h=<operator>` for details):
+Operators (call `scr h=<OP>` for details):
     p                     Print previous results to stdout
     f=<fstr>              Format text using rust format strings
     r[abdilmou]=<regex>   Apply a regular expression
@@ -38,5 +38,6 @@ Operators (see help sections using `scr h=<operator>` for details):
     split=<chainspec>     Forward matches to other chains
 
 Operator modifiers
-    +OP                   Append Mode: Use the same columns as the previous OP
-    OP@<label>            Syntactic sugar for `operator key=<label>`
+    +<OP>                 Append Mode: Append to previous output, see `h=+`
+    _<OP>                 Transparent Mode: Pass along input, see `h=_`
+    <OP>@<label>          Label: equivalent to `OP key=<label>`, see `h=@`

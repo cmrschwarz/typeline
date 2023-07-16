@@ -393,7 +393,7 @@ fn parse_operation(
     }
     Ok(match argname {
         "p" => Some(parse_op_print(value, idx)?),
-        "f" | "fmt" => Some(parse_op_format(value, idx)?),
+        "f" => Some(parse_op_format(value, idx)?),
         "key" => Some(parse_op_key(value, idx)?),
         "select" => Some(parse_op_select(value, idx)?),
 

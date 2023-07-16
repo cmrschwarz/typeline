@@ -1,10 +1,12 @@
-scr f - Format data using the Rust / Python format string syntax
+format - Format data using the Rust / Python format string syntax
+
+Syntax: f=<fstr>
 
 General:
     # TODO: write a general explanation section
 
 Examples:
-    scr seqn=3 f="{:03}" join="," p     # 001,002,003
+    scr seqn=3 f="{:03}" join=, p     # 001,002,003
 
     # TODO: more examples
 
