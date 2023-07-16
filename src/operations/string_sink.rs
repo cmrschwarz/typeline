@@ -315,13 +315,7 @@ pub fn handle_tf_string_sink(
         .get_iter(ss.batch_iter)
         .bounded(0, batch_size);
     let starting_pos = base_iter.get_next_field_pos();
-    let mut iter = AutoDerefIter::new(
-        &sess.record_mgr.fields,
-        &mut sess.record_mgr.match_sets,
-        tf.input_field,
-        base_iter,
-        None,
-    );
+    let mut iter = AutoDerefIter::new(&sess.record_mgr.fields, tf.input_field, base_iter);
     let mut out = ss.handle.lock().unwrap();
     let mut field_pos = out.data.len();
 

@@ -1,5 +1,4 @@
 use std::{
-    borrow::BorrowMut,
     cell::{Ref, RefCell, RefMut},
     collections::{BinaryHeap, HashMap, VecDeque},
 };
@@ -13,6 +12,7 @@ use crate::{
     field_data::{
         command_buffer::{ActionListIndex, ActionProducingFieldIndex, CommandBuffer},
         iter_hall::{IterHall, IterId},
+        iters::Iter,
         FieldData,
     },
     operations::{
@@ -33,6 +33,7 @@ use crate::{
         terminator::{handle_tf_terminator, setup_tf_terminator},
         transform::{TransformData, TransformId, TransformOrderingId, TransformState},
     },
+    ref_iter::AutoDerefIter,
     scr_error::ScrError,
     stream_value::{StreamValue, StreamValueData, StreamValueId},
     utils::string_store::StringStoreEntry,
@@ -45,6 +46,7 @@ pub const ERROR_FIELD_PSEUDO_STR: usize = 0;
 
 #[derive(Default)]
 pub struct Field {
+    pub field_id: FieldId, // used for checking whether we got rug pulled in case of cow
     pub ref_count: usize,
     pub match_set: MatchSetId,
     pub added_as_placeholder_by_tf: Option<TransformId>,
@@ -175,7 +177,7 @@ impl RecordManager {
         let field = self.fields[field_id].borrow();
         field.min_apf_idx
     }
-    fn setup_field(
+    pub fn setup_field(
         &mut self,
         field_id: FieldId,
         ms_id: MatchSetId,
@@ -183,6 +185,7 @@ impl RecordManager {
         name: Option<StringStoreEntry>,
     ) -> FieldId {
         let mut field = self.fields[field_id as FieldId].borrow_mut();
+        field.field_id = field_id;
         field.field_data.reserve_iter_id(FIELD_REF_LOOKUP_ITER_ID);
         field.ref_count = 1;
         field.match_set = ms_id;
@@ -271,8 +274,20 @@ impl RecordManager {
         let mut f = fields[field].borrow_mut();
         let match_set = f.match_set;
         let cb = &mut match_sets[match_set].command_buffer;
-        cb.execute_for_field(&mut f);
+        if let Some(cow_source) = f.cow_source {
+            if cb.requires_any_actions(&mut f) {
+                let src = fields[cow_source].borrow();
+                let iter = AutoDerefIter::new(fields, cow_source, src.field_data.iter());
+                IterHall::copy_resolve_refs(match_sets, iter, &mut |func| func(&mut f.field_data));
+                let cb = &mut match_sets[match_set].command_buffer;
+                cb.execute_for_field(&mut f);
+                f.cow_source = None;
+            }
+        } else {
+            cb.execute_for_field(&mut f);
+        }
     }
+
     pub fn borrow_field_cow<'a>(
         fields: &'a Universe<FieldId, RefCell<Field>>,
         field_id: FieldId,
@@ -283,16 +298,19 @@ impl RecordManager {
         }
         return field;
     }
-    pub fn borrow_field_cow_mut<'a>(
-        fields: &'a Universe<FieldId, RefCell<Field>>,
+    pub fn get_iter_cow_aware<'a>(
+        fields: &Universe<FieldId, RefCell<Field>>,
         field_id: FieldId,
-    ) -> RefMut<'a, Field> {
-        let field = fields[field_id].borrow_mut();
-        if let Some(cow_source) = field.cow_source {
-            return fields[cow_source].borrow_mut();
+        field: &'a Field,
+        iter_id: IterId,
+    ) -> Iter<'a> {
+        if field.field_id != field_id {
+            let state = fields[field_id].borrow().field_data.get_iter_state(iter_id);
+            return unsafe { field.field_data.get_iter_from_state(state) };
         }
-        return field;
+        return field.field_data.get_iter(iter_id);
     }
+
     pub fn bump_field_refcount(&self, field_id: FieldId) {
         self.fields[field_id].borrow_mut().ref_count += 1;
     }

@@ -4,7 +4,10 @@ use bstr::BStr;
 
 use crate::{
     chain::DEFAULT_INPUT_FIELD,
-    field_data::iter_hall::IterHall,
+    field_data::{
+        iter_hall::{IterHall, IterId},
+        iters::FieldIterator,
+    },
     options::argument::CliArgIdx,
     ref_iter::AutoDerefIter,
     utils::identity_hasher::BuildIdentityHasher,
@@ -21,13 +24,14 @@ use super::{
 pub struct OpSplit {}
 
 pub struct TfSplitFieldMapping {
-    pub source: FieldId,
-    pub target: FieldId,
+    pub source_iter_id: IterId,
+    pub targets_cow: Vec<FieldId>,
+    pub targets_non_cow: Vec<FieldId>,
 }
 
 pub struct TfSplit {
     pub targets: Vec<TransformId>,
-    pub mappings: HashMap<FieldId, Vec<FieldId>, BuildIdentityHasher>,
+    pub mappings: HashMap<FieldId, TfSplitFieldMapping, BuildIdentityHasher>,
 }
 
 pub fn parse_op_split(
@@ -51,7 +55,7 @@ pub fn setup_ts_split_as_entry_point<'a, 'b>(
 ) -> (TransformState, TransformData<'a>) {
     let mut state = TransformState::new(
         input_field,
-        input_field, // HACK
+        input_field, // does not have any output field since it terminates the chain
         ms_id,
         ops.clone().fold(usize::MAX, |minimum_batch_size, op| {
             let cid = sess.session_data.operator_bases[*op as usize].chain_id;
@@ -83,30 +87,47 @@ pub fn setup_tf_split<'a>(
 }
 
 pub fn handle_tf_split(sess: &mut JobData, tf_id: TransformId, sp: &mut TfSplit) {
-    let (batch, end_of_input) = sess.tf_mgr.claim_batch(tf_id);
-    drop(sess.prepare_output_field(tf_id));
+    let (batch_size, end_of_input) = sess.tf_mgr.claim_batch(tf_id);
+
     let match_sets = &mut sess.record_mgr.match_sets;
-    for (src_field_id, tgts) in &sp.mappings {
+    for (src_field_id, mapping) in sp.mappings.iter_mut() {
         RecordManager::apply_field_actions(&sess.record_mgr.fields, match_sets, *src_field_id);
-        let src = RecordManager::borrow_field_cow_mut(&sess.record_mgr.fields, *src_field_id);
+        let mut i = 0;
+        while i < mapping.targets_cow.len() {
+            let tgt_id = mapping.targets_cow[i];
+            let tgt = &mut sess.record_mgr.fields[tgt_id].borrow();
+            if tgt.cow_source.is_none() {
+                mapping.targets_cow.push(tgt_id);
+                mapping.targets_cow.swap_remove(i);
+                continue;
+            }
+            i += 1;
+        }
+        if mapping.targets_non_cow.is_empty() {
+            continue;
+        }
+        let src = RecordManager::borrow_field_cow(&sess.record_mgr.fields, *src_field_id);
         let iter = AutoDerefIter::new(
             &sess.record_mgr.fields,
-            match_sets,
             *src_field_id,
-            src.field_data.iter(),
-            None,
+            RecordManager::get_iter_cow_aware(
+                &sess.record_mgr.fields,
+                *src_field_id,
+                &src,
+                mapping.source_iter_id,
+            )
+            .bounded(0, batch_size),
         );
         IterHall::copy_resolve_refs(match_sets, iter, &mut |f: &mut dyn FnMut(&mut IterHall)| {
-            for t in tgts {
-                let tgt = &mut sess.record_mgr.fields[*t].borrow_mut();
-                if !tgt.cow_source.is_some() {
-                    f(&mut tgt.field_data);
-                }
+            for t in &mapping.targets_non_cow {
+                let mut tgt = sess.record_mgr.fields[*t].borrow_mut();
+                f(&mut tgt.field_data);
             }
         });
     }
     for tf in &sp.targets {
-        sess.tf_mgr.inform_transform_batch_available(*tf, batch);
+        sess.tf_mgr
+            .inform_transform_batch_available(*tf, batch_size);
     }
     if end_of_input {
         for tf in &sp.targets {
@@ -122,8 +143,8 @@ pub fn handle_split_expansion(
 ) -> Result<(), TransformSetupError> {
     // we have to temporarily move the targets out of split so we can modify
     // sess while accessing them
-    let mut targets = Vec::new();
-    let mut mappings = HashMap::<FieldId, Vec<FieldId>, BuildIdentityHasher>::default();
+    let mut targets = Vec::<TransformId>::new();
+    let mut mappings = HashMap::<FieldId, TfSplitFieldMapping, BuildIdentityHasher>::default();
     let tf = &sess.job_data.tf_mgr.transforms[tf_id];
     let split_input_field_id = tf.input_field;
     let split_ms_id = tf.match_set_id;
@@ -139,7 +160,6 @@ pub fn handle_split_expansion(
         let match_sets = &mut sess.job_data.record_mgr.match_sets;
         let (split_match_set, target_match_set) =
             match_sets.two_distinct_mut(split_ms_id, target_ms_id);
-        let mut target_fields = Vec::new();
         let accessed_fields_map = &sess.job_data.session_data.chains[subchain_id]
             .liveness_data
             .fields_accessed_before_assignment;
@@ -162,7 +182,7 @@ pub fn handle_split_expansion(
                         e.insert(target_field_id);
                         continue;
                     };
-                    let src_field = sess.job_data.record_mgr.fields[src_field_id].borrow();
+                    let mut src_field = sess.job_data.record_mgr.fields[src_field_id].borrow_mut();
                     let mut any_writes = *writes;
                     if any_writes == false {
                         for other_name in &src_field.names {
@@ -175,29 +195,32 @@ pub fn handle_split_expansion(
                             }
                         }
                     }
-                    drop(src_field);
+
                     let target_field_id = if any_writes {
+                        drop(src_field);
                         let target = sess.job_data.record_mgr.fields.claim();
+                        src_field = sess.job_data.record_mgr.fields[src_field_id].borrow_mut();
                         match mappings.entry(src_field_id) {
                             Entry::Occupied(ref mut e) => {
-                                e.get_mut().push(src_field_id);
+                                e.get_mut().targets_cow.push(target);
                             }
                             Entry::Vacant(e) => {
-                                e.insert(vec![src_field_id]);
+                                e.insert(TfSplitFieldMapping {
+                                    source_iter_id: src_field.field_data.claim_iter(),
+                                    targets_cow: vec![target],
+                                    targets_non_cow: Vec::new(),
+                                });
                             }
                         }
-                        target_fields.push(TfSplitFieldMapping {
-                            source: src_field_id,
-                            target,
-                        });
                         target
                     } else {
                         src_field_id
                     };
-                    let mut src_field = sess.job_data.record_mgr.fields[src_field_id].borrow_mut();
                     let mut tgt_field = if any_writes {
                         let mut tgt = sess.job_data.record_mgr.fields[target_field_id].borrow_mut();
                         tgt.match_set = target_ms_id;
+                        tgt.field_id = target_field_id;
+                        tgt.names.push(*name);
                         tgt.cow_source = Some(src_field_id);
                         src_field.ref_count += 1;
                         Some(tgt)

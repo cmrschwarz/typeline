@@ -139,7 +139,7 @@ pub struct Chain {
 pub fn compute_local_liveness_data(sess: &mut SessionData, chain_id: ChainId) {
     let cn = &mut sess.chains[chain_id as usize];
     let mut curr_field = DEFAULT_INPUT_FIELD;
-    let mut any_writes = false;
+    let mut any_writes_so_far = false;
     for op_id in cn.operations.iter().cloned() {
         let output_field = if sess.operator_bases[op_id as usize].append_mode {
             curr_field
@@ -148,7 +148,8 @@ pub fn compute_local_liveness_data(sess: &mut SessionData, chain_id: ChainId) {
         };
         match &sess.operator_data[op_id as usize] {
             OperatorData::Print(_) => {
-                cn.liveness_data.access_field_unless_anon(curr_field, false);
+                cn.liveness_data
+                    .access_field_unless_anon(curr_field, any_writes_so_far);
                 cn.liveness_data.mark_default_input_as_shadowed(curr_field);
                 curr_field = output_field;
             }
@@ -166,25 +167,27 @@ pub fn compute_local_liveness_data(sess: &mut SessionData, chain_id: ChainId) {
             }
             OperatorData::Regex(re) => {
                 cn.liveness_data
-                    .access_field_unless_anon(curr_field, any_writes);
-                any_writes |= !re.opts.optional || re.opts.multimatch;
+                    .access_field_unless_anon(curr_field, any_writes_so_far);
+                any_writes_so_far |= !re.opts.optional || re.opts.multimatch;
+
                 for f in re.capture_group_names.iter().filter_map(|f| *f) {
                     cn.liveness_data.declare_field(f);
                 }
-                cn.liveness_data.mark_default_input_as_shadowed(curr_field);
-                curr_field = output_field;
+                // because regex emits field references, we don't update the
+                // current field here and pretend people are still accessing
+                // regex's original input field (which they are, through the FRs)
             }
             OperatorData::Format(fmt) => {
                 for f in &fmt.refs_idx {
                     cn.liveness_data
-                        .access_field_unless_anon(f.unwrap_or(curr_field), any_writes);
+                        .access_field_unless_anon(f.unwrap_or(curr_field), any_writes_so_far);
                 }
                 cn.liveness_data.mark_default_input_as_shadowed(curr_field);
                 curr_field = output_field;
             }
             OperatorData::StringSink(ss) => {
                 cn.liveness_data
-                    .access_field_unless_anon(curr_field, any_writes);
+                    .access_field_unless_anon(curr_field, any_writes_so_far);
                 if !ss.transparent {
                     cn.liveness_data.mark_default_input_as_shadowed(curr_field);
                     curr_field = output_field;
@@ -196,12 +199,12 @@ pub fn compute_local_liveness_data(sess: &mut SessionData, chain_id: ChainId) {
                 curr_field = output_field;
             }
             OperatorData::DataInserter(di) => {
-                any_writes |= di.insert_count.is_some();
+                any_writes_so_far |= di.insert_count.is_some();
                 cn.liveness_data.mark_default_input_as_shadowed(curr_field);
                 curr_field = output_field;
             }
             OperatorData::Sequence(seq) => {
-                any_writes |= !seq.stop_after_input;
+                any_writes_so_far |= !seq.stop_after_input;
                 cn.liveness_data.mark_default_input_as_shadowed(curr_field);
                 curr_field = output_field;
             }

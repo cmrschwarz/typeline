@@ -215,15 +215,7 @@ impl CommandBuffer {
         if self.first_apf_idx.is_none() {
             return;
         }
-        self.iter_states
-            .extend(field.field_data.iters.iter_mut().filter_map(|it| {
-                it.get_mut().is_valid().then(|| unsafe {
-                    std::mem::transmute::<&'_ mut IterState, &'static mut IterState>(it.get_mut())
-                })
-            }));
-        // we reverse the sort order so we can pop back
-        self.iter_states
-            .sort_by(|lhs, rhs| lhs.field_pos.cmp(&rhs.field_pos).reverse());
+
         if field.min_apf_idx.is_none() {
             field.min_apf_idx = self.first_apf_idx;
         }
@@ -271,10 +263,49 @@ impl CommandBuffer {
             }
             println!("-------------------------------------------------------");
         }
-        self.generate_commands_from_actions(als, &mut field.field_data.fd, 0, 0);
+        if als.actions_start == als.actions_end {
+            return;
+        }
+        //TODO: fix up iterators if necessary
+        let field_count_delta =
+            self.generate_commands_from_actions(als, &mut field.field_data.fd, 0, 0);
+        field.field_data.fd.field_count =
+            (field.field_data.fd.field_count as isize + field_count_delta) as usize;
         self.execute_commands(&mut field.field_data.fd);
         self.cleanup();
-        self.iter_states.clear();
+    }
+    pub fn requires_any_actions<'a>(&mut self, field: &mut Field) -> bool {
+        let first = if let Some(idx) = self.first_apf_idx {
+            idx
+        } else {
+            return false;
+        };
+        let min = if let Some(min) = field.min_apf_idx {
+            min
+        } else {
+            field.min_apf_idx = self.first_apf_idx;
+            first
+        };
+        let curr = if let Some(curr) = field.curr_apf_idx {
+            curr
+        } else {
+            field.curr_apf_idx = field.min_apf_idx;
+            min
+        };
+
+        let first_unapplied_al_idx = field.first_unapplied_al;
+        let mut mal = &self.action_producing_fields[curr].merged_action_lists[0];
+        if mal.action_lists.len() > first_unapplied_al_idx {
+            return true;
+        }
+
+        while let Some(next) = mal.next_apf_idx {
+            mal = &self.action_producing_fields[next].merged_action_lists[0];
+            if mal.action_lists.len() > 0 {
+                return true;
+            }
+        }
+        return false;
     }
     pub fn clear_field_dropping_commands<'a>(&mut self, field: &mut Field) {
         if self.first_apf_idx.is_none() {
@@ -307,8 +338,9 @@ impl CommandBuffer {
             curr_apf_idx,
             first_unapplied_al_idx_in_curr_apf,
         );
-        self.generate_commands_from_actions(als, field, 0, 0);
+        let field_count_delta = self.generate_commands_from_actions(als, field, 0, 0);
         self.execute_commands(field);
+        field.field_count = (field.field_count as isize + field_count_delta) as usize;
         self.cleanup();
     }
 
@@ -872,7 +904,6 @@ impl CommandBuffer {
                 *first_unapplied_al_idx_in_curr_apf,
             );
         }
-        if new_curr_apf_idx == *curr_apf_idx {}
         *curr_apf_idx = new_curr_apf_idx;
         *first_unapplied_al_idx_in_curr_apf = new_first_unapplied_al_idx;
         res
@@ -1101,13 +1132,14 @@ impl CommandBuffer {
         header.run_length -= rl_to_del;
         return;
     }
+    // return the field_count delta
     fn generate_commands_from_actions(
         &mut self,
         merged_actions: ActionListMergeResult,
         fd: &mut FieldData,
         mut header_idx: usize,
         mut field_pos: usize,
-    ) {
+    ) -> isize {
         let mut header;
         let mut header_idx_new = header_idx;
 
@@ -1120,6 +1152,7 @@ impl CommandBuffer {
         let mut curr_action_pos = 0;
         let mut curr_action_pos_outstanding_dups = 0;
         let mut curr_action_pos_outstanding_drops = 0;
+        let mut curr_header_original_rl = fd.header.first().map(|h| h.run_length).unwrap_or(0);
 
         'advance_action: loop {
             let mal_ref = self.get_merge_result_mal_ref(&merged_actions);
@@ -1183,9 +1216,10 @@ impl CommandBuffer {
                             break;
                         }
                         field_pos = field_pos_new;
-                        field_pos_old += header.run_length as usize;
+                        field_pos_old += curr_header_original_rl as usize;
                     }
                     header_idx += 1;
+                    curr_header_original_rl = fd.header[header_idx].run_length;
                     header_idx_new += 1;
                 }
                 if curr_action_pos_outstanding_dups > 0 {
@@ -1228,6 +1262,11 @@ impl CommandBuffer {
             &mut copy_range_start,
             &mut copy_range_start_new,
         );
+        if headers_rem > 0 {
+            field_pos += fd.header[header_idx].run_length as usize;
+            field_pos_old += curr_header_original_rl as usize;
+        }
+        field_pos as isize - field_pos_old as isize
     }
 }
 

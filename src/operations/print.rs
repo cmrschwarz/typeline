@@ -20,7 +20,7 @@ use crate::{
     },
     stream_value::{StreamValue, StreamValueData, StreamValueId},
     utils::i64_to_str,
-    worker_thread_session::{FieldId, JobData},
+    worker_thread_session::{FieldId, JobData, RecordManager},
 };
 use bstr::BStr;
 use is_terminal::IsTerminal;
@@ -152,20 +152,18 @@ pub fn handle_tf_print_raw(
     let mut stdout = BufWriter::new(std::io::stdout().lock());
     debug_assert!(!tf.current_stream_val.is_some());
     let input_field_id = sess.tf_mgr.transforms[tf_id].input_field;
-    let input_field = sess.record_mgr.fields[input_field_id].borrow();
-    let base_iter = input_field
-        .field_data
-        .get_iter(tf.iter_id)
-        .bounded(0, batch);
+
+    let input_field = RecordManager::borrow_field_cow(&sess.record_mgr.fields, input_field_id);
+    let base_iter = RecordManager::get_iter_cow_aware(
+        &sess.record_mgr.fields,
+        input_field_id,
+        &input_field,
+        tf.iter_id,
+    )
+    .bounded(0, batch);
     let starting_pos = base_iter.get_next_field_pos();
     let mut field_pos = starting_pos;
-    let mut iter = AutoDerefIter::new(
-        &sess.record_mgr.fields,
-        &mut sess.record_mgr.match_sets,
-        input_field_id,
-        base_iter,
-        None,
-    );
+    let mut iter = AutoDerefIter::new(&sess.record_mgr.fields, input_field_id, base_iter);
 
     'iter: while let Some(range) = iter.typed_range_fwd(
         &mut sess.record_mgr.match_sets,
@@ -282,7 +280,7 @@ pub fn handle_tf_print(sess: &mut JobData<'_>, tf_id: TransformId, tf: &mut TfPr
     let mut handled_field_count = 0;
     let res = handle_tf_print_raw(sess, tf_id, tf, batch, input_done, &mut handled_field_count);
     let op_id = sess.tf_mgr.transforms[tf_id].op_id.unwrap();
-    let mut output_field = sess.prepare_output_field(tf.output_field);
+    let mut output_field = sess.prepare_output_field(tf_id);
     match res {
         Ok(()) => output_field
             .field_data

@@ -3,7 +3,7 @@ use std::cell::Cell;
 use crate::{
     ref_iter::AutoDerefIter,
     utils::universe::Universe,
-    worker_thread_session::{FieldId, MatchSet, MatchSetId},
+    worker_thread_session::{MatchSet, MatchSetId},
 };
 
 use super::{
@@ -20,12 +20,11 @@ pub struct IterHall {
 }
 
 #[derive(Default, Clone, Copy)]
-pub(super) struct IterState {
+pub struct IterState {
     pub(super) field_pos: usize,
     pub(super) data: usize,
     pub(super) header_idx: usize,
     pub(super) header_rl_offset: RunLength,
-    pub(super) cow_target: Option<FieldId>,
 }
 
 impl IterState {
@@ -37,14 +36,13 @@ impl IterState {
     }
 }
 impl IterHall {
-    pub fn claim_iter(&mut self, cow_target: Option<FieldId>) -> IterId {
+    pub fn claim_iter(&mut self) -> IterId {
         let iter_id = self.iters.claim();
         self.iters[iter_id].set(IterState {
             field_pos: 0,
             data: 0,
             header_idx: 0,
             header_rl_offset: 0,
-            cow_target,
         });
         iter_id
     }
@@ -58,8 +56,10 @@ impl IterHall {
     pub fn iter<'a>(&'a self) -> Iter<'a> {
         self.fd.iter()
     }
-    fn get_iter_state(&self, iter_id: IterId) -> (IterState, FieldValueHeader) {
-        let mut state = self.iters[iter_id].get();
+    pub fn get_iter_state(&self, iter_id: IterId) -> IterState {
+        self.iters[iter_id].get()
+    }
+    fn calculate_start_header(&self, state: &mut IterState) -> FieldValueHeader {
         let mut h = self
             .fd
             .header
@@ -74,10 +74,13 @@ impl IterHall {
                 h.run_length = 0;
             }
         }
-        (state, h)
+        h
     }
     pub fn get_iter<'a>(&'a self, iter_id: IterId) -> Iter<'a> {
-        let (state, h) = self.get_iter_state(iter_id);
+        unsafe { self.get_iter_from_state(self.iters[iter_id].get()) }
+    }
+    pub unsafe fn get_iter_from_state<'a>(&'a self, mut state: IterState) -> Iter<'a> {
+        let h = self.calculate_start_header(&mut state);
         let mut res = Iter {
             fd: &self.fd,
             field_pos: state.field_pos,
@@ -136,24 +139,6 @@ impl IterHall {
         let copied_fields =
             FieldData::copy_resolve_refs(match_sets, iter, adapted_target_applicator);
         copied_fields
-    }
-    pub fn copy_iters_on_write<'a>(
-        &mut self,
-        targets_applicator: &mut impl FnMut(&mut dyn FnMut(FieldId, &mut IterHall)),
-    ) {
-        targets_applicator(&mut |field_id, ih| {
-            debug_assert!(ih.iters.is_empty());
-            ih.iters = self.iters.clone();
-            for (i, is) in self.iters.iter_options().enumerate() {
-                if let Some(is) = is {
-                    if is.get().cow_target != Some(field_id) {
-                        ih.iters.release(i);
-                    } else {
-                        self.iters.release(i);
-                    }
-                }
-            }
-        });
     }
     pub fn field_count(&self) -> usize {
         self.fd.field_count

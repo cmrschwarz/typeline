@@ -248,23 +248,12 @@ pub struct RefAwareTypedRange<'a> {
 impl<'a, I: FieldIterator<'a>> AutoDerefIter<'a, I> {
     pub fn new(
         fields: &'a Universe<FieldId, RefCell<Field>>,
-        match_sets: &'_ mut Universe<MatchSetId, MatchSet>,
         iter_field_id: FieldId,
         iter: I,
-        refs_field_id: Option<FieldId>,
     ) -> Self {
-        let ref_iter = refs_field_id.map(|refs_field_id| {
-            RefIter::new(
-                TypedSliceIter::default(),
-                fields,
-                match_sets,
-                refs_field_id,
-                iter.get_next_field_pos(),
-            )
-        });
         Self {
             iter,
-            ref_iter,
+            ref_iter: None,
             fields,
             iter_field_id,
         }
@@ -592,7 +581,6 @@ mod ref_iter_tests {
             &mut match_sets,
             field_id,
             refs_borrow.field_data.iter(),
-            Some(field_id),
         );
         let range = ref_iter
             .typed_range_fwd(

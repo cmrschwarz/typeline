@@ -663,10 +663,9 @@ pub fn lookup_widths(
         RecordManager::apply_field_actions(fields, match_sets, ident_ref.field_id);
     }
     let field = RecordManager::borrow_field_cow(fields, ident_ref.field_id);
-    let mut iter = field
-        .field_data
-        .get_iter(ident_ref.iter_id)
-        .bounded(0, batch_size);
+    let mut iter =
+        RecordManager::get_iter_cow_aware(fields, ident_ref.field_id, &field, ident_ref.iter_id)
+            .bounded(0, batch_size);
     let mut output_index = 0;
     let mut handled_fields = 0;
     while let Some(range) = iter.typed_range_fwd(usize::MAX, 0) {
@@ -723,16 +722,11 @@ pub fn setup_key_output_state(
     let ident_ref = fmt.refs[k.identifier];
     RecordManager::apply_field_actions(fields, match_sets, ident_ref.field_id);
     let field = RecordManager::borrow_field_cow(fields, ident_ref.field_id);
-
     let mut iter = AutoDerefIter::new(
         fields,
-        match_sets,
         ident_ref.field_id,
-        field
-            .field_data
-            .get_iter(ident_ref.iter_id)
+        RecordManager::get_iter_cow_aware(fields, ident_ref.field_id, &field, ident_ref.iter_id)
             .bounded(0, batch_size),
-        None,
     );
 
     let mut output_index = 0;
@@ -1146,13 +1140,11 @@ fn write_fmt_key(
     let field = &mut fields[ident_ref.field_id].borrow();
     let mut iter = AutoDerefIter::new(
         fields,
-        match_sets,
         ident_ref.field_id,
         field
             .field_data
             .get_iter(ident_ref.iter_id)
             .bounded(0, batch_size),
-        None,
     );
 
     let mut output_index = 0;

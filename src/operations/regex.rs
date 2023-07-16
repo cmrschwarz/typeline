@@ -5,7 +5,6 @@ use regex::{self, bytes};
 use smallstr::SmallString;
 use std::borrow::Cow;
 use std::cell::RefCell;
-use std::ops::Deref;
 
 use std::num::NonZeroUsize;
 
@@ -23,7 +22,7 @@ use crate::ref_iter::{
 use crate::stream_value::{StreamValueData, StreamValueId};
 use crate::utils::universe::Universe;
 use crate::utils::{self, i64_to_str, USIZE_MAX_DECIMAL_DIGITS};
-use crate::worker_thread_session::Field;
+use crate::worker_thread_session::{Field, RecordManager};
 use crate::{
     field_data::typed::TypedSlice,
     field_data::{iter_hall::IterId, iters::FieldIterator, FieldReference},
@@ -590,12 +589,14 @@ pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRe
     sess.record_mgr.match_sets[tf.match_set_id]
         .command_buffer
         .begin_action_list(re.apf_idx);
-    let input_field = sess.record_mgr.fields[input_field_id].borrow();
-    let iter_base = input_field
-        .deref()
-        .field_data
-        .get_iter(re.input_field_iter_id)
-        .bounded(0, batch_size);
+    let input_field = RecordManager::borrow_field_cow(&sess.record_mgr.fields, input_field_id);
+    let iter_base = RecordManager::get_iter_cow_aware(
+        &sess.record_mgr.fields,
+        input_field_id,
+        &input_field,
+        re.input_field_iter_id,
+    )
+    .bounded(0, batch_size);
     let field_pos_start = iter_base.get_next_field_pos();
     let mut rbs = RegexBatchState {
         batch_end_field_pos_output: field_pos_start + tf.desired_batch_size,
@@ -610,13 +611,7 @@ pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRe
         apf_idx: re.apf_idx,
     };
 
-    let mut iter = AutoDerefIter::new(
-        &sess.record_mgr.fields,
-        &mut sess.record_mgr.match_sets,
-        input_field_id,
-        iter_base,
-        None,
-    );
+    let mut iter = AutoDerefIter::new(&sess.record_mgr.fields, input_field_id, iter_base);
 
     let mut text_regex = re
         .text_only_regex
