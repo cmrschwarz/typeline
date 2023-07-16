@@ -94,8 +94,12 @@ impl IterHall {
         res
     }
     pub fn store_iter<'a>(&self, iter_id: IterId, iter: impl FieldIterator<'a>) {
-        let mut iter = iter.as_base_iter();
+        let iter = iter.as_base_iter();
         assert!(iter.fd as *const FieldData == &self.fd as *const FieldData);
+
+        unsafe { self.store_iter_unchecked(iter_id, iter) };
+    }
+    pub unsafe fn store_iter_unchecked<'a>(&self, iter_id: IterId, mut iter: Iter<'a>) {
         let mut state = self.iters[iter_id].get();
         state.field_pos = iter.field_pos;
         state.header_rl_offset = iter.header_rl_offset;

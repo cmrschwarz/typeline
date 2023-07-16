@@ -588,26 +588,29 @@ fn basic_cow() -> Result<(), ScrError> {
 }
 #[test]
 fn cow_not_affecting_original() -> Result<(), ScrError> {
-    let ss1 = StringSinkHandle::new();
-    let ss2 = StringSinkHandle::new();
-    ContextBuilder::default()
-        .push_str("123", 1)
-        .add_op(create_op_split())
-        .add_op(
-            create_op_regex(
-                ".",
-                RegexOptions {
-                    multimatch: true,
-                    ..Default::default()
-                },
+    for bs in [1, 2, 3, DEFAULT_CHAIN_OPTIONS.default_batch_size.unwrap()] {
+        let ss1 = StringSinkHandle::new();
+        let ss2 = StringSinkHandle::new();
+        ContextBuilder::default()
+            .set_batch_size(bs)
+            .push_str("123", 1)
+            .add_op(create_op_split())
+            .add_op(
+                create_op_regex(
+                    ".",
+                    RegexOptions {
+                        multimatch: true,
+                        ..Default::default()
+                    },
+                )
+                .unwrap(),
             )
-            .unwrap(),
-        )
-        .add_op(create_op_string_sink(&ss1))
-        .add_op(create_op_next())
-        .add_op(create_op_string_sink(&ss2))
-        .run()?;
-    assert_eq!(ss1.get_data().unwrap().as_slice(), ["1", "2", "3"]);
-    assert_eq!(ss2.get_data().unwrap().as_slice(), ["123"]);
+            .add_op(create_op_string_sink(&ss1))
+            .add_op(create_op_next())
+            .add_op(create_op_string_sink(&ss2))
+            .run()?;
+        assert_eq!(ss1.get_data().unwrap().as_slice(), ["1", "2", "3"]);
+        assert_eq!(ss2.get_data().unwrap().as_slice(), ["123"]);
+    }
     Ok(())
 }

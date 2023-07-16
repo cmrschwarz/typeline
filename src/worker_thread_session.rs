@@ -309,7 +309,11 @@ impl RecordManager {
     ) {
         if field.field_id != field_id {
             let field = fields[field_id].borrow();
-            field.field_data.store_iter(iter_id, iter);
+            unsafe {
+                field
+                    .field_data
+                    .store_iter_unchecked(iter_id, iter.as_base_iter())
+            };
         } else {
             field.field_data.store_iter(iter_id, iter);
         }
