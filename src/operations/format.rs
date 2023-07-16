@@ -1143,13 +1143,11 @@ fn write_fmt_key(
         |_fmt, _output_idx, _run_len| (),
     );
     let ident_ref = fmt.refs[k.identifier];
-    let field = &mut fields[ident_ref.field_id].borrow();
+    let field = RecordManager::borrow_field_cow(fields, ident_ref.field_id);
     let mut iter = AutoDerefIter::new(
         fields,
         ident_ref.field_id,
-        field
-            .field_data
-            .get_iter(ident_ref.iter_id)
+        RecordManager::get_iter_cow_aware(fields, ident_ref.field_id, &field, ident_ref.iter_id)
             .bounded(0, batch_size),
     );
 
@@ -1252,9 +1250,13 @@ fn write_fmt_key(
             }
         }
     }
-    field
-        .field_data
-        .store_iter(ident_ref.iter_id, iter.into_base_iter());
+    RecordManager::store_iter_cow_aware(
+        fields,
+        ident_ref.field_id,
+        &field,
+        ident_ref.iter_id,
+        iter.into_base_iter(),
+    );
 }
 pub fn handle_tf_format(sess: &mut JobData<'_>, tf_id: TransformId, fmt: &mut TfFormat) {
     let tf = &sess.tf_mgr.transforms[tf_id];

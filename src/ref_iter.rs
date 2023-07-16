@@ -56,11 +56,19 @@ impl<'a> RefIter<'a> {
         field_id: FieldId,
     ) -> (Ref<'b, Field>, Iter<'b>) {
         let field_ref = RecordManager::borrow_field_cow(fields, field_id);
-        let field_ref_laundered = unsafe { &*(field_ref.deref() as *const Field) as &'b Field };
-        let data_iter = field_ref_laundered
-            .field_data
-            .get_iter(FIELD_REF_LOOKUP_ITER_ID);
-        (field_ref, data_iter)
+        /*
+        let iter = RecordManager::get_iter_cow_aware(
+            fields,
+            field_id,
+            &field_ref,
+            FIELD_REF_LOOKUP_ITER_ID,
+        );*/
+        // this is explicitly *not* cow aware for now, because that would be unsound
+        // it doesn't matter too much, and this whole FIELD_REF_LOOKUP_ITER_ID thing is pretty stupid anyways
+        let iter = field_ref.field_data.get_iter(FIELD_REF_LOOKUP_ITER_ID);
+        let iter_lifetime_laundered = unsafe { std::mem::transmute::<Iter<'_>, Iter<'b>>(iter) };
+
+        (field_ref, iter_lifetime_laundered)
     }
     pub fn reset(
         &mut self,
