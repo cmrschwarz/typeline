@@ -97,6 +97,7 @@ impl ContextOptions {
             OperatorData::FileReader(_) => (),
             OperatorData::DataInserter(_) => (),
             OperatorData::Sequence(_) => (),
+            OperatorData::Join(_) => (),
             OperatorData::Split(_) => {
                 let mut new_chain = ChainOptions::default();
                 new_chain.parent = self.curr_chain;
@@ -166,6 +167,7 @@ impl ContextOptions {
                 OperatorData::Sequence(_) => (),
                 OperatorData::DataInserter(_) => (),
                 OperatorData::Print(_) => (),
+                OperatorData::Join(_) => (),
                 OperatorData::Next(_) => unreachable!(),
                 OperatorData::Up(_) => unreachable!(),
             }

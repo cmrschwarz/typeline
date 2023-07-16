@@ -1050,7 +1050,6 @@ dependencies = [
  "crossbeam",
  "encoding_rs",
  "fantoccini",
- "html5ever",
  "indexmap",
  "is-terminal",
  "itertools",

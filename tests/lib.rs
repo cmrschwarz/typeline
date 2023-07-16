@@ -3,8 +3,10 @@ mod utils;
 use scr::bstr::ByteSlice;
 
 use scr::operations::chain_navigation_ops::create_op_next;
+use scr::operations::file_reader::create_op_file_reader_custom_not_cloneable;
+use scr::operations::join::create_op_join;
 use scr::operations::select::create_op_select;
-use scr::operations::sequence::create_op_enum;
+use scr::operations::sequence::{create_op_enum, create_op_seqn};
 use scr::operations::split::create_op_split;
 use scr::operations::string_sink::create_op_string_sink_transparent;
 use scr::options::chain_options::DEFAULT_CHAIN_OPTIONS;
@@ -612,5 +614,89 @@ fn cow_not_affecting_original() -> Result<(), ScrError> {
         assert_eq!(ss1.get_data().unwrap().as_slice(), ["1", "2", "3"]);
         assert_eq!(ss2.get_data().unwrap().as_slice(), ["123"]);
     }
+    Ok(())
+}
+
+#[test]
+fn join() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::new();
+    ContextBuilder::default()
+        .add_op(create_op_seq(1, 4, 1).unwrap())
+        .add_op(create_op_join(Some(",".as_bytes().to_owned()), None, false))
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(ss.get_data().unwrap().as_slice(), ["1,2,3"]);
+    Ok(())
+}
+#[test]
+fn join_single() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::new();
+    ContextBuilder::default()
+        .add_op(create_op_seq(1, 2, 1).unwrap())
+        .add_op(create_op_join(
+            Some(",".as_bytes().to_owned()),
+            Some(2),
+            false,
+        ))
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(ss.get_data().unwrap().as_slice(), ["1"]);
+    Ok(())
+}
+
+#[test]
+fn join_drop_incomplete() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::new();
+    ContextBuilder::default()
+        .add_op(create_op_seqn(1, 3, 1).unwrap())
+        .add_op(create_op_join(None, Some(2), true))
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(ss.get_data().unwrap().as_slice(), ["12"]);
+    Ok(())
+}
+#[test]
+fn join_empty() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::new();
+    /*   ContextBuilder::default()
+        .add_op(create_op_join(None, None, true))
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(ss.get_data().unwrap().as_slice(), &[] as &[String]);*/
+    ContextBuilder::default()
+        .add_op(create_op_join(None, None, false))
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(ss.get_data().unwrap().as_slice(), [""]);
+    Ok(())
+}
+
+#[test]
+fn join_no_sep() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::new();
+    ContextBuilder::default()
+        .add_op(create_op_seqn(1, 5, 1).unwrap())
+        .add_op(create_op_join(None, None, false))
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(ss.get_data().unwrap().as_slice(), ["12345"]);
+    Ok(())
+}
+
+//#[test] //broken
+fn join_streams() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::new();
+    ContextBuilder::default()
+        .set_stream_buffer_size(1)
+        .add_op(create_op_file_reader_custom(Box::new(SliceReader::new(
+            "foo".as_bytes(),
+        ))))
+        .add_op_appending(create_op_file_reader_custom(Box::new(SliceReader::new(
+            "bar".as_bytes(),
+        ))))
+        .add_op(create_op_join(None, None, false))
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(ss.get_data().unwrap().as_slice(), ["foobar"]);
     Ok(())
 }

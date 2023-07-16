@@ -20,6 +20,7 @@ use crate::{
         errors::TransformSetupError,
         file_reader::{handle_tf_file_reader, setup_tf_file_reader},
         format::{handle_tf_format, handle_tf_format_stream_value_update, setup_tf_format},
+        join::{handle_tf_join, handle_tf_join_stream_value_update, setup_tf_join},
         operator::{OperatorData, OperatorId},
         print::{handle_tf_print, handle_tf_print_stream_value_update, setup_tf_print},
         regex::{handle_tf_regex, handle_tf_regex_stream_value_update, setup_tf_regex},
@@ -61,6 +62,7 @@ pub struct Field {
 }
 
 pub type FieldId = NonMaxUsize;
+pub const INVALID_FIELD_ID: FieldId = unsafe { NonMaxUsize::new_unchecked(usize::MAX - 1) };
 
 pub type MatchSetId = NonMaxUsize;
 
@@ -633,6 +635,7 @@ impl<'a> WorkerThreadSession<'a> {
                     setup_tf_split(jd, b, op, &mut tf_state)
                 }
                 OperatorData::Print(op) => setup_tf_print(jd, b, op, &mut tf_state),
+                OperatorData::Join(op) => setup_tf_join(jd, b, op, &mut tf_state),
                 OperatorData::Regex(op) => setup_tf_regex(jd, b, op, &mut tf_state)?,
                 OperatorData::Format(op) => setup_tf_format(jd, b, op, tf_id_peek, &mut tf_state),
                 OperatorData::StringSink(op) => setup_tf_string_sink(jd, b, op, &mut tf_state),
@@ -712,6 +715,13 @@ impl<'a> WorkerThreadSession<'a> {
                         svu.sv_id,
                         svu.custom,
                     ),
+                    TransformData::Join(tf) => handle_tf_join_stream_value_update(
+                        &mut self.job_data,
+                        svu.tf_id,
+                        tf,
+                        svu.sv_id,
+                        svu.custom,
+                    ),
                     TransformData::StringSink(tf) => handle_tf_string_sink_stream_value_update(
                         &mut self.job_data,
                         svu.tf_id,
@@ -768,6 +778,7 @@ impl<'a> WorkerThreadSession<'a> {
                     TransformData::Sequence(tf) => handle_tf_sequence(jd, tf_id, tf),
                     TransformData::Format(tf) => handle_tf_format(jd, tf_id, tf),
                     TransformData::Terminator(tf) => handle_tf_terminator(jd, tf_id, tf),
+                    TransformData::Join(tf) => handle_tf_join(jd, tf_id, tf),
                     TransformData::Disabled => unreachable!(),
                 }
                 if let Some(tf) = self.job_data.tf_mgr.transforms.get(tf_id) {

@@ -3,6 +3,7 @@ pub mod data_inserter;
 pub mod errors;
 pub mod file_reader;
 pub mod format;
+pub mod join;
 pub mod key;
 pub mod operator;
 pub mod print;

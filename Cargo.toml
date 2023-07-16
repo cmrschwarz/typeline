@@ -18,7 +18,7 @@ name = "bench"
 path = "bench/lib.rs"
 
 [dependencies]
-html5ever = "0.26.0"
+# html5ever = "0.26.0"
 markup5ever_rcdom = "0.2.0"
 fantoccini = "0.19.0"
 smallvec = { version = "1.10.0", features = ["union"] }
@@ -58,4 +58,4 @@ lto = "thin"
 
 [features]
 unstable = []
-debug_logging= []
+debug_logging = []

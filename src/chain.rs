@@ -204,6 +204,11 @@ pub fn compute_local_liveness_data(sess: &mut SessionData, chain_id: ChainId) {
                 cn.liveness_data.mark_default_input_as_shadowed(curr_field);
                 curr_field = output_field;
             }
+            OperatorData::Join(_) => {
+                any_writes_so_far = true;
+                cn.liveness_data.mark_default_input_as_shadowed(curr_field);
+                curr_field = output_field;
+            }
             OperatorData::Sequence(seq) => {
                 any_writes_so_far |= !seq.stop_after_input;
                 cn.liveness_data.mark_default_input_as_shadowed(curr_field);

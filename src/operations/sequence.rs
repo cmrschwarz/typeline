@@ -272,6 +272,13 @@ pub fn create_op_seq(
 ) -> Result<OperatorData, OperatorCreationError> {
     create_op_seq_with_cli_arg_idx(start, end, step, false, None)
 }
+pub fn create_op_seqn(
+    start: i64,
+    end: i64,
+    step: i64,
+) -> Result<OperatorData, OperatorCreationError> {
+    create_op_seq_with_cli_arg_idx(start, end + 1, step, false, None)
+}
 
 pub fn create_op_enum(
     start: i64,

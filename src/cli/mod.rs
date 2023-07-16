@@ -1,9 +1,10 @@
 use crate::chain::BufferingMode;
 use crate::operations::chain_navigation_ops::{parse_op_next, parse_op_up};
-use crate::operations::data_inserter::{argument_matches_data_inserter, parse_data_inserter};
+use crate::operations::data_inserter::{argument_matches_op_data_inserter, parse_data_inserter};
 use crate::operations::errors::OperatorCreationError;
 use crate::operations::file_reader::{parse_op_file, parse_op_stdin};
 use crate::operations::format::parse_op_format;
+use crate::operations::join::{argument_matches_op_join, parse_op_join};
 use crate::operations::key::parse_op_key;
 use crate::operations::operator::OperatorData;
 use crate::operations::print::parse_op_print;
@@ -388,8 +389,11 @@ fn parse_operation(
         }
         return Ok(Some(OperatorData::Regex(parse_op_regex(value, idx, opts)?)));
     }
-    if argument_matches_data_inserter(argname) {
+    if argument_matches_op_data_inserter(argname) {
         return Ok(Some(parse_data_inserter(argname, value, idx)?));
+    }
+    if argument_matches_op_join(argname) {
+        return Ok(Some(parse_op_join(argname, value, idx)?));
     }
     Ok(match argname {
         "p" => Some(parse_op_print(value, idx)?),

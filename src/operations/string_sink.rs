@@ -443,12 +443,12 @@ pub fn handle_tf_string_sink(
     drop(input_field);
     drop(output_field);
     let streams_done = ss.stream_value_handles.claimed_entry_count() == 0;
-    if streams_done {
-        sess.tf_mgr.update_ready_state(tf_id);
-    }
     if input_done && streams_done {
         sess.unlink_transform(tf_id, consumed_fields);
     } else {
+        if streams_done {
+            sess.tf_mgr.update_ready_state(tf_id);
+        }
         sess.tf_mgr
             .inform_successor_batch_available(tf_id, consumed_fields);
     }

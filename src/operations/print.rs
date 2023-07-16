@@ -20,7 +20,7 @@ use crate::{
     },
     stream_value::{StreamValue, StreamValueData, StreamValueId},
     utils::i64_to_str,
-    worker_thread_session::{FieldId, JobData, RecordManager},
+    worker_thread_session::{JobData, RecordManager},
 };
 use bstr::BStr;
 use is_terminal::IsTerminal;
@@ -37,7 +37,6 @@ pub struct TfPrint {
     flush_on_every_print: bool,
     current_stream_val: Option<StreamValueId>,
     iter_id: IterId,
-    output_field: FieldId,
 }
 
 pub fn parse_op_print(
@@ -59,11 +58,6 @@ pub fn setup_tf_print(
     _op: &OpPrint,
     tf_state: &mut TransformState,
 ) -> TransformData<'static> {
-    let output_field = sess.record_mgr.add_field(
-        tf_state.match_set_id,
-        sess.record_mgr.get_min_apf_idx(tf_state.input_field),
-        None,
-    );
     tf_state.preferred_input_type = Some(FieldValueKind::BytesInline);
     TransformData::Print(TfPrint {
         // TODO: should we make a config option for this?
@@ -73,7 +67,6 @@ pub fn setup_tf_print(
             .borrow_mut()
             .field_data
             .claim_iter(),
-        output_field,
     })
 }
 
@@ -229,6 +222,7 @@ pub fn handle_tf_print_raw(
             TypedSlice::StreamValueId(svs) => {
                 let mut pos = field_pos;
                 for (sv_id, offsets, rl) in RefAwareStreamValueIter::from_range(&range, svs) {
+                    pos += rl as usize;
                     let sv = &mut sess.sv_mgr.stream_values[sv_id];
                     if !write_stream_val_check_done(&mut stdout, sv, offsets, rl as usize).map_err(
                         |(i, e)| {
@@ -245,7 +239,6 @@ pub fn handle_tf_print_raw(
                         break 'iter;
                     }
                     *handled_field_count += rl as usize;
-                    pos += rl as usize;
                 }
             }
             TypedSlice::Html(_) | TypedSlice::Object(_) => {
@@ -307,11 +300,12 @@ pub fn handle_tf_print(sess: &mut JobData<'_>, tf_id: TransformId, tf: &mut TfPr
 pub fn handle_tf_print_stream_value_update(
     sess: &mut JobData<'_>,
     tf_id: TransformId,
-    tf: &mut TfPrint,
+    _print: &mut TfPrint,
     sv_id: StreamValueId,
     custom: usize,
 ) {
     let mut stdout = std::io::stdout().lock();
+    let tf = &sess.tf_mgr.transforms[tf_id];
     let sv = &mut sess.sv_mgr.stream_values[sv_id];
     let run_len = custom;
     match write_stream_val_check_done(&mut stdout, sv, None, run_len) {

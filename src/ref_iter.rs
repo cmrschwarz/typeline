@@ -10,6 +10,7 @@ use crate::{
     utils::universe::Universe,
     worker_thread_session::{
         Field, FieldId, MatchSet, MatchSetId, RecordManager, FIELD_REF_LOOKUP_ITER_ID,
+        INVALID_FIELD_ID,
     },
 };
 use std::cell::{Ref, RefCell};
@@ -238,6 +239,17 @@ impl<'a> RefIter<'a> {
             ))
         }
     }
+    pub fn next_n_fields(&mut self, limit: usize) -> usize {
+        let ref_skip = self.refs_iter.next_n_fields(limit);
+        let data_iter = self.data_iter.as_mut().unwrap();
+        if self.refs_iter.peek().map(|(v, _rl)| v.field) == Some(self.last_field_id) {
+            let data_skip = data_iter.next_n_fields(ref_skip);
+            assert!(data_skip == ref_skip);
+        } else {
+            self.last_field_id = INVALID_FIELD_ID;
+        }
+        return ref_skip;
+    }
 }
 
 pub struct AutoDerefIter<'a, I: FieldIterator<'a>> {
@@ -288,6 +300,7 @@ impl<'a, I: FieldIterator<'a>> AutoDerefIter<'a, I> {
                         field_id: fr.field,
                     });
                 }
+                self.ref_iter = None;
             }
             let field_pos = self.iter.get_next_field_pos();
             if let Some(range) = self.iter.typed_range_fwd(limit, flags) {
@@ -317,6 +330,21 @@ impl<'a, I: FieldIterator<'a>> AutoDerefIter<'a, I> {
                 return None;
             }
         }
+    }
+    pub fn next_n_fields(&mut self, mut limit: usize) -> usize {
+        let mut ri_count = 0;
+        if let Some(ri) = &mut self.ref_iter {
+            ri_count = ri.next_n_fields(limit);
+            if ri_count == limit {
+                return limit;
+            }
+            limit -= ri_count;
+        }
+        let base_count = self.iter.next_n_fields(limit);
+        if base_count > 0 {
+            self.ref_iter = None;
+        }
+        return ri_count + base_count;
     }
 }
 

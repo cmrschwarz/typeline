@@ -170,10 +170,10 @@ pub fn parse_op_bytes(
 }
 
 lazy_static::lazy_static! {
-    static ref ARG_REGEX: Regex = Regex::new(r"^(?<append>\+)?(?<type>int|bytes|str)(?<insert_count>[0-9]+)?$").unwrap();
+    static ref ARG_REGEX: Regex = Regex::new(r"^(?<type>int|bytes|str)(?<insert_count>[0-9]+)?$").unwrap();
 }
 
-pub fn argument_matches_data_inserter(arg: &str) -> bool {
+pub fn argument_matches_op_data_inserter(arg: &str) -> bool {
     ARG_REGEX.is_match(arg)
 }
 

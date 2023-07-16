@@ -6,8 +6,7 @@ use std::{
     sync::Mutex,
 };
 
-use bstr::BStr;
-use html5ever::tendril::fmt::Slice;
+use bstr::{BStr, ByteSlice};
 use is_terminal::IsTerminal;
 use smallstr::SmallString;
 

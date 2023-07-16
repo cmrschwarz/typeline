@@ -5,6 +5,12 @@ pub struct SliceReader<'a> {
     pub data: &'a [u8],
 }
 
+impl<'a> SliceReader<'a> {
+    pub fn new(data: &'a [u8]) -> Self {
+        Self { data }
+    }
+}
+
 impl<'a> Read for SliceReader<'a> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         let len = self.data.len();
@@ -39,5 +45,15 @@ impl<'a> Read for TricklingStream<'a> {
         self.total_size -= 1;
         self.data_pos += 1;
         return Ok(1);
+    }
+}
+
+impl<'a> TricklingStream<'a> {
+    pub fn new(data_to_repeat: &'a [u8], total_size: usize) -> Self {
+        Self {
+            data_to_repeat,
+            total_size,
+            data_pos: 0,
+        }
     }
 }

@@ -7,6 +7,7 @@ use super::{
     data_inserter::OpDataInserter,
     file_reader::OpFileReader,
     format::OpFormat,
+    join::OpJoin,
     key::OpKey,
     print::OpPrint,
     regex::OpRegex,
@@ -22,6 +23,7 @@ pub type OperatorOffsetInChain = u32;
 #[derive(Clone)]
 pub enum OperatorData {
     Print(OpPrint),
+    Join(OpJoin),
     Split(OpSplit),
     Next(OpNext),
     Up(OpUp),
@@ -59,6 +61,7 @@ impl OperatorData {
             OperatorData::Select(_) => SmallString::from("select"),
             OperatorData::StringSink(op) => op.default_op_name(),
             OperatorData::DataInserter(op) => op.default_op_name(),
+            OperatorData::Join(op) => op.default_op_name(),
             OperatorData::Next(_) => SmallString::from("next"),
             OperatorData::Up(_) => SmallString::from("up"),
         }

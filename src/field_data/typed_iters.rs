@@ -116,21 +116,22 @@ impl<'a, T: 'static> TypedSliceIter<'a, T> {
             return Some(value);
         }
     }
-    pub fn next_n_fields(&mut self, mut n: usize) {
-        if self.header == self.header_end {
-            return;
-        }
+    pub fn next_n_fields(&mut self, n: usize) -> usize {
+        let mut skip_rem = n;
         loop {
-            if self.header_rl_rem as usize > n {
-                self.header_rl_rem -= n as RunLength;
+            if self.header == self.header_end {
+                return n - skip_rem;
+            }
+            if self.header_rl_rem as usize > skip_rem {
+                self.header_rl_rem -= skip_rem as RunLength;
                 unsafe {
                     if !(*self.header).shared_value() {
-                        self.advance_value(n);
+                        self.advance_value(skip_rem);
                     }
                 }
-                return;
+                return n;
             }
-            n -= self.header_rl_rem as usize;
+            skip_rem -= self.header_rl_rem as usize;
             self.next_header();
         }
     }

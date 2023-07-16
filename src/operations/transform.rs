@@ -8,7 +8,7 @@ use crate::{
 };
 
 use super::{
-    data_inserter::TfDataInserter, file_reader::TfFileReader, format::TfFormat,
+    data_inserter::TfDataInserter, file_reader::TfFileReader, format::TfFormat, join::TfJoin,
     operator::OperatorId, print::TfPrint, regex::TfRegex, sequence::TfSequence, split::TfSplit,
     string_sink::TfStringSink, terminator::TfTerminator,
 };
@@ -20,6 +20,7 @@ pub type TransformOrderingId = NonZeroUsize;
 pub enum TransformData<'a> {
     Disabled,
     Print(TfPrint),
+    Join(TfJoin<'a>),
     StringSink(TfStringSink<'a>),
     Split(TfSplit),
     Regex(TfRegex),
