@@ -24,12 +24,19 @@ use std::{
 use std::ops::Deref;
 
 use crate::{
-    operations::errors::OperatorApplicationError, stream_value::StreamValueId,
-    utils::string_store::StringStoreEntry, worker_thread_session::FieldId,
+    operations::errors::OperatorApplicationError,
+    ref_iter::{
+        AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter, RefAwareInlineTextIter,
+    },
+    stream_value::StreamValueId,
+    utils::{string_store::StringStoreEntry, universe::Universe},
+    worker_thread_session::{FieldId, MatchSet, MatchSetId},
 };
 
 use self::{
+    field_value_flags::{BYTES_ARE_UTF8, SHARED_VALUE},
     iters::{FieldIterator, Iter, IterMut},
+    push_interface::PushInterface,
     typed::TypedSlice,
 };
 
@@ -202,7 +209,9 @@ pub mod field_value_flags {
 
     pub const DEFAULT: FieldValueFlags = 0;
 }
+use bstr::ByteVec;
 pub use field_value_flags::FieldValueFlags;
+use html5ever::data;
 
 #[derive(Clone, Copy, PartialEq)]
 pub struct FieldValueFormat {
@@ -414,63 +423,100 @@ impl FieldData {
         mut iter: impl FieldIterator<'a> + Clone,
         mut targets_applicator: impl FnMut(&mut dyn FnMut(&mut FieldData)),
     ) -> usize {
-        if !iter.is_next_valid() {
-            return 0;
-        }
-        let src_fd = iter.clone().as_base_iter().fd;
-        let mut header_idx_start = iter.get_next_header_index();
-        let mut first_header = iter.get_next_header();
-        first_header.run_length -= iter.field_run_length_bwd();
-        let mut data_pos = iter.get_next_field_data();
         let mut copied_fields = 0;
-        loop {
-            // we have to loop here because this could be interrupted by deleted fields
-            let leading_inline_byte_fields = iter.next_n_fields_with_fmt(
-                usize::MAX,
-                [FieldValueKind::BytesInline],
-                field_value_flags::DELETED,
-                0,
-            );
-            if leading_inline_byte_fields == 0 {
-                break;
-            }
-            copied_fields += leading_inline_byte_fields;
-            let data_pos_after = iter.get_prev_field_data_end();
-            let header_idx_end = iter.get_prev_header_index() + 1;
-
-            let src = &src_fd.data[data_pos..data_pos_after];
-            let headers_src = &src_fd.header[header_idx_start + 1..header_idx_end];
-            targets_applicator(&mut |fd| {
-                fd.data.extend_from_slice(src);
-                fd.header.push(first_header);
-                fd.header.extend_from_slice(headers_src)
-            });
-            if !iter.is_next_valid() {
-                targets_applicator(&mut |fd| fd.field_count += copied_fields);
-                return copied_fields;
-            }
-            header_idx_start = iter.get_next_header_index();
-            first_header = iter.get_next_header();
-            data_pos = iter.get_next_field_data();
-        }
-        // treat the first header after inline bytes separately so we can make
-        // sure every target is aligned afterwards
-        let rl = iter.field_run_length_fwd() as usize;
-        let tr = iter.typed_range_fwd(rl, 0).unwrap();
-        let ts = tr.data;
-        targets_applicator(&mut |fd| unsafe {
-            first_header.set_leading_padding(fd.pad_to_align());
-            fd.header.push(first_header);
-            append_data(ts, &mut |func| func(fd));
-        });
-        // now that everybody is aligned, copy over the rest
-        // PERF: this could be optimized if we know that there are no deleted
-        // headers
-        copied_fields += tr.field_count;
-        while let Some(tr) = iter.typed_range_fwd(usize::MAX, 0) {
+        while let Some(tr) = iter.typed_range_fwd(usize::MAX, field_value_flags::DELETED) {
             copied_fields += tr.field_count;
-            targets_applicator(&mut |fd| fd.header.extend_from_slice(tr.headers));
+            targets_applicator(&mut |fd| {
+                let first_header_idx = fd.header.len();
+                fd.header.extend_from_slice(tr.headers);
+                if tr.headers[0].kind.needs_alignment() {
+                    let align = unsafe { fd.pad_to_align() };
+                    fd.header[first_header_idx].set_leading_padding(align);
+                }
+                fd.header[first_header_idx].run_length -= tr.first_header_run_length_oversize;
+            });
             unsafe { append_data(tr.data, &mut targets_applicator) };
+        }
+        targets_applicator(&mut |fd| fd.field_count += copied_fields);
+        copied_fields
+    }
+
+    pub fn copy_resolve_refs<'a, I: FieldIterator<'a>>(
+        match_sets: &mut Universe<MatchSetId, MatchSet>,
+        mut iter: AutoDerefIter<'a, I>,
+        mut targets_applicator: impl FnMut(&mut dyn FnMut(&mut FieldData)),
+    ) -> usize {
+        let mut copied_fields = 0;
+        while let Some(tr) = iter.typed_range_fwd(
+            match_sets,
+            usize::MAX,
+            field_value_flags::BYTES_ARE_UTF8 | field_value_flags::DELETED,
+        ) {
+            copied_fields += tr.base.field_count;
+            if tr.refs.is_none() {
+                targets_applicator(&mut |fd| {
+                    let first_header_idx = fd.header.len();
+                    fd.header.extend_from_slice(tr.base.headers);
+                    if tr.base.headers[0].kind.needs_alignment() {
+                        let align = unsafe { fd.pad_to_align() };
+                        fd.header[first_header_idx].set_leading_padding(align);
+                    }
+                    fd.header[first_header_idx].run_length -=
+                        tr.base.first_header_run_length_oversize;
+                });
+                unsafe { append_data(tr.base.data, &mut targets_applicator) };
+            } else {
+                match tr.base.data {
+                    TypedSlice::BytesInline(data) => {
+                        for (v, rl, _offset) in RefAwareInlineBytesIter::from_range(&tr, data) {
+                            targets_applicator(&mut |fd| {
+                                //TODO: maybe do a little rle here?
+                                fd.header.push(FieldValueHeader {
+                                    fmt: FieldValueFormat {
+                                        kind: FieldValueKind::BytesInline,
+                                        flags: SHARED_VALUE,
+                                        size: v.len() as FieldValueSize,
+                                    },
+                                    run_length: rl,
+                                });
+                                fd.data.push_str(v);
+                            });
+                        }
+                    }
+                    TypedSlice::TextInline(data) => {
+                        for (v, rl, _offset) in RefAwareInlineTextIter::from_range(&tr, data) {
+                            targets_applicator(&mut |fd| {
+                                //TODO: maybe do a little rle here?
+                                fd.header.push(FieldValueHeader {
+                                    fmt: FieldValueFormat {
+                                        kind: FieldValueKind::BytesInline,
+                                        flags: SHARED_VALUE | BYTES_ARE_UTF8,
+                                        size: v.len() as FieldValueSize,
+                                    },
+                                    run_length: rl,
+                                });
+                                fd.data.push_str(v);
+                            });
+                        }
+                    }
+                    TypedSlice::BytesBuffer(data) => {
+                        for (v, rl, _offset) in RefAwareBytesBufferIter::from_range(&tr, data) {
+                            targets_applicator(&mut |fd| {
+                                fd.push_bytes(v, rl as usize, true, false);
+                            });
+                        }
+                    }
+                    TypedSlice::Success(_)
+                    | TypedSlice::Unset(_)
+                    | TypedSlice::Null(_)
+                    | TypedSlice::Integer(_)
+                    | TypedSlice::StreamValueId(_)
+                    | TypedSlice::Reference(_)
+                    | TypedSlice::Error(_)
+                    | TypedSlice::Html(_)
+                    | TypedSlice::Object(_) => unreachable!(),
+                }
+            }
         }
         targets_applicator(&mut |fd| fd.field_count += copied_fields);
         copied_fields
