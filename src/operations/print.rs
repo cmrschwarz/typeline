@@ -255,9 +255,13 @@ pub fn handle_tf_print_raw(
         }
         field_pos += range.base.field_count;
     }
-    input_field
-        .field_data
-        .store_iter(tf.iter_id, iter.into_base_iter());
+    RecordManager::store_iter_cow_aware(
+        &sess.record_mgr.fields,
+        input_field_id,
+        &input_field,
+        tf.iter_id,
+        iter.into_base_iter(),
+    );
     drop(input_field);
     if tf.flush_on_every_print {
         stdout.flush().ok();

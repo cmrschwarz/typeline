@@ -687,7 +687,13 @@ pub fn lookup_widths(
         |os| os.error_occured = true,
     );
     if update_iter {
-        field.field_data.store_iter(ident_ref.iter_id, iter);
+        RecordManager::store_iter_cow_aware(
+            fields,
+            ident_ref.field_id,
+            &field,
+            ident_ref.iter_id,
+            iter,
+        );
     }
 }
 pub fn setup_key_output_state(

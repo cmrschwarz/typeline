@@ -12,7 +12,7 @@ use crate::{
     field_data::{
         command_buffer::{ActionListIndex, ActionProducingFieldIndex, CommandBuffer},
         iter_hall::{IterHall, IterId},
-        iters::Iter,
+        iters::{FieldIterator, Iter},
         FieldData,
     },
     operations::{
@@ -243,16 +243,6 @@ impl RecordManager {
             .reset_with_data(data);
         id
     }
-    pub fn remove_field(&mut self, id: FieldId) {
-        let field = self.fields[id].borrow_mut();
-        for n in &field.names {
-            self.match_sets[field.match_set].field_name_map.remove(n);
-        }
-        #[cfg(feature = "debug_logging")]
-        println!("removing field id {id}");
-        drop(field);
-        self.fields.release(id);
-    }
     pub fn add_match_set(&mut self) -> MatchSetId {
         self.match_sets.claim_with(|| MatchSet {
             stream_participants: Default::default(),
@@ -310,17 +300,23 @@ impl RecordManager {
         }
         return field.field_data.get_iter(iter_id);
     }
+    pub fn store_iter_cow_aware<'a>(
+        fields: &Universe<FieldId, RefCell<Field>>,
+        field_id: FieldId,
+        field: &'a Field,
+        iter_id: IterId,
+        iter: impl FieldIterator<'a>,
+    ) {
+        if field.field_id != field_id {
+            let field = fields[field_id].borrow();
+            field.field_data.store_iter(iter_id, iter);
+        } else {
+            field.field_data.store_iter(iter_id, iter);
+        }
+    }
 
     pub fn bump_field_refcount(&self, field_id: FieldId) {
         self.fields[field_id].borrow_mut().ref_count += 1;
-    }
-    pub fn drop_field_refcount(&mut self, field_id: FieldId) {
-        let mut field = self.fields[field_id].borrow_mut();
-        field.ref_count -= 1;
-        if field.ref_count == 0 {
-            drop(field);
-            self.remove_field(field_id);
-        }
     }
 }
 
@@ -414,6 +410,30 @@ impl JobData<'_> {
                 .inform_transform_batch_available(succ_id, available_batch_for_successor);
         }
     }
+    pub fn drop_field_refcount(&mut self, field_id: FieldId) {
+        let mut field = self.record_mgr.fields[field_id].borrow_mut();
+        field.ref_count -= 1;
+        if field.ref_count == 0 {
+            drop(field);
+            self.remove_field(field_id);
+        }
+    }
+    pub fn remove_field(&mut self, id: FieldId) {
+        let field = self.record_mgr.fields[id].borrow_mut();
+        #[cfg(feature = "debug_logging")]
+        print!("removing field id {id} [ ");
+        for n in &field.names {
+            #[cfg(feature = "debug_logging")]
+            print!("{} ", self.session_data.string_store.lookup(*n));
+            self.record_mgr.match_sets[field.match_set]
+                .field_name_map
+                .remove(n);
+        }
+        #[cfg(feature = "debug_logging")]
+        println!("]");
+        drop(field);
+        self.record_mgr.fields.release(id);
+    }
 }
 
 impl<'a> WorkerThreadSession<'a> {
@@ -475,7 +495,7 @@ impl<'a> WorkerThreadSession<'a> {
             self.job_data.tf_mgr.push_tf_in_ready_queue(start_tf_id);
         }
         for input_field_id in input_data_fields {
-            self.job_data.record_mgr.drop_field_refcount(input_field_id);
+            self.job_data.drop_field_refcount(input_field_id);
         }
         Ok(())
     }
@@ -502,12 +522,13 @@ impl<'a> WorkerThreadSession<'a> {
 
     pub fn remove_transform(&mut self, tf_id: TransformId) {
         let tf = &self.job_data.tf_mgr.transforms[tf_id];
-        self.job_data.record_mgr.drop_field_refcount(tf.input_field);
-        self.job_data
-            .record_mgr
-            .drop_field_refcount(tf.output_field);
+        let tfif = tf.input_field;
+        let tfof = tf.output_field;
+        self.job_data.drop_field_refcount(tfif);
+        self.job_data.drop_field_refcount(tfof);
         #[cfg(feature = "debug_logging")]
         {
+            let tf = &self.job_data.tf_mgr.transforms[tf_id];
             let opname = if let Some(op_id) = tf.op_id {
                 self.job_data
                     .session_data

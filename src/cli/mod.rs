@@ -1,4 +1,5 @@
 use crate::chain::BufferingMode;
+use crate::operations::chain_navigation_ops::{parse_op_next, parse_op_up};
 use crate::operations::data_inserter::{argument_matches_data_inserter, parse_data_inserter};
 use crate::operations::errors::OperatorCreationError;
 use crate::operations::file_reader::{parse_op_file, parse_op_stdin};
@@ -405,8 +406,8 @@ fn parse_operation(
         "enumn" => Some(parse_op_seq(value, true, false, idx)?),
 
         "split" => Some(parse_op_split(value, idx)?),
-        "next" => Some(parse_op_split(value, idx)?),
-        "up" => Some(parse_op_split(value, idx)?),
+        "next" => Some(parse_op_next(value, idx)?),
+        "up" => Some(parse_op_up(value, idx)?),
         _ => None,
     })
 }

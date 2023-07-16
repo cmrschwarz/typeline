@@ -148,12 +148,6 @@ pub fn compute_local_liveness_data(sess: &mut SessionData, chain_id: ChainId) {
             ANONYMOUS_INPUT_FIELD
         };
         match &sess.operator_data[op_id as usize] {
-            OperatorData::Print(_) => {
-                cn.liveness_data
-                    .access_field_unless_anon(curr_field, any_writes_so_far);
-                cn.liveness_data.mark_default_input_as_shadowed(curr_field);
-                curr_field = output_field;
-            }
             OperatorData::Split(_) => {
                 for tgt in &cn.subchains {
                     cn.liveness_data.add_successor(*tgt);
@@ -183,6 +177,12 @@ pub fn compute_local_liveness_data(sess: &mut SessionData, chain_id: ChainId) {
                     cn.liveness_data
                         .access_field_unless_anon(f.unwrap_or(curr_field), any_writes_so_far);
                 }
+                cn.liveness_data.mark_default_input_as_shadowed(curr_field);
+                curr_field = output_field;
+            }
+            OperatorData::Print(_) => {
+                cn.liveness_data
+                    .access_field_unless_anon(curr_field, any_writes_so_far);
                 cn.liveness_data.mark_default_input_as_shadowed(curr_field);
                 curr_field = output_field;
             }

@@ -806,10 +806,13 @@ pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRe
     } else {
         sess.tf_mgr.update_ready_state(tf_id);
     }
-
-    input_field
-        .field_data
-        .store_iter(re.input_field_iter_id, base_iter);
+    RecordManager::store_iter_cow_aware(
+        &sess.record_mgr.fields,
+        input_field_id,
+        &input_field,
+        re.input_field_iter_id,
+        base_iter,
+    );
     sess.tf_mgr
         .inform_successor_batch_available(tf_id, produced_records);
 }

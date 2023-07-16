@@ -151,9 +151,11 @@ pub fn handle_split_expansion(
     let split_op_id = tf.op_id.unwrap() as usize;
     let split_chain_id = sess.job_data.session_data.operator_bases[split_op_id].chain_id as usize;
 
-    for i in 0..sess.job_data.session_data.chains[split_chain_id]
+    // by reversing this, the earlier subchains get the higher tf ordering ids -> get executed first
+    for i in (0..sess.job_data.session_data.chains[split_chain_id]
         .subchains
-        .len()
+        .len())
+        .rev()
     {
         let subchain_id = sess.job_data.session_data.chains[split_chain_id].subchains[i] as usize;
         let target_ms_id = sess.job_data.record_mgr.add_match_set();
@@ -220,7 +222,9 @@ pub fn handle_split_expansion(
                         let mut tgt = sess.job_data.record_mgr.fields[target_field_id].borrow_mut();
                         tgt.match_set = target_ms_id;
                         tgt.field_id = target_field_id;
-                        tgt.names.push(*name);
+                        if *name != DEFAULT_INPUT_FIELD {
+                            tgt.names.push(*name);
+                        }
                         tgt.cow_source = Some(src_field_id);
                         src_field.ref_count += 1;
                         Some(tgt)
@@ -245,6 +249,7 @@ pub fn handle_split_expansion(
                 }
             }
         }
+        target_match_set.field_name_map.remove(&DEFAULT_INPUT_FIELD);
         let start_op = sess.job_data.session_data.chains[subchain_id].operations[0];
         let tf_id = sess.setup_transforms_from_op(target_ms_id, start_op, chain_input_field_id)?;
         targets.push(tf_id);

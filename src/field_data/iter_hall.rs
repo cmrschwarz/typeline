@@ -93,7 +93,7 @@ impl IterHall {
         res.skip_dead_fields();
         res
     }
-    pub fn store_iter<'a>(&'a self, iter_id: IterId, iter: impl FieldIterator<'a>) {
+    pub fn store_iter<'a>(&self, iter_id: IterId, iter: impl FieldIterator<'a>) {
         let mut iter = iter.as_base_iter();
         assert!(iter.fd as *const FieldData == &self.fd as *const FieldData);
         let mut state = self.iters[iter_id].get();

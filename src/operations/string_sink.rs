@@ -19,7 +19,7 @@ use crate::{
     },
     stream_value::{StreamValue, StreamValueData, StreamValueId},
     utils::{i64_to_str, universe::Universe},
-    worker_thread_session::{Field, FieldId, JobData},
+    worker_thread_session::{Field, FieldId, JobData, RecordManager},
 };
 use crate::{
     field_data::{
@@ -153,7 +153,7 @@ pub fn setup_tf_string_sink<'a>(
 ) -> TransformData<'a> {
     tf_state.preferred_input_type = Some(FieldValueKind::BytesInline);
     let output_field = if ss.transparent {
-        sess.record_mgr.drop_field_refcount(tf_state.output_field);
+        sess.drop_field_refcount(tf_state.output_field);
         sess.record_mgr.bump_field_refcount(tf_state.input_field);
         tf_state.output_field = tf_state.input_field;
         None
@@ -306,14 +306,18 @@ pub fn handle_tf_string_sink(
     let (batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
     let tf = &sess.tf_mgr.transforms[tf_id];
     let op_id = tf.op_id.unwrap();
-    let input_field = sess.record_mgr.fields[tf.input_field].borrow();
+    let input_field_id = tf.input_field;
+    let input_field = RecordManager::borrow_field_cow(&sess.record_mgr.fields, tf.input_field);
     let mut output_field = ss
         .output_field
         .map(|id| sess.record_mgr.fields[id].borrow_mut());
-    let base_iter = input_field
-        .field_data
-        .get_iter(ss.batch_iter)
-        .bounded(0, batch_size);
+    let base_iter = RecordManager::get_iter_cow_aware(
+        &sess.record_mgr.fields,
+        tf.input_field,
+        &input_field,
+        ss.batch_iter,
+    )
+    .bounded(0, batch_size);
     let starting_pos = base_iter.get_next_field_pos();
     let mut iter = AutoDerefIter::new(&sess.record_mgr.fields, tf.input_field, base_iter);
     let mut out = ss.handle.lock().unwrap();
@@ -426,9 +430,13 @@ pub fn handle_tf_string_sink(
         field_pos += range.base.field_count;
     }
     let consumed_fields = field_pos - starting_pos;
-    input_field
-        .field_data
-        .store_iter(ss.batch_iter, iter.into_base_iter());
+    RecordManager::store_iter_cow_aware(
+        &sess.record_mgr.fields,
+        input_field_id,
+        &input_field,
+        ss.batch_iter,
+        iter.into_base_iter(),
+    );
     output_field.as_mut().map(|of| {
         of.field_data.push_success(field_pos - last_error_end, true);
     });
