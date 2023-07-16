@@ -93,12 +93,16 @@ impl IterHall {
         res.skip_dead_fields();
         res
     }
+    pub fn iter_is_from_iter_hall(&self, iter: &Iter<'_>) -> bool {
+        iter.fd as *const FieldData == &self.fd as *const FieldData
+    }
     pub fn store_iter<'a>(&self, iter_id: IterId, iter: impl FieldIterator<'a>) {
-        let iter = iter.as_base_iter();
-        assert!(iter.fd as *const FieldData == &self.fd as *const FieldData);
-
+        let iter = iter.into_base_iter();
+        assert!(self.iter_is_from_iter_hall(&iter));
         unsafe { self.store_iter_unchecked(iter_id, iter) };
     }
+    // the point of this is not to save the runtime of one assert, but
+    // to actually bypass that check if we store an iter that comes from our cow_source
     pub unsafe fn store_iter_unchecked<'a>(&self, iter_id: IterId, mut iter: Iter<'a>) {
         let mut state = self.iters[iter_id].get();
         state.field_pos = iter.field_pos;

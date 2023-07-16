@@ -12,7 +12,6 @@ use crate::{
         Field, FieldId, MatchSet, MatchSetId, RecordManager, FIELD_REF_LOOKUP_ITER_ID,
     },
 };
-use core::ops::Deref;
 use std::cell::{Ref, RefCell};
 
 pub struct RefIter<'a> {

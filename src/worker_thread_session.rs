@@ -308,12 +308,10 @@ impl RecordManager {
         iter: impl FieldIterator<'a>,
     ) {
         if field.field_id != field_id {
+            let iter_base = iter.into_base_iter();
+            assert!(field.field_data.iter_is_from_iter_hall(&iter_base));
             let field = fields[field_id].borrow();
-            unsafe {
-                field
-                    .field_data
-                    .store_iter_unchecked(iter_id, iter.as_base_iter())
-            };
+            unsafe { field.field_data.store_iter_unchecked(iter_id, iter_base) };
         } else {
             field.field_data.store_iter(iter_id, iter);
         }

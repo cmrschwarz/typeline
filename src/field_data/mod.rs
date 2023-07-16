@@ -375,7 +375,7 @@ impl FieldData {
     }
     pub fn set_end<'a>(iter: IterMut<'a>) {
         let fd = unsafe { &mut *(iter.fd as *mut FieldData) };
-        let mut iter = iter.as_base_iter();
+        let mut iter = iter.into_base_iter();
         let header_end;
         let data_end;
         if !iter.is_prev_valid() {

@@ -112,7 +112,7 @@ pub trait FieldIterator<'a>: Sized {
     fn bounded(self, backwards: usize, forwards: usize) -> BoundedIter<'a, Self> {
         BoundedIter::new_relative(self, backwards, forwards)
     }
-    fn as_base_iter(self) -> Iter<'a>;
+    fn into_base_iter(self) -> Iter<'a>;
 }
 
 #[repr(C)]
@@ -543,7 +543,7 @@ impl<'a> FieldIterator<'a> for Iter<'a> {
         .into()
     }
 
-    fn as_base_iter(self) -> Iter<'a> {
+    fn into_base_iter(self) -> Iter<'a> {
         self
     }
 }
@@ -742,8 +742,8 @@ where
             .typed_range_bwd(limit.min(self.range_bwd()), flag_mask)
     }
 
-    fn as_base_iter(self) -> Iter<'a> {
-        self.iter.as_base_iter()
+    fn into_base_iter(self) -> Iter<'a> {
+        self.iter.into_base_iter()
     }
 }
 
@@ -900,7 +900,7 @@ impl<'a> FieldIterator<'a> for IterMut<'a> {
         self.as_base_iter_mut().typed_range_bwd(limit, flag_mask)
     }
 
-    fn as_base_iter(self) -> Iter<'a> {
+    fn into_base_iter(self) -> Iter<'a> {
         self.into_base_iter()
     }
 }
