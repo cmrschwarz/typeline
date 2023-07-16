@@ -1,13 +1,13 @@
 use std::collections::{hash_map::Entry, HashMap};
 
-use bstr::{BStr, ByteVec};
+use bstr::BStr;
 
 use crate::{
     chain::DEFAULT_INPUT_FIELD,
     field_data::iter_hall::IterHall,
     options::argument::CliArgIdx,
     ref_iter::AutoDerefIter,
-    utils::identity_hasher::{BuildIdentityHasher, IdentityHasher},
+    utils::identity_hasher::BuildIdentityHasher,
     worker_thread_session::{FieldId, JobData, MatchSetId, RecordManager, WorkerThreadSession},
 };
 
@@ -106,9 +106,12 @@ pub fn handle_tf_split(sess: &mut JobData, tf_id: TransformId, sp: &mut TfSplit)
         });
     }
     for tf in &sp.targets {
-        sess.tf_mgr.inform_successor_batch_available(*tf, batch);
+        sess.tf_mgr.inform_transform_batch_available(*tf, batch);
     }
     if end_of_input {
+        for tf in &sp.targets {
+            sess.tf_mgr.transforms[*tf].input_is_done = true;
+        }
         sess.unlink_transform(tf_id, 0);
     }
 }
@@ -221,6 +224,7 @@ pub fn handle_split_expansion(
         }
         let start_op = sess.job_data.session_data.chains[subchain_id].operations[0];
         let tf_id = sess.setup_transforms_from_op(target_ms_id, start_op, chain_input_field_id)?;
+        targets.push(tf_id);
     }
     if let TransformData::Split(ref mut split) = sess.transform_data[usize::from(tf_id)] {
         split.targets = targets;

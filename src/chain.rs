@@ -78,6 +78,11 @@ impl ChainLivenessData {
         self.fields_declared.insert(name);
         self.field_name_aliases.remove(&name);
     }
+    fn mark_default_input_as_shadowed(&mut self, name: StringStoreEntry) {
+        if name == DEFAULT_INPUT_FIELD {
+            self.declare_field(name)
+        }
+    }
     fn add_successor(&mut self, chain_id: ChainId) {
         self.successors.push(chain_id)
     }
@@ -140,6 +145,7 @@ pub fn compute_local_liveness_data(sess: &mut SessionData, chain_id: ChainId) {
         match &sess.operator_data[op_id as usize] {
             OperatorData::Print(_) => {
                 cn.liveness_data.access_field_unless_anon(curr_field, false);
+                cn.liveness_data.mark_default_input_as_shadowed(curr_field);
                 curr_field = output_field;
             }
             OperatorData::Split(_) => {
@@ -158,6 +164,7 @@ pub fn compute_local_liveness_data(sess: &mut SessionData, chain_id: ChainId) {
                 for f in re.capture_group_names.iter().filter_map(|f| *f) {
                     cn.liveness_data.declare_field(f);
                 }
+                cn.liveness_data.mark_default_input_as_shadowed(curr_field);
                 curr_field = output_field;
             }
             OperatorData::Format(fmt) => {
@@ -165,21 +172,26 @@ pub fn compute_local_liveness_data(sess: &mut SessionData, chain_id: ChainId) {
                     cn.liveness_data
                         .access_field_unless_anon(f.unwrap_or(curr_field), false);
                 }
+                cn.liveness_data.mark_default_input_as_shadowed(curr_field);
                 curr_field = output_field;
             }
             OperatorData::StringSink(ss) => {
                 cn.liveness_data.access_field_unless_anon(curr_field, false);
                 if !ss.transparent {
+                    cn.liveness_data.mark_default_input_as_shadowed(curr_field);
                     curr_field = output_field;
                 }
             }
             OperatorData::FileReader(_) => {
+                cn.liveness_data.mark_default_input_as_shadowed(curr_field);
                 curr_field = output_field;
             }
             OperatorData::DataInserter(_) => {
+                cn.liveness_data.mark_default_input_as_shadowed(curr_field);
                 curr_field = output_field;
             }
             OperatorData::Sequence(_) => {
+                cn.liveness_data.mark_default_input_as_shadowed(curr_field);
                 curr_field = output_field;
             }
             OperatorData::Next(_) => unreachable!(),

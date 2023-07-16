@@ -211,8 +211,6 @@ pub mod field_value_flags {
 }
 use bstr::ByteVec;
 pub use field_value_flags::FieldValueFlags;
-use html5ever::data;
-
 #[derive(Clone, Copy, PartialEq)]
 pub struct FieldValueFormat {
     pub kind: FieldValueKind,

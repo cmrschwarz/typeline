@@ -4,7 +4,7 @@ use bstr::BString;
 use lazy_static::lazy_static;
 
 use crate::{
-    chain::{compute_field_livenses, ChainId},
+    chain::{compute_field_livenses, Chain, ChainId},
     context::{Context, SessionData},
     field_data::record_set::RecordSet,
     operations::{
@@ -198,7 +198,9 @@ impl ContextOptions {
             let parent = if i == 0 {
                 None
             } else {
-                Some(&chains[self.chains[i].parent as usize])
+                let p: &mut Chain = &mut chains[self.chains[i].parent as usize];
+                p.subchains.push(i as ChainId);
+                Some(&*p)
             };
             let chain = self.chains[i].build_chain(parent);
             chains.push(chain);
