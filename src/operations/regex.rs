@@ -42,10 +42,10 @@ use super::{
 
 #[derive(Clone)]
 pub struct OpRegex {
-    regex: bytes::Regex,
-    text_only_regex: Option<regex::Regex>,
-    opts: RegexOptions,
-    output_group_id: usize,
+    pub text_only_regex: Option<regex::Regex>,
+    pub regex: bytes::Regex,
+    pub opts: RegexOptions,
+    pub output_group_id: usize,
     pub capture_group_names: Vec<Option<StringStoreEntry>>,
 }
 

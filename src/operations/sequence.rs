@@ -24,8 +24,8 @@ pub struct SequenceSpec {
 
 #[derive(Clone)]
 pub struct OpSequence {
-    ss: SequenceSpec,
-    stop_after_input: bool,
+    pub ss: SequenceSpec,
+    pub stop_after_input: bool,
 }
 
 impl OpSequence {

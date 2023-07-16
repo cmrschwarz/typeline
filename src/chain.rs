@@ -64,6 +64,9 @@ impl ChainLivenessData {
     }
     fn add_field_name(&mut self, name_before: StringStoreEntry, new_name: StringStoreEntry) {
         self.field_name_aliases.insert(new_name, name_before);
+        if self.fields_declared.contains(&name_before) {
+            self.fields_declared.insert(new_name);
+        }
     }
     fn add_field_name_unless_anon(
         &mut self,
@@ -136,6 +139,7 @@ pub struct Chain {
 pub fn compute_local_liveness_data(sess: &mut SessionData, chain_id: ChainId) {
     let cn = &mut sess.chains[chain_id as usize];
     let mut curr_field = DEFAULT_INPUT_FIELD;
+    let mut any_writes = false;
     for op_id in cn.operations.iter().cloned() {
         let output_field = if sess.operator_bases[op_id as usize].append_mode {
             curr_field
@@ -161,6 +165,9 @@ pub fn compute_local_liveness_data(sess: &mut SessionData, chain_id: ChainId) {
                 curr_field = cn.liveness_data.unalias(select.key_interned);
             }
             OperatorData::Regex(re) => {
+                cn.liveness_data
+                    .access_field_unless_anon(curr_field, any_writes);
+                any_writes |= !re.opts.optional || re.opts.multimatch;
                 for f in re.capture_group_names.iter().filter_map(|f| *f) {
                     cn.liveness_data.declare_field(f);
                 }
@@ -170,27 +177,31 @@ pub fn compute_local_liveness_data(sess: &mut SessionData, chain_id: ChainId) {
             OperatorData::Format(fmt) => {
                 for f in &fmt.refs_idx {
                     cn.liveness_data
-                        .access_field_unless_anon(f.unwrap_or(curr_field), false);
+                        .access_field_unless_anon(f.unwrap_or(curr_field), any_writes);
                 }
                 cn.liveness_data.mark_default_input_as_shadowed(curr_field);
                 curr_field = output_field;
             }
             OperatorData::StringSink(ss) => {
-                cn.liveness_data.access_field_unless_anon(curr_field, false);
+                cn.liveness_data
+                    .access_field_unless_anon(curr_field, any_writes);
                 if !ss.transparent {
                     cn.liveness_data.mark_default_input_as_shadowed(curr_field);
                     curr_field = output_field;
                 }
             }
             OperatorData::FileReader(_) => {
+                // this only inserts if input is done, so no write flag neccessary
                 cn.liveness_data.mark_default_input_as_shadowed(curr_field);
                 curr_field = output_field;
             }
-            OperatorData::DataInserter(_) => {
+            OperatorData::DataInserter(di) => {
+                any_writes |= di.insert_count.is_some();
                 cn.liveness_data.mark_default_input_as_shadowed(curr_field);
                 curr_field = output_field;
             }
-            OperatorData::Sequence(_) => {
+            OperatorData::Sequence(seq) => {
+                any_writes |= !seq.stop_after_input;
                 cn.liveness_data.mark_default_input_as_shadowed(curr_field);
                 curr_field = output_field;
             }

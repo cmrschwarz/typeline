@@ -22,8 +22,8 @@ pub enum DataToInsert {
 
 #[derive(Clone)]
 pub struct OpDataInserter {
-    data: DataToInsert,
-    insert_count: Option<usize>,
+    pub data: DataToInsert,
+    pub insert_count: Option<usize>,
 }
 
 pub struct TfDataInserter<'a> {
