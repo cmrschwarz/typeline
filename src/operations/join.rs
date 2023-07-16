@@ -340,14 +340,14 @@ pub fn handle_tf_join(sess: &mut JobData<'_>, tf_id: TransformId, join: &mut TfJ
             groups_emitted += 1;
         }
     }
-    let streams_done = join.current_stream_val.is_some();
+    let streams_done = join.current_stream_val.is_none();
     drop(input_field);
     drop(output_field);
 
     if input_done && streams_done {
         sess.unlink_transform(tf_id, groups_emitted);
     } else {
-        if !streams_done {
+        if streams_done {
             sess.tf_mgr.update_ready_state(tf_id);
         }
         sess.tf_mgr
@@ -363,7 +363,9 @@ pub fn handle_tf_join_stream_value_update(
     custom: usize,
 ) {
     let run_len = custom;
-    let out_field_id = sess.tf_mgr.transforms[tf_id].output_field;
+    let tf = &sess.tf_mgr.transforms[tf_id];
+    let input_done = tf.input_is_done;
+    let out_field_id = tf.output_field;
     let sv = &mut sess.sv_mgr.stream_values[sv_id];
     match &sv.data {
         StreamValueData::Dropped => unreachable!(),
@@ -396,7 +398,11 @@ pub fn handle_tf_join_stream_value_update(
             }
             if sv.done {
                 join.current_stream_val = None;
-                sess.tf_mgr.update_ready_state(tf_id);
+                if input_done {
+                    sess.tf_mgr.push_tf_in_ready_queue(tf_id);
+                } else {
+                    sess.tf_mgr.update_ready_state(tf_id);
+                }
                 if Some(join.group_len) == join.group_capacity {
                     emit_group(
                         join,

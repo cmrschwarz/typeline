@@ -394,7 +394,6 @@ impl JobData<'_> {
             }
             if let Some(succ_id) = successor {
                 let succ = &mut self.tf_mgr.transforms[succ_id];
-                succ.input_is_done = true;
                 succ.predecessor = continuation;
                 succ.available_batch_size += available_batch_for_successor;
                 if succ.available_batch_size >= succ.desired_batch_size {

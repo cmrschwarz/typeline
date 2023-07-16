@@ -3,7 +3,6 @@ mod utils;
 use scr::bstr::ByteSlice;
 
 use scr::operations::chain_navigation_ops::create_op_next;
-use scr::operations::file_reader::create_op_file_reader_custom_not_cloneable;
 use scr::operations::join::create_op_join;
 use scr::operations::select::create_op_select;
 use scr::operations::sequence::{create_op_enum, create_op_seqn};
@@ -166,11 +165,9 @@ fn trickling_stream() -> Result<(), ScrError> {
     let ss = StringSinkHandle::new();
     ContextBuilder::default()
         .set_stream_buffer_size(3)
-        .add_op(create_op_file_reader_custom(Box::new(TricklingStream {
-            total_size: SIZE,
-            data_to_repeat: "a".as_bytes(),
-            data_pos: 0,
-        })))
+        .add_op(create_op_file_reader_custom(Box::new(
+            TricklingStream::new("a".as_bytes(), SIZE),
+        )))
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(
@@ -683,7 +680,7 @@ fn join_no_sep() -> Result<(), ScrError> {
     Ok(())
 }
 
-//#[test] //broken
+#[test]
 fn join_streams() -> Result<(), ScrError> {
     let ss = StringSinkHandle::new();
     ContextBuilder::default()
@@ -694,9 +691,35 @@ fn join_streams() -> Result<(), ScrError> {
         .add_op_appending(create_op_file_reader_custom(Box::new(SliceReader::new(
             "bar".as_bytes(),
         ))))
-        .add_op(create_op_join(None, None, false))
+        .add_op(create_op_join(
+            Some(", ".as_bytes().to_owned()),
+            None,
+            false,
+        ))
         .add_op(create_op_string_sink(&ss))
         .run()?;
-    assert_eq!(ss.get_data().unwrap().as_slice(), ["foobar"]);
+    assert_eq!(ss.get_data().unwrap().as_slice(), ["foo, bar"]);
+    Ok(())
+}
+#[test]
+fn join_dropped_streams() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::new();
+    ContextBuilder::default()
+        .set_stream_buffer_size(2)
+        .add_op(create_op_file_reader_custom(Box::new(SliceReader::new(
+            "foo".as_bytes(),
+        ))))
+        .add_op_appending(create_op_data_inserter(DataToInsert::Int(1), Some(1)))
+        .add_op_appending(create_op_file_reader_custom(Box::new(SliceReader::new(
+            "bar".as_bytes(),
+        ))))
+        .add_op(create_op_join(
+            Some(", ".as_bytes().to_owned()),
+            Some(2),
+            true,
+        ))
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(ss.get_data().unwrap().as_slice(), ["foo, 1"]);
     Ok(())
 }
