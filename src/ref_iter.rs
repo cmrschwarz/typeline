@@ -178,6 +178,7 @@ impl<'a> RefIter<'a> {
             let data_stride = iter.next_n_fields_with_fmt(
                 (field_rl as usize).min(limit),
                 [fmt.kind],
+                false,
                 flag_mask,
                 fmt.flags,
             );

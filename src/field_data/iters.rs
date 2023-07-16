@@ -53,6 +53,7 @@ pub trait FieldIterator<'a>: Sized {
         &mut self,
         n: usize,
         kinds: [FieldValueKind; N],
+        invert_kinds_check: bool,
         flag_mask: FieldValueFlags,
         flags: FieldValueFlags,
         data_check: impl Fn(&FieldValueFormat, *const u8) -> bool,
@@ -61,15 +62,24 @@ pub trait FieldIterator<'a>: Sized {
         &mut self,
         n: usize,
         kinds: [FieldValueKind; N],
+        invert_kinds_check: bool,
         flag_mask: FieldValueFlags,
         flags: FieldValueFlags,
     ) -> usize {
-        self.next_n_fields_with_fmt_and_data_check(n, kinds, flag_mask, flags, |_, _| true)
+        self.next_n_fields_with_fmt_and_data_check(
+            n,
+            kinds,
+            invert_kinds_check,
+            flag_mask,
+            flags,
+            |_, _| true,
+        )
     }
     fn prev_n_fields_with_fmt_and_data_check<const N: usize>(
         &mut self,
         n: usize,
         kinds: [FieldValueKind; N],
+        invert_kinds_check: bool,
         flag_mask: FieldValueFlags,
         flags: FieldValueFlags,
         data_check: impl Fn(&FieldValueFormat, *const u8) -> bool,
@@ -78,10 +88,18 @@ pub trait FieldIterator<'a>: Sized {
         &mut self,
         n: usize,
         kinds: [FieldValueKind; N],
+        invert_kinds_check: bool,
         flag_mask: FieldValueFlags,
         flags: FieldValueFlags,
     ) -> usize {
-        self.prev_n_fields_with_fmt_and_data_check(n, kinds, flag_mask, flags, |_, _| true)
+        self.prev_n_fields_with_fmt_and_data_check(
+            n,
+            kinds,
+            invert_kinds_check,
+            flag_mask,
+            flags,
+            |_, _| true,
+        )
     }
     fn move_to_field_pos(&mut self, field_pos: usize) {
         let curr = self.get_next_field_pos();
@@ -92,10 +110,10 @@ pub trait FieldIterator<'a>: Sized {
         }
     }
     fn next_n_fields(&mut self, n: usize) -> usize {
-        self.next_n_fields_with_fmt(n, [], 0, 0)
+        self.next_n_fields_with_fmt(n, [], true, 0, 0)
     }
     fn prev_n_fields(&mut self, n: usize) -> usize {
-        self.prev_n_fields_with_fmt(n, [], 0, 0)
+        self.prev_n_fields_with_fmt(n, [], true, 0, 0)
     }
     fn typed_field_fwd(&mut self, limit: RunLength) -> Option<TypedField<'a>>;
     fn typed_field_bwd(&mut self, limit: RunLength) -> Option<TypedField<'a>>;
@@ -318,6 +336,7 @@ impl<'a> FieldIterator<'a> for Iter<'a> {
         &mut self,
         n: usize,
         kinds: [FieldValueKind; N],
+        invert_kinds_check: bool,
         flag_mask: FieldValueFlags,
         mut flags: FieldValueFlags,
         data_check: impl Fn(&FieldValueFormat, *const u8) -> bool,
@@ -327,7 +346,7 @@ impl<'a> FieldIterator<'a> for Iter<'a> {
         let curr_header_rem = (self.header_rl_total - self.header_rl_offset) as usize;
         if curr_header_rem == 0
             || (self.header_fmt.flags & flag_mask) != flags
-            || (!kinds.is_empty() && !kinds.contains(&self.header_fmt.kind))
+            || (kinds.contains(&self.header_fmt.kind) == invert_kinds_check)
         {
             return 0;
         }
@@ -347,7 +366,7 @@ impl<'a> FieldIterator<'a> for Iter<'a> {
             stride_rem -= self.next_header() as usize;
             if !self.is_next_valid()
                 || (self.header_fmt.flags & flag_mask) != flags
-                || (!kinds.is_empty() && !kinds.contains(&self.header_fmt.kind))
+                || (kinds.contains(&self.header_fmt.kind) == invert_kinds_check)
                 || !data_check(&self.header_fmt, unsafe {
                     self.fd.data.as_ptr().add(self.get_next_field_data())
                 })
@@ -365,6 +384,7 @@ impl<'a> FieldIterator<'a> for Iter<'a> {
         &mut self,
         n: usize,
         kinds: [FieldValueKind; N],
+        invert_kinds_check: bool,
         flag_mask: FieldValueFlags,
         mut flags: FieldValueFlags,
         data_check: impl Fn(&FieldValueFormat, *const u8) -> bool,
@@ -373,7 +393,7 @@ impl<'a> FieldIterator<'a> for Iter<'a> {
         if n == 0
             || self.prev_field() == 0
             || (self.header_fmt.flags & flag_mask) != flags
-            || (!kinds.is_empty() && !kinds.contains(&self.header_fmt.kind))
+            || (kinds.contains(&self.header_fmt.kind) == invert_kinds_check)
         {
             return 0;
         }
@@ -397,7 +417,7 @@ impl<'a> FieldIterator<'a> for Iter<'a> {
             stride_rem -= self.prev_header() as usize;
             if !self.is_prev_valid()
                 || (self.header_fmt.flags & flag_mask) != flags
-                || (!kinds.is_empty() && !kinds.contains(&self.header_fmt.kind))
+                || (kinds.contains(&self.header_fmt.kind) == invert_kinds_check)
                 || !data_check(&self.header_fmt, unsafe {
                     self.fd.data.as_ptr().add(self.get_next_field_data())
                 })
@@ -472,7 +492,7 @@ impl<'a> FieldIterator<'a> for Iter<'a> {
         }
         let header_start = self.header_idx;
         let field_count =
-            self.next_n_fields_with_fmt(limit, [fmt.kind], flag_mask, fmt.flags & flag_mask);
+            self.next_n_fields_with_fmt(limit, [fmt.kind], false, flag_mask, fmt.flags & flag_mask);
         let mut data_end = self.get_prev_field_data_end();
         let mut oversize_end = 0;
         let mut header_end = self.header_idx;
@@ -521,9 +541,13 @@ impl<'a> FieldIterator<'a> for Iter<'a> {
         let fmt = self.header_fmt;
         let data_end = self.get_next_field_data() + fmt.size as usize;
         let header_end = self.header_idx + 1;
-        let field_count =
-            self.prev_n_fields_with_fmt(limit - 1, [fmt.kind], flag_mask, fmt.flags & flag_mask)
-                + 1;
+        let field_count = self.prev_n_fields_with_fmt(
+            limit - 1,
+            [fmt.kind],
+            false,
+            flag_mask,
+            fmt.flags & flag_mask,
+        ) + 1;
         let header_start = self.header_idx;
         let data_start = self.get_next_field_data();
         unsafe {
@@ -693,28 +717,40 @@ where
         &mut self,
         n: usize,
         kinds: [FieldValueKind; N],
+        invert_kinds_check: bool,
         flag_mask: FieldValueFlags,
         flags: FieldValueFlags,
         data_check: impl Fn(&FieldValueFormat, *const u8) -> bool,
     ) -> usize {
         let n = n.min(self.range_fwd());
-        let stride = self
-            .iter
-            .next_n_fields_with_fmt_and_data_check(n, kinds, flag_mask, flags, data_check);
+        let stride = self.iter.next_n_fields_with_fmt_and_data_check(
+            n,
+            kinds,
+            invert_kinds_check,
+            flag_mask,
+            flags,
+            data_check,
+        );
         stride
     }
     fn prev_n_fields_with_fmt_and_data_check<const N: usize>(
         &mut self,
         n: usize,
         kinds: [FieldValueKind; N],
+        invert_kinds_check: bool,
         flag_mask: FieldValueFlags,
         flags: FieldValueFlags,
         data_check: impl Fn(&FieldValueFormat, *const u8) -> bool,
     ) -> usize {
         let n = n.min(self.range_bwd());
-        let stride = self
-            .iter
-            .prev_n_fields_with_fmt_and_data_check(n, kinds, flag_mask, flags, data_check);
+        let stride = self.iter.prev_n_fields_with_fmt_and_data_check(
+            n,
+            kinds,
+            invert_kinds_check,
+            flag_mask,
+            flags,
+            data_check,
+        );
         stride
     }
     fn typed_field_fwd(&mut self, limit: RunLength) -> Option<TypedField<'a>> {
@@ -856,24 +892,40 @@ impl<'a> FieldIterator<'a> for IterMut<'a> {
         &mut self,
         n: usize,
         kinds: [FieldValueKind; N],
+        invert_kinds_check: bool,
         flag_mask: FieldValueFlags,
         flags: FieldValueFlags,
         data_check: impl Fn(&FieldValueFormat, *const u8) -> bool,
     ) -> usize {
         self.as_base_iter_mut()
-            .next_n_fields_with_fmt_and_data_check(n, kinds, flag_mask, flags, data_check)
+            .next_n_fields_with_fmt_and_data_check(
+                n,
+                kinds,
+                invert_kinds_check,
+                flag_mask,
+                flags,
+                data_check,
+            )
     }
 
     fn prev_n_fields_with_fmt_and_data_check<const N: usize>(
         &mut self,
         n: usize,
         kinds: [FieldValueKind; N],
+        invert_kinds_check: bool,
         flag_mask: FieldValueFlags,
         flags: FieldValueFlags,
         data_check: impl Fn(&FieldValueFormat, *const u8) -> bool,
     ) -> usize {
         self.as_base_iter_mut()
-            .prev_n_fields_with_fmt_and_data_check(n, kinds, flag_mask, flags, data_check)
+            .prev_n_fields_with_fmt_and_data_check(
+                n,
+                kinds,
+                invert_kinds_check,
+                flag_mask,
+                flags,
+                data_check,
+            )
     }
 
     fn typed_field_fwd(&mut self, limit: RunLength) -> Option<TypedField<'a>> {
