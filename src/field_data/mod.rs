@@ -211,6 +211,8 @@ pub mod field_value_flags {
 }
 use bstr::ByteVec;
 pub use field_value_flags::FieldValueFlags;
+use html5ever::data;
+
 #[derive(Clone, Copy, PartialEq)]
 pub struct FieldValueFormat {
     pub kind: FieldValueKind,
@@ -340,7 +342,7 @@ impl Clone for FieldData {
             field_count: 0,
         };
         let fd_ref = &mut fd;
-        FieldData::copy(self.iter(), move |f| f(fd_ref));
+        FieldData::copy(self.iter(), &mut |f| f(fd_ref));
         fd
     }
 }
@@ -419,7 +421,7 @@ impl FieldData {
 
     pub fn copy<'a>(
         mut iter: impl FieldIterator<'a> + Clone,
-        mut targets_applicator: impl FnMut(&mut dyn FnMut(&mut FieldData)),
+        mut targets_applicator: &mut impl FnMut(&mut dyn FnMut(&mut FieldData)),
     ) -> usize {
         let mut copied_fields = 0;
         while let Some(tr) = iter.typed_range_fwd(usize::MAX, field_value_flags::DELETED) {
@@ -442,7 +444,7 @@ impl FieldData {
     pub fn copy_resolve_refs<'a, I: FieldIterator<'a>>(
         match_sets: &mut Universe<MatchSetId, MatchSet>,
         mut iter: AutoDerefIter<'a, I>,
-        mut targets_applicator: impl FnMut(&mut dyn FnMut(&mut FieldData)),
+        targets_applicator: &mut impl FnMut(&mut dyn FnMut(&mut FieldData)),
     ) -> usize {
         let mut copied_fields = 0;
         while let Some(tr) = iter.typed_range_fwd(
@@ -462,7 +464,7 @@ impl FieldData {
                     fd.header[first_header_idx].run_length -=
                         tr.base.first_header_run_length_oversize;
                 });
-                unsafe { append_data(tr.base.data, &mut targets_applicator) };
+                unsafe { append_data(tr.base.data, targets_applicator) };
             } else {
                 match tr.base.data {
                     TypedSlice::BytesInline(data) => {

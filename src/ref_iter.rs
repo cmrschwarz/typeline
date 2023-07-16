@@ -55,7 +55,7 @@ impl<'a> RefIter<'a> {
         fields: &'b Universe<FieldId, RefCell<Field>>,
         field_id: FieldId,
     ) -> (Ref<'b, Field>, Iter<'b>) {
-        let field_ref = fields[field_id].borrow();
+        let field_ref = RecordManager::borrow_field_cow(fields, field_id);
         let field_ref_laundered = unsafe { &*(field_ref.deref() as *const Field) as &'b Field };
         let data_iter = field_ref_laundered
             .field_data

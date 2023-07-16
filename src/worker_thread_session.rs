@@ -1,5 +1,6 @@
 use std::{
-    cell::{RefCell, RefMut},
+    borrow::BorrowMut,
+    cell::{Ref, RefCell, RefMut},
     collections::{BinaryHeap, HashMap, VecDeque},
 };
 
@@ -271,6 +272,26 @@ impl RecordManager {
         let match_set = f.match_set;
         let cb = &mut match_sets[match_set].command_buffer;
         cb.execute_for_field(&mut f);
+    }
+    pub fn borrow_field_cow<'a>(
+        fields: &'a Universe<FieldId, RefCell<Field>>,
+        field_id: FieldId,
+    ) -> Ref<'a, Field> {
+        let field = fields[field_id].borrow();
+        if let Some(cow_source) = field.cow_source {
+            return fields[cow_source].borrow();
+        }
+        return field;
+    }
+    pub fn borrow_field_cow_mut<'a>(
+        fields: &'a Universe<FieldId, RefCell<Field>>,
+        field_id: FieldId,
+    ) -> RefMut<'a, Field> {
+        let field = fields[field_id].borrow_mut();
+        if let Some(cow_source) = field.cow_source {
+            return fields[cow_source].borrow_mut();
+        }
+        return field;
     }
     pub fn bump_field_refcount(&self, field_id: FieldId) {
         self.fields[field_id].borrow_mut().ref_count += 1;

@@ -3,7 +3,7 @@ use std::cell::Cell;
 use crate::{
     ref_iter::AutoDerefIter,
     utils::universe::Universe,
-    worker_thread_session::{MatchSet, MatchSetId},
+    worker_thread_session::{FieldId, MatchSet, MatchSetId},
 };
 
 use super::{
@@ -25,6 +25,7 @@ pub(super) struct IterState {
     pub(super) data: usize,
     pub(super) header_idx: usize,
     pub(super) header_rl_offset: RunLength,
+    pub(super) cow_target: Option<FieldId>,
 }
 
 impl IterState {
@@ -36,13 +37,14 @@ impl IterState {
     }
 }
 impl IterHall {
-    pub fn claim_iter(&mut self) -> IterId {
+    pub fn claim_iter(&mut self, cow_target: Option<FieldId>) -> IterId {
         let iter_id = self.iters.claim();
         self.iters[iter_id].set(IterState {
             field_pos: 0,
             data: 0,
             header_idx: 0,
             header_rl_offset: 0,
+            cow_target,
         });
         iter_id
     }
@@ -113,7 +115,7 @@ impl IterHall {
 
     pub fn copy<'a>(
         iter: impl FieldIterator<'a> + Clone,
-        mut targets_applicator: impl FnMut(&mut dyn FnMut(&mut IterHall)),
+        targets_applicator: &mut impl FnMut(&mut dyn FnMut(&mut IterHall)),
     ) -> usize {
         let adapted_target_applicator = &mut |f: &mut dyn FnMut(&mut FieldData)| {
             let g = &mut |fdih: &mut IterHall| f(&mut fdih.fd);
@@ -125,7 +127,7 @@ impl IterHall {
     pub fn copy_resolve_refs<'a, I: FieldIterator<'a>>(
         match_sets: &mut Universe<MatchSetId, MatchSet>,
         iter: AutoDerefIter<'a, I>,
-        mut targets_applicator: impl FnMut(&mut dyn FnMut(&mut IterHall)),
+        targets_applicator: &mut impl FnMut(&mut dyn FnMut(&mut IterHall)),
     ) -> usize {
         let adapted_target_applicator = &mut |f: &mut dyn FnMut(&mut FieldData)| {
             let g = &mut |fdih: &mut IterHall| f(&mut fdih.fd);
@@ -134,6 +136,24 @@ impl IterHall {
         let copied_fields =
             FieldData::copy_resolve_refs(match_sets, iter, adapted_target_applicator);
         copied_fields
+    }
+    pub fn copy_iters_on_write<'a>(
+        &mut self,
+        targets_applicator: &mut impl FnMut(&mut dyn FnMut(FieldId, &mut IterHall)),
+    ) {
+        targets_applicator(&mut |field_id, ih| {
+            debug_assert!(ih.iters.is_empty());
+            ih.iters = self.iters.clone();
+            for (i, is) in self.iters.iter_options().enumerate() {
+                if let Some(is) = is {
+                    if is.get().cow_target != Some(field_id) {
+                        ih.iters.release(i);
+                    } else {
+                        self.iters.release(i);
+                    }
+                }
+            }
+        });
     }
     pub fn field_count(&self) -> usize {
         self.fd.field_count

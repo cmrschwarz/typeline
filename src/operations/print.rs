@@ -281,7 +281,8 @@ pub fn handle_tf_print(sess: &mut JobData<'_>, tf_id: TransformId, tf: &mut TfPr
     let (batch, input_done) = sess.tf_mgr.claim_batch(tf_id);
     let mut handled_field_count = 0;
     let res = handle_tf_print_raw(sess, tf_id, tf, batch, input_done, &mut handled_field_count);
-    let mut output_field = sess.record_mgr.fields[tf.output_field].borrow_mut();
+    let op_id = sess.tf_mgr.transforms[tf_id].op_id.unwrap();
+    let mut output_field = sess.prepare_output_field(tf.output_field);
     match res {
         Ok(()) => output_field
             .field_data
@@ -293,7 +294,7 @@ pub fn handle_tf_print(sess: &mut JobData<'_>, tf_id: TransformId, tf: &mut TfPr
                 output_field.field_data.push_success(nsucc, true);
             }
             let e = OperatorApplicationError {
-                op_id: sess.tf_mgr.transforms[tf_id].op_id.unwrap(),
+                op_id,
                 message: Cow::Owned(err.to_string()),
             };
             output_field.field_data.push_error(e, nfail, false, true);

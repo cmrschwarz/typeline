@@ -662,7 +662,7 @@ pub fn lookup_widths(
     if apply_actions {
         RecordManager::apply_field_actions(fields, match_sets, ident_ref.field_id);
     }
-    let field = &mut fields[ident_ref.field_id].borrow();
+    let field = RecordManager::borrow_field_cow(fields, ident_ref.field_id);
     let mut iter = field
         .field_data
         .get_iter(ident_ref.iter_id)
@@ -722,7 +722,7 @@ pub fn setup_key_output_state(
     );
     let ident_ref = fmt.refs[k.identifier];
     RecordManager::apply_field_actions(fields, match_sets, ident_ref.field_id);
-    let field = &mut fields[ident_ref.field_id].borrow();
+    let field = RecordManager::borrow_field_cow(fields, ident_ref.field_id);
 
     let mut iter = AutoDerefIter::new(
         fields,

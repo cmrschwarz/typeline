@@ -88,7 +88,7 @@ pub fn handle_tf_split(sess: &mut JobData, tf_id: TransformId, sp: &mut TfSplit)
     let match_sets = &mut sess.record_mgr.match_sets;
     for (src_field_id, tgts) in &sp.mappings {
         RecordManager::apply_field_actions(&sess.record_mgr.fields, match_sets, *src_field_id);
-        let src = sess.record_mgr.fields[*src_field_id].borrow_mut();
+        let src = RecordManager::borrow_field_cow_mut(&sess.record_mgr.fields, *src_field_id);
         let iter = AutoDerefIter::new(
             &sess.record_mgr.fields,
             match_sets,

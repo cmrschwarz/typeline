@@ -92,6 +92,9 @@ impl<I: UniverseIndex, T> Universe<I, T> {
     pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut T> {
         self.data.iter_mut().filter_map(|x| x.as_mut())
     }
+    pub fn iter_options(&mut self) -> impl Iterator<Item = &mut Option<T>> {
+        self.data.iter_mut()
+    }
 
     pub fn any_used(&mut self) -> Option<&mut T> {
         for d in &mut self.data {
@@ -131,6 +134,9 @@ impl<I: UniverseIndex, T> Universe<I, T> {
     }
     pub fn has_unclaimed_entries(&self) -> bool {
         !self.unused_ids.is_empty()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.claimed_entry_count() > 0
     }
     pub fn claimed_entry_count(&self) -> usize {
         self.data.len() - self.unused_ids.len()
