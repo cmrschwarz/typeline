@@ -26,7 +26,7 @@ use scr::{
     scr_error::ScrError,
 };
 
-use crate::utils::{SliceReader, TricklingStream};
+use crate::utils::{ErroringStream, SliceReader, TricklingStream};
 
 #[test]
 fn string_sink() -> Result<(), ScrError> {
@@ -749,5 +749,32 @@ fn join_dropped_streams() -> Result<(), ScrError> {
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(ss.get_data().unwrap().as_slice(), ["foo, 1"]);
+    Ok(())
+}
+
+#[test]
+fn stream_error_in_join() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::new();
+    ContextBuilder::default()
+        .set_stream_buffer_size(2)
+        .add_op(create_op_file_reader_custom(Box::new(SliceReader::new(
+            "foo".as_bytes(),
+        ))))
+        .add_op_appending(create_op_file_reader_custom(Box::new(ErroringStream::new(
+            2,
+            SliceReader::new("bar".as_bytes()),
+        ))))
+        .add_op_appending(create_op_data_inserter(DataToInsert::Int(1), Some(1)))
+        .add_op(create_op_join(
+            Some(", ".as_bytes().to_owned()),
+            Some(3),
+            true,
+        ))
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(
+        ss.get().data.as_slice(),
+        ["Error: in op id 1: ErroringStream: Expected Debug Error"]
+    );
     Ok(())
 }

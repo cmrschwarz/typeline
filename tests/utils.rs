@@ -57,3 +57,31 @@ impl<'a> TricklingStream<'a> {
         }
     }
 }
+
+#[derive(Clone)]
+pub struct ErroringStream<R> {
+    base: R,
+    error_after: usize,
+}
+impl<R: Read> ErroringStream<R> {
+    pub fn new(error_after: usize, base: R) -> Self {
+        Self { base, error_after }
+    }
+}
+
+impl<'a, R: Read> Read for ErroringStream<R> {
+    fn read(&mut self, mut buf: &mut [u8]) -> std::io::Result<usize> {
+        if self.error_after == 0 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "ErroringStream: Expected Debug Error",
+            ));
+        }
+        if buf.len() > self.error_after {
+            buf = &mut buf[0..self.error_after];
+        }
+        let read_len = self.base.read(buf)?;
+        self.error_after -= read_len;
+        Ok(read_len)
+    }
+}

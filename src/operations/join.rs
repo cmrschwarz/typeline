@@ -235,6 +235,18 @@ pub fn handle_tf_join(sess: &mut JobSession<'_>, tf_id: TransformId, join: &mut 
 
     let mut group_len_rem = join.group_capacity.unwrap_or(usize::MAX) - join.group_len;
     let mut groups_emitted = 0;
+
+    if join.current_group_contains_errors {
+        let consumed = iter.next_n_fields(group_len_rem.min(batch_size));
+        group_len_rem -= consumed;
+        if group_len_rem == 0 {
+            join.current_group_contains_errors = false;
+            join.group_len = 0;
+        } else {
+            join.group_len += consumed;
+        }
+    }
+
     'iter: while let Some(range) = iter.typed_range_fwd(
         &mut sess.match_set_mgr,
         group_len_rem,
@@ -270,6 +282,7 @@ pub fn handle_tf_join(sess: &mut JobSession<'_>, tf_id: TransformId, join: &mut 
                 output_field
                     .field_data
                     .push_error(errs[0].clone(), 1, true, false);
+                groups_emitted += 1;
                 join.current_group_contains_errors = true;
             }
             TypedSlice::Unset(_) => {
@@ -393,6 +406,7 @@ pub fn handle_tf_join_stream_value_update(
                 .borrow_mut()
                 .field_data
                 .push_error(err.clone(), 1, true, false);
+            sess.tf_mgr.inform_successor_batch_available(tf_id, 1);
             if Some(join.group_len) == join.group_capacity {
                 join.group_len = 0;
             } else {
