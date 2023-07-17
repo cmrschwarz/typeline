@@ -15,7 +15,7 @@ pub fn setup_tf_terminator(
     tf_state: &mut TransformState,
 ) -> TransformData<'static> {
     TransformData::Terminator(TfTerminator {
-        apf_idx: sess.record_mgr.match_sets[tf_state.match_set_id]
+        apf_idx: sess.match_set_mgr.match_sets[tf_state.match_set_id]
             .command_buffer
             .claim_apf(tf_state.ordering_id),
     })
@@ -28,7 +28,7 @@ pub fn handle_tf_terminator(
 ) {
     let (batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
     let tf = &sess.tf_mgr.transforms[tf_id];
-    let cb = &mut sess.record_mgr.match_sets[tf.match_set_id].command_buffer;
+    let cb = &mut sess.match_set_mgr.match_sets[tf.match_set_id].command_buffer;
     cb.begin_action_list(t1000.apf_idx);
     cb.push_action_with_usize_rl(t1000.apf_idx, FieldActionKind::Drop, 0, batch_size);
     cb.end_action_list(t1000.apf_idx);

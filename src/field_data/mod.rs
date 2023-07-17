@@ -29,8 +29,8 @@ use crate::{
         AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter, RefAwareInlineTextIter,
     },
     stream_value::StreamValueId,
-    utils::{string_store::StringStoreEntry, universe::Universe},
-    worker_thread_session::{FieldId, MatchSet, MatchSetId},
+    utils::string_store::StringStoreEntry,
+    worker_thread_session::{FieldId, MatchSetManager},
 };
 
 use self::{
@@ -440,13 +440,13 @@ impl FieldData {
     }
 
     pub fn copy_resolve_refs<'a, I: FieldIterator<'a>>(
-        match_sets: &mut Universe<MatchSetId, MatchSet>,
+        match_set_mgr: &mut MatchSetManager,
         mut iter: AutoDerefIter<'a, I>,
         targets_applicator: &mut impl FnMut(&mut dyn FnMut(&mut FieldData)),
     ) -> usize {
         let mut copied_fields = 0;
         while let Some(tr) = iter.typed_range_fwd(
-            match_sets,
+            match_set_mgr,
             usize::MAX,
             field_value_flags::BYTES_ARE_UTF8 | field_value_flags::DELETED,
         ) {

@@ -247,7 +247,7 @@ fn start_streaming_file(sess: &mut JobSession<'_>, tf_id: TransformId, fr: &mut 
         debug_assert!(input_done);
         batch_size = 1;
     }
-    let mut out_field = sess.record_mgr.fields[output_field_id].borrow_mut();
+    let mut out_field = sess.field_mgr.fields[output_field_id].borrow_mut();
     // we want to write the chunk straight into field data to avoid a copy
     // SAFETY: this relies on the memory layout in field_data.
     // since that is a submodule of us, this is fine.

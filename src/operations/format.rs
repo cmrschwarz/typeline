@@ -1,11 +1,7 @@
 use arrayvec::ArrayVec;
 use bstr::{BStr, BString, ByteSlice, ByteVec};
 use nonmax::NonMaxUsize;
-use std::{
-    borrow::Cow,
-    cell::{RefCell, RefMut},
-    ptr::NonNull,
-};
+use std::{borrow::Cow, cell::RefMut, ptr::NonNull};
 
 use smallstr::SmallString;
 
@@ -33,7 +29,7 @@ use crate::{
         ValueProducingCallable, MAX_UTF8_CHAR_LEN,
     },
     worker_thread_session::{
-        Field, FieldId, JobSession, MatchSet, MatchSetId, RecordManager, StreamValueManager,
+        Field, FieldId, FieldManager, JobSession, MatchSetManager, StreamValueManager,
     },
 };
 
@@ -208,22 +204,24 @@ pub fn setup_tf_format<'a>(
         .iter()
         .map(|name| {
             let (field_id, iter_id) = if let Some(name) = name {
-                let id = sess.record_mgr.match_sets[tf_state.match_set_id]
+                let id = sess.match_set_mgr.match_sets[tf_state.match_set_id]
                     .field_name_map
                     .get(name)
                     .cloned()
                     .unwrap_or_else(|| {
-                        sess.record_mgr.add_field(
+                        let field_id = sess.field_mgr.add_field(
                             tf_state.match_set_id,
-                            sess.record_mgr.get_min_apf_idx(tf_state.input_field),
-                            Some(*name),
-                        )
+                            sess.field_mgr.get_min_apf_idx(tf_state.input_field),
+                        );
+                        sess.match_set_mgr
+                            .add_field_name(&sess.field_mgr, field_id, *name);
+                        field_id
                     });
-                let mut f = sess.record_mgr.fields[id].borrow_mut();
+                let mut f = sess.field_mgr.fields[id].borrow_mut();
                 f.added_as_placeholder_by_tf = Some(tf_id);
                 (id, f.field_data.claim_iter())
             } else {
-                let iter_id = sess.record_mgr.fields[tf_state.input_field]
+                let iter_id = sess.field_mgr.fields[tf_state.input_field]
                     .borrow_mut()
                     .field_data
                     .claim_iter();
@@ -644,8 +642,8 @@ fn calc_text_padding(
     }
 }
 pub fn lookup_widths(
-    fields: &Universe<FieldId, RefCell<Field>>,
-    match_sets: &mut Universe<MatchSetId, MatchSet>,
+    field_mgr: &FieldManager,
+    match_set_mgr: &mut MatchSetManager,
     fmt: &mut TfFormat,
     k: &FormatKey,
     batch_size: usize,
@@ -660,12 +658,12 @@ pub fn lookup_widths(
         return;
     };
     if apply_actions {
-        RecordManager::apply_field_actions(fields, match_sets, ident_ref.field_id);
+        field_mgr.apply_field_actions(match_set_mgr, ident_ref.field_id);
     }
-    let field = RecordManager::borrow_field_cow(fields, ident_ref.field_id);
-    let mut iter =
-        RecordManager::get_iter_cow_aware(fields, ident_ref.field_id, &field, ident_ref.iter_id)
-            .bounded(0, batch_size);
+    let field = field_mgr.borrow_field_cow(ident_ref.field_id);
+    let mut iter = field_mgr
+        .get_iter_cow_aware(ident_ref.field_id, &field, ident_ref.iter_id)
+        .bounded(0, batch_size);
     let mut output_index = 0;
     let mut handled_fields = 0;
     while let Some(range) = iter.typed_range_fwd(usize::MAX, 0) {
@@ -687,19 +685,13 @@ pub fn lookup_widths(
         |os| os.error_occured = true,
     );
     if update_iter {
-        RecordManager::store_iter_cow_aware(
-            fields,
-            ident_ref.field_id,
-            &field,
-            ident_ref.iter_id,
-            iter,
-        );
+        field_mgr.store_iter_cow_aware(ident_ref.field_id, &field, ident_ref.iter_id, iter);
     }
 }
 pub fn setup_key_output_state(
     sv_mgr: &mut StreamValueManager,
-    fields: &Universe<FieldId, RefCell<Field>>,
-    match_sets: &mut Universe<MatchSetId, MatchSet>,
+    field_mgr: &FieldManager,
+    match_set_mgr: &mut MatchSetManager,
     tf_id: TransformId,
     part_idx: usize,
     fmt: &mut TfFormat,
@@ -707,8 +699,8 @@ pub fn setup_key_output_state(
     k: &FormatKey,
 ) {
     lookup_widths(
-        fields,
-        match_sets,
+        field_mgr,
+        match_set_mgr,
         fmt,
         k,
         batch_size,
@@ -726,19 +718,20 @@ pub fn setup_key_output_state(
         },
     );
     let ident_ref = fmt.refs[k.identifier];
-    RecordManager::apply_field_actions(fields, match_sets, ident_ref.field_id);
-    let field = RecordManager::borrow_field_cow(fields, ident_ref.field_id);
+    field_mgr.apply_field_actions(match_set_mgr, ident_ref.field_id);
+    let field = field_mgr.borrow_field_cow(ident_ref.field_id);
     let mut iter = AutoDerefIter::new(
-        fields,
+        field_mgr,
         ident_ref.field_id,
-        RecordManager::get_iter_cow_aware(fields, ident_ref.field_id, &field, ident_ref.iter_id)
+        field_mgr
+            .get_iter_cow_aware(ident_ref.field_id, &field, ident_ref.iter_id)
             .bounded(0, batch_size),
     );
 
     let mut output_index = 0;
     let mut handled_fields = 0;
     while let Some(range) =
-        iter.typed_range_fwd(match_sets, usize::MAX, field_value_flags::BYTES_ARE_UTF8)
+        iter.typed_range_fwd(match_set_mgr, usize::MAX, field_value_flags::BYTES_ARE_UTF8)
     {
         match range.base.data {
             TypedSlice::Reference(_) => unreachable!(),
@@ -1123,15 +1116,15 @@ unsafe fn write_formatted_int(k: &FormatKey, tgt: &mut OutputTarget, value: i64)
 }
 fn write_fmt_key(
     sv_mgr: &mut StreamValueManager,
-    fields: &Universe<FieldId, RefCell<Field>>,
-    match_sets: &mut Universe<MatchSetId, MatchSet>,
+    field_mgr: &FieldManager,
+    match_set_mgr: &mut MatchSetManager,
     fmt: &mut TfFormat,
     batch_size: usize,
     k: &FormatKey,
 ) {
     lookup_widths(
-        fields,
-        match_sets,
+        field_mgr,
+        match_set_mgr,
         fmt,
         k,
         batch_size,
@@ -1143,17 +1136,18 @@ fn write_fmt_key(
         |_fmt, _output_idx, _run_len| (),
     );
     let ident_ref = fmt.refs[k.identifier];
-    let field = RecordManager::borrow_field_cow(fields, ident_ref.field_id);
+    let field = field_mgr.borrow_field_cow(ident_ref.field_id);
     let mut iter = AutoDerefIter::new(
-        fields,
+        field_mgr,
         ident_ref.field_id,
-        RecordManager::get_iter_cow_aware(fields, ident_ref.field_id, &field, ident_ref.iter_id)
+        field_mgr
+            .get_iter_cow_aware(ident_ref.field_id, &field, ident_ref.iter_id)
             .bounded(0, batch_size),
     );
 
     let mut output_index = 0;
     while let Some(range) =
-        iter.typed_range_fwd(match_sets, usize::MAX, field_value_flags::BYTES_ARE_UTF8)
+        iter.typed_range_fwd(match_set_mgr, usize::MAX, field_value_flags::BYTES_ARE_UTF8)
     {
         //TODO: respect format options
         match range.base.data {
@@ -1250,8 +1244,7 @@ fn write_fmt_key(
             }
         }
     }
-    RecordManager::store_iter_cow_aware(
-        fields,
+    field_mgr.store_iter_cow_aware(
         ident_ref.field_id,
         &field,
         ident_ref.iter_id,
@@ -1264,7 +1257,7 @@ pub fn handle_tf_format(sess: &mut JobSession<'_>, tf_id: TransformId, fmt: &mut
     let output_field_id = tf.output_field;
     let (batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
     sess.prepare_for_output(tf_id, &[output_field_id]);
-    let mut output_field = sess.record_mgr.fields[output_field_id].borrow_mut();
+    let mut output_field = sess.field_mgr.fields[output_field_id].borrow_mut();
     fmt.output_states.push(OutputState {
         run_len: batch_size,
         next: FINAL_OUTPUT_INDEX_NEXT_VAL,
@@ -1291,8 +1284,8 @@ pub fn handle_tf_format(sess: &mut JobSession<'_>, tf_id: TransformId, fmt: &mut
             }
             FormatPart::Key(k) => setup_key_output_state(
                 &mut sess.sv_mgr,
-                &sess.record_mgr.fields,
-                &mut sess.record_mgr.match_sets,
+                &sess.field_mgr,
+                &mut sess.match_set_mgr,
                 tf_id,
                 part_idx,
                 fmt,
@@ -1316,8 +1309,8 @@ pub fn handle_tf_format(sess: &mut JobSession<'_>, tf_id: TransformId, fmt: &mut
             }
             FormatPart::Key(k) => write_fmt_key(
                 &mut sess.sv_mgr,
-                &sess.record_mgr.fields,
-                &mut sess.record_mgr.match_sets,
+                &sess.field_mgr,
+                &mut sess.match_set_mgr,
                 fmt,
                 batch_size,
                 k,

@@ -19,7 +19,7 @@ use crate::{
     },
     stream_value::{StreamValue, StreamValueData, StreamValueId},
     utils::{i64_to_str, universe::Universe},
-    worker_thread_session::{Field, FieldId, JobSession, RecordManager},
+    worker_thread_session::{Field, FieldId, JobSession},
 };
 use crate::{
     field_data::{
@@ -159,7 +159,7 @@ pub fn setup_tf_string_sink<'a>(
     };
     TransformData::StringSink(TfStringSink {
         handle: &ss.handle.data,
-        batch_iter: sess.record_mgr.fields[tf_state.input_field]
+        batch_iter: sess.field_mgr.fields[tf_state.input_field]
             .borrow_mut()
             .field_data
             .claim_iter(),
@@ -304,25 +304,22 @@ pub fn handle_tf_string_sink(
     let tf = &sess.tf_mgr.transforms[tf_id];
     let op_id = tf.op_id.unwrap();
     let input_field_id = tf.input_field;
-    let input_field = RecordManager::borrow_field_cow(&sess.record_mgr.fields, tf.input_field);
+    let input_field = sess.field_mgr.borrow_field_cow(tf.input_field);
     let mut output_field = ss
         .output_field
-        .map(|id| sess.record_mgr.fields[id].borrow_mut());
-    let base_iter = RecordManager::get_iter_cow_aware(
-        &sess.record_mgr.fields,
-        tf.input_field,
-        &input_field,
-        ss.batch_iter,
-    )
-    .bounded(0, batch_size);
+        .map(|id| sess.field_mgr.fields[id].borrow_mut());
+    let base_iter = sess
+        .field_mgr
+        .get_iter_cow_aware(tf.input_field, &input_field, ss.batch_iter)
+        .bounded(0, batch_size);
     let starting_pos = base_iter.get_next_field_pos();
-    let mut iter = AutoDerefIter::new(&sess.record_mgr.fields, tf.input_field, base_iter);
+    let mut iter = AutoDerefIter::new(&sess.field_mgr, tf.input_field, base_iter);
     let mut out = ss.handle.lock().unwrap();
     let mut field_pos = out.data.len();
 
     let mut last_error_end = 0;
     while let Some(range) = iter.typed_range_fwd(
-        &mut sess.record_mgr.match_sets,
+        &mut sess.match_set_mgr,
         usize::MAX,
         field_value_flags::BYTES_ARE_UTF8,
     ) {
@@ -427,8 +424,7 @@ pub fn handle_tf_string_sink(
         field_pos += range.base.field_count;
     }
     let consumed_fields = field_pos - starting_pos;
-    RecordManager::store_iter_cow_aware(
-        &sess.record_mgr.fields,
+    sess.field_mgr.store_iter_cow_aware(
         input_field_id,
         &input_field,
         ss.batch_iter,

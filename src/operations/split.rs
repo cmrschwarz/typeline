@@ -11,7 +11,7 @@ use crate::{
     options::argument::CliArgIdx,
     ref_iter::AutoDerefIter,
     utils::identity_hasher::BuildIdentityHasher,
-    worker_thread_session::{FieldId, JobSession, MatchSetId, RecordManager, WorkerThreadSession},
+    worker_thread_session::{FieldId, JobSession, MatchSetId, WorkerThreadSession},
 };
 
 use super::{
@@ -89,13 +89,14 @@ pub fn setup_tf_split<'a>(
 pub fn handle_tf_split(sess: &mut JobSession, tf_id: TransformId, sp: &mut TfSplit) {
     let (batch_size, end_of_input) = sess.tf_mgr.claim_batch(tf_id);
 
-    let match_sets = &mut sess.record_mgr.match_sets;
+    let match_set_mgr = &mut sess.match_set_mgr;
     for (src_field_id, mapping) in sp.mappings.iter_mut() {
-        RecordManager::apply_field_actions(&sess.record_mgr.fields, match_sets, *src_field_id);
+        sess.field_mgr
+            .apply_field_actions(match_set_mgr, *src_field_id);
         let mut i = 0;
         while i < mapping.targets_cow.len() {
             let tgt_id = mapping.targets_cow[i];
-            let tgt = &mut sess.record_mgr.fields[tgt_id].borrow();
+            let tgt = &mut sess.field_mgr.fields[tgt_id].borrow();
             if tgt.cow_source.is_none() {
                 mapping.targets_cow.push(tgt_id);
                 mapping.targets_cow.swap_remove(i);
@@ -106,21 +107,19 @@ pub fn handle_tf_split(sess: &mut JobSession, tf_id: TransformId, sp: &mut TfSpl
         if mapping.targets_non_cow.is_empty() {
             continue;
         }
-        let src = RecordManager::borrow_field_cow(&sess.record_mgr.fields, *src_field_id);
+        let src = sess.field_mgr.borrow_field_cow(*src_field_id);
         let iter = AutoDerefIter::new(
-            &sess.record_mgr.fields,
+            &sess.field_mgr,
             *src_field_id,
-            RecordManager::get_iter_cow_aware(
-                &sess.record_mgr.fields,
-                *src_field_id,
-                &src,
-                mapping.source_iter_id,
-            )
-            .bounded(0, batch_size),
+            sess.field_mgr
+                .get_iter_cow_aware(*src_field_id, &src, mapping.source_iter_id)
+                .bounded(0, batch_size),
         );
-        IterHall::copy_resolve_refs(match_sets, iter, &mut |f: &mut dyn FnMut(&mut IterHall)| {
+        IterHall::copy_resolve_refs(match_set_mgr, iter, &mut |f: &mut dyn FnMut(
+            &mut IterHall,
+        )| {
             for t in &mapping.targets_non_cow {
-                let mut tgt = sess.record_mgr.fields[*t].borrow_mut();
+                let mut tgt = sess.field_mgr.fields[*t].borrow_mut();
                 f(&mut tgt.field_data);
             }
         });
@@ -158,8 +157,8 @@ pub fn handle_split_expansion(
         .rev()
     {
         let subchain_id = sess.job_data.session_data.chains[split_chain_id].subchains[i] as usize;
-        let target_ms_id = sess.job_data.record_mgr.add_match_set();
-        let match_sets = &mut sess.job_data.record_mgr.match_sets;
+        let target_ms_id = sess.job_data.match_set_mgr.add_match_set();
+        let match_sets = &mut sess.job_data.match_set_mgr.match_sets;
         let (split_match_set, target_match_set) =
             match_sets.two_distinct_mut(split_ms_id, target_ms_id);
         let accessed_fields_map = &sess.job_data.session_data.chains[subchain_id]
@@ -177,14 +176,14 @@ pub fn handle_split_expansion(
                     } else if *name == DEFAULT_INPUT_FIELD {
                         split_input_field_id
                     } else {
-                        let target_field_id = sess.job_data.record_mgr.fields.claim();
-                        let mut tgt = sess.job_data.record_mgr.fields[target_field_id].borrow_mut();
+                        let target_field_id = sess.job_data.field_mgr.fields.claim();
+                        let mut tgt = sess.job_data.field_mgr.fields[target_field_id].borrow_mut();
                         tgt.match_set = target_ms_id;
                         tgt.added_as_placeholder_by_tf = Some(tf_id);
                         e.insert(target_field_id);
                         continue;
                     };
-                    let mut src_field = sess.job_data.record_mgr.fields[src_field_id].borrow_mut();
+                    let mut src_field = sess.job_data.field_mgr.fields[src_field_id].borrow_mut();
                     let mut any_writes = *writes;
                     if any_writes == false {
                         for other_name in &src_field.names {
@@ -200,8 +199,8 @@ pub fn handle_split_expansion(
 
                     let target_field_id = if any_writes {
                         drop(src_field);
-                        let target = sess.job_data.record_mgr.fields.claim();
-                        src_field = sess.job_data.record_mgr.fields[src_field_id].borrow_mut();
+                        let target = sess.job_data.field_mgr.fields.claim();
+                        src_field = sess.job_data.field_mgr.fields[src_field_id].borrow_mut();
                         match mappings.entry(src_field_id) {
                             Entry::Occupied(ref mut e) => {
                                 e.get_mut().targets_cow.push(target);
@@ -219,7 +218,7 @@ pub fn handle_split_expansion(
                         src_field_id
                     };
                     let mut tgt_field = if any_writes {
-                        let mut tgt = sess.job_data.record_mgr.fields[target_field_id].borrow_mut();
+                        let mut tgt = sess.job_data.field_mgr.fields[target_field_id].borrow_mut();
                         tgt.match_set = target_ms_id;
                         tgt.field_id = target_field_id;
                         if *name != DEFAULT_INPUT_FIELD {

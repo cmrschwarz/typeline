@@ -22,7 +22,7 @@ use crate::ref_iter::{
 use crate::stream_value::{StreamValueData, StreamValueId};
 use crate::utils::universe::Universe;
 use crate::utils::{self, i64_to_str, USIZE_MAX_DECIMAL_DIGITS};
-use crate::worker_thread_session::{Field, RecordManager};
+use crate::worker_thread_session::Field;
 use crate::{
     field_data::typed::TypedSlice,
     field_data::{iter_hall::IterId, iters::FieldIterator, FieldReference},
@@ -315,10 +315,10 @@ pub fn setup_tf_regex<'a>(
     op: &'a OpRegex,
     tf_state: &mut TransformState,
 ) -> Result<TransformData<'a>, TransformSetupError> {
-    let cb = &mut sess.record_mgr.match_sets[tf_state.match_set_id].command_buffer;
+    let cb = &mut sess.match_set_mgr.match_sets[tf_state.match_set_id].command_buffer;
     let apf_idx = cb.claim_apf(tf_state.ordering_id);
     let apf_succ = cb.peek_next_apf_id();
-    let mut output_field = sess.record_mgr.fields[tf_state.output_field].borrow_mut();
+    let mut output_field = sess.field_mgr.fields[tf_state.output_field].borrow_mut();
     output_field.min_apf_idx = Some(apf_succ);
     drop(output_field);
     let cgfs: Vec<FieldId> = op
@@ -326,18 +326,19 @@ pub fn setup_tf_regex<'a>(
         .iter()
         .enumerate()
         .map(|(i, name)| {
-            if i == op.output_group_id {
-                if let Some(name) = name {
-                    sess.record_mgr.add_field_name(tf_state.output_field, *name);
-                }
-                Ok(tf_state.output_field)
+            let field_id = if i == op.output_group_id {
+                tf_state.output_field
             } else {
-                Ok(sess
-                    .record_mgr
-                    .add_field(tf_state.match_set_id, Some(apf_succ), *name))
+                sess.field_mgr
+                    .add_field(tf_state.match_set_id, Some(apf_succ))
+            };
+            if let Some(name) = name {
+                sess.match_set_mgr
+                    .add_field_name(&sess.field_mgr, field_id, *name);
             }
+            field_id
         })
-        .collect::<Result<Vec<FieldId>, TransformSetupError>>()?;
+        .collect();
     tf_state.preferred_input_type = Some(FieldValueKind::BytesInline);
 
     Ok(TransformData::Regex(TfRegex {
@@ -350,7 +351,7 @@ pub fn setup_tf_regex<'a>(
         capture_locs: op.regex.capture_locations(),
         multimatch: op.opts.multimatch,
         optional: op.opts.optional,
-        input_field_iter_id: sess.record_mgr.fields[tf_state.input_field]
+        input_field_iter_id: sess.field_mgr.fields[tf_state.input_field]
             .borrow_mut()
             .field_data
             .claim_iter(),
@@ -586,17 +587,14 @@ pub fn handle_tf_regex(sess: &mut JobSession<'_>, tf_id: TransformId, re: &mut T
     let input_field_id = tf.input_field;
     let op_id = tf.op_id.unwrap();
 
-    sess.record_mgr.match_sets[tf.match_set_id]
+    sess.match_set_mgr.match_sets[tf.match_set_id]
         .command_buffer
         .begin_action_list(re.apf_idx);
-    let input_field = RecordManager::borrow_field_cow(&sess.record_mgr.fields, input_field_id);
-    let iter_base = RecordManager::get_iter_cow_aware(
-        &sess.record_mgr.fields,
-        input_field_id,
-        &input_field,
-        re.input_field_iter_id,
-    )
-    .bounded(0, batch_size);
+    let input_field = sess.field_mgr.borrow_field_cow(input_field_id);
+    let iter_base = sess
+        .field_mgr
+        .get_iter_cow_aware(input_field_id, &input_field, re.input_field_iter_id)
+        .bounded(0, batch_size);
     let field_pos_start = iter_base.get_next_field_pos();
     let mut rbs = RegexBatchState {
         batch_end_field_pos_output: field_pos_start + tf.desired_batch_size,
@@ -605,13 +603,13 @@ pub fn handle_tf_regex(sess: &mut JobSession<'_>, tf_id: TransformId, re: &mut T
         multimatch: re.multimatch,
         optional: re.optional,
         capture_group_fields: &re.capture_group_fields,
-        fields: &sess.record_mgr.fields,
+        fields: &sess.field_mgr.fields,
         last_end: re.last_end,
         next_start: re.next_start,
         apf_idx: re.apf_idx,
     };
 
-    let mut iter = AutoDerefIter::new(&sess.record_mgr.fields, input_field_id, iter_base);
+    let mut iter = AutoDerefIter::new(&sess.field_mgr, input_field_id, iter_base);
 
     let mut text_regex = re
         .text_only_regex
@@ -628,13 +626,13 @@ pub fn handle_tf_regex(sess: &mut JobSession<'_>, tf_id: TransformId, re: &mut T
     let mut bse = false; // 'batch size exceeded'
     let mut hit_stream_val = false;
     'batch: while let Some(range) = iter.typed_range_fwd(
-        &mut sess.record_mgr.match_sets,
+        &mut sess.match_set_mgr,
         usize::MAX,
         field_value_flags::BYTES_ARE_UTF8,
     ) {
         let mut rmis = RegexMatchInnerState {
             batch_state: &mut rbs,
-            command_buffer: &mut sess.record_mgr.match_sets[tf.match_set_id].command_buffer,
+            command_buffer: &mut sess.match_set_mgr.match_sets[tf.match_set_id].command_buffer,
             source_field: range.field_id,
         };
         match range.base.data {
@@ -710,7 +708,7 @@ pub fn handle_tf_regex(sess: &mut JobSession<'_>, tf_id: TransformId, re: &mut T
                             StreamValueData::Dropped => unreachable!(),
                             StreamValueData::Error(e) => {
                                 for cgi in &re.capture_group_fields {
-                                    sess.record_mgr.fields[*cgi]
+                                    sess.field_mgr.fields[*cgi]
                                         .borrow_mut()
                                         .field_data
                                         .push_error(e.clone(), rl as usize, true, false);
@@ -766,7 +764,7 @@ pub fn handle_tf_regex(sess: &mut JobSession<'_>, tf_id: TransformId, re: &mut T
                 rbs.field_pos_input += range.base.field_count;
                 rbs.field_pos_output += range.base.field_count;
                 for cgi in &re.capture_group_fields {
-                    sess.record_mgr.fields[*cgi]
+                    sess.field_mgr.fields[*cgi]
                         .borrow_mut()
                         .field_data
                         .push_error(
@@ -779,7 +777,7 @@ pub fn handle_tf_regex(sess: &mut JobSession<'_>, tf_id: TransformId, re: &mut T
             }
         }
     }
-    sess.record_mgr.match_sets[tf.match_set_id]
+    sess.match_set_mgr.match_sets[tf.match_set_id]
         .command_buffer
         .end_action_list(re.apf_idx);
     re.last_end = rbs.last_end;
@@ -806,8 +804,7 @@ pub fn handle_tf_regex(sess: &mut JobSession<'_>, tf_id: TransformId, re: &mut T
     } else {
         sess.tf_mgr.update_ready_state(tf_id);
     }
-    RecordManager::store_iter_cow_aware(
-        &sess.record_mgr.fields,
+    sess.field_mgr.store_iter_cow_aware(
         input_field_id,
         &input_field,
         re.input_field_iter_id,

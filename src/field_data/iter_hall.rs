@@ -1,9 +1,7 @@
 use std::cell::Cell;
 
 use crate::{
-    ref_iter::AutoDerefIter,
-    utils::universe::Universe,
-    worker_thread_session::{MatchSet, MatchSetId},
+    ref_iter::AutoDerefIter, utils::universe::Universe, worker_thread_session::MatchSetManager,
 };
 
 use super::{
@@ -136,7 +134,7 @@ impl IterHall {
         copied_fields
     }
     pub fn copy_resolve_refs<'a, I: FieldIterator<'a>>(
-        match_sets: &mut Universe<MatchSetId, MatchSet>,
+        match_set_mgr: &mut MatchSetManager,
         iter: AutoDerefIter<'a, I>,
         targets_applicator: &mut impl FnMut(&mut dyn FnMut(&mut IterHall)),
     ) -> usize {
@@ -145,7 +143,7 @@ impl IterHall {
             targets_applicator(g);
         };
         let copied_fields =
-            FieldData::copy_resolve_refs(match_sets, iter, adapted_target_applicator);
+            FieldData::copy_resolve_refs(match_set_mgr, iter, adapted_target_applicator);
         copied_fields
     }
     pub fn field_count(&self) -> usize {

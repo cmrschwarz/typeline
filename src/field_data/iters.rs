@@ -183,7 +183,7 @@ impl<'a> Iter<'a> {
         }
     }
     pub(super) fn skip_dead_fields(&mut self) {
-        while self.header_fmt.deleted() {
+        while self.header_fmt.deleted() && self.is_next_valid() {
             self.next_header();
         }
     }

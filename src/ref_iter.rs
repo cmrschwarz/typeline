@@ -7,20 +7,18 @@ use crate::{
         FieldReference, FieldValueHeader, RunLength,
     },
     stream_value::StreamValueId,
-    utils::universe::Universe,
     worker_thread_session::{
-        Field, FieldId, MatchSet, MatchSetId, RecordManager, FIELD_REF_LOOKUP_ITER_ID,
-        INVALID_FIELD_ID,
+        Field, FieldId, FieldManager, MatchSetManager, FIELD_REF_LOOKUP_ITER_ID, INVALID_FIELD_ID,
     },
 };
-use std::cell::{Ref, RefCell};
+use std::cell::Ref;
 
 pub struct RefIter<'a> {
     refs_iter: TypedSliceIter<'a, FieldReference>,
     last_field_id: FieldId,
     data_iter: Option<Iter<'a>>,
     field_ref: Option<Ref<'a, Field>>,
-    fields: &'a Universe<FieldId, RefCell<Field>>,
+    field_mgr: &'a FieldManager,
 }
 
 pub struct FieldRefUnpacked<'a> {
@@ -34,35 +32,28 @@ pub struct FieldRefUnpacked<'a> {
 impl<'a> RefIter<'a> {
     pub fn new(
         refs_iter: TypedSliceIter<'a, FieldReference>,
-        fields: &'a Universe<FieldId, RefCell<Field>>,
-        match_sets: &'_ mut Universe<MatchSetId, MatchSet>,
+        field_mgr: &'a FieldManager,
+        match_set_mgr: &'_ mut MatchSetManager,
         last_field_id: FieldId,
         field_pos: usize,
     ) -> Self {
-        RecordManager::apply_field_actions(fields, match_sets, last_field_id);
+        field_mgr.apply_field_actions(match_set_mgr, last_field_id);
         let (field_ref, mut data_iter) =
-            unsafe { Self::get_field_ref_and_iter(fields, last_field_id) };
+            unsafe { Self::get_field_ref_and_iter(field_mgr, last_field_id) };
         data_iter.move_to_field_pos(field_pos);
         Self {
             refs_iter,
-            fields,
+            field_mgr,
             last_field_id,
             data_iter: Some(data_iter),
             field_ref: Some(field_ref),
         }
     }
     unsafe fn get_field_ref_and_iter<'b>(
-        fields: &'b Universe<FieldId, RefCell<Field>>,
+        field_mgr: &'b FieldManager,
         field_id: FieldId,
     ) -> (Ref<'b, Field>, Iter<'b>) {
-        let field_ref = RecordManager::borrow_field_cow(fields, field_id);
-        /*
-        let iter = RecordManager::get_iter_cow_aware(
-            fields,
-            field_id,
-            &field_ref,
-            FIELD_REF_LOOKUP_ITER_ID,
-        );*/
+        let field_ref = field_mgr.borrow_field_cow(field_id);
         // this is explicitly *not* cow aware for now, because that would be unsound
         // it doesn't matter too much, and this whole FIELD_REF_LOOKUP_ITER_ID thing is pretty stupid anyways
         let iter = field_ref.field_data.get_iter(FIELD_REF_LOOKUP_ITER_ID);
@@ -72,20 +63,16 @@ impl<'a> RefIter<'a> {
     }
     pub fn reset(
         &mut self,
-        match_sets: &'_ mut Universe<MatchSetId, MatchSet>,
+        match_set_mgr: &'_ mut MatchSetManager,
         refs_iter: TypedSliceIter<'a, FieldReference>,
         field: FieldId,
         field_pos: usize,
     ) {
         self.refs_iter = refs_iter;
-        self.move_to_field_pos(match_sets, field, field_pos);
+        self.move_to_field_pos(match_set_mgr, field, field_pos);
     }
 
-    fn move_to_field(
-        &mut self,
-        match_sets: &'_ mut Universe<MatchSetId, MatchSet>,
-        field_id: FieldId,
-    ) {
+    fn move_to_field(&mut self, match_set_mgr: &'_ mut MatchSetManager, field_id: FieldId) {
         if self.last_field_id == field_id {
             return;
         }
@@ -94,8 +81,9 @@ impl<'a> RefIter<'a> {
             .unwrap()
             .field_data
             .store_iter(FIELD_REF_LOOKUP_ITER_ID, self.data_iter.take().unwrap());
-        RecordManager::apply_field_actions(self.fields, match_sets, field_id);
-        let (field_ref, data_iter) = unsafe { Self::get_field_ref_and_iter(self.fields, field_id) };
+        self.field_mgr.apply_field_actions(match_set_mgr, field_id);
+        let (field_ref, data_iter) =
+            unsafe { Self::get_field_ref_and_iter(self.field_mgr, field_id) };
         // SAFETY: we have to reassign data_iter first, because the old one still
         // has a pointer into the data of the old field_ref
         self.field_ref = Some(field_ref);
@@ -104,25 +92,25 @@ impl<'a> RefIter<'a> {
     }
     pub fn move_to_field_keep_pos(
         &mut self,
-        match_sets: &'_ mut Universe<MatchSetId, MatchSet>,
+        match_set_mgr: &'_ mut MatchSetManager,
         field_id: FieldId,
     ) {
         if self.last_field_id == field_id {
             return;
         }
         self.move_to_field_pos(
-            match_sets,
+            match_set_mgr,
             field_id,
             self.data_iter.as_ref().unwrap().get_next_field_pos(),
         );
     }
     pub fn move_to_field_pos(
         &mut self,
-        match_sets: &'_ mut Universe<MatchSetId, MatchSet>,
+        match_set_mgr: &'_ mut MatchSetManager,
         field_id: FieldId,
         field_pos: usize,
     ) {
-        self.move_to_field(match_sets, field_id);
+        self.move_to_field(match_set_mgr, field_id);
         self.data_iter
             .as_mut()
             .unwrap()
@@ -133,11 +121,11 @@ impl<'a> RefIter<'a> {
     }
     pub fn typed_field_fwd(
         &mut self,
-        match_sets: &'_ mut Universe<MatchSetId, MatchSet>,
+        match_set_mgr: &'_ mut MatchSetManager,
         limit: usize,
     ) -> Option<FieldRefUnpacked<'a>> {
         let (field_ref, rl) = self.refs_iter.peek()?;
-        self.move_to_field_keep_pos(match_sets, field_ref.field);
+        self.move_to_field_keep_pos(match_set_mgr, field_ref.field);
         let iter = self.data_iter.as_mut().unwrap();
         let tf = iter
             .typed_field_fwd((rl as usize).min(limit) as RunLength)
@@ -153,7 +141,7 @@ impl<'a> RefIter<'a> {
     }
     pub fn typed_range_fwd(
         &mut self,
-        match_sets: &'_ mut Universe<MatchSetId, MatchSet>,
+        match_set_mgr: &'_ mut MatchSetManager,
         mut limit: usize,
         flag_mask: FieldValueFlags,
     ) -> Option<(ValidTypedRange<'a>, TypedSliceIter<'a, FieldReference>)> {
@@ -163,7 +151,7 @@ impl<'a> RefIter<'a> {
         let ref_header_idx = self.refs_iter.headers_remaining();
         let (mut field_ref, mut field_rl) = self.refs_iter.next()?;
         let field = field_ref.field;
-        self.move_to_field_keep_pos(match_sets, field);
+        self.move_to_field_keep_pos(match_set_mgr, field);
         let iter = self.data_iter.as_mut().unwrap();
         let fmt = iter.get_next_field_format();
 
@@ -257,7 +245,7 @@ pub struct AutoDerefIter<'a, I: FieldIterator<'a>> {
     iter: I,
     iter_field_id: FieldId,
     ref_iter: Option<RefIter<'a>>,
-    fields: &'a Universe<FieldId, RefCell<Field>>,
+    field_mgr: &'a FieldManager,
 }
 pub struct RefAwareTypedRange<'a> {
     pub base: ValidTypedRange<'a>,
@@ -266,15 +254,11 @@ pub struct RefAwareTypedRange<'a> {
 }
 
 impl<'a, I: FieldIterator<'a>> AutoDerefIter<'a, I> {
-    pub fn new(
-        fields: &'a Universe<FieldId, RefCell<Field>>,
-        iter_field_id: FieldId,
-        iter: I,
-    ) -> Self {
+    pub fn new(field_mgr: &'a FieldManager, iter_field_id: FieldId, iter: I) -> Self {
         Self {
             iter,
             ref_iter: None,
-            fields,
+            field_mgr,
             iter_field_id,
         }
     }
@@ -287,13 +271,13 @@ impl<'a, I: FieldIterator<'a>> AutoDerefIter<'a, I> {
     }
     pub fn typed_range_fwd(
         &mut self,
-        match_sets: &'_ mut Universe<MatchSetId, MatchSet>,
+        match_set_mgr: &'_ mut MatchSetManager,
         limit: usize,
         flags: FieldValueFlags,
     ) -> Option<RefAwareTypedRange<'a>> {
         loop {
             if let Some(ri) = &mut self.ref_iter {
-                if let Some((range, refs)) = ri.typed_range_fwd(match_sets, limit, flags) {
+                if let Some((range, refs)) = ri.typed_range_fwd(match_set_mgr, limit, flags) {
                     let (fr, _) = refs.peek().unwrap();
                     return Some(RefAwareTypedRange {
                         base: range,
@@ -309,12 +293,12 @@ impl<'a, I: FieldIterator<'a>> AutoDerefIter<'a, I> {
                     let refs_iter = TypedSliceIter::from_range(&range, refs);
                     let field_id = refs_iter.peek().unwrap().0.field;
                     if let Some(ri) = &mut self.ref_iter {
-                        ri.reset(match_sets, refs_iter, field_id, field_pos);
+                        ri.reset(match_set_mgr, refs_iter, field_id, field_pos);
                     } else {
                         self.ref_iter = Some(RefIter::new(
                             refs_iter,
-                            self.fields,
-                            match_sets,
+                            self.field_mgr,
+                            match_set_mgr,
                             field_id,
                             field_pos,
                         ));
@@ -576,23 +560,22 @@ mod ref_iter_tests {
             FieldReference, FieldValueFormat, FieldValueHeader, FieldValueKind, RunLength,
         },
         ref_iter::{AutoDerefIter, RefAwareInlineTextIter},
-        utils::universe::Universe,
-        worker_thread_session::{Field, FieldId, MatchSet, MatchSetId, FIELD_REF_LOOKUP_ITER_ID},
+        worker_thread_session::{
+            Field, FieldId, FieldManager, MatchSet, MatchSetManager, FIELD_REF_LOOKUP_ITER_ID,
+        },
     };
 
-    fn push_field(
-        u: &mut Universe<FieldId, RefCell<Field>>,
-        fd: FieldData,
-        id: Option<FieldId>,
-    ) -> FieldId {
+    fn push_field(field_mgr: &mut FieldManager, fd: FieldData, id: Option<FieldId>) -> FieldId {
         let mut field = Field::default();
         field.field_data.reset_with_data(fd);
         field.field_data.reserve_iter_id(FIELD_REF_LOOKUP_ITER_ID);
         if let Some(id) = id {
-            u.reserve_id_with(id, Default::default, || RefCell::new(field));
+            field_mgr
+                .fields
+                .reserve_id_with(id, Default::default, || RefCell::new(field));
             id
         } else {
-            u.claim_with_value(RefCell::new(field))
+            field_mgr.fields.claim_with_value(RefCell::new(field))
         }
     }
     fn compare_iter_output(
@@ -600,22 +583,26 @@ mod ref_iter_tests {
         fd_refs: FieldData,
         expected: &[(&'static str, RunLength, usize)],
     ) {
-        let mut fields = Universe::<FieldId, RefCell<Field>>::default();
+        let mut field_mgr = FieldManager {
+            fields: Default::default(),
+        };
 
-        let field_id = push_field(&mut fields, fd, Default::default());
-        let refs_field_id = push_field(&mut fields, fd_refs, None);
-        let mut match_sets = Universe::<MatchSetId, MatchSet>::default();
-        match_sets.claim_with_value(MatchSet {
+        let field_id = push_field(&mut field_mgr, fd, Default::default());
+        let refs_field_id = push_field(&mut field_mgr, fd_refs, None);
+        let mut match_set_mgr = MatchSetManager {
+            match_sets: Default::default(),
+        };
+        match_set_mgr.match_sets.claim_with_value(MatchSet {
             stream_participants: Default::default(),
             command_buffer: Default::default(),
             field_name_map: Default::default(),
         });
 
-        let refs_borrow = fields[refs_field_id].borrow();
-        let mut ref_iter = AutoDerefIter::new(&fields, field_id, refs_borrow.field_data.iter());
+        let refs_borrow = field_mgr.fields[refs_field_id].borrow();
+        let mut ref_iter = AutoDerefIter::new(&field_mgr, field_id, refs_borrow.field_data.iter());
         let range = ref_iter
             .typed_range_fwd(
-                &mut match_sets,
+                &mut match_set_mgr,
                 usize::MAX,
                 field_value_flags::BYTES_ARE_UTF8,
             )

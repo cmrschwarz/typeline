@@ -3,7 +3,7 @@ use bstr::{BStr, ByteSlice};
 use crate::{
     options::argument::CliArgIdx,
     utils::string_store::{StringStore, StringStoreEntry, INVALID_STRING_STORE_ENTRY},
-    worker_thread_session::{JobSession, RecordManager},
+    worker_thread_session::JobSession,
 };
 
 use super::{
@@ -59,11 +59,8 @@ pub fn setup_tf_select(
 
 pub fn handle_tf_select(sess: &mut JobSession<'_>, tf_id: TransformId, _sel: &mut TfSelect) {
     let tf = &sess.tf_mgr.transforms[tf_id];
-    RecordManager::apply_field_actions(
-        &sess.record_mgr.fields,
-        &mut sess.record_mgr.match_sets,
-        tf.input_field,
-    );
+    sess.field_mgr
+        .apply_field_actions(&mut sess.match_set_mgr, tf.input_field);
     let (batch_size, input_done) = sess.tf_mgr.claim_all(tf_id);
     if input_done {
         sess.unlink_transform(tf_id, batch_size);

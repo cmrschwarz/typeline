@@ -80,7 +80,7 @@ pub fn handle_tf_sequence(sess: &mut JobSession<'_>, tf_id: TransformId, seq: &m
     sess.prepare_for_output(tf_id, &[output_field_id]);
     let (mut batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
 
-    let mut output_field = sess.record_mgr.fields[output_field_id].borrow_mut();
+    let mut output_field = sess.field_mgr.fields[output_field_id].borrow_mut();
 
     let succ = sess.tf_mgr.transforms[tf_id].successor.unwrap();
     let s = &sess.tf_mgr.transforms[succ];

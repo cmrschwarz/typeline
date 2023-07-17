@@ -20,7 +20,7 @@ use crate::{
     },
     stream_value::{StreamValue, StreamValueData, StreamValueId},
     utils::i64_to_str,
-    worker_thread_session::{JobSession, RecordManager},
+    worker_thread_session::JobSession,
 };
 use bstr::BStr;
 use is_terminal::IsTerminal;
@@ -63,7 +63,7 @@ pub fn setup_tf_print(
         // TODO: should we make a config option for this?
         flush_on_every_print: std::io::stdout().is_terminal(),
         current_stream_val: None,
-        iter_id: sess.record_mgr.fields[tf_state.input_field]
+        iter_id: sess.field_mgr.fields[tf_state.input_field]
             .borrow_mut()
             .field_data
             .claim_iter(),
@@ -146,20 +146,17 @@ pub fn handle_tf_print_raw(
     debug_assert!(!tf.current_stream_val.is_some());
     let input_field_id = sess.tf_mgr.transforms[tf_id].input_field;
 
-    let input_field = RecordManager::borrow_field_cow(&sess.record_mgr.fields, input_field_id);
-    let base_iter = RecordManager::get_iter_cow_aware(
-        &sess.record_mgr.fields,
-        input_field_id,
-        &input_field,
-        tf.iter_id,
-    )
-    .bounded(0, batch);
+    let input_field = sess.field_mgr.borrow_field_cow(input_field_id);
+    let base_iter = sess
+        .field_mgr
+        .get_iter_cow_aware(input_field_id, &input_field, tf.iter_id)
+        .bounded(0, batch);
     let starting_pos = base_iter.get_next_field_pos();
     let mut field_pos = starting_pos;
-    let mut iter = AutoDerefIter::new(&sess.record_mgr.fields, input_field_id, base_iter);
+    let mut iter = AutoDerefIter::new(&sess.field_mgr, input_field_id, base_iter);
 
     'iter: while let Some(range) = iter.typed_range_fwd(
-        &mut sess.record_mgr.match_sets,
+        &mut sess.match_set_mgr,
         usize::MAX,
         field_value_flags::BYTES_ARE_UTF8,
     ) {
@@ -248,8 +245,7 @@ pub fn handle_tf_print_raw(
         }
         field_pos += range.base.field_count;
     }
-    RecordManager::store_iter_cow_aware(
-        &sess.record_mgr.fields,
+    sess.field_mgr.store_iter_cow_aware(
         input_field_id,
         &input_field,
         tf.iter_id,
@@ -313,7 +309,7 @@ pub fn handle_tf_print_stream_value_update(
         Ok(false) => (),
         Err((idx, e)) => {
             debug_assert!(idx == 0);
-            sess.record_mgr.fields[tf.output_field]
+            sess.field_mgr.fields[tf.output_field]
                 .borrow_mut()
                 .field_data
                 .push_error(

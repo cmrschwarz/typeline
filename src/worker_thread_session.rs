@@ -50,6 +50,7 @@ pub const ERROR_FIELD_PSEUDO_STR: usize = 0;
 pub struct Field {
     pub field_id: FieldId, // used for checking whether we got rug pulled in case of cow
     pub ref_count: usize,
+    pub do_not_clear_request_count: usize,
     pub match_set: MatchSetId,
     pub added_as_placeholder_by_tf: Option<TransformId>,
 
@@ -85,7 +86,8 @@ pub struct WorkerThreadSession<'a> {
 pub struct JobSession<'a> {
     pub session_data: &'a SessionData,
     pub tf_mgr: TransformManager,
-    pub record_mgr: RecordManager,
+    pub match_set_mgr: MatchSetManager,
+    pub field_mgr: FieldManager,
     pub sv_mgr: StreamValueManager,
 }
 
@@ -102,9 +104,12 @@ pub struct TransformManager {
     pub stream_producers: VecDeque<TransformId>,
 }
 
-pub struct RecordManager {
-    pub match_sets: Universe<MatchSetId, MatchSet>,
+pub struct FieldManager {
     pub fields: Universe<FieldId, RefCell<Field>>,
+}
+
+pub struct MatchSetManager {
+    pub match_sets: Universe<MatchSetId, MatchSet>,
 }
 
 pub struct StreamValueUpdate {
@@ -118,6 +123,8 @@ pub struct StreamValueManager {
     pub stream_values: Universe<StreamValueId, StreamValue>,
     pub updates: VecDeque<StreamValueUpdate>,
 }
+
+impl Field {}
 
 impl TransformManager {
     pub fn claim_batch(&mut self, tf_id: TransformId) -> (usize, bool) {
@@ -182,41 +189,16 @@ impl TransformManager {
     }
 }
 
-impl RecordManager {
-    pub fn get_min_apf_idx(&self, field_id: FieldId) -> Option<ActionProducingFieldIndex> {
-        let field = self.fields[field_id].borrow();
-        field.min_apf_idx
-    }
-    pub fn setup_field(
-        &mut self,
-        field_id: FieldId,
-        ms_id: MatchSetId,
-        min_apf: Option<ActionProducingFieldIndex>,
-        name: Option<StringStoreEntry>,
-    ) -> FieldId {
-        let mut field = self.fields[field_id as FieldId].borrow_mut();
-        field.field_id = field_id;
-        field.field_data.reserve_iter_id(FIELD_REF_LOOKUP_ITER_ID);
-        field.ref_count = 1;
-        field.match_set = ms_id;
-        field.added_as_placeholder_by_tf = None;
-        field.min_apf_idx = min_apf;
-        drop(field);
-        if let Some(name) = name {
-            self.add_field_name(field_id, name);
-        }
-        field_id
-    }
-
-    pub fn add_field_name(&mut self, field_id: FieldId, name: StringStoreEntry) {
-        let mut field = self.fields[field_id].borrow_mut();
+impl MatchSetManager {
+    pub fn add_field_name(&mut self, fm: &FieldManager, field_id: FieldId, name: StringStoreEntry) {
+        let mut field = fm.fields[field_id].borrow_mut();
         if let Some(prev_field_id) = self.match_sets[field.match_set]
             .field_name_map
             .insert(name, field_id)
         {
             if prev_field_id != field_id {
                 field.names.push(name);
-                let mut prev_field = self.fields[prev_field_id].borrow_mut();
+                let mut prev_field = fm.fields[prev_field_id].borrow_mut();
                 let pos = prev_field
                     .names
                     .iter()
@@ -230,29 +212,6 @@ impl RecordManager {
             field.names.push(name);
         }
     }
-    pub fn add_field(
-        &mut self,
-        ms_id: MatchSetId,
-        min_apf: Option<ActionProducingFieldIndex>,
-        name: Option<StringStoreEntry>,
-    ) -> FieldId {
-        let id = self.fields.claim();
-        self.setup_field(id, ms_id, min_apf, name)
-    }
-    pub fn add_field_with_data(
-        &mut self,
-        ms_id: MatchSetId,
-        min_apf: Option<ActionProducingFieldIndex>,
-        name: Option<StringStoreEntry>,
-        data: FieldData,
-    ) -> FieldId {
-        let id = self.add_field(ms_id, min_apf, name);
-        self.fields[id]
-            .borrow_mut()
-            .field_data
-            .reset_with_data(data);
-        id
-    }
     pub fn add_match_set(&mut self) -> MatchSetId {
         self.match_sets.claim_with(|| MatchSet {
             stream_participants: Default::default(),
@@ -263,23 +222,60 @@ impl RecordManager {
     pub fn remove_match_set(&mut self, _ms_id: MatchSetId) {
         todo!()
     }
+}
+
+impl FieldManager {
+    pub fn get_min_apf_idx(&self, field_id: FieldId) -> Option<ActionProducingFieldIndex> {
+        let field = self.fields[field_id].borrow();
+        field.min_apf_idx
+    }
+    pub fn add_field(
+        &mut self,
+        ms_id: MatchSetId,
+        min_apf: Option<ActionProducingFieldIndex>,
+    ) -> FieldId {
+        self.add_field_with_data(ms_id, min_apf, FieldData::default())
+    }
+    pub fn add_field_with_data(
+        &mut self,
+        ms_id: MatchSetId,
+        min_apf: Option<ActionProducingFieldIndex>,
+        data: FieldData,
+    ) -> FieldId {
+        let id = self.fields.peek_claim_id();
+        let mut field = Field {
+            field_id: id,
+            ref_count: 1,
+            do_not_clear_request_count: 0,
+            match_set: ms_id,
+            added_as_placeholder_by_tf: None,
+            min_apf_idx: min_apf,
+            curr_apf_idx: None,
+            first_unapplied_al: 0,
+            names: Default::default(),
+            cow_source: None,
+            field_data: IterHall::new_with_data(data),
+        };
+        field.field_data.reserve_iter_id(FIELD_REF_LOOKUP_ITER_ID);
+        self.fields.claim_with_value(RefCell::new(field));
+        id
+    }
+
     // this is usually called while iterating over an input field that contains field references
     // we therefore do NOT want to require a mutable reference over the field data, because that forces the caller to kill their iterator
     // instead we `split up` this struct to only require a mutable reference for the MatchSets, which we need to modify the command buffer
-    pub fn apply_field_actions(
-        fields: &Universe<FieldId, RefCell<Field>>,
-        match_sets: &mut Universe<MatchSetId, MatchSet>,
-        field: FieldId,
-    ) {
-        let mut f = fields[field].borrow_mut();
+    pub fn apply_field_actions(&self, match_set_mgr: &mut MatchSetManager, field: FieldId) {
+        let mut f = self.fields[field].borrow_mut();
         let match_set = f.match_set;
-        let cb = &mut match_sets[match_set].command_buffer;
+        let cb = &mut match_set_mgr.match_sets[match_set].command_buffer;
         if let Some(cow_source) = f.cow_source {
             if cb.requires_any_actions(&mut f) {
-                let src = fields[cow_source].borrow();
-                let iter = AutoDerefIter::new(fields, cow_source, src.field_data.iter());
-                IterHall::copy_resolve_refs(match_sets, iter, &mut |func| func(&mut f.field_data));
-                let cb = &mut match_sets[match_set].command_buffer;
+                let src = self.fields[cow_source].borrow();
+                let iter = AutoDerefIter::new(&self, cow_source, src.field_data.iter());
+                IterHall::copy_resolve_refs(match_set_mgr, iter, &mut |func| {
+                    func(&mut f.field_data)
+                });
+                let cb = &mut match_set_mgr.match_sets[match_set].command_buffer;
                 cb.execute_for_field(&mut f);
                 f.cow_source = None;
             }
@@ -288,30 +284,30 @@ impl RecordManager {
         }
     }
 
-    pub fn borrow_field_cow<'a>(
-        fields: &'a Universe<FieldId, RefCell<Field>>,
-        field_id: FieldId,
-    ) -> Ref<'a, Field> {
-        let field = fields[field_id].borrow();
+    pub fn borrow_field_cow<'a>(&'a self, field_id: FieldId) -> Ref<'a, Field> {
+        let field = self.fields[field_id].borrow();
         if let Some(cow_source) = field.cow_source {
-            return fields[cow_source].borrow();
+            return self.fields[cow_source].borrow();
         }
         return field;
     }
     pub fn get_iter_cow_aware<'a>(
-        fields: &Universe<FieldId, RefCell<Field>>,
+        &self,
         field_id: FieldId,
         field: &'a Field,
         iter_id: IterId,
     ) -> Iter<'a> {
         if field.field_id != field_id {
-            let state = fields[field_id].borrow().field_data.get_iter_state(iter_id);
+            let state = self.fields[field_id]
+                .borrow()
+                .field_data
+                .get_iter_state(iter_id);
             return unsafe { field.field_data.get_iter_from_state(state) };
         }
         return field.field_data.get_iter(iter_id);
     }
     pub fn store_iter_cow_aware<'a>(
-        fields: &Universe<FieldId, RefCell<Field>>,
+        &self,
         field_id: FieldId,
         field: &'a Field,
         iter_id: IterId,
@@ -320,7 +316,7 @@ impl RecordManager {
         if field.field_id != field_id {
             let iter_base = iter.into_base_iter();
             assert!(field.field_data.iter_is_from_iter_hall(&iter_base));
-            let field = fields[field_id].borrow();
+            let field = self.fields[field_id].borrow();
             unsafe { field.field_data.store_iter_unchecked(iter_id, iter_base) };
         } else {
             field.field_data.store_iter(iter_id, iter);
@@ -372,9 +368,9 @@ impl JobSession<'_> {
         if tf.is_appending {
             tf.is_appending = false;
         } else {
-            let cb = &mut self.record_mgr.match_sets[tf.match_set_id].command_buffer;
+            let cb = &mut self.match_set_mgr.match_sets[tf.match_set_id].command_buffer;
             for ofid in output_fields {
-                let mut f = self.record_mgr.fields[*ofid].borrow_mut();
+                let mut f = self.field_mgr.fields[*ofid].borrow_mut();
                 cb.clear_field_dropping_commands(&mut f);
             }
         }
@@ -382,7 +378,7 @@ impl JobSession<'_> {
     pub fn prepare_output_field<'a>(&'a mut self, tf_id: TransformId) -> RefMut<'a, Field> {
         let output_field_id = self.tf_mgr.transforms[tf_id].output_field;
         self.prepare_for_output(tf_id, &[output_field_id]);
-        self.record_mgr.fields[output_field_id].borrow_mut()
+        self.field_mgr.fields[output_field_id].borrow_mut()
     }
     pub fn unlink_transform(&mut self, tf_id: TransformId, available_batch_for_successor: usize) {
         let tf = &mut self.tf_mgr.transforms[tf_id];
@@ -423,7 +419,7 @@ impl JobSession<'_> {
         }
     }
     pub fn drop_field_refcount(&mut self, field_id: FieldId) {
-        let mut field = self.record_mgr.fields[field_id].borrow_mut();
+        let mut field = self.field_mgr.fields[field_id].borrow_mut();
         field.ref_count -= 1;
         if field.ref_count == 0 {
             drop(field);
@@ -431,29 +427,29 @@ impl JobSession<'_> {
         }
     }
     pub fn remove_field(&mut self, id: FieldId) {
-        let field = self.record_mgr.fields[id].borrow_mut();
+        let field = self.field_mgr.fields[id].borrow_mut();
         #[cfg(feature = "debug_logging")]
         print!("removing field id {id} [ ");
         for n in &field.names {
             #[cfg(feature = "debug_logging")]
             print!("{} ", self.session_data.string_store.lookup(*n));
-            self.record_mgr.match_sets[field.match_set]
+            self.match_set_mgr.match_sets[field.match_set]
                 .field_name_map
                 .remove(n);
         }
         #[cfg(feature = "debug_logging")]
         println!("]");
         drop(field);
-        self.record_mgr.fields.release(id);
+        self.field_mgr.fields.release(id);
     }
 }
 
 impl<'a> WorkerThreadSession<'a> {
     fn setup_job(&mut self, mut job: Job) -> Result<(), ScrError> {
-        self.job_data.record_mgr.match_sets.clear();
-        self.job_data.record_mgr.fields.clear();
+        self.job_data.match_set_mgr.match_sets.clear();
+        self.job_data.field_mgr.fields.clear();
         self.job_data.tf_mgr.ready_queue.clear();
-        let ms_id = self.job_data.record_mgr.add_match_set();
+        let ms_id = self.job_data.match_set_mgr.add_match_set();
         //TODO: unpack record set properly here
         let input_record_count = job.data.adjust_field_lengths();
         let mut input_data = None;
@@ -461,15 +457,22 @@ impl<'a> WorkerThreadSession<'a> {
         for fd in job.data.fields.into_iter() {
             let field_id = self
                 .job_data
-                .record_mgr
-                .add_field_with_data(ms_id, None, fd.name, fd.data);
+                .field_mgr
+                .add_field_with_data(ms_id, None, fd.data);
+            if let Some(name) = fd.name {
+                self.job_data.match_set_mgr.add_field_name(
+                    &self.job_data.field_mgr,
+                    field_id,
+                    name,
+                );
+            }
             input_data_fields.push(field_id);
             if input_data.is_none() {
                 input_data = Some(field_id);
             }
         }
         let input_data = input_data.unwrap_or_else(|| {
-            let field_id = self.job_data.record_mgr.add_field(ms_id, None, None);
+            let field_id = self.job_data.field_mgr.add_field(ms_id, None);
             input_data_fields.push(field_id);
             field_id
         });
@@ -523,8 +526,10 @@ impl<'a> WorkerThreadSession<'a> {
                     ready_queue: Default::default(),
                     stream_producers: Default::default(),
                 },
-                record_mgr: RecordManager {
+                field_mgr: FieldManager {
                     fields: Default::default(),
+                },
+                match_set_mgr: MatchSetManager {
                     match_sets: Default::default(),
                 },
                 sv_mgr: Default::default(),
@@ -581,24 +586,27 @@ impl<'a> WorkerThreadSession<'a> {
             match op_data {
                 OperatorData::Key(op) => {
                     assert!(op_base.label.is_none()); //TODO
-                    jd.record_mgr
-                        .add_field_name(prev_output_field, op.key_interned);
+                    jd.match_set_mgr.add_field_name(
+                        &jd.field_mgr,
+                        prev_output_field,
+                        op.key_interned,
+                    );
 
                     continue;
                 }
                 OperatorData::Select(op) => {
-                    if let Some(field_id) = jd.record_mgr.match_sets[ms_id]
+                    if let Some(field_id) = jd.match_set_mgr.match_sets[ms_id]
                         .field_name_map
                         .get(&op.key_interned)
                         .cloned()
                     {
                         next_input_field = field_id;
                     } else {
-                        let field_id = jd.record_mgr.add_field(
-                            ms_id,
-                            jd.record_mgr.get_min_apf_idx(next_input_field),
-                            Some(op.key_interned),
-                        );
+                        let field_id = jd
+                            .field_mgr
+                            .add_field(ms_id, jd.field_mgr.get_min_apf_idx(next_input_field));
+                        jd.match_set_mgr
+                            .add_field_name(&jd.field_mgr, field_id, op.key_interned);
                         next_input_field = field_id;
                     }
                     transparent = true;
@@ -607,20 +615,21 @@ impl<'a> WorkerThreadSession<'a> {
                 _ => (),
             }
             let mut output_field = if transparent {
-                jd.record_mgr.bump_field_refcount(next_input_field);
+                jd.field_mgr.bump_field_refcount(next_input_field);
                 next_input_field
             } else if op_base.append_mode {
-                if let Some(lbl) = op_base.label {
-                    jd.record_mgr.add_field_name(prev_output_field, lbl);
-                }
-                jd.record_mgr.bump_field_refcount(prev_output_field);
+                jd.field_mgr.bump_field_refcount(prev_output_field);
                 prev_output_field
             } else {
-                let min_apf = jd.record_mgr.get_min_apf_idx(prev_output_field);
-                jd.record_mgr.add_field(ms_id, min_apf, op_base.label)
+                let min_apf = jd.field_mgr.get_min_apf_idx(prev_output_field);
+                jd.field_mgr.add_field(ms_id, min_apf)
             };
+            if let Some(name) = op_base.label {
+                jd.match_set_mgr
+                    .add_field_name(&jd.field_mgr, output_field, name);
+            }
 
-            jd.record_mgr.bump_field_refcount(next_input_field);
+            jd.field_mgr.bump_field_refcount(next_input_field);
             let mut tf_state = TransformState::new(
                 next_input_field,
                 output_field,
@@ -634,7 +643,7 @@ impl<'a> WorkerThreadSession<'a> {
 
             let tf_id_peek = jd.tf_mgr.transforms.peek_claim_id();
             if mark_prev_field_as_placeholder {
-                let mut f = jd.record_mgr.fields[next_input_field].borrow_mut();
+                let mut f = jd.field_mgr.fields[next_input_field].borrow_mut();
                 f.added_as_placeholder_by_tf = Some(tf_id_peek);
                 mark_prev_field_as_placeholder = false;
             }
