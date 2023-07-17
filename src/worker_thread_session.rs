@@ -78,7 +78,15 @@ impl MatchSet {}
 
 pub struct WorkerThreadSession<'a> {
     pub transform_data: Vec<TransformData<'a>>,
-    pub job_data: JobData<'a>,
+    pub job_data: JobSession<'a>,
+}
+// a helper type so we can pass a transform handler typed
+// TransformData + all the other Data of the WorkerThreadSession
+pub struct JobSession<'a> {
+    pub session_data: &'a SessionData,
+    pub tf_mgr: TransformManager,
+    pub record_mgr: RecordManager,
+    pub sv_mgr: StreamValueManager,
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
@@ -109,13 +117,6 @@ pub struct StreamValueUpdate {
 pub struct StreamValueManager {
     pub stream_values: Universe<StreamValueId, StreamValue>,
     pub updates: VecDeque<StreamValueUpdate>,
-}
-
-pub struct JobData<'a> {
-    pub session_data: &'a SessionData,
-    pub tf_mgr: TransformManager,
-    pub record_mgr: RecordManager,
-    pub sv_mgr: StreamValueManager,
 }
 
 impl TransformManager {
@@ -365,7 +366,7 @@ impl StreamValueManager {
     }
 }
 
-impl JobData<'_> {
+impl JobSession<'_> {
     pub fn prepare_for_output(&mut self, tf_id: TransformId, output_fields: &[FieldId]) {
         let tf = &mut self.tf_mgr.transforms[tf_id];
         if tf.is_appending {
@@ -513,7 +514,7 @@ impl<'a> WorkerThreadSession<'a> {
     pub fn new(sess: &'a SessionData) -> Self {
         WorkerThreadSession {
             transform_data: Default::default(),
-            job_data: JobData {
+            job_data: JobSession {
                 session_data: sess,
 
                 tf_mgr: TransformManager {

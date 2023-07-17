@@ -28,7 +28,7 @@ use crate::{
     field_data::{iter_hall::IterId, iters::FieldIterator, FieldReference},
     options::argument::CliArgIdx,
     utils::string_store::{StringStore, StringStoreEntry},
-    worker_thread_session::{FieldId, JobData},
+    worker_thread_session::{FieldId, JobSession},
 };
 
 use super::errors::{OperatorSetupError, TransformSetupError};
@@ -310,7 +310,7 @@ pub fn setup_op_regex(
 }
 
 pub fn setup_tf_regex<'a>(
-    sess: &mut JobData,
+    sess: &mut JobSession,
     _op_base: &OperatorBase,
     op: &'a OpRegex,
     tf_state: &mut TransformState,
@@ -579,7 +579,7 @@ struct RegexMatchInnerState<'a, 'b> {
     source_field: FieldId,
 }
 
-pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRegex) {
+pub fn handle_tf_regex(sess: &mut JobSession<'_>, tf_id: TransformId, re: &mut TfRegex) {
     let (batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
     sess.prepare_for_output(tf_id, &re.capture_group_fields);
     let tf = &sess.tf_mgr.transforms[tf_id];
@@ -818,7 +818,7 @@ pub fn handle_tf_regex(sess: &mut JobData<'_>, tf_id: TransformId, re: &mut TfRe
 }
 
 pub fn handle_tf_regex_stream_value_update(
-    sess: &mut JobData<'_>,
+    sess: &mut JobSession<'_>,
     tf_id: TransformId,
     _tf: &mut TfRegex,
     sv_id: StreamValueId,

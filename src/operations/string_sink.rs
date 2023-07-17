@@ -19,7 +19,7 @@ use crate::{
     },
     stream_value::{StreamValue, StreamValueData, StreamValueId},
     utils::{i64_to_str, universe::Universe},
-    worker_thread_session::{Field, FieldId, JobData, RecordManager},
+    worker_thread_session::{Field, FieldId, JobSession, RecordManager},
 };
 use crate::{
     field_data::{
@@ -146,7 +146,7 @@ pub fn setup_op_string_sink(
 }
 
 pub fn setup_tf_string_sink<'a>(
-    sess: &mut JobData,
+    sess: &mut JobSession,
     _op_base: &OperatorBase,
     ss: &'a OpStringSink,
     tf_state: &mut TransformState,
@@ -296,7 +296,7 @@ pub fn push_errors<'a>(
     *last_error_end = field_pos;
 }
 pub fn handle_tf_string_sink(
-    sess: &mut JobData<'_>,
+    sess: &mut JobSession<'_>,
     tf_id: TransformId,
     ss: &mut TfStringSink<'_>,
 ) {
@@ -452,7 +452,7 @@ pub fn handle_tf_string_sink(
 }
 
 pub fn handle_tf_string_sink_stream_value_update(
-    sess: &mut JobData<'_>,
+    sess: &mut JobSession<'_>,
     tf_id: TransformId,
     tf: &mut TfStringSink<'_>,
     sv_id: StreamValueId,

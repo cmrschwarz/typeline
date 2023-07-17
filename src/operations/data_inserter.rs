@@ -4,7 +4,7 @@ use smallstr::SmallString;
 
 use crate::{
     field_data::push_interface::PushInterface, options::argument::CliArgIdx,
-    worker_thread_session::JobData,
+    worker_thread_session::JobSession,
 };
 
 use super::{
@@ -44,7 +44,7 @@ impl OpDataInserter {
 }
 
 pub fn setup_tf_data_inserter<'a>(
-    _sess: &mut JobData,
+    _sess: &mut JobSession,
     _op_base: &OperatorBase,
     op: &'a OpDataInserter,
     _tf_state: &mut TransformState,
@@ -56,7 +56,7 @@ pub fn setup_tf_data_inserter<'a>(
 }
 
 pub fn handle_tf_data_inserter(
-    sess: &mut JobData<'_>,
+    sess: &mut JobSession<'_>,
     tf_id: TransformId,
     di: &mut TfDataInserter,
 ) {

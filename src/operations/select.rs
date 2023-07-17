@@ -3,7 +3,7 @@ use bstr::{BStr, ByteSlice};
 use crate::{
     options::argument::CliArgIdx,
     utils::string_store::{StringStore, StringStoreEntry, INVALID_STRING_STORE_ENTRY},
-    worker_thread_session::{JobData, RecordManager},
+    worker_thread_session::{JobSession, RecordManager},
 };
 
 use super::{
@@ -49,7 +49,7 @@ pub fn create_op_select(key: String) -> OperatorData {
 }
 
 pub fn setup_tf_select(
-    _sess: &mut JobData,
+    _sess: &mut JobSession,
     _op_base: &OperatorBase,
     _op: &OpSelect,
     _tf_state: &mut TransformState,
@@ -57,7 +57,7 @@ pub fn setup_tf_select(
     TransformData::Select(TfSelect {})
 }
 
-pub fn handle_tf_select(sess: &mut JobData<'_>, tf_id: TransformId, _sel: &mut TfSelect) {
+pub fn handle_tf_select(sess: &mut JobSession<'_>, tf_id: TransformId, _sel: &mut TfSelect) {
     let tf = &sess.tf_mgr.transforms[tf_id];
     RecordManager::apply_field_actions(
         &sess.record_mgr.fields,

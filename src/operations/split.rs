@@ -11,7 +11,7 @@ use crate::{
     options::argument::CliArgIdx,
     ref_iter::AutoDerefIter,
     utils::identity_hasher::BuildIdentityHasher,
-    worker_thread_session::{FieldId, JobData, MatchSetId, RecordManager, WorkerThreadSession},
+    worker_thread_session::{FieldId, JobSession, MatchSetId, RecordManager, WorkerThreadSession},
 };
 
 use super::{
@@ -47,7 +47,7 @@ pub fn parse_op_split(
     Ok(OperatorData::Split(OpSplit {}))
 }
 pub fn setup_ts_split_as_entry_point<'a, 'b>(
-    sess: &mut JobData<'a>,
+    sess: &mut JobSession<'a>,
     input_field: FieldId,
     ms_id: MatchSetId,
     entry_count: usize,
@@ -75,7 +75,7 @@ pub fn setup_ts_split_as_entry_point<'a, 'b>(
 }
 
 pub fn setup_tf_split<'a>(
-    _sess: &mut JobData,
+    _sess: &mut JobSession,
     _op_base: &OperatorBase,
     _op: &'a OpSplit,
     _tf_state: &mut TransformState,
@@ -86,7 +86,7 @@ pub fn setup_tf_split<'a>(
     })
 }
 
-pub fn handle_tf_split(sess: &mut JobData, tf_id: TransformId, sp: &mut TfSplit) {
+pub fn handle_tf_split(sess: &mut JobSession, tf_id: TransformId, sp: &mut TfSplit) {
     let (batch_size, end_of_input) = sess.tf_mgr.claim_batch(tf_id);
 
     let match_sets = &mut sess.record_mgr.match_sets;

@@ -14,7 +14,7 @@ use crate::{
     },
     stream_value::{StreamValueData, StreamValueId},
     utils::{i64_to_str, usize_to_str},
-    worker_thread_session::{Field, JobData, RecordManager},
+    worker_thread_session::{Field, JobSession, RecordManager},
 };
 
 use super::{
@@ -92,7 +92,7 @@ pub fn parse_op_join(
 }
 
 pub fn setup_tf_join<'a>(
-    sess: &mut JobData,
+    sess: &mut JobSession,
     _op_base: &OperatorBase,
     op: &'a OpJoin,
     tf_state: &mut TransformState,
@@ -217,7 +217,7 @@ pub fn emit_group(join: &mut TfJoin, output_field: &mut Field) {
     join.group_len = 0;
     join.first_record_added = false;
 }
-pub fn handle_tf_join(sess: &mut JobData<'_>, tf_id: TransformId, join: &mut TfJoin) {
+pub fn handle_tf_join(sess: &mut JobSession<'_>, tf_id: TransformId, join: &mut TfJoin) {
     let (batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
     let tf = &sess.tf_mgr.transforms[tf_id];
     let output_field_id = tf.output_field;
@@ -373,7 +373,7 @@ pub fn handle_tf_join(sess: &mut JobData<'_>, tf_id: TransformId, join: &mut TfJ
 }
 
 pub fn handle_tf_join_stream_value_update(
-    sess: &mut JobData<'_>,
+    sess: &mut JobSession<'_>,
     tf_id: TransformId,
     join: &mut TfJoin,
     sv_id: StreamValueId,

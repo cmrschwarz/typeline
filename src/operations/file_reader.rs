@@ -19,7 +19,7 @@ use crate::{
     },
     options::argument::CliArgIdx,
     stream_value::{StreamValue, StreamValueData, StreamValueId},
-    worker_thread_session::JobData,
+    worker_thread_session::JobSession,
 };
 
 use super::{
@@ -112,7 +112,7 @@ pub struct TfFileReader {
 }
 
 pub fn setup_tf_file_reader<'a>(
-    sess: &mut JobData,
+    sess: &mut JobSession,
     _op_base: &OperatorBase,
     op: &'a OpFileReader,
     tf_state: &mut TransformState,
@@ -237,7 +237,7 @@ fn read_chunk(
     Ok((size, eof))
 }
 
-fn start_streaming_file(sess: &mut JobData<'_>, tf_id: TransformId, fr: &mut TfFileReader) {
+fn start_streaming_file(sess: &mut JobSession<'_>, tf_id: TransformId, fr: &mut TfFileReader) {
     let output_field_id = sess.tf_mgr.transforms[tf_id].output_field;
     sess.prepare_for_output(tf_id, &[output_field_id]);
     // if there might be more records later we must always buffer the file data
@@ -322,7 +322,7 @@ fn start_streaming_file(sess: &mut JobData<'_>, tf_id: TransformId, fr: &mut TfF
     sess.tf_mgr.push_tf_in_ready_queue(tf_id);
 }
 
-pub fn handle_tf_file_reader(sess: &mut JobData<'_>, tf_id: TransformId, fr: &mut TfFileReader) {
+pub fn handle_tf_file_reader(sess: &mut JobSession<'_>, tf_id: TransformId, fr: &mut TfFileReader) {
     let sv_id = if let Some(sv_id) = fr.stream_value {
         sv_id
     } else {

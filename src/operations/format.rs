@@ -33,7 +33,7 @@ use crate::{
         ValueProducingCallable, MAX_UTF8_CHAR_LEN,
     },
     worker_thread_session::{
-        Field, FieldId, JobData, MatchSet, MatchSetId, RecordManager, StreamValueManager,
+        Field, FieldId, JobSession, MatchSet, MatchSetId, RecordManager, StreamValueManager,
     },
 };
 
@@ -197,7 +197,7 @@ pub fn setup_op_format(
 }
 
 pub fn setup_tf_format<'a>(
-    sess: &mut JobData,
+    sess: &mut JobSession,
     _op_base: &OperatorBase,
     op: &'a OpFormat,
     tf_id: TransformId,
@@ -1258,7 +1258,7 @@ fn write_fmt_key(
         iter.into_base_iter(),
     );
 }
-pub fn handle_tf_format(sess: &mut JobData<'_>, tf_id: TransformId, fmt: &mut TfFormat) {
+pub fn handle_tf_format(sess: &mut JobSession<'_>, tf_id: TransformId, fmt: &mut TfFormat) {
     let tf = &sess.tf_mgr.transforms[tf_id];
     let op_id = tf.op_id.unwrap();
     let output_field_id = tf.output_field;
@@ -1337,7 +1337,7 @@ pub fn handle_tf_format(sess: &mut JobData<'_>, tf_id: TransformId, fmt: &mut Tf
 }
 
 pub fn handle_tf_format_stream_value_update(
-    sess: &mut JobData<'_>,
+    sess: &mut JobSession<'_>,
     tf_id: TransformId,
     tf: &mut TfFormat,
     sv_id: StreamValueId,

@@ -1,6 +1,6 @@
 use crate::{
     field_data::command_buffer::{ActionProducingFieldIndex, FieldActionKind},
-    worker_thread_session::JobData,
+    worker_thread_session::JobSession,
 };
 
 use super::transform::{TransformData, TransformId, TransformState};
@@ -11,7 +11,7 @@ pub struct TfTerminator {
 }
 
 pub fn setup_tf_terminator(
-    sess: &mut JobData,
+    sess: &mut JobSession,
     tf_state: &mut TransformState,
 ) -> TransformData<'static> {
     TransformData::Terminator(TfTerminator {
@@ -21,7 +21,11 @@ pub fn setup_tf_terminator(
     })
 }
 
-pub fn handle_tf_terminator(sess: &mut JobData<'_>, tf_id: TransformId, t1000: &mut TfTerminator) {
+pub fn handle_tf_terminator(
+    sess: &mut JobSession<'_>,
+    tf_id: TransformId,
+    t1000: &mut TfTerminator,
+) {
     let (batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
     let tf = &sess.tf_mgr.transforms[tf_id];
     let cb = &mut sess.record_mgr.match_sets[tf.match_set_id].command_buffer;

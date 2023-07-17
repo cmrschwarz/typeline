@@ -6,7 +6,7 @@ use crate::{
     field_data::{push_interface::PushInterface, FieldValueKind},
     options::argument::CliArgIdx,
     utils::{i64_to_str, I64_MAX_DECIMAL_DIGITS},
-    worker_thread_session::JobData,
+    worker_thread_session::JobSession,
 };
 
 use super::{
@@ -44,7 +44,7 @@ pub struct TfSequence {
 }
 
 pub fn setup_tf_sequence<'a>(
-    _sess: &mut JobData,
+    _sess: &mut JobSession,
     _op_base: &OperatorBase,
     op: &'a OpSequence,
     tf_state: &mut TransformState,
@@ -75,7 +75,7 @@ pub fn increment_int_str(data: &mut ArrayVec<u8, I64_MAX_DECIMAL_DIGITS>) {
 
 const FAST_SEQ_MAX_STEP: i64 = 200;
 
-pub fn handle_tf_sequence(sess: &mut JobData<'_>, tf_id: TransformId, seq: &mut TfSequence) {
+pub fn handle_tf_sequence(sess: &mut JobSession<'_>, tf_id: TransformId, seq: &mut TfSequence) {
     let output_field_id = sess.tf_mgr.transforms[tf_id].output_field;
     sess.prepare_for_output(tf_id, &[output_field_id]);
     let (mut batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
