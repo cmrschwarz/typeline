@@ -24,6 +24,7 @@ use crate::{
         operator::{OperatorData, OperatorId},
         print::{handle_tf_print, handle_tf_print_stream_value_update, setup_tf_print},
         regex::{handle_tf_regex, handle_tf_regex_stream_value_update, setup_tf_regex},
+        select::{handle_tf_select, setup_tf_select},
         sequence::{handle_tf_sequence, setup_tf_sequence},
         split::{
             handle_split_expansion, handle_tf_split, setup_tf_split, setup_ts_split_as_entry_point,
@@ -124,6 +125,12 @@ impl TransformManager {
         tf.available_batch_size -= batch_size;
         let input_done = tf.input_is_done && tf.available_batch_size == 0;
         (batch_size, input_done)
+    }
+    pub fn claim_all(&mut self, tf_id: TransformId) -> (usize, bool) {
+        let tf = &mut self.transforms[tf_id];
+        let batch_size = tf.available_batch_size;
+        tf.available_batch_size = 0;
+        (batch_size, tf.input_is_done)
     }
     pub fn unclaim_batch_size(&mut self, tf_id: TransformId, batch_size: usize) {
         self.transforms[tf_id].available_batch_size += batch_size;
@@ -565,6 +572,7 @@ impl<'a> WorkerThreadSession<'a> {
             [start_op.offset_in_chain as usize..];
         let mut mark_prev_field_as_placeholder = false;
         for op_id in ops {
+            let mut transparent = false;
             let op_base = &self.job_data.session_data.operator_bases[*op_id as usize];
             let op_data = &self.job_data.session_data.operator_data[*op_id as usize];
             let jd = &mut self.job_data;
@@ -590,14 +598,16 @@ impl<'a> WorkerThreadSession<'a> {
                             Some(op.key_interned),
                         );
                         next_input_field = field_id;
-                        //TODO: think about field refcounting
-                        mark_prev_field_as_placeholder = true;
                     }
-                    continue;
+                    transparent = true;
                 }
+                OperatorData::StringSink(ss) => transparent = ss.transparent,
                 _ => (),
             }
-            let mut output_field = if op_base.append_mode {
+            let mut output_field = if transparent {
+                jd.record_mgr.bump_field_refcount(next_input_field);
+                next_input_field
+            } else if op_base.append_mode {
                 if let Some(lbl) = op_base.label {
                     jd.record_mgr.add_field_name(prev_output_field, lbl);
                 }
@@ -643,8 +653,8 @@ impl<'a> WorkerThreadSession<'a> {
                     setup_tf_data_inserter(jd, op_base, op, &mut tf_state)
                 }
                 OperatorData::Sequence(op) => setup_tf_sequence(jd, op_base, op, &mut tf_state),
+                OperatorData::Select(op) => setup_tf_select(jd, b, op, &mut tf_state),
                 OperatorData::Key(_) => unreachable!(),
-                OperatorData::Select(_) => unreachable!(),
                 OperatorData::Next(_) => unreachable!(),
                 OperatorData::Up(_) => unreachable!(),
             };
@@ -743,6 +753,7 @@ impl<'a> WorkerThreadSession<'a> {
                         svu.custom,
                     ),
                     TransformData::Split(_) => todo!(),
+                    TransformData::Select(_) => unreachable!(),
                     TransformData::Terminator(_) => unreachable!(),
                     TransformData::FileReader(_) => unreachable!(),
                     TransformData::Sequence(_) => unreachable!(),
@@ -778,6 +789,7 @@ impl<'a> WorkerThreadSession<'a> {
                     TransformData::Format(tf) => handle_tf_format(jd, tf_id, tf),
                     TransformData::Terminator(tf) => handle_tf_terminator(jd, tf_id, tf),
                     TransformData::Join(tf) => handle_tf_join(jd, tf_id, tf),
+                    TransformData::Select(tf) => handle_tf_select(jd, tf_id, tf),
                     TransformData::Disabled => unreachable!(),
                 }
                 if let Some(tf) = self.job_data.tf_mgr.transforms.get(tf_id) {
