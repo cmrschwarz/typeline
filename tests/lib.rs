@@ -3,7 +3,8 @@ mod utils;
 use scr::bstr::ByteSlice;
 
 use scr::operations::chain_navigation_ops::create_op_next;
-use scr::operations::join::create_op_join;
+use scr::operations::data_inserter::create_op_str;
+use scr::operations::join::{create_op_join, create_op_join_str};
 use scr::operations::select::create_op_select;
 use scr::operations::sequence::{create_op_enum, create_op_seqn};
 use scr::operations::split::create_op_split;
@@ -701,6 +702,33 @@ fn join_streams() -> Result<(), ScrError> {
     assert_eq!(ss.get_data().unwrap().as_slice(), ["foo, bar"]);
     Ok(())
 }
+
+#[test]
+fn join_after_append() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::new();
+    ContextBuilder::default()
+        .add_op(create_op_str("foo", 1))
+        .add_op_appending(create_op_str("bar", 1))
+        .add_op(create_op_join_str(", ", 0))
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(ss.get_data().unwrap().as_slice(), ["foo, bar"]);
+    Ok(())
+}
+
+#[test]
+fn join_after_enum() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::new();
+    ContextBuilder::default()
+        .add_op(create_op_str("foo", 2))
+        .add_op(create_op_enum(0, i64::MAX, 1).unwrap())
+        .add_op(create_op_join_str(",", 0))
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(ss.get_data().unwrap().as_slice(), ["0,1"]);
+    Ok(())
+}
+
 #[test]
 fn join_dropped_streams() -> Result<(), ScrError> {
     let ss = StringSinkHandle::new();

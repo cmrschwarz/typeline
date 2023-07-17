@@ -4,40 +4,40 @@ Flags:
     -h | --help           Print this help and exit
     -v | --version        Print version info and exit
 
-Settings (call `scr h=<SETTING>` for details):
-    h=<cmd>               Print help about a Setting or an Operator and exit
+Settings (call `scr h=SETTING` for details):
+    h=CMD                 Print help about a Setting or an Operator and exit
 
-    bs=<N>                Batch size
-    sbs=<N>               Stream buffer size
-    j=<N>                 Max thread count (default 1, use 0 for core count)
-    lb=<yes|no|...>       Line Buffering Mode (see mode descriptions in `h=lb`)
+    bs=N                  Batch size
+    sbs=N                 Stream buffer size
+    j=N                   Max thread count (default 1, use 0 for core count)
+    lb=yes|no|..          Line Buffering Mode (see mode descriptions in `h=lb`)
 
-    denc=<encoding>       Default text encoding (see encodings list in `h=enc`)
-    ppenc=<yes|no>        Prefer parent document encodins over the set default
-    fenc=<yes|no>         Force use of denc, despite any BOMs or <meta charset>
+    denc=ENCODING         Default text encoding (see encodings list in `h=enc`)
+    ppenc=yes|no          Prefer parent document encodins over the set default
+    fenc=yes|no           Force use of denc, despite any BOMs or <meta charset>
 
-    sel=<driver>          Enable Selenium (see list of drivers in `h=sel`)
-    sds=<strategy>        Selenium Download Stragegy (list in `h=sds`)
+    sel=DRIVER            Enable Selenium (see list of drivers in `h=sel`)
+    sds=STRATEGY          Selenium Download Stragegy (list in `h=sds`)
 
-Operators (call `scr h=<OP>` for details):
+Operators (call `scr h=OPERATOR` for details):
     p                     Print previous results to stdout
-    f=<fstr>              Format text using rust format strings
-    r[abdilmou]=<regex>   Apply a regular expression
-    key=<IDENT>           Give a name to the previous output column.
+    f=FSTR                Format text using rust format strings
+    r[abdilmou]=regex     Apply a regular expression
+    key=IDENT             Give a name to the previous output column.
 
-    file[t]=<path>        Read in bytes (or text) from a file
+    file[t]=PATH          Read in bytes (or text) from a file
     stdin[t]              Read in bytes (or text) form stdin
 
-    seq[n]=<B>,<E>,<S>    Produce a sequence of Integers
-    enum[n]=<B>,<E>,<S>   Insert one sequence element for every match
+    seq[n]=[B,]E[,S]      Produce a sequence of Integers
+    enum[n]=[B,][E][,S]   Insert one sequence element for every match
 
-    str<N>=<str>          Insert a string   (<N> times)
-    int<N>=<int>          Insert an integer (<N> times)
-    bytes<N>=<bytes>      Insert raw bytes  (<N> times)
+    str[N]=STR            Insert a string   (N times)
+    int[N]=INT            Insert an integer (N times)
+    bytes[N]=BYTES        Insert raw bytes  (N times)
 
-    split=<chainspec>     Forward matches to other chains
+    split=[CHAINS]        Forward matches to all subchains (or specified chains)
 
 Operator modifiers
-    +<OP>                 Append Mode: Append to previous output, see `h=+`
-    _<OP>                 Transparent Mode: Pass along input, see `h=_`
-    <OP>@<label>          Label: equivalent to `OP key=<label>`, see `h=@`
+    +OPERATOR             Append Mode: Append to previous output, see `h=+`
+    _OPERATOR             Transparent Mode: Pass the input through, see `h=_`
+    OPERATOR@LABEL        Label: equivalent to `OP key=<label>`, see `h=@`

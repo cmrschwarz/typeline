@@ -137,6 +137,23 @@ pub fn create_op_join(
         drop_incomplete,
     })
 }
+pub fn create_op_join_str(separator: &str, join_count: usize) -> OperatorData {
+    let separator_is_valid_utf8 = true;
+    let sep = match separator {
+        "" => None,
+        v => Some(v.as_bytes().to_owned().into_boxed_slice()),
+    };
+    OperatorData::Join(OpJoin {
+        separator: sep,
+        separator_is_valid_utf8,
+        join_count: if join_count == 0 {
+            None
+        } else {
+            Some(join_count)
+        },
+        drop_incomplete: false,
+    })
+}
 pub fn push_str(join: &mut TfJoin, data: &str, rl: usize) {
     push_bytes_raw(join, data.as_bytes(), rl);
 }

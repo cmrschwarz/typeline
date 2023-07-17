@@ -407,7 +407,7 @@ fn parse_operation(
         "seq" => Some(parse_op_seq(value, false, false, idx)?),
         "seqn" => Some(parse_op_seq(value, false, true, idx)?),
         "enum" => Some(parse_op_seq(value, true, false, idx)?),
-        "enumn" => Some(parse_op_seq(value, true, false, idx)?),
+        "enumn" => Some(parse_op_seq(value, true, true, idx)?),
 
         "split" => Some(parse_op_split(value, idx)?),
         "next" => Some(parse_op_next(value, idx)?),

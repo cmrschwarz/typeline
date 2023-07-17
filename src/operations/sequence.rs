@@ -80,34 +80,15 @@ pub fn handle_tf_sequence(sess: &mut JobData<'_>, tf_id: TransformId, seq: &mut 
     sess.prepare_for_output(tf_id, &[output_field_id]);
     let (mut batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
 
-    let mut unlink_if_done = false;
-
-    if batch_size == 0 {
-        debug_assert!(input_done);
-        if seq.stop_after_input {
-            sess.unlink_transform(tf_id, 0);
-            return;
-        }
-        unlink_if_done = true;
-    }
-
     let mut output_field = sess.record_mgr.fields[output_field_id].borrow_mut();
 
-    if seq.stop_after_input && seq.ss.start == seq.ss.end {
-        output_field.field_data.push_unset(batch_size, true);
-        sess.tf_mgr
-            .inform_successor_batch_available(tf_id, batch_size);
-        return;
+    let succ = sess.tf_mgr.transforms[tf_id].successor.unwrap();
+    let s = &sess.tf_mgr.transforms[succ];
+    if batch_size == 0 && !seq.stop_after_input {
+        batch_size = s.desired_batch_size.saturating_sub(s.available_batch_size);
     }
-    let succ_wants_text = if let Some(succ) = sess.tf_mgr.transforms[tf_id].successor {
-        let s = &sess.tf_mgr.transforms[succ];
-        if batch_size == 0 {
-            batch_size = s.desired_batch_size.saturating_sub(s.available_batch_size);
-        }
-        s.preferred_input_type == Some(FieldValueKind::BytesInline) && output_field.names.is_empty()
-    } else {
-        false
-    };
+    let succ_wants_text = s.preferred_input_type == Some(FieldValueKind::BytesInline)
+        && output_field.names.is_empty();
 
     let mut bs_rem = batch_size;
 
@@ -148,8 +129,15 @@ pub fn handle_tf_sequence(sess: &mut JobData<'_>, tf_id: TransformId, seq: &mut 
         }
     }
     let fields_added = batch_size - bs_rem;
-    drop(output_field);
-    if unlink_if_done && seq.ss.start == seq.ss.end {
+
+    if input_done & seq.stop_after_input {
+        drop(output_field);
+        sess.unlink_transform(tf_id, fields_added);
+        return;
+    }
+    if seq.ss.start == seq.ss.end {
+        sess.tf_mgr.unclaim_batch_size(tf_id, bs_rem);
+        drop(output_field);
         sess.unlink_transform(tf_id, fields_added);
         return;
     }
@@ -168,6 +156,15 @@ pub fn parse_op_seq(
     natural_number_mode: bool,
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
+    if stop_after_input && value.is_none() {
+        return create_op_seq_with_cli_arg_idx(
+            0 + natural_number_mode as i64,
+            i64::MAX,
+            1,
+            true,
+            arg_idx,
+        );
+    }
     let value_str = value
         .ok_or_else(|| OperatorCreationError::new("missing parameter for sequence", arg_idx))?
         .as_bytes()

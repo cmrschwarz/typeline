@@ -1,12 +1,14 @@
 format - Format data using the Rust / Python format string syntax
 
-Syntax: f=<fstr>
+Syntax: f=FSTR
 
 General:
     # TODO: write a general explanation section
 
 Examples:
-    scr seqn=3 f="{:03}" join=, p     # 001,002,003
+    scr int=7 f="{:03}" p                                   # 007
+    scr str=7 f="{:?}" p                                    # "7"
+    scr str2@k=foo +str=bar enum@v f="{k}:{v}" join=, p     # foo:0,foo:1,bar:2
 
     # TODO: more examples
 

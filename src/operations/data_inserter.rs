@@ -74,7 +74,11 @@ pub fn handle_tf_data_inserter(
                 if batch_size < tf.desired_batch_size {
                     batch_size = ic.min(tf.desired_batch_size);
                 }
-                sess.tf_mgr.unclaim_batch_size(tf_id, ic - batch_size);
+                if batch_size == ic {
+                    unlink_after = true;
+                } else {
+                    sess.tf_mgr.unclaim_batch_size(tf_id, ic - batch_size);
+                }
             }
         }
         di.insert_count = Some(ic - batch_size);
@@ -204,4 +208,35 @@ pub fn parse_data_inserter(
 
 pub fn create_op_data_inserter(data: DataToInsert, insert_count: Option<usize>) -> OperatorData {
     OperatorData::DataInserter(OpDataInserter { data, insert_count })
+}
+
+pub fn create_op_str(str: &str, insert_count: usize) -> OperatorData {
+    OperatorData::DataInserter(OpDataInserter {
+        data: DataToInsert::String(str.to_owned()),
+        insert_count: if insert_count == 0 {
+            None
+        } else {
+            Some(insert_count)
+        },
+    })
+}
+pub fn create_op_int(v: i64, insert_count: usize) -> OperatorData {
+    OperatorData::DataInserter(OpDataInserter {
+        data: DataToInsert::Int(v),
+        insert_count: if insert_count == 0 {
+            None
+        } else {
+            Some(insert_count)
+        },
+    })
+}
+pub fn create_op_bytes(v: &[u8], insert_count: usize) -> OperatorData {
+    OperatorData::DataInserter(OpDataInserter {
+        data: DataToInsert::Bytes(v.as_bstr().to_owned()),
+        insert_count: if insert_count == 0 {
+            None
+        } else {
+            Some(insert_count)
+        },
+    })
 }

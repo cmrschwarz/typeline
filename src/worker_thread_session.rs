@@ -390,12 +390,13 @@ impl JobData<'_> {
         let successor = tf.successor;
         let continuation = tf.continuation;
         let input_is_done = tf.input_is_done;
-
+        let available_batch_size = tf.available_batch_size;
         if let Some(cont_id) = continuation {
             let cont = &mut self.tf_mgr.transforms[cont_id];
             cont.input_is_done = input_is_done;
             cont.successor = successor;
             cont.predecessor = predecessor;
+            cont.available_batch_size = available_batch_size;
             if let Some(pred_id) = predecessor {
                 self.tf_mgr.transforms[pred_id].successor = continuation;
             }
