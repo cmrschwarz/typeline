@@ -311,6 +311,11 @@ pub fn handle_tf_join(sess: &mut JobSession<'_>, tf_id: TransformId, join: &mut 
                                     }
                                 }
                                 sv.subscribe(tf_id, rl as usize, sv.is_buffered());
+                                input_field.request_clear_delay();
+                                sess.tf_mgr.unclaim_batch_size(
+                                    tf_id,
+                                    batch_size - (pos - field_pos_start),
+                                );
                                 break 'iter;
                             }
                         }
@@ -379,6 +384,7 @@ pub fn handle_tf_join_stream_value_update(
     let tf = &sess.tf_mgr.transforms[tf_id];
     let input_done = tf.input_is_done;
     let out_field_id = tf.output_field;
+    let in_field_id = tf.input_field;
     let sv = &mut sess.sv_mgr.stream_values[sv_id];
     match &sv.data {
         StreamValueData::Dropped => unreachable!(),
@@ -416,6 +422,9 @@ pub fn handle_tf_join_stream_value_update(
                 } else {
                     sess.tf_mgr.update_ready_state(tf_id);
                 }
+                sess.field_mgr.fields[in_field_id]
+                    .borrow()
+                    .drop_clear_delay_request();
                 if Some(join.group_len) == join.group_capacity {
                     emit_group(
                         join,

@@ -176,9 +176,8 @@ pub fn handle_split_expansion(
                     } else if *name == DEFAULT_INPUT_FIELD {
                         split_input_field_id
                     } else {
-                        let target_field_id = sess.job_data.field_mgr.fields.claim();
+                        let target_field_id = sess.job_data.field_mgr.add_field(target_ms_id, None);
                         let mut tgt = sess.job_data.field_mgr.fields[target_field_id].borrow_mut();
-                        tgt.match_set = target_ms_id;
                         tgt.added_as_placeholder_by_tf = Some(tf_id);
                         e.insert(target_field_id);
                         continue;
@@ -199,7 +198,7 @@ pub fn handle_split_expansion(
 
                     let target_field_id = if any_writes {
                         drop(src_field);
-                        let target = sess.job_data.field_mgr.fields.claim();
+                        let target = sess.job_data.field_mgr.add_field(target_ms_id, None);
                         src_field = sess.job_data.field_mgr.fields[src_field_id].borrow_mut();
                         match mappings.entry(src_field_id) {
                             Entry::Occupied(ref mut e) => {
@@ -219,8 +218,6 @@ pub fn handle_split_expansion(
                     };
                     let mut tgt_field = if any_writes {
                         let mut tgt = sess.job_data.field_mgr.fields[target_field_id].borrow_mut();
-                        tgt.match_set = target_ms_id;
-                        tgt.field_id = target_field_id;
                         if *name != DEFAULT_INPUT_FIELD {
                             tgt.names.push(*name);
                         }

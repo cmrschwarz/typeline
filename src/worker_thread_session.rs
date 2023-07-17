@@ -1,5 +1,5 @@
 use std::{
-    cell::{Ref, RefCell, RefMut},
+    cell::{Cell, Ref, RefCell, RefMut},
     collections::{BinaryHeap, HashMap, VecDeque},
 };
 
@@ -50,7 +50,8 @@ pub const ERROR_FIELD_PSEUDO_STR: usize = 0;
 pub struct Field {
     pub field_id: FieldId, // used for checking whether we got rug pulled in case of cow
     pub ref_count: usize,
-    pub do_not_clear_request_count: usize,
+    //typically called on input fields, borrowing these mut is annoying
+    pub clear_delay_request_count: Cell<usize>,
     pub match_set: MatchSetId,
     pub added_as_placeholder_by_tf: Option<TransformId>,
 
@@ -74,8 +75,6 @@ pub struct MatchSet {
     pub command_buffer: CommandBuffer,
     pub field_name_map: HashMap<StringStoreEntry, FieldId>,
 }
-
-impl MatchSet {}
 
 pub struct WorkerThreadSession<'a> {
     pub transform_data: Vec<TransformData<'a>>,
@@ -124,7 +123,19 @@ pub struct StreamValueManager {
     pub updates: VecDeque<StreamValueUpdate>,
 }
 
-impl Field {}
+impl Field {
+    pub fn get_clear_delay_request_count(&self) -> usize {
+        self.clear_delay_request_count.get()
+    }
+    pub fn request_clear_delay(&self) {
+        self.clear_delay_request_count
+            .set(self.clear_delay_request_count.get() + 1);
+    }
+    pub fn drop_clear_delay_request(&self) {
+        self.clear_delay_request_count
+            .set(self.clear_delay_request_count.get() - 1);
+    }
+}
 
 impl TransformManager {
     pub fn claim_batch(&mut self, tf_id: TransformId) -> (usize, bool) {
@@ -246,7 +257,7 @@ impl FieldManager {
         let mut field = Field {
             field_id: id,
             ref_count: 1,
-            do_not_clear_request_count: 0,
+            clear_delay_request_count: Cell::new(0),
             match_set: ms_id,
             added_as_placeholder_by_tf: None,
             min_apf_idx: min_apf,
@@ -368,10 +379,18 @@ impl JobSession<'_> {
         if tf.is_appending {
             tf.is_appending = false;
         } else {
-            let cb = &mut self.match_set_mgr.match_sets[tf.match_set_id].command_buffer;
+            let match_set_mgr = &mut self.match_set_mgr;
             for ofid in output_fields {
                 let mut f = self.field_mgr.fields[*ofid].borrow_mut();
-                cb.clear_field_dropping_commands(&mut f);
+                if f.get_clear_delay_request_count() > 0 {
+                    drop(f);
+                    //TODO: this needs to preserve iterators
+                    self.field_mgr.apply_field_actions(match_set_mgr, *ofid);
+                } else {
+                    match_set_mgr.match_sets[tf.match_set_id]
+                        .command_buffer
+                        .clear_field_dropping_commands(&mut f);
+                }
             }
         }
     }

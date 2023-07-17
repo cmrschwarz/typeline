@@ -64,12 +64,14 @@ impl IterHall {
             .get(state.header_idx)
             .cloned()
             .unwrap_or_default();
-        if h.run_length == state.header_rl_offset {
+        if h.run_length == state.header_rl_offset && state.header_idx < self.fd.header.len() {
             state.header_idx += 1;
             state.header_rl_offset = 0;
             state.data += h.total_size();
             if state.header_idx == self.fd.header.len() {
-                h.run_length = 0;
+                h = Default::default();
+            } else {
+                h = self.fd.header[state.header_idx];
             }
         }
         h
