@@ -117,7 +117,7 @@ impl UnsafeHeaderPushInterface for FieldData {
         if last_header.run_length == 1 {
             last_header.set_shared_value(data_rle);
         }
-        if last_header.shared_value() {
+        if last_header.shared_value() || run_length > 1 {
             if data_rle {
                 let rl_rem = last_header.run_len_rem() as usize;
                 if rl_rem > run_length {
@@ -252,6 +252,7 @@ unsafe impl RawPushInterface for FieldData {
                             data == *(self.data.as_ptr_range().end.sub(std::mem::size_of::<T>())
                                 as *const T)
                         };
+                        header_rle |= data_rle;
                     }
                 }
             }
@@ -598,3 +599,18 @@ pub trait PushInterface: RawPushInterface {
 }
 
 impl<T: RawPushInterface> PushInterface for T {}
+
+#[cfg(test)]
+mod test {
+    use crate::field_data::FieldData;
+
+    use super::PushInterface;
+
+    #[test]
+    fn no_header_rle_for_distinct_shared_values() {
+        let mut fd = FieldData::default();
+        fd.push_int(1, 2, true, false);
+        fd.push_int(2, 2, true, false);
+        assert!(fd.header.len() == 2);
+    }
+}
