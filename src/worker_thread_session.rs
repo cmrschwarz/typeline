@@ -225,13 +225,13 @@ impl TransformManager {
             if !initial_call {
                 return (0, true);
             }
-            // We purposly wont deal with that case, as it would be better
-            // to not produce a value in the first place
-            debug_assert!(*length != Some(0));
             batch_size = length.unwrap_or(1);
         }
         if let Some(len) = length {
             *len -= batch_size;
+            if *len == 0 {
+                input_done = true;
+            }
         } else if has_cont {
             input_done = true;
         }
