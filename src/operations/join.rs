@@ -432,7 +432,14 @@ pub fn handle_tf_join(sess: &mut JobSession<'_>, tf_id: TransformId, join: &mut 
         iter.into_base_iter(),
     );
     if input_done {
-        if !join.drop_incomplete || (join.group_len > 0 && join.group_capacity.is_none()) {
+        let mut emit_incomplete = false;
+        // we dont drop incomplete and there are actual members
+        emit_incomplete |= join.group_len > 0 && !join.drop_incomplete;
+        // we join all output, and there is output
+        emit_incomplete |= join.group_capacity.is_none() && join.group_len > 0;
+        // we join all output, and don't drop incomplete (may be empty)
+        emit_incomplete |= join.group_capacity.is_none() && !join.drop_incomplete;
+        if emit_incomplete {
             emit_group(join, &mut sess.sv_mgr, &mut output_field);
             groups_emitted += 1;
         }

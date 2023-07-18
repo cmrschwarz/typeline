@@ -518,7 +518,14 @@ fn optional_regex() -> Result<(), ScrError> {
         .run()?;
     assert_eq!(
         ss.get_data().unwrap().as_slice(),
-        ["9: null", "10: 1", "11: 1", "11: 1", "20: null", "21: 1"]
+        [
+            "9: null",
+            "10: \"1\"",
+            "11: \"1\"",
+            "11: \"1\"",
+            "20: null",
+            "21: \"1\""
+        ]
     );
     Ok(())
 }
@@ -906,10 +913,10 @@ fn more_debug_format_surrounds_with_quotes() -> Result<(), ScrError> {
 
 #[test]
 fn join_turns_into_stream() -> Result<(), ScrError> {
-    for bs in [1, 2] {
+    for bs in [1] {
         let ss = StringSinkHandle::new();
         ContextBuilder::default()
-            .set_batch_size(1)
+            .set_batch_size(bs)
             .set_stream_size_threshold(2)
             .add_op(create_op_str("foo", 0))
             .add_op_appending(create_op_str("bar", 0))
