@@ -36,7 +36,7 @@ use crate::{
 use super::{
     errors::{OperatorApplicationError, OperatorCreationError, OperatorSetupError},
     operator::{OperatorBase, OperatorData, OperatorId},
-    print::{error_to_string, ERROR_PREFIX_STR, NULL_STR, SUCCESS_STR, UNSET_STR},
+    print::{ERROR_PREFIX_STR, NULL_STR, SUCCESS_STR, UNSET_STR},
     transform::{TransformData, TransformId, TransformState},
 };
 
@@ -84,7 +84,7 @@ impl Default for FormatWidthSpec {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum FormatType {
     #[default]
     Default, // the default value representation
@@ -404,7 +404,7 @@ pub fn parse_format_flags(
         c = next(fmt, i)?;
     }
 
-    if c == '?' {
+    if c == '?' && c2 != '?' {
         key.format_type = FormatType::Debug;
         i += 1;
         c = next(fmt, i)?;
@@ -744,6 +744,9 @@ pub fn setup_key_output_state(
                     let mut chars_count = cached!(v.chars().count());
                     iter_output_states(fmt, &mut output_index, rl, |o| {
                         o.len += calc_text_len(k, v.len(), o.width_lookup, &mut chars_count);
+                        if debug_format {
+                            o.len += 2;
+                        }
                     });
                 }
             }
@@ -753,6 +756,9 @@ pub fn setup_key_output_state(
                     iter_output_states(fmt, &mut output_index, rl, |o| {
                         o.len += calc_text_len(k, v.len(), o.width_lookup, &mut chars_count);
                         o.contains_raw_bytes = true;
+                        if debug_format {
+                            o.len += 2;
+                        }
                     });
                 }
             }
@@ -762,6 +768,9 @@ pub fn setup_key_output_state(
                     iter_output_states(fmt, &mut output_index, rl, |o| {
                         o.len += calc_text_len(k, v.len(), o.width_lookup, &mut chars_count);
                         o.contains_raw_bytes = true;
+                        if debug_format {
+                            o.len += 3;
+                        }
                     });
                 }
             }
@@ -791,6 +800,9 @@ pub fn setup_key_output_state(
                                                 + e.message.chars().count()
                                         },
                                     );
+                                    let (len, mut char_count) =
+                                        formatted_error_string_len(e, k.format_type, true);
+                                    o.len += calc_text_len(k, len, o.width_lookup, &mut char_count);
                                 });
                             } else {
                                 iter_output_states(fmt, &mut output_index, rl, |o| {
@@ -912,11 +924,10 @@ pub fn setup_key_output_state(
             }
             TypedSlice::Error(errs) if debug_format => {
                 for (v, rl) in TypedSliceIter::from_range(&range.base, errs) {
-                    let len = ERROR_PREFIX_STR.len() + v.message.len();
-                    let mut char_count =
-                        cached!(ERROR_PREFIX_STR.len() + v.message.chars().count());
+                    let (len, mut char_count) = formatted_error_string_len(v, k.format_type, false);
+                    let mut cc = cached!(char_count.call());
                     iter_output_states(fmt, &mut output_index, rl, |o| {
-                        o.len += calc_text_len(k, len, o.width_lookup, &mut char_count);
+                        o.len += calc_text_len(k, len, o.width_lookup, &mut cc);
                     });
                 }
             }
@@ -1077,22 +1088,40 @@ fn setup_output_targets(
         }
     }
 }
-
-unsafe fn write_padded_bytes(k: &FormatKey, tgt: &mut OutputTarget, data: &[u8]) {
+#[inline(always)]
+unsafe fn write_padded_bytes_with_prefix_suffix(
+    k: &FormatKey,
+    tgt: &mut OutputTarget,
+    data: &[u8],
+    prefix: &[u8],
+    suffix: &[u8],
+) {
     if k.width.is_some() {
         let fill_spec = k.fill.as_ref().cloned().unwrap_or_default();
-        let padding = calc_text_padding(k, data.len(), tgt.width_lookup, || data.chars().count());
+        let padding = calc_text_padding(
+            k,
+            data.len() + prefix.len() + suffix.len(),
+            tgt.width_lookup,
+            || data.chars().count() + prefix.chars().count() + suffix.chars().count(),
+        );
         let (pad_left, pad_right) = match fill_spec.alignment {
             FormatFillAlignment::Left => (padding, 0),
             FormatFillAlignment::Center => ((padding + 1) / 2, padding / 2),
             FormatFillAlignment::Right => (0, padding),
         };
         write_padding_to_tgt(tgt, fill_spec.fill_char, pad_left);
+        write_bytes_to_target(tgt, prefix);
         write_bytes_to_target(tgt, data);
+        write_bytes_to_target(tgt, suffix);
         write_padding_to_tgt(tgt, fill_spec.fill_char, pad_right);
     } else {
+        write_bytes_to_target(tgt, prefix);
         write_bytes_to_target(tgt, data);
+        write_bytes_to_target(tgt, suffix);
     }
+}
+unsafe fn write_padded_bytes(k: &FormatKey, tgt: &mut OutputTarget, data: &[u8]) {
+    write_padded_bytes_with_prefix_suffix(k, tgt, data, &[], &[]);
 }
 unsafe fn write_formatted_int(k: &FormatKey, tgt: &mut OutputTarget, value: i64) {
     if !k.width.is_some() {
@@ -1117,6 +1146,49 @@ unsafe fn write_formatted_int(k: &FormatKey, tgt: &mut OutputTarget, value: i64)
     let padding = calc_text_padding(k, len, tgt.width_lookup, || val.len());
     write_padding_to_tgt(tgt, Some('0'), padding);
     write_bytes_to_target(tgt, val.as_bytes());
+}
+fn error_to_formatted_string(
+    e: &OperatorApplicationError,
+    ft: FormatType,
+    stream_value: bool,
+) -> String {
+    match ft {
+        FormatType::Debug => format!("!\"{ERROR_PREFIX_STR}{}\"", e.message),
+        FormatType::MoreDebug => format!(
+            "{}!\"{ERROR_PREFIX_STR}{}\"",
+            if stream_value { ">>" } else { "" },
+            e.message
+        ),
+        _ => format!("Error: {}", e.message),
+    }
+}
+struct ErrLenCalculator<'a> {
+    err: &'a OperatorApplicationError,
+    additional_len: usize,
+}
+impl<'a> ValueProducingCallable<usize> for ErrLenCalculator<'a> {
+    fn call(&mut self) -> usize {
+        self.err.message.chars().count() + self.additional_len
+    }
+}
+fn formatted_error_string_len<'a>(
+    e: &'a OperatorApplicationError,
+    ft: FormatType,
+    stream_value: bool,
+) -> (usize, ErrLenCalculator) {
+    let additional_len = match ft {
+        FormatType::Debug => 2 + 1,
+        FormatType::MoreDebug => (if stream_value { 2 } else { 0 }) + 2 + 1,
+        _ => 0,
+    };
+    let base_len = ERROR_PREFIX_STR.len() + e.message.len();
+    (
+        base_len + additional_len,
+        ErrLenCalculator {
+            additional_len: ERROR_PREFIX_STR.chars().count() + additional_len,
+            err: e,
+        },
+    )
 }
 fn write_fmt_key(
     sv_mgr: &mut StreamValueManager,
@@ -1159,21 +1231,39 @@ fn write_fmt_key(
             TypedSlice::TextInline(text) => {
                 for (v, rl, _offs) in RefAwareInlineTextIter::from_range(&range, text) {
                     iter_output_targets(fmt, &mut output_index, rl as usize, |tgt| unsafe {
-                        write_padded_bytes(k, tgt, v.as_bytes());
+                        if debug_format {
+                            write_padded_bytes_with_prefix_suffix(
+                                k,
+                                tgt,
+                                v.as_bytes(),
+                                b"\"",
+                                b"\"",
+                            );
+                        } else {
+                            write_padded_bytes(k, tgt, v.as_bytes());
+                        }
                     });
                 }
             }
             TypedSlice::BytesInline(bytes) => {
                 for (v, rl, _offs) in RefAwareInlineBytesIter::from_range(&range, bytes) {
                     iter_output_targets(fmt, &mut output_index, rl as usize, |tgt| unsafe {
-                        write_padded_bytes(k, tgt, v);
+                        if debug_format {
+                            write_padded_bytes_with_prefix_suffix(k, tgt, v, b"'", b"'");
+                        } else {
+                            write_padded_bytes(k, tgt, v);
+                        }
                     });
                 }
             }
             TypedSlice::BytesBuffer(bytes) => {
                 for (v, rl, _offs) in RefAwareBytesBufferIter::from_range(&range, bytes) {
                     iter_output_targets(fmt, &mut output_index, rl as usize, |tgt| unsafe {
-                        write_padded_bytes(k, tgt, v);
+                        if debug_format {
+                            write_padded_bytes_with_prefix_suffix(k, tgt, v, b"'", b"'");
+                        } else {
+                            write_padded_bytes(k, tgt, v);
+                        }
                     });
                 }
             }
@@ -1196,7 +1286,7 @@ fn write_fmt_key(
             }
             TypedSlice::Error(errs) if debug_format => {
                 for (v, rl) in TypedSliceIter::from_range(&range.base, errs) {
-                    let err_str = error_to_string(v);
+                    let err_str = error_to_formatted_string(v, k.format_type, false);
                     iter_output_targets(fmt, &mut output_index, rl as usize, |tgt| unsafe {
                         write_padded_bytes(k, tgt, &err_str.as_bytes())
                     });
@@ -1210,10 +1300,7 @@ fn write_fmt_key(
                     match &sv.data {
                         StreamValueData::Dropped => unreachable!(),
                         StreamValueData::Error(e) => {
-                            let mut err_str = error_to_string(e);
-                            if k.format_type == FormatType::MoreDebug {
-                                err_str.insert_str(0, ">>");
-                            }
+                            let err_str = error_to_formatted_string(e, k.format_type, true);
                             iter_output_targets(
                                 fmt,
                                 &mut output_index,
