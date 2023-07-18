@@ -52,9 +52,9 @@ impl OpLiteral {
             Literal::String(_) => res.push_str("str"),
             Literal::Bytes(_) => res.push_str("bytes"),
             Literal::Error(_) => res.push_str("error"),
-            Literal::StreamString(_) => res.push_str("::str"),
-            Literal::StreamBytes(_) => res.push_str("::bytes"),
-            Literal::StreamError(_) => res.push_str("::error"),
+            Literal::StreamString(_) => res.push_str("~str"),
+            Literal::StreamBytes(_) => res.push_str("~bytes"),
+            Literal::StreamError(_) => res.push_str("~error"),
             Literal::Int(_) => res.push_str("int"),
         }
         res
@@ -130,7 +130,7 @@ pub fn handle_tf_literal(sess: &mut JobSession<'_>, tf_id: TransformId, di: &mut
                 sess.sv_mgr.stream_values.claim_with_value(StreamValue::new(
                     StreamValueData::Bytes(ss.as_bytes().to_owned()),
                     true,
-                    false,
+                    true,
                 )),
                 batch_size,
                 true,
@@ -142,7 +142,7 @@ pub fn handle_tf_literal(sess: &mut JobSession<'_>, tf_id: TransformId, di: &mut
                 sess.sv_mgr.stream_values.claim_with_value(StreamValue::new(
                     StreamValueData::Bytes(ss.as_bytes().to_owned()),
                     false,
-                    false,
+                    true,
                 )),
                 batch_size,
                 true,
@@ -157,7 +157,7 @@ pub fn handle_tf_literal(sess: &mut JobSession<'_>, tf_id: TransformId, di: &mut
                         message: ss.clone().into(),
                     }),
                     true,
-                    false,
+                    true,
                 )),
                 batch_size,
                 true,
