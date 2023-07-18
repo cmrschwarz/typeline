@@ -4,11 +4,11 @@ use crate::{chain::ChainId, options::argument::CliArgIdx, utils::string_store::S
 
 use super::{
     chain_navigation_ops::{OpNext, OpUp},
-    data_inserter::OpDataInserter,
     file_reader::OpFileReader,
     format::OpFormat,
     join::OpJoin,
     key::OpKey,
+    literal::OpLiteral,
     print::OpPrint,
     regex::OpRegex,
     select::OpSelect,
@@ -33,7 +33,7 @@ pub enum OperatorData {
     Format(OpFormat),
     StringSink(OpStringSink),
     FileReader(OpFileReader),
-    DataInserter(OpDataInserter),
+    DataInserter(OpLiteral),
     Sequence(OpSequence),
 }
 

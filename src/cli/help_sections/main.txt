@@ -22,7 +22,9 @@ Settings (call `scr h=SETTING` for details):
 Operators (call `scr h=OPERATOR` for details):
     p                     Print previous results to stdout
     f=FSTR                Format text using rust format strings
-    r[abdilmou]=regex     Apply a regular expression
+    r[abdilmou]=REGEX     Apply a regular expression
+    join[N]=SEP           Concatenate (N) consecutive inputs, separated by SEP
+
     key=IDENT             Give a name to the previous output column.
 
     file[t]=PATH          Read in bytes (or text) from a file
@@ -31,9 +33,8 @@ Operators (call `scr h=OPERATOR` for details):
     seq[n]=[B,]E[,S]      Produce a sequence of Integers
     enum[n]=[B,][E][,S]   Insert one sequence element for every match
 
-    str[N]=STR            Insert a string   (N times)
-    int[N]=INT            Insert an integer (N times)
-    bytes[N]=BYTES        Insert raw bytes  (N times)
+    TYPE                  Attempt to cast inputs to TYPE, see `h=cast`
+    TYPE[N]=VALUE         Insert a literal value (N times), see `h=literal`
 
     split=[CHAINS]        Forward matches to all subchains (or specified chains)
 

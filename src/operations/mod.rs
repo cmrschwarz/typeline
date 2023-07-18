@@ -1,10 +1,10 @@
 pub mod chain_navigation_ops;
-pub mod data_inserter;
 pub mod errors;
 pub mod file_reader;
 pub mod format;
 pub mod join;
 pub mod key;
+pub mod literal;
 pub mod operator;
 pub mod print;
 pub mod regex;

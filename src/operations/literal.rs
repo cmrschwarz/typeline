@@ -21,17 +21,17 @@ pub enum DataToInsert {
 }
 
 #[derive(Clone)]
-pub struct OpDataInserter {
+pub struct OpLiteral {
     pub data: DataToInsert,
     pub insert_count: Option<usize>,
 }
 
-pub struct TfDataInserter<'a> {
+pub struct TfLiteral<'a> {
     data: &'a DataToInsert,
     insert_count: Option<usize>,
 }
 
-impl OpDataInserter {
+impl OpLiteral {
     pub fn default_op_name(&self) -> SmallString<[u8; DEFAULT_OP_NAME_SMALL_STR_LEN]> {
         let mut res = SmallString::new();
         match self.data {
@@ -46,20 +46,16 @@ impl OpDataInserter {
 pub fn setup_tf_data_inserter<'a>(
     _sess: &mut JobSession,
     _op_base: &OperatorBase,
-    op: &'a OpDataInserter,
+    op: &'a OpLiteral,
     _tf_state: &mut TransformState,
 ) -> TransformData<'a> {
-    TransformData::DataInserter(TfDataInserter {
+    TransformData::DataInserter(TfLiteral {
         data: &op.data,
         insert_count: op.insert_count,
     })
 }
 
-pub fn handle_tf_data_inserter(
-    sess: &mut JobSession<'_>,
-    tf_id: TransformId,
-    di: &mut TfDataInserter,
-) {
+pub fn handle_tf_literal(sess: &mut JobSession<'_>, tf_id: TransformId, di: &mut TfLiteral) {
     let (mut batch_size, input_done);
     let mut unlink_after = false;
     if let Some(ic) = di.insert_count {
@@ -130,7 +126,7 @@ pub fn parse_op_str(
                 arg_idx,
             )
         })?;
-    Ok(OperatorData::DataInserter(OpDataInserter {
+    Ok(OperatorData::DataInserter(OpLiteral {
         data: DataToInsert::String(value_str.to_owned()),
         insert_count,
     }))
@@ -149,7 +145,7 @@ pub fn parse_op_int(
         })?;
     let parsed_value = str::parse::<i64>(value_str)
         .map_err(|_| OperatorCreationError::new("failed to value as integer", arg_idx))?;
-    Ok(OperatorData::DataInserter(OpDataInserter {
+    Ok(OperatorData::DataInserter(OpLiteral {
         data: DataToInsert::Int(parsed_value),
         insert_count,
     }))
@@ -167,7 +163,7 @@ pub fn parse_op_bytes(
             arg_idx,
         ));
     };
-    Ok(OperatorData::DataInserter(OpDataInserter {
+    Ok(OperatorData::DataInserter(OpLiteral {
         data: DataToInsert::Bytes(parsed_value),
         insert_count,
     }))
@@ -181,7 +177,7 @@ pub fn argument_matches_op_data_inserter(arg: &str) -> bool {
     ARG_REGEX.is_match(arg)
 }
 
-pub fn parse_data_inserter(
+pub fn parse_op_literal(
     argument: &str,
     value: Option<&BStr>,
     arg_idx: Option<CliArgIdx>,
@@ -206,12 +202,12 @@ pub fn parse_data_inserter(
     }
 }
 
-pub fn create_op_data_inserter(data: DataToInsert, insert_count: Option<usize>) -> OperatorData {
-    OperatorData::DataInserter(OpDataInserter { data, insert_count })
+pub fn create_op_literal(data: DataToInsert, insert_count: Option<usize>) -> OperatorData {
+    OperatorData::DataInserter(OpLiteral { data, insert_count })
 }
 
 pub fn create_op_str(str: &str, insert_count: usize) -> OperatorData {
-    OperatorData::DataInserter(OpDataInserter {
+    OperatorData::DataInserter(OpLiteral {
         data: DataToInsert::String(str.to_owned()),
         insert_count: if insert_count == 0 {
             None
@@ -221,7 +217,7 @@ pub fn create_op_str(str: &str, insert_count: usize) -> OperatorData {
     })
 }
 pub fn create_op_int(v: i64, insert_count: usize) -> OperatorData {
-    OperatorData::DataInserter(OpDataInserter {
+    OperatorData::DataInserter(OpLiteral {
         data: DataToInsert::Int(v),
         insert_count: if insert_count == 0 {
             None
@@ -231,7 +227,7 @@ pub fn create_op_int(v: i64, insert_count: usize) -> OperatorData {
     })
 }
 pub fn create_op_bytes(v: &[u8], insert_count: usize) -> OperatorData {
-    OperatorData::DataInserter(OpDataInserter {
+    OperatorData::DataInserter(OpLiteral {
         data: DataToInsert::Bytes(v.as_bstr().to_owned()),
         insert_count: if insert_count == 0 {
             None
