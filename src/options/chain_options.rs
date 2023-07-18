@@ -17,6 +17,7 @@ pub struct ChainOptions {
     pub selenium_download_strategy: Argument<SeleniumDownloadStrategy>,
     pub default_batch_size: Argument<usize>,
     pub stream_buffer_size: Argument<usize>,
+    pub stream_size_threshold: Argument<usize>,
     pub buffering_mode: Argument<BufferingMode>,
     pub parent: ChainId,
 }
@@ -30,6 +31,7 @@ pub const DEFAULT_CHAIN_OPTIONS: ChainOptions = ChainOptions {
     selenium_download_strategy: Argument::new(SeleniumDownloadStrategy::Scr),
     default_batch_size: Argument::new(1024), //TODO: tweak me
     stream_buffer_size: Argument::new(1024),
+    stream_size_threshold: Argument::new(1024),
     buffering_mode: Argument::new(BufferingMode::LineBufferStdinIfTTY),
     parent: 0,
 };
@@ -62,6 +64,10 @@ impl ChainOptions {
                     .stream_buffer_size
                     .or_else(|| parent.map(|p| p.settings.stream_buffer_size))
                     .unwrap_or(DEFAULT_CHAIN_OPTIONS.stream_buffer_size.unwrap()),
+                stream_size_threshold: self
+                    .stream_size_threshold
+                    .or_else(|| parent.map(|p| p.settings.stream_size_threshold))
+                    .unwrap_or(DEFAULT_CHAIN_OPTIONS.stream_size_threshold.unwrap()),
                 buffering_mode: self
                     .buffering_mode
                     .or_else(|| parent.map(|p| p.settings.buffering_mode))

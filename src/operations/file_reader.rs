@@ -268,6 +268,10 @@ fn start_streaming_file(sess: &mut JobSession<'_>, tf_id: TransformId, fr: &mut 
                 fr.file.take();
             }
             if !input_done {
+                // always buffer in case of additional input for now
+                // PERF: we could allow for inline, or even buffered here
+                // if we don't want to (depends on values of stream_buffer_size)
+                // we should not write into the inline buffer
                 done = eof;
             } else if eof {
                 *fdi.field_count += batch_size;
@@ -301,8 +305,10 @@ fn start_streaming_file(sess: &mut JobSession<'_>, tf_id: TransformId, fr: &mut 
         }
     };
 
+    //TODO: add another read here to reach fr.stream_buffer_size
     let mut buf = Vec::with_capacity(chunk_size);
-    buf.extend_from_slice(&fdi.data[size_before..size_before + chunk_size]);
+    buf.extend_from_slice(&fdi.data[size_before..(size_before + chunk_size)]);
+
     fdi.data.resize(size_before, 0);
     let sv_id = sess.sv_mgr.stream_values.claim_with_value(StreamValue {
         data: StreamValueData::Bytes(buf),

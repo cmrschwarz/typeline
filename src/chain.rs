@@ -34,6 +34,7 @@ pub struct ChainSettings {
     pub selenium_download_strategy: SeleniumDownloadStrategy,
     pub default_batch_size: usize,
     pub stream_buffer_size: usize,
+    pub stream_size_threshold: usize,
     pub buffering_mode: BufferingMode,
 }
 
