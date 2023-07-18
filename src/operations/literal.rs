@@ -359,15 +359,27 @@ pub fn create_op_error(str: &str, insert_count: usize) -> OperatorData {
 pub fn create_op_str(str: &str, insert_count: usize) -> OperatorData {
     create_op_literal_n(Literal::String(str.to_owned()), insert_count)
 }
-pub fn create_op_int(v: i64, insert_count: usize) -> OperatorData {
-    create_op_literal_n(Literal::Int(v), insert_count)
-}
 pub fn create_op_bytes(v: &[u8], insert_count: usize) -> OperatorData {
     create_op_literal_n(Literal::Bytes(v.as_bstr().to_owned()), insert_count)
+}
+pub fn create_op_stream_error(str: &str, insert_count: usize) -> OperatorData {
+    create_op_literal_n(Literal::StreamError(str.to_owned()), insert_count)
+}
+pub fn create_op_stream_str(str: &str, insert_count: usize) -> OperatorData {
+    create_op_literal_n(Literal::StreamString(str.to_owned()), insert_count)
+}
+pub fn create_op_stream_bytes(v: &[u8], insert_count: usize) -> OperatorData {
+    create_op_literal_n(Literal::StreamBytes(v.as_bstr().to_owned()), insert_count)
+}
+pub fn create_op_int(v: i64, insert_count: usize) -> OperatorData {
+    create_op_literal_n(Literal::Int(v), insert_count)
 }
 pub fn create_op_null(insert_count: usize) -> OperatorData {
     create_op_literal_n(Literal::Null, insert_count)
 }
 pub fn create_op_unset(insert_count: usize) -> OperatorData {
-    create_op_literal_n(Literal::Null, insert_count)
+    create_op_literal_n(Literal::Unset, insert_count)
+}
+pub fn create_op_success(insert_count: usize) -> OperatorData {
+    create_op_literal_n(Literal::Success, insert_count)
 }

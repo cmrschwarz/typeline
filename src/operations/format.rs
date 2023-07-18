@@ -539,8 +539,8 @@ pub fn parse_op_format(
         refs_idx,
     }))
 }
-pub fn create_op_format(val: &BStr) -> Result<OperatorData, OperatorCreationError> {
-    parse_op_format(Some(val), None)
+pub fn create_op_format(val: &[u8]) -> Result<OperatorData, OperatorCreationError> {
+    parse_op_format(Some(val.as_bstr()), None)
 }
 pub fn create_op_format_from_str(val: &str) -> Result<OperatorData, OperatorCreationError> {
     parse_op_format(Some(val.as_bytes().as_bstr()), None)
@@ -816,7 +816,7 @@ pub fn setup_key_output_state(
                             }
                             let debug_add_len = match k.format_type {
                                 FormatType::Debug => 2,
-                                FormatType::MoreDebug => 4,
+                                FormatType::MoreDebug => 3,
                                 _ => 0,
                             };
                             let mut char_count = cached!(data.chars().count() + debug_add_len);

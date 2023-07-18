@@ -7,7 +7,9 @@ use scr::bstr::ByteSlice;
 use scr::operations::chain_navigation_ops::create_op_next;
 use scr::operations::errors::ChainSetupError;
 use scr::operations::join::{create_op_join, create_op_join_str};
-use scr::operations::literal::{create_op_bytes, create_op_error, create_op_int, create_op_str};
+use scr::operations::literal::{
+    create_op_bytes, create_op_error, create_op_int, create_op_str, create_op_stream_error,
+};
 use scr::operations::select::create_op_select;
 use scr::operations::sequence::{create_op_enum, create_op_seqn};
 use scr::operations::split::create_op_split;
@@ -326,7 +328,7 @@ fn unset_value() -> Result<(), ScrError> {
         .run()?;
     assert_eq!(
         ss.get().data.as_slice(),
-        &["x0", "Error: in op id 3: Format Error"]
+        &["x0", "ERROR: in op id 3: Format Error"]
     );
     assert_eq!(
         ss.get().errors.get(&1).map(|v| (&*v.message)),
@@ -775,7 +777,7 @@ fn stream_error_in_join() -> Result<(), ScrError> {
         .run()?;
     assert_eq!(
         ss.get().data.as_slice(),
-        ["Error: in op id 1: ErroringStream: Expected Debug Error"]
+        ["ERROR: in op id 1: ErroringStream: Expected Debug Error"]
     );
     Ok(())
 }
@@ -884,12 +886,12 @@ fn debug_format_surrounds_with_quotes() -> Result<(), ScrError> {
         .add_op(create_op_str("foo", 0))
         .add_op_appending(create_op_bytes(b"bar", 0))
         .add_op_appending(create_op_error("baz", 0))
-        .add_op(create_op_format(b"{:?}".as_bstr()).unwrap())
+        .add_op(create_op_format(b"{:#?}".as_bstr()).unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(
-        ss.get().data.as_slice(),
-        ["\"foo\"", "'bar'", "!\"Error: baz\""]
+        ss.get_data().unwrap().as_slice(),
+        ["\"foo\"", "'bar'", "!\"baz\""]
     );
     Ok(())
 }
@@ -901,13 +903,10 @@ fn more_debug_format_surrounds_with_quotes() -> Result<(), ScrError> {
         .add_op(create_op_str("foo", 0))
         .add_op_appending(create_op_bytes(b"bar", 0))
         .add_op_appending(create_op_error("baz", 0))
-        .add_op(create_op_format(b"{:??}".as_bstr()).unwrap())
+        .add_op(create_op_format(b"{:#??}".as_bstr()).unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
-    assert_eq!(
-        ss.get().data.as_slice(),
-        ["\"foo\"", "'bar'", "!\"Error: baz\""]
-    );
+    assert_eq!(ss.get().data.as_slice(), ["\"foo\"", "'bar'", "!\"baz\""]);
     Ok(())
 }
 
@@ -921,10 +920,10 @@ fn join_turns_into_stream() -> Result<(), ScrError> {
             .add_op(create_op_str("foo", 0))
             .add_op_appending(create_op_str("bar", 0))
             .add_op(create_op_join_str(",", 2))
-            .add_op(create_op_format(b"{:??}".as_bstr()).unwrap())
+            .add_op(create_op_format(b"{:#??}".as_bstr()).unwrap())
             .add_op(create_op_string_sink(&ss))
             .run()?;
-        assert_eq!(ss.get_data().unwrap().as_slice(), [">>\"foo,bar\""]);
+        assert_eq!(ss.get_data().unwrap().as_slice(), ["~\"foo,bar\""]);
     }
     Ok(())
 }
@@ -939,10 +938,50 @@ fn join_on_error() -> Result<(), ScrError> {
             .add_op(create_op_str("foo", 0))
             .add_op_appending(create_op_error("bar", 0))
             .add_op(create_op_join_str(",", 2))
-            .add_op(create_op_format(b"{:??}".as_bstr()).unwrap())
+            .add_op(create_op_format(b"{:#??}".as_bstr()).unwrap())
             .add_op(create_op_string_sink(&ss))
             .run()?;
-        assert_eq!(ss.get().data.as_slice(), [">>!\"Error: bar\""]);
+        assert_eq!(ss.get().data.as_slice(), ["~!\"bar\""]);
+    }
+    Ok(())
+}
+
+#[test]
+fn error_formatting() -> Result<(), ScrError> {
+    let pairs = [
+        ("{:?}", "!\"ERROR: in op id 0: A\""),
+        ("{:??}", "!\"ERROR: in op id 0: A\""),
+        ("{:#??}", "!\"A\""),
+        ("{:#??}", "!\"A\""),
+    ];
+    for (fmt, res) in pairs {
+        let ss = StringSinkHandle::new();
+        ContextBuilder::default()
+            .add_op(create_op_error("A", 1))
+            .add_op(create_op_format(fmt.as_bytes()).unwrap())
+            .add_op(create_op_string_sink(&ss))
+            .run()?;
+        assert_eq!(ss.get().data.as_slice(), [res]);
+    }
+    Ok(())
+}
+
+#[test]
+fn stream_error_formatting() -> Result<(), ScrError> {
+    let pairs = [
+        ("{:?}", "!\"ERROR: in op id 0: A\""),
+        ("{:??}", "~!\"ERROR: in op id 0: A\""),
+        ("{:#?}", "!\"A\""),
+        ("{:#??}", "~!\"A\""),
+    ];
+    for (fmt, res) in pairs {
+        let ss = StringSinkHandle::new();
+        ContextBuilder::default()
+            .add_op(create_op_stream_error("A", 1))
+            .add_op(create_op_format(fmt.as_bytes()).unwrap())
+            .add_op(create_op_string_sink(&ss))
+            .run()?;
+        assert_eq!(ss.get().data.as_slice(), [res]);
     }
     Ok(())
 }
