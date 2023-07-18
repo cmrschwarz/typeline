@@ -1,17 +1,20 @@
 use crate::chain::BufferingMode;
-use crate::operations::chain_navigation_ops::{parse_op_next, parse_op_up};
-use crate::operations::errors::OperatorCreationError;
-use crate::operations::file_reader::{argument_matches_op_file_reader, parse_op_file_reader};
-use crate::operations::format::parse_op_format;
-use crate::operations::join::{argument_matches_op_join, parse_op_join};
-use crate::operations::key::parse_op_key;
-use crate::operations::literal::{argument_matches_op_literal, parse_op_literal};
-use crate::operations::operator::OperatorData;
-use crate::operations::print::parse_op_print;
-use crate::operations::regex::{parse_op_regex, RegexOptions};
-use crate::operations::select::parse_op_select;
-use crate::operations::sequence::parse_op_seq;
-use crate::operations::split::parse_op_split;
+use crate::operations::{
+    errors::OperatorCreationError,
+    file_reader::{argument_matches_op_file_reader, parse_op_file_reader},
+    format::parse_op_format,
+    join::{argument_matches_op_join, parse_op_join},
+    key::parse_op_key,
+    literal::{argument_matches_op_literal, parse_op_literal},
+    next::parse_op_next,
+    operator::OperatorData,
+    print::parse_op_print,
+    regex::{parse_op_regex, RegexOptions},
+    select::parse_op_select,
+    sequence::parse_op_seq,
+    split::parse_op_split,
+    up::parse_op_up,
+};
 use crate::scr_error::ScrError;
 use crate::{
     options::{

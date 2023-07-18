@@ -3,18 +3,9 @@ use smallstr::SmallString;
 use crate::{chain::ChainId, options::argument::CliArgIdx, utils::string_store::StringStoreEntry};
 
 use super::{
-    chain_navigation_ops::{OpNext, OpUp},
-    file_reader::OpFileReader,
-    format::OpFormat,
-    join::OpJoin,
-    key::OpKey,
-    literal::OpLiteral,
-    print::OpPrint,
-    regex::OpRegex,
-    select::OpSelect,
-    sequence::OpSequence,
-    split::OpSplit,
-    string_sink::OpStringSink,
+    file_reader::OpFileReader, format::OpFormat, join::OpJoin, key::OpKey, literal::OpLiteral,
+    next::OpNext, print::OpPrint, regex::OpRegex, select::OpSelect, sequence::OpSequence,
+    split::OpSplit, string_sink::OpStringSink, up::OpUp,
 };
 
 pub type OperatorId = u32;

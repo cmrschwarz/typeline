@@ -1,10 +1,10 @@
-pub mod chain_navigation_ops;
 pub mod errors;
 pub mod file_reader;
 pub mod format;
 pub mod join;
 pub mod key;
 pub mod literal;
+pub mod next;
 pub mod operator;
 pub mod print;
 pub mod regex;
@@ -14,3 +14,4 @@ pub mod split;
 pub mod string_sink;
 pub mod terminator;
 pub mod transform;
+pub mod up;
