@@ -8,14 +8,14 @@ use std::{
 
 use bstr::{BStr, ByteSlice};
 use is_terminal::IsTerminal;
+use regex::Regex;
 use smallstr::SmallString;
 
 use crate::{
     chain::{BufferingMode, Chain},
     field_data::{
-        field_value_flags,
-        push_interface::{PushInterface, UnsafeHeaderPushInterface},
-        FieldValueFormat, FieldValueKind, FieldValueSize, INLINE_STR_MAX_LEN,
+        field_value_flags, push_interface::PushInterface, FieldValueFormat, FieldValueKind,
+        FieldValueSize, INLINE_STR_MAX_LEN,
     },
     options::argument::CliArgIdx,
     stream_value::{StreamValue, StreamValueData, StreamValueId},
@@ -88,6 +88,7 @@ enum LineBufferedSetting {
 pub struct OpFileReader {
     file_kind: FileKind,
     line_buffered: LineBufferedSetting,
+    insert_count: Option<usize>,
 }
 
 impl OpFileReader {
@@ -107,9 +108,11 @@ pub struct TfFileReader {
     // in case of errors, we close this by take()ing the file, therefore option
     file: Option<AnyFile>,
     stream_value: Option<StreamValueId>,
+    value_committed: bool,
     line_buffered: bool,
     stream_buffer_size: usize,
-    dont_claim_input: bool,
+    stream_size_threshold: usize,
+    insert_count: Option<usize>,
 }
 
 pub fn setup_tf_file_reader<'a>(
@@ -173,16 +176,17 @@ pub fn setup_tf_file_reader<'a>(
             AnyFile::Custom(trait_casted_box)
         }
     };
-
+    let chain_settings = &sess.session_data.chains
+        [sess.session_data.operator_bases[tf_state.op_id.unwrap() as usize].chain_id as usize]
+        .settings;
     TransformData::FileReader(TfFileReader {
         file: Some(file),
         stream_value: None,
         line_buffered,
-        stream_buffer_size: sess.session_data.chains
-            [sess.session_data.operator_bases[tf_state.op_id.unwrap() as usize].chain_id as usize]
-            .settings
-            .stream_buffer_size,
-        dont_claim_input: false,
+        stream_size_threshold: chain_settings.stream_size_threshold,
+        stream_buffer_size: chain_settings.stream_buffer_size,
+        insert_count: op.insert_count,
+        value_committed: false,
     })
 }
 
@@ -239,125 +243,104 @@ fn read_chunk(
     Ok((size, eof))
 }
 
-fn start_streaming_file(sess: &mut JobSession<'_>, tf_id: TransformId, fr: &mut TfFileReader) {
-    let tf = &sess.tf_mgr.transforms[tf_id];
-    let has_cont = tf.continuation.is_some();
-    let output_field_id = tf.output_field;
-    sess.prepare_for_output(tf_id, &[output_field_id]);
-    // if there might be more records later we must always buffer the file data
-
-    let (mut batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
-    if batch_size == 0 {
-        debug_assert!(input_done);
-        batch_size = 1;
-    } else if batch_size > 1 && has_cont {
-        sess.tf_mgr.unclaim_batch_size(tf_id, batch_size - 1);
-        batch_size = 1;
-        fr.dont_claim_input = true;
-    }
-    let mut out_field = sess.field_mgr.fields[output_field_id].borrow_mut();
+// returns eof
+fn start_streaming_file(
+    sess: &mut JobSession<'_>,
+    tf_id: TransformId,
+    fr: &mut TfFileReader,
+) -> bool {
+    let mut output_field =
+        sess.tf_mgr
+            .prepare_output_field(&sess.field_mgr, &mut sess.match_set_mgr, tf_id);
     // we want to write the chunk straight into field data to avoid a copy
     // SAFETY: this relies on the memory layout in field_data.
     // since that is a submodule of us, this is fine.
     // ideally though, FieldData would expose some way to do this safely.
-    let fdi = unsafe { out_field.field_data.internals() };
+    let fdi = unsafe { output_field.field_data.internals() };
 
     let size_before = fdi.data.len();
     let res = read_chunk(
         fdi.data,
         fr.file.as_mut().unwrap(),
-        INLINE_STR_MAX_LEN.min(fr.stream_buffer_size),
+        INLINE_STR_MAX_LEN
+            .min(fr.stream_buffer_size)
+            .min(fr.stream_size_threshold),
         fr.line_buffered,
     );
-    let mut done = false;
     let chunk_size = match res {
         Ok((size, eof)) => {
             if eof {
                 fr.file.take();
-            }
-            if !input_done {
-                // always buffer in case of additional input for now
-                // PERF: we could allow for inline, or even buffered here
-                // if we don't want to (depends on values of stream_buffer_size)
-                // we should not write into the inline buffer
-                done = eof;
-            } else if eof {
-                *fdi.field_count += batch_size;
+                *fdi.field_count += 1;
                 unsafe {
-                    out_field.field_data.raw().add_header_for_single_value(
+                    output_field.field_data.raw().add_header_for_single_value(
                         FieldValueFormat {
                             kind: FieldValueKind::BytesInline,
                             flags: field_value_flags::SHARED_VALUE,
                             size: size as FieldValueSize,
                         },
-                        batch_size,
+                        1,
                         false,
                         false,
                     );
                 }
-                drop(out_field);
-                sess.unlink_transform(tf_id, batch_size);
-                return;
+                return true;
             }
             size
         }
-        Err(err) => {
+        Err(e) => {
             fdi.data.truncate(size_before);
-            let err = io_error_to_op_error(sess.tf_mgr.transforms[tf_id].op_id.unwrap(), err);
-            out_field
-                .field_data
-                .push_error(err, batch_size, false, false);
+            let err = io_error_to_op_error(sess.tf_mgr.transforms[tf_id].op_id.unwrap(), e);
+            output_field.field_data.push_error(err, 1, false, false);
             fr.file.take();
-            drop(out_field);
-            sess.unlink_transform(tf_id, batch_size);
-            return;
+            return true;
         }
     };
-
-    //TODO: add another read here to reach fr.stream_buffer_size
-    let mut buf = Vec::with_capacity(chunk_size);
+    let mut buf = Vec::with_capacity(fr.stream_buffer_size);
     buf.extend_from_slice(&fdi.data[size_before..(size_before + chunk_size)]);
-
     fdi.data.truncate(size_before);
+    let mut done = false;
+    let buf_len = buf.len();
+    if buf_len < fr.stream_buffer_size {
+        match read_chunk(
+            &mut buf,
+            fr.file.as_mut().unwrap(),
+            fr.stream_buffer_size - buf_len,
+            fr.line_buffered,
+        ) {
+            Ok((_size, eof)) => done = eof,
+            Err(e) => {
+                let err = io_error_to_op_error(sess.tf_mgr.transforms[tf_id].op_id.unwrap(), e);
+                output_field.field_data.push_error(err, 1, false, false);
+                fr.file.take();
+                return true;
+            }
+        }
+    };
     let sv_id = sess.sv_mgr.stream_values.claim_with_value(StreamValue {
         data: StreamValueData::Bytes(buf),
         done,
         ref_count: 1,
         bytes_are_utf8: false,
-        bytes_are_chunk: input_done,
+        bytes_are_chunk: true,
         subscribers: Default::default(),
     });
     fr.stream_value = Some(sv_id);
-    out_field
+    output_field
         .field_data
-        .push_stream_value_id(sv_id, batch_size, false, false);
-    sess.tf_mgr
-        .inform_successor_batch_available(tf_id, batch_size);
-    sess.tf_mgr.make_stream_producer(tf_id);
-    sess.tf_mgr.push_tf_in_ready_queue(tf_id);
+        .push_stream_value_id(sv_id, 1, false, false);
+    drop(output_field);
+    return false;
 }
 
 pub fn handle_tf_file_reader(sess: &mut JobSession<'_>, tf_id: TransformId, fr: &mut TfFileReader) {
-    let sv_id = if let Some(sv_id) = fr.stream_value {
-        sv_id
-    } else {
-        start_streaming_file(sess, tf_id, fr);
-        return;
-    };
-
-    let (additional_batch_size, input_done) = if fr.dont_claim_input {
-        (0, true)
-    } else {
-        sess.tf_mgr.claim_batch(tf_id)
-    };
-    if additional_batch_size > 0 {
-        let mut output_field = sess.prepare_output_field(tf_id);
-        output_field
-            .field_data
-            .push_stream_value_id(sv_id, additional_batch_size, true, true);
-    }
     let mut file_eof = true;
-    if let Some(file) = &mut fr.file {
+    let initial_call = !fr.value_committed;
+    if !fr.value_committed {
+        fr.value_committed = true;
+        file_eof = start_streaming_file(sess, tf_id, fr);
+    } else if let Some(file) = &mut fr.file {
+        let sv_id = fr.stream_value.unwrap();
         let sv = &mut sess.sv_mgr.stream_values[sv_id];
         let res = match &mut sv.data {
             StreamValueData::Bytes(ref mut bc) => {
@@ -371,45 +354,77 @@ pub fn handle_tf_file_reader(sess: &mut JobSession<'_>, tf_id: TransformId, fr: 
         };
         match res {
             Ok((_size, eof)) => {
-                if !eof {
-                    file_eof = false;
-                } else {
-                    fr.file.take();
-                    sv.done = true;
-                }
+                file_eof = eof;
             }
             Err(err) => {
                 let err = io_error_to_op_error(sess.tf_mgr.transforms[tf_id].op_id.unwrap(), err);
                 sv.data = StreamValueData::Error(err);
-                sv.done = true;
-                fr.file.take();
             }
+        }
+        if file_eof {
+            fr.file.take();
+            sv.done = true;
         }
         sess.sv_mgr.inform_stream_value_subscribers(sv_id);
     }
     if !file_eof {
         sess.tf_mgr.make_stream_producer(tf_id);
+    }
+    let (batch_size, input_done) = sess.tf_mgr.maintain_single_value(
+        tf_id,
+        &mut fr.insert_count,
+        &sess.field_mgr,
+        initial_call,
+    );
+    if input_done && file_eof {
+        if let Some(sv_id) = fr.stream_value {
+            sess.sv_mgr.drop_field_value_subscription(sv_id, None);
+        }
+        sess.unlink_transform(tf_id, batch_size);
+    } else {
         sess.tf_mgr.push_tf_in_ready_queue(tf_id);
         sess.tf_mgr
-            .inform_successor_batch_available(tf_id, additional_batch_size);
-    } else if input_done {
-        if additional_batch_size > 0 {
-            sess.tf_mgr
-                .inform_successor_batch_available(tf_id, additional_batch_size);
-            // so we can drop the field value once that last batch of input is done with it
-            sess.tf_mgr.push_tf_in_ready_queue(tf_id);
-        } else {
-            sess.sv_mgr.drop_field_value_subscription(sv_id, None);
-            sess.unlink_transform(tf_id, additional_batch_size);
-        }
-    } else {
-        sess.tf_mgr
-            .inform_successor_batch_available(tf_id, additional_batch_size);
+            .inform_successor_batch_available(tf_id, batch_size);
+    }
+}
+
+lazy_static::lazy_static! {
+    static ref ARG_REGEX: Regex = Regex::new(r"^(?<kind>~bytes|~str|file|stdin)(?<insert_count>[0-9]+)?$").unwrap();
+}
+
+pub fn argument_matches_op_file_reader(arg: &str) -> bool {
+    ARG_REGEX.is_match(arg)
+}
+
+pub fn parse_op_file_reader(
+    argument: &str,
+    value: Option<&BStr>,
+    arg_idx: Option<CliArgIdx>,
+) -> Result<OperatorData, OperatorCreationError> {
+    let args = ARG_REGEX.captures(&argument).ok_or_else(|| {
+        // can't happen from cli because of argument_matches_op_file_reader
+        OperatorCreationError::new("invalid argument syntax for file reader", arg_idx)
+    })?;
+    let insert_count = args
+        .name("insert_count")
+        .map(|ic| {
+            ic.as_str().parse::<usize>().map_err(|_| {
+                OperatorCreationError::new("failed to parse insertion count as integer", arg_idx)
+            })
+        })
+        .transpose()?;
+    match args.name("kind").unwrap().as_str() {
+        "file" => parse_op_file(value, insert_count, arg_idx),
+        "stdin" => parse_op_file(value, insert_count, arg_idx),
+        "~str" => parse_op_stream_str(value, insert_count, arg_idx),
+        "~bytes" => parse_op_stream_bytes(value, insert_count, arg_idx),
+        _ => unreachable!(),
     }
 }
 
 pub fn parse_op_file(
     value: Option<&BStr>,
+    insert_count: Option<usize>,
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
     let path = if let Some(value) = value {
@@ -431,15 +446,12 @@ pub fn parse_op_file(
             arg_idx,
         ));
     };
-
-    Ok(OperatorData::FileReader(OpFileReader {
-        file_kind: FileKind::File(path),
-        line_buffered: LineBufferedSetting::No, //this will be set based on the chain setting during setup
-    }))
+    Ok(create_op_file(path, insert_count.unwrap_or(0)))
 }
 
 pub fn parse_op_stdin(
     value: Option<&BStr>,
+    insert_count: Option<usize>,
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
     if value.is_some() {
@@ -448,28 +460,92 @@ pub fn parse_op_stdin(
             arg_idx,
         ));
     };
-
-    Ok(OperatorData::FileReader(OpFileReader {
-        file_kind: FileKind::Stdin,
-        line_buffered: LineBufferedSetting::No, //this will be set based on the chain setting during setup
-    }))
+    Ok(create_op_stdin(insert_count.unwrap_or(0)))
 }
 
-pub fn create_op_file_reader_custom(read: Box<dyn ReadSendCloneDyn>) -> OperatorData {
+pub fn parse_op_stream_str(
+    value: Option<&BStr>,
+    insert_count: Option<usize>,
+    arg_idx: Option<CliArgIdx>,
+) -> Result<OperatorData, OperatorCreationError> {
+    let value_str = value
+        .ok_or_else(|| OperatorCreationError::new_s(format!("missing value for ~str"), arg_idx))?
+        .to_str()
+        .map_err(|_| {
+            OperatorCreationError::new_s(
+                format!("~str argument must be valid UTF-8, consider using ~bytes=..."),
+                arg_idx,
+            )
+        })?;
+    Ok(create_op_stream_str(value_str, insert_count.unwrap_or(0)))
+}
+
+pub fn parse_op_stream_bytes(
+    value: Option<&BStr>,
+    insert_count: Option<usize>,
+    arg_idx: Option<CliArgIdx>,
+) -> Result<OperatorData, OperatorCreationError> {
+    let value_bytes = value.ok_or_else(|| {
+        OperatorCreationError::new_s(format!("missing value for ~bytes"), arg_idx)
+    })?;
+    Ok(create_op_stream_bytes(
+        value_bytes,
+        insert_count.unwrap_or(0),
+    ))
+}
+
+// insert count 0 means all input will be consumed
+pub fn create_op_file_reader(file_kind: FileKind, insert_count: usize) -> OperatorData {
     OperatorData::FileReader(OpFileReader {
-        file_kind: FileKind::Custom(Mutex::new(Some(read))),
+        file_kind,
+        insert_count: if insert_count == 0 {
+            None
+        } else {
+            Some(insert_count)
+        },
+        // will be set during setup_op_file_reader
         line_buffered: LineBufferedSetting::No,
     })
+}
+
+pub fn create_op_file(path: PathBuf, insert_count: usize) -> OperatorData {
+    create_op_file_reader(FileKind::File(path), insert_count)
+}
+pub fn create_op_stdin(insert_count: usize) -> OperatorData {
+    create_op_file_reader(FileKind::Stdin, insert_count)
+}
+
+pub fn create_op_stream_str(value: &str, insert_count: usize) -> OperatorData {
+    create_op_file_reader_custom(
+        Box::new(BytesReader::from_string(value.to_owned())),
+        insert_count,
+    )
+}
+pub fn create_op_stream_bytes(value: &[u8], insert_count: usize) -> OperatorData {
+    create_op_file_reader_custom(
+        Box::new(BytesReader::from_vec(value.as_bytes().to_owned())),
+        insert_count,
+    )
+}
+
+pub fn create_op_file_reader_custom(
+    read: Box<dyn ReadSendCloneDyn>,
+    insert_count: usize,
+) -> OperatorData {
+    create_op_file_reader(FileKind::Custom(Mutex::new(Some(read))), insert_count)
 }
 
 // this is an escape hatch if the custom Read to be used does not implement clone
 // if this is used, attempting to clone this Operator
 // (e.g. while cloning the Context / ContextBuilder that it belongs to) will *panic*
-pub fn create_op_file_reader_custom_not_cloneable(read: Box<dyn Read + Send>) -> OperatorData {
-    OperatorData::FileReader(OpFileReader {
-        file_kind: FileKind::CustomNotCloneable(Mutex::new(Some(read))),
-        line_buffered: LineBufferedSetting::No,
-    })
+pub fn create_op_file_reader_custom_not_cloneable(
+    read: Box<dyn Read + Send>,
+    insert_count: usize,
+) -> OperatorData {
+    create_op_file_reader(
+        FileKind::CustomNotCloneable(Mutex::new(Some(read))),
+        insert_count,
+    )
 }
 
 pub fn setup_op_file_reader(
@@ -490,4 +566,39 @@ pub fn setup_op_file_reader(
         },
     };
     Ok(())
+}
+
+#[derive(Clone)]
+pub struct BytesReader {
+    pub data: Box<[u8]>,
+    pub pos: usize,
+}
+
+impl BytesReader {
+    pub fn from_string(data: String) -> Self {
+        Self {
+            data: data.into_boxed_str().into_boxed_bytes(),
+            pos: 0,
+        }
+    }
+    pub fn from_vec(data: Vec<u8>) -> Self {
+        Self {
+            data: data.into_boxed_slice(),
+            pos: 0,
+        }
+    }
+}
+
+impl Read for BytesReader {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let len = self.data.len() - self.pos;
+        if buf.len() >= len {
+            buf[0..len].copy_from_slice(&self.data[self.pos..]);
+            self.pos = self.data.len();
+            return Ok(len);
+        }
+        buf.copy_from_slice(&self.data[self.pos..(self.pos + buf.len())]);
+        self.pos += buf.len();
+        Ok(buf.len())
+    }
 }

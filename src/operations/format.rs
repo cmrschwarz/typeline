@@ -1378,12 +1378,11 @@ fn write_fmt_key(
     );
 }
 pub fn handle_tf_format(sess: &mut JobSession<'_>, tf_id: TransformId, fmt: &mut TfFormat) {
-    let tf = &sess.tf_mgr.transforms[tf_id];
-    let op_id = tf.op_id.unwrap();
-    let output_field_id = tf.output_field;
     let (batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
-    sess.prepare_for_output(tf_id, &[output_field_id]);
-    let mut output_field = sess.field_mgr.fields[output_field_id].borrow_mut();
+    let mut output_field =
+        sess.tf_mgr
+            .prepare_output_field(&sess.field_mgr, &mut sess.match_set_mgr, tf_id);
+    let tf = &sess.tf_mgr.transforms[tf_id];
     fmt.output_states.push(OutputState {
         run_len: batch_size,
         next: FINAL_OUTPUT_INDEX_NEXT_VAL,
@@ -1420,7 +1419,7 @@ pub fn handle_tf_format(sess: &mut JobSession<'_>, tf_id: TransformId, fmt: &mut
             ),
         }
     }
-    setup_output_targets(fmt, &mut sess.sv_mgr, op_id, &mut output_field);
+    setup_output_targets(fmt, &mut sess.sv_mgr, tf.op_id.unwrap(), &mut output_field);
     for part in fmt.parts.iter() {
         match part {
             FormatPart::ByteLiteral(v) => {

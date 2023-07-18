@@ -293,13 +293,12 @@ fn push_error(join: &mut TfJoin, sv_mgr: &mut StreamValueManager, e: OperatorApp
 }
 pub fn handle_tf_join(sess: &mut JobSession<'_>, tf_id: TransformId, join: &mut TfJoin) {
     let (batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
+    let mut output_field =
+        sess.tf_mgr
+            .prepare_output_field(&sess.field_mgr, &mut sess.match_set_mgr, tf_id);
     let tf = &sess.tf_mgr.transforms[tf_id];
-    let op_id = tf.op_id.unwrap();
-    let output_field_id = tf.output_field;
     let input_field_id = tf.input_field;
-    sess.prepare_for_output(tf_id, &[output_field_id]);
     let input_field = sess.field_mgr.borrow_field_cow(input_field_id);
-    let mut output_field = sess.field_mgr.fields[output_field_id].borrow_mut();
     let base_iter = sess
         .field_mgr
         .get_iter_cow_aware(input_field_id, &input_field, join.iter_id);
@@ -359,7 +358,7 @@ pub fn handle_tf_join(sess: &mut JobSession<'_>, tf_id: TransformId, join: &mut 
                         join,
                         sv_mgr,
                         OperatorApplicationError {
-                            op_id,
+                            op_id: tf.op_id.unwrap(),
                             message: format!("join does not support {str}").into(),
                         },
                     );
@@ -500,17 +499,16 @@ pub fn handle_tf_join_stream_value_update(
         }
         StreamValueData::Bytes(b) => {
             join.buffer_is_valid_utf8 &= sv.bytes_are_utf8;
+            // SAFETY: the assert proves that these buffers
+            // don't overlap, so it's safe to have both
+            assert!(Some(sv_id) != join.output_stream_val);
+            let buf_ref = unsafe { std::mem::transmute::<&'_ [u8], &'static [u8]>(b.as_slice()) };
             if sv.bytes_are_chunk {
-                join.buffer.extend_from_slice(&b);
-                join.stream_val_added_len += b.len();
+                let buf = get_join_buffer(join, &mut sess.sv_mgr, buf_ref.len());
+                buf.extend_from_slice(&buf_ref);
+                join.stream_val_added_len += buf_ref.len();
             } else if sv.done {
                 join.buffer_is_valid_utf8 &= sv.bytes_are_utf8;
-                // SAFETY: the assert proves that these buffers
-                // don't overlap, so it's safe to have both
-                assert!(Some(sv_id) != join.output_stream_val);
-                let buf_ref =
-                    unsafe { std::mem::transmute::<&'_ [u8], &'static [u8]>(b.as_slice()) };
-
                 let sv_added_len = join.stream_val_added_len;
                 if sv_added_len != 0 {
                     join.stream_val_added_len = 0;

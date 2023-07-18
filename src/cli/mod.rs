@@ -1,7 +1,7 @@
 use crate::chain::BufferingMode;
 use crate::operations::chain_navigation_ops::{parse_op_next, parse_op_up};
 use crate::operations::errors::OperatorCreationError;
-use crate::operations::file_reader::{parse_op_file, parse_op_stdin};
+use crate::operations::file_reader::{argument_matches_op_file_reader, parse_op_file_reader};
 use crate::operations::format::parse_op_format;
 use crate::operations::join::{argument_matches_op_join, parse_op_join};
 use crate::operations::key::parse_op_key;
@@ -400,8 +400,12 @@ fn parse_operation(
         }
         return Ok(Some(OperatorData::Regex(parse_op_regex(value, idx, opts)?)));
     }
+
     if argument_matches_op_literal(argname) {
         return Ok(Some(parse_op_literal(argname, value, idx)?));
+    }
+    if argument_matches_op_file_reader(argname) {
+        return Ok(Some(parse_op_file_reader(argname, value, idx)?));
     }
     if argument_matches_op_join(argname) {
         return Ok(Some(parse_op_join(argname, value, idx)?));
@@ -411,10 +415,6 @@ fn parse_operation(
         "f" => Some(parse_op_format(value, idx)?),
         "key" => Some(parse_op_key(value, idx)?),
         "select" => Some(parse_op_select(value, idx)?),
-
-        "file" => Some(parse_op_file(value, idx)?),
-        "stdin" => Some(parse_op_stdin(value, idx)?),
-
         "seq" => Some(parse_op_seq(value, false, false, idx)?),
         "seqn" => Some(parse_op_seq(value, false, true, idx)?),
         "enum" => Some(parse_op_seq(value, true, false, idx)?),

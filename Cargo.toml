@@ -47,6 +47,8 @@ features = ["fast-legacy-encode"]
 version = "1.4.0"
 features = ["v4", "fast-rng"]
 
+[dev-dependencies]
+rstest="0.18.1"
 
 [profile.release-with-debug]
 inherits = "release"

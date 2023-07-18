@@ -138,18 +138,18 @@ impl Field {
 }
 
 impl TransformManager {
-    pub fn claim_batch(&mut self, tf_id: TransformId) -> (usize, bool) {
+    pub fn claim_batch_with_limit(&mut self, tf_id: TransformId, limit: usize) -> (usize, bool) {
         let tf = &mut self.transforms[tf_id];
-        let batch_size = tf.desired_batch_size.min(tf.available_batch_size);
+        let batch_size = tf.available_batch_size.min(limit);
         tf.available_batch_size -= batch_size;
         let input_done = tf.input_is_done && tf.available_batch_size == 0;
         (batch_size, input_done)
     }
+    pub fn claim_batch(&mut self, tf_id: TransformId) -> (usize, bool) {
+        self.claim_batch_with_limit(tf_id, self.transforms[tf_id].desired_batch_size)
+    }
     pub fn claim_all(&mut self, tf_id: TransformId) -> (usize, bool) {
-        let tf = &mut self.transforms[tf_id];
-        let batch_size = tf.available_batch_size;
-        tf.available_batch_size = 0;
-        (batch_size, tf.input_is_done)
+        self.claim_batch_with_limit(tf_id, usize::MAX)
     }
     pub fn unclaim_batch_size(&mut self, tf_id: TransformId, batch_size: usize) {
         self.transforms[tf_id].available_batch_size += batch_size;
@@ -197,6 +197,84 @@ impl TransformManager {
         if tf.available_batch_size > 0 {
             self.push_tf_in_ready_queue(tf_id);
         }
+    }
+    pub fn maintain_single_value(
+        &mut self,
+        tf_id: TransformId,
+        length: &mut Option<usize>,
+        field_mgr: &FieldManager,
+        initial_call: bool,
+    ) -> (usize, bool) {
+        let tf = &mut self.transforms[tf_id];
+        let output_field_id = tf.output_field;
+        let desired_batch_size = tf.desired_batch_size;
+        let has_cont = tf.continuation.is_some();
+        let max_batch_size = if let Some(len) = length {
+            *len
+        } else if has_cont {
+            if !initial_call {
+                return (0, true);
+            }
+            1
+        } else {
+            usize::MAX
+        };
+        let (mut batch_size, mut input_done) =
+            self.claim_batch_with_limit(tf_id, max_batch_size.min(desired_batch_size));
+        if batch_size == 0 {
+            if !initial_call {
+                return (0, true);
+            }
+            // We purposly wont deal with that case, as it would be better
+            // to not produce a value in the first place
+            debug_assert!(*length != Some(0));
+            batch_size = length.unwrap_or(1);
+        }
+        if let Some(len) = length {
+            *len -= batch_size;
+        } else if has_cont {
+            input_done = true;
+        }
+        field_mgr.fields[output_field_id]
+            .borrow_mut()
+            .field_data
+            .dup_last_value(batch_size - initial_call as usize);
+        (batch_size, input_done)
+    }
+    pub fn prepare_for_output(
+        &mut self,
+        field_mgr: &FieldManager,
+        match_set_mgr: &mut MatchSetManager,
+        tf_id: TransformId,
+        output_fields: &[FieldId],
+    ) {
+        let tf = &mut self.transforms[tf_id];
+        if tf.is_appending {
+            tf.is_appending = false;
+        } else {
+            for ofid in output_fields {
+                let mut f = field_mgr.fields[*ofid].borrow_mut();
+                if f.get_clear_delay_request_count() > 0 {
+                    drop(f);
+                    //TODO: this needs to preserve iterators
+                    field_mgr.apply_field_actions(match_set_mgr, *ofid);
+                } else {
+                    match_set_mgr.match_sets[tf.match_set_id]
+                        .command_buffer
+                        .clear_field_dropping_commands(&mut f);
+                }
+            }
+        }
+    }
+    pub fn prepare_output_field<'a>(
+        &mut self,
+        field_mgr: &'a FieldManager,
+        match_set_mgr: &mut MatchSetManager,
+        tf_id: TransformId,
+    ) -> RefMut<'a, Field> {
+        let output_field_id = self.transforms[tf_id].output_field;
+        self.prepare_for_output(field_mgr, match_set_mgr, tf_id, &[output_field_id]);
+        field_mgr.fields[output_field_id].borrow_mut()
     }
 }
 
@@ -374,31 +452,6 @@ impl StreamValueManager {
 }
 
 impl JobSession<'_> {
-    pub fn prepare_for_output(&mut self, tf_id: TransformId, output_fields: &[FieldId]) {
-        let tf = &mut self.tf_mgr.transforms[tf_id];
-        if tf.is_appending {
-            tf.is_appending = false;
-        } else {
-            let match_set_mgr = &mut self.match_set_mgr;
-            for ofid in output_fields {
-                let mut f = self.field_mgr.fields[*ofid].borrow_mut();
-                if f.get_clear_delay_request_count() > 0 {
-                    drop(f);
-                    //TODO: this needs to preserve iterators
-                    self.field_mgr.apply_field_actions(match_set_mgr, *ofid);
-                } else {
-                    match_set_mgr.match_sets[tf.match_set_id]
-                        .command_buffer
-                        .clear_field_dropping_commands(&mut f);
-                }
-            }
-        }
-    }
-    pub fn prepare_output_field<'a>(&'a mut self, tf_id: TransformId) -> RefMut<'a, Field> {
-        let output_field_id = self.tf_mgr.transforms[tf_id].output_field;
-        self.prepare_for_output(tf_id, &[output_field_id]);
-        self.field_mgr.fields[output_field_id].borrow_mut()
-    }
     pub fn unlink_transform(&mut self, tf_id: TransformId, available_batch_for_successor: usize) {
         let tf = &mut self.tf_mgr.transforms[tf_id];
         tf.mark_for_removal = true;

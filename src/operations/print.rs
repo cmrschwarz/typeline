@@ -275,7 +275,9 @@ pub fn handle_tf_print(sess: &mut JobSession<'_>, tf_id: TransformId, tf: &mut T
     let mut handled_field_count = 0;
     let res = handle_tf_print_raw(sess, tf_id, tf, batch, input_done, &mut handled_field_count);
     let op_id = sess.tf_mgr.transforms[tf_id].op_id.unwrap();
-    let mut output_field = sess.prepare_output_field(tf_id);
+    let mut output_field =
+        sess.tf_mgr
+            .prepare_output_field(&sess.field_mgr, &mut sess.match_set_mgr, tf_id);
     match res {
         Ok(()) => output_field
             .field_data

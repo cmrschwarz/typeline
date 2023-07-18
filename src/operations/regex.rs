@@ -582,7 +582,12 @@ struct RegexMatchInnerState<'a, 'b> {
 
 pub fn handle_tf_regex(sess: &mut JobSession<'_>, tf_id: TransformId, re: &mut TfRegex) {
     let (batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
-    sess.prepare_for_output(tf_id, &re.capture_group_fields);
+    sess.tf_mgr.prepare_for_output(
+        &sess.field_mgr,
+        &mut sess.match_set_mgr,
+        tf_id,
+        &re.capture_group_fields,
+    );
     let tf = &sess.tf_mgr.transforms[tf_id];
     let input_field_id = tf.input_field;
     let op_id = tf.op_id.unwrap();

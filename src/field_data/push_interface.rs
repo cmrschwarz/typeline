@@ -14,27 +14,6 @@ use super::{
     FieldValueHeader, FieldValueKind, FieldValueSize, RunLength,
 };
 
-pub trait UnsafeHeaderPushInterface {
-    unsafe fn push_header_raw(&mut self, fmt: FieldValueFormat, run_length: usize);
-    unsafe fn push_header_raw_same_value_after_first(
-        &mut self,
-        fmt: FieldValueFormat,
-        run_length: usize,
-    );
-    unsafe fn add_header_for_single_value(
-        &mut self,
-        fmt: FieldValueFormat,
-        run_length: usize,
-        header_rle: bool,
-        data_rle: bool,
-    );
-    unsafe fn add_header_padded_for_single_value(
-        &mut self,
-        fmt: FieldValueFormat,
-        run_length: usize,
-        padding: usize,
-    );
-}
 pub unsafe trait RawPushInterface {
     unsafe fn push_variable_sized_type(
         &mut self,
@@ -69,9 +48,9 @@ pub unsafe trait RawPushInterface {
         run_length: usize,
     ) -> *mut u8;
 }
-impl UnsafeHeaderPushInterface for FieldData {
+impl FieldData {
     #[inline(always)]
-    unsafe fn push_header_raw(&mut self, fmt: FieldValueFormat, mut run_length: usize) {
+    pub unsafe fn push_header_raw(&mut self, fmt: FieldValueFormat, mut run_length: usize) {
         while run_length > RunLength::MAX as usize {
             self.header.push(FieldValueHeader {
                 fmt: fmt,
@@ -85,7 +64,7 @@ impl UnsafeHeaderPushInterface for FieldData {
         });
     }
     #[inline(always)]
-    unsafe fn push_header_raw_same_value_after_first(
+    pub unsafe fn push_header_raw_same_value_after_first(
         &mut self,
         mut fmt: FieldValueFormat,
         run_length: usize,
@@ -101,7 +80,7 @@ impl UnsafeHeaderPushInterface for FieldData {
         }
     }
     #[inline(always)]
-    unsafe fn add_header_for_single_value(
+    pub unsafe fn add_header_for_single_value(
         &mut self,
         mut fmt: FieldValueFormat,
         mut run_length: usize,
@@ -146,7 +125,7 @@ impl UnsafeHeaderPushInterface for FieldData {
         }
         self.push_header_raw_same_value_after_first(fmt, run_length);
     }
-    unsafe fn add_header_padded_for_single_value(
+    pub unsafe fn add_header_padded_for_single_value(
         &mut self,
         mut fmt: FieldValueFormat,
         mut run_length: usize,
@@ -165,6 +144,30 @@ impl UnsafeHeaderPushInterface for FieldData {
         fmt.set_leading_padding(0);
         fmt.set_same_value_as_previous(true);
         self.push_header_raw(fmt, run_length);
+    }
+    pub fn dup_last_value(&mut self, run_length: usize) {
+        if run_length == 0 {
+            return;
+        }
+        let last_header = self.header.last_mut().unwrap();
+        unsafe {
+            if last_header.run_length > 1 && !last_header.shared_value() {
+                last_header.run_length -= 1;
+                let mut fmt = last_header.fmt;
+                fmt.set_shared_value(true);
+                self.push_header_raw(fmt, run_length + 1);
+            } else {
+                last_header.set_shared_value(true);
+                let rl_rem = last_header.run_len_rem();
+                if last_header.run_len_rem() as usize > run_length {
+                    last_header.run_length += run_length as RunLength;
+                } else {
+                    last_header.run_length = RunLength::MAX;
+                    let fmt = last_header.fmt;
+                    self.push_header_raw(fmt, run_length - rl_rem as usize);
+                }
+            }
+        }
     }
 }
 
@@ -362,6 +365,11 @@ unsafe impl RawPushInterface for IterHall {
     ) -> *mut u8 {
         self.fd
             .push_variable_sized_type_uninit(kind, flags, data_len, run_length)
+    }
+}
+impl IterHall {
+    pub fn dup_last_value(&mut self, run_length: usize) {
+        self.fd.dup_last_value(run_length);
     }
 }
 

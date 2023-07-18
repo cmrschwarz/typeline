@@ -76,18 +76,18 @@ pub fn increment_int_str(data: &mut ArrayVec<u8, I64_MAX_DECIMAL_DIGITS>) {
 const FAST_SEQ_MAX_STEP: i64 = 200;
 
 pub fn handle_tf_sequence(sess: &mut JobSession<'_>, tf_id: TransformId, seq: &mut TfSequence) {
-    let output_field_id = sess.tf_mgr.transforms[tf_id].output_field;
-    sess.prepare_for_output(tf_id, &[output_field_id]);
     let (mut batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
-
-    let mut output_field = sess.field_mgr.fields[output_field_id].borrow_mut();
-
-    let succ = sess.tf_mgr.transforms[tf_id].successor.unwrap();
-    let s = &sess.tf_mgr.transforms[succ];
+    let mut output_field =
+        sess.tf_mgr
+            .prepare_output_field(&sess.field_mgr, &mut sess.match_set_mgr, tf_id);
+    let tf = &sess.tf_mgr.transforms[tf_id];
+    let succ = &sess.tf_mgr.transforms[tf.successor.unwrap()];
     if batch_size == 0 && !seq.stop_after_input {
-        batch_size = s.desired_batch_size.saturating_sub(s.available_batch_size);
+        batch_size = succ
+            .desired_batch_size
+            .saturating_sub(succ.available_batch_size);
     }
-    let succ_wants_text = s.preferred_input_type == Some(FieldValueKind::BytesInline)
+    let succ_wants_text = succ.preferred_input_type == Some(FieldValueKind::BytesInline)
         && output_field.names.is_empty();
 
     let mut bs_rem = batch_size;
