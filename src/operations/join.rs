@@ -343,7 +343,15 @@ pub fn handle_tf_join(sess: &mut JobSession<'_>, tf_id: TransformId, join: &mut 
                     push_str(join, sv_mgr, NULL_STR, range.base.field_count);
                 }
                 TypedSlice::Error(errs) => {
-                    join.current_group_error = Some(errs[0].clone());
+                    let ec = errs[0].clone();
+                    if let Some(sv_id) = join.output_stream_val {
+                        let sv = &mut sv_mgr.stream_values[sv_id];
+                        sv.data = StreamValueData::Error(ec);
+                        sv.done = true;
+                        join.stream_value_error = true;
+                    } else {
+                        join.current_group_error = Some(ec);
+                    }
                 }
                 TypedSlice::Unset(_) => {
                     push_str(join, sv_mgr, UNSET_STR, range.base.field_count);
@@ -433,11 +441,11 @@ pub fn handle_tf_join(sess: &mut JobSession<'_>, tf_id: TransformId, join: &mut 
     );
     if input_done {
         let mut emit_incomplete = false;
-        // we dont drop incomplete and there are actual members
+        // if we dont drop incomplete and there are actual members
         emit_incomplete |= join.group_len > 0 && !join.drop_incomplete;
-        // we join all output, and there is output
+        // if we join all output, and there is output
         emit_incomplete |= join.group_capacity.is_none() && join.group_len > 0;
-        // we join all output, and don't drop incomplete (may be empty)
+        // if we join all output, there is potentially no output, but we don't drop incomplete
         emit_incomplete |= join.group_capacity.is_none() && !join.drop_incomplete;
         if emit_incomplete {
             emit_group(join, &mut sess.sv_mgr, &mut output_field);

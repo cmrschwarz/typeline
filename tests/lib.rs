@@ -858,7 +858,7 @@ fn tf_file_yields_to_cont() -> Result<(), ScrError> {
             ))))
             .add_op(create_op_string_sink(&ss))
             .run()?;
-        assert_eq!(ss.get().data.as_slice(), ["foo", "bar", "bar"]);
+        assert_eq!(ss.get_data().unwrap().as_slice(), ["foo", "bar", "bar"]);
     }
     Ok(())
 }
@@ -913,7 +913,7 @@ fn more_debug_format_surrounds_with_quotes() -> Result<(), ScrError> {
 
 #[test]
 fn join_turns_into_stream() -> Result<(), ScrError> {
-    for bs in [1] {
+    for bs in [1, 2] {
         let ss = StringSinkHandle::new();
         ContextBuilder::default()
             .set_batch_size(bs)
@@ -924,7 +924,25 @@ fn join_turns_into_stream() -> Result<(), ScrError> {
             .add_op(create_op_format(b"{:??}".as_bstr()).unwrap())
             .add_op(create_op_string_sink(&ss))
             .run()?;
-        assert_eq!(ss.get().data.as_slice(), [">>\"foo,bar\""]);
+        assert_eq!(ss.get_data().unwrap().as_slice(), [">>\"foo,bar\""]);
+    }
+    Ok(())
+}
+
+#[test]
+fn join_on_error() -> Result<(), ScrError> {
+    for bs in [2] {
+        let ss = StringSinkHandle::new();
+        ContextBuilder::default()
+            .set_batch_size(bs)
+            .set_stream_size_threshold(2)
+            .add_op(create_op_str("foo", 0))
+            .add_op_appending(create_op_error("bar", 0))
+            .add_op(create_op_join_str(",", 2))
+            .add_op(create_op_format(b"{:??}".as_bstr()).unwrap())
+            .add_op(create_op_string_sink(&ss))
+            .run()?;
+        assert_eq!(ss.get().data.as_slice(), [">>!\"Error: bar\""]);
     }
     Ok(())
 }

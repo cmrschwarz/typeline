@@ -791,15 +791,6 @@ pub fn setup_key_output_state(
                         StreamValueData::Error(e) => {
                             if debug_format {
                                 iter_output_states(fmt, &mut output_index, rl, |o| {
-                                    o.len += calc_text_len(
-                                        k,
-                                        ERROR_PREFIX_STR.len() + e.message.len(),
-                                        o.width_lookup,
-                                        &mut || {
-                                            ERROR_PREFIX_STR.chars().count()
-                                                + e.message.chars().count()
-                                        },
-                                    );
                                     let (len, mut char_count) =
                                         formatted_error_string_len(e, k.format_type, true);
                                     o.len += calc_text_len(k, len, o.width_lookup, &mut char_count);
