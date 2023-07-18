@@ -109,6 +109,7 @@ pub struct TfFileReader {
     stream_value: Option<StreamValueId>,
     line_buffered: bool,
     stream_buffer_size: usize,
+    dont_claim_input: bool,
 }
 
 pub fn setup_tf_file_reader<'a>(
@@ -181,6 +182,7 @@ pub fn setup_tf_file_reader<'a>(
             [sess.session_data.operator_bases[tf_state.op_id.unwrap() as usize].chain_id as usize]
             .settings
             .stream_buffer_size,
+        dont_claim_input: false,
     })
 }
 
@@ -238,7 +240,9 @@ fn read_chunk(
 }
 
 fn start_streaming_file(sess: &mut JobSession<'_>, tf_id: TransformId, fr: &mut TfFileReader) {
-    let output_field_id = sess.tf_mgr.transforms[tf_id].output_field;
+    let tf = &sess.tf_mgr.transforms[tf_id];
+    let has_cont = tf.continuation.is_some();
+    let output_field_id = tf.output_field;
     sess.prepare_for_output(tf_id, &[output_field_id]);
     // if there might be more records later we must always buffer the file data
 
@@ -246,6 +250,10 @@ fn start_streaming_file(sess: &mut JobSession<'_>, tf_id: TransformId, fr: &mut 
     if batch_size == 0 {
         debug_assert!(input_done);
         batch_size = 1;
+    } else if batch_size > 1 && has_cont {
+        sess.tf_mgr.unclaim_batch_size(tf_id, batch_size - 1);
+        batch_size = 1;
+        fr.dont_claim_input = true;
     }
     let mut out_field = sess.field_mgr.fields[output_field_id].borrow_mut();
     // we want to write the chunk straight into field data to avoid a copy
@@ -336,7 +344,11 @@ pub fn handle_tf_file_reader(sess: &mut JobSession<'_>, tf_id: TransformId, fr: 
         return;
     };
 
-    let (additional_batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
+    let (additional_batch_size, input_done) = if fr.dont_claim_input {
+        (0, true)
+    } else {
+        sess.tf_mgr.claim_batch(tf_id)
+    };
     if additional_batch_size > 0 {
         let mut output_field = sess.prepare_output_field(tf_id);
         output_field

@@ -79,8 +79,8 @@ pub fn handle_tf_literal(sess: &mut JobSession<'_>, tf_id: TransformId, di: &mut
         di.insert_count = Some(ic - batch_size);
     } else {
         let tf = &sess.tf_mgr.transforms[tf_id];
-        let yield_to_succ = tf.continuation.is_some();
-        if yield_to_succ {
+        let yield_to_cont = tf.continuation.is_some();
+        if yield_to_cont {
             sess.tf_mgr
                 .unclaim_batch_size(tf_id, batch_size.saturating_sub(1));
             batch_size = 1;

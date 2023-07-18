@@ -830,14 +830,31 @@ fn chained_streams() -> Result<(), ScrError> {
     Ok(())
 }
 #[test]
-fn tf_literal_yields_to_succ() -> Result<(), ScrError> {
+fn tf_literal_yields_to_cont() -> Result<(), ScrError> {
     let ss = StringSinkHandle::new();
     ContextBuilder::default()
-        .add_op(create_op_int(1, 2))
+        .add_op(create_op_int(1, 3))
         .add_op(create_op_str("foo", 0))
         .add_op_appending(create_op_str("bar", 0))
         .add_op(create_op_string_sink(&ss))
         .run()?;
-    assert_eq!(ss.get().data.as_slice(), ["foo", "bar"]);
+    assert_eq!(ss.get().data.as_slice(), ["foo", "bar", "bar"]);
+    Ok(())
+}
+
+#[test]
+fn tf_file_yields_to_cont() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::new();
+    ContextBuilder::default()
+        .add_op(create_op_int(1, 3))
+        .add_op(create_op_file_reader_custom(Box::new(SliceReader::new(
+            b"foo",
+        ))))
+        .add_op_appending(create_op_file_reader_custom(Box::new(SliceReader::new(
+            b"bar",
+        ))))
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(ss.get().data.as_slice(), ["foo", "bar", "bar"]);
     Ok(())
 }
