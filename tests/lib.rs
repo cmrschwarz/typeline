@@ -4,7 +4,7 @@ use scr::bstr::ByteSlice;
 
 use scr::operations::chain_navigation_ops::create_op_next;
 use scr::operations::join::{create_op_join, create_op_join_str};
-use scr::operations::literal::create_op_str;
+use scr::operations::literal::{create_op_int, create_op_str};
 use scr::operations::select::create_op_select;
 use scr::operations::sequence::{create_op_enum, create_op_seqn};
 use scr::operations::split::create_op_split;
@@ -40,7 +40,7 @@ fn string_sink() -> Result<(), ScrError> {
 }
 
 #[test]
-fn data_inserter() -> Result<(), ScrError> {
+fn tf_literal() -> Result<(), ScrError> {
     let ss = StringSinkHandle::new();
     ContextBuilder::default()
         .add_op(create_op_literal(
@@ -54,7 +54,7 @@ fn data_inserter() -> Result<(), ScrError> {
 }
 
 #[test]
-fn counted_data_inserter() -> Result<(), ScrError> {
+fn counted_tf_literal() -> Result<(), ScrError> {
     let ss = StringSinkHandle::new();
     ContextBuilder::default()
         .add_op(create_op_literal(
@@ -824,6 +824,18 @@ fn chained_streams() -> Result<(), ScrError> {
         .add_op_appending(create_op_file_reader_custom(Box::new(SliceReader::new(
             "bar".as_bytes(),
         ))))
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(ss.get().data.as_slice(), ["foo", "bar"]);
+    Ok(())
+}
+#[test]
+fn tf_literal_yields_to_succ() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::new();
+    ContextBuilder::default()
+        .add_op(create_op_int(1, 2))
+        .add_op(create_op_str("foo", 0))
+        .add_op_appending(create_op_str("bar", 0))
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(ss.get().data.as_slice(), ["foo", "bar"]);

@@ -56,10 +56,9 @@ pub fn setup_tf_data_inserter<'a>(
 }
 
 pub fn handle_tf_literal(sess: &mut JobSession<'_>, tf_id: TransformId, di: &mut TfLiteral) {
-    let (mut batch_size, input_done);
+    let (mut batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
     let mut unlink_after = false;
     if let Some(ic) = di.insert_count {
-        (batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
         if batch_size >= ic {
             sess.tf_mgr.unclaim_batch_size(tf_id, batch_size - ic);
             batch_size = ic;
@@ -80,13 +79,13 @@ pub fn handle_tf_literal(sess: &mut JobSession<'_>, tf_id: TransformId, di: &mut
         di.insert_count = Some(ic - batch_size);
     } else {
         let tf = &sess.tf_mgr.transforms[tf_id];
-        let amend_mode = tf.continuation.is_some();
         let yield_to_succ = tf.continuation.is_some();
-        if amend_mode || yield_to_succ {
+        if yield_to_succ {
+            sess.tf_mgr
+                .unclaim_batch_size(tf_id, batch_size.saturating_sub(1));
             batch_size = 1;
             unlink_after = true;
         } else {
-            (batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
             unlink_after = input_done;
             if batch_size == 0 {
                 debug_assert!(input_done);
