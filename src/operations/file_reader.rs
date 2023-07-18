@@ -302,6 +302,7 @@ fn start_streaming_file(sess: &mut JobSession<'_>, tf_id: TransformId, fr: &mut 
             size
         }
         Err(err) => {
+            fdi.data.truncate(size_before);
             let err = io_error_to_op_error(sess.tf_mgr.transforms[tf_id].op_id.unwrap(), err);
             out_field
                 .field_data
@@ -317,7 +318,7 @@ fn start_streaming_file(sess: &mut JobSession<'_>, tf_id: TransformId, fr: &mut 
     let mut buf = Vec::with_capacity(chunk_size);
     buf.extend_from_slice(&fdi.data[size_before..(size_before + chunk_size)]);
 
-    fdi.data.resize(size_before, 0);
+    fdi.data.truncate(size_before);
     let sv_id = sess.sv_mgr.stream_values.claim_with_value(StreamValue {
         data: StreamValueData::Bytes(buf),
         done,

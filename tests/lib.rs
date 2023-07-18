@@ -985,3 +985,25 @@ fn stream_error_formatting() -> Result<(), ScrError> {
     }
     Ok(())
 }
+
+#[test]
+fn stream_error_after_regular_error() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::new();
+    ContextBuilder::default()
+        .set_stream_buffer_size(2)
+        .set_stream_size_threshold(1)
+        .add_op(create_op_error("A", 0))
+        .add_op_appending(create_op_file_reader_custom(Box::new(ErroringStream::new(
+            2,
+            SliceReader::new(b"BBB"),
+        ))))
+        .add_op(create_op_join_str("", 1))
+        .add_op(create_op_format(b"{:#??}".as_bstr()).unwrap())
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(
+        ss.get().data.as_slice(),
+        ["!\"A\"", "~!\"ErroringStream: Expected Debug Error\""]
+    );
+    Ok(())
+}
