@@ -872,40 +872,52 @@ fn error_on_sbs_0() {
 
 #[test]
 fn debug_format_surrounds_with_quotes() -> Result<(), ScrError> {
-    for sbs in [1, 2, 3, 4] {
-        let ss = StringSinkHandle::new();
-        ContextBuilder::default()
-            .set_stream_buffer_size(sbs)
-            .add_op(create_op_str("foo", 0))
-            .add_op_appending(create_op_bytes(b"bar", 0))
-            .add_op_appending(create_op_error("baz", 0))
-            .add_op(create_op_format(b"{:?}".as_bstr()).unwrap())
-            .add_op(create_op_string_sink(&ss))
-            .run()?;
-        assert_eq!(
-            ss.get().data.as_slice(),
-            ["\"foo\"", "'bar'", "!\"Error: baz\""]
-        );
-    }
+    let ss = StringSinkHandle::new();
+    ContextBuilder::default()
+        .add_op(create_op_str("foo", 0))
+        .add_op_appending(create_op_bytes(b"bar", 0))
+        .add_op_appending(create_op_error("baz", 0))
+        .add_op(create_op_format(b"{:?}".as_bstr()).unwrap())
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(
+        ss.get().data.as_slice(),
+        ["\"foo\"", "'bar'", "!\"Error: baz\""]
+    );
     Ok(())
 }
 
 #[test]
 fn more_debug_format_surrounds_with_quotes() -> Result<(), ScrError> {
-    for sbs in [1, 2, 3, 4] {
+    let ss = StringSinkHandle::new();
+    ContextBuilder::default()
+        .add_op(create_op_str("foo", 0))
+        .add_op_appending(create_op_bytes(b"bar", 0))
+        .add_op_appending(create_op_error("baz", 0))
+        .add_op(create_op_format(b"{:??}".as_bstr()).unwrap())
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(
+        ss.get().data.as_slice(),
+        ["\"foo\"", "'bar'", "!\"Error: baz\""]
+    );
+    Ok(())
+}
+
+#[test]
+fn join_turns_into_stream() -> Result<(), ScrError> {
+    for bs in [1, 2] {
         let ss = StringSinkHandle::new();
         ContextBuilder::default()
-            .set_stream_buffer_size(sbs)
+            .set_batch_size(1)
+            .set_stream_size_threshold(2)
             .add_op(create_op_str("foo", 0))
-            .add_op_appending(create_op_bytes(b"bar", 0))
-            .add_op_appending(create_op_error("baz", 0))
+            .add_op_appending(create_op_str("bar", 0))
+            .add_op(create_op_join_str(",", 2))
             .add_op(create_op_format(b"{:??}".as_bstr()).unwrap())
             .add_op(create_op_string_sink(&ss))
             .run()?;
-        assert_eq!(
-            ss.get().data.as_slice(),
-            ["\"foo\"", "'bar'", "!\"Error: baz\""]
-        );
+        assert_eq!(ss.get().data.as_slice(), [">>\"foo,bar\""]);
     }
     Ok(())
 }

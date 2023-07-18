@@ -103,4 +103,10 @@ impl ContextBuilder {
             .force_set(sbs);
         self
     }
+    pub fn set_stream_size_threshold(mut self, sbs: usize) -> Self {
+        self.opts.chains[self.opts.curr_chain as usize]
+            .stream_size_threshold
+            .force_set(sbs);
+        self
+    }
 }

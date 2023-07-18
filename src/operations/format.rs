@@ -818,7 +818,13 @@ pub fn setup_key_output_state(
                                 data = &data[r];
                                 complete = true;
                             }
-                            let mut char_count = cached!(data.chars().count());
+                            let debug_add_len = match k.format_type {
+                                FormatType::Debug => 2,
+                                FormatType::MoreDebug => 4,
+                                _ => 0,
+                            };
+                            let mut char_count = cached!(data.chars().count() + debug_add_len);
+                            let text_len = data.len() + debug_add_len;
                             let mut need_buffer = false;
                             if !complete && !sv.is_buffered() {
                                 if let Some(width_spec) = &k.width {
@@ -835,13 +841,10 @@ pub fn setup_key_output_state(
                             }
                             if complete || !need_buffer {
                                 let mut i = output_index;
+
                                 iter_output_states(fmt, &mut i, rl, |o| {
-                                    o.len += calc_text_len(
-                                        k,
-                                        data.len(),
-                                        o.width_lookup,
-                                        &mut char_count,
-                                    );
+                                    o.len +=
+                                        calc_text_len(k, text_len, o.width_lookup, &mut char_count);
                                     if sv.bytes_are_utf8 {
                                         o.contains_raw_bytes = true;
                                     }
@@ -1312,8 +1315,21 @@ fn write_fmt_key(
                             let data = range.as_ref().cloned().map(|r| &b[r]).unwrap_or(b);
 
                             if range.is_some() || sv.done || !sv.is_buffered() {
+                                let qc = if sv.bytes_are_utf8 { '"' } else { '\'' };
+                                let left = ['>' as u8, '>' as u8, qc as u8];
+                                let right = [qc as u8];
+                                let none = b"".as_slice();
+                                let (left, right) = match k.format_type {
+                                    FormatType::Debug => (right.as_slice(), right.as_slice()),
+                                    FormatType::MoreDebug => (left.as_slice(), right.as_slice()),
+                                    _ => (none, none),
+                                };
                                 iter_output_targets(fmt, &mut output_index, rl as usize, |tgt| {
-                                    unsafe { write_padded_bytes(k, tgt, data) }
+                                    unsafe {
+                                        write_padded_bytes_with_prefix_suffix(
+                                            k, tgt, data, left, right,
+                                        )
+                                    }
                                     if !sv.done {
                                         tgt.target = None;
                                     }

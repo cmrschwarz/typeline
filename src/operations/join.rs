@@ -174,7 +174,7 @@ fn get_join_buffer<'a>(
     if join.output_stream_val.is_none() {
         if join.buffer.len() + expected_len > join.stream_len_threshold {
             let cap = join.buffer.capacity();
-            sv_mgr.stream_values.claim_with_value(StreamValue {
+            let sv = sv_mgr.stream_values.claim_with_value(StreamValue {
                 data: StreamValueData::Bytes(std::mem::replace(
                     &mut join.buffer,
                     Vec::with_capacity(cap),
@@ -185,6 +185,7 @@ fn get_join_buffer<'a>(
                 subscribers: Default::default(),
                 ref_count: 1,
             });
+            join.output_stream_val = Some(sv);
         }
     }
     if let Some(sv_id) = join.output_stream_val {
@@ -243,6 +244,8 @@ pub fn emit_group(join: &mut TfJoin, sv_mgr: &mut StreamValueManager, output_fie
         output_field
             .field_data
             .push_stream_value_id(sv_id, 1, true, false);
+        //TODO: gc old stream values
+        sv_mgr.inform_stream_value_subscribers(sv_id);
     } else if let Some(err) = join.current_group_error.take() {
         output_field.field_data.push_error(err, 1, true, false);
     } else if len < INLINE_STR_MAX_LEN {
