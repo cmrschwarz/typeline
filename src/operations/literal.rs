@@ -5,7 +5,9 @@ use regex::Regex;
 use smallstr::SmallString;
 
 use crate::{
-    field_data::push_interface::PushInterface, options::argument::CliArgIdx,
+    field_data::push_interface::PushInterface,
+    options::argument::CliArgIdx,
+    stream_value::{StreamValue, StreamValueData},
     worker_thread_session::JobSession,
 };
 
@@ -24,6 +26,9 @@ pub enum Literal {
     Unset,
     Success,
     Error(String),
+    StreamError(String),
+    StreamBytes(BString),
+    StreamString(String),
 }
 
 #[derive(Clone)]
@@ -44,9 +49,12 @@ impl OpLiteral {
             Literal::Null => res.push_str("null"),
             Literal::Unset => res.push_str("unset"),
             Literal::Success => res.push_str("success"),
+            Literal::String(_) => res.push_str("str"),
             Literal::Bytes(_) => res.push_str("bytes"),
             Literal::Error(_) => res.push_str("error"),
-            Literal::String(_) => res.push_str("str"),
+            Literal::StreamString(_) => res.push_str("::str"),
+            Literal::StreamBytes(_) => res.push_str("::bytes"),
+            Literal::StreamError(_) => res.push_str("::error"),
             Literal::Int(_) => res.push_str("int"),
         }
         res
@@ -67,7 +75,9 @@ pub fn setup_tf_data_inserter<'a>(
 
 pub fn handle_tf_literal(sess: &mut JobSession<'_>, tf_id: TransformId, di: &mut TfLiteral) {
     let (mut batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
-    let op_id = sess.tf_mgr.transforms[tf_id].op_id.unwrap();
+    let tf = &sess.tf_mgr.transforms[tf_id];
+    let op_id = tf.op_id.unwrap();
+    let output_field_id = tf.output_field;
     let mut unlink_after = false;
     if let Some(ic) = di.insert_count {
         if batch_size >= ic {
@@ -104,7 +114,8 @@ pub fn handle_tf_literal(sess: &mut JobSession<'_>, tf_id: TransformId, di: &mut
             }
         }
     }
-    let mut output_field = sess.prepare_output_field(tf_id);
+    sess.prepare_for_output(tf_id, &[output_field_id]);
+    let mut output_field = sess.field_mgr.fields[output_field_id].borrow_mut();
     match di.data {
         Literal::Bytes(b) => output_field
             .field_data
@@ -114,6 +125,45 @@ pub fn handle_tf_literal(sess: &mut JobSession<'_>, tf_id: TransformId, di: &mut
         Literal::Null => output_field.field_data.push_null(batch_size, true),
         Literal::Unset => output_field.field_data.push_unset(batch_size, true),
         Literal::Success => output_field.field_data.push_success(batch_size, true),
+        Literal::StreamString(ss) => {
+            output_field.field_data.push_stream_value_id(
+                sess.sv_mgr.stream_values.claim_with_value(StreamValue::new(
+                    StreamValueData::Bytes(ss.as_bytes().to_owned()),
+                    true,
+                    false,
+                )),
+                batch_size,
+                true,
+                false,
+            );
+        }
+        Literal::StreamBytes(ss) => {
+            output_field.field_data.push_stream_value_id(
+                sess.sv_mgr.stream_values.claim_with_value(StreamValue::new(
+                    StreamValueData::Bytes(ss.as_bytes().to_owned()),
+                    false,
+                    false,
+                )),
+                batch_size,
+                true,
+                false,
+            );
+        }
+        Literal::StreamError(ss) => {
+            output_field.field_data.push_stream_value_id(
+                sess.sv_mgr.stream_values.claim_with_value(StreamValue::new(
+                    StreamValueData::Error(OperatorApplicationError {
+                        op_id,
+                        message: ss.clone().into(),
+                    }),
+                    true,
+                    false,
+                )),
+                batch_size,
+                true,
+                false,
+            );
+        }
         Literal::Error(e) => output_field.field_data.push_error(
             OperatorApplicationError {
                 op_id,
@@ -152,35 +202,55 @@ pub fn parse_op_literal_zst(
     }))
 }
 pub fn parse_op_str(
+    arg_str: &str,
     value: Option<&BStr>,
+    stream: bool,
     insert_count: Option<usize>,
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
     let value_str = value
-        .ok_or_else(|| OperatorCreationError::new("missing value for str", arg_idx))?
+        .ok_or_else(|| {
+            OperatorCreationError::new_s(format!("missing value for {arg_str}"), arg_idx)
+        })?
         .to_str()
         .map_err(|_| {
-            OperatorCreationError::new(
-                "str argument must be valid UTF-8, consider using bytes=...",
+            OperatorCreationError::new_s(
+                format!("{arg_str} argument must be valid UTF-8, consider using bytes=..."),
                 arg_idx,
             )
         })?;
+    let value_owned = value_str.to_owned();
     Ok(OperatorData::DataInserter(OpLiteral {
-        data: Literal::String(value_str.to_owned()),
+        data: if stream {
+            Literal::StreamString(value_owned)
+        } else {
+            Literal::String(value_owned)
+        },
         insert_count,
     }))
 }
 pub fn parse_op_error(
+    arg_str: &str,
     value: Option<&BStr>,
+    stream: bool,
     insert_count: Option<usize>,
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
     let value_str = value
-        .ok_or_else(|| OperatorCreationError::new("missing value for error", arg_idx))?
+        .ok_or_else(|| {
+            OperatorCreationError::new_s(format!("missing value for {arg_str}"), arg_idx)
+        })?
         .to_str()
-        .map_err(|_| OperatorCreationError::new("error argument must be valid UTF-8", arg_idx))?;
+        .map_err(|_| {
+            OperatorCreationError::new_s(format!("{arg_str} argument must be valid UTF-8"), arg_idx)
+        })?;
+    let value_owned = value_str.to_owned();
     Ok(OperatorData::DataInserter(OpLiteral {
-        data: Literal::Error(value_str.to_owned()),
+        data: if stream {
+            Literal::StreamError(value_owned)
+        } else {
+            Literal::Error(value_owned)
+        },
         insert_count,
     }))
 }
@@ -204,26 +274,32 @@ pub fn parse_op_int(
     }))
 }
 pub fn parse_op_bytes(
+    arg_str: &str,
     value: Option<&BStr>,
+    stream: bool,
     insert_count: Option<usize>,
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
     let parsed_value = if let Some(value) = value {
         value.to_owned()
     } else {
-        return Err(OperatorCreationError::new(
-            "missing value for bytes",
+        return Err(OperatorCreationError::new_s(
+            format!("missing value for {arg_str}"),
             arg_idx,
         ));
     };
     Ok(OperatorData::DataInserter(OpLiteral {
-        data: Literal::Bytes(parsed_value),
+        data: if stream {
+            Literal::StreamBytes(parsed_value)
+        } else {
+            Literal::Bytes(parsed_value)
+        },
         insert_count,
     }))
 }
 
 lazy_static::lazy_static! {
-    static ref ARG_REGEX: Regex = Regex::new(r"^(?<type>int|bytes|str|error|null|unset|success)(?<insert_count>[0-9]+)?$").unwrap();
+    static ref ARG_REGEX: Regex = Regex::new(r"^(?<type>int|(?:~)bytes|(?:~)?str|(?:~)error|null|unset|success)(?<insert_count>[0-9]+)?$").unwrap();
 }
 
 pub fn argument_matches_op_literal(arg: &str) -> bool {
@@ -247,11 +323,15 @@ pub fn parse_op_literal(
             })
         })
         .transpose()?;
-    match args.name("type").unwrap().as_str() {
+    let arg_str = args.name("type").unwrap().as_str();
+    match arg_str {
         "int" => parse_op_int(value, insert_count, arg_idx),
-        "bytes" => parse_op_bytes(value, insert_count, arg_idx),
-        "str" => parse_op_str(value, insert_count, arg_idx),
-        "error" => parse_op_error(value, insert_count, arg_idx),
+        "bytes" => parse_op_bytes(arg_str, value, false, insert_count, arg_idx),
+        "~bytes" => parse_op_bytes(arg_str, value, true, insert_count, arg_idx),
+        "str" => parse_op_str(arg_str, value, false, insert_count, arg_idx),
+        "~str" => parse_op_str(arg_str, value, true, insert_count, arg_idx),
+        "error" => parse_op_error(arg_str, value, false, insert_count, arg_idx),
+        "~error" => parse_op_error(arg_str, value, true, insert_count, arg_idx),
         v @ "null" => parse_op_literal_zst(v, Literal::Null, value, insert_count, arg_idx),
         v @ "unset" => parse_op_literal_zst(v, Literal::Unset, value, insert_count, arg_idx),
         v @ "success" => parse_op_literal_zst(v, Literal::Success, value, insert_count, arg_idx),

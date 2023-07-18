@@ -58,6 +58,16 @@ impl StreamValue {
             StreamValueData::Bytes(_) => !self.bytes_are_chunk,
         }
     }
+    pub fn new(data: StreamValueData, utf8: bool, done: bool) -> StreamValue {
+        StreamValue {
+            data: data,
+            bytes_are_utf8: utf8,
+            bytes_are_chunk: !done,
+            done: done,
+            subscribers: Default::default(),
+            ref_count: 1,
+        }
+    }
 }
 
 pub type StreamValueId = usize;

@@ -42,39 +42,51 @@ pub struct OperatorApplicationError {
 }
 
 impl ChainSetupError {
-    pub fn new(message: &'static str, chain_id: ChainId) -> ChainSetupError {
-        ChainSetupError {
+    pub fn new(message: &'static str, chain_id: ChainId) -> Self {
+        Self {
             message: message.into(),
             chain_id,
         }
     }
 }
 impl OperatorCreationError {
-    pub fn new(message: &'static str, cli_arg_idx: Option<CliArgIdx>) -> OperatorCreationError {
-        OperatorCreationError {
+    pub fn new(message: &'static str, cli_arg_idx: Option<CliArgIdx>) -> Self {
+        Self {
+            message: message.into(),
+            cli_arg_idx,
+        }
+    }
+    pub fn new_s(message: String, cli_arg_idx: Option<CliArgIdx>) -> Self {
+        Self {
             message: message.into(),
             cli_arg_idx,
         }
     }
 }
 impl OperatorSetupError {
-    pub fn new(message: &'static str, op_id: OperatorId) -> OperatorSetupError {
-        OperatorSetupError {
+    pub fn new(message: &'static str, op_id: OperatorId) -> Self {
+        Self {
             message: Cow::Borrowed(message),
+            op_id,
+        }
+    }
+    pub fn new_s(msg: String, op_id: OperatorId) -> Self {
+        Self {
+            message: Cow::Owned(msg),
             op_id,
         }
     }
 }
 
 impl TransformSetupError {
-    pub fn new(op_id: OperatorId, message: &'static str) -> TransformSetupError {
-        TransformSetupError {
+    pub fn new(op_id: OperatorId, message: &'static str) -> Self {
+        Self {
             message: Cow::Borrowed(message),
             op_id,
         }
     }
-    pub fn new_s(op_id: OperatorId, msg: String) -> TransformSetupError {
-        TransformSetupError {
+    pub fn new_s(op_id: OperatorId, msg: String) -> Self {
+        Self {
             message: Cow::Owned(msg),
             op_id,
         }
@@ -82,8 +94,8 @@ impl TransformSetupError {
 }
 
 impl OperatorApplicationError {
-    pub fn new(message: &'static str, op_id: OperatorId) -> OperatorApplicationError {
-        OperatorApplicationError {
+    pub fn new(message: &'static str, op_id: OperatorId) -> Self {
+        Self {
             message: Cow::Borrowed(message),
             op_id,
         }

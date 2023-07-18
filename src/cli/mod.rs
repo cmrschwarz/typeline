@@ -107,7 +107,7 @@ lazy_static! {
             .build()
             .unwrap();
     static ref CLI_ARG_REGEX: regex::bytes::Regex = regex::bytes::RegexBuilder::new(
-        r#"^(?<append_mode>\+)?(?<argname>[^\s@:=]+)(@(?<label>[^\s@:=]+))?(?<chainspec>:[^\s@:=]+)?(=(?<value>(?:.|[\r\n])*))?$"#
+        r#"^(?<append_mode>\+)?(?<argname>[^@=]+)(@(?<label>[^@=]+))?(?<chainspec>:[^\s@=]+)?(=(?<value>(?:.|[\r\n])*))?$"#
     ).build()
     .unwrap();
 

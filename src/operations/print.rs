@@ -77,7 +77,16 @@ pub fn create_op_print() -> OperatorData {
 pub const NULL_STR: &'static str = "null";
 pub const SUCCESS_STR: &'static str = "<Success>";
 pub const UNSET_STR: &'static str = "<Unset>";
-pub const ERROR_PREFIX_STR: &'static str = "Error: ";
+pub const ERROR_PREFIX_STR: &'static str = "ERROR: ";
+
+pub fn typed_slice_zst_str(ts: &TypedSlice) -> &'static str {
+    match ts {
+        TypedSlice::Success(_) => SUCCESS_STR,
+        TypedSlice::Unset(_) => UNSET_STR,
+        TypedSlice::Null(_) => NULL_STR,
+        _ => unreachable!(),
+    }
+}
 
 // SAFETY: guaranteed to write valid utf-8
 pub fn write_error(
@@ -88,7 +97,7 @@ pub fn write_error(
 }
 
 pub fn error_to_string(e: &OperatorApplicationError) -> String {
-    format_args!("Error: {e}").to_string()
+    format_args!("{ERROR_PREFIX_STR}{e}").to_string()
 }
 
 pub fn write_stream_val_check_done(
@@ -192,30 +201,20 @@ pub fn handle_tf_print_raw(
                     }
                 }
             }
-            TypedSlice::Null(_) => {
-                for _ in 0..range.base.field_count {
-                    stdout.write_fmt(format_args!("{NULL_STR}\n"))?;
-                    *handled_field_count += 1;
-                }
-            }
             TypedSlice::Error(errs) => {
                 for v in TypedSliceIter::from_range(&range.base, errs).unfold_rl() {
-                    stdout.write_fmt(format_args!("{v}\n"))?;
+                    stdout.write_fmt(format_args!("{ERROR_PREFIX_STR}{v}\n"))?;
                     *handled_field_count += 1;
                 }
             }
-            TypedSlice::Unset(_) => {
+            TypedSlice::Null(_) | TypedSlice::Unset(_) | TypedSlice::Success(_) => {
+                let zst_str = typed_slice_zst_str(&range.base.data);
                 for _ in 0..range.base.field_count {
-                    stdout.write_fmt(format_args!("{UNSET_STR}\n"))?;
+                    stdout.write_fmt(format_args!("{zst_str}\n"))?;
                     *handled_field_count += 1;
                 }
             }
-            TypedSlice::Success(_) => {
-                for _ in 0..range.base.field_count {
-                    stdout.write_fmt(format_args!("{SUCCESS_STR}\n"))?;
-                    *handled_field_count += 1;
-                }
-            }
+
             TypedSlice::StreamValueId(svs) => {
                 let mut pos = field_pos;
                 for (sv_id, offsets, rl) in RefAwareStreamValueIter::from_range(&range, svs) {

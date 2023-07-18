@@ -1,7 +1,7 @@
 use arrayvec::ArrayVec;
 use bstr::{BStr, BString, ByteSlice, ByteVec};
 use nonmax::NonMaxUsize;
-use std::{borrow::Cow, cell::RefMut, ptr::NonNull};
+use std::{borrow::Cow, cell::RefMut, fmt::Write, ptr::NonNull};
 
 use smallstr::SmallString;
 
@@ -26,7 +26,8 @@ use crate::{
         string_store::{StringStore, StringStoreEntry},
         u64_to_str,
         universe::Universe,
-        ValueProducingCallable, MAX_UTF8_CHAR_LEN,
+        LengthAndCharsCountingWriter, LengthCountingWriter, ValueProducingCallable,
+        MAX_UTF8_CHAR_LEN,
     },
     worker_thread_session::{
         Field, FieldId, FieldManager, JobSession, MatchSetManager, StreamValueManager,
@@ -36,7 +37,7 @@ use crate::{
 use super::{
     errors::{OperatorApplicationError, OperatorCreationError, OperatorSetupError},
     operator::{OperatorBase, OperatorData, OperatorId},
-    print::{ERROR_PREFIX_STR, NULL_STR, SUCCESS_STR, UNSET_STR},
+    print::{typed_slice_zst_str, ERROR_PREFIX_STR},
     transform::{TransformData, TransformId, TransformState},
 };
 
@@ -791,8 +792,12 @@ pub fn setup_key_output_state(
                         StreamValueData::Error(e) => {
                             if debug_format {
                                 iter_output_states(fmt, &mut output_index, rl, |o| {
-                                    let (len, mut char_count) =
-                                        formatted_error_string_len(e, k.format_type, true);
+                                    let (len, mut char_count) = formatted_error_string_len(
+                                        e,
+                                        k.format_type,
+                                        k.alternate_form,
+                                        true,
+                                    );
                                     o.len += calc_text_len(k, len, o.width_lookup, &mut char_count);
                                 });
                             } else {
@@ -890,13 +895,7 @@ pub fn setup_key_output_state(
                 }
             }
             TypedSlice::Null(_) | TypedSlice::Unset(_) | TypedSlice::Success(_) if debug_format => {
-                let len = match range.base.data {
-                    TypedSlice::Success(_) => SUCCESS_STR,
-                    TypedSlice::Unset(_) => UNSET_STR,
-                    TypedSlice::Null(_) => NULL_STR,
-                    _ => unreachable!(),
-                }
-                .len();
+                let len = typed_slice_zst_str(&range.base.data).len();
                 iter_output_states_advanced(
                     &mut fmt.output_states,
                     &mut output_index,
@@ -908,7 +907,8 @@ pub fn setup_key_output_state(
             }
             TypedSlice::Error(errs) if debug_format => {
                 for (v, rl) in TypedSliceIter::from_range(&range.base, errs) {
-                    let (len, mut char_count) = formatted_error_string_len(v, k.format_type, false);
+                    let (len, mut char_count) =
+                        formatted_error_string_len(v, k.format_type, k.alternate_form, false);
                     let mut cc = cached!(char_count.call());
                     iter_output_states(fmt, &mut output_index, rl, |o| {
                         o.len += calc_text_len(k, len, o.width_lookup, &mut cc);
@@ -1134,42 +1134,69 @@ unsafe fn write_formatted_int(k: &FormatKey, tgt: &mut OutputTarget, value: i64)
 fn error_to_formatted_string(
     e: &OperatorApplicationError,
     ft: FormatType,
+    alternate_form: bool,
     stream_value: bool,
 ) -> String {
     match ft {
-        FormatType::Debug => format!("!\"{ERROR_PREFIX_STR}{}\"", e.message),
-        FormatType::MoreDebug => format!(
-            "{}!\"{ERROR_PREFIX_STR}{}\"",
-            if stream_value { ">>" } else { "" },
-            e.message
-        ),
-        _ => format!("Error: {}", e.message),
+        FormatType::Debug => {
+            if alternate_form {
+                format!("!\"{}\"", e.message)
+            } else {
+                format!("!\"{ERROR_PREFIX_STR}{}\"", e)
+            }
+        }
+        FormatType::MoreDebug => {
+            let sv = if stream_value { "~" } else { "" };
+            if alternate_form {
+                format!("{sv}!\"{}\"", e.message)
+            } else {
+                format!("{sv}!\"{ERROR_PREFIX_STR}{}\"", e)
+            }
+        }
+        _ => unreachable!(),
     }
 }
 struct ErrLenCalculator<'a> {
     err: &'a OperatorApplicationError,
     additional_len: usize,
+    alternate_form: bool,
 }
 impl<'a> ValueProducingCallable<usize> for ErrLenCalculator<'a> {
     fn call(&mut self) -> usize {
-        self.err.message.chars().count() + self.additional_len
+        self.additional_len
+            + if self.alternate_form {
+                self.err.message.chars().count()
+            } else {
+                let mut cw = LengthAndCharsCountingWriter::default();
+                cw.write_fmt(format_args!("{ERROR_PREFIX_STR}{}", self.err))
+                    .unwrap();
+                cw.char_count
+            }
     }
 }
 fn formatted_error_string_len<'a>(
     e: &'a OperatorApplicationError,
     ft: FormatType,
+    alternate_form: bool,
     stream_value: bool,
 ) -> (usize, ErrLenCalculator) {
     let additional_len = match ft {
-        FormatType::Debug => 2 + 1,
-        FormatType::MoreDebug => (if stream_value { 2 } else { 0 }) + 2 + 1,
-        _ => 0,
+        FormatType::Debug => 2 + 1, // !"..."
+        FormatType::MoreDebug => (if stream_value { 1 } else { 0 }) + 2 + 1, //~!"..." vs !"..."
+        _ => unreachable!(),
     };
-    let base_len = ERROR_PREFIX_STR.len() + e.message.len();
+    let len = if alternate_form {
+        e.message.len()
+    } else {
+        let mut cw = LengthCountingWriter::default();
+        cw.write_fmt(format_args!("{ERROR_PREFIX_STR}{e}")).unwrap();
+        cw.len
+    };
     (
-        base_len + additional_len,
+        len + additional_len,
         ErrLenCalculator {
-            additional_len: ERROR_PREFIX_STR.chars().count() + additional_len,
+            additional_len,
+            alternate_form,
             err: e,
         },
     )
@@ -1259,13 +1286,7 @@ fn write_fmt_key(
                 }
             }
             TypedSlice::Null(_) | TypedSlice::Unset(_) | TypedSlice::Success(_) if debug_format => {
-                let data = match range.base.data {
-                    TypedSlice::Success(_) => SUCCESS_STR,
-                    TypedSlice::Unset(_) => UNSET_STR,
-                    TypedSlice::Null(_) => NULL_STR,
-                    _ => unreachable!(),
-                }
-                .as_bytes();
+                let data = typed_slice_zst_str(&range.base.data).as_bytes();
                 iter_output_targets(
                     fmt,
                     &mut output_index,
@@ -1277,7 +1298,8 @@ fn write_fmt_key(
             }
             TypedSlice::Error(errs) if debug_format => {
                 for (v, rl) in TypedSliceIter::from_range(&range.base, errs) {
-                    let err_str = error_to_formatted_string(v, k.format_type, false);
+                    let err_str =
+                        error_to_formatted_string(v, k.format_type, k.alternate_form, false);
                     iter_output_targets(fmt, &mut output_index, rl as usize, |tgt| unsafe {
                         write_padded_bytes(k, tgt, &err_str.as_bytes())
                     });
@@ -1291,7 +1313,8 @@ fn write_fmt_key(
                     match &sv.data {
                         StreamValueData::Dropped => unreachable!(),
                         StreamValueData::Error(e) => {
-                            let err_str = error_to_formatted_string(e, k.format_type, true);
+                            let err_str =
+                                error_to_formatted_string(e, k.format_type, k.alternate_form, true);
                             iter_output_targets(
                                 fmt,
                                 &mut output_index,
@@ -1304,7 +1327,7 @@ fn write_fmt_key(
 
                             if range.is_some() || sv.done || !sv.is_buffered() {
                                 let qc = if sv.bytes_are_utf8 { '"' } else { '\'' };
-                                let left = ['>' as u8, '>' as u8, qc as u8];
+                                let left = ['~' as u8, qc as u8];
                                 let right = [qc as u8];
                                 let none = b"".as_slice();
                                 let (left, right) = match k.format_type {

@@ -20,7 +20,7 @@ use crate::{
 use super::{
     errors::{OperatorApplicationError, OperatorCreationError},
     operator::{OperatorBase, OperatorData, DEFAULT_OP_NAME_SMALL_STR_LEN},
-    print::{NULL_STR, SUCCESS_STR, UNSET_STR},
+    print::typed_slice_zst_str,
     transform::{TransformData, TransformId, TransformState},
 };
 
@@ -281,9 +281,20 @@ pub fn emit_group(join: &mut TfJoin, sv_mgr: &mut StreamValueManager, output_fie
     join.first_record_added = false;
     join.output_stream_val = None;
 }
+fn push_error(join: &mut TfJoin, sv_mgr: &mut StreamValueManager, e: OperatorApplicationError) {
+    if let Some(sv_id) = join.output_stream_val {
+        let sv = &mut sv_mgr.stream_values[sv_id];
+        sv.data = StreamValueData::Error(e);
+        sv.done = true;
+        join.stream_value_error = true;
+    } else {
+        join.current_group_error = Some(e);
+    }
+}
 pub fn handle_tf_join(sess: &mut JobSession<'_>, tf_id: TransformId, join: &mut TfJoin) {
     let (batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
     let tf = &sess.tf_mgr.transforms[tf_id];
+    let op_id = tf.op_id.unwrap();
     let output_field_id = tf.output_field;
     let input_field_id = tf.input_field;
     sess.prepare_for_output(tf_id, &[output_field_id]);
@@ -339,25 +350,19 @@ pub fn handle_tf_join(sess: &mut JobSession<'_>, tf_id: TransformId, join: &mut 
                     }
                 }
                 TypedSlice::Reference(_) => unreachable!(),
-                TypedSlice::Null(_) => {
-                    push_str(join, sv_mgr, NULL_STR, range.base.field_count);
-                }
                 TypedSlice::Error(errs) => {
-                    let ec = errs[0].clone();
-                    if let Some(sv_id) = join.output_stream_val {
-                        let sv = &mut sv_mgr.stream_values[sv_id];
-                        sv.data = StreamValueData::Error(ec);
-                        sv.done = true;
-                        join.stream_value_error = true;
-                    } else {
-                        join.current_group_error = Some(ec);
-                    }
+                    push_error(join, sv_mgr, errs[0].clone());
                 }
-                TypedSlice::Unset(_) => {
-                    push_str(join, sv_mgr, UNSET_STR, range.base.field_count);
-                }
-                TypedSlice::Success(_) => {
-                    push_str(join, sv_mgr, SUCCESS_STR, range.base.field_count);
+                TypedSlice::Null(_) | TypedSlice::Success(_) | TypedSlice::Unset(_) => {
+                    let str = typed_slice_zst_str(&range.base.data);
+                    push_error(
+                        join,
+                        sv_mgr,
+                        OperatorApplicationError {
+                            op_id,
+                            message: format!("join does not support {str}").into(),
+                        },
+                    );
                 }
                 TypedSlice::StreamValueId(svs) => {
                     let mut pos = field_pos;

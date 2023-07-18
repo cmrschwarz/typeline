@@ -127,3 +127,44 @@ pub fn get_two_distinct_mut<'a, T>(
         (&mut *ptr.add(idx1), &mut *ptr.add(idx2))
     }
 }
+#[derive(Clone, Copy, Default)]
+pub struct LengthCountingWriter {
+    pub len: usize,
+}
+impl Write for LengthCountingWriter {
+    fn write_str(&mut self, s: &str) -> std::fmt::Result {
+        self.len += s.len();
+        Ok(())
+    }
+
+    fn write_char(&mut self, c: char) -> std::fmt::Result {
+        self.len += c.len_utf8();
+        Ok(())
+    }
+
+    fn write_fmt(mut self: &mut Self, args: std::fmt::Arguments<'_>) -> std::fmt::Result {
+        std::fmt::write(&mut self, args)
+    }
+}
+#[derive(Clone, Copy, Default)]
+pub struct LengthAndCharsCountingWriter {
+    pub len: usize,
+    pub char_count: usize,
+}
+impl Write for LengthAndCharsCountingWriter {
+    fn write_str(&mut self, s: &str) -> std::fmt::Result {
+        self.len += s.len();
+        self.char_count += s.chars().count();
+        Ok(())
+    }
+
+    fn write_char(&mut self, c: char) -> std::fmt::Result {
+        self.len += c.len_utf8();
+        self.char_count += 1;
+        Ok(())
+    }
+
+    fn write_fmt(mut self: &mut Self, args: std::fmt::Arguments<'_>) -> std::fmt::Result {
+        std::fmt::write(&mut self, args)
+    }
+}
