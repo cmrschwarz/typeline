@@ -85,15 +85,17 @@ impl Default for FormatWidthSpec {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
-pub enum NumberFormat {
+pub enum FormatType {
     #[default]
-    Plain, // the default value representation
-    Binary,   // print integers with base 2, e.g 101010 instead of 42
-    Octal,    // print integers with base 8, e.g 52 instead of 42
-    Hex,      // print integers in lower case hexadecimal, e.g 2a instead of 42
-    UpperHex, // print integers in upper case hexadecimal, e.g 2A instead of 42
-    LowerExp, // print numbers in upper case scientific notation, e.g. 4.2e1 instead of 42
-    UpperExp, // print numbers in lower case scientific notation, e.g. 4.2E1 instead of 42
+    Default, // the default value representation
+    Debug,     // add typing information e.g. "42" insead of 42 (the string)
+    MoreDebug, // like debug, but prefix >>> for stream values
+    Binary,    // print integers with base 2, e.g 101010 instead of 42
+    Octal,     // print integers with base 8, e.g 52 instead of 42
+    Hex,       // print integers in lower case hexadecimal, e.g 2a instead of 42
+    UpperHex,  // print integers in upper case hexadecimal, e.g 2A instead of 42
+    LowerExp,  // print numbers in upper case scientific notation, e.g. 4.2e1 instead of 42
+    UpperExp,  // print numbers in lower case scientific notation, e.g. 4.2E1 instead of 42
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
@@ -105,7 +107,7 @@ pub struct FormatKey {
     width: Option<FormatWidthSpec>,
     float_precision: Option<FormatWidthSpec>,
     alternate_form: bool, // prefix 0x for hex, 0o for octal and 0b for binary, pretty print objects / arrays
-    number_format: NumberFormat,
+    format_type: FormatType,
     debug: bool,
     unicode: bool,
 }
@@ -403,7 +405,7 @@ pub fn parse_format_flags(
     }
 
     if c == '?' {
-        key.alternate_form = true;
+        key.format_type = FormatType::Debug;
         i += 1;
         c = next(fmt, i)?;
     } else {
@@ -415,12 +417,13 @@ pub fn parse_format_flags(
             return Err((i, format!("expected '?' after type specifier '{c}'").into()));
         }
         match c {
-            'x' => key.number_format = NumberFormat::Hex,
-            'X' => key.number_format = NumberFormat::UpperHex,
-            'o' => key.number_format = NumberFormat::Octal,
-            'b' => key.number_format = NumberFormat::Binary,
-            'e' => key.number_format = NumberFormat::LowerExp,
-            'E' => key.number_format = NumberFormat::UpperExp,
+            '?' => key.format_type = FormatType::MoreDebug,
+            'x' => key.format_type = FormatType::Hex,
+            'X' => key.format_type = FormatType::UpperHex,
+            'o' => key.format_type = FormatType::Octal,
+            'b' => key.format_type = FormatType::Binary,
+            'e' => key.format_type = FormatType::LowerExp,
+            'E' => key.format_type = FormatType::UpperExp,
             _ => return Err((i, format!("unknown type specifier '{c}?' ").into())),
         }
         i += 2;
@@ -730,6 +733,7 @@ pub fn setup_key_output_state(
 
     let mut output_index = 0;
     let mut handled_fields = 0;
+    let debug_format = [FormatType::Debug, FormatType::MoreDebug].contains(&k.format_type);
     while let Some(range) =
         iter.typed_range_fwd(match_set_mgr, usize::MAX, field_value_flags::BYTES_ARE_UTF8)
     {
@@ -776,7 +780,7 @@ pub fn setup_key_output_state(
                     match &sv.data {
                         StreamValueData::Dropped => unreachable!(),
                         StreamValueData::Error(e) => {
-                            if k.alternate_form {
+                            if debug_format {
                                 iter_output_states(fmt, &mut output_index, rl, |o| {
                                     o.len += calc_text_len(
                                         k,
@@ -879,7 +883,7 @@ pub fn setup_key_output_state(
                     }
                 }
             }
-            TypedSlice::Unset(ints) if k.alternate_form => {
+            TypedSlice::Unset(ints) if debug_format => {
                 for (_, rl) in TypedSliceIter::from_range(&range.base, ints) {
                     iter_output_states(fmt, &mut output_index, rl, |o| {
                         o.len += calc_text_len(k, UNSET_STR.len(), o.width_lookup, &mut || {
@@ -888,7 +892,7 @@ pub fn setup_key_output_state(
                     });
                 }
             }
-            TypedSlice::Success(ints) if k.alternate_form => {
+            TypedSlice::Success(ints) if debug_format => {
                 for (_, rl) in TypedSliceIter::from_range(&range.base, ints) {
                     iter_output_states(fmt, &mut output_index, rl, |o| {
                         o.len += calc_text_len(k, SUCCESS_STR.len(), o.width_lookup, &mut || {
@@ -897,7 +901,7 @@ pub fn setup_key_output_state(
                     });
                 }
             }
-            TypedSlice::Null(ints) if k.alternate_form => {
+            TypedSlice::Null(ints) if debug_format => {
                 for (_, rl) in TypedSliceIter::from_range(&range.base, ints) {
                     iter_output_states(fmt, &mut output_index, rl, |o| {
                         o.len += calc_text_len(k, NULL_STR.len(), o.width_lookup, &mut || {
@@ -906,7 +910,7 @@ pub fn setup_key_output_state(
                     });
                 }
             }
-            TypedSlice::Error(errs) if k.alternate_form => {
+            TypedSlice::Error(errs) if debug_format => {
                 for (v, rl) in TypedSliceIter::from_range(&range.base, errs) {
                     let len = ERROR_PREFIX_STR.len() + v.message.len();
                     let mut char_count =
@@ -1144,7 +1148,7 @@ fn write_fmt_key(
             .get_iter_cow_aware(ident_ref.field_id, &field, ident_ref.iter_id)
             .bounded(0, batch_size),
     );
-
+    let debug_format = [FormatType::Debug, FormatType::MoreDebug].contains(&k.format_type);
     let mut output_index = 0;
     while let Some(range) =
         iter.typed_range_fwd(match_set_mgr, usize::MAX, field_value_flags::BYTES_ARE_UTF8)
@@ -1180,7 +1184,7 @@ fn write_fmt_key(
                     });
                 }
             }
-            TypedSlice::Null(_) if k.alternate_form => {
+            TypedSlice::Null(_) if debug_format => {
                 iter_output_targets(
                     fmt,
                     &mut output_index,
@@ -1190,7 +1194,7 @@ fn write_fmt_key(
                     },
                 );
             }
-            TypedSlice::Error(errs) if k.alternate_form => {
+            TypedSlice::Error(errs) if debug_format => {
                 for (v, rl) in TypedSliceIter::from_range(&range.base, errs) {
                     let err_str = error_to_string(v);
                     iter_output_targets(fmt, &mut output_index, rl as usize, |tgt| unsafe {
@@ -1206,7 +1210,10 @@ fn write_fmt_key(
                     match &sv.data {
                         StreamValueData::Dropped => unreachable!(),
                         StreamValueData::Error(e) => {
-                            let err_str = error_to_string(e);
+                            let mut err_str = error_to_string(e);
+                            if k.format_type == FormatType::MoreDebug {
+                                err_str.insert_str(0, ">>");
+                            }
                             iter_output_targets(
                                 fmt,
                                 &mut output_index,
@@ -1240,7 +1247,12 @@ fn write_fmt_key(
             | TypedSlice::Html(_)
             | TypedSlice::Object(_) => {
                 // just to increase output index
-                iter_output_targets(fmt, &mut output_index, range.base.field_count, |_tgt| ());
+                iter_output_targets(
+                    fmt,
+                    &mut output_index,
+                    range.base.field_count,
+                    |_tgt| unreachable!(),
+                );
             }
         }
     }

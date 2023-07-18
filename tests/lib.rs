@@ -20,7 +20,7 @@ use scr::{
         file_reader::create_op_file_reader_custom,
         format::create_op_format,
         key::create_op_key,
-        literal::{create_op_literal, DataToInsert},
+        literal::{create_op_literal, Literal},
         regex::{create_op_regex, create_op_regex_lines, RegexOptions},
         sequence::create_op_seq,
         string_sink::{create_op_string_sink, StringSinkHandle},
@@ -46,10 +46,7 @@ fn string_sink() -> Result<(), ScrError> {
 fn tf_literal() -> Result<(), ScrError> {
     let ss = StringSinkHandle::new();
     ContextBuilder::default()
-        .add_op(create_op_literal(
-            DataToInsert::String("foo".to_owned()),
-            None,
-        ))
+        .add_op(create_op_literal(Literal::String("foo".to_owned()), None))
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(ss.get_data().unwrap().as_slice(), ["foo"]);
@@ -60,10 +57,7 @@ fn tf_literal() -> Result<(), ScrError> {
 fn counted_tf_literal() -> Result<(), ScrError> {
     let ss = StringSinkHandle::new();
     ContextBuilder::default()
-        .add_op(create_op_literal(
-            DataToInsert::String("x".to_owned()),
-            Some(3),
-        ))
+        .add_op(create_op_literal(Literal::String("x".to_owned()), Some(3)))
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(ss.get_data().unwrap().as_slice(), ["x", "x", "x"]);
@@ -272,7 +266,7 @@ fn large_seq_with_regex() -> Result<(), ScrError> {
 fn key_with_fmt() -> Result<(), ScrError> {
     let ss = StringSinkHandle::new();
     ContextBuilder::default()
-        .add_op(create_op_literal(DataToInsert::Int(42), None))
+        .add_op(create_op_literal(Literal::Int(42), None))
         .add_op(create_op_key("foo".to_owned()))
         .add_op(create_op_key("bar".to_owned()))
         .add_op(create_op_format("foo: {foo}, bar: {bar}".as_bytes().as_bstr()).unwrap())
@@ -473,7 +467,7 @@ fn select() -> Result<(), ScrError> {
     ContextBuilder::default()
         .set_batch_size(5)
         .add_op_with_opts(
-            create_op_literal(DataToInsert::String("foo".to_owned()), Some(3)),
+            create_op_literal(Literal::String("foo".to_owned()), Some(3)),
             None,
             Some("a"),
             None,
@@ -492,10 +486,7 @@ fn select_after_key() -> Result<(), ScrError> {
     let ss = StringSinkHandle::new();
     ContextBuilder::default()
         .set_batch_size(5)
-        .add_op(create_op_literal(
-            DataToInsert::String("foo".to_owned()),
-            None,
-        ))
+        .add_op(create_op_literal(Literal::String("foo".to_owned()), None))
         .add_op(create_op_key("a".to_owned()))
         .add_op(create_op_enum(0, 3, 1).unwrap())
         .add_op(create_op_select("a".to_owned()))
@@ -740,7 +731,7 @@ fn join_dropped_streams() -> Result<(), ScrError> {
         .add_op(create_op_file_reader_custom(Box::new(SliceReader::new(
             "foo".as_bytes(),
         ))))
-        .add_op_appending(create_op_literal(DataToInsert::Int(1), Some(1)))
+        .add_op_appending(create_op_literal(Literal::Int(1), Some(1)))
         .add_op_appending(create_op_file_reader_custom(Box::new(SliceReader::new(
             "bar".as_bytes(),
         ))))
@@ -767,7 +758,7 @@ fn stream_error_in_join() -> Result<(), ScrError> {
             2,
             SliceReader::new("bar".as_bytes()),
         ))))
-        .add_op_appending(create_op_literal(DataToInsert::Int(1), Some(1)))
+        .add_op_appending(create_op_literal(Literal::Int(1), Some(1)))
         .add_op(create_op_join(
             Some(", ".as_bytes().to_owned()),
             Some(3),
