@@ -174,15 +174,24 @@ impl ContextOptions {
         }
         Ok(())
     }
+    pub fn validate_chain(chain: &Chain, chain_id: ChainId) -> Result<(), ChainSetupError> {
+        let mut message = "";
+        if chain.operations.is_empty() {
+            message = "chain must habe at least one operation";
+        } else if chain.settings.default_batch_size == 0 {
+            message = "default batch size cannot be zero";
+        } else if chain.settings.stream_buffer_size == 0 {
+            message = "stream buffer size cannot be zero";
+        }
+        if message != "" {
+            return Err(ChainSetupError::new(message, chain_id));
+        }
+        Ok(())
+    }
     pub fn setup_chains(sess: &mut SessionData) -> Result<(), ChainSetupError> {
         for i in 0..sess.chains.len() {
             let chain = &mut sess.chains[i];
-            if chain.operations.is_empty() {
-                return Err(ChainSetupError::new(
-                    "chain must habe at least one operation",
-                    i as ChainId,
-                ));
-            }
+            Self::validate_chain(chain, i as ChainId)?;
         }
         compute_field_livenses(sess);
         Ok(())

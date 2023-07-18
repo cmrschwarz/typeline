@@ -1,8 +1,11 @@
 mod utils;
 
+use std::borrow::Cow;
+
 use scr::bstr::ByteSlice;
 
 use scr::operations::chain_navigation_ops::create_op_next;
+use scr::operations::errors::ChainSetupError;
 use scr::operations::join::{create_op_join, create_op_join_str};
 use scr::operations::literal::{create_op_int, create_op_str};
 use scr::operations::select::create_op_select;
@@ -844,17 +847,34 @@ fn tf_literal_yields_to_cont() -> Result<(), ScrError> {
 
 #[test]
 fn tf_file_yields_to_cont() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
-    ContextBuilder::default()
-        .add_op(create_op_int(1, 3))
-        .add_op(create_op_file_reader_custom(Box::new(SliceReader::new(
-            b"foo",
-        ))))
-        .add_op_appending(create_op_file_reader_custom(Box::new(SliceReader::new(
-            b"bar",
-        ))))
-        .add_op(create_op_string_sink(&ss))
-        .run()?;
-    assert_eq!(ss.get().data.as_slice(), ["foo", "bar", "bar"]);
+    for sbs in [1, 2, 3, 4] {
+        let ss = StringSinkHandle::new();
+        ContextBuilder::default()
+            .set_stream_buffer_size(sbs)
+            .add_op(create_op_int(1, 3))
+            .add_op(create_op_file_reader_custom(Box::new(SliceReader::new(
+                b"foo",
+            ))))
+            .add_op_appending(create_op_file_reader_custom(Box::new(SliceReader::new(
+                b"bar",
+            ))))
+            .add_op(create_op_string_sink(&ss))
+            .run()?;
+        assert_eq!(ss.get().data.as_slice(), ["foo", "bar", "bar"]);
+    }
     Ok(())
+}
+
+#[test]
+fn error_on_sbs_0() {
+    assert!(matches!(
+        ContextBuilder::default()
+            .set_stream_buffer_size(0)
+            .add_op(create_op_int(1, 3))
+            .run(),
+        Err(ScrError::ChainSetupError(ChainSetupError {
+            message: Cow::Borrowed("stream buffer size cannot be zero"),
+            chain_id: 0
+        }))
+    ));
 }
