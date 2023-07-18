@@ -26,7 +26,8 @@ use crate::{
     },
     selenium::{SeleniumDownloadStrategy, SeleniumVariant},
 };
-use bstr::{BStr, BString, ByteSlice};
+use bstr::ByteSlice;
+
 use lazy_static::lazy_static;
 use regex::{Regex, RegexBuilder};
 
@@ -85,13 +86,13 @@ impl Display for MissingArgumentsError {
 #[derive(Clone, Debug)]
 pub struct CliArgument<'a> {
     pub idx: CliArgIdx,
-    pub value: &'a BString,
+    pub value: &'a Vec<u8>,
 }
 
 #[derive(Clone)]
 pub struct ParsedCliArgument<'a> {
     argname: &'a str,
-    value: Option<&'a BStr>,
+    value: Option<&'a [u8]>,
     label: Option<&'a str>,
     chainspec: Option<ChainSpec>,
     cli_arg: CliArgument<'a>,
@@ -128,31 +129,31 @@ lazy_static! {
     //        .unwrap();
 }
 
-fn try_parse_bool(val: &BStr) -> Option<bool> {
-    if TRUTHY_REGEX.is_match(val.as_bytes()) {
+fn try_parse_bool(val: &[u8]) -> Option<bool> {
+    if TRUTHY_REGEX.is_match(val) {
         return Some(true);
     }
-    if FALSY_REGEX.is_match(val.as_bytes()) {
+    if FALSY_REGEX.is_match(val) {
         return Some(false);
     }
     None
 }
 
 fn try_parse_selenium_variant(
-    _value: Option<&BStr>,
+    _value: Option<&[u8]>,
     _cli_arg: &CliArgument,
 ) -> Result<Option<SeleniumVariant>, CliArgumentError> {
     todo!()
 }
 fn try_parse_selenium_download_strategy(
-    _value: Option<&BStr>,
+    _value: Option<&[u8]>,
     _cli_arg: &CliArgument,
 ) -> Result<SeleniumDownloadStrategy, CliArgumentError> {
     todo!()
 }
 
 fn try_parse_bool_arg_or_default(
-    val: Option<&BStr>,
+    val: Option<&[u8]>,
     default: bool,
     cli_arg_idx: CliArgIdx,
 ) -> Result<bool, CliArgumentError> {
@@ -169,7 +170,7 @@ fn try_parse_bool_arg_or_default(
         Ok(default)
     }
 }
-fn try_parse_usize_arg(val: &BStr, cli_arg_idx: CliArgIdx) -> Result<usize, CliArgumentError> {
+fn try_parse_usize_arg(val: &[u8], cli_arg_idx: CliArgIdx) -> Result<usize, CliArgumentError> {
     if let Some(b) = val.to_str().ok().and_then(|v| v.parse::<usize>().ok()) {
         Ok(b)
     } else {
@@ -361,7 +362,7 @@ fn try_parse_as_chain_opt(
 
 fn parse_operation(
     argname: &str,
-    value: Option<&BStr>,
+    value: Option<&[u8]>,
     idx: Option<CliArgIdx>,
 ) -> Result<Option<OperatorData>, OperatorCreationError> {
     if let Some(c) = REGEX_CLI_ARG_REGEX.captures(argname) {
@@ -460,7 +461,7 @@ fn try_parse_as_operation<'a>(
     }
 }
 
-pub fn parse_cli_retain_args(args: &Vec<BString>) -> Result<ContextOptions, ScrError> {
+pub fn parse_cli_retain_args(args: &Vec<Vec<u8>>) -> Result<ContextOptions, ScrError> {
     if args.is_empty() {
         return Err(MissingArgumentsError.into());
     }
@@ -470,7 +471,7 @@ pub fn parse_cli_retain_args(args: &Vec<BString>) -> Result<ContextOptions, ScrE
             idx: i as CliArgIdx + 1,
             value: arg_str,
         };
-        if let Some(m) = CLI_ARG_REGEX.captures(arg_str.as_bytes()) {
+        if let Some(m) = CLI_ARG_REGEX.captures(arg_str) {
             let argname = from_utf8(m.name("argname").unwrap().as_bytes()).map_err(|_| {
                 CliArgumentError::new("argument name must be valid UTF-8", cli_arg.idx)
             })?;
@@ -485,7 +486,7 @@ pub fn parse_cli_retain_args(args: &Vec<BString>) -> Result<ContextOptions, ScrE
 
             let arg = ParsedCliArgument {
                 argname,
-                value: m.name("value").map(|v| <&BStr>::from(v.as_bytes())),
+                value: m.name("value").map(|v| <&[u8]>::from(v.as_bytes())),
                 label: label,
                 chainspec: None, //m.group("chainspec"); // TODO
                 cli_arg: cli_arg,
@@ -510,7 +511,7 @@ pub fn parse_cli_retain_args(args: &Vec<BString>) -> Result<ContextOptions, ScrE
     }
     return Ok(ctx_opts);
 }
-pub fn parse_cli(args: Vec<BString>) -> Result<ContextOptions, (Vec<BString>, ScrError)> {
+pub fn parse_cli(args: Vec<Vec<u8>>) -> Result<ContextOptions, (Vec<Vec<u8>>, ScrError)> {
     match parse_cli_retain_args(&args) {
         Ok(mut ctx) => {
             ctx.cli_args = Some(args);
@@ -520,26 +521,26 @@ pub fn parse_cli(args: Vec<BString>) -> Result<ContextOptions, (Vec<BString>, Sc
     }
 }
 
-pub fn collect_env_args() -> Result<Vec<BString>, CliArgumentError> {
+pub fn collect_env_args() -> Result<Vec<Vec<u8>>, CliArgumentError> {
     #[cfg(unix)]
     {
         Ok(std::env::args_os()
             .skip(1)
             .map(|s| std::os::unix::prelude::OsStringExt::into_vec(s).into())
-            .collect::<Vec<BString>>())
+            .collect::<Vec<Vec<u8>>>())
     }
     #[cfg(windows)]
     {
         let args = Vec::new();
         for (i, arg) in std::env::args_os().skip(1).enumerate() {
             if let (Some(arg)) = arg.to_str() {
-                args.push(BString::from(arg));
+                args.push(Vec::<u8>::from(arg));
             } else {
                 return Err(CliArgumentError::new(
                     "failed to parse byte sequence as unicode".to_owned(),
                     CliArgument {
                         arg_index: i + 1,
-                        arg_str: BString::from(arg.to_string_lossy().as_bytes()),
+                        arg_str: Vec::<u8>::from(arg.to_string_lossy().as_bytes()),
                     },
                 ));
             }

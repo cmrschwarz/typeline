@@ -1,5 +1,3 @@
-use bstr::BStr;
-
 use crate::options::argument::CliArgIdx;
 
 use super::{errors::OperatorCreationError, operator::OperatorData};
@@ -8,7 +6,7 @@ use super::{errors::OperatorCreationError, operator::OperatorData};
 pub struct OpNext {}
 
 pub fn parse_op_next(
-    value: Option<&BStr>,
+    value: Option<&[u8]>,
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
     if value.is_some() {

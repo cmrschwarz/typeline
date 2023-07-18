@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 
-use bstr::{BStr, BString, ByteSlice};
+use bstr::ByteSlice;
 use regex::Regex;
 use smallstr::SmallString;
 
@@ -19,7 +19,7 @@ use super::{
 
 #[derive(Clone)]
 pub enum Literal {
-    Bytes(BString),
+    Bytes(Vec<u8>),
     String(String),
     Int(i64),
     Null,
@@ -128,7 +128,7 @@ pub fn handle_tf_literal(sess: &mut JobSession<'_>, tf_id: TransformId, lit: &mu
 pub fn parse_op_literal_zst(
     arg: &str,
     literal: Literal,
-    value: Option<&BStr>,
+    value: Option<&[u8]>,
     insert_count: Option<usize>,
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
@@ -144,7 +144,7 @@ pub fn parse_op_literal_zst(
     }))
 }
 pub fn parse_op_str(
-    value: Option<&BStr>,
+    value: Option<&[u8]>,
     insert_count: Option<usize>,
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
@@ -165,7 +165,7 @@ pub fn parse_op_str(
 }
 pub fn parse_op_error(
     arg_str: &str,
-    value: Option<&BStr>,
+    value: Option<&[u8]>,
     stream: bool,
     insert_count: Option<usize>,
     arg_idx: Option<CliArgIdx>,
@@ -190,7 +190,7 @@ pub fn parse_op_error(
 }
 
 pub fn parse_op_int(
-    value: Option<&BStr>,
+    value: Option<&[u8]>,
     insert_count: Option<usize>,
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
@@ -208,7 +208,7 @@ pub fn parse_op_int(
     }))
 }
 pub fn parse_op_bytes(
-    value: Option<&BStr>,
+    value: Option<&[u8]>,
     insert_count: Option<usize>,
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
@@ -236,7 +236,7 @@ pub fn argument_matches_op_literal(arg: &str) -> bool {
 
 pub fn parse_op_literal(
     argument: &str,
-    value: Option<&BStr>,
+    value: Option<&[u8]>,
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
     // this should not happen in the cli parser because it checks using `argument_matches_data_inserter`
@@ -286,7 +286,7 @@ pub fn create_op_str(str: &str, insert_count: usize) -> OperatorData {
     create_op_literal_n(Literal::String(str.to_owned()), insert_count)
 }
 pub fn create_op_bytes(v: &[u8], insert_count: usize) -> OperatorData {
-    create_op_literal_n(Literal::Bytes(v.as_bstr().to_owned()), insert_count)
+    create_op_literal_n(Literal::Bytes(v.to_owned()), insert_count)
 }
 pub fn create_op_stream_error(str: &str, insert_count: usize) -> OperatorData {
     create_op_literal_n(Literal::StreamError(str.to_owned()), insert_count)

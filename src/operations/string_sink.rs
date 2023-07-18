@@ -1,14 +1,13 @@
 use std::{
     borrow::Cow,
     cell::RefMut,
+    collections::HashMap,
     ops::Deref,
     ops::DerefMut,
     sync::{Arc, Mutex, MutexGuard},
 };
 
 use bstr::ByteSlice;
-
-use indexmap::IndexMap;
 use smallstr::SmallString;
 
 use crate::{
@@ -18,7 +17,7 @@ use crate::{
         AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter, RefAwareInlineTextIter,
     },
     stream_value::{StreamValue, StreamValueData, StreamValueId},
-    utils::{i64_to_str, universe::Universe},
+    utils::{i64_to_str, identity_hasher::BuildIdentityHasher, universe::Universe},
     worker_thread_session::{Field, FieldId, JobSession},
 };
 use crate::{
@@ -38,7 +37,15 @@ use super::{
 
 pub struct StringSink {
     pub data: Vec<String>,
-    pub errors: IndexMap<usize, Arc<OperatorApplicationError>>,
+    pub errors: Vec<(usize, Arc<OperatorApplicationError>)>,
+    pub error_indices: HashMap<usize, usize, BuildIdentityHasher>,
+}
+
+impl StringSink {
+    pub fn append_error(&mut self, index: usize, err: Arc<OperatorApplicationError>) {
+        self.error_indices.insert(index, self.errors.len());
+        self.errors.push((index, err))
+    }
 }
 
 #[derive(Clone)]
@@ -68,6 +75,7 @@ impl StringSinkHandle {
             data: Arc::new(Mutex::new(StringSink {
                 data: Default::default(),
                 errors: Default::default(),
+                error_indices: Default::default(),
             })),
         }
     }
@@ -187,7 +195,7 @@ fn push_invalid_utf8(
         message: Cow::Borrowed("invalid utf-8"),
     });
     for i in field_pos..field_pos + run_len {
-        out.errors.insert(i, err.clone());
+        out.append_error(i, err.clone());
     }
     push_string(out, String::from_utf8_lossy(bytes).to_string(), run_len);
 }
@@ -199,7 +207,7 @@ fn push_bytes(
     bytes: &[u8],
     run_len: usize,
 ) {
-    match std::str::from_utf8(bytes) {
+    match bytes.to_str() {
         Ok(s) => push_str(out, s, run_len),
         Err(_) => push_invalid_utf8(op_id, field_pos, out, bytes, run_len),
     }
@@ -231,7 +239,7 @@ fn append_stream_val(
             let text = if sv.bytes_are_utf8 {
                 unsafe { std::str::from_utf8_unchecked(buf) }
             } else {
-                match buf.to_str() {
+                match std::str::from_utf8(buf) {
                     Ok(text) => text,
                     Err(_) => {
                         if !sv_handle.contains_error {
@@ -241,7 +249,7 @@ fn append_stream_val(
                                 message: Cow::Borrowed("invalid utf-8"),
                             });
                             for i in start_idx..end_idx {
-                                out.errors.insert(i, err.clone());
+                                out.append_error(i, err.clone());
                             }
                         }
                         let lossy = String::from_utf8_lossy(buf);
@@ -261,7 +269,7 @@ fn append_stream_val(
             let err = Arc::new(e.clone());
             push_string(out, error_to_string(e), run_len);
             for i in start_idx..end_idx {
-                out.errors.insert(i, err.clone());
+                out.append_error(i, err.clone());
             }
         }
         StreamValueData::Dropped => panic!("dropped stream value observed"),
@@ -278,7 +286,7 @@ pub fn push_errors<'a>(
     push_string(out, error_to_string(err), run_length);
     let e = Arc::new(err.clone());
     for i in 0..run_length as usize {
-        out.errors.insert(field_pos + i, e.clone());
+        out.append_error(field_pos + i, e.clone());
     }
     field_pos += run_length;
     let successes_so_far = field_pos - *last_error_end;

@@ -1,6 +1,5 @@
 use std::fmt::Debug;
 
-use bstr::{BString, ByteSlice};
 use thiserror::Error;
 
 use crate::{
@@ -49,12 +48,12 @@ pub fn result_into<T, E, EFrom: Into<E>>(result: Result<T, EFrom>) -> Result<T, 
         Err(e) => Err(e.into()),
     }
 }
-fn contextualize_cli_arg(msg: &str, args: Option<&Vec<BString>>, cli_arg_idx: CliArgIdx) -> String {
+fn contextualize_cli_arg(msg: &str, args: Option<&Vec<Vec<u8>>>, cli_arg_idx: CliArgIdx) -> String {
     if let Some(args) = args {
         format!(
             "in cli arg {} `{}`: {}",
             cli_arg_idx,
-            args[cli_arg_idx as usize - 1].to_str_lossy(),
+            String::from_utf8_lossy(&args[cli_arg_idx as usize - 1]),
             msg
         )
     } else {
@@ -65,7 +64,7 @@ fn contextualize_cli_arg(msg: &str, args: Option<&Vec<BString>>, cli_arg_idx: Cl
 fn contextualize_op_id(
     msg: &str,
     op_id: OperatorId,
-    args: Option<&Vec<BString>>,
+    args: Option<&Vec<Vec<u8>>>,
     ctx_opts: Option<&ContextOptions>,
     ctx: Option<&Context>,
 ) -> String {
@@ -97,7 +96,7 @@ impl ScrError {
     //TODO: avoid allocations by taking a &impl Write
     pub fn contextualize_message(
         self,
-        args: Option<&Vec<BString>>,
+        args: Option<&Vec<Vec<u8>>>,
         ctx_opts: Option<&ContextOptions>,
         ctx: Option<&Context>,
     ) -> String {

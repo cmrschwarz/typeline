@@ -1,4 +1,4 @@
-use bstr::{BStr, ByteSlice, ByteVec};
+use bstr::ByteSlice;
 use regex::Regex;
 use smallstr::SmallString;
 
@@ -72,7 +72,7 @@ pub fn argument_matches_op_join(arg: &str) -> bool {
 
 pub fn parse_op_join(
     argument: &str,
-    value: Option<&BStr>,
+    value: Option<&[u8]>,
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
     let args = ARG_REGEX.captures(&argument).ok_or_else(|| {
@@ -88,7 +88,7 @@ pub fn parse_op_join(
         .transpose()?;
     let drop_incomplete = args.name("drop_incomplete").is_some();
     Ok(create_op_join(
-        value.map(|v| v.as_bytes().to_owned()),
+        value.map(|v| v.to_owned()),
         insert_count,
         drop_incomplete,
     ))
@@ -133,7 +133,7 @@ pub fn create_op_join(
 ) -> OperatorData {
     let separator_is_valid_utf8 = separator
         .as_ref()
-        .map(|v| std::str::from_utf8(v.as_bytes()).is_ok())
+        .map(|v| v.to_str().is_ok())
         .unwrap_or(true);
     let sep = match separator {
         Some(v) => Some(v.into_boxed_slice()),
@@ -209,16 +209,16 @@ fn push_bytes_raw(join: &mut TfJoin, sv_mgr: &mut StreamValueManager, data: &[u8
     );
     if let Some(sep) = sep {
         if !first_record_added {
-            buf.push_str(data.as_bytes());
+            buf.extend_from_slice(data);
             rl = rl.saturating_sub(1);
         }
         for _ in 0..rl {
-            buf.push_str(sep);
-            buf.push_str(data.as_bytes());
+            buf.extend_from_slice(sep);
+            buf.extend_from_slice(data);
         }
     } else {
         for _ in 0..rl {
-            buf.push_str(data.as_bytes());
+            buf.extend_from_slice(data);
         }
     }
 }
@@ -513,7 +513,7 @@ pub fn handle_tf_join_stream_value_update(
                 if sv_added_len != 0 {
                     join.stream_val_added_len = 0;
                     let buf = get_join_buffer(join, &mut sess.sv_mgr, buf_ref.len());
-                    buf.push_str(&buf_ref[sv_added_len..]);
+                    buf.extend_from_slice(&buf_ref[sv_added_len..]);
                     join.stream_val_added_len = 0;
                     run_len -= 1;
                 }

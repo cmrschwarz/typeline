@@ -1,5 +1,5 @@
 use arrayvec::ArrayVec;
-use bstr::{BStr, BString, ByteSlice, ByteVec};
+use bstr::ByteSlice;
 use nonmax::NonMaxUsize;
 use std::{borrow::Cow, cell::RefMut, fmt::Write, ptr::NonNull};
 
@@ -115,7 +115,7 @@ pub struct FormatKey {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FormatPart {
-    ByteLiteral(BString),
+    ByteLiteral(Vec<u8>),
     TextLiteral(String),
     Key(FormatKey),
 }
@@ -243,17 +243,17 @@ pub fn setup_tf_format<'a>(
     TransformData::Format(tf)
 }
 
-fn create_format_literal(fmt: BString) -> FormatPart {
-    match String::try_from(fmt) {
+fn create_format_literal(fmt: Vec<u8>) -> FormatPart {
+    match String::from_utf8(fmt) {
         Ok(v) => FormatPart::TextLiteral(v),
-        Err(err) => FormatPart::ByteLiteral(BString::from(err.into_vec())),
+        Err(err) => FormatPart::ByteLiteral(err.into_bytes()),
     }
 }
 
 const NO_CLOSING_BRACE_ERR: Cow<'static, str> = Cow::Borrowed("format key has no closing '}'");
 
 pub fn parse_format_width_spec<const FOR_FLOAT_PREC: bool>(
-    fmt: &BStr,
+    fmt: &[u8],
     start: usize,
     refs: &mut Vec<Option<String>>,
 ) -> Result<(Option<FormatWidthSpec>, usize), (usize, Cow<'static, str>)> {
@@ -279,7 +279,7 @@ pub fn parse_format_width_spec<const FOR_FLOAT_PREC: bool>(
             if c.is_ascii_digit() {
                 continue;
             }
-            let val = unsafe { (&fmt[start..i]).to_str_unchecked() };
+            let val = unsafe { std::str::from_utf8_unchecked(&fmt[start..i]) };
             if c == '$' {
                 let ref_id = refs.len();
                 refs.push(Some(val.to_owned()));
@@ -333,12 +333,12 @@ pub fn parse_format_width_spec<const FOR_FLOAT_PREC: bool>(
 }
 
 pub fn parse_format_flags(
-    fmt: &BStr,
+    fmt: &[u8],
     start: usize,
     key: &mut FormatKey,
     refs: &mut Vec<Option<String>>,
 ) -> Result<usize, (usize, Cow<'static, str>)> {
-    fn next(fmt: &BStr, i: usize) -> Result<char, (usize, Cow<'static, str>)> {
+    fn next(fmt: &[u8], i: usize) -> Result<char, (usize, Cow<'static, str>)> {
         Ok(*fmt.get(i).ok_or((i, NO_CLOSING_BRACE_ERR))? as char)
     }
 
@@ -439,7 +439,7 @@ pub fn parse_format_flags(
     Ok(i)
 }
 pub fn parse_format_key(
-    fmt: &BStr,
+    fmt: &[u8],
     start: usize,
     refs: &mut Vec<Option<String>>,
 ) -> Result<(FormatKey, usize), (usize, Cow<'static, str>)> {
@@ -477,11 +477,11 @@ pub fn parse_format_key(
 }
 
 pub fn parse_format_string(
-    fmt: &BStr,
+    fmt: &[u8],
     refs: &mut Vec<Option<String>>,
 ) -> Result<Vec<FormatPart>, (usize, Cow<'static, str>)> {
     let mut parts = Vec::new();
-    let mut pending_literal = BString::default();
+    let mut pending_literal = Vec::default();
     let mut i = 0;
     loop {
         let non_braced_begin = (&fmt[i..]).find_byteset("{}");
@@ -491,16 +491,16 @@ pub fn parse_format_string(
                 if fmt[nbb + 1] != '}' as u8 {
                     return Err((nbb, "unmatched '}', consider using '}}'".into()));
                 }
-                pending_literal.push_str(&fmt[i..nbb + 1]);
+                pending_literal.extend_from_slice(&fmt[i..nbb + 1]);
                 i = nbb + 2;
                 continue;
             }
             if fmt[nbb + 1] == '{' as u8 {
-                pending_literal.push_str(&fmt[i..nbb + 1]);
+                pending_literal.extend_from_slice(&fmt[i..nbb + 1]);
                 i = nbb + 2;
                 continue;
             }
-            pending_literal.push_str(&fmt[i..nbb]);
+            pending_literal.extend_from_slice(&fmt[i..nbb]);
             i = nbb;
             if !pending_literal.is_empty() {
                 parts.push(create_format_literal(pending_literal));
@@ -510,7 +510,7 @@ pub fn parse_format_string(
             parts.push(FormatPart::Key(key));
             i = end;
         } else {
-            pending_literal.push_str(&fmt[i..]);
+            pending_literal.extend_from_slice(&fmt[i..]);
             if !pending_literal.is_empty() {
                 parts.push(create_format_literal(pending_literal));
             }
@@ -520,7 +520,7 @@ pub fn parse_format_string(
 }
 
 pub fn parse_op_format(
-    value: Option<&BStr>,
+    value: Option<&[u8]>,
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
     let val = value.ok_or_else(|| {
@@ -540,10 +540,10 @@ pub fn parse_op_format(
     }))
 }
 pub fn create_op_format(val: &[u8]) -> Result<OperatorData, OperatorCreationError> {
-    parse_op_format(Some(val.as_bstr()), None)
+    parse_op_format(Some(val), None)
 }
 pub fn create_op_format_from_str(val: &str) -> Result<OperatorData, OperatorCreationError> {
-    parse_op_format(Some(val.as_bytes().as_bstr()), None)
+    parse_op_format(Some(val.as_bytes()), None)
 }
 fn iter_output_states(
     fmt: &mut TfFormat,
@@ -1562,8 +1562,6 @@ pub fn handle_tf_format_stream_value_update(
 mod test {
     use std::borrow::Cow;
 
-    use bstr::ByteSlice;
-
     use crate::operations::format::{
         FormatFillAlignment, FormatFillSpec, FormatKey, FormatWidthSpec,
     };
@@ -1573,7 +1571,7 @@ mod test {
     #[test]
     fn empty_format_string() {
         let mut dummy = Default::default();
-        assert_eq!(parse_format_string(&[].as_bstr(), &mut dummy).unwrap(), &[]);
+        assert_eq!(parse_format_string(&[], &mut dummy).unwrap(), &[]);
     }
 
     #[test]
@@ -1591,7 +1589,7 @@ mod test {
         ] {
             let mut dummy = Default::default();
             assert_eq!(
-                parse_format_string(lit.as_bytes().as_bstr(), &mut dummy).unwrap(),
+                parse_format_string(lit.as_bytes(), &mut dummy).unwrap(),
                 &[FormatPart::TextLiteral(res.to_owned())]
             );
         }
@@ -1605,7 +1603,7 @@ mod test {
         let mut b = FormatKey::default();
         b.identifier = 1;
         assert_eq!(
-            parse_format_string("foo{{{a}}}__{b}".as_bytes().as_bstr(), &mut idents).unwrap(),
+            parse_format_string("foo{{{a}}}__{b}".as_bytes(), &mut idents).unwrap(),
             &[
                 FormatPart::TextLiteral("foo{".to_owned()),
                 FormatPart::Key(a),
@@ -1624,7 +1622,7 @@ mod test {
         a.width = Some(FormatWidthSpec::Value(5));
         a.fill = Some(FormatFillSpec::new(Some('+'), FormatFillAlignment::Left));
         assert_eq!(
-            parse_format_string("{a:+<5}".as_bytes().as_bstr(), &mut idents).unwrap(),
+            parse_format_string("{a:+<5}".as_bytes(), &mut idents).unwrap(),
             &[FormatPart::Key(a),]
         );
         assert_eq!(idents, &[Some("a".to_owned())])
@@ -1638,7 +1636,7 @@ mod test {
         a.width = Some(FormatWidthSpec::Value(3));
         a.float_precision = Some(FormatWidthSpec::Ref(1));
         assert_eq!(
-            parse_format_string("{a:3.b$}".as_bytes().as_bstr(), &mut idents).unwrap(),
+            parse_format_string("{a:3.b$}".as_bytes(), &mut idents).unwrap(),
             &[FormatPart::Key(a)]
         );
         assert_eq!(idents, &[Some("a".to_owned()), Some("b".to_owned())])
@@ -1648,7 +1646,7 @@ mod test {
     fn width_not_an_ident() {
         let mut idents = Default::default();
         assert_eq!(
-            parse_format_string("{a:1x$}".as_bytes().as_bstr(), &mut idents),
+            parse_format_string("{a:1x$}".as_bytes(), &mut idents),
             Err((4, Cow::Borrowed("expected '?' after type specifier 'x'"))) //TODO: better error message for this case
         );
     }
@@ -1660,7 +1658,7 @@ mod test {
         a.width = Some(FormatWidthSpec::Value(2));
         a.fill = Some(FormatFillSpec::new(None, FormatFillAlignment::Center));
         assert_eq!(
-            parse_format_string("{a:^2}".as_bytes().as_bstr(), &mut idents).unwrap(),
+            parse_format_string("{a:^2}".as_bytes(), &mut idents).unwrap(),
             &[FormatPart::Key(a)]
         );
     }

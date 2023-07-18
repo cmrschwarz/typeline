@@ -1,13 +1,12 @@
 use std::{
     ffi::OsStr,
     fs::File,
-    io::{BufRead, BufReader, Read, StdinLock},
+    io::{BufRead, BufReader, IsTerminal, Read, StdinLock},
     path::PathBuf,
     sync::Mutex,
 };
 
-use bstr::{BStr, ByteSlice};
-use is_terminal::IsTerminal;
+use bstr::ByteSlice;
 use regex::Regex;
 use smallstr::SmallString;
 
@@ -398,7 +397,7 @@ pub fn argument_matches_op_file_reader(arg: &str) -> bool {
 
 pub fn parse_op_file_reader(
     argument: &str,
-    value: Option<&BStr>,
+    value: Option<&[u8]>,
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
     let args = ARG_REGEX.captures(&argument).ok_or_else(|| {
@@ -423,7 +422,7 @@ pub fn parse_op_file_reader(
 }
 
 pub fn parse_op_file(
-    value: Option<&BStr>,
+    value: Option<&[u8]>,
     insert_count: Option<usize>,
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
@@ -431,7 +430,7 @@ pub fn parse_op_file(
         #[cfg(unix)]
         {
             PathBuf::from(<OsStr as std::os::unix::prelude::OsStrExt>::from_bytes(
-                value.as_bytes(),
+                value,
             ))
         }
         #[cfg(windows)]
@@ -450,7 +449,7 @@ pub fn parse_op_file(
 }
 
 pub fn parse_op_stdin(
-    value: Option<&BStr>,
+    value: Option<&[u8]>,
     insert_count: Option<usize>,
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
@@ -464,7 +463,7 @@ pub fn parse_op_stdin(
 }
 
 pub fn parse_op_stream_str(
-    value: Option<&BStr>,
+    value: Option<&[u8]>,
     insert_count: Option<usize>,
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
@@ -481,7 +480,7 @@ pub fn parse_op_stream_str(
 }
 
 pub fn parse_op_stream_bytes(
-    value: Option<&BStr>,
+    value: Option<&[u8]>,
     insert_count: Option<usize>,
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
@@ -523,7 +522,7 @@ pub fn create_op_stream_str(value: &str, insert_count: usize) -> OperatorData {
 }
 pub fn create_op_stream_bytes(value: &[u8], insert_count: usize) -> OperatorData {
     create_op_file_reader_custom(
-        Box::new(BytesReader::from_vec(value.as_bytes().to_owned())),
+        Box::new(BytesReader::from_vec(value.to_owned())),
         insert_count,
     )
 }

@@ -1,7 +1,6 @@
 use std::num::NonZeroUsize;
 use std::sync::{Arc, Condvar, Mutex};
 
-use bstr::BString;
 use crossbeam::deque::{Injector, Stealer, Worker};
 use smallvec::smallvec;
 
@@ -21,7 +20,7 @@ pub struct SessionData {
     pub chains: Vec<Chain>,
     pub operator_bases: Vec<OperatorBase>,
     pub operator_data: Vec<OperatorData>,
-    pub cli_args: Option<Vec<BString>>,
+    pub cli_args: Option<Vec<Vec<u8>>>,
     pub string_store: StringStore,
 }
 

@@ -1,6 +1,6 @@
 use std::{
     borrow::Cow,
-    io::{BufWriter, Write},
+    io::{BufWriter, IsTerminal, Write},
 };
 
 use crate::{
@@ -22,8 +22,6 @@ use crate::{
     utils::i64_to_str,
     worker_thread_session::JobSession,
 };
-use bstr::BStr;
-use is_terminal::IsTerminal;
 
 use super::{
     errors::{OperatorApplicationError, OperatorCreationError},
@@ -40,7 +38,7 @@ pub struct TfPrint {
 }
 
 pub fn parse_op_print(
-    value: Option<&BStr>,
+    value: Option<&[u8]>,
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
     if value.is_some() {

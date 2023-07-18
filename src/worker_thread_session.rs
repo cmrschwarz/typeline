@@ -3,7 +3,6 @@ use std::{
     collections::{BinaryHeap, HashMap, VecDeque},
 };
 
-use itertools::Itertools;
 use nonmax::NonMaxUsize;
 use smallvec::SmallVec;
 
@@ -292,9 +291,10 @@ impl MatchSetManager {
                     .names
                     .iter()
                     .cloned()
-                    .find_position(|v| *v == name)
-                    .unwrap()
-                    .0;
+                    .enumerate()
+                    .filter_map(|(i, v)| if v == name { Some(i) } else { None })
+                    .next()
+                    .unwrap();
                 prev_field.names.swap_remove(pos);
             }
         } else {

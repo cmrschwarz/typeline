@@ -1,7 +1,5 @@
 use std::num::NonZeroUsize;
 
-use bstr::{BStr, ByteSlice};
-
 use crate::options::argument::CliArgIdx;
 
 use super::{errors::OperatorCreationError, operator::OperatorData};
@@ -12,12 +10,12 @@ pub struct OpUp {
 }
 
 pub fn parse_op_up(
-    value: Option<&BStr>,
+    value: Option<&[u8]>,
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
     let step = value
         .map(|step| {
-            step.to_str()
+            std::str::from_utf8(step)
                 .map_err(|_| {
                     OperatorCreationError::new(
                         "failed to parse argument as integer (invalid UTF-8)",

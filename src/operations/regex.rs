@@ -1,5 +1,5 @@
 use arrayvec::ArrayString;
-use bstr::{BStr, ByteSlice};
+
 use nonmax::NonMaxUsize;
 use regex::{self, bytes};
 use smallstr::SmallString;
@@ -30,6 +30,7 @@ use crate::{
     utils::string_store::{StringStore, StringStoreEntry},
     worker_thread_session::{FieldId, JobSession},
 };
+use bstr::ByteSlice;
 
 use super::errors::{OperatorSetupError, TransformSetupError};
 use super::operator::{OperatorBase, OperatorData};
@@ -190,7 +191,7 @@ pub fn preparse_replace_empty_capture_group<'a>(
 }
 
 pub fn parse_op_regex(
-    value: Option<&BStr>,
+    value: Option<&[u8]>,
     arg_idx: Option<CliArgIdx>,
     opts: RegexOptions,
 ) -> Result<OpRegex, OperatorCreationError> {
@@ -258,7 +259,7 @@ pub fn create_op_regex(
     opts: RegexOptions,
 ) -> Result<OperatorData, OperatorCreationError> {
     Ok(OperatorData::Regex(parse_op_regex(
-        Some(value.as_bytes().as_bstr()),
+        Some(value.as_bytes()),
         None,
         opts,
     )?))
@@ -267,7 +268,7 @@ pub fn create_op_regex(
 pub fn create_op_regex_lines() -> OperatorData {
     OperatorData::Regex(
         parse_op_regex(
-            Some("(?<>.+)\r?\n".as_bytes().as_bstr()),
+            Some("(?<>.+)\r?\n".as_bytes()),
             None,
             RegexOptions {
                 ascii_mode: true,
@@ -721,7 +722,7 @@ pub fn handle_tf_regex(sess: &mut JobSession<'_>, tf_id: TransformId, re: &mut T
                                 continue;
                             }
                             StreamValueData::Bytes(b) => {
-                                data = &b.as_bytes()[offsets.unwrap_or(0..b.len())];
+                                data = &b[offsets.unwrap_or(0..b.len())];
                             }
                         }
                         bse = if let Some(tr) = &mut text_regex {
@@ -832,17 +833,12 @@ pub fn handle_tf_regex_stream_value_update(
 
 #[cfg(test)]
 mod test {
-    use bstr::ByteSlice;
 
     use super::{parse_op_regex, RegexOptions};
 
     #[test]
     fn empty_capture_group_does_not_mess_with_error_string() {
-        let res = parse_op_regex(
-            Some("?(<>)(".as_bytes().as_bstr()),
-            None,
-            RegexOptions::default(),
-        );
+        let res = parse_op_regex(Some("?(<>)(".as_bytes()), None, RegexOptions::default());
         assert!(res.is_err_and(|e| {
             //TODO: improve this error message
             assert_eq!(e.message, "failed to compile regex: regex parse error:\n    ?(<>)(\n    ^\nerror: repetition operator missing expression");

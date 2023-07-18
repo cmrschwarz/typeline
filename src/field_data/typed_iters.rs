@@ -574,23 +574,19 @@ mod test_slice_iter {
 
 #[cfg(test)]
 mod test_text_iter {
+    use bstr::ByteSlice;
+
     use crate::field_data::{
         push_interface::PushInterface, typed_iters::InlineTextIter, FieldData, RunLength,
     };
 
     fn compare_iter_output(fd: &FieldData, expected: &[(&'static str, RunLength)]) {
-        let iter = InlineTextIter::new(
-            unsafe {
-                std::str::from_utf8(std::slice::from_raw_parts(
-                    fd.data.as_ptr() as *const u8,
-                    fd.data.len(),
-                ))
+        let data = unsafe {
+            std::slice::from_raw_parts(fd.data.as_ptr() as *const u8, fd.data.len())
+                .to_str()
                 .unwrap()
-            },
-            &fd.header,
-            0,
-            0,
-        );
+        };
+        let iter = InlineTextIter::new(data, &fd.header, 0, 0);
         assert_eq!(
             iter.map(|(v, rl)| (v.clone(), rl)).collect::<Vec<_>>(),
             expected

@@ -1,6 +1,5 @@
 use std::{borrow::Cow, num::NonZeroUsize};
 
-use bstr::BString;
 use lazy_static::lazy_static;
 
 use crate::{
@@ -41,7 +40,7 @@ pub struct ContextOptions {
     pub(crate) operator_data: Vec<OperatorData>,
     pub(crate) chains: Vec<ChainOptions>,
     pub(crate) curr_chain: ChainId,
-    pub cli_args: Option<Vec<BString>>,
+    pub cli_args: Option<Vec<Vec<u8>>>,
 }
 
 impl Default for ContextOptions {

@@ -1,8 +1,6 @@
 use std::path::PathBuf;
 
-use bstr::BString;
 use smallvec::SmallVec;
-use url::Url;
 
 use crate::chain::ChainId;
 
@@ -16,17 +14,16 @@ pub enum TextEncoding {
 
 #[derive(Clone)]
 pub enum DocumentSource {
-    Url(Url),
     File(PathBuf),
     String(String),
-    Bytes(BString),
+    Bytes(Vec<u8>),
     Integer(i64),
     Stdin,
 }
 
 #[derive(Clone)]
 pub enum DocumentReferencePoint {
-    Url(Url),
+    Url(String),
     Folder(PathBuf),
 }
 

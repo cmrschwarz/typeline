@@ -1,4 +1,4 @@
-use bstr::{BStr, ByteSlice};
+use bstr::ByteSlice;
 
 use crate::{
     options::argument::CliArgIdx,
@@ -17,7 +17,7 @@ pub struct OpKey {
 }
 
 pub fn parse_op_key(
-    value: Option<&BStr>,
+    value: Option<&[u8]>,
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
     let value_str = value

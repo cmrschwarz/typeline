@@ -209,7 +209,6 @@ pub mod field_value_flags {
 
     pub const DEFAULT: FieldValueFlags = 0;
 }
-use bstr::ByteVec;
 pub use field_value_flags::FieldValueFlags;
 #[derive(Clone, Copy, PartialEq)]
 pub struct FieldValueFormat {
@@ -477,7 +476,7 @@ impl FieldData {
                                     },
                                     run_length: rl,
                                 });
-                                fd.data.push_str(v);
+                                fd.data.extend_from_slice(v);
                             });
                         }
                     }
@@ -493,7 +492,7 @@ impl FieldData {
                                     },
                                     run_length: rl,
                                 });
-                                fd.data.push_str(v);
+                                fd.data.extend_from_slice(v.as_bytes());
                             });
                         }
                     }

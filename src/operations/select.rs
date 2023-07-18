@@ -1,4 +1,4 @@
-use bstr::{BStr, ByteSlice};
+use bstr::ByteSlice;
 
 use crate::{
     options::argument::CliArgIdx,
@@ -20,7 +20,7 @@ pub struct OpSelect {
 pub struct TfSelect {}
 
 pub fn parse_op_select(
-    value: Option<&BStr>,
+    value: Option<&[u8]>,
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
     let value_str = value

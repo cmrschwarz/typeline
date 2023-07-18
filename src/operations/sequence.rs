@@ -1,5 +1,6 @@
 use arrayvec::ArrayVec;
-use bstr::{BStr, ByteSlice};
+
+use bstr::ByteSlice;
 use smallstr::SmallString;
 
 use crate::{
@@ -151,7 +152,7 @@ pub fn handle_tf_sequence(sess: &mut JobSession<'_>, tf_id: TransformId, seq: &m
 }
 
 pub fn parse_op_seq(
-    value: Option<&BStr>,
+    value: Option<&[u8]>,
     stop_after_input: bool,
     natural_number_mode: bool,
     arg_idx: Option<CliArgIdx>,
@@ -167,7 +168,6 @@ pub fn parse_op_seq(
     }
     let value_str = value
         .ok_or_else(|| OperatorCreationError::new("missing parameter for sequence", arg_idx))?
-        .as_bytes()
         .to_str()
         .map_err(|_| {
             OperatorCreationError::new(

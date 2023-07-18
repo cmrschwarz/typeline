@@ -1,7 +1,5 @@
 use std::collections::{hash_map::Entry, HashMap};
 
-use bstr::BStr;
-
 use crate::{
     chain::DEFAULT_INPUT_FIELD,
     field_data::{
@@ -35,7 +33,7 @@ pub struct TfSplit {
 }
 
 pub fn parse_op_split(
-    value: Option<&BStr>,
+    value: Option<&[u8]>,
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
     if value.is_some() {
