@@ -889,32 +889,22 @@ pub fn setup_key_output_state(
                     }
                 }
             }
-            TypedSlice::Unset(ints) if debug_format => {
-                for (_, rl) in TypedSliceIter::from_range(&range.base, ints) {
-                    iter_output_states(fmt, &mut output_index, rl, |o| {
-                        o.len += calc_text_len(k, UNSET_STR.len(), o.width_lookup, &mut || {
-                            UNSET_STR.len()
-                        });
-                    });
+            TypedSlice::Null(_) | TypedSlice::Unset(_) | TypedSlice::Success(_) if debug_format => {
+                let len = match range.base.data {
+                    TypedSlice::Success(_) => SUCCESS_STR,
+                    TypedSlice::Unset(_) => UNSET_STR,
+                    TypedSlice::Null(_) => NULL_STR,
+                    _ => unreachable!(),
                 }
-            }
-            TypedSlice::Success(ints) if debug_format => {
-                for (_, rl) in TypedSliceIter::from_range(&range.base, ints) {
-                    iter_output_states(fmt, &mut output_index, rl, |o| {
-                        o.len += calc_text_len(k, SUCCESS_STR.len(), o.width_lookup, &mut || {
-                            SUCCESS_STR.len()
-                        });
-                    });
-                }
-            }
-            TypedSlice::Null(ints) if debug_format => {
-                for (_, rl) in TypedSliceIter::from_range(&range.base, ints) {
-                    iter_output_states(fmt, &mut output_index, rl, |o| {
-                        o.len += calc_text_len(k, NULL_STR.len(), o.width_lookup, &mut || {
-                            NULL_STR.len()
-                        });
-                    });
-                }
+                .len();
+                iter_output_states_advanced(
+                    &mut fmt.output_states,
+                    &mut output_index,
+                    range.base.field_count,
+                    |o| {
+                        o.len += calc_text_len(k, len, o.width_lookup, &mut || len);
+                    },
+                );
             }
             TypedSlice::Error(errs) if debug_format => {
                 for (v, rl) in TypedSliceIter::from_range(&range.base, errs) {
@@ -1268,13 +1258,20 @@ fn write_fmt_key(
                     });
                 }
             }
-            TypedSlice::Null(_) if debug_format => {
+            TypedSlice::Null(_) | TypedSlice::Unset(_) | TypedSlice::Success(_) if debug_format => {
+                let data = match range.base.data {
+                    TypedSlice::Success(_) => SUCCESS_STR,
+                    TypedSlice::Unset(_) => UNSET_STR,
+                    TypedSlice::Null(_) => NULL_STR,
+                    _ => unreachable!(),
+                }
+                .as_bytes();
                 iter_output_targets(
                     fmt,
                     &mut output_index,
                     range.base.field_count,
                     |tgt| unsafe {
-                        write_padded_bytes(k, tgt, NULL_STR.as_bytes());
+                        write_padded_bytes(k, tgt, data);
                     },
                 );
             }
