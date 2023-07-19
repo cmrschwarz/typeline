@@ -5,7 +5,7 @@ use lazy_static::lazy_static;
 use crate::{
     chain::{compute_field_livenses, Chain, ChainId, INVALID_CHAIN_ID},
     context::Session,
-    operations::{
+    operators::{
         errors::{ChainSetupError, OperatorSetupError},
         file_reader::setup_op_file_reader,
         format::setup_op_format,
@@ -150,8 +150,8 @@ impl SessionOptions {
                 continue;
             }
             let chain = &mut sess.chains[op_base.chain_id as usize];
-            op_base.offset_in_chain = chain.operations.len() as OperatorOffsetInChain;
-            chain.operations.push(op_id);
+            op_base.offset_in_chain = chain.operators.len() as OperatorOffsetInChain;
+            chain.operators.push(op_id);
             match &mut sess.operator_data[i] {
                 OperatorData::Regex(op) => setup_op_regex(&mut sess.string_store, op)?,
                 OperatorData::Format(op) => setup_op_format(&mut sess.string_store, op)?,
@@ -173,7 +173,7 @@ impl SessionOptions {
     }
     pub fn validate_chain(chain: &Chain, chain_id: ChainId) -> Result<(), ChainSetupError> {
         let mut message = "";
-        if chain.operations.is_empty() {
+        if chain.operators.is_empty() {
             message = "chain must habe at least one operation";
         } else if chain.settings.default_batch_size == 0 {
             message = "default batch size cannot be zero";

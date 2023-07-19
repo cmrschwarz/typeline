@@ -1560,7 +1560,7 @@ pub fn handle_tf_format_stream_value_update(
 mod test {
     use std::borrow::Cow;
 
-    use crate::operations::format::{
+    use crate::operators::format::{
         FormatFillAlignment, FormatFillSpec, FormatKey, FormatWidthSpec,
     };
 

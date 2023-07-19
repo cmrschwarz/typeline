@@ -22,7 +22,7 @@ pub mod document;
 pub mod encoding;
 pub mod field_data;
 pub mod job_session;
-pub mod operations;
+pub mod operators;
 pub mod options;
 pub mod ref_iter;
 pub mod scr_error;

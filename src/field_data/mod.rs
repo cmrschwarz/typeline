@@ -25,7 +25,7 @@ use std::ops::Deref;
 
 use crate::{
     job_session::{FieldId, MatchSetManager},
-    operations::errors::OperatorApplicationError,
+    operators::errors::OperatorApplicationError,
     ref_iter::{
         AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter, RefAwareInlineTextIter,
     },

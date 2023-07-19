@@ -4,21 +4,21 @@ use std::borrow::Cow;
 
 use rstest::rstest;
 
-use scr::operations::errors::ChainSetupError;
-use scr::operations::join::{create_op_join, create_op_join_str};
-use scr::operations::literal::{
+use scr::operators::errors::ChainSetupError;
+use scr::operators::join::{create_op_join, create_op_join_str};
+use scr::operators::literal::{
     create_op_bytes, create_op_error, create_op_int, create_op_str, create_op_stream_error,
 };
-use scr::operations::next::create_op_next;
-use scr::operations::select::create_op_select;
-use scr::operations::sequence::{create_op_enum, create_op_seqn};
-use scr::operations::split::create_op_split;
-use scr::operations::string_sink::create_op_string_sink_transparent;
+use scr::operators::next::create_op_next;
+use scr::operators::select::create_op_select;
+use scr::operators::sequence::{create_op_enum, create_op_seqn};
+use scr::operators::split::create_op_split;
+use scr::operators::string_sink::create_op_string_sink_transparent;
 use scr::options::chain_options::DEFAULT_CHAIN_OPTIONS;
 use scr::utils::i64_to_str;
 use scr::{
     field_data::{push_interface::PushInterface, record_set::RecordSet},
-    operations::{
+    operators::{
         file_reader::create_op_file_reader_custom,
         format::create_op_format,
         key::create_op_key,

@@ -12,9 +12,10 @@ use crate::{
         command_buffer::{ActionListIndex, ActionProducingFieldIndex, CommandBuffer},
         iter_hall::{IterHall, IterId},
         iters::{FieldIterator, Iter},
+        record_set::RecordSet,
         FieldData,
     },
-    operations::{
+    operators::{
         count::{handle_tf_count, setup_tf_count},
         file_reader::{handle_tf_file_reader, setup_tf_file_reader},
         format::{handle_tf_format, handle_tf_format_stream_value_update, setup_tf_format},
@@ -563,7 +564,7 @@ impl<'a> JobSession<'a> {
             field_id
         });
 
-        let start_tf_id = self.setup_transforms_from_op(ms_id, job.starting_op, input_data);
+        let start_tf_id = self.setup_transforms_from_op(ms_id, job.operator, input_data);
 
         let tf = &mut self.job_data.tf_mgr.transforms[start_tf_id];
         tf.input_is_done = true;
@@ -625,7 +626,7 @@ impl<'a> JobSession<'a> {
         let mut predecessor_tf = None;
         let mut next_input_field = chain_input_field_id;
         let mut prev_output_field = chain_input_field_id;
-        let ops = &self.job_data.session_data.chains[start_op.chain_id as usize].operations
+        let ops = &self.job_data.session_data.chains[start_op.chain_id as usize].operators
             [start_op.offset_in_chain as usize..];
         let mut mark_prev_field_as_placeholder = false;
         for op_id in ops {
@@ -891,5 +892,8 @@ impl<'a> JobSession<'a> {
             }
             return Ok(());
         }
+    }
+    pub fn into_record_set(self) -> RecordSet {
+        todo!()
     }
 }

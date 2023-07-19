@@ -13,7 +13,7 @@ use smallstr::SmallString;
 use crate::{
     field_data::{field_value_flags, push_interface::PushInterface},
     job_session::{Field, FieldId, JobData},
-    operations::print::error_to_string,
+    operators::print::error_to_string,
     ref_iter::{
         AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter, RefAwareInlineTextIter,
     },

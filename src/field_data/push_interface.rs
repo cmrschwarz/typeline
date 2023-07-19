@@ -5,7 +5,7 @@ use crate::{
         field_value_flags::{self, BYTES_ARE_UTF8, SHARED_VALUE},
         INLINE_STR_MAX_LEN,
     },
-    operations::errors::OperatorApplicationError,
+    operators::errors::OperatorApplicationError,
     stream_value::StreamValueId,
 };
 

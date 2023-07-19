@@ -1,6 +1,6 @@
 use smallvec::SmallVec;
 
-use crate::operations::{errors::OperatorApplicationError, transform::TransformId};
+use crate::operators::{errors::OperatorApplicationError, transform::TransformId};
 
 pub enum StreamValueData {
     Dropped,

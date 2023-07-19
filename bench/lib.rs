@@ -7,7 +7,7 @@ mod utils;
 use crate::utils::*;
 
 use scr::{
-    operations::{
+    operators::{
         format::create_op_format,
         regex::{create_op_regex, create_op_regex_lines, RegexOptions},
         sequence::create_op_seq,

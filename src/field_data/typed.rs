@@ -4,7 +4,7 @@ use super::{
     field_value_flags, FieldData, FieldReference, FieldValueFlags, FieldValueFormat,
     FieldValueHeader, FieldValueKind, Html, Null, Object, RunLength, Success, Unset,
 };
-use crate::{operations::errors::OperatorApplicationError, stream_value::StreamValueId};
+use crate::{operators::errors::OperatorApplicationError, stream_value::StreamValueId};
 use std::ops::Deref;
 
 pub enum TypedValue<'a> {

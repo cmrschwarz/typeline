@@ -5,7 +5,7 @@ use thiserror::Error;
 use crate::{
     cli::{CliArgumentError, MissingArgumentsError, PrintInfoAndExitError},
     context::Session,
-    operations::{
+    operators::{
         errors::{
             ChainSetupError, OperatorApplicationError, OperatorCreationError, OperatorSetupError,
         },

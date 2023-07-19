@@ -5,17 +5,17 @@ use smallvec::SmallVec;
 
 use crate::field_data::record_set::RecordSet;
 use crate::job_session::{JobData, JobSession};
-use crate::operations::operator::OperatorId;
+use crate::operators::operator::OperatorId;
 use crate::{
     chain::Chain,
-    operations::operator::{OperatorBase, OperatorData},
+    operators::operator::{OperatorBase, OperatorData},
     scr_error::ScrError,
     utils::string_store::StringStore,
     worker_thread::WorkerThread,
 };
 
 pub struct Job {
-    pub starting_op: OperatorId,
+    pub operator: OperatorId,
     pub data: RecordSet,
 }
 
@@ -24,9 +24,9 @@ pub struct VentureDescription {
     pub starting_points: SmallVec<[OperatorId; 4]>,
 }
 
-pub struct Venture<'a> {
+pub struct Venture {
     pub description: VentureDescription,
-    pub base_session: Option<Arc<JobSession<'a>>>,
+    pub input_data: Option<Arc<RecordSet>>,
 }
 
 pub struct Session {
@@ -42,7 +42,7 @@ pub struct Session {
 pub(crate) struct SessionManager<'a> {
     pub session: &'a Session,
     pub job_queue: VecDeque<Job>,
-    pub venture_queue: VecDeque<Venture<'a>>,
+    pub venture_queue: VecDeque<Venture>,
     pub waiting_venture_participants: usize,
     pub venture_counter: usize,
     pub terminate: bool,
@@ -157,9 +157,9 @@ impl Drop for Context {
 
 impl Session {
     pub fn construct_main_chain_job(&self, input_data: RecordSet) -> Job {
-        let starting_op = self.chains[0].operations[0];
+        let operator = self.chains[0].operators[0];
         Job {
-            starting_op,
+            operator,
             data: input_data,
         }
     }

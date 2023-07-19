@@ -248,7 +248,7 @@ pub(crate) fn handle_split_expansion<'a>(
             }
         }
         target_match_set.field_name_map.remove(&DEFAULT_INPUT_FIELD);
-        let start_op = sess.job_data.session_data.chains[subchain_id].operations[0];
+        let start_op = sess.job_data.session_data.chains[subchain_id].operators[0];
         let tf_id = sess.setup_transforms_from_op(target_ms_id, start_op, chain_input_field_id);
         targets.push(tf_id);
     }

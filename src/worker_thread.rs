@@ -1,7 +1,8 @@
 use crate::{
     context::{ContextData, Job, Session, Venture},
+    field_data::record_set::RecordSet,
     job_session::{JobData, JobSession},
-    operations::operator::OperatorId,
+    operators::operator::OperatorId,
     scr_error::ScrError,
 };
 use std::sync::Arc;
@@ -16,8 +17,9 @@ impl<'a> WorkerThread<'a> {
     }
     pub fn run_venture(
         &mut self,
+        sess: &'a Session,
         start_op_id: OperatorId,
-        base_session: Option<Arc<JobSession<'a>>>,
+        input_data: Option<Arc<RecordSet>>,
     ) {
     }
     pub fn run_job(&mut self, sess: &'a Session, job: Job) {
@@ -31,7 +33,7 @@ impl<'a> WorkerThread<'a> {
                 let mut sess_mgr = self.ctx_data.sess_mgr.lock().unwrap();
                 sess_mgr.venture_queue.push_back(Venture {
                     description: venture_desc,
-                    base_session: Some(Arc::new(js)),
+                    input_data: Some(Arc::new(js.into_record_set())),
                 });
             }
         }
@@ -42,7 +44,8 @@ impl<'a> WorkerThread<'a> {
         loop {
             if !sess_mgr.terminate {
                 if let Some(venture) = sess_mgr.venture_queue.front() {
-                    let base_session = venture.base_session.clone();
+                    let sess = sess_mgr.session;
+                    let input_data = venture.input_data.clone();
                     let start_op_id =
                         venture.description.starting_points[sess_mgr.waiting_venture_participants];
                     let participants_needed = venture.description.participans_needed;
@@ -62,7 +65,7 @@ impl<'a> WorkerThread<'a> {
                             }
                         }
                     }
-                    self.run_venture(start_op_id, base_session);
+                    self.run_venture(sess, start_op_id, input_data);
                     sess_mgr = self.ctx_data.sess_mgr.lock().unwrap();
                     continue;
                 }

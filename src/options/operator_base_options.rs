@@ -1,5 +1,5 @@
 use crate::{
-    chain::ChainId, operations::operator::OperatorId, utils::string_store::StringStoreEntry,
+    chain::ChainId, operators::operator::OperatorId, utils::string_store::StringStoreEntry,
 };
 
 use super::{argument::CliArgIdx, chain_spec::ChainSpec};

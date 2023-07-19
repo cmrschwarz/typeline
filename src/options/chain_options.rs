@@ -74,7 +74,7 @@ impl ChainOptions {
                     .unwrap_or(DEFAULT_CHAIN_OPTIONS.buffering_mode.unwrap()),
             },
             subchains: Vec::new(),
-            operations: Vec::new(),
+            operators: Vec::new(),
             liveness_data: Default::default(),
         }
     }

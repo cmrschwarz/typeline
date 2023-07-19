@@ -3,7 +3,7 @@ use std::collections::{hash_map::Entry, HashMap, HashSet};
 use crate::{
     context::Session,
     document::TextEncoding,
-    operations::operator::{OperatorData, OperatorId},
+    operators::operator::{OperatorData, OperatorId},
     selenium::SeleniumDownloadStrategy,
     utils::{
         get_two_distinct_mut,
@@ -131,7 +131,7 @@ pub struct Chain {
 
     pub settings: ChainSettings,
 
-    pub operations: Vec<OperatorId>,
+    pub operators: Vec<OperatorId>,
 
     pub subchains: Vec<ChainId>,
 
@@ -142,7 +142,7 @@ pub fn compute_local_liveness_data(sess: &mut Session, chain_id: ChainId) {
     let cn = &mut sess.chains[chain_id as usize];
     let mut curr_field = DEFAULT_INPUT_FIELD;
     let mut any_writes_so_far = false;
-    for op_id in cn.operations.iter().cloned() {
+    for op_id in cn.operators.iter().cloned() {
         let output_field = if sess.operator_bases[op_id as usize].append_mode {
             curr_field
         } else {

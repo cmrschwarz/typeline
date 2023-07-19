@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crate::{
     context::{Context, Session},
     field_data::{push_interface::PushInterface, record_set::RecordSet},
-    operations::operator::OperatorData,
+    operators::operator::OperatorData,
     scr_error::ScrError,
 };
 

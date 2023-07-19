@@ -1,6 +1,6 @@
 use crate::chain::BufferingMode;
-use crate::operations::count::parse_op_count;
-use crate::operations::{
+use crate::operators::count::parse_op_count;
+use crate::operators::{
     errors::OperatorCreationError,
     file_reader::{argument_matches_op_file_reader, parse_op_file_reader},
     format::parse_op_format,
