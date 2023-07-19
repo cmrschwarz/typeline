@@ -1,8 +1,6 @@
 use std::cell::Cell;
 
-use crate::{
-    ref_iter::AutoDerefIter, utils::universe::Universe, worker_thread_session::MatchSetManager,
-};
+use crate::{job_session::MatchSetManager, ref_iter::AutoDerefIter, utils::universe::Universe};
 
 use super::{
     iters::{FieldIterator, Iter},

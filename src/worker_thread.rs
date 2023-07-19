@@ -1,71 +1,87 @@
 use crate::{
-    context::{ContextData, Job, Session},
-    operations::transform::TransformData,
+    context::{ContextData, Job, Session, Venture},
+    job_session::{JobData, JobSession},
+    operations::operator::OperatorId,
     scr_error::ScrError,
-    worker_thread_session::{JobSession, WorkerThreadSession},
 };
 use std::sync::Arc;
 
-pub(crate) struct WorkerThread {
-    pub ctx_data: Arc<ContextData>,
-    pub session: Arc<Session>,
-    // SAFETY: job_session and transform_data refer to session, but this type make sure that
-    // their references get updated before the session (that this type holds) goes out of scope.
-    // we do this to avoid reallocationg JobSession and Vec<TransformData> for every single job
-    pub job_session: JobSession<'static>,
-    pub transform_data: Vec<TransformData<'static>>,
+pub(crate) struct WorkerThread<'a> {
+    pub ctx_data: Arc<ContextData<'a>>,
 }
 
-impl WorkerThread {
-    pub(crate) fn new(ctx_data: Arc<ContextData>, sess: Arc<Session>) -> Self {
-        Self {
-            ctx_data,
-            //SAFETY: see comment on struct, this type owns and manages the session lifetime
-            job_session: JobSession::new(unsafe { &*(sess.as_ref() as *const Session) }),
-            session: sess,
-            transform_data: Vec::new(),
-        }
+impl<'a> WorkerThread<'a> {
+    pub(crate) fn new(ctx_data: Arc<ContextData<'a>>) -> Self {
+        Self { ctx_data }
     }
-    pub fn update_session(&mut self, sess: Arc<Session>) {
-        self.session = sess;
+    pub fn run_venture(
+        &mut self,
+        start_op_id: OperatorId,
+        base_session: Option<Arc<JobSession<'a>>>,
+    ) {
     }
-    pub fn run_job(&mut self, job: Job) {
-        // SAFETY: see struct comment for why we do this
-        // because we marked job_session and transform_data 'static,
-        // we normally could not construct the WorkerThreadSession because the
-        // &self reference that we have here does not exceed 'static
-        // this is fine because we drop wts immediately after, and clear the
-        // transform data of all references it may hold while still holding
-        // the session arc
-        let me = unsafe { std::mem::transmute::<&'_ mut Self, &'static mut Self>(self) };
-        let mut wts = WorkerThreadSession {
-            transform_data: &mut me.transform_data,
-            job_session: &mut me.job_session,
+    pub fn run_job(&mut self, sess: &'a Session, job: Job) {
+        let mut js = JobSession {
+            transform_data: Default::default(),
+            job_data: JobData::new(sess),
         };
-        wts.run_job(job);
-        drop(wts);
-        self.transform_data.clear();
+        match js.run_job(job, Some(&self.ctx_data)) {
+            Ok(()) => (),
+            Err(venture_desc) => {
+                let mut sess_mgr = self.ctx_data.sess_mgr.lock().unwrap();
+                sess_mgr.venture_queue.push_back(Venture {
+                    description: venture_desc,
+                    base_session: Some(Arc::new(js)),
+                });
+            }
+        }
     }
 
     pub fn run(&mut self) -> Result<(), ScrError> {
         let mut sess_mgr = self.ctx_data.sess_mgr.lock().unwrap();
         loop {
             if !sess_mgr.terminate {
-                if let Some(job) = sess_mgr.job_queue.pop_front() {
-                    if !std::ptr::eq(self.session.as_ref(), sess_mgr.session.as_ref()) {
-                        self.session = sess_mgr.session.clone();
+                if let Some(venture) = sess_mgr.venture_queue.front() {
+                    let base_session = venture.base_session.clone();
+                    let start_op_id =
+                        venture.description.starting_points[sess_mgr.waiting_venture_participants];
+                    let participants_needed = venture.description.participans_needed;
+                    sess_mgr.waiting_venture_participants += 1;
+                    if sess_mgr.waiting_venture_participants == participants_needed {
+                        sess_mgr.venture_queue.pop_front();
+                        sess_mgr.venture_counter = sess_mgr.venture_counter.wrapping_add(1);
+                        drop(sess_mgr);
+                        self.ctx_data.work_available.notify_all();
+                    } else {
+                        let counter = sess_mgr.venture_counter;
+                        loop {
+                            sess_mgr = self.ctx_data.work_available.wait(sess_mgr).unwrap();
+                            if counter != sess_mgr.venture_counter {
+                                drop(sess_mgr);
+                                break;
+                            }
+                        }
                     }
-                    drop(sess_mgr);
-                    self.run_job(job);
+                    self.run_venture(start_op_id, base_session);
                     sess_mgr = self.ctx_data.sess_mgr.lock().unwrap();
+                    continue;
+                }
+                if let Some(job) = sess_mgr.job_queue.pop_front() {
+                    let sess = sess_mgr.session;
+                    drop(sess_mgr);
+                    self.run_job(sess, job);
+                    sess_mgr = self.ctx_data.sess_mgr.lock().unwrap();
+                    continue;
                 }
             }
             sess_mgr.waiting_worker_threads += 1;
-            self.ctx_data.worker_threads_finished.notify_one();
+            if sess_mgr.waiting_worker_threads == sess_mgr.total_worker_threads {
+                self.ctx_data.worker_threads_finished.notify_one();
+            }
             if sess_mgr.terminate {
                 return Ok(());
             }
-            sess_mgr = self.ctx_data.jobs_available.wait(sess_mgr).unwrap();
+            sess_mgr = self.ctx_data.work_available.wait(sess_mgr).unwrap();
         }
     }
 }

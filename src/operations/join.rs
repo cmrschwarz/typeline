@@ -7,6 +7,7 @@ use crate::{
         field_value_flags, iter_hall::IterId, iters::FieldIterator, push_interface::PushInterface,
         typed::TypedSlice, typed_iters::TypedSliceIter, FieldValueKind, INLINE_STR_MAX_LEN,
     },
+    job_session::{Field, JobData, StreamValueManager},
     options::argument::CliArgIdx,
     ref_iter::{
         AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter, RefAwareInlineTextIter,
@@ -14,7 +15,6 @@ use crate::{
     },
     stream_value::{StreamValue, StreamValueData, StreamValueId},
     utils::{i64_to_str, usize_to_str},
-    worker_thread_session::{Field, JobSession, StreamValueManager},
 };
 
 use super::{
@@ -95,7 +95,7 @@ pub fn parse_op_join(
 }
 
 pub fn setup_tf_join<'a>(
-    sess: &mut JobSession,
+    sess: &mut JobData,
     op_base: &OperatorBase,
     op: &'a OpJoin,
     tf_state: &mut TransformState,
@@ -291,7 +291,7 @@ fn push_error(join: &mut TfJoin, sv_mgr: &mut StreamValueManager, e: OperatorApp
         join.current_group_error = Some(e);
     }
 }
-pub fn handle_tf_join(sess: &mut JobSession, tf_id: TransformId, join: &mut TfJoin) {
+pub fn handle_tf_join(sess: &mut JobData, tf_id: TransformId, join: &mut TfJoin) {
     let (batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
     let mut output_field =
         sess.tf_mgr
@@ -472,7 +472,7 @@ pub fn handle_tf_join(sess: &mut JobSession, tf_id: TransformId, join: &mut TfJo
 }
 
 pub fn handle_tf_join_stream_value_update(
-    sess: &mut JobSession,
+    sess: &mut JobData,
     tf_id: TransformId,
     join: &mut TfJoin,
     sv_id: StreamValueId,

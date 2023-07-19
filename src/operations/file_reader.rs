@@ -16,9 +16,9 @@ use crate::{
         field_value_flags, push_interface::PushInterface, FieldValueFormat, FieldValueKind,
         FieldValueSize, INLINE_STR_MAX_LEN,
     },
+    job_session::JobData,
     options::argument::CliArgIdx,
     stream_value::{StreamValue, StreamValueData, StreamValueId},
-    worker_thread_session::JobSession,
 };
 
 use super::{
@@ -115,7 +115,7 @@ pub struct TfFileReader {
 }
 
 pub fn setup_tf_file_reader<'a>(
-    sess: &mut JobSession,
+    sess: &mut JobData,
     _op_base: &OperatorBase,
     op: &'a OpFileReader,
     tf_state: &mut TransformState,
@@ -243,7 +243,7 @@ fn read_chunk(
 }
 
 // returns eof
-fn start_streaming_file(sess: &mut JobSession, tf_id: TransformId, fr: &mut TfFileReader) -> bool {
+fn start_streaming_file(sess: &mut JobData, tf_id: TransformId, fr: &mut TfFileReader) -> bool {
     let mut output_field =
         sess.tf_mgr
             .prepare_output_field(&sess.field_mgr, &mut sess.match_set_mgr, tf_id);
@@ -328,7 +328,7 @@ fn start_streaming_file(sess: &mut JobSession, tf_id: TransformId, fr: &mut TfFi
     return false;
 }
 
-pub fn handle_tf_file_reader(sess: &mut JobSession, tf_id: TransformId, fr: &mut TfFileReader) {
+pub fn handle_tf_file_reader(sess: &mut JobData, tf_id: TransformId, fr: &mut TfFileReader) {
     let mut file_eof = true;
     let initial_call = !fr.value_committed;
     if !fr.value_committed {

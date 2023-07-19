@@ -6,9 +6,9 @@ use smallstr::SmallString;
 
 use crate::{
     field_data::push_interface::PushInterface,
+    job_session::JobData,
     options::argument::CliArgIdx,
     stream_value::{StreamValue, StreamValueData},
-    worker_thread_session::JobSession,
 };
 
 use super::{
@@ -59,7 +59,7 @@ impl OpLiteral {
 }
 
 pub fn setup_tf_data_inserter<'a>(
-    _sess: &mut JobSession,
+    _sess: &mut JobData,
     _op_base: &OperatorBase,
     op: &'a OpLiteral,
     _tf_state: &mut TransformState,
@@ -71,7 +71,7 @@ pub fn setup_tf_data_inserter<'a>(
     })
 }
 
-pub fn handle_tf_literal(sess: &mut JobSession, tf_id: TransformId, lit: &mut TfLiteral) {
+pub fn handle_tf_literal(sess: &mut JobData, tf_id: TransformId, lit: &mut TfLiteral) {
     let tf = &sess.tf_mgr.transforms[tf_id];
     let initial_call = !lit.value_inserted;
     if !lit.value_inserted {

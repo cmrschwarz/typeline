@@ -15,6 +15,7 @@ use crate::field_data::iter_hall::IterHall;
 use crate::field_data::push_interface::PushInterface;
 use crate::field_data::typed_iters::TypedSliceIter;
 use crate::field_data::{field_value_flags, FieldValueKind, RunLength};
+use crate::job_session::Field;
 use crate::ref_iter::{
     AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter, RefAwareInlineTextIter,
     RefAwareStreamValueIter,
@@ -22,13 +23,12 @@ use crate::ref_iter::{
 use crate::stream_value::{StreamValueData, StreamValueId};
 use crate::utils::universe::Universe;
 use crate::utils::{self, i64_to_str, USIZE_MAX_DECIMAL_DIGITS};
-use crate::worker_thread_session::Field;
 use crate::{
     field_data::typed::TypedSlice,
     field_data::{iter_hall::IterId, iters::FieldIterator, FieldReference},
+    job_session::{FieldId, JobData},
     options::argument::CliArgIdx,
     utils::string_store::{StringStore, StringStoreEntry},
-    worker_thread_session::{FieldId, JobSession},
 };
 use bstr::ByteSlice;
 
@@ -311,7 +311,7 @@ pub fn setup_op_regex(
 }
 
 pub fn setup_tf_regex<'a>(
-    sess: &mut JobSession,
+    sess: &mut JobData,
     _op_base: &OperatorBase,
     op: &'a OpRegex,
     tf_state: &mut TransformState,
@@ -581,7 +581,7 @@ struct RegexMatchInnerState<'a, 'b> {
     source_field: FieldId,
 }
 
-pub fn handle_tf_regex(sess: &mut JobSession, tf_id: TransformId, re: &mut TfRegex) {
+pub fn handle_tf_regex(sess: &mut JobData, tf_id: TransformId, re: &mut TfRegex) {
     let (batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
     sess.tf_mgr.prepare_for_output(
         &sess.field_mgr,
@@ -821,7 +821,7 @@ pub fn handle_tf_regex(sess: &mut JobSession, tf_id: TransformId, re: &mut TfReg
 }
 
 pub fn handle_tf_regex_stream_value_update(
-    sess: &mut JobSession,
+    sess: &mut JobData,
     tf_id: TransformId,
     _tf: &mut TfRegex,
     sv_id: StreamValueId,

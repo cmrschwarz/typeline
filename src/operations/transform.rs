@@ -4,7 +4,7 @@ use nonmax::NonMaxUsize;
 
 use crate::{
     field_data::FieldValueKind,
-    worker_thread_session::{FieldId, MatchSetId},
+    job_session::{FieldId, MatchSetId},
 };
 
 use super::{

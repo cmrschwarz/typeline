@@ -1,11 +1,11 @@
 use std::collections::VecDeque;
 use std::sync::{Arc, Condvar, Mutex};
 
-use smallvec::{smallvec, SmallVec};
+use smallvec::SmallVec;
 
 use crate::field_data::record_set::RecordSet;
+use crate::job_session::{JobData, JobSession};
 use crate::operations::operator::OperatorId;
-use crate::worker_thread_session::{JobSession, WorkerThreadSession};
 use crate::{
     chain::Chain,
     operations::operator::{OperatorBase, OperatorData},
@@ -15,8 +15,18 @@ use crate::{
 };
 
 pub struct Job {
-    pub starting_ops: SmallVec<[OperatorId; 2]>,
+    pub starting_op: OperatorId,
     pub data: RecordSet,
+}
+
+pub struct VentureDescription {
+    pub participans_needed: usize,
+    pub starting_points: SmallVec<[OperatorId; 4]>,
+}
+
+pub struct Venture<'a> {
+    pub description: VentureDescription,
+    pub base_session: Option<Arc<JobSession<'a>>>,
 }
 
 pub struct Session {
@@ -29,47 +39,60 @@ pub struct Session {
     pub(crate) string_store: StringStore,
 }
 
-pub(crate) struct SessionManager {
+pub(crate) struct SessionManager<'a> {
+    pub session: &'a Session,
     pub job_queue: VecDeque<Job>,
+    pub venture_queue: VecDeque<Venture<'a>>,
+    pub waiting_venture_participants: usize,
+    pub venture_counter: usize,
     pub terminate: bool,
     pub waiting_worker_threads: usize,
     pub total_worker_threads: usize,
-    pub session: Arc<Session>,
     pub worker_join_handles: Vec<std::thread::JoinHandle<Result<(), ScrError>>>,
 }
 
-pub(crate) struct ContextData {
-    pub jobs_available: Condvar,
+pub(crate) struct ContextData<'a> {
+    pub work_available: Condvar,
     pub worker_threads_finished: Condvar,
-    pub sess_mgr: Mutex<SessionManager>,
+    pub sess_mgr: Mutex<SessionManager<'a>>,
 }
 
 pub struct Context {
     pub(crate) session: Arc<Session>,
-    pub(crate) main_worker_thread: WorkerThread,
+    pub(crate) session_ref: &'static Session,
+    pub(crate) main_thread: WorkerThread<'static>,
 }
 
 impl Context {
     pub fn new(session: Arc<Session>) -> Self {
+        // SAFETY: this type makes sure that all references to this session will be dropped
+        // before it drops it itself, so this is fine
+        // see set_session for the reassignment process
+        let session_ref =
+            unsafe { std::mem::transmute::<&'_ Session, &'static Session>(session.as_ref()) };
         let ctx_data = Arc::new(ContextData {
-            jobs_available: Condvar::new(),
+            work_available: Condvar::new(),
             worker_threads_finished: Condvar::new(),
             sess_mgr: Mutex::new(SessionManager {
                 terminate: false,
-                session: session.clone(),
+                session: session_ref,
                 total_worker_threads: 0,
+                venture_counter: 0,
+                waiting_venture_participants: 0,
                 waiting_worker_threads: 0,
                 worker_join_handles: Default::default(),
+                venture_queue: Default::default(),
                 job_queue: Default::default(),
             }),
         });
         Self {
-            main_worker_thread: WorkerThread::new(ctx_data, session.clone()),
-            session: session,
+            main_thread: WorkerThread::new(ctx_data),
+            session,
+            session_ref,
         }
     }
     fn wait_for_worker_threads(&self) {
-        let ctx = self.main_worker_thread.ctx_data.as_ref();
+        let ctx = self.main_thread.ctx_data.as_ref();
         let mut sess_mgr = ctx.sess_mgr.lock().unwrap();
         loop {
             if sess_mgr.waiting_worker_threads == sess_mgr.total_worker_threads {
@@ -84,20 +107,27 @@ impl Context {
             // but this is simple and prevents deadlocks for now
             session.max_threads = self.session.max_threads;
         }
-        self.session = Arc::new(session);
-        self.main_worker_thread.update_session(self.session.clone());
+        let new_sess = Arc::new(session);
 
         // PERF: this lock is completely pointless, we known nobody else
         // is using this right now. we could get rid of this using unsafe,
         // but it's probably not worth it
-        let mut sess_mgr = self.main_worker_thread.ctx_data.sess_mgr.lock().unwrap();
-        sess_mgr.session = self.session.clone();
+        let mut sess_mgr = self.main_thread.ctx_data.sess_mgr.lock().unwrap();
+        //for sanity, we check that nobody refers back to the old session
+        assert!(sess_mgr.job_queue.is_empty());
+        assert!(sess_mgr.venture_queue.is_empty());
+        // SAFETY: now that we know that nobody still refers to the old session,
+        // it is safe to insert the new one and drop the reference to the old one
+        self.session_ref =
+            unsafe { std::mem::transmute::<&'_ Session, &'static Session>(new_sess.as_ref()) };
+        sess_mgr.session = self.session_ref;
+        self.session = new_sess;
     }
     pub fn get_session(&self) -> &Session {
         &self.session
     }
     pub fn run_job(&mut self, job: Job) {
-        self.main_worker_thread.run_job(job);
+        self.main_thread.run_job(&self.session_ref, job);
         if self.session.max_threads > 1 {
             self.wait_for_worker_threads();
         }
@@ -112,10 +142,10 @@ impl Drop for Context {
         if self.session.max_threads <= 1 {
             return;
         }
-        let ctx = self.main_worker_thread.ctx_data.as_ref();
+        let ctx = self.main_thread.ctx_data.as_ref();
         let mut sess_mgr = ctx.sess_mgr.lock().unwrap();
         sess_mgr.terminate = true;
-        ctx.jobs_available.notify_all();
+        ctx.work_available.notify_all();
         loop {
             sess_mgr = ctx.worker_threads_finished.wait(sess_mgr).unwrap();
             if sess_mgr.waiting_worker_threads == sess_mgr.total_worker_threads {
@@ -129,18 +159,18 @@ impl Session {
     pub fn construct_main_chain_job(&self, input_data: RecordSet) -> Job {
         let starting_op = self.chains[0].operations[0];
         Job {
-            starting_ops: smallvec![starting_op],
+            starting_op,
             data: input_data,
         }
     }
     pub fn run_job_unthreaded(&self, job: Job) {
-        let mut transform_data = Vec::new();
-        let mut job_session = JobSession::new(&self);
-        let mut wts = WorkerThreadSession {
-            transform_data: &mut transform_data,
-            job_session: &mut job_session,
+        let mut js = JobSession {
+            transform_data: Vec::new(),
+            job_data: JobData::new(&self),
         };
-        wts.run_job(job)
+        if let Err(_venture_desc) = js.run_job(job, None) {
+            unreachable!()
+        }
     }
 
     pub fn run(self, job: Job) {

@@ -15,6 +15,7 @@ use crate::{
         typed_iters::TypedSliceIter,
         FieldValueKind, RunLength, INLINE_STR_MAX_LEN,
     },
+    job_session::{Field, FieldId, FieldManager, JobData, MatchSetManager, StreamValueManager},
     options::argument::CliArgIdx,
     ref_iter::{
         AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter, RefAwareInlineTextIter,
@@ -28,9 +29,6 @@ use crate::{
         universe::Universe,
         LengthAndCharsCountingWriter, LengthCountingWriter, ValueProducingCallable,
         MAX_UTF8_CHAR_LEN,
-    },
-    worker_thread_session::{
-        Field, FieldId, FieldManager, JobSession, MatchSetManager, StreamValueManager,
     },
 };
 
@@ -196,7 +194,7 @@ pub fn setup_op_format(
 }
 
 pub fn setup_tf_format<'a>(
-    sess: &mut JobSession,
+    sess: &mut JobData,
     _op_base: &OperatorBase,
     op: &'a OpFormat,
     tf_id: TransformId,
@@ -1377,7 +1375,7 @@ fn write_fmt_key(
         iter.into_base_iter(),
     );
 }
-pub fn handle_tf_format(sess: &mut JobSession, tf_id: TransformId, fmt: &mut TfFormat) {
+pub fn handle_tf_format(sess: &mut JobData, tf_id: TransformId, fmt: &mut TfFormat) {
     let (batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
     let mut output_field =
         sess.tf_mgr
@@ -1455,7 +1453,7 @@ pub fn handle_tf_format(sess: &mut JobSession, tf_id: TransformId, fmt: &mut TfF
 }
 
 pub fn handle_tf_format_stream_value_update(
-    sess: &mut JobSession,
+    sess: &mut JobData,
     tf_id: TransformId,
     tf: &mut TfFormat,
     sv_id: StreamValueId,

@@ -2,7 +2,7 @@ use std::{cell::Ref, num::NonZeroUsize};
 
 use nonmax::NonMaxUsize;
 
-use crate::{utils::universe::Universe, worker_thread_session::Field};
+use crate::{job_session::Field, utils::universe::Universe};
 
 use super::{FieldData, FieldValueFormat, FieldValueHeader, RunLength};
 

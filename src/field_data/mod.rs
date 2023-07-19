@@ -24,13 +24,13 @@ use std::{
 use std::ops::Deref;
 
 use crate::{
+    job_session::{FieldId, MatchSetManager},
     operations::errors::OperatorApplicationError,
     ref_iter::{
         AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter, RefAwareInlineTextIter,
     },
     stream_value::StreamValueId,
     utils::string_store::StringStoreEntry,
-    worker_thread_session::{FieldId, MatchSetManager},
 };
 
 use self::{

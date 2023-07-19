@@ -12,13 +12,13 @@ use smallstr::SmallString;
 
 use crate::{
     field_data::{field_value_flags, push_interface::PushInterface},
+    job_session::{Field, FieldId, JobData},
     operations::print::error_to_string,
     ref_iter::{
         AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter, RefAwareInlineTextIter,
     },
     stream_value::{StreamValue, StreamValueData, StreamValueId},
     utils::{i64_to_str, identity_hasher::BuildIdentityHasher, universe::Universe},
-    worker_thread_session::{Field, FieldId, JobSession},
 };
 use crate::{
     field_data::{
@@ -160,7 +160,7 @@ pub fn setup_op_string_sink(
 }
 
 pub fn setup_tf_string_sink<'a>(
-    sess: &mut JobSession,
+    sess: &mut JobData,
     _op_base: &OperatorBase,
     ss: &'a OpStringSink,
     tf_state: &mut TransformState,
@@ -309,7 +309,7 @@ pub fn push_errors<'a>(
     });
     *last_error_end = field_pos;
 }
-pub fn handle_tf_string_sink(sess: &mut JobSession, tf_id: TransformId, ss: &mut TfStringSink<'_>) {
+pub fn handle_tf_string_sink(sess: &mut JobData, tf_id: TransformId, ss: &mut TfStringSink<'_>) {
     let (batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
     let tf = &sess.tf_mgr.transforms[tf_id];
     let op_id = tf.op_id.unwrap();
@@ -458,7 +458,7 @@ pub fn handle_tf_string_sink(sess: &mut JobSession, tf_id: TransformId, ss: &mut
 }
 
 pub fn handle_tf_string_sink_stream_value_update(
-    sess: &mut JobSession,
+    sess: &mut JobData,
     tf_id: TransformId,
     tf: &mut TfStringSink<'_>,
     sv_id: StreamValueId,

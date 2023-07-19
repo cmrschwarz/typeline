@@ -6,10 +6,10 @@ use crate::{
         typed_iters::{InlineBytesIter, TypedSliceIter},
         FieldReference, FieldValueHeader, RunLength,
     },
-    stream_value::StreamValueId,
-    worker_thread_session::{
+    job_session::{
         Field, FieldId, FieldManager, MatchSetManager, FIELD_REF_LOOKUP_ITER_ID, INVALID_FIELD_ID,
     },
+    stream_value::StreamValueId,
 };
 use std::cell::Ref;
 
@@ -559,10 +559,10 @@ mod ref_iter_tests {
             field_value_flags, push_interface::PushInterface, typed::TypedSlice, FieldData,
             FieldReference, FieldValueFormat, FieldValueHeader, FieldValueKind, RunLength,
         },
-        ref_iter::{AutoDerefIter, RefAwareInlineTextIter},
-        worker_thread_session::{
+        job_session::{
             Field, FieldId, FieldManager, MatchSet, MatchSetManager, FIELD_REF_LOOKUP_ITER_ID,
         },
+        ref_iter::{AutoDerefIter, RefAwareInlineTextIter},
     };
 
     fn push_field(field_mgr: &mut FieldManager, fd: FieldData, id: Option<FieldId>) -> FieldId {

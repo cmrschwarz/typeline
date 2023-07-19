@@ -2,14 +2,15 @@ use std::collections::{hash_map::Entry, HashMap};
 
 use crate::{
     chain::DEFAULT_INPUT_FIELD,
+    context::{ContextData, VentureDescription},
     field_data::{
         iter_hall::{IterHall, IterId},
         iters::FieldIterator,
     },
+    job_session::{FieldId, JobData, JobSession, MatchSetId},
     options::argument::CliArgIdx,
     ref_iter::AutoDerefIter,
     utils::identity_hasher::BuildIdentityHasher,
-    worker_thread_session::{FieldId, JobSession, MatchSetId, WorkerThreadSession},
 };
 
 use super::{
@@ -46,7 +47,7 @@ pub fn parse_op_split(
     Ok(OperatorData::Split(OpSplit {}))
 }
 pub fn setup_ts_split_as_entry_point<'a, 'b>(
-    sess: &mut JobSession,
+    sess: &mut JobData,
     input_field: FieldId,
     ms_id: MatchSetId,
     entry_count: usize,
@@ -74,7 +75,7 @@ pub fn setup_ts_split_as_entry_point<'a, 'b>(
 }
 
 pub fn setup_tf_split(
-    _sess: &mut JobSession,
+    _sess: &mut JobData,
     _op_base: &OperatorBase,
     _op: &OpSplit,
     _tf_state: &mut TransformState,
@@ -86,7 +87,7 @@ pub fn setup_tf_split(
     })
 }
 
-pub fn handle_tf_split(sess: &mut JobSession, tf_id: TransformId, sp: &mut TfSplit) {
+pub fn handle_tf_split(sess: &mut JobData, tf_id: TransformId, sp: &mut TfSplit) {
     let (batch_size, end_of_input) = sess.tf_mgr.claim_batch(tf_id);
 
     let match_set_mgr = &mut sess.match_set_mgr;
@@ -136,31 +137,33 @@ pub fn handle_tf_split(sess: &mut JobSession, tf_id: TransformId, sp: &mut TfSpl
     }
 }
 
-pub fn handle_split_expansion(sess: &mut WorkerThreadSession, tf_id: TransformId) {
+pub(crate) fn handle_split_expansion<'a>(
+    sess: &mut JobSession,
+    tf_id: TransformId,
+    _ctx: Option<&ContextData<'a>>,
+) -> Result<(), VentureDescription> {
     // we have to temporarily move the targets out of split so we can modify
     // sess while accessing them
     let mut targets = Vec::<TransformId>::new();
     let mut mappings = HashMap::<FieldId, TfSplitFieldMapping, BuildIdentityHasher>::default();
-    let tf = &sess.job_session.tf_mgr.transforms[tf_id];
+    let tf = &sess.job_data.tf_mgr.transforms[tf_id];
     let split_input_field_id = tf.input_field;
     let split_ms_id = tf.match_set_id;
     let split_op_id = tf.op_id.unwrap() as usize;
-    let split_chain_id =
-        sess.job_session.session_data.operator_bases[split_op_id].chain_id as usize;
+    let split_chain_id = sess.job_data.session_data.operator_bases[split_op_id].chain_id as usize;
 
     // by reversing this, the earlier subchains get the higher tf ordering ids -> get executed first
-    for i in (0..sess.job_session.session_data.chains[split_chain_id]
+    for i in (0..sess.job_data.session_data.chains[split_chain_id]
         .subchains
         .len())
         .rev()
     {
-        let subchain_id =
-            sess.job_session.session_data.chains[split_chain_id].subchains[i] as usize;
-        let target_ms_id = sess.job_session.match_set_mgr.add_match_set();
-        let match_sets = &mut sess.job_session.match_set_mgr.match_sets;
+        let subchain_id = sess.job_data.session_data.chains[split_chain_id].subchains[i] as usize;
+        let target_ms_id = sess.job_data.match_set_mgr.add_match_set();
+        let match_sets = &mut sess.job_data.match_set_mgr.match_sets;
         let (split_match_set, target_match_set) =
             match_sets.two_distinct_mut(split_ms_id, target_ms_id);
-        let accessed_fields_map = &sess.job_session.session_data.chains[subchain_id]
+        let accessed_fields_map = &sess.job_data.session_data.chains[subchain_id]
             .liveness_data
             .fields_accessed_before_assignment;
         let mut chain_input_field_id = split_input_field_id;
@@ -168,22 +171,20 @@ pub fn handle_split_expansion(sess: &mut WorkerThreadSession, tf_id: TransformId
             match target_match_set.field_name_map.entry(*name) {
                 std::collections::hash_map::Entry::Occupied(_) => continue,
                 std::collections::hash_map::Entry::Vacant(e) => {
-                    let src_field_id =
-                        if let Some(src_field_id) = split_match_set.field_name_map.get(name) {
-                            *src_field_id
-                        } else if *name == DEFAULT_INPUT_FIELD {
-                            split_input_field_id
-                        } else {
-                            let target_field_id =
-                                sess.job_session.field_mgr.add_field(target_ms_id, None);
-                            let mut tgt =
-                                sess.job_session.field_mgr.fields[target_field_id].borrow_mut();
-                            tgt.added_as_placeholder_by_tf = Some(tf_id);
-                            e.insert(target_field_id);
-                            continue;
-                        };
-                    let mut src_field =
-                        sess.job_session.field_mgr.fields[src_field_id].borrow_mut();
+                    let src_field_id = if let Some(src_field_id) =
+                        split_match_set.field_name_map.get(name)
+                    {
+                        *src_field_id
+                    } else if *name == DEFAULT_INPUT_FIELD {
+                        split_input_field_id
+                    } else {
+                        let target_field_id = sess.job_data.field_mgr.add_field(target_ms_id, None);
+                        let mut tgt = sess.job_data.field_mgr.fields[target_field_id].borrow_mut();
+                        tgt.added_as_placeholder_by_tf = Some(tf_id);
+                        e.insert(target_field_id);
+                        continue;
+                    };
+                    let mut src_field = sess.job_data.field_mgr.fields[src_field_id].borrow_mut();
                     let mut any_writes = *writes;
                     if any_writes == false {
                         for other_name in &src_field.names {
@@ -199,8 +200,8 @@ pub fn handle_split_expansion(sess: &mut WorkerThreadSession, tf_id: TransformId
 
                     let target_field_id = if any_writes {
                         drop(src_field);
-                        let target = sess.job_session.field_mgr.add_field(target_ms_id, None);
-                        src_field = sess.job_session.field_mgr.fields[src_field_id].borrow_mut();
+                        let target = sess.job_data.field_mgr.add_field(target_ms_id, None);
+                        src_field = sess.job_data.field_mgr.fields[src_field_id].borrow_mut();
                         match mappings.entry(src_field_id) {
                             Entry::Occupied(ref mut e) => {
                                 e.get_mut().targets_cow.push(target);
@@ -218,8 +219,7 @@ pub fn handle_split_expansion(sess: &mut WorkerThreadSession, tf_id: TransformId
                         src_field_id
                     };
                     let mut tgt_field = if any_writes {
-                        let mut tgt =
-                            sess.job_session.field_mgr.fields[target_field_id].borrow_mut();
+                        let mut tgt = sess.job_data.field_mgr.fields[target_field_id].borrow_mut();
                         if *name != DEFAULT_INPUT_FIELD {
                             tgt.names.push(*name);
                         }
@@ -248,7 +248,7 @@ pub fn handle_split_expansion(sess: &mut WorkerThreadSession, tf_id: TransformId
             }
         }
         target_match_set.field_name_map.remove(&DEFAULT_INPUT_FIELD);
-        let start_op = sess.job_session.session_data.chains[subchain_id].operations[0];
+        let start_op = sess.job_data.session_data.chains[subchain_id].operations[0];
         let tf_id = sess.setup_transforms_from_op(target_ms_id, start_op, chain_input_field_id);
         targets.push(tf_id);
     }
@@ -258,6 +258,7 @@ pub fn handle_split_expansion(sess: &mut WorkerThreadSession, tf_id: TransformId
     } else {
         unreachable!();
     }
+    Ok(())
 }
 
 pub fn create_op_split() -> OperatorData {

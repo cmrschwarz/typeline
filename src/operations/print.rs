@@ -13,6 +13,7 @@ use crate::{
         typed_iters::TypedSliceIter,
         FieldValueKind,
     },
+    job_session::JobData,
     options::argument::CliArgIdx,
     ref_iter::{
         AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter, RefAwareInlineTextIter,
@@ -20,7 +21,6 @@ use crate::{
     },
     stream_value::{StreamValue, StreamValueData, StreamValueId},
     utils::i64_to_str,
-    worker_thread_session::JobSession,
 };
 
 use super::{
@@ -51,7 +51,7 @@ pub fn parse_op_print(
 }
 
 pub fn setup_tf_print(
-    sess: &mut JobSession,
+    sess: &mut JobData,
     _op_base: &OperatorBase,
     _op: &OpPrint,
     tf_state: &mut TransformState,
@@ -142,7 +142,7 @@ pub fn write_stream_val_check_done(
 }
 
 pub fn handle_tf_print_raw(
-    sess: &mut JobSession,
+    sess: &mut JobData,
     tf_id: TransformId,
     tf: &mut TfPrint,
     batch_size: usize,
@@ -268,7 +268,7 @@ pub fn handle_tf_print_raw(
     Ok(())
 }
 
-pub fn handle_tf_print(sess: &mut JobSession, tf_id: TransformId, tf: &mut TfPrint) {
+pub fn handle_tf_print(sess: &mut JobData, tf_id: TransformId, tf: &mut TfPrint) {
     let (batch, input_done) = sess.tf_mgr.claim_batch(tf_id);
     let mut handled_field_count = 0;
     let res = handle_tf_print_raw(sess, tf_id, tf, batch, input_done, &mut handled_field_count);
@@ -296,7 +296,7 @@ pub fn handle_tf_print(sess: &mut JobSession, tf_id: TransformId, tf: &mut TfPri
 }
 
 pub fn handle_tf_print_stream_value_update(
-    sess: &mut JobSession,
+    sess: &mut JobData,
     tf_id: TransformId,
     _print: &mut TfPrint,
     sv_id: StreamValueId,

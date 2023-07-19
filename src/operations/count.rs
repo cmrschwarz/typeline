@@ -1,6 +1,5 @@
 use crate::{
-    field_data::push_interface::PushInterface, options::argument::CliArgIdx,
-    worker_thread_session::JobSession,
+    field_data::push_interface::PushInterface, job_session::JobData, options::argument::CliArgIdx,
 };
 
 use super::{
@@ -16,7 +15,7 @@ pub struct TfCount {
 }
 
 pub fn setup_tf_count(
-    _sess: &mut JobSession,
+    _sess: &mut JobData,
     _op_base: &OperatorBase,
     _op: &OpCount,
     _tf_state: &mut TransformState,
@@ -24,7 +23,7 @@ pub fn setup_tf_count(
     TransformData::Count(TfCount { count: 0 })
 }
 
-pub fn handle_tf_count(sess: &mut JobSession, tf_id: TransformId, count: &mut TfCount) {
+pub fn handle_tf_count(sess: &mut JobData, tf_id: TransformId, count: &mut TfCount) {
     let (batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
     count.count += batch_size; //TODO: maybe handle overflow?
     if input_done {

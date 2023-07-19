@@ -1,9 +1,9 @@
 use bstr::ByteSlice;
 
 use crate::{
+    job_session::JobData,
     options::argument::CliArgIdx,
     utils::string_store::{StringStore, StringStoreEntry, INVALID_STRING_STORE_ENTRY},
-    worker_thread_session::JobSession,
 };
 
 use super::{
@@ -49,7 +49,7 @@ pub fn create_op_select(key: String) -> OperatorData {
 }
 
 pub fn setup_tf_select(
-    _sess: &mut JobSession,
+    _sess: &mut JobData,
     _op_base: &OperatorBase,
     _op: &OpSelect,
     _tf_state: &mut TransformState,
@@ -57,7 +57,7 @@ pub fn setup_tf_select(
     TransformData::Select(TfSelect {})
 }
 
-pub fn handle_tf_select(sess: &mut JobSession, tf_id: TransformId, _sel: &mut TfSelect) {
+pub fn handle_tf_select(sess: &mut JobData, tf_id: TransformId, _sel: &mut TfSelect) {
     let tf = &sess.tf_mgr.transforms[tf_id];
     sess.field_mgr
         .apply_field_actions(&mut sess.match_set_mgr, tf.input_field);
