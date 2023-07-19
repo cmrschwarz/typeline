@@ -32,7 +32,7 @@ use crate::{
 };
 use bstr::ByteSlice;
 
-use super::errors::{OperatorSetupError, TransformSetupError};
+use super::errors::OperatorSetupError;
 use super::operator::{OperatorBase, OperatorData};
 use super::transform::TransformState;
 use super::{
@@ -315,7 +315,7 @@ pub fn setup_tf_regex<'a>(
     _op_base: &OperatorBase,
     op: &'a OpRegex,
     tf_state: &mut TransformState,
-) -> Result<TransformData<'a>, TransformSetupError> {
+) -> TransformData<'a> {
     let cb = &mut sess.match_set_mgr.match_sets[tf_state.match_set_id].command_buffer;
     let apf_idx = cb.claim_apf(tf_state.ordering_id);
     let apf_succ = cb.peek_next_apf_id();
@@ -342,7 +342,7 @@ pub fn setup_tf_regex<'a>(
         .collect();
     tf_state.preferred_input_type = Some(FieldValueKind::BytesInline);
 
-    Ok(TransformData::Regex(TfRegex {
+    TransformData::Regex(TfRegex {
         regex: op.regex.clone(),
         text_only_regex: op
             .text_only_regex
@@ -359,7 +359,7 @@ pub fn setup_tf_regex<'a>(
         last_end: None,
         next_start: 0,
         apf_idx,
-    }))
+    })
 }
 
 struct TextRegex<'a> {

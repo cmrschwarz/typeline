@@ -20,13 +20,13 @@ pub struct Job {
 }
 
 pub struct Session {
-    pub max_threads: usize,
-    pub is_repl: bool,
-    pub chains: Vec<Chain>,
-    pub operator_bases: Vec<OperatorBase>,
-    pub operator_data: Vec<OperatorData>,
-    pub cli_args: Option<Vec<Vec<u8>>>,
-    pub string_store: StringStore,
+    pub(crate) max_threads: usize,
+    pub(crate) is_repl: bool,
+    pub(crate) chains: Vec<Chain>,
+    pub(crate) operator_bases: Vec<OperatorBase>,
+    pub(crate) operator_data: Vec<OperatorData>,
+    pub(crate) cli_args: Option<Vec<Vec<u8>>>,
+    pub(crate) string_store: StringStore,
 }
 
 pub(crate) struct SessionManager {
@@ -96,14 +96,14 @@ impl Context {
     pub fn get_session(&self) -> &Session {
         &self.session
     }
-    pub fn run_main_chain(&mut self, input_data: RecordSet) -> Result<(), ScrError> {
-        let res = self
-            .main_worker_thread
-            .run_job(self.session.construct_main_chain_job(input_data));
+    pub fn run_job(&mut self, job: Job) {
+        self.main_worker_thread.run_job(job);
         if self.session.max_threads > 1 {
             self.wait_for_worker_threads();
         }
-        res
+    }
+    pub fn run_main_chain(&mut self, input_data: RecordSet) {
+        self.run_job(self.session.construct_main_chain_job(input_data))
     }
 }
 
@@ -133,7 +133,7 @@ impl Session {
             data: input_data,
         }
     }
-    pub fn run_job_unthreaded(&self, job: Job) -> Result<(), ScrError> {
+    pub fn run_job_unthreaded(&self, job: Job) {
         let mut transform_data = Vec::new();
         let mut job_session = JobSession::new(&self);
         let mut wts = WorkerThreadSession {
@@ -141,5 +141,13 @@ impl Session {
             job_session: &mut job_session,
         };
         wts.run_job(job)
+    }
+
+    pub fn run(self, job: Job) {
+        if self.max_threads == 1 {
+            self.run_job_unthreaded(job)
+        } else {
+            Context::new(Arc::new(self)).run_job(job)
+        }
     }
 }

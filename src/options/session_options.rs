@@ -84,6 +84,7 @@ impl SessionOptions {
         op_base_opts.chain_id = Some(self.curr_chain);
         match &op_data {
             OperatorData::Print(_) => (),
+            OperatorData::Count(_) => (),
             OperatorData::Key(_) => (),
             OperatorData::Select(_) => (),
             OperatorData::Regex(_) => (),
@@ -159,6 +160,7 @@ impl SessionOptions {
                 OperatorData::FileReader(op) => setup_op_file_reader(chain, op)?,
                 OperatorData::StringSink(op) => setup_op_string_sink(op_id, &op_base, op)?,
                 OperatorData::Split(_) => (),
+                OperatorData::Count(_) => (),
                 OperatorData::Sequence(_) => (),
                 OperatorData::DataInserter(_) => (),
                 OperatorData::Print(_) => (),

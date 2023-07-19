@@ -1,4 +1,5 @@
 use crate::chain::BufferingMode;
+use crate::operations::count::parse_op_count;
 use crate::operations::{
     errors::OperatorCreationError,
     file_reader::{argument_matches_op_file_reader, parse_op_file_reader},
@@ -423,6 +424,7 @@ fn parse_operation(
         "seqn" => Some(parse_op_seq(value, false, true, idx)?),
         "enum" => Some(parse_op_seq(value, true, false, idx)?),
         "enumn" => Some(parse_op_seq(value, true, true, idx)?),
+        "count" => Some(parse_op_count(value, idx)?),
 
         "split" => Some(parse_op_split(value, idx)?),
         "next" => Some(parse_op_next(value, idx)?),

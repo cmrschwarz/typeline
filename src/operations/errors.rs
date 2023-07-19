@@ -22,13 +22,6 @@ pub struct OperatorCreationError {
 
 #[derive(Error, Debug, Clone)]
 #[error("in op id {op_id}: {message}")]
-pub struct TransformSetupError {
-    pub op_id: OperatorId,
-    pub message: Cow<'static, str>,
-}
-
-#[derive(Error, Debug, Clone)]
-#[error("in op id {op_id}: {message}")]
 pub struct OperatorSetupError {
     pub op_id: OperatorId,
     pub message: Cow<'static, str>,
@@ -71,21 +64,6 @@ impl OperatorSetupError {
         }
     }
     pub fn new_s(msg: String, op_id: OperatorId) -> Self {
-        Self {
-            message: Cow::Owned(msg),
-            op_id,
-        }
-    }
-}
-
-impl TransformSetupError {
-    pub fn new(op_id: OperatorId, message: &'static str) -> Self {
-        Self {
-            message: Cow::Borrowed(message),
-            op_id,
-        }
-    }
-    pub fn new_s(op_id: OperatorId, msg: String) -> Self {
         Self {
             message: Cow::Owned(msg),
             op_id,

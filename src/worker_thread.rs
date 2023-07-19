@@ -29,7 +29,7 @@ impl WorkerThread {
     pub fn update_session(&mut self, sess: Arc<Session>) {
         self.session = sess;
     }
-    pub fn run_job(&mut self, job: Job) -> Result<(), ScrError> {
+    pub fn run_job(&mut self, job: Job) {
         // SAFETY: see struct comment for why we do this
         // because we marked job_session and transform_data 'static,
         // we normally could not construct the WorkerThreadSession because the
@@ -42,10 +42,9 @@ impl WorkerThread {
             transform_data: &mut me.transform_data,
             job_session: &mut me.job_session,
         };
-        let result = wts.run_job(job);
+        wts.run_job(job);
         drop(wts);
         self.transform_data.clear();
-        result
     }
 
     pub fn run(&mut self) -> Result<(), ScrError> {

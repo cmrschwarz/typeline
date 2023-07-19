@@ -73,12 +73,12 @@ impl ContextBuilder {
     pub fn run(self) -> Result<(), ScrError> {
         let sess = Self::build_session_drop_opts(self.data.opts)?;
         if sess.max_threads == 1 {
-            sess.run_job_unthreaded(sess.construct_main_chain_job(self.data.input_data))
+            sess.run_job_unthreaded(sess.construct_main_chain_job(self.data.input_data));
         } else {
             let mut ctx = Context::new(Arc::new(sess));
-            ctx.run_main_chain(self.data.input_data)?;
-            Ok(())
+            ctx.run_main_chain(self.data.input_data);
         }
+        Ok(())
     }
 }
 

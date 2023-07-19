@@ -13,7 +13,7 @@ use crate::{
 };
 
 use super::{
-    errors::{OperatorCreationError, TransformSetupError},
+    errors::OperatorCreationError,
     operator::{OperatorBase, OperatorData, OperatorId},
     transform::{TransformData, TransformId, TransformState},
 };
@@ -28,6 +28,7 @@ pub struct TfSplitFieldMapping {
 }
 
 pub struct TfSplit {
+    pub expanded: bool,
     pub targets: Vec<TransformId>,
     pub mappings: HashMap<FieldId, TfSplitFieldMapping, BuildIdentityHasher>,
 }
@@ -72,13 +73,14 @@ pub fn setup_ts_split_as_entry_point<'a, 'b>(
     todo!();
 }
 
-pub fn setup_tf_split<'a>(
+pub fn setup_tf_split(
     _sess: &mut JobSession,
     _op_base: &OperatorBase,
-    _op: &'a OpSplit,
+    _op: &OpSplit,
     _tf_state: &mut TransformState,
 ) -> TransformData<'static> {
     TransformData::Split(TfSplit {
+        expanded: false,
         targets: Default::default(),
         mappings: Default::default(),
     })
@@ -134,10 +136,7 @@ pub fn handle_tf_split(sess: &mut JobSession, tf_id: TransformId, sp: &mut TfSpl
     }
 }
 
-pub fn handle_split_expansion(
-    sess: &mut WorkerThreadSession,
-    tf_id: TransformId,
-) -> Result<(), TransformSetupError> {
+pub fn handle_split_expansion(sess: &mut WorkerThreadSession, tf_id: TransformId) {
     // we have to temporarily move the targets out of split so we can modify
     // sess while accessing them
     let mut targets = Vec::<TransformId>::new();
@@ -250,7 +249,7 @@ pub fn handle_split_expansion(
         }
         target_match_set.field_name_map.remove(&DEFAULT_INPUT_FIELD);
         let start_op = sess.job_session.session_data.chains[subchain_id].operations[0];
-        let tf_id = sess.setup_transforms_from_op(target_ms_id, start_op, chain_input_field_id)?;
+        let tf_id = sess.setup_transforms_from_op(target_ms_id, start_op, chain_input_field_id);
         targets.push(tf_id);
     }
     if let TransformData::Split(ref mut split) = sess.transform_data[usize::from(tf_id)] {
@@ -259,7 +258,6 @@ pub fn handle_split_expansion(
     } else {
         unreachable!();
     }
-    return Ok(());
 }
 
 pub fn create_op_split() -> OperatorData {

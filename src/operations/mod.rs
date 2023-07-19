@@ -1,3 +1,4 @@
+pub mod count;
 pub mod errors;
 pub mod file_reader;
 pub mod format;

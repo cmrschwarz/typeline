@@ -161,6 +161,9 @@ pub fn compute_local_liveness_data(sess: &mut Session, chain_id: ChainId) {
             OperatorData::Select(select) => {
                 curr_field = cn.liveness_data.unalias(select.key_interned);
             }
+            OperatorData::Count(_count) => {
+                curr_field = output_field;
+            }
             OperatorData::Regex(re) => {
                 cn.liveness_data
                     .access_field_unless_anon(curr_field, any_writes_so_far);

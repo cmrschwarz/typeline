@@ -15,7 +15,7 @@ use crate::{
         FieldData,
     },
     operations::{
-        errors::TransformSetupError,
+        count::{handle_tf_count, setup_tf_count},
         file_reader::{handle_tf_file_reader, setup_tf_file_reader},
         format::{handle_tf_format, handle_tf_format_stream_value_update, setup_tf_format},
         join::{handle_tf_join, handle_tf_join_stream_value_update, setup_tf_join},
@@ -35,7 +35,6 @@ use crate::{
         transform::{TransformData, TransformId, TransformOrderingId, TransformState},
     },
     ref_iter::AutoDerefIter,
-    scr_error::ScrError,
     stream_value::{StreamValue, StreamValueData, StreamValueId},
     utils::string_store::StringStoreEntry,
     utils::universe::Universe,
@@ -534,7 +533,7 @@ impl<'a> JobSession<'a> {
 }
 
 impl<'a> WorkerThreadSession<'a> {
-    fn setup_job(&mut self, mut job: Job) -> Result<(), ScrError> {
+    fn setup_job(&mut self, mut job: Job) {
         self.job_session.match_set_mgr.match_sets.clear();
         self.job_session.field_mgr.fields.clear();
         self.job_session.tf_mgr.ready_queue.clear();
@@ -578,8 +577,7 @@ impl<'a> WorkerThreadSession<'a> {
             let start_tf_id = self.add_transform(tf_state, tf_data);
             self.job_session.tf_mgr.push_tf_in_ready_queue(start_tf_id);
         } else {
-            let start_tf_id =
-                self.setup_transforms_from_op(ms_id, job.starting_ops[0], input_data)?;
+            let start_tf_id = self.setup_transforms_from_op(ms_id, job.starting_ops[0], input_data);
 
             let tf = &mut self.job_session.tf_mgr.transforms[start_tf_id];
             tf.input_is_done = true;
@@ -601,7 +599,6 @@ impl<'a> WorkerThreadSession<'a> {
         for input_field_id in input_data_fields {
             self.job_session.drop_field_refcount(input_field_id);
         }
-        Ok(())
     }
 
     pub fn remove_transform(&mut self, tf_id: TransformId) {
@@ -632,7 +629,7 @@ impl<'a> WorkerThreadSession<'a> {
         ms_id: MatchSetId,
         start_op_id: OperatorId,
         chain_input_field_id: FieldId,
-    ) -> Result<TransformId, TransformSetupError> {
+    ) -> TransformId {
         let mut start_tf_id = None;
         let start_op = &self.job_session.session_data.operator_bases[start_op_id as usize];
         let default_batch_size = self.job_session.session_data.chains[start_op.chain_id as usize]
@@ -729,18 +726,15 @@ impl<'a> WorkerThreadSession<'a> {
                 f.added_as_placeholder_by_tf = Some(tf_id_peek);
                 mark_prev_field_as_placeholder = false;
             }
-            let mut expand_split = false;
             let b = op_base;
 
             let jd = &mut self.job_session;
             let tf_data = match op_data {
-                OperatorData::Split(op) => {
-                    expand_split = true;
-                    setup_tf_split(jd, b, op, &mut tf_state)
-                }
+                OperatorData::Count(op) => setup_tf_count(jd, b, op, &mut tf_state),
+                OperatorData::Split(op) => setup_tf_split(jd, b, op, &mut tf_state),
                 OperatorData::Print(op) => setup_tf_print(jd, b, op, &mut tf_state),
                 OperatorData::Join(op) => setup_tf_join(jd, b, op, &mut tf_state),
-                OperatorData::Regex(op) => setup_tf_regex(jd, b, op, &mut tf_state)?,
+                OperatorData::Regex(op) => setup_tf_regex(jd, b, op, &mut tf_state),
                 OperatorData::Format(op) => setup_tf_format(jd, b, op, tf_id_peek, &mut tf_state),
                 OperatorData::StringSink(op) => setup_tf_string_sink(jd, b, op, &mut tf_state),
                 OperatorData::FileReader(op) => setup_tf_file_reader(jd, b, op, &mut tf_state),
@@ -778,9 +772,6 @@ impl<'a> WorkerThreadSession<'a> {
                 predecessor_tf = Some(tf_id);
                 next_input_field = output_field;
             }
-            if expand_split {
-                handle_split_expansion(self, tf_id)?;
-            }
         }
 
         let mut term_state = TransformState::new(
@@ -794,7 +785,7 @@ impl<'a> WorkerThreadSession<'a> {
         );
         let term_data = setup_tf_terminator(&mut self.job_session, &mut term_state);
         self.add_transform(term_state, term_data);
-        Ok(start_tf_id.unwrap())
+        start_tf_id.unwrap()
     }
     pub fn add_transform(&mut self, state: TransformState, data: TransformData<'a>) -> TransformId {
         let id = self.job_session.tf_mgr.transforms.claim_with_value(state);
@@ -807,54 +798,87 @@ impl<'a> WorkerThreadSession<'a> {
         self.transform_data[usize::from(id)] = data;
         id
     }
-    pub(crate) fn run_job(&mut self, job: Job) -> Result<(), ScrError> {
-        self.setup_job(job)?;
+    pub(crate) fn handle_stream_value_update(&mut self, svu: StreamValueUpdate) {
+        match &mut self.transform_data[usize::from(svu.tf_id)] {
+            TransformData::Print(tf) => handle_tf_print_stream_value_update(
+                &mut self.job_session,
+                svu.tf_id,
+                tf,
+                svu.sv_id,
+                svu.custom,
+            ),
+            TransformData::Join(tf) => handle_tf_join_stream_value_update(
+                &mut self.job_session,
+                svu.tf_id,
+                tf,
+                svu.sv_id,
+                svu.custom,
+            ),
+            TransformData::StringSink(tf) => handle_tf_string_sink_stream_value_update(
+                &mut self.job_session,
+                svu.tf_id,
+                tf,
+                svu.sv_id,
+                svu.custom,
+            ),
+            TransformData::Format(tf) => handle_tf_format_stream_value_update(
+                &mut self.job_session,
+                svu.tf_id,
+                tf,
+                svu.sv_id,
+                svu.custom,
+            ),
+            TransformData::Regex(tf) => handle_tf_regex_stream_value_update(
+                &mut self.job_session,
+                svu.tf_id,
+                tf,
+                svu.sv_id,
+                svu.custom,
+            ),
+            TransformData::Split(_) => todo!(),
+            TransformData::Count(_) => todo!(),
+            TransformData::Select(_) => unreachable!(),
+            TransformData::Terminator(_) => unreachable!(),
+            TransformData::FileReader(_) => unreachable!(),
+            TransformData::Sequence(_) => unreachable!(),
+            TransformData::Disabled => unreachable!(),
+            TransformData::DataInserter(_) => unreachable!(),
+        }
+    }
+    pub fn handle_transform(&mut self, tf_id: TransformId) {
+        if let TransformData::Split(split) = &mut self.transform_data[usize::from(tf_id)] {
+            if !split.expanded {
+                split.expanded = true;
+                handle_split_expansion(self, tf_id);
+            }
+        }
+        let jd = &mut self.job_session;
+        match &mut self.transform_data[usize::from(tf_id)] {
+            TransformData::Split(split) => handle_tf_split(&mut self.job_session, tf_id, split),
+            TransformData::Print(tf) => handle_tf_print(jd, tf_id, tf),
+            TransformData::Regex(tf) => handle_tf_regex(jd, tf_id, tf),
+            TransformData::StringSink(tf) => handle_tf_string_sink(jd, tf_id, tf),
+            TransformData::FileReader(tf) => handle_tf_file_reader(jd, tf_id, tf),
+            TransformData::DataInserter(tf) => handle_tf_literal(jd, tf_id, tf),
+            TransformData::Sequence(tf) => handle_tf_sequence(jd, tf_id, tf),
+            TransformData::Format(tf) => handle_tf_format(jd, tf_id, tf),
+            TransformData::Terminator(tf) => handle_tf_terminator(jd, tf_id, tf),
+            TransformData::Join(tf) => handle_tf_join(jd, tf_id, tf),
+            TransformData::Select(tf) => handle_tf_select(jd, tf_id, tf),
+            TransformData::Count(tf) => handle_tf_count(jd, tf_id, tf),
+            TransformData::Disabled => unreachable!(),
+        }
+        if let Some(tf) = self.job_session.tf_mgr.transforms.get(tf_id) {
+            if tf.mark_for_removal {
+                self.remove_transform(tf_id);
+            }
+        }
+    }
+    pub(crate) fn run_job(&mut self, job: Job) {
+        self.setup_job(job);
         loop {
             if let Some(svu) = self.job_session.sv_mgr.updates.pop_back() {
-                match &mut self.transform_data[usize::from(svu.tf_id)] {
-                    TransformData::Print(tf) => handle_tf_print_stream_value_update(
-                        &mut self.job_session,
-                        svu.tf_id,
-                        tf,
-                        svu.sv_id,
-                        svu.custom,
-                    ),
-                    TransformData::Join(tf) => handle_tf_join_stream_value_update(
-                        &mut self.job_session,
-                        svu.tf_id,
-                        tf,
-                        svu.sv_id,
-                        svu.custom,
-                    ),
-                    TransformData::StringSink(tf) => handle_tf_string_sink_stream_value_update(
-                        &mut self.job_session,
-                        svu.tf_id,
-                        tf,
-                        svu.sv_id,
-                        svu.custom,
-                    ),
-                    TransformData::Format(tf) => handle_tf_format_stream_value_update(
-                        &mut self.job_session,
-                        svu.tf_id,
-                        tf,
-                        svu.sv_id,
-                        svu.custom,
-                    ),
-                    TransformData::Regex(tf) => handle_tf_regex_stream_value_update(
-                        &mut self.job_session,
-                        svu.tf_id,
-                        tf,
-                        svu.sv_id,
-                        svu.custom,
-                    ),
-                    TransformData::Split(_) => todo!(),
-                    TransformData::Select(_) => unreachable!(),
-                    TransformData::Terminator(_) => unreachable!(),
-                    TransformData::FileReader(_) => unreachable!(),
-                    TransformData::Sequence(_) => unreachable!(),
-                    TransformData::Disabled => unreachable!(),
-                    TransformData::DataInserter(_) => unreachable!(),
-                }
+                self.handle_stream_value_update(svu);
                 continue;
             }
             if let Some(rqe) = self.job_session.tf_mgr.ready_queue.pop() {
@@ -875,33 +899,10 @@ impl<'a> WorkerThreadSession<'a> {
                     tf.is_stream_producer = false;
                 }
                 tf.is_ready = false;
-                let jd = &mut self.job_session;
-                match &mut self.transform_data[usize::from(tf_id)] {
-                    TransformData::Split(split) => {
-                        handle_tf_split(&mut self.job_session, tf_id, split)
-                    }
-                    TransformData::Print(tf) => handle_tf_print(jd, tf_id, tf),
-                    TransformData::Regex(tf) => handle_tf_regex(jd, tf_id, tf),
-                    TransformData::StringSink(tf) => handle_tf_string_sink(jd, tf_id, tf),
-                    TransformData::FileReader(tf) => handle_tf_file_reader(jd, tf_id, tf),
-                    TransformData::DataInserter(tf) => handle_tf_literal(jd, tf_id, tf),
-                    TransformData::Sequence(tf) => handle_tf_sequence(jd, tf_id, tf),
-                    TransformData::Format(tf) => handle_tf_format(jd, tf_id, tf),
-                    TransformData::Terminator(tf) => handle_tf_terminator(jd, tf_id, tf),
-                    TransformData::Join(tf) => handle_tf_join(jd, tf_id, tf),
-                    TransformData::Select(tf) => handle_tf_select(jd, tf_id, tf),
-                    TransformData::Disabled => unreachable!(),
-                }
-                if let Some(tf) = self.job_session.tf_mgr.transforms.get(tf_id) {
-                    if tf.mark_for_removal {
-                        self.remove_transform(tf_id);
-                    }
-                }
-
+                self.handle_transform(tf_id);
                 continue;
             }
             break;
         }
-        Ok(())
     }
 }

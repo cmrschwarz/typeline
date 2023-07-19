@@ -3,9 +3,9 @@ use smallstr::SmallString;
 use crate::{chain::ChainId, options::argument::CliArgIdx, utils::string_store::StringStoreEntry};
 
 use super::{
-    file_reader::OpFileReader, format::OpFormat, join::OpJoin, key::OpKey, literal::OpLiteral,
-    next::OpNext, print::OpPrint, regex::OpRegex, select::OpSelect, sequence::OpSequence,
-    split::OpSplit, string_sink::OpStringSink, up::OpUp,
+    count::OpCount, file_reader::OpFileReader, format::OpFormat, join::OpJoin, key::OpKey,
+    literal::OpLiteral, next::OpNext, print::OpPrint, regex::OpRegex, select::OpSelect,
+    sequence::OpSequence, split::OpSplit, string_sink::OpStringSink, up::OpUp,
 };
 
 pub type OperatorId = u32;
@@ -13,6 +13,7 @@ pub type OperatorOffsetInChain = u32;
 
 #[derive(Clone)]
 pub enum OperatorData {
+    Count(OpCount),
     Print(OpPrint),
     Join(OpJoin),
     Split(OpSplit),
@@ -55,6 +56,7 @@ impl OperatorData {
             OperatorData::Join(op) => op.default_op_name(),
             OperatorData::Next(_) => SmallString::from("next"),
             OperatorData::Up(_) => SmallString::from("up"),
+            OperatorData::Count(_) => SmallString::from("count"),
         }
     }
 }
