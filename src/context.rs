@@ -1,22 +1,27 @@
-use std::num::NonZeroUsize;
+use std::collections::VecDeque;
 use std::sync::{Arc, Condvar, Mutex};
 
-use crossbeam::deque::{Injector, Stealer, Worker};
-use smallvec::smallvec;
+use smallvec::{smallvec, SmallVec};
 
 use crate::field_data::record_set::RecordSet;
+use crate::operations::operator::OperatorId;
+use crate::worker_thread_session::{JobSession, WorkerThreadSession};
 use crate::{
     chain::Chain,
     operations::operator::{OperatorBase, OperatorData},
     scr_error::ScrError,
     utils::string_store::StringStore,
-    worker_thread::{Job, WorkerThread},
+    worker_thread::WorkerThread,
 };
 
-pub struct SessionData {
-    pub max_worker_threads: NonZeroUsize,
+pub struct Job {
+    pub starting_ops: SmallVec<[OperatorId; 2]>,
+    pub data: RecordSet,
+}
+
+pub struct Session {
+    pub max_threads: usize,
     pub is_repl: bool,
-    pub input_data: RecordSet,
     pub chains: Vec<Chain>,
     pub operator_bases: Vec<OperatorBase>,
     pub operator_data: Vec<OperatorData>,
@@ -24,113 +29,117 @@ pub struct SessionData {
     pub string_store: StringStore,
 }
 
-pub(crate) struct Session {
-    pub(crate) generation: usize,
-    pub(crate) terminate: bool,
-    pub(crate) stealers: Vec<Stealer<Job>>,
-    pub(crate) data: Arc<SessionData>,
+pub(crate) struct SessionManager {
+    pub job_queue: VecDeque<Job>,
+    pub terminate: bool,
+    pub waiting_worker_threads: usize,
+    pub total_worker_threads: usize,
+    pub session: Arc<Session>,
+    pub worker_join_handles: Vec<std::thread::JoinHandle<Result<(), ScrError>>>,
 }
 
-// shared between worker threads using an Arc<ContextData>
 pub(crate) struct ContextData {
-    pub(crate) injector: Injector<Job>,
-    pub(crate) tasks_available: Condvar,
-    pub(crate) session: Mutex<Session>,
+    pub jobs_available: Condvar,
+    pub worker_threads_finished: Condvar,
+    pub sess_mgr: Mutex<SessionManager>,
 }
 
 pub struct Context {
-    // we need pub(crate) to contextualize error messages for ScrError
-    pub curr_session_data: Arc<SessionData>,
-    main_worker_thread: WorkerThread,
-    worker_join_handles: Vec<std::thread::JoinHandle<Result<(), ScrError>>>,
+    pub(crate) session: Arc<Session>,
+    pub(crate) main_worker_thread: WorkerThread,
 }
 
 impl Context {
-    pub fn new(session_data: SessionData) -> Self {
-        let session_data_arc = Arc::new(session_data);
-        let ctx_data_arc = Arc::new(ContextData {
-            injector: Injector::new(),
-            tasks_available: Condvar::new(),
-            session: Mutex::new(Session {
-                generation: 0,
+    pub fn new(session: Arc<Session>) -> Self {
+        let ctx_data = Arc::new(ContextData {
+            jobs_available: Condvar::new(),
+            worker_threads_finished: Condvar::new(),
+            sess_mgr: Mutex::new(SessionManager {
                 terminate: false,
-                stealers: Vec::new(),
-                data: session_data_arc.clone(),
+                session: session.clone(),
+                total_worker_threads: 0,
+                waiting_worker_threads: 0,
+                worker_join_handles: Default::default(),
+                job_queue: Default::default(),
             }),
         });
-
         Self {
-            curr_session_data: session_data_arc,
-            main_worker_thread: WorkerThread::new(0, Worker::new_fifo(), ctx_data_arc.clone()),
-            worker_join_handles: Default::default(),
+            main_worker_thread: WorkerThread::new(ctx_data, session.clone()),
+            session: session,
         }
     }
-    pub fn gen_job_from_input_data(&mut self) {
-        let sd = self.curr_session_data.as_ref();
-        self.main_worker_thread.context_data.injector.push(Job {
-            starting_ops: smallvec![sd.chains[0].operations[0]],
-            data: sd.input_data.clone(), //TODO: figure out a way to avoid this
-        });
-        self.main_worker_thread
-            .context_data
-            .tasks_available
-            .notify_all();
+    fn wait_for_worker_threads(&self) {
+        let ctx = self.main_worker_thread.ctx_data.as_ref();
+        let mut sess_mgr = ctx.sess_mgr.lock().unwrap();
+        loop {
+            if sess_mgr.waiting_worker_threads == sess_mgr.total_worker_threads {
+                return;
+            }
+            sess_mgr = ctx.worker_threads_finished.wait(sess_mgr).unwrap();
+        }
     }
-    pub fn perform_jobs(&mut self) -> Result<(), ScrError> {
-        self.gen_job_from_input_data();
-        assert!(self.curr_session_data.max_worker_threads.get() > self.worker_join_handles.len()); // TODO: handle this case
-        let additional_worker_count =
-            self.curr_session_data.max_worker_threads.get() - self.worker_join_handles.len() - 1;
-        let additional_workers = (0..additional_worker_count)
-            .map(|_| Worker::new_fifo())
-            .collect::<Vec<Worker<Job>>>();
-        {
-            let mut session = self.main_worker_thread.context_data.session.lock().unwrap();
-            session.generation += 1;
-            session
-                .stealers
-                .extend(additional_workers.iter().map(|w| w.stealer()));
+    pub fn set_session(&mut self, mut session: Session) {
+        if self.session.max_threads < session.max_threads {
+            // TODO: we might want to lower ours instead?
+            // but this is simple and prevents deadlocks for now
+            session.max_threads = self.session.max_threads;
         }
-        let mut index = self.worker_join_handles.len() + 1;
-        let is_repl = self.curr_session_data.is_repl;
-        for worker in additional_workers.into_iter() {
-            let session = self.main_worker_thread.context_data.clone();
-            self.worker_join_handles.push(std::thread::spawn(move || {
-                WorkerThread::new(index, worker, session).run(is_repl)
-            }));
-            index += 1;
-        }
-        self.main_worker_thread.run(false)?;
-        Ok(()) //TODO
+        self.session = Arc::new(session);
+        self.main_worker_thread.update_session(self.session.clone());
+
+        // PERF: this lock is completely pointless, we known nobody else
+        // is using this right now. we could get rid of this using unsafe,
+        // but it's probably not worth it
+        let mut sess_mgr = self.main_worker_thread.ctx_data.sess_mgr.lock().unwrap();
+        sess_mgr.session = self.session.clone();
     }
-    pub fn terminate(mut self) {
-        {
-            let mut sess = self.main_worker_thread.context_data.session.lock().unwrap();
-            sess.generation += 1;
-            sess.terminate = true;
-            self.main_worker_thread
-                .context_data
-                .tasks_available
-                .notify_all();
+    pub fn get_session(&self) -> &Session {
+        &self.session
+    }
+    pub fn run_main_chain(&mut self, input_data: RecordSet) -> Result<(), ScrError> {
+        let res = self
+            .main_worker_thread
+            .run_job(self.session.construct_main_chain_job(input_data));
+        if self.session.max_threads > 1 {
+            self.wait_for_worker_threads();
         }
-        let threads = std::mem::replace(&mut self.worker_join_handles, Default::default());
-        for wt in threads.into_iter() {
-            //TODO: bundle up these errors somehow ?
-            if let Err(e) = wt.join().unwrap() {
-                println!(
-                    "error: {}",
-                    e.contextualize_message(
-                        self.curr_session_data.cli_args.as_ref(),
-                        None,
-                        Some(&self)
-                    )
-                );
+        res
+    }
+}
+
+impl Drop for Context {
+    fn drop(&mut self) {
+        if self.session.max_threads <= 1 {
+            return;
+        }
+        let ctx = self.main_worker_thread.ctx_data.as_ref();
+        let mut sess_mgr = ctx.sess_mgr.lock().unwrap();
+        sess_mgr.terminate = true;
+        ctx.jobs_available.notify_all();
+        loop {
+            sess_mgr = ctx.worker_threads_finished.wait(sess_mgr).unwrap();
+            if sess_mgr.waiting_worker_threads == sess_mgr.total_worker_threads {
+                return;
             }
         }
     }
-    pub fn run(mut self) -> Result<(), ScrError> {
-        self.perform_jobs()?;
-        self.terminate();
-        Ok(())
+}
+
+impl Session {
+    pub fn construct_main_chain_job(&self, input_data: RecordSet) -> Job {
+        let starting_op = self.chains[0].operations[0];
+        Job {
+            starting_ops: smallvec![starting_op],
+            data: input_data,
+        }
+    }
+    pub fn run_job_unthreaded(&self, job: Job) -> Result<(), ScrError> {
+        let mut transform_data = Vec::new();
+        let mut job_session = JobSession::new(&self);
+        let mut wts = WorkerThreadSession {
+            transform_data: &mut transform_data,
+            job_session: &mut job_session,
+        };
+        wts.run_job(job)
     }
 }

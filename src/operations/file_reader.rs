@@ -243,11 +243,7 @@ fn read_chunk(
 }
 
 // returns eof
-fn start_streaming_file(
-    sess: &mut JobSession<'_>,
-    tf_id: TransformId,
-    fr: &mut TfFileReader,
-) -> bool {
+fn start_streaming_file(sess: &mut JobSession, tf_id: TransformId, fr: &mut TfFileReader) -> bool {
     let mut output_field =
         sess.tf_mgr
             .prepare_output_field(&sess.field_mgr, &mut sess.match_set_mgr, tf_id);
@@ -332,7 +328,7 @@ fn start_streaming_file(
     return false;
 }
 
-pub fn handle_tf_file_reader(sess: &mut JobSession<'_>, tf_id: TransformId, fr: &mut TfFileReader) {
+pub fn handle_tf_file_reader(sess: &mut JobSession, tf_id: TransformId, fr: &mut TfFileReader) {
     let mut file_eof = true;
     let initial_call = !fr.value_committed;
     if !fr.value_committed {

@@ -2,7 +2,6 @@
 extern crate static_assertions;
 
 extern crate arrayvec;
-extern crate crossbeam;
 extern crate encoding_rs;
 extern crate lazy_static;
 extern crate rand;

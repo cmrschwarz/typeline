@@ -21,11 +21,7 @@ pub fn setup_tf_terminator(
     })
 }
 
-pub fn handle_tf_terminator(
-    sess: &mut JobSession<'_>,
-    tf_id: TransformId,
-    t1000: &mut TfTerminator,
-) {
+pub fn handle_tf_terminator(sess: &mut JobSession, tf_id: TransformId, t1000: &mut TfTerminator) {
     let (batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
     let tf = &sess.tf_mgr.transforms[tf_id];
     let cb = &mut sess.match_set_mgr.match_sets[tf.match_set_id].command_buffer;

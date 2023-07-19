@@ -21,8 +21,8 @@ use crate::{
         argument::{ArgumentReassignmentError, CliArgIdx},
         chain_options::ChainOptions,
         chain_spec::ChainSpec,
-        context_options::ContextOptions,
         operator_base_options::OperatorBaseOptions,
+        session_options::SessionOptions,
     },
     selenium::{SeleniumDownloadStrategy, SeleniumVariant},
 };
@@ -188,7 +188,7 @@ fn print_version(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 }
 
 fn try_parse_as_context_opt(
-    ctx_opts: &mut ContextOptions,
+    ctx_opts: &mut SessionOptions,
     arg: &ParsedCliArgument,
 ) -> Result<bool, ScrError> {
     let mut matched = false;
@@ -217,7 +217,7 @@ fn try_parse_as_context_opt(
     if arg.argname == "j" {
         if let Some(val) = arg.value.as_deref() {
             ctx_opts
-                .max_worker_threads
+                .max_threads
                 .set(try_parse_usize_arg(val, arg.cli_arg.idx)?)
                 .map_err(|e| ScrError::from(CliArgumentError::from(e)))?;
         } else {
@@ -247,11 +247,11 @@ fn try_parse_as_context_opt(
 }
 
 fn try_parse_as_chain_opt(
-    ctx_opts: &mut ContextOptions,
+    ctx_opts: &mut SessionOptions,
     arg: &ParsedCliArgument,
 ) -> Result<bool, CliArgumentError> {
     fn apply_to_chains<F>(
-        ctx_opts: &mut ContextOptions,
+        ctx_opts: &mut SessionOptions,
         arg: &ParsedCliArgument,
         f: F,
     ) -> Result<bool, CliArgumentError>
@@ -432,7 +432,7 @@ fn parse_operation(
 }
 
 fn try_parse_as_operation<'a>(
-    ctx_opts: &mut ContextOptions,
+    ctx_opts: &mut SessionOptions,
     arg: ParsedCliArgument<'a>,
 ) -> Result<Option<ParsedCliArgument<'a>>, CliArgumentError> {
     let op_data =
@@ -461,11 +461,11 @@ fn try_parse_as_operation<'a>(
     }
 }
 
-pub fn parse_cli_retain_args(args: &Vec<Vec<u8>>) -> Result<ContextOptions, ScrError> {
+pub fn parse_cli_retain_args(args: &Vec<Vec<u8>>) -> Result<SessionOptions, ScrError> {
     if args.is_empty() {
         return Err(MissingArgumentsError.into());
     }
-    let mut ctx_opts = ContextOptions::default();
+    let mut ctx_opts = SessionOptions::default();
     for (i, arg_str) in args.iter().enumerate() {
         let cli_arg = CliArgument {
             idx: i as CliArgIdx + 1,
@@ -511,7 +511,7 @@ pub fn parse_cli_retain_args(args: &Vec<Vec<u8>>) -> Result<ContextOptions, ScrE
     }
     return Ok(ctx_opts);
 }
-pub fn parse_cli(args: Vec<Vec<u8>>) -> Result<ContextOptions, (Vec<Vec<u8>>, ScrError)> {
+pub fn parse_cli(args: Vec<Vec<u8>>) -> Result<SessionOptions, (Vec<Vec<u8>>, ScrError)> {
     match parse_cli_retain_args(&args) {
         Ok(mut ctx) => {
             ctx.cli_args = Some(args);
@@ -549,7 +549,7 @@ pub fn collect_env_args() -> Result<Vec<Vec<u8>>, CliArgumentError> {
     }
 }
 
-pub fn parse_cli_from_env() -> Result<ContextOptions, ScrError> {
+pub fn parse_cli_from_env() -> Result<SessionOptions, ScrError> {
     let args = collect_env_args()?;
     parse_cli(args).map_err(|(_, e)| e)
 }

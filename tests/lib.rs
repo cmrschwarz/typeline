@@ -332,7 +332,7 @@ fn unset_value() -> Result<(), ScrError> {
         &["x0", "ERROR: in op id 3: Format Error"]
     );
     assert_eq!(
-        ss.get().errors.get(&1).map(|v| (&*v.message)),
+        ss.get().get_first_error_message(),
         Some("Format Error") //TODO: better error message
     );
     Ok(())
@@ -348,7 +348,7 @@ fn nonexisting_key() -> Result<(), ScrError> {
         .run()?;
     assert!(ss.get_data().is_err());
     assert_eq!(
-        ss.get().errors.get(&0).map(|v| (&*v.message)),
+        ss.get().get_first_error_message(),
         Some("Format Error") //TODO: better error message
     );
     Ok(())
@@ -363,7 +363,7 @@ fn nonexisting_format_width_key() -> Result<(), ScrError> {
         .run()?;
     assert!(ss.get_data().is_err());
     assert_eq!(
-        ss.get().errors.get(&0).map(|v| (&*v.message)),
+        ss.get().get_first_error_message(),
         Some("Format Error") //TODO: better error message
     );
     Ok(())

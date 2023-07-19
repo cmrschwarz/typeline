@@ -1,98 +1,72 @@
-use std::iter;
-use std::mem::ManuallyDrop;
-
+use crate::{
+    context::{ContextData, Job, Session},
+    operations::transform::TransformData,
+    scr_error::ScrError,
+    worker_thread_session::{JobSession, WorkerThreadSession},
+};
 use std::sync::Arc;
 
-use crossbeam::deque::{Stealer, Worker};
-use smallvec::SmallVec;
-
-use crate::{
-    context::{ContextData, SessionData},
-    field_data::record_set::RecordSet,
-    operations::operator::OperatorId,
-    scr_error::ScrError,
-    worker_thread_session::WorkerThreadSession,
-};
-
-pub(crate) struct Job {
-    pub starting_ops: SmallVec<[OperatorId; 2]>,
-    pub data: RecordSet,
-}
-
 pub(crate) struct WorkerThread {
-    pub(crate) context_data: Arc<ContextData>,
-    pub(crate) worker: Worker<Job>,
-    pub(crate) stealers: Vec<Stealer<Job>>,
-
-    // aquired from context_data->session at the start of each generation
-    session_generation: usize,
-    session_data: Arc<SessionData>,
+    pub ctx_data: Arc<ContextData>,
+    pub session: Arc<Session>,
+    // SAFETY: job_session and transform_data refer to session, but this type make sure that
+    // their references get updated before the session (that this type holds) goes out of scope.
+    // we do this to avoid reallocationg JobSession and Vec<TransformData> for every single job
+    pub job_session: JobSession<'static>,
+    pub transform_data: Vec<TransformData<'static>>,
 }
 
 impl WorkerThread {
-    pub(crate) fn new(index: usize, worker: Worker<Job>, context_data: Arc<ContextData>) -> Self {
-        let sess = context_data.session.lock().unwrap();
+    pub(crate) fn new(ctx_data: Arc<ContextData>, sess: Arc<Session>) -> Self {
         Self {
-            worker: worker,
-            session_data: sess.data.clone(),
-            stealers: sess
-                .stealers
-                .iter()
-                .enumerate()
-                .filter(|(idx, _)| *idx != index)
-                .map(|(_, s)| s.clone())
-                .collect(),
-            session_generation: sess.generation,
-            context_data: context_data.clone(),
+            ctx_data,
+            //SAFETY: see comment on struct, this type owns and manages the session lifetime
+            job_session: JobSession::new(unsafe { &*(sess.as_ref() as *const Session) }),
+            session: sess,
+            transform_data: Vec::new(),
         }
     }
-    pub(crate) fn run(&mut self, check_for_new_generations: bool) -> Result<(), ScrError> {
-        let mut sess_data_arc = self.session_data.clone();
-        let mut sess = ManuallyDrop::new(WorkerThreadSession::new(&sess_data_arc));
+    pub fn update_session(&mut self, sess: Arc<Session>) {
+        self.session = sess;
+    }
+    pub fn run_job(&mut self, job: Job) -> Result<(), ScrError> {
+        // SAFETY: see struct comment for why we do this
+        // because we marked job_session and transform_data 'static,
+        // we normally could not construct the WorkerThreadSession because the
+        // &self reference that we have here does not exceed 'static
+        // this is fine because we drop wts immediately after, and clear the
+        // transform data of all references it may hold while still holding
+        // the session arc
+        let me = unsafe { std::mem::transmute::<&'_ mut Self, &'static mut Self>(self) };
+        let mut wts = WorkerThreadSession {
+            transform_data: &mut me.transform_data,
+            job_session: &mut me.job_session,
+        };
+        let result = wts.run_job(job);
+        drop(wts);
+        self.transform_data.clear();
+        result
+    }
+
+    pub fn run(&mut self) -> Result<(), ScrError> {
+        let mut sess_mgr = self.ctx_data.sess_mgr.lock().unwrap();
         loop {
-            if let Some(job) = self.find_job() {
-                let res = sess.run_job(job);
-                res?;
-            } else {
-                if !check_for_new_generations || !self.aquire_next_generation() {
-                    return Ok(());
+            if !sess_mgr.terminate {
+                if let Some(job) = sess_mgr.job_queue.pop_front() {
+                    if !std::ptr::eq(self.session.as_ref(), sess_mgr.session.as_ref()) {
+                        self.session = sess_mgr.session.clone();
+                    }
+                    drop(sess_mgr);
+                    self.run_job(job);
+                    sess_mgr = self.ctx_data.sess_mgr.lock().unwrap();
                 }
-                let _ = ManuallyDrop::into_inner(sess);
-                sess_data_arc = self.session_data.clone();
-                sess = ManuallyDrop::new(WorkerThreadSession::new(&sess_data_arc));
             }
+            sess_mgr.waiting_worker_threads += 1;
+            self.ctx_data.worker_threads_finished.notify_one();
+            if sess_mgr.terminate {
+                return Ok(());
+            }
+            sess_mgr = self.ctx_data.jobs_available.wait(sess_mgr).unwrap();
         }
-    }
-    fn aquire_next_generation(&mut self) -> bool {
-        let mut sess = self.context_data.session.lock().unwrap();
-        loop {
-            if sess.terminate {
-                return false;
-            }
-            if sess.generation != self.session_generation {
-                self.session_generation = sess.generation;
-                self.stealers.extend(
-                    sess.stealers
-                        .iter()
-                        .skip(self.stealers.len())
-                        .map(|s| s.clone()),
-                );
-                self.session_data = sess.data.clone();
-                return true;
-            }
-            sess = self.context_data.tasks_available.wait(sess).unwrap();
-        }
-    }
-    fn find_job(&mut self) -> Option<Job> {
-        self.worker.pop().or_else(|| {
-            iter::repeat_with(|| {
-                self.context_data
-                    .injector
-                    .steal_batch_and_pop(&self.worker)
-                    .or_else(|| self.stealers.iter().map(|s| s.steal()).collect())
-            })
-            .find(|s| !s.is_retry())
-            .and_then(|s| s.success())
-        })
     }
 }

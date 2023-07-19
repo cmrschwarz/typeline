@@ -291,7 +291,7 @@ fn push_error(join: &mut TfJoin, sv_mgr: &mut StreamValueManager, e: OperatorApp
         join.current_group_error = Some(e);
     }
 }
-pub fn handle_tf_join(sess: &mut JobSession<'_>, tf_id: TransformId, join: &mut TfJoin) {
+pub fn handle_tf_join(sess: &mut JobSession, tf_id: TransformId, join: &mut TfJoin) {
     let (batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
     let mut output_field =
         sess.tf_mgr
@@ -472,7 +472,7 @@ pub fn handle_tf_join(sess: &mut JobSession<'_>, tf_id: TransformId, join: &mut 
 }
 
 pub fn handle_tf_join_stream_value_update(
-    sess: &mut JobSession<'_>,
+    sess: &mut JobSession,
     tf_id: TransformId,
     join: &mut TfJoin,
     sv_id: StreamValueId,

@@ -4,8 +4,7 @@ use lazy_static::lazy_static;
 
 use crate::{
     chain::{compute_field_livenses, Chain, ChainId, INVALID_CHAIN_ID},
-    context::{Context, SessionData},
-    field_data::record_set::RecordSet,
+    context::Session,
     operations::{
         errors::{ChainSetupError, OperatorSetupError},
         file_reader::setup_op_file_reader,
@@ -28,13 +27,12 @@ use super::{
 //TODO: refactor this into SessionOptions
 
 #[derive(Clone)]
-pub struct ContextOptions {
-    pub max_worker_threads: Argument<usize>,
+pub struct SessionOptions {
+    pub max_threads: Argument<usize>,
     pub repl: Argument<bool>,
     pub exit_repl: Argument<bool>,
     pub install_selenium_drivers: Vec<Argument<SeleniumVariant>>,
     pub update_selenium_drivers: Vec<Argument<SeleniumVariant>>,
-    pub input_data: RecordSet,
     pub(crate) string_store: StringStore,
     pub(crate) operator_base_options: Vec<OperatorBaseOptions>,
     pub(crate) operator_data: Vec<OperatorData>,
@@ -43,16 +41,15 @@ pub struct ContextOptions {
     pub cli_args: Option<Vec<Vec<u8>>>,
 }
 
-impl Default for ContextOptions {
+impl Default for SessionOptions {
     fn default() -> Self {
         Self {
-            max_worker_threads: Default::default(),
+            max_threads: Default::default(),
             repl: Default::default(),
             exit_repl: Default::default(),
             install_selenium_drivers: Default::default(),
             update_selenium_drivers: Default::default(),
             chains: vec![ChainOptions::default()],
-            input_data: Default::default(),
             curr_chain: Default::default(),
             operator_base_options: Default::default(),
             operator_data: Default::default(),
@@ -63,8 +60,8 @@ impl Default for ContextOptions {
 }
 
 lazy_static! {
-    static ref DEFAULT_CONTEXT_OPTIONS: ContextOptions = ContextOptions {
-        max_worker_threads: Argument::new(1),
+    static ref DEFAULT_CONTEXT_OPTIONS: SessionOptions = SessionOptions {
+        max_threads: Argument::new(1),
         repl: Argument::new(false),
         exit_repl: Argument::new(false),
         install_selenium_drivers: Vec::new(),
@@ -72,14 +69,13 @@ lazy_static! {
         chains: Vec::new(),
         operator_base_options: Vec::new(),
         operator_data: Vec::new(),
-        input_data: Default::default(),
         string_store: StringStore::default(),
         cli_args: None,
         curr_chain: 0,
     };
 }
 
-impl ContextOptions {
+impl SessionOptions {
     pub fn get_current_chain(&mut self) -> ChainId {
         self.curr_chain
     }
@@ -120,7 +116,7 @@ impl ContextOptions {
         self.operator_base_options.push(op_base_opts);
         self.operator_data.push(op_data);
     }
-    pub fn verify_bounds(sess: &mut SessionData) -> Result<(), ScrError> {
+    pub fn verify_bounds(sess: &mut Session) -> Result<(), ScrError> {
         if sess.operator_bases.len() >= OperatorOffsetInChain::MAX as usize {
             return Err(OperatorSetupError {
                 message: Cow::Owned(
@@ -145,7 +141,7 @@ impl ContextOptions {
         }
         return Ok(());
     }
-    pub fn setup_operators(sess: &mut SessionData) -> Result<(), OperatorSetupError> {
+    pub fn setup_operators(sess: &mut Session) -> Result<(), OperatorSetupError> {
         for i in 0..sess.operator_bases.len() {
             let op_id = i as OperatorId;
             let op_base = &mut sess.operator_bases[i];
@@ -187,7 +183,7 @@ impl ContextOptions {
         }
         Ok(())
     }
-    pub fn setup_chains(sess: &mut SessionData) -> Result<(), ChainSetupError> {
+    pub fn setup_chains(sess: &mut Session) -> Result<(), ChainSetupError> {
         for i in 0..sess.chains.len() {
             let chain = &mut sess.chains[i];
             Self::validate_chain(chain, i as ChainId)?;
@@ -195,16 +191,16 @@ impl ContextOptions {
         compute_field_livenses(sess);
         Ok(())
     }
-    pub fn build_context(mut self) -> Result<Context, (ContextOptions, ScrError)> {
-        let max_worker_threads = NonZeroUsize::try_from(
-            self.max_worker_threads
-                .value
-                .unwrap_or(DEFAULT_CONTEXT_OPTIONS.max_worker_threads.unwrap()),
-        )
-        .unwrap_or_else(|_| {
-            std::thread::available_parallelism()
-                .unwrap_or_else(|_| NonZeroUsize::try_from(1).unwrap())
-        });
+    pub fn build_session(mut self) -> Result<Session, (SessionOptions, ScrError)> {
+        let mut max_threads = self
+            .max_threads
+            .value
+            .unwrap_or(DEFAULT_CONTEXT_OPTIONS.max_threads.unwrap());
+        if max_threads == 0 {
+            max_threads = std::thread::available_parallelism()
+                .unwrap_or(NonZeroUsize::new(1).unwrap())
+                .get();
+        }
 
         let mut chains = Vec::with_capacity(self.chains.len());
         for i in 0..self.chains.len() {
@@ -219,10 +215,9 @@ impl ContextOptions {
             chains.push(chain);
         }
 
-        let mut sd = SessionData {
-            max_worker_threads,
+        let mut sess = Session {
+            max_threads,
             is_repl: self.repl.unwrap_or(DEFAULT_CONTEXT_OPTIONS.repl.unwrap()),
-            input_data: self.input_data,
             chains,
             operator_data: self.operator_data,
             operator_bases: self
@@ -242,17 +237,16 @@ impl ContextOptions {
             cli_args: self.cli_args,
             string_store: self.string_store,
         };
-        let res = ContextOptions::verify_bounds(&mut sd)
-            .and(result_into(ContextOptions::setup_operators(&mut sd)))
-            .and(result_into(ContextOptions::setup_chains(&mut sd)));
+        let res = SessionOptions::verify_bounds(&mut sess)
+            .and(result_into(SessionOptions::setup_operators(&mut sess)))
+            .and(result_into(SessionOptions::setup_chains(&mut sess)));
         if let Err(e) = res {
             //moving back into context options
-            self.input_data = sd.input_data;
-            self.string_store = sd.string_store;
-            self.operator_data = sd.operator_data;
-            self.cli_args = sd.cli_args;
+            self.string_store = sess.string_store;
+            self.operator_data = sess.operator_data;
+            self.cli_args = sess.cli_args;
             return Err((self, e));
         }
-        Ok(Context::new(sd))
+        Ok(sess)
     }
 }

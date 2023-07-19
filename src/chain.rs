@@ -1,7 +1,7 @@
 use std::collections::{hash_map::Entry, HashMap, HashSet};
 
 use crate::{
-    context::SessionData,
+    context::Session,
     document::TextEncoding,
     operations::operator::{OperatorData, OperatorId},
     selenium::SeleniumDownloadStrategy,
@@ -138,7 +138,7 @@ pub struct Chain {
     pub liveness_data: ChainLivenessData,
 }
 
-pub fn compute_local_liveness_data(sess: &mut SessionData, chain_id: ChainId) {
+pub fn compute_local_liveness_data(sess: &mut Session, chain_id: ChainId) {
     let cn = &mut sess.chains[chain_id as usize];
     let mut curr_field = DEFAULT_INPUT_FIELD;
     let mut any_writes_so_far = false;
@@ -224,7 +224,7 @@ pub fn compute_local_liveness_data(sess: &mut SessionData, chain_id: ChainId) {
         }
     }
 }
-pub fn compute_field_livenses(sess: &mut SessionData) {
+pub fn compute_field_livenses(sess: &mut Session) {
     // compute local liveness data (successors, accessed, declared)
     for c in 0..sess.chains.len() {
         compute_local_liveness_data(sess, c as ChainId);

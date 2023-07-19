@@ -57,7 +57,7 @@ pub fn setup_tf_select(
     TransformData::Select(TfSelect {})
 }
 
-pub fn handle_tf_select(sess: &mut JobSession<'_>, tf_id: TransformId, _sel: &mut TfSelect) {
+pub fn handle_tf_select(sess: &mut JobSession, tf_id: TransformId, _sel: &mut TfSelect) {
     let tf = &sess.tf_mgr.transforms[tf_id];
     sess.field_mgr
         .apply_field_actions(&mut sess.match_set_mgr, tf.input_field);

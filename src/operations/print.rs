@@ -142,7 +142,7 @@ pub fn write_stream_val_check_done(
 }
 
 pub fn handle_tf_print_raw(
-    sess: &mut JobSession<'_>,
+    sess: &mut JobSession,
     tf_id: TransformId,
     tf: &mut TfPrint,
     batch_size: usize,
@@ -268,7 +268,7 @@ pub fn handle_tf_print_raw(
     Ok(())
 }
 
-pub fn handle_tf_print(sess: &mut JobSession<'_>, tf_id: TransformId, tf: &mut TfPrint) {
+pub fn handle_tf_print(sess: &mut JobSession, tf_id: TransformId, tf: &mut TfPrint) {
     let (batch, input_done) = sess.tf_mgr.claim_batch(tf_id);
     let mut handled_field_count = 0;
     let res = handle_tf_print_raw(sess, tf_id, tf, batch, input_done, &mut handled_field_count);
@@ -296,7 +296,7 @@ pub fn handle_tf_print(sess: &mut JobSession<'_>, tf_id: TransformId, tf: &mut T
 }
 
 pub fn handle_tf_print_stream_value_update(
-    sess: &mut JobSession<'_>,
+    sess: &mut JobSession,
     tf_id: TransformId,
     _print: &mut TfPrint,
     sv_id: StreamValueId,

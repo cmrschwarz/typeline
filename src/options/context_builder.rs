@@ -1,26 +1,26 @@
+use std::sync::Arc;
+
 use crate::{
-    context::Context,
+    context::{Context, Session},
     field_data::{push_interface::PushInterface, record_set::RecordSet},
     operations::operator::OperatorData,
     scr_error::ScrError,
 };
 
 use super::{
-    chain_spec::ChainSpec, context_options::ContextOptions,
-    operator_base_options::OperatorBaseOptions,
+    chain_spec::ChainSpec, operator_base_options::OperatorBaseOptions,
+    session_options::SessionOptions,
 };
 
-#[derive(Clone)]
-pub struct ContextBuilder {
-    opts: Box<ContextOptions>,
+#[derive(Default, Clone)]
+pub struct ContextBuilderData {
+    opts: SessionOptions,
+    input_data: RecordSet,
 }
 
-impl Default for ContextBuilder {
-    fn default() -> Self {
-        ContextBuilder {
-            opts: Box::new(ContextOptions::default()),
-        }
-    }
+#[derive(Default, Clone)]
+pub struct ContextBuilder {
+    data: Box<ContextBuilderData>,
 }
 
 impl ContextBuilder {
@@ -34,17 +34,18 @@ impl ContextBuilder {
     ) -> Self {
         let op_base = OperatorBaseOptions {
             argname: self
+                .data
                 .opts
                 .string_store
                 .intern_cloned(argname.unwrap_or(op_data.default_op_name().as_str())),
-            label: label.map(|lbl| self.opts.string_store.intern_cloned(lbl)),
+            label: label.map(|lbl| self.data.opts.string_store.intern_cloned(lbl)),
             chainspec,
             append_mode,
             cli_arg_idx: None,
             chain_id: None,
             op_id: None,
         };
-        self.opts.add_op(op_base, op_data);
+        self.data.opts.add_op(op_base, op_data);
         self
     }
     pub fn add_op(self, op_data: OperatorData) -> Self {
@@ -56,55 +57,69 @@ impl ContextBuilder {
         self.add_op_with_opts(op_data, Some(&argname), None, None, true)
     }
     pub fn set_input(mut self, rs: RecordSet) -> Self {
-        self.opts.input_data = rs;
+        self.data.input_data = rs;
         self
     }
+    fn build_session_drop_opts(opts: SessionOptions) -> Result<Session, ScrError> {
+        opts.build_session().map_err(|e| e.1)
+    }
+    pub fn build_session(self) -> Result<Session, ScrError> {
+        Self::build_session_drop_opts(self.data.opts)
+    }
     pub fn build(self) -> Result<Context, ScrError> {
-        Ok(self.opts.build_context().map_err(|e| e.1)?)
+        let sess = Self::build_session_drop_opts(self.data.opts)?;
+        Ok(Context::new(Arc::new(sess)))
     }
     pub fn run(self) -> Result<(), ScrError> {
-        self.build()?.run()
+        let sess = Self::build_session_drop_opts(self.data.opts)?;
+        if sess.max_threads == 1 {
+            sess.run_job_unthreaded(sess.construct_main_chain_job(self.data.input_data))
+        } else {
+            let mut ctx = Context::new(Arc::new(sess));
+            ctx.run_main_chain(self.data.input_data)?;
+            Ok(())
+        }
     }
 }
 
 impl ContextBuilder {
     pub fn push_str(mut self, v: &str, run_length: usize) -> Self {
-        self.opts.input_data.push_str(v, run_length, true, false);
+        self.data.input_data.push_str(v, run_length, true, false);
         self
     }
     pub fn push_string(mut self, v: String, run_length: usize) -> Self {
-        self.opts.input_data.push_string(v, run_length, true, false);
+        self.data.input_data.push_string(v, run_length, true, false);
         self
     }
     pub fn push_int(mut self, v: i64, run_length: usize) -> Self {
-        self.opts.input_data.push_int(v, run_length, true, false);
+        self.data.input_data.push_int(v, run_length, true, false);
         self
     }
     pub fn push_bytes(mut self, v: &[u8], run_length: usize) -> Self {
-        self.opts.input_data.push_bytes(v, run_length, true, false);
+        self.data.input_data.push_bytes(v, run_length, true, false);
         self
     }
     pub fn push_null(mut self, run_length: usize) -> Self {
-        self.opts.input_data.push_null(run_length, true);
+        self.data.input_data.push_null(run_length, true);
         self
     }
 }
 
 impl ContextBuilder {
     pub fn set_batch_size(mut self, bs: usize) -> Self {
-        self.opts.chains[self.opts.curr_chain as usize]
+        self.data.opts.chains[self.data.opts.curr_chain as usize]
             .default_batch_size
             .force_set(bs);
         self
     }
     pub fn set_stream_buffer_size(mut self, sbs: usize) -> Self {
-        self.opts.chains[self.opts.curr_chain as usize]
+        self.data.opts.chains[self.data.opts.curr_chain as usize]
             .stream_buffer_size
             .force_set(sbs);
         self
     }
     pub fn set_stream_size_threshold(mut self, sbs: usize) -> Self {
-        self.opts.chains[self.opts.curr_chain as usize]
+        self.data.opts.chains[self.data.opts.curr_chain as usize]
             .stream_size_threshold
             .force_set(sbs);
         self

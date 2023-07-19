@@ -46,6 +46,12 @@ impl StringSink {
         self.error_indices.insert(index, self.errors.len());
         self.errors.push((index, err))
     }
+    pub fn get_first_error(&self) -> Option<Arc<OperatorApplicationError>> {
+        self.errors.first().map(|(_i, e)| e.clone())
+    }
+    pub fn get_first_error_message<'a>(&'a self) -> Option<&'a str> {
+        self.errors.first().map(|(_i, e)| e.message.deref())
+    }
 }
 
 #[derive(Clone)]
@@ -303,11 +309,7 @@ pub fn push_errors<'a>(
     });
     *last_error_end = field_pos;
 }
-pub fn handle_tf_string_sink(
-    sess: &mut JobSession<'_>,
-    tf_id: TransformId,
-    ss: &mut TfStringSink<'_>,
-) {
+pub fn handle_tf_string_sink(sess: &mut JobSession, tf_id: TransformId, ss: &mut TfStringSink<'_>) {
     let (batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
     let tf = &sess.tf_mgr.transforms[tf_id];
     let op_id = tf.op_id.unwrap();
@@ -456,7 +458,7 @@ pub fn handle_tf_string_sink(
 }
 
 pub fn handle_tf_string_sink_stream_value_update(
-    sess: &mut JobSession<'_>,
+    sess: &mut JobSession,
     tf_id: TransformId,
     tf: &mut TfStringSink<'_>,
     sv_id: StreamValueId,

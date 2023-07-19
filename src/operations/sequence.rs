@@ -76,7 +76,7 @@ pub fn increment_int_str(data: &mut ArrayVec<u8, I64_MAX_DECIMAL_DIGITS>) {
 
 const FAST_SEQ_MAX_STEP: i64 = 200;
 
-pub fn handle_tf_sequence(sess: &mut JobSession<'_>, tf_id: TransformId, seq: &mut TfSequence) {
+pub fn handle_tf_sequence(sess: &mut JobSession, tf_id: TransformId, seq: &mut TfSequence) {
     let (mut batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
     let mut output_field =
         sess.tf_mgr

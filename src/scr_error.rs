@@ -4,7 +4,7 @@ use thiserror::Error;
 
 use crate::{
     cli::{CliArgumentError, MissingArgumentsError, PrintInfoAndExitError},
-    context::Context,
+    context::Session,
     operations::{
         errors::{
             ChainSetupError, OperatorApplicationError, OperatorCreationError, OperatorSetupError,
@@ -12,7 +12,7 @@ use crate::{
         },
         operator::OperatorId,
     },
-    options::{argument::CliArgIdx, context_options::ContextOptions},
+    options::{argument::CliArgIdx, session_options::SessionOptions},
 };
 
 #[derive(Error, Debug, Clone)]
@@ -65,18 +65,16 @@ fn contextualize_op_id(
     msg: &str,
     op_id: OperatorId,
     args: Option<&Vec<Vec<u8>>>,
-    ctx_opts: Option<&ContextOptions>,
-    ctx: Option<&Context>,
+    ctx_opts: Option<&SessionOptions>,
+    sess: Option<&Session>,
 ) -> String {
     let cli_arg_id = ctx_opts
         .and_then(|o| o.operator_base_options[op_id as usize].cli_arg_idx)
-        .or_else(|| {
-            ctx.and_then(|c| c.curr_session_data.operator_bases[op_id as usize].cli_arg_idx)
-        });
+        .or_else(|| sess.and_then(|sess| sess.operator_bases[op_id as usize].cli_arg_idx));
     if let (Some(args), Some(cli_arg_id)) = (args, cli_arg_id) {
         contextualize_cli_arg(msg, Some(args), cli_arg_id)
     } else {
-        if let Some(sess) = ctx.map(|c| &*c.curr_session_data) {
+        if let Some(sess) = sess {
             let op_base = &sess.operator_bases[op_id as usize];
             //TODO: stringify chain id
             format!(
@@ -97,12 +95,12 @@ impl ScrError {
     pub fn contextualize_message(
         self,
         args: Option<&Vec<Vec<u8>>>,
-        ctx_opts: Option<&ContextOptions>,
-        ctx: Option<&Context>,
+        ctx_opts: Option<&SessionOptions>,
+        sess: Option<&Session>,
     ) -> String {
         let args_gathered = args
             .or_else(|| ctx_opts.and_then(|o| o.cli_args.as_ref()))
-            .or_else(|| ctx.and_then(|c| c.curr_session_data.cli_args.as_ref()));
+            .or_else(|| sess.and_then(|sess| sess.cli_args.as_ref()));
         match self {
             ScrError::CliArgumentError(e) => {
                 contextualize_cli_arg(&e.message, args_gathered, e.cli_arg_idx)
@@ -110,13 +108,13 @@ impl ScrError {
             ScrError::ChainSetupError(e) => e.to_string(),
             ScrError::OperationCreationError(e) => e.message.to_string(),
             ScrError::OperationSetupError(e) => {
-                contextualize_op_id(&e.message, e.op_id, args_gathered, ctx_opts, ctx)
+                contextualize_op_id(&e.message, e.op_id, args_gathered, ctx_opts, sess)
             }
             ScrError::TransformSetupError(e) => {
-                contextualize_op_id(&e.message, e.op_id, args_gathered, ctx_opts, ctx)
+                contextualize_op_id(&e.message, e.op_id, args_gathered, ctx_opts, sess)
             }
             ScrError::OperationApplicationError(e) => {
-                contextualize_op_id(&e.message, e.op_id, args_gathered, ctx_opts, ctx)
+                contextualize_op_id(&e.message, e.op_id, args_gathered, ctx_opts, sess)
             }
             ScrError::PrintInfoAndExitError(e) => format!("{}", e),
             ScrError::MissingArgumentsError(e) => format!("{}", e),

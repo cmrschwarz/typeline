@@ -71,7 +71,7 @@ pub fn setup_tf_data_inserter<'a>(
     })
 }
 
-pub fn handle_tf_literal(sess: &mut JobSession<'_>, tf_id: TransformId, lit: &mut TfLiteral) {
+pub fn handle_tf_literal(sess: &mut JobSession, tf_id: TransformId, lit: &mut TfLiteral) {
     let tf = &sess.tf_mgr.transforms[tf_id];
     let initial_call = !lit.value_inserted;
     if !lit.value_inserted {

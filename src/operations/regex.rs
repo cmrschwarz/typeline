@@ -581,7 +581,7 @@ struct RegexMatchInnerState<'a, 'b> {
     source_field: FieldId,
 }
 
-pub fn handle_tf_regex(sess: &mut JobSession<'_>, tf_id: TransformId, re: &mut TfRegex) {
+pub fn handle_tf_regex(sess: &mut JobSession, tf_id: TransformId, re: &mut TfRegex) {
     let (batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
     sess.tf_mgr.prepare_for_output(
         &sess.field_mgr,
@@ -821,7 +821,7 @@ pub fn handle_tf_regex(sess: &mut JobSession<'_>, tf_id: TransformId, re: &mut T
 }
 
 pub fn handle_tf_regex_stream_value_update(
-    sess: &mut JobSession<'_>,
+    sess: &mut JobSession,
     tf_id: TransformId,
     _tf: &mut TfRegex,
     sv_id: StreamValueId,

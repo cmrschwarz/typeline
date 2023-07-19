@@ -1377,7 +1377,7 @@ fn write_fmt_key(
         iter.into_base_iter(),
     );
 }
-pub fn handle_tf_format(sess: &mut JobSession<'_>, tf_id: TransformId, fmt: &mut TfFormat) {
+pub fn handle_tf_format(sess: &mut JobSession, tf_id: TransformId, fmt: &mut TfFormat) {
     let (batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
     let mut output_field =
         sess.tf_mgr
@@ -1455,7 +1455,7 @@ pub fn handle_tf_format(sess: &mut JobSession<'_>, tf_id: TransformId, fmt: &mut
 }
 
 pub fn handle_tf_format_stream_value_update(
-    sess: &mut JobSession<'_>,
+    sess: &mut JobSession,
     tf_id: TransformId,
     tf: &mut TfFormat,
     sv_id: StreamValueId,
