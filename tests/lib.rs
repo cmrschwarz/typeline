@@ -347,11 +347,7 @@ fn unset_field_value_debug_repr_is_null() -> Result<(), ScrError> {
         .add_op(create_op_format("{foo:?}{}".as_bytes()).unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
-    assert_eq!(ss.get_data().unwrap().as_slice(), &["x0", "null1"]);
-    assert_eq!(
-        ss.get().get_first_error_message(),
-        Some("Format Error") //TODO: better error message
-    );
+    assert_eq!(ss.get_data().unwrap().as_slice(), &["\"x\"0", "null1"]);
     Ok(())
 }
 
