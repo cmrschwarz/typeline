@@ -162,6 +162,11 @@ pub fn compute_local_liveness_data(sess: &mut Session, chain_id: ChainId) {
                 curr_field = cn.liveness_data.unalias(select.key_interned);
             }
             OperatorData::Count(_count) => {
+                cn.liveness_data.mark_default_input_as_shadowed(curr_field);
+                curr_field = output_field;
+            }
+            OperatorData::Cast(_cast) => {
+                cn.liveness_data.mark_default_input_as_shadowed(curr_field);
                 curr_field = output_field;
             }
             OperatorData::Regex(re) => {

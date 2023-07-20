@@ -39,7 +39,6 @@ impl<'a> TypedValue<'a> {
                     TypedValue::BytesInline(to_slice(fd, data_begin, fmt.size as usize))
                 }
             }
-            FieldValueKind::EntryId => todo!(),
             FieldValueKind::Integer => TypedValue::Integer(*to_ref(fd, data_begin)),
             FieldValueKind::StreamValueId => TypedValue::StreamValueId(*to_ref(fd, data_begin)),
             FieldValueKind::Reference => TypedValue::Reference(to_ref(fd, data_begin)),
@@ -135,7 +134,6 @@ impl<'a> TypedSlice<'a> {
                     TypedSlice::BytesInline(to_slice(fd, data_begin, data_end))
                 }
             }
-            FieldValueKind::EntryId => todo!(),
             FieldValueKind::Integer => TypedSlice::Integer(to_slice(fd, data_begin, data_end)),
             FieldValueKind::Reference => TypedSlice::Reference(to_slice(fd, data_begin, data_end)),
             FieldValueKind::Error => TypedSlice::Error(to_slice(fd, data_begin, data_end)),

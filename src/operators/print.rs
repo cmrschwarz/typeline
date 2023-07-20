@@ -1,6 +1,6 @@
 use std::{
     borrow::Cow,
-    io::{BufWriter, IsTerminal, Write},
+    io::{BufWriter, IsTerminal, StdoutLock, Write},
 };
 
 use crate::{
@@ -146,10 +146,9 @@ pub fn handle_tf_print_raw(
     tf_id: TransformId,
     tf: &mut TfPrint,
     batch_size: usize,
-    input_done: bool,
     handled_field_count: &mut usize,
+    stdout: &mut BufWriter<StdoutLock<'_>>,
 ) -> Result<(), std::io::Error> {
-    let mut stdout = BufWriter::new(std::io::stdout().lock());
     debug_assert!(!tf.current_stream_val.is_some());
     let input_field_id = sess.tf_mgr.transforms[tf_id].input_field;
 
@@ -218,7 +217,7 @@ pub fn handle_tf_print_raw(
                 for (sv_id, offsets, rl) in RefAwareStreamValueIter::from_range(&range, svs) {
                     pos += rl as usize;
                     let sv = &mut sess.sv_mgr.stream_values[sv_id];
-                    if !write_stream_val_check_done(&mut stdout, sv, offsets, rl as usize).map_err(
+                    if !write_stream_val_check_done(stdout, sv, offsets, rl as usize).map_err(
                         |(i, e)| {
                             *handled_field_count += i;
                             e
@@ -245,44 +244,47 @@ pub fn handle_tf_print_raw(
         }
         field_pos += range.base.field_count;
     }
+    while *handled_field_count < batch_size {
+        stdout.write_fmt(format_args!("{UNSET_STR}\n"))?;
+        *handled_field_count += 1;
+    }
     sess.field_mgr.store_iter_cow_aware(
         input_field_id,
         &input_field,
         tf.iter_id,
         iter.into_base_iter(),
     );
-    drop(input_field);
-    if tf.flush_on_every_print {
-        stdout.flush().ok();
-    }
-    let consumed_fields = field_pos - field_pos_start;
-    sess.tf_mgr.transforms[tf_id].is_stream_subscriber = tf.current_stream_val.is_some();
-    if input_done {
-        sess.unlink_transform(tf_id, consumed_fields);
-    } else {
-        sess.tf_mgr.update_ready_state(tf_id);
-        sess.tf_mgr
-            .inform_successor_batch_available(tf_id, consumed_fields);
-    }
-
     Ok(())
 }
 
 pub fn handle_tf_print(sess: &mut JobData, tf_id: TransformId, tf: &mut TfPrint) {
-    let (batch, input_done) = sess.tf_mgr.claim_batch(tf_id);
+    let (batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
     let mut handled_field_count = 0;
-    let res = handle_tf_print_raw(sess, tf_id, tf, batch, input_done, &mut handled_field_count);
+    let mut stdout = BufWriter::new(std::io::stdout().lock());
+    let res = handle_tf_print_raw(
+        sess,
+        tf_id,
+        tf,
+        batch_size,
+        &mut handled_field_count,
+        &mut stdout,
+    );
+    if tf.flush_on_every_print {
+        stdout.flush().ok();
+    }
+    drop(stdout);
     let op_id = sess.tf_mgr.transforms[tf_id].op_id.unwrap();
     let mut output_field =
         sess.tf_mgr
             .prepare_output_field(&sess.field_mgr, &mut sess.match_set_mgr, tf_id);
+    let mut outputs_produced = handled_field_count;
     match res {
         Ok(()) => output_field
             .field_data
             .push_success(handled_field_count, true),
         Err(err) => {
             let nsucc = handled_field_count;
-            let nfail = batch - nsucc;
+            let nfail = batch_size - nsucc;
             if nsucc > 0 {
                 output_field.field_data.push_success(nsucc, true);
             }
@@ -291,7 +293,17 @@ pub fn handle_tf_print(sess: &mut JobData, tf_id: TransformId, tf: &mut TfPrint)
                 message: Cow::Owned(err.to_string()),
             };
             output_field.field_data.push_error(e, nfail, false, true);
+            outputs_produced += nfail;
         }
+    }
+    drop(output_field);
+    sess.tf_mgr.transforms[tf_id].is_stream_subscriber = tf.current_stream_val.is_some();
+    if input_done {
+        sess.unlink_transform(tf_id, outputs_produced);
+    } else {
+        sess.tf_mgr.update_ready_state(tf_id);
+        sess.tf_mgr
+            .inform_successor_batch_available(tf_id, outputs_produced);
     }
 }
 

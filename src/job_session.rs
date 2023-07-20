@@ -16,6 +16,7 @@ use crate::{
         FieldData,
     },
     operators::{
+        cast::{handle_tf_cast, setup_tf_cast},
         count::{handle_tf_count, setup_tf_count},
         file_reader::{handle_tf_file_reader, setup_tf_file_reader},
         fork::{handle_fork_expansion, handle_tf_fork, setup_tf_fork},
@@ -714,6 +715,7 @@ impl<'a> JobSession<'a> {
 
             let jd = &mut self.job_data;
             let tf_data = match op_data {
+                OperatorData::Cast(op) => setup_tf_cast(jd, b, op, &mut tf_state),
                 OperatorData::Count(op) => setup_tf_count(jd, b, op, &mut tf_state),
                 OperatorData::Fork(op) => setup_tf_fork(jd, b, op, &mut tf_state),
                 OperatorData::Print(op) => setup_tf_print(jd, b, op, &mut tf_state),
@@ -824,7 +826,8 @@ impl<'a> JobSession<'a> {
                 svu.custom,
             ),
             TransformData::Fork(_) => todo!(),
-            TransformData::Count(_) => todo!(),
+            TransformData::Cast(_) => unreachable!(),
+            TransformData::Count(_) => unreachable!(),
             TransformData::Select(_) => unreachable!(),
             TransformData::Terminator(_) => unreachable!(),
             TransformData::FileReader(_) => unreachable!(),
@@ -858,6 +861,7 @@ impl<'a> JobSession<'a> {
             TransformData::Join(tf) => handle_tf_join(jd, tf_id, tf),
             TransformData::Select(tf) => handle_tf_select(jd, tf_id, tf),
             TransformData::Count(tf) => handle_tf_count(jd, tf_id, tf),
+            TransformData::Cast(tf) => handle_tf_cast(jd, tf_id, tf),
             TransformData::Disabled => unreachable!(),
         }
         if let Some(tf) = self.job_data.tf_mgr.transforms.get(tf_id) {

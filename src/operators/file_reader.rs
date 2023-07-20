@@ -318,6 +318,7 @@ fn start_streaming_file(sess: &mut JobData, tf_id: TransformId, fr: &mut TfFileR
         ref_count: 1,
         bytes_are_utf8: false,
         bytes_are_chunk: true,
+        drop_previous_chunks: false,
         subscribers: Default::default(),
     });
     fr.stream_value = Some(sv_id);

@@ -78,6 +78,12 @@ impl OperatorApplicationError {
             op_id,
         }
     }
+    pub fn new_s(message: String, op_id: OperatorId) -> Self {
+        Self {
+            message: Cow::Owned(message),
+            op_id,
+        }
+    }
 }
 
 pub fn io_error_to_op_error(op_id: OperatorId, err: std::io::Error) -> OperatorApplicationError {

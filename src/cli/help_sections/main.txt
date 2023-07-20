@@ -25,18 +25,21 @@ Operators (call `scr h=OPERATOR` for details):
     r[abdilmou]=REGEX     Apply a regular expression
     join[N]=SEP           Concatenate (N) consecutive inputs, separated by SEP
 
-    key=IDENT             Give a name to the previous output column.
+    key=IDENT             Give a name to the previous output column
+    select=IDENT          Outputs the contents of the column named IDENT
 
-    file[t]=PATH          Read in bytes (or text) from a file
-    stdin[t]              Read in bytes (or text) form stdin
+    file[N]=PATH          Outputs the bytes from a file (N times)
+    stdin[N]              Outputs the bytes form stdin (N times)
 
     seq[n]=[B,]E[,S]      Produce a sequence of Integers
-    enum[n]=[B,][E][,S]   Insert one sequence element for every match
+    enum[n]=[B,][E][,S]   Insert one sequence element for every record
 
-    TYPE                  Attempt to cast inputs to TYPE, see `h=cast`
+    count                 Outputs the record count after consuming all input
+
+    TYPE[l|s|t][f][!]     Attempt to cast inputs to TYPE, see `h=cast`
     TYPE[N]=VALUE         Insert a literal value (N times), see `h=literal`
 
-    fork                  Forward matches to all subchains
+    fork                  Forward records to all subchains
 
 Operator modifiers
     +OPERATOR             Append Mode: Append to previous output, see `h=+`

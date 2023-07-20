@@ -75,9 +75,9 @@ pub fn parse_op_join(
     value: Option<&[u8]>,
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
-    let args = ARG_REGEX.captures(&argument).ok_or_else(|| {
-        OperatorCreationError::new("invalid argument syntax for data inserter", arg_idx)
-    })?;
+    let args = ARG_REGEX
+        .captures(&argument)
+        .ok_or_else(|| OperatorCreationError::new("invalid argument syntax for join", arg_idx))?;
     let insert_count = args
         .name("insert_count")
         .map(|ic| {
@@ -181,6 +181,7 @@ fn get_join_buffer<'a>(
                 )),
                 bytes_are_utf8: join.buffer_is_valid_utf8,
                 bytes_are_chunk: true,
+                drop_previous_chunks: false,
                 done: false,
                 subscribers: Default::default(),
                 ref_count: 1,
@@ -503,16 +504,28 @@ pub fn handle_tf_join_stream_value_update(
             // don't overlap, so it's safe to have both
             assert!(Some(sv_id) != join.output_stream_val);
             let buf_ref = unsafe { std::mem::transmute::<&'_ [u8], &'static [u8]>(b.as_slice()) };
+            let drop_prev_chunks = sv.drop_previous_chunks;
+            let mut sv_added_len = join.stream_val_added_len;
             if sv.bytes_are_chunk {
                 let buf = get_join_buffer(join, &mut sess.sv_mgr, buf_ref.len());
+                if drop_prev_chunks {
+                    buf.truncate(buf.len() - sv_added_len);
+                }
                 buf.extend_from_slice(&buf_ref);
+                if drop_prev_chunks {
+                    join.stream_val_added_len = 0;
+                }
                 join.stream_val_added_len += buf_ref.len();
             } else if sv.done {
                 join.buffer_is_valid_utf8 &= sv.bytes_are_utf8;
-                let sv_added_len = join.stream_val_added_len;
+
                 if sv_added_len != 0 {
                     join.stream_val_added_len = 0;
                     let buf = get_join_buffer(join, &mut sess.sv_mgr, buf_ref.len());
+                    if drop_prev_chunks {
+                        buf.truncate(buf.len() - sv_added_len);
+                        sv_added_len = 0;
+                    }
                     buf.extend_from_slice(&buf_ref[sv_added_len..]);
                     join.stream_val_added_len = 0;
                     run_len -= 1;

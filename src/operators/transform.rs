@@ -8,9 +8,9 @@ use crate::{
 };
 
 use super::{
-    count::TfCount, file_reader::TfFileReader, fork::TfFork, format::TfFormat, join::TfJoin,
-    literal::TfLiteral, operator::OperatorId, print::TfPrint, regex::TfRegex, select::TfSelect,
-    sequence::TfSequence, string_sink::TfStringSink, terminator::TfTerminator,
+    cast::TfCast, count::TfCount, file_reader::TfFileReader, fork::TfFork, format::TfFormat,
+    join::TfJoin, literal::TfLiteral, operator::OperatorId, print::TfPrint, regex::TfRegex,
+    select::TfSelect, sequence::TfSequence, string_sink::TfStringSink, terminator::TfTerminator,
 };
 
 pub type TransformId = NonMaxUsize;
@@ -19,6 +19,7 @@ pub type TransformOrderingId = NonZeroUsize;
 
 pub enum TransformData<'a> {
     Disabled,
+    Cast(TfCast),
     Count(TfCount),
     Print(TfPrint),
     Join(TfJoin<'a>),

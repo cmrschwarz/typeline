@@ -17,9 +17,9 @@ impl<'a> WorkerThread<'a> {
     }
     pub fn run_venture(
         &mut self,
-        sess: &'a Session,
-        start_op_id: OperatorId,
-        input_data: Option<Arc<RecordSet>>,
+        _sess: &'a Session,
+        _start_op_id: OperatorId,
+        _input_data: Option<Arc<RecordSet>>,
     ) {
     }
     pub fn run_job(&mut self, sess: &'a Session, job: Job) {

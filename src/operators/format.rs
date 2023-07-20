@@ -867,6 +867,7 @@ pub fn setup_key_output_state(
                                                 data: StreamValueData::Bytes(Vec::new()),
                                                 bytes_are_utf8: true,
                                                 bytes_are_chunk: true,
+                                                drop_previous_chunks: false,
                                                 done: false,
                                                 subscribers: Default::default(),
                                                 ref_count: 1,
@@ -1507,8 +1508,12 @@ pub fn handle_tf_format_stream_value_update(
                         }
                     }
                 } else {
-                    if out_sv.bytes_are_chunk {
+                    out_sv.drop_previous_chunks = sv.drop_previous_chunks;
+                    if out_sv.bytes_are_chunk || sv.drop_previous_chunks {
                         tgt_buf.clear();
+                    }
+                    if sv.drop_previous_chunks {
+                        handle.handled_len = 0;
                     }
                     handle.handled_len += data.len();
                     tgt_buf.extend(data);

@@ -33,7 +33,7 @@ pub unsafe trait RawPushInterface {
         try_header_rle: bool,
         try_data_rle: bool,
     );
-    unsafe fn push_zst(
+    unsafe fn push_zst_unchecked(
         &mut self,
         kind: FieldValueKind,
         flags: FieldValueFlags,
@@ -181,8 +181,9 @@ unsafe impl RawPushInterface for FieldData {
         try_header_rle: bool,
         try_data_rle: bool,
     ) {
-        self.field_count += run_length;
+        debug_assert!(kind.is_variable_sized_type());
         debug_assert!(data.len() <= INLINE_STR_MAX_LEN);
+        self.field_count += run_length;
         let size = data.len() as FieldValueSize;
 
         let mut header_rle = false;
@@ -227,6 +228,7 @@ unsafe impl RawPushInterface for FieldData {
         try_header_rle: bool,
         try_data_rle: bool,
     ) {
+        debug_assert!(kind.is_fixed_size_type());
         self.field_count += run_length;
         let mut data_rle = false;
         let mut header_rle = false;
@@ -266,7 +268,7 @@ unsafe impl RawPushInterface for FieldData {
             self.data.extend_from_slice(unsafe { as_u8_slice(&data) });
         }
     }
-    unsafe fn push_zst(
+    unsafe fn push_zst_unchecked(
         &mut self,
         kind: FieldValueKind,
         flags: FieldValueFlags,
@@ -347,14 +349,15 @@ unsafe impl RawPushInterface for IterHall {
             .push_fixed_size_type(kind, flags, data, run_length, try_header_rle, try_data_rle);
     }
 
-    unsafe fn push_zst(
+    unsafe fn push_zst_unchecked(
         &mut self,
         kind: FieldValueKind,
         flags: FieldValueFlags,
         run_length: usize,
         try_header_rle: bool,
     ) {
-        self.fd.push_zst(kind, flags, run_length, try_header_rle);
+        self.fd
+            .push_zst_unchecked(kind, flags, run_length, try_header_rle);
     }
     unsafe fn push_variable_sized_type_uninit(
         &mut self,
@@ -576,7 +579,7 @@ pub trait PushInterface: RawPushInterface {
     }
     fn push_null(&mut self, run_length: usize, try_header_rle: bool) {
         unsafe {
-            self.push_zst(
+            self.push_zst_unchecked(
                 FieldValueKind::Null,
                 field_value_flags::DEFAULT,
                 run_length,
@@ -586,7 +589,7 @@ pub trait PushInterface: RawPushInterface {
     }
     fn push_unset(&mut self, run_length: usize, try_header_rle: bool) {
         unsafe {
-            self.push_zst(
+            self.push_zst_unchecked(
                 FieldValueKind::Unset,
                 field_value_flags::DEFAULT,
                 run_length,
@@ -596,7 +599,18 @@ pub trait PushInterface: RawPushInterface {
     }
     fn push_success(&mut self, run_length: usize, try_header_rle: bool) {
         unsafe {
-            self.push_zst(
+            self.push_zst_unchecked(
+                FieldValueKind::Success,
+                field_value_flags::DEFAULT,
+                run_length,
+                try_header_rle,
+            );
+        }
+    }
+    fn push_zst(&mut self, kind: FieldValueKind, run_length: usize, try_header_rle: bool) {
+        assert!(kind.is_zst());
+        unsafe {
+            self.push_zst_unchecked(
                 FieldValueKind::Success,
                 field_value_flags::DEFAULT,
                 run_length,

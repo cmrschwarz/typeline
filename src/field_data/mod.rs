@@ -49,7 +49,6 @@ pub enum FieldValueKind {
     Success,
     Unset,
     Null,
-    EntryId,
     Integer, //TODO: bigint, float, decimal, ...
     StreamValueId,
     Reference,
@@ -61,11 +60,24 @@ pub enum FieldValueKind {
     Object,
 }
 
+#[derive(Clone, Copy, PartialEq)]
+pub enum FieldDataType {
+    Success,
+    Unset,
+    Null,
+    Integer,
+    Error,
+    Html,
+    Bytes,
+    Text,
+    Object,
+}
+
 impl FieldValueKind {
     pub fn needs_drop(self) -> bool {
         use FieldValueKind::*;
         match self {
-            Success | Unset | Null | EntryId | Integer | Reference | StreamValueId => false,
+            Success | Unset | Null | Integer | Reference | StreamValueId => false,
             Error | Html | BytesInline | BytesBuffer | BytesFile | Object => true,
         }
     }
@@ -118,7 +130,6 @@ impl FieldValueKind {
             FieldValueKind::Success => 0,
             FieldValueKind::Unset => 0,
             FieldValueKind::Null => 0,
-            FieldValueKind::EntryId => std::mem::size_of::<EntryId>(),
             FieldValueKind::Integer => std::mem::size_of::<i64>(),
             FieldValueKind::StreamValueId => std::mem::size_of::<StreamValueId>(),
             FieldValueKind::Reference => std::mem::size_of::<FieldReference>(),
@@ -536,8 +547,6 @@ impl FieldData {
         self.field_count
     }
 }
-
-pub type EntryId = usize;
 
 unsafe fn as_u8_slice<T: Sized>(p: &T) -> &[u8] {
     slice::from_raw_parts((p as *const T) as *const u8, size_of::<T>())

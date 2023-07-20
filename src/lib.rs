@@ -19,7 +19,6 @@ pub mod chain;
 pub mod cli;
 pub mod context;
 pub mod document;
-pub mod encoding;
 pub mod field_data;
 pub mod job_session;
 pub mod operators;

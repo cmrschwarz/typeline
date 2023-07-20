@@ -2,6 +2,7 @@ use smallvec::SmallVec;
 
 use crate::operators::{errors::OperatorApplicationError, transform::TransformId};
 
+#[derive(Clone)]
 pub enum StreamValueData {
     Dropped,
     Error(OperatorApplicationError),
@@ -26,6 +27,7 @@ pub struct StreamValue {
     pub data: StreamValueData,
     pub bytes_are_utf8: bool,
     pub bytes_are_chunk: bool,
+    pub drop_previous_chunks: bool,
     pub done: bool,
     // transforms that want to be readied as soon as this receives any data
     pub subscribers: SmallVec<[StreamValueSubscription; 1]>,
@@ -63,6 +65,7 @@ impl StreamValue {
             data: data,
             bytes_are_utf8: utf8,
             bytes_are_chunk: !done,
+            drop_previous_chunks: false,
             done: done,
             subscribers: Default::default(),
             ref_count: 1,

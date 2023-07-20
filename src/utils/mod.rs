@@ -2,6 +2,7 @@ use std::fmt::Write;
 
 use arrayvec::ArrayString;
 
+pub mod encoding;
 pub mod identity_hasher;
 pub mod plattform;
 pub mod string_store;

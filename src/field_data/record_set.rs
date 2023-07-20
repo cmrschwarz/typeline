@@ -68,18 +68,19 @@ unsafe impl RawPushInterface for RecordSet {
         }
     }
 
-    unsafe fn push_zst(
+    unsafe fn push_zst_unchecked(
         &mut self,
         kind: super::FieldValueKind,
         flags: super::FieldValueFlags,
         run_length: usize,
         try_header_rle: bool,
     ) {
-        self.fields
-            .first_mut()
-            .unwrap()
-            .data
-            .push_zst(kind, flags, run_length, try_header_rle);
+        self.fields.first_mut().unwrap().data.push_zst_unchecked(
+            kind,
+            flags,
+            run_length,
+            try_header_rle,
+        );
         for f in self.fields.iter_mut().skip(1) {
             f.data.push_unset(run_length, true);
         }
