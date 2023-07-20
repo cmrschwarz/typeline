@@ -31,7 +31,6 @@ impl OpCast {
         match self.target_type {
             FieldDataType::Html => "html",
             FieldDataType::Success => "success",
-            FieldDataType::Unset => "unset",
             FieldDataType::Null => "null",
             FieldDataType::Integer => "int",
             FieldDataType::Error => "error",
@@ -100,7 +99,6 @@ pub fn setup_tf_cast<'a>(
 ) -> TransformData<'a> {
     tf_state.preferred_input_type = Some(match op.target_type {
         FieldDataType::Success => FieldValueKind::Success,
-        FieldDataType::Unset => FieldValueKind::Unset,
         FieldDataType::Null => FieldValueKind::Null,
         FieldDataType::Integer => FieldValueKind::Integer,
         FieldDataType::Error => FieldValueKind::Error,

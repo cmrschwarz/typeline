@@ -317,20 +317,37 @@ fn format_width_spec() -> Result<(), ScrError> {
 }
 
 #[test]
-fn unset_value() -> Result<(), ScrError> {
+fn unset_field_value() -> Result<(), ScrError> {
     let ss = StringSinkHandle::new();
     ContextBuilder::default()
         .push_str("x", 1)
         .add_op(create_op_key("foo".to_owned()))
         .add_op(create_op_seq(0, 2, 1).unwrap())
-        .add_op(create_op_key("bar".to_owned()))
-        .add_op(create_op_format("{foo}{bar}".as_bytes()).unwrap())
+        .add_op(create_op_format("{foo}{}".as_bytes()).unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(
         ss.get().data.as_slice(),
-        &["x0", "ERROR: in op id 3: Format Error"]
+        &["x0", "ERROR: in op id 2: Format Error"]
     );
+    assert_eq!(
+        ss.get().get_first_error_message(),
+        Some("Format Error") //TODO: better error message
+    );
+    Ok(())
+}
+
+#[test]
+fn unset_field_value_debug_repr_is_null() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::new();
+    ContextBuilder::default()
+        .push_str("x", 1)
+        .add_op(create_op_key("foo".to_owned()))
+        .add_op(create_op_seq(0, 2, 1).unwrap())
+        .add_op(create_op_format("{foo:?}{}".as_bytes()).unwrap())
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(ss.get_data().unwrap().as_slice(), &["x0", "null1"]);
     assert_eq!(
         ss.get().get_first_error_message(),
         Some("Format Error") //TODO: better error message

@@ -353,7 +353,7 @@ pub fn handle_tf_join(sess: &mut JobData, tf_id: TransformId, join: &mut TfJoin)
                 TypedSlice::Error(errs) => {
                     push_error(join, sv_mgr, errs[0].clone());
                 }
-                TypedSlice::Null(_) | TypedSlice::Success(_) | TypedSlice::Unset(_) => {
+                TypedSlice::Null(_) | TypedSlice::Success(_) => {
                     let str = typed_slice_zst_str(&range.base.data);
                     push_error(
                         join,

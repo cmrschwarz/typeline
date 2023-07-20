@@ -35,7 +35,7 @@ use crate::{
 use super::{
     errors::{OperatorApplicationError, OperatorCreationError, OperatorSetupError},
     operator::{OperatorBase, OperatorData, OperatorId},
-    print::{typed_slice_zst_str, ERROR_PREFIX_STR},
+    print::{typed_slice_zst_str, ERROR_PREFIX_STR, NULL_STR},
     transform::{TransformData, TransformId, TransformState},
 };
 
@@ -893,7 +893,7 @@ pub fn setup_key_output_state(
                     }
                 }
             }
-            TypedSlice::Null(_) | TypedSlice::Unset(_) | TypedSlice::Success(_) if debug_format => {
+            TypedSlice::Null(_) | TypedSlice::Success(_) if debug_format => {
                 let len = typed_slice_zst_str(&range.base.data).len();
                 iter_output_states_advanced(
                     &mut fmt.output_states,
@@ -914,10 +914,7 @@ pub fn setup_key_output_state(
                     });
                 }
             }
-            TypedSlice::Unset(_)
-            | TypedSlice::Success(_)
-            | TypedSlice::Null(_)
-            | TypedSlice::Error(_) => {
+            TypedSlice::Success(_) | TypedSlice::Null(_) | TypedSlice::Error(_) => {
                 debug_assert!(!k.alternate_form);
                 iter_output_states_advanced(
                     &mut fmt.output_states,
@@ -939,7 +936,13 @@ pub fn setup_key_output_state(
         &mut fmt.output_states,
         &mut output_index,
         uninitialized_fields,
-        |os| os.error_occured = true,
+        |o| {
+            if debug_format {
+                o.len += calc_text_len(k, NULL_STR.len(), o.width_lookup, &mut || NULL_STR.len());
+            } else {
+                o.error_occured = true
+            }
+        },
     );
     // we don't store the iter state back here because we need to iterate a second time
     // for the actual write
@@ -1223,13 +1226,11 @@ fn write_fmt_key(
     );
     let ident_ref = fmt.refs[k.identifier];
     let field = field_mgr.borrow_field_cow(ident_ref.field_id);
-    let mut iter = AutoDerefIter::new(
-        field_mgr,
-        ident_ref.field_id,
-        field_mgr
-            .get_iter_cow_aware(ident_ref.field_id, &field, ident_ref.iter_id)
-            .bounded(0, batch_size),
-    );
+    let base_iter = field_mgr
+        .get_iter_cow_aware(ident_ref.field_id, &field, ident_ref.iter_id)
+        .bounded(0, batch_size);
+    let field_pos_start = base_iter.get_next_field_pos();
+    let mut iter = AutoDerefIter::new(field_mgr, ident_ref.field_id, base_iter);
     let debug_format = [FormatType::Debug, FormatType::MoreDebug].contains(&k.format_type);
     let mut output_index = 0;
     while let Some(range) =
@@ -1284,7 +1285,7 @@ fn write_fmt_key(
                     });
                 }
             }
-            TypedSlice::Null(_) | TypedSlice::Unset(_) | TypedSlice::Success(_) if debug_format => {
+            TypedSlice::Null(_) | TypedSlice::Success(_) if debug_format => {
                 let data = typed_slice_zst_str(&range.base.data).as_bytes();
                 iter_output_targets(
                     fmt,
@@ -1353,8 +1354,7 @@ fn write_fmt_key(
                     }
                 }
             }
-            TypedSlice::Unset(_)
-            | TypedSlice::Success(_)
+            TypedSlice::Success(_)
             | TypedSlice::Null(_)
             | TypedSlice::Error(_)
             | TypedSlice::Html(_)
@@ -1369,12 +1369,15 @@ fn write_fmt_key(
             }
         }
     }
-    field_mgr.store_iter_cow_aware(
-        ident_ref.field_id,
-        &field,
-        ident_ref.iter_id,
-        iter.into_base_iter(),
-    );
+    let base_iter = iter.into_base_iter();
+    let field_pos_end = base_iter.get_next_field_pos();
+    field_mgr.store_iter_cow_aware(ident_ref.field_id, &field, ident_ref.iter_id, base_iter);
+    if debug_format {
+        let unconsumed_fields = batch_size - (field_pos_end - field_pos_start);
+        iter_output_targets(fmt, &mut output_index, unconsumed_fields, |tgt| unsafe {
+            write_padded_bytes(k, tgt, NULL_STR.as_bytes());
+        });
+    }
 }
 pub fn handle_tf_format(sess: &mut JobData, tf_id: TransformId, fmt: &mut TfFormat) {
     let (batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);

@@ -587,16 +587,6 @@ pub trait PushInterface: RawPushInterface {
             );
         }
     }
-    fn push_unset(&mut self, run_length: usize, try_header_rle: bool) {
-        unsafe {
-            self.push_zst_unchecked(
-                FieldValueKind::Unset,
-                field_value_flags::DEFAULT,
-                run_length,
-                try_header_rle,
-            );
-        }
-    }
     fn push_success(&mut self, run_length: usize, try_header_rle: bool) {
         unsafe {
             self.push_zst_unchecked(

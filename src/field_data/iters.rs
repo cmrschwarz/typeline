@@ -11,7 +11,7 @@ impl<'a> Default for TypedRange<'a> {
     fn default() -> Self {
         Self {
             headers: &[],
-            data: TypedSlice::Unset(&[]),
+            data: TypedSlice::Null(&[]),
             field_count: 0,
             first_header_run_length_oversize: 0,
             last_header_run_length_oversize: 0,

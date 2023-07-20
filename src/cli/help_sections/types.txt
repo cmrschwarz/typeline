@@ -4,8 +4,7 @@ Overview:
     str       Text
     bytes     Raw bytes
     int       An integer / whole number
-    null      Like null in JSON, Java or C#, None in Python, or NULL in SQL
-    unset     An uninitialized value, rarely observed
+    null      An uninitialized or empty value
     html      (Part of) an HTML document
     success   Output of a previous command indicating success
     error     Output of a previous command indicating failure
@@ -40,16 +39,9 @@ null:
     like JSON or SQL Databases. Optional capture groups of the `regex` operator
     also output this value.
 
-unset:
-    Unlike <null>, values of this type are typically only observed when
-    a programmer error occured. An example would be the following program:
-    `scr int1@foo=42 seq=3 select=foo p`
-    The `int1` operator only produces one value,
-    but the following `seq` produces 3. When accessing the column
-    produced by `int1` via `select=foo`, two additional records
-    added by the `seq` have no corresponding value, making them <unset>.
-    If either `int` instead of `int1` or `enum` instead of `seq` were used,
-    this would not have happened.
+    The value also occurs when explicit output lengths cause lead to
+    uninitialized fields in previous columns, like in this example:
+    `scr int1@foo=42 seq=3 f={foo:?} join=, p` outputs 42,null,null
 
 success:
     Typically produced by operators that are called purely for

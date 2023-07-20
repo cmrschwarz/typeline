@@ -47,7 +47,6 @@ pub type RunLength = u32;
 #[repr(u8)]
 pub enum FieldValueKind {
     Success,
-    Unset,
     Null,
     Integer, //TODO: bigint, float, decimal, ...
     StreamValueId,
@@ -63,7 +62,6 @@ pub enum FieldValueKind {
 #[derive(Clone, Copy, PartialEq)]
 pub enum FieldDataType {
     Success,
-    Unset,
     Null,
     Integer,
     Error,
@@ -77,14 +75,14 @@ impl FieldValueKind {
     pub fn needs_drop(self) -> bool {
         use FieldValueKind::*;
         match self {
-            Success | Unset | Null | Integer | Reference | StreamValueId => false,
+            Success | Null | Integer | Reference | StreamValueId => false,
             Error | Html | BytesInline | BytesBuffer | BytesFile | Object => true,
         }
     }
     pub fn needs_alignment(self) -> bool {
         use FieldValueKind::*;
         match self {
-            Success | Unset | Null | BytesInline => false,
+            Success | Null | BytesInline => false,
             _ => true,
         }
     }
@@ -128,7 +126,6 @@ impl FieldValueKind {
     pub fn size(self) -> usize {
         match self {
             FieldValueKind::Success => 0,
-            FieldValueKind::Unset => 0,
             FieldValueKind::Null => 0,
             FieldValueKind::Integer => std::mem::size_of::<i64>(),
             FieldValueKind::StreamValueId => std::mem::size_of::<StreamValueId>(),
@@ -233,7 +230,7 @@ pub struct FieldValueFormat {
 impl Default for FieldValueFormat {
     fn default() -> Self {
         Self {
-            kind: FieldValueKind::Unset,
+            kind: FieldValueKind::Null,
             flags: field_value_flags::DEFAULT,
             size: 0,
         }
@@ -398,7 +395,6 @@ impl FieldData {
         while let Some(range) = iter.typed_range_fwd(usize::MAX, 0) {
             unsafe {
                 match range.data {
-                    TypedSlice::Unset(_) => (),
                     TypedSlice::Success(_) => (),
                     TypedSlice::Null(_) => (),
                     TypedSlice::Integer(_) => (),
@@ -515,7 +511,6 @@ impl FieldData {
                         }
                     }
                     TypedSlice::Success(_)
-                    | TypedSlice::Unset(_)
                     | TypedSlice::Null(_)
                     | TypedSlice::Integer(_)
                     | TypedSlice::StreamValueId(_)
@@ -585,7 +580,7 @@ unsafe fn append_data<'a>(
     target_applicator: &mut impl FnMut(&mut dyn FnMut(&mut FieldData)),
 ) {
     match ts {
-        TypedSlice::Unset(_) | TypedSlice::Null(_) | TypedSlice::Success(_) => (),
+        TypedSlice::Null(_) | TypedSlice::Success(_) => (),
         TypedSlice::Integer(v) => extend_raw(target_applicator, v),
         TypedSlice::StreamValueId(v) => extend_raw(target_applicator, v),
         TypedSlice::Reference(v) => extend_raw(target_applicator, v),

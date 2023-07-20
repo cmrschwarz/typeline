@@ -765,8 +765,7 @@ pub fn handle_tf_regex(sess: &mut JobData, tf_id: TransformId, re: &mut TfRegex)
                 }
             }
             TypedSlice::Reference(_) => unreachable!(),
-            TypedSlice::Unset(_)
-            | TypedSlice::Null(_)
+            TypedSlice::Null(_)
             | TypedSlice::Success(_)
             | TypedSlice::Error(_)
             | TypedSlice::Html(_)

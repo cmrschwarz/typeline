@@ -23,7 +23,6 @@ pub enum Literal {
     String(String),
     Int(i64),
     Null,
-    Unset,
     Success,
     Error(String),
     StreamError(String),
@@ -46,7 +45,6 @@ impl OpLiteral {
         let mut res = SmallString::new();
         match self.data {
             Literal::Null => res.push_str("null"),
-            Literal::Unset => res.push_str("unset"),
             Literal::Success => res.push_str("success"),
             Literal::String(_) => res.push_str("str"),
             Literal::Bytes(_) => res.push_str("bytes"),
@@ -85,7 +83,6 @@ pub fn handle_tf_literal(sess: &mut JobData, tf_id: TransformId, lit: &mut TfLit
             Literal::String(s) => output_field.field_data.push_str(s, 1, true, true),
             Literal::Int(i) => output_field.field_data.push_int(*i, 1, true, true),
             Literal::Null => output_field.field_data.push_null(1, true),
-            Literal::Unset => output_field.field_data.push_unset(1, true),
             Literal::Success => output_field.field_data.push_success(1, true),
             Literal::StreamError(ss) => {
                 let sv_id = sess.sv_mgr.stream_values.claim_with_value(StreamValue::new(
@@ -227,7 +224,7 @@ pub fn parse_op_bytes(
 }
 
 lazy_static::lazy_static! {
-    static ref ARG_REGEX: Regex = Regex::new(r"^(?<type>int|bytes|str|(?:~)error|null|unset|success)(?<insert_count>[0-9]+)?$").unwrap();
+    static ref ARG_REGEX: Regex = Regex::new(r"^(?<type>int|bytes|str|(?:~)error|null|success)(?<insert_count>[0-9]+)?$").unwrap();
 }
 
 pub fn argument_matches_op_literal(arg: &str) -> bool {
@@ -259,7 +256,6 @@ pub fn parse_op_literal(
         "error" => parse_op_error(arg_str, value, false, insert_count, arg_idx),
         "~error" => parse_op_error(arg_str, value, true, insert_count, arg_idx),
         v @ "null" => parse_op_literal_zst(v, Literal::Null, value, insert_count, arg_idx),
-        v @ "unset" => parse_op_literal_zst(v, Literal::Unset, value, insert_count, arg_idx),
         v @ "success" => parse_op_literal_zst(v, Literal::Success, value, insert_count, arg_idx),
         _ => unreachable!(),
     }
@@ -296,9 +292,6 @@ pub fn create_op_int(v: i64, insert_count: usize) -> OperatorData {
 }
 pub fn create_op_null(insert_count: usize) -> OperatorData {
     create_op_literal_n(Literal::Null, insert_count)
-}
-pub fn create_op_unset(insert_count: usize) -> OperatorData {
-    create_op_literal_n(Literal::Unset, insert_count)
 }
 pub fn create_op_success(insert_count: usize) -> OperatorData {
     create_op_literal_n(Literal::Success, insert_count)

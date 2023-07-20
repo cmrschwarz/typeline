@@ -74,13 +74,11 @@ pub fn create_op_print() -> OperatorData {
 
 pub const NULL_STR: &'static str = "null";
 pub const SUCCESS_STR: &'static str = "<Success>";
-pub const UNSET_STR: &'static str = "<Unset>";
 pub const ERROR_PREFIX_STR: &'static str = "ERROR: ";
 
 pub fn typed_slice_zst_str(ts: &TypedSlice) -> &'static str {
     match ts {
         TypedSlice::Success(_) => SUCCESS_STR,
-        TypedSlice::Unset(_) => UNSET_STR,
         TypedSlice::Null(_) => NULL_STR,
         _ => unreachable!(),
     }
@@ -204,7 +202,7 @@ pub fn handle_tf_print_raw(
                     *handled_field_count += 1;
                 }
             }
-            TypedSlice::Null(_) | TypedSlice::Unset(_) | TypedSlice::Success(_) => {
+            TypedSlice::Null(_) | TypedSlice::Success(_) => {
                 let zst_str = typed_slice_zst_str(&range.base.data);
                 for _ in 0..range.base.field_count {
                     stdout.write_fmt(format_args!("{zst_str}\n"))?;
@@ -245,7 +243,7 @@ pub fn handle_tf_print_raw(
         field_pos += range.base.field_count;
     }
     while *handled_field_count < batch_size {
-        stdout.write_fmt(format_args!("{UNSET_STR}\n"))?;
+        stdout.write_fmt(format_args!("{NULL_STR}\n"))?;
         *handled_field_count += 1;
     }
     sess.field_mgr.store_iter_cow_aware(

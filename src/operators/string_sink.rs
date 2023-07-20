@@ -31,7 +31,7 @@ use crate::{
 use super::{
     errors::{OperatorApplicationError, OperatorSetupError},
     operator::{OperatorBase, OperatorData, OperatorId, DEFAULT_OP_NAME_SMALL_STR_LEN},
-    print::{NULL_STR, SUCCESS_STR, UNSET_STR},
+    print::{NULL_STR, SUCCESS_STR},
     transform::{TransformData, TransformId, TransformState},
 };
 
@@ -372,9 +372,6 @@ pub fn handle_tf_string_sink(sess: &mut JobData, tf_id: TransformId, ss: &mut Tf
                     );
                     pos += rl as usize;
                 }
-            }
-            TypedSlice::Unset(_) => {
-                push_str(&mut out, UNSET_STR, range.base.field_count);
             }
             TypedSlice::Success(_) => {
                 push_str(&mut out, SUCCESS_STR, range.base.field_count);

@@ -42,7 +42,7 @@ unsafe impl RawPushInterface for RecordSet {
             .data
             .push_variable_sized_type(kind, flags, data, run_length, try_header_rle, try_data_rle);
         for f in self.fields.iter_mut().skip(1) {
-            f.data.push_unset(run_length, true);
+            f.data.push_null(run_length, true);
         }
     }
 
@@ -64,7 +64,7 @@ unsafe impl RawPushInterface for RecordSet {
             try_data_rle,
         );
         for f in self.fields.iter_mut().skip(1) {
-            f.data.push_unset(run_length, true);
+            f.data.push_null(run_length, true);
         }
     }
 
@@ -82,7 +82,7 @@ unsafe impl RawPushInterface for RecordSet {
             try_header_rle,
         );
         for f in self.fields.iter_mut().skip(1) {
-            f.data.push_unset(run_length, true);
+            f.data.push_null(run_length, true);
         }
     }
 
@@ -94,7 +94,7 @@ unsafe impl RawPushInterface for RecordSet {
         run_length: usize,
     ) -> *mut u8 {
         for f in self.fields.iter_mut().skip(1) {
-            f.data.push_unset(run_length as usize, true);
+            f.data.push_null(run_length as usize, true);
         }
         self.fields
             .first_mut()
@@ -115,7 +115,7 @@ impl RecordSet {
         for f in self.fields.iter_mut() {
             let len = f.data.field_count();
             if len < max_field_len {
-                f.data.push_unset(max_field_len - len, true);
+                f.data.push_null(max_field_len - len, true);
             }
         }
         max_field_len
