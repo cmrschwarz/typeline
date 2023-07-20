@@ -768,7 +768,11 @@ impl<'a> JobSession<'a> {
             self.job_data.tf_mgr.claim_transform_ordering_id(),
         );
         let term_data = setup_tf_terminator(&mut self.job_data, &mut term_state);
-        self.add_transform(term_state, term_data);
+        self.job_data.tf_mgr.transforms[predecessor_tf.unwrap()].successor =
+            Some(self.add_transform(term_state, term_data));
+        self.job_data.field_mgr.fields[prev_output_field]
+            .borrow_mut()
+            .ref_count += 2;
         start_tf_id.unwrap()
     }
     pub fn add_transform(&mut self, state: TransformState, data: TransformData<'a>) -> TransformId {

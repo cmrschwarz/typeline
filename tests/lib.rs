@@ -1030,3 +1030,13 @@ fn stream_error_after_regular_error() -> Result<(), ScrError> {
     );
     Ok(())
 }
+
+#[test]
+fn single_operator() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::new();
+    ContextBuilder::default()
+        .add_op(create_op_seq(0, 10000, 1).unwrap())
+        .run()?;
+    assert_eq!(ss.get().data.as_slice(), &[] as &[String]);
+    Ok(())
+}
