@@ -242,18 +242,18 @@ impl TransformManager {
         field_mgr: &FieldManager,
         match_set_mgr: &mut MatchSetManager,
         tf_id: TransformId,
-        output_fields: &[FieldId],
+        output_fields: impl IntoIterator<Item = FieldId>,
     ) {
         let tf = &mut self.transforms[tf_id];
         if tf.is_appending {
             tf.is_appending = false;
         } else {
             for ofid in output_fields {
-                let mut f = field_mgr.fields[*ofid].borrow_mut();
+                let mut f = field_mgr.fields[ofid].borrow_mut();
                 if f.get_clear_delay_request_count() > 0 {
                     drop(f);
                     //TODO: this needs to preserve iterators
-                    field_mgr.apply_field_actions(match_set_mgr, *ofid);
+                    field_mgr.apply_field_actions(match_set_mgr, ofid);
                 } else {
                     match_set_mgr.match_sets[tf.match_set_id]
                         .command_buffer
@@ -269,7 +269,7 @@ impl TransformManager {
         tf_id: TransformId,
     ) -> RefMut<'a, Field> {
         let output_field_id = self.transforms[tf_id].output_field;
-        self.prepare_for_output(field_mgr, match_set_mgr, tf_id, &[output_field_id]);
+        self.prepare_for_output(field_mgr, match_set_mgr, tf_id, [output_field_id]);
         field_mgr.fields[output_field_id].borrow_mut()
     }
 }

@@ -53,7 +53,7 @@ pub struct TfRegex {
     regex: bytes::Regex,
     capture_locs: bytes::CaptureLocations,
     text_only_regex: Option<(regex::Regex, regex::CaptureLocations)>,
-    capture_group_fields: Vec<FieldId>,
+    capture_group_fields: Vec<Option<FieldId>>,
     input_field_iter_id: IterId,
     last_end: Option<usize>,
     next_start: usize,
@@ -301,9 +301,13 @@ pub fn setup_op_regex(
                         }
                     }
                     None => {
-                        let id = string_store.intern_moved(unnamed_capture_groups.to_string());
                         unnamed_capture_groups += 1;
-                        Some(id)
+                        if i == 0 {
+                            None
+                        } else {
+                            let id = string_store.intern_moved(unnamed_capture_groups.to_string());
+                            Some(id)
+                        }
                     }
                 }),
         );
@@ -322,22 +326,23 @@ pub fn setup_tf_regex<'a>(
     let mut output_field = sess.field_mgr.fields[tf_state.output_field].borrow_mut();
     output_field.min_apf_idx = Some(apf_succ);
     drop(output_field);
-    let cgfs: Vec<FieldId> = op
+    let cgfs: Vec<Option<FieldId>> = op
         .capture_group_names
         .iter()
         .enumerate()
         .map(|(i, name)| {
-            let field_id = if i == op.output_group_id {
-                tf_state.output_field
-            } else {
-                sess.field_mgr
-                    .add_field(tf_state.match_set_id, Some(apf_succ))
-            };
-            if let Some(name) = name {
+            if i == op.output_group_id {
+                Some(tf_state.output_field)
+            } else if let Some(name) = name {
+                let field_id = sess
+                    .field_mgr
+                    .add_field(tf_state.match_set_id, Some(apf_succ));
                 sess.match_set_mgr
                     .add_field_name(&sess.field_mgr, field_id, *name);
+                Some(field_id)
+            } else {
+                None
             }
-            field_id
         })
         .collect();
     tf_state.preferred_input_type = Some(FieldValueKind::BytesInline);
@@ -483,26 +488,26 @@ fn match_regex_inner<'a, 'b, const PUSH_REF: bool, R: AnyRegex>(
     ) {
         match_count += 1;
         for c in 0..regex.captures_locs_len() {
-            let field = &mut rmis.batch_state.fields[rmis.batch_state.capture_group_fields[c]]
-                .borrow_mut()
-                .field_data;
-            if let Some((cg_begin, cg_end)) = regex.captures_locs_get(c) {
-                if PUSH_REF {
-                    field.push_reference(
-                        FieldReference {
-                            field: rmis.source_field,
-                            begin: offset + cg_begin,
-                            end: offset + cg_end,
-                        },
-                        rl,
-                        true,
-                        true,
-                    );
+            if let Some(field_id) = rmis.batch_state.capture_group_fields[c] {
+                let field = &mut rmis.batch_state.fields[field_id].borrow_mut().field_data;
+                if let Some((cg_begin, cg_end)) = regex.captures_locs_get(c) {
+                    if PUSH_REF {
+                        field.push_reference(
+                            FieldReference {
+                                field: rmis.source_field,
+                                begin: offset + cg_begin,
+                                end: offset + cg_end,
+                            },
+                            rl,
+                            true,
+                            true,
+                        );
+                    } else {
+                        regex.push(field, data, cg_begin, cg_end, rl);
+                    }
                 } else {
-                    regex.push(field, data, cg_begin, cg_end, rl);
+                    field.push_null(run_length as usize, true);
                 }
-            } else {
-                field.push_null(run_length as usize, true);
             }
         }
         if !rmis.batch_state.multimatch {
@@ -534,11 +539,10 @@ fn match_regex_inner<'a, 'b, const PUSH_REF: bool, R: AnyRegex>(
         } else if match_count == 0 {
             if rmis.batch_state.optional {
                 for c in 0..regex.captures_locs_len() {
-                    let field = &mut rmis.batch_state.fields
-                        [rmis.batch_state.capture_group_fields[c]]
-                        .borrow_mut()
-                        .field_data;
-                    field.push_null(rl, true);
+                    if let Some(field_id) = rmis.batch_state.capture_group_fields[c] {
+                        let field = &mut rmis.batch_state.fields[field_id].borrow_mut().field_data;
+                        field.push_null(rl, true);
+                    }
                 }
                 match_count = 1;
             } else {
@@ -571,7 +575,7 @@ struct RegexBatchState<'a> {
     optional: bool,
     last_end: Option<usize>,
     next_start: usize,
-    capture_group_fields: &'a Vec<FieldId>,
+    capture_group_fields: &'a Vec<Option<FieldId>>,
     fields: &'a Universe<NonMaxUsize, RefCell<Field>>,
 }
 
@@ -587,7 +591,7 @@ pub fn handle_tf_regex(sess: &mut JobData, tf_id: TransformId, re: &mut TfRegex)
         &sess.field_mgr,
         &mut sess.match_set_mgr,
         tf_id,
-        &re.capture_group_fields,
+        re.capture_group_fields.iter().filter_map(|x| *x),
     );
     let tf = &sess.tf_mgr.transforms[tf_id];
     let input_field_id = tf.input_field;
@@ -713,8 +717,8 @@ pub fn handle_tf_regex(sess: &mut JobData, tf_id: TransformId, re: &mut TfRegex)
                         match &sv.data {
                             StreamValueData::Dropped => unreachable!(),
                             StreamValueData::Error(e) => {
-                                for cgi in &re.capture_group_fields {
-                                    sess.field_mgr.fields[*cgi]
+                                for cgi in re.capture_group_fields.iter().filter_map(|v| *v) {
+                                    sess.field_mgr.fields[cgi]
                                         .borrow_mut()
                                         .field_data
                                         .push_error(e.clone(), rl as usize, true, false);
@@ -769,8 +773,8 @@ pub fn handle_tf_regex(sess: &mut JobData, tf_id: TransformId, re: &mut TfRegex)
             | TypedSlice::Object(_) => {
                 rbs.field_pos_input += range.base.field_count;
                 rbs.field_pos_output += range.base.field_count;
-                for cgi in &re.capture_group_fields {
-                    sess.field_mgr.fields[*cgi]
+                for cgi in re.capture_group_fields.iter().filter_map(|v| *v) {
+                    sess.field_mgr.fields[cgi]
                         .borrow_mut()
                         .field_data
                         .push_error(
