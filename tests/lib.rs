@@ -5,6 +5,7 @@ use std::borrow::Cow;
 use rstest::rstest;
 
 use scr::operators::errors::ChainSetupError;
+use scr::operators::fork::create_op_fork;
 use scr::operators::join::{create_op_join, create_op_join_str};
 use scr::operators::literal::{
     create_op_bytes, create_op_error, create_op_int, create_op_str, create_op_stream_error,
@@ -12,7 +13,6 @@ use scr::operators::literal::{
 use scr::operators::next::create_op_next;
 use scr::operators::select::create_op_select;
 use scr::operators::sequence::{create_op_enum, create_op_seqn};
-use scr::operators::split::create_op_split;
 use scr::operators::string_sink::create_op_string_sink_transparent;
 use scr::options::chain_options::DEFAULT_CHAIN_OPTIONS;
 use scr::utils::i64_to_str;
@@ -583,7 +583,7 @@ fn basic_cow() -> Result<(), ScrError> {
     let ss = StringSinkHandle::new();
     ContextBuilder::default()
         .push_str("123", 1)
-        .add_op(create_op_split())
+        .add_op(create_op_fork())
         .add_op(
             create_op_regex(
                 ".",
@@ -607,7 +607,7 @@ fn cow_not_affecting_original() -> Result<(), ScrError> {
         ContextBuilder::default()
             .set_batch_size(bs)
             .push_str("123", 1)
-            .add_op(create_op_split())
+            .add_op(create_op_fork())
             .add_op(
                 create_op_regex(
                     ".",

@@ -1,6 +1,7 @@
 pub mod count;
 pub mod errors;
 pub mod file_reader;
+pub mod fork;
 pub mod format;
 pub mod join;
 pub mod key;
@@ -11,7 +12,6 @@ pub mod print;
 pub mod regex;
 pub mod select;
 pub mod sequence;
-pub mod split;
 pub mod string_sink;
 pub mod terminator;
 pub mod transform;

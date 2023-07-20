@@ -3,6 +3,7 @@ use crate::operators::count::parse_op_count;
 use crate::operators::{
     errors::OperatorCreationError,
     file_reader::{argument_matches_op_file_reader, parse_op_file_reader},
+    fork::parse_op_fork,
     format::parse_op_format,
     join::{argument_matches_op_join, parse_op_join},
     key::parse_op_key,
@@ -13,7 +14,6 @@ use crate::operators::{
     regex::{parse_op_regex, RegexOptions},
     select::parse_op_select,
     sequence::parse_op_seq,
-    split::parse_op_split,
     up::parse_op_up,
 };
 use crate::scr_error::ScrError;
@@ -426,7 +426,7 @@ fn parse_operation(
         "enumn" => Some(parse_op_seq(value, true, true, idx)?),
         "count" => Some(parse_op_count(value, idx)?),
 
-        "split" => Some(parse_op_split(value, idx)?),
+        "fork" => Some(parse_op_fork(value, idx)?),
         "next" => Some(parse_op_next(value, idx)?),
         "up" => Some(parse_op_up(value, idx)?),
         _ => None,

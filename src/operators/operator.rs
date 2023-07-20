@@ -3,9 +3,9 @@ use smallstr::SmallString;
 use crate::{chain::ChainId, options::argument::CliArgIdx, utils::string_store::StringStoreEntry};
 
 use super::{
-    count::OpCount, file_reader::OpFileReader, format::OpFormat, join::OpJoin, key::OpKey,
-    literal::OpLiteral, next::OpNext, print::OpPrint, regex::OpRegex, select::OpSelect,
-    sequence::OpSequence, split::OpSplit, string_sink::OpStringSink, up::OpUp,
+    count::OpCount, file_reader::OpFileReader, fork::OpFork, format::OpFormat, join::OpJoin,
+    key::OpKey, literal::OpLiteral, next::OpNext, print::OpPrint, regex::OpRegex, select::OpSelect,
+    sequence::OpSequence, string_sink::OpStringSink, up::OpUp,
 };
 
 pub type OperatorId = u32;
@@ -16,7 +16,7 @@ pub enum OperatorData {
     Count(OpCount),
     Print(OpPrint),
     Join(OpJoin),
-    Split(OpSplit),
+    Fork(OpFork),
     Next(OpNext),
     Up(OpUp),
     Key(OpKey),
@@ -45,7 +45,7 @@ impl OperatorData {
         match self {
             OperatorData::Print(_) => SmallString::from("p"),
             OperatorData::Sequence(op) => op.default_op_name(),
-            OperatorData::Split(_) => SmallString::from("split"),
+            OperatorData::Fork(_) => SmallString::from("fork"),
             OperatorData::Key(_) => SmallString::from("key"),
             OperatorData::Regex(op) => op.default_op_name(),
             OperatorData::FileReader(op) => op.default_op_name(),

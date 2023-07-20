@@ -94,7 +94,7 @@ impl SessionOptions {
             OperatorData::DataInserter(_) => (),
             OperatorData::Sequence(_) => (),
             OperatorData::Join(_) => (),
-            OperatorData::Split(_) => {
+            OperatorData::Fork(_) => {
                 let mut new_chain = ChainOptions::default();
                 new_chain.parent = self.curr_chain;
                 self.curr_chain = self.chains.len() as ChainId;
@@ -159,7 +159,7 @@ impl SessionOptions {
                 OperatorData::Select(op) => setup_op_select(&mut sess.string_store, op)?,
                 OperatorData::FileReader(op) => setup_op_file_reader(chain, op)?,
                 OperatorData::StringSink(op) => setup_op_string_sink(op_id, &op_base, op)?,
-                OperatorData::Split(_) => (),
+                OperatorData::Fork(_) => (),
                 OperatorData::Count(_) => (),
                 OperatorData::Sequence(_) => (),
                 OperatorData::DataInserter(_) => (),

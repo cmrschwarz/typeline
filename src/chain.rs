@@ -149,7 +149,7 @@ pub fn compute_local_liveness_data(sess: &mut Session, chain_id: ChainId) {
             ANONYMOUS_INPUT_FIELD
         };
         match &sess.operator_data[op_id as usize] {
-            OperatorData::Split(_) => {
+            OperatorData::Fork(_) => {
                 for tgt in &cn.subchains {
                     cn.liveness_data.add_successor(*tgt);
                 }

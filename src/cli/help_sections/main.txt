@@ -36,7 +36,7 @@ Operators (call `scr h=OPERATOR` for details):
     TYPE                  Attempt to cast inputs to TYPE, see `h=cast`
     TYPE[N]=VALUE         Insert a literal value (N times), see `h=literal`
 
-    split=[CHAINS]        Forward matches to all subchains (or specified chains)
+    fork                  Forward matches to all subchains
 
 Operator modifiers
     +OPERATOR             Append Mode: Append to previous output, see `h=+`

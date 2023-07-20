@@ -18,6 +18,7 @@ use crate::{
     operators::{
         count::{handle_tf_count, setup_tf_count},
         file_reader::{handle_tf_file_reader, setup_tf_file_reader},
+        fork::{handle_fork_expansion, handle_tf_fork, setup_tf_fork},
         format::{handle_tf_format, handle_tf_format_stream_value_update, setup_tf_format},
         join::{handle_tf_join, handle_tf_join_stream_value_update, setup_tf_join},
         literal::{handle_tf_literal, setup_tf_data_inserter},
@@ -26,7 +27,6 @@ use crate::{
         regex::{handle_tf_regex, handle_tf_regex_stream_value_update, setup_tf_regex},
         select::{handle_tf_select, setup_tf_select},
         sequence::{handle_tf_sequence, setup_tf_sequence},
-        split::{handle_split_expansion, handle_tf_split, setup_tf_split},
         string_sink::{
             handle_tf_string_sink, handle_tf_string_sink_stream_value_update, setup_tf_string_sink,
         },
@@ -715,7 +715,7 @@ impl<'a> JobSession<'a> {
             let jd = &mut self.job_data;
             let tf_data = match op_data {
                 OperatorData::Count(op) => setup_tf_count(jd, b, op, &mut tf_state),
-                OperatorData::Split(op) => setup_tf_split(jd, b, op, &mut tf_state),
+                OperatorData::Fork(op) => setup_tf_fork(jd, b, op, &mut tf_state),
                 OperatorData::Print(op) => setup_tf_print(jd, b, op, &mut tf_state),
                 OperatorData::Join(op) => setup_tf_join(jd, b, op, &mut tf_state),
                 OperatorData::Regex(op) => setup_tf_regex(jd, b, op, &mut tf_state),
@@ -823,7 +823,7 @@ impl<'a> JobSession<'a> {
                 svu.sv_id,
                 svu.custom,
             ),
-            TransformData::Split(_) => todo!(),
+            TransformData::Fork(_) => todo!(),
             TransformData::Count(_) => todo!(),
             TransformData::Select(_) => unreachable!(),
             TransformData::Terminator(_) => unreachable!(),
@@ -838,15 +838,15 @@ impl<'a> JobSession<'a> {
         tf_id: TransformId,
         ctx: Option<&ContextData<'a>>,
     ) -> Result<(), VentureDescription> {
-        if let TransformData::Split(split) = &mut self.transform_data[usize::from(tf_id)] {
-            if !split.expanded {
-                split.expanded = true;
-                handle_split_expansion(self, tf_id, ctx)?;
+        if let TransformData::Fork(fork) = &mut self.transform_data[usize::from(tf_id)] {
+            if !fork.expanded {
+                fork.expanded = true;
+                handle_fork_expansion(self, tf_id, ctx)?;
             }
         }
         let jd = &mut self.job_data;
         match &mut self.transform_data[usize::from(tf_id)] {
-            TransformData::Split(split) => handle_tf_split(&mut self.job_data, tf_id, split),
+            TransformData::Fork(fork) => handle_tf_fork(&mut self.job_data, tf_id, fork),
             TransformData::Print(tf) => handle_tf_print(jd, tf_id, tf),
             TransformData::Regex(tf) => handle_tf_regex(jd, tf_id, tf),
             TransformData::StringSink(tf) => handle_tf_string_sink(jd, tf_id, tf),
