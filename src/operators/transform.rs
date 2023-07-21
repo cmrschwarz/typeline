@@ -27,7 +27,7 @@ pub enum TransformData<'a> {
     Regex(TfRegex),
     Format(TfFormat<'a>),
     FileReader(TfFileReader),
-    DataInserter(TfLiteral<'a>),
+    Literal(TfLiteral<'a>),
     Sequence(TfSequence),
     Terminator(TfTerminator),
 }

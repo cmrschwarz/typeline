@@ -13,7 +13,7 @@ use crate::{
         iter_hall::{IterHall, IterId},
         iters::{FieldIterator, Iter},
         record_set::RecordSet,
-        FieldData,
+        FieldData, FieldValueFormat, RunLength,
     },
     operators::{
         cast::{handle_tf_cast, setup_tf_cast},
@@ -204,16 +204,25 @@ impl TransformManager {
         tf_id: TransformId,
         length: &mut Option<usize>,
         field_mgr: &FieldManager,
+        match_set_mgr: &mut MatchSetManager,
         initial_call: bool,
+        final_call_if_input_done: bool,
     ) -> (usize, bool) {
         let tf = &mut self.transforms[tf_id];
         let output_field_id = tf.output_field;
+        let match_set_id = tf.match_set_id;
         let desired_batch_size = tf.desired_batch_size;
         let has_cont = tf.continuation.is_some();
         let max_batch_size = if let Some(len) = length {
             *len
         } else if has_cont {
             if !initial_call {
+                if final_call_if_input_done {
+                    field_mgr.fields[output_field_id]
+                        .borrow_mut()
+                        .field_data
+                        .drop_last_value(1);
+                }
                 return (0, true);
             }
             1
@@ -224,6 +233,12 @@ impl TransformManager {
             self.claim_batch_with_limit(tf_id, max_batch_size.min(desired_batch_size));
         if batch_size == 0 {
             if !initial_call {
+                if final_call_if_input_done {
+                    field_mgr.fields[output_field_id]
+                        .borrow_mut()
+                        .field_data
+                        .drop_last_value(1);
+                }
                 return (0, true);
             }
             batch_size = length.unwrap_or(1);
@@ -236,10 +251,21 @@ impl TransformManager {
         } else if has_cont {
             input_done = true;
         }
-        field_mgr.fields[output_field_id]
-            .borrow_mut()
-            .field_data
-            .dup_last_value(batch_size - initial_call as usize);
+        let mut output_field = field_mgr.fields[output_field_id].borrow_mut();
+        match_set_mgr.match_sets[match_set_id]
+            .command_buffer
+            .execute_for_field(output_field_id, &mut output_field);
+        // this results in always one more element being present than we advertise
+        // as batch size. this prevents apply_field_actions from deleting
+        // our value. unless we are done, in which case no additional value is inserted
+        let drop_oversize = input_done && final_call_if_input_done;
+        if batch_size == 0 && drop_oversize {
+            output_field.field_data.drop_last_value(1);
+        } else {
+            output_field
+                .field_data
+                .dup_last_value(batch_size - drop_oversize as usize);
+        }
         (batch_size, input_done)
     }
     pub fn prepare_for_output(
@@ -262,7 +288,8 @@ impl TransformManager {
                 } else {
                     match_set_mgr.match_sets[tf.match_set_id]
                         .command_buffer
-                        .clear_field_dropping_commands(ofid, &mut f);
+                        .drop_field_commands(ofid, &mut f);
+                    f.field_data.clear();
                 }
             }
         }
@@ -870,7 +897,7 @@ impl<'a> JobSession<'a> {
             TransformData::FileReader(_) => unreachable!(),
             TransformData::Sequence(_) => unreachable!(),
             TransformData::Disabled => unreachable!(),
-            TransformData::DataInserter(_) => unreachable!(),
+            TransformData::Literal(_) => unreachable!(),
         }
     }
     fn handle_transform(
@@ -891,7 +918,7 @@ impl<'a> JobSession<'a> {
             TransformData::Regex(tf) => handle_tf_regex(jd, tf_id, tf),
             TransformData::StringSink(tf) => handle_tf_string_sink(jd, tf_id, tf),
             TransformData::FileReader(tf) => handle_tf_file_reader(jd, tf_id, tf),
-            TransformData::DataInserter(tf) => handle_tf_literal(jd, tf_id, tf),
+            TransformData::Literal(tf) => handle_tf_literal(jd, tf_id, tf),
             TransformData::Sequence(tf) => handle_tf_sequence(jd, tf_id, tf),
             TransformData::Format(tf) => handle_tf_format(jd, tf_id, tf),
             TransformData::Terminator(tf) => handle_tf_terminator(jd, tf_id, tf),

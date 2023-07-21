@@ -236,6 +236,7 @@ impl CommandBuffer {
                 prev_curr_apf_idx == *curr_apf_idx
                     && prev_first_unapplied_al_idx == *first_unapplied_al_idx
             );
+            #[cfg(feature = "debug_logging")]
             println!(
                 "executing commands for field {} had no effect: min apf: {}, curr apf: {} [al {}]",
                 field_id, min_apf_idx, curr_apf_idx, first_unapplied_al_idx,
@@ -329,7 +330,7 @@ impl CommandBuffer {
         }
         return false;
     }
-    pub fn clear_field_dropping_commands<'a>(&mut self, field_id: FieldId, field: &mut Field) {
+    pub fn drop_field_commands<'a>(&mut self, field_id: FieldId, field: &mut Field) {
         if self.first_apf_idx.is_none() {
             return;
         }
@@ -362,7 +363,6 @@ impl CommandBuffer {
                 first_unapplied_al_idx
             )
         }
-        field.field_data.clear();
     }
     pub fn execute_for_field_data<'a>(
         &mut self,
@@ -1208,7 +1208,7 @@ impl CommandBuffer {
         let mut curr_action_pos_outstanding_dups = 0;
         let mut curr_action_pos_outstanding_drops = 0;
         let mut curr_header_original_rl = fd.header.first().map(|h| h.run_length).unwrap_or(0);
-
+        let mut data_end = 0;
         'advance_action: loop {
             let mal_ref = self.get_merge_result_mal_ref(&merged_actions);
             let actions =
@@ -1273,6 +1273,9 @@ impl CommandBuffer {
                         field_pos = field_pos_new;
                         field_pos_old += curr_header_original_rl as usize;
                     }
+                    if !header.same_value_as_previous() {
+                        data_end += header.total_size();
+                    }
                     header_idx += 1;
                     curr_header_original_rl = fd.header[header_idx].run_length;
                     header_idx_new += 1;
@@ -1312,15 +1315,30 @@ impl CommandBuffer {
         }
         let headers_rem = fd.header.len() - header_idx;
         header_idx_new += headers_rem;
+        if headers_rem > 0 {
+            field_pos += fd.header[header_idx].run_length as usize;
+            field_pos_old += curr_header_original_rl as usize;
+        } else {
+            // if we touched all headers, there is a chance that the final headers are deleted
+            while header_idx > 0 {
+                let h = fd.header[header_idx - 1];
+                if !h.deleted() {
+                    break;
+                }
+                header_idx_new -= 1;
+                header_idx -= 1;
+                if !h.same_value_as_previous() {
+                    data_end -= h.total_size();
+                }
+            }
+            fd.data.truncate(data_end);
+        }
         self.push_copy_command(
             header_idx_new,
             &mut copy_range_start,
             &mut copy_range_start_new,
         );
-        if headers_rem > 0 {
-            field_pos += fd.header[header_idx].run_length as usize;
-            field_pos_old += curr_header_original_rl as usize;
-        }
+
         field_pos as isize - field_pos_old as isize
     }
 }
@@ -1336,12 +1354,7 @@ impl CommandBuffer {
             .last()
             .map(|i| i.index + 1)
             .unwrap_or(0)
-            .max(
-                self.copies
-                    .last()
-                    .map(|c| c.target + c.len)
-                    .unwrap_or(fd.header.len()),
-            );
+            .max(self.copies.last().map(|c| c.target + c.len).unwrap());
         fd.header.reserve(new_size - fd.header.len());
 
         let header_ptr = fd.header.as_mut_ptr();

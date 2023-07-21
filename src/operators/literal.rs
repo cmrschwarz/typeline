@@ -5,7 +5,7 @@ use regex::Regex;
 use smallstr::SmallString;
 
 use crate::{
-    field_data::push_interface::PushInterface,
+    field_data::{push_interface::PushInterface, FieldValueFormat},
     job_session::JobData,
     options::argument::CliArgIdx,
     stream_value::{StreamValue, StreamValueData},
@@ -62,7 +62,7 @@ pub fn setup_tf_data_inserter<'a>(
     op: &'a OpLiteral,
     _tf_state: &mut TransformState,
 ) -> TransformData<'a> {
-    TransformData::DataInserter(TfLiteral {
+    TransformData::Literal(TfLiteral {
         data: &op.data,
         insert_count: op.insert_count,
         value_inserted: false,
@@ -112,7 +112,9 @@ pub fn handle_tf_literal(sess: &mut JobData, tf_id: TransformId, lit: &mut TfLit
         tf_id,
         &mut lit.insert_count,
         &sess.field_mgr,
+        &mut sess.match_set_mgr,
         initial_call,
+        true,
     );
     if input_done {
         sess.unlink_transform(tf_id, batch_size);

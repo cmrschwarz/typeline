@@ -335,43 +335,52 @@ pub fn handle_tf_file_reader(sess: &mut JobData, tf_id: TransformId, fr: &mut Tf
     if !fr.value_committed {
         fr.value_committed = true;
         file_eof = start_streaming_file(sess, tf_id, fr);
-    } else if let Some(file) = &mut fr.file {
-        let sv_id = fr.stream_value.unwrap();
-        let sv = &mut sess.sv_mgr.stream_values[sv_id];
-        let res = match &mut sv.data {
-            StreamValueData::Bytes(ref mut bc) => {
-                if sv.bytes_are_chunk {
-                    bc.clear();
+    } else {
+        if let Some(file) = &mut fr.file {
+            let sv_id = fr.stream_value.unwrap();
+            let sv = &mut sess.sv_mgr.stream_values[sv_id];
+            let res = match &mut sv.data {
+                StreamValueData::Bytes(ref mut bc) => {
+                    if sv.bytes_are_chunk {
+                        bc.clear();
+                    }
+                    read_chunk(bc, file, fr.stream_buffer_size, fr.line_buffered)
                 }
-                read_chunk(bc, file, fr.stream_buffer_size, fr.line_buffered)
+                StreamValueData::Error(_) => Ok((0, true)),
+                StreamValueData::Dropped => panic!("dropped stream value ovserved"),
+            };
+            match res {
+                Ok((_size, eof)) => {
+                    file_eof = eof;
+                }
+                Err(err) => {
+                    let err =
+                        io_error_to_op_error(sess.tf_mgr.transforms[tf_id].op_id.unwrap(), err);
+                    sv.data = StreamValueData::Error(err);
+                }
             }
-            StreamValueData::Error(_) => Ok((0, true)),
-            StreamValueData::Dropped => panic!("dropped stream value ovserved"),
-        };
-        match res {
-            Ok((_size, eof)) => {
-                file_eof = eof;
+            if file_eof {
+                fr.file.take();
+                sv.done = true;
             }
-            Err(err) => {
-                let err = io_error_to_op_error(sess.tf_mgr.transforms[tf_id].op_id.unwrap(), err);
-                sv.data = StreamValueData::Error(err);
-            }
+            sess.sv_mgr.inform_stream_value_subscribers(sv_id);
         }
-        if file_eof {
-            fr.file.take();
-            sv.done = true;
-        }
-        sess.sv_mgr.inform_stream_value_subscribers(sv_id);
-    }
-    if !file_eof {
-        sess.tf_mgr.make_stream_producer(tf_id);
     }
     let (batch_size, input_done) = sess.tf_mgr.maintain_single_value(
         tf_id,
         &mut fr.insert_count,
         &sess.field_mgr,
+        &mut sess.match_set_mgr,
         initial_call,
+        file_eof,
     );
+    if !file_eof {
+        sess.tf_mgr.make_stream_producer(tf_id);
+        if !input_done {
+            sess.sv_mgr.stream_values[fr.stream_value.unwrap()].bytes_are_chunk = false;
+        }
+    }
+
     if input_done && file_eof {
         if let Some(sv_id) = fr.stream_value {
             sess.sv_mgr.drop_field_value_subscription(sv_id, None);

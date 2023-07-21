@@ -150,6 +150,8 @@ impl FieldData {
             return;
         }
         let last_header = self.header.last_mut().unwrap();
+        // command buffer should clear data after last non deleted
+        debug_assert!(last_header.deleted() == false);
         unsafe {
             if last_header.run_length > 1 && !last_header.shared_value() {
                 last_header.run_length -= 1;
@@ -167,6 +169,32 @@ impl FieldData {
                     self.push_header_raw(fmt, run_length - rl_rem as usize);
                 }
             }
+        }
+    }
+    pub fn drop_last_value(&mut self, mut run_length: usize) {
+        loop {
+            if run_length == 0 {
+                return;
+            }
+            let last_header = self.header.last_mut().unwrap();
+            if last_header.run_length as usize > run_length {
+                if !last_header.deleted() {
+                    last_header.run_length -= run_length as RunLength;
+                }
+                if !last_header.shared_value() {
+                    self.data
+                        .truncate(self.data.len() - last_header.size as usize * run_length);
+                }
+                return;
+            }
+            if !last_header.deleted() {
+                run_length -= last_header.run_length as usize;
+            }
+            if !last_header.same_value_as_previous() {
+                self.data
+                    .truncate(self.data.len() - last_header.total_size());
+            }
+            self.header.pop();
         }
     }
 }
@@ -373,6 +401,9 @@ unsafe impl RawPushInterface for IterHall {
 impl IterHall {
     pub fn dup_last_value(&mut self, run_length: usize) {
         self.fd.dup_last_value(run_length);
+    }
+    pub fn drop_last_value(&mut self, run_length: usize) {
+        self.fd.drop_last_value(run_length);
     }
 }
 

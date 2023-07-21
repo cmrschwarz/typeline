@@ -171,9 +171,10 @@ fn trickling_stream() -> Result<(), ScrError> {
         ))
         .add_op(create_op_string_sink(&ss))
         .run()?;
-    assert_eq!(
-        ss.get_data().unwrap().as_slice(),
-        [std::iter::repeat("a").take(SIZE).collect::<String>()]
+    //not using assert_eq here because the output is very large
+    assert!(
+        ss.get_data().unwrap().as_slice()
+            == [std::iter::repeat("a").take(SIZE).collect::<String>()]
     );
     Ok(())
 }

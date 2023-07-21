@@ -149,7 +149,7 @@ impl IterHall {
     pub fn field_count(&self) -> usize {
         self.fd.field_count
     }
-    pub fn clear(&mut self) {
+    pub fn reset_iterators(&mut self) {
         for it in self.iters.iter_mut() {
             let it = it.get_mut();
             it.data = 0;
@@ -157,12 +157,16 @@ impl IterHall {
             it.header_idx = 0;
             it.field_pos = 0;
         }
+    }
+    pub fn clear(&mut self) {
+        self.reset_iterators();
         self.fd.clear();
     }
     pub fn reset(&mut self) {
-        self.fd.clear();
+        self.clear();
     }
     pub fn reset_with_data(&mut self, fd: FieldData) {
+        self.reset_iterators();
         self.fd = fd;
     }
     pub fn new_with_data(fd: FieldData) -> Self {
