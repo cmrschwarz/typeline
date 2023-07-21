@@ -430,13 +430,10 @@ pub fn handle_tf_string_sink(sess: &mut JobData, tf_id: TransformId, ss: &mut Tf
         }
         field_pos += range.base.field_count;
     }
-    let consumed_fields = field_pos - starting_pos;
-    sess.field_mgr.store_iter_cow_aware(
-        input_field_id,
-        &input_field,
-        ss.batch_iter,
-        iter.into_base_iter(),
-    );
+    let base_iter = iter.into_base_iter();
+    let consumed_fields = base_iter.get_next_field_pos() - starting_pos;
+    sess.field_mgr
+        .store_iter_cow_aware(input_field_id, &input_field, ss.batch_iter, base_iter);
     output_field.as_mut().map(|of| {
         of.field_data.push_success(field_pos - last_error_end, true);
     });

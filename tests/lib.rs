@@ -131,30 +131,30 @@ fn large_batch() -> Result<(), ScrError> {
     );
     Ok(())
 }
-#[test]
-fn large_batch_seq() -> Result<(), ScrError> {
-    const COUNT: i64 = 10000;
-
+#[rstest]
+#[case(10000, 1)]
+#[case(10000, 3)]
+#[case(10000, 10000 - 1)]
+#[case(10000, 10000 + 1)]
+fn large_batch_seq(#[case] count: i64, #[case] batch_size: usize) -> Result<(), ScrError> {
     let re = regex::Regex::new(r"\d{1,3}").unwrap();
-    for bs in [1, 3, COUNT - 1, COUNT, COUNT + 1] {
-        let ss = StringSinkHandle::new();
-        ContextBuilder::default()
-            .set_batch_size(bs as usize)
-            .add_op(create_op_seq(0, COUNT, 1).unwrap())
-            .add_op(create_op_regex(r"\d{1,3}", RegexOptions::default()).unwrap())
-            .add_op(create_op_string_sink(&ss))
-            .run()?;
-        assert_eq!(
-            ss.get_data().unwrap().as_slice(),
-            &(0..COUNT)
-                .filter_map(|v| {
-                    let v = i64_to_str(false, v).to_string();
-                    re.captures(v.as_str())
-                        .and_then(|v| v.get(0).map(|v| v.as_str().to_owned()))
-                })
-                .collect::<Vec<_>>()
-        );
-    }
+    let ss = StringSinkHandle::new();
+    ContextBuilder::default()
+        .set_batch_size(batch_size)
+        .add_op(create_op_seq(0, count, 1).unwrap())
+        .add_op(create_op_regex(r"\d{1,3}", RegexOptions::default()).unwrap())
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(
+        ss.get_data().unwrap().as_slice(),
+        &(0..count)
+            .filter_map(|v| {
+                let v = i64_to_str(false, v).to_string();
+                re.captures(v.as_str())
+                    .and_then(|v| v.get(0).map(|v| v.as_str().to_owned()))
+            })
+            .collect::<Vec<_>>()
+    );
     Ok(())
 }
 

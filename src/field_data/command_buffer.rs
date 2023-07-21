@@ -1,4 +1,4 @@
-use std::{cell::Ref, num::NonZeroUsize};
+use std::cell::Ref;
 
 use nonmax::NonMaxUsize;
 
@@ -78,6 +78,8 @@ struct ActionList {
     first_unapplied_al_idx_in_prev_apf: ActionListIndex,
     actions_start: usize,
     actions_end: usize,
+    //TODO: refcount + always have the next unsused
+    // al ready so it can have a recount
 }
 
 struct LocallyMergedActionList {
