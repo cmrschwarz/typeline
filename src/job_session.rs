@@ -50,6 +50,10 @@ pub struct Field {
     //typically called on input fields, borrowing these mut is annoying
     pub clear_delay_request_count: Cell<usize>,
     pub match_set: MatchSetId,
+
+    #[cfg(feature = "debug_logging")]
+    pub producing_transform: Option<TransformId>,
+
     pub added_as_placeholder_by_tf: Option<TransformId>,
 
     pub min_apf_idx: Option<ActionProducingFieldIndex>,
@@ -153,7 +157,7 @@ impl TransformManager {
     }
     pub fn claim_transform_ordering_id(&mut self) -> TransformOrderingId {
         let res = self.transform_ordering_id;
-        self.transform_ordering_id = self.transform_ordering_id.checked_add(1).unwrap();
+        self.transform_ordering_id = (self.transform_ordering_id.get() + 1).try_into().unwrap();
         res
     }
     pub fn inform_transform_batch_available(&mut self, tf_id: TransformId, batch_size: usize) {
@@ -258,7 +262,7 @@ impl TransformManager {
                 } else {
                     match_set_mgr.match_sets[tf.match_set_id]
                         .command_buffer
-                        .clear_field_dropping_commands(&mut f);
+                        .clear_field_dropping_commands(ofid, &mut f);
                 }
             }
         }
@@ -342,6 +346,8 @@ impl FieldManager {
             names: Default::default(),
             cow_source: None,
             field_data: IterHall::new_with_data(data),
+            #[cfg(feature = "debug_logging")]
+            producing_transform: None,
         };
         field.field_data.reserve_iter_id(FIELD_REF_LOOKUP_ITER_ID);
         self.fields.claim_with_value(RefCell::new(field));
@@ -363,11 +369,11 @@ impl FieldManager {
                     func(&mut f.field_data)
                 });
                 let cb = &mut match_set_mgr.match_sets[match_set].command_buffer;
-                cb.execute_for_field(&mut f);
+                cb.execute_for_field(field, &mut f);
                 f.cow_source = None;
             }
         } else {
-            cb.execute_for_field(&mut f);
+            cb.execute_for_field(field, &mut f);
         }
     }
 
@@ -455,7 +461,7 @@ impl<'a> JobData<'a> {
             session_data: sess,
             tf_mgr: TransformManager {
                 transforms: Default::default(),
-                transform_ordering_id: TransformOrderingId::new(1).unwrap(),
+                transform_ordering_id: Default::default(),
                 ready_queue: Default::default(),
                 stream_producers: Default::default(),
             },
@@ -587,6 +593,29 @@ impl<'a> JobSession<'a> {
         for input_field_id in input_data_fields {
             self.job_data.drop_field_refcount(input_field_id);
         }
+        #[cfg(feature = "debug_logging")]
+        {
+            for (i, tf) in self.job_data.tf_mgr.transforms.iter_enumerated() {
+                let name = if let Some(op_id) = tf.op_id {
+                    self.job_data.session_data.operator_data[op_id as usize].default_op_name()
+                } else {
+                    "<unknown>".into()
+                };
+                println!("tf {} (ord id {}): {}", i, tf.ordering_id, name);
+            }
+            for (i, f) in self.job_data.field_mgr.fields.iter_enumerated() {
+                let field = f.borrow();
+                print!(
+                    "field {} (output of tf {:?}): [ ",
+                    i, field.producing_transform
+                );
+                for n in &field.names {
+                    let name = self.job_data.session_data.string_store.lookup(*n);
+                    print!("{name} ")
+                }
+                println!("]");
+            }
+        }
     }
 
     pub fn remove_transform(&mut self, tf_id: TransformId) {
@@ -683,6 +712,7 @@ impl<'a> JobSession<'a> {
                 let min_apf = self.job_data.field_mgr.get_min_apf_idx(prev_output_field);
                 self.job_data.field_mgr.add_field(ms_id, min_apf)
             };
+
             if let Some(name) = op_base.label {
                 self.job_data.match_set_mgr.add_field_name(
                     &self.job_data.field_mgr,
@@ -706,6 +736,13 @@ impl<'a> JobSession<'a> {
             tf_state.is_appending = op_base.append_mode;
 
             let tf_id_peek = self.job_data.tf_mgr.transforms.peek_claim_id();
+            #[cfg(feature = "debug_logging")]
+            {
+                let mut of = self.job_data.field_mgr.fields[output_field].borrow_mut();
+                if of.producing_transform.is_none() {
+                    of.producing_transform = Some(tf_id_peek);
+                }
+            }
             if mark_prev_field_as_placeholder {
                 let mut f = self.job_data.field_mgr.fields[next_input_field].borrow_mut();
                 f.added_as_placeholder_by_tf = Some(tf_id_peek);

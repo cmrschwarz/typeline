@@ -1,5 +1,3 @@
-use std::num::NonZeroUsize;
-
 use nonmax::NonMaxUsize;
 
 use crate::{
@@ -15,7 +13,7 @@ use super::{
 
 pub type TransformId = NonMaxUsize;
 // intentionally incompatible with TransformId to avoid mixups
-pub type TransformOrderingId = NonZeroUsize;
+pub type TransformOrderingId = NonMaxUsize;
 
 pub enum TransformData<'a> {
     Disabled,

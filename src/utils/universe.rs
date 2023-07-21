@@ -95,6 +95,15 @@ impl<I: UniverseIndex, T> Universe<I, T> {
     pub fn iter_options(&mut self) -> impl Iterator<Item = &mut Option<T>> {
         self.data.iter_mut()
     }
+    pub fn iter_enumerated(&mut self) -> impl Iterator<Item = (I, &T)> {
+        self.data.iter().enumerate().filter_map(|(i, v)| {
+            if let Some(v) = v {
+                Some((UniverseIdx::from_usize(i).0, v))
+            } else {
+                None
+            }
+        })
+    }
 
     pub fn any_used(&mut self) -> Option<&mut T> {
         for d in &mut self.data {

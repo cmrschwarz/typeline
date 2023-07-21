@@ -15,7 +15,7 @@ use scr::operators::select::create_op_select;
 use scr::operators::sequence::{create_op_enum, create_op_seqn};
 use scr::operators::string_sink::create_op_string_sink_transparent;
 use scr::options::chain_options::DEFAULT_CHAIN_OPTIONS;
-use scr::utils::i64_to_str;
+use scr::utils::{i64_to_str, usize_to_str};
 use scr::{
     field_data::{push_interface::PushInterface, record_set::RecordSet},
     operators::{
@@ -449,15 +449,28 @@ fn format_after_surrounding_drop() -> Result<(), ScrError> {
 #[test]
 fn batched_format_after_drop() -> Result<(), ScrError> {
     let ss = StringSinkHandle::new();
+    const COUNT: i64 = 20;
     ContextBuilder::default()
-        .set_batch_size(1)
-        .add_op(create_op_seq(0, 20, 1).unwrap())
+        .set_batch_size(3)
+        .add_op(create_op_seq(0, COUNT, 1).unwrap())
         .add_op(create_op_regex(".*[3].*", RegexOptions::default()).unwrap())
         .add_op(create_op_key("a".to_owned()))
         .add_op(create_op_format("{a}".as_bytes()).unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
-    assert_eq!(ss.get_data().unwrap().as_slice(), ["3", "13"]);
+    assert_eq!(
+        ss.get_data().unwrap().as_slice(),
+        &(0..COUNT)
+            .filter_map(|v| {
+                let v = i64_to_str(false, v).to_string();
+                if v.contains("3") {
+                    Some(v)
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>()
+    );
     Ok(())
 }
 
@@ -612,32 +625,34 @@ fn basic_cow() -> Result<(), ScrError> {
     assert_eq!(ss.get_data().unwrap().as_slice(), ["1", "2", "3"]);
     Ok(())
 }
-#[test]
-fn cow_not_affecting_original() -> Result<(), ScrError> {
-    for bs in [1, 2, 3, DEFAULT_CHAIN_OPTIONS.default_batch_size.unwrap()] {
-        let ss1 = StringSinkHandle::new();
-        let ss2 = StringSinkHandle::new();
-        ContextBuilder::default()
-            .set_batch_size(bs)
-            .push_str("123", 1)
-            .add_op(create_op_fork())
-            .add_op(
-                create_op_regex(
-                    ".",
-                    RegexOptions {
-                        multimatch: true,
-                        ..Default::default()
-                    },
-                )
-                .unwrap(),
+#[rstest]
+#[case(1)]
+#[case(2)]
+#[case(3)]
+#[case(DEFAULT_CHAIN_OPTIONS.default_batch_size.unwrap())]
+fn cow_not_affecting_original(#[case] batch_size: usize) -> Result<(), ScrError> {
+    let ss1 = StringSinkHandle::new();
+    let ss2 = StringSinkHandle::new();
+    ContextBuilder::default()
+        .set_batch_size(batch_size)
+        .push_str("123", 1)
+        .add_op(create_op_fork())
+        .add_op(
+            create_op_regex(
+                ".",
+                RegexOptions {
+                    multimatch: true,
+                    ..Default::default()
+                },
             )
-            .add_op(create_op_string_sink(&ss1))
-            .add_op(create_op_next())
-            .add_op(create_op_string_sink(&ss2))
-            .run()?;
-        assert_eq!(ss1.get_data().unwrap().as_slice(), ["1", "2", "3"]);
-        assert_eq!(ss2.get_data().unwrap().as_slice(), ["123"]);
-    }
+            .unwrap(),
+        )
+        .add_op(create_op_string_sink(&ss1))
+        .add_op(create_op_next())
+        .add_op(create_op_string_sink(&ss2))
+        .run()?;
+    assert_eq!(ss1.get_data().unwrap().as_slice(), ["1", "2", "3"]);
+    assert_eq!(ss2.get_data().unwrap().as_slice(), ["123"]);
     Ok(())
 }
 
