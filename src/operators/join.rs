@@ -429,7 +429,7 @@ pub fn handle_tf_join(sess: &mut JobData, tf_id: TransformId, join: &mut TfJoin)
                                         &mut sess.match_set_mgr,
                                         &mut sess.sv_mgr,
                                         iter.clone(),
-                                        usize::MAX,
+                                        batch_size_rem - (pos - field_pos),
                                     );
                                     break 'iter;
                                 }
