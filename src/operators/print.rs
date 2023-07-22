@@ -11,9 +11,12 @@ use crate::{
         push_interface::PushInterface,
         typed::TypedSlice,
         typed_iters::TypedSliceIter,
-        FieldValueKind,
+        FieldData, FieldValueKind,
     },
     job_session::JobData,
+    operators::utils::{
+        buffer_remaining_stream_values_auto_deref_iter, buffer_remaining_stream_values_sv_iter,
+    },
     options::argument::CliArgIdx,
     ref_iter::{
         AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter, RefAwareInlineTextIter,
@@ -27,6 +30,7 @@ use super::{
     errors::{OperatorApplicationError, OperatorCreationError},
     operator::{OperatorBase, OperatorData},
     transform::{TransformData, TransformId, TransformState},
+    utils::{ERROR_PREFIX_STR, NULL_STR, SUCCESS_STR},
 };
 
 #[derive(Clone)]
@@ -71,10 +75,6 @@ pub fn setup_tf_print(
 pub fn create_op_print() -> OperatorData {
     OperatorData::Print(OpPrint {})
 }
-
-pub const NULL_STR: &'static str = "null";
-pub const SUCCESS_STR: &'static str = "<Success>";
-pub const ERROR_PREFIX_STR: &'static str = "ERROR: ";
 
 pub fn typed_slice_zst_str(ts: &TypedSlice) -> &'static str {
     match ts {
@@ -212,7 +212,8 @@ pub fn handle_tf_print_raw(
 
             TypedSlice::StreamValueId(svs) => {
                 let mut pos = field_pos;
-                for (sv_id, offsets, rl) in RefAwareStreamValueIter::from_range(&range, svs) {
+                let mut sv_iter = RefAwareStreamValueIter::from_range(&range, svs);
+                while let Some((sv_id, offsets, rl)) = sv_iter.next() {
                     pos += rl as usize;
                     let sv = &mut sess.sv_mgr.stream_values[sv_id];
                     if !write_stream_val_check_done(stdout, sv, offsets, rl as usize).map_err(
@@ -230,6 +231,13 @@ pub fn handle_tf_print_raw(
                         input_field.request_clear_delay();
                         sess.tf_mgr
                             .unclaim_batch_size(tf_id, batch_size - (field_pos_start));
+                        buffer_remaining_stream_values_sv_iter(&mut sess.sv_mgr, sv_iter);
+                        buffer_remaining_stream_values_auto_deref_iter(
+                            &mut sess.match_set_mgr,
+                            &mut sess.sv_mgr,
+                            iter.clone(),
+                            usize::MAX,
+                        );
                         break 'iter;
                     }
                     *handled_field_count += rl as usize;

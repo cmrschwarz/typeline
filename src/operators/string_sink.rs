@@ -30,8 +30,8 @@ use crate::{
 use super::{
     errors::OperatorApplicationError,
     operator::{OperatorBase, OperatorData, OperatorId, DEFAULT_OP_NAME_SMALL_STR_LEN},
-    print::{NULL_STR, SUCCESS_STR},
     transform::{TransformData, TransformId, TransformState},
+    utils::{NULL_STR, SUCCESS_STR},
 };
 
 pub struct StringSink {

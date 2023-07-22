@@ -21,6 +21,22 @@ pub struct RefIter<'a> {
     field_mgr: &'a FieldManager,
 }
 
+impl<'a> Clone for RefIter<'a> {
+    fn clone(&self) -> Self {
+        Self {
+            refs_iter: self.refs_iter.clone(),
+            last_field_id: self.last_field_id.clone(),
+            data_iter: self.data_iter.clone(),
+            field_ref: if self.field_ref.is_some() {
+                Some(self.field_mgr.fields[self.last_field_id].borrow())
+            } else {
+                None
+            },
+            field_mgr: self.field_mgr.clone(),
+        }
+    }
+}
+
 pub struct FieldRefUnpacked<'a> {
     pub field: FieldId,
     pub begin: usize,
@@ -241,6 +257,7 @@ impl<'a> RefIter<'a> {
     }
 }
 
+#[derive(Clone)]
 pub struct AutoDerefIter<'a, I: FieldIterator<'a>> {
     iter: I,
     iter_field_id: FieldId,

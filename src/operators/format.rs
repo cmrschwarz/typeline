@@ -35,8 +35,9 @@ use crate::{
 use super::{
     errors::{OperatorApplicationError, OperatorCreationError, OperatorSetupError},
     operator::{OperatorBase, OperatorData, OperatorId},
-    print::{typed_slice_zst_str, ERROR_PREFIX_STR, NULL_STR},
+    print::typed_slice_zst_str,
     transform::{TransformData, TransformId, TransformState},
+    utils::{ERROR_PREFIX_STR, NULL_STR},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]

@@ -8,6 +8,9 @@ use crate::{
         typed::TypedSlice, typed_iters::TypedSliceIter, FieldValueKind, INLINE_STR_MAX_LEN,
     },
     job_session::{Field, JobData, StreamValueManager},
+    operators::utils::{
+        buffer_remaining_stream_values_auto_deref_iter, buffer_remaining_stream_values_sv_iter,
+    },
     options::argument::CliArgIdx,
     ref_iter::{
         AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter, RefAwareInlineTextIter,
@@ -366,7 +369,8 @@ pub fn handle_tf_join(sess: &mut JobData, tf_id: TransformId, join: &mut TfJoin)
                 }
                 TypedSlice::StreamValueId(svs) => {
                     let mut pos = field_pos;
-                    for (sv_id, offsets, rl) in RefAwareStreamValueIter::from_range(&range, svs) {
+                    let mut sv_iter = RefAwareStreamValueIter::from_range(&range, svs);
+                    while let Some((sv_id, offsets, rl)) = sv_iter.next() {
                         assert!(Some(sv_id) != join.output_stream_val); //TODO: do some loop error handling
                         pos += rl as usize;
                         let sv = &mut sv_mgr.stream_values[sv_id];
@@ -416,6 +420,16 @@ pub fn handle_tf_join(sess: &mut JobData, tf_id: TransformId, join: &mut TfJoin)
                                     sess.tf_mgr.unclaim_batch_size(
                                         tf_id,
                                         batch_size - (pos - field_pos_start),
+                                    );
+                                    buffer_remaining_stream_values_sv_iter(
+                                        &mut sess.sv_mgr,
+                                        sv_iter,
+                                    );
+                                    buffer_remaining_stream_values_auto_deref_iter(
+                                        &mut sess.match_set_mgr,
+                                        &mut sess.sv_mgr,
+                                        iter.clone(),
+                                        usize::MAX,
                                     );
                                     break 'iter;
                                 }
