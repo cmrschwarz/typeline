@@ -2,12 +2,15 @@ use encoding_rs::{Decoder, DecoderResult, Encoder, EncoderResult};
 
 pub const UTF8_REPLACEMENT_CHARACTER: [u8; 3] = [0xEF, 0xBF, 0xBD];
 
+// DC00                             // first low surrogate
+// 1101 1100 XXXX YYYY              // surrogate escaped byte
+// 1110 1101 1011 00XX  10XX YYYY   // surrogate escaped byte UTF-8 encoded
+// E     D    B    0     8    0     // surrogate escaped byte UTF-8 encoded hex
 pub fn utf8_surrocate_escape(input: &[u8], out: &mut Vec<u8>) {
     for b in input {
         out.extend_from_slice(&[0xED, 0xB0 | b >> 6, 0x80 | (b >> 4) & 0x3, b & 0xF]);
     }
 }
-
 pub fn utf8_surrogate_unescape(input: &[u8], out: &mut Vec<u8>) -> Result<(), ()> {
     if input.len() % 3 != 0 {
         return Err(());
