@@ -591,14 +591,14 @@ fn stream_into_multiple_different_formats(#[case] batch_size: usize) -> Result<(
         .set_batch_size(batch_size)
         .push_str("foo", 1)
         .push_str("bar", 1)
-        .add_op(create_op_key("label".to_owned()))
+        .add_op(create_op_key("key".to_owned()))
         .add_op(create_op_file_reader_custom(
             Box::new(SliceReader {
                 data: "xxx".as_bytes(),
             }),
             0,
         ))
-        .add_op(create_op_format("{label}: {}".as_bytes()).unwrap())
+        .add_op(create_op_format("{key}: {}".as_bytes()).unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(ss.get_data().unwrap().as_slice(), ["foo: xxx", "bar: xxx"]);

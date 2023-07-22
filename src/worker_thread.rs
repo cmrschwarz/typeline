@@ -26,6 +26,7 @@ impl<'a> WorkerThread<'a> {
         let mut js = JobSession {
             transform_data: Default::default(),
             job_data: JobData::new(sess),
+            temp_vec: Default::default(),
         };
         match js.run_job(job, Some(&self.ctx_data)) {
             Ok(()) => (),

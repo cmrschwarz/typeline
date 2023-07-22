@@ -37,8 +37,8 @@ use crate::{
     },
     ref_iter::AutoDerefIter,
     stream_value::{StreamValue, StreamValueData, StreamValueId},
-    utils::string_store::StringStoreEntry,
     utils::universe::Universe,
+    utils::{string_store::StringStoreEntry, temp_vec::TempVec},
 };
 
 pub const FIELD_REF_LOOKUP_ITER_ID: IterId = 0 as IterId;
@@ -81,6 +81,7 @@ pub struct MatchSet {
 pub struct JobSession<'a> {
     pub transform_data: Vec<TransformData<'a>>,
     pub job_data: JobData<'a>,
+    pub temp_vec: TempVec,
 }
 // a helper type so we can pass a transform handler typed
 // TransformData + all the other Data of the WorkerThreadSession
@@ -579,7 +580,7 @@ impl<'a> JobSession<'a> {
         //TODO: unpack record set properly here
         let input_record_count = job.data.adjust_field_lengths();
         let mut input_data = None;
-        let mut input_data_fields = SmallVec::<[FieldId; 4]>::new();
+        let mut input_data_fields = self.temp_vec.get();
         for fd in job.data.fields.into_iter() {
             let field_id = self
                 .job_data
@@ -623,8 +624,8 @@ impl<'a> JobSession<'a> {
 
         self.job_data.tf_mgr.push_tf_in_ready_queue(start_tf_id);
 
-        for input_field_id in input_data_fields {
-            self.job_data.drop_field_refcount(input_field_id);
+        for input_field_id in input_data_fields.iter() {
+            self.job_data.drop_field_refcount(*input_field_id);
         }
         #[cfg(feature = "debug_logging")]
         {
@@ -649,6 +650,7 @@ impl<'a> JobSession<'a> {
                 println!("]");
             }
         }
+        self.temp_vec.store(input_data_fields);
     }
 
     pub fn remove_transform(&mut self, tf_id: TransformId) {

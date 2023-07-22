@@ -4,10 +4,10 @@ use nonmax::NonMaxUsize;
 
 use crate::{
     job_session::{Field, FieldId},
-    utils::universe::Universe,
+    utils::{temp_vec::TempVec, universe::Universe},
 };
 
-use super::{FieldData, FieldValueFormat, FieldValueHeader, RunLength};
+use super::{iter_hall::IterState, FieldData, FieldValueFormat, FieldValueHeader, RunLength};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum FieldActionKind {
@@ -114,6 +114,7 @@ pub struct CommandBuffer {
     merged_actions: [std::cell::RefCell<Vec<FieldAction>>; 3],
     copies: Vec<CopyCommand>,
     insertions: Vec<InsertionCommand>,
+    temp_vec: TempVec,
 }
 
 impl MergedActionLists {
@@ -284,10 +285,20 @@ impl CommandBuffer {
             }
             println!("--------------    </execution (field {field_id}) end>      --------------");
         }
+        let mut iterators = self.temp_vec.get();
+        for it in field.field_data.iters.iter_mut() {
+            iterators.push(it.get_mut());
+        }
+        iterators.sort_by_key(|iter| iter.field_pos);
+        let field_count_delta = self.generate_commands_from_actions(
+            als,
+            &mut field.field_data.fd,
+            &mut iterators,
+            0,
+            0,
+        );
+        self.temp_vec.store(iterators);
 
-        //TODO: fix up iterators if necessary
-        let field_count_delta =
-            self.generate_commands_from_actions(als, &mut field.field_data.fd, 0, 0);
         field.field_data.fd.field_count =
             (field.field_data.fd.field_count as isize + field_count_delta) as usize;
         self.execute_commands(&mut field.field_data.fd);
@@ -373,7 +384,8 @@ impl CommandBuffer {
             curr_apf_idx,
             first_unapplied_al_idx_in_curr_apf,
         );
-        let field_count_delta = self.generate_commands_from_actions(als, field, 0, 0);
+        let field_count_delta =
+            self.generate_commands_from_actions(als, field, &mut Vec::new(), 0, 0);
         self.execute_commands(field);
         field.field_count = (field.field_count as isize + field_count_delta) as usize;
         self.cleanup();
@@ -1010,6 +1022,66 @@ impl CommandBuffer {
         }
         self.push_insert_command(header_idx_new, copy_range_start_new, fmt, run_length);
     }
+    fn iters_adjust_drop_before(
+        &self,
+        curr_header_iter_count: &mut usize,
+        iterators: &mut Vec<&mut IterState>,
+        field_pos: usize,
+        amount: RunLength,
+    ) {
+        for it in &mut iterators[0..*curr_header_iter_count] {
+            if it.field_pos > field_pos {
+                it.field_pos -= amount as usize;
+                it.header_rl_offset -= amount;
+            }
+        }
+    }
+    fn iters_to_next_header(
+        &self,
+        curr_header_iter_count: &mut usize,
+        iterators: &mut Vec<&mut IterState>,
+        header_to_skip: &FieldValueHeader,
+    ) {
+        let data_offset = header_to_skip.total_size_unique();
+        for it in &mut iterators[0..*curr_header_iter_count] {
+            it.header_idx += 1;
+            it.data += data_offset;
+            it.header_rl_offset -= header_to_skip.run_length;
+        }
+    }
+    fn iters_to_next_header_zero_offset(
+        &self,
+        curr_header_iter_count: &mut usize,
+        iterators: &mut Vec<&mut IterState>,
+        header_to_skip: &FieldValueHeader,
+    ) {
+        let data_offset = header_to_skip.total_size_unique();
+        for it in &mut iterators[0..*curr_header_iter_count] {
+            it.header_idx += 1;
+            it.data += data_offset;
+            it.header_rl_offset = 0;
+        }
+    }
+    fn iters_to_next_header_adjusting_deleted_offset(
+        &self,
+        curr_header_iter_count: &mut usize,
+        iterators: &mut Vec<&mut IterState>,
+        header_to_skip: &FieldValueHeader,
+    ) {
+        let data_offset = header_to_skip.total_size_unique();
+        for it in &mut iterators[0..*curr_header_iter_count] {
+            it.header_idx += 1;
+            it.data += data_offset;
+            if it.header_rl_offset < header_to_skip.run_length {
+                it.field_pos -= it.header_rl_offset as usize;
+                it.header_rl_offset = 0;
+            } else {
+                it.field_pos -= header_to_skip.run_length as usize;
+                it.header_rl_offset -= header_to_skip.run_length;
+            }
+        }
+    }
+
     fn handle_dup(
         &mut self,
         field_idx: usize,
@@ -1019,6 +1091,8 @@ impl CommandBuffer {
         header_idx_new: &mut usize,
         copy_range_start: &mut usize,
         copy_range_start_new: &mut usize,
+        curr_header_iter_count: &mut usize,
+        iterators: &mut Vec<&mut IterState>,
     ) {
         if header.shared_value() {
             let mut rl_res = header.run_length as usize + run_len as usize;
@@ -1102,6 +1176,8 @@ impl CommandBuffer {
         header_idx_new: &mut usize,
         copy_range_start: &mut usize,
         copy_range_start_new: &mut usize,
+        curr_header_iter_count: &mut usize,
+        iterators: &mut Vec<&mut IterState>,
     ) {
         let rl_to_del = *curr_action_pos_outstanding_drops;
         let rl_pre = (action_pos - *field_pos) as RunLength;
@@ -1110,6 +1186,12 @@ impl CommandBuffer {
             if header.shared_value() && rl_to_del <= rl_rem {
                 header.run_length -= rl_to_del;
                 *curr_action_pos_outstanding_drops = 0;
+                self.iters_adjust_drop_before(
+                    curr_header_iter_count,
+                    iterators,
+                    *field_pos,
+                    rl_to_del,
+                );
                 return;
             }
             self.push_copy_command(*header_idx_new, copy_range_start, copy_range_start_new);
@@ -1119,6 +1201,14 @@ impl CommandBuffer {
                 header.fmt,
                 rl_pre,
             );
+            self.iters_to_next_header(
+                curr_header_iter_count,
+                iterators,
+                &FieldValueHeader {
+                    fmt: header.fmt,
+                    run_length: rl_pre,
+                },
+            );
             *field_pos += rl_pre as usize;
             header.run_length -= rl_pre;
             if rl_to_del <= rl_rem {
@@ -1126,6 +1216,11 @@ impl CommandBuffer {
                 if rl_to_del == rl_rem {
                     header.set_deleted(true);
                     *curr_action_pos_outstanding_drops = 0;
+                    self.iters_to_next_header_zero_offset(
+                        curr_header_iter_count,
+                        iterators,
+                        &header,
+                    );
                     return;
                 }
                 let mut fmt_del = header.fmt;
@@ -1137,22 +1232,30 @@ impl CommandBuffer {
                     rl_to_del,
                 );
                 header.run_length -= rl_to_del;
+                self.iters_to_next_header_adjusting_deleted_offset(
+                    curr_header_iter_count,
+                    iterators,
+                    &FieldValueHeader {
+                        fmt: header.fmt,
+                        run_length: rl_pre,
+                    },
+                );
                 if header.run_length == 1 {
                     header.set_shared_value(true);
                 }
                 *curr_action_pos_outstanding_drops = 0;
                 return;
             }
+            header.set_deleted(true);
+            self.iters_to_next_header_adjusting_deleted_offset(
+                curr_header_iter_count,
+                iterators,
+                &header,
+            );
             if header.shared_value() {
-                header.set_deleted(true);
                 *copy_range_start += 1;
                 *copy_range_start_new += 1;
                 *curr_action_pos_outstanding_drops -= rl_rem;
-                return;
-            }
-            header.set_deleted(true);
-            if rl_to_del == rl_rem {
-                *curr_action_pos_outstanding_drops = 0;
                 return;
             }
             *curr_action_pos_outstanding_drops -= rl_rem;
@@ -1161,11 +1264,17 @@ impl CommandBuffer {
         if rl_to_del > header.run_length {
             header.set_deleted(true);
             *curr_action_pos_outstanding_drops -= header.run_length;
+            self.iters_to_next_header_adjusting_deleted_offset(
+                curr_header_iter_count,
+                iterators,
+                &header,
+            );
             return;
         }
         *curr_action_pos_outstanding_drops = 0;
         if rl_to_del == header.run_length {
             header.set_deleted(true);
+            self.iters_to_next_header_zero_offset(curr_header_iter_count, iterators, &header);
             return;
         }
         if !header.shared_value() {
@@ -1179,33 +1288,69 @@ impl CommandBuffer {
                 rl_to_del,
             );
             header.run_length -= rl_to_del;
+            self.iters_to_next_header_adjusting_deleted_offset(
+                curr_header_iter_count,
+                iterators,
+                &FieldValueHeader {
+                    fmt: header.fmt,
+                    run_length: rl_to_del,
+                },
+            );
             return;
         }
+        self.iters_adjust_drop_before(curr_header_iter_count, iterators, *field_pos, rl_to_del);
         header.run_length -= rl_to_del;
         return;
     }
-    // return the field_count delta
+    fn update_current_iters(
+        &self,
+        iterators: &mut Vec<&mut IterState>,
+        curr_header_iter_count: &mut usize,
+        curr_action_pos: usize,
+    ) {
+        while *curr_header_iter_count > 0 {
+            let it = &iterators[0];
+            if it.field_pos < curr_action_pos {
+                iterators.pop();
+                *curr_header_iter_count -= 1;
+                continue;
+            }
+            break;
+        }
+    }
+    // returns the field_count delta
     fn generate_commands_from_actions(
         &mut self,
         merged_actions: ActionListMergeResult,
         fd: &mut FieldData,
+        iterators: &mut Vec<&mut IterState>,
         mut header_idx: usize,
         mut field_pos: usize,
     ) -> isize {
+        debug_assert!(merged_actions.actions_start != merged_actions.actions_end);
+        debug_assert!(!fd.header.is_empty());
         let mut header;
         let mut header_idx_new = header_idx;
 
         let mut action_idx_next = 0;
         let mut copy_range_start = 0;
         let mut copy_range_start_new = 0;
-        //TODO: update iterators
-        #[allow(unused_variables)]
         let mut field_pos_old = field_pos;
         let mut curr_action_pos = 0;
         let mut curr_action_pos_outstanding_dups = 0;
         let mut curr_action_pos_outstanding_drops = 0;
         let mut curr_header_original_rl = fd.header.first().map(|h| h.run_length).unwrap_or(0);
         let mut data_end = 0;
+        let mut curr_header_iter_count = 0;
+
+        let header_end = fd.header[0].run_length as usize;
+        for it in iterators.iter() {
+            if it.field_pos >= header_end {
+                break;
+            }
+            curr_header_iter_count += 1;
+        }
+
         'advance_action: loop {
             let mal_ref = self.get_merge_result_mal_ref(&merged_actions);
             let actions =
@@ -1273,10 +1418,23 @@ impl CommandBuffer {
                     if !header.same_value_as_previous() {
                         data_end += header.total_size();
                     }
+                    let header_end_old = field_pos_old + header.run_length as usize;
+                    let field_pos_delta = field_pos as isize - field_pos_old as isize;
+                    iterators.drain(0..curr_header_iter_count);
+                    curr_header_iter_count = 0;
+                    while let Some(it) = iterators.get_mut(curr_header_iter_count) {
+                        if it.field_pos >= header_end_old {
+                            break;
+                        }
+                        it.field_pos = (it.field_pos as isize + field_pos_delta) as usize;
+                        it.header_idx += header_idx_new - header_idx;
+                        curr_header_iter_count += 1;
+                    }
                     header_idx += 1;
                     curr_header_original_rl = fd.header[header_idx].run_length;
                     header_idx_new += 1;
                 }
+                self.update_current_iters(iterators, &mut curr_header_iter_count, curr_action_pos);
                 if curr_action_pos_outstanding_dups > 0 {
                     self.handle_dup(
                         curr_action_pos,
@@ -1286,6 +1444,8 @@ impl CommandBuffer {
                         &mut header_idx_new,
                         &mut copy_range_start,
                         &mut copy_range_start_new,
+                        &mut curr_header_iter_count,
+                        iterators,
                     );
                     let prev_dups = curr_action_pos_outstanding_dups;
                     curr_action_pos_outstanding_dups = 0;
@@ -1293,6 +1453,11 @@ impl CommandBuffer {
                         continue 'advance_action;
                     }
                     curr_action_pos += prev_dups;
+                    self.update_current_iters(
+                        iterators,
+                        &mut curr_header_iter_count,
+                        curr_action_pos,
+                    );
                 }
                 self.handle_drop(
                     curr_action_pos,
@@ -1302,6 +1467,8 @@ impl CommandBuffer {
                     &mut header_idx_new,
                     &mut copy_range_start,
                     &mut copy_range_start_new,
+                    &mut curr_header_iter_count,
+                    iterators,
                 );
                 if curr_action_pos_outstanding_drops == 0 {
                     continue 'advance_action;

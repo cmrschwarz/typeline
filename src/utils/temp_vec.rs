@@ -36,10 +36,9 @@ impl TempVec {
         }
         let align = std::mem::align_of::<T>();
         let size = std::mem::size_of::<T>();
-        if align != self.align as usize
-            || size < self.size as usize
-            || size % self.size as usize != 0
-        {
+        assert!(size < u32::MAX as usize);
+        let size = size as u32;
+        if align != self.align as usize || size < self.size || size % self.size != 0 {
             self.dealloc_data();
             return Vec::new();
         }

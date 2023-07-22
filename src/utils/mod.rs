@@ -6,6 +6,7 @@ pub mod encoding;
 pub mod identity_hasher;
 pub mod plattform;
 pub mod string_store;
+pub mod temp_vec;
 pub mod universe;
 
 pub const LOG_2_OF_TEN: f64 = 3.321928094887362; //  sadly, `10.log2()` is not const evaluable yet

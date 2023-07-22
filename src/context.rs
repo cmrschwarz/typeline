@@ -9,6 +9,7 @@ use crate::job_session::{JobData, JobSession};
 use crate::operators::operator::OperatorId;
 use crate::utils::identity_hasher::BuildIdentityHasher;
 use crate::utils::string_store::StringStoreEntry;
+use crate::utils::temp_vec::TempVec;
 use crate::{
     chain::Chain,
     operators::operator::{OperatorBase, OperatorData},
@@ -171,6 +172,7 @@ impl Session {
         let mut js = JobSession {
             transform_data: Vec::new(),
             job_data: JobData::new(&self),
+            temp_vec: TempVec::default(),
         };
         if let Err(_venture_desc) = js.run_job(job, None) {
             unreachable!()

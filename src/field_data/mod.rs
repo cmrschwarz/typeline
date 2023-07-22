@@ -325,6 +325,13 @@ impl FieldValueHeader {
     pub fn total_size(&self) -> usize {
         self.data_size() + self.leading_padding()
     }
+    pub fn total_size_unique(&self) -> usize {
+        if self.same_value_as_previous() {
+            0
+        } else {
+            self.total_size()
+        }
+    }
     pub fn run_len_rem(&self) -> RunLength {
         RunLength::MAX - self.run_length
     }
