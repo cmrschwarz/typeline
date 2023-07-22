@@ -11,7 +11,7 @@ use crate::{
         push_interface::PushInterface,
         typed::TypedSlice,
         typed_iters::TypedSliceIter,
-        FieldData, FieldValueKind,
+        FieldValueKind,
     },
     job_session::JobData,
     operators::utils::{

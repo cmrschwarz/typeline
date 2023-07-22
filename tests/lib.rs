@@ -1061,6 +1061,27 @@ fn stream_error_after_regular_error() -> Result<(), ScrError> {
 }
 
 #[test]
+fn join_with_value_between_streams() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::new();
+    ContextBuilder::default()
+        .set_stream_size_threshold(1)
+        .add_op(create_op_file_reader_custom(
+            Box::new(SliceReader::new(b"AAA")),
+            0,
+        ))
+        .add_op_appending(create_op_int(42, 0))
+        .add_op_appending(create_op_file_reader_custom(
+            Box::new(SliceReader::new(b"BBB")),
+            0,
+        ))
+        .add_op(create_op_join_str(", ", 0))
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(ss.get_data().unwrap().as_slice(), ["AAA, 42, BBB"]);
+    Ok(())
+}
+
+#[test]
 fn single_operator() -> Result<(), ScrError> {
     let ss = StringSinkHandle::new();
     ContextBuilder::default()

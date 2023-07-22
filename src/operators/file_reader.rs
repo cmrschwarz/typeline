@@ -242,7 +242,7 @@ fn read_chunk(
     Ok((size, eof))
 }
 
-// returns eof
+// returns true if we are streaming, false if an inline value was created
 fn start_streaming_file(sess: &mut JobData, tf_id: TransformId, fr: &mut TfFileReader) -> bool {
     let mut output_field =
         sess.tf_mgr
@@ -279,7 +279,7 @@ fn start_streaming_file(sess: &mut JobData, tf_id: TransformId, fr: &mut TfFileR
                         false,
                     );
                 }
-                return true;
+                return false;
             }
             size
         }
@@ -288,7 +288,7 @@ fn start_streaming_file(sess: &mut JobData, tf_id: TransformId, fr: &mut TfFileR
             let err = io_error_to_op_error(sess.tf_mgr.transforms[tf_id].op_id.unwrap(), e);
             output_field.field_data.push_error(err, 1, false, false);
             fr.file.take();
-            return true;
+            return false;
         }
     };
     let mut buf = Vec::with_capacity(fr.stream_buffer_size);
@@ -303,12 +303,17 @@ fn start_streaming_file(sess: &mut JobData, tf_id: TransformId, fr: &mut TfFileR
             fr.stream_buffer_size - buf_len,
             fr.line_buffered,
         ) {
-            Ok((_size, eof)) => done = eof,
+            Ok((_size, eof)) => {
+                done = eof;
+                if eof {
+                    fr.file.take();
+                }
+            }
             Err(e) => {
                 let err = io_error_to_op_error(sess.tf_mgr.transforms[tf_id].op_id.unwrap(), e);
                 output_field.field_data.push_error(err, 1, false, false);
                 fr.file.take();
-                return true;
+                return false;
             }
         }
     };
@@ -326,15 +331,17 @@ fn start_streaming_file(sess: &mut JobData, tf_id: TransformId, fr: &mut TfFileR
         .field_data
         .push_stream_value_id(sv_id, 1, false, false);
     drop(output_field);
-    return false;
+    // even if the stream is already done, we can only drop the stream value
+    // next time we are called once it was observed -> refcounted
+    return true;
 }
 
 pub fn handle_tf_file_reader(sess: &mut JobData, tf_id: TransformId, fr: &mut TfFileReader) {
-    let mut file_eof = true;
+    let mut streaming = false;
     let initial_call = !fr.value_committed;
     if !fr.value_committed {
         fr.value_committed = true;
-        file_eof = start_streaming_file(sess, tf_id, fr);
+        streaming = start_streaming_file(sess, tf_id, fr);
     } else {
         if let Some(file) = &mut fr.file {
             let sv_id = fr.stream_value.unwrap();
@@ -351,7 +358,7 @@ pub fn handle_tf_file_reader(sess: &mut JobData, tf_id: TransformId, fr: &mut Tf
             };
             match res {
                 Ok((_size, eof)) => {
-                    file_eof = eof;
+                    streaming = !eof;
                 }
                 Err(err) => {
                     let err =
@@ -359,7 +366,7 @@ pub fn handle_tf_file_reader(sess: &mut JobData, tf_id: TransformId, fr: &mut Tf
                     sv.data = StreamValueData::Error(err);
                 }
             }
-            if file_eof {
+            if !streaming {
                 fr.file.take();
                 sv.done = true;
             }
@@ -372,16 +379,16 @@ pub fn handle_tf_file_reader(sess: &mut JobData, tf_id: TransformId, fr: &mut Tf
         &sess.field_mgr,
         &mut sess.match_set_mgr,
         initial_call,
-        file_eof,
+        !streaming,
     );
-    if !file_eof {
+    if streaming {
         sess.tf_mgr.make_stream_producer(tf_id);
         if !input_done {
             sess.sv_mgr.stream_values[fr.stream_value.unwrap()].bytes_are_chunk = false;
         }
     }
 
-    if input_done && file_eof {
+    if input_done && !streaming {
         if let Some(sv_id) = fr.stream_value {
             sess.sv_mgr.drop_field_value_subscription(sv_id, None);
         }

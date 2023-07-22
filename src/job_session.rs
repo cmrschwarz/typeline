@@ -542,7 +542,10 @@ impl<'a> JobData<'a> {
             if is_transparent {
                 bs += available_batch_size;
             }
-            self.tf_mgr.inform_transform_batch_available(succ_id, bs);
+            // even if the current batch size is zero,
+            // we want this guy ready because the end of input was reached
+            succ.available_batch_size += bs;
+            self.tf_mgr.push_tf_in_ready_queue(succ_id);
         }
     }
     pub fn drop_field_refcount(&mut self, field_id: FieldId) {
