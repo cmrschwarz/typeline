@@ -14,7 +14,6 @@ use crate::{
         operator::{OperatorBase, OperatorData, OperatorId, OperatorOffsetInChain},
         regex::setup_op_regex,
         select::setup_op_select,
-        string_sink::setup_op_string_sink,
     },
     scr_error::{result_into, ScrError},
     selenium::SeleniumVariant,
@@ -96,7 +95,7 @@ impl SessionOptions {
             OperatorData::Format(_) => (),
             OperatorData::StringSink(_) => (),
             OperatorData::FileReader(_) => (),
-            OperatorData::DataInserter(_) => (),
+            OperatorData::Literal(_) => (),
             OperatorData::Sequence(_) => (),
             OperatorData::Join(_) => (),
             OperatorData::Fork(_) => {
@@ -132,6 +131,7 @@ impl SessionOptions {
             self.string_store.intern_cloned("jump"),
             None,
             None,
+            false,
             false,
             None,
         );
@@ -180,12 +180,12 @@ impl SessionOptions {
                 OperatorData::Key(op) => setup_op_key(&mut sess.string_store, op)?,
                 OperatorData::Select(op) => setup_op_select(&mut sess.string_store, op)?,
                 OperatorData::FileReader(op) => setup_op_file_reader(chain, op)?,
-                OperatorData::StringSink(op) => setup_op_string_sink(op_id, &op_base, op)?,
+                OperatorData::StringSink(_) => (),
                 OperatorData::Fork(_) => (),
                 OperatorData::Cast(_) => (),
                 OperatorData::Count(_) => (),
                 OperatorData::Sequence(_) => (),
-                OperatorData::DataInserter(_) => (),
+                OperatorData::Literal(_) => (),
                 OperatorData::Print(_) => (),
                 OperatorData::Join(_) => (),
                 OperatorData::Next(_) => unreachable!(),
@@ -266,6 +266,7 @@ impl SessionOptions {
                         chain_id: obo.chain_id.unwrap_or(INVALID_CHAIN_ID),
                         offset_in_chain: u32::MAX, //set during setup
                         append_mode: obo.append_mode,
+                        transparent_mode: obo.transparent_mode,
                     }
                 })
                 .collect(),

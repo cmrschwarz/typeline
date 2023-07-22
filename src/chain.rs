@@ -83,7 +83,7 @@ impl ChainLivenessData {
         self.fields_declared.insert(name);
         self.field_name_aliases.remove(&name);
     }
-    fn mark_default_input_as_shadowed(&mut self, name: StringStoreEntry) {
+    fn mark_input_shadowed(&mut self, name: StringStoreEntry) {
         if name == DEFAULT_INPUT_FIELD {
             self.declare_field(name)
         }
@@ -140,14 +140,22 @@ pub struct Chain {
 
 pub fn compute_local_liveness_data(sess: &mut Session, chain_id: ChainId) {
     let cn = &mut sess.chains[chain_id as usize];
-    let mut curr_field = DEFAULT_INPUT_FIELD;
+    let mut input_field = DEFAULT_INPUT_FIELD;
+    let mut output_field = DEFAULT_INPUT_FIELD;
     let mut any_writes_so_far = false;
+
     for op_id in cn.operators.iter().cloned() {
-        let output_field = if sess.operator_bases[op_id as usize].append_mode {
-            curr_field
+        let op_base = &sess.operator_bases[op_id as usize];
+        let transparent = op_base.transparent_mode;
+        output_field = if op_base.append_mode {
+            output_field
         } else {
             ANONYMOUS_INPUT_FIELD
         };
+        let mut next_input_field = output_field;
+        let mut input_accessed = true;
+        let mut may_dup_or_drop = false;
+        let mut input_referenced = false;
         match &sess.operator_data[op_id as usize] {
             OperatorData::Fork(_) => {
                 for tgt in &cn.subchains {
@@ -159,80 +167,68 @@ pub fn compute_local_liveness_data(sess: &mut Session, chain_id: ChainId) {
             }
             OperatorData::Key(key) => {
                 cn.liveness_data
-                    .add_field_name_unless_anon(curr_field, key.key_interned);
+                    .add_field_name_unless_anon(input_field, key.key_interned);
             }
             OperatorData::Select(select) => {
-                curr_field = cn.liveness_data.unalias(select.key_interned);
-            }
-            OperatorData::Count(_count) => {
-                cn.liveness_data.mark_default_input_as_shadowed(curr_field);
-                curr_field = output_field;
-            }
-            OperatorData::Cast(_cast) => {
-                cn.liveness_data.mark_default_input_as_shadowed(curr_field);
-                curr_field = output_field;
+                next_input_field = cn.liveness_data.unalias(select.key_interned);
             }
             OperatorData::Regex(re) => {
-                cn.liveness_data
-                    .access_field_unless_anon(curr_field, any_writes_so_far);
-                any_writes_so_far |= !re.opts.optional || re.opts.multimatch;
-
+                may_dup_or_drop = !re.opts.optional || re.opts.multimatch;
                 for f in re.capture_group_names.iter().filter_map(|f| *f) {
                     cn.liveness_data.declare_field(f);
                 }
-                // because regex emits field references, we don't update the
-                // current field here and pretend people are still accessing
-                // regex's original input field (which they are, through the FRs)
+                input_referenced = true;
             }
             OperatorData::Format(fmt) => {
+                // might not technically be true, but we handle the access in here already
+                input_accessed = false;
                 for f in &fmt.refs_idx {
                     cn.liveness_data
-                        .access_field_unless_anon(f.unwrap_or(curr_field), any_writes_so_far);
-                }
-                cn.liveness_data.mark_default_input_as_shadowed(curr_field);
-                curr_field = output_field;
-            }
-            OperatorData::Print(_) => {
-                cn.liveness_data
-                    .access_field_unless_anon(curr_field, any_writes_so_far);
-                cn.liveness_data.mark_default_input_as_shadowed(curr_field);
-                curr_field = output_field;
-            }
-            OperatorData::StringSink(ss) => {
-                cn.liveness_data
-                    .access_field_unless_anon(curr_field, any_writes_so_far);
-                if !ss.transparent {
-                    cn.liveness_data.mark_default_input_as_shadowed(curr_field);
-                    curr_field = output_field;
+                        .access_field_unless_anon(f.unwrap_or(input_field), any_writes_so_far);
                 }
             }
+
             OperatorData::FileReader(_) => {
                 // this only inserts if input is done, so no write flag neccessary
-                cn.liveness_data.mark_default_input_as_shadowed(curr_field);
-                curr_field = output_field;
+                input_accessed = false;
             }
-            OperatorData::DataInserter(di) => {
-                any_writes_so_far |= di.insert_count.is_some();
-                cn.liveness_data.mark_default_input_as_shadowed(curr_field);
-                curr_field = output_field;
+            OperatorData::Literal(di) => {
+                may_dup_or_drop = di.insert_count.is_some();
+                input_accessed = false;
             }
             OperatorData::Join(_) => {
-                any_writes_so_far = true;
-                cn.liveness_data.mark_default_input_as_shadowed(curr_field);
-                curr_field = output_field;
+                may_dup_or_drop = true;
             }
             OperatorData::Sequence(seq) => {
-                any_writes_so_far |= !seq.stop_after_input;
-                cn.liveness_data.mark_default_input_as_shadowed(curr_field);
-                curr_field = output_field;
+                may_dup_or_drop = !seq.stop_after_input;
             }
+            OperatorData::Count(_) => {
+                may_dup_or_drop = true;
+            }
+            OperatorData::Cast(_) => (),
+            OperatorData::Print(_) => (),
+            OperatorData::StringSink(_) => (),
             OperatorData::Next(_) => unreachable!(),
             OperatorData::Up(_) => unreachable!(),
         }
+        if input_accessed {
+            cn.liveness_data.access_field_unless_anon(
+                input_field,
+                any_writes_so_far || (input_referenced && may_dup_or_drop),
+            );
+        }
         if let Some(label) = sess.operator_bases[op_id as usize].label {
             cn.liveness_data
-                .add_field_name_unless_anon(curr_field, label);
+                .add_field_name_unless_anon(output_field, label);
         }
+        // because primitives like regex emits field references, we don't update the
+        // current field in those cases and pretend people are still accessing
+        // the original input field (which they are, through the FRs)
+        if !transparent && !input_referenced {
+            cn.liveness_data.mark_input_shadowed(input_field);
+            input_field = next_input_field;
+        }
+        any_writes_so_far |= may_dup_or_drop;
     }
 }
 pub fn compute_field_livenses(sess: &mut Session) {

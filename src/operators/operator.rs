@@ -27,7 +27,7 @@ pub enum OperatorData {
     Format(OpFormat),
     StringSink(OpStringSink),
     FileReader(OpFileReader),
-    DataInserter(OpLiteral),
+    Literal(OpLiteral),
     Sequence(OpSequence),
 }
 
@@ -38,6 +38,7 @@ pub struct OperatorBase {
     pub chain_id: ChainId,
     pub offset_in_chain: OperatorOffsetInChain,
     pub append_mode: bool,
+    pub transparent_mode: bool,
 }
 
 pub const DEFAULT_OP_NAME_SMALL_STR_LEN: usize = 16;
@@ -54,7 +55,7 @@ impl OperatorData {
             OperatorData::Format(_) => SmallString::from("f"),
             OperatorData::Select(_) => SmallString::from("select"),
             OperatorData::StringSink(op) => op.default_op_name(),
-            OperatorData::DataInserter(op) => op.default_op_name(),
+            OperatorData::Literal(op) => op.default_op_name(),
             OperatorData::Join(op) => op.default_op_name(),
             OperatorData::Next(_) => SmallString::from("next"),
             OperatorData::Up(_) => SmallString::from("up"),

@@ -5,7 +5,7 @@ use regex::Regex;
 use smallstr::SmallString;
 
 use crate::{
-    field_data::{push_interface::PushInterface, FieldValueFormat},
+    field_data::push_interface::PushInterface,
     job_session::JobData,
     options::argument::CliArgIdx,
     stream_value::{StreamValue, StreamValueData},
@@ -56,7 +56,7 @@ impl OpLiteral {
     }
 }
 
-pub fn setup_tf_data_inserter<'a>(
+pub fn setup_tf_literal<'a>(
     _sess: &mut JobData,
     _op_base: &OperatorBase,
     op: &'a OpLiteral,
@@ -137,7 +137,7 @@ pub fn parse_op_literal_zst(
             cli_arg_idx: arg_idx,
         });
     }
-    Ok(OperatorData::DataInserter(OpLiteral {
+    Ok(OperatorData::Literal(OpLiteral {
         data: literal,
         insert_count,
     }))
@@ -157,7 +157,7 @@ pub fn parse_op_str(
             )
         })?;
     let value_owned = value_str.to_owned();
-    Ok(OperatorData::DataInserter(OpLiteral {
+    Ok(OperatorData::Literal(OpLiteral {
         data: Literal::String(value_owned),
         insert_count,
     }))
@@ -178,7 +178,7 @@ pub fn parse_op_error(
             OperatorCreationError::new_s(format!("{arg_str} argument must be valid UTF-8"), arg_idx)
         })?;
     let value_owned = value_str.to_owned();
-    Ok(OperatorData::DataInserter(OpLiteral {
+    Ok(OperatorData::Literal(OpLiteral {
         data: if stream {
             Literal::StreamError(value_owned)
         } else {
@@ -201,7 +201,7 @@ pub fn parse_op_int(
         })?;
     let parsed_value = str::parse::<i64>(value_str)
         .map_err(|_| OperatorCreationError::new("failed to value as integer", arg_idx))?;
-    Ok(OperatorData::DataInserter(OpLiteral {
+    Ok(OperatorData::Literal(OpLiteral {
         data: Literal::Int(parsed_value),
         insert_count,
     }))
@@ -219,7 +219,7 @@ pub fn parse_op_bytes(
             arg_idx,
         ));
     };
-    Ok(OperatorData::DataInserter(OpLiteral {
+    Ok(OperatorData::Literal(OpLiteral {
         data: Literal::Bytes(parsed_value),
         insert_count,
     }))
@@ -264,10 +264,10 @@ pub fn parse_op_literal(
 }
 
 pub fn create_op_literal(data: Literal, insert_count: Option<usize>) -> OperatorData {
-    OperatorData::DataInserter(OpLiteral { data, insert_count })
+    OperatorData::Literal(OpLiteral { data, insert_count })
 }
 pub fn create_op_literal_n(data: Literal, insert_count: usize) -> OperatorData {
-    OperatorData::DataInserter(OpLiteral {
+    OperatorData::Literal(OpLiteral {
         data,
         insert_count: if insert_count == 0 {
             None

@@ -31,6 +31,7 @@ impl ContextBuilder {
         label: Option<&str>,
         chainspec: Option<ChainSpec>,
         append_mode: bool,
+        transparent_mode: bool,
     ) -> Self {
         let op_base = OperatorBaseOptions::new(
             self.data
@@ -40,6 +41,7 @@ impl ContextBuilder {
             label.map(|lbl| self.data.opts.string_store.intern_cloned(lbl)),
             None,
             append_mode,
+            transparent_mode,
             None,
         );
         self.data.opts.add_op(op_base, op_data);
@@ -47,11 +49,19 @@ impl ContextBuilder {
     }
     pub fn add_op(self, op_data: OperatorData) -> Self {
         let argname = op_data.default_op_name();
-        self.add_op_with_opts(op_data, Some(&argname), None, None, false)
+        self.add_op_with_opts(op_data, Some(&argname), None, None, false, false)
     }
     pub fn add_op_appending(self, op_data: OperatorData) -> Self {
         let argname = op_data.default_op_name();
-        self.add_op_with_opts(op_data, Some(&argname), None, None, true)
+        self.add_op_with_opts(op_data, Some(&argname), None, None, true, false)
+    }
+    pub fn add_op_transparent(self, op_data: OperatorData) -> Self {
+        let argname = op_data.default_op_name();
+        self.add_op_with_opts(op_data, Some(&argname), None, None, false, true)
+    }
+    pub fn add_op_transparent_appending(self, op_data: OperatorData) -> Self {
+        let argname = op_data.default_op_name();
+        self.add_op_with_opts(op_data, Some(&argname), None, None, true, true)
     }
     pub fn set_input(mut self, rs: RecordSet) -> Self {
         self.data.input_data = rs;

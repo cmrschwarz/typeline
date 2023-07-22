@@ -1,6 +1,5 @@
 use std::{
     borrow::Cow,
-    cell::RefMut,
     collections::HashMap,
     ops::Deref,
     ops::DerefMut,
@@ -12,7 +11,7 @@ use smallstr::SmallString;
 
 use crate::{
     field_data::{field_value_flags, push_interface::PushInterface},
-    job_session::{Field, FieldId, JobData},
+    job_session::{Field, JobData},
     operators::print::error_to_string,
     ref_iter::{
         AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter, RefAwareInlineTextIter,
@@ -29,7 +28,7 @@ use crate::{
 };
 
 use super::{
-    errors::{OperatorApplicationError, OperatorSetupError},
+    errors::OperatorApplicationError,
     operator::{OperatorBase, OperatorData, OperatorId, DEFAULT_OP_NAME_SMALL_STR_LEN},
     print::{NULL_STR, SUCCESS_STR},
     transform::{TransformData, TransformId, TransformState},
@@ -105,30 +104,17 @@ impl StringSinkHandle {
 #[derive(Clone)]
 pub struct OpStringSink {
     pub handle: StringSinkHandle,
-    pub transparent: bool,
 }
 
 impl OpStringSink {
     pub fn default_op_name(&self) -> SmallString<[u8; DEFAULT_OP_NAME_SMALL_STR_LEN]> {
-        if self.transparent {
-            SmallString::from("<String Sink (Transparent)>")
-        } else {
-            SmallString::from("<String Sink>")
-        }
+        SmallString::from("<String Sink>")
     }
 }
 
 pub fn create_op_string_sink(handle: &'_ StringSinkHandle) -> OperatorData {
     OperatorData::StringSink(OpStringSink {
         handle: handle.clone(),
-        transparent: false,
-    })
-}
-
-pub fn create_op_string_sink_transparent(handle: &'_ StringSinkHandle) -> OperatorData {
-    OperatorData::StringSink(OpStringSink {
-        handle: handle.clone(),
-        transparent: true,
     })
 }
 
@@ -142,21 +128,6 @@ pub struct TfStringSink<'a> {
     handle: &'a Mutex<StringSink>,
     batch_iter: IterId,
     stream_value_handles: Universe<usize, StreamValueHandle>,
-    output_field: Option<FieldId>,
-}
-
-pub fn setup_op_string_sink(
-    op_id: OperatorId,
-    op_base: &OperatorBase,
-    op: &mut OpStringSink,
-) -> Result<(), OperatorSetupError> {
-    if op_base.append_mode && op.transparent {
-        return Err(OperatorSetupError {
-            op_id,
-            message: "A transparent String Sink cannot be in append mode".into(),
-        });
-    }
-    Ok(())
 }
 
 pub fn setup_tf_string_sink<'a>(
@@ -166,11 +137,6 @@ pub fn setup_tf_string_sink<'a>(
     tf_state: &mut TransformState,
 ) -> TransformData<'a> {
     tf_state.preferred_input_type = Some(FieldValueKind::BytesInline);
-    let output_field = if ss.transparent {
-        None
-    } else {
-        Some(tf_state.output_field)
-    };
     TransformData::StringSink(TfStringSink {
         handle: &ss.handle.data,
         batch_iter: sess.field_mgr.fields[tf_state.input_field]
@@ -178,7 +144,6 @@ pub fn setup_tf_string_sink<'a>(
             .field_data
             .claim_iter(),
         stream_value_handles: Default::default(),
-        output_field,
     })
 }
 fn push_string(out: &mut StringSink, string: String, run_len: usize) {
@@ -287,7 +252,7 @@ pub fn push_errors<'a>(
     run_length: usize,
     mut field_pos: usize,
     last_error_end: &mut usize,
-    output_field: &mut Option<RefMut<'a, Field>>,
+    output_field: &mut Field,
 ) {
     push_string(out, error_to_string(err), run_length);
     let e = Arc::new(err.clone());
@@ -296,17 +261,18 @@ pub fn push_errors<'a>(
     }
     field_pos += run_length;
     let successes_so_far = field_pos - *last_error_end;
-    output_field.as_mut().map(|of| {
-        if successes_so_far > 0 {
-            of.field_data
-                .push_success(field_pos - *last_error_end, true);
-            of.field_data
-                .push_error(err.clone(), run_length, false, false);
-        } else {
-            of.field_data
-                .push_error(err.clone(), run_length, true, true);
-        }
-    });
+    if successes_so_far > 0 {
+        output_field
+            .field_data
+            .push_success(field_pos - *last_error_end, true);
+        output_field
+            .field_data
+            .push_error(err.clone(), run_length, false, false);
+    } else {
+        output_field
+            .field_data
+            .push_error(err.clone(), run_length, true, true);
+    }
     *last_error_end = field_pos;
 }
 pub fn handle_tf_string_sink(sess: &mut JobData, tf_id: TransformId, ss: &mut TfStringSink<'_>) {
@@ -315,9 +281,7 @@ pub fn handle_tf_string_sink(sess: &mut JobData, tf_id: TransformId, ss: &mut Tf
     let op_id = tf.op_id.unwrap();
     let input_field_id = tf.input_field;
     let input_field = sess.field_mgr.borrow_field_cow(tf.input_field);
-    let mut output_field = ss
-        .output_field
-        .map(|id| sess.field_mgr.fields[id].borrow_mut());
+    let mut output_field = sess.field_mgr.fields[tf.output_field].borrow_mut();
     let base_iter = sess
         .field_mgr
         .get_iter_cow_aware(tf.input_field, &input_field, ss.batch_iter)
@@ -434,9 +398,9 @@ pub fn handle_tf_string_sink(sess: &mut JobData, tf_id: TransformId, ss: &mut Tf
     let consumed_fields = base_iter.get_next_field_pos() - starting_pos;
     sess.field_mgr
         .store_iter_cow_aware(input_field_id, &input_field, ss.batch_iter, base_iter);
-    output_field.as_mut().map(|of| {
-        of.field_data.push_success(field_pos - last_error_end, true);
-    });
+    output_field
+        .field_data
+        .push_success(field_pos - last_error_end, true);
     drop(input_field);
     drop(output_field);
     let streams_done = ss.stream_value_handles.claimed_entry_count() == 0;

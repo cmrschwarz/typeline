@@ -236,15 +236,15 @@ impl CommandBuffer {
                 prev_curr_apf_idx == *curr_apf_idx
                     && prev_first_unapplied_al_idx == *first_unapplied_al_idx
             );
-            #[cfg(feature = "debug_logging")]
-            println!(
-                "executing commands for field {} had no effect: min apf: {}, curr apf: {} [al {}]",
-                field_id, min_apf_idx, curr_apf_idx, first_unapplied_al_idx,
-            );
+            if cfg!(feature = "debug_logging") {
+                println!(
+                    "executing commands for field {} had no effect: min apf: {}, curr apf: {} [al {}]",
+                    field_id, min_apf_idx, curr_apf_idx, first_unapplied_al_idx,
+                );
+            }
             return;
         }
-        #[cfg(feature = "debug_logging")]
-        {
+        if cfg!(feature = "debug_logging") {
             println!("--------------    <execution (field {field_id}) start>      --------------");
             println!("command buffer:");
             for (apf_idx, apf) in self.action_producing_fields.iter().enumerate() {
@@ -266,10 +266,6 @@ impl CommandBuffer {
                     }
                 }
             }
-        }
-
-        #[cfg(feature = "debug_logging")]
-        {
             println!(
                 "executing commands: min apf: {}, curr apf: {} [al {}] -> {} [al {}]: ",
                 min_apf_idx,
@@ -349,19 +345,20 @@ impl CommandBuffer {
         //TODO: this is pretty wasteful. figure out a better way to do this
         self.prepare_action_lists(min_apf_idx, curr_apf_idx, first_unapplied_al_idx);
         self.cleanup();
-        #[cfg(feature = "debug_logging")]
-        if prev_first_unapplied_apf_idx != *first_unapplied_al_idx
-            || prev_curr_apf_idx != *curr_apf_idx
-        {
-            println!(
-                "dropping commands for field {}: min apf {}: curr apf {} [al {}] -> {} [al {}]",
-                field_id,
-                min_apf_idx,
-                prev_curr_apf_idx,
-                prev_first_unapplied_apf_idx,
-                curr_apf_idx,
-                first_unapplied_al_idx
-            )
+        if cfg!(feature = "debug_logging") {
+            if prev_first_unapplied_apf_idx != *first_unapplied_al_idx
+                || prev_curr_apf_idx != *curr_apf_idx
+            {
+                println!(
+                    "dropping commands for field {}: min apf {}: curr apf {} [al {}] -> {} [al {}]",
+                    field_id,
+                    min_apf_idx,
+                    prev_curr_apf_idx,
+                    prev_first_unapplied_apf_idx,
+                    curr_apf_idx,
+                    first_unapplied_al_idx
+                )
+            }
         }
     }
     pub fn execute_for_field_data<'a>(
@@ -1374,8 +1371,6 @@ impl CommandBuffer {
 
 #[cfg(test)]
 mod test {
-    use std::num::NonZeroUsize;
-
     use crate::field_data::{
         command_buffer::ActionProducingFieldIndex, iters::FieldIterator,
         push_interface::PushInterface, typed::TypedSlice, typed_iters::TypedSliceIter, FieldData,

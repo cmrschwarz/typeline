@@ -23,7 +23,7 @@ use crate::{
         format::{handle_tf_format, handle_tf_format_stream_value_update, setup_tf_format},
         join::{handle_tf_join, handle_tf_join_stream_value_update, setup_tf_join},
         jump::{handle_eager_jump_expansion, handle_lazy_jump_expansion, setup_tf_jump},
-        literal::{handle_tf_literal, setup_tf_data_inserter},
+        literal::{handle_tf_literal, setup_tf_literal},
         operator::{OperatorData, OperatorId},
         print::{handle_tf_print, handle_tf_print_stream_value_update, setup_tf_print},
         regex::{handle_tf_regex, handle_tf_regex_stream_value_update, setup_tf_regex},
@@ -510,6 +510,7 @@ impl<'a> JobData<'a> {
         let continuation = tf.continuation;
         let input_is_done = tf.input_is_done;
         let available_batch_size = tf.available_batch_size;
+        let is_transparent = tf.is_transparent;
         if let Some(cont_id) = continuation {
             let cont = &mut self.tf_mgr.transforms[cont_id];
             cont.input_is_done = input_is_done;
@@ -536,10 +537,11 @@ impl<'a> JobData<'a> {
             let succ = &mut self.tf_mgr.transforms[succ_id];
             succ.predecessor = predecessor;
             succ.input_is_done = true;
-            self.tf_mgr.inform_transform_batch_available(
-                succ_id,
-                available_batch_size + available_batch_for_successor,
-            );
+            let mut bs = available_batch_for_successor;
+            if is_transparent {
+                bs += available_batch_size;
+            }
+            self.tf_mgr.inform_transform_batch_available(succ_id, bs);
         }
     }
     pub fn drop_field_refcount(&mut self, field_id: FieldId) {
@@ -691,9 +693,9 @@ impl<'a> JobSession<'a> {
             [start_op.offset_in_chain as usize..];
         let mut mark_prev_field_as_placeholder = false;
         for op_id in ops {
-            let mut transparent = false;
             let op_base = &self.job_data.session_data.operator_bases[*op_id as usize];
             let op_data = &self.job_data.session_data.operator_data[*op_id as usize];
+            let mut is_select = false;
             match op_data {
                 OperatorData::Jump(op) => {
                     if !op.lazy {
@@ -731,12 +733,11 @@ impl<'a> JobSession<'a> {
                         );
                         next_input_field = field_id;
                     }
-                    transparent = true;
+                    is_select = true;
                 }
-                OperatorData::StringSink(ss) => transparent = ss.transparent,
                 _ => (),
             }
-            let mut output_field = if transparent {
+            let mut output_field = if is_select {
                 self.job_data
                     .field_mgr
                     .bump_field_refcount(next_input_field);
@@ -771,6 +772,7 @@ impl<'a> JobSession<'a> {
                 Some(*op_id),
                 self.job_data.tf_mgr.claim_transform_ordering_id(),
             );
+            tf_state.is_transparent = op_base.transparent_mode;
             tf_state.is_appending = op_base.append_mode;
 
             let tf_id_peek = self.job_data.tf_mgr.transforms.peek_claim_id();
@@ -799,9 +801,7 @@ impl<'a> JobSession<'a> {
                 OperatorData::Format(op) => setup_tf_format(jd, b, op, tf_id_peek, &mut tf_state),
                 OperatorData::StringSink(op) => setup_tf_string_sink(jd, b, op, &mut tf_state),
                 OperatorData::FileReader(op) => setup_tf_file_reader(jd, b, op, &mut tf_state),
-                OperatorData::DataInserter(op) => {
-                    setup_tf_data_inserter(jd, op_base, op, &mut tf_state)
-                }
+                OperatorData::Literal(op) => setup_tf_literal(jd, op_base, op, &mut tf_state),
                 OperatorData::Sequence(op) => setup_tf_sequence(jd, op_base, op, &mut tf_state),
                 OperatorData::Select(op) => setup_tf_select(jd, b, op, &mut tf_state),
                 OperatorData::Jump(op) => setup_tf_jump(jd, b, op, &mut tf_state),
@@ -811,6 +811,7 @@ impl<'a> JobSession<'a> {
             };
             output_field = tf_state.output_field;
             let appending = tf_state.is_appending;
+            let transparent = tf_state.is_transparent;
             let tf_id = self.add_transform(tf_state, tf_data);
             debug_assert!(tf_id_peek == tf_id);
 
@@ -832,7 +833,9 @@ impl<'a> JobSession<'a> {
             prev_output_field = output_field;
             if !appending {
                 predecessor_tf = Some(tf_id);
-                next_input_field = output_field;
+                if !transparent {
+                    next_input_field = output_field;
+                }
             }
         }
         let start = start_tf_id.unwrap();
@@ -932,7 +935,7 @@ impl<'a> JobSession<'a> {
                     handle_fork_expansion(self, tf_id, ctx)?;
                 }
             }
-            TransformData::Jump(jump) => handle_lazy_jump_expansion(self, tf_id),
+            TransformData::Jump(_) => handle_lazy_jump_expansion(self, tf_id),
             _ => (),
         }
         let jd = &mut self.job_data;
@@ -950,7 +953,7 @@ impl<'a> JobSession<'a> {
             TransformData::Select(tf) => handle_tf_select(jd, tf_id, tf),
             TransformData::Count(tf) => handle_tf_count(jd, tf_id, tf),
             TransformData::Cast(tf) => handle_tf_cast(jd, tf_id, tf),
-            TransformData::Jump(tf) => (),
+            TransformData::Jump(_) => (),
             TransformData::Disabled => unreachable!(),
         }
         if let Some(tf) = self.job_data.tf_mgr.transforms.get(tf_id) {

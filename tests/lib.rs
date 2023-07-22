@@ -13,7 +13,6 @@ use scr::operators::literal::{
 use scr::operators::next::create_op_next;
 use scr::operators::select::create_op_select;
 use scr::operators::sequence::{create_op_enum, create_op_seqn};
-use scr::operators::string_sink::create_op_string_sink_transparent;
 use scr::options::chain_options::DEFAULT_CHAIN_OPTIONS;
 use scr::utils::i64_to_str;
 use scr::{
@@ -99,7 +98,7 @@ fn regex_drop() -> Result<(), ScrError> {
     ContextBuilder::default()
         .set_input(rs)
         .add_op(create_op_regex_lines())
-        .add_op(create_op_string_sink_transparent(&ss1))
+        .add_op_transparent(create_op_string_sink(&ss1))
         .add_op(create_op_regex(".*[^r]$", Default::default()).unwrap())
         .add_op(create_op_string_sink(&ss2))
         .run()?;
@@ -504,6 +503,7 @@ fn select() -> Result<(), ScrError> {
             None,
             Some("a"),
             None,
+            false,
             false,
         )
         .add_op(create_op_enum(0, 3, 1).unwrap())

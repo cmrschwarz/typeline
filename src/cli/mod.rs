@@ -50,6 +50,12 @@ impl CliArgumentError {
             cli_arg_idx,
         }
     }
+    pub fn new_s(message: String, cli_arg_idx: CliArgIdx) -> Self {
+        Self {
+            message: Cow::Owned(message),
+            cli_arg_idx,
+        }
+    }
 }
 
 impl From<ArgumentReassignmentError> for CliArgumentError {
@@ -99,6 +105,7 @@ pub struct ParsedCliArgument<'a> {
     chainspec: Option<ChainSpec>,
     cli_arg: CliArgument<'a>,
     append_mode: bool,
+    transparent_mode: bool,
 }
 
 lazy_static! {
@@ -116,7 +123,7 @@ lazy_static! {
         r#"^(?<label>\p{XID_Start}\p{XID_Continue}*):$"#
     ).build().unwrap();
     static ref CLI_ARG_REGEX: regex::bytes::Regex = regex::bytes::RegexBuilder::new(
-        r#"^(?<append_mode>\+)?(?<argname>[^@=]+)(@(?<label>[^@=]+))?(?<chainspec>:[^\s@=]+)?(=(?<value>(?:.|[\r\n])*))?$"#
+        r#"^(?<modes>(?:(?<append_mode>\+)|(?<transparent_mode>_))*)(?<argname>[^@=]+)(@(?<label>[^@=]+))?(?<chainspec>:[^\s@=]+)?(=(?<value>(?:.|[\r\n])*))?$"#
     ).build()
     .unwrap();
 
@@ -458,6 +465,7 @@ fn try_parse_as_operation<'a>(
                 label,
                 arg.chainspec,
                 arg.append_mode,
+                arg.transparent_mode,
                 Some(arg.cli_arg.idx),
             ),
             op_data,
@@ -493,6 +501,16 @@ pub fn parse_cli_retain_args(args: &Vec<Vec<u8>>) -> Result<SessionOptions, ScrE
             let argname = from_utf8(m.name("argname").unwrap().as_bytes()).map_err(|_| {
                 CliArgumentError::new("argument name must be valid UTF-8", cli_arg.idx)
             })?;
+            if let Some(modes) = m.name("modes") {
+                let modes_str = modes.as_bytes();
+                if modes_str.len() >= 2 || (modes_str.len() == 2 && modes_str[0] == modes_str[1]) {
+                    return Err(CliArgumentError::new(
+                        "operator modes cannot be specified twice",
+                        cli_arg.idx,
+                    )
+                    .into());
+                }
+            }
             let label =
                 if let Some(lbl) = m.name("label") {
                     Some(from_utf8(lbl.as_bytes()).map_err(|_| {
@@ -509,6 +527,7 @@ pub fn parse_cli_retain_args(args: &Vec<Vec<u8>>) -> Result<SessionOptions, ScrE
                 chainspec: None, //m.group("chainspec"); // TODO
                 cli_arg: cli_arg,
                 append_mode: m.name("append_mode").is_some(),
+                transparent_mode: m.name("transparent_mode").is_some(),
             };
             if try_parse_as_context_opt(&mut ctx_opts, &arg)? {
                 continue;
@@ -518,7 +537,7 @@ pub fn parse_cli_retain_args(args: &Vec<Vec<u8>>) -> Result<SessionOptions, ScrE
             }
             if let Some(arg) = try_parse_as_operation(&mut ctx_opts, arg)? {
                 return Err(CliArgumentError {
-                    message: format!("unknown argument name '{}'", arg.argname).into(),
+                    message: format!("unknown operator '{}'", arg.argname).into(),
                     cli_arg_idx: arg.cli_arg.idx,
                 }
                 .into());

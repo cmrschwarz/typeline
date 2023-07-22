@@ -4,12 +4,11 @@ use bstr::ByteSlice;
 
 use crate::{
     chain::{ChainId, INVALID_CHAIN_ID},
-    context::{ContextData, VentureDescription},
     job_session::{FieldId, JobData, JobSession, MatchSetId},
     options::argument::CliArgIdx,
     utils::{
         identity_hasher::BuildIdentityHasher,
-        string_store::{StringStore, StringStoreEntry, INVALID_STRING_STORE_ENTRY},
+        string_store::{StringStore, StringStoreEntry},
     },
 };
 
@@ -88,7 +87,7 @@ pub fn setup_tf_jump(
     _sess: &mut JobData,
     _op_base: &OperatorBase,
     op: &OpJump,
-    tf_state: &mut TransformState,
+    _tf_state: &mut TransformState,
 ) -> TransformData<'static> {
     TransformData::Jump(TfJump {
         target: op.target_resolved,
