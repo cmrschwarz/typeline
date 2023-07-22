@@ -32,19 +32,16 @@ impl ContextBuilder {
         chainspec: Option<ChainSpec>,
         append_mode: bool,
     ) -> Self {
-        let op_base = OperatorBaseOptions {
-            argname: self
-                .data
+        let op_base = OperatorBaseOptions::new(
+            self.data
                 .opts
                 .string_store
                 .intern_cloned(argname.unwrap_or(op_data.default_op_name().as_str())),
-            label: label.map(|lbl| self.data.opts.string_store.intern_cloned(lbl)),
-            chainspec,
+            label.map(|lbl| self.data.opts.string_store.intern_cloned(lbl)),
+            None,
             append_mode,
-            cli_arg_idx: None,
-            chain_id: None,
-            op_id: None,
-        };
+            None,
+        );
         self.data.opts.add_op(op_base, op_data);
         self
     }

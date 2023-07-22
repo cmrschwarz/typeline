@@ -15,7 +15,7 @@ use scr::operators::select::create_op_select;
 use scr::operators::sequence::{create_op_enum, create_op_seqn};
 use scr::operators::string_sink::create_op_string_sink_transparent;
 use scr::options::chain_options::DEFAULT_CHAIN_OPTIONS;
-use scr::utils::{i64_to_str, usize_to_str};
+use scr::utils::i64_to_str;
 use scr::{
     field_data::{push_interface::PushInterface, record_set::RecordSet},
     operators::{

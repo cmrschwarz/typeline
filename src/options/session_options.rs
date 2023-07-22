@@ -9,6 +9,7 @@ use crate::{
         errors::{ChainSetupError, OperatorSetupError},
         file_reader::setup_op_file_reader,
         format::setup_op_format,
+        jump::{create_op_jump_eager, setup_op_jump},
         key::setup_op_key,
         operator::{OperatorBase, OperatorData, OperatorId, OperatorOffsetInChain},
         regex::setup_op_regex,
@@ -83,6 +84,9 @@ impl SessionOptions {
         op_base_opts.op_id = Some(self.operator_data.len() as OperatorId);
         op_base_opts.chain_id = Some(self.curr_chain);
         match &op_data {
+            // todo: while jump does not change the chain, it does make all following
+            // operators other than next / up unreachable, so we should add an error for that
+            OperatorData::Jump(_) => (),
             OperatorData::Print(_) => (),
             OperatorData::Count(_) => (),
             OperatorData::Cast(_) => (),
@@ -117,6 +121,23 @@ impl SessionOptions {
         }
         self.operator_base_options.push(op_base_opts);
         self.operator_data.push(op_data);
+    }
+    pub fn add_label(&mut self, label: String) {
+        let new_chain_id = self.chains.len() as ChainId;
+        let curr_chain = &mut self.chains[self.curr_chain as usize];
+        let mut new_chain = ChainOptions::default();
+        new_chain.parent = curr_chain.parent;
+        new_chain.label = Some(self.string_store.intern_moved(label));
+        let op_base = OperatorBaseOptions::new(
+            self.string_store.intern_cloned("jump"),
+            None,
+            None,
+            false,
+            None,
+        );
+        self.add_op(op_base, create_op_jump_eager(new_chain_id));
+        self.curr_chain = new_chain_id;
+        self.chains.push(new_chain);
     }
     pub fn verify_bounds(sess: &mut Session) -> Result<(), ScrError> {
         if sess.operator_bases.len() >= OperatorOffsetInChain::MAX as usize {
@@ -169,6 +190,9 @@ impl SessionOptions {
                 OperatorData::Join(_) => (),
                 OperatorData::Next(_) => unreachable!(),
                 OperatorData::Up(_) => unreachable!(),
+                OperatorData::Jump(op) => {
+                    setup_op_jump(&sess.chain_labels, &mut sess.string_store, op, op_id)?
+                }
             }
         }
         Ok(())
@@ -186,6 +210,13 @@ impl SessionOptions {
             return Err(ChainSetupError::new(message, chain_id));
         }
         Ok(())
+    }
+    pub fn setup_chain_labels(sess: &mut Session) {
+        for i in 0..sess.chains.len() {
+            if let Some(label) = sess.chains[i].label {
+                sess.chain_labels.insert(label, i as ChainId);
+            }
+        }
     }
     pub fn setup_chains(sess: &mut Session) -> Result<(), ChainSetupError> {
         for i in 0..sess.chains.len() {
@@ -239,8 +270,10 @@ impl SessionOptions {
                 })
                 .collect(),
             cli_args: self.cli_args,
+            chain_labels: Default::default(),
             string_store: self.string_store,
         };
+        SessionOptions::setup_chain_labels(&mut sess);
         let res = SessionOptions::verify_bounds(&mut sess)
             .and(result_into(SessionOptions::setup_operators(&mut sess)))
             .and(result_into(SessionOptions::setup_chains(&mut sess)));

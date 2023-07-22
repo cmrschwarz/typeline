@@ -20,7 +20,16 @@ use super::{
 };
 
 #[derive(Clone)]
-pub struct OpFork {}
+pub struct OpFork {
+    // jump
+    // call
+    // jumpcc
+    // callcc
+    // split
+    // splitcc
+    // splitjoin[=merge_col,..] [CC]
+    // splitcat [CC]
+}
 
 pub struct TfForkFieldMapping {
     pub source_iter_id: IterId,
@@ -249,8 +258,9 @@ pub(crate) fn handle_fork_expansion<'a>(
         }
         target_match_set.field_name_map.remove(&DEFAULT_INPUT_FIELD);
         let start_op = sess.job_data.session_data.chains[subchain_id].operators[0];
-        let tf_id = sess.setup_transforms_from_op(target_ms_id, start_op, chain_input_field_id);
-        targets.push(tf_id);
+        let (start_tf, _end_tf) =
+            sess.setup_transforms_from_op(target_ms_id, start_op, chain_input_field_id);
+        targets.push(start_tf);
     }
     if let TransformData::Fork(ref mut fork) = sess.transform_data[usize::from(tf_id)] {
         fork.targets = targets;

@@ -145,4 +145,7 @@ impl StringStore {
     pub fn lookup(&self, entry: StringStoreEntry) -> &str {
         &self.table_idx_to_str[u32::from(entry) as usize - 1]
     }
+    pub fn lookup_str(&self, entry: &str) -> Option<StringStoreEntry> {
+        self.table_str_to_idx.get(entry).cloned()
+    }
 }

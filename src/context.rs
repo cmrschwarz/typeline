@@ -1,11 +1,14 @@
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Condvar, Mutex};
 
 use smallvec::SmallVec;
 
+use crate::chain::ChainId;
 use crate::field_data::record_set::RecordSet;
 use crate::job_session::{JobData, JobSession};
 use crate::operators::operator::OperatorId;
+use crate::utils::identity_hasher::BuildIdentityHasher;
+use crate::utils::string_store::StringStoreEntry;
 use crate::{
     chain::Chain,
     operators::operator::{OperatorBase, OperatorData},
@@ -33,6 +36,7 @@ pub struct Session {
     pub(crate) max_threads: usize,
     pub(crate) is_repl: bool,
     pub(crate) chains: Vec<Chain>,
+    pub(crate) chain_labels: HashMap<StringStoreEntry, ChainId, BuildIdentityHasher>,
     pub(crate) operator_bases: Vec<OperatorBase>,
     pub(crate) operator_data: Vec<OperatorData>,
     pub(crate) cli_args: Option<Vec<Vec<u8>>>,

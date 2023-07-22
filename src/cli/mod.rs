@@ -1,5 +1,6 @@
 use crate::chain::BufferingMode;
 use crate::operators::count::parse_op_count;
+use crate::operators::jump::parse_op_jump;
 use crate::operators::{
     errors::OperatorCreationError,
     file_reader::{argument_matches_op_file_reader, parse_op_file_reader},
@@ -111,6 +112,9 @@ lazy_static! {
             .case_insensitive(true)
             .build()
             .unwrap();
+    static ref LABEL_REGEX: regex::bytes::Regex = regex::bytes::RegexBuilder::new(
+        r#"^(?<label>\p{XID_Start}\p{XID_Continue}*):$"#
+    ).build().unwrap();
     static ref CLI_ARG_REGEX: regex::bytes::Regex = regex::bytes::RegexBuilder::new(
         r#"^(?<append_mode>\+)?(?<argname>[^@=]+)(@(?<label>[^@=]+))?(?<chainspec>:[^\s@=]+)?(=(?<value>(?:.|[\r\n])*))?$"#
     ).build()
@@ -427,6 +431,7 @@ fn parse_operation(
         "count" => Some(parse_op_count(value, idx)?),
 
         "fork" => Some(parse_op_fork(value, idx)?),
+        "jump" => Some(parse_op_jump(value, idx)?),
         "next" => Some(parse_op_next(value, idx)?),
         "up" => Some(parse_op_up(value, idx)?),
         _ => None,
@@ -473,7 +478,18 @@ pub fn parse_cli_retain_args(args: &Vec<Vec<u8>>) -> Result<SessionOptions, ScrE
             idx: i as CliArgIdx + 1,
             value: arg_str,
         };
-        if let Some(m) = CLI_ARG_REGEX.captures(arg_str) {
+        if let Some(m) = LABEL_REGEX.captures(&arg_str) {
+            ctx_opts.add_label(
+                m.name("label")
+                    .unwrap()
+                    .as_bytes()
+                    .to_str()
+                    .unwrap() // we know this is valid utf-8 because of the regex match
+                    .to_owned(),
+            );
+            continue;
+        }
+        if let Some(m) = CLI_ARG_REGEX.captures(&arg_str) {
             let argname = from_utf8(m.name("argname").unwrap().as_bytes()).map_err(|_| {
                 CliArgumentError::new("argument name must be valid UTF-8", cli_arg.idx)
             })?;
