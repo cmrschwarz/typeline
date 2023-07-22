@@ -322,7 +322,7 @@ pub fn setup_tf_regex<'a>(
 ) -> TransformData<'a> {
     let cb = &mut sess.match_set_mgr.match_sets[tf_state.match_set_id].command_buffer;
     let apf_idx = cb.claim_apf(tf_state.ordering_id);
-    let apf_succ = cb.peek_next_apf_id();
+    let apf_succ = cb.peek_next_apf_id(); // this will always end up being valid because of the terminator
     let mut output_field = sess.field_mgr.fields[tf_state.output_field].borrow_mut();
     output_field.min_apf_idx = Some(apf_succ);
     drop(output_field);
