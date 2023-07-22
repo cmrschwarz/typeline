@@ -22,7 +22,6 @@ use crate::{
     options::{
         argument::{ArgumentReassignmentError, CliArgIdx},
         chain_options::ChainOptions,
-        chain_spec::ChainSpec,
         operator_base_options::OperatorBaseOptions,
         session_options::SessionOptions,
     },
@@ -102,7 +101,6 @@ pub struct ParsedCliArgument<'a> {
     argname: &'a str,
     value: Option<&'a [u8]>,
     label: Option<&'a str>,
-    chainspec: Option<ChainSpec>,
     cli_arg: CliArgument<'a>,
     append_mode: bool,
     transparent_mode: bool,
@@ -123,7 +121,7 @@ lazy_static! {
         r#"^(?<label>\p{XID_Start}\p{XID_Continue}*):$"#
     ).build().unwrap();
     static ref CLI_ARG_REGEX: regex::bytes::Regex = regex::bytes::RegexBuilder::new(
-        r#"^(?<modes>(?:(?<append_mode>\+)|(?<transparent_mode>_))*)(?<argname>[^@=]+)(@(?<label>[^@=]+))?(?<chainspec>:[^\s@=]+)?(=(?<value>(?:.|[\r\n])*))?$"#
+        r#"^(?<modes>(?:(?<append_mode>\+)|(?<transparent_mode>_))*)(?<argname>[^@=]+)(@(?<label>[^@=]+))?(=(?<value>(?:.|[\r\n])*))?$"#
     ).build()
     .unwrap();
 
@@ -247,13 +245,6 @@ fn try_parse_as_context_opt(
             )
             .into());
         }
-        if arg.chainspec.is_some() {
-            return Err(CliArgumentError::new(
-                "cannot specify chain range for global argument",
-                arg.cli_arg.idx,
-            )
-            .into());
-        }
     }
     return Ok(matched);
 }
@@ -270,7 +261,6 @@ fn try_parse_as_chain_opt(
     where
         F: FnOnce(&mut ChainOptions) -> Result<(), ArgumentReassignmentError>,
     {
-        assert!(arg.chainspec.is_none()); //TODO
         f(&mut ctx_opts.chains[ctx_opts.curr_chain as usize])
             .map_err(|e| CliArgumentError::from(e))?;
         Ok(true)
@@ -463,7 +453,6 @@ fn try_parse_as_operation<'a>(
             OperatorBaseOptions::new(
                 argname,
                 label,
-                arg.chainspec,
                 arg.append_mode,
                 arg.transparent_mode,
                 Some(arg.cli_arg.idx),
@@ -524,7 +513,6 @@ pub fn parse_cli_retain_args(args: &Vec<Vec<u8>>) -> Result<SessionOptions, ScrE
                 argname,
                 value: m.name("value").map(|v| <&[u8]>::from(v.as_bytes())),
                 label: label,
-                chainspec: None, //m.group("chainspec"); // TODO
                 cli_arg: cli_arg,
                 append_mode: m.name("append_mode").is_some(),
                 transparent_mode: m.name("transparent_mode").is_some(),

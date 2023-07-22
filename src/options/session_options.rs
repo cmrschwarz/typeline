@@ -130,7 +130,6 @@ impl SessionOptions {
         let op_base = OperatorBaseOptions::new(
             self.string_store.intern_cloned("jump"),
             None,
-            None,
             false,
             false,
             None,

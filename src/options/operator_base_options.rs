@@ -2,13 +2,12 @@ use crate::{
     chain::ChainId, operators::operator::OperatorId, utils::string_store::StringStoreEntry,
 };
 
-use super::{argument::CliArgIdx, chain_spec::ChainSpec};
+use super::argument::CliArgIdx;
 
 #[derive(Clone)]
 pub struct OperatorBaseOptions {
     pub argname: StringStoreEntry,
     pub label: Option<StringStoreEntry>,
-    pub chainspec: Option<ChainSpec>,
     pub cli_arg_idx: Option<CliArgIdx>,
     pub append_mode: bool,
     pub transparent_mode: bool,
@@ -20,7 +19,6 @@ impl OperatorBaseOptions {
     pub fn new(
         argname: StringStoreEntry,
         label: Option<StringStoreEntry>,
-        chainspec: Option<ChainSpec>,
         append_mode: bool,
         transparent_mode: bool,
         cli_arg_idx: Option<CliArgIdx>,
@@ -28,7 +26,6 @@ impl OperatorBaseOptions {
         OperatorBaseOptions {
             argname,
             label,
-            chainspec,
             cli_arg_idx,
             append_mode,
             transparent_mode,

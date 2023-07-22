@@ -128,13 +128,9 @@ impl ChainLivenessData {
 #[derive(Clone)]
 pub struct Chain {
     pub label: Option<StringStoreEntry>,
-
     pub settings: ChainSettings,
-
     pub operators: Vec<OperatorId>,
-
     pub subchains: Vec<ChainId>,
-
     pub liveness_data: ChainLivenessData,
 }
 

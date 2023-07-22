@@ -7,10 +7,7 @@ use crate::{
     scr_error::ScrError,
 };
 
-use super::{
-    chain_spec::ChainSpec, operator_base_options::OperatorBaseOptions,
-    session_options::SessionOptions,
-};
+use super::{operator_base_options::OperatorBaseOptions, session_options::SessionOptions};
 
 #[derive(Default, Clone)]
 pub struct ContextBuilderData {
@@ -29,7 +26,6 @@ impl ContextBuilder {
         op_data: OperatorData,
         argname: Option<&str>,
         label: Option<&str>,
-        chainspec: Option<ChainSpec>,
         append_mode: bool,
         transparent_mode: bool,
     ) -> Self {
@@ -39,7 +35,6 @@ impl ContextBuilder {
                 .string_store
                 .intern_cloned(argname.unwrap_or(op_data.default_op_name().as_str())),
             label.map(|lbl| self.data.opts.string_store.intern_cloned(lbl)),
-            None,
             append_mode,
             transparent_mode,
             None,
@@ -49,19 +44,19 @@ impl ContextBuilder {
     }
     pub fn add_op(self, op_data: OperatorData) -> Self {
         let argname = op_data.default_op_name();
-        self.add_op_with_opts(op_data, Some(&argname), None, None, false, false)
+        self.add_op_with_opts(op_data, Some(&argname), None, false, false)
     }
     pub fn add_op_appending(self, op_data: OperatorData) -> Self {
         let argname = op_data.default_op_name();
-        self.add_op_with_opts(op_data, Some(&argname), None, None, true, false)
+        self.add_op_with_opts(op_data, Some(&argname), None, true, false)
     }
     pub fn add_op_transparent(self, op_data: OperatorData) -> Self {
         let argname = op_data.default_op_name();
-        self.add_op_with_opts(op_data, Some(&argname), None, None, false, true)
+        self.add_op_with_opts(op_data, Some(&argname), None, false, true)
     }
     pub fn add_op_transparent_appending(self, op_data: OperatorData) -> Self {
         let argname = op_data.default_op_name();
-        self.add_op_with_opts(op_data, Some(&argname), None, None, true, true)
+        self.add_op_with_opts(op_data, Some(&argname), None, true, true)
     }
     pub fn set_input(mut self, rs: RecordSet) -> Self {
         self.data.input_data = rs;
