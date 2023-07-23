@@ -169,7 +169,7 @@ pub fn compute_local_liveness_data(sess: &mut Session, chain_id: ChainId) {
                 next_input_field = cn.liveness_data.unalias(select.key_interned);
             }
             OperatorData::Regex(re) => {
-                may_dup_or_drop = !re.opts.optional || re.opts.multimatch;
+                may_dup_or_drop = !re.opts.non_mandatory || re.opts.multimatch;
                 for f in re.capture_group_names.iter().filter_map(|f| *f) {
                     cn.liveness_data.declare_field(f);
                 }

@@ -421,8 +421,11 @@ fn parse_operation(
         if c.name("m").is_some() {
             opts.multimatch = true;
         }
+        if c.name("n").is_some() {
+            opts.non_mandatory = true;
+        }
         if c.name("o").is_some() {
-            opts.optional = true;
+            opts.overlapping = true;
         }
         if c.name("u").is_some() {
             unicode_mode = true;

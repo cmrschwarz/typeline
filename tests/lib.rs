@@ -538,7 +538,7 @@ fn optional_regex() -> Result<(), ScrError> {
             create_op_regex(
                 "1",
                 RegexOptions {
-                    optional: true,
+                    non_mandatory: true,
                     multimatch: true,
                     ..Default::default()
                 },
@@ -1088,5 +1088,54 @@ fn single_operator() -> Result<(), ScrError> {
         .add_op(create_op_seq(0, 10000, 1).unwrap())
         .run()?;
     assert_eq!(ss.get().data.as_slice(), &[] as &[String]);
+    Ok(())
+}
+
+#[test]
+fn zero_length_regex_match() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::new();
+    ContextBuilder::default()
+        .add_op(create_op_str("babab", 1))
+        .add_op(
+            create_op_regex(
+                "a*",
+                RegexOptions {
+                    multimatch: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap(),
+        )
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(ss.get().data.as_slice(), &["", "a", "", "a", "", ""]);
+    Ok(())
+}
+
+#[rstest]
+#[case("o*", "foo", &["", "oo", "o", ""])]
+#[case("a.{2}", "aba34jf baacdaab", &["aba", "a34", "aac", "acd", "aab"])]
+fn regex_match_overlapping(
+    #[case] re: &str,
+    #[case] input: &str,
+    #[case] outputs: &[&'static str],
+) -> Result<(), ScrError> {
+    let ss = StringSinkHandle::new();
+    ContextBuilder::default()
+        .add_op(create_op_str(input, 1))
+        .add_op(
+            create_op_regex(
+                re,
+                RegexOptions {
+                    multimatch: true,
+                    overlapping: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap(),
+        )
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(ss.get().data.as_slice(), outputs);
     Ok(())
 }

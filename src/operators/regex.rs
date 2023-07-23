@@ -59,7 +59,8 @@ pub struct TfRegex {
     next_start: usize,
     apf_idx: ActionProducingFieldIndex,
     multimatch: bool,
-    optional: bool,
+    non_mandatory: bool,
+    allow_overlapping: bool,
 }
 
 #[derive(Clone, Default)]
@@ -70,7 +71,7 @@ pub struct RegexOptions {
     // any byte sequence that looks like a valid UTF-8 character
     pub ascii_mode: bool,
 
-    // don't attempt to preserve strings as strings and turn everything into
+    // don't attempt to preserve strings as valid utf8 and turn everything into
     // byte sequences
     // !!! if used from the cli, this implies ascii mode unless 'u' is specified
     pub binary_mode: bool,
@@ -78,8 +79,12 @@ pub struct RegexOptions {
     // return multiple matches instead of only the first
     pub multimatch: bool,
 
-    // produce null values instead of dropping the entry if the there fails
-    pub optional: bool,
+    // allow overlapping matches (only meaningful if multimatch is enabled)
+    pub overlapping: bool,
+
+    // produce null values for all capture groups instead of dropping the record
+    // if matching fails
+    pub non_mandatory: bool,
 
     // makes ^ and $ match lines in addition to start / end of stream
     // (commonly called multiline)
@@ -113,7 +118,10 @@ impl OpRegex {
         if self.opts.multimatch {
             res.push('m');
         }
-        if self.opts.optional {
+        if self.opts.non_mandatory {
+            res.push('n');
+        }
+        if self.opts.overlapping {
             res.push('o');
         }
         if self.opts.binary_mode && !self.opts.ascii_mode {
@@ -356,7 +364,8 @@ pub fn setup_tf_regex<'a>(
         capture_group_fields: cgfs,
         capture_locs: op.regex.capture_locations(),
         multimatch: op.opts.multimatch,
-        optional: op.opts.optional,
+        non_mandatory: op.opts.non_mandatory,
+        allow_overlapping: op.opts.overlapping,
         input_field_iter_id: sess.field_mgr.fields[tf_state.input_field]
             .borrow_mut()
             .field_data
@@ -368,11 +377,13 @@ pub fn setup_tf_regex<'a>(
 }
 
 struct TextRegex<'a> {
+    allow_overlapping: bool,
     re: &'a mut regex::Regex,
     cl: &'a mut regex::CaptureLocations,
 }
 
 struct BytesRegex<'a> {
+    allow_overlapping: bool,
     re: &'a mut bytes::Regex,
     cl: &'a mut bytes::CaptureLocations,
 }
@@ -380,10 +391,12 @@ struct BytesRegex<'a> {
 trait AnyRegex {
     type Data: ?Sized;
     fn captures_read_at(&mut self, data: &Self::Data, start: usize) -> Option<(usize, usize)>;
-    fn next_after_empty(&mut self, data: &Self::Data, end: usize) -> usize;
+    // 'element' means either unicode character or byte
+    fn next_element(&mut self, data: &Self::Data, end: usize) -> usize;
     fn captures_locs_len(&mut self) -> usize;
     fn captures_locs_get(&mut self, i: usize) -> Option<(usize, usize)>;
     fn data_len(data: &Self::Data) -> usize;
+    fn allows_overlapping(&self) -> bool;
     fn next(
         &mut self,
         data: &Self::Data,
@@ -397,11 +410,8 @@ trait AnyRegex {
             None => return false,
             Some((s, e)) => (s, e),
         };
-        if s == e {
-            *next_start = self.next_after_empty(data, e);
-            if Some(e) == *last_end {
-                return self.next(data, last_end, next_start);
-            }
+        if s == e || self.allows_overlapping() {
+            *next_start = self.next_element(data, s);
         } else {
             *next_start = e;
         }
@@ -418,11 +428,12 @@ impl<'a> AnyRegex for TextRegex<'a> {
             .captures_read_at(self.cl, data, start)
             .map(|m| (m.start(), m.end()))
     }
-    fn next_after_empty(&mut self, data: &Self::Data, end: usize) -> usize {
+    fn next_element(&mut self, data: &Self::Data, end: usize) -> usize {
         let mut res = end + 1;
+
         // this is stupid. if this was nightly rust, we could use
         // ceil_char_boundary(end + 1) instead
-        while !data.is_char_boundary(res) {
+        while res < data.len() && !data.is_char_boundary(res) {
             res += 1;
         }
         res
@@ -440,6 +451,9 @@ impl<'a> AnyRegex for TextRegex<'a> {
     fn data_len(data: &Self::Data) -> usize {
         data.len()
     }
+    fn allows_overlapping(&self) -> bool {
+        self.allow_overlapping
+    }
 }
 
 impl<'a> AnyRegex for BytesRegex<'a> {
@@ -449,7 +463,7 @@ impl<'a> AnyRegex for BytesRegex<'a> {
             .captures_read_at(self.cl, data, start)
             .map(|m| (m.start(), m.end()))
     }
-    fn next_after_empty(&mut self, _data: &Self::Data, end: usize) -> usize {
+    fn next_element(&mut self, _data: &Self::Data, end: usize) -> usize {
         end + 1
     }
     fn captures_locs_len(&mut self) -> usize {
@@ -463,6 +477,9 @@ impl<'a> AnyRegex for BytesRegex<'a> {
     }
     fn data_len(data: &Self::Data) -> usize {
         data.len()
+    }
+    fn allows_overlapping(&self) -> bool {
+        self.allow_overlapping
     }
 }
 
@@ -537,7 +554,7 @@ fn match_regex_inner<'a, 'b, const PUSH_REF: bool, R: AnyRegex>(
                 match_count - 1,
             );
         } else if match_count == 0 {
-            if rmis.batch_state.optional {
+            if rmis.batch_state.non_mandatory {
                 for c in 0..regex.captures_locs_len() {
                     if let Some(field_id) = rmis.batch_state.capture_group_fields[c] {
                         let field = &mut rmis.batch_state.fields[field_id].borrow_mut().field_data;
@@ -572,7 +589,7 @@ struct RegexBatchState<'a> {
     field_pos_output: usize,
     batch_end_field_pos_output: usize,
     multimatch: bool,
-    optional: bool,
+    non_mandatory: bool,
     last_end: Option<usize>,
     next_start: usize,
     capture_group_fields: &'a Vec<Option<FieldId>>,
@@ -611,7 +628,7 @@ pub fn handle_tf_regex(sess: &mut JobData, tf_id: TransformId, re: &mut TfRegex)
         field_pos_input: field_pos_start,
         field_pos_output: field_pos_start,
         multimatch: re.multimatch,
-        optional: re.optional,
+        non_mandatory: re.non_mandatory,
         capture_group_fields: &re.capture_group_fields,
         fields: &sess.field_mgr.fields,
         last_end: re.last_end,
@@ -627,10 +644,12 @@ pub fn handle_tf_regex(sess: &mut JobData, tf_id: TransformId, re: &mut TfRegex)
         .map(|(regex, capture_locs)| TextRegex {
             re: regex,
             cl: capture_locs,
+            allow_overlapping: re.allow_overlapping,
         });
     let mut bytes_regex = BytesRegex {
         re: &mut re.regex,
         cl: &mut re.capture_locs,
+        allow_overlapping: re.allow_overlapping,
     };
 
     let mut bse = false; // 'batch size exceeded'
