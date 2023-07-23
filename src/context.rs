@@ -60,7 +60,6 @@ pub(crate) struct SessionManager {
     pub terminate: bool,
     pub waiting_worker_threads: usize,
     pub total_worker_threads: usize,
-    pub worker_join_handles: Vec<std::thread::JoinHandle<Result<(), ScrError>>>,
 }
 
 pub(crate) struct ContextData {
@@ -82,8 +81,9 @@ impl SessionManager {
         if self.session.max_threads < self.total_worker_threads && self.waiting_worker_threads == 0
         {
             let ctx_data = ctx_data.clone();
-            let join_handle = std::thread::spawn(move || WorkerThread::new(ctx_data).run());
-            self.worker_join_handles.push(join_handle);
+            self.total_worker_threads += 1;
+            // this detaches the worker thread, which is fine for our usecase
+            std::thread::spawn(move || WorkerThread::new(ctx_data).run());
         }
     }
 }
@@ -100,7 +100,6 @@ impl Context {
                 venture_counter: 0,
                 waiting_venture_participants: 0,
                 waiting_worker_threads: 0,
-                worker_join_handles: Default::default(),
                 venture_queue: Default::default(),
                 job_queue: Default::default(),
             }),
