@@ -398,18 +398,17 @@ pub fn handle_tf_string_sink(sess: &mut JobData, tf_id: TransformId, ss: &mut Tf
     let consumed_fields = base_iter.get_next_field_pos() - starting_pos;
     sess.field_mgr
         .store_iter_cow_aware(input_field_id, &input_field, ss.batch_iter, base_iter);
-    output_field
-        .field_data
-        .push_success(field_pos - last_error_end, true);
+    let success_count = field_pos - last_error_end;
+    if success_count > 0 {
+        output_field.field_data.push_success(success_count, true);
+    }
     drop(input_field);
     drop(output_field);
     let streams_done = ss.stream_value_handles.claimed_entry_count() == 0;
     if input_done && streams_done {
         sess.unlink_transform(tf_id, consumed_fields);
     } else {
-        if streams_done {
-            sess.tf_mgr.update_ready_state(tf_id);
-        }
+        sess.tf_mgr.update_ready_state(tf_id);
         sess.tf_mgr
             .inform_successor_batch_available(tf_id, consumed_fields);
     }

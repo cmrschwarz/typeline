@@ -980,6 +980,9 @@ fn setup_output_targets(
     op_id: OperatorId,
     output_field: &mut RefMut<Field>,
 ) {
+    if fmt.output_states[0].run_len == 0 {
+        return;
+    }
     fmt.output_targets.reserve(fmt.output_states.len());
     let mut output_idx = 0;
 

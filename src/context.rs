@@ -177,7 +177,7 @@ impl Session {
             job_data: JobData::new(&self),
             temp_vec: TempVec::default(),
         };
-        if let Err(venture) = js.run_job(job, None) {
+        if let Err(_venture) = js.run_job(job, None) {
             unreachable!()
         }
     }

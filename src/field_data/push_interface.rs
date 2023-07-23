@@ -51,6 +51,7 @@ pub unsafe trait RawPushInterface {
 impl FieldData {
     #[inline(always)]
     pub unsafe fn push_header_raw(&mut self, fmt: FieldValueFormat, mut run_length: usize) {
+        debug_assert!(run_length > 0);
         while run_length > RunLength::MAX as usize {
             self.header.push(FieldValueHeader {
                 fmt: fmt,
@@ -69,6 +70,7 @@ impl FieldData {
         mut fmt: FieldValueFormat,
         run_length: usize,
     ) {
+        debug_assert!(run_length > 0);
         let rl_to_push = run_length.min(RunLength::MAX as usize);
         self.header.push(FieldValueHeader {
             fmt: fmt,

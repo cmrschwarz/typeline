@@ -196,7 +196,6 @@ impl TransformManager {
     }
     pub fn update_ready_state(&mut self, tf_id: TransformId) {
         let tf = &self.transforms[tf_id];
-        debug_assert!(!tf.is_ready);
         if tf.available_batch_size > 0 {
             self.push_tf_in_ready_queue(tf_id);
         }
@@ -533,7 +532,9 @@ impl<'a> JobData<'a> {
             self.tf_mgr.push_tf_in_ready_queue(cont_id);
             return;
         }
-
+        if let Some(pred_id) = predecessor {
+            self.tf_mgr.transforms[pred_id].successor = successor;
+        }
         if let Some(succ_id) = successor {
             let succ = &mut self.tf_mgr.transforms[succ_id];
             succ.predecessor = predecessor;
@@ -546,6 +547,7 @@ impl<'a> JobData<'a> {
             // we want this guy ready because the end of input was reached
             succ.available_batch_size += bs;
             self.tf_mgr.push_tf_in_ready_queue(succ_id);
+            //self.tf_mgr.inform_transform_batch_available(succ_id, bs);
         }
     }
     pub fn drop_field_refcount(&mut self, field_id: FieldId) {
