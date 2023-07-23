@@ -322,6 +322,13 @@ impl FieldValueHeader {
             self.size as usize * self.run_length as usize
         }
     }
+    pub fn data_size_unique(&self) -> usize {
+        if self.same_value_as_previous() {
+            0
+        } else {
+            self.data_size()
+        }
+    }
     pub fn total_size(&self) -> usize {
         self.data_size() + self.leading_padding()
     }

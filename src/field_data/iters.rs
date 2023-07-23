@@ -266,7 +266,7 @@ impl<'a> FieldIterator<'a> for Iter<'a> {
             return 0;
         }
         self.header_rl_offset = 0;
-        self.data += self.fd.header[self.header_idx].data_size();
+        self.data += self.fd.header[self.header_idx].data_size_unique();
         self.field_pos += stride as usize;
         loop {
             self.header_idx += 1;
@@ -279,7 +279,7 @@ impl<'a> FieldIterator<'a> for Iter<'a> {
 
             let h = self.fd.header[self.header_idx];
             if h.deleted() {
-                self.data += h.total_size();
+                self.data += h.total_size_unique();
                 continue;
             }
             self.data += h.leading_padding();
@@ -291,18 +291,23 @@ impl<'a> FieldIterator<'a> for Iter<'a> {
     fn prev_header(&mut self) -> RunLength {
         let mut data_offset = self.header_fmt.leading_padding();
         let mut i = self.header_idx;
+        let mut same_as_prev = self.header_fmt.same_value_as_previous();
+        debug_assert!(!same_as_prev || data_offset == 0);
         loop {
             if i == 0 {
                 return 0;
             }
             i -= 1;
             let h = self.fd.header[i];
-
-            data_offset += h.total_size();
+            if !same_as_prev {
+                data_offset += h.data_size();
+            }
             if h.deleted() {
                 if i == 0 {
                     return 0;
                 }
+                same_as_prev = h.same_value_as_previous();
+                data_offset += h.leading_padding();
                 continue;
             }
 

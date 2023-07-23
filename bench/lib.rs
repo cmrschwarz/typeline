@@ -14,6 +14,7 @@ use scr::{
         string_sink::{create_op_string_sink, StringSinkHandle},
     },
     options::context_builder::ContextBuilder,
+    scr_error::ContextualizedScrError,
     scr_error::ScrError,
 };
 
@@ -21,7 +22,13 @@ use scr::{
 fn empty_context(b: &mut test::Bencher) {
     b.iter(|| {
         let res = ContextBuilder::default().push_str("foobar", 1).run();
-        assert!(matches!(res, Err(ScrError::ChainSetupError(_))));
+        assert!(matches!(
+            res,
+            Err(ContextualizedScrError {
+                err: ScrError::ChainSetupError(_),
+                contextualized_message: _
+            })
+        ));
     });
 }
 
@@ -136,6 +143,25 @@ fn regex_drop_uneven_into_format_twice(b: &mut test::Bencher) {
             .add_op(create_op_regex_lines())
             .add_op(create_op_regex("^.*[02468]$", RegexOptions::default()).unwrap())
             .add_op(create_op_format("{}{}".as_bytes()).unwrap())
+            .add_op(create_op_string_sink(&ss))
+            .run()
+            .unwrap();
+        assert_eq!(ss.get_data().unwrap().as_slice(), res);
+    });
+}
+
+#[bench]
+fn seq_into_regex_drop_unless_seven(b: &mut test::Bencher) {
+    const COUNT: usize = 100000;
+    let res: Vec<&str> = int_sequence_strings(COUNT)
+        .into_iter()
+        .filter_map(|v| if v.contains("7") { Some("7") } else { None })
+        .collect();
+    b.iter(|| {
+        let ss = StringSinkHandle::new();
+        ContextBuilder::default()
+            .add_op(create_op_seq(0, COUNT as i64, 1).unwrap())
+            .add_op(create_op_regex("7", RegexOptions::default()).unwrap())
             .add_op(create_op_string_sink(&ss))
             .run()
             .unwrap();

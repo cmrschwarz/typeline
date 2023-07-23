@@ -1139,3 +1139,28 @@ fn regex_match_overlapping(
     assert_eq!(ss.get().data.as_slice(), outputs);
     Ok(())
 }
+
+#[test]
+fn seq_into_regex_drop_unless_seven() -> Result<(), ScrError> {
+    const COUNT: usize = 20;
+    let res: Vec<&str> = (0..COUNT)
+        .into_iter()
+        .filter_map(|v| {
+            if v.to_string().contains("7") {
+                Some("7")
+            } else {
+                None
+            }
+        })
+        .collect();
+    let ss = StringSinkHandle::new();
+    ContextBuilder::default()
+        .set_batch_size(7)
+        .add_op(create_op_seq(0, COUNT as i64, 1).unwrap())
+        .add_op(create_op_regex("7", RegexOptions::default()).unwrap())
+        .add_op(create_op_string_sink(&ss))
+        .run()
+        .unwrap();
+    assert_eq!(ss.get_data().unwrap().as_slice(), res);
+    Ok(())
+}
