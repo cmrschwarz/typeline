@@ -55,11 +55,15 @@ pub(crate) struct SessionManager {
     pub session: Arc<Session>,
     pub job_queue: VecDeque<Job>,
     pub venture_queue: VecDeque<Venture>,
-    pub waiting_venture_participants: usize,
-    pub venture_counter: usize,
     pub terminate: bool,
     pub waiting_worker_threads: usize,
     pub total_worker_threads: usize,
+
+    //TODO
+    #[allow(dead_code)]
+    pub waiting_venture_participants: usize,
+    #[allow(dead_code)]
+    pub venture_counter: usize,
 }
 
 pub(crate) struct ContextData {
@@ -74,6 +78,7 @@ pub struct Context {
 }
 
 impl SessionManager {
+    #[allow(dead_code)] //TODO
     pub fn submit_job(&mut self, ctx_data: &Arc<ContextData>, job: Job) {
         self.job_queue.push_back(job);
         //TODO: better check
