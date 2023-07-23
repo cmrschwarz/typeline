@@ -30,7 +30,7 @@ fn run() -> Result<(), String> {
         Context::new(Arc::new(sess)).run_repl();
     } else {
         let job = sess.construct_main_chain_job(RecordSet::default());
-        sess.run(job, false);
+        sess.run(job);
     }
     Ok(())
 }

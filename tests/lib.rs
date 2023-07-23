@@ -4,7 +4,6 @@ use std::borrow::Cow;
 
 use rstest::rstest;
 
-use scr::operators::errors::ChainSetupError;
 use scr::operators::fork::create_op_fork;
 use scr::operators::join::{create_op_join, create_op_join_str};
 use scr::operators::literal::{
@@ -14,6 +13,7 @@ use scr::operators::next::create_op_next;
 use scr::operators::select::create_op_select;
 use scr::operators::sequence::{create_op_enum, create_op_seqn};
 use scr::options::chain_options::DEFAULT_CHAIN_OPTIONS;
+use scr::scr_error::ChainSetupError;
 use scr::utils::i64_to_str;
 use scr::{
     field_data::{push_interface::PushInterface, record_set::RecordSet},
@@ -502,7 +502,6 @@ fn select() -> Result<(), ScrError> {
             create_op_literal(Literal::String("foo".to_owned()), Some(3)),
             None,
             Some("a"),
-            None,
             false,
             false,
         )

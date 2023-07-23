@@ -72,17 +72,19 @@ impl ContextBuilder {
         let sess = Self::build_session_drop_opts(self.data.opts)?;
         Ok(Context::new(Arc::new(sess)))
     }
-    pub fn run(self, collect_output: bool) -> Result<RecordSet, ScrError> {
+    pub fn run(self) -> Result<(), ScrError> {
         let sess = Self::build_session_drop_opts(self.data.opts)?;
         Ok(if sess.max_threads == 1 {
-            sess.run_job_unthreaded(
-                sess.construct_main_chain_job(self.data.input_data),
-                collect_output,
-            )
+            sess.run_job_unthreaded(sess.construct_main_chain_job(self.data.input_data))
         } else {
             let mut ctx = Context::new(Arc::new(sess));
-            ctx.run_main_chain(self.data.input_data, collect_output)
+            ctx.run_main_chain(self.data.input_data)
         })
+    }
+    pub fn run_collect_output(self) -> Result<RecordSet, ScrError> {
+        //add operation to collect output into record set
+        // similar to string sink
+        todo!();
     }
 }
 

@@ -28,7 +28,7 @@ impl<'a> WorkerThread<'a> {
             job_data: JobData::new(sess),
             temp_vec: Default::default(),
         };
-        match js.run_job(job, Some(&self.ctx_data), false) {
+        match js.run_job(job, Some(&self.ctx_data)) {
             Ok(_) => (),
             Err(venture_desc) => {
                 let mut sess_mgr = self.ctx_data.sess_mgr.lock().unwrap();

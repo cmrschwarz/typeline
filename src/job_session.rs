@@ -972,8 +972,7 @@ impl<'a> JobSession<'a> {
         &mut self,
         job: Job,
         ctx: Option<&ContextData<'a>>,
-        collect_output: bool,
-    ) -> Result<RecordSet, VentureDescription> {
+    ) -> Result<(), VentureDescription> {
         self.setup_job(job);
         loop {
             if let Some(svu) = self.job_data.sv_mgr.updates.pop_back() {
@@ -996,12 +995,7 @@ impl<'a> JobSession<'a> {
                 self.handle_transform(tf_id, ctx)?;
                 continue;
             }
-            let output = if collect_output {
-                todo!("build RecordSet from MatchSet")
-            } else {
-                RecordSet::default()
-            };
-            return Ok(output);
+            return Ok(());
         }
     }
     pub fn into_record_set(self) -> RecordSet {
