@@ -91,22 +91,22 @@ pub fn handle_tf_sequence(sess: &mut JobData, tf_id: TransformId, seq: &mut TfSe
     let succ_wants_text = succ.preferred_input_type == Some(FieldValueKind::BytesInline)
         && output_field.names.is_empty();
 
-    let mut bs_rem = batch_size;
+    let seq_size_rem = (seq.ss.end - seq.ss.start) / seq.ss.step;
+    let count = batch_size.min(seq_size_rem as usize);
 
     //PERF: batch this
     if !succ_wants_text {
-        while seq.ss.start != seq.ss.end && bs_rem > 0 {
+        for _ in 0..count {
             output_field
                 .field_data
                 .push_int(seq.ss.start, 1, true, false);
             seq.ss.start += seq.ss.step;
-            bs_rem -= 1;
         }
     } else {
         if seq.ss.start >= 0 && seq.ss.step > 0 && seq.ss.step < FAST_SEQ_MAX_STEP {
             let mut int_str = ArrayVec::new();
             int_str.extend(i64_to_str(false, seq.ss.start).as_bytes().iter().cloned());
-            while seq.ss.start != seq.ss.end && bs_rem != 0 {
+            for _ in 0..count {
                 output_field.field_data.push_inline_str(
                     unsafe { std::str::from_utf8_unchecked(&int_str) },
                     1,
@@ -117,29 +117,27 @@ pub fn handle_tf_sequence(sess: &mut JobData, tf_id: TransformId, seq: &mut TfSe
                     increment_int_str(&mut int_str);
                 }
                 seq.ss.start += seq.ss.step;
-                bs_rem -= 1;
             }
         } else {
-            while seq.ss.start != seq.ss.end && bs_rem > 0 {
+            for _ in 0..count {
                 output_field
                     .field_data
                     .push_str(&i64_to_str(false, seq.ss.start), 1, true, false);
                 seq.ss.start += seq.ss.step;
-                bs_rem -= 1;
             }
         }
     }
-    let fields_added = batch_size - bs_rem;
+    let bs_rem = batch_size - count;
 
     if input_done & seq.stop_after_input {
         drop(output_field);
-        sess.unlink_transform(tf_id, fields_added);
+        sess.unlink_transform(tf_id, count);
         return;
     }
     if seq.ss.start == seq.ss.end {
         sess.tf_mgr.unclaim_batch_size(tf_id, bs_rem);
         drop(output_field);
-        sess.unlink_transform(tf_id, fields_added);
+        sess.unlink_transform(tf_id, count);
         return;
     }
     if input_done {
@@ -147,8 +145,7 @@ pub fn handle_tf_sequence(sess: &mut JobData, tf_id: TransformId, seq: &mut TfSe
     } else {
         sess.tf_mgr.update_ready_state(tf_id);
     }
-    sess.tf_mgr
-        .inform_successor_batch_available(tf_id, fields_added);
+    sess.tf_mgr.inform_successor_batch_available(tf_id, count);
 }
 
 pub fn parse_op_seq(
