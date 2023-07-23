@@ -968,14 +968,11 @@ impl<'a> JobSession<'a> {
         ctx: Option<&ContextData>,
     ) -> Result<(), VentureDescription> {
         match &mut self.transform_data[usize::from(tf_id)] {
-            TransformData::Fork(fork) => {
-                if !fork.expanded {
-                    fork.expanded = true;
-                    handle_fork_expansion(self, tf_id, ctx)?;
-                }
-            }
+            TransformData::Fork(fork) if !fork.expanded => handle_fork_expansion(self, tf_id, ctx)?,
             TransformData::Call(_) => handle_lazy_call_expansion(self, tf_id),
-            TransformData::CallConcurrent(_) => handle_call_concurrent_expansion(self, tf_id),
+            TransformData::CallConcurrent(callcc) if !callcc.expanded => {
+                handle_call_concurrent_expansion(self, tf_id)
+            }
             _ => (),
         }
         let jd = &mut self.job_data;

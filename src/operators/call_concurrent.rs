@@ -89,14 +89,16 @@ pub(crate) fn handle_call_concurrent_expansion<'a>(sess: &mut JobSession, tf_id:
     let tf = &mut sess.job_data.tf_mgr.transforms[tf_id];
     let input_field = tf.input_field;
     let ms_id = tf.match_set_id;
-    let call = if let TransformData::Call(tf) = &sess.transform_data[tf_id.get()] {
-        tf
+    let call = if let TransformData::CallConcurrent(call) = &mut sess.transform_data[tf_id.get()] {
+        call
     } else {
         unreachable!()
     };
+    call.expanded = true;
+    let target = call.target;
     let (target_tf, _end_tf) = sess.setup_transforms_from_op(
         ms_id,
-        sess.job_data.session_data.chains[call.target as usize].operators[0],
+        sess.job_data.session_data.chains[target as usize].operators[0],
         input_field,
     );
     sess.job_data.tf_mgr.transforms[target_tf].predecessor = Some(tf_id);

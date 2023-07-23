@@ -268,6 +268,7 @@ pub(crate) fn handle_fork_expansion(
     if let TransformData::Fork(ref mut fork) = sess.transform_data[usize::from(tf_id)] {
         fork.targets = targets;
         fork.mappings = mappings;
+        fork.expanded = true;
     } else {
         unreachable!();
     }
