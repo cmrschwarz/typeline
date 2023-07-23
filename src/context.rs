@@ -183,8 +183,16 @@ impl Context {
                 Ok(Signal::Success(buffer)) => {
                     let mut shlex = Shlex::new(&buffer);
                     let args = shlex.by_ref().map(|s| s.into_bytes()).collect();
+                    let mut exit_repl = false;
                     let sess = if !shlex.had_error {
-                        match parse_cli(args, true).and_then(|opts| opts.build_session()) {
+                        let mut sess_opts = parse_cli(args, true);
+                        sess_opts = sess_opts.and_then(|mut opts| {
+                            exit_repl = opts.repl.get() == Some(false)
+                                || opts.exit_repl.get() == Some(true);
+                            opts.repl.force_set(true);
+                            Ok(opts)
+                        });
+                        match sess_opts.and_then(|opts| opts.build_session()) {
                             Ok(opts) => Ok(opts),
                             Err(e) => match e.err {
                                 ScrError::PrintInfoAndExitError(e) => {
@@ -210,7 +218,7 @@ impl Context {
                     if !self.session.has_no_command() {
                         self.run_main_chain(RecordSet::default());
                     }
-                    if self.session.exit_repl {
+                    if exit_repl {
                         break;
                     }
                 }
