@@ -1,6 +1,3 @@
-use fantoccini::{Client, ClientBuilder};
-
-extern crate fantoccini;
 #[derive(Clone, Copy)]
 pub enum SeleniumDownloadStrategy {
     Scr,
@@ -27,11 +24,12 @@ pub enum SeleniumVariant {
 pub struct SeleniumContext {
     // TODO
     _variant: SeleniumVariant,
-    _client: Client,
+    // _client: Client,
 }
 
+/*
 const DEFAULT_PORT: u16 = 4444;
-
+extern crate fantoccini;
 impl SeleniumContext {
     pub async fn new(
         variant: SeleniumVariant,
@@ -52,3 +50,4 @@ impl SeleniumContext {
         })
     }
 }
+*/
