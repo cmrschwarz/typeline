@@ -17,7 +17,7 @@ use crate::operators::{
     sequence::parse_op_seq,
     up::parse_op_up,
 };
-use crate::scr_error::ScrError;
+use crate::scr_error::{ReplDisabledError, ScrError};
 use crate::{
     options::{
         argument::{ArgumentReassignmentError, CliArgIdx},
@@ -200,6 +200,7 @@ fn print_version(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 fn try_parse_as_context_opt(
     ctx_opts: &mut SessionOptions,
     arg: &ParsedCliArgument,
+    allow_repl: bool,
 ) -> Result<bool, ScrError> {
     let mut matched = false;
     if ["--version", "-v"].contains(&&*arg.argname) {
@@ -237,6 +238,36 @@ fn try_parse_as_context_opt(
         }
         matched = true
     }
+    if arg.argname == "repl" {
+        let enabled = try_parse_bool_arg_or_default(arg.value, true, arg.cli_arg.idx)?;
+        if !allow_repl && enabled {
+            return Err(ReplDisabledError {
+                cli_arg_idx: Some(arg.cli_arg.idx),
+                message: "REPL mode is not allowed",
+            }
+            .into());
+        }
+        ctx_opts
+            .repl
+            .set(enabled)
+            .map_err(|e| ScrError::from(CliArgumentError::from(e)))?;
+        matched = true
+    }
+    if arg.argname == "exit" {
+        if !allow_repl {
+            return Err(ReplDisabledError {
+                cli_arg_idx: Some(arg.cli_arg.idx),
+                message: "exit cannot be requested outside of repl mode",
+            }
+            .into());
+        }
+        let enabled = try_parse_bool_arg_or_default(arg.value, true, arg.cli_arg.idx)?;
+        ctx_opts
+            .exit_repl
+            .set(enabled)
+            .map_err(|e| ScrError::from(CliArgumentError::from(e)))?;
+        matched = true
+    }
     if matched {
         if arg.label.is_some() {
             return Err(CliArgumentError::new(
@@ -253,11 +284,7 @@ fn try_parse_as_chain_opt(
     ctx_opts: &mut SessionOptions,
     arg: &ParsedCliArgument,
 ) -> Result<bool, CliArgumentError> {
-    fn apply_to_chains<F>(
-        ctx_opts: &mut SessionOptions,
-        arg: &ParsedCliArgument,
-        f: F,
-    ) -> Result<bool, CliArgumentError>
+    fn apply_to_chain<F>(ctx_opts: &mut SessionOptions, f: F) -> Result<bool, CliArgumentError>
     where
         F: FnOnce(&mut ChainOptions) -> Result<(), ArgumentReassignmentError>,
     {
@@ -268,7 +295,7 @@ fn try_parse_as_chain_opt(
     match arg.argname {
         "sel" => {
             let sv = try_parse_selenium_variant(arg.value.as_deref(), &arg.cli_arg)?;
-            return apply_to_chains(ctx_opts, arg, |c| c.selenium_variant.set(sv));
+            return apply_to_chain(ctx_opts, |c| c.selenium_variant.set(sv));
         }
         "denc" => {
             if let Some(_val) = &arg.value {
@@ -282,20 +309,20 @@ fn try_parse_as_chain_opt(
         }
         "ppenc" => {
             let ppte = try_parse_bool_arg_or_default(arg.value.as_deref(), true, arg.cli_arg.idx)?;
-            apply_to_chains(ctx_opts, arg, |c| c.prefer_parent_text_encoding.set(ppte))
+            apply_to_chain(ctx_opts, |c| c.prefer_parent_text_encoding.set(ppte))
         }
         "fenc" => {
             let fte = try_parse_bool_arg_or_default(arg.value.as_deref(), true, arg.cli_arg.idx)?;
-            apply_to_chains(ctx_opts, arg, |c| c.force_text_encoding.set(fte))
+            apply_to_chain(ctx_opts, |c| c.force_text_encoding.set(fte))
         }
         "sds" => {
             let sds = try_parse_selenium_download_strategy(arg.value.as_deref(), &arg.cli_arg)?;
-            apply_to_chains(ctx_opts, arg, |c| c.selenium_download_strategy.set(sds))
+            apply_to_chain(ctx_opts, |c| c.selenium_download_strategy.set(sds))
         }
         "bs" => {
             if let Some(val) = arg.value {
                 let bs = try_parse_usize_arg(val, arg.cli_arg.idx)?;
-                apply_to_chains(ctx_opts, arg, |c| c.default_batch_size.set(bs))
+                apply_to_chain(ctx_opts, |c| c.default_batch_size.set(bs))
             } else {
                 Err(CliArgumentError::new(
                     "missing argument for batch size",
@@ -306,7 +333,7 @@ fn try_parse_as_chain_opt(
         "sbs" => {
             if let Some(val) = arg.value {
                 let bs = try_parse_usize_arg(val, arg.cli_arg.idx)?;
-                apply_to_chains(ctx_opts, arg, |c| c.stream_buffer_size.set(bs))
+                apply_to_chain(ctx_opts, |c| c.stream_buffer_size.set(bs))
             } else {
                 Err(CliArgumentError::new(
                     "missing argument for stream buffer size",
@@ -317,7 +344,7 @@ fn try_parse_as_chain_opt(
         "sst" => {
             if let Some(val) = arg.value {
                 let bs = try_parse_usize_arg(val, arg.cli_arg.idx)?;
-                apply_to_chains(ctx_opts, arg, |c| c.stream_size_threshold.set(bs))
+                apply_to_chain(ctx_opts, |c| c.stream_size_threshold.set(bs))
             } else {
                 Err(CliArgumentError::new(
                     "missing argument for stream size threshold",
@@ -356,7 +383,7 @@ fn try_parse_as_chain_opt(
             } else {
                 BufferingMode::LineBuffer
             };
-            apply_to_chains(ctx_opts, arg, |c| c.buffering_mode.set(buffering_mode))
+            apply_to_chain(ctx_opts, |c| c.buffering_mode.set(buffering_mode))
         }
         _ => Ok(false),
     }
@@ -465,7 +492,10 @@ fn try_parse_as_operation<'a>(
     }
 }
 
-pub fn parse_cli_retain_args(args: &Vec<Vec<u8>>) -> Result<SessionOptions, ScrError> {
+pub fn parse_cli_retain_args(
+    args: &Vec<Vec<u8>>,
+    allow_repl: bool,
+) -> Result<SessionOptions, ScrError> {
     if args.is_empty() {
         return Err(MissingArgumentsError.into());
     }
@@ -517,7 +547,7 @@ pub fn parse_cli_retain_args(args: &Vec<Vec<u8>>) -> Result<SessionOptions, ScrE
                 append_mode: m.name("append_mode").is_some(),
                 transparent_mode: m.name("transparent_mode").is_some(),
             };
-            if try_parse_as_context_opt(&mut ctx_opts, &arg)? {
+            if try_parse_as_context_opt(&mut ctx_opts, &arg, allow_repl)? {
                 continue;
             }
             if try_parse_as_chain_opt(&mut ctx_opts, &arg)? {
@@ -536,8 +566,11 @@ pub fn parse_cli_retain_args(args: &Vec<Vec<u8>>) -> Result<SessionOptions, ScrE
     }
     return Ok(ctx_opts);
 }
-pub fn parse_cli(args: Vec<Vec<u8>>) -> Result<SessionOptions, (Vec<Vec<u8>>, ScrError)> {
-    match parse_cli_retain_args(&args) {
+pub fn parse_cli(
+    args: Vec<Vec<u8>>,
+    allow_repl: bool,
+) -> Result<SessionOptions, (Vec<Vec<u8>>, ScrError)> {
+    match parse_cli_retain_args(&args, allow_repl) {
         Ok(mut ctx) => {
             ctx.cli_args = Some(args);
             Ok(ctx)
@@ -574,7 +607,7 @@ pub fn collect_env_args() -> Result<Vec<Vec<u8>>, CliArgumentError> {
     }
 }
 
-pub fn parse_cli_from_env() -> Result<SessionOptions, ScrError> {
+pub fn parse_cli_from_env(allow_repl: bool) -> Result<SessionOptions, ScrError> {
     let args = collect_env_args()?;
-    parse_cli(args).map_err(|(_, e)| e)
+    parse_cli(args, allow_repl).map_err(|(_, e)| e)
 }

@@ -1,15 +1,16 @@
 use scr::{
     cli::{collect_env_args, parse_cli},
+    context::Context,
     field_data::record_set::RecordSet,
     scr_error::ScrError,
 };
-use std::process::ExitCode;
+use std::{process::ExitCode, sync::Arc};
 
 fn run() -> Result<(), String> {
     let args = collect_env_args()
         .map_err(|e| ScrError::from(e).contextualize_message(None, None, None))?;
 
-    let sess_opts = match parse_cli(args) {
+    let sess_opts = match parse_cli(args, true) {
         Err((_args, ScrError::PrintInfoAndExitError(e))) => {
             println!("{e}");
             return Ok(());
@@ -25,8 +26,12 @@ fn run() -> Result<(), String> {
         .build_session()
         .map_err(|(opts, e)| ScrError::from(e).contextualize_message(None, Some(&opts), None))?;
 
-    let job = sess.construct_main_chain_job(RecordSet::default());
-    sess.run(job);
+    if sess.repl_requested() {
+        Context::new(Arc::new(sess)).run_repl();
+    } else {
+        let job = sess.construct_main_chain_job(RecordSet::default());
+        sess.run(job, false);
+    }
     Ok(())
 }
 

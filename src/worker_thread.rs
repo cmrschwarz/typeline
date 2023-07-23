@@ -28,8 +28,8 @@ impl<'a> WorkerThread<'a> {
             job_data: JobData::new(sess),
             temp_vec: Default::default(),
         };
-        match js.run_job(job, Some(&self.ctx_data)) {
-            Ok(()) => (),
+        match js.run_job(job, Some(&self.ctx_data), false) {
+            Ok(_) => (),
             Err(venture_desc) => {
                 let mut sess_mgr = self.ctx_data.sess_mgr.lock().unwrap();
                 sess_mgr.venture_queue.push_back(Venture {

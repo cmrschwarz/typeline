@@ -2,16 +2,9 @@ use std::borrow::Cow;
 
 use thiserror::Error;
 
-use crate::{chain::ChainId, options::argument::CliArgIdx};
+use crate::options::argument::CliArgIdx;
 
 use super::operator::OperatorId;
-
-#[derive(Error, Debug, Clone)]
-#[error("in chain {chain_id}: {message}")]
-pub struct ChainSetupError {
-    pub chain_id: ChainId,
-    pub message: Cow<'static, str>,
-}
 
 #[derive(Error, Debug, Clone)]
 #[error("{message}")]
@@ -34,14 +27,6 @@ pub struct OperatorApplicationError {
     pub message: Cow<'static, str>,
 }
 
-impl ChainSetupError {
-    pub fn new(message: &'static str, chain_id: ChainId) -> Self {
-        Self {
-            message: message.into(),
-            chain_id,
-        }
-    }
-}
 impl OperatorCreationError {
     pub fn new(message: &'static str, cli_arg_idx: Option<CliArgIdx>) -> Self {
         Self {

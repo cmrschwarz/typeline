@@ -1,23 +1,48 @@
-use std::fmt::Debug;
+use std::{borrow::Cow, fmt::Debug};
 
 use thiserror::Error;
 
 use crate::{
+    chain::ChainId,
     cli::{CliArgumentError, MissingArgumentsError, PrintInfoAndExitError},
     context::Session,
     operators::{
-        errors::{
-            ChainSetupError, OperatorApplicationError, OperatorCreationError, OperatorSetupError,
-        },
+        errors::{OperatorApplicationError, OperatorCreationError, OperatorSetupError},
         operator::OperatorId,
     },
     options::{argument::CliArgIdx, session_options::SessionOptions},
 };
 
 #[derive(Error, Debug, Clone)]
+#[error("in chain {chain_id}: {message}")]
+pub struct ChainSetupError {
+    pub chain_id: ChainId,
+    pub message: Cow<'static, str>,
+}
+
+impl ChainSetupError {
+    pub fn new(message: &'static str, chain_id: ChainId) -> Self {
+        Self {
+            message: message.into(),
+            chain_id,
+        }
+    }
+}
+
+#[derive(Error, Debug, Clone)]
+#[error("{message}")]
+pub struct ReplDisabledError {
+    pub message: &'static str,
+    pub cli_arg_idx: Option<CliArgIdx>,
+}
+
+#[derive(Error, Debug, Clone)]
 pub enum ScrError {
     #[error(transparent)]
     PrintInfoAndExitError(#[from] PrintInfoAndExitError),
+
+    #[error(transparent)]
+    ReplDisabledError(#[from] ReplDisabledError),
 
     #[error(transparent)]
     MissingArgumentsError(#[from] MissingArgumentsError),
@@ -100,6 +125,13 @@ impl ScrError {
         match self {
             ScrError::CliArgumentError(e) => {
                 contextualize_cli_arg(&e.message, args_gathered, e.cli_arg_idx)
+            }
+            ScrError::ReplDisabledError(e) => {
+                if let Some(cli_arg_idx) = e.cli_arg_idx {
+                    contextualize_cli_arg(&e.message, args_gathered, cli_arg_idx)
+                } else {
+                    return e.message.to_string();
+                }
             }
             ScrError::ChainSetupError(e) => e.to_string(),
             ScrError::OperationCreationError(e) => e.message.to_string(),

@@ -6,7 +6,7 @@ use crate::{
     chain::{compute_field_livenses, Chain, ChainId, INVALID_CHAIN_ID},
     context::Session,
     operators::{
-        errors::{ChainSetupError, OperatorSetupError},
+        errors::OperatorSetupError,
         file_reader::setup_op_file_reader,
         format::setup_op_format,
         jump::{create_op_jump_eager, setup_op_jump},
@@ -15,7 +15,7 @@ use crate::{
         regex::setup_op_regex,
         select::setup_op_select,
     },
-    scr_error::{result_into, ScrError},
+    scr_error::{result_into, ChainSetupError, ScrError},
     selenium::SeleniumVariant,
     utils::string_store::StringStore,
 };
@@ -251,7 +251,7 @@ impl SessionOptions {
 
         let mut sess = Session {
             max_threads,
-            is_repl: self.repl.unwrap_or(DEFAULT_CONTEXT_OPTIONS.repl.unwrap()),
+            repl: self.repl.unwrap_or(DEFAULT_CONTEXT_OPTIONS.repl.unwrap()),
             chains,
             operator_data: self.operator_data,
             operator_bases: self
@@ -272,6 +272,7 @@ impl SessionOptions {
             cli_args: self.cli_args,
             chain_labels: Default::default(),
             string_store: self.string_store,
+            exit_repl: false,
         };
         SessionOptions::setup_chain_labels(&mut sess);
         let res = SessionOptions::verify_bounds(&mut sess)

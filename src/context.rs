@@ -35,7 +35,8 @@ pub struct Venture {
 
 pub struct Session {
     pub(crate) max_threads: usize,
-    pub(crate) is_repl: bool,
+    pub(crate) repl: bool,
+    pub(crate) exit_repl: bool,
     pub(crate) chains: Vec<Chain>,
     pub(crate) chain_labels: HashMap<StringStoreEntry, ChainId, BuildIdentityHasher>,
     pub(crate) operator_bases: Vec<OperatorBase>,
@@ -131,15 +132,22 @@ impl Context {
     pub fn get_session(&self) -> &Session {
         &self.session
     }
-    pub fn run_job(&mut self, job: Job) {
+    pub fn run_job(&mut self, job: Job, collect_output: bool) -> RecordSet {
+        //TODO: add a recordSet collection operator similar to StringSink to handle this
+        debug_assert!(!collect_output);
         self.main_thread.run_job(&self.session_ref, job);
         if self.session.max_threads > 1 {
             self.wait_for_worker_threads();
         }
+        RecordSet::default()
     }
-    pub fn run_main_chain(&mut self, input_data: RecordSet) {
-        self.run_job(self.session.construct_main_chain_job(input_data))
+    pub fn run_main_chain(&mut self, input_data: RecordSet, collect_output: bool) -> RecordSet {
+        self.run_job(
+            self.session.construct_main_chain_job(input_data),
+            collect_output,
+        )
     }
+    pub fn run_repl(&mut self) {}
 }
 
 impl Drop for Context {
@@ -168,22 +176,28 @@ impl Session {
             data: input_data,
         }
     }
-    pub fn run_job_unthreaded(&self, job: Job) {
+    pub fn run_job_unthreaded(&self, job: Job, collect_output: bool) -> RecordSet {
+        assert!(!self.repl);
         let mut js = JobSession {
             transform_data: Vec::new(),
             job_data: JobData::new(&self),
             temp_vec: TempVec::default(),
         };
-        if let Err(_venture_desc) = js.run_job(job, None) {
+        if let Ok(output) = js.run_job(job, None, collect_output) {
+            output
+        } else {
             unreachable!()
         }
     }
-
-    pub fn run(self, job: Job) {
+    pub fn run(self, job: Job, collect_output: bool) -> RecordSet {
+        assert!(!self.repl);
         if self.max_threads == 1 {
-            self.run_job_unthreaded(job)
+            self.run_job_unthreaded(job, collect_output)
         } else {
-            Context::new(Arc::new(self)).run_job(job)
+            Context::new(Arc::new(self)).run_job(job, collect_output)
         }
+    }
+    pub fn repl_requested(&self) -> bool {
+        self.repl
     }
 }
