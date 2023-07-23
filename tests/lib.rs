@@ -1142,7 +1142,7 @@ fn regex_match_overlapping(
 
 #[test]
 fn seq_into_regex_drop_unless_seven() -> Result<(), ScrError> {
-    const COUNT: usize = 20;
+    const COUNT: usize = 100000;
     let res: Vec<&str> = (0..COUNT)
         .into_iter()
         .filter_map(|v| {
@@ -1155,7 +1155,6 @@ fn seq_into_regex_drop_unless_seven() -> Result<(), ScrError> {
         .collect();
     let ss = StringSinkHandle::new();
     ContextBuilder::default()
-        .set_batch_size(7)
         .add_op(create_op_seq(0, COUNT as i64, 1).unwrap())
         .add_op(create_op_regex("7", RegexOptions::default()).unwrap())
         .add_op(create_op_string_sink(&ss))

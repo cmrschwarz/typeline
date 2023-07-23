@@ -289,7 +289,7 @@ impl CommandBuffer {
         for it in field.field_data.iters.iter_mut() {
             iterators.push(it.get_mut());
         }
-        iterators.sort_by_key(|iter| iter.field_pos);
+        iterators.sort_by(|lhs, rhs| rhs.field_pos.cmp(&lhs.field_pos));
         let field_count_delta = self.generate_commands_from_actions(
             als,
             &mut field.field_data.fd,
@@ -1043,7 +1043,8 @@ impl CommandBuffer {
         header_to_skip: &FieldValueHeader,
     ) {
         let data_offset = header_to_skip.total_size_unique();
-        for it in &mut iterators[0..*curr_header_iter_count] {
+        let start = iterators.len() - *curr_header_iter_count;
+        for it in &mut iterators[start..] {
             it.header_idx += 1;
             it.data += data_offset;
             it.header_rl_offset -= header_to_skip.run_length;
@@ -1056,7 +1057,8 @@ impl CommandBuffer {
         header_to_skip: &FieldValueHeader,
     ) {
         let data_offset = header_to_skip.total_size_unique();
-        for it in &mut iterators[0..*curr_header_iter_count] {
+        let start = iterators.len() - *curr_header_iter_count;
+        for it in &mut iterators[start..] {
             it.header_idx += 1;
             it.data += data_offset;
             it.header_rl_offset = 0;
@@ -1069,7 +1071,8 @@ impl CommandBuffer {
         header_to_skip: &FieldValueHeader,
     ) {
         let data_offset = header_to_skip.total_size_unique();
-        for it in &mut iterators[0..*curr_header_iter_count] {
+        let start = iterators.len() - *curr_header_iter_count;
+        for it in &mut iterators[start..] {
             it.header_idx += 1;
             it.data += data_offset;
             if it.header_rl_offset < header_to_skip.run_length {
@@ -1091,12 +1094,11 @@ impl CommandBuffer {
         header_idx_new: &mut usize,
         copy_range_start: &mut usize,
         copy_range_start_new: &mut usize,
-        //TODO
-        #[allow(unused_variables)] curr_header_iter_count: &mut usize,
-        //TODO
-        #[allow(unused_variables)] iterators: &mut Vec<&mut IterState>,
+        curr_header_iter_count: &mut usize,
+        iterators: &mut Vec<&mut IterState>,
     ) {
         if header.shared_value() {
+            // iterators are unaffected in this case
             let mut rl_res = header.run_length as usize + run_len as usize;
             if rl_res > RunLength::MAX as usize {
                 self.push_copy_command(*header_idx_new, copy_range_start, copy_range_start_new);
@@ -1127,6 +1129,14 @@ impl CommandBuffer {
             pre,
         );
         *field_pos += pre as usize;
+        self.iters_to_next_header(
+            curr_header_iter_count,
+            iterators,
+            &FieldValueHeader {
+                fmt: header.fmt,
+                run_length: pre,
+            },
+        );
         if post == 0 && mid_full_count == 0 {
             header.run_length = mid_rem;
             header.set_shared_value(true);
@@ -1311,7 +1321,7 @@ impl CommandBuffer {
         curr_action_pos: usize,
     ) {
         while *curr_header_iter_count > 0 {
-            let it = &iterators[0];
+            let it = &iterators.last().unwrap();
             if it.field_pos < curr_action_pos {
                 iterators.pop();
                 *curr_header_iter_count -= 1;
@@ -1346,7 +1356,7 @@ impl CommandBuffer {
         let mut curr_header_iter_count = 0;
 
         let header_end = fd.header[0].run_length as usize;
-        for it in iterators.iter() {
+        for it in iterators.iter().rev() {
             if it.field_pos >= header_end {
                 break;
             }
@@ -1415,16 +1425,18 @@ impl CommandBuffer {
                             break;
                         }
                         field_pos = field_pos_new;
-                        field_pos_old += curr_header_original_rl as usize;
                     }
+                    field_pos_old += curr_header_original_rl as usize;
                     if !header.same_value_as_previous() {
                         data_end += header.total_size();
                     }
                     let header_end_old = field_pos_old + header.run_length as usize;
                     let field_pos_delta = field_pos as isize - field_pos_old as isize;
-                    iterators.drain(0..curr_header_iter_count);
+                    iterators.drain(iterators.len() - curr_header_iter_count..);
+                    let len = iterators.len();
                     curr_header_iter_count = 0;
-                    while let Some(it) = iterators.get_mut(curr_header_iter_count) {
+                    while len > curr_header_iter_count {
+                        let it = &mut iterators[len - curr_header_iter_count - 1];
                         if it.field_pos >= header_end_old {
                             break;
                         }
