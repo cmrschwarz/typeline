@@ -3,9 +3,10 @@ use smallstr::SmallString;
 use crate::{chain::ChainId, options::argument::CliArgIdx, utils::string_store::StringStoreEntry};
 
 use super::{
-    call::OpCall, cast::OpCast, count::OpCount, file_reader::OpFileReader, fork::OpFork,
-    format::OpFormat, join::OpJoin, key::OpKey, literal::OpLiteral, next::OpNext, print::OpPrint,
-    regex::OpRegex, select::OpSelect, sequence::OpSequence, string_sink::OpStringSink, up::OpUp,
+    call::OpCall, call_concurrent::OpCallConcurrent, cast::OpCast, count::OpCount,
+    file_reader::OpFileReader, fork::OpFork, format::OpFormat, join::OpJoin, key::OpKey,
+    literal::OpLiteral, next::OpNext, print::OpPrint, regex::OpRegex, select::OpSelect,
+    sequence::OpSequence, string_sink::OpStringSink, up::OpUp,
 };
 
 pub type OperatorId = u32;
@@ -14,6 +15,7 @@ pub type OperatorOffsetInChain = u32;
 #[derive(Clone)]
 pub enum OperatorData {
     Call(OpCall),
+    CallConcurrent(OpCallConcurrent),
     Cast(OpCast),
     Count(OpCount),
     Print(OpPrint),
@@ -46,22 +48,23 @@ pub const DEFAULT_OP_NAME_SMALL_STR_LEN: usize = 16;
 impl OperatorData {
     pub fn default_op_name(&self) -> SmallString<[u8; DEFAULT_OP_NAME_SMALL_STR_LEN]> {
         match self {
-            OperatorData::Print(_) => SmallString::from("p"),
+            OperatorData::Print(_) => "p".into(),
             OperatorData::Sequence(op) => op.default_op_name(),
-            OperatorData::Fork(_) => SmallString::from("fork"),
-            OperatorData::Key(_) => SmallString::from("key"),
+            OperatorData::Fork(_) => "fork".into(),
+            OperatorData::Key(_) => "key".into(),
             OperatorData::Regex(op) => op.default_op_name(),
             OperatorData::FileReader(op) => op.default_op_name(),
-            OperatorData::Format(_) => SmallString::from("f"),
-            OperatorData::Select(_) => SmallString::from("select"),
+            OperatorData::Format(_) => "f".into(),
+            OperatorData::Select(_) => "select".into(),
             OperatorData::StringSink(op) => op.default_op_name(),
             OperatorData::Literal(op) => op.default_op_name(),
             OperatorData::Join(op) => op.default_op_name(),
-            OperatorData::Next(_) => SmallString::from("next"),
-            OperatorData::Up(_) => SmallString::from("up"),
-            OperatorData::Count(_) => SmallString::from("count"),
+            OperatorData::Next(_) => "next".into(),
+            OperatorData::Up(_) => "up".into(),
+            OperatorData::Count(_) => "count".into(),
             OperatorData::Cast(op) => op.default_op_name(),
-            OperatorData::Call(_) => "jump".into(),
+            OperatorData::Call(_) => "call".into(),
+            OperatorData::CallConcurrent(_) => "callcc".into(),
         }
     }
 }

@@ -17,6 +17,9 @@ use crate::{
     },
     operators::{
         call::{handle_eager_call_expansion, handle_lazy_call_expansion, setup_tf_call},
+        call_concurrent::{
+            handle_call_concurrent_expansion, handle_tf_call_concurrent, setup_tf_call_concurrent,
+        },
         cast::{handle_tf_cast, setup_tf_cast},
         count::{handle_tf_count, setup_tf_count},
         file_reader::{handle_tf_file_reader, setup_tf_file_reader},
@@ -837,6 +840,9 @@ impl<'a> JobSession<'a> {
                 OperatorData::Sequence(op) => setup_tf_sequence(jd, op_base, op, &mut tf_state),
                 OperatorData::Select(op) => setup_tf_select(jd, b, op, &mut tf_state),
                 OperatorData::Call(op) => setup_tf_call(jd, b, op, &mut tf_state),
+                OperatorData::CallConcurrent(op) => {
+                    setup_tf_call_concurrent(jd, b, op, &mut tf_state)
+                }
                 OperatorData::Key(_) => unreachable!(),
                 OperatorData::Next(_) => unreachable!(),
                 OperatorData::Up(_) => unreachable!(),
@@ -943,8 +949,9 @@ impl<'a> JobSession<'a> {
                 svu.sv_id,
                 svu.custom,
             ),
-            TransformData::Call(_) => todo!(),
             TransformData::Fork(_) => todo!(),
+            TransformData::CallConcurrent(_) => todo!(),
+            TransformData::Call(_) => unreachable!(),
             TransformData::Cast(_) => unreachable!(),
             TransformData::Count(_) => unreachable!(),
             TransformData::Select(_) => unreachable!(),
@@ -968,6 +975,7 @@ impl<'a> JobSession<'a> {
                 }
             }
             TransformData::Call(_) => handle_lazy_call_expansion(self, tf_id),
+            TransformData::CallConcurrent(_) => handle_call_concurrent_expansion(self, tf_id),
             _ => (),
         }
         let jd = &mut self.job_data;
@@ -985,6 +993,7 @@ impl<'a> JobSession<'a> {
             TransformData::Select(tf) => handle_tf_select(jd, tf_id, tf),
             TransformData::Count(tf) => handle_tf_count(jd, tf_id, tf),
             TransformData::Cast(tf) => handle_tf_cast(jd, tf_id, tf),
+            TransformData::CallConcurrent(tf) => handle_tf_call_concurrent(jd, tf_id, tf),
             TransformData::Call(_) => (),
             TransformData::Disabled => unreachable!(),
         }

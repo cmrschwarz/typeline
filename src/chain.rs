@@ -3,7 +3,11 @@ use std::collections::{hash_map::Entry, HashMap, HashSet};
 use crate::{
     context::Session,
     document::TextEncoding,
-    operators::operator::{OperatorData, OperatorId},
+    operators::{
+        call::OpCall,
+        call_concurrent::OpCallConcurrent,
+        operator::{OperatorData, OperatorId},
+    },
     selenium::SeleniumDownloadStrategy,
     utils::{
         get_two_distinct_mut,
@@ -158,8 +162,14 @@ pub fn compute_local_liveness_data(sess: &mut Session, chain_id: ChainId) {
                     cn.liveness_data.add_successor(*tgt);
                 }
             }
-            OperatorData::Call(jump) => {
-                cn.liveness_data.add_successor(jump.target_resolved);
+            OperatorData::Call(OpCall {
+                target_resolved, ..
+            })
+            | OperatorData::CallConcurrent(OpCallConcurrent {
+                target_resolved, ..
+            }) => {
+                //TODO: this is incorrect. we need to properly handle calls
+                cn.liveness_data.add_successor(*target_resolved);
             }
             OperatorData::Key(key) => {
                 cn.liveness_data

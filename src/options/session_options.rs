@@ -7,6 +7,7 @@ use crate::{
     context::Session,
     operators::{
         call::{create_op_call_eager, setup_op_call},
+        call_concurrent::setup_op_call_concurrent,
         errors::OperatorSetupError,
         file_reader::setup_op_file_reader,
         format::setup_op_format,
@@ -83,9 +84,8 @@ impl SessionOptions {
         op_base_opts.op_id = Some(self.operator_data.len() as OperatorId);
         op_base_opts.chain_id = Some(self.curr_chain);
         match &op_data {
-            // todo: while jump does not change the chain, it does make all following
-            // operators other than next / up unreachable, so we should add an error for that
             OperatorData::Call(_) => (),
+            OperatorData::CallConcurrent(_) => (),
             OperatorData::Print(_) => (),
             OperatorData::Count(_) => (),
             OperatorData::Cast(_) => (),
@@ -191,6 +191,9 @@ impl SessionOptions {
                 OperatorData::Up(_) => unreachable!(),
                 OperatorData::Call(op) => {
                     setup_op_call(&sess.chain_labels, &mut sess.string_store, op, op_id)?
+                }
+                OperatorData::CallConcurrent(op) => {
+                    setup_op_call_concurrent(&sess.chain_labels, &mut sess.string_store, op, op_id)?
                 }
             }
         }

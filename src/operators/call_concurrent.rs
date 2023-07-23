@@ -4,7 +4,7 @@ use bstr::ByteSlice;
 
 use crate::{
     chain::{ChainId, INVALID_CHAIN_ID},
-    job_session::{FieldId, JobData, JobSession, MatchSetId},
+    job_session::{JobData, JobSession},
     options::argument::CliArgIdx,
     utils::{
         identity_hasher::BuildIdentityHasher,
@@ -19,16 +19,16 @@ use super::{
 };
 
 #[derive(Clone)]
-pub struct OpCall {
-    pub lazy: bool,
+pub struct OpCallConcurrent {
     pub target_name: String,
     pub target_resolved: ChainId,
 }
-pub struct TfCall {
+pub struct TfCallConcurrent {
+    pub expanded: bool,
     pub target: ChainId,
 }
 
-pub fn parse_op_call(
+pub fn parse_op_call_concurrent(
     value: Option<&[u8]>,
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
@@ -36,17 +36,16 @@ pub fn parse_op_call(
         .ok_or_else(|| OperatorCreationError::new("missing argument with key for select", arg_idx))?
         .to_str()
         .map_err(|_| OperatorCreationError::new("target label must be valid UTF-8", arg_idx))?;
-    Ok(OperatorData::Call(OpCall {
-        lazy: true,
+    Ok(OperatorData::CallConcurrent(OpCallConcurrent {
         target_name: value_str.to_owned(),
         target_resolved: INVALID_CHAIN_ID,
     }))
 }
 
-pub fn setup_op_call(
+pub fn setup_op_call_concurrent(
     chain_labels: &HashMap<StringStoreEntry, ChainId, BuildIdentityHasher>,
     string_store: &mut StringStore,
-    op: &mut OpCall,
+    op: &mut OpCallConcurrent,
     op_id: OperatorId,
 ) -> Result<(), OperatorSetupError> {
     if op.target_resolved != INVALID_CHAIN_ID {
@@ -67,47 +66,26 @@ pub fn setup_op_call(
     }
 }
 
-pub fn create_op_call(name: String) -> OperatorData {
-    OperatorData::Call(OpCall {
-        lazy: true,
+pub fn create_op_callcc(name: String) -> OperatorData {
+    OperatorData::CallConcurrent(OpCallConcurrent {
         target_name: name,
         target_resolved: INVALID_CHAIN_ID,
     })
 }
 
-pub(crate) fn create_op_call_eager(target: ChainId) -> OperatorData {
-    OperatorData::Call(OpCall {
-        lazy: false,
-        target_name: String::new(),
-        target_resolved: target,
-    })
-}
-
-pub fn setup_tf_call(
+pub fn setup_tf_call_concurrent(
     _sess: &mut JobData,
     _op_base: &OperatorBase,
-    op: &OpCall,
+    op: &OpCallConcurrent,
     _tf_state: &mut TransformState,
 ) -> TransformData<'static> {
-    TransformData::Call(TfCall {
+    TransformData::CallConcurrent(TfCallConcurrent {
         target: op.target_resolved,
+        expanded: false,
     })
 }
-pub(crate) fn handle_eager_call_expansion<'a>(
-    sess: &mut JobSession,
-    op_id: OperatorId,
-    ms_id: MatchSetId,
-    input_field: FieldId,
-) -> (TransformId, TransformId) {
-    if let OperatorData::Call(op) = &sess.job_data.session_data.operator_data[op_id as usize] {
-        let chain = &sess.job_data.session_data.chains[op.target_resolved as usize];
-        sess.setup_transforms_from_op(ms_id, chain.operators[0], input_field)
-    } else {
-        unreachable!();
-    }
-}
 
-pub(crate) fn handle_lazy_call_expansion<'a>(sess: &mut JobSession, tf_id: TransformId) {
+pub(crate) fn handle_call_concurrent_expansion<'a>(sess: &mut JobSession, tf_id: TransformId) {
     let tf = &mut sess.job_data.tf_mgr.transforms[tf_id];
     let input_field = tf.input_field;
     let ms_id = tf.match_set_id;
@@ -125,4 +103,12 @@ pub(crate) fn handle_lazy_call_expansion<'a>(sess: &mut JobSession, tf_id: Trans
     sess.job_data.tf_mgr.transforms[tf_id].successor = Some(target_tf);
     let (batch_size, _input_done) = sess.job_data.tf_mgr.claim_all(tf_id);
     sess.job_data.unlink_transform(tf_id, batch_size);
+}
+
+pub fn handle_tf_call_concurrent(
+    _sess: &mut JobData,
+    _tf_id: TransformId,
+    _tfc: &mut TfCallConcurrent,
+) {
+    todo!()
 }
