@@ -178,30 +178,40 @@ impl Context {
                 Ok(Signal::Success(buffer)) => {
                     let mut shlex = Shlex::new(&buffer);
                     let args = shlex.by_ref().map(|s| s.into_bytes()).collect();
-                    if shlex.had_error {
-                        //TODO: this library is pretty rudimentary. do better
-                        println!("Error: failed to tokenize command line arguments");
-                        continue;
-                    } else {
-                        let sess = match Session::from_cli_args_stringify_error(args) {
-                            Ok(sess) => sess,
-                            Err(e) => {
-                                if e.message_is_info_text {
-                                    println!("{}", e.message);
-                                } else {
-                                    println!("Error: {}", e.message);
+                    let sess_opts = if !shlex.had_error {
+                        match parse_cli(args, true) {
+                            Ok(opts) => Ok(opts),
+                            Err((args, e)) => match e {
+                                ScrError::PrintInfoAndExitError(e) => {
+                                    println!("{}", e.get_message());
+                                    continue;
                                 }
-                                continue;
-                            }
-                        };
-                        self.set_session(sess);
-                        if !self.session.has_no_command() {
-                            self.run_main_chain(RecordSet::default());
+                                ScrError::MissingArgumentsError(_) => {
+                                    continue;
+                                }
+                                e => Err(e.contextualize_message(Some(&args), None, None)),
+                            },
                         }
-                        if self.session.exit_repl {
-                            break;
-                        }
+                    } else {
+                        Err("failed to tokenize command line arguments".to_string())
                     };
+                    let sess = sess_opts.and_then(|opts| match opts.build_session() {
+                        Ok(sess) => Ok(sess),
+                        Err((opts, e)) => Err(e.contextualize_message(None, Some(&opts), None)),
+                    });
+                    match sess {
+                        Ok(sess) => self.set_session(sess),
+                        Err(e) => {
+                            println!("\x1b[0;31mError:\x1b[0m {e}");
+                            continue;
+                        }
+                    }
+                    if !self.session.has_no_command() {
+                        self.run_main_chain(RecordSet::default());
+                    }
+                    if self.session.exit_repl {
+                        break;
+                    }
                 }
                 Ok(Signal::CtrlC) => {
                     println!("^C");
