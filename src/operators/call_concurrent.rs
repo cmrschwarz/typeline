@@ -48,10 +48,6 @@ pub fn setup_op_call_concurrent(
     op: &mut OpCallConcurrent,
     op_id: OperatorId,
 ) -> Result<(), OperatorSetupError> {
-    if op.target_resolved != INVALID_CHAIN_ID {
-        // this happens in case of jump targets caused by labels ending the chain
-        return Ok(());
-    }
     if let Some(target) = string_store
         .lookup_str(&op.target_name)
         .and_then(|sse| chain_labels.get(&sse))

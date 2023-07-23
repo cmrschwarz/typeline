@@ -50,7 +50,8 @@ pub fn setup_op_call(
     op_id: OperatorId,
 ) -> Result<(), OperatorSetupError> {
     if op.target_resolved != INVALID_CHAIN_ID {
-        // this happens in case of jump targets caused by labels ending the chain
+        // this happens in case of call targets caused by labels ending the chain
+        debug_assert!(!op.lazy);
         return Ok(());
     }
     if let Some(target) = string_store
