@@ -158,7 +158,7 @@ pub fn compute_local_liveness_data(sess: &mut Session, chain_id: ChainId) {
                     cn.liveness_data.add_successor(*tgt);
                 }
             }
-            OperatorData::Jump(jump) => {
+            OperatorData::Call(jump) => {
                 cn.liveness_data.add_successor(jump.target_resolved);
             }
             OperatorData::Key(key) => {

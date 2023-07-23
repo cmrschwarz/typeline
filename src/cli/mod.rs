@@ -1,6 +1,6 @@
 use crate::chain::BufferingMode;
+use crate::operators::call::parse_op_call;
 use crate::operators::count::parse_op_count;
-use crate::operators::jump::parse_op_jump;
 use crate::operators::{
     errors::OperatorCreationError,
     file_reader::{argument_matches_op_file_reader, parse_op_file_reader},
@@ -447,7 +447,8 @@ fn parse_operation(
         "count" => Some(parse_op_count(value, idx)?),
 
         "fork" => Some(parse_op_fork(value, idx)?),
-        "jump" => Some(parse_op_jump(value, idx)?),
+        "call" => Some(parse_op_call(value, idx, false)?),
+        "callcc" => Some(parse_op_call(value, idx, true)?),
         "next" => Some(parse_op_next(value, idx)?),
         "up" => Some(parse_op_up(value, idx)?),
         _ => None,

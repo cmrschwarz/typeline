@@ -16,13 +16,13 @@ use crate::{
         FieldData,
     },
     operators::{
+        call::{handle_eager_call_expansion, handle_lazy_call_expansion, setup_tf_call},
         cast::{handle_tf_cast, setup_tf_cast},
         count::{handle_tf_count, setup_tf_count},
         file_reader::{handle_tf_file_reader, setup_tf_file_reader},
         fork::{handle_fork_expansion, handle_tf_fork, setup_tf_fork},
         format::{handle_tf_format, handle_tf_format_stream_value_update, setup_tf_format},
         join::{handle_tf_join, handle_tf_join_stream_value_update, setup_tf_join},
-        jump::{handle_eager_jump_expansion, handle_lazy_jump_expansion, setup_tf_jump},
         literal::{handle_tf_literal, setup_tf_literal},
         operator::{OperatorData, OperatorId},
         print::{handle_tf_print, handle_tf_print_stream_value_update, setup_tf_print},
@@ -729,10 +729,10 @@ impl<'a> JobSession<'a> {
             let op_data = &self.job_data.session_data.operator_data[*op_id as usize];
             let mut is_select = false;
             match op_data {
-                OperatorData::Jump(op) => {
+                OperatorData::Call(op) => {
                     if !op.lazy {
                         let (start_exp, end_exp) =
-                            handle_eager_jump_expansion(self, *op_id, ms_id, next_input_field);
+                            handle_eager_call_expansion(self, *op_id, ms_id, next_input_field);
                         return (start_tf_id.unwrap_or(start_exp), end_exp);
                     }
                 }
@@ -836,7 +836,7 @@ impl<'a> JobSession<'a> {
                 OperatorData::Literal(op) => setup_tf_literal(jd, op_base, op, &mut tf_state),
                 OperatorData::Sequence(op) => setup_tf_sequence(jd, op_base, op, &mut tf_state),
                 OperatorData::Select(op) => setup_tf_select(jd, b, op, &mut tf_state),
-                OperatorData::Jump(op) => setup_tf_jump(jd, b, op, &mut tf_state),
+                OperatorData::Call(op) => setup_tf_call(jd, b, op, &mut tf_state),
                 OperatorData::Key(_) => unreachable!(),
                 OperatorData::Next(_) => unreachable!(),
                 OperatorData::Up(_) => unreachable!(),
@@ -943,7 +943,7 @@ impl<'a> JobSession<'a> {
                 svu.sv_id,
                 svu.custom,
             ),
-            TransformData::Jump(_) => todo!(),
+            TransformData::Call(_) => todo!(),
             TransformData::Fork(_) => todo!(),
             TransformData::Cast(_) => unreachable!(),
             TransformData::Count(_) => unreachable!(),
@@ -967,7 +967,7 @@ impl<'a> JobSession<'a> {
                     handle_fork_expansion(self, tf_id, ctx)?;
                 }
             }
-            TransformData::Jump(_) => handle_lazy_jump_expansion(self, tf_id),
+            TransformData::Call(_) => handle_lazy_call_expansion(self, tf_id),
             _ => (),
         }
         let jd = &mut self.job_data;
@@ -985,7 +985,7 @@ impl<'a> JobSession<'a> {
             TransformData::Select(tf) => handle_tf_select(jd, tf_id, tf),
             TransformData::Count(tf) => handle_tf_count(jd, tf_id, tf),
             TransformData::Cast(tf) => handle_tf_cast(jd, tf_id, tf),
-            TransformData::Jump(_) => (),
+            TransformData::Call(_) => (),
             TransformData::Disabled => unreachable!(),
         }
         if let Some(tf) = self.job_data.tf_mgr.transforms.get(tf_id) {

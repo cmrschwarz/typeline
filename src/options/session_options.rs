@@ -6,10 +6,10 @@ use crate::{
     chain::{compute_field_livenses, Chain, ChainId, INVALID_CHAIN_ID},
     context::Session,
     operators::{
+        call::{create_op_call_eager, setup_op_call},
         errors::OperatorSetupError,
         file_reader::setup_op_file_reader,
         format::setup_op_format,
-        jump::{create_op_jump_eager, setup_op_jump},
         key::setup_op_key,
         operator::{OperatorBase, OperatorData, OperatorId, OperatorOffsetInChain},
         regex::setup_op_regex,
@@ -85,7 +85,7 @@ impl SessionOptions {
         match &op_data {
             // todo: while jump does not change the chain, it does make all following
             // operators other than next / up unreachable, so we should add an error for that
-            OperatorData::Jump(_) => (),
+            OperatorData::Call(_) => (),
             OperatorData::Print(_) => (),
             OperatorData::Count(_) => (),
             OperatorData::Cast(_) => (),
@@ -134,7 +134,7 @@ impl SessionOptions {
             false,
             None,
         );
-        self.add_op(op_base, create_op_jump_eager(new_chain_id));
+        self.add_op(op_base, create_op_call_eager(new_chain_id));
         self.curr_chain = new_chain_id;
         self.chains.push(new_chain);
     }
@@ -189,8 +189,8 @@ impl SessionOptions {
                 OperatorData::Join(_) => (),
                 OperatorData::Next(_) => unreachable!(),
                 OperatorData::Up(_) => unreachable!(),
-                OperatorData::Jump(op) => {
-                    setup_op_jump(&sess.chain_labels, &mut sess.string_store, op, op_id)?
+                OperatorData::Call(op) => {
+                    setup_op_call(&sess.chain_labels, &mut sess.string_store, op, op_id)?
                 }
             }
         }

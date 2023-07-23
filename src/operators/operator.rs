@@ -3,8 +3,8 @@ use smallstr::SmallString;
 use crate::{chain::ChainId, options::argument::CliArgIdx, utils::string_store::StringStoreEntry};
 
 use super::{
-    cast::OpCast, count::OpCount, file_reader::OpFileReader, fork::OpFork, format::OpFormat,
-    join::OpJoin, jump::OpJump, key::OpKey, literal::OpLiteral, next::OpNext, print::OpPrint,
+    call::OpCall, cast::OpCast, count::OpCount, file_reader::OpFileReader, fork::OpFork,
+    format::OpFormat, join::OpJoin, key::OpKey, literal::OpLiteral, next::OpNext, print::OpPrint,
     regex::OpRegex, select::OpSelect, sequence::OpSequence, string_sink::OpStringSink, up::OpUp,
 };
 
@@ -13,7 +13,7 @@ pub type OperatorOffsetInChain = u32;
 
 #[derive(Clone)]
 pub enum OperatorData {
-    Jump(OpJump),
+    Call(OpCall),
     Cast(OpCast),
     Count(OpCount),
     Print(OpPrint),
@@ -61,7 +61,7 @@ impl OperatorData {
             OperatorData::Up(_) => SmallString::from("up"),
             OperatorData::Count(_) => SmallString::from("count"),
             OperatorData::Cast(op) => op.default_op_name(),
-            OperatorData::Jump(_) => "jump".into(),
+            OperatorData::Call(_) => "jump".into(),
         }
     }
 }

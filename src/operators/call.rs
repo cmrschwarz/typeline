@@ -19,34 +19,37 @@ use super::{
 };
 
 #[derive(Clone)]
-pub struct OpJump {
+pub struct OpCall {
     pub lazy: bool,
+    pub cc: bool,
     pub target_name: String,
     pub target_resolved: ChainId,
 }
-pub struct TfJump {
+pub struct TfCall {
     pub target: ChainId,
 }
 
-pub fn parse_op_jump(
+pub fn parse_op_call(
     value: Option<&[u8]>,
     arg_idx: Option<CliArgIdx>,
+    cc: bool,
 ) -> Result<OperatorData, OperatorCreationError> {
     let value_str = value
         .ok_or_else(|| OperatorCreationError::new("missing argument with key for select", arg_idx))?
         .to_str()
-        .map_err(|_| OperatorCreationError::new("jump label must be valid UTF-8", arg_idx))?;
-    Ok(OperatorData::Jump(OpJump {
+        .map_err(|_| OperatorCreationError::new("target label must be valid UTF-8", arg_idx))?;
+    Ok(OperatorData::Call(OpCall {
         lazy: true,
+        cc,
         target_name: value_str.to_owned(),
         target_resolved: INVALID_CHAIN_ID,
     }))
 }
 
-pub fn setup_op_jump(
+pub fn setup_op_call(
     chain_labels: &HashMap<StringStoreEntry, ChainId, BuildIdentityHasher>,
     string_store: &mut StringStore,
-    op: &mut OpJump,
+    op: &mut OpCall,
     op_id: OperatorId,
 ) -> Result<(), OperatorSetupError> {
     if op.target_resolved != INVALID_CHAIN_ID {
@@ -67,39 +70,50 @@ pub fn setup_op_jump(
     }
 }
 
-pub fn create_op_jump(name: String) -> OperatorData {
-    OperatorData::Jump(OpJump {
+pub fn create_op_call(name: String) -> OperatorData {
+    OperatorData::Call(OpCall {
         lazy: true,
+        cc: false,
         target_name: name,
         target_resolved: INVALID_CHAIN_ID,
     })
 }
 
-pub(crate) fn create_op_jump_eager(target: ChainId) -> OperatorData {
-    OperatorData::Jump(OpJump {
+pub fn create_op_callcc(name: String) -> OperatorData {
+    OperatorData::Call(OpCall {
+        lazy: true,
+        cc: true,
+        target_name: name,
+        target_resolved: INVALID_CHAIN_ID,
+    })
+}
+
+pub(crate) fn create_op_call_eager(target: ChainId) -> OperatorData {
+    OperatorData::Call(OpCall {
         lazy: false,
+        cc: false,
         target_name: String::new(),
         target_resolved: target,
     })
 }
 
-pub fn setup_tf_jump(
+pub fn setup_tf_call(
     _sess: &mut JobData,
     _op_base: &OperatorBase,
-    op: &OpJump,
+    op: &OpCall,
     _tf_state: &mut TransformState,
 ) -> TransformData<'static> {
-    TransformData::Jump(TfJump {
+    TransformData::Call(TfCall {
         target: op.target_resolved,
     })
 }
-pub(crate) fn handle_eager_jump_expansion<'a>(
+pub(crate) fn handle_eager_call_expansion<'a>(
     sess: &mut JobSession,
     op_id: OperatorId,
     ms_id: MatchSetId,
     input_field: FieldId,
 ) -> (TransformId, TransformId) {
-    if let OperatorData::Jump(op) = &sess.job_data.session_data.operator_data[op_id as usize] {
+    if let OperatorData::Call(op) = &sess.job_data.session_data.operator_data[op_id as usize] {
         let chain = &sess.job_data.session_data.chains[op.target_resolved as usize];
         sess.setup_transforms_from_op(ms_id, chain.operators[0], input_field)
     } else {
@@ -107,12 +121,22 @@ pub(crate) fn handle_eager_jump_expansion<'a>(
     }
 }
 
-pub(crate) fn handle_lazy_jump_expansion<'a>(sess: &mut JobSession, tf_id: TransformId) {
+pub(crate) fn handle_lazy_call_expansion<'a>(sess: &mut JobSession, tf_id: TransformId) {
     let tf = &mut sess.job_data.tf_mgr.transforms[tf_id];
-    let op_id = tf.op_id.unwrap();
     let input_field = tf.input_field;
     let ms_id = tf.match_set_id;
-    let (target_tf, _end_tf) = handle_eager_jump_expansion(sess, op_id, ms_id, input_field);
+    let call = if let TransformData::Call(tf) = &sess.transform_data[tf_id.get()] {
+        tf
+    } else {
+        unreachable!()
+    };
+    let (target_tf, _end_tf) = sess.setup_transforms_from_op(
+        ms_id,
+        sess.job_data.session_data.chains[call.target as usize].operators[0],
+        input_field,
+    );
+    sess.job_data.tf_mgr.transforms[target_tf].predecessor = Some(tf_id);
     sess.job_data.tf_mgr.transforms[tf_id].successor = Some(target_tf);
-    sess.job_data.unlink_transform(tf_id, 0);
+    let (batch_size, _input_done) = sess.job_data.tf_mgr.claim_all(tf_id);
+    sess.job_data.unlink_transform(tf_id, batch_size);
 }
