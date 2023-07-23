@@ -933,7 +933,7 @@ impl<'a> JobSession<'a> {
     fn handle_transform(
         &mut self,
         tf_id: TransformId,
-        ctx: Option<&ContextData<'a>>,
+        ctx: Option<&ContextData>,
     ) -> Result<(), VentureDescription> {
         match &mut self.transform_data[usize::from(tf_id)] {
             TransformData::Fork(fork) => {
@@ -973,7 +973,7 @@ impl<'a> JobSession<'a> {
     pub(crate) fn run_job(
         &mut self,
         job: Job,
-        ctx: Option<&ContextData<'a>>,
+        ctx: Option<&ContextData>,
     ) -> Result<(), VentureDescription> {
         self.setup_job(job);
         loop {

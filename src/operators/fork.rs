@@ -146,10 +146,10 @@ pub fn handle_tf_fork(sess: &mut JobData, tf_id: TransformId, sp: &mut TfFork) {
     }
 }
 
-pub(crate) fn handle_fork_expansion<'a>(
+pub(crate) fn handle_fork_expansion(
     sess: &mut JobSession,
     tf_id: TransformId,
-    _ctx: Option<&ContextData<'a>>,
+    _ctx: Option<&ContextData>,
 ) -> Result<(), VentureDescription> {
     // we have to temporarily move the targets out of fork so we can modify
     // sess while accessing them

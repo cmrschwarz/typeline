@@ -1,9 +1,15 @@
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Condvar, Mutex};
 
+use bstr::ByteSlice;
+use reedline::{
+    DefaultPrompt, DefaultPromptSegment, FileBackedHistory, History, HistoryItem, Reedline, Signal,
+};
+use shlex::Shlex;
 use smallvec::SmallVec;
 
 use crate::chain::ChainId;
+use crate::cli::parse_cli;
 use crate::field_data::record_set::RecordSet;
 use crate::job_session::{JobData, JobSession};
 use crate::operators::operator::OperatorId;
@@ -45,8 +51,8 @@ pub struct Session {
     pub(crate) string_store: StringStore,
 }
 
-pub(crate) struct SessionManager<'a> {
-    pub session: &'a Session,
+pub(crate) struct SessionManager {
+    pub session: Arc<Session>,
     pub job_queue: VecDeque<Job>,
     pub venture_queue: VecDeque<Venture>,
     pub waiting_venture_participants: usize,
@@ -57,31 +63,39 @@ pub(crate) struct SessionManager<'a> {
     pub worker_join_handles: Vec<std::thread::JoinHandle<Result<(), ScrError>>>,
 }
 
-pub(crate) struct ContextData<'a> {
+pub(crate) struct ContextData {
     pub work_available: Condvar,
     pub worker_threads_finished: Condvar,
-    pub sess_mgr: Mutex<SessionManager<'a>>,
+    pub sess_mgr: Mutex<SessionManager>,
 }
 
 pub struct Context {
     pub(crate) session: Arc<Session>,
-    pub(crate) session_ref: &'static Session,
-    pub(crate) main_thread: WorkerThread<'static>,
+    pub(crate) main_thread: WorkerThread,
+}
+
+impl SessionManager {
+    pub fn submit_job(&mut self, ctx_data: &Arc<ContextData>, job: Job) {
+        self.job_queue.push_back(job);
+        //TODO: better check
+
+        if self.session.max_threads < self.total_worker_threads && self.waiting_worker_threads == 0
+        {
+            let ctx_data = ctx_data.clone();
+            let join_handle = std::thread::spawn(move || WorkerThread::new(ctx_data).run());
+            self.worker_join_handles.push(join_handle);
+        }
+    }
 }
 
 impl Context {
     pub fn new(session: Arc<Session>) -> Self {
-        // SAFETY: this type makes sure that all references to this session will be dropped
-        // before it drops it itself, so this is fine
-        // see set_session for the reassignment process
-        let session_ref =
-            unsafe { std::mem::transmute::<&'_ Session, &'static Session>(session.as_ref()) };
         let ctx_data = Arc::new(ContextData {
             work_available: Condvar::new(),
             worker_threads_finished: Condvar::new(),
             sess_mgr: Mutex::new(SessionManager {
                 terminate: false,
-                session: session_ref,
+                session: session.clone(),
                 total_worker_threads: 0,
                 venture_counter: 0,
                 waiting_venture_participants: 0,
@@ -94,7 +108,6 @@ impl Context {
         Self {
             main_thread: WorkerThread::new(ctx_data),
             session,
-            session_ref,
         }
     }
     fn wait_for_worker_threads(&self) {
@@ -122,18 +135,14 @@ impl Context {
         //for sanity, we check that nobody refers back to the old session
         assert!(sess_mgr.job_queue.is_empty());
         assert!(sess_mgr.venture_queue.is_empty());
-        // SAFETY: now that we know that nobody still refers to the old session,
-        // it is safe to insert the new one and drop the reference to the old one
-        self.session_ref =
-            unsafe { std::mem::transmute::<&'_ Session, &'static Session>(new_sess.as_ref()) };
-        sess_mgr.session = self.session_ref;
+        sess_mgr.session = self.session.clone();
         self.session = new_sess;
     }
     pub fn get_session(&self) -> &Session {
         &self.session
     }
     pub fn run_job(&mut self, job: Job) {
-        self.main_thread.run_job(&self.session_ref, job);
+        self.main_thread.run_job(&self.session, job);
         if self.session.max_threads > 1 {
             self.wait_for_worker_threads();
         }
@@ -141,7 +150,75 @@ impl Context {
     pub fn run_main_chain(&mut self, input_data: RecordSet) {
         self.run_job(self.session.construct_main_chain_job(input_data))
     }
-    pub fn run_repl(&mut self) {}
+    pub fn run_repl(&mut self) {
+        if !self.session.has_no_command() {
+            self.run_main_chain(RecordSet::default());
+        }
+        let mut history = Box::new(FileBackedHistory::default());
+        if let Some(args) = &self.session.cli_args {
+            history
+                .save(HistoryItem::from_command_line(
+                    &args
+                        .iter()
+                        .map(|arg| arg.to_str_lossy())
+                        .fold(String::new(), |mut s, a| {
+                            s.push_str(" ");
+                            s.push_str(&shlex::quote(&a));
+                            s
+                        })[1..],
+                ))
+                .unwrap();
+        }
+        let mut line_editor = Reedline::create().with_history(history);
+        let mut prompt = DefaultPrompt::default();
+        prompt.right_prompt = DefaultPromptSegment::Empty;
+        prompt.left_prompt = DefaultPromptSegment::Basic("scr ".to_string());
+        loop {
+            let sig = line_editor.read_line(&prompt);
+            match sig {
+                Ok(Signal::Success(buffer)) => {
+                    let mut shlex = Shlex::new(&buffer);
+                    let args = shlex.by_ref().map(|s| s.into_bytes()).collect();
+                    if shlex.had_error {
+                        //TODO: this library is pretty rudimentary. do better
+                        println!("Error: failed to tokenize command line arguments");
+                        continue;
+                    } else {
+                        let sess = match Session::from_cli_args_stringify_error(args) {
+                            Ok(sess) => sess,
+                            Err(e) => {
+                                if e.message_is_info_text {
+                                    println!("{}", e.message);
+                                } else {
+                                    println!("Error: {}", e.message);
+                                }
+                                continue;
+                            }
+                        };
+                        self.set_session(sess);
+                        if !self.session.has_no_command() {
+                            self.run_main_chain(RecordSet::default());
+                        }
+                        if self.session.exit_repl {
+                            break;
+                        }
+                    };
+                }
+                Ok(Signal::CtrlC) => {
+                    println!("^C");
+                    continue;
+                }
+                Ok(Signal::CtrlD) => {
+                    println!("exit");
+                    break;
+                }
+                Err(err) => {
+                    println!("IO Error: {}", err.to_string());
+                    break;
+                }
+            }
+        }
+    }
 }
 
 impl Drop for Context {
@@ -161,8 +238,16 @@ impl Drop for Context {
         }
     }
 }
+pub struct SessionCliParseError {
+    pub args: Vec<Vec<u8>>,
+    pub message: String,
+    pub message_is_info_text: bool,
+}
 
 impl Session {
+    pub fn has_no_command(&self) -> bool {
+        self.chains[0].operators.is_empty()
+    }
     pub fn construct_main_chain_job(&self, input_data: RecordSet) -> Job {
         let operator = self.chains[0].operators[0];
         Job {
@@ -191,5 +276,36 @@ impl Session {
     }
     pub fn repl_requested(&self) -> bool {
         self.repl
+    }
+    pub fn from_cli_args_stringify_error(
+        args: Vec<Vec<u8>>,
+    ) -> Result<Session, SessionCliParseError> {
+        let sess_opts = match parse_cli(args, true) {
+            Err((args, ScrError::PrintInfoAndExitError(e))) => {
+                return Err(SessionCliParseError {
+                    args,
+                    message: e.get_message(),
+                    message_is_info_text: true,
+                });
+            }
+            Err((args, e)) => {
+                return Err(SessionCliParseError {
+                    message: ScrError::from(e)
+                        .contextualize_message(Some(&args), None, None)
+                        .into(),
+                    args,
+                    message_is_info_text: false,
+                });
+            }
+            Ok(opts) => opts,
+        };
+        let sess = sess_opts
+            .build_session()
+            .map_err(|(mut opts, e)| SessionCliParseError {
+                message: ScrError::from(e).contextualize_message(None, Some(&opts), None),
+                args: opts.cli_args.take().unwrap(),
+                message_is_info_text: false,
+            })?;
+        Ok(sess)
     }
 }

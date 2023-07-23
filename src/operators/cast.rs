@@ -56,11 +56,13 @@ pub fn create_op_cast(
     })
 }
 
-pub trait InvalidUnicodeHandlerFn: FnMut(&[u8], &mut Vec<u8>) -> Result<(), String> + Sync {
+pub trait InvalidUnicodeHandlerFn:
+    FnMut(&[u8], &mut Vec<u8>) -> Result<(), String> + Send + Sync
+{
     fn clone_dyn(&self) -> Box<dyn InvalidUnicodeHandlerFn>;
 }
 
-impl<F: FnMut(&[u8], &mut Vec<u8>) -> Result<(), String> + Sync + Clone + 'static>
+impl<F: FnMut(&[u8], &mut Vec<u8>) -> Result<(), String> + Send + Sync + Clone + 'static>
     InvalidUnicodeHandlerFn for F
 {
     fn clone_dyn(&self) -> Box<dyn InvalidUnicodeHandlerFn> {
@@ -85,7 +87,10 @@ pub struct TfCast {
     batch_iter: IterId,
     pending_streams: usize,
     invalid_unicode_handler: Box<dyn InvalidUnicodeHandlerFn>,
+    //TODO
+    #[allow(dead_code)]
     reuse_input_column: bool,
+    #[allow(dead_code)]
     dont_convert_text_to_bytes: bool,
     convert_errors: bool,
     target_type: FieldDataType,

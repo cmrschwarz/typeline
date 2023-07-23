@@ -1,6 +1,6 @@
 use scr::{
-    cli::{collect_env_args, parse_cli},
-    context::Context,
+    cli::collect_env_args,
+    context::{Context, Session},
     field_data::record_set::RecordSet,
     scr_error::ScrError,
 };
@@ -10,21 +10,16 @@ fn run() -> Result<(), String> {
     let args = collect_env_args()
         .map_err(|e| ScrError::from(e).contextualize_message(None, None, None))?;
 
-    let sess_opts = match parse_cli(args, true) {
-        Err((_args, ScrError::PrintInfoAndExitError(e))) => {
-            println!("{e}");
-            return Ok(());
+    let sess = match Session::from_cli_args_stringify_error(args) {
+        Ok(sess) => sess,
+        Err(e) => {
+            if e.message_is_info_text {
+                println!("{}", e.message);
+                return Ok(());
+            }
+            return Err(e.message);
         }
-        Err((args, e)) => {
-            return Err(ScrError::from(e)
-                .contextualize_message(Some(&args), None, None)
-                .into())
-        }
-        Ok(opts) => opts,
     };
-    let sess = sess_opts
-        .build_session()
-        .map_err(|(opts, e)| ScrError::from(e).contextualize_message(None, Some(&opts), None))?;
 
     if sess.repl_requested() {
         Context::new(Arc::new(sess)).run_repl();
@@ -39,7 +34,7 @@ fn main() -> ExitCode {
     match run() {
         Ok(_) => ExitCode::SUCCESS,
         Err(err) => {
-            eprintln!("[ERROR]: {err}");
+            eprintln!("Error: {err}");
             ExitCode::FAILURE
         }
     }

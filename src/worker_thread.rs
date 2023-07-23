@@ -7,22 +7,23 @@ use crate::{
 };
 use std::sync::Arc;
 
-pub(crate) struct WorkerThread<'a> {
-    pub ctx_data: Arc<ContextData<'a>>,
+pub(crate) struct WorkerThread {
+    pub ctx_data: Arc<ContextData>,
 }
 
-impl<'a> WorkerThread<'a> {
-    pub(crate) fn new(ctx_data: Arc<ContextData<'a>>) -> Self {
+impl WorkerThread {
+    pub(crate) fn new(ctx_data: Arc<ContextData>) -> Self {
         Self { ctx_data }
     }
     pub fn run_venture(
         &mut self,
-        _sess: &'a Session,
+        _sess: &Session,
         _start_op_id: OperatorId,
         _input_data: Option<Arc<RecordSet>>,
     ) {
+        todo!();
     }
-    pub fn run_job(&mut self, sess: &'a Session, job: Job) {
+    pub fn run_job(&mut self, sess: &Session, job: Job) {
         let mut js = JobSession {
             transform_data: Default::default(),
             job_data: JobData::new(sess),
@@ -45,15 +46,16 @@ impl<'a> WorkerThread<'a> {
         loop {
             if !sess_mgr.terminate {
                 if let Some(venture) = sess_mgr.venture_queue.front() {
-                    let sess = sess_mgr.session;
                     let input_data = venture.input_data.clone();
                     let start_op_id =
                         venture.description.starting_points[sess_mgr.waiting_venture_participants];
                     let participants_needed = venture.description.participans_needed;
+                    let sess;
                     sess_mgr.waiting_venture_participants += 1;
                     if sess_mgr.waiting_venture_participants == participants_needed {
                         sess_mgr.venture_queue.pop_front();
                         sess_mgr.venture_counter = sess_mgr.venture_counter.wrapping_add(1);
+                        sess = sess_mgr.session.clone();
                         drop(sess_mgr);
                         self.ctx_data.work_available.notify_all();
                     } else {
@@ -61,19 +63,20 @@ impl<'a> WorkerThread<'a> {
                         loop {
                             sess_mgr = self.ctx_data.work_available.wait(sess_mgr).unwrap();
                             if counter != sess_mgr.venture_counter {
+                                sess = sess_mgr.session.clone();
                                 drop(sess_mgr);
                                 break;
                             }
                         }
                     }
-                    self.run_venture(sess, start_op_id, input_data);
+                    self.run_venture(&sess, start_op_id, input_data);
                     sess_mgr = self.ctx_data.sess_mgr.lock().unwrap();
                     continue;
                 }
                 if let Some(job) = sess_mgr.job_queue.pop_front() {
-                    let sess = sess_mgr.session;
+                    let sess = sess_mgr.session.clone();
                     drop(sess_mgr);
-                    self.run_job(sess, job);
+                    self.run_job(&sess, job);
                     sess_mgr = self.ctx_data.sess_mgr.lock().unwrap();
                     continue;
                 }

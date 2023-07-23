@@ -72,6 +72,12 @@ pub enum PrintInfoAndExitError {
     Version,
 }
 
+impl PrintInfoAndExitError {
+    pub fn get_message(&self) -> String {
+        format!("{self}")
+    }
+}
+
 impl Display for PrintInfoAndExitError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {

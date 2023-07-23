@@ -1091,8 +1091,10 @@ impl CommandBuffer {
         header_idx_new: &mut usize,
         copy_range_start: &mut usize,
         copy_range_start_new: &mut usize,
-        curr_header_iter_count: &mut usize,
-        iterators: &mut Vec<&mut IterState>,
+        //TODO
+        #[allow(unused_variables)] curr_header_iter_count: &mut usize,
+        //TODO
+        #[allow(unused_variables)] iterators: &mut Vec<&mut IterState>,
     ) {
         if header.shared_value() {
             let mut rl_res = header.run_length as usize + run_len as usize;

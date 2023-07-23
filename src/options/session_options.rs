@@ -196,9 +196,10 @@ impl SessionOptions {
         }
         Ok(())
     }
-    pub fn validate_chain(chain: &Chain, chain_id: ChainId) -> Result<(), ChainSetupError> {
+    pub fn validate_chain(sess: &Session, chain_id: ChainId) -> Result<(), ChainSetupError> {
+        let chain = &sess.chains[chain_id as usize];
         let mut message = "";
-        if chain.operators.is_empty() {
+        if chain.operators.is_empty() && !sess.repl {
             message = "chain must habe at least one operation";
         } else if chain.settings.default_batch_size == 0 {
             message = "default batch size cannot be zero";
@@ -219,8 +220,7 @@ impl SessionOptions {
     }
     pub fn setup_chains(sess: &mut Session) -> Result<(), ChainSetupError> {
         for i in 0..sess.chains.len() {
-            let chain = &mut sess.chains[i];
-            Self::validate_chain(chain, i as ChainId)?;
+            Self::validate_chain(sess, i as ChainId)?;
         }
         compute_field_livenses(sess);
         Ok(())
