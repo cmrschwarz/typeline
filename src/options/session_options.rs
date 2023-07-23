@@ -277,7 +277,6 @@ impl SessionOptions {
             cli_args: self.cli_args,
             chain_labels: Default::default(),
             string_store: self.string_store,
-            exit_repl: false,
         };
         SessionOptions::setup_chain_labels(&mut sess);
         let res = SessionOptions::verify_bounds(&mut sess)

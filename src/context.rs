@@ -42,7 +42,6 @@ pub struct Venture {
 pub struct Session {
     pub(crate) max_threads: usize,
     pub(crate) repl: bool,
-    pub(crate) exit_repl: bool,
     pub(crate) chains: Vec<Chain>,
     pub(crate) chain_labels: HashMap<StringStoreEntry, ChainId, BuildIdentityHasher>,
     pub(crate) operator_bases: Vec<OperatorBase>,
@@ -209,14 +208,16 @@ impl Context {
                         Err("failed to tokenize command line arguments".to_string())
                     };
                     match sess {
-                        Ok(sess) => self.set_session(sess),
+                        Ok(sess) => {
+                            self.set_session(sess);
+                            if !self.session.has_no_command() {
+                                self.run_main_chain(RecordSet::default());
+                            }
+                        }
                         Err(e) => {
                             println!("\x1b[0;31mError:\x1b[0m {e}");
                             continue;
                         }
-                    }
-                    if !self.session.has_no_command() {
-                        self.run_main_chain(RecordSet::default());
                     }
                     if exit_repl {
                         break;

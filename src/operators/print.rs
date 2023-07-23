@@ -285,9 +285,13 @@ pub fn handle_tf_print(sess: &mut JobData, tf_id: TransformId, tf: &mut TfPrint)
             .prepare_output_field(&sess.field_mgr, &mut sess.match_set_mgr, tf_id);
     let mut outputs_produced = handled_field_count;
     match res {
-        Ok(()) => output_field
-            .field_data
-            .push_success(handled_field_count, true),
+        Ok(()) => {
+            if handled_field_count > 0 {
+                output_field
+                    .field_data
+                    .push_success(handled_field_count, true);
+            }
+        }
         Err(err) => {
             let nsucc = handled_field_count;
             let nfail = batch_size - nsucc;
