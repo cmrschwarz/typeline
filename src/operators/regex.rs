@@ -55,7 +55,6 @@ pub struct TfRegex {
     text_only_regex: Option<(regex::Regex, regex::CaptureLocations)>,
     capture_group_fields: Vec<Option<FieldId>>,
     input_field_iter_id: IterId,
-    last_end: Option<usize>,
     next_start: usize,
     apf_idx: ActionProducingFieldIndex,
     multimatch: bool,
@@ -370,7 +369,6 @@ pub fn setup_tf_regex<'a>(
             .borrow_mut()
             .field_data
             .claim_iter(),
-        last_end: None,
         next_start: 0,
         apf_idx,
     })
@@ -397,12 +395,7 @@ trait AnyRegex {
     fn captures_locs_get(&mut self, i: usize) -> Option<(usize, usize)>;
     fn data_len(data: &Self::Data) -> usize;
     fn allows_overlapping(&self) -> bool;
-    fn next(
-        &mut self,
-        data: &Self::Data,
-        last_end: &mut Option<usize>,
-        next_start: &mut usize,
-    ) -> bool {
+    fn next(&mut self, data: &Self::Data, next_start: &mut usize) -> bool {
         if *next_start > Self::data_len(data) {
             return false;
         }
@@ -415,7 +408,6 @@ trait AnyRegex {
         } else {
             *next_start = e;
         }
-        *last_end = Some(e);
         true
     }
     fn push(&self, fd: &mut IterHall, data: &Self::Data, start: usize, end: usize, rl: usize);
@@ -495,14 +487,10 @@ fn match_regex_inner<'a, 'b, const PUSH_REF: bool, R: AnyRegex>(
         return true;
     }
     let mut match_count: usize = 0;
-    let has_previous_matches = rmis.batch_state.last_end.is_some();
+    let has_previous_matches = rmis.batch_state.next_start != 0;
     let rl = run_length as usize;
     let mut bse = false;
-    while regex.next(
-        data,
-        &mut rmis.batch_state.last_end,
-        &mut rmis.batch_state.next_start,
-    ) {
+    while regex.next(data, &mut rmis.batch_state.next_start) {
         match_count += 1;
         for c in 0..regex.captures_locs_len() {
             if let Some(field_id) = rmis.batch_state.capture_group_fields[c] {
@@ -573,7 +561,6 @@ fn match_regex_inner<'a, 'b, const PUSH_REF: bool, R: AnyRegex>(
         }
     }
     if !bse {
-        rmis.batch_state.last_end = None;
         rmis.batch_state.next_start = 0;
     }
     rmis.batch_state.field_pos_output += match_count as usize;
@@ -590,7 +577,6 @@ struct RegexBatchState<'a> {
     batch_end_field_pos_output: usize,
     multimatch: bool,
     non_mandatory: bool,
-    last_end: Option<usize>,
     next_start: usize,
     capture_group_fields: &'a Vec<Option<FieldId>>,
     fields: &'a Universe<NonMaxUsize, RefCell<Field>>,
@@ -631,7 +617,6 @@ pub fn handle_tf_regex(sess: &mut JobData, tf_id: TransformId, re: &mut TfRegex)
         non_mandatory: re.non_mandatory,
         capture_group_fields: &re.capture_group_fields,
         fields: &sess.field_mgr.fields,
-        last_end: re.last_end,
         next_start: re.next_start,
         apf_idx: re.apf_idx,
     };
@@ -808,7 +793,6 @@ pub fn handle_tf_regex(sess: &mut JobData, tf_id: TransformId, re: &mut TfRegex)
     sess.match_set_mgr.match_sets[tf.match_set_id]
         .command_buffer
         .end_action_list(re.apf_idx);
-    re.last_end = rbs.last_end;
     re.next_start = rbs.next_start;
     let mut base_iter = iter.into_base_iter();
 
