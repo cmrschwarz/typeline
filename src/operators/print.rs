@@ -142,18 +142,21 @@ pub fn write_stream_val_check_done(
 pub fn handle_tf_print_raw(
     sess: &mut JobData,
     tf_id: TransformId,
-    tf: &mut TfPrint,
+    print: &mut TfPrint,
     batch_size: usize,
     handled_field_count: &mut usize,
     stdout: &mut BufWriter<StdoutLock<'_>>,
 ) -> Result<(), std::io::Error> {
-    debug_assert!(!tf.current_stream_val.is_some());
-    let input_field_id = sess.tf_mgr.transforms[tf_id].input_field;
+    debug_assert!(!print.current_stream_val.is_some());
+    let tf = &sess.tf_mgr.transforms[tf_id];
+    let input_field_id = tf.input_field;
 
-    let input_field = sess.field_mgr.borrow_field_cow(input_field_id);
+    let input_field = sess
+        .field_mgr
+        .borrow_field_cow(input_field_id, tf.has_unconsumed_input());
     let base_iter = sess
         .field_mgr
-        .get_iter_cow_aware(input_field_id, &input_field, tf.iter_id)
+        .get_iter_cow_aware(input_field_id, &input_field, print.iter_id)
         .bounded(0, batch_size);
     let field_pos_start = base_iter.get_next_field_pos();
     let mut field_pos = field_pos_start;
@@ -222,7 +225,7 @@ pub fn handle_tf_print_raw(
                             e
                         },
                     )? {
-                        tf.current_stream_val = Some(sv_id);
+                        print.current_stream_val = Some(sv_id);
                         iter.move_to_field_pos(pos);
                         if rl > 1 {
                             sv.promote_to_buffer();
@@ -257,7 +260,7 @@ pub fn handle_tf_print_raw(
     sess.field_mgr.store_iter_cow_aware(
         input_field_id,
         &input_field,
-        tf.iter_id,
+        print.iter_id,
         iter.into_base_iter(),
     );
     Ok(())
@@ -307,7 +310,6 @@ pub fn handle_tf_print(sess: &mut JobData, tf_id: TransformId, tf: &mut TfPrint)
         }
     }
     drop(output_field);
-    sess.tf_mgr.transforms[tf_id].is_stream_subscriber = tf.current_stream_val.is_some();
     if input_done {
         sess.unlink_transform(tf_id, outputs_produced);
     } else {

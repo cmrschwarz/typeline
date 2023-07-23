@@ -46,13 +46,13 @@ pub struct TransformState {
     pub continuation: Option<TransformId>, // next transform in line that is in append mode
     pub input_field: FieldId,
     pub output_field: FieldId,
+    pub any_prev_has_unconsumed_input: bool,
     pub available_batch_size: usize,
     pub desired_batch_size: usize,
     pub match_set_id: MatchSetId,
     pub op_id: Option<OperatorId>,
     pub ordering_id: TransformOrderingId,
     pub is_stream_producer: bool,
-    pub is_stream_subscriber: bool,
     pub is_ready: bool,
     pub is_appending: bool,
     pub is_transparent: bool,
@@ -84,12 +84,15 @@ impl TransformState {
             ordering_id,
             is_ready: false,
             is_stream_producer: false,
-            is_stream_subscriber: false,
             is_appending: false,
             is_transparent: false,
             input_is_done: false,
             preferred_input_type: None,
             mark_for_removal: false,
+            any_prev_has_unconsumed_input: false,
         }
+    }
+    pub fn has_unconsumed_input(&self) -> bool {
+        self.any_prev_has_unconsumed_input || self.available_batch_size > 0
     }
 }

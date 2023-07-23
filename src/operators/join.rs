@@ -302,7 +302,9 @@ pub fn handle_tf_join(sess: &mut JobData, tf_id: TransformId, join: &mut TfJoin)
             .prepare_output_field(&sess.field_mgr, &mut sess.match_set_mgr, tf_id);
     let tf = &sess.tf_mgr.transforms[tf_id];
     let input_field_id = tf.input_field;
-    let input_field = sess.field_mgr.borrow_field_cow(input_field_id);
+    let input_field = sess
+        .field_mgr
+        .borrow_field_cow(input_field_id, tf.has_unconsumed_input());
     let base_iter = sess
         .field_mgr
         .get_iter_cow_aware(input_field_id, &input_field, join.iter_id);

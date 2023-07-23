@@ -19,6 +19,7 @@ pub struct RefIter<'a> {
     data_iter: Option<Iter<'a>>,
     field_ref: Option<Ref<'a, Field>>,
     field_mgr: &'a FieldManager,
+    unconsumed_input: bool,
 }
 
 impl<'a> Clone for RefIter<'a> {
@@ -33,6 +34,7 @@ impl<'a> Clone for RefIter<'a> {
                 None
             },
             field_mgr: self.field_mgr.clone(),
+            unconsumed_input: self.unconsumed_input,
         }
     }
 }
@@ -52,10 +54,11 @@ impl<'a> RefIter<'a> {
         match_set_mgr: &'_ mut MatchSetManager,
         last_field_id: FieldId,
         field_pos: usize,
+        unconsumed_input: bool,
     ) -> Self {
         field_mgr.apply_field_actions(match_set_mgr, last_field_id);
         let (field_ref, mut data_iter) =
-            unsafe { Self::get_field_ref_and_iter(field_mgr, last_field_id) };
+            unsafe { Self::get_field_ref_and_iter(field_mgr, last_field_id, unconsumed_input) };
         data_iter.move_to_field_pos(field_pos);
         Self {
             refs_iter,
@@ -63,13 +66,15 @@ impl<'a> RefIter<'a> {
             last_field_id,
             data_iter: Some(data_iter),
             field_ref: Some(field_ref),
+            unconsumed_input,
         }
     }
     unsafe fn get_field_ref_and_iter<'b>(
         field_mgr: &'b FieldManager,
         field_id: FieldId,
+        unconsumed_input: bool,
     ) -> (Ref<'b, Field>, Iter<'b>) {
-        let field_ref = field_mgr.borrow_field_cow(field_id);
+        let field_ref = field_mgr.borrow_field_cow(field_id, unconsumed_input);
         // this is explicitly *not* cow aware for now, because that would be unsound
         // it doesn't matter too much, and this whole FIELD_REF_LOOKUP_ITER_ID thing is pretty stupid anyways
         let iter = field_ref.field_data.get_iter(FIELD_REF_LOOKUP_ITER_ID);
@@ -98,8 +103,9 @@ impl<'a> RefIter<'a> {
             .field_data
             .store_iter(FIELD_REF_LOOKUP_ITER_ID, self.data_iter.take().unwrap());
         self.field_mgr.apply_field_actions(match_set_mgr, field_id);
-        let (field_ref, data_iter) =
-            unsafe { Self::get_field_ref_and_iter(self.field_mgr, field_id) };
+        let (field_ref, data_iter) = unsafe {
+            Self::get_field_ref_and_iter(self.field_mgr, field_id, self.unconsumed_input)
+        };
         // SAFETY: we have to reassign data_iter first, because the old one still
         // has a pointer into the data of the old field_ref
         self.field_ref = Some(field_ref);
@@ -263,6 +269,7 @@ pub struct AutoDerefIter<'a, I: FieldIterator<'a>> {
     iter_field_id: FieldId,
     ref_iter: Option<RefIter<'a>>,
     field_mgr: &'a FieldManager,
+    unconsumed_input: bool,
 }
 pub struct RefAwareTypedRange<'a> {
     pub base: ValidTypedRange<'a>,
@@ -277,6 +284,10 @@ impl<'a, I: FieldIterator<'a>> AutoDerefIter<'a, I> {
             ref_iter: None,
             field_mgr,
             iter_field_id,
+            unconsumed_input: field_mgr.fields[iter_field_id]
+                .borrow()
+                .has_unconsumed_input
+                .get(),
         }
     }
     pub fn into_base_iter(self) -> I {
@@ -318,6 +329,7 @@ impl<'a, I: FieldIterator<'a>> AutoDerefIter<'a, I> {
                             match_set_mgr,
                             field_id,
                             field_pos,
+                            self.unconsumed_input,
                         ));
                     }
 

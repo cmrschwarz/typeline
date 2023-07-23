@@ -98,7 +98,7 @@ pub fn setup_tf_fork(
 
 pub fn handle_tf_fork(sess: &mut JobData, tf_id: TransformId, sp: &mut TfFork) {
     let (batch_size, end_of_input) = sess.tf_mgr.claim_batch(tf_id);
-
+    let unconsumed_input = sess.tf_mgr.transforms[tf_id].has_unconsumed_input();
     let match_set_mgr = &mut sess.match_set_mgr;
     for (src_field_id, mapping) in sp.mappings.iter_mut() {
         sess.field_mgr
@@ -117,7 +117,9 @@ pub fn handle_tf_fork(sess: &mut JobData, tf_id: TransformId, sp: &mut TfFork) {
         if mapping.targets_non_cow.is_empty() {
             continue;
         }
-        let src = sess.field_mgr.borrow_field_cow(*src_field_id);
+        let src = sess
+            .field_mgr
+            .borrow_field_cow(*src_field_id, unconsumed_input);
         let iter = AutoDerefIter::new(
             &sess.field_mgr,
             *src_field_id,
@@ -136,7 +138,7 @@ pub fn handle_tf_fork(sess: &mut JobData, tf_id: TransformId, sp: &mut TfFork) {
     }
     for tf in &sp.targets {
         sess.tf_mgr
-            .inform_transform_batch_available(*tf, batch_size);
+            .inform_transform_batch_available(*tf, batch_size, false);
     }
     if end_of_input {
         for tf in &sp.targets {

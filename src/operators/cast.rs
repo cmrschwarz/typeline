@@ -150,7 +150,9 @@ pub fn handle_tf_cast(sess: &mut JobData, tf_id: TransformId, tfc: &mut TfCast) 
     let tf = &sess.tf_mgr.transforms[tf_id];
     let _op_id = tf.op_id.unwrap();
     let input_field_id = tf.input_field;
-    let input_field = sess.field_mgr.borrow_field_cow(tf.input_field);
+    let input_field = sess
+        .field_mgr
+        .borrow_field_cow(tf.input_field, tf.has_unconsumed_input());
 
     //PERF: make use of reuse_input_column
     let mut output_field = sess.field_mgr.fields[tf.output_field].borrow_mut();

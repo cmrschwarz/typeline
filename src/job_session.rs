@@ -50,6 +50,8 @@ pub struct Field {
     pub ref_count: usize,
     //typically called on input fields, borrowing these mut is annoying
     pub clear_delay_request_count: Cell<usize>,
+    pub has_unconsumed_input: Cell<bool>,
+
     pub match_set: MatchSetId,
 
     #[cfg(feature = "debug_logging")]
@@ -130,7 +132,12 @@ impl Field {
     pub fn get_clear_delay_request_count(&self) -> usize {
         self.clear_delay_request_count.get()
     }
+    pub fn has_unconsumed_input_or_equals(&self, value: bool) {
+        self.has_unconsumed_input
+            .set(self.has_unconsumed_input.get() || value);
+    }
     pub fn request_clear_delay(&self) {
+        self.has_unconsumed_input.set(true);
         self.clear_delay_request_count
             .set(self.clear_delay_request_count.get() + 1);
     }
@@ -162,16 +169,27 @@ impl TransformManager {
         self.transform_ordering_id = (self.transform_ordering_id.get() + 1).try_into().unwrap();
         res
     }
-    pub fn inform_transform_batch_available(&mut self, tf_id: TransformId, batch_size: usize) {
+    pub fn inform_transform_batch_available(
+        &mut self,
+        tf_id: TransformId,
+        batch_size: usize,
+        any_prev_has_unconsumed_input: bool,
+    ) {
         let tf = &mut self.transforms[tf_id];
         tf.available_batch_size += batch_size;
+        tf.any_prev_has_unconsumed_input = any_prev_has_unconsumed_input;
         if tf.available_batch_size > 0 && !tf.is_ready {
             self.push_tf_in_ready_queue(tf_id);
         }
     }
     pub fn inform_successor_batch_available(&mut self, tf_id: TransformId, batch_size: usize) {
-        if let Some(succ_tf_id) = self.transforms[tf_id].successor {
-            self.inform_transform_batch_available(succ_tf_id, batch_size);
+        let tf = &self.transforms[tf_id];
+        if let Some(succ_tf_id) = tf.successor {
+            self.inform_transform_batch_available(
+                succ_tf_id,
+                batch_size,
+                tf.has_unconsumed_input(),
+            );
         }
     }
     pub fn push_tf_in_ready_queue(&mut self, tf_id: TransformId) {
@@ -291,6 +309,7 @@ impl TransformManager {
                         .command_buffer
                         .drop_field_commands(ofid, &mut f);
                     f.field_data.clear();
+                    f.has_unconsumed_input.set(false);
                 }
             }
         }
@@ -366,6 +385,7 @@ impl FieldManager {
             field_id: id,
             ref_count: 1,
             clear_delay_request_count: Cell::new(0),
+            has_unconsumed_input: Cell::new(false),
             match_set: ms_id,
             added_as_placeholder_by_tf: None,
             min_apf_idx: min_apf,
@@ -405,12 +425,17 @@ impl FieldManager {
         }
     }
 
-    pub fn borrow_field_cow<'a>(&'a self, field_id: FieldId) -> Ref<'a, Field> {
+    pub fn borrow_field_cow<'a>(
+        &'a self,
+        field_id: FieldId,
+        mark_for_unconsumed_input: bool,
+    ) -> Ref<'a, Field> {
         let field = self.fields[field_id].borrow();
+        field.has_unconsumed_input_or_equals(mark_for_unconsumed_input);
         if let Some(cow_source) = field.cow_source {
             return self.fields[cow_source].borrow();
         }
-        return field;
+        field.into()
     }
     pub fn get_iter_cow_aware<'a>(
         &self,

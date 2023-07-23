@@ -603,7 +603,9 @@ pub fn handle_tf_regex(sess: &mut JobData, tf_id: TransformId, re: &mut TfRegex)
     sess.match_set_mgr.match_sets[tf.match_set_id]
         .command_buffer
         .begin_action_list(re.apf_idx);
-    let input_field = sess.field_mgr.borrow_field_cow(input_field_id);
+    let input_field = sess
+        .field_mgr
+        .borrow_field_cow(input_field_id, tf.has_unconsumed_input());
     let iter_base = sess
         .field_mgr
         .get_iter_cow_aware(input_field_id, &input_field, re.input_field_iter_id)

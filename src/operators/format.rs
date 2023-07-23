@@ -650,6 +650,7 @@ pub fn lookup_widths(
     fmt: &mut TfFormat,
     k: &FormatKey,
     batch_size: usize,
+    unconsumed_input: bool,
     apply_actions: bool,
     update_iter: bool,
     succ_func: impl Fn(&mut TfFormat, &mut usize, usize, usize), //output idx, width, run length
@@ -663,7 +664,7 @@ pub fn lookup_widths(
     if apply_actions {
         field_mgr.apply_field_actions(match_set_mgr, ident_ref.field_id);
     }
-    let field = field_mgr.borrow_field_cow(ident_ref.field_id);
+    let field = field_mgr.borrow_field_cow(ident_ref.field_id, unconsumed_input);
     let mut iter = field_mgr
         .get_iter_cow_aware(ident_ref.field_id, &field, ident_ref.iter_id)
         .bounded(0, batch_size);
@@ -699,6 +700,7 @@ pub fn setup_key_output_state(
     part_idx: usize,
     fmt: &mut TfFormat,
     batch_size: usize,
+    unconsumed_input: bool,
     k: &FormatKey,
 ) {
     lookup_widths(
@@ -707,6 +709,7 @@ pub fn setup_key_output_state(
         fmt,
         k,
         batch_size,
+        unconsumed_input,
         true,
         false,
         |fmt, output_idx, width, run_len| {
@@ -722,7 +725,7 @@ pub fn setup_key_output_state(
     );
     let ident_ref = fmt.refs[k.identifier];
     field_mgr.apply_field_actions(match_set_mgr, ident_ref.field_id);
-    let field = field_mgr.borrow_field_cow(ident_ref.field_id);
+    let field = field_mgr.borrow_field_cow(ident_ref.field_id, unconsumed_input);
     let mut iter = AutoDerefIter::new(
         field_mgr,
         ident_ref.field_id,
@@ -1215,12 +1218,15 @@ fn write_fmt_key(
     batch_size: usize,
     k: &FormatKey,
 ) {
+    //any potential unconsumed input was already set during width calculation
+    let unconsumed_input = false;
     lookup_widths(
         field_mgr,
         match_set_mgr,
         fmt,
         k,
         batch_size,
+        unconsumed_input,
         false,
         true,
         |fmt, output_idx, width, run_len| {
@@ -1229,7 +1235,8 @@ fn write_fmt_key(
         |_fmt, _output_idx, _run_len| (),
     );
     let ident_ref = fmt.refs[k.identifier];
-    let field = field_mgr.borrow_field_cow(ident_ref.field_id);
+
+    let field = field_mgr.borrow_field_cow(ident_ref.field_id, unconsumed_input);
     let base_iter = field_mgr
         .get_iter_cow_aware(ident_ref.field_id, &field, ident_ref.iter_id)
         .bounded(0, batch_size);
@@ -1389,6 +1396,7 @@ pub fn handle_tf_format(sess: &mut JobData, tf_id: TransformId, fmt: &mut TfForm
         sess.tf_mgr
             .prepare_output_field(&sess.field_mgr, &mut sess.match_set_mgr, tf_id);
     let tf = &sess.tf_mgr.transforms[tf_id];
+    let unconsumed_input = tf.has_unconsumed_input();
     fmt.output_states.push(OutputState {
         run_len: batch_size,
         next: FINAL_OUTPUT_INDEX_NEXT_VAL,
@@ -1421,6 +1429,7 @@ pub fn handle_tf_format(sess: &mut JobData, tf_id: TransformId, fmt: &mut TfForm
                 part_idx,
                 fmt,
                 batch_size,
+                unconsumed_input,
                 k,
             ),
         }
