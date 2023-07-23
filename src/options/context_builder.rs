@@ -4,7 +4,7 @@ use crate::{
     context::{Context, Session},
     field_data::{push_interface::PushInterface, record_set::RecordSet},
     operators::operator::OperatorData,
-    scr_error::ScrError,
+    scr_error::{ContextualizedScrError, ScrError},
 };
 
 use super::{operator_base_options::OperatorBaseOptions, session_options::SessionOptions};
@@ -62,18 +62,17 @@ impl ContextBuilder {
         self.data.input_data = rs;
         self
     }
-    fn build_session_drop_opts(opts: SessionOptions) -> Result<Session, ScrError> {
-        opts.build_session().map_err(|e| e.1)
+    pub fn build_session_raw(self) -> Result<Session, (SessionOptions, ScrError)> {
+        self.data.opts.build_session_raw()
     }
-    pub fn build_session(self) -> Result<Session, ScrError> {
-        Self::build_session_drop_opts(self.data.opts)
+    pub fn build_session(self) -> Result<Session, ContextualizedScrError> {
+        self.data.opts.build_session()
     }
-    pub fn build(self) -> Result<Context, ScrError> {
-        let sess = Self::build_session_drop_opts(self.data.opts)?;
-        Ok(Context::new(Arc::new(sess)))
+    pub fn build(self) -> Result<Context, ContextualizedScrError> {
+        Ok(Context::new(Arc::new(self.build_session()?)))
     }
-    pub fn run(self) -> Result<(), ScrError> {
-        let sess = Self::build_session_drop_opts(self.data.opts)?;
+    pub fn run(self) -> Result<(), ContextualizedScrError> {
+        let sess = self.data.opts.build_session()?;
         Ok(if sess.max_threads == 1 {
             sess.run_job_unthreaded(sess.construct_main_chain_job(self.data.input_data))
         } else {
@@ -81,7 +80,7 @@ impl ContextBuilder {
             ctx.run_main_chain(self.data.input_data)
         })
     }
-    pub fn run_collect_output(self) -> Result<RecordSet, ScrError> {
+    pub fn run_collect_output(self) -> Result<RecordSet, ContextualizedScrError> {
         //add operation to collect output into record set
         // similar to string sink
         todo!();

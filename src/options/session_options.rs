@@ -15,7 +15,7 @@ use crate::{
         regex::setup_op_regex,
         select::setup_op_select,
     },
-    scr_error::{result_into, ChainSetupError, ScrError},
+    scr_error::{result_into, ChainSetupError, ContextualizedScrError, ScrError},
     selenium::SeleniumVariant,
     utils::string_store::StringStore,
 };
@@ -225,7 +225,12 @@ impl SessionOptions {
         compute_field_livenses(sess);
         Ok(())
     }
-    pub fn build_session(mut self) -> Result<Session, (SessionOptions, ScrError)> {
+    pub fn build_session(self) -> Result<Session, ContextualizedScrError> {
+        self.build_session_raw().map_err(|(opts, err)| {
+            ContextualizedScrError::from_scr_error(err, None, Some(&opts), None)
+        })
+    }
+    pub fn build_session_raw(mut self) -> Result<Session, (SessionOptions, ScrError)> {
         let mut max_threads = self
             .max_threads
             .value

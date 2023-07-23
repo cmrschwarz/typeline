@@ -1,7 +1,8 @@
 use scr::{
-    cli::collect_env_args,
-    context::{Context, Session},
+    cli::{collect_env_args, parse_cli},
+    context::Context,
     field_data::record_set::RecordSet,
+    options::session_options::SessionOptions,
     scr_error::ScrError,
 };
 use std::{process::ExitCode, sync::Arc};
@@ -10,15 +11,20 @@ fn run() -> Result<(), String> {
     let args = collect_env_args()
         .map_err(|e| ScrError::from(e).contextualize_message(None, None, None))?;
 
-    let sess = match Session::from_cli_args_stringify_error(args) {
+    let sess = match parse_cli(args, true).and_then(|sess_opts| sess_opts.build_session()) {
         Ok(sess) => sess,
-        Err(e) => {
-            if e.message_is_info_text {
-                println!("{}", e.message);
+        Err(e) => match e.err {
+            ScrError::MissingArgumentsError(_) => {
+                let mut sess_opts = SessionOptions::default();
+                sess_opts.repl.set(true).unwrap();
+                sess_opts.build_session().unwrap()
+            }
+            ScrError::PrintInfoAndExitError(_) => {
+                println!("{}", e.contextualized_message);
                 return Ok(());
             }
-            return Err(e.message);
-        }
+            _ => return Err(e.contextualized_message),
+        },
     };
 
     if sess.repl_requested() {

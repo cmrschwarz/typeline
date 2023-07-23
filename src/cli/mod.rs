@@ -17,7 +17,7 @@ use crate::operators::{
     sequence::parse_op_seq,
     up::parse_op_up,
 };
-use crate::scr_error::{ReplDisabledError, ScrError};
+use crate::scr_error::{ContextualizedScrError, ReplDisabledError, ScrError};
 use crate::{
     options::{
         argument::{ArgumentReassignmentError, CliArgIdx},
@@ -572,7 +572,7 @@ pub fn parse_cli_retain_args(
     }
     return Ok(ctx_opts);
 }
-pub fn parse_cli(
+pub fn parse_cli_raw(
     args: Vec<Vec<u8>>,
     allow_repl: bool,
 ) -> Result<SessionOptions, (Vec<Vec<u8>>, ScrError)> {
@@ -583,6 +583,14 @@ pub fn parse_cli(
         }
         Err(e) => Err((args, e)),
     }
+}
+
+pub fn parse_cli(
+    args: Vec<Vec<u8>>,
+    allow_repl: bool,
+) -> Result<SessionOptions, ContextualizedScrError> {
+    parse_cli_raw(args, allow_repl)
+        .map_err(|(args, err)| ContextualizedScrError::from_scr_error(err, Some(&args), None, None))
 }
 
 pub fn collect_env_args() -> Result<Vec<Vec<u8>>, CliArgumentError> {
@@ -613,7 +621,8 @@ pub fn collect_env_args() -> Result<Vec<Vec<u8>>, CliArgumentError> {
     }
 }
 
-pub fn parse_cli_from_env(allow_repl: bool) -> Result<SessionOptions, ScrError> {
-    let args = collect_env_args()?;
-    parse_cli(args, allow_repl).map_err(|(_, e)| e)
+pub fn parse_cli_from_env(allow_repl: bool) -> Result<SessionOptions, ContextualizedScrError> {
+    let args = collect_env_args()
+        .map_err(|e| ContextualizedScrError::from_scr_error(e.into(), None, None, None))?;
+    parse_cli(args, allow_repl)
 }

@@ -230,7 +230,7 @@ pub fn handle_tf_print_raw(
                         sv.subscribe(tf_id, rl as usize, false);
                         input_field.request_clear_delay();
                         sess.tf_mgr
-                            .unclaim_batch_size(tf_id, batch_size - (field_pos_start));
+                            .unclaim_batch_size(tf_id, batch_size - (pos - field_pos_start));
                         buffer_remaining_stream_values_sv_iter(&mut sess.sv_mgr, sv_iter);
                         buffer_remaining_stream_values_auto_deref_iter(
                             &mut sess.match_set_mgr,

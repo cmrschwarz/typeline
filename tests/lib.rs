@@ -921,7 +921,8 @@ fn error_on_sbs_0() {
         ContextBuilder::default()
             .set_stream_buffer_size(0)
             .add_op(create_op_int(1, 3))
-            .run(),
+            .run()
+            .map_err(|e| e.err),
         Err(ScrError::ChainSetupError(ChainSetupError {
             message: Cow::Borrowed("stream buffer size cannot be zero"),
             chain_id: 0

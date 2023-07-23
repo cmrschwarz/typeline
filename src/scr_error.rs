@@ -62,6 +62,32 @@ pub enum ScrError {
     #[error(transparent)]
     OperationApplicationError(#[from] OperatorApplicationError),
 }
+#[derive(Error, Debug, Clone)]
+#[error("{contextualized_message}")]
+pub struct ContextualizedScrError {
+    pub contextualized_message: String,
+    pub err: ScrError,
+}
+
+impl ContextualizedScrError {
+    pub fn from_scr_error(
+        err: ScrError,
+        args: Option<&Vec<Vec<u8>>>,
+        ctx_opts: Option<&SessionOptions>,
+        sess: Option<&Session>,
+    ) -> Self {
+        Self {
+            contextualized_message: err.contextualize_message(args, ctx_opts, sess),
+            err,
+        }
+    }
+}
+
+impl From<ContextualizedScrError> for ScrError {
+    fn from(value: ContextualizedScrError) -> Self {
+        value.err
+    }
+}
 
 pub fn result_into<T, E, EFrom: Into<E>>(result: Result<T, EFrom>) -> Result<T, E> {
     match result {
@@ -114,7 +140,7 @@ fn contextualize_op_id(
 impl ScrError {
     //TODO: avoid allocations by taking a &impl Write
     pub fn contextualize_message(
-        self,
+        &self,
         args: Option<&Vec<Vec<u8>>>,
         ctx_opts: Option<&SessionOptions>,
         sess: Option<&Session>,

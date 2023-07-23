@@ -183,10 +183,10 @@ impl Context {
                 Ok(Signal::Success(buffer)) => {
                     let mut shlex = Shlex::new(&buffer);
                     let args = shlex.by_ref().map(|s| s.into_bytes()).collect();
-                    let sess_opts = if !shlex.had_error {
-                        match parse_cli(args, true) {
+                    let sess = if !shlex.had_error {
+                        match parse_cli(args, true).and_then(|opts| opts.build_session()) {
                             Ok(opts) => Ok(opts),
-                            Err((args, e)) => match e {
+                            Err(e) => match e.err {
                                 ScrError::PrintInfoAndExitError(e) => {
                                     println!("{}", e.get_message());
                                     continue;
@@ -194,16 +194,12 @@ impl Context {
                                 ScrError::MissingArgumentsError(_) => {
                                     continue;
                                 }
-                                e => Err(e.contextualize_message(Some(&args), None, None)),
+                                _ => Err(e.contextualized_message),
                             },
                         }
                     } else {
                         Err("failed to tokenize command line arguments".to_string())
                     };
-                    let sess = sess_opts.and_then(|opts| match opts.build_session() {
-                        Ok(sess) => Ok(sess),
-                        Err((opts, e)) => Err(e.contextualize_message(None, Some(&opts), None)),
-                    });
                     match sess {
                         Ok(sess) => self.set_session(sess),
                         Err(e) => {
@@ -252,11 +248,6 @@ impl Drop for Context {
         }
     }
 }
-pub struct SessionCliParseError {
-    pub args: Vec<Vec<u8>>,
-    pub message: String,
-    pub message_is_info_text: bool,
-}
 
 impl Session {
     pub fn has_no_command(&self) -> bool {
@@ -290,36 +281,5 @@ impl Session {
     }
     pub fn repl_requested(&self) -> bool {
         self.repl
-    }
-    pub fn from_cli_args_stringify_error(
-        args: Vec<Vec<u8>>,
-    ) -> Result<Session, SessionCliParseError> {
-        let sess_opts = match parse_cli(args, true) {
-            Err((args, ScrError::PrintInfoAndExitError(e))) => {
-                return Err(SessionCliParseError {
-                    args,
-                    message: e.get_message(),
-                    message_is_info_text: true,
-                });
-            }
-            Err((args, e)) => {
-                return Err(SessionCliParseError {
-                    message: ScrError::from(e)
-                        .contextualize_message(Some(&args), None, None)
-                        .into(),
-                    args,
-                    message_is_info_text: false,
-                });
-            }
-            Ok(opts) => opts,
-        };
-        let sess = sess_opts
-            .build_session()
-            .map_err(|(mut opts, e)| SessionCliParseError {
-                message: ScrError::from(e).contextualize_message(None, Some(&opts), None),
-                args: opts.cli_args.take().unwrap(),
-                message_is_info_text: false,
-            })?;
-        Ok(sess)
     }
 }
