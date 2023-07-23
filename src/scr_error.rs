@@ -10,7 +10,10 @@ use crate::{
         errors::{OperatorApplicationError, OperatorCreationError, OperatorSetupError},
         operator::OperatorId,
     },
-    options::{argument::CliArgIdx, session_options::SessionOptions},
+    options::{
+        argument::{ArgumentReassignmentError, CliArgIdx, ARGUMENT_REASSIGNMENT_ERROR_MESSAGE},
+        session_options::SessionOptions,
+    },
 };
 
 #[derive(Error, Debug, Clone)]
@@ -43,6 +46,9 @@ pub enum ScrError {
 
     #[error(transparent)]
     ReplDisabledError(#[from] ReplDisabledError),
+
+    #[error(transparent)]
+    ArgumentReassignmentError(#[from] ArgumentReassignmentError),
 
     #[error(transparent)]
     MissingArgumentsError(#[from] MissingArgumentsError),
@@ -151,6 +157,25 @@ impl ScrError {
         match self {
             ScrError::CliArgumentError(e) => {
                 contextualize_cli_arg(&e.message, args_gathered, e.cli_arg_idx)
+            }
+            ScrError::ArgumentReassignmentError(e) => {
+                if args_gathered.is_some()
+                    && e.prev_cli_arg_idx.is_some()
+                    && e.cli_arg_idx.is_some()
+                {
+                    let args = args_gathered.unwrap();
+                    let arg = e.cli_arg_idx.unwrap();
+                    let prev = e.prev_cli_arg_idx.unwrap();
+                    format!(
+                        "in cli arg {arg} `{}`: {ARGUMENT_REASSIGNMENT_ERROR_MESSAGE} (at cli arg {prev} `{}`)",
+                        String::from_utf8_lossy(&args[arg as usize - 1]),
+                        String::from_utf8_lossy(&args[prev as usize - 1]),
+                    )
+                } else if let Some(arg) = e.cli_arg_idx {
+                    contextualize_cli_arg(ARGUMENT_REASSIGNMENT_ERROR_MESSAGE, args_gathered, arg)
+                } else {
+                    return ARGUMENT_REASSIGNMENT_ERROR_MESSAGE.to_string();
+                }
             }
             ScrError::ReplDisabledError(e) => {
                 if let Some(cli_arg_idx) = e.cli_arg_idx {

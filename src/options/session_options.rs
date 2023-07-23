@@ -61,9 +61,9 @@ impl Default for SessionOptions {
 
 lazy_static! {
     static ref DEFAULT_CONTEXT_OPTIONS: SessionOptions = SessionOptions {
-        max_threads: Argument::new(1),
-        repl: Argument::new(false),
-        exit_repl: Argument::new(false),
+        max_threads: Argument::new_v(1),
+        repl: Argument::new_v(false),
+        exit_repl: Argument::new_v(false),
         install_selenium_drivers: Vec::new(),
         update_selenium_drivers: Vec::new(),
         chains: Vec::new(),

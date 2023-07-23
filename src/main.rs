@@ -16,7 +16,7 @@ fn run() -> Result<(), String> {
         Err(e) => match e.err {
             ScrError::MissingArgumentsError(_) => {
                 let mut sess_opts = SessionOptions::default();
-                sess_opts.repl.set(true).unwrap();
+                sess_opts.repl.set(true, None).unwrap();
                 sess_opts.build_session().unwrap()
             }
             ScrError::PrintInfoAndExitError(_) => {

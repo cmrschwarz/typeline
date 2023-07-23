@@ -20,9 +20,7 @@ use crate::operators::{
 use crate::scr_error::{ContextualizedScrError, ReplDisabledError, ScrError};
 use crate::{
     options::{
-        argument::{ArgumentReassignmentError, CliArgIdx},
-        chain_options::ChainOptions,
-        operator_base_options::OperatorBaseOptions,
+        argument::CliArgIdx, operator_base_options::OperatorBaseOptions,
         session_options::SessionOptions,
     },
     selenium::{SeleniumDownloadStrategy, SeleniumVariant},
@@ -53,15 +51,6 @@ impl CliArgumentError {
         Self {
             message: Cow::Owned(message),
             cli_arg_idx,
-        }
-    }
-}
-
-impl From<ArgumentReassignmentError> for CliArgumentError {
-    fn from(v: ArgumentReassignmentError) -> Self {
-        CliArgumentError {
-            message: Cow::Borrowed(v.message),
-            cli_arg_idx: v.cli_arg_idx.unwrap(),
         }
     }
 }
@@ -209,6 +198,7 @@ fn try_parse_as_context_opt(
     allow_repl: bool,
 ) -> Result<bool, ScrError> {
     let mut matched = false;
+    let arg_idx = Some(arg.cli_arg.idx);
     if ["--version", "-v"].contains(&&*arg.argname) {
         return Err(PrintInfoAndExitError::Version.into());
     }
@@ -235,8 +225,7 @@ fn try_parse_as_context_opt(
         if let Some(val) = arg.value.as_deref() {
             ctx_opts
                 .max_threads
-                .set(try_parse_usize_arg(val, arg.cli_arg.idx)?)
-                .map_err(|e| ScrError::from(CliArgumentError::from(e)))?;
+                .set(try_parse_usize_arg(val, arg.cli_arg.idx)?, arg_idx)?;
         } else {
             return Err(
                 CliArgumentError::new("missing thread count argument", arg.cli_arg.idx).into(),
@@ -253,10 +242,7 @@ fn try_parse_as_context_opt(
             }
             .into());
         }
-        ctx_opts
-            .repl
-            .set(enabled)
-            .map_err(|e| ScrError::from(CliArgumentError::from(e)))?;
+        ctx_opts.repl.set(enabled, arg_idx)?;
         matched = true
     }
     if arg.argname == "exit" {
@@ -268,10 +254,7 @@ fn try_parse_as_context_opt(
             .into());
         }
         let enabled = try_parse_bool_arg_or_default(arg.value, true, arg.cli_arg.idx)?;
-        ctx_opts
-            .exit_repl
-            .set(enabled)
-            .map_err(|e| ScrError::from(CliArgumentError::from(e)))?;
+        ctx_opts.exit_repl.set(enabled, arg_idx)?;
         matched = true
     }
     if matched {
@@ -289,73 +272,72 @@ fn try_parse_as_context_opt(
 fn try_parse_as_chain_opt(
     ctx_opts: &mut SessionOptions,
     arg: &ParsedCliArgument,
-) -> Result<bool, CliArgumentError> {
-    fn apply_to_chain<F>(ctx_opts: &mut SessionOptions, f: F) -> Result<bool, CliArgumentError>
-    where
-        F: FnOnce(&mut ChainOptions) -> Result<(), ArgumentReassignmentError>,
-    {
-        f(&mut ctx_opts.chains[ctx_opts.curr_chain as usize])
-            .map_err(|e| CliArgumentError::from(e))?;
-        Ok(true)
-    }
+) -> Result<bool, ScrError> {
+    let chain = &mut ctx_opts.chains[ctx_opts.curr_chain as usize];
+    let arg_idx = Some(arg.cli_arg.idx);
     match arg.argname {
         "sel" => {
             let sv = try_parse_selenium_variant(arg.value.as_deref(), &arg.cli_arg)?;
-            return apply_to_chain(ctx_opts, |c| c.selenium_variant.set(sv));
+            chain.selenium_variant.set(sv, arg_idx)?;
+            return Ok(true);
         }
         "denc" => {
             if let Some(_val) = &arg.value {
                 todo!("parse text encoding");
             } else {
-                Err(CliArgumentError::new(
+                return Err(CliArgumentError::new(
                     "missing argument for default text encoding",
                     arg.cli_arg.idx,
-                ))
+                )
+                .into());
             }
         }
         "ppenc" => {
             let ppte = try_parse_bool_arg_or_default(arg.value.as_deref(), true, arg.cli_arg.idx)?;
-            apply_to_chain(ctx_opts, |c| c.prefer_parent_text_encoding.set(ppte))
+            chain.prefer_parent_text_encoding.set(ppte, arg_idx)?;
         }
         "fenc" => {
             let fte = try_parse_bool_arg_or_default(arg.value.as_deref(), true, arg.cli_arg.idx)?;
-            apply_to_chain(ctx_opts, |c| c.force_text_encoding.set(fte))
+            chain.force_text_encoding.set(fte, arg_idx)?;
         }
         "sds" => {
             let sds = try_parse_selenium_download_strategy(arg.value.as_deref(), &arg.cli_arg)?;
-            apply_to_chain(ctx_opts, |c| c.selenium_download_strategy.set(sds))
+            chain.selenium_download_strategy.set(sds, arg_idx)?;
         }
         "bs" => {
             if let Some(val) = arg.value {
                 let bs = try_parse_usize_arg(val, arg.cli_arg.idx)?;
-                apply_to_chain(ctx_opts, |c| c.default_batch_size.set(bs))
+                chain.default_batch_size.set(bs, arg_idx)?;
             } else {
-                Err(CliArgumentError::new(
+                return Err(CliArgumentError::new(
                     "missing argument for batch size",
                     arg.cli_arg.idx,
-                ))
+                )
+                .into());
             }
         }
         "sbs" => {
             if let Some(val) = arg.value {
                 let bs = try_parse_usize_arg(val, arg.cli_arg.idx)?;
-                apply_to_chain(ctx_opts, |c| c.stream_buffer_size.set(bs))
+                chain.stream_buffer_size.set(bs, arg_idx)?;
             } else {
-                Err(CliArgumentError::new(
+                return Err(CliArgumentError::new(
                     "missing argument for stream buffer size",
                     arg.cli_arg.idx,
-                ))
+                )
+                .into());
             }
         }
         "sst" => {
             if let Some(val) = arg.value {
                 let bs = try_parse_usize_arg(val, arg.cli_arg.idx)?;
-                apply_to_chain(ctx_opts, |c| c.stream_size_threshold.set(bs))
+                chain.stream_size_threshold.set(bs, arg_idx)?;
             } else {
-                Err(CliArgumentError::new(
+                return Err(CliArgumentError::new(
                     "missing argument for stream size threshold",
                     arg.cli_arg.idx,
-                ))
+                )
+                .into());
             }
         }
         "lb" => {
@@ -383,16 +365,17 @@ fn try_parse_as_chain_opt(
                         return Err(CliArgumentError{
                             message: Cow::Owned(format!("unknown line buffering mode '{}', options are yes, no, stdin, tty, and stdin-if-tty", val.to_str_lossy())),
                             cli_arg_idx: arg.cli_arg.idx
-                        });
+                        }.into());
                     }
                 }
             } else {
                 BufferingMode::LineBuffer
             };
-            apply_to_chain(ctx_opts, |c| c.buffering_mode.set(buffering_mode))
+            chain.buffering_mode.set(buffering_mode, arg_idx)?;
         }
-        _ => Ok(false),
+        _ => return Ok(false),
     }
+    Ok(true)
 }
 
 fn parse_operation(

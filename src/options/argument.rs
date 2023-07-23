@@ -8,14 +8,16 @@ pub struct Argument<T: Clone> {
     pub cli_arg_idx: Option<CliArgIdx>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ArgumentReassignmentError {
-    pub message: &'static str,
+    pub prev_cli_arg_idx: Option<CliArgIdx>,
     pub cli_arg_idx: Option<CliArgIdx>,
 }
+pub const ARGUMENT_REASSIGNMENT_ERROR_MESSAGE: &'static str = "option was already set";
+
 impl fmt::Display for ArgumentReassignmentError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.message)
+        f.write_str(ARGUMENT_REASSIGNMENT_ERROR_MESSAGE)
     }
 }
 impl Error for ArgumentReassignmentError {}
@@ -37,31 +39,36 @@ impl<T: Clone> Deref for Argument<T> {
     }
 }
 impl<T: Clone> Argument<T> {
-    pub const fn new(t: T) -> Self {
+    pub const fn new(value: T, cli_arg_idx: Option<CliArgIdx>) -> Self {
         Self {
-            value: Some(t),
+            value: Some(value),
+            cli_arg_idx,
+        }
+    }
+    pub const fn new_v(value: T) -> Self {
+        Self {
+            value: Some(value),
             cli_arg_idx: None,
         }
     }
-    pub const fn new_with_arg_idx(t: T, cli_arg_idx: CliArgIdx) -> Self {
-        Self {
-            value: Some(t),
-            cli_arg_idx: Some(cli_arg_idx),
-        }
-    }
-    pub fn set(&mut self, value: T) -> Result<(), ArgumentReassignmentError> {
+    pub fn set(
+        &mut self,
+        value: T,
+        cli_arg_idx: Option<CliArgIdx>,
+    ) -> Result<(), ArgumentReassignmentError> {
         if self.value.is_some() {
             return Err(ArgumentReassignmentError {
-                message: "attempted to reassign value of option",
-                cli_arg_idx: self.cli_arg_idx,
+                cli_arg_idx,
+                prev_cli_arg_idx: self.cli_arg_idx,
             });
         }
         self.value = Some(value);
+        self.cli_arg_idx = cli_arg_idx;
         Ok(())
     }
-    pub fn force_set(&mut self, value: T) {
+    pub fn force_set(&mut self, value: T, cli_arg_idx: Option<CliArgIdx>) {
         self.value = Some(value);
-        self.cli_arg_idx = None;
+        self.cli_arg_idx = cli_arg_idx;
     }
     pub fn get(&self) -> Option<T> {
         self.value.clone()

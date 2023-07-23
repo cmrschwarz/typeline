@@ -114,19 +114,19 @@ impl ContextBuilder {
     pub fn set_batch_size(mut self, bs: usize) -> Self {
         self.data.opts.chains[self.data.opts.curr_chain as usize]
             .default_batch_size
-            .force_set(bs);
+            .force_set(bs, None);
         self
     }
     pub fn set_stream_buffer_size(mut self, sbs: usize) -> Self {
         self.data.opts.chains[self.data.opts.curr_chain as usize]
             .stream_buffer_size
-            .force_set(sbs);
+            .force_set(sbs, None);
         self
     }
     pub fn set_stream_size_threshold(mut self, sbs: usize) -> Self {
         self.data.opts.chains[self.data.opts.curr_chain as usize]
             .stream_size_threshold
-            .force_set(sbs);
+            .force_set(sbs, None);
         self
     }
 }

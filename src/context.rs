@@ -188,7 +188,7 @@ impl Context {
                         sess_opts = sess_opts.and_then(|mut opts| {
                             exit_repl = opts.repl.get() == Some(false)
                                 || opts.exit_repl.get() == Some(true);
-                            opts.repl.force_set(true);
+                            opts.repl.force_set(true, None);
                             Ok(opts)
                         });
                         match sess_opts.and_then(|opts| opts.build_session()) {

@@ -24,15 +24,15 @@ pub struct ChainOptions {
 
 pub const DEFAULT_CHAIN_OPTIONS: ChainOptions = ChainOptions {
     label: None,
-    default_text_encoding: Argument::new(TextEncoding::UTF8),
-    prefer_parent_text_encoding: Argument::new(false),
-    force_text_encoding: Argument::new(false),
-    selenium_variant: Argument::new(None),
-    selenium_download_strategy: Argument::new(SeleniumDownloadStrategy::Scr),
-    default_batch_size: Argument::new(1024), //TODO: tweak me
-    stream_buffer_size: Argument::new(1024),
-    stream_size_threshold: Argument::new(1024),
-    buffering_mode: Argument::new(BufferingMode::LineBufferStdinIfTTY),
+    default_text_encoding: Argument::new_v(TextEncoding::UTF8),
+    prefer_parent_text_encoding: Argument::new_v(false),
+    force_text_encoding: Argument::new_v(false),
+    selenium_variant: Argument::new_v(None),
+    selenium_download_strategy: Argument::new_v(SeleniumDownloadStrategy::Scr),
+    default_batch_size: Argument::new_v(1024), //TODO: tweak me
+    stream_buffer_size: Argument::new_v(1024),
+    stream_size_threshold: Argument::new_v(1024),
+    buffering_mode: Argument::new_v(BufferingMode::LineBufferStdinIfTTY),
     parent: 0,
 };
 impl ChainOptions {
