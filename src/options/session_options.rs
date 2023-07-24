@@ -4,7 +4,7 @@ use lazy_static::lazy_static;
 
 use crate::{
     chain::{compute_field_livenses, Chain, ChainId, INVALID_CHAIN_ID},
-    context::Session,
+    context::{Session, SessionSettings},
     operators::{
         call::{create_op_call_eager, setup_op_call},
         call_concurrent::setup_op_call_concurrent,
@@ -192,9 +192,13 @@ impl SessionOptions {
                 OperatorData::Call(op) => {
                     setup_op_call(&sess.chain_labels, &mut sess.string_store, op, op_id)?
                 }
-                OperatorData::CallConcurrent(op) => {
-                    setup_op_call_concurrent(&sess.chain_labels, &mut sess.string_store, op, op_id)?
-                }
+                OperatorData::CallConcurrent(op) => setup_op_call_concurrent(
+                    &sess.settings,
+                    &sess.chain_labels,
+                    &mut sess.string_store,
+                    op,
+                    op_id,
+                )?,
             }
         }
         Ok(())
@@ -202,7 +206,7 @@ impl SessionOptions {
     pub fn validate_chain(sess: &Session, chain_id: ChainId) -> Result<(), ChainSetupError> {
         let chain = &sess.chains[chain_id as usize];
         let mut message = "";
-        if chain.operators.is_empty() && !sess.repl {
+        if chain.operators.is_empty() && !sess.settings.repl {
             message = "chain must habe at least one operation";
         } else if chain.settings.default_batch_size == 0 {
             message = "default batch size cannot be zero";
@@ -258,8 +262,10 @@ impl SessionOptions {
         }
 
         let mut sess = Session {
-            max_threads,
-            repl: self.repl.unwrap_or(DEFAULT_CONTEXT_OPTIONS.repl.unwrap()),
+            settings: SessionSettings {
+                max_threads,
+                repl: self.repl.unwrap_or(DEFAULT_CONTEXT_OPTIONS.repl.unwrap()),
+            },
             chains,
             operator_data: self.operator_data,
             operator_bases: self

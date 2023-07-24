@@ -42,9 +42,13 @@ pub struct Venture<'a> {
     pub source_job_session: Option<Box<JobSession<'a>>>,
 }
 
-pub struct Session {
+pub struct SessionSettings {
     pub(crate) max_threads: usize,
     pub(crate) repl: bool,
+}
+
+pub struct Session {
+    pub(crate) settings: SessionSettings,
     pub(crate) chains: Vec<Chain>,
     pub(crate) chain_labels: HashMap<StringStoreEntry, ChainId, BuildIdentityHasher>,
     pub(crate) operator_bases: Vec<OperatorBase>,
@@ -84,7 +88,8 @@ impl SessionManager {
     pub fn submit_job(&mut self, ctx_data: &Arc<ContextData>, job: Job) {
         self.job_queue.push_back(job);
         //TODO: better check
-        if self.session.max_threads < self.total_worker_threads && self.waiting_worker_threads == 0
+        if self.session.settings.max_threads < self.total_worker_threads
+            && self.waiting_worker_threads == 0
         {
             self.add_worker_thread(ctx_data)
         }
@@ -159,10 +164,10 @@ impl Context {
         }
     }
     pub fn set_session(&mut self, mut session: Session) {
-        if self.session.max_threads < session.max_threads {
+        if self.session.settings.max_threads < session.settings.max_threads {
             // TODO: we might want to lower ours instead?
             // but this is simple and prevents deadlocks for now
-            session.max_threads = self.session.max_threads;
+            session.settings.max_threads = self.session.settings.max_threads;
         }
         let new_sess = Arc::new(session);
 
@@ -178,7 +183,7 @@ impl Context {
     }
     pub fn run_job(&mut self, job: Job) {
         self.main_thread.run_job(&self.session, job);
-        if self.session.max_threads > 1 {
+        if self.session.settings.max_threads > 1 {
             self.wait_for_worker_threads();
         }
     }
@@ -274,7 +279,7 @@ impl Context {
 
 impl Drop for Context {
     fn drop(&mut self) {
-        if self.session.max_threads <= 1 {
+        if self.session.settings.max_threads <= 1 {
             return;
         }
         let ctx = self.main_thread.ctx_data.as_ref();
@@ -302,7 +307,7 @@ impl Session {
         }
     }
     pub fn run_job_unthreaded(&self, job: Job) {
-        assert!(!self.repl);
+        assert!(!self.settings.repl);
         let mut js = JobSession {
             transform_data: Vec::new(),
             job_data: JobData::new(&self),
@@ -314,14 +319,14 @@ impl Session {
         }
     }
     pub fn run(self, job: Job) {
-        assert!(!self.repl);
-        if self.max_threads == 1 {
+        assert!(!self.settings.repl);
+        if self.settings.max_threads == 1 {
             self.run_job_unthreaded(job);
         } else {
             Context::new(Arc::new(self)).run_job(job);
         }
     }
     pub fn repl_requested(&self) -> bool {
-        self.repl
+        self.settings.repl
     }
 }

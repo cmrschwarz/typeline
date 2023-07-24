@@ -42,6 +42,10 @@ impl ContextBuilder {
         self.data.opts.add_op(op_base, op_data);
         self
     }
+    pub fn add_label(mut self, label: String) -> Self {
+        self.data.opts.add_label(label);
+        self
+    }
     pub fn add_op(self, op_data: OperatorData) -> Self {
         let argname = op_data.default_op_name();
         self.add_op_with_opts(op_data, Some(&argname), None, false, false)
@@ -73,7 +77,7 @@ impl ContextBuilder {
     }
     pub fn run(self) -> Result<(), ContextualizedScrError> {
         let sess = self.data.opts.build_session()?;
-        Ok(if sess.max_threads == 1 {
+        Ok(if sess.settings.max_threads == 1 {
             sess.run_job_unthreaded(sess.construct_main_chain_job(self.data.input_data))
         } else {
             let mut ctx = Context::new(Arc::new(sess));
@@ -111,6 +115,10 @@ impl ContextBuilder {
 }
 
 impl ContextBuilder {
+    pub fn set_max_thread_count(mut self, j: usize) -> Self {
+        self.data.opts.max_threads.force_set(j, None);
+        self
+    }
     pub fn set_batch_size(mut self, bs: usize) -> Self {
         self.data.opts.chains[self.data.opts.curr_chain as usize]
             .default_batch_size

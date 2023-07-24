@@ -4,7 +4,7 @@ use bstr::ByteSlice;
 
 use crate::{
     chain::{ChainId, INVALID_CHAIN_ID},
-    context::{ContextData, VentureDescription},
+    context::{ContextData, SessionSettings, VentureDescription},
     field_data::{
         command_buffer::{ActionProducingFieldIndex, FieldActionKind},
         iter_hall::IterId,
@@ -63,11 +63,18 @@ pub fn parse_op_call_concurrent(
 }
 
 pub fn setup_op_call_concurrent(
+    settings: &SessionSettings,
     chain_labels: &HashMap<StringStoreEntry, ChainId, BuildIdentityHasher>,
     string_store: &mut StringStore,
     op: &mut OpCallConcurrent,
     op_id: OperatorId,
 ) -> Result<(), OperatorSetupError> {
+    if settings.max_threads == 1 {
+        return Err(OperatorSetupError::new_s(
+            format!("callcc cannot be used with a max thread count of 1, see `h=j`"),
+            op_id,
+        ));
+    }
     if let Some(target) = string_store
         .lookup_str(&op.target_name)
         .and_then(|sse| chain_labels.get(&sse))
@@ -175,7 +182,7 @@ pub(crate) fn handle_call_concurrent_expansion(
         .map(|v| v.description.participans_needed)
         .unwrap_or(0)
         + 2;
-    if threads_needed > sess.session.max_threads {
+    if threads_needed > sess.session.settings.max_threads {
         return Err(venture_desc);
     }
     if threads_needed > sess.total_worker_threads {}

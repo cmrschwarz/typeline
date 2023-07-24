@@ -4,6 +4,7 @@ use std::borrow::Cow;
 
 use rstest::rstest;
 
+use scr::operators::call_concurrent::create_op_callcc;
 use scr::operators::fork::create_op_fork;
 use scr::operators::join::{create_op_join, create_op_join_str};
 use scr::operators::literal::{
@@ -13,7 +14,7 @@ use scr::operators::next::create_op_next;
 use scr::operators::select::create_op_select;
 use scr::operators::sequence::{create_op_enum, create_op_seqn};
 use scr::options::chain_options::DEFAULT_CHAIN_OPTIONS;
-use scr::scr_error::ChainSetupError;
+use scr::scr_error::{ChainSetupError, ContextualizedScrError};
 use scr::utils::i64_to_str;
 use scr::{
     field_data::{push_interface::PushInterface, record_set::RecordSet},
@@ -1157,5 +1158,39 @@ fn seq_into_regex_drop_unless_seven() -> Result<(), ScrError> {
         .run()
         .unwrap();
     assert_eq!(ss.get_data().unwrap().as_slice(), res);
+    Ok(())
+}
+
+#[test]
+fn callcc_needs_threads() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::new();
+    let err_msg = "callcc cannot be used with a max thread count of 1, see `h=j`";
+    matches!(
+        ContextBuilder::default()
+            .add_op(create_op_seqn(1, 3, 1).unwrap())
+            .add_op(create_op_callcc("foo".to_string()))
+            .add_label("foo".to_string())
+            .add_op(create_op_string_sink(&ss))
+            .run(),
+        Err(ContextualizedScrError {
+            contextualized_message,
+            ..
+        }) if contextualized_message == err_msg
+    );
+
+    Ok(())
+}
+
+#[test]
+fn basic_callcc() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::new();
+    ContextBuilder::default()
+        .set_max_thread_count(2)
+        .add_op(create_op_seqn(1, 3, 1).unwrap())
+        .add_op(create_op_callcc("foo".to_string()))
+        .add_label("foo".to_string())
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(ss.get().data.as_slice(), ["1", "2", "3"]);
     Ok(())
 }
