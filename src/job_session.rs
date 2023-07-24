@@ -45,7 +45,7 @@ use crate::{
     utils::{string_store::StringStoreEntry, temp_vec::TempVec},
 };
 
-pub const FIELD_REF_LOOKUP_ITER_ID: IterId = 0 as IterId;
+pub const FIELD_REF_LOOKUP_ITER_ID: IterId = unsafe { IterId::new_unchecked(0) };
 pub const ERROR_FIELD_PSEUDO_STR: usize = 0;
 
 #[derive(Default)]
@@ -68,6 +68,9 @@ pub struct Field {
     pub first_unapplied_al: ActionListIndex,
 
     pub names: SmallVec<[StringStoreEntry; 4]>,
+    // fields potentially referenced by this field.
+    // keeps them alive until this field is dropped
+    pub field_refs: SmallVec<[FieldId; 4]>,
     pub cow_source: Option<FieldId>,
     pub field_data: IterHall,
 }
@@ -400,6 +403,7 @@ impl FieldManager {
             field_data: IterHall::new_with_data(data),
             #[cfg(feature = "debug_logging")]
             producing_transform: None,
+            field_refs: Default::default(),
         };
         field.field_data.reserve_iter_id(FIELD_REF_LOOKUP_ITER_ID);
         self.fields.claim_with_value(RefCell::new(field));
@@ -475,6 +479,10 @@ impl FieldManager {
 
     pub fn bump_field_refcount(&self, field_id: FieldId) {
         self.fields[field_id].borrow_mut().ref_count += 1;
+    }
+    pub fn register_field_reference(&self, source: FieldId, target: FieldId) {
+        self.fields[source].borrow_mut().field_refs.push(target);
+        self.fields[target].borrow_mut().ref_count += 1;
     }
 }
 
@@ -588,7 +596,7 @@ impl<'a> JobData<'a> {
         }
     }
     pub fn remove_field(&mut self, id: FieldId) {
-        let field = self.field_mgr.fields[id].borrow_mut();
+        let mut field = self.field_mgr.fields[id].borrow_mut();
         #[cfg(feature = "debug_logging")]
         print!("removing field id {id} [ ");
         for n in &field.names {
@@ -600,8 +608,12 @@ impl<'a> JobData<'a> {
         }
         #[cfg(feature = "debug_logging")]
         println!("]");
+        let frs = std::mem::replace(&mut field.field_refs, Default::default());
         drop(field);
         self.field_mgr.fields.release(id);
+        for fr in &frs {
+            self.drop_field_refcount(*fr);
+        }
     }
 }
 
@@ -911,9 +923,9 @@ impl<'a> JobSession<'a> {
     }
     pub fn add_transform(&mut self, state: TransformState, data: TransformData<'a>) -> TransformId {
         let id = self.job_data.tf_mgr.transforms.claim_with_value(state);
-        if self.transform_data.len() < self.job_data.tf_mgr.transforms.len() {
+        if self.transform_data.len() < self.job_data.tf_mgr.transforms.used_capacity() {
             self.transform_data
-                .resize_with(self.job_data.tf_mgr.transforms.len(), || {
+                .resize_with(self.job_data.tf_mgr.transforms.used_capacity(), || {
                     TransformData::Disabled
                 });
         }

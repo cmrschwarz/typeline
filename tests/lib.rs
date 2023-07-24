@@ -998,23 +998,19 @@ fn join_on_error(#[case] batch_size: usize) -> Result<(), ScrError> {
     Ok(())
 }
 
-#[test]
-fn error_formatting() -> Result<(), ScrError> {
-    let pairs = [
-        ("{:?}", "!\"ERROR: in op id 0: A\""),
-        ("{:??}", "!\"ERROR: in op id 0: A\""),
-        ("{:#??}", "!\"A\""),
-        ("{:#??}", "!\"A\""),
-    ];
-    for (fmt, res) in pairs {
-        let ss = StringSinkHandle::new();
-        ContextBuilder::default()
-            .add_op(create_op_error("A", 1))
-            .add_op(create_op_format(fmt.as_bytes()).unwrap())
-            .add_op(create_op_string_sink(&ss))
-            .run()?;
-        assert_eq!(ss.get().data.as_slice(), [res]);
-    }
+#[rstest]
+#[case("{:?}", "!\"ERROR: in op id 0: A\"")]
+#[case("{:??}", "!\"ERROR: in op id 0: A\"")]
+#[case("{:#??}", "!\"A\"")]
+#[case("{:#??}", "!\"A\"")]
+fn error_formatting(#[case] fmt_string: &str, #[case] result: &str) -> Result<(), ScrError> {
+    let ss = StringSinkHandle::new();
+    ContextBuilder::default()
+        .add_op(create_op_error("A", 1))
+        .add_op(create_op_format(fmt_string.as_bytes()).unwrap())
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(ss.get().data.as_slice(), [result]);
     Ok(())
 }
 

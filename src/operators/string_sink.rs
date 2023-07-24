@@ -367,7 +367,7 @@ pub fn handle_tf_string_sink(sess: &mut JobData, tf_id: TransformId, ss: &mut Tf
                             if !sv.done {
                                 sv.subscribe(
                                     tf_id,
-                                    ss.stream_value_handles.len(),
+                                    ss.stream_value_handles.peek_claim_id(),
                                     sv.is_buffered(),
                                 );
                                 ss.stream_value_handles.claim_with_value(StreamValueHandle {
@@ -406,7 +406,7 @@ pub fn handle_tf_string_sink(sess: &mut JobData, tf_id: TransformId, ss: &mut Tf
     }
     drop(input_field);
     drop(output_field);
-    let streams_done = ss.stream_value_handles.claimed_entry_count() == 0;
+    let streams_done = ss.stream_value_handles.is_empty();
     if input_done && streams_done {
         sess.unlink_transform(tf_id, consumed_fields);
     } else {
@@ -437,7 +437,7 @@ pub fn handle_tf_string_sink_stream_value_update(
     if sv.done {
         sess.sv_mgr.drop_field_value_subscription(sv_id, None);
         tf.stream_value_handles.release(custom);
-        if tf.stream_value_handles.claimed_entry_count() == 0 {
+        if tf.stream_value_handles.is_empty() {
             sess.tf_mgr.update_ready_state(tf_id);
         }
     }

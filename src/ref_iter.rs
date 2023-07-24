@@ -581,8 +581,6 @@ impl<I: Iterator<Item = (T, RunLength, usize)>, T: Clone> Iterator
 mod ref_iter_tests {
     use std::cell::RefCell;
 
-    use nonmax::NonMaxUsize;
-
     use crate::{
         field_data::{
             field_value_flags, push_interface::PushInterface, typed::TypedSlice, FieldData,
@@ -599,9 +597,7 @@ mod ref_iter_tests {
         field.field_data.reset_with_data(fd);
         field.field_data.reserve_iter_id(FIELD_REF_LOOKUP_ITER_ID);
         if let Some(id) = id {
-            field_mgr
-                .fields
-                .reserve_id_with(id, Default::default, || RefCell::new(field));
+            field_mgr.fields.reserve_id_with(id, || RefCell::new(field));
             id
         } else {
             field_mgr.fields.claim_with_value(RefCell::new(field))
@@ -681,7 +677,7 @@ mod ref_iter_tests {
     fn push_ref(fd: &mut FieldData, begin: usize, end: usize, rl: usize) {
         fd.push_reference(
             FieldReference {
-                field: NonMaxUsize::default(),
+                field: FieldId::default(),
                 begin: begin,
                 end: end,
             },

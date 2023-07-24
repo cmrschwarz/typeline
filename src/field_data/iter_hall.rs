@@ -1,5 +1,7 @@
 use std::cell::Cell;
 
+use nonmax::NonMaxU32;
+
 use crate::{job_session::MatchSetManager, ref_iter::AutoDerefIter, utils::universe::Universe};
 
 use super::{
@@ -7,7 +9,7 @@ use super::{
     FieldData, FieldDataInternals, FieldValueHeader, RunLength,
 };
 
-pub type IterId = usize;
+pub type IterId = NonMaxU32;
 
 #[derive(Default)]
 pub struct IterHall {

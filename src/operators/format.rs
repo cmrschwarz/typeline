@@ -210,31 +210,39 @@ pub fn setup_tf_format<'a>(
         .refs_idx
         .iter()
         .map(|name| {
-            let (field_id, iter_id) = if let Some(name) = name {
-                let id = sess.match_set_mgr.match_sets[tf_state.match_set_id]
+            let (field_id, mut f) = if let Some(name) = name {
+                let (id, mut f) = if let Some(id) = sess.match_set_mgr.match_sets
+                    [tf_state.match_set_id]
                     .field_name_map
                     .get(name)
                     .cloned()
-                    .unwrap_or_else(|| {
-                        let field_id = sess.field_mgr.add_field(
-                            tf_state.match_set_id,
-                            sess.field_mgr.get_min_apf_idx(tf_state.input_field),
-                        );
-                        sess.match_set_mgr
-                            .add_field_name(&sess.field_mgr, field_id, *name);
-                        field_id
-                    });
-                let mut f = sess.field_mgr.fields[id].borrow_mut();
-                f.added_as_placeholder_by_tf = Some(tf_id);
-                (id, f.field_data.claim_iter())
+                {
+                    let mut f = sess.field_mgr.fields[id].borrow_mut();
+                    f.ref_count += 1;
+                    (id, f)
+                } else {
+                    let id = sess.field_mgr.add_field(
+                        tf_state.match_set_id,
+                        sess.field_mgr.get_min_apf_idx(tf_state.input_field),
+                    );
+                    sess.match_set_mgr
+                        .add_field_name(&sess.field_mgr, id, *name);
+                    let mut f = sess.field_mgr.fields[id].borrow_mut();
+                    f.added_as_placeholder_by_tf = Some(tf_id);
+                    (id, f)
+                };
+                (id, f)
             } else {
-                let iter_id = sess.field_mgr.fields[tf_state.input_field]
-                    .borrow_mut()
-                    .field_data
-                    .claim_iter();
-                (tf_state.input_field, iter_id)
+                let mut f = sess.field_mgr.fields[tf_state.input_field].borrow_mut();
+                // while the ref count was already bumped by the transform creation
+                // cleaning up this transform is simpler this way
+                f.ref_count += 1;
+                (tf_state.input_field, f)
             };
-            FormatIdentRef { field_id, iter_id }
+            FormatIdentRef {
+                field_id,
+                iter_id: f.field_data.claim_iter(),
+            }
         })
         .collect();
     let tf = TfFormat {
@@ -1466,6 +1474,9 @@ pub fn handle_tf_format(sess: &mut JobData, tf_id: TransformId, fmt: &mut TfForm
     fmt.output_targets.clear();
     drop(output_field);
     if input_done {
+        for r in &fmt.refs {
+            sess.drop_field_refcount(r.field_id);
+        }
         sess.unlink_transform(tf_id, batch_size);
     } else {
         sess.tf_mgr.update_ready_state(tf_id);
@@ -1577,7 +1588,7 @@ pub fn handle_tf_format_stream_value_update(
     sess.sv_mgr
         .drop_field_value_subscription(handle.target_sv_id, None);
     tf.stream_value_handles.release(handle_id);
-    if tf.stream_value_handles.claimed_entry_count() > 0 {
+    if !tf.stream_value_handles.is_empty() {
         sess.tf_mgr.update_ready_state(tf_id);
     }
 }

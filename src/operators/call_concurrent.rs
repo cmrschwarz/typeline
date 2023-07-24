@@ -1,12 +1,14 @@
 use std::{collections::HashMap, sync::Arc};
 
 use bstr::ByteSlice;
-use smallvec::SmallVec;
 
 use crate::{
     chain::{ChainId, INVALID_CHAIN_ID},
     context::{ContextData, VentureDescription},
-    field_data::record_buffer::{RecordBuffer, RecordBufferFieldId},
+    field_data::{
+        iter_hall::IterId,
+        record_buffer::{RecordBuffer, RecordBufferFieldId},
+    },
     job_session::{FieldId, JobData, JobSession},
     options::argument::CliArgIdx,
     utils::{
@@ -26,14 +28,19 @@ pub struct OpCallConcurrent {
     pub target_name: String,
     pub target_resolved: ChainId,
 }
+pub struct TargetFieldMapping {
+    source_field_id: FieldId,
+    source_field_iter: IterId,
+    buf_field: RecordBufferFieldId,
+}
 pub struct TfCallConcurrent {
     pub expanded: bool,
-    pub target: ChainId,
-    pub target_fields: Vec<(FieldId, RecordBufferFieldId)>,
+    pub target_chain: ChainId,
+    pub target_fields: Vec<TargetFieldMapping>,
     pub buffer: Arc<RecordBuffer>,
 }
 pub struct TfCalleeConcurrent {
-    pub target_fields: SmallVec<[(RecordBufferFieldId, FieldId); 1]>,
+    pub target_fields: Vec<(RecordBufferFieldId, FieldId)>,
     pub buffer: Arc<RecordBuffer>,
 }
 
@@ -85,11 +92,22 @@ pub fn setup_tf_call_concurrent(
     _tf_state: &mut TransformState,
 ) -> TransformData<'static> {
     TransformData::CallConcurrent(TfCallConcurrent {
-        target: op.target_resolved,
+        target_chain: op.target_resolved,
         expanded: false,
         buffer: Default::default(),
         target_fields: Default::default(),
     })
+}
+
+fn setup_target_field_mappings(
+    sess: &mut JobData,
+    buf: &mut Arc<RecordBuffer>,
+    target_chain: ChainId,
+) {
+    let buf = Arc::get_mut(buf).unwrap();
+    let accessed_fields_map = &sess.session_data.chains[target_chain as usize]
+        .liveness_data
+        .fields_accessed_before_assignment;
 }
 
 pub(crate) fn handle_call_concurrent_expansion(
@@ -97,18 +115,16 @@ pub(crate) fn handle_call_concurrent_expansion(
     tf_id: TransformId,
     ctx: Option<&ContextData>,
 ) -> Result<(), VentureDescription> {
-    let _tf = &mut sess.job_data.tf_mgr.transforms[tf_id];
     let call = if let TransformData::CallConcurrent(call) = &mut sess.transform_data[tf_id.get()] {
         call
     } else {
         unreachable!()
     };
     call.expanded = true;
-    let mut _buf = Arc::get_mut(&mut call.buffer).unwrap();
-    //TODO: setup buffer with all required fields
+    setup_target_field_mappings(&mut sess.job_data, &mut call.buffer, call.target_chain);
     let venture_desc = VentureDescription {
         participans_needed: 2,
-        starting_points: smallvec::smallvec![call.target],
+        starting_points: smallvec::smallvec![call.target_chain],
         buffer: call.buffer.clone(),
     };
     let ctx = ctx.unwrap();

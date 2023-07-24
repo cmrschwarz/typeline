@@ -1,5 +1,5 @@
 use std::{
-    fmt::Debug,
+    marker::PhantomData,
     ops::{Deref, Index, IndexMut},
 };
 
@@ -85,153 +85,187 @@ impl<I: UniverseIndex> Deref for UniverseIdx<I> {
 }
 
 #[derive(Clone)]
-pub struct Universe<I: UniverseIndex, T> {
-    data: Vec<Option<T>>,
-    unused_ids: Vec<UniverseIdx<I>>,
+enum UniverseEntry<T> {
+    Occupied(T),
+    Vacant(Option<NonMaxUsize>),
 }
 
-impl<I: UniverseIndex, T> Default for Universe<I, T> {
+impl<T> UniverseEntry<T> {
+    pub fn as_option(&self) -> Option<&T> {
+        match self {
+            UniverseEntry::Occupied(v) => Some(v),
+            UniverseEntry::Vacant(_) => None,
+        }
+    }
+    pub fn as_option_mut(&mut self) -> Option<&mut T> {
+        match self {
+            UniverseEntry::Occupied(v) => Some(v),
+            UniverseEntry::Vacant(_) => None,
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct Universe<I, T> {
+    data: Vec<UniverseEntry<T>>,
+    first_vacant_entry: Option<NonMaxUsize>,
+    occupied_entry_count: usize,
+    _phantom_data: PhantomData<I>,
+}
+
+impl<I, T> Default for Universe<I, T> {
     fn default() -> Self {
         Self {
             data: Default::default(),
-            unused_ids: Default::default(),
+            first_vacant_entry: Default::default(),
+            occupied_entry_count: Default::default(),
+            _phantom_data: Default::default(),
         }
     }
 }
 
 impl<I: UniverseIndex, T> Universe<I, T> {
+    fn build_vacant_entry(&mut self, index: usize) -> UniverseEntry<T> {
+        // SAFETY: we can never have usize::MAX entries before running out of memory
+        self.first_vacant_entry = Some(unsafe { NonMaxUsize::new_unchecked(index) });
+        UniverseEntry::Vacant(self.first_vacant_entry)
+    }
     pub fn release(&mut self, id: I) {
+        self.occupied_entry_count -= 1;
         let index = UniverseIdx(id).to_usize();
         if self.data.len() == index + 1 {
             self.data.pop();
             return;
         }
-        self.unused_ids.push(UniverseIdx(id));
+        self.data[index] = self.build_vacant_entry(index);
     }
-    pub fn len(&self) -> usize {
+    pub fn used_capacity(&mut self) -> usize {
         self.data.len()
     }
+    pub fn occupied_entries(&mut self) -> usize {
+        self.occupied_entry_count
+    }
     pub fn clear(&mut self) {
-        self.unused_ids.clear();
         self.data.clear();
-    }
-    pub fn as_mut_slice(&mut self) -> &mut [Option<T>] {
-        self.data.as_mut_slice()
-    }
-    // makes sure that the next n `claim`s that are not interrupted
-    // by `release`s or `clear`s will get ascending ids
-    pub fn reserve_ordered(&mut self, n: usize) {
-        let len = self.unused_ids.len().min(n);
-        self.unused_ids[0..len].sort_unstable();
+        self.first_vacant_entry = None;
+        self.occupied_entry_count = 0;
     }
 
-    pub fn iter(&mut self) -> impl Iterator<Item = &T> {
-        self.data.iter().filter_map(|x| x.as_ref())
+    pub fn iter(&self) -> impl Iterator<Item = &T> {
+        self.data.iter().filter_map(|e| {
+            if let UniverseEntry::Occupied(v) = e {
+                Some(v)
+            } else {
+                None
+            }
+        })
     }
     pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut T> {
-        self.data.iter_mut().filter_map(|x| x.as_mut())
+        self.data.iter_mut().filter_map(|e| {
+            if let UniverseEntry::Occupied(v) = e {
+                Some(v)
+            } else {
+                None
+            }
+        })
     }
-    pub fn iter_options(&mut self) -> impl Iterator<Item = &mut Option<T>> {
-        self.data.iter_mut()
+    pub fn iter_options(&self) -> impl Iterator<Item = Option<&T>> {
+        self.data.iter().map(|e| {
+            if let UniverseEntry::Occupied(v) = e {
+                Some(v)
+            } else {
+                None
+            }
+        })
+    }
+    pub fn iter_options_mut(&mut self) -> impl Iterator<Item = Option<&mut T>> {
+        self.data.iter_mut().map(|e| {
+            if let UniverseEntry::Occupied(v) = e {
+                Some(v)
+            } else {
+                None
+            }
+        })
     }
     pub fn iter_enumerated(&mut self) -> impl Iterator<Item = (I, &T)> {
-        self.data.iter().enumerate().filter_map(|(i, v)| {
-            if let Some(v) = v {
+        self.data.iter().enumerate().filter_map(|(i, e)| {
+            if let UniverseEntry::Occupied(v) = e {
                 Some((UniverseIdx::from_usize(i).0, v))
             } else {
                 None
             }
         })
     }
-
     pub fn any_used(&mut self) -> Option<&mut T> {
-        for d in &mut self.data {
-            if d.is_some() {
-                return d.as_mut();
-            }
-        }
-        None
+        self.iter_mut().next()
     }
-
-    pub fn reserve_id_with(
-        &mut self,
-        id: I,
-        mut defaults_func: impl FnMut() -> T,
-        func: impl FnOnce() -> T,
-    ) {
+    pub fn reserve_id_with(&mut self, id: I, func: impl FnOnce() -> T) {
+        self.occupied_entry_count += 1;
         let index = UniverseIdx(id).to_usize();
-        let prev_len = self.data.len();
-        if prev_len <= index {
-            self.data.resize_with(index, || Some(defaults_func()));
-            self.data.push(Some(func()));
-            self.unused_ids.extend(
-                (prev_len..index)
-                    .into_iter()
-                    .map(|idx| UniverseIdx::from_usize(idx)),
-            );
+        let mut len = self.data.len();
+        while len < index {
+            let ve = self.build_vacant_entry(len);
+            self.data.push(ve);
+            len += 1;
         }
+        self.data.push(UniverseEntry::Occupied(func()))
     }
     // returns the id that will be used by the next claim
     // useful for cases where claim_with needs to know the id beforehand
     pub fn peek_claim_id(&self) -> I {
-        if let Some(id) = self.unused_ids.last() {
-            **id
+        I::from_usize(if let Some(id) = self.first_vacant_entry {
+            id.get()
         } else {
-            *UniverseIdx::from_usize(self.data.len())
-        }
-    }
-    pub fn has_unclaimed_entries(&self) -> bool {
-        !self.unused_ids.is_empty()
+            self.data.len()
+        })
     }
     pub fn is_empty(&self) -> bool {
-        self.claimed_entry_count() > 0
-    }
-    pub fn claimed_entry_count(&self) -> usize {
-        self.data.len() - self.unused_ids.len()
+        self.occupied_entry_count == 0
     }
     pub fn claim_with(&mut self, f: impl FnOnce() -> T) -> I {
-        if let Some(id) = self.unused_ids.pop() {
-            *id
+        self.occupied_entry_count += 1;
+        if let Some(id) = self.first_vacant_entry {
+            let index = id.get();
+            match self.data[index] {
+                UniverseEntry::Vacant(next) => self.first_vacant_entry = next,
+                UniverseEntry::Occupied(_) => unreachable!(),
+            }
+            self.data[index] = UniverseEntry::Occupied(f());
+            I::from_usize(index)
         } else {
             let id = self.data.len();
-            self.data.push(Some(f()));
-            *UniverseIdx::from_usize(id)
+            self.data.push(UniverseEntry::Occupied(f()));
+            I::from_usize(id)
         }
     }
     pub fn claim_with_value(&mut self, value: T) -> I {
-        if let Some(id) = self.unused_ids.pop() {
-            self[*id] = value;
-            *id
-        } else {
-            let id = self.data.len();
-            self.data.push(Some(value));
-            *UniverseIdx::from_usize(id)
-        }
+        self.claim_with(|| value)
     }
     pub fn calc_id(&self, entry: &T) -> I {
-        let offset_in_option = if let Some(v) = &self.data[0] {
+        let offset_in_entry = if let UniverseEntry::Occupied(v) = &self.data[0] {
             unsafe {
                 (v as *const T as *const u8).offset_from(self.data.as_ptr() as *const u8) as usize
             }
         } else {
-            unreachable!();
+            panic!("element not in Universe")
         };
-        let ptr =
-            unsafe { (entry as *const T as *const u8).sub(offset_in_option) as *const Option<T> };
+        let ptr = unsafe {
+            (entry as *const T as *const u8).sub(offset_in_entry) as *const UniverseEntry<T>
+        };
         let range = self.data.as_ptr_range();
         assert!(range.contains(&ptr));
         *UniverseIdx::from_usize(unsafe { ptr.offset_from(range.start) } as usize)
     }
     pub fn get(&self, id: I) -> Option<&T> {
         match self.data.get(id.into_usize()) {
-            Some(v) => v.as_ref(),
-            None => None,
+            Some(UniverseEntry::Occupied(v)) => Some(v),
+            _ => None,
         }
     }
     pub fn get_mut(&mut self, id: I) -> Option<&mut T> {
         match self.data.get_mut(id.into_usize()) {
-            Some(v) => v.as_mut(),
-            None => None,
+            Some(UniverseEntry::Occupied(v)) => Some(v),
+            _ => None,
         }
     }
     pub fn get_two_distinct_mut(&mut self, id1: I, id2: I) -> (Option<&mut T>, Option<&mut T>) {
@@ -239,7 +273,7 @@ impl<I: UniverseIndex, T> Universe<I, T> {
         let idx2 = id2.into_usize();
 
         let (a, b) = get_two_distinct_mut(&mut self.data, idx1, idx2);
-        (a.as_mut(), b.as_mut())
+        (a.as_option_mut(), b.as_option_mut())
     }
     pub fn two_distinct_mut(&mut self, id1: I, id2: I) -> (&mut T, &mut T) {
         let (a, b) = self.get_two_distinct_mut(id1, id2);
@@ -253,7 +287,7 @@ impl<I: UniverseIndex, T: Default> Universe<I, T> {
         self.claim_with(Default::default)
     }
     pub fn reserve_id(&mut self, id: I) {
-        self.reserve_id_with(id, Default::default, Default::default);
+        self.reserve_id_with(id, Default::default);
     }
 }
 
@@ -261,13 +295,19 @@ impl<I: UniverseIndex, T> Index<I> for Universe<I, T> {
     type Output = T;
     #[inline]
     fn index(&self, index: I) -> &Self::Output {
-        self.data[index.into_usize()].as_ref().unwrap()
+        match &self.data[index.into_usize()] {
+            UniverseEntry::Occupied(v) => v,
+            UniverseEntry::Vacant(_) => panic!("index out of bounds"),
+        }
     }
 }
 
 impl<I: UniverseIndex, T> IndexMut<I> for Universe<I, T> {
     #[inline]
     fn index_mut(&mut self, index: I) -> &mut Self::Output {
-        self.data[index.into_usize()].as_mut().unwrap()
+        match &mut self.data[index.into_usize()] {
+            UniverseEntry::Occupied(v) => v,
+            UniverseEntry::Vacant(_) => panic!("index out of bounds"),
+        }
     }
 }
