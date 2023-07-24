@@ -3,6 +3,8 @@ use std::{
     ops::{Deref, Index, IndexMut},
 };
 
+use nonmax::{NonMaxU32, NonMaxUsize};
+
 use super::get_two_distinct_mut;
 //TODO: create a Vec using this Index type but without the whole reclaiming mechainic
 
@@ -10,31 +12,68 @@ pub trait UniverseIndex:
     Clone
     + Copy
     + Default
-    + TryFrom<usize, Error = Self::TryFromErrorType>
-    + Into<usize>
+    + UniverseIndexFromUsize
+    + UniverseIndexIntoUsize
     + PartialEq
     + Eq
     + PartialOrd
     + Ord
 {
-    type TryFromErrorType: Debug;
 }
-impl<I, ET: Debug> UniverseIndex for I
-where
-    I: Clone + Copy + Default + TryFrom<usize, Error = ET> + Into<usize> + Ord,
+
+impl<I> UniverseIndex for I where
+    I: Clone + Copy + Default + UniverseIndexFromUsize + UniverseIndexIntoUsize + Ord
 {
-    type TryFromErrorType = ET;
+}
+
+pub trait UniverseIndexIntoUsize {
+    fn into_usize(self) -> usize;
+}
+pub trait UniverseIndexFromUsize: Sized {
+    fn from_usize(v: usize) -> Self;
+}
+
+impl UniverseIndexIntoUsize for NonMaxU32 {
+    fn into_usize(self) -> usize {
+        self.get() as usize
+    }
+}
+impl UniverseIndexFromUsize for NonMaxU32 {
+    fn from_usize(v: usize) -> Self {
+        NonMaxU32::new(v as u32).unwrap()
+    }
+}
+impl UniverseIndexIntoUsize for NonMaxUsize {
+    fn into_usize(self) -> usize {
+        self.get() as usize
+    }
+}
+impl UniverseIndexFromUsize for NonMaxUsize {
+    fn from_usize(v: usize) -> Self {
+        NonMaxUsize::new(v).unwrap()
+    }
+}
+impl UniverseIndexIntoUsize for usize {
+    fn into_usize(self) -> usize {
+        self
+    }
+}
+impl UniverseIndexFromUsize for usize {
+    fn from_usize(v: usize) -> Self {
+        v
+    }
 }
 
 #[derive(Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
 struct UniverseIdx<I: UniverseIndex>(I);
-
 impl<I: UniverseIndex> UniverseIdx<I> {
-    fn from_usize(val: usize) -> Self {
-        UniverseIdx(<I as TryFrom<usize>>::try_from(val).unwrap())
+    #[inline]
+    fn from_usize(v: usize) -> Self {
+        UniverseIdx(I::from_usize(v))
     }
+    #[inline]
     fn to_usize(self) -> usize {
-        self.0.into()
+        self.0.into_usize()
     }
 }
 
@@ -184,20 +223,20 @@ impl<I: UniverseIndex, T> Universe<I, T> {
         *UniverseIdx::from_usize(unsafe { ptr.offset_from(range.start) } as usize)
     }
     pub fn get(&self, id: I) -> Option<&T> {
-        match self.data.get(usize::try_from(id).unwrap()) {
+        match self.data.get(id.into_usize()) {
             Some(v) => v.as_ref(),
             None => None,
         }
     }
     pub fn get_mut(&mut self, id: I) -> Option<&mut T> {
-        match self.data.get_mut(usize::try_from(id).unwrap()) {
+        match self.data.get_mut(id.into_usize()) {
             Some(v) => v.as_mut(),
             None => None,
         }
     }
     pub fn get_two_distinct_mut(&mut self, id1: I, id2: I) -> (Option<&mut T>, Option<&mut T>) {
-        let idx1 = usize::try_from(id1).unwrap();
-        let idx2 = usize::try_from(id2).unwrap();
+        let idx1 = id1.into_usize();
+        let idx2 = id2.into_usize();
 
         let (a, b) = get_two_distinct_mut(&mut self.data, idx1, idx2);
         (a.as_mut(), b.as_mut())
@@ -220,14 +259,15 @@ impl<I: UniverseIndex, T: Default> Universe<I, T> {
 
 impl<I: UniverseIndex, T> Index<I> for Universe<I, T> {
     type Output = T;
-
+    #[inline]
     fn index(&self, index: I) -> &Self::Output {
-        self.data[index.into()].as_ref().unwrap()
+        self.data[index.into_usize()].as_ref().unwrap()
     }
 }
 
 impl<I: UniverseIndex, T> IndexMut<I> for Universe<I, T> {
+    #[inline]
     fn index_mut(&mut self, index: I) -> &mut Self::Output {
-        self.data[index.into()].as_mut().unwrap()
+        self.data[index.into_usize()].as_mut().unwrap()
     }
 }

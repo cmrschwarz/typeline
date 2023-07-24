@@ -1,6 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use bstr::ByteSlice;
+use smallvec::SmallVec;
 
 use crate::{
     chain::{ChainId, INVALID_CHAIN_ID},
@@ -29,6 +30,10 @@ pub struct TfCallConcurrent {
     pub expanded: bool,
     pub target: ChainId,
     pub target_fields: Vec<(FieldId, RecordBufferFieldId)>,
+    pub buffer: Arc<RecordBuffer>,
+}
+pub struct TfCalleeConcurrent {
+    pub target_fields: SmallVec<[(RecordBufferFieldId, FieldId); 1]>,
     pub buffer: Arc<RecordBuffer>,
 }
 

@@ -4,7 +4,7 @@ use std::{
     sync::Arc,
 };
 
-use nonmax::NonMaxUsize;
+use nonmax::{NonMaxU32, NonMaxUsize};
 use smallvec::SmallVec;
 
 use crate::{
@@ -72,8 +72,8 @@ pub struct Field {
     pub field_data: IterHall,
 }
 
-pub type FieldId = NonMaxUsize;
-pub const INVALID_FIELD_ID: FieldId = unsafe { NonMaxUsize::new_unchecked(usize::MAX - 1) };
+pub type FieldId = NonMaxU32;
+pub const INVALID_FIELD_ID: FieldId = unsafe { FieldId::new_unchecked(u32::MAX - 1) };
 
 pub type MatchSetId = NonMaxUsize;
 

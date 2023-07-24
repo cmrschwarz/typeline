@@ -579,7 +579,7 @@ struct RegexBatchState<'a> {
     non_mandatory: bool,
     next_start: usize,
     capture_group_fields: &'a Vec<Option<FieldId>>,
-    fields: &'a Universe<NonMaxUsize, RefCell<Field>>,
+    fields: &'a Universe<FieldId, RefCell<Field>>,
 }
 
 struct RegexMatchInnerState<'a, 'b> {

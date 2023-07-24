@@ -9,7 +9,7 @@ pub struct RecordBufferData {
     fields: Vec<FieldData>,
 }
 
-pub type RecordBufferFieldId = usize;
+pub type RecordBufferFieldId = u32;
 
 #[derive(Default)]
 pub struct RecordBuffer {
