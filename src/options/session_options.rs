@@ -127,14 +127,14 @@ impl SessionOptions {
         let mut new_chain = ChainOptions::default();
         new_chain.parent = curr_chain.parent;
         new_chain.label = Some(self.string_store.intern_moved(label));
-        let op_base = OperatorBaseOptions::new(
+        /*   let op_base = OperatorBaseOptions::new(
             self.string_store.intern_cloned("jump"),
             None,
             false,
             false,
             None,
         );
-        self.add_op(op_base, create_op_call_eager(new_chain_id));
+        self.add_op(op_base, create_op_call_eager(new_chain_id));*/
         self.curr_chain = new_chain_id;
         self.chains.push(new_chain);
     }

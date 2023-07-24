@@ -85,6 +85,7 @@ impl WorkerThread {
                     let sess;
                     sess_mgr.waiting_venture_participants += 1;
                     if sess_mgr.waiting_venture_participants == participants_needed {
+                        sess_mgr.waiting_venture_participants = 0;
                         sess_mgr.venture_queue.pop_front();
                         sess_mgr.venture_id_counter = sess_mgr.venture_id_counter.wrapping_add(1);
                         sess = sess_mgr.session.clone();

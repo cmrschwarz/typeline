@@ -198,9 +198,10 @@ pub(crate) fn handle_call_concurrent_expansion(
     };
     call.expanded = true;
     setup_target_field_mappings(&mut sess.job_data, tf_id, call);
+    let starting_op = sess.job_data.session_data.chains[call.target_chain as usize].operators[0];
     let mut venture_desc = VentureDescription {
         participans_needed: 2,
-        starting_points: smallvec::smallvec![call.target_chain],
+        starting_points: smallvec::smallvec![OperatorId::MAX, starting_op],
         buffer: call.buffer.clone(),
     };
     let ctx = ctx.unwrap();
@@ -216,6 +217,7 @@ pub(crate) fn handle_call_concurrent_expansion(
         return Err(venture_desc);
     }
     venture_desc.participans_needed -= 1;
+    venture_desc.starting_points.swap_remove(0);
     sess.submit_venture(venture_desc, None, ctx);
     return Ok(());
 }
@@ -227,7 +229,6 @@ pub fn handle_tf_call_concurrent(
 ) {
     let (batch_size, input_done) = sess.tf_mgr.claim_all(tf_id);
     let tf = &sess.tf_mgr.transforms[tf_id];
-    debug_assert!(tf.successor.is_none());
     let cb = &mut sess.match_set_mgr.match_sets[tf.match_set_id].command_buffer;
     cb.begin_action_list(tfc.apf_idx);
     cb.push_action_with_usize_rl(tfc.apf_idx, FieldActionKind::Drop, 0, batch_size);
@@ -273,6 +274,7 @@ pub fn handle_tf_call_concurrent(
     buf_data.input_done = input_done;
     buf_data.available_batch_size += batch_size;
     drop(buf_data);
+    tfc.buffer.updates.notify_one();
     for mapping in &tfc.field_mappings {
         let mut src_field = sess.field_mgr.fields[mapping.source_field_id].borrow_mut();
         if src_field.cow_source.is_some() || src_field.has_unconsumed_input.get() {
@@ -334,15 +336,13 @@ pub fn handle_tf_callee_concurrent(
     tf_id: TransformId,
     tfc: &mut TfCalleeConcurrent,
 ) {
-    let tf = &sess.tf_mgr.transforms[tf_id];
-    debug_assert!(tf.successor.is_none());
     let mut buf_data = tfc.buffer.fields.lock().unwrap();
-    let available_batch_size = buf_data.available_batch_size;
     let input_done = buf_data.input_done;
-    buf_data.available_batch_size = 0;
     while buf_data.available_batch_size == 0 {
         buf_data = tfc.buffer.updates.wait(buf_data).unwrap();
     }
+    let available_batch_size = buf_data.available_batch_size;
+    buf_data.available_batch_size = 0;
     let mut any_fields_done = false;
     for (i, field) in tfc.target_fields.iter_mut().enumerate() {
         if *field == INVALID_FIELD_ID {
@@ -357,6 +357,7 @@ pub fn handle_tf_callee_concurrent(
         }
     }
     drop(buf_data);
+    tfc.buffer.updates.notify_one();
     if any_fields_done {
         for field in tfc.target_fields.iter_mut() {
             if *field == INVALID_FIELD_ID {
