@@ -6,10 +6,22 @@ use crate::{
 };
 
 use super::{
-    call::TfCall, call_concurrent::TfCallConcurrent, cast::TfCast, count::TfCount,
-    file_reader::TfFileReader, fork::TfFork, format::TfFormat, join::TfJoin, literal::TfLiteral,
-    operator::OperatorId, print::TfPrint, regex::TfRegex, select::TfSelect, sequence::TfSequence,
-    string_sink::TfStringSink, terminator::TfTerminator,
+    call::TfCall,
+    call_concurrent::{TfCallConcurrent, TfCalleeConcurrent},
+    cast::TfCast,
+    count::TfCount,
+    file_reader::TfFileReader,
+    fork::TfFork,
+    format::TfFormat,
+    join::TfJoin,
+    literal::TfLiteral,
+    operator::OperatorId,
+    print::TfPrint,
+    regex::TfRegex,
+    select::TfSelect,
+    sequence::TfSequence,
+    string_sink::TfStringSink,
+    terminator::TfTerminator,
 };
 
 pub type TransformId = NonMaxUsize;
@@ -20,6 +32,7 @@ pub enum TransformData<'a> {
     Disabled,
     Call(TfCall),
     CallConcurrent(TfCallConcurrent),
+    CalleeConcurrent(TfCalleeConcurrent),
     Cast(TfCast),
     Count(TfCount),
     Print(TfPrint),

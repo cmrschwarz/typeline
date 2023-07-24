@@ -19,7 +19,8 @@ use crate::{
     operators::{
         call::{handle_eager_call_expansion, handle_lazy_call_expansion, setup_tf_call},
         call_concurrent::{
-            handle_call_concurrent_expansion, handle_tf_call_concurrent, setup_tf_call_concurrent,
+            handle_call_concurrent_expansion, handle_tf_call_concurrent,
+            handle_tf_callee_concurrent, setup_callee_concurrent, setup_tf_call_concurrent,
         },
         cast::{handle_tf_cast, setup_tf_cast},
         count::{handle_tf_count, setup_tf_count},
@@ -630,6 +631,32 @@ impl<'a> JobData<'a> {
 }
 
 impl<'a> JobSession<'a> {
+    pub fn log_state(&self, message: &str) {
+        if cfg!(feature = "debug_logging") {
+            println!("{message}");
+            for (i, tf) in self.job_data.tf_mgr.transforms.iter_enumerated() {
+                let name = if let Some(op_id) = tf.op_id {
+                    self.job_data.session_data.operator_data[op_id as usize].default_op_name()
+                } else {
+                    "<unknown>".into()
+                };
+                println!("tf {} (ord id {}): {}", i, tf.ordering_id, name);
+            }
+            #[cfg(feature = "debug_logging")]
+            for (i, f) in self.job_data.field_mgr.fields.iter_enumerated() {
+                let field = f.borrow();
+                print!(
+                    "field {} (output of tf {:?}): [ ",
+                    i, field.producing_transform
+                );
+                for n in &field.names {
+                    let name = self.job_data.session_data.string_store.lookup(*n);
+                    print!("{name} ")
+                }
+                println!("]");
+            }
+        }
+    }
     pub fn setup_job(&mut self, mut job: Job) {
         self.job_data.match_set_mgr.match_sets.clear();
         self.job_data.field_mgr.fields.clear();
@@ -685,45 +712,36 @@ impl<'a> JobSession<'a> {
         for input_field_id in input_data_fields.iter() {
             self.job_data.drop_field_refcount(*input_field_id);
         }
-        #[cfg(feature = "debug_logging")]
-        {
-            for (i, tf) in self.job_data.tf_mgr.transforms.iter_enumerated() {
-                let name = if let Some(op_id) = tf.op_id {
-                    self.job_data.session_data.operator_data[op_id as usize].default_op_name()
-                } else {
-                    "<unknown>".into()
-                };
-                println!("tf {} (ord id {}): {}", i, tf.ordering_id, name);
-            }
-            for (i, f) in self.job_data.field_mgr.fields.iter_enumerated() {
-                let field = f.borrow();
-                print!(
-                    "field {} (output of tf {:?}): [ ",
-                    i, field.producing_transform
-                );
-                for n in &field.names {
-                    let name = self.job_data.session_data.string_store.lookup(*n);
-                    print!("{name} ")
-                }
-                println!("]");
-            }
-        }
         self.temp_vec.store(input_data_fields);
+        self.log_state("setting up job");
     }
     pub(crate) fn setup_venture(
         &mut self,
-        _ctx: Option<&ContextData>,
-        _buffer: Arc<RecordBuffer>,
-        _start_op_id: OperatorId,
+        _ctx: Option<&Arc<ContextData>>,
+        buffer: Arc<RecordBuffer>,
+        start_op_id: OperatorId,
     ) {
-        todo!();
+        self.job_data.match_set_mgr.match_sets.clear();
+        self.job_data.field_mgr.fields.clear();
+        self.job_data.tf_mgr.ready_queue.clear();
+        let ms_id = self.job_data.match_set_mgr.add_match_set();
+
+        let (start_tf_id, end_tf_id) = setup_callee_concurrent(self, ms_id, buffer, start_op_id);
+        self.add_terminator(end_tf_id);
+        self.job_data.tf_mgr.push_tf_in_ready_queue(start_tf_id);
+        self.log_state("setting up venture");
     }
+
     pub fn remove_transform(&mut self, tf_id: TransformId) {
         let tf = &self.job_data.tf_mgr.transforms[tf_id];
         let tfif = tf.input_field;
         let tfof = tf.output_field;
-        self.job_data.drop_field_refcount(tfif);
-        self.job_data.drop_field_refcount(tfof);
+        if tfif != INVALID_FIELD_ID {
+            self.job_data.drop_field_refcount(tfif);
+        }
+        if tfof != INVALID_FIELD_ID {
+            self.job_data.drop_field_refcount(tfof);
+        }
         #[cfg(feature = "debug_logging")]
         {
             let tf = &self.job_data.tf_mgr.transforms[tf_id];
@@ -919,7 +937,7 @@ impl<'a> JobSession<'a> {
         let input_field = pred.output_field;
         let mut tf_state = TransformState::new(
             input_field,
-            input_field,
+            INVALID_FIELD_ID,
             pred.match_set_id,
             pred.desired_batch_size,
             Some(predecessor_tf_id),
@@ -930,7 +948,7 @@ impl<'a> JobSession<'a> {
         let tf_data = setup_tf_terminator(&mut self.job_data, &mut tf_state);
         self.job_data.field_mgr.fields[input_field]
             .borrow_mut()
-            .ref_count += 2;
+            .ref_count += 1;
         self.add_transform(tf_state, tf_data);
     }
     pub fn add_transform(&mut self, state: TransformState, data: TransformData<'a>) -> TransformId {
@@ -992,12 +1010,13 @@ impl<'a> JobSession<'a> {
             TransformData::Sequence(_) => unreachable!(),
             TransformData::Disabled => unreachable!(),
             TransformData::Literal(_) => unreachable!(),
+            TransformData::CalleeConcurrent(_) => unreachable!(),
         }
     }
     fn handle_transform(
         &mut self,
         tf_id: TransformId,
-        ctx: Option<&ContextData>,
+        ctx: Option<&Arc<ContextData>>,
     ) -> Result<(), VentureDescription> {
         match &mut self.transform_data[usize::from(tf_id)] {
             TransformData::Fork(fork) if !fork.expanded => handle_fork_expansion(self, tf_id, ctx)?,
@@ -1023,6 +1042,7 @@ impl<'a> JobSession<'a> {
             TransformData::Count(tf) => handle_tf_count(jd, tf_id, tf),
             TransformData::Cast(tf) => handle_tf_cast(jd, tf_id, tf),
             TransformData::CallConcurrent(tf) => handle_tf_call_concurrent(jd, tf_id, tf),
+            TransformData::CalleeConcurrent(tf) => handle_tf_callee_concurrent(jd, tf_id, tf),
             TransformData::Call(_) => (),
             TransformData::Disabled => unreachable!(),
         }
@@ -1033,7 +1053,7 @@ impl<'a> JobSession<'a> {
         }
         Ok(())
     }
-    pub(crate) fn run(&mut self, ctx: Option<&ContextData>) -> Result<(), VentureDescription> {
+    pub(crate) fn run(&mut self, ctx: Option<&Arc<ContextData>>) -> Result<(), VentureDescription> {
         loop {
             if let Some(svu) = self.job_data.sv_mgr.updates.pop_back() {
                 self.handle_stream_value_update(svu);

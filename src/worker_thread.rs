@@ -26,11 +26,11 @@ impl WorkerThread {
             match js.run(Some(&self.ctx_data)) {
                 Ok(_) => (),
                 Err(venture_desc) => {
-                    self.ctx_data
-                        .sess_mgr
-                        .lock()
-                        .unwrap()
-                        .submit_venture(venture_desc, starting_job_session);
+                    self.ctx_data.sess_mgr.lock().unwrap().submit_venture(
+                        venture_desc,
+                        starting_job_session,
+                        &self.ctx_data,
+                    );
                 }
             }
         }
@@ -43,11 +43,11 @@ impl WorkerThread {
         match js.run(Some(&self.ctx_data)) {
             Ok(_) => (),
             Err(venture_desc) => {
-                self.ctx_data
-                    .sess_mgr
-                    .lock()
-                    .unwrap()
-                    .submit_venture(venture_desc, Some(Box::new(js)));
+                self.ctx_data.sess_mgr.lock().unwrap().submit_venture(
+                    venture_desc,
+                    Some(Box::new(js)),
+                    &self.ctx_data,
+                );
             }
         }
     }
@@ -62,11 +62,11 @@ impl WorkerThread {
         match js.run(Some(&self.ctx_data)) {
             Ok(_) => (),
             Err(venture_desc) => {
-                self.ctx_data
-                    .sess_mgr
-                    .lock()
-                    .unwrap()
-                    .submit_venture(venture_desc, Some(Box::new(js)));
+                self.ctx_data.sess_mgr.lock().unwrap().submit_venture(
+                    venture_desc,
+                    Some(Box::new(js)),
+                    &self.ctx_data,
+                );
             }
         }
     }
@@ -93,12 +93,12 @@ impl WorkerThread {
                     } else {
                         let counter = sess_mgr.venture_id_counter;
                         loop {
-                            sess_mgr = self.ctx_data.work_available.wait(sess_mgr).unwrap();
                             if counter != sess_mgr.venture_id_counter {
                                 sess = sess_mgr.session.clone();
                                 drop(sess_mgr);
                                 break;
                             }
+                            sess_mgr = self.ctx_data.work_available.wait(sess_mgr).unwrap();
                         }
                     }
                     self.run_venture(&sess, start_op_id, buffer, job_sess);

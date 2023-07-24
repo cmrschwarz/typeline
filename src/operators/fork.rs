@@ -1,4 +1,7 @@
-use std::collections::{hash_map::Entry, HashMap};
+use std::{
+    collections::{hash_map::Entry, HashMap},
+    sync::Arc,
+};
 
 use crate::{
     chain::DEFAULT_INPUT_FIELD,
@@ -157,7 +160,7 @@ pub fn handle_tf_fork(sess: &mut JobData, tf_id: TransformId, sp: &mut TfFork) {
 pub(crate) fn handle_fork_expansion(
     sess: &mut JobSession,
     tf_id: TransformId,
-    _ctx: Option<&ContextData>,
+    _ctx: Option<&Arc<ContextData>>,
 ) -> Result<(), VentureDescription> {
     // we have to temporarily move the targets out of fork so we can modify
     // sess while accessing them

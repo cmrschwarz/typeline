@@ -1015,23 +1015,19 @@ fn error_formatting(#[case] fmt_string: &str, #[case] result: &str) -> Result<()
     Ok(())
 }
 
-#[test]
-fn stream_error_formatting() -> Result<(), ScrError> {
-    let pairs = [
-        ("{:?}", "!\"ERROR: in op id 0: A\""),
-        ("{:??}", "~!\"ERROR: in op id 0: A\""),
-        ("{:#?}", "!\"A\""),
-        ("{:#??}", "~!\"A\""),
-    ];
-    for (fmt, res) in pairs {
-        let ss = StringSinkHandle::new();
-        ContextBuilder::default()
-            .add_op(create_op_stream_error("A", 1))
-            .add_op(create_op_format(fmt.as_bytes()).unwrap())
-            .add_op(create_op_string_sink(&ss))
-            .run()?;
-        assert_eq!(ss.get().data.as_slice(), [res]);
-    }
+#[rstest]
+#[case("{:?}", "!\"ERROR: in op id 0: A\"")]
+#[case("{:??}", "~!\"ERROR: in op id 0: A\"")]
+#[case("{:#?}", "!\"A\"")]
+#[case("{:#??}", "~!\"A\"")]
+fn stream_error_formatting(#[case] fmt_string: &str, #[case] result: &str) -> Result<(), ScrError> {
+    let ss = StringSinkHandle::new();
+    ContextBuilder::default()
+        .add_op(create_op_stream_error("A", 1))
+        .add_op(create_op_format(fmt_string.as_bytes()).unwrap())
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(ss.get().data.as_slice(), [result]);
     Ok(())
 }
 

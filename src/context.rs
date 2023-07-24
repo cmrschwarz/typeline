@@ -104,6 +104,7 @@ impl SessionManager {
         &mut self,
         desc: VentureDescription,
         starting_job_session: Option<Box<JobSession<'a>>>,
+        ctx_data: &Arc<ContextData>,
     ) {
         // SAFETY: this assert ensures that we ourselves hold an Arc<Session> for the
         // Session that causes the lifetime restriction on this JobSession
@@ -115,6 +116,8 @@ impl SessionManager {
             .unwrap_or(true));
         let id = self.venture_id_counter;
         self.venture_id_counter = id.wrapping_add(1);
+        let spawnable_thread_count = self.session.settings.max_threads - self.total_worker_threads;
+        let threads_needed = desc.participans_needed.min(spawnable_thread_count);
         self.venture_queue.push_back(Venture {
             description: desc,
             venture_id: id,
@@ -123,6 +126,9 @@ impl SessionManager {
                 std::mem::transmute::<Option<Box<JobSession<'a>>>, Option<Box<JobSession<'static>>>> (starting_job_session)
             },
         });
+        for _ in 0..threads_needed {
+            self.add_worker_thread(ctx_data)
+        }
     }
     pub fn set_session(&mut self, sess: Arc<Session>) {
         assert!(self.job_queue.is_empty());
@@ -286,11 +292,8 @@ impl Drop for Context {
         let mut sess_mgr = ctx.sess_mgr.lock().unwrap();
         sess_mgr.terminate = true;
         ctx.work_available.notify_all();
-        loop {
+        while sess_mgr.waiting_worker_threads < sess_mgr.total_worker_threads {
             sess_mgr = ctx.worker_threads_finished.wait(sess_mgr).unwrap();
-            if sess_mgr.waiting_worker_threads == sess_mgr.total_worker_threads {
-                return;
-            }
         }
     }
 }

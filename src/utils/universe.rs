@@ -181,8 +181,17 @@ impl<I: UniverseIndex, T> Universe<I, T> {
             }
         })
     }
-    pub fn iter_enumerated(&mut self) -> impl Iterator<Item = (I, &T)> {
+    pub fn iter_enumerated(&self) -> impl Iterator<Item = (I, &T)> {
         self.data.iter().enumerate().filter_map(|(i, e)| {
+            if let UniverseEntry::Occupied(v) = e {
+                Some((UniverseIdx::from_usize(i).0, v))
+            } else {
+                None
+            }
+        })
+    }
+    pub fn iter_enumerated_mut(&mut self) -> impl Iterator<Item = (I, &mut T)> {
+        self.data.iter_mut().enumerate().filter_map(|(i, e)| {
             if let UniverseEntry::Occupied(v) = e {
                 Some((UniverseIdx::from_usize(i).0, v))
             } else {
