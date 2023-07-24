@@ -30,6 +30,7 @@ use super::{
 #[derive(Clone)]
 pub struct SessionOptions {
     pub max_threads: Argument<usize>,
+    pub any_threaded_operations: bool,
     pub repl: Argument<bool>,
     pub exit_repl: Argument<bool>,
     pub install_selenium_drivers: Vec<Argument<SeleniumVariant>>,
@@ -56,13 +57,14 @@ impl Default for SessionOptions {
             operator_data: Default::default(),
             string_store: Default::default(),
             cli_args: Default::default(),
+            any_threaded_operations: false,
         }
     }
 }
 
 lazy_static! {
     static ref DEFAULT_CONTEXT_OPTIONS: SessionOptions = SessionOptions {
-        max_threads: Argument::new_v(1),
+        max_threads: Argument::new_v(0),
         repl: Argument::new_v(false),
         exit_repl: Argument::new_v(false),
         install_selenium_drivers: Vec::new(),
@@ -73,6 +75,7 @@ lazy_static! {
         string_store: StringStore::default(),
         cli_args: None,
         curr_chain: 0,
+        any_threaded_operations: false,
     };
 }
 
@@ -85,7 +88,9 @@ impl SessionOptions {
         op_base_opts.chain_id = Some(self.curr_chain);
         match &op_data {
             OperatorData::Call(_) => (),
-            OperatorData::CallConcurrent(_) => (),
+            OperatorData::CallConcurrent(_) => {
+                self.any_threaded_operations = true;
+            }
             OperatorData::Print(_) => (),
             OperatorData::Count(_) => (),
             OperatorData::Cast(_) => (),
@@ -238,14 +243,19 @@ impl SessionOptions {
         })
     }
     pub fn build_session_raw(mut self) -> Result<Session, (SessionOptions, ScrError)> {
-        let mut max_threads = self
-            .max_threads
-            .value
-            .unwrap_or(DEFAULT_CONTEXT_OPTIONS.max_threads.unwrap());
-        if max_threads == 0 {
-            max_threads = std::thread::available_parallelism()
-                .unwrap_or(NonZeroUsize::new(1).unwrap())
-                .get();
+        let mut max_threads;
+        if !self.any_threaded_operations {
+            max_threads = 1;
+        } else {
+            max_threads = self
+                .max_threads
+                .value
+                .unwrap_or(DEFAULT_CONTEXT_OPTIONS.max_threads.unwrap());
+            if max_threads == 0 {
+                max_threads = std::thread::available_parallelism()
+                    .unwrap_or(NonZeroUsize::new(1).unwrap())
+                    .get();
+            }
         }
 
         let mut chains = Vec::with_capacity(self.chains.len());

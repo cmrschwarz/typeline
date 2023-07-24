@@ -9,7 +9,7 @@ Settings (call `scr h=SETTING` for details):
 
     bs=N                  Batch size
     sbs=N                 Stream buffer size
-    j=N                   Max thread count (default 1, use 0 for core count)
+    j=N                   Max thread count (defaults to cpu core count)
     lb=yes|no|..          Line Buffering Mode (see mode descriptions in `h=lb`)
 
     denc=ENCODING         Default text encoding (see encodings list in `h=enc`)
