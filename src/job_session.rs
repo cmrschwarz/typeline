@@ -689,9 +689,11 @@ impl<'a> JobSession<'a> {
             field_id
         });
 
-        let (start_tf_id, end_tf_id) =
+        let (start_tf_id, end_tf_id, end_reachable) =
             self.setup_transforms_from_op(ms_id, job.operator, input_data);
-        self.add_terminator(end_tf_id);
+        if end_reachable {
+            self.add_terminator(end_tf_id);
+        }
         let tf = &mut self.job_data.tf_mgr.transforms[start_tf_id];
         tf.input_is_done = true;
         if tf.is_appending {
@@ -726,8 +728,11 @@ impl<'a> JobSession<'a> {
         self.job_data.tf_mgr.ready_queue.clear();
         let ms_id = self.job_data.match_set_mgr.add_match_set();
 
-        let (start_tf_id, end_tf_id) = setup_callee_concurrent(self, ms_id, buffer, start_op_id);
-        self.add_terminator(end_tf_id);
+        let (start_tf_id, end_tf_id, end_reachable) =
+            setup_callee_concurrent(self, ms_id, buffer, start_op_id);
+        if end_reachable {
+            self.add_terminator(end_tf_id);
+        }
         self.job_data.tf_mgr.push_tf_in_ready_queue(start_tf_id);
         self.log_state("setting up venture");
     }
@@ -764,13 +769,14 @@ impl<'a> JobSession<'a> {
         ms_id: MatchSetId,
         start_op_id: OperatorId,
         chain_input_field_id: FieldId,
-    ) -> (TransformId, TransformId) {
+    ) -> (TransformId, TransformId, bool) {
         let mut start_tf_id = None;
         let start_op = &self.job_data.session_data.operator_bases[start_op_id as usize];
         let default_batch_size = self.job_data.session_data.chains[start_op.chain_id as usize]
             .settings
             .default_batch_size;
         let mut prev_tf = None;
+        let mut end_reachable = true;
         let mut predecessor_tf = None;
         let mut next_input_field = chain_input_field_id;
         let mut prev_output_field = chain_input_field_id;
@@ -784,9 +790,9 @@ impl<'a> JobSession<'a> {
             match op_data {
                 OperatorData::Call(op) => {
                     if !op.lazy {
-                        let (start_exp, end_exp) =
+                        let (start_exp, end_exp, end_reachable) =
                             handle_eager_call_expansion(self, *op_id, ms_id, next_input_field);
-                        return (start_tf_id.unwrap_or(start_exp), end_exp);
+                        return (start_tf_id.unwrap_or(start_exp), end_exp, end_reachable);
                     }
                 }
                 OperatorData::Key(op) => {
@@ -891,6 +897,7 @@ impl<'a> JobSession<'a> {
                 OperatorData::Select(op) => setup_tf_select(jd, b, op, &mut tf_state),
                 OperatorData::Call(op) => setup_tf_call(jd, b, op, &mut tf_state),
                 OperatorData::CallConcurrent(op) => {
+                    end_reachable = false;
                     setup_tf_call_concurrent(jd, b, op, &mut tf_state)
                 }
                 OperatorData::Key(_) => unreachable!(),
@@ -928,7 +935,7 @@ impl<'a> JobSession<'a> {
         }
         let start = start_tf_id.unwrap();
         let end = predecessor_tf.unwrap_or(start);
-        (start, end)
+        (start, end, end_reachable)
     }
     pub fn add_terminator(&mut self, predecessor_tf_id: TransformId) {
         let ordering_id = self.job_data.tf_mgr.claim_transform_ordering_id();

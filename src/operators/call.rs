@@ -76,7 +76,7 @@ pub fn create_op_call(name: String) -> OperatorData {
     })
 }
 
-pub(crate) fn create_op_call_eager(target: ChainId) -> OperatorData {
+pub fn create_op_call_eager(target: ChainId) -> OperatorData {
     OperatorData::Call(OpCall {
         lazy: false,
         target_name: String::new(),
@@ -99,7 +99,7 @@ pub(crate) fn handle_eager_call_expansion<'a>(
     op_id: OperatorId,
     ms_id: MatchSetId,
     input_field: FieldId,
-) -> (TransformId, TransformId) {
+) -> (TransformId, TransformId, bool) {
     if let OperatorData::Call(op) = &sess.job_data.session_data.operator_data[op_id as usize] {
         let chain = &sess.job_data.session_data.chains[op.target_resolved as usize];
         sess.setup_transforms_from_op(ms_id, chain.operators[0], input_field)
@@ -117,7 +117,7 @@ pub(crate) fn handle_lazy_call_expansion<'a>(sess: &mut JobSession, tf_id: Trans
     } else {
         unreachable!()
     };
-    let (target_tf, _end_tf) = sess.setup_transforms_from_op(
+    let (target_tf, _end_tf, _end_reachable) = sess.setup_transforms_from_op(
         ms_id,
         sess.job_data.session_data.chains[call.target as usize].operators[0],
         input_field,

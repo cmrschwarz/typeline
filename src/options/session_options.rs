@@ -6,7 +6,7 @@ use crate::{
     chain::{compute_field_livenses, Chain, ChainId, INVALID_CHAIN_ID},
     context::{Session, SessionSettings},
     operators::{
-        call::{create_op_call_eager, setup_op_call},
+        call::setup_op_call,
         call_concurrent::setup_op_call_concurrent,
         errors::OperatorSetupError,
         file_reader::setup_op_file_reader,

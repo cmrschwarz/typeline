@@ -1182,11 +1182,12 @@ fn basic_callcc() -> Result<(), ScrError> {
     let ss = StringSinkHandle::new();
     ContextBuilder::default()
         .set_max_thread_count(2)
-        .add_op(create_op_seqn(1, 3, 1).unwrap())
+        .set_batch_size(2)
+        .add_op(create_op_seqn(1, 4, 1).unwrap())
         .add_op(create_op_callcc("foo".to_string()))
         .add_label("foo".to_string())
         .add_op(create_op_string_sink(&ss))
         .run()?;
-    assert_eq!(ss.get().data.as_slice(), ["1", "2", "3"]);
+    assert_eq!(ss.get().data.as_slice(), ["1", "2", "3", "4"]);
     Ok(())
 }

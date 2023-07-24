@@ -229,6 +229,7 @@ pub fn handle_tf_call_concurrent(
 ) {
     let (batch_size, input_done) = sess.tf_mgr.claim_all(tf_id);
     let tf = &sess.tf_mgr.transforms[tf_id];
+    assert!(tf.successor.is_none());
     let cb = &mut sess.match_set_mgr.match_sets[tf.match_set_id].command_buffer;
     cb.begin_action_list(tfc.apf_idx);
     cb.push_action_with_usize_rl(tfc.apf_idx, FieldActionKind::Drop, 0, batch_size);
@@ -295,7 +296,7 @@ pub fn setup_callee_concurrent(
     ms_id: MatchSetId,
     buffer: Arc<RecordBuffer>,
     start_op_id: OperatorId,
-) -> (TransformId, TransformId) {
+) -> (TransformId, TransformId, bool) {
     let chain_id = sess.job_data.session_data.operator_bases[start_op_id as usize].chain_id;
     let chain = &sess.job_data.session_data.chains[chain_id as usize];
     let tf_state = TransformState::new(
@@ -322,13 +323,13 @@ pub fn setup_callee_concurrent(
         callee.target_fields.push(field_id);
     }
     drop(buf_data);
-    let (tf_start, tf_end) =
+    let (tf_start, tf_end, end_reachable) =
         sess.setup_transforms_from_op(ms_id, start_op_id, callee.target_fields[0]);
 
     let tf_id = sess.add_transform(tf_state, TransformData::CalleeConcurrent(callee));
     sess.job_data.tf_mgr.transforms[tf_id].successor = Some(tf_start);
     sess.job_data.tf_mgr.transforms[tf_start].predecessor = Some(tf_id);
-    (tf_id, tf_end)
+    (tf_id, tf_end, end_reachable)
 }
 
 pub fn handle_tf_callee_concurrent(
@@ -336,11 +337,21 @@ pub fn handle_tf_callee_concurrent(
     tf_id: TransformId,
     tfc: &mut TfCalleeConcurrent,
 ) {
+    let cb = &mut sess.match_set_mgr.match_sets[sess.tf_mgr.transforms[tf_id].match_set_id]
+        .command_buffer;
+    for field_id in tfc.target_fields.iter_mut() {
+        if *field_id == INVALID_FIELD_ID {
+            continue;
+        }
+        let mut field = sess.field_mgr.fields[*field_id].borrow_mut();
+        cb.drop_field_commands(*field_id, &mut field);
+        field.field_data.clear();
+    }
     let mut buf_data = tfc.buffer.fields.lock().unwrap();
-    let input_done = buf_data.input_done;
-    while buf_data.available_batch_size == 0 {
+    while buf_data.available_batch_size == 0 && !buf_data.input_done {
         buf_data = tfc.buffer.updates.wait(buf_data).unwrap();
     }
+    let input_done = buf_data.input_done;
     let available_batch_size = buf_data.available_batch_size;
     buf_data.available_batch_size = 0;
     let mut any_fields_done = false;
@@ -351,7 +362,7 @@ pub fn handle_tf_callee_concurrent(
         let mut field_tgt = sess.field_mgr.fields[*field].borrow_mut();
         let field_src = &mut buf_data.fields[RecordBufferFieldId::new(i as u32).unwrap()];
         std::mem::swap(&mut field_src.data, unsafe { field_tgt.field_data.raw() });
-        if input_done || field_src.refcount == 1 {
+        if input_done || field_tgt.ref_count == 1 {
             any_fields_done = true;
             field_src.refcount -= 1;
         }

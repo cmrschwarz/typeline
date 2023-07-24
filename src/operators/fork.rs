@@ -269,9 +269,11 @@ pub(crate) fn handle_fork_expansion(
         }
         target_match_set.field_name_map.remove(&DEFAULT_INPUT_FIELD);
         let start_op = sess.job_data.session_data.chains[subchain_id].operators[0];
-        let (start_tf, end_tf) =
+        let (start_tf, end_tf, end_reachable) =
             sess.setup_transforms_from_op(target_ms_id, start_op, chain_input_field_id);
-        sess.add_terminator(end_tf);
+        if end_reachable {
+            sess.add_terminator(end_tf);
+        }
         targets.push(start_tf);
     }
     if let TransformData::Fork(ref mut fork) = sess.transform_data[usize::from(tf_id)] {
