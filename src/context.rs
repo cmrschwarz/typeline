@@ -100,6 +100,10 @@ impl SessionManager {
         desc: VentureDescription,
         starting_job_session: Option<Box<JobSession<'a>>>,
     ) {
+        // SAFETY: this assert ensures that we ourselves hold an Arc<Session> for the
+        // Session that causes the lifetime restriction on this JobSession
+        // before we ourselves drop the Arc<Session>, we make sure that all ventures
+        // are dropped, see set_session
         assert!(starting_job_session
             .as_ref()
             .map(|js| std::ptr::eq(js.job_data.session_data, self.session.as_ref()))
@@ -109,7 +113,10 @@ impl SessionManager {
         self.venture_queue.push_back(Venture {
             description: desc,
             venture_id: id,
-            source_job_session: unsafe { std::mem::transmute(starting_job_session) },
+            // SAFETY: see comment above for why transmuting this livetime is justified
+            source_job_session: unsafe {
+                std::mem::transmute::<Option<Box<JobSession<'a>>>, Option<Box<JobSession<'static>>>> (starting_job_session)
+            },
         });
     }
     pub fn set_session(&mut self, sess: Arc<Session>) {
@@ -133,7 +140,7 @@ impl Context {
                 waiting_worker_threads: 0,
                 venture_queue: Default::default(),
                 job_queue: Default::default(),
-                session: unsafe { std::mem::transmute(session.as_ref()) },
+                session: session.clone(),
             }),
         });
         Self {
@@ -170,8 +177,7 @@ impl Context {
         &self.session
     }
     pub fn run_job(&mut self, job: Job) {
-        self.main_thread
-            .run_job(unsafe { std::mem::transmute(&self.session) }, job);
+        self.main_thread.run_job(&self.session, job);
         if self.session.max_threads > 1 {
             self.wait_for_worker_threads();
         }
