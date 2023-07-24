@@ -10,6 +10,7 @@ use smallvec::SmallVec;
 
 use crate::chain::ChainId;
 use crate::cli::parse_cli;
+use crate::field_data::record_buffer::RecordBuffer;
 use crate::field_data::record_set::RecordSet;
 use crate::job_session::{JobData, JobSession};
 use crate::operators::operator::OperatorId;
@@ -32,11 +33,13 @@ pub struct Job {
 pub struct VentureDescription {
     pub participans_needed: usize,
     pub starting_points: SmallVec<[OperatorId; 4]>,
+    pub buffer: Arc<RecordBuffer>,
 }
 
-pub struct Venture {
+pub struct Venture<'a> {
+    pub venture_id: usize,
     pub description: VentureDescription,
-    pub input_data: Option<Arc<RecordSet>>,
+    pub source_job_session: Option<Box<JobSession<'a>>>,
 }
 
 pub struct Session {
@@ -53,7 +56,7 @@ pub struct Session {
 pub(crate) struct SessionManager {
     pub session: Arc<Session>,
     pub job_queue: VecDeque<Job>,
-    pub venture_queue: VecDeque<Venture>,
+    pub venture_queue: VecDeque<Venture<'static>>,
     pub terminate: bool,
     pub waiting_worker_threads: usize,
     pub total_worker_threads: usize,
@@ -62,7 +65,7 @@ pub(crate) struct SessionManager {
     #[allow(dead_code)]
     pub waiting_venture_participants: usize,
     #[allow(dead_code)]
-    pub venture_counter: usize,
+    pub venture_id_counter: usize,
 }
 
 pub(crate) struct ContextData {
@@ -81,14 +84,39 @@ impl SessionManager {
     pub fn submit_job(&mut self, ctx_data: &Arc<ContextData>, job: Job) {
         self.job_queue.push_back(job);
         //TODO: better check
-
         if self.session.max_threads < self.total_worker_threads && self.waiting_worker_threads == 0
         {
-            let ctx_data = ctx_data.clone();
-            self.total_worker_threads += 1;
-            // this detaches the worker thread, which is fine for our usecase
-            std::thread::spawn(move || WorkerThread::new(ctx_data).run());
+            self.add_worker_thread(ctx_data)
         }
+    }
+    pub fn add_worker_thread(&mut self, ctx_data: &Arc<ContextData>) {
+        let ctx_data = ctx_data.clone();
+        self.total_worker_threads += 1;
+        // this detaches the worker thread, which is fine for our usecase
+        std::thread::spawn(move || WorkerThread::new(ctx_data).run());
+    }
+    pub fn submit_venture<'a>(
+        &mut self,
+        desc: VentureDescription,
+        starting_job_session: Option<Box<JobSession<'a>>>,
+    ) {
+        assert!(starting_job_session
+            .as_ref()
+            .map(|js| std::ptr::eq(js.job_data.session_data, self.session.as_ref()))
+            .unwrap_or(true));
+        let id = self.venture_id_counter;
+        self.venture_id_counter = id.wrapping_add(1);
+        self.venture_queue.push_back(Venture {
+            description: desc,
+            venture_id: id,
+            source_job_session: unsafe { std::mem::transmute(starting_job_session) },
+        });
+    }
+    pub fn set_session(&mut self, sess: Arc<Session>) {
+        assert!(self.job_queue.is_empty());
+        assert!(self.venture_queue.is_empty());
+        // SAFETY: the asserts above make sure that nobody is still refering to the old session
+        self.session = sess;
     }
 }
 
@@ -99,13 +127,13 @@ impl Context {
             worker_threads_finished: Condvar::new(),
             sess_mgr: Mutex::new(SessionManager {
                 terminate: false,
-                session: session.clone(),
                 total_worker_threads: 0,
-                venture_counter: 0,
+                venture_id_counter: 0,
                 waiting_venture_participants: 0,
                 waiting_worker_threads: 0,
                 venture_queue: Default::default(),
                 job_queue: Default::default(),
+                session: unsafe { std::mem::transmute(session.as_ref()) },
             }),
         });
         Self {
@@ -135,17 +163,15 @@ impl Context {
         // is using this right now. we could get rid of this using unsafe,
         // but it's probably not worth it
         let mut sess_mgr = self.main_thread.ctx_data.sess_mgr.lock().unwrap();
-        //for sanity, we check that nobody refers back to the old session
-        assert!(sess_mgr.job_queue.is_empty());
-        assert!(sess_mgr.venture_queue.is_empty());
-        sess_mgr.session = self.session.clone();
+        sess_mgr.set_session(new_sess.clone());
         self.session = new_sess;
     }
     pub fn get_session(&self) -> &Session {
         &self.session
     }
     pub fn run_job(&mut self, job: Job) {
-        self.main_thread.run_job(&self.session, job);
+        self.main_thread
+            .run_job(unsafe { std::mem::transmute(&self.session) }, job);
         if self.session.max_threads > 1 {
             self.wait_for_worker_threads();
         }
@@ -276,7 +302,8 @@ impl Session {
             job_data: JobData::new(&self),
             temp_vec: TempVec::default(),
         };
-        if let Err(_venture) = js.run_job(job, None) {
+        js.setup_job(job);
+        if let Err(_venture) = js.run(None) {
             unreachable!()
         }
     }

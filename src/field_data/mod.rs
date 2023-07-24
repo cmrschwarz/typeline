@@ -10,6 +10,7 @@ pub mod command_buffer;
 pub mod iter_hall;
 pub mod iters;
 pub mod push_interface;
+pub mod record_buffer;
 pub mod record_set;
 pub mod typed;
 pub mod typed_iters;

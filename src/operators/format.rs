@@ -183,6 +183,11 @@ pub struct TfFormat<'a> {
     output_targets: Vec<OutputTarget>,
     stream_value_handles: Universe<TfFormatStreamValueHandleId, TfFormatStreamValueHandle>,
 }
+// SAFETY:
+// while OutputTargets Pointer is not thread safe,
+// we make sure that output_states and output_targets is always empty
+// when handle_tf_format exits
+unsafe impl<'a> Send for TfFormat<'a> {}
 
 pub fn setup_op_format(
     string_store: &mut StringStore,

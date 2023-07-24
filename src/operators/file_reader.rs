@@ -1,7 +1,7 @@
 use std::{
     ffi::OsStr,
     fs::File,
-    io::{BufRead, BufReader, IsTerminal, Read, StdinLock},
+    io::{stdin, BufRead, BufReader, IsTerminal, Read},
     path::PathBuf,
     sync::Mutex,
 };
@@ -29,13 +29,13 @@ use super::{
 
 pub trait ReadSendCloneDyn: Read + Send {
     fn clone_dyn(&self) -> Box<dyn ReadSendCloneDyn>;
-    fn clone_as_read(&self) -> Box<dyn Read>;
+    fn clone_as_read_send(&self) -> Box<dyn Read + Send>;
 }
 impl<T: Read + Send + Clone + 'static> ReadSendCloneDyn for T {
     fn clone_dyn(&self) -> Box<dyn ReadSendCloneDyn> {
         Box::new(self.clone())
     }
-    fn clone_as_read(&self) -> Box<dyn Read> {
+    fn clone_as_read_send(&self) -> Box<dyn Read + Send> {
         Box::new(self.clone())
     }
 }
@@ -68,10 +68,10 @@ impl Clone for FileKind {
 }
 
 pub enum AnyFile {
-    Stdin(StdinLock<'static>),
+    Stdin, // we can't hold the lock here because that wouldn't be Send...
     File(File),
     BufferedFile(BufReader<File>),
-    Custom(Box<dyn Read>),
+    Custom(Box<dyn Read + Send>),
     //option so we can take it and raise it as an error later
     FileOpenIoError(Option<std::io::Error>),
 }
@@ -136,7 +136,7 @@ pub fn setup_tf_file_reader<'a>(
             if check_if_tty {
                 line_buffered = stdin.is_terminal();
             }
-            AnyFile::Stdin(stdin)
+            AnyFile::Stdin
         }
         FileKind::File(path) => match File::open(path) {
             Ok(f) => {
@@ -162,7 +162,7 @@ pub fn setup_tf_file_reader<'a>(
                 .unwrap()
                 .take()
                 .expect("attempted to create two transforms from a single custom FileKind");
-            let trait_casted_box: Box<dyn Read>;
+            let trait_casted_box: Box<dyn Read + Send>;
             #[cfg(feature = "trait_upcasting")]
             {
                 trait_casted_box = thebox;
@@ -170,7 +170,7 @@ pub fn setup_tf_file_reader<'a>(
             #[cfg(not(feature = "trait_upcasting"))]
             {
                 // this is sad
-                trait_casted_box = thebox.clone_as_read();
+                trait_casted_box = thebox.clone_as_read_send();
             }
             AnyFile::Custom(trait_casted_box)
         }
@@ -234,7 +234,7 @@ fn read_chunk(
 ) -> Result<(usize, bool), std::io::Error> {
     let (size, eof) = match file {
         AnyFile::BufferedFile(f) => read_mode_based(f, limit, target, line_buffered),
-        AnyFile::Stdin(f) => read_mode_based(f, limit, target, line_buffered),
+        AnyFile::Stdin => read_mode_based(&mut stdin().lock(), limit, target, line_buffered),
         AnyFile::File(f) => read_size_limited(f, limit, target),
         AnyFile::FileOpenIoError(e) => Err(e.take().unwrap()),
         AnyFile::Custom(r) => read_size_limited(r, limit, target),

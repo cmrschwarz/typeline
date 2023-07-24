@@ -152,7 +152,7 @@ fn regex_drop_uneven_into_format_twice(b: &mut test::Bencher) {
 
 #[bench]
 fn seq_into_regex_drop_unless_seven(b: &mut test::Bencher) {
-    const COUNT: usize = 100000;
+    const COUNT: usize = 10000;
     let res: Vec<&str> = int_sequence_strings(COUNT)
         .into_iter()
         .filter_map(|v| if v.contains("7") { Some("7") } else { None })

@@ -1,6 +1,7 @@
 use std::{
     cell::{Cell, Ref, RefCell, RefMut},
     collections::{BinaryHeap, HashMap, VecDeque},
+    sync::Arc,
 };
 
 use nonmax::NonMaxUsize;
@@ -12,7 +13,7 @@ use crate::{
         command_buffer::{ActionListIndex, ActionProducingFieldIndex, CommandBuffer},
         iter_hall::{IterHall, IterId},
         iters::{FieldIterator, Iter},
-        record_set::RecordSet,
+        record_buffer::RecordBuffer,
         FieldData,
     },
     operators::{
@@ -605,7 +606,7 @@ impl<'a> JobData<'a> {
 }
 
 impl<'a> JobSession<'a> {
-    fn setup_job(&mut self, mut job: Job) {
+    pub fn setup_job(&mut self, mut job: Job) {
         self.job_data.match_set_mgr.match_sets.clear();
         self.job_data.field_mgr.fields.clear();
         self.job_data.tf_mgr.ready_queue.clear();
@@ -685,7 +686,14 @@ impl<'a> JobSession<'a> {
         }
         self.temp_vec.store(input_data_fields);
     }
-
+    pub(crate) fn setup_venture(
+        &mut self,
+        _ctx: Option<&ContextData>,
+        _buffer: Arc<RecordBuffer>,
+        _start_op_id: OperatorId,
+    ) {
+        todo!();
+    }
     pub fn remove_transform(&mut self, tf_id: TransformId) {
         let tf = &self.job_data.tf_mgr.transforms[tf_id];
         let tfif = tf.input_field;
@@ -971,7 +979,7 @@ impl<'a> JobSession<'a> {
             TransformData::Fork(fork) if !fork.expanded => handle_fork_expansion(self, tf_id, ctx)?,
             TransformData::Call(_) => handle_lazy_call_expansion(self, tf_id),
             TransformData::CallConcurrent(callcc) if !callcc.expanded => {
-                handle_call_concurrent_expansion(self, tf_id)
+                handle_call_concurrent_expansion(self, tf_id, ctx)?
             }
             _ => (),
         }
@@ -1001,12 +1009,7 @@ impl<'a> JobSession<'a> {
         }
         Ok(())
     }
-    pub(crate) fn run_job(
-        &mut self,
-        job: Job,
-        ctx: Option<&ContextData>,
-    ) -> Result<(), VentureDescription> {
-        self.setup_job(job);
+    pub(crate) fn run(&mut self, ctx: Option<&ContextData>) -> Result<(), VentureDescription> {
         loop {
             if let Some(svu) = self.job_data.sv_mgr.updates.pop_back() {
                 self.handle_stream_value_update(svu);
@@ -1030,8 +1033,5 @@ impl<'a> JobSession<'a> {
             }
             return Ok(());
         }
-    }
-    pub fn into_record_set(self) -> RecordSet {
-        todo!()
     }
 }
