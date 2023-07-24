@@ -211,8 +211,7 @@ pub fn setup_tf_format<'a>(
         .iter()
         .map(|name| {
             let (field_id, mut f) = if let Some(name) = name {
-                let (id, mut f) = if let Some(id) = sess.match_set_mgr.match_sets
-                    [tf_state.match_set_id]
+                let (id, f) = if let Some(id) = sess.match_set_mgr.match_sets[tf_state.match_set_id]
                     .field_name_map
                     .get(name)
                     .cloned()

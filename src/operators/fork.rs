@@ -120,14 +120,14 @@ pub fn handle_tf_fork(sess: &mut JobData, tf_id: TransformId, sp: &mut TfFork) {
         let src = sess
             .field_mgr
             .borrow_field_cow(*src_field_id, unconsumed_input);
-        let iter = AutoDerefIter::new(
+        let mut iter = AutoDerefIter::new(
             &sess.field_mgr,
             *src_field_id,
             sess.field_mgr
                 .get_iter_cow_aware(*src_field_id, &src, mapping.source_iter_id)
                 .bounded(0, batch_size),
         );
-        IterHall::copy_resolve_refs(match_set_mgr, iter, &mut |f: &mut dyn FnMut(
+        IterHall::copy_resolve_refs(match_set_mgr, &mut iter, &mut |f: &mut dyn FnMut(
             &mut IterHall,
         )| {
             for t in &mapping.targets_non_cow {
@@ -135,6 +135,12 @@ pub fn handle_tf_fork(sess: &mut JobData, tf_id: TransformId, sp: &mut TfFork) {
                 f(&mut tgt.field_data);
             }
         });
+        sess.field_mgr.store_iter_cow_aware(
+            *src_field_id,
+            &src,
+            mapping.source_iter_id,
+            iter.into_base_iter(),
+        );
     }
     for tf in &sp.targets {
         sess.tf_mgr

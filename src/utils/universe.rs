@@ -91,12 +91,6 @@ enum UniverseEntry<T> {
 }
 
 impl<T> UniverseEntry<T> {
-    pub fn as_option(&self) -> Option<&T> {
-        match self {
-            UniverseEntry::Occupied(v) => Some(v),
-            UniverseEntry::Vacant(_) => None,
-        }
-    }
     pub fn as_option_mut(&mut self) -> Option<&mut T> {
         match self {
             UniverseEntry::Occupied(v) => Some(v),

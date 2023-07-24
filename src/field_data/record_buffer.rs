@@ -7,17 +7,18 @@ use crate::utils::{string_store::StringStoreEntry, universe::Universe};
 
 use super::FieldData;
 
-struct RecordBufferField {
-    refcount: usize,
-    names: SmallVec<[StringStoreEntry; 4]>,
-    data: FieldData,
+pub struct RecordBufferField {
+    pub refcount: usize,
+    pub names: SmallVec<[StringStoreEntry; 4]>,
+    pub data: FieldData,
 }
 
 #[derive(Default)]
 pub struct RecordBufferData {
-    remaining_consumers: usize,
-    available_batch_size: usize,
-    fields: Universe<RecordBufferFieldId, RecordBufferField>,
+    pub remaining_consumers: usize,
+    pub available_batch_size: usize,
+    pub input_done: bool,
+    pub fields: Universe<RecordBufferFieldId, RecordBufferField>,
 }
 
 pub type RecordBufferFieldId = NonMaxU32;

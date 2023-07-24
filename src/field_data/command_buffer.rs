@@ -166,7 +166,7 @@ impl MergedActionLists {
 }
 
 impl CommandBuffer {
-    pub fn begin_action_list(&mut self, apf_idx: ActionProducingFieldIndex) {
+    pub fn begin_action_list(&mut self, apf_idx: ActionProducingFieldIndex) -> ActionListIndex {
         let apf = &self.action_producing_fields[apf_idx];
         let start = apf.merged_action_lists[0].actions.len();
         let first_unapplied_idx = apf.merged_action_lists[0]
@@ -179,14 +179,16 @@ impl CommandBuffer {
             .unwrap_or(0);
         let id = self.action_list_ids;
         self.action_list_ids += 1;
-        self.action_producing_fields[apf_idx].merged_action_lists[0]
-            .action_lists
-            .push(ActionList {
-                ordering_id: id,
-                first_unapplied_al_idx_in_prev_apf: first_unapplied_idx,
-                actions_start: start,
-                actions_end: start,
-            });
+        let action_lists =
+            &mut self.action_producing_fields[apf_idx].merged_action_lists[0].action_lists;
+        let action_list_id = action_lists.len();
+        action_lists.push(ActionList {
+            ordering_id: id,
+            first_unapplied_al_idx_in_prev_apf: first_unapplied_idx,
+            actions_start: start,
+            actions_end: start,
+        });
+        action_list_id
     }
     pub fn end_action_list(&mut self, apf_idx: ActionProducingFieldIndex) {
         let apf = &mut self.action_producing_fields[apf_idx];

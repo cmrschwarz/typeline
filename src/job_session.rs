@@ -420,8 +420,8 @@ impl FieldManager {
         if let Some(cow_source) = f.cow_source {
             if cb.requires_any_actions(&mut f) {
                 let src = self.fields[cow_source].borrow();
-                let iter = AutoDerefIter::new(&self, cow_source, src.field_data.iter());
-                IterHall::copy_resolve_refs(match_set_mgr, iter, &mut |func| {
+                let mut iter = AutoDerefIter::new(&self, cow_source, src.field_data.iter());
+                IterHall::copy_resolve_refs(match_set_mgr, &mut iter, &mut |func| {
                     func(&mut f.field_data)
                 });
                 let cb = &mut match_set_mgr.match_sets[match_set].command_buffer;
@@ -443,7 +443,19 @@ impl FieldManager {
         if let Some(cow_source) = field.cow_source {
             return self.fields[cow_source].borrow();
         }
-        field.into()
+        field
+    }
+    pub fn borrow_field_cow_mut<'a>(
+        &'a self,
+        field_id: FieldId,
+        mark_for_unconsumed_input: bool,
+    ) -> RefMut<'a, Field> {
+        let field = self.fields[field_id].borrow_mut();
+        field.has_unconsumed_input_or_equals(mark_for_unconsumed_input);
+        if let Some(cow_source) = field.cow_source {
+            return self.fields[cow_source].borrow_mut();
+        }
+        field
     }
     pub fn get_iter_cow_aware<'a>(
         &self,

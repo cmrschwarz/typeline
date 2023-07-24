@@ -137,7 +137,7 @@ impl IterHall {
     }
     pub fn copy_resolve_refs<'a, I: FieldIterator<'a>>(
         match_set_mgr: &mut MatchSetManager,
-        iter: AutoDerefIter<'a, I>,
+        iter: &mut AutoDerefIter<'a, I>,
         targets_applicator: &mut impl FnMut(&mut dyn FnMut(&mut IterHall)),
     ) -> usize {
         let adapted_target_applicator = &mut |f: &mut dyn FnMut(&mut FieldData)| {
