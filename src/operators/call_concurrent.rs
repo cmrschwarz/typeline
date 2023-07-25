@@ -230,6 +230,10 @@ pub fn handle_tf_call_concurrent(
     let (batch_size, input_done) = sess.tf_mgr.claim_all(tf_id);
     let tf = &sess.tf_mgr.transforms[tf_id];
     assert!(tf.successor.is_none());
+    for mapping in &tfc.field_mappings {
+        sess.field_mgr
+            .apply_field_actions(&mut sess.match_set_mgr, mapping.source_field_id);
+    }
     let cb = &mut sess.match_set_mgr.match_sets[tf.match_set_id].command_buffer;
     cb.begin_action_list(tfc.apf_idx);
     cb.push_action_with_usize_rl(tfc.apf_idx, FieldActionKind::Drop, 0, batch_size);
@@ -242,8 +246,11 @@ pub fn handle_tf_call_concurrent(
         let mut src_field = sess
             .field_mgr
             .borrow_field_cow_mut(mapping.source_field_id, false);
-        let copy_required =
-            src_field.has_unconsumed_input.get() || src_field.field_id != mapping.source_field_id;
+        let mut copy_required = src_field.has_unconsumed_input.get();
+        copy_required |= src_field.field_id != mapping.source_field_id;
+        // PERF: this makes us always copy for regex. maybe try to copy the
+        // referenced fields into the right ids instead?
+        copy_required |= !src_field.field_refs.is_empty();
 
         let mut tgt_data = &mut buf_data.fields[mapping.buf_field].data;
         if copy_required {

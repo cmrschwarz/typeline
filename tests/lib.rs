@@ -1163,6 +1163,7 @@ fn callcc_needs_threads() -> Result<(), ScrError> {
     let err_msg = "callcc cannot be used with a max thread count of 1, see `h=j`";
     matches!(
         ContextBuilder::default()
+            .set_max_thread_count(1)
             .add_op(create_op_seqn(1, 3, 1).unwrap())
             .add_op(create_op_callcc("foo".to_string()))
             .add_label("foo".to_string())
@@ -1181,7 +1182,6 @@ fn callcc_needs_threads() -> Result<(), ScrError> {
 fn basic_callcc() -> Result<(), ScrError> {
     let ss = StringSinkHandle::new();
     ContextBuilder::default()
-        .set_max_thread_count(2)
         .set_batch_size(2)
         .add_op(create_op_seqn(1, 4, 1).unwrap())
         .add_op(create_op_callcc("foo".to_string()))
@@ -1189,5 +1189,20 @@ fn basic_callcc() -> Result<(), ScrError> {
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(ss.get().data.as_slice(), ["1", "2", "3", "4"]);
+    Ok(())
+}
+
+#[test]
+fn callcc_after_drop() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::new();
+    ContextBuilder::default()
+        .set_batch_size(7)
+        .add_op(create_op_seqn(1, 30, 1).unwrap())
+        .add_op(create_op_regex("3", Default::default()).unwrap())
+        .add_op(create_op_callcc("foo".to_string()))
+        .add_label("foo".to_string())
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(ss.get().data.as_slice(), ["3", "3", "3", "3"]);
     Ok(())
 }
