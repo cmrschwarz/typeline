@@ -9,6 +9,10 @@ use crate::{
 
 use super::{
     iters::{FieldIterator, Iter},
+    push_interface::{
+        FieldReferenceInserter, InlineBytesInserter, InlineStringInserter,
+        IntegerInserter,
+    },
     FieldData, FieldDataInternals, FieldValueHeader, RunLength,
 };
 
@@ -201,5 +205,17 @@ impl IterHall {
             fd,
             ..Default::default()
         }
+    }
+    pub fn int_inserter(&mut self) -> IntegerInserter {
+        IntegerInserter::new(&mut self.fd)
+    }
+    pub fn field_reference_inserter(&mut self) -> FieldReferenceInserter {
+        FieldReferenceInserter::new(&mut self.fd)
+    }
+    pub fn inline_bytes_inserter(&mut self) -> InlineBytesInserter {
+        InlineBytesInserter::new(&mut self.fd)
+    }
+    pub fn inline_str_inserter(&mut self) -> InlineStringInserter {
+        InlineStringInserter::new(&mut self.fd)
     }
 }

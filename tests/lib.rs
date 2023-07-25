@@ -151,15 +151,16 @@ fn large_batch_seq(
         .add_op(create_op_regex(r"\d{1,3}", RegexOptions::default()).unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
-    assert_eq!(
-        ss.get_data().unwrap().as_slice(),
-        &(0..count)
-            .filter_map(|v| {
-                let v = i64_to_str(false, v).to_string();
-                re.captures(v.as_str())
-                    .and_then(|v| v.get(0).map(|v| v.as_str().to_owned()))
-            })
-            .collect::<Vec<_>>()
+    // large output -> no assert_eq!
+    assert!(
+        ss.get_data().unwrap().as_slice()
+            == &(0..count)
+                .filter_map(|v| {
+                    let v = i64_to_str(false, v).to_string();
+                    re.captures(v.as_str())
+                        .and_then(|v| v.get(0).map(|v| v.as_str().to_owned()))
+                })
+                .collect::<Vec<_>>()
     );
     Ok(())
 }
@@ -266,12 +267,13 @@ fn large_seq_with_regex() -> Result<(), ScrError> {
         )
         .add_op(create_op_string_sink(&ss))
         .run()?;
-    assert_eq!(
-        ss.get_data().unwrap().as_slice(),
-        &(0..1000)
-            .into_iter()
-            .map(|i| i.to_string())
-            .collect::<Vec<_>>()
+    // large output -> no assert_eq!
+    assert!(
+        ss.get_data().unwrap().as_slice()
+            == &(0..1000)
+                .into_iter()
+                .map(|i| i.to_string())
+                .collect::<Vec<_>>()
     );
     Ok(())
 }
@@ -1178,7 +1180,8 @@ fn seq_into_regex_drop_unless_seven() -> Result<(), ScrError> {
         .add_op(create_op_string_sink(&ss))
         .run()
         .unwrap();
-    assert_eq!(ss.get_data().unwrap().as_slice(), res);
+    // no assert_eq! because the output is large
+    assert!(ss.get_data().unwrap().as_slice() == res);
     Ok(())
 }
 
@@ -1230,5 +1233,22 @@ fn callcc_after_drop() -> Result<(), ScrError> {
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(ss.get().data.as_slice(), ["7", "7", "7"]);
+    Ok(())
+}
+
+#[test]
+fn seq_with_chainging_str_length() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::new();
+    ContextBuilder::default()
+        .add_op_appending(create_op_seq(1, 11, 1).unwrap())
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(
+        ss.get_data().unwrap().as_slice(),
+        &(1..11)
+            .into_iter()
+            .map(|v| v.to_string())
+            .collect::<Vec<_>>()
+    );
     Ok(())
 }

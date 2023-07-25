@@ -209,6 +209,7 @@ impl FieldData {
             None => (),
             Some(last_header) => {
                 if last_header.kind == fmt.kind
+                    && last_header.size == fmt.size
                     && last_header.flags & format_flags_mask
                         == fmt.flags & format_flags_mask
                 {
@@ -889,6 +890,7 @@ impl<'a> RawFixedSizedTypeInserter<'a> {
             self.drop_and_reserve(new_max_inserts, fmt.size as usize);
         }
     }
+    #[inline(always)]
     unsafe fn push<T>(&mut self, v: T) {
         unsafe {
             std::ptr::copy_nonoverlapping(
@@ -935,6 +937,7 @@ pub unsafe trait FixedSizeTypeInserter<'a> {
                 .commit_and_reserve(Self::element_format(), new_max_inserts);
         }
     }
+    #[inline(always)]
     fn push<T>(&mut self, v: T) {
         assert!(self.get_raw().count < self.get_raw().max);
         unsafe {
@@ -999,6 +1002,7 @@ impl<'a> RawVariableSizedTypeInserter<'a> {
     }
     // assumes that v.len() == self.expected_size
     // and self.count < self.max
+    #[inline(always)]
     unsafe fn push(&mut self, v: &[u8]) {
         unsafe {
             std::ptr::copy_nonoverlapping(v.as_ptr(), self.data_ptr, v.len());
@@ -1011,7 +1015,11 @@ impl<'a> RawVariableSizedTypeInserter<'a> {
 pub unsafe trait VariableSizeTypeInserter<'a> {
     const KIND: FieldValueKind;
     const FLAGS: FieldValueFlags = field_value_flags::DEFAULT;
+    type ElementType: ?Sized;
+
     fn get_raw(&mut self) -> &mut RawVariableSizedTypeInserter<'a>;
+    fn element_as_bytes(v: &Self::ElementType) -> &[u8];
+    #[inline(always)]
     fn current_element_format(&mut self) -> FieldValueFormat {
         FieldValueFormat {
             kind: Self::KIND,
@@ -1049,16 +1057,20 @@ pub unsafe trait VariableSizeTypeInserter<'a> {
             );
         }
     }
-    fn push_same_size(&mut self, v: &[u8]) {
+    #[inline(always)]
+    fn push_same_size(&mut self, v: &Self::ElementType) {
+        let v = Self::element_as_bytes(v);
         assert!(self.get_raw().count < self.get_raw().max);
         assert!(v.len() == self.get_raw().expected_size);
         unsafe {
             self.get_raw().push(v);
         }
     }
-    fn push_may_rereserve(&mut self, v: &[u8]) {
+    #[inline(always)]
+    fn push_may_rereserve(&mut self, v: &Self::ElementType) {
+        let v_bytes = Self::element_as_bytes(v);
         let raw = self.get_raw();
-        if v.len() == raw.expected_size {
+        if v_bytes.len() == raw.expected_size {
             self.push_same_size(v);
             return;
         }
@@ -1066,8 +1078,9 @@ pub unsafe trait VariableSizeTypeInserter<'a> {
         let count_rem = raw.max - raw.count;
         let fmt = self.current_element_format();
         unsafe {
-            self.get_raw().commit_and_reserve(fmt, count_rem, v.len());
-            self.get_raw().push(v);
+            self.get_raw()
+                .commit_and_reserve(fmt, count_rem, v_bytes.len());
+            self.get_raw().push(v_bytes);
         }
     }
 }
@@ -1133,9 +1146,14 @@ impl<'a> InlineStringInserter<'a> {
 unsafe impl<'a> VariableSizeTypeInserter<'a> for InlineStringInserter<'a> {
     const KIND: FieldValueKind = FieldValueKind::BytesInline;
     const FLAGS: FieldValueFlags = field_value_flags::BYTES_ARE_UTF8;
-
+    type ElementType = str;
+    #[inline(always)]
     fn get_raw(&mut self) -> &mut RawVariableSizedTypeInserter<'a> {
         &mut self.raw
+    }
+    #[inline(always)]
+    fn element_as_bytes(v: &Self::ElementType) -> &[u8] {
+        v.as_bytes()
     }
 }
 impl<'a> Drop for InlineStringInserter<'a> {
@@ -1156,8 +1174,14 @@ impl<'a> InlineBytesInserter<'a> {
 }
 unsafe impl<'a> VariableSizeTypeInserter<'a> for InlineBytesInserter<'a> {
     const KIND: FieldValueKind = FieldValueKind::BytesInline;
+    type ElementType = [u8];
+    #[inline(always)]
     fn get_raw(&mut self) -> &mut RawVariableSizedTypeInserter<'a> {
         &mut self.raw
+    }
+    #[inline(always)]
+    fn element_as_bytes(v: &Self::ElementType) -> &[u8] {
+        v
     }
 }
 impl<'a> Drop for InlineBytesInserter<'a> {

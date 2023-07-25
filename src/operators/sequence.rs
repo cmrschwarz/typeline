@@ -4,7 +4,10 @@ use bstr::ByteSlice;
 use smallstr::SmallString;
 
 use crate::{
-    field_data::{push_interface::PushInterface, FieldValueKind},
+    field_data::{
+        push_interface::{FixedSizeTypeInserter, VariableSizeTypeInserter},
+        FieldValueKind,
+    },
     job_session::JobData,
     options::argument::CliArgIdx,
     utils::{
@@ -107,13 +110,14 @@ pub fn handle_tf_sequence(
 
     // PERF: batch this
     if !succ_wants_text {
+        let mut inserter = output_field.field_data.int_inserter();
+        inserter.drop_and_reserve(count);
         for _ in 0..count {
-            output_field
-                .field_data
-                .push_int(seq.ss.start, 1, true, false);
+            inserter.push(seq.ss.start);
             seq.ss.start += seq.ss.step;
         }
     } else {
+        let mut inserter = output_field.field_data.inline_str_inserter();
         if seq.ss.start >= 0
             && seq.ss.step > 0
             && seq.ss.step < FAST_SEQ_MAX_STEP
@@ -122,13 +126,11 @@ pub fn handle_tf_sequence(
             int_str.extend(
                 i64_to_str(false, seq.ss.start).as_bytes().iter().cloned(),
             );
+            inserter.drop_and_reserve(count, int_str.len());
             for _ in 0..count {
-                output_field.field_data.push_inline_str(
-                    unsafe { std::str::from_utf8_unchecked(&int_str) },
-                    1,
-                    true,
-                    false,
-                );
+                inserter.push_may_rereserve(unsafe {
+                    std::str::from_utf8_unchecked(&int_str)
+                });
                 for _ in 0..seq.ss.step {
                     increment_int_str(&mut int_str);
                 }
@@ -136,12 +138,7 @@ pub fn handle_tf_sequence(
             }
         } else {
             for _ in 0..count {
-                output_field.field_data.push_str(
-                    &i64_to_str(false, seq.ss.start),
-                    1,
-                    true,
-                    false,
-                );
+                inserter.push_may_rereserve(&i64_to_str(false, seq.ss.start));
                 seq.ss.start += seq.ss.step;
             }
         }
