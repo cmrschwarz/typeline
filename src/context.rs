@@ -3,7 +3,9 @@ use std::sync::{Arc, Condvar, Mutex};
 
 use bstr::ByteSlice;
 use reedline::{
-    DefaultPrompt, DefaultPromptSegment, FileBackedHistory, History, HistoryItem, Reedline, Signal,
+    default_emacs_keybindings, DefaultPrompt, DefaultPromptSegment, EditCommand, Emacs,
+    FileBackedHistory, History, HistoryItem, KeyCode, KeyModifiers, Reedline, ReedlineEvent,
+    Signal,
 };
 use shlex::Shlex;
 use smallvec::SmallVec;
@@ -215,7 +217,28 @@ impl Context {
                 ))
                 .unwrap();
         }
-        let mut line_editor = Reedline::create().with_history(history);
+        let mut keybindings = default_emacs_keybindings();
+        // prevent CTRL + left/right form getting stuck on every sigil
+        // still not ideal since this skips e.g. the equals sign, but better
+        keybindings.add_binding(
+            KeyModifiers::CONTROL,
+            KeyCode::Left,
+            ReedlineEvent::Edit(vec![EditCommand::MoveBigWordLeft]),
+        );
+        keybindings.add_binding(
+            KeyModifiers::CONTROL,
+            KeyCode::Right,
+            ReedlineEvent::Edit(vec![
+                EditCommand::MoveBigWordRightEnd,
+                // move right one more character so we start typing *after*
+                // the word, not before the last character
+                EditCommand::MoveRight,
+            ]),
+        );
+        let edit_mode = Emacs::new(keybindings);
+        let mut line_editor = Reedline::create()
+            .with_history(history)
+            .with_edit_mode(Box::new(edit_mode));
         let mut prompt = DefaultPrompt::default();
         prompt.right_prompt = DefaultPromptSegment::Empty;
         prompt.left_prompt = DefaultPromptSegment::Basic("scr ".to_string());
@@ -267,7 +290,7 @@ impl Context {
                     }
                 }
                 Ok(Signal::CtrlC) => {
-                    println!("^C");
+                    //  println!("^C");
                     continue;
                 }
                 Ok(Signal::CtrlD) => {
