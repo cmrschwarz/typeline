@@ -138,7 +138,7 @@ impl IterHall {
 
     /// returns a tuple of (FieldData, initial_field_offset, field_count)
     pub unsafe fn internals(&mut self) -> FieldDataInternals {
-        self.fd.internals()
+        unsafe { self.fd.internals() }
     }
     pub unsafe fn raw(&mut self) -> &mut FieldData {
         &mut self.fd

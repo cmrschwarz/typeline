@@ -173,10 +173,11 @@ impl<'a, T: 'static> TypedSliceIter<'a, T> {
         }
     }
     unsafe fn advance_value(&mut self, n: usize) {
-        self.values = NonNull::new_unchecked(self.values.as_ptr().add(n));
+        self.values =
+            unsafe { NonNull::new_unchecked(self.values.as_ptr().add(n)) };
     }
     unsafe fn next_value(&mut self) {
-        self.advance_value(1);
+        unsafe { self.advance_value(1) };
     }
     pub fn has_next(&mut self) -> bool {
         return self.header_rl_rem > 0 || self.header != self.header_end;
@@ -394,7 +395,8 @@ impl<'a> InlineBytesIter<'a> {
         }
     }
     unsafe fn advance_value(&mut self, n: usize) {
-        self.values = NonNull::new_unchecked(self.values.as_ptr().add(n));
+        self.values =
+            unsafe { NonNull::new_unchecked(self.values.as_ptr().add(n)) };
     }
     pub fn has_next(&mut self) -> bool {
         return self.header_rl_rem > 0 || self.header != self.header_end;

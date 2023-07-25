@@ -115,7 +115,7 @@ impl FieldValueKind {
         if self.needs_alignment() {
             // doing this instead of the straight conversion to usize
             // to avoid loosing provenance
-            ptr.sub(ptr as usize & MAX_FIELD_ALIGN)
+            unsafe { ptr.sub(ptr as usize & MAX_FIELD_ALIGN) }
         } else {
             ptr
         }
@@ -123,7 +123,9 @@ impl FieldValueKind {
     #[inline(always)]
     pub unsafe fn align_ptr_up(self, ptr: *mut u8) -> *mut u8 {
         if self.needs_alignment() {
-            ptr.sub((ptr as usize + MAX_FIELD_ALIGN) & MAX_FIELD_ALIGN)
+            unsafe {
+                ptr.sub((ptr as usize + MAX_FIELD_ALIGN) & MAX_FIELD_ALIGN)
+            }
         } else {
             ptr
         }
@@ -159,6 +161,9 @@ impl FieldValueKind {
     }
     pub fn is_fixed_size_type(self) -> bool {
         !self.is_variable_sized_type() && !self.is_zst()
+    }
+    pub unsafe fn from_u8(v: u8) -> FieldValueKind {
+        unsafe { std::mem::transmute(v) }
     }
 }
 
@@ -385,12 +390,14 @@ impl Clone for FieldData {
 }
 
 unsafe fn drop_slice<T>(slice: &[T]) {
-    let droppable = slice::from_raw_parts_mut(
-        slice.as_ptr() as *mut ManuallyDrop<T>,
-        slice.len(),
-    );
-    for e in droppable.iter_mut() {
-        ManuallyDrop::drop(e);
+    unsafe {
+        let droppable = slice::from_raw_parts_mut(
+            slice.as_ptr() as *mut ManuallyDrop<T>,
+            slice.len(),
+        );
+        for e in droppable.iter_mut() {
+            ManuallyDrop::drop(e);
+        }
     }
 }
 
@@ -590,7 +597,9 @@ impl FieldData {
 }
 
 unsafe fn as_u8_slice<T: Sized>(p: &T) -> &[u8] {
-    slice::from_raw_parts((p as *const T) as *const u8, size_of::<T>())
+    unsafe {
+        slice::from_raw_parts((p as *const T) as *const u8, size_of::<T>())
+    }
 }
 
 unsafe fn extend_with_clones<T: Clone>(
@@ -614,10 +623,12 @@ unsafe fn extend_raw<T: Sized>(
     target_applicator: &mut impl FnMut(&mut dyn FnMut(&mut FieldData)),
     src: &[T],
 ) {
-    let src_bytes = std::slice::from_raw_parts(
-        src.as_ptr() as *const u8,
-        src.len() * std::mem::size_of::<T>(),
-    );
+    let src_bytes = unsafe {
+        std::slice::from_raw_parts(
+            src.as_ptr() as *const u8,
+            src.len() * std::mem::size_of::<T>(),
+        )
+    };
     target_applicator(&mut |fd| fd.data.extend_from_slice(src_bytes));
 }
 
@@ -625,20 +636,24 @@ unsafe fn append_data<'a>(
     ts: TypedSlice<'a>,
     target_applicator: &mut impl FnMut(&mut dyn FnMut(&mut FieldData)),
 ) {
-    match ts {
-        TypedSlice::Null(_) | TypedSlice::Success(_) => (),
-        TypedSlice::Integer(v) => extend_raw(target_applicator, v),
-        TypedSlice::StreamValueId(v) => extend_raw(target_applicator, v),
-        TypedSlice::Reference(v) => extend_raw(target_applicator, v),
-        TypedSlice::BytesInline(v) => extend_raw(target_applicator, v),
-        TypedSlice::TextInline(v) => {
-            extend_raw(target_applicator, v.as_bytes())
-        }
-        TypedSlice::BytesBuffer(v) => extend_with_clones(target_applicator, v),
-        TypedSlice::Error(v) => extend_with_clones(target_applicator, v),
-        TypedSlice::Html(v) => extend_with_clones(target_applicator, v),
-        TypedSlice::Object(v) => extend_with_clones(target_applicator, v),
-    };
+    unsafe {
+        match ts {
+            TypedSlice::Null(_) | TypedSlice::Success(_) => (),
+            TypedSlice::Integer(v) => extend_raw(target_applicator, v),
+            TypedSlice::StreamValueId(v) => extend_raw(target_applicator, v),
+            TypedSlice::Reference(v) => extend_raw(target_applicator, v),
+            TypedSlice::BytesInline(v) => extend_raw(target_applicator, v),
+            TypedSlice::TextInline(v) => {
+                extend_raw(target_applicator, v.as_bytes())
+            }
+            TypedSlice::BytesBuffer(v) => {
+                extend_with_clones(target_applicator, v)
+            }
+            TypedSlice::Error(v) => extend_with_clones(target_applicator, v),
+            TypedSlice::Html(v) => extend_with_clones(target_applicator, v),
+            TypedSlice::Object(v) => extend_with_clones(target_applicator, v),
+        };
+    }
 }
 
 impl FieldData {

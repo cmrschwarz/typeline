@@ -504,12 +504,14 @@ impl<'a> RefAwareBytesBufferIter<'a> {
         refs: Option<TypedSliceIter<'a, FieldReference>>,
     ) -> Self {
         Self {
-            iter: TypedSliceIter::new(
-                values,
-                headers,
-                first_oversize,
-                last_oversize,
-            ),
+            iter: unsafe {
+                TypedSliceIter::new(
+                    values,
+                    headers,
+                    first_oversize,
+                    last_oversize,
+                )
+            },
             refs,
         }
     }
@@ -556,12 +558,14 @@ impl<'a> RefAwareStreamValueIter<'a> {
         refs: Option<TypedSliceIter<'a, FieldReference>>,
     ) -> Self {
         Self {
-            iter: TypedSliceIter::new(
-                values,
-                headers,
-                first_oversize,
-                last_oversize,
-            ),
+            iter: unsafe {
+                TypedSliceIter::new(
+                    values,
+                    headers,
+                    first_oversize,
+                    last_oversize,
+                )
+            },
             refs,
         }
     }

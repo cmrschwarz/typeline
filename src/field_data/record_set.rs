@@ -37,18 +37,20 @@ unsafe impl RawPushInterface for RecordSet {
         try_data_rle: bool,
     ) {
         self.push_null_to_secondary_cols(run_length);
-        self.fields
-            .first_mut()
-            .unwrap()
-            .data
-            .push_variable_sized_type(
-                kind,
-                flags,
-                data,
-                run_length,
-                try_header_rle,
-                try_data_rle,
-            );
+        unsafe {
+            self.fields
+                .first_mut()
+                .unwrap()
+                .data
+                .push_variable_sized_type(
+                    kind,
+                    flags,
+                    data,
+                    run_length,
+                    try_header_rle,
+                    try_data_rle,
+                );
+        }
     }
 
     unsafe fn push_fixed_size_type<T: PartialEq + Clone + Unpin>(
@@ -61,14 +63,16 @@ unsafe impl RawPushInterface for RecordSet {
         try_data_rle: bool,
     ) {
         self.push_null_to_secondary_cols(run_length);
-        self.fields.first_mut().unwrap().data.push_fixed_size_type(
-            kind,
-            flags,
-            data,
-            run_length,
-            try_header_rle,
-            try_data_rle,
-        );
+        unsafe {
+            self.fields.first_mut().unwrap().data.push_fixed_size_type(
+                kind,
+                flags,
+                data,
+                run_length,
+                try_header_rle,
+                try_data_rle,
+            );
+        }
     }
 
     unsafe fn push_zst_unchecked(
@@ -79,12 +83,14 @@ unsafe impl RawPushInterface for RecordSet {
         try_header_rle: bool,
     ) {
         self.push_null_to_secondary_cols(run_length);
-        self.fields.first_mut().unwrap().data.push_zst_unchecked(
-            kind,
-            flags,
-            run_length,
-            try_header_rle,
-        );
+        unsafe {
+            self.fields.first_mut().unwrap().data.push_zst_unchecked(
+                kind,
+                flags,
+                run_length,
+                try_header_rle,
+            );
+        }
     }
 
     unsafe fn push_variable_sized_type_uninit(
@@ -95,11 +101,15 @@ unsafe impl RawPushInterface for RecordSet {
         run_length: usize,
     ) -> *mut u8 {
         self.push_null_to_secondary_cols(run_length);
-        self.fields
-            .first_mut()
-            .unwrap()
-            .data
-            .push_variable_sized_type_uninit(kind, flags, data_len, run_length)
+        unsafe {
+            self.fields
+                .first_mut()
+                .unwrap()
+                .data
+                .push_variable_sized_type_uninit(
+                    kind, flags, data_len, run_length,
+                )
+        }
     }
 }
 

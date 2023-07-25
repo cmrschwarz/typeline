@@ -30,40 +30,46 @@ impl<'a> TypedValue<'a> {
         fmt: FieldValueFormat,
         data_begin: usize,
     ) -> Self {
-        match fmt.kind {
-            FieldValueKind::Null => TypedValue::Null(Null),
-            FieldValueKind::Success => TypedValue::Success(Success),
-            FieldValueKind::BytesInline => {
-                if fmt.flags & field_value_flags::BYTES_ARE_UTF8 != 0 {
-                    TypedValue::TextInline(std::str::from_utf8_unchecked(
-                        to_slice(fd, data_begin, fmt.size as usize),
-                    ))
-                } else {
-                    TypedValue::BytesInline(to_slice(
-                        fd,
-                        data_begin,
-                        fmt.size as usize,
-                    ))
+        unsafe {
+            match fmt.kind {
+                FieldValueKind::Null => TypedValue::Null(Null),
+                FieldValueKind::Success => TypedValue::Success(Success),
+                FieldValueKind::BytesInline => {
+                    if fmt.flags & field_value_flags::BYTES_ARE_UTF8 != 0 {
+                        TypedValue::TextInline(std::str::from_utf8_unchecked(
+                            to_slice(fd, data_begin, fmt.size as usize),
+                        ))
+                    } else {
+                        TypedValue::BytesInline(to_slice(
+                            fd,
+                            data_begin,
+                            fmt.size as usize,
+                        ))
+                    }
                 }
+                FieldValueKind::Integer => {
+                    TypedValue::Integer(*to_ref(fd, data_begin))
+                }
+                FieldValueKind::StreamValueId => {
+                    TypedValue::StreamValueId(*to_ref(fd, data_begin))
+                }
+                FieldValueKind::Reference => {
+                    TypedValue::Reference(to_ref(fd, data_begin))
+                }
+                FieldValueKind::Error => {
+                    TypedValue::Error(to_ref(fd, data_begin))
+                }
+                FieldValueKind::Html => {
+                    TypedValue::Html(to_ref(fd, data_begin))
+                }
+                FieldValueKind::Object => {
+                    TypedValue::Object(to_ref(fd, data_begin))
+                }
+                FieldValueKind::BytesBuffer => {
+                    TypedValue::BytesBuffer(to_ref(fd, data_begin))
+                }
+                FieldValueKind::BytesFile => todo!(),
             }
-            FieldValueKind::Integer => {
-                TypedValue::Integer(*to_ref(fd, data_begin))
-            }
-            FieldValueKind::StreamValueId => {
-                TypedValue::StreamValueId(*to_ref(fd, data_begin))
-            }
-            FieldValueKind::Reference => {
-                TypedValue::Reference(to_ref(fd, data_begin))
-            }
-            FieldValueKind::Error => TypedValue::Error(to_ref(fd, data_begin)),
-            FieldValueKind::Html => TypedValue::Html(to_ref(fd, data_begin)),
-            FieldValueKind::Object => {
-                TypedValue::Object(to_ref(fd, data_begin))
-            }
-            FieldValueKind::BytesBuffer => {
-                TypedValue::BytesBuffer(to_ref(fd, data_begin))
-            }
-            FieldValueKind::BytesFile => todo!(),
         }
     }
     pub fn as_slice(&self) -> TypedSlice<'a> {
@@ -105,7 +111,7 @@ impl<'a> TypedField<'a> {
         data_begin: usize,
         run_len: RunLength,
     ) -> TypedField<'a> {
-        let value = TypedValue::new(fd, fmt, data_begin);
+        let value = unsafe { TypedValue::new(fd, fmt, data_begin) };
         TypedField {
             header: FieldValueHeader {
                 fmt: fmt,
@@ -149,46 +155,52 @@ impl<'a> TypedSlice<'a> {
         data_end: usize,
         field_count: usize,
     ) -> TypedSlice<'a> {
-        match fmt.kind {
-            FieldValueKind::Success => {
-                TypedSlice::Success(to_zst_slice(field_count))
-            }
-            FieldValueKind::Null => {
-                TypedSlice::Null(to_zst_slice(field_count))
-            }
-            FieldValueKind::BytesInline => {
-                if fmt.flags & flag_mask & field_value_flags::BYTES_ARE_UTF8
-                    != 0
-                {
-                    TypedSlice::TextInline(std::str::from_utf8_unchecked(
-                        to_slice(fd, data_begin, data_end),
-                    ))
-                } else {
-                    TypedSlice::BytesInline(to_slice(fd, data_begin, data_end))
+        unsafe {
+            match fmt.kind {
+                FieldValueKind::Success => {
+                    TypedSlice::Success(to_zst_slice(field_count))
                 }
+                FieldValueKind::Null => {
+                    TypedSlice::Null(to_zst_slice(field_count))
+                }
+                FieldValueKind::BytesInline => {
+                    if fmt.flags
+                        & flag_mask
+                        & field_value_flags::BYTES_ARE_UTF8
+                        != 0
+                    {
+                        TypedSlice::TextInline(std::str::from_utf8_unchecked(
+                            to_slice(fd, data_begin, data_end),
+                        ))
+                    } else {
+                        TypedSlice::BytesInline(to_slice(
+                            fd, data_begin, data_end,
+                        ))
+                    }
+                }
+                FieldValueKind::Integer => {
+                    TypedSlice::Integer(to_slice(fd, data_begin, data_end))
+                }
+                FieldValueKind::Reference => {
+                    TypedSlice::Reference(to_slice(fd, data_begin, data_end))
+                }
+                FieldValueKind::Error => {
+                    TypedSlice::Error(to_slice(fd, data_begin, data_end))
+                }
+                FieldValueKind::Html => {
+                    TypedSlice::Html(to_slice(fd, data_begin, data_end))
+                }
+                FieldValueKind::Object => {
+                    TypedSlice::Object(to_slice(fd, data_begin, data_end))
+                }
+                FieldValueKind::StreamValueId => TypedSlice::StreamValueId(
+                    to_slice(fd, data_begin, data_end),
+                ),
+                FieldValueKind::BytesBuffer => {
+                    TypedSlice::BytesBuffer(to_slice(fd, data_begin, data_end))
+                }
+                FieldValueKind::BytesFile => todo!(),
             }
-            FieldValueKind::Integer => {
-                TypedSlice::Integer(to_slice(fd, data_begin, data_end))
-            }
-            FieldValueKind::Reference => {
-                TypedSlice::Reference(to_slice(fd, data_begin, data_end))
-            }
-            FieldValueKind::Error => {
-                TypedSlice::Error(to_slice(fd, data_begin, data_end))
-            }
-            FieldValueKind::Html => {
-                TypedSlice::Html(to_slice(fd, data_begin, data_end))
-            }
-            FieldValueKind::Object => {
-                TypedSlice::Object(to_slice(fd, data_begin, data_end))
-            }
-            FieldValueKind::StreamValueId => {
-                TypedSlice::StreamValueId(to_slice(fd, data_begin, data_end))
-            }
-            FieldValueKind::BytesBuffer => {
-                TypedSlice::BytesBuffer(to_slice(fd, data_begin, data_end))
-            }
-            FieldValueKind::BytesFile => todo!(),
         }
     }
     pub fn as_bytes(&self) -> &[u8] {
@@ -266,14 +278,16 @@ impl<'a> TypedRange<'a> {
         last_header_run_length_oversize: RunLength,
     ) -> TypedRange<'a> {
         let headers = &fd.header[header_begin..header_end];
-        let data = TypedSlice::new(
-            fd,
-            fmt,
-            flag_mask,
-            data_begin,
-            data_end,
-            field_count,
-        );
+        let data = unsafe {
+            TypedSlice::new(
+                fd,
+                fmt,
+                flag_mask,
+                data_begin,
+                data_end,
+                field_count,
+            )
+        };
         TypedRange {
             headers,
             data,
@@ -304,7 +318,12 @@ impl<'a> ValidTypedRange<'a> {
 }
 
 unsafe fn to_zst_slice<T: Sized>(len: usize) -> &'static [T] {
-    std::slice::from_raw_parts(NonNull::dangling().as_ptr() as *const T, len)
+    unsafe {
+        std::slice::from_raw_parts(
+            NonNull::dangling().as_ptr() as *const T,
+            len,
+        )
+    }
 }
 
 unsafe fn to_slice<T: Sized>(
@@ -315,12 +334,14 @@ unsafe fn to_slice<T: Sized>(
     if data_begin == data_end {
         return &[];
     }
-    std::slice::from_raw_parts::<T>(
-        std::mem::transmute::<&u8, &T>(&fd.data[data_begin]) as *const T,
-        (data_end - data_begin) / std::mem::size_of::<T>(),
-    )
+    unsafe {
+        std::slice::from_raw_parts::<T>(
+            std::mem::transmute::<&u8, &T>(&fd.data[data_begin]) as *const T,
+            (data_end - data_begin) / std::mem::size_of::<T>(),
+        )
+    }
 }
 
 unsafe fn to_ref<T: Sized>(fd: &FieldData, data_begin: usize) -> &T {
-    std::mem::transmute::<&u8, &T>(&fd.data[data_begin])
+    unsafe { std::mem::transmute::<&u8, &T>(&fd.data[data_begin]) }
 }

@@ -1285,15 +1285,19 @@ unsafe fn write_padded_bytes_with_prefix_suffix(
             FormatFillAlignment::Center => ((padding + 1) / 2, padding / 2),
             FormatFillAlignment::Right => (0, padding),
         };
-        write_padding_to_tgt(tgt, fill_spec.fill_char, pad_left);
-        write_bytes_to_target(tgt, prefix);
-        write_bytes_to_target(tgt, data);
-        write_bytes_to_target(tgt, suffix);
-        write_padding_to_tgt(tgt, fill_spec.fill_char, pad_right);
+        unsafe {
+            write_padding_to_tgt(tgt, fill_spec.fill_char, pad_left);
+            write_bytes_to_target(tgt, prefix);
+            write_bytes_to_target(tgt, data);
+            write_bytes_to_target(tgt, suffix);
+            write_padding_to_tgt(tgt, fill_spec.fill_char, pad_right);
+        }
     } else {
-        write_bytes_to_target(tgt, prefix);
-        write_bytes_to_target(tgt, data);
-        write_bytes_to_target(tgt, suffix);
+        unsafe {
+            write_bytes_to_target(tgt, prefix);
+            write_bytes_to_target(tgt, data);
+            write_bytes_to_target(tgt, suffix);
+        }
     }
 }
 unsafe fn write_padded_bytes(
@@ -1301,7 +1305,7 @@ unsafe fn write_padded_bytes(
     tgt: &mut OutputTarget,
     data: &[u8],
 ) {
-    write_padded_bytes_with_prefix_suffix(k, tgt, data, &[], &[]);
+    unsafe { write_padded_bytes_with_prefix_suffix(k, tgt, data, &[], &[]) };
 }
 unsafe fn write_formatted_int(
     k: &FormatKey,
@@ -1309,30 +1313,35 @@ unsafe fn write_formatted_int(
     value: i64,
 ) {
     if !k.width.is_some() {
-        write_bytes_to_target(
-            tgt,
-            i64_to_str(k.add_plus_sign, value).as_bytes(),
-        );
+        unsafe {
+            write_bytes_to_target(
+                tgt,
+                i64_to_str(k.add_plus_sign, value).as_bytes(),
+            );
+        }
         return;
     }
     if !k.zero_pad_numbers {
         let val = i64_to_str(k.add_plus_sign, value);
-        write_padded_bytes(k, tgt, val.as_bytes());
+        unsafe { write_padded_bytes(k, tgt, val.as_bytes()) };
         return;
     }
     let mut len = 0;
     if value < 0 {
-        write_bytes_to_target(tgt, "-".as_bytes());
+        unsafe { write_bytes_to_target(tgt, "-".as_bytes()) };
         len += 1;
     } else if k.add_plus_sign {
-        write_bytes_to_target(tgt, "+".as_bytes());
+        unsafe { write_bytes_to_target(tgt, "+".as_bytes()) };
         len += 1;
     }
     let val = u64_to_str(false, value.unsigned_abs());
     len += val.len();
     let padding = calc_text_padding(k, len, tgt.width_lookup, || val.len());
-    write_padding_to_tgt(tgt, Some('0'), padding);
-    write_bytes_to_target(tgt, val.as_bytes());
+
+    unsafe {
+        write_padding_to_tgt(tgt, Some('0'), padding);
+        write_bytes_to_target(tgt, val.as_bytes());
+    }
 }
 fn error_to_formatted_string(
     e: &OperatorApplicationError,
