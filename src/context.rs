@@ -68,7 +68,7 @@ pub(crate) struct SessionManager {
     pub waiting_worker_threads: usize,
     pub total_worker_threads: usize,
 
-    //TODO
+    // TODO
     #[allow(dead_code)]
     pub waiting_venture_participants: usize,
     #[allow(dead_code)]
@@ -87,10 +87,10 @@ pub struct Context {
 }
 
 impl SessionManager {
-    #[allow(dead_code)] //TODO
+    #[allow(dead_code)] // TODO
     pub fn submit_job(&mut self, ctx_data: &Arc<ContextData>, job: Job) {
         self.job_queue.push_back(job);
-        //TODO: better check
+        // TODO: better check
         if self.session.settings.max_threads < self.total_worker_threads
             && self.waiting_worker_threads == 0
         {
@@ -109,10 +109,10 @@ impl SessionManager {
         starting_job_session: Option<Box<JobSession<'a>>>,
         ctx_data: &Arc<ContextData>,
     ) {
-        // SAFETY: this assert ensures that we ourselves hold an Arc<Session> for the
-        // Session that causes the lifetime restriction on this JobSession
-        // before we ourselves drop the Arc<Session>, we make sure that all ventures
-        // are dropped, see set_session
+        // SAFETY: this assert ensures that we ourselves hold an Arc<Session>
+        // for the Session that causes the lifetime restriction on this
+        // JobSession before we ourselves drop the Arc<Session>, we
+        // make sure that all ventures are dropped, see set_session
         assert!(starting_job_session
             .as_ref()
             .map(|js| std::ptr::eq(
@@ -129,7 +129,8 @@ impl SessionManager {
         self.venture_queue.push_back(Venture {
             description: desc,
             venture_id: id,
-            // SAFETY: see comment above for why transmuting this livetime is justified
+            // SAFETY: see comment above for why transmuting this livetime is
+            // justified
             source_job_session: unsafe {
                 std::mem::transmute::<
                     Option<Box<JobSession<'a>>>,
@@ -144,7 +145,8 @@ impl SessionManager {
     pub fn set_session(&mut self, sess: Arc<Session>) {
         assert!(self.job_queue.is_empty());
         assert!(self.venture_queue.is_empty());
-        // SAFETY: the asserts above make sure that nobody is still refering to the old session
+        // SAFETY: the asserts above make sure that nobody is still refering to
+        // the old session
         self.session = sess;
     }
 }

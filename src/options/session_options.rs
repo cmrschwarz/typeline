@@ -30,7 +30,7 @@ use super::{
     operator_base_options::OperatorBaseOptions,
 };
 
-//TODO: refactor this into SessionOptions
+// TODO: refactor this into SessionOptions
 
 #[derive(Clone)]
 pub struct SessionOptions {
@@ -143,14 +143,14 @@ impl SessionOptions {
         let mut new_chain = ChainOptions::default();
         new_chain.parent = curr_chain.parent;
         new_chain.label = Some(self.string_store.intern_moved(label));
-        /*   let op_base = OperatorBaseOptions::new(
-            self.string_store.intern_cloned("jump"),
-            None,
-            false,
-            false,
-            None,
-        );
-        self.add_op(op_base, create_op_call_eager(new_chain_id));*/
+        //   let op_base = OperatorBaseOptions::new(
+        // self.string_store.intern_cloned("jump"),
+        // None,
+        // false,
+        // false,
+        // None,
+        // );
+        // self.add_op(op_base, create_op_call_eager(new_chain_id));
         self.curr_chain = new_chain_id;
         self.chains.push(new_chain);
     }
@@ -331,7 +331,7 @@ impl SessionOptions {
                         label: obo.label,
                         cli_arg_idx: obo.cli_arg_idx,
                         chain_id: obo.chain_id.unwrap_or(INVALID_CHAIN_ID),
-                        offset_in_chain: u32::MAX, //set during setup
+                        offset_in_chain: u32::MAX, // set during setup
                         append_mode: obo.append_mode,
                         transparent_mode: obo.transparent_mode,
                     }
@@ -346,7 +346,7 @@ impl SessionOptions {
             .and(result_into(SessionOptions::setup_operators(&mut sess)))
             .and(result_into(SessionOptions::setup_chains(&mut sess)));
         if let Err(e) = res {
-            //moving back into context options
+            // moving back into context options
             self.string_store = sess.string_store;
             self.operator_data = sess.operator_data;
             self.cli_args = sess.cli_args;

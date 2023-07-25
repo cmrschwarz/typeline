@@ -81,8 +81,9 @@ impl<'a> RefIter<'a> {
         unconsumed_input: bool,
     ) -> (Ref<'b, Field>, Iter<'b>) {
         let field_ref = field_mgr.borrow_field_cow(field_id, unconsumed_input);
-        // this is explicitly *not* cow aware for now, because that would be unsound
-        // it doesn't matter too much, and this whole FIELD_REF_LOOKUP_ITER_ID thing is pretty stupid anyways
+        // this is explicitly *not* cow aware for now, because that would be
+        // unsound it doesn't matter too much, and this whole
+        // FIELD_REF_LOOKUP_ITER_ID thing is pretty stupid anyways
         let iter = field_ref.field_data.get_iter(FIELD_REF_LOOKUP_ITER_ID);
         let iter_lifetime_laundered =
             unsafe { std::mem::transmute::<Iter<'_>, Iter<'b>>(iter) };
@@ -120,8 +121,8 @@ impl<'a> RefIter<'a> {
                 self.unconsumed_input,
             )
         };
-        // SAFETY: we have to reassign data_iter first, because the old one still
-        // has a pointer into the data of the old field_ref
+        // SAFETY: we have to reassign data_iter first, because the old one
+        // still has a pointer into the data of the old field_ref
         self.field_ref = Some(field_ref);
         self.data_iter = Some(data_iter);
         self.last_field_id = field_id;

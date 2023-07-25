@@ -9,14 +9,14 @@ pub enum StreamValueData {
     Dropped,
     Error(OperatorApplicationError),
     Bytes(Vec<u8>),
-    /* // TODO
-    BytesChunk(Vec<u8>),
-    BytesBuffer(Vec<u8>),
-    BytesFile(File),
-    TextFile(File),
-    ArrayChunk(FieldData),
-    ArrayBuffer(FieldData),
-    ArrayFile(File, File),*/
+    // // TODO
+    // BytesChunk(Vec<u8>),
+    // BytesBuffer(Vec<u8>),
+    // BytesFile(File),
+    // TextFile(File),
+    // ArrayChunk(FieldData),
+    // ArrayBuffer(FieldData),
+    // ArrayFile(File, File),
 }
 
 pub struct StreamValueSubscription {

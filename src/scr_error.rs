@@ -146,7 +146,7 @@ fn contextualize_op_id(
     } else {
         if let Some(sess) = sess {
             let op_base = &sess.operator_bases[op_id as usize];
-            //TODO: stringify chain id
+            // TODO: stringify chain id
             format!(
                 "in op {} '{}' of chain {}: {}",
                 op_base.offset_in_chain,
@@ -161,7 +161,7 @@ fn contextualize_op_id(
 }
 
 impl ScrError {
-    //TODO: avoid allocations by taking a &impl Write
+    // TODO: avoid allocations by taking a &impl Write
     pub fn contextualize_message(
         &self,
         args: Option<&Vec<Vec<u8>>>,

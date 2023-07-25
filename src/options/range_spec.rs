@@ -58,7 +58,7 @@ impl<T: Add<Output = T> + Ord + Copy> RangeSpec<T> {
                 Some(RangeSpec::Exclude(include, exclude)) => {
                     let offset = offsets.last_mut().unwrap();
                     *offset += 1;
-                    //first time here, check the include set
+                    // first time here, check the include set
                     if *offset == 0 {
                         exclude_sets_found_status.push(false);
                         offsets.push(-1);

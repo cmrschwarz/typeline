@@ -93,7 +93,7 @@ impl ContextBuilder {
     pub fn run_collect_output(
         self,
     ) -> Result<RecordSet, ContextualizedScrError> {
-        //add operation to collect output into record set
+        // add operation to collect output into record set
         // similar to string sink
         todo!();
     }

@@ -99,6 +99,9 @@ impl FieldData {
             self.push_header_raw_same_value_after_first(fmt, run_length);
             return;
         }
+        // safe to unwrap here, otherwise we would have gone into the
+        // branch above since header rle only makes sense with a previous
+        // header
         let last_header = self.header.last_mut().unwrap();
         if last_header.run_length == 1 {
             last_header.set_shared_value(data_rle);

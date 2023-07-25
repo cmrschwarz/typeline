@@ -73,9 +73,10 @@ pub const ERROR_FIELD_PSEUDO_STR: usize = 0;
 
 #[derive(Default)]
 pub struct Field {
-    pub field_id: FieldId, // used for checking whether we got rug pulled in case of cow
+    // used for checking whether we got rug pulled in case of cow
+    pub field_id: FieldId,
     pub ref_count: usize,
-    //typically called on input fields, borrowing these mut is annoying
+    // typically called on input fields, borrowing these mut is annoying
     pub clear_delay_request_count: Cell<usize>,
     pub has_unconsumed_input: Cell<bool>,
 
@@ -323,9 +324,10 @@ impl TransformManager {
         match_set_mgr.match_sets[match_set_id]
             .command_buffer
             .execute_for_field(output_field_id, &mut output_field);
-        // this results in always one more element being present than we advertise
-        // as batch size. this prevents apply_field_actions from deleting
-        // our value. unless we are done, in which case no additional value is inserted
+        // this results in always one more element being present than we
+        // advertise as batch size. this prevents apply_field_actions
+        // from deleting our value. unless we are done, in which case
+        // no additional value is inserted
         let drop_oversize = input_done && final_call_if_input_done;
         if batch_size == 0 && drop_oversize {
             output_field.field_data.drop_last_value(1);
@@ -351,7 +353,7 @@ impl TransformManager {
                 let mut f = field_mgr.fields[ofid].borrow_mut();
                 if f.get_clear_delay_request_count() > 0 {
                     drop(f);
-                    //TODO: this needs to preserve iterators
+                    // TODO: this needs to preserve iterators
                     field_mgr.apply_field_actions(match_set_mgr, ofid);
                 } else {
                     match_set_mgr.match_sets[tf.match_set_id]
@@ -467,9 +469,12 @@ impl FieldManager {
         id
     }
 
-    // this is usually called while iterating over an input field that contains field references
-    // we therefore do NOT want to require a mutable reference over the field data, because that forces the caller to kill their iterator
-    // instead we `split up` this struct to only require a mutable reference for the MatchSets, which we need to modify the command buffer
+    // this is usually called while iterating over an input field that contains
+    // field references we therefore do NOT want to require a mutable
+    // reference over the field data, because that forces the caller to kill
+    // their iterator instead we `split up` this struct to only require a
+    // mutable reference for the MatchSets, which we need to modify the command
+    // buffer
     pub fn apply_field_actions(
         &self,
         match_set_mgr: &mut MatchSetManager,
@@ -670,7 +675,7 @@ impl<'a> JobData<'a> {
             // we want this guy ready because the end of input was reached
             succ.available_batch_size += bs;
             self.tf_mgr.push_tf_in_ready_queue(succ_id);
-            //self.tf_mgr.inform_transform_batch_available(succ_id, bs);
+            // self.tf_mgr.inform_transform_batch_available(succ_id, bs);
         }
     }
     pub fn drop_field_refcount(&mut self, field_id: FieldId) {
@@ -737,7 +742,7 @@ impl<'a> JobSession<'a> {
         self.job_data.field_mgr.fields.clear();
         self.job_data.tf_mgr.ready_queue.clear();
         let ms_id = self.job_data.match_set_mgr.add_match_set();
-        //TODO: unpack record set properly here
+        // TODO: unpack record set properly here
         let input_record_count = job.data.adjust_field_lengths();
         let mut input_data = None;
         let mut input_data_fields = self.temp_vec.get();
@@ -886,7 +891,7 @@ impl<'a> JobSession<'a> {
                     }
                 }
                 OperatorData::Key(op) => {
-                    assert!(op_base.label.is_none()); //TODO
+                    assert!(op_base.label.is_none()); // TODO
                     self.job_data.match_set_mgr.add_field_name(
                         &self.job_data.field_mgr,
                         prev_output_field,

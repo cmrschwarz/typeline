@@ -30,7 +30,7 @@ pub fn handle_tf_count(
     count: &mut TfCount,
 ) {
     let (batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
-    count.count += batch_size; //TODO: maybe handle overflow?
+    count.count += batch_size; // TODO: maybe handle overflow?
     if input_done {
         let output_field_id = sess.tf_mgr.transforms[tf_id].output_field;
         sess.field_mgr.fields[output_field_id]

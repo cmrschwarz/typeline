@@ -105,7 +105,7 @@ pub fn handle_tf_sequence(
     let seq_size_rem = (seq.ss.end - seq.ss.start) / seq.ss.step;
     let count = batch_size.min(seq_size_rem as usize);
 
-    //PERF: batch this
+    // PERF: batch this
     if !succ_wants_text {
         for _ in 0..count {
             output_field

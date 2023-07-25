@@ -117,7 +117,8 @@ impl IterHall {
         unsafe { self.store_iter_unchecked(iter_id, iter) };
     }
     // the point of this is not to save the runtime of one assert, but
-    // to actually bypass that check if we store an iter that comes from our cow_source
+    // to actually bypass that check if we store an iter that comes from our
+    // cow_source
     pub unsafe fn store_iter_unchecked<'a>(
         &self,
         iter_id: IterId,

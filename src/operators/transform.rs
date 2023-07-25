@@ -57,7 +57,8 @@ impl Default for TransformData<'_> {
 pub struct TransformState {
     pub successor: Option<TransformId>,
     pub predecessor: Option<TransformId>,
-    pub continuation: Option<TransformId>, // next transform in line that is in append mode
+    pub continuation: Option<TransformId>, /* next transform in line that
+                                            * is in append mode */
     pub input_field: FieldId,
     pub output_field: FieldId,
     pub any_prev_has_unconsumed_input: bool,

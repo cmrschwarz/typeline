@@ -192,8 +192,9 @@ fn setup_target_field_mappings(
         None,
     );
     for (name, _write) in accessed_field_map {
-        // PERF: if the field is never written, and we know that the source chain never writes to it aswell,
-        // we could theoretically unsafely share the FieldData (and maybe add a flag for soundness)
+        // PERF: if the field is never written, and we know that the source
+        // chain never writes to it aswell, we could theoretically
+        // unsafely share the FieldData (and maybe add a flag for soundness)
         if let Some(source_field_id) =
             source_match_set.field_name_map.get(name).cloned()
         {

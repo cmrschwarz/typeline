@@ -55,9 +55,10 @@ pub fn decode_to_utf8<E>(
         let output_buffer = unsafe {
             // SAFETY: we create an uninitialized slice &[u8] here.
             // decode_to_utf8_without_replacement will only write,
-            // and not read from it. While the UB-ness of this is apparently undecided,
-            // this library has no other api and uses this construct internally a lot too,
-            // so if we're gonna use it we might aswell ...
+            // and not read from it. While the UB-ness of this is apparently
+            // undecided, this library has no other api and uses
+            // this construct internally a lot too, so if we're
+            // gonna use it we might aswell ...
             std::slice::from_raw_parts_mut(
                 output.as_mut_ptr().add(written),
                 output.capacity() - written,

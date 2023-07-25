@@ -6,7 +6,8 @@ pub struct TempVec {
     align: u8,
     capacity: usize,
 }
-//SAFETY: we have a unique pointer to our data (but ptr::Unique isn't stable yet...)
+// SAFETY: we have a unique pointer to our data (but ptr::Unique isn't stable
+// yet...)
 unsafe impl Send for TempVec {}
 
 impl Default for TempVec {

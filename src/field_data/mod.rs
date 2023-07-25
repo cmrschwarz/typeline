@@ -1,6 +1,7 @@
-// This module implements a run-length encoded, dynamically typed data structure (FieldData)
-// the type information for each entry is stored in a separate vec from the main data
-// the type information itself is run-length encoded even if the data for the two entries is different
+// This module implements a run-length encoded, dynamically typed data
+// structure (FieldData) the type information for each entry is stored in a
+// separate vec from the main data the type information itself is run-length
+// encoded even if the data for the two entries is different
 
 // SAFETY: due to its nature, this datastructure requires a lot of unsafe code,
 // some of which is very repetitive. So far, nobody could be bothered
@@ -42,7 +43,7 @@ use self::{
     typed::TypedSlice,
 };
 
-//if the u32 overflows we just split into two values
+// if the u32 overflows we just split into two values
 pub type RunLength = u32;
 
 #[derive(Clone, Copy, PartialEq)]
@@ -50,7 +51,7 @@ pub type RunLength = u32;
 pub enum FieldValueKind {
     Success,
     Null,
-    Integer, //TODO: bigint, float, decimal, ...
+    Integer, // TODO: bigint, float, decimal, ...
     StreamValueId,
     Reference,
     Error,
@@ -166,12 +167,12 @@ pub struct Null;
 pub struct Success;
 
 #[derive(Clone)]
-#[allow(dead_code)] //TODO
+#[allow(dead_code)] // TODO
 struct ObjectEntry {
     kind: FieldValueKind,
     data_offset: usize,
 }
-#[allow(dead_code)] //TODO
+#[allow(dead_code)] // TODO
 #[derive(Clone)]
 pub struct Object {
     data: FieldData,
@@ -187,15 +188,15 @@ pub struct FieldReference {
 
 #[derive(Clone)]
 pub struct Html {
-    //TODO
+    // TODO
 }
 
 #[derive(Clone)]
 pub struct BytesBufferFile {
-    //TODO
+    // TODO
 }
 
-//used to figure out the maximum alignment
+// used to figure out the maximum alignment
 #[repr(C)]
 union FieldValueUnion {
     text: ManuallyDrop<String>,
@@ -212,9 +213,9 @@ pub type FieldValueSize = u16;
 pub mod field_value_flags {
     use super::MAX_FIELD_ALIGN;
     pub type FieldValueFlags = u8;
-    //offset must be zero so we don't have to shift
+    // offset must be zero so we don't have to shift
     const_assert!(MAX_FIELD_ALIGN.is_power_of_two() && MAX_FIELD_ALIGN <= 16);
-    pub const LEADING_PADDING: FieldValueFlags = 0xF; //consumes offsets 0 through 3
+    pub const LEADING_PADDING: FieldValueFlags = 0xF; // consumes offsets 0 through 3
     pub const SAME_VALUE_AS_PREVIOUS_OFFSET: FieldValueFlags = 4;
     pub const SHARED_VALUE_OFFSET: FieldValueFlags = 5;
     pub const BYTES_ARE_UTF8_OFFSET: FieldValueFlags = 6;
@@ -488,7 +489,8 @@ impl FieldData {
         targets_applicator: &mut impl FnMut(&mut dyn FnMut(&mut FieldData)),
     ) -> usize {
         let mut copied_fields = 0;
-        // by setting the deleted flag here, we can avoid copying deleted records
+        // by setting the deleted flag here, we can avoid copying deleted
+        // records
         while let Some(tr) = iter.typed_range_fwd(
             match_set_mgr,
             usize::MAX,
@@ -514,7 +516,7 @@ impl FieldData {
                             RefAwareInlineBytesIter::from_range(&tr, data)
                         {
                             targets_applicator(&mut |fd| {
-                                //TODO: maybe do a little rle here?
+                                // TODO: maybe do a little rle here?
                                 fd.header.push(FieldValueHeader {
                                     fmt: FieldValueFormat {
                                         kind: FieldValueKind::BytesInline,
@@ -532,7 +534,7 @@ impl FieldData {
                             RefAwareInlineTextIter::from_range(&tr, data)
                         {
                             targets_applicator(&mut |fd| {
-                                //TODO: maybe do a little rle here?
+                                // TODO: maybe do a little rle here?
                                 fd.header.push(FieldValueHeader {
                                     fmt: FieldValueFormat {
                                         kind: FieldValueKind::BytesInline,

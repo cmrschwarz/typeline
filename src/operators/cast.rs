@@ -96,7 +96,7 @@ pub struct TfCast {
     batch_iter: IterId,
     pending_streams: usize,
     invalid_unicode_handler: Box<dyn InvalidUnicodeHandlerFn>,
-    //TODO
+    // TODO
     #[allow(dead_code)]
     reuse_input_column: bool,
     #[allow(dead_code)]
@@ -171,7 +171,7 @@ pub fn handle_tf_cast(
         .field_mgr
         .borrow_field_cow(tf.input_field, tf.has_unconsumed_input());
 
-    //PERF: make use of reuse_input_column
+    // PERF: make use of reuse_input_column
     let mut output_field = sess.field_mgr.fields[tf.output_field].borrow_mut();
 
     if tf.preferred_input_type.is_some_and(|i| i.is_zst())

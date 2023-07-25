@@ -284,9 +284,10 @@ impl<'a> TypedRange<'a> {
     }
 }
 
-// SAFETY: the range contained in this header is non writable outside of this module.
-// Therefore, nobody outside this module can (safely) construct a ValidTypedRange.
-// We can therefore assume all instances to be valid (header matches data)
+// SAFETY: the range contained in this header is non writable outside of this
+// module. Therefore, nobody outside this module can (safely) construct a
+// ValidTypedRange. We can therefore assume all instances to be valid (header
+// matches data)
 pub struct ValidTypedRange<'a>(pub(super) TypedRange<'a>);
 
 impl<'a> Deref for ValidTypedRange<'a> {

@@ -67,7 +67,8 @@ pub fn setup_ts_fork_as_entry_point<'a, 'b>(
 ) -> (TransformState, TransformData<'a>) {
     let mut state = TransformState::new(
         input_field,
-        input_field, // does not have any output field since it terminates the chain
+        input_field, /* does not have any output field since it terminates
+                      * the chain */
         ms_id,
         ops.clone().fold(usize::MAX, |minimum_batch_size, op| {
             let cid = sess.session_data.operator_bases[*op as usize].chain_id;
@@ -185,7 +186,8 @@ pub(crate) fn handle_fork_expansion(
     let fork_chain_id = sess.job_data.session_data.operator_bases[fork_op_id]
         .chain_id as usize;
 
-    // by reversing this, the earlier subchains get the higher tf ordering ids -> get executed first
+    // by reversing this, the earlier subchains get the higher tf ordering ids
+    // -> get executed first
     for i in (0..sess.job_data.session_data.chains[fork_chain_id]
         .subchains
         .len())

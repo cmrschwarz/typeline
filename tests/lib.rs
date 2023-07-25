@@ -177,7 +177,7 @@ fn trickling_stream() -> Result<(), ScrError> {
         ))
         .add_op(create_op_string_sink(&ss))
         .run()?;
-    //not using assert_eq here because the output is very large
+    // not using assert_eq here because the output is very large
     assert!(
         ss.get_data().unwrap().as_slice()
             == [std::iter::repeat("a").take(SIZE).collect::<String>()]
@@ -343,7 +343,7 @@ fn unset_field_value() -> Result<(), ScrError> {
     );
     assert_eq!(
         ss.get().get_first_error_message(),
-        Some("Format Error") //TODO: better error message
+        Some("Format Error") // TODO: better error message
     );
     Ok(())
 }
@@ -373,7 +373,7 @@ fn nonexisting_key() -> Result<(), ScrError> {
     assert!(ss.get_data().is_err());
     assert_eq!(
         ss.get().get_first_error_message(),
-        Some("Format Error") //TODO: better error message
+        Some("Format Error") // TODO: better error message
     );
     Ok(())
 }
@@ -388,7 +388,7 @@ fn nonexisting_format_width_key() -> Result<(), ScrError> {
     assert!(ss.get_data().is_err());
     assert_eq!(
         ss.get().get_first_error_message(),
-        Some("Format Error") //TODO: better error message
+        Some("Format Error") // TODO: better error message
     );
     Ok(())
 }
@@ -712,11 +712,11 @@ fn join_drop_incomplete() -> Result<(), ScrError> {
 #[test]
 fn join_empty() -> Result<(), ScrError> {
     let ss = StringSinkHandle::new();
-    /*   ContextBuilder::default()
-        .add_op(create_op_join(None, None, true))
-        .add_op(create_op_string_sink(&ss))
-        .run()?;
-    assert_eq!(ss.get_data().unwrap().as_slice(), &[] as &[String]);*/
+    //   ContextBuilder::default()
+    // .add_op(create_op_join(None, None, true))
+    // .add_op(create_op_string_sink(&ss))
+    // .run()?;
+    // assert_eq!(ss.get_data().unwrap().as_slice(), &[] as &[String]);
     ContextBuilder::default()
         .add_op(create_op_join(None, None, false))
         .add_op(create_op_string_sink(&ss))

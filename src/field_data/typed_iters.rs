@@ -209,7 +209,7 @@ impl<'a, T: 'static> Iterator for TypedSliceIter<'a, T> {
             if self.header_rl_rem == 0 {
                 self.next_header();
             } else {
-                self.next_value(); //shared value was handled above
+                self.next_value(); // shared value was handled above
             }
             return Some((value, 1));
         }

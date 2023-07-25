@@ -85,7 +85,7 @@ struct ActionList {
     first_unapplied_al_idx_in_prev_apf: ActionListIndex,
     actions_start: usize,
     actions_end: usize,
-    //TODO: refcount + always have the next unsused
+    // TODO: refcount + always have the next unsused
     // al ready so it can have a recount
 }
 
@@ -99,7 +99,7 @@ struct LocallyMergedActionList {
 struct MergedActionLists {
     prev_apf_idx: Option<ActionProducingFieldIndex>,
     next_apf_idx: Option<ActionProducingFieldIndex>,
-    #[allow(dead_code)] //TODO: remove fields
+    #[allow(dead_code)] // TODO: remove fields
     action_lists_index_offset: usize,
     locally_merged_action_lists: Vec<LocallyMergedActionList>,
     locally_merged_actions: Vec<FieldAction>,
@@ -159,8 +159,9 @@ impl MergedActionLists {
         assert!(self.is_legal_field_idx_for_action(field_idx));
         let al = self.action_lists.last_mut().unwrap();
         if al.actions_end > al.actions_start {
-            // very simple early merging of actions to hopefully save some memory
-            // this also allows operations to be slightly more 'wasteful' with their action pushes
+            // very simple early merging of actions to hopefully save some
+            // memory this also allows operations to be slightly
+            // more 'wasteful' with their action pushes
             let last = &mut self.actions[al.actions_end - 1];
             if last.kind == kind
                 && last.field_idx == field_idx
@@ -394,7 +395,7 @@ impl CommandBuffer {
         let first_unapplied_al_idx = &mut field.first_unapplied_al;
         let prev_curr_apf_idx = *curr_apf_idx;
         let prev_first_unapplied_apf_idx = *first_unapplied_al_idx;
-        //TODO: this is pretty wasteful. figure out a better way to do this
+        // TODO: this is pretty wasteful. figure out a better way to do this
         self.prepare_action_lists(
             min_apf_idx,
             curr_apf_idx,
@@ -1675,7 +1676,8 @@ impl CommandBuffer {
             field_pos += fd.header[header_idx].run_length as usize;
             field_pos_old += curr_header_original_rl as usize;
         } else {
-            // if we touched all headers, there is a chance that the final headers are deleted
+            // if we touched all headers, there is a chance that the final
+            // headers are deleted
             while header_idx > 0 {
                 let h = fd.header[header_idx - 1];
                 if !h.deleted() {
@@ -1714,8 +1716,8 @@ impl CommandBuffer {
         fd.header.reserve(new_size - fd.header.len());
 
         let header_ptr = fd.header.as_mut_ptr();
-        // PERF: it *might* be faster to interleave the insertions and copies for
-        // better cache utilization
+        // PERF: it *might* be faster to interleave the insertions and copies
+        // for better cache utilization
         unsafe {
             for c in self.copies.iter().rev() {
                 std::ptr::copy(

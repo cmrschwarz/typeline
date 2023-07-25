@@ -102,8 +102,10 @@ pub enum FormatType {
     Octal, // print integers with base 8, e.g 52 instead of 42
     Hex,   // print integers in lower case hexadecimal, e.g 2a instead of 42
     UpperHex, // print integers in upper case hexadecimal, e.g 2A instead of 42
-    LowerExp, // print numbers in upper case scientific notation, e.g. 4.2e1 instead of 42
-    UpperExp, // print numbers in lower case scientific notation, e.g. 4.2E1 instead of 42
+    LowerExp, /* print numbers in upper case scientific notation, e.g. 4.2e1
+            * instead of 42 */
+    UpperExp, /* print numbers in lower case scientific notation, e.g.
+               * 4.2E1 instead of 42 */
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
@@ -114,7 +116,8 @@ pub struct FormatKey {
     zero_pad_numbers: bool,
     width: Option<FormatWidthSpec>,
     float_precision: Option<FormatWidthSpec>,
-    alternate_form: bool, // prefix 0x for hex, 0o for octal and 0b for binary, pretty print objects / arrays
+    alternate_form: bool, /* prefix 0x for hex, 0o for octal and 0b for
+                           * binary, pretty print objects / arrays */
     format_type: FormatType,
     debug: bool,
     unicode: bool,
@@ -249,8 +252,9 @@ pub fn setup_tf_format<'a>(
             } else {
                 let mut f =
                     sess.field_mgr.fields[tf_state.input_field].borrow_mut();
-                // while the ref count was already bumped by the transform creation
-                // cleaning up this transform is simpler this way
+                // while the ref count was already bumped by the transform
+                // creation cleaning up this transform is
+                // simpler this way
                 f.ref_count += 1;
                 (tf_state.input_field, f)
             };
@@ -732,8 +736,10 @@ pub fn lookup_widths(
     unconsumed_input: bool,
     apply_actions: bool,
     update_iter: bool,
-    succ_func: impl Fn(&mut TfFormat, &mut usize, usize, usize), //output idx, width, run length
-    err_func: impl Fn(&mut TfFormat, &mut usize, usize), //output idx, width, run length
+    succ_func: impl Fn(&mut TfFormat, &mut usize, usize, usize), /* output idx, width, run length */
+    err_func: impl Fn(&mut TfFormat, &mut usize, usize),         /* output idx,
+                                                                  * width, run
+                                                                  * length */
 ) {
     let ident_ref = if let Some(FormatWidthSpec::Ref(ident)) = k.width {
         fmt.refs[ident]
@@ -1115,8 +1121,8 @@ pub fn setup_key_output_state(
             }
         },
     );
-    // we don't store the iter state back here because we need to iterate a second time
-    // for the actual write
+    // we don't store the iter state back here because we need to iterate a
+    // second time for the actual write
 }
 unsafe fn write_bytes_to_target(tgt: &mut OutputTarget, bytes: &[u8]) {
     unsafe {
@@ -1406,7 +1412,7 @@ fn write_fmt_key(
     batch_size: usize,
     k: &FormatKey,
 ) {
-    //any potential unconsumed input was already set during width calculation
+    // any potential unconsumed input was already set during width calculation
     let unconsumed_input = false;
     lookup_widths(
         field_mgr,
@@ -1442,7 +1448,7 @@ fn write_fmt_key(
         usize::MAX,
         field_value_flags::BYTES_ARE_UTF8,
     ) {
-        //TODO: respect format options
+        // TODO: respect format options
         match range.base.data {
             TypedSlice::Reference(_) => unreachable!(),
             TypedSlice::TextInline(text) => {
@@ -1788,7 +1794,7 @@ pub fn handle_tf_format_stream_value_update(
                         if sv.done {
                             tgt_buf.extend(&data[handle.handled_len..]);
                         } else {
-                            //TODO: change the subscription type
+                            // TODO: change the subscription type
                         }
                     }
                     if sv.done {
@@ -1802,7 +1808,7 @@ pub fn handle_tf_format_stream_value_update(
                             );
                             tgt_buf.reserve(len);
                             unsafe {
-                                //TODO: this is a hack, create a separate impl
+                                // TODO: this is a hack, create a separate impl
                                 let mut output_target = OutputTarget {
                                     run_len: 1,
                                     width_lookup: handle.width_lookup,
@@ -1965,7 +1971,7 @@ mod test {
         let mut idents = Default::default();
         assert_eq!(
             parse_format_string("{a:1x$}".as_bytes(), &mut idents),
-            Err((4, Cow::Borrowed("expected '?' after type specifier 'x'"))) //TODO: better error message for this case
+            Err((4, Cow::Borrowed("expected '?' after type specifier 'x'"))) /* TODO: better error message for this case */
         );
     }
 

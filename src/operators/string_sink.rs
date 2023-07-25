@@ -398,7 +398,7 @@ pub fn handle_tf_string_sink(
                                     );
                                 }
                             } else {
-                                //to initialize the slots
+                                // to initialize the slots
                                 push_string(
                                     &mut out,
                                     String::new(),

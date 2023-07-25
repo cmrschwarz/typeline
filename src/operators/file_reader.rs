@@ -74,7 +74,7 @@ pub enum AnyFile {
     File(File),
     BufferedFile(BufReader<File>),
     Custom(Box<dyn Read + Send>),
-    //option so we can take it and raise it as an error later
+    // option so we can take it and raise it as an error later
     FileOpenIoError(Option<std::io::Error>),
 }
 
@@ -110,7 +110,8 @@ impl OpFileReader {
 }
 
 pub struct TfFileReader {
-    // in case of errors, we close this by take()ing the file, therefore option
+    // in case of errors, we close this by take()ing the file, therefore
+    // option
     file: Option<AnyFile>,
     stream_value: Option<StreamValueId>,
     value_committed: bool,
@@ -126,7 +127,7 @@ pub fn setup_tf_file_reader<'a>(
     op: &'a OpFileReader,
     tf_state: &mut TransformState,
 ) -> TransformData<'a> {
-    //TODO: properly set up line buffering
+    // TODO: properly set up line buffering
     let mut check_if_tty = false;
     let mut line_buffered = match op.line_buffered {
         LineBufferedSetting::Yes => true,
@@ -606,9 +607,10 @@ pub fn create_op_file_reader_custom(
     )
 }
 
-// this is an escape hatch if the custom Read to be used does not implement clone
-// if this is used, attempting to clone this Operator
-// (e.g. while cloning the Context / ContextBuilder that it belongs to) will *panic*
+// this is an escape hatch if the custom Read to be used does not implement
+// clone if this is used, attempting to clone this Operator
+// (e.g. while cloning the Context / ContextBuilder that it belongs to) will
+// *panic*
 pub fn create_op_file_reader_custom_not_cloneable(
     read: Box<dyn Read + Send>,
     insert_count: usize,

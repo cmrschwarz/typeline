@@ -266,7 +266,8 @@ pub fn parse_op_literal(
     value: Option<&[u8]>,
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
-    // this should not happen in the cli parser because it checks using `argument_matches_data_inserter`
+    // this should not happen in the cli parser because it checks using
+    // `argument_matches_data_inserter`
     let args = ARG_REGEX.captures(&argument).ok_or_else(|| {
         OperatorCreationError::new(
             "invalid argument syntax for data inserter",

@@ -128,7 +128,7 @@ pub fn setup_tf_join<'a>(
         current_group_error: None,
         drop_incomplete: op.drop_incomplete,
         output_stream_val: None,
-        //TODO: add a separate setting for this
+        // TODO: add a separate setting for this
         stream_len_threshold: sess.session_data.chains
             [op_base.chain_id as usize]
             .settings
@@ -277,7 +277,7 @@ pub fn emit_group(
         output_field
             .field_data
             .push_stream_value_id(sv_id, 1, true, false);
-        //TODO: gc old stream values
+        // TODO: gc old stream values
         sv_mgr.inform_stream_value_subscribers(sv_id);
     } else if let Some(err) = join.current_group_error.take() {
         output_field.field_data.push_error(err, 1, true, false);
@@ -432,7 +432,7 @@ pub fn handle_tf_join(
                     let mut sv_iter =
                         RefAwareStreamValueIter::from_range(&range, svs);
                     while let Some((sv_id, offsets, rl)) = sv_iter.next() {
-                        assert!(Some(sv_id) != join.output_stream_val); //TODO: do some loop error handling
+                        assert!(Some(sv_id) != join.output_stream_val); // TODO: do some loop error handling
                         pos += rl as usize;
                         let sv = &mut sv_mgr.stream_values[sv_id];
                         match &sv.data {
@@ -455,11 +455,15 @@ pub fn handle_tf_join(
                                     .as_ref()
                                     .map(|o| &b[o.clone()])
                                     .unwrap_or(&b);
-                                // SAFETY: this is a buffer on the heap so it will not be affected
-                                // if the stream values vec is resized in case push_bytes_raw decides
+                                // SAFETY: this is a buffer on the heap so it
+                                // will not be affected
+                                // if the stream values vec is resized in case
+                                // push_bytes_raw decides
                                 // to alloc a stream value
-                                // we have to free this livetime from the sv_mgr here so we can access
-                                // our (guaranteed to be distinct) target stream value to push data
+                                // we have to free this livetime from the
+                                // sv_mgr here so we can access
+                                // our (guaranteed to be distinct) target
+                                // stream value to push data
                                 let b_laundered = unsafe {
                                     std::mem::transmute::<
                                         &'_ [u8],
@@ -547,7 +551,8 @@ pub fn handle_tf_join(
         emit_incomplete |= join.group_len > 0 && !join.drop_incomplete;
         // if we join all output, and there is output
         emit_incomplete |= join.group_capacity.is_none() && join.group_len > 0;
-        // if we join all output, there is potentially no output, but we don't drop incomplete
+        // if we join all output, there is potentially no output, but we don't
+        // drop incomplete
         emit_incomplete |=
             join.group_capacity.is_none() && !join.drop_incomplete;
         if emit_incomplete {

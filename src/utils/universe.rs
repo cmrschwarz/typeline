@@ -6,7 +6,8 @@ use std::{
 use nonmax::{NonMaxU32, NonMaxUsize};
 
 use super::get_two_distinct_mut;
-//TODO: create a Vec using this Index type but without the whole reclaiming mechainic
+// TODO: create a Vec using this Index type but without the whole reclaiming
+// mechainic
 
 pub trait UniverseIndex:
     Clone
@@ -125,7 +126,8 @@ impl<I, T> Default for Universe<I, T> {
 
 impl<I: UniverseIndex, T> Universe<I, T> {
     fn build_vacant_entry(&mut self, index: usize) -> UniverseEntry<T> {
-        // SAFETY: we can never have usize::MAX entries before running out of memory
+        // SAFETY: we can never have usize::MAX entries before running out of
+        // memory
         self.first_vacant_entry =
             Some(unsafe { NonMaxUsize::new_unchecked(index) });
         UniverseEntry::Vacant(self.first_vacant_entry)

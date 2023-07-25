@@ -29,7 +29,7 @@ pub const DEFAULT_CHAIN_OPTIONS: ChainOptions = ChainOptions {
     force_text_encoding: Argument::new_v(false),
     selenium_variant: Argument::new_v(None),
     selenium_download_strategy: Argument::new_v(SeleniumDownloadStrategy::Scr),
-    default_batch_size: Argument::new_v(1024), //TODO: tweak me
+    default_batch_size: Argument::new_v(1024), // TODO: tweak me
     stream_buffer_size: Argument::new_v(1024),
     stream_size_threshold: Argument::new_v(1024),
     buffering_mode: Argument::new_v(BufferingMode::LineBufferStdinIfTTY),

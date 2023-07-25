@@ -72,7 +72,7 @@ pub fn handle_tf_select(
     tf_id: TransformId,
     _sel: &mut TfSelect,
 ) {
-    //TODO: think about maybe handling errors from the input field here?
+    // TODO: think about maybe handling errors from the input field here?
     let tf = &sess.tf_mgr.transforms[tf_id];
     sess.field_mgr
         .apply_field_actions(&mut sess.match_set_mgr, tf.input_field);

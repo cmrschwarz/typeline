@@ -64,7 +64,8 @@ impl Clone for StringStore {
                 res.arena[arena_outer_idx].extend(str.as_bytes());
                 let str_clone = &res.arena[arena_outer_idx].as_slice()
                     [arena_inner_idx..arena_inner_idx + str.len()];
-                // SAFETY: same argument as for normal interning, we are just cloning here
+                // SAFETY: same argument as for normal interning, we are just
+                // cloning here
                 let str_ref_static: &'static str =
                     unsafe { std::mem::transmute(str_clone) };
                 res.table_str_to_idx.insert(str_ref_static, idx);
@@ -79,7 +80,8 @@ impl Clone for StringStore {
                     [existing_strs_inner_idx];
                 assert!(ex_str.as_ptr() == str_ptr);
                 let str_clone = ex_str.clone();
-                // SAFETY: same argument as for normal interning, we are just cloning here
+                // SAFETY: same argument as for normal interning, we are just
+                // cloning here
                 let str_ref_static: &'static str =
                     unsafe { std::mem::transmute(ex_str.as_ref()) };
                 res.existing_strings[existing_strs_outer_idx].push(str_clone);

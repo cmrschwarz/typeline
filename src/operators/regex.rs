@@ -73,9 +73,10 @@ pub struct RegexOptions {
     // any byte sequence that looks like a valid UTF-8 character
     pub ascii_mode: bool,
 
-    // don't attempt to preserve strings as valid utf8 and turn everything into
-    // byte sequences
-    // !!! if used from the cli, this implies ascii mode unless 'u' is specified
+    // don't attempt to preserve strings as valid utf8 and turn everything
+    // into byte sequences
+    // !!! if used from the cli, this implies ascii mode unless 'u' is
+    // specified
     pub binary_mode: bool,
 
     // return multiple matches instead of only the first
@@ -84,8 +85,8 @@ pub struct RegexOptions {
     // allow overlapping matches (only meaningful if multimatch is enabled)
     pub overlapping: bool,
 
-    // produce null values for all capture groups instead of dropping the record
-    // if matching fails
+    // produce null values for all capture groups instead of dropping the
+    // record if matching fails
     pub non_mandatory: bool,
 
     // makes ^ and $ match lines in addition to start / end of stream
@@ -191,8 +192,8 @@ pub fn preparse_replace_empty_capture_group<'a>(
                             break;
                         }
                         // if there is a 'real' error in the regex,
-                        // make sure to display the error based on the original regex,
-                        // not the tampered one
+                        // make sure to display the error based on the original
+                        // regex, not the tampered one
                         _ => return Ok((Cow::Borrowed(regex_str), None)),
                     }
                 }
@@ -881,9 +882,11 @@ pub fn handle_tf_regex(
                     } else {
                         sv.promote_to_buffer();
                         sv.subscribe(tf_id, rl as usize, true);
-                        // TODO: if multimatch is false and we are in optional mode
-                        // we can theoretically continue here, because there will always be exactly one match
-                        // we would need StreamValueData to support null for that though
+                        // TODO: if multimatch is false and we are in optional
+                        // mode we can theoretically
+                        // continue here, because there will always be exactly
+                        // one match we would need
+                        // StreamValueData to support null for that though
                         hit_stream_val = true;
                         break 'batch;
                     }

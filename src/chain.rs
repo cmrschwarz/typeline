@@ -50,7 +50,8 @@ const ANONYMOUS_INPUT_FIELD: StringStoreEntry = INVALID_STRING_STORE_ENTRY_2;
 pub struct ChainLivenessData {
     // the boolean value specifies whether the fields are only read (-> false)
     // or potentially written (dup/drop) to (-> true)
-    // the unnamed input field for the chain uses the special CHAIN_INPUT_FIELD value
+    // the unnamed input field for the chain uses the special
+    // CHAIN_INPUT_FIELD value
     pub fields_accessed_before_assignment:
         HashMap<StringStoreEntry, bool, BuildIdentityHasher>,
 
@@ -179,7 +180,7 @@ pub fn compute_local_liveness_data(sess: &mut Session, chain_id: ChainId) {
                 target_resolved,
                 ..
             }) => {
-                //TODO: this is incorrect. we need to properly handle calls
+                // TODO: this is incorrect. we need to properly handle calls
                 cn.liveness_data.add_successor(*target_resolved);
             }
             OperatorData::Key(key) => {
@@ -198,7 +199,8 @@ pub fn compute_local_liveness_data(sess: &mut Session, chain_id: ChainId) {
                 input_referenced = true;
             }
             OperatorData::Format(fmt) => {
-                // might not technically be true, but we handle the access in here already
+                // might not technically be true, but we handle the access in
+                // here already
                 input_accessed = false;
                 for f in &fmt.refs_idx {
                     cn.liveness_data.access_field_unless_anon(
@@ -209,7 +211,8 @@ pub fn compute_local_liveness_data(sess: &mut Session, chain_id: ChainId) {
             }
 
             OperatorData::FileReader(_) => {
-                // this only inserts if input is done, so no write flag neccessary
+                // this only inserts if input is done, so no write flag
+                // neccessary
                 input_accessed = false;
             }
             OperatorData::Literal(di) => {
@@ -241,9 +244,10 @@ pub fn compute_local_liveness_data(sess: &mut Session, chain_id: ChainId) {
             cn.liveness_data
                 .add_field_name_unless_anon(output_field, label);
         }
-        // because primitives like regex emits field references, we don't update the
-        // current field in those cases and pretend people are still accessing
-        // the original input field (which they are, through the FRs)
+        // because primitives like regex emits field references, we don't
+        // update the current field in those cases and pretend people
+        // are still accessing the original input field (which they
+        // are, through the FRs)
         if !transparent && !input_referenced {
             cn.liveness_data.mark_input_shadowed(input_field);
             input_field = next_input_field;
