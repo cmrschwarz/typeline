@@ -7,11 +7,17 @@ use crate::{
     cli::{CliArgumentError, MissingArgumentsError, PrintInfoAndExitError},
     context::Session,
     operators::{
-        errors::{OperatorApplicationError, OperatorCreationError, OperatorSetupError},
+        errors::{
+            OperatorApplicationError, OperatorCreationError,
+            OperatorSetupError,
+        },
         operator::OperatorId,
     },
     options::{
-        argument::{ArgumentReassignmentError, CliArgIdx, ARGUMENT_REASSIGNMENT_ERROR_MESSAGE},
+        argument::{
+            ArgumentReassignmentError, CliArgIdx,
+            ARGUMENT_REASSIGNMENT_ERROR_MESSAGE,
+        },
         session_options::SessionOptions,
     },
 };
@@ -83,7 +89,8 @@ impl ContextualizedScrError {
         sess: Option<&Session>,
     ) -> Self {
         Self {
-            contextualized_message: err.contextualize_message(args, ctx_opts, sess),
+            contextualized_message: err
+                .contextualize_message(args, ctx_opts, sess),
             err,
         }
     }
@@ -95,13 +102,19 @@ impl From<ContextualizedScrError> for ScrError {
     }
 }
 
-pub fn result_into<T, E, EFrom: Into<E>>(result: Result<T, EFrom>) -> Result<T, E> {
+pub fn result_into<T, E, EFrom: Into<E>>(
+    result: Result<T, EFrom>,
+) -> Result<T, E> {
     match result {
         Ok(v) => Ok(v),
         Err(e) => Err(e.into()),
     }
 }
-fn contextualize_cli_arg(msg: &str, args: Option<&Vec<Vec<u8>>>, cli_arg_idx: CliArgIdx) -> String {
+fn contextualize_cli_arg(
+    msg: &str,
+    args: Option<&Vec<Vec<u8>>>,
+    cli_arg_idx: CliArgIdx,
+) -> String {
     if let Some(args) = args {
         format!(
             "in cli arg {} `{}`: {}",
@@ -123,7 +136,11 @@ fn contextualize_op_id(
 ) -> String {
     let cli_arg_id = ctx_opts
         .and_then(|o| o.operator_base_options[op_id as usize].cli_arg_idx)
-        .or_else(|| sess.and_then(|sess| sess.operator_bases[op_id as usize].cli_arg_idx));
+        .or_else(|| {
+            sess.and_then(|sess| {
+                sess.operator_bases[op_id as usize].cli_arg_idx
+            })
+        });
     if let (Some(args), Some(cli_arg_id)) = (args, cli_arg_id) {
         contextualize_cli_arg(msg, Some(args), cli_arg_id)
     } else {
@@ -172,26 +189,42 @@ impl ScrError {
                         String::from_utf8_lossy(&args[prev as usize - 1]),
                     )
                 } else if let Some(arg) = e.cli_arg_idx {
-                    contextualize_cli_arg(ARGUMENT_REASSIGNMENT_ERROR_MESSAGE, args_gathered, arg)
+                    contextualize_cli_arg(
+                        ARGUMENT_REASSIGNMENT_ERROR_MESSAGE,
+                        args_gathered,
+                        arg,
+                    )
                 } else {
                     return ARGUMENT_REASSIGNMENT_ERROR_MESSAGE.to_string();
                 }
             }
             ScrError::ReplDisabledError(e) => {
                 if let Some(cli_arg_idx) = e.cli_arg_idx {
-                    contextualize_cli_arg(&e.message, args_gathered, cli_arg_idx)
+                    contextualize_cli_arg(
+                        &e.message,
+                        args_gathered,
+                        cli_arg_idx,
+                    )
                 } else {
                     return e.message.to_string();
                 }
             }
             ScrError::ChainSetupError(e) => e.to_string(),
             ScrError::OperationCreationError(e) => e.message.to_string(),
-            ScrError::OperationSetupError(e) => {
-                contextualize_op_id(&e.message, e.op_id, args_gathered, ctx_opts, sess)
-            }
-            ScrError::OperationApplicationError(e) => {
-                contextualize_op_id(&e.message, e.op_id, args_gathered, ctx_opts, sess)
-            }
+            ScrError::OperationSetupError(e) => contextualize_op_id(
+                &e.message,
+                e.op_id,
+                args_gathered,
+                ctx_opts,
+                sess,
+            ),
+            ScrError::OperationApplicationError(e) => contextualize_op_id(
+                &e.message,
+                e.op_id,
+                args_gathered,
+                ctx_opts,
+                sess,
+            ),
             ScrError::PrintInfoAndExitError(e) => format!("{}", e),
             ScrError::MissingArgumentsError(e) => format!("{}", e),
         }

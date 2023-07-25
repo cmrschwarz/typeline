@@ -8,10 +8,16 @@ use crate::{
     field_data::{
         command_buffer::{ActionProducingFieldIndex, FieldActionKind},
         iter_hall::IterId,
-        record_buffer::{RecordBuffer, RecordBufferData, RecordBufferField, RecordBufferFieldId},
+        record_buffer::{
+            RecordBuffer, RecordBufferData, RecordBufferField,
+            RecordBufferFieldId,
+        },
         FieldData,
     },
-    job_session::{FieldId, FieldManager, JobData, JobSession, MatchSetId, INVALID_FIELD_ID},
+    job_session::{
+        FieldId, FieldManager, JobData, JobSession, MatchSetId,
+        INVALID_FIELD_ID,
+    },
     options::argument::CliArgIdx,
     ref_iter::AutoDerefIter,
     utils::{
@@ -53,9 +59,19 @@ pub fn parse_op_call_concurrent(
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
     let value_str = value
-        .ok_or_else(|| OperatorCreationError::new("missing argument with key for select", arg_idx))?
+        .ok_or_else(|| {
+            OperatorCreationError::new(
+                "missing argument with key for select",
+                arg_idx,
+            )
+        })?
         .to_str()
-        .map_err(|_| OperatorCreationError::new("target label must be valid UTF-8", arg_idx))?;
+        .map_err(|_| {
+            OperatorCreationError::new(
+                "target label must be valid UTF-8",
+                arg_idx,
+            )
+        })?;
     Ok(OperatorData::CallConcurrent(OpCallConcurrent {
         target_name: value_str.to_owned(),
         target_resolved: INVALID_CHAIN_ID,
@@ -71,7 +87,9 @@ pub fn setup_op_call_concurrent(
 ) -> Result<(), OperatorSetupError> {
     if settings.max_threads == 1 {
         return Err(OperatorSetupError::new_s(
-            format!("callcc cannot be used with a max thread count of 1, see `h=j`"),
+            format!(
+                "callcc cannot be used with a max thread count of 1, see `h=j`"
+            ),
             op_id,
         ));
     }
@@ -131,13 +149,14 @@ fn insert_mapping(
         std::collections::hash_map::Entry::Vacant(e) => {
             e.insert(field_mappings.len());
             field_mgr.bump_field_refcount(source_field_id);
-            let buf_field = buf_data.fields.claim_with_value(RecordBufferField {
-                refcount: 1,
-                names: name
-                    .map(|name| smallvec::smallvec![name])
-                    .unwrap_or_default(),
-                data: Default::default(),
-            });
+            let buf_field =
+                buf_data.fields.claim_with_value(RecordBufferField {
+                    refcount: 1,
+                    names: name
+                        .map(|name| smallvec::smallvec![name])
+                        .unwrap_or_default(),
+                    data: Default::default(),
+                });
             field_mappings.push(RecordBufferFieldMapping {
                 source_field_id,
                 source_field_iter: field_mgr.fields[source_field_id]
@@ -157,8 +176,10 @@ fn setup_target_field_mappings(
     let buf = Arc::get_mut(&mut call.buffer).unwrap();
     let buf_data = buf.fields.get_mut().unwrap();
     let target_chain = &sess.session_data.chains[call.target_chain as usize];
-    let mut mappings_present = HashMap::<FieldId, usize, BuildIdentityHasher>::default();
-    let accessed_field_map = &target_chain.liveness_data.fields_accessed_before_assignment;
+    let mut mappings_present =
+        HashMap::<FieldId, usize, BuildIdentityHasher>::default();
+    let accessed_field_map =
+        &target_chain.liveness_data.fields_accessed_before_assignment;
     let tf = &sess.tf_mgr.transforms[tf_id];
     let source_match_set = &sess.match_set_mgr.match_sets[tf.match_set_id];
 
@@ -173,7 +194,9 @@ fn setup_target_field_mappings(
     for (name, _write) in accessed_field_map {
         // PERF: if the field is never written, and we know that the source chain never writes to it aswell,
         // we could theoretically unsafely share the FieldData (and maybe add a flag for soundness)
-        if let Some(source_field_id) = source_match_set.field_name_map.get(name).cloned() {
+        if let Some(source_field_id) =
+            source_match_set.field_name_map.get(name).cloned()
+        {
             insert_mapping(
                 &sess.field_mgr,
                 &mut mappings_present,
@@ -191,14 +214,18 @@ pub(crate) fn handle_call_concurrent_expansion(
     tf_id: TransformId,
     ctx: Option<&Arc<ContextData>>,
 ) -> Result<(), VentureDescription> {
-    let call = if let TransformData::CallConcurrent(call) = &mut sess.transform_data[tf_id.get()] {
+    let call = if let TransformData::CallConcurrent(call) =
+        &mut sess.transform_data[tf_id.get()]
+    {
         call
     } else {
         unreachable!()
     };
     call.expanded = true;
     setup_target_field_mappings(&mut sess.job_data, tf_id, call);
-    let starting_op = sess.job_data.session_data.chains[call.target_chain as usize].operators[0];
+    let starting_op = sess.job_data.session_data.chains
+        [call.target_chain as usize]
+        .operators[0];
     let mut venture_desc = VentureDescription {
         participans_needed: 2,
         starting_points: smallvec::smallvec![OperatorId::MAX, starting_op],
@@ -231,8 +258,10 @@ pub fn handle_tf_call_concurrent(
     let tf = &sess.tf_mgr.transforms[tf_id];
     assert!(tf.successor.is_none());
     for mapping in &tfc.field_mappings {
-        sess.field_mgr
-            .apply_field_actions(&mut sess.match_set_mgr, mapping.source_field_id);
+        sess.field_mgr.apply_field_actions(
+            &mut sess.match_set_mgr,
+            mapping.source_field_id,
+        );
     }
     let mut buf_data = tfc.buffer.fields.lock().unwrap();
     while buf_data.available_batch_size != 0 {
@@ -272,7 +301,8 @@ pub fn handle_tf_call_concurrent(
             );
         } else {
             drop(src_field);
-            let mut src_field_mut = sess.field_mgr.fields[mapping.source_field_id].borrow_mut();
+            let mut src_field_mut =
+                sess.field_mgr.fields[mapping.source_field_id].borrow_mut();
             let src_data = unsafe { src_field_mut.field_data.raw() };
             std::mem::swap(tgt_data, src_data);
         }
@@ -281,13 +311,22 @@ pub fn handle_tf_call_concurrent(
     buf_data.available_batch_size += batch_size;
     drop(buf_data);
     tfc.buffer.updates.notify_one();
-    let cb = &mut sess.match_set_mgr.match_sets[tf.match_set_id].command_buffer;
+    let cb =
+        &mut sess.match_set_mgr.match_sets[tf.match_set_id].command_buffer;
     cb.begin_action_list(tfc.apf_idx);
-    cb.push_action_with_usize_rl(tfc.apf_idx, FieldActionKind::Drop, 0, batch_size);
+    cb.push_action_with_usize_rl(
+        tfc.apf_idx,
+        FieldActionKind::Drop,
+        0,
+        batch_size,
+    );
     cb.end_action_list(tfc.apf_idx);
     for mapping in &tfc.field_mappings {
-        let mut src_field = sess.field_mgr.fields[mapping.source_field_id].borrow_mut();
-        if src_field.cow_source.is_some() || src_field.has_unconsumed_input.get() {
+        let mut src_field =
+            sess.field_mgr.fields[mapping.source_field_id].borrow_mut();
+        if src_field.cow_source.is_some()
+            || src_field.has_unconsumed_input.get()
+        {
             continue;
         }
         sess.match_set_mgr.match_sets[tf.match_set_id]
@@ -306,7 +345,9 @@ pub fn setup_callee_concurrent(
     buffer: Arc<RecordBuffer>,
     start_op_id: OperatorId,
 ) -> (TransformId, TransformId, bool) {
-    let chain_id = sess.job_data.session_data.operator_bases[start_op_id as usize].chain_id;
+    let chain_id = sess.job_data.session_data.operator_bases
+        [start_op_id as usize]
+        .chain_id;
     let chain = &sess.job_data.session_data.chains[chain_id as usize];
     let tf_state = TransformState::new(
         INVALID_FIELD_ID,
@@ -325,17 +366,23 @@ pub fn setup_callee_concurrent(
     for field in buf_data.fields.iter_mut() {
         let field_id = sess.job_data.field_mgr.add_field(ms_id, None);
         for n in &field.names {
-            sess.job_data
-                .match_set_mgr
-                .add_field_name(&sess.job_data.field_mgr, field_id, *n);
+            sess.job_data.match_set_mgr.add_field_name(
+                &sess.job_data.field_mgr,
+                field_id,
+                *n,
+            );
         }
         callee.target_fields.push(field_id);
     }
     drop(buf_data);
-    let (tf_start, tf_end, end_reachable) =
-        sess.setup_transforms_from_op(ms_id, start_op_id, callee.target_fields[0]);
+    let (tf_start, tf_end, end_reachable) = sess.setup_transforms_from_op(
+        ms_id,
+        start_op_id,
+        callee.target_fields[0],
+    );
 
-    let tf_id = sess.add_transform(tf_state, TransformData::CalleeConcurrent(callee));
+    let tf_id =
+        sess.add_transform(tf_state, TransformData::CalleeConcurrent(callee));
     sess.job_data.tf_mgr.transforms[tf_id].successor = Some(tf_start);
     sess.job_data.tf_mgr.transforms[tf_start].predecessor = Some(tf_id);
     (tf_id, tf_end, end_reachable)
@@ -346,7 +393,8 @@ pub fn handle_tf_callee_concurrent(
     tf_id: TransformId,
     tfc: &mut TfCalleeConcurrent,
 ) {
-    let cb = &mut sess.match_set_mgr.match_sets[sess.tf_mgr.transforms[tf_id].match_set_id]
+    let cb = &mut sess.match_set_mgr.match_sets
+        [sess.tf_mgr.transforms[tf_id].match_set_id]
         .command_buffer;
     for field_id in tfc.target_fields.iter_mut() {
         if *field_id == INVALID_FIELD_ID {
@@ -369,8 +417,11 @@ pub fn handle_tf_callee_concurrent(
             continue;
         }
         let mut field_tgt = sess.field_mgr.fields[*field].borrow_mut();
-        let field_src = &mut buf_data.fields[RecordBufferFieldId::new(i as u32).unwrap()];
-        std::mem::swap(&mut field_src.data, unsafe { field_tgt.field_data.raw() });
+        let field_src =
+            &mut buf_data.fields[RecordBufferFieldId::new(i as u32).unwrap()];
+        std::mem::swap(&mut field_src.data, unsafe {
+            field_tgt.field_data.raw()
+        });
         if input_done || field_tgt.ref_count == 1 {
             any_fields_done = true;
             field_src.refcount -= 1;

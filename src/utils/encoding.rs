@@ -8,16 +8,27 @@ pub const UTF8_REPLACEMENT_CHARACTER: [u8; 3] = [0xEF, 0xBF, 0xBD];
 // E     D    B    0     8    0     // surrogate escaped byte UTF-8 encoded hex
 pub fn utf8_surrocate_escape(input: &[u8], out: &mut Vec<u8>) {
     for b in input {
-        out.extend_from_slice(&[0xED, 0xB0 | b >> 6, 0x80 | (b >> 4) & 0x3, b & 0xF]);
+        out.extend_from_slice(&[
+            0xED,
+            0xB0 | b >> 6,
+            0x80 | (b >> 4) & 0x3,
+            b & 0xF,
+        ]);
     }
 }
-pub fn utf8_surrogate_unescape(input: &[u8], out: &mut Vec<u8>) -> Result<(), ()> {
+pub fn utf8_surrogate_unescape(
+    input: &[u8],
+    out: &mut Vec<u8>,
+) -> Result<(), ()> {
     if input.len() % 3 != 0 {
         return Err(());
     }
     let mut i = 0;
     while i < input.len() {
-        if input[i] != 0xED || input[i + 1] & 0xFC != 0xB0 || input[i + 2] & 0xD0 != 0x80 {
+        if input[i] != 0xED
+            || input[i + 1] & 0xFC != 0xB0
+            || input[i + 2] & 0xD0 != 0x80
+        {
             return Err(());
         }
         out.push((input[i + 1] & 0x3) << 6 | (input[i + 2] & 0x3F));
@@ -53,8 +64,12 @@ pub fn decode_to_utf8<E>(
             )
         };
 
-        let (decoder_result, decoder_read, decoder_written) =
-            decoder.decode_to_utf8_without_replacement(&input[read..], output_buffer, last_chunk);
+        let (decoder_result, decoder_read, decoder_written) = decoder
+            .decode_to_utf8_without_replacement(
+                &input[read..],
+                output_buffer,
+                last_chunk,
+            );
         written += decoder_written;
         read += decoder_read;
 
@@ -70,13 +85,20 @@ pub fn decode_to_utf8<E>(
                 output.reserve(output.capacity());
                 continue;
             }
-            DecoderResult::Malformed(malformed_seq_len, extra_bytes_read_after_malformed_seq) => {
+            DecoderResult::Malformed(
+                malformed_seq_len,
+                extra_bytes_read_after_malformed_seq,
+            ) => {
                 let malformed_seq_start = read
                     - malformed_seq_len as usize
                     - extra_bytes_read_after_malformed_seq as usize;
-                let malformed_seq_end = read - extra_bytes_read_after_malformed_seq as usize;
-                replacement_fn(&input[malformed_seq_start..malformed_seq_end], output)
-                    .map_err(|e| (decoder_read, e))?;
+                let malformed_seq_end =
+                    read - extra_bytes_read_after_malformed_seq as usize;
+                replacement_fn(
+                    &input[malformed_seq_start..malformed_seq_end],
+                    output,
+                )
+                .map_err(|e| (decoder_read, e))?;
                 replacement_called = true;
             }
         }
@@ -106,8 +128,12 @@ pub fn encode_from_utf8<'a, E>(
             )
         };
 
-        let (encoder_result, encoder_read, encoder_written) =
-            encoder.encode_from_utf8_without_replacement(&input[read..], output_buffer, last_chunk);
+        let (encoder_result, encoder_read, encoder_written) = encoder
+            .encode_from_utf8_without_replacement(
+                &input[read..],
+                output_buffer,
+                last_chunk,
+            );
         written += encoder_written;
         read += encoder_read;
 
@@ -122,7 +148,8 @@ pub fn encode_from_utf8<'a, E>(
                 continue;
             }
             EncoderResult::Unmappable(unmappable_char) => {
-                replacement_fn(unmappable_char, output).map_err(|e| (encoder_read, e))?;
+                replacement_fn(unmappable_char, output)
+                    .map_err(|e| (encoder_read, e))?;
                 replacement_called = true;
             }
         }

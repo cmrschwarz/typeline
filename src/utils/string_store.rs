@@ -1,8 +1,12 @@
-use std::{borrow::Cow, cmp::min, collections::HashMap, mem::transmute, num::NonZeroU32};
+use std::{
+    borrow::Cow, cmp::min, collections::HashMap, mem::transmute,
+    num::NonZeroU32,
+};
 
 pub type StringStoreEntry = NonZeroU32;
 
-pub const INVALID_STRING_STORE_ENTRY: NonZeroU32 = unsafe { NonZeroU32::new_unchecked(u32::MAX) };
+pub const INVALID_STRING_STORE_ENTRY: NonZeroU32 =
+    unsafe { NonZeroU32::new_unchecked(u32::MAX) };
 pub const INVALID_STRING_STORE_ENTRY_2: NonZeroU32 =
     unsafe { NonZeroU32::new_unchecked(u32::MAX - 1) };
 
@@ -29,8 +33,12 @@ impl Clone for StringStore {
         let mut res = Self {
             arena: self.arena.clone(),
             existing_strings: self.existing_strings.clone(),
-            table_idx_to_str: Vec::with_capacity(self.table_idx_to_str.capacity()),
-            table_str_to_idx: HashMap::with_capacity(self.table_str_to_idx.capacity()),
+            table_idx_to_str: Vec::with_capacity(
+                self.table_idx_to_str.capacity(),
+            ),
+            table_str_to_idx: HashMap::with_capacity(
+                self.table_str_to_idx.capacity(),
+            ),
         };
 
         for ex_str_buf in self.existing_strings.iter() {
@@ -50,13 +58,15 @@ impl Clone for StringStore {
             let idx = StringStoreEntry::try_from(i as u32 + 1).unwrap();
             let str = self.table_idx_to_str[i];
             let str_ptr = str.as_ptr();
-            let arena_str_start_ptr = &self.arena[arena_outer_idx][arena_inner_idx] as *const u8;
+            let arena_str_start_ptr =
+                &self.arena[arena_outer_idx][arena_inner_idx] as *const u8;
             if arena_str_start_ptr == str.as_ptr() {
                 res.arena[arena_outer_idx].extend(str.as_bytes());
                 let str_clone = &res.arena[arena_outer_idx].as_slice()
                     [arena_inner_idx..arena_inner_idx + str.len()];
                 // SAFETY: same argument as for normal interning, we are just cloning here
-                let str_ref_static: &'static str = unsafe { std::mem::transmute(str_clone) };
+                let str_ref_static: &'static str =
+                    unsafe { std::mem::transmute(str_clone) };
                 res.table_str_to_idx.insert(str_ref_static, idx);
                 res.table_idx_to_str.push(str_ref_static);
                 arena_inner_idx += str.len();
@@ -65,17 +75,20 @@ impl Clone for StringStore {
                     arena_inner_idx = 0;
                 }
             } else {
-                let ex_str =
-                    &self.existing_strings[existing_strs_outer_idx][existing_strs_inner_idx];
+                let ex_str = &self.existing_strings[existing_strs_outer_idx]
+                    [existing_strs_inner_idx];
                 assert!(ex_str.as_ptr() == str_ptr);
                 let str_clone = ex_str.clone();
                 // SAFETY: same argument as for normal interning, we are just cloning here
-                let str_ref_static: &'static str = unsafe { std::mem::transmute(ex_str.as_ref()) };
+                let str_ref_static: &'static str =
+                    unsafe { std::mem::transmute(ex_str.as_ref()) };
                 res.existing_strings[existing_strs_outer_idx].push(str_clone);
                 res.table_idx_to_str[i] = str_ref_static;
                 res.table_str_to_idx.insert(str_ref_static, idx);
                 existing_strs_inner_idx += 1;
-                if existing_strs_inner_idx == self.arena[existing_strs_outer_idx].len() {
+                if existing_strs_inner_idx
+                    == self.arena[existing_strs_outer_idx].len()
+                {
                     existing_strs_outer_idx += 1;
                     existing_strs_inner_idx = 0;
                 }
@@ -87,9 +100,14 @@ impl Clone for StringStore {
 }
 
 impl StringStore {
-    pub fn claim_id_without_lookup(&mut self, entry: &'static str) -> StringStoreEntry {
+    pub fn claim_id_without_lookup(
+        &mut self,
+        entry: &'static str,
+    ) -> StringStoreEntry {
         self.table_idx_to_str.push(entry);
-        let id = StringStoreEntry::try_from(self.table_idx_to_str.len() as u32).unwrap();
+        let id =
+            StringStoreEntry::try_from(self.table_idx_to_str.len() as u32)
+                .unwrap();
         assert!(id < INVALID_STRING_STORE_ENTRY);
         self.table_str_to_idx.insert(entry, id);
         id
@@ -104,15 +122,18 @@ impl StringStore {
         let mut bucket_len = bucket.len();
         if bucket_cap - bucket_len < len {
             bucket_cap *= 2;
-            self.arena
-                .push(Vec::with_capacity(min(bucket_cap, len.next_power_of_two())));
+            self.arena.push(Vec::with_capacity(min(
+                bucket_cap,
+                len.next_power_of_two(),
+            )));
             bucket = self.arena.last_mut().unwrap();
             bucket_len = 0;
         }
         bucket.extend_from_slice(entry.as_bytes());
         let str_ref = &bucket[bucket_len..bucket_len + len];
         // SAFETY: this is fine because these never get handed out
-        let str_ref_static = unsafe { transmute::<&[u8], &'static str>(str_ref) };
+        let str_ref_static =
+            unsafe { transmute::<&[u8], &'static str>(str_ref) };
         self.claim_id_without_lookup(str_ref_static)
     }
 
@@ -131,7 +152,8 @@ impl StringStore {
         let str = entry.into_boxed_str();
         let str_ref = str.as_ref();
         // SAFETY: this is fine because these never get handed out
-        let str_ref_static: &'static str = unsafe { transmute::<&str, &'static str>(str_ref) };
+        let str_ref_static: &'static str =
+            unsafe { transmute::<&str, &'static str>(str_ref) };
         bucket.push(str);
         let idx = self.claim_id_without_lookup(str_ref_static);
         idx

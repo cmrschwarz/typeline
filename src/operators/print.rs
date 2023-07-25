@@ -15,12 +15,14 @@ use crate::{
     },
     job_session::JobData,
     operators::utils::{
-        buffer_remaining_stream_values_auto_deref_iter, buffer_remaining_stream_values_sv_iter,
+        buffer_remaining_stream_values_auto_deref_iter,
+        buffer_remaining_stream_values_sv_iter,
     },
     options::argument::CliArgIdx,
     ref_iter::{
-        AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter, RefAwareInlineTextIter,
-        RefAwareStreamValueIter, RefAwareUnfoldIterRunLength,
+        AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter,
+        RefAwareInlineTextIter, RefAwareStreamValueIter,
+        RefAwareUnfoldIterRunLength,
     },
     stream_value::{StreamValue, StreamValueData, StreamValueId},
     utils::i64_to_str,
@@ -121,7 +123,13 @@ pub fn write_stream_val_check_done(
             for i in 0..rl_to_attempt {
                 stream
                     .write(data)
-                    .and_then(|_| if sv.done { stream.write(b"\n") } else { Ok(0) })
+                    .and_then(|_| {
+                        if sv.done {
+                            stream.write(b"\n")
+                        } else {
+                            Ok(0)
+                        }
+                    })
                     .map_err(|e| (i, e))?;
             }
         }
@@ -160,7 +168,8 @@ pub fn handle_tf_print_raw(
         .bounded(0, batch_size);
     let field_pos_start = base_iter.get_next_field_pos();
     let mut field_pos = field_pos_start;
-    let mut iter = AutoDerefIter::new(&sess.field_mgr, input_field_id, base_iter);
+    let mut iter =
+        AutoDerefIter::new(&sess.field_mgr, input_field_id, base_iter);
 
     'iter: while let Some(range) = iter.typed_range_fwd(
         &mut sess.match_set_mgr,
@@ -169,21 +178,27 @@ pub fn handle_tf_print_raw(
     ) {
         match range.base.data {
             TypedSlice::TextInline(text) => {
-                for v in RefAwareInlineTextIter::from_range(&range, text).unfold_rl() {
+                for v in RefAwareInlineTextIter::from_range(&range, text)
+                    .unfold_rl()
+                {
                     stdout.write(v.as_bytes())?;
                     stdout.write(b"\n")?;
                     *handled_field_count += 1;
                 }
             }
             TypedSlice::BytesInline(bytes) => {
-                for v in RefAwareInlineBytesIter::from_range(&range, bytes).unfold_rl() {
+                for v in RefAwareInlineBytesIter::from_range(&range, bytes)
+                    .unfold_rl()
+                {
                     stdout.write(v)?;
                     stdout.write(b"\n")?;
                     *handled_field_count += 1;
                 }
             }
             TypedSlice::BytesBuffer(bytes) => {
-                for v in RefAwareBytesBufferIter::from_range(&range, bytes).unfold_rl() {
+                for v in RefAwareBytesBufferIter::from_range(&range, bytes)
+                    .unfold_rl()
+                {
                     stdout.write(v)?;
                     stdout.write(b"\n")?;
                     *handled_field_count += 1;
@@ -200,8 +215,11 @@ pub fn handle_tf_print_raw(
                 }
             }
             TypedSlice::Error(errs) => {
-                for v in TypedSliceIter::from_range(&range.base, errs).unfold_rl() {
-                    stdout.write_fmt(format_args!("{ERROR_PREFIX_STR}{v}\n"))?;
+                for v in
+                    TypedSliceIter::from_range(&range.base, errs).unfold_rl()
+                {
+                    stdout
+                        .write_fmt(format_args!("{ERROR_PREFIX_STR}{v}\n"))?;
                     *handled_field_count += 1;
                 }
             }
@@ -215,17 +233,22 @@ pub fn handle_tf_print_raw(
 
             TypedSlice::StreamValueId(svs) => {
                 let mut pos = field_pos;
-                let mut sv_iter = RefAwareStreamValueIter::from_range(&range, svs);
+                let mut sv_iter =
+                    RefAwareStreamValueIter::from_range(&range, svs);
                 while let Some((sv_id, offsets, rl)) = sv_iter.next() {
                     pos += rl as usize;
                     *handled_field_count += rl as usize;
                     let sv = &mut sess.sv_mgr.stream_values[sv_id];
-                    if !write_stream_val_check_done(stdout, sv, offsets, rl as usize).map_err(
-                        |(i, e)| {
-                            *handled_field_count += i;
-                            e
-                        },
-                    )? {
+                    if !write_stream_val_check_done(
+                        stdout,
+                        sv,
+                        offsets,
+                        rl as usize,
+                    )
+                    .map_err(|(i, e)| {
+                        *handled_field_count += i;
+                        e
+                    })? {
                         print.current_stream_val = Some(sv_id);
                         iter.move_to_field_pos(pos);
                         if rl > 1 {
@@ -233,9 +256,14 @@ pub fn handle_tf_print_raw(
                         }
                         sv.subscribe(tf_id, rl as usize, false);
                         input_field.request_clear_delay();
-                        sess.tf_mgr
-                            .unclaim_batch_size(tf_id, batch_size - (pos - field_pos_start));
-                        buffer_remaining_stream_values_sv_iter(&mut sess.sv_mgr, sv_iter);
+                        sess.tf_mgr.unclaim_batch_size(
+                            tf_id,
+                            batch_size - (pos - field_pos_start),
+                        );
+                        buffer_remaining_stream_values_sv_iter(
+                            &mut sess.sv_mgr,
+                            sv_iter,
+                        );
                         buffer_remaining_stream_values_auto_deref_iter(
                             &mut sess.match_set_mgr,
                             &mut sess.sv_mgr,
@@ -266,7 +294,11 @@ pub fn handle_tf_print_raw(
     Ok(())
 }
 
-pub fn handle_tf_print(sess: &mut JobData, tf_id: TransformId, tf: &mut TfPrint) {
+pub fn handle_tf_print(
+    sess: &mut JobData,
+    tf_id: TransformId,
+    tf: &mut TfPrint,
+) {
     let (batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
     let mut handled_field_count = 0;
     let mut stdout = BufWriter::new(std::io::stdout().lock());
@@ -283,9 +315,11 @@ pub fn handle_tf_print(sess: &mut JobData, tf_id: TransformId, tf: &mut TfPrint)
     }
     drop(stdout);
     let op_id = sess.tf_mgr.transforms[tf_id].op_id.unwrap();
-    let mut output_field =
-        sess.tf_mgr
-            .prepare_output_field(&sess.field_mgr, &mut sess.match_set_mgr, tf_id);
+    let mut output_field = sess.tf_mgr.prepare_output_field(
+        &sess.field_mgr,
+        &mut sess.match_set_mgr,
+        tf_id,
+    );
     let mut outputs_produced = handled_field_count;
     match res {
         Ok(()) => {

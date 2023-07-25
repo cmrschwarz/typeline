@@ -14,8 +14,7 @@ use scr::{
         string_sink::{create_op_string_sink, StringSinkHandle},
     },
     options::context_builder::ContextBuilder,
-    scr_error::ContextualizedScrError,
-    scr_error::ScrError,
+    scr_error::{ContextualizedScrError, ScrError},
 };
 
 #[bench]
@@ -79,7 +78,10 @@ fn regex_lines_plus_drop_uneven(b: &mut test::Bencher) {
         ContextBuilder::default()
             .push_str(&input, 1)
             .add_op(create_op_regex_lines())
-            .add_op(create_op_regex("^.*[02468]$", RegexOptions::default()).unwrap())
+            .add_op(
+                create_op_regex("^.*[02468]$", RegexOptions::default())
+                    .unwrap(),
+            )
             .add_op(create_op_string_sink(&ss))
             .run()
             .unwrap();
@@ -141,7 +143,10 @@ fn regex_drop_uneven_into_format_twice(b: &mut test::Bencher) {
         ContextBuilder::default()
             .push_str(&input, 1)
             .add_op(create_op_regex_lines())
-            .add_op(create_op_regex("^.*[02468]$", RegexOptions::default()).unwrap())
+            .add_op(
+                create_op_regex("^.*[02468]$", RegexOptions::default())
+                    .unwrap(),
+            )
             .add_op(create_op_format("{}{}".as_bytes()).unwrap())
             .add_op(create_op_string_sink(&ss))
             .run()

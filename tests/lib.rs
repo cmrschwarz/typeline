@@ -4,31 +4,30 @@ use std::borrow::Cow;
 
 use rstest::rstest;
 
-use scr::operators::call_concurrent::create_op_callcc;
-use scr::operators::fork::create_op_fork;
-use scr::operators::join::{create_op_join, create_op_join_str};
-use scr::operators::literal::{
-    create_op_bytes, create_op_error, create_op_int, create_op_str, create_op_stream_error,
-};
-use scr::operators::next::create_op_next;
-use scr::operators::select::create_op_select;
-use scr::operators::sequence::{create_op_enum, create_op_seqn};
-use scr::options::chain_options::DEFAULT_CHAIN_OPTIONS;
-use scr::scr_error::{ChainSetupError, ContextualizedScrError};
-use scr::utils::i64_to_str;
 use scr::{
     field_data::{push_interface::PushInterface, record_set::RecordSet},
     operators::{
+        call_concurrent::create_op_callcc,
         file_reader::create_op_file_reader_custom,
+        fork::create_op_fork,
         format::create_op_format,
+        join::{create_op_join, create_op_join_str},
         key::create_op_key,
-        literal::{create_op_literal, Literal},
+        literal::{
+            create_op_bytes, create_op_error, create_op_int,
+            create_op_literal, create_op_str, create_op_stream_error, Literal,
+        },
+        next::create_op_next,
         regex::{create_op_regex, create_op_regex_lines, RegexOptions},
-        sequence::create_op_seq,
+        select::create_op_select,
+        sequence::{create_op_enum, create_op_seq, create_op_seqn},
         string_sink::{create_op_string_sink, StringSinkHandle},
     },
-    options::context_builder::ContextBuilder,
-    scr_error::ScrError,
+    options::{
+        chain_options::DEFAULT_CHAIN_OPTIONS, context_builder::ContextBuilder,
+    },
+    scr_error::{ChainSetupError, ContextualizedScrError, ScrError},
+    utils::i64_to_str,
 };
 
 use crate::utils::{ErroringStream, SliceReader, TricklingStream};
@@ -112,17 +111,21 @@ fn regex_drop() -> Result<(), ScrError> {
 fn large_batch() -> Result<(), ScrError> {
     const COUNT: usize = 10000;
     const PASS: usize = 1000;
-    let number_string_list: Vec<_> = (0..COUNT).into_iter().map(|n| n.to_string()).collect();
-    let number_string_joined = number_string_list.iter().fold(String::new(), |mut f, n| {
-        f.push_str(n.to_string().as_str());
-        f.push_str("\n");
-        f
-    });
+    let number_string_list: Vec<_> =
+        (0..COUNT).into_iter().map(|n| n.to_string()).collect();
+    let number_string_joined =
+        number_string_list.iter().fold(String::new(), |mut f, n| {
+            f.push_str(n.to_string().as_str());
+            f.push_str("\n");
+            f
+        });
     let ss = StringSinkHandle::new();
     ContextBuilder::default()
         .push_str(&number_string_joined, 1)
         .add_op(create_op_regex_lines())
-        .add_op(create_op_regex("^[0-9]{1,3}$", RegexOptions::default()).unwrap())
+        .add_op(
+            create_op_regex("^[0-9]{1,3}$", RegexOptions::default()).unwrap(),
+        )
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(
@@ -136,7 +139,10 @@ fn large_batch() -> Result<(), ScrError> {
 #[case(10000, 3)]
 #[case(10000, 10000 - 1)]
 #[case(10000, 10000 + 1)]
-fn large_batch_seq(#[case] count: i64, #[case] batch_size: usize) -> Result<(), ScrError> {
+fn large_batch_seq(
+    #[case] count: i64,
+    #[case] batch_size: usize,
+) -> Result<(), ScrError> {
     let re = regex::Regex::new(r"\d{1,3}").unwrap();
     let ss = StringSinkHandle::new();
     ContextBuilder::default()
@@ -234,7 +240,9 @@ fn multi_batch_seq_with_regex() -> Result<(), ScrError> {
     ContextBuilder::default()
         .set_batch_size(COUNT / 2)
         .add_op(create_op_seq(0, COUNT as i64, 1).unwrap())
-        .add_op(create_op_regex("^\\d{1,2}$", RegexOptions::default()).unwrap())
+        .add_op(
+            create_op_regex("^\\d{1,2}$", RegexOptions::default()).unwrap(),
+        )
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(
@@ -253,7 +261,9 @@ fn large_seq_with_regex() -> Result<(), ScrError> {
     const COUNT: usize = 10000;
     ContextBuilder::default()
         .add_op(create_op_seq(0, COUNT as i64, 1).unwrap())
-        .add_op(create_op_regex("^\\d{1,3}$", RegexOptions::default()).unwrap())
+        .add_op(
+            create_op_regex("^\\d{1,3}$", RegexOptions::default()).unwrap(),
+        )
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(
@@ -585,7 +595,9 @@ fn stream_into_format() -> Result<(), ScrError> {
 #[case(1)]
 #[case(2)]
 #[case(3)]
-fn stream_into_multiple_different_formats(#[case] batch_size: usize) -> Result<(), ScrError> {
+fn stream_into_multiple_different_formats(
+    #[case] batch_size: usize,
+) -> Result<(), ScrError> {
     let ss = StringSinkHandle::new();
     ContextBuilder::default()
         .set_batch_size(batch_size)
@@ -631,7 +643,9 @@ fn basic_cow() -> Result<(), ScrError> {
 #[case(2)]
 #[case(3)]
 #[case(DEFAULT_CHAIN_OPTIONS.default_batch_size.unwrap())]
-fn cow_not_affecting_original(#[case] batch_size: usize) -> Result<(), ScrError> {
+fn cow_not_affecting_original(
+    #[case] batch_size: usize,
+) -> Result<(), ScrError> {
     let ss1 = StringSinkHandle::new();
     let ss2 = StringSinkHandle::new();
     ContextBuilder::default()
@@ -808,7 +822,10 @@ fn stream_error_in_join() -> Result<(), ScrError> {
             0,
         ))
         .add_op_appending(create_op_file_reader_custom(
-            Box::new(ErroringStream::new(2, SliceReader::new("bar".as_bytes()))),
+            Box::new(ErroringStream::new(
+                2,
+                SliceReader::new("bar".as_bytes()),
+            )),
             0,
         ))
         .add_op_appending(create_op_literal(Literal::Int(1), Some(1)))
@@ -897,7 +914,9 @@ fn tf_literal_yields_to_cont() -> Result<(), ScrError> {
 #[case(2)]
 #[case(3)]
 #[case(4)]
-fn tf_file_yields_to_cont(#[case] stream_buffer_size: usize) -> Result<(), ScrError> {
+fn tf_file_yields_to_cont(
+    #[case] stream_buffer_size: usize,
+) -> Result<(), ScrError> {
     let ss = StringSinkHandle::new();
     ContextBuilder::default()
         .set_stream_buffer_size(stream_buffer_size)
@@ -1004,7 +1023,10 @@ fn join_on_error(#[case] batch_size: usize) -> Result<(), ScrError> {
 #[case("{:??}", "!\"ERROR: in op id 0: A\"")]
 #[case("{:#??}", "!\"A\"")]
 #[case("{:#??}", "!\"A\"")]
-fn error_formatting(#[case] fmt_string: &str, #[case] result: &str) -> Result<(), ScrError> {
+fn error_formatting(
+    #[case] fmt_string: &str,
+    #[case] result: &str,
+) -> Result<(), ScrError> {
     let ss = StringSinkHandle::new();
     ContextBuilder::default()
         .add_op(create_op_error("A", 1))
@@ -1020,7 +1042,10 @@ fn error_formatting(#[case] fmt_string: &str, #[case] result: &str) -> Result<()
 #[case("{:??}", "~!\"ERROR: in op id 0: A\"")]
 #[case("{:#?}", "!\"A\"")]
 #[case("{:#??}", "~!\"A\"")]
-fn stream_error_formatting(#[case] fmt_string: &str, #[case] result: &str) -> Result<(), ScrError> {
+fn stream_error_formatting(
+    #[case] fmt_string: &str,
+    #[case] result: &str,
+) -> Result<(), ScrError> {
     let ss = StringSinkHandle::new();
     ContextBuilder::default()
         .add_op(create_op_stream_error("A", 1))
@@ -1160,7 +1185,8 @@ fn seq_into_regex_drop_unless_seven() -> Result<(), ScrError> {
 #[test]
 fn callcc_needs_threads() -> Result<(), ScrError> {
     let ss = StringSinkHandle::new();
-    let err_msg = "callcc cannot be used with a max thread count of 1, see `h=j`";
+    let err_msg =
+        "callcc cannot be used with a max thread count of 1, see `h=j`";
     matches!(
         ContextBuilder::default()
             .set_max_thread_count(1)

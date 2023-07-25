@@ -34,7 +34,9 @@ pub fn parse_int_with_units<
     } else {
         v[0..number_end].parse::<I>().map_err(|e| match e.kind() {
             std::num::IntErrorKind::Empty => MSG_EMPTY_STR.to_string(),
-            std::num::IntErrorKind::InvalidDigit => MSG_INVALID_DIGIT.to_string(),
+            std::num::IntErrorKind::InvalidDigit => {
+                MSG_INVALID_DIGIT.to_string()
+            }
             std::num::IntErrorKind::PosOverflow => msg_too_large::<I>(),
             std::num::IntErrorKind::NegOverflow => msg_too_small::<I>(),
             std::num::IntErrorKind::Zero => unreachable!(),

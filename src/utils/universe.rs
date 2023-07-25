@@ -22,7 +22,12 @@ pub trait UniverseIndex:
 }
 
 impl<I> UniverseIndex for I where
-    I: Clone + Copy + Default + UniverseIndexFromUsize + UniverseIndexIntoUsize + Ord
+    I: Clone
+        + Copy
+        + Default
+        + UniverseIndexFromUsize
+        + UniverseIndexIntoUsize
+        + Ord
 {
 }
 
@@ -121,7 +126,8 @@ impl<I, T> Default for Universe<I, T> {
 impl<I: UniverseIndex, T> Universe<I, T> {
     fn build_vacant_entry(&mut self, index: usize) -> UniverseEntry<T> {
         // SAFETY: we can never have usize::MAX entries before running out of memory
-        self.first_vacant_entry = Some(unsafe { NonMaxUsize::new_unchecked(index) });
+        self.first_vacant_entry =
+            Some(unsafe { NonMaxUsize::new_unchecked(index) });
         UniverseEntry::Vacant(self.first_vacant_entry)
     }
     pub fn release(&mut self, id: I) {
@@ -172,7 +178,9 @@ impl<I: UniverseIndex, T> Universe<I, T> {
             }
         })
     }
-    pub fn iter_options_mut(&mut self) -> impl Iterator<Item = Option<&mut T>> {
+    pub fn iter_options_mut(
+        &mut self,
+    ) -> impl Iterator<Item = Option<&mut T>> {
         self.data.iter_mut().map(|e| {
             if let UniverseEntry::Occupied(v) = e {
                 Some(v)
@@ -190,7 +198,9 @@ impl<I: UniverseIndex, T> Universe<I, T> {
             }
         })
     }
-    pub fn iter_enumerated_mut(&mut self) -> impl Iterator<Item = (I, &mut T)> {
+    pub fn iter_enumerated_mut(
+        &mut self,
+    ) -> impl Iterator<Item = (I, &mut T)> {
         self.data.iter_mut().enumerate().filter_map(|(i, e)| {
             if let UniverseEntry::Occupied(v) = e {
                 Some((UniverseIdx::from_usize(i).0, v))
@@ -245,19 +255,25 @@ impl<I: UniverseIndex, T> Universe<I, T> {
         self.claim_with(|| value)
     }
     pub fn calc_id(&self, entry: &T) -> I {
-        let offset_in_entry = if let UniverseEntry::Occupied(v) = &self.data[0] {
+        let offset_in_entry = if let UniverseEntry::Occupied(v) = &self.data[0]
+        {
             unsafe {
-                (v as *const T as *const u8).offset_from(self.data.as_ptr() as *const u8) as usize
+                (v as *const T as *const u8)
+                    .offset_from(self.data.as_ptr() as *const u8)
+                    as usize
             }
         } else {
             panic!("element not in Universe")
         };
         let ptr = unsafe {
-            (entry as *const T as *const u8).sub(offset_in_entry) as *const UniverseEntry<T>
+            (entry as *const T as *const u8).sub(offset_in_entry)
+                as *const UniverseEntry<T>
         };
         let range = self.data.as_ptr_range();
         assert!(range.contains(&ptr));
-        *UniverseIdx::from_usize(unsafe { ptr.offset_from(range.start) } as usize)
+        *UniverseIdx::from_usize(
+            unsafe { ptr.offset_from(range.start) } as usize
+        )
     }
     pub fn get(&self, id: I) -> Option<&T> {
         match self.data.get(id.into_usize()) {
@@ -271,7 +287,11 @@ impl<I: UniverseIndex, T> Universe<I, T> {
             _ => None,
         }
     }
-    pub fn get_two_distinct_mut(&mut self, id1: I, id2: I) -> (Option<&mut T>, Option<&mut T>) {
+    pub fn get_two_distinct_mut(
+        &mut self,
+        id1: I,
+        id2: I,
+    ) -> (Option<&mut T>, Option<&mut T>) {
         let idx1 = id1.into_usize();
         let idx2 = id2.into_usize();
 

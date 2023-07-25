@@ -1,6 +1,8 @@
 use smallvec::SmallVec;
 
-use crate::operators::{errors::OperatorApplicationError, transform::TransformId};
+use crate::operators::{
+    errors::OperatorApplicationError, transform::TransformId,
+};
 
 #[derive(Clone)]
 pub enum StreamValueData {

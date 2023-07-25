@@ -12,7 +12,8 @@ pub mod universe;
 
 pub const LOG_2_OF_TEN: f64 = 3.321928094887362; //  sadly, `10.log2()` is not const evaluable yet
 pub const USIZE_MAX_DECIMAL_DIGITS: usize =
-    ((std::mem::size_of::<usize>() * 8) as f64 / LOG_2_OF_TEN + (1f64 - f64::EPSILON)) as usize;
+    ((std::mem::size_of::<usize>() * 8) as f64 / LOG_2_OF_TEN
+        + (1f64 - f64::EPSILON)) as usize;
 pub const I64_MAX_DECIMAL_DIGITS: usize =
     1 + (63 as f64 / LOG_2_OF_TEN + (1f64 - f64::EPSILON)) as usize;
 pub const U64_MAX_DECIMAL_DIGITS: usize =
@@ -24,7 +25,10 @@ pub fn usize_to_str(val: usize) -> ArrayString<USIZE_MAX_DECIMAL_DIGITS> {
     res
 }
 
-pub fn u64_to_str(display_plus: bool, val: u64) -> ArrayString<U64_MAX_DECIMAL_DIGITS> {
+pub fn u64_to_str(
+    display_plus: bool,
+    val: u64,
+) -> ArrayString<U64_MAX_DECIMAL_DIGITS> {
     let mut res = ArrayString::new();
     if display_plus {
         res.write_fmt(format_args!("{val:+}")).unwrap();
@@ -33,7 +37,10 @@ pub fn u64_to_str(display_plus: bool, val: u64) -> ArrayString<U64_MAX_DECIMAL_D
     }
     res
 }
-pub fn i64_to_str(display_plus: bool, val: i64) -> ArrayString<I64_MAX_DECIMAL_DIGITS> {
+pub fn i64_to_str(
+    display_plus: bool,
+    val: i64,
+) -> ArrayString<I64_MAX_DECIMAL_DIGITS> {
     let mut res = ArrayString::new();
     if display_plus {
         res.write_fmt(format_args!("{val:+}")).unwrap();
@@ -89,7 +96,9 @@ pub trait ValueProducingCallable<T> {
     fn call(&mut self) -> T;
 }
 
-impl<T: Clone, CTOR: FnOnce() -> T> ValueProducingCallable<T> for CachingCallable<T, CTOR> {
+impl<T: Clone, CTOR: FnOnce() -> T> ValueProducingCallable<T>
+    for CachingCallable<T, CTOR>
+{
     fn call(&mut self) -> T {
         if let CachingCallable::Cached(v) = &self {
             return v.clone();
@@ -145,7 +154,10 @@ impl Write for LengthCountingWriter {
         Ok(())
     }
 
-    fn write_fmt(mut self: &mut Self, args: std::fmt::Arguments<'_>) -> std::fmt::Result {
+    fn write_fmt(
+        mut self: &mut Self,
+        args: std::fmt::Arguments<'_>,
+    ) -> std::fmt::Result {
         std::fmt::write(&mut self, args)
     }
 }
@@ -167,7 +179,10 @@ impl Write for LengthAndCharsCountingWriter {
         Ok(())
     }
 
-    fn write_fmt(mut self: &mut Self, args: std::fmt::Arguments<'_>) -> std::fmt::Result {
+    fn write_fmt(
+        mut self: &mut Self,
+        args: std::fmt::Arguments<'_>,
+    ) -> std::fmt::Result {
         std::fmt::write(&mut self, args)
     }
 }

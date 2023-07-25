@@ -12,17 +12,22 @@ use crate::{
         file_reader::setup_op_file_reader,
         format::setup_op_format,
         key::setup_op_key,
-        operator::{OperatorBase, OperatorData, OperatorId, OperatorOffsetInChain},
+        operator::{
+            OperatorBase, OperatorData, OperatorId, OperatorOffsetInChain,
+        },
         regex::setup_op_regex,
         select::setup_op_select,
     },
-    scr_error::{result_into, ChainSetupError, ContextualizedScrError, ScrError},
+    scr_error::{
+        result_into, ChainSetupError, ContextualizedScrError, ScrError,
+    },
     selenium::SeleniumVariant,
     utils::string_store::StringStore,
 };
 
 use super::{
-    argument::Argument, chain_options::ChainOptions, operator_base_options::OperatorBaseOptions,
+    argument::Argument, chain_options::ChainOptions,
+    operator_base_options::OperatorBaseOptions,
 };
 
 //TODO: refactor this into SessionOptions
@@ -83,7 +88,11 @@ impl SessionOptions {
     pub fn get_current_chain(&mut self) -> ChainId {
         self.curr_chain
     }
-    pub fn add_op(&mut self, mut op_base_opts: OperatorBaseOptions, op_data: OperatorData) {
+    pub fn add_op(
+        &mut self,
+        mut op_base_opts: OperatorBaseOptions,
+        op_data: OperatorData,
+    ) {
         op_base_opts.op_id = Some(self.operator_data.len() as OperatorId);
         op_base_opts.chain_id = Some(self.curr_chain);
         match &op_data {
@@ -111,14 +120,16 @@ impl SessionOptions {
             }
             OperatorData::Next(_) => {
                 let mut new_chain = ChainOptions::default();
-                new_chain.parent = self.chains[self.curr_chain as usize].parent;
+                new_chain.parent =
+                    self.chains[self.curr_chain as usize].parent;
                 self.curr_chain = self.chains.len() as ChainId;
                 self.chains.push(new_chain);
                 op_base_opts.chain_id = None;
             }
             OperatorData::Up(up) => {
                 for _ in 0..up.step.get() {
-                    self.curr_chain = self.chains[self.curr_chain as usize].parent;
+                    self.curr_chain =
+                        self.chains[self.curr_chain as usize].parent;
                 }
                 op_base_opts.chain_id = None;
             }
@@ -160,7 +171,11 @@ impl SessionOptions {
         if sess.chains.len() >= ChainId::MAX as usize {
             return Err(ChainSetupError {
                 message: Cow::Owned(
-                    format!("cannot have more than {} chains", ChainId::MAX - 1).to_owned(),
+                    format!(
+                        "cannot have more than {} chains",
+                        ChainId::MAX - 1
+                    )
+                    .to_owned(),
                 ),
                 chain_id: ChainId::MAX,
             }
@@ -168,7 +183,9 @@ impl SessionOptions {
         }
         return Ok(());
     }
-    pub fn setup_operators(sess: &mut Session) -> Result<(), OperatorSetupError> {
+    pub fn setup_operators(
+        sess: &mut Session,
+    ) -> Result<(), OperatorSetupError> {
         for i in 0..sess.operator_bases.len() {
             let op_id = i as OperatorId;
             let op_base = &mut sess.operator_bases[i];
@@ -176,14 +193,25 @@ impl SessionOptions {
                 continue;
             }
             let chain = &mut sess.chains[op_base.chain_id as usize];
-            op_base.offset_in_chain = chain.operators.len() as OperatorOffsetInChain;
+            op_base.offset_in_chain =
+                chain.operators.len() as OperatorOffsetInChain;
             chain.operators.push(op_id);
             match &mut sess.operator_data[i] {
-                OperatorData::Regex(op) => setup_op_regex(&mut sess.string_store, op)?,
-                OperatorData::Format(op) => setup_op_format(&mut sess.string_store, op)?,
-                OperatorData::Key(op) => setup_op_key(&mut sess.string_store, op)?,
-                OperatorData::Select(op) => setup_op_select(&mut sess.string_store, op)?,
-                OperatorData::FileReader(op) => setup_op_file_reader(chain, op)?,
+                OperatorData::Regex(op) => {
+                    setup_op_regex(&mut sess.string_store, op)?
+                }
+                OperatorData::Format(op) => {
+                    setup_op_format(&mut sess.string_store, op)?
+                }
+                OperatorData::Key(op) => {
+                    setup_op_key(&mut sess.string_store, op)?
+                }
+                OperatorData::Select(op) => {
+                    setup_op_select(&mut sess.string_store, op)?
+                }
+                OperatorData::FileReader(op) => {
+                    setup_op_file_reader(chain, op)?
+                }
                 OperatorData::StringSink(_) => (),
                 OperatorData::Fork(_) => (),
                 OperatorData::Cast(_) => (),
@@ -194,9 +222,12 @@ impl SessionOptions {
                 OperatorData::Join(_) => (),
                 OperatorData::Next(_) => unreachable!(),
                 OperatorData::Up(_) => unreachable!(),
-                OperatorData::Call(op) => {
-                    setup_op_call(&sess.chain_labels, &mut sess.string_store, op, op_id)?
-                }
+                OperatorData::Call(op) => setup_op_call(
+                    &sess.chain_labels,
+                    &mut sess.string_store,
+                    op,
+                    op_id,
+                )?,
                 OperatorData::CallConcurrent(op) => setup_op_call_concurrent(
                     &sess.settings,
                     &sess.chain_labels,
@@ -208,7 +239,10 @@ impl SessionOptions {
         }
         Ok(())
     }
-    pub fn validate_chain(sess: &Session, chain_id: ChainId) -> Result<(), ChainSetupError> {
+    pub fn validate_chain(
+        sess: &Session,
+        chain_id: ChainId,
+    ) -> Result<(), ChainSetupError> {
         let chain = &sess.chains[chain_id as usize];
         let mut message = "";
         if chain.operators.is_empty() && !sess.settings.repl {
@@ -239,10 +273,17 @@ impl SessionOptions {
     }
     pub fn build_session(self) -> Result<Session, ContextualizedScrError> {
         self.build_session_raw().map_err(|(opts, err)| {
-            ContextualizedScrError::from_scr_error(err, None, Some(&opts), None)
+            ContextualizedScrError::from_scr_error(
+                err,
+                None,
+                Some(&opts),
+                None,
+            )
         })
     }
-    pub fn build_session_raw(mut self) -> Result<Session, (SessionOptions, ScrError)> {
+    pub fn build_session_raw(
+        mut self,
+    ) -> Result<Session, (SessionOptions, ScrError)> {
         let mut max_threads;
         if !self.any_threaded_operations {
             max_threads = 1;
@@ -263,7 +304,8 @@ impl SessionOptions {
             let parent = if i == 0 {
                 None
             } else {
-                let p: &mut Chain = &mut chains[self.chains[i].parent as usize];
+                let p: &mut Chain =
+                    &mut chains[self.chains[i].parent as usize];
                 p.subchains.push(i as ChainId);
                 Some(&*p)
             };
@@ -274,7 +316,9 @@ impl SessionOptions {
         let mut sess = Session {
             settings: SessionSettings {
                 max_threads,
-                repl: self.repl.unwrap_or(DEFAULT_CONTEXT_OPTIONS.repl.unwrap()),
+                repl: self
+                    .repl
+                    .unwrap_or(DEFAULT_CONTEXT_OPTIONS.repl.unwrap()),
             },
             chains,
             operator_data: self.operator_data,

@@ -75,19 +75,24 @@ impl WorkerThread {
         let mut sess_mgr = self.ctx_data.sess_mgr.lock().unwrap();
         loop {
             if !sess_mgr.terminate {
-                let waiting_venture_participants = sess_mgr.waiting_venture_participants;
+                let waiting_venture_participants =
+                    sess_mgr.waiting_venture_participants;
                 if let Some(venture) = sess_mgr.venture_queue.front_mut() {
                     let job_sess = venture.source_job_session.take();
                     let buffer = venture.description.buffer.clone();
-                    let participants_needed = venture.description.participans_needed;
-                    let start_op_id =
-                        venture.description.starting_points[waiting_venture_participants];
+                    let participants_needed =
+                        venture.description.participans_needed;
+                    let start_op_id = venture.description.starting_points
+                        [waiting_venture_participants];
                     let sess;
                     sess_mgr.waiting_venture_participants += 1;
-                    if sess_mgr.waiting_venture_participants == participants_needed {
+                    if sess_mgr.waiting_venture_participants
+                        == participants_needed
+                    {
                         sess_mgr.waiting_venture_participants = 0;
                         sess_mgr.venture_queue.pop_front();
-                        sess_mgr.venture_id_counter = sess_mgr.venture_id_counter.wrapping_add(1);
+                        sess_mgr.venture_id_counter =
+                            sess_mgr.venture_id_counter.wrapping_add(1);
                         sess = sess_mgr.session.clone();
                         drop(sess_mgr);
                         self.ctx_data.work_available.notify_all();
@@ -99,7 +104,11 @@ impl WorkerThread {
                                 drop(sess_mgr);
                                 break;
                             }
-                            sess_mgr = self.ctx_data.work_available.wait(sess_mgr).unwrap();
+                            sess_mgr = self
+                                .ctx_data
+                                .work_available
+                                .wait(sess_mgr)
+                                .unwrap();
                         }
                     }
                     self.run_venture(&sess, start_op_id, buffer, job_sess);
@@ -115,7 +124,8 @@ impl WorkerThread {
                 }
             }
             sess_mgr.waiting_worker_threads += 1;
-            if sess_mgr.waiting_worker_threads == sess_mgr.total_worker_threads {
+            if sess_mgr.waiting_worker_threads == sess_mgr.total_worker_threads
+            {
                 self.ctx_data.worker_threads_finished.notify_one();
             }
             if sess_mgr.terminate {

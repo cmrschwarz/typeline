@@ -2,7 +2,10 @@ use std::cell::Cell;
 
 use nonmax::NonMaxU32;
 
-use crate::{job_session::MatchSetManager, ref_iter::AutoDerefIter, utils::universe::Universe};
+use crate::{
+    job_session::MatchSetManager, ref_iter::AutoDerefIter,
+    utils::universe::Universe,
+};
 
 use super::{
     iters::{FieldIterator, Iter},
@@ -57,14 +60,19 @@ impl IterHall {
     pub fn get_iter_state(&self, iter_id: IterId) -> IterState {
         self.iters[iter_id].get()
     }
-    fn calculate_start_header(&self, state: &mut IterState) -> FieldValueHeader {
+    fn calculate_start_header(
+        &self,
+        state: &mut IterState,
+    ) -> FieldValueHeader {
         let mut h = self
             .fd
             .header
             .get(state.header_idx)
             .cloned()
             .unwrap_or_default();
-        if h.run_length == state.header_rl_offset && state.header_idx < self.fd.header.len() {
+        if h.run_length == state.header_rl_offset
+            && state.header_idx < self.fd.header.len()
+        {
             state.header_idx += 1;
             state.header_rl_offset = 0;
             state.data += h.total_size();
@@ -79,7 +87,10 @@ impl IterHall {
     pub fn get_iter<'a>(&'a self, iter_id: IterId) -> Iter<'a> {
         unsafe { self.get_iter_from_state(self.iters[iter_id].get()) }
     }
-    pub unsafe fn get_iter_from_state<'a>(&'a self, mut state: IterState) -> Iter<'a> {
+    pub unsafe fn get_iter_from_state<'a>(
+        &'a self,
+        mut state: IterState,
+    ) -> Iter<'a> {
         let h = self.calculate_start_header(&mut state);
         let mut res = Iter {
             fd: &self.fd,
@@ -96,14 +107,22 @@ impl IterHall {
     pub fn iter_is_from_iter_hall(&self, iter: &Iter<'_>) -> bool {
         iter.fd as *const FieldData == &self.fd as *const FieldData
     }
-    pub fn store_iter<'a>(&self, iter_id: IterId, iter: impl FieldIterator<'a>) {
+    pub fn store_iter<'a>(
+        &self,
+        iter_id: IterId,
+        iter: impl FieldIterator<'a>,
+    ) {
         let iter = iter.into_base_iter();
         assert!(self.iter_is_from_iter_hall(&iter));
         unsafe { self.store_iter_unchecked(iter_id, iter) };
     }
     // the point of this is not to save the runtime of one assert, but
     // to actually bypass that check if we store an iter that comes from our cow_source
-    pub unsafe fn store_iter_unchecked<'a>(&self, iter_id: IterId, mut iter: Iter<'a>) {
+    pub unsafe fn store_iter_unchecked<'a>(
+        &self,
+        iter_id: IterId,
+        mut iter: Iter<'a>,
+    ) {
         let mut state = self.iters[iter_id].get();
         state.field_pos = iter.field_pos;
         state.header_rl_offset = iter.header_rl_offset;
@@ -128,10 +147,11 @@ impl IterHall {
         iter: impl FieldIterator<'a> + Clone,
         targets_applicator: &mut impl FnMut(&mut dyn FnMut(&mut IterHall)),
     ) -> usize {
-        let adapted_target_applicator = &mut |f: &mut dyn FnMut(&mut FieldData)| {
-            let g = &mut |fdih: &mut IterHall| f(&mut fdih.fd);
-            targets_applicator(g);
-        };
+        let adapted_target_applicator =
+            &mut |f: &mut dyn FnMut(&mut FieldData)| {
+                let g = &mut |fdih: &mut IterHall| f(&mut fdih.fd);
+                targets_applicator(g);
+            };
         let copied_fields = FieldData::copy(iter, adapted_target_applicator);
         copied_fields
     }
@@ -140,12 +160,16 @@ impl IterHall {
         iter: &mut AutoDerefIter<'a, I>,
         targets_applicator: &mut impl FnMut(&mut dyn FnMut(&mut IterHall)),
     ) -> usize {
-        let adapted_target_applicator = &mut |f: &mut dyn FnMut(&mut FieldData)| {
-            let g = &mut |fdih: &mut IterHall| f(&mut fdih.fd);
-            targets_applicator(g);
-        };
-        let copied_fields =
-            FieldData::copy_resolve_refs(match_set_mgr, iter, adapted_target_applicator);
+        let adapted_target_applicator =
+            &mut |f: &mut dyn FnMut(&mut FieldData)| {
+                let g = &mut |fdih: &mut IterHall| f(&mut fdih.fd);
+                targets_applicator(g);
+            };
+        let copied_fields = FieldData::copy_resolve_refs(
+            match_set_mgr,
+            iter,
+            adapted_target_applicator,
+        );
         copied_fields
     }
     pub fn field_count(&self) -> usize {

@@ -1,12 +1,16 @@
 use smallstr::SmallString;
 
-use crate::{chain::ChainId, options::argument::CliArgIdx, utils::string_store::StringStoreEntry};
+use crate::{
+    chain::ChainId, options::argument::CliArgIdx,
+    utils::string_store::StringStoreEntry,
+};
 
 use super::{
-    call::OpCall, call_concurrent::OpCallConcurrent, cast::OpCast, count::OpCount,
-    file_reader::OpFileReader, fork::OpFork, format::OpFormat, join::OpJoin, key::OpKey,
-    literal::OpLiteral, next::OpNext, print::OpPrint, regex::OpRegex, select::OpSelect,
-    sequence::OpSequence, string_sink::OpStringSink, up::OpUp,
+    call::OpCall, call_concurrent::OpCallConcurrent, cast::OpCast,
+    count::OpCount, file_reader::OpFileReader, fork::OpFork, format::OpFormat,
+    join::OpJoin, key::OpKey, literal::OpLiteral, next::OpNext,
+    print::OpPrint, regex::OpRegex, select::OpSelect, sequence::OpSequence,
+    string_sink::OpStringSink, up::OpUp,
 };
 
 pub type OperatorId = u32;
@@ -46,7 +50,9 @@ pub struct OperatorBase {
 pub const DEFAULT_OP_NAME_SMALL_STR_LEN: usize = 16;
 
 impl OperatorData {
-    pub fn default_op_name(&self) -> SmallString<[u8; DEFAULT_OP_NAME_SMALL_STR_LEN]> {
+    pub fn default_op_name(
+        &self,
+    ) -> SmallString<[u8; DEFAULT_OP_NAME_SMALL_STR_LEN]> {
         match self {
             OperatorData::Print(_) => "p".into(),
             OperatorData::Sequence(op) => op.default_op_name(),

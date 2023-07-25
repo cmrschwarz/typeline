@@ -13,7 +13,8 @@ use crate::{
         get_two_distinct_mut,
         identity_hasher::BuildIdentityHasher,
         string_store::{
-            StringStoreEntry, INVALID_STRING_STORE_ENTRY, INVALID_STRING_STORE_ENTRY_2,
+            StringStoreEntry, INVALID_STRING_STORE_ENTRY,
+            INVALID_STRING_STORE_ENTRY_2,
         },
     },
 };
@@ -50,7 +51,8 @@ pub struct ChainLivenessData {
     // the boolean value specifies whether the fields are only read (-> false)
     // or potentially written (dup/drop) to (-> true)
     // the unnamed input field for the chain uses the special CHAIN_INPUT_FIELD value
-    pub fields_accessed_before_assignment: HashMap<StringStoreEntry, bool, BuildIdentityHasher>,
+    pub fields_accessed_before_assignment:
+        HashMap<StringStoreEntry, bool, BuildIdentityHasher>,
 
     // new_name -> original name
     // only present if the field is not then shadowed (declared) by the chain
@@ -68,7 +70,11 @@ impl ChainLivenessData {
     fn unalias(&self, name: StringStoreEntry) -> StringStoreEntry {
         *self.field_name_aliases.get(&name).unwrap_or(&name)
     }
-    fn add_field_name(&mut self, name_before: StringStoreEntry, new_name: StringStoreEntry) {
+    fn add_field_name(
+        &mut self,
+        name_before: StringStoreEntry,
+        new_name: StringStoreEntry,
+    ) {
         self.field_name_aliases.insert(new_name, name_before);
         if self.fields_declared.contains(&name_before) {
             self.fields_declared.insert(new_name);
@@ -103,7 +109,11 @@ impl ChainLivenessData {
             false
         }
     }
-    fn access_field_unless_anon(&mut self, name: StringStoreEntry, write: bool) -> bool {
+    fn access_field_unless_anon(
+        &mut self,
+        name: StringStoreEntry,
+        write: bool,
+    ) -> bool {
         if name != ANONYMOUS_INPUT_FIELD {
             self.access_field(name, write)
         } else {
@@ -166,7 +176,8 @@ pub fn compute_local_liveness_data(sess: &mut Session, chain_id: ChainId) {
                 target_resolved, ..
             })
             | OperatorData::CallConcurrent(OpCallConcurrent {
-                target_resolved, ..
+                target_resolved,
+                ..
             }) => {
                 //TODO: this is incorrect. we need to properly handle calls
                 cn.liveness_data.add_successor(*target_resolved);
@@ -176,7 +187,8 @@ pub fn compute_local_liveness_data(sess: &mut Session, chain_id: ChainId) {
                     .add_field_name_unless_anon(input_field, key.key_interned);
             }
             OperatorData::Select(select) => {
-                next_input_field = cn.liveness_data.unalias(select.key_interned);
+                next_input_field =
+                    cn.liveness_data.unalias(select.key_interned);
             }
             OperatorData::Regex(re) => {
                 may_dup_or_drop = !re.opts.non_mandatory || re.opts.multimatch;
@@ -189,8 +201,10 @@ pub fn compute_local_liveness_data(sess: &mut Session, chain_id: ChainId) {
                 // might not technically be true, but we handle the access in here already
                 input_accessed = false;
                 for f in &fmt.refs_idx {
-                    cn.liveness_data
-                        .access_field_unless_anon(f.unwrap_or(input_field), any_writes_so_far);
+                    cn.liveness_data.access_field_unless_anon(
+                        f.unwrap_or(input_field),
+                        any_writes_so_far,
+                    );
                 }
             }
 
@@ -266,9 +280,12 @@ pub fn compute_field_livenses(sess: &mut Session) {
         let succ_count = chains[chain_id].liveness_data.successors.len();
         let mut predecessors_need_update = false;
         for succ_n in 0..succ_count {
-            let succ_id = chains[chain_id].liveness_data.successors[succ_n] as usize;
+            let succ_id =
+                chains[chain_id].liveness_data.successors[succ_n] as usize;
             let (cn, succ) = get_two_distinct_mut(chains, chain_id, succ_id);
-            for (f, write) in &succ.liveness_data.fields_accessed_before_assignment {
+            for (f, write) in
+                &succ.liveness_data.fields_accessed_before_assignment
+            {
                 if !cn.liveness_data.fields_declared.contains(f) {
                     predecessors_need_update |= cn
                         .liveness_data
@@ -285,7 +302,8 @@ pub fn compute_field_livenses(sess: &mut Session) {
         if predecessors_need_update {
             let pred_count = chains[chain_id].liveness_data.predecessors.len();
             for pred_n in 0..pred_count {
-                let pred_id = chains[chain_id].liveness_data.predecessors[pred_n] as usize;
+                let pred_id = chains[chain_id].liveness_data.predecessors
+                    [pred_n] as usize;
                 let pred = &mut chains[pred_id];
                 if pred.liveness_data.liveness_analysis_outdated == false {
                     pred.liveness_data.liveness_analysis_outdated = true;

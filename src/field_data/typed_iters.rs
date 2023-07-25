@@ -142,7 +142,9 @@ impl<'a, T: 'static> TypedSliceIter<'a, T> {
         if self.header_rl_rem > 1 {
             let h = unsafe { *self.header };
             if !h.shared_value() {
-                unsafe { self.advance_value((self.header_rl_rem - 1) as usize) };
+                unsafe {
+                    self.advance_value((self.header_rl_rem - 1) as usize)
+                };
             }
         }
         let mut h;
@@ -156,7 +158,9 @@ impl<'a, T: 'static> TypedSliceIter<'a, T> {
             if !h.deleted() {
                 break;
             }
-            unsafe { self.advance_value(h.unique_data_element_count() as usize) };
+            unsafe {
+                self.advance_value(h.unique_data_element_count() as usize)
+            };
         }
         self.header_rl_rem = h.run_length;
         unsafe {
@@ -276,7 +280,10 @@ impl<'a> InlineBytesIter<'a> {
         let h = self.peek_header()?;
         unsafe {
             return Some((
-                std::slice::from_raw_parts(self.values.as_ptr(), h.size as usize),
+                std::slice::from_raw_parts(
+                    self.values.as_ptr(),
+                    h.size as usize,
+                ),
                 if h.shared_value() { h.run_length } else { 1 },
             ));
         }
@@ -307,7 +314,8 @@ impl<'a> InlineBytesIter<'a> {
         unsafe {
             let h = *self.header;
             let value_size = h.size as usize;
-            value = std::slice::from_raw_parts(self.values.as_ptr(), value_size);
+            value =
+                std::slice::from_raw_parts(self.values.as_ptr(), value_size);
             self.header_rl_rem -= 1;
             if !h.shared_value() {
                 self.advance_value(value_size);
@@ -345,7 +353,11 @@ impl<'a> InlineBytesIter<'a> {
         let mut prev_size = h.size as usize;
         if self.header_rl_rem > 1 {
             if !h.shared_value() {
-                unsafe { self.advance_value((self.header_rl_rem - 1) as usize * prev_size) };
+                unsafe {
+                    self.advance_value(
+                        (self.header_rl_rem - 1) as usize * prev_size,
+                    )
+                };
             }
         }
         let mut h;
@@ -362,7 +374,11 @@ impl<'a> InlineBytesIter<'a> {
             if !h.same_value_as_previous() {
                 unsafe { self.advance_value(prev_size) };
                 if !h.shared_value() {
-                    unsafe { self.advance_value((h.run_length - 1) as usize * h.size as usize) };
+                    unsafe {
+                        self.advance_value(
+                            (h.run_length - 1) as usize * h.size as usize,
+                        )
+                    };
                 }
             }
             prev_size = h.size as usize;
@@ -402,7 +418,8 @@ impl<'a> Iterator for InlineBytesIter<'a> {
         unsafe {
             let h = *self.header;
             let value_size = h.size as usize;
-            let value = std::slice::from_raw_parts(self.values.as_ptr(), value_size);
+            let value =
+                std::slice::from_raw_parts(self.values.as_ptr(), value_size);
             if h.shared_value() {
                 let rl = self.header_rl_rem;
                 self.next_header();
@@ -432,7 +449,12 @@ impl<'a> InlineTextIter<'a> {
         last_oversize: RunLength,
     ) -> Self {
         Self {
-            iter: InlineBytesIter::new(values.as_bytes(), headers, first_oversize, last_oversize),
+            iter: InlineBytesIter::new(
+                values.as_bytes(),
+                headers,
+                first_oversize,
+                last_oversize,
+            ),
         }
     }
     pub fn from_range(range: &TypedRange<'a>, values: &'a str) -> Self {
@@ -488,7 +510,9 @@ impl<'a> Iterator for InlineTextIter<'a> {
 
 #[cfg(test)]
 mod test_slice_iter {
-    use crate::field_data::{push_interface::PushInterface, FieldData, RunLength};
+    use crate::field_data::{
+        push_interface::PushInterface, FieldData, RunLength,
+    };
 
     use super::TypedSliceIter;
 
@@ -577,14 +601,21 @@ mod test_text_iter {
     use bstr::ByteSlice;
 
     use crate::field_data::{
-        push_interface::PushInterface, typed_iters::InlineTextIter, FieldData, RunLength,
+        push_interface::PushInterface, typed_iters::InlineTextIter, FieldData,
+        RunLength,
     };
 
-    fn compare_iter_output(fd: &FieldData, expected: &[(&'static str, RunLength)]) {
+    fn compare_iter_output(
+        fd: &FieldData,
+        expected: &[(&'static str, RunLength)],
+    ) {
         let data = unsafe {
-            std::slice::from_raw_parts(fd.data.as_ptr() as *const u8, fd.data.len())
-                .to_str()
-                .unwrap()
+            std::slice::from_raw_parts(
+                fd.data.as_ptr() as *const u8,
+                fd.data.len(),
+            )
+            .to_str()
+            .unwrap()
         };
         let iter = InlineTextIter::new(data, &fd.header, 0, 0);
         assert_eq!(

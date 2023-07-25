@@ -41,7 +41,14 @@ unsafe impl RawPushInterface for RecordSet {
             .first_mut()
             .unwrap()
             .data
-            .push_variable_sized_type(kind, flags, data, run_length, try_header_rle, try_data_rle);
+            .push_variable_sized_type(
+                kind,
+                flags,
+                data,
+                run_length,
+                try_header_rle,
+                try_data_rle,
+            );
     }
 
     unsafe fn push_fixed_size_type<T: PartialEq + Clone + Unpin>(

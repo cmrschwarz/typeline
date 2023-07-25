@@ -1,8 +1,8 @@
 use std::marker::PhantomData;
 
 use crate::field_data::{
-    field_value_flags, FieldData, FieldValueFlags, FieldValueFormat, FieldValueHeader,
-    FieldValueKind, RunLength,
+    field_value_flags, FieldData, FieldValueFlags, FieldValueFormat,
+    FieldValueHeader, FieldValueKind, RunLength,
 };
 
 use super::typed::{TypedField, TypedRange, TypedSlice, ValidTypedRange};
@@ -127,7 +127,11 @@ pub trait FieldIterator<'a>: Sized {
         limit: usize,
         flag_mask: FieldValueFlags,
     ) -> Option<ValidTypedRange<'a>>;
-    fn bounded(self, backwards: usize, forwards: usize) -> BoundedIter<'a, Self> {
+    fn bounded(
+        self,
+        backwards: usize,
+        forwards: usize,
+    ) -> BoundedIter<'a, Self> {
         BoundedIter::new_relative(self, backwards, forwards)
     }
     fn into_base_iter(self) -> Iter<'a>;
@@ -209,7 +213,9 @@ impl<'a> FieldIterator<'a> for Iter<'a> {
         if self.header_fmt.shared_value() {
             self.data
         } else {
-            self.data + self.header_rl_offset as usize * self.header_fmt.size as usize
+            self.data
+                + self.header_rl_offset as usize
+                    * self.header_fmt.size as usize
         }
     }
     fn get_prev_field_data_end(&self) -> usize {
@@ -217,7 +223,9 @@ impl<'a> FieldIterator<'a> for Iter<'a> {
             if self.header_fmt.shared_value() {
                 return self.data + self.header_fmt.size as usize;
             }
-            return self.data + (self.header_rl_offset as usize) * self.header_fmt.size as usize;
+            return self.data
+                + (self.header_rl_offset as usize)
+                    * self.header_fmt.size as usize;
         }
         self.data - self.header_fmt.leading_padding()
     }
@@ -348,7 +356,8 @@ impl<'a> FieldIterator<'a> for Iter<'a> {
     ) -> usize {
         flags &= flag_mask;
         let mut stride_rem = n;
-        let curr_header_rem = (self.header_rl_total - self.header_rl_offset) as usize;
+        let curr_header_rem =
+            (self.header_rl_total - self.header_rl_offset) as usize;
         if curr_header_rem == 0
             || (self.header_fmt.flags & flag_mask) != flags
             || (kinds.contains(&self.header_fmt.kind) == invert_kinds_check)
@@ -371,7 +380,8 @@ impl<'a> FieldIterator<'a> for Iter<'a> {
             stride_rem -= self.next_header() as usize;
             if !self.is_next_valid()
                 || (self.header_fmt.flags & flag_mask) != flags
-                || (kinds.contains(&self.header_fmt.kind) == invert_kinds_check)
+                || (kinds.contains(&self.header_fmt.kind)
+                    == invert_kinds_check)
                 || !data_check(&self.header_fmt, unsafe {
                     self.fd.data.as_ptr().add(self.get_next_field_data())
                 })
@@ -422,7 +432,8 @@ impl<'a> FieldIterator<'a> for Iter<'a> {
             stride_rem -= self.prev_header() as usize;
             if !self.is_prev_valid()
                 || (self.header_fmt.flags & flag_mask) != flags
-                || (kinds.contains(&self.header_fmt.kind) == invert_kinds_check)
+                || (kinds.contains(&self.header_fmt.kind)
+                    == invert_kinds_check)
                 || !data_check(&self.header_fmt, unsafe {
                     self.fd.data.as_ptr().add(self.get_next_field_data())
                 })
@@ -496,8 +507,13 @@ impl<'a> FieldIterator<'a> for Iter<'a> {
             data_begin += oversize_start as usize * fmt.size as usize;
         }
         let header_start = self.header_idx;
-        let field_count =
-            self.next_n_fields_with_fmt(limit, [fmt.kind], false, flag_mask, fmt.flags & flag_mask);
+        let field_count = self.next_n_fields_with_fmt(
+            limit,
+            [fmt.kind],
+            false,
+            flag_mask,
+            fmt.flags & flag_mask,
+        );
         let mut data_end = self.get_prev_field_data_end();
         let mut oversize_end = 0;
         let mut header_end = self.header_idx;
@@ -506,7 +522,9 @@ impl<'a> FieldIterator<'a> for Iter<'a> {
                 header_end += 1;
                 oversize_end = self.header_rl_total - self.header_rl_offset;
             } else {
-                while header_end > 0 && self.fd.header[header_end - 1].deleted() {
+                while header_end > 0
+                    && self.fd.header[header_end - 1].deleted()
+                {
                     header_end -= 1;
                     data_end -= self.fd.header[header_end].data_size();
                 }
@@ -678,11 +696,13 @@ where
     }
     fn field_run_length_fwd(&self) -> RunLength {
         self.range_fwd()
-            .min(self.iter.field_run_length_fwd() as usize) as RunLength
+            .min(self.iter.field_run_length_fwd() as usize)
+            as RunLength
     }
     fn field_run_length_bwd(&self) -> RunLength {
         self.range_bwd()
-            .min(self.iter.field_run_length_bwd() as usize) as RunLength
+            .min(self.iter.field_run_length_bwd() as usize)
+            as RunLength
     }
     fn next_header(&mut self) -> RunLength {
         let range = self.range_fwd();
@@ -759,12 +779,14 @@ where
         stride
     }
     fn typed_field_fwd(&mut self, limit: RunLength) -> Option<TypedField<'a>> {
-        self.iter
-            .typed_field_fwd((limit as usize).min(self.range_fwd()) as RunLength)
+        self.iter.typed_field_fwd(
+            (limit as usize).min(self.range_fwd()) as RunLength
+        )
     }
     fn typed_field_bwd(&mut self, limit: RunLength) -> Option<TypedField<'a>> {
-        self.iter
-            .typed_field_bwd((limit as usize).min(self.range_bwd()) as RunLength)
+        self.iter.typed_field_bwd(
+            (limit as usize).min(self.range_bwd()) as RunLength
+        )
     }
     fn typed_range_fwd(
         &mut self,
@@ -789,7 +811,10 @@ where
 }
 
 impl<'a> IterMut<'a> {
-    pub fn from_start(fd: &'a mut FieldData, initial_field_offset: usize) -> Self {
+    pub fn from_start(
+        fd: &'a mut FieldData,
+        initial_field_offset: usize,
+    ) -> Self {
         let first_header = fd.header.first().cloned();
         Self {
             fd,
@@ -801,7 +826,10 @@ impl<'a> IterMut<'a> {
             header_fmt: first_header.map(|h| h.fmt).unwrap_or_default(),
         }
     }
-    pub fn from_end(fd: &'a mut FieldData, initial_field_offset: usize) -> Self {
+    pub fn from_end(
+        fd: &'a mut FieldData,
+        initial_field_offset: usize,
+    ) -> Self {
         let header_len = fd.header.len();
         let data_len = fd.data.len();
         let field_count = fd.field_count;
@@ -982,13 +1010,17 @@ pub trait UnfoldIterRunLength<T>: Sized {
     fn unfold_rl(self) -> UnfoldRunLength<Self, T>;
 }
 
-impl<T: Clone, I: Iterator<Item = (T, RunLength)>> UnfoldIterRunLength<T> for I {
+impl<T: Clone, I: Iterator<Item = (T, RunLength)>> UnfoldIterRunLength<T>
+    for I
+{
     fn unfold_rl(self) -> UnfoldRunLength<Self, T> {
         UnfoldRunLength::new(self)
     }
 }
 
-impl<I: Iterator<Item = (T, RunLength)>, T: Clone> Iterator for UnfoldRunLength<I, T> {
+impl<I: Iterator<Item = (T, RunLength)>, T: Clone> Iterator
+    for UnfoldRunLength<I, T>
+{
     type Item = T;
 
     fn next(&mut self) -> Option<Self::Item> {

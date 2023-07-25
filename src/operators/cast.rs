@@ -1,15 +1,17 @@
 use smallstr::SmallString;
 
-use crate::field_data::{
-    iter_hall::IterId, iters::FieldIterator, typed::TypedSlice, typed_iters::TypedSliceIter,
-    FieldValueKind,
-};
 use crate::{
-    field_data::{field_value_flags, push_interface::PushInterface, FieldDataType},
+    field_data::{
+        field_value_flags, iter_hall::IterId, iters::FieldIterator,
+        push_interface::PushInterface, typed::TypedSlice,
+        typed_iters::TypedSliceIter, FieldDataType, FieldValueKind,
+    },
     job_session::JobData,
     ref_iter::AutoDerefIter,
     stream_value::{StreamValueData, StreamValueId},
-    utils::encoding::{self, utf8_surrocate_escape, UTF8_REPLACEMENT_CHARACTER},
+    utils::encoding::{
+        self, utf8_surrocate_escape, UTF8_REPLACEMENT_CHARACTER,
+    },
 };
 
 use super::{
@@ -27,7 +29,9 @@ pub struct OpCast {
 }
 
 impl OpCast {
-    pub fn default_op_name(&self) -> SmallString<[u8; DEFAULT_OP_NAME_SMALL_STR_LEN]> {
+    pub fn default_op_name(
+        &self,
+    ) -> SmallString<[u8; DEFAULT_OP_NAME_SMALL_STR_LEN]> {
         match self.target_type {
             FieldDataType::Html => "html",
             FieldDataType::Success => "success",
@@ -62,8 +66,13 @@ pub trait InvalidUnicodeHandlerFn:
     fn clone_dyn(&self) -> Box<dyn InvalidUnicodeHandlerFn>;
 }
 
-impl<F: FnMut(&[u8], &mut Vec<u8>) -> Result<(), String> + Send + Sync + Clone + 'static>
-    InvalidUnicodeHandlerFn for F
+impl<
+        F: FnMut(&[u8], &mut Vec<u8>) -> Result<(), String>
+            + Send
+            + Sync
+            + Clone
+            + 'static,
+    > InvalidUnicodeHandlerFn for F
 {
     fn clone_dyn(&self) -> Box<dyn InvalidUnicodeHandlerFn> {
         Box::new(self.clone())
@@ -112,28 +121,32 @@ pub fn setup_tf_cast<'a>(
         FieldDataType::Text => FieldValueKind::BytesInline,
         FieldDataType::Object => FieldValueKind::Object,
     });
-    let replacement_fn: Box<dyn InvalidUnicodeHandlerFn> = match &op.invalid_unicode_handler {
-        Some(h) => match h {
-            InvalidUnicodeHandler::Lossy => {
-                |_input: &[u8], out: &mut Vec<u8>| -> Result<(), String> {
-                    out.extend_from_slice(&UTF8_REPLACEMENT_CHARACTER);
-                    Ok(())
+    let replacement_fn: Box<dyn InvalidUnicodeHandlerFn> =
+        match &op.invalid_unicode_handler {
+            Some(h) => match h {
+                InvalidUnicodeHandler::Lossy => {
+                    |_input: &[u8], out: &mut Vec<u8>| -> Result<(), String> {
+                        out.extend_from_slice(&UTF8_REPLACEMENT_CHARACTER);
+                        Ok(())
+                    }
+                    .clone_dyn()
                 }
-                .clone_dyn()
-            }
-            InvalidUnicodeHandler::SurrogateEscape => {
-                |input: &[u8], out: &mut Vec<u8>| -> Result<(), String> {
-                    utf8_surrocate_escape(input, out);
-                    Ok(())
+                InvalidUnicodeHandler::SurrogateEscape => {
+                    |input: &[u8], out: &mut Vec<u8>| -> Result<(), String> {
+                        utf8_surrocate_escape(input, out);
+                        Ok(())
+                    }
+                    .clone_dyn()
                 }
-                .clone_dyn()
-            }
-            InvalidUnicodeHandler::Custom(custom) => custom.clone_dyn(),
-        },
-        None => |_input: &[u8], _out: &mut Vec<u8>| -> Result<(), String> { Err(String::new()) }
+                InvalidUnicodeHandler::Custom(custom) => custom.clone_dyn(),
+            },
+            None => |_input: &[u8],
+                     _out: &mut Vec<u8>|
+             -> Result<(), String> { Err(String::new()) }
             .clone_dyn(),
-    };
-    let mut input_field = sess.field_mgr.fields[tf_state.input_field].borrow_mut();
+        };
+    let mut input_field =
+        sess.field_mgr.fields[tf_state.input_field].borrow_mut();
     TransformData::Cast(TfCast {
         batch_iter: input_field.field_data.claim_iter(),
         pending_streams: 0,
@@ -145,7 +158,11 @@ pub fn setup_tf_cast<'a>(
     })
 }
 
-pub fn handle_tf_cast(sess: &mut JobData, tf_id: TransformId, tfc: &mut TfCast) {
+pub fn handle_tf_cast(
+    sess: &mut JobData,
+    tf_id: TransformId,
+    tfc: &mut TfCast,
+) {
     let (batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
     let tf = &sess.tf_mgr.transforms[tf_id];
     let _op_id = tf.op_id.unwrap();
@@ -157,10 +174,14 @@ pub fn handle_tf_cast(sess: &mut JobData, tf_id: TransformId, tfc: &mut TfCast) 
     //PERF: make use of reuse_input_column
     let mut output_field = sess.field_mgr.fields[tf.output_field].borrow_mut();
 
-    if tf.preferred_input_type.is_some_and(|i| i.is_zst()) && tfc.convert_errors {
-        output_field
-            .field_data
-            .push_zst(tf.preferred_input_type.unwrap(), batch_size, true);
+    if tf.preferred_input_type.is_some_and(|i| i.is_zst())
+        && tfc.convert_errors
+    {
+        output_field.field_data.push_zst(
+            tf.preferred_input_type.unwrap(),
+            batch_size,
+            true,
+        );
         if input_done {
             drop(output_field);
             drop(input_field);
@@ -179,7 +200,8 @@ pub fn handle_tf_cast(sess: &mut JobData, tf_id: TransformId, tfc: &mut TfCast) 
         .bounded(0, batch_size);
     let starting_pos = base_iter.get_next_field_pos();
 
-    let mut iter = AutoDerefIter::new(&sess.field_mgr, tf.input_field, base_iter);
+    let mut iter =
+        AutoDerefIter::new(&sess.field_mgr, tf.input_field, base_iter);
 
     while let Some(range) = iter.typed_range_fwd(
         &mut sess.match_set_mgr,
@@ -190,7 +212,9 @@ pub fn handle_tf_cast(sess: &mut JobData, tf_id: TransformId, tfc: &mut TfCast) 
             TypedSlice::Error(errs) => {
                 if tfc.convert_errors {
                 } else {
-                    for (v, rl) in TypedSliceIter::from_range(&range.base, errs) {
+                    for (v, rl) in
+                        TypedSliceIter::from_range(&range.base, errs)
+                    {
                         ofd.push_error(v.clone(), rl as usize, true, true);
                     }
                 }
@@ -200,8 +224,12 @@ pub fn handle_tf_cast(sess: &mut JobData, tf_id: TransformId, tfc: &mut TfCast) 
     }
     let iter_base = iter.into_base_iter();
     let consumed_fields = iter_base.get_next_field_pos() - starting_pos;
-    sess.field_mgr
-        .store_iter_cow_aware(input_field_id, &input_field, tfc.batch_iter, iter_base);
+    sess.field_mgr.store_iter_cow_aware(
+        input_field_id,
+        &input_field,
+        tfc.batch_iter,
+        iter_base,
+    );
     drop(input_field);
     drop(output_field);
     let streams_done = tfc.pending_streams == 0;
@@ -225,12 +253,14 @@ pub fn handle_tf_cast_stream_value_update(
 ) {
     let op_id = sess.tf_mgr.transforms[tf_id].op_id.unwrap();
     let sv_out_id = custom;
-    let (sv_in, sv_out) = sess.sv_mgr.stream_values.two_distinct_mut(sv_id, sv_out_id);
+    let (sv_in, sv_out) =
+        sess.sv_mgr.stream_values.two_distinct_mut(sv_id, sv_out_id);
     match &sv_in.data {
         StreamValueData::Dropped => unreachable!(),
         StreamValueData::Error(err) => {
             if tf.convert_errors {
-                sv_out.data = StreamValueData::Bytes(err.message.as_bytes().to_owned());
+                sv_out.data =
+                    StreamValueData::Bytes(err.message.as_bytes().to_owned());
                 sv_out.bytes_are_chunk = false;
                 sv_out.drop_previous_chunks = true;
                 sv_out.bytes_are_utf8 = tf.target_type == FieldDataType::Text;
@@ -244,11 +274,12 @@ pub fn handle_tf_cast_stream_value_update(
             return;
         }
         StreamValueData::Bytes(bb) => {
-            let out_data = if let StreamValueData::Bytes(bb_out) = &mut sv_out.data {
-                bb_out
-            } else {
-                unreachable!()
-            };
+            let out_data =
+                if let StreamValueData::Bytes(bb_out) = &mut sv_out.data {
+                    bb_out
+                } else {
+                    unreachable!()
+                };
             if sv_out.bytes_are_utf8 == true && sv_in.bytes_are_utf8 == false {
                 let res = encoding::decode_to_utf8(
                     &mut encoding_rs::UTF_8.new_decoder_without_bom_handling(),
@@ -259,7 +290,9 @@ pub fn handle_tf_cast_stream_value_update(
                 );
                 if let Err((_i, e)) = res {
                     sv_out.done = true;
-                    sv_out.data = StreamValueData::Error(OperatorApplicationError::new_s(e, op_id));
+                    sv_out.data = StreamValueData::Error(
+                        OperatorApplicationError::new_s(e, op_id),
+                    );
                     sess.sv_mgr.inform_stream_value_subscribers(sv_out_id);
                     sess.sv_mgr
                         .drop_field_value_subscription(sv_id, Some(tf_id));

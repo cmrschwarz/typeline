@@ -42,32 +42,58 @@ impl ChainOptions {
             settings: ChainSettings {
                 default_text_encoding: self
                     .default_text_encoding
-                    .or_else(|| parent.map(|p| p.settings.default_text_encoding))
-                    .unwrap_or(DEFAULT_CHAIN_OPTIONS.default_text_encoding.unwrap()),
+                    .or_else(|| {
+                        parent.map(|p| p.settings.default_text_encoding)
+                    })
+                    .unwrap_or(
+                        DEFAULT_CHAIN_OPTIONS.default_text_encoding.unwrap(),
+                    ),
                 prefer_parent_text_encoding: self
                     .prefer_parent_text_encoding
-                    .or_else(|| parent.map(|p| p.settings.prefer_parent_text_encoding))
-                    .unwrap_or(DEFAULT_CHAIN_OPTIONS.prefer_parent_text_encoding.unwrap()),
+                    .or_else(|| {
+                        parent.map(|p| p.settings.prefer_parent_text_encoding)
+                    })
+                    .unwrap_or(
+                        DEFAULT_CHAIN_OPTIONS
+                            .prefer_parent_text_encoding
+                            .unwrap(),
+                    ),
                 force_text_encoding: self
                     .force_text_encoding
                     .or_else(|| parent.map(|p| p.settings.force_text_encoding))
-                    .unwrap_or(DEFAULT_CHAIN_OPTIONS.force_text_encoding.unwrap()),
+                    .unwrap_or(
+                        DEFAULT_CHAIN_OPTIONS.force_text_encoding.unwrap(),
+                    ),
                 selenium_download_strategy: self
                     .selenium_download_strategy
-                    .or_else(|| parent.map(|p| p.settings.selenium_download_strategy))
-                    .unwrap_or(DEFAULT_CHAIN_OPTIONS.selenium_download_strategy.unwrap()),
+                    .or_else(|| {
+                        parent.map(|p| p.settings.selenium_download_strategy)
+                    })
+                    .unwrap_or(
+                        DEFAULT_CHAIN_OPTIONS
+                            .selenium_download_strategy
+                            .unwrap(),
+                    ),
                 default_batch_size: self
                     .default_batch_size
                     .or_else(|| parent.map(|p| p.settings.default_batch_size))
-                    .unwrap_or(DEFAULT_CHAIN_OPTIONS.default_batch_size.unwrap()),
+                    .unwrap_or(
+                        DEFAULT_CHAIN_OPTIONS.default_batch_size.unwrap(),
+                    ),
                 stream_buffer_size: self
                     .stream_buffer_size
                     .or_else(|| parent.map(|p| p.settings.stream_buffer_size))
-                    .unwrap_or(DEFAULT_CHAIN_OPTIONS.stream_buffer_size.unwrap()),
+                    .unwrap_or(
+                        DEFAULT_CHAIN_OPTIONS.stream_buffer_size.unwrap(),
+                    ),
                 stream_size_threshold: self
                     .stream_size_threshold
-                    .or_else(|| parent.map(|p| p.settings.stream_size_threshold))
-                    .unwrap_or(DEFAULT_CHAIN_OPTIONS.stream_size_threshold.unwrap()),
+                    .or_else(|| {
+                        parent.map(|p| p.settings.stream_size_threshold)
+                    })
+                    .unwrap_or(
+                        DEFAULT_CHAIN_OPTIONS.stream_size_threshold.unwrap(),
+                    ),
                 buffering_mode: self
                     .buffering_mode
                     .or_else(|| parent.map(|p| p.settings.buffering_mode))

@@ -1,31 +1,31 @@
-use crate::chain::BufferingMode;
-use crate::operators::call::parse_op_call;
-use crate::operators::call_concurrent::parse_op_call_concurrent;
-use crate::operators::count::parse_op_count;
-use crate::operators::{
-    errors::OperatorCreationError,
-    file_reader::{argument_matches_op_file_reader, parse_op_file_reader},
-    fork::parse_op_fork,
-    format::parse_op_format,
-    join::{argument_matches_op_join, parse_op_join},
-    key::parse_op_key,
-    literal::{argument_matches_op_literal, parse_op_literal},
-    next::parse_op_next,
-    operator::OperatorData,
-    print::parse_op_print,
-    regex::{parse_op_regex, RegexOptions},
-    select::parse_op_select,
-    sequence::parse_op_seq,
-    up::parse_op_up,
-};
-use crate::scr_error::{ContextualizedScrError, ReplDisabledError, ScrError};
-use crate::utils::int_units::parse_int_with_units_from_bytes;
 use crate::{
+    chain::BufferingMode,
+    operators::{
+        call::parse_op_call,
+        call_concurrent::parse_op_call_concurrent,
+        count::parse_op_count,
+        errors::OperatorCreationError,
+        file_reader::{argument_matches_op_file_reader, parse_op_file_reader},
+        fork::parse_op_fork,
+        format::parse_op_format,
+        join::{argument_matches_op_join, parse_op_join},
+        key::parse_op_key,
+        literal::{argument_matches_op_literal, parse_op_literal},
+        next::parse_op_next,
+        operator::OperatorData,
+        print::parse_op_print,
+        regex::{parse_op_regex, RegexOptions},
+        select::parse_op_select,
+        sequence::parse_op_seq,
+        up::parse_op_up,
+    },
     options::{
         argument::CliArgIdx, operator_base_options::OperatorBaseOptions,
         session_options::SessionOptions,
     },
+    scr_error::{ContextualizedScrError, ReplDisabledError, ScrError},
     selenium::{SeleniumDownloadStrategy, SeleniumVariant},
+    utils::int_units::parse_int_with_units_from_bytes,
 };
 use bstr::ByteSlice;
 
@@ -177,7 +177,10 @@ fn try_parse_bool_arg_or_default(
         Ok(default)
     }
 }
-fn try_parse_usize_arg(val: &[u8], cli_arg_idx: CliArgIdx) -> Result<usize, CliArgumentError> {
+fn try_parse_usize_arg(
+    val: &[u8],
+    cli_arg_idx: CliArgIdx,
+) -> Result<usize, CliArgumentError> {
     match parse_int_with_units_from_bytes::<usize>(val) {
         Ok(v) => Ok(v),
         Err(msg) => Err(CliArgumentError::new_s(
@@ -210,7 +213,8 @@ fn try_parse_as_context_opt(
                 "f" => include_str!("help_sections/format.txt"),
                 _ => {
                     return Err(CliArgumentError {
-                        message: format!("no help section for '{section}'").into(),
+                        message: format!("no help section for '{section}'")
+                            .into(),
                         cli_arg_idx: arg.cli_arg.idx,
                     }
                     .into())
@@ -228,14 +232,17 @@ fn try_parse_as_context_opt(
                 .max_threads
                 .set(try_parse_usize_arg(val, arg.cli_arg.idx)?, arg_idx)?;
         } else {
-            return Err(
-                CliArgumentError::new("missing thread count argument", arg.cli_arg.idx).into(),
-            );
+            return Err(CliArgumentError::new(
+                "missing thread count argument",
+                arg.cli_arg.idx,
+            )
+            .into());
         }
         matched = true
     }
     if arg.argname == "repl" {
-        let enabled = try_parse_bool_arg_or_default(arg.value, true, arg.cli_arg.idx)?;
+        let enabled =
+            try_parse_bool_arg_or_default(arg.value, true, arg.cli_arg.idx)?;
         if !allow_repl && enabled {
             return Err(ReplDisabledError {
                 cli_arg_idx: Some(arg.cli_arg.idx),
@@ -254,7 +261,8 @@ fn try_parse_as_context_opt(
             }
             .into());
         }
-        let enabled = try_parse_bool_arg_or_default(arg.value, true, arg.cli_arg.idx)?;
+        let enabled =
+            try_parse_bool_arg_or_default(arg.value, true, arg.cli_arg.idx)?;
         ctx_opts.exit_repl.set(enabled, arg_idx)?;
         matched = true
     }
@@ -278,7 +286,10 @@ fn try_parse_as_chain_opt(
     let arg_idx = Some(arg.cli_arg.idx);
     match arg.argname {
         "sel" => {
-            let sv = try_parse_selenium_variant(arg.value.as_deref(), &arg.cli_arg)?;
+            let sv = try_parse_selenium_variant(
+                arg.value.as_deref(),
+                &arg.cli_arg,
+            )?;
             chain.selenium_variant.set(sv, arg_idx)?;
             return Ok(true);
         }
@@ -294,15 +305,26 @@ fn try_parse_as_chain_opt(
             }
         }
         "ppenc" => {
-            let ppte = try_parse_bool_arg_or_default(arg.value.as_deref(), true, arg.cli_arg.idx)?;
+            let ppte = try_parse_bool_arg_or_default(
+                arg.value.as_deref(),
+                true,
+                arg.cli_arg.idx,
+            )?;
             chain.prefer_parent_text_encoding.set(ppte, arg_idx)?;
         }
         "fenc" => {
-            let fte = try_parse_bool_arg_or_default(arg.value.as_deref(), true, arg.cli_arg.idx)?;
+            let fte = try_parse_bool_arg_or_default(
+                arg.value.as_deref(),
+                true,
+                arg.cli_arg.idx,
+            )?;
             chain.force_text_encoding.set(fte, arg_idx)?;
         }
         "sds" => {
-            let sds = try_parse_selenium_download_strategy(arg.value.as_deref(), &arg.cli_arg)?;
+            let sds = try_parse_selenium_download_strategy(
+                arg.value.as_deref(),
+                &arg.cli_arg,
+            )?;
             chain.selenium_download_strategy.set(sds, arg_idx)?;
         }
         "bs" => {
@@ -354,7 +376,9 @@ fn try_parse_as_chain_opt(
                         match val {
                             "stdin" => Some(BufferingMode::LineBufferStdin),
                             "tty" => Some(BufferingMode::LineBufferIfTTY),
-                            "stdin-if-tty" => Some(BufferingMode::LineBufferStdinIfTTY),
+                            "stdin-if-tty" => {
+                                Some(BufferingMode::LineBufferStdinIfTTY)
+                            }
                             _ => None,
                         }
                     } else {
@@ -424,7 +448,9 @@ fn parse_operation(
         if opts.binary_mode && !unicode_mode {
             opts.ascii_mode = true;
         }
-        return Ok(Some(OperatorData::Regex(parse_op_regex(value, idx, opts)?)));
+        return Ok(Some(OperatorData::Regex(parse_op_regex(
+            value, idx, opts,
+        )?)));
     }
 
     if argument_matches_op_literal(argname) {
@@ -461,12 +487,11 @@ fn try_parse_as_operation<'a>(
     arg: ParsedCliArgument<'a>,
 ) -> Result<Option<ParsedCliArgument<'a>>, CliArgumentError> {
     let op_data =
-        parse_operation(&arg.argname, arg.value, Some(arg.cli_arg.idx)).map_err(|oce| {
-            CliArgumentError {
+        parse_operation(&arg.argname, arg.value, Some(arg.cli_arg.idx))
+            .map_err(|oce| CliArgumentError {
                 message: oce.message,
                 cli_arg_idx: arg.cli_arg.idx,
-            }
-        })?;
+            })?;
     if let Some(op_data) = op_data {
         let argname = ctx_opts.string_store.intern_cloned(arg.argname);
         let label = arg.label.map(|l| ctx_opts.string_store.intern_cloned(l));
@@ -511,12 +536,18 @@ pub fn parse_cli_retain_args(
             continue;
         }
         if let Some(m) = CLI_ARG_REGEX.captures(&arg_str) {
-            let argname = from_utf8(m.name("argname").unwrap().as_bytes()).map_err(|_| {
-                CliArgumentError::new("argument name must be valid UTF-8", cli_arg.idx)
-            })?;
+            let argname = from_utf8(m.name("argname").unwrap().as_bytes())
+                .map_err(|_| {
+                    CliArgumentError::new(
+                        "argument name must be valid UTF-8",
+                        cli_arg.idx,
+                    )
+                })?;
             if let Some(modes) = m.name("modes") {
                 let modes_str = modes.as_bytes();
-                if modes_str.len() >= 2 || (modes_str.len() == 2 && modes_str[0] == modes_str[1]) {
+                if modes_str.len() >= 2
+                    || (modes_str.len() == 2 && modes_str[0] == modes_str[1])
+                {
                     return Err(CliArgumentError::new(
                         "operator modes cannot be specified twice",
                         cli_arg.idx,
@@ -524,14 +555,16 @@ pub fn parse_cli_retain_args(
                     .into());
                 }
             }
-            let label =
-                if let Some(lbl) = m.name("label") {
-                    Some(from_utf8(lbl.as_bytes()).map_err(|_| {
-                        CliArgumentError::new("label must be valid UTF-8", cli_arg.idx)
-                    })?)
-                } else {
-                    None
-                };
+            let label = if let Some(lbl) = m.name("label") {
+                Some(from_utf8(lbl.as_bytes()).map_err(|_| {
+                    CliArgumentError::new(
+                        "label must be valid UTF-8",
+                        cli_arg.idx,
+                    )
+                })?)
+            } else {
+                None
+            };
 
             let arg = ParsedCliArgument {
                 argname,
@@ -549,13 +582,18 @@ pub fn parse_cli_retain_args(
             }
             if let Some(arg) = try_parse_as_operation(&mut ctx_opts, arg)? {
                 return Err(CliArgumentError {
-                    message: format!("unknown operator '{}'", arg.argname).into(),
+                    message: format!("unknown operator '{}'", arg.argname)
+                        .into(),
                     cli_arg_idx: arg.cli_arg.idx,
                 }
                 .into());
             }
         } else {
-            return Err(CliArgumentError::new("invalid argument syntax", cli_arg.idx).into());
+            return Err(CliArgumentError::new(
+                "invalid argument syntax",
+                cli_arg.idx,
+            )
+            .into());
         }
     }
     return Ok(ctx_opts);
@@ -577,8 +615,9 @@ pub fn parse_cli(
     args: Vec<Vec<u8>>,
     allow_repl: bool,
 ) -> Result<SessionOptions, ContextualizedScrError> {
-    parse_cli_raw(args, allow_repl)
-        .map_err(|(args, err)| ContextualizedScrError::from_scr_error(err, Some(&args), None, None))
+    parse_cli_raw(args, allow_repl).map_err(|(args, err)| {
+        ContextualizedScrError::from_scr_error(err, Some(&args), None, None)
+    })
 }
 
 pub fn collect_env_args() -> Result<Vec<Vec<u8>>, CliArgumentError> {
@@ -600,7 +639,9 @@ pub fn collect_env_args() -> Result<Vec<Vec<u8>>, CliArgumentError> {
                     "failed to parse byte sequence as unicode".to_owned(),
                     CliArgument {
                         arg_index: i + 1,
-                        arg_str: Vec::<u8>::from(arg.to_string_lossy().as_bytes()),
+                        arg_str: Vec::<u8>::from(
+                            arg.to_string_lossy().as_bytes(),
+                        ),
                     },
                 ));
             }
@@ -609,8 +650,11 @@ pub fn collect_env_args() -> Result<Vec<Vec<u8>>, CliArgumentError> {
     }
 }
 
-pub fn parse_cli_from_env(allow_repl: bool) -> Result<SessionOptions, ContextualizedScrError> {
-    let args = collect_env_args()
-        .map_err(|e| ContextualizedScrError::from_scr_error(e.into(), None, None, None))?;
+pub fn parse_cli_from_env(
+    allow_repl: bool,
+) -> Result<SessionOptions, ContextualizedScrError> {
+    let args = collect_env_args().map_err(|e| {
+        ContextualizedScrError::from_scr_error(e.into(), None, None, None)
+    })?;
     parse_cli(args, allow_repl)
 }

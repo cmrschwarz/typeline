@@ -3,7 +3,9 @@ use bstr::ByteSlice;
 use crate::{
     job_session::JobData,
     options::argument::CliArgIdx,
-    utils::string_store::{StringStore, StringStoreEntry, INVALID_STRING_STORE_ENTRY},
+    utils::string_store::{
+        StringStore, StringStoreEntry, INVALID_STRING_STORE_ENTRY,
+    },
 };
 
 use super::{
@@ -24,9 +26,16 @@ pub fn parse_op_select(
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
     let value_str = value
-        .ok_or_else(|| OperatorCreationError::new("missing argument with key for select", arg_idx))?
+        .ok_or_else(|| {
+            OperatorCreationError::new(
+                "missing argument with key for select",
+                arg_idx,
+            )
+        })?
         .to_str()
-        .map_err(|_| OperatorCreationError::new("key must be valid UTF-8", arg_idx))?;
+        .map_err(|_| {
+            OperatorCreationError::new("key must be valid UTF-8", arg_idx)
+        })?;
     Ok(OperatorData::Select(OpSelect {
         key: value_str.to_owned(),
         key_interned: INVALID_STRING_STORE_ENTRY,
@@ -37,7 +46,8 @@ pub fn setup_op_select(
     string_store: &mut StringStore,
     op: &mut OpSelect,
 ) -> Result<(), OperatorSetupError> {
-    op.key_interned = string_store.intern_moved(std::mem::replace(&mut op.key, Default::default()));
+    op.key_interned = string_store
+        .intern_moved(std::mem::replace(&mut op.key, Default::default()));
     Ok(())
 }
 
@@ -57,7 +67,11 @@ pub fn setup_tf_select(
     TransformData::Select(TfSelect {})
 }
 
-pub fn handle_tf_select(sess: &mut JobData, tf_id: TransformId, _sel: &mut TfSelect) {
+pub fn handle_tf_select(
+    sess: &mut JobData,
+    tf_id: TransformId,
+    _sel: &mut TfSelect,
+) {
     //TODO: think about maybe handling errors from the input field here?
     let tf = &sess.tf_mgr.transforms[tf_id];
     sess.field_mgr

@@ -26,7 +26,11 @@ impl TempVec {
             unsafe {
                 std::alloc::dealloc(
                     self.data.as_ptr(),
-                    Layout::from_size_align(self.size as usize, self.align as usize).unwrap(),
+                    Layout::from_size_align(
+                        self.size as usize,
+                        self.align as usize,
+                    )
+                    .unwrap(),
                 )
             };
             self.capacity = 0;
@@ -40,13 +44,18 @@ impl TempVec {
         let size = std::mem::size_of::<T>();
         assert!(size < u32::MAX as usize);
         let size = size as u32;
-        if align != self.align as usize || size < self.size || size % self.size != 0 {
+        if align != self.align as usize
+            || size < self.size
+            || size % self.size != 0
+        {
             self.dealloc_data();
             return Vec::new();
         }
         // SAFETY: the above if statements makes sure that the invariants of
         // this  are upheld
-        let res = unsafe { Vec::from_raw_parts(self.data.as_ptr() as *mut T, 0, self.capacity) };
+        let res = unsafe {
+            Vec::from_raw_parts(self.data.as_ptr() as *mut T, 0, self.capacity)
+        };
         self.capacity = 0;
         res
     }

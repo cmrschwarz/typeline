@@ -28,7 +28,8 @@ use crate::{
     job_session::{FieldId, MatchSetManager},
     operators::errors::OperatorApplicationError,
     ref_iter::{
-        AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter, RefAwareInlineTextIter,
+        AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter,
+        RefAwareInlineTextIter,
     },
     stream_value::StreamValueId,
     utils::string_store::StringStoreEntry,
@@ -77,7 +78,9 @@ impl FieldValueKind {
         use FieldValueKind::*;
         match self {
             Success | Null | Integer | Reference | StreamValueId => false,
-            Error | Html | BytesInline | BytesBuffer | BytesFile | Object => true,
+            Error | Html | BytesInline | BytesBuffer | BytesFile | Object => {
+                true
+            }
         }
     }
     pub fn needs_alignment(self) -> bool {
@@ -129,12 +132,18 @@ impl FieldValueKind {
             FieldValueKind::Success => 0,
             FieldValueKind::Null => 0,
             FieldValueKind::Integer => std::mem::size_of::<i64>(),
-            FieldValueKind::StreamValueId => std::mem::size_of::<StreamValueId>(),
+            FieldValueKind::StreamValueId => {
+                std::mem::size_of::<StreamValueId>()
+            }
             FieldValueKind::Reference => std::mem::size_of::<FieldReference>(),
-            FieldValueKind::Error => std::mem::size_of::<OperatorApplicationError>(),
+            FieldValueKind::Error => {
+                std::mem::size_of::<OperatorApplicationError>()
+            }
             FieldValueKind::Html => std::mem::size_of::<Html>(),
             FieldValueKind::BytesBuffer => std::mem::size_of::<Vec<u8>>(),
-            FieldValueKind::BytesFile => std::mem::size_of::<BytesBufferFile>(),
+            FieldValueKind::BytesFile => {
+                std::mem::size_of::<BytesBufferFile>()
+            }
             FieldValueKind::Object => std::mem::size_of::<Object>(),
             // should not be used for size calculations
             // but is used for example in is_zst
@@ -214,7 +223,8 @@ pub mod field_value_flags {
     pub const SHARED_VALUE: FieldValueFlags = 1 << SHARED_VALUE_OFFSET;
     pub const BYTES_ARE_UTF8: FieldValueFlags = 1 << BYTES_ARE_UTF8_OFFSET;
     pub const DELETED: FieldValueFlags = 1 << DELETED_OFFSET;
-    pub const SAME_VALUE_AS_PREVIOUS: FieldValueFlags = 1 << SAME_VALUE_AS_PREVIOUS_OFFSET;
+    pub const SAME_VALUE_AS_PREVIOUS: FieldValueFlags =
+        1 << SAME_VALUE_AS_PREVIOUS_OFFSET;
 
     pub const DEFAULT: FieldValueFlags = 0;
 }
@@ -250,20 +260,24 @@ impl FieldValueFormat {
     }
     pub fn set_shared_value(&mut self, val: bool) {
         self.flags &= !field_value_flags::SHARED_VALUE;
-        self.flags |= (val as FieldValueFlags) << field_value_flags::SHARED_VALUE_OFFSET;
+        self.flags |=
+            (val as FieldValueFlags) << field_value_flags::SHARED_VALUE_OFFSET;
     }
     pub fn bytes_are_utf8(self) -> bool {
         self.flags & field_value_flags::BYTES_ARE_UTF8 != 0
     }
     pub fn set_bytes_are_utf8(&mut self, val: bool) {
         self.flags &= !field_value_flags::BYTES_ARE_UTF8;
-        self.flags |= (val as FieldValueFlags) << field_value_flags::BYTES_ARE_UTF8_OFFSET;
+        self.flags |= (val as FieldValueFlags)
+            << field_value_flags::BYTES_ARE_UTF8_OFFSET;
     }
     pub fn leading_padding(self) -> usize {
         (self.flags & field_value_flags::LEADING_PADDING) as usize
     }
     pub fn set_leading_padding(&mut self, val: usize) {
-        debug_assert!(val & !(field_value_flags::LEADING_PADDING as usize) == 0);
+        debug_assert!(
+            val & !(field_value_flags::LEADING_PADDING as usize) == 0
+        );
         self.flags &= !field_value_flags::LEADING_PADDING;
         self.flags |= (val as u8) & field_value_flags::LEADING_PADDING;
     }
@@ -272,14 +286,16 @@ impl FieldValueFormat {
     }
     pub fn set_deleted(&mut self, val: bool) {
         self.flags &= !field_value_flags::DELETED;
-        self.flags |= (val as FieldValueFlags) << field_value_flags::DELETED_OFFSET;
+        self.flags |=
+            (val as FieldValueFlags) << field_value_flags::DELETED_OFFSET;
     }
     pub fn same_value_as_previous(self) -> bool {
         self.flags & field_value_flags::SAME_VALUE_AS_PREVIOUS != 0
     }
     pub fn set_same_value_as_previous(&mut self, val: bool) {
         self.flags &= !field_value_flags::SAME_VALUE_AS_PREVIOUS;
-        self.flags |= (val as FieldValueFlags) << field_value_flags::SAME_VALUE_AS_PREVIOUS_OFFSET;
+        self.flags |= (val as FieldValueFlags)
+            << field_value_flags::SAME_VALUE_AS_PREVIOUS_OFFSET;
     }
 }
 
@@ -368,7 +384,10 @@ impl Clone for FieldData {
 }
 
 unsafe fn drop_slice<T>(slice: &[T]) {
-    let droppable = slice::from_raw_parts_mut(slice.as_ptr() as *mut ManuallyDrop<T>, slice.len());
+    let droppable = slice::from_raw_parts_mut(
+        slice.as_ptr() as *mut ManuallyDrop<T>,
+        slice.len(),
+    );
     for e in droppable.iter_mut() {
         ManuallyDrop::drop(e);
     }
@@ -443,7 +462,9 @@ impl FieldData {
         mut targets_applicator: &mut impl FnMut(&mut dyn FnMut(&mut FieldData)),
     ) -> usize {
         let mut copied_fields = 0;
-        while let Some(tr) = iter.typed_range_fwd(usize::MAX, field_value_flags::DELETED) {
+        while let Some(tr) =
+            iter.typed_range_fwd(usize::MAX, field_value_flags::DELETED)
+        {
             copied_fields += tr.field_count;
             targets_applicator(&mut |fd| {
                 let first_header_idx = fd.header.len();
@@ -452,7 +473,8 @@ impl FieldData {
                     let align = unsafe { fd.pad_to_align() };
                     fd.header[first_header_idx].set_leading_padding(align);
                 }
-                fd.header[first_header_idx].run_length -= tr.first_header_run_length_oversize;
+                fd.header[first_header_idx].run_length -=
+                    tr.first_header_run_length_oversize;
             });
             unsafe { append_data(tr.data, &mut targets_applicator) };
         }
@@ -488,7 +510,9 @@ impl FieldData {
             } else {
                 match tr.base.data {
                     TypedSlice::BytesInline(data) => {
-                        for (v, rl, _offset) in RefAwareInlineBytesIter::from_range(&tr, data) {
+                        for (v, rl, _offset) in
+                            RefAwareInlineBytesIter::from_range(&tr, data)
+                        {
                             targets_applicator(&mut |fd| {
                                 //TODO: maybe do a little rle here?
                                 fd.header.push(FieldValueHeader {
@@ -504,7 +528,9 @@ impl FieldData {
                         }
                     }
                     TypedSlice::TextInline(data) => {
-                        for (v, rl, _offset) in RefAwareInlineTextIter::from_range(&tr, data) {
+                        for (v, rl, _offset) in
+                            RefAwareInlineTextIter::from_range(&tr, data)
+                        {
                             targets_applicator(&mut |fd| {
                                 //TODO: maybe do a little rle here?
                                 fd.header.push(FieldValueHeader {
@@ -520,7 +546,9 @@ impl FieldData {
                         }
                     }
                     TypedSlice::BytesBuffer(data) => {
-                        for (v, rl, _offset) in RefAwareBytesBufferIter::from_range(&tr, data) {
+                        for (v, rl, _offset) in
+                            RefAwareBytesBufferIter::from_range(&tr, data)
+                        {
                             targets_applicator(&mut |fd| {
                                 fd.push_bytes(v, rl as usize, true, false);
                             });
@@ -601,7 +629,9 @@ unsafe fn append_data<'a>(
         TypedSlice::StreamValueId(v) => extend_raw(target_applicator, v),
         TypedSlice::Reference(v) => extend_raw(target_applicator, v),
         TypedSlice::BytesInline(v) => extend_raw(target_applicator, v),
-        TypedSlice::TextInline(v) => extend_raw(target_applicator, v.as_bytes()),
+        TypedSlice::TextInline(v) => {
+            extend_raw(target_applicator, v.as_bytes())
+        }
         TypedSlice::BytesBuffer(v) => extend_with_clones(target_applicator, v),
         TypedSlice::Error(v) => extend_with_clones(target_applicator, v),
         TypedSlice::Html(v) => extend_with_clones(target_applicator, v),

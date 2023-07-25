@@ -24,7 +24,10 @@ pub fn parse_op_up(
                 })?
                 .parse::<i64>()
                 .map_err(|_| {
-                    OperatorCreationError::new("failed to parse argument as an integer", arg_idx)
+                    OperatorCreationError::new(
+                        "failed to parse argument as an integer",
+                        arg_idx,
+                    )
                 })
         })
         .transpose()?
@@ -42,6 +45,7 @@ pub fn parse_op_up(
 
 pub fn create_op_up(step: usize) -> OperatorData {
     OperatorData::Up(OpUp {
-        step: NonZeroUsize::new(step).expect("argument for operator `up` must be larger than zero"),
+        step: NonZeroUsize::new(step)
+            .expect("argument for operator `up` must be larger than zero"),
     })
 }

@@ -1,29 +1,29 @@
-use std::collections::{HashMap, VecDeque};
-use std::sync::{Arc, Condvar, Mutex};
+use std::{
+    collections::{HashMap, VecDeque},
+    sync::{Arc, Condvar, Mutex},
+};
 
 use bstr::ByteSlice;
 use reedline::{
-    default_emacs_keybindings, DefaultPrompt, DefaultPromptSegment, EditCommand, Emacs,
-    FileBackedHistory, History, HistoryItem, KeyCode, KeyModifiers, Reedline, ReedlineEvent,
-    Signal,
+    default_emacs_keybindings, DefaultPrompt, DefaultPromptSegment,
+    EditCommand, Emacs, FileBackedHistory, History, HistoryItem, KeyCode,
+    KeyModifiers, Reedline, ReedlineEvent, Signal,
 };
 use shlex::Shlex;
 use smallvec::SmallVec;
 
-use crate::chain::ChainId;
-use crate::cli::parse_cli;
-use crate::field_data::record_buffer::RecordBuffer;
-use crate::field_data::record_set::RecordSet;
-use crate::job_session::{JobData, JobSession};
-use crate::operators::operator::OperatorId;
-use crate::utils::identity_hasher::BuildIdentityHasher;
-use crate::utils::string_store::StringStoreEntry;
-use crate::utils::temp_vec::TempVec;
 use crate::{
-    chain::Chain,
-    operators::operator::{OperatorBase, OperatorData},
+    chain::{Chain, ChainId},
+    cli::parse_cli,
+    field_data::{record_buffer::RecordBuffer, record_set::RecordSet},
+    job_session::{JobData, JobSession},
+    operators::operator::{OperatorBase, OperatorData, OperatorId},
     scr_error::ScrError,
-    utils::string_store::StringStore,
+    utils::{
+        identity_hasher::BuildIdentityHasher,
+        string_store::{StringStore, StringStoreEntry},
+        temp_vec::TempVec,
+    },
     worker_thread::WorkerThread,
 };
 
@@ -52,7 +52,8 @@ pub struct SessionSettings {
 pub struct Session {
     pub(crate) settings: SessionSettings,
     pub(crate) chains: Vec<Chain>,
-    pub(crate) chain_labels: HashMap<StringStoreEntry, ChainId, BuildIdentityHasher>,
+    pub(crate) chain_labels:
+        HashMap<StringStoreEntry, ChainId, BuildIdentityHasher>,
     pub(crate) operator_bases: Vec<OperatorBase>,
     pub(crate) operator_data: Vec<OperatorData>,
     pub(crate) cli_args: Option<Vec<Vec<u8>>>,
@@ -114,18 +115,26 @@ impl SessionManager {
         // are dropped, see set_session
         assert!(starting_job_session
             .as_ref()
-            .map(|js| std::ptr::eq(js.job_data.session_data, self.session.as_ref()))
+            .map(|js| std::ptr::eq(
+                js.job_data.session_data,
+                self.session.as_ref()
+            ))
             .unwrap_or(true));
         let id = self.venture_id_counter;
         self.venture_id_counter = id.wrapping_add(1);
-        let spawnable_thread_count = self.session.settings.max_threads - self.total_worker_threads;
-        let threads_needed = desc.participans_needed.min(spawnable_thread_count);
+        let spawnable_thread_count =
+            self.session.settings.max_threads - self.total_worker_threads;
+        let threads_needed =
+            desc.participans_needed.min(spawnable_thread_count);
         self.venture_queue.push_back(Venture {
             description: desc,
             venture_id: id,
             // SAFETY: see comment above for why transmuting this livetime is justified
             source_job_session: unsafe {
-                std::mem::transmute::<Option<Box<JobSession<'a>>>, Option<Box<JobSession<'static>>>> (starting_job_session)
+                std::mem::transmute::<
+                    Option<Box<JobSession<'a>>>,
+                    Option<Box<JobSession<'static>>>,
+                >(starting_job_session)
             },
         });
         for _ in 0..threads_needed {
@@ -165,7 +174,8 @@ impl Context {
         let ctx = self.main_thread.ctx_data.as_ref();
         let mut sess_mgr = ctx.sess_mgr.lock().unwrap();
         loop {
-            if sess_mgr.waiting_worker_threads == sess_mgr.total_worker_threads {
+            if sess_mgr.waiting_worker_threads == sess_mgr.total_worker_threads
+            {
                 return;
             }
             sess_mgr = ctx.worker_threads_finished.wait(sess_mgr).unwrap();
@@ -206,14 +216,14 @@ impl Context {
         if let Some(args) = &self.session.cli_args {
             history
                 .save(HistoryItem::from_command_line(
-                    &args
-                        .iter()
-                        .map(|arg| arg.to_str_lossy())
-                        .fold(String::new(), |mut s, a| {
+                    &args.iter().map(|arg| arg.to_str_lossy()).fold(
+                        String::new(),
+                        |mut s, a| {
                             s.push_str(" ");
                             s.push_str(&shlex::quote(&a));
                             s
-                        })[1..],
+                        },
+                    )[1..],
                 ))
                 .unwrap();
         }
@@ -247,7 +257,8 @@ impl Context {
             match sig {
                 Ok(Signal::Success(buffer)) => {
                     let mut shlex = Shlex::new(&buffer);
-                    let args = shlex.by_ref().map(|s| s.into_bytes()).collect();
+                    let args =
+                        shlex.by_ref().map(|s| s.into_bytes()).collect();
                     let mut exit_repl = false;
                     let sess = if !shlex.had_error {
                         let mut sess_opts = parse_cli(args, true);
@@ -271,7 +282,8 @@ impl Context {
                             },
                         }
                     } else {
-                        Err("failed to tokenize command line arguments".to_string())
+                        Err("failed to tokenize command line arguments"
+                            .to_string())
                     };
                     match sess {
                         Ok(sess) => {

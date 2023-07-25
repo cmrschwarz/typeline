@@ -7,7 +7,9 @@ use crate::{
     field_data::{push_interface::PushInterface, FieldValueKind},
     job_session::JobData,
     options::argument::CliArgIdx,
-    utils::{i64_to_str, int_units::parse_int_with_units, I64_MAX_DECIMAL_DIGITS},
+    utils::{
+        i64_to_str, int_units::parse_int_with_units, I64_MAX_DECIMAL_DIGITS,
+    },
 };
 
 use super::{
@@ -30,7 +32,9 @@ pub struct OpSequence {
 }
 
 impl OpSequence {
-    pub fn default_op_name(&self) -> SmallString<[u8; DEFAULT_OP_NAME_SMALL_STR_LEN]> {
+    pub fn default_op_name(
+        &self,
+    ) -> SmallString<[u8; DEFAULT_OP_NAME_SMALL_STR_LEN]> {
         match self.stop_after_input {
             false => "seq",
             true => "enum",
@@ -76,11 +80,17 @@ pub fn increment_int_str(data: &mut ArrayVec<u8, I64_MAX_DECIMAL_DIGITS>) {
 
 const FAST_SEQ_MAX_STEP: i64 = 200;
 
-pub fn handle_tf_sequence(sess: &mut JobData, tf_id: TransformId, seq: &mut TfSequence) {
+pub fn handle_tf_sequence(
+    sess: &mut JobData,
+    tf_id: TransformId,
+    seq: &mut TfSequence,
+) {
     let (mut batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
-    let mut output_field =
-        sess.tf_mgr
-            .prepare_output_field(&sess.field_mgr, &mut sess.match_set_mgr, tf_id);
+    let mut output_field = sess.tf_mgr.prepare_output_field(
+        &sess.field_mgr,
+        &mut sess.match_set_mgr,
+        tf_id,
+    );
     let tf = &sess.tf_mgr.transforms[tf_id];
     let succ = &sess.tf_mgr.transforms[tf.successor.unwrap()];
     if batch_size == 0 && !seq.stop_after_input {
@@ -88,7 +98,8 @@ pub fn handle_tf_sequence(sess: &mut JobData, tf_id: TransformId, seq: &mut TfSe
             .desired_batch_size
             .saturating_sub(succ.available_batch_size);
     }
-    let succ_wants_text = succ.preferred_input_type == Some(FieldValueKind::BytesInline)
+    let succ_wants_text = succ.preferred_input_type
+        == Some(FieldValueKind::BytesInline)
         && output_field.names.is_empty();
 
     let seq_size_rem = (seq.ss.end - seq.ss.start) / seq.ss.step;
@@ -103,9 +114,14 @@ pub fn handle_tf_sequence(sess: &mut JobData, tf_id: TransformId, seq: &mut TfSe
             seq.ss.start += seq.ss.step;
         }
     } else {
-        if seq.ss.start >= 0 && seq.ss.step > 0 && seq.ss.step < FAST_SEQ_MAX_STEP {
+        if seq.ss.start >= 0
+            && seq.ss.step > 0
+            && seq.ss.step < FAST_SEQ_MAX_STEP
+        {
             let mut int_str = ArrayVec::new();
-            int_str.extend(i64_to_str(false, seq.ss.start).as_bytes().iter().cloned());
+            int_str.extend(
+                i64_to_str(false, seq.ss.start).as_bytes().iter().cloned(),
+            );
             for _ in 0..count {
                 output_field.field_data.push_inline_str(
                     unsafe { std::str::from_utf8_unchecked(&int_str) },
@@ -120,9 +136,12 @@ pub fn handle_tf_sequence(sess: &mut JobData, tf_id: TransformId, seq: &mut TfSe
             }
         } else {
             for _ in 0..count {
-                output_field
-                    .field_data
-                    .push_str(&i64_to_str(false, seq.ss.start), 1, true, false);
+                output_field.field_data.push_str(
+                    &i64_to_str(false, seq.ss.start),
+                    1,
+                    true,
+                    false,
+                );
                 seq.ss.start += seq.ss.step;
             }
         }
@@ -164,7 +183,12 @@ pub fn parse_op_seq(
         );
     }
     let value_str = value
-        .ok_or_else(|| OperatorCreationError::new("missing parameter for sequence", arg_idx))?
+        .ok_or_else(|| {
+            OperatorCreationError::new(
+                "missing parameter for sequence",
+                arg_idx,
+            )
+        })?
         .to_str()
         .map_err(|_| {
             OperatorCreationError::new(
@@ -194,7 +218,9 @@ pub fn parse_op_seq(
         .map(|step| {
             parse_int_with_units(step).map_err(|msg| {
                 OperatorCreationError::new_s(
-                    format!("failed to parse sequence step size as integer: {msg}"),
+                    format!(
+                        "failed to parse sequence step size as integer: {msg}"
+                    ),
                     arg_idx,
                 )
             })

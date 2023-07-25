@@ -1,7 +1,6 @@
 use std::ops::Add;
 
-use smallvec::smallvec;
-use smallvec::SmallVec;
+use smallvec::{smallvec, SmallVec};
 use thiserror::Error;
 
 trait One {
@@ -34,7 +33,11 @@ impl<'a, T: Add<Output = T> + Ord + Copy> RangeSpecIter<'a, T> {
             .iter()
             .any(|es| es.contains(self.min_bound, self.max_bound, v))
     }
-    pub fn new(min_bound: T, max_bound: T, range_spec: &'a RangeSpec<T>) -> RangeSpecIter<T> {
+    pub fn new(
+        min_bound: T,
+        max_bound: T,
+        range_spec: &'a RangeSpec<T>,
+    ) -> RangeSpecIter<T> {
         RangeSpecIter {
             min_bound,
             max_bound,
@@ -48,7 +51,8 @@ impl<T: Add<Output = T> + Ord + Copy> RangeSpec<T> {
     pub fn contains(&self, min_bound: T, max_bound: T, v: T) -> bool {
         let mut positions: SmallVec<[&RangeSpec<T>; 4]> = smallvec![self];
         let mut offsets: SmallVec<[isize; 4]> = smallvec![-1];
-        let mut exclude_sets_found_status: SmallVec<[bool; 8]> = SmallVec::new();
+        let mut exclude_sets_found_status: SmallVec<[bool; 8]> =
+            SmallVec::new();
         loop {
             match positions.last() {
                 Some(RangeSpec::Exclude(include, exclude)) => {
@@ -64,7 +68,8 @@ impl<T: Add<Output = T> + Ord + Copy> RangeSpec<T> {
                     // second time here, if the include set found it,
                     // check the exclude set
                     if *offset == 1 {
-                        let status = exclude_sets_found_status.last_mut().unwrap();
+                        let status =
+                            exclude_sets_found_status.last_mut().unwrap();
                         if *status == false {
                             positions.pop();
                             offsets.pop();
@@ -136,7 +141,9 @@ impl<T: Add<Output = T> + Ord + Copy> RangeSpec<T> {
         }
     }
 }
-impl<'a, T: Add<Output = T> + Ord + Copy + One> Iterator for RangeSpecIter<'a, T> {
+impl<'a, T: Add<Output = T> + Ord + Copy + One> Iterator
+    for RangeSpecIter<'a, T>
+{
     type Item = T;
     fn next(&mut self) -> Option<T> {
         loop {

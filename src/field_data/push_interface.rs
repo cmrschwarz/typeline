@@ -10,8 +10,9 @@ use crate::{
 };
 
 use super::{
-    as_u8_slice, iter_hall::IterHall, FieldData, FieldReference, FieldValueFlags, FieldValueFormat,
-    FieldValueHeader, FieldValueKind, FieldValueSize, RunLength,
+    as_u8_slice, iter_hall::IterHall, FieldData, FieldReference,
+    FieldValueFlags, FieldValueFormat, FieldValueHeader, FieldValueKind,
+    FieldValueSize, RunLength,
 };
 
 pub unsafe trait RawPushInterface {
@@ -50,7 +51,11 @@ pub unsafe trait RawPushInterface {
 }
 impl FieldData {
     #[inline(always)]
-    pub unsafe fn push_header_raw(&mut self, fmt: FieldValueFormat, mut run_length: usize) {
+    pub unsafe fn push_header_raw(
+        &mut self,
+        fmt: FieldValueFormat,
+        mut run_length: usize,
+    ) {
         debug_assert!(run_length > 0);
         while run_length > RunLength::MAX as usize {
             self.header.push(FieldValueHeader {
@@ -121,7 +126,10 @@ impl FieldData {
             self.push_header_raw_same_value_after_first(fmt, run_length + 1);
             return;
         }
-        if header_rle && last_header.run_length as usize + run_length < RunLength::MAX as usize {
+        if header_rle
+            && last_header.run_length as usize + run_length
+                < RunLength::MAX as usize
+        {
             last_header.run_length += run_length as RunLength;
             return;
         }
@@ -184,8 +192,10 @@ impl FieldData {
                     last_header.run_length -= run_length as RunLength;
                 }
                 if !last_header.shared_value() {
-                    self.data
-                        .truncate(self.data.len() - last_header.size as usize * run_length);
+                    self.data.truncate(
+                        self.data.len()
+                            - last_header.size as usize * run_length,
+                    );
                 }
                 return;
             }
@@ -230,7 +240,8 @@ unsafe impl RawPushInterface for FieldData {
                         let len = h.size as usize;
                         let prev_data = unsafe {
                             std::slice::from_raw_parts(
-                                self.data.as_ptr_range().end.sub(len) as *const u8,
+                                self.data.as_ptr_range().end.sub(len)
+                                    as *const u8,
                                 len,
                             )
                         };
@@ -244,7 +255,9 @@ unsafe impl RawPushInterface for FieldData {
             flags: flags | SHARED_VALUE,
             size,
         };
-        self.add_header_for_single_value(fmt, run_length, header_rle, data_rle);
+        self.add_header_for_single_value(
+            fmt, run_length, header_rle, data_rle,
+        );
         if !data_rle {
             self.data.extend_from_slice(data);
         }
@@ -270,7 +283,9 @@ unsafe impl RawPushInterface for FieldData {
         if kind.needs_alignment() {
             let align = unsafe { self.pad_to_align() };
             if align != 0 {
-                self.add_header_padded_for_single_value(fmt, run_length, align);
+                self.add_header_padded_for_single_value(
+                    fmt, run_length, align,
+                );
                 if !data_rle {
                     let data = ManuallyDrop::new(data);
                     self.data.extend_from_slice(unsafe { as_u8_slice(&data) });
@@ -284,14 +299,20 @@ unsafe impl RawPushInterface for FieldData {
                     header_rle = true;
                     if try_data_rle {
                         data_rle = unsafe {
-                            data == *(self.data.as_ptr_range().end.sub(std::mem::size_of::<T>())
+                            data == *(self
+                                .data
+                                .as_ptr_range()
+                                .end
+                                .sub(std::mem::size_of::<T>())
                                 as *const T)
                         };
                     }
                 }
             }
         }
-        self.add_header_for_single_value(fmt, run_length, header_rle, data_rle);
+        self.add_header_for_single_value(
+            fmt, run_length, header_rle, data_rle,
+        );
         if !data_rle {
             let data = ManuallyDrop::new(data);
             self.data.extend_from_slice(unsafe { as_u8_slice(&data) });
@@ -319,7 +340,9 @@ unsafe impl RawPushInterface for FieldData {
         }
         // when we have header_rle, that implies data_rle here, because
         // the type has no value
-        self.add_header_for_single_value(fmt, run_length, header_rle, header_rle);
+        self.add_header_for_single_value(
+            fmt, run_length, header_rle, header_rle,
+        );
     }
 
     unsafe fn push_variable_sized_type_uninit(
@@ -374,8 +397,14 @@ unsafe impl RawPushInterface for IterHall {
         try_header_rle: bool,
         try_data_rle: bool,
     ) {
-        self.fd
-            .push_fixed_size_type(kind, flags, data, run_length, try_header_rle, try_data_rle);
+        self.fd.push_fixed_size_type(
+            kind,
+            flags,
+            data,
+            run_length,
+            try_header_rle,
+            try_data_rle,
+        );
     }
 
     unsafe fn push_zst_unchecked(
@@ -525,9 +554,19 @@ pub trait PushInterface: RawPushInterface {
         try_data_rle: bool,
     ) {
         if data.len() <= INLINE_STR_MAX_LEN {
-            self.push_inline_str(data, run_length, try_header_rle, try_data_rle);
+            self.push_inline_str(
+                data,
+                run_length,
+                try_header_rle,
+                try_data_rle,
+            );
         } else {
-            self.push_str_as_buffer(data, run_length, try_header_rle, try_data_rle);
+            self.push_str_as_buffer(
+                data,
+                run_length,
+                try_header_rle,
+                try_data_rle,
+            );
         }
     }
     fn push_bytes(
@@ -538,12 +577,28 @@ pub trait PushInterface: RawPushInterface {
         try_data_rle: bool,
     ) {
         if data.len() <= INLINE_STR_MAX_LEN {
-            self.push_inline_bytes(data, run_length, try_header_rle, try_data_rle);
+            self.push_inline_bytes(
+                data,
+                run_length,
+                try_header_rle,
+                try_data_rle,
+            );
         } else {
-            self.push_bytes_as_buffer(data, run_length, try_header_rle, try_data_rle);
+            self.push_bytes_as_buffer(
+                data,
+                run_length,
+                try_header_rle,
+                try_data_rle,
+            );
         }
     }
-    fn push_int(&mut self, data: i64, run_length: usize, try_header_rle: bool, try_data_rle: bool) {
+    fn push_int(
+        &mut self,
+        data: i64,
+        run_length: usize,
+        try_header_rle: bool,
+        try_data_rle: bool,
+    ) {
         unsafe {
             self.push_fixed_size_type(
                 FieldValueKind::Integer,
@@ -629,7 +684,12 @@ pub trait PushInterface: RawPushInterface {
             );
         }
     }
-    fn push_zst(&mut self, kind: FieldValueKind, run_length: usize, try_header_rle: bool) {
+    fn push_zst(
+        &mut self,
+        kind: FieldValueKind,
+        run_length: usize,
+        try_header_rle: bool,
+    ) {
         assert!(kind.is_zst());
         unsafe {
             self.push_zst_unchecked(

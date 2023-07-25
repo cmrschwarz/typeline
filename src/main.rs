@@ -8,10 +8,13 @@ use scr::{
 use std::{process::ExitCode, sync::Arc};
 
 fn run() -> Result<(), String> {
-    let args = collect_env_args()
-        .map_err(|e| ScrError::from(e).contextualize_message(None, None, None))?;
+    let args = collect_env_args().map_err(|e| {
+        ScrError::from(e).contextualize_message(None, None, None)
+    })?;
 
-    let sess = match parse_cli(args, true).and_then(|sess_opts| sess_opts.build_session()) {
+    let sess = match parse_cli(args, true)
+        .and_then(|sess_opts| sess_opts.build_session())
+    {
         Ok(sess) => sess,
         Err(e) => match e.err {
             ScrError::MissingArgumentsError(_) => {

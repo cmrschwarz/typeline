@@ -15,11 +15,14 @@ use crate::{
         typed_iters::TypedSliceIter,
         FieldValueKind, RunLength, INLINE_STR_MAX_LEN,
     },
-    job_session::{Field, FieldId, FieldManager, JobData, MatchSetManager, StreamValueManager},
+    job_session::{
+        Field, FieldId, FieldManager, JobData, MatchSetManager,
+        StreamValueManager,
+    },
     options::argument::CliArgIdx,
     ref_iter::{
-        AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter, RefAwareInlineTextIter,
-        RefAwareStreamValueIter,
+        AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter,
+        RefAwareInlineTextIter, RefAwareStreamValueIter,
     },
     stream_value::{StreamValue, StreamValueData, StreamValueId},
     utils::{
@@ -27,13 +30,15 @@ use crate::{
         string_store::{StringStore, StringStoreEntry},
         u64_to_str,
         universe::Universe,
-        LengthAndCharsCountingWriter, LengthCountingWriter, ValueProducingCallable,
-        MAX_UTF8_CHAR_LEN,
+        LengthAndCharsCountingWriter, LengthCountingWriter,
+        ValueProducingCallable, MAX_UTF8_CHAR_LEN,
     },
 };
 
 use super::{
-    errors::{OperatorApplicationError, OperatorCreationError, OperatorSetupError},
+    errors::{
+        OperatorApplicationError, OperatorCreationError, OperatorSetupError,
+    },
     operator::{OperatorBase, OperatorData, OperatorId},
     print::typed_slice_zst_str,
     transform::{TransformData, TransformId, TransformState},
@@ -55,7 +60,10 @@ pub struct FormatFillSpec {
 }
 
 impl FormatFillSpec {
-    pub fn new(fill_char: Option<char>, alignment: FormatFillAlignment) -> Self {
+    pub fn new(
+        fill_char: Option<char>,
+        alignment: FormatFillAlignment,
+    ) -> Self {
         Self {
             fill_char: fill_char,
             alignment,
@@ -88,14 +96,14 @@ impl Default for FormatWidthSpec {
 pub enum FormatType {
     #[default]
     Default, // the default value representation
-    Debug,     // add typing information e.g. "42" insead of 42 (the string)
+    Debug, // add typing information e.g. "42" insead of 42 (the string)
     MoreDebug, // like debug, but prefix >>> for stream values
-    Binary,    // print integers with base 2, e.g 101010 instead of 42
-    Octal,     // print integers with base 8, e.g 52 instead of 42
-    Hex,       // print integers in lower case hexadecimal, e.g 2a instead of 42
-    UpperHex,  // print integers in upper case hexadecimal, e.g 2A instead of 42
-    LowerExp,  // print numbers in upper case scientific notation, e.g. 4.2e1 instead of 42
-    UpperExp,  // print numbers in lower case scientific notation, e.g. 4.2E1 instead of 42
+    Binary, // print integers with base 2, e.g 101010 instead of 42
+    Octal, // print integers with base 8, e.g 52 instead of 42
+    Hex,   // print integers in lower case hexadecimal, e.g 2a instead of 42
+    UpperHex, // print integers in upper case hexadecimal, e.g 2A instead of 42
+    LowerExp, // print numbers in upper case scientific notation, e.g. 4.2e1 instead of 42
+    UpperExp, // print numbers in lower case scientific notation, e.g. 4.2E1 instead of 42
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
@@ -181,7 +189,8 @@ pub struct TfFormat<'a> {
     refs: Vec<FormatIdentRef>,
     output_states: Vec<OutputState>,
     output_targets: Vec<OutputTarget>,
-    stream_value_handles: Universe<TfFormatStreamValueHandleId, TfFormatStreamValueHandle>,
+    stream_value_handles:
+        Universe<TfFormatStreamValueHandleId, TfFormatStreamValueHandle>,
 }
 // SAFETY:
 // while OutputTargets Pointer is not thread safe,
@@ -193,7 +202,9 @@ pub fn setup_op_format(
     string_store: &mut StringStore,
     op: &mut OpFormat,
 ) -> Result<(), OperatorSetupError> {
-    for r in std::mem::replace(&mut op.refs_str, Default::default()).into_iter() {
+    for r in
+        std::mem::replace(&mut op.refs_str, Default::default()).into_iter()
+    {
         op.refs_idx.push(r.map(|r| string_store.intern_moved(r)));
     }
     Ok(())
@@ -211,7 +222,8 @@ pub fn setup_tf_format<'a>(
         .iter()
         .map(|name| {
             let (field_id, mut f) = if let Some(name) = name {
-                let (id, f) = if let Some(id) = sess.match_set_mgr.match_sets[tf_state.match_set_id]
+                let (id, f) = if let Some(id) = sess.match_set_mgr.match_sets
+                    [tf_state.match_set_id]
                     .field_name_map
                     .get(name)
                     .cloned()
@@ -224,15 +236,19 @@ pub fn setup_tf_format<'a>(
                         tf_state.match_set_id,
                         sess.field_mgr.get_min_apf_idx(tf_state.input_field),
                     );
-                    sess.match_set_mgr
-                        .add_field_name(&sess.field_mgr, id, *name);
+                    sess.match_set_mgr.add_field_name(
+                        &sess.field_mgr,
+                        id,
+                        *name,
+                    );
                     let mut f = sess.field_mgr.fields[id].borrow_mut();
                     f.added_as_placeholder_by_tf = Some(tf_id);
                     (id, f)
                 };
                 (id, f)
             } else {
-                let mut f = sess.field_mgr.fields[tf_state.input_field].borrow_mut();
+                let mut f =
+                    sess.field_mgr.fields[tf_state.input_field].borrow_mut();
                 // while the ref count was already bumped by the transform creation
                 // cleaning up this transform is simpler this way
                 f.ref_count += 1;
@@ -261,7 +277,8 @@ fn create_format_literal(fmt: Vec<u8>) -> FormatPart {
     }
 }
 
-const NO_CLOSING_BRACE_ERR: Cow<'static, str> = Cow::Borrowed("format key has no closing '}'");
+const NO_CLOSING_BRACE_ERR: Cow<'static, str> =
+    Cow::Borrowed("format key has no closing '}'");
 
 pub fn parse_format_width_spec<const FOR_FLOAT_PREC: bool>(
     fmt: &[u8],
@@ -276,9 +293,11 @@ pub fn parse_format_width_spec<const FOR_FLOAT_PREC: bool>(
     let no_closing_dollar = |i| {
         (
             i,
-            format!("the identifier for the {context} has no closing '$' sign")
-                .to_string()
-                .into(),
+            format!(
+                "the identifier for the {context} has no closing '$' sign"
+            )
+            .to_string()
+            .into(),
         )
     };
     let mut i = start;
@@ -294,12 +313,18 @@ pub fn parse_format_width_spec<const FOR_FLOAT_PREC: bool>(
             if c == '$' {
                 let ref_id = refs.len();
                 refs.push(Some(val.to_owned()));
-                return Ok((Some(FormatWidthSpec::Ref(ref_id)), i as usize + 1));
+                return Ok((
+                    Some(FormatWidthSpec::Ref(ref_id)),
+                    i as usize + 1,
+                ));
             }
             let number = val.parse::<usize>().map_err(|e| {
                 (
                     start,
-                    format!("failed to parse the {context} as an integer: {e}").into(),
+                    format!(
+                        "failed to parse the {context} as an integer: {e}"
+                    )
+                    .into(),
                 )
             })?;
             return Ok((Some(FormatWidthSpec::Value(number)), i as usize));
@@ -309,12 +334,17 @@ pub fn parse_format_width_spec<const FOR_FLOAT_PREC: bool>(
     loop {
         if let Some(mut end) = (&fmt[i..]).find_byteset("${}") {
             end += i;
-            format_width_ident.push_str((&fmt[i..end]).to_str().map_err(|e| {
-                (
-                    i + e.valid_up_to(),
-                    format!("the identifier for the {context} must be valid utf-8").into(),
-                )
-            })?);
+            format_width_ident.push_str((&fmt[i..end]).to_str().map_err(
+                |e| {
+                    (
+                        i + e.valid_up_to(),
+                        format!(
+                        "the identifier for the {context} must be valid utf-8"
+                    )
+                        .into(),
+                    )
+                },
+            )?);
             i = end;
             let c0 = fmt[i] as char;
             if c0 == '$' {
@@ -327,7 +357,8 @@ pub fn parse_format_width_spec<const FOR_FLOAT_PREC: bool>(
                 refs.push(fmt_ref);
                 return Ok((Some(FormatWidthSpec::Ref(ref_id)), i + 1));
             }
-            let c1 = *fmt.get(i + 1).ok_or_else(|| no_closing_dollar(i))? as char;
+            let c1 =
+                *fmt.get(i + 1).ok_or_else(|| no_closing_dollar(i))? as char;
             if c0 != c1 {
                 return Err((
                     i,
@@ -375,9 +406,15 @@ pub fn parse_format_flags(
         }
     }
     key.fill = match align_spec {
-        Some('<') => Some(FormatFillSpec::new(align_char, FormatFillAlignment::Left)),
-        Some('^') => Some(FormatFillSpec::new(align_char, FormatFillAlignment::Center)),
-        Some('>') => Some(FormatFillSpec::new(align_char, FormatFillAlignment::Right)),
+        Some('<') => {
+            Some(FormatFillSpec::new(align_char, FormatFillAlignment::Left))
+        }
+        Some('^') => {
+            Some(FormatFillSpec::new(align_char, FormatFillAlignment::Center))
+        }
+        Some('>') => {
+            Some(FormatFillSpec::new(align_char, FormatFillAlignment::Right))
+        }
         _ => None,
     };
     if key.fill.is_some() {
@@ -393,7 +430,8 @@ pub fn parse_format_flags(
     } else if c == '-' {
         return Err((
             i,
-            "the minus sign currently has unspecified meaning in format keys".into(),
+            "the minus sign currently has unspecified meaning in format keys"
+                .into(),
         ));
     }
     if c == '#' {
@@ -412,7 +450,8 @@ pub fn parse_format_flags(
         c = next(fmt, i)?;
     }
     if c == '.' {
-        (key.float_precision, i) = parse_format_width_spec::<true>(fmt, i + 1, refs)?;
+        (key.float_precision, i) =
+            parse_format_width_spec::<true>(fmt, i + 1, refs)?;
         c = next(fmt, i)?;
     }
 
@@ -426,7 +465,10 @@ pub fn parse_format_flags(
         }
         let c2 = next(fmt, i + 1)?;
         if c2 != '?' {
-            return Err((i, format!("expected '?' after type specifier '{c}'").into()));
+            return Err((
+                i,
+                format!("expected '?' after type specifier '{c}'").into(),
+            ));
         }
         match c {
             '?' => key.format_type = FormatType::MoreDebug,
@@ -436,7 +478,12 @@ pub fn parse_format_flags(
             'b' => key.format_type = FormatType::Binary,
             'e' => key.format_type = FormatType::LowerExp,
             'E' => key.format_type = FormatType::UpperExp,
-            _ => return Err((i, format!("unknown type specifier '{c}?' ").into())),
+            _ => {
+                return Err((
+                    i,
+                    format!("unknown type specifier '{c}?' ").into(),
+                ))
+            }
         }
         i += 2;
         c = next(fmt, i)?;
@@ -444,7 +491,8 @@ pub fn parse_format_flags(
     if c != '}' {
         return Err((
             i,
-            format!("expected '}}' to terminate format key, found '{c}'").into(),
+            format!("expected '}}' to terminate format key, found '{c}'")
+                .into(),
         ));
     }
     Ok(i)
@@ -500,7 +548,10 @@ pub fn parse_format_string(
             nbb += i;
             if fmt[nbb] == '}' as u8 {
                 if fmt[nbb + 1] != '}' as u8 {
-                    return Err((nbb, "unmatched '}', consider using '}}'".into()));
+                    return Err((
+                        nbb,
+                        "unmatched '}', consider using '}}'".into(),
+                    ));
                 }
                 pending_literal.extend_from_slice(&fmt[i..nbb + 1]);
                 i = nbb + 2;
@@ -535,13 +586,18 @@ pub fn parse_op_format(
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
     let val = value.ok_or_else(|| {
-        OperatorCreationError::new("missing argument for the regex operator", arg_idx)
+        OperatorCreationError::new(
+            "missing argument for the regex operator",
+            arg_idx,
+        )
     })?;
     let mut refs_str = Vec::new();
     let parts =
-        parse_format_string(val, &mut refs_str).map_err(|(i, msg)| OperatorCreationError {
-            message: format!("format string index {}: {}", i, msg).into(),
-            cli_arg_idx: arg_idx,
+        parse_format_string(val, &mut refs_str).map_err(|(i, msg)| {
+            OperatorCreationError {
+                message: format!("format string index {}: {}", i, msg).into(),
+                cli_arg_idx: arg_idx,
+            }
         })?;
     let refs_idx = Vec::with_capacity(refs_str.len());
     Ok(OperatorData::Format(OpFormat {
@@ -550,10 +606,14 @@ pub fn parse_op_format(
         refs_idx,
     }))
 }
-pub fn create_op_format(val: &[u8]) -> Result<OperatorData, OperatorCreationError> {
+pub fn create_op_format(
+    val: &[u8],
+) -> Result<OperatorData, OperatorCreationError> {
     parse_op_format(Some(val), None)
 }
-pub fn create_op_format_from_str(val: &str) -> Result<OperatorData, OperatorCreationError> {
+pub fn create_op_format_from_str(
+    val: &str,
+) -> Result<OperatorData, OperatorCreationError> {
     parse_op_format(Some(val.as_bytes()), None)
 }
 fn iter_output_states(
@@ -562,7 +622,12 @@ fn iter_output_states(
     run_len: RunLength,
     func: impl FnMut(&mut OutputState),
 ) {
-    iter_output_states_advanced(&mut fmt.output_states, output_idx, run_len as usize, func);
+    iter_output_states_advanced(
+        &mut fmt.output_states,
+        output_idx,
+        run_len as usize,
+        func,
+    );
 }
 fn iter_output_states_advanced(
     output_states: &mut Vec<OutputState>,
@@ -629,7 +694,9 @@ fn calc_text_len(
                 + (max_width - char_count)
                     * k.fill
                         .as_ref()
-                        .map(|f| f.fill_char.map(|c| c.len_utf8()).unwrap_or(1))
+                        .map(|f| {
+                            f.fill_char.map(|c| c.len_utf8()).unwrap_or(1)
+                        })
                         .unwrap_or(1)
         }
     }
@@ -666,7 +733,7 @@ pub fn lookup_widths(
     apply_actions: bool,
     update_iter: bool,
     succ_func: impl Fn(&mut TfFormat, &mut usize, usize, usize), //output idx, width, run length
-    err_func: impl Fn(&mut TfFormat, &mut usize, usize),         //output idx, width, run length
+    err_func: impl Fn(&mut TfFormat, &mut usize, usize), //output idx, width, run length
 ) {
     let ident_ref = if let Some(FormatWidthSpec::Ref(ident)) = k.width {
         fmt.refs[ident]
@@ -676,7 +743,8 @@ pub fn lookup_widths(
     if apply_actions {
         field_mgr.apply_field_actions(match_set_mgr, ident_ref.field_id);
     }
-    let field = field_mgr.borrow_field_cow(ident_ref.field_id, unconsumed_input);
+    let field =
+        field_mgr.borrow_field_cow(ident_ref.field_id, unconsumed_input);
     let mut iter = field_mgr
         .get_iter_cow_aware(ident_ref.field_id, &field, ident_ref.iter_id)
         .bounded(0, batch_size);
@@ -701,7 +769,12 @@ pub fn lookup_widths(
         |os| os.error_occured = true,
     );
     if update_iter {
-        field_mgr.store_iter_cow_aware(ident_ref.field_id, &field, ident_ref.iter_id, iter);
+        field_mgr.store_iter_cow_aware(
+            ident_ref.field_id,
+            &field,
+            ident_ref.iter_id,
+            iter,
+        );
     }
 }
 pub fn setup_key_output_state(
@@ -725,19 +798,26 @@ pub fn setup_key_output_state(
         true,
         false,
         |fmt, output_idx, width, run_len| {
-            iter_output_states_advanced(&mut fmt.output_states, output_idx, run_len, |os| {
-                os.width_lookup = width
-            })
+            iter_output_states_advanced(
+                &mut fmt.output_states,
+                output_idx,
+                run_len,
+                |os| os.width_lookup = width,
+            )
         },
         |fmt, output_idx, run_len| {
-            iter_output_states_advanced(&mut fmt.output_states, output_idx, run_len, |os| {
-                os.error_occured = true
-            })
+            iter_output_states_advanced(
+                &mut fmt.output_states,
+                output_idx,
+                run_len,
+                |os| os.error_occured = true,
+            )
         },
     );
     let ident_ref = fmt.refs[k.identifier];
     field_mgr.apply_field_actions(match_set_mgr, ident_ref.field_id);
-    let field = field_mgr.borrow_field_cow(ident_ref.field_id, unconsumed_input);
+    let field =
+        field_mgr.borrow_field_cow(ident_ref.field_id, unconsumed_input);
     let mut iter = AutoDerefIter::new(
         field_mgr,
         ident_ref.field_id,
@@ -748,17 +828,27 @@ pub fn setup_key_output_state(
 
     let mut output_index = 0;
     let mut handled_fields = 0;
-    let debug_format = [FormatType::Debug, FormatType::MoreDebug].contains(&k.format_type);
-    while let Some(range) =
-        iter.typed_range_fwd(match_set_mgr, usize::MAX, field_value_flags::BYTES_ARE_UTF8)
-    {
+    let debug_format =
+        [FormatType::Debug, FormatType::MoreDebug].contains(&k.format_type);
+    while let Some(range) = iter.typed_range_fwd(
+        match_set_mgr,
+        usize::MAX,
+        field_value_flags::BYTES_ARE_UTF8,
+    ) {
         match range.base.data {
             TypedSlice::Reference(_) => unreachable!(),
             TypedSlice::TextInline(text) => {
-                for (v, rl, _offs) in RefAwareInlineTextIter::from_range(&range, text) {
+                for (v, rl, _offs) in
+                    RefAwareInlineTextIter::from_range(&range, text)
+                {
                     let mut chars_count = cached!(v.chars().count());
                     iter_output_states(fmt, &mut output_index, rl, |o| {
-                        o.len += calc_text_len(k, v.len(), o.width_lookup, &mut chars_count);
+                        o.len += calc_text_len(
+                            k,
+                            v.len(),
+                            o.width_lookup,
+                            &mut chars_count,
+                        );
                         if debug_format {
                             o.len += 2;
                         }
@@ -766,10 +856,17 @@ pub fn setup_key_output_state(
                 }
             }
             TypedSlice::BytesInline(bytes) => {
-                for (v, rl, _offs) in RefAwareInlineBytesIter::from_range(&range, bytes) {
+                for (v, rl, _offs) in
+                    RefAwareInlineBytesIter::from_range(&range, bytes)
+                {
                     let mut chars_count = cached!(v.chars().count());
                     iter_output_states(fmt, &mut output_index, rl, |o| {
-                        o.len += calc_text_len(k, v.len(), o.width_lookup, &mut chars_count);
+                        o.len += calc_text_len(
+                            k,
+                            v.len(),
+                            o.width_lookup,
+                            &mut chars_count,
+                        );
                         o.contains_raw_bytes = true;
                         if debug_format {
                             o.len += 2;
@@ -778,10 +875,17 @@ pub fn setup_key_output_state(
                 }
             }
             TypedSlice::BytesBuffer(bytes) => {
-                for (v, rl, _offs) in RefAwareBytesBufferIter::from_range(&range, bytes) {
+                for (v, rl, _offs) in
+                    RefAwareBytesBufferIter::from_range(&range, bytes)
+                {
                     let mut chars_count = cached!(v.chars().count());
                     iter_output_states(fmt, &mut output_index, rl, |o| {
-                        o.len += calc_text_len(k, v.len(), o.width_lookup, &mut chars_count);
+                        o.len += calc_text_len(
+                            k,
+                            v.len(),
+                            o.width_lookup,
+                            &mut chars_count,
+                        );
                         o.contains_raw_bytes = true;
                         if debug_format {
                             o.len += 3;
@@ -793,31 +897,54 @@ pub fn setup_key_output_state(
                 for (v, rl) in TypedSliceIter::from_range(&range.base, ints) {
                     let digits = i64_digits(k.add_plus_sign, *v);
                     iter_output_states(fmt, &mut output_index, rl, |o| {
-                        o.len += calc_text_len(k, digits, o.width_lookup, &mut || digits);
+                        o.len += calc_text_len(
+                            k,
+                            digits,
+                            o.width_lookup,
+                            &mut || digits,
+                        );
                     });
                 }
             }
             TypedSlice::StreamValueId(svs) => {
-                for (v, range, rl) in RefAwareStreamValueIter::from_range(&range, svs) {
+                for (v, range, rl) in
+                    RefAwareStreamValueIter::from_range(&range, svs)
+                {
                     let sv = &mut sv_mgr.stream_values[v];
 
                     match &sv.data {
                         StreamValueData::Dropped => unreachable!(),
                         StreamValueData::Error(e) => {
                             if debug_format {
-                                iter_output_states(fmt, &mut output_index, rl, |o| {
-                                    let (len, mut char_count) = formatted_error_string_len(
-                                        e,
-                                        k.format_type,
-                                        k.alternate_form,
-                                        true,
-                                    );
-                                    o.len += calc_text_len(k, len, o.width_lookup, &mut char_count);
-                                });
+                                iter_output_states(
+                                    fmt,
+                                    &mut output_index,
+                                    rl,
+                                    |o| {
+                                        let (len, mut char_count) =
+                                            formatted_error_string_len(
+                                                e,
+                                                k.format_type,
+                                                k.alternate_form,
+                                                true,
+                                            );
+                                        o.len += calc_text_len(
+                                            k,
+                                            len,
+                                            o.width_lookup,
+                                            &mut char_count,
+                                        );
+                                    },
+                                );
                             } else {
-                                iter_output_states(fmt, &mut output_index, rl, |o| {
-                                    o.error_occured = true;
-                                });
+                                iter_output_states(
+                                    fmt,
+                                    &mut output_index,
+                                    rl,
+                                    |o| {
+                                        o.error_occured = true;
+                                    },
+                                );
                             }
                         }
                         StreamValueData::Bytes(b) => {
@@ -833,7 +960,8 @@ pub fn setup_key_output_state(
                                 FormatType::MoreDebug => 3,
                                 _ => 0,
                             };
-                            let mut char_count = cached!(data.chars().count() + debug_add_len);
+                            let mut char_count =
+                                cached!(data.chars().count() + debug_add_len);
                             let text_len = data.len() + debug_add_len;
                             let mut need_buffer = false;
                             if !complete && !sv.is_buffered() {
@@ -853,8 +981,12 @@ pub fn setup_key_output_state(
                                 let mut i = output_index;
 
                                 iter_output_states(fmt, &mut i, rl, |o| {
-                                    o.len +=
-                                        calc_text_len(k, text_len, o.width_lookup, &mut char_count);
+                                    o.len += calc_text_len(
+                                        k,
+                                        text_len,
+                                        o.width_lookup,
+                                        &mut char_count,
+                                    );
                                     if sv.bytes_are_utf8 {
                                         o.contains_raw_bytes = true;
                                     }
@@ -875,29 +1007,39 @@ pub fn setup_key_output_state(
                                     |o| {
                                         sv_mgr.stream_values[v].subscribe(
                                             tf_id,
-                                            fmt.stream_value_handles.peek_claim_id().into(),
+                                            fmt.stream_value_handles
+                                                .peek_claim_id()
+                                                .into(),
                                             need_buffer,
                                         );
-                                        let target_sv_id =
-                                            sv_mgr.stream_values.claim_with_value(StreamValue {
-                                                data: StreamValueData::Bytes(Vec::new()),
+                                        let target_sv_id = sv_mgr
+                                            .stream_values
+                                            .claim_with_value(StreamValue {
+                                                data: StreamValueData::Bytes(
+                                                    Vec::new(),
+                                                ),
                                                 bytes_are_utf8: true,
                                                 bytes_are_chunk: true,
                                                 drop_previous_chunks: false,
                                                 done: false,
-                                                subscribers: Default::default(),
+                                                subscribers: Default::default(
+                                                ),
                                                 ref_count: 1,
                                             });
-                                        o.incomplete_stream_value_handle =
-                                            Some(fmt.stream_value_handles.claim_with_value(
-                                                TfFormatStreamValueHandle {
-                                                    part_idx,
-                                                    target_sv_id,
-                                                    handled_len: 0,
-                                                    width_lookup: o.width_lookup,
-                                                    wait_to_end: need_buffer,
-                                                },
-                                            ));
+                                        o.incomplete_stream_value_handle = Some(
+                                            fmt.stream_value_handles
+                                                .claim_with_value(
+                                                    TfFormatStreamValueHandle {
+                                                        part_idx,
+                                                        target_sv_id,
+                                                        handled_len: 0,
+                                                        width_lookup: o
+                                                            .width_lookup,
+                                                        wait_to_end:
+                                                            need_buffer,
+                                                    },
+                                                ),
+                                        );
                                     },
                                 );
 
@@ -916,21 +1058,29 @@ pub fn setup_key_output_state(
                     &mut output_index,
                     range.base.field_count,
                     |o| {
-                        o.len += calc_text_len(k, len, o.width_lookup, &mut || len);
+                        o.len +=
+                            calc_text_len(k, len, o.width_lookup, &mut || len);
                     },
                 );
             }
             TypedSlice::Error(errs) if debug_format => {
                 for (v, rl) in TypedSliceIter::from_range(&range.base, errs) {
-                    let (len, mut char_count) =
-                        formatted_error_string_len(v, k.format_type, k.alternate_form, false);
+                    let (len, mut char_count) = formatted_error_string_len(
+                        v,
+                        k.format_type,
+                        k.alternate_form,
+                        false,
+                    );
                     let mut cc = cached!(char_count.call());
                     iter_output_states(fmt, &mut output_index, rl, |o| {
-                        o.len += calc_text_len(k, len, o.width_lookup, &mut cc);
+                        o.len +=
+                            calc_text_len(k, len, o.width_lookup, &mut cc);
                     });
                 }
             }
-            TypedSlice::Success(_) | TypedSlice::Null(_) | TypedSlice::Error(_) => {
+            TypedSlice::Success(_)
+            | TypedSlice::Null(_)
+            | TypedSlice::Error(_) => {
                 debug_assert!(!k.alternate_form);
                 iter_output_states_advanced(
                     &mut fmt.output_states,
@@ -954,7 +1104,12 @@ pub fn setup_key_output_state(
         uninitialized_fields,
         |o| {
             if debug_format {
-                o.len += calc_text_len(k, NULL_STR.len(), o.width_lookup, &mut || NULL_STR.len());
+                o.len += calc_text_len(
+                    k,
+                    NULL_STR.len(),
+                    o.width_lookup,
+                    &mut || NULL_STR.len(),
+                );
             } else {
                 o.error_occured = true
             }
@@ -970,7 +1125,11 @@ unsafe fn write_bytes_to_target(tgt: &mut OutputTarget, bytes: &[u8]) {
         tgt.target = Some(NonNull::new_unchecked(ptr.add(bytes.len())));
     }
 }
-unsafe fn write_padding_to_tgt(tgt: &mut OutputTarget, fill_char: Option<char>, mut len: usize) {
+unsafe fn write_padding_to_tgt(
+    tgt: &mut OutputTarget,
+    fill_char: Option<char>,
+    mut len: usize,
+) {
     if len == 0 {
         return;
     }
@@ -1001,7 +1160,8 @@ fn setup_output_targets(
     fmt.output_targets.reserve(fmt.output_states.len());
     let mut output_idx = 0;
 
-    let starting_len = unsafe { output_field.field_data.internals().data.len() };
+    let starting_len =
+        unsafe { output_field.field_data.internals().data.len() };
     let mut tgt_len = starting_len;
     for os in fmt.output_states.iter() {
         if os.error_occured {
@@ -1038,7 +1198,8 @@ fn setup_output_targets(
             );
         } else if let Some(handle_id) = os.incomplete_stream_value_handle {
             let handle = &fmt.stream_value_handles[handle_id];
-            if let StreamValueData::Bytes(buf) = &mut sv_mgr.stream_values[handle.target_sv_id].data
+            if let StreamValueData::Bytes(buf) =
+                &mut sv_mgr.stream_values[handle.target_sv_id].data
             {
                 buf.reserve(os.len);
                 unsafe {
@@ -1107,7 +1268,11 @@ unsafe fn write_padded_bytes_with_prefix_suffix(
             k,
             data.len() + prefix.len() + suffix.len(),
             tgt.width_lookup,
-            || data.chars().count() + prefix.chars().count() + suffix.chars().count(),
+            || {
+                data.chars().count()
+                    + prefix.chars().count()
+                    + suffix.chars().count()
+            },
         );
         let (pad_left, pad_right) = match fill_spec.alignment {
             FormatFillAlignment::Left => (padding, 0),
@@ -1125,12 +1290,23 @@ unsafe fn write_padded_bytes_with_prefix_suffix(
         write_bytes_to_target(tgt, suffix);
     }
 }
-unsafe fn write_padded_bytes(k: &FormatKey, tgt: &mut OutputTarget, data: &[u8]) {
+unsafe fn write_padded_bytes(
+    k: &FormatKey,
+    tgt: &mut OutputTarget,
+    data: &[u8],
+) {
     write_padded_bytes_with_prefix_suffix(k, tgt, data, &[], &[]);
 }
-unsafe fn write_formatted_int(k: &FormatKey, tgt: &mut OutputTarget, value: i64) {
+unsafe fn write_formatted_int(
+    k: &FormatKey,
+    tgt: &mut OutputTarget,
+    value: i64,
+) {
     if !k.width.is_some() {
-        write_bytes_to_target(tgt, i64_to_str(k.add_plus_sign, value).as_bytes());
+        write_bytes_to_target(
+            tgt,
+            i64_to_str(k.add_plus_sign, value).as_bytes(),
+        );
         return;
     }
     if !k.zero_pad_numbers {
@@ -1242,70 +1418,105 @@ fn write_fmt_key(
         false,
         true,
         |fmt, output_idx, width, run_len| {
-            iter_output_targets(fmt, output_idx, run_len, |ot| ot.width_lookup = width)
+            iter_output_targets(fmt, output_idx, run_len, |ot| {
+                ot.width_lookup = width
+            })
         },
         |_fmt, _output_idx, _run_len| (),
     );
     let ident_ref = fmt.refs[k.identifier];
 
-    let field = field_mgr.borrow_field_cow(ident_ref.field_id, unconsumed_input);
+    let field =
+        field_mgr.borrow_field_cow(ident_ref.field_id, unconsumed_input);
     let base_iter = field_mgr
         .get_iter_cow_aware(ident_ref.field_id, &field, ident_ref.iter_id)
         .bounded(0, batch_size);
     let field_pos_start = base_iter.get_next_field_pos();
-    let mut iter = AutoDerefIter::new(field_mgr, ident_ref.field_id, base_iter);
-    let debug_format = [FormatType::Debug, FormatType::MoreDebug].contains(&k.format_type);
+    let mut iter =
+        AutoDerefIter::new(field_mgr, ident_ref.field_id, base_iter);
+    let debug_format =
+        [FormatType::Debug, FormatType::MoreDebug].contains(&k.format_type);
     let mut output_index = 0;
-    while let Some(range) =
-        iter.typed_range_fwd(match_set_mgr, usize::MAX, field_value_flags::BYTES_ARE_UTF8)
-    {
+    while let Some(range) = iter.typed_range_fwd(
+        match_set_mgr,
+        usize::MAX,
+        field_value_flags::BYTES_ARE_UTF8,
+    ) {
         //TODO: respect format options
         match range.base.data {
             TypedSlice::Reference(_) => unreachable!(),
             TypedSlice::TextInline(text) => {
-                for (v, rl, _offs) in RefAwareInlineTextIter::from_range(&range, text) {
-                    iter_output_targets(fmt, &mut output_index, rl as usize, |tgt| unsafe {
-                        if debug_format {
-                            write_padded_bytes_with_prefix_suffix(
-                                k,
-                                tgt,
-                                v.as_bytes(),
-                                b"\"",
-                                b"\"",
-                            );
-                        } else {
-                            write_padded_bytes(k, tgt, v.as_bytes());
-                        }
-                    });
+                for (v, rl, _offs) in
+                    RefAwareInlineTextIter::from_range(&range, text)
+                {
+                    iter_output_targets(
+                        fmt,
+                        &mut output_index,
+                        rl as usize,
+                        |tgt| unsafe {
+                            if debug_format {
+                                write_padded_bytes_with_prefix_suffix(
+                                    k,
+                                    tgt,
+                                    v.as_bytes(),
+                                    b"\"",
+                                    b"\"",
+                                );
+                            } else {
+                                write_padded_bytes(k, tgt, v.as_bytes());
+                            }
+                        },
+                    );
                 }
             }
             TypedSlice::BytesInline(bytes) => {
-                for (v, rl, _offs) in RefAwareInlineBytesIter::from_range(&range, bytes) {
-                    iter_output_targets(fmt, &mut output_index, rl as usize, |tgt| unsafe {
-                        if debug_format {
-                            write_padded_bytes_with_prefix_suffix(k, tgt, v, b"'", b"'");
-                        } else {
-                            write_padded_bytes(k, tgt, v);
-                        }
-                    });
+                for (v, rl, _offs) in
+                    RefAwareInlineBytesIter::from_range(&range, bytes)
+                {
+                    iter_output_targets(
+                        fmt,
+                        &mut output_index,
+                        rl as usize,
+                        |tgt| unsafe {
+                            if debug_format {
+                                write_padded_bytes_with_prefix_suffix(
+                                    k, tgt, v, b"'", b"'",
+                                );
+                            } else {
+                                write_padded_bytes(k, tgt, v);
+                            }
+                        },
+                    );
                 }
             }
             TypedSlice::BytesBuffer(bytes) => {
-                for (v, rl, _offs) in RefAwareBytesBufferIter::from_range(&range, bytes) {
-                    iter_output_targets(fmt, &mut output_index, rl as usize, |tgt| unsafe {
-                        if debug_format {
-                            write_padded_bytes_with_prefix_suffix(k, tgt, v, b"'", b"'");
-                        } else {
-                            write_padded_bytes(k, tgt, v);
-                        }
-                    });
+                for (v, rl, _offs) in
+                    RefAwareBytesBufferIter::from_range(&range, bytes)
+                {
+                    iter_output_targets(
+                        fmt,
+                        &mut output_index,
+                        rl as usize,
+                        |tgt| unsafe {
+                            if debug_format {
+                                write_padded_bytes_with_prefix_suffix(
+                                    k, tgt, v, b"'", b"'",
+                                );
+                            } else {
+                                write_padded_bytes(k, tgt, v);
+                            }
+                        },
+                    );
                 }
             }
             TypedSlice::Integer(ints) => {
                 for (v, rl) in TypedSliceIter::from_range(&range.base, ints) {
-                    iter_output_targets(fmt, &mut output_index, rl as usize, |tgt| unsafe {
-                        write_formatted_int(k, tgt, *v)
-                    });
+                    iter_output_targets(
+                        fmt,
+                        &mut output_index,
+                        rl as usize,
+                        |tgt| unsafe { write_formatted_int(k, tgt, *v) },
+                    );
                 }
             }
             TypedSlice::Null(_) | TypedSlice::Success(_) if debug_format => {
@@ -1321,57 +1532,98 @@ fn write_fmt_key(
             }
             TypedSlice::Error(errs) if debug_format => {
                 for (v, rl) in TypedSliceIter::from_range(&range.base, errs) {
-                    let err_str =
-                        error_to_formatted_string(v, k.format_type, k.alternate_form, false);
-                    iter_output_targets(fmt, &mut output_index, rl as usize, |tgt| unsafe {
-                        write_padded_bytes(k, tgt, &err_str.as_bytes())
-                    });
+                    let err_str = error_to_formatted_string(
+                        v,
+                        k.format_type,
+                        k.alternate_form,
+                        false,
+                    );
+                    iter_output_targets(
+                        fmt,
+                        &mut output_index,
+                        rl as usize,
+                        |tgt| unsafe {
+                            write_padded_bytes(k, tgt, &err_str.as_bytes())
+                        },
+                    );
                 }
             }
 
             TypedSlice::StreamValueId(svs) => {
-                for (v, range, rl) in RefAwareStreamValueIter::from_range(&range, svs) {
+                for (v, range, rl) in
+                    RefAwareStreamValueIter::from_range(&range, svs)
+                {
                     let sv = &sv_mgr.stream_values[v];
 
                     match &sv.data {
                         StreamValueData::Dropped => unreachable!(),
                         StreamValueData::Error(e) => {
-                            let err_str =
-                                error_to_formatted_string(e, k.format_type, k.alternate_form, true);
+                            let err_str = error_to_formatted_string(
+                                e,
+                                k.format_type,
+                                k.alternate_form,
+                                true,
+                            );
                             iter_output_targets(
                                 fmt,
                                 &mut output_index,
                                 rl as usize,
-                                |tgt| unsafe { write_padded_bytes(k, tgt, &err_str.as_bytes()) },
+                                |tgt| unsafe {
+                                    write_padded_bytes(
+                                        k,
+                                        tgt,
+                                        &err_str.as_bytes(),
+                                    )
+                                },
                             );
                         }
                         StreamValueData::Bytes(b) => {
-                            let data = range.as_ref().cloned().map(|r| &b[r]).unwrap_or(b);
+                            let data = range
+                                .as_ref()
+                                .cloned()
+                                .map(|r| &b[r])
+                                .unwrap_or(b);
 
-                            if range.is_some() || sv.done || !sv.is_buffered() {
-                                let qc = if sv.bytes_are_utf8 { '"' } else { '\'' };
+                            if range.is_some() || sv.done || !sv.is_buffered()
+                            {
+                                let qc =
+                                    if sv.bytes_are_utf8 { '"' } else { '\'' };
                                 let left = ['~' as u8, qc as u8];
                                 let right = [qc as u8];
                                 let none = b"".as_slice();
                                 let (left, right) = match k.format_type {
-                                    FormatType::Debug => (right.as_slice(), right.as_slice()),
-                                    FormatType::MoreDebug => (left.as_slice(), right.as_slice()),
+                                    FormatType::Debug => {
+                                        (right.as_slice(), right.as_slice())
+                                    }
+                                    FormatType::MoreDebug => {
+                                        (left.as_slice(), right.as_slice())
+                                    }
                                     _ => (none, none),
                                 };
-                                iter_output_targets(fmt, &mut output_index, rl as usize, |tgt| {
-                                    unsafe {
-                                        write_padded_bytes_with_prefix_suffix(
+                                iter_output_targets(
+                                    fmt,
+                                    &mut output_index,
+                                    rl as usize,
+                                    |tgt| {
+                                        unsafe {
+                                            write_padded_bytes_with_prefix_suffix(
                                             k, tgt, data, left, right,
                                         )
-                                    }
-                                    if !sv.done {
-                                        tgt.target = None;
-                                    }
-                                });
+                                        }
+                                        if !sv.done {
+                                            tgt.target = None;
+                                        }
+                                    },
+                                );
                             } else {
-                                iter_output_targets(fmt, &mut output_index, rl as usize, |tgt| {
-                                    tgt.target = None;
-                                });
+                                iter_output_targets(
+                                    fmt,
+                                    &mut output_index,
+                                    rl as usize,
+                                    |tgt| {
+                                        tgt.target = None;
+                                    },
+                                );
                             }
                         }
                     }
@@ -1394,19 +1646,35 @@ fn write_fmt_key(
     }
     let base_iter = iter.into_base_iter();
     let field_pos_end = base_iter.get_next_field_pos();
-    field_mgr.store_iter_cow_aware(ident_ref.field_id, &field, ident_ref.iter_id, base_iter);
+    field_mgr.store_iter_cow_aware(
+        ident_ref.field_id,
+        &field,
+        ident_ref.iter_id,
+        base_iter,
+    );
     if debug_format {
         let unconsumed_fields = batch_size - (field_pos_end - field_pos_start);
-        iter_output_targets(fmt, &mut output_index, unconsumed_fields, |tgt| unsafe {
-            write_padded_bytes(k, tgt, NULL_STR.as_bytes());
-        });
+        iter_output_targets(
+            fmt,
+            &mut output_index,
+            unconsumed_fields,
+            |tgt| unsafe {
+                write_padded_bytes(k, tgt, NULL_STR.as_bytes());
+            },
+        );
     }
 }
-pub fn handle_tf_format(sess: &mut JobData, tf_id: TransformId, fmt: &mut TfFormat) {
+pub fn handle_tf_format(
+    sess: &mut JobData,
+    tf_id: TransformId,
+    fmt: &mut TfFormat,
+) {
     let (batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
-    let mut output_field =
-        sess.tf_mgr
-            .prepare_output_field(&sess.field_mgr, &mut sess.match_set_mgr, tf_id);
+    let mut output_field = sess.tf_mgr.prepare_output_field(
+        &sess.field_mgr,
+        &mut sess.match_set_mgr,
+        tf_id,
+    );
     let tf = &sess.tf_mgr.transforms[tf_id];
     let unconsumed_input = tf.has_unconsumed_input();
     fmt.output_states.push(OutputState {
@@ -1420,12 +1688,14 @@ pub fn handle_tf_format(sess: &mut JobData, tf_id: TransformId, fmt: &mut TfForm
     });
     for (part_idx, part) in fmt.parts.iter().enumerate() {
         match part {
-            FormatPart::ByteLiteral(v) => fmt.output_states.iter_mut().for_each(|s| {
-                if s.incomplete_stream_value_handle.is_none() {
-                    s.len += v.len();
-                    s.contains_raw_bytes = true;
-                }
-            }),
+            FormatPart::ByteLiteral(v) => {
+                fmt.output_states.iter_mut().for_each(|s| {
+                    if s.incomplete_stream_value_handle.is_none() {
+                        s.len += v.len();
+                        s.contains_raw_bytes = true;
+                    }
+                })
+            }
             FormatPart::TextLiteral(v) => {
                 fmt.output_states.iter_mut().for_each(|s| {
                     if s.incomplete_stream_value_handle.is_none() {
@@ -1446,7 +1716,12 @@ pub fn handle_tf_format(sess: &mut JobData, tf_id: TransformId, fmt: &mut TfForm
             ),
         }
     }
-    setup_output_targets(fmt, &mut sess.sv_mgr, tf.op_id.unwrap(), &mut output_field);
+    setup_output_targets(
+        fmt,
+        &mut sess.sv_mgr,
+        tf.op_id.unwrap(),
+        &mut output_field,
+    );
     for part in fmt.parts.iter() {
         match part {
             FormatPart::ByteLiteral(v) => {
@@ -1517,11 +1792,14 @@ pub fn handle_tf_format_stream_value_update(
                         }
                     }
                     if sv.done {
-                        if let FormatPart::Key(k) = &tf.parts[handle.part_idx] {
-                            let len =
-                                calc_text_len(k, data.len(), handle.width_lookup, &mut || {
-                                    data.chars().count()
-                                });
+                        if let FormatPart::Key(k) = &tf.parts[handle.part_idx]
+                        {
+                            let len = calc_text_len(
+                                k,
+                                data.len(),
+                                handle.width_lookup,
+                                &mut || data.chars().count(),
+                            );
                             tgt_buf.reserve(len);
                             unsafe {
                                 //TODO: this is a hack, create a separate impl
@@ -1532,7 +1810,11 @@ pub fn handle_tf_format_stream_value_update(
                                         tgt_buf.as_mut_ptr_range().end,
                                     )),
                                 };
-                                write_padded_bytes(k, &mut output_target, data);
+                                write_padded_bytes(
+                                    k,
+                                    &mut output_target,
+                                    data,
+                                );
                             };
                         } else {
                             unreachable!();
@@ -1637,7 +1919,8 @@ mod test {
         let mut b = FormatKey::default();
         b.identifier = 1;
         assert_eq!(
-            parse_format_string("foo{{{a}}}__{b}".as_bytes(), &mut idents).unwrap(),
+            parse_format_string("foo{{{a}}}__{b}".as_bytes(), &mut idents)
+                .unwrap(),
             &[
                 FormatPart::TextLiteral("foo{".to_owned()),
                 FormatPart::Key(a),
@@ -1654,7 +1937,8 @@ mod test {
         let mut a = FormatKey::default();
         a.identifier = 0;
         a.width = Some(FormatWidthSpec::Value(5));
-        a.fill = Some(FormatFillSpec::new(Some('+'), FormatFillAlignment::Left));
+        a.fill =
+            Some(FormatFillSpec::new(Some('+'), FormatFillAlignment::Left));
         assert_eq!(
             parse_format_string("{a:+<5}".as_bytes(), &mut idents).unwrap(),
             &[FormatPart::Key(a),]

@@ -7,7 +7,10 @@ use crate::{
     scr_error::{ContextualizedScrError, ScrError},
 };
 
-use super::{operator_base_options::OperatorBaseOptions, session_options::SessionOptions};
+use super::{
+    operator_base_options::OperatorBaseOptions,
+    session_options::SessionOptions,
+};
 
 #[derive(Default, Clone)]
 pub struct ContextBuilderData {
@@ -30,10 +33,9 @@ impl ContextBuilder {
         transparent_mode: bool,
     ) -> Self {
         let op_base = OperatorBaseOptions::new(
-            self.data
-                .opts
-                .string_store
-                .intern_cloned(argname.unwrap_or(op_data.default_op_name().as_str())),
+            self.data.opts.string_store.intern_cloned(
+                argname.unwrap_or(op_data.default_op_name().as_str()),
+            ),
             label.map(|lbl| self.data.opts.string_store.intern_cloned(lbl)),
             append_mode,
             transparent_mode,
@@ -66,7 +68,9 @@ impl ContextBuilder {
         self.data.input_data = rs;
         self
     }
-    pub fn build_session_raw(self) -> Result<Session, (SessionOptions, ScrError)> {
+    pub fn build_session_raw(
+        self,
+    ) -> Result<Session, (SessionOptions, ScrError)> {
         self.data.opts.build_session_raw()
     }
     pub fn build_session(self) -> Result<Session, ContextualizedScrError> {
@@ -78,13 +82,17 @@ impl ContextBuilder {
     pub fn run(self) -> Result<(), ContextualizedScrError> {
         let sess = self.data.opts.build_session()?;
         Ok(if sess.settings.max_threads == 1 {
-            sess.run_job_unthreaded(sess.construct_main_chain_job(self.data.input_data))
+            sess.run_job_unthreaded(
+                sess.construct_main_chain_job(self.data.input_data),
+            )
         } else {
             let mut ctx = Context::new(Arc::new(sess));
             ctx.run_main_chain(self.data.input_data)
         })
     }
-    pub fn run_collect_output(self) -> Result<RecordSet, ContextualizedScrError> {
+    pub fn run_collect_output(
+        self,
+    ) -> Result<RecordSet, ContextualizedScrError> {
         //add operation to collect output into record set
         // similar to string sink
         todo!();

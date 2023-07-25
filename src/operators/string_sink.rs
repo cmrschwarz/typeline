@@ -1,8 +1,7 @@
 use std::{
     borrow::Cow,
     collections::HashMap,
-    ops::Deref,
-    ops::DerefMut,
+    ops::{Deref, DerefMut},
     sync::{Arc, Mutex, MutexGuard},
 };
 
@@ -10,26 +9,28 @@ use bstr::ByteSlice;
 use smallstr::SmallString;
 
 use crate::{
-    field_data::{field_value_flags, push_interface::PushInterface},
+    field_data::{
+        field_value_flags, iter_hall::IterId, iters::FieldIterator,
+        push_interface::PushInterface, typed::TypedSlice,
+        typed_iters::TypedSliceIter, FieldValueKind,
+    },
     job_session::{Field, JobData},
     operators::print::error_to_string,
     ref_iter::{
-        AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter, RefAwareInlineTextIter,
+        AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter,
+        RefAwareInlineTextIter, RefAwareStreamValueIter,
     },
     stream_value::{StreamValue, StreamValueData, StreamValueId},
-    utils::{i64_to_str, identity_hasher::BuildIdentityHasher, universe::Universe},
-};
-use crate::{
-    field_data::{
-        iter_hall::IterId, iters::FieldIterator, typed::TypedSlice, typed_iters::TypedSliceIter,
-        FieldValueKind,
+    utils::{
+        i64_to_str, identity_hasher::BuildIdentityHasher, universe::Universe,
     },
-    ref_iter::RefAwareStreamValueIter,
 };
 
 use super::{
     errors::OperatorApplicationError,
-    operator::{OperatorBase, OperatorData, OperatorId, DEFAULT_OP_NAME_SMALL_STR_LEN},
+    operator::{
+        OperatorBase, OperatorData, OperatorId, DEFAULT_OP_NAME_SMALL_STR_LEN,
+    },
     transform::{TransformData, TransformId, TransformState},
     utils::{NULL_STR, SUCCESS_STR},
 };
@@ -41,7 +42,11 @@ pub struct StringSink {
 }
 
 impl StringSink {
-    pub fn append_error(&mut self, index: usize, err: Arc<OperatorApplicationError>) {
+    pub fn append_error(
+        &mut self,
+        index: usize,
+        err: Arc<OperatorApplicationError>,
+    ) {
         self.error_indices.insert(index, self.errors.len());
         self.errors.push((index, err))
     }
@@ -87,7 +92,9 @@ impl StringSinkHandle {
     pub fn get(&self) -> MutexGuard<StringSink> {
         self.data.lock().unwrap()
     }
-    pub fn get_data(&self) -> Result<StringSinkDataGuard, Arc<OperatorApplicationError>> {
+    pub fn get_data(
+        &self,
+    ) -> Result<StringSinkDataGuard, Arc<OperatorApplicationError>> {
         let guard = self.data.lock().unwrap();
         if let Some((_, err)) = guard.errors.first() {
             return Err(err.clone());
@@ -107,7 +114,9 @@ pub struct OpStringSink {
 }
 
 impl OpStringSink {
-    pub fn default_op_name(&self) -> SmallString<[u8; DEFAULT_OP_NAME_SMALL_STR_LEN]> {
+    pub fn default_op_name(
+        &self,
+    ) -> SmallString<[u8; DEFAULT_OP_NAME_SMALL_STR_LEN]> {
         SmallString::from("<String Sink>")
     }
 }
@@ -265,17 +274,27 @@ pub fn push_errors<'a>(
         output_field
             .field_data
             .push_success(field_pos - *last_error_end, true);
-        output_field
-            .field_data
-            .push_error(err.clone(), run_length, false, false);
+        output_field.field_data.push_error(
+            err.clone(),
+            run_length,
+            false,
+            false,
+        );
     } else {
-        output_field
-            .field_data
-            .push_error(err.clone(), run_length, true, true);
+        output_field.field_data.push_error(
+            err.clone(),
+            run_length,
+            true,
+            true,
+        );
     }
     *last_error_end = field_pos;
 }
-pub fn handle_tf_string_sink(sess: &mut JobData, tf_id: TransformId, ss: &mut TfStringSink<'_>) {
+pub fn handle_tf_string_sink(
+    sess: &mut JobData,
+    tf_id: TransformId,
+    ss: &mut TfStringSink<'_>,
+) {
     let (batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
     let tf = &sess.tf_mgr.transforms[tf_id];
     let op_id = tf.op_id.unwrap();
@@ -289,7 +308,8 @@ pub fn handle_tf_string_sink(sess: &mut JobData, tf_id: TransformId, ss: &mut Tf
         .get_iter_cow_aware(tf.input_field, &input_field, ss.batch_iter)
         .bounded(0, batch_size);
     let starting_pos = base_iter.get_next_field_pos();
-    let mut iter = AutoDerefIter::new(&sess.field_mgr, tf.input_field, base_iter);
+    let mut iter =
+        AutoDerefIter::new(&sess.field_mgr, tf.input_field, base_iter);
     let mut out = ss.handle.lock().unwrap();
     let mut field_pos = out.data.len();
 
@@ -301,17 +321,23 @@ pub fn handle_tf_string_sink(sess: &mut JobData, tf_id: TransformId, ss: &mut Tf
     ) {
         match range.base.data {
             TypedSlice::TextInline(text) => {
-                for (v, rl, _offs) in RefAwareInlineTextIter::from_range(&range, text) {
+                for (v, rl, _offs) in
+                    RefAwareInlineTextIter::from_range(&range, text)
+                {
                     push_str(&mut out, v, rl as usize);
                 }
             }
             TypedSlice::BytesInline(bytes) => {
-                for (v, rl, _offs) in RefAwareInlineBytesIter::from_range(&range, bytes) {
+                for (v, rl, _offs) in
+                    RefAwareInlineBytesIter::from_range(&range, bytes)
+                {
                     push_bytes(op_id, field_pos, &mut out, v, rl as usize);
                 }
             }
             TypedSlice::BytesBuffer(bytes) => {
-                for (v, rl, _offs) in RefAwareBytesBufferIter::from_range(&range, bytes) {
+                for (v, rl, _offs) in
+                    RefAwareBytesBufferIter::from_range(&range, bytes)
+                {
                     push_bytes(op_id, field_pos, &mut out, v, rl as usize);
                 }
             }
@@ -344,25 +370,40 @@ pub fn handle_tf_string_sink(sess: &mut JobData, tf_id: TransformId, ss: &mut Tf
             }
             TypedSlice::StreamValueId(svs) => {
                 let mut pos = field_pos;
-                for (svid, range, rl) in RefAwareStreamValueIter::from_range(&range, svs) {
+                for (svid, range, rl) in
+                    RefAwareStreamValueIter::from_range(&range, svs)
+                {
                     let sv = &mut sess.sv_mgr.stream_values[svid];
 
                     match &sv.data {
                         StreamValueData::Bytes(bytes) => {
-                            let data = range.map(|r| &bytes[r]).unwrap_or(bytes);
+                            let data =
+                                range.map(|r| &bytes[r]).unwrap_or(bytes);
                             if sv.done || sv.bytes_are_chunk {
                                 if sv.bytes_are_utf8 {
-                                    push_bytes(op_id, pos, &mut out, data, rl as usize);
+                                    push_bytes(
+                                        op_id,
+                                        pos,
+                                        &mut out,
+                                        data,
+                                        rl as usize,
+                                    );
                                 } else {
                                     push_str(
                                         &mut out,
-                                        unsafe { std::str::from_utf8_unchecked(data) },
+                                        unsafe {
+                                            std::str::from_utf8_unchecked(data)
+                                        },
                                         rl as usize,
                                     );
                                 }
                             } else {
                                 //to initialize the slots
-                                push_string(&mut out, String::new(), rl as usize);
+                                push_string(
+                                    &mut out,
+                                    String::new(),
+                                    rl as usize,
+                                );
                             }
                             if !sv.done {
                                 sv.subscribe(
@@ -370,11 +411,13 @@ pub fn handle_tf_string_sink(sess: &mut JobData, tf_id: TransformId, ss: &mut Tf
                                     ss.stream_value_handles.peek_claim_id(),
                                     sv.is_buffered(),
                                 );
-                                ss.stream_value_handles.claim_with_value(StreamValueHandle {
-                                    start_idx: pos,
-                                    run_len: rl as usize,
-                                    contains_error: false,
-                                });
+                                ss.stream_value_handles.claim_with_value(
+                                    StreamValueHandle {
+                                        start_idx: pos,
+                                        run_len: rl as usize,
+                                        contains_error: false,
+                                    },
+                                );
                             }
                         }
                         StreamValueData::Error(e) => push_errors(
@@ -401,8 +444,12 @@ pub fn handle_tf_string_sink(sess: &mut JobData, tf_id: TransformId, ss: &mut Tf
     if consumed_fields < batch_size {
         push_str(&mut out, NULL_STR, batch_size - consumed_fields);
     }
-    sess.field_mgr
-        .store_iter_cow_aware(input_field_id, &input_field, ss.batch_iter, base_iter);
+    sess.field_mgr.store_iter_cow_aware(
+        input_field_id,
+        &input_field,
+        ss.batch_iter,
+        base_iter,
+    );
     let success_count = field_pos - last_error_end;
     if success_count > 0 {
         output_field.field_data.push_success(success_count, true);

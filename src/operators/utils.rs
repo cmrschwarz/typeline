@@ -17,13 +17,18 @@ pub fn buffer_remaining_stream_values_sv_iter(
     }
 }
 
-pub fn buffer_remaining_stream_values_auto_deref_iter<'a, I: FieldIterator<'a>>(
+pub fn buffer_remaining_stream_values_auto_deref_iter<
+    'a,
+    I: FieldIterator<'a>,
+>(
     match_set_mgr: &mut MatchSetManager,
     sv_mgr: &mut StreamValueManager,
     mut iter: AutoDerefIter<'a, I>,
     limit: usize,
 ) {
-    while let Some(range) = iter.typed_range_fwd(match_set_mgr, limit, field_value_flags::DEFAULT) {
+    while let Some(range) =
+        iter.typed_range_fwd(match_set_mgr, limit, field_value_flags::DEFAULT)
+    {
         match range.base.data {
             TypedSlice::StreamValueId(svs) => {
                 buffer_remaining_stream_values_sv_iter(

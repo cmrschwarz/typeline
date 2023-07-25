@@ -33,9 +33,19 @@ pub fn parse_op_call(
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
     let value_str = value
-        .ok_or_else(|| OperatorCreationError::new("missing argument with key for select", arg_idx))?
+        .ok_or_else(|| {
+            OperatorCreationError::new(
+                "missing argument with key for select",
+                arg_idx,
+            )
+        })?
         .to_str()
-        .map_err(|_| OperatorCreationError::new("target label must be valid UTF-8", arg_idx))?;
+        .map_err(|_| {
+            OperatorCreationError::new(
+                "target label must be valid UTF-8",
+                arg_idx,
+            )
+        })?;
     Ok(OperatorData::Call(OpCall {
         lazy: true,
         target_name: value_str.to_owned(),
@@ -100,23 +110,30 @@ pub(crate) fn handle_eager_call_expansion<'a>(
     ms_id: MatchSetId,
     input_field: FieldId,
 ) -> (TransformId, TransformId, bool) {
-    if let OperatorData::Call(op) = &sess.job_data.session_data.operator_data[op_id as usize] {
-        let chain = &sess.job_data.session_data.chains[op.target_resolved as usize];
+    if let OperatorData::Call(op) =
+        &sess.job_data.session_data.operator_data[op_id as usize]
+    {
+        let chain =
+            &sess.job_data.session_data.chains[op.target_resolved as usize];
         sess.setup_transforms_from_op(ms_id, chain.operators[0], input_field)
     } else {
         unreachable!();
     }
 }
 
-pub(crate) fn handle_lazy_call_expansion<'a>(sess: &mut JobSession, tf_id: TransformId) {
+pub(crate) fn handle_lazy_call_expansion<'a>(
+    sess: &mut JobSession,
+    tf_id: TransformId,
+) {
     let tf = &mut sess.job_data.tf_mgr.transforms[tf_id];
     let input_field = tf.input_field;
     let ms_id = tf.match_set_id;
-    let call = if let TransformData::Call(tf) = &sess.transform_data[tf_id.get()] {
-        tf
-    } else {
-        unreachable!()
-    };
+    let call =
+        if let TransformData::Call(tf) = &sess.transform_data[tf_id.get()] {
+            tf
+        } else {
+            unreachable!()
+        };
     let (target_tf, _end_tf, _end_reachable) = sess.setup_transforms_from_op(
         ms_id,
         sess.job_data.session_data.chains[call.target as usize].operators[0],

@@ -71,7 +71,10 @@ impl OperatorApplicationError {
     }
 }
 
-pub fn io_error_to_op_error(op_id: OperatorId, err: std::io::Error) -> OperatorApplicationError {
+pub fn io_error_to_op_error(
+    op_id: OperatorId,
+    err: std::io::Error,
+) -> OperatorApplicationError {
     OperatorApplicationError {
         op_id,
         message: Cow::Owned(err.to_string()),
