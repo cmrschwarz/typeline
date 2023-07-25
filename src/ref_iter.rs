@@ -171,7 +171,7 @@ impl<'a> RefIter<'a> {
         let refs_data_start = self.refs_iter.data_ptr();
         let refs_oversize_start = self.refs_iter.field_run_length_bwd();
         let ref_header_idx = self.refs_iter.headers_remaining();
-        let (mut field_ref, mut field_rl) = self.refs_iter.next()?;
+        let (mut field_ref, mut field_rl) = self.refs_iter.peek()?;
         let field = field_ref.field;
         self.move_to_field_keep_pos(match_set_mgr, field);
         let iter = self.data_iter.as_mut().unwrap();
@@ -195,11 +195,13 @@ impl<'a> RefIter<'a> {
             field_count += data_stride;
             limit -= data_stride;
             if data_stride != field_rl as usize {
+                self.refs_iter.next_n_fields(data_stride);
                 refs_oversize_end = field_rl - data_stride as RunLength;
                 break;
+            } else {
+                self.refs_iter.next();
             }
-
-            if let Some(v) = self.refs_iter.next() {
+            if let Some(v) = self.refs_iter.peek() {
                 (field_ref, field_rl) = v;
                 if field_ref.field != field {
                     break;

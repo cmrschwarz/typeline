@@ -287,7 +287,6 @@ unsafe impl RawPushInterface for FieldData {
                             data == *(self.data.as_ptr_range().end.sub(std::mem::size_of::<T>())
                                 as *const T)
                         };
-                        header_rle |= data_rle;
                     }
                 }
             }

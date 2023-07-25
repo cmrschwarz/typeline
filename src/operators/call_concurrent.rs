@@ -234,10 +234,6 @@ pub fn handle_tf_call_concurrent(
         sess.field_mgr
             .apply_field_actions(&mut sess.match_set_mgr, mapping.source_field_id);
     }
-    let cb = &mut sess.match_set_mgr.match_sets[tf.match_set_id].command_buffer;
-    cb.begin_action_list(tfc.apf_idx);
-    cb.push_action_with_usize_rl(tfc.apf_idx, FieldActionKind::Drop, 0, batch_size);
-    cb.end_action_list(tfc.apf_idx);
     let mut buf_data = tfc.buffer.fields.lock().unwrap();
     while buf_data.available_batch_size != 0 {
         buf_data = tfc.buffer.updates.wait(buf_data).unwrap();
@@ -285,6 +281,10 @@ pub fn handle_tf_call_concurrent(
     buf_data.available_batch_size += batch_size;
     drop(buf_data);
     tfc.buffer.updates.notify_one();
+    let cb = &mut sess.match_set_mgr.match_sets[tf.match_set_id].command_buffer;
+    cb.begin_action_list(tfc.apf_idx);
+    cb.push_action_with_usize_rl(tfc.apf_idx, FieldActionKind::Drop, 0, batch_size);
+    cb.end_action_list(tfc.apf_idx);
     for mapping in &tfc.field_mappings {
         let mut src_field = sess.field_mgr.fields[mapping.source_field_id].borrow_mut();
         if src_field.cow_source.is_some() || src_field.has_unconsumed_input.get() {

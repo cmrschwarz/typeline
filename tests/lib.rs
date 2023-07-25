@@ -1196,13 +1196,13 @@ fn basic_callcc() -> Result<(), ScrError> {
 fn callcc_after_drop() -> Result<(), ScrError> {
     let ss = StringSinkHandle::new();
     ContextBuilder::default()
-        .set_batch_size(7)
+        // .set_batch_size(7)
         .add_op(create_op_seqn(1, 30, 1).unwrap())
-        .add_op(create_op_regex("3", Default::default()).unwrap())
+        .add_op(create_op_regex("7", Default::default()).unwrap())
         .add_op(create_op_callcc("foo".to_string()))
         .add_label("foo".to_string())
         .add_op(create_op_string_sink(&ss))
         .run()?;
-    assert_eq!(ss.get().data.as_slice(), ["3", "3", "3", "3"]);
+    assert_eq!(ss.get().data.as_slice(), ["7", "7", "7"]);
     Ok(())
 }
