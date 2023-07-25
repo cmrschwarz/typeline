@@ -466,6 +466,7 @@ impl FieldData {
         targets_applicator: &mut impl FnMut(&mut dyn FnMut(&mut FieldData)),
     ) -> usize {
         let mut copied_fields = 0;
+        // by setting the deleted flag here, we can avoid copying deleted records
         while let Some(tr) = iter.typed_range_fwd(
             match_set_mgr,
             usize::MAX,

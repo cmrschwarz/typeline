@@ -218,6 +218,7 @@ pub fn handle_tf_print_raw(
                 let mut sv_iter = RefAwareStreamValueIter::from_range(&range, svs);
                 while let Some((sv_id, offsets, rl)) = sv_iter.next() {
                     pos += rl as usize;
+                    *handled_field_count += rl as usize;
                     let sv = &mut sess.sv_mgr.stream_values[sv_id];
                     if !write_stream_val_check_done(stdout, sv, offsets, rl as usize).map_err(
                         |(i, e)| {
@@ -243,7 +244,6 @@ pub fn handle_tf_print_raw(
                         );
                         break 'iter;
                     }
-                    *handled_field_count += rl as usize;
                 }
             }
             TypedSlice::Html(_) | TypedSlice::Object(_) => {
@@ -322,7 +322,7 @@ pub fn handle_tf_print(sess: &mut JobData, tf_id: TransformId, tf: &mut TfPrint)
 pub fn handle_tf_print_stream_value_update(
     sess: &mut JobData,
     tf_id: TransformId,
-    _print: &mut TfPrint,
+    print: &mut TfPrint,
     sv_id: StreamValueId,
     custom: usize,
 ) {
@@ -361,7 +361,11 @@ pub fn handle_tf_print_stream_value_update(
         sess.sv_mgr
             .drop_field_value_subscription(sv_id, Some(tf_id));
     }
-    let input_field = sess.field_mgr.fields[tf.output_field].borrow();
+    if print.flush_on_every_print {
+        stdout.flush().ok();
+    }
+    print.current_stream_val = None;
+    let input_field = sess.field_mgr.fields[tf.input_field].borrow();
     input_field.drop_clear_delay_request();
     sess.tf_mgr.update_ready_state(tf_id);
 }
