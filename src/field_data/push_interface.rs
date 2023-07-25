@@ -903,21 +903,18 @@ impl<'a> RawFixedSizedTypeInserter<'a> {
     }
 }
 
-pub unsafe trait FixedSizeTypeInserter<
-    'a,
-    const KIND: u8,
-    const FLAGS: FieldValueFlags,
-    T,
->
-{
+pub unsafe trait FixedSizeTypeInserter<'a> {
+    const KIND: FieldValueKind;
+    const FLAGS: FieldValueFlags = field_value_flags::DEFAULT;
+    type ValueType;
     fn get_raw(&mut self) -> &mut RawFixedSizedTypeInserter<'a>;
     fn element_size() -> usize {
-        std::mem::size_of::<T>()
+        std::mem::size_of::<Self::ValueType>()
     }
     fn element_format() -> FieldValueFormat {
         FieldValueFormat {
-            kind: unsafe { FieldValueKind::from_u8(KIND) },
-            flags: FLAGS,
+            kind: Self::KIND,
+            flags: Self::FLAGS,
             size: Self::element_size() as FieldValueSize,
         }
     }
@@ -938,7 +935,7 @@ pub unsafe trait FixedSizeTypeInserter<
                 .commit_and_reserve(Self::element_format(), new_max_inserts);
         }
     }
-    fn push(&mut self, v: T) {
+    fn push<T>(&mut self, v: T) {
         assert!(self.get_raw().count < self.get_raw().max);
         unsafe {
             self.get_raw().push(v);
@@ -1011,17 +1008,14 @@ impl<'a> RawVariableSizedTypeInserter<'a> {
     }
 }
 
-pub unsafe trait VariableSizeTypeInserter<
-    'a,
-    const KIND: u8,
-    const FLAGS: FieldValueFlags,
->
-{
+pub unsafe trait VariableSizeTypeInserter<'a> {
+    const KIND: FieldValueKind;
+    const FLAGS: FieldValueFlags = field_value_flags::DEFAULT;
     fn get_raw(&mut self) -> &mut RawVariableSizedTypeInserter<'a>;
     fn current_element_format(&mut self) -> FieldValueFormat {
         FieldValueFormat {
-            kind: unsafe { FieldValueKind::from_u8(KIND) },
-            flags: FLAGS,
+            kind: Self::KIND,
+            flags: Self::FLAGS,
             size: self.get_raw().expected_size as FieldValueSize,
         }
     }
@@ -1088,16 +1082,17 @@ impl<'a> IntegerInserter<'a> {
         }
     }
 }
-unsafe impl<'a>
-    FixedSizeTypeInserter<
-        'a,
-        { FieldValueKind::Integer as u8 },
-        { field_value_flags::DEFAULT },
-        i64,
-    > for IntegerInserter<'a>
-{
+unsafe impl<'a> FixedSizeTypeInserter<'a> for IntegerInserter<'a> {
+    const KIND: FieldValueKind = FieldValueKind::Integer;
+    const FLAGS: FieldValueFlags = field_value_flags::DEFAULT;
+    type ValueType = i64;
     fn get_raw(&mut self) -> &mut RawFixedSizedTypeInserter<'a> {
         &mut self.raw
+    }
+}
+impl<'a> Drop for IntegerInserter<'a> {
+    fn drop(&mut self) {
+        self.commit();
     }
 }
 
@@ -1111,16 +1106,17 @@ impl<'a> FieldReferenceInserter<'a> {
         }
     }
 }
-unsafe impl<'a>
-    FixedSizeTypeInserter<
-        'a,
-        { FieldValueKind::Reference as u8 },
-        { field_value_flags::DEFAULT },
-        FieldReference,
-    > for FieldReferenceInserter<'a>
-{
+unsafe impl<'a> FixedSizeTypeInserter<'a> for FieldReferenceInserter<'a> {
+    const KIND: FieldValueKind = FieldValueKind::Reference;
+    type ValueType = FieldReference;
+
     fn get_raw(&mut self) -> &mut RawFixedSizedTypeInserter<'a> {
         &mut self.raw
+    }
+}
+impl<'a> Drop for FieldReferenceInserter<'a> {
+    fn drop(&mut self) {
+        self.commit();
     }
 }
 
@@ -1134,17 +1130,20 @@ impl<'a> InlineStringInserter<'a> {
         }
     }
 }
-unsafe impl<'a>
-    VariableSizeTypeInserter<
-        'a,
-        { FieldValueKind::BytesInline as u8 },
-        { field_value_flags::BYTES_ARE_UTF8 },
-    > for InlineStringInserter<'a>
-{
+unsafe impl<'a> VariableSizeTypeInserter<'a> for InlineStringInserter<'a> {
+    const KIND: FieldValueKind = FieldValueKind::BytesInline;
+    const FLAGS: FieldValueFlags = field_value_flags::BYTES_ARE_UTF8;
+
     fn get_raw(&mut self) -> &mut RawVariableSizedTypeInserter<'a> {
         &mut self.raw
     }
 }
+impl<'a> Drop for InlineStringInserter<'a> {
+    fn drop(&mut self) {
+        self.commit();
+    }
+}
+
 pub struct InlineBytesInserter<'a> {
     raw: RawVariableSizedTypeInserter<'a>,
 }
@@ -1155,14 +1154,14 @@ impl<'a> InlineBytesInserter<'a> {
         }
     }
 }
-unsafe impl<'a>
-    VariableSizeTypeInserter<
-        'a,
-        { FieldValueKind::BytesInline as u8 },
-        { field_value_flags::BYTES_ARE_UTF8 },
-    > for InlineBytesInserter<'a>
-{
+unsafe impl<'a> VariableSizeTypeInserter<'a> for InlineBytesInserter<'a> {
+    const KIND: FieldValueKind = FieldValueKind::BytesInline;
     fn get_raw(&mut self) -> &mut RawVariableSizedTypeInserter<'a> {
         &mut self.raw
+    }
+}
+impl<'a> Drop for InlineBytesInserter<'a> {
+    fn drop(&mut self) {
+        self.commit();
     }
 }
