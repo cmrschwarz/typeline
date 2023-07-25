@@ -4,6 +4,7 @@ extern crate static_assertions;
 extern crate arrayvec;
 extern crate encoding_rs;
 extern crate lazy_static;
+extern crate num_traits;
 extern crate rand;
 extern crate reedline;
 extern crate regex;

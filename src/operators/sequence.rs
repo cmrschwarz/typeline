@@ -7,7 +7,7 @@ use crate::{
     field_data::{push_interface::PushInterface, FieldValueKind},
     job_session::JobData,
     options::argument::CliArgIdx,
-    utils::{i64_to_str, I64_MAX_DECIMAL_DIGITS},
+    utils::{i64_to_str, int_units::parse_int_with_units, I64_MAX_DECIMAL_DIGITS},
 };
 
 use super::{
@@ -181,28 +181,39 @@ pub fn parse_op_seq(
     }
     let mut start = match parts.len() {
         1 => 0,
-        2 | 3 => parts[0].parse::<i64>().map_err(|_| {
-            OperatorCreationError::new("failed to parse sequence start as integer", arg_idx)
+        2 | 3 => parse_int_with_units(parts[0]).map_err(|msg| {
+            OperatorCreationError::new_s(
+                format!("failed to parse sequence start as integer: {msg}"),
+                arg_idx,
+            )
         })?,
         _ => unreachable!(),
     };
     let step = parts
         .get(2)
         .map(|step| {
-            step.parse::<i64>().map_err(|_| {
-                OperatorCreationError::new("failed to parse sequence step size as integer", arg_idx)
+            parse_int_with_units(step).map_err(|msg| {
+                OperatorCreationError::new_s(
+                    format!("failed to parse sequence step size as integer: {msg}"),
+                    arg_idx,
+                )
             })
         })
         .transpose()?
         .unwrap_or(1);
 
-    let mut end = parts[match parts.len() {
+    let end_str = parts[match parts.len() {
         1 => 0,
         2 | 3 => 1,
         _ => unreachable!(),
-    }]
-    .parse::<i64>()
-    .map_err(|_| OperatorCreationError::new("failed to parse sequence end as integer", arg_idx))?;
+    }];
+
+    let mut end = parse_int_with_units(end_str).map_err(|msg| {
+        OperatorCreationError::new_s(
+            format!("failed to parse sequence end as integer: {msg}"),
+            arg_idx,
+        )
+    })?;
     if natural_number_mode {
         start += 1;
         end += 1;

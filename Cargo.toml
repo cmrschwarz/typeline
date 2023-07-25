@@ -28,9 +28,10 @@ path = "bench/lib.rs"
 # fantoccini = "0.19.0"
 shlex = "1.1.0"
 reedline = { version = "0.22.0", features = ["bashisms"] }
+
 lazy_static = "1.4.0"
-smallvec = { version = "1.10.0", features = ["union"] }
-smallstr = "0.3.0"
+smallvec = { version = "1.10.0", features = ["union", "write"] }
+smallstr = { version= "0.3.0", features = ["union"] }
 arrayvec = "0.7.3"
 regex = "1.7.1"
 regex-syntax = "0.7.2"
@@ -39,6 +40,7 @@ thiserror = "1.0.38"
 nonmax = "0.5.3"
 static_assertions = "1.1.0"
 rand = "0.8.5"
+num-traits = "0.2.16"
 encoding_rs = { version = "0.8.32", features = ["fast-legacy-encode"] }
 uuid = { version = "1.4.0", features = ["v4", "fast-rng"] }
 

@@ -19,6 +19,7 @@ use crate::operators::{
     up::parse_op_up,
 };
 use crate::scr_error::{ContextualizedScrError, ReplDisabledError, ScrError};
+use crate::utils::int_units::parse_int_with_units_from_bytes;
 use crate::{
     options::{
         argument::CliArgIdx, operator_base_options::OperatorBaseOptions,
@@ -177,13 +178,12 @@ fn try_parse_bool_arg_or_default(
     }
 }
 fn try_parse_usize_arg(val: &[u8], cli_arg_idx: CliArgIdx) -> Result<usize, CliArgumentError> {
-    if let Some(b) = val.to_str().ok().and_then(|v| v.parse::<usize>().ok()) {
-        Ok(b)
-    } else {
-        Err(CliArgumentError::new(
-            "failed to parse as unsigned integer",
+    match parse_int_with_units_from_bytes::<usize>(val) {
+        Ok(v) => Ok(v),
+        Err(msg) => Err(CliArgumentError::new_s(
+            format!("failed to parse as integer: {msg}"),
             cli_arg_idx,
-        ))
+        )),
     }
 }
 
