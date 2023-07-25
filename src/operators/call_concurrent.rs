@@ -243,9 +243,9 @@ pub fn handle_tf_call_concurrent(
         buf_data = tfc.buffer.updates.wait(buf_data).unwrap();
     }
     for mapping in &tfc.field_mappings {
-        let mut src_field = sess
+        let src_field = sess
             .field_mgr
-            .borrow_field_cow_mut(mapping.source_field_id, false);
+            .borrow_field_cow(mapping.source_field_id, false);
         let mut copy_required = src_field.has_unconsumed_input.get();
         copy_required |= src_field.field_id != mapping.source_field_id;
         // PERF: this makes us always copy for regex. maybe try to copy the
@@ -275,7 +275,9 @@ pub fn handle_tf_call_concurrent(
                 iter.into_base_iter(),
             );
         } else {
-            let src_data = unsafe { src_field.field_data.raw() };
+            drop(src_field);
+            let mut src_field_mut = sess.field_mgr.fields[mapping.source_field_id].borrow_mut();
+            let src_data = unsafe { src_field_mut.field_data.raw() };
             std::mem::swap(tgt_data, src_data);
         }
     }
