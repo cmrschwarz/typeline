@@ -398,6 +398,9 @@ pub fn handle_tf_string_sink(sess: &mut JobData, tf_id: TransformId, ss: &mut Tf
     }
     let base_iter = iter.into_base_iter();
     let consumed_fields = base_iter.get_next_field_pos() - starting_pos;
+    if consumed_fields < batch_size {
+        push_str(&mut out, NULL_STR, batch_size - consumed_fields);
+    }
     sess.field_mgr
         .store_iter_cow_aware(input_field_id, &input_field, ss.batch_iter, base_iter);
     let success_count = field_pos - last_error_end;
@@ -408,11 +411,11 @@ pub fn handle_tf_string_sink(sess: &mut JobData, tf_id: TransformId, ss: &mut Tf
     drop(output_field);
     let streams_done = ss.stream_value_handles.is_empty();
     if input_done && streams_done {
-        sess.unlink_transform(tf_id, consumed_fields);
+        sess.unlink_transform(tf_id, batch_size);
     } else {
         sess.tf_mgr.update_ready_state(tf_id);
         sess.tf_mgr
-            .inform_successor_batch_available(tf_id, consumed_fields);
+            .inform_successor_batch_available(tf_id, batch_size);
     }
 }
 
