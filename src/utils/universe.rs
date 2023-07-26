@@ -134,9 +134,10 @@ impl<I: UniverseIndex, T> Universe<I, T> {
     fn build_vacant_entry(&mut self, index: usize) -> UniverseEntry<T> {
         // SAFETY: we can never have usize::MAX entries before running out of
         // memory
+        let res = UniverseEntry::Vacant(self.first_vacant_entry);
         self.first_vacant_entry =
             Some(unsafe { NonMaxUsize::new_unchecked(index) });
-        UniverseEntry::Vacant(self.first_vacant_entry)
+        res
     }
     pub fn release(&mut self, id: I) {
         self.occupied_entry_count -= 1;

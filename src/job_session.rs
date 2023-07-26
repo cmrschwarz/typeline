@@ -101,7 +101,7 @@ pub struct Field {
 
 pub type FieldId = NonMaxU32;
 pub const INVALID_FIELD_ID: FieldId = FieldId::MAX;
-pub const DUMMY_OUTPUT_FIELD_ID: FieldId = FieldId::MIN;
+pub const DUMMY_INPUT_FIELD_ID: FieldId = FieldId::MIN;
 
 pub type MatchSetId = NonMaxUsize;
 
@@ -578,8 +578,11 @@ impl Default for FieldManager {
         let mut res = Self {
             fields: Default::default(),
         };
-        let id = res.fields.claim_with_value(Default::default());
-        debug_assert!(DUMMY_OUTPUT_FIELD_ID == id);
+        let id = res.fields.claim_with_value(RefCell::new(Field {
+            ref_count: 1,
+            ..Default::default()
+        }));
+        debug_assert!(DUMMY_INPUT_FIELD_ID == id);
         res
     }
 }
@@ -864,8 +867,8 @@ impl<'a> JobSession<'a> {
         let mut prev_tf = None;
         let mut end_reachable = true;
         let mut predecessor_tf = None;
-        let mut next_input_field = chain_input_field_id;
-        let mut output_field_for_amend = DUMMY_OUTPUT_FIELD_ID;
+        let mut input_field = chain_input_field_id;
+        let mut any_output_produced = false;
         let ops = &self.job_data.session_data.chains
             [start_op.chain_id as usize]
             .operators[start_op.offset_in_chain as usize..];
@@ -884,7 +887,7 @@ impl<'a> JobSession<'a> {
                                 self,
                                 *op_id,
                                 ms_id,
-                                next_input_field,
+                                input_field,
                             );
                         return (
                             start_tf_id.unwrap_or(start_exp),
@@ -897,7 +900,7 @@ impl<'a> JobSession<'a> {
                     assert!(op_base.label.is_none()); // TODO
                     self.job_data.match_set_mgr.add_field_name(
                         &self.job_data.field_mgr,
-                        next_input_field,
+                        input_field,
                         op.key_interned,
                     );
 
@@ -910,39 +913,35 @@ impl<'a> JobSession<'a> {
                             .get(&op.key_interned)
                             .cloned()
                     {
-                        next_input_field = field_id;
+                        input_field = field_id;
                     } else {
                         let field_id = self.job_data.field_mgr.add_field(
                             ms_id,
                             self.job_data
                                 .field_mgr
-                                .get_min_apf_idx(next_input_field),
+                                .get_min_apf_idx(input_field),
                         );
                         self.job_data.match_set_mgr.add_field_name(
                             &self.job_data.field_mgr,
                             field_id,
                             op.key_interned,
                         );
-                        next_input_field = field_id;
+                        input_field = field_id;
                     }
                     is_select = true;
                 }
                 _ => (),
             }
             let mut output_field = if is_select {
-                self.job_data
-                    .field_mgr
-                    .bump_field_refcount(next_input_field);
-                next_input_field
+                self.job_data.field_mgr.bump_field_refcount(input_field);
+                input_field
             } else if op_base.append_mode {
-                self.job_data
-                    .field_mgr
-                    .bump_field_refcount(output_field_for_amend);
+                self.job_data.field_mgr.bump_field_refcount(input_field);
 
-                output_field_for_amend
+                input_field
             } else {
                 let min_apf =
-                    self.job_data.field_mgr.get_min_apf_idx(next_input_field);
+                    self.job_data.field_mgr.get_min_apf_idx(input_field);
                 self.job_data.field_mgr.add_field(ms_id, min_apf)
             };
 
@@ -953,12 +952,14 @@ impl<'a> JobSession<'a> {
                     name,
                 );
             }
-
-            self.job_data
-                .field_mgr
-                .bump_field_refcount(next_input_field);
+            let input = if !any_output_produced && op_base.append_mode {
+                DUMMY_INPUT_FIELD_ID
+            } else {
+                input_field
+            };
+            self.job_data.field_mgr.bump_field_refcount(input);
             let mut tf_state = TransformState::new(
-                next_input_field,
+                input,
                 output_field,
                 ms_id,
                 default_batch_size,
@@ -979,8 +980,8 @@ impl<'a> JobSession<'a> {
                 }
             }
             if mark_prev_field_as_placeholder {
-                let mut f = self.job_data.field_mgr.fields[next_input_field]
-                    .borrow_mut();
+                let mut f =
+                    self.job_data.field_mgr.fields[input_field].borrow_mut();
                 f.added_as_placeholder_by_tf = Some(tf_id_peek);
                 mark_prev_field_as_placeholder = false;
             }
@@ -1058,11 +1059,11 @@ impl<'a> JobSession<'a> {
                 predecessor_tf = Some(tf_id);
             }
             prev_tf = Some(tf_id);
-            output_field_for_amend = output_field;
             if !appending {
                 predecessor_tf = Some(tf_id);
                 if !transparent {
-                    next_input_field = output_field;
+                    any_output_produced = true;
+                    input_field = output_field;
                 }
             }
         }
