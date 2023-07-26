@@ -75,16 +75,21 @@ impl<'a> RefIter<'a> {
             unconsumed_input,
         }
     }
+
+    // SAFETY: the returned Iter contains a reference into
+    // the returned Field, so the caller will need to ensure
+    // that the returned Ref outlives the returned Iter
     unsafe fn get_field_ref_and_iter<'b>(
         field_mgr: &'b FieldManager,
         field_id: FieldId,
         unconsumed_input: bool,
     ) -> (Ref<'b, Field>, Iter<'b>) {
         let field_ref = field_mgr.borrow_field_cow(field_id, unconsumed_input);
-        // this is explicitly *not* cow aware for now, because that would be
-        // unsound it doesn't matter too much, and this whole
-        // FIELD_REF_LOOKUP_ITER_ID thing is pretty stupid anyways
-        let iter = field_ref.field_data.get_iter(FIELD_REF_LOOKUP_ITER_ID);
+        let iter = field_mgr.get_iter_cow_aware(
+            field_id,
+            &field_ref,
+            FIELD_REF_LOOKUP_ITER_ID,
+        );
         let iter_lifetime_laundered =
             unsafe { std::mem::transmute::<Iter<'_>, Iter<'b>>(iter) };
 

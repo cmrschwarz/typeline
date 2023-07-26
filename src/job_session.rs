@@ -63,12 +63,12 @@ use crate::{
     ref_iter::AutoDerefIter,
     stream_value::{StreamValue, StreamValueData, StreamValueId},
     utils::{
-        string_store::StringStoreEntry, temp_vec::TempVec, universe::Universe,
+        nonzero_ext::NonMaxU32Ext, string_store::StringStoreEntry,
+        temp_vec::TempVec, universe::Universe,
     },
 };
 
-pub const FIELD_REF_LOOKUP_ITER_ID: IterId =
-    unsafe { IterId::new_unchecked(0) };
+pub const FIELD_REF_LOOKUP_ITER_ID: IterId = IterId::MIN;
 pub const ERROR_FIELD_PSEUDO_STR: usize = 0;
 
 #[derive(Default)]
@@ -100,8 +100,8 @@ pub struct Field {
 }
 
 pub type FieldId = NonMaxU32;
-pub const INVALID_FIELD_ID: FieldId =
-    unsafe { FieldId::new_unchecked(u32::MAX - 1) };
+pub const INVALID_FIELD_ID: FieldId = FieldId::MAX;
+pub const DUMMY_OUTPUT_FIELD_ID: FieldId = FieldId::MIN;
 
 pub type MatchSetId = NonMaxUsize;
 
@@ -573,6 +573,17 @@ impl FieldManager {
     }
 }
 
+impl Default for FieldManager {
+    fn default() -> Self {
+        let mut res = Self {
+            fields: Default::default(),
+        };
+        let id = res.fields.claim_with_value(Default::default());
+        debug_assert!(DUMMY_OUTPUT_FIELD_ID == id);
+        res
+    }
+}
+
 impl StreamValueManager {
     pub fn inform_stream_value_subscribers(&mut self, sv_id: StreamValueId) {
         let sv = &self.stream_values[sv_id];
@@ -617,9 +628,7 @@ impl<'a> JobData<'a> {
                 ready_queue: Default::default(),
                 stream_producers: Default::default(),
             },
-            field_mgr: FieldManager {
-                fields: Default::default(),
-            },
+            field_mgr: FieldManager::default(),
             match_set_mgr: MatchSetManager {
                 match_sets: Default::default(),
             },
@@ -738,9 +747,6 @@ impl<'a> JobSession<'a> {
         }
     }
     pub fn setup_job(&mut self, mut job: Job) {
-        self.job_data.match_set_mgr.match_sets.clear();
-        self.job_data.field_mgr.fields.clear();
-        self.job_data.tf_mgr.ready_queue.clear();
         let ms_id = self.job_data.match_set_mgr.add_match_set();
         // TODO: unpack record set properly here
         let input_record_count = job.data.adjust_field_lengths();
@@ -804,9 +810,6 @@ impl<'a> JobSession<'a> {
         buffer: Arc<RecordBuffer>,
         start_op_id: OperatorId,
     ) {
-        self.job_data.match_set_mgr.match_sets.clear();
-        self.job_data.field_mgr.fields.clear();
-        self.job_data.tf_mgr.ready_queue.clear();
         let ms_id = self.job_data.match_set_mgr.add_match_set();
 
         let (start_tf_id, end_tf_id, end_reachable) =
@@ -862,7 +865,7 @@ impl<'a> JobSession<'a> {
         let mut end_reachable = true;
         let mut predecessor_tf = None;
         let mut next_input_field = chain_input_field_id;
-        let mut prev_output_field = chain_input_field_id;
+        let mut output_field_for_amend = DUMMY_OUTPUT_FIELD_ID;
         let ops = &self.job_data.session_data.chains
             [start_op.chain_id as usize]
             .operators[start_op.offset_in_chain as usize..];
@@ -894,7 +897,7 @@ impl<'a> JobSession<'a> {
                     assert!(op_base.label.is_none()); // TODO
                     self.job_data.match_set_mgr.add_field_name(
                         &self.job_data.field_mgr,
-                        prev_output_field,
+                        next_input_field,
                         op.key_interned,
                     );
 
@@ -934,11 +937,12 @@ impl<'a> JobSession<'a> {
             } else if op_base.append_mode {
                 self.job_data
                     .field_mgr
-                    .bump_field_refcount(prev_output_field);
-                prev_output_field
+                    .bump_field_refcount(output_field_for_amend);
+
+                output_field_for_amend
             } else {
                 let min_apf =
-                    self.job_data.field_mgr.get_min_apf_idx(prev_output_field);
+                    self.job_data.field_mgr.get_min_apf_idx(next_input_field);
                 self.job_data.field_mgr.add_field(ms_id, min_apf)
             };
 
@@ -1054,7 +1058,7 @@ impl<'a> JobSession<'a> {
                 predecessor_tf = Some(tf_id);
             }
             prev_tf = Some(tf_id);
-            prev_output_field = output_field;
+            output_field_for_amend = output_field;
             if !appending {
                 predecessor_tf = Some(tf_id);
                 if !transparent {

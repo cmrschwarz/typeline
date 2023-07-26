@@ -3,6 +3,7 @@ use std::fmt::Write;
 pub mod encoding;
 pub mod identity_hasher;
 pub mod int_string_conversions;
+pub mod nonzero_ext;
 pub mod plattform;
 pub mod string_store;
 pub mod temp_vec;

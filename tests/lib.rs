@@ -1256,3 +1256,21 @@ fn seq_with_chainging_str_length() -> Result<(), ScrError> {
     );
     Ok(())
 }
+#[test]
+fn regex_appending_without_input() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::new();
+    ContextBuilder::default()
+        .add_op_appending(create_op_seq(1, 11, 1).unwrap())
+        .add_op_appending(create_op_regex("[24680]").unwrap())
+        .add_op(create_op_fork())
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(
+        ss.get_data().unwrap().as_slice(),
+        &(1..11)
+            .into_iter()
+            .map(|v| v.to_string())
+            .collect::<Vec<_>>()
+    );
+    Ok(())
+}
