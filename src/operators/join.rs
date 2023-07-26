@@ -19,7 +19,7 @@ use crate::{
         RefAwareInlineTextIter, RefAwareStreamValueIter,
     },
     stream_value::{StreamValue, StreamValueData, StreamValueId},
-    utils::{i64_to_str, usize_to_str},
+    utils::int_string_conversions::{i64_to_str, usize_to_str},
 };
 
 use super::{

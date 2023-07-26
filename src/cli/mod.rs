@@ -25,7 +25,7 @@ use crate::{
     },
     scr_error::{ContextualizedScrError, ReplDisabledError, ScrError},
     selenium::{SeleniumDownloadStrategy, SeleniumVariant},
-    utils::int_units::parse_int_with_units_from_bytes,
+    utils::int_string_conversions::parse_int_with_units_from_bytes,
 };
 use bstr::ByteSlice;
 

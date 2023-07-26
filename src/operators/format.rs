@@ -26,9 +26,9 @@ use crate::{
     },
     stream_value::{StreamValue, StreamValueData, StreamValueId},
     utils::{
-        divide_by_char_len, i64_digits, i64_to_str,
+        divide_by_char_len,
+        int_string_conversions::{i64_digits, i64_to_str, u64_to_str},
         string_store::{StringStore, StringStoreEntry},
-        u64_to_str,
         universe::Universe,
         LengthAndCharsCountingWriter, LengthCountingWriter,
         ValueProducingCallable, MAX_UTF8_CHAR_LEN,

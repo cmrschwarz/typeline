@@ -25,7 +25,7 @@ use crate::{
         RefAwareUnfoldIterRunLength,
     },
     stream_value::{StreamValue, StreamValueData, StreamValueId},
-    utils::i64_to_str,
+    utils::int_string_conversions::i64_to_str,
 };
 
 use super::{

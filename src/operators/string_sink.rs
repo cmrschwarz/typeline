@@ -22,7 +22,8 @@ use crate::{
     },
     stream_value::{StreamValue, StreamValueData, StreamValueId},
     utils::{
-        i64_to_str, identity_hasher::BuildIdentityHasher, universe::Universe,
+        identity_hasher::BuildIdentityHasher,
+        int_string_conversions::i64_to_str, universe::Universe,
     },
 };
 

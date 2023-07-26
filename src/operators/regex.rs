@@ -6,7 +6,6 @@ use std::{borrow::Cow, cell::RefMut};
 
 use std::num::NonZeroUsize;
 
-use crate::field_data::push_interface::VaryingTypeInserter;
 use crate::{
     field_data::{
         command_buffer::{
@@ -15,7 +14,7 @@ use crate::{
         field_value_flags,
         iter_hall::IterId,
         iters::FieldIterator,
-        push_interface::PushInterface,
+        push_interface::{PushInterface, VaryingTypeInserter},
         typed::TypedSlice,
         typed_iters::TypedSliceIter,
         FieldReference, FieldValueKind, RunLength,
@@ -28,10 +27,11 @@ use crate::{
     },
     stream_value::{StreamValueData, StreamValueId},
     utils::{
-        self, i64_to_str,
+        int_string_conversions::{
+            i64_to_str, usize_to_str, USIZE_MAX_DECIMAL_DIGITS,
+        },
         string_store::{StringStore, StringStoreEntry},
         temp_vec::TempVec,
-        USIZE_MAX_DECIMAL_DIGITS,
     },
 };
 use bstr::ByteSlice;
@@ -168,7 +168,7 @@ pub fn preparse_replace_empty_capture_group<'a>(
             loop {
                 empty_group_replacement_str.clear();
                 empty_group_replacement_str.push('_');
-                empty_group_replacement_str.push_str(&utils::usize_to_str(
+                empty_group_replacement_str.push_str(&usize_to_str(
                     rand::random::<NonZeroUsize>().get(),
                 ));
                 owned.replace_range(
@@ -704,7 +704,7 @@ pub fn handle_tf_regex(
     for of in &mut output_fields {
         output_field_inserters.push(of.as_mut().map(|f| {
             let mut ins = f.field_data.varying_type_inserter(re_reserve_count);
-            //PERF: this might waste a lot of space if we have many nulls
+            // PERF: this might waste a lot of space if we have many nulls
             ins.drop_and_reserve(
                 batch_size,
                 FieldValueKind::Reference,
