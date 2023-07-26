@@ -18,7 +18,10 @@ use scr::{
             create_op_literal, create_op_str, create_op_stream_error, Literal,
         },
         next::create_op_next,
-        regex::{create_op_regex, create_op_regex_lines, RegexOptions},
+        regex::{
+            create_op_regex, create_op_regex_lines, create_op_regex_with_opts,
+            RegexOptions,
+        },
         select::create_op_select,
         sequence::{create_op_enum, create_op_seq, create_op_seqn},
         string_sink::{create_op_string_sink, StringSinkHandle},
@@ -27,7 +30,7 @@ use scr::{
         chain_options::DEFAULT_CHAIN_OPTIONS, context_builder::ContextBuilder,
     },
     scr_error::{ChainSetupError, ContextualizedScrError, ScrError},
-    utils::i64_to_str,
+    utils::int_string_conversions::i64_to_str,
 };
 
 use crate::utils::{ErroringStream, SliceReader, TricklingStream};
@@ -99,7 +102,7 @@ fn regex_drop() -> Result<(), ScrError> {
         .set_input(rs)
         .add_op(create_op_regex_lines())
         .add_op_transparent(create_op_string_sink(&ss1))
-        .add_op(create_op_regex(".*[^r]$", Default::default()).unwrap())
+        .add_op(create_op_regex(".*[^r]$").unwrap())
         .add_op(create_op_string_sink(&ss2))
         .run()?;
     assert_eq!(ss1.get_data().unwrap().as_slice(), ["foo", "bar", "baz"]);
@@ -123,9 +126,7 @@ fn large_batch() -> Result<(), ScrError> {
     ContextBuilder::default()
         .push_str(&number_string_joined, 1)
         .add_op(create_op_regex_lines())
-        .add_op(
-            create_op_regex("^[0-9]{1,3}$", RegexOptions::default()).unwrap(),
-        )
+        .add_op(create_op_regex("^[0-9]{1,3}$").unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(
@@ -148,7 +149,7 @@ fn large_batch_seq(
     ContextBuilder::default()
         .set_batch_size(batch_size)
         .add_op(create_op_seq(0, count, 1).unwrap())
-        .add_op(create_op_regex(r"\d{1,3}", RegexOptions::default()).unwrap())
+        .add_op(create_op_regex(r"\d{1,3}").unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
     // large output -> no assert_eq!
@@ -204,7 +205,7 @@ fn in_between_drop() -> Result<(), ScrError> {
         .push_str("a", 1)
         .push_str("b", 1)
         .push_str("c", 1)
-        .add_op(create_op_regex("[^b]", RegexOptions::default()).unwrap())
+        .add_op(create_op_regex("[^b]").unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(ss.get_data().unwrap().as_slice(), ["a", "c"]);
@@ -216,7 +217,7 @@ fn drops_surrounding_single_val() -> Result<(), ScrError> {
     let ss = StringSinkHandle::new();
     ContextBuilder::default()
         .add_op(create_op_seq(0, 3, 1).unwrap())
-        .add_op(create_op_regex("[1]", RegexOptions::default()).unwrap())
+        .add_op(create_op_regex("[1]").unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(ss.get_data().unwrap().as_slice(), ["1"]);
@@ -227,7 +228,7 @@ fn drops_surrounding_range() -> Result<(), ScrError> {
     let ss = StringSinkHandle::new();
     ContextBuilder::default()
         .add_op(create_op_seq(0, 8, 1).unwrap())
-        .add_op(create_op_regex("[2-5]", RegexOptions::default()).unwrap())
+        .add_op(create_op_regex("[2-5]").unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(ss.get_data().unwrap().as_slice(), ["2", "3", "4", "5"]);
@@ -241,9 +242,7 @@ fn multi_batch_seq_with_regex() -> Result<(), ScrError> {
     ContextBuilder::default()
         .set_batch_size(COUNT / 2)
         .add_op(create_op_seq(0, COUNT as i64, 1).unwrap())
-        .add_op(
-            create_op_regex("^\\d{1,2}$", RegexOptions::default()).unwrap(),
-        )
+        .add_op(create_op_regex("^\\d{1,2}$").unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(
@@ -262,9 +261,7 @@ fn large_seq_with_regex() -> Result<(), ScrError> {
     const COUNT: usize = 10000;
     ContextBuilder::default()
         .add_op(create_op_seq(0, COUNT as i64, 1).unwrap())
-        .add_op(
-            create_op_regex("^\\d{1,3}$", RegexOptions::default()).unwrap(),
-        )
+        .add_op(create_op_regex("^\\d{1,3}$").unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
     // large output -> no assert_eq!
@@ -412,13 +409,20 @@ fn seq_enum() -> Result<(), ScrError> {
 #[test]
 fn dup_between_format_and_key() -> Result<(), ScrError> {
     let ss = StringSinkHandle::new();
-    let mut regex_opts = RegexOptions::default();
-    regex_opts.multimatch = true;
     ContextBuilder::default()
         .set_batch_size(2)
         .push_str("xxx", 1)
         .add_op(create_op_key("foo".to_owned()))
-        .add_op(create_op_regex(".", regex_opts).unwrap())
+        .add_op(
+            create_op_regex_with_opts(
+                ".",
+                RegexOptions {
+                    multimatch: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap(),
+        )
         .add_op(create_op_format("{foo}".as_bytes()).unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
@@ -450,7 +454,7 @@ fn format_after_surrounding_drop() -> Result<(), ScrError> {
     let ss = StringSinkHandle::new();
     ContextBuilder::default()
         .add_op(create_op_seq(0, 10, 1).unwrap())
-        .add_op(create_op_regex("[3-5]", RegexOptions::default()).unwrap())
+        .add_op(create_op_regex("[3-5]").unwrap())
         .add_op(create_op_key("a".to_owned()))
         .add_op(create_op_format("{a}".as_bytes()).unwrap())
         .add_op(create_op_string_sink(&ss))
@@ -466,7 +470,7 @@ fn batched_format_after_drop() -> Result<(), ScrError> {
     ContextBuilder::default()
         .set_batch_size(3)
         .add_op(create_op_seq(0, COUNT, 1).unwrap())
-        .add_op(create_op_regex(".*[3].*", RegexOptions::default()).unwrap())
+        .add_op(create_op_regex(".*[3].*").unwrap())
         .add_op(create_op_key("a".to_owned()))
         .add_op(create_op_format("{a}".as_bytes()).unwrap())
         .add_op(create_op_string_sink(&ss))
@@ -494,9 +498,9 @@ fn double_drop() -> Result<(), ScrError> {
         .set_batch_size(5)
         .add_op(create_op_seq(0, 15, 1).unwrap())
         .add_op(create_op_key("a".to_owned()))
-        .add_op(create_op_regex("1.*", RegexOptions::default()).unwrap())
+        .add_op(create_op_regex("1.*").unwrap())
         .add_op(create_op_format("{a}".as_bytes()).unwrap())
-        .add_op(create_op_regex(".*1.*", RegexOptions::default()).unwrap())
+        .add_op(create_op_regex(".*1.*").unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(
@@ -548,7 +552,7 @@ fn optional_regex() -> Result<(), ScrError> {
         .add_op_appending(create_op_seq(20, 22, 1).unwrap())
         .add_op(create_op_key("n".to_string()))
         .add_op(
-            create_op_regex(
+            create_op_regex_with_opts(
                 "1",
                 RegexOptions {
                     non_mandatory: true,
@@ -626,7 +630,7 @@ fn basic_cow() -> Result<(), ScrError> {
         .push_str("123", 1)
         .add_op(create_op_fork())
         .add_op(
-            create_op_regex(
+            create_op_regex_with_opts(
                 ".",
                 RegexOptions {
                     multimatch: true,
@@ -655,7 +659,7 @@ fn cow_not_affecting_original(
         .push_str("123", 1)
         .add_op(create_op_fork())
         .add_op(
-            create_op_regex(
+            create_op_regex_with_opts(
                 ".",
                 RegexOptions {
                     multimatch: true,
@@ -858,7 +862,7 @@ fn stream_into_dup_into_join() -> Result<(), ScrError> {
         .add_op(create_op_key("foo".to_owned()))
         .add_op(create_op_str("123", 1))
         .add_op(
-            create_op_regex(
+            create_op_regex_with_opts(
                 ".",
                 RegexOptions {
                     multimatch: true,
@@ -1117,7 +1121,7 @@ fn zero_length_regex_match() -> Result<(), ScrError> {
     ContextBuilder::default()
         .add_op(create_op_str("babab", 1))
         .add_op(
-            create_op_regex(
+            create_op_regex_with_opts(
                 "a*",
                 RegexOptions {
                     multimatch: true,
@@ -1144,7 +1148,7 @@ fn regex_match_overlapping(
     ContextBuilder::default()
         .add_op(create_op_str(input, 1))
         .add_op(
-            create_op_regex(
+            create_op_regex_with_opts(
                 re,
                 RegexOptions {
                     multimatch: true,
@@ -1176,7 +1180,7 @@ fn seq_into_regex_drop_unless_seven() -> Result<(), ScrError> {
     let ss = StringSinkHandle::new();
     ContextBuilder::default()
         .add_op(create_op_seq(0, COUNT as i64, 1).unwrap())
-        .add_op(create_op_regex("7", RegexOptions::default()).unwrap())
+        .add_op(create_op_regex("7").unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()
         .unwrap();
@@ -1227,7 +1231,7 @@ fn callcc_after_drop() -> Result<(), ScrError> {
     ContextBuilder::default()
         // .set_batch_size(7)
         .add_op(create_op_seqn(1, 30, 1).unwrap())
-        .add_op(create_op_regex("7", Default::default()).unwrap())
+        .add_op(create_op_regex("7").unwrap())
         .add_op(create_op_callcc("foo".to_string()))
         .add_label("foo".to_string())
         .add_op(create_op_string_sink(&ss))

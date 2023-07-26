@@ -284,15 +284,20 @@ pub fn parse_op_regex(
     })
 }
 
-pub fn create_op_regex(
-    value: &str,
+pub fn create_op_regex_with_opts(
+    regex: &str,
     opts: RegexOptions,
 ) -> Result<OperatorData, OperatorCreationError> {
     Ok(OperatorData::Regex(parse_op_regex(
-        Some(value.as_bytes()),
+        Some(regex.as_bytes()),
         None,
         opts,
     )?))
+}
+pub fn create_op_regex(
+    regex: &str,
+) -> Result<OperatorData, OperatorCreationError> {
+    create_op_regex_with_opts(regex, Default::default())
 }
 
 pub fn create_op_regex_lines() -> OperatorData {

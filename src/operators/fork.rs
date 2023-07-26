@@ -24,14 +24,12 @@ use super::{
 
 #[derive(Clone)]
 pub struct OpFork {
-    // jump
     // call
-    // jumpcc
     // callcc
-    // split
-    // splitcc
-    // splitjoin[=merge_col,..] [CC]
-    // splitcat [CC]
+    // fork
+    // forkcc
+    // forkjoin[=merge_col,..] [CC]
+    // forkcat [CC]
 }
 
 pub struct TfForkFieldMapping {
