@@ -25,7 +25,7 @@ pub unsafe trait RawPushInterface {
         try_header_rle: bool,
         try_data_rle: bool,
     );
-    unsafe fn push_fixed_size_type<T: PartialEq + Clone + Unpin>(
+    unsafe fn push_fixed_size_type<T: PartialEq + Clone>(
         &mut self,
         kind: FieldValueKind,
         flags: FieldValueFlags,
@@ -342,7 +342,7 @@ unsafe impl RawPushInterface for FieldData {
             self.data.extend_from_slice(data);
         }
     }
-    unsafe fn push_fixed_size_type<T: PartialEq + Clone + Unpin>(
+    unsafe fn push_fixed_size_type<T: PartialEq + Clone>(
         &mut self,
         kind: FieldValueKind,
         flags: FieldValueFlags,
@@ -485,7 +485,7 @@ unsafe impl RawPushInterface for IterHall {
         }
     }
 
-    unsafe fn push_fixed_size_type<T: PartialEq + Clone + Unpin>(
+    unsafe fn push_fixed_size_type<T: PartialEq + Clone>(
         &mut self,
         kind: FieldValueKind,
         flags: FieldValueFlags,
@@ -844,6 +844,10 @@ impl<'a> RawFixedSizedTypeInserter<'a> {
         }
     }
     unsafe fn commit(&mut self, fmt: FieldValueFormat) {
+        self.max = 0;
+        if self.count == 0 {
+            return;
+        }
         let new_len = self.fd.data.len() + self.count * fmt.size as usize;
         unsafe {
             self.fd.data.set_len(new_len);
@@ -863,7 +867,6 @@ impl<'a> RawFixedSizedTypeInserter<'a> {
                 )
             }
         };
-        self.max = 0;
     }
     unsafe fn drop_and_reserve(
         &mut self,
@@ -902,11 +905,12 @@ impl<'a> RawFixedSizedTypeInserter<'a> {
     }
 }
 
-pub unsafe trait FixedSizeTypeInserter<'a> {
+pub unsafe trait FixedSizeTypeInserter<'a>: Sized {
     const KIND: FieldValueKind;
     const FLAGS: FieldValueFlags = field_value_flags::DEFAULT;
     type ValueType;
     fn get_raw(&mut self) -> &mut RawFixedSizedTypeInserter<'a>;
+    fn new(fd: &'a mut FieldData) -> Self;
     fn element_size() -> usize {
         std::mem::size_of::<Self::ValueType>()
     }
@@ -941,6 +945,34 @@ pub unsafe trait FixedSizeTypeInserter<'a> {
             self.get_raw().push(v);
         }
     }
+    #[inline(always)]
+    fn push_with_rl<T: PartialEq + Clone>(&mut self, v: T, rl: usize) {
+        if rl == 1 {
+            self.push(v);
+            return;
+        }
+        let max_rem = self.get_raw().max - self.get_raw().count;
+        self.commit();
+        unsafe {
+            self.get_raw().fd.push_fixed_size_type(
+                Self::KIND,
+                Self::FLAGS,
+                v,
+                rl,
+                true,
+                false,
+            );
+        }
+        self.drop_and_reserve(max_rem);
+    }
+    fn into_fd(mut self) -> &'a mut FieldData {
+        self.commit();
+        unsafe {
+            let fd = self.get_raw().fd as *mut FieldData;
+            std::mem::forget(self);
+            &mut *fd
+        }
+    }
 }
 
 pub struct RawVariableSizedTypeInserter<'a> {
@@ -962,6 +994,10 @@ impl<'a> RawVariableSizedTypeInserter<'a> {
         }
     }
     unsafe fn commit(&mut self, fmt: FieldValueFormat) {
+        self.max = 0;
+        if self.count == 0 {
+            return;
+        }
         let new_len = self.fd.data.len() + self.count * fmt.size as usize;
         unsafe {
             self.fd.data.set_len(new_len);
@@ -971,7 +1007,6 @@ impl<'a> RawVariableSizedTypeInserter<'a> {
                 fmt.flags | DELETED,
             )
         };
-        self.max = 0;
     }
     unsafe fn drop_and_reserve(
         &mut self,
@@ -1009,11 +1044,11 @@ impl<'a> RawVariableSizedTypeInserter<'a> {
     }
 }
 
-pub unsafe trait VariableSizeTypeInserter<'a> {
+pub unsafe trait VariableSizeTypeInserter<'a>: Sized {
     const KIND: FieldValueKind;
     const FLAGS: FieldValueFlags = field_value_flags::DEFAULT;
     type ElementType: ?Sized;
-
+    fn new(fd: &'a mut FieldData) -> Self;
     fn get_raw(&mut self) -> &mut RawVariableSizedTypeInserter<'a>;
     fn element_as_bytes(v: &Self::ElementType) -> &[u8];
     fn current_element_format(&mut self) -> FieldValueFormat {
@@ -1079,17 +1114,89 @@ pub unsafe trait VariableSizeTypeInserter<'a> {
             self.get_raw().push(v_bytes);
         }
     }
+    fn push_with_rl(&mut self, v: &Self::ElementType, rl: usize) {
+        if rl == 1 {
+            self.push_may_rereserve(v);
+            return;
+        }
+        let v = Self::element_as_bytes(v);
+        let max_rem = self.get_raw().max - self.get_raw().count;
+        self.commit();
+        unsafe {
+            self.get_raw().fd.push_variable_sized_type(
+                Self::KIND,
+                Self::FLAGS,
+                v,
+                rl,
+                true,
+                false,
+            );
+        }
+        self.drop_and_reserve(max_rem, v.len());
+    }
+    fn into_fd(mut self) -> &'a mut FieldData {
+        self.commit();
+        unsafe {
+            let fd = self.get_raw().fd as *mut FieldData;
+            std::mem::forget(self);
+            &mut *fd
+        }
+    }
+}
+
+pub struct RawZeroSizedTypeInserter<'a> {
+    fd: &'a mut FieldData,
+    count: usize,
+}
+
+impl<'a> RawZeroSizedTypeInserter<'a> {
+    pub fn new(fd: &'a mut FieldData) -> Self {
+        Self { fd, count: 0 }
+    }
+    pub fn push(&mut self, count: usize) {
+        self.count += count;
+    }
+    pub unsafe fn commit(
+        &mut self,
+        kind: FieldValueKind,
+        flags: FieldValueFlags,
+    ) {
+        if self.count == 0 {
+            return;
+        }
+        unsafe {
+            self.fd.push_zst_unchecked(kind, flags, self.count, true);
+        }
+        self.count = 0;
+    }
+}
+
+pub unsafe trait ZeroSizedTypeInserter<'a>: Sized {
+    const KIND: FieldValueKind;
+    const FLAGS: FieldValueFlags = field_value_flags::DEFAULT;
+    fn get_raw(&mut self) -> &mut RawZeroSizedTypeInserter<'a>;
+    fn new(fd: &'a mut FieldData) -> Self;
+    fn commit(&mut self) {
+        unsafe {
+            self.get_raw().commit(Self::KIND, Self::FLAGS);
+        }
+    }
+    #[inline(always)]
+    fn push(&mut self, count: usize) {
+        self.get_raw().push(count);
+    }
+    fn into_fd(mut self) -> &'a mut FieldData {
+        self.commit();
+        unsafe {
+            let fd = self.get_raw().fd as *mut FieldData;
+            std::mem::forget(self);
+            &mut *fd
+        }
+    }
 }
 
 pub struct IntegerInserter<'a> {
     raw: RawFixedSizedTypeInserter<'a>,
-}
-impl<'a> IntegerInserter<'a> {
-    pub fn new(fd: &'a mut FieldData) -> Self {
-        Self {
-            raw: RawFixedSizedTypeInserter::new(fd),
-        }
-    }
 }
 unsafe impl<'a> FixedSizeTypeInserter<'a> for IntegerInserter<'a> {
     const KIND: FieldValueKind = FieldValueKind::Integer;
@@ -1097,6 +1204,11 @@ unsafe impl<'a> FixedSizeTypeInserter<'a> for IntegerInserter<'a> {
     type ValueType = i64;
     fn get_raw(&mut self) -> &mut RawFixedSizedTypeInserter<'a> {
         &mut self.raw
+    }
+    fn new(fd: &'a mut FieldData) -> Self {
+        Self {
+            raw: RawFixedSizedTypeInserter::new(fd),
+        }
     }
 }
 impl<'a> Drop for IntegerInserter<'a> {
@@ -1108,19 +1220,17 @@ impl<'a> Drop for IntegerInserter<'a> {
 pub struct FieldReferenceInserter<'a> {
     raw: RawFixedSizedTypeInserter<'a>,
 }
-impl<'a> FieldReferenceInserter<'a> {
-    pub fn new(fd: &'a mut FieldData) -> Self {
-        Self {
-            raw: RawFixedSizedTypeInserter::new(fd),
-        }
-    }
-}
 unsafe impl<'a> FixedSizeTypeInserter<'a> for FieldReferenceInserter<'a> {
     const KIND: FieldValueKind = FieldValueKind::Reference;
     type ValueType = FieldReference;
 
     fn get_raw(&mut self) -> &mut RawFixedSizedTypeInserter<'a> {
         &mut self.raw
+    }
+    fn new(fd: &'a mut FieldData) -> Self {
+        Self {
+            raw: RawFixedSizedTypeInserter::new(fd),
+        }
     }
 }
 impl<'a> Drop for FieldReferenceInserter<'a> {
@@ -1131,13 +1241,6 @@ impl<'a> Drop for FieldReferenceInserter<'a> {
 
 pub struct InlineStringInserter<'a> {
     raw: RawVariableSizedTypeInserter<'a>,
-}
-impl<'a> InlineStringInserter<'a> {
-    pub fn new(fd: &'a mut FieldData) -> Self {
-        Self {
-            raw: RawVariableSizedTypeInserter::new(fd),
-        }
-    }
 }
 unsafe impl<'a> VariableSizeTypeInserter<'a> for InlineStringInserter<'a> {
     const KIND: FieldValueKind = FieldValueKind::BytesInline;
@@ -1151,6 +1254,11 @@ unsafe impl<'a> VariableSizeTypeInserter<'a> for InlineStringInserter<'a> {
     fn element_as_bytes(v: &Self::ElementType) -> &[u8] {
         v.as_bytes()
     }
+    fn new(fd: &'a mut FieldData) -> Self {
+        Self {
+            raw: RawVariableSizedTypeInserter::new(fd),
+        }
+    }
 }
 impl<'a> Drop for InlineStringInserter<'a> {
     fn drop(&mut self) {
@@ -1160,13 +1268,6 @@ impl<'a> Drop for InlineStringInserter<'a> {
 
 pub struct InlineBytesInserter<'a> {
     raw: RawVariableSizedTypeInserter<'a>,
-}
-impl<'a> InlineBytesInserter<'a> {
-    pub fn new(fd: &'a mut FieldData) -> Self {
-        Self {
-            raw: RawVariableSizedTypeInserter::new(fd),
-        }
-    }
 }
 unsafe impl<'a> VariableSizeTypeInserter<'a> for InlineBytesInserter<'a> {
     const KIND: FieldValueKind = FieldValueKind::BytesInline;
@@ -1179,8 +1280,34 @@ unsafe impl<'a> VariableSizeTypeInserter<'a> for InlineBytesInserter<'a> {
     fn element_as_bytes(v: &Self::ElementType) -> &[u8] {
         v
     }
+    fn new(fd: &'a mut FieldData) -> Self {
+        Self {
+            raw: RawVariableSizedTypeInserter::new(fd),
+        }
+    }
 }
 impl<'a> Drop for InlineBytesInserter<'a> {
+    fn drop(&mut self) {
+        self.commit();
+    }
+}
+
+pub struct NullsInserter<'a> {
+    raw: RawZeroSizedTypeInserter<'a>,
+}
+unsafe impl<'a> ZeroSizedTypeInserter<'a> for NullsInserter<'a> {
+    const KIND: FieldValueKind = FieldValueKind::Null;
+    #[inline(always)]
+    fn get_raw(&mut self) -> &mut RawZeroSizedTypeInserter<'a> {
+        &mut self.raw
+    }
+    fn new(fd: &'a mut FieldData) -> Self {
+        Self {
+            raw: RawZeroSizedTypeInserter::new(fd),
+        }
+    }
+}
+impl<'a> Drop for NullsInserter<'a> {
     fn drop(&mut self) {
         self.commit();
     }

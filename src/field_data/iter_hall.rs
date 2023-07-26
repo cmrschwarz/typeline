@@ -10,8 +10,8 @@ use crate::{
 use super::{
     iters::{FieldIterator, Iter},
     push_interface::{
-        FieldReferenceInserter, InlineBytesInserter, InlineStringInserter,
-        IntegerInserter,
+        FieldReferenceInserter, FixedSizeTypeInserter, InlineBytesInserter,
+        InlineStringInserter, IntegerInserter, VariableSizeTypeInserter,
     },
     FieldData, FieldDataInternals, FieldValueHeader, RunLength,
 };

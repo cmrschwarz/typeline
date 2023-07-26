@@ -2,17 +2,24 @@ use arrayvec::ArrayString;
 
 use regex::{self, bytes};
 use smallstr::SmallString;
-use std::{borrow::Cow, cell::RefCell};
+use std::borrow::Cow;
+use std::cell::RefMut;
 
 use std::num::NonZeroUsize;
 
+use crate::field_data::push_interface::{
+    FieldReferenceInserter, FixedSizeTypeInserter, InlineBytesInserter,
+    InlineStringInserter, NullsInserter, VariableSizeTypeInserter,
+    ZeroSizedTypeInserter,
+};
+use crate::utils::temp_vec::TempVec;
 use crate::{
     field_data::{
         command_buffer::{
             ActionProducingFieldIndex, CommandBuffer, FieldActionKind,
         },
         field_value_flags,
-        iter_hall::{IterHall, IterId},
+        iter_hall::IterId,
         iters::FieldIterator,
         push_interface::PushInterface,
         typed::TypedSlice,
@@ -29,7 +36,6 @@ use crate::{
     utils::{
         self, i64_to_str,
         string_store::{StringStore, StringStoreEntry},
-        universe::Universe,
         USIZE_MAX_DECIMAL_DIGITS,
     },
 };
@@ -63,6 +69,8 @@ pub struct TfRegex {
     multimatch: bool,
     non_mandatory: bool,
     allow_overlapping: bool,
+    temp_vec_1: TempVec,
+    temp_vec_2: TempVec,
 }
 
 #[derive(Clone, Default)]
@@ -399,6 +407,8 @@ pub fn setup_tf_regex<'a>(
             .claim_iter(),
         next_start: 0,
         apf_idx,
+        temp_vec_1: Default::default(),
+        temp_vec_2: Default::default(),
     })
 }
 
@@ -442,14 +452,8 @@ trait AnyRegex {
         }
         true
     }
-    fn push(
-        &self,
-        fd: &mut IterHall,
-        data: &Self::Data,
-        start: usize,
-        end: usize,
-        rl: usize,
-    );
+    fn get_byte_slice(data: &Self::Data, start: usize, end: usize) -> &[u8];
+    fn get_str_slice(data: &Self::Data, start: usize, end: usize) -> &str;
 }
 
 impl<'a> AnyRegex for TextRegex<'a> {
@@ -479,22 +483,20 @@ impl<'a> AnyRegex for TextRegex<'a> {
     fn captures_locs_get(&mut self, i: usize) -> Option<(usize, usize)> {
         self.cl.get(i)
     }
-    fn push(
-        &self,
-        fd: &mut IterHall,
-        data: &Self::Data,
-        start: usize,
-        end: usize,
-        rl: usize,
-    ) {
-        fd.push_str(&data[start..end], rl, true, false)
-    }
 
     fn data_len(data: &Self::Data) -> usize {
         data.len()
     }
     fn allows_overlapping(&self) -> bool {
         self.allow_overlapping
+    }
+
+    fn get_byte_slice(data: &Self::Data, start: usize, end: usize) -> &[u8] {
+        data[start..end].as_bytes()
+    }
+
+    fn get_str_slice(data: &Self::Data, start: usize, end: usize) -> &str {
+        &data[start..end]
     }
 }
 
@@ -518,22 +520,58 @@ impl<'a> AnyRegex for BytesRegex<'a> {
     fn captures_locs_get(&mut self, i: usize) -> Option<(usize, usize)> {
         self.cl.get(i)
     }
-    fn push(
-        &self,
-        fd: &mut IterHall,
-        data: &Self::Data,
-        start: usize,
-        end: usize,
-        rl: usize,
-    ) {
-        fd.push_bytes(&data[start..end], rl, true, false)
-    }
     fn data_len(data: &Self::Data) -> usize {
         data.len()
     }
     fn allows_overlapping(&self) -> bool {
         self.allow_overlapping
     }
+    fn get_byte_slice(data: &Self::Data, start: usize, end: usize) -> &[u8] {
+        &data[start..end]
+    }
+    fn get_str_slice(_data: &Self::Data, _start: usize, _end: usize) -> &str {
+        unreachable!()
+    }
+}
+
+enum Inserter<'a> {
+    Nulls(NullsInserter<'a>),
+    Text(InlineStringInserter<'a>),
+    Bytes(InlineBytesInserter<'a>),
+    Refs(FieldReferenceInserter<'a>),
+}
+
+fn insert_nulls(
+    rmis: &mut RegexMatchInnerState,
+    cap_group_id: usize,
+    count: usize,
+) {
+    let inserter = match &mut rmis.batch_state.inserters[cap_group_id] {
+        Some(Inserter::Nulls(n)) => {
+            n.push(count);
+            return;
+        }
+        None => return,
+        v @ Some(_) => v.take().unwrap(),
+    };
+    rmis.batch_state.inserters[cap_group_id] = Some(match inserter {
+        Inserter::Nulls(_) => unreachable!(),
+        Inserter::Text(t) => {
+            let mut ni = NullsInserter::new(t.into_fd());
+            ni.push(count);
+            Inserter::Nulls(ni)
+        }
+        Inserter::Bytes(b) => {
+            let mut ni = NullsInserter::new(b.into_fd());
+            ni.push(count);
+            Inserter::Nulls(ni)
+        }
+        Inserter::Refs(r) => {
+            let mut ni = NullsInserter::new(r.into_fd());
+            ni.push(count);
+            Inserter::Nulls(ni)
+        }
+    });
 }
 
 #[inline(always)]
@@ -556,27 +594,30 @@ fn match_regex_inner<'a, 'b, const PUSH_REF: bool, R: AnyRegex>(
     while regex.next(data, &mut rmis.batch_state.next_start) {
         match_count += 1;
         for c in 0..regex.captures_locs_len() {
-            if let Some(field_id) = rmis.batch_state.capture_group_fields[c] {
-                let field = &mut rmis.batch_state.fields[field_id]
-                    .borrow_mut()
-                    .field_data;
+            if let Some(inserter) = &mut rmis.batch_state.inserters[c] {
                 if let Some((cg_begin, cg_end)) = regex.captures_locs_get(c) {
-                    if PUSH_REF {
-                        field.push_reference(
+                    //TODO: switch inserter type based on PUSH_REF / is text
+                    match inserter {
+                        Inserter::Nulls(n) => n.push(rl),
+                        Inserter::Text(t) => t.push_with_rl(
+                            R::get_str_slice(data, cg_begin, cg_end),
+                            rl,
+                        ),
+                        Inserter::Bytes(b) => b.push_with_rl(
+                            R::get_byte_slice(data, cg_begin, cg_end),
+                            rl,
+                        ),
+                        Inserter::Refs(r) => r.push_with_rl(
                             FieldReference {
                                 field: rmis.source_field,
                                 begin: offset + cg_begin,
                                 end: offset + cg_end,
                             },
                             rl,
-                            true,
-                            true,
-                        );
-                    } else {
-                        regex.push(field, data, cg_begin, cg_end, rl);
+                        ),
                     }
                 } else {
-                    field.push_null(run_length as usize, true);
+                    insert_nulls(rmis, c, 1);
                 }
             }
         }
@@ -609,14 +650,7 @@ fn match_regex_inner<'a, 'b, const PUSH_REF: bool, R: AnyRegex>(
         } else if match_count == 0 {
             if rmis.batch_state.non_mandatory {
                 for c in 0..regex.captures_locs_len() {
-                    if let Some(field_id) =
-                        rmis.batch_state.capture_group_fields[c]
-                    {
-                        let field = &mut rmis.batch_state.fields[field_id]
-                            .borrow_mut()
-                            .field_data;
-                        field.push_null(rl, true);
-                    }
+                    insert_nulls(rmis, c, rl);
                 }
                 match_count = 1;
             } else {
@@ -647,8 +681,7 @@ struct RegexBatchState<'a> {
     multimatch: bool,
     non_mandatory: bool,
     next_start: usize,
-    capture_group_fields: &'a Vec<Option<FieldId>>,
-    fields: &'a Universe<FieldId, RefCell<Field>>,
+    inserters: Vec<Option<Inserter<'a>>>,
 }
 
 struct RegexMatchInnerState<'a, 'b> {
@@ -688,16 +721,29 @@ pub fn handle_tf_regex(
         )
         .bounded(0, batch_size);
     let field_pos_start = iter_base.get_next_field_pos();
+    let mut output_fields: Vec<Option<RefMut<'_, Field>>> =
+        re.temp_vec_1.get();
+    let mut output_field_inserters: Vec<Option<Inserter<'_>>> =
+        re.temp_vec_2.get();
+    let f_mgr = &sess.field_mgr;
+    for of in &re.capture_group_fields {
+        output_fields.push(of.map(|f| f_mgr.fields[f].borrow_mut()));
+    }
+    for of in &mut output_fields {
+        output_field_inserters.push(
+            of.as_mut()
+                .map(|f| Inserter::Text(f.field_data.inline_str_inserter())),
+        );
+    }
     let mut rbs = RegexBatchState {
         batch_end_field_pos_output: field_pos_start + tf.desired_batch_size,
         field_pos_input: field_pos_start,
         field_pos_output: field_pos_start,
         multimatch: re.multimatch,
         non_mandatory: re.non_mandatory,
-        capture_group_fields: &re.capture_group_fields,
-        fields: &sess.field_mgr.fields,
         next_start: re.next_start,
         apf_idx: re.apf_idx,
+        inserters: output_field_inserters,
     };
 
     let mut iter =
@@ -920,18 +966,23 @@ pub fn handle_tf_regex(
             }
         }
     }
+    re.next_start = rbs.next_start;
+    let field_pos_input = rbs.field_pos_input;
+    let produced_records = field_pos_input - field_pos_start;
     sess.match_set_mgr.match_sets[tf.match_set_id]
         .command_buffer
         .end_action_list(re.apf_idx);
-    re.next_start = rbs.next_start;
     let mut base_iter = iter.into_base_iter();
 
-    let produced_records = rbs.field_pos_output - field_pos_start;
     if bse || hit_stream_val {
         let unclaimed_batch_size =
             batch_size - (rbs.field_pos_input - field_pos_start);
         sess.tf_mgr.unclaim_batch_size(tf_id, unclaimed_batch_size);
     }
+    re.temp_vec_2
+        .store(std::mem::replace(&mut rbs.inserters, Default::default()));
+    drop(rbs);
+    re.temp_vec_1.store(output_fields);
     if !bse && !hit_stream_val {
         if input_done {
             drop(input_field);
@@ -940,7 +991,7 @@ pub fn handle_tf_regex(
         }
     }
     if bse || hit_stream_val {
-        base_iter.move_to_field_pos(rbs.field_pos_input);
+        base_iter.move_to_field_pos(field_pos_input);
         if !hit_stream_val {
             sess.tf_mgr.push_tf_in_ready_queue(tf_id);
         }

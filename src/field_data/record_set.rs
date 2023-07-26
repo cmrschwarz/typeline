@@ -53,7 +53,7 @@ unsafe impl RawPushInterface for RecordSet {
         }
     }
 
-    unsafe fn push_fixed_size_type<T: PartialEq + Clone + Unpin>(
+    unsafe fn push_fixed_size_type<T: PartialEq + Clone>(
         &mut self,
         kind: super::FieldValueKind,
         flags: super::FieldValueFlags,
