@@ -801,7 +801,7 @@ pub trait PushInterface: RawPushInterface {
         assert!(kind.is_zst());
         unsafe {
             self.push_zst_unchecked(
-                FieldValueKind::Success,
+                kind,
                 field_value_flags::DEFAULT,
                 run_length,
                 try_header_rle,
@@ -965,14 +965,6 @@ pub unsafe trait FixedSizeTypeInserter<'a>: Sized {
         }
         self.drop_and_reserve(max_rem);
     }
-    fn into_fd(mut self) -> &'a mut FieldData {
-        self.commit();
-        unsafe {
-            let fd = self.get_raw().fd as *mut FieldData;
-            std::mem::forget(self);
-            &mut *fd
-        }
-    }
 }
 
 pub struct RawVariableSizedTypeInserter<'a> {
@@ -1134,14 +1126,6 @@ pub unsafe trait VariableSizeTypeInserter<'a>: Sized {
         }
         self.drop_and_reserve(max_rem, v.len());
     }
-    fn into_fd(mut self) -> &'a mut FieldData {
-        self.commit();
-        unsafe {
-            let fd = self.get_raw().fd as *mut FieldData;
-            std::mem::forget(self);
-            &mut *fd
-        }
-    }
 }
 
 pub struct RawZeroSizedTypeInserter<'a> {
@@ -1184,14 +1168,6 @@ pub unsafe trait ZeroSizedTypeInserter<'a>: Sized {
     #[inline(always)]
     fn push(&mut self, count: usize) {
         self.get_raw().push(count);
-    }
-    fn into_fd(mut self) -> &'a mut FieldData {
-        self.commit();
-        unsafe {
-            let fd = self.get_raw().fd as *mut FieldData;
-            std::mem::forget(self);
-            &mut *fd
-        }
     }
 }
 
@@ -1310,5 +1286,255 @@ unsafe impl<'a> ZeroSizedTypeInserter<'a> for NullsInserter<'a> {
 impl<'a> Drop for NullsInserter<'a> {
     fn drop(&mut self) {
         self.commit();
+    }
+}
+
+pub struct VaryingTypeInserter<'a> {
+    fd: &'a mut FieldData,
+    count: usize,
+    max: usize,
+    data_ptr: *mut u8,
+    fmt: FieldValueFormat,
+    re_reserve_count: RunLength,
+}
+
+impl<'a> VaryingTypeInserter<'a> {
+    pub fn new(fd: &'a mut FieldData, re_reserve_count: RunLength) -> Self {
+        Self {
+            fd,
+            count: 0,
+            max: 0,
+            data_ptr: std::ptr::null_mut(),
+            fmt: Default::default(),
+            re_reserve_count,
+        }
+    }
+    pub unsafe fn drop_and_reserve_unchecked(
+        &mut self,
+        reserved_elements: usize,
+        fmt: FieldValueFormat,
+    ) {
+        self.max = reserved_elements;
+        self.count = 0;
+        self.fd
+            .data
+            .reserve(MAX_FIELD_ALIGN + reserved_elements * fmt.size as usize);
+        self.data_ptr = self.fd.data.as_mut_ptr_range().end;
+        self.fmt = fmt;
+    }
+    pub fn drop_and_reserve(
+        &mut self,
+        reserved_elements: usize,
+        kind: FieldValueKind,
+        dynamic_size: usize,
+        bytes_are_utf8: bool,
+    ) {
+        let mut fmt = FieldValueFormat {
+            kind,
+            ..Default::default()
+        };
+        fmt.size = if kind.is_variable_sized_type() {
+            assert!(dynamic_size < INLINE_STR_MAX_LEN);
+            dynamic_size
+        } else {
+            kind.size()
+        } as FieldValueSize;
+        if bytes_are_utf8 {
+            assert!([
+                FieldValueKind::BytesInline,
+                FieldValueKind::BytesBuffer,
+                FieldValueKind::BytesFile
+            ]
+            .contains(&kind));
+            fmt.flags = field_value_flags::BYTES_ARE_UTF8;
+        }
+        unsafe {
+            self.drop_and_reserve_unchecked(reserved_elements, fmt);
+        }
+    }
+    pub fn commit(&mut self) {
+        self.max = 0;
+        if self.count == 0 {
+            return;
+        }
+        if self.fmt.kind.is_zst() {
+            self.fd.push_zst(self.fmt.kind, self.count, true);
+            self.count = 0;
+            return;
+        }
+        let new_len = self.fd.data.len() + self.fmt.size as usize * self.count;
+        unsafe {
+            self.fd.data.set_len(new_len);
+            self.fd.add_header_for_multiple_values(
+                self.fmt,
+                self.count,
+                self.fmt.flags,
+            );
+        }
+        self.count = 0;
+    }
+    pub fn push_zst(&mut self, kind: FieldValueKind, count: usize) {
+        assert!(kind.is_zst());
+        if self.fmt.kind != kind {
+            let len_rem = self.max - self.count;
+            self.commit();
+            self.max = len_rem;
+            self.fmt = FieldValueFormat {
+                kind,
+                ..Default::default()
+            };
+        }
+        if self.count + count > self.max {
+            assert!(
+                self.re_reserve_count as usize
+                    >= self.count + count - self.max
+            );
+            self.max += self.re_reserve_count as usize;
+        }
+        self.count += count;
+    }
+    pub unsafe fn push_variable_sized_type(
+        &mut self,
+        kind: FieldValueKind,
+        bytes_are_utf8: bool,
+        bytes: &[u8],
+        rl: usize,
+    ) {
+        assert!(bytes.len() <= INLINE_STR_MAX_LEN);
+        let fmt = FieldValueFormat {
+            kind,
+            flags: if bytes_are_utf8 {
+                field_value_flags::BYTES_ARE_UTF8
+            } else {
+                field_value_flags::DEFAULT
+            },
+            size: bytes.len() as FieldValueSize,
+        };
+        if rl > 1 || self.fmt != fmt {
+            let reserved_left = self.max - self.count;
+            self.commit();
+            if rl > 1 {
+                unsafe {
+                    self.fd.push_variable_sized_type(
+                        kind, fmt.flags, bytes, rl, true, false,
+                    );
+                }
+                self.max = reserved_left;
+                self.fmt.kind = FieldValueKind::Null;
+                return;
+            }
+            //TODO: maybe set some limit on the reserved len here?
+            unsafe {
+                self.drop_and_reserve_unchecked(reserved_left, fmt);
+            }
+        } else if self.count == self.max {
+            self.commit();
+            unsafe {
+                self.drop_and_reserve_unchecked(
+                    self.re_reserve_count as usize,
+                    fmt,
+                );
+            }
+        }
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                bytes.as_ptr(),
+                self.data_ptr,
+                bytes.len(),
+            );
+            self.data_ptr = self.data_ptr.add(bytes.len());
+        }
+        self.count += 1;
+    }
+    pub unsafe fn push_fixed_sized_type<T: PartialEq + Clone>(
+        &mut self,
+        kind: FieldValueKind,
+        v: T,
+        rl: usize,
+    ) {
+        let size = std::mem::size_of::<T>();
+        let fmt = FieldValueFormat {
+            kind,
+            flags: field_value_flags::DEFAULT,
+            size: size as FieldValueSize,
+        };
+        if rl > 1 || self.fmt != fmt {
+            let reserved_left = self.max - self.count;
+            self.commit();
+            if rl > 1 {
+                unsafe {
+                    self.fd.push_fixed_size_type(
+                        kind,
+                        field_value_flags::DEFAULT,
+                        v,
+                        rl,
+                        true,
+                        false,
+                    );
+                }
+                self.max = reserved_left;
+                self.fmt.kind = FieldValueKind::Null;
+                return;
+            }
+            unsafe {
+                self.drop_and_reserve_unchecked(reserved_left, fmt);
+            }
+        } else if self.count == self.max {
+            self.commit();
+            unsafe {
+                self.drop_and_reserve_unchecked(
+                    self.re_reserve_count as usize,
+                    fmt,
+                );
+            }
+        }
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                &v as *const T,
+                self.data_ptr as *mut T,
+                1,
+            );
+            self.data_ptr = self.data_ptr.add(size);
+        }
+        std::mem::forget(v);
+        self.count += 1;
+    }
+}
+
+impl<'a> VaryingTypeInserter<'a> {
+    pub fn push_inline_str(&mut self, v: &str, rl: usize) {
+        unsafe {
+            self.push_variable_sized_type(
+                FieldValueKind::BytesInline,
+                true,
+                v.as_bytes(),
+                rl,
+            )
+        }
+    }
+    pub fn push_inline_bytes(&mut self, v: &[u8], rl: usize) {
+        unsafe {
+            self.push_variable_sized_type(
+                FieldValueKind::BytesInline,
+                false,
+                v,
+                rl,
+            )
+        }
+    }
+    pub fn push_int(&mut self, v: i64, rl: usize) {
+        unsafe { self.push_fixed_sized_type(FieldValueKind::Integer, v, rl) }
+    }
+    pub fn push_field_reference(&mut self, v: FieldReference, rl: usize) {
+        unsafe { self.push_fixed_sized_type(FieldValueKind::Reference, v, rl) }
+    }
+    pub fn push_null(&mut self, rl: usize) {
+        self.push_zst(FieldValueKind::Null, rl)
+    }
+}
+
+impl<'a> Drop for VaryingTypeInserter<'a> {
+    fn drop(&mut self) {
+        self.commit()
     }
 }

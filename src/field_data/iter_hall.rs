@@ -12,6 +12,7 @@ use super::{
     push_interface::{
         FieldReferenceInserter, FixedSizeTypeInserter, InlineBytesInserter,
         InlineStringInserter, IntegerInserter, VariableSizeTypeInserter,
+        VaryingTypeInserter,
     },
     FieldData, FieldDataInternals, FieldValueHeader, RunLength,
 };
@@ -217,5 +218,11 @@ impl IterHall {
     }
     pub fn inline_str_inserter(&mut self) -> InlineStringInserter {
         InlineStringInserter::new(&mut self.fd)
+    }
+    pub fn varying_type_inserter(
+        &mut self,
+        re_reserve_count: RunLength,
+    ) -> VaryingTypeInserter {
+        VaryingTypeInserter::new(&mut self.fd, re_reserve_count)
     }
 }
