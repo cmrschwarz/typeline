@@ -432,7 +432,7 @@ impl<'a> RefAwareInlineBytesIter<'a> {
 
 impl<'a> Iterator for RefAwareInlineBytesIter<'a> {
     type Item = (&'a [u8], RunLength, usize);
-
+    #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(ref mut refs_iter) = self.refs {
             let (fr, rl_ref) = refs_iter.peek()?;
@@ -479,7 +479,7 @@ impl<'a> RefAwareInlineTextIter<'a> {
 
 impl<'a> Iterator for RefAwareInlineTextIter<'a> {
     type Item = (&'a str, RunLength, usize);
-
+    #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
         let (data, rl, offset) = self.iter.next()?;
         return Some((
@@ -528,7 +528,7 @@ impl<'a> RefAwareBytesBufferIter<'a> {
 
 impl<'a> Iterator for RefAwareBytesBufferIter<'a> {
     type Item = (&'a [u8], RunLength, usize);
-
+    #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(ref mut refs_iter) = self.refs {
             let (fr, rl_ref) = refs_iter.peek()?;
@@ -582,7 +582,7 @@ impl<'a> RefAwareStreamValueIter<'a> {
 
 impl<'a> Iterator for RefAwareStreamValueIter<'a> {
     type Item = (StreamValueId, Option<core::ops::Range<usize>>, RunLength);
-
+    #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(ref mut refs_iter) = self.refs {
             let (fr, rl_ref) = refs_iter.peek()?;
@@ -632,7 +632,7 @@ impl<I: Iterator<Item = (T, RunLength, usize)>, T: Clone> Iterator
     for RefAwareUnfoldRunLength<I, T>
 {
     type Item = T;
-
+    #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
         if self.remaining_run_len > 0 {
             self.remaining_run_len -= 1;

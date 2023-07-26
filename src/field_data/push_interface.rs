@@ -69,7 +69,6 @@ impl FieldData {
             run_length: run_length as RunLength,
         });
     }
-    #[inline(always)]
     pub unsafe fn push_header_raw_same_value_after_first(
         &mut self,
         mut fmt: FieldValueFormat,
@@ -86,7 +85,6 @@ impl FieldData {
             unsafe { self.push_header_raw(fmt, run_length - rl_to_push) };
         }
     }
-    #[inline(always)]
     pub unsafe fn add_header_for_single_value(
         &mut self,
         mut fmt: FieldValueFormat,
@@ -197,7 +195,6 @@ impl FieldData {
         }
     }
 
-    #[inline(always)]
     pub unsafe fn add_header_for_multiple_values(
         &mut self,
         fmt: FieldValueFormat,
@@ -1019,7 +1016,6 @@ pub unsafe trait VariableSizeTypeInserter<'a> {
 
     fn get_raw(&mut self) -> &mut RawVariableSizedTypeInserter<'a>;
     fn element_as_bytes(v: &Self::ElementType) -> &[u8];
-    #[inline(always)]
     fn current_element_format(&mut self) -> FieldValueFormat {
         FieldValueFormat {
             kind: Self::KIND,

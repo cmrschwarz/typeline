@@ -1260,7 +1260,6 @@ fn setup_output_targets(
         }
     }
 }
-#[inline(always)]
 unsafe fn write_padded_bytes_with_prefix_suffix(
     k: &FormatKey,
     tgt: &mut OutputTarget,

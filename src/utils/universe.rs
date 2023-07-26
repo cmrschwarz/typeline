@@ -40,31 +40,37 @@ pub trait UniverseIndexFromUsize: Sized {
 }
 
 impl UniverseIndexIntoUsize for NonMaxU32 {
+    #[inline(always)]
     fn into_usize(self) -> usize {
         self.get() as usize
     }
 }
 impl UniverseIndexFromUsize for NonMaxU32 {
+    #[inline(always)]
     fn from_usize(v: usize) -> Self {
         NonMaxU32::new(v as u32).unwrap()
     }
 }
 impl UniverseIndexIntoUsize for NonMaxUsize {
+    #[inline(always)]
     fn into_usize(self) -> usize {
         self.get() as usize
     }
 }
 impl UniverseIndexFromUsize for NonMaxUsize {
+    #[inline(always)]
     fn from_usize(v: usize) -> Self {
         NonMaxUsize::new(v).unwrap()
     }
 }
 impl UniverseIndexIntoUsize for usize {
+    #[inline(always)]
     fn into_usize(self) -> usize {
         self
     }
 }
 impl UniverseIndexFromUsize for usize {
+    #[inline(always)]
     fn from_usize(v: usize) -> Self {
         v
     }

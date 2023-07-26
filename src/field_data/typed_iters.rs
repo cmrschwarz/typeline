@@ -116,6 +116,7 @@ impl<'a, T: 'static> TypedSliceIter<'a, T> {
             return Some(value);
         }
     }
+    #[inline(always)]
     pub fn next_n_fields(&mut self, n: usize) -> usize {
         let mut skip_rem = n;
         loop {
@@ -327,6 +328,7 @@ impl<'a> InlineBytesIter<'a> {
         }
         return Some(value);
     }
+    #[inline]
     pub fn next_n_fields(&mut self, mut n: usize) {
         if self.header == self.header_end {
             return;
@@ -394,6 +396,7 @@ impl<'a> InlineBytesIter<'a> {
             }
         }
     }
+    #[inline(always)]
     unsafe fn advance_value(&mut self, n: usize) {
         self.values =
             unsafe { NonNull::new_unchecked(self.values.as_ptr().add(n)) };
@@ -412,7 +415,7 @@ impl<'a> InlineBytesIter<'a> {
 
 impl<'a> Iterator for InlineBytesIter<'a> {
     type Item = (&'a [u8], RunLength);
-
+    #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
         if self.header == self.header_end {
             return None;

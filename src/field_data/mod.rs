@@ -84,6 +84,7 @@ impl FieldValueKind {
             }
         }
     }
+    #[inline(always)]
     pub fn needs_alignment(self) -> bool {
         use FieldValueKind::*;
         match self {
@@ -91,6 +92,7 @@ impl FieldValueKind {
             _ => true,
         }
     }
+    #[inline]
     pub fn needs_copy(self) -> bool {
         self.needs_drop()
     }
@@ -261,9 +263,11 @@ pub struct FieldValueHeader {
 }
 
 impl FieldValueFormat {
+    #[inline(always)]
     pub fn shared_value(self) -> bool {
         self.flags & field_value_flags::SHARED_VALUE != 0
     }
+    #[inline(always)]
     pub fn set_shared_value(&mut self, val: bool) {
         self.flags &= !field_value_flags::SHARED_VALUE;
         self.flags |=
@@ -277,6 +281,7 @@ impl FieldValueFormat {
         self.flags |= (val as FieldValueFlags)
             << field_value_flags::BYTES_ARE_UTF8_OFFSET;
     }
+    #[inline(always)]
     pub fn leading_padding(self) -> usize {
         (self.flags & field_value_flags::LEADING_PADDING) as usize
     }
@@ -287,6 +292,7 @@ impl FieldValueFormat {
         self.flags &= !field_value_flags::LEADING_PADDING;
         self.flags |= (val as u8) & field_value_flags::LEADING_PADDING;
     }
+    #[inline(always)]
     pub fn deleted(self) -> bool {
         self.flags & field_value_flags::DELETED != 0
     }
@@ -295,9 +301,11 @@ impl FieldValueFormat {
         self.flags |=
             (val as FieldValueFlags) << field_value_flags::DELETED_OFFSET;
     }
+    #[inline(always)]
     pub fn same_value_as_previous(self) -> bool {
         self.flags & field_value_flags::SAME_VALUE_AS_PREVIOUS != 0
     }
+    #[inline(always)]
     pub fn set_same_value_as_previous(&mut self, val: bool) {
         self.flags &= !field_value_flags::SAME_VALUE_AS_PREVIOUS;
         self.flags |= (val as FieldValueFlags)
@@ -307,7 +315,6 @@ impl FieldValueFormat {
 
 impl Deref for FieldValueHeader {
     type Target = FieldValueFormat;
-
     fn deref(&self) -> &Self::Target {
         &self.fmt
     }
