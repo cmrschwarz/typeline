@@ -121,8 +121,6 @@ pub fn setup_op_call_concurrent_liveness_data(
 ) {
     let bb_id = ld.operator_data[op_id as usize].basic_block_id;
     debug_assert!(ld.basic_blocks[bb_id].calls.len() == 1);
-    let callee_bb_id = ld.basic_blocks[bb_id].calls[0];
-    let callee_chain = ld.basic_blocks[callee_bb_id].chain_id;
     let succ_var_data = &ld.var_data[ld.get_succession_var_data_bounds(bb_id)];
     let var_count = ld.vars.len();
     for i in succ_var_data
@@ -132,11 +130,8 @@ pub fn setup_op_call_concurrent_liveness_data(
         let writes = succ_var_data[var_count * WRITES_OFFSET + i];
         match ld.vars[i] {
             Var::Named(name) => op.target_accessed_fields.push((name, writes)),
-            Var::ChainInput(chain) => {
-                if chain == callee_chain {
-                    op.target_accessed_fields
-                        .push((INVALID_FIELD_NAME, writes));
-                }
+            Var::BBInput => {
+                op.target_accessed_fields.push((INVALID_FIELD_NAME, writes));
             }
         }
     }

@@ -7,6 +7,7 @@ use std::{
 use bitvec::vec::BitVec;
 
 use crate::{
+    chain::Chain,
     context::{ContextData, VentureDescription},
     field_data::{
         iter_hall::{IterHall, IterId},
@@ -25,7 +26,7 @@ use crate::{
 };
 
 use super::{
-    errors::OperatorCreationError,
+    errors::{OperatorCreationError, OperatorSetupError},
     operator::{OperatorBase, OperatorData, OperatorId},
     transform::{TransformData, TransformId, TransformState},
 };
@@ -75,6 +76,21 @@ pub fn parse_op_fork(
     }))
 }
 
+pub fn setup_op_fork(
+    chain: &Chain,
+    op_base: &OperatorBase,
+    op: &mut OpFork,
+    _op_id: OperatorId,
+) -> Result<(), OperatorSetupError> {
+    if op.subchain_count_after == 0 {
+        debug_assert!(
+            op_base.offset_in_chain as usize + 1 == chain.operators.len()
+        );
+        op.subchain_count_after = chain.subchains.len() as u32;
+    }
+    Ok(())
+}
+
 // TODO: this was accidentally implemented while trying to implement the fork
 // version use this once we have forkjoin
 pub fn setup_op_forkjoin_liveness_data(
@@ -85,8 +101,6 @@ pub fn setup_op_forkjoin_liveness_data(
     let bb_id = ld.operator_data[op_id as usize].basic_block_id;
     debug_assert!(ld.basic_blocks[bb_id].calls.len() == 1);
     let bb = &ld.basic_blocks[bb_id];
-    let callee_bb_id = bb.calls[0];
-    let callee_chain = ld.basic_blocks[callee_bb_id].chain_id;
     let var_count = ld.vars.len();
     let mut call = BitVec::<Cell<usize>>::new();
     let mut successors = BitVec::<Cell<usize>>::new();
@@ -111,11 +125,9 @@ pub fn setup_op_forkjoin_liveness_data(
                     op.accessed_fields_per_subchain[sc_id]
                         .insert(name, writes);
                 }
-                Var::ChainInput(chain) => {
-                    if chain == callee_chain {
-                        op.accessed_fields_per_subchain[sc_id]
-                            .insert(INVALID_FIELD_NAME, writes);
-                    }
+                Var::BBInput => {
+                    op.accessed_fields_per_subchain[sc_id]
+                        .insert(INVALID_FIELD_NAME, writes);
                 }
             }
         }
@@ -128,11 +140,14 @@ pub fn setup_op_fork_liveness_data(
     ld: &LivenessData,
 ) {
     let bb_id = ld.operator_data[op_id as usize].basic_block_id;
-    debug_assert!(ld.basic_blocks[bb_id].calls.len() == 1);
+    debug_assert!(ld.basic_blocks[bb_id].calls.len() == 0);
     let bb = &ld.basic_blocks[bb_id];
     let var_count = ld.vars.len();
+    op.accessed_fields_per_subchain.resize(
+        (op.subchain_count_after - op.subchain_count_before) as usize,
+        Default::default(),
+    );
     for (sc_id, callee_bb_id) in bb.successors.iter().enumerate() {
-        let callee_chain = ld.basic_blocks[*callee_bb_id].chain_id;
         let var_data = ld.get_global_var_data(*callee_bb_id);
         for var_id in var_data
             [var_count * READS_OFFSET..var_count * (READS_OFFSET + 1)]
@@ -144,11 +159,9 @@ pub fn setup_op_fork_liveness_data(
                     op.accessed_fields_per_subchain[sc_id]
                         .insert(name, writes);
                 }
-                Var::ChainInput(chain) => {
-                    if chain == callee_chain {
-                        op.accessed_fields_per_subchain[sc_id]
-                            .insert(INVALID_FIELD_NAME, writes);
-                    }
+                Var::BBInput => {
+                    op.accessed_fields_per_subchain[sc_id]
+                        .insert(INVALID_FIELD_NAME, writes);
                 }
             }
         }
@@ -300,7 +313,7 @@ pub(crate) fn handle_fork_expansion(
         let accessed_fields_map = if let TransformData::Fork(f) =
             &sess.transform_data[tf_id.get()]
         {
-            &f.accessed_fields_per_subchain[subchain_id]
+            &f.accessed_fields_per_subchain[i]
         } else {
             unreachable!();
         };

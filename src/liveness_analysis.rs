@@ -42,6 +42,7 @@ pub const SLOTS_PER_BASIC_BLOCK: usize = LOCAL_SLOTS_PER_BASIC_BLOCK * 3;
 pub type VarId = u32;
 pub type OpOutputIdx = u32;
 pub const INVALID_VAR_ID: VarId = VarId::MAX;
+pub const BB_INPUT_VAR_ID: VarId = 0;
 pub const INVALID_OP_OUTPUT_ID: OpOutputIdx = OpOutputIdx::MAX;
 pub const INVALID_FIELD_NAME: StringStoreEntry = INVALID_STRING_STORE_ENTRY;
 
@@ -64,7 +65,7 @@ pub struct BasicBlock {
 }
 pub enum Var {
     Named(StringStoreEntry),
-    ChainInput(ChainId),
+    BBInput,
 }
 #[derive(Clone, Default)]
 pub struct OpOutput {
@@ -153,9 +154,7 @@ impl LivenessData {
         }
     }
     pub fn setup_vars(&mut self, sess: &Session) {
-        self.vars.extend(
-            (0..sess.chains.len()).map(|i| Var::ChainInput(i as ChainId)),
-        );
+        self.vars.push(Var::BBInput);
         for c in &sess.chains {
             for op in &c.operators {
                 self.add_var_name(sess.operator_bases[*op as usize].label);
@@ -241,7 +240,7 @@ impl LivenessData {
             });
             data_size += bits_per_bb;
         }
-        self.updates_required.extend(1..sess.chains.len() + 1);
+        self.updates_required.extend(0..sess.chains.len());
         while let Some(i) = self.updates_required.pop() {
             let bb = &mut self.basic_blocks[i];
             let cn = &sess.chains[bb.chain_id as usize];
@@ -359,6 +358,30 @@ impl LivenessData {
                 .set_aliased(vds + WRITES_OFFSET * vc + vid, true);
         }
     }
+    fn bind_var(
+        &mut self,
+        bb_id: BasicBlockId,
+        tgt_var: VarId,
+        src_var: VarId,
+    ) {
+        let bb = &mut self.basic_blocks[bb_id];
+        debug_assert!(tgt_var != INVALID_VAR_ID);
+        if src_var != INVALID_VAR_ID {
+            let op_output = self.operator_output_map[src_var as usize];
+            self.operator_output_map[tgt_var as usize] = op_output;
+            if op_output == INVALID_OP_OUTPUT_ID {
+                bb.renames.insert(tgt_var, src_var);
+            } else {
+                bb.renames.remove(&tgt_var);
+            }
+        }
+        self.var_data.set(
+            bb.var_data_start
+                + self.vars.len() * SURVIVES_OFFSET
+                + tgt_var as usize,
+            false,
+        );
+    }
     fn compute_local_liveness_for_bb(
         &mut self,
         sess: &Session,
@@ -372,7 +395,7 @@ impl LivenessData {
         self.var_data[reads_start..reads_start + varcount].fill(false);
         self.var_data[writes_start..writes_start + varcount].fill(false);
         let cn = &sess.chains[bb.chain_id as usize];
-        let mut input_field = bb.chain_id as VarId;
+        let mut input_field = BB_INPUT_VAR_ID;
         let mut last_output_field = input_field;
         let mut any_writes_so_far = false;
         self.operator_output_map
@@ -382,15 +405,9 @@ impl LivenessData {
             let op_id = cn.operators[op_n as usize] as usize;
             let op_base = &sess.operator_bases[op_id];
             let output_field = if op_base.append_mode {
-                input_field
+                last_output_field
             } else {
-                if let Some(label) = op_base.label {
-                    self.var_names[&label]
-                } else if op_base.append_mode {
-                    last_output_field
-                } else {
-                    INVALID_VAR_ID
-                }
+                INVALID_VAR_ID
             };
             let used_input_field =
                 if op_base.append_mode && last_output_field == bb.chain_id {
@@ -407,26 +424,17 @@ impl LivenessData {
                     break;
                 }
                 OperatorData::Call(_) | OperatorData::CallConcurrent(_) => {
-                    let op =
-                        self.operator_output_map[used_input_field as usize];
-                    if op == INVALID_OP_OUTPUT_ID {
-                        bb.input_var_handed_to_calls = Some(used_input_field);
-                    }
+                    debug_assert!(!op_base.append_mode);
                     debug_assert!(op_n + 1 == bb.operators_end);
+                    self.bind_var(bb_id, BB_INPUT_VAR_ID, input_field);
+                    bb = &mut self.basic_blocks[bb_id];
                     break;
                 }
                 OperatorData::Key(key) => {
                     debug_assert!(!op_base.append_mode);
-                    let tgt_var_name = self.var_names[&key.key_interned];
-                    let op_output =
-                        self.operator_output_map[input_field as usize];
-                    self.operator_output_map[tgt_var_name as usize] =
-                        op_output;
-                    if op_output == INVALID_OP_OUTPUT_ID {
-                        bb.renames.insert(tgt_var_name, input_field);
-                    } else {
-                        bb.renames.remove(&tgt_var_name);
-                    }
+                    let tgt_var = self.var_names[&key.key_interned];
+                    self.bind_var(bb_id, tgt_var, input_field);
+                    bb = &mut self.basic_blocks[bb_id];
                     continue;
                 }
                 OperatorData::Select(select) => {
@@ -514,7 +522,7 @@ impl LivenessData {
                 OperatorData::Next(_) => unreachable!(),
                 OperatorData::Up(_) => unreachable!(),
             }
-            if input_accessed {
+            if input_accessed && input_field != INVALID_VAR_ID {
                 self.access_field(
                     bb_id,
                     input_field,
@@ -748,6 +756,8 @@ impl LivenessData {
         let mut calls = BitVec::<Cell<usize>>::new();
         let mut successors = BitVec::<Cell<usize>>::new();
         let var_bits = LOCAL_SLOTS_PER_BASIC_BLOCK * self.vars.len();
+        calls.resize(var_bits, false);
+        successors.resize(var_bits, false);
         for bb in &self.basic_blocks {
             self.build_bb_succession_data(bb, &mut calls, &mut successors);
             self.var_data[bb.var_data_start + 2 * var_bits
@@ -787,7 +797,7 @@ impl LivenessData {
     }
 }
 
-pub fn compute_liveness(sess: &mut Session) -> LivenessData {
+pub fn compute_liveness_data(sess: &mut Session) -> LivenessData {
     let mut ld = LivenessData::default();
     ld.setup_operator_outputs(sess);
     ld.setup_vars(sess);
