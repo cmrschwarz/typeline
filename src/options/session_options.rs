@@ -3,13 +3,17 @@ use std::{borrow::Cow, num::NonZeroUsize};
 use lazy_static::lazy_static;
 
 use crate::{
-    chain::{compute_field_livenses, Chain, ChainId, INVALID_CHAIN_ID},
+    chain::{Chain, ChainId, INVALID_CHAIN_ID},
     context::{Session, SessionSettings},
+    liveness_analysis::compute_liveness,
     operators::{
         call::setup_op_call,
-        call_concurrent::setup_op_call_concurrent,
+        call_concurrent::{
+            setup_op_call_concurrent, setup_op_call_concurrent_liveness_data,
+        },
         errors::OperatorSetupError,
         file_reader::setup_op_file_reader,
+        fork::setup_op_fork_liveness_data,
         format::setup_op_format,
         key::setup_op_key,
         operator::{
@@ -91,11 +95,11 @@ impl SessionOptions {
     pub fn add_op(
         &mut self,
         mut op_base_opts: OperatorBaseOptions,
-        op_data: OperatorData,
+        mut op_data: OperatorData,
     ) {
         op_base_opts.op_id = Some(self.operator_data.len() as OperatorId);
         op_base_opts.chain_id = Some(self.curr_chain);
-        match &op_data {
+        match &mut op_data {
             OperatorData::Call(_) => (),
             OperatorData::CallConcurrent(_) => {
                 self.any_threaded_operations = true;
@@ -112,16 +116,19 @@ impl SessionOptions {
             OperatorData::Literal(_) => (),
             OperatorData::Sequence(_) => (),
             OperatorData::Join(_) => (),
-            OperatorData::Fork(_) => {
+            OperatorData::Fork(f) => {
+                f.subchain_count_before =
+                    self.chains[self.curr_chain as usize].subchain_count;
                 let mut new_chain = ChainOptions::default();
                 new_chain.parent = self.curr_chain;
                 self.curr_chain = self.chains.len() as ChainId;
                 self.chains.push(new_chain);
             }
             OperatorData::Next(_) => {
+                let parent = self.chains[self.curr_chain as usize].parent;
+                self.chains[parent as usize].subchain_count += 1;
                 let mut new_chain = ChainOptions::default();
-                new_chain.parent =
-                    self.chains[self.curr_chain as usize].parent;
+                new_chain.parent = parent;
                 self.curr_chain = self.chains.len() as ChainId;
                 self.chains.push(new_chain);
                 op_base_opts.chain_id = None;
@@ -131,7 +138,8 @@ impl SessionOptions {
                     self.curr_chain =
                         self.chains[self.curr_chain as usize].parent;
                 }
-                op_base_opts.chain_id = None;
+                up.subchain_count_after =
+                    self.chains[self.curr_chain as usize].subchain_count;
             }
         }
         self.operator_base_options.push(op_base_opts);
@@ -268,8 +276,36 @@ impl SessionOptions {
         for i in 0..sess.chains.len() {
             Self::validate_chain(sess, i as ChainId)?;
         }
-        compute_field_livenses(sess);
         Ok(())
+    }
+    pub fn compute_liveness(sess: &mut Session) {
+        let ld = compute_liveness(sess);
+        for i in 0..sess.operator_bases.len() {
+            let op_id = i as OperatorId;
+            match &mut sess.operator_data[i] {
+                OperatorData::Call(_) => (),
+                OperatorData::CallConcurrent(op) => {
+                    setup_op_call_concurrent_liveness_data(op, &ld)
+                }
+                OperatorData::Cast(_) => (),
+                OperatorData::Count(_) => (),
+                OperatorData::Print(_) => (),
+                OperatorData::Join(_) => (),
+                OperatorData::Fork(op) => {
+                    setup_op_fork_liveness_data(op, op_id, &ld)
+                }
+                OperatorData::Next(_) => (),
+                OperatorData::Up(_) => (),
+                OperatorData::Key(_) => (),
+                OperatorData::Select(_) => (),
+                OperatorData::Regex(_) => (),
+                OperatorData::Format(_) => (),
+                OperatorData::StringSink(_) => (),
+                OperatorData::FileReader(_) => (),
+                OperatorData::Literal(_) => (),
+                OperatorData::Sequence(_) => (),
+            }
+        }
     }
     pub fn build_session(self) -> Result<Session, ContextualizedScrError> {
         self.build_session_raw().map_err(|(opts, err)| {
@@ -331,9 +367,10 @@ impl SessionOptions {
                         label: obo.label,
                         cli_arg_idx: obo.cli_arg_idx,
                         chain_id: obo.chain_id.unwrap_or(INVALID_CHAIN_ID),
-                        offset_in_chain: u32::MAX, // set during setup
                         append_mode: obo.append_mode,
                         transparent_mode: obo.transparent_mode,
+                        // set during setup
+                        offset_in_chain: u32::MAX,
                     }
                 })
                 .collect(),
@@ -352,6 +389,7 @@ impl SessionOptions {
             self.cli_args = sess.cli_args;
             return Err((self, e));
         }
+        compute_liveness(&mut sess);
         Ok(sess)
     }
 }

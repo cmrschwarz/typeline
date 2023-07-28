@@ -360,6 +360,8 @@ pub fn handle_tf_print_stream_value_update(
     sv_id: StreamValueId,
     custom: usize,
 ) {
+    // we don't use a buffered writer here because stream chunks
+    // are large and we want to avoid the copy
     let mut stdout = std::io::stdout().lock();
     let sv = &mut sess.sv_mgr.stream_values[sv_id];
     let run_len = custom;

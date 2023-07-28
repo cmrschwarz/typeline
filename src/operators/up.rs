@@ -7,6 +7,7 @@ use super::{errors::OperatorCreationError, operator::OperatorData};
 #[derive(Clone)]
 pub struct OpUp {
     pub step: NonZeroUsize,
+    pub subchain_count_after: u32,
 }
 
 pub fn parse_op_up(
@@ -40,6 +41,7 @@ pub fn parse_op_up(
     }
     Ok(OperatorData::Up(OpUp {
         step: NonZeroUsize::new(step as usize).unwrap(),
+        subchain_count_after: 0,
     }))
 }
 
@@ -47,5 +49,6 @@ pub fn create_op_up(step: usize) -> OperatorData {
     OperatorData::Up(OpUp {
         step: NonZeroUsize::new(step)
             .expect("argument for operator `up` must be larger than zero"),
+        subchain_count_after: 0,
     })
 }

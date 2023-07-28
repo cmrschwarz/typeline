@@ -868,7 +868,7 @@ impl<'a> JobSession<'a> {
         let mut end_reachable = true;
         let mut predecessor_tf = None;
         let mut input_field = chain_input_field_id;
-        let mut any_output_produced = false;
+        let mut last_output_field = chain_input_field_id;
         let ops = &self.job_data.session_data.chains
             [start_op.chain_id as usize]
             .operators[start_op.offset_in_chain as usize..];
@@ -936,9 +936,10 @@ impl<'a> JobSession<'a> {
                 self.job_data.field_mgr.bump_field_refcount(input_field);
                 input_field
             } else if op_base.append_mode {
-                self.job_data.field_mgr.bump_field_refcount(input_field);
-
-                input_field
+                self.job_data
+                    .field_mgr
+                    .bump_field_refcount(last_output_field);
+                last_output_field
             } else {
                 let min_apf =
                     self.job_data.field_mgr.get_min_apf_idx(input_field);
@@ -952,7 +953,9 @@ impl<'a> JobSession<'a> {
                     name,
                 );
             }
-            let input = if !any_output_produced && op_base.append_mode {
+            let input = if op_base.append_mode
+                && last_output_field == chain_input_field_id
+            {
                 DUMMY_INPUT_FIELD_ID
             } else {
                 input_field
@@ -1059,10 +1062,10 @@ impl<'a> JobSession<'a> {
                 predecessor_tf = Some(tf_id);
             }
             prev_tf = Some(tf_id);
+            last_output_field = output_field;
             if !appending {
                 predecessor_tf = Some(tf_id);
                 if !transparent {
-                    any_output_produced = true;
                     input_field = output_field;
                 }
             }

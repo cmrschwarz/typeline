@@ -20,6 +20,7 @@ pub struct ChainOptions {
     pub stream_size_threshold: Argument<usize>,
     pub buffering_mode: Argument<BufferingMode>,
     pub parent: ChainId,
+    pub subchain_count: u32,
 }
 
 pub const DEFAULT_CHAIN_OPTIONS: ChainOptions = ChainOptions {
@@ -34,6 +35,7 @@ pub const DEFAULT_CHAIN_OPTIONS: ChainOptions = ChainOptions {
     stream_size_threshold: Argument::new_v(1024),
     buffering_mode: Argument::new_v(BufferingMode::LineBufferStdinIfTTY),
     parent: 0,
+    subchain_count: 0,
 };
 impl ChainOptions {
     pub fn build_chain(&self, parent: Option<&Chain>) -> Chain {
@@ -101,7 +103,6 @@ impl ChainOptions {
             },
             subchains: Vec::new(),
             operators: Vec::new(),
-            liveness_data: Default::default(),
         }
     }
 }

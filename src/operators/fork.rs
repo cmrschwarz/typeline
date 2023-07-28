@@ -4,16 +4,18 @@ use std::{
 };
 
 use crate::{
-    chain::DEFAULT_INPUT_FIELD,
     context::{ContextData, VentureDescription},
     field_data::{
         iter_hall::{IterHall, IterId},
         iters::FieldIterator,
     },
     job_session::{FieldId, JobData, JobSession, MatchSetId},
+    liveness_analysis::{LivenessData, INVALID_FIELD_NAME},
     options::argument::CliArgIdx,
     ref_iter::AutoDerefIter,
-    utils::identity_hasher::BuildIdentityHasher,
+    utils::{
+        identity_hasher::BuildIdentityHasher, string_store::StringStoreEntry,
+    },
 };
 
 use super::{
@@ -30,6 +32,10 @@ pub struct OpFork {
     // forkcc
     // forkjoin[=merge_col,..] [CC]
     // forkcat [CC]
+    pub subchain_count_before: u32,
+    pub subchain_count_after: u32,
+    pub accessed_fields_per_subchain:
+        Vec<HashMap<StringStoreEntry, bool, BuildIdentityHasher>>,
 }
 
 pub struct TfForkFieldMapping {
@@ -38,10 +44,12 @@ pub struct TfForkFieldMapping {
     pub targets_non_cow: Vec<FieldId>,
 }
 
-pub struct TfFork {
+pub struct TfFork<'a> {
     pub expanded: bool,
     pub targets: Vec<TransformId>,
     pub mappings: HashMap<FieldId, TfForkFieldMapping, BuildIdentityHasher>,
+    pub accessed_fields_per_subchain:
+        &'a Vec<HashMap<StringStoreEntry, bool, BuildIdentityHasher>>,
 }
 
 pub fn parse_op_fork(
@@ -54,9 +62,22 @@ pub fn parse_op_fork(
             arg_idx,
         ));
     }
-    Ok(OperatorData::Fork(OpFork {}))
+    Ok(OperatorData::Fork(OpFork {
+        subchain_count_before: 0,
+        subchain_count_after: 0,
+        accessed_fields_per_subchain: Default::default(),
+    }))
 }
-pub fn setup_ts_fork_as_entry_point<'a, 'b>(
+
+pub fn setup_op_fork_liveness_data(
+    _op: &mut OpFork,
+    _op_id: OperatorId,
+    _ld: &LivenessData,
+) {
+    todo!();
+}
+
+pub fn setup_tf_fork_as_entry_point<'a, 'b>(
     sess: &mut JobData,
     input_field: FieldId,
     ms_id: MatchSetId,
@@ -85,16 +106,17 @@ pub fn setup_ts_fork_as_entry_point<'a, 'b>(
     todo!();
 }
 
-pub fn setup_tf_fork(
+pub fn setup_tf_fork<'a>(
     _sess: &mut JobData,
     _op_base: &OperatorBase,
-    _op: &OpFork,
+    op: &'a OpFork,
     _tf_state: &mut TransformState,
-) -> TransformData<'static> {
+) -> TransformData<'a> {
     TransformData::Fork(TfFork {
         expanded: false,
         targets: Default::default(),
         mappings: Default::default(),
+        accessed_fields_per_subchain: &op.accessed_fields_per_subchain,
     })
 }
 
@@ -197,10 +219,13 @@ pub(crate) fn handle_fork_expansion(
         let match_sets = &mut sess.job_data.match_set_mgr.match_sets;
         let (fork_match_set, target_match_set) =
             match_sets.two_distinct_mut(fork_ms_id, target_ms_id);
-        let accessed_fields_map = &sess.job_data.session_data.chains
-            [subchain_id]
-            .liveness_data
-            .fields_accessed_before_assignment;
+        let accessed_fields_map = if let TransformData::Fork(f) =
+            &sess.transform_data[tf_id.get()]
+        {
+            &f.accessed_fields_per_subchain[subchain_id]
+        } else {
+            unreachable!();
+        };
         let mut chain_input_field_id = fork_input_field_id;
         for (name, writes) in accessed_fields_map {
             match target_match_set.field_name_map.entry(*name) {
@@ -210,7 +235,7 @@ pub(crate) fn handle_fork_expansion(
                         fork_match_set.field_name_map.get(name)
                     {
                         *src_field_id
-                    } else if *name == DEFAULT_INPUT_FIELD {
+                    } else if *name == INVALID_FIELD_NAME {
                         fork_input_field_id
                     } else {
                         let target_field_id = sess
@@ -273,7 +298,7 @@ pub(crate) fn handle_fork_expansion(
                         let mut tgt = sess.job_data.field_mgr.fields
                             [target_field_id]
                             .borrow_mut();
-                        if *name != DEFAULT_INPUT_FIELD {
+                        if *name != INVALID_FIELD_NAME {
                             tgt.names.push(*name);
                         }
                         tgt.cow_source = Some(src_field_id);
@@ -296,13 +321,13 @@ pub(crate) fn handle_fork_expansion(
                                 .map(|f| f.names.push(*other_name));
                         }
                     }
-                    if *name == DEFAULT_INPUT_FIELD {
+                    if *name == INVALID_FIELD_NAME {
                         chain_input_field_id = target_field_id;
                     }
                 }
             }
         }
-        target_match_set.field_name_map.remove(&DEFAULT_INPUT_FIELD);
+        target_match_set.field_name_map.remove(&INVALID_FIELD_NAME);
         let start_op =
             sess.job_data.session_data.chains[subchain_id].operators[0];
         let (start_tf, end_tf, end_reachable) = sess.setup_transforms_from_op(
@@ -328,5 +353,9 @@ pub(crate) fn handle_fork_expansion(
 }
 
 pub fn create_op_fork() -> OperatorData {
-    OperatorData::Fork(OpFork {})
+    OperatorData::Fork(OpFork {
+        subchain_count_before: 0,
+        subchain_count_after: 0,
+        accessed_fields_per_subchain: Default::default(),
+    })
 }

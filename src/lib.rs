@@ -4,6 +4,7 @@
 extern crate static_assertions;
 
 extern crate arrayvec;
+extern crate bitvec;
 extern crate encoding_rs;
 extern crate lazy_static;
 extern crate num_traits;
@@ -26,6 +27,7 @@ pub mod context;
 pub mod document;
 pub mod field_data;
 pub mod job_session;
+pub mod liveness_analysis;
 pub mod operators;
 pub mod options;
 pub mod ref_iter;

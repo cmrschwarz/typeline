@@ -42,9 +42,10 @@ num-traits = "0.2.16"
 
 # small size optimizations
 smallvec = { version = "1.10.0", features = ["union", "write"] }
-smallstr = { version= "0.3.0", features = ["union"] }
+smallstr = { version = "0.3.0", features = ["union"] }
 arrayvec = "0.7.3"
 nonmax = "0.5.3"
+bitvec = "1.0"
 
 # features for core operators
 regex = "1.7.1"

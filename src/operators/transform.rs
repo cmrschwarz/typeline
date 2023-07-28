@@ -31,7 +31,7 @@ pub type TransformOrderingId = NonMaxUsize;
 pub enum TransformData<'a> {
     Disabled,
     Call(TfCall),
-    CallConcurrent(TfCallConcurrent),
+    CallConcurrent(TfCallConcurrent<'a>),
     CalleeConcurrent(TfCalleeConcurrent),
     Cast(TfCast),
     Count(TfCount),
@@ -39,7 +39,7 @@ pub enum TransformData<'a> {
     Join(TfJoin<'a>),
     Select(TfSelect),
     StringSink(TfStringSink<'a>),
-    Fork(TfFork),
+    Fork(TfFork<'a>),
     Regex(TfRegex),
     Format(TfFormat<'a>),
     FileReader(TfFileReader),

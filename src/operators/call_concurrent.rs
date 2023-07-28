@@ -18,6 +18,7 @@ use crate::{
         FieldId, FieldManager, JobData, JobSession, MatchSetId,
         INVALID_FIELD_ID,
     },
+    liveness_analysis::LivenessData,
     options::argument::CliArgIdx,
     ref_iter::AutoDerefIter,
     utils::{
@@ -36,18 +37,21 @@ use super::{
 pub struct OpCallConcurrent {
     pub target_name: String,
     pub target_resolved: ChainId,
+    // true means write access
+    pub target_accessed_fields: Vec<(StringStoreEntry, bool)>,
 }
 pub struct RecordBufferFieldMapping {
     source_field_id: FieldId,
     source_field_iter: IterId,
     buf_field: RecordBufferFieldId,
 }
-pub struct TfCallConcurrent {
+pub struct TfCallConcurrent<'a> {
     pub expanded: bool,
     pub target_chain: ChainId,
     pub field_mappings: Vec<RecordBufferFieldMapping>,
     pub buffer: Arc<RecordBuffer>,
     pub apf_idx: ActionProducingFieldIndex,
+    pub target_accessed_fields: &'a Vec<(StringStoreEntry, bool)>,
 }
 pub struct TfCalleeConcurrent {
     pub target_fields: Vec<FieldId>,
@@ -75,6 +79,7 @@ pub fn parse_op_call_concurrent(
     Ok(OperatorData::CallConcurrent(OpCallConcurrent {
         target_name: value_str.to_owned(),
         target_resolved: INVALID_CHAIN_ID,
+        target_accessed_fields: Default::default(),
     }))
 }
 
@@ -107,27 +112,36 @@ pub fn setup_op_call_concurrent(
     }
 }
 
+pub fn setup_op_call_concurrent_liveness_data(
+    _op: &mut OpCallConcurrent,
+    _ld: &LivenessData,
+) {
+    todo!();
+}
+
 pub fn create_op_callcc(name: String) -> OperatorData {
     OperatorData::CallConcurrent(OpCallConcurrent {
         target_name: name,
         target_resolved: INVALID_CHAIN_ID,
+        target_accessed_fields: Default::default(),
     })
 }
 
-pub fn setup_tf_call_concurrent(
+pub fn setup_tf_call_concurrent<'a>(
     sess: &mut JobData,
     _op_base: &OperatorBase,
-    op: &OpCallConcurrent,
+    op: &'a OpCallConcurrent,
     tf_state: &mut TransformState,
-) -> TransformData<'static> {
+) -> TransformData<'a> {
     TransformData::CallConcurrent(TfCallConcurrent {
-        target_chain: op.target_resolved,
         expanded: false,
+        target_chain: op.target_resolved,
+        field_mappings: Default::default(),
         buffer: Default::default(),
         apf_idx: sess.match_set_mgr.match_sets[tf_state.match_set_id]
             .command_buffer
             .claim_apf(tf_state.ordering_id),
-        field_mappings: Default::default(),
+        target_accessed_fields: &op.target_accessed_fields,
     })
 }
 fn insert_mapping(
@@ -175,11 +189,8 @@ fn setup_target_field_mappings(
 ) {
     let buf = Arc::get_mut(&mut call.buffer).unwrap();
     let buf_data = buf.fields.get_mut().unwrap();
-    let target_chain = &sess.session_data.chains[call.target_chain as usize];
     let mut mappings_present =
         HashMap::<FieldId, usize, BuildIdentityHasher>::default();
-    let accessed_field_map =
-        &target_chain.liveness_data.fields_accessed_before_assignment;
     let tf = &sess.tf_mgr.transforms[tf_id];
     let source_match_set = &sess.match_set_mgr.match_sets[tf.match_set_id];
 
@@ -191,7 +202,7 @@ fn setup_target_field_mappings(
         &mut call.field_mappings,
         None,
     );
-    for (name, _write) in accessed_field_map {
+    for (name, _write) in call.target_accessed_fields {
         // PERF: if the field is never written, and we know that the source
         // chain never writes to it aswell, we could theoretically
         // unsafely share the FieldData (and maybe add a flag for soundness)
