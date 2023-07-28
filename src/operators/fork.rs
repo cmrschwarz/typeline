@@ -1,7 +1,10 @@
 use std::{
+    cell::Cell,
     collections::{hash_map::Entry, HashMap},
     sync::Arc,
 };
+
+use bitvec::vec::BitVec;
 
 use crate::{
     context::{ContextData, VentureDescription},
@@ -10,7 +13,10 @@ use crate::{
         iters::FieldIterator,
     },
     job_session::{FieldId, JobData, JobSession, MatchSetId},
-    liveness_analysis::{LivenessData, INVALID_FIELD_NAME},
+    liveness_analysis::{
+        LivenessData, Var, INVALID_FIELD_NAME, LOCAL_SLOTS_PER_BASIC_BLOCK,
+        READS_OFFSET, WRITES_OFFSET,
+    },
     options::argument::CliArgIdx,
     ref_iter::AutoDerefIter,
     utils::{
@@ -69,12 +75,84 @@ pub fn parse_op_fork(
     }))
 }
 
-pub fn setup_op_fork_liveness_data(
-    _op: &mut OpFork,
-    _op_id: OperatorId,
-    _ld: &LivenessData,
+// TODO: this was accidentally implemented while trying to implement the fork
+// version use this once we have forkjoin
+pub fn setup_op_forkjoin_liveness_data(
+    op: &mut OpFork,
+    op_id: OperatorId,
+    ld: &LivenessData,
 ) {
-    todo!();
+    let bb_id = ld.operator_data[op_id as usize].basic_block_id;
+    debug_assert!(ld.basic_blocks[bb_id].calls.len() == 1);
+    let bb = &ld.basic_blocks[bb_id];
+    let callee_bb_id = bb.calls[0];
+    let callee_chain = ld.basic_blocks[callee_bb_id].chain_id;
+    let var_count = ld.vars.len();
+    let mut call = BitVec::<Cell<usize>>::new();
+    let mut successors = BitVec::<Cell<usize>>::new();
+    call.reserve(var_count * LOCAL_SLOTS_PER_BASIC_BLOCK);
+    successors.reserve(var_count * LOCAL_SLOTS_PER_BASIC_BLOCK);
+    ld.get_global_var_data_ored(&mut successors, bb.successors.iter());
+    let succ_var_data = &ld.var_data[ld.get_succession_var_data_bounds(bb_id)];
+    for (sc_id, callee_id) in bb.calls.iter().enumerate() {
+        call.copy_from_bitslice(ld.get_global_var_data(bb_id));
+        ld.apply_bb_aliases(
+            &mut call,
+            &successors,
+            &ld.basic_blocks[*callee_id],
+        );
+        for var_id in call
+            [var_count * READS_OFFSET..var_count * (READS_OFFSET + 1)]
+            .iter_ones()
+        {
+            let writes = succ_var_data[var_count * WRITES_OFFSET + var_id];
+            match ld.vars[var_id] {
+                Var::Named(name) => {
+                    op.accessed_fields_per_subchain[sc_id]
+                        .insert(name, writes);
+                }
+                Var::ChainInput(chain) => {
+                    if chain == callee_chain {
+                        op.accessed_fields_per_subchain[sc_id]
+                            .insert(INVALID_FIELD_NAME, writes);
+                    }
+                }
+            }
+        }
+    }
+}
+
+pub fn setup_op_fork_liveness_data(
+    op: &mut OpFork,
+    op_id: OperatorId,
+    ld: &LivenessData,
+) {
+    let bb_id = ld.operator_data[op_id as usize].basic_block_id;
+    debug_assert!(ld.basic_blocks[bb_id].calls.len() == 1);
+    let bb = &ld.basic_blocks[bb_id];
+    let var_count = ld.vars.len();
+    for (sc_id, callee_bb_id) in bb.successors.iter().enumerate() {
+        let callee_chain = ld.basic_blocks[*callee_bb_id].chain_id;
+        let var_data = ld.get_global_var_data(*callee_bb_id);
+        for var_id in var_data
+            [var_count * READS_OFFSET..var_count * (READS_OFFSET + 1)]
+            .iter_ones()
+        {
+            let writes = var_data[var_count * WRITES_OFFSET + var_id];
+            match ld.vars[var_id] {
+                Var::Named(name) => {
+                    op.accessed_fields_per_subchain[sc_id]
+                        .insert(name, writes);
+                }
+                Var::ChainInput(chain) => {
+                    if chain == callee_chain {
+                        op.accessed_fields_per_subchain[sc_id]
+                            .insert(INVALID_FIELD_NAME, writes);
+                    }
+                }
+            }
+        }
+    }
 }
 
 pub fn setup_tf_fork_as_entry_point<'a, 'b>(

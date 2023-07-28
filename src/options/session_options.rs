@@ -285,7 +285,7 @@ impl SessionOptions {
             match &mut sess.operator_data[i] {
                 OperatorData::Call(_) => (),
                 OperatorData::CallConcurrent(op) => {
-                    setup_op_call_concurrent_liveness_data(op, &ld)
+                    setup_op_call_concurrent_liveness_data(op, op_id, &ld)
                 }
                 OperatorData::Cast(_) => (),
                 OperatorData::Count(_) => (),

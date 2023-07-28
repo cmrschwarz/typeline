@@ -5,7 +5,7 @@ use std::{
     ops::Range,
 };
 
-use bitvec::{prelude::LocalBits, slice::BitSlice, vec::BitVec};
+use bitvec::{slice::BitSlice, vec::BitVec};
 use smallvec::SmallVec;
 
 use crate::{
@@ -33,7 +33,11 @@ pub const SURVIVES_OFFSET: usize = 3;
 
 pub const SLOTS_PER_OP_OUTPUT: usize = 3; // output ops don't care about survives
 pub const LOCAL_SLOTS_PER_BASIC_BLOCK: usize = 4;
-pub const SLOTS_PER_BASIC_BLOCK: usize = LOCAL_SLOTS_PER_BASIC_BLOCK * 2;
+pub const LOCAL_SLOTS_OFFSET: usize = 0;
+pub const GLOBAL_SLOTS_OFFSET: usize = LOCAL_SLOTS_PER_BASIC_BLOCK;
+pub const SUCCESSION_SLOTS_OFFSET: usize = 2 * LOCAL_SLOTS_PER_BASIC_BLOCK;
+// local slots + global slots + succession data
+pub const SLOTS_PER_BASIC_BLOCK: usize = LOCAL_SLOTS_PER_BASIC_BLOCK * 3;
 
 pub type VarId = u32;
 pub type OpOutputIdx = u32;
@@ -42,25 +46,25 @@ pub const INVALID_OP_OUTPUT_ID: OpOutputIdx = OpOutputIdx::MAX;
 pub const INVALID_FIELD_NAME: StringStoreEntry = INVALID_STRING_STORE_ENTRY;
 
 pub struct BasicBlock {
-    chain_id: ChainId,
-    operators_start: OperatorOffsetInChain,
-    operators_end: OperatorOffsetInChain,
-    var_data_start: usize,
-    calls: SmallVec<[BasicBlockId; 2]>,
-    successors: SmallVec<[BasicBlockId; 2]>,
-    predecessors: SmallVec<[BasicBlockId; 2]>,
+    pub chain_id: ChainId,
+    pub operators_start: OperatorOffsetInChain,
+    pub operators_end: OperatorOffsetInChain,
+    pub var_data_start: usize,
+    pub calls: SmallVec<[BasicBlockId; 2]>,
+    pub successors: SmallVec<[BasicBlockId; 2]>,
+    pub predecessors: SmallVec<[BasicBlockId; 2]>,
     // var name after the bb -> original var name
     // if the 'original name' was locally generated, there is no entry
-    renames: HashMap<VarId, VarId, BuildIdentityHasher>,
+    pub renames: HashMap<VarId, VarId, BuildIdentityHasher>,
     // vars available at the start that may be accessed through
     // data behind vars available at the end that contain field references
-    field_references: HashMap<VarId, SmallVec<[VarId; 4]>>,
-    input_var_handed_to_calls: Option<VarId>,
+    pub field_references: HashMap<VarId, SmallVec<[VarId; 4]>>,
+    pub input_var_handed_to_calls: Option<VarId>,
     updates_required: bool,
 }
 pub enum Var {
     Named(StringStoreEntry),
-    Anonymous(ChainId),
+    ChainInput(ChainId),
 }
 #[derive(Clone, Default)]
 pub struct OpOutput {
@@ -72,14 +76,15 @@ pub struct OpOutput {
 
 #[derive(Clone, Default)]
 pub struct OperatorLivenessData {
+    pub basic_block_id: BasicBlockId,
     pub outputs_start: OpOutputIdx,
     pub outputs_end: OpOutputIdx,
 }
 
 #[derive(Default)]
 pub struct LivenessData {
-    pub var_data: BitVec<Cell<usize>, LocalBits>,
-    pub op_outputs_data: BitVec<Cell<usize>, LocalBits>,
+    pub var_data: BitVec<Cell<usize>>,
+    pub op_outputs_data: BitVec<Cell<usize>>,
     pub op_outputs: Vec<OpOutput>,
     pub vars: Vec<Var>,
     pub var_names: HashMap<StringStoreEntry, VarId, BuildIdentityHasher>,
@@ -91,6 +96,51 @@ pub struct LivenessData {
 }
 
 impl LivenessData {
+    pub fn setup_operator_outputs(&mut self, sess: &mut Session) {
+        self.operator_data.extend(
+            iter::repeat(Default::default()).take(sess.operator_data.len()),
+        );
+        let mut total_outputs_count = sess.chains.len();
+        for op_id in 0..sess.operator_data.len() {
+            let op_base = &mut sess.operator_bases[op_id];
+            let op_liveness_data = &mut self.operator_data[op_id];
+
+            op_liveness_data.outputs_start =
+                total_outputs_count as OpOutputIdx;
+            let app = if op_base.append_mode { 0 } else { 1 };
+            let outputs_count = match &sess.operator_data[op_id] {
+                OperatorData::Call(_) => app,
+                OperatorData::CallConcurrent(_) => app,
+                OperatorData::Cast(_) => app,
+                OperatorData::Count(_) => app,
+                OperatorData::Print(_) => app,
+                OperatorData::Join(_) => app,
+                OperatorData::Fork(_) => 0,
+                OperatorData::Next(_) => app,
+                OperatorData::Up(_) => 0,
+                OperatorData::Key(_) => 0,
+                OperatorData::Select(_) => 0,
+                OperatorData::Regex(re) => {
+                    app + re.capture_group_names.len() - 1
+                }
+                OperatorData::Format(_) => app,
+                OperatorData::StringSink(_) => app,
+                OperatorData::FileReader(_) => app,
+                OperatorData::Literal(_) => app,
+                OperatorData::Sequence(_) => app,
+            };
+            total_outputs_count += outputs_count;
+            op_liveness_data.outputs_end = total_outputs_count as OpOutputIdx;
+        }
+        self.op_outputs.extend(
+            iter::repeat(Default::default()).take(total_outputs_count),
+        );
+        self.operator_output_map.extend(
+            iter::repeat(INVALID_OP_OUTPUT_ID).take(total_outputs_count),
+        );
+        self.op_outputs_data
+            .resize(total_outputs_count * SLOTS_PER_OP_OUTPUT, false);
+    }
     pub fn add_var_name(&mut self, name: Option<StringStoreEntry>) {
         if let Some(name) = name {
             match self.var_names.entry(name) {
@@ -104,7 +154,7 @@ impl LivenessData {
     }
     pub fn setup_vars(&mut self, sess: &Session) {
         self.vars.extend(
-            (0..sess.chains.len()).map(|i| Var::Anonymous(i as ChainId)),
+            (0..sess.chains.len()).map(|i| Var::ChainInput(i as ChainId)),
         );
         for c in &sess.chains {
             for op in &c.operators {
@@ -247,11 +297,18 @@ impl LivenessData {
         }
         self.var_data.resize(data_size, false);
     }
-    fn setup_bb_predecessors(&mut self) {
+    fn setup_bb_linkage_data(&mut self, sess: &Session) {
         for bb_id in 0..self.basic_blocks.len() {
             for succ_n in 0..self.basic_blocks[bb_id].successors.len() {
                 let succ_id = self.basic_blocks[bb_id].successors[succ_n];
                 self.basic_blocks[succ_id].predecessors.push(bb_id);
+            }
+            let bb = &self.basic_blocks[bb_id];
+            let chain = &sess.chains[bb.chain_id as usize];
+            for op_id in &chain.operators
+                [bb.operators_start as usize..bb.operators_end as usize]
+            {
+                self.operator_data[*op_id as usize].basic_block_id = bb_id;
             }
         }
     }
@@ -508,24 +565,41 @@ impl LivenessData {
             self.compute_local_liveness_for_bb(sess, i);
         }
     }
-    fn get_global_var_data_bounds(&self, bb_id: BasicBlockId) -> Range<usize> {
+    fn get_slot_group_var_data_bounds(
+        &self,
+        bb_id: BasicBlockId,
+        slot_group_offset: usize,
+    ) -> Range<usize> {
         let local_bits_per_bb = self.vars.len() * LOCAL_SLOTS_PER_BASIC_BLOCK;
-        let start =
-            self.basic_blocks[bb_id].var_data_start + local_bits_per_bb;
+        let start = self.basic_blocks[bb_id].var_data_start
+            + slot_group_offset * self.vars.len();
         start..start + local_bits_per_bb
     }
-    fn get_local_var_data_bounds(&self, bb_id: BasicBlockId) -> Range<usize> {
-        let local_bits_per_bb = self.vars.len() * LOCAL_SLOTS_PER_BASIC_BLOCK;
-        let start = self.basic_blocks[bb_id].var_data_start;
-        start..start + local_bits_per_bb
+    pub fn get_succession_var_data_bounds(
+        &self,
+        bb_id: BasicBlockId,
+    ) -> Range<usize> {
+        self.get_slot_group_var_data_bounds(bb_id, SUCCESSION_SLOTS_OFFSET)
     }
-    fn get_global_var_data(
+    pub fn get_global_var_data_bounds(
+        &self,
+        bb_id: BasicBlockId,
+    ) -> Range<usize> {
+        self.get_slot_group_var_data_bounds(bb_id, GLOBAL_SLOTS_OFFSET)
+    }
+    pub fn get_local_var_data_bounds(
+        &self,
+        bb_id: BasicBlockId,
+    ) -> Range<usize> {
+        self.get_slot_group_var_data_bounds(bb_id, LOCAL_SLOTS_OFFSET)
+    }
+    pub fn get_global_var_data(
         &self,
         bb_id: BasicBlockId,
     ) -> &BitSlice<Cell<usize>> {
         &self.var_data[self.get_global_var_data_bounds(bb_id)]
     }
-    fn get_to_global_var_data_ored<'b>(
+    pub fn get_global_var_data_ored<'b>(
         &self,
         tgt: &mut BitSlice<Cell<usize>>,
         mut bbs: impl Iterator<Item = &'b BasicBlockId>,
@@ -539,7 +613,7 @@ impl LivenessData {
             tgt.fill(false);
         }
     }
-    fn kill_non_survivors(
+    pub fn kill_non_survivors(
         &self,
         tgt: &mut BitSlice<Cell<usize>>,
         survivors: &BitSlice<Cell<usize>>,
@@ -553,7 +627,7 @@ impl LivenessData {
             tgt[start..start + var_count] &= survivors_slice;
         }
     }
-    fn apply_alias(
+    pub fn apply_alias(
         &self,
         tgt: &BitSlice<Cell<usize>>,
         src: &BitSlice<Cell<usize>>,
@@ -568,7 +642,7 @@ impl LivenessData {
             );
         }
     }
-    fn apply_bb_aliases(
+    pub fn apply_bb_aliases(
         &self,
         tgt: &BitSlice<Cell<usize>>,
         src: &BitSlice<Cell<usize>>,
@@ -593,12 +667,52 @@ impl LivenessData {
             }
         }
     }
+    pub fn merge_calls_with_successors<'a>(
+        &self,
+        calls: &mut BitVec<Cell<usize>>,
+        successors: &mut BitVec<Cell<usize>>,
+        calls_iter: impl Iterator<Item = &'a BasicBlockId> + Clone,
+        calls_empty: bool,
+        successors_iter: impl Iterator<Item = &'a BasicBlockId>,
+        successors_empty: bool,
+    ) {
+        if calls_empty {
+            self.get_global_var_data_ored(calls, successors_iter);
+        } else {
+            self.get_global_var_data_ored(calls, calls_iter.clone());
+            if !successors_empty {
+                self.get_global_var_data_ored(successors, successors_iter);
+
+                for call_bb_id in calls_iter {
+                    let cbb = &self.basic_blocks[*call_bb_id];
+                    self.apply_bb_aliases(&calls, &successors, cbb);
+                }
+                self.kill_non_survivors(successors, &calls);
+                *calls |= &*successors;
+            }
+        }
+    }
+    fn build_bb_succession_data(
+        &self,
+        bb: &BasicBlock,
+        calls: &mut BitVec<Cell<usize>>,
+        successors: &mut BitVec<Cell<usize>>,
+    ) {
+        self.merge_calls_with_successors(
+            calls,
+            successors,
+            bb.calls.iter(),
+            bb.calls.is_empty(),
+            bb.successors.iter(),
+            bb.successors.is_empty(),
+        );
+    }
     fn compute_global_liveness(&mut self) {
         let var_count = self.vars.len();
         let local_bits_per_bb = var_count * LOCAL_SLOTS_PER_BASIC_BLOCK;
-        let mut successors = BitVec::<Cell<usize>, LocalBits>::new();
-        let mut calls = BitVec::<Cell<usize>, LocalBits>::new();
-        let mut global = BitVec::<Cell<usize>, LocalBits>::new();
+        let mut successors = BitVec::<Cell<usize>>::new();
+        let mut calls = BitVec::<Cell<usize>>::new();
+        let mut global = BitVec::<Cell<usize>>::new();
         successors.resize(local_bits_per_bb, false);
         calls.resize(local_bits_per_bb, false);
         global.resize(local_bits_per_bb, false);
@@ -619,26 +733,7 @@ impl LivenessData {
                 continue;
             }
             global.copy_from_bitslice(&self.var_data[bb_local_range.clone()]);
-            if bb.calls.is_empty() {
-                self.get_to_global_var_data_ored(
-                    &mut calls,
-                    bb.successors.iter(),
-                );
-            } else {
-                self.get_to_global_var_data_ored(&mut calls, bb.calls.iter());
-                if bb.successors.is_empty() {
-                    self.get_to_global_var_data_ored(
-                        &mut successors,
-                        bb.successors.iter(),
-                    );
-                    for call_bb_id in &bb.calls {
-                        let cbb = &self.basic_blocks[*call_bb_id];
-                        self.apply_bb_aliases(&calls, &successors, cbb);
-                    }
-                    self.kill_non_survivors(&mut successors, &calls);
-                    calls |= &successors;
-                }
-            }
+            self.build_bb_succession_data(bb, &mut calls, &mut successors);
             self.apply_bb_aliases(&calls, &global, bb);
             self.kill_non_survivors(&mut calls, &global);
             global |= &calls;
@@ -649,53 +744,46 @@ impl LivenessData {
             }
         }
     }
-    fn compute_op_output_liveness(&mut self) {
-        todo!();
-    }
-    pub fn setup_operator_outputs(&mut self, sess: &mut Session) {
-        self.operator_data.extend(
-            iter::repeat(Default::default()).take(sess.operator_data.len()),
-        );
-        let mut total_outputs_count = sess.chains.len();
-        for op_id in 0..sess.operator_data.len() {
-            let op_base = &mut sess.operator_bases[op_id];
-            let op_liveness_data = &mut self.operator_data[op_id];
-
-            op_liveness_data.outputs_start =
-                total_outputs_count as OpOutputIdx;
-            let app = if op_base.append_mode { 0 } else { 1 };
-            let outputs_count = match &sess.operator_data[op_id] {
-                OperatorData::Call(_) => app,
-                OperatorData::CallConcurrent(_) => app,
-                OperatorData::Cast(_) => app,
-                OperatorData::Count(_) => app,
-                OperatorData::Print(_) => app,
-                OperatorData::Join(_) => app,
-                OperatorData::Fork(_) => 0,
-                OperatorData::Next(_) => app,
-                OperatorData::Up(_) => 0,
-                OperatorData::Key(_) => 0,
-                OperatorData::Select(_) => 0,
-                OperatorData::Regex(re) => {
-                    app + re.capture_group_names.len() - 1
-                }
-                OperatorData::Format(_) => app,
-                OperatorData::StringSink(_) => app,
-                OperatorData::FileReader(_) => app,
-                OperatorData::Literal(_) => app,
-                OperatorData::Sequence(_) => app,
-            };
-            total_outputs_count += outputs_count;
-            op_liveness_data.outputs_end = total_outputs_count as OpOutputIdx;
+    fn compute_bb_succession_data(&mut self) {
+        let mut calls = BitVec::<Cell<usize>>::new();
+        let mut successors = BitVec::<Cell<usize>>::new();
+        let var_bits = LOCAL_SLOTS_PER_BASIC_BLOCK * self.vars.len();
+        for bb in &self.basic_blocks {
+            self.build_bb_succession_data(bb, &mut calls, &mut successors);
+            self.var_data[bb.var_data_start + 2 * var_bits
+                ..bb.var_data_start + 3 * var_bits]
+                .copy_from_bitslice(&calls);
         }
-        self.op_outputs.extend(
-            iter::repeat(Default::default()).take(total_outputs_count),
-        );
-        self.operator_output_map.extend(
-            iter::repeat(INVALID_OP_OUTPUT_ID).take(total_outputs_count),
-        );
-        self.op_outputs_data
-            .resize(total_outputs_count * SLOTS_PER_OP_OUTPUT, false);
+    }
+    fn compute_op_output_liveness(&mut self, sess: &Session) {
+        let var_count = self.vars.len();
+        for bb_id in 0..self.basic_blocks.len() {
+            let succ_var_data =
+                &self.var_data[self.get_succession_var_data_bounds(bb_id)];
+            let bb = &self.basic_blocks[bb_id];
+            let chain = &sess.chains[bb.chain_id as usize];
+            if bb.successors.is_empty() && bb.calls.is_empty() {
+                continue;
+            }
+            for op_id in &chain.operators
+                [bb.operators_start as usize..bb.operators_end as usize]
+            {
+                let op_ld = &self.operator_data[*op_id as usize];
+                for op_output_id in op_ld.outputs_start..op_ld.outputs_start {
+                    let oo = &self.op_outputs[op_output_id as usize];
+                    let data_start =
+                        op_output_id as usize * SLOTS_PER_OP_OUTPUT;
+                    for var_id in &oo.bound_vars_after_bb {
+                        for i in REGULAR_FIELD_OFFSETS {
+                            let v = self.op_outputs_data[data_start + i]
+                                || succ_var_data
+                                    [i * var_count + *var_id as usize];
+                            self.op_outputs_data.set(data_start + i, v);
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -704,9 +792,10 @@ pub fn compute_liveness(sess: &mut Session) -> LivenessData {
     ld.setup_operator_outputs(sess);
     ld.setup_vars(sess);
     ld.setup_bbs(sess);
-    ld.setup_bb_predecessors();
+    ld.setup_bb_linkage_data(sess);
     ld.compute_local_liveness(sess);
     ld.compute_global_liveness();
-    ld.compute_op_output_liveness();
+    ld.compute_bb_succession_data();
+    ld.compute_op_output_liveness(sess);
     ld
 }
