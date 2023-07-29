@@ -20,14 +20,16 @@ use super::{
     errors::{OperatorCreationError, OperatorSetupError},
     operator::{OperatorBase, OperatorData, OperatorId},
     transform::{TransformData, TransformId, TransformState},
-    utils::field_access_mappings::FieldAccessMappings,
+    utils::field_access_mappings::{
+        FieldAccessMappings, WriteCountingAccessMappings,
+    },
 };
 
 #[derive(Clone, Default)]
 pub struct OpForkCat {
     pub subchain_count_before: u32,
     pub subchain_count_after: u32,
-    pub accessed_fields: FieldAccessMappings,
+    pub accessed_fields: WriteCountingAccessMappings,
     pub accessed_fields_per_subchain: Vec<FieldAccessMappings>,
 }
 
@@ -83,7 +85,8 @@ pub fn setup_op_forkcat_liveness_data(
     let var_count = ld.vars.len();
 
     let succ_var_data = &ld.var_data[ld.get_succession_var_data_bounds(bb_id)];
-    op.accessed_fields = FieldAccessMappings::from_var_data(ld, succ_var_data);
+    op.accessed_fields =
+        WriteCountingAccessMappings::from_var_data(0, ld, succ_var_data);
 
     let mut call = BitVec::<Cell<usize>>::new();
     let mut successors = BitVec::<Cell<usize>>::new();
@@ -98,7 +101,8 @@ pub fn setup_op_forkcat_liveness_data(
             &ld.basic_blocks[*callee_id],
         );
         op.accessed_fields_per_subchain
-            .push(FieldAccessMappings::from_var_data(ld, &call));
+            .push(FieldAccessMappings::from_var_data((), ld, &call));
+        op.accessed_fields.append_var_data(0, ld, succ_var_data);
     }
 }
 

@@ -93,6 +93,7 @@ pub fn setup_op_fork_liveness_data(
     for callee_bb_id in bb.successors.iter() {
         op.accessed_fields_per_subchain.push(
             FieldAccessMappings::from_var_data(
+                (),
                 ld,
                 ld.get_global_var_data(*callee_bb_id),
             ),
