@@ -5,6 +5,7 @@ pub mod count;
 pub mod errors;
 pub mod file_reader;
 pub mod fork;
+pub mod forkcat;
 pub mod format;
 pub mod join;
 pub mod key;

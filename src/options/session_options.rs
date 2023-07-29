@@ -13,7 +13,10 @@ use crate::{
         },
         errors::OperatorSetupError,
         file_reader::setup_op_file_reader,
-        fork::{setup_op_fork, setup_op_fork_liveness_data},
+        fork::{setup_op_fork, setup_op_fork_liveness_data, OpFork},
+        forkcat::{
+            setup_op_forkcat, setup_op_forkcat_liveness_data, OpForkCat,
+        },
         format::setup_op_format,
         key::setup_op_key,
         operator::{
@@ -117,8 +120,15 @@ impl SessionOptions {
             OperatorData::Literal(_) => (),
             OperatorData::Sequence(_) => (),
             OperatorData::Join(_) => (),
-            OperatorData::Fork(f) => {
-                f.subchain_count_before =
+            OperatorData::Fork(OpFork {
+                subchain_count_before,
+                ..
+            })
+            | OperatorData::ForkCat(OpForkCat {
+                subchain_count_before,
+                ..
+            }) => {
+                *subchain_count_before =
                     self.chains[self.curr_chain as usize].subchain_count;
                 let mut new_chain = ChainOptions::default();
                 new_chain.parent = self.curr_chain;
@@ -210,12 +220,19 @@ impl SessionOptions {
             let chain = &mut sess.chains[op_base.chain_id as usize];
             if let OperatorData::Up(up) = &sess.operator_data[i] {
                 if up.err_level.is_none() {
-                    let subchain_count_after = up.subchain_count_after;
+                    let sc_count = up.subchain_count_after;
                     match &mut sess.operator_data
                         [*chain.operators.last().unwrap() as usize]
                     {
-                        OperatorData::Fork(f) => {
-                            f.subchain_count_after = subchain_count_after;
+                        OperatorData::Fork(OpFork {
+                            subchain_count_after,
+                            ..
+                        })
+                        | OperatorData::ForkCat(OpForkCat {
+                            subchain_count_after,
+                            ..
+                        }) => {
+                            *subchain_count_after = sc_count;
                         }
                         OperatorData::Call(_) => (),
                         OperatorData::CallConcurrent(_) => (),
@@ -266,6 +283,9 @@ impl SessionOptions {
                 OperatorData::StringSink(_) => (),
                 OperatorData::Fork(op) => {
                     setup_op_fork(chain, op_base, op, op_id)?
+                }
+                OperatorData::ForkCat(op) => {
+                    setup_op_forkcat(chain, op_base, op, op_id)?
                 }
                 OperatorData::Cast(_) => (),
                 OperatorData::Count(_) => (),
@@ -338,6 +358,9 @@ impl SessionOptions {
                 OperatorData::Join(_) => (),
                 OperatorData::Fork(op) => {
                     setup_op_fork_liveness_data(op, op_id, &ld)
+                }
+                OperatorData::ForkCat(op) => {
+                    setup_op_forkcat_liveness_data(op, op_id, &ld)
                 }
                 OperatorData::Next(_) => (),
                 OperatorData::Up(_) => (),

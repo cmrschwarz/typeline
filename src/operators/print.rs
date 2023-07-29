@@ -14,9 +14,9 @@ use crate::{
         FieldValueKind,
     },
     job_session::JobData,
-    operators::utils::{
-        buffer_remaining_stream_values_auto_deref_iter,
-        buffer_remaining_stream_values_sv_iter,
+    operators::utils::buffer_stream_values::{
+        buffer_remaining_stream_values_in_auto_deref_iter,
+        buffer_remaining_stream_values_in_sv_iter,
     },
     options::argument::CliArgIdx,
     ref_iter::{
@@ -260,11 +260,11 @@ pub fn handle_tf_print_raw(
                             tf_id,
                             batch_size - (pos - field_pos_start),
                         );
-                        buffer_remaining_stream_values_sv_iter(
+                        buffer_remaining_stream_values_in_sv_iter(
                             &mut sess.sv_mgr,
                             sv_iter,
                         );
-                        buffer_remaining_stream_values_auto_deref_iter(
+                        buffer_remaining_stream_values_in_auto_deref_iter(
                             &mut sess.match_set_mgr,
                             &mut sess.sv_mgr,
                             iter.clone(),

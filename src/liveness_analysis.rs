@@ -14,11 +14,12 @@ use crate::{
     operators::{
         call::OpCall,
         call_concurrent::OpCallConcurrent,
+        fork::OpFork,
+        forkcat::OpForkCat,
         operator::{OperatorData, OperatorOffsetInChain},
     },
     utils::{
-        identity_hasher::BuildIdentityHasher,
-        string_store::{StringStoreEntry, INVALID_STRING_STORE_ENTRY},
+        identity_hasher::BuildIdentityHasher, string_store::StringStoreEntry,
     },
 };
 
@@ -46,8 +47,6 @@ pub const UNREACHABLE_DUMMY_VAR: VarId = 1;
 pub type OpOutputIdx = u32;
 pub const BB_INPUT_OPERATOR_OUTPUT_IDX: OpOutputIdx = BB_INPUT_VAR;
 pub const INVALID_OP_OUTPUT_IDX: OpOutputIdx = UNREACHABLE_DUMMY_VAR;
-
-pub const INVALID_FIELD_NAME: StringStoreEntry = INVALID_STRING_STORE_ENTRY;
 
 pub struct BasicBlock {
     pub chain_id: ChainId,
@@ -119,6 +118,9 @@ impl LivenessData {
                 OperatorData::Print(_) => app,
                 OperatorData::Join(_) => app,
                 OperatorData::Fork(_) => 0,
+                // technically this has output, but it always introduces a
+                // separate BB so we don't want to allocate slots for that
+                OperatorData::ForkCat(_) => 0,
                 OperatorData::Next(_) => app,
                 OperatorData::Up(_) => 0,
                 OperatorData::Key(_) => 0,
@@ -184,6 +186,7 @@ impl LivenessData {
                     OperatorData::Print(_) => (),
                     OperatorData::Join(_) => (),
                     OperatorData::Fork(_) => (),
+                    OperatorData::ForkCat(_) => (),
                     OperatorData::Next(_) => (),
                     OperatorData::Up(_) => (),
                     OperatorData::Select(s) => {
@@ -282,14 +285,22 @@ impl LivenessData {
                         );
                         break;
                     }
-                    OperatorData::Fork(f) => {
-                        debug_assert!(op_n + 1 == bb.operators_end);
-                        for sc in &cn.subchains[f.subchain_count_before
-                            as usize
-                            ..f.subchain_count_after as usize]
+                    OperatorData::Fork(OpFork {
+                        subchain_count_before,
+                        subchain_count_after,
+                        ..
+                    })
+                    | OperatorData::ForkCat(OpForkCat {
+                        subchain_count_before,
+                        subchain_count_after,
+                        ..
+                    }) => {
+                        for sc in &cn.subchains[*subchain_count_before as usize
+                            ..*subchain_count_after as usize]
                         {
                             bb.successors.push(*sc as BasicBlockId);
                         }
+                        break;
                     }
                     OperatorData::Cast(_) => (),
                     OperatorData::Count(_) => (),
@@ -398,7 +409,7 @@ impl LivenessData {
             let mut input_access_stringified = true;
             let mut may_dup_or_drop = false;
             match &sess.operator_data[op_id as usize] {
-                OperatorData::Fork(_) => {
+                OperatorData::Fork(_) | OperatorData::ForkCat(_) => {
                     debug_assert!(op_n + 1 == bb.operators_end);
                     break;
                 }

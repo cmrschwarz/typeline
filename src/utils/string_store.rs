@@ -3,13 +3,9 @@ use std::{
     num::NonZeroU32,
 };
 
-use super::nonzero_ext::{nonzero_u32_wrapping_sub, NonZeroU32Ext};
-
 pub type StringStoreEntry = NonZeroU32;
 
 pub const INVALID_STRING_STORE_ENTRY: NonZeroU32 = NonZeroU32::MAX;
-pub const INVALID_STRING_STORE_ENTRY_2: NonZeroU32 =
-    nonzero_u32_wrapping_sub(NonZeroU32::MAX, NonZeroU32::ONE);
 pub struct StringStore {
     arena: Vec<Vec<u8>>,
     existing_strings: Vec<Vec<Box<str>>>,

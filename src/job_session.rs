@@ -32,6 +32,9 @@ use crate::{
         count::{handle_tf_count, setup_tf_count},
         file_reader::{handle_tf_file_reader, setup_tf_file_reader},
         fork::{handle_fork_expansion, handle_tf_fork, setup_tf_fork},
+        forkcat::{
+            handle_forkcat_expansion, handle_tf_forkcat, setup_tf_forkcat,
+        },
         format::{
             handle_tf_format, handle_tf_format_stream_value_update,
             setup_tf_format,
@@ -63,8 +66,10 @@ use crate::{
     ref_iter::AutoDerefIter,
     stream_value::{StreamValue, StreamValueData, StreamValueId},
     utils::{
-        nonzero_ext::NonMaxU32Ext, string_store::StringStoreEntry,
-        temp_vec::TempVec, universe::Universe,
+        nonzero_ext::NonMaxU32Ext,
+        string_store::{StringStoreEntry, INVALID_STRING_STORE_ENTRY},
+        temp_vec::TempVec,
+        universe::Universe,
     },
 };
 
@@ -102,6 +107,8 @@ pub struct Field {
 pub type FieldId = NonMaxU32;
 pub const INVALID_FIELD_ID: FieldId = FieldId::MAX;
 pub const DUMMY_INPUT_FIELD_ID: FieldId = FieldId::MIN;
+pub const CHAIN_INPUT_FIELD_NAME: StringStoreEntry =
+    INVALID_STRING_STORE_ENTRY;
 
 pub type MatchSetId = NonMaxUsize;
 
@@ -1001,6 +1008,9 @@ impl<'a> JobSession<'a> {
                 OperatorData::Fork(op) => {
                     setup_tf_fork(jd, b, op, &mut tf_state)
                 }
+                OperatorData::ForkCat(op) => {
+                    setup_tf_forkcat(jd, b, op, &mut tf_state)
+                }
                 OperatorData::Print(op) => {
                     setup_tf_print(jd, b, op, &mut tf_state)
                 }
@@ -1152,6 +1162,7 @@ impl<'a> JobSession<'a> {
                 svu.custom,
             ),
             TransformData::Fork(_) => todo!(),
+            TransformData::ForkCat(_) => todo!(),
             TransformData::CallConcurrent(_) => todo!(),
             TransformData::Call(_) => unreachable!(),
             TransformData::Cast(_) => unreachable!(),
@@ -1171,19 +1182,48 @@ impl<'a> JobSession<'a> {
         ctx: Option<&Arc<ContextData>>,
     ) -> Result<(), VentureDescription> {
         match &mut self.transform_data[usize::from(tf_id)] {
-            TransformData::Fork(fork) if !fork.expanded => {
-                handle_fork_expansion(self, tf_id, ctx)?
+            TransformData::Fork(fork) => {
+                if !fork.expanded {
+                    handle_fork_expansion(self, tf_id, ctx)?
+                }
             }
-            TransformData::Call(_) => handle_lazy_call_expansion(self, tf_id),
-            TransformData::CallConcurrent(callcc) if !callcc.expanded => {
-                handle_call_concurrent_expansion(self, tf_id, ctx)?
+            TransformData::ForkCat(forkcat) => {
+                if !forkcat.curr_target.is_none() {
+                    handle_forkcat_expansion(self, tf_id, ctx)?
+                }
             }
-            _ => (),
+            TransformData::CallConcurrent(callcc) => {
+                if !callcc.expanded {
+                    handle_call_concurrent_expansion(self, tf_id, ctx)?
+                }
+            }
+            TransformData::Call(_) => {
+                // this removes itself on the first invocation,
+                // so no need for any check
+                handle_lazy_call_expansion(self, tf_id);
+            }
+            TransformData::Disabled => (),
+            TransformData::CalleeConcurrent(_) => (),
+            TransformData::Cast(_) => (),
+            TransformData::Count(_) => (),
+            TransformData::Print(_) => (),
+            TransformData::Join(_) => (),
+            TransformData::Select(_) => (),
+            TransformData::StringSink(_) => (),
+            TransformData::Regex(_) => (),
+            TransformData::Format(_) => (),
+            TransformData::FileReader(_) => (),
+            TransformData::Literal(_) => (),
+            TransformData::Sequence(_) => (),
+            TransformData::Terminator(_) => (),
         }
         let jd = &mut self.job_data;
         match &mut self.transform_data[usize::from(tf_id)] {
             TransformData::Fork(fork) => {
                 handle_tf_fork(&mut self.job_data, tf_id, fork)
+            }
+            TransformData::ForkCat(fork) => {
+                handle_tf_forkcat(&mut self.job_data, tf_id, fork)
             }
             TransformData::Print(tf) => handle_tf_print(jd, tf_id, tf),
             TransformData::Regex(tf) => handle_tf_regex(jd, tf_id, tf),

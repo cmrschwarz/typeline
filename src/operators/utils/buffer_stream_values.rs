@@ -4,11 +4,7 @@ use crate::{
     ref_iter::{AutoDerefIter, RefAwareStreamValueIter},
 };
 
-pub const NULL_STR: &'static str = "null";
-pub const SUCCESS_STR: &'static str = "<Success>";
-pub const ERROR_PREFIX_STR: &'static str = "ERROR: ";
-
-pub fn buffer_remaining_stream_values_sv_iter(
+pub fn buffer_remaining_stream_values_in_sv_iter(
     sv_mgr: &mut StreamValueManager,
     iter: RefAwareStreamValueIter,
 ) {
@@ -17,7 +13,7 @@ pub fn buffer_remaining_stream_values_sv_iter(
     }
 }
 
-pub fn buffer_remaining_stream_values_auto_deref_iter<
+pub fn buffer_remaining_stream_values_in_auto_deref_iter<
     'a,
     I: FieldIterator<'a>,
 >(
@@ -31,7 +27,7 @@ pub fn buffer_remaining_stream_values_auto_deref_iter<
     {
         match range.base.data {
             TypedSlice::StreamValueId(svs) => {
-                buffer_remaining_stream_values_sv_iter(
+                buffer_remaining_stream_values_in_sv_iter(
                     sv_mgr,
                     RefAwareStreamValueIter::from_range(&range, svs),
                 );

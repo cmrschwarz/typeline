@@ -18,14 +18,14 @@ use crate::{
         FieldId, FieldManager, JobData, JobSession, MatchSetId,
         INVALID_FIELD_ID,
     },
-    liveness_analysis::{
-        LivenessData, Var, INVALID_FIELD_NAME, READS_OFFSET, WRITES_OFFSET,
-    },
+    liveness_analysis::{LivenessData, Var, READS_OFFSET, WRITES_OFFSET},
     options::argument::CliArgIdx,
     ref_iter::AutoDerefIter,
     utils::{
         identity_hasher::BuildIdentityHasher,
-        string_store::{StringStore, StringStoreEntry},
+        string_store::{
+            StringStore, StringStoreEntry, INVALID_STRING_STORE_ENTRY,
+        },
     },
 };
 
@@ -114,6 +114,11 @@ pub fn setup_op_call_concurrent(
     }
 }
 
+// do not make this public. we use this here internally so we can
+// temporarily insert INPUT_COLUMN_FIELD_NAME into the
+// MatchSet::field_names table while constructing the derived `MatchSet`s
+const INPUT_COLUMN_FIELD_NAME: StringStoreEntry = INVALID_STRING_STORE_ENTRY;
+
 pub fn setup_op_call_concurrent_liveness_data(
     op: &mut OpCallConcurrent,
     op_id: OperatorId,
@@ -131,7 +136,8 @@ pub fn setup_op_call_concurrent_liveness_data(
         match ld.vars[i] {
             Var::Named(name) => op.target_accessed_fields.push((name, writes)),
             Var::BBInput => {
-                op.target_accessed_fields.push((INVALID_FIELD_NAME, writes));
+                op.target_accessed_fields
+                    .push((INPUT_COLUMN_FIELD_NAME, writes));
             }
             Var::UnreachableDummyVar => (),
         }
