@@ -40,10 +40,13 @@ pub const SUCCESSION_SLOTS_OFFSET: usize = 2 * LOCAL_SLOTS_PER_BASIC_BLOCK;
 pub const SLOTS_PER_BASIC_BLOCK: usize = LOCAL_SLOTS_PER_BASIC_BLOCK * 3;
 
 pub type VarId = u32;
+pub const BB_INPUT_VAR: VarId = 0;
+pub const UNREACHABLE_DUMMY_VAR: VarId = 1;
+
 pub type OpOutputIdx = u32;
-pub const INVALID_VAR_ID: VarId = VarId::MAX;
-pub const BB_INPUT_VAR_ID: VarId = 0;
-pub const INVALID_OP_OUTPUT_ID: OpOutputIdx = OpOutputIdx::MAX;
+pub const BB_INPUT_OPERATOR_OUTPUT_IDX: OpOutputIdx = BB_INPUT_VAR;
+pub const INVALID_OP_OUTPUT_IDX: OpOutputIdx = UNREACHABLE_DUMMY_VAR;
+
 pub const INVALID_FIELD_NAME: StringStoreEntry = INVALID_STRING_STORE_ENTRY;
 
 pub struct BasicBlock {
@@ -60,19 +63,18 @@ pub struct BasicBlock {
     // vars available at the start that may be accessed through
     // data behind vars available at the end that contain field references
     pub field_references: HashMap<VarId, SmallVec<[VarId; 4]>>,
-    pub input_var_handed_to_calls: Option<VarId>,
     updates_required: bool,
 }
 pub enum Var {
     Named(StringStoreEntry),
     BBInput,
+    UnreachableDummyVar,
 }
 #[derive(Clone, Default)]
 pub struct OpOutput {
     bound_vars_after_bb: SmallVec<[VarId; 4]>,
-    // vars available at the start that this output may contain field
-    // references to
-    field_references: SmallVec<[VarId; 4]>,
+    // other outputs referenced in the data of this output, e.g. for regex
+    field_references: SmallVec<[OpOutputIdx; 4]>,
 }
 
 #[derive(Clone, Default)]
@@ -91,20 +93,20 @@ pub struct LivenessData {
     pub var_names: HashMap<StringStoreEntry, VarId, BuildIdentityHasher>,
     pub basic_blocks: Vec<BasicBlock>,
     // for each var id, either an op output id or INVALID_OP_OUTPUT_ID
-    pub operator_output_map: Vec<OpOutputIdx>,
-    pub operator_data: Vec<OperatorLivenessData>,
+    pub vars_to_op_outputs_map: Vec<OpOutputIdx>,
+    pub operator_liveness_data: Vec<OperatorLivenessData>,
     updates_required: Vec<BasicBlockId>,
 }
 
 impl LivenessData {
     pub fn setup_operator_outputs(&mut self, sess: &mut Session) {
-        self.operator_data.extend(
+        self.operator_liveness_data.extend(
             iter::repeat(Default::default()).take(sess.operator_data.len()),
         );
-        let mut total_outputs_count = sess.chains.len();
+        let mut total_outputs_count = self.vars.len();
         for op_id in 0..sess.operator_data.len() {
             let op_base = &mut sess.operator_bases[op_id];
-            let op_liveness_data = &mut self.operator_data[op_id];
+            let op_liveness_data = &mut self.operator_liveness_data[op_id];
 
             op_liveness_data.outputs_start =
                 total_outputs_count as OpOutputIdx;
@@ -136,36 +138,44 @@ impl LivenessData {
         self.op_outputs.extend(
             iter::repeat(Default::default()).take(total_outputs_count),
         );
-        self.operator_output_map.extend(
-            iter::repeat(INVALID_OP_OUTPUT_ID).take(total_outputs_count),
-        );
+        self.vars_to_op_outputs_map
+            .extend(0..self.vars.len() as VarId);
+
         self.op_outputs_data
-            .resize(total_outputs_count * SLOTS_PER_OP_OUTPUT, false);
+            .reserve(total_outputs_count * SLOTS_PER_OP_OUTPUT);
+        // initialize reads and READS and WRITES to false
+        self.op_outputs_data.resize(total_outputs_count * 2, false);
+        // initialize STRINGIFIED to true
+        self.op_outputs_data.resize(total_outputs_count * 3, true);
     }
-    pub fn add_var_name(&mut self, name: Option<StringStoreEntry>) {
-        if let Some(name) = name {
-            match self.var_names.entry(name) {
-                Entry::Occupied(_) => (),
-                Entry::Vacant(e) => {
-                    e.insert(self.vars.len() as VarId);
-                    self.vars.push(Var::Named(name));
-                }
+    pub fn add_var_name(&mut self, name: StringStoreEntry) {
+        match self.var_names.entry(name) {
+            Entry::Occupied(_) => (),
+            Entry::Vacant(e) => {
+                e.insert(self.vars.len() as VarId);
+                self.vars.push(Var::Named(name));
             }
+        }
+    }
+    pub fn add_var_name_opt(&mut self, name: Option<StringStoreEntry>) {
+        if let Some(name) = name {
+            self.add_var_name(name);
         }
     }
     pub fn setup_vars(&mut self, sess: &Session) {
         self.vars.push(Var::BBInput);
+        self.vars.push(Var::UnreachableDummyVar);
         for c in &sess.chains {
             for op in &c.operators {
-                self.add_var_name(sess.operator_bases[*op as usize].label);
+                self.add_var_name_opt(sess.operator_bases[*op as usize].label);
                 match &sess.operator_data[*op as usize] {
                     OperatorData::Regex(re) => {
                         for n in &re.capture_group_names {
-                            self.add_var_name(*n);
+                            self.add_var_name_opt(*n);
                         }
                     }
                     OperatorData::Key(k) => {
-                        self.add_var_name(Some(k.key_interned));
+                        self.add_var_name(k.key_interned);
                     }
                     OperatorData::Call(_) => (),
                     OperatorData::CallConcurrent(_) => (),
@@ -176,8 +186,14 @@ impl LivenessData {
                     OperatorData::Fork(_) => (),
                     OperatorData::Next(_) => (),
                     OperatorData::Up(_) => (),
-                    OperatorData::Select(_) => (),
-                    OperatorData::Format(_) => (),
+                    OperatorData::Select(s) => {
+                        self.add_var_name(s.key_interned);
+                    }
+                    OperatorData::Format(fmt) => {
+                        for r in &fmt.refs_idx {
+                            self.add_var_name_opt(*r);
+                        }
+                    }
                     OperatorData::StringSink(_) => (),
                     OperatorData::FileReader(_) => (),
                     OperatorData::Literal(_) => (),
@@ -212,7 +228,6 @@ impl LivenessData {
                 successors: Default::default(),
                 renames: Default::default(),
                 updates_required: true,
-                input_var_handed_to_calls: None,
                 field_references: Default::default(),
                 predecessors: Default::default(),
             });
@@ -234,7 +249,6 @@ impl LivenessData {
                 successors: Default::default(),
                 renames: Default::default(),
                 updates_required: true,
-                input_var_handed_to_calls: None,
                 field_references: Default::default(),
                 predecessors: Default::default(),
             });
@@ -307,114 +321,79 @@ impl LivenessData {
             for op_id in &chain.operators
                 [bb.operators_start as usize..bb.operators_end as usize]
             {
-                self.operator_data[*op_id as usize].basic_block_id = bb_id;
+                self.operator_liveness_data[*op_id as usize].basic_block_id =
+                    bb_id;
             }
         }
     }
     fn access_field(
         &self,
         bb_id: BasicBlockId,
-        var_id: VarId,
+        op_output_idx: OpOutputIdx,
         write: bool,
         stringified: bool,
     ) {
-        let bb = &self.basic_blocks[bb_id];
-        let mut vid = var_id as usize;
-        let ooid = self.operator_output_map[vid] as usize;
-        if ooid != INVALID_OP_OUTPUT_ID as usize {
-            let ooc = self.op_outputs.len();
-            self.op_outputs_data
-                .set_aliased(READS_OFFSET * ooc + ooid, true);
-            if !stringified {
-                self.op_outputs_data.set_aliased(
-                    STRINGIFIED_READS_ONLY_OFFSET * ooc + ooid,
-                    false,
-                );
-            }
-            if write {
-                self.op_outputs_data
-                    .set_aliased(WRITES_OFFSET * ooc + ooid, true);
-            }
-            for fr in &self.op_outputs[ooid].field_references {
-                self.access_field(bb_id, *fr, write, stringified);
-            }
-            return; // var was killed, no need to record data on it
-        }
-        if let Some(original_name) = bb.renames.get(&var_id) {
-            vid = *original_name as usize;
-        }
-        let vc = self.vars.len();
-        let vds = bb.var_data_start;
-        self.var_data
-            .set_aliased(vds + READS_OFFSET * vc + vid, true);
+        let oo_idx = op_output_idx as usize;
+        let ooc = self.op_outputs.len();
+        self.op_outputs_data
+            .set_aliased(READS_OFFSET * ooc + oo_idx, true);
         if !stringified {
-            self.var_data.set_aliased(
-                vds + STRINGIFIED_READS_ONLY_OFFSET * vc + vid,
+            self.op_outputs_data.set_aliased(
+                STRINGIFIED_READS_ONLY_OFFSET * ooc + oo_idx,
                 false,
             );
         }
         if write {
-            self.var_data
-                .set_aliased(vds + WRITES_OFFSET * vc + vid, true);
+            self.op_outputs_data
+                .set_aliased(WRITES_OFFSET * ooc + oo_idx, true);
+        }
+        for fr in &self.op_outputs[oo_idx].field_references {
+            self.access_field(bb_id, *fr, write, stringified);
         }
     }
-    fn bind_var(
-        &mut self,
-        bb_id: BasicBlockId,
-        tgt_var: VarId,
-        src_var: VarId,
-    ) {
-        let bb = &mut self.basic_blocks[bb_id];
-        debug_assert!(tgt_var != INVALID_VAR_ID);
-        if src_var != INVALID_VAR_ID {
-            let op_output = self.operator_output_map[src_var as usize];
-            self.operator_output_map[tgt_var as usize] = op_output;
-            if op_output == INVALID_OP_OUTPUT_ID {
-                bb.renames.insert(tgt_var, src_var);
-            } else {
-                bb.renames.remove(&tgt_var);
-            }
+    fn reset_op_outputs_data_for_vars(&mut self) {
+        let vc = self.vars.len();
+        let ooc = self.op_outputs.len();
+        self.op_outputs_data[READS_OFFSET * ooc..READS_OFFSET * ooc + vc]
+            .fill(false);
+        self.op_outputs_data[WRITES_OFFSET * ooc..WRITES_OFFSET * ooc + vc]
+            .fill(false);
+        self.op_outputs_data[STRINGIFIED_READS_ONLY_OFFSET * ooc
+            ..STRINGIFIED_READS_ONLY_OFFSET * ooc + vc]
+            .fill(true);
+        for i in 0..vc {
+            // initially each var points to it's input
+            self.vars_to_op_outputs_map[i] = i as OpOutputIdx;
+            self.op_outputs[i].field_references.clear();
         }
-        self.var_data.set(
-            bb.var_data_start
-                + self.vars.len() * SURVIVES_OFFSET
-                + tgt_var as usize,
-            false,
-        );
     }
     fn compute_local_liveness_for_bb(
         &mut self,
         sess: &Session,
         bb_id: BasicBlockId,
     ) {
+        self.reset_op_outputs_data_for_vars();
         let mut bb = &mut self.basic_blocks[bb_id];
-        let varcount = self.vars.len();
-        let reads_start = bb.var_data_start + READS_OFFSET * varcount;
-        let writes_start = bb.var_data_start + WRITES_OFFSET * varcount;
-        let survives = bb.var_data_start + SURVIVES_OFFSET * varcount;
-        self.var_data[reads_start..reads_start + varcount].fill(false);
-        self.var_data[writes_start..writes_start + varcount].fill(false);
         let cn = &sess.chains[bb.chain_id as usize];
-        let mut input_field = BB_INPUT_VAR_ID;
+        let mut input_field = BB_INPUT_OPERATOR_OUTPUT_IDX;
         let mut last_output_field = input_field;
         let mut any_writes_so_far = false;
-        self.operator_output_map
-            .iter_mut()
-            .for_each(|v| *v = INVALID_OP_OUTPUT_ID);
         for op_n in bb.operators_start..bb.operators_end {
+            bb = &mut self.basic_blocks[bb_id]; // reborrow for lifetime
             let op_id = cn.operators[op_n as usize] as usize;
             let op_base = &sess.operator_bases[op_id];
             let output_field = if op_base.append_mode {
                 last_output_field
             } else {
-                INVALID_VAR_ID
+                self.operator_liveness_data[op_id].outputs_start
             };
-            let used_input_field =
-                if op_base.append_mode && last_output_field == bb.chain_id {
-                    INVALID_VAR_ID
-                } else {
-                    input_field
-                };
+            let used_input_field = if op_base.append_mode
+                && last_output_field == BB_INPUT_OPERATOR_OUTPUT_IDX
+            {
+                INVALID_OP_OUTPUT_IDX
+            } else {
+                input_field
+            };
             let mut input_accessed = true;
             let mut input_access_stringified = true;
             let mut may_dup_or_drop = false;
@@ -426,53 +405,50 @@ impl LivenessData {
                 OperatorData::Call(_) | OperatorData::CallConcurrent(_) => {
                     debug_assert!(!op_base.append_mode);
                     debug_assert!(op_n + 1 == bb.operators_end);
-                    self.bind_var(bb_id, BB_INPUT_VAR_ID, input_field);
-                    bb = &mut self.basic_blocks[bb_id];
                     break;
                 }
                 OperatorData::Key(key) => {
-                    debug_assert!(!op_base.append_mode);
                     let tgt_var = self.var_names[&key.key_interned];
-                    self.bind_var(bb_id, tgt_var, input_field);
-                    bb = &mut self.basic_blocks[bb_id];
+                    debug_assert!(!op_base.append_mode);
+                    self.vars_to_op_outputs_map[tgt_var as usize] =
+                        used_input_field;
                     continue;
                 }
                 OperatorData::Select(select) => {
-                    input_field = self.var_names[&select.key_interned];
-                    if let Some(original_var) = bb.renames.get(&input_field) {
-                        input_field = *original_var;
+                    let mut var = self.var_names[&select.key_interned];
+                    // resolve renames
+                    loop {
+                        input_field =
+                            self.vars_to_op_outputs_map[var as usize];
+                        if input_field >= self.vars.len() as OpOutputIdx {
+                            break;
+                        }
+                        // OpOutput indices below vars.len() are the vars
+                        var = input_field as VarId;
                     }
                     continue;
                 }
                 OperatorData::Regex(re) => {
                     may_dup_or_drop =
                         !re.opts.non_mandatory || re.opts.multimatch;
-                    if used_input_field != INVALID_VAR_ID {
-                        if self.operator_output_map[used_input_field as usize]
-                            == INVALID_OP_OUTPUT_ID
-                        {
-                            let tgt = *bb
-                                .renames
-                                .get(&used_input_field)
-                                .unwrap_or(&used_input_field);
-                            for i in 0..re.capture_group_names.len() {
-                                self.op_outputs[self.operator_data[op_id]
-                                    .outputs_start
-                                    as usize
-                                    + i]
-                                    .field_references
-                                    .push(tgt);
-                            }
-                        }
+                    for i in 0..re.capture_group_names.len() {
+                        self.op_outputs[self.operator_liveness_data[op_id]
+                            .outputs_start
+                            as usize
+                            + i]
+                            .field_references
+                            .push(used_input_field);
                     }
+
                     for (cgi, cgn) in re.capture_group_names.iter().enumerate()
                     {
                         if let Some(name) = cgn {
                             let tgt_var_name = self.var_names[name];
-                            self.operator_output_map[tgt_var_name as usize] =
-                                self.operator_data[op_id].outputs_start
-                                    + cgi as OpOutputIdx;
-                            bb.renames.remove(&tgt_var_name);
+                            self.vars_to_op_outputs_map
+                                [tgt_var_name as usize] = self
+                                .operator_liveness_data[op_id]
+                                .outputs_start
+                                + cgi as OpOutputIdx;
                         }
                     }
                 }
@@ -490,7 +466,6 @@ impl LivenessData {
                                 any_writes_so_far,
                                 false, // TODO
                             );
-                            bb = &mut self.basic_blocks[bb_id];
                         } else {
                             input_accessed = true;
                         }
@@ -522,21 +497,18 @@ impl LivenessData {
                 OperatorData::Next(_) => unreachable!(),
                 OperatorData::Up(_) => unreachable!(),
             }
-            if input_accessed && input_field != INVALID_VAR_ID {
+            if input_accessed && used_input_field != INVALID_OP_OUTPUT_IDX {
                 self.access_field(
                     bb_id,
-                    input_field,
+                    used_input_field,
                     any_writes_so_far,
                     input_access_stringified,
                 );
-                bb = &mut self.basic_blocks[bb_id];
             }
             if let Some(label) = sess.operator_bases[op_id as usize].label {
                 let var_id = self.var_names[&label];
-                self.operator_output_map[var_id as usize] =
-                    self.operator_data[op_id].outputs_start;
-                bb.renames.remove(&var_id);
-                self.var_data.set_aliased(survives + var_id as usize, false);
+                self.vars_to_op_outputs_map[var_id as usize] =
+                    self.operator_liveness_data[op_id].outputs_start;
             }
             any_writes_so_far |= may_dup_or_drop;
             last_output_field = output_field;
@@ -544,28 +516,47 @@ impl LivenessData {
                 input_field = output_field;
             }
         }
+        bb = &mut self.basic_blocks[bb_id];
+        let vc = self.vars.len();
+        let ooc = self.op_outputs.len();
+        for i in REGULAR_FIELD_OFFSETS {
+            self.var_data
+                [bb.var_data_start + i * vc..bb.var_data_start + (i + 1) * vc]
+                .copy_from_bitslice(
+                    &self.op_outputs_data[i * ooc..i * ooc + vc],
+                );
+        }
         for (var_idx, op_output_id) in
-            self.operator_output_map.iter().enumerate()
+            self.vars_to_op_outputs_map.iter().enumerate()
         {
-            if *op_output_id == INVALID_OP_OUTPUT_ID {
-                continue;
+            if *op_output_id >= self.vars.len() as OpOutputIdx {
+                self.var_data.set_aliased(
+                    bb.var_data_start
+                        + SURVIVES_OFFSET * self.vars.len()
+                        + var_idx,
+                    false,
+                );
+                let op_output = &mut self.op_outputs[*op_output_id as usize];
+                let mut field_refs = None;
+                for fr in &op_output.field_references {
+                    if *fr < self.vars.len() as OpOutputIdx {
+                        let frs = if let Some(ref mut frs) = field_refs {
+                            frs
+                        } else {
+                            let frs = bb
+                                .field_references
+                                .entry(var_idx as VarId)
+                                .or_default();
+                            field_refs = Some(frs);
+                            field_refs.as_mut().unwrap()
+                        };
+                        frs.push(*fr);
+                    }
+                }
+                op_output.bound_vars_after_bb.push(var_idx as VarId);
+            } else if *op_output_id != var_idx as VarId {
+                bb.renames.insert(var_idx as VarId, *op_output_id as VarId);
             }
-            let var_id = var_idx as VarId;
-            self.var_data.set_aliased(
-                bb.var_data_start
-                    + SURVIVES_OFFSET * self.vars.len()
-                    + var_idx,
-                false,
-            );
-            let op_output = &mut self.op_outputs[*op_output_id as usize];
-            op_output.bound_vars_after_bb.push(var_id);
-            if !op_output.field_references.is_empty() {
-                bb.field_references
-                    .insert(var_id, op_output.field_references.clone());
-            }
-            self.op_outputs[*op_output_id as usize]
-                .bound_vars_after_bb
-                .push(var_id);
         }
     }
     fn compute_local_liveness(&mut self, sess: &Session) {
@@ -733,11 +724,13 @@ impl LivenessData {
             let bb_global_range = self.get_global_var_data_bounds(bb_id);
 
             if bb.successors.is_empty() && bb.calls.is_empty() {
-                self.var_data.copy_within(
-                    bb_local_range.clone(),
-                    bb_global_range.start,
-                );
-                self.update_bb_predecessors(bb_id);
+                if !bb_local_range.is_empty() {
+                    self.var_data.copy_within(
+                        bb_local_range.clone(),
+                        bb_global_range.start,
+                    );
+                    self.update_bb_predecessors(bb_id);
+                }
                 continue;
             }
             global.copy_from_bitslice(&self.var_data[bb_local_range.clone()]);
@@ -767,6 +760,7 @@ impl LivenessData {
     }
     fn compute_op_output_liveness(&mut self, sess: &Session) {
         let var_count = self.vars.len();
+        let op_output_count = self.op_outputs.len();
         for bb_id in 0..self.basic_blocks.len() {
             let succ_var_data =
                 &self.var_data[self.get_succession_var_data_bounds(bb_id)];
@@ -778,17 +772,17 @@ impl LivenessData {
             for op_id in &chain.operators
                 [bb.operators_start as usize..bb.operators_end as usize]
             {
-                let op_ld = &self.operator_data[*op_id as usize];
+                let op_ld = &self.operator_liveness_data[*op_id as usize];
                 for op_output_id in op_ld.outputs_start..op_ld.outputs_start {
                     let oo = &self.op_outputs[op_output_id as usize];
-                    let data_start =
-                        op_output_id as usize * SLOTS_PER_OP_OUTPUT;
                     for var_id in &oo.bound_vars_after_bb {
                         for i in REGULAR_FIELD_OFFSETS {
-                            let v = self.op_outputs_data[data_start + i]
-                                || succ_var_data
-                                    [i * var_count + *var_id as usize];
-                            self.op_outputs_data.set(data_start + i, v);
+                            let oo_idx =
+                                i * op_output_count + op_output_id as usize;
+                            let v_idx = i * var_count + *var_id as usize;
+                            let v = self.op_outputs_data[oo_idx]
+                                || succ_var_data[v_idx];
+                            self.op_outputs_data.set(oo_idx, v);
                         }
                     }
                 }
@@ -799,8 +793,8 @@ impl LivenessData {
 
 pub fn compute_liveness_data(sess: &mut Session) -> LivenessData {
     let mut ld = LivenessData::default();
-    ld.setup_operator_outputs(sess);
     ld.setup_vars(sess);
+    ld.setup_operator_outputs(sess);
     ld.setup_bbs(sess);
     ld.setup_bb_linkage_data(sess);
     ld.compute_local_liveness(sess);

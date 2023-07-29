@@ -119,7 +119,7 @@ pub fn setup_op_call_concurrent_liveness_data(
     op_id: OperatorId,
     ld: &LivenessData,
 ) {
-    let bb_id = ld.operator_data[op_id as usize].basic_block_id;
+    let bb_id = ld.operator_liveness_data[op_id as usize].basic_block_id;
     debug_assert!(ld.basic_blocks[bb_id].calls.len() == 1);
     let succ_var_data = &ld.var_data[ld.get_succession_var_data_bounds(bb_id)];
     let var_count = ld.vars.len();
@@ -133,6 +133,7 @@ pub fn setup_op_call_concurrent_liveness_data(
             Var::BBInput => {
                 op.target_accessed_fields.push((INVALID_FIELD_NAME, writes));
             }
+            Var::UnreachableDummyVar => (),
         }
     }
 }

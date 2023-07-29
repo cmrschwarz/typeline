@@ -98,7 +98,7 @@ pub fn setup_op_forkjoin_liveness_data(
     op_id: OperatorId,
     ld: &LivenessData,
 ) {
-    let bb_id = ld.operator_data[op_id as usize].basic_block_id;
+    let bb_id = ld.operator_liveness_data[op_id as usize].basic_block_id;
     debug_assert!(ld.basic_blocks[bb_id].calls.len() == 1);
     let bb = &ld.basic_blocks[bb_id];
     let var_count = ld.vars.len();
@@ -129,6 +129,7 @@ pub fn setup_op_forkjoin_liveness_data(
                     op.accessed_fields_per_subchain[sc_id]
                         .insert(INVALID_FIELD_NAME, writes);
                 }
+                Var::UnreachableDummyVar => (),
             }
         }
     }
@@ -139,7 +140,7 @@ pub fn setup_op_fork_liveness_data(
     op_id: OperatorId,
     ld: &LivenessData,
 ) {
-    let bb_id = ld.operator_data[op_id as usize].basic_block_id;
+    let bb_id = ld.operator_liveness_data[op_id as usize].basic_block_id;
     debug_assert!(ld.basic_blocks[bb_id].calls.len() == 0);
     let bb = &ld.basic_blocks[bb_id];
     let var_count = ld.vars.len();
@@ -163,6 +164,7 @@ pub fn setup_op_fork_liveness_data(
                     op.accessed_fields_per_subchain[sc_id]
                         .insert(INVALID_FIELD_NAME, writes);
                 }
+                Var::UnreachableDummyVar => (),
             }
         }
     }
