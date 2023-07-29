@@ -7,6 +7,7 @@ use crate::{
         errors::OperatorCreationError,
         file_reader::{argument_matches_op_file_reader, parse_op_file_reader},
         fork::parse_op_fork,
+        forkcat::parse_op_forkcat,
         format::parse_op_format,
         join::{argument_matches_op_join, parse_op_join},
         key::parse_op_key,
@@ -474,6 +475,7 @@ fn parse_operation(
         "count" => Some(parse_op_count(value, idx)?),
 
         "fork" => Some(parse_op_fork(value, idx)?),
+        "forkcat" => Some(parse_op_forkcat(value, idx)?),
         "call" => Some(parse_op_call(value, idx)?),
         "callcc" => Some(parse_op_call_concurrent(value, idx)?),
         "next" => Some(parse_op_next(value, idx)?),

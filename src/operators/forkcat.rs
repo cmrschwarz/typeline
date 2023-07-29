@@ -79,7 +79,6 @@ pub fn setup_op_forkcat_liveness_data(
     ld: &LivenessData,
 ) {
     let bb_id = ld.operator_liveness_data[op_id as usize].basic_block_id;
-    debug_assert!(ld.basic_blocks[bb_id].calls.len() == 1);
     let bb = &ld.basic_blocks[bb_id];
     let var_count = ld.vars.len();
 
@@ -88,8 +87,8 @@ pub fn setup_op_forkcat_liveness_data(
 
     let mut call = BitVec::<Cell<usize>>::new();
     let mut successors = BitVec::<Cell<usize>>::new();
-    call.reserve(var_count * LOCAL_SLOTS_PER_BASIC_BLOCK);
-    successors.reserve(var_count * LOCAL_SLOTS_PER_BASIC_BLOCK);
+    call.resize(var_count * LOCAL_SLOTS_PER_BASIC_BLOCK, false);
+    successors.resize(var_count * LOCAL_SLOTS_PER_BASIC_BLOCK, false);
     ld.get_global_var_data_ored(&mut successors, bb.successors.iter());
     for callee_id in &bb.calls {
         call.copy_from_bitslice(ld.get_global_var_data(bb_id));

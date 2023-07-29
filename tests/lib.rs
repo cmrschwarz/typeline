@@ -10,6 +10,7 @@ use scr::{
         call_concurrent::create_op_callcc,
         file_reader::create_op_file_reader_custom,
         fork::create_op_fork,
+        forkcat::create_op_forkcat,
         format::create_op_format,
         join::{create_op_join, create_op_join_str},
         key::create_op_key,
@@ -1291,5 +1292,19 @@ fn ref_iter_reading_form_cow() -> Result<(), ScrError> {
             .map(|v| v.to_string())
             .collect::<Vec<_>>()
     );
+    Ok(())
+}
+
+#[test]
+fn basic_forkcat() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::new();
+    ContextBuilder::default()
+        .add_op(create_op_forkcat())
+        .add_op(create_op_str("foo", 1))
+        .add_op(create_op_next())
+        .add_op(create_op_str("bar", 1))
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(ss.get_data().unwrap().as_slice(), ["foo", "bar"]);
     Ok(())
 }
