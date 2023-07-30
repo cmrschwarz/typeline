@@ -24,8 +24,8 @@ use super::{
 
 #[derive(Clone, Default)]
 pub struct OpForkCat {
-    pub subchain_count_before: u32,
-    pub subchain_count_after: u32,
+    pub subchains_start: u32,
+    pub subchains_end: u32,
     pub accessed_fields: WriteCountingAccessMappings,
     pub accessed_fields_per_subchain: Vec<FieldAccessMappings>,
 }
@@ -65,11 +65,11 @@ pub fn setup_op_forkcat(
     op: &mut OpForkCat,
     _op_id: OperatorId,
 ) -> Result<(), OperatorSetupError> {
-    if op.subchain_count_after == 0 {
+    if op.subchains_end == 0 {
         debug_assert!(
             op_base.offset_in_chain as usize + 1 == chain.operators.len()
         );
-        op.subchain_count_after = chain.subchains.len() as u32;
+        op.subchains_end = chain.subchains.len() as u32;
     }
     Ok(())
 }
@@ -112,7 +112,7 @@ pub fn setup_tf_forkcat<'a>(
     _tf_state: &mut TransformState,
 ) -> TransformData<'a> {
     TransformData::ForkCat(TfForkCat {
-        curr_subchain: op.subchain_count_before,
+        curr_subchain: op.subchains_start,
         curr_target: None,
         current_mappings: Default::default(),
         op,

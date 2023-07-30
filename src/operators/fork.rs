@@ -32,8 +32,8 @@ pub struct OpFork {
     // forkcc
     // forkjoin[=merge_col,..] [CC]
     // forkcat [CC]
-    pub subchain_count_before: u32,
-    pub subchain_count_after: u32,
+    pub subchains_start: u32,
+    pub subchains_end: u32,
     pub accessed_fields_per_subchain: Vec<FieldAccessMappings>,
 }
 
@@ -61,8 +61,8 @@ pub fn parse_op_fork(
         ));
     }
     Ok(OperatorData::Fork(OpFork {
-        subchain_count_before: 0,
-        subchain_count_after: 0,
+        subchains_start: 0,
+        subchains_end: 0,
         accessed_fields_per_subchain: Default::default(),
     }))
 }
@@ -73,11 +73,11 @@ pub fn setup_op_fork(
     op: &mut OpFork,
     _op_id: OperatorId,
 ) -> Result<(), OperatorSetupError> {
-    if op.subchain_count_after == 0 {
+    if op.subchains_end == 0 {
         debug_assert!(
             op_base.offset_in_chain as usize + 1 == chain.operators.len()
         );
-        op.subchain_count_after = chain.subchains.len() as u32;
+        op.subchains_end = chain.subchains.len() as u32;
     }
     Ok(())
 }
@@ -173,10 +173,16 @@ pub fn handle_tf_fork(
         );
     }
     for tf in &sp.targets {
-        sess.tf_mgr
-            .inform_transform_batch_available(*tf, batch_size, false);
+        sess.tf_mgr.inform_transform_batch_available(
+            *tf,
+            batch_size,
+            unconsumed_input,
+        );
     }
     if end_of_input {
+        for tf in &sp.targets {
+            sess.tf_mgr.push_tf_in_ready_queue(*tf);
+        }
         for tf in &sp.targets {
             sess.tf_mgr.transforms[*tf].input_is_done = true;
         }
@@ -349,8 +355,8 @@ pub(crate) fn handle_fork_expansion(
 
 pub fn create_op_fork() -> OperatorData {
     OperatorData::Fork(OpFork {
-        subchain_count_before: 0,
-        subchain_count_after: 0,
+        subchains_start: 0,
+        subchains_end: 0,
         accessed_fields_per_subchain: Default::default(),
     })
 }

@@ -286,17 +286,17 @@ impl LivenessData {
                         break;
                     }
                     OperatorData::Fork(OpFork {
-                        subchain_count_before,
-                        subchain_count_after,
+                        subchains_start,
+                        subchains_end,
                         ..
                     })
                     | OperatorData::ForkCat(OpForkCat {
-                        subchain_count_before,
-                        subchain_count_after,
+                        subchains_start,
+                        subchains_end,
                         ..
                     }) => {
-                        for sc in &cn.subchains[*subchain_count_before as usize
-                            ..*subchain_count_after as usize]
+                        for sc in &cn.subchains[*subchains_start as usize
+                            ..*subchains_end as usize]
                         {
                             bb.successors.push(*sc as BasicBlockId);
                         }

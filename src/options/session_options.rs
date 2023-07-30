@@ -121,14 +121,12 @@ impl SessionOptions {
             OperatorData::Sequence(_) => (),
             OperatorData::Join(_) => (),
             OperatorData::Fork(OpFork {
-                subchain_count_before,
-                ..
+                subchains_start, ..
             })
             | OperatorData::ForkCat(OpForkCat {
-                subchain_count_before,
-                ..
+                subchains_start, ..
             }) => {
-                *subchain_count_before =
+                *subchains_start =
                     self.chains[self.curr_chain as usize].subchain_count;
                 let mut new_chain = ChainOptions::default();
                 new_chain.parent = self.curr_chain;
@@ -225,11 +223,11 @@ impl SessionOptions {
                         [*chain.operators.last().unwrap() as usize]
                     {
                         OperatorData::Fork(OpFork {
-                            subchain_count_after,
+                            subchains_end: subchain_count_after,
                             ..
                         })
                         | OperatorData::ForkCat(OpForkCat {
-                            subchain_count_after,
+                            subchains_end: subchain_count_after,
                             ..
                         }) => {
                             *subchain_count_after = sc_count;

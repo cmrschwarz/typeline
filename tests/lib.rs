@@ -1295,6 +1295,20 @@ fn ref_iter_reading_form_cow() -> Result<(), ScrError> {
     Ok(())
 }
 
+#[test]
+fn fork_without_input() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::new();
+    ContextBuilder::default()
+        .add_op(create_op_fork())
+        .add_op(create_op_str("foo", 1))
+        .add_op(create_op_string_sink(&ss))
+        .add_op(create_op_str("bar", 1))
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(ss.get_data().unwrap().as_slice(), ["foo", "bar"]);
+    Ok(())
+}
+
 // disable for now
 // #[test]
 fn _basic_forkcat() -> Result<(), ScrError> {
