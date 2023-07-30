@@ -5,7 +5,7 @@ use std::{
 
 use crate::{
     chain::Chain,
-    context::{ContextData, VentureDescription},
+    context::ContextData,
     field_data::{
         iter_hall::{IterHall, IterId},
         iters::FieldIterator,
@@ -188,7 +188,7 @@ pub(crate) fn handle_fork_expansion(
     sess: &mut JobSession,
     tf_id: TransformId,
     _ctx: Option<&Arc<ContextData>>,
-) -> Result<(), VentureDescription> {
+) {
     // we have to temporarily move the targets out of fork so we can modify
     // sess while accessing them
     let mut targets = Vec::<TransformId>::new();
@@ -221,11 +221,9 @@ pub(crate) fn handle_fork_expansion(
         } else {
             unreachable!();
         };
-        let mut chain_input_field_id = DUMMY_INPUT_FIELD_ID;
-        let mut input_field_handled = false;
+        let mut chain_input_field = None;
         for (name, writes) in field_access_mapping.iter_name_opt() {
             let src_field_id;
-            let mut handling_input_field = false;
             let mut entry;
             if let Some(name) = name {
                 let vacant = match target_match_set.field_name_map.entry(name)
@@ -234,13 +232,8 @@ pub(crate) fn handle_fork_expansion(
                     Entry::Vacant(e) => e,
                 };
                 if let Some(field) = fork_match_set.field_name_map.get(&name) {
-                    if *field == fork_input_field_id {
-                        if input_field_handled {
-                            continue;
-                        }
-                        input_field_handled = true;
-                        handling_input_field = true;
-                    }
+                    // the input field is always first in this iterator
+                    debug_assert!(*field != fork_input_field_id);
                     src_field_id = *field;
                 } else {
                     let target_field_id =
@@ -254,11 +247,9 @@ pub(crate) fn handle_fork_expansion(
                 };
                 entry = Some(vacant);
             } else {
-                if input_field_handled {
+                if chain_input_field.is_some() {
                     continue;
                 }
-                input_field_handled = true;
-                handling_input_field = true;
                 src_field_id = fork_input_field_id;
                 entry = None;
             };
@@ -329,8 +320,8 @@ pub(crate) fn handle_fork_expansion(
                     tgt_field.as_mut().map(|f| f.names.push(*other_name));
                 }
             }
-            if handling_input_field {
-                chain_input_field_id = target_field_id;
+            if name.is_none() {
+                chain_input_field = Some(target_field_id);
             }
         }
         let start_op =
@@ -338,7 +329,7 @@ pub(crate) fn handle_fork_expansion(
         let (start_tf, end_tf, end_reachable) = sess.setup_transforms_from_op(
             target_ms_id,
             start_op,
-            chain_input_field_id,
+            chain_input_field.unwrap_or(DUMMY_INPUT_FIELD_ID),
         );
         if end_reachable {
             sess.add_terminator(end_tf);
@@ -354,7 +345,6 @@ pub(crate) fn handle_fork_expansion(
     } else {
         unreachable!();
     }
-    Ok(())
 }
 
 pub fn create_op_fork() -> OperatorData {

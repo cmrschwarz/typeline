@@ -1184,12 +1184,12 @@ impl<'a> JobSession<'a> {
         match &mut self.transform_data[usize::from(tf_id)] {
             TransformData::Fork(fork) => {
                 if !fork.expanded {
-                    handle_fork_expansion(self, tf_id, ctx)?
+                    handle_fork_expansion(self, tf_id, ctx);
                 }
             }
             TransformData::ForkCat(forkcat) => {
                 if !forkcat.curr_target.is_none() {
-                    handle_forkcat_expansion(self, tf_id, ctx)?
+                    handle_forkcat_expansion(self, tf_id);
                 }
             }
             TransformData::CallConcurrent(callcc) => {

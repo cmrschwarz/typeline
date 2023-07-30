@@ -55,27 +55,43 @@ impl AccessType for FieldAccessMode {
 
 #[derive(Clone, Default)]
 pub struct WriteCountingFieldAccessType {
-    write_count: u32,
-    last_writing_subchain_id: u32,
+    pub header_write_count: u32,
+    pub last_header_writing_sc: u32,
+    pub data_write_count: u32,
+    pub last_data_writing_sc: u32,
+    pub access_count: u32,
+    pub last_accessing_sc: u32,
+}
+
+impl WriteCountingFieldAccessType {
+    pub fn total_write_count(&self) -> u32 {
+        self.header_write_count + self.data_write_count
+    }
 }
 
 impl AccessType for WriteCountingFieldAccessType {
     type ContextType = u32;
     fn from_field_access_mode(subchain_id: u32, fam: FieldAccessMode) -> Self {
+        let mut res = WriteCountingFieldAccessType {
+            header_write_count: 0,
+            last_header_writing_sc: 0,
+            data_write_count: 0,
+            last_data_writing_sc: 0,
+            access_count: 1,
+            last_accessing_sc: subchain_id,
+        };
         match fam {
-            FieldAccessMode::Read => WriteCountingFieldAccessType {
-                write_count: 0,
-                last_writing_subchain_id: 0,
-            },
-            FieldAccessMode::WriteHeaders => WriteCountingFieldAccessType {
-                write_count: 1,
-                last_writing_subchain_id: subchain_id,
-            },
-            FieldAccessMode::WriteData => WriteCountingFieldAccessType {
-                write_count: 0,
-                last_writing_subchain_id: 0,
-            },
+            FieldAccessMode::Read => (),
+            FieldAccessMode::WriteHeaders => {
+                res.header_write_count = 1;
+                res.last_header_writing_sc = subchain_id;
+            }
+            FieldAccessMode::WriteData => {
+                res.data_write_count = 1;
+                res.last_data_writing_sc = subchain_id;
+            }
         }
+        res
     }
 
     fn append_field_access_mode(
@@ -84,12 +100,15 @@ impl AccessType for WriteCountingFieldAccessType {
         fam: FieldAccessMode,
     ) {
         match fam {
-            FieldAccessMode::WriteHeaders => {
-                self.last_writing_subchain_id = subchain_id;
-                self.write_count += 1;
-            }
             FieldAccessMode::Read => (),
-            FieldAccessMode::WriteData => (),
+            FieldAccessMode::WriteHeaders => {
+                self.header_write_count += 1;
+                self.last_header_writing_sc = subchain_id;
+            }
+            FieldAccessMode::WriteData => {
+                self.data_write_count += 1;
+                self.last_data_writing_sc = subchain_id;
+            }
         }
     }
 }
@@ -164,5 +183,11 @@ impl<AT: AccessType> AccessMappings<AT> {
                     .iter()
                     .map(|(name, mode)| (Some(*name), mode.clone())),
             )
+    }
+    pub fn get<'a>(&'a self, key: Option<StringStoreEntry>) -> Option<&AT> {
+        match key {
+            Some(name) => self.fields.get(&name),
+            None => self.input_field.as_ref(),
+        }
     }
 }
