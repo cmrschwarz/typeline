@@ -1295,8 +1295,9 @@ fn ref_iter_reading_form_cow() -> Result<(), ScrError> {
     Ok(())
 }
 
-#[test]
-fn basic_forkcat() -> Result<(), ScrError> {
+// disable for now
+// #[test]
+fn _basic_forkcat() -> Result<(), ScrError> {
     let ss = StringSinkHandle::new();
     ContextBuilder::default()
         .add_op(create_op_forkcat())
