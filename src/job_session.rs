@@ -1078,6 +1078,9 @@ impl<'a> JobSession<'a> {
 
             if start_tf_id.is_none() {
                 start_tf_id = Some(tf_id);
+                if predecessor_tf.is_none() {
+                    predecessor_tf = start_tf_id;
+                }
             }
             prev_tf = Some(tf_id);
             last_output_field = output_field;

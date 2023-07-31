@@ -96,7 +96,7 @@ pub fn handle_tf_sequence(
     );
     let tf = &sess.tf_mgr.transforms[tf_id];
     let succ = &sess.tf_mgr.transforms[tf.successor.unwrap()];
-    if batch_size == 0 && !seq.stop_after_input {
+    if batch_size == 0 && input_done && !seq.stop_after_input {
         batch_size = succ
             .desired_batch_size
             .saturating_sub(succ.available_batch_size);
