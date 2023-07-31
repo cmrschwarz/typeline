@@ -26,14 +26,26 @@ use crate::{
 pub type BasicBlockId = usize;
 
 pub const READS_OFFSET: usize = 0;
-pub const WRITES_OFFSET: usize = 1; // 'writes' means dup/drop in our case
-pub const STRINGIFIED_READS_ONLY_OFFSET: usize = 2;
-pub const REGULAR_FIELD_OFFSETS: [usize; 3] =
-    [READS_OFFSET, WRITES_OFFSET, STRINGIFIED_READS_ONLY_OFFSET];
-pub const SURVIVES_OFFSET: usize = 3;
+pub const HEADER_WRITES_OFFSET: usize = 1;
+pub const DATA_WRITES_OFFSET: usize = 2;
+pub const STRINGIFIED_READS_ONLY_OFFSET: usize = 3;
+pub const REGULAR_FIELD_OFFSETS: [usize; 4] = [
+    READS_OFFSET,
+    HEADER_WRITES_OFFSET,
+    DATA_WRITES_OFFSET,
+    STRINGIFIED_READS_ONLY_OFFSET,
+];
 
-pub const SLOTS_PER_OP_OUTPUT: usize = 3; // output ops don't care about survives
-pub const LOCAL_SLOTS_PER_BASIC_BLOCK: usize = 4;
+// used in reset_op_outputs_data_for_vars to prepare op output data
+pub const LOCALLY_ZERO_INITIALIZED_FIELDS_OFFSET: [usize; 3] =
+    [READS_OFFSET, HEADER_WRITES_OFFSET, DATA_WRITES_OFFSET];
+pub const LOCALLY_ONE_INITIALIZED_FIELDS_OFFSET: [usize; 1] =
+    [STRINGIFIED_READS_ONLY_OFFSET];
+
+pub const SURVIVES_OFFSET: usize = 4;
+
+pub const SLOTS_PER_OP_OUTPUT: usize = 4; // output ops don't care about survives
+pub const LOCAL_SLOTS_PER_BASIC_BLOCK: usize = 5;
 pub const LOCAL_SLOTS_OFFSET: usize = 0;
 pub const GLOBAL_SLOTS_OFFSET: usize = LOCAL_SLOTS_PER_BASIC_BLOCK;
 pub const SUCCESSION_SLOTS_OFFSET: usize = 2 * LOCAL_SLOTS_PER_BASIC_BLOCK;
@@ -144,11 +156,12 @@ impl LivenessData {
             .extend(0..self.vars.len() as VarId);
 
         self.op_outputs_data
-            .reserve(total_outputs_count * SLOTS_PER_OP_OUTPUT);
-        // initialize reads and READS and WRITES to false
-        self.op_outputs_data.resize(total_outputs_count * 2, false);
-        // initialize STRINGIFIED to true
-        self.op_outputs_data.resize(total_outputs_count * 3, true);
+            .resize(total_outputs_count * SLOTS_PER_OP_OUTPUT, false);
+        for i in LOCALLY_ONE_INITIALIZED_FIELDS_OFFSET {
+            self.op_outputs_data
+                [i * total_outputs_count..(i + 1) * total_outputs_count]
+                .fill(true);
+        }
     }
     pub fn add_var_name(&mut self, name: StringStoreEntry) {
         match self.var_names.entry(name) {
@@ -356,22 +369,27 @@ impl LivenessData {
         }
         if write {
             self.op_outputs_data
-                .set_aliased(WRITES_OFFSET * ooc + oo_idx, true);
+                .set_aliased(HEADER_WRITES_OFFSET * ooc + oo_idx, true);
         }
         for fr in &self.op_outputs[oo_idx].field_references {
             self.access_field(bb_id, *fr, write, stringified);
         }
     }
+    fn append_to_field(&self, op_output_idx: OpOutputIdx) {
+        let oo_idx = op_output_idx as usize;
+        let ooc = self.op_outputs.len();
+        self.op_outputs_data
+            .set_aliased(DATA_WRITES_OFFSET * ooc + oo_idx, true);
+    }
     fn reset_op_outputs_data_for_vars(&mut self) {
         let vc = self.vars.len();
         let ooc = self.op_outputs.len();
-        self.op_outputs_data[READS_OFFSET * ooc..READS_OFFSET * ooc + vc]
-            .fill(false);
-        self.op_outputs_data[WRITES_OFFSET * ooc..WRITES_OFFSET * ooc + vc]
-            .fill(false);
-        self.op_outputs_data[STRINGIFIED_READS_ONLY_OFFSET * ooc
-            ..STRINGIFIED_READS_ONLY_OFFSET * ooc + vc]
-            .fill(true);
+        for i in &LOCALLY_ZERO_INITIALIZED_FIELDS_OFFSET {
+            self.op_outputs_data[i * ooc..i * ooc + vc].fill(false);
+        }
+        for i in &LOCALLY_ONE_INITIALIZED_FIELDS_OFFSET {
+            self.op_outputs_data[i * ooc..i * ooc + vc].fill(true);
+        }
         for i in 0..vc {
             // initially each var points to it's input
             self.vars_to_op_outputs_map[i] = i as OpOutputIdx;
@@ -515,6 +533,9 @@ impl LivenessData {
                     any_writes_so_far,
                     input_access_stringified,
                 );
+            }
+            if op_base.append_mode {
+                self.append_to_field(output_field);
             }
             if let Some(label) = sess.operator_bases[op_id as usize].label {
                 let var_id = self.var_names[&label];
