@@ -351,41 +351,43 @@ pub(crate) fn handle_fork_expansion(
         let input_field = chain_input_field.unwrap_or(DUMMY_INPUT_FIELD_ID);
         let start_op_id =
             sess.job_data.session_data.chains[subchain_id].operators[0];
-        let start_op =
-            &sess.job_data.session_data.operator_bases[start_op_id as usize];
-        let predecessor_tf =
-            if start_op.append_mode || start_op.transparent_mode {
-                // if the initial transform after the fork may unlink
-                // before input is done, we insert a dummy transform
-                // so our target transform ids are stable
-                let mut tf_state = TransformState::new(
-                    input_field,
-                    INVALID_FIELD_ID,
-                    target_ms_id,
-                    sess.job_data.session_data.chains[subchain_id]
-                        .settings
-                        .default_batch_size,
-                    None,
-                    None,
-                    sess.job_data.tf_mgr.claim_transform_ordering_id(),
-                );
-                sess.job_data.field_mgr.bump_field_refcount(input_field);
-                tf_state.is_transparent = true;
-                let tf_data = setup_tf_nop(&mut tf_state);
-                Some(sess.add_transform(tf_state, tf_data))
-            } else {
-                None
-            };
+
+        // if the initial transform after the fork may unlink
+        // before input is done, we insert a dummy transform
+        // so our target transform ids are stable
+        let mut tf_state = TransformState::new(
+            input_field,
+            INVALID_FIELD_ID,
+            target_ms_id,
+            sess.job_data.session_data.chains[subchain_id]
+                .settings
+                .default_batch_size,
+            None,
+            None,
+            sess.job_data.tf_mgr.claim_transform_ordering_id(),
+        );
+        sess.job_data.field_mgr.bump_field_refcount(input_field);
+        tf_state.is_transparent = true;
+        let tf_data = setup_tf_nop(&mut tf_state);
+        let mut pred_tf = sess.add_transform(tf_state, tf_data);
         let (start_tf, end_tf, end_reachable) = sess.setup_transforms_from_op(
             target_ms_id,
             start_op_id,
             input_field,
-            predecessor_tf,
+            Some(pred_tf),
         );
         if end_reachable {
             sess.add_terminator(end_tf);
         }
-        targets.push(predecessor_tf.unwrap_or(start_tf));
+        if !sess.job_data.tf_mgr.transforms[start_tf]
+            .continuation
+            .is_some()
+        {
+            sess.job_data.unlink_transform(pred_tf, 0);
+            sess.remove_transform(pred_tf);
+            pred_tf = start_tf;
+        }
+        targets.push(pred_tf);
     }
     sess.log_state("expanded fork");
     if let TransformData::Fork(ref mut fork) =
