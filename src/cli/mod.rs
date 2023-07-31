@@ -13,6 +13,7 @@ use crate::{
         key::parse_op_key,
         literal::{argument_matches_op_literal, parse_op_literal},
         next::parse_op_next,
+        nop::parse_op_nop,
         operator::OperatorData,
         print::parse_op_print,
         regex::{parse_op_regex, RegexOptions},
@@ -473,7 +474,7 @@ fn parse_operation(
         "enum" => Some(parse_op_seq(value, true, false, idx)?),
         "enumn" => Some(parse_op_seq(value, true, true, idx)?),
         "count" => Some(parse_op_count(value, idx)?),
-
+        "nop" => Some(parse_op_nop(value, idx)?),
         "fork" => Some(parse_op_fork(value, idx)?),
         "forkcat" => Some(parse_op_forkcat(value, idx)?),
         "call" => Some(parse_op_call(value, idx)?),

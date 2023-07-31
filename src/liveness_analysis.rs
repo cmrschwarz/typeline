@@ -130,6 +130,7 @@ impl LivenessData {
                 OperatorData::Print(_) => app,
                 OperatorData::Join(_) => app,
                 OperatorData::Fork(_) => 0,
+                OperatorData::Nop(_) => 0,
                 // technically this has output, but it always introduces a
                 // separate BB so we don't want to allocate slots for that
                 OperatorData::ForkCat(_) => 0,
@@ -202,6 +203,7 @@ impl LivenessData {
                     OperatorData::ForkCat(_) => (),
                     OperatorData::Next(_) => (),
                     OperatorData::Up(_) => (),
+                    OperatorData::Nop(_) => (),
                     OperatorData::Select(s) => {
                         self.add_var_name(s.key_interned);
                     }
@@ -316,6 +318,7 @@ impl LivenessData {
                         break;
                     }
                     OperatorData::Cast(_) => (),
+                    OperatorData::Nop(_) => (),
                     OperatorData::Count(_) => (),
                     OperatorData::Print(_) => (),
                     OperatorData::Join(_) => (),
@@ -518,6 +521,9 @@ impl LivenessData {
                 }
                 OperatorData::Count(_) => {
                     may_dup_or_drop = true;
+                    input_accessed = false;
+                }
+                OperatorData::Nop(_) => {
                     input_accessed = false;
                 }
                 OperatorData::Cast(_) => (),

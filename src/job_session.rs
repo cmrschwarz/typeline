@@ -34,6 +34,7 @@ use crate::{
             handle_tf_join, handle_tf_join_stream_value_update, setup_tf_join,
         },
         literal::{handle_tf_literal, setup_tf_literal},
+        nop::{handle_tf_nop, setup_tf_nop},
         operator::{OperatorData, OperatorId},
         print::{
             handle_tf_print, handle_tf_print_stream_value_update,
@@ -785,8 +786,8 @@ impl<'a> JobSession<'a> {
             field_id
         });
 
-        let (start_tf_id, end_tf_id, end_reachable) =
-            self.setup_transforms_from_op(ms_id, job.operator, input_data);
+        let (start_tf_id, end_tf_id, end_reachable) = self
+            .setup_transforms_from_op(ms_id, job.operator, input_data, None);
         if end_reachable {
             self.add_terminator(end_tf_id);
         }
@@ -863,6 +864,7 @@ impl<'a> JobSession<'a> {
         ms_id: MatchSetId,
         start_op_id: OperatorId,
         chain_input_field_id: FieldId,
+        mut predecessor_tf: Option<TransformId>,
     ) -> (TransformId, TransformId, bool) {
         let mut start_tf_id = None;
         let start_op =
@@ -871,9 +873,8 @@ impl<'a> JobSession<'a> {
             [start_op.chain_id as usize]
             .settings
             .default_batch_size;
-        let mut prev_tf = None;
+        let mut prev_tf = predecessor_tf;
         let mut end_reachable = true;
-        let mut predecessor_tf = None;
         let mut input_field = chain_input_field_id;
         let mut last_output_field = chain_input_field_id;
         let ops = &self.job_data.session_data.chains
@@ -895,6 +896,7 @@ impl<'a> JobSession<'a> {
                                 *op_id,
                                 ms_id,
                                 input_field,
+                                predecessor_tf,
                             );
                         return (
                             start_tf_id.unwrap_or(start_exp),
@@ -1003,6 +1005,7 @@ impl<'a> JobSession<'a> {
 
             let jd = &mut self.job_data;
             let tf_data = match op_data {
+                OperatorData::Nop(_) => setup_tf_nop(&mut tf_state),
                 OperatorData::Cast(op) => {
                     setup_tf_cast(jd, b, op, &mut tf_state)
                 }
@@ -1073,7 +1076,6 @@ impl<'a> JobSession<'a> {
 
             if start_tf_id.is_none() {
                 start_tf_id = Some(tf_id);
-                predecessor_tf = Some(tf_id);
             }
             prev_tf = Some(tf_id);
             last_output_field = output_field;
@@ -1169,6 +1171,7 @@ impl<'a> JobSession<'a> {
             TransformData::ForkCat(_) => todo!(),
             TransformData::CallConcurrent(_) => todo!(),
             TransformData::Call(_) => unreachable!(),
+            TransformData::Nop(_) => unreachable!(),
             TransformData::Cast(_) => unreachable!(),
             TransformData::Count(_) => unreachable!(),
             TransformData::Select(_) => unreachable!(),
@@ -1209,6 +1212,7 @@ impl<'a> JobSession<'a> {
             TransformData::Disabled => (),
             TransformData::CalleeConcurrent(_) => (),
             TransformData::Cast(_) => (),
+            TransformData::Nop(_) => (),
             TransformData::Count(_) => (),
             TransformData::Print(_) => (),
             TransformData::Join(_) => (),
@@ -1223,12 +1227,13 @@ impl<'a> JobSession<'a> {
         }
         let jd = &mut self.job_data;
         match &mut self.transform_data[usize::from(tf_id)] {
-            TransformData::Fork(fork) => {
-                handle_tf_fork(&mut self.job_data, tf_id, fork)
+            TransformData::Fork(tf) => {
+                handle_tf_fork(&mut self.job_data, tf_id, tf)
             }
             TransformData::ForkCat(fork) => {
                 handle_tf_forkcat(&mut self.job_data, tf_id, fork)
             }
+            TransformData::Nop(tf) => handle_tf_nop(jd, tf_id, tf),
             TransformData::Print(tf) => handle_tf_print(jd, tf_id, tf),
             TransformData::Regex(tf) => handle_tf_regex(jd, tf_id, tf),
             TransformData::StringSink(tf) => {

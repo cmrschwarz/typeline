@@ -16,6 +16,7 @@ use super::{
     format::TfFormat,
     join::TfJoin,
     literal::TfLiteral,
+    nop::TfNop,
     operator::OperatorId,
     print::TfPrint,
     regex::TfRegex,
@@ -31,6 +32,7 @@ pub type TransformOrderingId = NonMaxUsize;
 
 pub enum TransformData<'a> {
     Disabled,
+    Nop(TfNop),
     Call(TfCall),
     CallConcurrent(TfCallConcurrent<'a>),
     CalleeConcurrent(TfCalleeConcurrent),

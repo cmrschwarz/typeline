@@ -11,6 +11,7 @@ pub mod join;
 pub mod key;
 pub mod literal;
 pub mod next;
+pub mod nop;
 pub mod operator;
 pub mod print;
 pub mod regex;

@@ -110,13 +110,19 @@ pub(crate) fn handle_eager_call_expansion<'a>(
     op_id: OperatorId,
     ms_id: MatchSetId,
     input_field: FieldId,
+    predecessor_tf: Option<TransformId>,
 ) -> (TransformId, TransformId, bool) {
     if let OperatorData::Call(op) =
         &sess.job_data.session_data.operator_data[op_id as usize]
     {
         let chain =
             &sess.job_data.session_data.chains[op.target_resolved as usize];
-        sess.setup_transforms_from_op(ms_id, chain.operators[0], input_field)
+        sess.setup_transforms_from_op(
+            ms_id,
+            chain.operators[0],
+            input_field,
+            predecessor_tf,
+        )
     } else {
         unreachable!();
     }
@@ -139,6 +145,7 @@ pub(crate) fn handle_lazy_call_expansion<'a>(
         ms_id,
         sess.job_data.session_data.chains[call.target as usize].operators[0],
         input_field,
+        Some(tf_id),
     );
     sess.job_data.tf_mgr.transforms[target_tf].predecessor = Some(tf_id);
     sess.job_data.tf_mgr.transforms[tf_id].successor = Some(target_tf);

@@ -9,9 +9,9 @@ use super::{
     call::OpCall, call_concurrent::OpCallConcurrent, cast::OpCast,
     count::OpCount, file_reader::OpFileReader, fork::OpFork,
     forkcat::OpForkCat, format::OpFormat, join::OpJoin, key::OpKey,
-    literal::OpLiteral, next::OpNext, print::OpPrint, regex::OpRegex,
-    select::OpSelect, sequence::OpSequence, string_sink::OpStringSink,
-    up::OpUp,
+    literal::OpLiteral, next::OpNext, nop::OpNop, print::OpPrint,
+    regex::OpRegex, select::OpSelect, sequence::OpSequence,
+    string_sink::OpStringSink, up::OpUp,
 };
 
 pub type OperatorId = u32;
@@ -19,6 +19,7 @@ pub type OperatorOffsetInChain = u32;
 
 #[derive(Clone)]
 pub enum OperatorData {
+    Nop(OpNop),
     Call(OpCall),
     CallConcurrent(OpCallConcurrent),
     Cast(OpCast),
@@ -74,6 +75,7 @@ impl OperatorData {
             OperatorData::Cast(op) => op.default_op_name(),
             OperatorData::Call(_) => "call".into(),
             OperatorData::CallConcurrent(_) => "callcc".into(),
+            OperatorData::Nop(_) => "nop".into(),
         }
     }
 }

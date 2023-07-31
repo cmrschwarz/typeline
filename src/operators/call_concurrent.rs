@@ -414,16 +414,15 @@ pub fn setup_callee_concurrent(
         callee.target_fields.push(field_id);
     }
     drop(buf_data);
-    let (tf_start, tf_end, end_reachable) = sess.setup_transforms_from_op(
-        ms_id,
-        start_op_id,
-        callee.target_fields[0],
-    );
-
+    let input_field = callee.target_fields[0];
     let tf_id =
         sess.add_transform(tf_state, TransformData::CalleeConcurrent(callee));
-    sess.job_data.tf_mgr.transforms[tf_id].successor = Some(tf_start);
-    sess.job_data.tf_mgr.transforms[tf_start].predecessor = Some(tf_id);
+    let (_tf_start, tf_end, end_reachable) = sess.setup_transforms_from_op(
+        ms_id,
+        start_op_id,
+        input_field,
+        Some(tf_id),
+    );
     (tf_id, tf_end, end_reachable)
 }
 
