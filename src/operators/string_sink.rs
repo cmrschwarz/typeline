@@ -26,7 +26,7 @@ use crate::{
     stream_value::{StreamValue, StreamValueData, StreamValueId},
     utils::{
         identity_hasher::BuildIdentityHasher,
-        int_string_conversions::i64_to_str, universe::Universe,
+        int_string_conversions::i64_to_str, universe::CountedUniverse,
     },
 };
 
@@ -140,7 +140,7 @@ pub struct StreamValueHandle {
 pub struct TfStringSink<'a> {
     handle: &'a Mutex<StringSink>,
     batch_iter: IterId,
-    stream_value_handles: Universe<usize, StreamValueHandle>,
+    stream_value_handles: CountedUniverse<usize, StreamValueHandle>,
 }
 
 pub fn setup_tf_string_sink<'a>(

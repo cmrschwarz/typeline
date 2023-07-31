@@ -81,7 +81,7 @@ pub struct Field {
     // used for checking whether we got rug pulled in case of cow
     pub field_id: FieldId,
     pub ref_count: usize,
-    // typically called on input fields, borrowing these mut is annoying
+    // typically called on input fields which we don't want to borrow mut
     pub clear_delay_request_count: Cell<usize>,
     pub has_unconsumed_input: Cell<bool>,
 

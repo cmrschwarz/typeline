@@ -115,16 +115,15 @@ impl<T> UniverseEntry<T> {
 pub struct Universe<I, T> {
     data: Vec<UniverseEntry<T>>,
     first_vacant_entry: Option<NonMaxUsize>,
-    occupied_entry_count: usize,
     _phantom_data: PhantomData<I>,
 }
 
+// if we autoderive this, I would have to implement Default
 impl<I, T> Default for Universe<I, T> {
     fn default() -> Self {
         Self {
             data: Default::default(),
             first_vacant_entry: Default::default(),
-            occupied_entry_count: Default::default(),
             _phantom_data: Default::default(),
         }
     }
@@ -140,7 +139,6 @@ impl<I: UniverseIndex, T> Universe<I, T> {
         res
     }
     pub fn release(&mut self, id: I) {
-        self.occupied_entry_count -= 1;
         let index = UniverseIdx(id).to_usize();
         if self.data.len() == index + 1 {
             self.data.pop();
@@ -151,13 +149,9 @@ impl<I: UniverseIndex, T> Universe<I, T> {
     pub fn used_capacity(&mut self) -> usize {
         self.data.len()
     }
-    pub fn occupied_entries(&mut self) -> usize {
-        self.occupied_entry_count
-    }
     pub fn clear(&mut self) {
         self.data.clear();
         self.first_vacant_entry = None;
-        self.occupied_entry_count = 0;
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &T> {
@@ -222,7 +216,6 @@ impl<I: UniverseIndex, T> Universe<I, T> {
         self.iter_mut().next()
     }
     pub fn reserve_id_with(&mut self, id: I, func: impl FnOnce() -> T) {
-        self.occupied_entry_count += 1;
         let index = UniverseIdx(id).to_usize();
         let mut len = self.data.len();
         while len < index {
@@ -241,11 +234,8 @@ impl<I: UniverseIndex, T> Universe<I, T> {
             self.data.len()
         })
     }
-    pub fn is_empty(&self) -> bool {
-        self.occupied_entry_count == 0
-    }
+
     pub fn claim_with(&mut self, f: impl FnOnce() -> T) -> I {
-        self.occupied_entry_count += 1;
         if let Some(id) = self.first_vacant_entry {
             let index = id.get();
             match self.data[index] {
@@ -341,5 +331,123 @@ impl<I: UniverseIndex, T> IndexMut<I> for Universe<I, T> {
             UniverseEntry::Occupied(v) => v,
             UniverseEntry::Vacant(_) => panic!("index out of bounds"),
         }
+    }
+}
+
+#[derive(Clone)]
+pub struct CountedUniverse<I, T> {
+    universe: Universe<I, T>,
+    occupied_entries: usize,
+}
+
+impl<I: UniverseIndex, T> CountedUniverse<I, T> {
+    pub fn release(&mut self, id: I) {
+        self.occupied_entries -= 1;
+        self.universe.release(id)
+    }
+    pub fn used_capacity(&mut self) -> usize {
+        self.universe.used_capacity()
+    }
+    pub fn clear(&mut self) {
+        self.universe.clear();
+        self.occupied_entries = 0;
+    }
+    pub fn iter(&self) -> impl Iterator<Item = &T> {
+        self.universe.iter()
+    }
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut T> {
+        self.universe.iter_mut()
+    }
+    pub fn iter_options(&self) -> impl Iterator<Item = Option<&T>> {
+        self.universe.iter_options()
+    }
+    pub fn iter_options_mut(
+        &mut self,
+    ) -> impl Iterator<Item = Option<&mut T>> {
+        self.universe.iter_options_mut()
+    }
+    pub fn iter_enumerated(&self) -> impl Iterator<Item = (I, &T)> {
+        self.universe.iter_enumerated()
+    }
+    pub fn iter_enumerated_mut(
+        &mut self,
+    ) -> impl Iterator<Item = (I, &mut T)> {
+        self.universe.iter_enumerated_mut()
+    }
+    pub fn any_used(&mut self) -> Option<&mut T> {
+        self.universe.any_used()
+    }
+    pub fn reserve_id_with(&mut self, id: I, func: impl FnOnce() -> T) {
+        self.universe.reserve_id_with(id, func)
+    }
+    pub fn peek_claim_id(&self) -> I {
+        self.universe.peek_claim_id()
+    }
+    pub fn claim_with(&mut self, f: impl FnOnce() -> T) -> I {
+        self.occupied_entries += 1;
+        self.universe.claim_with(f)
+    }
+    pub fn claim_with_value(&mut self, value: T) -> I {
+        self.claim_with(|| value)
+    }
+    pub fn calc_id(&self, entry: &T) -> I {
+        self.universe.calc_id(entry)
+    }
+    pub fn get(&self, id: I) -> Option<&T> {
+        self.universe.get(id)
+    }
+    pub fn get_mut(&mut self, id: I) -> Option<&mut T> {
+        self.universe.get_mut(id)
+    }
+    pub fn get_two_distinct_mut(
+        &mut self,
+        id1: I,
+        id2: I,
+    ) -> (Option<&mut T>, Option<&mut T>) {
+        self.universe.get_two_distinct_mut(id1, id2)
+    }
+    pub fn two_distinct_mut(&mut self, id1: I, id2: I) -> (&mut T, &mut T) {
+        self.universe.two_distinct_mut(id1, id2)
+    }
+    pub fn is_empty(&self) -> bool {
+        self.occupied_entries == 0
+    }
+    pub fn occupied_entry_count(&self) -> usize {
+        self.occupied_entries
+    }
+}
+
+// autoderiving this currently fails on stable
+impl<I, T> Default for CountedUniverse<I, T> {
+    fn default() -> Self {
+        Self {
+            universe: Universe::default(),
+            occupied_entries: 0,
+        }
+    }
+}
+
+// separate impl since only available if T: Default
+impl<I: UniverseIndex, T: Default> CountedUniverse<I, T> {
+    pub fn claim(&mut self) -> I {
+        self.claim_with(Default::default)
+    }
+    pub fn reserve_id(&mut self, id: I) {
+        self.reserve_id_with(id, Default::default);
+    }
+}
+
+impl<I: UniverseIndex, T> Index<I> for CountedUniverse<I, T> {
+    type Output = T;
+    #[inline]
+    fn index(&self, index: I) -> &Self::Output {
+        self.universe.index(index)
+    }
+}
+
+impl<I: UniverseIndex, T> IndexMut<I> for CountedUniverse<I, T> {
+    #[inline]
+    fn index_mut(&mut self, index: I) -> &mut Self::Output {
+        self.universe.index_mut(index)
     }
 }

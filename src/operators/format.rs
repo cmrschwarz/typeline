@@ -30,7 +30,7 @@ use crate::{
         divide_by_char_len,
         int_string_conversions::{i64_digits, i64_to_str, u64_to_str},
         string_store::{StringStore, StringStoreEntry},
-        universe::Universe,
+        universe::CountedUniverse,
         LengthAndCharsCountingWriter, LengthCountingWriter,
         ValueProducingCallable, MAX_UTF8_CHAR_LEN,
     },
@@ -193,8 +193,10 @@ pub struct TfFormat<'a> {
     refs: Vec<FormatIdentRef>,
     output_states: Vec<OutputState>,
     output_targets: Vec<OutputTarget>,
-    stream_value_handles:
-        Universe<TfFormatStreamValueHandleId, TfFormatStreamValueHandle>,
+    stream_value_handles: CountedUniverse<
+        TfFormatStreamValueHandleId,
+        TfFormatStreamValueHandle,
+    >,
 }
 // SAFETY:
 // while OutputTargets Pointer is not thread safe,
