@@ -354,19 +354,23 @@ impl TransformManager {
         output_fields: impl IntoIterator<Item = FieldId>,
     ) {
         let tf = &mut self.transforms[tf_id];
-        if tf.is_appending {
-            tf.is_appending = false;
-        } else {
-            for ofid in output_fields {
-                let mut f = field_mgr.fields[ofid].borrow_mut();
-                if f.get_clear_delay_request_count() > 0 {
-                    drop(f);
-                    // TODO: this needs to preserve iterators
-                    field_mgr.apply_field_actions(match_set_mgr, ofid);
-                } else {
-                    match_set_mgr.match_sets[tf.match_set_id]
-                        .command_buffer
-                        .drop_field_commands(ofid, &mut f);
+        let appending = tf.is_appending;
+        tf.is_appending = false;
+
+        for ofid in output_fields {
+            if appending {
+                field_mgr.uncow(match_set_mgr, ofid);
+            }
+            let mut f = field_mgr.fields[ofid].borrow_mut();
+            if f.get_clear_delay_request_count() > 0 {
+                drop(f);
+                // TODO: this needs to preserve iterators
+                field_mgr.apply_field_actions(match_set_mgr, ofid);
+            } else {
+                match_set_mgr.match_sets[tf.match_set_id]
+                    .command_buffer
+                    .drop_field_commands(ofid, &mut f);
+                if !appending {
                     f.field_data.clear();
                     f.has_unconsumed_input.set(false);
                 }
@@ -476,6 +480,20 @@ impl FieldManager {
         self.fields.claim_with_value(RefCell::new(field));
         id
     }
+    pub fn uncow(&self, match_set_mgr: &mut MatchSetManager, field: FieldId) {
+        let mut field = self.fields[field].borrow_mut();
+        if let Some(cow_source) = field.cow_source {
+            let src = self.fields[cow_source].borrow();
+            let mut iter =
+                AutoDerefIter::new(&self, cow_source, src.field_data.iter());
+            IterHall::copy_resolve_refs(
+                match_set_mgr,
+                &mut iter,
+                &mut |func| func(&mut field.field_data),
+            );
+            field.cow_source = None;
+        }
+    }
 
     // this is usually called while iterating over an input field that contains
     // field references we therefore do NOT want to require a mutable
@@ -488,30 +506,11 @@ impl FieldManager {
         match_set_mgr: &mut MatchSetManager,
         field: FieldId,
     ) {
+        self.uncow(match_set_mgr, field);
         let mut f = self.fields[field].borrow_mut();
         let match_set = f.match_set;
         let cb = &mut match_set_mgr.match_sets[match_set].command_buffer;
-        if let Some(cow_source) = f.cow_source {
-            if cb.requires_any_actions(&mut f) {
-                let src = self.fields[cow_source].borrow();
-                let mut iter = AutoDerefIter::new(
-                    &self,
-                    cow_source,
-                    src.field_data.iter(),
-                );
-                IterHall::copy_resolve_refs(
-                    match_set_mgr,
-                    &mut iter,
-                    &mut |func| func(&mut f.field_data),
-                );
-                let cb =
-                    &mut match_set_mgr.match_sets[match_set].command_buffer;
-                cb.execute_for_field(field, &mut f);
-                f.cow_source = None;
-            }
-        } else {
-            cb.execute_for_field(field, &mut f);
-        }
+        cb.execute_for_field(field, &mut f);
     }
 
     pub fn borrow_field_cow<'a>(
@@ -668,16 +667,19 @@ impl<'a> JobData<'a> {
             if let Some(pred_id) = predecessor {
                 self.tf_mgr.transforms[pred_id].successor = continuation;
             }
+            self.tf_mgr.push_tf_in_ready_queue(cont_id);
             if let Some(succ_id) = successor {
                 let succ = &mut self.tf_mgr.transforms[succ_id];
                 succ.predecessor = continuation;
                 succ.available_batch_size += available_batch_for_successor;
-                if succ.available_batch_size >= succ.desired_batch_size {
-                    self.tf_mgr.push_tf_in_ready_queue(succ_id);
-                    self.tf_mgr.transforms[cont_id].is_appending = false;
-                }
+                // PERF: We can't make the successor ready here because that
+                // it the job of the continuation transform.
+                // Doing it would mess this the append / uncow logic
+                // in prepare_output.
+                // Currently, because claim_batch does not care about
+                // the desired_batch_size of the successor, this will
+                // lead to a 'double batch' for the successor
             }
-            self.tf_mgr.push_tf_in_ready_queue(cont_id);
             return;
         }
         if let Some(pred_id) = predecessor {

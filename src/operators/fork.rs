@@ -6,7 +6,9 @@ use std::{
 use crate::{
     chain::Chain,
     context::ContextData,
-    job_session::{FieldId, JobData, JobSession, DUMMY_INPUT_FIELD_ID},
+    job_session::{
+        FieldId, JobData, JobSession, DUMMY_INPUT_FIELD_ID, INVALID_FIELD_ID,
+    },
     liveness_analysis::LivenessData,
     options::argument::CliArgIdx,
     record_data::{
@@ -132,13 +134,27 @@ pub fn handle_tf_fork(
         while i < mapping.targets_cow.len() {
             let tgt_id = mapping.targets_cow[i];
             let tgt = &mut sess.field_mgr.fields[tgt_id].borrow();
+
             if tgt.cow_source.is_none() {
                 mapping.targets_cow.push(tgt_id);
                 mapping.targets_cow.swap_remove(i);
                 continue;
             }
+            debug_assert!(tgt.get_clear_delay_request_count() == 0);
             i += 1;
         }
+        sess.tf_mgr.prepare_for_output(
+            &sess.field_mgr,
+            match_set_mgr,
+            tf_id,
+            mapping.targets_cow.iter().cloned(),
+        );
+        sess.tf_mgr.prepare_for_output(
+            &sess.field_mgr,
+            match_set_mgr,
+            tf_id,
+            mapping.targets_ref.iter().cloned(),
+        );
         if mapping.targets_ref.is_empty() {
             continue;
         }
@@ -264,16 +280,17 @@ pub(crate) fn handle_fork_expansion(
             let mut src_field =
                 sess.job_data.field_mgr.fields[src_field_id].borrow_mut();
             // TODO: handle WriteData
-            let mut any_writes = writes == FieldAccessMode::WriteHeaders;
+            let mut any_writes = writes != FieldAccessMode::Read;
             if any_writes == false {
                 for other_name in &src_field.names {
                     if name == Some(*other_name) {
                         continue;
                     }
-                    if let Some(
-                        FieldAccessMode::WriteHeaders
-                        | FieldAccessMode::WriteData,
-                    ) = field_access_mapping.fields.get(other_name)
+                    if field_access_mapping
+                        .fields
+                        .get(other_name)
+                        .unwrap_or(&FieldAccessMode::Read)
+                        != &FieldAccessMode::Read
                     {
                         any_writes = true;
                         break;
@@ -343,7 +360,7 @@ pub(crate) fn handle_fork_expansion(
                 // so our target transform ids are stable
                 let mut tf_state = TransformState::new(
                     input_field,
-                    input_field,
+                    INVALID_FIELD_ID,
                     target_ms_id,
                     sess.job_data.session_data.chains[subchain_id]
                         .settings
@@ -352,6 +369,7 @@ pub(crate) fn handle_fork_expansion(
                     None,
                     sess.job_data.tf_mgr.claim_transform_ordering_id(),
                 );
+                sess.job_data.field_mgr.bump_field_refcount(input_field);
                 tf_state.is_transparent = true;
                 let tf_data = setup_tf_nop(&mut tf_state);
                 Some(sess.add_transform(tf_state, tf_data))
@@ -369,6 +387,7 @@ pub(crate) fn handle_fork_expansion(
         }
         targets.push(predecessor_tf.unwrap_or(start_tf));
     }
+    sess.log_state("expanded fork");
     if let TransformData::Fork(ref mut fork) =
         sess.transform_data[usize::from(tf_id)]
     {

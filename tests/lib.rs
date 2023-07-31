@@ -1242,7 +1242,7 @@ fn callcc_after_drop() -> Result<(), ScrError> {
 }
 
 #[test]
-fn seq_with_chainging_str_length() -> Result<(), ScrError> {
+fn seq_with_changing_str_length() -> Result<(), ScrError> {
     let ss = StringSinkHandle::new();
     ContextBuilder::default()
         .add_op_appending(create_op_seq(1, 11, 1).unwrap())

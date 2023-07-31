@@ -76,12 +76,24 @@ impl IterHall {
         &self,
         state: &mut IterState,
     ) -> FieldValueHeader {
-        let mut h = self
-            .fd
-            .header
-            .get(state.header_idx)
-            .cloned()
-            .unwrap_or_default();
+        if state.header_idx == self.fd.header.len() {
+            let diff = self.fd.field_count - state.field_pos;
+            if diff == 0 {
+                return Default::default();
+            }
+            state.header_idx -= 1;
+            let h = self.fd.header[state.header_idx];
+            if !h.same_value_as_previous() {
+                state.data -= if h.shared_value() {
+                    h.size as usize
+                } else {
+                    h.size as usize * (h.run_length as usize - diff)
+                };
+            }
+            state.header_rl_offset = h.run_length - diff as RunLength;
+            return h;
+        }
+        let mut h = self.fd.header[state.header_idx];
         if h.run_length == state.header_rl_offset
             && state.header_idx < self.fd.header.len()
         {

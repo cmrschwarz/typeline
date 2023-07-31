@@ -431,17 +431,15 @@ pub fn handle_tf_callee_concurrent(
     tf_id: TransformId,
     tfc: &mut TfCalleeConcurrent,
 ) {
-    let cb = &mut sess.match_set_mgr.match_sets
-        [sess.tf_mgr.transforms[tf_id].match_set_id]
-        .command_buffer;
-    for field_id in tfc.target_fields.iter_mut() {
-        if *field_id == INVALID_FIELD_ID {
-            continue;
-        }
-        let mut field = sess.field_mgr.fields[*field_id].borrow_mut();
-        cb.drop_field_commands(*field_id, &mut field);
-        field.field_data.clear();
-    }
+    sess.tf_mgr.prepare_for_output(
+        &sess.field_mgr,
+        &mut sess.match_set_mgr,
+        tf_id,
+        tfc.target_fields
+            .iter()
+            .cloned()
+            .filter(|id| *id != INVALID_FIELD_ID),
+    );
     let mut buf_data = tfc.buffer.fields.lock().unwrap();
     while buf_data.available_batch_size == 0 && !buf_data.input_done {
         buf_data = tfc.buffer.updates.wait(buf_data).unwrap();
