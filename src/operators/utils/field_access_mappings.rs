@@ -6,7 +6,9 @@ use std::{
 use bitvec::slice::BitSlice;
 
 use crate::{
-    liveness_analysis::{LivenessData, Var, READS_OFFSET, WRITES_OFFSET},
+    liveness_analysis::{
+        LivenessData, Var, HEADER_WRITES_OFFSET, READS_OFFSET,
+    },
     utils::{
         identity_hasher::BuildIdentityHasher, string_store::StringStoreEntry,
     },
@@ -133,8 +135,8 @@ impl<AT: AccessType> AccessMappings<AT> {
         let var_count = ld.vars.len();
         let reads = &var_data
             [var_count * READS_OFFSET..var_count * (READS_OFFSET + 1)];
-        let writes = &var_data
-            [var_count * WRITES_OFFSET..var_count * (WRITES_OFFSET + 1)];
+        let writes = &var_data[var_count * HEADER_WRITES_OFFSET
+            ..var_count * (HEADER_WRITES_OFFSET + 1)];
         self.fields.reserve(reads.count_ones());
         for var_id in reads.iter_ones() {
             // TODO: handle data writes through append

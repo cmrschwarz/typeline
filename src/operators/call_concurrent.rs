@@ -9,7 +9,9 @@ use crate::{
         FieldId, FieldManager, JobData, JobSession, MatchSetId,
         INVALID_FIELD_ID,
     },
-    liveness_analysis::{LivenessData, Var, READS_OFFSET, WRITES_OFFSET},
+    liveness_analysis::{
+        LivenessData, Var, HEADER_WRITES_OFFSET, READS_OFFSET,
+    },
     options::argument::CliArgIdx,
     record_data::{
         command_buffer::{ActionProducingFieldIndex, FieldActionKind},
@@ -132,7 +134,7 @@ pub fn setup_op_call_concurrent_liveness_data(
         [var_count * READS_OFFSET..var_count * (READS_OFFSET + 1)]
         .iter_ones()
     {
-        let writes = succ_var_data[var_count * WRITES_OFFSET + i];
+        let writes = succ_var_data[var_count * HEADER_WRITES_OFFSET + i];
         match ld.vars[i] {
             Var::Named(name) => op.target_accessed_fields.push((name, writes)),
             Var::BBInput => {

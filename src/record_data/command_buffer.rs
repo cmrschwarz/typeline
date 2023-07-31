@@ -243,6 +243,7 @@ impl CommandBuffer {
         field_id: FieldId,
         field: &mut Field,
     ) {
+        assert!(!field.field_data.is_immutable());
         if self.first_apf_idx.is_none() {
             return;
         }

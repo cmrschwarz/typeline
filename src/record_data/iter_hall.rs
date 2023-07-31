@@ -1,5 +1,6 @@
-use std::cell::Cell;
+use std::{cell::Cell, mem::ManuallyDrop};
 
+use lazy_static::__Deref;
 use nonmax::NonMaxU32;
 
 use crate::{
@@ -24,8 +25,11 @@ pub type IterId = NonMaxU32;
 
 #[derive(Default)]
 pub struct IterHall {
-    pub(super) fd: FieldData,
+    pub(super) fd: ManuallyDrop<FieldData>,
     pub(super) iters: Universe<IterId, Cell<IterState>>,
+    pub shared_headers: bool,
+    pub shared_data: bool,
+    pub ref_count: u32,
 }
 
 #[derive(Default, Clone, Copy)]
@@ -113,7 +117,7 @@ impl IterHall {
         res
     }
     pub fn iter_is_from_iter_hall(&self, iter: &Iter<'_>) -> bool {
-        iter.fd as *const FieldData == &self.fd as *const FieldData
+        iter.fd as *const FieldData == self.fd.deref() as *const FieldData
     }
     pub fn store_iter<'a>(
         &self,
@@ -151,6 +155,18 @@ impl IterHall {
     pub unsafe fn raw(&mut self) -> &mut FieldData {
         &mut self.fd
     }
+    pub fn is_immutable(&self) -> bool {
+        self.shared_headers
+    }
+    pub fn is_data_immutable(&self) -> bool {
+        self.shared_data
+    }
+    pub unsafe fn set_headers_shared(&mut self, v: bool) {
+        self.shared_headers = v;
+    }
+    pub unsafe fn set_data_shared(&mut self, v: bool) {
+        self.shared_data = v;
+    }
 
     pub fn copy<'a>(
         iter: impl FieldIterator<'a> + Clone,
@@ -169,6 +185,7 @@ impl IterHall {
         iter: &mut AutoDerefIter<'a, I>,
         targets_applicator: &mut impl FnMut(&mut dyn FnMut(&mut IterHall)),
     ) -> usize {
+        targets_applicator(&mut |tgt| assert!(!tgt.shared_data));
         let adapted_target_applicator =
             &mut |f: &mut dyn FnMut(&mut FieldData)| {
                 let g = &mut |fdih: &mut IterHall| f(&mut fdih.fd);
@@ -200,33 +217,74 @@ impl IterHall {
     pub fn reset(&mut self) {
         self.clear();
     }
+    unsafe fn drop_fd(&mut self) {
+        unsafe {
+            let FieldData {
+                data,
+                header,
+                field_count: _,
+            } = ManuallyDrop::take(&mut self.fd);
+            if self.shared_headers {
+                std::mem::forget(header);
+            } else {
+                drop(header);
+            }
+            if self.shared_data {
+                std::mem::forget(data)
+            } else {
+                drop(data);
+            }
+        }
+    }
     pub fn reset_with_data(&mut self, fd: FieldData) {
         self.reset_iterators();
-        self.fd = fd;
+        unsafe {
+            self.drop_fd();
+            self.fd = ManuallyDrop::new(fd);
+        }
+        self.shared_data = false;
+        self.shared_headers = false;
     }
     pub fn new_with_data(fd: FieldData) -> Self {
         Self {
-            fd,
-            ..Default::default()
+            fd: ManuallyDrop::new(fd),
+            iters: Default::default(),
+            shared_headers: false,
+            shared_data: false,
+            ref_count: 0,
         }
     }
     pub fn int_inserter(&mut self) -> IntegerInserter {
+        assert!(!self.shared_data);
         IntegerInserter::new(&mut self.fd)
     }
     pub fn field_reference_inserter(&mut self) -> FieldReferenceInserter {
+        assert!(!self.shared_data);
         FieldReferenceInserter::new(&mut self.fd)
     }
     pub fn inline_bytes_inserter(&mut self) -> InlineBytesInserter {
+        assert!(!self.shared_data);
         InlineBytesInserter::new(&mut self.fd)
     }
     pub fn inline_str_inserter(&mut self) -> InlineStringInserter {
+        assert!(!self.shared_data);
         InlineStringInserter::new(&mut self.fd)
     }
     pub fn varying_type_inserter(
         &mut self,
         re_reserve_count: RunLength,
     ) -> VaryingTypeInserter {
+        assert!(!self.shared_data);
         VaryingTypeInserter::new(&mut self.fd, re_reserve_count)
+    }
+}
+
+impl Drop for IterHall {
+    fn drop(&mut self) {
+        // if we still have other people referring to the data we own,
+        // we can't free it. therefore we panic, and leak the data
+        assert!(self.ref_count == 0);
+        unsafe { self.drop_fd() }
     }
 }
 
@@ -240,6 +298,7 @@ unsafe impl RawPushInterface for IterHall {
         try_header_rle: bool,
         try_data_rle: bool,
     ) {
+        assert!(!self.shared_data);
         unsafe {
             self.fd.push_variable_sized_type(
                 kind,
@@ -261,6 +320,7 @@ unsafe impl RawPushInterface for IterHall {
         try_header_rle: bool,
         try_data_rle: bool,
     ) {
+        assert!(!self.shared_data);
         unsafe {
             self.fd.push_fixed_size_type(
                 kind,
@@ -280,6 +340,7 @@ unsafe impl RawPushInterface for IterHall {
         run_length: usize,
         try_header_rle: bool,
     ) {
+        assert!(!self.shared_data);
         unsafe {
             self.fd.push_zst_unchecked(
                 kind,
@@ -296,6 +357,7 @@ unsafe impl RawPushInterface for IterHall {
         data_len: usize,
         run_length: usize,
     ) -> *mut u8 {
+        assert!(!self.shared_data);
         unsafe {
             self.fd.push_variable_sized_type_uninit(
                 kind, flags, data_len, run_length,
@@ -305,9 +367,11 @@ unsafe impl RawPushInterface for IterHall {
 }
 impl IterHall {
     pub fn dup_last_value(&mut self, run_length: usize) {
+        assert!(!self.shared_data);
         self.fd.dup_last_value(run_length);
     }
     pub fn drop_last_value(&mut self, run_length: usize) {
+        assert!(!self.shared_data);
         self.fd.drop_last_value(run_length);
     }
 }
