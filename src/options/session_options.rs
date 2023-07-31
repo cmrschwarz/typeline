@@ -23,7 +23,7 @@ use crate::{
             OperatorBase, OperatorData, OperatorId, OperatorOffsetInChain,
         },
         regex::setup_op_regex,
-        select::setup_op_select,
+        select::{setup_op_select, setup_op_select_liveness_data},
         up::setup_op_up,
     },
     scr_error::{
@@ -363,7 +363,9 @@ impl SessionOptions {
                 OperatorData::Next(_) => (),
                 OperatorData::Up(_) => (),
                 OperatorData::Key(_) => (),
-                OperatorData::Select(_) => (),
+                OperatorData::Select(op) => {
+                    setup_op_select_liveness_data(op, op_id, &ld)
+                }
                 OperatorData::Regex(_) => (),
                 OperatorData::Format(_) => (),
                 OperatorData::StringSink(_) => (),

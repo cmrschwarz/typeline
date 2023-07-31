@@ -935,6 +935,10 @@ impl<'a> JobSession<'a> {
                         );
                         input_field = field_id;
                     }
+                    if !op.field_is_read {
+                        last_output_field = input_field;
+                        continue;
+                    }
                     is_select = true;
                 }
                 _ => (),

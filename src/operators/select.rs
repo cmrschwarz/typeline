@@ -2,6 +2,7 @@ use bstr::ByteSlice;
 
 use crate::{
     job_session::JobData,
+    liveness_analysis::{LivenessData, READS_OFFSET},
     options::argument::CliArgIdx,
     utils::string_store::{
         StringStore, StringStoreEntry, INVALID_STRING_STORE_ENTRY,
@@ -10,7 +11,7 @@ use crate::{
 
 use super::{
     errors::{OperatorCreationError, OperatorSetupError},
-    operator::{OperatorBase, OperatorData},
+    operator::{OperatorBase, OperatorData, OperatorId},
     transform::{TransformData, TransformId, TransformState},
 };
 
@@ -18,6 +19,7 @@ use super::{
 pub struct OpSelect {
     key: String,
     pub key_interned: StringStoreEntry,
+    pub field_is_read: bool,
 }
 pub struct TfSelect {}
 
@@ -39,6 +41,7 @@ pub fn parse_op_select(
     Ok(OperatorData::Select(OpSelect {
         key: value_str.to_owned(),
         key_interned: INVALID_STRING_STORE_ENTRY,
+        field_is_read: true,
     }))
 }
 
@@ -51,10 +54,20 @@ pub fn setup_op_select(
     Ok(())
 }
 
+pub fn setup_op_select_liveness_data(
+    op: &mut OpSelect,
+    op_id: OperatorId,
+    ld: &LivenessData,
+) {
+    op.field_is_read = ld.op_outputs_data
+        [READS_OFFSET * ld.op_outputs.len() + op_id as usize];
+}
+
 pub fn create_op_select(key: String) -> OperatorData {
     OperatorData::Select(OpSelect {
         key: key,
         key_interned: INVALID_STRING_STORE_ENTRY,
+        field_is_read: true,
     })
 }
 
