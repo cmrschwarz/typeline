@@ -5,21 +5,21 @@ use bstr::ByteSlice;
 use crate::{
     chain::{ChainId, INVALID_CHAIN_ID},
     context::{ContextData, SessionSettings, VentureDescription},
-    field_data::{
-        command_buffer::{ActionProducingFieldIndex, FieldActionKind},
-        iter_hall::IterId,
-        record_buffer::{
-            RecordBuffer, RecordBufferData, RecordBufferField,
-            RecordBufferFieldId,
-        },
-        FieldData,
-    },
     job_session::{
         FieldId, FieldManager, JobData, JobSession, MatchSetId,
         INVALID_FIELD_ID,
     },
     liveness_analysis::{LivenessData, Var, READS_OFFSET, WRITES_OFFSET},
     options::argument::CliArgIdx,
+    record_data::{
+        command_buffer::{ActionProducingFieldIndex, FieldActionKind},
+        field_data::FieldData,
+        iter_hall::IterId,
+        record_buffer::{
+            RecordBuffer, RecordBufferData, RecordBufferField,
+            RecordBufferFieldId,
+        },
+    },
     ref_iter::AutoDerefIter,
     utils::{
         identity_hasher::BuildIdentityHasher,

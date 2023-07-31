@@ -8,8 +8,8 @@ use crate::{
 };
 
 use super::{
-    iter_hall::IterState, FieldData, FieldValueFormat, FieldValueHeader,
-    RunLength,
+    field_data::{FieldData, FieldValueFormat, FieldValueHeader, RunLength},
+    iter_hall::IterState,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -1736,10 +1736,13 @@ impl CommandBuffer {
 
 #[cfg(test)]
 mod test {
-    use crate::field_data::{
-        command_buffer::ActionProducingFieldIndex, iters::FieldIterator,
-        push_interface::PushInterface, typed::TypedSlice,
-        typed_iters::TypedSliceIter, FieldData, RunLength,
+    use crate::record_data::{
+        command_buffer::ActionProducingFieldIndex,
+        field_data::{FieldData, RunLength},
+        iters::FieldIterator,
+        push_interface::PushInterface,
+        typed::TypedSlice,
+        typed_iters::TypedSliceIter,
     };
 
     use super::{CommandBuffer, FieldAction, FieldActionKind};

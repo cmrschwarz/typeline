@@ -8,13 +8,16 @@ use crate::{
 };
 
 use super::{
+    field_data::{
+        FieldData, FieldDataInternals, FieldValueFlags, FieldValueHeader,
+        FieldValueKind, RunLength,
+    },
     iters::{FieldIterator, Iter},
     push_interface::{
         FieldReferenceInserter, FixedSizeTypeInserter, InlineBytesInserter,
-        InlineStringInserter, IntegerInserter, VariableSizeTypeInserter,
-        VaryingTypeInserter,
+        InlineStringInserter, IntegerInserter, RawPushInterface,
+        VariableSizeTypeInserter, VaryingTypeInserter,
     },
-    FieldData, FieldDataInternals, FieldValueHeader, RunLength,
 };
 
 pub type IterId = NonMaxU32;
@@ -224,5 +227,87 @@ impl IterHall {
         re_reserve_count: RunLength,
     ) -> VaryingTypeInserter {
         VaryingTypeInserter::new(&mut self.fd, re_reserve_count)
+    }
+}
+
+unsafe impl RawPushInterface for IterHall {
+    unsafe fn push_variable_sized_type(
+        &mut self,
+        kind: FieldValueKind,
+        flags: FieldValueFlags,
+        data: &[u8],
+        run_length: usize,
+        try_header_rle: bool,
+        try_data_rle: bool,
+    ) {
+        unsafe {
+            self.fd.push_variable_sized_type(
+                kind,
+                flags,
+                data,
+                run_length,
+                try_header_rle,
+                try_data_rle,
+            );
+        }
+    }
+
+    unsafe fn push_fixed_size_type<T: PartialEq + Clone>(
+        &mut self,
+        kind: FieldValueKind,
+        flags: FieldValueFlags,
+        data: T,
+        run_length: usize,
+        try_header_rle: bool,
+        try_data_rle: bool,
+    ) {
+        unsafe {
+            self.fd.push_fixed_size_type(
+                kind,
+                flags,
+                data,
+                run_length,
+                try_header_rle,
+                try_data_rle,
+            );
+        }
+    }
+
+    unsafe fn push_zst_unchecked(
+        &mut self,
+        kind: FieldValueKind,
+        flags: FieldValueFlags,
+        run_length: usize,
+        try_header_rle: bool,
+    ) {
+        unsafe {
+            self.fd.push_zst_unchecked(
+                kind,
+                flags,
+                run_length,
+                try_header_rle,
+            );
+        }
+    }
+    unsafe fn push_variable_sized_type_uninit(
+        &mut self,
+        kind: FieldValueKind,
+        flags: FieldValueFlags,
+        data_len: usize,
+        run_length: usize,
+    ) -> *mut u8 {
+        unsafe {
+            self.fd.push_variable_sized_type_uninit(
+                kind, flags, data_len, run_length,
+            )
+        }
+    }
+}
+impl IterHall {
+    pub fn dup_last_value(&mut self, run_length: usize) {
+        self.fd.dup_last_value(run_length);
+    }
+    pub fn drop_last_value(&mut self, run_length: usize) {
+        self.fd.drop_last_value(run_length);
     }
 }

@@ -7,20 +7,21 @@ use std::{borrow::Cow, cell::RefMut};
 use std::num::NonZeroUsize;
 
 use crate::{
-    field_data::{
+    job_session::{Field, FieldId, JobData},
+    options::argument::CliArgIdx,
+    record_data::{
         command_buffer::{
             ActionProducingFieldIndex, CommandBuffer, FieldActionKind,
         },
-        field_value_flags,
+        field_data::{
+            field_value_flags, FieldReference, FieldValueKind, RunLength,
+        },
         iter_hall::IterId,
         iters::FieldIterator,
         push_interface::{PushInterface, VaryingTypeInserter},
         typed::TypedSlice,
         typed_iters::TypedSliceIter,
-        FieldReference, FieldValueKind, RunLength,
     },
-    job_session::{Field, FieldId, JobData},
-    options::argument::CliArgIdx,
     ref_iter::{
         AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter,
         RefAwareInlineTextIter, RefAwareStreamValueIter,

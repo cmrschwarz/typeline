@@ -5,7 +5,6 @@ use std::borrow::Cow;
 use rstest::rstest;
 
 use scr::{
-    field_data::{push_interface::PushInterface, record_set::RecordSet},
     operators::{
         call_concurrent::create_op_callcc,
         file_reader::create_op_file_reader_custom,
@@ -30,6 +29,7 @@ use scr::{
     options::{
         chain_options::DEFAULT_CHAIN_OPTIONS, context_builder::ContextBuilder,
     },
+    record_data::{push_interface::PushInterface, record_set::RecordSet},
     scr_error::{ChainSetupError, ContextualizedScrError, ScrError},
     utils::int_string_conversions::i64_to_str,
 };

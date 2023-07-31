@@ -4,12 +4,12 @@ use bstr::ByteSlice;
 use smallstr::SmallString;
 
 use crate::{
-    field_data::{
-        push_interface::{FixedSizeTypeInserter, VariableSizeTypeInserter},
-        FieldValueKind,
-    },
     job_session::JobData,
     options::argument::CliArgIdx,
+    record_data::{
+        field_data::FieldValueKind,
+        push_interface::{FixedSizeTypeInserter, VariableSizeTypeInserter},
+    },
     utils::int_string_conversions::{
         i64_to_str, parse_int_with_units, I64_MAX_DECIMAL_DIGITS,
     },

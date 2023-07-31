@@ -1,14 +1,16 @@
 use crate::{
-    field_data::{
-        field_value_flags::FieldValueFlags,
-        iters::{FieldIterator, Iter},
-        typed::{TypedRange, TypedSlice, TypedValue, ValidTypedRange},
-        typed_iters::{InlineBytesIter, TypedSliceIter},
-        FieldReference, FieldValueHeader, RunLength,
-    },
     job_session::{
         Field, FieldId, FieldManager, MatchSetManager,
         FIELD_REF_LOOKUP_ITER_ID, INVALID_FIELD_ID,
+    },
+    record_data::{
+        field_data::{
+            field_value_flags::FieldValueFlags, FieldReference,
+            FieldValueHeader, RunLength,
+        },
+        iters::{FieldIterator, Iter},
+        typed::{TypedRange, TypedSlice, TypedValue, ValidTypedRange},
+        typed_iters::{InlineBytesIter, TypedSliceIter},
     },
     stream_value::StreamValueId,
 };
@@ -657,14 +659,17 @@ mod ref_iter_tests {
     use std::cell::RefCell;
 
     use crate::{
-        field_data::{
-            field_value_flags, push_interface::PushInterface,
-            typed::TypedSlice, FieldData, FieldReference, FieldValueFormat,
-            FieldValueHeader, FieldValueKind, RunLength,
-        },
         job_session::{
             Field, FieldId, FieldManager, MatchSet, MatchSetManager,
             FIELD_REF_LOOKUP_ITER_ID,
+        },
+        record_data::{
+            field_data::{
+                field_value_flags, FieldData, FieldReference,
+                FieldValueFormat, FieldValueHeader, FieldValueKind, RunLength,
+            },
+            push_interface::PushInterface,
+            typed::TypedSlice,
         },
         ref_iter::{AutoDerefIter, RefAwareInlineTextIter},
     };

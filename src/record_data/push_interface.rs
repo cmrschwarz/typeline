@@ -1,18 +1,19 @@
 use std::mem::ManuallyDrop;
 
 use crate::{
-    field_data::{
-        field_value_flags::{self, BYTES_ARE_UTF8, DELETED, SHARED_VALUE},
+    operators::errors::OperatorApplicationError,
+    record_data::field_data::{
+        field_value_flags::{BYTES_ARE_UTF8, DELETED, SHARED_VALUE},
         INLINE_STR_MAX_LEN,
     },
-    operators::errors::OperatorApplicationError,
     stream_value::StreamValueId,
+    utils::as_u8_slice,
 };
 
-use super::{
-    as_u8_slice, iter_hall::IterHall, FieldData, FieldReference,
-    FieldValueFlags, FieldValueFormat, FieldValueHeader, FieldValueKind,
-    FieldValueSize, RunLength, MAX_FIELD_ALIGN,
+use super::field_data::{
+    field_value_flags, FieldData, FieldReference, FieldValueFlags,
+    FieldValueFormat, FieldValueHeader, FieldValueKind, FieldValueSize,
+    RunLength, MAX_FIELD_ALIGN,
 };
 
 pub unsafe trait RawPushInterface {
@@ -463,87 +464,6 @@ unsafe impl RawPushInterface for FieldData {
         res
     }
 }
-unsafe impl RawPushInterface for IterHall {
-    unsafe fn push_variable_sized_type(
-        &mut self,
-        kind: FieldValueKind,
-        flags: FieldValueFlags,
-        data: &[u8],
-        run_length: usize,
-        try_header_rle: bool,
-        try_data_rle: bool,
-    ) {
-        unsafe {
-            self.fd.push_variable_sized_type(
-                kind,
-                flags,
-                data,
-                run_length,
-                try_header_rle,
-                try_data_rle,
-            );
-        }
-    }
-
-    unsafe fn push_fixed_size_type<T: PartialEq + Clone>(
-        &mut self,
-        kind: FieldValueKind,
-        flags: FieldValueFlags,
-        data: T,
-        run_length: usize,
-        try_header_rle: bool,
-        try_data_rle: bool,
-    ) {
-        unsafe {
-            self.fd.push_fixed_size_type(
-                kind,
-                flags,
-                data,
-                run_length,
-                try_header_rle,
-                try_data_rle,
-            );
-        }
-    }
-
-    unsafe fn push_zst_unchecked(
-        &mut self,
-        kind: FieldValueKind,
-        flags: FieldValueFlags,
-        run_length: usize,
-        try_header_rle: bool,
-    ) {
-        unsafe {
-            self.fd.push_zst_unchecked(
-                kind,
-                flags,
-                run_length,
-                try_header_rle,
-            );
-        }
-    }
-    unsafe fn push_variable_sized_type_uninit(
-        &mut self,
-        kind: FieldValueKind,
-        flags: FieldValueFlags,
-        data_len: usize,
-        run_length: usize,
-    ) -> *mut u8 {
-        unsafe {
-            self.fd.push_variable_sized_type_uninit(
-                kind, flags, data_len, run_length,
-            )
-        }
-    }
-}
-impl IterHall {
-    pub fn dup_last_value(&mut self, run_length: usize) {
-        self.fd.dup_last_value(run_length);
-    }
-    pub fn drop_last_value(&mut self, run_length: usize) {
-        self.fd.drop_last_value(run_length);
-    }
-}
 
 pub trait PushInterface: RawPushInterface {
     fn push_inline_bytes(
@@ -814,7 +734,7 @@ impl<T: RawPushInterface> PushInterface for T {}
 
 #[cfg(test)]
 mod test {
-    use crate::field_data::FieldData;
+    use crate::record_data::field_data::FieldData;
 
     use super::PushInterface;
 
@@ -1423,7 +1343,7 @@ impl<'a> VaryingTypeInserter<'a> {
                 self.fmt.kind = FieldValueKind::Null;
                 return;
             }
-            //TODO: maybe set some limit on the reserved len here?
+            // TODO: maybe set some limit on the reserved len here?
             unsafe {
                 self.drop_and_reserve_unchecked(reserved_left, fmt);
             }

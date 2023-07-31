@@ -5,9 +5,9 @@ use regex::Regex;
 use smallstr::SmallString;
 
 use crate::{
-    field_data::push_interface::PushInterface,
     job_session::JobData,
     options::argument::CliArgIdx,
+    record_data::push_interface::PushInterface,
     stream_value::{StreamValue, StreamValueData},
 };
 

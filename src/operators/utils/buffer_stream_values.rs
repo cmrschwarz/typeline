@@ -1,6 +1,8 @@
 use crate::{
-    field_data::{field_value_flags, iters::FieldIterator, typed::TypedSlice},
     job_session::{MatchSetManager, StreamValueManager},
+    record_data::{
+        field_data::field_value_flags, iters::FieldIterator, typed::TypedSlice,
+    },
     ref_iter::{AutoDerefIter, RefAwareStreamValueIter},
 };
 

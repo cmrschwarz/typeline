@@ -1,6 +1,6 @@
 use std::{any::TypeId, ptr::NonNull};
 
-use super::{
+use super::field_data::{
     field_value_flags, FieldData, FieldReference, FieldValueFlags,
     FieldValueFormat, FieldValueHeader, FieldValueKind, Html, Null, Object,
     RunLength, Success,

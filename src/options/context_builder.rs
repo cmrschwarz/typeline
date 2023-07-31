@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use crate::{
     context::{Context, Session},
-    field_data::{push_interface::PushInterface, record_set::RecordSet},
     operators::operator::OperatorData,
+    record_data::{push_interface::PushInterface, record_set::RecordSet},
     scr_error::{ContextualizedScrError, ScrError},
 };
 

@@ -6,13 +6,13 @@ use std::{
 use crate::{
     chain::Chain,
     context::ContextData,
-    field_data::{
-        iter_hall::{IterHall, IterId},
-        iters::FieldIterator,
-    },
     job_session::{FieldId, JobData, JobSession, DUMMY_INPUT_FIELD_ID},
     liveness_analysis::LivenessData,
     options::argument::CliArgIdx,
+    record_data::{
+        iter_hall::{IterHall, IterId},
+        iters::FieldIterator,
+    },
     ref_iter::AutoDerefIter,
     utils::identity_hasher::BuildIdentityHasher,
 };

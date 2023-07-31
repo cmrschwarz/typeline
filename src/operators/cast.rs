@@ -1,12 +1,15 @@
 use smallstr::SmallString;
 
 use crate::{
-    field_data::{
-        field_value_flags, iter_hall::IterId, iters::FieldIterator,
-        push_interface::PushInterface, typed::TypedSlice,
-        typed_iters::TypedSliceIter, FieldDataType, FieldValueKind,
-    },
     job_session::JobData,
+    record_data::{
+        field_data::{field_value_flags, FieldDataType, FieldValueKind},
+        iter_hall::IterId,
+        iters::FieldIterator,
+        push_interface::PushInterface,
+        typed::TypedSlice,
+        typed_iters::TypedSliceIter,
+    },
     ref_iter::AutoDerefIter,
     stream_value::{StreamValueData, StreamValueId},
     utils::encoding::{

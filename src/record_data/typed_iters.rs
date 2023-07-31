@@ -1,8 +1,8 @@
 use std::{marker::PhantomData, ptr::NonNull};
 
 use super::{
+    field_data::{FieldValueHeader, RunLength},
     typed::{TypedRange, ValidTypedRange},
-    FieldValueHeader, RunLength,
 };
 
 #[derive(Clone)]
@@ -515,8 +515,9 @@ impl<'a> Iterator for InlineTextIter<'a> {
 
 #[cfg(test)]
 mod test_slice_iter {
-    use crate::field_data::{
-        push_interface::PushInterface, FieldData, RunLength,
+    use crate::record_data::{
+        field_data::{FieldData, RunLength},
+        push_interface::PushInterface,
     };
 
     use super::TypedSliceIter;
@@ -605,9 +606,10 @@ mod test_slice_iter {
 mod test_text_iter {
     use bstr::ByteSlice;
 
-    use crate::field_data::{
-        push_interface::PushInterface, typed_iters::InlineTextIter, FieldData,
-        RunLength,
+    use crate::record_data::{
+        field_data::{FieldData, RunLength},
+        push_interface::PushInterface,
+        typed_iters::InlineTextIter,
     };
 
     fn compare_iter_output(

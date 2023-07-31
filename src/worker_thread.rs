@@ -1,8 +1,8 @@
 use crate::{
     context::{ContextData, Job, Session},
-    field_data::record_buffer::RecordBuffer,
     job_session::{JobData, JobSession},
     operators::operator::OperatorId,
+    record_data::record_buffer::RecordBuffer,
     scr_error::ScrError,
 };
 use std::sync::Arc;

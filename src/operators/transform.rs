@@ -1,8 +1,8 @@
 use nonmax::NonMaxUsize;
 
 use crate::{
-    field_data::FieldValueKind,
     job_session::{FieldId, MatchSetId},
+    record_data::field_data::FieldValueKind,
 };
 
 use super::{

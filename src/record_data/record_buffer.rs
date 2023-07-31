@@ -5,7 +5,7 @@ use smallvec::SmallVec;
 
 use crate::utils::{string_store::StringStoreEntry, universe::Universe};
 
-use super::FieldData;
+use super::field_data::FieldData;
 
 pub struct RecordBufferField {
     pub refcount: usize,

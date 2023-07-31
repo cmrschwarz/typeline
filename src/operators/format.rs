@@ -6,20 +6,21 @@ use std::{borrow::Cow, cell::RefMut, fmt::Write, ptr::NonNull};
 use smallstr::SmallString;
 
 use crate::{
-    field_data::{
-        field_value_flags,
-        iter_hall::IterId,
-        iters::FieldIterator,
-        push_interface::{PushInterface, RawPushInterface},
-        typed::TypedSlice,
-        typed_iters::TypedSliceIter,
-        FieldValueKind, RunLength, INLINE_STR_MAX_LEN,
-    },
     job_session::{
         Field, FieldId, FieldManager, JobData, MatchSetManager,
         StreamValueManager,
     },
     options::argument::CliArgIdx,
+    record_data::{
+        field_data::{
+            field_value_flags, FieldValueKind, RunLength, INLINE_STR_MAX_LEN,
+        },
+        iter_hall::IterId,
+        iters::FieldIterator,
+        push_interface::{PushInterface, RawPushInterface},
+        typed::TypedSlice,
+        typed_iters::TypedSliceIter,
+    },
     ref_iter::{
         AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter,
         RefAwareInlineTextIter, RefAwareStreamValueIter,

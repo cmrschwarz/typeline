@@ -1,24 +1,7 @@
-// This module implements a run-length encoded, dynamically typed data
-// structure (FieldData) the type information for each entry is stored in a
-// separate vec from the main data the type information itself is run-length
-// encoded even if the data for the two entries is different
-
-// SAFETY: due to its nature, this datastructure requires a lot of unsafe code,
-// some of which is very repetitive. So far, nobody could be bothered
-// with annotating every little piece of it.
-
-pub mod command_buffer;
-pub mod iter_hall;
-pub mod iters;
-pub mod push_interface;
-pub mod record_buffer;
-pub mod record_set;
-pub mod typed;
-pub mod typed_iters;
 use std::{
     collections::HashMap,
     iter,
-    mem::{align_of, size_of, ManuallyDrop},
+    mem::{align_of, ManuallyDrop},
     ops::DerefMut,
     slice, u8,
 };
@@ -36,8 +19,9 @@ use crate::{
     utils::string_store::StringStoreEntry,
 };
 
-use self::{
-    field_value_flags::{BYTES_ARE_UTF8, SHARED_VALUE},
+use self::field_value_flags::{BYTES_ARE_UTF8, SHARED_VALUE};
+
+use super::{
     iters::{FieldIterator, Iter, IterMut},
     push_interface::PushInterface,
     typed::TypedSlice,
@@ -378,9 +362,9 @@ pub const INLINE_STR_MAX_LEN: usize = 8192;
 
 #[derive(Default)]
 pub struct FieldData {
-    pub(self) data: Vec<u8>,
-    pub(self) header: Vec<FieldValueHeader>,
-    pub(self) field_count: usize,
+    pub(super) data: Vec<u8>,
+    pub(super) header: Vec<FieldValueHeader>,
+    pub(super) field_count: usize,
 }
 
 impl Clone for FieldData {
@@ -462,7 +446,7 @@ impl FieldData {
         fd.data.truncate(data_end);
     }
 
-    unsafe fn pad_to_align(&mut self) -> usize {
+    pub unsafe fn pad_to_align(&mut self) -> usize {
         let mut align = self.data.len() % MAX_FIELD_ALIGN;
         if align == 0 {
             return 0;
@@ -600,12 +584,6 @@ impl FieldData {
     }
     pub fn field_count(&self) -> usize {
         self.field_count
-    }
-}
-
-unsafe fn as_u8_slice<T: Sized>(p: &T) -> &[u8] {
-    unsafe {
-        slice::from_raw_parts((p as *const T) as *const u8, size_of::<T>())
     }
 }
 

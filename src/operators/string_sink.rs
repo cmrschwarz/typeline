@@ -9,13 +9,16 @@ use bstr::ByteSlice;
 use smallstr::SmallString;
 
 use crate::{
-    field_data::{
-        field_value_flags, iter_hall::IterId, iters::FieldIterator,
-        push_interface::PushInterface, typed::TypedSlice,
-        typed_iters::TypedSliceIter, FieldValueKind,
-    },
     job_session::{Field, JobData},
     operators::print::error_to_string,
+    record_data::{
+        field_data::{field_value_flags, FieldValueKind},
+        iter_hall::IterId,
+        iters::FieldIterator,
+        push_interface::PushInterface,
+        typed::TypedSlice,
+        typed_iters::TypedSliceIter,
+    },
     ref_iter::{
         AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter,
         RefAwareInlineTextIter, RefAwareStreamValueIter,

@@ -15,9 +15,9 @@ use smallvec::SmallVec;
 use crate::{
     chain::{Chain, ChainId},
     cli::parse_cli,
-    field_data::{record_buffer::RecordBuffer, record_set::RecordSet},
     job_session::{JobData, JobSession},
     operators::operator::{OperatorBase, OperatorData, OperatorId},
+    record_data::{record_buffer::RecordBuffer, record_set::RecordSet},
     scr_error::ScrError,
     utils::{
         identity_hasher::BuildIdentityHasher,

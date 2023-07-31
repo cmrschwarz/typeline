@@ -1,6 +1,6 @@
 use crate::{
-    field_data::push_interface::PushInterface, job_session::JobData,
-    options::argument::CliArgIdx,
+    job_session::JobData, options::argument::CliArgIdx,
+    record_data::push_interface::PushInterface,
 };
 
 use super::{

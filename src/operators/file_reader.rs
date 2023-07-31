@@ -12,12 +12,15 @@ use smallstr::SmallString;
 
 use crate::{
     chain::{BufferingMode, Chain},
-    field_data::{
-        field_value_flags, push_interface::PushInterface, FieldValueFormat,
-        FieldValueKind, FieldValueSize, INLINE_STR_MAX_LEN,
-    },
     job_session::JobData,
     options::argument::CliArgIdx,
+    record_data::{
+        field_data::{
+            field_value_flags, FieldValueFormat, FieldValueKind,
+            FieldValueSize, INLINE_STR_MAX_LEN,
+        },
+        push_interface::PushInterface,
+    },
     stream_value::{StreamValue, StreamValueData, StreamValueId},
 };
 

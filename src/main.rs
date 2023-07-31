@@ -1,8 +1,8 @@
 use scr::{
     cli::{collect_env_args, parse_cli},
     context::Context,
-    field_data::record_set::RecordSet,
     options::session_options::SessionOptions,
+    record_data::record_set::RecordSet,
     scr_error::ScrError,
 };
 use std::{process::ExitCode, sync::Arc};

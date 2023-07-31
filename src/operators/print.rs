@@ -4,21 +4,20 @@ use std::{
 };
 
 use crate::{
-    field_data::{
-        field_value_flags,
-        iter_hall::IterId,
-        iters::{FieldIterator, UnfoldIterRunLength},
-        push_interface::PushInterface,
-        typed::TypedSlice,
-        typed_iters::TypedSliceIter,
-        FieldValueKind,
-    },
     job_session::JobData,
     operators::utils::buffer_stream_values::{
         buffer_remaining_stream_values_in_auto_deref_iter,
         buffer_remaining_stream_values_in_sv_iter,
     },
     options::argument::CliArgIdx,
+    record_data::{
+        field_data::{field_value_flags, FieldValueKind},
+        iter_hall::IterId,
+        iters::{FieldIterator, UnfoldIterRunLength},
+        push_interface::PushInterface,
+        typed::TypedSlice,
+        typed_iters::TypedSliceIter,
+    },
     ref_iter::{
         AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter,
         RefAwareInlineTextIter, RefAwareStreamValueIter,

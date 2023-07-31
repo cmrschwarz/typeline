@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::field_data::{
+use crate::record_data::field_data::{
     field_value_flags, FieldData, FieldValueFlags, FieldValueFormat,
     FieldValueHeader, FieldValueKind, RunLength,
 };

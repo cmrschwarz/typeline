@@ -9,15 +9,6 @@ use smallvec::SmallVec;
 
 use crate::{
     context::{ContextData, Job, Session, VentureDescription},
-    field_data::{
-        command_buffer::{
-            ActionListIndex, ActionProducingFieldIndex, CommandBuffer,
-        },
-        iter_hall::{IterHall, IterId},
-        iters::{FieldIterator, Iter},
-        record_buffer::RecordBuffer,
-        FieldData,
-    },
     operators::{
         call::{
             handle_eager_call_expansion, handle_lazy_call_expansion,
@@ -62,6 +53,15 @@ use crate::{
         transform::{
             TransformData, TransformId, TransformOrderingId, TransformState,
         },
+    },
+    record_data::{
+        command_buffer::{
+            ActionListIndex, ActionProducingFieldIndex, CommandBuffer,
+        },
+        field_data::FieldData,
+        iter_hall::{IterHall, IterId},
+        iters::{FieldIterator, Iter},
+        record_buffer::RecordBuffer,
     },
     ref_iter::AutoDerefIter,
     stream_value::{StreamValue, StreamValueData, StreamValueId},
