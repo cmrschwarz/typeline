@@ -71,10 +71,7 @@ impl FieldValueKind {
     #[inline(always)]
     pub fn needs_alignment(self) -> bool {
         use FieldValueKind::*;
-        match self {
-            Success | Null | BytesInline => false,
-            _ => true,
-        }
+        !matches!(self, Success | Null | BytesInline)
     }
     #[inline]
     pub fn needs_copy(self) -> bool {
@@ -556,7 +553,7 @@ impl FieldData {
         copied_fields
     }
 
-    pub fn iter<'a>(&'a self) -> Iter<'a, &'a FieldData> {
+    pub fn iter(&self) -> Iter<'_, &'_ FieldData> {
         Iter::from_start(self, 0)
     }
     pub unsafe fn internals(&mut self) -> FieldDataInternals {
@@ -575,7 +572,7 @@ unsafe fn extend_with_clones<T: Clone>(
     target_applicator: &mut impl FnMut(&mut dyn FnMut(&mut FieldData)),
     src: &[T],
 ) {
-    let src_size = src.len() * std::mem::size_of::<T>();
+    let src_size = std::mem::size_of_val(src);
     target_applicator(&mut |fd| {
         fd.data.reserve(src_size);
         unsafe {
@@ -595,14 +592,14 @@ unsafe fn extend_raw<T: Sized>(
     let src_bytes = unsafe {
         std::slice::from_raw_parts(
             src.as_ptr() as *const u8,
-            src.len() * std::mem::size_of::<T>(),
+            std::mem::size_of_val(src),
         )
     };
     target_applicator(&mut |fd| fd.data.extend_from_slice(src_bytes));
 }
 
-unsafe fn append_data<'a>(
-    ts: TypedSlice<'a>,
+unsafe fn append_data(
+    ts: TypedSlice<'_>,
     target_applicator: &mut impl FnMut(&mut dyn FnMut(&mut FieldData)),
 ) {
     unsafe {

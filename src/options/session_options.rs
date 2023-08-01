@@ -130,16 +130,20 @@ impl SessionOptions {
             }) => {
                 *subchains_start =
                     self.chains[self.curr_chain as usize].subchain_count;
-                let mut new_chain = ChainOptions::default();
-                new_chain.parent = self.curr_chain;
+                let new_chain = ChainOptions {
+                    parent: self.curr_chain,
+                    ..Default::default()
+                };
                 self.curr_chain = self.chains.len() as ChainId;
                 self.chains.push(new_chain);
             }
             OperatorData::Next(_) => {
                 let parent = self.chains[self.curr_chain as usize].parent;
                 self.chains[parent as usize].subchain_count += 1;
-                let mut new_chain = ChainOptions::default();
-                new_chain.parent = parent;
+                let new_chain = ChainOptions {
+                    parent,
+                    ..Default::default()
+                };
                 self.curr_chain = self.chains.len() as ChainId;
                 self.chains.push(new_chain);
                 op_base_opts.chain_id = None;
@@ -165,9 +169,11 @@ impl SessionOptions {
     pub fn add_label(&mut self, label: String) {
         let new_chain_id = self.chains.len() as ChainId;
         let curr_chain = &mut self.chains[self.curr_chain as usize];
-        let mut new_chain = ChainOptions::default();
-        new_chain.parent = curr_chain.parent;
-        new_chain.label = Some(self.string_store.intern_moved(label));
+        let new_chain = ChainOptions {
+            parent: curr_chain.parent,
+            label: Some(self.string_store.intern_moved(label)),
+            ..Default::default()
+        };
         //   let op_base = OperatorBaseOptions::new(
         // self.string_store.intern_cloned("jump"),
         // None,
@@ -179,7 +185,7 @@ impl SessionOptions {
         self.curr_chain = new_chain_id;
         self.chains.push(new_chain);
     }
-    pub fn verify_bounds(sess: &mut Session) -> Result<(), ScrError> {
+    pub fn verify_bounds(sess: &Session) -> Result<(), ScrError> {
         if sess.operator_bases.len() >= OperatorOffsetInChain::MAX as usize {
             return Err(OperatorSetupError {
                 message: Cow::Owned(
@@ -206,7 +212,7 @@ impl SessionOptions {
             }
             .into());
         }
-        return Ok(());
+        Ok(())
     }
     pub fn setup_operators(
         sess: &mut Session,
@@ -301,14 +307,14 @@ impl SessionOptions {
                 OperatorData::Up(op) => setup_op_up(chain, op, op_id)?,
                 OperatorData::Call(op) => setup_op_call(
                     &sess.chain_labels,
-                    &mut sess.string_store,
+                    &sess.string_store,
                     op,
                     op_id,
                 )?,
                 OperatorData::CallConcurrent(op) => setup_op_call_concurrent(
                     &sess.settings,
                     &sess.chain_labels,
-                    &mut sess.string_store,
+                    &sess.string_store,
                     op,
                     op_id,
                 )?,
@@ -329,7 +335,7 @@ impl SessionOptions {
         } else if chain.settings.stream_buffer_size == 0 {
             message = "stream buffer size cannot be zero";
         }
-        if message != "" {
+        if !message.is_empty() {
             return Err(ChainSetupError::new(message, chain_id));
         }
         Ok(())
@@ -341,7 +347,7 @@ impl SessionOptions {
             }
         }
     }
-    pub fn setup_chains(sess: &mut Session) -> Result<(), ChainSetupError> {
+    pub fn setup_chains(sess: &Session) -> Result<(), ChainSetupError> {
         for i in 0..sess.chains.len() {
             Self::validate_chain(sess, i as ChainId)?;
         }
@@ -382,19 +388,7 @@ impl SessionOptions {
             }
         }
     }
-    pub fn build_session(self) -> Result<Session, ContextualizedScrError> {
-        self.build_session_raw().map_err(|(opts, err)| {
-            ContextualizedScrError::from_scr_error(
-                err,
-                None,
-                Some(&opts),
-                None,
-            )
-        })
-    }
-    pub fn build_session_raw(
-        mut self,
-    ) -> Result<Session, (SessionOptions, ScrError)> {
+    pub fn build_session(mut self) -> Result<Session, ContextualizedScrError> {
         let mut max_threads;
         if !self.any_threaded_operations {
             max_threads = 1;
@@ -454,15 +448,20 @@ impl SessionOptions {
             string_store: self.string_store,
         };
         SessionOptions::setup_chain_labels(&mut sess);
-        let res = SessionOptions::verify_bounds(&mut sess)
+        let res = SessionOptions::verify_bounds(&sess)
             .and(result_into(SessionOptions::setup_operators(&mut sess)))
-            .and(result_into(SessionOptions::setup_chains(&mut sess)));
+            .and(result_into(SessionOptions::setup_chains(&sess)));
         if let Err(e) = res {
             // moving back into context options
             self.string_store = sess.string_store;
             self.operator_data = sess.operator_data;
             self.cli_args = sess.cli_args;
-            return Err((self, e));
+            return Err(ContextualizedScrError::from_scr_error(
+                e,
+                None,
+                Some(&self),
+                None,
+            ));
         }
         Self::compute_liveness(&mut sess);
         Ok(sess)

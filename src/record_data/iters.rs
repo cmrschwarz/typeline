@@ -1,4 +1,4 @@
-use std::marker::PhantomData;
+use std::{cmp::Ordering, marker::PhantomData};
 
 use crate::record_data::field_data::{
     field_value_flags, FieldData, FieldValueFlags, FieldValueFormat,
@@ -127,12 +127,12 @@ pub trait FieldIterator<'a>: Sized {
             |_, _| true,
         )
     }
-    fn move_to_field_pos(&mut self, field_pos: usize) {
+    fn move_to_field_pos(&mut self, field_pos: usize) -> usize {
         let curr = self.get_next_field_pos();
-        if curr > field_pos {
-            self.prev_n_fields(curr - field_pos);
-        } else if curr < field_pos {
-            self.next_n_fields(field_pos - curr);
+        match curr.cmp(&field_pos) {
+            Ordering::Equal => 0,
+            Ordering::Less => self.next_n_fields(field_pos - curr),
+            Ordering::Greater => self.prev_n_fields(curr - field_pos),
         }
     }
     fn next_n_fields(&mut self, n: usize) -> usize {
@@ -186,7 +186,7 @@ impl<'a, R: FieldDataRef<'a>> Iter<'a, R> {
             header_rl_total: first_header.map_or(0, |h| h.run_length),
             header_fmt: first_header.map(|h| h.fmt).unwrap_or_default(),
             fdr,
-            _phantom_data: PhantomData::default(),
+            _phantom_data: PhantomData,
         };
         res.skip_dead_fields();
         res
@@ -200,7 +200,7 @@ impl<'a, R: FieldDataRef<'a>> Iter<'a, R> {
             header_rl_total: 0,
             header_fmt: Default::default(),
             fdr,
-            _phantom_data: PhantomData::default(),
+            _phantom_data: PhantomData,
         }
     }
     pub(super) fn skip_dead_fields(&mut self) {
@@ -353,7 +353,7 @@ impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for Iter<'a, R> {
             self.field_pos += 1;
             return 1;
         }
-        return self.next_header();
+        self.next_header()
     }
     fn prev_field(&mut self) -> RunLength {
         if self.header_rl_offset > 0 {
@@ -361,7 +361,7 @@ impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for Iter<'a, R> {
             self.field_pos -= 1;
             return 1;
         }
-        return self.prev_header();
+        self.prev_header()
     }
     fn next_n_fields_with_fmt_and_data_check<const N: usize>(
         &mut self,
@@ -638,7 +638,7 @@ where
             iter,
             min,
             max,
-            _phantom_data: PhantomData::default(),
+            _phantom_data: PhantomData,
         }
     }
     pub fn new_relative(
@@ -651,7 +651,7 @@ where
             iter,
             min: pos.saturating_sub(backwards),
             max: pos.saturating_add(forward).saturating_add(1),
-            _phantom_data: PhantomData::default(),
+            _phantom_data: PhantomData,
         }
     }
     pub fn range_fwd(&self) -> usize {
@@ -745,16 +745,14 @@ where
         if self.get_next_field_pos() == self.max {
             0
         } else {
-            let stride = self.iter.next_field();
-            stride
+            self.iter.next_field()
         }
     }
     fn prev_field(&mut self) -> RunLength {
         if self.get_next_field_pos() == self.min {
             0
         } else {
-            let stride = self.iter.prev_field();
-            stride
+            self.iter.prev_field()
         }
     }
     fn next_n_fields_with_fmt_and_data_check<const N: usize>(
@@ -767,15 +765,14 @@ where
         data_check: impl Fn(&FieldValueFormat, *const u8) -> bool,
     ) -> usize {
         let n = n.min(self.range_fwd());
-        let stride = self.iter.next_n_fields_with_fmt_and_data_check(
+        self.iter.next_n_fields_with_fmt_and_data_check(
             n,
             kinds,
             invert_kinds_check,
             flag_mask,
             flags,
             data_check,
-        );
-        stride
+        )
     }
     fn prev_n_fields_with_fmt_and_data_check<const N: usize>(
         &mut self,
@@ -787,15 +784,14 @@ where
         data_check: impl Fn(&FieldValueFormat, *const u8) -> bool,
     ) -> usize {
         let n = n.min(self.range_bwd());
-        let stride = self.iter.prev_n_fields_with_fmt_and_data_check(
+        self.iter.prev_n_fields_with_fmt_and_data_check(
             n,
             kinds,
             invert_kinds_check,
             flag_mask,
             flags,
             data_check,
-        );
-        stride
+        )
     }
     fn typed_field_fwd(&mut self, limit: RunLength) -> Option<TypedField<'a>> {
         self.iter.typed_field_fwd(

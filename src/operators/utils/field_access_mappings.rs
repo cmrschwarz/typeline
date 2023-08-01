@@ -180,9 +180,9 @@ impl<AT: AccessType> AccessMappings<AT> {
         mappings.append_var_data(ctx, ld, var_data);
         mappings
     }
-    pub fn iter_name_opt<'a>(
-        &'a self,
-    ) -> impl Iterator<Item = (Option<StringStoreEntry>, AT)> + 'a {
+    pub fn iter_name_opt(
+        &self,
+    ) -> impl Iterator<Item = (Option<StringStoreEntry>, AT)> + '_ {
         std::iter::once((None, self.input_field.clone().unwrap_or_default()))
             .take(if self.input_field.is_some() { 1 } else { 0 })
             .chain(
@@ -191,7 +191,7 @@ impl<AT: AccessType> AccessMappings<AT> {
                     .map(|(name, mode)| (Some(*name), mode.clone())),
             )
     }
-    pub fn get<'a>(&'a self, key: Option<StringStoreEntry>) -> Option<&AT> {
+    pub fn get(&self, key: Option<StringStoreEntry>) -> Option<&AT> {
         match key {
             Some(name) => self.fields.get(&name),
             None => self.input_field.as_ref(),

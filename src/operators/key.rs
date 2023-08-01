@@ -40,14 +40,13 @@ pub fn setup_op_key(
     string_store: &mut StringStore,
     op: &mut OpKey,
 ) -> Result<(), OperatorSetupError> {
-    op.key_interned = string_store
-        .intern_moved(std::mem::replace(&mut op.key, Default::default()));
+    op.key_interned = string_store.intern_moved(std::mem::take(&mut op.key));
     Ok(())
 }
 
 pub fn create_op_key(key: String) -> OperatorData {
     OperatorData::Key(OpKey {
-        key: key,
+        key,
         key_interned: INVALID_STRING_STORE_ENTRY,
     })
 }

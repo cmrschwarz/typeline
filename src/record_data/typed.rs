@@ -51,10 +51,10 @@ impl<'a> TypedValue<'a> {
                     }
                 }
                 FieldValueKind::Integer => {
-                    TypedValue::Integer(*to_ref(fdr, data_begin))
+                    TypedValue::Integer(to_ref(fdr, data_begin))
                 }
                 FieldValueKind::StreamValueId => {
-                    TypedValue::StreamValueId(*to_ref(fdr, data_begin))
+                    TypedValue::StreamValueId(to_ref(fdr, data_begin))
                 }
                 FieldValueKind::Reference => {
                     TypedValue::Reference(to_ref(fdr, data_begin))
@@ -144,7 +144,7 @@ pub fn slice_as_bytes<T>(v: &[T]) -> &[u8] {
     unsafe {
         std::slice::from_raw_parts(
             v.as_ptr() as *const u8,
-            v.len() * std::mem::size_of::<T>(),
+            std::mem::size_of_val(v),
         )
     }
 }
@@ -251,11 +251,14 @@ impl<'a> TypedSlice<'a> {
             TypedSlice::Object(v) => v.len(),
         }
     }
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
     pub fn matches_values<T: 'static>(&self, values: &[T]) -> bool {
         if TypeId::of::<T>() != self.type_id() {
             return false;
         }
-        return values.len() == self.len();
+        values.len() == self.len()
     }
 }
 

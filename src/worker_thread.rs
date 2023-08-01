@@ -52,7 +52,7 @@ impl WorkerThread {
         }
     }
 
-    pub fn run_job<'a>(&mut self, sess: &'a Session, job: Job) {
+    pub fn run_job(&mut self, sess: &Session, job: Job) {
         let mut js = JobSession {
             transform_data: Default::default(),
             job_data: JobData::new(sess),

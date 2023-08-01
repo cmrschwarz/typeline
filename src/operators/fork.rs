@@ -91,7 +91,7 @@ pub fn setup_op_fork_liveness_data(
     ld: &LivenessData,
 ) {
     let bb_id = ld.operator_liveness_data[op_id as usize].basic_block_id;
-    debug_assert!(ld.basic_blocks[bb_id].calls.len() == 0);
+    debug_assert!(ld.basic_blocks[bb_id].calls.is_empty());
     let bb = &ld.basic_blocks[bb_id];
     for callee_bb_id in bb.successors.iter() {
         op.accessed_fields_per_subchain.push(
@@ -281,7 +281,7 @@ pub(crate) fn handle_fork_expansion(
                 sess.job_data.field_mgr.fields[src_field_id].borrow_mut();
             // TODO: handle WriteData
             let mut any_writes = writes != FieldAccessMode::Read;
-            if any_writes == false {
+            if !any_writes {
                 for other_name in &src_field.names {
                     if name == Some(*other_name) {
                         continue;
@@ -341,7 +341,9 @@ pub(crate) fn handle_fork_expansion(
                     target_match_set
                         .field_name_map
                         .insert(*other_name, target_field_id);
-                    tgt_field.as_mut().map(|f| f.names.push(*other_name));
+                    if let Some(f) = tgt_field.as_mut() {
+                        f.names.push(*other_name)
+                    }
                 }
             }
             if name.is_none() {
@@ -368,7 +370,7 @@ pub(crate) fn handle_fork_expansion(
         );
         sess.job_data.field_mgr.bump_field_refcount(input_field);
         tf_state.is_transparent = true;
-        let tf_data = setup_tf_nop(&mut tf_state);
+        let tf_data = setup_tf_nop(&tf_state);
         let mut pred_tf = sess.add_transform(tf_state, tf_data);
         let (start_tf, end_tf, end_reachable) = sess.setup_transforms_from_op(
             target_ms_id,
@@ -379,9 +381,9 @@ pub(crate) fn handle_fork_expansion(
         if end_reachable {
             sess.add_terminator(end_tf);
         }
-        if !sess.job_data.tf_mgr.transforms[start_tf]
+        if sess.job_data.tf_mgr.transforms[start_tf]
             .continuation
-            .is_some()
+            .is_none()
         {
             sess.job_data.unlink_transform(pred_tf, 0);
             sess.remove_transform(pred_tf);

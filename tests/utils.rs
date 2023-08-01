@@ -35,7 +35,7 @@ pub struct TricklingStream<'a> {
 
 impl<'a> Read for TricklingStream<'a> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        if self.total_size == 0 || buf.len() == 0 {
+        if self.total_size == 0 || buf.is_empty() {
             return Ok(0);
         }
         if self.data_pos == self.data_to_repeat.len() {
@@ -44,7 +44,7 @@ impl<'a> Read for TricklingStream<'a> {
         buf[0] = self.data_to_repeat[self.data_pos];
         self.total_size -= 1;
         self.data_pos += 1;
-        return Ok(1);
+        Ok(1)
     }
 }
 
@@ -69,7 +69,7 @@ impl<R: Read> ErroringStream<R> {
     }
 }
 
-impl<'a, R: Read> Read for ErroringStream<R> {
+impl<R: Read> Read for ErroringStream<R> {
     fn read(&mut self, mut buf: &mut [u8]) -> std::io::Result<usize> {
         if self.error_after == 0 {
             return Err(std::io::Error::new(

@@ -62,8 +62,11 @@ impl Clone for StringStore {
                     [arena_inner_idx..arena_inner_idx + str.len()];
                 // SAFETY: same argument as for normal interning, we are just
                 // cloning here
-                let str_ref_static: &'static str =
-                    unsafe { std::mem::transmute(str_clone) };
+                let str_ref_static: &'static str = unsafe {
+                    std::mem::transmute::<&'_ str, &'static str>(
+                        std::str::from_utf8_unchecked(str_clone),
+                    )
+                };
                 res.table_str_to_idx.insert(str_ref_static, idx);
                 res.table_idx_to_str.push(str_ref_static);
                 arena_inner_idx += str.len();
@@ -130,8 +133,11 @@ impl StringStore {
         bucket.extend_from_slice(entry.as_bytes());
         let str_ref = &bucket[bucket_len..bucket_len + len];
         // SAFETY: this is fine because these never get handed out
-        let str_ref_static =
-            unsafe { transmute::<&[u8], &'static str>(str_ref) };
+        let str_ref_static = unsafe {
+            transmute::<&'_ str, &'static str>(std::str::from_utf8_unchecked(
+                str_ref,
+            ))
+        };
         self.claim_id_without_lookup(str_ref_static)
     }
 
@@ -153,8 +159,7 @@ impl StringStore {
         let str_ref_static: &'static str =
             unsafe { transmute::<&str, &'static str>(str_ref) };
         bucket.push(str);
-        let idx = self.claim_id_without_lookup(str_ref_static);
-        idx
+        self.claim_id_without_lookup(str_ref_static)
     }
     pub fn intern_cow(&mut self, cow: Cow<'static, str>) -> StringStoreEntry {
         match cow {
@@ -163,7 +168,7 @@ impl StringStore {
         }
     }
     pub fn lookup(&self, entry: StringStoreEntry) -> &str {
-        &self.table_idx_to_str[u32::from(entry) as usize - 1]
+        self.table_idx_to_str[u32::from(entry) as usize - 1]
     }
     pub fn lookup_str(&self, entry: &str) -> Option<StringStoreEntry> {
         self.table_str_to_idx.get(entry).cloned()

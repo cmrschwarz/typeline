@@ -238,7 +238,7 @@ impl LivenessData {
             bb.operators_end = op_n;
             bb.calls.push(called_chain as BasicBlockId);
             self.basic_blocks.push(BasicBlock {
-                chain_id: chain_id,
+                chain_id,
                 operators_start: op_n + 1,
                 operators_end: end,
                 var_data_start: *data_size,
@@ -355,7 +355,6 @@ impl LivenessData {
     }
     fn access_field(
         &self,
-        bb_id: BasicBlockId,
         op_output_idx: OpOutputIdx,
         write: bool,
         stringified: bool,
@@ -375,7 +374,7 @@ impl LivenessData {
                 .set_aliased(HEADER_WRITES_OFFSET * ooc + oo_idx, true);
         }
         for fr in &self.op_outputs[oo_idx].field_references {
-            self.access_field(bb_id, *fr, write, stringified);
+            self.access_field(*fr, write, stringified);
         }
     }
     fn append_to_field(&self, op_output_idx: OpOutputIdx) {
@@ -429,7 +428,7 @@ impl LivenessData {
             let mut input_accessed = true;
             let mut input_access_stringified = true;
             let mut may_dup_or_drop = false;
-            match &sess.operator_data[op_id as usize] {
+            match &sess.operator_data[op_id] {
                 OperatorData::Fork(_) | OperatorData::ForkCat(_) => {
                     debug_assert!(op_n + 1 == bb.operators_end);
                     break;
@@ -493,7 +492,6 @@ impl LivenessData {
                         if let Some(name) = ref_name {
                             let var_id = self.var_names[name];
                             self.access_field(
-                                bb_id,
                                 var_id,
                                 any_writes_so_far,
                                 false, // TODO
@@ -534,7 +532,6 @@ impl LivenessData {
             }
             if input_accessed && used_input_field != INVALID_OP_OUTPUT_IDX {
                 self.access_field(
-                    bb_id,
                     used_input_field,
                     any_writes_so_far,
                     input_access_stringified,
@@ -543,7 +540,7 @@ impl LivenessData {
             if op_base.append_mode {
                 self.append_to_field(output_field);
             }
-            if let Some(label) = sess.operator_bases[op_id as usize].label {
+            if let Some(label) = sess.operator_bases[op_id].label {
                 let var_id = self.var_names[&label];
                 self.vars_to_op_outputs_map[var_id as usize] =
                     self.operator_liveness_data[op_id].outputs_start;
@@ -722,9 +719,9 @@ impl LivenessData {
 
                 for call_bb_id in calls_iter {
                     let cbb = &self.basic_blocks[*call_bb_id];
-                    self.apply_bb_aliases(&calls, &successors, cbb);
+                    self.apply_bb_aliases(calls, successors, cbb);
                 }
-                self.kill_non_survivors(successors, &calls);
+                self.kill_non_survivors(successors, calls);
                 *calls |= &*successors;
             }
         }

@@ -18,7 +18,7 @@ pub struct IdentityHasher {
 impl Hasher for IdentityHasher {
     fn finish(&self) -> u64 {
         #[cfg(debug_assertions)]
-        if self.accessed == false {
+        if !self.accessed {
             panic!("IdentityHasher: finish() called before writing")
         }
         self.hash
@@ -29,7 +29,7 @@ impl Hasher for IdentityHasher {
     fn write_u64(&mut self, n: u64) {
         #[cfg(debug_assertions)]
         {
-            if self.accessed == true {
+            if self.accessed {
                 panic!("IdentityHasher: attempted to write a second time")
             }
             self.accessed = true;

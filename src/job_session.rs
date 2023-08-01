@@ -254,7 +254,7 @@ impl TransformManager {
             tf.is_ready = true;
             self.ready_queue.push(ReadyQueueEntry {
                 ord_id: tf.ordering_id,
-                tf_id: tf_id,
+                tf_id,
             });
         }
     }
@@ -485,7 +485,7 @@ impl FieldManager {
         if let Some(cow_source) = field.cow_source {
             let src = self.fields[cow_source].borrow();
             let mut iter =
-                AutoDerefIter::new(&self, cow_source, src.field_data.iter());
+                AutoDerefIter::new(self, cow_source, src.field_data.iter());
             IterHall::copy_resolve_refs(
                 match_set_mgr,
                 &mut iter,
@@ -513,11 +513,11 @@ impl FieldManager {
         cb.execute_for_field(field, &mut f);
     }
 
-    pub fn borrow_field_cow<'a>(
-        &'a self,
+    pub fn borrow_field_cow(
+        &self,
         field_id: FieldId,
         mark_for_unconsumed_input: bool,
-    ) -> Ref<'a, Field> {
+    ) -> Ref<Field> {
         let field = self.fields[field_id].borrow();
         field.has_unconsumed_input_or_equals(mark_for_unconsumed_input);
         if let Some(cow_source) = field.cow_source {
@@ -525,11 +525,11 @@ impl FieldManager {
         }
         field
     }
-    pub fn borrow_field_cow_mut<'a>(
-        &'a self,
+    pub fn borrow_field_cow_mut(
+        &self,
         field_id: FieldId,
         mark_for_unconsumed_input: bool,
-    ) -> RefMut<'a, Field> {
+    ) -> RefMut<Field> {
         let field = self.fields[field_id].borrow_mut();
         field.has_unconsumed_input_or_equals(mark_for_unconsumed_input);
         if let Some(cow_source) = field.cow_source {
@@ -600,7 +600,7 @@ impl StreamValueManager {
         for sub in &sv.subscribers {
             if !sub.notify_only_once_done || sv.done {
                 self.updates.push_back(StreamValueUpdate {
-                    sv_id: sv_id,
+                    sv_id,
                     tf_id: sub.tf_id,
                     custom: sub.custom_data,
                 });
@@ -721,7 +721,7 @@ impl<'a> JobData<'a> {
         }
         #[cfg(feature = "debug_logging")]
         println!("]");
-        let frs = std::mem::replace(&mut field.field_refs, Default::default());
+        let frs = std::mem::take(&mut field.field_refs);
         drop(field);
         self.field_mgr.fields.release(id);
         for fr in &frs {
@@ -1007,7 +1007,7 @@ impl<'a> JobSession<'a> {
 
             let jd = &mut self.job_data;
             let tf_data = match op_data {
-                OperatorData::Nop(_) => setup_tf_nop(&mut tf_state),
+                OperatorData::Nop(_) => setup_tf_nop(&tf_state),
                 OperatorData::Cast(op) => {
                     setup_tf_cast(jd, b, op, &mut tf_state)
                 }
@@ -1030,13 +1030,13 @@ impl<'a> JobSession<'a> {
                     setup_tf_regex(jd, b, op, &mut tf_state)
                 }
                 OperatorData::Format(op) => {
-                    setup_tf_format(jd, b, op, tf_id_peek, &mut tf_state)
+                    setup_tf_format(jd, b, op, tf_id_peek, &tf_state)
                 }
                 OperatorData::StringSink(op) => {
                     setup_tf_string_sink(jd, b, op, &mut tf_state)
                 }
                 OperatorData::FileReader(op) => {
-                    setup_tf_file_reader(jd, b, op, &mut tf_state)
+                    setup_tf_file_reader(jd, b, op, &tf_state)
                 }
                 OperatorData::Literal(op) => {
                     setup_tf_literal(jd, op_base, op, &mut tf_state)
@@ -1052,7 +1052,7 @@ impl<'a> JobSession<'a> {
                 }
                 OperatorData::CallConcurrent(op) => {
                     end_reachable = false;
-                    setup_tf_call_concurrent(jd, b, op, &mut tf_state)
+                    setup_tf_call_concurrent(jd, b, op, &tf_state)
                 }
                 OperatorData::Key(_) => unreachable!(),
                 OperatorData::Next(_) => unreachable!(),
@@ -1069,11 +1069,8 @@ impl<'a> JobSession<'a> {
                     self.job_data.tf_mgr.transforms[prev].continuation =
                         Some(tf_id);
                 }
-            } else {
-                if let Some(pred) = predecessor_tf {
-                    self.job_data.tf_mgr.transforms[pred].successor =
-                        Some(tf_id);
-                }
+            } else if let Some(pred) = predecessor_tf {
+                self.job_data.tf_mgr.transforms[pred].successor = Some(tf_id);
             }
 
             if start_tf_id.is_none() {
@@ -1100,7 +1097,7 @@ impl<'a> JobSession<'a> {
         let tf_id = self.job_data.tf_mgr.transforms.peek_claim_id();
         let pred = &mut self.job_data.tf_mgr.transforms[predecessor_tf_id];
         let input_field = pred.output_field;
-        let mut tf_state = TransformState::new(
+        let tf_state = TransformState::new(
             input_field,
             INVALID_FIELD_ID,
             pred.match_set_id,
@@ -1110,7 +1107,7 @@ impl<'a> JobSession<'a> {
             ordering_id,
         );
         pred.successor = Some(tf_id);
-        let tf_data = setup_tf_terminator(&mut self.job_data, &mut tf_state);
+        let tf_data = setup_tf_terminator(&mut self.job_data, &tf_state);
         self.job_data.field_mgr.fields[input_field]
             .borrow_mut()
             .ref_count += 1;
@@ -1200,7 +1197,7 @@ impl<'a> JobSession<'a> {
                 }
             }
             TransformData::ForkCat(forkcat) => {
-                if !forkcat.curr_target.is_none() {
+                if forkcat.curr_target.is_some() {
                     handle_forkcat_expansion(self, tf_id);
                 }
             }

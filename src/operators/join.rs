@@ -47,7 +47,7 @@ impl OpJoin {
         small_str.push_str("join");
         small_str.push_str(
             self.join_count
-                .map(|v| usize_to_str(v))
+                .map(usize_to_str)
                 .unwrap_or_default()
                 .as_str(),
         );
@@ -85,7 +85,7 @@ pub fn parse_op_join(
     value: Option<&[u8]>,
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
-    let args = ARG_REGEX.captures(&argument).ok_or_else(|| {
+    let args = ARG_REGEX.captures(argument).ok_or_else(|| {
         OperatorCreationError::new("invalid argument syntax for join", arg_idx)
     })?;
     let insert_count = args
@@ -149,10 +149,7 @@ pub fn create_op_join(
         .as_ref()
         .map(|v| v.to_str().is_ok())
         .unwrap_or(true);
-    let sep = match separator {
-        Some(v) => Some(v.into_boxed_slice()),
-        None => None,
-    };
+    let sep = separator.map(|v| v.into_boxed_slice());
     OperatorData::Join(OpJoin {
         separator: sep,
         separator_is_valid_utf8,
@@ -190,24 +187,25 @@ fn get_join_buffer<'a>(
     sv_mgr: &'a mut StreamValueManager,
     expected_len: usize,
 ) -> &'a mut Vec<u8> {
-    if join.output_stream_val.is_none() {
-        if join.buffer.len() + expected_len > join.stream_len_threshold {
-            let cap = join.buffer.capacity();
-            let sv = sv_mgr.stream_values.claim_with_value(StreamValue {
-                data: StreamValueData::Bytes(std::mem::replace(
-                    &mut join.buffer,
-                    Vec::with_capacity(cap),
-                )),
-                bytes_are_utf8: join.buffer_is_valid_utf8,
-                bytes_are_chunk: true,
-                drop_previous_chunks: false,
-                done: false,
-                subscribers: Default::default(),
-                ref_count: 1,
-            });
-            join.output_stream_val = Some(sv);
-        }
+    if join.output_stream_val.is_none()
+        && join.buffer.len() + expected_len > join.stream_len_threshold
+    {
+        let cap = join.buffer.capacity();
+        let sv = sv_mgr.stream_values.claim_with_value(StreamValue {
+            data: StreamValueData::Bytes(std::mem::replace(
+                &mut join.buffer,
+                Vec::with_capacity(cap),
+            )),
+            bytes_are_utf8: join.buffer_is_valid_utf8,
+            bytes_are_chunk: true,
+            drop_previous_chunks: false,
+            done: false,
+            subscribers: Default::default(),
+            ref_count: 1,
+        });
+        join.output_stream_val = Some(sv);
     }
+
     if let Some(sv_id) = join.output_stream_val {
         if let StreamValueData::Bytes(bb) =
             &mut sv_mgr.stream_values[sv_id].data
@@ -457,7 +455,7 @@ pub fn handle_tf_join(
                                 let b = offsets
                                     .as_ref()
                                     .map(|o| &b[o.clone()])
-                                    .unwrap_or(&b);
+                                    .unwrap_or(b);
                                 // SAFETY: this is a buffer on the heap so it
                                 // will not be affected
                                 // if the stream values vec is resized in case
@@ -478,7 +476,7 @@ pub fn handle_tf_join(
                                     push_bytes_raw(
                                         join,
                                         sv_mgr,
-                                        &b_laundered,
+                                        b_laundered,
                                         rl as usize,
                                     );
                                 } else {
@@ -620,7 +618,7 @@ pub fn handle_tf_join_stream_value_update(
                 if drop_prev_chunks {
                     buf.truncate(buf.len() - sv_added_len);
                 }
-                buf.extend_from_slice(&buf_ref);
+                buf.extend_from_slice(buf_ref);
                 if drop_prev_chunks {
                     join.stream_val_added_len = 0;
                 }

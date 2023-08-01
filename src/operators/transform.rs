@@ -98,7 +98,7 @@ impl TransformState {
             desired_batch_size,
             successor: None,
             continuation: None,
-            predecessor: predecessor,
+            predecessor,
             op_id,
             ordering_id,
             is_ready: false,

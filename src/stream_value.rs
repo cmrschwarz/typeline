@@ -64,11 +64,11 @@ impl StreamValue {
     }
     pub fn new(data: StreamValueData, utf8: bool, done: bool) -> StreamValue {
         StreamValue {
-            data: data,
+            data,
             bytes_are_utf8: utf8,
             bytes_are_chunk: !done,
             drop_previous_chunks: false,
-            done: done,
+            done,
             subscribers: Default::default(),
             ref_count: 1,
         }

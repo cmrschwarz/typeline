@@ -1,4 +1,5 @@
 use encoding_rs::{Decoder, DecoderResult, Encoder, EncoderResult};
+use thiserror::Error;
 
 pub const UTF8_REPLACEMENT_CHARACTER: [u8; 3] = [0xEF, 0xBF, 0xBD];
 
@@ -16,12 +17,21 @@ pub fn utf8_surrocate_escape(input: &[u8], out: &mut Vec<u8>) {
         ]);
     }
 }
-pub fn utf8_surrogate_unescape(
-    input: &[u8],
+
+#[derive(Error, Debug)]
+#[error("surrogate escape error")]
+pub struct SurrogateEscapeError<'a> {
+    invalid_sequence: &'a [u8],
+}
+
+pub fn utf8_surrogate_unescape<'a>(
+    input: &'a [u8],
     out: &mut Vec<u8>,
-) -> Result<(), ()> {
+) -> Result<(), SurrogateEscapeError<'a>> {
     if input.len() % 3 != 0 {
-        return Err(());
+        return Err(SurrogateEscapeError {
+            invalid_sequence: input,
+        });
     }
     let mut i = 0;
     while i < input.len() {
@@ -29,7 +39,9 @@ pub fn utf8_surrogate_unescape(
             || input[i + 1] & 0xFC != 0xB0
             || input[i + 2] & 0xD0 != 0x80
         {
-            return Err(());
+            return Err(SurrogateEscapeError {
+                invalid_sequence: &input[i..],
+            });
         }
         out.push((input[i + 1] & 0x3) << 6 | (input[i + 2] & 0x3F));
         i += 3;
@@ -106,10 +118,10 @@ pub fn decode_to_utf8<E>(
     }
 }
 
-pub fn encode_from_utf8<'a, E>(
+pub fn encode_from_utf8<E>(
     encoder: &mut Encoder,
     input: &str,
-    replacement_fn: &'a mut impl FnMut(char, &mut Vec<u8>) -> Result<(), E>,
+    replacement_fn: &mut impl FnMut(char, &mut Vec<u8>) -> Result<(), E>,
     output: &mut Vec<u8>,
     last_chunk: bool,
 ) -> Result<bool, (usize, E)> {

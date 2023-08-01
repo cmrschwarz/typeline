@@ -54,7 +54,7 @@ impl UniverseIndexFromUsize for NonMaxU32 {
 impl UniverseIndexIntoUsize for NonMaxUsize {
     #[inline(always)]
     fn into_usize(self) -> usize {
-        self.get() as usize
+        self.get()
     }
 }
 impl UniverseIndexFromUsize for NonMaxUsize {

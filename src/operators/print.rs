@@ -103,11 +103,7 @@ pub fn write_stream_val_check_done(
     offsets: Option<core::ops::Range<usize>>,
     run_len: usize,
 ) -> Result<bool, (usize, std::io::Error)> {
-    let rl_to_attempt = if sv.done || run_len == 0 {
-        run_len as usize
-    } else {
-        1
-    };
+    let rl_to_attempt = if sv.done || run_len == 0 { run_len } else { 1 };
     debug_assert!(sv.done || offsets.is_none());
     match &sv.data {
         StreamValueData::Bytes(c) => {
@@ -154,7 +150,7 @@ pub fn handle_tf_print_raw(
     handled_field_count: &mut usize,
     stdout: &mut BufWriter<StdoutLock<'_>>,
 ) -> Result<(), std::io::Error> {
-    debug_assert!(!print.current_stream_val.is_some());
+    debug_assert!(print.current_stream_val.is_none());
     let tf = &sess.tf_mgr.transforms[tf_id];
     let input_field_id = tf.input_field;
 
@@ -180,8 +176,8 @@ pub fn handle_tf_print_raw(
                 for v in RefAwareInlineTextIter::from_range(&range, text)
                     .unfold_rl()
                 {
-                    stdout.write(v.as_bytes())?;
-                    stdout.write(b"\n")?;
+                    stdout.write_all(v.as_bytes())?;
+                    stdout.write_all(b"\n")?;
                     *handled_field_count += 1;
                 }
             }
@@ -189,8 +185,8 @@ pub fn handle_tf_print_raw(
                 for v in RefAwareInlineBytesIter::from_range(&range, bytes)
                     .unfold_rl()
                 {
-                    stdout.write(v)?;
-                    stdout.write(b"\n")?;
+                    stdout.write_all(v)?;
+                    stdout.write_all(b"\n")?;
                     *handled_field_count += 1;
                 }
             }
@@ -198,8 +194,8 @@ pub fn handle_tf_print_raw(
                 for v in RefAwareBytesBufferIter::from_range(&range, bytes)
                     .unfold_rl()
                 {
-                    stdout.write(v)?;
-                    stdout.write(b"\n")?;
+                    stdout.write_all(v)?;
+                    stdout.write_all(b"\n")?;
                     *handled_field_count += 1;
                 }
             }
@@ -207,8 +203,8 @@ pub fn handle_tf_print_raw(
                 for (v, rl) in TypedSliceIter::from_range(&range.base, ints) {
                     let v = i64_to_str(false, *v);
                     for _ in 0..rl {
-                        stdout.write(v.as_bytes())?;
-                        stdout.write(b"\n")?;
+                        stdout.write_all(v.as_bytes())?;
+                        stdout.write_all(b"\n")?;
                         *handled_field_count += 1;
                     }
                 }
@@ -238,7 +234,7 @@ pub fn handle_tf_print_raw(
                     pos += rl as usize;
                     *handled_field_count += rl as usize;
                     let sv = &mut sess.sv_mgr.stream_values[sv_id];
-                    if !write_stream_val_check_done(
+                    let done = write_stream_val_check_done(
                         stdout,
                         sv,
                         offsets,
@@ -247,7 +243,8 @@ pub fn handle_tf_print_raw(
                     .map_err(|(i, e)| {
                         *handled_field_count += i;
                         e
-                    })? {
+                    })?;
+                    if !done {
                         print.current_stream_val = Some(sv_id);
                         iter.move_to_field_pos(pos);
                         if rl > 1 {

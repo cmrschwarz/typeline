@@ -29,7 +29,7 @@ impl<'a> Clone for RefIter<'a> {
     fn clone(&self) -> Self {
         Self {
             refs_iter: self.refs_iter.clone(),
-            last_field_id: self.last_field_id.clone(),
+            last_field_id: self.last_field_id,
             data_iter: self.data_iter.clone(),
             field_ref: if self.field_ref.is_some() {
                 Some(self.field_mgr.fields[self.last_field_id].borrow())
@@ -264,7 +264,7 @@ impl<'a> RefIter<'a> {
                         iter.get_prev_field_data_end(),
                         field_count,
                     ),
-                    field_count: field_count,
+                    field_count,
                     first_header_run_length_oversize: oversize_start,
                     last_header_run_length_oversize: iter
                         .field_run_length_fwd_oversize(),
@@ -292,7 +292,7 @@ impl<'a> RefIter<'a> {
         } else {
             self.last_field_id = INVALID_FIELD_ID;
         }
-        return ref_skip;
+        ref_skip
     }
 }
 
@@ -402,7 +402,7 @@ impl<'a, I: FieldIterator<'a>> AutoDerefIter<'a, I> {
         if base_count > 0 {
             self.ref_iter = None;
         }
-        return ri_count + base_count;
+        ri_count + base_count
     }
 }
 
@@ -479,7 +479,7 @@ impl<'a> RefAwareInlineTextIter<'a> {
     }
     pub fn from_range(range: &'a RefAwareTypedRange, data: &'a str) -> Self {
         Self {
-            iter: RefAwareInlineBytesIter::from_range(&range, data.as_bytes()),
+            iter: RefAwareInlineBytesIter::from_range(range, data.as_bytes()),
         }
     }
 }
@@ -779,8 +779,8 @@ mod ref_iter_tests {
         fd.push_reference(
             FieldReference {
                 field: FieldId::default(),
-                begin: begin,
-                end: end,
+                begin,
+                end,
             },
             rl,
             false,

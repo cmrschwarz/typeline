@@ -40,7 +40,7 @@ pub fn setup_op_nop(
     Ok(())
 }
 
-pub fn setup_tf_nop(tf_state: &mut TransformState) -> TransformData<'static> {
+pub fn setup_tf_nop(tf_state: &TransformState) -> TransformData<'static> {
     assert!(tf_state.is_transparent);
     TransformData::Nop(TfNop {})
 }

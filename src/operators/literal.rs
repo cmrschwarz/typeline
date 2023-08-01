@@ -147,7 +147,7 @@ pub fn parse_op_literal_zst(
     insert_count: Option<usize>,
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
-    if !value.is_none() {
+    if value.is_some() {
         return Err(OperatorCreationError {
             message: format!("{arg} takes no argument").into(),
             cli_arg_idx: arg_idx,
@@ -164,11 +164,13 @@ pub fn parse_op_str(
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
     let value_str = value
-        .ok_or_else(|| OperatorCreationError::new_s(format!("missing value for str"), arg_idx))?
+        .ok_or_else(|| {
+            OperatorCreationError::new("missing value for str", arg_idx)
+        })?
         .to_str()
         .map_err(|_| {
-            OperatorCreationError::new_s(
-                format!("str argument must be valid UTF-8, consider using bytes=..."),
+            OperatorCreationError::new(
+                "str argument must be valid UTF-8, consider using bytes=...",
                 arg_idx,
             )
         })?;
@@ -242,8 +244,8 @@ pub fn parse_op_bytes(
     let parsed_value = if let Some(value) = value {
         value.to_owned()
     } else {
-        return Err(OperatorCreationError::new_s(
-            format!("missing value for bytes"),
+        return Err(OperatorCreationError::new(
+            "missing value for bytes",
             arg_idx,
         ));
     };
@@ -268,7 +270,7 @@ pub fn parse_op_literal(
 ) -> Result<OperatorData, OperatorCreationError> {
     // this should not happen in the cli parser because it checks using
     // `argument_matches_data_inserter`
-    let args = ARG_REGEX.captures(&argument).ok_or_else(|| {
+    let args = ARG_REGEX.captures(argument).ok_or_else(|| {
         OperatorCreationError::new(
             "invalid argument syntax for data inserter",
             arg_idx,

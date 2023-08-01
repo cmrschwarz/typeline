@@ -70,7 +70,7 @@ impl<T: Add<Output = T> + Ord + Copy> RangeSpec<T> {
                     if *offset == 1 {
                         let status =
                             exclude_sets_found_status.last_mut().unwrap();
-                        if *status == false {
+                        if !*status {
                             positions.pop();
                             offsets.pop();
                             exclude_sets_found_status.pop();
@@ -216,7 +216,7 @@ pub struct RangeSpecParseError {
 
 impl<T: Add<Output = T> + Ord + Copy> RangeSpec<T> {
     pub fn iter(&self, min_bound: T, max_bound: T) -> RangeSpecIter<T> {
-        RangeSpecIter::new(min_bound, max_bound, &self)
+        RangeSpecIter::new(min_bound, max_bound, self)
     }
     pub fn parse(_str: &str) -> Result<Self, RangeSpecParseError> {
         todo!()

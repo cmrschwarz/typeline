@@ -49,8 +49,7 @@ pub fn setup_op_select(
     string_store: &mut StringStore,
     op: &mut OpSelect,
 ) -> Result<(), OperatorSetupError> {
-    op.key_interned = string_store
-        .intern_moved(std::mem::replace(&mut op.key, Default::default()));
+    op.key_interned = string_store.intern_moved(std::mem::take(&mut op.key));
     Ok(())
 }
 
@@ -65,7 +64,7 @@ pub fn setup_op_select_liveness_data(
 
 pub fn create_op_select(key: String) -> OperatorData {
     OperatorData::Select(OpSelect {
-        key: key,
+        key,
         key_interned: INVALID_STRING_STORE_ENTRY,
         field_is_read: true,
     })

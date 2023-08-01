@@ -208,7 +208,7 @@ pub fn preparse_replace_empty_capture_group<'a>(
             re = Cow::Owned(owned);
         }
     }
-    return Ok((re, opt_empty_group_replacement_str));
+    Ok((re, opt_empty_group_replacement_str))
 }
 
 pub fn parse_op_regex(
@@ -216,8 +216,6 @@ pub fn parse_op_regex(
     arg_idx: Option<CliArgIdx>,
     opts: RegexOptions,
 ) -> Result<OpRegex, OperatorCreationError> {
-    let regex;
-    let text_only_regex;
     let mut output_group_id = 0;
     let value_str = value
         .ok_or_else(|| {
@@ -237,15 +235,12 @@ pub fn parse_op_regex(
     let (re, empty_group_replacement) = preparse_replace_empty_capture_group(
         value_str, &opts,
     )
-    .map_err(|e| {
-        OperatorCreationError {
-            cli_arg_idx: arg_idx,
-            message: e,
-        }
-        .into()
+    .map_err(|e| OperatorCreationError {
+        cli_arg_idx: arg_idx,
+        message: e,
     })?;
 
-    regex = bytes::RegexBuilder::new(&re)
+    let regex = bytes::RegexBuilder::new(&re)
         .multi_line(opts.line_based)
         .dot_matches_new_line(opts.dotall)
         .case_insensitive(opts.case_insensitive)
@@ -260,11 +255,11 @@ pub fn parse_op_regex(
         output_group_id = regex
             .capture_names()
             .enumerate()
-            .find(|(_i, cn)| *cn == Some(&egr.as_str()))
+            .find(|(_i, cn)| *cn == Some(egr.as_str()))
             .map(|(i, _cn)| i)
             .unwrap();
     }
-    text_only_regex = if !opts.binary_mode {
+    let text_only_regex = if !opts.binary_mode {
         regex::RegexBuilder::new(&re)
             .multi_line(opts.line_based)
             .dot_matches_new_line(opts.dotall)
@@ -322,12 +317,9 @@ pub fn setup_op_regex(
 ) -> Result<(), OperatorSetupError> {
     let mut unnamed_capture_groups: usize = 0;
 
-    op.capture_group_names.extend(
-        op.regex
-            .capture_names()
-            .enumerate()
-            .into_iter()
-            .map(|(i, name)| match name {
+    op.capture_group_names
+        .extend(op.regex.capture_names().enumerate().map(
+            |(i, name)| match name {
                 Some(name) => {
                     if i == op.output_group_id {
                         None
@@ -345,8 +337,8 @@ pub fn setup_op_regex(
                         Some(id)
                     }
                 }
-            }),
-    );
+            },
+        ));
     Ok(())
 }
 
@@ -548,8 +540,8 @@ impl<'a> AnyRegex for BytesRegex<'a> {
 }
 
 #[inline(always)]
-fn match_regex_inner<'a, 'b, const PUSH_REF: bool, R: AnyRegex>(
-    rmis: &mut RegexMatchInnerState<'a, 'b>,
+fn match_regex_inner<const PUSH_REF: bool, R: AnyRegex>(
+    rmis: &mut RegexMatchInnerState<'_, '_>,
     regex: &mut R,
     data: &R::Data,
     run_length: RunLength,
@@ -578,17 +570,15 @@ fn match_regex_inner<'a, 'b, const PUSH_REF: bool, R: AnyRegex>(
                             },
                             rl,
                         );
+                    } else if let Some(v) =
+                        R::get_str_slice(data, cg_begin, cg_end)
+                    {
+                        ins.push_inline_str(v, rl);
                     } else {
-                        if let Some(v) =
-                            R::get_str_slice(data, cg_begin, cg_end)
-                        {
-                            ins.push_inline_str(v, rl);
-                        } else {
-                            ins.push_inline_bytes(
-                                R::get_byte_slice(data, cg_begin, cg_end),
-                                rl,
-                            );
-                        }
+                        ins.push_inline_bytes(
+                            R::get_byte_slice(data, cg_begin, cg_end),
+                            rl,
+                        );
                     }
                 } else {
                     ins.push_null(1);
@@ -613,40 +603,39 @@ fn match_regex_inner<'a, 'b, const PUSH_REF: bool, R: AnyRegex>(
             rmis.batch_state.field_pos_output,
             match_count,
         );
-    } else {
-        if match_count > 1 {
-            rmis.command_buffer.push_action_with_usize_rl(
-                rmis.batch_state.apf_idx,
-                FieldActionKind::Dup,
-                rmis.batch_state.field_pos_output,
-                match_count - 1,
-            );
-        } else if match_count == 0 {
-            if rmis.batch_state.non_mandatory {
-                for c in 0..regex.captures_locs_len() {
-                    if let Some(ins) = &mut rmis.batch_state.inserters[c] {
-                        ins.push_null(rl);
-                    }
+    } else if match_count > 1 {
+        rmis.command_buffer.push_action_with_usize_rl(
+            rmis.batch_state.apf_idx,
+            FieldActionKind::Dup,
+            rmis.batch_state.field_pos_output,
+            match_count - 1,
+        );
+    } else if match_count == 0 {
+        if rmis.batch_state.non_mandatory {
+            for c in 0..regex.captures_locs_len() {
+                if let Some(ins) = &mut rmis.batch_state.inserters[c] {
+                    ins.push_null(rl);
                 }
-                match_count = 1;
-            } else {
-                rmis.command_buffer.push_action(
-                    rmis.batch_state.apf_idx,
-                    FieldActionKind::Drop,
-                    rmis.batch_state.field_pos_output,
-                    1,
-                );
             }
+            match_count = 1;
+        } else {
+            rmis.command_buffer.push_action(
+                rmis.batch_state.apf_idx,
+                FieldActionKind::Drop,
+                rmis.batch_state.field_pos_output,
+                1,
+            );
         }
     }
+
     if !bse {
         rmis.batch_state.next_start = 0;
     }
-    rmis.batch_state.field_pos_output += match_count as usize;
+    rmis.batch_state.field_pos_output += match_count;
     if !bse {
         rmis.batch_state.field_pos_input += run_length as usize;
     }
-    return bse;
+    bse
 }
 
 struct RegexBatchState<'a> {
@@ -856,8 +845,7 @@ pub fn handle_tf_regex(
                 {
                     let sv = &mut sess.sv_mgr.stream_values[v];
                     if sv.done {
-                        let data;
-                        match &sv.data {
+                        let data = match &sv.data {
                             StreamValueData::Dropped => unreachable!(),
                             StreamValueData::Error(e) => {
                                 for cgi in re
@@ -878,9 +866,9 @@ pub fn handle_tf_regex(
                                 continue;
                             }
                             StreamValueData::Bytes(b) => {
-                                data = &b[offsets.unwrap_or(0..b.len())];
+                                &b[offsets.unwrap_or(0..b.len())]
                             }
-                        }
+                        };
                         bse = if let Some(tr) = &mut text_regex {
                             if sv.bytes_are_utf8 {
                                 match_regex_inner::<true, _>(
@@ -964,16 +952,13 @@ pub fn handle_tf_regex(
             batch_size - (rbs.field_pos_input - field_pos_start);
         sess.tf_mgr.unclaim_batch_size(tf_id, unclaimed_batch_size);
     }
-    re.temp_vec_2
-        .store(std::mem::replace(&mut rbs.inserters, Default::default()));
+    re.temp_vec_2.store(std::mem::take(&mut rbs.inserters));
     drop(rbs);
     re.temp_vec_1.store(output_fields);
-    if !bse && !hit_stream_val {
-        if input_done {
-            drop(input_field);
-            sess.unlink_transform(tf_id, produced_records);
-            return;
-        }
+    if !bse && !hit_stream_val && input_done {
+        drop(input_field);
+        sess.unlink_transform(tf_id, produced_records);
+        return;
     }
     if bse || hit_stream_val {
         base_iter.move_to_field_pos(field_pos_input);

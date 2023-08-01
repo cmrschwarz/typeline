@@ -94,11 +94,7 @@ pub fn setup_op_forkcat_liveness_data(
     ld.get_global_var_data_ored(&mut successors, bb.successors.iter());
     for callee_id in &bb.calls {
         call.copy_from_bitslice(ld.get_global_var_data(bb_id));
-        ld.apply_bb_aliases(
-            &mut call,
-            &successors,
-            &ld.basic_blocks[*callee_id],
-        );
+        ld.apply_bb_aliases(&call, &successors, &ld.basic_blocks[*callee_id]);
         op.accessed_fields_per_subchain
             .push(FieldAccessMappings::from_var_data((), ld, &call));
         op.accessed_fields.append_var_data(0, ld, succ_var_data);
@@ -145,8 +141,7 @@ fn expand_for_subchain(
     } else {
         unreachable!();
     };
-    let mut current_mappings =
-        std::mem::replace(&mut forkcat.current_mappings, Default::default());
+    let mut current_mappings = std::mem::take(&mut forkcat.current_mappings);
     let combined_field_accesses = &forkcat.op.accessed_fields;
     let accessed_fields_of_sc = &forkcat.op.accessed_fields_per_subchain[sc_n];
     for (name, access_mode) in accessed_fields_of_sc.iter_name_opt() {
@@ -241,7 +236,9 @@ fn expand_for_subchain(
             }
             if accessed_fields_of_sc.fields.contains_key(other_name) {
                 tgt_ms.field_name_map.insert(*other_name, target_field_id);
-                tgt_field.as_mut().map(|f| f.names.push(*other_name));
+                if let Some(f) = tgt_field.as_mut() {
+                    f.names.push(*other_name)
+                }
             }
         }
         if name.is_none() {

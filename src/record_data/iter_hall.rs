@@ -1,4 +1,4 @@
-use std::{cell::Cell, mem::ManuallyDrop};
+use std::cell::Cell;
 
 use nonmax::NonMaxU32;
 
@@ -24,11 +24,8 @@ pub type IterId = NonMaxU32;
 
 #[derive(Default)]
 pub struct IterHall {
-    pub(super) fd: ManuallyDrop<FieldData>,
+    pub(super) fd: FieldData,
     pub(super) iters: Universe<IterId, Cell<IterState>>,
-    pub shared_headers: bool,
-    pub shared_data: bool,
-    pub ref_count: u32,
 }
 
 #[derive(Default, Clone, Copy)]
@@ -65,7 +62,7 @@ impl IterHall {
         self.iters[iter_id].get_mut().invalidate();
         self.iters.release(iter_id)
     }
-    pub fn iter<'a>(&'a self) -> Iter<'a, &'a FieldData> {
+    pub fn iter(&self) -> Iter<'_, &'_ FieldData> {
         self.fd.iter()
     }
     pub fn get_iter_state(&self, iter_id: IterId) -> IterState {
@@ -107,16 +104,16 @@ impl IterHall {
         }
         h
     }
-    pub fn get_iter<'a>(&'a self, iter_id: IterId) -> Iter<'a, &'a FieldData> {
+    pub fn get_iter(&self, iter_id: IterId) -> Iter<'_, &'_ FieldData> {
         unsafe { self.get_iter_from_state(self.iters[iter_id].get()) }
     }
-    pub unsafe fn get_iter_from_state<'a>(
-        &'a self,
+    pub unsafe fn get_iter_from_state(
+        &self,
         mut state: IterState,
-    ) -> Iter<'a, &'a FieldData> {
+    ) -> Iter<'_, &'_ FieldData> {
         let h = self.calculate_start_header(&mut state);
         let mut res = Iter {
-            fdr: &*self.fd,
+            fdr: &self.fd,
             field_pos: state.field_pos,
             data: state.data,
             header_idx: state.header_idx,
@@ -170,18 +167,6 @@ impl IterHall {
     pub unsafe fn raw(&mut self) -> &mut FieldData {
         &mut self.fd
     }
-    pub fn is_immutable(&self) -> bool {
-        self.shared_headers
-    }
-    pub fn is_data_immutable(&self) -> bool {
-        self.shared_data
-    }
-    pub unsafe fn set_headers_shared(&mut self, v: bool) {
-        self.shared_headers = v;
-    }
-    pub unsafe fn set_data_shared(&mut self, v: bool) {
-        self.shared_data = v;
-    }
 
     pub fn copy<'a>(
         iter: impl FieldIterator<'a> + Clone,
@@ -192,26 +177,23 @@ impl IterHall {
                 let g = &mut |fdih: &mut IterHall| f(&mut fdih.fd);
                 targets_applicator(g);
             };
-        let copied_fields = FieldData::copy(iter, adapted_target_applicator);
-        copied_fields
+        FieldData::copy(iter, adapted_target_applicator)
     }
     pub fn copy_resolve_refs<'a, I: FieldIterator<'a>>(
         match_set_mgr: &mut MatchSetManager,
         iter: &mut AutoDerefIter<'a, I>,
         targets_applicator: &mut impl FnMut(&mut dyn FnMut(&mut IterHall)),
     ) -> usize {
-        targets_applicator(&mut |tgt| assert!(!tgt.shared_data));
         let adapted_target_applicator =
             &mut |f: &mut dyn FnMut(&mut FieldData)| {
                 let g = &mut |fdih: &mut IterHall| f(&mut fdih.fd);
                 targets_applicator(g);
             };
-        let copied_fields = FieldData::copy_resolve_refs(
+        FieldData::copy_resolve_refs(
             match_set_mgr,
             iter,
             adapted_target_applicator,
-        );
-        copied_fields
+        )
     }
     pub fn field_count(&self) -> usize {
         self.fd.field_count
@@ -232,74 +214,33 @@ impl IterHall {
     pub fn reset(&mut self) {
         self.clear();
     }
-    unsafe fn drop_fd(&mut self) {
-        unsafe {
-            let FieldData {
-                data,
-                header,
-                field_count: _,
-            } = ManuallyDrop::take(&mut self.fd);
-            if self.shared_headers {
-                std::mem::forget(header);
-            } else {
-                drop(header);
-            }
-            if self.shared_data {
-                std::mem::forget(data)
-            } else {
-                drop(data);
-            }
-        }
-    }
     pub fn reset_with_data(&mut self, fd: FieldData) {
         self.reset_iterators();
-        unsafe {
-            self.drop_fd();
-            self.fd = ManuallyDrop::new(fd);
-        }
-        self.shared_data = false;
-        self.shared_headers = false;
+        self.fd = fd;
     }
     pub fn new_with_data(fd: FieldData) -> Self {
         Self {
-            fd: ManuallyDrop::new(fd),
+            fd,
             iters: Default::default(),
-            shared_headers: false,
-            shared_data: false,
-            ref_count: 0,
         }
     }
     pub fn int_inserter(&mut self) -> IntegerInserter {
-        assert!(!self.shared_data);
         IntegerInserter::new(&mut self.fd)
     }
     pub fn field_reference_inserter(&mut self) -> FieldReferenceInserter {
-        assert!(!self.shared_data);
         FieldReferenceInserter::new(&mut self.fd)
     }
     pub fn inline_bytes_inserter(&mut self) -> InlineBytesInserter {
-        assert!(!self.shared_data);
         InlineBytesInserter::new(&mut self.fd)
     }
     pub fn inline_str_inserter(&mut self) -> InlineStringInserter {
-        assert!(!self.shared_data);
         InlineStringInserter::new(&mut self.fd)
     }
     pub fn varying_type_inserter(
         &mut self,
         re_reserve_count: RunLength,
     ) -> VaryingTypeInserter {
-        assert!(!self.shared_data);
         VaryingTypeInserter::new(&mut self.fd, re_reserve_count)
-    }
-}
-
-impl Drop for IterHall {
-    fn drop(&mut self) {
-        // if we still have other people referring to the data we own,
-        // we can't free it. therefore we panic, and leak the data
-        assert!(self.ref_count == 0);
-        unsafe { self.drop_fd() }
     }
 }
 
@@ -313,7 +254,6 @@ unsafe impl RawPushInterface for IterHall {
         try_header_rle: bool,
         try_data_rle: bool,
     ) {
-        assert!(!self.shared_data);
         unsafe {
             self.fd.push_variable_sized_type(
                 kind,
@@ -335,7 +275,6 @@ unsafe impl RawPushInterface for IterHall {
         try_header_rle: bool,
         try_data_rle: bool,
     ) {
-        assert!(!self.shared_data);
         unsafe {
             self.fd.push_fixed_size_type(
                 kind,
@@ -355,7 +294,6 @@ unsafe impl RawPushInterface for IterHall {
         run_length: usize,
         try_header_rle: bool,
     ) {
-        assert!(!self.shared_data);
         unsafe {
             self.fd.push_zst_unchecked(
                 kind,
@@ -372,7 +310,6 @@ unsafe impl RawPushInterface for IterHall {
         data_len: usize,
         run_length: usize,
     ) -> *mut u8 {
-        assert!(!self.shared_data);
         unsafe {
             self.fd.push_variable_sized_type_uninit(
                 kind, flags, data_len, run_length,
@@ -382,11 +319,9 @@ unsafe impl RawPushInterface for IterHall {
 }
 impl IterHall {
     pub fn dup_last_value(&mut self, run_length: usize) {
-        assert!(!self.shared_data);
         self.fd.dup_last_value(run_length);
     }
     pub fn drop_last_value(&mut self, run_length: usize) {
-        assert!(!self.shared_data);
         self.fd.drop_last_value(run_length);
     }
 }

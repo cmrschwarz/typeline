@@ -29,7 +29,7 @@ pub const MAX_UTF8_CHAR_LEN: usize = 4;
 #[inline(always)]
 pub fn divide_by_char_len(len: usize, char_len: usize) -> usize {
     match char_len {
-        1 => len / 1,
+        1 => len,
         2 => len / 2,
         3 => len / 3,
         4 => len / 4,
@@ -79,11 +79,11 @@ macro_rules! cached {
     };
 }
 
-pub fn get_two_distinct_mut<'a, T>(
-    slice: &'a mut [T],
+pub fn get_two_distinct_mut<T>(
+    slice: &mut [T],
     idx1: usize,
     idx2: usize,
-) -> (&'a mut T, &'a mut T) {
+) -> (&mut T, &mut T) {
     assert!(idx1 != idx2 && idx1 < slice.len() && idx2 < slice.len());
     unsafe {
         let ptr = slice.as_mut_ptr();

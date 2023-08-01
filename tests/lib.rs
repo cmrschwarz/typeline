@@ -1,3 +1,6 @@
+// triggered by rstest
+#![allow(clippy::items_after_test_module)]
+
 mod utils;
 
 use std::borrow::Cow;
@@ -38,7 +41,7 @@ use crate::utils::{ErroringStream, SliceReader, TricklingStream};
 
 #[test]
 fn string_sink() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .push_str("foo", 1)
         .add_op(create_op_string_sink(&ss))
@@ -49,7 +52,7 @@ fn string_sink() -> Result<(), ScrError> {
 
 #[test]
 fn tf_literal() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .add_op(create_op_literal(Literal::String("foo".to_owned()), None))
         .add_op(create_op_string_sink(&ss))
@@ -60,7 +63,7 @@ fn tf_literal() -> Result<(), ScrError> {
 
 #[test]
 fn counted_tf_literal() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .add_op(create_op_literal(Literal::String("x".to_owned()), Some(3)))
         .add_op(create_op_string_sink(&ss))
@@ -71,7 +74,7 @@ fn counted_tf_literal() -> Result<(), ScrError> {
 
 #[test]
 fn multi_doc() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .push_str("foo", 1)
         .push_str("bar", 1)
@@ -83,7 +86,7 @@ fn multi_doc() -> Result<(), ScrError> {
 
 #[test]
 fn lines_regex() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .push_str("foo\nbar\nbaz\n", 1)
         .add_op(create_op_regex_lines())
@@ -95,8 +98,8 @@ fn lines_regex() -> Result<(), ScrError> {
 
 #[test]
 fn regex_drop() -> Result<(), ScrError> {
-    let ss1 = StringSinkHandle::new();
-    let ss2 = StringSinkHandle::new();
+    let ss1 = StringSinkHandle::default();
+    let ss2 = StringSinkHandle::default();
     let mut rs = RecordSet::default();
     rs.push_str("foo\nbar\nbaz\n", 1, false, false);
     ContextBuilder::default()
@@ -116,14 +119,14 @@ fn large_batch() -> Result<(), ScrError> {
     const COUNT: usize = 10000;
     const PASS: usize = 1000;
     let number_string_list: Vec<_> =
-        (0..COUNT).into_iter().map(|n| n.to_string()).collect();
+        (0..COUNT).map(|n| n.to_string()).collect();
     let number_string_joined =
         number_string_list.iter().fold(String::new(), |mut f, n| {
             f.push_str(n.to_string().as_str());
-            f.push_str("\n");
+            f.push('\n');
             f
         });
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .push_str(&number_string_joined, 1)
         .add_op(create_op_regex_lines())
@@ -146,7 +149,7 @@ fn large_batch_seq(
     #[case] batch_size: usize,
 ) -> Result<(), ScrError> {
     let re = regex::Regex::new(r"\d{1,3}").unwrap();
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .set_batch_size(batch_size)
         .add_op(create_op_seq(0, count, 1).unwrap())
@@ -156,7 +159,7 @@ fn large_batch_seq(
     // large output -> no assert_eq!
     assert!(
         ss.get_data().unwrap().as_slice()
-            == &(0..count)
+            == (0..count)
                 .filter_map(|v| {
                     let v = i64_to_str(false, v).to_string();
                     re.captures(v.as_str())
@@ -171,7 +174,7 @@ fn large_batch_seq(
 fn trickling_stream() -> Result<(), ScrError> {
     const SIZE: usize = 4096;
 
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .set_stream_buffer_size(3)
         .add_op(create_op_file_reader_custom(
@@ -181,16 +184,13 @@ fn trickling_stream() -> Result<(), ScrError> {
         .add_op(create_op_string_sink(&ss))
         .run()?;
     // not using assert_eq here because the output is very large
-    assert!(
-        ss.get_data().unwrap().as_slice()
-            == [std::iter::repeat("a").take(SIZE).collect::<String>()]
-    );
+    assert!(ss.get_data().unwrap().as_slice() == ["a".repeat(SIZE)]);
     Ok(())
 }
 
 #[test]
 fn sequence() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .add_op(create_op_seq(0, 3, 1).unwrap())
         .add_op(create_op_string_sink(&ss))
@@ -201,7 +201,7 @@ fn sequence() -> Result<(), ScrError> {
 
 #[test]
 fn in_between_drop() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .push_str("a", 1)
         .push_str("b", 1)
@@ -215,7 +215,7 @@ fn in_between_drop() -> Result<(), ScrError> {
 
 #[test]
 fn drops_surrounding_single_val() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .add_op(create_op_seq(0, 3, 1).unwrap())
         .add_op(create_op_regex("[1]").unwrap())
@@ -226,7 +226,7 @@ fn drops_surrounding_single_val() -> Result<(), ScrError> {
 }
 #[test]
 fn drops_surrounding_range() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .add_op(create_op_seq(0, 8, 1).unwrap())
         .add_op(create_op_regex("[2-5]").unwrap())
@@ -238,7 +238,7 @@ fn drops_surrounding_range() -> Result<(), ScrError> {
 
 #[test]
 fn multi_batch_seq_with_regex() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     const COUNT: usize = 6;
     ContextBuilder::default()
         .set_batch_size(COUNT / 2)
@@ -248,17 +248,14 @@ fn multi_batch_seq_with_regex() -> Result<(), ScrError> {
         .run()?;
     assert_eq!(
         ss.get_data().unwrap().as_slice(),
-        &(0..COUNT)
-            .into_iter()
-            .map(|i| i.to_string())
-            .collect::<Vec<_>>()
+        (0..COUNT).map(|i| i.to_string()).collect::<Vec<_>>()
     );
     Ok(())
 }
 
 #[test]
 fn large_seq_with_regex() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     const COUNT: usize = 10000;
     ContextBuilder::default()
         .add_op(create_op_seq(0, COUNT as i64, 1).unwrap())
@@ -268,17 +265,14 @@ fn large_seq_with_regex() -> Result<(), ScrError> {
     // large output -> no assert_eq!
     assert!(
         ss.get_data().unwrap().as_slice()
-            == &(0..1000)
-                .into_iter()
-                .map(|i| i.to_string())
-                .collect::<Vec<_>>()
+            == (0..1000).map(|i| i.to_string()).collect::<Vec<_>>()
     );
     Ok(())
 }
 
 #[test]
 fn key_with_fmt() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .add_op(create_op_literal(Literal::Int(42), None))
         .add_op(create_op_key("foo".to_owned()))
@@ -292,7 +286,7 @@ fn key_with_fmt() -> Result<(), ScrError> {
 
 #[test]
 fn chained_seq() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .push_int(0, 1)
         .add_op_appending(create_op_seq(1, 6, 1).unwrap())
@@ -301,17 +295,14 @@ fn chained_seq() -> Result<(), ScrError> {
         .run()?;
     assert_eq!(
         ss.get_data().unwrap().as_slice(),
-        &(0..11)
-            .into_iter()
-            .map(|v| v.to_string())
-            .collect::<Vec<_>>()
+        (0..11).map(|v| v.to_string()).collect::<Vec<_>>()
     );
     Ok(())
 }
 
 #[test]
 fn format_width_spec() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .push_str("x", 6)
         .add_op(create_op_key("foo".to_owned()))
@@ -329,7 +320,7 @@ fn format_width_spec() -> Result<(), ScrError> {
 
 #[test]
 fn unset_field_value() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .push_str("x", 1)
         .add_op(create_op_key("foo".to_owned()))
@@ -350,7 +341,7 @@ fn unset_field_value() -> Result<(), ScrError> {
 
 #[test]
 fn unset_field_value_debug_repr_is_null() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .push_str("x", 1)
         .add_op(create_op_key("foo".to_owned()))
@@ -364,7 +355,7 @@ fn unset_field_value_debug_repr_is_null() -> Result<(), ScrError> {
 
 #[test]
 fn nonexisting_key() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .push_str("x", 3)
         .add_op(create_op_format("{foo}".as_bytes()).unwrap())
@@ -379,7 +370,7 @@ fn nonexisting_key() -> Result<(), ScrError> {
 }
 #[test]
 fn nonexisting_format_width_key() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .push_str("x", 3)
         .add_op(create_op_format("{:foo$}".as_bytes()).unwrap())
@@ -395,7 +386,7 @@ fn nonexisting_format_width_key() -> Result<(), ScrError> {
 
 #[test]
 fn seq_enum() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .push_str("x", 3)
         .add_op(create_op_key("foo".to_owned()))
@@ -409,7 +400,7 @@ fn seq_enum() -> Result<(), ScrError> {
 
 #[test]
 fn dup_between_format_and_key() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .set_batch_size(2)
         .push_str("xxx", 1)
@@ -434,7 +425,7 @@ fn dup_between_format_and_key() -> Result<(), ScrError> {
 
 #[test]
 fn stream_into_regex() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .set_stream_buffer_size(1)
         .add_op(create_op_file_reader_custom(
@@ -452,7 +443,7 @@ fn stream_into_regex() -> Result<(), ScrError> {
 
 #[test]
 fn format_after_surrounding_drop() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .add_op(create_op_seq(0, 10, 1).unwrap())
         .add_op(create_op_regex("[3-5]").unwrap())
@@ -466,7 +457,7 @@ fn format_after_surrounding_drop() -> Result<(), ScrError> {
 
 #[test]
 fn batched_format_after_drop() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     const COUNT: i64 = 20;
     ContextBuilder::default()
         .set_batch_size(3)
@@ -481,7 +472,7 @@ fn batched_format_after_drop() -> Result<(), ScrError> {
         &(0..COUNT)
             .filter_map(|v| {
                 let v = i64_to_str(false, v).to_string();
-                if v.contains("3") {
+                if v.contains('3') {
                     Some(v)
                 } else {
                     None
@@ -494,7 +485,7 @@ fn batched_format_after_drop() -> Result<(), ScrError> {
 
 #[test]
 fn double_drop() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .set_batch_size(5)
         .add_op(create_op_seq(0, 15, 1).unwrap())
@@ -513,7 +504,7 @@ fn double_drop() -> Result<(), ScrError> {
 
 #[test]
 fn select() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .set_batch_size(5)
         .add_op_with_opts(
@@ -533,7 +524,7 @@ fn select() -> Result<(), ScrError> {
 
 #[test]
 fn select_after_key() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .set_batch_size(5)
         .add_op(create_op_literal(Literal::String("foo".to_owned()), None))
@@ -547,7 +538,7 @@ fn select_after_key() -> Result<(), ScrError> {
 }
 #[test]
 fn optional_regex() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .add_op(create_op_seq(9, 12, 1).unwrap())
         .add_op_appending(create_op_seq(20, 22, 1).unwrap())
@@ -582,7 +573,7 @@ fn optional_regex() -> Result<(), ScrError> {
 
 #[test]
 fn stream_into_format() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .set_stream_buffer_size(1)
         .add_op(create_op_file_reader_custom(
@@ -605,7 +596,7 @@ fn stream_into_format() -> Result<(), ScrError> {
 fn stream_into_multiple_different_formats(
     #[case] batch_size: usize,
 ) -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .set_batch_size(batch_size)
         .push_str("foo", 1)
@@ -626,7 +617,7 @@ fn stream_into_multiple_different_formats(
 
 #[test]
 fn basic_cow() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .push_str("123", 1)
         .add_op(create_op_fork())
@@ -653,8 +644,8 @@ fn basic_cow() -> Result<(), ScrError> {
 fn cow_not_affecting_original(
     #[case] batch_size: usize,
 ) -> Result<(), ScrError> {
-    let ss1 = StringSinkHandle::new();
-    let ss2 = StringSinkHandle::new();
+    let ss1 = StringSinkHandle::default();
+    let ss2 = StringSinkHandle::default();
     ContextBuilder::default()
         .set_batch_size(batch_size)
         .push_str("123", 1)
@@ -680,7 +671,7 @@ fn cow_not_affecting_original(
 
 #[test]
 fn join() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .add_op(create_op_seq(1, 4, 1).unwrap())
         .add_op(create_op_join(Some(",".as_bytes().to_owned()), None, false))
@@ -691,7 +682,7 @@ fn join() -> Result<(), ScrError> {
 }
 #[test]
 fn join_single() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .add_op(create_op_seq(1, 2, 1).unwrap())
         .add_op(create_op_join(
@@ -707,7 +698,7 @@ fn join_single() -> Result<(), ScrError> {
 
 #[test]
 fn join_drop_incomplete() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .add_op(create_op_seqn(1, 3, 1).unwrap())
         .add_op(create_op_join(None, Some(2), true))
@@ -718,7 +709,7 @@ fn join_drop_incomplete() -> Result<(), ScrError> {
 }
 #[test]
 fn join_empty() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     //   ContextBuilder::default()
     // .add_op(create_op_join(None, None, true))
     // .add_op(create_op_string_sink(&ss))
@@ -734,7 +725,7 @@ fn join_empty() -> Result<(), ScrError> {
 
 #[test]
 fn join_no_sep() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .add_op(create_op_seqn(1, 5, 1).unwrap())
         .add_op(create_op_join(None, None, false))
@@ -746,7 +737,7 @@ fn join_no_sep() -> Result<(), ScrError> {
 
 #[test]
 fn join_streams() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .set_stream_buffer_size(1)
         .add_op(create_op_file_reader_custom(
@@ -770,7 +761,7 @@ fn join_streams() -> Result<(), ScrError> {
 
 #[test]
 fn join_after_append() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .add_op(create_op_str("foo", 1))
         .add_op_appending(create_op_str("bar", 1))
@@ -783,7 +774,7 @@ fn join_after_append() -> Result<(), ScrError> {
 
 #[test]
 fn join_after_enum() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .add_op(create_op_str("foo", 2))
         .add_op(create_op_enum(0, i64::MAX, 1).unwrap())
@@ -796,7 +787,7 @@ fn join_after_enum() -> Result<(), ScrError> {
 
 #[test]
 fn join_dropped_streams() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .set_stream_buffer_size(2)
         .add_op(create_op_file_reader_custom(
@@ -821,7 +812,7 @@ fn join_dropped_streams() -> Result<(), ScrError> {
 
 #[test]
 fn stream_error_in_join() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .set_stream_buffer_size(2)
         .add_op(create_op_file_reader_custom(
@@ -852,7 +843,7 @@ fn stream_error_in_join() -> Result<(), ScrError> {
 
 #[test]
 fn stream_into_dup_into_join() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .set_stream_buffer_size(2)
         .set_batch_size(2)
@@ -886,7 +877,7 @@ fn stream_into_dup_into_join() -> Result<(), ScrError> {
 
 #[test]
 fn chained_streams() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .set_stream_buffer_size(2)
         .set_batch_size(2)
@@ -905,7 +896,7 @@ fn chained_streams() -> Result<(), ScrError> {
 }
 #[test]
 fn tf_literal_yields_to_cont() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .add_op(create_op_int(1, 3))
         .add_op(create_op_str("foo", 0))
@@ -924,7 +915,7 @@ fn tf_literal_yields_to_cont() -> Result<(), ScrError> {
 fn tf_file_yields_to_cont(
     #[case] stream_buffer_size: usize,
 ) -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .set_stream_buffer_size(stream_buffer_size)
         .add_op(create_op_int(1, 3))
@@ -959,7 +950,7 @@ fn error_on_sbs_0() {
 
 #[test]
 fn debug_format_surrounds_with_quotes() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .add_op(create_op_str("foo", 0))
         .add_op_appending(create_op_bytes(b"bar", 0))
@@ -976,7 +967,7 @@ fn debug_format_surrounds_with_quotes() -> Result<(), ScrError> {
 
 #[test]
 fn more_debug_format_surrounds_with_quotes() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .add_op(create_op_str("foo", 0))
         .add_op_appending(create_op_bytes(b"bar", 0))
@@ -992,7 +983,7 @@ fn more_debug_format_surrounds_with_quotes() -> Result<(), ScrError> {
 #[case(1)]
 #[case(2)]
 fn join_turns_into_stream(#[case] batch_size: usize) -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .set_batch_size(batch_size)
         .set_stream_size_threshold(2)
@@ -1010,7 +1001,7 @@ fn join_turns_into_stream(#[case] batch_size: usize) -> Result<(), ScrError> {
 #[case(1)]
 #[case(2)]
 fn join_on_error(#[case] batch_size: usize) -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .set_batch_size(batch_size)
         .set_stream_size_threshold(2)
@@ -1034,7 +1025,7 @@ fn error_formatting(
     #[case] fmt_string: &str,
     #[case] result: &str,
 ) -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .add_op(create_op_error("A", 1))
         .add_op(create_op_format(fmt_string.as_bytes()).unwrap())
@@ -1053,7 +1044,7 @@ fn stream_error_formatting(
     #[case] fmt_string: &str,
     #[case] result: &str,
 ) -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .add_op(create_op_stream_error("A", 1))
         .add_op(create_op_format(fmt_string.as_bytes()).unwrap())
@@ -1065,7 +1056,7 @@ fn stream_error_formatting(
 
 #[test]
 fn stream_error_after_regular_error() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .set_stream_buffer_size(2)
         .set_stream_size_threshold(3)
@@ -1087,7 +1078,7 @@ fn stream_error_after_regular_error() -> Result<(), ScrError> {
 
 #[test]
 fn join_with_value_between_streams() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .set_stream_size_threshold(1)
         .add_op(create_op_file_reader_custom(
@@ -1108,7 +1099,7 @@ fn join_with_value_between_streams() -> Result<(), ScrError> {
 
 #[test]
 fn single_operator() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .add_op(create_op_seq(0, 10000, 1).unwrap())
         .run()?;
@@ -1118,7 +1109,7 @@ fn single_operator() -> Result<(), ScrError> {
 
 #[test]
 fn zero_length_regex_match() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .add_op(create_op_str("babab", 1))
         .add_op(
@@ -1145,7 +1136,7 @@ fn regex_match_overlapping(
     #[case] input: &str,
     #[case] outputs: &[&'static str],
 ) -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .add_op(create_op_str(input, 1))
         .add_op(
@@ -1169,16 +1160,15 @@ fn regex_match_overlapping(
 fn seq_into_regex_drop_unless_seven() -> Result<(), ScrError> {
     const COUNT: usize = 100000;
     let res: Vec<&str> = (0..COUNT)
-        .into_iter()
         .filter_map(|v| {
-            if v.to_string().contains("7") {
+            if v.to_string().contains('7') {
                 Some("7")
             } else {
                 None
             }
         })
         .collect();
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .add_op(create_op_seq(0, COUNT as i64, 1).unwrap())
         .add_op(create_op_regex("7").unwrap())
@@ -1192,7 +1182,7 @@ fn seq_into_regex_drop_unless_seven() -> Result<(), ScrError> {
 
 #[test]
 fn callcc_needs_threads() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     let err_msg =
         "callcc cannot be used with a max thread count of 1, see `h=j`";
     matches!(
@@ -1214,7 +1204,7 @@ fn callcc_needs_threads() -> Result<(), ScrError> {
 
 #[test]
 fn basic_callcc() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .set_batch_size(2)
         .add_op(create_op_seqn(1, 4, 1).unwrap())
@@ -1228,7 +1218,7 @@ fn basic_callcc() -> Result<(), ScrError> {
 
 #[test]
 fn callcc_after_drop() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     ContextBuilder::default()
         // .set_batch_size(7)
         .add_op(create_op_seqn(1, 30, 1).unwrap())
@@ -1243,23 +1233,20 @@ fn callcc_after_drop() -> Result<(), ScrError> {
 
 #[test]
 fn seq_with_changing_str_length() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .add_op_appending(create_op_seq(1, 11, 1).unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(
         ss.get_data().unwrap().as_slice(),
-        &(1..11)
-            .into_iter()
-            .map(|v| v.to_string())
-            .collect::<Vec<_>>()
+        &(1..11).map(|v| v.to_string()).collect::<Vec<_>>()
     );
     Ok(())
 }
 #[test]
 fn regex_appending_without_input() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .add_op_appending(create_op_seq(1, 11, 1).unwrap())
         .add_op_appending(create_op_regex("[24680]").unwrap())
@@ -1267,17 +1254,14 @@ fn regex_appending_without_input() -> Result<(), ScrError> {
         .run()?;
     assert_eq!(
         ss.get_data().unwrap().as_slice(),
-        &(1..11)
-            .into_iter()
-            .map(|v| v.to_string())
-            .collect::<Vec<_>>()
+        &(1..11).map(|v| v.to_string()).collect::<Vec<_>>()
     );
     Ok(())
 }
 
 #[test]
 fn ref_iter_reading_form_cow() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .add_op(create_op_seq(1, 11, 1).unwrap())
         .add_op(create_op_regex(".*[24680]$").unwrap())
@@ -1287,7 +1271,6 @@ fn ref_iter_reading_form_cow() -> Result<(), ScrError> {
     assert_eq!(
         ss.get_data().unwrap().as_slice(),
         &(1..11)
-            .into_iter()
             .filter(|i| i % 2 == 0)
             .map(|v| v.to_string())
             .collect::<Vec<_>>()
@@ -1297,7 +1280,7 @@ fn ref_iter_reading_form_cow() -> Result<(), ScrError> {
 
 #[test]
 fn fork_without_input() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .add_op(create_op_fork())
         .add_op(create_op_str("foo", 1))
@@ -1314,7 +1297,7 @@ fn fork_without_input() -> Result<(), ScrError> {
 #[case(2)]
 #[case(3)]
 fn appending_callcc(#[case] batch_size: usize) -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .set_batch_size(batch_size)
         .add_op(create_op_seq(0, 2, 1).unwrap())
@@ -1333,7 +1316,7 @@ fn appending_callcc(#[case] batch_size: usize) -> Result<(), ScrError> {
 #[case(3)]
 #[case(4)]
 fn unlink_after_fork(#[case] batch_size: usize) -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .set_batch_size(batch_size)
         .add_op(create_op_seq(0, 2, 1).unwrap())
@@ -1353,7 +1336,7 @@ fn unlink_after_fork(#[case] batch_size: usize) -> Result<(), ScrError> {
 fn unlink_without_append_after_fork(
     #[case] batch_size: usize,
 ) -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .set_batch_size(batch_size)
         .add_op(create_op_seq(0, 3, 1).unwrap())
@@ -1369,7 +1352,7 @@ fn unlink_without_append_after_fork(
 // disable for now
 // #[test]
 fn _basic_forkcat() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::new();
+    let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .add_op(create_op_forkcat())
         .add_op(create_op_str("foo", 1))

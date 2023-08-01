@@ -55,7 +55,7 @@ pub fn parse_op_call(
 
 pub fn setup_op_call(
     chain_labels: &HashMap<StringStoreEntry, ChainId, BuildIdentityHasher>,
-    string_store: &mut StringStore,
+    string_store: &StringStore,
     op: &mut OpCall,
     op_id: OperatorId,
 ) -> Result<(), OperatorSetupError> {
@@ -105,7 +105,7 @@ pub fn setup_tf_call(
         target: op.target_resolved,
     })
 }
-pub(crate) fn handle_eager_call_expansion<'a>(
+pub(crate) fn handle_eager_call_expansion(
     sess: &mut JobSession,
     op_id: OperatorId,
     ms_id: MatchSetId,
@@ -128,7 +128,7 @@ pub(crate) fn handle_eager_call_expansion<'a>(
     }
 }
 
-pub(crate) fn handle_lazy_call_expansion<'a>(
+pub(crate) fn handle_lazy_call_expansion(
     sess: &mut JobSession,
     tf_id: TransformId,
 ) {

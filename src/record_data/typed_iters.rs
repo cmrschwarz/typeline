@@ -54,7 +54,7 @@ impl<'a, T: 'static> TypedSliceIter<'a, T> {
             header_end: headers_range.end,
             header_rl_rem,
             last_oversize,
-            _phantom_data: PhantomData::default(),
+            _phantom_data: PhantomData,
         }
     }
     pub fn from_range(range: &ValidTypedRange<'a>, values: &'a [T]) -> Self {
@@ -113,7 +113,7 @@ impl<'a, T: 'static> TypedSliceIter<'a, T> {
                     self.next_value();
                 }
             }
-            return Some(value);
+            Some(value)
         }
     }
     #[inline(always)]
@@ -181,7 +181,7 @@ impl<'a, T: 'static> TypedSliceIter<'a, T> {
         unsafe { self.advance_value(1) };
     }
     pub fn has_next(&mut self) -> bool {
-        return self.header_rl_rem > 0 || self.header != self.header_end;
+        self.header_rl_rem > 0 || self.header != self.header_end
     }
     pub fn clear(&mut self) {
         self.header_rl_rem = 0;
@@ -213,7 +213,7 @@ impl<'a, T: 'static> Iterator for TypedSliceIter<'a, T> {
             } else {
                 self.next_value(); // shared value was handled above
             }
-            return Some((value, 1));
+            Some((value, 1))
         }
     }
 }
@@ -267,7 +267,7 @@ impl<'a> InlineBytesIter<'a> {
             header_end: headers_range.end,
             header_rl_rem,
             last_oversize,
-            _phantom_data: PhantomData::default(),
+            _phantom_data: PhantomData,
         }
     }
     pub fn from_range(range: &TypedRange<'a>, values: &'a [u8]) -> Self {
@@ -326,7 +326,7 @@ impl<'a> InlineBytesIter<'a> {
         if self.header_rl_rem == 0 {
             self.next_header();
         }
-        return Some(value);
+        Some(value)
     }
     #[inline]
     pub fn next_n_fields(&mut self, mut n: usize) {
@@ -354,14 +354,12 @@ impl<'a> InlineBytesIter<'a> {
         }
         let h = unsafe { *self.header };
         let mut prev_size = h.size as usize;
-        if self.header_rl_rem > 1 {
-            if !h.shared_value() {
-                unsafe {
-                    self.advance_value(
-                        (self.header_rl_rem - 1) as usize * prev_size,
-                    )
-                };
-            }
+        if self.header_rl_rem > 1 && !h.shared_value() {
+            unsafe {
+                self.advance_value(
+                    (self.header_rl_rem - 1) as usize * prev_size,
+                )
+            };
         }
         let mut h;
         loop {
@@ -402,7 +400,7 @@ impl<'a> InlineBytesIter<'a> {
             unsafe { NonNull::new_unchecked(self.values.as_ptr().add(n)) };
     }
     pub fn has_next(&mut self) -> bool {
-        return self.header_rl_rem > 0 || self.header != self.header_end;
+        self.header_rl_rem > 0 || self.header != self.header_end
     }
     pub fn clear(&mut self) {
         self.header_rl_rem = 0;
@@ -436,7 +434,7 @@ impl<'a> Iterator for InlineBytesIter<'a> {
             } else {
                 self.advance_value(value_size);
             }
-            return Some((value, 1));
+            Some((value, 1))
         }
     }
 }
@@ -469,7 +467,7 @@ impl<'a> InlineTextIter<'a> {
     }
     pub fn peek(&self) -> Option<<Self as Iterator>::Item> {
         let (v, rl) = self.iter.peek()?;
-        return Some((unsafe { std::str::from_utf8_unchecked(v) }, rl));
+        Some((unsafe { std::str::from_utf8_unchecked(v) }, rl))
     }
     pub fn peek_header(&self) -> Option<&'a FieldValueHeader> {
         self.iter.peek_header()
@@ -485,7 +483,7 @@ impl<'a> InlineTextIter<'a> {
     }
     pub fn next_no_sv(&mut self) -> Option<&'a str> {
         let v = self.iter.next_no_sv()?;
-        return Some(unsafe { std::str::from_utf8_unchecked(v) });
+        Some(unsafe { std::str::from_utf8_unchecked(v) })
     }
     pub fn next_n_fields(&mut self, n: usize) {
         self.iter.next_n_fields(n)
@@ -494,7 +492,7 @@ impl<'a> InlineTextIter<'a> {
         self.iter.next_header()
     }
     pub fn has_next(&mut self) -> bool {
-        return self.iter.has_next();
+        self.iter.has_next()
     }
     pub fn clear(&mut self) {
         self.iter.clear()
@@ -617,12 +615,9 @@ mod test_text_iter {
         expected: &[(&'static str, RunLength)],
     ) {
         let data = unsafe {
-            std::slice::from_raw_parts(
-                fd.data.as_ptr() as *const u8,
-                fd.data.len(),
-            )
-            .to_str()
-            .unwrap()
+            std::slice::from_raw_parts(fd.data.as_ptr(), fd.data.len())
+                .to_str()
+                .unwrap()
         };
         let iter = InlineTextIter::new(data, &fd.header, 0, 0);
         assert_eq!(

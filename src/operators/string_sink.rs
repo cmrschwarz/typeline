@@ -39,6 +39,7 @@ use super::{
     utils::{NULL_STR, SUCCESS_STR},
 };
 
+#[derive(Default)]
 pub struct StringSink {
     pub data: Vec<String>,
     pub errors: Vec<(usize, Arc<OperatorApplicationError>)>,
@@ -57,12 +58,12 @@ impl StringSink {
     pub fn get_first_error(&self) -> Option<Arc<OperatorApplicationError>> {
         self.errors.first().map(|(_i, e)| e.clone())
     }
-    pub fn get_first_error_message<'a>(&'a self) -> Option<&'a str> {
+    pub fn get_first_error_message(&self) -> Option<&str> {
         self.errors.first().map(|(_i, e)| e.message.deref())
     }
 }
 
-#[derive(Clone)]
+#[derive(Default, Clone)]
 pub struct StringSinkHandle {
     data: Arc<Mutex<StringSink>>,
 }
@@ -84,15 +85,6 @@ impl<'a> DerefMut for StringSinkDataGuard<'a> {
 }
 
 impl StringSinkHandle {
-    pub fn new() -> StringSinkHandle {
-        StringSinkHandle {
-            data: Arc::new(Mutex::new(StringSink {
-                data: Default::default(),
-                errors: Default::default(),
-                error_indices: Default::default(),
-            })),
-        }
-    }
     pub fn get(&self) -> MutexGuard<StringSink> {
         self.data.lock().unwrap()
     }
@@ -229,7 +221,7 @@ fn append_stream_val(
                         if !sv_handle.contains_error {
                             sv_handle.contains_error = true;
                             let err = Arc::new(OperatorApplicationError {
-                                op_id: op_id,
+                                op_id,
                                 message: Cow::Borrowed("invalid utf-8"),
                             });
                             for i in start_idx..end_idx {
@@ -259,7 +251,7 @@ fn append_stream_val(
         StreamValueData::Dropped => panic!("dropped stream value observed"),
     }
 }
-pub fn push_errors<'a>(
+pub fn push_errors(
     out: &mut StringSink,
     err: &OperatorApplicationError,
     run_length: usize,
@@ -269,7 +261,7 @@ pub fn push_errors<'a>(
 ) {
     push_string(out, error_to_string(err), run_length);
     let e = Arc::new(err.clone());
-    for i in 0..run_length as usize {
+    for i in 0..run_length {
         out.append_error(field_pos + i, e.clone());
     }
     field_pos += run_length;

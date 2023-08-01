@@ -161,11 +161,7 @@ pub fn setup_tf_cast<'a>(
     })
 }
 
-pub fn handle_tf_cast(
-    sess: &mut JobData,
-    tf_id: TransformId,
-    tfc: &mut TfCast,
-) {
+pub fn handle_tf_cast(sess: &mut JobData, tf_id: TransformId, tfc: &TfCast) {
     let (batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
     let tf = &sess.tf_mgr.transforms[tf_id];
     let _op_id = tf.op_id.unwrap();
@@ -274,7 +270,6 @@ pub fn handle_tf_cast_stream_value_update(
             sess.sv_mgr.inform_stream_value_subscribers(sv_out_id);
             sess.sv_mgr
                 .drop_field_value_subscription(sv_id, Some(tf_id));
-            return;
         }
         StreamValueData::Bytes(bb) => {
             let out_data =
@@ -283,10 +278,10 @@ pub fn handle_tf_cast_stream_value_update(
                 } else {
                     unreachable!()
                 };
-            if sv_out.bytes_are_utf8 == true && sv_in.bytes_are_utf8 == false {
+            if sv_out.bytes_are_utf8 && !sv_in.bytes_are_utf8 {
                 let res = encoding::decode_to_utf8(
                     &mut encoding_rs::UTF_8.new_decoder_without_bom_handling(),
-                    &bb,
+                    bb,
                     &mut tf.invalid_unicode_handler,
                     out_data,
                     sv_in.done,

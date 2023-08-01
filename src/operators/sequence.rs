@@ -68,17 +68,17 @@ pub fn setup_tf_sequence<'a>(
 pub fn increment_int_str(data: &mut ArrayVec<u8, I64_MAX_DECIMAL_DIGITS>) {
     let mut i = data.len() - 1;
     loop {
-        if data[i] < '9' as u8 {
+        if data[i] < b'9' {
             data[i] += 1;
             return;
         }
-        data[i] = '0' as u8;
+        data[i] = b'0';
         if i == 0 {
             break;
         }
         i -= 1;
     }
-    data.insert(0, '1' as u8);
+    data.insert(0, b'1');
 }
 
 const FAST_SEQ_MAX_STEP: i64 = 200;
@@ -172,7 +172,7 @@ pub fn parse_op_seq(
 ) -> Result<OperatorData, OperatorCreationError> {
     if stop_after_input && value.is_none() {
         return create_op_seq_with_cli_arg_idx(
-            0 + natural_number_mode as i64,
+            natural_number_mode as i64,
             i64::MAX,
             1,
             true,
@@ -193,7 +193,7 @@ pub fn parse_op_seq(
                 arg_idx,
             )
         })?;
-    let parts: ArrayVec<&str, 4> = value_str.split(",").take(4).collect();
+    let parts: ArrayVec<&str, 4> = value_str.split(',').take(4).collect();
     if parts.len() == 4 {
         return Err(OperatorCreationError::new(
             "failed to parse sequence parameter, got more than 3 comma separated values",

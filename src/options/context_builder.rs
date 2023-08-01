@@ -4,7 +4,7 @@ use crate::{
     context::{Context, Session},
     operators::operator::OperatorData,
     record_data::{push_interface::PushInterface, record_set::RecordSet},
-    scr_error::{ContextualizedScrError, ScrError},
+    scr_error::ContextualizedScrError,
 };
 
 use super::{
@@ -68,11 +68,6 @@ impl ContextBuilder {
         self.data.input_data = rs;
         self
     }
-    pub fn build_session_raw(
-        self,
-    ) -> Result<Session, (SessionOptions, ScrError)> {
-        self.data.opts.build_session_raw()
-    }
     pub fn build_session(self) -> Result<Session, ContextualizedScrError> {
         self.data.opts.build_session()
     }
@@ -81,14 +76,15 @@ impl ContextBuilder {
     }
     pub fn run(self) -> Result<(), ContextualizedScrError> {
         let sess = self.data.opts.build_session()?;
-        Ok(if sess.settings.max_threads == 1 {
+        if sess.settings.max_threads == 1 {
             sess.run_job_unthreaded(
                 sess.construct_main_chain_job(self.data.input_data),
             )
         } else {
             let mut ctx = Context::new(Arc::new(sess));
-            ctx.run_main_chain(self.data.input_data)
-        })
+            ctx.run_main_chain(self.data.input_data);
+        }
+        Ok(())
     }
     pub fn run_collect_output(
         self,

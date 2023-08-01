@@ -238,12 +238,7 @@ impl CommandBuffer {
         self.action_producing_fields[apf_idx].merged_action_lists[0]
             .push_action_with_usize_rl(kind, field_idx, run_length);
     }
-    pub fn execute_for_field<'a>(
-        &mut self,
-        field_id: FieldId,
-        field: &mut Field,
-    ) {
-        assert!(!field.field_data.is_immutable());
+    pub fn execute_for_field(&mut self, field_id: FieldId, field: &mut Field) {
         if self.first_apf_idx.is_none() {
             return;
         }
@@ -312,8 +307,7 @@ impl CommandBuffer {
                 first_unapplied_al_idx,
             );
             let refs = self.get_merge_result_mal_ref(&als);
-            let actions =
-                self.get_merge_resuls_slice(refs.as_ref().map(|r| &**r), &als);
+            let actions = self.get_merge_resuls_slice(refs.as_deref(), &als);
             for a in actions {
                 println!("  > {:?}:", a);
             }
@@ -342,7 +336,7 @@ impl CommandBuffer {
         self.execute_commands(&mut field.field_data.fd);
         self.cleanup();
     }
-    pub fn requires_any_actions<'a>(&mut self, field: &mut Field) -> bool {
+    pub fn requires_any_actions(&mut self, field: &mut Field) -> bool {
         let first = if let Some(idx) = self.first_apf_idx {
             idx
         } else {
@@ -370,13 +364,13 @@ impl CommandBuffer {
 
         while let Some(next) = mal.next_apf_idx {
             mal = &self.action_producing_fields[next].merged_action_lists[0];
-            if mal.action_lists.len() > 0 {
+            if !mal.action_lists.is_empty() {
                 return true;
             }
         }
-        return false;
+        false
     }
-    pub fn drop_field_commands<'a>(
+    pub fn drop_field_commands(
         &mut self,
         field_id: FieldId,
         field: &mut Field,
@@ -403,11 +397,11 @@ impl CommandBuffer {
             first_unapplied_al_idx,
         );
         self.cleanup();
-        if cfg!(feature = "debug_logging") {
-            if prev_first_unapplied_apf_idx != *first_unapplied_al_idx
-                || prev_curr_apf_idx != *curr_apf_idx
-            {
-                println!(
+        if cfg!(feature = "debug_logging")
+            && prev_first_unapplied_apf_idx != *first_unapplied_al_idx
+            || prev_curr_apf_idx != *curr_apf_idx
+        {
+            println!(
                     "dropping commands for field {}: min apf {}: curr apf {} [al {}] -> {} [al {}]",
                     field_id,
                     min_apf_idx,
@@ -416,10 +410,9 @@ impl CommandBuffer {
                     curr_apf_idx,
                     first_unapplied_al_idx
                 )
-            }
         }
     }
-    pub fn execute_for_field_data<'a>(
+    pub fn execute_for_field_data(
         &mut self,
         field: &mut FieldData,
         min_apf_idx: ActionProducingFieldIndex,
@@ -483,11 +476,7 @@ impl CommandBuffer {
         &self,
         ordering_id: ActionProducingFieldOrderingId,
     ) -> Option<ActionProducingFieldIndex> {
-        let mut apf_idx = if let Some(lai) = self.last_apf_idx {
-            lai
-        } else {
-            return None;
-        };
+        let mut apf_idx = self.last_apf_idx?;
         while let Some(prev) = self.action_producing_fields[apf_idx]
             .merged_action_lists[0]
             .prev_apf_idx
@@ -575,16 +564,16 @@ impl CommandBuffer {
                 let mut kind = left.kind;
                 let space_to_next = left_list
                     .get(curr_action_idx_left + 1)
-                    .map(|a| (a.field_idx - left.field_idx) as usize)
+                    .map(|a| a.field_idx - left.field_idx)
                     .unwrap_or(usize::MAX);
                 match left.kind {
                     FieldActionKind::Dup => {
                         if outstanding_drops_right >= run_len {
                             kind = FieldActionKind::Drop;
-                            outstanding_drops_right -= run_len as usize;
+                            outstanding_drops_right -= run_len;
                             run_len =
                                 outstanding_drops_right.min(space_to_next);
-                            outstanding_drops_right -= run_len as usize;
+                            outstanding_drops_right -= run_len;
                             field_pos_offset_left -= run_len as isize;
                         } else {
                             run_len -= outstanding_drops_right;
@@ -592,9 +581,9 @@ impl CommandBuffer {
                         }
                     }
                     FieldActionKind::Drop => {
-                        outstanding_drops_right += run_len as usize;
+                        outstanding_drops_right += run_len;
                         run_len = outstanding_drops_right.min(space_to_next);
-                        outstanding_drops_right -= run_len as usize;
+                        outstanding_drops_right -= run_len;
                     }
                 }
                 Self::push_merged_action(
@@ -636,8 +625,7 @@ impl CommandBuffer {
                 curr_action_idx_right += 1;
             }
         }
-        for i in curr_action_idx_right..right_list.len() {
-            let action = &right_list[i];
+        for action in &right_list[curr_action_idx_right..] {
             Self::push_merged_action(
                 target,
                 &mut first_insert,
@@ -654,7 +642,7 @@ impl CommandBuffer {
         if let ActionListMergeLocation::CbActionList { idx } = almr.location {
             return Some(self.merged_actions[idx].borrow());
         }
-        return None;
+        None
     }
     fn get_merge_resuls_slice<'a>(
         &'a self,
@@ -710,23 +698,19 @@ impl CommandBuffer {
 
         let first_ref = self.get_merge_result_mal_ref(&first);
         let second_ref = self.get_merge_result_mal_ref(&second);
-        let first_slice = self
-            .get_merge_resuls_slice(first_ref.as_ref().map(|r| &**r), &first);
-        let second_slice = self.get_merge_resuls_slice(
-            second_ref.as_ref().map(|r| &**r),
-            &second,
-        );
+        let first_slice =
+            self.get_merge_resuls_slice(first_ref.as_deref(), &first);
+        let second_slice =
+            self.get_merge_resuls_slice(second_ref.as_deref(), &second);
         let res_size = first_slice.len() + second_slice.len();
-        let res_len_before;
-        let res_len_after;
         let mut res_ms = self.merged_actions[target_idx].borrow_mut();
         res_ms.reserve(res_size);
-        res_len_before = res_ms.len();
+        let res_len_before = res_ms.len();
         CommandBuffer::merge_two_action_lists_raw(
             [first_slice, second_slice],
             &mut res_ms,
         );
-        res_len_after = res_ms.len();
+        let res_len_after = res_ms.len();
         drop(res_ms);
         drop(first_ref);
         drop(second_ref);
@@ -747,7 +731,7 @@ impl CommandBuffer {
         al_idx: ActionListIndex,
     ) -> ActionListMergeResult {
         let al = &self.action_producing_fields[apf_idx].merged_action_lists
-            [mal_idx as usize]
+            [mal_idx]
             .action_lists[al_idx];
         ActionListMergeResult {
             location: ActionListMergeLocation::ApfMal { apf_idx, mal_idx },
@@ -762,7 +746,7 @@ impl CommandBuffer {
         al_idx: ActionListIndex,
     ) -> ActionListMergeResult {
         let al = &self.action_producing_fields[apf_idx].merged_action_lists
-            [mal_idx as usize]
+            [mal_idx]
             .locally_merged_action_lists[al_idx];
         ActionListMergeResult {
             location: ActionListMergeLocation::ApfLocal { apf_idx, mal_idx },
@@ -971,8 +955,7 @@ impl CommandBuffer {
             first_unapplied_al_idx_in_mal,
             None,
         );
-
-        return self.merge_two_action_lists(lhs, rhs);
+        self.merge_two_action_lists(lhs, rhs)
     }
     fn merge_action_lists(
         &mut self,
@@ -1033,12 +1016,11 @@ impl CommandBuffer {
             mal_idx,
             first_unapplied_al_idx_in_max_apf,
         );
-
-        return if mal_idx == 0 {
+        if mal_idx == 0 {
             self.merge_two_action_lists(prev, curr)
         } else {
             self.merge_two_action_lists(curr, prev)
-        };
+        }
     }
     fn prepare_action_lists(
         &mut self,
@@ -1156,12 +1138,12 @@ impl CommandBuffer {
     }
     fn iters_adjust_drop_before(
         &self,
-        curr_header_iter_count: &mut usize,
-        iterators: &mut Vec<&mut IterState>,
+        curr_header_iter_count: usize,
+        iterators: &mut [&mut IterState],
         field_pos: usize,
         amount: RunLength,
     ) {
-        for it in &mut iterators[0..*curr_header_iter_count] {
+        for it in &mut iterators[0..curr_header_iter_count] {
             if it.field_pos > field_pos {
                 it.field_pos -= amount as usize;
                 it.header_rl_offset -= amount;
@@ -1170,12 +1152,12 @@ impl CommandBuffer {
     }
     fn iters_to_next_header(
         &self,
-        curr_header_iter_count: &mut usize,
+        curr_header_iter_count: usize,
         iterators: &mut Vec<&mut IterState>,
         header_to_skip: &FieldValueHeader,
     ) {
         let data_offset = header_to_skip.total_size_unique();
-        let start = iterators.len() - *curr_header_iter_count;
+        let start = iterators.len() - curr_header_iter_count;
         for it in &mut iterators[start..] {
             it.header_idx += 1;
             it.data += data_offset;
@@ -1184,12 +1166,12 @@ impl CommandBuffer {
     }
     fn iters_to_next_header_zero_offset(
         &self,
-        curr_header_iter_count: &mut usize,
+        curr_header_iter_count: usize,
         iterators: &mut Vec<&mut IterState>,
         header_to_skip: &FieldValueHeader,
     ) {
         let data_offset = header_to_skip.total_size_unique();
-        let start = iterators.len() - *curr_header_iter_count;
+        let start = iterators.len() - curr_header_iter_count;
         for it in &mut iterators[start..] {
             it.header_idx += 1;
             it.data += data_offset;
@@ -1198,12 +1180,12 @@ impl CommandBuffer {
     }
     fn iters_to_next_header_adjusting_deleted_offset(
         &self,
-        curr_header_iter_count: &mut usize,
+        curr_header_iter_count: usize,
         iterators: &mut Vec<&mut IterState>,
         header_to_skip: &FieldValueHeader,
     ) {
         let data_offset = header_to_skip.total_size_unique();
-        let start = iterators.len() - *curr_header_iter_count;
+        let start = iterators.len() - curr_header_iter_count;
         for it in &mut iterators[start..] {
             it.header_idx += 1;
             it.data += data_offset;
@@ -1226,12 +1208,12 @@ impl CommandBuffer {
         header_idx_new: &mut usize,
         copy_range_start: &mut usize,
         copy_range_start_new: &mut usize,
-        curr_header_iter_count: &mut usize,
+        curr_header_iter_count: usize,
         iterators: &mut Vec<&mut IterState>,
     ) {
         if header.shared_value() {
             // iterators are unaffected in this case
-            let mut rl_res = header.run_length as usize + run_len as usize;
+            let mut rl_res = header.run_length as usize + run_len;
             if rl_res > RunLength::MAX as usize {
                 self.push_copy_command(
                     *header_idx_new,
@@ -1319,7 +1301,6 @@ impl CommandBuffer {
         *field_pos += mid_rem as usize;
         header.run_length = post;
         header.set_shared_value(post == 1);
-        return;
     }
     fn handle_drop(
         &mut self,
@@ -1330,7 +1311,7 @@ impl CommandBuffer {
         header_idx_new: &mut usize,
         copy_range_start: &mut usize,
         copy_range_start_new: &mut usize,
-        curr_header_iter_count: &mut usize,
+        curr_header_iter_count: usize,
         iterators: &mut Vec<&mut IterState>,
     ) {
         let rl_to_del = *curr_action_pos_outstanding_drops;
@@ -1377,7 +1358,7 @@ impl CommandBuffer {
                     self.iters_to_next_header_zero_offset(
                         curr_header_iter_count,
                         iterators,
-                        &header,
+                        header,
                     );
                     return;
                 }
@@ -1408,7 +1389,7 @@ impl CommandBuffer {
             self.iters_to_next_header_adjusting_deleted_offset(
                 curr_header_iter_count,
                 iterators,
-                &header,
+                header,
             );
             if header.shared_value() {
                 *copy_range_start += 1;
@@ -1425,7 +1406,7 @@ impl CommandBuffer {
             self.iters_to_next_header_adjusting_deleted_offset(
                 curr_header_iter_count,
                 iterators,
-                &header,
+                header,
             );
             return;
         }
@@ -1435,7 +1416,7 @@ impl CommandBuffer {
             self.iters_to_next_header_zero_offset(
                 curr_header_iter_count,
                 iterators,
-                &header,
+                header,
             );
             return;
         }
@@ -1471,7 +1452,6 @@ impl CommandBuffer {
             rl_to_del,
         );
         header.run_length -= rl_to_del;
-        return;
     }
     fn update_current_iters(
         &self,
@@ -1527,10 +1507,8 @@ impl CommandBuffer {
 
         'advance_action: loop {
             let mal_ref = self.get_merge_result_mal_ref(&merged_actions);
-            let actions = self.get_merge_resuls_slice(
-                mal_ref.as_ref().map(|r| &**r),
-                &merged_actions,
-            );
+            let actions = self
+                .get_merge_resuls_slice(mal_ref.as_deref(), &merged_actions);
             loop {
                 let end_of_actions = action_idx_next == actions.len();
                 if end_of_actions {
@@ -1638,7 +1616,7 @@ impl CommandBuffer {
                         &mut header_idx_new,
                         &mut copy_range_start,
                         &mut copy_range_start_new,
-                        &mut curr_header_iter_count,
+                        curr_header_iter_count,
                         iterators,
                     );
                     let prev_dups = curr_action_pos_outstanding_dups;
@@ -1661,7 +1639,7 @@ impl CommandBuffer {
                     &mut header_idx_new,
                     &mut copy_range_start,
                     &mut copy_range_start_new,
-                    &mut curr_header_iter_count,
+                    curr_header_iter_count,
                     iterators,
                 );
                 if curr_action_pos_outstanding_drops == 0 {
@@ -1705,7 +1683,7 @@ impl CommandBuffer {
 // final execution step
 impl CommandBuffer {
     fn execute_commands(&mut self, fd: &mut FieldData) {
-        if self.copies.len() == 0 && self.insertions.len() == 0 {
+        if self.copies.is_empty() && self.insertions.is_empty() {
             return;
         }
         let new_size = self

@@ -39,12 +39,6 @@ pub fn parse_op_up(
         })
         .transpose()?
         .unwrap_or(1);
-    if step <= 0 {
-        return Err(OperatorCreationError::new(
-            "argument must be larger than zero",
-            arg_idx,
-        ));
-    }
     Ok(OperatorData::Up(OpUp {
         step,
         // filled by add_op
@@ -66,7 +60,7 @@ pub fn create_op_up(step: u32) -> OperatorData {
 
 pub fn setup_op_up(
     _chain: &Chain,
-    op: &mut OpUp,
+    op: &OpUp,
     op_id: OperatorId,
 ) -> Result<(), OperatorSetupError> {
     if let Some(err_level) = op.err_level {

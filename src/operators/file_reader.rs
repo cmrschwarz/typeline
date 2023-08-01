@@ -128,7 +128,7 @@ pub fn setup_tf_file_reader<'a>(
     sess: &mut JobData,
     _op_base: &OperatorBase,
     op: &'a OpFileReader,
-    tf_state: &mut TransformState,
+    tf_state: &TransformState,
 ) -> TransformData<'a> {
     // TODO: properly set up line buffering
     let mut check_if_tty = false;
@@ -206,10 +206,7 @@ fn read_size_limited<F: Read>(
     limit: usize,
     target: &mut Vec<u8>,
 ) -> Result<(usize, bool), std::io::Error> {
-    let size = f
-        .take(limit as u64)
-        .read_to_end(target)
-        .map(|size| size as usize)?;
+    let size = f.take(limit as u64).read_to_end(target)?;
     let eof = size != limit;
     Ok((size, eof))
 }
@@ -218,11 +215,8 @@ fn read_line_buffered<F: BufRead>(
     limit: usize,
     target: &mut Vec<u8>,
 ) -> Result<(usize, bool), std::io::Error> {
-    let size = f
-        .take(limit as u64)
-        .read_until('\n' as u8, target)
-        .map(|size| size as usize)?;
-    let eof = size == 0 || target[size - 1] != '\n' as u8;
+    let size = f.take(limit as u64).read_until(b'\n', target)?;
+    let eof = size == 0 || target[size - 1] != b'\n';
     Ok((size, eof))
 }
 fn read_mode_based<F: BufRead>(
@@ -361,7 +355,7 @@ fn start_streaming_file(
     drop(output_field);
     // even if the stream is already done, we can only drop the stream value
     // next time we are called once it was observed -> refcounted
-    return true;
+    true
 }
 
 pub fn handle_tf_file_reader(
@@ -374,45 +368,38 @@ pub fn handle_tf_file_reader(
     if !fr.value_committed {
         fr.value_committed = true;
         streaming = start_streaming_file(sess, tf_id, fr);
-    } else {
-        if let Some(file) = &mut fr.file {
-            let sv_id = fr.stream_value.unwrap();
-            let sv = &mut sess.sv_mgr.stream_values[sv_id];
-            let res = match &mut sv.data {
-                StreamValueData::Bytes(ref mut bc) => {
-                    if sv.bytes_are_chunk {
-                        bc.clear();
-                    }
-                    read_chunk(
-                        bc,
-                        file,
-                        fr.stream_buffer_size,
-                        fr.line_buffered,
-                    )
+    } else if let Some(file) = &mut fr.file {
+        let sv_id = fr.stream_value.unwrap();
+        let sv = &mut sess.sv_mgr.stream_values[sv_id];
+        let res = match &mut sv.data {
+            StreamValueData::Bytes(ref mut bc) => {
+                if sv.bytes_are_chunk {
+                    bc.clear();
                 }
-                StreamValueData::Error(_) => Ok((0, true)),
-                StreamValueData::Dropped => {
-                    panic!("dropped stream value ovserved")
-                }
-            };
-            match res {
-                Ok((_size, eof)) => {
-                    streaming = !eof;
-                }
-                Err(err) => {
-                    let err = io_error_to_op_error(
-                        sess.tf_mgr.transforms[tf_id].op_id.unwrap(),
-                        err,
-                    );
-                    sv.data = StreamValueData::Error(err);
-                }
+                read_chunk(bc, file, fr.stream_buffer_size, fr.line_buffered)
             }
-            if !streaming {
-                fr.file.take();
-                sv.done = true;
+            StreamValueData::Error(_) => Ok((0, true)),
+            StreamValueData::Dropped => {
+                panic!("dropped stream value ovserved")
             }
-            sess.sv_mgr.inform_stream_value_subscribers(sv_id);
+        };
+        match res {
+            Ok((_size, eof)) => {
+                streaming = !eof;
+            }
+            Err(err) => {
+                let err = io_error_to_op_error(
+                    sess.tf_mgr.transforms[tf_id].op_id.unwrap(),
+                    err,
+                );
+                sv.data = StreamValueData::Error(err);
+            }
         }
+        if !streaming {
+            fr.file.take();
+            sv.done = true;
+        }
+        sess.sv_mgr.inform_stream_value_subscribers(sv_id);
     }
     let (batch_size, input_done) = sess.tf_mgr.maintain_single_value(
         tf_id,
@@ -455,7 +442,7 @@ pub fn parse_op_file_reader(
     value: Option<&[u8]>,
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
-    let args = ARG_REGEX.captures(&argument).ok_or_else(|| {
+    let args = ARG_REGEX.captures(argument).ok_or_else(|| {
         // can't happen from cli because of argument_matches_op_file_reader
         OperatorCreationError::new(
             "invalid argument syntax for file reader",
@@ -532,11 +519,13 @@ pub fn parse_op_stream_str(
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
     let value_str = value
-        .ok_or_else(|| OperatorCreationError::new_s(format!("missing value for ~str"), arg_idx))?
+        .ok_or_else(|| {
+            OperatorCreationError::new("missing value for ~str", arg_idx)
+        })?
         .to_str()
         .map_err(|_| {
-            OperatorCreationError::new_s(
-                format!("~str argument must be valid UTF-8, consider using ~bytes=..."),
+            OperatorCreationError::new(
+                "~str argument must be valid UTF-8, consider using ~bytes=...",
                 arg_idx,
             )
         })?;
@@ -549,10 +538,7 @@ pub fn parse_op_stream_bytes(
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
     let value_bytes = value.ok_or_else(|| {
-        OperatorCreationError::new_s(
-            format!("missing value for ~bytes"),
-            arg_idx,
-        )
+        OperatorCreationError::new("missing value for ~bytes", arg_idx)
     })?;
     Ok(create_op_stream_bytes(
         value_bytes,

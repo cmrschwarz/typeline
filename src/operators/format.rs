@@ -66,7 +66,7 @@ impl FormatFillSpec {
         alignment: FormatFillAlignment,
     ) -> Self {
         Self {
-            fill_char: fill_char,
+            fill_char,
             alignment,
         }
     }
@@ -157,7 +157,7 @@ type TfFormatStreamValueHandleId = NonMaxUsize;
 
 const FINAL_OUTPUT_INDEX_NEXT_VAL: usize = usize::MAX;
 
-#[derive(Clone, Copy)]
+#[derive(Default, Clone, Copy)]
 struct OutputState {
     next: usize,
     len: usize,
@@ -172,20 +172,6 @@ struct OutputTarget {
     run_len: usize,
     width_lookup: usize,
     target: Option<NonNull<u8>>,
-}
-
-impl Default for OutputState {
-    fn default() -> Self {
-        Self {
-            next: 0,
-            len: Default::default(),
-            contains_raw_bytes: false,
-            error_occured: false,
-            incomplete_stream_value_handle: None,
-            run_len: 0,
-            width_lookup: 0,
-        }
-    }
 }
 
 pub struct TfFormat<'a> {
@@ -208,9 +194,7 @@ pub fn setup_op_format(
     string_store: &mut StringStore,
     op: &mut OpFormat,
 ) -> Result<(), OperatorSetupError> {
-    for r in
-        std::mem::replace(&mut op.refs_str, Default::default()).into_iter()
-    {
+    for r in std::mem::take(&mut op.refs_str).into_iter() {
         op.refs_idx.push(r.map(|r| string_store.intern_moved(r)));
     }
     Ok(())
@@ -221,7 +205,7 @@ pub fn setup_tf_format<'a>(
     _op_base: &OperatorBase,
     op: &'a OpFormat,
     tf_id: TransformId,
-    tf_state: &mut TransformState,
+    tf_state: &TransformState,
 ) -> TransformData<'a> {
     let refs: Vec<_> = op
         .refs_idx
@@ -320,10 +304,7 @@ pub fn parse_format_width_spec<const FOR_FLOAT_PREC: bool>(
             if c == '$' {
                 let ref_id = refs.len();
                 refs.push(Some(val.to_owned()));
-                return Ok((
-                    Some(FormatWidthSpec::Ref(ref_id)),
-                    i as usize + 1,
-                ));
+                return Ok((Some(FormatWidthSpec::Ref(ref_id)), i + 1));
             }
             let number = val.parse::<usize>().map_err(|e| {
                 (
@@ -334,14 +315,14 @@ pub fn parse_format_width_spec<const FOR_FLOAT_PREC: bool>(
                     .into(),
                 )
             })?;
-            return Ok((Some(FormatWidthSpec::Value(number)), i as usize));
+            return Ok((Some(FormatWidthSpec::Value(number)), i));
         }
     }
     let mut format_width_ident = SmallString::<[u8; 64]>::new();
     loop {
-        if let Some(mut end) = (&fmt[i..]).find_byteset("${}") {
+        if let Some(mut end) = fmt[i..].find_byteset("${}") {
             end += i;
-            format_width_ident.push_str((&fmt[i..end]).to_str().map_err(
+            format_width_ident.push_str(fmt[i..end].to_str().map_err(
                 |e| {
                     (
                         i + e.valid_up_to(),
@@ -391,7 +372,7 @@ pub fn parse_format_flags(
         Ok(*fmt.get(i).ok_or((i, NO_CLOSING_BRACE_ERR))? as char)
     }
 
-    debug_assert!(fmt[start] == ':' as u8);
+    debug_assert!(fmt[start] == b':');
     let mut i = start + 1;
     let mut c = next(fmt, i)?;
     if c == '}' {
@@ -509,15 +490,15 @@ pub fn parse_format_key(
     start: usize,
     refs: &mut Vec<Option<String>>,
 ) -> Result<(FormatKey, usize), (usize, Cow<'static, str>)> {
-    debug_assert!(fmt[start] == '{' as u8);
+    debug_assert!(fmt[start] == b'{');
     let mut i = start + 1;
     let mut key = FormatKey::default();
-    if let Some(mut end) = (&fmt[i..]).find_byteset("}:") {
+    if let Some(mut end) = &fmt[i..].find_byteset("}:") {
         end += i;
         let c0 = fmt[end] as char;
         let ref_val = if end > i {
             Some(
-                (&fmt[i..end])
+                fmt[i..end]
                     .to_str()
                     .map_err(|e| {
                         (
@@ -539,7 +520,7 @@ pub fn parse_format_key(
         }
         return Ok((key, i + 1));
     }
-    return Err((fmt.len(), NO_CLOSING_BRACE_ERR));
+    Err((fmt.len(), NO_CLOSING_BRACE_ERR))
 }
 
 pub fn parse_format_string(
@@ -550,11 +531,11 @@ pub fn parse_format_string(
     let mut pending_literal = Vec::default();
     let mut i = 0;
     loop {
-        let non_braced_begin = (&fmt[i..]).find_byteset("{}");
+        let non_braced_begin = fmt[i..].find_byteset("{}");
         if let Some(mut nbb) = non_braced_begin {
             nbb += i;
-            if fmt[nbb] == '}' as u8 {
-                if fmt[nbb + 1] != '}' as u8 {
+            if fmt[nbb] == b'}' {
+                if fmt[nbb + 1] != b'}' {
                     return Err((
                         nbb,
                         "unmatched '}', consider using '}}'".into(),
@@ -564,7 +545,7 @@ pub fn parse_format_string(
                 i = nbb + 2;
                 continue;
             }
-            if fmt[nbb + 1] == '{' as u8 {
+            if fmt[nbb + 1] == b'{' {
                 pending_literal.extend_from_slice(&fmt[i..nbb + 1]);
                 i = nbb + 2;
                 continue;
@@ -1142,7 +1123,7 @@ unsafe fn write_padding_to_tgt(
     if len == 0 {
         return;
     }
-    let mut char_enc = [0 as u8; MAX_UTF8_CHAR_LEN];
+    let mut char_enc = [0u8; MAX_UTF8_CHAR_LEN];
     let char_slice = fill_char.unwrap_or(' ').encode_utf8(&mut char_enc);
     let mut buf = ArrayVec::<u8, 32>::new();
     let chars_cap = divide_by_char_len(buf.capacity(), char_slice.len());
@@ -1314,7 +1295,7 @@ unsafe fn write_formatted_int(
     tgt: &mut OutputTarget,
     value: i64,
 ) {
-    if !k.width.is_some() {
+    if k.width.is_none() {
         unsafe {
             write_bytes_to_target(
                 tgt,
@@ -1388,8 +1369,8 @@ impl<'a> ValueProducingCallable<usize> for ErrLenCalculator<'a> {
             }
     }
 }
-fn formatted_error_string_len<'a>(
-    e: &'a OperatorApplicationError,
+fn formatted_error_string_len(
+    e: &OperatorApplicationError,
     ft: FormatType,
     alternate_form: bool,
     stream_value: bool,
@@ -1416,7 +1397,7 @@ fn formatted_error_string_len<'a>(
     )
 }
 fn write_fmt_key(
-    sv_mgr: &mut StreamValueManager,
+    sv_mgr: &StreamValueManager,
     field_mgr: &FieldManager,
     match_set_mgr: &mut MatchSetManager,
     fmt: &mut TfFormat,
@@ -1560,7 +1541,7 @@ fn write_fmt_key(
                         &mut output_index,
                         rl as usize,
                         |tgt| unsafe {
-                            write_padded_bytes(k, tgt, &err_str.as_bytes())
+                            write_padded_bytes(k, tgt, err_str.as_bytes())
                         },
                     );
                 }
@@ -1589,7 +1570,7 @@ fn write_fmt_key(
                                     write_padded_bytes(
                                         k,
                                         tgt,
-                                        &err_str.as_bytes(),
+                                        err_str.as_bytes(),
                                     )
                                 },
                             );
@@ -1605,7 +1586,7 @@ fn write_fmt_key(
                             {
                                 let qc =
                                     if sv.bytes_are_utf8 { '"' } else { '\'' };
-                                let left = ['~' as u8, qc as u8];
+                                let left = [b'~', qc as u8];
                                 let right = [qc as u8];
                                 let none = b"".as_slice();
                                 let (left, right) = match k.format_type {
@@ -1752,7 +1733,7 @@ pub fn handle_tf_format(
                 });
             }
             FormatPart::Key(k) => write_fmt_key(
-                &mut sess.sv_mgr,
+                &sess.sv_mgr,
                 &sess.field_mgr,
                 &mut sess.match_set_mgr,
                 fmt,
@@ -1931,10 +1912,14 @@ mod test {
     #[test]
     fn two_keys() {
         let mut idents = Default::default();
-        let mut a = FormatKey::default();
-        a.identifier = 0;
-        let mut b = FormatKey::default();
-        b.identifier = 1;
+        let a = FormatKey {
+            identifier: 0,
+            ..Default::default()
+        };
+        let b = FormatKey {
+            identifier: 1,
+            ..Default::default()
+        };
         assert_eq!(
             parse_format_string("foo{{{a}}}__{b}".as_bytes(), &mut idents)
                 .unwrap(),
@@ -1951,11 +1936,15 @@ mod test {
     #[test]
     fn fill_options() {
         let mut idents = Default::default();
-        let mut a = FormatKey::default();
-        a.identifier = 0;
-        a.width = Some(FormatWidthSpec::Value(5));
-        a.fill =
-            Some(FormatFillSpec::new(Some('+'), FormatFillAlignment::Left));
+        let a = FormatKey {
+            identifier: 0,
+            width: Some(FormatWidthSpec::Value(5)),
+            fill: Some(FormatFillSpec::new(
+                Some('+'),
+                FormatFillAlignment::Left,
+            )),
+            ..Default::default()
+        };
         assert_eq!(
             parse_format_string("{a:+<5}".as_bytes(), &mut idents).unwrap(),
             &[FormatPart::Key(a),]
@@ -1966,10 +1955,12 @@ mod test {
     #[test]
     fn float_precision() {
         let mut idents = Default::default();
-        let mut a = FormatKey::default();
-        a.identifier = 0;
-        a.width = Some(FormatWidthSpec::Value(3));
-        a.float_precision = Some(FormatWidthSpec::Ref(1));
+        let a = FormatKey {
+            identifier: 0,
+            width: Some(FormatWidthSpec::Value(3)),
+            float_precision: Some(FormatWidthSpec::Ref(1)),
+            ..Default::default()
+        };
         assert_eq!(
             parse_format_string("{a:3.b$}".as_bytes(), &mut idents).unwrap(),
             &[FormatPart::Key(a)]
@@ -1989,9 +1980,11 @@ mod test {
     #[test]
     fn fill_char_is_optional_not_an_ident() {
         let mut idents = Default::default();
-        let mut a = FormatKey::default();
-        a.width = Some(FormatWidthSpec::Value(2));
-        a.fill = Some(FormatFillSpec::new(None, FormatFillAlignment::Center));
+        let a = FormatKey {
+            width: Some(FormatWidthSpec::Value(2)),
+            fill: Some(FormatFillSpec::new(None, FormatFillAlignment::Center)),
+            ..Default::default()
+        };
         assert_eq!(
             parse_format_string("{a:^2}".as_bytes(), &mut idents).unwrap(),
             &[FormatPart::Key(a)]

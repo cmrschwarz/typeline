@@ -214,14 +214,14 @@ impl Context {
         if !self.session.has_no_command() {
             self.run_main_chain(RecordSet::default());
         }
-        let mut history = Box::new(FileBackedHistory::default());
+        let mut history = Box::<FileBackedHistory>::default();
         if let Some(args) = &self.session.cli_args {
             history
                 .save(HistoryItem::from_command_line(
                     &args.iter().map(|arg| arg.to_str_lossy()).fold(
                         String::new(),
                         |mut s, a| {
-                            s.push_str(" ");
+                            s.push(' ');
                             s.push_str(&shlex::quote(&a));
                             s
                         },
@@ -251,9 +251,10 @@ impl Context {
         let mut line_editor = Reedline::create()
             .with_history(history)
             .with_edit_mode(Box::new(edit_mode));
-        let mut prompt = DefaultPrompt::default();
-        prompt.right_prompt = DefaultPromptSegment::Empty;
-        prompt.left_prompt = DefaultPromptSegment::Basic("scr ".to_string());
+        let prompt = DefaultPrompt {
+            right_prompt: DefaultPromptSegment::Empty,
+            left_prompt: DefaultPromptSegment::Basic("scr ".to_string()),
+        };
         loop {
             let sig = line_editor.read_line(&prompt);
             match sig {
@@ -264,11 +265,11 @@ impl Context {
                     let mut exit_repl = false;
                     let sess = if !shlex.had_error {
                         let mut sess_opts = parse_cli(args, true);
-                        sess_opts = sess_opts.and_then(|mut opts| {
+                        sess_opts = sess_opts.map(|mut opts| {
                             exit_repl = opts.repl.get() == Some(false)
                                 || opts.exit_repl.get() == Some(true);
                             opts.repl.force_set(true, None);
-                            Ok(opts)
+                            opts
                         });
                         match sess_opts.and_then(|opts| opts.build_session()) {
                             Ok(opts) => Ok(opts),
@@ -312,7 +313,7 @@ impl Context {
                     break;
                 }
                 Err(err) => {
-                    println!("IO Error: {}", err.to_string());
+                    println!("IO Error: {}", err);
                     break;
                 }
             }
@@ -350,7 +351,7 @@ impl Session {
         assert!(!self.settings.repl);
         let mut js = JobSession {
             transform_data: Vec::new(),
-            job_data: JobData::new(&self),
+            job_data: JobData::new(self),
             temp_vec: TempVec::default(),
         };
         js.setup_job(job);

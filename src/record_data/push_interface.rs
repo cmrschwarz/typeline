@@ -60,13 +60,13 @@ impl FieldData {
         debug_assert!(run_length > 0);
         while run_length > RunLength::MAX as usize {
             self.header.push(FieldValueHeader {
-                fmt: fmt,
+                fmt,
                 run_length: RunLength::MAX,
             });
             run_length -= RunLength::MAX as usize;
         }
         self.header.push(FieldValueHeader {
-            fmt: fmt,
+            fmt,
             run_length: run_length as RunLength,
         });
     }
@@ -78,7 +78,7 @@ impl FieldData {
         debug_assert!(run_length > 0);
         let rl_to_push = run_length.min(RunLength::MAX as usize);
         self.header.push(FieldValueHeader {
-            fmt: fmt,
+            fmt,
             run_length: rl_to_push as RunLength,
         });
         if rl_to_push != run_length {
@@ -160,7 +160,7 @@ impl FieldData {
         fmt.set_leading_padding(padding);
         let rl_to_push = run_length.min(RunLength::MAX as usize);
         self.header.push(FieldValueHeader {
-            fmt: fmt,
+            fmt,
             run_length: rl_to_push as RunLength,
         });
         if run_length == rl_to_push {
@@ -183,7 +183,7 @@ impl FieldData {
         fmt.set_leading_padding(padding);
         let rl_to_push = run_length.min(RunLength::MAX as usize);
         self.header.push(FieldValueHeader {
-            fmt: fmt,
+            fmt,
             run_length: rl_to_push as RunLength,
         });
         if run_length == rl_to_push {
@@ -237,7 +237,7 @@ impl FieldData {
         }
         let last_header = self.header.last_mut().unwrap();
         // command buffer should clear data after last non deleted
-        debug_assert!(last_header.deleted() == false);
+        debug_assert!(!last_header.deleted());
         unsafe {
             if last_header.run_length > 1 && !last_header.shared_value() {
                 last_header.run_length -= 1;
@@ -319,8 +319,7 @@ unsafe impl RawPushInterface for FieldData {
                         let len = h.size as usize;
                         let prev_data = unsafe {
                             std::slice::from_raw_parts(
-                                self.data.as_ptr_range().end.sub(len)
-                                    as *const u8,
+                                self.data.as_ptr_range().end.sub(len),
                                 len,
                             )
                         };
@@ -330,7 +329,7 @@ unsafe impl RawPushInterface for FieldData {
             }
         }
         let fmt = FieldValueFormat {
-            kind: kind,
+            kind,
             flags: flags | SHARED_VALUE,
             size,
         };
@@ -358,7 +357,7 @@ unsafe impl RawPushInterface for FieldData {
         let mut data_rle = false;
         let mut header_rle = false;
         let fmt = FieldValueFormat {
-            kind: kind,
+            kind,
             flags: flags | SHARED_VALUE,
             size: std::mem::size_of::<T>() as FieldValueSize,
         };
@@ -418,7 +417,7 @@ unsafe impl RawPushInterface for FieldData {
         debug_assert!(kind.is_zst());
         self.field_count += run_length;
         let fmt = FieldValueFormat {
-            kind: kind,
+            kind,
             flags: flags | SHARED_VALUE,
             size: 0,
         };
@@ -446,7 +445,7 @@ unsafe impl RawPushInterface for FieldData {
         data_len: usize,
         run_length: usize,
     ) -> *mut u8 {
-        self.field_count += run_length as usize;
+        self.field_count += run_length;
         debug_assert!(data_len <= INLINE_STR_MAX_LEN);
         let size = data_len as FieldValueSize;
         unsafe {

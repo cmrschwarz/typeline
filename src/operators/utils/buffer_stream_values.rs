@@ -27,14 +27,11 @@ pub fn buffer_remaining_stream_values_in_auto_deref_iter<
     while let Some(range) =
         iter.typed_range_fwd(match_set_mgr, limit, field_value_flags::DEFAULT)
     {
-        match range.base.data {
-            TypedSlice::StreamValueId(svs) => {
-                buffer_remaining_stream_values_in_sv_iter(
-                    sv_mgr,
-                    RefAwareStreamValueIter::from_range(&range, svs),
-                );
-            }
-            _ => (),
+        if let TypedSlice::StreamValueId(svs) = range.base.data {
+            buffer_remaining_stream_values_in_sv_iter(
+                sv_mgr,
+                RefAwareStreamValueIter::from_range(&range, svs),
+            );
         }
     }
 }

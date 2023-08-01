@@ -90,15 +90,13 @@ pub fn parse_op_call_concurrent(
 pub fn setup_op_call_concurrent(
     settings: &SessionSettings,
     chain_labels: &HashMap<StringStoreEntry, ChainId, BuildIdentityHasher>,
-    string_store: &mut StringStore,
+    string_store: &StringStore,
     op: &mut OpCallConcurrent,
     op_id: OperatorId,
 ) -> Result<(), OperatorSetupError> {
     if settings.max_threads == 1 {
-        return Err(OperatorSetupError::new_s(
-            format!(
-                "callcc cannot be used with a max thread count of 1, see `h=j`"
-            ),
+        return Err(OperatorSetupError::new(
+            "callcc cannot be used with a max thread count of 1, see `h=j`",
             op_id,
         ));
     }
@@ -158,7 +156,7 @@ pub fn setup_tf_call_concurrent<'a>(
     sess: &mut JobData,
     _op_base: &OperatorBase,
     op: &'a OpCallConcurrent,
-    tf_state: &mut TransformState,
+    tf_state: &TransformState,
 ) -> TransformData<'a> {
     TransformData::CallConcurrent(TfCallConcurrent {
         expanded: false,
@@ -285,7 +283,7 @@ pub(crate) fn handle_call_concurrent_expansion(
     venture_desc.participans_needed -= 1;
     venture_desc.starting_points.swap_remove(0);
     sess.submit_venture(venture_desc, None, ctx);
-    return Ok(());
+    Ok(())
 }
 
 pub fn handle_tf_call_concurrent(
@@ -316,7 +314,7 @@ pub fn handle_tf_call_concurrent(
         // referenced fields into the right ids instead?
         copy_required |= !src_field.field_refs.is_empty();
 
-        let mut tgt_data = &mut buf_data.fields[mapping.buf_field].data;
+        let tgt_data = &mut buf_data.fields[mapping.buf_field].data;
         if copy_required {
             let mut iter = AutoDerefIter::new(
                 &sess.field_mgr,
@@ -330,7 +328,7 @@ pub fn handle_tf_call_concurrent(
             FieldData::copy_resolve_refs(
                 &mut sess.match_set_mgr,
                 &mut iter,
-                &mut |f: &mut dyn FnMut(&mut FieldData)| f(&mut tgt_data),
+                &mut |f: &mut dyn FnMut(&mut FieldData)| f(tgt_data),
             );
             sess.field_mgr.store_iter_cow_aware(
                 mapping.source_field_id,

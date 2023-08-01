@@ -74,7 +74,7 @@ impl PrintInfoAndExitError {
 impl Display for PrintInfoAndExitError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            PrintInfoAndExitError::Help(help_text) => f.write_str(&help_text),
+            PrintInfoAndExitError::Help(help_text) => f.write_str(help_text),
             PrintInfoAndExitError::Version => print_version(f),
         }
     }
@@ -117,10 +117,10 @@ lazy_static! {
             .build()
             .unwrap();
     static ref LABEL_REGEX: regex::bytes::Regex = regex::bytes::RegexBuilder::new(
-        r#"^(?<label>\p{XID_Start}\p{XID_Continue}*):$"#
+        r"^(?<label>\p{XID_Start}\p{XID_Continue}*):$"
     ).build().unwrap();
     static ref CLI_ARG_REGEX: regex::bytes::Regex = regex::bytes::RegexBuilder::new(
-        r#"^(?<modes>(?:(?<append_mode>\+)|(?<transparent_mode>_))*)(?<argname>[^@=]+)(@(?<label>[^@=]+))?(=(?<value>(?:.|[\r\n])*))?$"#
+        r"^(?<modes>(?:(?<append_mode>\+)|(?<transparent_mode>_))*)(?<argname>[^@=]+)(@(?<label>[^@=]+))?(=(?<value>(?:.|[\r\n])*))?$"
     ).build()
     .unwrap();
 
@@ -193,7 +193,7 @@ fn try_parse_usize_arg(
 }
 
 fn print_version(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    const VERSION: &'static str = env!("CARGO_PKG_VERSION");
+    const VERSION: &str = env!("CARGO_PKG_VERSION");
     write!(f, "scr {}", VERSION)?;
     Ok(())
 }
@@ -205,10 +205,10 @@ fn try_parse_as_context_opt(
 ) -> Result<bool, ScrError> {
     let mut matched = false;
     let arg_idx = Some(arg.cli_arg.idx);
-    if ["--version", "-v"].contains(&&*arg.argname) {
+    if ["--version", "-v"].contains(&arg.argname) {
         return Err(PrintInfoAndExitError::Version.into());
     }
-    if ["--help", "-h", "help", "h"].contains(&&*arg.argname) {
+    if ["--help", "-h", "help", "h"].contains(&arg.argname) {
         let text = if let Some(v) = arg.value {
             let section = v.to_str_lossy();
             match section.as_ref() {
@@ -229,7 +229,7 @@ fn try_parse_as_context_opt(
         return Err(PrintInfoAndExitError::Help(text.into()).into());
     }
     if arg.argname == "j" {
-        if let Some(val) = arg.value.as_deref() {
+        if let Some(val) = arg.value {
             ctx_opts
                 .max_threads
                 .set(try_parse_usize_arg(val, arg.cli_arg.idx)?, arg_idx)?;
@@ -268,16 +268,14 @@ fn try_parse_as_context_opt(
         ctx_opts.exit_repl.set(enabled, arg_idx)?;
         matched = true
     }
-    if matched {
-        if arg.label.is_some() {
-            return Err(CliArgumentError::new(
-                "cannot specify label for global argument",
-                arg.cli_arg.idx,
-            )
-            .into());
-        }
+    if matched && arg.label.is_some() {
+        return Err(CliArgumentError::new(
+            "cannot specify label for global argument",
+            arg.cli_arg.idx,
+        )
+        .into());
     }
-    return Ok(matched);
+    Ok(matched)
 }
 
 fn try_parse_as_chain_opt(
@@ -288,10 +286,7 @@ fn try_parse_as_chain_opt(
     let arg_idx = Some(arg.cli_arg.idx);
     match arg.argname {
         "sel" => {
-            let sv = try_parse_selenium_variant(
-                arg.value.as_deref(),
-                &arg.cli_arg,
-            )?;
+            let sv = try_parse_selenium_variant(arg.value, &arg.cli_arg)?;
             chain.selenium_variant.set(sv, arg_idx)?;
             return Ok(true);
         }
@@ -308,7 +303,7 @@ fn try_parse_as_chain_opt(
         }
         "ppenc" => {
             let ppte = try_parse_bool_arg_or_default(
-                arg.value.as_deref(),
+                arg.value,
                 true,
                 arg.cli_arg.idx,
             )?;
@@ -316,17 +311,15 @@ fn try_parse_as_chain_opt(
         }
         "fenc" => {
             let fte = try_parse_bool_arg_or_default(
-                arg.value.as_deref(),
+                arg.value,
                 true,
                 arg.cli_arg.idx,
             )?;
             chain.force_text_encoding.set(fte, arg_idx)?;
         }
         "sds" => {
-            let sds = try_parse_selenium_download_strategy(
-                arg.value.as_deref(),
-                &arg.cli_arg,
-            )?;
+            let sds =
+                try_parse_selenium_download_strategy(arg.value, &arg.cli_arg)?;
             chain.selenium_download_strategy.set(sds, arg_idx)?;
         }
         "bs" => {
@@ -366,7 +359,7 @@ fn try_parse_as_chain_opt(
             }
         }
         "lb" => {
-            let buffering_mode = if let Some(val) = arg.value.as_deref() {
+            let buffering_mode = if let Some(val) = arg.value {
                 if let Some(v) = try_parse_bool(val) {
                     if v {
                         BufferingMode::LineBuffer
@@ -490,7 +483,7 @@ fn try_parse_as_operation<'a>(
     arg: ParsedCliArgument<'a>,
 ) -> Result<Option<ParsedCliArgument<'a>>, CliArgumentError> {
     let op_data =
-        parse_operation(&arg.argname, arg.value, Some(arg.cli_arg.idx))
+        parse_operation(arg.argname, arg.value, Some(arg.cli_arg.idx))
             .map_err(|oce| CliArgumentError {
                 message: oce.message,
                 cli_arg_idx: arg.cli_arg.idx,
@@ -527,7 +520,7 @@ pub fn parse_cli_retain_args(
             idx: i as CliArgIdx + 1,
             value: arg_str,
         };
-        if let Some(m) = LABEL_REGEX.captures(&arg_str) {
+        if let Some(m) = LABEL_REGEX.captures(arg_str) {
             ctx_opts.add_label(
                 m.name("label")
                     .unwrap()
@@ -538,7 +531,7 @@ pub fn parse_cli_retain_args(
             );
             continue;
         }
-        if let Some(m) = CLI_ARG_REGEX.captures(&arg_str) {
+        if let Some(m) = CLI_ARG_REGEX.captures(arg_str) {
             let argname = from_utf8(m.name("argname").unwrap().as_bytes())
                 .map_err(|_| {
                     CliArgumentError::new(
@@ -571,9 +564,9 @@ pub fn parse_cli_retain_args(
 
             let arg = ParsedCliArgument {
                 argname,
-                value: m.name("value").map(|v| <&[u8]>::from(v.as_bytes())),
-                label: label,
-                cli_arg: cli_arg,
+                value: m.name("value").map(|v| v.as_bytes()),
+                label,
+                cli_arg,
                 append_mode: m.name("append_mode").is_some(),
                 transparent_mode: m.name("transparent_mode").is_some(),
             };
@@ -599,7 +592,7 @@ pub fn parse_cli_retain_args(
             .into());
         }
     }
-    return Ok(ctx_opts);
+    Ok(ctx_opts)
 }
 pub fn parse_cli_raw(
     args: Vec<Vec<u8>>,
@@ -628,7 +621,7 @@ pub fn collect_env_args() -> Result<Vec<Vec<u8>>, CliArgumentError> {
     {
         Ok(std::env::args_os()
             .skip(1)
-            .map(|s| std::os::unix::prelude::OsStringExt::into_vec(s).into())
+            .map(std::os::unix::prelude::OsStringExt::into_vec)
             .collect::<Vec<Vec<u8>>>())
     }
     #[cfg(windows)]

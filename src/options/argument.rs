@@ -13,8 +13,7 @@ pub struct ArgumentReassignmentError {
     pub prev_cli_arg_idx: Option<CliArgIdx>,
     pub cli_arg_idx: Option<CliArgIdx>,
 }
-pub const ARGUMENT_REASSIGNMENT_ERROR_MESSAGE: &'static str =
-    "option was already set";
+pub const ARGUMENT_REASSIGNMENT_ERROR_MESSAGE: &str = "option was already set";
 
 impl fmt::Display for ArgumentReassignmentError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

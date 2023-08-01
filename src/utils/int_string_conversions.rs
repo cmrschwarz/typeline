@@ -4,6 +4,7 @@ use num_traits::{FromPrimitive, PrimInt};
 use smallstr::SmallString;
 use std::{
     borrow::Cow,
+    f64::consts::LOG2_10,
     fmt::{Display, Write},
     str::FromStr,
 };
@@ -51,7 +52,7 @@ pub fn parse_int_with_units<
 
     let mut unit = SmallString::<[u8; 8]>::from(unit_str);
     unit.make_ascii_lowercase();
-    if unit.ends_with("b") {
+    if unit.ends_with('b') {
         unit.pop();
     }
     let unit_mult: usize = match unit.as_str() {
@@ -93,14 +94,13 @@ pub fn parse_int_with_units_from_bytes<
     parse_int_with_units(v)
 }
 
-pub const LOG_2_OF_TEN: f64 = 3.321928094887362; //  sadly, `10.log2()` is not const evaluable yet
 pub const USIZE_MAX_DECIMAL_DIGITS: usize =
-    ((std::mem::size_of::<usize>() * 8) as f64 / LOG_2_OF_TEN
+    ((std::mem::size_of::<usize>() * 8) as f64 / LOG2_10
         + (1f64 - f64::EPSILON)) as usize;
 pub const I64_MAX_DECIMAL_DIGITS: usize =
-    1 + (63 as f64 / LOG_2_OF_TEN + (1f64 - f64::EPSILON)) as usize;
+    1 + (63f64 / LOG2_10 + (1f64 - f64::EPSILON)) as usize;
 pub const U64_MAX_DECIMAL_DIGITS: usize =
-    (64 as f64 / LOG_2_OF_TEN + (1f64 - f64::EPSILON)) as usize;
+    (64f64 / LOG2_10 + (1f64 - f64::EPSILON)) as usize;
 
 pub fn usize_to_str(val: usize) -> ArrayString<USIZE_MAX_DECIMAL_DIGITS> {
     let mut res = ArrayString::new();
