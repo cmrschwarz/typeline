@@ -317,7 +317,7 @@ impl CommandBuffer {
             println!("--------------    </execution (field {field_id}) end>      --------------");
         }
         // TODO: avoid this allocation
-        let mut iterators = SmallVec::<[_; 6]>::new();
+        let mut iterators = IterStateSmallVec::new();
         for it in field.field_data.iters.iter_mut() {
             iterators.push(it.get_mut());
         }
@@ -1083,6 +1083,8 @@ impl CommandBuffer {
     }
 }
 
+type IterStateSmallVec<'a> = SmallVec<[&'a mut IterState; 6]>;
+
 // generate_commands_from_actions machinery
 impl CommandBuffer {
     fn push_copy_command(
@@ -1455,7 +1457,7 @@ impl CommandBuffer {
     }
     fn update_current_iters(
         &self,
-        iterators: &mut SmallVec<[&mut IterState; 6]>,
+        iterators: &mut IterStateSmallVec<'_>,
         curr_header_iter_count: &mut usize,
         curr_action_pos: usize,
     ) {
@@ -1474,7 +1476,7 @@ impl CommandBuffer {
         &mut self,
         merged_actions: ActionListMergeResult,
         fd: &mut FieldData,
-        iterators: &mut SmallVec<[&mut IterState; 6]>,
+        iterators: &mut IterStateSmallVec<'_>,
         mut header_idx: usize,
         mut field_pos: usize,
     ) -> isize {

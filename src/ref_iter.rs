@@ -36,7 +36,7 @@ impl<'a> Clone for RefIter<'a> {
             } else {
                 None
             },
-            field_mgr: self.field_mgr.clone(),
+            field_mgr: self.field_mgr,
             unconsumed_input: self.unconsumed_input,
         }
     }

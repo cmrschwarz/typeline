@@ -37,6 +37,7 @@ use crate::{
 };
 use bstr::ByteSlice;
 
+use super::operator::DEFAULT_OP_NAME_SMALL_STR_LEN;
 use super::{
     errors::{
         OperatorApplicationError, OperatorCreationError, OperatorSetupError,
@@ -103,7 +104,9 @@ pub struct RegexOptions {
 }
 
 impl OpRegex {
-    pub fn default_op_name(&self) -> SmallString<[u8; 16]> {
+    pub fn default_op_name(
+        &self,
+    ) -> SmallString<[u8; DEFAULT_OP_NAME_SMALL_STR_LEN]> {
         let mut res = SmallString::from_str("r");
         if self.opts.ascii_mode && !self.opts.binary_mode {
             res.push('a');

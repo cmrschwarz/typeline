@@ -188,26 +188,20 @@ impl SessionOptions {
     pub fn verify_bounds(sess: &Session) -> Result<(), ScrError> {
         if sess.operator_bases.len() >= OperatorOffsetInChain::MAX as usize {
             return Err(OperatorSetupError {
-                message: Cow::Owned(
-                    format!(
-                        "cannot have more than {} operators",
-                        OperatorOffsetInChain::MAX - 1
-                    )
-                    .to_owned(),
-                ),
+                message: Cow::Owned(format!(
+                    "cannot have more than {} operators",
+                    OperatorOffsetInChain::MAX - 1
+                )),
                 op_id: OperatorOffsetInChain::MAX,
             }
             .into());
         }
         if sess.chains.len() >= ChainId::MAX as usize {
             return Err(ChainSetupError {
-                message: Cow::Owned(
-                    format!(
-                        "cannot have more than {} chains",
-                        ChainId::MAX - 1
-                    )
-                    .to_owned(),
-                ),
+                message: Cow::Owned(format!(
+                    "cannot have more than {} chains",
+                    ChainId::MAX - 1
+                )),
                 chain_id: ChainId::MAX,
             }
             .into());

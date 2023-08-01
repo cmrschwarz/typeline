@@ -287,7 +287,6 @@ pub fn parse_format_width_spec<const FOR_FLOAT_PREC: bool>(
             format!(
                 "the identifier for the {context} has no closing '$' sign"
             )
-            .to_string()
             .into(),
         )
     };

@@ -87,7 +87,7 @@ impl<const ALIGN: usize> AlignedBuf<ALIGN> {
         if self.cap >= space_needed {
             return;
         }
-        let mut cap_new = self.cap.max(1);
+        let mut cap_new = self.cap.max(ALIGN).max(16);
         while cap_new < space_needed {
             cap_new <<= 1;
         }
