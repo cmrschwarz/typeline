@@ -5,22 +5,48 @@ use crate::record_data::field_data::{
     FieldValueHeader, FieldValueKind, RunLength,
 };
 
-use super::typed::{TypedField, TypedRange, TypedSlice, ValidTypedRange};
+use super::typed::{TypedField, TypedRange, ValidTypedRange};
 
-impl<'a> Default for TypedRange<'a> {
-    fn default() -> Self {
-        Self {
-            headers: &[],
-            data: TypedSlice::Null(&[]),
-            field_count: 0,
-            first_header_run_length_oversize: 0,
-            last_header_run_length_oversize: 0,
-        }
+pub trait FieldDataRef<'a>: Sized {
+    fn header(&self) -> &'a [FieldValueHeader];
+    fn data(&self) -> &'a [u8];
+    fn field_count(&self) -> usize;
+}
+
+impl<'a> FieldDataRef<'a> for &'a FieldData {
+    #[inline(always)]
+    fn header(&self) -> &'a [FieldValueHeader] {
+        &self.header
+    }
+    #[inline(always)]
+    fn data(&self) -> &'a [u8] {
+        &self.data
+    }
+    #[inline(always)]
+    fn field_count(&self) -> usize {
+        self.field_count
+    }
+}
+
+impl<'a, R: FieldDataRef<'a>> FieldDataRef<'a> for &R {
+    #[inline(always)]
+    fn header(&self) -> &'a [FieldValueHeader] {
+        (**self).header()
+    }
+    #[inline(always)]
+    fn data(&self) -> &'a [u8] {
+        (**self).data()
+    }
+    #[inline(always)]
+    fn field_count(&self) -> usize {
+        (**self).field_count()
     }
 }
 
 pub trait FieldIterator<'a>: Sized {
-    fn field_data_ref(&self) -> &'a FieldData;
+    type FieldDataRefType: FieldDataRef<'a>;
+    fn field_data_ref(&self) -> &Self::FieldDataRefType;
+    fn into_base_iter(self) -> Iter<'a, Self::FieldDataRefType>;
     fn get_next_field_pos(&self) -> usize;
     fn is_next_valid(&self) -> bool;
     fn is_prev_valid(&self) -> bool;
@@ -32,7 +58,7 @@ pub trait FieldIterator<'a>: Sized {
     fn get_next_header(&self) -> FieldValueHeader;
     fn get_next_header_data(&self) -> usize;
     fn get_next_header_ref(&self) -> &'a FieldValueHeader {
-        &self.field_data_ref().header[self.get_next_header_index()]
+        &self.field_data_ref().header()[self.get_next_header_index()]
     }
     fn get_next_header_index(&self) -> usize;
     fn get_prev_header_index(&self) -> usize;
@@ -134,56 +160,47 @@ pub trait FieldIterator<'a>: Sized {
     ) -> BoundedIter<'a, Self> {
         BoundedIter::new_relative(self, backwards, forwards)
     }
-    fn into_base_iter(self) -> Iter<'a>;
 }
 
 #[repr(C)]
 #[derive(Clone)]
-pub struct Iter<'a> {
-    pub(super) fd: &'a FieldData,
+pub struct Iter<'a, R: FieldDataRef<'a>> {
+    pub(super) fdr: R,
     pub(super) field_pos: usize,
     pub(super) data: usize,
     pub(super) header_idx: usize,
     pub(super) header_rl_offset: RunLength,
     pub(super) header_rl_total: RunLength,
     pub(super) header_fmt: FieldValueFormat,
+    pub(super) _phantom_data: PhantomData<&'a ()>,
 }
 
-#[repr(C)]
-pub struct IterMut<'a> {
-    pub(super) fd: &'a mut FieldData,
-    pub(super) field_pos: usize,
-    pub(super) data: usize,
-    pub(super) header_idx: usize,
-    pub(super) header_rl_offset: RunLength,
-    pub(super) header_rl_total: RunLength,
-    pub(super) header_fmt: FieldValueFormat,
-}
-
-impl<'a> Iter<'a> {
-    pub fn from_start(fd: &'a FieldData, initial_field_offset: usize) -> Self {
-        let first_header = fd.header.first();
+impl<'a, R: FieldDataRef<'a>> Iter<'a, R> {
+    pub fn from_start(fdr: R, initial_field_offset: usize) -> Self {
+        let first_header = fdr.header().first();
         let mut res = Self {
-            fd,
             field_pos: initial_field_offset,
             data: 0,
             header_idx: 0,
             header_rl_offset: 0,
             header_rl_total: first_header.map_or(0, |h| h.run_length),
             header_fmt: first_header.map(|h| h.fmt).unwrap_or_default(),
+            fdr,
+            _phantom_data: PhantomData::default(),
         };
         res.skip_dead_fields();
         res
     }
-    pub fn from_end(fd: &'a FieldData, initial_field_offset: usize) -> Self {
+    pub fn from_end(fdr: R, initial_field_offset: usize) -> Self {
         Self {
-            fd,
-            field_pos: initial_field_offset + fd.field_count,
-            data: fd.data.len(),
-            header_idx: fd.header.len(),
+            field_pos: initial_field_offset + fdr.field_count(),
+            data: fdr.data().len(),
+            header_idx: fdr.header().len(),
             header_rl_offset: 0,
             header_rl_total: 0,
             header_fmt: Default::default(),
+            fdr,
+            _phantom_data: PhantomData::default(),
         }
     }
     pub(super) fn skip_dead_fields(&mut self) {
@@ -192,9 +209,10 @@ impl<'a> Iter<'a> {
         }
     }
 }
-impl<'a> FieldIterator<'a> for Iter<'a> {
-    fn field_data_ref(&self) -> &'a FieldData {
-        self.fd
+impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for Iter<'a, R> {
+    type FieldDataRefType = R;
+    fn field_data_ref(&self) -> &Self::FieldDataRefType {
+        &self.fdr
     }
     fn get_next_field_pos(&self) -> usize {
         self.field_pos
@@ -260,7 +278,7 @@ impl<'a> FieldIterator<'a> for Iter<'a> {
         } else {
             1
         };
-        unsafe { TypedField::new(self.fd, self.header_fmt, data, run_len) }
+        unsafe { TypedField::new(&self.fdr, self.header_fmt, data, run_len) }
     }
     fn field_run_length_fwd(&self) -> RunLength {
         self.header_rl_total - self.header_rl_offset
@@ -274,18 +292,18 @@ impl<'a> FieldIterator<'a> for Iter<'a> {
             return 0;
         }
         self.header_rl_offset = 0;
-        self.data += self.fd.header[self.header_idx].data_size_unique();
+        self.data += self.fdr.header()[self.header_idx].data_size_unique();
         self.field_pos += stride as usize;
         loop {
             self.header_idx += 1;
-            if self.header_idx == self.fd.header.len() {
+            if self.header_idx == self.fdr.header().len() {
                 self.header_rl_total = 0;
                 // to make sure there's no padding
                 self.header_fmt = Default::default();
                 return stride;
             }
 
-            let h = self.fd.header[self.header_idx];
+            let h = self.fdr.header()[self.header_idx];
             if h.deleted() {
                 self.data += h.total_size_unique();
                 continue;
@@ -306,7 +324,7 @@ impl<'a> FieldIterator<'a> for Iter<'a> {
                 return 0;
             }
             i -= 1;
-            let h = self.fd.header[i];
+            let h = self.fdr.header()[i];
             if !same_as_prev {
                 data_offset += h.data_size();
             }
@@ -371,8 +389,8 @@ impl<'a> FieldIterator<'a> for Iter<'a> {
         }
         loop {
             if flag_mask & field_value_flags::DELETED != 0
-                && self.fd.header.len() != self.header_idx + 1
-                && self.fd.header[self.header_idx + 1].deleted()
+                && self.fdr.header().len() != self.header_idx + 1
+                && self.fdr.header()[self.header_idx + 1].deleted()
             {
                 stride_rem -= self.next_header() as usize;
                 return n - stride_rem;
@@ -383,7 +401,7 @@ impl<'a> FieldIterator<'a> for Iter<'a> {
                 || (kinds.contains(&self.header_fmt.kind)
                     == invert_kinds_check)
                 || !data_check(&self.header_fmt, unsafe {
-                    self.fd.data.as_ptr().add(self.get_next_field_data())
+                    self.fdr.data().as_ptr().add(self.get_next_field_data())
                 })
             {
                 return n - stride_rem;
@@ -424,7 +442,7 @@ impl<'a> FieldIterator<'a> for Iter<'a> {
         loop {
             if flag_mask & field_value_flags::DELETED != 0
                 && self.header_idx != 0
-                && self.fd.header[self.header_idx - 1].deleted()
+                && self.fdr.header()[self.header_idx - 1].deleted()
             {
                 stride_rem -= self.prev_header() as usize;
                 return n - stride_rem;
@@ -435,7 +453,7 @@ impl<'a> FieldIterator<'a> for Iter<'a> {
                 || (kinds.contains(&self.header_fmt.kind)
                     == invert_kinds_check)
                 || !data_check(&self.header_fmt, unsafe {
-                    self.fd.data.as_ptr().add(self.get_next_field_data())
+                    self.fdr.data().as_ptr().add(self.get_next_field_data())
                 })
             {
                 return n - stride_rem;
@@ -467,7 +485,7 @@ impl<'a> FieldIterator<'a> for Iter<'a> {
                 self.next_field();
                 1
             };
-            Some(unsafe { TypedField::new(self.fd, fmt, data, run_len) })
+            Some(unsafe { TypedField::new(&self.fdr, fmt, data, run_len) })
         }
     }
     fn typed_field_bwd(&mut self, limit: RunLength) -> Option<TypedField<'a>> {
@@ -489,7 +507,7 @@ impl<'a> FieldIterator<'a> for Iter<'a> {
             } else {
                 1
             };
-            Some(unsafe { TypedField::new(self.fd, fmt, data, run_len) })
+            Some(unsafe { TypedField::new(&self.fdr, fmt, data, run_len) })
         }
     }
     fn typed_range_fwd(
@@ -523,17 +541,17 @@ impl<'a> FieldIterator<'a> for Iter<'a> {
                 oversize_end = self.header_rl_total - self.header_rl_offset;
             } else {
                 while header_end > 0
-                    && self.fd.header[header_end - 1].deleted()
+                    && self.fdr.header()[header_end - 1].deleted()
                 {
                     header_end -= 1;
-                    data_end -= self.fd.header[header_end].data_size();
+                    data_end -= self.fdr.header()[header_end].data_size();
                 }
             }
         }
 
         unsafe {
             ValidTypedRange(TypedRange::new(
-                self.fd,
+                &self.fdr,
                 flag_mask,
                 fmt,
                 data_begin,
@@ -575,7 +593,7 @@ impl<'a> FieldIterator<'a> for Iter<'a> {
         let data_start = self.get_next_field_data();
         unsafe {
             ValidTypedRange(TypedRange::new(
-                self.fd,
+                &self.fdr,
                 flag_mask,
                 fmt,
                 data_start,
@@ -590,7 +608,7 @@ impl<'a> FieldIterator<'a> for Iter<'a> {
         .into()
     }
 
-    fn into_base_iter(self) -> Iter<'a> {
+    fn into_base_iter(self) -> Iter<'a, R> {
         self
     }
 }
@@ -647,7 +665,8 @@ impl<'a, I> FieldIterator<'a> for BoundedIter<'a, I>
 where
     I: FieldIterator<'a>,
 {
-    fn field_data_ref(&self) -> &'a FieldData {
+    type FieldDataRefType = I::FieldDataRefType;
+    fn field_data_ref(&self) -> &Self::FieldDataRefType {
         self.iter.field_data_ref()
     }
     fn get_next_field_pos(&self) -> usize {
@@ -805,188 +824,8 @@ where
             .typed_range_bwd(limit.min(self.range_bwd()), flag_mask)
     }
 
-    fn into_base_iter(self) -> Iter<'a> {
+    fn into_base_iter(self) -> Iter<'a, Self::FieldDataRefType> {
         self.iter.into_base_iter()
-    }
-}
-
-impl<'a> IterMut<'a> {
-    pub fn from_start(
-        fd: &'a mut FieldData,
-        initial_field_offset: usize,
-    ) -> Self {
-        let first_header = fd.header.first().cloned();
-        Self {
-            fd,
-            field_pos: initial_field_offset,
-            data: 0,
-            header_idx: 0,
-            header_rl_offset: 0,
-            header_rl_total: first_header.map_or(0, |h| h.run_length),
-            header_fmt: first_header.map(|h| h.fmt).unwrap_or_default(),
-        }
-    }
-    pub fn from_end(
-        fd: &'a mut FieldData,
-        initial_field_offset: usize,
-    ) -> Self {
-        let header_len = fd.header.len();
-        let data_len = fd.data.len();
-        let field_count = fd.field_count;
-        Self {
-            fd,
-            field_pos: field_count + initial_field_offset,
-            data: data_len,
-            header_idx: header_len,
-            header_rl_offset: 0,
-            header_rl_total: 0,
-            header_fmt: Default::default(),
-        }
-    }
-    pub fn into_base_iter(self) -> Iter<'a> {
-        unsafe { std::mem::transmute(self) }
-    }
-    pub fn as_base_iter(&self) -> &Iter<'a> {
-        unsafe { std::mem::transmute(self) }
-    }
-    pub fn as_base_iter_mut(&mut self) -> &mut Iter<'a> {
-        unsafe { std::mem::transmute(self) }
-    }
-}
-
-impl<'a> FieldIterator<'a> for IterMut<'a> {
-    fn field_data_ref(&self) -> &'a FieldData {
-        self.as_base_iter().field_data_ref()
-    }
-    fn get_next_field_pos(&self) -> usize {
-        self.as_base_iter().get_next_field_pos()
-    }
-    fn is_next_valid(&self) -> bool {
-        self.as_base_iter().is_next_valid()
-    }
-    fn is_prev_valid(&self) -> bool {
-        self.as_base_iter().is_prev_valid()
-    }
-
-    fn get_next_field_format(&self) -> FieldValueFormat {
-        self.as_base_iter().get_next_field_format()
-    }
-
-    fn get_next_field_data(&self) -> usize {
-        self.as_base_iter().get_next_field_data()
-    }
-    fn get_prev_field_data_end(&self) -> usize {
-        self.as_base_iter().get_prev_field_data_end()
-    }
-    fn get_next_header(&self) -> FieldValueHeader {
-        self.as_base_iter().get_next_header()
-    }
-
-    fn get_next_header_data(&self) -> usize {
-        self.as_base_iter().get_next_header_data()
-    }
-
-    fn get_next_header_index(&self) -> usize {
-        self.as_base_iter().get_next_header_index()
-    }
-    fn get_prev_header_index(&self) -> usize {
-        self.as_base_iter().get_prev_header_index()
-    }
-
-    fn get_next_typed_field(&mut self) -> TypedField<'a> {
-        self.as_base_iter_mut().get_next_typed_field()
-    }
-
-    fn field_run_length_fwd(&self) -> RunLength {
-        self.as_base_iter().field_run_length_fwd()
-    }
-
-    fn field_run_length_bwd(&self) -> RunLength {
-        self.as_base_iter().field_run_length_bwd()
-    }
-
-    fn next_header(&mut self) -> RunLength {
-        self.as_base_iter_mut().next_header()
-    }
-
-    fn prev_header(&mut self) -> RunLength {
-        self.as_base_iter_mut().prev_header()
-    }
-
-    fn next_field(&mut self) -> RunLength {
-        self.as_base_iter_mut().next_field()
-    }
-
-    fn prev_field(&mut self) -> RunLength {
-        self.as_base_iter_mut().prev_field()
-    }
-
-    fn next_n_fields_with_fmt_and_data_check<const N: usize>(
-        &mut self,
-        n: usize,
-        kinds: [FieldValueKind; N],
-        invert_kinds_check: bool,
-        flag_mask: FieldValueFlags,
-        flags: FieldValueFlags,
-        data_check: impl Fn(&FieldValueFormat, *const u8) -> bool,
-    ) -> usize {
-        self.as_base_iter_mut()
-            .next_n_fields_with_fmt_and_data_check(
-                n,
-                kinds,
-                invert_kinds_check,
-                flag_mask,
-                flags,
-                data_check,
-            )
-    }
-
-    fn prev_n_fields_with_fmt_and_data_check<const N: usize>(
-        &mut self,
-        n: usize,
-        kinds: [FieldValueKind; N],
-        invert_kinds_check: bool,
-        flag_mask: FieldValueFlags,
-        flags: FieldValueFlags,
-        data_check: impl Fn(&FieldValueFormat, *const u8) -> bool,
-    ) -> usize {
-        self.as_base_iter_mut()
-            .prev_n_fields_with_fmt_and_data_check(
-                n,
-                kinds,
-                invert_kinds_check,
-                flag_mask,
-                flags,
-                data_check,
-            )
-    }
-
-    fn typed_field_fwd(&mut self, limit: RunLength) -> Option<TypedField<'a>> {
-        self.as_base_iter_mut().typed_field_fwd(limit)
-    }
-
-    fn typed_field_bwd(&mut self, limit: RunLength) -> Option<TypedField<'a>> {
-        self.as_base_iter_mut().typed_field_bwd(limit)
-    }
-
-    fn typed_range_fwd(
-        &mut self,
-        limit: usize,
-        flag_mask: FieldValueFlags,
-    ) -> Option<ValidTypedRange<'a>> {
-        self.as_base_iter_mut().typed_range_fwd(limit, flag_mask)
-    }
-
-    fn typed_range_bwd(
-        &mut self,
-        limit: usize,
-        flag_mask: FieldValueFlags,
-    ) -> Option<ValidTypedRange<'a>> {
-        self.as_base_iter_mut().typed_range_bwd(limit, flag_mask)
-    }
-
-    fn into_base_iter(self) -> Iter<'a> {
-        self.into_base_iter()
     }
 }
 

@@ -1,6 +1,5 @@
 use std::{cell::Cell, mem::ManuallyDrop};
 
-use lazy_static::__Deref;
 use nonmax::NonMaxU32;
 
 use crate::{
@@ -13,7 +12,7 @@ use super::{
         FieldData, FieldDataInternals, FieldValueFlags, FieldValueHeader,
         FieldValueKind, RunLength,
     },
-    iters::{FieldIterator, Iter},
+    iters::{FieldDataRef, FieldIterator, Iter},
     push_interface::{
         FieldReferenceInserter, FixedSizeTypeInserter, InlineBytesInserter,
         InlineStringInserter, IntegerInserter, RawPushInterface,
@@ -66,7 +65,7 @@ impl IterHall {
         self.iters[iter_id].get_mut().invalidate();
         self.iters.release(iter_id)
     }
-    pub fn iter<'a>(&'a self) -> Iter<'a> {
+    pub fn iter<'a>(&'a self) -> Iter<'a, &'a FieldData> {
         self.fd.iter()
     }
     pub fn get_iter_state(&self, iter_id: IterId) -> IterState {
@@ -108,28 +107,32 @@ impl IterHall {
         }
         h
     }
-    pub fn get_iter<'a>(&'a self, iter_id: IterId) -> Iter<'a> {
+    pub fn get_iter<'a>(&'a self, iter_id: IterId) -> Iter<'a, &'a FieldData> {
         unsafe { self.get_iter_from_state(self.iters[iter_id].get()) }
     }
     pub unsafe fn get_iter_from_state<'a>(
         &'a self,
         mut state: IterState,
-    ) -> Iter<'a> {
+    ) -> Iter<'a, &'a FieldData> {
         let h = self.calculate_start_header(&mut state);
         let mut res = Iter {
-            fd: &self.fd,
+            fdr: &*self.fd,
             field_pos: state.field_pos,
             data: state.data,
             header_idx: state.header_idx,
             header_rl_offset: state.header_rl_offset,
             header_rl_total: h.run_length,
             header_fmt: h.fmt,
+            _phantom_data: Default::default(),
         };
         res.skip_dead_fields();
         res
     }
-    pub fn iter_is_from_iter_hall(&self, iter: &Iter<'_>) -> bool {
-        iter.fd as *const FieldData == self.fd.deref() as *const FieldData
+    pub fn iter_is_from_iter_hall<'a, R: FieldDataRef<'a>>(
+        &self,
+        iter: &Iter<'a, R>,
+    ) -> bool {
+        std::ptr::eq(iter.fdr.data().as_ptr(), self.fd.data.as_ptr())
     }
     pub fn store_iter<'a>(
         &self,
@@ -143,10 +146,10 @@ impl IterHall {
     // the point of this is not to save the runtime of one assert, but
     // to actually bypass that check if we store an iter that comes from our
     // cow_source
-    pub unsafe fn store_iter_unchecked<'a>(
+    pub unsafe fn store_iter_unchecked<'a, R: FieldDataRef<'a>>(
         &self,
         iter_id: IterId,
-        mut iter: Iter<'a>,
+        mut iter: Iter<'a, R>,
     ) {
         let mut state = self.iters[iter_id].get();
         state.field_pos = iter.field_pos;

@@ -542,7 +542,7 @@ impl FieldManager {
         field_id: FieldId,
         field: &'a Field,
         iter_id: IterId,
-    ) -> Iter<'a> {
+    ) -> Iter<'a, &'a FieldData> {
         if field.field_id != field_id {
             let state = self.fields[field_id]
                 .borrow()

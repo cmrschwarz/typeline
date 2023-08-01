@@ -5,7 +5,7 @@ use crate::{
     },
     record_data::{
         field_data::{
-            field_value_flags::FieldValueFlags, FieldReference,
+            field_value_flags::FieldValueFlags, FieldData, FieldReference,
             FieldValueHeader, RunLength,
         },
         iters::{FieldIterator, Iter},
@@ -19,7 +19,7 @@ use std::cell::Ref;
 pub struct RefIter<'a> {
     refs_iter: TypedSliceIter<'a, FieldReference>,
     last_field_id: FieldId,
-    data_iter: Option<Iter<'a>>,
+    data_iter: Option<Iter<'a, &'a FieldData>>,
     field_ref: Option<Ref<'a, Field>>,
     field_mgr: &'a FieldManager,
     unconsumed_input: bool,
@@ -85,7 +85,7 @@ impl<'a> RefIter<'a> {
         field_mgr: &'b FieldManager,
         field_id: FieldId,
         unconsumed_input: bool,
-    ) -> (Ref<'b, Field>, Iter<'b>) {
+    ) -> (Ref<'b, Field>, Iter<'b, &'b FieldData>) {
         let field_ref = field_mgr.borrow_field_cow(field_id, unconsumed_input);
         let iter = field_mgr.get_iter_cow_aware(
             field_id,
@@ -93,7 +93,7 @@ impl<'a> RefIter<'a> {
             FIELD_REF_LOOKUP_ITER_ID,
         );
         let iter_lifetime_laundered =
-            unsafe { std::mem::transmute::<Iter<'_>, Iter<'b>>(iter) };
+            unsafe { std::mem::transmute::<Iter<'_, _>, Iter<'b, _>>(iter) };
 
         (field_ref, iter_lifetime_laundered)
     }

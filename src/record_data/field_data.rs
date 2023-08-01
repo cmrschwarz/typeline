@@ -22,7 +22,7 @@ use crate::{
 use self::field_value_flags::{BYTES_ARE_UTF8, SHARED_VALUE};
 
 use super::{
-    iters::{FieldIterator, Iter, IterMut},
+    iters::{FieldIterator, Iter},
     push_interface::PushInterface,
     typed::TypedSlice,
 };
@@ -410,21 +410,7 @@ impl FieldData {
         }
     }
     pub fn clear(&mut self) {
-        self.field_count = 0;
-        FieldData::set_end(self.iter_mut());
-    }
-    pub fn set_end<'a>(iter: IterMut<'a>) {
-        let fd = unsafe { &mut *(iter.fd as *mut FieldData) };
-        let mut iter = iter.into_base_iter();
-        let header_end;
-        let data_end;
-        if !iter.is_prev_valid() {
-            header_end = 0;
-            data_end = 0;
-        } else {
-            header_end = iter.get_prev_header_index() + 1;
-            data_end = iter.get_prev_field_data_end();
-        }
+        let mut iter = self.iter();
         while let Some(range) = iter.typed_range_fwd(usize::MAX, 0) {
             unsafe {
                 match range.data {
@@ -442,8 +428,9 @@ impl FieldData {
                 }
             }
         }
-        fd.header.truncate(header_end);
-        fd.data.truncate(data_end);
+        self.field_count = 0;
+        self.header.clear();
+        self.data.clear();
     }
 
     pub unsafe fn pad_to_align(&mut self) -> usize {
@@ -569,11 +556,8 @@ impl FieldData {
         copied_fields
     }
 
-    pub fn iter<'a>(&'a self) -> Iter<'a> {
+    pub fn iter<'a>(&'a self) -> Iter<'a, &'a FieldData> {
         Iter::from_start(self, 0)
-    }
-    pub fn iter_mut<'a>(&'a mut self) -> IterMut<'a> {
-        IterMut::from_start(self, 0)
     }
     pub unsafe fn internals(&mut self) -> FieldDataInternals {
         FieldDataInternals {
