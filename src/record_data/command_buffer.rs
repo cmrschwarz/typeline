@@ -1,10 +1,11 @@
 use std::cell::Ref;
 
 use nonmax::NonMaxUsize;
+use smallvec::SmallVec;
 
 use crate::{
     job_session::{Field, FieldId},
-    utils::{temp_vec::TempVec, universe::Universe},
+    utils::universe::Universe,
 };
 
 use super::{
@@ -122,7 +123,6 @@ pub struct CommandBuffer {
     merged_actions: [std::cell::RefCell<Vec<FieldAction>>; 3],
     copies: Vec<CopyCommand>,
     insertions: Vec<InsertionCommand>,
-    temp_vec: TempVec,
 }
 
 impl MergedActionLists {
@@ -316,7 +316,8 @@ impl CommandBuffer {
             }
             println!("--------------    </execution (field {field_id}) end>      --------------");
         }
-        let mut iterators = self.temp_vec.get();
+        // TODO: avoid this allocation
+        let mut iterators = SmallVec::<[_; 6]>::new();
         for it in field.field_data.iters.iter_mut() {
             iterators.push(it.get_mut());
         }
@@ -328,7 +329,6 @@ impl CommandBuffer {
             0,
             0,
         );
-        self.temp_vec.store(iterators);
 
         field.field_data.fd.field_count =
             (field.field_data.fd.field_count as isize + field_count_delta)
@@ -427,7 +427,7 @@ impl CommandBuffer {
         let field_count_delta = self.generate_commands_from_actions(
             als,
             field,
-            &mut Vec::new(),
+            &mut SmallVec::new(),
             0,
             0,
         );
@@ -1153,7 +1153,7 @@ impl CommandBuffer {
     fn iters_to_next_header(
         &self,
         curr_header_iter_count: usize,
-        iterators: &mut Vec<&mut IterState>,
+        iterators: &mut [&mut IterState],
         header_to_skip: &FieldValueHeader,
     ) {
         let data_offset = header_to_skip.total_size_unique();
@@ -1167,7 +1167,7 @@ impl CommandBuffer {
     fn iters_to_next_header_zero_offset(
         &self,
         curr_header_iter_count: usize,
-        iterators: &mut Vec<&mut IterState>,
+        iterators: &mut [&mut IterState],
         header_to_skip: &FieldValueHeader,
     ) {
         let data_offset = header_to_skip.total_size_unique();
@@ -1181,7 +1181,7 @@ impl CommandBuffer {
     fn iters_to_next_header_adjusting_deleted_offset(
         &self,
         curr_header_iter_count: usize,
-        iterators: &mut Vec<&mut IterState>,
+        iterators: &mut [&mut IterState],
         header_to_skip: &FieldValueHeader,
     ) {
         let data_offset = header_to_skip.total_size_unique();
@@ -1209,7 +1209,7 @@ impl CommandBuffer {
         copy_range_start: &mut usize,
         copy_range_start_new: &mut usize,
         curr_header_iter_count: usize,
-        iterators: &mut Vec<&mut IterState>,
+        iterators: &mut [&mut IterState],
     ) {
         if header.shared_value() {
             // iterators are unaffected in this case
@@ -1312,7 +1312,7 @@ impl CommandBuffer {
         copy_range_start: &mut usize,
         copy_range_start_new: &mut usize,
         curr_header_iter_count: usize,
-        iterators: &mut Vec<&mut IterState>,
+        iterators: &mut [&mut IterState],
     ) {
         let rl_to_del = *curr_action_pos_outstanding_drops;
         let rl_pre = (action_pos - *field_pos) as RunLength;
@@ -1455,7 +1455,7 @@ impl CommandBuffer {
     }
     fn update_current_iters(
         &self,
-        iterators: &mut Vec<&mut IterState>,
+        iterators: &mut SmallVec<[&mut IterState; 6]>,
         curr_header_iter_count: &mut usize,
         curr_action_pos: usize,
     ) {
@@ -1474,7 +1474,7 @@ impl CommandBuffer {
         &mut self,
         merged_actions: ActionListMergeResult,
         fd: &mut FieldData,
-        iterators: &mut Vec<&mut IterState>,
+        iterators: &mut SmallVec<[&mut IterState; 6]>,
         mut header_idx: usize,
         mut field_pos: usize,
     ) -> isize {

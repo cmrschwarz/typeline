@@ -22,7 +22,6 @@ use crate::{
     utils::{
         identity_hasher::BuildIdentityHasher,
         string_store::{StringStore, StringStoreEntry},
-        temp_vec::TempVec,
     },
     worker_thread::WorkerThread,
 };
@@ -352,7 +351,7 @@ impl Session {
         let mut js = JobSession {
             transform_data: Vec::new(),
             job_data: JobData::new(self),
-            temp_vec: TempVec::default(),
+            temp_vec: Vec::default(),
         };
         js.setup_job(job);
         if let Err(_venture) = js.run(None) {

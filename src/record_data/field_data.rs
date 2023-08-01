@@ -2,7 +2,7 @@ use std::{
     collections::HashMap,
     mem::{align_of, ManuallyDrop},
     ops::DerefMut,
-    slice, u8,
+    u8,
 };
 
 use std::ops::Deref;
@@ -380,18 +380,6 @@ impl Clone for FieldData {
     }
 }
 
-unsafe fn drop_slice<T>(slice: &[T]) {
-    unsafe {
-        let droppable = slice::from_raw_parts_mut(
-            slice.as_ptr() as *mut ManuallyDrop<T>,
-            slice.len(),
-        );
-        for e in droppable.iter_mut() {
-            ManuallyDrop::drop(e);
-        }
-    }
-}
-
 pub struct FieldDataInternals<'a> {
     pub data: &'a mut AlignedBuf<MAX_FIELD_ALIGN>,
     pub header: &'a mut Vec<FieldValueHeader>,
@@ -410,22 +398,15 @@ impl FieldData {
         }
     }
     pub fn clear(&mut self) {
+        let data_ptr = self.data.as_mut_ptr();
         let mut iter = self.iter();
+        let mut slice_start_ptr = data_ptr;
         while let Some(range) = iter.typed_range_fwd(usize::MAX, 0) {
             unsafe {
-                match range.data {
-                    TypedSlice::Success(_) => (),
-                    TypedSlice::Null(_) => (),
-                    TypedSlice::Integer(_) => (),
-                    TypedSlice::BytesInline(_) => (),
-                    TypedSlice::TextInline(_) => (),
-                    TypedSlice::StreamValueId(s) => drop_slice(s),
-                    TypedSlice::Reference(s) => drop_slice(s),
-                    TypedSlice::Error(s) => drop_slice(s),
-                    TypedSlice::Html(s) => drop_slice(s),
-                    TypedSlice::Object(s) => drop_slice(s),
-                    TypedSlice::BytesBuffer(s) => drop_slice(s),
-                }
+                let type_id = range.data.type_id();
+                let len = range.data.len();
+                TypedSlice::drop_from_type_id(slice_start_ptr, len, type_id);
+                slice_start_ptr = data_ptr.add(iter.data);
             }
         }
         self.field_count = 0;
@@ -628,5 +609,11 @@ unsafe fn append_data(
 impl FieldData {
     pub fn is_empty(&self) -> bool {
         self.data.is_empty()
+    }
+}
+
+impl Drop for FieldData {
+    fn drop(&mut self) {
+        self.clear()
     }
 }

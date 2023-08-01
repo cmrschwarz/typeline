@@ -2,6 +2,7 @@ use arrayvec::ArrayString;
 
 use regex::{self, bytes};
 use smallstr::SmallString;
+use smallvec::SmallVec;
 use std::{borrow::Cow, cell::RefMut};
 
 use std::num::NonZeroUsize;
@@ -32,7 +33,6 @@ use crate::{
             i64_to_str, usize_to_str, USIZE_MAX_DECIMAL_DIGITS,
         },
         string_store::{StringStore, StringStoreEntry},
-        temp_vec::TempVec,
     },
 };
 use bstr::ByteSlice;
@@ -65,8 +65,6 @@ pub struct TfRegex {
     multimatch: bool,
     non_mandatory: bool,
     allow_overlapping: bool,
-    temp_vec_1: TempVec,
-    temp_vec_2: TempVec,
 }
 
 #[derive(Clone, Default)]
@@ -400,8 +398,6 @@ pub fn setup_tf_regex<'a>(
             .claim_iter(),
         next_start: 0,
         apf_idx,
-        temp_vec_1: Default::default(),
-        temp_vec_2: Default::default(),
     })
 }
 
@@ -646,7 +642,7 @@ struct RegexBatchState<'a> {
     multimatch: bool,
     non_mandatory: bool,
     next_start: usize,
-    inserters: Vec<Option<VaryingTypeInserter<'a>>>,
+    inserters: SmallVec<[Option<VaryingTypeInserter<'a>>; 4]>,
 }
 
 struct RegexMatchInnerState<'a, 'b> {
@@ -686,10 +682,9 @@ pub fn handle_tf_regex(
         )
         .bounded(0, batch_size);
     let field_pos_start = iter_base.get_next_field_pos();
-    let mut output_fields: Vec<Option<RefMut<'_, Field>>> =
-        re.temp_vec_1.get();
-    let mut output_field_inserters: Vec<Option<VaryingTypeInserter<'_>>> =
-        re.temp_vec_2.get();
+    let mut output_fields = SmallVec::<[Option<RefMut<'_, Field>>; 4]>::new();
+    let mut output_field_inserters =
+        SmallVec::<[Option<VaryingTypeInserter<'_>>; 4]>::new();
     let f_mgr = &sess.field_mgr;
     for of in &re.capture_group_fields {
         output_fields.push(of.map(|f| f_mgr.fields[f].borrow_mut()));
@@ -952,11 +947,10 @@ pub fn handle_tf_regex(
             batch_size - (rbs.field_pos_input - field_pos_start);
         sess.tf_mgr.unclaim_batch_size(tf_id, unclaimed_batch_size);
     }
-    re.temp_vec_2.store(std::mem::take(&mut rbs.inserters));
     drop(rbs);
-    re.temp_vec_1.store(output_fields);
     if !bse && !hit_stream_val && input_done {
         drop(input_field);
+        drop(output_fields);
         sess.unlink_transform(tf_id, produced_records);
         return;
     }

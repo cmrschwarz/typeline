@@ -1206,6 +1206,7 @@ fn callcc_needs_threads() -> Result<(), ScrError> {
 fn basic_callcc() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
+        .set_max_thread_count(2)
         .set_batch_size(2)
         .add_op(create_op_seqn(1, 4, 1).unwrap())
         .add_op(create_op_callcc("foo".to_string()))
@@ -1220,7 +1221,8 @@ fn basic_callcc() -> Result<(), ScrError> {
 fn callcc_after_drop() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
-        // .set_batch_size(7)
+        .set_max_thread_count(2)
+        .set_batch_size(7)
         .add_op(create_op_seqn(1, 30, 1).unwrap())
         .add_op(create_op_regex("7").unwrap())
         .add_op(create_op_callcc("foo".to_string()))
@@ -1299,6 +1301,7 @@ fn fork_without_input() -> Result<(), ScrError> {
 fn appending_callcc(#[case] batch_size: usize) -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
+        .set_max_thread_count(2)
         .set_batch_size(batch_size)
         .add_op(create_op_seq(0, 2, 1).unwrap())
         .add_op(create_op_callcc("foo".to_string()))

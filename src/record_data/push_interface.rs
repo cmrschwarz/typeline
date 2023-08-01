@@ -455,7 +455,7 @@ unsafe impl RawPushInterface for FieldData {
             );
         }
         self.data.reserve(data_len);
-        let res = self.data.as_mut_ptr_range().end;
+        let res = self.data.get_head_ptr_mut();
         unsafe { self.data.set_len(self.data.len() + data_len) };
         res
     }
@@ -792,7 +792,7 @@ impl<'a> RawFixedSizedTypeInserter<'a> {
         self.fd
             .data
             .reserve(MAX_FIELD_ALIGN + max_inserts * element_size);
-        self.data_ptr = self.fd.data.as_mut_ptr_range().end;
+        self.data_ptr = self.fd.data.get_head_ptr_mut();
         self.max = max_inserts;
         self.count = 0;
     }
@@ -924,7 +924,7 @@ impl<'a> RawVariableSizedTypeInserter<'a> {
         self.fd
             .data
             .reserve(MAX_FIELD_ALIGN + max_inserts * new_expected_size);
-        self.data_ptr = self.fd.data.as_mut_ptr_range().end;
+        self.data_ptr = self.fd.data.get_head_ptr_mut();
         self.max = max_inserts;
         self.count = 0;
         self.expected_size = new_expected_size;
@@ -1235,7 +1235,7 @@ impl<'a> VaryingTypeInserter<'a> {
         self.fd
             .data
             .reserve(MAX_FIELD_ALIGN + reserved_elements * fmt.size as usize);
-        self.data_ptr = self.fd.data.as_mut_ptr_range().end;
+        self.data_ptr = self.fd.data.get_head_ptr_mut();
         self.fmt = fmt;
     }
     pub fn drop_and_reserve(

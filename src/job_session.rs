@@ -69,7 +69,6 @@ use crate::{
     utils::{
         nonzero_ext::NonMaxU32Ext,
         string_store::{StringStoreEntry, INVALID_STRING_STORE_ENTRY},
-        temp_vec::TempVec,
         universe::Universe,
     },
 };
@@ -123,7 +122,7 @@ pub struct MatchSet {
 pub struct JobSession<'a> {
     pub transform_data: Vec<TransformData<'a>>,
     pub job_data: JobData<'a>,
-    pub temp_vec: TempVec,
+    pub temp_vec: Vec<NonMaxU32>,
 }
 // a helper type so we can pass a transform handler typed
 // TransformData + all the other Data of the WorkerThreadSession
@@ -764,7 +763,7 @@ impl<'a> JobSession<'a> {
         // TODO: unpack record set properly here
         let input_record_count = job.data.adjust_field_lengths();
         let mut input_data = None;
-        let mut input_data_fields = self.temp_vec.get();
+        let mut input_data_fields = std::mem::take(&mut self.temp_vec);
         for fd in job.data.fields.into_iter() {
             let field_id = self
                 .job_data
@@ -814,7 +813,7 @@ impl<'a> JobSession<'a> {
         for input_field_id in input_data_fields.iter() {
             self.job_data.drop_field_refcount(*input_field_id);
         }
-        self.temp_vec.store(input_data_fields);
+        let _ = std::mem::replace(&mut self.temp_vec, input_data_fields);
         self.log_state("setting up job");
     }
     pub(crate) fn setup_venture(

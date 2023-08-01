@@ -1,4 +1,4 @@
-use std::{any::TypeId, ptr::NonNull};
+use std::{any::TypeId, mem::ManuallyDrop, ptr::NonNull};
 
 use super::{
     field_data::{
@@ -140,12 +140,30 @@ pub enum TypedSlice<'a> {
     Object(&'a [Object]),
 }
 
+impl<'a> Default for TypedSlice<'a> {
+    fn default() -> Self {
+        TypedSlice::Null(&[])
+    }
+}
+
 pub fn slice_as_bytes<T>(v: &[T]) -> &[u8] {
     unsafe {
         std::slice::from_raw_parts(
             v.as_ptr() as *const u8,
             std::mem::size_of_val(v),
         )
+    }
+}
+
+unsafe fn drop_slice<T>(slice_start_ptr: *mut u8, len: usize) {
+    unsafe {
+        let droppable = std::slice::from_raw_parts_mut(
+            slice_start_ptr as *mut ManuallyDrop<T>,
+            len,
+        );
+        for e in droppable.iter_mut() {
+            ManuallyDrop::drop(e);
+        }
     }
 }
 
@@ -260,26 +278,48 @@ impl<'a> TypedSlice<'a> {
         }
         values.len() == self.len()
     }
+    pub unsafe fn drop_from_type_id(
+        start_ptr: *mut u8,
+        len: usize,
+        type_id: TypeId,
+    ) {
+        type DropFn = unsafe fn(*mut u8, usize);
+        #[inline(always)]
+        fn drop_fn_case<T: 'static>() -> (TypeId, DropFn) {
+            (TypeId::of::<T>(), drop_slice::<T>)
+        }
+        let drop_fns: [(TypeId, DropFn); 10] = [
+            drop_fn_case::<Success>(),
+            drop_fn_case::<Null>(),
+            drop_fn_case::<i64>(),
+            drop_fn_case::<StreamValueId>(),
+            drop_fn_case::<FieldReference>(),
+            drop_fn_case::<OperatorApplicationError>(),
+            drop_fn_case::<Html>(),
+            drop_fn_case::<u8>(),
+            drop_fn_case::<Vec<u8>>(),
+            drop_fn_case::<Object>(),
+        ];
+
+        for (tid, drop_fn) in drop_fns {
+            if tid == type_id {
+                unsafe {
+                    drop_fn(start_ptr, len);
+                }
+                return;
+            }
+        }
+        panic!("missing drop implementation in TypeSlice!")
+    }
 }
 
+#[derive(Default)]
 pub struct TypedRange<'a> {
     pub headers: &'a [FieldValueHeader],
     pub data: TypedSlice<'a>,
     pub field_count: usize,
     pub first_header_run_length_oversize: RunLength,
     pub last_header_run_length_oversize: RunLength,
-}
-
-impl<'a> Default for TypedRange<'a> {
-    fn default() -> Self {
-        Self {
-            headers: &[],
-            data: TypedSlice::Null(&[]),
-            field_count: 0,
-            first_header_run_length_oversize: 0,
-            last_header_run_length_oversize: 0,
-        }
-    }
 }
 
 impl<'a> TypedRange<'a> {
@@ -320,6 +360,7 @@ impl<'a> TypedRange<'a> {
 // module. Therefore, nobody outside this module can (safely) construct a
 // ValidTypedRange. We can therefore assume all instances to be valid (header
 // matches data)
+#[derive(Default)]
 pub struct ValidTypedRange<'a>(pub(super) TypedRange<'a>);
 
 impl<'a> Deref for ValidTypedRange<'a> {

@@ -1805,7 +1805,9 @@ pub fn handle_tf_format_stream_value_update(
                                     run_len: 1,
                                     width_lookup: handle.width_lookup,
                                     target: Some(NonNull::new_unchecked(
-                                        tgt_buf.as_mut_ptr_range().end,
+                                        tgt_buf
+                                            .as_mut_ptr()
+                                            .add(tgt_buf.len()),
                                     )),
                                 };
                                 write_padded_bytes(
