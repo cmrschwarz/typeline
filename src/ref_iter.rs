@@ -193,18 +193,18 @@ impl<'a> RefIter<'a> {
         flag_mask: FieldValueFlags,
     ) -> Option<(ValidTypedRange<'a>, TypedSliceIter<'a, FieldReference>)>
     {
-        let refs_headers_start = self.refs_iter.peek_header()?;
+        let (mut field_ref, mut field_rl) = self.refs_iter.peek()?;
+        let refs_headers_start = self.refs_iter.header_ptr();
         let refs_data_start = self.refs_iter.data_ptr();
         let refs_oversize_start = self.refs_iter.field_run_length_bwd();
         let ref_header_idx = self.refs_iter.headers_remaining();
-        let (mut field_ref, mut field_rl) = self.refs_iter.peek()?;
         let field = field_ref.field;
         self.move_to_field_keep_pos(match_set_mgr, field);
         let iter = self.data_iter.as_mut().unwrap();
         let fmt = iter.get_next_field_format();
 
         let data_start = iter.get_next_field_data();
-        let header_ref = iter.get_next_header_ref();
+        let header_ref = iter.get_next_header_ptr();
         let oversize_start = iter.field_run_length_bwd();
         let header_idx = iter.get_next_header_index();
 
@@ -253,12 +253,12 @@ impl<'a> RefIter<'a> {
             Some((
                 ValidTypedRange::new(TypedRange {
                     headers: std::slice::from_raw_parts(
-                        header_ref as *const FieldValueHeader,
+                        header_ref,
                         header_count,
                     ),
                     data: TypedSlice::new(
                         iter.field_data_ref(),
-                        header_ref.fmt,
+                        (*header_ref).fmt,
                         flag_mask,
                         data_start,
                         iter.get_prev_field_data_end(),
@@ -272,7 +272,7 @@ impl<'a> RefIter<'a> {
                 TypedSliceIter::new(
                     std::slice::from_raw_parts(refs_data_start, refs_data_len),
                     std::slice::from_raw_parts(
-                        refs_headers_start as *const FieldValueHeader,
+                        refs_headers_start,
                         refs_header_count,
                     ),
                     refs_oversize_start,

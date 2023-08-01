@@ -1,5 +1,6 @@
 use std::fmt::Write;
 
+pub mod aligned_buf;
 pub mod encoding;
 pub mod identity_hasher;
 pub mod int_string_conversions;

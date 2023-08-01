@@ -46,7 +46,7 @@ impl<'a, T: 'static> TypedSliceIter<'a, T> {
         let values = if values.is_empty() {
             NonNull::dangling()
         } else {
-            NonNull::from(&values[0])
+            unsafe { NonNull::new_unchecked(values.as_ptr() as *mut T) }
         };
         Self {
             values,
@@ -98,6 +98,9 @@ impl<'a, T: 'static> TypedSliceIter<'a, T> {
     }
     pub fn data_ptr(&self) -> *const T {
         self.values.as_ptr()
+    }
+    pub fn header_ptr(&self) -> *const FieldValueHeader {
+        self.header
     }
     pub fn next_no_sv(&mut self) -> Option<&'a T> {
         if self.header == self.header_end {
@@ -259,7 +262,7 @@ impl<'a> InlineBytesIter<'a> {
         let values = if values.is_empty() {
             NonNull::dangling()
         } else {
-            NonNull::from(&values[0])
+            unsafe { NonNull::new_unchecked(values.as_ptr() as *mut u8) }
         };
         Self {
             values,
@@ -330,10 +333,10 @@ impl<'a> InlineBytesIter<'a> {
     }
     #[inline]
     pub fn next_n_fields(&mut self, mut n: usize) {
-        if self.header == self.header_end {
-            return;
-        }
         loop {
+            if self.header == self.header_end {
+                return;
+            }
             if self.header_rl_rem as usize > n {
                 self.header_rl_rem -= n as RunLength;
                 unsafe {

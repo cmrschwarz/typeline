@@ -666,6 +666,7 @@ dependencies = [
  "bstr",
  "encoding_rs",
  "lazy_static",
+ "memchr",
  "nonmax",
  "num-traits",
  "rand",

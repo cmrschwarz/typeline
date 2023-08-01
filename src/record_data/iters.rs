@@ -60,6 +60,14 @@ pub trait FieldIterator<'a>: Sized {
     fn get_next_header_ref(&self) -> &'a FieldValueHeader {
         &self.field_data_ref().header()[self.get_next_header_index()]
     }
+    fn get_next_header_ptr(&self) -> *const FieldValueHeader {
+        unsafe {
+            self.field_data_ref()
+                .header()
+                .as_ptr()
+                .add(self.get_next_header_index())
+        }
+    }
     fn get_next_header_index(&self) -> usize;
     fn get_prev_header_index(&self) -> usize;
     fn get_next_typed_field(&mut self) -> TypedField<'a>;

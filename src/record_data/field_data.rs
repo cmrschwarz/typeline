@@ -1,6 +1,5 @@
 use std::{
     collections::HashMap,
-    iter,
     mem::{align_of, ManuallyDrop},
     ops::DerefMut,
     slice, u8,
@@ -16,7 +15,7 @@ use crate::{
         RefAwareInlineTextIter,
     },
     stream_value::StreamValueId,
-    utils::string_store::StringStoreEntry,
+    utils::{aligned_buf::AlignedBuf, string_store::StringStoreEntry},
 };
 
 use self::field_value_flags::{BYTES_ARE_UTF8, SHARED_VALUE};
@@ -184,13 +183,17 @@ pub struct BytesBufferFile {
     // TODO
 }
 
-// used to figure out the maximum alignment
+// only used to figure out the maximum alignment
 #[repr(C)]
 union FieldValueUnion {
     text: ManuallyDrop<String>,
     bytes: ManuallyDrop<Vec<u8>>,
     bytes_file: ManuallyDrop<BytesBufferFile>,
-    object: ManuallyDrop<Object>,
+
+    // we can't put object in here because otherwise MAX_FIELD_ALIGN
+    // would depend on itself (FieldData contains AlignedBuf),
+    // so we add the other member of Object here
+    object_table: ManuallyDrop<HashMap<StringStoreEntry, ObjectEntry>>,
 }
 
 pub const MAX_FIELD_ALIGN: usize = align_of::<FieldValueUnion>();
@@ -359,7 +362,7 @@ pub const INLINE_STR_MAX_LEN: usize = 8192;
 
 #[derive(Default)]
 pub struct FieldData {
-    pub(super) data: Vec<u8>,
+    pub(super) data: AlignedBuf<MAX_FIELD_ALIGN>,
     pub(super) header: Vec<FieldValueHeader>,
     pub(super) field_count: usize,
 }
@@ -367,7 +370,7 @@ pub struct FieldData {
 impl Clone for FieldData {
     fn clone(&self) -> Self {
         let mut fd = Self {
-            data: Vec::with_capacity(self.data.len()),
+            data: AlignedBuf::with_capacity(self.data.len()),
             header: Vec::with_capacity(self.header.len()),
             field_count: 0,
         };
@@ -390,14 +393,14 @@ unsafe fn drop_slice<T>(slice: &[T]) {
 }
 
 pub struct FieldDataInternals<'a> {
-    pub data: &'a mut Vec<u8>,
+    pub data: &'a mut AlignedBuf<MAX_FIELD_ALIGN>,
     pub header: &'a mut Vec<FieldValueHeader>,
     pub field_count: &'a mut usize,
 }
 impl FieldData {
     pub unsafe fn from_raw_parts(
         header: Vec<FieldValueHeader>,
-        data: Vec<u8>,
+        data: AlignedBuf<MAX_FIELD_ALIGN>,
         field_count: usize,
     ) -> Self {
         Self {
@@ -436,7 +439,7 @@ impl FieldData {
             return 0;
         }
         align = MAX_FIELD_ALIGN - align;
-        self.data.extend(iter::repeat(0).take(align));
+        self.data.resize(self.data.len() + align, 0);
         align
     }
 

@@ -39,8 +39,9 @@ static_assertions = "1.1.0"
 bstr = "1.5.0"
 thiserror = "1.0.38"
 num-traits = "0.2.16"
+memchr = "2.5.0"
 
-# small size optimizations
+# small size / layout optimizations
 smallvec = { version = "1.10.0", features = ["union", "write"] }
 smallstr = { version = "0.3.0", features = ["union"] }
 arrayvec = "0.7.3"

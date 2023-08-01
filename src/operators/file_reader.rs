@@ -1,7 +1,7 @@
 use std::{
     ffi::OsStr,
     fs::File,
-    io::{stdin, BufRead, BufReader, IsTerminal, Read},
+    io::{stdin, BufRead, BufReader, ErrorKind, IsTerminal, Read, Write},
     path::PathBuf,
     sync::Mutex,
 };
@@ -204,25 +204,48 @@ pub fn setup_tf_file_reader<'a>(
 fn read_size_limited<F: Read>(
     f: &mut F,
     limit: usize,
-    target: &mut Vec<u8>,
+    target: &mut impl Write,
 ) -> Result<(usize, bool), std::io::Error> {
-    let size = f.take(limit as u64).read_to_end(target)?;
+    let size = std::io::copy(&mut f.take(limit as u64), target)? as usize;
     let eof = size != limit;
     Ok((size, eof))
 }
 fn read_line_buffered<F: BufRead>(
     f: &mut F,
     limit: usize,
-    target: &mut Vec<u8>,
+    target: &mut impl Write,
 ) -> Result<(usize, bool), std::io::Error> {
-    let size = f.take(limit as u64).read_until(b'\n', target)?;
-    let eof = size == 0 || target[size - 1] != b'\n';
-    Ok((size, eof))
+    let mut r = f.take(limit as u64);
+    let mut read = 0;
+    loop {
+        let (done, used) = {
+            let available = match r.fill_buf() {
+                Ok(n) => n,
+                Err(ref e) if e.kind() == ErrorKind::Interrupted => continue,
+                Err(e) => return Err(e),
+            };
+            match memchr::memchr(b'\n', available) {
+                Some(i) => {
+                    target.write_all(&available[..=i])?;
+                    (true, i + 1)
+                }
+                None => {
+                    target.write_all(available)?;
+                    (false, available.len())
+                }
+            }
+        };
+        r.consume(used);
+        read += used;
+        if done || used == 0 {
+            return Ok((read, used == 0));
+        }
+    }
 }
 fn read_mode_based<F: BufRead>(
     f: &mut F,
     limit: usize,
-    target: &mut Vec<u8>,
+    target: &mut impl Write,
     line_buffered: bool,
 ) -> Result<(usize, bool), std::io::Error> {
     if line_buffered {
@@ -233,7 +256,7 @@ fn read_mode_based<F: BufRead>(
 }
 
 fn read_chunk(
-    target: &mut Vec<u8>,
+    target: &mut impl Write,
     file: &mut AnyFile,
     limit: usize,
     line_buffered: bool,

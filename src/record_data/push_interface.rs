@@ -456,10 +456,7 @@ unsafe impl RawPushInterface for FieldData {
         }
         self.data.reserve(data_len);
         let res = self.data.as_mut_ptr_range().end;
-        // really unfortunate that rust considers it undefined to
-        // call set_len before initializing, but for now we oblige...
-        // fdi.data.set_len(self.data.len() + data_len)
-        self.data.extend(std::iter::repeat(0).take(data_len));
+        unsafe { self.data.set_len(self.data.len() + data_len) };
         res
     }
 }

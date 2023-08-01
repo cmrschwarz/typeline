@@ -354,8 +354,7 @@ unsafe fn to_slice<'a, T: Sized, R: FieldDataRef<'a>>(
     }
     unsafe {
         std::slice::from_raw_parts::<T>(
-            std::mem::transmute::<&u8, &T>(&fdr.data()[data_begin])
-                as *const T,
+            fdr.data().as_ptr().add(data_begin) as *const T,
             (data_end - data_begin) / std::mem::size_of::<T>(),
         )
     }
