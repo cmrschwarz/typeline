@@ -358,6 +358,11 @@ impl LivenessData {
         write: bool,
         stringified: bool,
     ) {
+        if op_output_idx == DUMMY_FIELD_OUTPUT_IDX {
+            // we don't want this field to be forwarded by fork and friends
+            // so we just pretend it is never accessed.
+            return;
+        }
         let oo_idx = op_output_idx as usize;
         let ooc = self.op_outputs.len();
         self.op_outputs_data
@@ -377,6 +382,7 @@ impl LivenessData {
         }
     }
     fn append_to_field(&self, op_output_idx: OpOutputIdx) {
+        debug_assert!(op_output_idx != DUMMY_FIELD_OUTPUT_IDX);
         let oo_idx = op_output_idx as usize;
         let ooc = self.op_outputs.len();
         self.op_outputs_data
