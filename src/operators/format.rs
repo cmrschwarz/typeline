@@ -46,7 +46,7 @@ use super::{
     utils::{ERROR_PREFIX_STR, NULL_STR},
 };
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum FormatFillAlignment {
     #[default]
     Right,
@@ -54,7 +54,7 @@ pub enum FormatFillAlignment {
     Center,
 }
 
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct FormatFillSpec {
     fill_char: Option<char>,
     alignment: FormatFillAlignment,
@@ -216,7 +216,7 @@ pub fn setup_tf_format<'a>(
                     [tf_state.match_set_id]
                     .field_name_map
                     .get(name)
-                    .cloned()
+                    .copied()
                 {
                     let mut f = sess.field_mgr.fields[id].borrow_mut();
                     f.ref_count += 1;
@@ -1127,7 +1127,7 @@ unsafe fn write_padding_to_tgt(
     let mut buf = ArrayVec::<u8, 32>::new();
     let chars_cap = divide_by_char_len(buf.capacity(), char_slice.len());
     for _ in 0..chars_cap.min(len) {
-        buf.extend(char_slice.as_bytes().iter().cloned());
+        buf.extend(char_slice.as_bytes().iter().copied());
     }
     unsafe {
         while len > chars_cap {
@@ -1251,7 +1251,7 @@ unsafe fn write_padded_bytes_with_prefix_suffix(
     suffix: &[u8],
 ) {
     if k.width.is_some() {
-        let fill_spec = k.fill.as_ref().cloned().unwrap_or_default();
+        let fill_spec = k.fill.as_ref().copied().unwrap_or_default();
         let padding = calc_text_padding(
             k,
             data.len() + prefix.len() + suffix.len(),

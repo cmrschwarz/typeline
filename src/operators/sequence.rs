@@ -124,7 +124,7 @@ pub fn handle_tf_sequence(
         {
             let mut int_str = ArrayVec::new();
             int_str.extend(
-                i64_to_str(false, seq.ss.start).as_bytes().iter().cloned(),
+                i64_to_str(false, seq.ss.start).as_bytes().iter().copied(),
             );
             inserter.drop_and_reserve(count, int_str.len());
             for _ in 0..count {

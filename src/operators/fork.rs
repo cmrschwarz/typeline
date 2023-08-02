@@ -42,7 +42,7 @@ pub struct OpFork {
 
 pub struct TfForkFieldMapping {
     pub source_iter_id: IterId,
-    pub targets_ref: Vec<FieldId>,
+    pub targets_copy: Vec<FieldId>,
     pub targets_cow: Vec<FieldId>,
 }
 
@@ -147,15 +147,15 @@ pub fn handle_tf_fork(
             &sess.field_mgr,
             match_set_mgr,
             tf_id,
-            mapping.targets_cow.iter().cloned(),
+            mapping.targets_cow.iter().copied(),
         );
         sess.tf_mgr.prepare_for_output(
             &sess.field_mgr,
             match_set_mgr,
             tf_id,
-            mapping.targets_ref.iter().cloned(),
+            mapping.targets_copy.iter().copied(),
         );
-        if mapping.targets_ref.is_empty() {
+        if mapping.targets_copy.is_empty() {
             continue;
         }
         let src = sess
@@ -176,7 +176,7 @@ pub fn handle_tf_fork(
             match_set_mgr,
             &mut iter,
             &mut |f: &mut dyn FnMut(&mut IterHall)| {
-                for t in &mapping.targets_ref {
+                for t in &mapping.targets_copy {
                     let mut tgt = sess.field_mgr.fields[*t].borrow_mut();
                     f(&mut tgt.field_data);
                 }
@@ -312,7 +312,7 @@ pub(crate) fn handle_fork_expansion(
                         e.insert(TfForkFieldMapping {
                             source_iter_id: src_field.field_data.claim_iter(),
                             targets_cow: vec![target],
-                            targets_ref: Vec::new(),
+                            targets_copy: Vec::new(),
                         });
                     }
                 }

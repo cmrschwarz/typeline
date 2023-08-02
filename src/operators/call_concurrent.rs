@@ -232,7 +232,7 @@ fn setup_target_field_mappings(
         // chain never writes to it aswell, we could theoretically
         // unsafely share the FieldData (and maybe add a flag for soundness)
         if let Some(source_field_id) =
-            source_match_set.field_name_map.get(name).cloned()
+            source_match_set.field_name_map.get(name).copied()
         {
             insert_mapping(
                 &sess.field_mgr,
@@ -435,7 +435,7 @@ pub fn handle_tf_callee_concurrent(
         tf_id,
         tfc.target_fields
             .iter()
-            .cloned()
+            .copied()
             .filter(|id| *id != INVALID_FIELD_ID),
     );
     let mut buf_data = tfc.buffer.fields.lock().unwrap();

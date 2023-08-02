@@ -243,6 +243,6 @@ impl StringStore {
         self.table_idx_to_str[u32::from(entry) as usize - 1].as_str()
     }
     pub fn lookup_str(&self, entry: &str) -> Option<StringStoreEntry> {
-        self.table_str_to_idx.get(&StrPtr::from_str(entry)).cloned()
+        self.table_str_to_idx.get(&StrPtr::from_str(entry)).copied()
     }
 }

@@ -411,7 +411,7 @@ impl MatchSetManager {
                 let pos = prev_field
                     .names
                     .iter()
-                    .cloned()
+                    .copied()
                     .enumerate()
                     .filter_map(
                         |(i, v)| if v == name { Some(i) } else { None },
@@ -921,7 +921,7 @@ impl<'a> JobSession<'a> {
                         self.job_data.match_set_mgr.match_sets[ms_id]
                             .field_name_map
                             .get(&op.key_interned)
-                            .cloned()
+                            .copied()
                     {
                         input_field = field_id;
                     } else {
