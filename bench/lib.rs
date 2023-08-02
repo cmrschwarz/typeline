@@ -9,7 +9,7 @@ use crate::utils::*;
 use scr::{
     operators::{
         format::create_op_format,
-        regex::{create_op_regex, create_op_regex_lines, RegexOptions},
+        regex::{create_op_regex, create_op_regex_lines},
         sequence::create_op_seq,
         string_sink::{create_op_string_sink, StringSinkHandle},
     },
@@ -37,7 +37,7 @@ const LEN: usize = 2000;
 fn plain_string_sink(b: &mut test::Bencher) {
     let res = int_sequence_strings(LEN);
     b.iter(|| {
-        let ss = StringSinkHandle::new();
+        let ss = StringSinkHandle::default();
         ContextBuilder::default()
             .add_op(create_op_seq(0, LEN as i64, 1).unwrap())
             .add_op(create_op_string_sink(&ss))
@@ -53,7 +53,7 @@ fn regex_lines(b: &mut test::Bencher) {
     let input = int_sequence_newline_separated(COUNT);
     let res = int_sequence_strings(COUNT);
     b.iter(|| {
-        let ss = StringSinkHandle::new();
+        let ss = StringSinkHandle::default();
         ContextBuilder::default()
             .push_str(&input, 1)
             .add_op(create_op_regex_lines())
@@ -74,7 +74,7 @@ fn regex_lines_plus_drop_uneven(b: &mut test::Bencher) {
         .filter_map(|(i, v)| if i % 2 == 0 { Some(v) } else { None })
         .collect();
     b.iter(|| {
-        let ss = StringSinkHandle::new();
+        let ss = StringSinkHandle::default();
         ContextBuilder::default()
             .push_str(&input, 1)
             .add_op(create_op_regex_lines())
@@ -90,7 +90,7 @@ fn regex_lines_plus_drop_uneven(b: &mut test::Bencher) {
 fn dummy_format(b: &mut test::Bencher) {
     let res = int_sequence_strings(LEN);
     b.iter(|| {
-        let ss = StringSinkHandle::new();
+        let ss = StringSinkHandle::default();
         ContextBuilder::default()
             .add_op(create_op_seq(0, LEN as i64, 1).unwrap())
             .add_op(create_op_format("{}".as_bytes()).unwrap())
@@ -108,7 +108,7 @@ fn format_twice(b: &mut test::Bencher) {
         v.extend_from_within(0..);
     }
     b.iter(|| {
-        let ss = StringSinkHandle::new();
+        let ss = StringSinkHandle::default();
         ContextBuilder::default()
             .add_op(create_op_seq(0, LEN as i64, 1).unwrap())
             .add_op(create_op_format("{}{}".as_bytes()).unwrap())
@@ -136,7 +136,7 @@ fn regex_drop_uneven_into_format_twice(b: &mut test::Bencher) {
         })
         .collect();
     b.iter(|| {
-        let ss = StringSinkHandle::new();
+        let ss = StringSinkHandle::default();
         ContextBuilder::default()
             .push_str(&input, 1)
             .add_op(create_op_regex_lines())
@@ -157,7 +157,7 @@ fn seq_into_regex_drop_unless_seven(b: &mut test::Bencher) {
         .filter_map(|v| if v.contains("7") { Some("7") } else { None })
         .collect();
     b.iter(|| {
-        let ss = StringSinkHandle::new();
+        let ss = StringSinkHandle::default();
         ContextBuilder::default()
             .add_op(create_op_seq(0, COUNT as i64, 1).unwrap())
             .add_op(create_op_regex("7").unwrap())
