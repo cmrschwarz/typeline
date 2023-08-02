@@ -1,6 +1,7 @@
 use std::{
     cell::{Cell, Ref, RefCell, RefMut},
     collections::{BinaryHeap, HashMap, VecDeque},
+    ops::DerefMut,
     sync::Arc,
 };
 
@@ -57,7 +58,7 @@ use crate::{
     },
     record_data::{
         command_buffer::{
-            ActionListIndex, ActionProducingFieldIndex, CommandBuffer,
+            ActionProducingFieldIndex, CommandBuffer, FieldActionIndices,
         },
         field_data::FieldData,
         iter_hall::{IterHall, IterId},
@@ -91,9 +92,7 @@ pub struct Field {
 
     pub added_as_placeholder_by_tf: Option<TransformId>,
 
-    pub min_apf_idx: Option<ActionProducingFieldIndex>,
-    pub curr_apf_idx: Option<ActionProducingFieldIndex>,
-    pub first_unapplied_al: ActionListIndex,
+    pub action_indices: FieldActionIndices,
 
     pub names: SmallVec<[StringStoreEntry; 4]>,
     // fields potentially referenced by this field.
@@ -324,9 +323,14 @@ impl TransformManager {
             input_done = true;
         }
         let mut output_field = field_mgr.fields[output_field_id].borrow_mut();
+        let of = output_field.deref_mut();
         match_set_mgr.match_sets[match_set_id]
             .command_buffer
-            .execute_for_field(output_field_id, &mut output_field);
+            .execute_for_iter_hall(
+                output_field_id.get() as usize,
+                &mut of.field_data,
+                &mut of.action_indices,
+            );
         // this results in always one more element being present than we
         // advertise as batch size. this prevents apply_field_actions
         // from deleting our value. unless we are done, in which case
@@ -364,7 +368,10 @@ impl TransformManager {
             } else {
                 match_set_mgr.match_sets[tf.match_set_id]
                     .command_buffer
-                    .drop_field_commands(ofid, &mut f);
+                    .drop_field_commands(
+                        ofid.get() as usize,
+                        &mut f.action_indices,
+                    );
                 if !appending {
                     f.field_data.clear();
                     f.has_unconsumed_input.set(false);
@@ -438,7 +445,7 @@ impl FieldManager {
         field_id: FieldId,
     ) -> Option<ActionProducingFieldIndex> {
         let field = self.fields[field_id].borrow();
-        field.min_apf_idx
+        field.action_indices.min_apf_idx
     }
     pub fn add_field(
         &mut self,
@@ -461,9 +468,11 @@ impl FieldManager {
             has_unconsumed_input: Cell::new(false),
             match_set: ms_id,
             added_as_placeholder_by_tf: None,
-            min_apf_idx: min_apf,
-            curr_apf_idx: None,
-            first_unapplied_al: 0,
+            action_indices: FieldActionIndices {
+                min_apf_idx: min_apf,
+                curr_apf_idx: None,
+                first_unapplied_al_idx: 0,
+            },
             names: Default::default(),
             cow_source: None,
             field_data: IterHall::new_with_data(data),
@@ -502,10 +511,15 @@ impl FieldManager {
         field: FieldId,
     ) {
         self.uncow(match_set_mgr, field);
-        let mut f = self.fields[field].borrow_mut();
+        let mut field_ref = self.fields[field].borrow_mut();
+        let f = field_ref.deref_mut();
         let match_set = f.match_set;
         let cb = &mut match_set_mgr.match_sets[match_set].command_buffer;
-        cb.execute_for_field(field, &mut f);
+        cb.execute_for_iter_hall(
+            field.get() as usize,
+            &mut f.field_data,
+            &mut f.action_indices,
+        );
     }
 
     pub fn borrow_field_cow(

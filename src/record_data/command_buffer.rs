@@ -3,14 +3,11 @@ use std::cell::Ref;
 use nonmax::NonMaxUsize;
 use smallvec::SmallVec;
 
-use crate::{
-    job_session::{Field, FieldId},
-    utils::universe::Universe,
-};
+use crate::utils::universe::Universe;
 
 use super::{
     field_data::{FieldData, FieldValueFormat, FieldValueHeader, RunLength},
-    iter_hall::IterState,
+    iter_hall::{IterHall, IterState},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -80,6 +77,13 @@ pub type MergedActionListsIndex = usize;
 pub type ActionProducingFieldOrderingId = NonMaxUsize;
 pub type ActionProducingFieldIndex = NonMaxUsize;
 pub type ActionListOrderingId = usize;
+
+#[derive(Default)]
+pub struct FieldActionIndices {
+    pub min_apf_idx: Option<ActionProducingFieldIndex>,
+    pub curr_apf_idx: Option<ActionProducingFieldIndex>,
+    pub first_unapplied_al_idx: ActionListIndex,
+}
 
 struct ActionList {
     ordering_id: ActionListOrderingId,
@@ -238,35 +242,40 @@ impl CommandBuffer {
         self.action_producing_fields[apf_idx].merged_action_lists[0]
             .push_action_with_usize_rl(kind, field_idx, run_length);
     }
-    pub fn execute_for_field(&mut self, field_id: FieldId, field: &mut Field) {
+    pub fn execute_for_iter_hall<'a>(
+        &mut self,
+        field_id: usize, // for debug logging only
+        iter_hall: &mut IterHall,
+        fai: &mut FieldActionIndices,
+    ) {
         if self.first_apf_idx.is_none() {
             return;
         }
-        if field.min_apf_idx.is_none() {
-            field.min_apf_idx = self.first_apf_idx;
+        if fai.min_apf_idx.is_none() {
+            fai.min_apf_idx = self.first_apf_idx;
         }
-        if field.curr_apf_idx.is_none() {
-            field.curr_apf_idx = field.min_apf_idx;
+        if fai.curr_apf_idx.is_none() {
+            fai.curr_apf_idx = fai.min_apf_idx;
         }
-        let min_apf_idx = field.min_apf_idx.unwrap();
-        let curr_apf_idx = field.curr_apf_idx.as_mut().unwrap();
+        let min_apf_idx = fai.min_apf_idx.unwrap();
+        let curr_apf_idx = fai.curr_apf_idx.as_mut().unwrap();
         let prev_curr_apf_idx = *curr_apf_idx;
-        let first_unapplied_al_idx = &mut field.first_unapplied_al;
-        let prev_first_unapplied_al_idx = *first_unapplied_al_idx;
+        let prev_first_unapplied_al_idx = fai.first_unapplied_al_idx;
         let als = self.prepare_action_lists(
             min_apf_idx,
             curr_apf_idx,
-            first_unapplied_al_idx,
+            &mut fai.first_unapplied_al_idx,
         );
         if als.actions_start == als.actions_end {
             debug_assert!(
                 prev_curr_apf_idx == *curr_apf_idx
-                    && prev_first_unapplied_al_idx == *first_unapplied_al_idx
+                    && prev_first_unapplied_al_idx
+                        == fai.first_unapplied_al_idx
             );
             if cfg!(feature = "debug_logging") {
                 println!(
                     "executing commands for field {} had no effect: min apf: {}, curr apf: {} [al {}]",
-                    field_id, min_apf_idx, curr_apf_idx, first_unapplied_al_idx,
+                    field_id, min_apf_idx, curr_apf_idx, fai.first_unapplied_al_idx,
                 );
             }
             return;
@@ -304,7 +313,7 @@ impl CommandBuffer {
                 prev_curr_apf_idx,
                 prev_first_unapplied_al_idx,
                 curr_apf_idx,
-                first_unapplied_al_idx,
+                fai.first_unapplied_al_idx,
             );
             let refs = self.get_merge_result_mal_ref(&als);
             let actions = self.get_merge_resuls_slice(refs.as_deref(), &als);
@@ -318,47 +327,46 @@ impl CommandBuffer {
         }
         // TODO: avoid this allocation
         let mut iterators = IterStateSmallVec::new();
-        for it in field.field_data.iters.iter_mut() {
-            iterators.push(it.get_mut());
-        }
+        iterators.extend(iter_hall.iters.iter_mut().map(|it| it.get_mut()));
         iterators.sort_by(|lhs, rhs| rhs.field_pos.cmp(&lhs.field_pos));
         let field_count_delta = self.generate_commands_from_actions(
             als,
-            &mut field.field_data.fd,
+            &mut iter_hall.fd,
             &mut iterators,
             0,
             0,
         );
 
-        field.field_data.fd.field_count =
-            (field.field_data.fd.field_count as isize + field_count_delta)
-                as usize;
-        self.execute_commands(&mut field.field_data.fd);
+        iter_hall.fd.field_count =
+            (iter_hall.fd.field_count as isize + field_count_delta) as usize;
+        self.execute_commands(&mut iter_hall.fd);
         self.cleanup();
     }
-    pub fn requires_any_actions(&mut self, field: &mut Field) -> bool {
+    pub fn requires_any_actions(
+        &mut self,
+        fai: &mut FieldActionIndices,
+    ) -> bool {
         let first = if let Some(idx) = self.first_apf_idx {
             idx
         } else {
             return false;
         };
-        let min = if let Some(min) = field.min_apf_idx {
+        let min = if let Some(min) = fai.min_apf_idx {
             min
         } else {
-            field.min_apf_idx = self.first_apf_idx;
+            fai.min_apf_idx = self.first_apf_idx;
             first
         };
-        let curr = if let Some(curr) = field.curr_apf_idx {
+        let curr = if let Some(curr) = fai.curr_apf_idx {
             curr
         } else {
-            field.curr_apf_idx = field.min_apf_idx;
+            fai.curr_apf_idx = fai.min_apf_idx;
             min
         };
 
-        let first_unapplied_al_idx = field.first_unapplied_al;
         let mut mal =
             &self.action_producing_fields[curr].merged_action_lists[0];
-        if mal.action_lists.len() > first_unapplied_al_idx {
+        if mal.action_lists.len() > fai.first_unapplied_al_idx {
             return true;
         }
 
@@ -372,22 +380,22 @@ impl CommandBuffer {
     }
     pub fn drop_field_commands(
         &mut self,
-        field_id: FieldId,
-        field: &mut Field,
+        field_id: usize, // for debug logging only
+        fai: &mut FieldActionIndices,
     ) {
         if self.first_apf_idx.is_none() {
             return;
         }
-        if field.min_apf_idx.is_none() {
-            field.min_apf_idx = self.first_apf_idx;
+        if fai.min_apf_idx.is_none() {
+            fai.min_apf_idx = self.first_apf_idx;
         }
-        if field.curr_apf_idx.is_none() {
-            field.curr_apf_idx = field.min_apf_idx;
+        if fai.curr_apf_idx.is_none() {
+            fai.curr_apf_idx = fai.min_apf_idx;
         }
 
-        let min_apf_idx = field.min_apf_idx.unwrap();
-        let curr_apf_idx = field.curr_apf_idx.as_mut().unwrap();
-        let first_unapplied_al_idx = &mut field.first_unapplied_al;
+        let min_apf_idx = fai.min_apf_idx.unwrap();
+        let curr_apf_idx = fai.curr_apf_idx.as_mut().unwrap();
+        let first_unapplied_al_idx = &mut fai.first_unapplied_al_idx;
         let prev_curr_apf_idx = *curr_apf_idx;
         let prev_first_unapplied_apf_idx = *first_unapplied_al_idx;
         // TODO: this is pretty wasteful. figure out a better way to do this

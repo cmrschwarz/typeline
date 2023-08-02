@@ -362,7 +362,10 @@ pub fn handle_tf_call_concurrent(
         }
         sess.match_set_mgr.match_sets[tf.match_set_id]
             .command_buffer
-            .drop_field_commands(mapping.source_field_id, &mut src_field);
+            .drop_field_commands(
+                mapping.source_field_id.get() as usize,
+                &mut src_field.action_indices,
+            );
         src_field.field_data.clear();
     }
     if input_done {
