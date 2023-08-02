@@ -1,7 +1,7 @@
 use crate::{
     job_session::{
         Field, FieldId, FieldManager, MatchSetManager,
-        FIELD_REF_LOOKUP_ITER_ID, INVALID_FIELD_ID,
+        FIELD_REF_LOOKUP_ITER_ID,
     },
     record_data::{
         field_data::{
@@ -18,7 +18,7 @@ use std::cell::Ref;
 
 pub struct RefIter<'a> {
     refs_iter: TypedSliceIter<'a, FieldReference>,
-    last_field_id: FieldId,
+    last_field_id: Option<FieldId>,
     data_iter: Option<Iter<'a, &'a FieldData>>,
     field_ref: Option<Ref<'a, Field>>,
     field_mgr: &'a FieldManager,
@@ -32,7 +32,8 @@ impl<'a> Clone for RefIter<'a> {
             last_field_id: self.last_field_id,
             data_iter: self.data_iter.clone(),
             field_ref: if self.field_ref.is_some() {
-                Some(self.field_mgr.fields[self.last_field_id].borrow())
+                self.last_field_id
+                    .and_then(|f| Some(self.field_mgr.fields[f].borrow()))
             } else {
                 None
             },
@@ -71,7 +72,7 @@ impl<'a> RefIter<'a> {
         Self {
             refs_iter,
             field_mgr,
-            last_field_id,
+            last_field_id: Some(last_field_id),
             data_iter: Some(data_iter),
             field_ref: Some(field_ref),
             unconsumed_input,
@@ -113,7 +114,7 @@ impl<'a> RefIter<'a> {
         match_set_mgr: &'_ mut MatchSetManager,
         field_id: FieldId,
     ) {
-        if self.last_field_id == field_id {
+        if self.last_field_id == Some(field_id) {
             return;
         }
         self.field_ref.take().unwrap().field_data.store_iter(
@@ -132,14 +133,14 @@ impl<'a> RefIter<'a> {
         // still has a pointer into the data of the old field_ref
         self.field_ref = Some(field_ref);
         self.data_iter = Some(data_iter);
-        self.last_field_id = field_id;
+        self.last_field_id = Some(field_id);
     }
     pub fn move_to_field_keep_pos(
         &mut self,
         match_set_mgr: &'_ mut MatchSetManager,
         field_id: FieldId,
     ) {
-        if self.last_field_id == field_id {
+        if self.last_field_id == Some(field_id) {
             return;
         }
         self.move_to_field_pos(
@@ -284,13 +285,12 @@ impl<'a> RefIter<'a> {
     pub fn next_n_fields(&mut self, limit: usize) -> usize {
         let ref_skip = self.refs_iter.next_n_fields(limit);
         let data_iter = self.data_iter.as_mut().unwrap();
-        if self.refs_iter.peek().map(|(v, _rl)| v.field)
-            == Some(self.last_field_id)
+        if self.refs_iter.peek().map(|(v, _rl)| v.field) == self.last_field_id
         {
             let data_skip = data_iter.next_n_fields(ref_skip);
             assert!(data_skip == ref_skip);
         } else {
-            self.last_field_id = INVALID_FIELD_ID;
+            self.last_field_id = None;
         }
         ref_skip
     }

@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use bstr::ByteSlice;
 
 use crate::{
-    chain::{ChainId, INVALID_CHAIN_ID},
+    chain::ChainId,
     job_session::{FieldId, JobData, JobSession, MatchSetId},
     options::argument::CliArgIdx,
     utils::{
@@ -22,7 +22,7 @@ use super::{
 pub struct OpCall {
     pub lazy: bool,
     pub target_name: String,
-    pub target_resolved: ChainId,
+    pub target_resolved: Option<ChainId>,
 }
 pub struct TfCall {
     pub target: ChainId,
@@ -49,7 +49,7 @@ pub fn parse_op_call(
     Ok(OperatorData::Call(OpCall {
         lazy: true,
         target_name: value_str.to_owned(),
-        target_resolved: INVALID_CHAIN_ID,
+        target_resolved: None,
     }))
 }
 
@@ -59,7 +59,7 @@ pub fn setup_op_call(
     op: &mut OpCall,
     op_id: OperatorId,
 ) -> Result<(), OperatorSetupError> {
-    if op.target_resolved != INVALID_CHAIN_ID {
+    if op.target_resolved.is_some() {
         // this happens in case of call targets caused by labels ending the
         // chain
         debug_assert!(!op.lazy);
@@ -69,7 +69,7 @@ pub fn setup_op_call(
         .lookup_str(&op.target_name)
         .and_then(|sse| chain_labels.get(&sse))
     {
-        op.target_resolved = *target;
+        op.target_resolved = Some(*target);
         Ok(())
     } else {
         Err(OperatorSetupError::new_s(
@@ -83,7 +83,7 @@ pub fn create_op_call(name: String) -> OperatorData {
     OperatorData::Call(OpCall {
         lazy: true,
         target_name: name,
-        target_resolved: INVALID_CHAIN_ID,
+        target_resolved: None,
     })
 }
 
@@ -91,7 +91,7 @@ pub fn create_op_call_eager(target: ChainId) -> OperatorData {
     OperatorData::Call(OpCall {
         lazy: false,
         target_name: String::new(),
-        target_resolved: target,
+        target_resolved: Some(target),
     })
 }
 
@@ -102,7 +102,7 @@ pub fn setup_tf_call(
     _tf_state: &mut TransformState,
 ) -> TransformData<'static> {
     TransformData::Call(TfCall {
-        target: op.target_resolved,
+        target: op.target_resolved.unwrap(),
     })
 }
 pub(crate) fn handle_eager_call_expansion(
@@ -115,8 +115,8 @@ pub(crate) fn handle_eager_call_expansion(
     if let OperatorData::Call(op) =
         &sess.job_data.session_data.operator_data[op_id as usize]
     {
-        let chain =
-            &sess.job_data.session_data.chains[op.target_resolved as usize];
+        let chain = &sess.job_data.session_data.chains
+            [op.target_resolved.unwrap() as usize];
         sess.setup_transforms_from_op(
             ms_id,
             chain.operators[0],

@@ -6,9 +6,7 @@ use std::{
 use crate::{
     chain::Chain,
     context::ContextData,
-    job_session::{
-        FieldId, JobData, JobSession, DUMMY_INPUT_FIELD_ID, INVALID_FIELD_ID,
-    },
+    job_session::{FieldId, JobData, JobSession, DUMMY_INPUT_FIELD_ID},
     liveness_analysis::LivenessData,
     options::argument::CliArgIdx,
     record_data::{
@@ -222,7 +220,8 @@ pub(crate) fn handle_fork_expansion(
     let fork_ms_id = tf.match_set_id;
     let fork_op_id = tf.op_id.unwrap() as usize;
     let fork_chain_id = sess.job_data.session_data.operator_bases[fork_op_id]
-        .chain_id as usize;
+        .chain_id
+        .unwrap() as usize;
 
     // by reversing this, the earlier subchains get the higher tf ordering ids
     // -> get executed first
@@ -359,7 +358,7 @@ pub(crate) fn handle_fork_expansion(
         // so our target transform ids are stable
         let mut tf_state = TransformState::new(
             input_field,
-            INVALID_FIELD_ID,
+            DUMMY_INPUT_FIELD_ID,
             target_ms_id,
             sess.job_data.session_data.chains[subchain_id]
                 .settings
@@ -369,6 +368,9 @@ pub(crate) fn handle_fork_expansion(
             sess.job_data.tf_mgr.claim_transform_ordering_id(),
         );
         sess.job_data.field_mgr.bump_field_refcount(input_field);
+        sess.job_data
+            .field_mgr
+            .bump_field_refcount(DUMMY_INPUT_FIELD_ID);
         tf_state.is_transparent = true;
         let tf_data = setup_tf_nop(&tf_state);
         let mut pred_tf = sess.add_transform(tf_state, tf_data);

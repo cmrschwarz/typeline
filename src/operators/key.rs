@@ -2,9 +2,7 @@ use bstr::ByteSlice;
 
 use crate::{
     options::argument::CliArgIdx,
-    utils::string_store::{
-        StringStore, StringStoreEntry, INVALID_STRING_STORE_ENTRY,
-    },
+    utils::string_store::{StringStore, StringStoreEntry},
 };
 
 use super::{
@@ -15,7 +13,7 @@ use super::{
 #[derive(Clone)]
 pub struct OpKey {
     key: String,
-    pub key_interned: StringStoreEntry,
+    pub key_interned: Option<StringStoreEntry>,
 }
 
 pub fn parse_op_key(
@@ -32,7 +30,7 @@ pub fn parse_op_key(
         })?;
     Ok(OperatorData::Key(OpKey {
         key: value_str.to_owned(),
-        key_interned: INVALID_STRING_STORE_ENTRY,
+        key_interned: None,
     }))
 }
 
@@ -40,13 +38,14 @@ pub fn setup_op_key(
     string_store: &mut StringStore,
     op: &mut OpKey,
 ) -> Result<(), OperatorSetupError> {
-    op.key_interned = string_store.intern_moved(std::mem::take(&mut op.key));
+    op.key_interned =
+        Some(string_store.intern_moved(std::mem::take(&mut op.key)));
     Ok(())
 }
 
 pub fn create_op_key(key: String) -> OperatorData {
     OperatorData::Key(OpKey {
         key,
-        key_interned: INVALID_STRING_STORE_ENTRY,
+        key_interned: None,
     })
 }

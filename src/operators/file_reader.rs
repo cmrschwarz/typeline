@@ -188,7 +188,8 @@ pub fn setup_tf_file_reader<'a>(
     let chain_settings = &sess.session_data.chains[sess
         .session_data
         .operator_bases[tf_state.op_id.unwrap() as usize]
-        .chain_id as usize]
+        .chain_id
+        .unwrap() as usize]
         .settings;
     TransformData::FileReader(TfFileReader {
         file: Some(file),

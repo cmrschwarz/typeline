@@ -4,9 +4,7 @@ use crate::{
     job_session::JobData,
     liveness_analysis::{LivenessData, READS_OFFSET},
     options::argument::CliArgIdx,
-    utils::string_store::{
-        StringStore, StringStoreEntry, INVALID_STRING_STORE_ENTRY,
-    },
+    utils::string_store::{StringStore, StringStoreEntry},
 };
 
 use super::{
@@ -18,7 +16,7 @@ use super::{
 #[derive(Clone)]
 pub struct OpSelect {
     key: String,
-    pub key_interned: StringStoreEntry,
+    pub key_interned: Option<StringStoreEntry>,
     pub field_is_read: bool,
 }
 pub struct TfSelect {}
@@ -40,7 +38,7 @@ pub fn parse_op_select(
         })?;
     Ok(OperatorData::Select(OpSelect {
         key: value_str.to_owned(),
-        key_interned: INVALID_STRING_STORE_ENTRY,
+        key_interned: None,
         field_is_read: true,
     }))
 }
@@ -49,7 +47,8 @@ pub fn setup_op_select(
     string_store: &mut StringStore,
     op: &mut OpSelect,
 ) -> Result<(), OperatorSetupError> {
-    op.key_interned = string_store.intern_moved(std::mem::take(&mut op.key));
+    op.key_interned =
+        Some(string_store.intern_moved(std::mem::take(&mut op.key)));
     Ok(())
 }
 
@@ -65,7 +64,7 @@ pub fn setup_op_select_liveness_data(
 pub fn create_op_select(key: String) -> OperatorData {
     OperatorData::Select(OpSelect {
         key,
-        key_interned: INVALID_STRING_STORE_ENTRY,
+        key_interned: None,
         field_is_read: true,
     })
 }

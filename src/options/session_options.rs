@@ -3,7 +3,7 @@ use std::{borrow::Cow, num::NonZeroUsize};
 use lazy_static::lazy_static;
 
 use crate::{
-    chain::{Chain, ChainId, INVALID_CHAIN_ID},
+    chain::{Chain, ChainId},
     context::{Session, SessionSettings},
     liveness_analysis,
     operators::{
@@ -214,10 +214,12 @@ impl SessionOptions {
         for i in 0..sess.operator_bases.len() {
             let op_id = i as OperatorId;
             let op_base = &mut sess.operator_bases[i];
-            if op_base.chain_id == INVALID_CHAIN_ID {
+            let chain_id = if let Some(cid) = op_base.chain_id {
+                cid as usize
+            } else {
                 continue;
-            }
-            let chain = &mut sess.chains[op_base.chain_id as usize];
+            };
+            let chain = &mut sess.chains[chain_id];
             if let OperatorData::Up(up) = &sess.operator_data[i] {
                 if up.err_level.is_none() {
                     let sc_count = up.subchain_count_after;
@@ -261,10 +263,12 @@ impl SessionOptions {
         for i in 0..sess.operator_bases.len() {
             let op_id = i as OperatorId;
             let op_base = &mut sess.operator_bases[i];
-            if op_base.chain_id == INVALID_CHAIN_ID {
+            let chain_id = if let Some(cid) = op_base.chain_id {
+                cid as usize
+            } else {
                 continue;
-            }
-            let chain = &mut sess.chains[op_base.chain_id as usize];
+            };
+            let chain = &mut sess.chains[chain_id];
             match &mut sess.operator_data[i] {
                 OperatorData::Regex(op) => {
                     setup_op_regex(&mut sess.string_store, op)?
@@ -429,7 +433,7 @@ impl SessionOptions {
                         argname: obo.argname,
                         label: obo.label,
                         cli_arg_idx: obo.cli_arg_idx,
-                        chain_id: obo.chain_id.unwrap_or(INVALID_CHAIN_ID),
+                        chain_id: obo.chain_id,
                         append_mode: obo.append_mode,
                         transparent_mode: obo.transparent_mode,
                         // set during setup

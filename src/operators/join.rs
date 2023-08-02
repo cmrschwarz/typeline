@@ -133,7 +133,7 @@ pub fn setup_tf_join<'a>(
         output_stream_val: None,
         // TODO: add a separate setting for this
         stream_len_threshold: sess.session_data.chains
-            [op_base.chain_id as usize]
+            [op_base.chain_id.unwrap() as usize]
             .settings
             .stream_size_threshold,
         stream_value_error: false,

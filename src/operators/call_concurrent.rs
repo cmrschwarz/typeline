@@ -3,11 +3,11 @@ use std::{collections::HashMap, sync::Arc};
 use bstr::ByteSlice;
 
 use crate::{
-    chain::{ChainId, INVALID_CHAIN_ID},
+    chain::ChainId,
     context::{ContextData, SessionSettings, VentureDescription},
     job_session::{
         FieldId, FieldManager, JobData, JobSession, MatchSetId,
-        INVALID_FIELD_ID,
+        DUMMY_INPUT_FIELD_ID,
     },
     liveness_analysis::{
         LivenessData, Var, HEADER_WRITES_OFFSET, READS_OFFSET,
@@ -25,9 +25,7 @@ use crate::{
     ref_iter::AutoDerefIter,
     utils::{
         identity_hasher::BuildIdentityHasher,
-        string_store::{
-            StringStore, StringStoreEntry, INVALID_STRING_STORE_ENTRY,
-        },
+        string_store::{StringStore, StringStoreEntry},
     },
 };
 
@@ -40,9 +38,9 @@ use super::{
 #[derive(Clone)]
 pub struct OpCallConcurrent {
     pub target_name: String,
-    pub target_resolved: ChainId,
+    pub target_resolved: Option<ChainId>,
     // true means write access
-    pub target_accessed_fields: Vec<(StringStoreEntry, bool)>,
+    pub target_accessed_fields: Vec<(Option<StringStoreEntry>, bool)>,
 }
 pub struct RecordBufferFieldMapping {
     source_field_id: FieldId,
@@ -55,10 +53,10 @@ pub struct TfCallConcurrent<'a> {
     pub field_mappings: Vec<RecordBufferFieldMapping>,
     pub buffer: Arc<RecordBuffer>,
     pub apf_idx: ActionProducingFieldIndex,
-    pub target_accessed_fields: &'a Vec<(StringStoreEntry, bool)>,
+    pub target_accessed_fields: &'a Vec<(Option<StringStoreEntry>, bool)>,
 }
 pub struct TfCalleeConcurrent {
-    pub target_fields: Vec<FieldId>,
+    pub target_fields: Vec<Option<FieldId>>,
     pub buffer: Arc<RecordBuffer>,
 }
 
@@ -82,7 +80,7 @@ pub fn parse_op_call_concurrent(
         })?;
     Ok(OperatorData::CallConcurrent(OpCallConcurrent {
         target_name: value_str.to_owned(),
-        target_resolved: INVALID_CHAIN_ID,
+        target_resolved: None,
         target_accessed_fields: Default::default(),
     }))
 }
@@ -104,7 +102,7 @@ pub fn setup_op_call_concurrent(
         .lookup_str(&op.target_name)
         .and_then(|sse| chain_labels.get(&sse))
     {
-        op.target_resolved = *target;
+        op.target_resolved = Some(*target);
         Ok(())
     } else {
         Err(OperatorSetupError::new_s(
@@ -113,11 +111,6 @@ pub fn setup_op_call_concurrent(
         ))
     }
 }
-
-// do not make this public. we use this here internally so we can
-// temporarily insert INPUT_COLUMN_FIELD_NAME into the
-// MatchSet::field_names table while constructing the derived `MatchSet`s
-const INPUT_COLUMN_FIELD_NAME: StringStoreEntry = INVALID_STRING_STORE_ENTRY;
 
 pub fn setup_op_call_concurrent_liveness_data(
     op: &mut OpCallConcurrent,
@@ -134,10 +127,11 @@ pub fn setup_op_call_concurrent_liveness_data(
     {
         let writes = succ_var_data[var_count * HEADER_WRITES_OFFSET + i];
         match ld.vars[i] {
-            Var::Named(name) => op.target_accessed_fields.push((name, writes)),
+            Var::Named(name) => {
+                op.target_accessed_fields.push((Some(name), writes))
+            }
             Var::BBInput => {
-                op.target_accessed_fields
-                    .push((INPUT_COLUMN_FIELD_NAME, writes));
+                op.target_accessed_fields.push((None, writes));
             }
             Var::UnreachableDummyVar => (),
         }
@@ -147,7 +141,7 @@ pub fn setup_op_call_concurrent_liveness_data(
 pub fn create_op_callcc(name: String) -> OperatorData {
     OperatorData::CallConcurrent(OpCallConcurrent {
         target_name: name,
-        target_resolved: INVALID_CHAIN_ID,
+        target_resolved: None,
         target_accessed_fields: Default::default(),
     })
 }
@@ -160,7 +154,7 @@ pub fn setup_tf_call_concurrent<'a>(
 ) -> TransformData<'a> {
     TransformData::CallConcurrent(TfCallConcurrent {
         expanded: false,
-        target_chain: op.target_resolved,
+        target_chain: op.target_resolved.unwrap(),
         field_mappings: Default::default(),
         buffer: Default::default(),
         apf_idx: sess.match_set_mgr.match_sets[tf_state.match_set_id]
@@ -219,30 +213,30 @@ fn setup_target_field_mappings(
     let tf = &sess.tf_mgr.transforms[tf_id];
     let source_match_set = &sess.match_set_mgr.match_sets[tf.match_set_id];
 
-    insert_mapping(
-        &sess.field_mgr,
-        &mut mappings_present,
-        tf.input_field,
-        buf_data,
-        &mut call.field_mappings,
-        None,
-    );
     for (name, _write) in call.target_accessed_fields {
         // PERF: if the field is never written, and we know that the source
         // chain never writes to it aswell, we could theoretically
         // unsafely share the FieldData (and maybe add a flag for soundness)
-        if let Some(source_field_id) =
-            source_match_set.field_name_map.get(name).copied()
-        {
-            insert_mapping(
-                &sess.field_mgr,
-                &mut mappings_present,
-                source_field_id,
-                buf_data,
-                &mut call.field_mappings,
-                Some(*name),
-            );
-        }
+        let field_id = if let Some(name) = name {
+            if let Some(source_field_id) =
+                source_match_set.field_name_map.get(name).copied()
+            {
+                source_field_id
+            } else {
+                continue;
+            }
+        } else {
+            tf.input_field
+        };
+
+        insert_mapping(
+            &sess.field_mgr,
+            &mut mappings_present,
+            field_id,
+            buf_data,
+            &mut call.field_mappings,
+            *name,
+        );
     }
 }
 
@@ -384,17 +378,21 @@ pub fn setup_callee_concurrent(
 ) -> (TransformId, TransformId, bool) {
     let chain_id = sess.job_data.session_data.operator_bases
         [start_op_id as usize]
-        .chain_id;
+        .chain_id
+        .unwrap();
     let chain = &sess.job_data.session_data.chains[chain_id as usize];
     let tf_state = TransformState::new(
-        INVALID_FIELD_ID,
-        INVALID_FIELD_ID,
+        DUMMY_INPUT_FIELD_ID,
+        DUMMY_INPUT_FIELD_ID,
         ms_id,
         chain.settings.default_batch_size,
         None,
         None,
         sess.job_data.tf_mgr.claim_transform_ordering_id(),
     );
+    sess.job_data
+        .field_mgr
+        .inc_field_refcount(DUMMY_INPUT_FIELD_ID, 2);
     let mut callee = TfCalleeConcurrent {
         target_fields: Default::default(),
         buffer,
@@ -409,7 +407,7 @@ pub fn setup_callee_concurrent(
                 *n,
             );
         }
-        callee.target_fields.push(field_id);
+        callee.target_fields.push(Some(field_id));
     }
     drop(buf_data);
     let input_field = callee.target_fields[0];
@@ -418,7 +416,7 @@ pub fn setup_callee_concurrent(
     let (_tf_start, tf_end, end_reachable) = sess.setup_transforms_from_op(
         ms_id,
         start_op_id,
-        input_field,
+        input_field.unwrap(),
         Some(tf_id),
     );
     (tf_id, tf_end, end_reachable)
@@ -433,10 +431,7 @@ pub fn handle_tf_callee_concurrent(
         &sess.field_mgr,
         &mut sess.match_set_mgr,
         tf_id,
-        tfc.target_fields
-            .iter()
-            .copied()
-            .filter(|id| *id != INVALID_FIELD_ID),
+        tfc.target_fields.iter().filter_map(|f| *f),
     );
     let mut buf_data = tfc.buffer.fields.lock().unwrap();
     while buf_data.available_batch_size == 0 && !buf_data.input_done {
@@ -446,11 +441,13 @@ pub fn handle_tf_callee_concurrent(
     let available_batch_size = buf_data.available_batch_size;
     buf_data.available_batch_size = 0;
     let mut any_fields_done = false;
-    for (i, field) in tfc.target_fields.iter_mut().enumerate() {
-        if *field == INVALID_FIELD_ID {
-            continue;
-        }
-        let mut field_tgt = sess.field_mgr.fields[*field].borrow_mut();
+    for (i, field) in tfc
+        .target_fields
+        .iter_mut()
+        .enumerate()
+        .filter_map(|(i, f)| f.map(|f| (i, f)))
+    {
+        let mut field_tgt = sess.field_mgr.fields[field].borrow_mut();
         let field_src =
             &mut buf_data.fields[RecordBufferFieldId::new(i as u32).unwrap()];
         std::mem::swap(&mut field_src.data, unsafe {
@@ -465,11 +462,10 @@ pub fn handle_tf_callee_concurrent(
     tfc.buffer.updates.notify_one();
     if any_fields_done {
         for field in tfc.target_fields.iter_mut() {
-            if *field == INVALID_FIELD_ID {
-                continue;
+            if let Some(f) = field {
+                sess.drop_field_refcount(*f);
+                *field = None;
             }
-            sess.drop_field_refcount(*field);
-            *field = INVALID_FIELD_ID;
         }
     }
     if input_done {

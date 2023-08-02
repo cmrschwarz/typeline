@@ -150,7 +150,10 @@ fn contextualize_op_id(
             "in op {} '{}' of chain {}: {}",
             op_base.offset_in_chain,
             sess.string_store.lookup(op_base.argname),
-            op_base.chain_id,
+            op_base
+                .chain_id
+                .map(|id| id.to_string())
+                .unwrap_or("<unknown chain>".to_owned()),
             msg
         )
     } else {

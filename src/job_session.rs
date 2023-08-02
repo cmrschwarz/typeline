@@ -67,8 +67,7 @@ use crate::{
     ref_iter::AutoDerefIter,
     stream_value::{StreamValue, StreamValueData, StreamValueId},
     utils::{
-        nonzero_ext::NonMaxU32Ext,
-        string_store::{StringStoreEntry, INVALID_STRING_STORE_ENTRY},
+        nonzero_ext::NonMaxU32Ext, string_store::StringStoreEntry,
         universe::Universe,
     },
 };
@@ -105,10 +104,7 @@ pub struct Field {
 }
 
 pub type FieldId = NonMaxU32;
-pub const INVALID_FIELD_ID: FieldId = FieldId::MAX;
 pub const DUMMY_INPUT_FIELD_ID: FieldId = FieldId::MIN;
-pub const CHAIN_INPUT_FIELD_NAME: StringStoreEntry =
-    INVALID_STRING_STORE_ENTRY;
 
 pub type MatchSetId = NonMaxUsize;
 
@@ -573,6 +569,9 @@ impl FieldManager {
     pub fn bump_field_refcount(&self, field_id: FieldId) {
         self.fields[field_id].borrow_mut().ref_count += 1;
     }
+    pub fn inc_field_refcount(&self, field_id: FieldId, n: usize) {
+        self.fields[field_id].borrow_mut().ref_count += n;
+    }
     pub fn register_field_reference(&self, source: FieldId, target: FieldId) {
         self.fields[source].borrow_mut().field_refs.push(target);
         self.fields[target].borrow_mut().ref_count += 1;
@@ -837,12 +836,8 @@ impl<'a> JobSession<'a> {
         let tf = &self.job_data.tf_mgr.transforms[tf_id];
         let tfif = tf.input_field;
         let tfof = tf.output_field;
-        if tfif != INVALID_FIELD_ID {
-            self.job_data.drop_field_refcount(tfif);
-        }
-        if tfof != INVALID_FIELD_ID {
-            self.job_data.drop_field_refcount(tfof);
-        }
+        self.job_data.drop_field_refcount(tfif);
+        self.job_data.drop_field_refcount(tfof);
         #[cfg(feature = "debug_logging")]
         {
             let tf = &self.job_data.tf_mgr.transforms[tf_id];
@@ -871,7 +866,7 @@ impl<'a> JobSession<'a> {
         let start_op =
             &self.job_data.session_data.operator_bases[start_op_id as usize];
         let default_batch_size = self.job_data.session_data.chains
-            [start_op.chain_id as usize]
+            [start_op.chain_id.unwrap() as usize]
             .settings
             .default_batch_size;
         let mut prev_tf = predecessor_tf;
@@ -879,7 +874,7 @@ impl<'a> JobSession<'a> {
         let mut input_field = chain_input_field_id;
         let mut last_output_field = chain_input_field_id;
         let ops = &self.job_data.session_data.chains
-            [start_op.chain_id as usize]
+            [start_op.chain_id.unwrap() as usize]
             .operators[start_op.offset_in_chain as usize..];
         let mut mark_prev_field_as_placeholder = false;
         for op_id in ops {
@@ -911,7 +906,7 @@ impl<'a> JobSession<'a> {
                     self.job_data.match_set_mgr.add_field_name(
                         &self.job_data.field_mgr,
                         input_field,
-                        op.key_interned,
+                        op.key_interned.unwrap(),
                     );
 
                     continue;
@@ -920,7 +915,7 @@ impl<'a> JobSession<'a> {
                     if let Some(field_id) =
                         self.job_data.match_set_mgr.match_sets[ms_id]
                             .field_name_map
-                            .get(&op.key_interned)
+                            .get(&op.key_interned.unwrap())
                             .copied()
                     {
                         input_field = field_id;
@@ -934,7 +929,7 @@ impl<'a> JobSession<'a> {
                         self.job_data.match_set_mgr.add_field_name(
                             &self.job_data.field_mgr,
                             field_id,
-                            op.key_interned,
+                            op.key_interned.unwrap(),
                         );
                         input_field = field_id;
                     }
@@ -1098,7 +1093,7 @@ impl<'a> JobSession<'a> {
         let input_field = pred.output_field;
         let tf_state = TransformState::new(
             input_field,
-            INVALID_FIELD_ID,
+            DUMMY_INPUT_FIELD_ID,
             pred.match_set_id,
             pred.desired_batch_size,
             Some(predecessor_tf_id),
@@ -1107,9 +1102,10 @@ impl<'a> JobSession<'a> {
         );
         pred.successor = Some(tf_id);
         let tf_data = setup_tf_terminator(&mut self.job_data, &tf_state);
-        self.job_data.field_mgr.fields[input_field]
-            .borrow_mut()
-            .ref_count += 1;
+        self.job_data.field_mgr.bump_field_refcount(input_field);
+        self.job_data
+            .field_mgr
+            .bump_field_refcount(DUMMY_INPUT_FIELD_ID);
         self.add_transform(tf_state, tf_data);
     }
     pub fn add_transform(

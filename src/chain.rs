@@ -4,7 +4,6 @@ use crate::{
 };
 
 pub type ChainId = u32;
-pub const INVALID_CHAIN_ID: ChainId = ChainId::MAX;
 
 #[derive(Clone, Copy)]
 pub enum BufferingMode {

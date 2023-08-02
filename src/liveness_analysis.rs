@@ -58,7 +58,7 @@ pub const UNREACHABLE_DUMMY_VAR: VarId = 1;
 
 pub type OpOutputIdx = u32;
 pub const BB_INPUT_OPERATOR_OUTPUT_IDX: OpOutputIdx = BB_INPUT_VAR;
-pub const INVALID_OP_OUTPUT_IDX: OpOutputIdx = UNREACHABLE_DUMMY_VAR;
+pub const DUMMY_FIELD_OUTPUT_IDX: OpOutputIdx = UNREACHABLE_DUMMY_VAR;
 
 pub struct BasicBlock {
     pub chain_id: ChainId,
@@ -103,7 +103,6 @@ pub struct LivenessData {
     pub vars: Vec<Var>,
     pub var_names: HashMap<StringStoreEntry, VarId, BuildIdentityHasher>,
     pub basic_blocks: Vec<BasicBlock>,
-    // for each var id, either an op output id or INVALID_OP_OUTPUT_ID
     pub vars_to_op_outputs_map: Vec<OpOutputIdx>,
     pub operator_liveness_data: Vec<OperatorLivenessData>,
     updates_required: Vec<BasicBlockId>,
@@ -191,7 +190,7 @@ impl LivenessData {
                         }
                     }
                     OperatorData::Key(k) => {
-                        self.add_var_name(k.key_interned);
+                        self.add_var_name(k.key_interned.unwrap());
                     }
                     OperatorData::Call(_) => (),
                     OperatorData::CallConcurrent(_) => (),
@@ -205,7 +204,7 @@ impl LivenessData {
                     OperatorData::Up(_) => (),
                     OperatorData::Nop(_) => (),
                     OperatorData::Select(s) => {
-                        self.add_var_name(s.key_interned);
+                        self.add_var_name(s.key_interned.unwrap());
                     }
                     OperatorData::Format(fmt) => {
                         for r in &fmt.refs_idx {
@@ -294,7 +293,7 @@ impl LivenessData {
                         self.split_bb_at_call(
                             i,
                             op_n,
-                            *target_resolved,
+                            target_resolved.unwrap(),
                             &mut data_size,
                             bits_per_bb,
                         );
@@ -421,7 +420,7 @@ impl LivenessData {
             let used_input_field = if op_base.append_mode
                 && last_output_field == BB_INPUT_OPERATOR_OUTPUT_IDX
             {
-                INVALID_OP_OUTPUT_IDX
+                DUMMY_FIELD_OUTPUT_IDX
             } else {
                 input_field
             };
@@ -439,14 +438,15 @@ impl LivenessData {
                     break;
                 }
                 OperatorData::Key(key) => {
-                    let tgt_var = self.var_names[&key.key_interned];
+                    let tgt_var = self.var_names[&key.key_interned.unwrap()];
                     debug_assert!(!op_base.append_mode);
                     self.vars_to_op_outputs_map[tgt_var as usize] =
                         used_input_field;
                     continue;
                 }
                 OperatorData::Select(select) => {
-                    let mut var = self.var_names[&select.key_interned];
+                    let mut var =
+                        self.var_names[&select.key_interned.unwrap()];
                     // resolve renames
                     loop {
                         input_field =
@@ -530,7 +530,7 @@ impl LivenessData {
                 OperatorData::Next(_) => unreachable!(),
                 OperatorData::Up(_) => unreachable!(),
             }
-            if input_accessed && used_input_field != INVALID_OP_OUTPUT_IDX {
+            if input_accessed {
                 self.access_field(
                     used_input_field,
                     any_writes_so_far,

@@ -5,8 +5,6 @@ use std::{
 
 pub type StringStoreEntry = NonZeroU32;
 
-pub const INVALID_STRING_STORE_ENTRY: NonZeroU32 = NonZeroU32::MAX;
-
 #[derive(Clone, Copy)]
 struct StrPtr {
     data: *const u8,
@@ -172,7 +170,6 @@ impl StringStore {
         let id =
             StringStoreEntry::try_from(self.table_idx_to_str.len() as u32)
                 .unwrap();
-        assert!(id < INVALID_STRING_STORE_ENTRY);
         self.table_str_to_idx.insert(str_ptr, id);
         id
     }
