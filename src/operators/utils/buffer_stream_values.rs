@@ -1,9 +1,9 @@
 use crate::record_data::{
     field_data::field_value_flags,
     iters::FieldIterator,
-    match_set_manager::MatchSetManager,
+    match_set::MatchSetManager,
     ref_iter::{AutoDerefIter, RefAwareStreamValueIter},
-    stream_value_manager::StreamValueManager,
+    stream_value::StreamValueManager,
     typed::TypedSlice,
 };
 

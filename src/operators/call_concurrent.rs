@@ -10,14 +10,12 @@ use crate::{
         LivenessData, Var, HEADER_WRITES_OFFSET, READS_OFFSET,
     },
     options::argument::CliArgIdx,
-    record_data::field_manager::{
-        FieldId, FieldManager, DUMMY_INPUT_FIELD_ID,
-    },
+    record_data::field::{FieldId, FieldManager, DUMMY_INPUT_FIELD_ID},
     record_data::{
         command_buffer::{ActionProducingFieldIndex, FieldActionKind},
         field_data::FieldData,
         iter_hall::IterId,
-        match_set_manager::MatchSetId,
+        match_set::MatchSetId,
         record_buffer::{
             RecordBuffer, RecordBufferData, RecordBufferField,
             RecordBufferFieldId,

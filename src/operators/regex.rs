@@ -14,10 +14,10 @@ use crate::{
         command_buffer::{
             ActionProducingFieldIndex, CommandBuffer, FieldActionKind,
         },
+        field::{Field, FieldId},
         field_data::{
             field_value_flags, FieldReference, FieldValueKind, RunLength,
         },
-        field_manager::{Field, FieldId},
         iter_hall::IterId,
         iters::FieldIterator,
         push_interface::{PushInterface, VaryingTypeInserter},
@@ -25,7 +25,7 @@ use crate::{
             AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter,
             RefAwareInlineTextIter, RefAwareStreamValueIter,
         },
-        stream_value_manager::{StreamValueData, StreamValueId},
+        stream_value::{StreamValueData, StreamValueId},
         typed::TypedSlice,
         typed_iters::TypedSliceIter,
     },

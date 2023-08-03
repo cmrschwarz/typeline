@@ -8,15 +8,15 @@
 // with annotating every little piece of it.
 
 pub mod command_buffer;
+pub mod field;
 pub mod field_data;
-pub mod field_manager;
 pub mod iter_hall;
 pub mod iters;
-pub mod match_set_manager;
+pub mod match_set;
 pub mod push_interface;
 pub mod record_buffer;
 pub mod record_set;
 pub mod ref_iter;
-pub mod stream_value_manager;
+pub mod stream_value;
 pub mod typed;
 pub mod typed_iters;

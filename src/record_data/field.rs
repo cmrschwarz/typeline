@@ -16,7 +16,7 @@ use super::{
     field_data::FieldData,
     iter_hall::{IterHall, IterId},
     iters::{FieldIterator, Iter},
-    match_set_manager::{MatchSetId, MatchSetManager},
+    match_set::{MatchSetId, MatchSetManager},
     ref_iter::AutoDerefIter,
 };
 

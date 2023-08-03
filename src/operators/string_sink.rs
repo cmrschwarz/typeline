@@ -12,8 +12,8 @@ use crate::{
     job_session::JobData,
     operators::print::error_to_string,
     record_data::{
+        field::Field,
         field_data::{field_value_flags, FieldValueKind},
-        field_manager::Field,
         iter_hall::IterId,
         iters::FieldIterator,
         push_interface::PushInterface,
@@ -21,7 +21,7 @@ use crate::{
             AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter,
             RefAwareInlineTextIter, RefAwareStreamValueIter,
         },
-        stream_value_manager::{StreamValue, StreamValueData, StreamValueId},
+        stream_value::{StreamValue, StreamValueData, StreamValueId},
         typed::TypedSlice,
         typed_iters::TypedSliceIter,
     },

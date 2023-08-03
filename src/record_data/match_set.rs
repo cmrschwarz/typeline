@@ -12,7 +12,7 @@ use crate::{
 
 use super::{
     command_buffer::CommandBuffer,
-    field_manager::{FieldId, FieldManager},
+    field::{FieldId, FieldManager},
 };
 
 pub type MatchSetId = NonMaxUsize;

@@ -20,7 +20,7 @@ use crate::{
             FieldValueSize, INLINE_STR_MAX_LEN,
         },
         push_interface::PushInterface,
-        stream_value_manager::{StreamValue, StreamValueData, StreamValueId},
+        stream_value::{StreamValue, StreamValueData, StreamValueId},
     },
 };
 

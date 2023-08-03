@@ -7,7 +7,7 @@ use super::{
         Success,
     },
     iters::FieldDataRef,
-    stream_value_manager::StreamValueId,
+    stream_value::StreamValueId,
 };
 use crate::operators::errors::OperatorApplicationError;
 use std::ops::Deref;

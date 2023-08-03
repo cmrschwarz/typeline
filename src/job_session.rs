@@ -56,10 +56,10 @@ use crate::{
         },
     },
     record_data::{
-        field_manager::{Field, FieldId, FieldManager, DUMMY_INPUT_FIELD_ID},
-        match_set_manager::{MatchSetId, MatchSetManager},
+        field::{Field, FieldId, FieldManager, DUMMY_INPUT_FIELD_ID},
+        match_set::{MatchSetId, MatchSetManager},
         record_buffer::RecordBuffer,
-        stream_value_manager::{StreamValueManager, StreamValueUpdate},
+        stream_value::{StreamValueManager, StreamValueUpdate},
     },
     utils::universe::Universe,
 };

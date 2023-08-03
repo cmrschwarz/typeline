@@ -20,7 +20,7 @@ use crate::{
             RefAwareInlineTextIter, RefAwareStreamValueIter,
             RefAwareUnfoldIterRunLength,
         },
-        stream_value_manager::{StreamValue, StreamValueData, StreamValueId},
+        stream_value::{StreamValue, StreamValueData, StreamValueId},
         typed::TypedSlice,
         typed_iters::TypedSliceIter,
     },

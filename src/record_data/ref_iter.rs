@@ -1,9 +1,9 @@
 use super::{
-    field_manager::FieldManager,
-    field_manager::FIELD_REF_LOOKUP_ITER_ID,
-    field_manager::{Field, FieldId},
-    match_set_manager::MatchSetManager,
-    stream_value_manager::StreamValueId,
+    field::FieldManager,
+    field::FIELD_REF_LOOKUP_ITER_ID,
+    field::{Field, FieldId},
+    match_set::MatchSetManager,
+    stream_value::StreamValueId,
 };
 
 use crate::record_data::{
@@ -33,7 +33,8 @@ impl<'a> Clone for RefIter<'a> {
             last_field_id: self.last_field_id,
             data_iter: self.data_iter.clone(),
             field_ref: if self.field_ref.is_some() {
-                self.last_field_id.map(|f| self.field_mgr.fields[f].borrow())
+                self.last_field_id
+                    .map(|f| self.field_mgr.fields[f].borrow())
             } else {
                 None
             },
@@ -657,10 +658,8 @@ impl<I: Iterator<Item = (T, RunLength, usize)>, T: Clone> Iterator
 #[cfg(test)]
 mod ref_iter_tests {
     use super::super::{
-        field_manager::{
-            Field, FieldId, FieldManager, FIELD_REF_LOOKUP_ITER_ID,
-        },
-        match_set_manager::{MatchSet, MatchSetManager},
+        field::{Field, FieldId, FieldManager, FIELD_REF_LOOKUP_ITER_ID},
+        match_set::{MatchSet, MatchSetManager},
         ref_iter::{AutoDerefIter, RefAwareInlineTextIter},
     };
     use crate::record_data::{

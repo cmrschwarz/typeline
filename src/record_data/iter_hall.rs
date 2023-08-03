@@ -10,7 +10,7 @@ use super::{
         FieldValueKind, RunLength,
     },
     iters::{FieldDataRef, FieldIterator, Iter},
-    match_set_manager::MatchSetManager,
+    match_set::MatchSetManager,
     push_interface::{
         FieldReferenceInserter, FixedSizeTypeInserter, InlineBytesInserter,
         InlineStringInserter, IntegerInserter, RawPushInterface,

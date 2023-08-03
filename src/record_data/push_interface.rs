@@ -5,7 +5,7 @@ use super::field_data::{
     FieldValueFormat, FieldValueHeader, FieldValueKind, FieldValueSize,
     RunLength, MAX_FIELD_ALIGN,
 };
-use super::stream_value_manager::StreamValueId;
+use super::stream_value::StreamValueId;
 use crate::{
     operators::errors::OperatorApplicationError,
     record_data::field_data::{

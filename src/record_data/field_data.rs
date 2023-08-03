@@ -6,7 +6,7 @@ use std::{
     u8,
 };
 
-use super::match_set_manager::MatchSetManager;
+use super::match_set::MatchSetManager;
 use super::ref_iter::{
     AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter,
     RefAwareInlineTextIter,
@@ -19,10 +19,10 @@ use crate::{
 use self::field_value_flags::{BYTES_ARE_UTF8, SHARED_VALUE};
 
 use super::{
-    field_manager::FieldId,
+    field::FieldId,
     iters::{FieldIterator, Iter},
     push_interface::PushInterface,
-    stream_value_manager::StreamValueId,
+    stream_value::StreamValueId,
     typed::TypedSlice,
 };
 

@@ -6,7 +6,7 @@ use crate::{
     chain::ChainId,
     job_session::{JobData, JobSession},
     options::argument::CliArgIdx,
-    record_data::{field_manager::FieldId, match_set_manager::MatchSetId},
+    record_data::{field::FieldId, match_set::MatchSetId},
     utils::{
         identity_hasher::BuildIdentityHasher,
         string_store::{StringStore, StringStoreEntry},

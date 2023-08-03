@@ -9,19 +9,19 @@ use crate::{
     job_session::JobData,
     options::argument::CliArgIdx,
     record_data::{
+        field::{Field, FieldId, FieldManager},
         field_data::{
             field_value_flags, FieldValueKind, RunLength, INLINE_STR_MAX_LEN,
         },
-        field_manager::{Field, FieldId, FieldManager},
         iter_hall::IterId,
         iters::FieldIterator,
-        match_set_manager::MatchSetManager,
+        match_set::MatchSetManager,
         push_interface::{PushInterface, RawPushInterface},
         ref_iter::{
             AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter,
             RefAwareInlineTextIter, RefAwareStreamValueIter,
         },
-        stream_value_manager::{
+        stream_value::{
             StreamValue, StreamValueData, StreamValueId, StreamValueManager,
         },
         typed::TypedSlice,

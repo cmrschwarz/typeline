@@ -10,8 +10,8 @@ use crate::{
     },
     options::argument::CliArgIdx,
     record_data::{
+        field::Field,
         field_data::{field_value_flags, FieldValueKind, INLINE_STR_MAX_LEN},
-        field_manager::Field,
         iter_hall::IterId,
         iters::FieldIterator,
         push_interface::PushInterface,
@@ -19,7 +19,7 @@ use crate::{
             AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter,
             RefAwareInlineTextIter, RefAwareStreamValueIter,
         },
-        stream_value_manager::{
+        stream_value::{
             StreamValue, StreamValueData, StreamValueId, StreamValueManager,
         },
         typed::TypedSlice,

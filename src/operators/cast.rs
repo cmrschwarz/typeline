@@ -8,7 +8,7 @@ use crate::{
         iters::FieldIterator,
         push_interface::PushInterface,
         ref_iter::AutoDerefIter,
-        stream_value_manager::{StreamValueData, StreamValueId},
+        stream_value::{StreamValueData, StreamValueId},
         typed::TypedSlice,
         typed_iters::TypedSliceIter,
     },

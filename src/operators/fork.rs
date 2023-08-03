@@ -10,7 +10,7 @@ use crate::{
     liveness_analysis::LivenessData,
     options::argument::CliArgIdx,
     record_data::{
-        field_manager::{FieldId, DUMMY_INPUT_FIELD_ID},
+        field::{FieldId, DUMMY_INPUT_FIELD_ID},
         iter_hall::{IterHall, IterId},
         iters::FieldIterator,
         ref_iter::AutoDerefIter,

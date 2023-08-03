@@ -10,7 +10,7 @@ use crate::{
     job_session::{JobData, JobSession},
     liveness_analysis::{LivenessData, LOCAL_SLOTS_PER_BASIC_BLOCK},
     options::argument::CliArgIdx,
-    record_data::field_manager::FieldId,
+    record_data::field::FieldId,
     utils::identity_hasher::BuildIdentityHasher,
 };
 
