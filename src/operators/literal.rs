@@ -8,7 +8,7 @@ use crate::{
     job_session::JobData,
     options::argument::CliArgIdx,
     record_data::push_interface::PushInterface,
-    stream_value::{StreamValue, StreamValueData},
+    record_data::stream_value_manager::{StreamValue, StreamValueData},
 };
 
 use super::{

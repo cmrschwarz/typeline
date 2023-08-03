@@ -5,24 +5,25 @@ use bstr::ByteSlice;
 use crate::{
     chain::ChainId,
     context::{ContextData, SessionSettings, VentureDescription},
-    job_session::{
-        FieldId, FieldManager, JobData, JobSession, MatchSetId,
-        DUMMY_INPUT_FIELD_ID,
-    },
+    job_session::{JobData, JobSession},
     liveness_analysis::{
         LivenessData, Var, HEADER_WRITES_OFFSET, READS_OFFSET,
     },
     options::argument::CliArgIdx,
+    record_data::field_manager::{
+        FieldId, FieldManager, DUMMY_INPUT_FIELD_ID,
+    },
     record_data::{
         command_buffer::{ActionProducingFieldIndex, FieldActionKind},
         field_data::FieldData,
         iter_hall::IterId,
+        match_set_manager::MatchSetId,
         record_buffer::{
             RecordBuffer, RecordBufferData, RecordBufferField,
             RecordBufferFieldId,
         },
+        ref_iter::AutoDerefIter,
     },
-    ref_iter::AutoDerefIter,
     utils::{
         identity_hasher::BuildIdentityHasher,
         string_store::{StringStore, StringStoreEntry},
@@ -182,14 +183,12 @@ fn insert_mapping(
         std::collections::hash_map::Entry::Vacant(e) => {
             e.insert(field_mappings.len());
             field_mgr.bump_field_refcount(source_field_id);
-            let buf_field =
-                buf_data.fields.claim_with_value(RecordBufferField {
-                    refcount: 1,
-                    names: name
-                        .map(|name| smallvec::smallvec![name])
-                        .unwrap_or_default(),
-                    data: Default::default(),
-                });
+            let mut rbf = RecordBufferField::default();
+            rbf.refcount = 1;
+            rbf.names = name
+                .map(|name| smallvec::smallvec![name])
+                .unwrap_or_default();
+            let buf_field = buf_data.fields.claim_with_value(rbf);
             field_mappings.push(RecordBufferFieldMapping {
                 source_field_id,
                 source_field_iter: field_mgr.fields[source_field_id]
@@ -308,7 +307,7 @@ pub fn handle_tf_call_concurrent(
         // referenced fields into the right ids instead?
         copy_required |= !src_field.field_refs.is_empty();
 
-        let tgt_data = &mut buf_data.fields[mapping.buf_field].data;
+        let tgt_data = buf_data.fields[mapping.buf_field].get_data_mut();
         if copy_required {
             let mut iter = AutoDerefIter::new(
                 &sess.field_mgr,
@@ -453,7 +452,7 @@ pub fn handle_tf_callee_concurrent(
         let mut field_tgt = sess.field_mgr.fields[field].borrow_mut();
         let field_src =
             &mut buf_data.fields[RecordBufferFieldId::new(i as u32).unwrap()];
-        std::mem::swap(&mut field_src.data, unsafe {
+        std::mem::swap(field_src.get_data_mut(), unsafe {
             field_tgt.field_data.raw()
         });
         if input_done || field_tgt.ref_count == 1 {

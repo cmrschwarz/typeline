@@ -8,7 +8,7 @@ use std::{borrow::Cow, cell::RefMut};
 use std::num::NonZeroUsize;
 
 use crate::{
-    job_session::{Field, FieldId, JobData},
+    job_session::JobData,
     options::argument::CliArgIdx,
     record_data::{
         command_buffer::{
@@ -17,17 +17,18 @@ use crate::{
         field_data::{
             field_value_flags, FieldReference, FieldValueKind, RunLength,
         },
+        field_manager::{Field, FieldId},
         iter_hall::IterId,
         iters::FieldIterator,
         push_interface::{PushInterface, VaryingTypeInserter},
+        ref_iter::{
+            AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter,
+            RefAwareInlineTextIter, RefAwareStreamValueIter,
+        },
+        stream_value_manager::{StreamValueData, StreamValueId},
         typed::TypedSlice,
         typed_iters::TypedSliceIter,
     },
-    ref_iter::{
-        AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter,
-        RefAwareInlineTextIter, RefAwareStreamValueIter,
-    },
-    stream_value::{StreamValueData, StreamValueId},
     utils::{
         int_string_conversions::{
             i64_to_str, usize_to_str, USIZE_MAX_DECIMAL_DIGITS,

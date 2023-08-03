@@ -2,10 +2,7 @@ use std::cell::Cell;
 
 use nonmax::NonMaxU32;
 
-use crate::{
-    job_session::MatchSetManager, ref_iter::AutoDerefIter,
-    utils::universe::Universe,
-};
+use crate::utils::universe::Universe;
 
 use super::{
     field_data::{
@@ -13,11 +10,13 @@ use super::{
         FieldValueKind, RunLength,
     },
     iters::{FieldDataRef, FieldIterator, Iter},
+    match_set_manager::MatchSetManager,
     push_interface::{
         FieldReferenceInserter, FixedSizeTypeInserter, InlineBytesInserter,
         InlineStringInserter, IntegerInserter, RawPushInterface,
         VariableSizeTypeInserter, VaryingTypeInserter,
     },
+    ref_iter::AutoDerefIter,
 };
 
 pub type IterId = NonMaxU32;

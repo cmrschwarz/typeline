@@ -7,10 +7,9 @@ use super::{
         Success,
     },
     iters::FieldDataRef,
+    stream_value_manager::StreamValueId,
 };
-use crate::{
-    operators::errors::OperatorApplicationError, stream_value::StreamValueId,
-};
+use crate::operators::errors::OperatorApplicationError;
 use std::ops::Deref;
 
 pub enum TypedValue<'a> {

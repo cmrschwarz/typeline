@@ -1,7 +1,10 @@
+use std::collections::VecDeque;
+
 use smallvec::SmallVec;
 
-use crate::operators::{
-    errors::OperatorApplicationError, transform::TransformId,
+use crate::{
+    operators::{errors::OperatorApplicationError, transform::TransformId},
+    utils::universe::Universe,
 };
 
 #[derive(Clone)]
@@ -17,6 +20,12 @@ pub enum StreamValueData {
     // ArrayChunk(FieldData),
     // ArrayBuffer(FieldData),
     // ArrayFile(File, File),
+}
+
+pub struct StreamValueUpdate {
+    pub sv_id: StreamValueId,
+    pub tf_id: TransformId,
+    pub custom: usize,
 }
 
 pub struct StreamValueSubscription {
@@ -76,3 +85,43 @@ impl StreamValue {
 }
 
 pub type StreamValueId = usize;
+
+#[derive(Default)]
+pub struct StreamValueManager {
+    pub stream_values: Universe<StreamValueId, StreamValue>,
+    pub updates: VecDeque<StreamValueUpdate>,
+}
+
+impl StreamValueManager {
+    pub fn inform_stream_value_subscribers(&mut self, sv_id: StreamValueId) {
+        let sv = &self.stream_values[sv_id];
+        for sub in &sv.subscribers {
+            if !sub.notify_only_once_done || sv.done {
+                self.updates.push_back(StreamValueUpdate {
+                    sv_id,
+                    tf_id: sub.tf_id,
+                    custom: sub.custom_data,
+                });
+            }
+        }
+    }
+    pub fn drop_field_value_subscription(
+        &mut self,
+        sv_id: StreamValueId,
+        tf_id_to_remove: Option<TransformId>,
+    ) {
+        let sv = &mut self.stream_values[sv_id];
+        sv.ref_count -= 1;
+        if sv.ref_count == 0 {
+            sv.data = StreamValueData::Dropped;
+            self.stream_values.release(sv_id);
+        } else if let Some(tf_id) = tf_id_to_remove {
+            sv.subscribers.swap_remove(
+                sv.subscribers
+                    .iter()
+                    .position(|sub| sub.tf_id == tf_id)
+                    .unwrap(),
+            );
+        }
+    }
+}

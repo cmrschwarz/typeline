@@ -1,3 +1,4 @@
+use std::ops::Deref;
 use std::{
     collections::HashMap,
     mem::{align_of, ManuallyDrop},
@@ -5,24 +6,23 @@ use std::{
     u8,
 };
 
-use std::ops::Deref;
-
+use super::match_set_manager::MatchSetManager;
+use super::ref_iter::{
+    AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter,
+    RefAwareInlineTextIter,
+};
 use crate::{
-    job_session::{FieldId, MatchSetManager},
     operators::errors::OperatorApplicationError,
-    ref_iter::{
-        AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter,
-        RefAwareInlineTextIter,
-    },
-    stream_value::StreamValueId,
     utils::{aligned_buf::AlignedBuf, string_store::StringStoreEntry},
 };
 
 use self::field_value_flags::{BYTES_ARE_UTF8, SHARED_VALUE};
 
 use super::{
+    field_manager::FieldId,
     iters::{FieldIterator, Iter},
     push_interface::PushInterface,
+    stream_value_manager::StreamValueId,
     typed::TypedSlice,
 };
 

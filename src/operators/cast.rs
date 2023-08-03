@@ -7,11 +7,11 @@ use crate::{
         iter_hall::IterId,
         iters::FieldIterator,
         push_interface::PushInterface,
+        ref_iter::AutoDerefIter,
+        stream_value_manager::{StreamValueData, StreamValueId},
         typed::TypedSlice,
         typed_iters::TypedSliceIter,
     },
-    ref_iter::AutoDerefIter,
-    stream_value::{StreamValueData, StreamValueId},
     utils::encoding::{
         self, utf8_surrocate_escape, UTF8_REPLACEMENT_CHARACTER,
     },

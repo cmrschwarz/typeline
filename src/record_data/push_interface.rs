@@ -1,19 +1,18 @@
 use std::mem::ManuallyDrop;
 
+use super::field_data::{
+    field_value_flags, FieldData, FieldReference, FieldValueFlags,
+    FieldValueFormat, FieldValueHeader, FieldValueKind, FieldValueSize,
+    RunLength, MAX_FIELD_ALIGN,
+};
+use super::stream_value_manager::StreamValueId;
 use crate::{
     operators::errors::OperatorApplicationError,
     record_data::field_data::{
         field_value_flags::{BYTES_ARE_UTF8, DELETED, SHARED_VALUE},
         INLINE_STR_MAX_LEN,
     },
-    stream_value::StreamValueId,
     utils::as_u8_slice,
-};
-
-use super::field_data::{
-    field_value_flags, FieldData, FieldReference, FieldValueFlags,
-    FieldValueFormat, FieldValueHeader, FieldValueKind, FieldValueSize,
-    RunLength, MAX_FIELD_ALIGN,
 };
 
 pub unsafe trait RawPushInterface {

@@ -242,7 +242,7 @@ impl CommandBuffer {
         self.action_producing_fields[apf_idx].merged_action_lists[0]
             .push_action_with_usize_rl(kind, field_idx, run_length);
     }
-    pub fn execute_for_iter_hall<'a>(
+    pub fn execute_for_iter_hall(
         &mut self,
         field_id: usize, // for debug logging only
         iter_hall: &mut IterHall,

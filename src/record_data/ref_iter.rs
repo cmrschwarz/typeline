@@ -1,18 +1,19 @@
-use crate::{
-    job_session::{
-        Field, FieldId, FieldManager, MatchSetManager,
-        FIELD_REF_LOOKUP_ITER_ID,
+use super::{
+    field_manager::FieldManager,
+    field_manager::FIELD_REF_LOOKUP_ITER_ID,
+    field_manager::{Field, FieldId},
+    match_set_manager::MatchSetManager,
+    stream_value_manager::StreamValueId,
+};
+
+use crate::record_data::{
+    field_data::{
+        field_value_flags::FieldValueFlags, FieldData, FieldReference,
+        FieldValueHeader, RunLength,
     },
-    record_data::{
-        field_data::{
-            field_value_flags::FieldValueFlags, FieldData, FieldReference,
-            FieldValueHeader, RunLength,
-        },
-        iters::{FieldIterator, Iter},
-        typed::{TypedRange, TypedSlice, TypedValue, ValidTypedRange},
-        typed_iters::{InlineBytesIter, TypedSliceIter},
-    },
-    stream_value::StreamValueId,
+    iters::{FieldIterator, Iter},
+    typed::{TypedRange, TypedSlice, TypedValue, ValidTypedRange},
+    typed_iters::{InlineBytesIter, TypedSliceIter},
 };
 use std::cell::Ref;
 
@@ -32,8 +33,7 @@ impl<'a> Clone for RefIter<'a> {
             last_field_id: self.last_field_id,
             data_iter: self.data_iter.clone(),
             field_ref: if self.field_ref.is_some() {
-                self.last_field_id
-                    .and_then(|f| Some(self.field_mgr.fields[f].borrow()))
+                self.last_field_id.map(|f| self.field_mgr.fields[f].borrow())
             } else {
                 None
             },
@@ -656,23 +656,22 @@ impl<I: Iterator<Item = (T, RunLength, usize)>, T: Clone> Iterator
 
 #[cfg(test)]
 mod ref_iter_tests {
-    use std::cell::RefCell;
-
-    use crate::{
-        job_session::{
-            Field, FieldId, FieldManager, MatchSet, MatchSetManager,
-            FIELD_REF_LOOKUP_ITER_ID,
+    use super::super::{
+        field_manager::{
+            Field, FieldId, FieldManager, FIELD_REF_LOOKUP_ITER_ID,
         },
-        record_data::{
-            field_data::{
-                field_value_flags, FieldData, FieldReference,
-                FieldValueFormat, FieldValueHeader, FieldValueKind, RunLength,
-            },
-            push_interface::PushInterface,
-            typed::TypedSlice,
-        },
+        match_set_manager::{MatchSet, MatchSetManager},
         ref_iter::{AutoDerefIter, RefAwareInlineTextIter},
     };
+    use crate::record_data::{
+        field_data::{
+            field_value_flags, FieldData, FieldReference, FieldValueFormat,
+            FieldValueHeader, FieldValueKind, RunLength,
+        },
+        push_interface::PushInterface,
+        typed::TypedSlice,
+    };
+    use std::cell::RefCell;
 
     fn push_field(
         field_mgr: &mut FieldManager,

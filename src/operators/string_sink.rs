@@ -9,21 +9,22 @@ use bstr::ByteSlice;
 use smallstr::SmallString;
 
 use crate::{
-    job_session::{Field, JobData},
+    job_session::JobData,
     operators::print::error_to_string,
     record_data::{
         field_data::{field_value_flags, FieldValueKind},
+        field_manager::Field,
         iter_hall::IterId,
         iters::FieldIterator,
         push_interface::PushInterface,
+        ref_iter::{
+            AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter,
+            RefAwareInlineTextIter, RefAwareStreamValueIter,
+        },
+        stream_value_manager::{StreamValue, StreamValueData, StreamValueId},
         typed::TypedSlice,
         typed_iters::TypedSliceIter,
     },
-    ref_iter::{
-        AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter,
-        RefAwareInlineTextIter, RefAwareStreamValueIter,
-    },
-    stream_value::{StreamValue, StreamValueData, StreamValueId},
     utils::{
         identity_hasher::BuildIdentityHasher,
         int_string_conversions::i64_to_str, universe::CountedUniverse,

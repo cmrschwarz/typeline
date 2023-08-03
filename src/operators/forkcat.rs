@@ -7,9 +7,10 @@ use bitvec::vec::BitVec;
 
 use crate::{
     chain::Chain,
-    job_session::{FieldId, JobData, JobSession},
+    job_session::{JobData, JobSession},
     liveness_analysis::{LivenessData, LOCAL_SLOTS_PER_BASIC_BLOCK},
     options::argument::CliArgIdx,
+    record_data::field_manager::FieldId,
     utils::identity_hasher::BuildIdentityHasher,
 };
 
@@ -164,9 +165,9 @@ fn expand_for_subchain(
             } else {
                 let target_field_id =
                     sess.job_data.field_mgr.add_field(tgt_ms_id, None);
-                let mut tgt = sess.job_data.field_mgr.fields[target_field_id]
-                    .borrow_mut();
-                tgt.added_as_placeholder_by_tf = Some(tf_id);
+                //let mut tgt = sess.job_data.field_mgr.fields[target_field_id]
+                //    .borrow_mut();
+                //tgt.added_as_placeholder_by_tf = Some(tf_id);
                 vacant.insert(target_field_id);
                 continue;
             };

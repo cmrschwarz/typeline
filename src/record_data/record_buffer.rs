@@ -1,4 +1,7 @@
-use std::sync::{Condvar, Mutex};
+use std::{
+    cell::UnsafeCell,
+    sync::{Condvar, Mutex},
+};
 
 use nonmax::NonMaxU32;
 use smallvec::SmallVec;
@@ -7,10 +10,17 @@ use crate::utils::{string_store::StringStoreEntry, universe::Universe};
 
 use super::field_data::FieldData;
 
+#[derive(Default)]
 pub struct RecordBufferField {
     pub refcount: usize,
     pub names: SmallVec<[StringStoreEntry; 4]>,
-    pub data: FieldData,
+    data: UnsafeCell<FieldData>,
+}
+
+impl RecordBufferField {
+    pub fn get_data_mut(&mut self) -> &mut FieldData {
+        self.data.get_mut()
+    }
 }
 
 #[derive(Default)]

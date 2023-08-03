@@ -4,8 +4,9 @@ use bstr::ByteSlice;
 
 use crate::{
     chain::ChainId,
-    job_session::{FieldId, JobData, JobSession, MatchSetId},
+    job_session::{JobData, JobSession},
     options::argument::CliArgIdx,
+    record_data::{field_manager::FieldId, match_set_manager::MatchSetId},
     utils::{
         identity_hasher::BuildIdentityHasher,
         string_store::{StringStore, StringStoreEntry},

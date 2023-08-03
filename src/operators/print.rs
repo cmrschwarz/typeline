@@ -15,15 +15,15 @@ use crate::{
         iter_hall::IterId,
         iters::{FieldIterator, UnfoldIterRunLength},
         push_interface::PushInterface,
+        ref_iter::{
+            AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter,
+            RefAwareInlineTextIter, RefAwareStreamValueIter,
+            RefAwareUnfoldIterRunLength,
+        },
+        stream_value_manager::{StreamValue, StreamValueData, StreamValueId},
         typed::TypedSlice,
         typed_iters::TypedSliceIter,
     },
-    ref_iter::{
-        AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter,
-        RefAwareInlineTextIter, RefAwareStreamValueIter,
-        RefAwareUnfoldIterRunLength,
-    },
-    stream_value::{StreamValue, StreamValueData, StreamValueId},
     utils::int_string_conversions::i64_to_str,
 };
 

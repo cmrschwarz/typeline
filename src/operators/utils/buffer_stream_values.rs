@@ -1,9 +1,10 @@
-use crate::{
-    job_session::{MatchSetManager, StreamValueManager},
-    record_data::{
-        field_data::field_value_flags, iters::FieldIterator, typed::TypedSlice,
-    },
+use crate::record_data::{
+    field_data::field_value_flags,
+    iters::FieldIterator,
+    match_set_manager::MatchSetManager,
     ref_iter::{AutoDerefIter, RefAwareStreamValueIter},
+    stream_value_manager::StreamValueManager,
+    typed::TypedSlice,
 };
 
 pub fn buffer_remaining_stream_values_in_sv_iter(

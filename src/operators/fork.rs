@@ -6,14 +6,15 @@ use std::{
 use crate::{
     chain::Chain,
     context::ContextData,
-    job_session::{FieldId, JobData, JobSession, DUMMY_INPUT_FIELD_ID},
+    job_session::{JobData, JobSession},
     liveness_analysis::LivenessData,
     options::argument::CliArgIdx,
     record_data::{
+        field_manager::{FieldId, DUMMY_INPUT_FIELD_ID},
         iter_hall::{IterHall, IterId},
         iters::FieldIterator,
+        ref_iter::AutoDerefIter,
     },
-    ref_iter::AutoDerefIter,
     utils::identity_hasher::BuildIdentityHasher,
 };
 
@@ -260,10 +261,10 @@ pub(crate) fn handle_fork_expansion(
                 } else {
                     let target_field_id =
                         sess.job_data.field_mgr.add_field(target_ms_id, None);
-                    let mut tgt = sess.job_data.field_mgr.fields
-                        [target_field_id]
-                        .borrow_mut();
-                    tgt.added_as_placeholder_by_tf = Some(tf_id);
+                    //let mut tgt = sess.job_data.field_mgr.fields
+                    //    [target_field_id]
+                    //    .borrow_mut();
+                    // tgt.added_as_placeholder_by_tf = Some(tf_id);
                     vacant.insert(target_field_id);
                     continue;
                 };

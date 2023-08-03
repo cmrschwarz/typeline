@@ -3,7 +3,7 @@ use regex::Regex;
 use smallstr::SmallString;
 
 use crate::{
-    job_session::{Field, JobData, StreamValueManager},
+    job_session::JobData,
     operators::utils::buffer_stream_values::{
         buffer_remaining_stream_values_in_auto_deref_iter,
         buffer_remaining_stream_values_in_sv_iter,
@@ -11,17 +11,20 @@ use crate::{
     options::argument::CliArgIdx,
     record_data::{
         field_data::{field_value_flags, FieldValueKind, INLINE_STR_MAX_LEN},
+        field_manager::Field,
         iter_hall::IterId,
         iters::FieldIterator,
         push_interface::PushInterface,
+        ref_iter::{
+            AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter,
+            RefAwareInlineTextIter, RefAwareStreamValueIter,
+        },
+        stream_value_manager::{
+            StreamValue, StreamValueData, StreamValueId, StreamValueManager,
+        },
         typed::TypedSlice,
         typed_iters::TypedSliceIter,
     },
-    ref_iter::{
-        AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter,
-        RefAwareInlineTextIter, RefAwareStreamValueIter,
-    },
-    stream_value::{StreamValue, StreamValueData, StreamValueId},
     utils::int_string_conversions::{i64_to_str, usize_to_str},
 };
 

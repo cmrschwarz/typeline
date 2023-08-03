@@ -6,26 +6,27 @@ use std::{borrow::Cow, cell::RefMut, fmt::Write, ptr::NonNull};
 use smallstr::SmallString;
 
 use crate::{
-    job_session::{
-        Field, FieldId, FieldManager, JobData, MatchSetManager,
-        StreamValueManager,
-    },
+    job_session::JobData,
     options::argument::CliArgIdx,
     record_data::{
         field_data::{
             field_value_flags, FieldValueKind, RunLength, INLINE_STR_MAX_LEN,
         },
+        field_manager::{Field, FieldId, FieldManager},
         iter_hall::IterId,
         iters::FieldIterator,
+        match_set_manager::MatchSetManager,
         push_interface::{PushInterface, RawPushInterface},
+        ref_iter::{
+            AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter,
+            RefAwareInlineTextIter, RefAwareStreamValueIter,
+        },
+        stream_value_manager::{
+            StreamValue, StreamValueData, StreamValueId, StreamValueManager,
+        },
         typed::TypedSlice,
         typed_iters::TypedSliceIter,
     },
-    ref_iter::{
-        AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter,
-        RefAwareInlineTextIter, RefAwareStreamValueIter,
-    },
-    stream_value::{StreamValue, StreamValueData, StreamValueId},
     utils::{
         divide_by_char_len,
         int_string_conversions::{i64_digits, i64_to_str, u64_to_str},
@@ -204,7 +205,7 @@ pub fn setup_tf_format<'a>(
     sess: &mut JobData,
     _op_base: &OperatorBase,
     op: &'a OpFormat,
-    tf_id: TransformId,
+    _tf_id: TransformId,
     tf_state: &TransformState,
 ) -> TransformData<'a> {
     let refs: Vec<_> = op
@@ -231,8 +232,8 @@ pub fn setup_tf_format<'a>(
                         id,
                         *name,
                     );
-                    let mut f = sess.field_mgr.fields[id].borrow_mut();
-                    f.added_as_placeholder_by_tf = Some(tf_id);
+                    let f = sess.field_mgr.fields[id].borrow_mut();
+                    // f.added_as_placeholder_by_tf = Some(tf_id);
                     (id, f)
                 };
                 (id, f)
