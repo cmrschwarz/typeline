@@ -559,11 +559,8 @@ mod test_slice_iter {
         fd.push_int(1, 1, false, false);
         fd.push_int(2, 2, false, false);
         fd.push_int(3, 3, false, false);
-        unsafe {
-            let fdi = fd.internals();
-            fdi.header[1].set_deleted(true);
-            *fdi.field_count -= 2;
-        }
+        fd.header[1].set_deleted(true);
+        fd.field_count -= 2;
         compare_iter_output::<i64>(&fd, &[(1, 1), (3, 3)]);
     }
 
@@ -571,14 +568,11 @@ mod test_slice_iter {
     fn with_same_as_previous() {
         let mut fd = FieldData::default();
         fd.push_int(1, 1, false, false);
-        unsafe {
-            let fdi = fd.internals();
-            fdi.header.extend_from_within(0..1);
-            fdi.header[1].set_same_value_as_previous(true);
-            fdi.header[1].run_length = 5;
-            fdi.header[1].set_shared_value(true);
-            *fdi.field_count += 5;
-        }
+        fd.header.extend_from_within(0..1);
+        fd.header[1].set_same_value_as_previous(true);
+        fd.header[1].set_shared_value(true);
+        fd.header[1].run_length = 5;
+        fd.field_count += 5;
         fd.push_int(3, 3, false, false);
         compare_iter_output::<i64>(&fd, &[(1, 1), (1, 5), (3, 3)]);
     }
@@ -588,16 +582,13 @@ mod test_slice_iter {
         let mut fd = FieldData::default();
         fd.push_int(0, 1, false, false);
         fd.push_int(1, 1, false, false);
-        unsafe {
-            let fdi = fd.internals();
-            fdi.header.extend_from_within(1..2);
-            fdi.header[2].set_same_value_as_previous(true);
-            fdi.header[2].run_length = 5;
-            fdi.header[2].set_shared_value(true);
-            *fdi.field_count += 5;
-            fdi.header[1].set_deleted(true);
-            *fdi.field_count -= 1;
-        }
+        fd.header.extend_from_within(1..2);
+        fd.header[2].set_same_value_as_previous(true);
+        fd.header[2].run_length = 5;
+        fd.header[2].set_shared_value(true);
+        fd.field_count += 5;
+        fd.header[1].set_deleted(true);
+        fd.field_count -= 1;
         fd.push_int(3, 3, false, false);
         compare_iter_output::<i64>(&fd, &[(0, 1), (1, 5), (3, 3)]);
     }
@@ -641,11 +632,8 @@ mod test_text_iter {
         fd.push_str("a", 1, false, false);
         fd.push_str("bb", 2, false, false);
         fd.push_str("ccc", 3, false, false);
-        unsafe {
-            let fdi = fd.internals();
-            fdi.header[1].set_deleted(true);
-            *fdi.field_count -= 2;
-        }
+        fd.header[1].set_deleted(true);
+        fd.field_count -= 2;
         compare_iter_output(&fd, &[("a", 1), ("ccc", 3)]);
     }
 
@@ -653,14 +641,11 @@ mod test_text_iter {
     fn with_same_as_previous() {
         let mut fd = FieldData::default();
         fd.push_str("aaa", 1, false, false);
-        unsafe {
-            let fdi = fd.internals();
-            fdi.header.extend_from_within(0..1);
-            fdi.header[1].set_same_value_as_previous(true);
-            fdi.header[1].run_length = 5;
-            fdi.header[1].set_shared_value(true);
-            *fdi.field_count += 5;
-        }
+        fd.header.extend_from_within(0..1);
+        fd.header[1].set_same_value_as_previous(true);
+        fd.header[1].run_length = 5;
+        fd.header[1].set_shared_value(true);
+        fd.field_count += 5;
         fd.push_str("c", 3, false, false);
         compare_iter_output(&fd, &[("aaa", 1), ("aaa", 5), ("c", 3)]);
     }
@@ -670,16 +655,13 @@ mod test_text_iter {
         let mut fd = FieldData::default();
         fd.push_str("00", 1, false, false);
         fd.push_str("1", 1, false, false);
-        unsafe {
-            let fdi = fd.internals();
-            fdi.header.extend_from_within(1..2);
-            fdi.header[2].set_same_value_as_previous(true);
-            fdi.header[2].run_length = 5;
-            fdi.header[2].set_shared_value(true);
-            *fdi.field_count += 5;
-            fdi.header[1].set_deleted(true);
-            *fdi.field_count -= 1;
-        }
+        fd.header.extend_from_within(1..2);
+        fd.header[2].set_same_value_as_previous(true);
+        fd.header[2].run_length = 5;
+        fd.header[2].set_shared_value(true);
+        fd.field_count += 5;
+        fd.header[1].set_deleted(true);
+        fd.field_count -= 1;
         fd.push_str("333", 3, false, false);
         compare_iter_output(&fd, &[("00", 1), ("1", 5), ("333", 3)]);
     }
