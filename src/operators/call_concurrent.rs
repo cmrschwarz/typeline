@@ -58,6 +58,15 @@ pub struct TfCalleeConcurrent {
     pub buffer: Arc<RecordBuffer>,
 }
 
+impl Drop for TfCalleeConcurrent {
+    fn drop(&mut self) {
+        let mut buf = self.buffer.fields.lock().unwrap();
+        buf.remaining_consumers -= 1;
+        drop(buf);
+        self.buffer.updates.notify_all();
+    }
+}
+
 pub fn parse_op_call_concurrent(
     value: Option<&[u8]>,
     arg_idx: Option<CliArgIdx>,
@@ -309,6 +318,8 @@ pub fn handle_tf_call_concurrent(
                 &mut buf_data.fields[mapping.buf_field],
             );
         } else {
+            drop(iter);
+            drop(cfdr);
             sess.field_mgr.swap_into_buffer(
                 mapping.source_field_id,
                 &mut buf_data.fields[mapping.buf_field],
