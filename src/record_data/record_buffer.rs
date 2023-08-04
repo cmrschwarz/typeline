@@ -14,7 +14,7 @@ use super::field_data::FieldData;
 pub struct RecordBufferField {
     pub refcount: usize,
     pub names: SmallVec<[StringStoreEntry; 4]>,
-    data: UnsafeCell<FieldData>,
+    pub(super) data: UnsafeCell<FieldData>,
 }
 
 impl RecordBufferField {

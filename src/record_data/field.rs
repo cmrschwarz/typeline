@@ -82,6 +82,20 @@ pub struct CowFieldDataRef<'a> {
     pub(super) data_ref: Ref<'a, AlignedBuf<MAX_FIELD_ALIGN>>,
 }
 
+impl<'a> FieldDataRef<'a> for &'a CowFieldDataRef<'a> {
+    fn headers(&self) -> &'a [FieldValueHeader] {
+        &self.headers_ref
+    }
+
+    fn data(&self) -> &'a [u8] {
+        &self.data_ref
+    }
+
+    fn field_count(&self) -> usize {
+        self.field_count
+    }
+}
+
 impl<'a> Clone for CowFieldDataRef<'a> {
     fn clone(&self) -> Self {
         Self {
@@ -252,11 +266,49 @@ impl FieldManager {
     }
     pub fn swap_into_buffer(
         &self,
-        _field_id: FieldId,
-        _iter_id: IterId,
-        _tgt: &mut RecordBufferField,
+        field_id: FieldId,
+        tgt: &mut RecordBufferField,
     ) {
-        todo!();
+        let tgt = tgt.data.get_mut();
+        tgt.clear();
+        let mut src = self.fields[field_id].borrow_mut();
+        match &mut src.field_data.data_source {
+            FieldDataSource::Owned(fd) => std::mem::swap(tgt, fd),
+            FieldDataSource::Cow(_) => {
+                let fr = self.get_cow_field_ref(field_id, false);
+                let iter = Iter::from_start(fr.destructured_field_ref());
+                FieldData::copy(iter, &mut |f| f(tgt));
+            }
+            FieldDataSource::DataCow {
+                headers,
+                field_count,
+                data_ref,
+            } => {
+                *field_count = 0;
+                let fr = self.get_cow_field_ref(*data_ref, false);
+                let iter = Iter::from_start(fr.destructured_field_ref());
+                std::mem::swap(&mut tgt.headers, headers);
+                unsafe {
+                    FieldData::copy_data(iter, &mut |f| f(tgt));
+                }
+            }
+            FieldDataSource::RecordBufferCow(rb) => {
+                let fd = unsafe { &mut *(**rb).get() };
+                FieldData::copy(fd.iter(), &mut |f| f(tgt));
+            }
+            FieldDataSource::RecordBufferDataCow {
+                headers,
+                field_count,
+                data,
+            } => {
+                *field_count = 0;
+                std::mem::swap(&mut tgt.headers, headers);
+                unsafe {
+                    let fd = &mut *(**data).get();
+                    FieldData::copy_data(fd.iter(), &mut |f| f(tgt));
+                }
+            }
+        }
     }
 
     pub fn get_cow_field_ref_for_iter_hall<'a>(
@@ -282,12 +334,12 @@ impl FieldManager {
         let fd = Ref::map(field, |f| &f.field_data);
         self.get_cow_field_ref_for_iter_hall(fd)
     }
-    pub fn lookup_iter<'b>(
+    pub fn lookup_iter<'a>(
         &self,
         field_id: FieldId,
-        cfdr: &'b CowFieldDataRef<'_>,
+        cfdr: &'a CowFieldDataRef<'a>,
         iter_id: IterId,
-    ) -> Iter<'b, DestructuredFieldDataRef<'b>> {
+    ) -> Iter<'a, DestructuredFieldDataRef<'a>> {
         let field = self.fields[field_id].borrow();
         // PERF: maybe write a custom compare instead of doing this traversal?
         assert!(cfdr.destructured_field_ref().equals(

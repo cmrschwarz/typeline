@@ -296,7 +296,6 @@ pub fn handle_tf_call_concurrent(
     for mapping in tfc.field_mappings.iter() {
         sess.field_mgr.swap_into_buffer(
             mapping.source_field_id,
-            mapping.source_field_iter,
             &mut buf_data.fields[mapping.buf_field],
         );
     }

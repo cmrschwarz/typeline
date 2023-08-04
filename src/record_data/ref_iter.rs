@@ -1,6 +1,9 @@
+use std::cell::Ref;
+
 use super::{
     field::{
-        CowFieldDataRef, FieldId, FieldManager, FIELD_REF_LOOKUP_ITER_ID,
+        CowFieldDataRef, Field, FieldId, FieldManager,
+        FIELD_REF_LOOKUP_ITER_ID,
     },
     iters::{DestructuredFieldDataRef, FieldDataRef},
     match_set::MatchSetManager,
@@ -19,6 +22,7 @@ use crate::record_data::{
 
 pub struct RefIter<'a> {
     refs_iter: TypedSliceIter<'a, FieldReference>,
+    refs_field: Ref<'a, Field>,
     last_field_id: FieldId,
     data_iter: Iter<'a, DestructuredFieldDataRef<'a>>,
     data_cow_ref: CowFieldDataRef<'a>,
@@ -30,6 +34,7 @@ impl<'a> Clone for RefIter<'a> {
     fn clone(&self) -> Self {
         Self {
             refs_iter: self.refs_iter.clone(),
+            refs_field: Ref::clone(&self.refs_field),
             last_field_id: self.last_field_id,
             data_iter: self.data_iter.clone(),
             data_cow_ref: self.data_cow_ref.clone(),
@@ -49,6 +54,7 @@ pub struct FieldRefUnpacked<'a> {
 
 impl<'a> RefIter<'a> {
     pub fn new(
+        refs_field: Ref<'a, Field>,
         refs_iter: TypedSliceIter<'a, FieldReference>,
         field_mgr: &'a FieldManager,
         match_set_mgr: &'_ mut MatchSetManager,
@@ -66,6 +72,7 @@ impl<'a> RefIter<'a> {
         };
         data_iter.move_to_field_pos(field_pos);
         Self {
+            refs_field,
             refs_iter,
             field_mgr,
             last_field_id,
@@ -345,6 +352,7 @@ impl<'a, I: FieldIterator<'a>> AutoDerefIter<'a, I> {
                         );
                     } else {
                         self.ref_iter = Some(RefIter::new(
+                            self.field_mgr.fields[self.iter_field_id].borrow(),
                             refs_iter,
                             self.field_mgr,
                             match_set_mgr,
@@ -684,7 +692,7 @@ mod ref_iter_tests {
             fields: Default::default(),
         };
 
-        let field_id = push_field(&mut field_mgr, fd, Default::default());
+        let _field_id = push_field(&mut field_mgr, fd, Default::default());
         let refs_field_id = push_field(&mut field_mgr, fd_refs, None);
         let mut match_set_mgr = MatchSetManager {
             match_sets: Default::default(),
@@ -697,7 +705,7 @@ mod ref_iter_tests {
 
         let fr = field_mgr.get_cow_field_ref(refs_field_id, false);
         let iter = Iter::from_start(fr.destructured_field_ref());
-        let mut ref_iter = AutoDerefIter::new(&field_mgr, field_id, iter);
+        let mut ref_iter = AutoDerefIter::new(&field_mgr, refs_field_id, iter);
         let range = ref_iter
             .typed_range_fwd(
                 &mut match_set_mgr,
