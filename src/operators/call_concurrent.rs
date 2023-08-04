@@ -328,9 +328,7 @@ pub fn handle_tf_call_concurrent(
                 mapping.source_field_id.get() as usize,
                 &mut src_field.action_indices,
             );
-        unsafe {
-            src_field.field_data.clear_if_owned();
-        }
+        src_field.field_data.clear_if_owned(&sess.field_mgr);
     }
     if input_done {
         sess.unlink_transform(tf_id, 0);

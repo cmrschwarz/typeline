@@ -2,6 +2,7 @@ use core::panic;
 use std::cell::{Cell, UnsafeCell};
 
 use nonmax::NonMaxU32;
+use thin_vec::ThinVec;
 
 use crate::utils::{aligned_buf::AlignedBuf, universe::Universe};
 
@@ -166,7 +167,7 @@ impl FieldDataSource {
             }
         }
     }
-    pub fn uncow(&mut self, fm: &FieldManager) {
+    pub fn uncow(&mut self, own_field_id: FieldId, fm: &FieldManager) {
         if self.is_data_owned() {
             return;
         }
@@ -176,24 +177,24 @@ impl FieldDataSource {
         );
         *self = FieldDataSource::Owned(match temp {
             FieldDataSource::Owned(_) => unreachable!(),
-            FieldDataSource::Cow(src) => fm.fields[src]
-                .borrow()
-                .field_data
-                .data_source
-                .get_cloned(fm),
+            FieldDataSource::Cow(src) => {
+                let mut src = fm.fields[src].borrow_mut();
+                src.field_data.remove_cow_ref(own_field_id);
+                src.field_data.data_source.get_cloned(fm)
+            }
             FieldDataSource::DataCow {
                 headers,
                 field_count,
                 data_ref,
-            } => FieldData {
-                headers,
-                field_count,
-                data: fm.fields[data_ref]
-                    .borrow()
-                    .field_data
-                    .data_source
-                    .get_data_cloned(fm),
-            },
+            } => {
+                let mut src = fm.fields[data_ref].borrow_mut();
+                src.field_data.remove_cow_ref(own_field_id);
+                FieldData {
+                    headers,
+                    field_count,
+                    data: src.field_data.data_source.get_data_cloned(fm),
+                }
+            }
             FieldDataSource::RecordBufferCow(rb) => {
                 unsafe { &*(*rb).get() }.clone()
             }
@@ -248,6 +249,7 @@ impl FieldDataSource {
 pub struct IterHall {
     pub(super) data_source: FieldDataSource,
     pub(super) iters: Universe<IterId, Cell<IterState>>,
+    pub(super) cow_targets: ThinVec<FieldId>,
 }
 unsafe impl Send for IterHall {}
 
@@ -268,6 +270,14 @@ impl IterState {
     }
 }
 impl IterHall {
+    pub(super) fn remove_cow_ref(&mut self, field_id: FieldId) {
+        self.cow_targets.swap_remove(
+            self.cow_targets
+                .iter()
+                .position(|id| *id == field_id)
+                .unwrap(),
+        );
+    }
     pub fn claim_iter(&mut self) -> IterId {
         let iter_id = self.iters.claim();
         self.iters[iter_id].set(IterState {
@@ -379,8 +389,7 @@ impl IterHall {
     ) -> usize {
         let adapted_target_applicator =
             &mut |f: &mut dyn FnMut(&mut FieldData)| {
-                let g =
-                    &mut |fdih: &mut IterHall| f(fdih.get_owned_data());
+                let g = &mut |fdih: &mut IterHall| f(fdih.get_owned_data());
                 targets_applicator(g);
             };
         FieldData::copy(iter, adapted_target_applicator)
@@ -392,8 +401,7 @@ impl IterHall {
     ) -> usize {
         let adapted_target_applicator =
             &mut |f: &mut dyn FnMut(&mut FieldData)| {
-                let g =
-                    &mut |fdih: &mut IterHall| f(fdih.get_owned_data());
+                let g = &mut |fdih: &mut IterHall| f(fdih.get_owned_data());
                 targets_applicator(g);
             };
         FieldData::copy_resolve_refs(
@@ -421,25 +429,67 @@ impl IterHall {
             it.field_pos = 0;
         }
     }
-    pub unsafe fn clear_if_owned(&mut self) {
-        self.reset_iterators();
+    pub fn propagate_clear(&mut self, fm: &FieldManager) {
         match &mut self.data_source {
-            FieldDataSource::Owned(fd) => fd.clear(),
+            FieldDataSource::Owned(_) => {
+                panic!("propagate_clear called for FieldDataSource::Owned")
+            }
             FieldDataSource::Cow(_) => (),
             FieldDataSource::RecordBufferCow(_) => (),
             FieldDataSource::DataCow {
-                field_count,
                 headers,
+                field_count,
                 ..
             }
             | FieldDataSource::RecordBufferDataCow {
-                field_count,
                 headers,
+                field_count,
                 ..
             } => {
-                *field_count = 0;
                 headers.clear();
+                *field_count = 0;
             }
+        }
+        self.reset_iterators();
+        for t in &self.cow_targets {
+            fm.fields[*t].borrow_mut().field_data.propagate_clear(fm);
+        }
+    }
+    pub fn clear_if_owned(&mut self, fm: &FieldManager) {
+        if let FieldDataSource::Owned(fd) = &mut self.data_source {
+            let mut first_clear_delay = None;
+            let mut clear_delay_count = 0;
+            for (i, t) in self.cow_targets.iter().copied().enumerate() {
+                let mut ct = fm.fields[t].borrow_mut();
+                if ct.clear_delay_request_count.get() != 0 {
+                    first_clear_delay = Some(first_clear_delay.unwrap_or(i));
+                    clear_delay_count += 1;
+                } else {
+                    ct.field_data.propagate_clear(fm);
+                }
+            }
+            if let Some(first_clear_delay) = first_clear_delay {
+                let mut i = first_clear_delay;
+                loop {
+                    let mut ct = fm.fields[self.cow_targets[i]].borrow_mut();
+                    if ct.clear_delay_request_count.get() == 0 {
+                        i += 1;
+                        continue;
+                    }
+                    if clear_delay_count == 1 {
+                        ct.field_data.data_source =
+                            std::mem::take(&mut self.data_source);
+                        break;
+                    }
+                    ct.field_data.data_source =
+                        FieldDataSource::Owned(fd.clone());
+                    self.cow_targets.swap_remove(i);
+                    clear_delay_count -= 1;
+                }
+            } else {
+                fd.clear();
+            }
+            self.reset_iterators();
         }
     }
     pub fn reset_with_data(&mut self, fd: FieldData) {
@@ -450,6 +500,7 @@ impl IterHall {
         Self {
             data_source: FieldDataSource::Owned(fd),
             iters: Default::default(),
+            cow_targets: Default::default(),
         }
     }
     pub fn int_inserter(&mut self) -> IntegerInserter {

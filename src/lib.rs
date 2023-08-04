@@ -18,6 +18,7 @@ extern crate regex_syntax;
 extern crate shlex;
 extern crate smallstr;
 extern crate smallvec;
+extern crate thin_vec;
 extern crate thiserror;
 extern crate uuid;
 

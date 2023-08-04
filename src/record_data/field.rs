@@ -67,8 +67,8 @@ impl Field {
         self.clear_delay_request_count
             .set(self.clear_delay_request_count.get() - 1);
     }
-    pub fn uncow(&mut self, fm: &FieldManager) {
-        self.field_data.data_source.uncow(fm);
+    pub(super) fn uncow(&mut self, own_field_id: FieldId, fm: &FieldManager) {
+        self.field_data.data_source.uncow(own_field_id, fm);
     }
 }
 
@@ -103,6 +103,9 @@ impl<'a> CowFieldDataRef<'a> {
 }
 
 impl FieldManager {
+    pub fn uncow(&self, field: FieldId) {
+        self.fields[field].borrow_mut().uncow(field, self);
+    }
     pub fn get_field_headers_for_iter_hall<'a>(
         &'a self,
         fr: Ref<'a, IterHall>,
@@ -242,6 +245,8 @@ impl FieldManager {
         let mut field = self.fields[field_id].borrow_mut();
         let mut data_source = self.fields[data_source_id].borrow_mut();
         data_source.ref_count += 1;
+        data_source.field_data.cow_targets.push(field_id);
+        field.field_refs.push(data_source_id);
         assert!(field.field_data.data_source.get_field_count(self) == 0);
         field.field_data.data_source = FieldDataSource::Cow(data_source_id);
     }

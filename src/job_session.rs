@@ -271,11 +271,11 @@ impl TransformManager {
             let mut f = field_mgr.fields[ofid].borrow_mut();
             let clear_delay = f.get_clear_delay_request_count() > 0;
             if appending || clear_delay {
-                f.uncow(field_mgr);
-            }
-            if clear_delay {
                 drop(f);
-                field_mgr.apply_field_actions(match_set_mgr, ofid);
+                field_mgr.uncow(ofid);
+                if clear_delay {
+                    field_mgr.apply_field_actions(match_set_mgr, ofid);
+                }
             } else {
                 match_set_mgr.match_sets[tf.match_set_id]
                     .command_buffer
@@ -284,9 +284,7 @@ impl TransformManager {
                         &mut f.action_indices,
                     );
                 if !appending {
-                    unsafe {
-                        f.field_data.clear_if_owned();
-                    }
+                    f.field_data.clear_if_owned(field_mgr);
                     f.has_unconsumed_input.set(false);
                 }
             }
