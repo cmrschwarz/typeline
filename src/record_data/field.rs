@@ -85,7 +85,7 @@ pub struct CowFieldDataRef<'a> {
 impl<'a> Clone for CowFieldDataRef<'a> {
     fn clone(&self) -> Self {
         Self {
-            field_count: self.field_count.clone(),
+            field_count: self.field_count,
             headers_ref: Ref::clone(&self.headers_ref),
             data_ref: Ref::clone(&self.data_ref),
         }
@@ -95,8 +95,8 @@ impl<'a> Clone for CowFieldDataRef<'a> {
 impl<'a> CowFieldDataRef<'a> {
     pub fn destructured_field_ref(&'a self) -> DestructuredFieldDataRef<'a> {
         DestructuredFieldDataRef {
-            headers: &*self.headers_ref,
-            data: &*self.data_ref,
+            headers: &self.headers_ref,
+            data: &self.data_ref,
             field_count: self.field_count,
         }
     }
@@ -267,20 +267,20 @@ impl FieldManager {
             data_ref,
         }
     }
-    pub fn get_cow_field_ref<'a>(
-        &'a self,
+    pub fn get_cow_field_ref(
+        &self,
         field_id: FieldId,
         inform_of_unconsumed_input: bool,
-    ) -> CowFieldDataRef<'a> {
+    ) -> CowFieldDataRef<'_> {
         let field = self.fields[field_id].borrow();
         field.inform_of_unconsumed_input(inform_of_unconsumed_input);
         let fd = Ref::map(field, |f| &f.field_data);
         self.get_cow_field_ref_for_iter_hall(fd)
     }
-    pub fn lookup_iter<'a, 'b>(
+    pub fn lookup_iter<'b>(
         &self,
         field_id: FieldId,
-        cfdr: &'b CowFieldDataRef<'a>,
+        cfdr: &'b CowFieldDataRef<'_>,
         iter_id: IterId,
     ) -> Iter<'b, DestructuredFieldDataRef<'b>> {
         let field = self.fields[field_id].borrow();

@@ -427,7 +427,7 @@ impl FieldData {
 
     // this is technically safe, but will leak unless paired with a
     // header that matches the contained type ranges (which itself is not safe)
-    pub fn clone_data<'a>(&self) -> AlignedBuf<MAX_FIELD_ALIGN> {
+    pub fn clone_data(&self) -> AlignedBuf<MAX_FIELD_ALIGN> {
         let mut res = AlignedBuf::new();
         let mut iter = self.iter();
         while let Some(tr) =

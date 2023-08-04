@@ -85,9 +85,6 @@ impl<'a> DestructuredFieldDataRef<'a> {
             field_count: fd.field_count,
         }
     }
-    pub fn into_iter(self) -> Iter<'a, DestructuredFieldDataRef<'a>> {
-        Iter::from_start(self)
-    }
 }
 
 pub trait FieldIterator<'a>: Sized {

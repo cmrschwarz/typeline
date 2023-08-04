@@ -380,7 +380,7 @@ impl IterHall {
         let adapted_target_applicator =
             &mut |f: &mut dyn FnMut(&mut FieldData)| {
                 let g =
-                    &mut |fdih: &mut IterHall| f(&mut fdih.get_owned_data());
+                    &mut |fdih: &mut IterHall| f(fdih.get_owned_data());
                 targets_applicator(g);
             };
         FieldData::copy(iter, adapted_target_applicator)
@@ -393,7 +393,7 @@ impl IterHall {
         let adapted_target_applicator =
             &mut |f: &mut dyn FnMut(&mut FieldData)| {
                 let g =
-                    &mut |fdih: &mut IterHall| f(&mut fdih.get_owned_data());
+                    &mut |fdih: &mut IterHall| f(fdih.get_owned_data());
                 targets_applicator(g);
             };
         FieldData::copy_resolve_refs(
