@@ -156,10 +156,10 @@ pub fn handle_tf_print_raw(
 
     let input_field = sess
         .field_mgr
-        .borrow_field_cow(input_field_id, tf.has_unconsumed_input());
+        .get_cow_field_ref(input_field_id, tf.has_unconsumed_input());
     let base_iter = sess
         .field_mgr
-        .get_iter_cow_aware(input_field_id, &input_field, print.iter_id)
+        .lookup_iter(input_field_id, &input_field, print.iter_id)
         .bounded(0, batch_size);
     let field_pos_start = base_iter.get_next_field_pos();
     let mut field_pos = field_pos_start;
@@ -251,7 +251,9 @@ pub fn handle_tf_print_raw(
                             sv.promote_to_buffer();
                         }
                         sv.subscribe(tf_id, rl as usize, false);
-                        input_field.request_clear_delay();
+                        sess.field_mgr.fields[input_field_id]
+                            .borrow()
+                            .request_clear_delay();
                         sess.tf_mgr.unclaim_batch_size(
                             tf_id,
                             batch_size - (pos - field_pos_start),
@@ -281,12 +283,8 @@ pub fn handle_tf_print_raw(
         stdout.write_fmt(format_args!("{NULL_STR}\n"))?;
         *handled_field_count += 1;
     }
-    sess.field_mgr.store_iter_cow_aware(
-        input_field_id,
-        &input_field,
-        print.iter_id,
-        iter.into_base_iter(),
-    );
+    sess.field_mgr
+        .store_iter(input_field_id, print.iter_id, iter);
     Ok(())
 }
 

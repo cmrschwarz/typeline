@@ -3,7 +3,6 @@ use crate::{
     job_session::{JobData, JobSession},
     operators::operator::OperatorId,
     record_data::record_buffer::RecordBuffer,
-    scr_error::ScrError,
 };
 use std::sync::Arc;
 
@@ -71,7 +70,7 @@ impl WorkerThread {
         }
     }
 
-    pub fn run(&mut self) -> Result<(), ScrError> {
+    pub fn run(&mut self) {
         let mut sess_mgr = self.ctx_data.sess_mgr.lock().unwrap();
         loop {
             if !sess_mgr.terminate {
@@ -129,7 +128,7 @@ impl WorkerThread {
                 self.ctx_data.worker_threads_finished.notify_one();
             }
             if sess_mgr.terminate {
-                return Ok(());
+                return;
             }
             sess_mgr = self.ctx_data.work_available.wait(sess_mgr).unwrap();
         }

@@ -334,7 +334,7 @@ impl<'a> TypedRange<'a> {
         first_header_run_length_oversize: RunLength,
         last_header_run_length_oversize: RunLength,
     ) -> TypedRange<'a> {
-        let headers = &fdr.header()[header_begin..header_end];
+        let headers = &fdr.headers()[header_begin..header_end];
         let data = unsafe {
             TypedSlice::new(
                 fdr,

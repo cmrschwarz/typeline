@@ -3,11 +3,14 @@ use std::cell::Ref;
 use nonmax::NonMaxUsize;
 use smallvec::SmallVec;
 
-use crate::utils::universe::Universe;
+use crate::utils::{aligned_buf::AlignedBuf, universe::Universe};
 
 use super::{
-    field_data::{FieldData, FieldValueFormat, FieldValueHeader, RunLength},
-    iter_hall::{IterHall, IterState},
+    field_data::{
+        FieldData, FieldValueFormat, FieldValueHeader, RunLength,
+        MAX_FIELD_ALIGN,
+    },
+    iter_hall::{FieldDataSource, IterHall, IterState},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -329,17 +332,36 @@ impl CommandBuffer {
         let mut iterators = IterStateSmallVec::new();
         iterators.extend(iter_hall.iters.iter_mut().map(|it| it.get_mut()));
         iterators.sort_by(|lhs, rhs| rhs.field_pos.cmp(&lhs.field_pos));
+        let (headers, data, field_count) = match &mut iter_hall.data_source {
+            FieldDataSource::Owned(fd) => {
+                (&mut fd.headers, Some(&mut fd.data), &mut fd.field_count)
+            }
+            FieldDataSource::DataCow {
+                headers,
+                field_count,
+                ..
+            } => (headers, None, field_count),
+            FieldDataSource::RecordBufferDataCow {
+                headers,
+                field_count,
+                ..
+            } => (headers, None, field_count),
+            FieldDataSource::Cow(_) | FieldDataSource::RecordBufferCow(_) => {
+                panic!("cannot execute commands on COW iter hall")
+            }
+        };
+
         let field_count_delta = self.generate_commands_from_actions(
             als,
-            &mut iter_hall.fd,
+            headers,
+            data,
             &mut iterators,
             0,
             0,
         );
 
-        iter_hall.fd.field_count =
-            (iter_hall.fd.field_count as isize + field_count_delta) as usize;
-        self.execute_commands(&mut iter_hall.fd);
+        *field_count = (*field_count as isize + field_count_delta) as usize;
+        self.execute_commands(headers);
         self.cleanup();
     }
     pub fn requires_any_actions(
@@ -434,12 +456,13 @@ impl CommandBuffer {
         );
         let field_count_delta = self.generate_commands_from_actions(
             als,
-            field,
+            &mut field.headers,
+            Some(&mut field.data),
             &mut SmallVec::new(),
             0,
             0,
         );
-        self.execute_commands(field);
+        self.execute_commands(&mut field.headers);
         field.field_count =
             (field.field_count as isize + field_count_delta) as usize;
         self.cleanup();
@@ -1483,7 +1506,8 @@ impl CommandBuffer {
     fn generate_commands_from_actions(
         &mut self,
         merged_actions: ActionListMergeResult,
-        fd: &mut FieldData,
+        headers: &mut Vec<FieldValueHeader>,
+        data: Option<&mut AlignedBuf<MAX_FIELD_ALIGN>>,
         iterators: &mut IterStateSmallVec<'_>,
         mut header_idx: usize,
         mut field_pos: usize,
@@ -1491,7 +1515,7 @@ impl CommandBuffer {
         debug_assert!(
             merged_actions.actions_start != merged_actions.actions_end
         );
-        debug_assert!(!fd.header.is_empty());
+        debug_assert!(!headers.is_empty());
         let mut header;
         let mut header_idx_new = header_idx;
 
@@ -1503,11 +1527,11 @@ impl CommandBuffer {
         let mut curr_action_pos_outstanding_dups = 0;
         let mut curr_action_pos_outstanding_drops = 0;
         let mut curr_header_original_rl =
-            fd.header.first().map(|h| h.run_length).unwrap_or(0);
+            headers.first().map(|h| h.run_length).unwrap_or(0);
         let mut data_end = 0;
         let mut curr_header_iter_count = 0;
 
-        let header_end = fd.header[0].run_length as usize;
+        let header_end = headers[0].run_length as usize;
         for it in iterators.iter().rev() {
             if it.field_pos >= header_end {
                 break;
@@ -1576,7 +1600,7 @@ impl CommandBuffer {
             drop(mal_ref);
             'advance_header: loop {
                 loop {
-                    header = &mut fd.header[header_idx];
+                    header = &mut headers[header_idx];
                     if !header.deleted() {
                         let field_pos_new =
                             field_pos + header.run_length as usize;
@@ -1609,7 +1633,7 @@ impl CommandBuffer {
                         curr_header_iter_count += 1;
                     }
                     header_idx += 1;
-                    curr_header_original_rl = fd.header[header_idx].run_length;
+                    curr_header_original_rl = headers[header_idx].run_length;
                     header_idx_new += 1;
                 }
                 self.update_current_iters(
@@ -1659,16 +1683,16 @@ impl CommandBuffer {
                 }
             }
         }
-        let headers_rem = fd.header.len() - header_idx;
+        let headers_rem = headers.len() - header_idx;
         header_idx_new += headers_rem;
         if headers_rem > 0 {
-            field_pos += fd.header[header_idx].run_length as usize;
+            field_pos += headers[header_idx].run_length as usize;
             field_pos_old += curr_header_original_rl as usize;
-        } else {
+        } else if let Some(data) = data {
             // if we touched all headers, there is a chance that the final
             // headers are deleted
             while header_idx > 0 {
-                let h = fd.header[header_idx - 1];
+                let h = headers[header_idx - 1];
                 if !h.deleted() {
                     break;
                 }
@@ -1678,7 +1702,7 @@ impl CommandBuffer {
                     data_end -= h.total_size();
                 }
             }
-            fd.data.truncate(data_end);
+            data.truncate(data_end);
         }
         self.push_copy_command(
             header_idx_new,
@@ -1692,7 +1716,7 @@ impl CommandBuffer {
 
 // final execution step
 impl CommandBuffer {
-    fn execute_commands(&mut self, fd: &mut FieldData) {
+    fn execute_commands(&mut self, headers: &mut Vec<FieldValueHeader>) {
         if self.copies.is_empty() && self.insertions.is_empty() {
             return;
         }
@@ -1702,9 +1726,9 @@ impl CommandBuffer {
             .map(|i| i.index + 1)
             .unwrap_or(0)
             .max(self.copies.last().map(|c| c.target + c.len).unwrap());
-        fd.header.reserve(new_size - fd.header.len());
+        headers.reserve(new_size - headers.len());
 
-        let header_ptr = fd.header.as_mut_ptr();
+        let header_ptr = headers.as_mut_ptr();
         // PERF: it *might* be faster to interleave the insertions and copies
         // for better cache utilization
         unsafe {
@@ -1718,7 +1742,7 @@ impl CommandBuffer {
             for i in self.insertions.iter() {
                 (*header_ptr.add(i.index)) = i.value;
             }
-            fd.header.set_len(new_size);
+            headers.set_len(new_size);
         }
     }
 }

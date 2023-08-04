@@ -268,13 +268,13 @@ impl TransformManager {
         tf.is_appending = false;
 
         for ofid in output_fields {
-            if appending {
-                field_mgr.uncow(match_set_mgr, ofid);
-            }
             let mut f = field_mgr.fields[ofid].borrow_mut();
-            if f.get_clear_delay_request_count() > 0 {
+            let clear_delay = f.get_clear_delay_request_count() > 0;
+            if appending || clear_delay {
+                f.uncow(field_mgr);
+            }
+            if clear_delay {
                 drop(f);
-                // TODO: this needs to preserve iterators
                 field_mgr.apply_field_actions(match_set_mgr, ofid);
             } else {
                 match_set_mgr.match_sets[tf.match_set_id]
@@ -284,7 +284,9 @@ impl TransformManager {
                         &mut f.action_indices,
                     );
                 if !appending {
-                    f.field_data.clear();
+                    unsafe {
+                        f.field_data.clear_if_owned();
+                    }
                     f.has_unconsumed_input.set(false);
                 }
             }
@@ -673,9 +675,9 @@ impl<'a> JobSession<'a> {
                 }
             }
             if mark_prev_field_as_placeholder {
-                //let mut f =
+                // let mut f =
                 //    self.job_data.field_mgr.fields[input_field].borrow_mut();
-                //f.added_as_placeholder_by_tf = Some(tf_id_peek);
+                // f.added_as_placeholder_by_tf = Some(tf_id_peek);
                 mark_prev_field_as_placeholder = false;
             }
             let b = op_base;

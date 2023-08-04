@@ -1,13 +1,15 @@
-use std::cell::Cell;
+use core::panic;
+use std::cell::{Cell, UnsafeCell};
 
 use nonmax::NonMaxU32;
 
-use crate::utils::universe::Universe;
+use crate::utils::{aligned_buf::AlignedBuf, universe::Universe};
 
 use super::{
+    field::{FieldId, FieldManager},
     field_data::{
         FieldData, FieldDataInternals, FieldValueFlags, FieldValueHeader,
-        FieldValueKind, RunLength,
+        FieldValueKind, RunLength, MAX_FIELD_ALIGN,
     },
     iters::{FieldDataRef, FieldIterator, Iter},
     match_set::MatchSetManager,
@@ -21,11 +23,233 @@ use super::{
 
 pub type IterId = NonMaxU32;
 
+pub(super) enum FieldDataSource {
+    Owned(FieldData),
+    Cow(FieldId),
+    DataCow {
+        headers: Vec<FieldValueHeader>,
+        field_count: usize,
+        data_ref: FieldId,
+    },
+    #[allow(dead_code)] // TODO
+    RecordBufferCow(*const UnsafeCell<FieldData>),
+    RecordBufferDataCow {
+        headers: Vec<FieldValueHeader>,
+        field_count: usize,
+        data: *const UnsafeCell<FieldData>,
+    },
+}
+
+impl Default for FieldDataSource {
+    fn default() -> Self {
+        FieldDataSource::Owned(FieldData::default())
+    }
+}
+impl FieldDataSource {
+    pub fn is_data_owned(&self) -> bool {
+        match self {
+            FieldDataSource::Owned(_) => true,
+            FieldDataSource::Cow(_) => false,
+            FieldDataSource::DataCow { .. } => false,
+            FieldDataSource::RecordBufferCow(_) => false,
+            FieldDataSource::RecordBufferDataCow { .. } => false,
+        }
+    }
+    pub fn are_headers_owned(&self) -> bool {
+        match self {
+            FieldDataSource::Owned(_) => true,
+            FieldDataSource::DataCow { .. } => true,
+            FieldDataSource::RecordBufferDataCow { .. } => true,
+            FieldDataSource::Cow(_) => false,
+            FieldDataSource::RecordBufferCow(_) => false,
+        }
+    }
+    pub fn get_headers_cloned(
+        &self,
+        fm: &FieldManager,
+    ) -> (Vec<FieldValueHeader>, usize) {
+        match self {
+            FieldDataSource::Owned(fd) => (fd.headers.clone(), fd.field_count),
+            FieldDataSource::Cow(src) => fm.fields[*src]
+                .borrow()
+                .field_data
+                .data_source
+                .get_headers_cloned(fm),
+            FieldDataSource::DataCow {
+                headers,
+                field_count,
+                ..
+            } => (headers.clone(), *field_count),
+            FieldDataSource::RecordBufferDataCow {
+                headers,
+                field_count,
+                ..
+            } => (headers.clone(), *field_count),
+            FieldDataSource::RecordBufferCow(rb) => {
+                let fd = unsafe { &*(**rb).get() };
+                (fd.headers.clone(), fd.field_count)
+            }
+        }
+    }
+    pub fn get_data_cloned(
+        &self,
+        fm: &FieldManager,
+    ) -> AlignedBuf<MAX_FIELD_ALIGN> {
+        match self {
+            FieldDataSource::Owned(fd) => fd.clone_data(),
+            FieldDataSource::Cow(src) => fm.fields[*src]
+                .borrow()
+                .field_data
+                .data_source
+                .get_data_cloned(fm),
+            FieldDataSource::DataCow { data_ref, .. } => fm.fields[*data_ref]
+                .borrow()
+                .field_data
+                .data_source
+                .get_data_cloned(fm),
+            FieldDataSource::RecordBufferDataCow { data: rb, .. }
+            | FieldDataSource::RecordBufferCow(rb) => {
+                unsafe { &*(**rb).get() }.clone_data()
+            }
+        }
+    }
+    pub fn get_cloned(&self, fm: &FieldManager) -> FieldData {
+        match self {
+            FieldDataSource::Owned(fd) => fd.clone(),
+            FieldDataSource::Cow(src) => fm.fields[*src]
+                .borrow()
+                .field_data
+                .data_source
+                .get_cloned(fm),
+            FieldDataSource::DataCow {
+                headers,
+                field_count,
+                data_ref,
+            } => FieldData {
+                headers: (*headers).clone(),
+                field_count: *field_count,
+                data: fm.fields[*data_ref]
+                    .borrow()
+                    .field_data
+                    .data_source
+                    .get_data_cloned(fm),
+            },
+            FieldDataSource::RecordBufferCow(rb) => {
+                unsafe { &*(**rb).get() }.clone()
+            }
+            FieldDataSource::RecordBufferDataCow {
+                headers,
+                field_count,
+                data,
+            } => FieldData {
+                headers: headers.clone(),
+                field_count: *field_count,
+                data: unsafe { &*(**data).get() }.data.clone(),
+            },
+        }
+    }
+    pub fn get_field_count(&self, fm: &FieldManager) -> usize {
+        match &self {
+            FieldDataSource::Owned(fd) => fd.field_count,
+            FieldDataSource::Cow(src) => fm.fields[*src]
+                .borrow()
+                .field_data
+                .data_source
+                .get_field_count(fm),
+            FieldDataSource::DataCow { field_count, .. } => *field_count,
+            FieldDataSource::RecordBufferCow(rb) => {
+                let fd = &unsafe { &*(**rb).get() };
+                fd.field_count
+            }
+            FieldDataSource::RecordBufferDataCow { field_count, .. } => {
+                *field_count
+            }
+        }
+    }
+    pub fn uncow(&mut self, fm: &FieldManager) {
+        if self.is_data_owned() {
+            return;
+        }
+        let temp = std::mem::replace(
+            self,
+            FieldDataSource::Cow(NonMaxU32::default()),
+        );
+        *self = FieldDataSource::Owned(match temp {
+            FieldDataSource::Owned(_) => unreachable!(),
+            FieldDataSource::Cow(src) => fm.fields[src]
+                .borrow()
+                .field_data
+                .data_source
+                .get_cloned(fm),
+            FieldDataSource::DataCow {
+                headers,
+                field_count,
+                data_ref,
+            } => FieldData {
+                headers,
+                field_count,
+                data: fm.fields[data_ref]
+                    .borrow()
+                    .field_data
+                    .data_source
+                    .get_data_cloned(fm),
+            },
+            FieldDataSource::RecordBufferCow(rb) => {
+                unsafe { &*(*rb).get() }.clone()
+            }
+            FieldDataSource::RecordBufferDataCow {
+                headers,
+                field_count,
+                data,
+            } => FieldData {
+                headers,
+                field_count,
+                data: unsafe { &*(*data).get() }.data.clone(),
+            },
+        });
+    }
+    pub fn uncow_headers(&mut self, fm: &FieldManager) {
+        if self.are_headers_owned() {
+            return;
+        }
+        let temp = std::mem::replace(
+            self,
+            FieldDataSource::Cow(NonMaxU32::default()),
+        );
+        *self = match temp {
+            FieldDataSource::Owned(_) => unreachable!(),
+            FieldDataSource::DataCow { .. } => unreachable!(),
+            FieldDataSource::RecordBufferDataCow { .. } => unreachable!(),
+            FieldDataSource::Cow(src) => {
+                let (headers, field_count) = fm.fields[src]
+                    .borrow()
+                    .field_data
+                    .data_source
+                    .get_headers_cloned(fm);
+                FieldDataSource::DataCow {
+                    headers,
+                    field_count,
+                    data_ref: src,
+                }
+            }
+            FieldDataSource::RecordBufferCow(rb) => {
+                let fd = unsafe { &*(*rb).get() };
+                FieldDataSource::RecordBufferDataCow {
+                    headers: fd.headers.clone(),
+                    field_count: fd.field_count,
+                    data: rb,
+                }
+            }
+        };
+    }
+}
+
 #[derive(Default)]
 pub struct IterHall {
-    pub(super) fd: FieldData,
+    pub(super) data_source: FieldDataSource,
     pub(super) iters: Universe<IterId, Cell<IterState>>,
 }
+unsafe impl Send for IterHall {}
 
 #[derive(Default, Clone, Copy)]
 pub struct IterState {
@@ -61,23 +285,21 @@ impl IterHall {
         self.iters[iter_id].get_mut().invalidate();
         self.iters.release(iter_id)
     }
-    pub fn iter(&self) -> Iter<'_, &'_ FieldData> {
-        self.fd.iter()
-    }
     pub fn get_iter_state(&self, iter_id: IterId) -> IterState {
         self.iters[iter_id].get()
     }
-    fn calculate_start_header(
+    fn calculate_start_header<'a, R: FieldDataRef<'a>>(
         &self,
+        fr: &R,
         state: &mut IterState,
     ) -> FieldValueHeader {
-        if state.header_idx == self.fd.header.len() {
-            let diff = self.fd.field_count - state.field_pos;
+        if state.header_idx == fr.headers().len() {
+            let diff = fr.field_count() - state.field_pos;
             if diff == 0 {
                 return Default::default();
             }
             state.header_idx -= 1;
-            let h = self.fd.header[state.header_idx];
+            let h = fr.headers()[state.header_idx];
             if !h.same_value_as_previous() {
                 state.data -= if h.shared_value() {
                     h.size as usize
@@ -88,31 +310,30 @@ impl IterHall {
             state.header_rl_offset = h.run_length - diff as RunLength;
             return h;
         }
-        let mut h = self.fd.header[state.header_idx];
+        let mut h = fr.headers()[state.header_idx];
         if h.run_length == state.header_rl_offset
-            && state.header_idx < self.fd.header.len()
+            && state.header_idx < fr.headers().len()
         {
             state.header_idx += 1;
             state.header_rl_offset = 0;
             state.data += h.total_size();
-            if state.header_idx == self.fd.header.len() {
+            if state.header_idx == fr.headers().len() {
                 h = Default::default();
             } else {
-                h = self.fd.header[state.header_idx];
+                h = fr.headers()[state.header_idx];
             }
         }
         h
     }
-    pub fn get_iter(&self, iter_id: IterId) -> Iter<'_, &'_ FieldData> {
-        unsafe { self.get_iter_from_state(self.iters[iter_id].get()) }
-    }
-    pub unsafe fn get_iter_from_state(
+    // SAFETY: caller must ensure that the state comes from this data source
+    pub unsafe fn get_iter_from_state_unchecked<'a, R: FieldDataRef<'a>>(
         &self,
+        fr: R,
         mut state: IterState,
-    ) -> Iter<'_, &'_ FieldData> {
-        let h = self.calculate_start_header(&mut state);
+    ) -> Iter<'a, R> {
+        let h = self.calculate_start_header(&fr, &mut state);
         let mut res = Iter {
-            fdr: &self.fd,
+            fdr: fr,
             field_pos: state.field_pos,
             data: state.data,
             header_idx: state.header_idx,
@@ -124,24 +345,7 @@ impl IterHall {
         res.skip_dead_fields();
         res
     }
-    pub fn iter_is_from_iter_hall<'a, R: FieldDataRef<'a>>(
-        &self,
-        iter: &Iter<'a, R>,
-    ) -> bool {
-        std::ptr::eq(iter.fdr.data().as_ptr(), self.fd.data.as_ptr())
-    }
-    pub fn store_iter<'a>(
-        &self,
-        iter_id: IterId,
-        iter: impl FieldIterator<'a>,
-    ) {
-        let iter = iter.into_base_iter();
-        assert!(self.iter_is_from_iter_hall(&iter));
-        unsafe { self.store_iter_unchecked(iter_id, iter) };
-    }
-    // the point of this is not to save the runtime of one assert, but
-    // to actually bypass that check if we store an iter that comes from our
-    // cow_source
+    // SAFETY: caller must ensure that the iter uses the correct data source
     pub unsafe fn store_iter_unchecked<'a, R: FieldDataRef<'a>>(
         &self,
         iter_id: IterId,
@@ -150,7 +354,9 @@ impl IterHall {
         let mut state = self.iters[iter_id].get();
         state.field_pos = iter.field_pos;
         state.header_rl_offset = iter.header_rl_offset;
-        if iter.header_idx == self.fd.header.len() && iter.header_idx > 0 {
+        if iter.header_idx == iter.field_data_ref().headers().len()
+            && iter.header_idx > 0
+        {
             iter.prev_field();
             state.header_rl_offset = iter.field_run_length_bwd() + 1;
         }
@@ -161,10 +367,10 @@ impl IterHall {
 
     /// returns a tuple of (FieldData, initial_field_offset, field_count)
     pub unsafe fn internals(&mut self) -> FieldDataInternals {
-        unsafe { self.fd.internals() }
+        unsafe { self.get_owned_data().internals() }
     }
     pub unsafe fn raw(&mut self) -> &mut FieldData {
-        &mut self.fd
+        self.get_owned_data()
     }
 
     pub fn copy<'a>(
@@ -173,7 +379,8 @@ impl IterHall {
     ) -> usize {
         let adapted_target_applicator =
             &mut |f: &mut dyn FnMut(&mut FieldData)| {
-                let g = &mut |fdih: &mut IterHall| f(&mut fdih.fd);
+                let g =
+                    &mut |fdih: &mut IterHall| f(&mut fdih.get_owned_data());
                 targets_applicator(g);
             };
         FieldData::copy(iter, adapted_target_applicator)
@@ -185,7 +392,8 @@ impl IterHall {
     ) -> usize {
         let adapted_target_applicator =
             &mut |f: &mut dyn FnMut(&mut FieldData)| {
-                let g = &mut |fdih: &mut IterHall| f(&mut fdih.fd);
+                let g =
+                    &mut |fdih: &mut IterHall| f(&mut fdih.get_owned_data());
                 targets_applicator(g);
             };
         FieldData::copy_resolve_refs(
@@ -194,8 +402,15 @@ impl IterHall {
             adapted_target_applicator,
         )
     }
-    pub fn field_count(&self) -> usize {
-        self.fd.field_count
+    pub fn is_data_owned(&self) -> bool {
+        self.data_source.is_data_owned()
+    }
+    pub fn are_headers_owned(&self) -> bool {
+        self.data_source.are_headers_owned()
+    }
+    pub fn field_count(&self, fm: &FieldManager) -> usize {
+        // TOOD: maybe handle the data cow cases here?
+        self.data_source.get_field_count(fm)
     }
     pub fn reset_iterators(&mut self) {
         for it in self.iters.iter_mut() {
@@ -206,40 +421,60 @@ impl IterHall {
             it.field_pos = 0;
         }
     }
-    pub fn clear(&mut self) {
+    pub unsafe fn clear_if_owned(&mut self) {
         self.reset_iterators();
-        self.fd.clear();
-    }
-    pub fn reset(&mut self) {
-        self.clear();
+        match &mut self.data_source {
+            FieldDataSource::Owned(fd) => fd.clear(),
+            FieldDataSource::Cow(_) => (),
+            FieldDataSource::RecordBufferCow(_) => (),
+            FieldDataSource::DataCow {
+                field_count,
+                headers,
+                ..
+            }
+            | FieldDataSource::RecordBufferDataCow {
+                field_count,
+                headers,
+                ..
+            } => {
+                *field_count = 0;
+                headers.clear();
+            }
+        }
     }
     pub fn reset_with_data(&mut self, fd: FieldData) {
         self.reset_iterators();
-        self.fd = fd;
+        self.data_source = FieldDataSource::Owned(fd);
     }
     pub fn new_with_data(fd: FieldData) -> Self {
         Self {
-            fd,
+            data_source: FieldDataSource::Owned(fd),
             iters: Default::default(),
         }
     }
     pub fn int_inserter(&mut self) -> IntegerInserter {
-        IntegerInserter::new(&mut self.fd)
+        IntegerInserter::new(self.get_owned_data())
     }
     pub fn field_reference_inserter(&mut self) -> FieldReferenceInserter {
-        FieldReferenceInserter::new(&mut self.fd)
+        FieldReferenceInserter::new(self.get_owned_data())
     }
     pub fn inline_bytes_inserter(&mut self) -> InlineBytesInserter {
-        InlineBytesInserter::new(&mut self.fd)
+        InlineBytesInserter::new(self.get_owned_data())
     }
     pub fn inline_str_inserter(&mut self) -> InlineStringInserter {
-        InlineStringInserter::new(&mut self.fd)
+        InlineStringInserter::new(self.get_owned_data())
     }
     pub fn varying_type_inserter(
         &mut self,
         re_reserve_count: RunLength,
     ) -> VaryingTypeInserter {
-        VaryingTypeInserter::new(&mut self.fd, re_reserve_count)
+        VaryingTypeInserter::new(self.get_owned_data(), re_reserve_count)
+    }
+    fn get_owned_data(&mut self) -> &mut FieldData {
+        match &mut self.data_source {
+            FieldDataSource::Owned(fd) => fd,
+            _ => panic!("IterHall uses COW!"),
+        }
     }
 }
 
@@ -254,7 +489,7 @@ unsafe impl RawPushInterface for IterHall {
         try_data_rle: bool,
     ) {
         unsafe {
-            self.fd.push_variable_sized_type(
+            self.get_owned_data().push_variable_sized_type(
                 kind,
                 flags,
                 data,
@@ -275,7 +510,7 @@ unsafe impl RawPushInterface for IterHall {
         try_data_rle: bool,
     ) {
         unsafe {
-            self.fd.push_fixed_size_type(
+            self.get_owned_data().push_fixed_size_type(
                 kind,
                 flags,
                 data,
@@ -294,7 +529,7 @@ unsafe impl RawPushInterface for IterHall {
         try_header_rle: bool,
     ) {
         unsafe {
-            self.fd.push_zst_unchecked(
+            self.get_owned_data().push_zst_unchecked(
                 kind,
                 flags,
                 run_length,
@@ -310,7 +545,7 @@ unsafe impl RawPushInterface for IterHall {
         run_length: usize,
     ) -> *mut u8 {
         unsafe {
-            self.fd.push_variable_sized_type_uninit(
+            self.get_owned_data().push_variable_sized_type_uninit(
                 kind, flags, data_len, run_length,
             )
         }
@@ -318,9 +553,9 @@ unsafe impl RawPushInterface for IterHall {
 }
 impl IterHall {
     pub fn dup_last_value(&mut self, run_length: usize) {
-        self.fd.dup_last_value(run_length);
+        self.get_owned_data().dup_last_value(run_length);
     }
     pub fn drop_last_value(&mut self, run_length: usize) {
-        self.fd.drop_last_value(run_length);
+        self.get_owned_data().drop_last_value(run_length);
     }
 }

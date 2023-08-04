@@ -7,6 +7,7 @@ use std::{borrow::Cow, cell::RefMut};
 
 use std::num::NonZeroUsize;
 
+use crate::record_data::iters::FieldIterator;
 use crate::{
     job_session::JobData,
     options::argument::CliArgIdx,
@@ -19,7 +20,6 @@ use crate::{
             field_value_flags, FieldReference, FieldValueKind, RunLength,
         },
         iter_hall::IterId,
-        iters::FieldIterator,
         push_interface::{PushInterface, VaryingTypeInserter},
         ref_iter::{
             AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter,
@@ -676,14 +676,10 @@ pub fn handle_tf_regex(
         .begin_action_list(re.apf_idx);
     let input_field = sess
         .field_mgr
-        .borrow_field_cow(input_field_id, tf.has_unconsumed_input());
+        .get_cow_field_ref(input_field_id, tf.has_unconsumed_input());
     let iter_base = sess
         .field_mgr
-        .get_iter_cow_aware(
-            input_field_id,
-            &input_field,
-            re.input_field_iter_id,
-        )
+        .lookup_iter(input_field_id, &input_field, re.input_field_iter_id)
         .bounded(0, batch_size);
     let field_pos_start = iter_base.get_next_field_pos();
     let mut output_fields = SmallVec::<[Option<RefMut<'_, Field>>; 4]>::new();
@@ -966,9 +962,8 @@ pub fn handle_tf_regex(
     } else {
         sess.tf_mgr.update_ready_state(tf_id);
     }
-    sess.field_mgr.store_iter_cow_aware(
+    sess.field_mgr.store_iter(
         input_field_id,
-        &input_field,
         re.input_field_iter_id,
         base_iter,
     );

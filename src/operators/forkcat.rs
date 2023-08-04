@@ -200,14 +200,20 @@ fn expand_for_subchain(
         let _any_writes = write_count > 0; // TODO
         let last_access = combined_fam.last_accessing_sc == sc_n as u32;
 
-        let target_field_id = if writer && !last_access {
+        let (target_field_id, mut tgt_field) = if writer && !last_access {
             drop(src_field);
-            let target = sess.job_data.field_mgr.add_field(tgt_ms_id, None);
+            let target_field_id =
+                sess.job_data.field_mgr.add_field(tgt_ms_id, None);
             src_field =
                 sess.job_data.field_mgr.fields[src_field_id].borrow_mut();
-            target
+            let mut tgt =
+                sess.job_data.field_mgr.fields[target_field_id].borrow_mut();
+            if let Some(name) = name {
+                tgt.names.push(name);
+            }
+            (target_field_id, Some(tgt))
         } else {
-            src_field_id
+            (src_field_id, None)
         };
         current_mappings.insert(
             src_field_id,
@@ -218,18 +224,6 @@ fn expand_for_subchain(
                 last_access,
             },
         );
-        let mut tgt_field = if target_field_id != src_field_id {
-            let mut tgt =
-                sess.job_data.field_mgr.fields[target_field_id].borrow_mut();
-            if let Some(name) = name {
-                tgt.names.push(name);
-            }
-            tgt.cow_source = Some(src_field_id);
-            src_field.ref_count += 1;
-            Some(tgt)
-        } else {
-            None
-        };
         entry.take().map(|e| e.insert(target_field_id));
         for other_name in &src_field.names {
             if name == Some(*other_name) {

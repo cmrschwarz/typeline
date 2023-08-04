@@ -351,12 +351,10 @@ pub fn handle_tf_join(
     let input_field_id = tf.input_field;
     let input_field = sess
         .field_mgr
-        .borrow_field_cow(input_field_id, tf.has_unconsumed_input());
-    let base_iter = sess.field_mgr.get_iter_cow_aware(
-        input_field_id,
-        &input_field,
-        join.iter_id,
-    );
+        .get_cow_field_ref(input_field_id, tf.has_unconsumed_input());
+    let base_iter =
+        sess.field_mgr
+            .lookup_iter(input_field_id, &input_field, join.iter_id);
     let field_pos_start = base_iter.get_next_field_pos();
     let mut field_pos = field_pos_start;
     let mut iter =
@@ -506,8 +504,9 @@ pub fn handle_tf_join(
                                             b_laundered.len();
                                         debug_assert!(offsets.is_none());
                                     }
-
-                                    input_field.request_clear_delay();
+                                    sess.field_mgr.fields[input_field_id]
+                                        .borrow()
+                                        .request_clear_delay();
                                     sess.tf_mgr.unclaim_batch_size(
                                         tf_id,
                                         batch_size - (pos - field_pos_start),
@@ -543,12 +542,8 @@ pub fn handle_tf_join(
         }
     }
 
-    sess.field_mgr.store_iter_cow_aware(
-        input_field_id,
-        &input_field,
-        join.iter_id,
-        iter.into_base_iter(),
-    );
+    sess.field_mgr
+        .store_iter(input_field_id, join.iter_id, iter);
     if input_done {
         let mut emit_incomplete = false;
         // if we dont drop incomplete and there are actual members

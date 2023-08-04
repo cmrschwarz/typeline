@@ -3,6 +3,8 @@ use std::{
     sync::Arc,
 };
 
+use smallvec::SmallVec;
+
 use crate::{
     chain::Chain,
     context::ContextData,
@@ -12,8 +14,7 @@ use crate::{
     record_data::{
         field::{FieldId, DUMMY_INPUT_FIELD_ID},
         iter_hall::{IterHall, IterId},
-        iters::FieldIterator,
-        ref_iter::AutoDerefIter,
+        iters::FieldDataRef,
     },
     utils::identity_hasher::BuildIdentityHasher,
 };
@@ -41,8 +42,9 @@ pub struct OpFork {
 
 pub struct TfForkFieldMapping {
     pub source_iter_id: IterId,
-    pub targets_copy: Vec<FieldId>,
-    pub targets_cow: Vec<FieldId>,
+    pub targets_cow: SmallVec<[FieldId; 4]>,
+    pub targets_data_cow: SmallVec<[FieldId; 4]>,
+    pub targets_copy: SmallVec<[FieldId; 4]>,
 }
 
 pub struct TfFork<'a> {
@@ -126,67 +128,74 @@ pub fn handle_tf_fork(
     let unconsumed_input =
         sess.tf_mgr.transforms[tf_id].has_unconsumed_input();
     let match_set_mgr = &mut sess.match_set_mgr;
+    let clear_visit = batch_size == 0 && !end_of_input;
     for (src_field_id, mapping) in sp.mappings.iter_mut() {
+        if clear_visit {}
         sess.field_mgr
             .apply_field_actions(match_set_mgr, *src_field_id);
+        sess.tf_mgr.prepare_for_output(
+            &sess.field_mgr,
+            match_set_mgr,
+            tf_id,
+            mapping
+                .targets_cow
+                .iter()
+                .chain(mapping.targets_data_cow.iter())
+                .chain(mapping.targets_copy.iter())
+                .copied(),
+        );
+        let src_field = sess
+            .field_mgr
+            .get_cow_field_ref(*src_field_id, unconsumed_input);
+        let src_field_dr = src_field.destructured_field_ref().clone();
+        let src_field_iter = sess.field_mgr.lookup_iter(
+            *src_field_id,
+            &src_field,
+            mapping.source_iter_id,
+        );
         let mut i = 0;
         while i < mapping.targets_cow.len() {
             let tgt_id = mapping.targets_cow[i];
-            let tgt = &mut sess.field_mgr.fields[tgt_id].borrow();
-
-            if tgt.cow_source.is_none() {
-                mapping.targets_cow.push(tgt_id);
+            let tgt = sess.field_mgr.fields[tgt_id].borrow();
+            if tgt.field_data.are_headers_owned() {
                 mapping.targets_cow.swap_remove(i);
-                continue;
+                if tgt.field_data.is_data_owned() {
+                    mapping.targets_copy.push(tgt_id);
+                } else {
+                    mapping.targets_data_cow.push(tgt_id);
+                }
             }
-            debug_assert!(tgt.get_clear_delay_request_count() == 0);
             i += 1;
         }
-        sess.tf_mgr.prepare_for_output(
-            &sess.field_mgr,
-            match_set_mgr,
-            tf_id,
-            mapping.targets_cow.iter().copied(),
-        );
-        sess.tf_mgr.prepare_for_output(
-            &sess.field_mgr,
-            match_set_mgr,
-            tf_id,
-            mapping.targets_copy.iter().copied(),
-        );
-        if mapping.targets_copy.is_empty() {
-            continue;
-        }
-        let src = sess
-            .field_mgr
-            .borrow_field_cow(*src_field_id, unconsumed_input);
-        let mut iter = AutoDerefIter::new(
-            &sess.field_mgr,
-            *src_field_id,
-            sess.field_mgr
-                .get_iter_cow_aware(
-                    *src_field_id,
-                    &src,
-                    mapping.source_iter_id,
-                )
-                .bounded(0, batch_size),
-        );
-        IterHall::copy_resolve_refs(
-            match_set_mgr,
-            &mut iter,
-            &mut |f: &mut dyn FnMut(&mut IterHall)| {
-                for t in &mapping.targets_copy {
-                    let mut tgt = sess.field_mgr.fields[*t].borrow_mut();
-                    f(&mut tgt.field_data);
+        i = 0;
+        while i < mapping.targets_data_cow.len() {
+            let tgt_id = mapping.targets_cow[i];
+            let tgt = sess.field_mgr.fields[tgt_id].borrow();
+            if tgt.field_data.is_data_owned() {
+                mapping.targets_cow.swap_remove(i);
+                if tgt.field_data.is_data_owned() {
+                    mapping.targets_copy.push(tgt_id);
                 }
-            },
-        );
-        sess.field_mgr.store_iter_cow_aware(
-            *src_field_id,
-            &src,
-            mapping.source_iter_id,
-            iter.into_base_iter(),
-        );
+            }
+            i += 1;
+        }
+        for t in &mapping.targets_data_cow {
+            unsafe {
+                sess.field_mgr.fields[*t]
+                    .borrow_mut()
+                    .field_data
+                    .internals()
+                    .header
+                    .extend_from_slice(src_field_dr.headers());
+            }
+        }
+        if !mapping.targets_copy.is_empty() {
+            IterHall::copy(src_field_iter, &mut |f| {
+                mapping.targets_data_cow.iter().for_each(|t| {
+                    f(&mut sess.field_mgr.fields[*t].borrow_mut().field_data)
+                })
+            });
+        }
     }
     for tf in &sp.targets {
         sess.tf_mgr.inform_transform_batch_available(
@@ -203,6 +212,12 @@ pub fn handle_tf_fork(
             sess.tf_mgr.transforms[*tf].input_is_done = true;
         }
         sess.unlink_transform(tf_id, 0);
+        return;
+    }
+    if batch_size == 0 {
+        sess.tf_mgr.push_tf_in_ready_queue(tf_id);
+    } else {
+        sess.tf_mgr.update_ready_state(tf_id);
     }
 }
 
@@ -261,7 +276,7 @@ pub(crate) fn handle_fork_expansion(
                 } else {
                     let target_field_id =
                         sess.job_data.field_mgr.add_field(target_ms_id, None);
-                    //let mut tgt = sess.job_data.field_mgr.fields
+                    // let mut tgt = sess.job_data.field_mgr.fields
                     //    [target_field_id]
                     //    .borrow_mut();
                     // tgt.added_as_placeholder_by_tf = Some(tf_id);
@@ -298,39 +313,39 @@ pub(crate) fn handle_fork_expansion(
                 }
             }
 
-            let target_field_id = if any_writes {
+            let (target_field_id, mut target_field) = if any_writes {
                 drop(src_field);
-                let target =
+                let target_field_id =
                     sess.job_data.field_mgr.add_field(target_ms_id, None);
                 src_field =
                     sess.job_data.field_mgr.fields[src_field_id].borrow_mut();
                 match mappings.entry(src_field_id) {
                     Entry::Occupied(ref mut e) => {
-                        e.get_mut().targets_cow.push(target);
+                        e.get_mut().targets_cow.push(target_field_id);
                     }
                     Entry::Vacant(e) => {
                         e.insert(TfForkFieldMapping {
                             source_iter_id: src_field.field_data.claim_iter(),
-                            targets_cow: vec![target],
-                            targets_copy: Vec::new(),
+                            targets_cow: smallvec::smallvec![target_field_id],
+                            targets_data_cow: Default::default(),
+                            targets_copy: Default::default(),
                         });
                     }
                 }
-                target
-            } else {
-                src_field_id
-            };
-            let mut tgt_field = if any_writes {
+                drop(src_field);
+                sess.job_data
+                    .field_mgr
+                    .setup_cow(target_field_id, src_field_id);
+                src_field =
+                    sess.job_data.field_mgr.fields[src_field_id].borrow_mut();
                 let mut tgt = sess.job_data.field_mgr.fields[target_field_id]
                     .borrow_mut();
                 if let Some(name) = name {
                     tgt.names.push(name);
                 }
-                tgt.cow_source = Some(src_field_id);
-                src_field.ref_count += 1;
-                Some(tgt)
+                (target_field_id, Some(tgt))
             } else {
-                None
+                (src_field_id, None)
             };
             entry.take().map(|e| e.insert(target_field_id));
             for other_name in &src_field.names {
@@ -341,7 +356,7 @@ pub(crate) fn handle_fork_expansion(
                     target_match_set
                         .field_name_map
                         .insert(*other_name, target_field_id);
-                    if let Some(f) = tgt_field.as_mut() {
+                    if let Some(f) = target_field.as_mut() {
                         f.names.push(*other_name)
                     }
                 }

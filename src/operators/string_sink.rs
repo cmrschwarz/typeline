@@ -298,11 +298,11 @@ pub fn handle_tf_string_sink(
     let input_field_id = tf.input_field;
     let input_field = sess
         .field_mgr
-        .borrow_field_cow(tf.input_field, tf.has_unconsumed_input());
+        .get_cow_field_ref(tf.input_field, tf.has_unconsumed_input());
     let mut output_field = sess.field_mgr.fields[tf.output_field].borrow_mut();
     let base_iter = sess
         .field_mgr
-        .get_iter_cow_aware(tf.input_field, &input_field, ss.batch_iter)
+        .lookup_iter(tf.input_field, &input_field, ss.batch_iter)
         .bounded(0, batch_size);
     let starting_pos = base_iter.get_next_field_pos();
     let mut iter =
@@ -441,12 +441,8 @@ pub fn handle_tf_string_sink(
     if consumed_fields < batch_size {
         push_str(&mut out, NULL_STR, batch_size - consumed_fields);
     }
-    sess.field_mgr.store_iter_cow_aware(
-        input_field_id,
-        &input_field,
-        ss.batch_iter,
-        base_iter,
-    );
+    sess.field_mgr
+        .store_iter(input_field_id, ss.batch_iter, base_iter);
     let success_count = field_pos - last_error_end;
     if success_count > 0 {
         output_field.field_data.push_success(success_count, true);

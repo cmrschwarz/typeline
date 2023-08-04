@@ -36,6 +36,14 @@ impl<const ALIGN: usize> Drop for AlignedBuf<ALIGN> {
     }
 }
 
+impl<const ALIGN: usize> Clone for AlignedBuf<ALIGN> {
+    fn clone(&self) -> Self {
+        let mut res = Self::with_capacity(self.cap);
+        res.extend_from_slice(self);
+        res
+    }
+}
+
 impl<const ALIGN: usize> AlignedBuf<ALIGN> {
     pub fn new() -> Self {
         Self::default()

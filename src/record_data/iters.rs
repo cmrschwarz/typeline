@@ -1,22 +1,35 @@
 use std::{cmp::Ordering, marker::PhantomData};
 
-use crate::record_data::field_data::{
-    field_value_flags, FieldData, FieldValueFlags, FieldValueFormat,
-    FieldValueHeader, FieldValueKind, RunLength,
+use crate::{
+    record_data::field_data::{
+        field_value_flags, FieldData, FieldValueFlags, FieldValueFormat,
+        FieldValueHeader, FieldValueKind, RunLength,
+    },
+    utils::aligned_buf::AlignedBuf,
 };
 
-use super::typed::{TypedField, TypedRange, ValidTypedRange};
+use super::{
+    field::{FieldId, FieldManager},
+    field_data::MAX_FIELD_ALIGN,
+    ref_iter::AutoDerefIter,
+    typed::{TypedField, TypedRange, ValidTypedRange},
+};
 
 pub trait FieldDataRef<'a>: Sized {
-    fn header(&self) -> &'a [FieldValueHeader];
+    fn headers(&self) -> &'a [FieldValueHeader];
     fn data(&self) -> &'a [u8];
     fn field_count(&self) -> usize;
+    fn equals<'b, R: FieldDataRef<'b>>(&self, other: &R) -> bool {
+        self.field_count() == other.field_count()
+            && std::ptr::eq(self.headers(), other.headers())
+            && std::ptr::eq(self.data(), other.data())
+    }
 }
 
 impl<'a> FieldDataRef<'a> for &'a FieldData {
     #[inline(always)]
-    fn header(&self) -> &'a [FieldValueHeader] {
-        &self.header
+    fn headers(&self) -> &'a [FieldValueHeader] {
+        &self.headers
     }
     #[inline(always)]
     fn data(&self) -> &'a [u8] {
@@ -30,8 +43,8 @@ impl<'a> FieldDataRef<'a> for &'a FieldData {
 
 impl<'a, R: FieldDataRef<'a>> FieldDataRef<'a> for &R {
     #[inline(always)]
-    fn header(&self) -> &'a [FieldValueHeader] {
-        (**self).header()
+    fn headers(&self) -> &'a [FieldValueHeader] {
+        (**self).headers()
     }
     #[inline(always)]
     fn data(&self) -> &'a [u8] {
@@ -40,6 +53,40 @@ impl<'a, R: FieldDataRef<'a>> FieldDataRef<'a> for &R {
     #[inline(always)]
     fn field_count(&self) -> usize {
         (**self).field_count()
+    }
+}
+
+#[derive(Clone)]
+pub struct DestructuredFieldDataRef<'a> {
+    pub(super) headers: &'a Vec<FieldValueHeader>,
+    pub(super) data: &'a AlignedBuf<MAX_FIELD_ALIGN>,
+    pub(super) field_count: usize,
+}
+
+impl<'a> FieldDataRef<'a> for DestructuredFieldDataRef<'a> {
+    fn headers(&self) -> &'a [FieldValueHeader] {
+        self.headers
+    }
+
+    fn data(&self) -> &'a [u8] {
+        self.data
+    }
+
+    fn field_count(&self) -> usize {
+        self.field_count
+    }
+}
+
+impl<'a> DestructuredFieldDataRef<'a> {
+    pub fn from_field_data(fd: &'a FieldData) -> Self {
+        DestructuredFieldDataRef {
+            headers: &fd.headers,
+            data: &fd.data,
+            field_count: fd.field_count,
+        }
+    }
+    pub fn into_iter(self) -> Iter<'a, DestructuredFieldDataRef<'a>> {
+        Iter::from_start(self)
     }
 }
 
@@ -58,12 +105,12 @@ pub trait FieldIterator<'a>: Sized {
     fn get_next_header(&self) -> FieldValueHeader;
     fn get_next_header_data(&self) -> usize;
     fn get_next_header_ref(&self) -> &'a FieldValueHeader {
-        &self.field_data_ref().header()[self.get_next_header_index()]
+        &self.field_data_ref().headers()[self.get_next_header_index()]
     }
     fn get_next_header_ptr(&self) -> *const FieldValueHeader {
         unsafe {
             self.field_data_ref()
-                .header()
+                .headers()
                 .as_ptr()
                 .add(self.get_next_header_index())
         }
@@ -168,6 +215,13 @@ pub trait FieldIterator<'a>: Sized {
     ) -> BoundedIter<'a, Self> {
         BoundedIter::new_relative(self, backwards, forwards)
     }
+    fn auto_deref(
+        self,
+        fm: &'a FieldManager,
+        field_id: FieldId,
+    ) -> AutoDerefIter<'a, Self> {
+        AutoDerefIter::new(fm, field_id, self)
+    }
 }
 
 #[repr(C)]
@@ -184,10 +238,10 @@ pub struct Iter<'a, R: FieldDataRef<'a>> {
 }
 
 impl<'a, R: FieldDataRef<'a>> Iter<'a, R> {
-    pub fn from_start(fdr: R, initial_field_offset: usize) -> Self {
-        let first_header = fdr.header().first();
+    pub fn from_start(fdr: R) -> Self {
+        let first_header = fdr.headers().first();
         let mut res = Self {
-            field_pos: initial_field_offset,
+            field_pos: 0,
             data: 0,
             header_idx: 0,
             header_rl_offset: 0,
@@ -199,11 +253,11 @@ impl<'a, R: FieldDataRef<'a>> Iter<'a, R> {
         res.skip_dead_fields();
         res
     }
-    pub fn from_end(fdr: R, initial_field_offset: usize) -> Self {
+    pub fn from_end(fdr: R) -> Self {
         Self {
-            field_pos: initial_field_offset + fdr.field_count(),
+            field_pos: fdr.field_count(),
             data: fdr.data().len(),
-            header_idx: fdr.header().len(),
+            header_idx: fdr.headers().len(),
             header_rl_offset: 0,
             header_rl_total: 0,
             header_fmt: Default::default(),
@@ -300,18 +354,18 @@ impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for Iter<'a, R> {
             return 0;
         }
         self.header_rl_offset = 0;
-        self.data += self.fdr.header()[self.header_idx].data_size_unique();
+        self.data += self.fdr.headers()[self.header_idx].data_size_unique();
         self.field_pos += stride as usize;
         loop {
             self.header_idx += 1;
-            if self.header_idx == self.fdr.header().len() {
+            if self.header_idx == self.fdr.headers().len() {
                 self.header_rl_total = 0;
                 // to make sure there's no padding
                 self.header_fmt = Default::default();
                 return stride;
             }
 
-            let h = self.fdr.header()[self.header_idx];
+            let h = self.fdr.headers()[self.header_idx];
             if h.deleted() {
                 self.data += h.total_size_unique();
                 continue;
@@ -332,7 +386,7 @@ impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for Iter<'a, R> {
                 return 0;
             }
             i -= 1;
-            let h = self.fdr.header()[i];
+            let h = self.fdr.headers()[i];
             if !same_as_prev {
                 data_offset += h.data_size();
             }
@@ -397,8 +451,8 @@ impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for Iter<'a, R> {
         }
         loop {
             if flag_mask & field_value_flags::DELETED != 0
-                && self.fdr.header().len() != self.header_idx + 1
-                && self.fdr.header()[self.header_idx + 1].deleted()
+                && self.fdr.headers().len() != self.header_idx + 1
+                && self.fdr.headers()[self.header_idx + 1].deleted()
             {
                 stride_rem -= self.next_header() as usize;
                 return n - stride_rem;
@@ -450,7 +504,7 @@ impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for Iter<'a, R> {
         loop {
             if flag_mask & field_value_flags::DELETED != 0
                 && self.header_idx != 0
-                && self.fdr.header()[self.header_idx - 1].deleted()
+                && self.fdr.headers()[self.header_idx - 1].deleted()
             {
                 stride_rem -= self.prev_header() as usize;
                 return n - stride_rem;
@@ -549,10 +603,10 @@ impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for Iter<'a, R> {
                 oversize_end = self.header_rl_total - self.header_rl_offset;
             } else {
                 while header_end > 0
-                    && self.fdr.header()[header_end - 1].deleted()
+                    && self.fdr.headers()[header_end - 1].deleted()
                 {
                     header_end -= 1;
-                    data_end -= self.fdr.header()[header_end].data_size();
+                    data_end -= self.fdr.headers()[header_end].data_size();
                 }
             }
         }
@@ -830,6 +884,13 @@ where
 
     fn into_base_iter(self) -> Iter<'a, Self::FieldDataRefType> {
         self.iter.into_base_iter()
+    }
+}
+impl<'a, R: FieldDataRef<'a>, I: FieldIterator<'a, FieldDataRefType = R>>
+    From<BoundedIter<'a, I>> for Iter<'a, R>
+{
+    fn from(value: BoundedIter<'a, I>) -> Self {
+        value.into_base_iter()
     }
 }
 

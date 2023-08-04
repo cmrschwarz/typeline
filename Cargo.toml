@@ -12,6 +12,7 @@ name = "scr"
 [[test]]
 path = "tests/lib.rs"
 name = "integration"
+panic = "abort"
 
 [[bench]]
 name = "bench"

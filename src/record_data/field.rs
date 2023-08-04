@@ -1,5 +1,5 @@
 use std::{
-    cell::{Cell, Ref, RefCell, RefMut},
+    cell::{Cell, Ref, RefCell},
     ops::DerefMut,
 };
 
@@ -7,25 +7,26 @@ use nonmax::NonMaxU32;
 use smallvec::SmallVec;
 
 use crate::utils::{
-    nonzero_ext::NonMaxU32Ext, string_store::StringStoreEntry,
-    universe::Universe,
+    aligned_buf::AlignedBuf, nonzero_ext::NonMaxU32Ext,
+    string_store::StringStoreEntry, universe::Universe,
 };
 
 use super::{
     command_buffer::{ActionProducingFieldIndex, FieldActionIndices},
-    field_data::FieldData,
-    iter_hall::{IterHall, IterId},
-    iters::{FieldIterator, Iter},
+    field_data::{FieldData, FieldValueHeader, MAX_FIELD_ALIGN},
+    iter_hall::{FieldDataSource, IterHall, IterId},
+    iters::{DestructuredFieldDataRef, FieldDataRef, FieldIterator, Iter},
     match_set::{MatchSetId, MatchSetManager},
-    ref_iter::AutoDerefIter,
+    record_buffer::RecordBufferField,
 };
+
+#[cfg(feature = "debug_logging")]
+use crate::operators::transform::TransformId;
 
 pub const FIELD_REF_LOOKUP_ITER_ID: IterId = IterId::MIN;
 
 #[derive(Default)]
 pub struct Field {
-    // used for checking whether we got rug pulled in case of cow
-    pub field_id: FieldId,
     pub ref_count: usize,
 
     pub action_indices: FieldActionIndices,
@@ -34,7 +35,6 @@ pub struct Field {
     // fields potentially referenced by this field.
     // keeps them alive until this field is dropped
     pub field_refs: SmallVec<[FieldId; 4]>,
-    pub cow_source: Option<FieldId>,
     pub field_data: IterHall,
 
     pub match_set: MatchSetId,
@@ -54,7 +54,7 @@ impl Field {
     pub fn get_clear_delay_request_count(&self) -> usize {
         self.clear_delay_request_count.get()
     }
-    pub fn has_unconsumed_input_or_equals(&self, value: bool) {
+    pub fn inform_of_unconsumed_input(&self, value: bool) {
         self.has_unconsumed_input
             .set(self.has_unconsumed_input.get() || value);
     }
@@ -67,13 +67,120 @@ impl Field {
         self.clear_delay_request_count
             .set(self.clear_delay_request_count.get() - 1);
     }
+    pub fn uncow(&mut self, fm: &FieldManager) {
+        self.field_data.data_source.uncow(fm);
+    }
 }
 
 pub struct FieldManager {
     pub fields: Universe<FieldId, RefCell<Field>>,
 }
 
+pub struct CowFieldDataRef<'a> {
+    pub(super) field_count: usize,
+    pub(super) headers_ref: Ref<'a, Vec<FieldValueHeader>>,
+    pub(super) data_ref: Ref<'a, AlignedBuf<MAX_FIELD_ALIGN>>,
+}
+
+impl<'a> Clone for CowFieldDataRef<'a> {
+    fn clone(&self) -> Self {
+        Self {
+            field_count: self.field_count.clone(),
+            headers_ref: Ref::clone(&self.headers_ref),
+            data_ref: Ref::clone(&self.data_ref),
+        }
+    }
+}
+
+impl<'a> CowFieldDataRef<'a> {
+    pub fn destructured_field_ref(&'a self) -> DestructuredFieldDataRef<'a> {
+        DestructuredFieldDataRef {
+            headers: &*self.headers_ref,
+            data: &*self.data_ref,
+            field_count: self.field_count,
+        }
+    }
+}
+
 impl FieldManager {
+    pub fn get_field_headers_for_iter_hall<'a>(
+        &'a self,
+        fr: Ref<'a, IterHall>,
+    ) -> (Ref<'a, Vec<FieldValueHeader>>, usize) {
+        match fr.data_source {
+            FieldDataSource::Cow(src) => self.get_field_headers_for_iter_hall(
+                Ref::map(self.fields[src].borrow(), |f| &f.field_data),
+            ),
+            FieldDataSource::Owned(_)
+            | FieldDataSource::RecordBufferDataCow { .. }
+            | FieldDataSource::DataCow { .. }
+            | FieldDataSource::RecordBufferCow(_) => {
+                let mut fc = 0;
+                let headers_ref = Ref::map(fr, |f| match &f.data_source {
+                    FieldDataSource::Owned(fd) => {
+                        fc = fd.field_count;
+                        &fd.headers
+                    }
+                    FieldDataSource::DataCow {
+                        headers,
+                        field_count,
+                        ..
+                    } => {
+                        fc = *field_count;
+                        headers
+                    }
+                    FieldDataSource::RecordBufferDataCow {
+                        headers,
+                        field_count,
+                        ..
+                    } => {
+                        fc = *field_count;
+                        headers
+                    }
+                    FieldDataSource::Cow(_) => unreachable!(),
+                    FieldDataSource::RecordBufferCow(rb) => {
+                        let fd = unsafe { &*(**rb).get() };
+                        fc = fd.field_count;
+                        &fd.headers
+                    }
+                });
+                (headers_ref, fc)
+            }
+        }
+    }
+    pub fn get_field_data_for_iter_hall<'a>(
+        &'a self,
+        fr: Ref<'a, IterHall>,
+    ) -> Ref<'a, AlignedBuf<MAX_FIELD_ALIGN>> {
+        match &fr.data_source {
+            FieldDataSource::Cow(data_ref)
+            | FieldDataSource::DataCow { data_ref, .. } => self
+                .get_field_data_for_iter_hall(Ref::map(
+                    self.fields[*data_ref].borrow(),
+                    |f| &f.field_data,
+                )),
+            FieldDataSource::RecordBufferCow(_)
+            | FieldDataSource::RecordBufferDataCow { .. } => {
+                Ref::map(fr, |f| {
+                    if let FieldDataSource::RecordBufferDataCow {
+                        data, ..
+                    } = &f.data_source
+                    {
+                        &unsafe { &*(**data).get() }.data
+                    } else {
+                        unreachable!()
+                    }
+                })
+            }
+            FieldDataSource::Owned(_) => Ref::map(fr, |f| {
+                if let FieldDataSource::Owned(fd) = &f.data_source {
+                    &fd.data
+                } else {
+                    unreachable!()
+                }
+            }),
+        }
+    }
     pub fn get_min_apf_idx(
         &self,
         field_id: FieldId,
@@ -94,9 +201,7 @@ impl FieldManager {
         min_apf: Option<ActionProducingFieldIndex>,
         data: FieldData,
     ) -> FieldId {
-        let id = self.fields.peek_claim_id();
         let mut field = Field {
-            field_id: id,
             ref_count: 1,
             clear_delay_request_count: Cell::new(0),
             has_unconsumed_input: Cell::new(false),
@@ -107,47 +212,25 @@ impl FieldManager {
                 first_unapplied_al_idx: 0,
             },
             names: Default::default(),
-            cow_source: None,
             field_data: IterHall::new_with_data(data),
             #[cfg(feature = "debug_logging")]
             producing_transform: None,
             field_refs: Default::default(),
         };
         field.field_data.reserve_iter_id(FIELD_REF_LOOKUP_ITER_ID);
-        self.fields.claim_with_value(RefCell::new(field));
-        id
-    }
-    pub fn uncow(&self, match_set_mgr: &mut MatchSetManager, field: FieldId) {
-        let mut field = self.fields[field].borrow_mut();
-        if let Some(cow_source) = field.cow_source {
-            let src = self.fields[cow_source].borrow();
-            let mut iter =
-                AutoDerefIter::new(self, cow_source, src.field_data.iter());
-            IterHall::copy_resolve_refs(
-                match_set_mgr,
-                &mut iter,
-                &mut |func| func(&mut field.field_data),
-            );
-            field.cow_source = None;
-        }
+        self.fields.claim_with_value(RefCell::new(field))
     }
 
-    // this is usually called while iterating over an input field that contains
-    // field references we therefore do NOT want to require a mutable
-    // reference over the field data, because that forces the caller to kill
-    // their iterator instead we `split up` this struct to only require a
-    // mutable reference for the MatchSets, which we need to modify the command
-    // buffer
     pub fn apply_field_actions(
         &self,
-        match_set_mgr: &mut MatchSetManager,
+        msm: &mut MatchSetManager,
         field: FieldId,
     ) {
-        self.uncow(match_set_mgr, field);
         let mut field_ref = self.fields[field].borrow_mut();
+        field_ref.field_data.data_source.uncow_headers(self);
         let f = field_ref.deref_mut();
         let match_set = f.match_set;
-        let cb = &mut match_set_mgr.match_sets[match_set].command_buffer;
+        let cb = &mut msm.match_sets[match_set].command_buffer;
         cb.execute_for_iter_hall(
             field.get() as usize,
             &mut f.field_data,
@@ -155,62 +238,80 @@ impl FieldManager {
         );
     }
 
-    pub fn borrow_field_cow(
-        &self,
-        field_id: FieldId,
-        mark_for_unconsumed_input: bool,
-    ) -> Ref<Field> {
-        let field = self.fields[field_id].borrow();
-        field.has_unconsumed_input_or_equals(mark_for_unconsumed_input);
-        if let Some(cow_source) = field.cow_source {
-            return self.fields[cow_source].borrow();
-        }
-        field
+    pub fn setup_cow(&self, field_id: FieldId, data_source_id: FieldId) {
+        let mut field = self.fields[field_id].borrow_mut();
+        let mut data_source = self.fields[data_source_id].borrow_mut();
+        data_source.ref_count += 1;
+        assert!(field.field_data.data_source.get_field_count(self) == 0);
+        field.field_data.data_source = FieldDataSource::Cow(data_source_id);
     }
-    pub fn borrow_field_cow_mut(
+    pub fn swap_into_buffer(
         &self,
-        field_id: FieldId,
-        mark_for_unconsumed_input: bool,
-    ) -> RefMut<Field> {
-        let field = self.fields[field_id].borrow_mut();
-        field.has_unconsumed_input_or_equals(mark_for_unconsumed_input);
-        if let Some(cow_source) = field.cow_source {
-            return self.fields[cow_source].borrow_mut();
-        }
-        field
-    }
-    pub fn get_iter_cow_aware<'a>(
-        &self,
-        field_id: FieldId,
-        field: &'a Field,
-        iter_id: IterId,
-    ) -> Iter<'a, &'a FieldData> {
-        if field.field_id != field_id {
-            let state = self.fields[field_id]
-                .borrow()
-                .field_data
-                .get_iter_state(iter_id);
-            return unsafe { field.field_data.get_iter_from_state(state) };
-        }
-        return field.field_data.get_iter(iter_id);
-    }
-    pub fn store_iter_cow_aware<'a>(
-        &self,
-        field_id: FieldId,
-        field: &'a Field,
-        iter_id: IterId,
-        iter: impl FieldIterator<'a>,
+        _field_id: FieldId,
+        _iter_id: IterId,
+        _tgt: &mut RecordBufferField,
     ) {
-        if field.field_id != field_id {
-            let iter_base = iter.into_base_iter();
-            assert!(field.field_data.iter_is_from_iter_hall(&iter_base));
-            let field = self.fields[field_id].borrow();
-            unsafe {
-                field.field_data.store_iter_unchecked(iter_id, iter_base)
-            };
-        } else {
-            field.field_data.store_iter(iter_id, iter);
+        todo!();
+    }
+
+    pub fn get_cow_field_ref_for_iter_hall<'a>(
+        &'a self,
+        ih: Ref<'a, IterHall>,
+    ) -> CowFieldDataRef<'a> {
+        let (headers_ref, field_count) =
+            self.get_field_headers_for_iter_hall(Ref::clone(&ih));
+        let data_ref = self.get_field_data_for_iter_hall(ih);
+        CowFieldDataRef {
+            headers_ref,
+            field_count,
+            data_ref,
         }
+    }
+    pub fn get_cow_field_ref<'a>(
+        &'a self,
+        field_id: FieldId,
+        inform_of_unconsumed_input: bool,
+    ) -> CowFieldDataRef<'a> {
+        let field = self.fields[field_id].borrow();
+        field.inform_of_unconsumed_input(inform_of_unconsumed_input);
+        let fd = Ref::map(field, |f| &f.field_data);
+        self.get_cow_field_ref_for_iter_hall(fd)
+    }
+    pub fn lookup_iter<'a, 'b>(
+        &self,
+        field_id: FieldId,
+        cfdr: &'b CowFieldDataRef<'a>,
+        iter_id: IterId,
+    ) -> Iter<'b, DestructuredFieldDataRef<'b>> {
+        let field = self.fields[field_id].borrow();
+        // PERF: maybe write a custom compare instead of doing this traversal?
+        assert!(cfdr.destructured_field_ref().equals(
+            &self
+                .get_cow_field_ref(field_id, false)
+                .destructured_field_ref()
+        ));
+        let state = field.field_data.get_iter_state(iter_id);
+        unsafe {
+            field.field_data.get_iter_from_state_unchecked(
+                cfdr.destructured_field_ref(),
+                state,
+            )
+        }
+    }
+    pub fn store_iter<'a, R: FieldDataRef<'a>>(
+        &self,
+        field_id: FieldId,
+        iter_id: IterId,
+        iter: impl Into<Iter<'a, R>>,
+    ) {
+        let iter_base = iter.into();
+        let field = self.fields[field_id].borrow();
+        assert!(iter_base.field_data_ref().equals(
+            &self
+                .get_cow_field_ref(field_id, false)
+                .destructured_field_ref()
+        ));
+        unsafe { field.field_data.store_iter_unchecked(iter_id, iter_base) };
     }
 
     pub fn bump_field_refcount(&self, field_id: FieldId) {

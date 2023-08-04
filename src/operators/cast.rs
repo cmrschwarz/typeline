@@ -168,7 +168,7 @@ pub fn handle_tf_cast(sess: &mut JobData, tf_id: TransformId, tfc: &TfCast) {
     let input_field_id = tf.input_field;
     let input_field = sess
         .field_mgr
-        .borrow_field_cow(tf.input_field, tf.has_unconsumed_input());
+        .get_cow_field_ref(tf.input_field, tf.has_unconsumed_input());
 
     // PERF: make use of reuse_input_column
     let mut output_field = sess.field_mgr.fields[tf.output_field].borrow_mut();
@@ -195,7 +195,7 @@ pub fn handle_tf_cast(sess: &mut JobData, tf_id: TransformId, tfc: &TfCast) {
     let ofd = &mut output_field.field_data;
     let base_iter = sess
         .field_mgr
-        .get_iter_cow_aware(tf.input_field, &input_field, tfc.batch_iter)
+        .lookup_iter(tf.input_field, &input_field, tfc.batch_iter)
         .bounded(0, batch_size);
     let starting_pos = base_iter.get_next_field_pos();
 
@@ -223,12 +223,8 @@ pub fn handle_tf_cast(sess: &mut JobData, tf_id: TransformId, tfc: &TfCast) {
     }
     let iter_base = iter.into_base_iter();
     let consumed_fields = iter_base.get_next_field_pos() - starting_pos;
-    sess.field_mgr.store_iter_cow_aware(
-        input_field_id,
-        &input_field,
-        tfc.batch_iter,
-        iter_base,
-    );
+    sess.field_mgr
+        .store_iter(input_field_id, tfc.batch_iter, iter_base);
     drop(input_field);
     drop(output_field);
     let streams_done = tfc.pending_streams == 0;

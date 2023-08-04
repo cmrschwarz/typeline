@@ -1,15 +1,16 @@
-use std::ops::Deref;
 use std::{
     collections::HashMap,
     mem::{align_of, ManuallyDrop},
-    ops::DerefMut,
+    ops::{Deref, DerefMut},
     u8,
 };
 
-use super::match_set::MatchSetManager;
-use super::ref_iter::{
-    AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter,
-    RefAwareInlineTextIter,
+use super::{
+    match_set::MatchSetManager,
+    ref_iter::{
+        AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter,
+        RefAwareInlineTextIter,
+    },
 };
 use crate::{
     operators::errors::OperatorApplicationError,
@@ -363,7 +364,7 @@ pub const INLINE_STR_MAX_LEN: usize = 8192;
 #[derive(Default)]
 pub struct FieldData {
     pub(super) data: AlignedBuf<MAX_FIELD_ALIGN>,
-    pub(super) header: Vec<FieldValueHeader>,
+    pub(super) headers: Vec<FieldValueHeader>,
     pub(super) field_count: usize,
 }
 
@@ -371,7 +372,7 @@ impl Clone for FieldData {
     fn clone(&self) -> Self {
         let mut fd = Self {
             data: AlignedBuf::with_capacity(self.data.len()),
-            header: Vec::with_capacity(self.header.len()),
+            headers: Vec::with_capacity(self.headers.len()),
             field_count: 0,
         };
         let fd_ref = &mut fd;
@@ -392,7 +393,7 @@ impl FieldData {
         field_count: usize,
     ) -> Self {
         Self {
-            header,
+            headers: header,
             data,
             field_count,
         }
@@ -410,7 +411,7 @@ impl FieldData {
             }
         }
         self.field_count = 0;
-        self.header.clear();
+        self.headers.clear();
         self.data.clear();
     }
 
@@ -424,9 +425,42 @@ impl FieldData {
         align
     }
 
+    // this is technically safe, but will leak unless paired with a
+    // header that matches the contained type ranges (which itself is not safe)
+    pub fn clone_data<'a>(&self) -> AlignedBuf<MAX_FIELD_ALIGN> {
+        let mut res = AlignedBuf::new();
+        let mut iter = self.iter();
+        while let Some(tr) =
+            iter.typed_range_fwd(usize::MAX, field_value_flags::DEFAULT)
+        {
+            unsafe { append_data(tr.data, &mut |f| f(&mut res)) };
+        }
+        res
+    }
+
+    pub unsafe fn copy_data<'a>(
+        mut iter: impl FieldIterator<'a>,
+        targets_applicator: &mut impl FnMut(&mut dyn FnMut(&mut FieldData)),
+    ) -> usize {
+        let mut fields_copied = 0;
+        while let Some(tr) =
+            iter.typed_range_fwd(usize::MAX, field_value_flags::DEFAULT)
+        {
+            unsafe {
+                append_data(tr.data, &mut |f: &mut dyn Fn(
+                    &mut AlignedBuf<MAX_FIELD_ALIGN>,
+                )| {
+                    targets_applicator(&mut |fd| f(&mut fd.data))
+                })
+            };
+            fields_copied += tr.field_count;
+        }
+        fields_copied
+    }
+
     pub fn copy<'a>(
-        mut iter: impl FieldIterator<'a> + Clone,
-        mut targets_applicator: &mut impl FnMut(&mut dyn FnMut(&mut FieldData)),
+        mut iter: impl FieldIterator<'a>,
+        targets_applicator: &mut impl FnMut(&mut dyn FnMut(&mut FieldData)),
     ) -> usize {
         let mut copied_fields = 0;
         while let Some(tr) =
@@ -434,16 +468,22 @@ impl FieldData {
         {
             copied_fields += tr.field_count;
             targets_applicator(&mut |fd| {
-                let first_header_idx = fd.header.len();
-                fd.header.extend_from_slice(tr.headers);
+                let first_header_idx = fd.headers.len();
+                fd.headers.extend_from_slice(tr.headers);
                 if tr.headers[0].kind.needs_alignment() {
                     let align = unsafe { fd.pad_to_align() };
-                    fd.header[first_header_idx].set_leading_padding(align);
+                    fd.headers[first_header_idx].set_leading_padding(align);
                 }
-                fd.header[first_header_idx].run_length -=
+                fd.headers[first_header_idx].run_length -=
                     tr.first_header_run_length_oversize;
             });
-            unsafe { append_data(tr.data, &mut targets_applicator) };
+            unsafe {
+                append_data(tr.data, &mut |f: &mut dyn Fn(
+                    &mut AlignedBuf<MAX_FIELD_ALIGN>,
+                )| {
+                    targets_applicator(&mut |fd| f(&mut fd.data))
+                })
+            };
         }
         targets_applicator(&mut |fd| fd.field_count += copied_fields);
         copied_fields
@@ -465,16 +505,23 @@ impl FieldData {
             copied_fields += tr.base.field_count;
             if tr.refs.is_none() {
                 targets_applicator(&mut |fd| {
-                    let first_header_idx = fd.header.len();
-                    fd.header.extend_from_slice(tr.base.headers);
+                    let first_header_idx = fd.headers.len();
+                    fd.headers.extend_from_slice(tr.base.headers);
                     if tr.base.headers[0].kind.needs_alignment() {
                         let align = unsafe { fd.pad_to_align() };
-                        fd.header[first_header_idx].set_leading_padding(align);
+                        fd.headers[first_header_idx]
+                            .set_leading_padding(align);
                     }
-                    fd.header[first_header_idx].run_length -=
+                    fd.headers[first_header_idx].run_length -=
                         tr.base.first_header_run_length_oversize;
                 });
-                unsafe { append_data(tr.base.data, targets_applicator) };
+                unsafe {
+                    append_data(tr.base.data, &mut |f: &mut dyn Fn(
+                        &mut AlignedBuf<MAX_FIELD_ALIGN>,
+                    )| {
+                        targets_applicator(&mut |fd| f(&mut fd.data))
+                    })
+                };
             } else {
                 match tr.base.data {
                     TypedSlice::BytesInline(data) => {
@@ -483,7 +530,7 @@ impl FieldData {
                         {
                             targets_applicator(&mut |fd| {
                                 // TODO: maybe do a little rle here?
-                                fd.header.push(FieldValueHeader {
+                                fd.headers.push(FieldValueHeader {
                                     fmt: FieldValueFormat {
                                         kind: FieldValueKind::BytesInline,
                                         flags: SHARED_VALUE,
@@ -501,7 +548,7 @@ impl FieldData {
                         {
                             targets_applicator(&mut |fd| {
                                 // TODO: maybe do a little rle here?
-                                fd.header.push(FieldValueHeader {
+                                fd.headers.push(FieldValueHeader {
                                     fmt: FieldValueFormat {
                                         kind: FieldValueKind::BytesInline,
                                         flags: SHARED_VALUE | BYTES_ARE_UTF8,
@@ -538,12 +585,12 @@ impl FieldData {
     }
 
     pub fn iter(&self) -> Iter<'_, &'_ FieldData> {
-        Iter::from_start(self, 0)
+        Iter::from_start(self)
     }
     pub unsafe fn internals(&mut self) -> FieldDataInternals {
         FieldDataInternals {
             data: &mut self.data,
-            header: &mut self.header,
+            header: &mut self.headers,
             field_count: &mut self.field_count,
         }
     }
@@ -552,25 +599,32 @@ impl FieldData {
     }
 }
 
+#[inline(always)]
 unsafe fn extend_with_clones<T: Clone>(
-    target_applicator: &mut impl FnMut(&mut dyn FnMut(&mut FieldData)),
+    target_applicator: &mut impl FnMut(
+        &mut dyn Fn(&mut AlignedBuf<MAX_FIELD_ALIGN>),
+    ),
     src: &[T],
 ) {
     let src_size = std::mem::size_of_val(src);
-    target_applicator(&mut |fd| {
-        fd.data.reserve(src_size);
+    target_applicator(&mut |data| {
+        data.reserve(src_size);
         unsafe {
-            let mut tgt = fd.data.as_mut_ptr_range().end as *mut T;
+            let mut tgt = data.as_mut_ptr_range().end as *mut T;
             for v in src {
                 std::ptr::write(tgt, v.clone());
                 tgt = tgt.add(1);
             }
-            fd.data.set_len(fd.data.len() + src_size);
+            data.set_len(data.len() + src_size);
         }
     });
 }
+
+#[inline(always)]
 unsafe fn extend_raw<T: Sized>(
-    target_applicator: &mut impl FnMut(&mut dyn FnMut(&mut FieldData)),
+    target_applicator: &mut impl FnMut(
+        &mut dyn Fn(&mut AlignedBuf<MAX_FIELD_ALIGN>),
+    ),
     src: &[T],
 ) {
     let src_bytes = unsafe {
@@ -579,12 +633,15 @@ unsafe fn extend_raw<T: Sized>(
             std::mem::size_of_val(src),
         )
     };
-    target_applicator(&mut |fd| fd.data.extend_from_slice(src_bytes));
+    target_applicator(&mut |data| data.extend_from_slice(src_bytes));
 }
 
+#[inline(always)]
 unsafe fn append_data(
     ts: TypedSlice<'_>,
-    target_applicator: &mut impl FnMut(&mut dyn FnMut(&mut FieldData)),
+    target_applicator: &mut impl FnMut(
+        &mut dyn Fn(&mut AlignedBuf<MAX_FIELD_ALIGN>),
+    ),
 ) {
     unsafe {
         match ts {

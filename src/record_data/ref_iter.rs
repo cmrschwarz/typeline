@@ -1,27 +1,27 @@
 use super::{
-    field::FieldManager,
-    field::FIELD_REF_LOOKUP_ITER_ID,
-    field::{Field, FieldId},
+    field::{
+        CowFieldDataRef, FieldId, FieldManager, FIELD_REF_LOOKUP_ITER_ID,
+    },
+    iters::{DestructuredFieldDataRef, FieldDataRef},
     match_set::MatchSetManager,
     stream_value::StreamValueId,
 };
 
 use crate::record_data::{
     field_data::{
-        field_value_flags::FieldValueFlags, FieldData, FieldReference,
-        FieldValueHeader, RunLength,
+        field_value_flags::FieldValueFlags, FieldReference, FieldValueHeader,
+        RunLength,
     },
     iters::{FieldIterator, Iter},
     typed::{TypedRange, TypedSlice, TypedValue, ValidTypedRange},
     typed_iters::{InlineBytesIter, TypedSliceIter},
 };
-use std::cell::Ref;
 
 pub struct RefIter<'a> {
     refs_iter: TypedSliceIter<'a, FieldReference>,
-    last_field_id: Option<FieldId>,
-    data_iter: Option<Iter<'a, &'a FieldData>>,
-    field_ref: Option<Ref<'a, Field>>,
+    last_field_id: FieldId,
+    data_iter: Iter<'a, DestructuredFieldDataRef<'a>>,
+    data_cow_ref: CowFieldDataRef<'a>,
     field_mgr: &'a FieldManager,
     unconsumed_input: bool,
 }
@@ -32,12 +32,7 @@ impl<'a> Clone for RefIter<'a> {
             refs_iter: self.refs_iter.clone(),
             last_field_id: self.last_field_id,
             data_iter: self.data_iter.clone(),
-            field_ref: if self.field_ref.is_some() {
-                self.last_field_id
-                    .map(|f| self.field_mgr.fields[f].borrow())
-            } else {
-                None
-            },
+            data_cow_ref: self.data_cow_ref.clone(),
             field_mgr: self.field_mgr,
             unconsumed_input: self.unconsumed_input,
         }
@@ -62,8 +57,8 @@ impl<'a> RefIter<'a> {
         unconsumed_input: bool,
     ) -> Self {
         field_mgr.apply_field_actions(match_set_mgr, last_field_id);
-        let (field_ref, mut data_iter) = unsafe {
-            Self::get_field_ref_and_iter(
+        let (data_cow_ref, mut data_iter) = unsafe {
+            Self::get_data_ref_and_iter(
                 field_mgr,
                 last_field_id,
                 unconsumed_input,
@@ -73,31 +68,11 @@ impl<'a> RefIter<'a> {
         Self {
             refs_iter,
             field_mgr,
-            last_field_id: Some(last_field_id),
-            data_iter: Some(data_iter),
-            field_ref: Some(field_ref),
+            last_field_id,
+            data_iter,
+            data_cow_ref,
             unconsumed_input,
         }
-    }
-
-    // SAFETY: the returned Iter contains a reference into
-    // the returned Field, so the caller will need to ensure
-    // that the returned Ref outlives the returned Iter
-    unsafe fn get_field_ref_and_iter<'b>(
-        field_mgr: &'b FieldManager,
-        field_id: FieldId,
-        unconsumed_input: bool,
-    ) -> (Ref<'b, Field>, Iter<'b, &'b FieldData>) {
-        let field_ref = field_mgr.borrow_field_cow(field_id, unconsumed_input);
-        let iter = field_mgr.get_iter_cow_aware(
-            field_id,
-            &field_ref,
-            FIELD_REF_LOOKUP_ITER_ID,
-        );
-        let iter_lifetime_laundered =
-            unsafe { std::mem::transmute::<Iter<'_, _>, Iter<'b, _>>(iter) };
-
-        (field_ref, iter_lifetime_laundered)
     }
     pub fn reset(
         &mut self,
@@ -115,40 +90,46 @@ impl<'a> RefIter<'a> {
         match_set_mgr: &'_ mut MatchSetManager,
         field_id: FieldId,
     ) {
-        if self.last_field_id == Some(field_id) {
+        if self.last_field_id == field_id {
             return;
         }
-        self.field_ref.take().unwrap().field_data.store_iter(
-            FIELD_REF_LOOKUP_ITER_ID,
-            self.data_iter.take().unwrap(),
-        );
         self.field_mgr.apply_field_actions(match_set_mgr, field_id);
-        let (field_ref, data_iter) = unsafe {
-            Self::get_field_ref_and_iter(
-                self.field_mgr,
-                field_id,
-                self.unconsumed_input,
-            )
+        let (cow_ref_new, data_iter_new) = unsafe {
+            Self::get_data_ref_and_iter(self.field_mgr, field_id, false)
         };
-        // SAFETY: we have to reassign data_iter first, because the old one
-        // still has a pointer into the data of the old field_ref
-        self.field_ref = Some(field_ref);
-        self.data_iter = Some(data_iter);
-        self.last_field_id = Some(field_id);
+        self.field_mgr.store_iter(
+            self.last_field_id,
+            FIELD_REF_LOOKUP_ITER_ID,
+            std::mem::replace(&mut self.data_iter, data_iter_new),
+        );
+        let _ = std::mem::replace(&mut self.data_cow_ref, cow_ref_new);
+        self.last_field_id = field_id;
+    }
+    // SAFETY: caller has to ensure that the cow ref outlives the iter
+    unsafe fn get_data_ref_and_iter(
+        fm: &FieldManager,
+        field_id: FieldId,
+        unconsumed_input: bool,
+    ) -> (CowFieldDataRef<'a>, Iter<'a, DestructuredFieldDataRef<'a>>) {
+        let fr = fm.get_cow_field_ref(field_id, unconsumed_input);
+        let iter = fm.lookup_iter(
+            field_id,
+            unsafe { std::mem::transmute(&fr) },
+            FIELD_REF_LOOKUP_ITER_ID,
+        );
+        unsafe { std::mem::transmute((fr, iter)) }
     }
     pub fn move_to_field_keep_pos(
         &mut self,
         match_set_mgr: &'_ mut MatchSetManager,
         field_id: FieldId,
     ) {
-        if self.last_field_id == Some(field_id) {
+        if self.last_field_id == field_id {
             return;
         }
-        self.move_to_field_pos(
-            match_set_mgr,
-            field_id,
-            self.data_iter.as_ref().unwrap().get_next_field_pos(),
-        );
+        self.move_to_field(match_set_mgr, field_id);
+        self.data_iter
+            .move_to_field_pos(self.data_iter.get_next_field_pos());
     }
     pub fn move_to_field_pos(
         &mut self,
@@ -156,11 +137,10 @@ impl<'a> RefIter<'a> {
         field_id: FieldId,
         field_pos: usize,
     ) {
-        self.move_to_field(match_set_mgr, field_id);
-        self.data_iter
-            .as_mut()
-            .unwrap()
-            .move_to_field_pos(field_pos);
+        if self.last_field_id == field_id {
+            self.move_to_field(match_set_mgr, field_id);
+        }
+        self.data_iter.move_to_field_pos(field_pos);
     }
     pub fn set_refs_iter(
         &mut self,
@@ -175,8 +155,8 @@ impl<'a> RefIter<'a> {
     ) -> Option<FieldRefUnpacked<'a>> {
         let (field_ref, rl) = self.refs_iter.peek()?;
         self.move_to_field_keep_pos(match_set_mgr, field_ref.field);
-        let iter = self.data_iter.as_mut().unwrap();
-        let tf = iter
+        let tf = self
+            .data_iter
             .typed_field_fwd((rl as usize).min(limit) as RunLength)
             .unwrap();
         self.refs_iter.next_n_fields(tf.header.run_length as usize);
@@ -202,18 +182,17 @@ impl<'a> RefIter<'a> {
         let ref_header_idx = self.refs_iter.headers_remaining();
         let field = field_ref.field;
         self.move_to_field_keep_pos(match_set_mgr, field);
-        let iter = self.data_iter.as_mut().unwrap();
-        let fmt = iter.get_next_field_format();
+        let fmt = self.data_iter.get_next_field_format();
 
-        let data_start = iter.get_next_field_data();
-        let header_ref = iter.get_next_header_ptr();
-        let oversize_start = iter.field_run_length_bwd();
-        let header_idx = iter.get_next_header_index();
+        let data_start = self.data_iter.get_next_field_data();
+        let header_ref = self.data_iter.get_next_header_ptr();
+        let oversize_start = self.data_iter.field_run_length_bwd();
+        let header_idx = self.data_iter.get_next_header_index();
 
         let mut refs_oversize_end = 0;
         let mut field_count = 0;
         loop {
-            let data_stride = iter.next_n_fields_with_fmt(
+            let data_stride = self.data_iter.next_n_fields_with_fmt(
                 (field_rl as usize).min(limit),
                 [fmt.kind],
                 false,
@@ -238,8 +217,9 @@ impl<'a> RefIter<'a> {
                 break;
             }
         }
-        let mut header_count = iter.get_next_header_index() - header_idx;
-        if iter.field_run_length_bwd() != 0 {
+        let mut header_count =
+            self.data_iter.get_next_header_index() - header_idx;
+        if self.data_iter.field_run_length_bwd() != 0 {
             header_count += 1;
         }
         let mut refs_header_count =
@@ -259,16 +239,17 @@ impl<'a> RefIter<'a> {
                         header_count,
                     ),
                     data: TypedSlice::new(
-                        iter.field_data_ref(),
+                        self.data_iter.field_data_ref(),
                         (*header_ref).fmt,
                         flag_mask,
                         data_start,
-                        iter.get_prev_field_data_end(),
+                        self.data_iter.get_prev_field_data_end(),
                         field_count,
                     ),
                     field_count,
                     first_header_run_length_oversize: oversize_start,
-                    last_header_run_length_oversize: iter
+                    last_header_run_length_oversize: self
+                        .data_iter
                         .field_run_length_fwd_oversize(),
                 }),
                 TypedSliceIter::new(
@@ -285,13 +266,11 @@ impl<'a> RefIter<'a> {
     }
     pub fn next_n_fields(&mut self, limit: usize) -> usize {
         let ref_skip = self.refs_iter.next_n_fields(limit);
-        let data_iter = self.data_iter.as_mut().unwrap();
-        if self.refs_iter.peek().map(|(v, _rl)| v.field) == self.last_field_id
+        if self.refs_iter.peek().map(|(v, _rl)| v.field)
+            == Some(self.last_field_id)
         {
-            let data_skip = data_iter.next_n_fields(ref_skip);
+            let data_skip = self.data_iter.next_n_fields(ref_skip);
             assert!(data_skip == ref_skip);
-        } else {
-            self.last_field_id = None;
         }
         ref_skip
     }
@@ -327,9 +306,6 @@ impl<'a, I: FieldIterator<'a>> AutoDerefIter<'a, I> {
                 .has_unconsumed_input
                 .get(),
         }
-    }
-    pub fn into_base_iter(self) -> I {
-        self.iter
     }
     pub fn move_to_field_pos(&mut self, field_pos: usize) {
         self.ref_iter = None;
@@ -404,6 +380,17 @@ impl<'a, I: FieldIterator<'a>> AutoDerefIter<'a, I> {
             self.ref_iter = None;
         }
         ri_count + base_count
+    }
+    pub fn into_base_iter(self) -> I {
+        self.iter
+    }
+}
+
+impl<'a, R: FieldDataRef<'a>, I: FieldIterator<'a, FieldDataRefType = R>>
+    From<AutoDerefIter<'a, I>> for Iter<'a, R>
+{
+    fn from(value: AutoDerefIter<'a, I>) -> Self {
+        value.iter.into_base_iter()
     }
 }
 
@@ -707,12 +694,9 @@ mod ref_iter_tests {
             field_name_map: Default::default(),
         });
 
-        let refs_borrow = field_mgr.fields[refs_field_id].borrow();
-        let mut ref_iter = AutoDerefIter::new(
-            &field_mgr,
-            field_id,
-            refs_borrow.field_data.iter(),
-        );
+        let fr = field_mgr.get_cow_field_ref(refs_field_id, false);
+        let iter = fr.destructured_field_ref().into_iter();
+        let mut ref_iter = AutoDerefIter::new(&field_mgr, field_id, iter);
         let range = ref_iter
             .typed_range_fwd(
                 &mut match_set_mgr,
@@ -734,7 +718,7 @@ mod ref_iter_tests {
         expected: &[(&'static str, RunLength)],
     ) {
         let mut fd_refs = FieldData::default();
-        for h in fd.header.iter_mut() {
+        for h in fd.headers.iter_mut() {
             if !h.same_value_as_previous() {
                 push_ref(
                     &mut fd_refs,
@@ -742,12 +726,12 @@ mod ref_iter_tests {
                     h.size as usize,
                     h.run_length as usize,
                 );
-                let h_ref = fd_refs.header.last_mut().unwrap();
+                let h_ref = fd_refs.headers.last_mut().unwrap();
                 h_ref.flags |= h.flags
                     & (field_value_flags::DELETED
                         | field_value_flags::SHARED_VALUE);
             } else {
-                fd_refs.header.push(FieldValueHeader {
+                fd_refs.headers.push(FieldValueHeader {
                     fmt: FieldValueFormat {
                         kind: FieldValueKind::Reference,
                         flags: h.flags
@@ -822,9 +806,9 @@ mod ref_iter_tests {
         push_ref(&mut fdr, 0, 2, 2);
         push_ref(&mut fdr, 0, 3, 3);
 
-        fd.header[1].set_deleted(true);
+        fd.headers[1].set_deleted(true);
         fd.field_count -= 2;
-        fdr.header[1].set_deleted(true);
+        fdr.headers[1].set_deleted(true);
         fdr.field_count -= 2;
 
         compare_iter_output(fd, fdr, &[("a", 1, 0), ("ccc", 3, 0)]);
@@ -835,10 +819,10 @@ mod ref_iter_tests {
         let mut fd = FieldData::default();
         fd.push_str("aaa", 1, false, false);
 
-        fd.header.extend_from_within(0..1);
-        fd.header[1].set_same_value_as_previous(true);
-        fd.header[1].run_length = 5;
-        fd.header[1].set_shared_value(true);
+        fd.headers.extend_from_within(0..1);
+        fd.headers[1].set_same_value_as_previous(true);
+        fd.headers[1].run_length = 5;
+        fd.headers[1].set_shared_value(true);
         fd.field_count += 5;
 
         fd.push_str("c", 3, false, false);
@@ -853,12 +837,12 @@ mod ref_iter_tests {
         let mut fd = FieldData::default();
         fd.push_str("00", 1, false, false);
         fd.push_str("1", 1, false, false);
-        fd.header.extend_from_within(1..2);
-        fd.header[2].set_same_value_as_previous(true);
-        fd.header[2].run_length = 5;
-        fd.header[2].set_shared_value(true);
+        fd.headers.extend_from_within(1..2);
+        fd.headers[2].set_same_value_as_previous(true);
+        fd.headers[2].run_length = 5;
+        fd.headers[2].set_shared_value(true);
         fd.field_count += 5;
-        fd.header[1].set_deleted(true);
+        fd.headers[1].set_deleted(true);
         fd.field_count -= 1;
         fd.push_str("333", 3, false, false);
         compare_iter_output_parallel_ref(

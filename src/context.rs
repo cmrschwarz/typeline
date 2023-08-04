@@ -66,11 +66,7 @@ pub(crate) struct SessionManager {
     pub terminate: bool,
     pub waiting_worker_threads: usize,
     pub total_worker_threads: usize,
-
-    // TODO
-    #[allow(dead_code)]
     pub waiting_venture_participants: usize,
-    #[allow(dead_code)]
     pub venture_id_counter: usize,
 }
 
@@ -99,6 +95,11 @@ impl SessionManager {
     pub fn add_worker_thread(&mut self, ctx_data: &Arc<ContextData>) {
         let ctx_data = ctx_data.clone();
         self.total_worker_threads += 1;
+        #[cfg(feature = "debug_logging")]
+        println!(
+            "added worker thread: {} / {}",
+            self.total_worker_threads, self.session.settings.max_threads
+        );
         // this detaches the worker thread, which is fine for our usecase
         std::thread::spawn(move || WorkerThread::new(ctx_data).run());
     }

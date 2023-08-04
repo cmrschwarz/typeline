@@ -10,17 +10,15 @@ use crate::{
         LivenessData, Var, HEADER_WRITES_OFFSET, READS_OFFSET,
     },
     options::argument::CliArgIdx,
-    record_data::field::{FieldId, FieldManager, DUMMY_INPUT_FIELD_ID},
     record_data::{
         command_buffer::{ActionProducingFieldIndex, FieldActionKind},
-        field_data::FieldData,
+        field::{FieldId, FieldManager, DUMMY_INPUT_FIELD_ID},
         iter_hall::IterId,
         match_set::MatchSetId,
         record_buffer::{
             RecordBuffer, RecordBufferData, RecordBufferField,
             RecordBufferFieldId,
         },
-        ref_iter::AutoDerefIter,
     },
     utils::{
         identity_hasher::BuildIdentityHasher,
@@ -295,45 +293,12 @@ pub fn handle_tf_call_concurrent(
     while buf_data.available_batch_size != 0 {
         buf_data = tfc.buffer.updates.wait(buf_data).unwrap();
     }
-    for mapping in &tfc.field_mappings {
-        let src_field = sess
-            .field_mgr
-            .borrow_field_cow(mapping.source_field_id, false);
-        let mut copy_required = src_field.has_unconsumed_input.get();
-        copy_required |= src_field.field_id != mapping.source_field_id;
-        // PERF: this makes us always copy for regex. maybe try to copy the
-        // referenced fields into the right ids instead?
-        copy_required |= !src_field.field_refs.is_empty();
-
-        let tgt_data = buf_data.fields[mapping.buf_field].get_data_mut();
-        if copy_required {
-            let mut iter = AutoDerefIter::new(
-                &sess.field_mgr,
-                mapping.source_field_id,
-                sess.field_mgr.get_iter_cow_aware(
-                    mapping.source_field_id,
-                    &src_field,
-                    mapping.source_field_iter,
-                ),
-            );
-            FieldData::copy_resolve_refs(
-                &mut sess.match_set_mgr,
-                &mut iter,
-                &mut |f: &mut dyn FnMut(&mut FieldData)| f(tgt_data),
-            );
-            sess.field_mgr.store_iter_cow_aware(
-                mapping.source_field_id,
-                &src_field,
-                mapping.source_field_iter,
-                iter.into_base_iter(),
-            );
-        } else {
-            drop(src_field);
-            let mut src_field_mut =
-                sess.field_mgr.fields[mapping.source_field_id].borrow_mut();
-            let src_data = unsafe { src_field_mut.field_data.raw() };
-            std::mem::swap(tgt_data, src_data);
-        }
+    for mapping in tfc.field_mappings.iter() {
+        sess.field_mgr.swap_into_buffer(
+            mapping.source_field_id,
+            mapping.source_field_iter,
+            &mut buf_data.fields[mapping.buf_field],
+        );
     }
     buf_data.input_done = input_done;
     buf_data.available_batch_size += batch_size;
@@ -352,8 +317,8 @@ pub fn handle_tf_call_concurrent(
     for mapping in &tfc.field_mappings {
         let mut src_field =
             sess.field_mgr.fields[mapping.source_field_id].borrow_mut();
-        if src_field.cow_source.is_some()
-            || src_field.has_unconsumed_input.get()
+        if src_field.has_unconsumed_input.get()
+            || !src_field.field_data.are_headers_owned()
         {
             continue;
         }
@@ -363,7 +328,9 @@ pub fn handle_tf_call_concurrent(
                 mapping.source_field_id.get() as usize,
                 &mut src_field.action_indices,
             );
-        src_field.field_data.clear();
+        unsafe {
+            src_field.field_data.clear_if_owned();
+        }
     }
     if input_done {
         sess.unlink_transform(tf_id, 0);
