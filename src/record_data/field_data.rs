@@ -6,6 +6,7 @@ use std::{
 };
 
 use super::{
+    field::FieldIdOffset,
     match_set::MatchSetManager,
     ref_iter::{
         AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter,
@@ -20,7 +21,6 @@ use crate::{
 use self::field_value_flags::{BYTES_ARE_UTF8, SHARED_VALUE};
 
 use super::{
-    field::FieldId,
     iters::{FieldIterator, Iter},
     push_interface::PushInterface,
     stream_value::StreamValueId,
@@ -169,7 +169,7 @@ pub struct Object {
 
 #[derive(Copy, Clone, PartialEq)]
 pub struct FieldReference {
-    pub field: FieldId,
+    pub field_id_offset: FieldIdOffset,
     pub begin: usize,
     pub end: usize,
 }

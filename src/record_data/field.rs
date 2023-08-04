@@ -3,7 +3,7 @@ use std::{
     ops::DerefMut,
 };
 
-use nonmax::NonMaxU32;
+use nonmax::{NonMaxU16, NonMaxU32};
 use smallvec::SmallVec;
 
 use crate::utils::{
@@ -48,6 +48,7 @@ pub struct Field {
 }
 
 pub type FieldId = NonMaxU32;
+pub type FieldIdOffset = NonMaxU16; // NonMaxU32;
 pub const DUMMY_INPUT_FIELD_ID: FieldId = FieldId::MIN;
 
 impl Field {

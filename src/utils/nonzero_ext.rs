@@ -1,5 +1,12 @@
-use nonmax::{NonMaxU32, NonMaxUsize};
+use nonmax::{NonMaxU16, NonMaxU32, NonMaxUsize};
 use std::num::{NonZeroU32, NonZeroUsize};
+
+pub trait NonMaxU16Ext {
+    const ZERO: NonMaxU16 = unsafe { NonMaxU16::new_unchecked(0) };
+    const ONE: NonMaxU16 = unsafe { NonMaxU16::new_unchecked(1) };
+    const MIN: NonMaxU16 = Self::ZERO;
+    const MAX: NonMaxU16 = unsafe { NonMaxU16::new_unchecked(u16::MAX - 1) };
+}
 
 pub trait NonMaxU32Ext {
     const ZERO: NonMaxU32 = unsafe { NonMaxU32::new_unchecked(0) };
@@ -24,10 +31,23 @@ pub trait NonZeroUsizeExt {
     const ONE: NonZeroUsize = NonZeroUsize::MIN;
 }
 
+impl NonMaxU16Ext for NonMaxU16 {}
 impl NonMaxU32Ext for NonMaxU32 {}
 impl NonMaxUsizeExt for NonMaxUsize {}
+
 impl NonZeroU32Ext for NonZeroU32 {}
 impl NonZeroUsizeExt for NonZeroUsize {}
+
+pub const fn nonmax_u16_wrapping_add(
+    lhs: NonMaxU16,
+    rhs: NonMaxU16,
+) -> NonMaxU16 {
+    let mut res = lhs.get().wrapping_add(rhs.get());
+    if res == 0 {
+        res = u16::MAX - 1;
+    }
+    unsafe { NonMaxU16::new_unchecked(res) }
+}
 
 pub const fn nonmax_u32_wrapping_sub(
     lhs: NonMaxU32,

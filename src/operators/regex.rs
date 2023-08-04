@@ -1,5 +1,6 @@
 use arrayvec::ArrayString;
 
+use nonmax::NonMaxU16;
 use regex::{self, bytes};
 use smallstr::SmallString;
 use smallvec::SmallVec;
@@ -7,7 +8,9 @@ use std::{borrow::Cow, cell::RefMut};
 
 use std::num::NonZeroUsize;
 
+use crate::record_data::field::FieldIdOffset;
 use crate::record_data::iters::FieldIterator;
+use crate::utils::nonzero_ext::{nonmax_u16_wrapping_add, NonMaxU16Ext};
 use crate::{
     job_session::JobData,
     options::argument::CliArgIdx,
@@ -564,7 +567,7 @@ fn match_regex_inner<const PUSH_REF: bool, R: AnyRegex>(
                     if PUSH_REF {
                         ins.push_field_reference(
                             FieldReference {
-                                field: rmis.source_field,
+                                field_id_offset: rmis.field_ref_offset,
                                 begin: offset + cg_begin,
                                 end: offset + cg_end,
                             },
@@ -652,7 +655,7 @@ struct RegexBatchState<'a> {
 struct RegexMatchInnerState<'a, 'b> {
     batch_state: &'b mut RegexBatchState<'a>,
     command_buffer: &'b mut CommandBuffer,
-    source_field: FieldId,
+    field_ref_offset: FieldIdOffset,
 }
 
 pub fn handle_tf_regex(
@@ -744,7 +747,10 @@ pub fn handle_tf_regex(
             command_buffer: &mut sess.match_set_mgr.match_sets
                 [tf.match_set_id]
                 .command_buffer,
-            source_field: range.field_id,
+            field_ref_offset: range
+                .field_id_offset
+                .map(|o| nonmax_u16_wrapping_add(o, NonMaxU16::ONE))
+                .unwrap_or(NonMaxU16::ZERO),
         };
         match range.base.data {
             TypedSlice::TextInline(text) => {
