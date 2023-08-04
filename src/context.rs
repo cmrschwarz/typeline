@@ -1,6 +1,8 @@
 use std::{
     collections::{HashMap, VecDeque},
+    io::{stdout, Write},
     sync::{Arc, Condvar, Mutex},
+    thread::JoinHandle,
 };
 
 use bstr::ByteSlice;
@@ -68,6 +70,7 @@ pub(crate) struct SessionManager {
     pub total_worker_threads: usize,
     pub waiting_venture_participants: usize,
     pub venture_id_counter: usize,
+    pub thread_join_handles: Vec<JoinHandle<()>>,
 }
 
 pub(crate) struct ContextData {
@@ -100,8 +103,9 @@ impl SessionManager {
             "added worker thread: {} / {}",
             self.total_worker_threads, self.session.settings.max_threads
         );
-        // this detaches the worker thread, which is fine for our usecase
-        std::thread::spawn(move || WorkerThread::new(ctx_data).run());
+        self.thread_join_handles.push(std::thread::spawn(move || {
+            WorkerThread::new(ctx_data).run()
+        }));
     }
     pub fn submit_venture<'a>(
         &mut self,
@@ -156,15 +160,17 @@ impl Context {
         let ctx_data = Arc::new(ContextData {
             work_available: Condvar::new(),
             worker_threads_finished: Condvar::new(),
+            // we add 1 total / waiting thread for the main thread
             sess_mgr: Mutex::new(SessionManager {
                 terminate: false,
-                total_worker_threads: 0,
+                total_worker_threads: 1,
                 venture_id_counter: 0,
                 waiting_venture_participants: 0,
-                waiting_worker_threads: 0,
+                waiting_worker_threads: 1,
                 venture_queue: Default::default(),
                 job_queue: Default::default(),
                 session: session.clone(),
+                thread_join_handles: Default::default(),
             }),
         });
         Self {
@@ -333,6 +339,7 @@ impl Drop for Context {
         while sess_mgr.waiting_worker_threads < sess_mgr.total_worker_threads {
             sess_mgr = ctx.worker_threads_finished.wait(sess_mgr).unwrap();
         }
+        let _ = stdout().lock().flush();
     }
 }
 

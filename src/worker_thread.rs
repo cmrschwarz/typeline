@@ -8,11 +8,29 @@ use std::sync::Arc;
 
 pub(crate) struct WorkerThread {
     pub ctx_data: Arc<ContextData>,
+    // in case of panics, we want to increment the waiter counter
+    // if this is false
+    pub waiting: bool,
+}
+
+impl Drop for WorkerThread {
+    fn drop(&mut self) {
+        if !self.waiting {
+            let mut sess = self.ctx_data.sess_mgr.lock().unwrap();
+            sess.waiting_worker_threads += 1;
+            if sess.waiting_worker_threads == sess.total_worker_threads {
+                self.ctx_data.worker_threads_finished.notify_one();
+            }
+        }
+    }
 }
 
 impl WorkerThread {
     pub(crate) fn new(ctx_data: Arc<ContextData>) -> Self {
-        Self { ctx_data }
+        Self {
+            ctx_data,
+            waiting: false,
+        }
     }
     pub fn run_venture<'a>(
         &mut self,
@@ -72,6 +90,7 @@ impl WorkerThread {
 
     pub fn run(&mut self) {
         let mut sess_mgr = self.ctx_data.sess_mgr.lock().unwrap();
+
         loop {
             if !sess_mgr.terminate {
                 let waiting_venture_participants =
@@ -123,6 +142,7 @@ impl WorkerThread {
                 }
             }
             sess_mgr.waiting_worker_threads += 1;
+            self.waiting = true;
             if sess_mgr.waiting_worker_threads == sess_mgr.total_worker_threads
             {
                 self.ctx_data.worker_threads_finished.notify_one();
@@ -131,6 +151,8 @@ impl WorkerThread {
                 return;
             }
             sess_mgr = self.ctx_data.work_available.wait(sess_mgr).unwrap();
+            sess_mgr.waiting_worker_threads -= 1;
+            self.waiting = false;
         }
     }
 }

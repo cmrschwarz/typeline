@@ -128,9 +128,7 @@ pub fn handle_tf_fork(
     let unconsumed_input =
         sess.tf_mgr.transforms[tf_id].has_unconsumed_input();
     let match_set_mgr = &mut sess.match_set_mgr;
-    let clear_visit = batch_size == 0 && !end_of_input;
     for (src_field_id, mapping) in sp.mappings.iter_mut() {
-        if clear_visit {}
         sess.field_mgr
             .apply_field_actions(match_set_mgr, *src_field_id);
         sess.tf_mgr.prepare_for_output(

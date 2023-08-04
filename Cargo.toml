@@ -68,7 +68,7 @@ panic = "abort"
 lto = "thin"
 
 [profile.dev]
-panic = "abort"
+panic = "unwind"
 
 [features]
 unstable = []

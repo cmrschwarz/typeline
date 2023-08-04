@@ -654,6 +654,7 @@ mod ref_iter_tests {
             field_value_flags, FieldData, FieldReference, FieldValueFormat,
             FieldValueHeader, FieldValueKind, RunLength,
         },
+        iters::Iter,
         push_interface::PushInterface,
         typed::TypedSlice,
     };
@@ -695,7 +696,7 @@ mod ref_iter_tests {
         });
 
         let fr = field_mgr.get_cow_field_ref(refs_field_id, false);
-        let iter = fr.destructured_field_ref().into_iter();
+        let iter = Iter::from_start(fr.destructured_field_ref());
         let mut ref_iter = AutoDerefIter::new(&field_mgr, field_id, iter);
         let range = ref_iter
             .typed_range_fwd(
