@@ -14,6 +14,7 @@ use crate::{
         command_buffer::{ActionProducingFieldIndex, FieldActionKind},
         field::{FieldId, FieldManager, DUMMY_INPUT_FIELD_ID},
         iter_hall::IterId,
+        iters::FieldIterator,
         match_set::MatchSetId,
         record_buffer::{
             RecordBuffer, RecordBufferData, RecordBufferField,
@@ -294,10 +295,25 @@ pub fn handle_tf_call_concurrent(
         buf_data = tfc.buffer.updates.wait(buf_data).unwrap();
     }
     for mapping in tfc.field_mappings.iter() {
-        sess.field_mgr.swap_into_buffer(
+        let cfdr = sess
+            .field_mgr
+            .get_cow_field_ref(mapping.source_field_id, false);
+        let iter = sess.field_mgr.lookup_iter(
             mapping.source_field_id,
-            &mut buf_data.fields[mapping.buf_field],
+            &cfdr,
+            mapping.source_field_iter,
         );
+        if iter.get_next_field_pos() != 0 {
+            sess.field_mgr.append_to_buffer(
+                iter,
+                &mut buf_data.fields[mapping.buf_field],
+            );
+        } else {
+            sess.field_mgr.swap_into_buffer(
+                mapping.source_field_id,
+                &mut buf_data.fields[mapping.buf_field],
+            );
+        }
     }
     buf_data.input_done = input_done;
     buf_data.available_batch_size += batch_size;

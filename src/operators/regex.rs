@@ -357,8 +357,6 @@ pub fn setup_tf_regex<'a>(
         .command_buffer;
     let apf_idx = cb.claim_apf(tf_state.ordering_id);
     let apf_succ = cb.peek_next_apf_id(); // this will always end up being valid because of the terminator
-    sess.field_mgr
-        .register_field_reference(tf_state.output_field, tf_state.input_field);
     let mut output_field =
         sess.field_mgr.fields[tf_state.output_field].borrow_mut();
 
@@ -369,7 +367,7 @@ pub fn setup_tf_regex<'a>(
         .iter()
         .enumerate()
         .map(|(i, name)| {
-            if i == op.output_group_id {
+            let field_id = if i == op.output_group_id {
                 Some(tf_state.output_field)
             } else if let Some(name) = name {
                 let field_id = sess
@@ -383,7 +381,12 @@ pub fn setup_tf_regex<'a>(
                 Some(field_id)
             } else {
                 None
+            };
+            if let Some(id) = field_id {
+                sess.field_mgr
+                    .register_field_reference(id, tf_state.input_field);
             }
+            field_id
         })
         .collect();
     tf_state.preferred_input_type = Some(FieldValueKind::BytesInline);

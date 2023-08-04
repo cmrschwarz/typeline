@@ -265,6 +265,13 @@ impl FieldManager {
         assert!(field.field_data.data_source.get_field_count(self) == 0);
         field.field_data.data_source = FieldDataSource::Cow(data_source_id);
     }
+    pub fn append_to_buffer<'a>(
+        &self,
+        _iter: impl FieldIterator<'a>,
+        _tgt: &mut RecordBufferField,
+    ) {
+        todo!();
+    }
     pub fn swap_into_buffer(
         &self,
         field_id: FieldId,
@@ -379,8 +386,11 @@ impl FieldManager {
         self.fields[field_id].borrow_mut().ref_count += n;
     }
     pub fn register_field_reference(&self, source: FieldId, target: FieldId) {
-        self.fields[source].borrow_mut().field_refs.push(target);
-        self.fields[target].borrow_mut().ref_count += 1;
+        let mut src = self.fields[source].borrow_mut();
+        let mut tgt = self.fields[target].borrow_mut();
+        src.field_refs.push(target);
+        src.field_refs.extend_from_slice(&tgt.field_refs);
+        tgt.ref_count += 1;
     }
 }
 

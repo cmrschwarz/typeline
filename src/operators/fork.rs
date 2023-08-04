@@ -227,6 +227,7 @@ pub(crate) fn handle_fork_expansion(
     // we have to temporarily move the targets out of fork so we can modify
     // sess while accessing them
     let mut targets = Vec::<TransformId>::new();
+
     let mut mappings =
         HashMap::<FieldId, TfForkFieldMapping, BuildIdentityHasher>::default();
     let tf = &sess.job_data.tf_mgr.transforms[tf_id];
@@ -359,6 +360,23 @@ pub(crate) fn handle_fork_expansion(
                     }
                 }
             }
+            // make sure all used field refs have a mapping entry
+            // even if the fields are unnamed
+            for fr in &src_field.field_refs {
+                match mappings.entry(*fr) {
+                    Entry::Occupied(_) => (),
+                    Entry::Vacant(e) => {
+                        let mut f =
+                            sess.job_data.field_mgr.fields[*fr].borrow_mut();
+                        e.insert(TfForkFieldMapping {
+                            source_iter_id: f.field_data.claim_iter(),
+                            targets_cow: Default::default(),
+                            targets_data_cow: Default::default(),
+                            targets_copy: Default::default(),
+                        });
+                    }
+                }
+            }
             if name.is_none() {
                 chain_input_field = Some(target_field_id);
             }
@@ -406,6 +424,31 @@ pub(crate) fn handle_fork_expansion(
             pred_tf = start_tf;
         }
         targets.push(pred_tf);
+    }
+    for (src_field_id, tgt_fields) in &mappings {
+        let src = sess.job_data.field_mgr.fields[*src_field_id].borrow();
+        for fr in &src.field_refs {
+            let mapping_targets = &mappings[fr].targets_cow;
+            let mut i = 0;
+            for tgt in tgt_fields.targets_cow.iter().copied() {
+                let mut t = sess.job_data.field_mgr.fields[tgt].borrow_mut();
+                let mut mt;
+                loop {
+                    mt = sess.job_data.field_mgr.fields[mapping_targets[i]]
+                        .borrow_mut();
+                    if mt.match_set == t.match_set {
+                        break;
+                    }
+                    if mt.match_set > t.match_set {
+                        todo!(); //add mapping
+                    }
+                    i += 1;
+                }
+                t.field_refs.push(mapping_targets[i]);
+                mt.ref_count += 1;
+                i += 1;
+            }
+        }
     }
     sess.log_state("expanded fork");
     if let TransformData::Fork(ref mut fork) =
