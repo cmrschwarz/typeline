@@ -385,24 +385,61 @@ impl<'a> JobData<'a> {
     pub fn drop_field_refcount(&mut self, field_id: FieldId) {
         let mut field = self.field_mgr.fields[field_id].borrow_mut();
         field.ref_count -= 1;
-        if field.ref_count == 0 {
-            drop(field);
+        let rc = field.ref_count;
+        drop(field);
+        if rc == 0 {
             self.remove_field(field_id);
+        } else if cfg!(feature = "debug_logging") {
+            print!("dropped ref to ");
+            self.print_field_stats(field_id);
+            println!();
+        }
+    }
+    pub fn print_field_stats(&self, _id: FieldId) {
+        #[cfg(feature = "debug_logging")]
+        {
+            let id = _id;
+            let field = self.field_mgr.fields[id].borrow();
+            print!("field id {id}");
+            if let Some(prod_id) = field.producing_transform_id {
+                print!(
+                    " (output of tf {prod_id} `{}`)",
+                    field.producing_transform_arg
+                )
+            } else if !field.producing_transform_arg.is_empty() {
+                print!(" (`{}`)", field.producing_transform_arg)
+            }
+            if !field.field_refs.is_empty() {
+                print!(" ( field refs:");
+                for fr in &field.field_refs {
+                    print!(" {fr}");
+                }
+                print!(" )");
+            }
+            print!(" (rc {})", field.ref_count);
+            if !field.names.is_empty() {
+                print!(" ( names:");
+                for n in &field.names {
+                    print!(" {}", self.session_data.string_store.lookup(*n));
+                }
+                print!(" )");
+            }
         }
     }
     pub fn remove_field(&mut self, id: FieldId) {
-        let mut field = self.field_mgr.fields[id].borrow_mut();
         #[cfg(feature = "debug_logging")]
-        print!("removing field id {id} [ ");
+        {
+            print!("removing ");
+            self.print_field_stats(id);
+            println!();
+        }
+        let mut field = self.field_mgr.fields[id].borrow_mut();
+
         for n in &field.names {
-            #[cfg(feature = "debug_logging")]
-            print!("{} ", self.session_data.string_store.lookup(*n));
             self.match_set_mgr.match_sets[field.match_set]
                 .field_name_map
                 .remove(n);
         }
-        #[cfg(feature = "debug_logging")]
-        println!("]");
         let frs = std::mem::take(&mut field.field_refs);
         drop(field);
         self.field_mgr.fields.release(id);
@@ -421,23 +458,14 @@ impl<'a> JobSession<'a> {
                     self.job_data.session_data.operator_data[op_id as usize]
                         .default_op_name()
                 } else {
-                    "<unknown>".into()
+                    self.transform_data[i.get()].alternative_display_name()
                 };
                 println!("tf {} (ord id {}): {}", i, tf.ordering_id, name);
             }
             #[cfg(feature = "debug_logging")]
-            for (i, f) in self.job_data.field_mgr.fields.iter_enumerated() {
-                let field = f.borrow();
-                print!(
-                    "field {} (output of tf {:?}): [ ",
-                    i, field.producing_transform
-                );
-                for n in &field.names {
-                    let name =
-                        self.job_data.session_data.string_store.lookup(*n);
-                    print!("{name} ")
-                }
-                println!("]");
+            for (i, _) in self.job_data.field_mgr.fields.iter_enumerated() {
+                self.job_data.print_field_stats(i);
+                println!();
             }
         }
     }
@@ -469,6 +497,13 @@ impl<'a> JobSession<'a> {
             input_data_fields.push(field_id);
             field_id
         });
+
+        #[cfg(feature = "debug_logging")]
+        for (i, f) in input_data_fields.iter().enumerate() {
+            self.job_data.field_mgr.fields[*f]
+                .borrow_mut()
+                .producing_transform_arg = format!("<Input Field #{i}>");
+        }
 
         let (start_tf_id, end_tf_id, end_reachable) = self
             .setup_transforms_from_op(ms_id, job.operator, input_data, None);
@@ -520,21 +555,28 @@ impl<'a> JobSession<'a> {
         let tf = &self.job_data.tf_mgr.transforms[tf_id];
         let tfif = tf.input_field;
         let tfof = tf.output_field;
-        self.job_data.drop_field_refcount(tfif);
-        self.job_data.drop_field_refcount(tfof);
         #[cfg(feature = "debug_logging")]
         {
             let tf = &self.job_data.tf_mgr.transforms[tf_id];
-            let opname = if let Some(op_id) = tf.op_id {
-                self.job_data.session_data.string_store.lookup(
-                    self.job_data.session_data.operator_bases[op_id as usize]
-                        .argname,
-                )
+            let name: String = if let Some(op_id) = tf.op_id {
+                self.job_data
+                    .session_data
+                    .string_store
+                    .lookup(
+                        self.job_data.session_data.operator_bases
+                            [op_id as usize]
+                            .argname,
+                    )
+                    .into()
             } else {
-                "<unknown op>"
+                self.transform_data[tf_id.get()]
+                    .alternative_display_name()
+                    .to_string()
             };
-            println!("removing transform id {tf_id}: {opname}");
+            println!("removing tf id {tf_id}: `{name}`");
         }
+        self.job_data.drop_field_refcount(tfif);
+        self.job_data.drop_field_refcount(tfof);
         self.job_data.tf_mgr.transforms.release(tf_id);
         self.transform_data[usize::from(tf_id)] = TransformData::Disabled;
     }
@@ -671,8 +713,13 @@ impl<'a> JobSession<'a> {
             {
                 let mut of =
                     self.job_data.field_mgr.fields[output_field].borrow_mut();
-                if of.producing_transform.is_none() {
-                    of.producing_transform = Some(tf_id_peek);
+                if of.producing_transform_id.is_none() {
+                    of.producing_transform_id = Some(tf_id_peek);
+                    of.producing_transform_arg =
+                        self.job_data.session_data.operator_data
+                            [*op_id as usize]
+                            .default_op_name()
+                            .to_string();
                 }
             }
             if mark_prev_field_as_placeholder {

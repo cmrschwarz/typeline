@@ -40,7 +40,9 @@ pub struct Field {
     pub match_set: MatchSetId,
 
     #[cfg(feature = "debug_logging")]
-    pub producing_transform: Option<TransformId>,
+    pub producing_transform_id: Option<TransformId>,
+    #[cfg(feature = "debug_logging")]
+    pub producing_transform_arg: String,
 
     // typically called on input fields which we don't want to borrow mut
     pub clear_delay_request_count: Cell<usize>,
@@ -232,7 +234,9 @@ impl FieldManager {
             names: Default::default(),
             field_data: IterHall::new_with_data(data),
             #[cfg(feature = "debug_logging")]
-            producing_transform: None,
+            producing_transform_id: None,
+            #[cfg(feature = "debug_logging")]
+            producing_transform_arg: "".to_string(),
             field_refs: Default::default(),
         };
         field.field_data.reserve_iter_id(FIELD_REF_LOOKUP_ITER_ID);
@@ -401,6 +405,8 @@ impl Default for FieldManager {
         };
         let id = res.fields.claim_with_value(RefCell::new(Field {
             ref_count: 1,
+            #[cfg(feature = "debug_logging")]
+            producing_transform_arg: "<Dummy Input Field>".to_string(),
             ..Default::default()
         }));
         debug_assert!(DUMMY_INPUT_FIELD_ID == id);

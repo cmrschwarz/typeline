@@ -1,4 +1,5 @@
 use nonmax::NonMaxUsize;
+use smallstr::SmallString;
 
 use crate::record_data::{
     field::FieldId, field_data::FieldValueKind, match_set::MatchSetId,
@@ -16,7 +17,7 @@ use super::{
     join::TfJoin,
     literal::TfLiteral,
     nop::TfNop,
-    operator::OperatorId,
+    operator::{OperatorId, DEFAULT_OP_NAME_SMALL_STR_LEN},
     print::TfPrint,
     regex::TfRegex,
     select::TfSelect,
@@ -54,6 +55,35 @@ pub enum TransformData<'a> {
 impl Default for TransformData<'_> {
     fn default() -> Self {
         Self::Disabled
+    }
+}
+
+impl TransformData<'_> {
+    pub fn alternative_display_name(
+        &self,
+    ) -> SmallString<[u8; DEFAULT_OP_NAME_SMALL_STR_LEN]> {
+        let base = match self {
+            TransformData::Disabled => "disabled",
+            TransformData::Nop(_) => "nop",
+            TransformData::Call(_) => "",
+            TransformData::CallConcurrent(_) => "call-cc",
+            TransformData::CalleeConcurrent(_) => "callee-cc",
+            TransformData::Cast(_) => "cast",
+            TransformData::Count(_) => "count",
+            TransformData::Print(_) => "print",
+            TransformData::Join(_) => "join",
+            TransformData::Select(_) => "select",
+            TransformData::StringSink(_) => "string_sink",
+            TransformData::Fork(_) => "fork",
+            TransformData::ForkCat(_) => "forkcat",
+            TransformData::Regex(_) => "regex",
+            TransformData::Format(_) => "format",
+            TransformData::FileReader(_) => "file_reader",
+            TransformData::Literal(_) => "literal",
+            TransformData::Sequence(_) => "sequence",
+            TransformData::Terminator(_) => "terminator",
+        };
+        format!("<tf {base}>").into()
     }
 }
 
