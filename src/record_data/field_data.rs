@@ -373,7 +373,7 @@ impl Clone for FieldData {
         let mut fd = Self {
             data: AlignedBuf::with_capacity(self.data.len()),
             headers: Vec::with_capacity(self.headers.len()),
-            field_count: 0,
+            field_count: 0, //set by copy
         };
         let fd_ref = &mut fd;
         FieldData::copy(self.iter(), &mut |f| f(fd_ref));

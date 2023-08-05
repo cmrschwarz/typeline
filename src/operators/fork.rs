@@ -124,7 +124,7 @@ pub fn handle_tf_fork(
     tf_id: TransformId,
     sp: &mut TfFork,
 ) {
-    let (batch_size, end_of_input) = sess.tf_mgr.claim_batch(tf_id);
+    let (batch_size, end_of_input) = sess.tf_mgr.claim_all(tf_id);
     let unconsumed_input =
         sess.tf_mgr.transforms[tf_id].has_unconsumed_input();
     let match_set_mgr = &mut sess.match_set_mgr;

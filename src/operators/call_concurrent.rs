@@ -1,4 +1,7 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
 
 use bstr::ByteSlice;
 
@@ -159,11 +162,19 @@ pub fn setup_tf_call_concurrent<'a>(
     op: &'a OpCallConcurrent,
     tf_state: &TransformState,
 ) -> TransformData<'a> {
+    let buffer = Arc::<RecordBuffer>::new(RecordBuffer {
+        fields: Mutex::new(RecordBufferData {
+            remaining_consumers: 1,
+            ..Default::default()
+        }),
+        ..Default::default()
+    });
+
     TransformData::CallConcurrent(TfCallConcurrent {
         expanded: false,
         target_chain: op.target_resolved.unwrap(),
         field_mappings: Default::default(),
-        buffer: Default::default(),
+        buffer,
         apf_idx: sess.match_set_mgr.match_sets[tf_state.match_set_id]
             .command_buffer
             .claim_apf(tf_state.ordering_id),
@@ -300,7 +311,9 @@ pub fn handle_tf_call_concurrent(
         );
     }
     let mut buf_data = tfc.buffer.fields.lock().unwrap();
-    while buf_data.available_batch_size != 0 {
+    while buf_data.available_batch_size != 0
+        && buf_data.remaining_consumers > 0
+    {
         buf_data = tfc.buffer.updates.wait(buf_data).unwrap();
     }
     for mapping in tfc.field_mappings.iter() {

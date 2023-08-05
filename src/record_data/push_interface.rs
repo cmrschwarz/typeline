@@ -785,6 +785,8 @@ impl<'a> RawFixedSizedTypeInserter<'a> {
                 )
             }
         };
+        self.fd.field_count += self.count;
+        self.count = 0;
     }
     unsafe fn drop_and_reserve(
         &mut self,
@@ -917,6 +919,8 @@ impl<'a> RawVariableSizedTypeInserter<'a> {
                 fmt.flags | DELETED,
             )
         };
+        self.fd.field_count += self.count;
+        self.count = 0;
     }
     unsafe fn drop_and_reserve(
         &mut self,
