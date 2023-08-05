@@ -265,17 +265,22 @@ impl TransformManager {
     ) {
         let tf = &mut self.transforms[tf_id];
         let appending = tf.is_appending;
+        let request_uncow = tf.request_uncow;
+        tf.request_uncow = false;
         tf.is_appending = false;
 
         for ofid in output_fields {
             let mut f = field_mgr.fields[ofid].borrow_mut();
             let clear_delay = f.get_clear_delay_request_count() > 0;
-            if appending || clear_delay {
+            if request_uncow || clear_delay {
+                // PERF: we might want clear delay to propagate instead
+                // of uncowing immediately
                 drop(f);
                 field_mgr.uncow(ofid);
-                if clear_delay {
-                    field_mgr.apply_field_actions(match_set_mgr, ofid);
-                }
+                f = field_mgr.fields[ofid].borrow_mut();
+            }
+            if clear_delay {
+                field_mgr.apply_field_actions(match_set_mgr, ofid);
             } else {
                 match_set_mgr.match_sets[tf.match_set_id]
                     .command_buffer
@@ -343,6 +348,7 @@ impl<'a> JobData<'a> {
             cont.successor = successor;
             cont.predecessor = predecessor;
             cont.available_batch_size = available_batch_size;
+            cont.request_uncow = true;
             if let Some(pred_id) = predecessor {
                 self.tf_mgr.transforms[pred_id].successor = continuation;
             }
@@ -351,13 +357,10 @@ impl<'a> JobData<'a> {
                 let succ = &mut self.tf_mgr.transforms[succ_id];
                 succ.predecessor = continuation;
                 succ.available_batch_size += available_batch_for_successor;
-                // PERF: We can't make the successor ready here because that
-                // it the job of the continuation transform.
-                // Doing it would mess this the append / uncow logic
-                // in prepare_output.
-                // Currently, because claim_batch does not care about
-                // the desired_batch_size of the successor, this will
-                // lead to a 'double batch' for the successor
+                if succ.available_batch_size > 0 {
+                    self.tf_mgr.push_tf_in_ready_queue(succ_id);
+                    self.tf_mgr.transforms[cont_id].is_appending = false;
+                }
             }
             return;
         }
