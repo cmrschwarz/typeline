@@ -28,6 +28,7 @@ use scr::{
         select::create_op_select,
         sequence::{create_op_enum, create_op_seq, create_op_seqn},
         string_sink::{create_op_string_sink, StringSinkHandle},
+        up::create_op_up,
     },
     options::{
         chain_options::DEFAULT_CHAIN_OPTIONS, context_builder::ContextBuilder,
@@ -1352,15 +1353,15 @@ fn unlink_without_append_after_fork(
     Ok(())
 }
 
-// disable for now
-// #[test]
-fn _basic_forkcat() -> Result<(), ScrError> {
+#[test]
+fn basic_forkcat() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .add_op(create_op_forkcat())
         .add_op(create_op_str("foo", 1))
         .add_op(create_op_next())
         .add_op(create_op_str("bar", 1))
+        .add_op(create_op_up(1))
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(ss.get_data().unwrap().as_slice(), ["foo", "bar"]);

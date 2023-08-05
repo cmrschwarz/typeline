@@ -255,6 +255,7 @@ impl SessionOptions {
                         OperatorData::Sequence(_) => (),
                     }
                 }
+                continue;
             }
             op_base.offset_in_chain =
                 chain.operators.len() as OperatorOffsetInChain;

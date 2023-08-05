@@ -223,7 +223,6 @@ impl LivenessData {
         &mut self,
         bb_id: BasicBlockId,
         op_n: OperatorOffsetInChain,
-        called_chain: ChainId,
         data_size: &mut usize,
         bits_per_bb: usize,
     ) {
@@ -235,7 +234,6 @@ impl LivenessData {
         if op_n < end {
             bb.successors.push(succ_bb_id);
             bb.operators_end = op_n;
-            bb.calls.push(called_chain as BasicBlockId);
             self.basic_blocks.push(BasicBlock {
                 chain_id,
                 operators_start: op_n + 1,
@@ -290,10 +288,11 @@ impl LivenessData {
                     | OperatorData::Call(OpCall {
                         target_resolved, ..
                     }) => {
+                        bb.calls
+                            .push(target_resolved.unwrap() as BasicBlockId);
                         self.split_bb_at_call(
                             i,
                             op_n,
-                            target_resolved.unwrap(),
                             &mut data_size,
                             bits_per_bb,
                         );
@@ -303,8 +302,15 @@ impl LivenessData {
                         subchains_start,
                         subchains_end,
                         ..
-                    })
-                    | OperatorData::ForkCat(OpForkCat {
+                    }) => {
+                        for sc in &cn.subchains[*subchains_start as usize
+                            ..*subchains_end as usize]
+                        {
+                            bb.successors.push(*sc as BasicBlockId);
+                        }
+                        break;
+                    }
+                    OperatorData::ForkCat(OpForkCat {
                         subchains_start,
                         subchains_end,
                         ..
@@ -312,8 +318,14 @@ impl LivenessData {
                         for sc in &cn.subchains[*subchains_start as usize
                             ..*subchains_end as usize]
                         {
-                            bb.successors.push(*sc as BasicBlockId);
+                            bb.calls.push(*sc as BasicBlockId);
                         }
+                        self.split_bb_at_call(
+                            i,
+                            op_n,
+                            &mut data_size,
+                            bits_per_bb,
+                        );
                         break;
                     }
                     OperatorData::Cast(_) => (),
