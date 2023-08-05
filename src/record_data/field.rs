@@ -271,10 +271,11 @@ impl FieldManager {
     }
     pub fn append_to_buffer<'a>(
         &self,
-        _iter: impl FieldIterator<'a>,
-        _tgt: &mut RecordBufferField,
+        iter: impl FieldIterator<'a>,
+        tgt: &RecordBufferField,
     ) {
-        todo!();
+        let fd = unsafe { &mut (*tgt.data.get()) };
+        FieldData::copy(iter, &mut |f| f(fd));
     }
     pub fn swap_into_buffer(
         &self,
