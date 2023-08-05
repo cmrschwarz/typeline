@@ -469,6 +469,9 @@ impl IterHall {
                 }
             }
             if let Some(first_clear_delay) = first_clear_delay {
+                // this branch is an optimization where we move our data into
+                // the last cow_target that requested a clear delay instead
+                // of copying our data just to delete it straight afterwards
                 let mut i = first_clear_delay;
                 loop {
                     let mut ct = fm.fields[self.cow_targets[i]].borrow_mut();

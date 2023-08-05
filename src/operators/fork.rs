@@ -275,11 +275,11 @@ pub(crate) fn handle_fork_expansion(
                 } else {
                     let target_field_id =
                         sess.job_data.field_mgr.add_field(target_ms_id, None);
-                    // let mut tgt = sess.job_data.field_mgr.fields
-                    //    [target_field_id]
-                    //    .borrow_mut();
-                    // tgt.added_as_placeholder_by_tf = Some(tf_id);
                     vacant.insert(target_field_id);
+                    let mut tgt = sess.job_data.field_mgr.fields
+                        [target_field_id]
+                        .borrow_mut();
+                    tgt.names.push(name);
                     continue;
                 };
                 entry = Some(vacant);
@@ -440,7 +440,7 @@ pub(crate) fn handle_fork_expansion(
                         break;
                     }
                     if mt.match_set > t.match_set {
-                        todo!(); //add mapping
+                        todo!(); // add mapping
                     }
                     i += 1;
                 }

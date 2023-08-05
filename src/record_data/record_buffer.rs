@@ -14,6 +14,7 @@ use super::field_data::FieldData;
 pub struct RecordBufferField {
     pub refcount: usize,
     pub names: SmallVec<[StringStoreEntry; 4]>,
+    pub field_refs: SmallVec<[RecordBufferFieldId; 4]>,
     pub(super) data: UnsafeCell<FieldData>,
 }
 

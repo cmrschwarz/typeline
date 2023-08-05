@@ -188,14 +188,14 @@ fn insert_mapping(
     buf_data: &mut RecordBufferData,
     field_mappings: &mut Vec<RecordBufferFieldMapping>,
     name: Option<StringStoreEntry>,
-) {
+) -> RecordBufferFieldId {
     match mappings_present.entry(source_field_id) {
         std::collections::hash_map::Entry::Occupied(mapping) => {
+            let buf_field = field_mappings[*mapping.get()].buf_field;
             if let Some(name) = name {
-                buf_data.fields[field_mappings[*mapping.get()].buf_field]
-                    .names
-                    .push(name);
+                buf_data.fields[buf_field].names.push(name);
             }
+            buf_field
         }
         std::collections::hash_map::Entry::Vacant(e) => {
             e.insert(field_mappings.len());
@@ -213,7 +213,8 @@ fn insert_mapping(
                     .field_data
                     .claim_iter(),
                 buf_field,
-            })
+            });
+            buf_field
         }
     }
 }
@@ -253,6 +254,24 @@ fn setup_target_field_mappings(
             &mut call.field_mappings,
             *name,
         );
+    }
+    let mut i = 0;
+    while i < call.field_mappings.len() {
+        let src_field_id = call.field_mappings[i].source_field_id;
+        let src = sess.field_mgr.fields[src_field_id].borrow();
+        let tgt_buf_field_idx = call.field_mappings[i].buf_field;
+        for fr in &src.field_refs {
+            let mapping = insert_mapping(
+                &sess.field_mgr,
+                &mut mappings_present,
+                *fr,
+                buf_data,
+                &mut call.field_mappings,
+                None,
+            );
+            buf_data.fields[tgt_buf_field_idx].field_refs.push(mapping);
+        }
+        i += 1;
     }
 }
 
@@ -331,7 +350,6 @@ pub fn handle_tf_call_concurrent(
                 &mut buf_data.fields[mapping.buf_field],
             );
         } else {
-            drop(iter);
             drop(cfdr);
             sess.field_mgr.swap_into_buffer(
                 mapping.source_field_id,
@@ -412,6 +430,19 @@ pub fn setup_callee_concurrent(
             );
         }
         callee.target_fields.push(Some(field_id));
+    }
+    for (i, field) in buf_data.fields.iter_mut().enumerate() {
+        let tgt_field_id = callee.target_fields[i].unwrap();
+        let mut tgt =
+            sess.job_data.field_mgr.fields[tgt_field_id].borrow_mut();
+        for fr in &field.field_refs {
+            let ref_field_id =
+                callee.target_fields[fr.get() as usize].unwrap();
+            tgt.field_refs.push(ref_field_id);
+            sess.job_data.field_mgr.fields[ref_field_id]
+                .borrow_mut()
+                .ref_count += 1;
+        }
     }
     drop(buf_data);
     let input_field = callee.target_fields[0];
