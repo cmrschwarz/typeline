@@ -467,7 +467,7 @@ fn parse_operation(
         "enum" => Some(parse_op_seq(value, true, false, idx)?),
         "enumn" => Some(parse_op_seq(value, true, true, idx)?),
         "count" => Some(parse_op_count(value, idx)?),
-        "nop" => Some(parse_op_nop(value, idx)?),
+        "nop" | "scr" => Some(parse_op_nop(value, idx)?),
         "fork" => Some(parse_op_fork(value, idx)?),
         "forkcat" => Some(parse_op_forkcat(value, idx)?),
         "call" => Some(parse_op_call(value, idx)?),
