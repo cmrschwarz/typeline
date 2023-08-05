@@ -393,8 +393,11 @@ impl FieldManager {
         let mut src = self.fields[source].borrow_mut();
         let mut tgt = self.fields[target].borrow_mut();
         src.field_refs.push(target);
-        src.field_refs.extend_from_slice(&tgt.field_refs);
         tgt.ref_count += 1;
+        for fr in &tgt.field_refs {
+            self.fields[*fr].borrow_mut().ref_count += 1;
+        }
+        src.field_refs.extend_from_slice(&tgt.field_refs);
     }
 }
 
