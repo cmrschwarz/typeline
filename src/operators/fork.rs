@@ -6,7 +6,7 @@ use std::{
 use smallvec::SmallVec;
 
 use crate::{
-    chain::Chain,
+    chain::{Chain, ChainId},
     context::ContextData,
     job_session::{JobData, JobSession},
     liveness_analysis::LivenessData,
@@ -21,7 +21,6 @@ use crate::{
 
 use super::{
     errors::{OperatorCreationError, OperatorSetupError},
-    nop::setup_tf_nop,
     operator::{OperatorBase, OperatorData, OperatorId},
     transform::{TransformData, TransformId, TransformState},
     utils::field_access_mappings::FieldAccessMappings,
@@ -385,46 +384,17 @@ pub(crate) fn handle_fork_expansion(
         let input_field = chain_input_field.unwrap_or(DUMMY_INPUT_FIELD_ID);
         let start_op_id =
             sess.job_data.session_data.chains[subchain_id].operators[0];
-
-        // if the initial transform after the fork may unlink
-        // before input is done, we insert a dummy transform
-        // so our target transform ids are stable
-        let mut tf_state = TransformState::new(
-            input_field,
-            DUMMY_INPUT_FIELD_ID,
-            target_ms_id,
-            sess.job_data.session_data.chains[subchain_id]
-                .settings
-                .default_batch_size,
-            None,
-            None,
-            sess.job_data.tf_mgr.claim_transform_ordering_id(),
-        );
-        sess.job_data.field_mgr.bump_field_refcount(input_field);
-        sess.job_data
-            .field_mgr
-            .bump_field_refcount(DUMMY_INPUT_FIELD_ID);
-        tf_state.is_transparent = true;
-        let tf_data = setup_tf_nop(&tf_state);
-        let mut pred_tf = sess.add_transform(tf_state, tf_data);
-        let (start_tf, end_tf, end_reachable) = sess.setup_transforms_from_op(
-            target_ms_id,
-            start_op_id,
-            input_field,
-            Some(pred_tf),
-        );
+        let (start_tf, end_tf, end_reachable) = sess
+            .setup_transforms_with_stable_start(
+                target_ms_id,
+                subchain_id as ChainId,
+                start_op_id,
+                input_field,
+            );
         if end_reachable {
             sess.add_terminator(end_tf);
         }
-        if sess.job_data.tf_mgr.transforms[start_tf]
-            .continuation
-            .is_none()
-        {
-            sess.job_data.unlink_transform(pred_tf, 0);
-            sess.remove_transform(pred_tf);
-            pred_tf = start_tf;
-        }
-        targets.push(pred_tf);
+        targets.push(start_tf);
     }
     for (src_field_id, tgt_fields) in &mappings {
         let src = sess.job_data.field_mgr.fields[*src_field_id].borrow();

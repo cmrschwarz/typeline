@@ -8,6 +8,7 @@ use std::{
 use nonmax::NonMaxU32;
 
 use crate::{
+    chain::ChainId,
     context::{ContextData, Job, Session, VentureDescription},
     operators::{
         call::{
@@ -740,9 +741,16 @@ impl<'a> JobSession<'a> {
                     setup_tf_count(jd, b, op, &mut tf_state)
                 }
                 OperatorData::Fork(op) => {
+                    // in case of fork, we keep the end as 'reachable'
+                    // because the current match chain ends there,
+                    // and the fork itself does not drop the fields
                     setup_tf_fork(jd, b, op, &mut tf_state)
                 }
                 OperatorData::ForkCat(op) => {
+                    // fork cat on the other hand has to keep the records
+                    // temporarily alive, so it handles
+                    // termination itself
+                    end_reachable = false;
                     setup_tf_forkcat(jd, b, op, &mut tf_state)
                 }
                 OperatorData::Print(op) => {
@@ -816,6 +824,54 @@ impl<'a> JobSession<'a> {
         let start = start_tf_id.unwrap();
         let end = predecessor_tf.unwrap_or(start);
         (start, end, end_reachable)
+    }
+    // Because a fork / forkcat / etc. has multiple targets / successors, these
+    // can't be stored in the usual successor / predecessor fields in
+    // TransformState. Therefore the fork has a list of successor transform
+    // ids. This list is unknown to unlink_transform, which would therefore
+    // break the propagation if the first Transform after the fork has an
+    // appender. To solve this, we simply insert a nop transform before the
+    // first transform (if necessary) to get a stable transform index.
+    pub fn setup_transforms_with_stable_start(
+        &mut self,
+        ms_id: MatchSetId,
+        chain_id: ChainId,
+        start_op_id: OperatorId,
+        input_field_id: FieldId,
+    ) -> (TransformId, TransformId, bool) {
+        let mut tf_state = TransformState::new(
+            input_field_id,
+            DUMMY_INPUT_FIELD_ID,
+            ms_id,
+            self.job_data.session_data.chains[chain_id as usize]
+                .settings
+                .default_batch_size,
+            None,
+            None,
+            self.job_data.tf_mgr.claim_transform_ordering_id(),
+        );
+        self.job_data.field_mgr.bump_field_refcount(input_field_id);
+        self.job_data
+            .field_mgr
+            .bump_field_refcount(DUMMY_INPUT_FIELD_ID);
+        tf_state.is_transparent = true;
+        let tf_data = setup_tf_nop(&tf_state);
+        let mut pred_tf = self.add_transform(tf_state, tf_data);
+        let (start_tf, end_tf, end_reachable) = self.setup_transforms_from_op(
+            ms_id,
+            start_op_id,
+            input_field_id,
+            Some(pred_tf),
+        );
+        if self.job_data.tf_mgr.transforms[start_tf]
+            .continuation
+            .is_none()
+        {
+            self.job_data.unlink_transform(pred_tf, 0);
+            self.remove_transform(pred_tf);
+            pred_tf = start_tf;
+        }
+        (pred_tf, end_tf, end_reachable)
     }
     pub fn add_terminator(&mut self, predecessor_tf_id: TransformId) {
         let ordering_id = self.job_data.tf_mgr.claim_transform_ordering_id();
@@ -923,7 +979,7 @@ impl<'a> JobSession<'a> {
                 }
             }
             TransformData::ForkCat(forkcat) => {
-                if forkcat.curr_target.is_some() {
+                if forkcat.curr_subchain_start.is_none() {
                     handle_forkcat_expansion(self, tf_id);
                 }
             }

@@ -65,7 +65,7 @@ impl TransformData<'_> {
         let base = match self {
             TransformData::Disabled => "disabled",
             TransformData::Nop(_) => "nop",
-            TransformData::Call(_) => "",
+            TransformData::Call(_) => "call",
             TransformData::CallConcurrent(_) => "call-cc",
             TransformData::CalleeConcurrent(_) => "callee-cc",
             TransformData::Cast(_) => "cast",

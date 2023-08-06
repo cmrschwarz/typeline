@@ -11,7 +11,7 @@ use crate::{
     liveness_analysis::{LivenessData, LOCAL_SLOTS_PER_BASIC_BLOCK},
     options::argument::CliArgIdx,
     record_data::{
-        field::FieldId,
+        field::{FieldId, DUMMY_INPUT_FIELD_ID},
         iter_hall::{IterHall, IterId},
         iters::FieldDataRef,
     },
@@ -20,7 +20,9 @@ use crate::{
 
 use super::{
     errors::{OperatorCreationError, OperatorSetupError},
-    operator::{OperatorBase, OperatorData, OperatorId},
+    operator::{
+        OperatorBase, OperatorData, OperatorId, OperatorOffsetInChain,
+    },
     transform::{TransformData, TransformId, TransformState},
     utils::field_access_mappings::{
         FieldAccessMappings, WriteCountingAccessMappings,
@@ -31,9 +33,10 @@ use super::{
 pub struct OpForkCat {
     pub subchains_start: u32,
     pub subchains_end: u32,
+    pub continuation: Option<OperatorId>,
     pub accessed_fields: WriteCountingAccessMappings,
     pub accessed_fields_per_subchain: Vec<FieldAccessMappings>,
-    pub output_mappings: FieldAccessMappings,
+    pub accessed_fields_afterwards: FieldAccessMappings,
 }
 
 pub struct TfForkCatOutputMapping {
@@ -52,12 +55,19 @@ pub struct TfForkCatInputMapping {
 
 pub struct TfForkCat<'a> {
     pub curr_subchain: u32,
-    pub curr_target: Option<TransformId>,
+    pub curr_subchain_start: Option<TransformId>,
+    pub continuation: Option<TransformId>,
     pub buffered_record_count: usize,
     pub input_mapping_ids: HashMap<FieldId, usize, BuildIdentityHasher>,
     pub input_mappings: Vec<TfForkCatInputMapping>,
-    pub output_mappings: Vec<TfForkCatOutputMapping>,
     pub op: &'a OpForkCat,
+}
+
+pub fn handle_tf_forkcat_output_appender(
+    _sess: &mut JobData,
+    _tf_id: TransformId,
+    _fc: &mut TfForkCat,
+) {
 }
 
 pub fn parse_op_forkcat(
@@ -77,7 +87,7 @@ pub fn setup_op_forkcat(
     chain: &Chain,
     op_base: &OperatorBase,
     op: &mut OpForkCat,
-    _op_id: OperatorId,
+    offset_in_chain: OperatorOffsetInChain,
 ) -> Result<(), OperatorSetupError> {
     if op.subchains_end == 0 {
         debug_assert!(
@@ -85,6 +95,8 @@ pub fn setup_op_forkcat(
         );
         op.subchains_end = chain.subchains.len() as u32;
     }
+    op.continuation =
+        chain.operators.get(offset_in_chain as usize + 1).copied();
     Ok(())
 }
 
@@ -113,6 +125,8 @@ pub fn setup_op_forkcat_liveness_data(
             .push(FieldAccessMappings::from_var_data((), ld, &call));
         op.accessed_fields.append_var_data(0, ld, succ_var_data);
     }
+    op.accessed_fields_afterwards =
+        FieldAccessMappings::from_var_data((), ld, &successors);
 }
 
 pub fn setup_tf_forkcat<'a>(
@@ -123,11 +137,11 @@ pub fn setup_tf_forkcat<'a>(
 ) -> TransformData<'a> {
     TransformData::ForkCat(TfForkCat {
         curr_subchain: op.subchains_start,
-        curr_target: None,
+        curr_subchain_start: None,
+        continuation: None,
         input_mapping_ids: Default::default(),
         op,
         buffered_record_count: 0,
-        output_mappings: Default::default(),
         input_mappings: Default::default(),
     })
 }
@@ -137,7 +151,7 @@ pub fn handle_tf_forkcat_sc_0(
     tf_id: TransformId,
     fc: &mut TfForkCat,
 ) {
-    let target_tf = fc.curr_target.unwrap();
+    let target_tf = fc.curr_subchain_start.unwrap();
     let (batch_size, end_of_input) = sess.tf_mgr.claim_all(tf_id);
     let unconsumed_input =
         sess.tf_mgr.transforms[tf_id].has_unconsumed_input();
@@ -197,7 +211,7 @@ pub fn handle_tf_forkcat(
     tf_id: TransformId,
     fc: &mut TfForkCat,
 ) {
-    if fc.curr_subchain == 0 && fc.curr_target.is_some() {
+    if fc.curr_subchain == 0 && fc.curr_subchain_start.is_some() {
         handle_tf_forkcat_sc_0(sess, tf_id, fc);
         return;
     }
@@ -219,12 +233,16 @@ fn expand_for_subchain(
     } else {
         unreachable!();
     };
+    let chain_id = sess.job_data.session_data.operator_bases
+        [sess.job_data.tf_mgr.transforms[tf_id].op_id.unwrap() as usize]
+        .chain_id
+        .unwrap();
+    let sc_id = sess.job_data.session_data.chains[chain_id as usize].subchains
+        [forkcat.op.subchains_start as usize + sc_n];
     let mut input_mapping_ids = std::mem::take(&mut forkcat.input_mapping_ids);
     let mut input_mappings = std::mem::take(&mut forkcat.input_mappings);
-    let mut output_mappings = std::mem::take(&mut forkcat.output_mappings);
     input_mapping_ids.clear();
     input_mappings.clear();
-    output_mappings.clear();
     let combined_field_accesses = &forkcat.op.accessed_fields;
     let accessed_fields_of_sc = &forkcat.op.accessed_fields_per_subchain[sc_n];
     for (name, access_mode) in accessed_fields_of_sc.iter_name_opt() {
@@ -247,9 +265,10 @@ fn expand_for_subchain(
             } else {
                 let target_field_id =
                     sess.job_data.field_mgr.add_field(tgt_ms_id, None);
-                //let mut tgt = sess.job_data.field_mgr.fields[target_field_id]
+                // let mut tgt =
+                // sess.job_data.field_mgr.fields[target_field_id]
                 //    .borrow_mut();
-                //tgt.added_as_placeholder_by_tf = Some(tf_id);
+                // tgt.added_as_placeholder_by_tf = Some(tf_id);
                 vacant.insert(target_field_id);
                 continue;
             };
@@ -391,12 +410,20 @@ fn expand_for_subchain(
                 .setup_cow(im.target_field_id, im.source_field_id);
         }
     }
+    let (start_tf, _end_tf, end_reachable) = sess
+        .setup_transforms_with_stable_start(
+            tgt_ms_id,
+            sc_id,
+            sess.job_data.session_data.chains[sc_id as usize].operators[0],
+            chain_input_field.unwrap_or(DUMMY_INPUT_FIELD_ID),
+        );
+    if end_reachable {}
     if let TransformData::ForkCat(ref mut forkcat) =
         sess.transform_data[usize::from(tf_id)]
     {
-        forkcat.output_mappings = output_mappings;
         forkcat.input_mappings = input_mappings;
         forkcat.input_mapping_ids = input_mapping_ids;
+        forkcat.curr_subchain_start = Some(start_tf);
     } else {
         unreachable!();
     }
@@ -407,6 +434,7 @@ pub(crate) fn handle_forkcat_expansion(
     tf_id: TransformId,
 ) {
     expand_for_subchain(sess, tf_id, 0);
+    sess.log_state("expanded subchain 0 for forkcat");
     let tf = &sess.job_data.tf_mgr.transforms[tf_id];
     let src_ms = tf.match_set_id;
     let tf_input_field = tf.input_field;
