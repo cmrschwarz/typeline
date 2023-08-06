@@ -16,11 +16,15 @@ use crate::{
 };
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
-pub enum FieldAccessMode {
-    #[default]
-    Read,
-    WriteHeaders,
-    WriteData,
+pub struct FieldAccessMode {
+    pub header_writes: bool,
+    pub data_writes: bool,
+}
+
+impl FieldAccessMode {
+    pub fn any_writes(&self) -> bool {
+        self.header_writes || self.data_writes
+    }
 }
 
 pub trait AccessType: Clone + Default {
@@ -43,16 +47,8 @@ impl AccessType for FieldAccessMode {
     }
 
     fn append_field_access_mode(&mut self, _ctx: (), fam: FieldAccessMode) {
-        let res = match self {
-            FieldAccessMode::Read => fam,
-            FieldAccessMode::WriteHeaders => match fam {
-                FieldAccessMode::Read => *self,
-                FieldAccessMode::WriteHeaders => *self,
-                FieldAccessMode::WriteData => fam,
-            },
-            FieldAccessMode::WriteData => *self,
-        };
-        *self = res;
+        self.header_writes |= fam.header_writes;
+        self.data_writes |= fam.data_writes;
     }
 }
 
@@ -83,16 +79,13 @@ impl AccessType for WriteCountingFieldAccessType {
             access_count: 1,
             last_accessing_sc: subchain_id,
         };
-        match fam {
-            FieldAccessMode::Read => (),
-            FieldAccessMode::WriteHeaders => {
-                res.header_write_count = 1;
-                res.last_header_writing_sc = subchain_id;
-            }
-            FieldAccessMode::WriteData => {
-                res.data_write_count = 1;
-                res.last_data_writing_sc = subchain_id;
-            }
+        if fam.header_writes {
+            res.header_write_count = 1;
+            res.last_header_writing_sc = subchain_id;
+        }
+        if fam.data_writes {
+            res.data_write_count = 1;
+            res.last_data_writing_sc = subchain_id;
         }
         res
     }
@@ -102,16 +95,13 @@ impl AccessType for WriteCountingFieldAccessType {
         subchain_id: u32,
         fam: FieldAccessMode,
     ) {
-        match fam {
-            FieldAccessMode::Read => (),
-            FieldAccessMode::WriteHeaders => {
-                self.header_write_count += 1;
-                self.last_header_writing_sc = subchain_id;
-            }
-            FieldAccessMode::WriteData => {
-                self.data_write_count += 1;
-                self.last_data_writing_sc = subchain_id;
-            }
+        if fam.header_writes {
+            self.header_write_count += 1;
+            self.last_header_writing_sc = subchain_id;
+        }
+        if fam.data_writes {
+            self.data_write_count += 1;
+            self.last_data_writing_sc = subchain_id;
         }
     }
 }
@@ -119,6 +109,8 @@ impl AccessType for WriteCountingFieldAccessType {
 #[derive(Clone, Default)]
 pub struct AccessMappings<AT: AccessType> {
     pub input_field: Option<AT>,
+    // PERF: we should have two types here, one of them using a vector
+    // instread of a map for cases where we never need to append
     pub fields: HashMap<StringStoreEntry, AT, BuildIdentityHasher>,
 }
 
@@ -142,13 +134,9 @@ impl<AT: AccessType> AccessMappings<AT> {
             ..var_count * (DATA_WRITES_OFFSET + 1)];
         self.fields.reserve(reads.count_ones());
         for var_id in reads.iter_ones() {
-            // TODO: handle data writes through append
-            let mode = if data_writes[var_id] {
-                FieldAccessMode::WriteData
-            } else if header_writes[var_id] {
-                FieldAccessMode::WriteHeaders
-            } else {
-                FieldAccessMode::Read
+            let mode = FieldAccessMode {
+                data_writes: data_writes[var_id],
+                header_writes: header_writes[var_id],
             };
             match ld.vars[var_id] {
                 Var::Named(name) => match self.fields.entry(name) {

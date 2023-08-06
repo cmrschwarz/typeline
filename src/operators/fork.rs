@@ -24,7 +24,7 @@ use super::{
     nop::setup_tf_nop,
     operator::{OperatorBase, OperatorData, OperatorId},
     transform::{TransformData, TransformId, TransformState},
-    utils::field_access_mappings::{FieldAccessMappings, FieldAccessMode},
+    utils::field_access_mappings::FieldAccessMappings,
 };
 
 #[derive(Clone)]
@@ -259,7 +259,7 @@ pub(crate) fn handle_fork_expansion(
             unreachable!();
         };
         let mut chain_input_field = None;
-        for (name, writes) in field_access_mapping.iter_name_opt() {
+        for (name, fam) in field_access_mapping.iter_name_opt() {
             let src_field_id;
             let mut entry;
             if let Some(name) = name {
@@ -294,7 +294,7 @@ pub(crate) fn handle_fork_expansion(
             let mut src_field =
                 sess.job_data.field_mgr.fields[src_field_id].borrow_mut();
             // TODO: handle WriteData
-            let mut any_writes = writes != FieldAccessMode::Read;
+            let mut any_writes = fam.header_writes || fam.data_writes;
             if !any_writes {
                 for other_name in &src_field.names {
                     if name == Some(*other_name) {
@@ -303,8 +303,9 @@ pub(crate) fn handle_fork_expansion(
                     if field_access_mapping
                         .fields
                         .get(other_name)
-                        .unwrap_or(&FieldAccessMode::Read)
-                        != &FieldAccessMode::Read
+                        .copied()
+                        .unwrap_or_default()
+                        .any_writes()
                     {
                         any_writes = true;
                         break;
