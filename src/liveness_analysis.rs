@@ -83,9 +83,9 @@ pub enum Var {
 }
 #[derive(Clone, Default)]
 pub struct OpOutput {
-    bound_vars_after_bb: SmallVec<[VarId; 4]>,
+    pub bound_vars_after_bb: SmallVec<[VarId; 4]>,
     // other outputs referenced in the data of this output, e.g. for regex
-    field_references: SmallVec<[OpOutputIdx; 4]>,
+    pub field_references: SmallVec<[OpOutputIdx; 4]>,
 }
 
 #[derive(Clone, Default)]

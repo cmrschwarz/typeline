@@ -27,26 +27,30 @@ impl FieldAccessMode {
     }
 }
 
-pub trait AccessType: Clone + Default {
-    type ContextType: Copy;
+pub trait AccessKind: Clone + Default {
+    type ContextType;
     fn from_field_access_mode(
-        ctx: Self::ContextType,
+        ctx: &mut Self::ContextType,
         fam: FieldAccessMode,
     ) -> Self;
     fn append_field_access_mode(
         &mut self,
-        ctx: Self::ContextType,
+        ctx: &mut Self::ContextType,
         fam: FieldAccessMode,
     );
 }
 
-impl AccessType for FieldAccessMode {
+impl AccessKind for FieldAccessMode {
     type ContextType = ();
-    fn from_field_access_mode(_ctx: (), fam: FieldAccessMode) -> Self {
+    fn from_field_access_mode(_ctx: &mut (), fam: FieldAccessMode) -> Self {
         fam
     }
 
-    fn append_field_access_mode(&mut self, _ctx: (), fam: FieldAccessMode) {
+    fn append_field_access_mode(
+        &mut self,
+        _ctx: &mut (),
+        fam: FieldAccessMode,
+    ) {
         self.header_writes |= fam.header_writes;
         self.data_writes |= fam.data_writes;
     }
@@ -68,46 +72,49 @@ impl WriteCountingFieldAccessType {
     }
 }
 
-impl AccessType for WriteCountingFieldAccessType {
-    type ContextType = u32;
-    fn from_field_access_mode(subchain_id: u32, fam: FieldAccessMode) -> Self {
+impl AccessKind for WriteCountingFieldAccessType {
+    type ContextType = u32; // subchain id / number
+    fn from_field_access_mode(
+        subchain_id: &mut u32,
+        fam: FieldAccessMode,
+    ) -> Self {
         let mut res = WriteCountingFieldAccessType {
             header_write_count: 0,
             last_header_writing_sc: 0,
             data_write_count: 0,
             last_data_writing_sc: 0,
             access_count: 1,
-            last_accessing_sc: subchain_id,
+            last_accessing_sc: *subchain_id,
         };
         if fam.header_writes {
             res.header_write_count = 1;
-            res.last_header_writing_sc = subchain_id;
+            res.last_header_writing_sc = *subchain_id;
         }
         if fam.data_writes {
             res.data_write_count = 1;
-            res.last_data_writing_sc = subchain_id;
+            res.last_data_writing_sc = *subchain_id;
         }
         res
     }
 
     fn append_field_access_mode(
         &mut self,
-        subchain_id: u32,
+        subchain_id: &mut u32,
         fam: FieldAccessMode,
     ) {
         if fam.header_writes {
             self.header_write_count += 1;
-            self.last_header_writing_sc = subchain_id;
+            self.last_header_writing_sc = *subchain_id;
         }
         if fam.data_writes {
             self.data_write_count += 1;
-            self.last_data_writing_sc = subchain_id;
+            self.last_data_writing_sc = *subchain_id;
         }
     }
 }
 
 #[derive(Clone, Default)]
-pub struct AccessMappings<AT: AccessType> {
+pub struct AccessMappings<AT: AccessKind> {
     pub input_field: Option<AT>,
     // PERF: we should have two types here, one of them using a vector
     // instread of a map for cases where we never need to append
@@ -118,10 +125,10 @@ pub type FieldAccessMappings = AccessMappings<FieldAccessMode>;
 pub type WriteCountingAccessMappings =
     AccessMappings<WriteCountingFieldAccessType>;
 
-impl<AT: AccessType> AccessMappings<AT> {
+impl<AT: AccessKind> AccessMappings<AT> {
     pub fn append_var_data(
         &mut self,
-        ctx: AT::ContextType,
+        ctx: &mut AT::ContextType,
         ld: &LivenessData,
         var_data: &BitSlice<Cell<usize>>,
     ) {
@@ -159,8 +166,8 @@ impl<AT: AccessType> AccessMappings<AT> {
             }
         }
     }
-    pub fn from_var_data(
-        ctx: AT::ContextType,
+    pub fn from_var_data<'a>(
+        ctx: &mut AT::ContextType,
         ld: &LivenessData,
         var_data: &BitSlice<Cell<usize>>,
     ) -> Self {

@@ -6,8 +6,8 @@ Overview:
     int       An integer / whole number
     null      An uninitialized or empty value
     html      (Part of) an HTML document
-    success   Output of a previous command indicating success
-    error     Output of a previous command indicating failure
+    success   Command output indicating success
+    error     Command output in case of an error, contains an error message
 
 str:
     Semantically, this represents a (potentially empty) sequence of unicode

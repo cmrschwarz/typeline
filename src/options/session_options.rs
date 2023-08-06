@@ -19,7 +19,7 @@ use crate::{
         },
         format::setup_op_format,
         key::setup_op_key,
-        nop::setup_op_nop,
+        nop::{setup_op_nop, OpNop},
         operator::{
             OperatorBase, OperatorData, OperatorId, OperatorOffsetInChain,
         },
@@ -356,7 +356,11 @@ impl SessionOptions {
         let ld = liveness_analysis::compute_liveness_data(sess);
         for i in 0..sess.operator_bases.len() {
             let op_id = i as OperatorId;
-            match &mut sess.operator_data[i] {
+            let mut op_data = std::mem::replace(
+                &mut sess.operator_data[i],
+                OperatorData::Nop(OpNop {}),
+            );
+            match &mut op_data {
                 OperatorData::Call(_) => (),
                 OperatorData::CallConcurrent(op) => {
                     setup_op_call_concurrent_liveness_data(op, op_id, &ld)
@@ -370,7 +374,7 @@ impl SessionOptions {
                     setup_op_fork_liveness_data(op, op_id, &ld)
                 }
                 OperatorData::ForkCat(op) => {
-                    setup_op_forkcat_liveness_data(op, op_id, &ld)
+                    setup_op_forkcat_liveness_data(sess, op, op_id, &ld)
                 }
                 OperatorData::Next(_) => (),
                 OperatorData::Up(_) => (),
@@ -385,6 +389,7 @@ impl SessionOptions {
                 OperatorData::Literal(_) => (),
                 OperatorData::Sequence(_) => (),
             }
+            std::mem::swap(&mut sess.operator_data[i], &mut op_data);
         }
     }
     pub fn build_session(mut self) -> Result<Session, ContextualizedScrError> {

@@ -7,15 +7,20 @@ use bitvec::vec::BitVec;
 
 use crate::{
     chain::Chain,
+    context::Session,
     job_session::{JobData, JobSession},
-    liveness_analysis::{LivenessData, LOCAL_SLOTS_PER_BASIC_BLOCK},
+    liveness_analysis::{
+        LivenessData, OpOutputIdx, Var, LOCAL_SLOTS_PER_BASIC_BLOCK,
+    },
     options::argument::CliArgIdx,
     record_data::{
         field::{FieldId, DUMMY_INPUT_FIELD_ID},
         iter_hall::{IterHall, IterId},
         iters::FieldDataRef,
     },
-    utils::identity_hasher::BuildIdentityHasher,
+    utils::{
+        identity_hasher::BuildIdentityHasher, string_store::StringStoreEntry,
+    },
 };
 
 use super::{
@@ -25,7 +30,8 @@ use super::{
     },
     transform::{TransformData, TransformId, TransformState},
     utils::field_access_mappings::{
-        FieldAccessMappings, WriteCountingAccessMappings,
+        AccessKind, AccessMappings, FieldAccessMappings, FieldAccessMode,
+        WriteCountingAccessMappings,
     },
 };
 
@@ -34,9 +40,44 @@ pub struct OpForkCat {
     pub subchains_start: u32,
     pub subchains_end: u32,
     pub continuation: Option<OperatorId>,
-    pub accessed_fields: WriteCountingAccessMappings,
+    // includes successors. used to select fields to copy / cow into subchain
     pub accessed_fields_per_subchain: Vec<FieldAccessMappings>,
-    pub accessed_fields_afterwards: FieldAccessMappings,
+    // does *not* include successors. used to decide whether to move or copy
+    // the data into the subchain based on whether it is the last access
+    pub accessed_fields_of_any_subchain: WriteCountingAccessMappings,
+    // which op outputs of the chain should be prealloced to point to which
+    // output name (eventually field in the tf)
+    output_mappings_per_subchain: Vec<Vec<Option<OpOutputIdx>>>,
+    accessed_names_afterwards_map:
+        AccessMappings<AccessedNamesAfterwardsAccessKind>,
+    accessed_names_afterwards: Vec<Option<StringStoreEntry>>,
+}
+
+#[derive(Default, Clone)]
+struct AccessedNamesAfterwardsAccessKind {
+    output_name_idx: usize,
+}
+
+impl AccessKind for AccessedNamesAfterwardsAccessKind {
+    type ContextType = usize;
+
+    fn from_field_access_mode(
+        output_idx: &mut usize,
+        _fam: FieldAccessMode,
+    ) -> Self {
+        let idx = *output_idx;
+        *output_idx += 1;
+        AccessedNamesAfterwardsAccessKind {
+            output_name_idx: idx,
+        }
+    }
+
+    fn append_field_access_mode(
+        &mut self,
+        _output_idx: &mut usize,
+        _fam: FieldAccessMode,
+    ) {
+    }
 }
 
 pub struct TfForkCatOutputMapping {
@@ -101,6 +142,7 @@ pub fn setup_op_forkcat(
 }
 
 pub fn setup_op_forkcat_liveness_data(
+    sess: &Session,
     op: &mut OpForkCat,
     op_id: OperatorId,
     ld: &LivenessData,
@@ -110,8 +152,6 @@ pub fn setup_op_forkcat_liveness_data(
     let var_count = ld.vars.len();
 
     let succ_var_data = &ld.var_data[ld.get_succession_var_data_bounds(bb_id)];
-    op.accessed_fields =
-        WriteCountingAccessMappings::from_var_data(0, ld, succ_var_data);
 
     let mut call = BitVec::<Cell<usize>>::new();
     let mut successors = BitVec::<Cell<usize>>::new();
@@ -120,13 +160,42 @@ pub fn setup_op_forkcat_liveness_data(
     ld.get_global_var_data_ored(&mut successors, bb.successors.iter());
     for callee_id in &bb.calls {
         call.copy_from_bitslice(ld.get_global_var_data(bb_id));
+        op.accessed_fields_of_any_subchain
+            .append_var_data(&mut 0, ld, &call);
         ld.apply_bb_aliases(&call, &successors, &ld.basic_blocks[*callee_id]);
         op.accessed_fields_per_subchain
-            .push(FieldAccessMappings::from_var_data((), ld, &call));
-        op.accessed_fields.append_var_data(0, ld, succ_var_data);
+            .push(FieldAccessMappings::from_var_data(&mut (), ld, &call));
     }
-    op.accessed_fields_afterwards =
-        FieldAccessMappings::from_var_data((), ld, &successors);
+    let mut count = 0;
+    op.accessed_names_afterwards_map = AccessMappings::<
+        AccessedNamesAfterwardsAccessKind,
+    >::from_var_data(
+        &mut count, ld, succ_var_data
+    );
+    op.accessed_names_afterwards.reserve(count);
+    for (name, _idx) in op.accessed_names_afterwards_map.iter_name_opt() {
+        op.accessed_names_afterwards.push(name);
+    }
+    for sc_n in 0..op.accessed_fields_per_subchain.len() {
+        let mut mappings = Vec::new();
+        mappings.resize(op.accessed_names_afterwards.len(), None);
+        let sc_id = op.subchains_start as usize + sc_n;
+        for op_id in &sess.chains[sc_id].operators {
+            for bv in &ld.op_outputs[*op_id as usize].bound_vars_after_bb {
+                let var_name = match ld.vars[*bv as usize] {
+                    Var::Named(name) => Some(name),
+                    Var::BBInput => None,
+                    Var::UnreachableDummyVar => continue,
+                };
+                if let Some(binding_after) =
+                    op.accessed_names_afterwards_map.get(var_name)
+                {
+                    mappings[binding_after.output_name_idx] = Some(*op_id);
+                }
+            }
+        }
+        op.output_mappings_per_subchain.push(mappings);
+    }
 }
 
 pub fn setup_tf_forkcat<'a>(
@@ -243,7 +312,7 @@ fn expand_for_subchain(
     let mut input_mappings = std::mem::take(&mut forkcat.input_mappings);
     input_mapping_ids.clear();
     input_mappings.clear();
-    let combined_field_accesses = &forkcat.op.accessed_fields;
+    let combined_field_accesses = &forkcat.op.accessed_fields_of_any_subchain;
     let accessed_fields_of_sc = &forkcat.op.accessed_fields_per_subchain[sc_n];
     for (name, access_mode) in accessed_fields_of_sc.iter_name_opt() {
         let (src_ms, tgt_ms) = &mut sess
@@ -443,7 +512,9 @@ pub(crate) fn handle_forkcat_expansion(
     if let TransformData::ForkCat(ref mut forkcat) =
         sess.transform_data[usize::from(tf_id)]
     {
-        for (name, mode) in forkcat.op.accessed_fields.iter_name_opt() {
+        for (name, mode) in
+            forkcat.op.accessed_fields_of_any_subchain.iter_name_opt()
+        {
             if mode.last_accessing_sc != 0 {
                 let field_id = if let Some(name) = name {
                     if let Some(field) = field_name_map.get(&name) {
