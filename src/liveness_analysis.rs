@@ -28,19 +28,13 @@ pub type BasicBlockId = usize;
 pub const READS_OFFSET: usize = 0;
 pub const HEADER_WRITES_OFFSET: usize = 1;
 pub const DATA_WRITES_OFFSET: usize = 2;
-pub const STRINGIFIED_READS_ONLY_OFFSET: usize = 3;
+pub const NON_STRING_READS_OFFSET: usize = 3;
 pub const REGULAR_FIELD_OFFSETS: [usize; 4] = [
     READS_OFFSET,
     HEADER_WRITES_OFFSET,
     DATA_WRITES_OFFSET,
-    STRINGIFIED_READS_ONLY_OFFSET,
+    NON_STRING_READS_OFFSET,
 ];
-
-// used in reset_op_outputs_data_for_vars to prepare op output data
-pub const LOCALLY_ZERO_INITIALIZED_FIELDS_OFFSET: [usize; 3] =
-    [READS_OFFSET, HEADER_WRITES_OFFSET, DATA_WRITES_OFFSET];
-pub const LOCALLY_ONE_INITIALIZED_FIELDS_OFFSET: [usize; 1] =
-    [STRINGIFIED_READS_ONLY_OFFSET];
 
 pub const SURVIVES_OFFSET: usize = 4;
 
@@ -151,11 +145,6 @@ impl LivenessData {
 
         self.op_outputs_data
             .resize(total_outputs_count * SLOTS_PER_OP_OUTPUT, false);
-        for i in LOCALLY_ONE_INITIALIZED_FIELDS_OFFSET {
-            self.op_outputs_data
-                [i * total_outputs_count..(i + 1) * total_outputs_count]
-                .fill(true);
-        }
     }
     pub fn add_var_name(&mut self, name: StringStoreEntry) {
         match self.var_names.entry(name) {
@@ -358,10 +347,8 @@ impl LivenessData {
         self.op_outputs_data
             .set_aliased(READS_OFFSET * ooc + oo_idx, true);
         if !stringified {
-            self.op_outputs_data.set_aliased(
-                STRINGIFIED_READS_ONLY_OFFSET * ooc + oo_idx,
-                false,
-            );
+            self.op_outputs_data
+                .set_aliased(NON_STRING_READS_OFFSET * ooc + oo_idx, true);
         }
         if write {
             self.op_outputs_data
@@ -381,11 +368,8 @@ impl LivenessData {
     fn reset_op_outputs_data_for_vars(&mut self) {
         let vc = self.vars.len();
         let ooc = self.op_outputs.len();
-        for i in &LOCALLY_ZERO_INITIALIZED_FIELDS_OFFSET {
+        for i in &REGULAR_FIELD_OFFSETS {
             self.op_outputs_data[i * ooc..i * ooc + vc].fill(false);
-        }
-        for i in &LOCALLY_ONE_INITIALIZED_FIELDS_OFFSET {
-            self.op_outputs_data[i * ooc..i * ooc + vc].fill(true);
         }
         for i in 0..vc {
             // initially each var points to it's input
@@ -933,25 +917,42 @@ impl LivenessData {
             }
             println!();
         }
-        print!("\n{:>PADDING$}: ", "var id");
         let vc = self.vars.len();
         let ooc = self.op_outputs.len();
+        print!("{:>PADDING$}: ", "op_output id");
+        for oo_n in 0..ooc {
+            print!("{oo_n:03} ");
+        }
+        println!();
+        for (name, offs) in [
+            ("reads", READS_OFFSET),
+            ("header writes", HEADER_WRITES_OFFSET),
+            ("data writes", DATA_WRITES_OFFSET),
+        ] {
+            print_bits(name, ooc, offs * ooc, &self.op_outputs_data);
+        }
+        print!("\n{:>PADDING$}: ", "var id");
+
         for vid in 0..vc {
             print!("{vid:03} ");
         }
-        let len = 4 * vc + 1;
-        print!("\n{:->PADDING$}{:-^len$}", "", "");
+        println!();
+        let vars_print_len = 4 * vc + 1;
         for bb_id in 0..self.basic_blocks.len() {
-            println!();
+            println!("{:->PADDING$}{:-^vars_print_len$}", "", "");
             let vars_start = bb_id as usize * SLOTS_PER_BASIC_BLOCK * vc;
             for (category_offs, category) in
                 ["local", "global", "succession"].iter().enumerate()
             {
+                if category_offs != 0 {
+                    println!();
+                }
                 for (name, offs) in [
                     ("reads", READS_OFFSET),
                     ("header writes", HEADER_WRITES_OFFSET),
                     ("data writes", DATA_WRITES_OFFSET),
-                    ("str only reads", STRINGIFIED_READS_ONLY_OFFSET),
+                    ("non str reads", NON_STRING_READS_OFFSET),
+                    ("survives", SURVIVES_OFFSET),
                 ] {
                     print_bits(
                         &format!("{category} {name} bb {bb_id:02}"),
@@ -965,25 +966,6 @@ impl LivenessData {
                 }
             }
         }
-        println!("{:->PADDING$}{:-^len$}", "", "");
-        print!("{:>PADDING$}: ", "op_output id");
-        for oo_n in 0..ooc {
-            print!("{oo_n:03} ");
-        }
-        println!();
-        print_bits("reads", ooc, READS_OFFSET * ooc, &self.op_outputs_data);
-        print_bits(
-            "header writes",
-            ooc,
-            HEADER_WRITES_OFFSET * ooc,
-            &self.op_outputs_data,
-        );
-        print_bits(
-            "data writes",
-            ooc,
-            DATA_WRITES_OFFSET * ooc,
-            &self.op_outputs_data,
-        );
         println!("{:-^80}", " </liveness analysis> ");
     }
 }
