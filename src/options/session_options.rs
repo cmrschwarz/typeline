@@ -444,6 +444,8 @@ impl SessionOptions {
                         transparent_mode: obo.transparent_mode,
                         // set during setup
                         offset_in_chain: u32::MAX,
+                        outputs_start: 0,
+                        outputs_end: 0,
                     }
                 })
                 .collect(),

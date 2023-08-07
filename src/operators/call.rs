@@ -123,6 +123,7 @@ pub(crate) fn handle_eager_call_expansion(
             chain.operators[0],
             input_field,
             predecessor_tf,
+            &Default::default(),
         )
     } else {
         unreachable!();
@@ -147,6 +148,7 @@ pub(crate) fn handle_lazy_call_expansion(
         sess.job_data.session_data.chains[call.target as usize].operators[0],
         input_field,
         Some(tf_id),
+        &Default::default(),
     );
     sess.job_data.tf_mgr.transforms[target_tf].predecessor = Some(tf_id);
     sess.job_data.tf_mgr.transforms[tf_id].successor = Some(target_tf);

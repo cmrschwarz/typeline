@@ -391,6 +391,7 @@ pub(crate) fn handle_fork_expansion(
                 subchain_id as ChainId,
                 start_op_id,
                 input_field,
+                &Default::default(),
             );
         if end_reachable {
             sess.add_terminator(end_tf);
@@ -402,7 +403,7 @@ pub(crate) fn handle_fork_expansion(
         for fr in &src.field_refs {
             let mapping_targets = &mappings[fr].targets_cow;
             let mut i = 0;
-            for tgt in tgt_fields.targets_cow.iter().copied() {
+            for &tgt in &tgt_fields.targets_cow {
                 let mut t = sess.job_data.field_mgr.fields[tgt].borrow_mut();
                 let mut mt;
                 loop {

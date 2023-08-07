@@ -1,10 +1,16 @@
-use std::{cell::RefMut, collections::VecDeque, ops::DerefMut, sync::Arc};
+use std::{
+    cell::RefMut,
+    collections::{HashMap, VecDeque},
+    ops::DerefMut,
+    sync::Arc,
+};
 
 use nonmax::NonMaxU32;
 
 use crate::{
     chain::ChainId,
     context::{ContextData, Job, Session, VentureDescription},
+    liveness_analysis::OpOutputIdx,
     operators::{
         call::{
             handle_eager_call_expansion, handle_lazy_call_expansion,
@@ -55,7 +61,7 @@ use crate::{
         record_buffer::RecordBuffer,
         stream_value::{StreamValueManager, StreamValueUpdate},
     },
-    utils::universe::Universe,
+    utils::{identity_hasher::BuildIdentityHasher, universe::Universe},
 };
 
 pub struct JobSession<'a> {
@@ -462,7 +468,13 @@ impl<'a> JobSession<'a> {
         }
 
         let (start_tf_id, end_tf_id, end_reachable) = self
-            .setup_transforms_from_op(ms_id, job.operator, input_data, None);
+            .setup_transforms_from_op(
+                ms_id,
+                job.operator,
+                input_data,
+                None,
+                &Default::default(),
+            );
         if end_reachable {
             self.add_terminator(end_tf_id);
         }
@@ -551,6 +563,7 @@ impl<'a> JobSession<'a> {
         start_op_id: OperatorId,
         chain_input_field_id: FieldId,
         mut predecessor_tf: Option<TransformId>,
+        prebound_outputs: &HashMap<OpOutputIdx, FieldId, BuildIdentityHasher>,
     ) -> (TransformId, TransformId, bool) {
         let mut start_tf_id = None;
         let start_op =
@@ -567,11 +580,11 @@ impl<'a> JobSession<'a> {
             [start_op.chain_id.unwrap() as usize]
             .operators[start_op.offset_in_chain as usize..];
         let mut mark_prev_field_as_placeholder = false;
-        for op_id in ops {
+        for &op_id in ops {
             let op_base =
-                &self.job_data.session_data.operator_bases[*op_id as usize];
+                &self.job_data.session_data.operator_bases[op_id as usize];
             let op_data =
-                &self.job_data.session_data.operator_data[*op_id as usize];
+                &self.job_data.session_data.operator_data[op_id as usize];
             let mut is_select = false;
             match op_data {
                 OperatorData::Call(op) => {
@@ -579,7 +592,7 @@ impl<'a> JobSession<'a> {
                         let (start_exp, end_exp, end_reachable) =
                             handle_eager_call_expansion(
                                 self,
-                                *op_id,
+                                op_id,
                                 ms_id,
                                 input_field,
                                 predecessor_tf,
@@ -642,7 +655,13 @@ impl<'a> JobSession<'a> {
             } else {
                 let min_apf =
                     self.job_data.field_mgr.get_min_apf_idx(input_field);
-                self.job_data.field_mgr.add_field(ms_id, min_apf)
+                if let Some(field_idx) =
+                    prebound_outputs.get(&op_base.outputs_start)
+                {
+                    *field_idx
+                } else {
+                    self.job_data.field_mgr.add_field(ms_id, min_apf)
+                }
             };
 
             if let Some(name) = op_base.label {
@@ -666,7 +685,7 @@ impl<'a> JobSession<'a> {
                 ms_id,
                 default_batch_size,
                 predecessor_tf,
-                Some(*op_id),
+                Some(op_id),
             );
             tf_state.is_transparent = op_base.transparent_mode;
             tf_state.is_appending = op_base.append_mode;
@@ -680,7 +699,7 @@ impl<'a> JobSession<'a> {
                     of.producing_transform_id = Some(tf_id_peek);
                     of.producing_transform_arg =
                         self.job_data.session_data.operator_data
-                            [*op_id as usize]
+                            [op_id as usize]
                             .default_op_name()
                             .to_string();
                 }
@@ -722,7 +741,7 @@ impl<'a> JobSession<'a> {
                     setup_tf_join(jd, b, op, &mut tf_state)
                 }
                 OperatorData::Regex(op) => {
-                    setup_tf_regex(jd, b, op, &mut tf_state)
+                    setup_tf_regex(jd, b, op, &mut tf_state, prebound_outputs)
                 }
                 OperatorData::Format(op) => {
                     setup_tf_format(jd, b, op, tf_id_peek, &tf_state)
@@ -800,6 +819,7 @@ impl<'a> JobSession<'a> {
         chain_id: ChainId,
         start_op_id: OperatorId,
         input_field_id: FieldId,
+        prebound_outputs: &HashMap<OpOutputIdx, FieldId, BuildIdentityHasher>,
     ) -> (TransformId, TransformId, bool) {
         let mut tf_state = TransformState::new(
             input_field_id,
@@ -823,6 +843,7 @@ impl<'a> JobSession<'a> {
             start_op_id,
             input_field_id,
             Some(pred_tf),
+            prebound_outputs,
         );
         if self.job_data.tf_mgr.transforms[start_tf]
             .continuation

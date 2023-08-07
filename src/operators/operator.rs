@@ -1,8 +1,8 @@
 use smallstr::SmallString;
 
 use crate::{
-    chain::ChainId, options::argument::CliArgIdx,
-    utils::string_store::StringStoreEntry,
+    chain::ChainId, liveness_analysis::OpOutputIdx,
+    options::argument::CliArgIdx, utils::string_store::StringStoreEntry,
 };
 
 use super::{
@@ -48,6 +48,8 @@ pub struct OperatorBase {
     pub offset_in_chain: OperatorOffsetInChain,
     pub append_mode: bool,
     pub transparent_mode: bool,
+    pub outputs_start: OpOutputIdx,
+    pub outputs_end: OpOutputIdx,
 }
 
 pub const DEFAULT_OP_NAME_SMALL_STR_LEN: usize = 16;

@@ -91,10 +91,7 @@ pub struct OpOutput {
 #[derive(Clone, Default)]
 pub struct OperatorLivenessData {
     pub basic_block_id: BasicBlockId,
-    pub outputs_start: OpOutputIdx,
-    pub outputs_end: OpOutputIdx,
 }
-
 #[derive(Default)]
 pub struct LivenessData {
     pub var_data: BitVec<Cell<usize>>,
@@ -116,10 +113,8 @@ impl LivenessData {
         let mut total_outputs_count = self.vars.len();
         for op_id in 0..sess.operator_data.len() {
             let op_base = &mut sess.operator_bases[op_id];
-            let op_liveness_data = &mut self.operator_liveness_data[op_id];
 
-            op_liveness_data.outputs_start =
-                total_outputs_count as OpOutputIdx;
+            op_base.outputs_start = total_outputs_count as OpOutputIdx;
             let app = if op_base.append_mode { 0 } else { 1 };
             let outputs_count = match &sess.operator_data[op_id] {
                 OperatorData::Call(_) => app,
@@ -147,7 +142,7 @@ impl LivenessData {
                 OperatorData::Sequence(_) => app,
             };
             total_outputs_count += outputs_count;
-            op_liveness_data.outputs_end = total_outputs_count as OpOutputIdx;
+            op_base.outputs_end = total_outputs_count as OpOutputIdx;
         }
         self.op_outputs.extend(
             iter::repeat(Default::default()).take(total_outputs_count),
@@ -433,7 +428,7 @@ impl LivenessData {
             let output_field = if op_base.append_mode {
                 last_output_field
             } else {
-                self.operator_liveness_data[op_id].outputs_start
+                sess.operator_bases[op_id].outputs_start
             };
             let used_input_field = if op_base.append_mode
                 && last_output_field == BB_INPUT_OPERATOR_OUTPUT_IDX
@@ -481,7 +476,7 @@ impl LivenessData {
                     may_dup_or_drop =
                         !re.opts.non_mandatory || re.opts.multimatch;
                     for i in 0..re.capture_group_names.len() {
-                        self.op_outputs[self.operator_liveness_data[op_id]
+                        self.op_outputs[sess.operator_bases[op_id]
                             .outputs_start
                             as usize
                             + i]
@@ -494,10 +489,9 @@ impl LivenessData {
                         if let Some(name) = cgn {
                             let tgt_var_name = self.var_names[name];
                             self.vars_to_op_outputs_map
-                                [tgt_var_name as usize] = self
-                                .operator_liveness_data[op_id]
-                                .outputs_start
-                                + cgi as OpOutputIdx;
+                                [tgt_var_name as usize] =
+                                sess.operator_bases[op_id].outputs_start
+                                    + cgi as OpOutputIdx;
                         }
                     }
                 }
@@ -561,7 +555,7 @@ impl LivenessData {
             if let Some(label) = sess.operator_bases[op_id].label {
                 let var_id = self.var_names[&label];
                 self.vars_to_op_outputs_map[var_id as usize] =
-                    self.operator_liveness_data[op_id].outputs_start;
+                    sess.operator_bases[op_id].outputs_start;
             }
             any_writes_so_far |= may_dup_or_drop;
             last_output_field = output_field;
@@ -825,8 +819,9 @@ impl LivenessData {
             for op_id in &chain.operators
                 [bb.operators_start as usize..bb.operators_end as usize]
             {
-                let op_ld = &self.operator_liveness_data[*op_id as usize];
-                for op_output_id in op_ld.outputs_start..op_ld.outputs_start {
+                let op_base = &sess.operator_bases[*op_id as usize];
+                for op_output_id in op_base.outputs_start..op_base.outputs_end
+                {
                     let oo = &self.op_outputs[op_output_id as usize];
                     for var_id in &oo.bound_vars_after_bb {
                         for i in REGULAR_FIELD_OFFSETS {

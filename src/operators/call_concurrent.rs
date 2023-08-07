@@ -452,6 +452,7 @@ pub fn setup_callee_concurrent(
         start_op_id,
         input_field.unwrap(),
         Some(tf_id),
+        &Default::default(),
     );
     (tf_id, tf_end, end_reachable)
 }

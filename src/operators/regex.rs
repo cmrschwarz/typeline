@@ -4,12 +4,13 @@ use nonmax::NonMaxU16;
 use regex::{self, bytes};
 use smallstr::SmallString;
 use smallvec::SmallVec;
-use std::{borrow::Cow, cell::RefMut};
+use std::{borrow::Cow, cell::RefMut, collections::HashMap};
 
 use std::num::NonZeroUsize;
 
 use crate::{
     job_session::JobData,
+    liveness_analysis::OpOutputIdx,
     options::argument::CliArgIdx,
     record_data::{
         command_buffer::{
@@ -31,6 +32,7 @@ use crate::{
         typed_iters::TypedSliceIter,
     },
     utils::{
+        identity_hasher::BuildIdentityHasher,
         int_string_conversions::{
             i64_to_str, usize_to_str, USIZE_MAX_DECIMAL_DIGITS,
         },
@@ -347,9 +349,10 @@ pub fn setup_op_regex(
 
 pub fn setup_tf_regex<'a>(
     sess: &mut JobData,
-    _op_base: &OperatorBase,
+    op_base: &OperatorBase,
     op: &'a OpRegex,
     tf_state: &mut TransformState,
+    prebound_outputs: &HashMap<OpOutputIdx, FieldId, BuildIdentityHasher>,
 ) -> TransformData<'a> {
     let cb = &mut sess.match_set_mgr.match_sets[tf_state.match_set_id]
         .command_buffer;
@@ -368,9 +371,14 @@ pub fn setup_tf_regex<'a>(
             let field_id = if i == op.output_group_id {
                 Some(tf_state.output_field)
             } else if let Some(name) = name {
-                let field_id = sess
-                    .field_mgr
-                    .add_field(tf_state.match_set_id, Some(apf_succ));
+                let field_id = if let Some(field_id) =
+                    prebound_outputs.get(&(op_base.outputs_start + i as OpOutputIdx))
+                {
+                    *field_id
+                } else {
+                    sess.field_mgr
+                        .add_field(tf_state.match_set_id, Some(apf_succ))
+                };
                 sess.match_set_mgr.add_field_name(
                     &sess.field_mgr,
                     field_id,

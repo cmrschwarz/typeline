@@ -524,6 +524,7 @@ fn expand_for_subchain(
             sc_id,
             sess.job_data.session_data.chains[sc_id as usize].operators[0],
             chain_input_field.unwrap_or(DUMMY_INPUT_FIELD_ID),
+            &prebound_outputs,
         );
     if end_reachable {}
     if let TransformData::ForkCat(ref mut forkcat) =
