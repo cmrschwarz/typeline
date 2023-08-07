@@ -77,7 +77,6 @@ struct CopyCommand {
 
 pub type ActionListIndex = usize;
 pub type MergedActionListsIndex = usize;
-pub type ActionProducingFieldOrderingId = NonMaxUsize;
 pub type ActionProducingFieldIndex = NonMaxUsize;
 pub type ActionListOrderingId = usize;
 
@@ -116,7 +115,6 @@ struct MergedActionLists {
 }
 
 struct ActionProducingField {
-    ordering_id: ActionProducingFieldOrderingId,
     merged_action_lists: Vec<MergedActionLists>,
 }
 
@@ -289,10 +287,7 @@ impl CommandBuffer {
             for (apf_idx, apf) in
                 self.action_producing_fields.iter().enumerate()
             {
-                println!(
-                    "  apf {} (for tf ord id {}):",
-                    apf_idx, apf.ordering_id
-                );
+                println!("  apf {}:", apf_idx,);
                 if apf.merged_action_lists[0].action_lists.is_empty() {
                     println!("    empty");
                 } else {
@@ -472,14 +467,10 @@ impl CommandBuffer {
         self.insertions.clear();
         self.copies.clear();
     }
-    pub fn claim_apf(
-        &mut self,
-        ordering_id: ActionProducingFieldOrderingId,
-    ) -> ActionProducingFieldIndex {
+    pub fn claim_apf(&mut self) -> ActionProducingFieldIndex {
         let apf_idx = self.action_producing_fields.peek_claim_id();
         let mal_count = (apf_idx.get() + 1).trailing_zeros() as usize + 1;
         let mut apf = ActionProducingField {
-            ordering_id,
             merged_action_lists: Vec::with_capacity(mal_count),
         };
         for _ in 0..mal_count {
@@ -502,22 +493,6 @@ impl CommandBuffer {
     }
     pub fn peek_next_apf_id(&self) -> ActionProducingFieldIndex {
         self.action_producing_fields.peek_claim_id()
-    }
-    pub fn get_min_apf_idx(
-        &self,
-        ordering_id: ActionProducingFieldOrderingId,
-    ) -> Option<ActionProducingFieldIndex> {
-        let mut apf_idx = self.last_apf_idx?;
-        while let Some(prev) = self.action_producing_fields[apf_idx]
-            .merged_action_lists[0]
-            .prev_apf_idx
-        {
-            if self.action_producing_fields[prev].ordering_id > ordering_id {
-                break;
-            }
-            apf_idx = prev;
-        }
-        Some(apf_idx)
     }
 }
 
@@ -1750,7 +1725,6 @@ impl CommandBuffer {
 #[cfg(test)]
 mod test {
     use crate::record_data::{
-        command_buffer::ActionProducingFieldIndex,
         field_data::{FieldData, RunLength},
         iters::FieldIterator,
         push_interface::PushInterface,
@@ -1772,8 +1746,7 @@ mod test {
             fd.push_int(v, 1, header_rle, value_rle);
         }
         let mut cb = CommandBuffer::default();
-        let mut apf_idx =
-            cb.claim_apf(ActionProducingFieldIndex::new(1).unwrap());
+        let mut apf_idx = cb.claim_apf();
         cb.begin_action_list(apf_idx);
         for a in actions {
             cb.push_action(apf_idx, a.kind, a.field_idx, a.run_len);

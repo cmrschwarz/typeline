@@ -177,7 +177,7 @@ pub fn setup_tf_call_concurrent<'a>(
         buffer,
         apf_idx: sess.match_set_mgr.match_sets[tf_state.match_set_id]
             .command_buffer
-            .claim_apf(tf_state.ordering_id),
+            .claim_apf(),
         target_accessed_fields: &op.target_accessed_fields,
     })
 }
@@ -410,7 +410,6 @@ pub fn setup_callee_concurrent(
         chain.settings.default_batch_size,
         None,
         None,
-        sess.job_data.tf_mgr.claim_transform_ordering_id(),
     );
     sess.job_data
         .field_mgr
@@ -507,8 +506,8 @@ pub fn handle_tf_callee_concurrent(
     if input_done {
         sess.unlink_transform(tf_id, available_batch_size);
     } else {
+        sess.tf_mgr.push_tf_in_ready_stack(tf_id);
         sess.tf_mgr
             .inform_successor_batch_available(tf_id, available_batch_size);
-        sess.tf_mgr.push_tf_in_ready_queue(tf_id);
     }
 }

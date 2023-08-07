@@ -268,21 +268,22 @@ pub fn handle_tf_forkcat_sc_0(
         }
         IterHall::copy(src_field_iter, &mut |f| f(&mut tgt.field_data));
     }
+    if !end_of_input {
+        if batch_size == 0 {
+            sess.tf_mgr.push_tf_in_ready_stack(tf_id);
+        } else {
+            sess.tf_mgr.update_ready_state(tf_id);
+        }
+    }
     sess.tf_mgr.inform_transform_batch_available(
         target_tf,
         batch_size,
         unconsumed_input,
     );
     if end_of_input {
-        sess.tf_mgr.push_tf_in_ready_queue(target_tf);
+        sess.tf_mgr.push_tf_in_ready_stack(target_tf);
         sess.tf_mgr.transforms[target_tf].input_is_done = true;
         sess.unlink_transform(tf_id, 0);
-        return;
-    }
-    if batch_size == 0 {
-        sess.tf_mgr.push_tf_in_ready_queue(tf_id);
-    } else {
-        sess.tf_mgr.update_ready_state(tf_id);
     }
 }
 

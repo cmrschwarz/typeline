@@ -27,8 +27,6 @@ use super::{
 };
 
 pub type TransformId = NonMaxUsize;
-// intentionally incompatible with TransformId to avoid mixups
-pub type TransformOrderingId = NonMaxUsize;
 
 pub enum TransformData<'a> {
     Disabled,
@@ -99,7 +97,6 @@ pub struct TransformState {
     pub desired_batch_size: usize,
     pub match_set_id: MatchSetId,
     pub op_id: Option<OperatorId>,
-    pub ordering_id: TransformOrderingId,
     pub is_stream_producer: bool,
     pub is_ready: bool,
     pub is_appending: bool,
@@ -118,7 +115,6 @@ impl TransformState {
         desired_batch_size: usize,
         predecessor: Option<TransformId>,
         op_id: Option<OperatorId>,
-        ordering_id: TransformOrderingId,
     ) -> Self {
         TransformState {
             available_batch_size: 0,
@@ -130,7 +126,6 @@ impl TransformState {
             continuation: None,
             predecessor,
             op_id,
-            ordering_id,
             is_ready: false,
             is_stream_producer: false,
             is_appending: false,

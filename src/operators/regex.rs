@@ -8,9 +8,6 @@ use std::{borrow::Cow, cell::RefMut};
 
 use std::num::NonZeroUsize;
 
-use crate::record_data::field::FieldIdOffset;
-use crate::record_data::iters::FieldIterator;
-use crate::utils::nonzero_ext::{nonmax_u16_wrapping_add, NonMaxU16Ext};
 use crate::{
     job_session::JobData,
     options::argument::CliArgIdx,
@@ -18,11 +15,12 @@ use crate::{
         command_buffer::{
             ActionProducingFieldIndex, CommandBuffer, FieldActionKind,
         },
-        field::{Field, FieldId},
+        field::{Field, FieldId, FieldIdOffset},
         field_data::{
             field_value_flags, FieldReference, FieldValueKind, RunLength,
         },
         iter_hall::IterId,
+        iters::FieldIterator,
         push_interface::{PushInterface, VaryingTypeInserter},
         ref_iter::{
             AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter,
@@ -36,17 +34,17 @@ use crate::{
         int_string_conversions::{
             i64_to_str, usize_to_str, USIZE_MAX_DECIMAL_DIGITS,
         },
+        nonzero_ext::{nonmax_u16_wrapping_add, NonMaxU16Ext},
         string_store::{StringStore, StringStoreEntry},
     },
 };
 use bstr::ByteSlice;
 
-use super::operator::DEFAULT_OP_NAME_SMALL_STR_LEN;
 use super::{
     errors::{
         OperatorApplicationError, OperatorCreationError, OperatorSetupError,
     },
-    operator::{OperatorBase, OperatorData},
+    operator::{OperatorBase, OperatorData, DEFAULT_OP_NAME_SMALL_STR_LEN},
     transform::{TransformData, TransformId, TransformState},
 };
 
@@ -355,7 +353,7 @@ pub fn setup_tf_regex<'a>(
 ) -> TransformData<'a> {
     let cb = &mut sess.match_set_mgr.match_sets[tf_state.match_set_id]
         .command_buffer;
-    let apf_idx = cb.claim_apf(tf_state.ordering_id);
+    let apf_idx = cb.claim_apf();
     let apf_succ = cb.peek_next_apf_id(); // this will always end up being valid because of the terminator
     let mut output_field =
         sess.field_mgr.fields[tf_state.output_field].borrow_mut();
@@ -966,7 +964,7 @@ pub fn handle_tf_regex(
     if bse || hit_stream_val {
         base_iter.move_to_field_pos(field_pos_input);
         if !hit_stream_val {
-            sess.tf_mgr.push_tf_in_ready_queue(tf_id);
+            sess.tf_mgr.push_tf_in_ready_stack(tf_id);
         }
     } else {
         sess.tf_mgr.update_ready_state(tf_id);
@@ -988,7 +986,7 @@ pub fn handle_tf_regex_stream_value_update(
     _custom: usize,
 ) {
     debug_assert!(sess.sv_mgr.stream_values[sv_id].done);
-    sess.tf_mgr.push_tf_in_ready_queue(tf_id);
+    sess.tf_mgr.push_tf_in_ready_stack(tf_id);
 }
 
 #[cfg(test)]

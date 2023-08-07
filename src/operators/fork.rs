@@ -194,6 +194,13 @@ pub fn handle_tf_fork(
             });
         }
     }
+    if !end_of_input {
+        if batch_size == 0 {
+            sess.tf_mgr.push_tf_in_ready_stack(tf_id);
+        } else {
+            sess.tf_mgr.update_ready_state(tf_id);
+        }
+    }
     for tf in &sp.targets {
         sess.tf_mgr.inform_transform_batch_available(
             *tf,
@@ -203,18 +210,12 @@ pub fn handle_tf_fork(
     }
     if end_of_input {
         for tf in &sp.targets {
-            sess.tf_mgr.push_tf_in_ready_queue(*tf);
+            sess.tf_mgr.push_tf_in_ready_stack(*tf);
         }
         for tf in &sp.targets {
             sess.tf_mgr.transforms[*tf].input_is_done = true;
         }
         sess.unlink_transform(tf_id, 0);
-        return;
-    }
-    if batch_size == 0 {
-        sess.tf_mgr.push_tf_in_ready_queue(tf_id);
-    } else {
-        sess.tf_mgr.update_ready_state(tf_id);
     }
 }
 

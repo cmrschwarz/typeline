@@ -7,8 +7,10 @@ use smallstr::SmallString;
 use crate::{
     job_session::JobData,
     options::argument::CliArgIdx,
-    record_data::push_interface::PushInterface,
-    record_data::stream_value::{StreamValue, StreamValueData},
+    record_data::{
+        push_interface::PushInterface,
+        stream_value::{StreamValue, StreamValueData},
+    },
 };
 
 use super::{
@@ -135,7 +137,7 @@ pub fn handle_tf_literal(
     if input_done {
         sess.unlink_transform(tf_id, batch_size);
     } else {
-        sess.tf_mgr.push_tf_in_ready_queue(tf_id);
+        sess.tf_mgr.push_tf_in_ready_stack(tf_id);
         sess.tf_mgr
             .inform_successor_batch_available(tf_id, batch_size);
     }

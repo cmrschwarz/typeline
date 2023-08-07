@@ -156,7 +156,7 @@ pub fn handle_tf_sequence(
         return;
     }
     if input_done {
-        sess.tf_mgr.push_tf_in_ready_queue(tf_id);
+        sess.tf_mgr.push_tf_in_ready_stack(tf_id);
     } else {
         sess.tf_mgr.update_ready_state(tf_id);
     }

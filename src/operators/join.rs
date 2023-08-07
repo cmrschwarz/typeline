@@ -643,7 +643,7 @@ pub fn handle_tf_join_stream_value_update(
     if done {
         join.current_stream_val = None;
         if input_done || Some(join.group_len) == join.group_capacity {
-            sess.tf_mgr.push_tf_in_ready_queue(tf_id);
+            sess.tf_mgr.push_tf_in_ready_stack(tf_id);
         } else {
             sess.tf_mgr.update_ready_state(tf_id);
         }

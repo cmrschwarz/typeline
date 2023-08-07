@@ -447,7 +447,7 @@ pub fn handle_tf_file_reader(
         }
         sess.unlink_transform(tf_id, batch_size);
     } else {
-        sess.tf_mgr.push_tf_in_ready_queue(tf_id);
+        sess.tf_mgr.push_tf_in_ready_stack(tf_id);
         sess.tf_mgr
             .inform_successor_batch_available(tf_id, batch_size);
     }

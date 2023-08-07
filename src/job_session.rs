@@ -1,9 +1,4 @@
-use std::{
-    cell::RefMut,
-    collections::{BinaryHeap, VecDeque},
-    ops::DerefMut,
-    sync::Arc,
-};
+use std::{cell::RefMut, collections::VecDeque, ops::DerefMut, sync::Arc};
 
 use nonmax::NonMaxU32;
 
@@ -52,9 +47,7 @@ use crate::{
             setup_tf_string_sink,
         },
         terminator::{handle_tf_terminator, setup_tf_terminator},
-        transform::{
-            TransformData, TransformId, TransformOrderingId, TransformState,
-        },
+        transform::{TransformData, TransformId, TransformState},
     },
     record_data::{
         field::{Field, FieldId, FieldManager, DUMMY_INPUT_FIELD_ID},
@@ -80,16 +73,9 @@ pub struct JobData<'a> {
     pub sv_mgr: StreamValueManager,
 }
 
-#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
-pub struct ReadyQueueEntry {
-    ord_id: TransformOrderingId,
-    tf_id: TransformId,
-}
-
 pub struct TransformManager {
-    pub transform_ordering_id: TransformOrderingId,
     pub transforms: Universe<TransformId, TransformState>,
-    pub ready_queue: BinaryHeap<ReadyQueueEntry>,
+    pub ready_stack: Vec<TransformId>,
     pub stream_producers: VecDeque<TransformId>,
 }
 
@@ -121,12 +107,6 @@ impl TransformManager {
     ) {
         self.transforms[tf_id].available_batch_size += batch_size;
     }
-    pub fn claim_transform_ordering_id(&mut self) -> TransformOrderingId {
-        let res = self.transform_ordering_id;
-        self.transform_ordering_id =
-            (self.transform_ordering_id.get() + 1).try_into().unwrap();
-        res
-    }
     pub fn inform_transform_batch_available(
         &mut self,
         tf_id: TransformId,
@@ -137,7 +117,7 @@ impl TransformManager {
         tf.available_batch_size += batch_size;
         tf.any_prev_has_unconsumed_input = any_prev_has_unconsumed_input;
         if tf.available_batch_size > 0 && !tf.is_ready {
-            self.push_tf_in_ready_queue(tf_id);
+            self.push_tf_in_ready_stack(tf_id);
         }
     }
     pub fn inform_successor_batch_available(
@@ -154,19 +134,16 @@ impl TransformManager {
             );
         }
     }
-    pub fn push_tf_in_ready_queue(&mut self, tf_id: TransformId) {
+    pub fn push_tf_in_ready_stack(&mut self, tf_id: TransformId) {
         let tf = &mut self.transforms[tf_id];
         if !tf.is_ready {
             tf.is_ready = true;
-            self.ready_queue.push(ReadyQueueEntry {
-                ord_id: tf.ordering_id,
-                tf_id,
-            });
+            self.ready_stack.push(tf_id);
         }
     }
     pub fn push_successor_in_ready_queue(&mut self, tf_id: TransformId) {
         if let Some(succ_tf_id) = self.transforms[tf_id].successor {
-            self.push_tf_in_ready_queue(succ_tf_id);
+            self.push_tf_in_ready_stack(succ_tf_id);
         }
     }
     pub fn make_stream_producer(&mut self, tf_id: TransformId) {
@@ -177,7 +154,7 @@ impl TransformManager {
     pub fn update_ready_state(&mut self, tf_id: TransformId) {
         let tf = &self.transforms[tf_id];
         if tf.available_batch_size > 0 {
-            self.push_tf_in_ready_queue(tf_id);
+            self.push_tf_in_ready_stack(tf_id);
         }
     }
     pub fn maintain_single_value(
@@ -319,8 +296,7 @@ impl<'a> JobData<'a> {
             session_data: sess,
             tf_mgr: TransformManager {
                 transforms: Default::default(),
-                transform_ordering_id: Default::default(),
-                ready_queue: Default::default(),
+                ready_stack: Default::default(),
                 stream_producers: Default::default(),
             },
             field_mgr: FieldManager::default(),
@@ -353,15 +329,28 @@ impl<'a> JobData<'a> {
             if let Some(pred_id) = predecessor {
                 self.tf_mgr.transforms[pred_id].successor = continuation;
             }
-            self.tf_mgr.push_tf_in_ready_queue(cont_id);
+            let mut cont_pushed = false;
             if let Some(succ_id) = successor {
                 let succ = &mut self.tf_mgr.transforms[succ_id];
                 succ.predecessor = continuation;
                 succ.available_batch_size += available_batch_for_successor;
                 if succ.available_batch_size > 0 {
-                    self.tf_mgr.push_tf_in_ready_queue(succ_id);
+                    if succ.is_ready {
+                        let succ_tf_id =
+                            self.tf_mgr.ready_stack.pop().unwrap();
+                        assert!(succ_tf_id == succ_id);
+                        self.tf_mgr.push_tf_in_ready_stack(cont_id);
+                        self.tf_mgr.ready_stack.push(succ_id);
+                    } else {
+                        self.tf_mgr.push_tf_in_ready_stack(cont_id);
+                        self.tf_mgr.push_tf_in_ready_stack(succ_id);
+                    }
+                    cont_pushed = true;
                     self.tf_mgr.transforms[cont_id].is_appending = false;
                 }
+            }
+            if !cont_pushed {
+                self.tf_mgr.push_tf_in_ready_stack(cont_id);
             }
             return;
         }
@@ -379,7 +368,7 @@ impl<'a> JobData<'a> {
             // even if the current batch size is zero,
             // we want this guy ready because the end of input was reached
             succ.available_batch_size += bs;
-            self.tf_mgr.push_tf_in_ready_queue(succ_id);
+            self.tf_mgr.push_tf_in_ready_stack(succ_id);
             // self.tf_mgr.inform_transform_batch_available(succ_id, bs);
         }
     }
@@ -427,7 +416,7 @@ impl<'a> JobSession<'a> {
                 } else {
                     self.transform_data[i.get()].alternative_display_name()
                 };
-                println!("tf {} (ord id {}): {}", i, tf.ordering_id, name);
+                println!("tf {}: {}", i, name);
             }
             #[cfg(feature = "debug_logging")]
             for (i, _) in self.job_data.field_mgr.fields.iter_enumerated() {
@@ -480,20 +469,21 @@ impl<'a> JobSession<'a> {
         let tf = &mut self.job_data.tf_mgr.transforms[start_tf_id];
         tf.input_is_done = true;
         if tf.is_appending {
-            if let Some(succ) = tf.successor {
+            let successor = tf.successor;
+            self.job_data.tf_mgr.push_tf_in_ready_stack(start_tf_id);
+            if let Some(succ) = successor {
                 let tf_succ = &mut self.job_data.tf_mgr.transforms[succ];
                 tf_succ.available_batch_size = input_record_count;
                 if tf_succ.desired_batch_size <= input_record_count {
                     self.job_data.tf_mgr.transforms[start_tf_id]
                         .is_appending = false;
-                    self.job_data.tf_mgr.push_tf_in_ready_queue(succ);
+                    self.job_data.tf_mgr.push_tf_in_ready_stack(succ);
                 }
             }
         } else {
             tf.available_batch_size = input_record_count;
+            self.job_data.tf_mgr.push_tf_in_ready_stack(start_tf_id);
         }
-
-        self.job_data.tf_mgr.push_tf_in_ready_queue(start_tf_id);
 
         for input_field_id in input_data_fields.iter() {
             self.job_data.field_mgr.drop_field_refcount(
@@ -517,7 +507,7 @@ impl<'a> JobSession<'a> {
         if end_reachable {
             self.add_terminator(end_tf_id);
         }
-        self.job_data.tf_mgr.push_tf_in_ready_queue(start_tf_id);
+        self.job_data.tf_mgr.push_tf_in_ready_stack(start_tf_id);
         self.log_state("setting up venture");
     }
 
@@ -677,7 +667,6 @@ impl<'a> JobSession<'a> {
                 default_batch_size,
                 predecessor_tf,
                 Some(*op_id),
-                self.job_data.tf_mgr.claim_transform_ordering_id(),
             );
             tf_state.is_transparent = op_base.transparent_mode;
             tf_state.is_appending = op_base.append_mode;
@@ -821,7 +810,6 @@ impl<'a> JobSession<'a> {
                 .default_batch_size,
             None,
             None,
-            self.job_data.tf_mgr.claim_transform_ordering_id(),
         );
         self.job_data.field_mgr.bump_field_refcount(input_field_id);
         self.job_data
@@ -847,7 +835,6 @@ impl<'a> JobSession<'a> {
         (pred_tf, end_tf, end_reachable)
     }
     pub fn add_terminator(&mut self, predecessor_tf_id: TransformId) {
-        let ordering_id = self.job_data.tf_mgr.claim_transform_ordering_id();
         let tf_id = self.job_data.tf_mgr.transforms.peek_claim_id();
         let pred = &mut self.job_data.tf_mgr.transforms[predecessor_tf_id];
         let input_field = pred.output_field;
@@ -858,7 +845,6 @@ impl<'a> JobSession<'a> {
             pred.desired_batch_size,
             Some(predecessor_tf_id),
             None,
-            ordering_id,
         );
         pred.successor = Some(tf_id);
         let tf_data = setup_tf_terminator(&mut self.job_data, &tf_state);
@@ -1034,12 +1020,7 @@ impl<'a> JobSession<'a> {
                 self.handle_stream_value_update(svu);
                 continue;
             }
-            if let Some(rqe) = self.job_data.tf_mgr.ready_queue.pop() {
-                let ReadyQueueEntry {
-                    mut tf_id,
-                    ord_id: _,
-                } = rqe;
-
+            if let Some(mut tf_id) = self.job_data.tf_mgr.ready_stack.pop() {
                 let mut tf = &mut self.job_data.tf_mgr.transforms[tf_id];
                 if tf.is_stream_producer {
                     tf_id = self

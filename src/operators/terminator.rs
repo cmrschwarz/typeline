@@ -19,7 +19,7 @@ pub fn setup_tf_terminator(
     TransformData::Terminator(TfTerminator {
         apf_idx: sess.match_set_mgr.match_sets[tf_state.match_set_id]
             .command_buffer
-            .claim_apf(tf_state.ordering_id),
+            .claim_apf(),
     })
 }
 
