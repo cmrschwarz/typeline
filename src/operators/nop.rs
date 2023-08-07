@@ -8,9 +8,13 @@ use super::{
     transform::{TransformData, TransformId, TransformState},
 };
 
-#[derive(Clone)]
-pub struct OpNop {}
-pub struct TfNop {}
+#[derive(Clone, Default)]
+pub struct OpNop {
+    manual_unlink: bool,
+}
+pub struct TfNop {
+    manual_unlink: bool,
+}
 
 pub fn parse_op_nop(
     value: Option<&[u8]>,
@@ -22,10 +26,10 @@ pub fn parse_op_nop(
             arg_idx,
         ));
     }
-    Ok(OperatorData::Nop(OpNop {}))
+    Ok(create_op_nop())
 }
 pub fn create_op_nop() -> OperatorData {
-    OperatorData::Nop(OpNop {})
+    OperatorData::Nop(OpNop::default())
 }
 
 pub fn setup_op_nop(
@@ -40,18 +44,21 @@ pub fn setup_op_nop(
     Ok(())
 }
 
-pub fn setup_tf_nop(tf_state: &TransformState) -> TransformData<'static> {
+pub fn setup_tf_nop(
+    op: &OpNop,
+    tf_state: &TransformState,
+) -> TransformData<'static> {
     assert!(tf_state.is_transparent);
-    TransformData::Nop(TfNop {})
+    create_tf_nop(op.manual_unlink)
 }
 
-pub fn handle_tf_nop(
-    sess: &mut JobData,
-    tf_id: TransformId,
-    _sel: &mut TfNop,
-) {
+pub fn create_tf_nop(manual_unlink: bool) -> TransformData<'static> {
+    TransformData::Nop(TfNop { manual_unlink })
+}
+
+pub fn handle_tf_nop(sess: &mut JobData, tf_id: TransformId, nop: &mut TfNop) {
     let (batch_size, input_done) = sess.tf_mgr.claim_all(tf_id);
-    if input_done {
+    if input_done && !nop.manual_unlink {
         sess.unlink_transform(tf_id, batch_size);
     } else {
         sess.tf_mgr

@@ -392,6 +392,7 @@ pub(crate) fn handle_fork_expansion(
                 start_op_id,
                 input_field,
                 &Default::default(),
+                false,
             );
         if end_reachable {
             sess.add_terminator(end_tf);

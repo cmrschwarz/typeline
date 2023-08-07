@@ -36,7 +36,7 @@ use crate::{
             handle_tf_join, handle_tf_join_stream_value_update, setup_tf_join,
         },
         literal::{handle_tf_literal, setup_tf_literal},
-        nop::{handle_tf_nop, setup_tf_nop},
+        nop::{create_tf_nop, handle_tf_nop, setup_tf_nop},
         operator::{OperatorData, OperatorId},
         print::{
             handle_tf_print, handle_tf_print_stream_value_update,
@@ -724,7 +724,7 @@ impl<'a> JobSession<'a> {
 
             let jd = &mut self.job_data;
             let tf_data = match op_data {
-                OperatorData::Nop(_) => setup_tf_nop(&tf_state),
+                OperatorData::Nop(op) => setup_tf_nop(op, &tf_state),
                 OperatorData::Cast(op) => {
                     setup_tf_cast(jd, b, op, &mut tf_state)
                 }
@@ -811,6 +811,9 @@ impl<'a> JobSession<'a> {
                     input_field = output_field;
                 }
             }
+            if !end_reachable {
+                break;
+            }
         }
         let start = start_tf_id.unwrap();
         let end = predecessor_tf.unwrap_or(start);
@@ -830,6 +833,7 @@ impl<'a> JobSession<'a> {
         start_op_id: OperatorId,
         input_field_id: FieldId,
         prebound_outputs: &HashMap<OpOutputIdx, FieldId, BuildIdentityHasher>,
+        manual_unlink: bool,
     ) -> (TransformId, TransformId, bool) {
         let mut tf_state = TransformState::new(
             input_field_id,
@@ -846,7 +850,7 @@ impl<'a> JobSession<'a> {
             .field_mgr
             .bump_field_refcount(DUMMY_INPUT_FIELD_ID);
         tf_state.is_transparent = true;
-        let tf_data = setup_tf_nop(&tf_state);
+        let tf_data = create_tf_nop(manual_unlink);
         let mut pred_tf = self.add_transform(tf_state, tf_data);
         let (start_tf, end_tf, end_reachable) = self.setup_transforms_from_op(
             ms_id,
@@ -855,9 +859,10 @@ impl<'a> JobSession<'a> {
             Some(pred_tf),
             prebound_outputs,
         );
-        if self.job_data.tf_mgr.transforms[start_tf]
-            .continuation
-            .is_none()
+        if !manual_unlink
+            && self.job_data.tf_mgr.transforms[start_tf]
+                .continuation
+                .is_none()
         {
             self.job_data.unlink_transform(pred_tf, 0);
             self.remove_transform(pred_tf);
@@ -865,7 +870,10 @@ impl<'a> JobSession<'a> {
         }
         (pred_tf, end_tf, end_reachable)
     }
-    pub fn add_terminator(&mut self, predecessor_tf_id: TransformId) {
+    pub fn add_terminator(
+        &mut self,
+        predecessor_tf_id: TransformId,
+    ) -> TransformId {
         let tf_id = self.job_data.tf_mgr.transforms.peek_claim_id();
         let pred = &mut self.job_data.tf_mgr.transforms[predecessor_tf_id];
         let input_field = pred.output_field;
@@ -883,7 +891,7 @@ impl<'a> JobSession<'a> {
         self.job_data
             .field_mgr
             .bump_field_refcount(DUMMY_INPUT_FIELD_ID);
-        self.add_transform(tf_state, tf_data);
+        self.add_transform(tf_state, tf_data)
     }
     pub fn add_transform(
         &mut self,

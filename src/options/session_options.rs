@@ -358,7 +358,7 @@ impl SessionOptions {
             let op_id = i as OperatorId;
             let mut op_data = std::mem::replace(
                 &mut sess.operator_data[i],
-                OperatorData::Nop(OpNop {}),
+                OperatorData::Nop(OpNop::default()),
             );
             match &mut op_data {
                 OperatorData::Call(_) => (),
