@@ -498,7 +498,8 @@ pub fn handle_tf_callee_concurrent(
     if any_fields_done {
         for field in tfc.target_fields.iter_mut() {
             if let Some(f) = field {
-                sess.drop_field_refcount(*f);
+                sess.field_mgr
+                    .drop_field_refcount(*f, &mut sess.match_set_mgr);
                 *field = None;
             }
         }

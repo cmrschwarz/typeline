@@ -1737,7 +1737,8 @@ pub fn handle_tf_format(
     drop(output_field);
     if input_done {
         for r in &fmt.refs {
-            sess.drop_field_refcount(r.field_id);
+            sess.field_mgr
+                .drop_field_refcount(r.field_id, &mut sess.match_set_mgr);
         }
         sess.unlink_transform(tf_id, batch_size);
     } else {

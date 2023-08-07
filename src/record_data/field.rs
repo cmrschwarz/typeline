@@ -263,6 +263,8 @@ impl FieldManager {
     pub fn setup_cow(&self, field_id: FieldId, data_source_id: FieldId) {
         let mut field = self.fields[field_id].borrow_mut();
         let mut data_source = self.fields[data_source_id].borrow_mut();
+        // TODO: this keeps fields alive way longer than they should
+        // even if we uncow later, this ref count is not dropped
         data_source.ref_count += 1;
         data_source.field_data.cow_targets.push(field_id);
         field.field_refs.push(data_source_id);
@@ -399,6 +401,40 @@ impl FieldManager {
             self.fields[*fr].borrow_mut().ref_count += 1;
         }
         src.field_refs.extend_from_slice(&tgt.field_refs);
+    }
+    pub fn remove_field(&mut self, id: FieldId, msm: &mut MatchSetManager) {
+        #[cfg(feature = "debug_logging")]
+        {
+            print!("removing field {id}");
+            println!();
+        }
+        let mut field = self.fields[id].borrow_mut();
+
+        for n in &field.names {
+            msm.match_sets[field.match_set].field_name_map.remove(n);
+        }
+        let frs = std::mem::take(&mut field.field_refs);
+        drop(field);
+        self.fields.release(id);
+        for fr in &frs {
+            self.drop_field_refcount(*fr, msm);
+        }
+    }
+    pub fn drop_field_refcount(
+        &mut self,
+        field_id: FieldId,
+        msm: &mut MatchSetManager,
+    ) {
+        let mut field = self.fields[field_id].borrow_mut();
+        field.ref_count -= 1;
+        let rc = field.ref_count;
+        drop(field);
+        if rc == 0 {
+            self.remove_field(field_id, msm);
+        } else if cfg!(feature = "debug_logging") {
+            print!("dropped ref to field {field_id} (rc {})", rc);
+            println!();
+        }
     }
 }
 

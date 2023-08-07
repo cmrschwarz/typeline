@@ -383,19 +383,6 @@ impl<'a> JobData<'a> {
             // self.tf_mgr.inform_transform_batch_available(succ_id, bs);
         }
     }
-    pub fn drop_field_refcount(&mut self, field_id: FieldId) {
-        let mut field = self.field_mgr.fields[field_id].borrow_mut();
-        field.ref_count -= 1;
-        let rc = field.ref_count;
-        drop(field);
-        if rc == 0 {
-            self.remove_field(field_id);
-        } else if cfg!(feature = "debug_logging") {
-            print!("dropped ref to ");
-            self.print_field_stats(field_id);
-            println!();
-        }
-    }
     pub fn print_field_stats(&self, _id: FieldId) {
         #[cfg(feature = "debug_logging")]
         {
@@ -425,27 +412,6 @@ impl<'a> JobData<'a> {
                 }
                 print!(" )");
             }
-        }
-    }
-    pub fn remove_field(&mut self, id: FieldId) {
-        #[cfg(feature = "debug_logging")]
-        {
-            print!("removing ");
-            self.print_field_stats(id);
-            println!();
-        }
-        let mut field = self.field_mgr.fields[id].borrow_mut();
-
-        for n in &field.names {
-            self.match_set_mgr.match_sets[field.match_set]
-                .field_name_map
-                .remove(n);
-        }
-        let frs = std::mem::take(&mut field.field_refs);
-        drop(field);
-        self.field_mgr.fields.release(id);
-        for fr in &frs {
-            self.drop_field_refcount(*fr);
         }
     }
 }
@@ -530,7 +496,10 @@ impl<'a> JobSession<'a> {
         self.job_data.tf_mgr.push_tf_in_ready_queue(start_tf_id);
 
         for input_field_id in input_data_fields.iter() {
-            self.job_data.drop_field_refcount(*input_field_id);
+            self.job_data.field_mgr.drop_field_refcount(
+                *input_field_id,
+                &mut self.job_data.match_set_mgr,
+            );
         }
         let _ = std::mem::replace(&mut self.temp_vec, input_data_fields);
         self.log_state("setting up job");
@@ -576,8 +545,12 @@ impl<'a> JobSession<'a> {
             };
             println!("removing tf id {tf_id}: `{name}`");
         }
-        self.job_data.drop_field_refcount(tfif);
-        self.job_data.drop_field_refcount(tfof);
+        self.job_data
+            .field_mgr
+            .drop_field_refcount(tfif, &mut self.job_data.match_set_mgr);
+        self.job_data
+            .field_mgr
+            .drop_field_refcount(tfof, &mut self.job_data.match_set_mgr);
         self.job_data.tf_mgr.transforms.release(tf_id);
         self.transform_data[usize::from(tf_id)] = TransformData::Disabled;
     }

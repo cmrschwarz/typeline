@@ -47,18 +47,18 @@ pub struct OpForkCat {
     pub accessed_fields_of_any_subchain: WriteCountingAccessMappings,
     // which op outputs of the chain should be prealloced to point to which
     // output name (eventually field in the tf)
+    // parallel to accessed_names_afterwards
     output_mappings_per_subchain: Vec<Vec<Option<OpOutputIdx>>>,
+    // name -> index into accessed_names_afterwards
     accessed_names_afterwards_map:
-        AccessMappings<AccessedNamesAfterwardsAccessKind>,
+        AccessMappings<AccessedNamesAfterwardsIndex>,
     accessed_names_afterwards: Vec<Option<StringStoreEntry>>,
 }
 
 #[derive(Default, Clone)]
-struct AccessedNamesAfterwardsAccessKind {
-    output_name_idx: usize,
-}
+struct AccessedNamesAfterwardsIndex(usize);
 
-impl AccessKind for AccessedNamesAfterwardsAccessKind {
+impl AccessKind for AccessedNamesAfterwardsIndex {
     type ContextType = usize;
 
     fn from_field_access_mode(
@@ -67,9 +67,7 @@ impl AccessKind for AccessedNamesAfterwardsAccessKind {
     ) -> Self {
         let idx = *output_idx;
         *output_idx += 1;
-        AccessedNamesAfterwardsAccessKind {
-            output_name_idx: idx,
-        }
+        AccessedNamesAfterwardsIndex(idx)
     }
 
     fn append_field_access_mode(
@@ -95,13 +93,22 @@ pub struct TfForkCatInputMapping {
 }
 
 pub struct TfForkCat<'a> {
+    pub op: &'a OpForkCat,
     pub curr_subchain: u32,
     pub curr_subchain_start: Option<TransformId>,
     pub continuation: Option<TransformId>,
     pub buffered_record_count: usize,
+    // field name -> index into input_mappings
+    // because fields can have multiple names, we use this to deduplicate
+    // we could make this local to the setup function but meh, this way
+    // we can at least reuse the allocation
     pub input_mapping_ids: HashMap<FieldId, usize, BuildIdentityHasher>,
     pub input_mappings: Vec<TfForkCatInputMapping>,
-    pub op: &'a OpForkCat,
+    // temp buffer passed to setup_transforms_from_op
+    pub prebound_outputs: HashMap<OpOutputIdx, FieldId, BuildIdentityHasher>,
+
+    // parallel with op.accessed_names_afterwards
+    pub output_mappings: Vec<FieldId>,
 }
 
 pub fn handle_tf_forkcat_output_appender(
@@ -168,7 +175,7 @@ pub fn setup_op_forkcat_liveness_data(
     }
     let mut count = 0;
     op.accessed_names_afterwards_map = AccessMappings::<
-        AccessedNamesAfterwardsAccessKind,
+        AccessedNamesAfterwardsIndex,
     >::from_var_data(
         &mut count, ld, succ_var_data
     );
@@ -190,7 +197,7 @@ pub fn setup_op_forkcat_liveness_data(
                 if let Some(binding_after) =
                     op.accessed_names_afterwards_map.get(var_name)
                 {
-                    mappings[binding_after.output_name_idx] = Some(*op_id);
+                    mappings[binding_after.0] = Some(*op_id);
                 }
             }
         }
@@ -212,6 +219,10 @@ pub fn setup_tf_forkcat<'a>(
         op,
         buffered_record_count: 0,
         input_mappings: Default::default(),
+        prebound_outputs: Default::default(),
+        output_mappings: Vec::with_capacity(
+            op.accessed_names_afterwards.len(),
+        ),
     })
 }
 
@@ -310,8 +321,35 @@ fn expand_for_subchain(
         [forkcat.op.subchains_start as usize + sc_n];
     let mut input_mapping_ids = std::mem::take(&mut forkcat.input_mapping_ids);
     let mut input_mappings = std::mem::take(&mut forkcat.input_mappings);
+    let mut prebound_outputs = std::mem::take(&mut forkcat.prebound_outputs);
     input_mapping_ids.clear();
+    prebound_outputs.clear();
     input_mappings.clear();
+    let src_ms = &sess.job_data.match_set_mgr.match_sets[src_ms_id];
+    for (i, op) in forkcat.op.output_mappings_per_subchain[sc_n]
+        .iter()
+        .enumerate()
+    {
+        let target_field = forkcat.output_mappings[i];
+        if let Some(op_id) = op {
+            prebound_outputs.insert(*op_id, target_field);
+        } else {
+            let source_field =
+                if let Some(name) = forkcat.op.accessed_names_afterwards[i] {
+                    src_ms
+                        .field_name_map
+                        .get(&name)
+                        .copied()
+                        .unwrap_or(DUMMY_INPUT_FIELD_ID)
+                } else {
+                    src_input_field_id
+                };
+            sess.job_data
+                .field_mgr
+                .setup_cow(source_field, target_field);
+        }
+    }
+
     let combined_field_accesses = &forkcat.op.accessed_fields_of_any_subchain;
     let accessed_fields_of_sc = &forkcat.op.accessed_fields_per_subchain[sc_n];
     for (name, access_mode) in accessed_fields_of_sc.iter_name_opt() {
@@ -528,6 +566,19 @@ pub(crate) fn handle_forkcat_expansion(
                 let f = sess.job_data.field_mgr.fields[field_id].borrow();
                 f.request_clear_delay();
             }
+        }
+        let output_ms_id = sess.job_data.match_set_mgr.add_match_set();
+        for name in &forkcat.op.accessed_names_afterwards {
+            let field_id =
+                sess.job_data.field_mgr.add_field(output_ms_id, None);
+            if let Some(name) = name {
+                sess.job_data.match_set_mgr.add_field_name(
+                    &sess.job_data.field_mgr,
+                    field_id,
+                    *name,
+                );
+            }
+            forkcat.output_mappings.push(field_id);
         }
     } else {
         unreachable!();
