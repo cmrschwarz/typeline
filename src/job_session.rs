@@ -294,6 +294,16 @@ impl TransformManager {
         );
         field_mgr.fields[output_field_id].borrow_mut()
     }
+    pub fn connect_tfs(&mut self, left: TransformId, right: TransformId) {
+        self.transforms[left].successor = Some(right);
+        self.transforms[right].predecessor = Some(left);
+    }
+    pub fn disconnect_tf_from_predecessor(&mut self, tf_id: TransformId) {
+        if let Some(pred) = self.transforms[tf_id].predecessor {
+            self.transforms[pred].successor = None;
+            self.transforms[tf_id].predecessor = None;
+        }
+    }
 }
 
 impl<'a> JobData<'a> {

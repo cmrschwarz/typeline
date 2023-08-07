@@ -94,10 +94,11 @@ pub struct TfForkCatInputMapping {
 
 pub struct TfForkCat<'a> {
     pub op: &'a OpForkCat,
-    pub curr_subchain: u32,
+    pub curr_subchain_n: u32,
     pub curr_subchain_start: Option<TransformId>,
     pub continuation: Option<TransformId>,
     pub buffered_record_count: usize,
+    pub input_size: usize,
     // field name -> index into input_mappings
     // because fields can have multiple names, we use this to deduplicate
     // we could make this local to the setup function but meh, this way
@@ -109,13 +110,6 @@ pub struct TfForkCat<'a> {
 
     // parallel with op.accessed_names_afterwards
     pub output_mappings: Vec<FieldId>,
-}
-
-pub fn handle_tf_forkcat_output_appender(
-    _sess: &mut JobData,
-    _tf_id: TransformId,
-    _fc: &mut TfForkCat,
-) {
 }
 
 pub fn parse_op_forkcat(
@@ -212,11 +206,12 @@ pub fn setup_tf_forkcat<'a>(
     _tf_state: &mut TransformState,
 ) -> TransformData<'a> {
     TransformData::ForkCat(TfForkCat {
-        curr_subchain: op.subchains_start,
+        curr_subchain_n: op.subchains_start,
         curr_subchain_start: None,
         continuation: None,
         input_mapping_ids: Default::default(),
         op,
+        input_size: 0,
         buffered_record_count: 0,
         input_mappings: Default::default(),
         prebound_outputs: Default::default(),
@@ -226,13 +221,14 @@ pub fn setup_tf_forkcat<'a>(
     })
 }
 
-pub fn handle_tf_forkcat_sc_0(
+pub fn handle_tf_forkcat_sc(
     sess: &mut JobData,
     tf_id: TransformId,
     fc: &mut TfForkCat,
+    batch_size: usize,
+    end_of_input: bool,
 ) {
     let target_tf = fc.curr_subchain_start.unwrap();
-    let (batch_size, end_of_input) = sess.tf_mgr.claim_all(tf_id);
     let unconsumed_input =
         sess.tf_mgr.transforms[tf_id].has_unconsumed_input();
     let match_set_mgr = &mut sess.match_set_mgr;
@@ -283,7 +279,6 @@ pub fn handle_tf_forkcat_sc_0(
     if end_of_input {
         sess.tf_mgr.push_tf_in_ready_stack(target_tf);
         sess.tf_mgr.transforms[target_tf].input_is_done = true;
-        sess.unlink_transform(tf_id, 0);
     }
 }
 
@@ -292,34 +287,45 @@ pub fn handle_tf_forkcat(
     tf_id: TransformId,
     fc: &mut TfForkCat,
 ) {
-    if fc.curr_subchain == 0 && fc.curr_subchain_start.is_some() {
-        handle_tf_forkcat_sc_0(sess, tf_id, fc);
+    if fc.curr_subchain_n == 0 && fc.curr_subchain_start.is_some() {
+        let (batch_size, end_of_input) = sess.tf_mgr.claim_all(tf_id);
+        fc.input_size += batch_size;
+        handle_tf_forkcat_sc(sess, tf_id, fc, batch_size, end_of_input);
+        if !end_of_input {
+            return;
+        }
+    } else {
+        handle_tf_forkcat_sc(sess, tf_id, fc, fc.input_size, true);
+    }
+    if fc.op.subchains_start + fc.curr_subchain_n == fc.op.subchains_end {
+        let cont = fc.continuation.unwrap();
+        sess.tf_mgr.transforms[cont].input_is_done = true;
+        sess.tf_mgr.push_tf_in_ready_stack(fc.continuation.unwrap());
+        sess.unlink_transform(tf_id, 0);
         return;
     }
+    sess.tf_mgr
+        .disconnect_tf_from_predecessor(fc.continuation.unwrap());
+    fc.curr_subchain_n += 1;
+    fc.curr_subchain_start = None;
 }
-fn expand_for_subchain(
-    sess: &mut JobSession,
-    tf_id: TransformId,
-    sc_n: usize,
-) {
+fn expand_for_subchain(sess: &mut JobSession, tf_id: TransformId, sc_n: u32) {
     let tgt_ms_id = sess.job_data.match_set_mgr.add_match_set();
     let mut chain_input_field = None;
     let tf = &sess.job_data.tf_mgr.transforms[tf_id];
     let src_input_field_id = tf.input_field;
     let src_ms_id = tf.match_set_id;
-    let forkcat = if let TransformData::ForkCat(fc) =
-        &mut sess.transform_data[tf_id.get()]
-    {
+    let forkcat = match_unwrap!(
+        &mut sess.transform_data[tf_id.get()],
+        TransformData::ForkCat(fc),
         fc
-    } else {
-        unreachable!();
-    };
+    );
     let chain_id = sess.job_data.session_data.operator_bases
         [sess.job_data.tf_mgr.transforms[tf_id].op_id.unwrap() as usize]
         .chain_id
         .unwrap();
     let sc_id = sess.job_data.session_data.chains[chain_id as usize].subchains
-        [forkcat.op.subchains_start as usize + sc_n];
+        [(forkcat.op.subchains_start + sc_n) as usize];
     let mut input_mapping_ids = std::mem::take(&mut forkcat.input_mapping_ids);
     let mut input_mappings = std::mem::take(&mut forkcat.input_mappings);
     let mut prebound_outputs = std::mem::take(&mut forkcat.prebound_outputs);
@@ -327,7 +333,7 @@ fn expand_for_subchain(
     prebound_outputs.clear();
     input_mappings.clear();
     let src_ms = &sess.job_data.match_set_mgr.match_sets[src_ms_id];
-    for (i, op) in forkcat.op.output_mappings_per_subchain[sc_n]
+    for (i, op) in forkcat.op.output_mappings_per_subchain[sc_n as usize]
         .iter()
         .enumerate()
     {
@@ -352,7 +358,8 @@ fn expand_for_subchain(
     }
 
     let combined_field_accesses = &forkcat.op.accessed_fields_of_any_subchain;
-    let accessed_fields_of_sc = &forkcat.op.accessed_fields_per_subchain[sc_n];
+    let accessed_fields_of_sc =
+        &forkcat.op.accessed_fields_per_subchain[sc_n as usize];
     for (name, access_mode) in accessed_fields_of_sc.iter_name_opt() {
         let (src_ms, tgt_ms) = &mut sess
             .job_data
@@ -405,7 +412,7 @@ fn expand_for_subchain(
                 .map(|acc| acc.total_write_count())
                 .unwrap_or(0);
         }
-        let last_access = combined_fam.last_accessing_sc == sc_n as u32;
+        let last_access = combined_fam.last_accessing_sc == sc_n;
 
         let (target_field_id, mut tgt_field) =
             if access_mode.any_writes() && !last_access {
@@ -499,7 +506,7 @@ fn expand_for_subchain(
         } else {
             src_input_field_id
         };
-        let last_access = cat.last_accessing_sc == sc_n as u32;
+        let last_access = cat.last_accessing_sc == sc_n;
         if !last_access {
             let src_field =
                 sess.job_data.field_mgr.fields[src_field_id].borrow();
@@ -518,7 +525,7 @@ fn expand_for_subchain(
                 .setup_cow(im.target_field_id, im.source_field_id);
         }
     }
-    let (start_tf, _end_tf, end_reachable) = sess
+    let (start_tf, end_tf, end_reachable) = sess
         .setup_transforms_with_stable_start(
             tgt_ms_id,
             sc_id,
@@ -526,65 +533,112 @@ fn expand_for_subchain(
             chain_input_field.unwrap_or(DUMMY_INPUT_FIELD_ID),
             &prebound_outputs,
         );
-    if end_reachable {}
-    if let TransformData::ForkCat(ref mut forkcat) =
-        sess.transform_data[usize::from(tf_id)]
-    {
-        forkcat.input_mappings = input_mappings;
-        forkcat.input_mapping_ids = input_mapping_ids;
-        forkcat.curr_subchain_start = Some(start_tf);
-    } else {
-        unreachable!();
+    let forkcat = match_unwrap!(
+        &mut sess.transform_data[tf_id.get()],
+        TransformData::ForkCat(fc),
+        fc
+    );
+    if end_reachable {
+        sess.job_data
+            .tf_mgr
+            .connect_tfs(end_tf, forkcat.continuation.unwrap());
     }
+    forkcat.input_mappings = input_mappings;
+    forkcat.input_mapping_ids = input_mapping_ids;
+    forkcat.curr_subchain_start = Some(start_tf);
 }
-
+fn setup_continuation(sess: &mut JobSession, tf_id: TransformId) {
+    let tf = &sess.job_data.tf_mgr.transforms[tf_id];
+    let tf_input_field = tf.input_field;
+    let src_ms = tf.match_set_id;
+    let field_name_map =
+        &sess.job_data.match_set_mgr.match_sets[src_ms].field_name_map;
+    let forkcat = match_unwrap!(
+        &mut sess.transform_data[tf_id.get()],
+        TransformData::ForkCat(fc),
+        fc
+    );
+    forkcat.continuation = Some(tf.successor.unwrap());
+    for (name, mode) in
+        forkcat.op.accessed_fields_of_any_subchain.iter_name_opt()
+    {
+        if mode.last_accessing_sc != 0 {
+            let field_id = if let Some(name) = name {
+                if let Some(field) = field_name_map.get(&name) {
+                    *field
+                } else {
+                    continue;
+                }
+            } else {
+                tf_input_field
+            };
+            let f = sess.job_data.field_mgr.fields[field_id].borrow();
+            f.request_clear_delay();
+        }
+    }
+    let cont_op_id = if let Some(cont) = forkcat.op.continuation {
+        cont
+    } else {
+        return;
+    };
+    let output_ms_id = sess.job_data.match_set_mgr.add_match_set();
+    for name in &forkcat.op.accessed_names_afterwards {
+        let field_id = sess.job_data.field_mgr.add_field(output_ms_id, None);
+        if let Some(name) = name {
+            sess.job_data.match_set_mgr.add_field_name(
+                &sess.job_data.field_mgr,
+                field_id,
+                *name,
+            );
+        }
+        forkcat.output_mappings.push(field_id);
+    }
+    let cont_chain_id = sess.job_data.session_data.operator_bases
+        [cont_op_id as usize]
+        .chain_id
+        .unwrap();
+    let cont_input_field =
+        if forkcat.op.accessed_names_afterwards.first() == Some(&None) {
+            forkcat.output_mappings[0]
+        } else {
+            DUMMY_INPUT_FIELD_ID
+        };
+    let (start_tf, end_tf, end_reachable) = sess
+        .setup_transforms_with_stable_start(
+            output_ms_id,
+            cont_chain_id,
+            cont_op_id,
+            cont_input_field,
+            &Default::default(),
+        );
+    let forkcat = match_unwrap!(
+        &mut sess.transform_data[tf_id.get()],
+        TransformData::ForkCat(fc),
+        fc
+    );
+    if end_reachable {
+        sess.job_data
+            .tf_mgr
+            .connect_tfs(end_tf, forkcat.continuation.unwrap())
+    }
+    forkcat.continuation = Some(start_tf);
+}
 pub(crate) fn handle_forkcat_expansion(
     sess: &mut JobSession,
     tf_id: TransformId,
 ) {
-    expand_for_subchain(sess, tf_id, 0);
-    sess.log_state("expanded subchain 0 for forkcat");
-    let tf = &sess.job_data.tf_mgr.transforms[tf_id];
-    let src_ms = tf.match_set_id;
-    let tf_input_field = tf.input_field;
-    let field_name_map =
-        &sess.job_data.match_set_mgr.match_sets[src_ms].field_name_map;
-    if let TransformData::ForkCat(ref mut forkcat) =
-        sess.transform_data[usize::from(tf_id)]
-    {
-        for (name, mode) in
-            forkcat.op.accessed_fields_of_any_subchain.iter_name_opt()
-        {
-            if mode.last_accessing_sc != 0 {
-                let field_id = if let Some(name) = name {
-                    if let Some(field) = field_name_map.get(&name) {
-                        *field
-                    } else {
-                        continue;
-                    }
-                } else {
-                    tf_input_field
-                };
-                let f = sess.job_data.field_mgr.fields[field_id].borrow();
-                f.request_clear_delay();
-            }
-        }
-        let output_ms_id = sess.job_data.match_set_mgr.add_match_set();
-        for name in &forkcat.op.accessed_names_afterwards {
-            let field_id =
-                sess.job_data.field_mgr.add_field(output_ms_id, None);
-            if let Some(name) = name {
-                sess.job_data.match_set_mgr.add_field_name(
-                    &sess.job_data.field_mgr,
-                    field_id,
-                    *name,
-                );
-            }
-            forkcat.output_mappings.push(field_id);
-        }
-    } else {
-        unreachable!();
+    let forkcat = match_unwrap!(
+        &mut sess.transform_data[tf_id.get()],
+        TransformData::ForkCat(fc),
+        fc
+    );
+    let sc_n = forkcat.curr_subchain_n;
+    if sc_n == 0 {
+        setup_continuation(sess, tf_id);
     }
+    expand_for_subchain(sess, tf_id, sc_n);
+    #[cfg(feature = "debug_logging")]
+    sess.log_state(&format!("expanded subchain {sc_n} for forkcat"));
 }
 
 pub fn create_op_forkcat() -> OperatorData {
