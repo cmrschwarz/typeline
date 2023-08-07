@@ -280,13 +280,11 @@ pub(crate) fn handle_call_concurrent_expansion(
     tf_id: TransformId,
     ctx: Option<&Arc<ContextData>>,
 ) -> Result<(), VentureDescription> {
-    let call = if let TransformData::CallConcurrent(call) =
-        &mut sess.transform_data[tf_id.get()]
-    {
-        call
-    } else {
-        unreachable!()
-    };
+    let call = match_unwrap!(
+        &mut sess.transform_data[tf_id.get()],
+        TransformData::CallConcurrent(cc),
+        cc
+    );
     call.expanded = true;
     setup_target_field_mappings(&mut sess.job_data, tf_id, call);
     let starting_op = sess.job_data.session_data.chains
@@ -345,10 +343,8 @@ pub fn handle_tf_call_concurrent(
             mapping.source_field_iter,
         );
         if iter.get_next_field_pos() != 0 {
-            sess.field_mgr.append_to_buffer(
-                iter,
-                &mut buf_data.fields[mapping.buf_field],
-            );
+            sess.field_mgr
+                .append_to_buffer(iter, &buf_data.fields[mapping.buf_field]);
         } else {
             drop(cfdr);
             sess.field_mgr.swap_into_buffer(

@@ -166,7 +166,7 @@ impl<AT: AccessKind> AccessMappings<AT> {
             }
         }
     }
-    pub fn from_var_data<'a>(
+    pub fn from_var_data(
         ctx: &mut AT::ContextType,
         ld: &LivenessData,
         var_data: &BitSlice<Cell<usize>>,

@@ -1,5 +1,8 @@
 use std::fmt::Write;
 
+#[macro_use]
+pub mod match_unwrap;
+
 pub mod aligned_buf;
 pub mod encoding;
 pub mod identity_hasher;
