@@ -250,7 +250,7 @@ pub fn handle_tf_forkcat_sc(
         sess.tf_mgr.transforms[tf_id].has_unconsumed_input();
     let match_set_mgr = &mut sess.match_set_mgr;
     sess.tf_mgr.prepare_for_output(
-        &sess.field_mgr,
+        &mut sess.field_mgr,
         match_set_mgr,
         tf_id,
         fc.input_mappings.iter().map(|im| im.target_field_id),

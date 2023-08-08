@@ -1400,3 +1400,21 @@ fn forkcat_dup() -> Result<(), ScrError> {
     assert_eq!(ss.get_data().unwrap().as_slice(), ["foo", "foo"]);
     Ok(())
 }
+
+#[test]
+fn forkcat_sandwiched_write() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::default();
+    ContextBuilder::default()
+        .add_op(create_op_str("foo", 1))
+        .add_op(create_op_forkcat())
+        .add_op(create_op_nop())
+        .add_op(create_op_next())
+        .add_op(create_op_format(b"{}{}").unwrap())
+        .add_op(create_op_next())
+        .add_op(create_op_nop())
+        .add_op(create_op_up(1))
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(ss.get_data().unwrap().as_slice(), ["foo", "foofoo", "foo"]);
+    Ok(())
+}

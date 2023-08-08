@@ -89,11 +89,12 @@ pub fn handle_tf_sequence(
     seq: &mut TfSequence,
 ) {
     let (mut batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
-    let mut output_field = sess.tf_mgr.prepare_output_field(
-        &sess.field_mgr,
+    let of_id = sess.tf_mgr.prepare_output_field(
+        &mut sess.field_mgr,
         &mut sess.match_set_mgr,
         tf_id,
     );
+    let mut output_field = sess.field_mgr.fields[of_id].borrow_mut();
     let tf = &sess.tf_mgr.transforms[tf_id];
     let succ = &sess.tf_mgr.transforms[tf.successor.unwrap()];
     if batch_size == 0 && input_done && !seq.stop_after_input {

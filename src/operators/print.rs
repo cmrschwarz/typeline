@@ -309,11 +309,12 @@ pub fn handle_tf_print(
     }
     drop(stdout);
     let op_id = sess.tf_mgr.transforms[tf_id].op_id.unwrap();
-    let mut output_field = sess.tf_mgr.prepare_output_field(
-        &sess.field_mgr,
+    let of_id = sess.tf_mgr.prepare_output_field(
+        &mut sess.field_mgr,
         &mut sess.match_set_mgr,
         tf_id,
     );
+    let mut output_field = sess.field_mgr.fields[of_id].borrow_mut();
     let mut outputs_produced = handled_field_count;
     match res {
         Ok(()) => {

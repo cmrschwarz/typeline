@@ -348,12 +348,13 @@ pub fn handle_tf_join(
     join: &mut TfJoin,
 ) {
     let (batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
-    let mut output_field = sess.tf_mgr.prepare_output_field(
-        &sess.field_mgr,
+    sess.tf_mgr.prepare_output_field(
+        &mut sess.field_mgr,
         &mut sess.match_set_mgr,
         tf_id,
     );
     let tf = &sess.tf_mgr.transforms[tf_id];
+    let mut output_field = sess.field_mgr.fields[tf.output_field].borrow_mut();
     let input_field_id = tf.input_field;
     let input_field = sess
         .field_mgr

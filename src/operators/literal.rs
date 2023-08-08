@@ -87,11 +87,12 @@ pub fn handle_tf_literal(
     if !lit.value_inserted {
         lit.value_inserted = true;
         let op_id = tf.op_id.unwrap();
-        let mut output_field = sess.tf_mgr.prepare_output_field(
-            &sess.field_mgr,
+        let of_id = sess.tf_mgr.prepare_output_field(
+            &mut sess.field_mgr,
             &mut sess.match_set_mgr,
             tf_id,
         );
+        let mut output_field = sess.field_mgr.fields[of_id].borrow_mut();
         match lit.data {
             Literal::Bytes(b) => {
                 output_field.field_data.push_bytes(b, 1, true, true)

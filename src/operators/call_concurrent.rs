@@ -466,7 +466,7 @@ pub fn handle_tf_callee_concurrent(
     tfc: &mut TfCalleeConcurrent,
 ) {
     sess.tf_mgr.prepare_for_output(
-        &sess.field_mgr,
+        &mut sess.field_mgr,
         &mut sess.match_set_mgr,
         tf_id,
         tfc.target_fields.iter().filter_map(|f| *f),

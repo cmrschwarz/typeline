@@ -282,11 +282,13 @@ fn start_streaming_file(
     tf_id: TransformId,
     fr: &mut TfFileReader,
 ) -> bool {
-    let mut output_field = sess.tf_mgr.prepare_output_field(
-        &sess.field_mgr,
+    let of_id = sess.tf_mgr.prepare_output_field(
+        &mut sess.field_mgr,
         &mut sess.match_set_mgr,
         tf_id,
     );
+
+    let mut output_field = sess.field_mgr.fields[of_id].borrow_mut();
     // we want to write the chunk straight into field data to avoid a copy
     // SAFETY: this relies on the memory layout in field_data.
     // since that is a submodule of us, this is fine.

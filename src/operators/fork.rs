@@ -130,8 +130,8 @@ pub fn handle_tf_fork(
     for (src_field_id, mapping) in sp.mappings.iter_mut() {
         sess.field_mgr
             .apply_field_actions(match_set_mgr, *src_field_id);
-        sess.tf_mgr.prepare_for_output(
-            &sess.field_mgr,
+        sess.tf_mgr.prepare_for_output_cow(
+            &mut sess.field_mgr,
             match_set_mgr,
             tf_id,
             mapping

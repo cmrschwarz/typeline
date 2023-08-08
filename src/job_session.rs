@@ -1,5 +1,4 @@
 use std::{
-    cell::RefMut,
     collections::{HashMap, VecDeque},
     ops::DerefMut,
     sync::Arc,
@@ -58,7 +57,7 @@ use crate::{
         transform::{TransformData, TransformId, TransformState},
     },
     record_data::{
-        field::{Field, FieldId, FieldManager, DUMMY_INPUT_FIELD_ID},
+        field::{FieldId, FieldManager, DUMMY_INPUT_FIELD_ID},
         match_set::{MatchSetId, MatchSetManager},
         record_buffer::RecordBuffer,
         stream_value::{StreamValueManager, StreamValueUpdate},
@@ -242,9 +241,9 @@ impl TransformManager {
         }
         (batch_size, input_done)
     }
-    pub fn prepare_for_output(
+    pub fn prepare_for_output_cow(
         &mut self,
-        field_mgr: &FieldManager,
+        field_mgr: &mut FieldManager,
         match_set_mgr: &mut MatchSetManager,
         tf_id: TransformId,
         output_fields: impl IntoIterator<Item = FieldId>,
@@ -258,11 +257,9 @@ impl TransformManager {
         for ofid in output_fields {
             let mut f = field_mgr.fields[ofid].borrow_mut();
             let clear_delay = f.get_clear_delay_request_count() > 0;
-            if request_uncow || clear_delay {
-                // PERF: we might want clear delay to propagate instead
-                // of uncowing immediately
+            if clear_delay || request_uncow {
                 drop(f);
-                field_mgr.uncow(ofid);
+                field_mgr.uncow(match_set_mgr, ofid);
                 f = field_mgr.fields[ofid].borrow_mut();
             }
             if clear_delay {
@@ -281,12 +278,44 @@ impl TransformManager {
             }
         }
     }
-    pub fn prepare_output_field<'a>(
+    pub fn prepare_for_output(
         &mut self,
-        field_mgr: &'a FieldManager,
+        field_mgr: &mut FieldManager,
         match_set_mgr: &mut MatchSetManager,
         tf_id: TransformId,
-    ) -> RefMut<'a, Field> {
+        output_fields: impl IntoIterator<Item = FieldId>,
+    ) {
+        let tf = &mut self.transforms[tf_id];
+        let appending = tf.is_appending;
+        tf.request_uncow = false;
+        tf.is_appending = false;
+
+        for ofid in output_fields {
+            field_mgr.uncow(match_set_mgr, ofid);
+            let mut f = field_mgr.fields[ofid].borrow_mut();
+            let clear_delay = f.get_clear_delay_request_count() > 0;
+            if clear_delay {
+                field_mgr.apply_field_actions(match_set_mgr, ofid);
+            } else {
+                match_set_mgr.match_sets[tf.match_set_id]
+                    .command_buffer
+                    .drop_field_commands(
+                        ofid.get() as usize,
+                        &mut f.action_indices,
+                    );
+                if !appending {
+                    f.field_data.clear_if_owned(field_mgr);
+                    f.has_unconsumed_input.set(false);
+                }
+            }
+        }
+    }
+    pub fn prepare_output_field<'a>(
+        &mut self,
+        field_mgr: &mut FieldManager,
+        match_set_mgr: &mut MatchSetManager,
+        tf_id: TransformId,
+    ) -> FieldId {
         let output_field_id = self.transforms[tf_id].output_field;
         self.prepare_for_output(
             field_mgr,
@@ -294,7 +323,7 @@ impl TransformManager {
             tf_id,
             [output_field_id],
         );
-        field_mgr.fields[output_field_id].borrow_mut()
+        output_field_id
     }
     pub fn connect_tfs(&mut self, left: TransformId, right: TransformId) {
         self.transforms[left].successor = Some(right);

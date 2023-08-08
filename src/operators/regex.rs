@@ -725,7 +725,7 @@ pub fn handle_tf_regex(
 ) {
     let (batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
     sess.tf_mgr.prepare_for_output(
-        &sess.field_mgr,
+        &mut sess.field_mgr,
         &mut sess.match_set_mgr,
         tf_id,
         re.capture_group_fields.iter().filter_map(|x| *x),

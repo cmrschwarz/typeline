@@ -167,20 +167,32 @@ impl FieldDataSource {
             }
         }
     }
-    pub fn uncow(&mut self, own_field_id: FieldId, fm: &FieldManager) {
+    // returns the FieldId that was COWd and now needs a ref count drop
+    // sadly we can't drop ourselves because we currently borrow a field
+    pub fn uncow_get_field_with_rc(
+        &mut self,
+        own_field_id: FieldId,
+        fm: &FieldManager,
+    ) -> Option<FieldId> {
         if self.is_data_owned() {
-            return;
+            return None;
         }
         let temp = std::mem::replace(
             self,
             FieldDataSource::Cow(NonMaxU32::default()),
         );
-        *self = FieldDataSource::Owned(match temp {
+        let res;
+        (res, *self) = match temp {
             FieldDataSource::Owned(_) => unreachable!(),
-            FieldDataSource::Cow(src) => {
-                let mut src = fm.fields[src].borrow_mut();
+            FieldDataSource::Cow(src_id) => {
+                let mut src = fm.fields[src_id].borrow_mut();
                 src.field_data.remove_cow_ref(own_field_id);
-                src.field_data.data_source.get_cloned(fm)
+                (
+                    Some(src_id),
+                    FieldDataSource::Owned(
+                        src.field_data.data_source.get_cloned(fm),
+                    ),
+                )
             }
             FieldDataSource::DataCow {
                 headers,
@@ -189,25 +201,33 @@ impl FieldDataSource {
             } => {
                 let mut src = fm.fields[data_ref].borrow_mut();
                 src.field_data.remove_cow_ref(own_field_id);
-                FieldData {
-                    headers,
-                    field_count,
-                    data: src.field_data.data_source.get_data_cloned(fm),
-                }
+                (
+                    Some(data_ref),
+                    FieldDataSource::Owned(FieldData {
+                        headers,
+                        field_count,
+                        data: src.field_data.data_source.get_data_cloned(fm),
+                    }),
+                )
             }
-            FieldDataSource::RecordBufferCow(rb) => {
-                unsafe { &*(*rb).get() }.clone()
-            }
+            FieldDataSource::RecordBufferCow(rb) => (
+                None,
+                FieldDataSource::Owned(unsafe { &*(*rb).get() }.clone()),
+            ),
             FieldDataSource::RecordBufferDataCow {
                 headers,
                 field_count,
                 data,
-            } => FieldData {
-                headers,
-                field_count,
-                data: unsafe { &*(*data).get() }.data.clone(),
-            },
-        });
+            } => (
+                None,
+                FieldDataSource::Owned(FieldData {
+                    headers,
+                    field_count,
+                    data: unsafe { &*(*data).get() }.data.clone(),
+                }),
+            ),
+        };
+        res
     }
     pub fn uncow_headers(&mut self, fm: &FieldManager) {
         if self.are_headers_owned() {
