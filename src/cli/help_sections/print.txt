@@ -1,9 +1,10 @@
-print - Format data using the Rust / Python format string syntax
+print - Print to stdout
 
 Syntax: print|p
 
 General:
-    Prints the input to stdout, followed by a newline.
+    Prints it's (implicitly stringified) input to the standard output,
+    followed by a newline.
 
 Examples:
     scr str=foo print                        # foo

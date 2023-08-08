@@ -21,7 +21,7 @@ Settings (call `scr h=SETTING` for details):
 
 Operators (call `scr h=OPERATOR` for details):
     print                 Print previous results to stdout
-    format=FSTR           Format text using rust format strings
+    format=FSTR           Format text using Rust / Python format strings
     regex[-OPTS]=REGEX    Apply a regular expression to the input
     join[N][-d]=SEP       Concatenate (N) consecutive inputs, separated by SEP
 

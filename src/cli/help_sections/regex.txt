@@ -1,17 +1,17 @@
-regex - Apply a regular expression to the (implicitly stringified) input.
+regex - Apply a regular expression to the input
 
 Syntax: regex|r[-[abdilmou]]=REGEX
 
 General:
-    Applies a regular expression to it's input, producing one output column
-    for each capture group. For named capture groups like '(?<NAME>...)',
-    the column name will be NAME. For unnamed capture groups, name will be
-    the index of the capture group. The whole regex match (sometimes referred
-    to as capture group zero) becomes the output of this operator.
-    It is not available under the name '0' to avoid unintended namespace
-    polution. To use another capture group as the output, name it the empty
-    string: '(?<>...)'. The non capturing group syntax '(?:...)' prevents the
-    generation of an output column.
+    Applies a regular expression to it's (implicitly stringified) input,
+    producing one output column for each capture group.
+    For named capture groups like '(?<NAME>...)', the column name will be NAME.
+    For unnamed capture groups, name will be the index of the capture group.
+    The whole regex match (sometimes referred to as capture group zero) becomes
+    the output of this operator. It is not available under the name '0' to
+    avoid unintended namespace polution. To use another capture group as the
+    output, name it the empty string: '(?<>...)'. The non capturing group
+    syntax '(?:...)' prevents the generation of an output column.
 
 Examples:
     scr str=foobar regex="b.*" p                                # bar
