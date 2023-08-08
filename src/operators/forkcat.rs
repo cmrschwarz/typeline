@@ -16,7 +16,7 @@ use crate::{
     record_data::{
         field::{FieldId, DUMMY_INPUT_FIELD_ID},
         iter_hall::{IterHall, IterId},
-        iters::FieldDataRef,
+        iters::{FieldDataRef, FieldIterator},
     },
     utils::{
         identity_hasher::BuildIdentityHasher, string_store::StringStoreEntry,
@@ -201,8 +201,8 @@ pub fn setup_op_forkcat_liveness_data(
                 for bv in &ld.op_outputs[oo_id as usize].bound_vars_after_bb {
                     let var_name = match ld.vars[*bv as usize] {
                         Var::Named(name) => Some(name),
-                        Var::BBOutput | Var::BBInput => None,
-                        Var::UnreachableDummyVar => continue,
+                        Var::BBInput => None,
+                        Var::UnreachableDummyVar | Var::BBOutput => continue,
                     };
                     if let Some(binding_after) =
                         op.accessed_names_afterwards_map.get(var_name)
@@ -262,11 +262,6 @@ pub fn handle_tf_forkcat_sc(
             .field_mgr
             .get_cow_field_ref(m.source_field_id, unconsumed_input);
         let src_field_dr = src_field.destructured_field_ref().clone();
-        let mut src_field_iter = sess.field_mgr.lookup_iter(
-            m.source_field_id,
-            &src_field,
-            m.source_field_iter,
-        );
         let mut tgt = sess.field_mgr.fields[m.target_field_id].borrow_mut();
         if !tgt.field_data.are_headers_owned() {
             continue;
@@ -279,6 +274,10 @@ pub fn handle_tf_forkcat_sc(
                     .extend_from_slice(src_field_dr.headers());
             }
         }
+        let mut src_field_iter = sess
+            .field_mgr
+            .lookup_iter(m.source_field_id, &src_field, m.source_field_iter)
+            .bounded(0, batch_size);
         IterHall::copy(&mut src_field_iter, &mut |f| f(&mut tgt.field_data));
         sess.field_mgr.store_iter(
             m.source_field_id,
@@ -367,7 +366,7 @@ fn expand_for_subchain(sess: &mut JobSession, tf_id: TransformId, sc_n: u32) {
                 };
             sess.job_data
                 .field_mgr
-                .setup_cow(source_field, target_field);
+                .setup_cow(target_field, source_field);
         }
     }
 
@@ -428,7 +427,7 @@ fn expand_for_subchain(sess: &mut JobSession, tf_id: TransformId, sc_n: u32) {
         }
         let any_writes = combined_fam.any_writes();
         let last_access = combined_fam.last_accessing_sc == sc_n;
-        let (target_field_id, mut tgt_field) = if any_writes || !last_access {
+        let (target_field_id, mut tgt_field) = if any_writes && !last_access {
             drop(src_field);
             let target_field_id =
                 sess.job_data.field_mgr.add_field(tgt_ms_id, None);
@@ -450,7 +449,7 @@ fn expand_for_subchain(sess: &mut JobSession, tf_id: TransformId, sc_n: u32) {
                 target_field_id,
                 header_writer: access_mode.header_writes,
                 data_writer: access_mode.data_writes,
-                last_access: last_access,
+                last_access,
                 source_field_iter: src_field.field_data.claim_iter(),
             });
         }
@@ -488,14 +487,18 @@ fn expand_for_subchain(sess: &mut JobSession, tf_id: TransformId, sc_n: u32) {
                 Entry::Occupied(_) => continue,
                 Entry::Vacant(e) => {
                     e.insert(input_mappings.len());
-                    let source_field_iter =
-                        input_field.field_data.claim_iter();
                     drop(input_field);
                     let target_field_id =
                         sess.job_data.field_mgr.add_field(tgt_ms_id, None);
+                    let source_field_iter = sess.job_data.field_mgr.fields
+                        [target_field_id]
+                        .borrow_mut()
+                        .field_data
+                        .claim_iter();
                     input_field = sess.job_data.field_mgr.fields
                         [source_field_id]
                         .borrow_mut();
+                    sess.job_data.field_mgr.setup_cow(target_field_id, fr);
                     input_mappings.push(TfForkCatInputMapping {
                         source_field_id: fr,
                         source_field_iter,
@@ -663,11 +666,16 @@ pub(crate) fn handle_forkcat_expansion(
     } else {
         for m in fc.input_mappings.iter_mut() {
             if !m.last_access {
-                sess.job_data.field_mgr.fields[m.source_field_id]
-                    .borrow()
-                    .field_data
-                    .reset_iter(m.source_field_iter);
+                let f =
+                    sess.job_data.field_mgr.fields[m.source_field_id].borrow();
+                f.field_data.reset_iter(m.source_field_iter);
             }
+        }
+        for &of in &fc.output_mappings {
+            sess.job_data.field_mgr.fields[of]
+                .borrow_mut()
+                .field_data
+                .reset_iterators();
         }
     }
     expand_for_subchain(sess, tf_id, sc_n);
