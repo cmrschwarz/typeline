@@ -195,11 +195,22 @@ fn try_parse_as_context_opt(
     if ["--version", "-v"].contains(&arg.argname) {
         return Err(PrintInfoAndExitError::Version.into());
     }
+    const MAIN_HELP_PAGE: &str = include_str!("help_sections/main.txt");
     if ["--help", "-h", "help", "h"].contains(&arg.argname) {
         let text = if let Some(v) = arg.value {
             let section = v.to_str_lossy();
-            match section.as_ref() {
-                "f" => include_str!("help_sections/format.txt"),
+            match section.trim().to_lowercase().as_ref() {
+                "cast" => include_str!("help_sections/cast.txt"),
+                "format" | "f" => include_str!("help_sections/format.txt"),
+                "help" | "h" => include_str!("help_sections/help.txt"),
+                "join" | "j" => include_str!("help_sections/join.txt"),
+                "main" => MAIN_HELP_PAGE,
+                "print" | "p" => include_str!("help_sections/print.txt"),
+                "regex" | "r" => include_str!("help_sections/regex.txt"),
+                "types" | "int" | "str" | "~str" | "bytes" | "~bytes"
+                | "error" | "~error" | "null" | "success" => {
+                    include_str!("help_sections/types.txt")
+                }
                 _ => {
                     return Err(CliArgumentError {
                         message: format!("no help section for '{section}'")
@@ -210,12 +221,12 @@ fn try_parse_as_context_opt(
                 }
             }
         } else {
-            include_str!("help_sections/main.txt")
+            MAIN_HELP_PAGE
         };
 
         return Err(PrintInfoAndExitError::Help(text.into()).into());
     }
-    if arg.argname == "j" {
+    if arg.argname == "tc" {
         if let Some(val) = arg.value {
             ctx_opts
                 .max_threads
@@ -420,8 +431,8 @@ fn parse_operation(
         "forkcat" | "fc" => Some(parse_op_forkcat(value, idx)?),
         "call" | "c" => Some(parse_op_call(value, idx)?),
         "callcc" | "cc" => Some(parse_op_call_concurrent(value, idx)?),
-        "next" => Some(parse_op_next(value, idx)?),
-        "up" => Some(parse_op_up(value, idx)?),
+        "next" | "n" => Some(parse_op_next(value, idx)?),
+        "up" | "u" => Some(parse_op_up(value, idx)?),
         _ => None,
     })
 }

@@ -77,7 +77,7 @@ pub struct TfJoin<'a> {
 }
 
 lazy_static::lazy_static! {
-    static ref ARG_REGEX: Regex = Regex::new(r"^join(?<drop_incomplete>d)?(?<insert_count>[0-9]+)?$").unwrap();
+    static ref ARG_REGEX: Regex = Regex::new(r"^(?:join|j)(?<insert_count>[0-9]+)?(-(?<drop_incomplete>d)?)$").unwrap();
 }
 pub fn argument_matches_op_join(arg: &str) -> bool {
     ARG_REGEX.is_match(arg)
@@ -103,6 +103,12 @@ pub fn parse_op_join(
         })
         .transpose()?;
     let drop_incomplete = args.name("drop_incomplete").is_some();
+    if drop_incomplete && insert_count.is_none() {
+        return Err(OperatorCreationError::new(
+            "the 'd' option for join is only available in combination with a set size",
+            arg_idx,
+        ));
+    }
     Ok(create_op_join(
         value.map(|v| v.to_owned()),
         insert_count,

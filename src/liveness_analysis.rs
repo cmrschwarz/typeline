@@ -913,7 +913,7 @@ impl LivenessData {
                 print!(
                     "op_output {oo_n:02}: chain {:02}, bb {:02}, op_id {op_id:02} `{}`",
                     op_base.chain_id.map(|x| x as i64).unwrap_or(-1),
-                    self.operator_liveness_data[op_id as usize].basic_block_id,
+                    self.operator_liveness_data[op_id].basic_block_id,
                     sess.operator_data[op_id].default_op_name()
                 );
                 let oo = &self.op_outputs[oo_n as usize];
@@ -983,7 +983,7 @@ impl LivenessData {
         let vars_print_len = 3 * vc + 1;
         for bb_id in 0..self.basic_blocks.len() {
             println!("{:->PADDING_VARS$}{:-^vars_print_len$}", "", "");
-            let vars_start = bb_id as usize * SLOTS_PER_BASIC_BLOCK * vc;
+            let vars_start = bb_id * SLOTS_PER_BASIC_BLOCK * vc;
             for (category_offs, category) in
                 ["local", "global", "succession"].iter().enumerate()
             {

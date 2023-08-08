@@ -197,7 +197,7 @@ pub fn try_match_regex_cli_argument(
         if opts.binary_mode && !unicode_mode {
             opts.ascii_mode = true;
         }
-        return Ok(Some(opts));
+        Ok(Some(opts))
     } else {
         Ok(None)
     }
@@ -346,7 +346,7 @@ pub fn create_op_regex_with_opts(
     regex: &str,
     opts: RegexOptions,
 ) -> Result<OperatorData, OperatorCreationError> {
-    Ok(parse_op_regex(Some(regex.as_bytes()), None, opts)?)
+    parse_op_regex(Some(regex.as_bytes()), None, opts)
 }
 pub fn create_op_regex(
     regex: &str,

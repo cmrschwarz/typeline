@@ -1,8 +1,13 @@
 cast - Convert between datatypes
 
 Syntax:
-    TYPE[-[l|s|t][f][!]]
+    to_TYPE[-[l|s|t][f][!]]
 
+Genral:
+    Attempts to convert the input value into the target type.
+
+Examples:
+    scr int@in=3 to_str f="{in:?} -> {:?}" p
 
 Types:
     str       Text encoded as UTF-8
@@ -12,12 +17,6 @@ Types:
     success   Output of a previous command (e.g. `p` or `w`) indicating success
     html
     error
-
-Examples:
-    scr int@in=3 str@out f="{in:?} -> {out:?}" p
-
-Genral:
-    Attempts to convert the input value into the target type.
 
 Options:
     -l

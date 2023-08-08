@@ -52,7 +52,7 @@ impl OpCast {
 }
 
 lazy_static::lazy_static! {
-    static ref ARG_REGEX: Regex = Regex::new(r"^(?<type>int|bytes|str|(?:~)error|null|success)?$").unwrap();
+    static ref ARG_REGEX: Regex = Regex::new(r"^to_(?<type>int|bytes|str|(?:~)error|null|success)?$").unwrap();
 }
 
 pub fn argument_matches_op_cast(arg: &str, value: Option<&[u8]>) -> bool {

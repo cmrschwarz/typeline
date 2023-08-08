@@ -1,0 +1,12 @@
+print - Format data using the Rust / Python format string syntax
+
+Syntax: print|p
+
+General:
+    Prints the input to stdout, followed by a newline.
+
+Examples:
+    scr str=foo print                        # foo
+    scr int=42 print                         # 42
+    scr null print                           # null
+    scr null f="{nonexisting_label}" print   # ERROR: in op id 1: Format Error

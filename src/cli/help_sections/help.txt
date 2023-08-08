@@ -1,0 +1,15 @@
+help - Print help about specific operators, settings or concepts
+
+Syntax: h=HELP_SECTION
+
+General:
+    Prints a more detauled help section for specific concepts than the main
+    help page. After printing the help text, the program is terminated with
+    exit code 0, unless in REPL mode.
+
+Examples:
+    scr h=print
+    scr h=p
+    scr h=types
+    scr h=main
+    scr h=h

@@ -56,7 +56,7 @@ pub fn create_tf_nop(manual_unlink: bool) -> TransformData<'static> {
     TransformData::Nop(TfNop { manual_unlink })
 }
 
-pub fn handle_tf_nop(sess: &mut JobData, tf_id: TransformId, nop: &mut TfNop) {
+pub fn handle_tf_nop(sess: &mut JobData, tf_id: TransformId, nop: &TfNop) {
     let (batch_size, input_done) = sess.tf_mgr.claim_all(tf_id);
     if input_done && !nop.manual_unlink {
         sess.unlink_transform(tf_id, batch_size);

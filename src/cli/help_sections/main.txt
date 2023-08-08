@@ -9,7 +9,7 @@ Settings (call `scr h=SETTING` for details):
 
     bs=N                  Batch size
     sbs=N                 Stream buffer size
-    j=N                   Max thread count (defaults to cpu core count)
+    tc=N                  Max thread count (defaults to cpu core count)
     lb=yes|no|..          Line Buffering Mode (see mode descriptions in `h=lb`)
 
     denc=ENCODING         Default text encoding (see encodings list in `h=enc`)
@@ -23,7 +23,7 @@ Operators (call `scr h=OPERATOR` for details):
     print                 Print previous results to stdout
     format=FSTR           Format text using rust format strings
     regex[-OPTS]=REGEX    Apply a regular expression to the input
-    join[N]=SEP           Concatenate (N) consecutive inputs, separated by SEP
+    join[N][-d]=SEP       Concatenate (N) consecutive inputs, separated by SEP
 
     key=IDENT             Give a name to the previous output column
     select=IDENT          Outputs the contents of the column named IDENT
@@ -36,7 +36,7 @@ Operators (call `scr h=OPERATOR` for details):
 
     count                 Outputs the record count after consuming all input
 
-    TYPE[-[l|s|t][f][!]]  Attempt to cast inputs to TYPE, see `h=cast`
+    to_TYPE[-OPTS]        Attempt to cast inputs to TYPE, see `h=cast`
     TYPE[N]=VALUE         Insert a literal value (N times), see `h=literal`
 
     CHAIN_LABEL:          Start a new chain named CHAIN_LABEL

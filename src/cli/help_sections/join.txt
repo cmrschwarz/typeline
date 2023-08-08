@@ -1,0 +1,24 @@
+join - Concatenate (N) consecutive inputs, separated by SEP
+
+Syntax: join|j[N][-[dm]][=SEP]
+
+General:
+    Concatenates (joins) multiple inputs into a single output record,
+    optionally separated by SEP.
+
+Examples:
+    scr str=a +str=b +str=c join p                  # abc
+    scr seqn=3 join=, p                             # 1,2,3
+    scr seqn=3 join=", " p                          # 1, 2, 3
+    scr str="single_value" join=, p                 # single_value
+    scr seqn=5 join3=+ j=, p                        # 1+2+3,4+5
+    scr seqn=5 join3-d=+ j=, p                      # 1+2+3
+    scr fc str=foo n str=bar u j p                  # foobar
+
+Options:
+    d   Drop incomplete sets of values. More conrete: If there are less than
+        N elements available at the end of the input, silently drop them fork_without_input
+        producing output.
+
+    N   Number of elements to join as a single output. If unspecified, all
+        elements are merged.

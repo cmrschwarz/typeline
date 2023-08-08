@@ -9,11 +9,11 @@ General:
     braces itself, they have to be escaped using "{{" and "}}" respectively.
 
 Examples:
-    scr str=na f="Ba{}{}"                                   # Banana
-    scr int=7 f="{:03}" p                                   # 007
-    scr str@width=3 int@value=7 f="{value:width$}"          # 007
-    scr str=7 f="{:?}" p                                    # "7"
-    scr str=abc rm@k=. enumn@v f="{k}:{v}" join=, p         # a:1,b:2,c:3
+    scr str=na format="Ba{}{}"                                   # Banana
+    scr int=7 format="{:03}" p                                   # 007
+    scr str@width=3 int@value=7 format="{value:width$}"          # 007
+    scr str=7 format="{:?}" p                                    # "7"
+    scr str=abc rm@k=. enumn@v format="{k}:{v}" join=, p         # a:1,b:2,c:3
 
 Format String Syntax:
     format_string := text [ '{{' | '}}' | format | text ] *
