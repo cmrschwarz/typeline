@@ -70,6 +70,9 @@ impl WriteCountingFieldAccessType {
     pub fn total_write_count(&self) -> u32 {
         self.header_write_count + self.data_write_count
     }
+    pub fn any_writes(&self) -> bool {
+        self.total_write_count() > 0
+    }
 }
 
 impl AccessKind for WriteCountingFieldAccessType {
@@ -110,6 +113,8 @@ impl AccessKind for WriteCountingFieldAccessType {
             self.data_write_count += 1;
             self.last_data_writing_sc = *subchain_id;
         }
+        self.access_count += 1;
+        self.last_accessing_sc = *subchain_id;
     }
 }
 

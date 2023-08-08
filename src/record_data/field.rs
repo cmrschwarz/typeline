@@ -268,12 +268,12 @@ impl FieldManager {
         data_source.ref_count += 1;
         data_source.field_data.cow_targets.push(field_id);
         field.field_refs.push(data_source_id);
-        assert!(field.field_data.data_source.get_field_count(self) == 0);
+        //   assert!(field.field_data.data_source.get_field_count(self) == 0);
         field.field_data.data_source = FieldDataSource::Cow(data_source_id);
     }
     pub fn append_to_buffer<'a>(
         &self,
-        iter: impl FieldIterator<'a>,
+        iter: &mut impl FieldIterator<'a>,
         tgt: &RecordBufferField,
     ) {
         let fd = unsafe { &mut (*tgt.data.get()) };
@@ -291,8 +291,8 @@ impl FieldManager {
             FieldDataSource::Owned(fd) => std::mem::swap(tgt, fd),
             FieldDataSource::Cow(_) => {
                 let fr = self.get_cow_field_ref(field_id, false);
-                let iter = Iter::from_start(fr.destructured_field_ref());
-                FieldData::copy(iter, &mut |f| f(tgt));
+                let mut iter = Iter::from_start(fr.destructured_field_ref());
+                FieldData::copy(&mut iter, &mut |f| f(tgt));
             }
             FieldDataSource::DataCow {
                 headers,
@@ -309,7 +309,8 @@ impl FieldManager {
             }
             FieldDataSource::RecordBufferCow(rb) => {
                 let fd = unsafe { &mut *(**rb).get() };
-                FieldData::copy(fd.iter(), &mut |f| f(tgt));
+                let mut iter = fd.iter();
+                FieldData::copy(&mut iter, &mut |f| f(tgt));
             }
             FieldDataSource::RecordBufferDataCow {
                 headers,

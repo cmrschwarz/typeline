@@ -337,14 +337,21 @@ pub fn handle_tf_call_concurrent(
         let cfdr = sess
             .field_mgr
             .get_cow_field_ref(mapping.source_field_id, false);
-        let iter = sess.field_mgr.lookup_iter(
+        let mut iter = sess.field_mgr.lookup_iter(
             mapping.source_field_id,
             &cfdr,
             mapping.source_field_iter,
         );
         if iter.get_next_field_pos() != 0 {
-            sess.field_mgr
-                .append_to_buffer(iter, &buf_data.fields[mapping.buf_field]);
+            sess.field_mgr.append_to_buffer(
+                &mut iter,
+                &buf_data.fields[mapping.buf_field],
+            );
+            sess.field_mgr.store_iter(
+                mapping.source_field_id,
+                mapping.source_field_iter,
+                iter,
+            );
         } else {
             drop(cfdr);
             sess.field_mgr.swap_into_buffer(

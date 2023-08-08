@@ -399,6 +399,8 @@ impl LivenessData {
         bb_id: BasicBlockId,
     ) {
         self.reset_op_outputs_data_for_vars();
+        self.vars_to_op_outputs_map[BB_OUTPUT_VAR as usize] =
+            BB_INPUT_VAR_OUTPUT_IDX;
         let mut bb = &mut self.basic_blocks[bb_id];
         let cn = &sess.chains[bb.chain_id as usize];
         let mut input_field = BB_INPUT_VAR_OUTPUT_IDX;
@@ -534,9 +536,6 @@ impl LivenessData {
             }
             if op_base.append_mode {
                 self.append_to_field(output_field);
-            } else {
-                self.vars_to_op_outputs_map[BB_OUTPUT_VAR as usize] =
-                    sess.operator_bases[op_id].outputs_start;
             }
             if let Some(label) = sess.operator_bases[op_id].label {
                 let var_id = self.var_names[&label];
@@ -548,6 +547,8 @@ impl LivenessData {
             last_output_field = output_field;
             if !op_base.append_mode && !op_base.transparent_mode {
                 input_field = output_field;
+                self.vars_to_op_outputs_map[BB_OUTPUT_VAR as usize] =
+                    sess.operator_bases[op_id].outputs_start;
             }
         }
         bb = &mut self.basic_blocks[bb_id];

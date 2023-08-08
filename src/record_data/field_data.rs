@@ -376,7 +376,8 @@ impl Clone for FieldData {
             field_count: 0, //set by copy
         };
         let fd_ref = &mut fd;
-        FieldData::copy(self.iter(), &mut |f| f(fd_ref));
+        let mut iter = self.iter();
+        FieldData::copy(&mut iter, &mut |f| f(fd_ref));
         fd
     }
 }
@@ -459,7 +460,7 @@ impl FieldData {
     }
 
     pub fn copy<'a>(
-        mut iter: impl FieldIterator<'a>,
+        iter: &mut impl FieldIterator<'a>,
         targets_applicator: &mut impl FnMut(&mut dyn FnMut(&mut FieldData)),
     ) -> usize {
         let mut copied_fields = 0;

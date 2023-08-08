@@ -384,7 +384,7 @@ impl IterHall {
     }
 
     pub fn copy<'a>(
-        iter: impl FieldIterator<'a> + Clone,
+        iter: &mut impl FieldIterator<'a>,
         targets_applicator: &mut impl FnMut(&mut dyn FnMut(&mut IterHall)),
     ) -> usize {
         let adapted_target_applicator =
@@ -419,6 +419,9 @@ impl IterHall {
     pub fn field_count(&self, fm: &FieldManager) -> usize {
         // TOOD: maybe handle the data cow cases here?
         self.data_source.get_field_count(fm)
+    }
+    pub fn reset_iter(&self, iter_id: IterId) {
+        self.iters[iter_id].set(IterState::default());
     }
     pub fn reset_iterators(&mut self) {
         for it in self.iters.iter_mut() {

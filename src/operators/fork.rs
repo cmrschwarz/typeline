@@ -145,7 +145,7 @@ pub fn handle_tf_fork(
             .field_mgr
             .get_cow_field_ref(*src_field_id, unconsumed_input);
         let src_field_dr = src_field.destructured_field_ref().clone();
-        let src_field_iter = sess.field_mgr.lookup_iter(
+        let mut src_field_iter = sess.field_mgr.lookup_iter(
             *src_field_id,
             &src_field,
             mapping.source_iter_id,
@@ -187,11 +187,16 @@ pub fn handle_tf_fork(
             }
         }
         if !mapping.targets_copy.is_empty() {
-            IterHall::copy(src_field_iter, &mut |f| {
+            IterHall::copy(&mut src_field_iter, &mut |f| {
                 mapping.targets_data_cow.iter().for_each(|t| {
                     f(&mut sess.field_mgr.fields[*t].borrow_mut().field_data)
                 })
             });
+            sess.field_mgr.store_iter(
+                *src_field_id,
+                mapping.source_iter_id,
+                src_field_iter,
+            );
         }
     }
     if !end_of_input {
