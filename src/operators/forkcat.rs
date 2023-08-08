@@ -178,18 +178,24 @@ pub fn setup_op_forkcat_liveness_data(
     for sc_n in 0..op.accessed_fields_per_subchain.len() {
         let mut mappings = Vec::new();
         mappings.resize(op.accessed_names_afterwards.len(), None);
-        let sc_id = op.subchains_start as usize + sc_n;
-        for op_id in &sess.chains[sc_id].operators {
-            for bv in &ld.op_outputs[*op_id as usize].bound_vars_after_bb {
-                let var_name = match ld.vars[*bv as usize] {
-                    Var::Named(name) => Some(name),
-                    Var::BBInput => None,
-                    Var::UnreachableDummyVar | Var::BBOutput => continue,
-                };
-                if let Some(binding_after) =
-                    op.accessed_names_afterwards_map.get(var_name)
-                {
-                    mappings[binding_after.0] = Some(*op_id);
+        let sc_id = sess.chains
+            [sess.operator_bases[op_id as usize].chain_id.unwrap() as usize]
+            .subchains[op.subchains_start as usize + sc_n]
+            as usize;
+        for &op_id in &sess.chains[sc_id].operators {
+            let op_base = &sess.operator_bases[op_id as usize];
+            for oo_id in op_base.outputs_start..op_base.outputs_end {
+                for bv in &ld.op_outputs[oo_id as usize].bound_vars_after_bb {
+                    let var_name = match ld.vars[*bv as usize] {
+                        Var::Named(name) => Some(name),
+                        Var::BBOutput | Var::BBInput => None,
+                        Var::UnreachableDummyVar => continue,
+                    };
+                    if let Some(binding_after) =
+                        op.accessed_names_afterwards_map.get(var_name)
+                    {
+                        mappings[binding_after.0] = Some(oo_id);
+                    }
                 }
             }
         }
@@ -262,13 +268,6 @@ pub fn handle_tf_forkcat_sc(
         }
         IterHall::copy(src_field_iter, &mut |f| f(&mut tgt.field_data));
     }
-    if !end_of_input {
-        if batch_size == 0 {
-            sess.tf_mgr.push_tf_in_ready_stack(tf_id);
-        } else {
-            sess.tf_mgr.update_ready_state(tf_id);
-        }
-    }
     sess.tf_mgr.inform_transform_batch_available(
         target_tf,
         batch_size,
@@ -285,7 +284,15 @@ pub fn handle_tf_forkcat(
     tf_id: TransformId,
     fc: &mut TfForkCat,
 ) {
-    if fc.curr_subchain_n == 0 && fc.curr_subchain_start.is_some() {
+    if fc.op.subchains_start + fc.curr_subchain_n == fc.op.subchains_end {
+        let cont = fc.continuation.unwrap();
+        sess.tf_mgr.transforms[cont].input_is_done = true;
+        sess.tf_mgr.push_tf_in_ready_stack(fc.continuation.unwrap());
+        sess.unlink_transform(tf_id, 0);
+        return;
+    }
+    sess.tf_mgr.push_tf_in_ready_stack(tf_id);
+    if fc.curr_subchain_n == 0 {
         let (batch_size, end_of_input) = sess.tf_mgr.claim_all(tf_id);
         fc.input_size += batch_size;
         handle_tf_forkcat_sc(sess, tf_id, fc, batch_size, end_of_input);
@@ -295,14 +302,6 @@ pub fn handle_tf_forkcat(
     } else {
         handle_tf_forkcat_sc(sess, tf_id, fc, fc.input_size, true);
     }
-    if fc.op.subchains_start + fc.curr_subchain_n == fc.op.subchains_end {
-        let cont = fc.continuation.unwrap();
-        sess.tf_mgr.transforms[cont].input_is_done = true;
-        sess.tf_mgr.push_tf_in_ready_stack(fc.continuation.unwrap());
-        sess.unlink_transform(tf_id, 0);
-        return;
-    }
-
     fc.curr_subchain_n += 1;
     fc.curr_subchain_start = None;
 }
@@ -631,12 +630,15 @@ pub(crate) fn handle_forkcat_expansion(
     sess: &mut JobSession,
     tf_id: TransformId,
 ) {
-    let forkcat = match_unwrap!(
+    let fc = match_unwrap!(
         &mut sess.transform_data[tf_id.get()],
         TransformData::ForkCat(fc),
         fc
     );
-    let sc_n = forkcat.curr_subchain_n;
+    let sc_n = fc.curr_subchain_n;
+    if fc.op.subchains_start + sc_n == fc.op.subchains_end {
+        return;
+    }
     if sc_n == 0 {
         setup_continuation(sess, tf_id);
     }

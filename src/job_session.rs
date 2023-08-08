@@ -376,16 +376,15 @@ impl<'a> JobData<'a> {
         if let Some(succ_id) = successor {
             let succ = &mut self.tf_mgr.transforms[succ_id];
             succ.predecessor = predecessor;
-            succ.input_is_done = true;
+            succ.input_is_done = input_is_done;
             let mut bs = available_batch_for_successor;
             if is_transparent {
                 bs += available_batch_size;
             }
-            // even if the current batch size is zero,
-            // we want this guy ready because the end of input was reached
             succ.available_batch_size += bs;
-            self.tf_mgr.push_tf_in_ready_stack(succ_id);
-            // self.tf_mgr.inform_transform_batch_available(succ_id, bs);
+            if input_is_done || succ.available_batch_size > 0 {
+                self.tf_mgr.push_tf_in_ready_stack(succ_id);
+            }
         }
     }
     pub fn print_field_stats(&self, _id: FieldId) {
@@ -432,7 +431,15 @@ impl<'a> JobSession<'a> {
                 } else {
                     self.transform_data[i.get()].alternative_display_name()
                 };
-                println!("tf {}: {}", i, name);
+                println!(
+                    "tf {} [{} {}{}{}]: {}",
+                    i,
+                    tf.input_field,
+                    if tf.is_transparent { "_>" } else { "->" },
+                    if tf.is_appending { "+" } else { " " },
+                    tf.output_field,
+                    name
+                );
             }
             #[cfg(feature = "debug_logging")]
             for (i, _) in self.job_data.field_mgr.fields.iter_enumerated() {
@@ -1061,6 +1068,7 @@ impl<'a> JobSession<'a> {
             }
             if let Some(mut tf_id) = self.job_data.tf_mgr.ready_stack.pop() {
                 let mut tf = &mut self.job_data.tf_mgr.transforms[tf_id];
+                tf.is_ready = false;
                 if tf.is_stream_producer {
                     tf_id = self
                         .job_data
@@ -1071,7 +1079,6 @@ impl<'a> JobSession<'a> {
                     tf = &mut self.job_data.tf_mgr.transforms[tf_id];
                     tf.is_stream_producer = false;
                 }
-                tf.is_ready = false;
                 self.handle_transform(tf_id, ctx)?;
                 continue;
             }

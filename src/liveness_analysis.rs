@@ -555,9 +555,7 @@ impl LivenessData {
         let ooc = self.op_outputs.len();
         let var_data_start = bb_id * SLOTS_PER_BASIC_BLOCK * vc;
         if any_writes_so_far {
-            for (var_idx, &op_output_id) in
-                self.vars_to_op_outputs_map.iter().enumerate()
-            {
+            for &op_output_id in self.vars_to_op_outputs_map.iter() {
                 self.op_outputs_data.set_aliased(
                     HEADER_WRITES_OFFSET * ooc + op_output_id as usize,
                     true,
@@ -902,10 +900,10 @@ impl LivenessData {
             println!("var id {v_id:02}: {}", v.name(&sess.string_store));
         }
         println!();
-        println!("op outputs:");
+        println!("op_outputs:");
         for i in [UNREACHABLE_DUMMY_VAR, BB_INPUT_VAR, BB_OUTPUT_VAR] {
             println!(
-                "op_output {i}: {}",
+                "op_output {i:02}: {}",
                 self.vars[i as usize].name(&sess.string_store)
             );
         }
@@ -938,22 +936,24 @@ impl LivenessData {
                 println!();
             }
         }
-        const PADDING: usize = 32;
+        println!();
         fn print_bits(
             label: &str,
+            padding: usize,
             count: usize,
             offset: usize,
             livness_data: &BitSlice<Cell<usize>>,
         ) {
-            print!("{:>PADDING$}: ", label);
+            print!("{:>padding$}: ", label);
             for i in offset..offset + count {
                 print!(" {} ", if livness_data[i] { "X" } else { "-" });
             }
             println!();
         }
+        const PADDING_OOS: usize = 13;
         let vc = self.vars.len();
         let ooc = self.op_outputs.len();
-        print!("{:>PADDING$}: ", "op_output id");
+        print!("{:>PADDING_OOS$}: ", "op_output id");
         for oo_n in 0..ooc {
             print!("{oo_n:02} ");
         }
@@ -963,9 +963,17 @@ impl LivenessData {
             ("header writes", HEADER_WRITES_OFFSET),
             ("data writes", DATA_WRITES_OFFSET),
         ] {
-            print_bits(name, ooc, offs * ooc, &self.op_outputs_data);
+            print_bits(
+                name,
+                PADDING_OOS,
+                ooc,
+                offs * ooc,
+                &self.op_outputs_data,
+            );
         }
-        print!("\n{:>PADDING$}: ", "var id");
+
+        const PADDING_VARS: usize = 32;
+        print!("\n{:>PADDING_VARS$}: ", "var id");
 
         for vid in 0..vc {
             print!("{vid:02} ");
@@ -973,7 +981,7 @@ impl LivenessData {
         println!();
         let vars_print_len = 3 * vc + 1;
         for bb_id in 0..self.basic_blocks.len() {
-            println!("{:->PADDING$}{:-^vars_print_len$}", "", "");
+            println!("{:->PADDING_VARS$}{:-^vars_print_len$}", "", "");
             let vars_start = bb_id as usize * SLOTS_PER_BASIC_BLOCK * vc;
             for (category_offs, category) in
                 ["local", "global", "succession"].iter().enumerate()
@@ -990,6 +998,7 @@ impl LivenessData {
                 ] {
                     print_bits(
                         &format!("{category} {name} bb {bb_id:02}"),
+                        PADDING_VARS,
                         vc,
                         vars_start
                             + ((category_offs * LOCAL_SLOTS_PER_BASIC_BLOCK)
