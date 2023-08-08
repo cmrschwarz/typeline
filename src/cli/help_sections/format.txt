@@ -1,9 +1,12 @@
 format - Format data using the Rust / Python format string syntax
 
-Syntax: f=FSTR
+Syntax: format|f=FORMAT_STRING
 
 General:
-    # TODO: write a general explanation section
+    Produces a <str> value based on the given format string.
+    Columns can be referred to using the "{COLUMN_NAME}" syntax.
+    The input column is available as "{}". If the output string should contain
+    braces itself, they have to be escaped using "{{" and "}}" respectively.
 
 Examples:
     scr str=na f="Ba{}{}"                                   # Banana

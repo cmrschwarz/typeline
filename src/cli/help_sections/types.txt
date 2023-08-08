@@ -58,3 +58,17 @@ error:
     like `join` or `format`, this means dropping all previous input
     and just outputting the error value. Notable exceptions are
     `print` and `format={:?}`, which will output the error message.
+
+~str, ~bytes and ~error:
+    Internally, scr handles large values split up into multiple chunks.
+    This avoids allocating large buffers e.g. if a file or download is used
+    as a single value. This behaviour can be configured
+    using the stream buffer threshold (sbt) and stream buffer size (sbs)
+    settings.
+    The chunking remains mostly transparent to the user, but there are
+    ways to observe it, like the format string
+    f="{:??}", which prints inline strings as "foo", but streamed
+    strings as ~"foo". Streaming is only performed for the variable sized
+    types (<str> and <bytes>). If an error occurs while handling the stream,
+    a Stream Error <~error> value is produced. Again, this type behaves
+    virtually identical to the default error type.

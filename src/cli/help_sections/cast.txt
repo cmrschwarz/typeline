@@ -1,7 +1,7 @@
 cast - Convert between datatypes
 
 Syntax:
-    TYPE[l|s|t][f][!]
+    TYPE[-[l|s|t][f][!]]
 
 
 Types:
@@ -13,27 +13,11 @@ Types:
     html
     error
 
-General:
-    # TODO: write a general explanation section
-
 Examples:
-    scr str=na f="Ba{}{}"                                   # Banana
-    scr int=7 f="{:03}" p                                   # 007
-    scr str@width=3 int@value=7 f="{value:width$}"          # 007
-    scr str=7 f="{:?}" p                                    # "7"
-    scr str=abc rm@k=. enumn@v f="{k}:{v}" join=, p         # a:1,b:2,c:3
+    scr int@in=3 str@out f="{in:?} -> {out:?}" p
 
-Format String Syntax:
-    format_string := text [ '{{' | '}}' | format | text ] *
-    format := '{' [argument] [ ':' format_spec ] [ws] * '}'
-    argument := integer | identifier
+Genral:
+    Attempts to convert the input value into the target type.
 
-    format_spec := [[fill]align][sign]['#']['0'][width]['.' precision]type
-    fill := character
-    align := '<' | '^' | '>'
-    sign := '+' | '-'
-    width := count
-    precision := count | '*'
-    type := '' | '?' | 'x?' | 'X?' | identifier
-    count := parameter | integer
-    parameter := argument '$'
+Options:
+    -l

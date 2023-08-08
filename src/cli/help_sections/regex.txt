@@ -1,0 +1,51 @@
+regex - Apply a regular expression to the (implicitly stringified) input.
+
+Syntax: regex|r[-[abdilmou]]=REGEX
+
+General:
+    Applies a regular expression to it's input, producing one output column
+    for each capture group. For named capture groups like '(?<NAME>...)',
+    the column name will be NAME. For unnamed capture groups, name will be
+    the index of the capture group. The whole regex match (sometimes referred
+    to as capture group zero) becomes the output of this operator.
+    It is not available under the name '0' to avoid unintended namespace
+    polution. To use another capture group as the output, name it the empty
+    string: '(?<>...)'. The non capturing group syntax '(?:...)' prevents the
+    generation of an output column.
+
+Examples:
+    scr str=foobar r="b.*" p                                    # bar
+    scr seqn=5 r="[1-3,5]" join=, p                             # 1,2,3,5
+    scr str="/foo/bar.pdf" r=".*\.(?<ext>.*)" f=".{ext}" p      # .pdf
+    scr str="/foo/bar.pdf" r=".*?(?<>[^/]+)$" p                 # bar.pdf
+    scr str=abc f="(.)(.)(.)" f="{3}{2}{1}" p                   # "cba"
+    scr str=abc r-m=. join=, p                                  # a,b,c
+    scr seqn=3 r-nm=^2 f="{:?}" join=, p                        # null,"2",null
+
+Options:
+    -a  Disable unicode for character classes making e.g. '.' or  '\w'
+        only match single byte ascii characters. Opposite of -u.
+
+    -b  Don't attempt to preserve strings as valid utf8 and turn everything
+        into byte sequences. This implies -a unless -u is specified.
+
+    -m  Return multiple matches instead of only the first
+
+    -o  Allow overlapping matches, implies -m.
+
+    -n  Produce null values for all capture groups instead of dropping the
+        record if matching fails.
+
+    -l  Line based maching. This makes '^' and '$' match lines in
+        addition to the start / end of the whole input.
+        Some tools call this mode "multiline".
+
+    -d  Make the dot '.' match newline characters (\r or \n).
+        This mode is commonly referred to as "dotall".
+
+    -i  Case insensitive mode.
+
+    -u  Use unicode, assume UTF-8 for bytes sequences. This is the opposite of
+        -a, and enabled by default, unless -b is given.
+        For byte sequences, having this enabled means that '.' will match
+        any byte sequence that looks like a valid UTF-8 character.

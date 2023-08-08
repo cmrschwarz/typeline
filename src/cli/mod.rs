@@ -3,6 +3,7 @@ use crate::{
     operators::{
         call::parse_op_call,
         call_concurrent::parse_op_call_concurrent,
+        cast::{argument_matches_op_cast, parse_op_cast},
         count::parse_op_count,
         errors::OperatorCreationError,
         file_reader::{argument_matches_op_file_reader, parse_op_file_reader},
@@ -16,7 +17,7 @@ use crate::{
         nop::parse_op_nop,
         operator::OperatorData,
         print::parse_op_print,
-        regex::{parse_op_regex, RegexOptions},
+        regex::{parse_op_regex, try_match_regex_cli_argument},
         select::parse_op_select,
         sequence::parse_op_seq,
         up::parse_op_up,
@@ -32,7 +33,6 @@ use crate::{
 use bstr::ByteSlice;
 
 use lazy_static::lazy_static;
-use regex::{Regex, RegexBuilder};
 
 use std::{borrow::Cow, fmt::Display, str::from_utf8};
 use thiserror::Error;
@@ -123,19 +123,6 @@ lazy_static! {
         r"^(?<modes>(?:(?<append_mode>\+)|(?<transparent_mode>_))*)(?<argname>[^@=]+)(@(?<label>[^@=]+))?(=(?<value>(?:.|[\r\n])*))?$"
     ).build()
     .unwrap();
-
-
-    static ref REGEX_CLI_ARG_REGEX: Regex =
-        RegexBuilder::new("^r((?<a>a)|(?<b>b)|(?<d>d)|(?<i>i)|(?<l>l)|(?<m>m)|(?<o>o)|(?<u>u))*$")
-            .case_insensitive(true)
-            .build()
-            .unwrap();
-
-    //static ref REGEX_CLI_ARG_REGEX: Regex =
-    //    RegexBuilder::new("^r((?<i>i))*$")
-    //        .case_insensitive(true)
-    //        .build()
-    //        .unwrap();
 }
 
 fn try_parse_bool(val: &[u8]) -> Option<bool> {
@@ -403,51 +390,12 @@ fn parse_operation(
     value: Option<&[u8]>,
     idx: Option<CliArgIdx>,
 ) -> Result<Option<OperatorData>, OperatorCreationError> {
-    if let Some(c) = REGEX_CLI_ARG_REGEX.captures(argname) {
-        let mut opts = RegexOptions::default();
-        let mut unicode_mode = false;
-        if c.name("a").is_some() {
-            opts.ascii_mode = true;
-        }
-        if c.name("b").is_some() {
-            opts.binary_mode = true;
-        }
-        if c.name("d").is_some() {
-            opts.dotall = true;
-        }
-        if c.name("i").is_some() {
-            opts.case_insensitive = true;
-        }
-        if c.name("l").is_some() {
-            opts.line_based = true;
-        }
-        if c.name("m").is_some() {
-            opts.multimatch = true;
-        }
-        if c.name("n").is_some() {
-            opts.non_mandatory = true;
-        }
-        if c.name("o").is_some() {
-            opts.overlapping = true;
-        }
-        if c.name("u").is_some() {
-            unicode_mode = true;
-        }
-
-        if opts.ascii_mode && unicode_mode {
-            return Err(OperatorCreationError::new(
-                "[a]scii and [u]nicode mode on regex are mutually exclusive",
-                idx,
-            ));
-        }
-        if opts.binary_mode && !unicode_mode {
-            opts.ascii_mode = true;
-        }
-        return Ok(Some(OperatorData::Regex(parse_op_regex(
-            value, idx, opts,
-        )?)));
+    if let Some(opts) = try_match_regex_cli_argument(argname, idx)? {
+        return Ok(Some(parse_op_regex(value, idx, opts)?));
     }
-
+    if argument_matches_op_cast(argname, value) {
+        return Ok(Some(parse_op_cast(argname, value, idx)?));
+    }
     if argument_matches_op_literal(argname) {
         return Ok(Some(parse_op_literal(argname, value, idx)?));
     }
@@ -458,8 +406,8 @@ fn parse_operation(
         return Ok(Some(parse_op_join(argname, value, idx)?));
     }
     Ok(match argname {
-        "p" => Some(parse_op_print(value, idx)?),
-        "f" => Some(parse_op_format(value, idx)?),
+        "print" | "p" => Some(parse_op_print(value, idx)?),
+        "format" | "f" => Some(parse_op_format(value, idx)?),
         "key" => Some(parse_op_key(value, idx)?),
         "select" => Some(parse_op_select(value, idx)?),
         "seq" => Some(parse_op_seq(value, false, false, idx)?),
@@ -469,9 +417,9 @@ fn parse_operation(
         "count" => Some(parse_op_count(value, idx)?),
         "nop" | "scr" => Some(parse_op_nop(value, idx)?),
         "fork" => Some(parse_op_fork(value, idx)?),
-        "forkcat" => Some(parse_op_forkcat(value, idx)?),
-        "call" => Some(parse_op_call(value, idx)?),
-        "callcc" => Some(parse_op_call_concurrent(value, idx)?),
+        "forkcat" | "fc" => Some(parse_op_forkcat(value, idx)?),
+        "call" | "c" => Some(parse_op_call(value, idx)?),
+        "callcc" | "cc" => Some(parse_op_call_concurrent(value, idx)?),
         "next" => Some(parse_op_next(value, idx)?),
         "up" => Some(parse_op_up(value, idx)?),
         _ => None,

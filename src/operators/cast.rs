@@ -1,7 +1,9 @@
+use regex::Regex;
 use smallstr::SmallString;
 
 use crate::{
     job_session::JobData,
+    options::argument::CliArgIdx,
     record_data::{
         field_data::{field_value_flags, FieldDataType, FieldValueKind},
         iter_hall::IterId,
@@ -18,7 +20,7 @@ use crate::{
 };
 
 use super::{
-    errors::OperatorApplicationError,
+    errors::{OperatorApplicationError, OperatorCreationError},
     operator::{OperatorBase, OperatorData, DEFAULT_OP_NAME_SMALL_STR_LEN},
     transform::{TransformData, TransformId, TransformState},
 };
@@ -47,6 +49,44 @@ impl OpCast {
         }
         .into()
     }
+}
+
+lazy_static::lazy_static! {
+    static ref ARG_REGEX: Regex = Regex::new(r"^(?<type>int|bytes|str|(?:~)error|null|success)?$").unwrap();
+}
+
+pub fn argument_matches_op_cast(arg: &str, value: Option<&[u8]>) -> bool {
+    ARG_REGEX.is_match(arg) && value.is_none()
+}
+
+pub fn parse_op_cast(
+    argument: &str,
+    value: Option<&[u8]>,
+    arg_idx: Option<CliArgIdx>,
+) -> Result<OperatorData, OperatorCreationError> {
+    // this should not happen in the cli parser because it checks using
+    // `argument_matches_data_inserter`
+    let args = ARG_REGEX.captures(argument).ok_or_else(|| {
+        OperatorCreationError::new("invalid argument syntax for cast", arg_idx)
+    })?;
+    if value.is_some() {
+        return Err(OperatorCreationError::new(
+            "the cast operator does not take an argument",
+            arg_idx,
+        ));
+    }
+    let arg_str = args.name("type").unwrap().as_str();
+    let target_type = match arg_str {
+        "int" => FieldDataType::Integer,
+        "bytes" => FieldDataType::Bytes,
+        "str" => FieldDataType::Text,
+        "error" => FieldDataType::Error,
+        "null" => FieldDataType::Null,
+        "success" => FieldDataType::Success,
+        _ => unreachable!(),
+    };
+    // TODO: parse options
+    Ok(create_op_cast(target_type, None, false, false))
 }
 
 pub fn create_op_cast(

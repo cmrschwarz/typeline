@@ -1,7 +1,8 @@
 use arrayvec::ArrayString;
 
+use lazy_static::lazy_static;
 use nonmax::NonMaxU16;
-use regex::{self, bytes};
+use regex::{self, bytes, Regex, RegexBuilder};
 use smallstr::SmallString;
 use smallvec::SmallVec;
 use std::{borrow::Cow, cell::RefMut, collections::HashMap};
@@ -145,6 +146,62 @@ impl OpRegex {
 }
 
 const MAX_DEFAULT_CAPTURE_GROUP_NAME_LEN: usize = USIZE_MAX_DECIMAL_DIGITS + 1;
+lazy_static! {
+    static ref REGEX_CLI_ARG_REGEX: Regex =
+        RegexBuilder::new("^(r|regex)(-((?<a>a)|(?<b>b)|(?<d>d)|(?<i>i)|(?<l>l)|(?<m>m)|(?<n>n)|(?<o>o)|(?<u>u))*$)?")
+            .case_insensitive(true)
+            .build()
+            .unwrap();
+}
+pub fn try_match_regex_cli_argument(
+    argname: &str,
+    idx: Option<CliArgIdx>,
+) -> Result<Option<RegexOptions>, OperatorCreationError> {
+    if let Some(c) = REGEX_CLI_ARG_REGEX.captures(argname) {
+        let mut opts = RegexOptions::default();
+        let mut unicode_mode = false;
+        if c.name("a").is_some() {
+            opts.ascii_mode = true;
+        }
+        if c.name("b").is_some() {
+            opts.binary_mode = true;
+        }
+        if c.name("d").is_some() {
+            opts.dotall = true;
+        }
+        if c.name("i").is_some() {
+            opts.case_insensitive = true;
+        }
+        if c.name("l").is_some() {
+            opts.line_based = true;
+        }
+        if c.name("m").is_some() {
+            opts.multimatch = true;
+        }
+        if c.name("n").is_some() {
+            opts.non_mandatory = true;
+        }
+        if c.name("o").is_some() {
+            opts.overlapping = true;
+            opts.multimatch = true;
+        }
+        if c.name("u").is_some() {
+            unicode_mode = true;
+        }
+        if opts.ascii_mode && unicode_mode {
+            return Err(OperatorCreationError::new(
+                "[a]scii and [u]nicode mode on regex are mutually exclusive",
+                idx,
+            ));
+        }
+        if opts.binary_mode && !unicode_mode {
+            opts.ascii_mode = true;
+        }
+        return Ok(Some(opts));
+    } else {
+        Ok(None)
+    }
+}
 
 pub fn preparse_replace_empty_capture_group<'a>(
     regex_str: &'a str,
@@ -220,7 +277,7 @@ pub fn parse_op_regex(
     value: Option<&[u8]>,
     arg_idx: Option<CliArgIdx>,
     opts: RegexOptions,
-) -> Result<OpRegex, OperatorCreationError> {
+) -> Result<OperatorData, OperatorCreationError> {
     let mut output_group_id = 0;
     let value_str = value
         .ok_or_else(|| {
@@ -276,24 +333,20 @@ pub fn parse_op_regex(
         None
     };
 
-    Ok(OpRegex {
+    Ok(OperatorData::Regex(OpRegex {
         regex,
         text_only_regex,
         capture_group_names: Default::default(),
         output_group_id,
         opts,
-    })
+    }))
 }
 
 pub fn create_op_regex_with_opts(
     regex: &str,
     opts: RegexOptions,
 ) -> Result<OperatorData, OperatorCreationError> {
-    Ok(OperatorData::Regex(parse_op_regex(
-        Some(regex.as_bytes()),
-        None,
-        opts,
-    )?))
+    Ok(parse_op_regex(Some(regex.as_bytes()), None, opts)?)
 }
 pub fn create_op_regex(
     regex: &str,
@@ -302,18 +355,16 @@ pub fn create_op_regex(
 }
 
 pub fn create_op_regex_lines() -> OperatorData {
-    OperatorData::Regex(
-        parse_op_regex(
-            Some("(?<>.+)\r?\n".as_bytes()),
-            None,
-            RegexOptions {
-                ascii_mode: true,
-                multimatch: true,
-                ..Default::default()
-            },
-        )
-        .unwrap(),
+    parse_op_regex(
+        Some("(?<>.+)\r?\n".as_bytes()),
+        None,
+        RegexOptions {
+            ascii_mode: true,
+            multimatch: true,
+            ..Default::default()
+        },
     )
+    .unwrap()
 }
 
 pub fn setup_op_regex(
@@ -371,8 +422,8 @@ pub fn setup_tf_regex<'a>(
             let field_id = if i == op.output_group_id {
                 Some(tf_state.output_field)
             } else if let Some(name) = name {
-                let field_id = if let Some(field_id) =
-                    prebound_outputs.get(&(op_base.outputs_start + i as OpOutputIdx))
+                let field_id = if let Some(field_id) = prebound_outputs
+                    .get(&(op_base.outputs_start + i as OpOutputIdx))
                 {
                     *field_id
                 } else {

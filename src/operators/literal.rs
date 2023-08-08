@@ -22,7 +22,9 @@ use super::{
 #[derive(Clone)]
 pub enum Literal {
     Bytes(Vec<u8>),
+    StreamBytes(Vec<u8>),
     String(String),
+    StreamString(String),
     Int(i64),
     Null,
     Success,
@@ -51,7 +53,9 @@ impl OpLiteral {
             Literal::Null => res.push_str("null"),
             Literal::Success => res.push_str("success"),
             Literal::String(_) => res.push_str("str"),
+            Literal::StreamString(_) => res.push_str("~str"),
             Literal::Bytes(_) => res.push_str("bytes"),
+            Literal::StreamBytes(_) => res.push_str("~bytes"),
             Literal::Error(_) => res.push_str("error"),
             Literal::StreamError(_) => res.push_str("~error"),
             Literal::Int(_) => res.push_str("int"),
@@ -115,6 +119,30 @@ pub fn handle_tf_literal(
                     .field_data
                     .push_stream_value_id(sv_id, 1, true, false);
             }
+            Literal::StreamString(ss) => {
+                let sv_id = sess.sv_mgr.stream_values.claim_with_value(
+                    StreamValue::new(
+                        StreamValueData::Bytes(ss.clone().into_bytes()),
+                        true,
+                        true,
+                    ),
+                );
+                output_field
+                    .field_data
+                    .push_stream_value_id(sv_id, 1, true, false);
+            }
+            Literal::StreamBytes(sb) => {
+                let sv_id = sess.sv_mgr.stream_values.claim_with_value(
+                    StreamValue::new(
+                        StreamValueData::Bytes(sb.clone()),
+                        true,
+                        true,
+                    ),
+                );
+                output_field
+                    .field_data
+                    .push_stream_value_id(sv_id, 1, true, false);
+            }
             Literal::Error(e) => output_field.field_data.push_error(
                 OperatorApplicationError {
                     op_id,
@@ -164,24 +192,35 @@ pub fn parse_op_str(
     value: Option<&[u8]>,
     insert_count: Option<usize>,
     arg_idx: Option<CliArgIdx>,
+    stream_str: bool,
 ) -> Result<OperatorData, OperatorCreationError> {
+    let tilde = if stream_str { "~" } else { "" };
     let value_str = value
         .ok_or_else(|| {
-            OperatorCreationError::new("missing value for str", arg_idx)
+            OperatorCreationError::new_s(
+                format!("missing value for {tilde}str"),
+                arg_idx,
+            )
         })?
         .to_str()
         .map_err(|_| {
-            OperatorCreationError::new(
-                "str argument must be valid UTF-8, consider using bytes=...",
+            OperatorCreationError::new_s(
+                format!("{tilde}str argument must be valid UTF-8, consider using {tilde}bytes=..."
+            ),
                 arg_idx,
             )
         })?;
     let value_owned = value_str.to_owned();
     Ok(OperatorData::Literal(OpLiteral {
-        data: Literal::String(value_owned),
+        data: if stream_str {
+            Literal::String(value_owned)
+        } else {
+            Literal::StreamString(value_owned)
+        },
         insert_count,
     }))
 }
+
 pub fn parse_op_error(
     arg_str: &str,
     value: Option<&[u8]>,
@@ -242,6 +281,7 @@ pub fn parse_op_bytes(
     value: Option<&[u8]>,
     insert_count: Option<usize>,
     arg_idx: Option<CliArgIdx>,
+    stream_bytes: bool,
 ) -> Result<OperatorData, OperatorCreationError> {
     let parsed_value = if let Some(value) = value {
         value.to_owned()
@@ -252,13 +292,17 @@ pub fn parse_op_bytes(
         ));
     };
     Ok(OperatorData::Literal(OpLiteral {
-        data: Literal::Bytes(parsed_value),
+        data: if stream_bytes {
+            Literal::Bytes(parsed_value)
+        } else {
+            Literal::StreamBytes(parsed_value)
+        },
         insert_count,
     }))
 }
 
 lazy_static::lazy_static! {
-    static ref ARG_REGEX: Regex = Regex::new(r"^(?<type>int|bytes|str|(?:~)error|null|success)(?<insert_count>[0-9]+)?$").unwrap();
+    static ref ARG_REGEX: Regex = Regex::new(r"^(?<type>int|~?bytes|~?str|~?error|null|success)(?<insert_count>[0-9]+)?$").unwrap();
 }
 
 pub fn argument_matches_op_literal(arg: &str) -> bool {
@@ -274,7 +318,7 @@ pub fn parse_op_literal(
     // `argument_matches_data_inserter`
     let args = ARG_REGEX.captures(argument).ok_or_else(|| {
         OperatorCreationError::new(
-            "invalid argument syntax for data inserter",
+            "invalid argument syntax for literal",
             arg_idx,
         )
     })?;
@@ -292,8 +336,10 @@ pub fn parse_op_literal(
     let arg_str = args.name("type").unwrap().as_str();
     match arg_str {
         "int" => parse_op_int(value, insert_count, arg_idx),
-        "bytes" => parse_op_bytes(value, insert_count, arg_idx),
-        "str" => parse_op_str(value, insert_count, arg_idx),
+        "bytes" => parse_op_bytes(value, insert_count, arg_idx, false),
+        "~bytes" => parse_op_bytes(value, insert_count, arg_idx, true),
+        "str" => parse_op_str(value, insert_count, arg_idx, false),
+        "~str" => parse_op_str(value, insert_count, arg_idx, true),
         "error" => {
             parse_op_error(arg_str, value, false, insert_count, arg_idx)
         }

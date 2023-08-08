@@ -20,9 +20,9 @@ Settings (call `scr h=SETTING` for details):
     sds=STRATEGY          Selenium Download Stragegy (list in `h=sds`)
 
 Operators (call `scr h=OPERATOR` for details):
-    p                     Print previous results to stdout
-    f=FSTR                Format text using rust format strings
-    r[abdilmou]=REGEX     Apply a regular expression
+    print                 Print previous results to stdout
+    format=FSTR           Format text using rust format strings
+    regex[-OPTS]=REGEX    Apply a regular expression to the input
     join[N]=SEP           Concatenate (N) consecutive inputs, separated by SEP
 
     key=IDENT             Give a name to the previous output column
@@ -31,17 +31,26 @@ Operators (call `scr h=OPERATOR` for details):
     file[N]=PATH          Outputs the bytes from a file (N times)
     stdin[N]              Outputs the bytes form stdin (N times)
 
-    seq[n]=[B,]E[,S]      Produce a sequence of Integers
-    enum[n]=[B,][E][,S]   Insert one sequence element for every record
+    seq[n]=[B,]E[,S]      Sequence of <int>s from [B]egin to [E]nd with [S]tep
+    enum[n][=[B,]E[,S]]   Like `seq`, but stops if input runs out
 
     count                 Outputs the record count after consuming all input
 
-    TYPE[l|s|t][f][!]     Attempt to cast inputs to TYPE, see `h=cast`
+    TYPE[-[l|s|t][f][!]]  Attempt to cast inputs to TYPE, see `h=cast`
     TYPE[N]=VALUE         Insert a literal value (N times), see `h=literal`
 
-    fork                  Forward records to all subchains
+    CHAIN_LABEL:          Start a new chain named CHAIN_LABEL
+
+    call=CHAIN_LABEL      Forward records to the chain named CHAIN_LABEL
+    callcc=CHAIN_LABEL    Like call, but runs the callee on another thread
+
+    fork                  Forward records to all subchains, starts a subchain
+    forkcat               Like fork, but concatenate all subchain outputs
+
+    next                  Start a new subchain after the previous one
+    up                    Exit the current subchain to resume with the parent
 
 Operator modifiers
     +OPERATOR             Append Mode: Append to previous output, see `h=+`
     _OPERATOR             Transparent Mode: Pass the input through, see `h=_`
-    OPERATOR@LABEL        Label: equivalent to `OP key=<label>`, see `h=@`
+    OPERATOR@LABEL        Label: Equivalent to `OPERATOR key=LABEL`, see `h=@`
