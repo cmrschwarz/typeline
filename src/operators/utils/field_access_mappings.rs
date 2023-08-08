@@ -167,7 +167,7 @@ impl<AT: AccessKind> AccessMappings<AT> {
                             Some(AT::from_field_access_mode(ctx, mode));
                     }
                 }
-                Var::UnreachableDummyVar | Var::BBOutput => (),
+                Var::UnreachableDummyVar => (),
             }
         }
     }

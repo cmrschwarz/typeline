@@ -50,11 +50,9 @@ pub const SLOTS_PER_BASIC_BLOCK: usize = LOCAL_SLOTS_PER_BASIC_BLOCK * 3;
 pub type VarId = u32;
 pub const UNREACHABLE_DUMMY_VAR: VarId = 0;
 pub const BB_INPUT_VAR: VarId = 1;
-pub const BB_OUTPUT_VAR: VarId = 2;
 
 pub type OpOutputIdx = u32;
 pub const BB_INPUT_VAR_OUTPUT_IDX: OpOutputIdx = BB_INPUT_VAR;
-pub const BB_OUTPUT_VAR_OUTPUT_IDX: OpOutputIdx = BB_OUTPUT_VAR;
 pub const DUMMY_FIELD_OUTPUT_IDX: OpOutputIdx = UNREACHABLE_DUMMY_VAR;
 
 pub struct BasicBlock {
@@ -75,7 +73,6 @@ pub struct BasicBlock {
 pub enum Var {
     Named(StringStoreEntry),
     BBInput,
-    BBOutput,
     UnreachableDummyVar,
 }
 #[derive(Clone, Default)]
@@ -107,7 +104,6 @@ impl Var {
         match self {
             Var::Named(n) => string_store.lookup(*n),
             Var::BBInput => "<bb input>",
-            Var::BBOutput => "<bb output>",
             Var::UnreachableDummyVar => "<dummy>",
         }
     }
@@ -178,7 +174,6 @@ impl LivenessData {
     pub fn setup_vars(&mut self, sess: &Session) {
         self.vars.push(Var::UnreachableDummyVar);
         self.vars.push(Var::BBInput);
-        self.vars.push(Var::BBOutput);
         for c in &sess.chains {
             for op in &c.operators {
                 self.add_var_name_opt(sess.operator_bases[*op as usize].label);
@@ -399,8 +394,6 @@ impl LivenessData {
         bb_id: BasicBlockId,
     ) {
         self.reset_op_outputs_data_for_vars();
-        self.vars_to_op_outputs_map[BB_OUTPUT_VAR as usize] =
-            BB_INPUT_VAR_OUTPUT_IDX;
         let mut bb = &mut self.basic_blocks[bb_id];
         let cn = &sess.chains[bb.chain_id as usize];
         let mut input_field = BB_INPUT_VAR_OUTPUT_IDX;
@@ -547,7 +540,7 @@ impl LivenessData {
             last_output_field = output_field;
             if !op_base.append_mode && !op_base.transparent_mode {
                 input_field = output_field;
-                self.vars_to_op_outputs_map[BB_OUTPUT_VAR as usize] =
+                self.vars_to_op_outputs_map[BB_INPUT_VAR as usize] =
                     sess.operator_bases[op_id].outputs_start;
             }
         }
@@ -573,8 +566,6 @@ impl LivenessData {
         self.var_data[var_data_start + SURVIVES_OFFSET * vc
             ..var_data_start + (SURVIVES_OFFSET + 1) * vc]
             .fill(true);
-        self.vars_to_op_outputs_map[BB_INPUT_VAR as usize] =
-            self.vars_to_op_outputs_map[BB_OUTPUT_VAR as usize];
         for (var_idx, &op_output_id) in
             self.vars_to_op_outputs_map.iter().enumerate()
         {
@@ -902,7 +893,7 @@ impl LivenessData {
         }
         println!();
         println!("op_outputs:");
-        for i in [UNREACHABLE_DUMMY_VAR, BB_INPUT_VAR, BB_OUTPUT_VAR] {
+        for i in [UNREACHABLE_DUMMY_VAR, BB_INPUT_VAR] {
             println!(
                 "op_output {i:02}: {}",
                 self.vars[i as usize].name(&sess.string_store)

@@ -143,7 +143,7 @@ pub fn setup_op_call_concurrent_liveness_data(
             Var::BBInput => {
                 op.target_accessed_fields.push((None, writes));
             }
-            Var::UnreachableDummyVar | Var::BBOutput => (),
+            Var::UnreachableDummyVar => (),
         }
     }
 }

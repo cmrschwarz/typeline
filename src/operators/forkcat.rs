@@ -202,7 +202,7 @@ pub fn setup_op_forkcat_liveness_data(
                     let var_name = match ld.vars[*bv as usize] {
                         Var::Named(name) => Some(name),
                         Var::BBInput => None,
-                        Var::UnreachableDummyVar | Var::BBOutput => continue,
+                        Var::UnreachableDummyVar => continue,
                     };
                     if let Some(binding_after) =
                         op.accessed_names_afterwards_map.get(var_name)
