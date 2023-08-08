@@ -152,8 +152,6 @@ pub fn setup_op_forkcat_liveness_data(
     let bb = &ld.basic_blocks[bb_id];
     let var_count = ld.vars.len();
 
-    let succ_var_data = &ld.var_data[ld.get_succession_var_data_bounds(bb_id)];
-
     let mut call = BitVec::<Cell<usize>>::new();
     let mut successors = BitVec::<Cell<usize>>::new();
     call.resize(var_count * LOCAL_SLOTS_PER_BASIC_BLOCK, false);
@@ -171,7 +169,7 @@ pub fn setup_op_forkcat_liveness_data(
     op.accessed_names_afterwards_map = AccessMappings::<
         AccessedNamesAfterwardsIndex,
     >::from_var_data(
-        &mut count, ld, succ_var_data
+        &mut count, ld, &successors
     );
     op.accessed_names_afterwards.reserve(count);
     for (name, _idx) in op.accessed_names_afterwards_map.iter_name_opt() {
@@ -186,7 +184,7 @@ pub fn setup_op_forkcat_liveness_data(
                 let var_name = match ld.vars[*bv as usize] {
                     Var::Named(name) => Some(name),
                     Var::BBInput => None,
-                    Var::UnreachableDummyVar => continue,
+                    Var::UnreachableDummyVar | Var::BBOutput => continue,
                 };
                 if let Some(binding_after) =
                     op.accessed_names_afterwards_map.get(var_name)

@@ -130,6 +130,7 @@ impl SessionOptions {
             }) => {
                 *subchains_start =
                     self.chains[self.curr_chain as usize].subchain_count;
+                self.chains[self.curr_chain as usize].subchain_count += 1;
                 let new_chain = ChainOptions {
                     parent: self.curr_chain,
                     ..Default::default()
@@ -222,19 +223,18 @@ impl SessionOptions {
             let chain = &mut sess.chains[chain_id];
             if let OperatorData::Up(up) = &sess.operator_data[i] {
                 if up.err_level.is_none() {
-                    let sc_count = up.subchain_count_after;
+                    let sc_count_after = up.subchain_count_after;
                     match &mut sess.operator_data
                         [*chain.operators.last().unwrap() as usize]
                     {
                         OperatorData::Fork(OpFork {
-                            subchains_end: subchain_count_after,
-                            ..
+                            subchains_end, ..
                         })
                         | OperatorData::ForkCat(OpForkCat {
-                            subchains_end: subchain_count_after,
+                            subchains_end,
                             ..
                         }) => {
-                            *subchain_count_after = sc_count;
+                            *subchains_end = sc_count_after;
                         }
                         OperatorData::Call(_) => (),
                         OperatorData::CallConcurrent(_) => (),
