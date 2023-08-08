@@ -7,19 +7,24 @@ use crate::{
 
 use super::transform::{TransformData, TransformId, TransformState};
 
-pub struct OpTerminator {}
+pub struct OpTerminator {
+    pub manual_unlink: bool,
+}
 pub struct TfTerminator {
     apf_idx: ActionProducingFieldIndex,
+    manual_unlink: bool,
 }
 
 pub fn setup_tf_terminator(
     sess: &mut JobData,
     tf_state: &TransformState,
+    op: OpTerminator,
 ) -> TransformData<'static> {
     TransformData::Terminator(TfTerminator {
         apf_idx: sess.match_set_mgr.match_sets[tf_state.match_set_id]
             .command_buffer
             .claim_apf(),
+        manual_unlink: op.manual_unlink,
     })
 }
 
@@ -41,7 +46,7 @@ pub fn handle_tf_terminator(
         batch_size,
     );
     cb.end_action_list(t1000.apf_idx);
-    if input_done {
+    if input_done && !t1000.manual_unlink {
         sess.unlink_transform(tf_id, batch_size);
     } else {
         sess.tf_mgr.update_ready_state(tf_id);

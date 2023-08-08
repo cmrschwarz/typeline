@@ -52,7 +52,9 @@ use crate::{
             handle_tf_string_sink, handle_tf_string_sink_stream_value_update,
             setup_tf_string_sink,
         },
-        terminator::{handle_tf_terminator, setup_tf_terminator},
+        terminator::{
+            handle_tf_terminator, setup_tf_terminator, OpTerminator,
+        },
         transform::{TransformData, TransformId, TransformState},
     },
     record_data::{
@@ -493,7 +495,7 @@ impl<'a> JobSession<'a> {
                 &Default::default(),
             );
         if end_reachable {
-            self.add_terminator(end_tf_id);
+            self.add_terminator(end_tf_id, false);
         }
         let tf = &mut self.job_data.tf_mgr.transforms[start_tf_id];
         tf.input_is_done = true;
@@ -534,7 +536,7 @@ impl<'a> JobSession<'a> {
         let (start_tf_id, end_tf_id, end_reachable) =
             setup_callee_concurrent(self, ms_id, buffer, start_op_id);
         if end_reachable {
-            self.add_terminator(end_tf_id);
+            self.add_terminator(end_tf_id, false);
         }
         self.job_data.tf_mgr.push_tf_in_ready_stack(start_tf_id);
         self.log_state("setting up venture");
@@ -602,7 +604,7 @@ impl<'a> JobSession<'a> {
                 &self.job_data.session_data.operator_bases[op_id as usize];
             let op_data =
                 &self.job_data.session_data.operator_data[op_id as usize];
-            let mut is_select = false;
+            let mut make_input_output = false;
             match op_data {
                 OperatorData::Call(op) => {
                     if !op.lazy {
@@ -657,11 +659,11 @@ impl<'a> JobSession<'a> {
                         last_output_field = input_field;
                         continue;
                     }
-                    is_select = true;
+                    make_input_output = true;
                 }
                 _ => (),
             }
-            let mut output_field = if is_select {
+            let mut output_field = if make_input_output {
                 self.job_data.field_mgr.bump_field_refcount(input_field);
                 input_field
             } else if op_base.append_mode {
@@ -880,6 +882,7 @@ impl<'a> JobSession<'a> {
     pub fn add_terminator(
         &mut self,
         predecessor_tf_id: TransformId,
+        manual_unlink: bool,
     ) -> TransformId {
         let tf_id = self.job_data.tf_mgr.transforms.peek_claim_id();
         let pred = &mut self.job_data.tf_mgr.transforms[predecessor_tf_id];
@@ -893,7 +896,11 @@ impl<'a> JobSession<'a> {
             None,
         );
         pred.successor = Some(tf_id);
-        let tf_data = setup_tf_terminator(&mut self.job_data, &tf_state);
+        let tf_data = setup_tf_terminator(
+            &mut self.job_data,
+            &tf_state,
+            OpTerminator { manual_unlink },
+        );
         self.job_data.field_mgr.bump_field_refcount(input_field);
         self.job_data
             .field_mgr

@@ -395,7 +395,7 @@ pub(crate) fn handle_fork_expansion(
                 false,
             );
         if end_reachable {
-            sess.add_terminator(end_tf);
+            sess.add_terminator(end_tf, false);
         }
         targets.push(start_tf);
     }

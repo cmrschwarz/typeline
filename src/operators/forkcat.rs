@@ -157,11 +157,11 @@ pub fn setup_op_forkcat_liveness_data(
     call.resize(var_count * LOCAL_SLOTS_PER_BASIC_BLOCK, false);
     successors.resize(var_count * LOCAL_SLOTS_PER_BASIC_BLOCK, false);
     ld.get_global_var_data_ored(&mut successors, bb.successors.iter());
-    for callee_id in &bb.calls {
-        call.copy_from_bitslice(ld.get_global_var_data(bb_id));
+    for &callee_id in &bb.calls {
+        call.copy_from_bitslice(ld.get_global_var_data(callee_id));
         op.accessed_fields_of_any_subchain
             .append_var_data(&mut 0, ld, &call);
-        ld.apply_bb_aliases(&call, &successors, &ld.basic_blocks[*callee_id]);
+        ld.apply_bb_aliases(&call, &successors, &ld.basic_blocks[callee_id]);
         op.accessed_fields_per_subchain
             .push(FieldAccessMappings::from_var_data(&mut (), ld, &call));
     }
@@ -426,15 +426,17 @@ fn expand_for_subchain(sess: &mut JobSession, tf_id: TransformId, sc_n: u32) {
             } else {
                 (source_field_id, None)
             };
-        input_mapping_ids.insert(source_field_id, input_mappings.len());
-        input_mappings.push(TfForkCatInputMapping {
-            source_field_id,
-            target_field_id,
-            header_writer: access_mode.header_writes,
-            data_writer: access_mode.data_writes,
-            last_access,
-            source_field_iter: src_field.field_data.claim_iter(),
-        });
+        if target_field_id != source_field_id {
+            input_mapping_ids.insert(source_field_id, input_mappings.len());
+            input_mappings.push(TfForkCatInputMapping {
+                source_field_id,
+                target_field_id,
+                header_writer: access_mode.header_writes,
+                data_writer: access_mode.data_writes,
+                last_access,
+                source_field_iter: src_field.field_data.claim_iter(),
+            });
+        }
         entry.take().map(|e| e.insert(target_field_id));
         for other_name in &src_field.names {
             if name == Some(*other_name) {
@@ -577,7 +579,7 @@ fn setup_continuation(sess: &mut JobSession, tf_id: TransformId) {
     let cont_op_id = if let Some(cont) = forkcat.op.continuation {
         cont
     } else {
-        let terminator_id = sess.add_terminator(tf_id);
+        let terminator_id = sess.add_terminator(tf_id, true);
         match_unwrap!(
             &mut sess.transform_data[tf_id.get()],
             TransformData::ForkCat(fc),
@@ -623,7 +625,7 @@ fn setup_continuation(sess: &mut JobSession, tf_id: TransformId) {
     );
     forkcat.continuation = Some(start_tf);
     if end_reachable {
-        sess.add_terminator(end_tf);
+        sess.add_terminator(end_tf, false);
     }
 }
 pub(crate) fn handle_forkcat_expansion(

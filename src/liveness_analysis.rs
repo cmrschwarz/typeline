@@ -228,7 +228,7 @@ impl LivenessData {
         let end = bb.operators_end;
         let chain_id = bb.chain_id;
         bb.operators_end = op_n + 1;
-        if op_n < end {
+        if op_n + 1 != end {
             bb.successors.push(succ_bb_id);
             bb.operators_end = op_n;
             self.basic_blocks.push(BasicBlock {
