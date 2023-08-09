@@ -73,7 +73,7 @@ pub struct TfRegex {
     allow_overlapping: bool,
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, PartialEq, Eq)]
 pub struct RegexOptions {
     // disable unicode for character classes making e.g. \w  only
     // match ascii characters
@@ -113,6 +113,9 @@ impl OpRegex {
         &self,
     ) -> SmallString<[u8; DEFAULT_OP_NAME_SMALL_STR_LEN]> {
         let mut res = SmallString::from_str("r");
+        if self.opts != RegexOptions::default() {
+            res.push('-');
+        }
         if self.opts.ascii_mode && !self.opts.binary_mode {
             res.push('a');
         }

@@ -220,6 +220,18 @@ pub fn handle_tf_fork(
         for tf in &sp.targets {
             sess.tf_mgr.transforms[*tf].input_is_done = true;
         }
+        for m in sp.mappings.values() {
+            for &fid in m
+                .targets_copy
+                .iter()
+                .chain(m.targets_cow.iter())
+                .chain(m.targets_data_cow.iter())
+            {
+                sess.field_mgr
+                    .drop_field_refcount(fid, &mut sess.match_set_mgr);
+            }
+        }
+
         sess.unlink_transform(tf_id, 0);
     }
 }
@@ -253,9 +265,6 @@ pub(crate) fn handle_fork_expansion(
         let subchain_id = sess.job_data.session_data.chains[fork_chain_id]
             .subchains[i] as usize;
         let target_ms_id = sess.job_data.match_set_mgr.add_match_set();
-        let match_sets = &mut sess.job_data.match_set_mgr.match_sets;
-        let (fork_match_set, target_match_set) =
-            match_sets.two_distinct_mut(fork_ms_id, target_ms_id);
         let field_access_mapping = if let TransformData::Fork(f) =
             &sess.transform_data[tf_id.get()]
         {
@@ -265,6 +274,11 @@ pub(crate) fn handle_fork_expansion(
         };
         let mut chain_input_field = None;
         for (name, fam) in field_access_mapping.iter_name_opt() {
+            let (fork_match_set, target_match_set) = sess
+                .job_data
+                .match_set_mgr
+                .match_sets
+                .two_distinct_mut(fork_ms_id, target_ms_id);
             let src_field_id;
             let mut entry;
             if let Some(name) = name {
@@ -338,9 +352,6 @@ pub(crate) fn handle_fork_expansion(
                     }
                 }
                 drop(src_field);
-                sess.job_data
-                    .field_mgr
-                    .setup_cow(target_field_id, src_field_id);
                 src_field =
                     sess.job_data.field_mgr.fields[src_field_id].borrow_mut();
                 let mut tgt = sess.job_data.field_mgr.fields[target_field_id]
@@ -358,7 +369,7 @@ pub(crate) fn handle_fork_expansion(
                     continue;
                 }
                 if field_access_mapping.fields.contains_key(other_name) {
-                    target_match_set
+                    sess.job_data.match_set_mgr.match_sets[target_ms_id]
                         .field_name_map
                         .insert(*other_name, target_field_id);
                     if let Some(f) = target_field.as_mut() {
@@ -385,6 +396,15 @@ pub(crate) fn handle_fork_expansion(
             }
             if name.is_none() {
                 chain_input_field = Some(target_field_id);
+            }
+            drop(src_field);
+            drop(target_field);
+            if target_field_id != src_field_id {
+                sess.job_data.field_mgr.setup_cow(
+                    &mut sess.job_data.match_set_mgr,
+                    target_field_id,
+                    src_field_id,
+                );
             }
         }
         let input_field = chain_input_field.unwrap_or(DUMMY_INPUT_FIELD_ID);

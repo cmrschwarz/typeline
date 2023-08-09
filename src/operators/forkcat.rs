@@ -345,7 +345,6 @@ fn expand_for_subchain(sess: &mut JobSession, tf_id: TransformId, sc_n: u32) {
     input_mapping_ids.clear();
     prebound_outputs.clear();
     input_mappings.clear();
-    let src_ms = &sess.job_data.match_set_mgr.match_sets[src_ms_id];
     for (i, op) in forkcat.op.output_mappings_per_subchain[sc_n as usize]
         .iter()
         .enumerate()
@@ -356,7 +355,7 @@ fn expand_for_subchain(sess: &mut JobSession, tf_id: TransformId, sc_n: u32) {
         } else {
             let source_field =
                 if let Some(name) = forkcat.op.accessed_names_afterwards[i] {
-                    src_ms
+                    sess.job_data.match_set_mgr.match_sets[src_ms_id]
                         .field_name_map
                         .get(&name)
                         .copied()
@@ -364,9 +363,11 @@ fn expand_for_subchain(sess: &mut JobSession, tf_id: TransformId, sc_n: u32) {
                 } else {
                     src_input_field_id
                 };
-            sess.job_data
-                .field_mgr
-                .setup_cow(target_field, source_field);
+            sess.job_data.field_mgr.setup_cow(
+                &mut sess.job_data.match_set_mgr,
+                target_field,
+                source_field,
+            );
         }
     }
 
@@ -476,11 +477,15 @@ fn expand_for_subchain(sess: &mut JobSession, tf_id: TransformId, sc_n: u32) {
         let header_writer = im.header_writer;
         let data_writer = im.data_writer;
         let last_access = im.last_access;
-        let mut input_field =
-            sess.job_data.field_mgr.fields[im.source_field_id].borrow_mut();
+
         let mut fr_i = 0;
-        let fr_len = input_field.field_refs.len();
-        while fr_i < fr_len {
+
+        loop {
+            let mut input_field =
+                sess.job_data.field_mgr.fields[source_field_id].borrow_mut();
+            if fr_i == input_field.field_refs.len() {
+                break;
+            }
             let fr = input_field.field_refs[fr_i];
 
             match input_mapping_ids.entry(fr) {
@@ -498,7 +503,6 @@ fn expand_for_subchain(sess: &mut JobSession, tf_id: TransformId, sc_n: u32) {
                     input_field = sess.job_data.field_mgr.fields
                         [source_field_id]
                         .borrow_mut();
-                    sess.job_data.field_mgr.setup_cow(target_field_id, fr);
                     input_mappings.push(TfForkCatInputMapping {
                         source_field_id: fr,
                         source_field_iter,
@@ -507,6 +511,12 @@ fn expand_for_subchain(sess: &mut JobSession, tf_id: TransformId, sc_n: u32) {
                         data_writer,
                         last_access,
                     });
+                    drop(input_field);
+                    sess.job_data.field_mgr.setup_cow(
+                        &mut sess.job_data.match_set_mgr,
+                        target_field_id,
+                        fr,
+                    );
                 }
             }
             fr_i += 1;
@@ -538,9 +548,11 @@ fn expand_for_subchain(sess: &mut JobSession, tf_id: TransformId, sc_n: u32) {
     }
     for im in &mut input_mappings {
         if !im.last_access {
-            sess.job_data
-                .field_mgr
-                .setup_cow(im.target_field_id, im.source_field_id);
+            sess.job_data.field_mgr.setup_cow(
+                &mut sess.job_data.match_set_mgr,
+                im.target_field_id,
+                im.source_field_id,
+            );
         }
     }
     let (start_tf, end_tf, end_reachable) = sess

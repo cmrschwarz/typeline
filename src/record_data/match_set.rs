@@ -25,6 +25,7 @@ pub struct MatchSet {
         HashMap<StringStoreEntry, FieldId, BuildIdentityHasher>,
 }
 
+#[derive(Default)]
 pub struct MatchSetManager {
     pub match_sets: Universe<MatchSetId, MatchSet>,
 }

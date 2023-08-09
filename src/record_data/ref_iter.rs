@@ -687,6 +687,7 @@ mod ref_iter_tests {
     ) -> FieldId {
         let mut field = Field::default();
         field.field_data.reset_with_data(fd);
+        field.ref_count = 1;
         field.field_data.reserve_iter_id(FIELD_REF_LOOKUP_ITER_ID);
         if let Some(id) = id {
             field_mgr.fields.reserve_id_with(id, || RefCell::new(field));
@@ -700,43 +701,40 @@ mod ref_iter_tests {
         fd_refs: FieldData,
         expected: &[(&'static str, RunLength, usize)],
     ) {
-        let mut field_mgr = FieldManager {
-            fields: Default::default(),
-        };
+        let mut field_mgr = FieldManager::default();
 
         let field_id = push_field(&mut field_mgr, fd, Default::default());
         let refs_field_id = push_field(&mut field_mgr, fd_refs, None);
-        field_mgr.fields[refs_field_id]
-            .borrow_mut()
-            .field_refs
-            .push(field_id);
-        let mut match_set_mgr = MatchSetManager {
-            match_sets: Default::default(),
-        };
+        field_mgr.register_field_reference(refs_field_id, field_id);
+        let mut match_set_mgr = MatchSetManager::default();
         match_set_mgr.match_sets.claim_with_value(MatchSet {
             stream_participants: Default::default(),
             command_buffer: Default::default(),
             field_name_map: Default::default(),
         });
+        {
+            let fr = field_mgr.get_cow_field_ref(refs_field_id, false);
+            let iter = Iter::from_start(fr.destructured_field_ref());
+            let mut ref_iter =
+                AutoDerefIter::new(&field_mgr, refs_field_id, iter);
+            let range = ref_iter
+                .typed_range_fwd(
+                    &mut match_set_mgr,
+                    usize::MAX,
+                    field_value_flags::BYTES_ARE_UTF8,
+                )
+                .unwrap();
+            let iter = match range.base.data {
+                TypedSlice::TextInline(v) => {
+                    RefAwareInlineTextIter::from_range(&range, v)
+                }
+                _ => panic!("wrong data type"),
+            };
+            assert_eq!(iter.collect::<Vec<_>>(), expected);
+        }
 
-        let fr = field_mgr.get_cow_field_ref(refs_field_id, false);
-        let iter = Iter::from_start(fr.destructured_field_ref());
-        let mut ref_iter = AutoDerefIter::new(&field_mgr, refs_field_id, iter);
-        let range = ref_iter
-            .typed_range_fwd(
-                &mut match_set_mgr,
-                usize::MAX,
-                field_value_flags::BYTES_ARE_UTF8,
-            )
-            .unwrap();
-        let iter = match range.base.data {
-            TypedSlice::TextInline(v) => {
-                RefAwareInlineTextIter::from_range(&range, v)
-            }
-            _ => panic!("wrong data type"),
-        };
-
-        assert_eq!(iter.collect::<Vec<_>>(), expected);
+        field_mgr.drop_field_refcount(field_id, &mut match_set_mgr);
+        field_mgr.drop_field_refcount(refs_field_id, &mut match_set_mgr);
     }
     fn compare_iter_output_parallel_ref(
         mut fd: FieldData,

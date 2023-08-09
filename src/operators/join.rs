@@ -54,6 +54,9 @@ impl OpJoin {
                 .unwrap_or_default()
                 .as_str(),
         );
+        if self.drop_incomplete {
+            small_str.push_str("-d");
+        }
         small_str
     }
 }

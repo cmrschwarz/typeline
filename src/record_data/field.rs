@@ -264,8 +264,18 @@ impl FieldManager {
         );
     }
 
-    pub fn setup_cow(&self, field_id: FieldId, data_source_id: FieldId) {
+    pub fn setup_cow(
+        &mut self,
+        msm: &mut MatchSetManager,
+        field_id: FieldId,
+        data_source_id: FieldId,
+    ) {
         let mut field = self.fields[field_id].borrow_mut();
+        if let (Some(cow_src), _) = field.field_data.cow_source_field() {
+            drop(field);
+            self.uncow(msm, cow_src);
+            field = self.fields[field_id].borrow_mut();
+        }
         let mut data_source = self.fields[data_source_id].borrow_mut();
         data_source.ref_count += 1;
         data_source.field_data.cow_targets.push(field_id);
@@ -393,10 +403,14 @@ impl FieldManager {
     pub fn inc_field_refcount(&self, field_id: FieldId, n: usize) {
         self.fields[field_id].borrow_mut().ref_count += n;
     }
-    pub fn register_field_reference(&self, source: FieldId, target: FieldId) {
-        let mut src = self.fields[source].borrow_mut();
-        let mut tgt = self.fields[target].borrow_mut();
-        src.field_refs.push(target);
+    pub fn register_field_reference(
+        &self,
+        refs_field: FieldId,
+        refs_target: FieldId,
+    ) {
+        let mut src = self.fields[refs_field].borrow_mut();
+        let mut tgt = self.fields[refs_target].borrow_mut();
+        src.field_refs.push(refs_target);
         tgt.ref_count += 1;
         for fr in &tgt.field_refs {
             self.fields[*fr].borrow_mut().ref_count += 1;
@@ -414,9 +428,13 @@ impl FieldManager {
         for n in &field.names {
             msm.match_sets[field.match_set].field_name_map.remove(n);
         }
+        let (cow_src, _) = field.field_data.cow_source_field();
         let frs = std::mem::take(&mut field.field_refs);
         drop(field);
         self.fields.release(id);
+        if let Some(cow_src) = cow_src {
+            self.drop_field_refcount(cow_src, msm);
+        }
         for fr in &frs {
             self.drop_field_refcount(*fr, msm);
         }
@@ -435,6 +453,19 @@ impl FieldManager {
         } else if cfg!(feature = "debug_logging") {
             print!("dropped ref to field {field_id} (rc {})", rc);
             println!();
+        }
+    }
+}
+
+impl Drop for FieldManager {
+    fn drop(&mut self) {
+        #[cfg(debug_assertions)]
+        if !std::thread::panicking() {
+            self.fields.release(DUMMY_INPUT_FIELD_ID);
+            // TODO: this does not work yet, because e.g. callcc
+            // does not properly clean up it's cow targets yet
+            // reenable this once it works
+            // debug_assert!(self.fields.any_used().is_none());
         }
     }
 }

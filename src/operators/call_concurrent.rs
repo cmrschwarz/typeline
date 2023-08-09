@@ -391,6 +391,12 @@ pub fn handle_tf_call_concurrent(
         src_field.field_data.clear_if_owned(&sess.field_mgr);
     }
     if input_done {
+        for mapping in &tfc.field_mappings {
+            sess.field_mgr.drop_field_refcount(
+                mapping.source_field_id,
+                &mut sess.match_set_mgr,
+            );
+        }
         sess.unlink_transform(tf_id, 0);
     }
 }
@@ -478,35 +484,25 @@ pub fn handle_tf_callee_concurrent(
     let input_done = buf_data.input_done;
     let available_batch_size = buf_data.available_batch_size;
     buf_data.available_batch_size = 0;
-    let mut any_fields_done = false;
-    for (i, field) in tfc
-        .target_fields
-        .iter_mut()
-        .enumerate()
-        .filter_map(|(i, f)| f.map(|f| (i, f)))
-    {
-        let mut field_tgt = sess.field_mgr.fields[field].borrow_mut();
-        let field_src =
-            &mut buf_data.fields[RecordBufferFieldId::new(i as u32).unwrap()];
-        std::mem::swap(field_src.get_data_mut(), unsafe {
-            field_tgt.field_data.raw()
-        });
-        if input_done || field_tgt.ref_count == 1 {
-            any_fields_done = true;
-            field_src.refcount -= 1;
+    for i in 0..tfc.target_fields.len() {
+        if let Some(field_id) = tfc.target_fields[i] {
+            let mut field_tgt = sess.field_mgr.fields[field_id].borrow_mut();
+            let field_src = &mut buf_data.fields
+                [RecordBufferFieldId::new(i as u32).unwrap()];
+            std::mem::swap(field_src.get_data_mut(), unsafe {
+                field_tgt.field_data.raw()
+            });
+            if input_done || field_tgt.ref_count == 1 {
+                field_src.refcount -= 1;
+                drop(field_tgt);
+                sess.field_mgr
+                    .drop_field_refcount(field_id, &mut sess.match_set_mgr);
+                tfc.target_fields[i] = None;
+            }
         }
     }
     drop(buf_data);
     tfc.buffer.updates.notify_one();
-    if any_fields_done {
-        for field in tfc.target_fields.iter_mut() {
-            if let Some(f) = field {
-                sess.field_mgr
-                    .drop_field_refcount(*f, &mut sess.match_set_mgr);
-                *field = None;
-            }
-        }
-    }
     if input_done {
         sess.unlink_transform(tf_id, available_batch_size);
     } else {
