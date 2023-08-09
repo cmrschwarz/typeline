@@ -343,8 +343,8 @@ fn expand_for_subchain(sess: &mut JobSession, tf_id: TransformId, sc_n: u32) {
     let mut input_mappings = std::mem::take(&mut forkcat.input_mappings);
     let mut prebound_outputs = std::mem::take(&mut forkcat.prebound_outputs);
     input_mapping_ids.clear();
-    prebound_outputs.clear();
     input_mappings.clear();
+    prebound_outputs.clear();
     for (i, op) in forkcat.op.output_mappings_per_subchain[sc_n as usize]
         .iter()
         .enumerate()
@@ -388,8 +388,6 @@ fn expand_for_subchain(sess: &mut JobSession, tf_id: TransformId, sc_n: u32) {
                 Entry::Vacant(e) => e,
             };
             if let Some(field) = src_ms.field_name_map.get(&name) {
-                // the input field is always first in this iterator
-                debug_assert!(*field != src_input_field_id);
                 source_field_id = *field;
             } else {
                 let target_field_id =
@@ -683,12 +681,11 @@ pub(crate) fn handle_forkcat_expansion(
         setup_continuation(sess, tf_id);
     } else {
         for m in fc.input_mappings.iter_mut() {
-            if !m.last_access {
-                let f =
-                    sess.job_data.field_mgr.fields[m.source_field_id].borrow();
-                f.field_data.reset_iter(m.source_field_iter);
-            }
+            let mut f =
+                sess.job_data.field_mgr.fields[m.source_field_id].borrow_mut();
+            f.field_data.release_iter(m.source_field_iter);
         }
+        fc.input_mappings.clear();
         for &of in &fc.output_mappings {
             sess.job_data.field_mgr.fields[of]
                 .borrow_mut()

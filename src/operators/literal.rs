@@ -214,9 +214,9 @@ pub fn parse_op_str(
     let value_owned = value_str.to_owned();
     Ok(OperatorData::Literal(OpLiteral {
         data: if stream_str {
-            Literal::String(value_owned)
-        } else {
             Literal::StreamString(value_owned)
+        } else {
+            Literal::String(value_owned)
         },
         insert_count,
     }))
@@ -294,9 +294,9 @@ pub fn parse_op_bytes(
     };
     Ok(OperatorData::Literal(OpLiteral {
         data: if stream_bytes {
-            Literal::Bytes(parsed_value)
-        } else {
             Literal::StreamBytes(parsed_value)
+        } else {
+            Literal::Bytes(parsed_value)
         },
         insert_count,
     }))

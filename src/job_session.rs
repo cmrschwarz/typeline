@@ -57,6 +57,7 @@ use crate::{
         transform::{TransformData, TransformId, TransformState},
     },
     record_data::{
+        command_buffer::FieldActionIndices,
         field::{FieldId, FieldManager, DUMMY_INPUT_FIELD_ID},
         match_set::{MatchSetId, MatchSetManager},
         record_buffer::RecordBuffer,
@@ -720,6 +721,10 @@ impl<'a> JobSession<'a> {
                     prebound_outputs.get(&op_base.outputs_start)
                 {
                     self.job_data.field_mgr.bump_field_refcount(*field_idx);
+                    let mut f = self.job_data.field_mgr.fields[*field_idx]
+                        .borrow_mut();
+                    f.action_indices = FieldActionIndices::new(min_apf);
+                    f.match_set = ms_id;
                     *field_idx
                 } else {
                     self.job_data.field_mgr.add_field(ms_id, min_apf)

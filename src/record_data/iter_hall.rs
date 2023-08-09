@@ -387,8 +387,15 @@ impl IterHall {
         if iter.header_idx == iter.field_data_ref().headers().len()
             && iter.header_idx > 0
         {
-            iter.prev_field();
-            state.header_rl_offset = iter.field_run_length_bwd() + 1;
+            if iter.field_pos == 0 {
+                // this happens if all fields before are deleted
+                // calling prev_field would fail here
+                self.reset_iter(iter_id);
+                return;
+            } else {
+                iter.prev_field();
+                state.header_rl_offset = iter.field_run_length_bwd() + 1;
+            }
         }
         state.header_idx = iter.header_idx;
         state.data = iter.data;

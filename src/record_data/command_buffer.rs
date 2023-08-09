@@ -129,6 +129,15 @@ pub struct CommandBuffer {
     copies: Vec<CopyCommand>,
     insertions: Vec<InsertionCommand>,
 }
+impl FieldActionIndices {
+    pub fn new(min_apf_idx: Option<ActionProducingFieldIndex>) -> Self {
+        Self {
+            min_apf_idx,
+            curr_apf_idx: None,
+            first_unapplied_al_idx: 0,
+        }
+    }
+}
 
 impl MergedActionLists {
     pub fn is_legal_field_idx_for_action(&self, field_idx: usize) -> bool {
@@ -1606,6 +1615,11 @@ impl CommandBuffer {
                             (it.field_pos as isize + field_pos_delta) as usize;
                         it.header_idx += header_idx_new - header_idx;
                         curr_header_iter_count += 1;
+                    }
+                    if header_idx as usize + 1 == headers.len() {
+                        // this can happen if the field is too short (has)
+                        // implicit nulls at the end
+                        break 'advance_action;
                     }
                     header_idx += 1;
                     curr_header_original_rl = headers[header_idx].run_length;

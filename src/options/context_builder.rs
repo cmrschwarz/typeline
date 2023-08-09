@@ -52,6 +52,20 @@ impl ContextBuilder {
         let argname = op_data.default_op_name();
         self.add_op_with_opts(op_data, Some(&argname), None, false, false)
     }
+    pub fn add_op_with_label(
+        self,
+        op_data: OperatorData,
+        label: &str,
+    ) -> Self {
+        let argname = op_data.default_op_name();
+        self.add_op_with_opts(
+            op_data,
+            Some(&argname),
+            Some(label),
+            false,
+            false,
+        )
+    }
     pub fn add_ops<const N: usize>(self, op_data: [OperatorData; N]) -> Self {
         let mut this = self;
         for op in op_data.into_iter() {

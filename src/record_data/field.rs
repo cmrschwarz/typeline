@@ -230,11 +230,7 @@ impl FieldManager {
             clear_delay_request_count: Cell::new(0),
             has_unconsumed_input: Cell::new(false),
             match_set: ms_id,
-            action_indices: FieldActionIndices {
-                min_apf_idx: min_apf,
-                curr_apf_idx: None,
-                first_unapplied_al_idx: 0,
-            },
+            action_indices: FieldActionIndices::new(min_apf),
             names: Default::default(),
             field_data: IterHall::new_with_data(data),
             #[cfg(feature = "debug_logging")]
