@@ -432,6 +432,19 @@ impl<'a> JobData<'a> {
             } else if !field.producing_transform_arg.is_empty() {
                 print!(" (`{}`)", field.producing_transform_arg)
             }
+            if let (cow_src_field, Some(data_cow)) =
+                field.field_data.cow_source_field()
+            {
+                print!(
+                    " [{}cow{}]",
+                    if data_cow { "data " } else { "" },
+                    if let Some(src) = cow_src_field {
+                        format!(" src: {src}")
+                    } else {
+                        "".to_owned()
+                    }
+                );
+            }
             if !field.field_refs.is_empty() {
                 print!(" ( field refs:");
                 for fr in &field.field_refs {
@@ -706,6 +719,7 @@ impl<'a> JobSession<'a> {
                 if let Some(field_idx) =
                     prebound_outputs.get(&op_base.outputs_start)
                 {
+                    self.job_data.field_mgr.bump_field_refcount(*field_idx);
                     *field_idx
                 } else {
                     self.job_data.field_mgr.add_field(ms_id, min_apf)

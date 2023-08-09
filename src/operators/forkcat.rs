@@ -304,7 +304,7 @@ pub fn handle_tf_forkcat(
     if fc.op.subchains_start + fc.curr_subchain_n == fc.op.subchains_end {
         let cont = fc.continuation.unwrap();
         sess.tf_mgr.transforms[cont].input_is_done = true;
-        sess.tf_mgr.push_tf_in_ready_stack(fc.continuation.unwrap());
+        sess.tf_mgr.push_tf_in_ready_stack(cont);
         sess.unlink_transform(tf_id, 0);
         return;
     }
@@ -659,6 +659,12 @@ pub(crate) fn handle_forkcat_expansion(
     );
     let sc_n = fc.curr_subchain_n;
     if fc.op.subchains_start + sc_n == fc.op.subchains_end {
+        let cont_id = fc.continuation.unwrap().get();
+        match &mut sess.transform_data[cont_id] {
+            TransformData::Nop(nop) => nop.manual_unlink = false,
+            TransformData::Terminator(tm) => tm.manual_unlink = false,
+            _ => unreachable!(),
+        }
         return;
     }
     if sc_n == 0 {

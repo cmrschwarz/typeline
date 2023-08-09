@@ -12,7 +12,7 @@ pub struct OpTerminator {
 }
 pub struct TfTerminator {
     apf_idx: ActionProducingFieldIndex,
-    manual_unlink: bool,
+    pub manual_unlink: bool,
 }
 
 pub fn setup_tf_terminator(

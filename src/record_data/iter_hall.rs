@@ -436,6 +436,18 @@ impl IterHall {
     pub fn are_headers_owned(&self) -> bool {
         self.data_source.are_headers_owned()
     }
+    // source field of cow, data cow only
+    pub fn cow_source_field(&self) -> (Option<FieldId>, Option<bool>) {
+        match self.data_source {
+            FieldDataSource::Owned(_) => (None, None),
+            FieldDataSource::Cow(src) => (Some(src), Some(false)),
+            FieldDataSource::DataCow { data_ref, .. } => {
+                (Some(data_ref), Some(true))
+            }
+            FieldDataSource::RecordBufferCow(_) => (None, Some(false)),
+            FieldDataSource::RecordBufferDataCow { .. } => (None, Some(true)),
+        }
+    }
     pub fn field_count(&self, fm: &FieldManager) -> usize {
         // TOOD: maybe handle the data cow cases here?
         self.data_source.get_field_count(fm)

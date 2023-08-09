@@ -10,10 +10,10 @@ use super::{
 
 #[derive(Clone, Default)]
 pub struct OpNop {
-    manual_unlink: bool,
+    pub manual_unlink: bool,
 }
 pub struct TfNop {
-    manual_unlink: bool,
+    pub manual_unlink: bool,
 }
 
 pub fn parse_op_nop(
