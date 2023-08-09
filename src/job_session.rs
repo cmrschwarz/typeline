@@ -310,7 +310,7 @@ impl TransformManager {
             }
         }
     }
-    pub fn prepare_output_field<'a>(
+    pub fn prepare_output_field(
         &mut self,
         field_mgr: &mut FieldManager,
         match_set_mgr: &mut MatchSetManager,

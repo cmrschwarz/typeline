@@ -13,7 +13,7 @@ use scr::{
         file_reader::create_op_file_reader_custom,
         fork::create_op_fork,
         forkcat::create_op_forkcat,
-        format::create_op_format,
+        format::{create_op_format, create_op_format_from_str},
         join::{create_op_join, create_op_join_str},
         key::create_op_key,
         literal::{
@@ -1433,5 +1433,30 @@ fn forkcat_into_join() -> Result<(), ScrError> {
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(ss.get_data().unwrap().as_slice(), ["foo,foo"]);
+    Ok(())
+}
+
+#[test]
+fn forkcat_build_sql_insert() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::default();
+    ContextBuilder::default()
+        .add_ops([
+            create_op_forkcat(),
+            create_op_str("INSERT INTO T VALUES ", 1),
+            create_op_next(),
+            create_op_seq(0, 5, 1).unwrap(),
+            create_op_format_from_str("({})").unwrap(),
+            create_op_join(Some(b", ".to_vec()), None, false),
+            create_op_next(),
+            create_op_str(";", 1),
+            create_op_up(1),
+            create_op_join(None, None, false),
+            create_op_string_sink(&ss),
+        ])
+        .run()?;
+    assert_eq!(
+        ss.get_data().unwrap().as_slice(),
+        ["INSERT INTO T VALUES (0), (1), (2), (3), (4);"]
+    );
     Ok(())
 }
