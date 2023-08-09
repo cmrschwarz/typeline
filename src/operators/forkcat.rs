@@ -14,6 +14,7 @@ use crate::{
     },
     options::argument::CliArgIdx,
     record_data::{
+        command_buffer::FieldActionIndices,
         field::{FieldId, DUMMY_INPUT_FIELD_ID},
         iter_hall::{IterHall, IterId},
         iters::{FieldDataRef, FieldIterator},
@@ -42,11 +43,9 @@ pub struct OpForkCat {
     pub continuation: Option<OperatorId>,
     // includes successors. used to select fields to copy / cow into subchain
     pub accessed_fields_per_subchain: Vec<FieldAccessMappings>,
-    // does *not* include successors.
-    pub accessed_fields_of_any_subchain: WriteCountingAccessMappings,
     // all calls + all successors, used to decide whether to move or copy
     // the data into the subchain based on whether it is the last access
-    pub accessed_fields_of_total: WriteCountingAccessMappings,
+    pub accessed_fields_total: WriteCountingAccessMappings,
     // which op outputs of the chain should be prealloced to point to which
     // output name (eventually field in the tf)
     // parallel to accessed_names_afterwards
@@ -109,11 +108,19 @@ pub struct TfForkCat<'a> {
     // we could make this local to the setup function but meh, this way
     // we can at least reuse the allocation
     pub input_mapping_ids: HashMap<FieldId, usize, BuildIdentityHasher>,
+    // mapping from src field -> (potentially cowed) field in subchain
+    // parallel with output_mappings
     pub input_mappings: Vec<TfForkCatInputMapping>,
-    // temp buffer passed to setup_transforms_from_op
+    // temp buffer passed to setup_transforms_from_op. contains the fields
+    // from output_mappings that the current subchain (over)writes
     pub prebound_outputs: HashMap<OpOutputIdx, FieldId, BuildIdentityHasher>,
 
-    // parallel with op.accessed_names_afterwards
+    // Contains all fields that may be used by successors of the forkcat.
+    // These will be populated (in case of outputs) or changed
+    // (in case of previously existing columns: cow'ed data, unique headers)
+    // by the current subchain, and reset in preparation for the next
+    // subchain. This Vec is parallel with op.accessed_names_afterwards, and
+    // populated only once during setup_continuation
     pub output_mappings: Vec<FieldId>,
 }
 
@@ -167,15 +174,13 @@ pub fn setup_op_forkcat_liveness_data(
     for (sc_n, &callee_id) in bb.calls.iter().enumerate() {
         let mut sc_n = sc_n as ChainId;
         call.copy_from_bitslice(ld.get_global_var_data(callee_id));
-        op.accessed_fields_of_any_subchain
-            .append_var_data(&mut sc_n, ld, &call);
         ld.apply_bb_aliases(&call, &successors, &ld.basic_blocks[callee_id]);
         successors_copy.copy_from_bitslice(&successors);
         ld.kill_non_survivors(&mut successors_copy, &call);
         call |= &successors_copy;
         op.accessed_fields_per_subchain
             .push(FieldAccessMappings::from_var_data(&mut (), ld, &call));
-        op.accessed_fields_of_total
+        op.accessed_fields_total
             .append_var_data(&mut sc_n, ld, &call);
     }
     let mut count = 0;
@@ -371,7 +376,7 @@ fn expand_for_subchain(sess: &mut JobSession, tf_id: TransformId, sc_n: u32) {
         }
     }
 
-    let combined_field_accesses = &forkcat.op.accessed_fields_of_total;
+    let combined_field_accesses = &forkcat.op.accessed_fields_total;
     let accessed_fields_of_sc =
         &forkcat.op.accessed_fields_per_subchain[sc_n as usize];
     for (name, access_mode) in accessed_fields_of_sc.iter_name_opt() {
@@ -589,26 +594,25 @@ fn setup_continuation(sess: &mut JobSession, tf_id: TransformId) {
         TransformData::ForkCat(fc),
         fc
     );
-    for (name, mode) in
-        forkcat.op.accessed_fields_of_any_subchain.iter_name_opt()
-    {
-        if mode.last_accessing_sc != 0 {
-            let field_id = if let Some(name) = name {
-                if let Some(field) = field_name_map.get(&name) {
-                    *field
-                } else {
-                    continue;
-                }
+    for (name, _mode) in forkcat.op.accessed_fields_total.iter_name_opt() {
+        let field_id = if let Some(name) = name {
+            if let Some(field) = field_name_map.get(&name) {
+                *field
             } else {
-                tf_input_field
-            };
-            let f = sess.job_data.field_mgr.fields[field_id].borrow();
-            f.request_clear_delay();
-        }
+                continue;
+            }
+        } else {
+            tf_input_field
+        };
+        let f = sess.job_data.field_mgr.fields[field_id].borrow();
+        f.request_clear_delay();
     }
     let cont_op_id = if let Some(cont) = forkcat.op.continuation {
         cont
     } else {
+        // TODO: we can't do this: if the fc ist the last op in a chain
+        // but that chain is then called, we don't want the fc to add
+        // termination
         let terminator_id = sess.add_terminator(tf_id, true);
         match_unwrap!(
             &mut sess.transform_data[tf_id.get()],
@@ -687,10 +691,17 @@ pub(crate) fn handle_forkcat_expansion(
         }
         fc.input_mappings.clear();
         for &of in &fc.output_mappings {
-            sess.job_data.field_mgr.fields[of]
-                .borrow_mut()
-                .field_data
-                .reset_iterators();
+            let mut f = sess.job_data.field_mgr.fields[of].borrow_mut();
+            f.field_data.reset_iterators();
+            f.action_indices = FieldActionIndices::new(None);
+            if f.get_clear_delay_request_count() > 0 {
+                drop(f);
+                sess.job_data
+                    .field_mgr
+                    .uncow(&mut sess.job_data.match_set_mgr, of);
+            } else {
+                f.field_data.reset_cow_headers();
+            }
         }
     }
     expand_for_subchain(sess, tf_id, sc_n);

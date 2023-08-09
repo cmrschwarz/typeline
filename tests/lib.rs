@@ -1485,7 +1485,7 @@ fn forkcat_surviving_vars() -> Result<(), ScrError> {
         .add_op(create_op_next())
         .add_op(create_op_str("b", 0))
         .add_op(create_op_up(1))
-        .add_op(create_op_format(b"{lbl}: {:?}").unwrap())
+        .add_op(create_op_format(b"{lbl:?}: {:?}").unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(

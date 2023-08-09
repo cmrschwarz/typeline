@@ -1616,7 +1616,7 @@ impl CommandBuffer {
                         it.header_idx += header_idx_new - header_idx;
                         curr_header_iter_count += 1;
                     }
-                    if header_idx as usize + 1 == headers.len() {
+                    if header_idx + 1 == headers.len() {
                         // this can happen if the field is too short (has)
                         // implicit nulls at the end
                         break 'advance_action;

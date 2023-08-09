@@ -497,6 +497,19 @@ impl IterHall {
             fm.fields[*t].borrow_mut().field_data.propagate_clear(fm);
         }
     }
+    pub fn reset_cow_headers(&mut self) {
+        match &mut self.data_source {
+            FieldDataSource::Owned(_) => (),
+            FieldDataSource::Cow(_) => (),
+            FieldDataSource::DataCow { data_ref, .. } => {
+                self.data_source = FieldDataSource::Cow(*data_ref)
+            }
+            FieldDataSource::RecordBufferCow(_) => todo!(),
+            FieldDataSource::RecordBufferDataCow { data, .. } => {
+                self.data_source = FieldDataSource::RecordBufferCow(*data)
+            }
+        }
+    }
     pub fn clear_if_owned(&mut self, fm: &FieldManager) {
         if let FieldDataSource::Owned(fd) = &mut self.data_source {
             let mut first_clear_delay = None;
