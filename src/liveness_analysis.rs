@@ -62,9 +62,6 @@ pub struct BasicBlock {
     pub calls: SmallVec<[BasicBlockId; 2]>,
     pub successors: SmallVec<[BasicBlockId; 2]>,
     pub predecessors: SmallVec<[BasicBlockId; 2]>,
-    // var name after the bb -> original var name
-    // if the 'original name' was locally generated, there is no entry
-    pub rebinds: HashMap<VarId, VarId, BuildIdentityHasher>,
     // vars available at the start that may be accessed through
     // data behind vars available at the end that contain field references
     pub field_references: HashMap<VarId, SmallVec<[VarId; 4]>>,
@@ -134,7 +131,7 @@ impl LivenessData {
                 OperatorData::ForkCat(_) => 0,
                 OperatorData::Next(_) => app,
                 OperatorData::Up(_) => 0,
-                OperatorData::Key(_) => 0,
+                OperatorData::Key(_) => 1,
                 OperatorData::Select(_) => 0,
                 OperatorData::Regex(re) => {
                     app + re.capture_group_names.len() - 1
@@ -232,7 +229,6 @@ impl LivenessData {
                 operators_end: end,
                 calls: Default::default(),
                 successors: Default::default(),
-                rebinds: Default::default(),
                 updates_required: true,
                 field_references: Default::default(),
                 predecessors: Default::default(),
@@ -250,7 +246,6 @@ impl LivenessData {
                 operators_end: c.operators.len() as u32,
                 calls: Default::default(),
                 successors: Default::default(),
-                rebinds: Default::default(),
                 updates_required: true,
                 field_references: Default::default(),
                 predecessors: Default::default(),
@@ -432,7 +427,10 @@ impl LivenessData {
                     let tgt_var = self.var_names[&key.key_interned.unwrap()];
                     debug_assert!(!op_base.append_mode);
                     self.vars_to_op_outputs_map[tgt_var as usize] =
-                        used_input_field;
+                        output_field;
+                    self.op_outputs[output_field as usize]
+                        .field_references
+                        .push(input_field);
                     continue;
                 }
                 OperatorData::Select(select) => {
@@ -594,8 +592,8 @@ impl LivenessData {
                     }
                 }
                 op_output.bound_vars_after_bb.push(var_idx as VarId);
-            } else if op_output_id != var_idx as VarId {
-                bb.rebinds.insert(var_idx as VarId, op_output_id as VarId);
+            } else {
+                debug_assert!(op_output_id == var_idx as VarId);
             }
         }
     }
@@ -688,9 +686,6 @@ impl LivenessData {
         src: &BitSlice<Cell<usize>>,
         bb: &BasicBlock,
     ) {
-        for (alias_var, original_var) in &bb.rebinds {
-            self.apply_alias(tgt, src, *original_var, *alias_var);
-        }
         for (alias_var, field_refs) in &bb.field_references {
             for original_var in field_refs {
                 self.apply_alias(tgt, src, *original_var, *alias_var);
@@ -1001,29 +996,10 @@ impl LivenessData {
                 }
             }
             let bb = &self.basic_blocks[bb_id];
-            let r: [(&str, &mut dyn Iterator<Item = (&VarId, &[VarId])>); 2] = [
-                (
-                    "rebinds",
-                    &mut bb
-                        .rebinds
-                        .iter()
-                        .map(|(tgt, src)| (tgt, std::slice::from_ref(src))),
-                ),
-                (
-                    "field refs",
-                    &mut bb
-                        .field_references
-                        .iter()
-                        .map(|(tgt, srcs)| (tgt, srcs.as_slice())),
-                ),
-            ];
-            for (name, elements) in r {
-                let mut elements = elements.peekable();
-                if elements.peek().is_none() {
-                    continue;
-                }
+            let mut elements = bb.field_references.iter().peekable();
+            if elements.peek().is_some() {
                 println!();
-                print!("{name}: ");
+                print!("field refs: ");
                 for (&tgt, srcs) in elements {
                     for &src in srcs {
                         print!(
@@ -1033,8 +1009,9 @@ impl LivenessData {
                         )
                     }
                 }
-                println!();
             }
+
+            println!();
         }
         println!("{:-^80}", " </liveness analysis> ");
     }

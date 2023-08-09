@@ -117,13 +117,17 @@ impl<'a> CowFieldDataRef<'a> {
 }
 
 impl FieldManager {
-    pub fn uncow(&mut self, msm: &mut MatchSetManager, field: FieldId) {
-        let field_to_drop_rc = self.fields[field]
-            .borrow_mut()
+    pub fn uncow(&mut self, msm: &mut MatchSetManager, field_id: FieldId) {
+        let mut field = self.fields[field_id].borrow_mut();
+        let field_to_drop_rc = field
             .field_data
             .data_source
-            .uncow_get_field_with_rc(field, self);
+            .uncow_get_field_with_rc(field_id, self);
         if let Some(field_ref_to_drop) = field_to_drop_rc {
+            for &fr in &field.field_refs {
+                self.bump_field_refcount(fr);
+            }
+            drop(field);
             self.drop_field_refcount(field_ref_to_drop, msm);
         }
     }
@@ -275,6 +279,8 @@ impl FieldManager {
         let mut data_source = self.fields[data_source_id].borrow_mut();
         data_source.ref_count += 1;
         data_source.field_data.cow_targets.push(field_id);
+        assert!(field.field_refs.is_empty());
+        field.field_refs.extend_from_slice(&data_source.field_refs);
         field.field_data.data_source = FieldDataSource::Cow(data_source_id);
     }
     pub fn append_to_buffer<'a>(

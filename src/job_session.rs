@@ -425,6 +425,9 @@ impl<'a> JobData<'a> {
             let id = _id;
             let field = self.field_mgr.fields[id].borrow();
             print!("field id {id}");
+            if let Some(name) = field.name {
+                print!(" '@{}'", self.session_data.string_store.lookup(name));
+            }
             if let Some(prod_id) = field.producing_transform_id {
                 print!(
                     " (output of tf {prod_id} `{}`)",
@@ -454,13 +457,6 @@ impl<'a> JobData<'a> {
                 print!(" )");
             }
             print!(" (rc {})", field.ref_count);
-            if !field.names.is_empty() {
-                print!(" ( names:");
-                for n in &field.names {
-                    print!(" {}", self.session_data.string_store.lookup(*n));
-                }
-                print!(" )");
-            }
         }
     }
 }
@@ -666,15 +662,6 @@ impl<'a> JobSession<'a> {
                         );
                     }
                 }
-                OperatorData::Key(op) => {
-                    assert!(op_base.label.is_none()); // TODO: cow
-                    self.job_data.match_set_mgr.set_field_name(
-                        &self.job_data.field_mgr,
-                        input_field,
-                        op.key_interned.unwrap(),
-                    );
-                    continue;
-                }
                 OperatorData::Select(op) => {
                     if let Some(field_id) =
                         self.job_data.match_set_mgr.match_sets[ms_id]
@@ -834,7 +821,21 @@ impl<'a> JobSession<'a> {
                     end_reachable = false;
                     setup_tf_call_concurrent(jd, b, op, &tf_state)
                 }
-                OperatorData::Key(_) => unreachable!(),
+                OperatorData::Key(key) => {
+                    self.job_data.field_mgr.setup_cow(
+                        &mut self.job_data.match_set_mgr,
+                        output_field,
+                        input_field,
+                    );
+                    self.job_data.match_set_mgr.set_field_name(
+                        &self.job_data.field_mgr,
+                        output_field,
+                        key.key_interned.unwrap(),
+                    );
+                    input_field = output_field;
+                    last_output_field = output_field;
+                    continue;
+                }
                 OperatorData::Next(_) => unreachable!(),
                 OperatorData::Up(_) => unreachable!(),
             };

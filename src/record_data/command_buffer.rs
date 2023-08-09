@@ -1499,7 +1499,23 @@ impl CommandBuffer {
         debug_assert!(
             merged_actions.actions_start != merged_actions.actions_end
         );
-        debug_assert!(!headers.is_empty());
+        if headers.is_empty() {
+            #[cfg(debug_assertions)]
+            {
+                let mal_ref = self.get_merge_result_mal_ref(&merged_actions);
+                let actions = self.get_merge_resuls_slice(
+                    mal_ref.as_deref(),
+                    &merged_actions,
+                );
+                debug_assert!(actions
+                    .iter()
+                    .all(|a| a.kind == FieldActionKind::Drop));
+            }
+            if let Some(data) = data {
+                data.clear();
+            }
+            return 0;
+        }
         let mut header;
         let mut header_idx_new = header_idx;
 
