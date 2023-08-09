@@ -433,7 +433,7 @@ pub fn setup_tf_regex<'a>(
                     sess.field_mgr
                         .add_field(tf_state.match_set_id, Some(apf_succ))
                 };
-                sess.match_set_mgr.add_field_name(
+                sess.match_set_mgr.set_field_name(
                     &sess.field_mgr,
                     field_id,
                     *name,

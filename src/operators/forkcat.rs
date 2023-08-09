@@ -415,23 +415,9 @@ fn expand_for_subchain(sess: &mut JobSession, tf_id: TransformId, sc_n: u32) {
         let mut src_field =
             sess.job_data.field_mgr.fields[source_field_id].borrow_mut();
         let combined_fam = combined_field_accesses.get(name).cloned().unwrap();
-        // TODO: differentiate header writes?
-        let mut write_count = combined_fam.total_write_count();
-        for other_name in &src_field.names {
-            if write_count > 1 {
-                break;
-            }
-            if Some(*other_name) == name {
-                continue;
-            }
-            write_count += combined_field_accesses
-                .get(name)
-                .map(|acc| acc.total_write_count())
-                .unwrap_or(0);
-        }
         let any_writes = combined_fam.any_writes();
         let last_access = combined_fam.last_accessing_sc == sc_n;
-        let (target_field_id, mut tgt_field) = if any_writes && !last_access {
+        let (target_field_id, _tgt_field) = if any_writes && !last_access {
             drop(src_field);
             let target_field_id =
                 sess.job_data.field_mgr.add_field(tgt_ms_id, None);
@@ -439,9 +425,7 @@ fn expand_for_subchain(sess: &mut JobSession, tf_id: TransformId, sc_n: u32) {
                 sess.job_data.field_mgr.fields[source_field_id].borrow_mut();
             let mut tgt =
                 sess.job_data.field_mgr.fields[target_field_id].borrow_mut();
-            if let Some(name) = name {
-                tgt.names.push(name);
-            }
+            tgt.name = name;
             (target_field_id, Some(tgt))
         } else {
             (source_field_id, None)
@@ -458,17 +442,6 @@ fn expand_for_subchain(sess: &mut JobSession, tf_id: TransformId, sc_n: u32) {
             });
         }
         entry.take().map(|e| e.insert(target_field_id));
-        for other_name in &src_field.names {
-            if name == Some(*other_name) {
-                continue;
-            }
-            if accessed_fields_of_sc.fields.contains_key(other_name) {
-                tgt_ms.field_name_map.insert(*other_name, target_field_id);
-                if let Some(f) = tgt_field.as_mut() {
-                    f.names.push(*other_name)
-                }
-            }
-        }
         if name.is_none() {
             chain_input_field = Some(target_field_id);
         }
@@ -625,7 +598,7 @@ fn setup_continuation(sess: &mut JobSession, tf_id: TransformId) {
     for name in &forkcat.op.accessed_names_afterwards {
         let field_id = sess.job_data.field_mgr.add_field(output_ms_id, None);
         if let Some(name) = name {
-            sess.job_data.match_set_mgr.add_field_name(
+            sess.job_data.match_set_mgr.set_field_name(
                 &sess.job_data.field_mgr,
                 field_id,
                 *name,

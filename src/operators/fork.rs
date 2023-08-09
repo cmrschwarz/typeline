@@ -280,11 +280,11 @@ pub(crate) fn handle_fork_expansion(
                 .match_sets
                 .two_distinct_mut(fork_ms_id, target_ms_id);
             let src_field_id;
-            let mut entry;
+            let mut tgt_ms_name_map_entry;
             if let Some(name) = name {
                 let vacant = match target_match_set.field_name_map.entry(name)
                 {
-                    Entry::Occupied(_) => continue,
+                    Entry::Occupied(_) => unreachable!(),
                     Entry::Vacant(e) => e,
                 };
                 if let Some(field) = fork_match_set.field_name_map.get(&name) {
@@ -292,50 +292,26 @@ pub(crate) fn handle_fork_expansion(
                     debug_assert!(*field != fork_input_field_id);
                     src_field_id = *field;
                 } else {
-                    let target_field_id =
-                        sess.job_data.field_mgr.add_field(target_ms_id, None);
-                    vacant.insert(target_field_id);
-                    let mut tgt = sess.job_data.field_mgr.fields
-                        [target_field_id]
-                        .borrow_mut();
-                    tgt.names.push(name);
                     continue;
                 };
-                entry = Some(vacant);
+                tgt_ms_name_map_entry = Some(vacant);
             } else {
-                if chain_input_field.is_some() {
-                    continue;
-                }
+                debug_assert!(chain_input_field.is_none());
                 src_field_id = fork_input_field_id;
-                entry = None;
+                tgt_ms_name_map_entry = None;
             };
 
             let mut src_field =
                 sess.job_data.field_mgr.fields[src_field_id].borrow_mut();
-            // TODO: handle WriteData
-            let mut any_writes = fam.header_writes || fam.data_writes;
-            if !any_writes {
-                for other_name in &src_field.names {
-                    if name == Some(*other_name) {
-                        continue;
-                    }
-                    if field_access_mapping
-                        .fields
-                        .get(other_name)
-                        .copied()
-                        .unwrap_or_default()
-                        .any_writes()
-                    {
-                        any_writes = true;
-                        break;
-                    }
-                }
-            }
+            let any_writes = fam.header_writes || fam.data_writes;
 
-            let (target_field_id, mut target_field) = if any_writes {
+            let (target_field_id, target_field) = if any_writes {
                 drop(src_field);
                 let target_field_id =
                     sess.job_data.field_mgr.add_field(target_ms_id, None);
+                let mut tgt = sess.job_data.field_mgr.fields[target_field_id]
+                    .borrow_mut();
+                tgt.name = name;
                 src_field =
                     sess.job_data.field_mgr.fields[src_field_id].borrow_mut();
                 match mappings.entry(src_field_id) {
@@ -351,32 +327,13 @@ pub(crate) fn handle_fork_expansion(
                         });
                     }
                 }
-                drop(src_field);
-                src_field =
-                    sess.job_data.field_mgr.fields[src_field_id].borrow_mut();
-                let mut tgt = sess.job_data.field_mgr.fields[target_field_id]
-                    .borrow_mut();
-                if let Some(name) = name {
-                    tgt.names.push(name);
-                }
                 (target_field_id, Some(tgt))
             } else {
                 (src_field_id, None)
             };
-            entry.take().map(|e| e.insert(target_field_id));
-            for other_name in &src_field.names {
-                if name == Some(*other_name) {
-                    continue;
-                }
-                if field_access_mapping.fields.contains_key(other_name) {
-                    sess.job_data.match_set_mgr.match_sets[target_ms_id]
-                        .field_name_map
-                        .insert(*other_name, target_field_id);
-                    if let Some(f) = target_field.as_mut() {
-                        f.names.push(*other_name)
-                    }
-                }
-            }
+            tgt_ms_name_map_entry
+                .take()
+                .map(|e| e.insert(target_field_id));
             // make sure all used field refs have a mapping entry
             // even if the fields are unnamed
             for fr in &src_field.field_refs {

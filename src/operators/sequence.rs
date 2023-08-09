@@ -102,9 +102,10 @@ pub fn handle_tf_sequence(
             .desired_batch_size
             .saturating_sub(succ.available_batch_size);
     }
+    // TODO: check non text read liveness data instead
     let succ_wants_text = succ.preferred_input_type
         == Some(FieldValueKind::BytesInline)
-        && output_field.names.is_empty();
+        && output_field.name.is_none();
 
     let seq_size_rem = (seq.ss.end - seq.ss.start) / seq.ss.step;
     let count = batch_size.min(seq_size_rem as usize);

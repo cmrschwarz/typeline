@@ -31,7 +31,7 @@ pub struct Field {
 
     pub action_indices: FieldActionIndices,
 
-    pub names: SmallVec<[StringStoreEntry; 4]>,
+    pub name: Option<StringStoreEntry>,
     // fields potentially referenced by this field.
     // keeps them alive until this field is dropped
     pub field_refs: SmallVec<[FieldId; 4]>,
@@ -231,7 +231,7 @@ impl FieldManager {
             has_unconsumed_input: Cell::new(false),
             match_set: ms_id,
             action_indices: FieldActionIndices::new(min_apf),
-            names: Default::default(),
+            name: Default::default(),
             field_data: IterHall::new_with_data(data),
             #[cfg(feature = "debug_logging")]
             producing_transform_id: None,
@@ -421,9 +421,12 @@ impl FieldManager {
         }
         let mut field = self.fields[id].borrow_mut();
 
-        for n in &field.names {
-            msm.match_sets[field.match_set].field_name_map.remove(n);
-        }
+        // there is no need to take the field out of the
+        // field name map, because nobody will observe this
+        // (otherwise we wouldn't delete the field)
+        // // if let Some(name) = field.name {
+        // // msm.match_sets[field.match_set].field_name_map.remove(&name);
+        // // }
         let (cow_src, _) = field.field_data.cow_source_field();
         let frs = std::mem::take(&mut field.field_refs);
         drop(field);

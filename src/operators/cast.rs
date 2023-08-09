@@ -141,8 +141,6 @@ pub struct TfCast {
     invalid_unicode_handler: Box<dyn InvalidUnicodeHandlerFn>,
     // TODO
     #[allow(dead_code)]
-    reuse_input_column: bool,
-    #[allow(dead_code)]
     dont_convert_text_to_bytes: bool,
     convert_errors: bool,
     target_type: FieldDataType,
@@ -196,7 +194,6 @@ pub fn setup_tf_cast<'a>(
         invalid_unicode_handler: replacement_fn,
         target_type: op.target_type,
         dont_convert_text_to_bytes: op.dont_convert_text_to_bytes,
-        reuse_input_column: input_field.names.is_empty(),
         convert_errors: op.convert_errors,
     })
 }
@@ -210,7 +207,6 @@ pub fn handle_tf_cast(sess: &mut JobData, tf_id: TransformId, tfc: &TfCast) {
         .field_mgr
         .get_cow_field_ref(tf.input_field, tf.has_unconsumed_input());
 
-    // PERF: make use of reuse_input_column
     let mut output_field = sess.field_mgr.fields[tf.output_field].borrow_mut();
 
     if tf.preferred_input_type.is_some_and(|i| i.is_zst())

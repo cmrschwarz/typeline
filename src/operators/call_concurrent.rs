@@ -193,7 +193,9 @@ fn insert_mapping(
         std::collections::hash_map::Entry::Occupied(mapping) => {
             let buf_field = field_mappings[*mapping.get()].buf_field;
             if let Some(name) = name {
-                buf_data.fields[buf_field].names.push(name);
+                let bfn = &mut buf_data.fields[buf_field].name;
+                assert!(bfn.is_none());
+                *bfn = Some(name);
             }
             buf_field
         }
@@ -202,9 +204,7 @@ fn insert_mapping(
             field_mgr.bump_field_refcount(source_field_id);
             let mut rbf = RecordBufferField::default();
             rbf.refcount = 1;
-            rbf.names = name
-                .map(|name| smallvec::smallvec![name])
-                .unwrap_or_default();
+            rbf.name = name;
             let buf_field = buf_data.fields.claim_with_value(rbf);
             field_mappings.push(RecordBufferFieldMapping {
                 source_field_id,
@@ -430,11 +430,11 @@ pub fn setup_callee_concurrent(
     let mut buf_data = callee.buffer.fields.lock().unwrap();
     for field in buf_data.fields.iter_mut() {
         let field_id = sess.job_data.field_mgr.add_field(ms_id, None);
-        for n in &field.names {
-            sess.job_data.match_set_mgr.add_field_name(
+        if let Some(name) = field.name {
+            sess.job_data.match_set_mgr.set_field_name(
                 &sess.job_data.field_mgr,
                 field_id,
-                *n,
+                name,
             );
         }
         callee.target_fields.push(Some(field_id));

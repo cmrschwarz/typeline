@@ -227,7 +227,7 @@ pub fn setup_tf_format<'a>(
                         tf_state.match_set_id,
                         sess.field_mgr.get_min_apf_idx(tf_state.input_field),
                     );
-                    sess.match_set_mgr.add_field_name(
+                    sess.match_set_mgr.set_field_name(
                         &sess.field_mgr,
                         id,
                         *name,

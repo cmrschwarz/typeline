@@ -505,7 +505,7 @@ impl<'a> JobSession<'a> {
                 .field_mgr
                 .add_field_with_data(ms_id, None, fd.data);
             if let Some(name) = fd.name {
-                self.job_data.match_set_mgr.add_field_name(
+                self.job_data.match_set_mgr.set_field_name(
                     &self.job_data.field_mgr,
                     field_id,
                     name,
@@ -667,13 +667,12 @@ impl<'a> JobSession<'a> {
                     }
                 }
                 OperatorData::Key(op) => {
-                    assert!(op_base.label.is_none()); // TODO
-                    self.job_data.match_set_mgr.add_field_name(
+                    assert!(op_base.label.is_none()); // TODO: cow
+                    self.job_data.match_set_mgr.set_field_name(
                         &self.job_data.field_mgr,
                         input_field,
                         op.key_interned.unwrap(),
                     );
-
                     continue;
                 }
                 OperatorData::Select(op) => {
@@ -691,7 +690,7 @@ impl<'a> JobSession<'a> {
                                 .field_mgr
                                 .get_min_apf_idx(input_field),
                         );
-                        self.job_data.match_set_mgr.add_field_name(
+                        self.job_data.match_set_mgr.set_field_name(
                             &self.job_data.field_mgr,
                             field_id,
                             op.key_interned.unwrap(),
@@ -732,7 +731,7 @@ impl<'a> JobSession<'a> {
             };
 
             if let Some(name) = op_base.label {
-                self.job_data.match_set_mgr.add_field_name(
+                self.job_data.match_set_mgr.set_field_name(
                     &self.job_data.field_mgr,
                     output_field,
                     name,
