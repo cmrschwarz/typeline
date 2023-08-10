@@ -4,7 +4,6 @@ use num_traits::{FromPrimitive, PrimInt};
 use smallstr::SmallString;
 use std::{
     borrow::Cow,
-    f64::consts::LOG2_10,
     fmt::{Display, Write},
     str::FromStr,
 };
@@ -94,14 +93,10 @@ pub fn parse_int_with_units_from_bytes<
     parse_int_with_units(v)
 }
 
-pub const USIZE_MAX_DECIMAL_DIGITS: usize =
-    ((std::mem::size_of::<usize>() * 8) as f64 / LOG2_10
-        + (1f64 - f64::EPSILON)) as usize;
-pub const I64_MAX_DECIMAL_DIGITS: usize =
-    1 + (63f64 / LOG2_10 + (1f64 - f64::EPSILON)) as usize;
-pub const U64_MAX_DECIMAL_DIGITS: usize =
-    (64f64 / LOG2_10 + (1f64 - f64::EPSILON)) as usize;
+pub const USIZE_MAX_DECIMAL_DIGITS: usize = usize::MAX.ilog10() as usize + 1;
 
+pub const I64_MAX_DECIMAL_DIGITS: usize = i64::MAX.ilog10() as usize + 1;
+pub const U64_MAX_DECIMAL_DIGITS: usize = u64::MAX.ilog10() as usize + 1;
 pub fn usize_to_str(val: usize) -> ArrayString<USIZE_MAX_DECIMAL_DIGITS> {
     let mut res = ArrayString::new();
     res.write_fmt(format_args!("{val}")).unwrap();
@@ -140,12 +135,5 @@ pub fn i64_digits(display_plus_sign: bool, mut v: i64) -> usize {
     } else {
         display_plus_sign as usize
     };
-    let mut max = 10;
-    for i in 0..I64_MAX_DECIMAL_DIGITS {
-        if v < max {
-            return i + 1 + sign_len;
-        }
-        max *= 10;
-    }
-    unreachable!();
+    sign_len + v.checked_ilog10().unwrap_or(0) as usize + 1
 }

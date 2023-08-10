@@ -1512,7 +1512,18 @@ fn write_fmt_key(
                     );
                 }
             }
-            TypedSlice::Null(_) | TypedSlice::Success(_) if debug_format => {
+            TypedSlice::Null(_) => {
+                let data = typed_slice_zst_str(&range.base.data).as_bytes();
+                iter_output_targets(
+                    fmt,
+                    &mut output_index,
+                    range.base.field_count,
+                    |tgt| unsafe {
+                        write_padded_bytes(k, tgt, data);
+                    },
+                );
+            }
+            TypedSlice::Success(_) if debug_format => {
                 let data = typed_slice_zst_str(&range.base.data).as_bytes();
                 iter_output_targets(
                     fmt,
@@ -1623,7 +1634,6 @@ fn write_fmt_key(
                 }
             }
             TypedSlice::Success(_)
-            | TypedSlice::Null(_)
             | TypedSlice::Error(_)
             | TypedSlice::Html(_)
             | TypedSlice::Object(_) => {

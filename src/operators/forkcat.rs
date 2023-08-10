@@ -59,29 +59,6 @@ pub struct OpForkCat {
     accessed_names_afterwards: Vec<Option<StringStoreEntry>>,
 }
 
-#[derive(Default, Clone)]
-struct AccessedNamesAfterwardsIndex(usize);
-
-impl AccessKind for AccessedNamesAfterwardsIndex {
-    type ContextType = usize;
-
-    fn from_field_access_mode(
-        output_idx: &mut usize,
-        _fam: FieldAccessMode,
-    ) -> Self {
-        let idx = *output_idx;
-        *output_idx += 1;
-        AccessedNamesAfterwardsIndex(idx)
-    }
-
-    fn append_field_access_mode(
-        &mut self,
-        _output_idx: &mut usize,
-        _fam: FieldAccessMode,
-    ) {
-    }
-}
-
 pub struct TfForkCatOutputMapping {
     pub subchain_field_id: FieldId,
     pub output_field_id: FieldId,
@@ -124,6 +101,28 @@ pub struct TfForkCat<'a> {
     pub output_mappings: Vec<FieldId>,
 }
 
+#[derive(Default, Clone)]
+struct AccessedNamesAfterwardsIndex(usize);
+
+impl AccessKind for AccessedNamesAfterwardsIndex {
+    type ContextType = usize;
+
+    fn from_field_access_mode(
+        output_idx: &mut usize,
+        _fam: FieldAccessMode,
+    ) -> Self {
+        let idx = *output_idx;
+        *output_idx += 1;
+        AccessedNamesAfterwardsIndex(idx)
+    }
+
+    fn append_field_access_mode(
+        &mut self,
+        _output_idx: &mut usize,
+        _fam: FieldAccessMode,
+    ) {
+    }
+}
 pub fn parse_op_forkcat(
     value: Option<&[u8]>,
     arg_idx: Option<CliArgIdx>,
@@ -278,6 +277,7 @@ pub fn handle_tf_forkcat_sc(
                     .header
                     .extend_from_slice(src_field_dr.headers());
             }
+            continue;
         }
         let mut src_field_iter = sess
             .field_mgr
@@ -674,6 +674,10 @@ pub(crate) fn handle_forkcat_expansion(
                     .uncow(&mut sess.job_data.match_set_mgr, of);
             } else {
                 f.field_data.reset_cow_headers();
+                let msm =
+                    &mut sess.job_data.match_set_mgr.match_sets[f.match_set];
+                drop(f);
+                msm.command_buffer.execute(&sess.job_data.field_mgr, of);
             }
         }
     }
