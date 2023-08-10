@@ -1,4 +1,4 @@
-use std::cell::Ref;
+use std::{cell::Ref, ops::DerefMut};
 
 use nonmax::NonMaxUsize;
 use smallvec::SmallVec;
@@ -6,11 +6,12 @@ use smallvec::SmallVec;
 use crate::utils::{aligned_buf::AlignedBuf, universe::Universe};
 
 use super::{
+    field::{FieldId, FieldManager},
     field_data::{
         FieldData, FieldValueFormat, FieldValueHeader, RunLength,
         MAX_FIELD_ALIGN,
     },
-    iter_hall::{FieldDataSource, IterHall, IterState},
+    iter_hall::{FieldDataSource, IterState},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -252,44 +253,44 @@ impl CommandBuffer {
         self.action_producing_fields[apf_idx].merged_action_lists[0]
             .push_action_with_usize_rl(kind, field_idx, run_length);
     }
-    pub fn execute_for_iter_hall(
-        &mut self,
-        field_id: usize, // for debug logging only
-        iter_hall: &mut IterHall,
-        fai: &mut FieldActionIndices,
-    ) {
+    pub fn execute(&mut self, fm: &FieldManager, field_id: FieldId) {
+        let mut field_ref = fm.fields[field_id].borrow_mut();
+        let field = field_ref.deref_mut();
         if self.first_apf_idx.is_none() {
             return;
         }
-        if fai.min_apf_idx.is_none() {
-            fai.min_apf_idx = self.first_apf_idx;
+        if field.action_indices.min_apf_idx.is_none() {
+            field.action_indices.min_apf_idx = self.first_apf_idx;
         }
-        if fai.curr_apf_idx.is_none() {
-            fai.curr_apf_idx = fai.min_apf_idx;
+        if field.action_indices.curr_apf_idx.is_none() {
+            field.action_indices.curr_apf_idx =
+                field.action_indices.min_apf_idx;
         }
-        let min_apf_idx = fai.min_apf_idx.unwrap();
-        let curr_apf_idx = fai.curr_apf_idx.as_mut().unwrap();
+        let min_apf_idx = field.action_indices.min_apf_idx.unwrap();
+        let curr_apf_idx = field.action_indices.curr_apf_idx.as_mut().unwrap();
         let prev_curr_apf_idx = *curr_apf_idx;
-        let prev_first_unapplied_al_idx = fai.first_unapplied_al_idx;
+        let prev_first_unapplied_al_idx =
+            field.action_indices.first_unapplied_al_idx;
         let als = self.prepare_action_lists(
             min_apf_idx,
             curr_apf_idx,
-            &mut fai.first_unapplied_al_idx,
+            &mut field.action_indices.first_unapplied_al_idx,
         );
         if als.actions_start == als.actions_end {
             debug_assert!(
                 prev_curr_apf_idx == *curr_apf_idx
                     && prev_first_unapplied_al_idx
-                        == fai.first_unapplied_al_idx
+                        == field.action_indices.first_unapplied_al_idx
             );
             if cfg!(feature = "debug_logging") {
                 println!(
                     "executing commands for field {} had no effect: min apf: {}, curr apf: {} [al {}]",
-                    field_id, min_apf_idx, curr_apf_idx, fai.first_unapplied_al_idx,
+                    field_id, min_apf_idx, curr_apf_idx, field.action_indices.first_unapplied_al_idx,
                 );
             }
             return;
         }
+        field.field_data.data_source.uncow_headers(fm);
         if cfg!(feature = "debug_logging") {
             println!("--------------    <execution (field {field_id}) start>      --------------");
             println!("command buffer:");
@@ -320,7 +321,7 @@ impl CommandBuffer {
                 prev_curr_apf_idx,
                 prev_first_unapplied_al_idx,
                 curr_apf_idx,
-                fai.first_unapplied_al_idx,
+                field.action_indices.first_unapplied_al_idx,
             );
             let refs = self.get_merge_result_mal_ref(&als);
             let actions = self.get_merge_resuls_slice(refs.as_deref(), &als);
@@ -334,26 +335,29 @@ impl CommandBuffer {
         }
         // TODO: avoid this allocation
         let mut iterators = IterStateSmallVec::new();
-        iterators.extend(iter_hall.iters.iter_mut().map(|it| it.get_mut()));
+        iterators
+            .extend(field.field_data.iters.iter_mut().map(|it| it.get_mut()));
         iterators.sort_by(|lhs, rhs| rhs.field_pos.cmp(&lhs.field_pos));
-        let (headers, data, field_count) = match &mut iter_hall.data_source {
-            FieldDataSource::Owned(fd) => {
-                (&mut fd.headers, Some(&mut fd.data), &mut fd.field_count)
-            }
-            FieldDataSource::DataCow {
-                headers,
-                field_count,
-                ..
-            } => (headers, None, field_count),
-            FieldDataSource::RecordBufferDataCow {
-                headers,
-                field_count,
-                ..
-            } => (headers, None, field_count),
-            FieldDataSource::Cow(_) | FieldDataSource::RecordBufferCow(_) => {
-                panic!("cannot execute commands on COW iter hall")
-            }
-        };
+        let (headers, data, field_count) =
+            match &mut field.field_data.data_source {
+                FieldDataSource::Owned(fd) => {
+                    (&mut fd.headers, Some(&mut fd.data), &mut fd.field_count)
+                }
+                FieldDataSource::DataCow {
+                    headers,
+                    field_count,
+                    ..
+                } => (headers, None, field_count),
+                FieldDataSource::RecordBufferDataCow {
+                    headers,
+                    field_count,
+                    ..
+                } => (headers, None, field_count),
+                FieldDataSource::Cow(_)
+                | FieldDataSource::RecordBufferCow(_) => {
+                    panic!("cannot execute commands on COW iter hall")
+                }
+            };
 
         let field_count_delta = self.generate_commands_from_actions(
             als,
@@ -406,7 +410,7 @@ impl CommandBuffer {
     }
     pub fn drop_field_commands(
         &mut self,
-        field_id: usize, // for debug logging only
+        field_id: FieldId, // for debug logging only
         fai: &mut FieldActionIndices,
     ) {
         if self.first_apf_idx.is_none() {

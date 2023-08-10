@@ -22,6 +22,7 @@ use scr::{
         },
         next::create_op_next,
         nop::create_op_nop,
+        print::create_op_print,
         regex::{
             create_op_regex, create_op_regex_lines, create_op_regex_with_opts,
             RegexOptions,
@@ -273,7 +274,22 @@ fn large_seq_with_regex() -> Result<(), ScrError> {
 }
 
 #[test]
-fn key_with_fmt() -> Result<(), ScrError> {
+fn basic_key_cow() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::default();
+    ContextBuilder::default()
+        .set_batch_size(1)
+        .add_op(create_op_seqn(1, 3, 1).unwrap())
+        .add_op(create_op_key("foo".to_owned()))
+        .add_op(create_op_format(b"{:?}").unwrap())
+        .add_op_transparent(create_op_print())
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(ss.get_data().unwrap().as_slice(), ["1", "2", "3"]);
+    Ok(())
+}
+
+#[test]
+fn double_key() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .add_op(create_op_literal(Literal::Int(42), None))

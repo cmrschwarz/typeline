@@ -129,7 +129,7 @@ impl LivenessData {
                 // technically this has output, but it always introduces a
                 // separate BB so we don't want to allocate slots for that
                 OperatorData::ForkCat(_) => 0,
-                OperatorData::Next(_) => app,
+                OperatorData::Next(_) => 0,
                 OperatorData::Up(_) => 0,
                 OperatorData::Key(_) => 1,
                 OperatorData::Select(_) => 0,
@@ -888,11 +888,8 @@ impl LivenessData {
         }
         println!();
         println!("op_outputs:");
-        for i in [UNREACHABLE_DUMMY_VAR, BB_INPUT_VAR] {
-            println!(
-                "op_output {i:02}: {}",
-                self.vars[i as usize].name(&sess.string_store)
-            );
+        for (i, v) in self.vars.iter().enumerate() {
+            println!("op_output {i:02}: {}", v.name(&sess.string_store));
         }
         for (op_id, op_base) in sess.operator_bases.iter().enumerate() {
             for oo_n in op_base.outputs_start..op_base.outputs_end {

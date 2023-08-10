@@ -375,20 +375,16 @@ pub fn handle_tf_call_concurrent(
     );
     cb.end_action_list(tfc.apf_idx);
     for mapping in &tfc.field_mappings {
-        let mut src_field =
-            sess.field_mgr.fields[mapping.source_field_id].borrow_mut();
+        let src_field =
+            sess.field_mgr.fields[mapping.source_field_id].borrow();
         if src_field.has_unconsumed_input.get()
             || !src_field.field_data.are_headers_owned()
         {
             continue;
         }
-        sess.match_set_mgr.match_sets[tf.match_set_id]
-            .command_buffer
-            .drop_field_commands(
-                mapping.source_field_id.get() as usize,
-                &mut src_field.action_indices,
-            );
-        src_field.field_data.clear_if_owned(&sess.field_mgr);
+        drop(src_field);
+        sess.field_mgr
+            .clear_if_owned(&mut sess.match_set_mgr, mapping.source_field_id);
     }
     if input_done {
         for mapping in &tfc.field_mappings {

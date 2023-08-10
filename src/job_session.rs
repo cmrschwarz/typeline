@@ -1,6 +1,5 @@
 use std::{
     collections::{HashMap, VecDeque},
-    ops::DerefMut,
     sync::Arc,
 };
 
@@ -219,19 +218,14 @@ impl TransformManager {
         } else if has_cont {
             input_done = true;
         }
-        let mut output_field = field_mgr.fields[output_field_id].borrow_mut();
-        let of = output_field.deref_mut();
         match_set_mgr.match_sets[match_set_id]
             .command_buffer
-            .execute_for_iter_hall(
-                output_field_id.get() as usize,
-                &mut of.field_data,
-                &mut of.action_indices,
-            );
+            .execute(field_mgr, output_field_id);
         // this results in always one more element being present than we
         // advertise as batch size. this prevents apply_field_actions
         // from deleting our value. unless we are done, in which case
         // no additional value is inserted
+        let mut output_field = field_mgr.fields[output_field_id].borrow_mut();
         let drop_oversize = input_done && final_call_if_input_done;
         if batch_size == 0 && drop_oversize {
             output_field.field_data.drop_last_value(1);
@@ -244,8 +238,8 @@ impl TransformManager {
     }
     pub fn prepare_for_output_cow(
         &mut self,
-        field_mgr: &mut FieldManager,
-        match_set_mgr: &mut MatchSetManager,
+        fm: &mut FieldManager,
+        msm: &mut MatchSetManager,
         tf_id: TransformId,
         output_fields: impl IntoIterator<Item = FieldId>,
     ) {
@@ -256,33 +250,26 @@ impl TransformManager {
         tf.is_appending = false;
 
         for ofid in output_fields {
-            let mut f = field_mgr.fields[ofid].borrow_mut();
+            let mut f = fm.fields[ofid].borrow_mut();
             let clear_delay = f.get_clear_delay_request_count() > 0;
             if clear_delay || request_uncow {
                 drop(f);
-                field_mgr.uncow(match_set_mgr, ofid);
-                f = field_mgr.fields[ofid].borrow_mut();
+                fm.uncow(msm, ofid);
+                f = fm.fields[ofid].borrow_mut();
             }
             if clear_delay {
-                field_mgr.apply_field_actions(match_set_mgr, ofid);
-            } else {
-                match_set_mgr.match_sets[tf.match_set_id]
-                    .command_buffer
-                    .drop_field_commands(
-                        ofid.get() as usize,
-                        &mut f.action_indices,
-                    );
-                if !appending {
-                    f.field_data.clear_if_owned(field_mgr);
-                    f.has_unconsumed_input.set(false);
-                }
+                fm.apply_field_actions(msm, ofid);
+            } else if !appending {
+                f.has_unconsumed_input.set(false);
+                drop(f);
+                fm.clear_if_owned(msm, ofid);
             }
         }
     }
     pub fn prepare_for_output(
         &mut self,
-        field_mgr: &mut FieldManager,
-        match_set_mgr: &mut MatchSetManager,
+        fm: &mut FieldManager,
+        msm: &mut MatchSetManager,
         tf_id: TransformId,
         output_fields: impl IntoIterator<Item = FieldId>,
     ) {
@@ -292,22 +279,15 @@ impl TransformManager {
         tf.is_appending = false;
 
         for ofid in output_fields {
-            field_mgr.uncow(match_set_mgr, ofid);
-            let mut f = field_mgr.fields[ofid].borrow_mut();
+            fm.uncow(msm, ofid);
+            let f = fm.fields[ofid].borrow();
             let clear_delay = f.get_clear_delay_request_count() > 0;
             if clear_delay {
-                field_mgr.apply_field_actions(match_set_mgr, ofid);
-            } else {
-                match_set_mgr.match_sets[tf.match_set_id]
-                    .command_buffer
-                    .drop_field_commands(
-                        ofid.get() as usize,
-                        &mut f.action_indices,
-                    );
-                if !appending {
-                    f.field_data.clear_if_owned(field_mgr);
-                    f.has_unconsumed_input.set(false);
-                }
+                fm.apply_field_actions(msm, ofid);
+            } else if !appending {
+                f.has_unconsumed_input.set(false);
+                drop(f);
+                fm.clear_if_owned(msm, ofid);
             }
         }
     }
