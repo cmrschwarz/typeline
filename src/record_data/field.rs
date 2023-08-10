@@ -67,6 +67,9 @@ impl Field {
         self.clear_delay_request_count
             .set(self.clear_delay_request_count.get() - 1);
     }
+    pub fn has_cow_targets(&self) -> bool {
+        !self.field_data.cow_targets.is_empty()
+    }
 }
 
 pub struct FieldManager {
