@@ -210,7 +210,7 @@ fn insert_mapping(
                 source_field_id,
                 source_field_iter: field_mgr.fields[source_field_id]
                     .borrow_mut()
-                    .field_data
+                    .iter_hall
                     .claim_iter(),
                 buf_field,
             });
@@ -378,7 +378,7 @@ pub fn handle_tf_call_concurrent(
         let src_field =
             sess.field_mgr.fields[mapping.source_field_id].borrow();
         if src_field.has_unconsumed_input.get()
-            || !src_field.field_data.are_headers_owned()
+            || !src_field.iter_hall.are_headers_owned()
         {
             continue;
         }
@@ -486,7 +486,7 @@ pub fn handle_tf_callee_concurrent(
             let field_src = &mut buf_data.fields
                 [RecordBufferFieldId::new(i as u32).unwrap()];
             std::mem::swap(field_src.get_data_mut(), unsafe {
-                field_tgt.field_data.raw()
+                field_tgt.iter_hall.raw()
             });
             if input_done || field_tgt.ref_count == 1 {
                 field_src.refcount -= 1;

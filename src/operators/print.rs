@@ -68,7 +68,7 @@ pub fn setup_tf_print(
         current_stream_val: None,
         iter_id: sess.field_mgr.fields[tf_state.input_field]
             .borrow_mut()
-            .field_data
+            .iter_hall
             .claim_iter(),
     })
 }
@@ -320,7 +320,7 @@ pub fn handle_tf_print(
         Ok(()) => {
             if handled_field_count > 0 {
                 output_field
-                    .field_data
+                    .iter_hall
                     .push_success(handled_field_count, true);
             }
         }
@@ -328,13 +328,13 @@ pub fn handle_tf_print(
             let nsucc = handled_field_count;
             let nfail = batch_size - nsucc;
             if nsucc > 0 {
-                output_field.field_data.push_success(nsucc, true);
+                output_field.iter_hall.push_success(nsucc, true);
             }
             let e = OperatorApplicationError {
                 op_id,
                 message: Cow::Owned(err.to_string()),
             };
-            output_field.field_data.push_error(e, nfail, false, true);
+            output_field.iter_hall.push_error(e, nfail, false, true);
             outputs_produced += nfail;
         }
     }
@@ -377,10 +377,10 @@ pub fn handle_tf_print_stream_value_update(
     let tf = &sess.tf_mgr.transforms[tf_id];
     let mut output_field = sess.field_mgr.fields[tf.output_field].borrow_mut();
     if success_count > 0 {
-        output_field.field_data.push_success(success_count, true);
+        output_field.iter_hall.push_success(success_count, true);
     }
     if error_count > 0 {
-        output_field.field_data.push_error(
+        output_field.iter_hall.push_error(
             OperatorApplicationError {
                 op_id: sess.tf_mgr.transforms[tf_id].op_id.unwrap(),
                 message: err_message,

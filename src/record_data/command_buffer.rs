@@ -290,7 +290,7 @@ impl CommandBuffer {
             }
             return;
         }
-        field.field_data.data_source.uncow_headers(fm);
+        field.iter_hall.uncow_headers(fm);
         if cfg!(feature = "debug_logging") {
             println!("--------------    <execution (field {field_id}) start>      --------------");
             println!("command buffer:");
@@ -336,23 +336,18 @@ impl CommandBuffer {
         // TODO: avoid this allocation
         let mut iterators = IterStateSmallVec::new();
         iterators
-            .extend(field.field_data.iters.iter_mut().map(|it| it.get_mut()));
+            .extend(field.iter_hall.iters.iter_mut().map(|it| it.get_mut()));
         iterators.sort_by(|lhs, rhs| rhs.field_pos.cmp(&lhs.field_pos));
+        let fd = &mut field.iter_hall.field_data;
         let (headers, data, field_count) =
-            match &mut field.field_data.data_source {
-                FieldDataSource::Owned(fd) => {
+            match &mut field.iter_hall.data_source {
+                FieldDataSource::Owned => {
                     (&mut fd.headers, Some(&mut fd.data), &mut fd.field_count)
                 }
-                FieldDataSource::DataCow {
-                    headers,
-                    field_count,
-                    ..
-                } => (headers, None, field_count),
-                FieldDataSource::RecordBufferDataCow {
-                    headers,
-                    field_count,
-                    ..
-                } => (headers, None, field_count),
+                FieldDataSource::DataCow(_)
+                | FieldDataSource::RecordBufferDataCow(_) => {
+                    (&mut fd.headers, None, &mut fd.field_count)
+                }
                 FieldDataSource::Cow(_)
                 | FieldDataSource::RecordBufferCow(_) => {
                     panic!("cannot execute commands on COW iter hall")

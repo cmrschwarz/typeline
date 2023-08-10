@@ -95,16 +95,16 @@ pub fn handle_tf_literal(
         let mut output_field = sess.field_mgr.fields[of_id].borrow_mut();
         match lit.data {
             Literal::Bytes(b) => {
-                output_field.field_data.push_bytes(b, 1, true, true)
+                output_field.iter_hall.push_bytes(b, 1, true, true)
             }
             Literal::String(s) => {
-                output_field.field_data.push_str(s, 1, true, true)
+                output_field.iter_hall.push_str(s, 1, true, true)
             }
             Literal::Int(i) => {
-                output_field.field_data.push_int(*i, 1, true, true)
+                output_field.iter_hall.push_int(*i, 1, true, true)
             }
-            Literal::Null => output_field.field_data.push_null(1, true),
-            Literal::Success => output_field.field_data.push_success(1, true),
+            Literal::Null => output_field.iter_hall.push_null(1, true),
+            Literal::Success => output_field.iter_hall.push_success(1, true),
             Literal::StreamError(ss) => {
                 let sv_id = sess.sv_mgr.stream_values.claim_with_value(
                     StreamValue::new(
@@ -117,7 +117,7 @@ pub fn handle_tf_literal(
                     ),
                 );
                 output_field
-                    .field_data
+                    .iter_hall
                     .push_stream_value_id(sv_id, 1, true, false);
             }
             Literal::StreamString(ss) => {
@@ -129,7 +129,7 @@ pub fn handle_tf_literal(
                     ),
                 );
                 output_field
-                    .field_data
+                    .iter_hall
                     .push_stream_value_id(sv_id, 1, true, false);
             }
             Literal::StreamBytes(sb) => {
@@ -141,10 +141,10 @@ pub fn handle_tf_literal(
                     ),
                 );
                 output_field
-                    .field_data
+                    .iter_hall
                     .push_stream_value_id(sv_id, 1, true, false);
             }
-            Literal::Error(e) => output_field.field_data.push_error(
+            Literal::Error(e) => output_field.iter_hall.push_error(
                 OperatorApplicationError {
                     op_id,
                     message: Cow::Owned(e.clone()),

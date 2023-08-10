@@ -133,7 +133,7 @@ pub fn setup_tf_join<'a>(
         separator_is_valid_utf8: op.separator_is_valid_utf8,
         iter_id: sess.field_mgr.fields[tf_state.input_field]
             .borrow_mut()
-            .field_data
+            .iter_hall
             .claim_iter(),
         buffer: Vec::new(),
         buffer_is_valid_utf8: true,
@@ -288,22 +288,22 @@ pub fn emit_group(
         let sv = &mut sv_mgr.stream_values[sv_id];
         sv.done = true;
         output_field
-            .field_data
+            .iter_hall
             .push_stream_value_id(sv_id, 1, true, false);
         // TODO: gc old stream values
         sv_mgr.inform_stream_value_subscribers(sv_id);
     } else if let Some(err) = join.current_group_error.take() {
-        output_field.field_data.push_error(err, 1, true, false);
+        output_field.iter_hall.push_error(err, 1, true, false);
     } else if len < INLINE_STR_MAX_LEN {
         if valid_utf8 {
-            output_field.field_data.push_inline_str(
+            output_field.iter_hall.push_inline_str(
                 unsafe { std::str::from_utf8_unchecked(&join.buffer) },
                 1,
                 true,
                 false,
             );
         } else {
-            output_field.field_data.push_inline_bytes(
+            output_field.iter_hall.push_inline_bytes(
                 &join.buffer,
                 1,
                 true,
@@ -315,7 +315,7 @@ pub fn emit_group(
         let buffer =
             std::mem::replace(&mut join.buffer, Vec::with_capacity(len));
         if valid_utf8 {
-            output_field.field_data.push_string(
+            output_field.iter_hall.push_string(
                 unsafe { String::from_utf8_unchecked(buffer) },
                 1,
                 true,
@@ -323,7 +323,7 @@ pub fn emit_group(
             );
         } else {
             output_field
-                .field_data
+                .iter_hall
                 .push_bytes_buffer(buffer, 1, true, false);
         }
     }

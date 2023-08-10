@@ -185,7 +185,7 @@ impl TransformManager {
                 if final_call_if_input_done {
                     field_mgr.fields[output_field_id]
                         .borrow_mut()
-                        .field_data
+                        .iter_hall
                         .drop_last_value(1);
                 }
                 return (0, true);
@@ -203,7 +203,7 @@ impl TransformManager {
                 if final_call_if_input_done {
                     field_mgr.fields[output_field_id]
                         .borrow_mut()
-                        .field_data
+                        .iter_hall
                         .drop_last_value(1);
                 }
                 return (0, true);
@@ -228,10 +228,10 @@ impl TransformManager {
         let mut output_field = field_mgr.fields[output_field_id].borrow_mut();
         let drop_oversize = input_done && final_call_if_input_done;
         if batch_size == 0 && drop_oversize {
-            output_field.field_data.drop_last_value(1);
+            output_field.iter_hall.drop_last_value(1);
         } else {
             output_field
-                .field_data
+                .iter_hall
                 .dup_last_value(batch_size - drop_oversize as usize);
         }
         (batch_size, input_done)
@@ -417,7 +417,7 @@ impl<'a> JobData<'a> {
                 print!(" (`{}`)", field.producing_transform_arg)
             }
             if let (cow_src_field, Some(data_cow)) =
-                field.field_data.cow_source_field()
+                field.iter_hall.cow_source_field()
             {
                 print!(
                     " [{}cow{}]",

@@ -464,7 +464,7 @@ pub fn setup_tf_regex<'a>(
         allow_overlapping: op.opts.overlapping,
         input_field_iter_id: sess.field_mgr.fields[tf_state.input_field]
             .borrow_mut()
-            .field_data
+            .iter_hall
             .claim_iter(),
         next_start: 0,
         apf_idx,
@@ -759,7 +759,7 @@ pub fn handle_tf_regex(
         batch_size.min(RunLength::MAX as usize) as RunLength;
     for of in &mut output_fields {
         output_field_inserters.push(of.as_mut().map(|f| {
-            let mut ins = f.field_data.varying_type_inserter(re_reserve_count);
+            let mut ins = f.iter_hall.varying_type_inserter(re_reserve_count);
             // PERF: this might waste a lot of space if we have many nulls
             ins.drop_and_reserve(
                 batch_size,
@@ -919,7 +919,7 @@ pub fn handle_tf_regex(
                                 {
                                     sess.field_mgr.fields[cgi]
                                         .borrow_mut()
-                                        .field_data
+                                        .iter_hall
                                         .push_error(
                                             e.clone(),
                                             rl as usize,
@@ -989,7 +989,7 @@ pub fn handle_tf_regex(
                 for cgi in re.capture_group_fields.iter().filter_map(|v| *v) {
                     sess.field_mgr.fields[cgi]
                         .borrow_mut()
-                        .field_data
+                        .iter_hall
                         .push_error(
                             OperatorApplicationError::new(
                                 "regex type error",

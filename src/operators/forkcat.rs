@@ -496,7 +496,7 @@ pub(crate) fn handle_forkcat_expansion(
     } else {
         for &of in &fc.output_fields {
             let mut f = sess.job_data.field_mgr.fields[of].borrow_mut();
-            f.field_data.reset_iterators();
+            f.iter_hall.reset_iterators();
             // TODO: clear delay
             assert!(f.get_clear_delay_request_count() == 0);
             let msm = &mut sess.job_data.match_set_mgr.match_sets[f.match_set];

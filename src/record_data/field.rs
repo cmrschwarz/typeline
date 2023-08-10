@@ -32,7 +32,7 @@ pub struct Field {
     // fields potentially referenced by this field.
     // keeps them alive until this field is dropped
     pub field_refs: SmallVec<[FieldId; 4]>,
-    pub field_data: IterHall,
+    pub iter_hall: IterHall,
 
     pub match_set: MatchSetId,
 
@@ -68,7 +68,7 @@ impl Field {
             .set(self.clear_delay_request_count.get() - 1);
     }
     pub fn has_cow_targets(&self) -> bool {
-        !self.field_data.cow_targets.is_empty()
+        !self.iter_hall.cow_targets.is_empty()
     }
 }
 
@@ -132,18 +132,17 @@ impl FieldManager {
     }
     pub fn uncow(&mut self, msm: &mut MatchSetManager, field_id: FieldId) {
         let mut field = self.fields[field_id].borrow_mut();
-        let cow_source =
-            field.field_data.data_source.uncow_get_field_with_rc(self);
+        let cow_source = field.iter_hall.uncow_get_field_with_rc(self);
         if let Some(cow_source) = cow_source {
             drop(field);
             let mut cow_src = self.fields[cow_source].borrow_mut();
             let cow_tgt_pos = cow_src
-                .field_data
+                .iter_hall
                 .cow_targets
                 .iter()
                 .position(|t| *t == field_id)
                 .unwrap();
-            cow_src.field_data.cow_targets.swap_remove(cow_tgt_pos);
+            cow_src.iter_hall.cow_targets.swap_remove(cow_tgt_pos);
             drop(cow_src);
             self.untangle_cow_field_refs(msm, field_id, cow_source);
         }
@@ -155,43 +154,15 @@ impl FieldManager {
     ) -> (Ref<'a, Vec<FieldValueHeader>>, usize) {
         match fr.data_source {
             FieldDataSource::Cow(src) => self.get_field_headers_for_iter_hall(
-                Ref::map(self.fields[src].borrow(), |f| &f.field_data),
+                Ref::map(self.fields[src].borrow(), |f| &f.iter_hall),
             ),
-            FieldDataSource::Owned(_)
-            | FieldDataSource::RecordBufferDataCow { .. }
-            | FieldDataSource::DataCow { .. }
-            | FieldDataSource::RecordBufferCow(_) => {
-                let mut fc = 0;
-                let headers_ref = Ref::map(fr, |f| match &f.data_source {
-                    FieldDataSource::Owned(fd) => {
-                        fc = fd.field_count;
-                        &fd.headers
-                    }
-                    FieldDataSource::DataCow {
-                        headers,
-                        field_count,
-                        ..
-                    } => {
-                        fc = *field_count;
-                        headers
-                    }
-                    FieldDataSource::RecordBufferDataCow {
-                        headers,
-                        field_count,
-                        ..
-                    } => {
-                        fc = *field_count;
-                        headers
-                    }
-                    FieldDataSource::Cow(_) => unreachable!(),
-                    FieldDataSource::RecordBufferCow(rb) => {
-                        let fd = unsafe { &*(**rb).get() };
-                        fc = fd.field_count;
-                        &fd.headers
-                    }
-                });
-                (headers_ref, fc)
-            }
+            FieldDataSource::Owned
+            | FieldDataSource::RecordBufferDataCow(_)
+            | FieldDataSource::DataCow(_)
+            | FieldDataSource::RecordBufferCow(_) => (
+                Ref::map(fr, |f| &f.field_data.headers),
+                fr.field_data.field_count,
+            ),
         }
     }
     pub fn get_field_data_for_iter_hall<'a>(
@@ -200,25 +171,23 @@ impl FieldManager {
     ) -> Ref<'a, AlignedBuf<MAX_FIELD_ALIGN>> {
         match &fr.data_source {
             FieldDataSource::Cow(data_ref)
-            | FieldDataSource::DataCow { data_ref, .. } => self
+            | FieldDataSource::DataCow(data_ref) => self
                 .get_field_data_for_iter_hall(Ref::map(
                     self.fields[*data_ref].borrow(),
-                    |f| &f.field_data,
+                    |f| &f.iter_hall,
                 )),
             FieldDataSource::RecordBufferCow(_)
-            | FieldDataSource::RecordBufferDataCow { .. } => {
-                Ref::map(fr, |f| {
-                    if let FieldDataSource::RecordBufferDataCow {
-                        data_ref: data,
-                        ..
-                    } = &f.data_source
-                    {
-                        &unsafe { &*(**data).get() }.data
-                    } else {
-                        unreachable!()
-                    }
-                })
-            }
+            | FieldDataSource::RecordBufferDataCow(_) => Ref::map(fr, |f| {
+                if let FieldDataSource::RecordBufferDataCow {
+                    data_ref: data,
+                    ..
+                } = &f.data_source
+                {
+                    &unsafe { &*(**data).get() }.data
+                } else {
+                    unreachable!()
+                }
+            }),
             FieldDataSource::Owned(_) => Ref::map(fr, |f| {
                 if let FieldDataSource::Owned(fd) = &f.data_source {
                     &fd.data
@@ -237,7 +206,7 @@ impl FieldManager {
     ) -> bool {
         let cow_source = self.fields[cow_source_id].borrow_mut();
         let mut field = self.fields[field_id].borrow_mut();
-        match &field.field_data.data_source {
+        match &field.iter_hall.data_source {
             FieldDataSource::Owned(_) => {
                 panic!("propagate_clear called for FieldDataSource::Owned")
             }
@@ -247,7 +216,7 @@ impl FieldManager {
                 if field.get_clear_delay_request_count() > 0 {
                     return false;
                 } else {
-                    field.field_data.data_source =
+                    field.iter_hall.data_source =
                         FieldDataSource::Cow(*data_ref);
                 }
             }
@@ -255,19 +224,19 @@ impl FieldManager {
                 if field.get_clear_delay_request_count() > 0 {
                     return false;
                 } else {
-                    field.field_data.data_source =
+                    field.iter_hall.data_source =
                         FieldDataSource::RecordBufferCow(*data_ref);
                 }
             }
         }
-        field.field_data.reset_iterators();
+        field.iter_hall.reset_iterators();
         msm.match_sets[field.match_set]
             .command_buffer
             .drop_field_commands(field_id, &mut field.action_indices);
         drop(cow_source);
         let mut i = 0;
-        while field.field_data.cow_targets.len() > i {
-            let cow_tgt_id = field.field_data.cow_targets[i];
+        while field.iter_hall.cow_targets.len() > i {
+            let cow_tgt_id = field.iter_hall.cow_targets[i];
             drop(field);
             let still_cowed = self.propagate_clear(msm, field_id, cow_tgt_id);
             field = self.fields[field_id].borrow_mut();
@@ -275,9 +244,9 @@ impl FieldManager {
                 i += 1;
             } else {
                 let mut cow_tgt = self.fields[cow_tgt_id].borrow_mut();
-                field.field_data.cow_targets.swap_remove(i);
+                field.iter_hall.cow_targets.swap_remove(i);
 
-                cow_tgt.field_data.data_source.uncow_get_field_with_rc(self);
+                cow_tgt.iter_hall.data_source.uncow_get_field_with_rc(self);
             }
         }
         true
@@ -288,26 +257,26 @@ impl FieldManager {
         field_id: FieldId,
     ) {
         let mut field = self.fields[field_id].borrow_mut();
-        let FieldDataSource::Owned(_) = &field.field_data.data_source else {
+        let FieldDataSource::Owned(_) = &field.iter_hall.data_source else {
             return;
         };
         let mut i = 0;
         let mut first_uncow_field_id = None;
-        while field.field_data.cow_targets.len() > i {
-            let cow_tgt_id = field.field_data.cow_targets[i];
+        while field.iter_hall.cow_targets.len() > i {
+            let cow_tgt_id = field.iter_hall.cow_targets[i];
             drop(field);
             let still_cowed = self.propagate_clear(msm, field_id, cow_tgt_id);
             field = self.fields[field_id].borrow_mut();
             if still_cowed {
                 i += 1;
             } else {
-                field.field_data.cow_targets.swap_remove(i);
+                field.iter_hall.cow_targets.swap_remove(i);
                 if first_uncow_field_id.is_none() {
                     first_uncow_field_id = Some(cow_tgt_id);
                 } else {
                     let mut cow_tgt = self.fields[cow_tgt_id].borrow_mut();
                     cow_tgt
-                        .field_data
+                        .iter_hall
                         .data_source
                         .uncow_get_field_with_rc(self);
                 }
@@ -316,19 +285,19 @@ impl FieldManager {
         if let Some(first_uncow_field_id) = first_uncow_field_id {
             let mut cow_tgt = self.fields[first_uncow_field_id].borrow_mut();
             std::mem::swap(
-                &mut cow_tgt.field_data.data_source,
-                &mut field.field_data.data_source,
+                &mut cow_tgt.iter_hall.data_source,
+                &mut field.iter_hall.data_source,
             );
-            field.field_data.data_source =
+            field.iter_hall.data_source =
                 FieldDataSource::Owned(Default::default());
         } else {
-            let FieldDataSource::Owned(fd) = &mut field.field_data.data_source
+            let FieldDataSource::Owned(fd) = &mut field.iter_hall.data_source
             else {
                 unreachable!();
             };
             fd.clear();
         }
-        field.field_data.reset_iterators();
+        field.iter_hall.reset_iterators();
         msm.match_sets[field.match_set]
             .command_buffer
             .drop_field_commands(field_id, &mut field.action_indices);
@@ -360,14 +329,14 @@ impl FieldManager {
             match_set: ms_id,
             action_indices: FieldActionIndices::new(min_apf),
             name: Default::default(),
-            field_data: IterHall::new_with_data(data),
+            iter_hall: IterHall::new_with_data(data),
             #[cfg(feature = "debug_logging")]
             producing_transform_id: None,
             #[cfg(feature = "debug_logging")]
             producing_transform_arg: "".to_string(),
             field_refs: Default::default(),
         };
-        field.field_data.reserve_iter_id(FIELD_REF_LOOKUP_ITER_ID);
+        field.iter_hall.reserve_iter_id(FIELD_REF_LOOKUP_ITER_ID);
         self.fields.claim_with_value(RefCell::new(field))
     }
 
@@ -390,17 +359,17 @@ impl FieldManager {
         data_source_id: FieldId,
     ) {
         let mut field = self.fields[field_id].borrow_mut();
-        if let (Some(cow_src), _) = field.field_data.cow_source_field() {
+        if let (Some(cow_src), _) = field.iter_hall.cow_source_field() {
             drop(field);
             self.uncow(msm, cow_src);
             field = self.fields[field_id].borrow_mut();
         }
         let mut data_source = self.fields[data_source_id].borrow_mut();
         data_source.ref_count += 1;
-        data_source.field_data.cow_targets.push(field_id);
+        data_source.iter_hall.cow_targets.push(field_id);
         assert!(field.field_refs.is_empty());
         field.field_refs.extend_from_slice(&data_source.field_refs);
-        field.field_data.data_source = FieldDataSource::Cow(data_source_id);
+        field.iter_hall.data_source = FieldDataSource::Cow(data_source_id);
     }
     pub fn append_to_buffer<'a>(
         &self,
@@ -418,7 +387,7 @@ impl FieldManager {
         let tgt = tgt.data.get_mut();
         tgt.clear();
         let mut src = self.fields[field_id].borrow_mut();
-        match &mut src.field_data.data_source {
+        match &mut src.iter_hall.data_source {
             FieldDataSource::Owned(fd) => std::mem::swap(tgt, fd),
             FieldDataSource::Cow(_) => {
                 let fr = self.get_cow_field_ref(field_id, false);
@@ -478,7 +447,7 @@ impl FieldManager {
     ) -> CowFieldDataRef<'_> {
         let field = self.fields[field_id].borrow();
         field.inform_of_unconsumed_input(inform_of_unconsumed_input);
-        let fd = Ref::map(field, |f| &f.field_data);
+        let fd = Ref::map(field, |f| &f.iter_hall);
         self.get_cow_field_ref_for_iter_hall(fd)
     }
     pub fn lookup_iter<'a>(
@@ -494,9 +463,9 @@ impl FieldManager {
                 .get_cow_field_ref(field_id, false)
                 .destructured_field_ref()
         ));
-        let state = field.field_data.get_iter_state(iter_id);
+        let state = field.iter_hall.get_iter_state(iter_id);
         unsafe {
-            field.field_data.get_iter_from_state_unchecked(
+            field.iter_hall.get_iter_from_state_unchecked(
                 cfdr.destructured_field_ref(),
                 state,
             )
@@ -515,7 +484,7 @@ impl FieldManager {
                 .get_cow_field_ref(field_id, false)
                 .destructured_field_ref()
         ));
-        unsafe { field.field_data.store_iter_unchecked(iter_id, iter_base) };
+        unsafe { field.iter_hall.store_iter_unchecked(iter_id, iter_base) };
     }
 
     pub fn bump_field_refcount(&self, field_id: FieldId) {
@@ -552,7 +521,7 @@ impl FieldManager {
         // // if let Some(name) = field.name {
         // // msm.match_sets[field.match_set].field_name_map.remove(&name);
         // // }
-        let (cow_src, _) = field.field_data.cow_source_field();
+        let (cow_src, _) = field.iter_hall.cow_source_field();
         let frs = std::mem::take(&mut field.field_refs);
         drop(field);
         self.fields.release(id);

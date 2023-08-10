@@ -35,7 +35,7 @@ pub fn handle_tf_count(
         let output_field_id = sess.tf_mgr.transforms[tf_id].output_field;
         sess.field_mgr.fields[output_field_id]
             .borrow_mut()
-            .field_data
+            .iter_hall
             .push_int(count.count as i64, 1, false, false);
         sess.unlink_transform(tf_id, 1);
     } else {

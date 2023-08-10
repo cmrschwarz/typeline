@@ -147,7 +147,7 @@ pub fn setup_tf_string_sink<'a>(
         handle: &ss.handle.data,
         batch_iter: sess.field_mgr.fields[tf_state.input_field]
             .borrow_mut()
-            .field_data
+            .iter_hall
             .claim_iter(),
         stream_value_handles: Default::default(),
     })
@@ -269,21 +269,18 @@ pub fn push_errors(
     let successes_so_far = field_pos - *last_error_end;
     if successes_so_far > 0 {
         output_field
-            .field_data
+            .iter_hall
             .push_success(field_pos - *last_error_end, true);
-        output_field.field_data.push_error(
+        output_field.iter_hall.push_error(
             err.clone(),
             run_length,
             false,
             false,
         );
     } else {
-        output_field.field_data.push_error(
-            err.clone(),
-            run_length,
-            true,
-            true,
-        );
+        output_field
+            .iter_hall
+            .push_error(err.clone(), run_length, true, true);
     }
     *last_error_end = field_pos;
 }
@@ -445,7 +442,7 @@ pub fn handle_tf_string_sink(
         .store_iter(input_field_id, ss.batch_iter, base_iter);
     let success_count = field_pos - last_error_end;
     if success_count > 0 {
-        output_field.field_data.push_success(success_count, true);
+        output_field.iter_hall.push_success(success_count, true);
     }
     drop(input_field);
     drop(output_field);

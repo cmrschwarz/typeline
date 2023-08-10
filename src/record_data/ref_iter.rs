@@ -686,9 +686,9 @@ mod ref_iter_tests {
         id: Option<FieldId>,
     ) -> FieldId {
         let mut field = Field::default();
-        field.field_data.reset_with_data(fd);
+        field.iter_hall.reset_with_data(fd);
         field.ref_count = 1;
-        field.field_data.reserve_iter_id(FIELD_REF_LOOKUP_ITER_ID);
+        field.iter_hall.reserve_iter_id(FIELD_REF_LOOKUP_ITER_ID);
         if let Some(id) = id {
             field_mgr.fields.reserve_id_with(id, || RefCell::new(field));
             id

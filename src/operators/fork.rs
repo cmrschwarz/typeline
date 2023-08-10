@@ -154,9 +154,9 @@ pub fn handle_tf_fork(
         while i < mapping.targets_cow.len() {
             let tgt_id = mapping.targets_cow[i];
             let tgt = sess.field_mgr.fields[tgt_id].borrow();
-            if tgt.field_data.are_headers_owned() {
+            if tgt.iter_hall.are_headers_owned() {
                 mapping.targets_cow.swap_remove(i);
-                if tgt.field_data.is_data_owned() {
+                if tgt.iter_hall.is_data_owned() {
                     mapping.targets_copy.push(tgt_id);
                 } else {
                     mapping.targets_data_cow.push(tgt_id);
@@ -168,9 +168,9 @@ pub fn handle_tf_fork(
         while i < mapping.targets_data_cow.len() {
             let tgt_id = mapping.targets_cow[i];
             let tgt = sess.field_mgr.fields[tgt_id].borrow();
-            if tgt.field_data.is_data_owned() {
+            if tgt.iter_hall.is_data_owned() {
                 mapping.targets_cow.swap_remove(i);
-                if tgt.field_data.is_data_owned() {
+                if tgt.iter_hall.is_data_owned() {
                     mapping.targets_copy.push(tgt_id);
                 }
             }
@@ -180,7 +180,7 @@ pub fn handle_tf_fork(
             unsafe {
                 sess.field_mgr.fields[*t]
                     .borrow_mut()
-                    .field_data
+                    .iter_hall
                     .internals()
                     .header
                     .extend_from_slice(src_field_dr.headers());
@@ -189,7 +189,7 @@ pub fn handle_tf_fork(
         if !mapping.targets_copy.is_empty() {
             IterHall::copy(&mut src_field_iter, &mut |f| {
                 mapping.targets_data_cow.iter().for_each(|t| {
-                    f(&mut sess.field_mgr.fields[*t].borrow_mut().field_data)
+                    f(&mut sess.field_mgr.fields[*t].borrow_mut().iter_hall)
                 })
             });
             sess.field_mgr.store_iter(
@@ -320,7 +320,7 @@ pub(crate) fn handle_fork_expansion(
                     }
                     Entry::Vacant(e) => {
                         e.insert(TfForkFieldMapping {
-                            source_iter_id: src_field.field_data.claim_iter(),
+                            source_iter_id: src_field.iter_hall.claim_iter(),
                             targets_cow: smallvec::smallvec![target_field_id],
                             targets_data_cow: Default::default(),
                             targets_copy: Default::default(),
@@ -343,7 +343,7 @@ pub(crate) fn handle_fork_expansion(
                         let mut f =
                             sess.job_data.field_mgr.fields[*fr].borrow_mut();
                         e.insert(TfForkFieldMapping {
-                            source_iter_id: f.field_data.claim_iter(),
+                            source_iter_id: f.iter_hall.claim_iter(),
                             targets_cow: Default::default(),
                             targets_data_cow: Default::default(),
                             targets_copy: Default::default(),

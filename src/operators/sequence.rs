@@ -111,14 +111,14 @@ pub fn handle_tf_sequence(
     let count = batch_size.min(seq_size_rem as usize);
 
     if !succ_wants_text {
-        let mut inserter = output_field.field_data.int_inserter();
+        let mut inserter = output_field.iter_hall.int_inserter();
         inserter.drop_and_reserve(count);
         for _ in 0..count {
             inserter.push(seq.ss.start);
             seq.ss.start += seq.ss.step;
         }
     } else {
-        let mut inserter = output_field.field_data.inline_str_inserter();
+        let mut inserter = output_field.iter_hall.inline_str_inserter();
         if seq.ss.start >= 0
             && seq.ss.step > 0
             && seq.ss.step < FAST_SEQ_MAX_STEP

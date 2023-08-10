@@ -293,7 +293,7 @@ fn start_streaming_file(
     // SAFETY: this relies on the memory layout in field_data.
     // since that is a submodule of us, this is fine.
     // ideally though, FieldData would expose some way to do this safely.
-    let fdi = unsafe { output_field.field_data.internals() };
+    let fdi = unsafe { output_field.iter_hall.internals() };
 
     let size_before = fdi.data.len();
     let res = read_chunk(
@@ -310,7 +310,7 @@ fn start_streaming_file(
                 fr.file.take();
                 *fdi.field_count += 1;
                 unsafe {
-                    output_field.field_data.raw().add_header_for_single_value(
+                    output_field.iter_hall.raw().add_header_for_single_value(
                         FieldValueFormat {
                             kind: FieldValueKind::BytesInline,
                             flags: field_value_flags::SHARED_VALUE,
@@ -331,7 +331,7 @@ fn start_streaming_file(
                 sess.tf_mgr.transforms[tf_id].op_id.unwrap(),
                 e,
             );
-            output_field.field_data.push_error(err, 1, false, false);
+            output_field.iter_hall.push_error(err, 1, false, false);
             fr.file.take();
             return false;
         }
@@ -359,7 +359,7 @@ fn start_streaming_file(
                     sess.tf_mgr.transforms[tf_id].op_id.unwrap(),
                     e,
                 );
-                output_field.field_data.push_error(err, 1, false, false);
+                output_field.iter_hall.push_error(err, 1, false, false);
                 fr.file.take();
                 return false;
             }
@@ -376,7 +376,7 @@ fn start_streaming_file(
     });
     fr.stream_value = Some(sv_id);
     output_field
-        .field_data
+        .iter_hall
         .push_stream_value_id(sv_id, 1, false, false);
     drop(output_field);
     // even if the stream is already done, we can only drop the stream value

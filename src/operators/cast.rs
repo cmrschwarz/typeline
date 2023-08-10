@@ -189,7 +189,7 @@ pub fn setup_tf_cast<'a>(
     let mut input_field =
         sess.field_mgr.fields[tf_state.input_field].borrow_mut();
     TransformData::Cast(TfCast {
-        batch_iter: input_field.field_data.claim_iter(),
+        batch_iter: input_field.iter_hall.claim_iter(),
         pending_streams: 0,
         invalid_unicode_handler: replacement_fn,
         target_type: op.target_type,
@@ -212,7 +212,7 @@ pub fn handle_tf_cast(sess: &mut JobData, tf_id: TransformId, tfc: &TfCast) {
     if tf.preferred_input_type.is_some_and(|i| i.is_zst())
         && tfc.convert_errors
     {
-        output_field.field_data.push_zst(
+        output_field.iter_hall.push_zst(
             tf.preferred_input_type.unwrap(),
             batch_size,
             true,
@@ -228,7 +228,7 @@ pub fn handle_tf_cast(sess: &mut JobData, tf_id: TransformId, tfc: &TfCast) {
             .inform_successor_batch_available(tf_id, batch_size);
         return;
     }
-    let ofd = &mut output_field.field_data;
+    let ofd = &mut output_field.iter_hall;
     let base_iter = sess
         .field_mgr
         .lookup_iter(tf.input_field, &input_field, tfc.batch_iter)

@@ -248,7 +248,7 @@ pub fn setup_tf_format<'a>(
             };
             FormatIdentRef {
                 field_id,
-                iter_id: f.field_data.claim_iter(),
+                iter_id: f.iter_hall.claim_iter(),
             }
         })
         .collect();
@@ -1146,7 +1146,7 @@ fn setup_output_targets(
     let mut output_idx = 0;
 
     let starting_len =
-        unsafe { output_field.field_data.internals().data.len() };
+        unsafe { output_field.iter_hall.internals().data.len() };
     let mut tgt_len = starting_len;
     for os in fmt.output_states.iter() {
         if os.error_occured {
@@ -1164,7 +1164,7 @@ fn setup_output_targets(
     }
     unsafe {
         output_field
-            .field_data
+            .iter_hall
             .internals()
             .data
             .reserve(tgt_len - starting_len);
@@ -1175,7 +1175,7 @@ fn setup_output_targets(
         let target: Option<NonNull<u8>>;
         if os.error_occured {
             target = None;
-            output_field.field_data.push_error(
+            output_field.iter_hall.push_error(
                 OperatorApplicationError::new("Format Error", op_id), //TODO: give more context
                 os.run_len,
                 true,
@@ -1195,7 +1195,7 @@ fn setup_output_targets(
             } else {
                 unreachable!();
             }
-            output_field.field_data.push_stream_value_id(
+            output_field.iter_hall.push_stream_value_id(
                 handle.target_sv_id,
                 os.run_len,
                 true,
@@ -1209,7 +1209,7 @@ fn setup_output_targets(
             };
             unsafe {
                 target = Some(NonNull::new_unchecked(
-                    output_field.field_data.push_variable_sized_type_uninit(
+                    output_field.iter_hall.push_variable_sized_type_uninit(
                         FieldValueKind::BytesInline,
                         flags | field_value_flags::SHARED_VALUE,
                         os.len,
@@ -1225,7 +1225,7 @@ fn setup_output_targets(
             // just to be 'rust compliant' ...
             buf.extend(std::iter::repeat(0).take(os.len));
             output_field
-                .field_data
+                .iter_hall
                 .push_bytes_buffer(buf, os.run_len, true, false);
         };
         fmt.output_targets.push(OutputTarget {

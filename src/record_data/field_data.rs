@@ -373,7 +373,7 @@ impl Clone for FieldData {
         let mut fd = Self {
             data: AlignedBuf::with_capacity(self.data.len()),
             headers: Vec::with_capacity(self.headers.len()),
-            field_count: 0, //set by copy
+            field_count: 0, // set by copy
         };
         let fd_ref = &mut fd;
         let mut iter = self.iter();
@@ -458,7 +458,16 @@ impl FieldData {
         }
         fields_copied
     }
-
+    pub fn append_from_other<'a>(&mut self, other: &FieldData) -> usize {
+        let mut iter = other.iter();
+        Self::copy(&mut iter, &mut |f| f(self))
+    }
+    pub fn append_from_iter<'a>(
+        &mut self,
+        iter: &mut impl FieldIterator<'a>,
+    ) -> usize {
+        Self::copy(iter, &mut |f| f(self))
+    }
     pub fn copy<'a>(
         iter: &mut impl FieldIterator<'a>,
         targets_applicator: &mut impl FnMut(&mut dyn FnMut(&mut FieldData)),
