@@ -197,4 +197,8 @@ impl<AT: AccessKind> AccessMappings<AT> {
             None => self.input_field.as_ref(),
         }
     }
+    pub fn clear(&mut self) {
+        self.fields.clear();
+        self.input_field = None;
+    }
 }

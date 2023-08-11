@@ -24,7 +24,7 @@ use super::{
 
 pub type IterId = NonMaxU32;
 
-#[derive(Default, Clone, Copy)]
+#[derive(Default, Clone, Copy, PartialEq, Eq)]
 pub(super) enum FieldDataSource {
     #[default]
     Owned,
@@ -219,6 +219,15 @@ impl IterHall {
             iter,
             adapted_target_applicator,
         )
+    }
+    pub fn cow_field(&self) -> Option<FieldId> {
+        match self.data_source {
+            FieldDataSource::Owned => None,
+            FieldDataSource::Cow(src) => Some(src),
+            FieldDataSource::DataCow(src) => Some(src),
+            FieldDataSource::RecordBufferCow(_) => None,
+            FieldDataSource::RecordBufferDataCow(_) => None,
+        }
     }
     pub fn is_data_owned(&self) -> bool {
         self.data_source.is_data_owned()

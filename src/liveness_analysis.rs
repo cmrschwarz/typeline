@@ -97,6 +97,13 @@ pub struct LivenessData {
 }
 
 impl Var {
+    pub fn try_get_name(&self) -> Option<StringStoreEntry> {
+        match self {
+            Var::Named(name) => Some(*name),
+            Var::BBInput => None,
+            Var::UnreachableDummyVar => None,
+        }
+    }
     pub fn name<'a>(&self, string_store: &'a StringStore) -> &'a str {
         match self {
             Var::Named(n) => string_store.lookup(*n),

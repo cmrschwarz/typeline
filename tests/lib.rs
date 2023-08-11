@@ -1511,3 +1511,20 @@ fn forkcat_surviving_vars() -> Result<(), ScrError> {
     );
     Ok(())
 }
+
+#[test]
+fn forkcat_with_drop_in_sc() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::default();
+    ContextBuilder::default()
+        .add_op(create_op_seqn(1, 3, 1).unwrap())
+        .add_op(create_op_forkcat())
+        .add_op(create_op_regex("2").unwrap())
+        .add_op(create_op_next())
+        .add_op(create_op_nop())
+        .add_op(create_op_up(1))
+        .add_op(create_op_join(None, None, false))
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(ss.get_data().unwrap().as_slice(), ["2123"]);
+    Ok(())
+}

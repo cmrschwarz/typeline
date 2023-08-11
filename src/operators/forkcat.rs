@@ -3,17 +3,17 @@ use std::{cell::Cell, collections::HashMap};
 use bitvec::vec::BitVec;
 
 use crate::{
-    chain::{Chain, ChainId},
+    chain::Chain,
     context::Session,
     job_session::{JobData, JobSession},
     liveness_analysis::{
-        LivenessData, OpOutputIdx, Var, LOCAL_SLOTS_PER_BASIC_BLOCK,
+        LivenessData, OpOutputIdx, Var, DATA_WRITES_OFFSET,
+        HEADER_WRITES_OFFSET, LOCAL_SLOTS_PER_BASIC_BLOCK, READS_OFFSET,
     },
     options::argument::CliArgIdx,
     record_data::{
         command_buffer::FieldActionIndices,
         field::{FieldId, DUMMY_INPUT_FIELD_ID},
-        iter_hall::IterId,
         match_set::MatchSetId,
     },
     utils::{
@@ -29,44 +29,33 @@ use super::{
     },
     transform::{TransformData, TransformId, TransformState},
     utils::field_access_mappings::{
-        AccessKind, AccessMappings, FieldAccessMappings, FieldAccessMode,
-        WriteCountingAccessMappings,
+        AccessKind, AccessMappings, FieldAccessMode,
     },
 };
+
+#[derive(Clone, Copy)]
+enum OutputMapping {
+    OutputIdx(OpOutputIdx),
+    InputIndex(u32),
+}
 
 #[derive(Clone, Default)]
 pub struct OpForkCat {
     pub subchains_start: u32,
     pub subchains_end: u32,
     pub continuation: Option<OperatorId>,
-    // includes successors. used to select fields to copy / cow into subchain
-    pub accessed_fields_per_subchain: Vec<FieldAccessMappings>,
-    // all calls + all successors, used to decide whether to move or copy
-    // the data into the subchain based on whether it is the last access
-    pub accessed_fields_total: WriteCountingAccessMappings,
-    // which op outputs of the chain should be prealloced to point to which
-    // output name (eventually field in the tf)
+
+    // accessed names of any of the subchains or successors
+    accessed_names_of_subchains: Vec<Option<StringStoreEntry>>,
+
+    // index into accessed_names_of_subchains
+    accessed_names_per_subchain: Vec<Vec<usize>>,
+
+    // index into accessed_names_afterwards + OutputIdx
     // parallel to accessed_names_afterwards
-    output_mappings_per_subchain: Vec<Vec<Option<OpOutputIdx>>>,
-    // name -> index into accessed_names_afterwards
-    accessed_names_map: AccessMappings<AccessedNamesAfterwardsIndex>,
+    output_mappings_per_subchain: Vec<Vec<OutputMapping>>,
 
-    // accessed names of successors without any of the calls
-    // used to construct fields needed after the call for prebound_outputs
-    accessed_names: Vec<Option<StringStoreEntry>>,
-
-    names_used_after_scs: usize,
-}
-
-pub struct TfForkCatOutputMapping {
-    pub subchain_field_id: FieldId,
-    pub output_field_id: FieldId,
-}
-
-pub struct TfForkCatInputMapping {
-    pub source_field_id: FieldId,
-    pub source_field_iter: IterId,
-    pub mirror_field_id: FieldId,
+    accessed_names_afterwards: Vec<Option<StringStoreEntry>>,
 }
 
 pub struct TfForkCat<'a> {
@@ -80,20 +69,22 @@ pub struct TfForkCat<'a> {
     // temp buffer passed to setup_transforms_from_op. contains the fields
     // from output_mappings that the current subchain will write to
     pub prebound_outputs: HashMap<OpOutputIdx, FieldId, BuildIdentityHasher>,
+
+    pub input_mirror_fields: Vec<FieldId>,
     // Contains all fields that may be used by successors of the forkcat.
-    // if the subchain writes to a field name, this will be the sc output,
-    // otherwise it will be a mirror field, see below
+    // successor's match set, and have a cow source mirror fields
+    // in the subchain
     pub output_fields: Vec<FieldId>,
     // if the subchain does not shadow an input field, we add a cow'ed
     // copy of the field into to the subchain match set to get
     // actions applied to it
-    pub mirror_fields: Vec<Option<FieldId>>,
+    pub output_mirror_fields: Vec<FieldId>,
 }
 
 #[derive(Default, Clone)]
-struct AccessedNamesAfterwardsIndex(usize);
+struct AccessedNamesIndexed(usize);
 
-impl AccessKind for AccessedNamesAfterwardsIndex {
+impl AccessKind for AccessedNamesIndexed {
     type ContextType = usize;
 
     fn from_field_access_mode(
@@ -102,7 +93,7 @@ impl AccessKind for AccessedNamesAfterwardsIndex {
     ) -> Self {
         let idx = *output_idx;
         *output_idx += 1;
-        AccessedNamesAfterwardsIndex(idx)
+        AccessedNamesIndexed(idx)
     }
 
     fn append_field_access_mode(
@@ -152,41 +143,68 @@ pub fn setup_op_forkcat_liveness_data(
     let bb = &ld.basic_blocks[bb_id];
     let var_count = ld.vars.len();
 
-    let mut call = BitVec::<Cell<usize>>::new();
     let mut successors = BitVec::<Cell<usize>>::new();
-    let mut successors_copy = BitVec::<Cell<usize>>::new();
-    call.resize(var_count * LOCAL_SLOTS_PER_BASIC_BLOCK, false);
+    let mut calls = BitVec::<Cell<usize>>::new();
+    calls.resize(var_count * LOCAL_SLOTS_PER_BASIC_BLOCK, false);
     successors.resize(var_count * LOCAL_SLOTS_PER_BASIC_BLOCK, false);
-    successors_copy.resize(var_count * LOCAL_SLOTS_PER_BASIC_BLOCK, false);
+    ld.get_global_var_data_ored(&mut calls, bb.calls.iter());
     ld.get_global_var_data_ored(&mut successors, bb.successors.iter());
-    let mut count = 0;
-    op.accessed_names_map =
-        AccessMappings::<AccessedNamesAfterwardsIndex>::from_var_data(
-            &mut count,
+    let mut accessed_names_afterwards_count = 0;
+    let accessed_names_afterwards =
+        AccessMappings::<AccessedNamesIndexed>::from_var_data(
+            &mut accessed_names_afterwards_count,
             ld,
             &successors,
         );
-    op.names_used_after_scs = count;
-    for (sc_n, &callee_id) in bb.calls.iter().enumerate() {
-        let sc_n = sc_n as ChainId;
-        call.copy_from_bitslice(ld.get_global_var_data(callee_id));
-        ld.apply_bb_aliases(&call, &successors, &ld.basic_blocks[callee_id]);
-        successors_copy.copy_from_bitslice(&successors);
-        ld.kill_non_survivors(&mut successors_copy, &call);
-        call |= &successors_copy;
-        op.accessed_fields_per_subchain
-            .push(FieldAccessMappings::from_var_data(&mut (), ld, &call));
-        op.accessed_fields_total
-            .append_var_data(&mut sc_n.clone(), ld, &call);
-        op.accessed_names_map.append_var_data(&mut count, ld, &call);
+    op.accessed_names_afterwards
+        .resize(accessed_names_afterwards_count, None);
+    for (name, idx) in accessed_names_afterwards.iter_name_opt() {
+        op.accessed_names_afterwards[idx.0] = name;
     }
-    op.accessed_names.reserve(count);
-    for (name, _idx) in op.accessed_names_map.iter_name_opt() {
-        op.accessed_names.push(name);
+    ld.kill_non_survivors(&mut successors, &calls);
+    calls |= successors;
+    let mut accessed_names_of_subchains_count = 0;
+    let accessed_names_of_subchains =
+        AccessMappings::<AccessedNamesIndexed>::from_var_data(
+            &mut accessed_names_of_subchains_count,
+            ld,
+            &calls,
+        );
+    op.accessed_names_of_subchains
+        .resize(accessed_names_of_subchains_count, None);
+    for (name, idx) in accessed_names_of_subchains.iter_name_opt() {
+        op.accessed_names_of_subchains[idx.0] = name;
     }
-    for sc_n in 0..op.accessed_fields_per_subchain.len() {
+    for &callee_id in bb.calls.iter() {
+        let mut accessed_names = Vec::default();
+        let call_liveness = ld.get_global_var_data(callee_id);
+        let reads_range =
+            READS_OFFSET * var_count..(READS_OFFSET + 1) * var_count;
+        calls[reads_range.clone()].copy_from_bitslice(
+            &call_liveness
+                [READS_OFFSET * var_count..(READS_OFFSET + 1) * var_count],
+        );
+        for o in [HEADER_WRITES_OFFSET, DATA_WRITES_OFFSET] {
+            calls[reads_range.clone()] |=
+                &call_liveness[o * var_count..(o + 1) * var_count];
+        }
+        for i in calls[reads_range].iter_ones() {
+            let var_name = match ld.vars[i] {
+                Var::Named(name) => Some(name),
+                Var::BBInput => None,
+                Var::UnreachableDummyVar => continue,
+            };
+            accessed_names
+                .push(accessed_names_of_subchains.get(var_name).unwrap().0);
+        }
+        op.accessed_names_per_subchain.push(accessed_names);
+    }
+    for sc_n in 0..op.accessed_names_per_subchain.len() {
         let mut mappings = Vec::new();
-        mappings.resize(op.accessed_names.len(), None);
+        mappings.resize(
+            op.accessed_names_afterwards.len(),
+            OutputMapping::InputIndex(0),
+        );
         let sc_id = sess.chains
             [sess.operator_bases[op_id as usize].chain_id.unwrap() as usize]
             .subchains[op.subchains_start as usize + sc_n]
@@ -200,12 +218,21 @@ pub fn setup_op_forkcat_liveness_data(
                         Var::BBInput => None,
                         Var::UnreachableDummyVar => continue,
                     };
-                    if let Some(binding_after) =
-                        op.accessed_names_map.get(var_name)
+                    if let Some(idx) = accessed_names_afterwards.get(var_name)
                     {
-                        mappings[binding_after.0] = Some(oo_id);
+                        mappings[idx.0] = OutputMapping::OutputIdx(oo_id);
                     }
                 }
+            }
+        }
+        for (i, m) in mappings.iter_mut().enumerate() {
+            if let OutputMapping::InputIndex(_) = m {
+                *m = OutputMapping::InputIndex(
+                    accessed_names_of_subchains
+                        .get(op.accessed_names_afterwards[i])
+                        .unwrap()
+                        .0 as u32,
+                );
             }
         }
         op.output_mappings_per_subchain.push(mappings);
@@ -226,8 +253,13 @@ pub fn setup_tf_forkcat<'a>(
         input_size: 0,
         buffered_record_count: 0,
         prebound_outputs: Default::default(),
-        output_fields: Vec::with_capacity(op.accessed_names.len()),
-        mirror_fields: Vec::with_capacity(op.accessed_names.len()),
+        output_fields: Vec::with_capacity(op.accessed_names_afterwards.len()),
+        output_mirror_fields: Vec::with_capacity(
+            op.accessed_names_afterwards.len(),
+        ),
+        input_mirror_fields: Vec::with_capacity(
+            op.accessed_names_of_subchains.len(),
+        ),
     })
 }
 
@@ -280,7 +312,6 @@ pub fn handle_tf_forkcat(
 }
 fn expand_for_subchain(sess: &mut JobSession, tf_id: TransformId, sc_n: u32) {
     let tgt_ms_id = sess.job_data.match_set_mgr.add_match_set();
-    let mut chain_input_field = None;
     let forkcat = match_unwrap!(
         &mut sess.transform_data[tf_id.get()],
         TransformData::ForkCat(fc),
@@ -294,50 +325,56 @@ fn expand_for_subchain(sess: &mut JobSession, tf_id: TransformId, sc_n: u32) {
         [(forkcat.op.subchains_start + sc_n) as usize];
     let mut prebound_outputs = std::mem::take(&mut forkcat.prebound_outputs);
     prebound_outputs.clear();
-    for (i, op) in forkcat.op.output_mappings_per_subchain[sc_n as usize]
+
+    let mut subchain_input_field = DUMMY_INPUT_FIELD_ID;
+    for &idx in &forkcat.op.accessed_names_per_subchain[sc_n as usize] {
+        let input_mirror_field_id = forkcat.input_mirror_fields[idx];
+        let mut input_mirror_field =
+            sess.job_data.field_mgr.fields[input_mirror_field_id].borrow_mut();
+        input_mirror_field.match_set = tgt_ms_id;
+        input_mirror_field.action_indices = FieldActionIndices::default();
+        drop(input_mirror_field);
+        let tgt_ms = &mut sess.job_data.match_set_mgr.match_sets[tgt_ms_id];
+        let name = forkcat.op.accessed_names_of_subchains[idx];
+        if let Some(name) = name {
+            tgt_ms.field_name_map.insert(name, input_mirror_field_id);
+        } else {
+            subchain_input_field = input_mirror_field_id;
+        }
+    }
+
+    for (idx, &output_mapping) in forkcat.op.output_mappings_per_subchain
+        [sc_n as usize]
         .iter()
         .enumerate()
     {
-        let target_field = forkcat.output_fields[i];
-        if let Some(op_id) = op {
-            prebound_outputs.insert(*op_id, target_field);
-        } else {
-            let mirror_field_id = forkcat.mirror_fields[i];
-            if let Some(field_id) = mirror_field_id {
-                let mut field =
-                    sess.job_data.field_mgr.fields[field_id].borrow_mut();
-                field.match_set = tgt_ms_id;
-                field.action_indices = FieldActionIndices::default();
-                if field.has_cow_targets() {
-                    continue;
-                }
+        let output_mirror_field_id = forkcat.output_mirror_fields[idx];
+        let mut output_mirror_field = sess.job_data.field_mgr.fields
+            [output_mirror_field_id]
+            .borrow_mut();
+        output_mirror_field.match_set = tgt_ms_id;
+        output_mirror_field.action_indices = FieldActionIndices::default();
+        drop(output_mirror_field);
+        match output_mapping {
+            OutputMapping::OutputIdx(output_idx) => {
+                prebound_outputs.insert(output_idx, output_mirror_field_id);
             }
-            sess.job_data.field_mgr.setup_cow(
-                &mut sess.job_data.match_set_mgr,
-                target_field,
-                mirror_field_id.unwrap_or(DUMMY_INPUT_FIELD_ID),
-            );
+            OutputMapping::InputIndex(input_idx) => {
+                sess.job_data.field_mgr.setup_cow(
+                    &mut sess.job_data.match_set_mgr,
+                    output_mirror_field_id,
+                    forkcat.input_mirror_fields[input_idx as usize],
+                );
+            }
         }
     }
-    let accessed_fields_of_sc =
-        &forkcat.op.accessed_fields_per_subchain[sc_n as usize];
-    for (name, _) in accessed_fields_of_sc.iter_name_opt() {
-        let tgt_ms = &mut sess.job_data.match_set_mgr.match_sets[tgt_ms_id];
-        let mirror_field_idx =
-            forkcat.op.accessed_names_map.get(name).unwrap().0;
-        let mirror_field_id = forkcat.mirror_fields[mirror_field_idx].unwrap();
-        if let Some(name) = name {
-            tgt_ms.field_name_map.insert(name, mirror_field_id);
-        } else {
-            chain_input_field = Some(mirror_field_id);
-        }
-    }
+
     let (start_tf, end_tf, end_reachable) = sess
         .setup_transforms_with_stable_start(
             tgt_ms_id,
             sc_id,
             sess.job_data.session_data.chains[sc_id as usize].operators[0],
-            chain_input_field.unwrap_or(DUMMY_INPUT_FIELD_ID),
+            subchain_input_field,
             &prebound_outputs,
             false,
         );
@@ -354,70 +391,73 @@ fn expand_for_subchain(sess: &mut JobSession, tf_id: TransformId, sc_n: u32) {
     forkcat.curr_subchain_start = Some(start_tf);
     forkcat.prebound_outputs = prebound_outputs;
     #[cfg(feature = "debug_logging")]
-    sess.log_state(&format!("expanded sc #{sc_n} for forkcat"));
+    {
+        println!("input mirror fields: {:?}", forkcat.input_mirror_fields);
+        println!("output mirror fields: {:?}", forkcat.output_mirror_fields);
+        println!("output fields: {:?}", forkcat.output_fields);
+        sess.log_state(&format!("expanded sc #{sc_n} for forkcat"));
+    }
 }
 fn setup_continuation(sess: &mut JobSession, tf_id: TransformId) {
     let tf = &sess.job_data.tf_mgr.transforms[tf_id];
     let tf_input_field = tf.input_field;
     let src_ms = tf.match_set_id;
-    let field_name_map =
-        &sess.job_data.match_set_mgr.match_sets[src_ms].field_name_map;
     let forkcat = match_unwrap!(
         &mut sess.transform_data[tf_id.get()],
         TransformData::ForkCat(fc),
         fc
     );
-    for (name, _mode) in forkcat.op.accessed_fields_total.iter_name_opt() {
-        let field_id = if let Some(name) = name {
+    for &name in &forkcat.op.accessed_names_of_subchains {
+        let field_name_map =
+            &sess.job_data.match_set_mgr.match_sets[src_ms].field_name_map;
+        let input_field_id = if let Some(name) = name {
             if let Some(field) = field_name_map.get(&name) {
                 *field
             } else {
-                continue;
+                DUMMY_INPUT_FIELD_ID
             }
         } else {
             tf_input_field
         };
-        let f = sess.job_data.field_mgr.fields[field_id].borrow();
+        let f = sess.job_data.field_mgr.fields[input_field_id].borrow();
         f.request_clear_delay();
+        drop(f);
+        let mirror_field_id =
+            sess.job_data.field_mgr.add_field(MatchSetId::MAX, None);
+        sess.job_data.field_mgr.fields[mirror_field_id]
+            .borrow_mut()
+            .name = name;
+        sess.job_data.field_mgr.setup_cow(
+            &mut sess.job_data.match_set_mgr,
+            mirror_field_id,
+            input_field_id,
+        );
+        forkcat.input_mirror_fields.push(mirror_field_id);
     }
 
     let output_ms_id = sess.job_data.match_set_mgr.add_match_set();
-    for name in &forkcat.op.accessed_names {
-        let field_id = sess.job_data.field_mgr.add_field(output_ms_id, None);
+    for name in &forkcat.op.accessed_names_afterwards {
+        let output_field_id =
+            sess.job_data.field_mgr.add_field(output_ms_id, None);
         if let Some(name) = name {
             sess.job_data.match_set_mgr.set_field_name(
                 &sess.job_data.field_mgr,
-                field_id,
+                output_field_id,
                 *name,
             );
         }
-        forkcat.output_fields.push(field_id);
-        // PERF: if all fields overwrite the input field, we don't need this
-        // ms id will be overwritten later to point to the current subchain
-        let src_field = if let Some(name) = name {
-            sess.job_data.match_set_mgr.match_sets[src_ms]
-                .field_name_map
-                .get(name)
-                .copied()
-        } else {
-            Some(tf_input_field)
-        };
-        let mirror_field_id = if let Some(src_field) = src_field {
-            let mirror_field_id =
-                sess.job_data.field_mgr.add_field(MatchSetId::MAX, None);
-            sess.job_data.field_mgr.setup_cow(
-                &mut sess.job_data.match_set_mgr,
-                mirror_field_id,
-                src_field,
-            );
-            sess.job_data.field_mgr.fields[mirror_field_id]
-                .borrow_mut()
-                .name = *name;
-            Some(mirror_field_id)
-        } else {
-            None
-        };
-        forkcat.mirror_fields.push(mirror_field_id);
+        forkcat.output_fields.push(output_field_id);
+        let mirror_field_id =
+            sess.job_data.field_mgr.add_field(MatchSetId::MAX, None);
+        sess.job_data.field_mgr.fields[mirror_field_id]
+            .borrow_mut()
+            .name = *name;
+        sess.job_data.field_mgr.setup_cow(
+            &mut sess.job_data.match_set_mgr,
+            output_field_id,
+            mirror_field_id,
+        );
+        forkcat.output_mirror_fields.push(mirror_field_id);
     }
     let cont_op_id = if let Some(cont) = forkcat.op.continuation {
         cont
@@ -437,12 +477,12 @@ fn setup_continuation(sess: &mut JobSession, tf_id: TransformId) {
         [cont_op_id as usize]
         .chain_id
         .unwrap();
-    let cont_input_field = if forkcat.op.accessed_names.first() == Some(&None)
-    {
-        forkcat.output_fields[0]
-    } else {
-        DUMMY_INPUT_FIELD_ID
-    };
+    let cont_input_field =
+        if forkcat.op.accessed_names_afterwards.first() == Some(&None) {
+            forkcat.output_fields[0]
+        } else {
+            DUMMY_INPUT_FIELD_ID
+        };
     let (start_tf, end_tf, end_reachable) = sess
         .setup_transforms_with_stable_start(
             output_ms_id,
@@ -479,7 +519,11 @@ pub(crate) fn handle_forkcat_expansion(
                 .field_mgr
                 .drop_field_refcount(f, &mut sess.job_data.match_set_mgr);
         }
-        for &f in fc.mirror_fields.iter().flatten() {
+        for &f in fc
+            .input_mirror_fields
+            .iter()
+            .chain(fc.output_mirror_fields.iter())
+        {
             sess.job_data
                 .field_mgr
                 .drop_field_refcount(f, &mut sess.job_data.match_set_mgr);
@@ -497,7 +541,6 @@ pub(crate) fn handle_forkcat_expansion(
         for &of in &fc.output_fields {
             let mut f = sess.job_data.field_mgr.fields[of].borrow_mut();
             f.iter_hall.reset_iterators();
-            // TODO: clear delay
             assert!(f.get_clear_delay_request_count() == 0);
             let msm = &mut sess.job_data.match_set_mgr.match_sets[f.match_set];
             msm.command_buffer

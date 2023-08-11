@@ -344,10 +344,25 @@ impl FieldManager {
         data_source_id: FieldId,
     ) {
         let mut field = self.fields[field_id].borrow_mut();
-        if let (Some(cow_src), _) = field.iter_hall.cow_source_field() {
-            drop(field);
-            self.uncow(msm, cow_src);
-            field = self.fields[field_id].borrow_mut();
+        field.iter_hall.field_data.clear();
+        if let (Some(cow_src_id), _) = field.iter_hall.cow_source_field() {
+            let mut cow_src = self.fields[cow_src_id].borrow_mut();
+            let cow_tgt_pos = cow_src
+                .iter_hall
+                .cow_targets
+                .iter()
+                .position(|t| *t == field_id)
+                .unwrap();
+            cow_src.iter_hall.cow_targets.swap_remove(cow_tgt_pos);
+            field.field_refs.clear();
+        } else {
+            for i in 0..field.field_refs.len() {
+                let fr = field.field_refs[i];
+                drop(field);
+                self.drop_field_refcount(fr, msm);
+                field = self.fields[field_id].borrow_mut();
+            }
+            field.field_refs.clear();
         }
         let mut data_source = self.fields[data_source_id].borrow_mut();
         data_source.ref_count += 1;

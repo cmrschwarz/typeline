@@ -419,6 +419,9 @@ impl CommandBuffer {
         }
 
         let min_apf_idx = fai.min_apf_idx.unwrap();
+        if self.action_producing_fields.get(min_apf_idx).is_none() {
+            return;
+        }
         let curr_apf_idx = fai.curr_apf_idx.as_mut().unwrap();
         let first_unapplied_al_idx = &mut fai.first_unapplied_al_idx;
         let prev_curr_apf_idx = *curr_apf_idx;
