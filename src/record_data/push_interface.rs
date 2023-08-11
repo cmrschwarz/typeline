@@ -700,10 +700,10 @@ pub trait PushInterface: RawPushInterface {
             );
         }
     }
-    fn push_success(&mut self, run_length: usize, try_header_rle: bool) {
+    fn push_undefined(&mut self, run_length: usize, try_header_rle: bool) {
         unsafe {
             self.push_zst_unchecked(
-                FieldValueKind::Success,
+                FieldValueKind::Undefined,
                 field_value_flags::DEFAULT,
                 run_length,
                 try_header_rle,

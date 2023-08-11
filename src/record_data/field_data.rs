@@ -33,7 +33,7 @@ pub type RunLength = u32;
 #[derive(Clone, Copy, PartialEq)]
 #[repr(u8)]
 pub enum FieldValueKind {
-    Success,
+    Undefined,
     Null,
     Integer, // TODO: bigint, float, decimal, ...
     StreamValueId,
@@ -48,7 +48,7 @@ pub enum FieldValueKind {
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum FieldDataType {
-    Success,
+    Undefined,
     Null,
     Integer,
     Error,
@@ -62,7 +62,7 @@ impl FieldValueKind {
     pub fn needs_drop(self) -> bool {
         use FieldValueKind::*;
         match self {
-            Success | Null | Integer | Reference | StreamValueId => false,
+            Undefined | Null | Integer | Reference | StreamValueId => false,
             Error | Html | BytesInline | BytesBuffer | BytesFile | Object => {
                 true
             }
@@ -71,7 +71,7 @@ impl FieldValueKind {
     #[inline(always)]
     pub fn needs_alignment(self) -> bool {
         use FieldValueKind::*;
-        !matches!(self, Success | Null | BytesInline)
+        !matches!(self, Undefined | Null | BytesInline)
     }
     #[inline]
     pub fn needs_copy(self) -> bool {
@@ -115,7 +115,7 @@ impl FieldValueKind {
     }
     pub fn size(self) -> usize {
         match self {
-            FieldValueKind::Success => 0,
+            FieldValueKind::Undefined => 0,
             FieldValueKind::Null => 0,
             FieldValueKind::Integer => std::mem::size_of::<i64>(),
             FieldValueKind::StreamValueId => {
@@ -150,9 +150,8 @@ impl FieldValueKind {
     }
 }
 
-pub struct Unset;
 pub struct Null;
-pub struct Success;
+pub struct Undefined;
 
 #[derive(Clone)]
 #[allow(dead_code)] // TODO
@@ -577,7 +576,7 @@ impl FieldData {
                             });
                         }
                     }
-                    TypedSlice::Success(_)
+                    TypedSlice::Undefined(_)
                     | TypedSlice::Null(_)
                     | TypedSlice::Integer(_)
                     | TypedSlice::StreamValueId(_)
@@ -653,7 +652,7 @@ unsafe fn append_data(
 ) {
     unsafe {
         match ts {
-            TypedSlice::Null(_) | TypedSlice::Success(_) => (),
+            TypedSlice::Null(_) | TypedSlice::Undefined(_) => (),
             TypedSlice::Integer(v) => extend_raw(target_applicator, v),
             TypedSlice::StreamValueId(v) => extend_raw(target_applicator, v),
             TypedSlice::Reference(v) => extend_raw(target_applicator, v),

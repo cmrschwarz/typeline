@@ -4,7 +4,7 @@ use super::{
     field_data::{
         field_value_flags, FieldReference, FieldValueFlags, FieldValueFormat,
         FieldValueHeader, FieldValueKind, Html, Null, Object, RunLength,
-        Success,
+        Undefined,
     },
     iters::FieldDataRef,
     stream_value::StreamValueId,
@@ -14,7 +14,7 @@ use std::ops::Deref;
 
 pub enum TypedValue<'a> {
     Null(Null),
-    Success(Success),
+    Undefined(Undefined),
     Integer(&'a i64),
     StreamValueId(&'a StreamValueId),
     Reference(&'a FieldReference),
@@ -35,7 +35,7 @@ impl<'a> TypedValue<'a> {
         unsafe {
             match fmt.kind {
                 FieldValueKind::Null => TypedValue::Null(Null),
-                FieldValueKind::Success => TypedValue::Success(Success),
+                FieldValueKind::Undefined => TypedValue::Undefined(Undefined),
                 FieldValueKind::BytesInline => {
                     if fmt.flags & field_value_flags::BYTES_ARE_UTF8 != 0 {
                         TypedValue::TextInline(std::str::from_utf8_unchecked(
@@ -76,7 +76,7 @@ impl<'a> TypedValue<'a> {
     }
     pub fn as_slice(&self) -> TypedSlice<'a> {
         match self {
-            TypedValue::Success(_) => TypedSlice::Success(&[Success]),
+            TypedValue::Undefined(_) => TypedSlice::Undefined(&[Undefined]),
             TypedValue::Null(_) => TypedSlice::Null(&[Null]),
             TypedValue::Integer(v) => {
                 TypedSlice::Integer(std::slice::from_ref(v))
@@ -126,7 +126,7 @@ impl<'a> TypedField<'a> {
 
 #[derive(Clone, Copy)]
 pub enum TypedSlice<'a> {
-    Success(&'a [Success]),
+    Undefined(&'a [Undefined]),
     Null(&'a [Null]),
     Integer(&'a [i64]),
     StreamValueId(&'a [StreamValueId]),
@@ -177,8 +177,8 @@ impl<'a> TypedSlice<'a> {
     ) -> TypedSlice<'a> {
         unsafe {
             match fmt.kind {
-                FieldValueKind::Success => {
-                    TypedSlice::Success(to_zst_slice(field_count))
+                FieldValueKind::Undefined => {
+                    TypedSlice::Undefined(to_zst_slice(field_count))
                 }
                 FieldValueKind::Null => {
                     TypedSlice::Null(to_zst_slice(field_count))
@@ -225,7 +225,7 @@ impl<'a> TypedSlice<'a> {
     }
     pub fn as_bytes(&self) -> &[u8] {
         match self {
-            TypedSlice::Success(_) => &[],
+            TypedSlice::Undefined(_) => &[],
             TypedSlice::Null(_) => &[],
             TypedSlice::Integer(v) => slice_as_bytes(v),
             TypedSlice::StreamValueId(v) => slice_as_bytes(v),
@@ -240,7 +240,7 @@ impl<'a> TypedSlice<'a> {
     }
     pub fn type_id(&self) -> TypeId {
         match self {
-            TypedSlice::Success(_) => TypeId::of::<Success>(),
+            TypedSlice::Undefined(_) => TypeId::of::<Undefined>(),
             TypedSlice::Null(_) => TypeId::of::<Null>(),
             TypedSlice::Integer(_) => TypeId::of::<i64>(),
             TypedSlice::StreamValueId(_) => TypeId::of::<StreamValueId>(),
@@ -255,7 +255,7 @@ impl<'a> TypedSlice<'a> {
     }
     pub fn len(&self) -> usize {
         match self {
-            TypedSlice::Success(v) => v.len(),
+            TypedSlice::Undefined(v) => v.len(),
             TypedSlice::Null(v) => v.len(),
             TypedSlice::Integer(v) => v.len(),
             TypedSlice::StreamValueId(v) => v.len(),
@@ -288,7 +288,7 @@ impl<'a> TypedSlice<'a> {
             (TypeId::of::<T>(), drop_slice::<T>)
         }
         let drop_fns: [(TypeId, DropFn); 10] = [
-            drop_fn_case::<Success>(),
+            drop_fn_case::<Undefined>(),
             drop_fn_case::<Null>(),
             drop_fn_case::<i64>(),
             drop_fn_case::<StreamValueId>(),

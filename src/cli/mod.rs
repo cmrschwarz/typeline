@@ -208,7 +208,7 @@ fn try_parse_as_context_opt(
                 "print" | "p" => include_str!("help_sections/print.txt"),
                 "regex" | "r" => include_str!("help_sections/regex.txt"),
                 "types" | "int" | "str" | "~str" | "bytes" | "~bytes"
-                | "error" | "~error" | "null" | "success" => {
+                | "error" | "~error" | "null" | "undefined" => {
                     include_str!("help_sections/types.txt")
                 }
                 _ => {

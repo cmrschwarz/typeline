@@ -356,16 +356,19 @@ fn unset_field_value() -> Result<(), ScrError> {
 }
 
 #[test]
-fn unset_field_value_debug_repr_is_null() -> Result<(), ScrError> {
+fn unset_field_value_debug_repr_is_undefined() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .push_str("x", 1)
         .add_op(create_op_key("foo".to_owned()))
         .add_op(create_op_seq(0, 2, 1).unwrap())
-        .add_op(create_op_format("{foo:?}{}".as_bytes()).unwrap())
+        .add_op(create_op_format("{foo:?}_{}".as_bytes()).unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
-    assert_eq!(ss.get_data().unwrap().as_slice(), &["\"x\"0", "null1"]);
+    assert_eq!(
+        ss.get_data().unwrap().as_slice(),
+        &["\"x\"_0", "undefined_1"]
+    );
     Ok(())
 }
 

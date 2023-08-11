@@ -37,7 +37,7 @@ use super::{
         OperatorBase, OperatorData, OperatorId, DEFAULT_OP_NAME_SMALL_STR_LEN,
     },
     transform::{TransformData, TransformId, TransformState},
-    utils::{NULL_STR, SUCCESS_STR},
+    utils::{NULL_STR, UNDEFINED_STR},
 };
 
 #[derive(Default)]
@@ -270,7 +270,7 @@ pub fn push_errors(
     if successes_so_far > 0 {
         output_field
             .iter_hall
-            .push_success(field_pos - *last_error_end, true);
+            .push_null(field_pos - *last_error_end, true);
         output_field.iter_hall.push_error(
             err.clone(),
             run_length,
@@ -359,8 +359,19 @@ pub fn handle_tf_string_sink(
                     pos += rl as usize;
                 }
             }
-            TypedSlice::Success(_) => {
-                push_str(&mut out, SUCCESS_STR, range.base.field_count);
+            TypedSlice::Undefined(_) => {
+                push_errors(
+                    &mut out,
+                    &OperatorApplicationError::new(
+                        "value is undefined",
+                        op_id,
+                    ),
+                    range.base.field_count,
+                    field_pos,
+                    &mut last_error_end,
+                    &mut output_field,
+                );
+                push_str(&mut out, UNDEFINED_STR, range.base.field_count);
             }
             TypedSlice::StreamValueId(svs) => {
                 let mut pos = field_pos;
@@ -442,7 +453,7 @@ pub fn handle_tf_string_sink(
         .store_iter(input_field_id, ss.batch_iter, base_iter);
     let success_count = field_pos - last_error_end;
     if success_count > 0 {
-        output_field.iter_hall.push_success(success_count, true);
+        output_field.iter_hall.push_null(success_count, true);
     }
     drop(input_field);
     drop(output_field);

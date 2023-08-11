@@ -5,18 +5,10 @@ Syntax:
 
 Genral:
     Attempts to convert the input value into the target type.
+    See `scr h=types` for a list of types.
 
 Examples:
     scr int@in=3 to_str f="{in:?} -> {:?}" p
-
-Types:
-    str       Text encoded as UTF-8
-    bytes     Sequence of raw bytes
-    int       An Integer
-    null      The <null> value, as present in JSON, Python (None), or SQL (NULL)
-    success   Output of a previous command (e.g. `p` or `w`) indicating success
-    html
-    error
 
 Options:
     -l

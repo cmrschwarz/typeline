@@ -427,7 +427,7 @@ pub fn handle_tf_join(
                 TypedSlice::Error(errs) => {
                     push_error(join, sv_mgr, errs[0].clone());
                 }
-                TypedSlice::Null(_) | TypedSlice::Success(_) => {
+                TypedSlice::Null(_) | TypedSlice::Undefined(_) => {
                     let str = typed_slice_zst_str(&range.base.data);
                     push_error(
                         join,

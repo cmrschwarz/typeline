@@ -44,7 +44,7 @@ use super::{
     operator::{OperatorBase, OperatorData, OperatorId},
     print::typed_slice_zst_str,
     transform::{TransformData, TransformId, TransformState},
-    utils::{ERROR_PREFIX_STR, NULL_STR},
+    utils::{ERROR_PREFIX_STR, UNDEFINED_STR},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -1036,7 +1036,19 @@ pub fn setup_key_output_state(
                     }
                 }
             }
-            TypedSlice::Null(_) | TypedSlice::Success(_) if debug_format => {
+            TypedSlice::Null(_) => {
+                let len = typed_slice_zst_str(&range.base.data).len();
+                iter_output_states_advanced(
+                    &mut fmt.output_states,
+                    &mut output_index,
+                    range.base.field_count,
+                    |o| {
+                        o.len +=
+                            calc_text_len(k, len, o.width_lookup, &mut || len);
+                    },
+                );
+            }
+            TypedSlice::Undefined(_) if debug_format => {
                 let len = typed_slice_zst_str(&range.base.data).len();
                 iter_output_states_advanced(
                     &mut fmt.output_states,
@@ -1063,9 +1075,7 @@ pub fn setup_key_output_state(
                     });
                 }
             }
-            TypedSlice::Success(_)
-            | TypedSlice::Null(_)
-            | TypedSlice::Error(_) => {
+            TypedSlice::Undefined(_) | TypedSlice::Error(_) => {
                 debug_assert!(!k.alternate_form);
                 iter_output_states_advanced(
                     &mut fmt.output_states,
@@ -1091,9 +1101,9 @@ pub fn setup_key_output_state(
             if debug_format {
                 o.len += calc_text_len(
                     k,
-                    NULL_STR.len(),
+                    UNDEFINED_STR.len(),
                     o.width_lookup,
-                    &mut || NULL_STR.len(),
+                    &mut || UNDEFINED_STR.len(),
                 );
             } else {
                 o.error_occured = true
@@ -1523,7 +1533,7 @@ fn write_fmt_key(
                     },
                 );
             }
-            TypedSlice::Success(_) if debug_format => {
+            TypedSlice::Undefined(_) if debug_format => {
                 let data = typed_slice_zst_str(&range.base.data).as_bytes();
                 iter_output_targets(
                     fmt,
@@ -1633,7 +1643,7 @@ fn write_fmt_key(
                     }
                 }
             }
-            TypedSlice::Success(_)
+            TypedSlice::Undefined(_)
             | TypedSlice::Error(_)
             | TypedSlice::Html(_)
             | TypedSlice::Object(_) => {
@@ -1657,7 +1667,7 @@ fn write_fmt_key(
             &mut output_index,
             unconsumed_fields,
             |tgt| unsafe {
-                write_padded_bytes(k, tgt, NULL_STR.as_bytes());
+                write_padded_bytes(k, tgt, UNDEFINED_STR.as_bytes());
             },
         );
     }

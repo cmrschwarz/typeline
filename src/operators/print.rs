@@ -31,7 +31,7 @@ use super::{
     errors::{OperatorApplicationError, OperatorCreationError},
     operator::{OperatorBase, OperatorData},
     transform::{TransformData, TransformId, TransformState},
-    utils::{ERROR_PREFIX_STR, NULL_STR, SUCCESS_STR},
+    utils::{ERROR_PREFIX_STR, NULL_STR, UNDEFINED_STR},
 };
 
 #[derive(Clone)]
@@ -79,7 +79,7 @@ pub fn create_op_print() -> OperatorData {
 
 pub fn typed_slice_zst_str(ts: &TypedSlice) -> &'static str {
     match ts {
-        TypedSlice::Success(_) => SUCCESS_STR,
+        TypedSlice::Undefined(_) => UNDEFINED_STR,
         TypedSlice::Null(_) => NULL_STR,
         _ => unreachable!(),
     }
@@ -218,7 +218,7 @@ pub fn handle_tf_print_raw(
                     *handled_field_count += 1;
                 }
             }
-            TypedSlice::Null(_) | TypedSlice::Success(_) => {
+            TypedSlice::Null(_) | TypedSlice::Undefined(_) => {
                 let zst_str = typed_slice_zst_str(&range.base.data);
                 for _ in 0..range.base.field_count {
                     stdout.write_fmt(format_args!("{zst_str}\n"))?;
@@ -319,16 +319,14 @@ pub fn handle_tf_print(
     match res {
         Ok(()) => {
             if handled_field_count > 0 {
-                output_field
-                    .iter_hall
-                    .push_success(handled_field_count, true);
+                output_field.iter_hall.push_null(handled_field_count, true);
             }
         }
         Err(err) => {
             let nsucc = handled_field_count;
             let nfail = batch_size - nsucc;
             if nsucc > 0 {
-                output_field.iter_hall.push_success(nsucc, true);
+                output_field.iter_hall.push_null(nsucc, true);
             }
             let e = OperatorApplicationError {
                 op_id,
@@ -377,7 +375,7 @@ pub fn handle_tf_print_stream_value_update(
     let tf = &sess.tf_mgr.transforms[tf_id];
     let mut output_field = sess.field_mgr.fields[tf.output_field].borrow_mut();
     if success_count > 0 {
-        output_field.iter_hall.push_success(success_count, true);
+        output_field.iter_hall.push_null(success_count, true);
     }
     if error_count > 0 {
         output_field.iter_hall.push_error(

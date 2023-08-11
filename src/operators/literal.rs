@@ -27,7 +27,7 @@ pub enum Literal {
     StreamString(String),
     Int(i64),
     Null,
-    Success,
+    Undefined,
     Error(String),
     StreamError(String),
 }
@@ -51,7 +51,7 @@ impl OpLiteral {
         let mut res = SmallString::new();
         match self.data {
             Literal::Null => res.push_str("null"),
-            Literal::Success => res.push_str("success"),
+            Literal::Undefined => res.push_str("undefined"),
             Literal::String(_) => res.push_str("str"),
             Literal::StreamString(_) => res.push_str("~str"),
             Literal::Bytes(_) => res.push_str("bytes"),
@@ -104,7 +104,9 @@ pub fn handle_tf_literal(
                 output_field.iter_hall.push_int(*i, 1, true, true)
             }
             Literal::Null => output_field.iter_hall.push_null(1, true),
-            Literal::Success => output_field.iter_hall.push_success(1, true),
+            Literal::Undefined => {
+                output_field.iter_hall.push_undefined(1, true)
+            }
             Literal::StreamError(ss) => {
                 let sv_id = sess.sv_mgr.stream_values.claim_with_value(
                     StreamValue::new(
@@ -354,9 +356,9 @@ pub fn parse_op_literal(
             insert_count,
             arg_idx,
         ),
-        v @ "success" => parse_op_literal_zst(
+        v @ "undefined" => parse_op_literal_zst(
             v,
-            Literal::Success,
+            Literal::Undefined,
             value,
             insert_count,
             arg_idx,
@@ -404,5 +406,5 @@ pub fn create_op_null(insert_count: usize) -> OperatorData {
     create_op_literal_n(Literal::Null, insert_count)
 }
 pub fn create_op_success(insert_count: usize) -> OperatorData {
-    create_op_literal_n(Literal::Success, insert_count)
+    create_op_literal_n(Literal::Undefined, insert_count)
 }

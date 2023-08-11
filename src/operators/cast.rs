@@ -39,7 +39,7 @@ impl OpCast {
     ) -> SmallString<[u8; DEFAULT_OP_NAME_SMALL_STR_LEN]> {
         match self.target_type {
             FieldDataType::Html => "html",
-            FieldDataType::Success => "success",
+            FieldDataType::Undefined => "undefined",
             FieldDataType::Null => "null",
             FieldDataType::Integer => "int",
             FieldDataType::Error => "error",
@@ -52,7 +52,7 @@ impl OpCast {
 }
 
 lazy_static::lazy_static! {
-    static ref ARG_REGEX: Regex = Regex::new(r"^to_(?<type>int|bytes|str|(?:~)error|null|success)?$").unwrap();
+    static ref ARG_REGEX: Regex = Regex::new(r"^to_(?<type>int|bytes|str|(?:~)error|null|undefined)?$").unwrap();
 }
 
 pub fn argument_matches_op_cast(arg: &str, value: Option<&[u8]>) -> bool {
@@ -82,7 +82,7 @@ pub fn parse_op_cast(
         "str" => FieldDataType::Text,
         "error" => FieldDataType::Error,
         "null" => FieldDataType::Null,
-        "success" => FieldDataType::Success,
+        "undefined" => FieldDataType::Undefined,
         _ => unreachable!(),
     };
     // TODO: parse options
@@ -153,7 +153,7 @@ pub fn setup_tf_cast<'a>(
     tf_state: &mut TransformState,
 ) -> TransformData<'a> {
     tf_state.preferred_input_type = Some(match op.target_type {
-        FieldDataType::Success => FieldValueKind::Success,
+        FieldDataType::Undefined => FieldValueKind::Undefined,
         FieldDataType::Null => FieldValueKind::Null,
         FieldDataType::Integer => FieldValueKind::Integer,
         FieldDataType::Error => FieldValueKind::Error,

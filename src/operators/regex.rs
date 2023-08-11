@@ -980,7 +980,7 @@ pub fn handle_tf_regex(
             }
             TypedSlice::Reference(_) => unreachable!(),
             TypedSlice::Null(_)
-            | TypedSlice::Success(_)
+            | TypedSlice::Undefined(_)
             | TypedSlice::Error(_)
             | TypedSlice::Html(_)
             | TypedSlice::Object(_) => {

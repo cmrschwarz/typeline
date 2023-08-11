@@ -201,8 +201,14 @@ pub fn parse_op_seq(
             arg_idx,
         ));
     }
-    let mut start = match parts.len() {
-        1 => 0,
+    let start = match parts.len() {
+        1 => {
+            if natural_number_mode {
+                1
+            } else {
+                0
+            }
+        }
         2 | 3 => parse_int_with_units(parts[0]).map_err(|msg| {
             OperatorCreationError::new_s(
                 format!("failed to parse sequence start as integer: {msg}"),
@@ -239,7 +245,6 @@ pub fn parse_op_seq(
         )
     })?;
     if natural_number_mode {
-        start += 1;
         end += 1;
     }
     create_op_seq_with_cli_arg_idx(start, end, step, stop_after_input, arg_idx)
