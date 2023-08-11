@@ -159,10 +159,10 @@ impl FieldManager {
             FieldDataSource::Owned
             | FieldDataSource::RecordBufferDataCow(_)
             | FieldDataSource::DataCow(_)
-            | FieldDataSource::RecordBufferCow(_) => (
-                Ref::map(fr, |f| &f.field_data.headers),
-                fr.field_data.field_count,
-            ),
+            | FieldDataSource::RecordBufferCow(_) => {
+                let field_count = fr.field_data.field_count;
+                (Ref::map(fr, |f| &f.field_data.headers), field_count)
+            }
         }
     }
     pub fn get_field_data_for_iter_hall<'a>(
@@ -177,24 +177,17 @@ impl FieldManager {
                     |f| &f.iter_hall,
                 )),
             FieldDataSource::RecordBufferCow(_)
-            | FieldDataSource::RecordBufferDataCow(_) => Ref::map(fr, |f| {
-                if let FieldDataSource::RecordBufferDataCow {
-                    data_ref: data,
-                    ..
-                } = &f.data_source
-                {
-                    &unsafe { &*(**data).get() }.data
-                } else {
-                    unreachable!()
-                }
-            }),
-            FieldDataSource::Owned(_) => Ref::map(fr, |f| {
-                if let FieldDataSource::Owned(fd) = &f.data_source {
-                    &fd.data
-                } else {
-                    unreachable!()
-                }
-            }),
+            | FieldDataSource::RecordBufferDataCow(_)
+            | FieldDataSource::Owned => {
+                Ref::map(fr, |f| match f.data_source {
+                    FieldDataSource::RecordBufferCow(data_ref)
+                    | FieldDataSource::RecordBufferDataCow(data_ref) => {
+                        &unsafe { &*(*data_ref).get() }.data
+                    }
+                    FieldDataSource::Owned => &f.field_data.data,
+                    _ => unreachable!(),
+                })
+            }
         }
     }
     // returns false if it was uncow'ed
@@ -207,12 +200,12 @@ impl FieldManager {
         let cow_source = self.fields[cow_source_id].borrow_mut();
         let mut field = self.fields[field_id].borrow_mut();
         match &field.iter_hall.data_source {
-            FieldDataSource::Owned(_) => {
+            FieldDataSource::Owned => {
                 panic!("propagate_clear called for FieldDataSource::Owned")
             }
             FieldDataSource::Cow(_) => (),
             FieldDataSource::RecordBufferCow(_) => (),
-            FieldDataSource::DataCow { data_ref, .. } => {
+            FieldDataSource::DataCow(data_ref) => {
                 if field.get_clear_delay_request_count() > 0 {
                     return false;
                 } else {
@@ -220,7 +213,7 @@ impl FieldManager {
                         FieldDataSource::Cow(*data_ref);
                 }
             }
-            FieldDataSource::RecordBufferDataCow { data_ref, .. } => {
+            FieldDataSource::RecordBufferDataCow(data_ref) => {
                 if field.get_clear_delay_request_count() > 0 {
                     return false;
                 } else {
@@ -245,8 +238,7 @@ impl FieldManager {
             } else {
                 let mut cow_tgt = self.fields[cow_tgt_id].borrow_mut();
                 field.iter_hall.cow_targets.swap_remove(i);
-
-                cow_tgt.iter_hall.data_source.uncow_get_field_with_rc(self);
+                cow_tgt.iter_hall.uncow_get_field_with_rc(self);
             }
         }
         true
@@ -257,7 +249,7 @@ impl FieldManager {
         field_id: FieldId,
     ) {
         let mut field = self.fields[field_id].borrow_mut();
-        let FieldDataSource::Owned(_) = &field.iter_hall.data_source else {
+        let FieldDataSource::Owned = &field.iter_hall.data_source else {
             return;
         };
         let mut i = 0;
@@ -275,27 +267,20 @@ impl FieldManager {
                     first_uncow_field_id = Some(cow_tgt_id);
                 } else {
                     let mut cow_tgt = self.fields[cow_tgt_id].borrow_mut();
-                    cow_tgt
-                        .iter_hall
-                        .data_source
-                        .uncow_get_field_with_rc(self);
+                    cow_tgt.iter_hall.uncow_get_field_with_rc(self);
                 }
             }
         }
         if let Some(first_uncow_field_id) = first_uncow_field_id {
             let mut cow_tgt = self.fields[first_uncow_field_id].borrow_mut();
             std::mem::swap(
-                &mut cow_tgt.iter_hall.data_source,
-                &mut field.iter_hall.data_source,
+                &mut cow_tgt.iter_hall.field_data,
+                &mut field.iter_hall.field_data,
             );
-            field.iter_hall.data_source =
-                FieldDataSource::Owned(Default::default());
+            debug_assert!(field.iter_hall.field_data.is_empty());
+            cow_tgt.iter_hall.data_source = FieldDataSource::Owned;
         } else {
-            let FieldDataSource::Owned(fd) = &mut field.iter_hall.data_source
-            else {
-                unreachable!();
-            };
-            fd.clear();
+            field.iter_hall.field_data.clear();
         }
         field.iter_hall.reset_iterators();
         msm.match_sets[field.match_set]
@@ -387,40 +372,46 @@ impl FieldManager {
         let tgt = tgt.data.get_mut();
         tgt.clear();
         let mut src = self.fields[field_id].borrow_mut();
-        match &mut src.iter_hall.data_source {
-            FieldDataSource::Owned(fd) => std::mem::swap(tgt, fd),
+        match src.iter_hall.data_source {
+            FieldDataSource::Owned => {
+                std::mem::swap(tgt, &mut src.iter_hall.field_data);
+            }
             FieldDataSource::Cow(_) => {
                 let fr = self.get_cow_field_ref(field_id, false);
                 let mut iter = Iter::from_start(fr.destructured_field_ref());
                 FieldData::copy(&mut iter, &mut |f| f(tgt));
             }
-            FieldDataSource::DataCow {
-                headers,
-                field_count,
-                data_ref,
-            } => {
-                *field_count = 0;
-                let fr = self.get_cow_field_ref(*data_ref, false);
+            FieldDataSource::DataCow(data_ref) => {
+                std::mem::swap(
+                    &mut tgt.field_count,
+                    &mut src.iter_hall.field_data.field_count,
+                );
+                std::mem::swap(
+                    &mut tgt.headers,
+                    &mut src.iter_hall.field_data.headers,
+                );
+                let fr = self.get_cow_field_ref(data_ref, false);
                 let iter = Iter::from_start(fr.destructured_field_ref());
-                std::mem::swap(&mut tgt.headers, headers);
                 unsafe {
                     FieldData::copy_data(iter, &mut |f| f(tgt));
                 }
             }
             FieldDataSource::RecordBufferCow(rb) => {
-                let fd = unsafe { &mut *(**rb).get() };
+                let fd = unsafe { &mut *(*rb).get() };
                 let mut iter = fd.iter();
                 FieldData::copy(&mut iter, &mut |f| f(tgt));
             }
-            FieldDataSource::RecordBufferDataCow {
-                headers,
-                field_count,
-                data_ref: data,
-            } => {
-                *field_count = 0;
-                std::mem::swap(&mut tgt.headers, headers);
+            FieldDataSource::RecordBufferDataCow(data_ref) => {
+                std::mem::swap(
+                    &mut tgt.field_count,
+                    &mut src.iter_hall.field_data.field_count,
+                );
+                std::mem::swap(
+                    &mut tgt.headers,
+                    &mut src.iter_hall.field_data.headers,
+                );
                 unsafe {
-                    let fd = &mut *(**data).get();
+                    let fd = &mut *(*data_ref).get();
                     FieldData::copy_data(fd.iter(), &mut |f| f(tgt));
                 }
             }

@@ -428,15 +428,13 @@ impl FieldData {
 
     // this is technically safe, but will leak unless paired with a
     // header that matches the contained type ranges (which itself is not safe)
-    pub fn clone_data(&self) -> AlignedBuf<MAX_FIELD_ALIGN> {
-        let mut res = AlignedBuf::new();
+    pub fn append_data_to(&self, target: &mut AlignedBuf<MAX_FIELD_ALIGN>) {
         let mut iter = self.iter();
         while let Some(tr) =
             iter.typed_range_fwd(usize::MAX, field_value_flags::DEFAULT)
         {
-            unsafe { append_data(tr.data, &mut |f| f(&mut res)) };
+            unsafe { append_data(tr.data, &mut |f| f(target)) };
         }
-        res
     }
 
     pub unsafe fn copy_data<'a>(
@@ -458,7 +456,7 @@ impl FieldData {
         }
         fields_copied
     }
-    pub fn append_from_other<'a>(&mut self, other: &FieldData) -> usize {
+    pub fn append_from_other(&mut self, other: &FieldData) -> usize {
         let mut iter = other.iter();
         Self::copy(&mut iter, &mut |f| f(self))
     }

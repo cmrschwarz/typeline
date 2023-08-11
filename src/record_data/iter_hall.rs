@@ -1,8 +1,5 @@
 use core::panic;
-use std::{
-    cell::{Cell, UnsafeCell},
-    default,
-};
+use std::cell::{Cell, UnsafeCell};
 
 use nonmax::NonMaxU32;
 use thin_vec::ThinVec;
@@ -264,14 +261,20 @@ impl IterHall {
             }
         }
     }
+    pub fn reset(&mut self) {
+        self.reset_iterators();
+        self.data_source = FieldDataSource::Owned;
+        self.field_data.clear();
+    }
     pub fn reset_with_data(&mut self, fd: FieldData) {
         self.reset_iterators();
         self.data_source = FieldDataSource::Owned;
+        self.field_data = fd;
     }
     pub fn new_with_data(fd: FieldData) -> Self {
         Self {
             data_source: FieldDataSource::Owned,
-            field_data: FieldData::default(),
+            field_data: fd,
             iters: Default::default(),
             cow_targets: Default::default(),
         }
@@ -300,65 +303,74 @@ impl IterHall {
             _ => panic!("IterHall uses COW!"),
         }
     }
-    pub fn get_headers_cloned(
+    pub fn append_headers_to(
         &self,
         fm: &FieldManager,
-    ) -> (Vec<FieldValueHeader>, usize) {
+        header_tgt: &mut Vec<FieldValueHeader>,
+    ) -> usize {
         match self.data_source {
             FieldDataSource::Owned
             | FieldDataSource::DataCow(_)
             | FieldDataSource::RecordBufferDataCow(_) => {
-                (self.field_data.headers.clone(), self.field_data.field_count)
+                header_tgt.extend_from_slice(&self.field_data.headers);
+                self.field_data.field_count
             }
-            FieldDataSource::Cow(src) => {
-                fm.fields[src].borrow().iter_hall.get_headers_cloned(fm)
-            }
+            FieldDataSource::Cow(src) => fm.fields[src]
+                .borrow()
+                .iter_hall
+                .append_headers_to(fm, header_tgt),
             FieldDataSource::RecordBufferCow(rb) => {
-                let fd = unsafe { &*(**rb).get() };
-                (fd.headers.clone(), fd.field_count)
+                let fd = unsafe { &*(*rb).get() };
+                header_tgt.extend_from_slice(&fd.headers);
+                fd.field_count
             }
         }
     }
-    pub fn get_data_cloned(
+    pub fn append_data_to(
         &self,
         fm: &FieldManager,
-    ) -> AlignedBuf<MAX_FIELD_ALIGN> {
+        target: &mut AlignedBuf<MAX_FIELD_ALIGN>,
+    ) {
         match self.data_source {
-            FieldDataSource::Owned => self.field_data.clone_data(),
+            FieldDataSource::Owned => {
+                self.field_data.append_data_to(target);
+            }
             FieldDataSource::Cow(src) => {
-                fm.fields[src].borrow().iter_hall.get_data_cloned(fm)
+                fm.fields[src].borrow().iter_hall.append_data_to(fm, target);
             }
-            FieldDataSource::DataCow(data_ref) => {
-                fm.fields[data_ref].borrow().iter_hall.get_data_cloned(fm)
-            }
+            FieldDataSource::DataCow(data_ref) => fm.fields[data_ref]
+                .borrow()
+                .iter_hall
+                .append_data_to(fm, target),
             FieldDataSource::RecordBufferDataCow(data_ref)
             | FieldDataSource::RecordBufferCow(data_ref) => {
-                unsafe { &*(**data_ref).get() }.clone_data()
+                unsafe { &*(*data_ref).get() }.append_data_to(target);
             }
         }
     }
-    pub fn get_cloned(&self, fm: &FieldManager) -> FieldData {
+    pub fn append_to(&self, fm: &FieldManager, target: &mut FieldData) {
         match self.data_source {
-            FieldDataSource::Owned => self.field_data.clone(),
+            FieldDataSource::Owned => self.field_data.clone_into(target),
             FieldDataSource::Cow(src) => {
-                fm.fields[src].borrow().iter_hall.get_cloned(fm)
+                fm.fields[src].borrow().iter_hall.append_to(fm, target)
             }
-            FieldDataSource::DataCow(data_ref) => FieldData {
-                headers: self.field_data.headers.clone(),
-                field_count: self.field_data.field_count,
-                data: fm.fields[data_ref]
+            FieldDataSource::DataCow(data_ref) => {
+                target.headers.extend_from_slice(&self.field_data.headers);
+                target.field_count += self.field_data.field_count;
+                fm.fields[data_ref]
                     .borrow()
                     .iter_hall
-                    .get_data_cloned(fm),
-            },
-            FieldDataSource::RecordBufferCow(data_ref) => {
-                unsafe { &*(*data_ref).get() }.clone()
+                    .append_data_to(fm, &mut target.data);
             }
-            FieldDataSource::RecordBufferDataCow(data_ref) => FieldData {
-                headers: self.field_data.headers.clone(),
-                field_count: self.field_data.field_count,
-                data: unsafe { &*(*data_ref).get() }.clone_data(),
-            },
+            FieldDataSource::RecordBufferCow(data_ref) => {
+                target.append_from_other(unsafe { &*(*data_ref).get() });
+            }
+            FieldDataSource::RecordBufferDataCow(data_ref) => {
+                target.headers.extend_from_slice(&self.field_data.headers);
+                target.field_count += self.field_data.field_count;
+                unsafe { &*(*data_ref).get() }
+                    .append_data_to(&mut target.data);
+            }
         }
     }
     pub fn get_field_count(&self, fm: &FieldManager) -> usize {
@@ -383,29 +395,31 @@ impl IterHall {
         &mut self,
         fm: &FieldManager,
     ) -> Option<FieldId> {
-        if self.is_data_owned() {
-            return None;
-        }
         match self.data_source {
-            FieldDataSource::Owned => unreachable!(),
+            FieldDataSource::Owned => None,
             FieldDataSource::Cow(src_id) => {
+                debug_assert!(self.field_data.is_empty());
                 let src = fm.fields[src_id].borrow();
                 self.field_data.append_from_other(&src.iter_hall.field_data);
-                self.field_data = src.iter_hall.get_cloned(fm);
+                src.iter_hall.append_to(fm, &mut self.field_data);
+                self.data_source = FieldDataSource::Owned;
                 Some(src_id)
             }
             FieldDataSource::DataCow(data_ref) => {
+                debug_assert!(self.field_data.is_empty());
                 let src = fm.fields[data_ref].borrow();
-                self.field_data.data = src.iter_hall.get_data_cloned(fm);
+                src.iter_hall.append_data_to(fm, &mut self.field_data.data);
                 Some(data_ref)
             }
             FieldDataSource::RecordBufferCow(data_ref) => {
+                debug_assert!(self.field_data.is_empty());
                 self.field_data = unsafe { &*(*data_ref).get() }.clone();
                 None
             }
             FieldDataSource::RecordBufferDataCow(data_ref) => {
-                self.field_data.data =
-                    unsafe { &*(*data_ref).get() }.clone_data();
+                debug_assert!(self.field_data.is_empty());
+                unsafe { &*(*data_ref).get() }
+                    .append_data_to(&mut self.field_data.data);
                 None
             }
         }
@@ -414,33 +428,24 @@ impl IterHall {
         if self.are_headers_owned() {
             return;
         }
-        let temp = std::mem::replace(
-            self,
-            FieldDataSource::Cow(NonMaxU32::default()),
-        );
-        *self = match temp {
-            FieldDataSource::Owned(_) => unreachable!(),
-            FieldDataSource::DataCow { .. } => unreachable!(),
-            FieldDataSource::RecordBufferDataCow { .. } => unreachable!(),
+        match self.data_source {
+            FieldDataSource::Owned => unreachable!(),
+            FieldDataSource::DataCow(_) => unreachable!(),
+            FieldDataSource::RecordBufferDataCow(_) => unreachable!(),
             FieldDataSource::Cow(src) => {
-                let (headers, field_count) = fm.fields[src]
+                debug_assert!(self.field_data.is_empty());
+                self.field_data.field_count = fm.fields[src]
                     .borrow()
                     .iter_hall
-                    .data_source
-                    .get_headers_cloned(fm);
-                FieldDataSource::DataCow {
-                    headers,
-                    field_count,
-                    data_ref: src,
-                }
+                    .append_headers_to(fm, &mut self.field_data.headers);
+                self.data_source = FieldDataSource::DataCow(src);
             }
             FieldDataSource::RecordBufferCow(rb) => {
                 let fd = unsafe { &*(*rb).get() };
-                FieldDataSource::RecordBufferDataCow {
-                    headers: fd.headers.clone(),
-                    field_count: fd.field_count,
-                    data_ref: rb,
-                }
+                debug_assert!(self.field_data.is_empty());
+                self.field_data.field_count = fd.field_count;
+                self.field_data.headers.extend_from_slice(&fd.headers);
+                self.data_source = FieldDataSource::RecordBufferDataCow(rb);
             }
         };
     }
