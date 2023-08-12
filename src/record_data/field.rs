@@ -130,20 +130,26 @@ impl FieldManager {
         drop(field);
         self.drop_field_refcount(cow_source, msm);
     }
+    fn remove_from_cow_tgt_list(
+        &self,
+        field_id: FieldId,
+        cow_data_source: FieldId,
+    ) {
+        let mut cow_src = self.fields[cow_data_source].borrow_mut();
+        let cow_tgt_pos = cow_src
+            .iter_hall
+            .cow_targets
+            .iter()
+            .position(|t| *t == field_id)
+            .unwrap();
+        cow_src.iter_hall.cow_targets.swap_remove(cow_tgt_pos);
+    }
     pub fn uncow(&mut self, msm: &mut MatchSetManager, field_id: FieldId) {
         let mut field = self.fields[field_id].borrow_mut();
         let cow_source = field.iter_hall.uncow_get_field_with_rc(self);
         if let Some(cow_source) = cow_source {
             drop(field);
-            let mut cow_src = self.fields[cow_source].borrow_mut();
-            let cow_tgt_pos = cow_src
-                .iter_hall
-                .cow_targets
-                .iter()
-                .position(|t| *t == field_id)
-                .unwrap();
-            cow_src.iter_hall.cow_targets.swap_remove(cow_tgt_pos);
-            drop(cow_src);
+            self.remove_from_cow_tgt_list(field_id, cow_source);
             self.untangle_cow_field_refs(msm, field_id, cow_source);
         }
     }
@@ -346,14 +352,7 @@ impl FieldManager {
         let mut field = self.fields[field_id].borrow_mut();
         field.iter_hall.field_data.clear();
         if let (Some(cow_src_id), _) = field.iter_hall.cow_source_field() {
-            let mut cow_src = self.fields[cow_src_id].borrow_mut();
-            let cow_tgt_pos = cow_src
-                .iter_hall
-                .cow_targets
-                .iter()
-                .position(|t| *t == field_id)
-                .unwrap();
-            cow_src.iter_hall.cow_targets.swap_remove(cow_tgt_pos);
+            self.remove_from_cow_tgt_list(field_id, cow_src_id);
             field.field_refs.clear();
         } else {
             for i in 0..field.field_refs.len() {
@@ -532,6 +531,7 @@ impl FieldManager {
         drop(field);
         self.fields.release(id);
         if let Some(cow_src) = cow_src {
+            self.remove_from_cow_tgt_list(id, cow_src);
             self.drop_field_refcount(cow_src, msm);
         }
         for fr in &frs {

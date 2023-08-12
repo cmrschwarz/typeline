@@ -273,14 +273,19 @@ pub fn handle_tf_forkcat_sc(
     let target_tf = fc.curr_subchain_start.unwrap();
     let unconsumed_input =
         sess.tf_mgr.transforms[tf_id].has_unconsumed_input();
+    if end_of_input {
+        sess.tf_mgr.push_tf_in_ready_stack(tf_id);
+        sess.tf_mgr.transforms[target_tf].input_is_done = true;
+    } else {
+        sess.tf_mgr.update_ready_state(tf_id);
+    }
     sess.tf_mgr.inform_transform_batch_available(
         target_tf,
         batch_size,
         unconsumed_input,
     );
-    if end_of_input {
+    if end_of_input && batch_size == 0 {
         sess.tf_mgr.push_tf_in_ready_stack(target_tf);
-        sess.tf_mgr.transforms[target_tf].input_is_done = true;
     }
 }
 
@@ -290,13 +295,9 @@ pub fn handle_tf_forkcat(
     fc: &mut TfForkCat,
 ) {
     if fc.op.subchains_start + fc.curr_subchain_n == fc.op.subchains_end {
-        let cont = fc.continuation.unwrap();
-        sess.tf_mgr.transforms[cont].input_is_done = true;
-        sess.tf_mgr.push_tf_in_ready_stack(cont);
-        sess.unlink_transform(tf_id, 0);
+        //  sess.unlink_transform(tf_id, 0);
         return;
     }
-    sess.tf_mgr.push_tf_in_ready_stack(tf_id);
     if fc.curr_subchain_n == 0 {
         let (batch_size, end_of_input) = sess.tf_mgr.claim_all(tf_id);
         fc.input_size += batch_size;
@@ -305,6 +306,7 @@ pub fn handle_tf_forkcat(
             return;
         }
     } else {
+        sess.tf_mgr.push_tf_in_ready_stack(tf_id);
         handle_tf_forkcat_sc(sess, tf_id, fc, fc.input_size, true);
     }
     fc.curr_subchain_n += 1;
@@ -384,9 +386,9 @@ fn expand_for_subchain(sess: &mut JobSession, tf_id: TransformId, sc_n: u32) {
         fc
     );
     if end_reachable {
-        sess.job_data
-            .tf_mgr
-            .connect_tfs(end_tf, forkcat.continuation.unwrap());
+        let cont = forkcat.continuation.unwrap();
+        sess.job_data.tf_mgr.connect_tfs(end_tf, cont);
+        sess.job_data.tf_mgr.transforms[cont].input_is_done = false;
     }
     forkcat.curr_subchain_start = Some(start_tf);
     forkcat.prebound_outputs = prebound_outputs;
@@ -506,14 +508,14 @@ pub(crate) fn handle_forkcat_expansion(
     sess: &mut JobSession,
     tf_id: TransformId,
 ) {
-    let fc = match_unwrap!(
+    let mut fc = match_unwrap!(
         &mut sess.transform_data[tf_id.get()],
         TransformData::ForkCat(fc),
         fc
     );
     let sc_n = fc.curr_subchain_n;
-    if fc.op.subchains_start + sc_n == fc.op.subchains_end {
-        let cont_id = fc.continuation.unwrap().get();
+    let sc_idx = fc.op.subchains_start + sc_n;
+    if sc_idx == fc.op.subchains_end {
         for &f in &fc.output_fields {
             sess.job_data
                 .field_mgr
@@ -528,11 +530,6 @@ pub(crate) fn handle_forkcat_expansion(
                 .field_mgr
                 .drop_field_refcount(f, &mut sess.job_data.match_set_mgr);
         }
-        match &mut sess.transform_data[cont_id] {
-            TransformData::Nop(nop) => nop.manual_unlink = false,
-            TransformData::Terminator(tm) => tm.manual_unlink = false,
-            _ => unreachable!(),
-        }
         return;
     }
     if sc_n == 0 {
@@ -545,6 +542,19 @@ pub(crate) fn handle_forkcat_expansion(
             let msm = &mut sess.job_data.match_set_mgr.match_sets[f.match_set];
             msm.command_buffer
                 .drop_field_commands(of, &mut f.action_indices);
+        }
+    }
+    fc = match_unwrap!(
+        &mut sess.transform_data[tf_id.get()],
+        TransformData::ForkCat(fc),
+        fc
+    );
+    if sc_idx + 1 == fc.op.subchains_end {
+        let cont_id = fc.continuation.unwrap().get();
+        match &mut sess.transform_data[cont_id] {
+            TransformData::Nop(nop) => nop.manual_unlink = false,
+            TransformData::Terminator(tm) => tm.manual_unlink = false,
+            _ => unreachable!(),
         }
     }
     expand_for_subchain(sess, tf_id, sc_n);

@@ -283,6 +283,7 @@ impl TransformManager {
             let f = fm.fields[ofid].borrow();
             let clear_delay = f.get_clear_delay_request_count() > 0;
             if clear_delay {
+                drop(f);
                 fm.apply_field_actions(msm, ofid);
             } else if !appending {
                 f.has_unconsumed_input.set(false);
@@ -563,6 +564,7 @@ impl<'a> JobSession<'a> {
 
     pub fn remove_transform(&mut self, tf_id: TransformId) {
         let tf = &self.job_data.tf_mgr.transforms[tf_id];
+        debug_assert!(!tf.is_ready);
         let tfif = tf.input_field;
         let tfof = tf.output_field;
         #[cfg(feature = "debug_logging")]
@@ -901,7 +903,9 @@ impl<'a> JobSession<'a> {
                 .continuation
                 .is_none()
         {
-            self.job_data.unlink_transform(pred_tf, 0);
+            self.job_data
+                .tf_mgr
+                .disconnect_tf_from_predecessor(start_tf);
             self.remove_transform(pred_tf);
             pred_tf = start_tf;
         }
