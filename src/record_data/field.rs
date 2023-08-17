@@ -1,7 +1,4 @@
-use std::{
-    cell::{Cell, Ref, RefCell},
-    collections::hash_map::Entry,
-};
+use std::cell::{Cell, Ref, RefCell};
 
 use nonmax::{NonMaxU16, NonMaxU32};
 use smallvec::SmallVec;
@@ -369,10 +366,11 @@ impl FieldManager {
         }
         field.iter_hall.data_source = FieldDataSource::Owned;
         drop(field);
-        self.setup_cow_on_blank_slate(field_id, data_source_id);
+        self.setup_cow_on_blank_slate(msm, field_id, data_source_id);
     }
     pub fn setup_cow_on_blank_slate(
         &self,
+        msm: &mut MatchSetManager,
         field_id: FieldId,
         data_source_id: FieldId,
     ) {
@@ -380,10 +378,29 @@ impl FieldManager {
         debug_assert!(field.field_refs.is_empty());
         debug_assert!(field.iter_hall.data_source == FieldDataSource::Owned);
         let mut data_source = self.fields[data_source_id].borrow_mut();
+        let prev_entry = msm.match_sets[field.match_set]
+            .cow_map
+            .insert(data_source_id, field_id);
+        debug_assert!(prev_entry.is_none());
         data_source.ref_count += 1;
         data_source.iter_hall.cow_targets.push(field_id);
         field.field_refs.extend_from_slice(&data_source.field_refs);
         field.iter_hall.data_source = FieldDataSource::Cow(data_source_id);
+    }
+    pub fn get_cross_ms_cow_field(
+        &mut self,
+        msm: &mut MatchSetManager,
+        tgt_match_set: MatchSetId,
+        src_field: FieldId,
+    ) -> FieldId {
+        match msm.match_sets[tgt_match_set].cow_map.get(&src_field) {
+            Some(&id) => id,
+            None => {
+                let f = self.add_field(tgt_match_set, None);
+                self.setup_cow_on_blank_slate(msm, f, src_field);
+                f
+            }
+        }
     }
     pub fn append_to_buffer<'a>(
         &self,
@@ -456,7 +473,6 @@ impl FieldManager {
             return;
         }
         let ms_id = field.match_set;
-        let min_apf = field.action_indices.min_apf_idx;
         if let (Some(cow_src_id), _data_cow) =
             field.iter_hall.cow_source_field()
         {
@@ -467,22 +483,23 @@ impl FieldManager {
             field.field_refs.extend_from_slice(&cow_src.field_refs);
             drop(cow_src);
             for i in 0..field.field_refs.len() {
-                let cow = match msm.match_sets[ms_id]
-                    .cow_map
-                    .entry(field.field_refs[i])
-                {
-                    Entry::Occupied(e) => *e.get(),
-                    Entry::Vacant(e) => {
+                let fr_src = field.field_refs[i];
+                let fr = if self.fields[fr_src].borrow().match_set != ms_id {
+                    if let Some(&id) =
+                        msm.match_sets[ms_id].cow_map.get(&fr_src)
+                    {
+                        id
+                    } else {
                         drop(field);
-                        let f = self.add_field(ms_id, min_apf);
-                        e.insert(f);
-                        self.setup_cow_on_blank_slate(f, cow_src_id);
+                        let f =
+                            self.get_cross_ms_cow_field(msm, ms_id, fr_src);
                         field = self.fields[field_id].borrow_mut();
                         f
                     }
+                } else {
+                    fr_src
                 };
-
-                field.field_refs.push(cow);
+                field.field_refs.push(fr);
             }
         }
     }
