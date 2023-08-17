@@ -663,7 +663,7 @@ mod ref_iter_tests {
 
     use super::super::{
         field::{Field, FieldId, FieldManager, FIELD_REF_LOOKUP_ITER_ID},
-        match_set::{MatchSet, MatchSetManager},
+        match_set::MatchSetManager,
         ref_iter::{AutoDerefIter, RefAwareInlineTextIter},
     };
     use crate::{
@@ -707,11 +707,7 @@ mod ref_iter_tests {
         let refs_field_id = push_field(&mut field_mgr, fd_refs, None);
         field_mgr.register_field_reference(refs_field_id, field_id);
         let mut match_set_mgr = MatchSetManager::default();
-        match_set_mgr.match_sets.claim_with_value(MatchSet {
-            stream_participants: Default::default(),
-            command_buffer: Default::default(),
-            field_name_map: Default::default(),
-        });
+        match_set_mgr.match_sets.claim();
         {
             let fr = field_mgr.get_cow_field_ref(refs_field_id, false);
             let iter = Iter::from_start(fr.destructured_field_ref());

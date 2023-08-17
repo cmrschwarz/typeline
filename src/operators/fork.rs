@@ -156,7 +156,7 @@ pub fn handle_tf_fork(
             let tgt = sess.field_mgr.fields[tgt_id].borrow();
             if tgt.iter_hall.are_headers_owned() {
                 mapping.targets_cow.swap_remove(i);
-                if tgt.iter_hall.is_data_owned() {
+                if tgt.iter_hall.is_cow() {
                     mapping.targets_copy.push(tgt_id);
                 } else {
                     mapping.targets_data_cow.push(tgt_id);
@@ -168,9 +168,9 @@ pub fn handle_tf_fork(
         while i < mapping.targets_data_cow.len() {
             let tgt_id = mapping.targets_cow[i];
             let tgt = sess.field_mgr.fields[tgt_id].borrow();
-            if tgt.iter_hall.is_data_owned() {
+            if tgt.iter_hall.is_cow() {
                 mapping.targets_cow.swap_remove(i);
-                if tgt.iter_hall.is_data_owned() {
+                if tgt.iter_hall.is_cow() {
                     mapping.targets_copy.push(tgt_id);
                 }
             }

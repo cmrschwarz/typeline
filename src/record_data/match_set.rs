@@ -18,11 +18,19 @@ use super::{
 pub type MatchSetId = NonMaxUsize;
 
 #[repr(C)]
+#[derive(Default)]
 pub struct MatchSet {
     pub stream_participants: Vec<TransformId>,
     pub command_buffer: CommandBuffer,
     pub field_name_map:
         HashMap<StringStoreEntry, FieldId, BuildIdentityHasher>,
+    // stores original field -> cow copy
+    // Entries are added when fields from other MatchSets are cow'ed into this
+    // one used to avoid duplicates, especially when automatically cowing
+    // field refs once a cow is accessed
+    // does *not* increase the refcount of either fields.
+    // FieldManager::remove_field removes entries from this
+    pub cow_map: HashMap<FieldId, FieldId, BuildIdentityHasher>,
 }
 
 #[derive(Default)]
@@ -50,6 +58,7 @@ impl MatchSetManager {
             stream_participants: Default::default(),
             command_buffer: Default::default(),
             field_name_map: Default::default(),
+            cow_map: Default::default(),
         })
     }
     pub fn remove_match_set(&mut self, _ms_id: MatchSetId) {

@@ -34,27 +34,6 @@ pub(super) enum FieldDataSource {
     RecordBufferDataCow(*const UnsafeCell<FieldData>),
 }
 
-impl FieldDataSource {
-    pub fn is_data_owned(&self) -> bool {
-        match self {
-            FieldDataSource::Owned => true,
-            FieldDataSource::Cow(_) => false,
-            FieldDataSource::DataCow(_) => false,
-            FieldDataSource::RecordBufferCow(_) => false,
-            FieldDataSource::RecordBufferDataCow(_) => false,
-        }
-    }
-    pub fn are_headers_owned(&self) -> bool {
-        match self {
-            FieldDataSource::Owned => true,
-            FieldDataSource::DataCow(_) => true,
-            FieldDataSource::RecordBufferDataCow(_) => true,
-            FieldDataSource::Cow(_) => false,
-            FieldDataSource::RecordBufferCow(_) => false,
-        }
-    }
-}
-
 #[derive(Default)]
 pub struct IterHall {
     pub(super) data_source: FieldDataSource,
@@ -229,11 +208,23 @@ impl IterHall {
             FieldDataSource::RecordBufferDataCow(_) => None,
         }
     }
-    pub fn is_data_owned(&self) -> bool {
-        self.data_source.is_data_owned()
+    pub fn is_cow(&self) -> bool {
+        match self.data_source {
+            FieldDataSource::Owned => true,
+            FieldDataSource::Cow(_) => false,
+            FieldDataSource::DataCow(_) => false,
+            FieldDataSource::RecordBufferCow(_) => false,
+            FieldDataSource::RecordBufferDataCow(_) => false,
+        }
     }
     pub fn are_headers_owned(&self) -> bool {
-        self.data_source.are_headers_owned()
+        match self.data_source {
+            FieldDataSource::Owned => true,
+            FieldDataSource::DataCow(_) => true,
+            FieldDataSource::RecordBufferDataCow(_) => true,
+            FieldDataSource::Cow(_) => false,
+            FieldDataSource::RecordBufferCow(_) => false,
+        }
     }
     // source field of cow, data cow only
     pub fn cow_source_field(&self) -> (Option<FieldId>, Option<bool>) {

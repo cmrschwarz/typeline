@@ -219,6 +219,8 @@ pub fn setup_tf_format<'a>(
                     .get(name)
                     .copied()
                 {
+                    sess.field_mgr
+                        .setup_field_refs(&mut sess.match_set_mgr, id);
                     let mut f = sess.field_mgr.fields[id].borrow_mut();
                     f.ref_count += 1;
                     (id, f)

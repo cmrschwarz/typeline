@@ -714,6 +714,9 @@ impl<'a> JobSession<'a> {
                 input_field
             };
             self.job_data.field_mgr.bump_field_refcount(input);
+            self.job_data
+                .field_mgr
+                .setup_field_refs(&mut self.job_data.match_set_mgr, input);
             let mut tf_state = TransformState::new(
                 input,
                 output_field,
