@@ -32,7 +32,9 @@ use crate::{
             handle_tf_format, handle_tf_format_stream_value_update,
             setup_tf_format,
         },
-        input_feeder::{handle_tf_input_feeder, setup_tf_input_feeder},
+        input_feeder::{
+            handle_tf_input_feeder, setup_tf_input_feeder_as_input,
+        },
         join::{
             handle_tf_join, handle_tf_join_stream_value_update, setup_tf_join,
         },
@@ -471,30 +473,6 @@ impl<'a> JobSession<'a> {
             }
         }
     }
-    pub fn setup_input_feeder(
-        &mut self,
-        ms_id: MatchSetId,
-        start_op: OperatorId,
-        available_batch_size: usize,
-    ) -> TransformId {
-        let mut tf_state = TransformState::new(
-            DUMMY_INPUT_FIELD_ID,
-            DUMMY_INPUT_FIELD_ID,
-            ms_id,
-            self.get_op_debault_batch_size(start_op),
-            None,
-            None,
-        );
-        self.job_data
-            .field_mgr
-            .inc_field_refcount(DUMMY_INPUT_FIELD_ID, 2);
-        let tf_data = setup_tf_input_feeder(
-            &mut self.job_data,
-            &mut tf_state,
-            available_batch_size,
-        );
-        self.add_transform(tf_state, tf_data)
-    }
     pub fn setup_job(&mut self, mut job: Job) {
         let ms_id = self.job_data.match_set_mgr.add_match_set();
         // TODO: unpack record set properly here
@@ -518,13 +496,7 @@ impl<'a> JobSession<'a> {
                 input_data = Some(field_id);
             }
         }
-        let mut no_input_fields = false;
-        let input_data = input_data.unwrap_or_else(|| {
-            let field_id = self.job_data.field_mgr.add_field(ms_id, None);
-            input_data_fields.push(field_id);
-            no_input_fields = true;
-            field_id
-        });
+        let input_data = input_data.unwrap_or(DUMMY_INPUT_FIELD_ID);
 
         #[cfg(feature = "debug_logging")]
         for (i, f) in input_data_fields.iter().enumerate() {
@@ -532,13 +504,14 @@ impl<'a> JobSession<'a> {
                 .borrow_mut()
                 .producing_transform_arg = format!("<Input Field #{i}>");
         }
-        let initial_tf = if no_input_fields {
+        let initial_tf = if input_record_count == 0 {
             None
         } else {
-            Some(self.setup_input_feeder(
+            Some(setup_tf_input_feeder_as_input(
+                self,
                 ms_id,
                 job.operator,
-                input_record_count,
+                input_data,
             ))
         };
         let (start_tf_id, _end_tf_id) = self.setup_transforms_from_op(
@@ -551,21 +524,8 @@ impl<'a> JobSession<'a> {
         let start_tf_id = initial_tf.unwrap_or(start_tf_id);
         let tf = &mut self.job_data.tf_mgr.transforms[start_tf_id];
         tf.input_is_done = true;
-        if tf.is_appending {
-            let successor = tf.successor;
-            self.job_data.tf_mgr.push_tf_in_ready_stack(start_tf_id);
-            if let Some(succ) = successor {
-                let tf_succ = &mut self.job_data.tf_mgr.transforms[succ];
-                if tf_succ.desired_batch_size <= input_record_count {
-                    self.job_data.tf_mgr.transforms[start_tf_id]
-                        .is_appending = false;
-                    self.job_data.tf_mgr.push_tf_in_ready_stack(succ);
-                }
-            }
-        } else {
-            tf.available_batch_size = input_record_count;
-            self.job_data.tf_mgr.push_tf_in_ready_stack(start_tf_id);
-        }
+        tf.available_batch_size = input_record_count;
+        self.job_data.tf_mgr.push_tf_in_ready_stack(start_tf_id);
 
         for input_field_id in input_data_fields.iter() {
             self.job_data.field_mgr.drop_field_refcount(

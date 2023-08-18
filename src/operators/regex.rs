@@ -737,12 +737,14 @@ pub fn handle_tf_regex(
     let input_field_id = tf.input_field;
     let op_id = tf.op_id.unwrap();
 
+    let input_field = sess.field_mgr.get_cow_field_ref(
+        &mut sess.match_set_mgr,
+        input_field_id,
+        tf.has_unconsumed_input(),
+    );
     sess.match_set_mgr.match_sets[tf.match_set_id]
         .command_buffer
         .begin_action_list(re.apf_idx);
-    let input_field = sess
-        .field_mgr
-        .get_cow_field_ref(input_field_id, tf.has_unconsumed_input());
     let iter_base = sess
         .field_mgr
         .lookup_iter(input_field_id, &input_field, re.input_field_iter_id)

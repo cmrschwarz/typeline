@@ -154,9 +154,11 @@ pub fn handle_tf_print_raw(
     let tf = &sess.tf_mgr.transforms[tf_id];
     let input_field_id = tf.input_field;
 
-    let input_field = sess
-        .field_mgr
-        .get_cow_field_ref(input_field_id, tf.has_unconsumed_input());
+    let input_field = sess.field_mgr.get_cow_field_ref(
+        &mut sess.match_set_mgr,
+        input_field_id,
+        tf.has_unconsumed_input(),
+    );
     let base_iter = sess
         .field_mgr
         .lookup_iter(input_field_id, &input_field, print.iter_id)

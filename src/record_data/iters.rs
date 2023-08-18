@@ -1,5 +1,3 @@
-use std::{cmp::Ordering, marker::PhantomData};
-
 use crate::{
     record_data::field_data::{
         field_value_flags, FieldData, FieldValueFlags, FieldValueFormat,
@@ -7,6 +5,7 @@ use crate::{
     },
     utils::aligned_buf::AlignedBuf,
 };
+use std::{cmp::Ordering, marker::PhantomData};
 
 use super::{
     field::{FieldId, FieldManager},

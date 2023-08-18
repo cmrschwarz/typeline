@@ -278,6 +278,10 @@ impl CommandBuffer {
             &mut field.action_indices.first_unapplied_al_idx,
         );
         if als.actions_start == als.actions_end {
+            // a common way for this assertion can fail is when an action
+            // list is started, and then a field is selected
+            // this will cause the empty action list to show up in here
+            // TODO: maybe flag pending action lists?
             debug_assert!(
                 prev_curr_apf_idx == *curr_apf_idx
                     && prev_first_unapplied_al_idx

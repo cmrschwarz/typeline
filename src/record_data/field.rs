@@ -521,9 +521,11 @@ impl FieldManager {
     }
     pub fn get_cow_field_ref(
         &self,
+        msm: &mut MatchSetManager,
         field_id: FieldId,
         inform_of_unconsumed_input: bool,
     ) -> CowFieldDataRef<'_> {
+        self.apply_field_actions(msm, field_id);
         let field = self.fields[field_id].borrow();
         field.inform_of_unconsumed_input(inform_of_unconsumed_input);
         return self.get_cow_field_ref_raw(field_id);

@@ -333,9 +333,11 @@ pub fn handle_tf_call_concurrent(
         buf_data = tfc.buffer.updates.wait(buf_data).unwrap();
     }
     for mapping in tfc.field_mappings.iter() {
-        let cfdr = sess
-            .field_mgr
-            .get_cow_field_ref(mapping.source_field_id, false);
+        let cfdr = sess.field_mgr.get_cow_field_ref(
+            &mut sess.match_set_mgr,
+            mapping.source_field_id,
+            false,
+        );
         let mut iter = sess.field_mgr.lookup_iter(
             mapping.source_field_id,
             &cfdr,

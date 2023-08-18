@@ -714,8 +714,8 @@ fn calc_text_padding(
     }
 }
 pub fn lookup_widths(
-    field_mgr: &FieldManager,
-    match_set_mgr: &mut MatchSetManager,
+    fm: &FieldManager,
+    msm: &mut MatchSetManager,
     fmt: &mut TfFormat,
     k: &FormatKey,
     batch_size: usize,
@@ -733,11 +733,11 @@ pub fn lookup_widths(
         return;
     };
     if apply_actions {
-        field_mgr.apply_field_actions(match_set_mgr, ident_ref.field_id);
+        fm.apply_field_actions(msm, ident_ref.field_id);
     }
     let field =
-        field_mgr.get_cow_field_ref(ident_ref.field_id, unconsumed_input);
-    let mut iter = field_mgr
+        fm.get_cow_field_ref(msm, ident_ref.field_id, unconsumed_input);
+    let mut iter = fm
         .lookup_iter(ident_ref.field_id, &field, ident_ref.iter_id)
         .bounded(0, batch_size);
     let mut output_index = 0;
@@ -761,13 +761,13 @@ pub fn lookup_widths(
         |os| os.error_occured = true,
     );
     if update_iter {
-        field_mgr.store_iter(ident_ref.field_id, ident_ref.iter_id, iter);
+        fm.store_iter(ident_ref.field_id, ident_ref.iter_id, iter);
     }
 }
 pub fn setup_key_output_state(
     sv_mgr: &mut StreamValueManager,
-    field_mgr: &FieldManager,
-    match_set_mgr: &mut MatchSetManager,
+    fm: &FieldManager,
+    msm: &mut MatchSetManager,
     tf_id: TransformId,
     part_idx: usize,
     fmt: &mut TfFormat,
@@ -776,8 +776,8 @@ pub fn setup_key_output_state(
     k: &FormatKey,
 ) {
     lookup_widths(
-        field_mgr,
-        match_set_mgr,
+        fm,
+        msm,
         fmt,
         k,
         batch_size,
@@ -802,14 +802,13 @@ pub fn setup_key_output_state(
         },
     );
     let ident_ref = fmt.refs[k.identifier];
-    field_mgr.apply_field_actions(match_set_mgr, ident_ref.field_id);
+    fm.apply_field_actions(msm, ident_ref.field_id);
     let field =
-        field_mgr.get_cow_field_ref(ident_ref.field_id, unconsumed_input);
+        fm.get_cow_field_ref(msm, ident_ref.field_id, unconsumed_input);
     let mut iter = AutoDerefIter::new(
-        field_mgr,
+        fm,
         ident_ref.field_id,
-        field_mgr
-            .lookup_iter(ident_ref.field_id, &field, ident_ref.iter_id)
+        fm.lookup_iter(ident_ref.field_id, &field, ident_ref.iter_id)
             .bounded(0, batch_size),
     );
 
@@ -818,7 +817,7 @@ pub fn setup_key_output_state(
     let debug_format =
         [FormatType::Debug, FormatType::MoreDebug].contains(&k.format_type);
     while let Some(range) = iter.typed_range_fwd(
-        match_set_mgr,
+        msm,
         usize::MAX,
         field_value_flags::BYTES_ARE_UTF8,
     ) {
@@ -1405,8 +1404,8 @@ fn formatted_error_string_len(
 }
 fn write_fmt_key(
     sv_mgr: &StreamValueManager,
-    field_mgr: &FieldManager,
-    match_set_mgr: &mut MatchSetManager,
+    fm: &FieldManager,
+    msm: &mut MatchSetManager,
     fmt: &mut TfFormat,
     batch_size: usize,
     k: &FormatKey,
@@ -1414,8 +1413,8 @@ fn write_fmt_key(
     // any potential unconsumed input was already set during width calculation
     let unconsumed_input = false;
     lookup_widths(
-        field_mgr,
-        match_set_mgr,
+        fm,
+        msm,
         fmt,
         k,
         batch_size,
@@ -1432,18 +1431,17 @@ fn write_fmt_key(
     let ident_ref = fmt.refs[k.identifier];
 
     let field =
-        field_mgr.get_cow_field_ref(ident_ref.field_id, unconsumed_input);
-    let base_iter = field_mgr
+        fm.get_cow_field_ref(msm, ident_ref.field_id, unconsumed_input);
+    let base_iter = fm
         .lookup_iter(ident_ref.field_id, &field, ident_ref.iter_id)
         .bounded(0, batch_size);
     let field_pos_start = base_iter.get_next_field_pos();
-    let mut iter =
-        AutoDerefIter::new(field_mgr, ident_ref.field_id, base_iter);
+    let mut iter = AutoDerefIter::new(fm, ident_ref.field_id, base_iter);
     let debug_format =
         [FormatType::Debug, FormatType::MoreDebug].contains(&k.format_type);
     let mut output_index = 0;
     while let Some(range) = iter.typed_range_fwd(
-        match_set_mgr,
+        msm,
         usize::MAX,
         field_value_flags::BYTES_ARE_UTF8,
     ) {
@@ -1661,7 +1659,7 @@ fn write_fmt_key(
     }
     let base_iter = iter.into_base_iter();
     let field_pos_end = base_iter.get_next_field_pos();
-    field_mgr.store_iter(ident_ref.field_id, ident_ref.iter_id, base_iter);
+    fm.store_iter(ident_ref.field_id, ident_ref.iter_id, base_iter);
     if debug_format {
         let unconsumed_fields = batch_size - (field_pos_end - field_pos_start);
         iter_output_targets(

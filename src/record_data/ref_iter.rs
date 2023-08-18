@@ -64,10 +64,10 @@ impl<'a> RefIter<'a> {
     ) -> Self {
         let last_field_id =
             refs_field.field_refs[last_field_id_offset.get() as usize];
-        field_mgr.apply_field_actions(match_set_mgr, last_field_id);
         let (data_cow_ref, mut data_iter) = unsafe {
             Self::get_data_ref_and_iter(
                 field_mgr,
+                match_set_mgr,
                 last_field_id,
                 unconsumed_input,
             )
@@ -96,7 +96,7 @@ impl<'a> RefIter<'a> {
 
     fn move_to_field(
         &mut self,
-        match_set_mgr: &'_ mut MatchSetManager,
+        msm: &'_ mut MatchSetManager,
         field_id_offset: FieldIdOffset,
     ) {
         if self.last_field_id_offset == field_id_offset {
@@ -106,9 +106,8 @@ impl<'a> RefIter<'a> {
             [self.last_field_id_offset.get() as usize];
         let field_id =
             self.refs_field.field_refs[field_id_offset.get() as usize];
-        self.field_mgr.apply_field_actions(match_set_mgr, field_id);
         let (cow_ref_new, data_iter_new) = unsafe {
-            Self::get_data_ref_and_iter(self.field_mgr, field_id, false)
+            Self::get_data_ref_and_iter(self.field_mgr, msm, field_id, false)
         };
         self.field_mgr.store_iter(
             prev_field_id,
@@ -121,10 +120,11 @@ impl<'a> RefIter<'a> {
     // SAFETY: caller has to ensure that the cow ref outlives the iter
     unsafe fn get_data_ref_and_iter(
         fm: &FieldManager,
+        msm: &mut MatchSetManager,
         field_id: FieldId,
         unconsumed_input: bool,
     ) -> (CowFieldDataRef<'a>, Iter<'a, DestructuredFieldDataRef<'a>>) {
-        let fr = fm.get_cow_field_ref(field_id, unconsumed_input);
+        let fr = fm.get_cow_field_ref(msm, field_id, unconsumed_input);
         let iter = fm.lookup_iter(
             field_id,
             unsafe { std::mem::transmute(&fr) },
@@ -709,7 +709,7 @@ mod ref_iter_tests {
         let mut match_set_mgr = MatchSetManager::default();
         match_set_mgr.match_sets.claim();
         {
-            let fr = field_mgr.get_cow_field_ref(refs_field_id, false);
+            let fr = field_mgr.get_cow_field_ref_raw(refs_field_id);
             let iter = Iter::from_start(fr.destructured_field_ref());
             let mut ref_iter =
                 AutoDerefIter::new(&field_mgr, refs_field_id, iter);

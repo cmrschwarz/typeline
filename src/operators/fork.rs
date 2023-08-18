@@ -141,9 +141,11 @@ pub fn handle_tf_fork(
                 .chain(mapping.targets_copy.iter())
                 .copied(),
         );
-        let src_field = sess
-            .field_mgr
-            .get_cow_field_ref(*src_field_id, unconsumed_input);
+        let src_field = sess.field_mgr.get_cow_field_ref(
+            match_set_mgr,
+            *src_field_id,
+            unconsumed_input,
+        );
         let src_field_dr = src_field.destructured_field_ref().clone();
         let mut src_field_iter = sess.field_mgr.lookup_iter(
             *src_field_id,
