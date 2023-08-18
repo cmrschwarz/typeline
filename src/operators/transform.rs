@@ -14,6 +14,7 @@ use super::{
     fork::TfFork,
     forkcat::TfForkCat,
     format::TfFormat,
+    input_feeder::TfInputFeeder,
     join::TfJoin,
     literal::TfLiteral,
     nop::TfNop,
@@ -23,7 +24,6 @@ use super::{
     select::TfSelect,
     sequence::TfSequence,
     string_sink::TfStringSink,
-    terminator::TfTerminator,
 };
 
 pub type TransformId = NonMaxUsize;
@@ -47,7 +47,7 @@ pub enum TransformData<'a> {
     FileReader(TfFileReader),
     Literal(TfLiteral<'a>),
     Sequence(TfSequence),
-    Terminator(TfTerminator),
+    InputFeeder(TfInputFeeder),
 }
 
 impl Default for TransformData<'_> {
@@ -79,7 +79,7 @@ impl TransformData<'_> {
             TransformData::FileReader(_) => "file_reader",
             TransformData::Literal(_) => "literal",
             TransformData::Sequence(_) => "sequence",
-            TransformData::Terminator(_) => "terminator",
+            TransformData::InputFeeder(_) => "input_feeder",
         };
         format!("<tf {base}>").into()
     }

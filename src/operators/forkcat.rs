@@ -375,32 +375,38 @@ fn expand_for_subchain(
                 prebound_outputs.insert(output_idx, output_mirror_field_id);
             }
             OutputMapping::InputIndex(input_idx) => {
+                let mirror_field = forkcat.input_mirror_fields
+                    [input_idx as usize]
+                    .mirror_field;
                 sess.job_data.field_mgr.setup_cow(
                     &mut sess.job_data.match_set_mgr,
                     output_mirror_field_id,
-                    forkcat.input_mirror_fields[input_idx as usize]
-                        .mirror_field,
+                    mirror_field,
+                );
+                // this would not be called otherwise because the continuation
+                // has already been set up
+                sess.job_data.field_mgr.setup_field_refs(
+                    &mut sess.job_data.match_set_mgr,
+                    forkcat.output_fields[idx],
                 );
             }
         }
     }
 
-    let (start_tf, end_tf, end_reachable) = sess
-        .setup_transforms_with_stable_start(
-            tgt_ms_id,
-            sc_id,
-            sess.job_data.session_data.chains[sc_id as usize].operators[0],
-            subchain_input_field,
-            &prebound_outputs,
-            false,
-        );
+    let (start_tf, end_tf) = sess.setup_transforms_with_stable_start(
+        tgt_ms_id,
+        sc_id,
+        sess.job_data.session_data.chains[sc_id as usize].operators[0],
+        subchain_input_field,
+        &prebound_outputs,
+        false,
+    );
     let forkcat = match_unwrap!(
         &mut sess.transform_data[tf_id.get()],
         TransformData::ForkCat(fc),
         fc
     );
-    if end_reachable {
-        let cont = forkcat.continuation.unwrap();
+    if let Some(cont) = forkcat.continuation {
         sess.job_data.tf_mgr.connect_tfs(end_tf, cont);
         sess.job_data.tf_mgr.transforms[cont].input_is_done = false;
     }
@@ -418,7 +424,7 @@ fn setup_continuation(
     sess: &mut JobSession,
     tf_id: TransformId,
     first_subchain_ms_id: MatchSetId,
-) {
+) -> Option<(TransformId, TransformId)> {
     let tf = &sess.job_data.tf_mgr.transforms[tf_id];
     let tf_input_field = tf.input_field;
     let src_ms = tf.match_set_id;
@@ -462,6 +468,13 @@ fn setup_continuation(
 
     let output_ms_id = sess.job_data.match_set_mgr.add_match_set();
     for name in &forkcat.op.accessed_names_afterwards {
+        let mirror_field_id = sess
+            .job_data
+            .field_mgr
+            .add_field(first_subchain_ms_id, None);
+        sess.job_data.field_mgr.fields[mirror_field_id]
+            .borrow_mut()
+            .name = *name;
         let output_field_id =
             sess.job_data.field_mgr.add_field(output_ms_id, None);
         if let Some(name) = name {
@@ -472,13 +485,6 @@ fn setup_continuation(
             );
         }
         forkcat.output_fields.push(output_field_id);
-        let mirror_field_id = sess
-            .job_data
-            .field_mgr
-            .add_field(first_subchain_ms_id, None);
-        sess.job_data.field_mgr.fields[mirror_field_id]
-            .borrow_mut()
-            .name = *name;
         sess.job_data.field_mgr.setup_cow(
             &mut sess.job_data.match_set_mgr,
             output_field_id,
@@ -486,20 +492,7 @@ fn setup_continuation(
         );
         forkcat.output_mirror_fields.push(mirror_field_id);
     }
-    let cont_op_id = if let Some(cont) = forkcat.op.continuation {
-        cont
-    } else {
-        // TODO: we can't do this: if the fc ist the last op in a chain
-        // but that chain is then called, we don't want the fc to add
-        // termination
-        let terminator_id = sess.add_terminator(tf_id, true);
-        match_unwrap!(
-            &mut sess.transform_data[tf_id.get()],
-            TransformData::ForkCat(fc),
-            fc.continuation = Some(terminator_id)
-        );
-        return;
-    };
+    let cont_op_id = forkcat.op.continuation?;
     let cont_chain_id = sess.job_data.session_data.operator_bases
         [cont_op_id as usize]
         .chain_id
@@ -510,26 +503,39 @@ fn setup_continuation(
         } else {
             DUMMY_INPUT_FIELD_ID
         };
-    let (start_tf, end_tf, end_reachable) = sess
-        .setup_transforms_with_stable_start(
-            output_ms_id,
-            cont_chain_id,
-            cont_op_id,
-            cont_input_field,
-            &Default::default(),
-            true,
-        );
-    let forkcat = match_unwrap!(
-        &mut sess.transform_data[tf_id.get()],
-        TransformData::ForkCat(fc),
-        fc
-    );
-    forkcat.continuation = Some(start_tf);
-    if end_reachable {
-        sess.add_terminator(end_tf, false);
-    }
+    Some(sess.setup_transforms_with_stable_start(
+        output_ms_id,
+        cont_chain_id,
+        cont_op_id,
+        cont_input_field,
+        &Default::default(),
+        true,
+    ))
 }
-pub(crate) fn handle_forkcat_expansion(
+
+pub(crate) fn handle_initial_forkcat_expansion(
+    sess: &mut JobSession,
+    tf_id: TransformId,
+) -> TransformId {
+    let first_sc_ms_id = sess.job_data.match_set_mgr.add_match_set();
+    let end = if let Some((cont_start, cont_end)) =
+        setup_continuation(sess, tf_id, first_sc_ms_id)
+    {
+        let fc = match_unwrap!(
+            &mut sess.transform_data[tf_id.get()],
+            TransformData::ForkCat(fc),
+            fc
+        );
+        fc.continuation = Some(cont_start);
+        cont_end
+    } else {
+        tf_id
+    };
+    expand_for_subchain(sess, tf_id, 0, first_sc_ms_id);
+    end
+}
+
+pub(crate) fn handle_forkcat_subchain_expansion(
     sess: &mut JobSession,
     tf_id: TransformId,
 ) {
@@ -559,17 +565,13 @@ pub(crate) fn handle_forkcat_expansion(
         return;
     }
     let sc_ms_id = sess.job_data.match_set_mgr.add_match_set();
-    if sc_n == 0 {
-        setup_continuation(sess, tf_id, sc_ms_id);
-    } else {
-        for &of in &fc.output_fields {
-            let mut f = sess.job_data.field_mgr.fields[of].borrow_mut();
-            f.iter_hall.reset_iterators();
-            assert!(f.get_clear_delay_request_count() == 0);
-            let msm = &mut sess.job_data.match_set_mgr.match_sets[f.match_set];
-            msm.command_buffer
-                .drop_field_commands(of, &mut f.action_indices);
-        }
+    for &of in &fc.output_fields {
+        let mut f = sess.job_data.field_mgr.fields[of].borrow_mut();
+        f.iter_hall.reset_iterators();
+        assert!(f.get_clear_delay_request_count() == 0);
+        let msm = &mut sess.job_data.match_set_mgr.match_sets[f.match_set];
+        msm.command_buffer
+            .drop_field_commands(of, &mut f.action_indices);
     }
     fc = match_unwrap!(
         &mut sess.transform_data[tf_id.get()],
@@ -577,11 +579,12 @@ pub(crate) fn handle_forkcat_expansion(
         fc
     );
     if sc_idx + 1 == fc.op.subchains_end {
-        let cont_id = fc.continuation.unwrap().get();
-        match &mut sess.transform_data[cont_id] {
-            TransformData::Nop(nop) => nop.manual_unlink = false,
-            TransformData::Terminator(tm) => tm.manual_unlink = false,
-            _ => unreachable!(),
+        if let Some(cont_id) = fc.continuation {
+            if let TransformData::Nop(nop) =
+                &mut sess.transform_data[cont_id.get()]
+            {
+                nop.manual_unlink = false
+            }
         }
     }
     expand_for_subchain(sess, tf_id, sc_n, sc_ms_id);

@@ -25,6 +25,7 @@ use crate::{
         },
         regex::setup_op_regex,
         select::{setup_op_select, setup_op_select_liveness_data},
+        sequence::setup_op_sequence_concurrent_liveness_data,
         up::setup_op_up,
     },
     scr_error::{
@@ -387,7 +388,11 @@ impl SessionOptions {
                 OperatorData::StringSink(_) => (),
                 OperatorData::FileReader(_) => (),
                 OperatorData::Literal(_) => (),
-                OperatorData::Sequence(_) => (),
+                OperatorData::Sequence(op) => {
+                    setup_op_sequence_concurrent_liveness_data(
+                        sess, op, op_id, &ld,
+                    )
+                }
             }
             std::mem::swap(&mut sess.operator_data[i], &mut op_data);
         }

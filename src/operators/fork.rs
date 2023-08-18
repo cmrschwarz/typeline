@@ -338,18 +338,14 @@ pub(crate) fn handle_fork_expansion(
         let input_field = chain_input_field.unwrap_or(DUMMY_INPUT_FIELD_ID);
         let start_op_id =
             sess.job_data.session_data.chains[subchain_id].operators[0];
-        let (start_tf, end_tf, end_reachable) = sess
-            .setup_transforms_with_stable_start(
-                target_ms_id,
-                subchain_id as ChainId,
-                start_op_id,
-                input_field,
-                &Default::default(),
-                false,
-            );
-        if end_reachable {
-            sess.add_terminator(end_tf, false);
-        }
+        let (start_tf, _end_tf) = sess.setup_transforms_with_stable_start(
+            target_ms_id,
+            subchain_id as ChainId,
+            start_op_id,
+            input_field,
+            &Default::default(),
+            false,
+        );
         targets.push(start_tf);
     }
     sess.log_state("expanded fork");

@@ -1,9 +1,8 @@
 use std::{cell::Ref, ops::DerefMut};
 
-use nonmax::NonMaxUsize;
 use smallvec::SmallVec;
 
-use crate::utils::{aligned_buf::AlignedBuf, universe::Universe};
+use crate::utils::aligned_buf::AlignedBuf;
 
 use super::{
     field::{FieldId, FieldManager},
@@ -78,7 +77,7 @@ struct CopyCommand {
 
 pub type ActionListIndex = usize;
 pub type MergedActionListsIndex = usize;
-pub type ActionProducingFieldIndex = NonMaxUsize;
+pub type ActionProducingFieldIndex = usize;
 pub type ActionListOrderingId = usize;
 
 #[derive(Default)]
@@ -124,8 +123,7 @@ pub struct CommandBuffer {
     action_list_ids: ActionListOrderingId,
     first_apf_idx: Option<ActionProducingFieldIndex>,
     last_apf_idx: Option<ActionProducingFieldIndex>,
-    action_producing_fields:
-        Universe<ActionProducingFieldIndex, ActionProducingField>,
+    action_producing_fields: Vec<ActionProducingField>,
     merged_actions: [std::cell::RefCell<Vec<FieldAction>>; 3],
     copies: Vec<CopyCommand>,
     insertions: Vec<InsertionCommand>,
@@ -271,6 +269,9 @@ impl CommandBuffer {
         let prev_curr_apf_idx = *curr_apf_idx;
         let prev_first_unapplied_al_idx =
             field.action_indices.first_unapplied_al_idx;
+        if min_apf_idx >= self.action_producing_fields.len() {
+            return;
+        }
         let als = self.prepare_action_lists(
             min_apf_idx,
             curr_apf_idx,
@@ -479,8 +480,8 @@ impl CommandBuffer {
         self.copies.clear();
     }
     pub fn claim_apf(&mut self) -> ActionProducingFieldIndex {
-        let apf_idx = self.action_producing_fields.peek_claim_id();
-        let mal_count = (apf_idx.get() + 1).trailing_zeros() as usize + 1;
+        let apf_idx = self.action_producing_fields.len();
+        let mal_count = (apf_idx + 1).trailing_zeros() as usize + 1;
         let mut apf = ActionProducingField {
             merged_action_lists: Vec::with_capacity(mal_count),
         };
@@ -495,15 +496,15 @@ impl CommandBuffer {
                 actions: Default::default(),
             });
         }
-        let idx = self.action_producing_fields.claim_with_value(apf);
-        self.last_apf_idx = Some(idx);
+        self.action_producing_fields.push(apf);
+        self.last_apf_idx = Some(apf_idx);
         if self.first_apf_idx.is_none() {
-            self.first_apf_idx = Some(idx);
+            self.first_apf_idx = Some(apf_idx);
         }
-        idx
+        apf_idx
     }
     pub fn peek_next_apf_id(&self) -> ActionProducingFieldIndex {
-        self.action_producing_fields.peek_claim_id()
+        self.action_producing_fields.len()
     }
 }
 

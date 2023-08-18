@@ -4,11 +4,12 @@ use bstr::ByteSlice;
 use smallstr::SmallString;
 
 use crate::{
+    context::Session,
     job_session::JobData,
+    liveness_analysis::{LivenessData, NON_STRING_READS_OFFSET},
     options::argument::CliArgIdx,
-    record_data::{
-        field_data::FieldValueKind,
-        push_interface::{FixedSizeTypeInserter, VariableSizeTypeInserter},
+    record_data::push_interface::{
+        FixedSizeTypeInserter, VariableSizeTypeInserter,
     },
     utils::int_string_conversions::{
         i64_to_str, parse_int_with_units, I64_MAX_DECIMAL_DIGITS,
@@ -17,7 +18,9 @@ use crate::{
 
 use super::{
     errors::OperatorCreationError,
-    operator::{OperatorBase, OperatorData, DEFAULT_OP_NAME_SMALL_STR_LEN},
+    operator::{
+        OperatorBase, OperatorData, OperatorId, DEFAULT_OP_NAME_SMALL_STR_LEN,
+    },
     transform::{TransformData, TransformId, TransformState},
 };
 
@@ -32,6 +35,7 @@ pub struct SequenceSpec {
 pub struct OpSequence {
     pub ss: SequenceSpec,
     pub stop_after_input: bool,
+    pub non_string_reads: bool,
 }
 
 impl OpSequence {
@@ -47,6 +51,7 @@ impl OpSequence {
 }
 
 pub struct TfSequence {
+    pub non_string_reads: bool,
     ss: SequenceSpec,
     stop_after_input: bool,
 }
@@ -62,7 +67,20 @@ pub fn setup_tf_sequence<'a>(
     TransformData::Sequence(TfSequence {
         ss: op.ss,
         stop_after_input: op.stop_after_input,
+        non_string_reads: op.non_string_reads,
     })
+}
+
+pub fn setup_op_sequence_concurrent_liveness_data(
+    sess: &Session,
+    op: &mut OpSequence,
+    op_id: OperatorId,
+    ld: &LivenessData,
+) {
+    let output_id = sess.operator_bases[op_id as usize].outputs_start;
+    let stride = ld.op_outputs.len();
+    op.non_string_reads = ld.op_outputs_data
+        [NON_STRING_READS_OFFSET * stride + output_id as usize];
 }
 
 pub fn increment_int_str(data: &mut ArrayVec<u8, I64_MAX_DECIMAL_DIGITS>) {
@@ -96,21 +114,19 @@ pub fn handle_tf_sequence(
     );
     let mut output_field = sess.field_mgr.fields[of_id].borrow_mut();
     let tf = &sess.tf_mgr.transforms[tf_id];
-    let succ = &sess.tf_mgr.transforms[tf.successor.unwrap()];
     if batch_size == 0 && input_done && !seq.stop_after_input {
-        batch_size = succ
-            .desired_batch_size
-            .saturating_sub(succ.available_batch_size);
+        batch_size = if let Some(succ) = tf.successor {
+            let succ = &sess.tf_mgr.transforms[succ];
+            succ.desired_batch_size
+                .saturating_sub(succ.available_batch_size)
+        } else {
+            tf.desired_batch_size
+        };
     }
-    // TODO: check non text read liveness data instead
-    let succ_wants_text = succ.preferred_input_type
-        == Some(FieldValueKind::BytesInline)
-        && output_field.name.is_none();
 
     let seq_size_rem = (seq.ss.end - seq.ss.start) / seq.ss.step;
     let count = batch_size.min(seq_size_rem as usize);
-
-    if !succ_wants_text {
+    if seq.non_string_reads {
         let mut inserter = output_field.iter_hall.int_inserter();
         inserter.drop_and_reserve(count);
         for _ in 0..count {
@@ -287,6 +303,7 @@ fn create_op_seq_with_cli_arg_idx(
     Ok(OperatorData::Sequence(OpSequence {
         ss: SequenceSpec { start, step, end },
         stop_after_input,
+        non_string_reads: true,
     }))
 }
 

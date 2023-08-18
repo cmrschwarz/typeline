@@ -320,7 +320,6 @@ pub fn handle_tf_call_concurrent(
 ) {
     let (batch_size, input_done) = sess.tf_mgr.claim_all(tf_id);
     let tf = &sess.tf_mgr.transforms[tf_id];
-    assert!(tf.successor.is_none());
     for mapping in &tfc.field_mappings {
         sess.field_mgr.apply_field_actions(
             &mut sess.match_set_mgr,
@@ -402,7 +401,7 @@ pub fn setup_callee_concurrent(
     ms_id: MatchSetId,
     buffer: Arc<RecordBuffer>,
     start_op_id: OperatorId,
-) -> (TransformId, TransformId, bool) {
+) -> (TransformId, TransformId) {
     let chain_id = sess.job_data.session_data.operator_bases
         [start_op_id as usize]
         .chain_id
@@ -452,14 +451,14 @@ pub fn setup_callee_concurrent(
     let input_field = callee.target_fields[0];
     let tf_id =
         sess.add_transform(tf_state, TransformData::CalleeConcurrent(callee));
-    let (_tf_start, tf_end, end_reachable) = sess.setup_transforms_from_op(
+    let (_tf_start, tf_end) = sess.setup_transforms_from_op(
         ms_id,
         start_op_id,
         input_field.unwrap(),
         Some(tf_id),
         &Default::default(),
     );
-    (tf_id, tf_end, end_reachable)
+    (tf_id, tf_end)
 }
 
 pub fn handle_tf_callee_concurrent(

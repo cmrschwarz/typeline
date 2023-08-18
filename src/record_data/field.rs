@@ -31,6 +31,8 @@ pub struct Field {
     pub name: Option<StringStoreEntry>,
     // fields potentially referenced by this field.
     // keeps them alive until this field is dropped
+    // for cow'ed fields, initialization of this is *not* done by default
+    // and requires calling setup_field_refs
     pub field_refs: SmallVec<[FieldId; 4]>,
     pub iter_hall: IterHall,
 
@@ -384,7 +386,6 @@ impl FieldManager {
         debug_assert!(prev_entry.is_none());
         data_source.ref_count += 1;
         data_source.iter_hall.cow_targets.push(field_id);
-        field.field_refs.extend_from_slice(&data_source.field_refs);
         field.iter_hall.data_source = FieldDataSource::Cow(data_source_id);
     }
     pub fn get_cross_ms_cow_field(
@@ -480,26 +481,27 @@ impl FieldManager {
             self.setup_field_refs(msm, cow_src_id);
             let mut field = self.fields[field_id].borrow_mut();
             let cow_src = self.fields[cow_src_id].borrow();
+            let field_ref_len = cow_src.field_refs.len();
             field.field_refs.extend_from_slice(&cow_src.field_refs);
             drop(cow_src);
-            for i in 0..field.field_refs.len() {
-                let fr_src = field.field_refs[i];
+            drop(field);
+            for i in 0..field_ref_len {
+                let fr_src = self.fields[field_id].borrow().field_refs[i];
                 let fr = if self.fields[fr_src].borrow().match_set != ms_id {
                     if let Some(&id) =
                         msm.match_sets[ms_id].cow_map.get(&fr_src)
                     {
                         id
                     } else {
-                        drop(field);
-                        let f =
+                        let id =
                             self.get_cross_ms_cow_field(msm, ms_id, fr_src);
-                        field = self.fields[field_id].borrow_mut();
-                        f
+                        self.setup_field_refs(msm, id);
+                        id
                     }
                 } else {
                     fr_src
                 };
-                field.field_refs.push(fr);
+                self.fields[field_id].borrow_mut().field_refs[i] = fr;
             }
         }
     }

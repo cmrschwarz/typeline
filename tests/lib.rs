@@ -1546,3 +1546,20 @@ fn forkcat_with_batches() -> Result<(), ScrError> {
     assert_eq!(ss.get_data().unwrap().as_slice(), ["2412345"]);
     Ok(())
 }
+
+#[test]
+fn forkcat_on_unapplied_commands() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::default();
+    ContextBuilder::default()
+        .set_batch_size(1)
+        .add_op(create_op_seqn(1, 5, 1).unwrap())
+        .add_op(create_op_regex("[24]").unwrap())
+        .add_op(create_op_forkcat())
+        .add_op(create_op_nop())
+        .add_op(create_op_up(1))
+        .add_op(create_op_join(None, None, false))
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(ss.get_data().unwrap().as_slice(), ["24"]);
+    Ok(())
+}

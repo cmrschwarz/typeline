@@ -112,7 +112,7 @@ pub(crate) fn handle_eager_call_expansion(
     ms_id: MatchSetId,
     input_field: FieldId,
     predecessor_tf: Option<TransformId>,
-) -> (TransformId, TransformId, bool) {
+) -> (TransformId, TransformId) {
     let op = match_unwrap!(
         &sess.job_data.session_data.operator_data[op_id as usize],
         OperatorData::Call(op),
@@ -134,6 +134,7 @@ pub(crate) fn handle_lazy_call_expansion(
     tf_id: TransformId,
 ) {
     let tf = &mut sess.job_data.tf_mgr.transforms[tf_id];
+    let old_successor = tf.successor;
     let input_field = tf.input_field;
     let ms_id = tf.match_set_id;
     let call = match_unwrap!(
@@ -141,15 +142,16 @@ pub(crate) fn handle_lazy_call_expansion(
         TransformData::Call(c),
         c
     );
-    let (target_tf, _end_tf, _end_reachable) = sess.setup_transforms_from_op(
+    let (_target_tf, end_tf) = sess.setup_transforms_from_op(
         ms_id,
         sess.job_data.session_data.chains[call.target as usize].operators[0],
         input_field,
         Some(tf_id),
         &Default::default(),
     );
-    sess.job_data.tf_mgr.transforms[target_tf].predecessor = Some(tf_id);
-    sess.job_data.tf_mgr.transforms[tf_id].successor = Some(target_tf);
+    if let Some(old_succ) = old_successor {
+        sess.job_data.tf_mgr.connect_tfs(end_tf, old_succ);
+    }
     let (batch_size, _input_done) = sess.job_data.tf_mgr.claim_all(tf_id);
     sess.job_data.unlink_transform(tf_id, batch_size);
 }
