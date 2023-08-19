@@ -116,6 +116,7 @@ struct MergedActionLists {
 
 struct ActionProducingField {
     merged_action_lists: Vec<MergedActionLists>,
+    pending_action_list: Option<ActionList>,
 }
 
 #[derive(Default)]
@@ -138,68 +139,9 @@ impl FieldActionIndices {
     }
 }
 
-impl MergedActionLists {
-    pub fn is_legal_field_idx_for_action(&self, field_idx: usize) -> bool {
-        if let Some(acs) = self.action_lists.last() {
-            if acs.actions_end != acs.actions_start {
-                self.actions[acs.actions_end - 1].field_idx <= field_idx
-            } else {
-                true
-            }
-        } else {
-            false
-        }
-    }
-    pub fn push_action_with_usize_rl(
-        &mut self,
-        kind: FieldActionKind,
-        field_idx: usize,
-        mut run_length: usize,
-    ) {
-        while run_length > 0 {
-            let rl_to_push =
-                run_length.min(RunLength::MAX as usize) as RunLength;
-            self.push_action(kind, field_idx, rl_to_push);
-            run_length -= rl_to_push as usize;
-        }
-    }
-    pub fn push_action(
-        &mut self,
-        kind: FieldActionKind,
-        field_idx: usize,
-        run_length: RunLength,
-    ) {
-        assert!(self.is_legal_field_idx_for_action(field_idx));
-        let al = self.action_lists.last_mut().unwrap();
-        if al.actions_end > al.actions_start {
-            // very simple early merging of actions to hopefully save some
-            // memory this also allows operations to be slightly
-            // more 'wasteful' with their action pushes
-            let last = &mut self.actions[al.actions_end - 1];
-            if last.kind == kind
-                && last.field_idx == field_idx
-                && RunLength::MAX as usize
-                    > last.run_len as usize + run_length as usize
-            {
-                last.run_len += run_length;
-                return;
-            }
-        }
-        al.actions_end += 1;
-        self.actions.push(FieldAction {
-            kind,
-            field_idx,
-            run_len: run_length,
-        });
-    }
-}
-
 impl CommandBuffer {
-    pub fn begin_action_list(
-        &mut self,
-        apf_idx: ActionProducingFieldIndex,
-    ) -> ActionListIndex {
-        let apf = &self.action_producing_fields[apf_idx];
+    pub fn begin_action_list(&mut self, apf_idx: ActionProducingFieldIndex) {
+        let apf = &mut self.action_producing_fields[apf_idx];
         let start = apf.merged_action_lists[0].actions.len();
         let first_unapplied_idx = apf.merged_action_lists[0]
             .prev_apf_idx
@@ -211,24 +153,53 @@ impl CommandBuffer {
             .unwrap_or(0);
         let id = self.action_list_ids;
         self.action_list_ids += 1;
-        let action_lists = &mut self.action_producing_fields[apf_idx]
-            .merged_action_lists[0]
-            .action_lists;
-        let action_list_id = action_lists.len();
-        action_lists.push(ActionList {
-            ordering_id: id,
-            first_unapplied_al_idx_in_prev_apf: first_unapplied_idx,
-            actions_start: start,
-            actions_end: start,
-        });
-        action_list_id
+        self.action_producing_fields[apf_idx].pending_action_list =
+            Some(ActionList {
+                ordering_id: id,
+                first_unapplied_al_idx_in_prev_apf: first_unapplied_idx,
+                actions_start: start,
+                actions_end: start,
+            });
+    }
+    pub fn is_legal_field_idx_for_action(
+        &self,
+        apf_idx: ActionProducingFieldIndex,
+        field_idx: usize,
+    ) -> bool {
+        let apf = &self.action_producing_fields[apf_idx];
+        if let Some(al) = &apf.pending_action_list {
+            if al.actions_end != al.actions_start {
+                apf.merged_action_lists[0].actions[al.actions_end - 1]
+                    .field_idx
+                    <= field_idx
+            } else {
+                true
+            }
+        } else {
+            false
+        }
     }
     pub fn end_action_list(&mut self, apf_idx: ActionProducingFieldIndex) {
         let apf = &mut self.action_producing_fields[apf_idx];
         let mal = &mut apf.merged_action_lists[0];
-        let al = mal.action_lists.last().unwrap();
-        if al.actions_end == al.actions_start {
-            mal.action_lists.pop();
+        let al = apf.pending_action_list.take().unwrap();
+        if al.actions_end != al.actions_start {
+            mal.action_lists.push(al);
+        }
+    }
+    pub fn push_action_with_usize_rl(
+        &mut self,
+        apf_idx: ActionProducingFieldIndex,
+        kind: FieldActionKind,
+        field_idx: usize,
+        mut run_length: usize,
+    ) {
+        while run_length > 0 {
+            let rl_to_push =
+                run_length.min(RunLength::MAX as usize) as RunLength;
+            // PERF: this sucks
+            self.push_action(apf_idx, kind, field_idx, rl_to_push);
+            run_length -= rl_to_push as usize;
         }
     }
     pub fn push_action(
@@ -238,19 +209,32 @@ impl CommandBuffer {
         field_idx: usize,
         run_length: RunLength,
     ) {
-        self.action_producing_fields[apf_idx].merged_action_lists[0]
-            .push_action(kind, field_idx, run_length);
+        assert!(self.is_legal_field_idx_for_action(apf_idx, field_idx));
+        let apf = &mut self.action_producing_fields[apf_idx];
+        let al = apf.pending_action_list.as_mut().unwrap();
+        let mal = &mut apf.merged_action_lists[0];
+        if al.actions_end > al.actions_start {
+            // very simple early merging of actions to hopefully save some
+            // memory this also allows operations to be slightly
+            // more 'wasteful' with their action pushes
+            let last = &mut mal.actions[al.actions_end - 1];
+            if last.kind == kind
+                && last.field_idx == field_idx
+                && RunLength::MAX as usize
+                    > last.run_len as usize + run_length as usize
+            {
+                last.run_len += run_length;
+                return;
+            }
+        }
+        al.actions_end += 1;
+        mal.actions.push(FieldAction {
+            kind,
+            field_idx,
+            run_len: run_length,
+        });
     }
-    pub fn push_action_with_usize_rl(
-        &mut self,
-        apf_idx: ActionProducingFieldIndex,
-        kind: FieldActionKind,
-        field_idx: usize,
-        run_length: usize,
-    ) {
-        self.action_producing_fields[apf_idx].merged_action_lists[0]
-            .push_action_with_usize_rl(kind, field_idx, run_length);
-    }
+
     pub fn execute(&mut self, fm: &FieldManager, field_id: FieldId) {
         let mut field_ref = fm.fields[field_id].borrow_mut();
         let field = field_ref.deref_mut();
@@ -488,6 +472,7 @@ impl CommandBuffer {
         let mal_count = (apf_idx + 1).trailing_zeros() as usize + 1;
         let mut apf = ActionProducingField {
             merged_action_lists: Vec::with_capacity(mal_count),
+            pending_action_list: None,
         };
         for _ in 0..mal_count {
             apf.merged_action_lists.push(MergedActionLists {
@@ -501,6 +486,11 @@ impl CommandBuffer {
             });
         }
         self.action_producing_fields.push(apf);
+        if let Some(idx) = self.last_apf_idx {
+            // TODO: handle higher orders?
+            self.action_producing_fields[idx].merged_action_lists[0]
+                .next_apf_idx = Some(apf_idx);
+        }
         self.last_apf_idx = Some(apf_idx);
         if self.first_apf_idx.is_none() {
             self.first_apf_idx = Some(apf_idx);
@@ -982,7 +972,7 @@ impl CommandBuffer {
     fn merge_action_lists(
         &mut self,
         min_apf_idx: ActionProducingFieldIndex,
-        first_unapplied_al_idx_in_min_apf: Option<ActionListIndex>,
+        mut first_unapplied_al_idx_in_min_apf: Option<ActionListIndex>,
         mut max_apf_idx: ActionProducingFieldIndex,
         mut first_unapplied_al_idx_in_max_apf: ActionListIndex,
     ) -> ActionListMergeResult {
@@ -1001,10 +991,18 @@ impl CommandBuffer {
         let mut mal = &apf.merged_action_lists[mal_idx];
         if mal.action_lists.len() == first_unapplied_al_idx_in_max_apf {
             max_apf_idx = mal.prev_apf_idx.unwrap();
-            if first_unapplied_al_idx_in_max_apf != 0 {
-                first_unapplied_al_idx_in_max_apf = mal.action_lists
-                    [first_unapplied_al_idx_in_max_apf]
-                    .first_unapplied_al_idx_in_prev_apf;
+            match first_unapplied_al_idx_in_min_apf {
+                Some(idx) if max_apf_idx == min_apf_idx => {
+                    first_unapplied_al_idx_in_max_apf = idx;
+                    first_unapplied_al_idx_in_min_apf = None;
+                }
+                _ => {
+                    if !mal.action_lists.is_empty() {
+                        first_unapplied_al_idx_in_max_apf = mal.action_lists
+                            [first_unapplied_al_idx_in_max_apf - 1]
+                            .first_unapplied_al_idx_in_prev_apf;
+                    }
+                }
             }
             return self.merge_action_lists(
                 min_apf_idx,
@@ -1015,7 +1013,7 @@ impl CommandBuffer {
         }
 
         while mal.prev_apf_idx.unwrap() > min_apf_idx {
-            if mal_idx == apf.merged_action_lists.len() {
+            if mal_idx + 1 == apf.merged_action_lists.len() {
                 break;
             }
             mal_idx += 1;
@@ -1788,6 +1786,7 @@ mod test {
         for a in actions {
             cb.push_action(apf_idx, a.kind, a.field_idx, a.run_len);
         }
+        cb.end_action_list(apf_idx);
         cb.execute_for_field_data(&mut fd, apf_idx, &mut apf_idx, &mut 0);
         let mut iter = fd.iter();
         let mut results = Vec::new();

@@ -34,7 +34,6 @@ use scr::{
     options::{
         chain_options::DEFAULT_CHAIN_OPTIONS, context_builder::ContextBuilder,
     },
-    record_data::{push_interface::PushInterface, record_set::RecordSet},
     scr_error::{ChainSetupError, ContextualizedScrError, ScrError},
     utils::int_string_conversions::i64_to_str,
 };
@@ -102,10 +101,8 @@ fn lines_regex() -> Result<(), ScrError> {
 fn regex_drop() -> Result<(), ScrError> {
     let ss1 = StringSinkHandle::default();
     let ss2 = StringSinkHandle::default();
-    let mut rs = RecordSet::default();
-    rs.push_str("foo\nbar\nbaz\n", 1, false, false);
     ContextBuilder::default()
-        .set_input(rs)
+        .push_str("foo\nbar\nbaz\n", 1)
         .add_op(create_op_regex_lines())
         .add_op_transparent(create_op_string_sink(&ss1))
         .add_op(create_op_regex(".*[^r]$").unwrap())
@@ -1561,5 +1558,27 @@ fn forkcat_on_unapplied_commands() -> Result<(), ScrError> {
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(ss.get_data().unwrap().as_slice(), ["24"]);
+    Ok(())
+}
+
+#[test]
+fn basic_input_feeder() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::default();
+    ContextBuilder::default()
+        .push_str("123", 1)
+        .add_op(
+            create_op_regex_with_opts(
+                ".",
+                RegexOptions {
+                    multimatch: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap(),
+        )
+        .add_op(create_op_regex("2").unwrap())
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(ss.get_data().unwrap().as_slice(), ["2"]);
     Ok(())
 }
