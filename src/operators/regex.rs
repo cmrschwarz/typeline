@@ -988,19 +988,16 @@ pub fn handle_tf_regex(
             | TypedSlice::Object(_) => {
                 rbs.field_pos_input += range.base.field_count;
                 rbs.field_pos_output += range.base.field_count;
-                for cgi in re.capture_group_fields.iter().filter_map(|v| *v) {
-                    sess.field_mgr.fields[cgi]
-                        .borrow_mut()
-                        .iter_hall
-                        .push_error(
-                            OperatorApplicationError::new(
-                                "regex type error",
-                                op_id,
-                            ),
-                            range.base.field_count,
-                            true,
-                            true,
-                        );
+                for inserter in
+                    rbs.inserters.iter_mut().filter_map(|i| i.as_mut())
+                {
+                    inserter.push_error(
+                        OperatorApplicationError::new(
+                            "regex type error",
+                            op_id,
+                        ),
+                        range.base.field_count,
+                    );
                 }
             }
         }

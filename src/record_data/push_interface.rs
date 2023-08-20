@@ -1450,6 +1450,9 @@ impl<'a> VaryingTypeInserter<'a> {
     pub fn push_field_reference(&mut self, v: FieldReference, rl: usize) {
         unsafe { self.push_fixed_sized_type(FieldValueKind::Reference, v, rl) }
     }
+    pub fn push_error(&mut self, e: OperatorApplicationError, rl: usize) {
+        unsafe { self.push_fixed_sized_type(FieldValueKind::Error, e, rl) }
+    }
     pub fn push_null(&mut self, rl: usize) {
         self.push_zst(FieldValueKind::Null, rl)
     }
