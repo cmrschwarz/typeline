@@ -423,8 +423,8 @@ impl CommandBuffer {
         );
         self.cleanup();
         if cfg!(feature = "debug_logging")
-            && prev_first_unapplied_apf_idx != *first_unapplied_al_idx
-            || prev_curr_apf_idx != *curr_apf_idx
+            && (prev_first_unapplied_apf_idx != *first_unapplied_al_idx
+                || prev_curr_apf_idx != *curr_apf_idx)
         {
             println!(
                     "dropping commands for field {}: min apf {}: curr apf {} [al {}] -> {} [al {}]",
@@ -1048,6 +1048,7 @@ impl CommandBuffer {
         curr_apf_idx: &mut ActionProducingFieldIndex,
         first_unapplied_al_idx_in_curr_apf: &mut ActionListIndex,
     ) -> ActionListMergeResult {
+        let mut second_apf_idx = None;
         let mut last_apf_idx = *curr_apf_idx;
         let mut new_curr_apf_idx = last_apf_idx;
         let mal =
@@ -1063,6 +1064,7 @@ impl CommandBuffer {
             .next_apf_idx
         {
             last_apf_idx = next;
+            second_apf_idx = Some(second_apf_idx.unwrap_or(next));
             let mal = &self.action_producing_fields[last_apf_idx]
                 .merged_action_lists[0];
             if let Some(al) = mal.action_lists.last() {
@@ -1073,30 +1075,22 @@ impl CommandBuffer {
                 }
             }
         }
-        let res;
-        if last_apf_idx != *curr_apf_idx {
-            let rhs = self.merge_action_lists(
-                *curr_apf_idx,
-                Some(*first_unapplied_al_idx_in_curr_apf),
-                last_apf_idx,
-                0,
-            );
+        let res = if let Some(second_apf) = second_apf_idx {
             let lhs = self.merge_action_lists(
                 min_apf_idx,
                 None,
                 *curr_apf_idx,
                 *first_unapplied_al_idx_in_curr_apf,
             );
-            res = self.merge_two_action_lists(lhs, rhs);
-            *curr_apf_idx = last_apf_idx;
+            let rhs =
+                self.merge_action_lists(second_apf, None, last_apf_idx, 0);
+            self.merge_two_action_lists(lhs, rhs)
         } else {
-            res = self.merge_action_lists(
-                min_apf_idx,
-                None,
+            self.merge_apf_action_list_mal_0(
                 *curr_apf_idx,
                 *first_unapplied_al_idx_in_curr_apf,
-            );
-        }
+            )
+        };
         *curr_apf_idx = new_curr_apf_idx;
         *first_unapplied_al_idx_in_curr_apf = new_first_unapplied_al_idx;
         res
