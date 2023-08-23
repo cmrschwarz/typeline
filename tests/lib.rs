@@ -1582,3 +1582,16 @@ fn basic_input_feeder() -> Result<(), ScrError> {
     assert_eq!(ss.get_data().unwrap().as_slice(), ["2"]);
     Ok(())
 }
+
+#[test]
+fn double_regex() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::default();
+    ContextBuilder::default()
+        .add_op(create_op_seq(0, 20, 1).unwrap())
+        .add_op(create_op_regex(".*2.*").unwrap())
+        .add_op(create_op_regex(".*").unwrap())
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(ss.get_data().unwrap().as_slice(), &["2", "12"]);
+    Ok(())
+}

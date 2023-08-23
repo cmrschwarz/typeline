@@ -574,12 +574,13 @@ impl CommandBuffer {
                     (left.field_idx as isize + field_pos_offset_left) as usize;
                 let mut run_len = left.run_len as usize;
                 let mut kind = left.kind;
-                let space_to_next = left_list
-                    .get(curr_action_idx_left + 1)
-                    .map(|a| a.field_idx - left.field_idx)
-                    .unwrap_or(usize::MAX);
+
                 match left.kind {
                     FieldActionKind::Dup => {
+                        let space_to_next = left_list
+                            .get(curr_action_idx_left + 1)
+                            .map(|a| a.field_idx - left.field_idx)
+                            .unwrap_or(usize::MAX);
                         if outstanding_drops_right >= run_len {
                             kind = FieldActionKind::Drop;
                             outstanding_drops_right -= run_len;
@@ -594,7 +595,7 @@ impl CommandBuffer {
                     }
                     FieldActionKind::Drop => {
                         outstanding_drops_right += run_len;
-                        run_len = outstanding_drops_right.min(space_to_next);
+                        run_len = outstanding_drops_right;
                         outstanding_drops_right -= run_len;
                     }
                 }
@@ -1879,6 +1880,18 @@ mod test {
             &mut output,
         );
         assert_eq!(output.as_slice(), out);
+    }
+
+    #[test]
+    fn uncontested_drops_survive_merge() {
+        use FieldActionKind::*;
+        let drops = &[
+            FieldAction::new(Drop, 0, 2),
+            FieldAction::new(Drop, 1, 9),
+            FieldAction::new(Drop, 2, 7),
+        ];
+        test_raw_field_merge(drops, &[], drops);
+        test_raw_field_merge(&[], drops, drops);
     }
 
     #[test]
