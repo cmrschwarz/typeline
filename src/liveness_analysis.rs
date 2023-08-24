@@ -66,6 +66,11 @@ pub struct BasicBlock {
     // vars available at the start that may be accessed through
     // data behind vars available at the end that contain field references
     pub field_references: HashMap<VarId, SmallVec<[VarId; 4]>>,
+
+    // var name after the bb -> original var name
+    // if the 'original name' was locally generated, there is no entry
+    pub key_aliases: HashMap<VarId, VarId, BuildIdentityHasher>,
+
     updates_required: bool,
 }
 pub enum Var {
@@ -93,6 +98,7 @@ pub struct LivenessData {
     pub var_names: HashMap<StringStoreEntry, VarId, BuildIdentityHasher>,
     pub basic_blocks: Vec<BasicBlock>,
     pub vars_to_op_outputs_map: Vec<OpOutputIdx>,
+    pub key_aliases_map: HashMap<VarId, OpOutputIdx, BuildIdentityHasher>,
     pub operator_liveness_data: Vec<OperatorLivenessData>,
     updates_required: Vec<BasicBlockId>,
 }
@@ -240,6 +246,7 @@ impl LivenessData {
                 updates_required: true,
                 field_references: Default::default(),
                 predecessors: Default::default(),
+                key_aliases: Default::default(),
             });
             self.updates_required.push(bb_id);
         }
@@ -257,6 +264,7 @@ impl LivenessData {
                 updates_required: true,
                 field_references: Default::default(),
                 predecessors: Default::default(),
+                key_aliases: Default::default(),
             });
         }
         self.updates_required.extend(0..sess.chains.len());
@@ -391,11 +399,21 @@ impl LivenessData {
             self.op_outputs[i].field_references.clear();
         }
     }
+    fn apply_var_remapping(&self, var_id: VarId, target: OpOutputIdx) {
+        let offset = NON_STRING_READS_OFFSET * self.op_outputs.len();
+        let tgt_idx = offset + target as usize;
+        let src_idx = offset + var_id as usize;
+        self.op_outputs_data.set_aliased(
+            tgt_idx,
+            self.op_outputs_data[tgt_idx] || self.op_outputs_data[src_idx],
+        );
+    }
     fn compute_local_liveness_for_bb(
         &mut self,
         sess: &Session,
         bb_id: BasicBlockId,
     ) {
+        self.key_aliases_map.clear();
         self.reset_op_outputs_data_for_vars();
         let mut bb = &mut self.basic_blocks[bb_id];
         let cn = &sess.chains[bb.chain_id as usize];
@@ -432,13 +450,18 @@ impl LivenessData {
                     break;
                 }
                 OperatorData::Key(key) => {
-                    let tgt_var = self.var_names[&key.key_interned.unwrap()];
+                    let var_id = self.var_names[&key.key_interned.unwrap()];
                     debug_assert!(!op_base.append_mode);
-                    self.vars_to_op_outputs_map[tgt_var as usize] =
+                    self.vars_to_op_outputs_map[var_id as usize] =
                         output_field;
                     self.op_outputs[output_field as usize]
                         .field_references
                         .push(input_field);
+                    if let Some(prev_tgt) =
+                        self.key_aliases_map.insert(var_id, input_field)
+                    {
+                        self.apply_var_remapping(var_id, prev_tgt);
+                    }
                     continue;
                 }
                 OperatorData::Select(select) => {
@@ -635,6 +658,19 @@ impl LivenessData {
                 debug_assert!(op_output_id == var_idx as VarId);
             }
         }
+        for (&var_id, &op_output) in &self.key_aliases_map {
+            self.apply_var_remapping(var_id, op_output);
+            bb = &mut self.basic_blocks[bb_id];
+            if op_output < self.vars.len() as OpOutputIdx {
+                bb.key_aliases.insert(op_output as VarId, var_id);
+            } else {
+                for &bv in
+                    &self.op_outputs[op_output as usize].bound_vars_after_bb
+                {
+                    bb.key_aliases.insert(bv, op_output as VarId);
+                }
+            }
+        }
     }
     fn compute_local_liveness(&mut self, sess: &Session) {
         for i in 0..self.basic_blocks.len() {
@@ -713,11 +749,22 @@ impl LivenessData {
     ) {
         let var_count = self.vars.len();
         for i in REGULAR_FIELD_OFFSETS {
-            tgt.set_aliased(
-                i * var_count + original_var as usize,
-                src[i * var_count + alias_var as usize],
-            );
+            let tgt_idx = i * var_count + original_var as usize;
+            let src_idx = i * var_count + alias_var as usize;
+            tgt.set_aliased(tgt_idx, src[src_idx] || tgt[tgt_idx]);
         }
+    }
+    pub fn propagate_stringified_reads(
+        &self,
+        tgt: &BitSlice<Cell<usize>>,
+        src: &BitSlice<Cell<usize>>,
+        original_var: VarId,
+        alias_var: VarId,
+    ) {
+        let offset = NON_STRING_READS_OFFSET * self.vars.len();
+        let tgt_idx = offset + original_var as usize;
+        let src_idx = offset + alias_var as usize;
+        tgt.set_aliased(tgt_idx, src[src_idx] || tgt[tgt_idx]);
     }
     pub fn apply_bb_aliases(
         &self,
@@ -725,6 +772,14 @@ impl LivenessData {
         src: &BitSlice<Cell<usize>>,
         bb: &BasicBlock,
     ) {
+        for (&alias_var, &original_var) in &bb.key_aliases {
+            self.propagate_stringified_reads(
+                tgt,
+                src,
+                original_var,
+                alias_var,
+            );
+        }
         for (alias_var, field_refs) in &bb.field_references {
             for original_var in field_refs {
                 self.apply_alias(tgt, src, *original_var, *alias_var);
@@ -973,7 +1028,7 @@ impl LivenessData {
             }
             println!();
         }
-        const PADDING_OOS: usize = 13;
+        const PADDING_OOS: usize = 16;
         let vc = self.vars.len();
         let ooc = self.op_outputs.len();
         print!("{:>PADDING_OOS$}: ", "op_output id");
@@ -985,6 +1040,7 @@ impl LivenessData {
             ("reads", READS_OFFSET),
             ("header writes", HEADER_WRITES_OFFSET),
             ("data writes", DATA_WRITES_OFFSET),
+            ("non string reads", NON_STRING_READS_OFFSET),
         ] {
             print_bits(
                 name,
@@ -1032,14 +1088,33 @@ impl LivenessData {
                 }
             }
             let bb = &self.basic_blocks[bb_id];
-            let mut elements = bb.field_references.iter().peekable();
-            if elements.peek().is_some() {
-                println!();
-                print!("field refs: ");
+
+            let r: [(&str, &mut dyn Iterator<Item = (&VarId, &[VarId])>); 2] = [
+                (
+                    "key aliases",
+                    &mut bb
+                        .key_aliases
+                        .iter()
+                        .map(|(src, tgt)| (tgt, std::slice::from_ref(src))),
+                ),
+                (
+                    "field refs",
+                    &mut bb
+                        .field_references
+                        .iter()
+                        .map(|(tgt, srcs)| (tgt, srcs.as_slice())),
+                ),
+            ];
+            for (name, elements) in r {
+                let mut elements = elements.peekable();
+                if elements.peek().is_none() {
+                    continue;
+                }
+                print!("\n{name}: ");
                 for (&tgt, srcs) in elements {
                     for &src in srcs {
                         print!(
-                            "[{} -> {}] ",
+                            "[{} <- {}] ",
                             self.vars[src as usize].name(&sess.string_store),
                             self.vars[tgt as usize].name(&sess.string_store),
                         )
