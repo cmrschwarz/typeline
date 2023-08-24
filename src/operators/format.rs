@@ -1,4 +1,4 @@
-use arrayvec::ArrayVec;
+use arrayvec::{ArrayString, ArrayVec};
 use bstr::ByteSlice;
 use nonmax::NonMaxUsize;
 use std::{borrow::Cow, cell::RefMut, fmt::Write, ptr::NonNull};
@@ -29,7 +29,10 @@ use crate::{
     },
     utils::{
         divide_by_char_len,
-        int_string_conversions::{i64_digits, i64_to_str, u64_to_str},
+        int_string_conversions::{
+            i64_digits, i64_to_str, u64_to_str, usize_to_str,
+            USIZE_MAX_DECIMAL_DIGITS,
+        },
         string_store::{StringStore, StringStoreEntry},
         universe::CountedUniverse,
         LengthAndCharsCountingWriter, LengthCountingWriter,
@@ -132,7 +135,8 @@ pub enum FormatPart {
     Key(FormatKey),
 }
 
-type FormatKeyRefId = usize;
+type FormatKeyRefId = u32;
+type FormatPartIndex = u32;
 
 #[derive(Clone)]
 pub struct OpFormat {
@@ -148,7 +152,7 @@ pub struct FormatIdentRef {
 }
 
 struct TfFormatStreamValueHandle {
-    part_idx: usize,
+    part_idx: FormatPartIndex,
     handled_len: usize,
     width_lookup: usize,
     target_sv_id: StreamValueId,
@@ -158,6 +162,12 @@ type TfFormatStreamValueHandleId = NonMaxUsize;
 
 const FINAL_OUTPUT_INDEX_NEXT_VAL: usize = usize::MAX;
 
+#[derive(Clone, Copy)]
+struct FormatError {
+    err_in_width: bool,
+    part_idx: FormatPartIndex,
+    kind: FieldValueKind,
+}
 #[derive(Default, Clone, Copy)]
 struct OutputState {
     next: usize,
@@ -165,7 +175,7 @@ struct OutputState {
     width_lookup: usize,
     run_len: usize,
     contains_raw_bytes: bool,
-    error_occured: bool,
+    contained_error: Option<FormatError>,
     incomplete_stream_value_handle: Option<TfFormatStreamValueHandleId>,
 }
 
@@ -176,7 +186,7 @@ struct OutputTarget {
 }
 
 pub struct TfFormat<'a> {
-    parts: &'a Vec<FormatPart>,
+    op: &'a OpFormat,
     refs: Vec<FormatIdentRef>,
     output_states: Vec<OutputState>,
     output_targets: Vec<OutputTarget>,
@@ -255,7 +265,7 @@ pub fn setup_tf_format<'a>(
         })
         .collect();
     let tf = TfFormat {
-        parts: &op.parts,
+        op,
         refs,
         output_states: Default::default(),
         output_targets: Default::default(),
@@ -304,7 +314,7 @@ pub fn parse_format_width_spec<const FOR_FLOAT_PREC: bool>(
             }
             let val = unsafe { std::str::from_utf8_unchecked(&fmt[start..i]) };
             if c == '$' {
-                let ref_id = refs.len();
+                let ref_id = refs.len() as FormatKeyRefId;
                 refs.push(Some(val.to_owned()));
                 return Ok((Some(FormatWidthSpec::Ref(ref_id)), i + 1));
             }
@@ -343,7 +353,7 @@ pub fn parse_format_width_spec<const FOR_FLOAT_PREC: bool>(
                 } else {
                     Some(format_width_ident.into_string())
                 };
-                let ref_id = refs.len();
+                let ref_id = refs.len() as FormatKeyRefId;
                 refs.push(fmt_ref);
                 return Ok((Some(FormatWidthSpec::Ref(ref_id)), i + 1));
             }
@@ -515,7 +525,7 @@ pub fn parse_format_key(
             None
         };
         refs.push(ref_val);
-        key.identifier = refs.len() - 1;
+        key.identifier = refs.len() as FormatKeyRefId - 1;
         i = end;
         if c0 == ':' {
             i = parse_format_flags(fmt, i, &mut key, refs)?;
@@ -638,9 +648,12 @@ fn iter_output_states_advanced(
         o2.run_len = rl_rem;
         output_states.push(o2);
     }
+
     while run_len > 0 {
         let o = &mut output_states[*output_idx];
-        if !o.error_occured && o.incomplete_stream_value_handle.is_none() {
+        if o.contained_error.is_none()
+            && o.incomplete_stream_value_handle.is_none()
+        {
             func(o);
         }
         *output_idx = o.next;
@@ -718,23 +731,20 @@ pub fn lookup_widths(
     msm: &mut MatchSetManager,
     fmt: &mut TfFormat,
     k: &FormatKey,
+    part_idx: FormatPartIndex,
     batch_size: usize,
     unconsumed_input: bool,
-    apply_actions: bool,
     update_iter: bool,
-    succ_func: impl Fn(&mut TfFormat, &mut usize, usize, usize), /* output idx, width, run length */
-    err_func: impl Fn(&mut TfFormat, &mut usize, usize),         /* output idx,
-                                                                  * width, run
-                                                                  * length */
+    // fmt, output idx, width, run length
+    succ_func: impl Fn(&mut TfFormat, &mut usize, usize, usize),
+    // fmt, output idx, found field type, run length
+    err_func: impl Fn(&mut TfFormat, &mut usize, FieldValueKind, usize),
 ) {
     let ident_ref = if let Some(FormatWidthSpec::Ref(ident)) = k.width {
-        fmt.refs[ident]
+        fmt.refs[ident as usize]
     } else {
         return;
     };
-    if apply_actions {
-        fm.apply_field_actions(msm, ident_ref.field_id);
-    }
     let field =
         fm.get_cow_field_ref(msm, ident_ref.field_id, unconsumed_input);
     let mut iter = fm
@@ -750,7 +760,12 @@ pub fn lookup_widths(
                     succ_func(fmt, &mut output_index, width, rl as usize);
                 }
             }
-            _ => err_func(fmt, &mut output_index, range.field_count),
+            _ => err_func(
+                fmt,
+                &mut output_index,
+                range.data.kind(),
+                range.field_count,
+            ),
         }
         handled_fields += range.field_count;
     }
@@ -758,7 +773,13 @@ pub fn lookup_widths(
         &mut fmt.output_states,
         &mut output_index,
         batch_size - handled_fields,
-        |os| os.error_occured = true,
+        |os| {
+            os.contained_error = Some(FormatError {
+                err_in_width: true,
+                part_idx,
+                kind: FieldValueKind::Undefined,
+            })
+        },
     );
     if update_iter {
         fm.store_iter(ident_ref.field_id, ident_ref.iter_id, iter);
@@ -769,21 +790,21 @@ pub fn setup_key_output_state(
     fm: &FieldManager,
     msm: &mut MatchSetManager,
     tf_id: TransformId,
-    part_idx: usize,
     fmt: &mut TfFormat,
     batch_size: usize,
     unconsumed_input: bool,
     k: &FormatKey,
+    part_idx: FormatPartIndex,
 ) {
     lookup_widths(
         fm,
         msm,
         fmt,
         k,
+        part_idx,
         batch_size,
         unconsumed_input,
         true,
-        false,
         |fmt, output_idx, width, run_len| {
             iter_output_states_advanced(
                 &mut fmt.output_states,
@@ -792,16 +813,22 @@ pub fn setup_key_output_state(
                 |os| os.width_lookup = width,
             )
         },
-        |fmt, output_idx, run_len| {
+        |fmt, output_idx, kind, run_len| {
             iter_output_states_advanced(
                 &mut fmt.output_states,
                 output_idx,
                 run_len,
-                |os| os.error_occured = true,
+                |os| {
+                    os.contained_error = Some(FormatError {
+                        err_in_width: true,
+                        part_idx,
+                        kind,
+                    })
+                },
             )
         },
     );
-    let ident_ref = fmt.refs[k.identifier];
+    let ident_ref = fmt.refs[k.identifier as usize];
     fm.apply_field_actions(msm, ident_ref.field_id);
     let field =
         fm.get_cow_field_ref(msm, ident_ref.field_id, unconsumed_input);
@@ -928,7 +955,12 @@ pub fn setup_key_output_state(
                                     &mut output_index,
                                     rl,
                                     |o| {
-                                        o.error_occured = true;
+                                        o.contained_error =
+                                            Some(FormatError {
+                                                err_in_width: false,
+                                                part_idx,
+                                                kind: FieldValueKind::Error,
+                                            });
                                     },
                                 );
                             }
@@ -1083,7 +1115,11 @@ pub fn setup_key_output_state(
                     &mut output_index,
                     range.base.field_count,
                     |o| {
-                        o.error_occured = true;
+                        o.contained_error = Some(FormatError {
+                            err_in_width: false,
+                            part_idx,
+                            kind: range.base.data.kind(),
+                        });
                     },
                 );
             }
@@ -1107,7 +1143,11 @@ pub fn setup_key_output_state(
                     &mut || UNDEFINED_STR.len(),
                 );
             } else {
-                o.error_occured = true
+                o.contained_error = Some(FormatError {
+                    err_in_width: false,
+                    part_idx,
+                    kind: FieldValueKind::Undefined,
+                })
             }
         },
     );
@@ -1145,6 +1185,7 @@ unsafe fn write_padding_to_tgt(
     }
 }
 fn setup_output_targets(
+    ss: &StringStore,
     fmt: &mut TfFormat,
     sv_mgr: &mut StreamValueManager,
     op_id: OperatorId,
@@ -1160,7 +1201,7 @@ fn setup_output_targets(
         unsafe { output_field.iter_hall.internals().data.len() };
     let mut tgt_len = starting_len;
     for os in fmt.output_states.iter() {
-        if os.error_occured {
+        if os.contained_error.is_some() {
             tgt_len = FieldValueKind::Error.align_size_up(tgt_len);
             tgt_len += FieldValueKind::Error.size();
         } else if os.incomplete_stream_value_handle.is_some() {
@@ -1184,10 +1225,53 @@ fn setup_output_targets(
     loop {
         let os = &mut fmt.output_states[output_idx];
         let target: Option<NonNull<u8>>;
-        if os.error_occured {
+        if let Some(err) = os.contained_error {
             target = None;
+            let k = if let FormatPart::Key(k) =
+                &fmt.op.parts[err.part_idx as usize]
+            {
+                k
+            } else {
+                unreachable!()
+            };
+            let mut id_str =
+                ArrayString::<{ USIZE_MAX_DECIMAL_DIGITS + 1 }>::default();
+            let (key_str, key_quote) =
+                if let Some(part) = fmt.op.refs_idx[k.identifier as usize] {
+                    (ss.lookup(part), "'")
+                } else {
+                    let key_index = fmt
+                        .op
+                        .parts
+                        .iter()
+                        .take(err.part_idx as usize)
+                        .filter(|p| matches!(p, FormatPart::Key(_)))
+                        .count();
+                    id_str.push('#');
+                    id_str.push_str(&usize_to_str(key_index));
+                    (id_str.as_str(), "")
+                };
+            let (width_ctx, width_label, width_ctx2) = if err.err_in_width {
+                if let Some(FormatWidthSpec::Ref(r)) = k.width {
+                    if let Some(lbl) = fmt.op.refs_idx[r as usize] {
+                        (" width spec '", ss.lookup(lbl), "' of")
+                    } else {
+                        (" width spec of", "", "")
+                    }
+                } else {
+                    unreachable!()
+                }
+            } else {
+                ("", "", "")
+            };
             output_field.iter_hall.push_error(
-                OperatorApplicationError::new("Format Error", op_id), //TODO: give more context
+                OperatorApplicationError::new_s(
+                    format!(
+                        "unexpected type `{}` in{width_ctx}{width_label}{width_ctx2} format key {key_quote}{key_str}{key_quote}",
+                        err.kind
+                    ),
+                    op_id,
+                ), // TODO: give more context
                 os.run_len,
                 true,
                 false,
@@ -1409,6 +1493,7 @@ fn write_fmt_key(
     fmt: &mut TfFormat,
     batch_size: usize,
     k: &FormatKey,
+    part_idx: FormatPartIndex,
 ) {
     // any potential unconsumed input was already set during width calculation
     let unconsumed_input = false;
@@ -1417,18 +1502,18 @@ fn write_fmt_key(
         msm,
         fmt,
         k,
+        part_idx,
         batch_size,
         unconsumed_input,
         false,
-        true,
         |fmt, output_idx, width, run_len| {
             iter_output_targets(fmt, output_idx, run_len, |ot| {
                 ot.width_lookup = width
             })
         },
-        |_fmt, _output_idx, _run_len| (),
+        |_fmt, _output_idx, _kind, _run_len| (),
     );
-    let ident_ref = fmt.refs[k.identifier];
+    let ident_ref = fmt.refs[k.identifier as usize];
 
     let field =
         fm.get_cow_field_ref(msm, ident_ref.field_id, unconsumed_input);
@@ -1692,10 +1777,10 @@ pub fn handle_tf_format(
         len: 0,
         width_lookup: 0,
         contains_raw_bytes: false,
-        error_occured: false,
+        contained_error: None,
         incomplete_stream_value_handle: None,
     });
-    for (part_idx, part) in fmt.parts.iter().enumerate() {
+    for (part_idx, part) in fmt.op.parts.iter().enumerate() {
         match part {
             FormatPart::ByteLiteral(v) => {
                 fmt.output_states.iter_mut().for_each(|s| {
@@ -1717,21 +1802,22 @@ pub fn handle_tf_format(
                 &sess.field_mgr,
                 &mut sess.match_set_mgr,
                 tf_id,
-                part_idx,
                 fmt,
                 batch_size,
                 unconsumed_input,
                 k,
+                part_idx as FormatPartIndex,
             ),
         }
     }
     setup_output_targets(
+        &sess.session_data.string_store,
         fmt,
         &mut sess.sv_mgr,
         tf.op_id.unwrap(),
         &mut output_field,
     );
-    for part in fmt.parts.iter() {
+    for (part_idx, part) in fmt.op.parts.iter().enumerate() {
         match part {
             FormatPart::ByteLiteral(v) => {
                 iter_output_targets(fmt, &mut 0, batch_size, |tgt| unsafe {
@@ -1750,6 +1836,7 @@ pub fn handle_tf_format(
                 fmt,
                 batch_size,
                 k,
+                part_idx as FormatPartIndex,
             ),
         }
     }
@@ -1802,7 +1889,8 @@ pub fn handle_tf_format_stream_value_update(
                         }
                     }
                     if sv.done {
-                        if let FormatPart::Key(k) = &tf.parts[handle.part_idx]
+                        if let FormatPart::Key(k) =
+                            &tf.op.parts[handle.part_idx as usize]
                         {
                             let len = calc_text_len(
                                 k,
@@ -1856,10 +1944,10 @@ pub fn handle_tf_format_stream_value_update(
     sess.sv_mgr
         .drop_field_value_subscription(sv_id, Some(tf_id));
     out_sv = &mut sess.sv_mgr.stream_values[handle.target_sv_id];
-    let mut i = handle.part_idx + 1;
+    let mut i = handle.part_idx as usize + 1;
     if let StreamValueData::Bytes(bb) = &mut out_sv.data {
-        while i < tf.parts.len() {
-            match &tf.parts[i] {
+        while i < tf.op.parts.len() {
+            match &tf.op.parts[i] {
                 FormatPart::ByteLiteral(l) => {
                     bb.extend_from_slice(l);
                     out_sv.bytes_are_utf8 = false;
@@ -1873,7 +1961,7 @@ pub fn handle_tf_format_stream_value_update(
             }
             i += 1;
         }
-        handle.part_idx = i;
+        handle.part_idx = i as FormatPartIndex;
     } else {
         unreachable!();
     }

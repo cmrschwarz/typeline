@@ -1,10 +1,10 @@
-use std::{any::TypeId, mem::ManuallyDrop, ptr::NonNull};
+use std::{mem::ManuallyDrop, ptr::NonNull};
 
 use super::{
     field_data::{
         field_value_flags, FieldReference, FieldValueFlags, FieldValueFormat,
-        FieldValueHeader, FieldValueKind, Html, Null, Object, RunLength,
-        Undefined,
+        FieldValueHeader, FieldValueKind, FieldValueType, Html, Null, Object,
+        RunLength, Undefined,
     },
     iters::FieldDataRef,
     stream_value::StreamValueId,
@@ -238,19 +238,19 @@ impl<'a> TypedSlice<'a> {
             TypedSlice::Object(v) => slice_as_bytes(v),
         }
     }
-    pub fn type_id(&self) -> TypeId {
+    pub fn kind(&self) -> FieldValueKind {
         match self {
-            TypedSlice::Undefined(_) => TypeId::of::<Undefined>(),
-            TypedSlice::Null(_) => TypeId::of::<Null>(),
-            TypedSlice::Integer(_) => TypeId::of::<i64>(),
-            TypedSlice::StreamValueId(_) => TypeId::of::<StreamValueId>(),
-            TypedSlice::Reference(_) => TypeId::of::<FieldReference>(),
-            TypedSlice::Error(_) => TypeId::of::<OperatorApplicationError>(),
-            TypedSlice::Html(_) => TypeId::of::<Html>(),
-            TypedSlice::BytesInline(_) => TypeId::of::<u8>(),
-            TypedSlice::TextInline(_) => TypeId::of::<u8>(),
-            TypedSlice::BytesBuffer(_) => TypeId::of::<Vec<u8>>(),
-            TypedSlice::Object(_) => TypeId::of::<Object>(),
+            TypedSlice::Undefined(_) => FieldValueKind::Undefined,
+            TypedSlice::Null(_) => FieldValueKind::Null,
+            TypedSlice::Integer(_) => FieldValueKind::Integer,
+            TypedSlice::StreamValueId(_) => FieldValueKind::StreamValueId,
+            TypedSlice::Reference(_) => FieldValueKind::Reference,
+            TypedSlice::Error(_) => FieldValueKind::Error,
+            TypedSlice::Html(_) => FieldValueKind::Html,
+            TypedSlice::BytesInline(_) => FieldValueKind::BytesInline,
+            TypedSlice::TextInline(_) => FieldValueKind::BytesInline,
+            TypedSlice::BytesBuffer(_) => FieldValueKind::BytesBuffer,
+            TypedSlice::Object(_) => FieldValueKind::Object,
         }
     }
     pub fn len(&self) -> usize {
@@ -271,23 +271,26 @@ impl<'a> TypedSlice<'a> {
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
-    pub fn matches_values<T: 'static>(&self, values: &[T]) -> bool {
-        if TypeId::of::<T>() != self.type_id() {
+    pub fn matches_values<T: FieldValueType + 'static>(
+        &self,
+        values: &[T],
+    ) -> bool {
+        if T::KIND != self.kind() {
             return false;
         }
         values.len() == self.len()
     }
-    pub unsafe fn drop_from_type_id(
+    pub unsafe fn drop_from_kind(
         start_ptr: *mut u8,
         len: usize,
-        type_id: TypeId,
+        kind: FieldValueKind,
     ) {
         type DropFn = unsafe fn(*mut u8, usize);
         #[inline(always)]
-        fn drop_fn_case<T: 'static>() -> (TypeId, DropFn) {
-            (TypeId::of::<T>(), drop_slice::<T>)
+        fn drop_fn_case<T: FieldValueType>() -> (FieldValueKind, DropFn) {
+            (T::KIND, drop_slice::<T>)
         }
-        let drop_fns: [(TypeId, DropFn); 10] = [
+        let drop_fns: [(FieldValueKind, DropFn); 10] = [
             drop_fn_case::<Undefined>(),
             drop_fn_case::<Null>(),
             drop_fn_case::<i64>(),
@@ -295,13 +298,13 @@ impl<'a> TypedSlice<'a> {
             drop_fn_case::<FieldReference>(),
             drop_fn_case::<OperatorApplicationError>(),
             drop_fn_case::<Html>(),
-            drop_fn_case::<u8>(),
+            (FieldValueKind::BytesInline, drop_slice::<u8>),
             drop_fn_case::<Vec<u8>>(),
             drop_fn_case::<Object>(),
         ];
 
         for (tid, drop_fn) in drop_fns {
-            if tid == type_id {
+            if tid == kind {
                 unsafe {
                     drop_fn(start_ptr, len);
                 }

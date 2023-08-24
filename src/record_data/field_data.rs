@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    fmt::Display,
     mem::{align_of, ManuallyDrop},
     ops::{Deref, DerefMut},
     u8,
@@ -148,10 +149,65 @@ impl FieldValueKind {
     pub unsafe fn from_u8(v: u8) -> FieldValueKind {
         unsafe { std::mem::transmute(v) }
     }
+    pub const fn to_str(&self) -> &'static str {
+        match self {
+            FieldValueKind::Undefined => "undefined",
+            FieldValueKind::Null => "null",
+            FieldValueKind::Integer => "int",
+            FieldValueKind::StreamValueId => "<stream_value_id>",
+            FieldValueKind::Reference => "<field reference>",
+            FieldValueKind::Error => "error",
+            FieldValueKind::Html => "html",
+            FieldValueKind::BytesInline => "bytes",
+            FieldValueKind::BytesBuffer => "bytes",
+            FieldValueKind::BytesFile => "bytes",
+            FieldValueKind::Object => "object",
+        }
+    }
+}
+
+impl Display for FieldValueKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.to_str())
+    }
 }
 
 pub struct Null;
 pub struct Undefined;
+
+pub trait FieldValueType {
+    const KIND: FieldValueKind;
+}
+impl FieldValueType for Undefined {
+    const KIND: FieldValueKind = FieldValueKind::Null;
+}
+impl FieldValueType for Null {
+    const KIND: FieldValueKind = FieldValueKind::Undefined;
+}
+impl FieldValueType for i64 {
+    const KIND: FieldValueKind = FieldValueKind::Integer;
+}
+impl FieldValueType for StreamValueId {
+    const KIND: FieldValueKind = FieldValueKind::StreamValueId;
+}
+impl FieldValueType for FieldReference {
+    const KIND: FieldValueKind = FieldValueKind::Reference;
+}
+impl FieldValueType for OperatorApplicationError {
+    const KIND: FieldValueKind = FieldValueKind::Error;
+}
+impl FieldValueType for Html {
+    const KIND: FieldValueKind = FieldValueKind::Html;
+}
+impl FieldValueType for [u8] {
+    const KIND: FieldValueKind = FieldValueKind::BytesInline;
+}
+impl FieldValueType for Vec<u8> {
+    const KIND: FieldValueKind = FieldValueKind::BytesBuffer;
+}
+impl FieldValueType for Object {
+    const KIND: FieldValueKind = FieldValueKind::Object;
+}
 
 #[derive(Clone)]
 #[allow(dead_code)] // TODO
@@ -404,9 +460,9 @@ impl FieldData {
         let mut slice_start_ptr = data_ptr;
         while let Some(range) = iter.typed_range_fwd(usize::MAX, 0) {
             unsafe {
-                let type_id = range.data.type_id();
+                let kind = range.data.kind();
                 let len = range.data.len();
-                TypedSlice::drop_from_type_id(slice_start_ptr, len, type_id);
+                TypedSlice::drop_from_kind(slice_start_ptr, len, kind);
                 slice_start_ptr = data_ptr.add(iter.data);
             }
         }

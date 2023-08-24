@@ -1,7 +1,7 @@
 use std::{marker::PhantomData, ptr::NonNull};
 
 use super::{
-    field_data::{FieldValueHeader, RunLength},
+    field_data::{FieldValueHeader, FieldValueType, RunLength},
     typed::{TypedRange, ValidTypedRange},
 };
 
@@ -28,7 +28,7 @@ impl<'a, T> Default for TypedSliceIter<'a, T> {
     }
 }
 
-impl<'a, T: 'static> TypedSliceIter<'a, T> {
+impl<'a, T: FieldValueType + 'static> TypedSliceIter<'a, T> {
     pub unsafe fn new(
         values: &'a [T],
         headers: &'a [FieldValueHeader],
@@ -195,7 +195,7 @@ impl<'a, T: 'static> TypedSliceIter<'a, T> {
     }
 }
 
-impl<'a, T: 'static> Iterator for TypedSliceIter<'a, T> {
+impl<'a, T: FieldValueType + 'static> Iterator for TypedSliceIter<'a, T> {
     type Item = (&'a T, RunLength);
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -517,13 +517,15 @@ impl<'a> Iterator for InlineTextIter<'a> {
 #[cfg(test)]
 mod test_slice_iter {
     use crate::record_data::{
-        field_data::{FieldData, RunLength},
+        field_data::{FieldData, FieldValueType, RunLength},
         push_interface::PushInterface,
     };
 
     use super::TypedSliceIter;
 
-    fn compare_iter_output<T: Eq + std::fmt::Debug + Clone + 'static>(
+    fn compare_iter_output<
+        T: Eq + std::fmt::Debug + Clone + FieldValueType + 'static,
+    >(
         fd: &FieldData,
         expected: &[(T, RunLength)],
     ) {
