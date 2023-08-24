@@ -343,11 +343,11 @@ fn unset_field_value() -> Result<(), ScrError> {
         .run()?;
     assert_eq!(
         ss.get().data.as_slice(),
-        &["x0", "ERROR: in op id 2: Format Error"]
+        &["x0", "ERROR: in op id 2: unexpected type `undefined` in format key 'foo'"]
     );
     assert_eq!(
         ss.get().get_first_error_message(),
-        Some("Format Error") // TODO: better error message
+        Some("unexpected type `undefined` in format key 'foo'")
     );
     Ok(())
 }
@@ -380,7 +380,7 @@ fn nonexisting_key() -> Result<(), ScrError> {
     assert!(ss.get_data().is_err());
     assert_eq!(
         ss.get().get_first_error_message(),
-        Some("Format Error") // TODO: better error message
+        Some("unexpected type `undefined` in format key 'foo'") /* TODO: better error message */
     );
     Ok(())
 }
@@ -395,7 +395,9 @@ fn nonexisting_format_width_key() -> Result<(), ScrError> {
     assert!(ss.get_data().is_err());
     assert_eq!(
         ss.get().get_first_error_message(),
-        Some("Format Error") // TODO: better error message
+        Some(
+            "unexpected type `undefined` in width spec 'foo' of format key #1"
+        )
     );
     Ok(())
 }

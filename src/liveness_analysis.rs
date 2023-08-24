@@ -16,6 +16,7 @@ use crate::{
         call_concurrent::OpCallConcurrent,
         fork::OpFork,
         forkcat::OpForkCat,
+        format::{FormatPart, FormatType, FormatWidthSpec},
         operator::{OperatorData, OperatorOffsetInChain},
     },
     utils::{
@@ -479,20 +480,51 @@ impl LivenessData {
                     }
                 }
                 OperatorData::Format(fmt) => {
-                    // TODO: check the format keys to detemine this
-                    input_access_stringified = false;
                     // might be set to true again in the loop below
                     input_accessed = false;
-                    for ref_name in &fmt.refs_idx {
-                        if let Some(name) = ref_name {
-                            let var_id = self.var_names[name];
-                            self.access_field(
-                                var_id,
-                                any_writes_so_far,
-                                false, // TODO
-                            );
-                        } else {
-                            input_accessed = true;
+                    for p in &fmt.parts {
+                        match p {
+                            FormatPart::ByteLiteral(_) => (),
+                            FormatPart::TextLiteral(_) => (),
+                            FormatPart::Key(fk) => {
+                                let non_stringified = fk.width.is_some()
+                                    || fk.add_plus_sign
+                                    || fk.alternate_form
+                                    || fk.debug
+                                    || fk.zero_pad_numbers
+                                    || fk.fill.is_some()
+                                    || fk.float_precision.is_some()
+                                    || fk.format_type != FormatType::Default;
+                                if let Some(name) =
+                                    fmt.refs_idx[fk.ref_idx as usize]
+                                {
+                                    self.access_field(
+                                        self.var_names[&name],
+                                        any_writes_so_far,
+                                        !non_stringified,
+                                    );
+                                } else {
+                                    input_accessed = true;
+                                    input_access_stringified =
+                                        !non_stringified;
+                                }
+                                if let Some(FormatWidthSpec::Ref(ws_ref)) =
+                                    fk.width
+                                {
+                                    if let Some(name) =
+                                        fmt.refs_idx[ws_ref as usize]
+                                    {
+                                        self.access_field(
+                                            self.var_names[&name],
+                                            any_writes_so_far,
+                                            false,
+                                        );
+                                    } else {
+                                        input_accessed = true;
+                                        input_access_stringified = false;
+                                    }
+                                }
+                            }
                         }
                     }
                 }

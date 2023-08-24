@@ -115,17 +115,17 @@ pub enum FormatType {
 
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct FormatKey {
-    identifier: FormatKeyRefId,
-    fill: Option<FormatFillSpec>,
-    add_plus_sign: bool,
-    zero_pad_numbers: bool,
-    width: Option<FormatWidthSpec>,
-    float_precision: Option<FormatWidthSpec>,
-    alternate_form: bool, /* prefix 0x for hex, 0o for octal and 0b for
-                           * binary, pretty print objects / arrays */
-    format_type: FormatType,
-    debug: bool,
-    unicode: bool,
+    pub ref_idx: FormatKeyRefId,
+    pub fill: Option<FormatFillSpec>,
+    pub add_plus_sign: bool,
+    pub zero_pad_numbers: bool,
+    pub width: Option<FormatWidthSpec>,
+    pub float_precision: Option<FormatWidthSpec>,
+    pub alternate_form: bool, /* prefix 0x for hex, 0o for octal and 0b for
+                               * binary, pretty print objects / arrays */
+    pub format_type: FormatType,
+    pub debug: bool,
+    pub unicode: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -525,7 +525,7 @@ pub fn parse_format_key(
             None
         };
         refs.push(ref_val);
-        key.identifier = refs.len() as FormatKeyRefId - 1;
+        key.ref_idx = refs.len() as FormatKeyRefId - 1;
         i = end;
         if c0 == ':' {
             i = parse_format_flags(fmt, i, &mut key, refs)?;
@@ -828,7 +828,7 @@ pub fn setup_key_output_state(
             )
         },
     );
-    let ident_ref = fmt.refs[k.identifier as usize];
+    let ident_ref = fmt.refs[k.ref_idx as usize];
     fm.apply_field_actions(msm, ident_ref.field_id);
     let field =
         fm.get_cow_field_ref(msm, ident_ref.field_id, unconsumed_input);
@@ -1237,7 +1237,7 @@ fn setup_output_targets(
             let mut id_str =
                 ArrayString::<{ USIZE_MAX_DECIMAL_DIGITS + 1 }>::default();
             let (key_str, key_quote) =
-                if let Some(part) = fmt.op.refs_idx[k.identifier as usize] {
+                if let Some(part) = fmt.op.refs_idx[k.ref_idx as usize] {
                     (ss.lookup(part), "'")
                 } else {
                     let key_index = fmt
@@ -1246,7 +1246,8 @@ fn setup_output_targets(
                         .iter()
                         .take(err.part_idx as usize)
                         .filter(|p| matches!(p, FormatPart::Key(_)))
-                        .count();
+                        .count()
+                        + 1;
                     id_str.push('#');
                     id_str.push_str(&usize_to_str(key_index));
                     (id_str.as_str(), "")
@@ -1513,7 +1514,7 @@ fn write_fmt_key(
         },
         |_fmt, _output_idx, _kind, _run_len| (),
     );
-    let ident_ref = fmt.refs[k.identifier as usize];
+    let ident_ref = fmt.refs[k.ref_idx as usize];
 
     let field =
         fm.get_cow_field_ref(msm, ident_ref.field_id, unconsumed_input);
@@ -2015,11 +2016,11 @@ mod test {
     fn two_keys() {
         let mut idents = Default::default();
         let a = FormatKey {
-            identifier: 0,
+            ref_idx: 0,
             ..Default::default()
         };
         let b = FormatKey {
-            identifier: 1,
+            ref_idx: 1,
             ..Default::default()
         };
         assert_eq!(
@@ -2039,7 +2040,7 @@ mod test {
     fn fill_options() {
         let mut idents = Default::default();
         let a = FormatKey {
-            identifier: 0,
+            ref_idx: 0,
             width: Some(FormatWidthSpec::Value(5)),
             fill: Some(FormatFillSpec::new(
                 Some('+'),
@@ -2058,7 +2059,7 @@ mod test {
     fn float_precision() {
         let mut idents = Default::default();
         let a = FormatKey {
-            identifier: 0,
+            ref_idx: 0,
             width: Some(FormatWidthSpec::Value(3)),
             float_precision: Some(FormatWidthSpec::Ref(1)),
             ..Default::default()
