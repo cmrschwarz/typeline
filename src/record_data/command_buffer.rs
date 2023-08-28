@@ -184,6 +184,17 @@ impl CommandBuffer {
         let mal = &mut apf.merged_action_lists[0];
         let al = apf.pending_action_list.take().unwrap();
         if al.actions_end != al.actions_start {
+            #[cfg(feature = "debug_logging")]
+            {
+                println!(
+                    "apf {}: added al {}:",
+                    apf_idx,
+                    mal.action_lists.len()
+                );
+                for a in &mal.actions[al.actions_start..al.actions_end] {
+                    println!("   > {:?}:", a);
+                }
+            }
             mal.action_lists.push(al);
         }
     }
@@ -1069,10 +1080,10 @@ impl CommandBuffer {
             let mal = &self.action_producing_fields[last_apf_idx]
                 .merged_action_lists[0];
             if let Some(al) = mal.action_lists.last() {
-                if al.ordering_id > new_first_unapplied_al_ordering_id {
+                if al.ordering_id >= new_first_unapplied_al_ordering_id {
                     new_curr_apf_idx = last_apf_idx;
                     new_first_unapplied_al_idx = mal.action_lists.len();
-                    new_first_unapplied_al_ordering_id = al.ordering_id;
+                    new_first_unapplied_al_ordering_id = al.ordering_id + 1;
                 }
             }
         }
