@@ -148,7 +148,11 @@ impl LivenessData {
                 OperatorData::Key(_) => 1,
                 OperatorData::Select(_) => 0,
                 OperatorData::Regex(re) => {
-                    app + re.capture_group_names.len() - 1
+                    app + re
+                        .capture_group_names
+                        .iter()
+                        .map(|n| n.map(|_| 1).unwrap_or(0))
+                        .sum::<usize>()
                 }
                 OperatorData::Format(_) => app,
                 OperatorData::StringSink(_) => app,
