@@ -619,7 +619,6 @@ fn match_regex_inner<const PUSH_REF: bool, R: AnyRegex>(
         return true;
     }
     let mut match_count: usize = 0;
-    let has_previous_matches = rmis.batch_state.next_start != 0;
     let rl = run_length as usize;
     let mut bse = false;
     while regex.next(data, &mut rmis.batch_state.next_start) {
@@ -662,7 +661,7 @@ fn match_regex_inner<const PUSH_REF: bool, R: AnyRegex>(
         }
     }
 
-    if has_previous_matches {
+    if bse {
         rmis.command_buffer.push_action_with_usize_rl(
             rmis.batch_state.apf_idx,
             FieldActionKind::Dup,
@@ -1009,32 +1008,55 @@ pub fn handle_tf_regex(
         .command_buffer
         .end_action_list(re.apf_idx);
     let mut base_iter = iter.into_base_iter();
-
     if bse || hit_stream_val {
         let unclaimed_batch_size =
             batch_size - (rbs.field_pos_input - field_pos_start);
         sess.tf_mgr.unclaim_batch_size(tf_id, unclaimed_batch_size);
-    }
-    drop(rbs);
-    if !bse && !hit_stream_val && input_done {
-        drop(input_field);
-        drop(output_fields);
-        sess.unlink_transform(tf_id, produced_records);
-        return;
-    }
-    if bse || hit_stream_val {
-        base_iter.move_to_field_pos(field_pos_input);
+        drop(rbs);
         if !hit_stream_val {
             sess.tf_mgr.push_tf_in_ready_stack(tf_id);
         }
     } else {
+        drop(rbs);
+        if input_done {
+            drop(input_field);
+            drop(output_fields);
+            sess.unlink_transform(tf_id, produced_records);
+            return;
+        }
         sess.tf_mgr.update_ready_state(tf_id);
     }
-    sess.field_mgr.store_iter(
-        input_field_id,
-        re.input_field_iter_id,
-        base_iter,
-    );
+    if bse {
+        // apply the action list first so we can move the iterator to the
+        // correct continuation field
+        // we explicitly don't store the iterator here so it stays at the
+        // start position while we apply the action list
+        drop(input_field);
+        let input_field = sess.field_mgr.get_cow_field_ref(
+            &mut sess.match_set_mgr,
+            input_field_id,
+            false,
+        );
+        let mut iter = sess.field_mgr.lookup_iter(
+            input_field_id,
+            &input_field,
+            re.input_field_iter_id,
+        );
+        let records = iter.next_n_fields(produced_records);
+        debug_assert!(records == produced_records);
+        sess.field_mgr.store_iter(
+            input_field_id,
+            re.input_field_iter_id,
+            iter,
+        );
+    } else {
+        base_iter.move_to_field_pos(field_pos_input);
+        sess.field_mgr.store_iter(
+            input_field_id,
+            re.input_field_iter_id,
+            base_iter,
+        );
+    }
     sess.tf_mgr
         .inform_successor_batch_available(tf_id, produced_records);
 }

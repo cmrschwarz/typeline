@@ -112,7 +112,32 @@ fn regex_drop() -> Result<(), ScrError> {
     assert_eq!(ss2.get_data().unwrap().as_slice(), ["foo", "baz"]);
     Ok(())
 }
-
+#[test]
+fn chained_multimatch_regex() -> Result<(), ScrError> {
+    const COUNT: usize = 20;
+    const PASS: usize = 7;
+    let number_string_list: Vec<_> =
+        (0..COUNT).map(|n| n.to_string()).collect();
+    let number_string_joined =
+        number_string_list.iter().fold(String::new(), |mut f, n| {
+            f.push_str(n.to_string().as_str());
+            f.push('\n');
+            f
+        });
+    let ss = StringSinkHandle::default();
+    ContextBuilder::default()
+        .push_str(&number_string_joined, 1)
+        .set_batch_size(5)
+        .add_op(create_op_regex_lines())
+        .add_op(create_op_regex("^[0-7]$").unwrap())
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(
+        ss.get_data().unwrap().as_slice(),
+        &number_string_list[0..PASS]
+    );
+    Ok(())
+}
 #[test]
 fn large_batch() -> Result<(), ScrError> {
     const COUNT: usize = 10000;
