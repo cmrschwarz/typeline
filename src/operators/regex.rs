@@ -14,10 +14,9 @@ use crate::{
     liveness_analysis::OpOutputIdx,
     options::argument::CliArgIdx,
     record_data::{
-        command_buffer::{
-            ActionProducingFieldIndex, CommandBuffer, FieldActionKind,
-        },
+        command_buffer::{ActionProducingFieldIndex, CommandBuffer},
         field::{Field, FieldId, FieldIdOffset},
+        field_action::FieldActionKind,
         field_data::{
             field_value_flags, FieldReference, FieldValueKind, RunLength,
         },

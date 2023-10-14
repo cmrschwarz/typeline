@@ -1,11 +1,9 @@
 use crate::{
     job_session::{JobData, JobSession},
     record_data::{
-        command_buffer::{ActionProducingFieldIndex, FieldActionKind},
-        field::FieldId,
-        iter_hall::IterId,
-        iters::FieldIterator,
-        match_set::MatchSetId,
+        command_buffer::ActionProducingFieldIndex, field::FieldId,
+        field_action::FieldActionKind, iter_hall::IterId,
+        iters::FieldIterator, match_set::MatchSetId,
     },
 };
 

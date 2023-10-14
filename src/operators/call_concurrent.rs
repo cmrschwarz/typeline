@@ -14,8 +14,9 @@ use crate::{
     },
     options::argument::CliArgIdx,
     record_data::{
-        command_buffer::{ActionProducingFieldIndex, FieldActionKind},
+        command_buffer::ActionProducingFieldIndex,
         field::{FieldId, FieldManager, DUMMY_INPUT_FIELD_ID},
+        field_action::FieldActionKind,
         iter_hall::IterId,
         iters::FieldIterator,
         match_set::MatchSetId,
