@@ -239,21 +239,25 @@ pub struct BytesBufferFile {
     // TODO
 }
 
-// only used to figure out the maximum alignment
+// only used to figure out the maximum alignment needed for fields
+// the size cannot be used because of the the `Object` shenanegans, see below
 #[repr(C)]
-union FieldValueUnion {
+union FieldValueAlignmentCheckUnion {
     text: ManuallyDrop<String>,
     bytes: ManuallyDrop<Vec<u8>>,
     bytes_file: ManuallyDrop<BytesBufferFile>,
 
-    // we can't put object in here because otherwise MAX_FIELD_ALIGN
-    // would depend on itself (FieldData contains AlignedBuf),
-    // so we add the other member of Object here
+    // we can't put `Object` in here because otherwise MAX_FIELD_ALIGN
+    // would depend on itself (Object contains FieldData which contains
+    // AlignedBuf<MAX_FIELD_ALIGN>), so we unfold the other members here
+    object_field_data_headers: ManuallyDrop<Vec<FieldValueHeader>>,
+    object_field_data_field_count: usize,
     object_table: ManuallyDrop<HashMap<StringStoreEntry, ObjectEntry>>,
 }
 
-pub const MAX_FIELD_ALIGN: usize = align_of::<FieldValueUnion>();
+pub const MAX_FIELD_ALIGN: usize = align_of::<FieldValueAlignmentCheckUnion>();
 pub const FIELD_ALIGN_MASK: usize = !(MAX_FIELD_ALIGN - 1);
+pub type FieldDataBuffer = AlignedBuf<MAX_FIELD_ALIGN>;
 
 pub type FieldValueSize = u16;
 
@@ -418,7 +422,7 @@ pub const INLINE_STR_MAX_LEN: usize = 8192;
 
 #[derive(Default)]
 pub struct FieldData {
-    pub(super) data: AlignedBuf<MAX_FIELD_ALIGN>,
+    pub(super) data: FieldDataBuffer,
     pub(super) headers: Vec<FieldValueHeader>,
     pub(super) field_count: usize,
 }
@@ -426,7 +430,7 @@ pub struct FieldData {
 impl Clone for FieldData {
     fn clone(&self) -> Self {
         let mut fd = Self {
-            data: AlignedBuf::with_capacity(self.data.len()),
+            data: FieldDataBuffer::with_capacity(self.data.len()),
             headers: Vec::with_capacity(self.headers.len()),
             field_count: 0, // set by copy
         };
@@ -438,14 +442,14 @@ impl Clone for FieldData {
 }
 
 pub struct FieldDataInternals<'a> {
-    pub data: &'a mut AlignedBuf<MAX_FIELD_ALIGN>,
+    pub data: &'a mut FieldDataBuffer,
     pub header: &'a mut Vec<FieldValueHeader>,
     pub field_count: &'a mut usize,
 }
 impl FieldData {
     pub unsafe fn from_raw_parts(
         header: Vec<FieldValueHeader>,
-        data: AlignedBuf<MAX_FIELD_ALIGN>,
+        data: FieldDataBuffer,
         field_count: usize,
     ) -> Self {
         Self {
@@ -483,7 +487,7 @@ impl FieldData {
 
     // this is technically safe, but will leak unless paired with a
     // header that matches the contained type ranges (which itself is not safe)
-    pub fn append_data_to(&self, target: &mut AlignedBuf<MAX_FIELD_ALIGN>) {
+    pub fn append_data_to(&self, target: &mut FieldDataBuffer) {
         let mut iter = self.iter();
         while let Some(tr) =
             iter.typed_range_fwd(usize::MAX, field_value_flags::DEFAULT)
@@ -502,7 +506,7 @@ impl FieldData {
         {
             unsafe {
                 append_data(tr.data, &mut |f: &mut dyn Fn(
-                    &mut AlignedBuf<MAX_FIELD_ALIGN>,
+                    &mut FieldDataBuffer,
                 )| {
                     targets_applicator(&mut |fd| f(&mut fd.data))
                 })
@@ -542,7 +546,7 @@ impl FieldData {
             });
             unsafe {
                 append_data(tr.data, &mut |f: &mut dyn Fn(
-                    &mut AlignedBuf<MAX_FIELD_ALIGN>,
+                    &mut FieldDataBuffer,
                 )| {
                     targets_applicator(&mut |fd| f(&mut fd.data))
                 })
@@ -580,7 +584,7 @@ impl FieldData {
                 });
                 unsafe {
                     append_data(tr.base.data, &mut |f: &mut dyn Fn(
-                        &mut AlignedBuf<MAX_FIELD_ALIGN>,
+                        &mut FieldDataBuffer,
                     )| {
                         targets_applicator(&mut |fd| f(&mut fd.data))
                     })
@@ -664,9 +668,7 @@ impl FieldData {
 
 #[inline(always)]
 unsafe fn extend_with_clones<T: Clone>(
-    target_applicator: &mut impl FnMut(
-        &mut dyn Fn(&mut AlignedBuf<MAX_FIELD_ALIGN>),
-    ),
+    target_applicator: &mut impl FnMut(&mut dyn Fn(&mut FieldDataBuffer)),
     src: &[T],
 ) {
     let src_size = std::mem::size_of_val(src);
@@ -685,9 +687,7 @@ unsafe fn extend_with_clones<T: Clone>(
 
 #[inline(always)]
 unsafe fn extend_raw<T: Sized>(
-    target_applicator: &mut impl FnMut(
-        &mut dyn Fn(&mut AlignedBuf<MAX_FIELD_ALIGN>),
-    ),
+    target_applicator: &mut impl FnMut(&mut dyn Fn(&mut FieldDataBuffer)),
     src: &[T],
 ) {
     let src_bytes = unsafe {
@@ -702,9 +702,7 @@ unsafe fn extend_raw<T: Sized>(
 #[inline(always)]
 unsafe fn append_data(
     ts: TypedSlice<'_>,
-    target_applicator: &mut impl FnMut(
-        &mut dyn Fn(&mut AlignedBuf<MAX_FIELD_ALIGN>),
-    ),
+    target_applicator: &mut impl FnMut(&mut dyn Fn(&mut FieldDataBuffer)),
 ) {
     unsafe {
         match ts {

@@ -4,13 +4,13 @@ use nonmax::{NonMaxU16, NonMaxU32};
 use smallvec::SmallVec;
 
 use crate::utils::{
-    aligned_buf::AlignedBuf, nonzero_ext::NonMaxU32Ext,
-    string_store::StringStoreEntry, universe::Universe,
+    nonzero_ext::NonMaxU32Ext, string_store::StringStoreEntry,
+    universe::Universe,
 };
 
 use super::{
     command_buffer::{ActionProducingFieldIndex, FieldActionIndices},
-    field_data::{FieldData, FieldValueHeader, MAX_FIELD_ALIGN},
+    field_data::{FieldData, FieldDataBuffer, FieldValueHeader},
     iter_hall::{FieldDataSource, IterHall, IterId},
     iters::{DestructuredFieldDataRef, FieldDataRef, FieldIterator, Iter},
     match_set::{MatchSetId, MatchSetManager},
@@ -81,7 +81,7 @@ pub struct FieldManager {
 pub struct CowFieldDataRef<'a> {
     pub(super) field_count: usize,
     pub(super) headers_ref: Ref<'a, Vec<FieldValueHeader>>,
-    pub(super) data_ref: Ref<'a, AlignedBuf<MAX_FIELD_ALIGN>>,
+    pub(super) data_ref: Ref<'a, FieldDataBuffer>,
 }
 
 impl<'a> FieldDataRef<'a> for &'a CowFieldDataRef<'a> {
@@ -179,7 +179,7 @@ impl FieldManager {
     pub fn get_field_data<'a>(
         &'a self,
         fr: Ref<'a, Field>,
-    ) -> Ref<'a, AlignedBuf<MAX_FIELD_ALIGN>> {
+    ) -> Ref<'a, FieldDataBuffer> {
         match &fr.iter_hall.data_source {
             FieldDataSource::Cow(data_ref)
             | FieldDataSource::DataCow(data_ref) => {

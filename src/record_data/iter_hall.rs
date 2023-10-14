@@ -4,13 +4,13 @@ use std::cell::{Cell, UnsafeCell};
 use nonmax::NonMaxU32;
 use thin_vec::ThinVec;
 
-use crate::utils::{aligned_buf::AlignedBuf, universe::Universe};
+use crate::utils::universe::Universe;
 
 use super::{
     field::{FieldId, FieldManager},
     field_data::{
-        FieldData, FieldDataInternals, FieldValueFlags, FieldValueHeader,
-        FieldValueKind, RunLength, MAX_FIELD_ALIGN,
+        FieldData, FieldDataBuffer, FieldDataInternals, FieldValueFlags,
+        FieldValueHeader, FieldValueKind, RunLength,
     },
     iters::{FieldDataRef, FieldIterator, Iter},
     match_set::MatchSetManager,
@@ -42,6 +42,7 @@ pub struct IterHall {
     pub(super) cow_targets: ThinVec<FieldId>,
 }
 unsafe impl Send for IterHall {}
+unsafe impl Sync for IterHall {}
 
 #[derive(Default, Clone, Copy)]
 pub struct IterState {
@@ -329,7 +330,7 @@ impl IterHall {
     pub fn append_data_to(
         &self,
         fm: &FieldManager,
-        target: &mut AlignedBuf<MAX_FIELD_ALIGN>,
+        target: &mut FieldDataBuffer,
     ) {
         match self.data_source {
             FieldDataSource::Owned => {

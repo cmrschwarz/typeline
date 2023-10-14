@@ -8,6 +8,8 @@ pub struct TempVec {
     ptr: NonNull<u8>,
     layout: Layout,
 }
+unsafe impl Send for TempVec {}
+unsafe impl Sync for TempVec {}
 
 impl<T> From<Vec<T>> for TempVec {
     fn from(v: Vec<T>) -> Self {
@@ -73,6 +75,7 @@ impl<T, U> LayoutCompatible<T, U> {
 }
 
 pub fn transmute_vec<T, U>(mut v: Vec<T>) -> Vec<U> {
+    #[allow(clippy::let_unit_value)]
     let _ = LayoutCompatible::<T, U>::ASSERT_COMPATIBLE;
 
     v.clear();

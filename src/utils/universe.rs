@@ -22,6 +22,19 @@ pub trait UniverseIndex:
 {
 }
 
+#[derive(Clone)]
+enum UniverseEntry<T> {
+    Occupied(T),
+    Vacant(Option<NonMaxUsize>),
+}
+
+#[derive(Clone)]
+pub struct Universe<I, T> {
+    data: Vec<UniverseEntry<T>>,
+    first_vacant_entry: Option<NonMaxUsize>,
+    _phantom_data: PhantomData<I>,
+}
+
 impl<I> UniverseIndex for I where
     I: Clone
         + Copy
@@ -96,12 +109,6 @@ impl<I: UniverseIndex> Deref for UniverseIdx<I> {
     }
 }
 
-#[derive(Clone)]
-enum UniverseEntry<T> {
-    Occupied(T),
-    Vacant(Option<NonMaxUsize>),
-}
-
 impl<T> UniverseEntry<T> {
     pub fn as_option_mut(&mut self) -> Option<&mut T> {
         match self {
@@ -109,13 +116,6 @@ impl<T> UniverseEntry<T> {
             UniverseEntry::Vacant(_) => None,
         }
     }
-}
-
-#[derive(Clone)]
-pub struct Universe<I, T> {
-    data: Vec<UniverseEntry<T>>,
-    first_vacant_entry: Option<NonMaxUsize>,
-    _phantom_data: PhantomData<I>,
 }
 
 // if we autoderive this, I would have to implement Default

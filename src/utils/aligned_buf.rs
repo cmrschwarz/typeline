@@ -5,11 +5,19 @@ use std::{
     ptr::NonNull,
 };
 
+// this is conceptually just a Vec<u8>, but
+// - the data buffer is at least `ALIGN` bytes aligned
+// - it has less strict ownership guarantees (the data pointer is not `Unique`)
+// - no unneccessarily strict rules about `set_len` that make it technically
+//   illegal to call it before initializing the data
 pub struct AlignedBuf<const ALIGN: usize> {
     data: NonNull<u8>,
     len: usize,
     cap: usize,
 }
+
+unsafe impl<const ALIGN: usize> Send for AlignedBuf<ALIGN> {}
+unsafe impl<const ALIGN: usize> Sync for AlignedBuf<ALIGN> {}
 
 impl<const ALIGN: usize> Default for AlignedBuf<ALIGN> {
     fn default() -> Self {
@@ -175,5 +183,3 @@ impl<const ALIGN: usize> Write for AlignedBuf<ALIGN> {
         Ok(())
     }
 }
-
-unsafe impl<const ALIGN: usize> Send for AlignedBuf<ALIGN> {}

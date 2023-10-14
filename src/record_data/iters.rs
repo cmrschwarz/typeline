@@ -1,15 +1,12 @@
-use crate::{
-    record_data::field_data::{
-        field_value_flags, FieldData, FieldValueFlags, FieldValueFormat,
-        FieldValueHeader, FieldValueKind, RunLength,
-    },
-    utils::aligned_buf::AlignedBuf,
+use crate::record_data::field_data::{
+    field_value_flags, FieldData, FieldValueFlags, FieldValueFormat,
+    FieldValueHeader, FieldValueKind, RunLength,
 };
 use std::{cmp::Ordering, marker::PhantomData};
 
 use super::{
     field::{FieldId, FieldManager},
-    field_data::MAX_FIELD_ALIGN,
+    field_data::FieldDataBuffer,
     ref_iter::AutoDerefIter,
     typed::{TypedField, TypedRange, ValidTypedRange},
 };
@@ -58,7 +55,7 @@ impl<'a, R: FieldDataRef<'a>> FieldDataRef<'a> for &R {
 #[derive(Clone)]
 pub struct DestructuredFieldDataRef<'a> {
     pub(super) headers: &'a Vec<FieldValueHeader>,
-    pub(super) data: &'a AlignedBuf<MAX_FIELD_ALIGN>,
+    pub(super) data: &'a FieldDataBuffer,
     pub(super) field_count: usize,
 }
 
