@@ -1,5 +1,5 @@
 use crate::{
-    record_data::field_action::FieldActionKind, utils::temp_vec::TempVec,
+    record_data::field_action::FieldActionKind, utils::temp_vec::transmute_vec,
 };
 
 use super::{
@@ -24,7 +24,7 @@ struct CopyCommand {
 pub(super) struct FieldActionApplicator {
     copies: Vec<CopyCommand>,
     insertions: Vec<InsertionCommand>,
-    iters: TempVec,
+    iters: Vec<&'static mut FieldAction>,
 }
 
 impl FieldActionApplicator {
@@ -673,7 +673,7 @@ impl FieldActionApplicator {
         header_idx: usize,
         field_pos: usize,
     ) {
-        let mut iters = Vec::from(std::mem::take(&mut self.iters));
+        let mut iters = transmute_vec(std::mem::take(&mut self.iters));
         iters.extend(iterators);
         // we sort and use this backwards so we can pop() the ones
         // we handled
@@ -682,7 +682,7 @@ impl FieldActionApplicator {
             + self.generate_commands_from_actions(
                 actions, headers, data, &mut iters, header_idx, field_pos,
             )) as usize;
-        self.iters = TempVec::from(iters);
+        self.iters = transmute_vec(iters);
         self.execute_commands(headers);
         self.insertions.clear();
         self.copies.clear();

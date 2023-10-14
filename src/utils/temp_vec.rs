@@ -55,13 +55,19 @@ impl Drop for TempVec {
     }
 }
 
+// convenience wrappers
 impl TempVec {
-    // convenience function for using TempVec as a Vec<T>
     pub fn with<T, R>(&mut self, op: impl FnOnce(&mut Vec<T>) -> R) -> R {
         let mut v = Vec::from(std::mem::take(self));
         let res = op(&mut v);
         *self = TempVec::from(v);
         res
+    }
+    pub fn take<T>(&mut self) -> Vec<T> {
+        Vec::from(std::mem::take(self))
+    }
+    pub fn give<T>(&mut self, v: Vec<T>) {
+        *self = TempVec::from(v);
     }
 }
 
