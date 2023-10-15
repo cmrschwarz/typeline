@@ -688,3 +688,123 @@ impl FieldActionApplicator {
         self.copies.clear();
     }
 }
+
+#[cfg(test)]
+mod test {
+    use crate::record_data::{
+        field_action::{FieldAction, FieldActionKind},
+        field_action_applicator::FieldActionApplicator,
+        field_data::{FieldData, RunLength},
+        iters::FieldIterator,
+        push_interface::PushInterface,
+        typed::TypedSlice,
+        typed_iters::TypedSliceIter,
+    };
+
+    fn test_actions_on_range_with_rle_opts(
+        input: impl Iterator<Item = i64>,
+        header_rle: bool,
+        value_rle: bool,
+        actions: &[FieldAction],
+        output: &[(i64, RunLength)],
+    ) {
+        let mut fd = FieldData::default();
+        for v in input {
+            fd.push_int(v, 1, header_rle, value_rle);
+        }
+        let mut faa = FieldActionApplicator::default();
+        faa.run(
+            actions,
+            &mut fd.headers,
+            Some(&mut fd.data),
+            &mut fd.field_count,
+            std::iter::empty(),
+            0,
+            0,
+        );
+        let mut iter = fd.iter();
+        let mut results = Vec::new();
+        while let Some(range) = iter.typed_range_fwd(usize::MAX, 0) {
+            if let TypedSlice::Integer(ints) = range.data {
+                results.extend(
+                    TypedSliceIter::from_range(&range, ints)
+                        .map(|(i, rl)| (*i, rl)),
+                );
+            } else {
+                panic!("resulting field data has wrong type");
+            }
+        }
+        assert_eq!(results, output);
+    }
+    fn test_actions_on_range(
+        input: impl Iterator<Item = i64>,
+        actions: &[FieldAction],
+        output: &[(i64, RunLength)],
+    ) {
+        test_actions_on_range_with_rle_opts(
+            input, true, true, actions, output,
+        );
+    }
+    fn test_actions_on_range_no_rle(
+        input: impl Iterator<Item = i64>,
+        actions: &[FieldAction],
+        output: &[(i64, RunLength)],
+    ) {
+        test_actions_on_range_with_rle_opts(
+            input, false, false, actions, output,
+        );
+    }
+
+    #[test]
+    fn drop_after_dup() {
+        //  Before  Dup(0, 2)  Drop(1, 1)
+        //    0         0           0
+        //    1         0           0
+        //    2         0           1
+        //              1           2
+        //              2
+        use FieldActionKind::*;
+        test_actions_on_range(
+            0..3,
+            &[FieldAction::new(Dup, 0, 2)],
+            &[(0, 3), (1, 1), (2, 1)],
+        );
+        test_actions_on_range(
+            0..3,
+            &[FieldAction::new(Dup, 0, 2), FieldAction::new(Drop, 1, 1)],
+            &[(0, 2), (1, 1), (2, 1)],
+        );
+    }
+    #[test]
+    fn in_between_drop() {
+        //  Before   Drop(1, 1)
+        //    0           0
+        //    1           2
+        //    2
+        use FieldActionKind::*;
+        test_actions_on_range(
+            0..3,
+            &[FieldAction::new(Drop, 1, 1)],
+            &[(0, 1), (2, 1)],
+        );
+    }
+
+    #[test]
+    fn pure_run_length_drop() {
+        //  Before   Drop(1, 1)
+        //    0           0
+        //    0           0
+        //    0
+        use FieldActionKind::*;
+        test_actions_on_range(
+            std::iter::repeat(0).take(3),
+            &[FieldAction::new(Drop, 1, 1)],
+            &[(0, 2)],
+        );
+        test_actions_on_range_no_rle(
+            std::iter::repeat(0).take(3),
+            &[FieldAction::new(Drop, 1, 1)],
+            &[(0, 1), (0, 1)],
+        );
+    }
+}
