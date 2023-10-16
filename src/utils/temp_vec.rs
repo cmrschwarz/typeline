@@ -89,7 +89,7 @@ pub fn transmute_vec<T, U>(mut v: Vec<T>) -> Vec<U> {
     let mut v = std::mem::ManuallyDrop::new(v);
 
     let (ptr, len, cap) = (v.as_mut_ptr(), v.len(), v.capacity());
-    unsafe { Vec::from_raw_parts(std::mem::transmute(ptr), len, cap) }
+    unsafe { Vec::from_raw_parts(ptr as *mut U, len, cap) }
 }
 
 pub fn temp_vec<T, U, R>(
