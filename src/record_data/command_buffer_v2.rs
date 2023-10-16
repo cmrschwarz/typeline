@@ -30,6 +30,82 @@ pub struct ActionBuffer {
     pending_action_group_action_count: usize,
 }
 
+struct Pow2LookupStepsIter {
+    value: usize,
+    end: usize,
+}
+
+struct Pow2InsertStepsIter {
+    value: usize,
+    begin: usize,
+    end: usize,
+    bit: u8,
+    bit_count: u8,
+}
+
+impl Pow2LookupStepsIter {
+    pub fn new(start: usize, end: usize) -> Self {
+        Self { value: start, end }
+    }
+}
+
+impl Iterator for Pow2LookupStepsIter {
+    type Item = (usize, u8);
+
+    fn next(&mut self) -> Option<(usize, u8)> {
+        if self.value >= self.end {
+            return None;
+        }
+        if self.value == 0 {
+            self.value = self.end;
+            return Some((0, self.end.next_power_of_two().ilog2() as u8));
+        }
+        let val = self.value;
+        let trailing_zeroes = self.value.trailing_zeros() as u8;
+        self.value += 1 << trailing_zeroes;
+        if self.value >= self.end {
+            let bits = (self.end - val).next_power_of_two().ilog2();
+            return Some((val, bits as u8));
+        }
+        Some((val, trailing_zeroes))
+    }
+}
+
+impl Pow2InsertStepsIter {
+    pub fn new(index: usize, begin: usize, end: usize) -> Self {
+        Self {
+            value: index,
+            begin,
+            end,
+            bit: 0,
+            bit_count: end.next_power_of_two().ilog2() as u8 + 1,
+        }
+    }
+}
+
+impl Iterator for Pow2InsertStepsIter {
+    type Item = (usize, u8);
+
+    fn next(&mut self) -> Option<(usize, u8)> {
+        if self.value < self.begin || self.bit == self.bit_count {
+            return None;
+        }
+        let val = self.value;
+        let bit = self.bit;
+        self.bit += 1;
+        let shift = 1 << bit;
+        if self.value >= shift {
+            self.value -= self.value & shift;
+        } else {
+            self.value = 0;
+        }
+        if val + (shift >> 1) >= self.end {
+            return self.next();
+        }
+        Some((val, bit))
+    }
+}
+
 impl ActionBuffer {
     pub fn begin_action_group(&mut self, ai: ActorIndex) {
         assert!(self.pending_action_group_actor_idx.is_none());
@@ -98,5 +174,60 @@ impl ActionBuffer {
             self.pending_action_group_action_count += 1;
             run_length -= rl_to_push as usize;
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::record_data::command_buffer_v2::{
+        Pow2InsertStepsIter, Pow2LookupStepsIter,
+    };
+
+    fn collect_lookup_steps(start: usize, end: usize) -> Vec<(usize, u8)> {
+        Pow2LookupStepsIter::new(start, end).collect::<Vec<_>>()
+    }
+
+    #[test]
+    fn test_pow2_lookup_steps_iter() {
+        assert_eq!(collect_lookup_steps(0, 0), []);
+        assert_eq!(collect_lookup_steps(0, 1), [(0, 0)]);
+        assert_eq!(collect_lookup_steps(0, 2), [(0, 1)]);
+        assert_eq!(collect_lookup_steps(0, 3), [(0, 2)]);
+        assert_eq!(collect_lookup_steps(0, 4), [(0, 2)]);
+        assert_eq!(collect_lookup_steps(0, 5), [(0, 3)]);
+        assert_eq!(collect_lookup_steps(1, 0), []);
+        assert_eq!(collect_lookup_steps(1, 1), []);
+        assert_eq!(collect_lookup_steps(1, 2), [(1, 0)]);
+        assert_eq!(collect_lookup_steps(1, 3), [(1, 0), (2, 0)]);
+        assert_eq!(collect_lookup_steps(1, 4), [(1, 0), (2, 1)]);
+        assert_eq!(collect_lookup_steps(2, 8), [(2, 1), (4, 2)]);
+    }
+
+    fn collect_insert_steps(
+        index: usize,
+        begin: usize,
+        end: usize,
+    ) -> Vec<(usize, u8)> {
+        Pow2InsertStepsIter::new(index, begin, end).collect::<Vec<_>>()
+    }
+
+    #[test]
+    fn test_pow2_insert_steps_iter() {
+        assert_eq!(collect_insert_steps(0, 0, 0), []);
+        assert_eq!(collect_insert_steps(1, 0, 0), []);
+        assert_eq!(collect_insert_steps(1, 0, 1), []);
+        assert_eq!(collect_insert_steps(0, 0, 1), [(0, 0)]);
+        assert_eq!(collect_insert_steps(0, 0, 3), [(0, 0), (0, 1), (0, 2)]);
+        assert_eq!(collect_insert_steps(1, 0, 2), [(1, 0), (0, 1)]);
+        assert_eq!(collect_insert_steps(2, 0, 3), [(2, 0), (0, 2)]);
+        assert_eq!(
+            collect_insert_steps(7, 0, 8),
+            [(7, 0), (6, 1), (4, 2), (0, 3)]
+        );
+        assert_eq!(collect_insert_steps(8, 0, 9), [(8, 0), (0, 4)]);
+        assert_eq!(
+            collect_insert_steps(1, 0, 9),
+            [(1, 0), (0, 1), (0, 2), (0, 3), (0, 4)],
+        );
     }
 }
