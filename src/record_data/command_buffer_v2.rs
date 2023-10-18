@@ -8,23 +8,26 @@ use super::{
 struct ActionGroup {
     start: usize,
     count: usize,
+    refcount: usize,
     higher_pow2_next_action_group_idx: usize,
 }
 
 struct ActionGroupQueue {
-    action_group_offset: usize,
+    action_groups_offset: usize,
     action_groups: VecDeque<ActionGroup>,
-    action_offset: usize,
+    actions_offset: usize,
     actions: VecDeque<FieldAction>,
 }
 
 struct Actor {
+    refcount: usize,
     action_group_queues: Vec<ActionGroupQueue>,
 }
 
 pub type ActorIndex = usize;
 
 pub struct ActionBuffer {
+    actors_offset: usize,
     actors: Vec<Actor>,
     pending_action_group_actor_idx: Option<usize>,
     pending_action_group_action_count: usize,
@@ -118,22 +121,24 @@ impl ActionBuffer {
             return;
         }
         self.pending_action_group_action_count = 0;
-        let agq = &mut self.actors[ai].action_group_queues[0];
+        let agq =
+            &mut self.actors[ai - self.actors_offset].action_group_queues[0];
         let actions_start = agq.actions.len() - action_count;
         #[cfg(feature = "debug_logging")]
         {
             println!(
                 "ai {}: added ag {}:",
                 ai,
-                agq.action_group_offset + agq.action_groups.len()
+                agq.action_groups_offset + agq.action_groups.len()
             );
             for a in agq.actions.range(actions_start..) {
                 println!("   > {:?}:", a);
             }
         }
         agq.action_groups.push_back(ActionGroup {
-            start: agq.action_offset + actions_start,
+            start: agq.actions_offset + actions_start,
             count: action_count,
+            refcount: 0,
             higher_pow2_next_action_group_idx: 0,
         });
         todo!("pow2 merging")
@@ -145,7 +150,9 @@ impl ActionBuffer {
         mut run_length: usize,
     ) {
         let ai = self.pending_action_group_actor_idx.unwrap();
-        let actions = &mut self.actors[ai].action_group_queues[0].actions;
+        let actions = &mut self.actors[ai - self.actors_offset]
+            .action_group_queues[0]
+            .actions;
         if self.pending_action_group_action_count > 0 {
             let last = actions.back_mut().unwrap();
             // field indices in action groups must be ascending
