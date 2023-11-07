@@ -9,7 +9,12 @@ struct ActionGroup {
     start: usize,
     count: usize,
     refcount: usize,
-    higher_pow2_next_action_group_idx: usize,
+    next_action_idx: usize,
+}
+
+struct ActionGroupMetadata {
+    refcount: usize,
+    next_action_idx: usize,
 }
 
 #[derive(Default)]
@@ -19,11 +24,12 @@ struct ActionGroupQueue {
     actions_offset: usize,
     actions: VecDeque<FieldAction>,
     dirty: bool,
+    refcount: usize,
 }
 
 struct Actor {
-    refcount: usize,
     action_group_queues: Vec<ActionGroupQueue>,
+    refcount: usize,
 }
 
 struct ActionGroupIdentifier {
@@ -147,7 +153,7 @@ impl ActionBuffer {
             start: agq.actions_offset + actions_start,
             count: action_count,
             refcount: 0,
-            higher_pow2_next_action_group_idx: 0,
+            next_action_idx: 0,
         });
         for (i, pow2) in
             Pow2InsertStepsIter::new(ai, self.actors_offset, self.actors.len())
@@ -223,6 +229,7 @@ impl ActionBuffer {
         }
         actor_idx
     }
+    fn refresh_action_group(&mut self, actor_idx: usize, pow2: usize) {}
     fn build_action_list(
         &mut self,
         actor_idx: usize,
