@@ -42,6 +42,8 @@ struct ActionGroupIdentifier {
 pub struct ActionBuffer {
     actors_offset: usize,
     actors: VecDeque<Actor>,
+    // we need 3 temp buffers in order to always have a free one as a target
+    // when merging from two others
     action_temp_buffers: [VecDeque<FieldAction>; 3],
     pending_action_group_actor_idx: Option<usize>,
     pending_action_group_action_count: usize,
@@ -79,11 +81,16 @@ impl Iterator for Pow2LookupStepsIter {
         }
         let val = self.value;
         let trailing_zeroes = self.value.trailing_zeros() as usize;
-        self.value += 1 << trailing_zeroes;
-        if self.value >= self.end {
-            let bits = (self.end - val).next_power_of_two().ilog2();
+        let new_value = self.value + (1 << trailing_zeroes);
+        if new_value > self.end {
+            let bits = (self.end - val)
+                .next_power_of_two()
+                .ilog2()
+                .saturating_sub(1);
+            self.value += 1 << bits;
             return Some((val, bits as usize));
         }
+        self.value = new_value;
         Some((val, trailing_zeroes))
     }
 }
@@ -267,6 +274,7 @@ mod test {
         assert_eq!(collect_lookup_steps(1, 3), [(1, 0), (2, 0)]);
         assert_eq!(collect_lookup_steps(1, 4), [(1, 0), (2, 1)]);
         assert_eq!(collect_lookup_steps(2, 8), [(2, 1), (4, 2)]);
+        assert_eq!(collect_lookup_steps(3, 7), [(3, 0), (4, 1), (6, 0)]);
     }
 
     fn collect_insert_steps(
@@ -295,5 +303,6 @@ mod test {
             collect_insert_steps(1, 0, 9),
             [(1, 0), (0, 1), (0, 2), (0, 3), (0, 4)],
         );
+        assert_eq!(collect_insert_steps(2, 1, 5), [(2, 0), (2, 1)],);
     }
 }
