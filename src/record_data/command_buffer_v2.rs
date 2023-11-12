@@ -17,12 +17,20 @@ struct ActionGroupMetadata {
     next_action_idx: usize,
 }
 
+struct ActionGroupMerges {
+    action_groups_offset: usize,
+    action_groups: VecDeque<ActionGroup>,
+    actions_offset: usize,
+    actions: VecDeque<FieldAction>,
+}
+
 #[derive(Default)]
 struct ActionGroupQueue {
     action_groups_offset: usize,
     action_groups: VecDeque<ActionGroup>,
     actions_offset: usize,
     actions: VecDeque<FieldAction>,
+    merges: Vec<ActionGroupMerges>,
     dirty: bool,
     refcount: usize,
 }
