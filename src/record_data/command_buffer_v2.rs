@@ -1,6 +1,7 @@
 use std::collections::VecDeque;
 
 use super::{
+    field::FieldId,
     field_action::{FieldAction, FieldActionKind},
     field_data::RunLength,
 };
@@ -8,17 +9,18 @@ use super::{
 struct ActionGroup {
     start: usize,
     count: usize,
-    refcount: usize,
-    next_action_idx: usize,
 }
 
-struct ActionGroupMetadata {
-    refcount: usize,
-    next_action_idx: usize,
+struct ActionGroupWithRefs {
+    ag: ActionGroup,
+    // initialized as usize::MAX, wrapping add, saturating sub
+    refcount: u32,
+    next_action_id_self: u32,
+    next_action_id_succ: u32,
 }
 
 struct ActionGroupMerges {
-    action_groups_offset: usize,
+    action_groups_offset: u32,
     action_groups: VecDeque<ActionGroup>,
     actions_offset: usize,
     actions: VecDeque<FieldAction>,
@@ -26,34 +28,50 @@ struct ActionGroupMerges {
 
 #[derive(Default)]
 struct ActionGroupQueue {
-    action_groups_offset: usize,
-    action_groups: VecDeque<ActionGroup>,
+    action_groups_offset: u32,
+    action_groups: VecDeque<ActionGroupWithRefs>,
     actions_offset: usize,
     actions: VecDeque<FieldAction>,
-    merges: Vec<ActionGroupMerges>,
     dirty: bool,
-    refcount: usize,
+    refcount: u32,
 }
 
 struct Actor {
     action_group_queues: Vec<ActionGroupQueue>,
-    refcount: usize,
+    merges: Vec<ActionGroupMerges>,
+    snapshots_offset: usize,
+    snapsnots: VecDeque<usize>,
+    subscribers: Vec<FieldId>,
+    refcount: u32,
 }
 
-struct ActionGroupIdentifier {
-    actor_idx: usize,
-    pow2: usize,
-    start: usize,
-    count: usize,
+enum ActionGroupIdentifier {
+    Regular {
+        actor_id: u32,
+        pow2: u8,
+        start: usize,
+        stop: usize,
+    },
+    LocalMerge {
+        actor_id: u32,
+        merge_pow2: u8,
+        start: usize,
+        stop: usize,
+    },
+    TempBuffer {
+        idx: usize,
+        start: usize,
+        stop: usize,
+    },
 }
 
 pub struct ActionBuffer {
-    actors_offset: usize,
+    actors_offset: u32,
     actors: VecDeque<Actor>,
     // we need 3 temp buffers in order to always have a free one as a target
     // when merging from two others
     action_temp_buffers: [VecDeque<FieldAction>; 3],
-    pending_action_group_actor_idx: Option<usize>,
+    pending_action_group_actor_id: Option<u32>,
     pending_action_group_action_count: usize,
 }
 
@@ -77,18 +95,18 @@ impl Pow2LookupStepsIter {
 }
 
 impl Iterator for Pow2LookupStepsIter {
-    type Item = (usize, usize);
+    type Item = (usize, u8);
 
-    fn next(&mut self) -> Option<(usize, usize)> {
+    fn next(&mut self) -> Option<(usize, u8)> {
         if self.value >= self.end {
             return None;
         }
         if self.value == 0 {
             self.value = self.end;
-            return Some((0, self.end.next_power_of_two().ilog2() as usize));
+            return Some((0, self.end.next_power_of_two().ilog2() as u8));
         }
         let val = self.value;
-        let trailing_zeroes = self.value.trailing_zeros() as usize;
+        let trailing_zeroes = self.value.trailing_zeros();
         let new_value = self.value + (1 << trailing_zeroes);
         if new_value > self.end {
             let bits = (self.end - val)
@@ -96,10 +114,10 @@ impl Iterator for Pow2LookupStepsIter {
                 .ilog2()
                 .saturating_sub(1);
             self.value += 1 << bits;
-            return Some((val, bits as usize));
+            return Some((val, bits as u8));
         }
         self.value = new_value;
-        Some((val, trailing_zeroes))
+        Some((val, trailing_zeroes as u8))
     }
 }
 
@@ -116,9 +134,9 @@ impl Pow2InsertStepsIter {
 }
 
 impl Iterator for Pow2InsertStepsIter {
-    type Item = (usize, usize);
+    type Item = (usize, u8);
 
-    fn next(&mut self) -> Option<(usize, usize)> {
+    fn next(&mut self) -> Option<(usize, u8)> {
         if self.value < self.begin || self.bit == self.bit_count {
             return None;
         }
@@ -134,51 +152,71 @@ impl Iterator for Pow2InsertStepsIter {
         if val + (shift >> 1) >= self.end {
             return self.next();
         }
-        Some((val, bit as usize))
+        Some((val, bit))
     }
 }
 
 impl ActionBuffer {
-    pub fn begin_action_group(&mut self, actor_idx: usize) {
-        assert!(self.pending_action_group_actor_idx.is_none());
-        self.pending_action_group_actor_idx = Some(actor_idx)
+    pub fn begin_action_group(&mut self, actor_id: u32) {
+        assert!(self.pending_action_group_actor_id.is_none());
+        self.pending_action_group_actor_id = Some(actor_id)
     }
     pub fn end_action_group(&mut self) {
-        let ai = self.pending_action_group_actor_idx.take().unwrap();
+        let ai = self.pending_action_group_actor_id.take().unwrap();
         let action_count = self.pending_action_group_action_count;
         if action_count == 0 {
             return;
         }
         self.pending_action_group_action_count = 0;
-        let agq =
-            &mut self.actors[ai - self.actors_offset].action_group_queues[0];
+        let mut agq = &mut self.actors[(ai - self.actors_offset) as usize]
+            .action_group_queues[0];
         let actions_start = agq.actions.len() - action_count;
         #[cfg(feature = "debug_logging")]
         {
             println!(
                 "ai {}: added ag {}:",
                 ai,
-                agq.action_groups_offset + agq.action_groups.len()
+                agq.action_groups_offset + agq.action_groups.len() as u32
             );
             for a in agq.actions.range(actions_start..) {
                 println!("   > {:?}:", a);
             }
         }
-        agq.action_groups.push_back(ActionGroup {
-            start: agq.actions_offset + actions_start,
-            count: action_count,
-            refcount: 0,
-            next_action_idx: 0,
-        });
-        for (i, pow2) in
-            Pow2InsertStepsIter::new(ai, self.actors_offset, self.actors.len())
+        let next_action_id_succ = if ai
+            < self.actors_offset + self.actors.len() as u32
         {
-            let actor = &mut self.actors[i - self.actors_offset];
-            let agq = &mut actor.action_group_queues[pow2];
+            let next_agq = &self.actors[(ai - self.actors_offset) as usize]
+                .action_group_queues[0];
+
+            next_agq.action_groups.len() as u32 + next_agq.action_groups_offset
+        } else {
+            0
+        };
+        agq = &mut self.actors[(ai - self.actors_offset) as usize]
+            .action_group_queues[0];
+        agq.action_groups.push_back(ActionGroupWithRefs {
+            ag: ActionGroup {
+                start: agq.actions_offset + actions_start,
+                count: action_count,
+            },
+            refcount: 0,
+            next_action_id_self: agq.action_groups.len() as u32
+                + agq.action_groups_offset,
+            next_action_id_succ,
+        });
+        for (i, pow2) in Pow2InsertStepsIter::new(
+            ai as usize,
+            self.actors_offset as usize,
+            self.actors.len(),
+        ) {
+            let actor = &mut self.actors[i - self.actors_offset as usize];
+            let agq = &mut actor.action_group_queues[pow2 as usize];
             if agq.dirty {
                 break;
             }
-            agq.dirty = true;
+            if pow2 > 0 {
+                agq.dirty = true;
+            }
         }
     }
     pub fn push_action(
@@ -187,8 +225,9 @@ impl ActionBuffer {
         field_idx: usize,
         mut run_length: usize,
     ) {
-        let actor_idx = self.pending_action_group_actor_idx.unwrap();
-        let actions = &mut self.actors[actor_idx - self.actors_offset]
+        let actor_id = self.pending_action_group_actor_id.unwrap();
+        let actions = &mut self.actors
+            [(actor_id - self.actors_offset) as usize]
             .action_group_queues[0]
             .actions;
         if self.pending_action_group_action_count > 0 {
@@ -220,19 +259,23 @@ impl ActionBuffer {
             run_length -= rl_to_push as usize;
         }
     }
-    pub fn add_actor(&mut self) -> usize {
-        let actor_idx = self.actors.len() + self.actors_offset;
+    pub fn add_actor(&mut self) -> u32 {
+        let actor_id = self.actors.len() as u32 + self.actors_offset;
         let mut ac = Actor {
             action_group_queues: Vec::new(),
             refcount: 1,
+            merges: Vec::new(),
+            snapsnots: VecDeque::new(),
+            snapshots_offset: 0,
+            subscribers: Vec::new(),
         };
         ac.action_group_queues.push(ActionGroupQueue::default());
         self.actors.push_back(ac);
-        if actor_idx != 0 {
-            let pow2_to_add = actor_idx.trailing_zeros() + 1;
-            let tgt_actor_id = actor_idx - (1 << pow2_to_add);
+        if actor_id != self.actors_offset {
+            let pow2_to_add = actor_id.trailing_zeros() + 1;
+            let tgt_actor_id = actor_id - (1 << pow2_to_add);
             let tgt_actor =
-                &mut self.actors[tgt_actor_id - self.actors_offset];
+                &mut self.actors[(tgt_actor_id - self.actors_offset) as usize];
             debug_assert_eq!(
                 tgt_actor.action_group_queues.len(),
                 pow2_to_add as usize
@@ -242,18 +285,37 @@ impl ActionBuffer {
                 ..Default::default()
             })
         }
-        actor_idx
+        actor_id
     }
-    fn refresh_action_group(&mut self, actor_idx: usize, pow2: usize) {}
+    fn refresh_action_group(&mut self, actor_id: u32, pow2: u8) -> u32 {
+        let mut actor =
+            &mut self.actors[(actor_id - self.actors_offset) as usize];
+        let mut agq = &mut actor.action_group_queues[pow2 as usize];
+        if !agq.dirty {
+            return agq.action_groups_offset + agq.action_groups.len() as u32;
+        }
+        debug_assert!(pow2 > 0);
+        let next_self = self.refresh_action_group(actor_id, pow2 - 1);
+        let next_succ =
+            self.refresh_action_group(actor_id + (1 << pow2), pow2 - 1);
+
+        actor = &mut self.actors[(actor_id - self.actors_offset) as usize];
+        agq = &mut actor.action_group_queues[pow2 as usize];
+        agq.dirty = false;
+        agq.action_groups_offset + agq.action_groups.len() as u32
+    }
     fn build_action_list(
         &mut self,
-        actor_idx: usize,
-        last_observed_group: usize,
-        target: &mut Vec<FieldAction>,
+        actor_id: usize,
+        pow2: u8,
+        last_observed_group: u32,
     ) -> Option<ActionGroupIdentifier> {
-        for (ai, pow2) in
-            Pow2LookupStepsIter::new(actor_idx, self.actors.len())
-        {}
+        for (ai, pow2) in Pow2LookupStepsIter::new(
+            actor_id,
+            self.actors_offset as usize + self.actors.len(),
+        ) {
+            self.refresh_action_group(ai as u32, pow2);
+        }
         None
     }
 }
@@ -264,7 +326,7 @@ mod test {
         Pow2InsertStepsIter, Pow2LookupStepsIter,
     };
 
-    fn collect_lookup_steps(start: usize, end: usize) -> Vec<(usize, usize)> {
+    fn collect_lookup_steps(start: usize, end: usize) -> Vec<(usize, u8)> {
         Pow2LookupStepsIter::new(start, end).collect::<Vec<_>>()
     }
 
@@ -289,7 +351,7 @@ mod test {
         index: usize,
         begin: usize,
         end: usize,
-    ) -> Vec<(usize, usize)> {
+    ) -> Vec<(usize, u8)> {
         Pow2InsertStepsIter::new(index, begin, end).collect::<Vec<_>>()
     }
 
