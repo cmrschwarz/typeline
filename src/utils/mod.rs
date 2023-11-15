@@ -1,4 +1,4 @@
-use std::fmt::Write;
+use std::{fmt::Write, ops::Range};
 
 #[macro_use]
 pub mod match_unwrap;
@@ -140,4 +140,40 @@ impl Write for LengthAndCharsCountingWriter {
     ) -> std::fmt::Result {
         std::fmt::write(&mut self, args)
     }
+}
+
+pub fn subslice_slice_pair<'a, T>(
+    s1: &'a [T],
+    s2: &'a [T],
+    range: Range<usize>,
+) -> (&'a [T], &'a [T]) {
+    let s1_len = s1.len();
+    if range.start > s1_len {
+        (&[], &s2[range.start - s1_len..range.end - s1_len])
+    } else {
+        (
+            &s1[range.start..],
+            &s2[..range.len() - (s1_len - range.start)],
+        )
+    }
+}
+
+pub fn subslice_slice_pair_mut<'a, T>(
+    s1: &'a mut [T],
+    s2: &'a mut [T],
+    range: Range<usize>,
+) -> (&'a mut [T], &'a mut [T]) {
+    let s1_len = s1.len();
+    if range.start > s1_len {
+        (&mut [], &mut s2[range.start - s1_len..range.end - s1_len])
+    } else {
+        (
+            &mut s1[range.start..],
+            &mut s2[..range.len() - (s1_len - range.start)],
+        )
+    }
+}
+
+pub unsafe fn launder_slice<'a, T>(slice: &'a [T]) -> &'static [T] {
+    unsafe { std::mem::transmute(slice) }
 }

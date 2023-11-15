@@ -1,6 +1,6 @@
 use std::{
     cell::{Ref, RefCell},
-    ops::{Deref, DerefMut},
+    ops::DerefMut,
 };
 
 use super::{

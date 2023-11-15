@@ -1,26 +1,47 @@
-use std::collections::VecDeque;
+use std::{collections::VecDeque, mem::size_of, ops::DerefMut};
+
+use crate::utils::{launder_slice, subslice_slice_pair};
 
 use super::{
-    field::FieldId,
-    field_action::{FieldAction, FieldActionKind},
+    field::{FieldId, FieldManager},
+    field_action::{merge_action_lists, FieldAction, FieldActionKind},
     field_data::RunLength,
 };
 
+type ActorId = u32;
+type ActionGroupId = u32;
+type SnapshotId = u32;
+type SnapshotEntry = u32;
+
+// snapshots are a list of `SnapshotEntry`s where
+// - the first one is the refcount,
+// - the second one is the number of actors present at snapshot creation
+// - all subsequent ones are the current action group id of the actors in
+//   the order that would be returned by
+//   Pow2LookupStepsIter::new(
+//       <`ActorId` containing the snapshot>,
+//       <number of actors present at snapshot creation>
+//   )
+const_assert!(
+    size_of::<SnapshotEntry>() == size_of::<ActorId>()
+        && size_of::<SnapshotEntry>() == size_of::<ActionGroupId>() //
+);
+
 struct ActionGroup {
     start: usize,
-    count: usize,
+    length: usize,
 }
 
 struct ActionGroupWithRefs {
     ag: ActionGroup,
     // initialized as usize::MAX, wrapping add, saturating sub
     refcount: u32,
-    next_action_id_self: u32,
-    next_action_id_succ: u32,
+    next_action_id_self: ActionGroupId,
+    next_action_id_succ: ActionGroupId,
 }
 
 struct ActionGroupMerges {
-    action_groups_offset: u32,
+    action_groups_offset: ActionGroupId,
     action_groups: VecDeque<ActionGroup>,
     actions_offset: usize,
     actions: VecDeque<FieldAction>,
@@ -28,7 +49,7 @@ struct ActionGroupMerges {
 
 #[derive(Default)]
 struct ActionGroupQueue {
-    action_groups_offset: u32,
+    action_groups_offset: ActionGroupId,
     action_groups: VecDeque<ActionGroupWithRefs>,
     actions_offset: usize,
     actions: VecDeque<FieldAction>,
@@ -36,42 +57,53 @@ struct ActionGroupQueue {
     refcount: u32,
 }
 
+#[derive(Default)]
 struct Actor {
     action_group_queues: Vec<ActionGroupQueue>,
     merges: Vec<ActionGroupMerges>,
-    snapshots_offset: usize,
-    snapsnots: VecDeque<usize>,
+    snapshots_offset: SnapshotId,
+    snapsnots: VecDeque<u32>,
     subscribers: Vec<FieldId>,
-    refcount: u32,
 }
 
+#[derive(Clone, Copy)]
 enum ActionGroupIdentifier {
     Regular {
         actor_id: u32,
         pow2: u8,
         start: usize,
-        stop: usize,
+        length: usize,
     },
     LocalMerge {
         actor_id: u32,
         merge_pow2: u8,
         start: usize,
-        stop: usize,
+        length: usize,
     },
     TempBuffer {
         idx: usize,
         start: usize,
-        stop: usize,
+        length: usize,
     },
 }
 
+impl ActionGroupIdentifier {
+    fn temp_idx(&self) -> Option<usize> {
+        match self {
+            ActionGroupIdentifier::Regular { .. } => None,
+            ActionGroupIdentifier::LocalMerge { .. } => None,
+            ActionGroupIdentifier::TempBuffer { idx, .. } => Some(*idx),
+        }
+    }
+}
+
 pub struct ActionBuffer {
-    actors_offset: u32,
+    actors_offset: ActorId,
     actors: VecDeque<Actor>,
     // we need 3 temp buffers in order to always have a free one as a target
     // when merging from two others
-    action_temp_buffers: [VecDeque<FieldAction>; 3],
-    pending_action_group_actor_id: Option<u32>,
+    action_temp_buffers: [Vec<FieldAction>; 3],
+    pending_action_group_actor_id: Option<ActorId>,
     pending_action_group_action_count: usize,
 }
 
@@ -197,10 +229,10 @@ impl ActionBuffer {
         agq.action_groups.push_back(ActionGroupWithRefs {
             ag: ActionGroup {
                 start: agq.actions_offset + actions_start,
-                count: action_count,
+                length: action_count,
             },
             refcount: 0,
-            next_action_id_self: agq.action_groups.len() as u32
+            next_action_id_self: agq.action_groups.len() as ActionGroupId
                 + agq.action_groups_offset,
             next_action_id_succ,
         });
@@ -259,18 +291,20 @@ impl ActionBuffer {
             run_length -= rl_to_push as usize;
         }
     }
-    pub fn add_actor(&mut self) -> u32 {
-        let actor_id = self.actors.len() as u32 + self.actors_offset;
-        let mut ac = Actor {
+    pub fn add_actor(&mut self, initial_subscriber: FieldId) -> ActorId {
+        let actor_id = self.actors.len() as ActorId + self.actors_offset;
+        let mut actor = Actor {
             action_group_queues: Vec::new(),
-            refcount: 1,
             merges: Vec::new(),
             snapsnots: VecDeque::new(),
             snapshots_offset: 0,
-            subscribers: Vec::new(),
+            subscribers: vec![initial_subscriber],
         };
-        ac.action_group_queues.push(ActionGroupQueue::default());
-        self.actors.push_back(ac);
+        actor.action_group_queues.push(ActionGroupQueue::default());
+        actor.snapsnots.push_back(1); // snapshot ref count
+        actor.snapsnots.push_back(actor_id + 1); // actor count
+        actor.snapsnots.push_back(0); // next action group index
+        self.actors.push_back(actor);
         if actor_id != self.actors_offset {
             let pow2_to_add = actor_id.trailing_zeros() + 1;
             let tgt_actor_id = actor_id - (1 << pow2_to_add);
@@ -287,34 +321,303 @@ impl ActionBuffer {
         }
         actor_id
     }
-    fn refresh_action_group(&mut self, actor_id: u32, pow2: u8) -> u32 {
+    fn release_temp_action_group(
+        &mut self,
+        ag: Option<ActionGroupIdentifier>,
+    ) {
+        if let Some(ActionGroupIdentifier::TempBuffer { idx, start, length }) =
+            ag
+        {
+            let tb = &mut self.action_temp_buffers[idx];
+            debug_assert!(tb.len() == start + length);
+            tb.truncate(tb.len() - length);
+        }
+    }
+    fn get_free_temp_idx(
+        &self,
+        lhs: &ActionGroupIdentifier,
+        rhs: &ActionGroupIdentifier,
+    ) -> usize {
+        let lhs_idx = lhs.temp_idx().unwrap_or(3);
+        let rhs_idx = rhs.temp_idx().unwrap_or(3);
+        (6 - lhs_idx - rhs_idx) % 3
+    }
+    fn get_action_group_slices(
+        &self,
+        ag: ActionGroupIdentifier,
+    ) -> (&[FieldAction], &[FieldAction]) {
+        match ag {
+            ActionGroupIdentifier::Regular {
+                actor_id,
+                pow2,
+                mut start,
+                length,
+            } => {
+                let actor =
+                    &self.actors[(actor_id - self.actors_offset) as usize];
+                let agq = &actor.action_group_queues[pow2 as usize];
+                let (s1, s2) = agq.actions.as_slices();
+                start -= agq.actions_offset;
+                subslice_slice_pair(s1, s2, start..start + length)
+            }
+            ActionGroupIdentifier::LocalMerge {
+                actor_id,
+                merge_pow2,
+                mut start,
+                length,
+            } => {
+                let actor =
+                    &self.actors[(actor_id - self.actors_offset) as usize];
+                let merge_lvl = &actor.merges[merge_pow2 as usize];
+                start -= merge_lvl.actions_offset;
+                let (s1, s2) = merge_lvl.actions.as_slices();
+                subslice_slice_pair(s1, s2, start..start + length)
+            }
+            ActionGroupIdentifier::TempBuffer { idx, start, length } => {
+                (&[], &self.action_temp_buffers[idx][start..start + length])
+            }
+        }
+    }
+    fn action_group_not_from_actor_pow2(
+        &self,
+        actor_id: ActorId,
+        pow2: u8,
+        ag: &ActionGroupIdentifier,
+    ) -> bool {
+        match ag {
+            ActionGroupIdentifier::Regular {
+                actor_id: ag_actor_id,
+                pow2: ag_pow2,
+                ..
+            } => *ag_actor_id != actor_id || *ag_pow2 != pow2,
+            ActionGroupIdentifier::LocalMerge { .. } => true,
+            ActionGroupIdentifier::TempBuffer { .. } => true,
+        }
+    }
+    fn append_action_group(
+        &mut self,
+        actor_id: ActorId,
+        pow2: u8,
+        next_self: ActionGroupId,
+        next_succ: ActionGroupId,
+        ag: ActionGroupIdentifier,
+    ) -> ActionGroupIdentifier {
+        let (s1, s2) = self.get_action_group_slices(ag);
+        let length = s1.len() + s2.len();
+        assert!(self.action_group_not_from_actor_pow2(actor_id, pow2, &ag));
+        let start = unsafe {
+            // SAFETY: the assert above ensures that s1 and s2 do not point
+            // into the VecDeque that we are apppending to
+            // and therefore won't get invalidated by doing so
+            let s1 = launder_slice(s1);
+            let s2 = launder_slice(s2);
+            let actor =
+                &mut self.actors[(actor_id - self.actors_offset) as usize];
+            let agq = &mut actor.action_group_queues[pow2 as usize];
+            let start = agq.actions.len() + agq.actions_offset;
+            agq.actions.extend(s1);
+            agq.actions.extend(s2);
+            start
+        };
+        let actor = &mut self.actors[(actor_id - self.actors_offset) as usize];
+        let agq = &mut actor.action_group_queues[pow2 as usize];
+        agq.action_groups.push_back(ActionGroupWithRefs {
+            ag: ActionGroup { start, length },
+            refcount: 0,
+            next_action_id_self: next_self,
+            next_action_id_succ: next_succ,
+        });
+        ActionGroupIdentifier::Regular {
+            actor_id,
+            pow2,
+            start,
+            length,
+        }
+    }
+    fn merge_action_groups_into_actor_action_group(
+        &mut self,
+        lhs: Option<ActionGroupIdentifier>,
+        rhs: Option<ActionGroupIdentifier>,
+        actor_id: ActorId,
+        pow2: u8,
+        next_self: ActionGroupId,
+        next_succ: ActionGroupId,
+    ) -> Option<ActionGroupIdentifier> {
+        if let Some(lhs) = lhs {
+            if let Some(rhs) = rhs {
+                let (l1, l2) = self.get_action_group_slices(lhs);
+                let (r1, r2) = self.get_action_group_slices(rhs);
+                assert!(self
+                    .action_group_not_from_actor_pow2(actor_id, pow2, &lhs));
+                assert!(self
+                    .action_group_not_from_actor_pow2(actor_id, pow2, &rhs));
+                let len_before = unsafe {
+                    // SAFETY: the asserts above ensure that lhs and rhs do
+                    // not come from the VecDeque that we are apppending to,
+                    // and therefore won't get invalidated by doing so
+                    let (l1, l2) = (launder_slice(l1), launder_slice(l2));
+                    let (r1, r2) = (launder_slice(r1), launder_slice(r2));
+                    let actor = &mut self.actors
+                        [(actor_id - self.actors_offset) as usize];
+                    let agq = &mut actor.action_group_queues[pow2 as usize];
+                    let len_before = agq.actions.len();
+                    merge_action_lists(
+                        l1.iter().chain(l2),
+                        r1.iter().chain(r2),
+                        &mut agq.actions,
+                    );
+                    len_before
+                };
+                let actor =
+                    &mut self.actors[(actor_id - self.actors_offset) as usize];
+                let agq = &mut actor.action_group_queues[pow2 as usize];
+                let len_after = agq.actions.len();
+                let start = len_after - len_before;
+                let length = len_after - len_before;
+                agq.action_groups.push_back(ActionGroupWithRefs {
+                    ag: ActionGroup { start, length },
+                    refcount: 0,
+                    next_action_id_self: next_self,
+                    next_action_id_succ: next_succ,
+                });
+                return Some(ActionGroupIdentifier::Regular {
+                    actor_id,
+                    pow2,
+                    start,
+                    length,
+                });
+            }
+            return Some(self.append_action_group(
+                actor_id, pow2, next_self, next_succ, lhs,
+            ));
+        }
+        if let Some(rhs) = rhs {
+            return Some(self.append_action_group(
+                actor_id, pow2, next_self, next_succ, rhs,
+            ));
+        }
+        None
+    }
+    fn merge_action_groups_into_temp_buffer(
+        &mut self,
+        lhs: Option<ActionGroupIdentifier>,
+        rhs: Option<ActionGroupIdentifier>,
+    ) -> Option<ActionGroupIdentifier> {
+        if let Some(lhs) = lhs {
+            if let Some(rhs) = rhs {
+                let (l1, l2) = self.get_action_group_slices(lhs);
+                let (r1, r2) = self.get_action_group_slices(rhs);
+                let idx = self.get_free_temp_idx(&lhs, &rhs);
+                let (start, length) = unsafe {
+                    // SAFETY: get_free_temp_idx makes sure that
+                    // action_temp_buffers[idx] is neither
+                    // used by lhs nor by rhs. Therefore we can take
+                    // a mutable reference to it
+                    let (l1, l2) = (launder_slice(l1), launder_slice(l2));
+                    let (r1, r2) = (launder_slice(r1), launder_slice(r2));
+                    let buff = &mut self.action_temp_buffers[idx];
+                    let start = buff.len();
+                    merge_action_lists(
+                        l1.iter().chain(l2),
+                        r1.iter().chain(r2),
+                        buff,
+                    );
+                    (start, buff.len() - start)
+                };
+                return Some(ActionGroupIdentifier::TempBuffer {
+                    idx,
+                    start,
+                    length,
+                });
+            }
+            return Some(lhs);
+        }
+        rhs
+    }
+    fn merge_action_groups_of_single_pow2(
+        &mut self,
+        actor_id: ActorId,
+        pow2: u8,
+        prev: ActionGroupId,
+        new: ActionGroupId,
+    ) -> Option<ActionGroupIdentifier> {
+        // TODO: use local merges if this is the hightest pow2
+        let mut curr_ag_id = prev + 1;
+        let mut res = None;
+        loop {
+            if curr_ag_id >= new {
+                return res;
+            }
+            let actor =
+                &mut self.actors[(actor_id - self.actors_offset) as usize];
+            let agq = &mut actor.action_group_queues[pow2 as usize];
+            let ag = &mut agq.action_groups
+                [(curr_ag_id - agq.action_groups_offset) as usize];
+
+            let curr = Some(ActionGroupIdentifier::Regular {
+                actor_id,
+                pow2,
+                start: ag.ag.start,
+                length: ag.ag.length,
+            });
+            let res_new = self.merge_action_groups_into_temp_buffer(res, curr);
+            self.release_temp_action_group(res);
+            res = res_new;
+            curr_ag_id += 1;
+        }
+    }
+    fn refresh_action_group(
+        &mut self,
+        actor_id: ActorId,
+        pow2: u8,
+    ) -> ActionGroupId {
         let mut actor =
             &mut self.actors[(actor_id - self.actors_offset) as usize];
         let mut agq = &mut actor.action_group_queues[pow2 as usize];
         if !agq.dirty {
-            return agq.action_groups_offset + agq.action_groups.len() as u32;
+            return agq.action_groups_offset
+                + agq.action_groups.len() as ActionGroupId;
         }
+        let (prev_self, prev_succ) = agq
+            .action_groups
+            .back()
+            .map(|ag| (ag.next_action_id_self, ag.next_action_id_succ))
+            .unwrap_or((0, 0));
         debug_assert!(pow2 > 0);
-        let next_self = self.refresh_action_group(actor_id, pow2 - 1);
-        let next_succ =
-            self.refresh_action_group(actor_id + (1 << pow2), pow2 - 1);
 
+        let next_self = self.refresh_action_group(actor_id, pow2 - 1);
+        let self_merge = self.merge_action_groups_of_single_pow2(
+            actor_id, pow2, prev_self, next_self,
+        );
+
+        let succ_id = actor_id + (1 << pow2);
+        let succ_pow2 = pow2 - 1;
+        let next_succ = self.refresh_action_group(succ_id, succ_pow2);
+        let succ_merge = self.merge_action_groups_of_single_pow2(
+            succ_id, succ_pow2, prev_succ, next_succ,
+        );
+
+        self.merge_action_groups_into_actor_action_group(
+            self_merge, succ_merge, actor_id, pow2, next_self, next_succ,
+        );
         actor = &mut self.actors[(actor_id - self.actors_offset) as usize];
         agq = &mut actor.action_group_queues[pow2 as usize];
         agq.dirty = false;
-        agq.action_groups_offset + agq.action_groups.len() as u32
+        agq.action_groups_offset + agq.action_groups.len() as ActionGroupId
     }
-    fn build_action_list(
+    #[allow(unused)]
+    fn update(
         &mut self,
-        actor_id: usize,
-        pow2: u8,
-        last_observed_group: u32,
+        actor_id: ActorId,
+        snapshot_id: SnapshotId,
     ) -> Option<ActionGroupIdentifier> {
         for (ai, pow2) in Pow2LookupStepsIter::new(
-            actor_id,
-            self.actors_offset as usize + self.actors.len(),
+            actor_id as usize,
+            self.actors.len() + self.actors_offset as usize,
         ) {
-            self.refresh_action_group(ai as u32, pow2);
+            let ag_id = self.refresh_action_group(ai as ActorId, pow2);
+            let actor =
+                &mut self.actors[(actor_id - self.actors_offset) as usize];
         }
         None
     }
