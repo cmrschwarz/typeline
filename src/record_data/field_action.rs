@@ -1,3 +1,8 @@
+use std::{
+    collections::VecDeque,
+    ops::{Index, IndexMut},
+};
+
 use super::field_data::RunLength;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -28,8 +33,49 @@ impl FieldAction {
     }
 }
 
-fn push_merged_action(
-    target: &mut Vec<FieldAction>,
+pub trait ActionContainer:
+    Index<usize, Output = FieldAction> + IndexMut<usize, Output = FieldAction>
+{
+    fn get(&self, index: usize) -> Option<&FieldAction>;
+    fn last_mut(&mut self) -> Option<&mut FieldAction>;
+    fn push(&mut self, v: FieldAction);
+    fn len(&self) -> usize;
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
+impl ActionContainer for Vec<FieldAction> {
+    fn get(&self, index: usize) -> Option<&FieldAction> {
+        <[FieldAction]>::get(self, index)
+    }
+    fn last_mut(&mut self) -> Option<&mut FieldAction> {
+        <[FieldAction]>::last_mut(self)
+    }
+    fn push(&mut self, v: FieldAction) {
+        <Vec<_>>::push(self, v)
+    }
+    fn len(&self) -> usize {
+        <[FieldAction]>::len(self)
+    }
+}
+impl ActionContainer for VecDeque<FieldAction> {
+    fn get(&self, index: usize) -> Option<&FieldAction> {
+        <VecDeque<_>>::get(self, index)
+    }
+    fn last_mut(&mut self) -> Option<&mut FieldAction> {
+        self.back_mut()
+    }
+    fn push(&mut self, v: FieldAction) {
+        <VecDeque<_>>::push_back(self, v)
+    }
+    fn len(&self) -> usize {
+        <VecDeque<_>>::len(self)
+    }
+}
+
+fn push_merged_action<T: ActionContainer>(
+    target: &mut T,
     first_insert: &mut bool,
     kind: FieldActionKind,
     field_idx: usize,
@@ -65,35 +111,36 @@ fn push_merged_action(
     }
 }
 
-pub fn merge_action_lists(
-    sets: [&[FieldAction]; 2],
-    target: &mut Vec<FieldAction>,
+pub fn merge_action_lists<
+    'a,
+    L: IntoIterator<Item = &'a FieldAction>,
+    R: IntoIterator<Item = &'a FieldAction>,
+    T: ActionContainer,
+>(
+    left: L,
+    right: R,
+    target: &mut T,
 ) {
-    let left = sets[0];
-    let right = sets[1];
+    let mut left = left.into_iter().peekable();
+    let mut right = right.into_iter().peekable();
     let mut first_insert = true;
 
-    let (mut curr_action_idx_left, mut curr_action_idx_right) = (0, 0);
     let mut next_action_field_idx_left;
     let mut next_action_field_idx_right;
     let mut field_pos_offset_left = 0isize;
     let mut outstanding_drops_right = 0usize;
-    loop {
-        if curr_action_idx_left == left.len() {
-            break;
-        }
-        if curr_action_idx_right < right.len() {
-            next_action_field_idx_right = right[curr_action_idx_right]
-                .field_idx
-                + outstanding_drops_right;
+    while let Some(action_left) = left.peek() {
+        if let Some(action_right) = right.peek() {
+            next_action_field_idx_right =
+                action_right.field_idx + outstanding_drops_right;
         } else {
             next_action_field_idx_right = usize::MAX;
         }
         next_action_field_idx_left =
-            (left[curr_action_idx_left].field_idx as isize
-                + field_pos_offset_left) as usize;
+            (action_left.field_idx as isize + field_pos_offset_left) as usize;
         if next_action_field_idx_left <= next_action_field_idx_right {
-            let action_left = &left[curr_action_idx_left];
+            let action_left = *action_left;
+            left.next();
             let field_idx = (action_left.field_idx as isize
                 + field_pos_offset_left) as usize;
             let mut run_len = action_left.run_len as usize;
@@ -102,7 +149,7 @@ pub fn merge_action_lists(
             match action_left.kind {
                 FieldActionKind::Dup => {
                     let space_to_next = left
-                        .get(curr_action_idx_left + 1)
+                        .peek()
                         .map(|a| a.field_idx - action_left.field_idx)
                         .unwrap_or(usize::MAX);
                     if outstanding_drops_right >= run_len {
@@ -129,14 +176,13 @@ pub fn merge_action_lists(
                 field_idx,
                 run_len,
             );
-            curr_action_idx_left += 1;
         } else {
             debug_assert!(outstanding_drops_right == 0);
-            let right = &right[curr_action_idx_right];
-            let field_idx = right.field_idx;
-            let mut run_len = right.run_len as usize;
+            let action_right = right.next().unwrap();
+            let field_idx = action_right.field_idx;
+            let mut run_len = action_right.run_len as usize;
 
-            match right.kind {
+            match action_right.kind {
                 FieldActionKind::Dup => {
                     field_pos_offset_left += run_len as isize;
                 }
@@ -153,14 +199,13 @@ pub fn merge_action_lists(
             push_merged_action(
                 target,
                 &mut first_insert,
-                right.kind,
+                action_right.kind,
                 field_idx,
                 run_len,
             );
-            curr_action_idx_right += 1;
         }
     }
-    for action in &right[curr_action_idx_right..] {
+    for action in right {
         push_merged_action(
             target,
             &mut first_insert,
@@ -183,7 +228,7 @@ mod test {
         out: &[FieldAction],
     ) {
         let mut output = Vec::new();
-        super::merge_action_lists([left, right], &mut output);
+        super::merge_action_lists(left, right, &mut output);
         assert_eq!(output.as_slice(), out);
     }
     #[test]

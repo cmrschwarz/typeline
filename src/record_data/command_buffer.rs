@@ -1,6 +1,6 @@
 use std::{
     cell::{Ref, RefCell},
-    ops::DerefMut,
+    ops::{Deref, DerefMut},
 };
 
 use super::{
@@ -556,7 +556,7 @@ impl CommandBuffer {
         let mut res_ms = self.merged_actions[target_idx].borrow_mut();
         res_ms.reserve(res_size);
         let res_len_before = res_ms.len();
-        merge_action_lists([first_slice, second_slice], &mut res_ms);
+        merge_action_lists(first_slice, second_slice, &mut *res_ms);
         let res_len_after = res_ms.len();
         drop(res_ms);
         drop(first_ref);
@@ -623,12 +623,13 @@ impl CommandBuffer {
             let max_width = 1 << end.trailing_zeros();
             let l1 = &mal.action_lists[end - 2];
             let l2 = &mal.action_lists[end - 1];
-            let lists = [
+
+            let actions_start = mal.locally_merged_actions.len();
+            merge_action_lists(
                 &mal.actions[l1.actions_start..l1.actions_end],
                 &mal.actions[l2.actions_start..l2.actions_end],
-            ];
-            let actions_start = mal.locally_merged_actions.len();
-            merge_action_lists(lists, &mut mal.locally_merged_actions);
+                &mut mal.locally_merged_actions,
+            );
 
             let lmal = LocallyMergedActionList {
                 al_idx_start: end - 2,
@@ -648,16 +649,16 @@ impl CommandBuffer {
             while width <= max_width {
                 let l1 = &mal.locally_merged_action_lists[prev];
                 let l2 = &mal.locally_merged_action_lists[curr];
-                let lists = [
+                let actions_start = mal.locally_merged_actions.len();
+                let mut temp = self.merged_actions[0].borrow_mut();
+                let len_before = temp.len();
+                merge_action_lists(
                     &mal.locally_merged_actions
                         [l1.actions_start..l1.actions_end],
                     &mal.locally_merged_actions
                         [l2.actions_start..l2.actions_end],
-                ];
-                let actions_start = mal.locally_merged_actions.len();
-                let mut temp = self.merged_actions[0].borrow_mut();
-                let len_before = temp.len();
-                merge_action_lists(lists, &mut temp);
+                    &mut *temp,
+                );
                 mal.locally_merged_actions.extend(&temp[len_before..]);
                 temp.truncate(len_before);
                 drop(temp);
