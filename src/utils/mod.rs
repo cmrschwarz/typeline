@@ -4,8 +4,10 @@ use std::{fmt::Write, ops::Range};
 pub mod match_unwrap;
 
 pub mod aligned_buf;
+pub mod dynamic_freelist;
 pub mod encoding;
 pub mod identity_hasher;
+pub mod indexing_type;
 pub mod int_string_conversions;
 pub mod nonzero_ext;
 pub mod plattform;

@@ -1,26 +1,15 @@
 use std::{
     marker::PhantomData,
-    ops::{Deref, Index, IndexMut},
+    ops::{Index, IndexMut},
 };
 
-use nonmax::{NonMaxU32, NonMaxUsize};
+use nonmax::NonMaxUsize;
+
+use super::indexing_type::IndexingType;
 
 use super::get_two_distinct_mut;
 // TODO: create a Vec using this Index type but without the whole reclaiming
 // mechainic
-
-pub trait UniverseIndex:
-    Clone
-    + Copy
-    + Default
-    + UniverseIndexFromUsize
-    + UniverseIndexIntoUsize
-    + PartialEq
-    + Eq
-    + PartialOrd
-    + Ord
-{
-}
 
 #[derive(Clone)]
 enum UniverseEntry<T> {
@@ -33,80 +22,6 @@ pub struct Universe<I, T> {
     data: Vec<UniverseEntry<T>>,
     first_vacant_entry: Option<NonMaxUsize>,
     _phantom_data: PhantomData<I>,
-}
-
-impl<I> UniverseIndex for I where
-    I: Clone
-        + Copy
-        + Default
-        + UniverseIndexFromUsize
-        + UniverseIndexIntoUsize
-        + Ord
-{
-}
-
-pub trait UniverseIndexIntoUsize {
-    fn into_usize(self) -> usize;
-}
-pub trait UniverseIndexFromUsize: Sized {
-    fn from_usize(v: usize) -> Self;
-}
-
-impl UniverseIndexIntoUsize for NonMaxU32 {
-    #[inline(always)]
-    fn into_usize(self) -> usize {
-        self.get() as usize
-    }
-}
-impl UniverseIndexFromUsize for NonMaxU32 {
-    #[inline(always)]
-    fn from_usize(v: usize) -> Self {
-        NonMaxU32::new(v as u32).unwrap()
-    }
-}
-impl UniverseIndexIntoUsize for NonMaxUsize {
-    #[inline(always)]
-    fn into_usize(self) -> usize {
-        self.get()
-    }
-}
-impl UniverseIndexFromUsize for NonMaxUsize {
-    #[inline(always)]
-    fn from_usize(v: usize) -> Self {
-        NonMaxUsize::new(v).unwrap()
-    }
-}
-impl UniverseIndexIntoUsize for usize {
-    #[inline(always)]
-    fn into_usize(self) -> usize {
-        self
-    }
-}
-impl UniverseIndexFromUsize for usize {
-    #[inline(always)]
-    fn from_usize(v: usize) -> Self {
-        v
-    }
-}
-
-#[derive(Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
-struct UniverseIdx<I: UniverseIndex>(I);
-impl<I: UniverseIndex> UniverseIdx<I> {
-    #[inline]
-    fn from_usize(v: usize) -> Self {
-        UniverseIdx(I::from_usize(v))
-    }
-    #[inline]
-    fn to_usize(self) -> usize {
-        self.0.into_usize()
-    }
-}
-
-impl<I: UniverseIndex> Deref for UniverseIdx<I> {
-    type Target = I;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
 }
 
 impl<T> UniverseEntry<T> {
@@ -129,7 +44,7 @@ impl<I, T> Default for Universe<I, T> {
     }
 }
 
-impl<I: UniverseIndex, T> Universe<I, T> {
+impl<I: IndexingType, T> Universe<I, T> {
     fn build_vacant_entry(&mut self, index: usize) -> UniverseEntry<T> {
         // SAFETY: we can never have usize::MAX entries before running out of
         // memory
@@ -139,7 +54,7 @@ impl<I: UniverseIndex, T> Universe<I, T> {
         res
     }
     pub fn release(&mut self, id: I) {
-        let index = UniverseIdx(id).to_usize();
+        let index = id.into_usize();
         if self.data.len() == index + 1 {
             self.data.pop();
             return;
@@ -195,7 +110,7 @@ impl<I: UniverseIndex, T> Universe<I, T> {
     pub fn iter_enumerated(&self) -> impl Iterator<Item = (I, &T)> {
         self.data.iter().enumerate().filter_map(|(i, e)| {
             if let UniverseEntry::Occupied(v) = e {
-                Some((UniverseIdx::from_usize(i).0, v))
+                Some((I::from_usize(i), v))
             } else {
                 None
             }
@@ -206,7 +121,7 @@ impl<I: UniverseIndex, T> Universe<I, T> {
     ) -> impl Iterator<Item = (I, &mut T)> {
         self.data.iter_mut().enumerate().filter_map(|(i, e)| {
             if let UniverseEntry::Occupied(v) = e {
-                Some((UniverseIdx::from_usize(i).0, v))
+                Some((I::from_usize(i), v))
             } else {
                 None
             }
@@ -216,7 +131,7 @@ impl<I: UniverseIndex, T> Universe<I, T> {
         self.iter_mut().next()
     }
     pub fn reserve_id_with(&mut self, id: I, func: impl FnOnce() -> T) {
-        let index = UniverseIdx(id).to_usize();
+        let index = id.into_usize();
         let mut len = self.data.len();
         while len < index {
             let ve = self.build_vacant_entry(len);
@@ -270,9 +185,7 @@ impl<I: UniverseIndex, T> Universe<I, T> {
         };
         let range = self.data.as_ptr_range();
         assert!(range.contains(&ptr));
-        *UniverseIdx::from_usize(
-            unsafe { ptr.offset_from(range.start) } as usize
-        )
+        I::from_usize(unsafe { ptr.offset_from(range.start) } as usize)
     }
     pub fn get(&self, id: I) -> Option<&T> {
         match self.data.get(id.into_usize()) {
@@ -304,7 +217,7 @@ impl<I: UniverseIndex, T> Universe<I, T> {
 }
 
 // separate impl since only available if T: Default
-impl<I: UniverseIndex, T: Default> Universe<I, T> {
+impl<I: IndexingType, T: Default> Universe<I, T> {
     pub fn claim(&mut self) -> I {
         self.claim_with(Default::default)
     }
@@ -313,7 +226,7 @@ impl<I: UniverseIndex, T: Default> Universe<I, T> {
     }
 }
 
-impl<I: UniverseIndex, T> Index<I> for Universe<I, T> {
+impl<I: IndexingType, T> Index<I> for Universe<I, T> {
     type Output = T;
     #[inline]
     fn index(&self, index: I) -> &Self::Output {
@@ -324,7 +237,7 @@ impl<I: UniverseIndex, T> Index<I> for Universe<I, T> {
     }
 }
 
-impl<I: UniverseIndex, T> IndexMut<I> for Universe<I, T> {
+impl<I: IndexingType, T> IndexMut<I> for Universe<I, T> {
     #[inline]
     fn index_mut(&mut self, index: I) -> &mut Self::Output {
         match &mut self.data[index.into_usize()] {
@@ -340,7 +253,7 @@ pub struct CountedUniverse<I, T> {
     occupied_entries: usize,
 }
 
-impl<I: UniverseIndex, T> CountedUniverse<I, T> {
+impl<I: IndexingType, T> CountedUniverse<I, T> {
     pub fn release(&mut self, id: I) {
         self.occupied_entries -= 1;
         self.universe.release(id)
@@ -428,7 +341,7 @@ impl<I, T> Default for CountedUniverse<I, T> {
 }
 
 // separate impl since only available if T: Default
-impl<I: UniverseIndex, T: Default> CountedUniverse<I, T> {
+impl<I: IndexingType, T: Default> CountedUniverse<I, T> {
     pub fn claim(&mut self) -> I {
         self.claim_with(Default::default)
     }
@@ -437,7 +350,7 @@ impl<I: UniverseIndex, T: Default> CountedUniverse<I, T> {
     }
 }
 
-impl<I: UniverseIndex, T> Index<I> for CountedUniverse<I, T> {
+impl<I: IndexingType, T> Index<I> for CountedUniverse<I, T> {
     type Output = T;
     #[inline]
     fn index(&self, index: I) -> &Self::Output {
@@ -445,7 +358,7 @@ impl<I: UniverseIndex, T> Index<I> for CountedUniverse<I, T> {
     }
 }
 
-impl<I: UniverseIndex, T> IndexMut<I> for CountedUniverse<I, T> {
+impl<I: IndexingType, T> IndexMut<I> for CountedUniverse<I, T> {
     #[inline]
     fn index_mut(&mut self, index: I) -> &mut Self::Output {
         self.universe.index_mut(index)
