@@ -10,6 +10,7 @@ pub mod identity_hasher;
 pub mod indexing_type;
 pub mod int_string_conversions;
 pub mod nonzero_ext;
+pub mod offset_vec_deque;
 pub mod plattform;
 pub mod string_store;
 pub mod temp_vec;

@@ -17,7 +17,7 @@ impl<I: IndexingType, T: Default + Clone> DynamicArrayFreelist<I, T> {
             free_slots: Vec::with_capacity(4),
         }
     }
-    pub fn alloc(&mut self) -> (I, &mut [T]) {
+    pub fn claim(&mut self) -> (I, &mut [T]) {
         if let Some(idx) = self.free_slots.pop() {
             let i = idx.into_usize();
             return (idx, &mut self.data[i..i + self.array_length]);
@@ -31,7 +31,7 @@ impl<I: IndexingType, T: Default + Clone> DynamicArrayFreelist<I, T> {
             &mut self.data[idx..idx + self.array_length],
         )
     }
-    pub fn free(&mut self, idx: I) {
+    pub fn release(&mut self, idx: I) {
         self.free_slots.push(idx);
     }
     pub fn get(&self, idx: I) -> &[T] {

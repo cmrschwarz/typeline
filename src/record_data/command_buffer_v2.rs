@@ -1,18 +1,33 @@
-use std::{collections::VecDeque, mem::size_of, ops::DerefMut};
+use std::{collections::VecDeque, mem::size_of, ops::Index};
 
-use crate::utils::{launder_slice, subslice_slice_pair};
+use crate::utils::{
+    dynamic_freelist::DynamicArrayFreelist, launder_slice,
+    offset_vec_deque::OffsetVecDeque, subslice_slice_pair,
+};
 
 use super::{
-    field::{FieldId, FieldManager},
+    field::FieldId,
     field_action::{merge_action_lists, FieldAction, FieldActionKind},
     field_data::RunLength,
 };
 
 type ActorId = u32;
 type ActionGroupId = u32;
-type SnapshotId = u32;
-type SnapshotEntry = u32;
+type ActionId = usize;
 
+type SnapshotLookupId = u32;
+
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+struct SnapshotRef {
+    snapshot_len: SnapshotLookupId,
+    freelist_id: SnapshotLookupId,
+}
+
+type SnapshotEntry = u32;
+const SNAPSHOT_REFCOUNT_OFFSET: usize = 0;
+const SNAPSHOT_ACTOR_COUNT_OFFSET: usize = 1;
+const SNAPSHOT_FREELISTS_MIN_LEN: usize = 1;
+const SNAPSHOT_PREFIX_LEN: usize = 2;
 // snapshots are a list of `SnapshotEntry`s where
 // - the first one is the refcount,
 // - the second one is the number of actors present at snapshot creation
@@ -28,31 +43,27 @@ const_assert!(
 );
 
 struct ActionGroup {
-    start: usize,
-    length: usize,
+    start: ActionId,
+    length: ActionId,
 }
 
 struct ActionGroupWithRefs {
     ag: ActionGroup,
     // initialized as usize::MAX, wrapping add, saturating sub
     refcount: u32,
-    next_action_id_self: ActionGroupId,
-    next_action_id_succ: ActionGroupId,
+    next_action_group_id_self: ActionGroupId,
+    next_action_group_id_succ: ActionGroupId,
 }
 
 struct ActionGroupMerges {
-    action_groups_offset: ActionGroupId,
-    action_groups: VecDeque<ActionGroup>,
-    actions_offset: usize,
-    actions: VecDeque<FieldAction>,
+    action_groups: OffsetVecDeque<ActionGroupId, ActionGroup>,
+    actions: OffsetVecDeque<ActionId, FieldAction>,
 }
 
 #[derive(Default)]
 struct ActionGroupQueue {
-    action_groups_offset: ActionGroupId,
-    action_groups: VecDeque<ActionGroupWithRefs>,
-    actions_offset: usize,
-    actions: VecDeque<FieldAction>,
+    action_groups: OffsetVecDeque<ActionGroupId, ActionGroupWithRefs>,
+    actions: OffsetVecDeque<ActionId, FieldAction>,
     dirty: bool,
     refcount: u32,
 }
@@ -61,9 +72,8 @@ struct ActionGroupQueue {
 struct Actor {
     action_group_queues: Vec<ActionGroupQueue>,
     merges: Vec<ActionGroupMerges>,
-    snapshots_offset: SnapshotId,
-    snapsnots: VecDeque<u32>,
     subscribers: Vec<FieldId>,
+    latest_snapshot: SnapshotRef,
 }
 
 #[derive(Clone, Copy)]
@@ -98,38 +108,42 @@ impl ActionGroupIdentifier {
 }
 
 pub struct ActionBuffer {
-    actors_offset: ActorId,
-    actors: VecDeque<Actor>,
+    actors: OffsetVecDeque<ActorId, Actor>,
     // we need 3 temp buffers in order to always have a free one as a target
     // when merging from two others
     action_temp_buffers: [Vec<FieldAction>; 3],
     pending_action_group_actor_id: Option<ActorId>,
     pending_action_group_action_count: usize,
+    snapshot_freelists:
+        Vec<DynamicArrayFreelist<SnapshotLookupId, SnapshotEntry>>,
 }
 
+type Pow2Index = u32;
+
+#[derive(Clone)]
 struct Pow2LookupStepsIter {
-    value: usize,
-    end: usize,
+    value: Pow2Index,
+    end: Pow2Index,
 }
 
 struct Pow2InsertStepsIter {
-    value: usize,
-    begin: usize,
-    end: usize,
+    value: Pow2Index,
+    begin: Pow2Index,
+    end: Pow2Index,
     bit: u8,
     bit_count: u8,
 }
 
 impl Pow2LookupStepsIter {
-    pub fn new(start: usize, end: usize) -> Self {
+    pub fn new(start: Pow2Index, end: Pow2Index) -> Self {
         Self { value: start, end }
     }
 }
 
 impl Iterator for Pow2LookupStepsIter {
-    type Item = (usize, u8);
+    type Item = (Pow2Index, u8);
 
-    fn next(&mut self) -> Option<(usize, u8)> {
+    fn next(&mut self) -> Option<(Pow2Index, u8)> {
         if self.value >= self.end {
             return None;
         }
@@ -154,7 +168,7 @@ impl Iterator for Pow2LookupStepsIter {
 }
 
 impl Pow2InsertStepsIter {
-    pub fn new(index: usize, begin: usize, end: usize) -> Self {
+    pub fn new(index: Pow2Index, begin: Pow2Index, end: Pow2Index) -> Self {
         Self {
             value: index,
             begin,
@@ -166,9 +180,9 @@ impl Pow2InsertStepsIter {
 }
 
 impl Iterator for Pow2InsertStepsIter {
-    type Item = (usize, u8);
+    type Item = (Pow2Index, u8);
 
-    fn next(&mut self) -> Option<(usize, u8)> {
+    fn next(&mut self) -> Option<(Pow2Index, u8)> {
         if self.value < self.begin || self.bit == self.bit_count {
             return None;
         }
@@ -200,48 +214,44 @@ impl ActionBuffer {
             return;
         }
         self.pending_action_group_action_count = 0;
-        let mut agq = &mut self.actors[(ai - self.actors_offset) as usize]
-            .action_group_queues[0];
-        let actions_start = agq.actions.len() - action_count;
+        let mut agq = &mut self.actors[ai].action_group_queues[0];
+        let actions_start =
+            agq.actions.next_free_index().wrapping_sub(action_count);
         #[cfg(feature = "debug_logging")]
         {
             println!(
                 "ai {}: added ag {}:",
                 ai,
-                agq.action_groups_offset + agq.action_groups.len() as u32
+                agq.action_groups.next_free_index()
             );
-            for a in agq.actions.range(actions_start..) {
+            for a in agq.actions.data.range(actions_start..) {
                 println!("   > {:?}:", a);
             }
         }
-        let next_action_id_succ = if ai
-            < self.actors_offset + self.actors.len() as u32
-        {
-            let next_agq = &self.actors[(ai - self.actors_offset) as usize]
-                .action_group_queues[0];
+        let next_action_group_id_succ = if ai != self.actors.max_index() {
+            let next_agq = &self.actors[ai].action_group_queues[0];
 
-            next_agq.action_groups.len() as u32 + next_agq.action_groups_offset
+            next_agq.action_groups.next_free_index() as ActionGroupId
         } else {
             0
         };
-        agq = &mut self.actors[(ai - self.actors_offset) as usize]
-            .action_group_queues[0];
-        agq.action_groups.push_back(ActionGroupWithRefs {
+        agq = &mut self.actors[ai].action_group_queues[0];
+        agq.action_groups.data.push_back(ActionGroupWithRefs {
             ag: ActionGroup {
-                start: agq.actions_offset + actions_start,
+                start: agq.actions.next_free_index(),
                 length: action_count,
             },
             refcount: 0,
-            next_action_id_self: agq.action_groups.len() as ActionGroupId
-                + agq.action_groups_offset,
-            next_action_id_succ,
+            next_action_group_id_self: agq.action_groups.next_free_index()
+                as ActionGroupId,
+            next_action_group_id_succ,
         });
         for (i, pow2) in Pow2InsertStepsIter::new(
-            ai as usize,
-            self.actors_offset as usize,
-            self.actors.len(),
+            ai,
+            self.actors.offset,
+            self.actors.next_free_index(),
         ) {
-            let actor = &mut self.actors[i - self.actors_offset as usize];
+            let actor = &mut self.actors[i];
             let agq = &mut actor.action_group_queues[pow2 as usize];
             if agq.dirty {
                 break;
@@ -258,12 +268,10 @@ impl ActionBuffer {
         mut run_length: usize,
     ) {
         let actor_id = self.pending_action_group_actor_id.unwrap();
-        let actions = &mut self.actors
-            [(actor_id - self.actors_offset) as usize]
-            .action_group_queues[0]
-            .actions;
+        let actions =
+            &mut self.actors[actor_id].action_group_queues[0].actions;
         if self.pending_action_group_action_count > 0 {
-            let last = actions.back_mut().unwrap();
+            let last = actions.data.back_mut().unwrap();
             // field indices in action groups must be ascending
             debug_assert!(last.field_idx <= field_idx);
             // very simple early merging of actions to hopefully save some
@@ -282,7 +290,7 @@ impl ActionBuffer {
         while run_length > 0 {
             let rl_to_push =
                 run_length.min(RunLength::MAX as usize) as RunLength;
-            actions.push_back(FieldAction {
+            actions.data.push_back(FieldAction {
                 kind,
                 field_idx,
                 run_len: rl_to_push,
@@ -292,24 +300,26 @@ impl ActionBuffer {
         }
     }
     pub fn add_actor(&mut self, initial_subscriber: FieldId) -> ActorId {
-        let actor_id = self.actors.len() as ActorId + self.actors_offset;
+        let actor_id = self.actors.next_free_index() as SnapshotEntry;
+        let (ss_id, ss) = self.snapshot_freelists[0].claim();
+        ss[0] = 1; // refcount
+        ss[1] = actor_id; // actor count
+        ss[2] = 0; // next action group id
         let mut actor = Actor {
             action_group_queues: Vec::new(),
             merges: Vec::new(),
-            snapsnots: VecDeque::new(),
-            snapshots_offset: 0,
             subscribers: vec![initial_subscriber],
+            latest_snapshot: SnapshotRef {
+                snapshot_len: 1,
+                freelist_id: ss_id,
+            },
         };
         actor.action_group_queues.push(ActionGroupQueue::default());
-        actor.snapsnots.push_back(1); // snapshot ref count
-        actor.snapsnots.push_back(actor_id + 1); // actor count
-        actor.snapsnots.push_back(0); // next action group index
-        self.actors.push_back(actor);
-        if actor_id != self.actors_offset {
+        self.actors.data.push_back(actor);
+        if actor_id != self.actors.offset {
             let pow2_to_add = actor_id.trailing_zeros() + 1;
             let tgt_actor_id = actor_id - (1 << pow2_to_add);
-            let tgt_actor =
-                &mut self.actors[(tgt_actor_id - self.actors_offset) as usize];
+            let tgt_actor = &mut self.actors[tgt_actor_id];
             debug_assert_eq!(
                 tgt_actor.action_group_queues.len(),
                 pow2_to_add as usize
@@ -353,11 +363,10 @@ impl ActionBuffer {
                 mut start,
                 length,
             } => {
-                let actor =
-                    &self.actors[(actor_id - self.actors_offset) as usize];
+                let actor = &self.actors[actor_id];
                 let agq = &actor.action_group_queues[pow2 as usize];
-                let (s1, s2) = agq.actions.as_slices();
-                start -= agq.actions_offset;
+                let (s1, s2) = agq.actions.data.as_slices();
+                start = start.wrapping_sub(agq.actions.offset);
                 subslice_slice_pair(s1, s2, start..start + length)
             }
             ActionGroupIdentifier::LocalMerge {
@@ -366,11 +375,10 @@ impl ActionBuffer {
                 mut start,
                 length,
             } => {
-                let actor =
-                    &self.actors[(actor_id - self.actors_offset) as usize];
+                let actor = &self.actors[actor_id];
                 let merge_lvl = &actor.merges[merge_pow2 as usize];
-                start -= merge_lvl.actions_offset;
-                let (s1, s2) = merge_lvl.actions.as_slices();
+                start = start.wrapping_sub(merge_lvl.actions.offset);
+                let (s1, s2) = merge_lvl.actions.data.as_slices();
                 subslice_slice_pair(s1, s2, start..start + length)
             }
             ActionGroupIdentifier::TempBuffer { idx, start, length } => {
@@ -411,21 +419,20 @@ impl ActionBuffer {
             // and therefore won't get invalidated by doing so
             let s1 = launder_slice(s1);
             let s2 = launder_slice(s2);
-            let actor =
-                &mut self.actors[(actor_id - self.actors_offset) as usize];
+            let actor = &mut self.actors[actor_id];
             let agq = &mut actor.action_group_queues[pow2 as usize];
-            let start = agq.actions.len() + agq.actions_offset;
-            agq.actions.extend(s1);
-            agq.actions.extend(s2);
+            let start = agq.actions.next_free_index();
+            agq.actions.data.extend(s1);
+            agq.actions.data.extend(s2);
             start
         };
-        let actor = &mut self.actors[(actor_id - self.actors_offset) as usize];
+        let actor = &mut self.actors[actor_id];
         let agq = &mut actor.action_group_queues[pow2 as usize];
-        agq.action_groups.push_back(ActionGroupWithRefs {
+        agq.action_groups.data.push_back(ActionGroupWithRefs {
             ag: ActionGroup { start, length },
             refcount: 0,
-            next_action_id_self: next_self,
-            next_action_id_succ: next_succ,
+            next_action_group_id_self: next_self,
+            next_action_group_id_succ: next_succ,
         });
         ActionGroupIdentifier::Regular {
             actor_id,
@@ -457,28 +464,26 @@ impl ActionBuffer {
                     // and therefore won't get invalidated by doing so
                     let (l1, l2) = (launder_slice(l1), launder_slice(l2));
                     let (r1, r2) = (launder_slice(r1), launder_slice(r2));
-                    let actor = &mut self.actors
-                        [(actor_id - self.actors_offset) as usize];
+                    let actor = &mut self.actors[actor_id];
                     let agq = &mut actor.action_group_queues[pow2 as usize];
-                    let len_before = agq.actions.len();
+                    let len_before = agq.actions.data.len();
                     merge_action_lists(
                         l1.iter().chain(l2),
                         r1.iter().chain(r2),
-                        &mut agq.actions,
+                        &mut agq.actions.data,
                     );
                     len_before
                 };
-                let actor =
-                    &mut self.actors[(actor_id - self.actors_offset) as usize];
+                let actor = &mut self.actors[actor_id];
                 let agq = &mut actor.action_group_queues[pow2 as usize];
-                let len_after = agq.actions.len();
+                let len_after = agq.actions.data.len();
                 let start = len_after - len_before;
                 let length = len_after - len_before;
-                agq.action_groups.push_back(ActionGroupWithRefs {
+                agq.action_groups.data.push_back(ActionGroupWithRefs {
                     ag: ActionGroup { start, length },
                     refcount: 0,
-                    next_action_id_self: next_self,
-                    next_action_id_succ: next_succ,
+                    next_action_group_id_self: next_self,
+                    next_action_group_id_succ: next_succ,
                 });
                 return Some(ActionGroupIdentifier::Regular {
                     actor_id,
@@ -542,17 +547,15 @@ impl ActionBuffer {
         new: ActionGroupId,
     ) -> Option<ActionGroupIdentifier> {
         // TODO: use local merges if this is the hightest pow2
-        let mut curr_ag_id = prev + 1;
+        let mut curr_ag_id = prev.wrapping_add(1);
         let mut res = None;
         loop {
-            if curr_ag_id >= new {
+            if curr_ag_id == new {
                 return res;
             }
-            let actor =
-                &mut self.actors[(actor_id - self.actors_offset) as usize];
+            let actor = &mut self.actors[actor_id];
             let agq = &mut actor.action_group_queues[pow2 as usize];
-            let ag = &mut agq.action_groups
-                [(curr_ag_id - agq.action_groups_offset) as usize];
+            let ag = &mut agq.action_groups[curr_ag_id];
 
             let curr = Some(ActionGroupIdentifier::Regular {
                 actor_id,
@@ -563,7 +566,7 @@ impl ActionBuffer {
             let res_new = self.merge_action_groups_into_temp_buffer(res, curr);
             self.release_temp_action_group(res);
             res = res_new;
-            curr_ag_id += 1;
+            curr_ag_id = curr_ag_id.wrapping_add(1);
         }
     }
     fn refresh_action_group(
@@ -571,17 +574,18 @@ impl ActionBuffer {
         actor_id: ActorId,
         pow2: u8,
     ) -> ActionGroupId {
-        let mut actor =
-            &mut self.actors[(actor_id - self.actors_offset) as usize];
+        let mut actor = &mut self.actors[actor_id];
         let mut agq = &mut actor.action_group_queues[pow2 as usize];
         if !agq.dirty {
-            return agq.action_groups_offset
-                + agq.action_groups.len() as ActionGroupId;
+            return agq.action_groups.next_free_index() as ActionGroupId;
         }
         let (prev_self, prev_succ) = agq
             .action_groups
+            .data
             .back()
-            .map(|ag| (ag.next_action_id_self, ag.next_action_id_succ))
+            .map(|ag| {
+                (ag.next_action_group_id_self, ag.next_action_group_id_succ)
+            })
             .unwrap_or((0, 0));
         debug_assert!(pow2 > 0);
 
@@ -600,26 +604,149 @@ impl ActionBuffer {
         self.merge_action_groups_into_actor_action_group(
             self_merge, succ_merge, actor_id, pow2, next_self, next_succ,
         );
-        actor = &mut self.actors[(actor_id - self.actors_offset) as usize];
+        actor = &mut self.actors[actor_id];
         agq = &mut actor.action_group_queues[pow2 as usize];
         agq.dirty = false;
-        agq.action_groups_offset + agq.action_groups.len() as ActionGroupId
+        agq.action_groups.next_free_index() as ActionGroupId
     }
+
+    fn generate_snapshot(
+        &mut self,
+        actor_id: ActorId,
+        refcount: SnapshotEntry,
+    ) -> SnapshotRef {
+        let next_actor_index = self.actors.next_free_index();
+        // PERF: find a O(1) way to calculate this
+        let iter = Pow2LookupStepsIter::new(actor_id, next_actor_index);
+        let snapshot_len = iter.clone().count();
+        let (freelist_id, ss) = self.snapshot_freelists
+            [snapshot_len - SNAPSHOT_FREELISTS_MIN_LEN]
+            .claim();
+        ss[SNAPSHOT_REFCOUNT_OFFSET] = refcount;
+        ss[SNAPSHOT_ACTOR_COUNT_OFFSET] = next_actor_index as SnapshotEntry;
+        for (i, (actor_id, pow2)) in iter.enumerate() {
+            let actor = &self.actors[actor_id];
+            let agq = &actor.action_group_queues[pow2 as usize];
+            ss[i + SNAPSHOT_PREFIX_LEN] =
+                agq.action_groups.next_free_index() as SnapshotEntry;
+        }
+        SnapshotRef {
+            snapshot_len: snapshot_len as SnapshotLookupId,
+            freelist_id,
+        }
+    }
+    fn validate_snapshot(
+        &self,
+        actor_id: ActorId,
+        snapshot: SnapshotRef,
+    ) -> bool {
+        let mut snapshot_valid = true;
+        let ss = &self.snapshot_freelists[snapshot.snapshot_len as usize - 1]
+            [snapshot.freelist_id];
+        let actor_count = ss[SNAPSHOT_ACTOR_COUNT_OFFSET];
+        if actor_count != self.actors.next_free_index() as SnapshotEntry {
+            return false;
+        }
+        for (i, (actor_id, pow2)) in
+            Pow2LookupStepsIter::new(actor_id, actor_count).enumerate()
+        {
+            let next_ag = self.refresh_action_group(actor_id, pow2);
+            snapshot_valid &= ss[SNAPSHOT_PREFIX_LEN + i] == next_ag;
+        }
+        snapshot_valid
+    }
+    fn drop_snapshot_refcount(&mut self, snapshot: SnapshotRef, drop: u32) {
+        let ss_rc = &mut self.snapshot_freelists
+            [snapshot.snapshot_len as usize - SNAPSHOT_FREELISTS_MIN_LEN]
+            [snapshot.freelist_id][SNAPSHOT_REFCOUNT_OFFSET];
+        *ss_rc -= drop;
+        if *ss_rc == 0 {
+            self.snapshot_freelists
+                [snapshot.snapshot_len as usize - SNAPSHOT_FREELISTS_MIN_LEN]
+                .release(snapshot.freelist_id);
+        }
+    }
+    fn apply_from_snapshot_same_actor_count(
+        &mut self,
+        actor_id: ActorId,
+        ssr: SnapshotRef,
+    ) -> Option<ActionGroupIdentifier> {
+        let mut res = None;
+        for (i, (ai, pow2)) in
+            Pow2LookupStepsIter::new(actor_id, self.actors.next_free_index())
+                .enumerate()
+        {
+            let ss = &self.snapshot_freelists
+                [ssr.snapshot_len as usize - SNAPSHOT_FREELISTS_MIN_LEN]
+                [ssr.freelist_id];
+            let prev = ss[i - SNAPSHOT_PREFIX_LEN];
+            let next = self.actors[ai].action_group_queues[pow2 as usize]
+                .action_groups
+                .next_free_index();
+            let next_ag =
+                self.merge_action_groups_of_single_pow2(ai, pow2, prev, next);
+            res = self.merge_action_groups_into_temp_buffer(res, next_ag);
+        }
+        res
+    }
+    fn apply_from_snapshot_different_actor_count(
+        &mut self,
+        actor_id: ActorId,
+        ssr: SnapshotRef,
+    ) -> Option<ActionGroupIdentifier> {
+        let ss = &self.snapshot_freelists
+            [ssr.snapshot_len as usize - SNAPSHOT_FREELISTS_MIN_LEN]
+            [ssr.freelist_id];
+        let mut prev_ss_actor_iter = Pow2LookupStepsIter::new(
+            actor_id,
+            ss[SNAPSHOT_ACTOR_COUNT_OFFSET],
+        );
+        let mut iter =
+            Pow2LookupStepsIter::new(actor_id, self.actors.next_free_index());
+        let mut i = 0;
+        let mut res = None;
+        loop {
+            prev = i += 1;
+        }
+    }
+
     #[allow(unused)]
     fn update(
         &mut self,
         actor_id: ActorId,
-        snapshot_id: SnapshotId,
-    ) -> Option<ActionGroupIdentifier> {
-        for (ai, pow2) in Pow2LookupStepsIter::new(
-            actor_id as usize,
-            self.actors.len() + self.actors_offset as usize,
-        ) {
-            let ag_id = self.refresh_action_group(ai as ActorId, pow2);
-            let actor =
-                &mut self.actors[(actor_id - self.actors_offset) as usize];
+        snapshot_ref: SnapshotRef,
+    ) -> (SnapshotRef, Option<ActionGroupIdentifier>) {
+        let actor = &self.actors[actor_id];
+        let latest_snapshot_valid =
+            self.validate_snapshot(actor_id, actor.latest_snapshot);
+        let refers_to_latest_snapshot = snapshot_ref == actor.latest_snapshot;
+        if latest_snapshot_valid && refers_to_latest_snapshot {
+            return (snapshot_ref, None);
         }
-        None
+        let current = if latest_snapshot_valid {
+            let ss = self.actors[actor_id].latest_snapshot;
+            self.snapshot_freelists
+                [ss.snapshot_len as usize - SNAPSHOT_FREELISTS_MIN_LEN]
+                [ss.freelist_id][SNAPSHOT_REFCOUNT_OFFSET] += 1;
+            ss
+        } else {
+            let ss = self.generate_snapshot(actor_id, 2);
+            self.actors[actor_id].latest_snapshot = ss;
+            ss
+        };
+        let ss_actor_count = self.snapshot_freelists
+            [snapshot_ref.snapshot_len as usize - SNAPSHOT_FREELISTS_MIN_LEN]
+            [snapshot_ref.freelist_id][SNAPSHOT_ACTOR_COUNT_OFFSET];
+        let diff_actions = if ss_actor_count == self.actors.next_free_index() {
+            self.apply_from_snapshot_same_actor_count(actor_id, snapshot_ref)
+        } else {
+            self.apply_from_snapshot_different_actor_count(
+                actor_id,
+                snapshot_ref,
+            )
+        };
+        self.drop_snapshot_refcount(snapshot_ref, 1);
+        (current, None)
     }
 }
 
@@ -629,7 +756,12 @@ mod test {
         Pow2InsertStepsIter, Pow2LookupStepsIter,
     };
 
-    fn collect_lookup_steps(start: usize, end: usize) -> Vec<(usize, u8)> {
+    use super::Pow2Index;
+
+    fn collect_lookup_steps(
+        start: Pow2Index,
+        end: Pow2Index,
+    ) -> Vec<(Pow2Index, u8)> {
         Pow2LookupStepsIter::new(start, end).collect::<Vec<_>>()
     }
 
@@ -651,10 +783,10 @@ mod test {
     }
 
     fn collect_insert_steps(
-        index: usize,
-        begin: usize,
-        end: usize,
-    ) -> Vec<(usize, u8)> {
+        index: Pow2Index,
+        begin: Pow2Index,
+        end: Pow2Index,
+    ) -> Vec<(Pow2Index, u8)> {
         Pow2InsertStepsIter::new(index, begin, end).collect::<Vec<_>>()
     }
 
