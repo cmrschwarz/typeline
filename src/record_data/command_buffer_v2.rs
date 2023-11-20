@@ -539,6 +539,17 @@ impl ActionBuffer {
         }
         rhs
     }
+    fn merge_action_groups_into_temp_buffer_release_inputs(
+        &mut self,
+        lhs: Option<ActionGroupIdentifier>,
+        rhs: Option<ActionGroupIdentifier>,
+    ) -> Option<ActionGroupIdentifier> {
+        let res =
+            self.merge_action_groups_into_temp_buffer_release_inputs(lhs, rhs);
+        self.release_temp_action_group(lhs);
+        self.release_temp_action_group(rhs);
+        res
+    }
     fn merge_action_groups_of_single_pow2(
         &mut self,
         actor_id: ActorId,
@@ -563,10 +574,10 @@ impl ActionBuffer {
                 start: ag.ag.start,
                 length: ag.ag.length,
             });
-            let res_new = self.merge_action_groups_into_temp_buffer(res, curr);
-            self.release_temp_action_group(res);
-            res = res_new;
-            curr_ag_id = curr_ag_id.wrapping_add(1);
+            res = self.merge_action_groups_into_temp_buffer_release_inputs(
+                res, curr,
+            );
+            curr_ag_id += 1;
         }
     }
     fn refresh_action_group(
@@ -579,7 +590,7 @@ impl ActionBuffer {
         if !agq.dirty {
             return agq.action_groups.next_free_index() as ActionGroupId;
         }
-        let (prev_self, prev_succ) = agq
+        let (self_prev, succ_prev) = agq
             .action_groups
             .data
             .back()
@@ -588,22 +599,26 @@ impl ActionBuffer {
             })
             .unwrap_or((0, 0));
         debug_assert!(pow2 > 0);
-
-        let next_self = self.refresh_action_group(actor_id, pow2 - 1);
+        let children_pow2 = pow2 - 1;
+        let self_next = self.refresh_action_group(actor_id, children_pow2);
         let self_merge = self.merge_action_groups_of_single_pow2(
-            actor_id, pow2, prev_self, next_self,
+            actor_id, pow2, self_prev, self_next,
         );
 
-        let succ_id = actor_id + (1 << pow2);
-        let succ_pow2 = pow2 - 1;
-        let next_succ = self.refresh_action_group(succ_id, succ_pow2);
+        let succ_id = actor_id + (1 << children_pow2);
+        let succ_next = self.refresh_action_group(succ_id, children_pow2);
         let succ_merge = self.merge_action_groups_of_single_pow2(
-            succ_id, succ_pow2, prev_succ, next_succ,
+            succ_id,
+            children_pow2,
+            succ_prev,
+            succ_next,
         );
 
         self.merge_action_groups_into_actor_action_group(
-            self_merge, succ_merge, actor_id, pow2, next_self, next_succ,
+            self_merge, succ_merge, actor_id, pow2, self_next, succ_next,
         );
+        self.release_temp_action_group(self_merge);
+        self.release_temp_action_group(succ_merge);
         actor = &mut self.actors[actor_id];
         agq = &mut actor.action_group_queues[pow2 as usize];
         agq.dirty = false;
@@ -636,7 +651,7 @@ impl ActionBuffer {
         }
     }
     fn validate_snapshot(
-        &self,
+        &mut self,
         actor_id: ActorId,
         snapshot: SnapshotRef,
     ) -> bool {
@@ -651,6 +666,8 @@ impl ActionBuffer {
             Pow2LookupStepsIter::new(actor_id, actor_count).enumerate()
         {
             let next_ag = self.refresh_action_group(actor_id, pow2);
+            let ss = &self.snapshot_freelists
+                [snapshot.snapshot_len as usize - 1][snapshot.freelist_id];
             snapshot_valid &= ss[SNAPSHOT_PREFIX_LEN + i] == next_ag;
         }
         snapshot_valid
@@ -685,7 +702,9 @@ impl ActionBuffer {
                 .next_free_index();
             let next_ag =
                 self.merge_action_groups_of_single_pow2(ai, pow2, prev, next);
-            res = self.merge_action_groups_into_temp_buffer(res, next_ag);
+            res = self.merge_action_groups_into_temp_buffer_release_inputs(
+                res, next_ag,
+            );
         }
         res
     }
@@ -697,7 +716,7 @@ impl ActionBuffer {
         let ss = &self.snapshot_freelists
             [ssr.snapshot_len as usize - SNAPSHOT_FREELISTS_MIN_LEN]
             [ssr.freelist_id];
-        let mut prev_ss_actor_iter = Pow2LookupStepsIter::new(
+        let prev_ss_actor_iter = Pow2LookupStepsIter::new(
             actor_id,
             ss[SNAPSHOT_ACTOR_COUNT_OFFSET],
         );
@@ -705,9 +724,83 @@ impl ActionBuffer {
             Pow2LookupStepsIter::new(actor_id, self.actors.next_free_index());
         let mut i = 0;
         let mut res = None;
-        loop {
-            prev = i += 1;
+        for (ai, pow2) in prev_ss_actor_iter {
+            let prev = self.snapshot_freelists
+                [ssr.snapshot_len as usize - SNAPSHOT_FREELISTS_MIN_LEN]
+                [ssr.freelist_id][SNAPSHOT_PREFIX_LEN + i];
+            let (n_ai, n_pow2) = iter.next().unwrap();
+            debug_assert!(n_ai == ai && n_pow2 >= pow2);
+            if prev == 0 || n_pow2 == pow2 {
+                let next = self.actors[ai].action_group_queues
+                    [n_pow2 as usize]
+                    .action_groups
+                    .next_free_index();
+                let next_ag = self.merge_action_groups_of_single_pow2(
+                    n_ai, n_pow2, prev, next,
+                );
+                res = self
+                    .merge_action_groups_into_temp_buffer_release_inputs(
+                        res, next_ag,
+                    );
+                continue;
+            }
+            let mut self_prev = prev;
+            let mut succ_prev = 0;
+            for i_pow2 in pow2 + 1..(n_pow2 + 1) {
+                let children_pow2 = i_pow2 - 1;
+                let ag = &self.actors[ai].action_group_queues[i_pow2 as usize]
+                    .action_groups
+                    .data
+                    .front()
+                    .unwrap();
+                let (self_min, succ_min) = (
+                    ag.next_action_group_id_self,
+                    ag.next_action_group_id_succ,
+                );
+                let self_ag = self.merge_action_groups_of_single_pow2(
+                    ai,
+                    children_pow2,
+                    self_prev,
+                    self_min,
+                );
+                self_prev = 1;
+                let succ_ag = self.merge_action_groups_of_single_pow2(
+                    ai + (1 << children_pow2),
+                    i_pow2 - 1,
+                    succ_prev,
+                    succ_min,
+                );
+                succ_prev = 1;
+                let combined_ag = self
+                    .merge_action_groups_into_temp_buffer_release_inputs(
+                        self_ag, succ_ag,
+                    );
+                res = self
+                    .merge_action_groups_into_temp_buffer_release_inputs(
+                        res,
+                        combined_ag,
+                    );
+            }
+            let next = self.actors[ai].action_group_queues[n_pow2 as usize]
+                .action_groups
+                .next_free_index();
+            let self_ag =
+                self.merge_action_groups_of_single_pow2(ai, n_pow2, 1, next);
+            res = self.merge_action_groups_into_temp_buffer_release_inputs(
+                res, self_ag,
+            );
+            i += 1;
         }
+        for (ai, pow2) in iter {
+            let next = self.actors[ai].action_group_queues[pow2 as usize]
+                .action_groups
+                .next_free_index();
+            let next_ag =
+                self.merge_action_groups_of_single_pow2(ai, pow2, 0, next);
+            res = self.merge_action_groups_into_temp_buffer(res, next_ag);
+            self.release_temp_action_group(next_ag);
+        }
+        res
     }
 
     #[allow(unused)]
@@ -719,6 +812,7 @@ impl ActionBuffer {
         let actor = &self.actors[actor_id];
         let latest_snapshot_valid =
             self.validate_snapshot(actor_id, actor.latest_snapshot);
+        let actor = &self.actors[actor_id];
         let refers_to_latest_snapshot = snapshot_ref == actor.latest_snapshot;
         if latest_snapshot_valid && refers_to_latest_snapshot {
             return (snapshot_ref, None);
