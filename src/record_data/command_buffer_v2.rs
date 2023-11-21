@@ -1,4 +1,8 @@
-use std::{collections::VecDeque, mem::size_of, ops::Index};
+use std::{
+    collections::VecDeque,
+    mem::size_of,
+    ops::{DerefMut, Index},
+};
 
 use crate::utils::{
     dynamic_freelist::DynamicArrayFreelist, launder_slice,
@@ -6,20 +10,22 @@ use crate::utils::{
 };
 
 use super::{
-    field::FieldId,
+    field::{FieldId, FieldManager},
     field_action::{merge_action_lists, FieldAction, FieldActionKind},
+    field_action_applicator::FieldActionApplicator,
     field_data::RunLength,
+    iter_hall::FieldDataSource,
 };
 
-type ActorId = u32;
-type ActionGroupId = u32;
-type ActionId = usize;
+pub type ActorId = u32;
+pub type ActionGroupId = u32;
+pub type ActionId = usize;
 
-type SnapshotLookupId = u32;
+pub type SnapshotLookupId = u32;
 
 #[derive(Clone, Copy, PartialEq, Eq, Default)]
-struct SnapshotRef {
-    snapshot_len: SnapshotLookupId,
+pub struct SnapshotRef {
+    snapshot_len: SnapshotEntry,
     freelist_id: SnapshotLookupId,
 }
 
@@ -116,6 +122,8 @@ pub struct ActionBuffer {
     pending_action_group_action_count: usize,
     snapshot_freelists:
         Vec<DynamicArrayFreelist<SnapshotLookupId, SnapshotEntry>>,
+    zero_snapshot: SnapshotRef,
+    actions_applicator: FieldActionApplicator,
 }
 
 type Pow2Index = u32;
@@ -201,7 +209,28 @@ impl Iterator for Pow2InsertStepsIter {
         Some((val, bit))
     }
 }
-
+impl Default for ActionBuffer {
+    fn default() -> Self {
+        let mut ab = Self {
+            actors: Default::default(),
+            action_temp_buffers: Default::default(),
+            pending_action_group_actor_id: Default::default(),
+            pending_action_group_action_count: Default::default(),
+            snapshot_freelists: vec![DynamicArrayFreelist::new(
+                SNAPSHOT_PREFIX_LEN + SNAPSHOT_FREELISTS_MIN_LEN,
+            )],
+            zero_snapshot: SnapshotRef {
+                snapshot_len: SNAPSHOT_FREELISTS_MIN_LEN as SnapshotEntry,
+                freelist_id: 0,
+            },
+            actions_applicator: Default::default(),
+        };
+        let (id, ss) = ab.snapshot_freelists[0].claim();
+        ss.fill(0);
+        ab.zero_snapshot.freelist_id = id;
+        ab
+    }
+}
 impl ActionBuffer {
     pub fn begin_action_group(&mut self, actor_id: u32) {
         assert!(self.pending_action_group_actor_id.is_none());
@@ -558,6 +587,7 @@ impl ActionBuffer {
         new: ActionGroupId,
     ) -> Option<ActionGroupIdentifier> {
         // TODO: use local merges if this is the hightest pow2
+        // TODO: do O(log n) merges instead of O(n) here
         let mut curr_ag_id = prev.wrapping_add(1);
         let mut res = None;
         loop {
@@ -841,6 +871,88 @@ impl ActionBuffer {
         };
         self.drop_snapshot_refcount(snapshot_ref, 1);
         (current, None)
+    }
+    pub fn execute(&mut self, fm: &FieldManager, field_id: FieldId) {
+        let mut field_ref = fm.fields[field_id].borrow_mut();
+        let field = field_ref.deref_mut();
+        if self.actors.data.is_empty() {
+            return;
+        }
+        let actor_id = if let Some(actor_id) = field.first_actor {
+            actor_id
+        } else {
+            let actor_id = self.actors.offset;
+            field.first_actor = Some(actor_id);
+            field.snapshot = self.zero_snapshot;
+            actor_id
+        };
+        let (ss, actions) = self.update(actor_id, field.snapshot);
+        let Some(actions) = actions else { return };
+        field.snapshot = ss;
+        field.iter_hall.uncow_headers(fm);
+
+        let fd = &mut field.iter_hall.field_data;
+        let (headers, data, field_count) =
+            match &mut field.iter_hall.data_source {
+                FieldDataSource::Owned => {
+                    (&mut fd.headers, Some(&mut fd.data), &mut fd.field_count)
+                }
+                FieldDataSource::DataCow(_)
+                | FieldDataSource::RecordBufferDataCow(_) => {
+                    (&mut fd.headers, None, &mut fd.field_count)
+                }
+                FieldDataSource::Cow(_)
+                | FieldDataSource::RecordBufferCow(_) => {
+                    panic!("cannot execute commands on COW iter hall")
+                }
+            };
+        let iterators =
+            field.iter_hall.iters.iter_mut().map(|it| it.get_mut());
+        let actions = match actions {
+            ActionGroupIdentifier::Regular {
+                actor_id,
+                pow2,
+                start,
+                length,
+            } => {
+                let actions = &self.actors[actor_id].action_group_queues
+                    [pow2 as usize]
+                    .actions;
+                let start = start.wrapping_sub(actions.offset);
+                let (s1, s2) = actions.data.as_slices();
+                let (s1, s2) =
+                    subslice_slice_pair(s1, s2, start..start + length);
+                s1.iter().chain(s2)
+            }
+            ActionGroupIdentifier::LocalMerge {
+                actor_id,
+                merge_pow2,
+                start,
+                length,
+            } => {
+                let actions = &self.actors[actor_id].action_group_queues
+                    [merge_pow2 as usize]
+                    .actions;
+                let start = start.wrapping_sub(actions.offset);
+                let (s1, s2) = actions.data.as_slices();
+                let (s1, s2) =
+                    subslice_slice_pair(s1, s2, start..start + length);
+                s1.iter().chain(s2)
+            }
+            ActionGroupIdentifier::TempBuffer { idx, start, length } => self
+                .action_temp_buffers[idx][start..start + length]
+                .iter()
+                .chain(&[]),
+        };
+        self.actions_applicator.run(
+            actions,
+            headers,
+            data,
+            field_count,
+            iterators,
+            0,
+            0,
+        );
     }
 }
 

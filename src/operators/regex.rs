@@ -414,7 +414,7 @@ pub fn setup_tf_regex<'a>(
     let mut output_field =
         sess.field_mgr.fields[tf_state.output_field].borrow_mut();
 
-    output_field.action_indices.min_apf_idx = Some(apf_succ);
+    output_field.snapshot.min_apf_idx = Some(apf_succ);
     drop(output_field);
     let cgfs: Vec<Option<FieldId>> = op
         .capture_group_names

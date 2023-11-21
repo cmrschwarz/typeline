@@ -683,7 +683,7 @@ impl<'a> JobSession<'a> {
                     self.job_data.field_mgr.bump_field_refcount(*field_idx);
                     let mut f = self.job_data.field_mgr.fields[*field_idx]
                         .borrow_mut();
-                    f.action_indices = FieldActionIndices::new(min_apf);
+                    f.snapshot = FieldActionIndices::new(min_apf);
                     f.match_set = ms_id;
                     *field_idx
                 } else {

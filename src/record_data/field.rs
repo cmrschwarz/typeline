@@ -10,6 +10,7 @@ use crate::utils::{
 
 use super::{
     command_buffer::{ActionProducingFieldIndex, FieldActionIndices},
+    command_buffer_v2::{ActorId, SnapshotRef},
     field_data::{FieldData, FieldDataBuffer, FieldValueHeader},
     iter_hall::{FieldDataSource, IterHall, IterId},
     iters::{DestructuredFieldDataRef, FieldDataRef, FieldIterator, Iter},
@@ -26,7 +27,8 @@ pub const FIELD_REF_LOOKUP_ITER_ID: IterId = IterId::MIN;
 pub struct Field {
     pub ref_count: usize,
 
-    pub action_indices: FieldActionIndices,
+    pub first_actor: Option<ActorId>,
+    pub snapshot: SnapshotRef,
 
     pub name: Option<StringStoreEntry>,
     // fields potentially referenced by this field.
@@ -234,7 +236,7 @@ impl FieldManager {
         field.iter_hall.reset_iterators();
         msm.match_sets[field.match_set]
             .command_buffer
-            .drop_field_commands(field_id, &mut field.action_indices);
+            .drop_field_commands(field_id, &mut field.snapshot);
         drop(cow_source);
         let mut i = 0;
         while field.iter_hall.cow_targets.len() > i {
@@ -294,14 +296,14 @@ impl FieldManager {
         field.iter_hall.reset_iterators();
         msm.match_sets[field.match_set]
             .command_buffer
-            .drop_field_commands(field_id, &mut field.action_indices);
+            .drop_field_commands(field_id, &mut field.snapshot);
     }
     pub fn get_min_apf_idx(
         &self,
         field_id: FieldId,
     ) -> Option<ActionProducingFieldIndex> {
         let field = self.fields[field_id].borrow();
-        field.action_indices.min_apf_idx
+        field.snapshot.min_apf_idx
     }
     pub fn add_field(
         &mut self,
@@ -321,7 +323,7 @@ impl FieldManager {
             clear_delay_request_count: Cell::new(0),
             has_unconsumed_input: Cell::new(false),
             match_set: ms_id,
-            action_indices: FieldActionIndices::new(min_apf),
+            snapshot: FieldActionIndices::new(min_apf),
             name: Default::default(),
             iter_hall: IterHall::new_with_data(data),
             #[cfg(feature = "debug_logging")]

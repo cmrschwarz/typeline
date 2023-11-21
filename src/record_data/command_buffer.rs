@@ -212,25 +212,24 @@ impl CommandBuffer {
         if self.first_apf_idx.is_none() {
             return;
         }
-        if field.action_indices.min_apf_idx.is_none() {
-            field.action_indices.min_apf_idx = self.first_apf_idx;
+        if field.snapshot.min_apf_idx.is_none() {
+            field.snapshot.min_apf_idx = self.first_apf_idx;
         }
-        if field.action_indices.curr_apf_idx.is_none() {
-            field.action_indices.curr_apf_idx =
-                field.action_indices.min_apf_idx;
+        if field.snapshot.curr_apf_idx.is_none() {
+            field.snapshot.curr_apf_idx = field.snapshot.min_apf_idx;
         }
-        let min_apf_idx = field.action_indices.min_apf_idx.unwrap();
-        let curr_apf_idx = field.action_indices.curr_apf_idx.as_mut().unwrap();
+        let min_apf_idx = field.snapshot.min_apf_idx.unwrap();
+        let curr_apf_idx = field.snapshot.curr_apf_idx.as_mut().unwrap();
         let prev_curr_apf_idx = *curr_apf_idx;
         let prev_first_unapplied_al_idx =
-            field.action_indices.first_unapplied_al_idx;
+            field.snapshot.first_unapplied_al_idx;
         if min_apf_idx >= self.action_producing_fields.len() {
             return;
         }
         let als = self.prepare_action_lists(
             min_apf_idx,
             curr_apf_idx,
-            &mut field.action_indices.first_unapplied_al_idx,
+            &mut field.snapshot.first_unapplied_al_idx,
         );
         if als.actions_start == als.actions_end {
             // a common way for this assertion can fail is when an action
@@ -240,12 +239,12 @@ impl CommandBuffer {
             debug_assert!(
                 prev_curr_apf_idx == *curr_apf_idx
                     && prev_first_unapplied_al_idx
-                        == field.action_indices.first_unapplied_al_idx
+                        == field.snapshot.first_unapplied_al_idx
             );
             if cfg!(feature = "debug_logging") {
                 println!(
                     "executing commands for field {} had no effect: min apf: {}, curr apf: {} [al {}]",
-                    field_id, min_apf_idx, curr_apf_idx, field.action_indices.first_unapplied_al_idx,
+                    field_id, min_apf_idx, curr_apf_idx, field.snapshot.first_unapplied_al_idx,
                 );
             }
             return;
@@ -281,7 +280,7 @@ impl CommandBuffer {
                 prev_curr_apf_idx,
                 prev_first_unapplied_al_idx,
                 curr_apf_idx,
-                field.action_indices.first_unapplied_al_idx,
+                field.snapshot.first_unapplied_al_idx,
             );
             let refs =
                 Self::get_merge_result_mal_ref(&self.merged_actions, &als);

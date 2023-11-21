@@ -414,9 +414,9 @@ impl FieldActionApplicator {
     }
 
     // returns the field_count delta
-    fn generate_commands_from_actions(
+    fn generate_commands_from_actions<'a>(
         &mut self,
-        actions: &[FieldAction],
+        mut actions: impl Iterator<Item = &'a FieldAction>,
         headers: &mut Vec<FieldValueHeader>,
         data: Option<&mut FieldDataBuffer>,
         iterators: &mut Vec<&mut IterState>,
@@ -426,9 +426,7 @@ impl FieldActionApplicator {
         if headers.is_empty() {
             #[cfg(debug_assertions)]
             {
-                debug_assert!(actions
-                    .iter()
-                    .all(|a| a.kind == FieldActionKind::Drop));
+                debug_assert!(actions.all(|a| a.kind == FieldActionKind::Drop));
             }
             if let Some(data) = data {
                 data.clear();
@@ -457,23 +455,20 @@ impl FieldActionApplicator {
             }
             curr_header_iter_count += 1;
         }
+        let mut actions = actions.peekable();
 
         'advance_action: loop {
             loop {
-                let end_of_actions = action_idx_next == actions.len();
-                if end_of_actions {
+                let Some(&action) = actions.peek() else {
                     if curr_action_pos_outstanding_dups > 0 {
                         break;
                     }
                     break 'advance_action;
-                }
-                let action = actions[action_idx_next];
-                action_idx_next += 1;
+                };
                 match action.kind {
                     FieldActionKind::Dup => {
                         if action.field_idx != curr_action_pos {
                             if curr_action_pos_outstanding_dups > 0 {
-                                action_idx_next -= 1;
                                 break;
                             }
                             curr_action_pos = action.field_idx;
@@ -485,11 +480,11 @@ impl FieldActionApplicator {
                         if curr_action_pos_outstanding_dups == 0 {
                             curr_action_pos = action.field_idx;
                             curr_action_pos_outstanding_drops = action.run_len;
+                            actions.next();
                             break;
                         }
                         let action_gap = action.field_idx - curr_action_pos;
                         if curr_action_pos_outstanding_dups < action_gap {
-                            action_idx_next -= 1;
                             break;
                         }
                         if curr_action_pos_outstanding_dups
@@ -502,6 +497,7 @@ impl FieldActionApplicator {
                             curr_action_pos_outstanding_drops = action.run_len
                                 - curr_action_pos_outstanding_dups
                                     as RunLength;
+                            actions.next();
                             break;
                         } else {
                             curr_action_pos_outstanding_drops = action.run_len
@@ -512,6 +508,7 @@ impl FieldActionApplicator {
                         }
                     }
                 }
+                actions.next();
             }
             'advance_header: loop {
                 loop {
@@ -665,7 +662,7 @@ impl FieldActionApplicator {
 
     pub fn run<'a>(
         &mut self,
-        actions: &[FieldAction],
+        actions: impl Iterator<Item = &'a FieldAction>,
         headers: &mut Vec<FieldValueHeader>,
         data: Option<&mut FieldDataBuffer>,
         field_count: &mut usize,
