@@ -12,7 +12,7 @@ use crate::utils::{
 };
 
 use super::{
-    command_buffer_v2::{ActorId, SnapshotRef},
+    command_buffer::{ActorId, ActorRef, SnapshotRef},
     field_data::{FieldData, FieldDataBuffer, FieldValueHeader},
     iter_hall::{FieldDataSource, IterHall, IterId},
     iters::{DestructuredFieldDataRef, FieldDataRef, FieldIterator, Iter},
@@ -29,7 +29,7 @@ pub const FIELD_REF_LOOKUP_ITER_ID: IterId = IterId::MIN;
 pub struct Field {
     pub ref_count: usize,
 
-    pub first_actor: Option<ActorId>,
+    pub first_actor: ActorRef,
     pub snapshot: SnapshotRef,
 
     pub name: Option<StringStoreEntry>,
@@ -239,7 +239,11 @@ impl FieldManager {
         let fr = field.deref_mut();
         msm.match_sets[fr.match_set]
             .action_buffer
-            .drop_field_commands(&mut fr.first_actor, &mut fr.snapshot);
+            .drop_field_commands(
+                field_id,
+                &mut fr.first_actor,
+                &mut fr.snapshot,
+            );
         drop(cow_source);
         let mut i = 0;
         while field.iter_hall.cow_targets.len() > i {
@@ -300,23 +304,27 @@ impl FieldManager {
         let fr = field.deref_mut();
         msm.match_sets[fr.match_set]
             .action_buffer
-            .drop_field_commands(&mut fr.first_actor, &mut fr.snapshot);
+            .drop_field_commands(
+                field_id,
+                &mut fr.first_actor,
+                &mut fr.snapshot,
+            );
     }
-    pub fn get_first_actor(&self, field_id: FieldId) -> Option<ActorId> {
+    pub fn get_first_actor(&self, field_id: FieldId) -> ActorRef {
         let field = self.fields[field_id].borrow();
         field.first_actor
     }
     pub fn add_field(
         &mut self,
         ms_id: MatchSetId,
-        first_actor: Option<ActorId>,
+        first_actor: ActorRef,
     ) -> FieldId {
         self.add_field_with_data(ms_id, first_actor, FieldData::default())
     }
     pub fn add_field_with_data(
         &mut self,
         ms_id: MatchSetId,
-        first_actor: Option<ActorId>,
+        first_actor: ActorRef,
         data: FieldData,
     ) -> FieldId {
         let mut field = Field {
@@ -401,7 +409,7 @@ impl FieldManager {
         match msm.match_sets[tgt_match_set].cow_map.get(&src_field) {
             Some(&id) => id,
             None => {
-                let f = self.add_field(tgt_match_set, None);
+                let f = self.add_field(tgt_match_set, ActorRef::default());
                 self.setup_cow_on_blank_slate(msm, f, src_field);
                 f
             }

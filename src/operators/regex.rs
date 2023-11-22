@@ -14,7 +14,7 @@ use crate::{
     liveness_analysis::OpOutputIdx,
     options::argument::CliArgIdx,
     record_data::{
-        command_buffer_v2::{ActionBuffer, ActorId},
+        command_buffer::{ActionBuffer, ActorId, ActorRef},
         field::{Field, FieldId, FieldIdOffset},
         field_action::FieldActionKind,
         field_data::{
@@ -410,11 +410,11 @@ pub fn setup_tf_regex<'a>(
     let cb = &mut sess.match_set_mgr.match_sets[tf_state.match_set_id]
         .action_buffer;
     let actor_id = cb.add_actor();
-    let next_actor_id = cb.peek_next_actor_id();
+    let next_actor_id = ActorRef::Unconfirmed(cb.peek_next_actor_id());
     let mut output_field =
         sess.field_mgr.fields[tf_state.output_field].borrow_mut();
 
-    output_field.first_actor = Some(next_actor_id);
+    output_field.first_actor = next_actor_id;
     drop(output_field);
     let cgfs: Vec<Option<FieldId>> = op
         .capture_group_names
@@ -430,7 +430,7 @@ pub fn setup_tf_regex<'a>(
                     *field_id
                 } else {
                     sess.field_mgr
-                        .add_field(tf_state.match_set_id, Some(next_actor_id))
+                        .add_field(tf_state.match_set_id, next_actor_id)
                 };
                 sess.match_set_mgr.set_field_name(
                     &sess.field_mgr,

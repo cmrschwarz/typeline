@@ -58,6 +58,7 @@ use crate::{
         transform::{TransformData, TransformId, TransformState},
     },
     record_data::{
+        command_buffer::ActorRef,
         field::{FieldId, FieldManager, DUMMY_INPUT_FIELD_ID},
         match_set::{MatchSetId, MatchSetManager},
         record_buffer::RecordBuffer,
@@ -479,10 +480,11 @@ impl<'a> JobSession<'a> {
         let mut input_data = None;
         let mut input_data_fields = std::mem::take(&mut self.temp_vec);
         for fd in job.data.fields.into_iter() {
-            let field_id = self
-                .job_data
-                .field_mgr
-                .add_field_with_data(ms_id, None, fd.data);
+            let field_id = self.job_data.field_mgr.add_field_with_data(
+                ms_id,
+                ActorRef::default(),
+                fd.data,
+            );
             if let Some(name) = fd.name {
                 self.job_data.match_set_mgr.set_field_name(
                     &self.job_data.field_mgr,

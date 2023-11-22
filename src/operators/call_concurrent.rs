@@ -14,7 +14,7 @@ use crate::{
     },
     options::argument::CliArgIdx,
     record_data::{
-        command_buffer_v2::ActorId,
+        command_buffer::{ActorId, ActorRef},
         field::{FieldId, FieldManager, DUMMY_INPUT_FIELD_ID},
         field_action::FieldActionKind,
         iter_hall::IterId,
@@ -421,7 +421,10 @@ pub fn setup_callee_concurrent(
     };
     let mut buf_data = callee.buffer.fields.lock().unwrap();
     for field in buf_data.fields.iter_mut() {
-        let field_id = sess.job_data.field_mgr.add_field(ms_id, None);
+        let field_id = sess
+            .job_data
+            .field_mgr
+            .add_field(ms_id, ActorRef::default());
         if let Some(name) = field.name {
             sess.job_data.match_set_mgr.set_field_name(
                 &sess.job_data.field_mgr,

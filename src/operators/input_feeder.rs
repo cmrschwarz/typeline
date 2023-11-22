@@ -1,7 +1,7 @@
 use crate::{
     job_session::{JobData, JobSession},
     record_data::{
-        command_buffer_v2::ActorId, field::FieldId,
+        command_buffer::ActorId, field::FieldId,
         field_action::FieldActionKind, iter_hall::IterId,
         iters::FieldIterator, match_set::MatchSetId,
     },

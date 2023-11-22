@@ -12,6 +12,7 @@ use crate::{
     },
     options::argument::CliArgIdx,
     record_data::{
+        command_buffer::ActorRef,
         field::{FieldId, DUMMY_INPUT_FIELD_ID},
         match_set::MatchSetId,
     },
@@ -450,7 +451,7 @@ fn setup_continuation(
         let mirror_field = sess
             .job_data
             .field_mgr
-            .add_field(first_subchain_ms_id, None);
+            .add_field(first_subchain_ms_id, ActorRef::default());
         sess.job_data.field_mgr.fields[mirror_field]
             .borrow_mut()
             .name = name;
@@ -470,12 +471,14 @@ fn setup_continuation(
         let mirror_field_id = sess
             .job_data
             .field_mgr
-            .add_field(first_subchain_ms_id, None);
+            .add_field(first_subchain_ms_id, ActorRef::default());
         sess.job_data.field_mgr.fields[mirror_field_id]
             .borrow_mut()
             .name = *name;
-        let output_field_id =
-            sess.job_data.field_mgr.add_field(output_ms_id, None);
+        let output_field_id = sess
+            .job_data
+            .field_mgr
+            .add_field(output_ms_id, ActorRef::default());
         if let Some(name) = name {
             sess.job_data.match_set_mgr.set_field_name(
                 &sess.job_data.field_mgr,
@@ -570,8 +573,11 @@ pub(crate) fn handle_forkcat_subchain_expansion(
         assert!(f.get_clear_delay_request_count() == 0);
         let msm = &mut sess.job_data.match_set_mgr.match_sets[f.match_set];
         let fr = f.deref_mut();
-        msm.action_buffer
-            .drop_field_commands(&mut fr.first_actor, &mut fr.snapshot);
+        msm.action_buffer.drop_field_commands(
+            of,
+            &mut fr.first_actor,
+            &mut fr.snapshot,
+        );
     }
     fc = match_unwrap!(
         &mut sess.transform_data[tf_id.get()],

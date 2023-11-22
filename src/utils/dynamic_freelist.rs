@@ -2,7 +2,7 @@ use std::ops::{Index, IndexMut};
 
 use super::indexing_type::IndexingType;
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct DynamicArrayFreelist<I, T> {
     data: Vec<T>,
     array_length: usize,
