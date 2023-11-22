@@ -58,7 +58,6 @@ use crate::{
         transform::{TransformData, TransformId, TransformState},
     },
     record_data::{
-        command_buffer::FieldActionIndices,
         field::{FieldId, FieldManager, DUMMY_INPUT_FIELD_ID},
         match_set::{MatchSetId, MatchSetManager},
         record_buffer::RecordBuffer,
@@ -221,7 +220,7 @@ impl TransformManager {
             input_done = true;
         }
         match_set_mgr.match_sets[match_set_id]
-            .command_buffer
+            .action_buffer
             .execute(field_mgr, output_field_id);
         // this results in always one more element being present than we
         // advertise as batch size. this prevents apply_field_actions
@@ -641,7 +640,7 @@ impl<'a> JobSession<'a> {
                             ms_id,
                             self.job_data
                                 .field_mgr
-                                .get_min_apf_idx(input_field),
+                                .get_first_actor(input_field),
                         );
                         self.job_data.match_set_mgr.set_field_name(
                             &self.job_data.field_mgr,
@@ -675,19 +674,20 @@ impl<'a> JobSession<'a> {
                     .bump_field_refcount(last_output_field);
                 last_output_field
             } else {
-                let min_apf =
-                    self.job_data.field_mgr.get_min_apf_idx(input_field);
+                let first_actor =
+                    self.job_data.field_mgr.get_first_actor(input_field);
                 if let Some(field_idx) =
                     prebound_outputs.get(&op_base.outputs_start)
                 {
                     self.job_data.field_mgr.bump_field_refcount(*field_idx);
                     let mut f = self.job_data.field_mgr.fields[*field_idx]
                         .borrow_mut();
-                    f.snapshot = FieldActionIndices::new(min_apf);
+                    f.first_actor = first_actor;
+                    f.snapshot = Default::default();
                     f.match_set = ms_id;
                     *field_idx
                 } else {
-                    self.job_data.field_mgr.add_field(ms_id, min_apf)
+                    self.job_data.field_mgr.add_field(ms_id, first_actor)
                 }
             };
 

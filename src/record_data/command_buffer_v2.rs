@@ -1,8 +1,4 @@
-use std::{
-    collections::VecDeque,
-    mem::size_of,
-    ops::{DerefMut, Index},
-};
+use std::{mem::size_of, ops::DerefMut};
 
 use crate::utils::{
     dynamic_freelist::DynamicArrayFreelist, launder_slice,
@@ -32,7 +28,7 @@ pub struct SnapshotRef {
 type SnapshotEntry = u32;
 const SNAPSHOT_REFCOUNT_OFFSET: usize = 0;
 const SNAPSHOT_ACTOR_COUNT_OFFSET: usize = 1;
-const SNAPSHOT_FREELISTS_MIN_LEN: usize = 1;
+const SNAPSHOT_LEN_MIN: usize = 1;
 const SNAPSHOT_PREFIX_LEN: usize = 2;
 // snapshots are a list of `SnapshotEntry`s where
 // - the first one is the refcount,
@@ -74,7 +70,6 @@ struct ActionGroupQueue {
     refcount: u32,
 }
 
-#[derive(Default)]
 struct Actor {
     action_group_queues: Vec<ActionGroupQueue>,
     merges: Vec<ActionGroupMerges>,
@@ -113,6 +108,7 @@ impl ActionGroupIdentifier {
     }
 }
 
+#[derive(Default)]
 pub struct ActionBuffer {
     actors: OffsetVecDeque<ActorId, Actor>,
     // we need 3 temp buffers in order to always have a free one as a target
@@ -122,7 +118,6 @@ pub struct ActionBuffer {
     pending_action_group_action_count: usize,
     snapshot_freelists:
         Vec<DynamicArrayFreelist<SnapshotLookupId, SnapshotEntry>>,
-    zero_snapshot: SnapshotRef,
     actions_applicator: FieldActionApplicator,
 }
 
@@ -209,26 +204,14 @@ impl Iterator for Pow2InsertStepsIter {
         Some((val, bit))
     }
 }
-impl Default for ActionBuffer {
+impl Default for Actor {
     fn default() -> Self {
-        let mut ab = Self {
-            actors: Default::default(),
-            action_temp_buffers: Default::default(),
-            pending_action_group_actor_id: Default::default(),
-            pending_action_group_action_count: Default::default(),
-            snapshot_freelists: vec![DynamicArrayFreelist::new(
-                SNAPSHOT_PREFIX_LEN + SNAPSHOT_FREELISTS_MIN_LEN,
-            )],
-            zero_snapshot: SnapshotRef {
-                snapshot_len: SNAPSHOT_FREELISTS_MIN_LEN as SnapshotEntry,
-                freelist_id: 0,
-            },
-            actions_applicator: Default::default(),
-        };
-        let (id, ss) = ab.snapshot_freelists[0].claim();
-        ss.fill(0);
-        ab.zero_snapshot.freelist_id = id;
-        ab
+        Self {
+            action_group_queues: vec![Default::default()],
+            merges: Default::default(),
+            subscribers: Default::default(),
+            latest_snapshot: Default::default(),
+        }
     }
 }
 impl ActionBuffer {
@@ -328,23 +311,9 @@ impl ActionBuffer {
             run_length -= rl_to_push as usize;
         }
     }
-    pub fn add_actor(&mut self, initial_subscriber: FieldId) -> ActorId {
-        let actor_id = self.actors.next_free_index() as SnapshotEntry;
-        let (ss_id, ss) = self.snapshot_freelists[0].claim();
-        ss[0] = 1; // refcount
-        ss[1] = actor_id; // actor count
-        ss[2] = 0; // next action group id
-        let mut actor = Actor {
-            action_group_queues: Vec::new(),
-            merges: Vec::new(),
-            subscribers: vec![initial_subscriber],
-            latest_snapshot: SnapshotRef {
-                snapshot_len: 1,
-                freelist_id: ss_id,
-            },
-        };
-        actor.action_group_queues.push(ActionGroupQueue::default());
-        self.actors.data.push_back(actor);
+    pub fn add_actor(&mut self) -> ActorId {
+        self.actors.data.push_back(Default::default());
+        let actor_id = self.actors.next_free_index();
         if actor_id != self.actors.offset {
             let pow2_to_add = actor_id.trailing_zeros() + 1;
             let tgt_actor_id = actor_id - (1 << pow2_to_add);
@@ -359,6 +328,9 @@ impl ActionBuffer {
             })
         }
         actor_id
+    }
+    pub fn peek_next_actor_id(&self) -> ActorId {
+        self.actors.next_free_index()
     }
     fn release_temp_action_group(
         &mut self,
@@ -664,9 +636,8 @@ impl ActionBuffer {
         // PERF: find a O(1) way to calculate this
         let iter = Pow2LookupStepsIter::new(actor_id, next_actor_index);
         let snapshot_len = iter.clone().count();
-        let (freelist_id, ss) = self.snapshot_freelists
-            [snapshot_len - SNAPSHOT_FREELISTS_MIN_LEN]
-            .claim();
+        let (freelist_id, ss) =
+            self.snapshot_freelists[snapshot_len - SNAPSHOT_LEN_MIN].claim();
         ss[SNAPSHOT_REFCOUNT_OFFSET] = refcount;
         ss[SNAPSHOT_ACTOR_COUNT_OFFSET] = next_actor_index as SnapshotEntry;
         for (i, (actor_id, pow2)) in iter.enumerate() {
@@ -680,40 +651,63 @@ impl ActionBuffer {
             freelist_id,
         }
     }
-    fn validate_snapshot(
+    fn validate_snapshot_and_refresh_action_groups(
         &mut self,
         actor_id: ActorId,
         snapshot: SnapshotRef,
     ) -> bool {
         let mut snapshot_valid = true;
-        let ss = &self.snapshot_freelists[snapshot.snapshot_len as usize - 1]
-            [snapshot.freelist_id];
-        let actor_count = ss[SNAPSHOT_ACTOR_COUNT_OFFSET];
-        if actor_count != self.actors.next_free_index() as SnapshotEntry {
-            return false;
+        let snapshot_len = snapshot.snapshot_len as usize;
+        let actor_count = self.actors.next_free_index();
+        if snapshot_len < SNAPSHOT_LEN_MIN {
+            snapshot_valid = false;
+        } else {
+            let ss = &self.snapshot_freelists
+                [snapshot.snapshot_len as usize - SNAPSHOT_LEN_MIN]
+                [snapshot.freelist_id];
+            let ss_actor_count = ss[SNAPSHOT_ACTOR_COUNT_OFFSET];
+            if ss_actor_count != actor_count {
+                snapshot_valid = false;
+            }
         }
         for (i, (actor_id, pow2)) in
             Pow2LookupStepsIter::new(actor_id, actor_count).enumerate()
         {
             let next_ag = self.refresh_action_group(actor_id, pow2);
-            let ss = &self.snapshot_freelists
-                [snapshot.snapshot_len as usize - 1][snapshot.freelist_id];
-            snapshot_valid &= ss[SNAPSHOT_PREFIX_LEN + i] == next_ag;
+            if snapshot_valid && i < snapshot_len {
+                let ss = &self.snapshot_freelists
+                    [snapshot_len - SNAPSHOT_LEN_MIN][snapshot.freelist_id];
+                snapshot_valid &= ss[SNAPSHOT_PREFIX_LEN + i] == next_ag;
+            }
         }
         snapshot_valid
     }
+    fn get_snapshot_actor_count(
+        &self,
+        snapshot: SnapshotRef,
+    ) -> SnapshotEntry {
+        self.snapshot_freelists
+            [snapshot.snapshot_len as usize - SNAPSHOT_LEN_MIN]
+            [snapshot.freelist_id][SNAPSHOT_ACTOR_COUNT_OFFSET]
+    }
+    fn bump_snapshot_refcount(&mut self, snapshot: SnapshotRef, bump: u32) {
+        let ss_rc = &mut self.snapshot_freelists
+            [snapshot.snapshot_len as usize - SNAPSHOT_LEN_MIN]
+            [snapshot.freelist_id][SNAPSHOT_REFCOUNT_OFFSET];
+        *ss_rc += bump;
+    }
     fn drop_snapshot_refcount(&mut self, snapshot: SnapshotRef, drop: u32) {
         let ss_rc = &mut self.snapshot_freelists
-            [snapshot.snapshot_len as usize - SNAPSHOT_FREELISTS_MIN_LEN]
+            [snapshot.snapshot_len as usize - SNAPSHOT_LEN_MIN]
             [snapshot.freelist_id][SNAPSHOT_REFCOUNT_OFFSET];
         *ss_rc -= drop;
         if *ss_rc == 0 {
             self.snapshot_freelists
-                [snapshot.snapshot_len as usize - SNAPSHOT_FREELISTS_MIN_LEN]
+                [snapshot.snapshot_len as usize - SNAPSHOT_LEN_MIN]
                 .release(snapshot.freelist_id);
         }
     }
-    fn apply_from_snapshot_same_actor_count(
+    fn apply_from_snapshot_with_same_actor_count(
         &mut self,
         actor_id: ActorId,
         ssr: SnapshotRef,
@@ -724,7 +718,7 @@ impl ActionBuffer {
                 .enumerate()
         {
             let ss = &self.snapshot_freelists
-                [ssr.snapshot_len as usize - SNAPSHOT_FREELISTS_MIN_LEN]
+                [ssr.snapshot_len as usize - SNAPSHOT_LEN_MIN]
                 [ssr.freelist_id];
             let prev = ss[i - SNAPSHOT_PREFIX_LEN];
             let next = self.actors[ai].action_group_queues[pow2 as usize]
@@ -738,14 +732,13 @@ impl ActionBuffer {
         }
         res
     }
-    fn apply_from_snapshot_different_actor_count(
+    fn apply_from_snapshot_with_different_actor_count(
         &mut self,
         actor_id: ActorId,
         ssr: SnapshotRef,
     ) -> Option<ActionGroupIdentifier> {
         let ss = &self.snapshot_freelists
-            [ssr.snapshot_len as usize - SNAPSHOT_FREELISTS_MIN_LEN]
-            [ssr.freelist_id];
+            [ssr.snapshot_len as usize - SNAPSHOT_LEN_MIN][ssr.freelist_id];
         let prev_ss_actor_iter = Pow2LookupStepsIter::new(
             actor_id,
             ss[SNAPSHOT_ACTOR_COUNT_OFFSET],
@@ -756,7 +749,7 @@ impl ActionBuffer {
         let mut res = None;
         for (ai, pow2) in prev_ss_actor_iter {
             let prev = self.snapshot_freelists
-                [ssr.snapshot_len as usize - SNAPSHOT_FREELISTS_MIN_LEN]
+                [ssr.snapshot_len as usize - SNAPSHOT_LEN_MIN]
                 [ssr.freelist_id][SNAPSHOT_PREFIX_LEN + i];
             let (n_ai, n_pow2) = iter.next().unwrap();
             debug_assert!(n_ai == ai && n_pow2 >= pow2);
@@ -832,63 +825,46 @@ impl ActionBuffer {
         }
         res
     }
-
-    #[allow(unused)]
-    fn update(
-        &mut self,
-        actor_id: ActorId,
-        snapshot_ref: SnapshotRef,
-    ) -> (SnapshotRef, Option<ActionGroupIdentifier>) {
-        let actor = &self.actors[actor_id];
-        let latest_snapshot_valid =
-            self.validate_snapshot(actor_id, actor.latest_snapshot);
-        let actor = &self.actors[actor_id];
-        let refers_to_latest_snapshot = snapshot_ref == actor.latest_snapshot;
-        if latest_snapshot_valid && refers_to_latest_snapshot {
-            return (snapshot_ref, None);
+    fn update_actor_snapshot(&mut self, actor_id: ActorId) -> SnapshotRef {
+        if self.validate_snapshot_and_refresh_action_groups(
+            actor_id,
+            self.actors[actor_id].latest_snapshot,
+        ) {
+            return self.actors[actor_id].latest_snapshot;
         }
-        let current = if latest_snapshot_valid {
-            let ss = self.actors[actor_id].latest_snapshot;
-            self.snapshot_freelists
-                [ss.snapshot_len as usize - SNAPSHOT_FREELISTS_MIN_LEN]
-                [ss.freelist_id][SNAPSHOT_REFCOUNT_OFFSET] += 1;
-            ss
-        } else {
-            let ss = self.generate_snapshot(actor_id, 2);
-            self.actors[actor_id].latest_snapshot = ss;
-            ss
-        };
-        let ss_actor_count = self.snapshot_freelists
-            [snapshot_ref.snapshot_len as usize - SNAPSHOT_FREELISTS_MIN_LEN]
-            [snapshot_ref.freelist_id][SNAPSHOT_ACTOR_COUNT_OFFSET];
-        let diff_actions = if ss_actor_count == self.actors.next_free_index() {
-            self.apply_from_snapshot_same_actor_count(actor_id, snapshot_ref)
-        } else {
-            self.apply_from_snapshot_different_actor_count(
-                actor_id,
-                snapshot_ref,
-            )
-        };
-        self.drop_snapshot_refcount(snapshot_ref, 1);
-        (current, None)
+        let actor = &self.actors[actor_id];
+        self.drop_snapshot_refcount(actor.latest_snapshot, 1);
+        let ss = self.generate_snapshot(actor_id, 1);
+        self.actors[actor_id].latest_snapshot = ss;
+        ss
     }
     pub fn execute(&mut self, fm: &FieldManager, field_id: FieldId) {
-        let mut field_ref = fm.fields[field_id].borrow_mut();
-        let field = field_ref.deref_mut();
         if self.actors.data.is_empty() {
             return;
         }
-        let actor_id = if let Some(actor_id) = field.first_actor {
-            actor_id
+        let mut field_ref = fm.fields[field_id].borrow_mut();
+        let field = field_ref.deref_mut();
+        let actor_id = self.initialize_fist_actor(&mut field.first_actor);
+        let actor_ss = self.update_actor_snapshot(actor_id);
+        if actor_ss == field.snapshot {
+            return;
+        }
+        let ss_actor_count = self.get_snapshot_actor_count(actor_ss);
+        let actions = if ss_actor_count == self.actors.next_free_index() {
+            self.apply_from_snapshot_with_same_actor_count(
+                actor_id,
+                field.snapshot,
+            )
         } else {
-            let actor_id = self.actors.offset;
-            field.first_actor = Some(actor_id);
-            field.snapshot = self.zero_snapshot;
-            actor_id
+            self.apply_from_snapshot_with_different_actor_count(
+                actor_id,
+                field.snapshot,
+            )
         };
-        let (ss, actions) = self.update(actor_id, field.snapshot);
+        self.drop_snapshot_refcount(field.snapshot, 1);
+        field.snapshot = actor_ss;
         let Some(actions) = actions else { return };
-        field.snapshot = ss;
+
         field.iter_hall.uncow_headers(fm);
 
         let fd = &mut field.iter_hall.field_data;
@@ -953,6 +929,32 @@ impl ActionBuffer {
             0,
             0,
         );
+    }
+    fn initialize_fist_actor(
+        &self,
+        first_actor: &mut Option<ActorId>,
+    ) -> ActorId {
+        if let Some(actor) = *first_actor {
+            actor
+        } else {
+            let fa = self.actors.offset;
+            *first_actor = Some(fa);
+            fa
+        }
+    }
+    pub fn drop_field_commands(
+        &mut self,
+        first_actor: &mut Option<ActorId>,
+        snapshot: &mut SnapshotRef,
+    ) {
+        let actor_id = self.initialize_fist_actor(first_actor);
+        let ss = self.update_actor_snapshot(actor_id);
+        if ss == *snapshot {
+            return;
+        }
+        self.drop_snapshot_refcount(*snapshot, 1);
+        self.bump_snapshot_refcount(ss, 1);
+        *snapshot = ss;
     }
 }
 

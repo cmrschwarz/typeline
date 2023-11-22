@@ -11,7 +11,7 @@ use crate::{
 };
 
 use super::{
-    command_buffer::CommandBuffer,
+    command_buffer_v2::ActionBuffer,
     field::{FieldId, FieldManager},
 };
 
@@ -21,7 +21,7 @@ pub type MatchSetId = NonMaxUsize;
 #[derive(Default)]
 pub struct MatchSet {
     pub stream_participants: Vec<TransformId>,
-    pub command_buffer: CommandBuffer,
+    pub action_buffer: ActionBuffer,
     pub field_name_map:
         HashMap<StringStoreEntry, FieldId, BuildIdentityHasher>,
     // stores original field -> cow copy
@@ -56,7 +56,7 @@ impl MatchSetManager {
     pub fn add_match_set(&mut self) -> MatchSetId {
         self.match_sets.claim_with(|| MatchSet {
             stream_participants: Default::default(),
-            command_buffer: Default::default(),
+            action_buffer: Default::default(),
             field_name_map: Default::default(),
             cow_map: Default::default(),
         })

@@ -1,4 +1,4 @@
-use std::{cell::Cell, collections::HashMap};
+use std::{cell::Cell, collections::HashMap, ops::DerefMut};
 
 use bitvec::vec::BitVec;
 
@@ -12,7 +12,6 @@ use crate::{
     },
     options::argument::CliArgIdx,
     record_data::{
-        command_buffer::FieldActionIndices,
         field::{FieldId, DUMMY_INPUT_FIELD_ID},
         match_set::MatchSetId,
     },
@@ -343,7 +342,7 @@ fn expand_for_subchain(
         let mut input_mirror_field =
             sess.job_data.field_mgr.fields[mirror.mirror_field].borrow_mut();
         input_mirror_field.match_set = tgt_ms_id;
-        input_mirror_field.snapshot = FieldActionIndices::default();
+        input_mirror_field.snapshot = Default::default();
         drop(input_mirror_field);
         let tgt_ms = &mut sess.job_data.match_set_mgr.match_sets[tgt_ms_id];
         if forkcat.curr_subchain_n != 0 {
@@ -368,7 +367,7 @@ fn expand_for_subchain(
             [output_mirror_field_id]
             .borrow_mut();
         output_mirror_field.match_set = tgt_ms_id;
-        output_mirror_field.snapshot = FieldActionIndices::default();
+        output_mirror_field.snapshot = Default::default();
         drop(output_mirror_field);
         match output_mapping {
             OutputMapping::OutputIdx(output_idx) => {
@@ -570,7 +569,9 @@ pub(crate) fn handle_forkcat_subchain_expansion(
         f.iter_hall.reset_iterators();
         assert!(f.get_clear_delay_request_count() == 0);
         let msm = &mut sess.job_data.match_set_mgr.match_sets[f.match_set];
-        msm.command_buffer.drop_field_commands(of, &mut f.snapshot);
+        let fr = f.deref_mut();
+        msm.action_buffer
+            .drop_field_commands(&mut fr.first_actor, &mut fr.snapshot);
     }
     fc = match_unwrap!(
         &mut sess.transform_data[tf_id.get()],

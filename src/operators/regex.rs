@@ -14,7 +14,7 @@ use crate::{
     liveness_analysis::OpOutputIdx,
     options::argument::CliArgIdx,
     record_data::{
-        command_buffer::{ActionProducingFieldIndex, CommandBuffer},
+        command_buffer_v2::{ActionBuffer, ActorId},
         field::{Field, FieldId, FieldIdOffset},
         field_action::FieldActionKind,
         field_data::{
@@ -66,7 +66,7 @@ pub struct TfRegex {
     capture_group_fields: Vec<Option<FieldId>>,
     input_field_iter_id: IterId,
     next_start: usize,
-    apf_idx: ActionProducingFieldIndex,
+    actor_id: ActorId,
     multimatch: bool,
     non_mandatory: bool,
     allow_overlapping: bool,
@@ -408,13 +408,13 @@ pub fn setup_tf_regex<'a>(
     prebound_outputs: &HashMap<OpOutputIdx, FieldId, BuildIdentityHasher>,
 ) -> TransformData<'a> {
     let cb = &mut sess.match_set_mgr.match_sets[tf_state.match_set_id]
-        .command_buffer;
-    let apf_idx = cb.claim_apf();
-    let apf_succ = cb.peek_next_apf_id(); // this will always end up being valid because of the terminator
+        .action_buffer;
+    let actor_id = cb.add_actor();
+    let next_actor_id = cb.peek_next_actor_id();
     let mut output_field =
         sess.field_mgr.fields[tf_state.output_field].borrow_mut();
 
-    output_field.snapshot.min_apf_idx = Some(apf_succ);
+    output_field.first_actor = Some(next_actor_id);
     drop(output_field);
     let cgfs: Vec<Option<FieldId>> = op
         .capture_group_names
@@ -430,7 +430,7 @@ pub fn setup_tf_regex<'a>(
                     *field_id
                 } else {
                     sess.field_mgr
-                        .add_field(tf_state.match_set_id, Some(apf_succ))
+                        .add_field(tf_state.match_set_id, Some(next_actor_id))
                 };
                 sess.match_set_mgr.set_field_name(
                     &sess.field_mgr,
@@ -466,7 +466,7 @@ pub fn setup_tf_regex<'a>(
             .iter_hall
             .claim_iter(),
         next_start: 0,
-        apf_idx,
+        actor_id,
     })
 }
 
@@ -661,15 +661,13 @@ fn match_regex_inner<const PUSH_REF: bool, R: AnyRegex>(
     }
 
     if bse {
-        rmis.command_buffer.push_action_with_usize_rl(
-            rmis.batch_state.apf_idx,
+        rmis.action_buffer.push_action(
             FieldActionKind::Dup,
             rmis.batch_state.field_pos_output,
             match_count,
         );
     } else if match_count > 1 {
-        rmis.command_buffer.push_action_with_usize_rl(
-            rmis.batch_state.apf_idx,
+        rmis.action_buffer.push_action(
             FieldActionKind::Dup,
             rmis.batch_state.field_pos_output,
             match_count - 1,
@@ -683,8 +681,7 @@ fn match_regex_inner<const PUSH_REF: bool, R: AnyRegex>(
             }
             match_count = 1;
         } else {
-            rmis.command_buffer.push_action(
-                rmis.batch_state.apf_idx,
+            rmis.action_buffer.push_action(
                 FieldActionKind::Drop,
                 rmis.batch_state.field_pos_output,
                 1,
@@ -703,7 +700,6 @@ fn match_regex_inner<const PUSH_REF: bool, R: AnyRegex>(
 }
 
 struct RegexBatchState<'a> {
-    apf_idx: ActionProducingFieldIndex,
     field_pos_input: usize,
     field_pos_output: usize,
     batch_end_field_pos_output: usize,
@@ -715,7 +711,7 @@ struct RegexBatchState<'a> {
 
 struct RegexMatchInnerState<'a, 'b> {
     batch_state: &'b mut RegexBatchState<'a>,
-    command_buffer: &'b mut CommandBuffer,
+    action_buffer: &'b mut ActionBuffer,
     field_ref_offset: FieldIdOffset,
 }
 
@@ -741,8 +737,8 @@ pub fn handle_tf_regex(
         tf.has_unconsumed_input(),
     );
     sess.match_set_mgr.match_sets[tf.match_set_id]
-        .command_buffer
-        .begin_action_list(re.apf_idx);
+        .action_buffer
+        .begin_action_group(re.actor_id);
     let iter_base = sess
         .field_mgr
         .lookup_iter(input_field_id, &input_field, re.input_field_iter_id)
@@ -777,7 +773,6 @@ pub fn handle_tf_regex(
         multimatch: re.multimatch,
         non_mandatory: re.non_mandatory,
         next_start: re.next_start,
-        apf_idx: re.apf_idx,
         inserters: output_field_inserters,
     };
 
@@ -807,9 +802,8 @@ pub fn handle_tf_regex(
     ) {
         let mut rmis = RegexMatchInnerState {
             batch_state: &mut rbs,
-            command_buffer: &mut sess.match_set_mgr.match_sets
-                [tf.match_set_id]
-                .command_buffer,
+            action_buffer: &mut sess.match_set_mgr.match_sets[tf.match_set_id]
+                .action_buffer,
             field_ref_offset: range
                 .field_id_offset
                 .map(|o| nonmax_u16_wrapping_add(o, NonMaxU16::ONE))
@@ -1004,8 +998,8 @@ pub fn handle_tf_regex(
     let field_pos_input = rbs.field_pos_input;
     let produced_records = rbs.field_pos_output - field_pos_start;
     sess.match_set_mgr.match_sets[tf.match_set_id]
-        .command_buffer
-        .end_action_list(re.apf_idx);
+        .action_buffer
+        .end_action_group();
     let mut base_iter = iter.into_base_iter();
     if bse || hit_stream_val {
         let unclaimed_batch_size =

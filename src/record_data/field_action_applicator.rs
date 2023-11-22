@@ -711,7 +711,7 @@ mod test {
         }
         let mut faa = FieldActionApplicator::default();
         faa.run(
-            actions,
+            actions.iter(),
             &mut fd.headers,
             Some(&mut fd.data),
             &mut fd.field_count,

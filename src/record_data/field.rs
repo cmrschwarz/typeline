@@ -1,4 +1,7 @@
-use std::cell::{Cell, Ref, RefCell};
+use std::{
+    cell::{Cell, Ref, RefCell},
+    ops::DerefMut,
+};
 
 use nonmax::{NonMaxU16, NonMaxU32};
 use smallvec::SmallVec;
@@ -9,7 +12,6 @@ use crate::utils::{
 };
 
 use super::{
-    command_buffer::{ActionProducingFieldIndex, FieldActionIndices},
     command_buffer_v2::{ActorId, SnapshotRef},
     field_data::{FieldData, FieldDataBuffer, FieldValueHeader},
     iter_hall::{FieldDataSource, IterHall, IterId},
@@ -234,9 +236,10 @@ impl FieldManager {
             }
         }
         field.iter_hall.reset_iterators();
-        msm.match_sets[field.match_set]
-            .command_buffer
-            .drop_field_commands(field_id, &mut field.snapshot);
+        let fr = field.deref_mut();
+        msm.match_sets[fr.match_set]
+            .action_buffer
+            .drop_field_commands(&mut fr.first_actor, &mut fr.snapshot);
         drop(cow_source);
         let mut i = 0;
         while field.iter_hall.cow_targets.len() > i {
@@ -294,28 +297,26 @@ impl FieldManager {
             field.iter_hall.field_data.clear();
         }
         field.iter_hall.reset_iterators();
-        msm.match_sets[field.match_set]
-            .command_buffer
-            .drop_field_commands(field_id, &mut field.snapshot);
+        let fr = field.deref_mut();
+        msm.match_sets[fr.match_set]
+            .action_buffer
+            .drop_field_commands(&mut fr.first_actor, &mut fr.snapshot);
     }
-    pub fn get_min_apf_idx(
-        &self,
-        field_id: FieldId,
-    ) -> Option<ActionProducingFieldIndex> {
+    pub fn get_first_actor(&self, field_id: FieldId) -> Option<ActorId> {
         let field = self.fields[field_id].borrow();
-        field.snapshot.min_apf_idx
+        field.first_actor
     }
     pub fn add_field(
         &mut self,
         ms_id: MatchSetId,
-        min_apf: Option<ActionProducingFieldIndex>,
+        first_actor: Option<ActorId>,
     ) -> FieldId {
-        self.add_field_with_data(ms_id, min_apf, FieldData::default())
+        self.add_field_with_data(ms_id, first_actor, FieldData::default())
     }
     pub fn add_field_with_data(
         &mut self,
         ms_id: MatchSetId,
-        min_apf: Option<ActionProducingFieldIndex>,
+        first_actor: Option<ActorId>,
         data: FieldData,
     ) -> FieldId {
         let mut field = Field {
@@ -323,7 +324,8 @@ impl FieldManager {
             clear_delay_request_count: Cell::new(0),
             has_unconsumed_input: Cell::new(false),
             match_set: ms_id,
-            snapshot: FieldActionIndices::new(min_apf),
+            first_actor,
+            snapshot: Default::default(),
             name: Default::default(),
             iter_hall: IterHall::new_with_data(data),
             #[cfg(feature = "debug_logging")]
@@ -343,7 +345,7 @@ impl FieldManager {
     ) {
         let field = self.fields[field_id].borrow();
         let match_set = field.match_set;
-        let cb = &mut msm.match_sets[match_set].command_buffer;
+        let cb = &mut msm.match_sets[match_set].action_buffer;
         drop(field);
         cb.execute(self, field_id);
     }

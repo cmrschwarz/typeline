@@ -237,7 +237,7 @@ pub fn setup_tf_format<'a>(
                 } else {
                     let id = sess.field_mgr.add_field(
                         tf_state.match_set_id,
-                        sess.field_mgr.get_min_apf_idx(tf_state.input_field),
+                        sess.field_mgr.get_first_actor(tf_state.input_field),
                     );
                     sess.match_set_mgr.set_field_name(
                         &sess.field_mgr,

@@ -14,7 +14,7 @@ use crate::{
     },
     options::argument::CliArgIdx,
     record_data::{
-        command_buffer::ActionProducingFieldIndex,
+        command_buffer_v2::ActorId,
         field::{FieldId, FieldManager, DUMMY_INPUT_FIELD_ID},
         field_action::FieldActionKind,
         iter_hall::IterId,
@@ -54,7 +54,7 @@ pub struct TfCallConcurrent<'a> {
     pub target_chain: ChainId,
     pub field_mappings: Vec<RecordBufferFieldMapping>,
     pub buffer: Arc<RecordBuffer>,
-    pub apf_idx: ActionProducingFieldIndex,
+    pub actor_id: ActorId,
     pub target_accessed_fields: &'a Vec<(Option<StringStoreEntry>, bool)>,
 }
 pub struct TfCalleeConcurrent {
@@ -176,9 +176,9 @@ pub fn setup_tf_call_concurrent<'a>(
         target_chain: op.target_resolved.unwrap(),
         field_mappings: Default::default(),
         buffer,
-        apf_idx: sess.match_set_mgr.match_sets[tf_state.match_set_id]
-            .command_buffer
-            .claim_apf(),
+        actor_id: sess.match_set_mgr.match_sets[tf_state.match_set_id]
+            .action_buffer
+            .add_actor(),
         target_accessed_fields: &op.target_accessed_fields,
     })
 }
@@ -366,16 +366,10 @@ pub fn handle_tf_call_concurrent(
     buf_data.available_batch_size += batch_size;
     drop(buf_data);
     tfc.buffer.updates.notify_one();
-    let cb =
-        &mut sess.match_set_mgr.match_sets[tf.match_set_id].command_buffer;
-    cb.begin_action_list(tfc.apf_idx);
-    cb.push_action_with_usize_rl(
-        tfc.apf_idx,
-        FieldActionKind::Drop,
-        0,
-        batch_size,
-    );
-    cb.end_action_list(tfc.apf_idx);
+    let cb = &mut sess.match_set_mgr.match_sets[tf.match_set_id].action_buffer;
+    cb.begin_action_group(tfc.actor_id);
+    cb.push_action(FieldActionKind::Drop, 0, batch_size);
+    cb.end_action_group();
     for mapping in &tfc.field_mappings {
         let src_field =
             sess.field_mgr.fields[mapping.source_field_id].borrow();

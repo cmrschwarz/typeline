@@ -1,6 +1,5 @@
 use std::{
     collections::VecDeque,
-    marker::PhantomData,
     ops::{Index, IndexMut},
 };
 

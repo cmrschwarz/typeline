@@ -1,7 +1,7 @@
 use crate::{
     job_session::{JobData, JobSession},
     record_data::{
-        command_buffer::ActionProducingFieldIndex, field::FieldId,
+        command_buffer_v2::ActorId, field::FieldId,
         field_action::FieldActionKind, iter_hall::IterId,
         iters::FieldIterator, match_set::MatchSetId,
     },
@@ -13,7 +13,7 @@ use super::{
 };
 
 pub struct TfInputFeeder {
-    apf_idx: ActionProducingFieldIndex,
+    actor_id: ActorId,
     iter_id: IterId,
 }
 
@@ -25,10 +25,10 @@ pub fn setup_tf_input_feeder(
         .borrow_mut()
         .iter_hall
         .claim_iter();
-    let apf_idx = sess.match_set_mgr.match_sets[tf_state.match_set_id]
-        .command_buffer
-        .claim_apf();
-    TransformData::InputFeeder(TfInputFeeder { apf_idx, iter_id })
+    let actor_id = sess.match_set_mgr.match_sets[tf_state.match_set_id]
+        .action_buffer
+        .add_actor();
+    TransformData::InputFeeder(TfInputFeeder { actor_id, iter_id })
 }
 
 pub fn setup_tf_input_feeder_as_input(
@@ -73,15 +73,10 @@ pub fn handle_tf_input_feeder(
     let rem = iter.get_next_field_pos();
     if rem > 0 {
         let cb =
-            &mut sess.match_set_mgr.match_sets[tf.match_set_id].command_buffer;
-        cb.begin_action_list(feeder.apf_idx);
-        cb.push_action_with_usize_rl(
-            feeder.apf_idx,
-            FieldActionKind::Drop,
-            0,
-            rem,
-        );
-        cb.end_action_list(feeder.apf_idx);
+            &mut sess.match_set_mgr.match_sets[tf.match_set_id].action_buffer;
+        cb.begin_action_group(feeder.actor_id);
+        cb.push_action(FieldActionKind::Drop, 0, rem);
+        cb.end_action_group();
     }
 
     iter.next_n_fields(batch_size);
