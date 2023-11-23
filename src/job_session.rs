@@ -511,10 +511,20 @@ impl<'a> JobSession<'a> {
             &Default::default(),
         );
         self.add_terminator(ms_id, end_tf_id);
+        self.job_data.tf_mgr.push_tf_in_ready_stack(start_tf_id);
         let tf = &mut self.job_data.tf_mgr.transforms[start_tf_id];
         tf.input_is_done = true;
-        tf.available_batch_size = input_record_count;
-        self.job_data.tf_mgr.push_tf_in_ready_stack(start_tf_id);
+
+        if tf.is_appending {
+            if let Some(succ) = tf.successor {
+                let tf = &mut self.job_data.tf_mgr.transforms[succ];
+                debug_assert!(!tf.is_appending);
+                tf.available_batch_size = input_record_count;
+                self.job_data.tf_mgr.push_tf_in_ready_stack(succ);
+            }
+        } else {
+            tf.available_batch_size = input_record_count;
+        }
 
         for input_field_id in input_data_fields.iter() {
             self.job_data.field_mgr.drop_field_refcount(
