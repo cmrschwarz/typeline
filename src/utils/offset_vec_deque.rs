@@ -35,7 +35,7 @@ impl<I: IndexingType, T: Clone> Clone for OffsetVecDeque<I, T> {
     fn clone(&self) -> Self {
         Self {
             data: self.data.clone(),
-            offset: self.offset.clone(),
+            offset: self.offset,
         }
     }
 }

@@ -177,6 +177,6 @@ pub fn subslice_slice_pair_mut<'a, T>(
     }
 }
 
-pub unsafe fn launder_slice<'a, T>(slice: &'a [T]) -> &'static [T] {
+pub unsafe fn launder_slice<T>(slice: &[T]) -> &'static [T] {
     unsafe { std::mem::transmute(slice) }
 }

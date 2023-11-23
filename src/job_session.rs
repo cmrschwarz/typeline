@@ -588,7 +588,7 @@ impl<'a> JobSession<'a> {
         last_tf: TransformId,
     ) -> TransformId {
         let bs = self.job_data.tf_mgr.transforms[last_tf].desired_batch_size;
-        let mut tf_state = TransformState::new(
+        let tf_state = TransformState::new(
             DUMMY_INPUT_FIELD_ID,
             DUMMY_INPUT_FIELD_ID,
             ms_id,
@@ -599,7 +599,7 @@ impl<'a> JobSession<'a> {
         self.job_data
             .field_mgr
             .inc_field_refcount(DUMMY_INPUT_FIELD_ID, 2);
-        let tf_data = setup_tf_terminator(&mut self.job_data, &mut tf_state);
+        let tf_data = setup_tf_terminator(&mut self.job_data, &tf_state);
         let tf_id = self.add_transform(tf_state, tf_data);
         let pred = &mut self.job_data.tf_mgr.transforms[last_tf];
         debug_assert!(pred.successor.is_none());

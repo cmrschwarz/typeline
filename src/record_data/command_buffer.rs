@@ -58,11 +58,13 @@ struct ActionGroup {
 struct ActionGroupWithRefs {
     ag: ActionGroup,
     // initialized as usize::MAX, wrapping add, saturating sub
+    #[allow(unused)] // TODO
     refcount: u32,
     next_action_group_id_self: ActionGroupId,
     next_action_group_id_succ: ActionGroupId,
 }
 
+#[allow(unused)] // TODO
 struct ActionGroupMerges {
     action_groups: OffsetVecDeque<ActionGroupId, ActionGroup>,
     actions: OffsetVecDeque<ActionId, FieldAction>,
@@ -73,6 +75,7 @@ struct ActionGroupQueue {
     action_groups: OffsetVecDeque<ActionGroupId, ActionGroupWithRefs>,
     actions: OffsetVecDeque<ActionId, FieldAction>,
     dirty: bool,
+    #[allow(unused)] // TODO
     refcount: u32,
 }
 
@@ -91,6 +94,7 @@ enum ActionGroupIdentifier {
         start: usize,
         length: usize,
     },
+    #[allow(unused)] // TODO
     LocalMerge {
         actor_id: u32,
         merge_pow2: u8,
