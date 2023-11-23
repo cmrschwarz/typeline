@@ -14,7 +14,6 @@ use super::{
     fork::TfFork,
     forkcat::TfForkCat,
     format::TfFormat,
-    input_feeder::TfInputFeeder,
     join::TfJoin,
     literal::TfLiteral,
     nop::TfNop,
@@ -49,7 +48,6 @@ pub enum TransformData<'a> {
     FileReader(TfFileReader),
     Literal(TfLiteral<'a>),
     Sequence(TfSequence),
-    InputFeeder(TfInputFeeder),
 }
 
 impl Default for TransformData<'_> {
@@ -81,7 +79,6 @@ impl TransformData<'_> {
             TransformData::FileReader(_) => "file_reader",
             TransformData::Literal(_) => "literal",
             TransformData::Sequence(_) => "sequence",
-            TransformData::InputFeeder(_) => "input_feeder",
             TransformData::Terminator(_) => "terminator",
         };
         format!("<tf {base}>").into()

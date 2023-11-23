@@ -32,9 +32,6 @@ use crate::{
             handle_tf_format, handle_tf_format_stream_value_update,
             setup_tf_format,
         },
-        input_feeder::{
-            handle_tf_input_feeder, setup_tf_input_feeder_as_input,
-        },
         join::{
             handle_tf_join, handle_tf_join_stream_value_update, setup_tf_join,
         },
@@ -55,7 +52,7 @@ use crate::{
             handle_tf_string_sink, handle_tf_string_sink_stream_value_update,
             setup_tf_string_sink,
         },
-        terminator::handle_tf_terminator,
+        terminator::{handle_tf_terminator, setup_tf_terminator},
         transform::{TransformData, TransformId, TransformState},
     },
     record_data::{
@@ -506,24 +503,14 @@ impl<'a> JobSession<'a> {
                 .borrow_mut()
                 .producing_transform_arg = format!("<Input Field #{i}>");
         }
-        let initial_tf = if input_record_count == 0 {
-            None
-        } else {
-            Some(setup_tf_input_feeder_as_input(
-                self,
-                ms_id,
-                job.operator,
-                input_data,
-            ))
-        };
-        let (start_tf_id, _end_tf_id) = self.setup_transforms_from_op(
+        let (start_tf_id, end_tf_id) = self.setup_transforms_from_op(
             ms_id,
             job.operator,
             input_data,
-            initial_tf,
+            None,
             &Default::default(),
         );
-        let start_tf_id = initial_tf.unwrap_or(start_tf_id);
+        self.add_terminator(ms_id, end_tf_id);
         let tf = &mut self.job_data.tf_mgr.transforms[start_tf_id];
         tf.input_is_done = true;
         tf.available_batch_size = input_record_count;
@@ -584,6 +571,30 @@ impl<'a> JobSession<'a> {
             .drop_field_refcount(tfof, &mut self.job_data.match_set_mgr);
         self.job_data.tf_mgr.transforms.release(tf_id);
         self.transform_data[usize::from(tf_id)] = TransformData::Disabled;
+    }
+    pub fn add_terminator(
+        &mut self,
+        ms_id: MatchSetId,
+        last_tf: TransformId,
+    ) -> TransformId {
+        let bs = self.job_data.tf_mgr.transforms[last_tf].desired_batch_size;
+        let mut tf_state = TransformState::new(
+            DUMMY_INPUT_FIELD_ID,
+            DUMMY_INPUT_FIELD_ID,
+            ms_id,
+            bs,
+            Some(last_tf),
+            None,
+        );
+        self.job_data
+            .field_mgr
+            .inc_field_refcount(DUMMY_INPUT_FIELD_ID, 2);
+        let tf_data = setup_tf_terminator(&mut self.job_data, &mut tf_state);
+        let tf_id = self.add_transform(tf_state, tf_data);
+        let pred = &mut self.job_data.tf_mgr.transforms[last_tf];
+        debug_assert!(pred.successor.is_none());
+        pred.successor = Some(tf_id);
+        tf_id
     }
     pub fn setup_transforms_from_op(
         &mut self,
@@ -981,7 +992,6 @@ impl<'a> JobSession<'a> {
             TransformData::Cast(_) => unreachable!(),
             TransformData::Count(_) => unreachable!(),
             TransformData::Select(_) => unreachable!(),
-            TransformData::InputFeeder(_) => unreachable!(),
             TransformData::FileReader(_) => unreachable!(),
             TransformData::Sequence(_) => unreachable!(),
             TransformData::Disabled => unreachable!(),
@@ -1029,7 +1039,6 @@ impl<'a> JobSession<'a> {
             TransformData::FileReader(_) => (),
             TransformData::Literal(_) => (),
             TransformData::Sequence(_) => (),
-            TransformData::InputFeeder(_) => (),
             TransformData::Terminator(_) => (),
         }
         let jd = &mut self.job_data;
@@ -1052,9 +1061,6 @@ impl<'a> JobSession<'a> {
             TransformData::Literal(tf) => handle_tf_literal(jd, tf_id, tf),
             TransformData::Sequence(tf) => handle_tf_sequence(jd, tf_id, tf),
             TransformData::Format(tf) => handle_tf_format(jd, tf_id, tf),
-            TransformData::InputFeeder(tf) => {
-                handle_tf_input_feeder(jd, tf_id, tf)
-            }
             TransformData::Join(tf) => handle_tf_join(jd, tf_id, tf),
             TransformData::Select(tf) => handle_tf_select(jd, tf_id, tf),
             TransformData::Count(tf) => handle_tf_count(jd, tf_id, tf),
