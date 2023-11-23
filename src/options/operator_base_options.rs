@@ -12,8 +12,10 @@ pub struct OperatorBaseOptions {
     pub cli_arg_idx: Option<CliArgIdx>,
     pub append_mode: bool,
     pub transparent_mode: bool,
-    pub chain_id: Option<ChainId>, // set by the context on add_op
-    pub op_id: Option<OperatorId>, // set by the context on add_op
+    // all following fields are set by the context on add_op
+    pub desired_batch_size: usize,
+    pub chain_id: Option<ChainId>,
+    pub op_id: Option<OperatorId>,
 }
 
 impl OperatorBaseOptions {
@@ -30,6 +32,7 @@ impl OperatorBaseOptions {
             cli_arg_idx,
             append_mode,
             transparent_mode,
+            desired_batch_size: 0,
             chain_id: None,
             op_id: None,
         }

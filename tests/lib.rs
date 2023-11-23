@@ -127,9 +127,9 @@ fn chained_multimatch_regex() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .push_str(&number_string_joined, 1)
-        .set_batch_size(5)
+        .set_batch_size(10)
         .add_op(create_op_regex_lines())
-        .add_op(create_op_regex("^[0-7]$").unwrap())
+        .add_op(create_op_regex("^[0-6]$").unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(
@@ -138,6 +138,23 @@ fn chained_multimatch_regex() -> Result<(), ScrError> {
     );
     Ok(())
 }
+
+#[test]
+fn chained_regex_over_input() -> Result<(), ScrError> {
+    let mut cb = ContextBuilder::default();
+    for i in 0..3 {
+        cb = cb.push_int(i, 1);
+    }
+    let ss = StringSinkHandle::default();
+    cb.set_batch_size(1)
+        .add_op(create_op_regex(".*").unwrap())
+        .add_op(create_op_regex("[02]").unwrap())
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(ss.get_data().unwrap().as_slice(), &["0", "2"]);
+    Ok(())
+}
+
 #[test]
 fn large_batch() -> Result<(), ScrError> {
     const COUNT: usize = 10000;

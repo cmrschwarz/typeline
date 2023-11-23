@@ -19,6 +19,7 @@ pub mod regex;
 pub mod select;
 pub mod sequence;
 pub mod string_sink;
+pub mod terminator;
 pub mod transform;
 pub mod up;
 pub mod utils;

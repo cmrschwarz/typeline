@@ -41,7 +41,8 @@ pub fn setup_tf_input_feeder_as_input(
         input_field_id,
         input_field_id,
         ms_id,
-        sess.get_op_debault_batch_size(start_op),
+        sess.job_data.session_data.operator_bases[start_op as usize]
+            .desired_batch_size,
         None,
         None,
     );
@@ -86,8 +87,8 @@ pub fn handle_tf_input_feeder(
     if input_done {
         sess.unlink_transform(tf_id, batch_size);
     } else {
+        sess.tf_mgr.update_ready_state(tf_id);
         sess.tf_mgr
             .inform_successor_batch_available(tf_id, batch_size);
-        sess.tf_mgr.update_ready_state(tf_id);
     }
 }

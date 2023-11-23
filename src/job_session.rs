@@ -55,6 +55,7 @@ use crate::{
             handle_tf_string_sink, handle_tf_string_sink_stream_value_update,
             setup_tf_string_sink,
         },
+        terminator::handle_tf_terminator,
         transform::{TransformData, TransformId, TransformState},
     },
     record_data::{
@@ -584,12 +585,6 @@ impl<'a> JobSession<'a> {
         self.job_data.tf_mgr.transforms.release(tf_id);
         self.transform_data[usize::from(tf_id)] = TransformData::Disabled;
     }
-    pub fn get_op_debault_batch_size(&self, op_id: OperatorId) -> usize {
-        let op = &self.job_data.session_data.operator_bases[op_id as usize];
-        self.job_data.session_data.chains[op.chain_id.unwrap() as usize]
-            .settings
-            .default_batch_size
-    }
     pub fn setup_transforms_from_op(
         &mut self,
         ms_id: MatchSetId,
@@ -601,7 +596,6 @@ impl<'a> JobSession<'a> {
         let mut start_tf_id = None;
         let start_op =
             &self.job_data.session_data.operator_bases[start_op_id as usize];
-        let default_batch_size = self.get_op_debault_batch_size(start_op_id);
         let mut prev_tf = predecessor_tf;
         let mut input_field = chain_input_field_id;
         let mut last_output_field = chain_input_field_id;
@@ -717,7 +711,7 @@ impl<'a> JobSession<'a> {
                 input,
                 output_field,
                 ms_id,
-                default_batch_size,
+                op_base.desired_batch_size,
                 predecessor_tf,
                 Some(op_id),
             );
@@ -981,6 +975,7 @@ impl<'a> JobSession<'a> {
             TransformData::Fork(_) => (),
             TransformData::ForkCat(_) => (),
             TransformData::CallConcurrent(_) => (),
+            TransformData::Terminator(_) => unreachable!(),
             TransformData::Call(_) => unreachable!(),
             TransformData::Nop(_) => unreachable!(),
             TransformData::Cast(_) => unreachable!(),
@@ -1035,6 +1030,7 @@ impl<'a> JobSession<'a> {
             TransformData::Literal(_) => (),
             TransformData::Sequence(_) => (),
             TransformData::InputFeeder(_) => (),
+            TransformData::Terminator(_) => (),
         }
         let jd = &mut self.job_data;
         match &mut self.transform_data[usize::from(tf_id)] {
@@ -1070,6 +1066,9 @@ impl<'a> JobSession<'a> {
                 handle_tf_callee_concurrent(jd, tf_id, tf)
             }
             TransformData::Call(_) => (),
+            TransformData::Terminator(tf) => {
+                handle_tf_terminator(jd, tf_id, tf)
+            }
             TransformData::Disabled => unreachable!(),
         }
         if let Some(tf) = self.job_data.tf_mgr.transforms.get(tf_id) {

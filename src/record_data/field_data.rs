@@ -416,6 +416,13 @@ impl FieldValueHeader {
     pub fn run_len_rem(&self) -> RunLength {
         RunLength::MAX - self.run_length
     }
+    pub fn effective_run_length(&self) -> RunLength {
+        if self.deleted() {
+            0
+        } else {
+            self.run_length
+        }
+    }
 }
 
 pub const INLINE_STR_MAX_LEN: usize = 8192;

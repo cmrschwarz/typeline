@@ -50,6 +50,7 @@ pub struct OperatorBase {
     pub transparent_mode: bool,
     pub outputs_start: OpOutputIdx,
     pub outputs_end: OpOutputIdx,
+    pub desired_batch_size: usize,
 }
 
 pub const DEFAULT_OP_NAME_SMALL_STR_LEN: usize = 16;

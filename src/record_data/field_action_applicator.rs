@@ -87,10 +87,12 @@ impl FieldActionApplicator {
         amount: RunLength,
     ) {
         for it in &mut iterators[0..curr_header_iter_count] {
-            if it.field_pos > field_pos {
-                it.field_pos -= amount as usize;
-                it.header_rl_offset -= amount;
+            if it.field_pos <= field_pos {
+                continue;
             }
+            let drops_before = (amount as usize).min(it.field_pos - field_pos);
+            it.field_pos -= drops_before;
+            it.header_rl_offset -= drops_before as RunLength;
         }
     }
     fn iters_to_next_header(
@@ -436,15 +438,16 @@ impl FieldActionApplicator {
         let mut header;
         let mut header_idx_new = header_idx;
 
-        let mut action_idx_next = 0;
         let mut copy_range_start = 0;
         let mut copy_range_start_new = 0;
         let mut field_pos_old = field_pos;
         let mut curr_action_pos = 0;
         let mut curr_action_pos_outstanding_dups = 0;
         let mut curr_action_pos_outstanding_drops = 0;
-        let mut curr_header_original_rl =
-            headers.first().map(|h| h.run_length).unwrap_or(0);
+        let mut curr_header_original_rl = headers
+            .first()
+            .map(|h| h.effective_run_length())
+            .unwrap_or(0);
         let mut data_end = 0;
         let mut curr_header_iter_count = 0;
 
@@ -550,7 +553,8 @@ impl FieldActionApplicator {
                         break 'advance_action;
                     }
                     header_idx += 1;
-                    curr_header_original_rl = headers[header_idx].run_length;
+                    curr_header_original_rl =
+                        headers[header_idx].effective_run_length();
                     header_idx_new += 1;
                 }
                 self.update_current_iters(

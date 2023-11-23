@@ -24,6 +24,7 @@ use super::{
     select::TfSelect,
     sequence::TfSequence,
     string_sink::TfStringSink,
+    terminator::TfTerminator,
 };
 
 pub type TransformId = NonMaxUsize;
@@ -31,6 +32,7 @@ pub type TransformId = NonMaxUsize;
 pub enum TransformData<'a> {
     Disabled,
     Nop(TfNop),
+    Terminator(TfTerminator),
     Call(TfCall),
     CallConcurrent(TfCallConcurrent<'a>),
     CalleeConcurrent(TfCalleeConcurrent),
@@ -80,6 +82,7 @@ impl TransformData<'_> {
             TransformData::Literal(_) => "literal",
             TransformData::Sequence(_) => "sequence",
             TransformData::InputFeeder(_) => "input_feeder",
+            TransformData::Terminator(_) => "terminator",
         };
         format!("<tf {base}>").into()
     }

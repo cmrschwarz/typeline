@@ -36,7 +36,8 @@ use crate::{
 };
 
 use super::{
-    argument::Argument, chain_options::ChainOptions,
+    argument::Argument,
+    chain_options::{ChainOptions, DEFAULT_CHAIN_OPTIONS},
     operator_base_options::OperatorBaseOptions,
 };
 
@@ -105,6 +106,11 @@ impl SessionOptions {
     ) {
         op_base_opts.op_id = Some(self.operator_data.len() as OperatorId);
         op_base_opts.chain_id = Some(self.curr_chain);
+        op_base_opts.desired_batch_size = self.chains
+            [self.curr_chain as usize]
+            .default_batch_size
+            .get()
+            .unwrap_or(DEFAULT_CHAIN_OPTIONS.default_batch_size.unwrap());
         match &mut op_data {
             OperatorData::Call(_) => (),
             OperatorData::CallConcurrent(_) => {
@@ -447,6 +453,7 @@ impl SessionOptions {
                         chain_id: obo.chain_id,
                         append_mode: obo.append_mode,
                         transparent_mode: obo.transparent_mode,
+                        desired_batch_size: obo.desired_batch_size,
                         // set during setup
                         offset_in_chain: u32::MAX,
                         outputs_start: 0,

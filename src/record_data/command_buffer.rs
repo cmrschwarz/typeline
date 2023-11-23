@@ -1,6 +1,4 @@
-use std::{default, mem::size_of, ops::DerefMut};
-
-use nonmax::NonMaxU32;
+use std::{mem::size_of, ops::DerefMut};
 
 use crate::utils::{
     dynamic_freelist::DynamicArrayFreelist, launder_slice,
@@ -256,7 +254,6 @@ impl ActionBuffer {
         }
         let next_action_group_id_succ = if ai != self.actors.max_index() {
             let next_agq = &self.actors[ai].action_group_queues[0];
-
             next_agq.action_groups.next_free_index() as ActionGroupId
         } else {
             0
@@ -264,7 +261,7 @@ impl ActionBuffer {
         agq = &mut self.actors[ai].action_group_queues[0];
         agq.action_groups.data.push_back(ActionGroupWithRefs {
             ag: ActionGroup {
-                start: agq.actions.next_free_index() - action_count,
+                start: actions_start,
                 length: action_count,
             },
             refcount: 0,
@@ -872,29 +869,25 @@ impl ActionBuffer {
         let mut field_ref = fm.fields[field_id].borrow_mut();
         let field = field_ref.deref_mut();
         let Some(actor_id) =
-            self.initialize_fist_actor(field_id, &mut field.first_actor)
+            self.initialize_first_actor(field_id, &mut field.first_actor)
         else {
             return;
         };
+        let field_ss = field.snapshot;
         let actor_ss = self.update_actor_snapshot(actor_id);
-        if actor_ss == field.snapshot {
+        if actor_ss == field_ss {
             return;
         }
-        let field_ss_actor_count =
-            self.get_snapshot_actor_count(field.snapshot);
+        let field_ss_actor_count = self.get_snapshot_actor_count(field_ss);
         let actions = if field_ss_actor_count == self.actors.next_free_index()
         {
-            self.apply_from_snapshot_with_same_actor_count(
-                actor_id,
-                field.snapshot,
-            )
+            self.apply_from_snapshot_with_same_actor_count(actor_id, field_ss)
         } else {
             self.apply_from_snapshot_with_different_actor_count(
-                actor_id,
-                field.snapshot,
+                actor_id, field_ss,
             )
         };
-        self.drop_snapshot_refcount(field.snapshot, 1);
+        self.drop_snapshot_refcount(field_ss, 1);
         field.snapshot = actor_ss;
         self.bump_snapshot_refcount(actor_ss, 1);
         let Some(actions) = actions else { return };
@@ -957,7 +950,7 @@ impl ActionBuffer {
         #[cfg(feature = "debug_logging")]
         {
             println!(
-                "executing for field {} (first actor {}):",
+                "executing for field {} (first actor: {}):",
                 field_id, actor_id,
             );
             for a in actions.clone() {
@@ -974,8 +967,8 @@ impl ActionBuffer {
             0,
         );
     }
-    fn initialize_fist_actor(
-        &self,
+    fn initialize_first_actor(
+        &mut self,
         field_id: FieldId,
         first_actor: &mut ActorRef,
     ) -> Option<ActorId> {
@@ -984,6 +977,7 @@ impl ActionBuffer {
             ActorRef::Unconfirmed(actor) => {
                 if self.actors.next_free_index() > actor {
                     *first_actor = ActorRef::Present(actor);
+                    self.actors[actor].subscribers.push(field_id);
                     Some(actor)
                 } else {
                     None
@@ -1000,13 +994,21 @@ impl ActionBuffer {
         if self.actors.data.is_empty() {
             return;
         }
-        let Some(actor_id) = self.initialize_fist_actor(field_id, first_actor)
+        let Some(actor_id) =
+            self.initialize_first_actor(field_id, first_actor)
         else {
             return;
         };
         let ss = self.update_actor_snapshot(actor_id);
         if ss == *snapshot {
             return;
+        }
+        #[cfg(feature = "debug_logging")]
+        {
+            println!(
+                "dropping actions for field {} (first actor: {})",
+                field_id, actor_id,
+            );
         }
         self.drop_snapshot_refcount(*snapshot, 1);
         self.bump_snapshot_refcount(ss, 1);

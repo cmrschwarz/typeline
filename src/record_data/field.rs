@@ -12,7 +12,7 @@ use crate::utils::{
 };
 
 use super::{
-    command_buffer::{ActorId, ActorRef, SnapshotRef},
+    command_buffer::{ActorRef, SnapshotRef},
     field_data::{FieldData, FieldDataBuffer, FieldValueHeader},
     iter_hall::{FieldDataSource, IterHall, IterId},
     iters::{DestructuredFieldDataRef, FieldDataRef, FieldIterator, Iter},
