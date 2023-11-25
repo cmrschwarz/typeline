@@ -29,7 +29,10 @@ pub(super) enum FieldDataSource {
     #[default]
     Owned,
     Cow(FieldId),
-    DataCow(FieldId),
+    DataCow {
+        src_field: FieldId,
+        header_iter: IterId,
+    },
     RecordBufferCow(*const UnsafeCell<FieldData>),
     RecordBufferDataCow(*const UnsafeCell<FieldData>),
 }
@@ -67,6 +70,16 @@ impl IterHall {
             field_pos: 0,
             data: 0,
             header_idx: 0,
+            header_rl_offset: 0,
+        });
+        iter_id
+    }
+    pub fn claim_iter_at_end(&mut self) -> IterId {
+        let iter_id = self.iters.claim();
+        self.iters[iter_id].set(IterState {
+            field_pos: self.field_data.field_count,
+            data: self.field_data.data.len(),
+            header_idx: self.field_data.headers.len(),
             header_rl_offset: 0,
         });
         iter_id
@@ -204,7 +217,10 @@ impl IterHall {
         match self.data_source {
             FieldDataSource::Owned => None,
             FieldDataSource::Cow(src) => Some(src),
-            FieldDataSource::DataCow(src) => Some(src),
+            FieldDataSource::DataCow {
+                src_field,
+                header_iter: _,
+            } => Some(src_field),
             FieldDataSource::RecordBufferCow(_) => None,
             FieldDataSource::RecordBufferDataCow(_) => None,
         }
@@ -213,7 +229,7 @@ impl IterHall {
         match self.data_source {
             FieldDataSource::Owned => true,
             FieldDataSource::Cow(_) => false,
-            FieldDataSource::DataCow(_) => false,
+            FieldDataSource::DataCow { .. } => false,
             FieldDataSource::RecordBufferCow(_) => false,
             FieldDataSource::RecordBufferDataCow(_) => false,
         }
@@ -221,7 +237,7 @@ impl IterHall {
     pub fn are_headers_owned(&self) -> bool {
         match self.data_source {
             FieldDataSource::Owned => true,
-            FieldDataSource::DataCow(_) => true,
+            FieldDataSource::DataCow { .. } => true,
             FieldDataSource::RecordBufferDataCow(_) => true,
             FieldDataSource::Cow(_) => false,
             FieldDataSource::RecordBufferCow(_) => false,
@@ -232,7 +248,10 @@ impl IterHall {
         match self.data_source {
             FieldDataSource::Owned => (None, None),
             FieldDataSource::Cow(src) => (Some(src), Some(false)),
-            FieldDataSource::DataCow(data_ref) => (Some(data_ref), Some(true)),
+            FieldDataSource::DataCow {
+                src_field,
+                header_iter: _,
+            } => (Some(src_field), Some(true)),
             FieldDataSource::RecordBufferCow(_) => (None, Some(false)),
             FieldDataSource::RecordBufferDataCow(_) => (None, Some(true)),
         }
@@ -253,9 +272,10 @@ impl IterHall {
         match &mut self.data_source {
             FieldDataSource::Owned => (),
             FieldDataSource::Cow(_) => (),
-            FieldDataSource::DataCow(data_ref) => {
-                self.data_source = FieldDataSource::Cow(*data_ref)
-            }
+            FieldDataSource::DataCow {
+                src_field,
+                header_iter: _,
+            } => self.data_source = FieldDataSource::Cow(*src_field),
             FieldDataSource::RecordBufferCow(_) => todo!(),
             FieldDataSource::RecordBufferDataCow(data_ref) => {
                 self.data_source = FieldDataSource::RecordBufferCow(*data_ref)
@@ -311,7 +331,7 @@ impl IterHall {
     ) -> usize {
         match self.data_source {
             FieldDataSource::Owned
-            | FieldDataSource::DataCow(_)
+            | FieldDataSource::DataCow { .. }
             | FieldDataSource::RecordBufferDataCow(_) => {
                 header_tgt.extend_from_slice(&self.field_data.headers);
                 self.field_data.field_count
@@ -339,7 +359,10 @@ impl IterHall {
             FieldDataSource::Cow(src) => {
                 fm.fields[src].borrow().iter_hall.append_data_to(fm, target);
             }
-            FieldDataSource::DataCow(data_ref) => fm.fields[data_ref]
+            FieldDataSource::DataCow {
+                src_field,
+                header_iter,
+            } => fm.fields[src_field]
                 .borrow()
                 .iter_hall
                 .append_data_to(fm, target),
@@ -355,13 +378,14 @@ impl IterHall {
             FieldDataSource::Cow(src) => {
                 fm.fields[src].borrow().iter_hall.append_to(fm, target)
             }
-            FieldDataSource::DataCow(data_ref) => {
-                target.headers.extend_from_slice(&self.field_data.headers);
-                target.field_count += self.field_data.field_count;
-                fm.fields[data_ref]
+            FieldDataSource::DataCow {
+                src_field,
+                header_iter: _,
+            } => {
+                fm.fields[src_field]
                     .borrow()
                     .iter_hall
-                    .append_data_to(fm, &mut target.data);
+                    .append_to(fm, target);
             }
             FieldDataSource::RecordBufferCow(data_ref) => {
                 target.append_from_other(unsafe { &*(*data_ref).get() });
@@ -377,7 +401,7 @@ impl IterHall {
     pub fn get_field_count(&self, fm: &FieldManager) -> usize {
         match self.data_source {
             FieldDataSource::Owned
-            | FieldDataSource::DataCow(_)
+            | FieldDataSource::DataCow { .. }
             | FieldDataSource::RecordBufferDataCow(_) => {
                 self.field_data.field_count
             }
@@ -406,11 +430,14 @@ impl IterHall {
                 self.data_source = FieldDataSource::Owned;
                 Some(src_id)
             }
-            FieldDataSource::DataCow(data_ref) => {
+            FieldDataSource::DataCow {
+                src_field,
+                header_iter,
+            } => {
                 debug_assert!(self.field_data.is_empty());
-                let src = fm.fields[data_ref].borrow();
+                let src = fm.fields[src_field].borrow();
                 src.iter_hall.append_data_to(fm, &mut self.field_data.data);
-                Some(data_ref)
+                Some(src_field) //TODO: fix up header_iter
             }
             FieldDataSource::RecordBufferCow(data_ref) => {
                 debug_assert!(self.field_data.is_empty());
@@ -431,15 +458,19 @@ impl IterHall {
         }
         match self.data_source {
             FieldDataSource::Owned => unreachable!(),
-            FieldDataSource::DataCow(_) => unreachable!(),
+            FieldDataSource::DataCow { .. } => unreachable!(),
             FieldDataSource::RecordBufferDataCow(_) => unreachable!(),
-            FieldDataSource::Cow(src) => {
+            FieldDataSource::Cow(src_field_id) => {
                 debug_assert!(self.field_data.is_empty());
-                self.field_data.field_count = fm.fields[src]
-                    .borrow()
+                let mut src_field = fm.fields[src_field_id].borrow_mut();
+                self.field_data.field_count = src_field
                     .iter_hall
                     .append_headers_to(fm, &mut self.field_data.headers);
-                self.data_source = FieldDataSource::DataCow(src);
+                let header_iter = src_field.iter_hall.claim_iter_at_end();
+                self.data_source = FieldDataSource::DataCow {
+                    src_field: src_field_id,
+                    header_iter,
+                };
             }
             FieldDataSource::RecordBufferCow(rb) => {
                 let fd = unsafe { &*(*rb).get() };

@@ -154,7 +154,7 @@ impl FieldManager {
             }
             FieldDataSource::Owned
             | FieldDataSource::RecordBufferDataCow(_)
-            | FieldDataSource::DataCow(_)
+            | FieldDataSource::DataCow { .. }
             | FieldDataSource::RecordBufferCow(_) => {
                 let field_count = fr.iter_hall.field_data.field_count;
                 (
@@ -169,10 +169,11 @@ impl FieldManager {
         fr: Ref<'a, Field>,
     ) -> Ref<'a, FieldDataBuffer> {
         match &fr.iter_hall.data_source {
-            FieldDataSource::Cow(data_ref)
-            | FieldDataSource::DataCow(data_ref) => {
-                self.get_field_data(self.fields[*data_ref].borrow())
-            }
+            FieldDataSource::Cow(src_field)
+            | FieldDataSource::DataCow {
+                src_field,
+                header_iter: _,
+            } => self.get_field_data(self.fields[*src_field].borrow()),
             FieldDataSource::RecordBufferCow(_)
             | FieldDataSource::RecordBufferDataCow(_)
             | FieldDataSource::Owned => {
@@ -202,12 +203,15 @@ impl FieldManager {
             }
             FieldDataSource::Cow(_) => (),
             FieldDataSource::RecordBufferCow(_) => (),
-            FieldDataSource::DataCow(data_ref) => {
+            FieldDataSource::DataCow {
+                src_field,
+                header_iter: _,
+            } => {
                 if field.get_clear_delay_request_count() > 0 {
                     return false;
                 } else {
                     field.iter_hall.data_source =
-                        FieldDataSource::Cow(*data_ref);
+                        FieldDataSource::Cow(*src_field);
                 }
             }
             FieldDataSource::RecordBufferDataCow(data_ref) => {
@@ -456,7 +460,10 @@ impl FieldManager {
                 let mut iter = Iter::from_start(fr.destructured_field_ref());
                 FieldData::copy(&mut iter, &mut |f| f(tgt));
             }
-            FieldDataSource::DataCow(data_ref) => {
+            FieldDataSource::DataCow {
+                src_field,
+                header_iter: _,
+            } => {
                 std::mem::swap(
                     &mut tgt.field_count,
                     &mut src.iter_hall.field_data.field_count,
@@ -465,7 +472,7 @@ impl FieldManager {
                     &mut tgt.headers,
                     &mut src.iter_hall.field_data.headers,
                 );
-                let fr = self.get_cow_field_ref_raw(data_ref);
+                let fr = self.get_cow_field_ref_raw(src_field);
                 let iter = Iter::from_start(fr.destructured_field_ref());
                 unsafe {
                     FieldData::copy_data(iter, &mut |f| f(tgt));

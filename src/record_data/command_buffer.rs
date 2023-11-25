@@ -909,7 +909,7 @@ impl ActionBuffer {
                 FieldDataSource::Owned => {
                     (&mut fd.headers, Some(&mut fd.data), &mut fd.field_count)
                 }
-                FieldDataSource::DataCow(_)
+                FieldDataSource::DataCow { .. }
                 | FieldDataSource::RecordBufferDataCow(_) => {
                     (&mut fd.headers, None, &mut fd.field_count)
                 }
