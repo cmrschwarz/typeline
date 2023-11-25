@@ -74,14 +74,54 @@ impl IterHall {
         });
         iter_id
     }
-    pub fn claim_iter_at_end(&mut self) -> IterId {
-        let iter_id = self.iters.claim();
-        self.iters[iter_id].set(IterState {
+    pub fn get_iter_state_at_end(&self, fm: &FieldManager) -> IterState {
+        if self.field_data.field_count == 0 {
+            return IterState {
+                field_pos: 0,
+                data: 0,
+                header_idx: 0,
+                header_rl_offset: 0,
+            };
+        }
+        IterState {
             field_pos: self.field_data.field_count,
-            data: self.field_data.data.len(),
-            header_idx: self.field_data.headers.len(),
-            header_rl_offset: 0,
-        });
+            data: self.get_field_data_len(fm)
+                - self
+                    .field_data
+                    .headers
+                    .last()
+                    .map(|h| h.total_size_unique())
+                    .unwrap_or(0),
+            //TODO: respect cow
+            header_idx: self.field_data.headers.len() - 1,
+            header_rl_offset: self
+                .field_data
+                .headers
+                .last()
+                .unwrap()
+                .run_length,
+        }
+    }
+    pub fn get_field_data_len(&self, fm: &FieldManager) -> usize {
+        match self.data_source {
+            FieldDataSource::Owned => self.field_data.data.len(),
+            FieldDataSource::Cow(src_field)
+            | FieldDataSource::DataCow {
+                src_field,
+                header_iter: _,
+            } => fm.fields[src_field]
+                .borrow()
+                .iter_hall
+                .get_field_data_len(fm),
+            FieldDataSource::RecordBufferCow(data)
+            | FieldDataSource::RecordBufferDataCow(data) => {
+                unsafe { &*(*data).get() }.data.len()
+            }
+        }
+    }
+    pub fn claim_iter_at_end(&mut self, fm: &FieldManager) -> IterId {
+        let iter_id = self.iters.claim();
+        self.iters[iter_id].set(self.get_iter_state_at_end(fm));
         iter_id
     }
     pub fn reserve_iter_id(&mut self, iter_id: IterId) {
@@ -175,12 +215,14 @@ impl IterHall {
         }
         state.header_idx = iter.header_idx;
         state.data = iter.data;
-        self.iters[iter_id].set(state);
+        unsafe {
+            self.store_iter_state_unchecked(iter_id, state);
+        }
     }
     pub unsafe fn store_iter_state_unchecked(
         &self,
         iter_id: IterId,
-        mut iter_state: IterState,
+        iter_state: IterState,
     ) {
         self.iters[iter_id].set(iter_state);
     }
@@ -473,7 +515,7 @@ impl IterHall {
                 self.field_data.field_count = src_field
                     .iter_hall
                     .append_headers_to(fm, &mut self.field_data.headers);
-                let header_iter = src_field.iter_hall.claim_iter_at_end();
+                let header_iter = src_field.iter_hall.claim_iter_at_end(fm);
                 self.data_source = FieldDataSource::DataCow {
                     src_field: src_field_id,
                     header_iter,

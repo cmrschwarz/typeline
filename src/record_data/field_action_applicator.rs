@@ -118,6 +118,7 @@ impl FieldActionApplicator {
         let data_offset = header_to_skip.total_size_unique();
         let start = iterators.len() - curr_header_iter_count;
         for it in &mut iterators[start..] {
+            it.field_pos -= it.header_rl_offset as usize;
             it.header_idx += 1;
             it.data += data_offset;
             it.header_rl_offset = 0;
@@ -451,9 +452,8 @@ impl FieldActionApplicator {
         let mut data_end = 0;
         let mut curr_header_iter_count = 0;
 
-        let header_end = headers[0].run_length as usize;
         for it in iterators.iter().rev() {
-            if it.field_pos >= header_end {
+            if it.header_idx != header_idx {
                 break;
             }
             curr_header_iter_count += 1;
@@ -528,8 +528,6 @@ impl FieldActionApplicator {
                     if !header.same_value_as_previous() {
                         data_end += header.total_size();
                     }
-                    let header_end_old =
-                        field_pos_old + header.run_length as usize;
                     let field_pos_delta =
                         field_pos as isize - field_pos_old as isize;
                     iterators
@@ -539,7 +537,7 @@ impl FieldActionApplicator {
                     while len > curr_header_iter_count {
                         let it =
                             &mut iterators[len - curr_header_iter_count - 1];
-                        if it.field_pos >= header_end_old {
+                        if it.header_idx != header_idx + 1 {
                             break;
                         }
                         it.field_pos =
@@ -609,6 +607,16 @@ impl FieldActionApplicator {
         if headers_rem > 0 {
             field_pos += headers[header_idx].run_length as usize;
             field_pos_old += curr_header_original_rl as usize;
+            let header_idx_delta =
+                header_idx_new as isize - (header_idx + headers_rem) as isize;
+            let field_pos_delta = field_pos as isize - field_pos_old as isize;
+            let iters_len = iterators.len();
+            for it in &mut iterators[0..iters_len - curr_header_iter_count] {
+                it.field_pos =
+                    (it.field_pos as isize + field_pos_delta) as usize;
+                it.header_idx =
+                    (it.header_idx as isize + header_idx_delta) as usize;
+            }
         } else if let Some(data) = data {
             // if we touched all headers, there is a chance that the final
             // headers are deleted

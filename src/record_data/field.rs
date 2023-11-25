@@ -11,7 +11,10 @@ use crate::utils::{nonzero_ext::NonMaxU32Ext, universe::Universe};
 
 use super::{
     command_buffer::{ActorRef, SnapshotRef},
-    field_data::{FieldData, FieldDataBuffer, FieldValueHeader},
+    field_data::{
+        field_value_flags::SAME_VALUE_AS_PREVIOUS, FieldData, FieldDataBuffer,
+        FieldValueFormat, FieldValueHeader,
+    },
     iter_hall::{FieldDataSource, IterHall, IterId},
     iters::{DestructuredFieldDataRef, FieldDataRef, FieldIterator, Iter},
     match_set::{MatchSetId, MatchSetManager},
@@ -337,29 +340,47 @@ impl FieldManager {
         let FieldDataSource::DataCow {
             src_field,
             header_iter,
-        } = field.iter_hall.data_source else { return};
+        } = field.iter_hall.data_source
+        else {
+            return;
+        };
 
         let src = self.fields[src_field].borrow();
-        let mut iter = src.iter_hall.get_iter_state(header_iter);
+        let iter = src.iter_hall.get_iter_state(header_iter);
         let (headers, count) = self.get_field_headers(src);
-        let data = self.get_field_data(self.fields[src_field].borrow());
-        //TODO: fix partial headers due to merges...
+        let mut copy_headers_from = iter.header_idx;
+        if iter.header_rl_offset != 0 {
+            let h = headers[iter.header_idx];
+            let additional_run_len = h.run_length - iter.header_rl_offset;
+            if additional_run_len > 0 {
+                field.iter_hall.field_data.headers.push(FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        flags: h.flags
+                            | if h.shared_value() {
+                                SAME_VALUE_AS_PREVIOUS
+                            } else {
+                                0
+                            },
+                        ..h.fmt
+                    },
+                    run_length: additional_run_len,
+                })
+            }
+            copy_headers_from += 1;
+        }
         let additional_len = count - iter.field_pos;
         field
             .iter_hall
             .field_data
             .headers
-            .extend_from_slice(&headers[iter.header_idx..]);
-        iter.header_idx = headers.len();
-        iter.header_rl_offset = 0;
-        iter.field_pos = count;
-        iter.data = data.len();
+            .extend_from_slice(&headers[copy_headers_from..]);
         field.iter_hall.field_data.field_count += additional_len;
+        let src = self.fields[src_field].borrow();
         unsafe {
-            self.fields[src_field]
-                .borrow()
-                .iter_hall
-                .store_iter_state_unchecked(header_iter, iter);
+            src.iter_hall.store_iter_state_unchecked(
+                header_iter,
+                src.iter_hall.get_iter_state_at_end(self),
+            );
         }
     }
 
