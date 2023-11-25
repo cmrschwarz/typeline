@@ -45,10 +45,7 @@ impl MatchSetManager {
         field_id: FieldId,
         name: StringStoreEntry,
     ) {
-        let mut field = fm.fields[field_id].borrow_mut();
-        // we allow reassigning for the case of prebound outputs
-        debug_assert!(field.name.is_none() || field.name == Some(name));
-        field.name = Some(name);
+        let field = fm.fields[field_id].borrow();
         self.match_sets[field.match_set]
             .field_name_map
             .insert(name, field_id);

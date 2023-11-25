@@ -7,10 +7,7 @@ use std::{
 use nonmax::NonMaxU16;
 use smallvec::SmallVec;
 
-use crate::utils::{
-    nonzero_ext::NonMaxU32Ext, string_store::StringStoreEntry,
-    universe::Universe,
-};
+use crate::utils::{nonzero_ext::NonMaxU32Ext, universe::Universe};
 
 use super::{
     command_buffer::{ActorRef, SnapshotRef},
@@ -33,7 +30,6 @@ pub struct Field {
     pub first_actor: ActorRef,
     pub snapshot: SnapshotRef,
 
-    pub name: Option<StringStoreEntry>,
     // fields potentially referenced by this field.
     // keeps them alive until this field is dropped
     // for cow'ed fields, initialization of this is *not* done by default
@@ -322,7 +318,6 @@ impl FieldManager {
             match_set: ms_id,
             first_actor,
             snapshot: Default::default(),
-            name: Default::default(),
             iter_hall: IterHall::new_with_data(data),
             field_refs: Default::default(),
             #[cfg(feature = "debug_logging")]
@@ -350,38 +345,6 @@ impl FieldManager {
         let cb = &mut msm.match_sets[match_set].action_buffer;
         drop(field);
         cb.execute(self, field_id);
-    }
-
-    pub fn setup_same_ms_cow(
-        &mut self,
-        msm: &mut MatchSetManager,
-        field_id: FieldId,
-        src_field_id: FieldId,
-    ) {
-        let mut field = self.fields[field_id].borrow_mut();
-        debug_assert!(field.iter_hall.field_data.is_empty());
-        if let (Some(cow_src_id), _) = field.iter_hall.cow_source_field() {
-            self.remove_from_cow_tgt_list(field_id, cow_src_id);
-            drop(field);
-            self.drop_field_refcount(field_id, msm);
-            field = self.fields[field_id].borrow_mut();
-        }
-        for i in 0..field.field_refs.len() {
-            let fr = field.field_refs[i];
-            drop(field);
-            self.drop_field_refcount(fr, msm);
-            field = self.fields[field_id].borrow_mut();
-        }
-        field.field_refs.clear();
-        field.iter_hall.data_source = FieldDataSource::Cow(src_field_id);
-        let mut src_field = self.fields[src_field_id].borrow_mut();
-        debug_assert!(field.match_set == src_field.match_set);
-        src_field.ref_count += 1;
-        src_field.iter_hall.cow_targets.push(field_id);
-        field.field_refs.extend_from_slice(&src_field.field_refs);
-        for &f in &field.field_refs {
-            self.bump_field_refcount(f);
-        }
     }
     pub fn get_cross_ms_cow_field(
         &mut self,

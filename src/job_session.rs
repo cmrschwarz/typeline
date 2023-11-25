@@ -404,9 +404,9 @@ impl<'a> JobData<'a> {
             let id = _id;
             let field = self.field_mgr.fields[id].borrow();
             print!("field id {id}");
-            if let Some(name) = field.name {
-                print!(" '@{}'", self.session_data.string_store.lookup(name));
-            }
+            //if let Some(name) = field.name {
+            //    print!(" '@{}'", self.session_data.string_store.lookup(name));
+            //}
             print!(", ms {}", field.match_set);
             if let Some(prod_id) = field.producing_transform_id {
                 print!(
@@ -676,6 +676,9 @@ impl<'a> JobSession<'a> {
                     }
                     make_input_output = true;
                 }
+                OperatorData::Key(_) => {
+                    make_input_output = true;
+                }
                 OperatorData::Fork(_) | OperatorData::Nop(_) => {
                     dummy_output = true
                 }
@@ -811,11 +814,6 @@ impl<'a> JobSession<'a> {
                     setup_tf_call_concurrent(jd, b, op, &tf_state)
                 }
                 OperatorData::Key(key) => {
-                    self.job_data.field_mgr.setup_same_ms_cow(
-                        &mut self.job_data.match_set_mgr,
-                        output_field,
-                        input_field,
-                    );
                     self.job_data.match_set_mgr.set_field_name(
                         &self.job_data.field_mgr,
                         output_field,
