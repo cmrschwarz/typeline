@@ -177,6 +177,13 @@ impl IterHall {
         state.data = iter.data;
         self.iters[iter_id].set(state);
     }
+    pub unsafe fn store_iter_state_unchecked(
+        &self,
+        iter_id: IterId,
+        mut iter_state: IterState,
+    ) {
+        self.iters[iter_id].set(iter_state);
+    }
 
     /// returns a tuple of (FieldData, initial_field_offset, field_count)
     pub unsafe fn internals(&mut self) -> FieldDataInternals {
@@ -361,7 +368,7 @@ impl IterHall {
             }
             FieldDataSource::DataCow {
                 src_field,
-                header_iter,
+                header_iter: _,
             } => fm.fields[src_field]
                 .borrow()
                 .iter_hall
@@ -432,7 +439,7 @@ impl IterHall {
             }
             FieldDataSource::DataCow {
                 src_field,
-                header_iter,
+                header_iter: _,
             } => {
                 debug_assert!(self.field_data.is_empty());
                 let src = fm.fields[src_field].borrow();

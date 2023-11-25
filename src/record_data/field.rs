@@ -332,15 +332,48 @@ impl FieldManager {
         field.iter_hall.reserve_iter_id(FIELD_REF_LOOKUP_ITER_ID);
         self.fields.claim_with_value(RefCell::new(field))
     }
+    pub fn update_data_cow_headers(&self, field_id: FieldId) {
+        let mut field = self.fields[field_id].borrow_mut();
+        let FieldDataSource::DataCow {
+            src_field,
+            header_iter,
+        } = field.iter_hall.data_source else { return};
+
+        let src = self.fields[src_field].borrow();
+        let mut iter = src.iter_hall.get_iter_state(header_iter);
+        let (headers, count) = self.get_field_headers(src);
+        let data = self.get_field_data(self.fields[src_field].borrow());
+        //TODO: fix partial headers due to merges...
+        let additional_len = count - iter.field_pos;
+        field
+            .iter_hall
+            .field_data
+            .headers
+            .extend_from_slice(&headers[iter.header_idx..]);
+        iter.header_idx = headers.len();
+        iter.header_rl_offset = 0;
+        iter.field_pos = count;
+        iter.data = data.len();
+        field.iter_hall.field_data.field_count += additional_len;
+        unsafe {
+            self.fields[src_field]
+                .borrow()
+                .iter_hall
+                .store_iter_state_unchecked(header_iter, iter);
+        }
+    }
 
     pub fn apply_field_actions(
         &self,
         msm: &mut MatchSetManager,
         field_id: FieldId,
     ) {
-        let field = self.fields[field_id].borrow();
+        let mut field = self.fields[field_id].borrow();
         if let (Some(cow_src_id), _) = field.iter_hall.cow_source_field() {
             self.apply_field_actions(msm, cow_src_id);
+            drop(field);
+            self.update_data_cow_headers(field_id);
+            field = self.fields[field_id].borrow();
         }
         for &f in &field.field_refs {
             self.apply_field_actions(msm, f);
