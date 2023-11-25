@@ -5,6 +5,9 @@ use crate::utils::{
     offset_vec_deque::OffsetVecDeque, subslice_slice_pair,
 };
 
+#[cfg(feature = "debug_logging")]
+use super::match_set::MatchSetId;
+
 use super::{
     field::{FieldId, FieldManager},
     field_action::{merge_action_lists, FieldAction, FieldActionKind},
@@ -12,7 +15,6 @@ use super::{
     field_data::RunLength,
     iter_hall::FieldDataSource,
 };
-
 pub type ActorId = u32;
 pub type ActionGroupId = u32;
 pub type ActionId = usize;
@@ -135,6 +137,8 @@ pub struct ActionBuffer {
     snapshot_freelists:
         Vec<DynamicArrayFreelist<SnapshotLookupId, SnapshotEntry>>,
     actions_applicator: FieldActionApplicator,
+    #[cfg(feature = "debug_logging")]
+    pub match_set_id: MatchSetId,
 }
 
 type Pow2Index = u32;
@@ -248,7 +252,8 @@ impl ActionBuffer {
         #[cfg(feature = "debug_logging")]
         {
             println!(
-                "actor {}: added action group {}:",
+                "ms {}, actor {}: added action group {}:",
+                self.match_set_id,
                 ai,
                 agq.action_groups.next_free_index()
             );
@@ -1010,8 +1015,8 @@ impl ActionBuffer {
         #[cfg(feature = "debug_logging")]
         {
             println!(
-                "dropping actions for field {} (first actor: {})",
-                field_id, actor_id,
+                "dropping actions for field {} (ms: {}, first actor: {})",
+                field_id, self.match_set_id, actor_id,
             );
         }
         self.drop_snapshot_refcount(*snapshot, 1);

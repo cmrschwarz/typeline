@@ -54,12 +54,18 @@ impl MatchSetManager {
             .insert(name, field_id);
     }
     pub fn add_match_set(&mut self) -> MatchSetId {
-        self.match_sets.claim_with(|| MatchSet {
+        #[allow(unused_mut)]
+        let mut ms = MatchSet {
             stream_participants: Default::default(),
             action_buffer: Default::default(),
             field_name_map: Default::default(),
             cow_map: Default::default(),
-        })
+        };
+        #[cfg(feature = "debug_logging")]
+        {
+            ms.action_buffer.match_set_id = self.match_sets.peek_claim_id();
+        }
+        self.match_sets.claim_with_value(ms)
     }
     pub fn remove_match_set(&mut self, _ms_id: MatchSetId) {
         todo!()

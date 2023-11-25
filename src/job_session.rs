@@ -3,8 +3,6 @@ use std::{
     sync::Arc,
 };
 
-use nonmax::NonMaxU32;
-
 use crate::{
     chain::ChainId,
     context::{ContextData, Job, Session, VentureDescription},
@@ -68,7 +66,7 @@ use crate::{
 pub struct JobSession<'a> {
     pub transform_data: Vec<TransformData<'a>>,
     pub job_data: JobData<'a>,
-    pub temp_vec: Vec<NonMaxU32>,
+    pub temp_vec: Vec<FieldId>,
 }
 // a helper type so we can pass a transform handler typed
 // TransformData + all the other Data of the WorkerThreadSession
@@ -455,12 +453,18 @@ impl<'a> JobSession<'a> {
                     self.transform_data[i.get()].alternative_display_name()
                 };
                 println!(
-                    "tf {} [{} {}{}{}]: {}",
+                    "tf {} -> {} [{} {}{}{}] (ms {}): {}",
                     i,
+                    if let Some(s) = tf.successor {
+                        format!("{s}")
+                    } else {
+                        "_".to_string()
+                    },
                     tf.input_field,
                     if tf.is_transparent { "_>" } else { "->" },
                     if tf.is_appending { "+" } else { " " },
                     tf.output_field,
+                    tf.match_set_id,
                     name
                 );
             }
@@ -807,7 +811,7 @@ impl<'a> JobSession<'a> {
                     setup_tf_call_concurrent(jd, b, op, &tf_state)
                 }
                 OperatorData::Key(key) => {
-                    self.job_data.field_mgr.setup_cow(
+                    self.job_data.field_mgr.setup_same_ms_cow(
                         &mut self.job_data.match_set_mgr,
                         output_field,
                         input_field,

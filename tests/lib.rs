@@ -22,6 +22,7 @@ use scr::{
         },
         next::create_op_next,
         nop::create_op_nop,
+        print::create_op_print,
         regex::{
             create_op_regex, create_op_regex_lines, create_op_regex_with_opts,
             RegexOptions,
@@ -1437,6 +1438,8 @@ fn forkcat_with_input() -> Result<(), ScrError> {
         .add_op(create_op_string_sink(&ss1))
         .add_op(create_op_next())
         .add_op(create_op_string_sink(&ss2))
+        .add_op(create_op_up(1))
+        .add_op(create_op_nop())
         .run()?;
     assert_eq!(ss1.get_data().unwrap().as_slice(), ["foo"]);
     assert_eq!(ss2.get_data().unwrap().as_slice(), ["foo"]);
@@ -1598,6 +1601,7 @@ fn forkcat_on_unapplied_commands() -> Result<(), ScrError> {
         .add_op(create_op_forkcat())
         .add_op(create_op_nop())
         .add_op(create_op_up(1))
+        .add_op_transparent(create_op_print())
         .add_op(create_op_join(None, None, false))
         .add_op(create_op_string_sink(&ss))
         .run()?;
