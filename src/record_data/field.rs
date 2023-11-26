@@ -437,6 +437,7 @@ impl FieldManager {
     pub fn setup_cross_ms_cow_fields(
         &mut self,
         msm: &mut MatchSetManager,
+        #[allow(unused)] // only used for debug_assert
         src_ms_id: MatchSetId,
         tgt_ms_id: MatchSetId,
         src_field_ids: &[FieldId],

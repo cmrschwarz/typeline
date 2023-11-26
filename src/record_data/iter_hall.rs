@@ -47,7 +47,7 @@ pub struct IterHall {
 unsafe impl Send for IterHall {}
 unsafe impl Sync for IterHall {}
 
-#[derive(Default, Clone, Copy)]
+#[derive(Default, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct IterState {
     pub(super) field_pos: usize,
     pub(super) data: usize,
@@ -92,7 +92,7 @@ impl IterHall {
                     .last()
                     .map(|h| h.total_size_unique())
                     .unwrap_or(0),
-            //TODO: respect cow
+            // TODO: respect cow
             header_idx: self.field_data.headers.len() - 1,
             header_rl_offset: self
                 .field_data
@@ -486,7 +486,7 @@ impl IterHall {
                 debug_assert!(self.field_data.is_empty());
                 let src = fm.fields[src_field].borrow();
                 src.iter_hall.append_data_to(fm, &mut self.field_data.data);
-                Some(src_field) //TODO: fix up header_iter
+                Some(src_field) // TODO: fix up header_iter
             }
             FieldDataSource::RecordBufferCow(data_ref) => {
                 debug_assert!(self.field_data.is_empty());

@@ -616,7 +616,7 @@ mod test_text_iter {
                 .unwrap()
         };
         let iter = InlineTextIter::new(data, &fd.headers, 0, 0);
-        assert_eq!(iter.map(|(v, rl)| (v, rl)).collect::<Vec<_>>(), expected);
+        assert_eq!(iter.collect::<Vec<_>>(), expected);
     }
 
     #[test]

@@ -730,21 +730,6 @@ pub trait PushInterface: RawPushInterface {
 
 impl<T: RawPushInterface> PushInterface for T {}
 
-#[cfg(test)]
-mod test {
-    use crate::record_data::field_data::FieldData;
-
-    use super::PushInterface;
-
-    #[test]
-    fn no_header_rle_for_distinct_shared_values() {
-        let mut fd = FieldData::default();
-        fd.push_int(1, 2, true, false);
-        fd.push_int(2, 2, true, false);
-        assert!(fd.headers.len() == 2);
-    }
-}
-
 pub struct RawFixedSizedTypeInserter<'a> {
     fd: &'a mut FieldData,
     count: usize,
@@ -1461,5 +1446,20 @@ impl<'a> VaryingTypeInserter<'a> {
 impl<'a> Drop for VaryingTypeInserter<'a> {
     fn drop(&mut self) {
         self.commit()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::record_data::field_data::FieldData;
+
+    use super::PushInterface;
+
+    #[test]
+    fn no_header_rle_for_distinct_shared_values() {
+        let mut fd = FieldData::default();
+        fd.push_int(1, 2, true, false);
+        fd.push_int(2, 2, true, false);
+        assert!(fd.headers.len() == 2);
     }
 }

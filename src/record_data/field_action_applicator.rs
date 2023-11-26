@@ -419,7 +419,7 @@ impl FieldActionApplicator {
     // returns the field_count delta
     fn generate_commands_from_actions<'a>(
         &mut self,
-        mut actions: impl Iterator<Item = &'a FieldAction>,
+        actions: impl Iterator<Item = &'a FieldAction>,
         headers: &mut Vec<FieldValueHeader>,
         data: Option<&mut FieldDataBuffer>,
         iterators: &mut Vec<&mut IterState>,
@@ -429,7 +429,9 @@ impl FieldActionApplicator {
         if headers.is_empty() {
             #[cfg(debug_assertions)]
             {
-                debug_assert!(actions.all(|a| a.kind == FieldActionKind::Drop));
+                debug_assert!(actions
+                    .copied()
+                    .all(|a| a.kind == FieldActionKind::Drop));
             }
             if let Some(data) = data {
                 data.clear();
@@ -605,7 +607,7 @@ impl FieldActionApplicator {
         let headers_rem = headers.len() - header_idx;
         header_idx_new += headers_rem;
         if headers_rem > 0 {
-            field_pos += headers[header_idx].run_length as usize;
+            field_pos += headers[header_idx].effective_run_length() as usize;
             field_pos_old += curr_header_original_rl as usize;
             let header_idx_delta =
                 header_idx_new as isize - (header_idx + headers_rem) as isize;
@@ -681,20 +683,21 @@ impl FieldActionApplicator {
         iterators: impl Iterator<Item = &'a mut IterState>,
         header_idx: usize,
         field_pos: usize,
-    ) {
+    ) -> isize {
         let mut iters = transmute_vec(std::mem::take(&mut self.iters));
         iters.extend(iterators);
         // we sort and use this backwards so we can pop() the ones
         // we handled
         iters.sort_by(|lhs, rhs| lhs.field_pos.cmp(&rhs.field_pos).reverse());
-        *field_count = (*field_count as isize
-            + self.generate_commands_from_actions(
-                actions, headers, data, &mut iters, header_idx, field_pos,
-            )) as usize;
+        let field_count_delta = self.generate_commands_from_actions(
+            actions, headers, data, &mut iters, header_idx, field_pos,
+        );
+        *field_count = (*field_count as isize + field_count_delta) as usize;
         self.iters = transmute_vec(iters);
         self.execute_commands(headers);
         self.insertions.clear();
         self.copies.clear();
+        field_count_delta
     }
 }
 
@@ -704,30 +707,36 @@ mod test {
         field_action::{FieldAction, FieldActionKind},
         field_action_applicator::FieldActionApplicator,
         field_data::{FieldData, RunLength},
+        iter_hall::IterState,
         iters::FieldIterator,
         push_interface::PushInterface,
         typed::TypedSlice,
         typed_iters::TypedSliceIter,
     };
 
-    fn test_actions_on_range_with_rle_opts(
+    fn test_actions_on_range_raw(
         input: impl Iterator<Item = i64>,
         header_rle: bool,
         value_rle: bool,
         actions: &[FieldAction],
         output: &[(i64, RunLength)],
+        iter_states_in: &[IterState],
+        iter_states_out: &[IterState],
     ) {
         let mut fd = FieldData::default();
+        let mut len_before = 0;
         for v in input {
             fd.push_int(v, 1, header_rle, value_rle);
+            len_before += 1;
         }
         let mut faa = FieldActionApplicator::default();
-        faa.run(
+        let mut iter_states = iter_states_in.to_vec();
+        let fc_delta = faa.run(
             actions.iter(),
             &mut fd.headers,
             Some(&mut fd.data),
             &mut fd.field_count,
-            std::iter::empty(),
+            iter_states.iter_mut(),
             0,
             0,
         );
@@ -744,14 +753,25 @@ mod test {
             }
         }
         assert_eq!(results, output);
+        assert_eq!(iter_states, iter_states_out);
+        let expected_field_count_delta =
+            output.iter().map(|(_v, rl)| *rl as isize).sum::<isize>()
+                - len_before;
+        assert_eq!(fc_delta, expected_field_count_delta);
     }
     fn test_actions_on_range(
         input: impl Iterator<Item = i64>,
         actions: &[FieldAction],
         output: &[(i64, RunLength)],
     ) {
-        test_actions_on_range_with_rle_opts(
-            input, true, true, actions, output,
+        test_actions_on_range_raw(
+            input,
+            true,
+            true,
+            actions,
+            output,
+            &[],
+            &[],
         );
     }
     fn test_actions_on_range_no_rle(
@@ -759,8 +779,14 @@ mod test {
         actions: &[FieldAction],
         output: &[(i64, RunLength)],
     ) {
-        test_actions_on_range_with_rle_opts(
-            input, false, false, actions, output,
+        test_actions_on_range_raw(
+            input,
+            false,
+            false,
+            actions,
+            output,
+            &[],
+            &[],
         );
     }
 
