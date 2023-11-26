@@ -240,6 +240,7 @@ impl FieldData {
         let last_header = self.headers.last_mut().unwrap();
         // command buffer should clear data after last non deleted
         debug_assert!(!last_header.deleted());
+        self.field_count += run_length;
         unsafe {
             if last_header.run_length > 1 && !last_header.shared_value() {
                 last_header.run_length -= 1;
@@ -260,6 +261,7 @@ impl FieldData {
         }
     }
     pub fn drop_last_value(&mut self, mut run_length: usize) {
+        self.field_count -= run_length;
         loop {
             if run_length == 0 {
                 return;
@@ -1277,6 +1279,7 @@ impl<'a> VaryingTypeInserter<'a> {
                 self.count,
                 self.fmt.flags,
             );
+            self.fd.field_count += self.count;
         }
         self.count = 0;
     }

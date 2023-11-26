@@ -692,6 +692,7 @@ impl FieldActionApplicator {
         let field_count_delta = self.generate_commands_from_actions(
             actions, headers, data, &mut iters, header_idx, field_pos,
         );
+        debug_assert!(*field_count as isize + field_count_delta >= 0);
         *field_count = (*field_count as isize + field_count_delta) as usize;
         self.iters = transmute_vec(iters);
         self.execute_commands(headers);

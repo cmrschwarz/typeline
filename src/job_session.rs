@@ -404,7 +404,7 @@ impl<'a> JobData<'a> {
             let id = _id;
             let field = self.field_mgr.fields[id].borrow();
             print!("field id {id}");
-            //if let Some(name) = field.name {
+            // if let Some(name) = field.name {
             //    print!(" '@{}'", self.session_data.string_store.lookup(name));
             //}
             print!(", ms {}", field.match_set);
