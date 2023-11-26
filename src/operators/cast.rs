@@ -306,11 +306,9 @@ pub fn handle_tf_cast_stream_value_update(
                 .drop_field_value_subscription(sv_id, Some(tf_id));
         }
         StreamValueData::Bytes(bb) => {
-            let out_data = match_unwrap!(
-                &mut sv_out.data,
-                StreamValueData::Bytes(bb_out),
-                bb_out
-            );
+            let StreamValueData::Bytes(out_data) = &mut sv_out.data else {
+                unreachable!()
+            };
             if sv_out.bytes_are_utf8 && !sv_in.bytes_are_utf8 {
                 let res = encoding::decode_to_utf8(
                     &mut encoding_rs::UTF_8.new_decoder_without_bom_handling(),

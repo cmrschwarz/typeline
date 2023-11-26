@@ -1,8 +1,5 @@
 use std::{fmt::Write, ops::Range};
 
-#[macro_use]
-pub mod match_unwrap;
-
 pub mod aligned_buf;
 pub mod dynamic_freelist;
 pub mod encoding;

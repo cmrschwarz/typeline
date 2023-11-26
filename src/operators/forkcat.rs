@@ -273,11 +273,11 @@ pub(crate) fn handle_initial_forkcat_expansion(
     tf_id: TransformId,
 ) -> TransformId {
     let tf = &sess.job_data.tf_mgr.transforms[tf_id];
-    let forkcat = match_unwrap!(
-        &mut sess.transform_data[tf_id.get()],
-        TransformData::ForkCat(fc),
-        fc
-    );
+    let TransformData::ForkCat(forkcat) =
+        &mut sess.transform_data[tf_id.get()]
+    else {
+        unreachable!()
+    };
     for &f in &forkcat.op.accessed_names_of_subchains {
         let input_field = if let Some(name) = f {
             sess.job_data.match_set_mgr.match_sets[tf.match_set_id]
@@ -505,11 +505,10 @@ pub(crate) fn handle_forkcat_subchain_expansion(
     sess: &mut JobSession,
     tf_id: TransformId,
 ) {
-    let mut fc = match_unwrap!(
-        &mut sess.transform_data[tf_id.get()],
-        TransformData::ForkCat(fc),
-        fc
-    );
+    let TransformData::ForkCat(fc) = &mut sess.transform_data[tf_id.get()]
+    else {
+        unreachable!()
+    };
     let sc_n = fc.curr_subchain_n;
     let sc_idx = fc.op.subchains_start + sc_n;
     if sc_idx == fc.op.subchains_end {

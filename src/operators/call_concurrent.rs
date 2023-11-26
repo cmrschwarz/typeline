@@ -282,11 +282,11 @@ pub(crate) fn handle_call_concurrent_expansion(
     tf_id: TransformId,
     ctx: Option<&Arc<ContextData>>,
 ) -> Result<(), VentureDescription> {
-    let call = match_unwrap!(
-        &mut sess.transform_data[tf_id.get()],
-        TransformData::CallConcurrent(cc),
-        cc
-    );
+    let TransformData::CallConcurrent(call) =
+        &mut sess.transform_data[tf_id.get()]
+    else {
+        unreachable!()
+    };
     call.expanded = true;
     setup_target_field_mappings(&mut sess.job_data, tf_id, call);
     let starting_op = sess.job_data.session_data.chains
