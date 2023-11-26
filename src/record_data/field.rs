@@ -64,15 +64,6 @@ impl Field {
         self.has_unconsumed_input
             .set(self.has_unconsumed_input.get() || value);
     }
-    pub fn request_clear_delay(&self) {
-        self.has_unconsumed_input.set(true);
-        self.clear_delay_request_count
-            .set(self.clear_delay_request_count.get() + 1);
-    }
-    pub fn drop_clear_delay_request(&self) {
-        self.clear_delay_request_count
-            .set(self.clear_delay_request_count.get() - 1);
-    }
     pub fn has_cow_targets(&self) -> bool {
         !self.iter_hall.cow_targets.is_empty()
     }
@@ -189,6 +180,24 @@ impl FieldManager {
                     _ => unreachable!(),
                 })
             }
+        }
+    }
+    pub fn request_clear_delay(&self, field_id: FieldId) {
+        let field = self.fields[field_id].borrow();
+        field
+            .clear_delay_request_count
+            .set(field.clear_delay_request_count.get() + 1);
+        for &fr in &field.field_refs {
+            self.request_clear_delay(fr);
+        }
+    }
+    pub fn relinquish_clear_delay(&self, field_id: FieldId) {
+        let field = self.fields[field_id].borrow();
+        field
+            .clear_delay_request_count
+            .set(field.clear_delay_request_count.get() - 1);
+        for &fr in &field.field_refs {
+            self.relinquish_clear_delay(fr);
         }
     }
     // returns false if it was uncow'ed

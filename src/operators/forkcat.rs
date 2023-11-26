@@ -288,9 +288,7 @@ pub(crate) fn handle_initial_forkcat_expansion(
         } else {
             tf.input_field
         };
-        sess.job_data.field_mgr.fields[input_field]
-            .borrow()
-            .request_clear_delay();
+        sess.job_data.field_mgr.request_clear_delay(input_field);
         forkcat.input_fields.push(input_field);
     }
 

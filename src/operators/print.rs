@@ -253,9 +253,7 @@ pub fn handle_tf_print_raw(
                             sv.promote_to_buffer();
                         }
                         sv.subscribe(tf_id, rl as usize, false);
-                        sess.field_mgr.fields[input_field_id]
-                            .borrow()
-                            .request_clear_delay();
+                        sess.field_mgr.request_clear_delay(input_field_id);
                         sess.tf_mgr.unclaim_batch_size(
                             tf_id,
                             batch_size - (pos - field_pos_start),
@@ -396,7 +394,6 @@ pub fn handle_tf_print_stream_value_update(
         stdout.flush().ok();
     }
     print.current_stream_val = None;
-    let input_field = sess.field_mgr.fields[tf.input_field].borrow();
-    input_field.drop_clear_delay_request();
+    sess.field_mgr.relinquish_clear_delay(tf.input_field);
     sess.tf_mgr.update_ready_state(tf_id);
 }

@@ -516,9 +516,9 @@ pub fn handle_tf_join(
                                             b_laundered.len();
                                         debug_assert!(offsets.is_none());
                                     }
-                                    sess.field_mgr.fields[input_field_id]
-                                        .borrow()
-                                        .request_clear_delay();
+
+                                    sess.field_mgr
+                                        .request_clear_delay(input_field_id);
                                     sess.tf_mgr.unclaim_batch_size(
                                         tf_id,
                                         batch_size - (pos - field_pos_start),
@@ -659,8 +659,6 @@ pub fn handle_tf_join_stream_value_update(
         } else {
             sess.tf_mgr.update_ready_state(tf_id);
         }
-        sess.field_mgr.fields[in_field_id]
-            .borrow()
-            .drop_clear_delay_request();
+        sess.field_mgr.relinquish_clear_delay(in_field_id);
     }
 }
