@@ -308,7 +308,9 @@ pub fn handle_tf_forkcat(
     fc: &mut TfForkCat,
 ) {
     if fc.op.subchains_start + fc.curr_subchain_n == fc.op.subchains_end {
-        //  sess.unlink_transform(tf_id, 0);
+        let cont = fc.continuation.unwrap();
+        sess.tf_mgr.transforms[cont].input_is_done = true;
+        sess.tf_mgr.push_tf_in_ready_stack(cont);
         return;
     }
     if fc.curr_subchain_n == 0 {
@@ -516,6 +518,11 @@ pub(crate) fn handle_forkcat_subchain_expansion(
                 .field_mgr
                 .drop_field_refcount(f, &mut sess.job_data.match_set_mgr);
         }
+        let cont_id = fc.continuation.unwrap().get();
+        let TransformData::Nop(nop) = &mut sess.transform_data[cont_id] else {
+            unreachable!()
+        };
+        nop.manual_unlink = false;
         return;
     }
     for &of in &fc.output_fields {
@@ -529,20 +536,6 @@ pub(crate) fn handle_forkcat_subchain_expansion(
             &mut fr.first_actor,
             &mut fr.snapshot,
         );
-    }
-    fc = match_unwrap!(
-        &mut sess.transform_data[tf_id.get()],
-        TransformData::ForkCat(fc),
-        fc
-    );
-    if sc_idx + 1 == fc.op.subchains_end {
-        if let Some(cont_id) = fc.continuation {
-            if let TransformData::Nop(nop) =
-                &mut sess.transform_data[cont_id.get()]
-            {
-                nop.manual_unlink = false
-            }
-        }
     }
     expand_for_subchain(sess, tf_id, sc_n);
 }

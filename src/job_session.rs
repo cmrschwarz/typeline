@@ -931,6 +931,10 @@ impl<'a> JobSession<'a> {
                 .continuation
                 .is_none()
         {
+            // if the first transform will live to the end
+            // (we currently just check whether it has an appender)
+            // TODO: this is insufficient e.g. for plugins
+            // we don't need the nop so we remove it
             self.job_data
                 .tf_mgr
                 .disconnect_tf_from_predecessor(start_tf);
