@@ -36,14 +36,14 @@ pub fn parse_op_call(
     let value_str = value
         .ok_or_else(|| {
             OperatorCreationError::new(
-                "missing argument with key for select",
+                "missing argument with target chain name",
                 arg_idx,
             )
         })?
         .to_str()
         .map_err(|_| {
             OperatorCreationError::new(
-                "target label must be valid UTF-8",
+                "target chain name must be valid UTF-8",
                 arg_idx,
             )
         })?;
