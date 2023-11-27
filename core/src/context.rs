@@ -60,6 +60,7 @@ pub struct Session {
     pub(crate) operator_data: Vec<OperatorData>,
     pub(crate) cli_args: Option<Vec<Vec<u8>>>,
     pub(crate) string_store: StringStore,
+    pub(crate) extensions: Arc<ExtensionRegistry>,
 }
 
 pub(crate) struct SessionManager {
@@ -217,7 +218,7 @@ impl Context {
     pub fn run_main_chain(&mut self, input_data: RecordSet) {
         self.run_job(self.session.construct_main_chain_job(input_data))
     }
-    pub fn run_repl(&mut self, extensions: &ExtensionRegistry) {
+    pub fn run_repl(&mut self) {
         if !self.session.has_no_command() {
             self.run_main_chain(RecordSet::default());
         }
@@ -271,7 +272,11 @@ impl Context {
                         shlex.by_ref().map(|s| s.into_bytes()).collect();
                     let mut exit_repl = false;
                     let sess = if !shlex.had_error {
-                        let mut sess_opts = parse_cli(args, true, extensions);
+                        let mut sess_opts = parse_cli(
+                            args,
+                            true,
+                            Arc::clone(&self.session.extensions),
+                        );
                         sess_opts = sess_opts.map(|mut opts| {
                             exit_repl = opts.repl.get() == Some(false)
                                 || opts.exit_repl.get() == Some(true);

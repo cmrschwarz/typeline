@@ -35,7 +35,7 @@ use bstr::ByteSlice;
 
 use lazy_static::lazy_static;
 
-use std::{borrow::Cow, fmt::Display, str::from_utf8};
+use std::{borrow::Cow, fmt::Display, str::from_utf8, sync::Arc};
 use thiserror::Error;
 
 #[derive(Error, Debug, Clone)]
@@ -401,7 +401,6 @@ fn parse_operation(
     ctx_opts: &mut SessionOptions,
     arg: &ParsedCliArgument,
     args: &[Vec<u8>],
-    extensions: &ExtensionRegistry,
 ) -> Result<Option<OperatorData>, OperatorCreationError> {
     let idx = Some(arg.cli_arg.idx);
     if let Some(opts) = try_match_regex_cli_argument(arg.argname, idx)? {
@@ -440,7 +439,7 @@ fn parse_operation(
     } {
         return Ok(Some(op));
     }
-    for e in &extensions.extensions {
+    for e in &ctx_opts.extensions.extensions {
         if let Some(op) = e.try_match_cli_argument(ctx_opts, arg, args)? {
             return Ok(Some(op));
         }
@@ -452,15 +451,13 @@ fn try_parse_as_operation(
     ctx_opts: &mut SessionOptions,
     arg: &ParsedCliArgument,
     args: &[Vec<u8>],
-    extensions: &ExtensionRegistry,
 ) -> Result<bool, CliArgumentError> {
-    let op_data =
-        parse_operation(ctx_opts, arg, args, extensions).map_err(|oce| {
-            CliArgumentError {
-                message: oce.message,
-                cli_arg_idx: arg.cli_arg.idx,
-            }
-        })?;
+    let op_data = parse_operation(ctx_opts, arg, args).map_err(|oce| {
+        CliArgumentError {
+            message: oce.message,
+            cli_arg_idx: arg.cli_arg.idx,
+        }
+    })?;
     if let Some(op_data) = op_data {
         let argname = ctx_opts.string_store.intern_cloned(arg.argname);
         let label = arg.label.map(|l| ctx_opts.string_store.intern_cloned(l));
@@ -483,12 +480,15 @@ fn try_parse_as_operation(
 pub fn parse_cli_retain_args(
     args: &Vec<Vec<u8>>,
     allow_repl: bool,
-    extensions: &ExtensionRegistry,
+    extensions: Arc<ExtensionRegistry>,
 ) -> Result<SessionOptions, ScrError> {
     if args.is_empty() {
         return Err(MissingArgumentsError.into());
     }
-    let mut ctx_opts = SessionOptions::default();
+    let mut ctx_opts = SessionOptions {
+        extensions,
+        ..Default::default()
+    };
     let mut arg_idx = 0;
     while arg_idx < args.len() {
         let arg_str = &args[arg_idx];
@@ -552,8 +552,7 @@ pub fn parse_cli_retain_args(
             if try_parse_as_chain_opt(&mut ctx_opts, &arg)? {
                 continue;
             }
-            if !try_parse_as_operation(&mut ctx_opts, &arg, args, extensions)?
-            {
+            if !try_parse_as_operation(&mut ctx_opts, &arg, args)? {
                 return Err(CliArgumentError {
                     message: format!("unknown operator '{}'", arg.argname)
                         .into(),
@@ -575,7 +574,7 @@ pub fn parse_cli_retain_args(
 pub fn parse_cli_raw(
     args: Vec<Vec<u8>>,
     allow_repl: bool,
-    extensions: &ExtensionRegistry,
+    extensions: Arc<ExtensionRegistry>,
 ) -> Result<SessionOptions, (Vec<Vec<u8>>, ScrError)> {
     match parse_cli_retain_args(&args, allow_repl, extensions) {
         Ok(mut ctx) => {
@@ -589,7 +588,7 @@ pub fn parse_cli_raw(
 pub fn parse_cli(
     args: Vec<Vec<u8>>,
     allow_repl: bool,
-    extensions: &ExtensionRegistry,
+    extensions: Arc<ExtensionRegistry>,
 ) -> Result<SessionOptions, ContextualizedScrError> {
     parse_cli_raw(args, allow_repl, extensions).map_err(|(args, err)| {
         ContextualizedScrError::from_scr_error(err, Some(&args), None, None)
@@ -628,7 +627,7 @@ pub fn collect_env_args() -> Result<Vec<Vec<u8>>, CliArgumentError> {
 
 pub fn parse_cli_from_env(
     allow_repl: bool,
-    extensions: &ExtensionRegistry,
+    extensions: Arc<ExtensionRegistry>,
 ) -> Result<SessionOptions, ContextualizedScrError> {
     let args = collect_env_args().map_err(|e| {
         ContextualizedScrError::from_scr_error(e.into(), None, None, None)

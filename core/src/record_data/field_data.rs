@@ -45,6 +45,9 @@ pub enum FieldValueKind {
     BytesBuffer,
     BytesFile,
     Object,
+    // TODO: Custom (Box<dyn Something>, stores subtype in FieldValueSize)
+    // CustomDynamicLength, CustomDynamicLengthAligned (store subtype in data,
+    // size in header is actual size)
 }
 
 #[derive(Clone, Copy, PartialEq)]

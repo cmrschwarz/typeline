@@ -1,10 +1,11 @@
-use std::{borrow::Cow, num::NonZeroUsize};
+use std::{borrow::Cow, num::NonZeroUsize, sync::Arc};
 
 use lazy_static::lazy_static;
 
 use crate::{
     chain::{Chain, ChainId},
     context::{Session, SessionSettings},
+    extension::ExtensionRegistry,
     liveness_analysis,
     operators::{
         call::setup_op_call,
@@ -56,6 +57,7 @@ pub struct SessionOptions {
     pub(crate) chains: Vec<ChainOptions>,
     pub(crate) curr_chain: ChainId,
     pub cli_args: Option<Vec<Vec<u8>>>,
+    pub extensions: Arc<ExtensionRegistry>,
 }
 
 impl Default for SessionOptions {
@@ -73,11 +75,14 @@ impl Default for SessionOptions {
             string_store: Default::default(),
             cli_args: Default::default(),
             any_threaded_operations: false,
+            extensions: Arc::clone(&EMPTY_EXTENSION_REGISTRY),
         }
     }
 }
 
 lazy_static! {
+    static ref EMPTY_EXTENSION_REGISTRY: Arc<ExtensionRegistry> =
+        Arc::new(ExtensionRegistry::default());
     static ref DEFAULT_CONTEXT_OPTIONS: SessionOptions = SessionOptions {
         max_threads: Argument::new_v(0),
         repl: Argument::new_v(false),
@@ -91,6 +96,7 @@ lazy_static! {
         cli_args: None,
         curr_chain: 0,
         any_threaded_operations: false,
+        extensions: Arc::clone(&EMPTY_EXTENSION_REGISTRY),
     };
 }
 
@@ -478,6 +484,7 @@ impl SessionOptions {
             cli_args: self.cli_args,
             chain_labels: Default::default(),
             string_store: self.string_store,
+            extensions: self.extensions,
         };
         SessionOptions::setup_chain_labels(&mut sess);
         let res = SessionOptions::verify_bounds(&sess)
@@ -488,6 +495,7 @@ impl SessionOptions {
             self.string_store = sess.string_store;
             self.operator_data = sess.operator_data;
             self.cli_args = sess.cli_args;
+            self.extensions = sess.extensions;
             return Err(ContextualizedScrError::from_scr_error(
                 e,
                 None,

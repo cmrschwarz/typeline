@@ -9,10 +9,10 @@ pub struct ExtensionRegistry {
     pub extensions: Vec<SmallBox<dyn Extension, 8>>,
 }
 
-pub trait Extension {
+pub trait Extension: Send + Sync {
     fn try_match_cli_argument(
         &self,
-        ctx_opts: &mut SessionOptions,
+        ctx_opts: &SessionOptions,
         arg: &ParsedCliArgument,
         args: &[Vec<u8>],
     ) -> Result<Option<OperatorData>, OperatorCreationError>;

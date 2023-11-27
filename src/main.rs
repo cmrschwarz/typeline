@@ -14,7 +14,7 @@ fn run() -> Result<(), String> {
     })?;
     let extensions = build_extension_registry();
 
-    let sess = match parse_cli(args, true, &extensions)
+    let sess = match parse_cli(args, true, extensions)
         .and_then(|sess_opts| sess_opts.build_session())
     {
         Ok(sess) => sess,
@@ -33,7 +33,7 @@ fn run() -> Result<(), String> {
     };
 
     if sess.repl_requested() {
-        Context::new(Arc::new(sess)).run_repl(&extensions);
+        Context::new(Arc::new(sess)).run_repl();
     } else {
         let job = sess.construct_main_chain_job(RecordSet::default());
         sess.run(job);

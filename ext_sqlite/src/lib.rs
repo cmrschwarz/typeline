@@ -13,7 +13,7 @@ pub struct SqliteExtension {}
 impl Extension for SqliteExtension {
     fn try_match_cli_argument(
         &self,
-        _ctx_opts: &mut SessionOptions,
+        _ctx_opts: &SessionOptions,
         _arg: &ParsedCliArgument,
         _args: &[Vec<u8>],
     ) -> Result<Option<OperatorData>, OperatorCreationError> {
