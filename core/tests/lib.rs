@@ -7,7 +7,7 @@ use std::borrow::Cow;
 
 use rstest::rstest;
 
-use scr::{
+use scr_core::{
     operators::{
         call_concurrent::create_op_callcc,
         file_reader::create_op_file_reader_custom,

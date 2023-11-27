@@ -666,17 +666,14 @@ mod ref_iter_tests {
         match_set::MatchSetManager,
         ref_iter::{AutoDerefIter, RefAwareInlineTextIter},
     };
-    use crate::{
-        record_data::{
-            field_data::{
-                field_value_flags, FieldData, FieldReference,
-                FieldValueFormat, FieldValueHeader, FieldValueKind, RunLength,
-            },
-            iters::Iter,
-            push_interface::PushInterface,
-            typed::TypedSlice,
+    use crate::record_data::{
+        field_data::{
+            field_value_flags, FieldData, FieldReference, FieldValueFormat,
+            FieldValueHeader, FieldValueKind, RunLength,
         },
-        utils::nonzero_ext::NonMaxU16Ext,
+        iters::Iter,
+        push_interface::PushInterface,
+        typed::TypedSlice,
     };
     use std::cell::RefCell;
 

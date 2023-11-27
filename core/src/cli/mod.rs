@@ -1,5 +1,6 @@
 use crate::{
     chain::BufferingMode,
+    extension::ExtensionRegistry,
     operators::{
         call::parse_op_call,
         call_concurrent::parse_op_call_concurrent,
@@ -397,56 +398,69 @@ fn try_parse_as_chain_opt(
 }
 
 fn parse_operation(
-    argname: &str,
-    value: Option<&[u8]>,
-    idx: Option<CliArgIdx>,
+    ctx_opts: &mut SessionOptions,
+    arg: &ParsedCliArgument,
+    args: &[Vec<u8>],
+    extensions: &ExtensionRegistry,
 ) -> Result<Option<OperatorData>, OperatorCreationError> {
-    if let Some(opts) = try_match_regex_cli_argument(argname, idx)? {
-        return Ok(Some(parse_op_regex(value, idx, opts)?));
+    let idx = Some(arg.cli_arg.idx);
+    if let Some(opts) = try_match_regex_cli_argument(arg.argname, idx)? {
+        return Ok(Some(parse_op_regex(arg.value, idx, opts)?));
     }
-    if argument_matches_op_cast(argname, value) {
-        return Ok(Some(parse_op_cast(argname, value, idx)?));
+    if argument_matches_op_cast(arg.argname, arg.value) {
+        return Ok(Some(parse_op_cast(arg.argname, arg.value, idx)?));
     }
-    if argument_matches_op_literal(argname) {
-        return Ok(Some(parse_op_literal(argname, value, idx)?));
+    if argument_matches_op_literal(arg.argname) {
+        return Ok(Some(parse_op_literal(arg.argname, arg.value, idx)?));
     }
-    if argument_matches_op_file_reader(argname) {
-        return Ok(Some(parse_op_file_reader(argname, value, idx)?));
+    if argument_matches_op_file_reader(arg.argname) {
+        return Ok(Some(parse_op_file_reader(arg.argname, arg.value, idx)?));
     }
-    if argument_matches_op_join(argname) {
-        return Ok(Some(parse_op_join(argname, value, idx)?));
+    if argument_matches_op_join(arg.argname) {
+        return Ok(Some(parse_op_join(arg.argname, arg.value, idx)?));
     }
-    Ok(match argname {
-        "print" | "p" => Some(parse_op_print(value, idx)?),
-        "format" | "f" => Some(parse_op_format(value, idx)?),
-        "key" => Some(parse_op_key(value, idx)?),
-        "select" => Some(parse_op_select(value, idx)?),
-        "seq" => Some(parse_op_seq(value, false, false, idx)?),
-        "seqn" => Some(parse_op_seq(value, false, true, idx)?),
-        "enum" => Some(parse_op_seq(value, true, false, idx)?),
-        "enumn" => Some(parse_op_seq(value, true, true, idx)?),
-        "count" => Some(parse_op_count(value, idx)?),
-        "nop" | "scr" => Some(parse_op_nop(value, idx)?),
-        "fork" => Some(parse_op_fork(value, idx)?),
-        "forkcat" | "fc" => Some(parse_op_forkcat(value, idx)?),
-        "call" | "c" => Some(parse_op_call(value, idx)?),
-        "callcc" | "cc" => Some(parse_op_call_concurrent(value, idx)?),
-        "next" | "n" => Some(parse_op_next(value, idx)?),
-        "up" | "u" => Some(parse_op_up(value, idx)?),
+    if let Some(op) = match arg.argname {
+        "print" | "p" => Some(parse_op_print(arg.value, idx)?),
+        "format" | "f" => Some(parse_op_format(arg.value, idx)?),
+        "key" => Some(parse_op_key(arg.value, idx)?),
+        "select" => Some(parse_op_select(arg.value, idx)?),
+        "seq" => Some(parse_op_seq(arg.value, false, false, idx)?),
+        "seqn" => Some(parse_op_seq(arg.value, false, true, idx)?),
+        "enum" => Some(parse_op_seq(arg.value, true, false, idx)?),
+        "enumn" => Some(parse_op_seq(arg.value, true, true, idx)?),
+        "count" => Some(parse_op_count(arg.value, idx)?),
+        "nop" | "scr" => Some(parse_op_nop(arg.value, idx)?),
+        "fork" => Some(parse_op_fork(arg.value, idx)?),
+        "forkcat" | "fc" => Some(parse_op_forkcat(arg.value, idx)?),
+        "call" | "c" => Some(parse_op_call(arg.value, idx)?),
+        "callcc" | "cc" => Some(parse_op_call_concurrent(arg.value, idx)?),
+        "next" | "n" => Some(parse_op_next(arg.value, idx)?),
+        "up" | "u" => Some(parse_op_up(arg.value, idx)?),
         _ => None,
-    })
+    } {
+        return Ok(Some(op));
+    }
+    for e in &extensions.extensions {
+        if let Some(op) = e.try_match_cli_argument(ctx_opts, arg, args)? {
+            return Ok(Some(op));
+        }
+    }
+    Ok(None)
 }
 
-fn try_parse_as_operation<'a>(
+fn try_parse_as_operation(
     ctx_opts: &mut SessionOptions,
-    arg: ParsedCliArgument<'a>,
-) -> Result<Option<ParsedCliArgument<'a>>, CliArgumentError> {
+    arg: &ParsedCliArgument,
+    args: &[Vec<u8>],
+    extensions: &ExtensionRegistry,
+) -> Result<bool, CliArgumentError> {
     let op_data =
-        parse_operation(arg.argname, arg.value, Some(arg.cli_arg.idx))
-            .map_err(|oce| CliArgumentError {
+        parse_operation(ctx_opts, arg, args, extensions).map_err(|oce| {
+            CliArgumentError {
                 message: oce.message,
                 cli_arg_idx: arg.cli_arg.idx,
-            })?;
+            }
+        })?;
     if let Some(op_data) = op_data {
         let argname = ctx_opts.string_store.intern_cloned(arg.argname);
         let label = arg.label.map(|l| ctx_opts.string_store.intern_cloned(l));
@@ -460,23 +474,26 @@ fn try_parse_as_operation<'a>(
             ),
             op_data,
         );
-        Ok(None)
+        Ok(true)
     } else {
-        Ok(Some(arg))
+        Ok(false)
     }
 }
 
 pub fn parse_cli_retain_args(
     args: &Vec<Vec<u8>>,
     allow_repl: bool,
+    extensions: &ExtensionRegistry,
 ) -> Result<SessionOptions, ScrError> {
     if args.is_empty() {
         return Err(MissingArgumentsError.into());
     }
     let mut ctx_opts = SessionOptions::default();
-    for (i, arg_str) in args.iter().enumerate() {
+    let mut arg_idx = 0;
+    while arg_idx < args.len() {
+        let arg_str = &args[arg_idx];
         let cli_arg = CliArgument {
-            idx: i as CliArgIdx + 1,
+            idx: arg_idx as CliArgIdx + 1,
             value: arg_str,
         };
         if let Some(m) = LABEL_REGEX.captures(arg_str) {
@@ -535,7 +552,8 @@ pub fn parse_cli_retain_args(
             if try_parse_as_chain_opt(&mut ctx_opts, &arg)? {
                 continue;
             }
-            if let Some(arg) = try_parse_as_operation(&mut ctx_opts, arg)? {
+            if !try_parse_as_operation(&mut ctx_opts, &arg, args, extensions)?
+            {
                 return Err(CliArgumentError {
                     message: format!("unknown operator '{}'", arg.argname)
                         .into(),
@@ -550,14 +568,16 @@ pub fn parse_cli_retain_args(
             )
             .into());
         }
+        arg_idx += 1;
     }
     Ok(ctx_opts)
 }
 pub fn parse_cli_raw(
     args: Vec<Vec<u8>>,
     allow_repl: bool,
+    extensions: &ExtensionRegistry,
 ) -> Result<SessionOptions, (Vec<Vec<u8>>, ScrError)> {
-    match parse_cli_retain_args(&args, allow_repl) {
+    match parse_cli_retain_args(&args, allow_repl, extensions) {
         Ok(mut ctx) => {
             ctx.cli_args = Some(args);
             Ok(ctx)
@@ -569,8 +589,9 @@ pub fn parse_cli_raw(
 pub fn parse_cli(
     args: Vec<Vec<u8>>,
     allow_repl: bool,
+    extensions: &ExtensionRegistry,
 ) -> Result<SessionOptions, ContextualizedScrError> {
-    parse_cli_raw(args, allow_repl).map_err(|(args, err)| {
+    parse_cli_raw(args, allow_repl, extensions).map_err(|(args, err)| {
         ContextualizedScrError::from_scr_error(err, Some(&args), None, None)
     })
 }
@@ -607,9 +628,10 @@ pub fn collect_env_args() -> Result<Vec<Vec<u8>>, CliArgumentError> {
 
 pub fn parse_cli_from_env(
     allow_repl: bool,
+    extensions: &ExtensionRegistry,
 ) -> Result<SessionOptions, ContextualizedScrError> {
     let args = collect_env_args().map_err(|e| {
         ContextualizedScrError::from_scr_error(e.into(), None, None, None)
     })?;
-    parse_cli(args, allow_repl)
+    parse_cli(args, allow_repl, extensions)
 }

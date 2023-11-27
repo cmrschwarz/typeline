@@ -36,7 +36,7 @@ use crate::{
         int_string_conversions::{
             i64_to_str, usize_to_str, USIZE_MAX_DECIMAL_DIGITS,
         },
-        nonzero_ext::{nonmax_u16_wrapping_add, NonMaxU16Ext},
+        nonzero_ext::nonmax_u16_wrapping_add,
         string_store::{StringStore, StringStoreEntry},
     },
 };

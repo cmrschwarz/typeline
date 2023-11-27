@@ -1,41 +1,16 @@
-#![cfg_attr(feature = "unstable", feature(unsize, coerce_unsized))]
-#![deny(unsafe_op_in_unsafe_fn)]
-#![allow(clippy::missing_safety_doc)]
-#![allow(clippy::too_many_arguments)]
-#![allow(clippy::type_complexity)]
+pub extern crate scr_core;
+pub use scr_core::*;
 
-#[macro_use]
-extern crate static_assertions;
+use extension::ExtensionRegistry;
 
-extern crate arrayvec;
-extern crate bitvec;
-extern crate encoding_rs;
-extern crate lazy_static;
-extern crate memchr;
-extern crate num_traits;
-extern crate rand;
-extern crate reedline;
-extern crate regex;
-extern crate regex_syntax;
-extern crate shlex;
-extern crate smallstr;
-extern crate smallvec;
-extern crate thin_vec;
-extern crate thiserror;
-extern crate uuid;
+pub fn build_extension_registry() -> ExtensionRegistry {
+    #[allow(unused_mut)]
+    let mut extensions = ExtensionRegistry::default();
 
-#[macro_use]
-pub mod utils;
+    #[cfg(feature = "sqlite")]
+    extensions
+        .extensions
+        .push(smallbox!(scr_ext_sqlite::SqliteExtension::default()));
 
-pub mod chain;
-pub mod cli;
-pub mod context;
-pub mod document;
-pub mod job_session;
-pub mod liveness_analysis;
-pub mod operators;
-pub mod options;
-pub mod record_data;
-pub mod scr_error;
-pub mod selenium;
-pub mod worker_thread;
+    extensions
+}

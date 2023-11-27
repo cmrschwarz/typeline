@@ -17,6 +17,7 @@ use smallvec::SmallVec;
 use crate::{
     chain::{Chain, ChainId},
     cli::parse_cli,
+    extension::ExtensionRegistry,
     job_session::{JobData, JobSession},
     operators::operator::{OperatorBase, OperatorData, OperatorId},
     record_data::{record_buffer::RecordBuffer, record_set::RecordSet},
@@ -216,7 +217,7 @@ impl Context {
     pub fn run_main_chain(&mut self, input_data: RecordSet) {
         self.run_job(self.session.construct_main_chain_job(input_data))
     }
-    pub fn run_repl(&mut self) {
+    pub fn run_repl(&mut self, extensions: &ExtensionRegistry) {
         if !self.session.has_no_command() {
             self.run_main_chain(RecordSet::default());
         }
@@ -270,7 +271,7 @@ impl Context {
                         shlex.by_ref().map(|s| s.into_bytes()).collect();
                     let mut exit_repl = false;
                     let sess = if !shlex.had_error {
-                        let mut sess_opts = parse_cli(args, true);
+                        let mut sess_opts = parse_cli(args, true, extensions);
                         sess_opts = sess_opts.map(|mut opts| {
                             exit_repl = opts.repl.get() == Some(false)
                                 || opts.exit_repl.get() == Some(true);

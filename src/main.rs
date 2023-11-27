@@ -1,4 +1,5 @@
 use scr::{
+    build_extension_registry,
     cli::{collect_env_args, parse_cli},
     context::Context,
     options::session_options::SessionOptions,
@@ -11,8 +12,9 @@ fn run() -> Result<(), String> {
     let args = collect_env_args().map_err(|e| {
         ScrError::from(e).contextualize_message(None, None, None)
     })?;
+    let extensions = build_extension_registry();
 
-    let sess = match parse_cli(args, true)
+    let sess = match parse_cli(args, true, &extensions)
         .and_then(|sess_opts| sess_opts.build_session())
     {
         Ok(sess) => sess,
@@ -31,7 +33,7 @@ fn run() -> Result<(), String> {
     };
 
     if sess.repl_requested() {
-        Context::new(Arc::new(sess)).run_repl();
+        Context::new(Arc::new(sess)).run_repl(&extensions);
     } else {
         let job = sess.construct_main_chain_job(RecordSet::default());
         sess.run(job);

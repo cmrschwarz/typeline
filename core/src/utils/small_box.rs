@@ -98,7 +98,7 @@ impl<T: ?Sized, const SPACE: usize> SmallBox<T, SPACE> {
         (1 << size_of::<*mut T>().trailing_zeros()).min(align_of::<Self>())
     }
 
-    unsafe fn new_unchecked<U>(
+    pub unsafe fn new_unchecked<U>(
         val: *const U,
         // only needed for the metadata of the fat pointer of the target type
         target_type_ptr: *const T,
