@@ -15,7 +15,7 @@ use crate::{
 
 use super::{
     errors::{OperatorApplicationError, OperatorCreationError},
-    operator::{OperatorBase, OperatorData, DEFAULT_OP_NAME_SMALL_STR_LEN},
+    operator::{DefaultOperatorName, OperatorBase, OperatorData},
     transform::{TransformData, TransformId, TransformState},
 };
 
@@ -45,9 +45,7 @@ pub struct TfLiteral<'a> {
 }
 
 impl OpLiteral {
-    pub fn default_op_name(
-        &self,
-    ) -> SmallString<[u8; DEFAULT_OP_NAME_SMALL_STR_LEN]> {
+    pub fn default_op_name(&self) -> DefaultOperatorName {
         let mut res = SmallString::new();
         match self.data {
             Literal::Null => res.push_str("null"),

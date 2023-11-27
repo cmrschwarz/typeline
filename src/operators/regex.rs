@@ -46,7 +46,7 @@ use super::{
     errors::{
         OperatorApplicationError, OperatorCreationError, OperatorSetupError,
     },
-    operator::{OperatorBase, OperatorData, DEFAULT_OP_NAME_SMALL_STR_LEN},
+    operator::{DefaultOperatorName, OperatorBase, OperatorData},
     transform::{TransformData, TransformId, TransformState},
 };
 
@@ -108,9 +108,7 @@ pub struct RegexOptions {
 }
 
 impl OpRegex {
-    pub fn default_op_name(
-        &self,
-    ) -> SmallString<[u8; DEFAULT_OP_NAME_SMALL_STR_LEN]> {
+    pub fn default_op_name(&self) -> DefaultOperatorName {
         let mut res = SmallString::from_str("r");
         if self.opts != RegexOptions::default() {
             res.push('-');

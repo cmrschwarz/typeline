@@ -1,7 +1,6 @@
 use arrayvec::ArrayVec;
 
 use bstr::ByteSlice;
-use smallstr::SmallString;
 
 use crate::{
     context::Session,
@@ -18,9 +17,7 @@ use crate::{
 
 use super::{
     errors::OperatorCreationError,
-    operator::{
-        OperatorBase, OperatorData, OperatorId, DEFAULT_OP_NAME_SMALL_STR_LEN,
-    },
+    operator::{DefaultOperatorName, OperatorBase, OperatorData, OperatorId},
     transform::{TransformData, TransformId, TransformState},
 };
 
@@ -39,9 +36,7 @@ pub struct OpSequence {
 }
 
 impl OpSequence {
-    pub fn default_op_name(
-        &self,
-    ) -> SmallString<[u8; DEFAULT_OP_NAME_SMALL_STR_LEN]> {
+    pub fn default_op_name(&self) -> DefaultOperatorName {
         match self.stop_after_input {
             false => "seq",
             true => "enum",

@@ -33,9 +33,7 @@ use crate::{
 
 use super::{
     errors::OperatorApplicationError,
-    operator::{
-        OperatorBase, OperatorData, OperatorId, DEFAULT_OP_NAME_SMALL_STR_LEN,
-    },
+    operator::{DefaultOperatorName, OperatorBase, OperatorData, OperatorId},
     transform::{TransformData, TransformId, TransformState},
     utils::{NULL_STR, UNDEFINED_STR},
 };
@@ -111,9 +109,7 @@ pub struct OpStringSink {
 }
 
 impl OpStringSink {
-    pub fn default_op_name(
-        &self,
-    ) -> SmallString<[u8; DEFAULT_OP_NAME_SMALL_STR_LEN]> {
+    pub fn default_op_name(&self) -> DefaultOperatorName {
         SmallString::from("<String Sink>")
     }
 }

@@ -1,5 +1,4 @@
 use regex::Regex;
-use smallstr::SmallString;
 
 use crate::{
     job_session::JobData,
@@ -21,7 +20,7 @@ use crate::{
 
 use super::{
     errors::{OperatorApplicationError, OperatorCreationError},
-    operator::{OperatorBase, OperatorData, DEFAULT_OP_NAME_SMALL_STR_LEN},
+    operator::{DefaultOperatorName, OperatorBase, OperatorData},
     transform::{TransformData, TransformId, TransformState},
 };
 
@@ -34,9 +33,7 @@ pub struct OpCast {
 }
 
 impl OpCast {
-    pub fn default_op_name(
-        &self,
-    ) -> SmallString<[u8; DEFAULT_OP_NAME_SMALL_STR_LEN]> {
+    pub fn default_op_name(&self) -> DefaultOperatorName {
         match self.target_type {
             FieldDataType::Html => "html",
             FieldDataType::Undefined => "undefined",

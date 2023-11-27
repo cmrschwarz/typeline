@@ -79,11 +79,10 @@ pub struct OperatorBase {
     pub desired_batch_size: usize,
 }
 
-pub const DEFAULT_OP_NAME_SMALL_STR_LEN: usize = 16;
-type OperatorDefaultName = SmallString<[u8; DEFAULT_OP_NAME_SMALL_STR_LEN]>;
+pub type DefaultOperatorName = SmallString<[u8; 16]>;
 
 impl OperatorData {
-    pub fn default_op_name(&self) -> OperatorDefaultName {
+    pub fn default_op_name(&self) -> DefaultOperatorName {
         match self {
             OperatorData::Print(_) => "p".into(),
             OperatorData::Sequence(op) => op.default_op_name(),
@@ -110,7 +109,7 @@ impl OperatorData {
 }
 
 pub trait Operator: Send + Sync {
-    fn default_name(&self) -> OperatorDefaultName;
+    fn default_name(&self) -> DefaultOperatorName;
     fn logical_output_count(&self, op_base: &OperatorBase) -> usize;
     fn output_count(&self, op_base: &OperatorBase) -> usize {
         let mut oc = self.logical_output_count(op_base);

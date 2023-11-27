@@ -1,8 +1,13 @@
 use nonmax::NonMaxUsize;
 use smallstr::SmallString;
 
-use crate::record_data::{
-    field::FieldId, field_data::FieldValueKind, match_set::MatchSetId,
+use crate::{
+    job_session::{JobData, JobSession},
+    record_data::{
+        field::FieldId, field_data::FieldValueKind, match_set::MatchSetId,
+        stream_value::StreamValueId,
+    },
+    utils::small_box::SmallBox,
 };
 
 use super::{
@@ -17,7 +22,7 @@ use super::{
     join::TfJoin,
     literal::TfLiteral,
     nop::TfNop,
-    operator::{OperatorId, DEFAULT_OP_NAME_SMALL_STR_LEN},
+    operator::OperatorId,
     print::TfPrint,
     regex::TfRegex,
     select::TfSelect,
@@ -26,6 +31,7 @@ use super::{
     terminator::TfTerminator,
 };
 
+pub type DefaultTransformName = SmallString<[u8; 16]>;
 pub type TransformId = NonMaxUsize;
 
 pub enum TransformData<'a> {
@@ -48,6 +54,7 @@ pub enum TransformData<'a> {
     FileReader(TfFileReader),
     Literal(TfLiteral<'a>),
     Sequence(TfSequence),
+    Custom(SmallBox<dyn Transform, 192>),
 }
 
 impl Default for TransformData<'_> {
@@ -57,10 +64,8 @@ impl Default for TransformData<'_> {
 }
 
 impl TransformData<'_> {
-    pub fn alternative_display_name(
-        &self,
-    ) -> SmallString<[u8; DEFAULT_OP_NAME_SMALL_STR_LEN]> {
-        let base = match self {
+    pub fn display_name(&self) -> DefaultTransformName {
+        match self {
             TransformData::Disabled => "disabled",
             TransformData::Nop(_) => "nop",
             TransformData::Call(_) => "call",
@@ -80,8 +85,9 @@ impl TransformData<'_> {
             TransformData::Literal(_) => "literal",
             TransformData::Sequence(_) => "sequence",
             TransformData::Terminator(_) => "terminator",
-        };
-        format!("<tf {base}>").into()
+            TransformData::Custom(tf) => return tf.display_name(),
+        }
+        .into()
     }
 }
 
@@ -140,4 +146,22 @@ impl TransformState {
     pub fn has_unconsumed_input(&self) -> bool {
         self.any_prev_has_unconsumed_input || self.available_batch_size > 0
     }
+}
+
+pub trait Transform: Send {
+    fn display_name(&self) -> DefaultTransformName;
+    fn handle_stream_value_update(
+        &mut self,
+        _sess: &mut JobData,
+        _tf_id: TransformId,
+        _sv_id: StreamValueId,
+        _custom: usize,
+    ) {
+        unimplemented!("the transform does not implement stream value updates")
+    }
+    fn pre_update_required(&self) -> bool {
+        false
+    }
+    fn pre_update(&mut self, _sess: &mut JobSession, _tf_id: TransformId) {}
+    fn update(&mut self, jd: &mut JobData, tf_id: TransformId);
 }

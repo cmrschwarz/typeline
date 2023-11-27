@@ -28,7 +28,7 @@ use super::{
     errors::{
         io_error_to_op_error, OperatorCreationError, OperatorSetupError,
     },
-    operator::{OperatorBase, OperatorData, DEFAULT_OP_NAME_SMALL_STR_LEN},
+    operator::{DefaultOperatorName, OperatorBase, OperatorData},
     transform::{TransformData, TransformId, TransformState},
 };
 
@@ -61,9 +61,7 @@ pub struct OpFileReader {
 }
 
 impl OpFileReader {
-    pub fn default_op_name(
-        &self,
-    ) -> SmallString<[u8; DEFAULT_OP_NAME_SMALL_STR_LEN]> {
+    pub fn default_op_name(&self) -> DefaultOperatorName {
         let mut res = SmallString::new();
         match self.file_kind {
             FileKind::Stdin => res.push_str("stdin"),

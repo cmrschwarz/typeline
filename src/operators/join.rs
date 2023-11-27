@@ -30,7 +30,7 @@ use crate::{
 
 use super::{
     errors::{OperatorApplicationError, OperatorCreationError},
-    operator::{OperatorBase, OperatorData, DEFAULT_OP_NAME_SMALL_STR_LEN},
+    operator::{DefaultOperatorName, OperatorBase, OperatorData},
     print::typed_slice_zst_str,
     transform::{TransformData, TransformId, TransformState},
 };
@@ -43,9 +43,7 @@ pub struct OpJoin {
     drop_incomplete: bool,
 }
 impl OpJoin {
-    pub fn default_op_name(
-        &self,
-    ) -> SmallString<[u8; DEFAULT_OP_NAME_SMALL_STR_LEN]> {
+    pub fn default_op_name(&self) -> DefaultOperatorName {
         let mut small_str = SmallString::new();
         small_str.push_str("join");
         small_str.push_str(

@@ -445,12 +445,7 @@ impl<'a> JobSession<'a> {
         if cfg!(feature = "debug_logging") {
             println!("{message}");
             for (i, tf) in self.job_data.tf_mgr.transforms.iter_enumerated() {
-                let name = if let Some(op_id) = tf.op_id {
-                    self.job_data.session_data.operator_data[op_id as usize]
-                        .default_op_name()
-                } else {
-                    self.transform_data[i.get()].alternative_display_name()
-                };
+                let name = self.transform_data[i.get()].display_name();
                 println!(
                     "tf {} -> {} [{} {}{}{}] (ms {}): {}",
                     i,
@@ -570,9 +565,7 @@ impl<'a> JobSession<'a> {
                     )
                     .into()
             } else {
-                self.transform_data[tf_id.get()]
-                    .alternative_display_name()
-                    .to_string()
+                self.transform_data[tf_id.get()].display_name().to_string()
             };
             println!("removing tf id {tf_id}: `{name}`");
         }
@@ -1016,6 +1009,12 @@ impl<'a> JobSession<'a> {
             TransformData::Disabled => unreachable!(),
             TransformData::Literal(_) => unreachable!(),
             TransformData::CalleeConcurrent(_) => unreachable!(),
+            TransformData::Custom(tf) => tf.handle_stream_value_update(
+                &mut self.job_data,
+                svu.tf_id,
+                svu.sv_id,
+                svu.custom,
+            ),
         }
     }
     fn handle_transform(
@@ -1059,6 +1058,22 @@ impl<'a> JobSession<'a> {
             TransformData::Literal(_) => (),
             TransformData::Sequence(_) => (),
             TransformData::Terminator(_) => (),
+            TransformData::Custom(tf) => {
+                if tf.pre_update_required() {
+                    let mut tf = std::mem::replace(
+                        &mut self.transform_data[usize::from(tf_id)],
+                        TransformData::Disabled,
+                    );
+                    let TransformData::Custom(tf_custom) = &mut tf else {
+                        unreachable!()
+                    };
+                    tf_custom.pre_update(self, tf_id);
+                    let _ = std::mem::replace(
+                        &mut self.transform_data[usize::from(tf_id)],
+                        tf,
+                    );
+                }
+            }
         }
         let jd = &mut self.job_data;
         match &mut self.transform_data[usize::from(tf_id)] {
@@ -1094,6 +1109,7 @@ impl<'a> JobSession<'a> {
             TransformData::Terminator(tf) => {
                 handle_tf_terminator(jd, tf_id, tf)
             }
+            TransformData::Custom(tf) => tf.update(&mut self.job_data, tf_id),
             TransformData::Disabled => unreachable!(),
         }
         if let Some(tf) = self.job_data.tf_mgr.transforms.get(tf_id) {
