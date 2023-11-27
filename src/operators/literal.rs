@@ -64,7 +64,7 @@ impl OpLiteral {
     }
 }
 
-pub fn setup_tf_literal<'a>(
+pub fn build_tf_literal<'a>(
     _sess: &mut JobData,
     _op_base: &OperatorBase,
     op: &'a OpLiteral,

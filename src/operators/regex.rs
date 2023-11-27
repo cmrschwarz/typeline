@@ -400,7 +400,7 @@ pub fn setup_op_regex(
     Ok(())
 }
 
-pub fn setup_tf_regex<'a>(
+pub fn build_tf_regex<'a>(
     sess: &mut JobData,
     op_base: &OperatorBase,
     op: &'a OpRegex,

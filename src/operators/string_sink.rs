@@ -136,7 +136,7 @@ pub struct TfStringSink<'a> {
     stream_value_handles: CountedUniverse<usize, StreamValueHandle>,
 }
 
-pub fn setup_tf_string_sink<'a>(
+pub fn build_tf_string_sink<'a>(
     sess: &mut JobData,
     _op_base: &OperatorBase,
     ss: &'a OpStringSink,

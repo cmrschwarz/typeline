@@ -211,7 +211,7 @@ pub fn setup_op_format(
     Ok(())
 }
 
-pub fn setup_tf_format<'a>(
+pub fn build_tf_format<'a>(
     sess: &mut JobData,
     _op_base: &OperatorBase,
     op: &'a OpFormat,

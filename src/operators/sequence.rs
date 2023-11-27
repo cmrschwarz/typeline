@@ -56,7 +56,7 @@ pub struct TfSequence {
     stop_after_input: bool,
 }
 
-pub fn setup_tf_sequence<'a>(
+pub fn build_tf_sequence<'a>(
     _sess: &mut JobData,
     _op_base: &OperatorBase,
     op: &'a OpSequence,

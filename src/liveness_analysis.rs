@@ -159,6 +159,7 @@ impl LivenessData {
                 OperatorData::FileReader(_) => app,
                 OperatorData::Literal(_) => app,
                 OperatorData::Sequence(_) => app,
+                OperatorData::Custom(op) => op.output_count(op_base),
             };
             total_outputs_count += outputs_count;
             op_base.outputs_end = total_outputs_count as OpOutputIdx;
@@ -224,6 +225,9 @@ impl LivenessData {
                     OperatorData::FileReader(_) => (),
                     OperatorData::Literal(_) => (),
                     OperatorData::Sequence(_) => (),
+                    OperatorData::Custom(op) => {
+                        op.register_output_var_names(self, sess)
+                    }
                 }
             }
         }
@@ -335,6 +339,8 @@ impl LivenessData {
                     OperatorData::FileReader(_) => (),
                     OperatorData::Literal(_) => (),
                     OperatorData::Sequence(_) => (),
+                    // TODO: maybe support this
+                    OperatorData::Custom(_) => (),
                 }
             }
         }
@@ -583,6 +589,17 @@ impl LivenessData {
                 OperatorData::StringSink(_) => (),
                 OperatorData::Next(_) => unreachable!(),
                 OperatorData::Up(_) => unreachable!(),
+                OperatorData::Custom(op) => {
+                    input_access_stringified = false;
+                    op.update_variable_liveness(
+                        self,
+                        bb_id,
+                        op_n,
+                        &mut input_accessed,
+                        &mut input_access_stringified,
+                        &mut may_dup_or_drop,
+                    )
+                }
             }
             if input_accessed {
                 self.access_field(

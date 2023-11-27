@@ -12,13 +12,13 @@ use super::{
     session_options::SessionOptions,
 };
 
-#[derive(Default, Clone)]
+#[derive(Default)]
 pub struct ContextBuilderData {
     opts: SessionOptions,
     input_data: RecordSet,
 }
 
-#[derive(Default, Clone)]
+#[derive(Default)]
 pub struct ContextBuilder {
     data: Box<ContextBuilderData>,
 }

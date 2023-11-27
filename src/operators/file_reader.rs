@@ -32,44 +32,10 @@ use super::{
     transform::{TransformData, TransformId, TransformState},
 };
 
-pub trait ReadSendCloneDyn: Read + Send {
-    fn clone_dyn(&self) -> Box<dyn ReadSendCloneDyn>;
-    fn clone_as_read_send(&self) -> Box<dyn Read + Send>;
-}
-impl<T: Read + Send + Clone + 'static> ReadSendCloneDyn for T {
-    fn clone_dyn(&self) -> Box<dyn ReadSendCloneDyn> {
-        Box::new(self.clone())
-    }
-    fn clone_as_read_send(&self) -> Box<dyn Read + Send> {
-        Box::new(self.clone())
-    }
-}
-
 pub enum FileKind {
     Stdin,
     File(PathBuf),
-    Custom(Mutex<Option<Box<dyn ReadSendCloneDyn>>>),
-    CustomNotCloneable(Mutex<Option<Box<dyn Read + Send>>>),
-}
-
-impl Clone for FileKind {
-    fn clone(&self) -> Self {
-        match self {
-            Self::Stdin => Self::Stdin,
-            Self::File(path) => Self::File(path.clone()),
-            Self::CustomNotCloneable(_) => {
-                panic!("attempted to clone a OpFileReader containing FileKind::CustomNotCloneable. Consider Using FileKind::Custom instead");
-            }
-            Self::Custom(cust) => Self::Custom(Mutex::new({
-                let guard = cust.lock().unwrap();
-                if let Some(v) = &*guard {
-                    Some(v.clone_dyn())
-                } else {
-                    None
-                }
-            })),
-        }
-    }
+    Custom(Mutex<Option<Box<dyn Read + Send>>>),
 }
 
 pub enum AnyFile {
@@ -88,7 +54,6 @@ enum LineBufferedSetting {
     IfTTY,
 }
 
-#[derive(Clone)]
 pub struct OpFileReader {
     file_kind: FileKind,
     line_buffered: LineBufferedSetting,
@@ -104,9 +69,6 @@ impl OpFileReader {
             FileKind::Stdin => res.push_str("stdin"),
             FileKind::File(_) => res.push_str("file"),
             FileKind::Custom(_) => res.push_str("<custom_file_stream>"),
-            FileKind::CustomNotCloneable(_) => {
-                res.push_str("<custom_file_stream_not_cloneable>")
-            }
         }
         res
     }
@@ -124,7 +86,7 @@ pub struct TfFileReader {
     insert_count: Option<usize>,
 }
 
-pub fn setup_tf_file_reader<'a>(
+pub fn build_tf_file_reader<'a>(
     sess: &mut JobData,
     _op_base: &OperatorBase,
     op: &'a OpFileReader,
@@ -159,30 +121,12 @@ pub fn setup_tf_file_reader<'a>(
             }
             Err(e) => AnyFile::FileOpenIoError(Some(e)),
         },
-        FileKind::CustomNotCloneable(reader) => AnyFile::Custom(
-            reader
-                .lock()
-                .unwrap()
-                .take()
-                .expect("attempted to create two transforms from a single custom FileKind"),
-        ),
         FileKind::Custom(reader) => {
-            let thebox = reader
+            AnyFile::Custom(reader
                 .lock()
                 .unwrap()
                 .take()
-                .expect("attempted to create two transforms from a single custom FileKind");
-            let trait_casted_box: Box<dyn Read + Send>;
-            #[cfg(feature = "trait_upcasting")]
-            {
-                trait_casted_box = thebox;
-            }
-            #[cfg(not(feature = "trait_upcasting"))]
-            {
-                // this is sad
-                trait_casted_box = thebox.clone_as_read_send();
-            }
-            AnyFile::Custom(trait_casted_box)
+                .expect("attempted to create two transforms from a single custom FileKind"))
         }
     };
     let chain_settings = &sess.session_data.chains[sess
@@ -613,7 +557,7 @@ pub fn create_op_stream_bytes(
 }
 
 pub fn create_op_file_reader_custom(
-    read: Box<dyn ReadSendCloneDyn>,
+    read: Box<dyn Read + Send>,
     insert_count: usize,
 ) -> OperatorData {
     create_op_file_reader(
@@ -631,7 +575,7 @@ pub fn create_op_file_reader_custom_not_cloneable(
     insert_count: usize,
 ) -> OperatorData {
     create_op_file_reader(
-        FileKind::CustomNotCloneable(Mutex::new(Some(read))),
+        FileKind::Custom(Mutex::new(Some(read))),
         insert_count,
     )
 }

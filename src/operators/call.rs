@@ -96,7 +96,7 @@ pub fn create_op_call_eager(target: ChainId) -> OperatorData {
     })
 }
 
-pub fn setup_tf_call(
+pub fn build_tf_call(
     _sess: &mut JobData,
     _op_base: &OperatorBase,
     op: &OpCall,

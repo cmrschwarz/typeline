@@ -55,7 +55,7 @@ pub fn parse_op_print(
     Ok(OperatorData::Print(OpPrint {}))
 }
 
-pub fn setup_tf_print(
+pub fn build_tf_print(
     sess: &mut JobData,
     _op_base: &OperatorBase,
     _op: &OpPrint,

@@ -158,7 +158,7 @@ pub fn create_op_callcc(name: String) -> OperatorData {
     })
 }
 
-pub fn setup_tf_call_concurrent<'a>(
+pub fn build_tf_call_concurrent<'a>(
     sess: &mut JobData,
     _op_base: &OperatorBase,
     op: &'a OpCallConcurrent,

@@ -1,17 +1,15 @@
-use core::cmp::Ordering;
-use core::fmt;
-use core::hash::Hash;
-use core::marker::PhantomData;
-use core::mem::MaybeUninit;
-use core::ops;
-use core::ptr;
+use core::{
+    cmp::Ordering, fmt, hash::Hash, marker::PhantomData, mem::MaybeUninit,
+    ops, ptr,
+};
 #[cfg(feature = "unstable")]
 use core::{marker::Unsize, ops::CoerceUnsized};
-use std::alloc::Layout;
-use std::fmt::{Debug, Display, Formatter};
-use std::hash::Hasher;
-use std::mem::ManuallyDrop;
-use std::mem::{align_of, align_of_val, size_of, size_of_val};
+use std::{
+    alloc::Layout,
+    fmt::{Debug, Display, Formatter},
+    hash::Hasher,
+    mem::{align_of, align_of_val, size_of, size_of_val, ManuallyDrop},
+};
 
 #[cfg(feature = "unstable")]
 impl<T: ?Sized + Unsize<U>, U: ?Sized, const SPACE: usize>
@@ -204,7 +202,7 @@ where
     T: Sized,
 {
     fn clone(&self) -> Self {
-        SmallBox::new((&**self).clone())
+        SmallBox::new((**self).clone())
     }
 }
 
@@ -264,7 +262,7 @@ impl<T: ?Sized + Eq, const SPACE: usize> Eq for SmallBox<T, SPACE> {}
 
 impl<T: ?Sized + Hash, const SPACE: usize> Hash for SmallBox<T, SPACE> {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        (&**self).hash(state);
+        (**self).hash(state);
     }
 }
 
@@ -401,7 +399,6 @@ mod tests {
         assert!(dst_size_0.is_stack_allocated());
 
         let zst: SmallBox<(), 0> = smallbox!(());
-        assert_eq!(*zst, ());
         assert!(zst.is_stack_allocated());
     }
 

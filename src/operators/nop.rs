@@ -44,7 +44,7 @@ pub fn setup_op_nop(
     Ok(())
 }
 
-pub fn setup_tf_nop(
+pub fn build_tf_nop(
     op: &OpNop,
     tf_state: &TransformState,
 ) -> TransformData<'static> {

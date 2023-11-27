@@ -69,7 +69,7 @@ pub fn create_op_select(key: String) -> OperatorData {
     })
 }
 
-pub fn setup_tf_select(
+pub fn build_tf_select(
     _sess: &mut JobData,
     _op_base: &OperatorBase,
     _op: &OpSelect,

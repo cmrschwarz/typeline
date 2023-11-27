@@ -119,7 +119,7 @@ pub fn parse_op_join(
     ))
 }
 
-pub fn setup_tf_join<'a>(
+pub fn build_tf_join<'a>(
     sess: &mut JobData,
     op_base: &OperatorBase,
     op: &'a OpJoin,

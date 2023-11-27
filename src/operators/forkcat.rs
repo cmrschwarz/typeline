@@ -246,7 +246,7 @@ pub fn setup_op_forkcat_liveness_data(
     }
 }
 
-pub fn setup_tf_forkcat<'a>(
+pub fn build_tf_forkcat<'a>(
     _sess: &mut JobData,
     _op_base: &OperatorBase,
     op: &'a OpForkCat,

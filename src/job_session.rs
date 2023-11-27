@@ -9,46 +9,45 @@ use crate::{
     liveness_analysis::OpOutputIdx,
     operators::{
         call::{
-            handle_eager_call_expansion, handle_lazy_call_expansion,
-            setup_tf_call,
+            build_tf_call, handle_eager_call_expansion,
+            handle_lazy_call_expansion,
         },
         call_concurrent::{
-            handle_call_concurrent_expansion, handle_tf_call_concurrent,
-            handle_tf_callee_concurrent, setup_callee_concurrent,
-            setup_tf_call_concurrent,
+            build_tf_call_concurrent, handle_call_concurrent_expansion,
+            handle_tf_call_concurrent, handle_tf_callee_concurrent,
+            setup_callee_concurrent,
         },
-        cast::{handle_tf_cast, setup_tf_cast},
-        count::{handle_tf_count, setup_tf_count},
-        file_reader::{handle_tf_file_reader, setup_tf_file_reader},
-        fork::{handle_fork_expansion, handle_tf_fork, setup_tf_fork},
+        cast::{build_tf_cast, handle_tf_cast},
+        count::{build_tf_count, handle_tf_count},
+        file_reader::{build_tf_file_reader, handle_tf_file_reader},
+        fork::{build_tf_fork, handle_fork_expansion, handle_tf_fork},
         forkcat::{
-            handle_forkcat_subchain_expansion,
+            build_tf_forkcat, handle_forkcat_subchain_expansion,
             handle_initial_forkcat_expansion, handle_tf_forkcat,
-            setup_tf_forkcat,
         },
         format::{
-            handle_tf_format, handle_tf_format_stream_value_update,
-            setup_tf_format,
+            build_tf_format, handle_tf_format,
+            handle_tf_format_stream_value_update,
         },
         join::{
-            handle_tf_join, handle_tf_join_stream_value_update, setup_tf_join,
+            build_tf_join, handle_tf_join, handle_tf_join_stream_value_update,
         },
-        literal::{handle_tf_literal, setup_tf_literal},
-        nop::{create_tf_nop, handle_tf_nop, setup_tf_nop},
+        literal::{build_tf_literal, handle_tf_literal},
+        nop::{build_tf_nop, create_tf_nop, handle_tf_nop},
         operator::{OperatorData, OperatorId},
         print::{
-            handle_tf_print, handle_tf_print_stream_value_update,
-            setup_tf_print,
+            build_tf_print, handle_tf_print,
+            handle_tf_print_stream_value_update,
         },
         regex::{
-            handle_tf_regex, handle_tf_regex_stream_value_update,
-            setup_tf_regex,
+            build_tf_regex, handle_tf_regex,
+            handle_tf_regex_stream_value_update,
         },
-        select::{handle_tf_select, setup_tf_select},
-        sequence::{handle_tf_sequence, setup_tf_sequence},
+        select::{build_tf_select, handle_tf_select},
+        sequence::{build_tf_sequence, handle_tf_sequence},
         string_sink::{
-            handle_tf_string_sink, handle_tf_string_sink_stream_value_update,
-            setup_tf_string_sink,
+            build_tf_string_sink, handle_tf_string_sink,
+            handle_tf_string_sink_stream_value_update,
         },
         terminator::{handle_tf_terminator, setup_tf_terminator},
         transform::{TransformData, TransformId, TransformState},
@@ -767,51 +766,51 @@ impl<'a> JobSession<'a> {
 
             let jd = &mut self.job_data;
             let tf_data = match op_data {
-                OperatorData::Nop(op) => setup_tf_nop(op, &tf_state),
+                OperatorData::Nop(op) => build_tf_nop(op, &tf_state),
                 OperatorData::Cast(op) => {
-                    setup_tf_cast(jd, b, op, &mut tf_state)
+                    build_tf_cast(jd, b, op, &mut tf_state)
                 }
                 OperatorData::Count(op) => {
-                    setup_tf_count(jd, b, op, &mut tf_state)
+                    build_tf_count(jd, b, op, &mut tf_state)
                 }
                 OperatorData::Fork(op) => {
-                    setup_tf_fork(jd, b, op, &mut tf_state)
+                    build_tf_fork(jd, b, op, &mut tf_state)
                 }
                 OperatorData::ForkCat(op) => {
-                    setup_tf_forkcat(jd, b, op, &mut tf_state)
+                    build_tf_forkcat(jd, b, op, &mut tf_state)
                 }
                 OperatorData::Print(op) => {
-                    setup_tf_print(jd, b, op, &mut tf_state)
+                    build_tf_print(jd, b, op, &mut tf_state)
                 }
                 OperatorData::Join(op) => {
-                    setup_tf_join(jd, b, op, &mut tf_state)
+                    build_tf_join(jd, b, op, &mut tf_state)
                 }
                 OperatorData::Regex(op) => {
-                    setup_tf_regex(jd, b, op, &mut tf_state, prebound_outputs)
+                    build_tf_regex(jd, b, op, &mut tf_state, prebound_outputs)
                 }
                 OperatorData::Format(op) => {
-                    setup_tf_format(jd, b, op, tf_id_peek, &tf_state)
+                    build_tf_format(jd, b, op, tf_id_peek, &tf_state)
                 }
                 OperatorData::StringSink(op) => {
-                    setup_tf_string_sink(jd, b, op, &mut tf_state)
+                    build_tf_string_sink(jd, b, op, &mut tf_state)
                 }
                 OperatorData::FileReader(op) => {
-                    setup_tf_file_reader(jd, b, op, &tf_state)
+                    build_tf_file_reader(jd, b, op, &tf_state)
                 }
                 OperatorData::Literal(op) => {
-                    setup_tf_literal(jd, op_base, op, &mut tf_state)
+                    build_tf_literal(jd, op_base, op, &mut tf_state)
                 }
                 OperatorData::Sequence(op) => {
-                    setup_tf_sequence(jd, op_base, op, &mut tf_state)
+                    build_tf_sequence(jd, op_base, op, &mut tf_state)
                 }
                 OperatorData::Select(op) => {
-                    setup_tf_select(jd, b, op, &mut tf_state)
+                    build_tf_select(jd, b, op, &mut tf_state)
                 }
                 OperatorData::Call(op) => {
-                    setup_tf_call(jd, b, op, &mut tf_state)
+                    build_tf_call(jd, b, op, &mut tf_state)
                 }
                 OperatorData::CallConcurrent(op) => {
-                    setup_tf_call_concurrent(jd, b, op, &tf_state)
+                    build_tf_call_concurrent(jd, b, op, &tf_state)
                 }
                 OperatorData::Key(key) => {
                     self.job_data.match_set_mgr.set_field_name(
@@ -825,6 +824,9 @@ impl<'a> JobSession<'a> {
                 }
                 OperatorData::Next(_) => unreachable!(),
                 OperatorData::Up(_) => unreachable!(),
+                OperatorData::Custom(op) => {
+                    op.build_transform(jd, b, &mut tf_state, prebound_outputs)
+                }
             };
             output_field = tf_state.output_field;
             let appending = tf_state.is_appending;
@@ -880,6 +882,7 @@ impl<'a> JobSession<'a> {
                 OperatorData::FileReader(_) => (),
                 OperatorData::Literal(_) => (),
                 OperatorData::Sequence(_) => (),
+                OperatorData::Custom(_) => (), // TODO: allow this?
             }
         }
         let start = start_tf_id.unwrap();

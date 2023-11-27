@@ -1,23 +1,48 @@
+use std::collections::HashMap;
+
 use smallstr::SmallString;
 
 use crate::{
-    chain::ChainId, liveness_analysis::OpOutputIdx,
-    options::argument::CliArgIdx, utils::string_store::StringStoreEntry,
+    chain::{Chain, ChainId},
+    context::{Session, SessionSettings},
+    job_session::JobData,
+    liveness_analysis::{BasicBlockId, LivenessData, OpOutputIdx},
+    options::{argument::CliArgIdx, session_options::SessionOptions},
+    record_data::field::FieldId,
+    utils::{
+        identity_hasher::BuildIdentityHasher,
+        small_box::SmallBox,
+        string_store::{StringStore, StringStoreEntry},
+    },
 };
 
 use super::{
-    call::OpCall, call_concurrent::OpCallConcurrent, cast::OpCast,
-    count::OpCount, file_reader::OpFileReader, fork::OpFork,
-    forkcat::OpForkCat, format::OpFormat, join::OpJoin, key::OpKey,
-    literal::OpLiteral, next::OpNext, nop::OpNop, print::OpPrint,
-    regex::OpRegex, select::OpSelect, sequence::OpSequence,
-    string_sink::OpStringSink, up::OpUp,
+    call::OpCall,
+    call_concurrent::OpCallConcurrent,
+    cast::OpCast,
+    count::OpCount,
+    errors::OperatorSetupError,
+    file_reader::OpFileReader,
+    fork::OpFork,
+    forkcat::OpForkCat,
+    format::OpFormat,
+    join::OpJoin,
+    key::OpKey,
+    literal::OpLiteral,
+    next::OpNext,
+    nop::OpNop,
+    print::OpPrint,
+    regex::OpRegex,
+    select::OpSelect,
+    sequence::OpSequence,
+    string_sink::OpStringSink,
+    transform::{TransformData, TransformState},
+    up::OpUp,
 };
 
 pub type OperatorId = u32;
 pub type OperatorOffsetInChain = u32;
 
-#[derive(Clone)]
 pub enum OperatorData {
     Nop(OpNop),
     Call(OpCall),
@@ -38,6 +63,7 @@ pub enum OperatorData {
     FileReader(OpFileReader),
     Literal(OpLiteral),
     Sequence(OpSequence),
+    Custom(SmallBox<dyn Operator, 96>),
 }
 
 pub struct OperatorBase {
@@ -54,11 +80,10 @@ pub struct OperatorBase {
 }
 
 pub const DEFAULT_OP_NAME_SMALL_STR_LEN: usize = 16;
+type OperatorDefaultName = SmallString<[u8; DEFAULT_OP_NAME_SMALL_STR_LEN]>;
 
 impl OperatorData {
-    pub fn default_op_name(
-        &self,
-    ) -> SmallString<[u8; DEFAULT_OP_NAME_SMALL_STR_LEN]> {
+    pub fn default_op_name(&self) -> OperatorDefaultName {
         match self {
             OperatorData::Print(_) => "p".into(),
             OperatorData::Sequence(op) => op.default_op_name(),
@@ -79,6 +104,54 @@ impl OperatorData {
             OperatorData::Call(_) => "call".into(),
             OperatorData::CallConcurrent(_) => "callcc".into(),
             OperatorData::Nop(_) => "nop".into(),
+            OperatorData::Custom(op) => op.default_name(),
         }
     }
+}
+
+pub trait Operator: Send + Sync {
+    fn default_name(&self) -> OperatorDefaultName;
+    fn logical_output_count(&self, op_base: &OperatorBase) -> usize;
+    fn output_count(&self, op_base: &OperatorBase) -> usize {
+        let mut oc = self.logical_output_count(op_base);
+        if op_base.append_mode {
+            oc = oc.wrapping_sub(1)
+        }
+        oc
+    }
+    fn on_op_added(&self, _sess: &mut SessionOptions) {}
+    fn on_subchains_added(&mut self, _current_subchain_count: u32) {}
+    fn register_output_var_names(&self, ld: &mut LivenessData, sess: &Session);
+    fn update_variable_liveness(
+        &self,
+        ld: &mut LivenessData,
+        bb_id: BasicBlockId,
+        bb_offset: u32,
+        input_accessed: &mut bool,
+        input_access_stringified: &mut bool,
+        may_dup_or_drop: &mut bool,
+    );
+    fn setup(
+        &mut self,
+        op_id: OperatorId,
+        op_base: &OperatorBase,
+        chain: &Chain,
+        setttings: &SessionSettings,
+        chain_labels: &HashMap<StringStoreEntry, ChainId, BuildIdentityHasher>,
+        ss: &mut StringStore,
+    ) -> Result<(), OperatorSetupError>;
+    fn on_liveness_computed(
+        &mut self,
+        _sess: &Session,
+        _op_id: OperatorId,
+        _ld: &LivenessData,
+    ) {
+    }
+    fn build_transform<'a>(
+        &'a self,
+        sess: &mut JobData,
+        op_base: &OperatorBase,
+        tf_state: &mut TransformState,
+        prebound_outputs: &HashMap<OpOutputIdx, FieldId, BuildIdentityHasher>,
+    ) -> TransformData<'a>;
 }

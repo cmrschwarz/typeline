@@ -146,7 +146,7 @@ pub struct TfCast {
     target_type: FieldDataType,
 }
 
-pub fn setup_tf_cast<'a>(
+pub fn build_tf_cast<'a>(
     sess: &mut JobData,
     _op_base: &OperatorBase,
     op: &'a OpCast,

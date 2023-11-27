@@ -104,7 +104,7 @@ pub fn setup_op_fork_liveness_data(
     }
 }
 
-pub fn setup_tf_fork<'a>(
+pub fn build_tf_fork<'a>(
     _sess: &mut JobData,
     _op_base: &OperatorBase,
     op: &'a OpFork,

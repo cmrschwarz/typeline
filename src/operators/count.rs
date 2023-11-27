@@ -15,7 +15,7 @@ pub struct TfCount {
     count: usize,
 }
 
-pub fn setup_tf_count(
+pub fn build_tf_count(
     _sess: &mut JobData,
     _op_base: &OperatorBase,
     _op: &OpCount,

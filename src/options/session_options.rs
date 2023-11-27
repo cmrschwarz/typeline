@@ -43,7 +43,6 @@ use super::{
 
 // TODO: refactor this into SessionOptions
 
-#[derive(Clone)]
 pub struct SessionOptions {
     pub max_threads: Argument<usize>,
     pub any_threaded_operations: bool,
@@ -170,6 +169,7 @@ impl SessionOptions {
                 up.subchain_count_after =
                     self.chains[self.curr_chain as usize].subchain_count;
             }
+            OperatorData::Custom(op) => op.on_op_added(self),
         }
         self.operator_base_options.push(op_base_opts);
         self.operator_data.push(op_data);
@@ -260,6 +260,9 @@ impl SessionOptions {
                         OperatorData::FileReader(_) => (),
                         OperatorData::Literal(_) => (),
                         OperatorData::Sequence(_) => (),
+                        OperatorData::Custom(op) => {
+                            op.on_subchains_added(sc_count_after)
+                        }
                     }
                 }
                 continue;
@@ -323,6 +326,14 @@ impl SessionOptions {
                     &sess.string_store,
                     op,
                     op_id,
+                )?,
+                OperatorData::Custom(op) => op.setup(
+                    op_id,
+                    op_base,
+                    chain,
+                    &sess.settings,
+                    &sess.chain_labels,
+                    &mut sess.string_store,
                 )?,
             }
         }
@@ -398,6 +409,9 @@ impl SessionOptions {
                     setup_op_sequence_concurrent_liveness_data(
                         sess, op, op_id, &ld,
                     )
+                }
+                OperatorData::Custom(op) => {
+                    op.on_liveness_computed(sess, op_id, &ld)
                 }
             }
             std::mem::swap(&mut sess.operator_data[i], &mut op_data);
