@@ -9,6 +9,7 @@ pub mod int_string_conversions;
 pub mod nonzero_ext;
 pub mod offset_vec_deque;
 pub mod plattform;
+pub mod small_box;
 pub mod string_store;
 pub mod temp_vec;
 pub mod universe;

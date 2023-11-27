@@ -1,3 +1,4 @@
+#![cfg_attr(feature = "unstable", feature(unsize, coerce_unsized))]
 #![deny(unsafe_op_in_unsafe_fn)]
 #![allow(clippy::missing_safety_doc)]
 #![allow(clippy::too_many_arguments)]
