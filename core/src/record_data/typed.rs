@@ -1,6 +1,7 @@
 use std::{mem::ManuallyDrop, ptr::NonNull};
 
 use super::{
+    custom_data::CustomDataBox,
     field_data::{
         field_value_flags, FieldReference, FieldValueFlags, FieldValueFormat,
         FieldValueHeader, FieldValueKind, FieldValueType, Html, Null, Object,
@@ -24,6 +25,7 @@ pub enum TypedValue<'a> {
     TextInline(&'a str),
     BytesBuffer(&'a Vec<u8>),
     Object(&'a Object),
+    Custom(&'a CustomDataBox),
 }
 
 impl<'a> TypedValue<'a> {
@@ -67,6 +69,9 @@ impl<'a> TypedValue<'a> {
                 FieldValueKind::Object => {
                     TypedValue::Object(to_ref(fdr, data_begin))
                 }
+                FieldValueKind::Custom => {
+                    TypedValue::Custom(to_ref(fdr, data_begin))
+                }
                 FieldValueKind::BytesBuffer => {
                     TypedValue::BytesBuffer(to_ref(fdr, data_begin))
                 }
@@ -96,6 +101,9 @@ impl<'a> TypedValue<'a> {
             }
             TypedValue::Object(v) => {
                 TypedSlice::Object(std::slice::from_ref(v))
+            }
+            TypedValue::Custom(v) => {
+                TypedSlice::Custom(std::slice::from_ref(v))
             }
         }
     }
@@ -137,6 +145,7 @@ pub enum TypedSlice<'a> {
     TextInline(&'a str),
     BytesBuffer(&'a [Vec<u8>]),
     Object(&'a [Object]),
+    Custom(&'a [CustomDataBox]),
 }
 
 impl<'a> Default for TypedSlice<'a> {
@@ -145,7 +154,7 @@ impl<'a> Default for TypedSlice<'a> {
     }
 }
 
-pub fn slice_as_bytes<T>(v: &[T]) -> &[u8] {
+pub unsafe fn slice_as_bytes<T>(v: &[T]) -> &[u8] {
     unsafe {
         std::slice::from_raw_parts(
             v.as_ptr() as *const u8,
@@ -213,6 +222,9 @@ impl<'a> TypedSlice<'a> {
                 FieldValueKind::Object => {
                     TypedSlice::Object(to_slice(fdr, data_begin, data_end))
                 }
+                FieldValueKind::Custom => {
+                    TypedSlice::Custom(to_slice(fdr, data_begin, data_end))
+                }
                 FieldValueKind::StreamValueId => TypedSlice::StreamValueId(
                     to_slice(fdr, data_begin, data_end),
                 ),
@@ -223,19 +235,22 @@ impl<'a> TypedSlice<'a> {
             }
         }
     }
-    pub fn as_bytes(&self) -> &[u8] {
-        match self {
-            TypedSlice::Undefined(_) => &[],
-            TypedSlice::Null(_) => &[],
-            TypedSlice::Integer(v) => slice_as_bytes(v),
-            TypedSlice::StreamValueId(v) => slice_as_bytes(v),
-            TypedSlice::Reference(v) => slice_as_bytes(v),
-            TypedSlice::Error(v) => slice_as_bytes(v),
-            TypedSlice::Html(v) => slice_as_bytes(v),
-            TypedSlice::BytesInline(v) => v,
-            TypedSlice::TextInline(v) => v.as_bytes(),
-            TypedSlice::BytesBuffer(v) => slice_as_bytes(v),
-            TypedSlice::Object(v) => slice_as_bytes(v),
+    pub unsafe fn as_bytes(&self) -> &[u8] {
+        unsafe {
+            match self {
+                TypedSlice::Undefined(_) => &[],
+                TypedSlice::Null(_) => &[],
+                TypedSlice::Integer(v) => slice_as_bytes(v),
+                TypedSlice::StreamValueId(v) => slice_as_bytes(v),
+                TypedSlice::Reference(v) => slice_as_bytes(v),
+                TypedSlice::Error(v) => slice_as_bytes(v),
+                TypedSlice::Html(v) => slice_as_bytes(v),
+                TypedSlice::BytesInline(v) => v,
+                TypedSlice::TextInline(v) => v.as_bytes(),
+                TypedSlice::BytesBuffer(v) => slice_as_bytes(v),
+                TypedSlice::Object(v) => slice_as_bytes(v),
+                TypedSlice::Custom(v) => slice_as_bytes(v),
+            }
         }
     }
     pub fn kind(&self) -> FieldValueKind {
@@ -251,6 +266,7 @@ impl<'a> TypedSlice<'a> {
             TypedSlice::TextInline(_) => FieldValueKind::BytesInline,
             TypedSlice::BytesBuffer(_) => FieldValueKind::BytesBuffer,
             TypedSlice::Object(_) => FieldValueKind::Object,
+            TypedSlice::Custom(_) => FieldValueKind::Custom,
         }
     }
     pub fn len(&self) -> usize {
@@ -266,6 +282,7 @@ impl<'a> TypedSlice<'a> {
             TypedSlice::TextInline(v) => v.len(),
             TypedSlice::BytesBuffer(v) => v.len(),
             TypedSlice::Object(v) => v.len(),
+            TypedSlice::Custom(v) => v.len(),
         }
     }
     pub fn is_empty(&self) -> bool {
@@ -290,7 +307,7 @@ impl<'a> TypedSlice<'a> {
         fn drop_fn_case<T: FieldValueType>() -> (FieldValueKind, DropFn) {
             (T::KIND, drop_slice::<T>)
         }
-        let drop_fns: [(FieldValueKind, DropFn); 10] = [
+        let drop_fns = [
             drop_fn_case::<Undefined>(),
             drop_fn_case::<Null>(),
             drop_fn_case::<i64>(),
@@ -301,6 +318,7 @@ impl<'a> TypedSlice<'a> {
             (FieldValueKind::BytesInline, drop_slice::<u8>),
             drop_fn_case::<Vec<u8>>(),
             drop_fn_case::<Object>(),
+            drop_fn_case::<CustomDataBox>(),
         ];
 
         for (tid, drop_fn) in drop_fns {

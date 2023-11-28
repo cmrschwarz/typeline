@@ -10,6 +10,7 @@ use crate::{
     },
     options::argument::CliArgIdx,
     record_data::{
+        custom_data::CustomDataBox,
         field::Field,
         field_data::{field_value_flags, FieldValueKind, INLINE_STR_MAX_LEN},
         iter_hall::IterId,
@@ -25,7 +26,10 @@ use crate::{
         typed::TypedSlice,
         typed_iters::TypedSliceIter,
     },
-    utils::int_string_conversions::{i64_to_str, usize_to_str},
+    utils::{
+        int_string_conversions::{i64_to_str, usize_to_str},
+        pointer_writer::PointerWriter,
+    },
 };
 
 use super::{
@@ -423,6 +427,13 @@ pub fn handle_tf_join(
                         push_str(join, sv_mgr, v.as_str(), rl as usize);
                     }
                 }
+                TypedSlice::Custom(custom_data) => {
+                    for (v, rl) in
+                        TypedSliceIter::from_range(&range.base, custom_data)
+                    {
+                        push_custom_type(tf, join, sv_mgr, v, rl);
+                    }
+                }
                 TypedSlice::Reference(_) => unreachable!(),
                 TypedSlice::Error(errs) => {
                     push_error(join, sv_mgr, errs[0].clone());
@@ -581,6 +592,73 @@ pub fn handle_tf_join(
         }
         sess.tf_mgr
             .inform_successor_batch_available(tf_id, groups_emitted);
+    }
+}
+
+fn push_custom_type(
+    tf: &TransformState,
+    join: &mut TfJoin<'_>,
+    sv_mgr: &mut StreamValueManager,
+    v: &CustomDataBox,
+    rl: u32,
+) {
+    let Some(len) = v.stringified_len() else {
+        push_error(
+            join,
+            sv_mgr,
+            OperatorApplicationError {
+                op_id: tf.op_id.unwrap(),
+                message: format!(
+                    "cannot stringify custom type {}",
+                    v.type_name()
+                )
+                .into(),
+            },
+        );
+        return;
+    };
+
+    join.buffer_is_valid_utf8 &= v.stringifies_as_valid_utf8();
+    let first_record_added = join.first_record_added;
+    join.first_record_added = true;
+    let sep = join.separator;
+    let sep_len = sep.map(|s| s.len()).unwrap_or(0);
+    let target_len = (len + sep_len) * rl as usize;
+    let buf = get_join_buffer(join, sv_mgr, target_len);
+    let start_len = buf.len();
+    buf.reserve(target_len);
+    const ERR_MSG: &str = "custom stringify failed";
+    unsafe {
+        let start_ptr = buf.as_mut_ptr().add(start_len);
+        if let Some(sep) = sep {
+            let mut first_target_ptr = start_ptr;
+            let mut ptr = start_ptr;
+            if !first_record_added {
+                v.stringify(&mut PointerWriter::new(ptr)).expect(ERR_MSG);
+                ptr = ptr.add(len);
+            } else {
+                std::ptr::copy_nonoverlapping(sep.as_ptr(), ptr, sep_len);
+                ptr = ptr.add(sep_len);
+                first_target_ptr = ptr;
+                v.stringify(&mut PointerWriter::new(ptr)).expect(ERR_MSG);
+                ptr = ptr.add(len);
+            }
+
+            for _ in 1..rl {
+                std::ptr::copy_nonoverlapping(sep.as_ptr(), ptr, sep_len);
+                ptr = ptr.add(sep_len);
+                std::ptr::copy_nonoverlapping(first_target_ptr, ptr, sep_len);
+                ptr = ptr.add(len);
+            }
+        } else {
+            let mut ptr = start_ptr;
+            v.stringify(&mut PointerWriter::new(ptr)).expect(ERR_MSG);
+            for _ in 1..rl {
+                ptr = ptr.add(len);
+                std::ptr::copy_nonoverlapping(start_ptr, ptr, len);
+            }
+        }
+        buf.set_len(start_len + target_len);
     }
 }
 

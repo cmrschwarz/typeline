@@ -1,12 +1,9 @@
 #![cfg(feature = "unstable")]
-#![feature(string_extend_from_within)]
 #![feature(test)]
+#![feature(string_extend_from_within)]
 extern crate test;
 
-mod utils;
-use crate::utils::*;
-
-use scr::{
+use scr_core::{
     operators::{
         format::create_op_format,
         regex::{create_op_regex, create_op_regex_lines},
@@ -15,6 +12,9 @@ use scr::{
     },
     options::context_builder::ContextBuilder,
     scr_error::{ContextualizedScrError, ScrError},
+    utils::test_utils::{
+        int_sequence_newline_separated, int_sequence_strings,
+    },
 };
 
 #[bench]

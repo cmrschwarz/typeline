@@ -75,6 +75,7 @@ pub struct JobData<'a> {
     pub match_set_mgr: MatchSetManager,
     pub field_mgr: FieldManager,
     pub sv_mgr: StreamValueManager,
+    pub temp_vec: Vec<u8>,
 }
 
 pub struct TransformManager {
@@ -330,6 +331,7 @@ impl<'a> JobData<'a> {
                 match_sets: Default::default(),
             },
             sv_mgr: Default::default(),
+            temp_vec: Default::default(),
         }
     }
     pub fn unlink_transform(

@@ -35,7 +35,7 @@ use super::{
     errors::OperatorApplicationError,
     operator::{DefaultOperatorName, OperatorBase, OperatorData, OperatorId},
     transform::{TransformData, TransformId, TransformState},
-    utils::{NULL_STR, UNDEFINED_STR},
+    utils::NULL_STR,
 };
 
 #[derive(Default)]
@@ -250,13 +250,13 @@ fn append_stream_val(
 }
 pub fn push_errors(
     out: &mut StringSink,
-    err: &OperatorApplicationError,
+    err: OperatorApplicationError,
     run_length: usize,
     mut field_pos: usize,
     last_error_end: &mut usize,
     output_field: &mut Field,
 ) {
-    push_string(out, error_to_string(err), run_length);
+    push_string(out, error_to_string(&err), run_length);
     let e = Arc::new(err.clone());
     for i in 0..run_length {
         out.append_error(field_pos + i, e.clone());
@@ -267,16 +267,13 @@ pub fn push_errors(
         output_field
             .iter_hall
             .push_null(field_pos - *last_error_end, true);
-        output_field.iter_hall.push_error(
-            err.clone(),
-            run_length,
-            false,
-            false,
-        );
+        output_field
+            .iter_hall
+            .push_error(err, run_length, false, false);
     } else {
         output_field
             .iter_hall
-            .push_error(err.clone(), run_length, true, true);
+            .push_error(err, run_length, true, true);
     }
     *last_error_end = field_pos;
 }
@@ -339,6 +336,47 @@ pub fn handle_tf_string_sink(
                     push_str(&mut out, v.as_str(), rl as usize);
                 }
             }
+            TypedSlice::Custom(custom_types) => {
+                for (v, rl) in
+                    TypedSliceIter::from_range(&range.base, custom_types)
+                {
+                    if let Some(len) = v.stringified_len() {
+                        let mut data = Vec::with_capacity(len);
+                        v.stringify(&mut data)
+                            .expect("custom stringify failed");
+                        if v.stringifies_as_valid_utf8() {
+                            push_string(
+                                &mut out,
+                                unsafe { String::from_utf8_unchecked(data) },
+                                rl as usize,
+                            );
+                        } else {
+                            push_bytes(
+                                op_id,
+                                field_pos,
+                                &mut out,
+                                &data,
+                                rl as usize,
+                            );
+                        }
+                    } else {
+                        push_errors(
+                            &mut out,
+                            OperatorApplicationError::new_s(
+                                format!(
+                                    "cannot stringify custom type {}",
+                                    v.type_name()
+                                ),
+                                op_id,
+                            ),
+                            range.base.field_count,
+                            field_pos,
+                            &mut last_error_end,
+                            &mut output_field,
+                        );
+                    }
+                }
+            }
             TypedSlice::Reference(_) => unreachable!(),
             TypedSlice::Null(_) => {
                 push_str(&mut out, NULL_STR, range.base.field_count);
@@ -348,7 +386,7 @@ pub fn handle_tf_string_sink(
                 for (v, rl) in TypedSliceIter::from_range(&range.base, errs) {
                     push_errors(
                         &mut out,
-                        v,
+                        v.clone(),
                         rl as usize,
                         pos,
                         &mut last_error_end,
@@ -360,16 +398,12 @@ pub fn handle_tf_string_sink(
             TypedSlice::Undefined(_) => {
                 push_errors(
                     &mut out,
-                    &OperatorApplicationError::new(
-                        "value is undefined",
-                        op_id,
-                    ),
+                    OperatorApplicationError::new("value is undefined", op_id),
                     range.base.field_count,
                     field_pos,
                     &mut last_error_end,
                     &mut output_field,
                 );
-                push_str(&mut out, UNDEFINED_STR, range.base.field_count);
             }
             TypedSlice::StreamValueId(svs) => {
                 let mut pos = field_pos;
@@ -425,7 +459,7 @@ pub fn handle_tf_string_sink(
                         }
                         StreamValueData::Error(e) => push_errors(
                             &mut out,
-                            e,
+                            e.clone(),
                             rl as usize,
                             pos,
                             &mut last_error_end,

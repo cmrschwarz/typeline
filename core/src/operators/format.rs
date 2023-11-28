@@ -33,6 +33,7 @@ use crate::{
             i64_digits, i64_to_str, u64_to_str, usize_to_str,
             USIZE_MAX_DECIMAL_DIGITS,
         },
+        pointer_writer::PointerWriter,
         string_store::{StringStore, StringStoreEntry},
         universe::CountedUniverse,
         LengthAndCharsCountingWriter, LengthCountingWriter,
@@ -664,7 +665,7 @@ fn iter_output_targets(
     fmt: &mut TfFormat,
     output_idx: &mut usize,
     mut run_len: usize,
-    func: impl Fn(&mut OutputTarget),
+    mut func: impl FnMut(&mut OutputTarget),
 ) {
     while run_len > 0 {
         let o = &mut fmt.output_targets[*output_idx];
@@ -904,6 +905,34 @@ pub fn setup_key_output_state(
                             o.len += 3;
                         }
                     });
+                }
+            }
+            TypedSlice::Custom(custom_data) => {
+                for (v, rl) in
+                    TypedSliceIter::from_range(&range.base, custom_data)
+                {
+                    if let Some(len) = v.stringified_len() {
+                        let invalid_utf8 = !v.stringifies_as_valid_utf8();
+                        let mut chars_count =
+                            cached!(v.stringified_char_count().unwrap_or(len));
+                        iter_output_states(fmt, &mut output_index, rl, |o| {
+                            o.len += calc_text_len(
+                                k,
+                                len,
+                                o.width_lookup,
+                                &mut chars_count,
+                            );
+                            o.contains_raw_bytes |= invalid_utf8;
+                        });
+                    } else {
+                        iter_output_states(fmt, &mut output_index, rl, |o| {
+                            o.contained_error = Some(FormatError {
+                                err_in_width: false,
+                                part_idx,
+                                kind: FieldValueKind::Custom,
+                            });
+                        });
+                    }
                 }
             }
             TypedSlice::Integer(ints) => {
@@ -1594,6 +1623,40 @@ fn write_fmt_key(
                             } else {
                                 write_padded_bytes(k, tgt, v);
                             }
+                        },
+                    );
+                }
+            }
+            TypedSlice::Custom(custom_data) => {
+                for (v, rl) in
+                    TypedSliceIter::from_range(&range.base, custom_data)
+                {
+                    let len = if debug_format {
+                        v.debug_stringified_len().unwrap()
+                    } else {
+                        v.stringified_len().unwrap()
+                    };
+                    let mut prev_target: Option<*mut u8> = None;
+                    iter_output_targets(
+                        fmt,
+                        &mut output_index,
+                        rl as usize,
+                        |tgt| unsafe {
+                            let ptr = tgt.target.unwrap().as_ptr();
+                            if let Some(src) = prev_target {
+                                std::ptr::copy_nonoverlapping(src, ptr, len);
+                            } else {
+                                if debug_format {
+                                    v.debug_stringify(
+                                        &mut PointerWriter::new(ptr),
+                                    )
+                                } else {
+                                    v.stringify(&mut PointerWriter::new(ptr))
+                                }.expect("custom stringify failed despite sufficient space");
+                                prev_target = Some(ptr);
+                            }
+                            tgt.target =
+                                Some(NonNull::new_unchecked(ptr.add(len)));
                         },
                     );
                 }

@@ -862,6 +862,40 @@ pub fn handle_tf_regex(
                     }
                 }
             }
+            TypedSlice::Custom(custom_types) => {
+                for (v, rl) in
+                    TypedSliceIter::from_range(&range.base, custom_types)
+                {
+                    let prev_len = sess.temp_vec.len();
+                    v.stringify(&mut sess.temp_vec)
+                        .expect("custom stringify failed");
+                    let str = &sess.temp_vec[prev_len..sess.temp_vec.len()];
+
+                    if let (Some(tr), true) =
+                        (&mut text_regex, v.stringifies_as_valid_utf8())
+                    {
+                        bse = match_regex_inner::<true, _>(
+                            &mut rmis,
+                            tr,
+                            unsafe { std::str::from_utf8_unchecked(str) },
+                            rl,
+                            0,
+                        );
+                    } else {
+                        bse = match_regex_inner::<true, _>(
+                            &mut rmis,
+                            &mut bytes_regex,
+                            str,
+                            rl,
+                            0,
+                        );
+                    };
+                    sess.temp_vec.truncate(prev_len);
+                    if bse {
+                        break 'batch;
+                    }
+                }
+            }
             TypedSlice::Integer(ints) => {
                 if let Some(tr) = &mut text_regex {
                     for (v, rl) in

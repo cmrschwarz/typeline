@@ -85,3 +85,17 @@ impl<R: Read> Read for ErroringStream<R> {
         Ok(read_len)
     }
 }
+
+pub fn int_sequence_strings(count: usize) -> Vec<String> {
+    (0..count).map(|n| n.to_string()).collect()
+}
+
+pub fn int_sequence_newline_separated(count: usize) -> String {
+    int_sequence_strings(count)
+        .iter()
+        .fold(String::new(), |mut f, n| {
+            f.push_str(n.to_string().as_str());
+            f.push('\n');
+            f
+        })
+}

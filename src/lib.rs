@@ -4,6 +4,7 @@ use std::sync::Arc;
 pub use scr_core::*;
 
 use extension::ExtensionRegistry;
+use scr_ext_sqlite::SqliteExtension;
 
 pub fn build_extension_registry() -> Arc<ExtensionRegistry> {
     #[allow(unused_mut)]
@@ -12,7 +13,7 @@ pub fn build_extension_registry() -> Arc<ExtensionRegistry> {
     #[cfg(feature = "sqlite")]
     extensions
         .extensions
-        .push(smallbox!(scr_ext_sqlite::SqliteExtension::default()));
+        .push(Box::<SqliteExtension>::default());
 
     Arc::new(extensions)
 }

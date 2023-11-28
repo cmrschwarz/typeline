@@ -1,6 +1,7 @@
 use std::mem::ManuallyDrop;
 
 use super::{
+    custom_data::CustomDataBox,
     field_data::{
         field_value_flags, FieldData, FieldReference, FieldValueFlags,
         FieldValueFormat, FieldValueHeader, FieldValueKind, FieldValueSize,
@@ -613,6 +614,24 @@ pub trait PushInterface: RawPushInterface {
             );
         } else {
             self.push_bytes_as_buffer(
+                data,
+                run_length,
+                try_header_rle,
+                try_data_rle,
+            );
+        }
+    }
+    fn push_custom(
+        &mut self,
+        data: CustomDataBox,
+        run_length: usize,
+        try_header_rle: bool,
+        try_data_rle: bool,
+    ) {
+        unsafe {
+            self.push_fixed_size_type(
+                FieldValueKind::Custom,
+                field_value_flags::DEFAULT,
                 data,
                 run_length,
                 try_header_rle,

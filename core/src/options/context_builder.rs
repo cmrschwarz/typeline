@@ -3,7 +3,10 @@ use std::sync::Arc;
 use crate::{
     context::{Context, Session},
     operators::operator::OperatorData,
-    record_data::{push_interface::PushInterface, record_set::RecordSet},
+    record_data::{
+        custom_data::CustomDataBox, push_interface::PushInterface,
+        record_set::RecordSet,
+    },
     scr_error::ContextualizedScrError,
 };
 
@@ -117,6 +120,10 @@ impl ContextBuilder {
 }
 
 impl ContextBuilder {
+    pub fn push_custom(mut self, v: CustomDataBox, run_length: usize) -> Self {
+        self.data.input_data.push_custom(v, run_length, true, false);
+        self
+    }
     pub fn push_str(mut self, v: &str, run_length: usize) -> Self {
         self.data.input_data.push_str(v, run_length, true, false);
         self

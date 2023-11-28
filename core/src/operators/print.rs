@@ -220,6 +220,15 @@ pub fn handle_tf_print_raw(
                     *handled_field_count += 1;
                 }
             }
+            TypedSlice::Custom(custom_types) => {
+                for v in TypedSliceIter::from_range(&range.base, custom_types)
+                    .unfold_rl()
+                {
+                    v.stringify(stdout)?;
+                    stdout.write_all(b"\n")?;
+                    *handled_field_count += 1;
+                }
+            }
             TypedSlice::Null(_) | TypedSlice::Undefined(_) => {
                 let zst_str = typed_slice_zst_str(&range.base.data);
                 for _ in 0..range.base.field_count {

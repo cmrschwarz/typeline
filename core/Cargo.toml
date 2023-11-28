@@ -6,14 +6,6 @@ edition = "2021"
 [lib]
 name = "scr_core"
 
-[[test]]
-path = "tests/lib.rs"
-name = "integration"
-
-[[bench]]
-name = "bench"
-path = "bench/lib.rs"
-
 [dependencies]
 
 # disabled

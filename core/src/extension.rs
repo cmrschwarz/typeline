@@ -34,7 +34,7 @@ impl ExtensionRegistry {
 }
 
 pub trait Extension: Send + Sync {
-    fn setup(&mut self, registry: &ExtensionRegistry) {}
+    fn setup(&mut self, _registry: &ExtensionRegistry) {}
     fn try_match_cli_argument(
         &self,
         ctx_opts: &SessionOptions,

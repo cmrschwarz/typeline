@@ -1,12 +1,13 @@
 use std::{
     collections::HashMap,
     fmt::Display,
-    mem::{align_of, ManuallyDrop},
+    mem::{align_of, size_of, size_of_val, ManuallyDrop},
     ops::{Deref, DerefMut},
     u8,
 };
 
 use super::{
+    custom_data::CustomDataBox,
     field::FieldIdOffset,
     match_set::MatchSetManager,
     ref_iter::{
@@ -31,8 +32,12 @@ use super::{
 // if the u32 overflows we just split into two values
 pub type RunLength = u32;
 
+// the kinds of data representations that are stored in a `FieldData` Object
+// this includes StreamValueId, FieldReferences, ...
+// which are not actual data types, but helper representations / indirections
+// This also does not differentiate between the text and bytes type as they
+// have the same data layout
 #[derive(Clone, Copy, PartialEq)]
-#[repr(u8)]
 pub enum FieldValueKind {
     Undefined,
     Null,
@@ -45,11 +50,13 @@ pub enum FieldValueKind {
     BytesBuffer,
     BytesFile,
     Object,
-    // TODO: Custom (Box<dyn Something>, stores subtype in FieldValueSize)
-    // CustomDynamicLength, CustomDynamicLengthAligned (store subtype in data,
-    // size in header is actual size)
+    Custom,
+    // TODO (maybe): CustomDynamicLength, CustomDynamicLengthAligned
+    // (store some subtype index at the start of the actual data)
 }
 
+// the different logical data types
+// irrespective of representation in memory
 #[derive(Clone, Copy, PartialEq)]
 pub enum FieldDataType {
     Undefined,
@@ -60,16 +67,45 @@ pub enum FieldDataType {
     Bytes,
     Text,
     Object,
+    Custom,
+}
+
+impl FieldDataType {
+    pub fn to_preferred_field_value_kind(self) -> FieldValueKind {
+        match self {
+            FieldDataType::Undefined => FieldValueKind::Undefined,
+            FieldDataType::Null => FieldValueKind::Null,
+            FieldDataType::Integer => FieldValueKind::Integer,
+            FieldDataType::Error => FieldValueKind::Error,
+            FieldDataType::Html => FieldValueKind::Html,
+            FieldDataType::Bytes => FieldValueKind::BytesInline,
+            FieldDataType::Text => FieldValueKind::BytesInline,
+            FieldDataType::Object => FieldValueKind::Object,
+            FieldDataType::Custom => FieldValueKind::Custom,
+        }
+    }
+    pub fn to_str(self) -> &'static str {
+        match self {
+            FieldDataType::Html => "html",
+            FieldDataType::Undefined => "undefined",
+            FieldDataType::Null => "null",
+            FieldDataType::Integer => "int",
+            FieldDataType::Error => "error",
+            FieldDataType::Text => "str",
+            FieldDataType::Bytes => "bytes",
+            FieldDataType::Custom => "custom",
+            FieldDataType::Object => "object",
+        }
+    }
 }
 
 impl FieldValueKind {
     pub fn needs_drop(self) -> bool {
         use FieldValueKind::*;
         match self {
-            Undefined | Null | Integer | Reference | StreamValueId => false,
-            Error | Html | BytesInline | BytesBuffer | BytesFile | Object => {
-                true
-            }
+            Undefined | Null | Integer | Reference | StreamValueId
+            | BytesInline => false,
+            Error | Html | BytesBuffer | BytesFile | Object | Custom => true,
         }
     }
     #[inline(always)]
@@ -121,20 +157,15 @@ impl FieldValueKind {
         match self {
             FieldValueKind::Undefined => 0,
             FieldValueKind::Null => 0,
-            FieldValueKind::Integer => std::mem::size_of::<i64>(),
-            FieldValueKind::StreamValueId => {
-                std::mem::size_of::<StreamValueId>()
-            }
-            FieldValueKind::Reference => std::mem::size_of::<FieldReference>(),
-            FieldValueKind::Error => {
-                std::mem::size_of::<OperatorApplicationError>()
-            }
-            FieldValueKind::Html => std::mem::size_of::<Html>(),
-            FieldValueKind::BytesBuffer => std::mem::size_of::<Vec<u8>>(),
-            FieldValueKind::BytesFile => {
-                std::mem::size_of::<BytesBufferFile>()
-            }
-            FieldValueKind::Object => std::mem::size_of::<Object>(),
+            FieldValueKind::Integer => size_of::<i64>(),
+            FieldValueKind::StreamValueId => size_of::<StreamValueId>(),
+            FieldValueKind::Reference => size_of::<FieldReference>(),
+            FieldValueKind::Error => size_of::<OperatorApplicationError>(),
+            FieldValueKind::Html => size_of::<Html>(),
+            FieldValueKind::BytesBuffer => size_of::<Vec<u8>>(),
+            FieldValueKind::BytesFile => size_of::<BytesBufferFile>(),
+            FieldValueKind::Object => size_of::<Object>(),
+            FieldValueKind::Custom => size_of::<CustomDataBox>(),
             // should not be used for size calculations
             // but is used for example in is_zst
             FieldValueKind::BytesInline => usize::MAX,
@@ -157,14 +188,15 @@ impl FieldValueKind {
             FieldValueKind::Undefined => "undefined",
             FieldValueKind::Null => "null",
             FieldValueKind::Integer => "int",
-            FieldValueKind::StreamValueId => "<stream_value_id>",
-            FieldValueKind::Reference => "<field reference>",
+            FieldValueKind::StreamValueId => "stream_value_id",
+            FieldValueKind::Reference => "field_reference",
             FieldValueKind::Error => "error",
             FieldValueKind::Html => "html",
             FieldValueKind::BytesInline => "bytes",
             FieldValueKind::BytesBuffer => "bytes",
             FieldValueKind::BytesFile => "bytes",
             FieldValueKind::Object => "object",
+            FieldValueKind::Custom => "custom",
         }
     }
 }
@@ -177,7 +209,35 @@ impl Display for FieldValueKind {
 
 pub struct Null;
 pub struct Undefined;
+#[derive(Clone)]
+#[allow(dead_code)] // TODO
+struct ObjectEntry {
+    kind: FieldValueKind,
+    data_offset: usize,
+}
+#[allow(dead_code)] // TODO
+#[derive(Clone)]
+pub struct Object {
+    data: FieldData,
+    table: HashMap<StringStoreEntry, ObjectEntry>,
+}
 
+#[derive(Copy, Clone, PartialEq)]
+pub struct FieldReference {
+    pub field_id_offset: FieldIdOffset,
+    pub begin: usize,
+    pub end: usize,
+}
+#[derive(Clone)]
+pub struct Html {
+    // TODO
+}
+#[derive(Clone)]
+pub struct BytesBufferFile {
+    // TODO
+}
+
+// used to constrain generic functions that accept data for field values
 pub trait FieldValueType {
     const KIND: FieldValueKind;
 }
@@ -211,35 +271,8 @@ impl FieldValueType for Vec<u8> {
 impl FieldValueType for Object {
     const KIND: FieldValueKind = FieldValueKind::Object;
 }
-
-#[derive(Clone)]
-#[allow(dead_code)] // TODO
-struct ObjectEntry {
-    kind: FieldValueKind,
-    data_offset: usize,
-}
-#[allow(dead_code)] // TODO
-#[derive(Clone)]
-pub struct Object {
-    data: FieldData,
-    table: HashMap<StringStoreEntry, ObjectEntry>,
-}
-
-#[derive(Copy, Clone, PartialEq)]
-pub struct FieldReference {
-    pub field_id_offset: FieldIdOffset,
-    pub begin: usize,
-    pub end: usize,
-}
-
-#[derive(Clone)]
-pub struct Html {
-    // TODO
-}
-
-#[derive(Clone)]
-pub struct BytesBufferFile {
-    // TODO
+impl FieldValueType for CustomDataBox {
+    const KIND: FieldValueKind = FieldValueKind::Custom;
 }
 
 // only used to figure out the maximum alignment needed for fields
@@ -646,6 +679,9 @@ impl FieldData {
                             });
                         }
                     }
+                    // we currently only use field refs for text/bytes types
+                    // so these never happen
+                    // we might reconsider this for Object / Custom though
                     TypedSlice::Undefined(_)
                     | TypedSlice::Null(_)
                     | TypedSlice::Integer(_)
@@ -653,6 +689,7 @@ impl FieldData {
                     | TypedSlice::Reference(_)
                     | TypedSlice::Error(_)
                     | TypedSlice::Html(_)
+                    | TypedSlice::Custom(_)
                     | TypedSlice::Object(_) => unreachable!(),
                 }
             }
@@ -681,7 +718,7 @@ unsafe fn extend_with_clones<T: Clone>(
     target_applicator: &mut impl FnMut(&mut dyn Fn(&mut FieldDataBuffer)),
     src: &[T],
 ) {
-    let src_size = std::mem::size_of_val(src);
+    let src_size = size_of_val(src);
     target_applicator(&mut |data| {
         data.reserve(src_size);
         unsafe {
@@ -696,15 +733,31 @@ unsafe fn extend_with_clones<T: Clone>(
 }
 
 #[inline(always)]
+unsafe fn extend_with_custom_clones(
+    target_applicator: &mut impl FnMut(&mut dyn Fn(&mut FieldDataBuffer)),
+    src: &[CustomDataBox],
+) {
+    let src_size = size_of::<CustomDataBox>();
+    target_applicator(&mut |data| {
+        data.reserve(src_size);
+        unsafe {
+            let mut tgt = data.as_mut_ptr_range().end as *mut CustomDataBox;
+            for v in src {
+                std::ptr::write(tgt, v.clone_dyn());
+                tgt = tgt.add(1);
+            }
+            data.set_len(data.len() + src_size);
+        }
+    });
+}
+
+#[inline(always)]
 unsafe fn extend_raw<T: Sized>(
     target_applicator: &mut impl FnMut(&mut dyn Fn(&mut FieldDataBuffer)),
     src: &[T],
 ) {
     let src_bytes = unsafe {
-        std::slice::from_raw_parts(
-            src.as_ptr() as *const u8,
-            std::mem::size_of_val(src),
-        )
+        std::slice::from_raw_parts(src.as_ptr() as *const u8, size_of_val(src))
     };
     target_applicator(&mut |data| data.extend_from_slice(src_bytes));
 }
@@ -730,6 +783,9 @@ unsafe fn append_data(
             TypedSlice::Error(v) => extend_with_clones(target_applicator, v),
             TypedSlice::Html(v) => extend_with_clones(target_applicator, v),
             TypedSlice::Object(v) => extend_with_clones(target_applicator, v),
+            TypedSlice::Custom(v) => {
+                extend_with_custom_clones(target_applicator, v)
+            }
         };
     }
 }

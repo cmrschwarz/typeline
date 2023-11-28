@@ -574,7 +574,6 @@ unsafe impl RawPushInterface for IterHall {
             );
         }
     }
-
     unsafe fn push_zst_unchecked(
         &mut self,
         kind: FieldValueKind,

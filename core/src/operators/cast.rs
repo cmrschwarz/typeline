@@ -4,7 +4,7 @@ use crate::{
     job_session::JobData,
     options::argument::CliArgIdx,
     record_data::{
-        field_data::{field_value_flags, FieldDataType, FieldValueKind},
+        field_data::{field_value_flags, FieldDataType},
         iter_hall::IterId,
         iters::FieldIterator,
         push_interface::PushInterface,
@@ -34,17 +34,7 @@ pub struct OpCast {
 
 impl OpCast {
     pub fn default_op_name(&self) -> DefaultOperatorName {
-        match self.target_type {
-            FieldDataType::Html => "html",
-            FieldDataType::Undefined => "undefined",
-            FieldDataType::Null => "null",
-            FieldDataType::Integer => "int",
-            FieldDataType::Error => "error",
-            FieldDataType::Text => "str",
-            FieldDataType::Bytes => "bytes",
-            FieldDataType::Object => unreachable!(),
-        }
-        .into()
+        self.target_type.to_str().into()
     }
 }
 
@@ -149,16 +139,8 @@ pub fn build_tf_cast<'a>(
     op: &'a OpCast,
     tf_state: &mut TransformState,
 ) -> TransformData<'a> {
-    tf_state.preferred_input_type = Some(match op.target_type {
-        FieldDataType::Undefined => FieldValueKind::Undefined,
-        FieldDataType::Null => FieldValueKind::Null,
-        FieldDataType::Integer => FieldValueKind::Integer,
-        FieldDataType::Error => FieldValueKind::Error,
-        FieldDataType::Html => FieldValueKind::Html,
-        FieldDataType::Bytes => FieldValueKind::BytesInline,
-        FieldDataType::Text => FieldValueKind::BytesInline,
-        FieldDataType::Object => FieldValueKind::Object,
-    });
+    tf_state.preferred_input_type =
+        Some(op.target_type.to_preferred_field_value_kind());
     let replacement_fn: Box<dyn InvalidUnicodeHandlerFn> =
         match &op.invalid_unicode_handler {
             Some(h) => match h {
