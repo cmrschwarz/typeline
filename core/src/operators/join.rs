@@ -634,13 +634,15 @@ fn push_custom_type(
             let mut first_target_ptr = start_ptr;
             let mut ptr = start_ptr;
             if !first_record_added {
-                v.stringify(&mut PointerWriter::new(ptr)).expect(ERR_MSG);
+                v.stringify_expect_len(len, &mut PointerWriter::new(ptr, len))
+                    .expect(ERR_MSG);
                 ptr = ptr.add(len);
             } else {
                 std::ptr::copy_nonoverlapping(sep.as_ptr(), ptr, sep_len);
                 ptr = ptr.add(sep_len);
                 first_target_ptr = ptr;
-                v.stringify(&mut PointerWriter::new(ptr)).expect(ERR_MSG);
+                v.stringify_expect_len(len, &mut PointerWriter::new(ptr, len))
+                    .expect(ERR_MSG);
                 ptr = ptr.add(len);
             }
 
@@ -652,7 +654,8 @@ fn push_custom_type(
             }
         } else {
             let mut ptr = start_ptr;
-            v.stringify(&mut PointerWriter::new(ptr)).expect(ERR_MSG);
+            v.stringify_expect_len(len, &mut PointerWriter::new(ptr, len))
+                .expect(ERR_MSG);
             for _ in 1..rl {
                 ptr = ptr.add(len);
                 std::ptr::copy_nonoverlapping(start_ptr, ptr, len);

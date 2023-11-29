@@ -84,10 +84,10 @@ pub enum FormatWidthSpec {
 }
 
 impl FormatWidthSpec {
-    pub fn width(&self, width_lookup: usize) -> usize {
+    pub fn width(&self, target_width: usize) -> usize {
         match self {
             FormatWidthSpec::Value(v) => *v,
-            FormatWidthSpec::Ref(_) => width_lookup,
+            FormatWidthSpec::Ref(_) => target_width,
         }
     }
 }
@@ -155,7 +155,7 @@ pub struct FormatIdentRef {
 struct TfFormatStreamValueHandle {
     part_idx: FormatPartIndex,
     handled_len: usize,
-    width_lookup: usize,
+    target_width: usize,
     target_sv_id: StreamValueId,
     wait_to_end: bool,
 }
@@ -173,7 +173,7 @@ struct FormatError {
 struct OutputState {
     next: usize,
     len: usize,
-    width_lookup: usize,
+    target_width: usize,
     run_len: usize,
     contains_raw_bytes: bool,
     contained_error: Option<FormatError>,
@@ -182,8 +182,9 @@ struct OutputState {
 
 struct OutputTarget {
     run_len: usize,
-    width_lookup: usize,
+    target_width: usize,
     target: Option<NonNull<u8>>,
+    remaining_len: usize,
 }
 
 pub struct TfFormat<'a> {
@@ -679,11 +680,11 @@ fn iter_output_targets(
 fn calc_text_len(
     k: &FormatKey,
     text_len: usize,
-    width_lookup: usize,
+    target_width: usize,
     text_char_count: &mut impl ValueProducingCallable<usize>,
 ) -> usize {
     let max_width = match k.width {
-        Some(FormatWidthSpec::Ref(_)) => width_lookup,
+        Some(FormatWidthSpec::Ref(_)) => target_width,
         Some(FormatWidthSpec::Value(v)) => v,
         None => 0,
     };
@@ -708,11 +709,11 @@ fn calc_text_len(
 fn calc_text_padding(
     k: &FormatKey,
     text_len: usize,
-    width_lookup: usize,
+    target_width: usize,
     text_char_count: impl FnOnce() -> usize,
 ) -> usize {
     let max_width = match k.width {
-        Some(FormatWidthSpec::Ref(_)) => width_lookup,
+        Some(FormatWidthSpec::Ref(_)) => target_width,
         Some(FormatWidthSpec::Value(v)) => v,
         None => 0,
     };
@@ -727,7 +728,7 @@ fn calc_text_padding(
         }
     }
 }
-pub fn lookup_widths(
+pub fn lookup_target_widths(
     fm: &FieldManager,
     msm: &mut MatchSetManager,
     fmt: &mut TfFormat,
@@ -797,7 +798,7 @@ pub fn setup_key_output_state(
     k: &FormatKey,
     part_idx: FormatPartIndex,
 ) {
-    lookup_widths(
+    lookup_target_widths(
         fm,
         msm,
         fmt,
@@ -811,7 +812,7 @@ pub fn setup_key_output_state(
                 &mut fmt.output_states,
                 output_idx,
                 run_len,
-                |os| os.width_lookup = width,
+                |os| os.target_width = width,
             )
         },
         |fmt, output_idx, kind, run_len| {
@@ -860,7 +861,7 @@ pub fn setup_key_output_state(
                         o.len += calc_text_len(
                             k,
                             v.len(),
-                            o.width_lookup,
+                            o.target_width,
                             &mut chars_count,
                         );
                         if debug_format {
@@ -878,7 +879,7 @@ pub fn setup_key_output_state(
                         o.len += calc_text_len(
                             k,
                             v.len(),
-                            o.width_lookup,
+                            o.target_width,
                             &mut chars_count,
                         );
                         o.contains_raw_bytes = true;
@@ -897,7 +898,7 @@ pub fn setup_key_output_state(
                         o.len += calc_text_len(
                             k,
                             v.len(),
-                            o.width_lookup,
+                            o.target_width,
                             &mut chars_count,
                         );
                         o.contains_raw_bytes = true;
@@ -919,7 +920,7 @@ pub fn setup_key_output_state(
                             o.len += calc_text_len(
                                 k,
                                 len,
-                                o.width_lookup,
+                                o.target_width,
                                 &mut chars_count,
                             );
                             o.contains_raw_bytes |= invalid_utf8;
@@ -942,7 +943,7 @@ pub fn setup_key_output_state(
                         o.len += calc_text_len(
                             k,
                             digits,
-                            o.width_lookup,
+                            o.target_width,
                             &mut || digits,
                         );
                     });
@@ -973,7 +974,7 @@ pub fn setup_key_output_state(
                                         o.len += calc_text_len(
                                             k,
                                             len,
-                                            o.width_lookup,
+                                            o.target_width,
                                             &mut char_count,
                                         );
                                     },
@@ -1015,7 +1016,7 @@ pub fn setup_key_output_state(
                                 if let Some(width_spec) = &k.width {
                                     let mut i = output_index;
                                     iter_output_states(fmt, &mut i, rl, |o| {
-                                        if width_spec.width(o.width_lookup)
+                                        if width_spec.width(o.target_width)
                                             > data.len() / MAX_UTF8_CHAR_LEN
                                         {
                                             need_buffer = true;
@@ -1031,7 +1032,7 @@ pub fn setup_key_output_state(
                                     o.len += calc_text_len(
                                         k,
                                         text_len,
-                                        o.width_lookup,
+                                        o.target_width,
                                         &mut char_count,
                                     );
                                     if sv.bytes_are_utf8 {
@@ -1080,8 +1081,8 @@ pub fn setup_key_output_state(
                                                         part_idx,
                                                         target_sv_id,
                                                         handled_len: 0,
-                                                        width_lookup: o
-                                                            .width_lookup,
+                                                        target_width: o
+                                                            .target_width,
                                                         wait_to_end:
                                                             need_buffer,
                                                     },
@@ -1106,7 +1107,7 @@ pub fn setup_key_output_state(
                     range.base.field_count,
                     |o| {
                         o.len +=
-                            calc_text_len(k, len, o.width_lookup, &mut || len);
+                            calc_text_len(k, len, o.target_width, &mut || len);
                     },
                 );
             }
@@ -1118,7 +1119,7 @@ pub fn setup_key_output_state(
                     range.base.field_count,
                     |o| {
                         o.len +=
-                            calc_text_len(k, len, o.width_lookup, &mut || len);
+                            calc_text_len(k, len, o.target_width, &mut || len);
                     },
                 );
             }
@@ -1133,7 +1134,7 @@ pub fn setup_key_output_state(
                     let mut cc = cached!(char_count.call());
                     iter_output_states(fmt, &mut output_index, rl, |o| {
                         o.len +=
-                            calc_text_len(k, len, o.width_lookup, &mut cc);
+                            calc_text_len(k, len, o.target_width, &mut cc);
                     });
                 }
             }
@@ -1168,7 +1169,7 @@ pub fn setup_key_output_state(
                 o.len += calc_text_len(
                     k,
                     UNDEFINED_STR.len(),
-                    o.width_lookup,
+                    o.target_width,
                     &mut || UNDEFINED_STR.len(),
                 );
             } else {
@@ -1183,11 +1184,19 @@ pub fn setup_key_output_state(
     // we don't store the iter state back here because we need to iterate a
     // second time for the actual write
 }
+fn claim_target_len(tgt: &mut OutputTarget, len: usize) {
+    tgt.remaining_len = tgt
+        .remaining_len
+        .checked_sub(len)
+        .expect("target buffer overrun");
+}
 unsafe fn write_bytes_to_target(tgt: &mut OutputTarget, bytes: &[u8]) {
+    let len = bytes.len();
+    claim_target_len(tgt, len);
     unsafe {
         let ptr = tgt.target.unwrap().as_ptr();
-        std::ptr::copy_nonoverlapping(bytes.as_ptr(), ptr, bytes.len());
-        tgt.target = Some(NonNull::new_unchecked(ptr.add(bytes.len())));
+        std::ptr::copy_nonoverlapping(bytes.as_ptr(), ptr, len);
+        tgt.target = Some(NonNull::new_unchecked(ptr.add(len)));
     }
 }
 unsafe fn write_padding_to_tgt(
@@ -1356,7 +1365,8 @@ fn setup_output_targets(
         fmt.output_targets.push(OutputTarget {
             run_len: os.run_len,
             target,
-            width_lookup: os.width_lookup,
+            target_width: os.target_width,
+            remaining_len: os.len,
         });
         output_idx = os.next;
         if output_idx == FINAL_OUTPUT_INDEX_NEXT_VAL {
@@ -1376,7 +1386,7 @@ unsafe fn write_padded_bytes_with_prefix_suffix(
         let padding = calc_text_padding(
             k,
             data.len() + prefix.len() + suffix.len(),
-            tgt.width_lookup,
+            tgt.target_width,
             || {
                 data.chars().count()
                     + prefix.chars().count()
@@ -1439,7 +1449,7 @@ unsafe fn write_formatted_int(
     }
     let val = u64_to_str(false, value.unsigned_abs());
     len += val.len();
-    let padding = calc_text_padding(k, len, tgt.width_lookup, || val.len());
+    let padding = calc_text_padding(k, len, tgt.target_width, || val.len());
 
     unsafe {
         write_padding_to_tgt(tgt, Some('0'), padding);
@@ -1527,7 +1537,7 @@ fn write_fmt_key(
 ) {
     // any potential unconsumed input was already set during width calculation
     let unconsumed_input = false;
-    lookup_widths(
+    lookup_target_widths(
         fm,
         msm,
         fmt,
@@ -1538,7 +1548,7 @@ fn write_fmt_key(
         false,
         |fmt, output_idx, width, run_len| {
             iter_output_targets(fmt, output_idx, run_len, |ot| {
-                ot.width_lookup = width
+                ot.target_width = width
             })
         },
         |_fmt, _output_idx, _kind, _run_len| (),
@@ -1642,16 +1652,17 @@ fn write_fmt_key(
                         &mut output_index,
                         rl as usize,
                         |tgt| unsafe {
+                            claim_target_len(tgt, len);
                             let ptr = tgt.target.unwrap().as_ptr();
                             if let Some(src) = prev_target {
                                 std::ptr::copy_nonoverlapping(src, ptr, len);
                             } else {
                                 if debug_format {
-                                    v.debug_stringify(
-                                        &mut PointerWriter::new(ptr),
+                                    v.debug_stringify_expect_len(
+                                        len, &mut PointerWriter::new(ptr, len),
                                     )
                                 } else {
-                                    v.stringify(&mut PointerWriter::new(ptr))
+                                    v.stringify_expect_len(len, &mut PointerWriter::new(ptr, len))
                                 }.expect("custom stringify failed despite sufficient space");
                                 prev_target = Some(ptr);
                             }
@@ -1839,7 +1850,7 @@ pub fn handle_tf_format(
         run_len: batch_size,
         next: FINAL_OUTPUT_INDEX_NEXT_VAL,
         len: 0,
-        width_lookup: 0,
+        target_width: 0,
         contains_raw_bytes: false,
         contained_error: None,
         incomplete_stream_value_handle: None,
@@ -1959,7 +1970,7 @@ pub fn handle_tf_format_stream_value_update(
                             let len = calc_text_len(
                                 k,
                                 data.len(),
-                                handle.width_lookup,
+                                handle.target_width,
                                 &mut || data.chars().count(),
                             );
                             tgt_buf.reserve(len);
@@ -1967,12 +1978,13 @@ pub fn handle_tf_format_stream_value_update(
                                 // TODO: this is a hack, create a separate impl
                                 let mut output_target = OutputTarget {
                                     run_len: 1,
-                                    width_lookup: handle.width_lookup,
+                                    target_width: handle.target_width,
                                     target: Some(NonNull::new_unchecked(
                                         tgt_buf
                                             .as_mut_ptr()
                                             .add(tgt_buf.len()),
                                     )),
+                                    remaining_len: len,
                                 };
                                 write_padded_bytes(
                                     k,
