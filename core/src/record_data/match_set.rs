@@ -11,7 +11,7 @@ use crate::{
 };
 
 use super::{
-    command_buffer::ActionBuffer,
+    action_buffer::ActionBuffer,
     field::{FieldId, FieldManager},
 };
 

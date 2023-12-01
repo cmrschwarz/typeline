@@ -14,8 +14,8 @@ use crate::{
     },
     options::argument::CliArgIdx,
     record_data::{
-        command_buffer::{ActorId, ActorRef},
-        field::{FieldId, FieldManager, DUMMY_INPUT_FIELD_ID},
+        action_buffer::{ActorId, ActorRef},
+        field::{FieldId, FieldManager, DUMMY_FIELD_ID},
         field_action::FieldActionKind,
         iter_hall::IterId,
         iters::FieldIterator,
@@ -374,9 +374,7 @@ pub fn handle_tf_call_concurrent(
     for mapping in &tfc.field_mappings {
         let src_field =
             sess.field_mgr.fields[mapping.source_field_id].borrow();
-        if src_field.has_unconsumed_input.get()
-            || !src_field.iter_hall.are_headers_owned()
-        {
+        if src_field.has_unconsumed_input.get() {
             continue;
         }
         drop(src_field);
@@ -406,8 +404,8 @@ pub fn setup_callee_concurrent(
         .unwrap();
     let chain = &sess.job_data.session_data.chains[chain_id as usize];
     let tf_state = TransformState::new(
-        DUMMY_INPUT_FIELD_ID,
-        DUMMY_INPUT_FIELD_ID,
+        DUMMY_FIELD_ID,
+        DUMMY_FIELD_ID,
         ms_id,
         chain.settings.default_batch_size,
         None,
@@ -415,7 +413,7 @@ pub fn setup_callee_concurrent(
     );
     sess.job_data
         .field_mgr
-        .inc_field_refcount(DUMMY_INPUT_FIELD_ID, 2);
+        .inc_field_refcount(DUMMY_FIELD_ID, 2);
     let mut callee = TfCalleeConcurrent {
         target_fields: Default::default(),
         buffer,

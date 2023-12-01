@@ -12,8 +12,8 @@ use crate::{
     },
     options::argument::CliArgIdx,
     record_data::{
-        command_buffer::ActorRef,
-        field::{FieldId, DUMMY_INPUT_FIELD_ID},
+        action_buffer::ActorRef,
+        field::{FieldId, DUMMY_FIELD_ID},
     },
     utils::{
         identity_hasher::BuildIdentityHasher, string_store::StringStoreEntry,
@@ -284,7 +284,7 @@ pub(crate) fn handle_initial_forkcat_expansion(
                 .field_name_map
                 .get(&name)
                 .copied()
-                .unwrap_or(DUMMY_INPUT_FIELD_ID)
+                .unwrap_or(DUMMY_FIELD_ID)
         } else {
             tf.input_field
         };
@@ -381,8 +381,7 @@ fn setup_continuation(
         forkcat.output_fields.push(output_field_id);
     }
     forkcat.output_field_sources.extend(
-        std::iter::repeat(DUMMY_INPUT_FIELD_ID)
-            .take(forkcat.output_fields.len()),
+        std::iter::repeat(DUMMY_FIELD_ID).take(forkcat.output_fields.len()),
     );
     let cont_chain_id = sess.job_data.session_data.operator_bases
         [cont_op_id as usize]
@@ -392,7 +391,7 @@ fn setup_continuation(
         if forkcat.op.accessed_names_afterwards.first() == Some(&None) {
             forkcat.output_fields[0]
         } else {
-            DUMMY_INPUT_FIELD_ID
+            DUMMY_FIELD_ID
         };
     sess.setup_transforms_with_stable_start(
         output_ms_id,
@@ -421,7 +420,7 @@ fn expand_for_subchain(sess: &mut JobSession, tf_id: TransformId, sc_n: u32) {
     let mut prebound_outputs = std::mem::take(&mut forkcat.prebound_outputs);
     prebound_outputs.clear();
 
-    let mut subchain_input_field = DUMMY_INPUT_FIELD_ID;
+    let mut subchain_input_field = DUMMY_FIELD_ID;
     for &idx in &forkcat.op.accessed_names_per_subchain[sc_n as usize] {
         let input_field = forkcat.input_fields[idx];
         let input_mirror_field =

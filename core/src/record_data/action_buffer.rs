@@ -24,6 +24,8 @@ pub type SnapshotLookupId = u32;
 #[derive(Clone, Copy)]
 pub enum ActorRef {
     Present(ActorId),
+    // when a transform adds an actor, it sets the first_actor of it's
+    // output fields to Unconfirmed()
     Unconfirmed(ActorId),
 }
 
@@ -235,6 +237,7 @@ impl Default for Actor {
     }
 }
 impl ActionBuffer {
+    pub const MAX_ACTOR_ID: ActorId = ActorId::MAX;
     pub fn begin_action_group(&mut self, actor_id: u32) {
         assert!(self.pending_action_group_actor_id.is_none());
         self.pending_action_group_actor_id = Some(actor_id)
@@ -913,6 +916,9 @@ impl ActionBuffer {
                 | FieldDataSource::RecordBufferDataCow(_) => {
                     (&mut fd.headers, None, &mut fd.field_count)
                 }
+                FieldDataSource::Alias(_) => {
+                    panic!("cannot execute commands on Alias iter hall")
+                }
                 FieldDataSource::Cow(_)
                 | FieldDataSource::RecordBufferCow(_) => {
                     panic!("cannot execute commands on COW iter hall")
@@ -1027,7 +1033,7 @@ impl ActionBuffer {
 
 #[cfg(test)]
 mod test {
-    use crate::record_data::command_buffer::{
+    use crate::record_data::action_buffer::{
         Pow2InsertStepsIter, Pow2LookupStepsIter,
     };
 

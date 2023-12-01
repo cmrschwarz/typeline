@@ -1,6 +1,6 @@
 use crate::{
     job_session::JobData,
-    record_data::{command_buffer::ActorId, field_action::FieldActionKind},
+    record_data::{action_buffer::ActorId, field_action::FieldActionKind},
 };
 
 use super::transform::{TransformData, TransformId, TransformState};

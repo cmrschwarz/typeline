@@ -24,10 +24,11 @@ use super::{
 
 pub type IterId = NonMaxU32;
 
-#[derive(Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum FieldDataSource {
     #[default]
     Owned,
+    Alias(FieldId),
     Cow(FieldId),
     DataCow {
         src_field: FieldId,
@@ -106,6 +107,7 @@ impl IterHall {
         match self.data_source {
             FieldDataSource::Owned => self.field_data.data.len(),
             FieldDataSource::Cow(src_field)
+            | FieldDataSource::Alias(src_field)
             | FieldDataSource::DataCow {
                 src_field,
                 header_iter: _,
@@ -262,40 +264,16 @@ impl IterHall {
             adapted_target_applicator,
         )
     }
-    pub fn cow_field(&self) -> Option<FieldId> {
-        match self.data_source {
-            FieldDataSource::Owned => None,
-            FieldDataSource::Cow(src) => Some(src),
-            FieldDataSource::DataCow {
-                src_field,
-                header_iter: _,
-            } => Some(src_field),
-            FieldDataSource::RecordBufferCow(_) => None,
-            FieldDataSource::RecordBufferDataCow(_) => None,
-        }
-    }
-    pub fn is_cow(&self) -> bool {
-        match self.data_source {
-            FieldDataSource::Owned => true,
-            FieldDataSource::Cow(_) => false,
-            FieldDataSource::DataCow { .. } => false,
-            FieldDataSource::RecordBufferCow(_) => false,
-            FieldDataSource::RecordBufferDataCow(_) => false,
-        }
-    }
-    pub fn are_headers_owned(&self) -> bool {
-        match self.data_source {
-            FieldDataSource::Owned => true,
-            FieldDataSource::DataCow { .. } => true,
-            FieldDataSource::RecordBufferDataCow(_) => true,
-            FieldDataSource::Cow(_) => false,
-            FieldDataSource::RecordBufferCow(_) => false,
-        }
-    }
     // source field of cow, data cow only
-    pub fn cow_source_field(&self) -> (Option<FieldId>, Option<bool>) {
+    pub fn cow_source_field(
+        &self,
+        fm: &FieldManager,
+    ) -> (Option<FieldId>, Option<bool>) {
         match self.data_source {
             FieldDataSource::Owned => (None, None),
+            FieldDataSource::Alias(src) => {
+                fm.fields[src].borrow().iter_hall.cow_source_field(fm)
+            }
             FieldDataSource::Cow(src) => (Some(src), Some(false)),
             FieldDataSource::DataCow {
                 src_field,
@@ -317,10 +295,13 @@ impl IterHall {
             it.field_pos = 0;
         }
     }
-    pub fn reset_cow_headers(&mut self) {
+    pub fn reset_cow_headers(&mut self, fm: &FieldManager) {
         match &mut self.data_source {
             FieldDataSource::Owned => (),
             FieldDataSource::Cow(_) => (),
+            FieldDataSource::Alias(src) => {
+                fm.fields[*src].borrow_mut().iter_hall.reset_cow_headers(fm)
+            }
             FieldDataSource::DataCow {
                 src_field,
                 header_iter: _,
@@ -385,7 +366,8 @@ impl IterHall {
                 header_tgt.extend_from_slice(&self.field_data.headers);
                 self.field_data.field_count
             }
-            FieldDataSource::Cow(src) => fm.fields[src]
+            FieldDataSource::Cow(src) | FieldDataSource::Alias(src) => fm
+                .fields[src]
                 .borrow()
                 .iter_hall
                 .append_headers_to(fm, header_tgt),
@@ -405,7 +387,7 @@ impl IterHall {
             FieldDataSource::Owned => {
                 self.field_data.append_data_to(target);
             }
-            FieldDataSource::Cow(src) => {
+            FieldDataSource::Cow(src) | FieldDataSource::Alias(src) => {
                 fm.fields[src].borrow().iter_hall.append_data_to(fm, target);
             }
             FieldDataSource::DataCow {
@@ -424,7 +406,7 @@ impl IterHall {
     pub fn append_to(&self, fm: &FieldManager, target: &mut FieldData) {
         match self.data_source {
             FieldDataSource::Owned => self.field_data.clone_into(target),
-            FieldDataSource::Cow(src) => {
+            FieldDataSource::Cow(src) | FieldDataSource::Alias(src) => {
                 fm.fields[src].borrow().iter_hall.append_to(fm, target)
             }
             FieldDataSource::DataCow {
@@ -454,7 +436,7 @@ impl IterHall {
             | FieldDataSource::RecordBufferDataCow(_) => {
                 self.field_data.field_count
             }
-            FieldDataSource::Cow(src) => {
+            FieldDataSource::Cow(src) | FieldDataSource::Alias(src) => {
                 fm.fields[src].borrow().iter_hall.get_field_count(fm)
             }
             FieldDataSource::RecordBufferCow(data_ref) => {
@@ -471,6 +453,10 @@ impl IterHall {
     ) -> Option<FieldId> {
         match self.data_source {
             FieldDataSource::Owned => None,
+            FieldDataSource::Alias(src) => fm.fields[src]
+                .borrow_mut()
+                .iter_hall
+                .uncow_get_field_with_rc(fm),
             FieldDataSource::Cow(src_id) => {
                 debug_assert!(self.field_data.is_empty());
                 let src = fm.fields[src_id].borrow();
@@ -502,13 +488,16 @@ impl IterHall {
         }
     }
     pub fn uncow_headers(&mut self, fm: &FieldManager) {
-        if self.are_headers_owned() {
-            return;
-        }
         match self.data_source {
-            FieldDataSource::Owned => unreachable!(),
-            FieldDataSource::DataCow { .. } => unreachable!(),
-            FieldDataSource::RecordBufferDataCow(_) => unreachable!(),
+            FieldDataSource::Owned => (),
+            FieldDataSource::DataCow { .. } => (),
+            FieldDataSource::RecordBufferDataCow(_) => (),
+            FieldDataSource::Alias(src_field_id) => {
+                fm.fields[src_field_id]
+                    .borrow_mut()
+                    .iter_hall
+                    .uncow_headers(fm);
+            }
             FieldDataSource::Cow(src_field_id) => {
                 debug_assert!(self.field_data.is_empty());
                 let mut src_field = fm.fields[src_field_id].borrow_mut();

@@ -53,8 +53,8 @@ use crate::{
         transform::{TransformData, TransformId, TransformState},
     },
     record_data::{
-        command_buffer::ActorRef,
-        field::{FieldId, FieldManager, DUMMY_INPUT_FIELD_ID},
+        action_buffer::ActorRef,
+        field::{FieldId, FieldManager, DUMMY_FIELD_ID},
         match_set::{MatchSetId, MatchSetManager},
         record_buffer::RecordBuffer,
         stream_value::{StreamValueManager, StreamValueUpdate},
@@ -418,7 +418,7 @@ impl<'a> JobData<'a> {
                 print!(" (`{}`)", field.producing_transform_arg)
             }
             if let (cow_src_field, Some(data_cow)) =
-                field.iter_hall.cow_source_field()
+                field.iter_hall.cow_source_field(&self.field_mgr)
             {
                 print!(
                     " [{}cow{}]",
@@ -495,7 +495,7 @@ impl<'a> JobSession<'a> {
                 input_data = Some(field_id);
             }
         }
-        let input_data = input_data.unwrap_or(DUMMY_INPUT_FIELD_ID);
+        let input_data = input_data.unwrap_or(DUMMY_FIELD_ID);
 
         #[cfg(feature = "debug_logging")]
         for (i, f) in input_data_fields.iter().enumerate() {
@@ -587,8 +587,8 @@ impl<'a> JobSession<'a> {
     ) -> TransformId {
         let bs = self.job_data.tf_mgr.transforms[last_tf].desired_batch_size;
         let tf_state = TransformState::new(
-            DUMMY_INPUT_FIELD_ID,
-            DUMMY_INPUT_FIELD_ID,
+            DUMMY_FIELD_ID,
+            DUMMY_FIELD_ID,
             ms_id,
             bs,
             Some(last_tf),
@@ -596,7 +596,7 @@ impl<'a> JobSession<'a> {
         );
         self.job_data
             .field_mgr
-            .inc_field_refcount(DUMMY_INPUT_FIELD_ID, 2);
+            .inc_field_refcount(DUMMY_FIELD_ID, 2);
         let tf_data = setup_tf_terminator(&mut self.job_data, &tf_state);
         let tf_id = self.add_transform(tf_state, tf_data);
         let pred = &mut self.job_data.tf_mgr.transforms[last_tf];
@@ -679,10 +679,8 @@ impl<'a> JobSession<'a> {
                 _ => (),
             }
             let mut output_field = if dummy_output {
-                self.job_data
-                    .field_mgr
-                    .bump_field_refcount(DUMMY_INPUT_FIELD_ID);
-                DUMMY_INPUT_FIELD_ID
+                self.job_data.field_mgr.bump_field_refcount(DUMMY_FIELD_ID);
+                DUMMY_FIELD_ID
             } else if make_input_output {
                 self.job_data.field_mgr.bump_field_refcount(input_field);
                 input_field
@@ -719,7 +717,7 @@ impl<'a> JobSession<'a> {
             let input = if op_base.append_mode
                 && last_output_field == chain_input_field_id
             {
-                DUMMY_INPUT_FIELD_ID
+                DUMMY_FIELD_ID
             } else {
                 self.job_data.field_mgr.setup_field_refs(
                     &mut self.job_data.match_set_mgr,
@@ -902,7 +900,7 @@ impl<'a> JobSession<'a> {
     ) -> (TransformId, TransformId) {
         let mut tf_state = TransformState::new(
             input_field_id,
-            DUMMY_INPUT_FIELD_ID,
+            DUMMY_FIELD_ID,
             ms_id,
             self.job_data.session_data.chains[chain_id as usize]
                 .settings
@@ -911,9 +909,7 @@ impl<'a> JobSession<'a> {
             None,
         );
         self.job_data.field_mgr.bump_field_refcount(input_field_id);
-        self.job_data
-            .field_mgr
-            .bump_field_refcount(DUMMY_INPUT_FIELD_ID);
+        self.job_data.field_mgr.bump_field_refcount(DUMMY_FIELD_ID);
         tf_state.is_transparent = true;
         let tf_data = create_tf_nop(manual_unlink);
         let mut pred_tf = self.add_transform(tf_state, tf_data);

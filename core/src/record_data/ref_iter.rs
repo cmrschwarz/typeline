@@ -662,7 +662,7 @@ mod ref_iter_tests {
     use nonmax::NonMaxU16;
 
     use super::super::{
-        field::{Field, FieldId, FieldManager, FIELD_REF_LOOKUP_ITER_ID},
+        field::FieldManager,
         match_set::MatchSetManager,
         ref_iter::{AutoDerefIter, RefAwareInlineTextIter},
     };
@@ -675,36 +675,22 @@ mod ref_iter_tests {
         push_interface::PushInterface,
         typed::TypedSlice,
     };
-    use std::cell::RefCell;
 
-    fn push_field(
-        field_mgr: &mut FieldManager,
-        fd: FieldData,
-        id: Option<FieldId>,
-    ) -> FieldId {
-        let mut field = Field::default();
-        field.iter_hall.reset_with_data(fd);
-        field.ref_count = 1;
-        field.iter_hall.reserve_iter_id(FIELD_REF_LOOKUP_ITER_ID);
-        if let Some(id) = id {
-            field_mgr.fields.reserve_id_with(id, || RefCell::new(field));
-            id
-        } else {
-            field_mgr.fields.claim_with_value(RefCell::new(field))
-        }
-    }
     fn compare_iter_output(
         fd: FieldData,
         fd_refs: FieldData,
         expected: &[(&'static str, RunLength, usize)],
     ) {
+        let mut match_set_mgr = MatchSetManager::default();
+        let ms_id = match_set_mgr.match_sets.claim();
         let mut field_mgr = FieldManager::default();
 
-        let field_id = push_field(&mut field_mgr, fd, Default::default());
-        let refs_field_id = push_field(&mut field_mgr, fd_refs, None);
+        let field_id =
+            field_mgr.add_field_with_data(ms_id, Default::default(), fd);
+        let refs_field_id =
+            field_mgr.add_field_with_data(ms_id, Default::default(), fd_refs);
         field_mgr.register_field_reference(refs_field_id, field_id);
-        let mut match_set_mgr = MatchSetManager::default();
-        match_set_mgr.match_sets.claim();
+
         {
             let fr = field_mgr.get_cow_field_ref_raw(refs_field_id);
             let iter = Iter::from_start(fr.destructured_field_ref());

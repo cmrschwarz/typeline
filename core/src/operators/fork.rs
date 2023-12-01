@@ -1,7 +1,4 @@
-use std::{
-    collections::{hash_map::Entry, HashMap},
-    sync::Arc,
-};
+use std::sync::Arc;
 
 use smallvec::SmallVec;
 
@@ -12,11 +9,9 @@ use crate::{
     liveness_analysis::LivenessData,
     options::argument::CliArgIdx,
     record_data::{
-        field::{FieldId, DUMMY_INPUT_FIELD_ID},
-        iter_hall::{IterHall, IterId},
-        iters::FieldDataRef,
+        field::{FieldId, DUMMY_FIELD_ID},
+        iter_hall::IterId,
     },
-    utils::identity_hasher::BuildIdentityHasher,
 };
 
 use super::{
@@ -49,7 +44,6 @@ pub struct TfForkFieldMapping {
 pub struct TfFork<'a> {
     pub expanded: bool,
     pub targets: Vec<TransformId>,
-    pub mappings: HashMap<FieldId, TfForkFieldMapping, BuildIdentityHasher>,
     pub accessed_fields_per_subchain: &'a Vec<FieldAccessMappings>,
 }
 
@@ -113,7 +107,6 @@ pub fn build_tf_fork<'a>(
     TransformData::Fork(TfFork {
         expanded: false,
         targets: Default::default(),
-        mappings: Default::default(),
         accessed_fields_per_subchain: &op.accessed_fields_per_subchain,
     })
 }
@@ -126,81 +119,7 @@ pub fn handle_tf_fork(
     let (batch_size, end_of_input) = sess.tf_mgr.claim_all(tf_id);
     let unconsumed_input =
         sess.tf_mgr.transforms[tf_id].has_unconsumed_input();
-    let match_set_mgr = &mut sess.match_set_mgr;
-    for (src_field_id, mapping) in sp.mappings.iter_mut() {
-        sess.field_mgr
-            .apply_field_actions(match_set_mgr, *src_field_id);
-        sess.tf_mgr.prepare_for_output_cow(
-            &mut sess.field_mgr,
-            match_set_mgr,
-            tf_id,
-            mapping
-                .targets_cow
-                .iter()
-                .chain(mapping.targets_data_cow.iter())
-                .chain(mapping.targets_copy.iter())
-                .copied(),
-        );
-        let src_field = sess.field_mgr.get_cow_field_ref(
-            match_set_mgr,
-            *src_field_id,
-            unconsumed_input,
-        );
-        let src_field_dr = src_field.destructured_field_ref().clone();
-        let mut src_field_iter = sess.field_mgr.lookup_iter(
-            *src_field_id,
-            &src_field,
-            mapping.source_iter_id,
-        );
-        let mut i = 0;
-        while i < mapping.targets_cow.len() {
-            let tgt_id = mapping.targets_cow[i];
-            let tgt = sess.field_mgr.fields[tgt_id].borrow();
-            if tgt.iter_hall.are_headers_owned() {
-                mapping.targets_cow.swap_remove(i);
-                if tgt.iter_hall.is_cow() {
-                    mapping.targets_copy.push(tgt_id);
-                } else {
-                    mapping.targets_data_cow.push(tgt_id);
-                }
-            }
-            i += 1;
-        }
-        i = 0;
-        while i < mapping.targets_data_cow.len() {
-            let tgt_id = mapping.targets_cow[i];
-            let tgt = sess.field_mgr.fields[tgt_id].borrow();
-            if tgt.iter_hall.is_cow() {
-                mapping.targets_cow.swap_remove(i);
-                if tgt.iter_hall.is_cow() {
-                    mapping.targets_copy.push(tgt_id);
-                }
-            }
-            i += 1;
-        }
-        for t in &mapping.targets_data_cow {
-            unsafe {
-                sess.field_mgr.fields[*t]
-                    .borrow_mut()
-                    .iter_hall
-                    .internals()
-                    .header
-                    .extend_from_slice(src_field_dr.headers());
-            }
-        }
-        if !mapping.targets_copy.is_empty() {
-            IterHall::copy(&mut src_field_iter, &mut |f| {
-                mapping.targets_data_cow.iter().for_each(|t| {
-                    f(&mut sess.field_mgr.fields[*t].borrow_mut().iter_hall)
-                })
-            });
-            sess.field_mgr.store_iter(
-                *src_field_id,
-                mapping.source_iter_id,
-                src_field_iter,
-            );
-        }
-    }
+
     if !end_of_input {
         if batch_size == 0 {
             sess.tf_mgr.push_tf_in_ready_stack(tf_id);
@@ -222,18 +141,6 @@ pub fn handle_tf_fork(
         for tf in &sp.targets {
             sess.tf_mgr.transforms[*tf].input_is_done = true;
         }
-        for m in sp.mappings.values() {
-            for &fid in m
-                .targets_copy
-                .iter()
-                .chain(m.targets_cow.iter())
-                .chain(m.targets_data_cow.iter())
-            {
-                sess.field_mgr
-                    .drop_field_refcount(fid, &mut sess.match_set_mgr);
-            }
-        }
-
         sess.unlink_transform(tf_id, 0);
     }
 }
@@ -247,8 +154,6 @@ pub(crate) fn handle_fork_expansion(
     // sess while accessing them
     let mut targets = Vec::<TransformId>::new();
 
-    let mut mappings =
-        HashMap::<FieldId, TfForkFieldMapping, BuildIdentityHasher>::default();
     let tf = &sess.job_data.tf_mgr.transforms[tf_id];
     let fork_input_field_id = tf.input_field;
     let fork_ms_id = tf.match_set_id;
@@ -275,7 +180,7 @@ pub(crate) fn handle_fork_expansion(
             unreachable!();
         };
         let mut chain_input_field = None;
-        for (name, fam) in field_access_mapping.iter_name_opt() {
+        for (name, _fam) in field_access_mapping.iter_name_opt() {
             let src_field_id;
             if let Some(name) = name {
                 if let Some(field) = sess.job_data.match_set_mgr.match_sets
@@ -296,48 +201,30 @@ pub(crate) fn handle_fork_expansion(
 
             let mut src_field =
                 sess.job_data.field_mgr.fields[src_field_id].borrow_mut();
-            let any_writes = fam.header_writes || fam.data_writes;
 
-            let target_field_id = if any_writes {
-                drop(src_field);
-                let target_field_id =
-                    sess.job_data.field_mgr.get_cross_ms_cow_field(
-                        &mut sess.job_data.match_set_mgr,
-                        target_ms_id,
-                        src_field_id,
-                    );
-                if let Some(name) = name {
-                    sess.job_data.match_set_mgr.set_field_name(
-                        &sess.job_data.field_mgr,
-                        target_field_id,
-                        name,
-                    );
-                }
-                src_field =
-                    sess.job_data.field_mgr.fields[src_field_id].borrow_mut();
-                match mappings.entry(src_field_id) {
-                    Entry::Occupied(ref mut e) => {
-                        e.get_mut().targets_cow.push(target_field_id);
-                    }
-                    Entry::Vacant(e) => {
-                        e.insert(TfForkFieldMapping {
-                            source_iter_id: src_field.iter_hall.claim_iter(),
-                            targets_cow: smallvec::smallvec![target_field_id],
-                            targets_data_cow: Default::default(),
-                            targets_copy: Default::default(),
-                        });
-                    }
-                }
-                target_field_id
-            } else {
-                src_field_id
-            };
+            drop(src_field);
+            let target_field_id =
+                sess.job_data.field_mgr.get_cross_ms_cow_field(
+                    &mut sess.job_data.match_set_mgr,
+                    target_ms_id,
+                    src_field_id,
+                );
+            if let Some(name) = name {
+                sess.job_data.match_set_mgr.set_field_name(
+                    &sess.job_data.field_mgr,
+                    target_field_id,
+                    name,
+                );
+            }
+            src_field =
+                sess.job_data.field_mgr.fields[src_field_id].borrow_mut();
+
             if name.is_none() {
                 chain_input_field = Some(target_field_id);
             }
             drop(src_field);
         }
-        let input_field = chain_input_field.unwrap_or(DUMMY_INPUT_FIELD_ID);
+        let input_field = chain_input_field.unwrap_or(DUMMY_FIELD_ID);
         let start_op_id =
             sess.job_data.session_data.chains[subchain_id].operators[0];
         let (start_tf, _end_tf) = sess.setup_transforms_with_stable_start(
@@ -355,7 +242,6 @@ pub(crate) fn handle_fork_expansion(
         sess.transform_data[usize::from(tf_id)]
     {
         fork.targets = targets;
-        fork.mappings = mappings;
         fork.expanded = true;
     } else {
         unreachable!();
