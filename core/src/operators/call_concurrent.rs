@@ -420,17 +420,12 @@ pub fn setup_callee_concurrent(
     };
     let mut buf_data = callee.buffer.fields.lock().unwrap();
     for field in buf_data.fields.iter_mut() {
-        let field_id = sess
-            .job_data
-            .field_mgr
-            .add_field(ms_id, ActorRef::default());
-        if let Some(name) = field.name {
-            sess.job_data.match_set_mgr.set_field_name(
-                &sess.job_data.field_mgr,
-                field_id,
-                name,
-            );
-        }
+        let field_id = sess.job_data.field_mgr.add_field(
+            &mut sess.job_data.match_set_mgr,
+            ms_id,
+            field.name,
+            ActorRef::default(),
+        );
         callee.target_fields.push(Some(field_id));
     }
     for (i, field) in buf_data.fields.iter_mut().enumerate() {

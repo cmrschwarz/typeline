@@ -425,16 +425,19 @@ pub fn build_tf_regex<'a>(
                 let field_id = if let Some(field_id) = prebound_outputs
                     .get(&(op_base.outputs_start + i as OpOutputIdx))
                 {
+                    debug_assert!(
+                        sess.field_mgr.fields[*field_id].borrow().name
+                            == Some(*name)
+                    );
                     *field_id
                 } else {
-                    sess.field_mgr
-                        .add_field(tf_state.match_set_id, next_actor_id)
+                    sess.field_mgr.add_field(
+                        &mut sess.match_set_mgr,
+                        tf_state.match_set_id,
+                        Some(*name),
+                        next_actor_id,
+                    )
                 };
-                sess.match_set_mgr.set_field_name(
-                    &sess.field_mgr,
-                    field_id,
-                    *name,
-                );
                 Some(field_id)
             } else {
                 None

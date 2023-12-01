@@ -352,6 +352,9 @@ impl ActionBuffer {
         self.actors.data.push_back(Default::default());
         actor_id
     }
+    pub fn last_valid_actor_id(&self) -> ActorId {
+        self.actors.max_index()
+    }
     pub fn peek_next_actor_id(&self) -> ActorId {
         self.actors.next_free_index()
     }

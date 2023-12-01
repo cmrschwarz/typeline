@@ -479,17 +479,12 @@ impl<'a> JobSession<'a> {
         let mut input_data_fields = std::mem::take(&mut self.temp_vec);
         for fd in job.data.fields.into_iter() {
             let field_id = self.job_data.field_mgr.add_field_with_data(
+                &mut self.job_data.match_set_mgr,
                 ms_id,
+                fd.name,
                 ActorRef::default(),
                 fd.data,
             );
-            if let Some(name) = fd.name {
-                self.job_data.match_set_mgr.set_field_name(
-                    &self.job_data.field_mgr,
-                    field_id,
-                    name,
-                );
-            }
             input_data_fields.push(field_id);
             if input_data.is_none() {
                 input_data = Some(field_id);
@@ -652,15 +647,12 @@ impl<'a> JobSession<'a> {
                         input_field = field_id;
                     } else {
                         let field_id = self.job_data.field_mgr.add_field(
+                            &mut self.job_data.match_set_mgr,
                             ms_id,
+                            Some(op.key_interned.unwrap()),
                             self.job_data
                                 .field_mgr
                                 .get_first_actor(input_field),
-                        );
-                        self.job_data.match_set_mgr.set_field_name(
-                            &self.job_data.field_mgr,
-                            field_id,
-                            op.key_interned.unwrap(),
                         );
                         input_field = field_id;
                     }
@@ -678,6 +670,7 @@ impl<'a> JobSession<'a> {
                 }
                 _ => (),
             }
+            let mut label_added = false;
             let mut output_field = if dummy_output {
                 self.job_data.field_mgr.bump_field_refcount(DUMMY_FIELD_ID);
                 DUMMY_FIELD_ID
@@ -698,21 +691,30 @@ impl<'a> JobSession<'a> {
                     self.job_data.field_mgr.bump_field_refcount(*field_idx);
                     let mut f = self.job_data.field_mgr.fields[*field_idx]
                         .borrow_mut();
+                    debug_assert!(f.name == op_base.label);
+                    label_added = true;
                     f.first_actor = first_actor;
                     f.snapshot = Default::default();
                     f.match_set = ms_id;
                     *field_idx
                 } else {
-                    self.job_data.field_mgr.add_field(ms_id, first_actor)
+                    label_added = true;
+                    self.job_data.field_mgr.add_field(
+                        &mut self.job_data.match_set_mgr,
+                        ms_id,
+                        op_base.label,
+                        first_actor,
+                    )
                 }
             };
-
-            if let Some(name) = op_base.label {
-                self.job_data.match_set_mgr.set_field_name(
-                    &self.job_data.field_mgr,
-                    output_field,
-                    name,
-                );
+            if !label_added {
+                if let Some(name) = op_base.label {
+                    self.job_data.match_set_mgr.add_field_alias(
+                        &mut self.job_data.field_mgr,
+                        output_field,
+                        name,
+                    );
+                }
             }
             let input = if op_base.append_mode
                 && last_output_field == chain_input_field_id
@@ -806,13 +808,12 @@ impl<'a> JobSession<'a> {
                     build_tf_call_concurrent(jd, b, op, &tf_state)
                 }
                 OperatorData::Key(key) => {
-                    self.job_data.match_set_mgr.set_field_name(
-                        &self.job_data.field_mgr,
+                    input_field = self.job_data.match_set_mgr.add_field_alias(
+                        &mut self.job_data.field_mgr,
                         output_field,
                         key.key_interned.unwrap(),
                     );
-                    input_field = output_field;
-                    last_output_field = output_field;
+                    last_output_field = input_field;
                     continue;
                 }
                 OperatorData::Next(_) => unreachable!(),

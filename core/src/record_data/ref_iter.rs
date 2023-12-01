@@ -685,10 +685,20 @@ mod ref_iter_tests {
         let ms_id = match_set_mgr.match_sets.claim();
         let mut field_mgr = FieldManager::default();
 
-        let field_id =
-            field_mgr.add_field_with_data(ms_id, Default::default(), fd);
-        let refs_field_id =
-            field_mgr.add_field_with_data(ms_id, Default::default(), fd_refs);
+        let field_id = field_mgr.add_field_with_data(
+            &mut match_set_mgr,
+            ms_id,
+            None,
+            Default::default(),
+            fd,
+        );
+        let refs_field_id = field_mgr.add_field_with_data(
+            &mut match_set_mgr,
+            ms_id,
+            None,
+            Default::default(),
+            fd_refs,
+        );
         field_mgr.register_field_reference(refs_field_id, field_id);
 
         {

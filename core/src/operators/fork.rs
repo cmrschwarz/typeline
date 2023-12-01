@@ -209,13 +209,6 @@ pub(crate) fn handle_fork_expansion(
                     target_ms_id,
                     src_field_id,
                 );
-            if let Some(name) = name {
-                sess.job_data.match_set_mgr.set_field_name(
-                    &sess.job_data.field_mgr,
-                    target_field_id,
-                    name,
-                );
-            }
             src_field =
                 sess.job_data.field_mgr.fields[src_field_id].borrow_mut();
 

@@ -7,7 +7,10 @@ use std::{
 use nonmax::NonMaxU16;
 use smallvec::SmallVec;
 
-use crate::utils::{nonzero_ext::NonMaxU32Ext, universe::Universe};
+use crate::utils::{
+    nonzero_ext::NonMaxU32Ext, string_store::StringStoreEntry,
+    universe::Universe,
+};
 
 use super::{
     action_buffer::{ActionBuffer, ActorId, ActorRef, SnapshotRef},
@@ -47,6 +50,7 @@ pub struct Field {
     pub clear_delay_request_count: Cell<u16>,
     pub has_unconsumed_input: Cell<bool>,
 
+    pub name: Option<StringStoreEntry>,
     pub ref_count: usize,
 
     #[cfg(feature = "debug_logging")]
@@ -326,18 +330,29 @@ impl FieldManager {
     }
     pub fn add_field(
         &mut self,
+        msm: &mut MatchSetManager,
         ms_id: MatchSetId,
+        name: Option<StringStoreEntry>,
         first_actor: ActorRef,
     ) -> FieldId {
-        self.add_field_with_data(ms_id, first_actor, FieldData::default())
+        self.add_field_with_data(
+            msm,
+            ms_id,
+            name,
+            first_actor,
+            FieldData::default(),
+        )
     }
     pub fn add_field_with_data(
         &mut self,
+        msm: &mut MatchSetManager,
         ms_id: MatchSetId,
+        name: Option<StringStoreEntry>,
         first_actor: ActorRef,
         data: FieldData,
     ) -> FieldId {
         let mut field = Field {
+            name,
             ref_count: 1,
             shadowed_after: ActionBuffer::MAX_ACTOR_ID,
             shadowed_by: DUMMY_FIELD_ID,
@@ -353,9 +368,13 @@ impl FieldManager {
             #[cfg(feature = "debug_logging")]
             producing_transform_arg: "".to_string(),
         };
-        self.bump_field_refcount(DUMMY_FIELD_ID);
+        self.bump_field_refcount(field.shadowed_by);
         field.iter_hall.reserve_iter_id(FIELD_REF_LOOKUP_ITER_ID);
-        self.fields.claim_with_value(RefCell::new(field))
+        let field_id = self.fields.claim_with_value(RefCell::new(field));
+        if let Some(name) = name {
+            msm.match_sets[ms_id].field_name_map.insert(name, field_id);
+        }
+        field_id
     }
     pub fn update_data_cow_headers(&self, field_id: FieldId) {
         let mut field = self.fields[field_id].borrow_mut();
@@ -432,12 +451,14 @@ impl FieldManager {
         tgt_match_set: MatchSetId,
         src_field_id: FieldId,
     ) -> FieldId {
+        let name = self.fields[src_field_id].borrow().name;
+        let field_id =
+            self.add_field(msm, tgt_match_set, name, ActorRef::default());
         let vacant_entry =
             match msm.match_sets[tgt_match_set].cow_map.entry(src_field_id) {
                 Entry::Occupied(e) => return *e.get(),
                 Entry::Vacant(e) => e,
             };
-        let field_id = self.add_field(tgt_match_set, ActorRef::default());
         let mut src_field = self.fields[src_field_id].borrow_mut();
         src_field.ref_count += 1;
         src_field.iter_hall.cow_targets.push(field_id);

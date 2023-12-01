@@ -367,17 +367,12 @@ fn setup_continuation(
 
     let output_ms_id = sess.job_data.match_set_mgr.add_match_set();
     for name in &forkcat.op.accessed_names_afterwards {
-        let output_field_id = sess
-            .job_data
-            .field_mgr
-            .add_field(output_ms_id, ActorRef::default());
-        if let Some(name) = name {
-            sess.job_data.match_set_mgr.set_field_name(
-                &sess.job_data.field_mgr,
-                output_field_id,
-                *name,
-            );
-        }
+        let output_field_id = sess.job_data.field_mgr.add_field(
+            &mut sess.job_data.match_set_mgr,
+            output_ms_id,
+            *name,
+            ActorRef::default(),
+        );
         forkcat.output_fields.push(output_field_id);
     }
     forkcat.output_field_sources.extend(
@@ -445,10 +440,12 @@ fn expand_for_subchain(sess: &mut JobSession, tf_id: TransformId, sc_n: u32) {
     {
         forkcat.output_field_sources[idx] = match output_mapping {
             OutputMapping::OutputIdx(output_idx) => {
-                let id = sess
-                    .job_data
-                    .field_mgr
-                    .add_field(tgt_ms_id, Default::default());
+                let id = sess.job_data.field_mgr.add_field(
+                    &mut sess.job_data.match_set_mgr,
+                    tgt_ms_id,
+                    forkcat.op.accessed_names_afterwards[idx],
+                    Default::default(),
+                );
                 prebound_outputs.insert(output_idx, id);
                 id
             }

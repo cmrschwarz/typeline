@@ -238,13 +238,10 @@ pub fn build_tf_format<'a>(
                     (id, f)
                 } else {
                     let id = sess.field_mgr.add_field(
+                        &mut sess.match_set_mgr,
                         tf_state.match_set_id,
+                        Some(*name),
                         sess.field_mgr.get_first_actor(tf_state.input_field),
-                    );
-                    sess.match_set_mgr.set_field_name(
-                        &sess.field_mgr,
-                        id,
-                        *name,
                     );
                     let f = sess.field_mgr.fields[id].borrow_mut();
                     // f.added_as_placeholder_by_tf = Some(tf_id);
