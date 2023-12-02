@@ -141,9 +141,9 @@ impl<'a> RefIter<'a> {
         if self.last_field_id_offset == field_id_offset {
             return;
         }
+        let pos = self.data_iter.get_next_field_pos();
         self.move_to_field(match_set_mgr, field_id_offset);
-        self.data_iter
-            .move_to_field_pos(self.data_iter.get_next_field_pos());
+        self.data_iter.move_to_field_pos(pos);
     }
     pub fn move_to_field_pos(
         &mut self,
@@ -288,6 +288,9 @@ impl<'a> RefIter<'a> {
         }
         ref_skip
     }
+    pub fn get_next_field_pos(&self) -> usize {
+        self.data_iter.get_next_field_pos()
+    }
 }
 
 #[derive(Clone)]
@@ -320,6 +323,12 @@ impl<'a, I: FieldIterator<'a>> AutoDerefIter<'a, I> {
                 .has_unconsumed_input
                 .get(),
         }
+    }
+    pub fn get_next_field_pos(&mut self) -> usize {
+        if let Some(ri) = &self.ref_iter {
+            return ri.get_next_field_pos();
+        }
+        self.iter.get_next_field_pos()
     }
     pub fn move_to_field_pos(&mut self, field_pos: usize) {
         self.ref_iter = None;
