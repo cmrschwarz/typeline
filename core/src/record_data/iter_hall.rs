@@ -264,6 +264,12 @@ impl IterHall {
             adapted_target_applicator,
         )
     }
+    pub fn alias_source(&self) -> Option<FieldId> {
+        match self.data_source {
+            FieldDataSource::Alias(src) => Some(src),
+            _ => None,
+        }
+    }
     // source field of cow, data cow only
     pub fn cow_source_field(
         &self,

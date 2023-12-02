@@ -149,6 +149,19 @@ fn basic_key_cow() -> Result<(), ScrError> {
 }
 
 #[test]
+fn batched_use_after_key() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::default();
+    ContextBuilder::default()
+        .set_batch_size(1)
+        .add_op(create_op_seqn(1, 3, 1).unwrap())
+        .add_op(create_op_key("foo".to_owned()))
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(ss.get_data().unwrap().as_slice(), &["1", "2", "3"]);
+    Ok(())
+}
+
+#[test]
 fn double_key() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()

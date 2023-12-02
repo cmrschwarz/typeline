@@ -6,11 +6,16 @@ name = "scr"
 version = "0.1.0"
 edition = "2021"
 
+
 [lib]
 name = "scr"
+test = false
+doctest = false
 
 [[bin]]
 name = "scr"
+test = false
+
 
 [dependencies]
 scr_core = {path = "./core"}

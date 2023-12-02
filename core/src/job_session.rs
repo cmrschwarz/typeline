@@ -417,6 +417,12 @@ impl<'a> JobData<'a> {
             } else if !field.producing_transform_arg.is_empty() {
                 print!(" (`{}`)", field.producing_transform_arg)
             }
+            if field.shadowed_by != DUMMY_FIELD_ID {
+                print!(
+                    " (aliased by field id {} since actor id `{}`)",
+                    field.shadowed_by, field.shadowed_since
+                )
+            }
             if let (cow_src_field, Some(data_cow)) =
                 field.iter_hall.cow_source_field(&self.field_mgr)
             {

@@ -59,13 +59,13 @@ impl MatchSetManager {
         let alias_id = fm.add_field(self, ms_id, Some(name), first_actor);
         let mut field = fm.fields[field_id].borrow_mut();
         field.shadowed_by = alias_id;
-        field.shadowed_after = self.match_sets[field.match_set]
+        field.shadowed_since = self.match_sets[field.match_set]
             .action_buffer
-            .last_valid_actor_id();
+            .peek_next_actor_id();
 
         let mut alias = fm.fields[alias_id].borrow_mut();
         alias.iter_hall.data_source = FieldDataSource::Alias(field_id);
-
+        alias.first_actor = field.first_actor;
         alias_id
     }
 

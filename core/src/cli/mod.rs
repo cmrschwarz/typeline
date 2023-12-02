@@ -496,6 +496,7 @@ pub fn parse_cli_retain_args(
             idx: arg_idx as CliArgIdx + 1,
             value: arg_str,
         };
+        arg_idx += 1;
         if let Some(m) = LABEL_REGEX.captures(arg_str) {
             ctx_opts.add_label(
                 m.name("label")
@@ -567,7 +568,6 @@ pub fn parse_cli_retain_args(
             )
             .into());
         }
-        arg_idx += 1;
     }
     Ok(ctx_opts)
 }

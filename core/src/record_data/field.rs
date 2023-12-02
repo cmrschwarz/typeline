@@ -31,7 +31,7 @@ pub const FIELD_REF_LOOKUP_ITER_ID: IterId = IterId::MIN;
 
 #[derive(Default)]
 pub struct Field {
-    pub shadowed_after: ActorId,
+    pub shadowed_since: ActorId,
     pub shadowed_by: FieldId,
 
     pub first_actor: ActorRef,
@@ -121,6 +121,18 @@ impl<'a> CowFieldDataRef<'a> {
 }
 
 impl FieldManager {
+    pub fn borrow_field_dealiased(
+        &self,
+        mut field_id: FieldId,
+    ) -> Ref<'_, Field> {
+        loop {
+            let field = self.fields[field_id].borrow();
+            let Some(alias_src) = field.iter_hall.alias_source() else {
+                return field;
+            };
+            field_id = alias_src;
+        }
+    }
     fn remove_from_cow_tgt_list(
         &self,
         field_id: FieldId,
@@ -215,19 +227,19 @@ impl FieldManager {
     fn propagate_clear(
         &mut self,
         msm: &mut MatchSetManager,
-        cow_source_id: FieldId,
+        source_field_id: FieldId,
         field_id: FieldId,
     ) -> bool {
-        let cow_source = self.fields[cow_source_id].borrow_mut();
+        let cow_source = self.fields[source_field_id].borrow_mut();
         let mut field = self.fields[field_id].borrow_mut();
         match &field.iter_hall.data_source {
-            FieldDataSource::Owned | FieldDataSource::Alias(_) => {
+            FieldDataSource::Owned => {
                 panic!(
                     "propagate_clear called for {:?}",
                     field.iter_hall.data_source
                 )
             }
-            FieldDataSource::Cow(_) => (),
+            FieldDataSource::Alias(_) | FieldDataSource::Cow(_) => (),
             FieldDataSource::RecordBufferCow(_) => (),
             FieldDataSource::DataCow {
                 src_field,
@@ -284,8 +296,16 @@ impl FieldManager {
         let FieldDataSource::Owned = &field.iter_hall.data_source else {
             return;
         };
+        let shadowed_by = field.shadowed_by;
+        if shadowed_by != DUMMY_FIELD_ID {
+            drop(field);
+            self.propagate_clear(msm, field_id, shadowed_by);
+            field = self.fields[field_id].borrow_mut();
+        }
+
         let mut i = 0;
         let mut first_uncow_field_id = None;
+
         while field.iter_hall.cow_targets.len() > i {
             let cow_tgt_id = field.iter_hall.cow_targets[i];
             drop(field);
@@ -354,7 +374,7 @@ impl FieldManager {
         let mut field = Field {
             name,
             ref_count: 1,
-            shadowed_after: ActionBuffer::MAX_ACTOR_ID,
+            shadowed_since: ActionBuffer::MAX_ACTOR_ID,
             shadowed_by: DUMMY_FIELD_ID,
             clear_delay_request_count: Cell::new(0),
             has_unconsumed_input: Cell::new(false),
@@ -431,6 +451,9 @@ impl FieldManager {
         field_id: FieldId,
     ) {
         let mut field = self.fields[field_id].borrow();
+        if let Some(src) = field.iter_hall.alias_source() {
+            return self.apply_field_actions(msm, src);
+        }
         if let (Some(cow_src_id), _) = field.iter_hall.cow_source_field(self) {
             self.apply_field_actions(msm, cow_src_id);
             drop(field);

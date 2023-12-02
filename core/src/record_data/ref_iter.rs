@@ -54,7 +54,7 @@ pub struct FieldRefUnpacked<'a> {
 
 impl<'a> RefIter<'a> {
     pub fn new(
-        refs_field: Ref<'a, Field>,
+        refs_field_id: FieldId,
         refs_iter: TypedSliceIter<'a, FieldReference>,
         field_mgr: &'a FieldManager,
         match_set_mgr: &'_ mut MatchSetManager,
@@ -62,6 +62,7 @@ impl<'a> RefIter<'a> {
         field_pos: usize,
         unconsumed_input: bool,
     ) -> Self {
+        let refs_field = field_mgr.fields[refs_field_id].borrow();
         let last_field_id =
             refs_field.field_refs[last_field_id_offset.get() as usize];
         let (data_cow_ref, mut data_iter) = unsafe {
@@ -359,7 +360,7 @@ impl<'a, I: FieldIterator<'a>> AutoDerefIter<'a, I> {
                         );
                     } else {
                         self.ref_iter = Some(RefIter::new(
-                            self.field_mgr.fields[self.iter_field_id].borrow(),
+                            self.iter_field_id,
                             refs_iter,
                             self.field_mgr,
                             match_set_mgr,
