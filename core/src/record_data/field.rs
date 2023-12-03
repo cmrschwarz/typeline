@@ -137,6 +137,18 @@ impl FieldManager {
     }
     pub fn borrow_field_dealiased(
         &self,
+        field_id: &mut FieldId,
+    ) -> Ref<'_, Field> {
+        loop {
+            let field = self.fields[*field_id].borrow();
+            let Some(alias_src) = field.iter_hall.alias_source() else {
+                return field;
+            };
+            *field_id = alias_src;
+        }
+    }
+    pub fn borrow_field_dealiased_keep_id(
+        &self,
         mut field_id: FieldId,
     ) -> Ref<'_, Field> {
         loop {
@@ -474,9 +486,9 @@ impl FieldManager {
     pub fn apply_field_actions(
         &self,
         msm: &mut MatchSetManager,
-        field_id: FieldId,
+        mut field_id: FieldId,
     ) {
-        let mut field = self.borrow_field_dealiased(field_id);
+        let mut field = self.borrow_field_dealiased(&mut field_id);
         if let (Some(cow_src_id), _) = field.iter_hall.cow_source_field(self) {
             self.apply_field_actions(msm, cow_src_id);
             drop(field);
@@ -712,11 +724,11 @@ impl FieldManager {
     }
     pub fn lookup_iter<'a>(
         &self,
-        field_id: FieldId,
+        mut field_id: FieldId,
         cfdr: &'a CowFieldDataRef<'a>,
         iter_id: IterId,
     ) -> Iter<'a, DestructuredFieldDataRef<'a>> {
-        let field = self.borrow_field_dealiased(field_id);
+        let field = self.borrow_field_dealiased(&mut field_id);
         // PERF: maybe write a custom compare instead of doing this traversal?
         assert!(cfdr.destructured_field_ref().equals(
             &self
@@ -733,12 +745,12 @@ impl FieldManager {
     }
     pub fn store_iter<'a, R: FieldDataRef<'a>>(
         &self,
-        field_id: FieldId,
+        mut field_id: FieldId,
         iter_id: IterId,
         iter: impl Into<Iter<'a, R>>,
     ) {
         let iter_base = iter.into();
-        let field = self.borrow_field_dealiased(field_id);
+        let field = self.borrow_field_dealiased(&mut field_id);
         assert!(iter_base.field_data_ref().equals(
             &self
                 .get_cow_field_ref_raw(field_id)

@@ -133,10 +133,7 @@ pub fn build_tf_join<'a>(
         stream_val_added_len: 0,
         separator: op.separator.as_deref(),
         separator_is_valid_utf8: op.separator_is_valid_utf8,
-        iter_id: sess.field_mgr.fields[tf_state.input_field]
-            .borrow_mut()
-            .iter_hall
-            .claim_iter(),
+        iter_id: sess.field_mgr.claim_iter(tf_state.input_field),
         buffer: Vec::new(),
         buffer_is_valid_utf8: true,
         first_record_added: false,

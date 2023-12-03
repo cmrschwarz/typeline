@@ -313,6 +313,7 @@ impl<'a, I: FieldIterator<'a>> AutoDerefIter<'a, I> {
         iter_field_id: FieldId,
         iter: I,
     ) -> Self {
+        let iter_field_id = field_mgr.dealias_field_id(iter_field_id);
         Self {
             iter,
             ref_iter: None,

@@ -237,13 +237,12 @@ pub fn build_tf_format<'a>(
                     f.ref_count += 1;
                     id
                 } else {
-                    let id = sess.field_mgr.add_field(
+                    sess.field_mgr.add_field(
                         &mut sess.match_set_mgr,
                         tf_state.match_set_id,
                         Some(*name),
                         sess.field_mgr.get_first_actor(tf_state.input_field),
-                    );
-                    id
+                    )
                 }
             } else {
                 let mut f =
@@ -825,7 +824,7 @@ pub fn setup_key_output_state(
         },
     );
     let ident_ref = fmt.refs[k.ref_idx as usize];
-    fm.apply_field_actions(msm, ident_ref.field_id);
+
     let field =
         fm.get_cow_field_ref(msm, ident_ref.field_id, unconsumed_input);
     let mut iter = AutoDerefIter::new(
