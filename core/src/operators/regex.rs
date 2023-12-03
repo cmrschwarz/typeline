@@ -462,10 +462,7 @@ pub fn build_tf_regex<'a>(
         multimatch: op.opts.multimatch,
         non_mandatory: op.opts.non_mandatory,
         allow_overlapping: op.opts.overlapping,
-        input_field_iter_id: sess.field_mgr.fields[tf_state.input_field]
-            .borrow_mut()
-            .iter_hall
-            .claim_iter(),
+        input_field_iter_id: sess.field_mgr.claim_iter(tf_state.input_field),
         next_start: 0,
         actor_id,
     })

@@ -66,10 +66,7 @@ pub fn build_tf_print(
         // TODO: should we make a config option for this?
         flush_on_every_print: std::io::stdout().is_terminal(),
         current_stream_val: None,
-        iter_id: sess.field_mgr.fields[tf_state.input_field]
-            .borrow_mut()
-            .iter_hall
-            .claim_iter(),
+        iter_id: sess.field_mgr.claim_iter(tf_state.input_field),
     })
 }
 

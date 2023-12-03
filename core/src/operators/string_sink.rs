@@ -141,10 +141,7 @@ pub fn build_tf_string_sink<'a>(
     tf_state.preferred_input_type = Some(FieldValueKind::BytesInline);
     TransformData::StringSink(TfStringSink {
         handle: &ss.handle.data,
-        batch_iter: sess.field_mgr.fields[tf_state.input_field]
-            .borrow_mut()
-            .iter_hall
-            .claim_iter(),
+        batch_iter: sess.field_mgr.claim_iter(tf_state.input_field),
         stream_value_handles: Default::default(),
     })
 }

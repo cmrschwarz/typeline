@@ -224,8 +224,8 @@ pub fn build_tf_format<'a>(
         .refs_idx
         .iter()
         .map(|name| {
-            let (field_id, mut f) = if let Some(name) = name {
-                let (id, f) = if let Some(id) = sess.match_set_mgr.match_sets
+            let field_id = if let Some(name) = name {
+                if let Some(id) = sess.match_set_mgr.match_sets
                     [tf_state.match_set_id]
                     .field_name_map
                     .get(name)
@@ -235,7 +235,7 @@ pub fn build_tf_format<'a>(
                         .setup_field_refs(&mut sess.match_set_mgr, id);
                     let mut f = sess.field_mgr.fields[id].borrow_mut();
                     f.ref_count += 1;
-                    (id, f)
+                    id
                 } else {
                     let id = sess.field_mgr.add_field(
                         &mut sess.match_set_mgr,
@@ -243,11 +243,8 @@ pub fn build_tf_format<'a>(
                         Some(*name),
                         sess.field_mgr.get_first_actor(tf_state.input_field),
                     );
-                    let f = sess.field_mgr.fields[id].borrow_mut();
-                    // f.added_as_placeholder_by_tf = Some(tf_id);
-                    (id, f)
-                };
-                (id, f)
+                    id
+                }
             } else {
                 let mut f =
                     sess.field_mgr.fields[tf_state.input_field].borrow_mut();
@@ -255,11 +252,11 @@ pub fn build_tf_format<'a>(
                 // creation cleaning up this transform is
                 // simpler this way
                 f.ref_count += 1;
-                (tf_state.input_field, f)
+                tf_state.input_field
             };
             FormatIdentRef {
                 field_id,
-                iter_id: f.iter_hall.claim_iter(),
+                iter_id: sess.field_mgr.claim_iter(field_id),
             }
         })
         .collect();

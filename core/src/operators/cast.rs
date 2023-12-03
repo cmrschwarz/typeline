@@ -165,10 +165,8 @@ pub fn build_tf_cast<'a>(
              -> Result<(), String> { Err(String::new()) }
             .clone_dyn(),
         };
-    let mut input_field =
-        sess.field_mgr.fields[tf_state.input_field].borrow_mut();
     TransformData::Cast(TfCast {
-        batch_iter: input_field.iter_hall.claim_iter(),
+        batch_iter: sess.field_mgr.claim_iter(tf_state.input_field),
         pending_streams: 0,
         invalid_unicode_handler: replacement_fn,
         target_type: op.target_type,

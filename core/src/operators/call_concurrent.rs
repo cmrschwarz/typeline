@@ -183,6 +183,7 @@ pub fn build_tf_call_concurrent<'a>(
         target_accessed_fields: &op.target_accessed_fields,
     })
 }
+
 fn insert_mapping(
     field_mgr: &FieldManager,
     mappings_present: &mut HashMap<FieldId, usize, BuildIdentityHasher>,
@@ -210,10 +211,7 @@ fn insert_mapping(
             let buf_field = buf_data.fields.claim_with_value(rbf);
             field_mappings.push(RecordBufferFieldMapping {
                 source_field_id,
-                source_field_iter: field_mgr.fields[source_field_id]
-                    .borrow_mut()
-                    .iter_hall
-                    .claim_iter(),
+                source_field_iter: field_mgr.claim_iter(source_field_id),
                 buf_field,
             });
             buf_field

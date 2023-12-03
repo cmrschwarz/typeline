@@ -1,5 +1,5 @@
 use std::{
-    cell::{Cell, Ref, RefCell},
+    cell::{Cell, Ref, RefCell, RefMut},
     collections::hash_map::Entry,
     ops::DerefMut,
 };
@@ -121,12 +121,38 @@ impl<'a> CowFieldDataRef<'a> {
 }
 
 impl FieldManager {
+    pub fn claim_iter(&self, field_id: FieldId) -> IterId {
+        self.borrow_field_dealiased_mut(field_id)
+            .iter_hall
+            .claim_iter()
+    }
+    pub fn dealias_field_id(&self, mut field_id: FieldId) -> FieldId {
+        loop {
+            let field = self.fields[field_id].borrow();
+            let Some(alias_src) = field.iter_hall.alias_source() else {
+                return field_id;
+            };
+            field_id = alias_src;
+        }
+    }
     pub fn borrow_field_dealiased(
         &self,
         mut field_id: FieldId,
     ) -> Ref<'_, Field> {
         loop {
             let field = self.fields[field_id].borrow();
+            let Some(alias_src) = field.iter_hall.alias_source() else {
+                return field;
+            };
+            field_id = alias_src;
+        }
+    }
+    pub fn borrow_field_dealiased_mut(
+        &self,
+        mut field_id: FieldId,
+    ) -> RefMut<'_, Field> {
+        loop {
+            let field = self.fields[field_id].borrow_mut();
             let Some(alias_src) = field.iter_hall.alias_source() else {
                 return field;
             };
@@ -450,10 +476,7 @@ impl FieldManager {
         msm: &mut MatchSetManager,
         field_id: FieldId,
     ) {
-        let mut field = self.fields[field_id].borrow();
-        if let Some(src) = field.iter_hall.alias_source() {
-            return self.apply_field_actions(msm, src);
-        }
+        let mut field = self.borrow_field_dealiased(field_id);
         if let (Some(cow_src_id), _) = field.iter_hall.cow_source_field(self) {
             self.apply_field_actions(msm, cow_src_id);
             drop(field);
@@ -681,6 +704,7 @@ impl FieldManager {
         field_id: FieldId,
         inform_of_unconsumed_input: bool,
     ) -> CowFieldDataRef<'_> {
+        let field_id = self.dealias_field_id(field_id);
         self.apply_field_actions(msm, field_id);
         let field = self.fields[field_id].borrow();
         field.inform_of_unconsumed_input(inform_of_unconsumed_input);
@@ -692,7 +716,7 @@ impl FieldManager {
         cfdr: &'a CowFieldDataRef<'a>,
         iter_id: IterId,
     ) -> Iter<'a, DestructuredFieldDataRef<'a>> {
-        let field = self.fields[field_id].borrow();
+        let field = self.borrow_field_dealiased(field_id);
         // PERF: maybe write a custom compare instead of doing this traversal?
         assert!(cfdr.destructured_field_ref().equals(
             &self
@@ -714,7 +738,7 @@ impl FieldManager {
         iter: impl Into<Iter<'a, R>>,
     ) {
         let iter_base = iter.into();
-        let field = self.fields[field_id].borrow();
+        let field = self.borrow_field_dealiased(field_id);
         assert!(iter_base.field_data_ref().equals(
             &self
                 .get_cow_field_ref_raw(field_id)
