@@ -15,5 +15,6 @@ pub fn build_extension_registry() -> Arc<ExtensionRegistry> {
         .extensions
         .push(Box::<SqliteExtension>::default());
 
+    extensions.setup();
     Arc::new(extensions)
 }

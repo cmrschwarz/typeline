@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::BTreeMap,
     fmt::Display,
     mem::{align_of, size_of, size_of_val, ManuallyDrop},
     ops::{Deref, DerefMut},
@@ -17,7 +17,7 @@ use super::{
 };
 use crate::{
     operators::errors::OperatorApplicationError,
-    utils::{aligned_buf::AlignedBuf, string_store::StringStoreEntry},
+    utils::{aligned_buf::AlignedBuf, identity_hasher::IdentityHasher},
 };
 
 use self::field_value_flags::{BYTES_ARE_UTF8, SHARED_VALUE};
@@ -68,6 +68,20 @@ pub enum FieldDataType {
     Text,
     Object,
     Custom,
+}
+
+#[derive(Clone)]
+pub enum FieldValue {
+    Null,
+    Undefined,
+    Int(i64),
+    Bytes(Vec<u8>),
+    String(String),
+    Error(String),
+    Array(Array),
+    Object(Object),
+    FieldReference(FieldReference),
+    Custom(CustomDataBox),
 }
 
 impl FieldDataType {
@@ -209,17 +223,16 @@ impl Display for FieldValueKind {
 
 pub struct Null;
 pub struct Undefined;
-#[derive(Clone)]
-#[allow(dead_code)] // TODO
-struct ObjectEntry {
-    kind: FieldValueKind,
-    data_offset: usize,
-}
-#[allow(dead_code)] // TODO
+
 #[derive(Clone)]
 pub struct Object {
-    data: FieldData,
-    table: HashMap<StringStoreEntry, ObjectEntry>,
+    keys: BTreeMap<String, usize>,
+    values: ThinVec<FieldValue>,
+}
+
+#[derive(Clone)]
+pub struct Array {
+    data: Vec<FieldValue>,
 }
 
 #[derive(Copy, Clone, PartialEq)]
@@ -228,10 +241,12 @@ pub struct FieldReference {
     pub begin: usize,
     pub end: usize,
 }
+
 #[derive(Clone)]
 pub struct Html {
     // TODO
 }
+
 #[derive(Clone)]
 pub struct BytesBufferFile {
     // TODO
@@ -282,13 +297,7 @@ union FieldValueAlignmentCheckUnion {
     text: ManuallyDrop<String>,
     bytes: ManuallyDrop<Vec<u8>>,
     bytes_file: ManuallyDrop<BytesBufferFile>,
-
-    // we can't put `Object` in here because otherwise MAX_FIELD_ALIGN
-    // would depend on itself (Object contains FieldData which contains
-    // AlignedBuf<MAX_FIELD_ALIGN>), so we unfold the other members here
-    object_field_data_headers: ManuallyDrop<Vec<FieldValueHeader>>,
-    object_field_data_field_count: usize,
-    object_table: ManuallyDrop<HashMap<StringStoreEntry, ObjectEntry>>,
+    object: ManuallyDrop<Object>,
 }
 
 pub const MAX_FIELD_ALIGN: usize = align_of::<FieldValueAlignmentCheckUnion>();
@@ -317,6 +326,8 @@ pub mod field_value_flags {
     pub const DEFAULT: FieldValueFlags = 0;
 }
 pub use field_value_flags::FieldValueFlags;
+use indexmap::IndexMap;
+use thin_vec::ThinVec;
 #[derive(Clone, Copy, PartialEq)]
 pub struct FieldValueFormat {
     pub kind: FieldValueKind,

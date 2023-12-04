@@ -10,6 +10,8 @@ pub mod nonzero_ext;
 pub mod offset_vec_deque;
 pub mod plattform;
 pub mod pointer_writer;
+pub mod read_char;
+pub mod slice_writer;
 pub mod small_box;
 pub mod string_store;
 pub mod temp_vec;
@@ -179,4 +181,20 @@ pub fn subslice_slice_pair_mut<'a, T>(
 
 pub unsafe fn launder_slice<T>(slice: &[T]) -> &'static [T] {
     unsafe { std::mem::transmute(slice) }
+}
+
+pub fn utf8_codepoint_len_from_first_byte(first_byte: u8) -> Option<u8> {
+    if first_byte >> 7 == 0 {
+        return Some(1);
+    }
+    if first_byte >> 5 == 0b110 {
+        return Some(2);
+    }
+    if first_byte >> 4 == 0b1110 {
+        return Some(3);
+    }
+    if first_byte >> 3 == 0b11110 {
+        return Some(4);
+    }
+    None
 }

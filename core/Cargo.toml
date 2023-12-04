@@ -37,6 +37,7 @@ nonmax = "0.5.3"
 smallstr = { version = "0.3.0", features = ["union"] }
 smallvec = { version = "1.10.0", features = ["union", "write"] }
 thin-vec = "0.2.12"
+indexmap = "1.9.3"
 
 # features for core operators
 encoding_rs = { version = "0.8.32", features = ["fast-legacy-encode"] }
@@ -44,6 +45,8 @@ rand = "0.8.5"
 regex = "1.7.1"
 regex-syntax = "0.7.2"
 uuid = { version = "1.4.0", features = ["v4", "fast-rng"] }
+num-bigint = "0.4.1"
+num-rational="0.4.1"
 
 [dev-dependencies]
 rstest = "0.18.1"

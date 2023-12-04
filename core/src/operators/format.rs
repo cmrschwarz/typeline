@@ -108,9 +108,9 @@ pub enum FormatType {
     Octal, // print integers with base 8, e.g 52 instead of 42
     Hex,   // print integers in lower case hexadecimal, e.g 2a instead of 42
     UpperHex, // print integers in upper case hexadecimal, e.g 2A instead of 42
-    LowerExp, /* print numbers in upper case scientific notation, e.g. 4.2e1
+    LowerExp, /* print numbers in lower case scientific notation, e.g. 4.2e1
             * instead of 42 */
-    UpperExp, /* print numbers in lower case scientific notation, e.g.
+    UpperExp, /* print numbers in upper case scientific notation, e.g.
                * 4.2E1 instead of 42 */
 }
 

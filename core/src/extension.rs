@@ -1,12 +1,23 @@
+use std::collections::HashMap;
+
 use crate::{
     cli::ParsedCliArgument,
-    operators::{errors::OperatorCreationError, operator::OperatorData},
+    operators::{
+        errors::OperatorCreationError, operator::OperatorData,
+        utils::tyson::TysonParseError,
+    },
     options::session_options::SessionOptions,
+    record_data::field_data::FieldValue,
 };
+
+pub trait CustomTysonType: Send + Sync {
+    fn parse(&self, value: &str) -> Result<FieldValue, TysonParseError>;
+}
 
 #[derive(Default)]
 pub struct ExtensionRegistry {
     pub extensions: Vec<Box<dyn Extension>>,
+    pub tyson_types: HashMap<Box<str>, Box<dyn CustomTysonType>>,
 }
 
 impl ExtensionRegistry {
@@ -34,7 +45,7 @@ impl ExtensionRegistry {
 }
 
 pub trait Extension: Send + Sync {
-    fn setup(&mut self, _registry: &ExtensionRegistry) {}
+    fn setup(&mut self, _registry: &mut ExtensionRegistry) {}
     fn try_match_cli_argument(
         &self,
         ctx_opts: &SessionOptions,
