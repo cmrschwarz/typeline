@@ -214,8 +214,8 @@ impl ScrError {
                 sess,
             ),
             ScrError::OperationApplicationError(e) => contextualize_op_id(
-                &e.message,
-                e.op_id,
+                e.message(),
+                e.op_id(),
                 args_gathered,
                 ctx_opts,
                 sess,

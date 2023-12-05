@@ -28,7 +28,7 @@ use crate::{
     },
     utils::{
         int_string_conversions::{i64_to_str, usize_to_str},
-        pointer_writer::PointerWriter,
+        io::PointerWriter,
     },
 };
 
@@ -440,11 +440,10 @@ pub fn handle_tf_join(
                     push_error(
                         join,
                         sv_mgr,
-                        OperatorApplicationError {
-                            op_id: tf.op_id.unwrap(),
-                            message: format!("join does not support {str}")
-                                .into(),
-                        },
+                        OperatorApplicationError::new_s(
+                            format!("join does not support {str}"),
+                            tf.op_id.unwrap(),
+                        ),
                     );
                 }
                 TypedSlice::StreamValueId(svs) => {
@@ -603,14 +602,10 @@ fn push_custom_type(
         push_error(
             join,
             sv_mgr,
-            OperatorApplicationError {
-                op_id: tf.op_id.unwrap(),
-                message: format!(
-                    "cannot stringify custom type {}",
-                    v.type_name()
-                )
-                .into(),
-            },
+            OperatorApplicationError::new_s(
+                format!("cannot stringify custom type {}", v.type_name()),
+                tf.op_id.unwrap(),
+            ),
         );
         return;
     };

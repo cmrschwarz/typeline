@@ -1,5 +1,4 @@
 use std::{
-    borrow::Cow,
     collections::HashMap,
     ops::{Deref, DerefMut},
     sync::{Arc, Mutex, MutexGuard},
@@ -58,7 +57,7 @@ impl StringSink {
         self.errors.first().map(|(_i, e)| e.clone())
     }
     pub fn get_first_error_message(&self) -> Option<&str> {
-        self.errors.first().map(|(_i, e)| e.message.deref())
+        self.errors.first().map(|(_i, e)| e.message())
     }
 }
 
@@ -160,10 +159,7 @@ fn push_invalid_utf8(
     bytes: &[u8],
     run_len: usize,
 ) {
-    let err = Arc::new(OperatorApplicationError {
-        op_id,
-        message: Cow::Borrowed("invalid utf-8"),
-    });
+    let err = Arc::new(OperatorApplicationError::new("invalid utf-8", op_id));
     for i in field_pos..field_pos + run_len {
         out.append_error(i, err.clone());
     }
@@ -214,10 +210,10 @@ fn append_stream_val(
                     Err(_) => {
                         if !sv_handle.contains_error {
                             sv_handle.contains_error = true;
-                            let err = Arc::new(OperatorApplicationError {
+                            let err = Arc::new(OperatorApplicationError::new(
+                                "invalid utf-8",
                                 op_id,
-                                message: Cow::Borrowed("invalid utf-8"),
-                            });
+                            ));
                             for i in start_idx..end_idx {
                                 out.append_error(i, err.clone());
                             }

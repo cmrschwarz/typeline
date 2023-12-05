@@ -1,5 +1,4 @@
 use std::{
-    collections::BTreeMap,
     fmt::Display,
     mem::{align_of, size_of, size_of_val, ManuallyDrop},
     ops::{Deref, DerefMut},
@@ -17,7 +16,7 @@ use super::{
 };
 use crate::{
     operators::errors::OperatorApplicationError,
-    utils::{aligned_buf::AlignedBuf, identity_hasher::IdentityHasher},
+    utils::{aligned_buf::AlignedBuf, string_store::StringStoreEntry},
 };
 
 use self::field_value_flags::{BYTES_ARE_UTF8, SHARED_VALUE};
@@ -77,7 +76,7 @@ pub enum FieldValue {
     Int(i64),
     Bytes(Vec<u8>),
     String(String),
-    Error(String),
+    Error(OperatorApplicationError),
     Array(Array),
     Object(Object),
     FieldReference(FieldReference),
@@ -225,14 +224,24 @@ pub struct Null;
 pub struct Undefined;
 
 #[derive(Clone)]
-pub struct Object {
-    keys: BTreeMap<String, usize>,
-    values: ThinVec<FieldValue>,
+pub enum Object {
+    KeysStored(Box<IndexMap<Box<str>, FieldValue>>),
+    KeysInterned(Box<IndexMap<StringStoreEntry, FieldValue>>),
 }
 
 #[derive(Clone)]
-pub struct Array {
-    data: Vec<FieldValue>,
+pub enum Array {
+    Null(usize),
+    Undefined(usize),
+    Int(Box<[i64]>),
+    Bytes(Box<Box<[u8]>>),
+    String(Box<Box<str>>),
+    Error(Box<[OperatorApplicationError]>),
+    Array(Box<[Array]>),
+    Object(Box<[Object]>),
+    FieldReference(Box<[FieldReference]>),
+    Custom(Box<[CustomDataBox]>),
+    Mixed(Box<[FieldValue]>),
 }
 
 #[derive(Copy, Clone, PartialEq)]
@@ -327,7 +336,6 @@ pub mod field_value_flags {
 }
 pub use field_value_flags::FieldValueFlags;
 use indexmap::IndexMap;
-use thin_vec::ThinVec;
 #[derive(Clone, Copy, PartialEq)]
 pub struct FieldValueFormat {
     pub kind: FieldValueKind,

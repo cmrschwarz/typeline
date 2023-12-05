@@ -33,7 +33,7 @@ use crate::{
             i64_digits, i64_to_str, u64_to_str, usize_to_str,
             USIZE_MAX_DECIMAL_DIGITS,
         },
-        pointer_writer::PointerWriter,
+        io::PointerWriter,
         string_store::{StringStore, StringStoreEntry},
         universe::CountedUniverse,
         LengthAndCharsCountingWriter, LengthCountingWriter,
@@ -1458,7 +1458,7 @@ fn error_to_formatted_string(
     match ft {
         FormatType::Debug => {
             if alternate_form {
-                format!("!\"{}\"", e.message)
+                format!("!\"{}\"", e.message())
             } else {
                 format!("!\"{ERROR_PREFIX_STR}{}\"", e)
             }
@@ -1466,7 +1466,7 @@ fn error_to_formatted_string(
         FormatType::MoreDebug => {
             let sv = if stream_value { "~" } else { "" };
             if alternate_form {
-                format!("{sv}!\"{}\"", e.message)
+                format!("{sv}!\"{}\"", e.message())
             } else {
                 format!("{sv}!\"{ERROR_PREFIX_STR}{}\"", e)
             }
@@ -1483,7 +1483,7 @@ impl<'a> ValueProducingCallable<usize> for ErrLenCalculator<'a> {
     fn call(&mut self) -> usize {
         self.additional_len
             + if self.alternate_form {
-                self.err.message.chars().count()
+                self.err.message().chars().count()
             } else {
                 let mut cw = LengthAndCharsCountingWriter::default();
                 cw.write_fmt(format_args!("{ERROR_PREFIX_STR}{}", self.err))
@@ -1504,7 +1504,7 @@ fn formatted_error_string_len(
         _ => unreachable!(),
     };
     let len = if alternate_form {
-        e.message.len()
+        e.message().len()
     } else {
         let mut cw = LengthCountingWriter::default();
         cw.write_fmt(format_args!("{ERROR_PREFIX_STR}{e}")).unwrap();

@@ -1,7 +1,4 @@
-use std::{
-    borrow::Cow,
-    io::{BufWriter, IsTerminal, StdoutLock, Write},
-};
+use std::io::{BufWriter, IsTerminal, StdoutLock, Write};
 
 use crate::{
     job_session::JobData,
@@ -334,10 +331,7 @@ pub fn handle_tf_print(
             if nsucc > 0 {
                 output_field.iter_hall.push_null(nsucc, true);
             }
-            let e = OperatorApplicationError {
-                op_id,
-                message: Cow::Owned(err.to_string()),
-            };
+            let e = OperatorApplicationError::new_s(err.to_string(), op_id);
             output_field.iter_hall.push_error(e, nfail, false, true);
             outputs_produced += nfail;
         }
@@ -366,7 +360,7 @@ pub fn handle_tf_print_stream_value_update(
     let run_len = custom;
     let mut success_count = run_len;
     let mut error_count = 0;
-    let mut err_message = Cow::Borrowed("");
+    let mut err_message = None;
     match write_stream_val_check_done(&mut stdout, sv, None, run_len) {
         Ok(false) => {
             return;
@@ -375,7 +369,7 @@ pub fn handle_tf_print_stream_value_update(
         Err((idx, e)) => {
             error_count = run_len - idx;
             success_count = run_len - error_count;
-            err_message = Cow::Owned(e.to_string());
+            err_message = Some(e.to_string());
         }
     }
     let tf = &sess.tf_mgr.transforms[tf_id];
@@ -383,13 +377,13 @@ pub fn handle_tf_print_stream_value_update(
     if success_count > 0 {
         output_field.iter_hall.push_null(success_count, true);
     }
-    if error_count > 0 {
+    if let Some(err_message) = err_message {
         output_field.iter_hall.push_error(
-            OperatorApplicationError {
-                op_id: sess.tf_mgr.transforms[tf_id].op_id.unwrap(),
-                message: err_message,
-            },
-            run_len,
+            OperatorApplicationError::new_s(
+                err_message,
+                sess.tf_mgr.transforms[tf_id].op_id.unwrap(),
+            ),
+            error_count,
             true,
             false,
         );

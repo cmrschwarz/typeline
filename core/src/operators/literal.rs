@@ -1,5 +1,3 @@
-use std::borrow::Cow;
-
 use bstr::ByteSlice;
 use regex::Regex;
 use smallstr::SmallString;
@@ -108,10 +106,9 @@ pub fn handle_tf_literal(
             Literal::StreamError(ss) => {
                 let sv_id = sess.sv_mgr.stream_values.claim_with_value(
                     StreamValue::new(
-                        StreamValueData::Error(OperatorApplicationError {
-                            op_id,
-                            message: ss.clone().into(),
-                        }),
+                        StreamValueData::Error(
+                            OperatorApplicationError::new_s(ss.clone(), op_id),
+                        ),
                         true,
                         true,
                     ),
@@ -145,10 +142,7 @@ pub fn handle_tf_literal(
                     .push_stream_value_id(sv_id, 1, true, false);
             }
             Literal::Error(e) => output_field.iter_hall.push_error(
-                OperatorApplicationError {
-                    op_id,
-                    message: Cow::Owned(e.clone()),
-                },
+                OperatorApplicationError::new_s(e.clone(), op_id),
                 1,
                 true,
                 false,

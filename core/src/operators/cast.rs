@@ -269,8 +269,9 @@ pub fn handle_tf_cast_stream_value_update(
         StreamValueData::Dropped => unreachable!(),
         StreamValueData::Error(err) => {
             if tf.convert_errors {
-                sv_out.data =
-                    StreamValueData::Bytes(err.message.as_bytes().to_owned());
+                sv_out.data = StreamValueData::Bytes(
+                    err.message().as_bytes().to_owned(),
+                );
                 sv_out.bytes_are_chunk = false;
                 sv_out.drop_previous_chunks = true;
                 sv_out.bytes_are_utf8 = tf.target_type == FieldDataType::Text;
