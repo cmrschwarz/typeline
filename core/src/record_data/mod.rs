@@ -4,6 +4,7 @@ pub mod field;
 pub mod field_action;
 pub mod field_action_applicator;
 pub mod field_data;
+pub mod field_value;
 pub mod iter_hall;
 pub mod iters;
 pub mod match_set;

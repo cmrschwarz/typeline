@@ -5,7 +5,7 @@ use bstr::{ByteSlice, ByteVec};
 
 use crate::{
     extension::ExtensionRegistry,
-    record_data::field_data::FieldValue,
+    record_data::field_value::FieldValue,
     utils::{
         io::{
             read_char, read_until_unescape2, ReadCharError,
@@ -15,6 +15,7 @@ use crate::{
     },
 };
 
+#[derive(Debug, PartialEq, Eq)]
 pub enum TysonParseErrorKind {
     Other(Box<str>),
     InvalidUtf8(ArrayVec<u8, MAX_UTF8_CHAR_LEN>),
@@ -28,6 +29,7 @@ pub enum TysonParseErrorKind {
     UnexpectedEof,
 }
 
+#[derive(Debug)]
 pub enum TysonParseError {
     Io(std::io::Error),
     InvalidSequence {
@@ -36,6 +38,28 @@ pub enum TysonParseError {
         kind: TysonParseErrorKind,
     },
 }
+
+impl PartialEq for TysonParseError {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Io(e1), Self::Io(e2)) => e1.kind() == e2.kind(),
+            (
+                Self::InvalidSequence {
+                    line: l_line,
+                    col: l_col,
+                    kind: l_kind,
+                },
+                Self::InvalidSequence {
+                    line: r_line,
+                    col: r_col,
+                    kind: r_kind,
+                },
+            ) => l_line == r_line && l_col == r_col && l_kind == r_kind,
+            _ => false,
+        }
+    }
+}
+impl Eq for TysonParseError {}
 
 struct TysonParser<'a, S: BufRead> {
     stream: S,
@@ -99,8 +123,8 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
                 ));
             };
             let buf_offset = s.buf_offset();
-            let buf = s.pull_into_buf(esc_end - 1)?;
-            let esc_seq = &buf[buf_offset + 3..buf_offset + esc_end - 1];
+            let buf = s.pull_into_buf(esc_end)?;
+            let esc_seq = &buf[buf_offset + 3..buf_offset + esc_end];
 
             let esc_str = std::str::from_utf8(esc_seq).map_err(|e| {
                 let err_start = e.valid_up_to();
@@ -127,7 +151,7 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
                 })?;
             buf.truncate(buf_offset);
             buf.push_char(esc_value);
-            Ok(esc_end)
+            Ok(esc_end + 1)
         };
         let parse_unicode_escape = |_s: ReplacementState| todo!();
         let escape_handler = |s: ReplacementState| {
@@ -218,7 +242,7 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
                 self.col = s.chars().count() + 1; // +1 for the delimiter
             }
         }
-        // SAFETY: we verified each line separately in the code above
+        // SAFETY: we already verified each line separately
         Ok(unsafe { String::from_utf8_unchecked(buf) })
     }
     fn err<T>(&self, kind: TysonParseErrorKind) -> Result<T, TysonParseError> {
@@ -285,4 +309,62 @@ pub fn parse_tyson(
     let res = tp.parse_value()?;
     tp.reject_further_input()?;
     Ok(res)
+}
+
+pub fn parse_tyson_str(
+    input: &str,
+    exts: &ExtensionRegistry,
+) -> Result<FieldValue, TysonParseError> {
+    // PERF: we could skip a lot of utf8 checking
+    // if we already know that this is a string
+    parse_tyson(input.as_bytes(), exts)
+}
+
+#[cfg(test)]
+mod test {
+    use crate::{
+        extension::ExtensionRegistry, record_data::field_value::FieldValue,
+    };
+
+    use super::{parse_tyson_str, TysonParseError, TysonParseErrorKind};
+
+    fn parse(s: &str) -> Result<FieldValue, TysonParseError> {
+        parse_tyson_str(s, &ExtensionRegistry::default())
+    }
+
+    #[test]
+    fn empty_string() {
+        assert_eq!(
+            parse(""),
+            Err(TysonParseError::InvalidSequence {
+                line: 0,
+                col: 0,
+                kind: TysonParseErrorKind::UnexpectedEof,
+            })
+        );
+    }
+    #[test]
+    fn whitespace_only() {
+        assert_eq!(
+            parse("\n\n "),
+            Err(TysonParseError::InvalidSequence {
+                line: 2,
+                col: 1,
+                kind: TysonParseErrorKind::UnexpectedEof,
+            })
+        );
+    }
+
+    #[test]
+    fn string() {
+        assert_eq!(parse(r#""foo""#), Ok(FieldValue::String("foo".into())));
+    }
+
+    #[test]
+    fn unicode_escape() {
+        assert_eq!(
+            parse(r#""foo\u{1F4A9}bar""#),
+            Ok(FieldValue::String("foo\u{1F4A9}bar".into()))
+        );
+    }
 }

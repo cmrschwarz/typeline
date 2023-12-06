@@ -7,7 +7,7 @@ use std::{
 
 use super::{
     custom_data::CustomDataBox,
-    field::FieldIdOffset,
+    field_value::{FieldReference, Null, Object, Undefined},
     match_set::MatchSetManager,
     ref_iter::{
         AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter,
@@ -16,10 +16,11 @@ use super::{
 };
 use crate::{
     operators::errors::OperatorApplicationError,
-    utils::{aligned_buf::AlignedBuf, string_store::StringStoreEntry},
+    utils::aligned_buf::AlignedBuf,
 };
 
 use self::field_value_flags::{BYTES_ARE_UTF8, SHARED_VALUE};
+pub use field_value_flags::FieldValueFlags;
 
 use super::{
     iters::{FieldIterator, Iter},
@@ -37,14 +38,13 @@ pub type RunLength = u32;
 // This also does not differentiate between the text and bytes type as they
 // have the same data layout
 #[derive(Clone, Copy, PartialEq)]
-pub enum FieldValueKind {
+pub enum FieldDataRepr {
     Undefined,
     Null,
     Integer, // TODO: bigint, float, decimal, ...
     StreamValueId,
     Reference,
     Error,
-    Html,
     BytesInline,
     BytesBuffer,
     BytesFile,
@@ -54,76 +54,124 @@ pub enum FieldValueKind {
     // (store some subtype index at the start of the actual data)
 }
 
-// the different logical data types
-// irrespective of representation in memory
-#[derive(Clone, Copy, PartialEq)]
-pub enum FieldDataType {
-    Undefined,
-    Null,
-    Integer,
-    Error,
-    Html,
-    Bytes,
-    Text,
-    Object,
-    Custom,
-}
-
 #[derive(Clone)]
-pub enum FieldValue {
-    Null,
-    Undefined,
-    Int(i64),
-    Bytes(Vec<u8>),
-    String(String),
-    Error(OperatorApplicationError),
-    Array(Array),
-    Object(Object),
-    FieldReference(FieldReference),
-    Custom(CustomDataBox),
+pub struct BytesBufferFile {
+    // TODO
 }
 
-impl FieldDataType {
-    pub fn to_preferred_field_value_kind(self) -> FieldValueKind {
-        match self {
-            FieldDataType::Undefined => FieldValueKind::Undefined,
-            FieldDataType::Null => FieldValueKind::Null,
-            FieldDataType::Integer => FieldValueKind::Integer,
-            FieldDataType::Error => FieldValueKind::Error,
-            FieldDataType::Html => FieldValueKind::Html,
-            FieldDataType::Bytes => FieldValueKind::BytesInline,
-            FieldDataType::Text => FieldValueKind::BytesInline,
-            FieldDataType::Object => FieldValueKind::Object,
-            FieldDataType::Custom => FieldValueKind::Custom,
-        }
-    }
-    pub fn to_str(self) -> &'static str {
-        match self {
-            FieldDataType::Html => "html",
-            FieldDataType::Undefined => "undefined",
-            FieldDataType::Null => "null",
-            FieldDataType::Integer => "int",
-            FieldDataType::Error => "error",
-            FieldDataType::Text => "str",
-            FieldDataType::Bytes => "bytes",
-            FieldDataType::Custom => "custom",
-            FieldDataType::Object => "object",
-        }
-    }
+#[derive(Clone, Copy, PartialEq)]
+pub struct FieldValueFormat {
+    pub kind: FieldDataRepr,
+    pub flags: FieldValueFlags,
+    // this does NOT include potential padding before this
+    // field in case it has to be aligned
+    pub size: FieldValueSize,
 }
 
-impl FieldValueKind {
+#[derive(Clone, Copy, Default)]
+pub struct FieldValueHeader {
+    pub fmt: FieldValueFormat,
+    pub run_length: RunLength,
+}
+
+#[derive(Default)]
+pub struct FieldData {
+    pub(super) data: FieldDataBuffer,
+    pub(super) headers: Vec<FieldValueHeader>,
+    pub(super) field_count: usize,
+}
+
+pub struct FieldDataInternals<'a> {
+    pub data: &'a mut FieldDataBuffer,
+    pub header: &'a mut Vec<FieldValueHeader>,
+    pub field_count: &'a mut usize,
+}
+
+// only used to figure out the maximum alignment needed for fields
+// the size cannot be used because of the the `Object` shenanegans, see below
+#[repr(C)]
+union FieldValueAlignmentCheckUnion {
+    text: ManuallyDrop<String>,
+    bytes: ManuallyDrop<Vec<u8>>,
+    bytes_file: ManuallyDrop<BytesBufferFile>,
+    object: ManuallyDrop<Object>,
+}
+
+pub const MAX_FIELD_ALIGN: usize = align_of::<FieldValueAlignmentCheckUnion>();
+pub const FIELD_ALIGN_MASK: usize = !(MAX_FIELD_ALIGN - 1);
+pub type FieldDataBuffer = AlignedBuf<MAX_FIELD_ALIGN>;
+
+pub type FieldValueSize = u16;
+
+pub mod field_value_flags {
+    use super::MAX_FIELD_ALIGN;
+    pub type FieldValueFlags = u8;
+    // offset must be zero so we don't have to shift
+    const_assert!(MAX_FIELD_ALIGN.is_power_of_two() && MAX_FIELD_ALIGN <= 16);
+    pub const LEADING_PADDING: FieldValueFlags = 0xF; // consumes offsets 0 through 3
+    pub const SAME_VALUE_AS_PREVIOUS_OFFSET: FieldValueFlags = 4;
+    pub const SHARED_VALUE_OFFSET: FieldValueFlags = 5;
+    pub const BYTES_ARE_UTF8_OFFSET: FieldValueFlags = 6;
+    pub const DELETED_OFFSET: FieldValueFlags = 7;
+
+    pub const SHARED_VALUE: FieldValueFlags = 1 << SHARED_VALUE_OFFSET;
+    pub const BYTES_ARE_UTF8: FieldValueFlags = 1 << BYTES_ARE_UTF8_OFFSET;
+    pub const DELETED: FieldValueFlags = 1 << DELETED_OFFSET;
+    pub const SAME_VALUE_AS_PREVIOUS: FieldValueFlags =
+        1 << SAME_VALUE_AS_PREVIOUS_OFFSET;
+
+    pub const DEFAULT: FieldValueFlags = 0;
+}
+
+// used to constrain generic functions that accept data for field values
+pub trait FieldValueType {
+    const KIND: FieldDataRepr;
+}
+impl FieldValueType for Undefined {
+    const KIND: FieldDataRepr = FieldDataRepr::Null;
+}
+impl FieldValueType for Null {
+    const KIND: FieldDataRepr = FieldDataRepr::Undefined;
+}
+impl FieldValueType for i64 {
+    const KIND: FieldDataRepr = FieldDataRepr::Integer;
+}
+impl FieldValueType for StreamValueId {
+    const KIND: FieldDataRepr = FieldDataRepr::StreamValueId;
+}
+impl FieldValueType for FieldReference {
+    const KIND: FieldDataRepr = FieldDataRepr::Reference;
+}
+impl FieldValueType for OperatorApplicationError {
+    const KIND: FieldDataRepr = FieldDataRepr::Error;
+}
+impl FieldValueType for [u8] {
+    const KIND: FieldDataRepr = FieldDataRepr::BytesInline;
+}
+impl FieldValueType for Vec<u8> {
+    const KIND: FieldDataRepr = FieldDataRepr::BytesBuffer;
+}
+impl FieldValueType for Object {
+    const KIND: FieldDataRepr = FieldDataRepr::Object;
+}
+impl FieldValueType for CustomDataBox {
+    const KIND: FieldDataRepr = FieldDataRepr::Custom;
+}
+
+pub const INLINE_STR_MAX_LEN: usize = 8192;
+
+impl FieldDataRepr {
     pub fn needs_drop(self) -> bool {
-        use FieldValueKind::*;
+        use FieldDataRepr::*;
         match self {
             Undefined | Null | Integer | Reference | StreamValueId
             | BytesInline => false,
-            Error | Html | BytesBuffer | BytesFile | Object | Custom => true,
+            Error | BytesBuffer | BytesFile | Object | Custom => true,
         }
     }
     #[inline(always)]
     pub fn needs_alignment(self) -> bool {
-        use FieldValueKind::*;
+        use FieldDataRepr::*;
         !matches!(self, Undefined | Null | BytesInline)
     }
     #[inline]
@@ -168,24 +216,23 @@ impl FieldValueKind {
     }
     pub fn size(self) -> usize {
         match self {
-            FieldValueKind::Undefined => 0,
-            FieldValueKind::Null => 0,
-            FieldValueKind::Integer => size_of::<i64>(),
-            FieldValueKind::StreamValueId => size_of::<StreamValueId>(),
-            FieldValueKind::Reference => size_of::<FieldReference>(),
-            FieldValueKind::Error => size_of::<OperatorApplicationError>(),
-            FieldValueKind::Html => size_of::<Html>(),
-            FieldValueKind::BytesBuffer => size_of::<Vec<u8>>(),
-            FieldValueKind::BytesFile => size_of::<BytesBufferFile>(),
-            FieldValueKind::Object => size_of::<Object>(),
-            FieldValueKind::Custom => size_of::<CustomDataBox>(),
+            FieldDataRepr::Undefined => 0,
+            FieldDataRepr::Null => 0,
+            FieldDataRepr::Integer => size_of::<i64>(),
+            FieldDataRepr::StreamValueId => size_of::<StreamValueId>(),
+            FieldDataRepr::Reference => size_of::<FieldReference>(),
+            FieldDataRepr::Error => size_of::<OperatorApplicationError>(),
+            FieldDataRepr::BytesBuffer => size_of::<Vec<u8>>(),
+            FieldDataRepr::BytesFile => size_of::<BytesBufferFile>(),
+            FieldDataRepr::Object => size_of::<Object>(),
+            FieldDataRepr::Custom => size_of::<CustomDataBox>(),
             // should not be used for size calculations
             // but is used for example in is_zst
-            FieldValueKind::BytesInline => usize::MAX,
+            FieldDataRepr::BytesInline => usize::MAX,
         }
     }
     pub fn is_variable_sized_type(self) -> bool {
-        self == FieldValueKind::BytesInline
+        self == FieldDataRepr::BytesInline
     }
     pub fn is_zst(self) -> bool {
         self.size() == 0
@@ -193,172 +240,40 @@ impl FieldValueKind {
     pub fn is_fixed_size_type(self) -> bool {
         !self.is_variable_sized_type() && !self.is_zst()
     }
-    pub unsafe fn from_u8(v: u8) -> FieldValueKind {
+    pub unsafe fn from_u8(v: u8) -> FieldDataRepr {
         unsafe { std::mem::transmute(v) }
     }
     pub const fn to_str(&self) -> &'static str {
         match self {
-            FieldValueKind::Undefined => "undefined",
-            FieldValueKind::Null => "null",
-            FieldValueKind::Integer => "int",
-            FieldValueKind::StreamValueId => "stream_value_id",
-            FieldValueKind::Reference => "field_reference",
-            FieldValueKind::Error => "error",
-            FieldValueKind::Html => "html",
-            FieldValueKind::BytesInline => "bytes",
-            FieldValueKind::BytesBuffer => "bytes",
-            FieldValueKind::BytesFile => "bytes",
-            FieldValueKind::Object => "object",
-            FieldValueKind::Custom => "custom",
+            FieldDataRepr::Undefined => "undefined",
+            FieldDataRepr::Null => "null",
+            FieldDataRepr::Integer => "int",
+            FieldDataRepr::StreamValueId => "stream_value_id",
+            FieldDataRepr::Reference => "field_reference",
+            FieldDataRepr::Error => "error",
+            FieldDataRepr::BytesInline => "bytes",
+            FieldDataRepr::BytesBuffer => "bytes",
+            FieldDataRepr::BytesFile => "bytes",
+            FieldDataRepr::Object => "object",
+            FieldDataRepr::Custom => "custom",
         }
     }
 }
 
-impl Display for FieldValueKind {
+impl Display for FieldDataRepr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.to_str())
     }
 }
 
-pub struct Null;
-pub struct Undefined;
-
-#[derive(Clone)]
-pub enum Object {
-    KeysStored(Box<IndexMap<Box<str>, FieldValue>>),
-    KeysInterned(Box<IndexMap<StringStoreEntry, FieldValue>>),
-}
-
-#[derive(Clone)]
-pub enum Array {
-    Null(usize),
-    Undefined(usize),
-    Int(Box<[i64]>),
-    Bytes(Box<Box<[u8]>>),
-    String(Box<Box<str>>),
-    Error(Box<[OperatorApplicationError]>),
-    Array(Box<[Array]>),
-    Object(Box<[Object]>),
-    FieldReference(Box<[FieldReference]>),
-    Custom(Box<[CustomDataBox]>),
-    Mixed(Box<[FieldValue]>),
-}
-
-#[derive(Copy, Clone, PartialEq)]
-pub struct FieldReference {
-    pub field_id_offset: FieldIdOffset,
-    pub begin: usize,
-    pub end: usize,
-}
-
-#[derive(Clone)]
-pub struct Html {
-    // TODO
-}
-
-#[derive(Clone)]
-pub struct BytesBufferFile {
-    // TODO
-}
-
-// used to constrain generic functions that accept data for field values
-pub trait FieldValueType {
-    const KIND: FieldValueKind;
-}
-impl FieldValueType for Undefined {
-    const KIND: FieldValueKind = FieldValueKind::Null;
-}
-impl FieldValueType for Null {
-    const KIND: FieldValueKind = FieldValueKind::Undefined;
-}
-impl FieldValueType for i64 {
-    const KIND: FieldValueKind = FieldValueKind::Integer;
-}
-impl FieldValueType for StreamValueId {
-    const KIND: FieldValueKind = FieldValueKind::StreamValueId;
-}
-impl FieldValueType for FieldReference {
-    const KIND: FieldValueKind = FieldValueKind::Reference;
-}
-impl FieldValueType for OperatorApplicationError {
-    const KIND: FieldValueKind = FieldValueKind::Error;
-}
-impl FieldValueType for Html {
-    const KIND: FieldValueKind = FieldValueKind::Html;
-}
-impl FieldValueType for [u8] {
-    const KIND: FieldValueKind = FieldValueKind::BytesInline;
-}
-impl FieldValueType for Vec<u8> {
-    const KIND: FieldValueKind = FieldValueKind::BytesBuffer;
-}
-impl FieldValueType for Object {
-    const KIND: FieldValueKind = FieldValueKind::Object;
-}
-impl FieldValueType for CustomDataBox {
-    const KIND: FieldValueKind = FieldValueKind::Custom;
-}
-
-// only used to figure out the maximum alignment needed for fields
-// the size cannot be used because of the the `Object` shenanegans, see below
-#[repr(C)]
-union FieldValueAlignmentCheckUnion {
-    text: ManuallyDrop<String>,
-    bytes: ManuallyDrop<Vec<u8>>,
-    bytes_file: ManuallyDrop<BytesBufferFile>,
-    object: ManuallyDrop<Object>,
-}
-
-pub const MAX_FIELD_ALIGN: usize = align_of::<FieldValueAlignmentCheckUnion>();
-pub const FIELD_ALIGN_MASK: usize = !(MAX_FIELD_ALIGN - 1);
-pub type FieldDataBuffer = AlignedBuf<MAX_FIELD_ALIGN>;
-
-pub type FieldValueSize = u16;
-
-pub mod field_value_flags {
-    use super::MAX_FIELD_ALIGN;
-    pub type FieldValueFlags = u8;
-    // offset must be zero so we don't have to shift
-    const_assert!(MAX_FIELD_ALIGN.is_power_of_two() && MAX_FIELD_ALIGN <= 16);
-    pub const LEADING_PADDING: FieldValueFlags = 0xF; // consumes offsets 0 through 3
-    pub const SAME_VALUE_AS_PREVIOUS_OFFSET: FieldValueFlags = 4;
-    pub const SHARED_VALUE_OFFSET: FieldValueFlags = 5;
-    pub const BYTES_ARE_UTF8_OFFSET: FieldValueFlags = 6;
-    pub const DELETED_OFFSET: FieldValueFlags = 7;
-
-    pub const SHARED_VALUE: FieldValueFlags = 1 << SHARED_VALUE_OFFSET;
-    pub const BYTES_ARE_UTF8: FieldValueFlags = 1 << BYTES_ARE_UTF8_OFFSET;
-    pub const DELETED: FieldValueFlags = 1 << DELETED_OFFSET;
-    pub const SAME_VALUE_AS_PREVIOUS: FieldValueFlags =
-        1 << SAME_VALUE_AS_PREVIOUS_OFFSET;
-
-    pub const DEFAULT: FieldValueFlags = 0;
-}
-pub use field_value_flags::FieldValueFlags;
-use indexmap::IndexMap;
-#[derive(Clone, Copy, PartialEq)]
-pub struct FieldValueFormat {
-    pub kind: FieldValueKind,
-    pub flags: FieldValueFlags,
-    // this does NOT include potential padding before this
-    // field in case it has to be aligned
-    pub size: FieldValueSize,
-}
-
 impl Default for FieldValueFormat {
     fn default() -> Self {
         Self {
-            kind: FieldValueKind::Null,
+            kind: FieldDataRepr::Null,
             flags: field_value_flags::DEFAULT,
             size: 0,
         }
     }
-}
-
-#[derive(Clone, Copy, Default)]
-pub struct FieldValueHeader {
-    pub fmt: FieldValueFormat,
-    pub run_length: RunLength,
 }
 
 impl FieldValueFormat {
@@ -480,15 +395,6 @@ impl FieldValueHeader {
     }
 }
 
-pub const INLINE_STR_MAX_LEN: usize = 8192;
-
-#[derive(Default)]
-pub struct FieldData {
-    pub(super) data: FieldDataBuffer,
-    pub(super) headers: Vec<FieldValueHeader>,
-    pub(super) field_count: usize,
-}
-
 impl Clone for FieldData {
     fn clone(&self) -> Self {
         let mut fd = Self {
@@ -503,11 +409,6 @@ impl Clone for FieldData {
     }
 }
 
-pub struct FieldDataInternals<'a> {
-    pub data: &'a mut FieldDataBuffer,
-    pub header: &'a mut Vec<FieldValueHeader>,
-    pub field_count: &'a mut usize,
-}
 impl FieldData {
     pub unsafe fn from_raw_parts(
         header: Vec<FieldValueHeader>,
@@ -661,7 +562,7 @@ impl FieldData {
                                 // TODO: maybe do a little rle here?
                                 fd.headers.push(FieldValueHeader {
                                     fmt: FieldValueFormat {
-                                        kind: FieldValueKind::BytesInline,
+                                        kind: FieldDataRepr::BytesInline,
                                         flags: SHARED_VALUE,
                                         size: v.len() as FieldValueSize,
                                     },
@@ -679,7 +580,7 @@ impl FieldData {
                                 // TODO: maybe do a little rle here?
                                 fd.headers.push(FieldValueHeader {
                                     fmt: FieldValueFormat {
-                                        kind: FieldValueKind::BytesInline,
+                                        kind: FieldDataRepr::BytesInline,
                                         flags: SHARED_VALUE | BYTES_ARE_UTF8,
                                         size: v.len() as FieldValueSize,
                                     },
@@ -707,7 +608,6 @@ impl FieldData {
                     | TypedSlice::StreamValueId(_)
                     | TypedSlice::Reference(_)
                     | TypedSlice::Error(_)
-                    | TypedSlice::Html(_)
                     | TypedSlice::Custom(_)
                     | TypedSlice::Object(_) => unreachable!(),
                 }
@@ -800,7 +700,6 @@ unsafe fn append_data(
                 extend_with_clones(target_applicator, v)
             }
             TypedSlice::Error(v) => extend_with_clones(target_applicator, v),
-            TypedSlice::Html(v) => extend_with_clones(target_applicator, v),
             TypedSlice::Object(v) => extend_with_clones(target_applicator, v),
             TypedSlice::Custom(v) => {
                 extend_with_custom_clones(target_applicator, v)

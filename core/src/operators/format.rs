@@ -11,7 +11,7 @@ use crate::{
     record_data::{
         field::{Field, FieldId, FieldManager},
         field_data::{
-            field_value_flags, FieldValueKind, RunLength, INLINE_STR_MAX_LEN,
+            field_value_flags, FieldDataRepr, RunLength, INLINE_STR_MAX_LEN,
         },
         iter_hall::IterId,
         iters::FieldIterator,
@@ -167,7 +167,7 @@ const FINAL_OUTPUT_INDEX_NEXT_VAL: usize = usize::MAX;
 struct FormatError {
     err_in_width: bool,
     part_idx: FormatPartIndex,
-    kind: FieldValueKind,
+    kind: FieldDataRepr,
 }
 #[derive(Default, Clone, Copy)]
 struct OutputState {
@@ -733,7 +733,7 @@ pub fn lookup_target_widths(
     // fmt, output idx, width, run length
     succ_func: impl Fn(&mut TfFormat, &mut usize, usize, usize),
     // fmt, output idx, found field type, run length
-    err_func: impl Fn(&mut TfFormat, &mut usize, FieldValueKind, usize),
+    err_func: impl Fn(&mut TfFormat, &mut usize, FieldDataRepr, usize),
 ) {
     let ident_ref = if let Some(FormatWidthSpec::Ref(ident)) = k.width {
         fmt.refs[ident as usize]
@@ -772,7 +772,7 @@ pub fn lookup_target_widths(
             os.contained_error = Some(FormatError {
                 err_in_width: true,
                 part_idx,
-                kind: FieldValueKind::Undefined,
+                kind: FieldDataRepr::Undefined,
             })
         },
     );
@@ -923,7 +923,7 @@ pub fn setup_key_output_state(
                             o.contained_error = Some(FormatError {
                                 err_in_width: false,
                                 part_idx,
-                                kind: FieldValueKind::Custom,
+                                kind: FieldDataRepr::Custom,
                             });
                         });
                     }
@@ -982,7 +982,7 @@ pub fn setup_key_output_state(
                                             Some(FormatError {
                                                 err_in_width: false,
                                                 part_idx,
-                                                kind: FieldValueKind::Error,
+                                                kind: FieldDataRepr::Error,
                                             });
                                     },
                                 );
@@ -1146,7 +1146,7 @@ pub fn setup_key_output_state(
                     },
                 );
             }
-            TypedSlice::Html(_) | TypedSlice::Object(_) => {
+            TypedSlice::Object(_) => {
                 todo!();
             }
         }
@@ -1169,7 +1169,7 @@ pub fn setup_key_output_state(
                 o.contained_error = Some(FormatError {
                     err_in_width: false,
                     part_idx,
-                    kind: FieldValueKind::Undefined,
+                    kind: FieldDataRepr::Undefined,
                 })
             }
         },
@@ -1233,16 +1233,16 @@ fn setup_output_targets(
     let mut tgt_len = starting_len;
     for os in fmt.output_states.iter() {
         if os.contained_error.is_some() {
-            tgt_len = FieldValueKind::Error.align_size_up(tgt_len);
-            tgt_len += FieldValueKind::Error.size();
+            tgt_len = FieldDataRepr::Error.align_size_up(tgt_len);
+            tgt_len += FieldDataRepr::Error.size();
         } else if os.incomplete_stream_value_handle.is_some() {
-            tgt_len = FieldValueKind::StreamValueId.align_size_up(tgt_len);
-            tgt_len += FieldValueKind::StreamValueId.size();
+            tgt_len = FieldDataRepr::StreamValueId.align_size_up(tgt_len);
+            tgt_len += FieldDataRepr::StreamValueId.size();
         } else if os.len <= INLINE_STR_MAX_LEN {
             tgt_len += os.len;
         } else {
-            tgt_len = FieldValueKind::BytesBuffer.align_size_up(tgt_len);
-            tgt_len += FieldValueKind::BytesBuffer.size();
+            tgt_len = FieldDataRepr::BytesBuffer.align_size_up(tgt_len);
+            tgt_len += FieldDataRepr::BytesBuffer.size();
         }
     }
     unsafe {
@@ -1337,7 +1337,7 @@ fn setup_output_targets(
             unsafe {
                 target = Some(NonNull::new_unchecked(
                     output_field.iter_hall.push_variable_sized_type_uninit(
-                        FieldValueKind::BytesInline,
+                        FieldDataRepr::BytesInline,
                         flags | field_value_flags::SHARED_VALUE,
                         os.len,
                         os.run_len,
@@ -1798,7 +1798,6 @@ fn write_fmt_key(
             }
             TypedSlice::Undefined(_)
             | TypedSlice::Error(_)
-            | TypedSlice::Html(_)
             | TypedSlice::Object(_) => {
                 // just to increase output index
                 iter_output_targets(

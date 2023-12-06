@@ -3,7 +3,7 @@ use smallvec::{smallvec, SmallVec};
 use crate::utils::string_store::StringStoreEntry;
 
 use super::{
-    field_data::{FieldData, FieldValueFlags, FieldValueKind},
+    field_data::{FieldData, FieldDataRepr, FieldValueFlags},
     push_interface::{PushInterface, RawPushInterface},
 };
 
@@ -29,7 +29,7 @@ impl Default for RecordSet {
 unsafe impl RawPushInterface for RecordSet {
     unsafe fn push_variable_sized_type(
         &mut self,
-        kind: FieldValueKind,
+        kind: FieldDataRepr,
         flags: FieldValueFlags,
         data: &[u8],
         run_length: usize,
@@ -55,7 +55,7 @@ unsafe impl RawPushInterface for RecordSet {
 
     unsafe fn push_fixed_size_type<T: PartialEq + Clone>(
         &mut self,
-        kind: FieldValueKind,
+        kind: FieldDataRepr,
         flags: FieldValueFlags,
         data: T,
         run_length: usize,
@@ -77,7 +77,7 @@ unsafe impl RawPushInterface for RecordSet {
 
     unsafe fn push_zst_unchecked(
         &mut self,
-        kind: FieldValueKind,
+        kind: FieldDataRepr,
         flags: FieldValueFlags,
         run_length: usize,
         try_header_rle: bool,
@@ -95,7 +95,7 @@ unsafe impl RawPushInterface for RecordSet {
 
     unsafe fn push_variable_sized_type_uninit(
         &mut self,
-        kind: FieldValueKind,
+        kind: FieldDataRepr,
         flags: FieldValueFlags,
         data_len: usize,
         run_length: usize,

@@ -3,10 +3,10 @@ use std::{mem::ManuallyDrop, ptr::NonNull};
 use super::{
     custom_data::CustomDataBox,
     field_data::{
-        field_value_flags, FieldReference, FieldValueFlags, FieldValueFormat,
-        FieldValueHeader, FieldValueKind, FieldValueType, Html, Null, Object,
-        RunLength, Undefined,
+        field_value_flags, FieldDataRepr, FieldValueFlags, FieldValueFormat,
+        FieldValueHeader, FieldValueType, RunLength,
     },
+    field_value::{FieldReference, Null, Object, Undefined},
     iters::FieldDataRef,
     stream_value::StreamValueId,
 };
@@ -20,7 +20,6 @@ pub enum TypedValue<'a> {
     StreamValueId(&'a StreamValueId),
     Reference(&'a FieldReference),
     Error(&'a OperatorApplicationError),
-    Html(&'a Html),
     BytesInline(&'a [u8]),
     TextInline(&'a str),
     BytesBuffer(&'a Vec<u8>),
@@ -36,9 +35,9 @@ impl<'a> TypedValue<'a> {
     ) -> Self {
         unsafe {
             match fmt.kind {
-                FieldValueKind::Null => TypedValue::Null(Null),
-                FieldValueKind::Undefined => TypedValue::Undefined(Undefined),
-                FieldValueKind::BytesInline => {
+                FieldDataRepr::Null => TypedValue::Null(Null),
+                FieldDataRepr::Undefined => TypedValue::Undefined(Undefined),
+                FieldDataRepr::BytesInline => {
                     if fmt.flags & field_value_flags::BYTES_ARE_UTF8 != 0 {
                         TypedValue::TextInline(std::str::from_utf8_unchecked(
                             to_slice(fdr, data_begin, fmt.size as usize),
@@ -51,31 +50,28 @@ impl<'a> TypedValue<'a> {
                         ))
                     }
                 }
-                FieldValueKind::Integer => {
+                FieldDataRepr::Integer => {
                     TypedValue::Integer(to_ref(fdr, data_begin))
                 }
-                FieldValueKind::StreamValueId => {
+                FieldDataRepr::StreamValueId => {
                     TypedValue::StreamValueId(to_ref(fdr, data_begin))
                 }
-                FieldValueKind::Reference => {
+                FieldDataRepr::Reference => {
                     TypedValue::Reference(to_ref(fdr, data_begin))
                 }
-                FieldValueKind::Error => {
+                FieldDataRepr::Error => {
                     TypedValue::Error(to_ref(fdr, data_begin))
                 }
-                FieldValueKind::Html => {
-                    TypedValue::Html(to_ref(fdr, data_begin))
-                }
-                FieldValueKind::Object => {
+                FieldDataRepr::Object => {
                     TypedValue::Object(to_ref(fdr, data_begin))
                 }
-                FieldValueKind::Custom => {
+                FieldDataRepr::Custom => {
                     TypedValue::Custom(to_ref(fdr, data_begin))
                 }
-                FieldValueKind::BytesBuffer => {
+                FieldDataRepr::BytesBuffer => {
                     TypedValue::BytesBuffer(to_ref(fdr, data_begin))
                 }
-                FieldValueKind::BytesFile => todo!(),
+                FieldDataRepr::BytesFile => todo!(),
             }
         }
     }
@@ -93,7 +89,6 @@ impl<'a> TypedValue<'a> {
                 TypedSlice::Reference(std::slice::from_ref(v))
             }
             TypedValue::Error(v) => TypedSlice::Error(std::slice::from_ref(v)),
-            TypedValue::Html(v) => TypedSlice::Html(std::slice::from_ref(v)),
             TypedValue::BytesInline(v) => TypedSlice::BytesInline(v),
             TypedValue::TextInline(v) => TypedSlice::TextInline(v),
             TypedValue::BytesBuffer(v) => {
@@ -140,7 +135,6 @@ pub enum TypedSlice<'a> {
     StreamValueId(&'a [StreamValueId]),
     Reference(&'a [FieldReference]),
     Error(&'a [OperatorApplicationError]),
-    Html(&'a [Html]),
     BytesInline(&'a [u8]),
     TextInline(&'a str),
     BytesBuffer(&'a [Vec<u8>]),
@@ -186,13 +180,13 @@ impl<'a> TypedSlice<'a> {
     ) -> TypedSlice<'a> {
         unsafe {
             match fmt.kind {
-                FieldValueKind::Undefined => {
+                FieldDataRepr::Undefined => {
                     TypedSlice::Undefined(to_zst_slice(field_count))
                 }
-                FieldValueKind::Null => {
+                FieldDataRepr::Null => {
                     TypedSlice::Null(to_zst_slice(field_count))
                 }
-                FieldValueKind::BytesInline => {
+                FieldDataRepr::BytesInline => {
                     if fmt.flags
                         & flag_mask
                         & field_value_flags::BYTES_ARE_UTF8
@@ -207,31 +201,28 @@ impl<'a> TypedSlice<'a> {
                         ))
                     }
                 }
-                FieldValueKind::Integer => {
+                FieldDataRepr::Integer => {
                     TypedSlice::Integer(to_slice(fdr, data_begin, data_end))
                 }
-                FieldValueKind::Reference => {
+                FieldDataRepr::Reference => {
                     TypedSlice::Reference(to_slice(fdr, data_begin, data_end))
                 }
-                FieldValueKind::Error => {
+                FieldDataRepr::Error => {
                     TypedSlice::Error(to_slice(fdr, data_begin, data_end))
                 }
-                FieldValueKind::Html => {
-                    TypedSlice::Html(to_slice(fdr, data_begin, data_end))
-                }
-                FieldValueKind::Object => {
+                FieldDataRepr::Object => {
                     TypedSlice::Object(to_slice(fdr, data_begin, data_end))
                 }
-                FieldValueKind::Custom => {
+                FieldDataRepr::Custom => {
                     TypedSlice::Custom(to_slice(fdr, data_begin, data_end))
                 }
-                FieldValueKind::StreamValueId => TypedSlice::StreamValueId(
+                FieldDataRepr::StreamValueId => TypedSlice::StreamValueId(
                     to_slice(fdr, data_begin, data_end),
                 ),
-                FieldValueKind::BytesBuffer => TypedSlice::BytesBuffer(
+                FieldDataRepr::BytesBuffer => TypedSlice::BytesBuffer(
                     to_slice(fdr, data_begin, data_end),
                 ),
-                FieldValueKind::BytesFile => todo!(),
+                FieldDataRepr::BytesFile => todo!(),
             }
         }
     }
@@ -244,7 +235,6 @@ impl<'a> TypedSlice<'a> {
                 TypedSlice::StreamValueId(v) => slice_as_bytes(v),
                 TypedSlice::Reference(v) => slice_as_bytes(v),
                 TypedSlice::Error(v) => slice_as_bytes(v),
-                TypedSlice::Html(v) => slice_as_bytes(v),
                 TypedSlice::BytesInline(v) => v,
                 TypedSlice::TextInline(v) => v.as_bytes(),
                 TypedSlice::BytesBuffer(v) => slice_as_bytes(v),
@@ -253,20 +243,19 @@ impl<'a> TypedSlice<'a> {
             }
         }
     }
-    pub fn kind(&self) -> FieldValueKind {
+    pub fn kind(&self) -> FieldDataRepr {
         match self {
-            TypedSlice::Undefined(_) => FieldValueKind::Undefined,
-            TypedSlice::Null(_) => FieldValueKind::Null,
-            TypedSlice::Integer(_) => FieldValueKind::Integer,
-            TypedSlice::StreamValueId(_) => FieldValueKind::StreamValueId,
-            TypedSlice::Reference(_) => FieldValueKind::Reference,
-            TypedSlice::Error(_) => FieldValueKind::Error,
-            TypedSlice::Html(_) => FieldValueKind::Html,
-            TypedSlice::BytesInline(_) => FieldValueKind::BytesInline,
-            TypedSlice::TextInline(_) => FieldValueKind::BytesInline,
-            TypedSlice::BytesBuffer(_) => FieldValueKind::BytesBuffer,
-            TypedSlice::Object(_) => FieldValueKind::Object,
-            TypedSlice::Custom(_) => FieldValueKind::Custom,
+            TypedSlice::Undefined(_) => FieldDataRepr::Undefined,
+            TypedSlice::Null(_) => FieldDataRepr::Null,
+            TypedSlice::Integer(_) => FieldDataRepr::Integer,
+            TypedSlice::StreamValueId(_) => FieldDataRepr::StreamValueId,
+            TypedSlice::Reference(_) => FieldDataRepr::Reference,
+            TypedSlice::Error(_) => FieldDataRepr::Error,
+            TypedSlice::BytesInline(_) => FieldDataRepr::BytesInline,
+            TypedSlice::TextInline(_) => FieldDataRepr::BytesInline,
+            TypedSlice::BytesBuffer(_) => FieldDataRepr::BytesBuffer,
+            TypedSlice::Object(_) => FieldDataRepr::Object,
+            TypedSlice::Custom(_) => FieldDataRepr::Custom,
         }
     }
     pub fn len(&self) -> usize {
@@ -277,7 +266,6 @@ impl<'a> TypedSlice<'a> {
             TypedSlice::StreamValueId(v) => v.len(),
             TypedSlice::Reference(v) => v.len(),
             TypedSlice::Error(v) => v.len(),
-            TypedSlice::Html(v) => v.len(),
             TypedSlice::BytesInline(v) => v.len(),
             TypedSlice::TextInline(v) => v.len(),
             TypedSlice::BytesBuffer(v) => v.len(),
@@ -300,11 +288,11 @@ impl<'a> TypedSlice<'a> {
     pub unsafe fn drop_from_kind(
         start_ptr: *mut u8,
         len: usize,
-        kind: FieldValueKind,
+        kind: FieldDataRepr,
     ) {
         type DropFn = unsafe fn(*mut u8, usize);
         #[inline(always)]
-        fn drop_fn_case<T: FieldValueType>() -> (FieldValueKind, DropFn) {
+        fn drop_fn_case<T: FieldValueType>() -> (FieldDataRepr, DropFn) {
             (T::KIND, drop_slice::<T>)
         }
         let drop_fns = [
@@ -314,8 +302,7 @@ impl<'a> TypedSlice<'a> {
             drop_fn_case::<StreamValueId>(),
             drop_fn_case::<FieldReference>(),
             drop_fn_case::<OperatorApplicationError>(),
-            drop_fn_case::<Html>(),
-            (FieldValueKind::BytesInline, drop_slice::<u8>),
+            (FieldDataRepr::BytesInline, drop_slice::<u8>),
             drop_fn_case::<Vec<u8>>(),
             drop_fn_case::<Object>(),
             drop_fn_case::<CustomDataBox>(),

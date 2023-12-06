@@ -7,7 +7,7 @@ use scr_core::{
     scr_error::ScrError,
 };
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 struct DummyCustomType;
 
 impl CustomDataSafe for DummyCustomType {
@@ -25,7 +25,7 @@ impl CustomDataSafe for DummyCustomType {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 struct DummyCustomTypeNoStringify;
 
 impl CustomDataSafe for DummyCustomTypeNoStringify {

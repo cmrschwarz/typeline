@@ -5,6 +5,7 @@ use super::{
         CowFieldDataRef, Field, FieldId, FieldIdOffset, FieldManager,
         FIELD_REF_LOOKUP_ITER_ID,
     },
+    field_value::FieldReference,
     iters::{DestructuredFieldDataRef, FieldDataRef},
     match_set::MatchSetManager,
     stream_value::StreamValueId,
@@ -12,8 +13,7 @@ use super::{
 
 use crate::record_data::{
     field_data::{
-        field_value_flags::FieldValueFlags, FieldReference, FieldValueHeader,
-        RunLength,
+        field_value_flags::FieldValueFlags, FieldValueHeader, RunLength,
     },
     iters::{FieldIterator, Iter},
     typed::{TypedRange, TypedSlice, TypedValue, ValidTypedRange},
@@ -679,9 +679,10 @@ mod ref_iter_tests {
     };
     use crate::record_data::{
         field_data::{
-            field_value_flags, FieldData, FieldReference, FieldValueFormat,
-            FieldValueHeader, FieldValueKind, RunLength,
+            field_value_flags, FieldData, FieldDataRepr, FieldValueFormat,
+            FieldValueHeader, RunLength,
         },
+        field_value::FieldReference,
         iters::Iter,
         push_interface::PushInterface,
         typed::TypedSlice,
@@ -756,7 +757,7 @@ mod ref_iter_tests {
             } else {
                 fd_refs.headers.push(FieldValueHeader {
                     fmt: FieldValueFormat {
-                        kind: FieldValueKind::Reference,
+                        kind: FieldDataRepr::Reference,
                         flags: h.flags
                             & (field_value_flags::DELETED
                                 | field_value_flags::SHARED_VALUE

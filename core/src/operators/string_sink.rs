@@ -12,7 +12,7 @@ use crate::{
     operators::print::error_to_string,
     record_data::{
         field::Field,
-        field_data::{field_value_flags, FieldValueKind},
+        field_data::{field_value_flags, FieldDataRepr},
         iter_hall::IterId,
         iters::FieldIterator,
         push_interface::PushInterface,
@@ -137,7 +137,7 @@ pub fn build_tf_string_sink<'a>(
     ss: &'a OpStringSink,
     tf_state: &mut TransformState,
 ) -> TransformData<'a> {
-    tf_state.preferred_input_type = Some(FieldValueKind::BytesInline);
+    tf_state.preferred_input_type = Some(FieldDataRepr::BytesInline);
     TransformData::StringSink(TfStringSink {
         handle: &ss.handle.data,
         batch_iter: sess.field_mgr.claim_iter(tf_state.input_field),
@@ -463,7 +463,7 @@ pub fn handle_tf_string_sink(
                     pos += rl as usize;
                 }
             }
-            TypedSlice::Html(_) | TypedSlice::Object(_) => {
+            TypedSlice::Object(_) => {
                 todo!();
             }
         }

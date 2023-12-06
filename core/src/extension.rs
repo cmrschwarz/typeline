@@ -7,7 +7,7 @@ use crate::{
         utils::tyson::TysonParseError,
     },
     options::session_options::SessionOptions,
-    record_data::field_data::FieldValue,
+    record_data::field_value::FieldValue,
 };
 
 pub trait CustomTysonType: Send + Sync {

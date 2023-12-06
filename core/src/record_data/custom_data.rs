@@ -1,4 +1,4 @@
-use std::{any::Any, borrow::Cow};
+use std::{any::Any, borrow::Cow, cmp::Ordering, fmt::Debug};
 
 pub fn custom_data_reference_eq<T: CustomData + ?Sized>(
     lhs: &T,
@@ -13,12 +13,12 @@ pub fn custom_data_reference_eq<T: CustomData + ?Sized>(
     self_ptr == other_ptr
 }
 
-pub unsafe trait CustomData: Any + Send + Sync {
-    fn equals(&self, other: &dyn CustomData) -> bool {
-        custom_data_reference_eq(self, other)
-    }
+pub unsafe trait CustomData: Any + Send + Sync + Debug {
     fn clone_dyn(&self) -> CustomDataBox;
     fn type_name(&self) -> Cow<str>;
+    fn cmp(&self, _rhs: &dyn CustomData) -> Option<Ordering> {
+        None
+    }
 
     // SAFETY: if this returns true, subsequent calls to
     // `stringify` / `stringify_expecte_len` **must** only write valid utf8
@@ -98,11 +98,16 @@ impl Clone for CustomDataBox {
 }
 impl PartialEq for CustomDataBox {
     fn eq(&self, other: &Self) -> bool {
-        self.equals(&**other)
+        self.cmp(&**other) == Some(Ordering::Equal)
+    }
+}
+impl PartialOrd for CustomDataBox {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        self.cmp(&**other)
     }
 }
 
-pub trait CustomDataSafe: Any + Send + Sync + Clone {
+pub trait CustomDataSafe: Any + Send + Sync + Clone + Debug {
     const STRINGIFIES_VALID_UTF8: bool = true;
     const DEBUG_STRINGIFIES_VALID_UTF8: bool = true;
 

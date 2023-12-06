@@ -4,7 +4,8 @@ use crate::{
     job_session::JobData,
     options::argument::CliArgIdx,
     record_data::{
-        field_data::{field_value_flags, FieldDataType},
+        field_data::field_value_flags,
+        field_value::FieldValueKind,
         iter_hall::IterId,
         iters::FieldIterator,
         push_interface::PushInterface,
@@ -26,7 +27,7 @@ use super::{
 
 #[derive(Clone)]
 pub struct OpCast {
-    target_type: FieldDataType,
+    target_type: FieldValueKind,
     invalid_unicode_handler: Option<InvalidUnicodeHandler>,
     dont_convert_text_to_bytes: bool,
     convert_errors: bool,
@@ -64,12 +65,12 @@ pub fn parse_op_cast(
     }
     let arg_str = args.name("type").unwrap().as_str();
     let target_type = match arg_str {
-        "int" => FieldDataType::Integer,
-        "bytes" => FieldDataType::Bytes,
-        "str" => FieldDataType::Text,
-        "error" => FieldDataType::Error,
-        "null" => FieldDataType::Null,
-        "undefined" => FieldDataType::Undefined,
+        "int" => FieldValueKind::Integer,
+        "bytes" => FieldValueKind::Bytes,
+        "str" => FieldValueKind::Text,
+        "error" => FieldValueKind::Error,
+        "null" => FieldValueKind::Null,
+        "undefined" => FieldValueKind::Undefined,
         _ => unreachable!(),
     };
     // TODO: parse options
@@ -77,7 +78,7 @@ pub fn parse_op_cast(
 }
 
 pub fn create_op_cast(
-    target_type: FieldDataType,
+    target_type: FieldValueKind,
     invalid_unicode_handler: Option<InvalidUnicodeHandler>,
     dont_convert_text_to_bytes: bool,
     convert_errors: bool,
@@ -130,7 +131,7 @@ pub struct TfCast {
     #[allow(dead_code)]
     dont_convert_text_to_bytes: bool,
     convert_errors: bool,
-    target_type: FieldDataType,
+    target_type: FieldValueKind,
 }
 
 pub fn build_tf_cast<'a>(
@@ -140,7 +141,7 @@ pub fn build_tf_cast<'a>(
     tf_state: &mut TransformState,
 ) -> TransformData<'a> {
     tf_state.preferred_input_type =
-        Some(op.target_type.to_preferred_field_value_kind());
+        Some(op.target_type.to_preferred_data_repr());
     let replacement_fn: Box<dyn InvalidUnicodeHandlerFn> =
         match &op.invalid_unicode_handler {
             Some(h) => match h {
@@ -274,7 +275,7 @@ pub fn handle_tf_cast_stream_value_update(
                 );
                 sv_out.bytes_are_chunk = false;
                 sv_out.drop_previous_chunks = true;
-                sv_out.bytes_are_utf8 = tf.target_type == FieldDataType::Text;
+                sv_out.bytes_are_utf8 = tf.target_type == FieldValueKind::Text;
             } else {
                 sv_out.data = StreamValueData::Error(err.clone());
             }

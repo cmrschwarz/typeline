@@ -9,8 +9,8 @@ use crate::utils::universe::Universe;
 use super::{
     field::{FieldId, FieldManager},
     field_data::{
-        FieldData, FieldDataBuffer, FieldDataInternals, FieldValueFlags,
-        FieldValueHeader, FieldValueKind, RunLength,
+        FieldData, FieldDataBuffer, FieldDataInternals, FieldDataRepr,
+        FieldValueFlags, FieldValueHeader, RunLength,
     },
     iters::{FieldDataRef, FieldIterator, Iter},
     match_set::MatchSetManager,
@@ -530,7 +530,7 @@ impl IterHall {
 unsafe impl RawPushInterface for IterHall {
     unsafe fn push_variable_sized_type(
         &mut self,
-        kind: FieldValueKind,
+        kind: FieldDataRepr,
         flags: FieldValueFlags,
         data: &[u8],
         run_length: usize,
@@ -551,7 +551,7 @@ unsafe impl RawPushInterface for IterHall {
 
     unsafe fn push_fixed_size_type<T: PartialEq + Clone>(
         &mut self,
-        kind: FieldValueKind,
+        kind: FieldDataRepr,
         flags: FieldValueFlags,
         data: T,
         run_length: usize,
@@ -571,7 +571,7 @@ unsafe impl RawPushInterface for IterHall {
     }
     unsafe fn push_zst_unchecked(
         &mut self,
-        kind: FieldValueKind,
+        kind: FieldDataRepr,
         flags: FieldValueFlags,
         run_length: usize,
         try_header_rle: bool,
@@ -587,7 +587,7 @@ unsafe impl RawPushInterface for IterHall {
     }
     unsafe fn push_variable_sized_type_uninit(
         &mut self,
-        kind: FieldValueKind,
+        kind: FieldDataRepr,
         flags: FieldValueFlags,
         data_len: usize,
         run_length: usize,

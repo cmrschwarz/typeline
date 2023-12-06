@@ -103,6 +103,20 @@ impl PartialEq for OperatorApplicationError {
         self.message() == other.message() && self.op_id() == other.op_id()
     }
 }
+impl PartialOrd for OperatorApplicationError {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        if self.op_id() != other.op_id() {
+            return None;
+        }
+        // TODO: decide what is right here.
+        // the current thought process is: don't reorder errors,
+        // the order that they are generated in is the right one
+        if self.message() != other.message() {
+            return None;
+        }
+        return Some(std::cmp::Ordering::Equal);
+    }
+}
 
 pub fn io_error_to_op_error(
     op_id: OperatorId,

@@ -296,7 +296,7 @@ pub fn read_until_unescape2<
                     continue 'read_data;
                 };
                 if available[i] == delim {
-                    buf.extend_from_slice(&available[..=i]);
+                    buf.extend_from_slice(&available[..i]);
                     consumed += i + 1;
                     stream.consume(consumed);
                     return Ok(read + consumed);
