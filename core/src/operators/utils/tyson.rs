@@ -2,10 +2,11 @@ use std::io::BufRead;
 
 use arrayvec::{ArrayString, ArrayVec};
 use bstr::{ByteSlice, ByteVec};
+use indexmap::IndexMap;
 
 use crate::{
     extension::ExtensionRegistry,
-    record_data::field_value::FieldValue,
+    record_data::field_value::{Array, FieldValue, Object},
     utils::{
         io::{
             read_char, read_until_unescape2, ReadCharError,
@@ -94,6 +95,25 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
             },
         }
     }
+    fn read_char_eat_whitespace(&mut self) -> Result<char, TysonParseError> {
+        loop {
+            match self.read_char()? {
+                '\n' => {
+                    self.line += 1;
+                    self.col = 0;
+                }
+                ' ' | '\t' | '\r' => self.col += 1,
+                other => return Ok(other),
+            }
+        }
+    }
+    fn consume_char_eat_whitespace(
+        &mut self,
+    ) -> Result<char, TysonParseError> {
+        let res = self.read_char_eat_whitespace()?;
+        self.col += 1;
+        Ok(res)
+    }
     fn reject_further_input(&mut self) -> Result<(), TysonParseError> {
         match self.read_char() {
             Ok(c) => self.err(TysonParseErrorKind::TrailingCharacters(c)),
@@ -105,15 +125,24 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
         }
     }
 
-    fn parse_string_token_after_double_quote(
+    fn parse_string_token_after_quote(
         &mut self,
+        quote_kind: u8,
     ) -> Result<String, TysonParseError> {
         let mut buf = Vec::new();
-        let escape_sequences =
-            [b'"', b'\\', b'/', b'b', b'f', b'n', b'r', b'h', b't', b'u'];
+        debug_assert!([b'"', b'\''].contains(&quote_kind));
+        let escape_sequences = [
+            b'a', // audible bell
+            b'b', // backspace
+            b'f', // formfeed
+            b'v', // vertical tab
+            b'r', b'n', b't', // whitespace
+            b'\'', b'\"', b'\\', // self escapes
+        ];
         let replacements = [
-            b'"', b'\\', b'/', b'\x08', b'\x12', b'\n', b'\r', b'\x09',
-            b'\x11',
+            b'\x07', b'\x08', b'\x0C', b'\x0B', // (AB, BS, FF, VT)
+            b'\r', b'\n', b'\t', // whitespace
+            b'\'', b'\"', b'\\', // self escapes
         ];
         let mut curr_line_begin = 0;
         let parse_extended_unicode_escape = |s: ReplacementState| {
@@ -198,7 +227,7 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
         if let Err(e) = read_until_unescape2(
             &mut self.stream,
             &mut buf,
-            b'"',
+            quote_kind,
             b'\\',
             b'\n',
             escape_handler,
@@ -255,11 +284,12 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
             kind,
         }
     }
-    fn parse_string_after_double_quote(
+    fn parse_string_after_quote(
         &mut self,
+        quote_kind: u8,
     ) -> Result<FieldValue, TysonParseError> {
         Ok(FieldValue::String(
-            self.parse_string_token_after_double_quote()?,
+            self.parse_string_token_after_quote(quote_kind)?,
         ))
     }
     fn parse_number(
@@ -268,34 +298,81 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
     ) -> Result<FieldValue, TysonParseError> {
         todo!()
     }
+    fn parse_array_after_bracket(
+        &mut self,
+    ) -> Result<FieldValue, TysonParseError> {
+        // PERF: todo: maybe optimize for specific types
+        let mut arr = Vec::new();
+        loop {
+            let value = match self.parse_value() {
+                Ok(v) => v,
+                Err(TysonParseError::InvalidSequence {
+                    kind: TysonParseErrorKind::StrayToken(']'),
+                    ..
+                }) => return Ok(FieldValue::Array(Array::Mixed(arr.into()))),
+                Err(e) => return Err(e),
+            };
+            arr.push(value);
+            let c = self.read_char_eat_whitespace()?;
+            if c == ']' {
+                return Ok(FieldValue::Array(Array::Mixed(arr.into())));
+            }
+            if c != ',' {
+                return self.err(TysonParseErrorKind::StrayToken(c));
+            }
+        }
+    }
     fn parse_object_after_brace(
         &mut self,
     ) -> Result<FieldValue, TysonParseError> {
-        todo!()
+        let mut map = IndexMap::new();
+        let mut c = self.consume_char_eat_whitespace()?;
+        loop {
+            if c == '}' {
+                return Ok(FieldValue::Object(Object::KeysStored(Box::new(
+                    map,
+                ))));
+            }
+            if c != '"' && c == '\'' {
+                self.col -= 1;
+                return self.err(TysonParseErrorKind::StrayToken(c));
+            }
+            let key = self.parse_string_token_after_quote(c as u8)?;
+            c = self.consume_char_eat_whitespace()?;
+            if c != ':' {
+                self.col -= 1;
+                return self.err(TysonParseErrorKind::StrayToken(c));
+            }
+            let value = self.parse_value()?;
+            map.insert(key.into(), value);
+            c = self.consume_char_eat_whitespace()?;
+            if c == ',' {
+                c = self.consume_char_eat_whitespace()?;
+                continue;
+            }
+            if c != '}' {
+                self.col -= 1;
+                return self.err(TysonParseErrorKind::StrayToken(c));
+            }
+        }
     }
     fn parse_type_after_parenthesis(
         &mut self,
     ) -> Result<FieldValue, TysonParseError> {
-        todo!()
+        todo!();
     }
     fn parse_value(&mut self) -> Result<FieldValue, TysonParseError> {
-        loop {
-            let c = self.read_char()?;
-            match c {
-                '{' => return self.parse_object_after_brace(),
-                '0'..='9' | '+' | '-' | '.' => return self.parse_number(c),
-                '"' => return self.parse_string_after_double_quote(),
-                '(' => return self.parse_type_after_parenthesis(),
-                '\n' => {
-                    self.col = 0;
-                    self.line += 1;
-                }
-                other => {
-                    if !other.is_whitespace() {
-                        return self.err(TysonParseErrorKind::StrayToken(c));
-                    }
-                    self.col += 1;
-                }
+        let c = self.consume_char_eat_whitespace()?;
+        match c {
+            '{' => self.parse_object_after_brace(),
+            '0'..='9' | '+' | '-' | '.' => self.parse_number(c),
+            '"' => self.parse_string_after_quote(b'"'),
+            '\'' => self.parse_string_after_quote(b'\"'),
+            '(' => self.parse_type_after_parenthesis(),
+            '[' => self.parse_array_after_bracket(),
+            other => {
+                self.col -= 1;
+                self.err(TysonParseErrorKind::StrayToken(other))
             }
         }
     }
@@ -358,6 +435,11 @@ mod test {
     #[test]
     fn string() {
         assert_eq!(parse(r#""foo""#), Ok(FieldValue::String("foo".into())));
+    }
+
+    #[test]
+    fn single_quoted_string() {
+        assert_eq!(parse("'foo'"), Ok(FieldValue::String("foo".into())));
     }
 
     #[test]

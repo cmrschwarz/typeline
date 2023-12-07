@@ -463,6 +463,9 @@ pub fn handle_tf_string_sink(
                     pos += rl as usize;
                 }
             }
+            TypedSlice::Array(_) => {
+                todo!();
+            }
             TypedSlice::Object(_) => {
                 todo!();
             }

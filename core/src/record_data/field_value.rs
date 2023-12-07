@@ -21,6 +21,8 @@ pub enum FieldValueKind {
     Bytes,
     Text,
     Object,
+    Array,
+    Reference,
     Custom,
 }
 
@@ -80,6 +82,22 @@ impl FieldValueKind {
             FieldValueKind::Text => FieldDataRepr::BytesInline,
             FieldValueKind::Object => FieldDataRepr::Object,
             FieldValueKind::Custom => FieldDataRepr::Custom,
+            FieldValueKind::Array => FieldDataRepr::Array,
+            FieldValueKind::Reference => FieldDataRepr::Reference,
+        }
+    }
+    pub fn to_guaranteed_data_repr(self) -> FieldDataRepr {
+        match self {
+            FieldValueKind::Undefined => FieldDataRepr::Undefined,
+            FieldValueKind::Null => FieldDataRepr::Null,
+            FieldValueKind::Integer => FieldDataRepr::Integer,
+            FieldValueKind::Error => FieldDataRepr::Error,
+            FieldValueKind::Bytes => FieldDataRepr::BytesBuffer,
+            FieldValueKind::Text => FieldDataRepr::BytesBuffer,
+            FieldValueKind::Object => FieldDataRepr::Object,
+            FieldValueKind::Custom => FieldDataRepr::Custom,
+            FieldValueKind::Array => FieldDataRepr::Array,
+            FieldValueKind::Reference => FieldDataRepr::Reference,
         }
     }
     pub fn to_str(self) -> &'static str {
@@ -92,6 +110,8 @@ impl FieldValueKind {
             FieldValueKind::Bytes => "bytes",
             FieldValueKind::Custom => "custom",
             FieldValueKind::Object => "object",
+            FieldValueKind::Array => "array",
+            FieldValueKind::Reference => "reference",
         }
     }
 }
@@ -111,6 +131,23 @@ impl PartialEq for FieldValue {
             Self::Custom(l) => matches!(other, Self::Custom(r) if r == l),
             Self::Null => other == &Self::Null,
             Self::Undefined => other == &Self::Undefined,
+        }
+    }
+}
+
+impl FieldValue {
+    pub fn kind(&self) -> FieldValueKind {
+        match self {
+            FieldValue::Null => FieldValueKind::Null,
+            FieldValue::Undefined => FieldValueKind::Undefined,
+            FieldValue::Int(_) => FieldValueKind::Integer,
+            FieldValue::Bytes(_) => FieldValueKind::Bytes,
+            FieldValue::String(_) => FieldValueKind::Text,
+            FieldValue::Error(_) => FieldValueKind::Error,
+            FieldValue::Array(_) => FieldValueKind::Array,
+            FieldValue::Object(_) => FieldValueKind::Object,
+            FieldValue::FieldReference(_) => FieldValueKind::Reference,
+            FieldValue::Custom(_) => FieldValueKind::Custom,
         }
     }
 }

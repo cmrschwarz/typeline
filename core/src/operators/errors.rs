@@ -1,4 +1,4 @@
-use std::borrow::Cow;
+use std::{borrow::Cow, cmp::Ordering};
 
 use thiserror::Error;
 
@@ -104,7 +104,7 @@ impl PartialEq for OperatorApplicationError {
     }
 }
 impl PartialOrd for OperatorApplicationError {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         if self.op_id() != other.op_id() {
             return None;
         }
@@ -114,7 +114,7 @@ impl PartialOrd for OperatorApplicationError {
         if self.message() != other.message() {
             return None;
         }
-        return Some(std::cmp::Ordering::Equal);
+        Some(Ordering::Equal)
     }
 }
 

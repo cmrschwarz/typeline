@@ -548,6 +548,9 @@ pub fn handle_tf_join(
                 TypedSlice::Object(_) => {
                     todo!();
                 }
+                TypedSlice::Array(_) => {
+                    todo!();
+                }
             }
             let fc = range.base.field_count;
             join.group_len += fc;

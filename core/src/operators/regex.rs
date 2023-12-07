@@ -1007,7 +1007,8 @@ pub fn handle_tf_regex(
             TypedSlice::Null(_)
             | TypedSlice::Undefined(_)
             | TypedSlice::Error(_)
-            | TypedSlice::Object(_) => {
+            | TypedSlice::Object(_)
+            | TypedSlice::Array(_) => {
                 rbs.field_pos_input += range.base.field_count;
                 rbs.field_pos_output += range.base.field_count;
                 for inserter in

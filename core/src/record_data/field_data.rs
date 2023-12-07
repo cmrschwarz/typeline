@@ -7,7 +7,7 @@ use std::{
 
 use super::{
     custom_data::CustomDataBox,
-    field_value::{FieldReference, Null, Object, Undefined},
+    field_value::{Array, FieldReference, Null, Object, Undefined},
     match_set::MatchSetManager,
     ref_iter::{
         AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter,
@@ -49,6 +49,7 @@ pub enum FieldDataRepr {
     BytesBuffer,
     BytesFile,
     Object,
+    Array,
     Custom,
     // TODO (maybe): CustomDynamicLength, CustomDynamicLengthAligned
     // (store some subtype index at the start of the actual data)
@@ -166,7 +167,7 @@ impl FieldDataRepr {
         match self {
             Undefined | Null | Integer | Reference | StreamValueId
             | BytesInline => false,
-            Error | BytesBuffer | BytesFile | Object | Custom => true,
+            Error | BytesBuffer | BytesFile | Object | Custom | Array => true,
         }
     }
     #[inline(always)]
@@ -225,6 +226,7 @@ impl FieldDataRepr {
             FieldDataRepr::BytesBuffer => size_of::<Vec<u8>>(),
             FieldDataRepr::BytesFile => size_of::<BytesBufferFile>(),
             FieldDataRepr::Object => size_of::<Object>(),
+            FieldDataRepr::Array => size_of::<Array>(),
             FieldDataRepr::Custom => size_of::<CustomDataBox>(),
             // should not be used for size calculations
             // but is used for example in is_zst
@@ -255,6 +257,7 @@ impl FieldDataRepr {
             FieldDataRepr::BytesBuffer => "bytes",
             FieldDataRepr::BytesFile => "bytes",
             FieldDataRepr::Object => "object",
+            FieldDataRepr::Array => "array",
             FieldDataRepr::Custom => "custom",
         }
     }
@@ -609,7 +612,8 @@ impl FieldData {
                     | TypedSlice::Reference(_)
                     | TypedSlice::Error(_)
                     | TypedSlice::Custom(_)
-                    | TypedSlice::Object(_) => unreachable!(),
+                    | TypedSlice::Object(_)
+                    | TypedSlice::Array(_) => unreachable!(),
                 }
             }
         }
@@ -701,6 +705,7 @@ unsafe fn append_data(
             }
             TypedSlice::Error(v) => extend_with_clones(target_applicator, v),
             TypedSlice::Object(v) => extend_with_clones(target_applicator, v),
+            TypedSlice::Array(v) => extend_with_clones(target_applicator, v),
             TypedSlice::Custom(v) => {
                 extend_with_custom_clones(target_applicator, v)
             }

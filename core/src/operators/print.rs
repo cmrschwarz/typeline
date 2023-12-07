@@ -275,6 +275,9 @@ pub fn handle_tf_print_raw(
                     }
                 }
             }
+            TypedSlice::Array(_) => {
+                todo!();
+            }
             TypedSlice::Object(_) => {
                 todo!();
             }

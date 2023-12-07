@@ -1149,6 +1149,9 @@ pub fn setup_key_output_state(
             TypedSlice::Object(_) => {
                 todo!();
             }
+            TypedSlice::Array(_) => {
+                todo!();
+            }
         }
         handled_fields += range.base.field_count;
     }
@@ -1798,7 +1801,8 @@ fn write_fmt_key(
             }
             TypedSlice::Undefined(_)
             | TypedSlice::Error(_)
-            | TypedSlice::Object(_) => {
+            | TypedSlice::Object(_)
+            | TypedSlice::Array(_) => {
                 // just to increase output index
                 iter_output_targets(
                     fmt,

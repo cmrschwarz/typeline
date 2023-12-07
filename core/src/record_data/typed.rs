@@ -6,7 +6,7 @@ use super::{
         field_value_flags, FieldDataRepr, FieldValueFlags, FieldValueFormat,
         FieldValueHeader, FieldValueType, RunLength,
     },
-    field_value::{FieldReference, Null, Object, Undefined},
+    field_value::{Array, FieldReference, Null, Object, Undefined},
     iters::FieldDataRef,
     stream_value::StreamValueId,
 };
@@ -23,6 +23,7 @@ pub enum TypedValue<'a> {
     BytesInline(&'a [u8]),
     TextInline(&'a str),
     BytesBuffer(&'a Vec<u8>),
+    Array(&'a Array),
     Object(&'a Object),
     Custom(&'a CustomDataBox),
 }
@@ -65,6 +66,9 @@ impl<'a> TypedValue<'a> {
                 FieldDataRepr::Object => {
                     TypedValue::Object(to_ref(fdr, data_begin))
                 }
+                FieldDataRepr::Array => {
+                    TypedValue::Array(to_ref(fdr, data_begin))
+                }
                 FieldDataRepr::Custom => {
                     TypedValue::Custom(to_ref(fdr, data_begin))
                 }
@@ -97,6 +101,7 @@ impl<'a> TypedValue<'a> {
             TypedValue::Object(v) => {
                 TypedSlice::Object(std::slice::from_ref(v))
             }
+            TypedValue::Array(v) => TypedSlice::Array(std::slice::from_ref(v)),
             TypedValue::Custom(v) => {
                 TypedSlice::Custom(std::slice::from_ref(v))
             }
@@ -139,6 +144,7 @@ pub enum TypedSlice<'a> {
     TextInline(&'a str),
     BytesBuffer(&'a [Vec<u8>]),
     Object(&'a [Object]),
+    Array(&'a [Array]),
     Custom(&'a [CustomDataBox]),
 }
 
@@ -213,6 +219,9 @@ impl<'a> TypedSlice<'a> {
                 FieldDataRepr::Object => {
                     TypedSlice::Object(to_slice(fdr, data_begin, data_end))
                 }
+                FieldDataRepr::Array => {
+                    TypedSlice::Array(to_slice(fdr, data_begin, data_end))
+                }
                 FieldDataRepr::Custom => {
                     TypedSlice::Custom(to_slice(fdr, data_begin, data_end))
                 }
@@ -239,6 +248,7 @@ impl<'a> TypedSlice<'a> {
                 TypedSlice::TextInline(v) => v.as_bytes(),
                 TypedSlice::BytesBuffer(v) => slice_as_bytes(v),
                 TypedSlice::Object(v) => slice_as_bytes(v),
+                TypedSlice::Array(v) => slice_as_bytes(v),
                 TypedSlice::Custom(v) => slice_as_bytes(v),
             }
         }
@@ -255,6 +265,7 @@ impl<'a> TypedSlice<'a> {
             TypedSlice::TextInline(_) => FieldDataRepr::BytesInline,
             TypedSlice::BytesBuffer(_) => FieldDataRepr::BytesBuffer,
             TypedSlice::Object(_) => FieldDataRepr::Object,
+            TypedSlice::Array(_) => FieldDataRepr::Array,
             TypedSlice::Custom(_) => FieldDataRepr::Custom,
         }
     }
@@ -270,6 +281,7 @@ impl<'a> TypedSlice<'a> {
             TypedSlice::TextInline(v) => v.len(),
             TypedSlice::BytesBuffer(v) => v.len(),
             TypedSlice::Object(v) => v.len(),
+            TypedSlice::Array(v) => v.len(),
             TypedSlice::Custom(v) => v.len(),
         }
     }
