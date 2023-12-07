@@ -154,8 +154,8 @@ impl PartialEq for FieldValue {
                 matches!(other, Self::FieldReference(r) if r == l)
             }
             Self::Custom(l) => matches!(other, Self::Custom(r) if r == l),
-            Self::Null => other == &Self::Null,
-            Self::Undefined => other == &Self::Undefined,
+            Self::Null => matches!(other, Self::Null),
+            Self::Undefined => matches!(other, Self::Undefined),
         }
     }
 }

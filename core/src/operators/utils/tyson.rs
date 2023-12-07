@@ -82,10 +82,15 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
             extension_registry: exts,
         }
     }
-    fn peek_byte(&mut self) -> Result<u8, TysonParseError> {
-        Ok(self.stream.fill_buf().map_err(TysonParseError::Io)?[0])
+    fn peek_byte(&mut self) -> Result<Option<u8>, TysonParseError> {
+        Ok(self
+            .stream
+            .fill_buf()
+            .map_err(TysonParseError::Io)?
+            .get(0)
+            .copied())
     }
-    fn consume_byte_char(&mut self) {
+    fn void_byte_char(&mut self) {
         self.stream.consume(1);
         self.col += 1;
     }
@@ -316,6 +321,51 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
         let mut first_byte = true;
         loop {
             match c {
+                b'i' | b'I' => {
+                    if !first_byte {
+                        if buf.len() != 1 || sign.is_none() {
+                            break;
+                        }
+                        self.void_byte_char();
+                    }
+                    if self.read_char()?.to_ascii_lowercase() != 'n'
+                        || self.read_char()?.to_ascii_lowercase() != 'f'
+                    {
+                        return Err(TysonParseError::InvalidSequence {
+                            line: self.line,
+                            col: self.col - 1,
+                            kind: TysonParseErrorKind::InvalidNumber,
+                        });
+                    }
+                    self.col += 2;
+                    if let Some(idx) = sign {
+                        debug_assert!(idx == 0);
+                        if buf.as_bytes()[idx] == b'-' {
+                            return Ok(FieldValue::Float(f64::NEG_INFINITY));
+                        }
+                        debug_assert!(buf.as_bytes()[idx] == b'+');
+                    }
+                    return Ok(FieldValue::Float(f64::INFINITY));
+                }
+                b'n' | b'N' => {
+                    if !first_byte {
+                        if buf.len() != 1 || sign.is_none() {
+                            break;
+                        }
+                        self.void_byte_char();
+                    }
+                    if self.read_char()?.to_ascii_lowercase() != 'a'
+                        || self.read_char()?.to_ascii_lowercase() != 'n'
+                    {
+                        return Err(TysonParseError::InvalidSequence {
+                            line: self.line,
+                            col: self.col - 1,
+                            kind: TysonParseErrorKind::InvalidNumber,
+                        });
+                    }
+                    self.col += 2;
+                    return Ok(FieldValue::Float(f64::NAN));
+                }
                 b'+' | b'-' => {
                     if buf.is_empty() {
                         sign = Some(0);
@@ -336,7 +386,7 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
                 b'0'..=b'9' => buf.push(c as char),
                 b'_' => (),
                 b'e' | b'E' => {
-                    if floating_point.is_none() || exponent.is_some() {
+                    if exponent.is_some() {
                         break;
                     }
                     exponent = Some(buf.len());
@@ -347,12 +397,16 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
             if first_byte {
                 first_byte = false;
             } else {
-                self.consume_byte_char();
+                self.void_byte_char();
             }
-            c = self.peek_byte()?;
+            if let Some(b) = self.peek_byte()? {
+                c = b;
+            } else {
+                break;
+            }
         }
         let exponent_digit_count = buf.len() - exponent.unwrap_or(buf.len());
-        let digit_count = buf.len()
+        let mut digit_count = buf.len()
             - [sign, floating_point, exponent, exponent_sign]
                 .iter()
                 .map(|o| o.map(|_| 1).unwrap_or(0))
@@ -366,7 +420,16 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
                 kind: TysonParseErrorKind::InvalidNumber,
             });
         }
-        if floating_point.is_none() {
+        for &c in buf[sign.map(|_| 1).unwrap_or(0)
+            ..floating_point.or(exponent).unwrap_or(buf.len())]
+            .as_bytes()
+        {
+            if c != b'0' {
+                break;
+            }
+            digit_count -= 1;
+        }
+        if floating_point.is_none() && exponent.is_none() {
             if digit_count <= I64_MAX_DECIMAL_DIGITS + 1 {
                 if let Ok(v) = buf.parse::<i64>() {
                     return Ok(FieldValue::Int(v));
@@ -376,8 +439,14 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
                 BigInt::parse_bytes(buf.as_bytes(), 10).unwrap(),
             ));
         }
-
-        if digit_count <= f64::DIGITS as usize {}
+        if digit_count <= f64::DIGITS as usize
+            && exponent_digit_count <= f64::MAX_10_EXP as usize
+        {
+            if let Ok(v) = buf.parse::<f64>() {
+                return Ok(FieldValue::Float(v));
+            };
+        }
+        //TODO: rational
         return Err(TysonParseError::InvalidSequence {
             line: self.line,
             col: self.col - buf.len(),
@@ -456,6 +525,39 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
             '\'' => self.parse_string_after_quote(b'\''),
             '(' => self.parse_type_after_parenthesis(),
             '[' => self.parse_array_after_bracket(),
+            'i' | 'I' | 'N' => self.parse_number(c as u8), // inf / NaN
+            'n' => {
+                let b = self.peek_byte()?;
+                if b == Some(b'a') {
+                    return self.parse_number(c as u8);
+                }
+                for expected in "ull".chars() {
+                    let c = self.read_char()?;
+                    if c != expected {
+                        return Err(TysonParseError::InvalidSequence {
+                            line: self.line,
+                            col: self.col,
+                            kind: TysonParseErrorKind::StrayToken(c),
+                        });
+                    }
+                    self.col += 1;
+                }
+                return Ok(FieldValue::Null);
+            }
+            'u' => {
+                for expected in "ndefined".chars() {
+                    let c = self.read_char()?;
+                    if c != expected {
+                        return Err(TysonParseError::InvalidSequence {
+                            line: self.line,
+                            col: self.col,
+                            kind: TysonParseErrorKind::StrayToken(c),
+                        });
+                    }
+                    self.col += 1;
+                }
+                return Ok(FieldValue::Undefined);
+            }
             other => {
                 self.col -= 1;
                 self.err(TysonParseErrorKind::StrayToken(other))
@@ -485,6 +587,9 @@ pub fn parse_tyson_str(
 
 #[cfg(test)]
 mod test {
+    use num_bigint::BigInt;
+    use rstest::rstest;
+
     use crate::{
         extension::ExtensionRegistry,
         record_data::field_value::{Array, FieldValue},
@@ -550,6 +655,57 @@ mod test {
                 ]
                 .into()
             )))
+        );
+    }
+    #[test]
+    fn null() {
+        assert_eq!(parse("null"), Ok(FieldValue::Null));
+    }
+    #[test]
+    fn undefined() {
+        assert_eq!(parse("undefined"), Ok(FieldValue::Undefined));
+    }
+    #[rstest]
+    #[case("1", 1)]
+    #[case("-1", -1)]
+    #[case("+1", 1)]
+    #[case("-0", 0)]
+    #[case("+00000000000000000000000", 0)]
+    #[case(&i64::MAX.to_string(), i64::MAX)]
+    #[case(&i64::MIN.to_string(), i64::MIN)]
+    fn int(#[case] v: &str, #[case] res: i64) {
+        assert_eq!(parse(v), Ok(FieldValue::Int(res)));
+    }
+    #[rstest]
+    #[case("9223372036854775808")]
+    #[case("-9223372036854775809")]
+    fn big_int(#[case] v: &str) {
+        assert_eq!(
+            parse(v),
+            Ok(FieldValue::BigInt(
+                BigInt::parse_bytes(v.as_bytes(), 10).unwrap()
+            ))
+        );
+    }
+    #[test]
+    fn inf() {
+        assert_eq!(parse(r#"Inf"#), Ok(FieldValue::Float(f64::INFINITY)));
+        assert_eq!(parse(r#"+inf"#), Ok(FieldValue::Float(f64::INFINITY)));
+        assert_eq!(parse(r#"-inf"#), Ok(FieldValue::Float(f64::NEG_INFINITY)));
+    }
+    #[test]
+    fn nan() {
+        assert!(
+            matches!(parse(r#"nan"#), Ok(FieldValue::Float(v)) if v.is_nan())
+        );
+        assert!(
+            matches!(parse(r#"NAn"#), Ok(FieldValue::Float(v)) if v.is_nan())
+        );
+        assert!(
+            matches!(parse(r#"+nAn"#), Ok(FieldValue::Float(v)) if v.is_nan())
+        );
+        assert!(
+            matches!(parse(r#"-NaN"#), Ok(FieldValue::Float(v)) if v.is_nan())
         );
     }
 }
