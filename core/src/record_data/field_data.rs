@@ -21,6 +21,8 @@ use crate::{
 
 use self::field_value_flags::{BYTES_ARE_UTF8, SHARED_VALUE};
 pub use field_value_flags::FieldValueFlags;
+use num_bigint::BigInt;
+use num_rational::BigRational;
 
 use super::{
     iters::{FieldIterator, Iter},
@@ -41,7 +43,10 @@ pub type RunLength = u32;
 pub enum FieldDataRepr {
     Undefined,
     Null,
-    Integer, // TODO: bigint, float, decimal, ...
+    Int,
+    BigInt,
+    Float,
+    Rational,
     StreamValueId,
     Reference,
     Error,
@@ -135,7 +140,7 @@ impl FieldValueType for Null {
     const KIND: FieldDataRepr = FieldDataRepr::Undefined;
 }
 impl FieldValueType for i64 {
-    const KIND: FieldDataRepr = FieldDataRepr::Integer;
+    const KIND: FieldDataRepr = FieldDataRepr::Int;
 }
 impl FieldValueType for StreamValueId {
     const KIND: FieldDataRepr = FieldDataRepr::StreamValueId;
@@ -165,9 +170,10 @@ impl FieldDataRepr {
     pub fn needs_drop(self) -> bool {
         use FieldDataRepr::*;
         match self {
-            Undefined | Null | Integer | Reference | StreamValueId
+            Undefined | Null | Int | Float | Reference | StreamValueId
             | BytesInline => false,
-            Error | BytesBuffer | BytesFile | Object | Custom | Array => true,
+            BigInt | Rational | Error | BytesBuffer | BytesFile | Object
+            | Array | Custom => true,
         }
     }
     #[inline(always)]
@@ -219,7 +225,10 @@ impl FieldDataRepr {
         match self {
             FieldDataRepr::Undefined => 0,
             FieldDataRepr::Null => 0,
-            FieldDataRepr::Integer => size_of::<i64>(),
+            FieldDataRepr::Int => size_of::<i64>(),
+            FieldDataRepr::BigInt => size_of::<BigInt>(),
+            FieldDataRepr::Float => size_of::<f64>(),
+            FieldDataRepr::Rational => size_of::<BigRational>(),
             FieldDataRepr::StreamValueId => size_of::<StreamValueId>(),
             FieldDataRepr::Reference => size_of::<FieldReference>(),
             FieldDataRepr::Error => size_of::<OperatorApplicationError>(),
@@ -249,7 +258,10 @@ impl FieldDataRepr {
         match self {
             FieldDataRepr::Undefined => "undefined",
             FieldDataRepr::Null => "null",
-            FieldDataRepr::Integer => "int",
+            FieldDataRepr::Int => "int",
+            FieldDataRepr::BigInt => "integer",
+            FieldDataRepr::Float => "float",
+            FieldDataRepr::Rational => "rational",
             FieldDataRepr::StreamValueId => "stream_value_id",
             FieldDataRepr::Reference => "field_reference",
             FieldDataRepr::Error => "error",
@@ -607,7 +619,10 @@ impl FieldData {
                     // we might reconsider this for Object / Custom though
                     TypedSlice::Undefined(_)
                     | TypedSlice::Null(_)
-                    | TypedSlice::Integer(_)
+                    | TypedSlice::Int(_)
+                    | TypedSlice::BigInt(_)
+                    | TypedSlice::Float(_)
+                    | TypedSlice::Rational(_)
                     | TypedSlice::StreamValueId(_)
                     | TypedSlice::Reference(_)
                     | TypedSlice::Error(_)
@@ -675,7 +690,7 @@ unsafe fn extend_with_custom_clones(
 }
 
 #[inline(always)]
-unsafe fn extend_raw<T: Sized>(
+unsafe fn extend_raw<T: Sized + Copy>(
     target_applicator: &mut impl FnMut(&mut dyn Fn(&mut FieldDataBuffer)),
     src: &[T],
 ) {
@@ -693,7 +708,12 @@ unsafe fn append_data(
     unsafe {
         match ts {
             TypedSlice::Null(_) | TypedSlice::Undefined(_) => (),
-            TypedSlice::Integer(v) => extend_raw(target_applicator, v),
+            TypedSlice::Int(v) => extend_raw(target_applicator, v),
+            TypedSlice::BigInt(v) => extend_with_clones(target_applicator, v),
+            TypedSlice::Float(v) => extend_raw(target_applicator, v),
+            TypedSlice::Rational(v) => {
+                extend_with_clones(target_applicator, v)
+            }
             TypedSlice::StreamValueId(v) => extend_raw(target_applicator, v),
             TypedSlice::Reference(v) => extend_raw(target_applicator, v),
             TypedSlice::BytesInline(v) => extend_raw(target_applicator, v),

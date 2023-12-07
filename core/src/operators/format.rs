@@ -749,7 +749,7 @@ pub fn lookup_target_widths(
     let mut handled_fields = 0;
     while let Some(range) = iter.typed_range_fwd(usize::MAX, 0) {
         match range.data {
-            TypedSlice::Integer(ints) => {
+            TypedSlice::Int(ints) => {
                 for (v, rl) in TypedSliceIter::from_range(&range, ints) {
                     let width = if *v < 0 { 0 } else { *v as usize };
                     succ_func(fmt, &mut output_index, width, rl as usize);
@@ -929,7 +929,7 @@ pub fn setup_key_output_state(
                     }
                 }
             }
-            TypedSlice::Integer(ints) => {
+            TypedSlice::Int(ints) => {
                 for (v, rl) in TypedSliceIter::from_range(&range.base, ints) {
                     let digits = i64_digits(k.add_plus_sign, *v);
                     iter_output_states(fmt, &mut output_index, rl, |o| {
@@ -1145,6 +1145,11 @@ pub fn setup_key_output_state(
                         });
                     },
                 );
+            }
+            TypedSlice::BigInt(_)
+            | TypedSlice::Float(_)
+            | TypedSlice::Rational(_) => {
+                todo!();
             }
             TypedSlice::Object(_) => {
                 todo!();
@@ -1668,7 +1673,7 @@ fn write_fmt_key(
                     );
                 }
             }
-            TypedSlice::Integer(ints) => {
+            TypedSlice::Int(ints) => {
                 for (v, rl) in TypedSliceIter::from_range(&range.base, ints) {
                     iter_output_targets(
                         fmt,
@@ -1798,6 +1803,11 @@ fn write_fmt_key(
                         }
                     }
                 }
+            }
+            TypedSlice::BigInt(_)
+            | TypedSlice::Float(_)
+            | TypedSlice::Rational(_) => {
+                todo!();
             }
             TypedSlice::Undefined(_)
             | TypedSlice::Error(_)

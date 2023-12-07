@@ -649,7 +649,7 @@ pub trait PushInterface: RawPushInterface {
     ) {
         unsafe {
             self.push_fixed_size_type(
-                FieldDataRepr::Integer,
+                FieldDataRepr::Int,
                 field_value_flags::DEFAULT,
                 data.to_owned(),
                 run_length,
@@ -1104,7 +1104,7 @@ pub struct IntegerInserter<'a> {
     raw: RawFixedSizedTypeInserter<'a>,
 }
 unsafe impl<'a> FixedSizeTypeInserter<'a> for IntegerInserter<'a> {
-    const KIND: FieldDataRepr = FieldDataRepr::Integer;
+    const KIND: FieldDataRepr = FieldDataRepr::Int;
     const FLAGS: FieldValueFlags = field_value_flags::DEFAULT;
     type ValueType = i64;
     fn get_raw(&mut self) -> &mut RawFixedSizedTypeInserter<'a> {
@@ -1453,7 +1453,7 @@ impl<'a> VaryingTypeInserter<'a> {
         }
     }
     pub fn push_int(&mut self, v: i64, rl: usize) {
-        unsafe { self.push_fixed_sized_type(FieldDataRepr::Integer, v, rl) }
+        unsafe { self.push_fixed_sized_type(FieldDataRepr::Int, v, rl) }
     }
     pub fn push_field_reference(&mut self, v: FieldReference, rl: usize) {
         unsafe { self.push_fixed_sized_type(FieldDataRepr::Reference, v, rl) }

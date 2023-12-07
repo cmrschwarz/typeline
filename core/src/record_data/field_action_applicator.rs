@@ -744,7 +744,7 @@ mod test {
         let mut iter = fd.iter();
         let mut results = Vec::new();
         while let Some(range) = iter.typed_range_fwd(usize::MAX, 0) {
-            if let TypedSlice::Integer(ints) = range.data {
+            if let TypedSlice::Int(ints) = range.data {
                 results.extend(
                     TypedSliceIter::from_range(&range, ints)
                         .map(|(i, rl)| (*i, rl)),

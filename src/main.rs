@@ -1,12 +1,11 @@
 use scr::{
     build_extension_registry,
     cli::{collect_env_args, parse_cli},
-    context::Context,
     options::session_options::SessionOptions,
     record_data::record_set::RecordSet,
     scr_error::ScrError,
 };
-use std::{process::ExitCode, sync::Arc};
+use std::process::ExitCode;
 
 fn run() -> Result<(), String> {
     let args = collect_env_args().map_err(|e| {
@@ -14,7 +13,7 @@ fn run() -> Result<(), String> {
     })?;
     let extensions = build_extension_registry();
 
-    let sess = match parse_cli(args, true, extensions)
+    let sess = match parse_cli(args, cfg!(feature = "repl"), extensions)
         .and_then(|sess_opts| sess_opts.build_session())
     {
         Ok(sess) => sess,
@@ -33,7 +32,14 @@ fn run() -> Result<(), String> {
     };
 
     if sess.repl_requested() {
-        Context::new(Arc::new(sess)).run_repl();
+        #[cfg(feature = "repl")]
+        {
+            use scr::context::Context;
+            use std::sync::Arc;
+            Context::new(Arc::new(sess)).run_repl();
+        }
+        #[cfg(not(feature = "repl"))]
+        unreachable!()
     } else {
         let job = sess.construct_main_chain_job(RecordSet::default());
         sess.run(job);

@@ -3,11 +3,14 @@ use std::io::BufRead;
 use arrayvec::{ArrayString, ArrayVec};
 use bstr::{ByteSlice, ByteVec};
 use indexmap::IndexMap;
+use num_bigint::BigInt;
+use smallstr::SmallString;
 
 use crate::{
     extension::ExtensionRegistry,
     record_data::field_value::{Array, FieldValue, Object},
     utils::{
+        int_string_conversions::I64_MAX_DECIMAL_DIGITS,
         io::{
             read_char, read_until_unescape2, ReadCharError,
             ReadUntilUnescapeError, ReplacementError, ReplacementState,
@@ -24,8 +27,8 @@ pub enum TysonParseErrorKind {
     InvalidExtendedUnicodeEscape(ArrayString<6>),
     ExtendedUnicodeEscapeTooLong,
     NonEscapbleCharacter(u8),
+    InvalidNumber,
     StrayToken(char),
-    UnescapedBackslash,
     TrailingCharacters(char),
     UnexpectedEof,
 }
@@ -74,10 +77,17 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
     fn new(stream: S, exts: &'a ExtensionRegistry) -> Self {
         Self {
             stream,
-            line: 0,
-            col: 0,
+            line: 1,
+            col: 1,
             extension_registry: exts,
         }
+    }
+    fn peek_byte(&mut self) -> Result<u8, TysonParseError> {
+        Ok(self.stream.fill_buf().map_err(TysonParseError::Io)?[0])
+    }
+    fn consume_byte_char(&mut self) {
+        self.stream.consume(1);
+        self.col += 1;
     }
     fn read_char(&mut self) -> Result<char, TysonParseError> {
         match read_char(&mut self.stream) {
@@ -100,7 +110,7 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
             match self.read_char()? {
                 '\n' => {
                     self.line += 1;
-                    self.col = 0;
+                    self.col = 1;
                 }
                 ' ' | '\t' | '\r' => self.col += 1,
                 other => return Ok(other),
@@ -115,7 +125,7 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
         Ok(res)
     }
     fn reject_further_input(&mut self) -> Result<(), TysonParseError> {
-        match self.read_char() {
+        match self.read_char_eat_whitespace() {
             Ok(c) => self.err(TysonParseErrorKind::TrailingCharacters(c)),
             Err(TysonParseError::InvalidSequence {
                 kind: TysonParseErrorKind::UnexpectedEof,
@@ -200,7 +210,7 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
                     ));
                 }
                 self.line += 1;
-                self.col = 0;
+                self.col = 1;
                 curr_line_begin = s.buffer().len();
                 return Ok(1);
             }
@@ -294,9 +304,84 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
     }
     fn parse_number(
         &mut self,
-        _first: char,
+        first: u8,
     ) -> Result<FieldValue, TysonParseError> {
-        todo!()
+        let mut buf = SmallString::<[u8; I64_MAX_DECIMAL_DIGITS]>::new();
+        let mut sign = None;
+        let mut floating_point = None;
+        let mut exponent = None;
+        let mut exponent_sign = None;
+        let mut c = first;
+        let mut first_byte = true;
+        loop {
+            match c {
+                b'+' | b'-' => {
+                    if buf.is_empty() {
+                        sign = Some(0);
+                    } else if exponent == Some(buf.len() - 1) {
+                        exponent_sign = Some(buf.len());
+                    } else {
+                        break;
+                    }
+                    buf.push(c as char);
+                }
+                b'.' => {
+                    if floating_point.is_some() || exponent.is_some() {
+                        break;
+                    }
+                    floating_point = Some(buf.len());
+                    buf.push('.');
+                }
+                b'0'..=b'9' => buf.push(c as char),
+                b'_' => (),
+                b'e' | b'E' => {
+                    if floating_point.is_none() || exponent.is_some() {
+                        break;
+                    }
+                    exponent = Some(buf.len());
+                    buf.push('e');
+                }
+                _ => break,
+            }
+            if first_byte {
+                first_byte = false;
+            } else {
+                self.consume_byte_char();
+            }
+            c = self.peek_byte()?;
+        }
+        let exponent_digit_count = buf.len() - exponent.unwrap_or(buf.len());
+        let digit_count = buf.len()
+            - [sign, floating_point, exponent, exponent_sign]
+                .iter()
+                .map(|o| o.map(|_| 1).unwrap_or(0))
+                .sum::<usize>()
+            - exponent_digit_count;
+
+        if digit_count == 0 {
+            return Err(TysonParseError::InvalidSequence {
+                line: self.line,
+                col: self.col - buf.len(),
+                kind: TysonParseErrorKind::InvalidNumber,
+            });
+        }
+        if floating_point.is_none() {
+            if digit_count <= I64_MAX_DECIMAL_DIGITS + 1 {
+                if let Ok(v) = buf.parse::<i64>() {
+                    return Ok(FieldValue::Int(v));
+                }
+            }
+            return Ok(FieldValue::BigInt(
+                BigInt::parse_bytes(buf.as_bytes(), 10).unwrap(),
+            ));
+        }
+
+        if digit_count <= f64::DIGITS as usize {}
+        return Err(TysonParseError::InvalidSequence {
+            line: self.line,
+            col: self.col - buf.len(),
+            kind: TysonParseErrorKind::InvalidNumber,
+        });
     }
     fn parse_array_after_bracket(
         &mut self,
@@ -365,9 +450,9 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
         let c = self.consume_char_eat_whitespace()?;
         match c {
             '{' => self.parse_object_after_brace(),
-            '0'..='9' | '+' | '-' | '.' => self.parse_number(c),
+            '0'..='9' | '+' | '-' | '.' => self.parse_number(c as u8),
             '"' => self.parse_string_after_quote(b'"'),
-            '\'' => self.parse_string_after_quote(b'\"'),
+            '\'' => self.parse_string_after_quote(b'\''),
             '(' => self.parse_type_after_parenthesis(),
             '[' => self.parse_array_after_bracket(),
             other => {
@@ -400,7 +485,8 @@ pub fn parse_tyson_str(
 #[cfg(test)]
 mod test {
     use crate::{
-        extension::ExtensionRegistry, record_data::field_value::FieldValue,
+        extension::ExtensionRegistry,
+        record_data::field_value::{Array, FieldValue},
     };
 
     use super::{parse_tyson_str, TysonParseError, TysonParseErrorKind};
@@ -414,8 +500,8 @@ mod test {
         assert_eq!(
             parse(""),
             Err(TysonParseError::InvalidSequence {
-                line: 0,
-                col: 0,
+                line: 1,
+                col: 1,
                 kind: TysonParseErrorKind::UnexpectedEof,
             })
         );
@@ -425,8 +511,8 @@ mod test {
         assert_eq!(
             parse("\n\n "),
             Err(TysonParseError::InvalidSequence {
-                line: 2,
-                col: 1,
+                line: 3,
+                col: 2,
                 kind: TysonParseErrorKind::UnexpectedEof,
             })
         );
@@ -447,6 +533,22 @@ mod test {
         assert_eq!(
             parse(r#""foo\u{1F4A9}bar""#),
             Ok(FieldValue::String("foo\u{1F4A9}bar".into()))
+        );
+    }
+
+    #[test]
+    fn array() {
+        assert_eq!(
+            parse(r#" [1,2,3,"4"] "#),
+            Ok(FieldValue::Array(Array::Mixed(
+                vec![
+                    FieldValue::Int(1),
+                    FieldValue::Int(2),
+                    FieldValue::Int(3),
+                    FieldValue::String("4".into())
+                ]
+                .into()
+            )))
         );
     }
 }

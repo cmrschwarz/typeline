@@ -323,7 +323,7 @@ pub fn handle_tf_string_sink(
                     push_bytes(op_id, field_pos, &mut out, v, rl as usize);
                 }
             }
-            TypedSlice::Integer(ints) => {
+            TypedSlice::Int(ints) => {
                 for (v, rl) in TypedSliceIter::from_range(&range.base, ints) {
                     let v = i64_to_str(false, *v);
                     push_str(&mut out, v.as_str(), rl as usize);
@@ -462,6 +462,11 @@ pub fn handle_tf_string_sink(
                     }
                     pos += rl as usize;
                 }
+            }
+            TypedSlice::BigInt(_)
+            | TypedSlice::Float(_)
+            | TypedSlice::Rational(_) => {
+                todo!();
             }
             TypedSlice::Array(_) => {
                 todo!();

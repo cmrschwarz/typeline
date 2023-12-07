@@ -195,7 +195,7 @@ pub fn handle_tf_print_raw(
                     *handled_field_count += 1;
                 }
             }
-            TypedSlice::Integer(ints) => {
+            TypedSlice::Int(ints) => {
                 for (v, rl) in TypedSliceIter::from_range(&range.base, ints) {
                     let v = i64_to_str(false, *v);
                     for _ in 0..rl {
@@ -274,6 +274,11 @@ pub fn handle_tf_print_raw(
                         break 'iter;
                     }
                 }
+            }
+            TypedSlice::BigInt(_)
+            | TypedSlice::Float(_)
+            | TypedSlice::Rational(_) => {
+                todo!();
             }
             TypedSlice::Array(_) => {
                 todo!();

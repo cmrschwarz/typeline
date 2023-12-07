@@ -13,16 +13,17 @@ extern crate encoding_rs;
 extern crate lazy_static;
 extern crate memchr;
 extern crate num_traits;
-extern crate rand;
-extern crate reedline;
 extern crate regex;
 extern crate regex_syntax;
-extern crate shlex;
 extern crate smallstr;
 extern crate smallvec;
 extern crate thin_vec;
 extern crate thiserror;
-extern crate uuid;
+
+#[cfg(feature = "repl")]
+extern crate reedline;
+#[cfg(feature = "repl")]
+extern crate shlex;
 
 #[macro_use]
 pub mod utils;

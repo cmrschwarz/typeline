@@ -17,10 +17,11 @@ name = "scr_core"
 # markup5ever_rcdom = "0.2.0"
 # num = "0.4.0"
 # url = "2.3.1"
+# uuid = { version = "1.4.0", features = ["v4", "fast-rng"] }
 
 # REPL:
-reedline = { version = "0.22.0", features = ["bashisms"] }
-shlex = "1.1.0"
+reedline = { version = "0.22.0", features = ["bashisms"], default-features = false, optional = true}
+shlex = { version = "1.1.0", default-features = false, optional = true}
 
 # utils
 bstr = "1.5.0"
@@ -32,7 +33,7 @@ thiserror = "1.0.38"
 
 # small size / layout optimizations
 arrayvec = "0.7.3"
-bitvec = "1.0"
+bitvec = { version = "1.0", features = ["std"], default-features = false }
 nonmax = "0.5.3"
 smallstr = { version = "0.3.0", features = ["union"] }
 smallvec = { version = "1.10.0", features = ["union", "write"] }
@@ -41,10 +42,8 @@ indexmap = "1.9.3"
 
 # features for core operators
 encoding_rs = { version = "0.8.32", features = ["fast-legacy-encode"] }
-rand = "0.8.5"
 regex = "1.7.1"
 regex-syntax = "0.7.2"
-uuid = { version = "1.4.0", features = ["v4", "fast-rng"] }
 num-bigint = "0.4.1"
 num-rational="0.4.1"
 
@@ -52,5 +51,11 @@ num-rational="0.4.1"
 rstest = "0.18.1"
 
 [features]
+default = []
+
+repl = ["dep:shlex", "dep:reedline"]
+
+full = ["repl"]
+
 unstable = []
 debug_logging = []

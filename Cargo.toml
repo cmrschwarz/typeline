@@ -18,7 +18,7 @@ test = false
 
 
 [dependencies]
-scr_core = {path = "./core"}
+scr_core = { path = "./core", default-features = false }
 scr_ext_sqlite = {path="./ext_sqlite", optional = true}
 
 [profile.release-with-debug]
@@ -33,7 +33,12 @@ lto = "thin"
 panic = "unwind"
 
 [features]
-default = ["sqlite"]
-unstable = []
-debug_logging = []
+repl = ["scr_core/repl"]
+
 sqlite = ["dep:scr_ext_sqlite"]
+
+default = []
+full = ["scr_core/full", "repl", "sqlite"]
+
+unstable = ["scr_core/unstable"]
+debug_logging = ["scr_core/debug_logging"]

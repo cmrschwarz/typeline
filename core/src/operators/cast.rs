@@ -65,7 +65,7 @@ pub fn parse_op_cast(
     }
     let arg_str = args.name("type").unwrap().as_str();
     let target_type = match arg_str {
-        "int" => FieldValueKind::Integer,
+        "int" => FieldValueKind::Int,
         "bytes" => FieldValueKind::Bytes,
         "str" => FieldValueKind::Text,
         "error" => FieldValueKind::Error,

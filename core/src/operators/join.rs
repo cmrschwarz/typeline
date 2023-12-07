@@ -416,7 +416,7 @@ pub fn handle_tf_join(
                         push_bytes(join, sv_mgr, v, rl as usize);
                     }
                 }
-                TypedSlice::Integer(ints) => {
+                TypedSlice::Int(ints) => {
                     for (v, rl) in
                         TypedSliceIter::from_range(&range.base, ints)
                     {
@@ -544,6 +544,11 @@ pub fn handle_tf_join(
                         }
                         sv_mgr = &mut sess.sv_mgr;
                     }
+                }
+                TypedSlice::BigInt(_)
+                | TypedSlice::Float(_)
+                | TypedSlice::Rational(_) => {
+                    todo!();
                 }
                 TypedSlice::Object(_) => {
                     todo!();

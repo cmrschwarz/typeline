@@ -4,6 +4,8 @@ use std::sync::Arc;
 pub use scr_core::*;
 
 use extension::ExtensionRegistry;
+
+#[cfg(feature = "sqlite")]
 use scr_ext_sqlite::SqliteExtension;
 
 pub fn build_extension_registry() -> Arc<ExtensionRegistry> {

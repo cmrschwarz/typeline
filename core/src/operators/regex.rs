@@ -7,8 +7,6 @@ use smallstr::SmallString;
 use smallvec::SmallVec;
 use std::{borrow::Cow, cell::RefMut, collections::HashMap};
 
-use std::num::NonZeroUsize;
-
 use crate::{
     job_session::JobData,
     liveness_analysis::OpOutputIdx,
@@ -221,6 +219,7 @@ pub fn preparse_replace_empty_capture_group<'a>(
     let mut re = Cow::Borrowed(regex_str);
     let mut parse_res = parser.clone().parse(&re);
     let mut opt_empty_group_replacement_str = None;
+    let mut dummy_group_id = 10001;
     if let Err(regex_syntax::Error::Parse(pe)) = parse_res {
         if let regex_syntax::ast::ErrorKind::GroupNameEmpty = pe.kind() {
             let mut owned = re.into_owned();
@@ -230,9 +229,9 @@ pub fn preparse_replace_empty_capture_group<'a>(
             loop {
                 empty_group_replacement_str.clear();
                 empty_group_replacement_str.push('_');
-                empty_group_replacement_str.push_str(&usize_to_str(
-                    rand::random::<NonZeroUsize>().get(),
-                ));
+                empty_group_replacement_str
+                    .push_str(&usize_to_str(dummy_group_id));
+                dummy_group_id += 1;
                 owned.replace_range(
                     span.start.offset..span.end.offset,
                     &empty_group_replacement_str,
@@ -895,7 +894,7 @@ pub fn handle_tf_regex(
                     }
                 }
             }
-            TypedSlice::Integer(ints) => {
+            TypedSlice::Int(ints) => {
                 if let Some(tr) = &mut text_regex {
                     for (v, rl) in
                         TypedSliceIter::from_range(&range.base, ints)
@@ -1002,6 +1001,11 @@ pub fn handle_tf_regex(
                         break 'batch;
                     }
                 }
+            }
+            TypedSlice::BigInt(_)
+            | TypedSlice::Float(_)
+            | TypedSlice::Rational(_) => {
+                todo!();
             }
             TypedSlice::Reference(_) => unreachable!(),
             TypedSlice::Null(_)

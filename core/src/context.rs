@@ -5,23 +5,24 @@ use std::{
     thread::JoinHandle,
 };
 
-use bstr::ByteSlice;
-use reedline::{
-    default_emacs_keybindings, DefaultPrompt, DefaultPromptSegment,
-    EditCommand, Emacs, FileBackedHistory, History, HistoryItem, KeyCode,
-    KeyModifiers, Reedline, ReedlineEvent, Signal,
-};
-use shlex::Shlex;
 use smallvec::SmallVec;
+
+#[cfg(feature = "repl")]
+use {
+    reedline::{
+        default_emacs_keybindings, DefaultPrompt, DefaultPromptSegment,
+        EditCommand, Emacs, FileBackedHistory, History, HistoryItem, KeyCode,
+        KeyModifiers, Reedline, ReedlineEvent, Signal,
+    },
+    shlex::Shlex,
+};
 
 use crate::{
     chain::{Chain, ChainId},
-    cli::parse_cli,
     extension::ExtensionRegistry,
     job_session::{JobData, JobSession},
     operators::operator::{OperatorBase, OperatorData, OperatorId},
     record_data::{record_buffer::RecordBuffer, record_set::RecordSet},
-    scr_error::ScrError,
     utils::{
         identity_hasher::BuildIdentityHasher,
         string_store::{StringStore, StringStoreEntry},
@@ -218,7 +219,10 @@ impl Context {
     pub fn run_main_chain(&mut self, input_data: RecordSet) {
         self.run_job(self.session.construct_main_chain_job(input_data))
     }
+    #[cfg(feature = "repl")]
     pub fn run_repl(&mut self) {
+        use crate::{cli::parse_cli, scr_error::ScrError};
+        use bstr::ByteSlice;
         if !self.session.has_no_command() {
             self.run_main_chain(RecordSet::default());
         }

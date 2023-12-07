@@ -1,4 +1,6 @@
 use indexmap::IndexMap;
+use num_bigint::BigInt;
+use num_rational::BigRational;
 
 use crate::{
     operators::errors::OperatorApplicationError,
@@ -16,7 +18,10 @@ use super::{
 pub enum FieldValueKind {
     Undefined,
     Null,
-    Integer,
+    Int,
+    BigInt,
+    Float,
+    Rational,
     Error,
     Bytes,
     Text,
@@ -31,6 +36,12 @@ pub enum FieldValue {
     Null,
     Undefined,
     Int(i64),
+    // this is the only field that's allowed to be 32 bytes large
+    // this still keeps FieldValue at 32 bytes due to Rust's
+    // cool enum layout optimizations
+    BigInt(BigInt),
+    Float(f64),
+    Rational(Box<BigRational>),
     Bytes(Vec<u8>),
     String(String),
     Error(OperatorApplicationError),
@@ -76,7 +87,10 @@ impl FieldValueKind {
         match self {
             FieldValueKind::Undefined => FieldDataRepr::Undefined,
             FieldValueKind::Null => FieldDataRepr::Null,
-            FieldValueKind::Integer => FieldDataRepr::Integer,
+            FieldValueKind::Int => FieldDataRepr::Int,
+            FieldValueKind::BigInt => FieldDataRepr::BigInt,
+            FieldValueKind::Float => FieldDataRepr::Float,
+            FieldValueKind::Rational => FieldDataRepr::Rational,
             FieldValueKind::Error => FieldDataRepr::Error,
             FieldValueKind::Bytes => FieldDataRepr::BytesInline,
             FieldValueKind::Text => FieldDataRepr::BytesInline,
@@ -90,7 +104,10 @@ impl FieldValueKind {
         match self {
             FieldValueKind::Undefined => FieldDataRepr::Undefined,
             FieldValueKind::Null => FieldDataRepr::Null,
-            FieldValueKind::Integer => FieldDataRepr::Integer,
+            FieldValueKind::Int => FieldDataRepr::Int,
+            FieldValueKind::BigInt => FieldDataRepr::BigInt,
+            FieldValueKind::Float => FieldDataRepr::Float,
+            FieldValueKind::Rational => FieldDataRepr::Rational,
             FieldValueKind::Error => FieldDataRepr::Error,
             FieldValueKind::Bytes => FieldDataRepr::BytesBuffer,
             FieldValueKind::Text => FieldDataRepr::BytesBuffer,
@@ -104,7 +121,10 @@ impl FieldValueKind {
         match self {
             FieldValueKind::Undefined => "undefined",
             FieldValueKind::Null => "null",
-            FieldValueKind::Integer => "int",
+            FieldValueKind::Int => "int",
+            FieldValueKind::BigInt => "integer",
+            FieldValueKind::Float => "float",
+            FieldValueKind::Rational => "rational",
             FieldValueKind::Error => "error",
             FieldValueKind::Text => "str",
             FieldValueKind::Bytes => "bytes",
@@ -120,6 +140,11 @@ impl PartialEq for FieldValue {
     fn eq(&self, other: &Self) -> bool {
         match self {
             Self::Int(l) => matches!(other, Self::Int(r) if r == l),
+            Self::BigInt(l) => matches!(other, Self::BigInt(r) if r == l),
+            Self::Float(l) => matches!(other, Self::Float(r) if r == l),
+            Self::Rational(l) => {
+                matches!(other, Self::Rational(r) if r == l)
+            }
             Self::Bytes(l) => matches!(other, Self::Bytes(r) if r == l),
             Self::String(l) => matches!(other, Self::String(r) if r == l),
             Self::Error(l) => matches!(other, Self::Error(r) if r == l),
@@ -140,7 +165,10 @@ impl FieldValue {
         match self {
             FieldValue::Null => FieldValueKind::Null,
             FieldValue::Undefined => FieldValueKind::Undefined,
-            FieldValue::Int(_) => FieldValueKind::Integer,
+            FieldValue::Int(_) => FieldValueKind::Int,
+            FieldValue::BigInt(_) => FieldValueKind::BigInt,
+            FieldValue::Float(_) => FieldValueKind::Float,
+            FieldValue::Rational(_) => FieldValueKind::Rational,
             FieldValue::Bytes(_) => FieldValueKind::Bytes,
             FieldValue::String(_) => FieldValueKind::Text,
             FieldValue::Error(_) => FieldValueKind::Error,

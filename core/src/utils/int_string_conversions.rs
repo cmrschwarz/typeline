@@ -97,6 +97,7 @@ pub const USIZE_MAX_DECIMAL_DIGITS: usize = usize::MAX.ilog10() as usize + 1;
 
 pub const I64_MAX_DECIMAL_DIGITS: usize = i64::MAX.ilog10() as usize + 1;
 pub const U64_MAX_DECIMAL_DIGITS: usize = u64::MAX.ilog10() as usize + 1;
+
 pub fn usize_to_str(val: usize) -> ArrayString<USIZE_MAX_DECIMAL_DIGITS> {
     let mut res = ArrayString::new();
     res.write_fmt(format_args!("{val}")).unwrap();

@@ -482,6 +482,11 @@ pub fn parse_cli_retain_args(
     allow_repl: bool,
     extensions: Arc<ExtensionRegistry>,
 ) -> Result<SessionOptions, ScrError> {
+    assert!(
+        !allow_repl || cfg!(feature = "repl"),
+        "the 'repl' feature of this crate is disabled"
+    );
+
     if args.is_empty() {
         return Err(MissingArgumentsError.into());
     }
