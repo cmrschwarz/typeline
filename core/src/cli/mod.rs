@@ -199,7 +199,7 @@ fn try_parse_as_context_opt(
     const MAIN_HELP_PAGE: &str = include_str!("help_sections/main.txt");
     if ["--help", "-h", "help", "h"].contains(&arg.argname) {
         let text = if let Some(v) = arg.value {
-            let section = v.to_str_lossy();
+            let section = String::from_utf8_lossy(v);
             match section.trim().to_lowercase().as_ref() {
                 "cast" => include_str!("help_sections/cast.txt"),
                 "format" | "f" => include_str!("help_sections/format.txt"),
@@ -382,7 +382,7 @@ fn try_parse_as_chain_opt(
                         bm
                     } else {
                         return Err(CliArgumentError{
-                            message: Cow::Owned(format!("unknown line buffering mode '{}', options are yes, no, stdin, tty, and stdin-if-tty", val.to_str_lossy())),
+                            message: Cow::Owned(format!("unknown line buffering mode '{}', options are yes, no, stdin, tty, and stdin-if-tty", String::from_utf8_lossy(val))),
                             cli_arg_idx: arg.cli_arg.idx
                         }.into());
                     }

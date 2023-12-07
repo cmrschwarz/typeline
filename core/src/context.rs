@@ -222,7 +222,6 @@ impl Context {
     #[cfg(feature = "repl")]
     pub fn run_repl(&mut self) {
         use crate::{cli::parse_cli, scr_error::ScrError};
-        use bstr::ByteSlice;
         if !self.session.has_no_command() {
             self.run_main_chain(RecordSet::default());
         }
@@ -230,7 +229,7 @@ impl Context {
         if let Some(args) = &self.session.cli_args {
             history
                 .save(HistoryItem::from_command_line(
-                    &args.iter().map(|arg| arg.to_str_lossy()).fold(
+                    &args.iter().map(|arg| String::from_utf8_lossy(arg)).fold(
                         String::new(),
                         |mut s, a| {
                             s.push(' ');

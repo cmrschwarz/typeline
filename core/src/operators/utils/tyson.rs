@@ -1,7 +1,7 @@
 use std::io::BufRead;
 
 use arrayvec::{ArrayString, ArrayVec};
-use bstr::{ByteSlice, ByteVec};
+use bstr::ByteSlice;
 use indexmap::IndexMap;
 use num_bigint::BigInt;
 use smallstr::SmallString;
@@ -189,7 +189,8 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
                     )
                 })?;
             buf.truncate(buf_offset);
-            buf.push_char(esc_value);
+            buf.extend([0u8; 4].iter().take(esc_value.len_utf8()));
+            esc_value.encode_utf8(&mut buf[buf_offset..]);
             Ok(esc_end + 1)
         };
         let parse_unicode_escape = |_s: ReplacementState| todo!();

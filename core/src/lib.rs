@@ -12,7 +12,6 @@ extern crate bitvec;
 extern crate encoding_rs;
 extern crate lazy_static;
 extern crate memchr;
-extern crate num_traits;
 extern crate regex;
 extern crate regex_syntax;
 extern crate smallstr;
