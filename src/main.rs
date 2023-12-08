@@ -13,12 +13,14 @@ fn run() -> Result<(), String> {
     })?;
     let extensions = build_extension_registry();
 
-    let sess = match parse_cli(args, cfg!(feature = "repl"), extensions)
+    let repl = cfg!(feature = "repl");
+
+    let sess = match parse_cli(args, repl, extensions)
         .and_then(|sess_opts| sess_opts.build_session())
     {
         Ok(sess) => sess,
         Err(e) => match e.err {
-            ScrError::MissingArgumentsError(_) => {
+            ScrError::MissingArgumentsError(_) if repl => {
                 let mut sess_opts = SessionOptions::default();
                 sess_opts.repl.set(true, None).unwrap();
                 sess_opts.build_session().unwrap()
