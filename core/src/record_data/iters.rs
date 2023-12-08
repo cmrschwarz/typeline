@@ -433,7 +433,7 @@ impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for Iter<'a, R> {
             (self.header_rl_total - self.header_rl_offset) as usize;
         if curr_header_rem == 0
             || (self.header_fmt.flags & flag_mask) != flags
-            || (kinds.contains(&self.header_fmt.kind) == invert_kinds_check)
+            || (kinds.contains(&self.header_fmt.repr) == invert_kinds_check)
         {
             return 0;
         }
@@ -453,7 +453,7 @@ impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for Iter<'a, R> {
             stride_rem -= self.next_header() as usize;
             if !self.is_next_valid()
                 || (self.header_fmt.flags & flag_mask) != flags
-                || (kinds.contains(&self.header_fmt.kind)
+                || (kinds.contains(&self.header_fmt.repr)
                     == invert_kinds_check)
                 || !data_check(&self.header_fmt, unsafe {
                     self.fdr.data().as_ptr().add(self.get_next_field_data())
@@ -481,7 +481,7 @@ impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for Iter<'a, R> {
         if n == 0
             || self.prev_field() == 0
             || (self.header_fmt.flags & flag_mask) != flags
-            || (kinds.contains(&self.header_fmt.kind) == invert_kinds_check)
+            || (kinds.contains(&self.header_fmt.repr) == invert_kinds_check)
         {
             return 0;
         }
@@ -505,7 +505,7 @@ impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for Iter<'a, R> {
             stride_rem -= self.prev_header() as usize;
             if !self.is_prev_valid()
                 || (self.header_fmt.flags & flag_mask) != flags
-                || (kinds.contains(&self.header_fmt.kind)
+                || (kinds.contains(&self.header_fmt.repr)
                     == invert_kinds_check)
                 || !data_check(&self.header_fmt, unsafe {
                     self.fdr.data().as_ptr().add(self.get_next_field_data())
@@ -582,7 +582,7 @@ impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for Iter<'a, R> {
         let header_start = self.header_idx;
         let field_count = self.next_n_fields_with_fmt(
             limit,
-            [fmt.kind],
+            [fmt.repr],
             false,
             flag_mask,
             fmt.flags & flag_mask,
@@ -639,7 +639,7 @@ impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for Iter<'a, R> {
         let header_end = self.header_idx + 1;
         let field_count = self.prev_n_fields_with_fmt(
             limit - 1,
-            [fmt.kind],
+            [fmt.repr],
             false,
             flag_mask,
             fmt.flags & flag_mask,

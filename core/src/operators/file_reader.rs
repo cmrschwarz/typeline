@@ -254,7 +254,7 @@ fn start_streaming_file(
                 unsafe {
                     output_field.iter_hall.raw().add_header_for_single_value(
                         FieldValueFormat {
-                            kind: FieldDataRepr::BytesInline,
+                            repr: FieldDataRepr::BytesInline,
                             flags: field_value_flags::SHARED_VALUE,
                             size: size as FieldValueSize,
                         },

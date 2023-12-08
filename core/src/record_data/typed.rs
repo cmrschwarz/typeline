@@ -41,7 +41,7 @@ impl<'a> TypedValue<'a> {
         data_begin: usize,
     ) -> Self {
         unsafe {
-            match fmt.kind {
+            match fmt.repr {
                 FieldDataRepr::Null => TypedValue::Null(Null),
                 FieldDataRepr::Undefined => TypedValue::Undefined(Undefined),
                 FieldDataRepr::BytesInline => {
@@ -206,7 +206,7 @@ impl<'a> TypedSlice<'a> {
         field_count: usize,
     ) -> TypedSlice<'a> {
         unsafe {
-            match fmt.kind {
+            match fmt.repr {
                 FieldDataRepr::Undefined => {
                     TypedSlice::Undefined(to_zst_slice(field_count))
                 }
@@ -331,7 +331,7 @@ impl<'a> TypedSlice<'a> {
         &self,
         values: &[T],
     ) -> bool {
-        if T::KIND != self.kind() {
+        if T::REPR != self.kind() {
             return false;
         }
         values.len() == self.len()
@@ -344,18 +344,22 @@ impl<'a> TypedSlice<'a> {
         type DropFn = unsafe fn(*mut u8, usize);
         #[inline(always)]
         fn drop_fn_case<T: FieldValueType>() -> (FieldDataRepr, DropFn) {
-            (T::KIND, drop_slice::<T>)
+            (T::REPR, drop_slice::<T>)
         }
         let drop_fns = [
             drop_fn_case::<Undefined>(),
             drop_fn_case::<Null>(),
             drop_fn_case::<i64>(),
+            drop_fn_case::<f64>(),
+            drop_fn_case::<BigInt>(),
+            drop_fn_case::<BigRational>(),
             drop_fn_case::<StreamValueId>(),
             drop_fn_case::<FieldReference>(),
             drop_fn_case::<OperatorApplicationError>(),
             (FieldDataRepr::BytesInline, drop_slice::<u8>),
             drop_fn_case::<Vec<u8>>(),
             drop_fn_case::<Object>(),
+            drop_fn_case::<Array>(),
             drop_fn_case::<CustomDataBox>(),
         ];
 

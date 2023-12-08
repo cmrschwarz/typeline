@@ -208,7 +208,7 @@ impl<'a> RefIter<'a> {
         loop {
             let data_stride = self.data_iter.next_n_fields_with_fmt(
                 (field_rl as usize).min(limit),
-                [fmt.kind],
+                [fmt.repr],
                 false,
                 flag_mask,
                 fmt.flags,
@@ -408,6 +408,9 @@ impl<'a, I: FieldIterator<'a>> AutoDerefIter<'a, I> {
         ri_count + base_count
     }
     pub fn into_base_iter(self) -> I {
+        self.iter
+    }
+    pub fn clone_base(self) -> I {
         self.iter
     }
 }
@@ -757,7 +760,7 @@ mod ref_iter_tests {
             } else {
                 fd_refs.headers.push(FieldValueHeader {
                     fmt: FieldValueFormat {
-                        kind: FieldDataRepr::Reference,
+                        repr: FieldDataRepr::Reference,
                         flags: h.flags
                             & (field_value_flags::DELETED
                                 | field_value_flags::SHARED_VALUE

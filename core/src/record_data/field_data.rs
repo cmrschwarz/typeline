@@ -67,7 +67,7 @@ pub struct BytesBufferFile {
 
 #[derive(Clone, Copy, PartialEq)]
 pub struct FieldValueFormat {
-    pub kind: FieldDataRepr,
+    pub repr: FieldDataRepr,
     pub flags: FieldValueFlags,
     // this does NOT include potential padding before this
     // field in case it has to be aligned
@@ -130,38 +130,55 @@ pub mod field_value_flags {
 }
 
 // used to constrain generic functions that accept data for field values
-pub trait FieldValueType {
-    const KIND: FieldDataRepr;
+pub unsafe trait FieldValueType {
+    const REPR: FieldDataRepr;
+    const DST: bool = false;
+    const ZST: bool = false;
 }
-impl FieldValueType for Undefined {
-    const KIND: FieldDataRepr = FieldDataRepr::Null;
+unsafe impl FieldValueType for Undefined {
+    const REPR: FieldDataRepr = FieldDataRepr::Null;
+    const ZST: bool = true;
 }
-impl FieldValueType for Null {
-    const KIND: FieldDataRepr = FieldDataRepr::Undefined;
+unsafe impl FieldValueType for Null {
+    const REPR: FieldDataRepr = FieldDataRepr::Undefined;
+    const ZST: bool = true;
 }
-impl FieldValueType for i64 {
-    const KIND: FieldDataRepr = FieldDataRepr::Int;
+unsafe impl FieldValueType for i64 {
+    const REPR: FieldDataRepr = FieldDataRepr::Int;
 }
-impl FieldValueType for StreamValueId {
-    const KIND: FieldDataRepr = FieldDataRepr::StreamValueId;
+unsafe impl FieldValueType for StreamValueId {
+    const REPR: FieldDataRepr = FieldDataRepr::StreamValueId;
 }
-impl FieldValueType for FieldReference {
-    const KIND: FieldDataRepr = FieldDataRepr::Reference;
+unsafe impl FieldValueType for FieldReference {
+    const REPR: FieldDataRepr = FieldDataRepr::Reference;
 }
-impl FieldValueType for OperatorApplicationError {
-    const KIND: FieldDataRepr = FieldDataRepr::Error;
+unsafe impl FieldValueType for OperatorApplicationError {
+    const REPR: FieldDataRepr = FieldDataRepr::Error;
 }
-impl FieldValueType for [u8] {
-    const KIND: FieldDataRepr = FieldDataRepr::BytesInline;
+unsafe impl FieldValueType for [u8] {
+    const REPR: FieldDataRepr = FieldDataRepr::BytesInline;
+    const DST: bool = true;
 }
-impl FieldValueType for Vec<u8> {
-    const KIND: FieldDataRepr = FieldDataRepr::BytesBuffer;
+unsafe impl FieldValueType for Vec<u8> {
+    const REPR: FieldDataRepr = FieldDataRepr::BytesBuffer;
 }
-impl FieldValueType for Object {
-    const KIND: FieldDataRepr = FieldDataRepr::Object;
+unsafe impl FieldValueType for Object {
+    const REPR: FieldDataRepr = FieldDataRepr::Object;
 }
-impl FieldValueType for CustomDataBox {
-    const KIND: FieldDataRepr = FieldDataRepr::Custom;
+unsafe impl FieldValueType for Array {
+    const REPR: FieldDataRepr = FieldDataRepr::Array;
+}
+unsafe impl FieldValueType for BigInt {
+    const REPR: FieldDataRepr = FieldDataRepr::BigInt;
+}
+unsafe impl FieldValueType for f64 {
+    const REPR: FieldDataRepr = FieldDataRepr::Float;
+}
+unsafe impl FieldValueType for BigRational {
+    const REPR: FieldDataRepr = FieldDataRepr::Rational;
+}
+unsafe impl FieldValueType for CustomDataBox {
+    const REPR: FieldDataRepr = FieldDataRepr::Custom;
 }
 
 pub const INLINE_STR_MAX_LEN: usize = 8192;
@@ -284,7 +301,7 @@ impl Display for FieldDataRepr {
 impl Default for FieldValueFormat {
     fn default() -> Self {
         Self {
-            kind: FieldDataRepr::Null,
+            repr: FieldDataRepr::Null,
             flags: field_value_flags::DEFAULT,
             size: 0,
         }
@@ -515,7 +532,7 @@ impl FieldData {
             targets_applicator(&mut |fd| {
                 let first_header_idx = fd.headers.len();
                 fd.headers.extend_from_slice(tr.headers);
-                if tr.headers[0].kind.needs_alignment() {
+                if tr.headers[0].repr.needs_alignment() {
                     let align = unsafe { fd.pad_to_align() };
                     fd.headers[first_header_idx].set_leading_padding(align);
                 }
@@ -552,7 +569,7 @@ impl FieldData {
                 targets_applicator(&mut |fd| {
                     let first_header_idx = fd.headers.len();
                     fd.headers.extend_from_slice(tr.base.headers);
-                    if tr.base.headers[0].kind.needs_alignment() {
+                    if tr.base.headers[0].repr.needs_alignment() {
                         let align = unsafe { fd.pad_to_align() };
                         fd.headers[first_header_idx]
                             .set_leading_padding(align);
@@ -577,7 +594,7 @@ impl FieldData {
                                 // TODO: maybe do a little rle here?
                                 fd.headers.push(FieldValueHeader {
                                     fmt: FieldValueFormat {
-                                        kind: FieldDataRepr::BytesInline,
+                                        repr: FieldDataRepr::BytesInline,
                                         flags: SHARED_VALUE,
                                         size: v.len() as FieldValueSize,
                                     },
@@ -595,7 +612,7 @@ impl FieldData {
                                 // TODO: maybe do a little rle here?
                                 fd.headers.push(FieldValueHeader {
                                     fmt: FieldValueFormat {
-                                        kind: FieldDataRepr::BytesInline,
+                                        repr: FieldDataRepr::BytesInline,
                                         flags: SHARED_VALUE | BYTES_ARE_UTF8,
                                         size: v.len() as FieldValueSize,
                                     },

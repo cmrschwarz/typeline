@@ -1,12 +1,17 @@
 use bstr::ByteSlice;
+use num_bigint::BigInt;
+use num_rational::BigRational;
 use regex::Regex;
 use smallstr::SmallString;
 
 use crate::{
+    extension::ExtensionRegistry,
     job_session::JobData,
     options::argument::CliArgIdx,
     record_data::{
-        push_interface::PushInterface,
+        custom_data::CustomDataBox,
+        field_value::{Array, FieldValue, FieldValueKind, Object},
+        push_interface::{PushInterface, RawPushInterface},
         stream_value::{StreamValue, StreamValueData},
     },
 };
@@ -15,6 +20,7 @@ use super::{
     errors::{OperatorApplicationError, OperatorCreationError},
     operator::{DefaultOperatorName, OperatorBase, OperatorData},
     transform::{TransformData, TransformId, TransformState},
+    utils::tyson::{parse_tyson, TysonParseError},
 };
 
 #[derive(Clone)]
@@ -23,11 +29,17 @@ pub enum Literal {
     StreamBytes(Vec<u8>),
     String(String),
     StreamString(String),
+    Object(Object),
+    Array(Array),
     Int(i64),
+    BigInt(BigInt),
+    Float(f64),
+    Rational(BigRational),
     Null,
     Undefined,
     Error(String),
     StreamError(String),
+    Custom(CustomDataBox),
 }
 
 #[derive(Clone)]
@@ -45,7 +57,7 @@ pub struct TfLiteral<'a> {
 impl OpLiteral {
     pub fn default_op_name(&self) -> DefaultOperatorName {
         let mut res = SmallString::new();
-        match self.data {
+        match &self.data {
             Literal::Null => res.push_str("null"),
             Literal::Undefined => res.push_str("undefined"),
             Literal::String(_) => res.push_str("str"),
@@ -55,6 +67,12 @@ impl OpLiteral {
             Literal::Error(_) => res.push_str("error"),
             Literal::StreamError(_) => res.push_str("~error"),
             Literal::Int(_) => res.push_str("int"),
+            Literal::BigInt(_) => res.push_str("integer"),
+            Literal::Float(_) => res.push_str("float"),
+            Literal::Rational(_) => res.push_str("rational"),
+            Literal::Object(_) => res.push_str("object"),
+            Literal::Array(_) => res.push_str("array"),
+            Literal::Custom(v) => res.push_str(&v.type_name()),
         }
         res
     }
@@ -146,6 +164,39 @@ pub fn handle_tf_literal(
                 1,
                 true,
                 false,
+            ),
+            Literal::Object(o) => output_field.iter_hall.push_fixed_size_type(
+                o.clone(),
+                1,
+                true,
+                true,
+            ),
+            Literal::Array(v) => output_field.iter_hall.push_fixed_size_type(
+                v.clone(),
+                1,
+                true,
+                true,
+            ),
+            Literal::BigInt(v) => output_field.iter_hall.push_fixed_size_type(
+                v.clone(),
+                1,
+                true,
+                true,
+            ),
+            Literal::Float(v) => output_field.iter_hall.push_fixed_size_type(
+                v.clone(),
+                1,
+                true,
+                true,
+            ),
+            Literal::Rational(v) => output_field
+                .iter_hall
+                .push_fixed_size_type(v.clone(), 1, true, true),
+            Literal::Custom(v) => output_field.iter_hall.push_fixed_size_type(
+                v.clone(),
+                1,
+                true,
+                true,
             ),
         }
     }
@@ -265,7 +316,7 @@ pub fn parse_op_int(
             )
         })?;
     let parsed_value = str::parse::<i64>(value_str).map_err(|_| {
-        OperatorCreationError::new("failed to value as integer", arg_idx)
+        OperatorCreationError::new("failed to parse value as integer", arg_idx)
     })?;
     Ok(OperatorData::Literal(OpLiteral {
         data: Literal::Int(parsed_value),
@@ -295,9 +346,89 @@ pub fn parse_op_bytes(
         insert_count,
     }))
 }
+pub fn field_value_to_literal(v: FieldValue) -> Literal {
+    match v {
+        FieldValue::Null => Literal::Null,
+        FieldValue::Undefined => Literal::Undefined,
+        FieldValue::Int(v) => Literal::Int(v),
+        FieldValue::BigInt(v) => Literal::BigInt(v),
+        FieldValue::Float(v) => Literal::Float(v),
+        FieldValue::Rational(v) => Literal::Rational(*v),
+        FieldValue::Bytes(v) => Literal::Bytes(v),
+        FieldValue::String(v) => Literal::String(v),
+        FieldValue::Error(v) => Literal::Error(v.message().to_owned()),
+        FieldValue::Array(v) => Literal::Array(v),
+        FieldValue::Object(v) => Literal::Object(v),
+        FieldValue::Custom(v) => Literal::Custom(v),
+        FieldValue::FieldReference(_) => unreachable!(),
+    }
+}
+pub fn parse_op_tyson(
+    value: Option<&[u8]>,
+    insert_count: Option<usize>,
+    arg_idx: Option<CliArgIdx>,
+    affinity: FieldValueKind,
+    exts: &ExtensionRegistry,
+) -> Result<OperatorData, OperatorCreationError> {
+    let value = value.ok_or_else(|| {
+        OperatorCreationError::new_s(
+            format!("missing value for {}", affinity.to_str()),
+            arg_idx,
+        )
+    })?;
+    let value = parse_tyson(value, exts).map_err(|e| {
+        OperatorCreationError::new_s(
+            format!(
+                "failed to parse value as {}: {}",
+                affinity.to_str(),
+                match e {
+                    TysonParseError::Io(e) => e.to_string(),
+                    TysonParseError::InvalidSequence { kind, .. } =>
+                        kind.to_string(),
+                }
+            ),
+            arg_idx,
+        )
+    })?;
+    let lit = field_value_to_literal(value);
+    Ok(OperatorData::Literal(OpLiteral {
+        data: lit,
+        insert_count,
+    }))
+}
+
+pub fn parse_op_tyson_value(
+    value: Option<&[u8]>,
+    insert_count: Option<usize>,
+    arg_idx: Option<CliArgIdx>,
+    exts: &ExtensionRegistry,
+) -> Result<OperatorData, OperatorCreationError> {
+    let value = value
+        .ok_or_else(|| OperatorCreationError::new("missing value", arg_idx))?;
+    let value = parse_tyson(value, exts).map_err(|e| {
+        OperatorCreationError::new_s(
+            format!(
+                "failed to parse tyson value: {}",
+                match e {
+                    TysonParseError::Io(e) => e.to_string(),
+                    TysonParseError::InvalidSequence { kind, .. } =>
+                        kind.to_string(),
+                }
+            ),
+            arg_idx,
+        )
+    })?;
+    let lit = field_value_to_literal(value);
+    Ok(OperatorData::Literal(OpLiteral {
+        data: lit,
+        insert_count,
+    }))
+}
 
 lazy_static::lazy_static! {
-    static ref ARG_REGEX: Regex = Regex::new(r"^(?<type>int|~?bytes|~?str|~?error|null|success)(?<insert_count>[0-9]+)?$").unwrap();
+    static ref ARG_REGEX: Regex = Regex::new(
+        r"^(?<type>int|integer|float|rational|~?bytes|~?str|~?error|null|undefined|object|array|v|tyson)(?<insert_count>[0-9]+)?$"
+    ).unwrap();
 }
 
 pub fn argument_matches_op_literal(arg: &str) -> bool {
@@ -308,6 +439,7 @@ pub fn parse_op_literal(
     argument: &str,
     value: Option<&[u8]>,
     arg_idx: Option<CliArgIdx>,
+    ext: &ExtensionRegistry,
 ) -> Result<OperatorData, OperatorCreationError> {
     // this should not happen in the cli parser because it checks using
     // `argument_matches_data_inserter`
@@ -329,12 +461,23 @@ pub fn parse_op_literal(
         })
         .transpose()?;
     let arg_str = args.name("type").unwrap().as_str();
+    use FieldValueKind::*;
     match arg_str {
         "int" => parse_op_int(value, insert_count, arg_idx),
         "bytes" => parse_op_bytes(value, insert_count, arg_idx, false),
         "~bytes" => parse_op_bytes(value, insert_count, arg_idx, true),
         "str" => parse_op_str(value, insert_count, arg_idx, false),
         "~str" => parse_op_str(value, insert_count, arg_idx, true),
+        "object" => parse_op_tyson(value, insert_count, arg_idx, Object, ext),
+        "array" => parse_op_tyson(value, insert_count, arg_idx, Array, ext),
+        "integer" => parse_op_tyson(value, insert_count, arg_idx, BigInt, ext),
+        "float" => parse_op_tyson(value, insert_count, arg_idx, Float, ext),
+        "rational" => {
+            parse_op_tyson(value, insert_count, arg_idx, Rational, ext)
+        }
+        "v" | "tyson" => {
+            parse_op_tyson_value(value, insert_count, arg_idx, ext)
+        }
         "error" => {
             parse_op_error(arg_str, value, false, insert_count, arg_idx)
         }

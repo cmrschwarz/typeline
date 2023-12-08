@@ -10,7 +10,7 @@ use super::{
     field::{FieldId, FieldManager},
     field_data::{
         FieldData, FieldDataBuffer, FieldDataInternals, FieldDataRepr,
-        FieldValueFlags, FieldValueHeader, RunLength,
+        FieldValueFlags, FieldValueHeader, FieldValueType, RunLength,
     },
     iters::{FieldDataRef, FieldIterator, Iter},
     match_set::MatchSetManager,
@@ -549,7 +549,9 @@ unsafe impl RawPushInterface for IterHall {
         }
     }
 
-    unsafe fn push_fixed_size_type<T: PartialEq + Clone>(
+    unsafe fn push_fixed_size_type_unchecked<
+        T: PartialEq + Clone + FieldValueType,
+    >(
         &mut self,
         kind: FieldDataRepr,
         flags: FieldValueFlags,
@@ -559,7 +561,7 @@ unsafe impl RawPushInterface for IterHall {
         try_data_rle: bool,
     ) {
         unsafe {
-            self.get_owned_data().push_fixed_size_type(
+            self.get_owned_data().push_fixed_size_type_unchecked(
                 kind,
                 flags,
                 data,

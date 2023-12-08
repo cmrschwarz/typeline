@@ -209,7 +209,8 @@ fn try_parse_as_context_opt(
                 "print" | "p" => include_str!("help_sections/print.txt"),
                 "regex" | "r" => include_str!("help_sections/regex.txt"),
                 "types" | "int" | "str" | "~str" | "bytes" | "~bytes"
-                | "error" | "~error" | "null" | "undefined" => {
+                | "error" | "~error" | "null" | "undefined" | "array"
+                | "object" | "integer" | "float" | "rational" => {
                     include_str!("help_sections/types.txt")
                 }
                 _ => {
@@ -410,7 +411,12 @@ fn parse_operation(
         return Ok(Some(parse_op_cast(arg.argname, arg.value, idx)?));
     }
     if argument_matches_op_literal(arg.argname) {
-        return Ok(Some(parse_op_literal(arg.argname, arg.value, idx)?));
+        return Ok(Some(parse_op_literal(
+            arg.argname,
+            arg.value,
+            idx,
+            &ctx_opts.extensions,
+        )?));
     }
     if argument_matches_op_file_reader(arg.argname) {
         return Ok(Some(parse_op_file_reader(arg.argname, arg.value, idx)?));

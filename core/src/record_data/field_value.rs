@@ -3,13 +3,18 @@ use num_bigint::BigInt;
 use num_rational::BigRational;
 
 use crate::{
-    operators::errors::OperatorApplicationError,
-    utils::string_store::StringStoreEntry,
+    operators::{
+        errors::OperatorApplicationError,
+        utils::{NULL_STR, UNDEFINED_STR},
+    },
+    utils::string_store::{StringStore, StringStoreEntry},
 };
 
 use super::{
-    custom_data::CustomDataBox, field::FieldIdOffset,
+    custom_data::CustomDataBox,
+    field::{FieldIdOffset, FieldManager},
     field_data::FieldDataRepr,
+    match_set::MatchSetManager,
 };
 
 // the different logical data types
@@ -65,8 +70,8 @@ pub enum Array {
     Null(usize),
     Undefined(usize),
     Int(Box<[i64]>),
-    Bytes(Box<Box<[u8]>>),
-    String(Box<Box<str>>),
+    Bytes(Box<[Box<[u8]>]>),
+    String(Box<[Box<str>]>),
     Error(Box<[OperatorApplicationError]>),
     Array(Box<[Array]>),
     Object(Box<[Object]>),
@@ -176,6 +181,178 @@ impl FieldValue {
             FieldValue::Object(_) => FieldValueKind::Object,
             FieldValue::FieldReference(_) => FieldValueKind::Reference,
             FieldValue::Custom(_) => FieldValueKind::Custom,
+        }
+    }
+}
+
+pub fn format_bytes(
+    _fmt: &mut impl std::io::Write,
+    _v: &[u8],
+) -> std::io::Result<()> {
+    todo!()
+}
+
+pub fn format_quoted_string(
+    fmt: &mut impl std::io::Write,
+    v: &str,
+) -> std::io::Result<()> {
+    //TODO: escape properly
+    fmt.write_fmt(format_args!("{:?}", v))
+}
+
+pub fn format_error(
+    w: &mut impl std::io::Write,
+    v: &OperatorApplicationError,
+) -> std::io::Result<()> {
+    w.write_fmt(format_args!("(\"error\")\"{}\"", v))
+}
+
+pub struct FormattingContext<'a> {
+    pub ss: &'a StringStore,
+    pub fm: &'a FieldManager,
+    pub msm: &'a MatchSetManager,
+}
+
+impl FieldValue {
+    pub fn format(
+        &self,
+        w: &mut impl std::io::Write,
+        fc: &mut FormattingContext<'_>,
+    ) -> std::io::Result<()> {
+        match self {
+            FieldValue::Null => w.write(NULL_STR.as_bytes()).map(|_| ()),
+            FieldValue::Undefined => {
+                w.write(UNDEFINED_STR.as_bytes()).map(|_| ())
+            }
+            FieldValue::Int(v) => w.write_fmt(format_args!("{}", v)),
+            FieldValue::BigInt(v) => w.write_fmt(format_args!("{}", v)),
+            FieldValue::Float(v) => w.write_fmt(format_args!("{}", v)),
+            FieldValue::Rational(v) => w.write_fmt(format_args!("{}", v)),
+            FieldValue::Bytes(v) => format_bytes(w, v),
+            FieldValue::String(v) => format_quoted_string(w, v),
+            FieldValue::Error(e) => format_error(w, e),
+            FieldValue::Array(a) => a.format(w, fc),
+            FieldValue::Object(o) => o.format(w, fc),
+            FieldValue::FieldReference(_) => todo!(),
+            FieldValue::Custom(v) => v.stringify(w).map(|_| ()),
+        }
+    }
+}
+
+impl Object {
+    pub fn format(
+        &self,
+        w: &mut impl std::io::Write,
+        fc: &mut FormattingContext<'_>,
+    ) -> std::io::Result<()> {
+        w.write(b"{")?;
+        //TODO: escape keys
+        let mut first = true;
+        match self {
+            Object::KeysStored(m) => {
+                for (k, v) in m.iter() {
+                    if first {
+                        first = false;
+                    } else {
+                        w.write(b", ")?;
+                    }
+                    format_quoted_string(w, k)?;
+                    w.write(b": ")?;
+                    v.format(w, fc)?;
+                }
+            }
+            Object::KeysInterned(m) => {
+                for (&k, v) in m.iter() {
+                    if first {
+                        first = false;
+                    } else {
+                        w.write(b", ")?;
+                    }
+                    format_quoted_string(w, fc.ss.lookup(k))?;
+                    w.write(b": ")?;
+                    v.format(w, fc)?;
+                }
+            }
+        }
+        w.write(b"}")?;
+        Ok(())
+    }
+}
+
+impl Array {
+    pub fn format(
+        &self,
+        w: &mut impl std::io::Write,
+        fc: &mut FormattingContext<'_>,
+    ) -> std::io::Result<()> {
+        fn format_array<
+            'a,
+            T: 'a,
+            I: Iterator<Item = &'a T>,
+            W: std::io::Write,
+        >(
+            w: &mut W,
+            fc: &mut FormattingContext<'_>,
+            iter: I,
+            mut f: impl FnMut(
+                &mut W,
+                &mut FormattingContext<'_>,
+                &T,
+            ) -> std::io::Result<()>,
+        ) -> std::io::Result<()> {
+            w.write(b"[")?;
+            let mut first = true;
+            for i in iter {
+                if first {
+                    first = false;
+                } else {
+                    w.write(b", ")?;
+                }
+                f(w, fc, i)?;
+            }
+            w.write(b"]")?;
+            Ok(())
+        }
+        match self {
+            Array::Null(v) => {
+                format_array(w, fc, (0..*v).map(|_| &()), |f, _, _| {
+                    f.write(NULL_STR.as_bytes())?;
+                    Ok(())
+                })
+            }
+            Array::Undefined(v) => {
+                format_array(w, fc, (0..*v).map(|_| &()), |f, _, _| {
+                    f.write(UNDEFINED_STR.as_bytes())?;
+                    Ok(())
+                })
+            }
+            Array::Int(v) => format_array(w, fc, v.iter(), |f, _, v| {
+                f.write_fmt(format_args!("{v}"))
+            }),
+            Array::Bytes(v) => {
+                format_array(w, fc, v.iter(), |f, _, v| format_bytes(f, v))
+            }
+            Array::String(v) => format_array(w, fc, v.iter(), |f, _, v| {
+                format_quoted_string(f, v)
+            }),
+            Array::Error(v) => {
+                format_array(w, fc, v.iter(), |f, _, v| format_error(f, v))
+            }
+            Array::Array(v) => {
+                format_array(w, fc, v.iter(), |f, fc, v| v.format(f, fc))
+            }
+            Array::Object(v) => {
+                format_array(w, fc, v.iter(), |f, fc, v| v.format(f, fc))
+            }
+            Array::FieldReference(v) => {
+                format_array(w, fc, v.iter(), |_f, _, _v| todo!())
+            }
+            Array::Custom(v) => format_array(w, fc, v.iter(), |f, _, v| {
+                v.stringify(f).map(|_| ())
+            }),
+            Array::Mixed(v) => {
+                format_array(w, fc, v.iter(), |f, fc, v| v.format(f, fc))
+            }
         }
     }
 }

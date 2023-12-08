@@ -4,8 +4,8 @@ use super::{
     custom_data::CustomDataBox,
     field_data::{
         field_value_flags, FieldData, FieldDataRepr, FieldValueFlags,
-        FieldValueFormat, FieldValueHeader, FieldValueSize, RunLength,
-        MAX_FIELD_ALIGN,
+        FieldValueFormat, FieldValueHeader, FieldValueSize, FieldValueType,
+        RunLength, MAX_FIELD_ALIGN,
     },
     field_value::FieldReference,
     stream_value::StreamValueId,
@@ -29,15 +29,37 @@ pub unsafe trait RawPushInterface {
         try_header_rle: bool,
         try_data_rle: bool,
     );
-    unsafe fn push_fixed_size_type<T: PartialEq + Clone>(
+    unsafe fn push_fixed_size_type_unchecked<
+        T: PartialEq + Clone + FieldValueType,
+    >(
         &mut self,
-        kind: FieldDataRepr,
+        repr: FieldDataRepr,
         flags: FieldValueFlags,
         data: T,
         run_length: usize,
         try_header_rle: bool,
         try_data_rle: bool,
     );
+    fn push_fixed_size_type<T: PartialEq + Clone + FieldValueType>(
+        &mut self,
+        data: T,
+        run_length: usize,
+        try_header_rle: bool,
+        try_data_rle: bool,
+    ) {
+        assert!(!T::DST && !T::ZST);
+        unsafe {
+            self.push_fixed_size_type_unchecked(
+                T::REPR,
+                field_value_flags::DEFAULT,
+                data,
+                run_length,
+                try_header_rle,
+                try_data_rle,
+            );
+        }
+    }
+
     unsafe fn push_zst_unchecked(
         &mut self,
         kind: FieldDataRepr,
@@ -210,7 +232,7 @@ impl FieldData {
         match self.headers.last_mut() {
             None => (),
             Some(last_header) => {
-                if last_header.kind == fmt.kind
+                if last_header.repr == fmt.repr
                     && last_header.size == fmt.size
                     && last_header.flags & format_flags_mask
                         == fmt.flags & format_flags_mask
@@ -315,7 +337,7 @@ unsafe impl RawPushInterface for FieldData {
 
         if try_header_rle || try_data_rle {
             if let Some(h) = self.headers.last_mut() {
-                if h.kind == kind
+                if h.repr == kind
                     && h.size == size
                     && h.flags & MUST_MATCH_HEADER_FLAGS
                         == flags & MUST_MATCH_HEADER_FLAGS
@@ -335,7 +357,7 @@ unsafe impl RawPushInterface for FieldData {
             }
         }
         let fmt = FieldValueFormat {
-            kind,
+            repr: kind,
             flags: flags | SHARED_VALUE,
             size,
         };
@@ -348,26 +370,29 @@ unsafe impl RawPushInterface for FieldData {
             self.data.extend_from_slice(data);
         }
     }
-    unsafe fn push_fixed_size_type<T: PartialEq + Clone>(
+    unsafe fn push_fixed_size_type_unchecked<
+        T: PartialEq + Clone + FieldValueType,
+    >(
         &mut self,
-        kind: FieldDataRepr,
+        repr: FieldDataRepr,
         flags: FieldValueFlags,
         data: T,
         run_length: usize,
         try_header_rle: bool,
         try_data_rle: bool,
     ) {
-        debug_assert!(kind.is_fixed_size_type());
+        assert!(repr == T::REPR);
+        debug_assert!(repr.is_fixed_size_type());
         const MUST_MATCH_HEADER_FLAGS: FieldValueFlags = DELETED;
         self.field_count += run_length;
         let mut data_rle = false;
         let mut header_rle = false;
         let fmt = FieldValueFormat {
-            kind,
+            repr,
             flags: flags | SHARED_VALUE,
             size: std::mem::size_of::<T>() as FieldValueSize,
         };
-        if kind.needs_alignment() {
+        if repr.needs_alignment() {
             let align = unsafe { self.pad_to_align() };
             if align != 0 {
                 unsafe {
@@ -384,7 +409,7 @@ unsafe impl RawPushInterface for FieldData {
         }
         if try_header_rle || try_data_rle {
             if let Some(h) = self.headers.last_mut() {
-                if h.kind == kind
+                if h.repr == repr
                     && h.flags & MUST_MATCH_HEADER_FLAGS
                         == flags & MUST_MATCH_HEADER_FLAGS
                 {
@@ -423,14 +448,14 @@ unsafe impl RawPushInterface for FieldData {
         debug_assert!(kind.is_zst());
         self.field_count += run_length;
         let fmt = FieldValueFormat {
-            kind,
+            repr: kind,
             flags: flags | SHARED_VALUE,
             size: 0,
         };
         let mut header_rle = false;
         if try_header_rle {
             if let Some(h) = self.headers.last_mut() {
-                header_rle = h.kind == kind
+                header_rle = h.repr == kind
                     && h.flags & MUST_MATCH_HEADER_FLAGS
                         == flags & MUST_MATCH_HEADER_FLAGS;
             }
@@ -456,7 +481,11 @@ unsafe impl RawPushInterface for FieldData {
         let size = data_len as FieldValueSize;
         unsafe {
             self.push_header_raw_same_value_after_first(
-                FieldValueFormat { kind, flags, size },
+                FieldValueFormat {
+                    repr: kind,
+                    flags,
+                    size,
+                },
                 run_length,
             );
         }
@@ -512,7 +541,7 @@ pub trait PushInterface: RawPushInterface {
         try_data_rle: bool,
     ) {
         unsafe {
-            self.push_fixed_size_type(
+            self.push_fixed_size_type_unchecked(
                 FieldDataRepr::BytesBuffer,
                 field_value_flags::BYTES_ARE_UTF8,
                 data.into_bytes(),
@@ -529,16 +558,12 @@ pub trait PushInterface: RawPushInterface {
         try_header_rle: bool,
         try_data_rle: bool,
     ) {
-        unsafe {
-            self.push_fixed_size_type(
-                FieldDataRepr::BytesBuffer,
-                field_value_flags::DEFAULT,
-                data,
-                run_length,
-                try_header_rle,
-                try_data_rle,
-            );
-        }
+        self.push_fixed_size_type(
+            data,
+            run_length,
+            try_header_rle,
+            try_data_rle,
+        );
     }
     fn push_str_as_buffer(
         &mut self,
@@ -548,7 +573,7 @@ pub trait PushInterface: RawPushInterface {
         try_data_rle: bool,
     ) {
         unsafe {
-            self.push_fixed_size_type(
+            self.push_fixed_size_type_unchecked(
                 FieldDataRepr::BytesBuffer,
                 field_value_flags::BYTES_ARE_UTF8,
                 data.as_bytes().to_vec(),
@@ -566,7 +591,7 @@ pub trait PushInterface: RawPushInterface {
         try_data_rle: bool,
     ) {
         unsafe {
-            self.push_fixed_size_type(
+            self.push_fixed_size_type_unchecked(
                 FieldDataRepr::BytesBuffer,
                 field_value_flags::DEFAULT,
                 data.to_vec(),
@@ -629,16 +654,12 @@ pub trait PushInterface: RawPushInterface {
         try_header_rle: bool,
         try_data_rle: bool,
     ) {
-        unsafe {
-            self.push_fixed_size_type(
-                FieldDataRepr::Custom,
-                field_value_flags::DEFAULT,
-                data,
-                run_length,
-                try_header_rle,
-                try_data_rle,
-            );
-        }
+        self.push_fixed_size_type(
+            data,
+            run_length,
+            try_header_rle,
+            try_data_rle,
+        );
     }
     fn push_int(
         &mut self,
@@ -647,16 +668,12 @@ pub trait PushInterface: RawPushInterface {
         try_header_rle: bool,
         try_data_rle: bool,
     ) {
-        unsafe {
-            self.push_fixed_size_type(
-                FieldDataRepr::Int,
-                field_value_flags::DEFAULT,
-                data.to_owned(),
-                run_length,
-                try_header_rle,
-                try_data_rle,
-            );
-        }
+        self.push_fixed_size_type(
+            data,
+            run_length,
+            try_header_rle,
+            try_data_rle,
+        );
     }
     fn push_stream_value_id(
         &mut self,
@@ -665,16 +682,12 @@ pub trait PushInterface: RawPushInterface {
         try_header_rle: bool,
         try_data_rle: bool,
     ) {
-        unsafe {
-            self.push_fixed_size_type(
-                FieldDataRepr::StreamValueId,
-                field_value_flags::DEFAULT,
-                id,
-                run_length,
-                try_header_rle,
-                try_data_rle,
-            );
-        }
+        self.push_fixed_size_type(
+            id,
+            run_length,
+            try_header_rle,
+            try_data_rle,
+        );
     }
     fn push_error(
         &mut self,
@@ -683,16 +696,12 @@ pub trait PushInterface: RawPushInterface {
         try_header_rle: bool,
         try_data_rle: bool,
     ) {
-        unsafe {
-            self.push_fixed_size_type(
-                FieldDataRepr::Error,
-                field_value_flags::DEFAULT,
-                err,
-                run_length,
-                try_header_rle,
-                try_data_rle,
-            );
-        }
+        self.push_fixed_size_type(
+            err,
+            run_length,
+            try_header_rle,
+            try_data_rle,
+        );
     }
     fn push_reference(
         &mut self,
@@ -701,36 +710,18 @@ pub trait PushInterface: RawPushInterface {
         try_header_rle: bool,
         try_data_rle: bool,
     ) {
-        unsafe {
-            self.push_fixed_size_type(
-                FieldDataRepr::Reference,
-                field_value_flags::DEFAULT,
-                reference,
-                run_length,
-                try_header_rle,
-                try_data_rle,
-            );
-        }
+        self.push_fixed_size_type(
+            reference,
+            run_length,
+            try_header_rle,
+            try_data_rle,
+        );
     }
     fn push_null(&mut self, run_length: usize, try_header_rle: bool) {
-        unsafe {
-            self.push_zst_unchecked(
-                FieldDataRepr::Null,
-                field_value_flags::DEFAULT,
-                run_length,
-                try_header_rle,
-            );
-        }
+        self.push_zst(FieldDataRepr::Null, run_length, try_header_rle);
     }
     fn push_undefined(&mut self, run_length: usize, try_header_rle: bool) {
-        unsafe {
-            self.push_zst_unchecked(
-                FieldDataRepr::Undefined,
-                field_value_flags::DEFAULT,
-                run_length,
-                try_header_rle,
-            );
-        }
+        self.push_zst(FieldDataRepr::Undefined, run_length, try_header_rle);
     }
     fn push_zst(
         &mut self,
@@ -777,7 +768,7 @@ impl<'a> RawFixedSizedTypeInserter<'a> {
         unsafe {
             self.fd.data.set_len(new_len);
             let mut padding = 0;
-            if fmt.kind.needs_alignment() {
+            if fmt.repr.needs_alignment() {
                 padding = self.fd.pad_to_align();
             }
             if padding != 0 {
@@ -833,9 +824,9 @@ impl<'a> RawFixedSizedTypeInserter<'a> {
 }
 
 pub unsafe trait FixedSizeTypeInserter<'a>: Sized {
-    const KIND: FieldDataRepr;
+    const REPR: FieldDataRepr;
     const FLAGS: FieldValueFlags = field_value_flags::DEFAULT;
-    type ValueType;
+    type ValueType: PartialEq + Clone + FieldValueType;
     fn get_raw(&mut self) -> &mut RawFixedSizedTypeInserter<'a>;
     fn new(fd: &'a mut FieldData) -> Self;
     fn element_size() -> usize {
@@ -843,7 +834,7 @@ pub unsafe trait FixedSizeTypeInserter<'a>: Sized {
     }
     fn element_format() -> FieldValueFormat {
         FieldValueFormat {
-            kind: Self::KIND,
+            repr: Self::REPR,
             flags: Self::FLAGS,
             size: Self::element_size() as FieldValueSize,
         }
@@ -866,14 +857,14 @@ pub unsafe trait FixedSizeTypeInserter<'a>: Sized {
         }
     }
     #[inline(always)]
-    fn push<T>(&mut self, v: T) {
+    fn push(&mut self, v: Self::ValueType) {
         assert!(self.get_raw().count < self.get_raw().max);
         unsafe {
             self.get_raw().push(v);
         }
     }
     #[inline(always)]
-    fn push_with_rl<T: PartialEq + Clone>(&mut self, v: T, rl: usize) {
+    fn push_with_rl(&mut self, v: Self::ValueType, rl: usize) {
         if rl == 1 {
             self.push(v);
             return;
@@ -881,8 +872,8 @@ pub unsafe trait FixedSizeTypeInserter<'a>: Sized {
         let max_rem = self.get_raw().max - self.get_raw().count;
         self.commit();
         unsafe {
-            self.get_raw().fd.push_fixed_size_type(
-                Self::KIND,
+            self.get_raw().fd.push_fixed_size_type_unchecked(
+                Self::REPR,
                 Self::FLAGS,
                 v,
                 rl,
@@ -974,7 +965,7 @@ pub unsafe trait VariableSizeTypeInserter<'a>: Sized {
     fn element_as_bytes(v: &Self::ElementType) -> &[u8];
     fn current_element_format(&mut self) -> FieldValueFormat {
         FieldValueFormat {
-            kind: Self::KIND,
+            repr: Self::KIND,
             flags: Self::FLAGS,
             size: self.get_raw().expected_size as FieldValueSize,
         }
@@ -1104,7 +1095,7 @@ pub struct IntegerInserter<'a> {
     raw: RawFixedSizedTypeInserter<'a>,
 }
 unsafe impl<'a> FixedSizeTypeInserter<'a> for IntegerInserter<'a> {
-    const KIND: FieldDataRepr = FieldDataRepr::Int;
+    const REPR: FieldDataRepr = FieldDataRepr::Int;
     const FLAGS: FieldValueFlags = field_value_flags::DEFAULT;
     type ValueType = i64;
     fn get_raw(&mut self) -> &mut RawFixedSizedTypeInserter<'a> {
@@ -1126,7 +1117,7 @@ pub struct FieldReferenceInserter<'a> {
     raw: RawFixedSizedTypeInserter<'a>,
 }
 unsafe impl<'a> FixedSizeTypeInserter<'a> for FieldReferenceInserter<'a> {
-    const KIND: FieldDataRepr = FieldDataRepr::Reference;
+    const REPR: FieldDataRepr = FieldDataRepr::Reference;
     type ValueType = FieldReference;
 
     fn get_raw(&mut self) -> &mut RawFixedSizedTypeInserter<'a> {
@@ -1259,7 +1250,7 @@ impl<'a> VaryingTypeInserter<'a> {
         bytes_are_utf8: bool,
     ) {
         let mut fmt = FieldValueFormat {
-            kind,
+            repr: kind,
             ..Default::default()
         };
         fmt.size = if kind.is_variable_sized_type() {
@@ -1286,8 +1277,8 @@ impl<'a> VaryingTypeInserter<'a> {
         if self.count == 0 {
             return;
         }
-        if self.fmt.kind.is_zst() {
-            self.fd.push_zst(self.fmt.kind, self.count, true);
+        if self.fmt.repr.is_zst() {
+            self.fd.push_zst(self.fmt.repr, self.count, true);
             self.count = 0;
             return;
         }
@@ -1305,12 +1296,12 @@ impl<'a> VaryingTypeInserter<'a> {
     }
     pub fn push_zst(&mut self, kind: FieldDataRepr, count: usize) {
         assert!(kind.is_zst());
-        if self.fmt.kind != kind {
+        if self.fmt.repr != kind {
             let len_rem = self.max - self.count;
             self.commit();
             self.max = len_rem;
             self.fmt = FieldValueFormat {
-                kind,
+                repr: kind,
                 ..Default::default()
             };
         }
@@ -1332,7 +1323,7 @@ impl<'a> VaryingTypeInserter<'a> {
     ) {
         assert!(bytes.len() <= INLINE_STR_MAX_LEN);
         let fmt = FieldValueFormat {
-            kind,
+            repr: kind,
             flags: if bytes_are_utf8 {
                 field_value_flags::BYTES_ARE_UTF8
             } else {
@@ -1350,7 +1341,7 @@ impl<'a> VaryingTypeInserter<'a> {
                     );
                 }
                 self.max = reserved_left;
-                self.fmt.kind = FieldDataRepr::Null;
+                self.fmt.repr = FieldDataRepr::Null;
                 return;
             }
             // TODO: maybe set some limit on the reserved len here?
@@ -1376,15 +1367,14 @@ impl<'a> VaryingTypeInserter<'a> {
         }
         self.count += 1;
     }
-    pub unsafe fn push_fixed_sized_type<T: PartialEq + Clone>(
+    pub fn push_fixed_sized_type<T: PartialEq + Clone + FieldValueType>(
         &mut self,
-        kind: FieldDataRepr,
         v: T,
         rl: usize,
     ) {
         let size = std::mem::size_of::<T>();
         let fmt = FieldValueFormat {
-            kind,
+            repr: T::REPR,
             flags: field_value_flags::DEFAULT,
             size: size as FieldValueSize,
         };
@@ -1392,18 +1382,9 @@ impl<'a> VaryingTypeInserter<'a> {
             let reserved_left = self.max - self.count;
             self.commit();
             if rl > 1 {
-                unsafe {
-                    self.fd.push_fixed_size_type(
-                        kind,
-                        field_value_flags::DEFAULT,
-                        v,
-                        rl,
-                        true,
-                        false,
-                    );
-                }
+                self.fd.push_fixed_size_type(v, rl, true, false);
                 self.max = reserved_left;
-                self.fmt.kind = FieldDataRepr::Null;
+                self.fmt.repr = FieldDataRepr::Null;
                 return;
             }
             unsafe {
@@ -1453,13 +1434,13 @@ impl<'a> VaryingTypeInserter<'a> {
         }
     }
     pub fn push_int(&mut self, v: i64, rl: usize) {
-        unsafe { self.push_fixed_sized_type(FieldDataRepr::Int, v, rl) }
+        self.push_fixed_sized_type(v, rl)
     }
     pub fn push_field_reference(&mut self, v: FieldReference, rl: usize) {
-        unsafe { self.push_fixed_sized_type(FieldDataRepr::Reference, v, rl) }
+        self.push_fixed_sized_type(v, rl)
     }
     pub fn push_error(&mut self, e: OperatorApplicationError, rl: usize) {
-        unsafe { self.push_fixed_sized_type(FieldDataRepr::Error, e, rl) }
+        self.push_fixed_sized_type(e, rl)
     }
     pub fn push_null(&mut self, rl: usize) {
         self.push_zst(FieldDataRepr::Null, rl)

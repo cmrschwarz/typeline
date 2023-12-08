@@ -9,6 +9,7 @@ use crate::{
     options::argument::CliArgIdx,
     record_data::{
         field_data::{field_value_flags, FieldDataRepr},
+        field_value::FormattingContext,
         iter_hall::IterId,
         iters::{FieldIterator, UnfoldIterRunLength},
         push_interface::PushInterface,
@@ -275,16 +276,62 @@ pub fn handle_tf_print_raw(
                     }
                 }
             }
-            TypedSlice::BigInt(_)
-            | TypedSlice::Float(_)
-            | TypedSlice::Rational(_) => {
-                todo!();
+            TypedSlice::BigInt(big_ints) => {
+                for (v, rl) in
+                    TypedSliceIter::from_range(&range.base, big_ints)
+                {
+                    for _ in 0..rl {
+                        stdout.write_fmt(format_args!("{}\n", v))?;
+                        *handled_field_count += 1;
+                    }
+                }
             }
-            TypedSlice::Array(_) => {
-                todo!();
+            TypedSlice::Float(floats) => {
+                for (v, rl) in TypedSliceIter::from_range(&range.base, floats)
+                {
+                    for _ in 0..rl {
+                        stdout.write_fmt(format_args!("{}\n", v))?;
+                        *handled_field_count += 1;
+                    }
+                }
             }
-            TypedSlice::Object(_) => {
-                todo!();
+            TypedSlice::Rational(rationals) => {
+                for (v, rl) in
+                    TypedSliceIter::from_range(&range.base, rationals)
+                {
+                    for _ in 0..rl {
+                        stdout.write_fmt(format_args!("{}\n", v))?;
+                        *handled_field_count += 1;
+                    }
+                }
+            }
+            TypedSlice::Array(arrays) => {
+                let mut fc = FormattingContext {
+                    ss: &sess.session_data.string_store,
+                    fm: &sess.field_mgr,
+                    msm: &sess.match_set_mgr,
+                };
+                for a in
+                    TypedSliceIter::from_range(&range.base, arrays).unfold_rl()
+                {
+                    a.format(stdout, &mut fc)?;
+                    stdout.write(b"\n")?;
+                    *handled_field_count += 1;
+                }
+            }
+            TypedSlice::Object(objects) => {
+                let mut fc = FormattingContext {
+                    ss: &sess.session_data.string_store,
+                    fm: &sess.field_mgr,
+                    msm: &sess.match_set_mgr,
+                };
+                for o in TypedSliceIter::from_range(&range.base, objects)
+                    .unfold_rl()
+                {
+                    o.format(stdout, &mut fc)?;
+                    stdout.write(b"\n")?;
+                    *handled_field_count += 1;
+                }
             }
             TypedSlice::Reference(_) => unreachable!(),
         }

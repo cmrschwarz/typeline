@@ -5,6 +5,7 @@ use bstr::ByteSlice;
 use indexmap::IndexMap;
 use num_bigint::BigInt;
 use smallstr::SmallString;
+use thiserror::Error;
 
 use crate::{
     extension::ExtensionRegistry,
@@ -19,17 +20,27 @@ use crate::{
     },
 };
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Error)]
 pub enum TysonParseErrorKind {
+    #[error("{0}")]
     Other(Box<str>),
+    #[error("invalid utf-8")]
     InvalidUtf8(ArrayVec<u8, MAX_UTF8_CHAR_LEN>),
+    #[error("invalid unicode escape")]
     InvalidUnicodeEscape([u8; 4]),
+    #[error("invalid unicode escape")]
     InvalidExtendedUnicodeEscape(ArrayString<6>),
+    #[error("unicode escape is too long")]
     ExtendedUnicodeEscapeTooLong,
+    #[error("character '{0}' cannot be escaped")]
     NonEscapbleCharacter(u8),
+    #[error("invalid number")]
     InvalidNumber,
+    #[error("stray character '{0}'")]
     StrayToken(char),
+    #[error("trailing character '{0}'")]
     TrailingCharacters(char),
+    #[error("unexpected end of stream")]
     UnexpectedEof,
 }
 
@@ -41,6 +52,14 @@ pub enum TysonParseError {
         col: usize,
         kind: TysonParseErrorKind,
     },
+}
+
+struct TysonParser<'a, S: BufRead> {
+    stream: S,
+    #[allow(unused)] // TODO
+    extension_registry: &'a ExtensionRegistry,
+    line: usize,
+    col: usize,
 }
 
 impl PartialEq for TysonParseError {
@@ -64,14 +83,6 @@ impl PartialEq for TysonParseError {
     }
 }
 impl Eq for TysonParseError {}
-
-struct TysonParser<'a, S: BufRead> {
-    stream: S,
-    #[allow(unused)] // TODO
-    extension_registry: &'a ExtensionRegistry,
-    line: usize,
-    col: usize,
-}
 
 impl<'a, S: BufRead> TysonParser<'a, S> {
     fn new(stream: S, exts: &'a ExtensionRegistry) -> Self {
