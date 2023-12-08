@@ -196,7 +196,7 @@ pub fn format_quoted_string(
     fmt: &mut impl std::io::Write,
     v: &str,
 ) -> std::io::Result<()> {
-    //TODO: escape properly
+    // TODO: escape properly
     fmt.write_fmt(format_args!("{:?}", v))
 }
 
@@ -245,8 +245,8 @@ impl Object {
         w: &mut impl std::io::Write,
         fc: &mut FormattingContext<'_>,
     ) -> std::io::Result<()> {
-        w.write(b"{")?;
-        //TODO: escape keys
+        w.write_all(b"{")?;
+        // TODO: escape keys
         let mut first = true;
         match self {
             Object::KeysStored(m) => {
@@ -254,10 +254,10 @@ impl Object {
                     if first {
                         first = false;
                     } else {
-                        w.write(b", ")?;
+                        w.write_all(b", ")?;
                     }
                     format_quoted_string(w, k)?;
-                    w.write(b": ")?;
+                    w.write_all(b": ")?;
                     v.format(w, fc)?;
                 }
             }
@@ -266,15 +266,15 @@ impl Object {
                     if first {
                         first = false;
                     } else {
-                        w.write(b", ")?;
+                        w.write_all(b", ")?;
                     }
                     format_quoted_string(w, fc.ss.lookup(k))?;
-                    w.write(b": ")?;
+                    w.write_all(b": ")?;
                     v.format(w, fc)?;
                 }
             }
         }
-        w.write(b"}")?;
+        w.write_all(b"}")?;
         Ok(())
     }
 }
@@ -300,30 +300,27 @@ impl Array {
                 &T,
             ) -> std::io::Result<()>,
         ) -> std::io::Result<()> {
-            w.write(b"[")?;
+            w.write_all(b"[")?;
             let mut first = true;
             for i in iter {
                 if first {
                     first = false;
                 } else {
-                    w.write(b", ")?;
+                    w.write_all(b", ")?;
                 }
                 f(w, fc, i)?;
             }
-            w.write(b"]")?;
-            Ok(())
+            w.write_all(b"]")
         }
         match self {
             Array::Null(v) => {
                 format_array(w, fc, (0..*v).map(|_| &()), |f, _, _| {
-                    f.write(NULL_STR.as_bytes())?;
-                    Ok(())
+                    f.write_all(NULL_STR.as_bytes())
                 })
             }
             Array::Undefined(v) => {
                 format_array(w, fc, (0..*v).map(|_| &()), |f, _, _| {
-                    f.write(UNDEFINED_STR.as_bytes())?;
-                    Ok(())
+                    f.write_all(UNDEFINED_STR.as_bytes())
                 })
             }
             Array::Int(v) => format_array(w, fc, v.iter(), |f, _, v| {

@@ -315,7 +315,7 @@ pub fn handle_tf_print_raw(
                     TypedSliceIter::from_range(&range.base, arrays).unfold_rl()
                 {
                     a.format(stdout, &mut fc)?;
-                    stdout.write(b"\n")?;
+                    stdout.write_all(b"\n")?;
                     *handled_field_count += 1;
                 }
             }
@@ -329,7 +329,7 @@ pub fn handle_tf_print_raw(
                     .unfold_rl()
                 {
                     o.format(stdout, &mut fc)?;
-                    stdout.write(b"\n")?;
+                    stdout.write_all(b"\n")?;
                     *handled_field_count += 1;
                 }
             }

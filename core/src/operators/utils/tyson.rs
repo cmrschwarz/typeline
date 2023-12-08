@@ -98,7 +98,7 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
             .stream
             .fill_buf()
             .map_err(TysonParseError::Io)?
-            .get(0)
+            .first()
             .copied())
     }
     fn void_byte_char(&mut self) {
@@ -457,12 +457,12 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
                 return Ok(FieldValue::Float(v));
             };
         }
-        //TODO: rational
-        return Err(TysonParseError::InvalidSequence {
+        // TODO: rational
+        Err(TysonParseError::InvalidSequence {
             line: self.line,
             col: self.col - buf.len(),
             kind: TysonParseErrorKind::InvalidNumber,
-        });
+        })
     }
     fn parse_array_after_bracket(
         &mut self,
@@ -553,7 +553,7 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
                     }
                     self.col += 1;
                 }
-                return Ok(FieldValue::Null);
+                Ok(FieldValue::Null)
             }
             'u' => {
                 for expected in "ndefined".chars() {
@@ -567,7 +567,7 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
                     }
                     self.col += 1;
                 }
-                return Ok(FieldValue::Undefined);
+                Ok(FieldValue::Undefined)
             }
             other => {
                 self.col -= 1;

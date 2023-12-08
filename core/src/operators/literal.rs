@@ -183,12 +183,9 @@ pub fn handle_tf_literal(
                 true,
                 true,
             ),
-            Literal::Float(v) => output_field.iter_hall.push_fixed_size_type(
-                v.clone(),
-                1,
-                true,
-                true,
-            ),
+            Literal::Float(v) => output_field
+                .iter_hall
+                .push_fixed_size_type(*v, 1, true, true),
             Literal::Rational(v) => output_field
                 .iter_hall
                 .push_fixed_size_type(v.clone(), 1, true, true),
