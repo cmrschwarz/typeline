@@ -27,7 +27,6 @@ pub struct RefIter<'a> {
     data_iter: Iter<'a, DestructuredFieldDataRef<'a>>,
     data_cow_ref: CowFieldDataRef<'a>,
     field_mgr: &'a FieldManager,
-    unconsumed_input: bool,
 }
 
 impl<'a> Clone for RefIter<'a> {
@@ -39,7 +38,6 @@ impl<'a> Clone for RefIter<'a> {
             data_iter: self.data_iter.clone(),
             data_cow_ref: self.data_cow_ref.clone(),
             field_mgr: self.field_mgr,
-            unconsumed_input: self.unconsumed_input,
         }
     }
 }
@@ -60,7 +58,6 @@ impl<'a> RefIter<'a> {
         match_set_mgr: &'_ mut MatchSetManager,
         last_field_id_offset: FieldIdOffset,
         field_pos: usize,
-        unconsumed_input: bool,
     ) -> Self {
         let refs_field = field_mgr.fields[refs_field_id].borrow();
         let last_field_id =
@@ -70,7 +67,6 @@ impl<'a> RefIter<'a> {
                 field_mgr,
                 match_set_mgr,
                 last_field_id,
-                unconsumed_input,
             )
         };
         data_iter.move_to_field_pos(field_pos);
@@ -81,7 +77,6 @@ impl<'a> RefIter<'a> {
             last_field_id_offset,
             data_iter,
             data_cow_ref,
-            unconsumed_input,
         }
     }
     pub fn reset(
@@ -108,7 +103,7 @@ impl<'a> RefIter<'a> {
         let field_id =
             self.refs_field.field_refs[field_id_offset.get() as usize];
         let (cow_ref_new, data_iter_new) = unsafe {
-            Self::get_data_ref_and_iter(self.field_mgr, msm, field_id, false)
+            Self::get_data_ref_and_iter(self.field_mgr, msm, field_id)
         };
         self.field_mgr.store_iter(
             prev_field_id,
@@ -123,9 +118,8 @@ impl<'a> RefIter<'a> {
         fm: &FieldManager,
         msm: &mut MatchSetManager,
         field_id: FieldId,
-        unconsumed_input: bool,
     ) -> (CowFieldDataRef<'a>, Iter<'a, DestructuredFieldDataRef<'a>>) {
-        let fr = fm.get_cow_field_ref(msm, field_id, unconsumed_input);
+        let fr = fm.get_cow_field_ref(msm, field_id);
         let iter = fm.lookup_iter(
             field_id,
             unsafe { std::mem::transmute(&fr) },
@@ -299,7 +293,6 @@ pub struct AutoDerefIter<'a, I: FieldIterator<'a>> {
     iter_field_id: FieldId,
     ref_iter: Option<RefIter<'a>>,
     field_mgr: &'a FieldManager,
-    unconsumed_input: bool,
 }
 pub struct RefAwareTypedRange<'a> {
     pub base: ValidTypedRange<'a>,
@@ -319,10 +312,6 @@ impl<'a, I: FieldIterator<'a>> AutoDerefIter<'a, I> {
             ref_iter: None,
             field_mgr,
             iter_field_id,
-            unconsumed_input: field_mgr.fields[iter_field_id]
-                .borrow()
-                .has_unconsumed_input
-                .get(),
         }
     }
     pub fn get_next_field_pos(&mut self) -> usize {
@@ -376,7 +365,6 @@ impl<'a, I: FieldIterator<'a>> AutoDerefIter<'a, I> {
                             match_set_mgr,
                             field_id_offset,
                             field_pos,
-                            self.unconsumed_input,
                         ));
                     }
 

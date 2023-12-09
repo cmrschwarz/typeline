@@ -48,7 +48,6 @@ pub struct Field {
 
     // typically called on input fields which we don't want to borrow mut
     pub clear_delay_request_count: Cell<u16>,
-    pub has_unconsumed_input: Cell<bool>,
 
     pub name: Option<StringStoreEntry>,
     pub ref_count: usize,
@@ -66,10 +65,6 @@ pub const DUMMY_FIELD_ID: FieldId = FieldId::MIN;
 impl Field {
     pub fn get_clear_delay_request_count(&self) -> u16 {
         self.clear_delay_request_count.get()
-    }
-    pub fn inform_of_unconsumed_input(&self, value: bool) {
-        self.has_unconsumed_input
-            .set(self.has_unconsumed_input.get() || value);
     }
     pub fn has_cow_targets(&self) -> bool {
         !self.iter_hall.cow_targets.is_empty()
@@ -415,7 +410,6 @@ impl FieldManager {
             shadowed_since: ActionBuffer::MAX_ACTOR_ID,
             shadowed_by: DUMMY_FIELD_ID,
             clear_delay_request_count: Cell::new(0),
-            has_unconsumed_input: Cell::new(false),
             match_set: ms_id,
             first_actor,
             snapshot: Default::default(),
@@ -714,12 +708,9 @@ impl FieldManager {
         &self,
         msm: &mut MatchSetManager,
         field_id: FieldId,
-        inform_of_unconsumed_input: bool,
     ) -> CowFieldDataRef<'_> {
         let field_id = self.dealias_field_id(field_id);
         self.apply_field_actions(msm, field_id);
-        let field = self.fields[field_id].borrow();
-        field.inform_of_unconsumed_input(inform_of_unconsumed_input);
         return self.get_cow_field_ref_raw(field_id);
     }
     pub fn lookup_iter<'a>(

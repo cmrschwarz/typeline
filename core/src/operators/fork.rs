@@ -117,8 +117,6 @@ pub fn handle_tf_fork(
     sp: &mut TfFork,
 ) {
     let (batch_size, end_of_input) = sess.tf_mgr.claim_all(tf_id);
-    let unconsumed_input =
-        sess.tf_mgr.transforms[tf_id].has_unconsumed_input();
 
     if !end_of_input {
         if batch_size == 0 {
@@ -128,11 +126,8 @@ pub fn handle_tf_fork(
         }
     }
     for tf in &sp.targets {
-        sess.tf_mgr.inform_transform_batch_available(
-            *tf,
-            batch_size,
-            unconsumed_input,
-        );
+        sess.tf_mgr
+            .inform_transform_batch_available(*tf, batch_size);
     }
     if end_of_input {
         for tf in &sp.targets {

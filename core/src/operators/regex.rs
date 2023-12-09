@@ -727,11 +727,9 @@ pub fn handle_tf_regex(
     let input_field_id = tf.input_field;
     let op_id = tf.op_id.unwrap();
 
-    let input_field = sess.field_mgr.get_cow_field_ref(
-        &mut sess.match_set_mgr,
-        input_field_id,
-        tf.has_unconsumed_input(),
-    );
+    let input_field = sess
+        .field_mgr
+        .get_cow_field_ref(&mut sess.match_set_mgr, input_field_id);
     sess.match_set_mgr.match_sets[tf.match_set_id]
         .action_buffer
         .begin_action_group(re.actor_id);
@@ -1060,11 +1058,9 @@ pub fn handle_tf_regex(
         // we explicitly don't store the iterator here so it stays at the
         // start position while we apply the action list
         drop(input_field);
-        let input_field = sess.field_mgr.get_cow_field_ref(
-            &mut sess.match_set_mgr,
-            input_field_id,
-            false,
-        );
+        let input_field = sess
+            .field_mgr
+            .get_cow_field_ref(&mut sess.match_set_mgr, input_field_id);
         let mut iter = sess.field_mgr.lookup_iter(
             input_field_id,
             &input_field,

@@ -279,11 +279,9 @@ pub fn handle_tf_string_sink(
     let tf = &sess.tf_mgr.transforms[tf_id];
     let op_id = tf.op_id.unwrap();
     let input_field_id = tf.input_field;
-    let input_field = sess.field_mgr.get_cow_field_ref(
-        &mut sess.match_set_mgr,
-        tf.input_field,
-        tf.has_unconsumed_input(),
-    );
+    let input_field = sess
+        .field_mgr
+        .get_cow_field_ref(&mut sess.match_set_mgr, tf.input_field);
     let mut output_field = sess.field_mgr.fields[tf.output_field].borrow_mut();
     let base_iter = sess
         .field_mgr

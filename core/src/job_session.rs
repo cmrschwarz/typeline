@@ -116,11 +116,9 @@ impl TransformManager {
         &mut self,
         tf_id: TransformId,
         batch_size: usize,
-        any_prev_has_unconsumed_input: bool,
     ) {
         let tf = &mut self.transforms[tf_id];
         tf.available_batch_size += batch_size;
-        tf.any_prev_has_unconsumed_input = any_prev_has_unconsumed_input;
         if tf.available_batch_size > 0 && !tf.is_ready {
             self.push_tf_in_ready_stack(tf_id);
         }
@@ -132,11 +130,7 @@ impl TransformManager {
     ) {
         let tf = &self.transforms[tf_id];
         if let Some(succ_tf_id) = tf.successor {
-            self.inform_transform_batch_available(
-                succ_tf_id,
-                batch_size,
-                tf.has_unconsumed_input(),
-            );
+            self.inform_transform_batch_available(succ_tf_id, batch_size);
         }
     }
     pub fn push_tf_in_ready_stack(&mut self, tf_id: TransformId) {
@@ -258,7 +252,6 @@ impl TransformManager {
             if clear_delay {
                 fm.apply_field_actions(msm, ofid);
             } else if !appending {
-                f.has_unconsumed_input.set(false);
                 drop(f);
                 fm.clear_if_owned(msm, ofid);
             }
@@ -284,7 +277,6 @@ impl TransformManager {
                 drop(f);
                 fm.apply_field_actions(msm, ofid);
             } else if !appending {
-                f.has_unconsumed_input.set(false);
                 drop(f);
                 fm.clear_if_owned(msm, ofid);
             }

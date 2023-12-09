@@ -728,7 +728,6 @@ pub fn lookup_target_widths(
     k: &FormatKey,
     part_idx: FormatPartIndex,
     batch_size: usize,
-    unconsumed_input: bool,
     update_iter: bool,
     // fmt, output idx, width, run length
     succ_func: impl Fn(&mut TfFormat, &mut usize, usize, usize),
@@ -740,8 +739,7 @@ pub fn lookup_target_widths(
     } else {
         return;
     };
-    let field =
-        fm.get_cow_field_ref(msm, ident_ref.field_id, unconsumed_input);
+    let field = fm.get_cow_field_ref(msm, ident_ref.field_id);
     let mut iter = fm
         .lookup_iter(ident_ref.field_id, &field, ident_ref.iter_id)
         .bounded(0, batch_size);
@@ -787,7 +785,6 @@ pub fn setup_key_output_state(
     tf_id: TransformId,
     fmt: &mut TfFormat,
     batch_size: usize,
-    unconsumed_input: bool,
     k: &FormatKey,
     part_idx: FormatPartIndex,
 ) {
@@ -798,7 +795,6 @@ pub fn setup_key_output_state(
         k,
         part_idx,
         batch_size,
-        unconsumed_input,
         true,
         |fmt, output_idx, width, run_len| {
             iter_output_states_advanced(
@@ -825,8 +821,7 @@ pub fn setup_key_output_state(
     );
     let ident_ref = fmt.refs[k.ref_idx as usize];
 
-    let field =
-        fm.get_cow_field_ref(msm, ident_ref.field_id, unconsumed_input);
+    let field = fm.get_cow_field_ref(msm, ident_ref.field_id);
     let mut iter = AutoDerefIter::new(
         fm,
         ident_ref.field_id,
@@ -1537,7 +1532,6 @@ fn write_fmt_key(
     part_idx: FormatPartIndex,
 ) {
     // any potential unconsumed input was already set during width calculation
-    let unconsumed_input = false;
     lookup_target_widths(
         fm,
         msm,
@@ -1545,7 +1539,6 @@ fn write_fmt_key(
         k,
         part_idx,
         batch_size,
-        unconsumed_input,
         false,
         |fmt, output_idx, width, run_len| {
             iter_output_targets(fmt, output_idx, run_len, |ot| {
@@ -1556,8 +1549,7 @@ fn write_fmt_key(
     );
     let ident_ref = fmt.refs[k.ref_idx as usize];
 
-    let field =
-        fm.get_cow_field_ref(msm, ident_ref.field_id, unconsumed_input);
+    let field = fm.get_cow_field_ref(msm, ident_ref.field_id);
     let base_iter = fm
         .lookup_iter(ident_ref.field_id, &field, ident_ref.iter_id)
         .bounded(0, batch_size);
@@ -1851,7 +1843,6 @@ pub fn handle_tf_format(
     );
     let tf = &sess.tf_mgr.transforms[tf_id];
     let mut output_field = sess.field_mgr.fields[tf.output_field].borrow_mut();
-    let unconsumed_input = tf.has_unconsumed_input();
     fmt.output_states.push(OutputState {
         run_len: batch_size,
         next: FINAL_OUTPUT_INDEX_NEXT_VAL,
@@ -1885,7 +1876,6 @@ pub fn handle_tf_format(
                 tf_id,
                 fmt,
                 batch_size,
-                unconsumed_input,
                 k,
                 part_idx as FormatPartIndex,
             ),

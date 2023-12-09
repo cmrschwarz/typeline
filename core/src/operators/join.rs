@@ -358,11 +358,9 @@ pub fn handle_tf_join(
     let tf = &sess.tf_mgr.transforms[tf_id];
     let mut output_field = sess.field_mgr.fields[tf.output_field].borrow_mut();
     let input_field_id = tf.input_field;
-    let input_field = sess.field_mgr.get_cow_field_ref(
-        &mut sess.match_set_mgr,
-        input_field_id,
-        tf.has_unconsumed_input(),
-    );
+    let input_field = sess
+        .field_mgr
+        .get_cow_field_ref(&mut sess.match_set_mgr, input_field_id);
     let base_iter =
         sess.field_mgr
             .lookup_iter(input_field_id, &input_field, join.iter_id);

@@ -336,7 +336,6 @@ pub fn handle_tf_call_concurrent(
         let cfdr = sess.field_mgr.get_cow_field_ref(
             &mut sess.match_set_mgr,
             mapping.source_field_id,
-            false,
         );
         let mut iter = sess.field_mgr.lookup_iter(
             mapping.source_field_id,
@@ -372,10 +371,9 @@ pub fn handle_tf_call_concurrent(
     for mapping in &tfc.field_mappings {
         let src_field =
             sess.field_mgr.fields[mapping.source_field_id].borrow();
-        if src_field.has_unconsumed_input.get() {
-            continue;
-        }
         drop(src_field);
+        // TODO: make sure the source field does not have more rows than
+        // our current batch size before stealing it
         sess.field_mgr
             .clear_if_owned(&mut sess.match_set_mgr, mapping.source_field_id);
     }

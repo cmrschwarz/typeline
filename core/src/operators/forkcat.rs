@@ -336,19 +336,14 @@ pub fn handle_tf_forkcat_subchain(
     end_of_input: bool,
 ) {
     let target_tf = fc.curr_subchain_start.unwrap();
-    let unconsumed_input =
-        sess.tf_mgr.transforms[tf_id].has_unconsumed_input();
     if end_of_input {
         sess.tf_mgr.push_tf_in_ready_stack(tf_id);
         sess.tf_mgr.transforms[target_tf].input_is_done = true;
     } else {
         sess.tf_mgr.update_ready_state(tf_id);
     }
-    sess.tf_mgr.inform_transform_batch_available(
-        target_tf,
-        batch_size,
-        unconsumed_input,
-    );
+    sess.tf_mgr
+        .inform_transform_batch_available(target_tf, batch_size);
     if end_of_input && batch_size == 0 {
         sess.tf_mgr.push_tf_in_ready_stack(target_tf);
     }

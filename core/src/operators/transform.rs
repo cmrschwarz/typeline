@@ -98,7 +98,6 @@ pub struct TransformState {
                                             * is in append mode */
     pub input_field: FieldId,
     pub output_field: FieldId,
-    pub any_prev_has_unconsumed_input: bool,
     pub available_batch_size: usize,
     pub desired_batch_size: usize,
     pub match_set_id: MatchSetId,
@@ -140,11 +139,7 @@ impl TransformState {
             input_is_done: false,
             preferred_input_type: None,
             mark_for_removal: false,
-            any_prev_has_unconsumed_input: false,
         }
-    }
-    pub fn has_unconsumed_input(&self) -> bool {
-        self.any_prev_has_unconsumed_input || self.available_batch_size > 0
     }
 }
 
