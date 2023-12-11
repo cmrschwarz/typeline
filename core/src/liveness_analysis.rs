@@ -159,7 +159,13 @@ impl LivenessData {
                 OperatorData::FileReader(_) => app,
                 OperatorData::Literal(_) => app,
                 OperatorData::Sequence(_) => app,
-                OperatorData::Custom(op) => op.output_count(op_base),
+                OperatorData::Custom(op) => {
+                    let mut oc = op.output_count(op_base);
+                    if op_base.append_mode {
+                        oc = oc.wrapping_sub(1)
+                    }
+                    oc
+                }
             };
             total_outputs_count += outputs_count;
             op_base.outputs_end = total_outputs_count as OpOutputIdx;
@@ -447,7 +453,7 @@ impl LivenessData {
                 input_field
             };
             let mut input_accessed = true;
-            let mut input_access_stringified = true;
+            let mut non_stringified_input_access = false;
             let mut may_dup_or_drop = false;
             match &sess.operator_data[op_id] {
                 OperatorData::Fork(_) | OperatorData::ForkCat(_) => {
@@ -538,8 +544,8 @@ impl LivenessData {
                                     );
                                 } else {
                                     input_accessed = true;
-                                    input_access_stringified =
-                                        !non_stringified;
+                                    non_stringified_input_access =
+                                        non_stringified;
                                 }
                                 if let Some(FormatWidthSpec::Ref(ws_ref)) =
                                     fk.width
@@ -554,7 +560,7 @@ impl LivenessData {
                                         );
                                     } else {
                                         input_accessed = true;
-                                        input_access_stringified = false;
+                                        non_stringified_input_access = true;
                                     }
                                 }
                             }
@@ -590,13 +596,14 @@ impl LivenessData {
                 OperatorData::Next(_) => unreachable!(),
                 OperatorData::Up(_) => unreachable!(),
                 OperatorData::Custom(op) => {
-                    input_access_stringified = false;
+                    non_stringified_input_access = true;
+                    may_dup_or_drop = true;
                     op.update_variable_liveness(
                         self,
                         bb_id,
                         op_n,
                         &mut input_accessed,
-                        &mut input_access_stringified,
+                        &mut non_stringified_input_access,
                         &mut may_dup_or_drop,
                     )
                 }
@@ -605,7 +612,7 @@ impl LivenessData {
                 self.access_field(
                     used_input_field,
                     any_writes_so_far,
-                    input_access_stringified,
+                    !non_stringified_input_access,
                 );
             }
             if op_base.append_mode {

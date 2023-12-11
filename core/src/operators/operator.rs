@@ -110,35 +110,47 @@ impl OperatorData {
 
 pub trait Operator: Send + Sync {
     fn default_name(&self) -> DefaultOperatorName;
-    fn logical_output_count(&self, op_base: &OperatorBase) -> usize;
-    fn output_count(&self, op_base: &OperatorBase) -> usize {
-        let mut oc = self.logical_output_count(op_base);
-        if op_base.append_mode {
-            oc = oc.wrapping_sub(1)
-        }
-        oc
+    fn is_terminating_generator(&self, _op_base: &OperatorBase) -> bool {
+        false
     }
+    fn output_count(&self, op_base: &OperatorBase) -> usize;
+    fn has_dynamic_outputs(&self, op_base: &OperatorBase) -> bool;
     fn on_op_added(&self, _sess: &mut SessionOptions) {}
     fn on_subchains_added(&mut self, _current_subchain_count: u32) {}
-    fn register_output_var_names(&self, ld: &mut LivenessData, sess: &Session);
+    fn register_output_var_names(
+        &self,
+        _ld: &mut LivenessData,
+        _sess: &Session,
+    ) {
+    }
+
+    // all of the &mut bool flags default to true
+    // turning them to false allows for some pipeline optimizations
+    // but may cause incorrect behavior if the promises made are broken later
     fn update_variable_liveness(
         &self,
         ld: &mut LivenessData,
         bb_id: BasicBlockId,
         bb_offset: u32,
         input_accessed: &mut bool,
-        input_access_stringified: &mut bool,
+        non_stringified_input_access: &mut bool,
         may_dup_or_drop: &mut bool,
     );
     fn setup(
         &mut self,
-        op_id: OperatorId,
-        op_base: &OperatorBase,
-        chain: &Chain,
-        setttings: &SessionSettings,
-        chain_labels: &HashMap<StringStoreEntry, ChainId, BuildIdentityHasher>,
-        ss: &mut StringStore,
-    ) -> Result<(), OperatorSetupError>;
+        _op_id: OperatorId,
+        _op_base: &OperatorBase,
+        _chain: &Chain,
+        _setttings: &SessionSettings,
+        _chain_labels: &HashMap<
+            StringStoreEntry,
+            ChainId,
+            BuildIdentityHasher,
+        >,
+        _ss: &mut StringStore,
+    ) -> Result<(), OperatorSetupError> {
+        Ok(())
+    }
     fn on_liveness_computed(
         &mut self,
         _sess: &Session,

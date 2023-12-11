@@ -3,6 +3,7 @@ pub mod call_concurrent;
 pub mod cast;
 pub mod count;
 pub mod errors;
+pub mod explode;
 pub mod file_reader;
 pub mod fork;
 pub mod forkcat;
