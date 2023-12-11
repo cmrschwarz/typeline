@@ -152,6 +152,9 @@ unsafe impl FieldValueType for i64 {
 unsafe impl FieldValueType for StreamValueId {
     const REPR: FieldValueRepr = FieldValueRepr::StreamValueId;
 }
+unsafe impl FieldValueType for FieldReference {
+    const REPR: FieldValueRepr = FieldValueRepr::FieldReference;
+}
 unsafe impl FieldValueType for SlicedFieldReference {
     const REPR: FieldValueRepr = FieldValueRepr::SlicedFieldReference;
 }
