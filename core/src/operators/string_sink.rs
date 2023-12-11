@@ -368,7 +368,8 @@ pub fn handle_tf_string_sink(
                     }
                 }
             }
-            TypedSlice::SlicedReference(_) => unreachable!(),
+            TypedSlice::FieldReference(_) => unreachable!(),
+            TypedSlice::SlicedFieldReference(_) => unreachable!(),
             TypedSlice::Null(_) => {
                 push_str(&mut out, NULL_STR, range.base.field_count);
             }

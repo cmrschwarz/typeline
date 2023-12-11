@@ -753,7 +753,7 @@ pub fn handle_tf_regex(
             // PERF: this might waste a lot of space if we have many nulls
             ins.drop_and_reserve(
                 batch_size,
-                FieldDataRepr::SlicedReference,
+                FieldDataRepr::SlicedFieldReference,
                 0,
                 false,
             );
@@ -1005,7 +1005,8 @@ pub fn handle_tf_regex(
             | TypedSlice::Rational(_) => {
                 todo!();
             }
-            TypedSlice::SlicedReference(_) => unreachable!(),
+            TypedSlice::SlicedFieldReference(_)
+            | TypedSlice::FieldReference(_) => unreachable!(),
             TypedSlice::Null(_)
             | TypedSlice::Undefined(_)
             | TypedSlice::Error(_)

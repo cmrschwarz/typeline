@@ -127,7 +127,6 @@ impl Transform for TfExplode {
                 TypedSlice::StreamValueId(_) => {
                     todo!()
                 }
-                TypedSlice::SlicedReference(_) => todo!(),
                 TypedSlice::Error(_) => todo!(),
                 TypedSlice::BytesInline(_) => {
                     todo!()
@@ -141,6 +140,8 @@ impl Transform for TfExplode {
                 TypedSlice::Object(_) => todo!(),
                 TypedSlice::Array(_) => todo!(),
                 TypedSlice::Custom(_) => todo!(),
+                TypedSlice::FieldReference(_)
+                | TypedSlice::SlicedFieldReference(_) => unreachable!(),
             }
         }
     }

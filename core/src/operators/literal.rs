@@ -357,7 +357,10 @@ pub fn field_value_to_literal(v: FieldValue) -> Literal {
         FieldValue::Array(v) => Literal::Array(v),
         FieldValue::Object(v) => Literal::Object(v),
         FieldValue::Custom(v) => Literal::Custom(v),
-        FieldValue::SlicedFieldReference(_) => unreachable!(),
+        FieldValue::FieldReference(_)
+        | FieldValue::SlicedFieldReference(_) => {
+            panic!("field reference is not a valid literal")
+        }
     }
 }
 pub fn parse_op_tyson(

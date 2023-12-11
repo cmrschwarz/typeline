@@ -9,7 +9,9 @@ use super::{
         field_value_flags, FieldDataRepr, FieldValueFlags, FieldValueFormat,
         FieldValueHeader, FieldValueType, RunLength,
     },
-    field_value::{Array, Null, Object, SlicedFieldReference, Undefined},
+    field_value::{
+        Array, FieldReference, Null, Object, SlicedFieldReference, Undefined,
+    },
     iters::FieldDataRef,
     stream_value::StreamValueId,
 };
@@ -24,7 +26,8 @@ pub enum TypedValue<'a> {
     Float(&'a f64),
     Rational(&'a BigRational),
     StreamValueId(&'a StreamValueId),
-    SlicedReference(&'a SlicedFieldReference),
+    FieldReference(&'a FieldReference),
+    SlicedFieldReference(&'a SlicedFieldReference),
     Error(&'a OperatorApplicationError),
     BytesInline(&'a [u8]),
     TextInline(&'a str),
@@ -70,8 +73,11 @@ impl<'a> TypedValue<'a> {
                 FieldDataRepr::StreamValueId => {
                     TypedValue::StreamValueId(to_ref(fdr, data_begin))
                 }
-                FieldDataRepr::SlicedReference => {
-                    TypedValue::SlicedReference(to_ref(fdr, data_begin))
+                FieldDataRepr::FieldReference => {
+                    TypedValue::FieldReference(to_ref(fdr, data_begin))
+                }
+                FieldDataRepr::SlicedFieldReference => {
+                    TypedValue::SlicedFieldReference(to_ref(fdr, data_begin))
                 }
                 FieldDataRepr::Error => {
                     TypedValue::Error(to_ref(fdr, data_begin))
@@ -93,36 +99,30 @@ impl<'a> TypedValue<'a> {
         }
     }
     pub fn as_slice(&self) -> TypedSlice<'a> {
+        use std::slice::from_ref;
         match self {
             TypedValue::Undefined(_) => TypedSlice::Undefined(&[Undefined]),
             TypedValue::Null(_) => TypedSlice::Null(&[Null]),
-            TypedValue::Int(v) => TypedSlice::Int(std::slice::from_ref(v)),
-            TypedValue::BigInt(v) => {
-                TypedSlice::BigInt(std::slice::from_ref(v))
-            }
-            TypedValue::Float(v) => TypedSlice::Float(std::slice::from_ref(v)),
-            TypedValue::Rational(v) => {
-                TypedSlice::Rational(std::slice::from_ref(v))
-            }
+            TypedValue::Int(v) => TypedSlice::Int(from_ref(v)),
+            TypedValue::BigInt(v) => TypedSlice::BigInt(from_ref(v)),
+            TypedValue::Float(v) => TypedSlice::Float(from_ref(v)),
+            TypedValue::Rational(v) => TypedSlice::Rational(from_ref(v)),
             TypedValue::StreamValueId(v) => {
-                TypedSlice::StreamValueId(std::slice::from_ref(v))
+                TypedSlice::StreamValueId(from_ref(v))
             }
-            TypedValue::SlicedReference(v) => {
-                TypedSlice::SlicedReference(std::slice::from_ref(v))
+            TypedValue::FieldReference(v) => {
+                TypedSlice::FieldReference(from_ref(v))
             }
-            TypedValue::Error(v) => TypedSlice::Error(std::slice::from_ref(v)),
+            TypedValue::SlicedFieldReference(v) => {
+                TypedSlice::SlicedFieldReference(from_ref(v))
+            }
+            TypedValue::Error(v) => TypedSlice::Error(from_ref(v)),
             TypedValue::BytesInline(v) => TypedSlice::BytesInline(v),
             TypedValue::TextInline(v) => TypedSlice::TextInline(v),
-            TypedValue::BytesBuffer(v) => {
-                TypedSlice::BytesBuffer(std::slice::from_ref(v))
-            }
-            TypedValue::Object(v) => {
-                TypedSlice::Object(std::slice::from_ref(v))
-            }
-            TypedValue::Array(v) => TypedSlice::Array(std::slice::from_ref(v)),
-            TypedValue::Custom(v) => {
-                TypedSlice::Custom(std::slice::from_ref(v))
-            }
+            TypedValue::BytesBuffer(v) => TypedSlice::BytesBuffer(from_ref(v)),
+            TypedValue::Object(v) => TypedSlice::Object(from_ref(v)),
+            TypedValue::Array(v) => TypedSlice::Array(from_ref(v)),
+            TypedValue::Custom(v) => TypedSlice::Custom(from_ref(v)),
         }
     }
 }
@@ -152,21 +152,22 @@ impl<'a> TypedField<'a> {
 
 #[derive(Clone, Copy)]
 pub enum TypedSlice<'a> {
-    Undefined(&'a [Undefined]),
     Null(&'a [Null]),
+    Undefined(&'a [Undefined]),
     Int(&'a [i64]),
     BigInt(&'a [BigInt]),
     Float(&'a [f64]),
     Rational(&'a [BigRational]),
-    StreamValueId(&'a [StreamValueId]),
-    SlicedReference(&'a [SlicedFieldReference]),
-    Error(&'a [OperatorApplicationError]),
     BytesInline(&'a [u8]),
     TextInline(&'a str),
     BytesBuffer(&'a [Vec<u8>]),
     Object(&'a [Object]),
     Array(&'a [Array]),
     Custom(&'a [CustomDataBox]),
+    Error(&'a [OperatorApplicationError]),
+    StreamValueId(&'a [StreamValueId]),
+    FieldReference(&'a [FieldReference]),
+    SlicedFieldReference(&'a [SlicedFieldReference]),
 }
 
 impl<'a> Default for TypedSlice<'a> {
@@ -240,9 +241,14 @@ impl<'a> TypedSlice<'a> {
                 FieldDataRepr::Rational => {
                     TypedSlice::Rational(to_slice(fdr, data_begin, data_end))
                 }
-                FieldDataRepr::SlicedReference => TypedSlice::SlicedReference(
+                FieldDataRepr::FieldReference => TypedSlice::FieldReference(
                     to_slice(fdr, data_begin, data_end),
                 ),
+                FieldDataRepr::SlicedFieldReference => {
+                    TypedSlice::SlicedFieldReference(to_slice(
+                        fdr, data_begin, data_end,
+                    ))
+                }
                 FieldDataRepr::Error => {
                     TypedSlice::Error(to_slice(fdr, data_begin, data_end))
                 }
@@ -275,7 +281,8 @@ impl<'a> TypedSlice<'a> {
                 TypedSlice::Float(v) => slice_as_bytes(v),
                 TypedSlice::Rational(v) => slice_as_bytes(v),
                 TypedSlice::StreamValueId(v) => slice_as_bytes(v),
-                TypedSlice::SlicedReference(v) => slice_as_bytes(v),
+                TypedSlice::FieldReference(v) => slice_as_bytes(v),
+                TypedSlice::SlicedFieldReference(v) => slice_as_bytes(v),
                 TypedSlice::Error(v) => slice_as_bytes(v),
                 TypedSlice::BytesInline(v) => v,
                 TypedSlice::TextInline(v) => v.as_bytes(),
@@ -295,7 +302,10 @@ impl<'a> TypedSlice<'a> {
             TypedSlice::Float(_) => FieldDataRepr::Float,
             TypedSlice::Rational(_) => FieldDataRepr::Rational,
             TypedSlice::StreamValueId(_) => FieldDataRepr::StreamValueId,
-            TypedSlice::SlicedReference(_) => FieldDataRepr::SlicedReference,
+            TypedSlice::FieldReference(_) => FieldDataRepr::FieldReference,
+            TypedSlice::SlicedFieldReference(_) => {
+                FieldDataRepr::SlicedFieldReference
+            }
             TypedSlice::Error(_) => FieldDataRepr::Error,
             TypedSlice::BytesInline(_) => FieldDataRepr::BytesInline,
             TypedSlice::TextInline(_) => FieldDataRepr::BytesInline,
@@ -314,7 +324,8 @@ impl<'a> TypedSlice<'a> {
             TypedSlice::Float(v) => v.len(),
             TypedSlice::Rational(v) => v.len(),
             TypedSlice::StreamValueId(v) => v.len(),
-            TypedSlice::SlicedReference(v) => v.len(),
+            TypedSlice::FieldReference(v) => v.len(),
+            TypedSlice::SlicedFieldReference(v) => v.len(),
             TypedSlice::Error(v) => v.len(),
             TypedSlice::BytesInline(v) => v.len(),
             TypedSlice::TextInline(v) => v.len(),

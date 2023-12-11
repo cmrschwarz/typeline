@@ -839,7 +839,6 @@ pub fn setup_key_output_state(
         field_value_flags::BYTES_ARE_UTF8,
     ) {
         match range.base.data {
-            TypedSlice::SlicedReference(_) => unreachable!(),
             TypedSlice::TextInline(text) => {
                 for (v, rl, _offs) in
                     RefAwareInlineTextIter::from_range(&range, text)
@@ -1152,6 +1151,8 @@ pub fn setup_key_output_state(
             TypedSlice::Array(_) => {
                 todo!();
             }
+            TypedSlice::FieldReference(_)
+            | TypedSlice::SlicedFieldReference(_) => unreachable!(),
         }
         handled_fields += range.base.field_count;
     }
@@ -1565,7 +1566,6 @@ fn write_fmt_key(
     ) {
         // TODO: respect format options
         match range.base.data {
-            TypedSlice::SlicedReference(_) => unreachable!(),
             TypedSlice::TextInline(text) => {
                 for (v, rl, _offs) in
                     RefAwareInlineTextIter::from_range(&range, text)
@@ -1813,6 +1813,8 @@ fn write_fmt_key(
                     |_tgt| unreachable!(),
                 );
             }
+            TypedSlice::FieldReference(_)
+            | TypedSlice::SlicedFieldReference(_) => unreachable!(),
         }
     }
     let base_iter = iter.into_base_iter();

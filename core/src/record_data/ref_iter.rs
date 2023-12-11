@@ -349,7 +349,7 @@ impl<'a, I: FieldIterator<'a>> AutoDerefIter<'a, I> {
             }
             let field_pos = self.iter.get_next_field_pos();
             if let Some(range) = self.iter.typed_range_fwd(limit, flags) {
-                if let TypedSlice::SlicedReference(refs) = range.data {
+                if let TypedSlice::SlicedFieldReference(refs) = range.data {
                     let refs_iter = TypedSliceIter::from_range(&range, refs);
                     let field_id_offset =
                         refs_iter.peek().unwrap().0.field_id_offset;
@@ -814,7 +814,7 @@ mod ref_iter_tests {
             } else {
                 fd_refs.headers.push(FieldValueHeader {
                     fmt: FieldValueFormat {
-                        repr: FieldDataRepr::SlicedReference,
+                        repr: FieldDataRepr::SlicedFieldReference,
                         flags: h.flags
                             & (field_value_flags::DELETED
                                 | field_value_flags::SHARED_VALUE

@@ -331,7 +331,8 @@ pub fn handle_tf_print_raw(
                     *handled_field_count += 1;
                 }
             }
-            TypedSlice::SlicedReference(_) => unreachable!(),
+            TypedSlice::FieldReference(_)
+            | TypedSlice::SlicedFieldReference(_) => unreachable!(),
         }
         field_pos += range.base.field_count;
     }

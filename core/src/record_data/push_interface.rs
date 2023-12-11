@@ -1117,7 +1117,7 @@ pub struct FieldReferenceInserter<'a> {
     raw: RawFixedSizedTypeInserter<'a>,
 }
 unsafe impl<'a> FixedSizeTypeInserter<'a> for FieldReferenceInserter<'a> {
-    const REPR: FieldDataRepr = FieldDataRepr::SlicedReference;
+    const REPR: FieldDataRepr = FieldDataRepr::SlicedFieldReference;
     type ValueType = SlicedFieldReference;
 
     fn get_raw(&mut self) -> &mut RawFixedSizedTypeInserter<'a> {

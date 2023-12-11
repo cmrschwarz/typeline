@@ -429,7 +429,6 @@ pub fn handle_tf_join(
                         push_custom_type(tf, join, sv_mgr, v, rl);
                     }
                 }
-                TypedSlice::SlicedReference(_) => unreachable!(),
                 TypedSlice::Error(errs) => {
                     push_error(join, sv_mgr, errs[0].clone());
                 }
@@ -554,6 +553,8 @@ pub fn handle_tf_join(
                 TypedSlice::Array(_) => {
                     todo!();
                 }
+                TypedSlice::FieldReference(_)
+                | TypedSlice::SlicedFieldReference(_) => unreachable!(),
             }
             let fc = range.base.field_count;
             join.group_len += fc;
