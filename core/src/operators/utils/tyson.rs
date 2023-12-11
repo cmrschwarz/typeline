@@ -315,7 +315,7 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
         &mut self,
         quote_kind: u8,
     ) -> Result<FieldValue, TysonParseError> {
-        Ok(FieldValue::String(
+        Ok(FieldValue::Text(
             self.parse_string_token_after_quote(quote_kind)?,
         ))
     }
@@ -637,19 +637,19 @@ mod test {
 
     #[test]
     fn string() {
-        assert_eq!(parse(r#""foo""#), Ok(FieldValue::String("foo".into())));
+        assert_eq!(parse(r#""foo""#), Ok(FieldValue::Text("foo".into())));
     }
 
     #[test]
     fn single_quoted_string() {
-        assert_eq!(parse("'foo'"), Ok(FieldValue::String("foo".into())));
+        assert_eq!(parse("'foo'"), Ok(FieldValue::Text("foo".into())));
     }
 
     #[test]
     fn unicode_escape() {
         assert_eq!(
             parse(r#""foo\u{1F4A9}bar""#),
-            Ok(FieldValue::String("foo\u{1F4A9}bar".into()))
+            Ok(FieldValue::Text("foo\u{1F4A9}bar".into()))
         );
     }
 
@@ -662,7 +662,7 @@ mod test {
                     FieldValue::Int(1),
                     FieldValue::Int(2),
                     FieldValue::Int(3),
-                    FieldValue::String("4".into())
+                    FieldValue::Text("4".into())
                 ]
                 .into()
             )))

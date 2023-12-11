@@ -352,7 +352,7 @@ pub fn field_value_to_literal(v: FieldValue) -> Literal {
         FieldValue::Float(v) => Literal::Float(v),
         FieldValue::Rational(v) => Literal::Rational(*v),
         FieldValue::Bytes(v) => Literal::Bytes(v),
-        FieldValue::String(v) => Literal::String(v),
+        FieldValue::Text(v) => Literal::String(v),
         FieldValue::Error(v) => Literal::Error(v.message().to_owned()),
         FieldValue::Array(v) => Literal::Array(v),
         FieldValue::Object(v) => Literal::Object(v),

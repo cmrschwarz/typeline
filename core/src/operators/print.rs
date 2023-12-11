@@ -8,7 +8,7 @@ use crate::{
     },
     options::argument::CliArgIdx,
     record_data::{
-        field_data::{field_value_flags, FieldDataRepr},
+        field_data::{field_value_flags, FieldValueRepr},
         field_value::FormattingContext,
         iter_hall::IterId,
         iters::{FieldIterator, UnfoldIterRunLength},
@@ -59,7 +59,7 @@ pub fn build_tf_print(
     _op: &OpPrint,
     tf_state: &mut TransformState,
 ) -> TransformData<'static> {
-    tf_state.preferred_input_type = Some(FieldDataRepr::BytesInline);
+    tf_state.preferred_input_type = Some(FieldValueRepr::BytesInline);
     TransformData::Print(TfPrint {
         // TODO: should we make a config option for this?
         flush_on_every_print: std::io::stdout().is_terminal(),

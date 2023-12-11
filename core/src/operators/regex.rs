@@ -15,7 +15,9 @@ use crate::{
         action_buffer::{ActionBuffer, ActorId, ActorRef},
         field::{Field, FieldId, FieldIdOffset},
         field_action::FieldActionKind,
-        field_data::{field_value_flags, FieldData, FieldDataRepr, RunLength},
+        field_data::{
+            field_value_flags, FieldData, FieldValueRepr, RunLength,
+        },
         field_value::SlicedFieldReference,
         iter_hall::IterId,
         iters::FieldIterator,
@@ -447,7 +449,7 @@ pub fn build_tf_regex<'a>(
             field_id
         })
         .collect();
-    tf_state.preferred_input_type = Some(FieldDataRepr::BytesInline);
+    tf_state.preferred_input_type = Some(FieldValueRepr::BytesInline);
 
     TransformData::Regex(TfRegex {
         regex: op.regex.clone(),
@@ -753,7 +755,7 @@ pub fn handle_tf_regex(
             // PERF: this might waste a lot of space if we have many nulls
             ins.drop_and_reserve(
                 batch_size,
-                FieldDataRepr::SlicedFieldReference,
+                FieldValueRepr::SlicedFieldReference,
                 0,
                 false,
             );

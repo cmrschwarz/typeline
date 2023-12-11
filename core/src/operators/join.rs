@@ -12,7 +12,7 @@ use crate::{
     record_data::{
         custom_data::CustomDataBox,
         field::Field,
-        field_data::{field_value_flags, FieldDataRepr, INLINE_STR_MAX_LEN},
+        field_data::{field_value_flags, FieldValueRepr, INLINE_STR_MAX_LEN},
         iter_hall::IterId,
         iters::FieldIterator,
         push_interface::PushInterface,
@@ -127,7 +127,7 @@ pub fn build_tf_join<'a>(
     op: &'a OpJoin,
     tf_state: &mut TransformState,
 ) -> TransformData<'a> {
-    tf_state.preferred_input_type = Some(FieldDataRepr::BytesInline);
+    tf_state.preferred_input_type = Some(FieldValueRepr::BytesInline);
     TransformData::Join(TfJoin {
         current_stream_val: None,
         stream_val_added_len: 0,

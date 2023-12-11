@@ -4,7 +4,7 @@ use smallstr::SmallString;
 use crate::{
     job_session::{JobData, JobSession},
     record_data::{
-        field::FieldId, field_data::FieldDataRepr, match_set::MatchSetId,
+        field::FieldId, field_data::FieldValueRepr, match_set::MatchSetId,
         stream_value::StreamValueId,
     },
     utils::small_box::SmallBox,
@@ -109,7 +109,7 @@ pub struct TransformState {
     pub is_transparent: bool,
     pub input_is_done: bool,
     pub mark_for_removal: bool,
-    pub preferred_input_type: Option<FieldDataRepr>,
+    pub preferred_input_type: Option<FieldValueRepr>,
 }
 
 impl TransformState {

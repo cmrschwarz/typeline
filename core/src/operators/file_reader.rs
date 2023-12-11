@@ -16,7 +16,7 @@ use crate::{
     options::argument::CliArgIdx,
     record_data::{
         field_data::{
-            field_value_flags, FieldDataRepr, FieldValueFormat,
+            field_value_flags, FieldValueFormat, FieldValueRepr,
             FieldValueSize, INLINE_STR_MAX_LEN,
         },
         push_interface::PushInterface,
@@ -254,7 +254,7 @@ fn start_streaming_file(
                 unsafe {
                     output_field.iter_hall.raw().add_header_for_single_value(
                         FieldValueFormat {
-                            repr: FieldDataRepr::BytesInline,
+                            repr: FieldValueRepr::BytesInline,
                             flags: field_value_flags::SHARED_VALUE,
                             size: size as FieldValueSize,
                         },

@@ -7,7 +7,7 @@ use crate::{
     liveness_analysis::{BasicBlockId, LivenessData, OpOutputIdx},
     record_data::{
         field::FieldId,
-        field_data::{FieldData, FieldDataRepr},
+        field_data::{FieldData, FieldValueRepr},
         iter_hall::IterId,
         push_interface::VaryingTypeInserter,
         typed::TypedSlice,
@@ -100,11 +100,11 @@ impl Transform for TfExplode {
         while let Some(range) = iter.next(&mut jd.match_set_mgr) {
             match range.base.data {
                 TypedSlice::Undefined(_) => inserters[0].push_zst(
-                    FieldDataRepr::Undefined,
+                    FieldValueRepr::Undefined,
                     range.base.field_count,
                 ),
                 TypedSlice::Null(_) => inserters[0].push_zst(
-                    FieldDataRepr::Undefined,
+                    FieldValueRepr::Undefined,
                     range.base.field_count,
                 ),
                 TypedSlice::Int(ints) => {

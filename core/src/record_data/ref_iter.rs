@@ -736,8 +736,8 @@ mod ref_iter_tests {
     };
     use crate::record_data::{
         field_data::{
-            field_value_flags, FieldData, FieldDataRepr, FieldValueFormat,
-            FieldValueHeader, RunLength,
+            field_value_flags, FieldData, FieldValueFormat, FieldValueHeader,
+            FieldValueRepr, RunLength,
         },
         field_value::SlicedFieldReference,
         iters::Iter,
@@ -814,7 +814,7 @@ mod ref_iter_tests {
             } else {
                 fd_refs.headers.push(FieldValueHeader {
                     fmt: FieldValueFormat {
-                        repr: FieldDataRepr::SlicedFieldReference,
+                        repr: FieldValueRepr::SlicedFieldReference,
                         flags: h.flags
                             & (field_value_flags::DELETED
                                 | field_value_flags::SHARED_VALUE

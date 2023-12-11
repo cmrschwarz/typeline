@@ -3,8 +3,8 @@ use std::{mem::ManuallyDrop, ops::DerefMut};
 use super::{
     custom_data::CustomDataBox,
     field_data::{
-        field_value_flags, FieldData, FieldDataRepr, FieldValueFlags,
-        FieldValueFormat, FieldValueHeader, FieldValueSize, FieldValueType,
+        field_value_flags, FieldData, FieldValueFlags, FieldValueFormat,
+        FieldValueHeader, FieldValueRepr, FieldValueSize, FieldValueType,
         RunLength, MAX_FIELD_ALIGN,
     },
     field_value::SlicedFieldReference,
@@ -22,7 +22,7 @@ use crate::{
 pub unsafe trait RawPushInterface {
     unsafe fn push_variable_sized_type(
         &mut self,
-        kind: FieldDataRepr,
+        kind: FieldValueRepr,
         flags: FieldValueFlags,
         data: &[u8],
         run_length: usize,
@@ -33,7 +33,7 @@ pub unsafe trait RawPushInterface {
         T: PartialEq + Clone + FieldValueType,
     >(
         &mut self,
-        repr: FieldDataRepr,
+        repr: FieldValueRepr,
         flags: FieldValueFlags,
         data: T,
         run_length: usize,
@@ -62,14 +62,14 @@ pub unsafe trait RawPushInterface {
 
     unsafe fn push_zst_unchecked(
         &mut self,
-        kind: FieldDataRepr,
+        kind: FieldValueRepr,
         flags: FieldValueFlags,
         run_length: usize,
         try_header_rle: bool,
     );
     unsafe fn push_variable_sized_type_uninit(
         &mut self,
-        kind: FieldDataRepr,
+        kind: FieldValueRepr,
         flags: FieldValueFlags,
         data_len: usize,
         run_length: usize,
@@ -318,7 +318,7 @@ impl FieldData {
 unsafe impl RawPushInterface for FieldData {
     unsafe fn push_variable_sized_type(
         &mut self,
-        kind: FieldDataRepr,
+        kind: FieldValueRepr,
         flags: FieldValueFlags,
         data: &[u8],
         run_length: usize,
@@ -374,7 +374,7 @@ unsafe impl RawPushInterface for FieldData {
         T: PartialEq + Clone + FieldValueType,
     >(
         &mut self,
-        repr: FieldDataRepr,
+        repr: FieldValueRepr,
         flags: FieldValueFlags,
         data: T,
         run_length: usize,
@@ -439,7 +439,7 @@ unsafe impl RawPushInterface for FieldData {
     }
     unsafe fn push_zst_unchecked(
         &mut self,
-        kind: FieldDataRepr,
+        kind: FieldValueRepr,
         flags: FieldValueFlags,
         run_length: usize,
         try_header_rle: bool,
@@ -471,7 +471,7 @@ unsafe impl RawPushInterface for FieldData {
 
     unsafe fn push_variable_sized_type_uninit(
         &mut self,
-        kind: FieldDataRepr,
+        kind: FieldValueRepr,
         flags: FieldValueFlags,
         data_len: usize,
         run_length: usize,
@@ -506,7 +506,7 @@ pub trait PushInterface: RawPushInterface {
     ) {
         unsafe {
             self.push_variable_sized_type(
-                FieldDataRepr::BytesInline,
+                FieldValueRepr::BytesInline,
                 field_value_flags::DEFAULT,
                 data,
                 run_length,
@@ -524,7 +524,7 @@ pub trait PushInterface: RawPushInterface {
     ) {
         unsafe {
             self.push_variable_sized_type(
-                FieldDataRepr::BytesInline,
+                FieldValueRepr::BytesInline,
                 field_value_flags::BYTES_ARE_UTF8,
                 data.as_bytes(),
                 run_length,
@@ -542,7 +542,7 @@ pub trait PushInterface: RawPushInterface {
     ) {
         unsafe {
             self.push_fixed_size_type_unchecked(
-                FieldDataRepr::BytesBuffer,
+                FieldValueRepr::BytesBuffer,
                 field_value_flags::BYTES_ARE_UTF8,
                 data.into_bytes(),
                 run_length,
@@ -574,7 +574,7 @@ pub trait PushInterface: RawPushInterface {
     ) {
         unsafe {
             self.push_fixed_size_type_unchecked(
-                FieldDataRepr::BytesBuffer,
+                FieldValueRepr::BytesBuffer,
                 field_value_flags::BYTES_ARE_UTF8,
                 data.as_bytes().to_vec(),
                 run_length,
@@ -592,7 +592,7 @@ pub trait PushInterface: RawPushInterface {
     ) {
         unsafe {
             self.push_fixed_size_type_unchecked(
-                FieldDataRepr::BytesBuffer,
+                FieldValueRepr::BytesBuffer,
                 field_value_flags::DEFAULT,
                 data.to_vec(),
                 run_length,
@@ -718,14 +718,14 @@ pub trait PushInterface: RawPushInterface {
         );
     }
     fn push_null(&mut self, run_length: usize, try_header_rle: bool) {
-        self.push_zst(FieldDataRepr::Null, run_length, try_header_rle);
+        self.push_zst(FieldValueRepr::Null, run_length, try_header_rle);
     }
     fn push_undefined(&mut self, run_length: usize, try_header_rle: bool) {
-        self.push_zst(FieldDataRepr::Undefined, run_length, try_header_rle);
+        self.push_zst(FieldValueRepr::Undefined, run_length, try_header_rle);
     }
     fn push_zst(
         &mut self,
-        kind: FieldDataRepr,
+        kind: FieldValueRepr,
         run_length: usize,
         try_header_rle: bool,
     ) {
@@ -824,7 +824,7 @@ impl<'a> RawFixedSizedTypeInserter<'a> {
 }
 
 pub unsafe trait FixedSizeTypeInserter<'a>: Sized {
-    const REPR: FieldDataRepr;
+    const REPR: FieldValueRepr;
     const FLAGS: FieldValueFlags = field_value_flags::DEFAULT;
     type ValueType: PartialEq + Clone + FieldValueType;
     fn get_raw(&mut self) -> &mut RawFixedSizedTypeInserter<'a>;
@@ -957,7 +957,7 @@ impl<'a> RawVariableSizedTypeInserter<'a> {
 }
 
 pub unsafe trait VariableSizeTypeInserter<'a>: Sized {
-    const KIND: FieldDataRepr;
+    const KIND: FieldValueRepr;
     const FLAGS: FieldValueFlags = field_value_flags::DEFAULT;
     type ElementType: ?Sized;
     fn new(fd: &'a mut FieldData) -> Self;
@@ -1062,7 +1062,7 @@ impl<'a> RawZeroSizedTypeInserter<'a> {
     }
     pub unsafe fn commit(
         &mut self,
-        kind: FieldDataRepr,
+        kind: FieldValueRepr,
         flags: FieldValueFlags,
     ) {
         if self.count == 0 {
@@ -1076,7 +1076,7 @@ impl<'a> RawZeroSizedTypeInserter<'a> {
 }
 
 pub unsafe trait ZeroSizedTypeInserter<'a>: Sized {
-    const KIND: FieldDataRepr;
+    const KIND: FieldValueRepr;
     const FLAGS: FieldValueFlags = field_value_flags::DEFAULT;
     fn get_raw(&mut self) -> &mut RawZeroSizedTypeInserter<'a>;
     fn new(fd: &'a mut FieldData) -> Self;
@@ -1095,7 +1095,7 @@ pub struct IntegerInserter<'a> {
     raw: RawFixedSizedTypeInserter<'a>,
 }
 unsafe impl<'a> FixedSizeTypeInserter<'a> for IntegerInserter<'a> {
-    const REPR: FieldDataRepr = FieldDataRepr::Int;
+    const REPR: FieldValueRepr = FieldValueRepr::Int;
     const FLAGS: FieldValueFlags = field_value_flags::DEFAULT;
     type ValueType = i64;
     fn get_raw(&mut self) -> &mut RawFixedSizedTypeInserter<'a> {
@@ -1117,7 +1117,7 @@ pub struct FieldReferenceInserter<'a> {
     raw: RawFixedSizedTypeInserter<'a>,
 }
 unsafe impl<'a> FixedSizeTypeInserter<'a> for FieldReferenceInserter<'a> {
-    const REPR: FieldDataRepr = FieldDataRepr::SlicedFieldReference;
+    const REPR: FieldValueRepr = FieldValueRepr::SlicedFieldReference;
     type ValueType = SlicedFieldReference;
 
     fn get_raw(&mut self) -> &mut RawFixedSizedTypeInserter<'a> {
@@ -1139,7 +1139,7 @@ pub struct InlineStringInserter<'a> {
     raw: RawVariableSizedTypeInserter<'a>,
 }
 unsafe impl<'a> VariableSizeTypeInserter<'a> for InlineStringInserter<'a> {
-    const KIND: FieldDataRepr = FieldDataRepr::BytesInline;
+    const KIND: FieldValueRepr = FieldValueRepr::BytesInline;
     const FLAGS: FieldValueFlags = field_value_flags::BYTES_ARE_UTF8;
     type ElementType = str;
     #[inline(always)]
@@ -1166,7 +1166,7 @@ pub struct InlineBytesInserter<'a> {
     raw: RawVariableSizedTypeInserter<'a>,
 }
 unsafe impl<'a> VariableSizeTypeInserter<'a> for InlineBytesInserter<'a> {
-    const KIND: FieldDataRepr = FieldDataRepr::BytesInline;
+    const KIND: FieldValueRepr = FieldValueRepr::BytesInline;
     type ElementType = [u8];
     #[inline(always)]
     fn get_raw(&mut self) -> &mut RawVariableSizedTypeInserter<'a> {
@@ -1192,7 +1192,7 @@ pub struct NullsInserter<'a> {
     raw: RawZeroSizedTypeInserter<'a>,
 }
 unsafe impl<'a> ZeroSizedTypeInserter<'a> for NullsInserter<'a> {
-    const KIND: FieldDataRepr = FieldDataRepr::Null;
+    const KIND: FieldValueRepr = FieldValueRepr::Null;
     #[inline(always)]
     fn get_raw(&mut self) -> &mut RawZeroSizedTypeInserter<'a> {
         &mut self.raw
@@ -1254,7 +1254,7 @@ impl<FD: DerefMut<Target = FieldData>> VaryingTypeInserter<FD> {
     pub fn drop_and_reserve(
         &mut self,
         reserved_elements: usize,
-        kind: FieldDataRepr,
+        kind: FieldValueRepr,
         dynamic_size: usize,
         bytes_are_utf8: bool,
     ) {
@@ -1270,9 +1270,9 @@ impl<FD: DerefMut<Target = FieldData>> VaryingTypeInserter<FD> {
         } as FieldValueSize;
         if bytes_are_utf8 {
             assert!([
-                FieldDataRepr::BytesInline,
-                FieldDataRepr::BytesBuffer,
-                FieldDataRepr::BytesFile
+                FieldValueRepr::BytesInline,
+                FieldValueRepr::BytesBuffer,
+                FieldValueRepr::BytesFile
             ]
             .contains(&kind));
             fmt.flags = field_value_flags::BYTES_ARE_UTF8;
@@ -1303,7 +1303,7 @@ impl<FD: DerefMut<Target = FieldData>> VaryingTypeInserter<FD> {
         }
         self.count = 0;
     }
-    pub fn push_zst(&mut self, kind: FieldDataRepr, count: usize) {
+    pub fn push_zst(&mut self, kind: FieldValueRepr, count: usize) {
         assert!(kind.is_zst());
         if self.fmt.repr != kind {
             let len_rem = self.max - self.count;
@@ -1324,7 +1324,7 @@ impl<FD: DerefMut<Target = FieldData>> VaryingTypeInserter<FD> {
     }
     pub unsafe fn push_variable_sized_type(
         &mut self,
-        kind: FieldDataRepr,
+        kind: FieldValueRepr,
         bytes_are_utf8: bool,
         bytes: &[u8],
         rl: usize,
@@ -1349,7 +1349,7 @@ impl<FD: DerefMut<Target = FieldData>> VaryingTypeInserter<FD> {
                     );
                 }
                 self.max = reserved_left;
-                self.fmt.repr = FieldDataRepr::Null;
+                self.fmt.repr = FieldValueRepr::Null;
                 return;
             }
             // TODO: maybe set some limit on the reserved len here?
@@ -1392,7 +1392,7 @@ impl<FD: DerefMut<Target = FieldData>> VaryingTypeInserter<FD> {
             if rl > 1 {
                 self.fd.push_fixed_size_type(v, rl, true, false);
                 self.max = reserved_left;
-                self.fmt.repr = FieldDataRepr::Null;
+                self.fmt.repr = FieldValueRepr::Null;
                 return;
             }
             unsafe {
@@ -1424,7 +1424,7 @@ impl<FD: DerefMut<Target = FieldData>> VaryingTypeInserter<FD> {
     pub fn push_inline_str(&mut self, v: &str, rl: usize) {
         unsafe {
             self.push_variable_sized_type(
-                FieldDataRepr::BytesInline,
+                FieldValueRepr::BytesInline,
                 true,
                 v.as_bytes(),
                 rl,
@@ -1434,7 +1434,7 @@ impl<FD: DerefMut<Target = FieldData>> VaryingTypeInserter<FD> {
     pub fn push_inline_bytes(&mut self, v: &[u8], rl: usize) {
         unsafe {
             self.push_variable_sized_type(
-                FieldDataRepr::BytesInline,
+                FieldValueRepr::BytesInline,
                 false,
                 v,
                 rl,
@@ -1455,7 +1455,7 @@ impl<FD: DerefMut<Target = FieldData>> VaryingTypeInserter<FD> {
         self.push_fixed_sized_type(e, rl)
     }
     pub fn push_null(&mut self, rl: usize) {
-        self.push_zst(FieldDataRepr::Null, rl)
+        self.push_zst(FieldValueRepr::Null, rl)
     }
 }
 

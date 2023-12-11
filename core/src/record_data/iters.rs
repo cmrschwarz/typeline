@@ -1,6 +1,6 @@
 use crate::record_data::field_data::{
-    field_value_flags, FieldData, FieldDataRepr, FieldValueFlags,
-    FieldValueFormat, FieldValueHeader, RunLength,
+    field_value_flags, FieldData, FieldValueFlags, FieldValueFormat,
+    FieldValueHeader, FieldValueRepr, RunLength,
 };
 use std::{cmp::Ordering, marker::PhantomData};
 
@@ -126,7 +126,7 @@ pub trait FieldIterator<'a>: Sized {
     fn next_n_fields_with_fmt_and_data_check<const N: usize>(
         &mut self,
         n: usize,
-        kinds: [FieldDataRepr; N],
+        kinds: [FieldValueRepr; N],
         invert_kinds_check: bool,
         flag_mask: FieldValueFlags,
         flags: FieldValueFlags,
@@ -135,7 +135,7 @@ pub trait FieldIterator<'a>: Sized {
     fn next_n_fields_with_fmt<const N: usize>(
         &mut self,
         n: usize,
-        kinds: [FieldDataRepr; N],
+        kinds: [FieldValueRepr; N],
         invert_kinds_check: bool,
         flag_mask: FieldValueFlags,
         flags: FieldValueFlags,
@@ -152,7 +152,7 @@ pub trait FieldIterator<'a>: Sized {
     fn prev_n_fields_with_fmt_and_data_check<const N: usize>(
         &mut self,
         n: usize,
-        kinds: [FieldDataRepr; N],
+        kinds: [FieldValueRepr; N],
         invert_kinds_check: bool,
         flag_mask: FieldValueFlags,
         flags: FieldValueFlags,
@@ -161,7 +161,7 @@ pub trait FieldIterator<'a>: Sized {
     fn prev_n_fields_with_fmt<const N: usize>(
         &mut self,
         n: usize,
-        kinds: [FieldDataRepr; N],
+        kinds: [FieldValueRepr; N],
         invert_kinds_check: bool,
         flag_mask: FieldValueFlags,
         flags: FieldValueFlags,
@@ -421,7 +421,7 @@ impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for Iter<'a, R> {
     fn next_n_fields_with_fmt_and_data_check<const N: usize>(
         &mut self,
         n: usize,
-        kinds: [FieldDataRepr; N],
+        kinds: [FieldValueRepr; N],
         invert_kinds_check: bool,
         flag_mask: FieldValueFlags,
         mut flags: FieldValueFlags,
@@ -471,7 +471,7 @@ impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for Iter<'a, R> {
     fn prev_n_fields_with_fmt_and_data_check<const N: usize>(
         &mut self,
         n: usize,
-        kinds: [FieldDataRepr; N],
+        kinds: [FieldValueRepr; N],
         invert_kinds_check: bool,
         flag_mask: FieldValueFlags,
         mut flags: FieldValueFlags,
@@ -813,7 +813,7 @@ where
     fn next_n_fields_with_fmt_and_data_check<const N: usize>(
         &mut self,
         n: usize,
-        kinds: [FieldDataRepr; N],
+        kinds: [FieldValueRepr; N],
         invert_kinds_check: bool,
         flag_mask: FieldValueFlags,
         flags: FieldValueFlags,
@@ -832,7 +832,7 @@ where
     fn prev_n_fields_with_fmt_and_data_check<const N: usize>(
         &mut self,
         n: usize,
-        kinds: [FieldDataRepr; N],
+        kinds: [FieldValueRepr; N],
         invert_kinds_check: bool,
         flag_mask: FieldValueFlags,
         flags: FieldValueFlags,

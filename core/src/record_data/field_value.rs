@@ -13,7 +13,7 @@ use crate::{
 use super::{
     custom_data::CustomDataBox,
     field::{FieldIdOffset, FieldManager},
-    field_data::FieldDataRepr,
+    field_data::FieldValueRepr,
     match_set::MatchSetManager,
 };
 
@@ -48,14 +48,14 @@ pub enum FieldValue {
     BigInt(BigInt),
     Float(f64),
     Rational(Box<BigRational>),
+    Text(String),
     Bytes(Vec<u8>),
-    String(String),
-    Error(OperatorApplicationError),
     Array(Array),
     Object(Object),
+    Custom(CustomDataBox),
+    Error(OperatorApplicationError),
     FieldReference(FieldReference),
     SlicedFieldReference(SlicedFieldReference),
-    Custom(CustomDataBox),
 }
 
 pub struct Null;
@@ -96,43 +96,43 @@ pub struct SlicedFieldReference {
 }
 
 impl FieldValueKind {
-    pub fn to_preferred_data_repr(self) -> FieldDataRepr {
+    pub fn to_preferred_data_repr(self) -> FieldValueRepr {
         match self {
-            FieldValueKind::Undefined => FieldDataRepr::Undefined,
-            FieldValueKind::Null => FieldDataRepr::Null,
-            FieldValueKind::Int => FieldDataRepr::Int,
-            FieldValueKind::BigInt => FieldDataRepr::BigInt,
-            FieldValueKind::Float => FieldDataRepr::Float,
-            FieldValueKind::Rational => FieldDataRepr::Rational,
-            FieldValueKind::Error => FieldDataRepr::Error,
-            FieldValueKind::Bytes => FieldDataRepr::BytesInline,
-            FieldValueKind::Text => FieldDataRepr::BytesInline,
-            FieldValueKind::Object => FieldDataRepr::Object,
-            FieldValueKind::Custom => FieldDataRepr::Custom,
-            FieldValueKind::Array => FieldDataRepr::Array,
-            FieldValueKind::FieldReference => FieldDataRepr::FieldReference,
+            FieldValueKind::Undefined => FieldValueRepr::Undefined,
+            FieldValueKind::Null => FieldValueRepr::Null,
+            FieldValueKind::Int => FieldValueRepr::Int,
+            FieldValueKind::BigInt => FieldValueRepr::BigInt,
+            FieldValueKind::Float => FieldValueRepr::Float,
+            FieldValueKind::Rational => FieldValueRepr::Rational,
+            FieldValueKind::Error => FieldValueRepr::Error,
+            FieldValueKind::Bytes => FieldValueRepr::BytesInline,
+            FieldValueKind::Text => FieldValueRepr::BytesInline,
+            FieldValueKind::Object => FieldValueRepr::Object,
+            FieldValueKind::Custom => FieldValueRepr::Custom,
+            FieldValueKind::Array => FieldValueRepr::Array,
+            FieldValueKind::FieldReference => FieldValueRepr::FieldReference,
             FieldValueKind::SlicedFieldReference => {
-                FieldDataRepr::SlicedFieldReference
+                FieldValueRepr::SlicedFieldReference
             }
         }
     }
-    pub fn to_guaranteed_data_repr(self) -> FieldDataRepr {
+    pub fn to_guaranteed_data_repr(self) -> FieldValueRepr {
         match self {
-            FieldValueKind::Undefined => FieldDataRepr::Undefined,
-            FieldValueKind::Null => FieldDataRepr::Null,
-            FieldValueKind::Int => FieldDataRepr::Int,
-            FieldValueKind::BigInt => FieldDataRepr::BigInt,
-            FieldValueKind::Float => FieldDataRepr::Float,
-            FieldValueKind::Rational => FieldDataRepr::Rational,
-            FieldValueKind::Error => FieldDataRepr::Error,
-            FieldValueKind::Bytes => FieldDataRepr::BytesBuffer,
-            FieldValueKind::Text => FieldDataRepr::BytesBuffer,
-            FieldValueKind::Object => FieldDataRepr::Object,
-            FieldValueKind::Custom => FieldDataRepr::Custom,
-            FieldValueKind::Array => FieldDataRepr::Array,
-            FieldValueKind::FieldReference => FieldDataRepr::FieldReference,
+            FieldValueKind::Undefined => FieldValueRepr::Undefined,
+            FieldValueKind::Null => FieldValueRepr::Null,
+            FieldValueKind::Int => FieldValueRepr::Int,
+            FieldValueKind::BigInt => FieldValueRepr::BigInt,
+            FieldValueKind::Float => FieldValueRepr::Float,
+            FieldValueKind::Rational => FieldValueRepr::Rational,
+            FieldValueKind::Error => FieldValueRepr::Error,
+            FieldValueKind::Bytes => FieldValueRepr::BytesBuffer,
+            FieldValueKind::Text => FieldValueRepr::BytesBuffer,
+            FieldValueKind::Object => FieldValueRepr::Object,
+            FieldValueKind::Custom => FieldValueRepr::Custom,
+            FieldValueKind::Array => FieldValueRepr::Array,
+            FieldValueKind::FieldReference => FieldValueRepr::FieldReference,
             FieldValueKind::SlicedFieldReference => {
-                FieldDataRepr::SlicedFieldReference
+                FieldValueRepr::SlicedFieldReference
             }
         }
     }
@@ -166,7 +166,7 @@ impl PartialEq for FieldValue {
                 matches!(other, Self::Rational(r) if r == l)
             }
             Self::Bytes(l) => matches!(other, Self::Bytes(r) if r == l),
-            Self::String(l) => matches!(other, Self::String(r) if r == l),
+            Self::Text(l) => matches!(other, Self::Text(r) if r == l),
             Self::Error(l) => matches!(other, Self::Error(r) if r == l),
             Self::Array(l) => matches!(other, Self::Array(r) if r == l),
             Self::Object(l) => matches!(other, Self::Object(r) if r == l),
@@ -193,7 +193,7 @@ impl FieldValue {
             FieldValue::Float(_) => FieldValueKind::Float,
             FieldValue::Rational(_) => FieldValueKind::Rational,
             FieldValue::Bytes(_) => FieldValueKind::Bytes,
-            FieldValue::String(_) => FieldValueKind::Text,
+            FieldValue::Text(_) => FieldValueKind::Text,
             FieldValue::Error(_) => FieldValueKind::Error,
             FieldValue::Array(_) => FieldValueKind::Array,
             FieldValue::Object(_) => FieldValueKind::Object,
@@ -250,7 +250,7 @@ impl FieldValue {
             FieldValue::Float(v) => w.write_fmt(format_args!("{}", v)),
             FieldValue::Rational(v) => w.write_fmt(format_args!("{}", v)),
             FieldValue::Bytes(v) => format_bytes(w, v),
-            FieldValue::String(v) => format_quoted_string(w, v),
+            FieldValue::Text(v) => format_quoted_string(w, v),
             FieldValue::Error(e) => format_error(w, e),
             FieldValue::Array(a) => a.format(w, fc),
             FieldValue::Object(o) => o.format(w, fc),

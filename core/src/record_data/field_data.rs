@@ -42,23 +42,23 @@ pub type RunLength = u32;
 // This also does not differentiate between the text and bytes type as they
 // have the same data layout
 #[derive(Clone, Copy, PartialEq)]
-pub enum FieldDataRepr {
+pub enum FieldValueRepr {
     Undefined,
     Null,
     Int,
     BigInt,
     Float,
     Rational,
-    StreamValueId,
-    FieldReference,
-    SlicedFieldReference,
-    Error,
     BytesInline,
     BytesBuffer,
     BytesFile,
     Object,
     Array,
     Custom,
+    Error,
+    StreamValueId,
+    FieldReference,
+    SlicedFieldReference,
     // TODO (maybe): CustomDynamicLength, CustomDynamicLengthAligned
     // (store some subtype index at the start of the actual data)
 }
@@ -70,7 +70,7 @@ pub struct BytesBufferFile {
 
 #[derive(Clone, Copy, PartialEq)]
 pub struct FieldValueFormat {
-    pub repr: FieldDataRepr,
+    pub repr: FieldValueRepr,
     pub flags: FieldValueFlags,
     // this does NOT include potential padding before this
     // field in case it has to be aligned
@@ -134,61 +134,61 @@ pub mod field_value_flags {
 
 // used to constrain generic functions that accept data for field values
 pub unsafe trait FieldValueType {
-    const REPR: FieldDataRepr;
+    const REPR: FieldValueRepr;
     const DST: bool = false;
     const ZST: bool = false;
 }
 unsafe impl FieldValueType for Undefined {
-    const REPR: FieldDataRepr = FieldDataRepr::Null;
+    const REPR: FieldValueRepr = FieldValueRepr::Null;
     const ZST: bool = true;
 }
 unsafe impl FieldValueType for Null {
-    const REPR: FieldDataRepr = FieldDataRepr::Undefined;
+    const REPR: FieldValueRepr = FieldValueRepr::Undefined;
     const ZST: bool = true;
 }
 unsafe impl FieldValueType for i64 {
-    const REPR: FieldDataRepr = FieldDataRepr::Int;
+    const REPR: FieldValueRepr = FieldValueRepr::Int;
 }
 unsafe impl FieldValueType for StreamValueId {
-    const REPR: FieldDataRepr = FieldDataRepr::StreamValueId;
+    const REPR: FieldValueRepr = FieldValueRepr::StreamValueId;
 }
 unsafe impl FieldValueType for SlicedFieldReference {
-    const REPR: FieldDataRepr = FieldDataRepr::SlicedFieldReference;
+    const REPR: FieldValueRepr = FieldValueRepr::SlicedFieldReference;
 }
 unsafe impl FieldValueType for OperatorApplicationError {
-    const REPR: FieldDataRepr = FieldDataRepr::Error;
+    const REPR: FieldValueRepr = FieldValueRepr::Error;
 }
 unsafe impl FieldValueType for [u8] {
-    const REPR: FieldDataRepr = FieldDataRepr::BytesInline;
+    const REPR: FieldValueRepr = FieldValueRepr::BytesInline;
     const DST: bool = true;
 }
 unsafe impl FieldValueType for Vec<u8> {
-    const REPR: FieldDataRepr = FieldDataRepr::BytesBuffer;
+    const REPR: FieldValueRepr = FieldValueRepr::BytesBuffer;
 }
 unsafe impl FieldValueType for Object {
-    const REPR: FieldDataRepr = FieldDataRepr::Object;
+    const REPR: FieldValueRepr = FieldValueRepr::Object;
 }
 unsafe impl FieldValueType for Array {
-    const REPR: FieldDataRepr = FieldDataRepr::Array;
+    const REPR: FieldValueRepr = FieldValueRepr::Array;
 }
 unsafe impl FieldValueType for BigInt {
-    const REPR: FieldDataRepr = FieldDataRepr::BigInt;
+    const REPR: FieldValueRepr = FieldValueRepr::BigInt;
 }
 unsafe impl FieldValueType for f64 {
-    const REPR: FieldDataRepr = FieldDataRepr::Float;
+    const REPR: FieldValueRepr = FieldValueRepr::Float;
 }
 unsafe impl FieldValueType for BigRational {
-    const REPR: FieldDataRepr = FieldDataRepr::Rational;
+    const REPR: FieldValueRepr = FieldValueRepr::Rational;
 }
 unsafe impl FieldValueType for CustomDataBox {
-    const REPR: FieldDataRepr = FieldDataRepr::Custom;
+    const REPR: FieldValueRepr = FieldValueRepr::Custom;
 }
 
 pub const INLINE_STR_MAX_LEN: usize = 8192;
 
-impl FieldDataRepr {
+impl FieldValueRepr {
     pub fn needs_drop(self) -> bool {
-        use FieldDataRepr::*;
+        use FieldValueRepr::*;
         match self {
             Undefined | Null | Int | Float | FieldReference
             | SlicedFieldReference | StreamValueId | BytesInline => false,
@@ -198,7 +198,7 @@ impl FieldDataRepr {
     }
     #[inline(always)]
     pub fn needs_alignment(self) -> bool {
-        use FieldDataRepr::*;
+        use FieldValueRepr::*;
         !matches!(self, Undefined | Null | BytesInline)
     }
     #[inline]
@@ -243,30 +243,30 @@ impl FieldDataRepr {
     }
     pub fn size(self) -> usize {
         match self {
-            FieldDataRepr::Undefined => 0,
-            FieldDataRepr::Null => 0,
-            FieldDataRepr::Int => size_of::<i64>(),
-            FieldDataRepr::BigInt => size_of::<BigInt>(),
-            FieldDataRepr::Float => size_of::<f64>(),
-            FieldDataRepr::Rational => size_of::<BigRational>(),
-            FieldDataRepr::StreamValueId => size_of::<StreamValueId>(),
-            FieldDataRepr::FieldReference => size_of::<FieldReference>(),
-            FieldDataRepr::SlicedFieldReference => {
+            FieldValueRepr::Undefined => 0,
+            FieldValueRepr::Null => 0,
+            FieldValueRepr::Int => size_of::<i64>(),
+            FieldValueRepr::BigInt => size_of::<BigInt>(),
+            FieldValueRepr::Float => size_of::<f64>(),
+            FieldValueRepr::Rational => size_of::<BigRational>(),
+            FieldValueRepr::StreamValueId => size_of::<StreamValueId>(),
+            FieldValueRepr::FieldReference => size_of::<FieldReference>(),
+            FieldValueRepr::SlicedFieldReference => {
                 size_of::<SlicedFieldReference>()
             }
-            FieldDataRepr::Error => size_of::<OperatorApplicationError>(),
-            FieldDataRepr::BytesBuffer => size_of::<Vec<u8>>(),
-            FieldDataRepr::BytesFile => size_of::<BytesBufferFile>(),
-            FieldDataRepr::Object => size_of::<Object>(),
-            FieldDataRepr::Array => size_of::<Array>(),
-            FieldDataRepr::Custom => size_of::<CustomDataBox>(),
+            FieldValueRepr::Error => size_of::<OperatorApplicationError>(),
+            FieldValueRepr::BytesBuffer => size_of::<Vec<u8>>(),
+            FieldValueRepr::BytesFile => size_of::<BytesBufferFile>(),
+            FieldValueRepr::Object => size_of::<Object>(),
+            FieldValueRepr::Array => size_of::<Array>(),
+            FieldValueRepr::Custom => size_of::<CustomDataBox>(),
             // should not be used for size calculations
             // but is used for example in is_zst
-            FieldDataRepr::BytesInline => usize::MAX,
+            FieldValueRepr::BytesInline => usize::MAX,
         }
     }
     pub fn is_variable_sized_type(self) -> bool {
-        self == FieldDataRepr::BytesInline
+        self == FieldValueRepr::BytesInline
     }
     pub fn is_zst(self) -> bool {
         self.size() == 0
@@ -274,32 +274,32 @@ impl FieldDataRepr {
     pub fn is_fixed_size_type(self) -> bool {
         !self.is_variable_sized_type() && !self.is_zst()
     }
-    pub unsafe fn from_u8(v: u8) -> FieldDataRepr {
+    pub unsafe fn from_u8(v: u8) -> FieldValueRepr {
         unsafe { std::mem::transmute(v) }
     }
     pub const fn to_str(&self) -> &'static str {
         match self {
-            FieldDataRepr::Undefined => "undefined",
-            FieldDataRepr::Null => "null",
-            FieldDataRepr::Int => "int",
-            FieldDataRepr::BigInt => "integer",
-            FieldDataRepr::Float => "float",
-            FieldDataRepr::Rational => "rational",
-            FieldDataRepr::StreamValueId => "stream_value_id",
-            FieldDataRepr::FieldReference => "field_reference",
-            FieldDataRepr::SlicedFieldReference => "sliced_field_reference",
-            FieldDataRepr::Error => "error",
-            FieldDataRepr::BytesInline => "bytes",
-            FieldDataRepr::BytesBuffer => "bytes",
-            FieldDataRepr::BytesFile => "bytes",
-            FieldDataRepr::Object => "object",
-            FieldDataRepr::Array => "array",
-            FieldDataRepr::Custom => "custom",
+            FieldValueRepr::Undefined => "undefined",
+            FieldValueRepr::Null => "null",
+            FieldValueRepr::Int => "int",
+            FieldValueRepr::BigInt => "integer",
+            FieldValueRepr::Float => "float",
+            FieldValueRepr::Rational => "rational",
+            FieldValueRepr::StreamValueId => "stream_value_id",
+            FieldValueRepr::FieldReference => "field_reference",
+            FieldValueRepr::SlicedFieldReference => "sliced_field_reference",
+            FieldValueRepr::Error => "error",
+            FieldValueRepr::BytesInline => "bytes",
+            FieldValueRepr::BytesBuffer => "bytes",
+            FieldValueRepr::BytesFile => "bytes",
+            FieldValueRepr::Object => "object",
+            FieldValueRepr::Array => "array",
+            FieldValueRepr::Custom => "custom",
         }
     }
 }
 
-impl Display for FieldDataRepr {
+impl Display for FieldValueRepr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.to_str())
     }
@@ -308,7 +308,7 @@ impl Display for FieldDataRepr {
 impl Default for FieldValueFormat {
     fn default() -> Self {
         Self {
-            repr: FieldDataRepr::Null,
+            repr: FieldValueRepr::Null,
             flags: field_value_flags::DEFAULT,
             size: 0,
         }
@@ -601,7 +601,7 @@ impl FieldData {
                                 // TODO: maybe do a little rle here?
                                 fd.headers.push(FieldValueHeader {
                                     fmt: FieldValueFormat {
-                                        repr: FieldDataRepr::BytesInline,
+                                        repr: FieldValueRepr::BytesInline,
                                         flags: SHARED_VALUE,
                                         size: v.len() as FieldValueSize,
                                     },
@@ -619,7 +619,7 @@ impl FieldData {
                                 // TODO: maybe do a little rle here?
                                 fd.headers.push(FieldValueHeader {
                                     fmt: FieldValueFormat {
-                                        repr: FieldDataRepr::BytesInline,
+                                        repr: FieldValueRepr::BytesInline,
                                         flags: SHARED_VALUE | BYTES_ARE_UTF8,
                                         size: v.len() as FieldValueSize,
                                     },
