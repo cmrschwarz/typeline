@@ -9,7 +9,7 @@ use super::{
         field_value_flags, FieldDataRepr, FieldValueFlags, FieldValueFormat,
         FieldValueHeader, FieldValueType, RunLength,
     },
-    field_value::{Array, FieldReference, Null, Object, Undefined},
+    field_value::{Array, Null, Object, SlicedFieldReference, Undefined},
     iters::FieldDataRef,
     stream_value::StreamValueId,
 };
@@ -24,7 +24,7 @@ pub enum TypedValue<'a> {
     Float(&'a f64),
     Rational(&'a BigRational),
     StreamValueId(&'a StreamValueId),
-    Reference(&'a FieldReference),
+    SlicedReference(&'a SlicedFieldReference),
     Error(&'a OperatorApplicationError),
     BytesInline(&'a [u8]),
     TextInline(&'a str),
@@ -70,8 +70,8 @@ impl<'a> TypedValue<'a> {
                 FieldDataRepr::StreamValueId => {
                     TypedValue::StreamValueId(to_ref(fdr, data_begin))
                 }
-                FieldDataRepr::Reference => {
-                    TypedValue::Reference(to_ref(fdr, data_begin))
+                FieldDataRepr::SlicedReference => {
+                    TypedValue::SlicedReference(to_ref(fdr, data_begin))
                 }
                 FieldDataRepr::Error => {
                     TypedValue::Error(to_ref(fdr, data_begin))
@@ -107,8 +107,8 @@ impl<'a> TypedValue<'a> {
             TypedValue::StreamValueId(v) => {
                 TypedSlice::StreamValueId(std::slice::from_ref(v))
             }
-            TypedValue::Reference(v) => {
-                TypedSlice::Reference(std::slice::from_ref(v))
+            TypedValue::SlicedReference(v) => {
+                TypedSlice::SlicedReference(std::slice::from_ref(v))
             }
             TypedValue::Error(v) => TypedSlice::Error(std::slice::from_ref(v)),
             TypedValue::BytesInline(v) => TypedSlice::BytesInline(v),
@@ -159,7 +159,7 @@ pub enum TypedSlice<'a> {
     Float(&'a [f64]),
     Rational(&'a [BigRational]),
     StreamValueId(&'a [StreamValueId]),
-    Reference(&'a [FieldReference]),
+    SlicedReference(&'a [SlicedFieldReference]),
     Error(&'a [OperatorApplicationError]),
     BytesInline(&'a [u8]),
     TextInline(&'a str),
@@ -240,9 +240,9 @@ impl<'a> TypedSlice<'a> {
                 FieldDataRepr::Rational => {
                     TypedSlice::Rational(to_slice(fdr, data_begin, data_end))
                 }
-                FieldDataRepr::Reference => {
-                    TypedSlice::Reference(to_slice(fdr, data_begin, data_end))
-                }
+                FieldDataRepr::SlicedReference => TypedSlice::SlicedReference(
+                    to_slice(fdr, data_begin, data_end),
+                ),
                 FieldDataRepr::Error => {
                     TypedSlice::Error(to_slice(fdr, data_begin, data_end))
                 }
@@ -275,7 +275,7 @@ impl<'a> TypedSlice<'a> {
                 TypedSlice::Float(v) => slice_as_bytes(v),
                 TypedSlice::Rational(v) => slice_as_bytes(v),
                 TypedSlice::StreamValueId(v) => slice_as_bytes(v),
-                TypedSlice::Reference(v) => slice_as_bytes(v),
+                TypedSlice::SlicedReference(v) => slice_as_bytes(v),
                 TypedSlice::Error(v) => slice_as_bytes(v),
                 TypedSlice::BytesInline(v) => v,
                 TypedSlice::TextInline(v) => v.as_bytes(),
@@ -295,7 +295,7 @@ impl<'a> TypedSlice<'a> {
             TypedSlice::Float(_) => FieldDataRepr::Float,
             TypedSlice::Rational(_) => FieldDataRepr::Rational,
             TypedSlice::StreamValueId(_) => FieldDataRepr::StreamValueId,
-            TypedSlice::Reference(_) => FieldDataRepr::Reference,
+            TypedSlice::SlicedReference(_) => FieldDataRepr::SlicedReference,
             TypedSlice::Error(_) => FieldDataRepr::Error,
             TypedSlice::BytesInline(_) => FieldDataRepr::BytesInline,
             TypedSlice::TextInline(_) => FieldDataRepr::BytesInline,
@@ -314,7 +314,7 @@ impl<'a> TypedSlice<'a> {
             TypedSlice::Float(v) => v.len(),
             TypedSlice::Rational(v) => v.len(),
             TypedSlice::StreamValueId(v) => v.len(),
-            TypedSlice::Reference(v) => v.len(),
+            TypedSlice::SlicedReference(v) => v.len(),
             TypedSlice::Error(v) => v.len(),
             TypedSlice::BytesInline(v) => v.len(),
             TypedSlice::TextInline(v) => v.len(),
@@ -354,7 +354,7 @@ impl<'a> TypedSlice<'a> {
             drop_fn_case::<BigInt>(),
             drop_fn_case::<BigRational>(),
             drop_fn_case::<StreamValueId>(),
-            drop_fn_case::<FieldReference>(),
+            drop_fn_case::<SlicedFieldReference>(),
             drop_fn_case::<OperatorApplicationError>(),
             (FieldDataRepr::BytesInline, drop_slice::<u8>),
             drop_fn_case::<Vec<u8>>(),

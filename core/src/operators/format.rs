@@ -839,7 +839,7 @@ pub fn setup_key_output_state(
         field_value_flags::BYTES_ARE_UTF8,
     ) {
         match range.base.data {
-            TypedSlice::Reference(_) => unreachable!(),
+            TypedSlice::SlicedReference(_) => unreachable!(),
             TypedSlice::TextInline(text) => {
                 for (v, rl, _offs) in
                     RefAwareInlineTextIter::from_range(&range, text)
@@ -1565,7 +1565,7 @@ fn write_fmt_key(
     ) {
         // TODO: respect format options
         match range.base.data {
-            TypedSlice::Reference(_) => unreachable!(),
+            TypedSlice::SlicedReference(_) => unreachable!(),
             TypedSlice::TextInline(text) => {
                 for (v, rl, _offs) in
                     RefAwareInlineTextIter::from_range(&range, text)

@@ -1,6 +1,7 @@
 use std::{
     cell::{Cell, Ref, RefCell, RefMut},
     collections::hash_map::Entry,
+    marker::PhantomData,
     ops::DerefMut,
 };
 
@@ -16,12 +17,17 @@ use super::{
     action_buffer::{ActionBuffer, ActorId, ActorRef, SnapshotRef},
     field_data::{
         field_value_flags::SAME_VALUE_AS_PREVIOUS, FieldData, FieldDataBuffer,
-        FieldValueFormat, FieldValueHeader,
+        FieldValueFormat, FieldValueHeader, RunLength,
     },
     iter_hall::{FieldDataSource, IterHall, IterId},
-    iters::{DestructuredFieldDataRef, FieldDataRef, FieldIterator, Iter},
+    iters::{
+        BoundedIter, DestructuredFieldDataRef, FieldDataRef, FieldIterator,
+        Iter,
+    },
     match_set::{MatchSetId, MatchSetManager},
+    push_interface::VaryingTypeInserter,
     record_buffer::RecordBufferField,
+    ref_iter::AutoDerefIter,
 };
 
 #[cfg(feature = "debug_logging")]
@@ -76,9 +82,25 @@ pub struct FieldManager {
 }
 
 pub struct CowFieldDataRef<'a> {
-    pub(super) field_count: usize,
-    pub(super) headers_ref: Ref<'a, Vec<FieldValueHeader>>,
-    pub(super) data_ref: Ref<'a, FieldDataBuffer>,
+    field_count: usize,
+    headers_ref: Ref<'a, Vec<FieldValueHeader>>,
+    data_ref: Ref<'a, FieldDataBuffer>,
+    _phantom: PhantomData<&'a FieldData>,
+}
+
+impl<'a> CowFieldDataRef<'a> {
+    pub fn new(
+        field_count: usize,
+        headers_ref: Ref<'a, Vec<FieldValueHeader>>,
+        data_ref: Ref<'a, FieldDataBuffer>,
+    ) -> Self {
+        Self {
+            field_count,
+            headers_ref,
+            data_ref,
+            _phantom: PhantomData,
+        }
+    }
 }
 
 impl<'a> FieldDataRef<'a> for &'a CowFieldDataRef<'a> {
@@ -101,6 +123,7 @@ impl<'a> Clone for CowFieldDataRef<'a> {
             field_count: self.field_count,
             headers_ref: Ref::clone(&self.headers_ref),
             data_ref: Ref::clone(&self.data_ref),
+            _phantom: PhantomData,
         }
     }
 }
@@ -140,18 +163,6 @@ impl FieldManager {
                 return field;
             };
             *field_id = alias_src;
-        }
-    }
-    pub fn borrow_field_dealiased_keep_id(
-        &self,
-        mut field_id: FieldId,
-    ) -> Ref<'_, Field> {
-        loop {
-            let field = self.fields[field_id].borrow();
-            let Some(alias_src) = field.iter_hall.alias_source() else {
-                return field;
-            };
-            field_id = alias_src;
         }
     }
     pub fn borrow_field_dealiased_mut(
@@ -255,6 +266,18 @@ impl FieldManager {
         for &fr in &field.field_refs {
             self.relinquish_clear_delay(fr);
         }
+    }
+    pub fn get_varying_type_inserter(
+        &self,
+        field_id: FieldId,
+        reserve_count: usize,
+    ) -> VaryingTypeInserter<RefMut<FieldData>> {
+        VaryingTypeInserter::new(
+            RefMut::map(self.fields[field_id].borrow_mut(), |f| unsafe {
+                f.iter_hall.raw()
+            }),
+            reserve_count.try_into().unwrap_or(RunLength::MAX),
+        )
     }
     // returns false if it was uncow'ed
     fn propagate_clear(
@@ -702,6 +725,7 @@ impl FieldManager {
             headers_ref,
             field_count,
             data_ref,
+            _phantom: PhantomData,
         }
     }
     pub fn get_cow_field_ref(
@@ -712,6 +736,21 @@ impl FieldManager {
         let field_id = self.dealias_field_id(field_id);
         self.apply_field_actions(msm, field_id);
         return self.get_cow_field_ref_raw(field_id);
+    }
+    pub fn get_auto_deref_iter<'a>(
+        &'a self,
+        input_field_id: FieldId,
+        input_field: &'a CowFieldDataRef<'a>,
+        input_iter_id: IterId,
+        batch_size: usize,
+    ) -> AutoDerefIter<'a, BoundedIter<Iter<DestructuredFieldDataRef<'a>>>>
+    {
+        AutoDerefIter::new(
+            self,
+            input_field_id,
+            self.lookup_iter(input_field_id, input_field, input_iter_id)
+                .bounded(0, batch_size),
+        )
     }
     pub fn lookup_iter<'a>(
         &self,

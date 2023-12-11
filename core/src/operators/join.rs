@@ -429,7 +429,7 @@ pub fn handle_tf_join(
                         push_custom_type(tf, join, sv_mgr, v, rl);
                     }
                 }
-                TypedSlice::Reference(_) => unreachable!(),
+                TypedSlice::SlicedReference(_) => unreachable!(),
                 TypedSlice::Error(errs) => {
                     push_error(join, sv_mgr, errs[0].clone());
                 }

@@ -357,7 +357,7 @@ pub fn field_value_to_literal(v: FieldValue) -> Literal {
         FieldValue::Array(v) => Literal::Array(v),
         FieldValue::Object(v) => Literal::Object(v),
         FieldValue::Custom(v) => Literal::Custom(v),
-        FieldValue::FieldReference(_) => unreachable!(),
+        FieldValue::SlicedFieldReference(_) => unreachable!(),
     }
 }
 pub fn parse_op_tyson(

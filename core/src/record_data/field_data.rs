@@ -7,7 +7,7 @@ use std::{
 
 use super::{
     custom_data::CustomDataBox,
-    field_value::{Array, FieldReference, Null, Object, Undefined},
+    field_value::{Array, Null, Object, SlicedFieldReference, Undefined},
     match_set::MatchSetManager,
     ref_iter::{
         AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter,
@@ -48,7 +48,7 @@ pub enum FieldDataRepr {
     Float,
     Rational,
     StreamValueId,
-    Reference,
+    SlicedReference,
     Error,
     BytesInline,
     BytesBuffer,
@@ -149,8 +149,8 @@ unsafe impl FieldValueType for i64 {
 unsafe impl FieldValueType for StreamValueId {
     const REPR: FieldDataRepr = FieldDataRepr::StreamValueId;
 }
-unsafe impl FieldValueType for FieldReference {
-    const REPR: FieldDataRepr = FieldDataRepr::Reference;
+unsafe impl FieldValueType for SlicedFieldReference {
+    const REPR: FieldDataRepr = FieldDataRepr::SlicedReference;
 }
 unsafe impl FieldValueType for OperatorApplicationError {
     const REPR: FieldDataRepr = FieldDataRepr::Error;
@@ -187,8 +187,8 @@ impl FieldDataRepr {
     pub fn needs_drop(self) -> bool {
         use FieldDataRepr::*;
         match self {
-            Undefined | Null | Int | Float | Reference | StreamValueId
-            | BytesInline => false,
+            Undefined | Null | Int | Float | SlicedReference
+            | StreamValueId | BytesInline => false,
             BigInt | Rational | Error | BytesBuffer | BytesFile | Object
             | Array | Custom => true,
         }
@@ -247,7 +247,9 @@ impl FieldDataRepr {
             FieldDataRepr::Float => size_of::<f64>(),
             FieldDataRepr::Rational => size_of::<BigRational>(),
             FieldDataRepr::StreamValueId => size_of::<StreamValueId>(),
-            FieldDataRepr::Reference => size_of::<FieldReference>(),
+            FieldDataRepr::SlicedReference => {
+                size_of::<SlicedFieldReference>()
+            }
             FieldDataRepr::Error => size_of::<OperatorApplicationError>(),
             FieldDataRepr::BytesBuffer => size_of::<Vec<u8>>(),
             FieldDataRepr::BytesFile => size_of::<BytesBufferFile>(),
@@ -280,7 +282,7 @@ impl FieldDataRepr {
             FieldDataRepr::Float => "float",
             FieldDataRepr::Rational => "rational",
             FieldDataRepr::StreamValueId => "stream_value_id",
-            FieldDataRepr::Reference => "field_reference",
+            FieldDataRepr::SlicedReference => "field_reference",
             FieldDataRepr::Error => "error",
             FieldDataRepr::BytesInline => "bytes",
             FieldDataRepr::BytesBuffer => "bytes",
@@ -641,7 +643,7 @@ impl FieldData {
                     | TypedSlice::Float(_)
                     | TypedSlice::Rational(_)
                     | TypedSlice::StreamValueId(_)
-                    | TypedSlice::Reference(_)
+                    | TypedSlice::SlicedReference(_)
                     | TypedSlice::Error(_)
                     | TypedSlice::Custom(_)
                     | TypedSlice::Object(_)
@@ -732,7 +734,7 @@ unsafe fn append_data(
                 extend_with_clones(target_applicator, v)
             }
             TypedSlice::StreamValueId(v) => extend_raw(target_applicator, v),
-            TypedSlice::Reference(v) => extend_raw(target_applicator, v),
+            TypedSlice::SlicedReference(v) => extend_raw(target_applicator, v),
             TypedSlice::BytesInline(v) => extend_raw(target_applicator, v),
             TypedSlice::TextInline(v) => {
                 extend_raw(target_applicator, v.as_bytes())

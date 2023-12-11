@@ -1,4 +1,4 @@
-use std::mem::ManuallyDrop;
+use std::{mem::ManuallyDrop, ops::DerefMut};
 
 use super::{
     custom_data::CustomDataBox,
@@ -7,7 +7,7 @@ use super::{
         FieldValueFormat, FieldValueHeader, FieldValueSize, FieldValueType,
         RunLength, MAX_FIELD_ALIGN,
     },
-    field_value::FieldReference,
+    field_value::SlicedFieldReference,
     stream_value::StreamValueId,
 };
 use crate::{
@@ -705,7 +705,7 @@ pub trait PushInterface: RawPushInterface {
     }
     fn push_reference(
         &mut self,
-        reference: FieldReference,
+        reference: SlicedFieldReference,
         run_length: usize,
         try_header_rle: bool,
         try_data_rle: bool,
@@ -1117,8 +1117,8 @@ pub struct FieldReferenceInserter<'a> {
     raw: RawFixedSizedTypeInserter<'a>,
 }
 unsafe impl<'a> FixedSizeTypeInserter<'a> for FieldReferenceInserter<'a> {
-    const REPR: FieldDataRepr = FieldDataRepr::Reference;
-    type ValueType = FieldReference;
+    const REPR: FieldDataRepr = FieldDataRepr::SlicedReference;
+    type ValueType = SlicedFieldReference;
 
     fn get_raw(&mut self) -> &mut RawFixedSizedTypeInserter<'a> {
         &mut self.raw
@@ -1209,24 +1209,33 @@ impl<'a> Drop for NullsInserter<'a> {
     }
 }
 
-pub struct VaryingTypeInserter<'a> {
-    fd: &'a mut FieldData,
+pub struct VaryingTypeInserter<FD: DerefMut<Target = FieldData>> {
+    fd: FD,
     count: usize,
     max: usize,
     data_ptr: *mut u8,
     fmt: FieldValueFormat,
-    re_reserve_count: RunLength,
+    reserve_count: RunLength,
 }
 
-impl<'a> VaryingTypeInserter<'a> {
-    pub fn new(fd: &'a mut FieldData, re_reserve_count: RunLength) -> Self {
+unsafe impl<FD: DerefMut<Target = FieldData>> Send
+    for VaryingTypeInserter<FD>
+{
+}
+unsafe impl<FD: DerefMut<Target = FieldData>> Sync
+    for VaryingTypeInserter<FD>
+{
+}
+
+impl<FD: DerefMut<Target = FieldData>> VaryingTypeInserter<FD> {
+    pub fn new(fd: FD, re_reserve_count: RunLength) -> Self {
         Self {
             fd,
             count: 0,
             max: 0,
             data_ptr: std::ptr::null_mut(),
             fmt: Default::default(),
-            re_reserve_count,
+            reserve_count: re_reserve_count,
         }
     }
     pub unsafe fn drop_and_reserve_unchecked(
@@ -1307,10 +1316,9 @@ impl<'a> VaryingTypeInserter<'a> {
         }
         if self.count + count > self.max {
             assert!(
-                self.re_reserve_count as usize
-                    >= self.count + count - self.max
+                self.reserve_count as usize >= self.count + count - self.max
             );
-            self.max += self.re_reserve_count as usize;
+            self.max += self.reserve_count as usize;
         }
         self.count += count;
     }
@@ -1352,7 +1360,7 @@ impl<'a> VaryingTypeInserter<'a> {
             self.commit();
             unsafe {
                 self.drop_and_reserve_unchecked(
-                    self.re_reserve_count as usize,
+                    self.reserve_count as usize,
                     fmt,
                 );
             }
@@ -1394,7 +1402,7 @@ impl<'a> VaryingTypeInserter<'a> {
             self.commit();
             unsafe {
                 self.drop_and_reserve_unchecked(
-                    self.re_reserve_count as usize,
+                    self.reserve_count as usize,
                     fmt,
                 );
             }
@@ -1412,7 +1420,7 @@ impl<'a> VaryingTypeInserter<'a> {
     }
 }
 
-impl<'a> VaryingTypeInserter<'a> {
+impl<FD: DerefMut<Target = FieldData>> VaryingTypeInserter<FD> {
     pub fn push_inline_str(&mut self, v: &str, rl: usize) {
         unsafe {
             self.push_variable_sized_type(
@@ -1436,7 +1444,11 @@ impl<'a> VaryingTypeInserter<'a> {
     pub fn push_int(&mut self, v: i64, rl: usize) {
         self.push_fixed_sized_type(v, rl)
     }
-    pub fn push_field_reference(&mut self, v: FieldReference, rl: usize) {
+    pub fn push_field_reference(
+        &mut self,
+        v: SlicedFieldReference,
+        rl: usize,
+    ) {
         self.push_fixed_sized_type(v, rl)
     }
     pub fn push_error(&mut self, e: OperatorApplicationError, rl: usize) {
@@ -1447,7 +1459,7 @@ impl<'a> VaryingTypeInserter<'a> {
     }
 }
 
-impl<'a> Drop for VaryingTypeInserter<'a> {
+impl<FD: DerefMut<Target = FieldData>> Drop for VaryingTypeInserter<FD> {
     fn drop(&mut self) {
         self.commit()
     }

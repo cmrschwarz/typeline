@@ -32,7 +32,7 @@ pub enum FieldValueKind {
     Text,
     Object,
     Array,
-    Reference,
+    SlicedReference,
     Custom,
 }
 
@@ -52,7 +52,7 @@ pub enum FieldValue {
     Error(OperatorApplicationError),
     Array(Array),
     Object(Object),
-    FieldReference(FieldReference),
+    SlicedFieldReference(SlicedFieldReference),
     Custom(CustomDataBox),
 }
 
@@ -75,16 +75,21 @@ pub enum Array {
     Error(Box<[OperatorApplicationError]>),
     Array(Box<[Array]>),
     Object(Box<[Object]>),
-    FieldReference(Box<[FieldReference]>),
+    FieldReference(Box<[SlicedFieldReference]>),
     Custom(Box<[CustomDataBox]>),
     Mixed(Box<[FieldValue]>),
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
-pub struct FieldReference {
+pub struct SlicedFieldReference {
     pub field_id_offset: FieldIdOffset,
     pub begin: usize,
     pub end: usize,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct FieldReference {
+    pub field_id_offset: FieldIdOffset,
 }
 
 impl FieldValueKind {
@@ -102,7 +107,7 @@ impl FieldValueKind {
             FieldValueKind::Object => FieldDataRepr::Object,
             FieldValueKind::Custom => FieldDataRepr::Custom,
             FieldValueKind::Array => FieldDataRepr::Array,
-            FieldValueKind::Reference => FieldDataRepr::Reference,
+            FieldValueKind::SlicedReference => FieldDataRepr::SlicedReference,
         }
     }
     pub fn to_guaranteed_data_repr(self) -> FieldDataRepr {
@@ -119,7 +124,7 @@ impl FieldValueKind {
             FieldValueKind::Object => FieldDataRepr::Object,
             FieldValueKind::Custom => FieldDataRepr::Custom,
             FieldValueKind::Array => FieldDataRepr::Array,
-            FieldValueKind::Reference => FieldDataRepr::Reference,
+            FieldValueKind::SlicedReference => FieldDataRepr::SlicedReference,
         }
     }
     pub fn to_str(self) -> &'static str {
@@ -136,7 +141,7 @@ impl FieldValueKind {
             FieldValueKind::Custom => "custom",
             FieldValueKind::Object => "object",
             FieldValueKind::Array => "array",
-            FieldValueKind::Reference => "reference",
+            FieldValueKind::SlicedReference => "reference",
         }
     }
 }
@@ -155,8 +160,8 @@ impl PartialEq for FieldValue {
             Self::Error(l) => matches!(other, Self::Error(r) if r == l),
             Self::Array(l) => matches!(other, Self::Array(r) if r == l),
             Self::Object(l) => matches!(other, Self::Object(r) if r == l),
-            Self::FieldReference(l) => {
-                matches!(other, Self::FieldReference(r) if r == l)
+            Self::SlicedFieldReference(l) => {
+                matches!(other, Self::SlicedFieldReference(r) if r == l)
             }
             Self::Custom(l) => matches!(other, Self::Custom(r) if r == l),
             Self::Null => matches!(other, Self::Null),
@@ -179,7 +184,9 @@ impl FieldValue {
             FieldValue::Error(_) => FieldValueKind::Error,
             FieldValue::Array(_) => FieldValueKind::Array,
             FieldValue::Object(_) => FieldValueKind::Object,
-            FieldValue::FieldReference(_) => FieldValueKind::Reference,
+            FieldValue::SlicedFieldReference(_) => {
+                FieldValueKind::SlicedReference
+            }
             FieldValue::Custom(_) => FieldValueKind::Custom,
         }
     }
@@ -233,7 +240,7 @@ impl FieldValue {
             FieldValue::Error(e) => format_error(w, e),
             FieldValue::Array(a) => a.format(w, fc),
             FieldValue::Object(o) => o.format(w, fc),
-            FieldValue::FieldReference(_) => todo!(),
+            FieldValue::SlicedFieldReference(_) => todo!(),
             FieldValue::Custom(v) => v.stringify(w).map(|_| ()),
         }
     }

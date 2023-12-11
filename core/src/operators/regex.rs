@@ -15,8 +15,8 @@ use crate::{
         action_buffer::{ActionBuffer, ActorId, ActorRef},
         field::{Field, FieldId, FieldIdOffset},
         field_action::FieldActionKind,
-        field_data::{field_value_flags, FieldDataRepr, RunLength},
-        field_value::FieldReference,
+        field_data::{field_value_flags, FieldData, FieldDataRepr, RunLength},
+        field_value::SlicedFieldReference,
         iter_hall::IterId,
         iters::FieldIterator,
         push_interface::{PushInterface, VaryingTypeInserter},
@@ -623,7 +623,7 @@ fn match_regex_inner<const PUSH_REF: bool, R: AnyRegex>(
                 if let Some((cg_begin, cg_end)) = regex.captures_locs_get(c) {
                     if PUSH_REF {
                         ins.push_field_reference(
-                            FieldReference {
+                            SlicedFieldReference {
                                 field_id_offset: rmis.field_ref_offset,
                                 begin: offset + cg_begin,
                                 end: offset + cg_end,
@@ -702,7 +702,7 @@ struct RegexBatchState<'a> {
     multimatch: bool,
     non_mandatory: bool,
     next_start: usize,
-    inserters: SmallVec<[Option<VaryingTypeInserter<'a>>; 4]>,
+    inserters: SmallVec<[Option<VaryingTypeInserter<&'a mut FieldData>>; 4]>,
 }
 
 struct RegexMatchInnerState<'a, 'b> {
@@ -740,7 +740,7 @@ pub fn handle_tf_regex(
     let field_pos_start = iter_base.get_next_field_pos();
     let mut output_fields = SmallVec::<[Option<RefMut<'_, Field>>; 4]>::new();
     let mut output_field_inserters =
-        SmallVec::<[Option<VaryingTypeInserter<'_>>; 4]>::new();
+        SmallVec::<[Option<VaryingTypeInserter<&'_ mut FieldData>>; 4]>::new();
     let f_mgr = &sess.field_mgr;
     for of in &re.capture_group_fields {
         output_fields.push(of.map(|f| f_mgr.fields[f].borrow_mut()));
@@ -753,7 +753,7 @@ pub fn handle_tf_regex(
             // PERF: this might waste a lot of space if we have many nulls
             ins.drop_and_reserve(
                 batch_size,
-                FieldDataRepr::Reference,
+                FieldDataRepr::SlicedReference,
                 0,
                 false,
             );
@@ -1005,7 +1005,7 @@ pub fn handle_tf_regex(
             | TypedSlice::Rational(_) => {
                 todo!();
             }
-            TypedSlice::Reference(_) => unreachable!(),
+            TypedSlice::SlicedReference(_) => unreachable!(),
             TypedSlice::Null(_)
             | TypedSlice::Undefined(_)
             | TypedSlice::Error(_)

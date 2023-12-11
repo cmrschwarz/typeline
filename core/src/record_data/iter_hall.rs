@@ -351,7 +351,7 @@ impl IterHall {
     pub fn varying_type_inserter(
         &mut self,
         re_reserve_count: RunLength,
-    ) -> VaryingTypeInserter {
+    ) -> VaryingTypeInserter<&mut FieldData> {
         VaryingTypeInserter::new(self.get_owned_data(), re_reserve_count)
     }
     fn get_owned_data(&mut self) -> &mut FieldData {

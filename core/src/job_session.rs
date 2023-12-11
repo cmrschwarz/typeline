@@ -85,6 +85,15 @@ pub struct TransformManager {
 }
 
 impl TransformManager {
+    pub fn get_input_field_id(
+        &mut self,
+        fm: &FieldManager,
+        tf_id: TransformId,
+    ) -> FieldId {
+        let tf = &mut self.transforms[tf_id];
+        tf.input_field = fm.dealias_field_id(tf.input_field);
+        tf.input_field
+    }
     pub fn claim_batch_with_limit(
         &mut self,
         tf_id: TransformId,
@@ -228,35 +237,7 @@ impl TransformManager {
         }
         (batch_size, input_done)
     }
-    pub fn prepare_for_output_cow(
-        &mut self,
-        fm: &mut FieldManager,
-        msm: &mut MatchSetManager,
-        tf_id: TransformId,
-        output_fields: impl IntoIterator<Item = FieldId>,
-    ) {
-        let tf = &mut self.transforms[tf_id];
-        let appending = tf.is_appending;
-        let request_uncow = tf.request_uncow;
-        tf.request_uncow = false;
-        tf.is_appending = false;
 
-        for ofid in output_fields {
-            let mut f = fm.fields[ofid].borrow_mut();
-            let clear_delay = f.get_clear_delay_request_count() > 0;
-            if clear_delay || request_uncow {
-                drop(f);
-                fm.uncow(msm, ofid);
-                f = fm.fields[ofid].borrow_mut();
-            }
-            if clear_delay {
-                fm.apply_field_actions(msm, ofid);
-            } else if !appending {
-                drop(f);
-                fm.clear_if_owned(msm, ofid);
-            }
-        }
-    }
     pub fn prepare_for_output(
         &mut self,
         fm: &mut FieldManager,

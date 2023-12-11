@@ -1,6 +1,7 @@
 use std::{
     alloc::Layout,
     mem::{align_of, size_of, ManuallyDrop},
+    ops::{Deref, DerefMut},
     ptr::NonNull,
 };
 
@@ -100,4 +101,41 @@ pub fn temp_vec<T, U, R>(
     let res = f(&mut tv);
     *v = transmute_vec(tv);
     res
+}
+
+pub struct BorrowedVec<'a, S, T> {
+    source: &'a mut Vec<S>,
+    vec: Vec<T>,
+}
+
+impl<'a, S, T> BorrowedVec<'a, S, T> {
+    pub fn new(origin: &'a mut Vec<S>) -> Self {
+        Self {
+            vec: transmute_vec(std::mem::take(origin)),
+            source: origin,
+        }
+    }
+}
+
+impl<'a, S, T> Drop for BorrowedVec<'a, S, T> {
+    fn drop(&mut self) {
+        let _ = std::mem::replace(
+            self.source,
+            transmute_vec::<T, S>(std::mem::take(&mut self.vec)),
+        );
+    }
+}
+
+impl<'a, S, T> Deref for BorrowedVec<'a, S, T> {
+    type Target = Vec<T>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.vec
+    }
+}
+
+impl<'a, S, T> DerefMut for BorrowedVec<'a, S, T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.vec
+    }
 }

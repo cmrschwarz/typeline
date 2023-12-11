@@ -276,7 +276,7 @@ pub fn handle_tf_string_sink(
     ss: &mut TfStringSink<'_>,
 ) {
     let (batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
-    let tf = &sess.tf_mgr.transforms[tf_id];
+    let tf = &mut sess.tf_mgr.transforms[tf_id];
     let op_id = tf.op_id.unwrap();
     let input_field_id = tf.input_field;
     let input_field = sess
@@ -368,7 +368,7 @@ pub fn handle_tf_string_sink(
                     }
                 }
             }
-            TypedSlice::Reference(_) => unreachable!(),
+            TypedSlice::SlicedReference(_) => unreachable!(),
             TypedSlice::Null(_) => {
                 push_str(&mut out, NULL_STR, range.base.field_count);
             }
