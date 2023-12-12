@@ -2,7 +2,7 @@ use std::{
     cell::Cell,
     collections::{hash_map::Entry, HashMap},
     iter,
-    ops::Range,
+    ops::{Not, Range},
 };
 
 use bitvec::{slice::BitSlice, vec::BitVec};
@@ -17,7 +17,9 @@ use crate::{
         fork::OpFork,
         forkcat::OpForkCat,
         format::{FormatPart, FormatType, FormatWidthSpec},
-        operator::{OperatorData, OperatorOffsetInChain},
+        operator::{
+            Operator, OperatorData, OperatorId, OperatorOffsetInChain,
+        },
     },
     utils::{
         identity_hasher::BuildIdentityHasher,
@@ -85,9 +87,22 @@ pub struct OpOutput {
     pub field_references: SmallVec<[OpOutputIdx; 4]>,
 }
 
+type DirectOperatorAccessIndex = u32;
+
+#[derive(Clone)]
+pub struct OutputAcccess {
+    header_write: bool,
+    non_stringified: bool,
+    direct_access: bool,
+    direct_access_index: DirectOperatorAccessIndex,
+}
+
 #[derive(Clone, Default)]
 pub struct OperatorLivenessData {
     pub basic_block_id: BasicBlockId,
+    pub direct_access_count: DirectOperatorAccessIndex,
+    pub accessed_outputs: HashMap<OpOutputIdx, OutputAcccess>,
+    pub killed_outputs: SmallVec<[OpOutputIdx; 4]>,
 }
 #[derive(Default)]
 pub struct LivenessData {
@@ -101,6 +116,12 @@ pub struct LivenessData {
     pub key_aliases_map: HashMap<VarId, OpOutputIdx, BuildIdentityHasher>,
     pub operator_liveness_data: Vec<OperatorLivenessData>,
     updates_required: Vec<BasicBlockId>,
+}
+
+pub struct AccessFlags {
+    input_accessed: bool,
+    non_stringified_input_access: bool,
+    may_dup_or_drop: bool,
 }
 
 impl Var {
@@ -131,13 +152,13 @@ impl LivenessData {
 
             op_base.outputs_start = total_outputs_count as OpOutputIdx;
             let app = if op_base.append_mode { 0 } else { 1 };
-            let outputs_count = match &sess.operator_data[op_id] {
-                OperatorData::Call(_) => app,
-                OperatorData::CallConcurrent(_) => app,
-                OperatorData::Cast(_) => app,
-                OperatorData::Count(_) => app,
-                OperatorData::Print(_) => app,
-                OperatorData::Join(_) => app,
+            let mut outputs_count = match &sess.operator_data[op_id] {
+                OperatorData::Call(_) => 1,
+                OperatorData::CallConcurrent(_) => 1,
+                OperatorData::Cast(_) => 1,
+                OperatorData::Count(_) => 1,
+                OperatorData::Print(_) => 1,
+                OperatorData::Join(_) => 1,
                 OperatorData::Fork(_) => 0,
                 OperatorData::Nop(_) => 0,
                 // technically this has output, but it always introduces a
@@ -154,18 +175,16 @@ impl LivenessData {
                         .map(|n| n.map(|_| 1).unwrap_or(0))
                         .sum::<usize>()
                 }
-                OperatorData::Format(_) => app,
-                OperatorData::StringSink(_) => app,
-                OperatorData::FileReader(_) => app,
-                OperatorData::Literal(_) => app,
-                OperatorData::Sequence(_) => app,
-                OperatorData::Custom(op) => {
-                    let mut oc = op.output_count(op_base);
-                    if op_base.append_mode {
-                        oc = oc.wrapping_sub(1)
-                    }
-                    oc
-                }
+                OperatorData::Format(_) => 1,
+                OperatorData::StringSink(_) => 1,
+                OperatorData::FileReader(_) => 1,
+                OperatorData::Literal(_) => 1,
+                OperatorData::Sequence(_) => 1,
+                OperatorData::Explode(op) => op.output_count(op_base),
+                OperatorData::Custom(op) => op.output_count(op_base),
+            };
+            if op_base.append_mode {
+                outputs_count = outputs_count.saturating_sub(1)
             };
             total_outputs_count += outputs_count;
             op_base.outputs_end = total_outputs_count as OpOutputIdx;
@@ -231,6 +250,9 @@ impl LivenessData {
                     OperatorData::FileReader(_) => (),
                     OperatorData::Literal(_) => (),
                     OperatorData::Sequence(_) => (),
+                    OperatorData::Explode(op) => {
+                        op.register_output_var_names(self, sess)
+                    }
                     OperatorData::Custom(op) => {
                         op.register_output_var_names(self, sess)
                     }
@@ -345,6 +367,7 @@ impl LivenessData {
                     OperatorData::FileReader(_) => (),
                     OperatorData::Literal(_) => (),
                     OperatorData::Sequence(_) => (),
+                    OperatorData::Explode(_) => (),
                     // TODO: maybe support this
                     OperatorData::Custom(_) => (),
                 }
@@ -370,10 +393,12 @@ impl LivenessData {
         }
     }
     fn access_field(
-        &self,
+        &mut self,
+        op_id: OperatorId,
         op_output_idx: OpOutputIdx,
         header_write: bool,
-        stringified: bool,
+        non_stringified: bool,
+        direct_access: bool,
     ) {
         if op_output_idx == DUMMY_FIELD_OUTPUT_IDX {
             // we don't want this field to be forwarded by fork and friends
@@ -382,9 +407,30 @@ impl LivenessData {
         }
         let oo_idx = op_output_idx as usize;
         let ooc = self.op_outputs.len();
+        let old = &mut self.operator_liveness_data[op_id as usize];
+        match old.accessed_outputs.entry(op_output_idx) {
+            Entry::Occupied(mut e) => {
+                let acc = e.get_mut();
+                if direct_access && !acc.direct_access {
+                    acc.direct_access = true;
+                    acc.direct_access_index = old.direct_access_count;
+                }
+                acc.header_write |= header_write;
+                acc.non_stringified |= non_stringified;
+            }
+            Entry::Vacant(e) => {
+                e.insert(OutputAcccess {
+                    header_write,
+                    non_stringified,
+                    direct_access,
+                    direct_access_index: old.direct_access_count,
+                });
+            }
+        }
+        old.direct_access_count += direct_access as DirectOperatorAccessIndex;
         self.op_outputs_data
             .set_aliased(READS_OFFSET * ooc + oo_idx, true);
-        if !stringified {
+        if non_stringified {
             self.op_outputs_data
                 .set_aliased(NON_STRING_READS_OFFSET * ooc + oo_idx, true);
         }
@@ -392,8 +438,14 @@ impl LivenessData {
             self.op_outputs_data
                 .set_aliased(HEADER_WRITES_OFFSET * ooc + oo_idx, true);
         }
-        for fr in &self.op_outputs[oo_idx].field_references {
-            self.access_field(*fr, header_write, stringified);
+        for fri in 0..self.op_outputs[oo_idx].field_references.len() {
+            self.access_field(
+                op_id,
+                self.op_outputs[oo_idx].field_references[fri],
+                header_write,
+                non_stringified,
+                false,
+            );
         }
     }
     fn append_to_field(&self, op_output_idx: OpOutputIdx) {
@@ -438,12 +490,13 @@ impl LivenessData {
         let mut any_writes_so_far = false;
         for op_n in bb.operators_start..bb.operators_end {
             bb = &mut self.basic_blocks[bb_id]; // reborrow for lifetime
-            let op_id = cn.operators[op_n as usize] as usize;
-            let op_base = &sess.operator_bases[op_id];
+            let op_id = cn.operators[op_n as usize];
+            let op_idx = op_id as usize;
+            let op_base = &sess.operator_bases[op_idx];
             let output_field = if op_base.append_mode {
                 last_output_field
             } else {
-                sess.operator_bases[op_id].outputs_start
+                sess.operator_bases[op_idx].outputs_start
             };
             let used_input_field = if op_base.append_mode
                 && last_output_field == BB_INPUT_VAR_OUTPUT_IDX
@@ -452,10 +505,12 @@ impl LivenessData {
             } else {
                 input_field
             };
-            let mut input_accessed = true;
-            let mut non_stringified_input_access = false;
-            let mut may_dup_or_drop = false;
-            match &sess.operator_data[op_id] {
+            let mut flags = AccessFlags {
+                input_accessed: true,
+                non_stringified_input_access: true,
+                may_dup_or_drop: true,
+            };
+            match &sess.operator_data[op_idx] {
                 OperatorData::Fork(_) | OperatorData::ForkCat(_) => {
                     debug_assert!(op_n + 1 == bb.operators_end);
                     break;
@@ -496,10 +551,11 @@ impl LivenessData {
                     continue;
                 }
                 OperatorData::Regex(re) => {
-                    may_dup_or_drop =
+                    flags.may_dup_or_drop =
                         !re.opts.non_mandatory || re.opts.multimatch;
+                    flags.non_stringified_input_access = false;
                     for i in 0..re.capture_group_names.len() {
-                        self.op_outputs[sess.operator_bases[op_id]
+                        self.op_outputs[sess.operator_bases[op_idx]
                             .outputs_start
                             as usize
                             + i]
@@ -513,14 +569,16 @@ impl LivenessData {
                             let tgt_var_name = self.var_names[name];
                             self.vars_to_op_outputs_map
                                 [tgt_var_name as usize] =
-                                sess.operator_bases[op_id].outputs_start
+                                sess.operator_bases[op_idx].outputs_start
                                     + cgi as OpOutputIdx;
                         }
                     }
                 }
                 OperatorData::Format(fmt) => {
+                    flags.may_dup_or_drop = false;
                     // might be set to true again in the loop below
-                    input_accessed = false;
+                    flags.non_stringified_input_access = false;
+                    flags.input_accessed = false;
                     for p in &fmt.parts {
                         match p {
                             FormatPart::ByteLiteral(_) => (),
@@ -538,13 +596,15 @@ impl LivenessData {
                                     fmt.refs_idx[fk.ref_idx as usize]
                                 {
                                     self.access_field(
+                                        op_id,
                                         self.var_names[&name],
                                         any_writes_so_far,
-                                        !non_stringified,
+                                        non_stringified,
+                                        true,
                                     );
                                 } else {
-                                    input_accessed = true;
-                                    non_stringified_input_access =
+                                    flags.input_accessed = true;
+                                    flags.non_stringified_input_access =
                                         non_stringified;
                                 }
                                 if let Some(FormatWidthSpec::Ref(ws_ref)) =
@@ -554,13 +614,16 @@ impl LivenessData {
                                         fmt.refs_idx[ws_ref as usize]
                                     {
                                         self.access_field(
+                                            op_id,
                                             self.var_names[&name],
                                             any_writes_so_far,
-                                            false,
+                                            true,
+                                            true,
                                         );
                                     } else {
-                                        input_accessed = true;
-                                        non_stringified_input_access = true;
+                                        flags.input_accessed = true;
+                                        flags.non_stringified_input_access =
+                                            true;
                                     }
                                 }
                             }
@@ -570,66 +633,66 @@ impl LivenessData {
                 OperatorData::FileReader(_) => {
                     // this only inserts if input is done, so no write flag
                     // neccessary
-                    input_accessed = false;
+                    flags.input_accessed = false;
+                    flags.non_stringified_input_access = false;
                 }
                 OperatorData::Literal(di) => {
-                    may_dup_or_drop = di.insert_count.is_some();
-                    input_accessed = false;
+                    flags.may_dup_or_drop = di.insert_count.is_some();
+                    flags.input_accessed = false;
+                    flags.non_stringified_input_access = false;
                 }
-                OperatorData::Join(_) => {
-                    may_dup_or_drop = true;
-                }
+                OperatorData::Join(_) => {}
                 OperatorData::Sequence(seq) => {
-                    input_accessed = false;
-                    may_dup_or_drop = !seq.stop_after_input;
+                    flags.input_accessed = false;
+                    flags.may_dup_or_drop = !seq.stop_after_input;
+                    flags.non_stringified_input_access = false;
                 }
                 OperatorData::Count(_) => {
-                    may_dup_or_drop = true;
-                    input_accessed = false;
+                    flags.input_accessed = false;
+                    flags.non_stringified_input_access = false;
                 }
-                OperatorData::Nop(_) => {
-                    input_accessed = false;
+                OperatorData::Nop(_)
+                | OperatorData::StringSink(_)
+                | OperatorData::Print(_) => {
+                    flags.may_dup_or_drop = false;
+                    flags.non_stringified_input_access = false;
                 }
-                OperatorData::Cast(_) => (),
-                OperatorData::Print(_) => (),
-                OperatorData::StringSink(_) => (),
+                OperatorData::Cast(_) => {
+                    flags.may_dup_or_drop = false;
+                }
                 OperatorData::Next(_) => unreachable!(),
                 OperatorData::Up(_) => unreachable!(),
+                OperatorData::Explode(op) => {
+                    op.update_variable_liveness(self, bb_id, op_n, &mut flags)
+                }
                 OperatorData::Custom(op) => {
-                    non_stringified_input_access = true;
-                    may_dup_or_drop = true;
-                    op.update_variable_liveness(
-                        self,
-                        bb_id,
-                        op_n,
-                        &mut input_accessed,
-                        &mut non_stringified_input_access,
-                        &mut may_dup_or_drop,
-                    )
+                    op.update_variable_liveness(self, bb_id, op_n, &mut flags)
                 }
             }
-            if input_accessed {
+            if flags.input_accessed {
                 self.access_field(
+                    op_id,
                     used_input_field,
                     any_writes_so_far,
-                    !non_stringified_input_access,
+                    flags.non_stringified_input_access,
+                    true,
                 );
             }
             if op_base.append_mode {
                 self.append_to_field(output_field);
             }
-            if let Some(label) = sess.operator_bases[op_id].label {
+            if let Some(label) = sess.operator_bases[op_idx].label {
                 let var_id = self.var_names[&label];
                 self.vars_to_op_outputs_map[var_id as usize] =
-                    sess.operator_bases[op_id].outputs_start;
+                    sess.operator_bases[op_idx].outputs_start;
             }
 
-            any_writes_so_far |= may_dup_or_drop;
+            any_writes_so_far |= flags.may_dup_or_drop;
             last_output_field = output_field;
             if !op_base.append_mode && !op_base.transparent_mode {
                 input_field = output_field;
                 self.vars_to_op_outputs_map[BB_INPUT_VAR as usize] =
-                    sess.operator_bases[op_id].outputs_start;
+                    sess.operator_bases[op_idx].outputs_start;
             }
         }
         bb = &mut self.basic_blocks[bb_id];
@@ -950,6 +1013,53 @@ impl LivenessData {
             }
         }
     }
+    fn compute_operator_kills(&mut self, sess: &Session) {
+        let var_count = self.vars.len();
+        let output_count = self.op_outputs.len();
+        let mut live_operators = BitVec::<Cell<usize>>::new();
+        live_operators.resize(output_count, false);
+        for bb_id in 0..self.basic_blocks.len() {
+            let succession_reads = &self.var_data
+                [self.get_succession_var_data_bounds(bb_id)]
+                [READS_OFFSET * var_count..(READS_OFFSET + 1) * var_count];
+            let local_survives = &self.var_data
+                [self.get_local_var_data_bounds(bb_id)]
+                [SURVIVES_OFFSET * var_count
+                    ..(SURVIVES_OFFSET + 1) * var_count];
+            let mut vars = &mut live_operators[0..var_count];
+            vars.copy_from_bitslice(local_survives);
+            vars = vars.not();
+            *vars |= succession_reads;
+
+            let bb = &self.basic_blocks[bb_id];
+            let chain = &sess.chains[bb.chain_id as usize];
+            let operators = &chain.operators
+                [bb.operators_start as usize..bb.operators_end as usize];
+            for &op_id in operators {
+                let op_base = &sess.operator_bases[op_id as usize];
+                for output_id in op_base.outputs_start..op_base.outputs_end {
+                    let mut oid =
+                        live_operators.get_mut(output_id as usize).unwrap();
+                    for &v_id in &self.op_outputs[output_id as usize]
+                        .bound_vars_after_bb
+                    {
+                        *oid |= succession_reads[v_id as usize];
+                    }
+                }
+            }
+            for op_id in operators {
+                let op_idx = *op_id as usize;
+                let op_ld = &mut self.operator_liveness_data[op_idx];
+                for &output_idx in op_ld.accessed_outputs.keys() {
+                    if !live_operators[output_idx as usize] {
+                        op_ld.killed_outputs.push(output_idx);
+                        live_operators.set(output_idx as usize, true);
+                    }
+                }
+                op_ld.killed_outputs.sort_unstable();
+            }
+        }
+    }
     #[cfg(feature = "debug_logging")]
     fn log_liveness_data(&mut self, sess: &Session) {
         println!("{:-^80}", " <liveness analysis> ");
@@ -1006,7 +1116,36 @@ impl LivenessData {
         println!();
         println!("vars:");
         for (v_id, v) in self.vars.iter().enumerate() {
-            println!("var id {v_id:02}: {}", v.name(&sess.string_store));
+            println!("var {v_id:02}: {}", v.name(&sess.string_store));
+        }
+        println!();
+        println!("operators:");
+        let flag = |c: bool, t: char| if c { t } else { '-' };
+        for (op_id, old) in self.operator_liveness_data.iter().enumerate() {
+            print!(
+                "op {op_id:02} ({}):",
+                sess.operator_data[op_id].default_op_name(),
+            );
+            if !old.accessed_outputs.is_empty() {
+                print!(" [acc:");
+                for (&idx, acc) in &old.accessed_outputs {
+                    print!(
+                        " {idx}::{}{}{}",
+                        flag(acc.direct_access, 'D'),
+                        flag(acc.header_write, 'W'),
+                        flag(!acc.non_stringified, 'S')
+                    )
+                }
+                print!("]");
+            }
+            if !old.killed_outputs.is_empty() {
+                print!(" (kills:");
+                for idx in &old.killed_outputs {
+                    print!(" {idx}")
+                }
+                print!(")");
+            }
+            println!();
         }
         println!();
         println!("op_outputs:");
@@ -1154,6 +1293,28 @@ impl LivenessData {
         }
         println!("{:-^80}", " </liveness analysis> ");
     }
+    pub fn can_consume_output(
+        &self,
+        op_id: OperatorId,
+        output_idx: OpOutputIdx,
+    ) -> bool {
+        self.operator_liveness_data[op_id as usize]
+            .killed_outputs
+            .contains(&output_idx)
+    }
+    pub fn can_consume_nth_access(
+        &self,
+        op_id: OperatorId,
+        n: DirectOperatorAccessIndex,
+    ) -> bool {
+        let old = &self.operator_liveness_data[op_id as usize];
+        for (idx, acc) in &old.accessed_outputs {
+            if acc.direct_access_index == n {
+                return old.killed_outputs.binary_search(idx).ok().is_some();
+            }
+        }
+        false
+    }
 }
 
 pub fn compute_liveness_data(sess: &mut Session) -> LivenessData {
@@ -1166,6 +1327,7 @@ pub fn compute_liveness_data(sess: &mut Session) -> LivenessData {
     ld.compute_global_liveness();
     ld.compute_bb_succession_data();
     ld.compute_op_output_liveness(sess);
+    ld.compute_operator_kills(sess);
     #[cfg(feature = "debug_logging")]
     ld.log_liveness_data(sess);
     ld

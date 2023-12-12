@@ -1441,22 +1441,6 @@ impl<FD: DerefMut<Target = FieldData>> VaryingTypeInserter<FD> {
             )
         }
     }
-    pub fn push_int(&mut self, v: i64, rl: usize) {
-        self.push_fixed_sized_type(v, rl)
-    }
-    pub fn push_field_reference(
-        &mut self,
-        v: SlicedFieldReference,
-        rl: usize,
-    ) {
-        self.push_fixed_sized_type(v, rl)
-    }
-    pub fn push_error(&mut self, e: OperatorApplicationError, rl: usize) {
-        self.push_fixed_sized_type(e, rl)
-    }
-    pub fn push_null(&mut self, rl: usize) {
-        self.push_zst(FieldValueRepr::Null, rl)
-    }
 }
 
 impl<FD: DerefMut<Target = FieldData>> Drop for VaryingTypeInserter<FD> {

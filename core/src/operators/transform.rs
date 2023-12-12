@@ -15,6 +15,7 @@ use super::{
     call_concurrent::{TfCallConcurrent, TfCalleeConcurrent},
     cast::TfCast,
     count::TfCount,
+    explode::TfExplode,
     file_reader::TfFileReader,
     fork::TfFork,
     forkcat::TfForkCat,
@@ -54,6 +55,7 @@ pub enum TransformData<'a> {
     FileReader(TfFileReader),
     Literal(TfLiteral<'a>),
     Sequence(TfSequence),
+    Explode(TfExplode),
     Custom(SmallBox<dyn Transform, 192>),
 }
 
@@ -85,6 +87,7 @@ impl TransformData<'_> {
             TransformData::Literal(_) => "literal",
             TransformData::Sequence(_) => "sequence",
             TransformData::Terminator(_) => "terminator",
+            TransformData::Explode(tf) => return tf.display_name(),
             TransformData::Custom(tf) => return tf.display_name(),
         }
         .into()

@@ -22,7 +22,8 @@ use crate::{
         key::setup_op_key,
         nop::{setup_op_nop, OpNop},
         operator::{
-            OperatorBase, OperatorData, OperatorId, OperatorOffsetInChain,
+            Operator, OperatorBase, OperatorData, OperatorId,
+            OperatorOffsetInChain,
         },
         regex::setup_op_regex,
         select::{setup_op_select, setup_op_select_liveness_data},
@@ -175,6 +176,7 @@ impl SessionOptions {
                 up.subchain_count_after =
                     self.chains[self.curr_chain as usize].subchain_count;
             }
+            OperatorData::Explode(op) => op.on_op_added(self),
             OperatorData::Custom(op) => op.on_op_added(self),
         }
         self.operator_base_options.push(op_base_opts);
@@ -266,6 +268,9 @@ impl SessionOptions {
                         OperatorData::FileReader(_) => (),
                         OperatorData::Literal(_) => (),
                         OperatorData::Sequence(_) => (),
+                        OperatorData::Explode(op) => {
+                            op.on_subchains_added(sc_count_after)
+                        }
                         OperatorData::Custom(op) => {
                             op.on_subchains_added(sc_count_after)
                         }
@@ -332,6 +337,14 @@ impl SessionOptions {
                     &sess.string_store,
                     op,
                     op_id,
+                )?,
+                OperatorData::Explode(op) => op.setup(
+                    op_id,
+                    op_base,
+                    chain,
+                    &sess.settings,
+                    &sess.chain_labels,
+                    &mut sess.string_store,
                 )?,
                 OperatorData::Custom(op) => op.setup(
                     op_id,
@@ -415,6 +428,9 @@ impl SessionOptions {
                     setup_op_sequence_concurrent_liveness_data(
                         sess, op, op_id, &ld,
                     )
+                }
+                OperatorData::Explode(op) => {
+                    op.on_liveness_computed(sess, op_id, &ld)
                 }
                 OperatorData::Custom(op) => {
                     op.on_liveness_computed(sess, op_id, &ld)

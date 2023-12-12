@@ -34,7 +34,7 @@ use crate::{
         },
         literal::{build_tf_literal, handle_tf_literal},
         nop::{build_tf_nop, create_tf_nop, handle_tf_nop},
-        operator::{OperatorData, OperatorId},
+        operator::{Operator, OperatorData, OperatorId},
         print::{
             build_tf_print, handle_tf_print,
             handle_tf_print_stream_value_update,
@@ -50,7 +50,7 @@ use crate::{
             handle_tf_string_sink_stream_value_update,
         },
         terminator::{handle_tf_terminator, setup_tf_terminator},
-        transform::{TransformData, TransformId, TransformState},
+        transform::{Transform, TransformData, TransformId, TransformState},
     },
     record_data::{
         action_buffer::ActorRef,
@@ -797,6 +797,9 @@ impl<'a> JobSession<'a> {
                 }
                 OperatorData::Next(_) => unreachable!(),
                 OperatorData::Up(_) => unreachable!(),
+                OperatorData::Explode(op) => {
+                    op.build_transform(jd, b, &mut tf_state, prebound_outputs)
+                }
                 OperatorData::Custom(op) => {
                     op.build_transform(jd, b, &mut tf_state, prebound_outputs)
                 }
@@ -855,6 +858,7 @@ impl<'a> JobSession<'a> {
                 OperatorData::FileReader(_) => (),
                 OperatorData::Literal(_) => (),
                 OperatorData::Sequence(_) => (),
+                OperatorData::Explode(_) => (),
                 OperatorData::Custom(_) => (), // TODO: allow this?
             }
         }
@@ -987,6 +991,12 @@ impl<'a> JobSession<'a> {
             TransformData::Disabled => unreachable!(),
             TransformData::Literal(_) => unreachable!(),
             TransformData::CalleeConcurrent(_) => unreachable!(),
+            TransformData::Explode(tf) => tf.handle_stream_value_update(
+                &mut self.job_data,
+                svu.tf_id,
+                svu.sv_id,
+                svu.custom,
+            ),
             TransformData::Custom(tf) => tf.handle_stream_value_update(
                 &mut self.job_data,
                 svu.tf_id,
@@ -1036,6 +1046,9 @@ impl<'a> JobSession<'a> {
             TransformData::Literal(_) => (),
             TransformData::Sequence(_) => (),
             TransformData::Terminator(_) => (),
+            TransformData::Explode(tf) => {
+                debug_assert!(!tf.pre_update_required());
+            }
             TransformData::Custom(tf) => {
                 if tf.pre_update_required() {
                     let mut tf = std::mem::replace(
@@ -1087,6 +1100,7 @@ impl<'a> JobSession<'a> {
             TransformData::Terminator(tf) => {
                 handle_tf_terminator(jd, tf_id, tf)
             }
+            TransformData::Explode(tf) => tf.update(&mut self.job_data, tf_id),
             TransformData::Custom(tf) => tf.update(&mut self.job_data, tf_id),
             TransformData::Disabled => unreachable!(),
         }

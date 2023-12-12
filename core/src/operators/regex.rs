@@ -624,7 +624,7 @@ fn match_regex_inner<const PUSH_REF: bool, R: AnyRegex>(
             if let Some(ins) = &mut rmis.batch_state.inserters[c] {
                 if let Some((cg_begin, cg_end)) = regex.captures_locs_get(c) {
                     if PUSH_REF {
-                        ins.push_field_reference(
+                        ins.push_fixed_sized_type(
                             SlicedFieldReference {
                                 field_id_offset: rmis.field_ref_offset,
                                 begin: offset + cg_begin,
@@ -643,7 +643,7 @@ fn match_regex_inner<const PUSH_REF: bool, R: AnyRegex>(
                         );
                     }
                 } else {
-                    ins.push_null(1);
+                    ins.push_zst(FieldValueRepr::Null, 1);
                 }
             }
         }
@@ -674,7 +674,7 @@ fn match_regex_inner<const PUSH_REF: bool, R: AnyRegex>(
         if rmis.batch_state.non_mandatory {
             for c in 0..regex.captures_locs_len() {
                 if let Some(ins) = &mut rmis.batch_state.inserters[c] {
-                    ins.push_null(rl);
+                    ins.push_zst(FieldValueRepr::Null, rl);
                 }
             }
             match_count = 1;
@@ -1019,7 +1019,7 @@ pub fn handle_tf_regex(
                 for inserter in
                     rbs.inserters.iter_mut().filter_map(|i| i.as_mut())
                 {
-                    inserter.push_error(
+                    inserter.push_fixed_sized_type(
                         OperatorApplicationError::new(
                             "regex type error",
                             op_id,

@@ -4,10 +4,13 @@ use indexmap::IndexMap;
 
 use crate::{
     job_session::JobData,
-    liveness_analysis::{BasicBlockId, LivenessData, OpOutputIdx},
+    liveness_analysis::{
+        AccessFlags, BasicBlockId, LivenessData, OpOutputIdx,
+    },
     record_data::{
-        field::FieldId,
+        field::{FieldId, FieldIdOffset},
         field_data::{FieldData, FieldValueRepr},
+        field_value::FieldReference,
         iter_hall::IterId,
         push_interface::VaryingTypeInserter,
         typed::TypedSlice,
@@ -25,7 +28,9 @@ use super::{
     transform::{DefaultTransformName, Transform, TransformData, TransformId},
 };
 
-pub struct OpExplode {}
+pub struct OpExplode {
+    may_consume_input: bool,
+}
 #[derive(Default)]
 pub struct TfExplode {
     target_fields:
@@ -44,26 +49,38 @@ impl Operator for OpExplode {
     fn has_dynamic_outputs(&self, _op_base: &OperatorBase) -> bool {
         true
     }
+
+    fn on_liveness_computed(
+        &mut self,
+        _sess: &crate::context::Session,
+        op_id: super::operator::OperatorId,
+        ld: &LivenessData,
+    ) {
+        self.may_consume_input = ld.can_consume_nth_access(op_id, 0);
+    }
+
     fn update_variable_liveness(
         &self,
         _ld: &mut LivenessData,
         _bb_id: BasicBlockId,
         _bb_offset: u32,
-        _input_accessed: &mut bool,
-        _non_stringified_input_access: &mut bool,
-        _may_dup_or_drop: &mut bool,
+        _flags: &mut AccessFlags,
     ) {
     }
 
     fn build_transform<'a>(
         &'a self,
-        _sess: &mut JobData,
+        sess: &mut JobData,
         _op_base: &OperatorBase,
         tf_state: &mut super::transform::TransformState,
         _prebound_outputs: &HashMap<OpOutputIdx, FieldId, BuildIdentityHasher>,
     ) -> TransformData<'a> {
         let mut tfe = TfExplode::default();
         tfe.target_fields.insert(None, tf_state.output_field);
+        sess.field_mgr.register_field_reference(
+            tf_state.output_field,
+            tf_state.input_field,
+        );
         TransformData::Custom(smallbox!(tfe))
     }
 }
@@ -97,6 +114,7 @@ impl Transform for TfExplode {
             self.input_iter_id,
             batch_size,
         );
+
         while let Some(range) = iter.next(&mut jd.match_set_mgr) {
             match range.base.data {
                 TypedSlice::Undefined(_) => inserters[0].push_zst(
@@ -111,35 +129,43 @@ impl Transform for TfExplode {
                     for (v, rl) in
                         TypedSliceIter::from_range(&range.base, ints)
                     {
-                        inserters[0].push_int(*v, rl as usize);
+                        inserters[0].push_fixed_sized_type(*v, rl as usize);
                     }
                 }
-                TypedSlice::BigInt(ints) => {
+                TypedSlice::Float(floats) => {
                     for (v, rl) in
-                        TypedSliceIter::from_range(&range.base, ints)
+                        TypedSliceIter::from_range(&range.base, floats)
                     {
-                        inserters[0]
-                            .push_fixed_sized_type(v.clone(), rl as usize);
+                        inserters[0].push_fixed_sized_type(*v, rl as usize);
                     }
                 }
-                TypedSlice::Float(_) => todo!(),
-                TypedSlice::Rational(_) => todo!(),
-                TypedSlice::StreamValueId(_) => {
-                    todo!()
+                TypedSlice::BigInt(_)
+                | TypedSlice::Rational(_)
+                | TypedSlice::BytesInline(_)
+                | TypedSlice::TextInline(_)
+                | TypedSlice::BytesBuffer(_)
+                | TypedSlice::Array(_)
+                | TypedSlice::Custom(_)
+                | TypedSlice::Error(_) => {
+                    let idx = if let Some(idx) = range.field_id_offset {
+                        idx.get() + 1
+                    } else {
+                        0
+                    };
+                    let fr = FieldReference {
+                        field_id_offset: FieldIdOffset::new(idx).unwrap(),
+                    };
+                    inserters[0]
+                        .push_fixed_sized_type(fr, range.base.field_count);
                 }
-                TypedSlice::Error(_) => todo!(),
-                TypedSlice::BytesInline(_) => {
-                    todo!()
+                TypedSlice::StreamValueId(vals) => {
+                    for (v, rl) in
+                        TypedSliceIter::from_range(&range.base, vals)
+                    {
+                        inserters[0].push_fixed_sized_type(*v, rl as usize);
+                    }
                 }
-                TypedSlice::TextInline(_) => {
-                    todo!()
-                }
-                TypedSlice::BytesBuffer(_) => {
-                    todo!()
-                }
-                TypedSlice::Object(_) => todo!(),
-                TypedSlice::Array(_) => todo!(),
-                TypedSlice::Custom(_) => todo!(),
+                TypedSlice::Object(_) => {}
                 TypedSlice::FieldReference(_)
                 | TypedSlice::SlicedFieldReference(_) => unreachable!(),
             }

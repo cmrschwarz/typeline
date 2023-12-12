@@ -6,7 +6,9 @@ use crate::{
     chain::{Chain, ChainId},
     context::{Session, SessionSettings},
     job_session::JobData,
-    liveness_analysis::{BasicBlockId, LivenessData, OpOutputIdx},
+    liveness_analysis::{
+        AccessFlags, BasicBlockId, LivenessData, OpOutputIdx,
+    },
     options::{argument::CliArgIdx, session_options::SessionOptions},
     record_data::field::FieldId,
     utils::{
@@ -22,6 +24,7 @@ use super::{
     cast::OpCast,
     count::OpCount,
     errors::OperatorSetupError,
+    explode::OpExplode,
     file_reader::OpFileReader,
     fork::OpFork,
     forkcat::OpForkCat,
@@ -63,6 +66,7 @@ pub enum OperatorData {
     FileReader(OpFileReader),
     Literal(OpLiteral),
     Sequence(OpSequence),
+    Explode(OpExplode),
     Custom(SmallBox<dyn Operator, 96>),
 }
 
@@ -103,6 +107,7 @@ impl OperatorData {
             OperatorData::Call(_) => "call".into(),
             OperatorData::CallConcurrent(_) => "callcc".into(),
             OperatorData::Nop(_) => "nop".into(),
+            OperatorData::Explode(op) => op.default_name(),
             OperatorData::Custom(op) => op.default_name(),
         }
     }
@@ -132,9 +137,7 @@ pub trait Operator: Send + Sync {
         ld: &mut LivenessData,
         bb_id: BasicBlockId,
         bb_offset: u32,
-        input_accessed: &mut bool,
-        non_stringified_input_access: &mut bool,
-        may_dup_or_drop: &mut bool,
+        access_flags: &mut AccessFlags,
     );
     fn setup(
         &mut self,
