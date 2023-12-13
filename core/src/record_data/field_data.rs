@@ -41,10 +41,11 @@ pub type RunLength = u32;
 // which are not actual data types, but helper representations / indirections
 // This also does not differentiate between the text and bytes type as they
 // have the same data layout
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Default, Clone, Copy, PartialEq)]
 pub enum FieldValueRepr {
-    Undefined,
+    #[default]
     Null,
+    Undefined,
     Int,
     BigInt,
     Float,
@@ -129,6 +130,8 @@ pub mod field_value_flags {
     pub const SAME_VALUE_AS_PREVIOUS: FieldValueFlags =
         1 << SAME_VALUE_AS_PREVIOUS_OFFSET;
 
+    // flags relevant to the content of the field, not some meta information
+    pub const CONTENT_FLAGS: FieldValueFlags = BYTES_ARE_UTF8;
     pub const DEFAULT: FieldValueFlags = 0;
 }
 
@@ -298,6 +301,17 @@ impl FieldValueRepr {
             FieldValueRepr::Object => "object",
             FieldValueRepr::Array => "array",
             FieldValueRepr::Custom => "custom",
+        }
+    }
+    pub fn to_format(&self) -> FieldValueFormat {
+        FieldValueFormat {
+            repr: *self,
+            flags: field_value_flags::DEFAULT,
+            size: if self.is_variable_sized_type() {
+                0
+            } else {
+                self.size() as FieldValueSize
+            },
         }
     }
 }

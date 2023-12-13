@@ -11,6 +11,7 @@ pub mod nonzero_ext;
 pub mod offset_vec_deque;
 pub mod plattform;
 pub mod small_box;
+pub mod stable_vec;
 pub mod string_store;
 pub mod temp_vec;
 pub mod test_utils;

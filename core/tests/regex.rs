@@ -217,7 +217,6 @@ fn optional_regex() -> Result<(), ScrError> {
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(
-        ss.get_data().unwrap().as_slice(),
         [
             "9: null",
             "10: \"1\"",
@@ -225,7 +224,8 @@ fn optional_regex() -> Result<(), ScrError> {
             "11: \"1\"",
             "20: null",
             "21: \"1\""
-        ]
+        ],
+        ss.get_data().unwrap().as_slice(),
     );
     Ok(())
 }

@@ -1,4 +1,8 @@
-use std::{borrow::Cow, num::NonZeroUsize, sync::Arc};
+use std::{
+    borrow::Cow,
+    num::NonZeroUsize,
+    sync::{Arc, RwLock},
+};
 
 use lazy_static::lazy_static;
 
@@ -282,6 +286,7 @@ impl SessionOptions {
                 chain.operators.len() as OperatorOffsetInChain;
             chain.operators.push(op_id);
         }
+        let mut string_store = sess.string_store.write().unwrap();
         for i in 0..sess.operator_bases.len() {
             let op_id = i as OperatorId;
             let op_base = &mut sess.operator_bases[i];
@@ -293,16 +298,14 @@ impl SessionOptions {
             let chain = &mut sess.chains[chain_id];
             match &mut sess.operator_data[i] {
                 OperatorData::Regex(op) => {
-                    setup_op_regex(&mut sess.string_store, op)?
+                    setup_op_regex(&mut string_store, op)?
                 }
                 OperatorData::Format(op) => {
-                    setup_op_format(&mut sess.string_store, op)?
+                    setup_op_format(&mut string_store, op)?
                 }
-                OperatorData::Key(op) => {
-                    setup_op_key(&mut sess.string_store, op)?
-                }
+                OperatorData::Key(op) => setup_op_key(&mut string_store, op)?,
                 OperatorData::Select(op) => {
-                    setup_op_select(&mut sess.string_store, op)?
+                    setup_op_select(&mut string_store, op)?
                 }
                 OperatorData::FileReader(op) => {
                     setup_op_file_reader(chain, op)?
@@ -327,14 +330,14 @@ impl SessionOptions {
                 OperatorData::Up(op) => setup_op_up(chain, op, op_id)?,
                 OperatorData::Call(op) => setup_op_call(
                     &sess.chain_labels,
-                    &sess.string_store,
+                    &string_store,
                     op,
                     op_id,
                 )?,
                 OperatorData::CallConcurrent(op) => setup_op_call_concurrent(
                     &sess.settings,
                     &sess.chain_labels,
-                    &sess.string_store,
+                    &string_store,
                     op,
                     op_id,
                 )?,
@@ -344,7 +347,7 @@ impl SessionOptions {
                     chain,
                     &sess.settings,
                     &sess.chain_labels,
-                    &mut sess.string_store,
+                    &mut string_store,
                 )?,
                 OperatorData::Custom(op) => op.setup(
                     op_id,
@@ -352,7 +355,7 @@ impl SessionOptions {
                     chain,
                     &sess.settings,
                     &sess.chain_labels,
-                    &mut sess.string_store,
+                    &mut string_store,
                 )?,
             }
         }
@@ -499,7 +502,7 @@ impl SessionOptions {
                 .collect(),
             cli_args: self.cli_args,
             chain_labels: Default::default(),
-            string_store: self.string_store,
+            string_store: RwLock::new(self.string_store),
             extensions: self.extensions,
         };
         SessionOptions::setup_chain_labels(&mut sess);
@@ -508,7 +511,7 @@ impl SessionOptions {
             .and(result_into(SessionOptions::setup_chains(&sess)));
         if let Err(e) = res {
             // moving back into context options
-            self.string_store = sess.string_store;
+            self.string_store = sess.string_store.into_inner().unwrap();
             self.operator_data = sess.operator_data;
             self.cli_args = sess.cli_args;
             self.extensions = sess.extensions;

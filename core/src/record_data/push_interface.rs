@@ -7,7 +7,7 @@ use super::{
         FieldValueHeader, FieldValueRepr, FieldValueSize, FieldValueType,
         RunLength, MAX_FIELD_ALIGN,
     },
-    field_value::SlicedFieldReference,
+    field_value::{FieldValue, SlicedFieldReference},
     stream_value::StreamValueId,
 };
 use crate::{
@@ -19,8 +19,16 @@ use crate::{
     utils::as_u8_slice,
 };
 
-pub unsafe trait RawPushInterface {
-    unsafe fn push_variable_sized_type(
+pub unsafe trait PushInterface {
+    unsafe fn push_variable_sized_type_uninit(
+        &mut self,
+        kind: FieldValueRepr,
+        flags: FieldValueFlags,
+        data_len: usize,
+        run_length: usize,
+        try_header_rle: bool,
+    ) -> *mut u8;
+    unsafe fn push_variable_sized_type_unchecked(
         &mut self,
         kind: FieldValueRepr,
         flags: FieldValueFlags,
@@ -40,6 +48,51 @@ pub unsafe trait RawPushInterface {
         try_header_rle: bool,
         try_data_rle: bool,
     );
+    unsafe fn push_zst_unchecked(
+        &mut self,
+        kind: FieldValueRepr,
+        flags: FieldValueFlags,
+        run_length: usize,
+        try_header_rle: bool,
+    );
+    fn push_inline_bytes(
+        &mut self,
+        data: &[u8],
+        run_length: usize,
+        try_header_rle: bool,
+        try_data_rle: bool,
+    ) {
+        assert!(data.len() < INLINE_STR_MAX_LEN);
+        unsafe {
+            self.push_variable_sized_type_unchecked(
+                FieldValueRepr::BytesInline,
+                field_value_flags::DEFAULT,
+                data,
+                run_length,
+                try_header_rle,
+                try_data_rle,
+            );
+        }
+    }
+    fn push_inline_str(
+        &mut self,
+        data: &str,
+        run_length: usize,
+        try_header_rle: bool,
+        try_data_rle: bool,
+    ) {
+        assert!(data.len() < INLINE_STR_MAX_LEN);
+        unsafe {
+            self.push_variable_sized_type_unchecked(
+                FieldValueRepr::BytesInline,
+                field_value_flags::BYTES_ARE_UTF8,
+                data.as_bytes(),
+                run_length,
+                try_header_rle,
+                try_data_rle,
+            );
+        }
+    }
     fn push_fixed_size_type<T: PartialEq + Clone + FieldValueType>(
         &mut self,
         data: T,
@@ -59,21 +112,294 @@ pub unsafe trait RawPushInterface {
             );
         }
     }
-
-    unsafe fn push_zst_unchecked(
+    fn push_zst(
         &mut self,
         kind: FieldValueRepr,
-        flags: FieldValueFlags,
         run_length: usize,
         try_header_rle: bool,
-    );
-    unsafe fn push_variable_sized_type_uninit(
+    ) {
+        assert!(kind.is_zst());
+        unsafe {
+            self.push_zst_unchecked(
+                kind,
+                field_value_flags::DEFAULT,
+                run_length,
+                try_header_rle,
+            );
+        }
+    }
+
+    // string / bytes convenience wrappers
+    fn push_str_as_buffer(
         &mut self,
-        kind: FieldValueRepr,
-        flags: FieldValueFlags,
-        data_len: usize,
+        data: &str,
         run_length: usize,
-    ) -> *mut u8;
+        try_header_rle: bool,
+        try_data_rle: bool,
+    ) {
+        unsafe {
+            self.push_fixed_size_type_unchecked(
+                FieldValueRepr::BytesBuffer,
+                field_value_flags::BYTES_ARE_UTF8,
+                data.as_bytes().to_vec(),
+                run_length,
+                try_header_rle,
+                try_data_rle,
+            );
+        }
+    }
+    fn push_bytes_as_buffer(
+        &mut self,
+        data: &[u8],
+        run_length: usize,
+        try_header_rle: bool,
+        try_data_rle: bool,
+    ) {
+        unsafe {
+            self.push_fixed_size_type_unchecked(
+                FieldValueRepr::BytesBuffer,
+                field_value_flags::DEFAULT,
+                data.to_vec(),
+                run_length,
+                try_header_rle,
+                try_data_rle,
+            );
+        }
+    }
+    fn push_str(
+        &mut self,
+        data: &str,
+        run_length: usize,
+        try_header_rle: bool,
+        try_data_rle: bool,
+    ) {
+        if data.len() <= INLINE_STR_MAX_LEN {
+            self.push_inline_str(
+                data,
+                run_length,
+                try_header_rle,
+                try_data_rle,
+            );
+        } else {
+            self.push_str_as_buffer(
+                data,
+                run_length,
+                try_header_rle,
+                try_data_rle,
+            );
+        }
+    }
+    fn push_bytes(
+        &mut self,
+        data: &[u8],
+        run_length: usize,
+        try_header_rle: bool,
+        try_data_rle: bool,
+    ) {
+        if data.len() <= INLINE_STR_MAX_LEN {
+            self.push_inline_bytes(
+                data,
+                run_length,
+                try_header_rle,
+                try_data_rle,
+            );
+        } else {
+            self.push_bytes_as_buffer(
+                data,
+                run_length,
+                try_header_rle,
+                try_data_rle,
+            );
+        }
+    }
+
+    // fixed sized types / ZST convenience wrappers
+    fn push_string(
+        &mut self,
+        data: String,
+        run_length: usize,
+        try_header_rle: bool,
+        try_data_rle: bool,
+    ) {
+        unsafe {
+            self.push_fixed_size_type_unchecked(
+                FieldValueRepr::BytesBuffer,
+                field_value_flags::BYTES_ARE_UTF8,
+                data.into_bytes(),
+                run_length,
+                try_header_rle,
+                try_data_rle,
+            );
+        }
+    }
+    fn push_bytes_buffer(
+        &mut self,
+        data: Vec<u8>,
+        run_length: usize,
+        try_header_rle: bool,
+        try_data_rle: bool,
+    ) {
+        self.push_fixed_size_type(
+            data,
+            run_length,
+            try_header_rle,
+            try_data_rle,
+        );
+    }
+
+    fn push_custom(
+        &mut self,
+        data: CustomDataBox,
+        run_length: usize,
+        try_header_rle: bool,
+        try_data_rle: bool,
+    ) {
+        self.push_fixed_size_type(
+            data,
+            run_length,
+            try_header_rle,
+            try_data_rle,
+        );
+    }
+    fn push_int(
+        &mut self,
+        data: i64,
+        run_length: usize,
+        try_header_rle: bool,
+        try_data_rle: bool,
+    ) {
+        self.push_fixed_size_type(
+            data,
+            run_length,
+            try_header_rle,
+            try_data_rle,
+        );
+    }
+    fn push_stream_value_id(
+        &mut self,
+        id: StreamValueId,
+        run_length: usize,
+        try_header_rle: bool,
+        try_data_rle: bool,
+    ) {
+        self.push_fixed_size_type(
+            id,
+            run_length,
+            try_header_rle,
+            try_data_rle,
+        );
+    }
+    fn push_error(
+        &mut self,
+        err: OperatorApplicationError,
+        run_length: usize,
+        try_header_rle: bool,
+        try_data_rle: bool,
+    ) {
+        self.push_fixed_size_type(
+            err,
+            run_length,
+            try_header_rle,
+            try_data_rle,
+        );
+    }
+    fn push_reference(
+        &mut self,
+        reference: SlicedFieldReference,
+        run_length: usize,
+        try_header_rle: bool,
+        try_data_rle: bool,
+    ) {
+        self.push_fixed_size_type(
+            reference,
+            run_length,
+            try_header_rle,
+            try_data_rle,
+        );
+    }
+    fn push_null(&mut self, run_length: usize, try_header_rle: bool) {
+        self.push_zst(FieldValueRepr::Null, run_length, try_header_rle);
+    }
+    fn push_undefined(&mut self, run_length: usize, try_header_rle: bool) {
+        self.push_zst(FieldValueRepr::Undefined, run_length, try_header_rle);
+    }
+    fn push_field_value_clone(
+        &mut self,
+        v: &FieldValue,
+        run_length: usize,
+        try_header_rle: bool,
+        try_data_rle: bool,
+    ) {
+        match v {
+            FieldValue::Null => self.push_null(run_length, try_header_rle),
+            FieldValue::Undefined => {
+                self.push_undefined(run_length, try_header_rle)
+            }
+            FieldValue::Int(v) => {
+                self.push_int(*v, run_length, try_header_rle, try_data_rle)
+            }
+            FieldValue::BigInt(v) => self.push_fixed_size_type(
+                v.clone(),
+                run_length,
+                try_header_rle,
+                try_data_rle,
+            ),
+            FieldValue::Float(v) => self.push_fixed_size_type(
+                *v,
+                run_length,
+                try_header_rle,
+                try_data_rle,
+            ),
+            FieldValue::Rational(v) => self.push_fixed_size_type(
+                (**v).clone(),
+                run_length,
+                try_header_rle,
+                try_data_rle,
+            ),
+            FieldValue::Text(v) => {
+                self.push_str(v, run_length, try_header_rle, try_data_rle)
+            }
+            FieldValue::Bytes(v) => {
+                self.push_bytes(v, run_length, try_header_rle, try_data_rle)
+            }
+            FieldValue::Array(v) => self.push_fixed_size_type(
+                v.clone(),
+                run_length,
+                try_header_rle,
+                try_data_rle,
+            ),
+            FieldValue::Object(v) => self.push_fixed_size_type(
+                v.clone(),
+                run_length,
+                try_header_rle,
+                try_data_rle,
+            ),
+            FieldValue::Custom(v) => self.push_fixed_size_type(
+                v.clone(),
+                run_length,
+                try_header_rle,
+                try_data_rle,
+            ),
+            FieldValue::Error(v) => self.push_fixed_size_type(
+                v.clone(),
+                run_length,
+                try_header_rle,
+                try_data_rle,
+            ),
+            FieldValue::FieldReference(v) => self.push_fixed_size_type(
+                v.clone(),
+                run_length,
+                try_header_rle,
+                try_data_rle,
+            ),
+            FieldValue::SlicedFieldReference(v) => self.push_fixed_size_type(
+                v.clone(),
+                run_length,
+                try_header_rle,
+                try_data_rle,
+            ),
+        }
+    }
 }
 impl FieldData {
     #[inline(always)]
@@ -315,8 +641,51 @@ impl FieldData {
     }
 }
 
-unsafe impl RawPushInterface for FieldData {
-    unsafe fn push_variable_sized_type(
+unsafe impl PushInterface for FieldData {
+    unsafe fn push_variable_sized_type_uninit(
+        &mut self,
+        repr: FieldValueRepr,
+        flags: FieldValueFlags,
+        data_len: usize,
+        run_length: usize,
+        try_header_rle: bool,
+    ) -> *mut u8 {
+        debug_assert!(repr.is_variable_sized_type());
+        debug_assert!(data_len <= INLINE_STR_MAX_LEN);
+        self.field_count += run_length;
+        let fmt = FieldValueFormat {
+            repr,
+            flags: flags | SHARED_VALUE,
+            size: data_len as FieldValueSize,
+        };
+        const MUST_MATCH_HEADER_FLAGS: FieldValueFlags =
+            BYTES_ARE_UTF8 | DELETED;
+
+        let mut header_rle = false;
+
+        if try_header_rle {
+            if let Some(h) = self.headers.last_mut() {
+                if h.repr == repr
+                    && h.size == fmt.size
+                    && h.flags & MUST_MATCH_HEADER_FLAGS
+                        == flags & MUST_MATCH_HEADER_FLAGS
+                {
+                    header_rle = true;
+                }
+            }
+        }
+
+        unsafe {
+            self.add_header_for_single_value(
+                fmt, run_length, header_rle, false,
+            );
+        }
+        self.data.reserve(data_len);
+        let res = self.data.get_head_ptr_mut();
+        unsafe { self.data.set_len(self.data.len() + data_len) };
+        res
+    }
+    unsafe fn push_variable_sized_type_unchecked(
         &mut self,
         kind: FieldValueRepr,
         flags: FieldValueFlags,
@@ -468,280 +837,7 @@ unsafe impl RawPushInterface for FieldData {
             );
         }
     }
-
-    unsafe fn push_variable_sized_type_uninit(
-        &mut self,
-        kind: FieldValueRepr,
-        flags: FieldValueFlags,
-        data_len: usize,
-        run_length: usize,
-    ) -> *mut u8 {
-        self.field_count += run_length;
-        debug_assert!(data_len <= INLINE_STR_MAX_LEN);
-        let size = data_len as FieldValueSize;
-        unsafe {
-            self.push_header_raw_same_value_after_first(
-                FieldValueFormat {
-                    repr: kind,
-                    flags,
-                    size,
-                },
-                run_length,
-            );
-        }
-        self.data.reserve(data_len);
-        let res = self.data.get_head_ptr_mut();
-        unsafe { self.data.set_len(self.data.len() + data_len) };
-        res
-    }
 }
-
-pub trait PushInterface: RawPushInterface {
-    fn push_inline_bytes(
-        &mut self,
-        data: &[u8],
-        run_length: usize,
-        try_header_rle: bool,
-        try_data_rle: bool,
-    ) {
-        unsafe {
-            self.push_variable_sized_type(
-                FieldValueRepr::BytesInline,
-                field_value_flags::DEFAULT,
-                data,
-                run_length,
-                try_header_rle,
-                try_data_rle,
-            );
-        }
-    }
-    fn push_inline_str(
-        &mut self,
-        data: &str,
-        run_length: usize,
-        try_header_rle: bool,
-        try_data_rle: bool,
-    ) {
-        unsafe {
-            self.push_variable_sized_type(
-                FieldValueRepr::BytesInline,
-                field_value_flags::BYTES_ARE_UTF8,
-                data.as_bytes(),
-                run_length,
-                try_header_rle,
-                try_data_rle,
-            );
-        }
-    }
-    fn push_string(
-        &mut self,
-        data: String,
-        run_length: usize,
-        try_header_rle: bool,
-        try_data_rle: bool,
-    ) {
-        unsafe {
-            self.push_fixed_size_type_unchecked(
-                FieldValueRepr::BytesBuffer,
-                field_value_flags::BYTES_ARE_UTF8,
-                data.into_bytes(),
-                run_length,
-                try_header_rle,
-                try_data_rle,
-            );
-        }
-    }
-    fn push_bytes_buffer(
-        &mut self,
-        data: Vec<u8>,
-        run_length: usize,
-        try_header_rle: bool,
-        try_data_rle: bool,
-    ) {
-        self.push_fixed_size_type(
-            data,
-            run_length,
-            try_header_rle,
-            try_data_rle,
-        );
-    }
-    fn push_str_as_buffer(
-        &mut self,
-        data: &str,
-        run_length: usize,
-        try_header_rle: bool,
-        try_data_rle: bool,
-    ) {
-        unsafe {
-            self.push_fixed_size_type_unchecked(
-                FieldValueRepr::BytesBuffer,
-                field_value_flags::BYTES_ARE_UTF8,
-                data.as_bytes().to_vec(),
-                run_length,
-                try_header_rle,
-                try_data_rle,
-            );
-        }
-    }
-    fn push_bytes_as_buffer(
-        &mut self,
-        data: &[u8],
-        run_length: usize,
-        try_header_rle: bool,
-        try_data_rle: bool,
-    ) {
-        unsafe {
-            self.push_fixed_size_type_unchecked(
-                FieldValueRepr::BytesBuffer,
-                field_value_flags::DEFAULT,
-                data.to_vec(),
-                run_length,
-                try_header_rle,
-                try_data_rle,
-            );
-        }
-    }
-    fn push_str(
-        &mut self,
-        data: &str,
-        run_length: usize,
-        try_header_rle: bool,
-        try_data_rle: bool,
-    ) {
-        if data.len() <= INLINE_STR_MAX_LEN {
-            self.push_inline_str(
-                data,
-                run_length,
-                try_header_rle,
-                try_data_rle,
-            );
-        } else {
-            self.push_str_as_buffer(
-                data,
-                run_length,
-                try_header_rle,
-                try_data_rle,
-            );
-        }
-    }
-    fn push_bytes(
-        &mut self,
-        data: &[u8],
-        run_length: usize,
-        try_header_rle: bool,
-        try_data_rle: bool,
-    ) {
-        if data.len() <= INLINE_STR_MAX_LEN {
-            self.push_inline_bytes(
-                data,
-                run_length,
-                try_header_rle,
-                try_data_rle,
-            );
-        } else {
-            self.push_bytes_as_buffer(
-                data,
-                run_length,
-                try_header_rle,
-                try_data_rle,
-            );
-        }
-    }
-    fn push_custom(
-        &mut self,
-        data: CustomDataBox,
-        run_length: usize,
-        try_header_rle: bool,
-        try_data_rle: bool,
-    ) {
-        self.push_fixed_size_type(
-            data,
-            run_length,
-            try_header_rle,
-            try_data_rle,
-        );
-    }
-    fn push_int(
-        &mut self,
-        data: i64,
-        run_length: usize,
-        try_header_rle: bool,
-        try_data_rle: bool,
-    ) {
-        self.push_fixed_size_type(
-            data,
-            run_length,
-            try_header_rle,
-            try_data_rle,
-        );
-    }
-    fn push_stream_value_id(
-        &mut self,
-        id: StreamValueId,
-        run_length: usize,
-        try_header_rle: bool,
-        try_data_rle: bool,
-    ) {
-        self.push_fixed_size_type(
-            id,
-            run_length,
-            try_header_rle,
-            try_data_rle,
-        );
-    }
-    fn push_error(
-        &mut self,
-        err: OperatorApplicationError,
-        run_length: usize,
-        try_header_rle: bool,
-        try_data_rle: bool,
-    ) {
-        self.push_fixed_size_type(
-            err,
-            run_length,
-            try_header_rle,
-            try_data_rle,
-        );
-    }
-    fn push_reference(
-        &mut self,
-        reference: SlicedFieldReference,
-        run_length: usize,
-        try_header_rle: bool,
-        try_data_rle: bool,
-    ) {
-        self.push_fixed_size_type(
-            reference,
-            run_length,
-            try_header_rle,
-            try_data_rle,
-        );
-    }
-    fn push_null(&mut self, run_length: usize, try_header_rle: bool) {
-        self.push_zst(FieldValueRepr::Null, run_length, try_header_rle);
-    }
-    fn push_undefined(&mut self, run_length: usize, try_header_rle: bool) {
-        self.push_zst(FieldValueRepr::Undefined, run_length, try_header_rle);
-    }
-    fn push_zst(
-        &mut self,
-        kind: FieldValueRepr,
-        run_length: usize,
-        try_header_rle: bool,
-    ) {
-        assert!(kind.is_zst());
-        unsafe {
-            self.push_zst_unchecked(
-                kind,
-                field_value_flags::DEFAULT,
-                run_length,
-                try_header_rle,
-            );
-        }
-    }
-}
-
-impl<T: RawPushInterface> PushInterface for T {}
 
 pub struct RawFixedSizedTypeInserter<'a> {
     fd: &'a mut FieldData,
@@ -1035,7 +1131,7 @@ pub unsafe trait VariableSizeTypeInserter<'a>: Sized {
         let max_rem = self.get_raw().max - self.get_raw().count;
         self.commit();
         unsafe {
-            self.get_raw().fd.push_variable_sized_type(
+            self.get_raw().fd.push_variable_sized_type_unchecked(
                 Self::KIND,
                 Self::FLAGS,
                 v,
@@ -1215,7 +1311,6 @@ pub struct VaryingTypeInserter<FD: DerefMut<Target = FieldData>> {
     max: usize,
     data_ptr: *mut u8,
     fmt: FieldValueFormat,
-    reserve_count: RunLength,
 }
 
 unsafe impl<FD: DerefMut<Target = FieldData>> Send
@@ -1228,21 +1323,31 @@ unsafe impl<FD: DerefMut<Target = FieldData>> Sync
 }
 
 impl<FD: DerefMut<Target = FieldData>> VaryingTypeInserter<FD> {
-    pub fn new(fd: FD, re_reserve_count: RunLength) -> Self {
+    pub fn new(fd: FD) -> Self {
         Self {
             fd,
             count: 0,
             max: 0,
             data_ptr: std::ptr::null_mut(),
-            fmt: Default::default(),
-            reserve_count: re_reserve_count,
+            fmt: FieldValueFormat::default(),
         }
+    }
+    pub fn with_reservation(
+        fd: FD,
+        fmt: FieldValueFormat,
+        reserved_elements: usize,
+    ) -> Self {
+        let mut v = Self::new(fd);
+        v.drop_and_reserve(reserved_elements, fmt);
+        v
     }
     pub unsafe fn drop_and_reserve_unchecked(
         &mut self,
         reserved_elements: usize,
         fmt: FieldValueFormat,
     ) {
+        // TODO: we might want to restrict reservation size
+        // in case there is one very large string
         self.max = reserved_elements;
         self.count = 0;
         self.fd
@@ -1251,41 +1356,55 @@ impl<FD: DerefMut<Target = FieldData>> VaryingTypeInserter<FD> {
         self.data_ptr = self.fd.data.get_head_ptr_mut();
         self.fmt = fmt;
     }
-    pub fn drop_and_reserve(
-        &mut self,
-        reserved_elements: usize,
-        kind: FieldValueRepr,
-        dynamic_size: usize,
-        bytes_are_utf8: bool,
-    ) {
-        let mut fmt = FieldValueFormat {
-            repr: kind,
-            ..Default::default()
-        };
-        fmt.size = if kind.is_variable_sized_type() {
-            assert!(dynamic_size < INLINE_STR_MAX_LEN);
-            dynamic_size
-        } else {
-            kind.size()
-        } as FieldValueSize;
-        if bytes_are_utf8 {
+    fn sanitize_format(fmt: FieldValueFormat) {
+        if fmt.bytes_are_utf8() {
             assert!([
                 FieldValueRepr::BytesInline,
                 FieldValueRepr::BytesBuffer,
                 FieldValueRepr::BytesFile
             ]
-            .contains(&kind));
-            fmt.flags = field_value_flags::BYTES_ARE_UTF8;
+            .contains(&fmt.repr));
         }
+        assert!(fmt.flags & !field_value_flags::CONTENT_FLAGS == 0);
+        if fmt.repr.is_variable_sized_type() {
+            assert!(fmt.size <= INLINE_STR_MAX_LEN as FieldValueSize);
+        }
+    }
+    pub unsafe fn drop_and_reserve_reasonable_unchecked(
+        &mut self,
+        fmt: FieldValueFormat,
+    ) {
+        let size = self
+            .fd
+            .data
+            .len()
+            .max(std::mem::size_of::<FieldValue>() * 4);
+        let len = (size / fmt.size as usize).max(2);
+        self.fd.data.reserve(fmt.size as usize * len);
+        self.data_ptr = self.fd.data.get_head_ptr_mut();
+        self.max = len;
+        self.fmt = fmt;
+        self.count = 0;
+    }
+    pub fn drop_and_reserve_reasonable(&mut self, fmt: FieldValueFormat) {
+        Self::sanitize_format(fmt);
+        unsafe { self.drop_and_reserve_reasonable_unchecked(fmt) }
+    }
+    pub fn drop_and_reserve(
+        &mut self,
+        reserved_elements: usize,
+        fmt: FieldValueFormat,
+    ) {
+        Self::sanitize_format(fmt);
         unsafe {
             self.drop_and_reserve_unchecked(reserved_elements, fmt);
         }
     }
     pub fn commit(&mut self) {
-        self.max = 0;
         if self.count == 0 {
             return;
         }
+        self.max -= self.count;
         if self.fmt.repr.is_zst() {
             self.fd.push_zst(self.fmt.repr, self.count, true);
             self.count = 0;
@@ -1297,149 +1416,160 @@ impl<FD: DerefMut<Target = FieldData>> VaryingTypeInserter<FD> {
             self.fd.add_header_for_multiple_values(
                 self.fmt,
                 self.count,
-                self.fmt.flags,
+                field_value_flags::CONTENT_FLAGS,
             );
             self.fd.field_count += self.count;
         }
         self.count = 0;
     }
-    pub fn push_zst(&mut self, kind: FieldValueRepr, count: usize) {
-        assert!(kind.is_zst());
-        if self.fmt.repr != kind {
-            let len_rem = self.max - self.count;
-            self.commit();
-            self.max = len_rem;
-            self.fmt = FieldValueFormat {
-                repr: kind,
-                ..Default::default()
-            };
-        }
-        if self.count + count > self.max {
-            assert!(
-                self.reserve_count as usize >= self.count + count - self.max
-            );
-            self.max += self.reserve_count as usize;
-        }
-        self.count += count;
-    }
-    pub unsafe fn push_variable_sized_type(
-        &mut self,
-        kind: FieldValueRepr,
-        bytes_are_utf8: bool,
-        bytes: &[u8],
-        rl: usize,
-    ) {
-        assert!(bytes.len() <= INLINE_STR_MAX_LEN);
-        let fmt = FieldValueFormat {
-            repr: kind,
-            flags: if bytes_are_utf8 {
-                field_value_flags::BYTES_ARE_UTF8
-            } else {
-                field_value_flags::DEFAULT
-            },
-            size: bytes.len() as FieldValueSize,
-        };
-        if rl > 1 || self.fmt != fmt {
-            let reserved_left = self.max - self.count;
-            self.commit();
-            if rl > 1 {
-                unsafe {
-                    self.fd.push_variable_sized_type(
-                        kind, fmt.flags, bytes, rl, true, false,
-                    );
-                }
-                self.max = reserved_left;
-                self.fmt.repr = FieldValueRepr::Null;
-                return;
-            }
-            // TODO: maybe set some limit on the reserved len here?
-            unsafe {
-                self.drop_and_reserve_unchecked(reserved_left, fmt);
-            }
-        } else if self.count == self.max {
-            self.commit();
-            unsafe {
-                self.drop_and_reserve_unchecked(
-                    self.reserve_count as usize,
-                    fmt,
-                );
-            }
-        }
-        unsafe {
-            std::ptr::copy_nonoverlapping(
-                bytes.as_ptr(),
-                self.data_ptr,
-                bytes.len(),
-            );
-            self.data_ptr = self.data_ptr.add(bytes.len());
-        }
-        self.count += 1;
-    }
-    pub fn push_fixed_sized_type<T: PartialEq + Clone + FieldValueType>(
-        &mut self,
-        v: T,
-        rl: usize,
-    ) {
-        let size = std::mem::size_of::<T>();
-        let fmt = FieldValueFormat {
-            repr: T::REPR,
-            flags: field_value_flags::DEFAULT,
-            size: size as FieldValueSize,
-        };
-        if rl > 1 || self.fmt != fmt {
-            let reserved_left = self.max - self.count;
-            self.commit();
-            if rl > 1 {
-                self.fd.push_fixed_size_type(v, rl, true, false);
-                self.max = reserved_left;
-                self.fmt.repr = FieldValueRepr::Null;
-                return;
-            }
-            unsafe {
-                self.drop_and_reserve_unchecked(reserved_left, fmt);
-            }
-        } else if self.count == self.max {
-            self.commit();
-            unsafe {
-                self.drop_and_reserve_unchecked(
-                    self.reserve_count as usize,
-                    fmt,
-                );
-            }
-        }
-        unsafe {
-            std::ptr::copy_nonoverlapping(
-                &v as *const T,
-                self.data_ptr as *mut T,
-                1,
-            );
-            self.data_ptr = self.data_ptr.add(size);
-        }
-        std::mem::forget(v);
-        self.count += 1;
-    }
 }
 
-impl<FD: DerefMut<Target = FieldData>> VaryingTypeInserter<FD> {
-    pub fn push_inline_str(&mut self, v: &str, rl: usize) {
+unsafe impl<FD: DerefMut<Target = FieldData>> PushInterface
+    for VaryingTypeInserter<FD>
+{
+    unsafe fn push_variable_sized_type_uninit(
+        &mut self,
+        kind: FieldValueRepr,
+        flags: FieldValueFlags,
+        data_len: usize,
+        run_length: usize,
+        try_header_rle: bool,
+    ) -> *mut u8 {
+        let fmt = FieldValueFormat {
+            repr: kind,
+            flags,
+            size: data_len as FieldValueSize,
+        };
+        if run_length > 1 || self.fmt != fmt || !try_header_rle {
+            self.commit();
+            if run_length > 1 {
+                let res = unsafe {
+                    self.fd.push_variable_sized_type_uninit(
+                        kind,
+                        fmt.flags,
+                        data_len,
+                        run_length,
+                        try_header_rle,
+                    )
+                };
+                self.fmt.repr = FieldValueRepr::Null;
+                return res;
+            }
+            unsafe {
+                self.drop_and_reserve_reasonable_unchecked(fmt);
+            }
+        } else if self.count == self.max {
+            self.commit();
+            unsafe {
+                self.drop_and_reserve_reasonable_unchecked(fmt);
+            }
+        }
+        let res = self.data_ptr;
         unsafe {
-            self.push_variable_sized_type(
-                FieldValueRepr::BytesInline,
-                true,
-                v.as_bytes(),
-                rl,
-            )
+            self.data_ptr = self.data_ptr.add(data_len);
+        }
+        self.count += 1;
+        res
+    }
+    unsafe fn push_variable_sized_type_unchecked(
+        &mut self,
+        repr: FieldValueRepr,
+        flags: FieldValueFlags,
+        data: &[u8],
+        run_length: usize,
+        try_header_rle: bool,
+        try_data_rle: bool,
+    ) {
+        unsafe {
+            if try_data_rle {
+                self.commit();
+                self.fd.push_variable_sized_type_unchecked(
+                    repr,
+                    flags,
+                    data,
+                    run_length,
+                    try_header_rle,
+                    try_data_rle,
+                );
+                self.drop_and_reserve_reasonable_unchecked(FieldValueFormat {
+                    repr,
+                    flags,
+                    size: data.len() as FieldValueSize,
+                });
+                return;
+            }
+            let data_ptr = self.push_variable_sized_type_uninit(
+                repr,
+                flags,
+                data.len(),
+                run_length,
+                try_header_rle,
+            );
+            std::ptr::copy_nonoverlapping(data.as_ptr(), data_ptr, data.len());
         }
     }
-    pub fn push_inline_bytes(&mut self, v: &[u8], rl: usize) {
-        unsafe {
-            self.push_variable_sized_type(
-                FieldValueRepr::BytesInline,
-                false,
-                v,
-                rl,
-            )
+    unsafe fn push_fixed_size_type_unchecked<
+        T: PartialEq + Clone + FieldValueType,
+    >(
+        &mut self,
+        repr: FieldValueRepr,
+        flags: FieldValueFlags,
+        data: T,
+        run_length: usize,
+        try_header_rle: bool,
+        try_data_rle: bool,
+    ) {
+        let fmt = FieldValueFormat {
+            repr,
+            flags,
+            size: std::mem::size_of::<T>() as FieldValueSize,
+        };
+        if run_length > 1 || self.fmt != fmt || !try_header_rle || try_data_rle
+        {
+            self.commit();
+            if run_length > 1 {
+                self.fd.push_fixed_size_type(
+                    data,
+                    run_length,
+                    try_header_rle,
+                    try_data_rle,
+                );
+                self.fmt.repr = FieldValueRepr::Null;
+                return;
+            }
+            unsafe {
+                self.drop_and_reserve_reasonable_unchecked(fmt);
+            }
+        } else if self.count == self.max {
+            self.commit();
+            unsafe {
+                self.drop_and_reserve_reasonable_unchecked(fmt);
+            }
         }
+        unsafe {
+            std::ptr::write(self.data_ptr as *mut T, data);
+            self.data_ptr = self.data_ptr.add(fmt.size as usize);
+        }
+        self.count += 1;
+    }
+    unsafe fn push_zst_unchecked(
+        &mut self,
+        repr: FieldValueRepr,
+        flags: FieldValueFlags,
+        run_length: usize,
+        try_header_rle: bool,
+    ) {
+        if self.fmt.repr != repr || flags != self.fmt.flags || !try_header_rle
+        {
+            self.commit();
+            self.fmt = FieldValueFormat {
+                repr,
+                flags,
+                size: 0,
+            };
+        }
+        self.count += run_length;
+        self.max = self.max.max(self.count);
     }
 }
 
@@ -1451,9 +1581,9 @@ impl<FD: DerefMut<Target = FieldData>> Drop for VaryingTypeInserter<FD> {
 
 #[cfg(test)]
 mod test {
-    use crate::record_data::field_data::FieldData;
-
-    use super::PushInterface;
+    use crate::record_data::{
+        field_data::FieldData, push_interface::PushInterface,
+    };
 
     #[test]
     fn no_header_rle_for_distinct_shared_values() {

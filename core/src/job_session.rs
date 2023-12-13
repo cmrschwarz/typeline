@@ -534,6 +534,8 @@ impl<'a> JobSession<'a> {
                 self.job_data
                     .session_data
                     .string_store
+                    .read()
+                    .unwrap()
                     .lookup(
                         self.job_data.session_data.operator_bases
                             [op_id as usize]

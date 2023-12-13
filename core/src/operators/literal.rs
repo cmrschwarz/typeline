@@ -11,7 +11,7 @@ use crate::{
     record_data::{
         custom_data::CustomDataBox,
         field_value::{Array, FieldValue, FieldValueKind, Object},
-        push_interface::{PushInterface, RawPushInterface},
+        push_interface::PushInterface,
         stream_value::{StreamValue, StreamValueData},
     },
 };

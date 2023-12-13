@@ -160,6 +160,7 @@ pub fn handle_tf_print_raw(
     let mut field_pos = field_pos_start;
     let mut iter =
         AutoDerefIter::new(&sess.field_mgr, input_field_id, base_iter);
+    let mut string_store = None;
 
     'iter: while let Some(range) = iter.typed_range_fwd(
         &mut sess.match_set_mgr,
@@ -304,8 +305,11 @@ pub fn handle_tf_print_raw(
                 }
             }
             TypedSlice::Array(arrays) => {
+                let ss = string_store.get_or_insert_with(|| {
+                    sess.session_data.string_store.read().unwrap()
+                });
                 let mut fc = FormattingContext {
-                    ss: &sess.session_data.string_store,
+                    ss,
                     fm: &sess.field_mgr,
                     msm: &sess.match_set_mgr,
                 };
@@ -318,8 +322,11 @@ pub fn handle_tf_print_raw(
                 }
             }
             TypedSlice::Object(objects) => {
+                let ss = string_store.get_or_insert_with(|| {
+                    sess.session_data.string_store.read().unwrap()
+                });
                 let mut fc = FormattingContext {
-                    ss: &sess.session_data.string_store,
+                    ss,
                     fm: &sess.field_mgr,
                     msm: &sess.match_set_mgr,
                 };

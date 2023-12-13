@@ -17,7 +17,7 @@ use super::{
     action_buffer::{ActionBuffer, ActorId, ActorRef, SnapshotRef},
     field_data::{
         field_value_flags::SAME_VALUE_AS_PREVIOUS, FieldData, FieldDataBuffer,
-        FieldValueFormat, FieldValueHeader, RunLength,
+        FieldValueFormat, FieldValueHeader,
     },
     iter_hall::{FieldDataSource, IterHall, IterId},
     iters::{
@@ -270,14 +270,11 @@ impl FieldManager {
     pub fn get_varying_type_inserter(
         &self,
         field_id: FieldId,
-        reserve_count: usize,
     ) -> VaryingTypeInserter<RefMut<FieldData>> {
-        VaryingTypeInserter::new(
-            RefMut::map(self.fields[field_id].borrow_mut(), |f| unsafe {
-                f.iter_hall.raw()
-            }),
-            reserve_count.try_into().unwrap_or(RunLength::MAX),
-        )
+        VaryingTypeInserter::new(RefMut::map(
+            self.fields[field_id].borrow_mut(),
+            |f| unsafe { f.iter_hall.raw() },
+        ))
     }
     // returns false if it was uncow'ed
     fn propagate_clear(

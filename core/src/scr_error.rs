@@ -149,7 +149,7 @@ fn contextualize_op_id(
         format!(
             "in op {} '{}' of chain {}: {}",
             op_base.offset_in_chain,
-            sess.string_store.lookup(op_base.argname),
+            sess.string_store.read().unwrap().lookup(op_base.argname),
             op_base
                 .chain_id
                 .map(|id| id.to_string())

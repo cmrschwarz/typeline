@@ -1062,12 +1062,13 @@ impl LivenessData {
     }
     #[cfg(feature = "debug_logging")]
     fn log_liveness_data(&mut self, sess: &Session) {
+        let string_store = sess.string_store.read().unwrap();
         println!("{:-^80}", " <liveness analysis> ");
         println!("chains:");
         for (bb_id, c) in sess.chains.iter().enumerate() {
             print!("chain {bb_id:02}");
             if let Some(l) = c.label {
-                print!(" '{}'", sess.string_store.lookup(l));
+                print!(" '{}'", string_store.lookup(l));
             }
             print!(": ");
             for &op_id in &c.operators {
@@ -1116,7 +1117,7 @@ impl LivenessData {
         println!();
         println!("vars:");
         for (v_id, v) in self.vars.iter().enumerate() {
-            println!("var {v_id:02}: {}", v.name(&sess.string_store));
+            println!("var {v_id:02}: {}", v.name(&string_store));
         }
         println!();
         println!("operators:");
@@ -1150,7 +1151,7 @@ impl LivenessData {
         println!();
         println!("op_outputs:");
         for (i, v) in self.vars.iter().enumerate() {
-            println!("op_output {i:02}: {}", v.name(&sess.string_store));
+            println!("op_output {i:02}: {}", v.name(&string_store));
         }
         for (op_id, op_base) in sess.operator_bases.iter().enumerate() {
             for oo_n in op_base.outputs_start..op_base.outputs_end {
@@ -1166,7 +1167,7 @@ impl LivenessData {
                     for &v_id in &oo.bound_vars_after_bb {
                         print!(
                             "{} ",
-                            self.vars[v_id as usize].name(&sess.string_store)
+                            self.vars[v_id as usize].name(&string_store)
                         );
                     }
                     print!(")");
@@ -1282,8 +1283,8 @@ impl LivenessData {
                     for &src in srcs {
                         print!(
                             "[{} <- {}] ",
-                            self.vars[src as usize].name(&sess.string_store),
-                            self.vars[tgt as usize].name(&sess.string_store),
+                            self.vars[src as usize].name(&string_store),
+                            self.vars[tgt as usize].name(&string_store),
                         )
                     }
                 }

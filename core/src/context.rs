@@ -1,7 +1,7 @@
 use std::{
     collections::{HashMap, VecDeque},
     io::{stdout, Write},
-    sync::{Arc, Condvar, Mutex},
+    sync::{Arc, Condvar, Mutex, RwLock},
     thread::JoinHandle,
 };
 
@@ -60,7 +60,7 @@ pub struct Session {
     pub(crate) operator_bases: Vec<OperatorBase>,
     pub(crate) operator_data: Vec<OperatorData>,
     pub(crate) cli_args: Option<Vec<Vec<u8>>>,
-    pub(crate) string_store: StringStore,
+    pub(crate) string_store: RwLock<StringStore>,
     pub(crate) extensions: Arc<ExtensionRegistry>,
 }
 

@@ -16,7 +16,7 @@ use crate::{
         iter_hall::IterId,
         iters::FieldIterator,
         match_set::MatchSetManager,
-        push_interface::{PushInterface, RawPushInterface},
+        push_interface::PushInterface,
         ref_iter::{
             AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter,
             RefAwareInlineTextIter, RefAwareStreamValueIter,
@@ -1345,6 +1345,7 @@ fn setup_output_targets(
                         flags | field_value_flags::SHARED_VALUE,
                         os.len,
                         os.run_len,
+                        true,
                     ),
                 ));
             }
@@ -1884,7 +1885,7 @@ pub fn handle_tf_format(
         }
     }
     setup_output_targets(
-        &sess.session_data.string_store,
+        &sess.session_data.string_store.read().unwrap(),
         fmt,
         &mut sess.sv_mgr,
         tf.op_id.unwrap(),

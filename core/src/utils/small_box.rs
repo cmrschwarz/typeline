@@ -119,7 +119,7 @@ impl<T: ?Sized, const SPACE: usize> SmallBox<T, SPACE> {
         let (ptr_address_value, data_ptr) =
             if size <= SPACE && align <= Self::data_align() {
                 // this covers ZSTs aswell
-                (ptr::null_mut(), res.data.as_ptr() as *mut u8)
+                (ptr::null_mut(), res.data.as_mut_ptr() as *mut u8)
             } else {
                 let layout = Layout::for_value::<U>(unsafe { &*val });
                 let heap_ptr = unsafe { std::alloc::alloc(layout) };
@@ -147,7 +147,18 @@ impl<T: ?Sized, const SPACE: usize> SmallBox<T, SPACE> {
     }
 
     fn as_mut_ptr(&mut self) -> *mut T {
-        self.as_ptr() as *mut T
+        // we cant just call as_ptr and cast to *mut because miri is unhappy
+        // with the pointer retag of `self.data.as_ptr()` to *mut
+        // otherwise this is the same exact logic as above
+        if self.is_heap_allocated() {
+            return self.ptr;
+        }
+        let mut ptr = self.ptr;
+        unsafe {
+            *(&mut ptr as *mut *mut T as *mut *mut u8) =
+                self.data.as_mut_ptr() as *mut u8;
+        }
+        ptr
     }
 
     pub fn into_inner(self) -> T

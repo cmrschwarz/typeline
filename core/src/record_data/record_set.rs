@@ -4,7 +4,7 @@ use crate::utils::string_store::StringStoreEntry;
 
 use super::{
     field_data::{FieldData, FieldValueFlags, FieldValueRepr, FieldValueType},
-    push_interface::{PushInterface, RawPushInterface},
+    push_interface::PushInterface,
 };
 
 #[derive(Default, Clone)]
@@ -26,8 +26,8 @@ impl Default for RecordSet {
     }
 }
 
-unsafe impl RawPushInterface for RecordSet {
-    unsafe fn push_variable_sized_type(
+unsafe impl PushInterface for RecordSet {
+    unsafe fn push_variable_sized_type_unchecked(
         &mut self,
         kind: FieldValueRepr,
         flags: FieldValueFlags,
@@ -42,7 +42,7 @@ unsafe impl RawPushInterface for RecordSet {
                 .first_mut()
                 .unwrap()
                 .data
-                .push_variable_sized_type(
+                .push_variable_sized_type_unchecked(
                     kind,
                     flags,
                     data,
@@ -105,6 +105,7 @@ unsafe impl RawPushInterface for RecordSet {
         flags: FieldValueFlags,
         data_len: usize,
         run_length: usize,
+        try_header_rle: bool,
     ) -> *mut u8 {
         self.push_null_to_secondary_cols(run_length);
         unsafe {
@@ -113,7 +114,11 @@ unsafe impl RawPushInterface for RecordSet {
                 .unwrap()
                 .data
                 .push_variable_sized_type_uninit(
-                    kind, flags, data_len, run_length,
+                    kind,
+                    flags,
+                    data_len,
+                    run_length,
+                    try_header_rle,
                 )
         }
     }

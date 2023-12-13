@@ -16,7 +16,7 @@ use super::{
     match_set::MatchSetManager,
     push_interface::{
         FieldReferenceInserter, FixedSizeTypeInserter, InlineBytesInserter,
-        InlineStringInserter, IntegerInserter, RawPushInterface,
+        InlineStringInserter, IntegerInserter, PushInterface,
         VariableSizeTypeInserter, VaryingTypeInserter,
     },
     ref_iter::AutoDerefIter,
@@ -350,9 +350,8 @@ impl IterHall {
     }
     pub fn varying_type_inserter(
         &mut self,
-        re_reserve_count: RunLength,
     ) -> VaryingTypeInserter<&mut FieldData> {
-        VaryingTypeInserter::new(self.get_owned_data(), re_reserve_count)
+        VaryingTypeInserter::new(self.get_owned_data())
     }
     fn get_owned_data(&mut self) -> &mut FieldData {
         match &mut self.data_source {
@@ -527,8 +526,8 @@ impl IterHall {
     }
 }
 
-unsafe impl RawPushInterface for IterHall {
-    unsafe fn push_variable_sized_type(
+unsafe impl PushInterface for IterHall {
+    unsafe fn push_variable_sized_type_unchecked(
         &mut self,
         kind: FieldValueRepr,
         flags: FieldValueFlags,
@@ -538,7 +537,7 @@ unsafe impl RawPushInterface for IterHall {
         try_data_rle: bool,
     ) {
         unsafe {
-            self.get_owned_data().push_variable_sized_type(
+            self.get_owned_data().push_variable_sized_type_unchecked(
                 kind,
                 flags,
                 data,
@@ -593,10 +592,15 @@ unsafe impl RawPushInterface for IterHall {
         flags: FieldValueFlags,
         data_len: usize,
         run_length: usize,
+        try_header_rle: bool,
     ) -> *mut u8 {
         unsafe {
             self.get_owned_data().push_variable_sized_type_uninit(
-                kind, flags, data_len, run_length,
+                kind,
+                flags,
+                data_len,
+                run_length,
+                try_header_rle,
             )
         }
     }
