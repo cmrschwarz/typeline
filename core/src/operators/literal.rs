@@ -383,7 +383,7 @@ pub fn parse_op_tyson(
                 affinity.to_str(),
                 match e {
                     TysonParseError::Io(e) => e.to_string(),
-                    TysonParseError::InvalidSequence { kind, .. } =>
+                    TysonParseError::InvalidSyntax { kind, .. } =>
                         kind.to_string(),
                 }
             ),
@@ -405,18 +405,9 @@ pub fn parse_op_tyson_value(
 ) -> Result<OperatorData, OperatorCreationError> {
     let value = value
         .ok_or_else(|| OperatorCreationError::new("missing value", arg_idx))?;
+
     let value = parse_tyson(value, exts).map_err(|e| {
-        OperatorCreationError::new_s(
-            format!(
-                "failed to parse tyson value: {}",
-                match e {
-                    TysonParseError::Io(e) => e.to_string(),
-                    TysonParseError::InvalidSequence { kind, .. } =>
-                        kind.to_string(),
-                }
-            ),
-            arg_idx,
-        )
+        OperatorCreationError::new_s(format!("invalid tyson: {e}"), arg_idx)
     })?;
     let lit = field_value_to_literal(value);
     Ok(OperatorData::Literal(OpLiteral {

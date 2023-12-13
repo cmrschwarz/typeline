@@ -44,10 +44,12 @@ pub enum TysonParseErrorKind {
     UnexpectedEof,
 }
 
-#[derive(Debug)]
+#[derive(Error, Debug)]
 pub enum TysonParseError {
+    #[error("{0}")]
     Io(std::io::Error),
-    InvalidSequence {
+    #[error("(line {line}, col {col}): {kind}")]
+    InvalidSyntax {
         line: usize,
         col: usize,
         kind: TysonParseErrorKind,
@@ -67,12 +69,12 @@ impl PartialEq for TysonParseError {
         match (self, other) {
             (Self::Io(e1), Self::Io(e2)) => e1.kind() == e2.kind(),
             (
-                Self::InvalidSequence {
+                Self::InvalidSyntax {
                     line: l_line,
                     col: l_col,
                     kind: l_kind,
                 },
-                Self::InvalidSequence {
+                Self::InvalidSyntax {
                     line: r_line,
                     col: r_col,
                     kind: r_kind,
@@ -143,7 +145,7 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
     fn reject_further_input(&mut self) -> Result<(), TysonParseError> {
         match self.read_char_eat_whitespace() {
             Ok(c) => self.err(TysonParseErrorKind::TrailingCharacters(c)),
-            Err(TysonParseError::InvalidSequence {
+            Err(TysonParseError::InvalidSyntax {
                 kind: TysonParseErrorKind::UnexpectedEof,
                 ..
             }) => Ok(()),
@@ -264,13 +266,13 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
                 ReadUntilUnescapeError::UnescapeFailed(e) => match e.base {
                     TysonParseErrorKind::InvalidUtf8(seq) => {
                         let end = buf.len() - e.escape_seq_len - seq.len();
-                        Err(TysonParseError::InvalidSequence {
+                        Err(TysonParseError::InvalidSyntax {
                             line: self.line,
                             col: buf[curr_line_begin..end].chars().count(),
                             kind: TysonParseErrorKind::InvalidUtf8(seq),
                         })
                     }
-                    other => Err(TysonParseError::InvalidSequence {
+                    other => Err(TysonParseError::InvalidSyntax {
                         line: self.line,
                         col: self.col
                             + buf[curr_line_begin
@@ -284,7 +286,7 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
         }
         match buf[curr_line_begin..].to_str() {
             Err(e) => {
-                return Err(TysonParseError::InvalidSequence {
+                return Err(TysonParseError::InvalidSyntax {
                     line: self.line,
                     col: buf[curr_line_begin..e.valid_up_to()].chars().count(),
                     kind: TysonParseErrorKind::InvalidUtf8(
@@ -295,7 +297,7 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
                 });
             }
             Ok(s) => {
-                self.col = s.chars().count() + 1; // +1 for the delimiter
+                self.col += s.chars().count() + 1; // +1 for the delimiter
             }
         }
         // SAFETY: we already verified each line separately
@@ -305,7 +307,7 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
         Err(self.error(kind))
     }
     fn error(&self, kind: TysonParseErrorKind) -> TysonParseError {
-        TysonParseError::InvalidSequence {
+        TysonParseError::InvalidSyntax {
             line: self.line,
             col: self.col,
             kind,
@@ -342,7 +344,7 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
                     if self.read_char()?.to_ascii_lowercase() != 'n'
                         || self.read_char()?.to_ascii_lowercase() != 'f'
                     {
-                        return Err(TysonParseError::InvalidSequence {
+                        return Err(TysonParseError::InvalidSyntax {
                             line: self.line,
                             col: self.col - 1,
                             kind: TysonParseErrorKind::InvalidNumber,
@@ -368,7 +370,7 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
                     if self.read_char()?.to_ascii_lowercase() != 'a'
                         || self.read_char()?.to_ascii_lowercase() != 'n'
                     {
-                        return Err(TysonParseError::InvalidSequence {
+                        return Err(TysonParseError::InvalidSyntax {
                             line: self.line,
                             col: self.col - 1,
                             kind: TysonParseErrorKind::InvalidNumber,
@@ -425,7 +427,7 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
             - exponent_digit_count;
 
         if digit_count == 0 {
-            return Err(TysonParseError::InvalidSequence {
+            return Err(TysonParseError::InvalidSyntax {
                 line: self.line,
                 col: self.col - buf.len(),
                 kind: TysonParseErrorKind::InvalidNumber,
@@ -458,7 +460,7 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
             };
         }
         // TODO: rational
-        Err(TysonParseError::InvalidSequence {
+        Err(TysonParseError::InvalidSyntax {
             line: self.line,
             col: self.col - buf.len(),
             kind: TysonParseErrorKind::InvalidNumber,
@@ -472,7 +474,7 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
         loop {
             let value = match self.parse_value() {
                 Ok(v) => v,
-                Err(TysonParseError::InvalidSequence {
+                Err(TysonParseError::InvalidSyntax {
                     kind: TysonParseErrorKind::StrayToken(']'),
                     ..
                 }) => return Ok(FieldValue::Array(Array::Mixed(arr.into()))),
@@ -499,7 +501,7 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
                     map,
                 ))));
             }
-            if c != '"' && c == '\'' {
+            if c != '"' && c != '\'' {
                 self.col -= 1;
                 return self.err(TysonParseErrorKind::StrayToken(c));
             }
@@ -545,7 +547,7 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
                 for expected in "ull".chars() {
                     let c = self.read_char()?;
                     if c != expected {
-                        return Err(TysonParseError::InvalidSequence {
+                        return Err(TysonParseError::InvalidSyntax {
                             line: self.line,
                             col: self.col,
                             kind: TysonParseErrorKind::StrayToken(c),
@@ -559,7 +561,7 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
                 for expected in "ndefined".chars() {
                     let c = self.read_char()?;
                     if c != expected {
-                        return Err(TysonParseError::InvalidSequence {
+                        return Err(TysonParseError::InvalidSyntax {
                             line: self.line,
                             col: self.col,
                             kind: TysonParseErrorKind::StrayToken(c),
@@ -616,7 +618,7 @@ mod test {
     fn empty_string() {
         assert_eq!(
             parse(""),
-            Err(TysonParseError::InvalidSequence {
+            Err(TysonParseError::InvalidSyntax {
                 line: 1,
                 col: 1,
                 kind: TysonParseErrorKind::UnexpectedEof,
@@ -627,7 +629,7 @@ mod test {
     fn whitespace_only() {
         assert_eq!(
             parse("\n\n "),
-            Err(TysonParseError::InvalidSequence {
+            Err(TysonParseError::InvalidSyntax {
                 line: 3,
                 col: 2,
                 kind: TysonParseErrorKind::UnexpectedEof,
