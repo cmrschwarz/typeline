@@ -124,15 +124,25 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
         }
     }
     fn read_char_eat_whitespace(&mut self) -> Result<char, TysonParseError> {
+        let c = self.read_char()?;
+        self.consume_until_non_whitespace_char(c)
+    }
+    fn consume_until_non_whitespace_char(
+        &mut self,
+        mut c: char,
+    ) -> Result<char, TysonParseError> {
         loop {
-            match self.read_char()? {
+            match c {
                 '\n' => {
                     self.line += 1;
                     self.col = 1;
                 }
-                ' ' | '\t' | '\r' => self.col += 1,
+                c if c.is_whitespace() => {
+                    self.col += 1;
+                }
                 other => return Ok(other),
             }
+            c = self.read_char()?;
         }
     }
     fn consume_char_eat_whitespace(
@@ -152,7 +162,24 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
             Err(e) => Err(e),
         }
     }
-
+    fn parse_identifier_after_first_char(
+        &mut self,
+        fist_char: char,
+    ) -> Result<(String, char), TysonParseError> {
+        // PERF: this will perform badly but is good enough for now
+        // consider using a byte buffer and maybe even using a regex
+        // to do this?
+        let mut res = String::new();
+        res.push(fist_char);
+        loop {
+            let c = self.read_char()?;
+            if !unicode_ident::is_xid_continue(c) {
+                return Ok((res, c));
+            }
+            res.push(c);
+            self.col += 1;
+        }
+    }
     fn parse_string_token_after_quote(
         &mut self,
         quote_kind: u8,
@@ -501,12 +528,20 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
                     map,
                 ))));
             }
-            if c != '"' && c != '\'' {
-                self.col -= 1;
-                return self.err(TysonParseErrorKind::StrayToken(c));
-            }
-            let key = self.parse_string_token_after_quote(c as u8)?;
-            c = self.consume_char_eat_whitespace()?;
+            let key = if c == '"' || c == '\'' {
+                let key = self.parse_string_token_after_quote(c as u8)?;
+                c = self.consume_char_eat_whitespace()?;
+                key
+            } else {
+                if !unicode_ident::is_xid_start(c) {
+                    self.col -= 1;
+                    return self.err(TysonParseErrorKind::StrayToken(c));
+                }
+                let (ident, cont) =
+                    self.parse_identifier_after_first_char(c)?;
+                c = self.consume_until_non_whitespace_char(cont)?;
+                ident
+            };
             if c != ':' {
                 self.col -= 1;
                 return self.err(TysonParseErrorKind::StrayToken(c));
@@ -600,18 +635,16 @@ pub fn parse_tyson_str(
 
 #[cfg(test)]
 mod test {
+    use indexmap::indexmap;
     use num_bigint::BigInt;
     use rstest::rstest;
 
-    use crate::{
-        extension::ExtensionRegistry,
-        record_data::field_value::{Array, FieldValue},
-    };
+    use crate::record_data::field_value::{Array, FieldValue};
 
     use super::{parse_tyson_str, TysonParseError, TysonParseErrorKind};
 
     fn parse(s: &str) -> Result<FieldValue, TysonParseError> {
-        parse_tyson_str(s, Some(&ExtensionRegistry::default()))
+        parse_tyson_str(s, None)
     }
 
     #[test]
@@ -706,19 +739,29 @@ mod test {
         assert_eq!(parse(r#"+inf"#), Ok(FieldValue::Float(f64::INFINITY)));
         assert_eq!(parse(r#"-inf"#), Ok(FieldValue::Float(f64::NEG_INFINITY)));
     }
-    #[test]
-    fn nan() {
+    #[rstest]
+    #[case("nan")]
+    #[case("NAn")]
+    #[case("+nAn")]
+    #[case("-NaN")]
+    fn nan(#[case] input: &str) {
         assert!(
-            matches!(parse(r#"nan"#), Ok(FieldValue::Float(v)) if v.is_nan())
+            matches!(parse(input), Ok(FieldValue::Float(v)) if v.is_nan())
         );
-        assert!(
-            matches!(parse(r#"NAn"#), Ok(FieldValue::Float(v)) if v.is_nan())
-        );
-        assert!(
-            matches!(parse(r#"+nAn"#), Ok(FieldValue::Float(v)) if v.is_nan())
-        );
-        assert!(
-            matches!(parse(r#"-NaN"#), Ok(FieldValue::Float(v)) if v.is_nan())
+    }
+    #[rstest]
+    #[case("{foo: 3}", "foo")]
+    #[case("{'bar': 3}", "bar")]
+    #[case("{\"baz\": 3}", "baz")]
+    #[case("{\u{d8}: 3}", "\u{d8}")]
+    fn object_keys(#[case] input: &str, #[case] key_name: &str) {
+        use crate::record_data::field_value::Object;
+
+        assert_eq!(
+            parse(input),
+            Ok(FieldValue::Object(Object::KeysStored(Box::new(indexmap![
+                key_name.to_string().into_boxed_str() => FieldValue::Int(3)
+            ])))),
         );
     }
 }

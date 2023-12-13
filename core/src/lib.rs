@@ -18,6 +18,7 @@ extern crate smallstr;
 extern crate smallvec;
 extern crate thin_vec;
 extern crate thiserror;
+extern crate unicode_ident;
 
 #[cfg(feature = "repl")]
 extern crate reedline;

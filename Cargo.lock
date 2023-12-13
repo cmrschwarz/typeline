@@ -688,6 +688,7 @@ dependencies = [
  "static_assertions",
  "thin-vec",
  "thiserror",
+ "unicode-ident",
 ]
 
 [[package]]

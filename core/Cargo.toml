@@ -48,7 +48,7 @@ indexmap = "1.9.3"
 encoding_rs = { version = "0.8.32", features = ["fast-legacy-encode"] }
 regex = "1.7.1"
 regex-syntax = "0.7.2"
-
+unicode-ident="1.0.12"
 
 [dev-dependencies]
 rstest = "0.18.1"
