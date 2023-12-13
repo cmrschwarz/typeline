@@ -13,6 +13,7 @@ use crate::{
     record_data::{
         field::Field,
         field_data::{field_value_flags, FieldValueRepr},
+        field_value::FormattingContext,
         iter_hall::IterId,
         iters::FieldIterator,
         push_interface::PushInterface,
@@ -179,6 +180,21 @@ fn push_bytes(
     }
 }
 
+fn push_bytes_buffer(
+    op_id: OperatorId,
+    field_pos: usize,
+    out: &mut StringSink,
+    bytes: Vec<u8>,
+    run_len: usize,
+) {
+    match String::from_utf8(bytes) {
+        Ok(s) => push_string(out, s, run_len),
+        Err(e) => {
+            push_invalid_utf8(op_id, field_pos, out, e.as_bytes(), run_len)
+        }
+    }
+}
+
 fn append_stream_val(
     op_id: OperatorId,
     sv: &StreamValue,
@@ -292,7 +308,7 @@ pub fn handle_tf_string_sink(
         AutoDerefIter::new(&sess.field_mgr, tf.input_field, base_iter);
     let mut out = ss.handle.lock().unwrap();
     let mut field_pos = out.data.len();
-
+    let mut string_store = None;
     let mut last_error_end = 0;
     while let Some(range) = iter.typed_range_fwd(
         &mut sess.match_set_mgr,
@@ -467,11 +483,49 @@ pub fn handle_tf_string_sink(
             | TypedSlice::Rational(_) => {
                 todo!();
             }
-            TypedSlice::Array(_) => {
-                todo!();
+            TypedSlice::Array(arrays) => {
+                let ss = string_store.get_or_insert_with(|| {
+                    sess.session_data.string_store.read().unwrap()
+                });
+                let mut fc = FormattingContext {
+                    ss,
+                    fm: &sess.field_mgr,
+                    msm: &sess.match_set_mgr,
+                };
+                for (a, rl) in TypedSliceIter::from_range(&range.base, arrays)
+                {
+                    let mut data = Vec::new();
+                    a.format(&mut data, &mut fc).unwrap();
+                    push_bytes_buffer(
+                        op_id,
+                        field_pos,
+                        &mut out,
+                        data,
+                        rl as usize,
+                    );
+                }
             }
-            TypedSlice::Object(_) => {
-                todo!();
+            TypedSlice::Object(object) => {
+                let ss = string_store.get_or_insert_with(|| {
+                    sess.session_data.string_store.read().unwrap()
+                });
+                let mut fc = FormattingContext {
+                    ss,
+                    fm: &sess.field_mgr,
+                    msm: &sess.match_set_mgr,
+                };
+                for (a, rl) in TypedSliceIter::from_range(&range.base, object)
+                {
+                    let mut data = Vec::new();
+                    a.format(&mut data, &mut fc).unwrap();
+                    push_bytes_buffer(
+                        op_id,
+                        field_pos,
+                        &mut out,
+                        data,
+                        rl as usize,
+                    );
+                }
             }
         }
         field_pos += range.base.field_count;

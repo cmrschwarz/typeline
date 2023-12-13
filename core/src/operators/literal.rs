@@ -376,7 +376,7 @@ pub fn parse_op_tyson(
             arg_idx,
         )
     })?;
-    let value = parse_tyson(value, exts).map_err(|e| {
+    let value = parse_tyson(value, Some(exts)).map_err(|e| {
         OperatorCreationError::new_s(
             format!(
                 "failed to parse value as {}: {}",
@@ -401,7 +401,7 @@ pub fn parse_op_tyson_value(
     value: Option<&[u8]>,
     insert_count: Option<usize>,
     arg_idx: Option<CliArgIdx>,
-    exts: &ExtensionRegistry,
+    exts: Option<&ExtensionRegistry>,
 ) -> Result<OperatorData, OperatorCreationError> {
     let value = value
         .ok_or_else(|| OperatorCreationError::new("missing value", arg_idx))?;
@@ -467,7 +467,7 @@ pub fn parse_op_literal(
             parse_op_tyson(value, insert_count, arg_idx, Rational, ext)
         }
         "v" | "tyson" => {
-            parse_op_tyson_value(value, insert_count, arg_idx, ext)
+            parse_op_tyson_value(value, insert_count, arg_idx, Some(ext))
         }
         "error" => {
             parse_op_error(arg_str, value, false, insert_count, arg_idx)
@@ -518,6 +518,21 @@ pub fn create_op_error(str: &str, insert_count: usize) -> OperatorData {
 }
 pub fn create_op_str(str: &str, insert_count: usize) -> OperatorData {
     create_op_literal_n(Literal::String(str.to_owned()), insert_count)
+}
+pub fn create_op_v(
+    str: &str,
+    insert_count: usize,
+) -> Result<OperatorData, OperatorCreationError> {
+    parse_op_tyson_value(
+        Some(str.as_bytes()),
+        if insert_count == 0 {
+            None
+        } else {
+            Some(insert_count)
+        },
+        None,
+        None,
+    )
 }
 pub fn create_op_bytes(v: &[u8], insert_count: usize) -> OperatorData {
     create_op_literal_n(Literal::Bytes(v.to_owned()), insert_count)

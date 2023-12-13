@@ -59,7 +59,7 @@ pub enum TysonParseError {
 struct TysonParser<'a, S: BufRead> {
     stream: S,
     #[allow(unused)] // TODO
-    extension_registry: &'a ExtensionRegistry,
+    extension_registry: Option<&'a ExtensionRegistry>,
     line: usize,
     col: usize,
 }
@@ -87,7 +87,7 @@ impl PartialEq for TysonParseError {
 impl Eq for TysonParseError {}
 
 impl<'a, S: BufRead> TysonParser<'a, S> {
-    fn new(stream: S, exts: &'a ExtensionRegistry) -> Self {
+    fn new(stream: S, exts: Option<&'a ExtensionRegistry>) -> Self {
         Self {
             stream,
             line: 1,
@@ -581,7 +581,7 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
 
 pub fn parse_tyson(
     input: impl BufRead,
-    exts: &ExtensionRegistry,
+    exts: Option<&ExtensionRegistry>,
 ) -> Result<FieldValue, TysonParseError> {
     let mut tp = TysonParser::new(input, exts);
     let res = tp.parse_value()?;
@@ -591,7 +591,7 @@ pub fn parse_tyson(
 
 pub fn parse_tyson_str(
     input: &str,
-    exts: &ExtensionRegistry,
+    exts: Option<&ExtensionRegistry>,
 ) -> Result<FieldValue, TysonParseError> {
     // PERF: we could skip a lot of utf8 checking
     // if we already know that this is a string
@@ -611,7 +611,7 @@ mod test {
     use super::{parse_tyson_str, TysonParseError, TysonParseErrorKind};
 
     fn parse(s: &str) -> Result<FieldValue, TysonParseError> {
-        parse_tyson_str(s, &ExtensionRegistry::default())
+        parse_tyson_str(s, Some(&ExtensionRegistry::default()))
     }
 
     #[test]
