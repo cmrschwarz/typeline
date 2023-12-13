@@ -387,13 +387,13 @@ pub unsafe trait PushInterface {
                 try_data_rle,
             ),
             FieldValue::FieldReference(v) => self.push_fixed_size_type(
-                v.clone(),
+                *v,
                 run_length,
                 try_header_rle,
                 try_data_rle,
             ),
             FieldValue::SlicedFieldReference(v) => self.push_fixed_size_type(
-                v.clone(),
+                *v,
                 run_length,
                 try_header_rle,
                 try_data_rle,

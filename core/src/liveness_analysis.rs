@@ -545,9 +545,14 @@ impl LivenessData {
                         if input_field >= self.vars.len() as OpOutputIdx {
                             break;
                         }
+                        // var points to itself
+                        if input_field == var {
+                            break;
+                        }
                         // OpOutput indices below vars.len() are the vars
                         var = input_field as VarId;
                     }
+                    last_output_field = var;
                     continue;
                 }
                 OperatorData::Regex(re) => {

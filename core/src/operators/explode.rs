@@ -46,8 +46,7 @@ pub enum TargetField {
 
 #[derive(Default)]
 pub struct TfExplode {
-    target_fields:
-        IndexMap<Option<StringStoreEntry>, TargetField, BuildIdentityHasher>,
+    target_fields: IndexMap<Option<StringStoreEntry>, TargetField>,
     inserters: Vec<VaryingTypeInserter<RefMut<'static, FieldData>>>,
     pending_fields: StableVec<(RefCell<FieldData>, usize)>,
     input_iter_id: IterId,
@@ -122,12 +121,8 @@ impl Operator for OpExplode {
     }
 }
 fn fn_handle_object_key<'a>(
-    target_fields: &mut IndexMap<
-        Option<StringStoreEntry>,
-        TargetField,
-        BuildIdentityHasher,
-    >,
-    pending_fields: &StableVec<(RefCell<FieldData>, usize)>,
+    target_fields: &mut IndexMap<Option<StringStoreEntry>, TargetField>,
+    pending_fields: &'a StableVec<(RefCell<FieldData>, usize)>,
     inserters: &mut Vec<VaryingTypeInserter<RefMut<'a, FieldData>>>,
     match_set_id: MatchSetId,
     msm: &mut MatchSetManager,
@@ -151,6 +146,9 @@ fn fn_handle_object_key<'a>(
                 let idx = e.index();
                 e.insert(TargetField::Pending(pending_fields.len() as u32));
                 pending_fields.push((RefCell::new(FieldData::default()), idx));
+                inserters.push(VaryingTypeInserter::new(
+                    pending_fields.last().unwrap().0.borrow_mut(),
+                ));
                 idx
             }
         }
@@ -321,6 +319,20 @@ impl Transform for TfExplode {
         jd.field_mgr
             .store_iter(input_field_id, self.input_iter_id, iter);
         drop(input_field);
+        let first_actor =
+            jd.field_mgr.fields[input_field_id].borrow().first_actor;
+        let mut iter = std::mem::take(&mut self.pending_fields).into_iter();
+        for (field, index) in &mut iter {
+            jd.field_mgr.add_field_with_data(
+                &mut jd.match_set_mgr,
+                match_set_id,
+                *self.target_fields.get_index(index).unwrap().0,
+                first_actor,
+                field.take(),
+            );
+        }
+        self.pending_fields = iter.into_empty_vec();
+
         if input_done {
             jd.unlink_transform(tf_id, batch_size);
         } else {
