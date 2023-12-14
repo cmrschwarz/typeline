@@ -1,9 +1,11 @@
-use std::io::BufRead;
+use std::{io::BufRead, ops::MulAssign};
 
 use arrayvec::{ArrayString, ArrayVec};
 use bstr::ByteSlice;
 use indexmap::IndexMap;
-use num_bigint::BigInt;
+use num_bigint::{BigInt, Sign};
+use num_rational::BigRational;
+use num_traits::{FromPrimitive, Pow};
 use smallstr::SmallString;
 use thiserror::Error;
 
@@ -445,7 +447,8 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
                 break;
             }
         }
-        let exponent_digit_count = buf.len() - exponent.unwrap_or(buf.len());
+        let exponent_digit_count =
+            buf.len() - exponent.map(|e| e + 1).unwrap_or(buf.len());
         let mut digit_count = buf.len()
             - [sign, floating_point, exponent, exponent_sign]
                 .iter()
@@ -460,10 +463,9 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
                 kind: TysonParseErrorKind::InvalidNumber,
             });
         }
-        for &c in buf[sign.map(|_| 1).unwrap_or(0)
-            ..floating_point.or(exponent).unwrap_or(buf.len())]
-            .as_bytes()
-        {
+        let whole_number_start = sign.map(|_| 1).unwrap_or(0);
+        let whole_numer_end = floating_point.or(exponent).unwrap_or(buf.len());
+        for &c in buf[whole_number_start..whole_numer_end].as_bytes() {
             if c != b'0' {
                 break;
             }
@@ -480,18 +482,40 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
             ));
         }
         if digit_count <= f64::DIGITS as usize
-            && exponent_digit_count <= f64::MAX_10_EXP as usize
+            && exponent_digit_count <= f64::MAX_10_EXP.ilog10() as usize + 1
         {
             if let Ok(v) = buf.parse::<f64>() {
-                return Ok(FieldValue::Float(v));
+                if !v.is_nan() && !v.is_infinite() {
+                    return Ok(FieldValue::Float(v));
+                }
             };
         }
-        // TODO: rational
-        Err(TysonParseError::InvalidSyntax {
-            line: self.line,
-            col: self.col - buf.len(),
-            kind: TysonParseErrorKind::InvalidNumber,
-        })
+        let mut rational = if let Some(fp) = floating_point {
+            let decimals_start = fp + 1;
+            let decimals_end = exponent.unwrap_or(buf.len());
+            buf.remove(fp);
+            exponent = exponent.map(|e| e - 1);
+            BigRational::new(
+                BigInt::parse_bytes(buf[..decimals_end - 1].as_bytes(), 10)
+                    .unwrap(),
+                BigInt::from_u64(10)
+                    .unwrap()
+                    .pow(decimals_end - decimals_start),
+            )
+        } else {
+            BigRational::new(
+                BigInt::parse_bytes(buf[..whole_numer_end].as_bytes(), 10)
+                    .unwrap(),
+                BigInt::from_u64(1).unwrap(),
+            )
+        };
+
+        if let Some(e) = exponent {
+            rational.mul_assign(BigRational::from_u64(10).unwrap().pow(
+                BigInt::parse_bytes(buf[e + 1..].as_bytes(), 10).unwrap(),
+            ));
+        }
+        Ok(FieldValue::Rational(Box::new(rational)))
     }
     fn parse_array_after_bracket(
         &mut self,
