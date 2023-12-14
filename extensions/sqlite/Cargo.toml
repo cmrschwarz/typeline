@@ -7,4 +7,4 @@ edition = "2021"
 name = "scr_ext_sqlite"
 
 [dependencies]
-scr_core = {path="../core"}
+scr_core = {path="../../core"}

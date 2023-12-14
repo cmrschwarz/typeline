@@ -5,9 +5,6 @@ pub use scr_core::*;
 
 use extension::ExtensionRegistry;
 
-#[cfg(feature = "sqlite")]
-use scr_ext_sqlite::SqliteExtension;
-
 pub fn build_extension_registry() -> Arc<ExtensionRegistry> {
     #[allow(unused_mut)]
     let mut extensions = ExtensionRegistry::default();
@@ -15,7 +12,12 @@ pub fn build_extension_registry() -> Arc<ExtensionRegistry> {
     #[cfg(feature = "sqlite")]
     extensions
         .extensions
-        .push(Box::<SqliteExtension>::default());
+        .push(Box::<scr_ext_sqlite::SqliteExtension>::default());
+
+    #[cfg(feature = "misc_cmds")]
+    extensions
+        .extensions
+        .push(Box::<scr_ext_misc_cmds::MiscCmdsExtension>::default());
 
     extensions.setup();
     Arc::new(extensions)

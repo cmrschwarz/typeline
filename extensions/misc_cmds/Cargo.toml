@@ -1,0 +1,13 @@
+[package]
+name = "scr_ext_misc_cmds"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "scr_ext_misc_cmds"
+
+[dependencies]
+scr_core = {path="../../core"}
+
+# for to_f64
+num = "0.4.1"

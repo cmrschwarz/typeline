@@ -1,4 +1,4 @@
-use std::cell::Ref;
+use std::{cell::Ref, ops::Range};
 
 use super::{
     field::{
@@ -23,15 +23,24 @@ use crate::record_data::{
 
 pub trait ReferenceFieldValueType: FieldValueType + Clone + 'static {
     fn field_id_offset(&self) -> FieldIdOffset;
+    fn range(&self) -> Option<Range<usize>>;
 }
 impl ReferenceFieldValueType for FieldReference {
     fn field_id_offset(&self) -> FieldIdOffset {
         self.field_id_offset
     }
+
+    fn range(&self) -> Option<Range<usize>> {
+        None
+    }
 }
 impl ReferenceFieldValueType for SlicedFieldReference {
     fn field_id_offset(&self) -> FieldIdOffset {
         self.field_id_offset
+    }
+
+    fn range(&self) -> Option<Range<usize>> {
+        Some(self.begin..self.end)
     }
 }
 
@@ -60,6 +69,18 @@ pub enum AnyRefIter<'a> {
 pub enum AnyRefSliceIter<'a> {
     FieldRef(TypedSliceIter<'a, FieldReference>),
     SlicedFieldRef(TypedSliceIter<'a, SlicedFieldReference>),
+}
+
+impl<'a, R: ReferenceFieldValueType> FieldRefUnpacked<'a, R> {
+    pub fn apply_ref(&self) -> (TypedValue<'a>, RunLength) {
+        (
+            self.reference
+                .range()
+                .map(|r| self.data.subslice(r))
+                .unwrap_or(self.data.clone()),
+            self.header.run_length,
+        )
+    }
 }
 
 impl<'a, R: ReferenceFieldValueType> Clone for RefIter<'a, R> {
@@ -190,7 +211,7 @@ impl<'a, R: ReferenceFieldValueType> RefIter<'a, R> {
         );
         let tf = self
             .data_iter
-            .typed_field_fwd((rl as usize).min(limit) as RunLength)
+            .typed_field_fwd((rl as usize).min(limit))
             .unwrap();
         self.refs_iter.next_n_fields(tf.header.run_length as usize);
         Some(FieldRefUnpacked {
@@ -349,9 +370,62 @@ impl<'a, I: FieldIterator<'a>> AutoDerefIter<'a, I> {
         self.ref_iter = None;
         self.iter.move_to_field_pos(field_pos);
     }
+    fn apply_field_refs_range(
+        &mut self,
+        match_set_mgr: &mut MatchSetManager,
+        field_pos_before: usize,
+        range: &ValidTypedRange<'a>,
+    ) -> bool {
+        if let TypedSlice::FieldReference(refs) = range.data {
+            let refs_iter = TypedSliceIter::from_range(range, refs);
+            let field_id_offset = refs_iter.peek().unwrap().0.field_id_offset;
+            if let Some(AnyRefIter::FieldRef(ri)) = &mut self.ref_iter {
+                ri.reset(
+                    match_set_mgr,
+                    refs_iter,
+                    field_id_offset,
+                    field_pos_before,
+                );
+            } else {
+                self.ref_iter = Some(AnyRefIter::FieldRef(RefIter::new(
+                    self.iter_field_id,
+                    refs_iter,
+                    self.field_mgr,
+                    match_set_mgr,
+                    field_id_offset,
+                    field_pos_before,
+                )));
+            }
+            return true;
+        }
+        if let TypedSlice::SlicedFieldReference(refs) = range.data {
+            let refs_iter = TypedSliceIter::from_range(range, refs);
+            let field_id_offset = refs_iter.peek().unwrap().0.field_id_offset;
+            if let Some(AnyRefIter::SlicedFieldRef(ri)) = &mut self.ref_iter {
+                ri.reset(
+                    match_set_mgr,
+                    refs_iter,
+                    field_id_offset,
+                    field_pos_before,
+                );
+            } else {
+                self.ref_iter =
+                    Some(AnyRefIter::SlicedFieldRef(RefIter::new(
+                        self.iter_field_id,
+                        refs_iter,
+                        self.field_mgr,
+                        match_set_mgr,
+                        field_id_offset,
+                        field_pos_before,
+                    )));
+            }
+            return true;
+        }
+        false
+    }
     pub fn typed_range_fwd(
         &mut self,
-        match_set_mgr: &'_ mut MatchSetManager,
+        match_set_mgr: &mut MatchSetManager,
         limit: usize,
         flags: FieldValueFlags,
     ) -> Option<RefAwareTypedRange<'a>> {
@@ -389,58 +463,13 @@ impl<'a, I: FieldIterator<'a>> AutoDerefIter<'a, I> {
             }
             let field_pos = self.iter.get_next_field_pos();
             if let Some(range) = self.iter.typed_range_fwd(limit, flags) {
-                if let TypedSlice::FieldReference(refs) = range.data {
-                    let refs_iter = TypedSliceIter::from_range(&range, refs);
-                    let field_id_offset =
-                        refs_iter.peek().unwrap().0.field_id_offset;
-                    if let Some(AnyRefIter::FieldRef(ri)) = &mut self.ref_iter
-                    {
-                        ri.reset(
-                            match_set_mgr,
-                            refs_iter,
-                            field_id_offset,
-                            field_pos,
-                        );
-                    } else {
-                        self.ref_iter =
-                            Some(AnyRefIter::FieldRef(RefIter::new(
-                                self.iter_field_id,
-                                refs_iter,
-                                self.field_mgr,
-                                match_set_mgr,
-                                field_id_offset,
-                                field_pos,
-                            )));
-                    }
+                if self.apply_field_refs_range(
+                    match_set_mgr,
+                    field_pos,
+                    &range,
+                ) {
                     continue;
                 }
-                if let TypedSlice::SlicedFieldReference(refs) = range.data {
-                    let refs_iter = TypedSliceIter::from_range(&range, refs);
-                    let field_id_offset =
-                        refs_iter.peek().unwrap().0.field_id_offset;
-                    if let Some(AnyRefIter::SlicedFieldRef(ri)) =
-                        &mut self.ref_iter
-                    {
-                        ri.reset(
-                            match_set_mgr,
-                            refs_iter,
-                            field_id_offset,
-                            field_pos,
-                        );
-                    } else {
-                        self.ref_iter =
-                            Some(AnyRefIter::SlicedFieldRef(RefIter::new(
-                                self.iter_field_id,
-                                refs_iter,
-                                self.field_mgr,
-                                match_set_mgr,
-                                field_id_offset,
-                                field_pos,
-                            )));
-                    }
-                    continue;
-                }
-
                 return Some(RefAwareTypedRange {
                     base: range,
                     refs: None,
@@ -451,15 +480,82 @@ impl<'a, I: FieldIterator<'a>> AutoDerefIter<'a, I> {
             }
         }
     }
-    pub fn next(
+    pub fn typed_field_fwd(
+        &mut self,
+        match_set_mgr: &mut MatchSetManager,
+        limit: usize,
+    ) -> Option<(TypedValue<'a>, RunLength, Option<FieldIdOffset>)> {
+        loop {
+            if let Some(ri) = &mut self.ref_iter {
+                match ri {
+                    AnyRefIter::FieldRef(iter) => {
+                        if let Some(fru) =
+                            iter.typed_field_fwd(match_set_mgr, limit)
+                        {
+                            let (v, rl) = fru.apply_ref();
+                            return Some((
+                                v,
+                                rl,
+                                Some(fru.reference.field_id_offset),
+                            ));
+                        }
+                    }
+                    AnyRefIter::SlicedFieldRef(iter) => {
+                        if let Some(fru) =
+                            iter.typed_field_fwd(match_set_mgr, limit)
+                        {
+                            let (v, rl) = fru.apply_ref();
+                            return Some((
+                                v,
+                                rl,
+                                Some(fru.reference.field_id_offset),
+                            ));
+                        }
+                    }
+                };
+                self.ref_iter = None;
+            }
+            let field_pos = self.iter.get_next_field_pos();
+            if let Some(field) = self.iter.typed_field_fwd(limit) {
+                if matches!(
+                    field.value,
+                    TypedValue::FieldReference(_)
+                        | TypedValue::SlicedFieldReference(_)
+                ) {
+                    self.iter.typed_field_bwd(limit);
+                    let range = self
+                        .iter
+                        .typed_range_fwd(
+                            limit,
+                            field_value_flags::CONTENT_FLAGS,
+                        )
+                        .unwrap();
+                    self.apply_field_refs_range(
+                        match_set_mgr,
+                        field_pos,
+                        &range,
+                    )
+                    .then_some(())
+                    .unwrap();
+                    continue;
+                }
+                return Some((field.value, field.header.run_length, None));
+            } else {
+                return None;
+            }
+        }
+    }
+    pub fn next_range(
         &mut self,
         msm: &'_ mut MatchSetManager,
     ) -> Option<RefAwareTypedRange<'a>> {
-        self.typed_range_fwd(
-            msm,
-            usize::MAX,
-            field_value_flags::BYTES_ARE_UTF8,
-        )
+        self.typed_range_fwd(msm, usize::MAX, field_value_flags::CONTENT_FLAGS)
+    }
+    pub fn next_value(
+        &mut self,
+        msm: &mut MatchSetManager,
+    ) -> Option<(TypedValue<'a>, RunLength, Option<FieldIdOffset>)> {
+        self.typed_field_fwd(msm, usize::MAX)
     }
     pub fn next_n_fields(&mut self, mut limit: usize) -> usize {
         let mut ri_count = 0;

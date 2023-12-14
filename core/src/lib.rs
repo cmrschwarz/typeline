@@ -20,6 +20,10 @@ extern crate thin_vec;
 extern crate thiserror;
 extern crate unicode_ident;
 
+// exposed due to FieldValue
+pub extern crate num_bigint;
+pub extern crate num_rational;
+
 #[cfg(feature = "repl")]
 extern crate reedline;
 #[cfg(feature = "repl")]

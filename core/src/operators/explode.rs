@@ -194,7 +194,7 @@ impl Transform for TfExplode {
             batch_size,
         );
 
-        while let Some(range) = iter.next(&mut jd.match_set_mgr) {
+        while let Some(range) = iter.next_range(&mut jd.match_set_mgr) {
             match range.base.data {
                 TypedSlice::Undefined(_) => inserters[0].push_zst(
                     FieldValueRepr::Undefined,

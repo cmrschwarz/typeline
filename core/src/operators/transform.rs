@@ -2,10 +2,16 @@ use nonmax::NonMaxUsize;
 use smallstr::SmallString;
 
 use crate::{
-    job_session::{JobData, JobSession},
+    context::Session,
+    job_session::{JobData, JobSession, TransformManager},
     record_data::{
-        field::FieldId, field_data::FieldValueRepr, match_set::MatchSetId,
-        stream_value::StreamValueId,
+        field::{FieldId, FieldManager},
+        field_data::FieldValueRepr,
+        iter_hall::IterId,
+        iters::{BoundedIter, DestructuredFieldDataRef, Iter},
+        match_set::{MatchSetId, MatchSetManager},
+        ref_iter::AutoDerefIter,
+        stream_value::{StreamValueId, StreamValueManager},
     },
     utils::small_box::SmallBox,
 };
@@ -155,11 +161,96 @@ pub trait Transform: Send {
         _sv_id: StreamValueId,
         _custom: usize,
     ) {
-        unimplemented!("the transform does not implement stream value updates")
+        unimplemented!(
+            "transform `{}` does not implement stream value updates",
+            self.display_name()
+        )
     }
     fn pre_update_required(&self) -> bool {
         false
     }
     fn pre_update(&mut self, _sess: &mut JobSession, _tf_id: TransformId) {}
     fn update(&mut self, jd: &mut JobData, tf_id: TransformId);
+}
+
+// a helper type around JobData that works around the fact that
+// TransformUtils::basic_update needs
+// to borrow the field manager in order to produce the iterator
+// that it forwards into its closure
+pub struct BasicUpdateData<'a> {
+    pub session_data: &'a Session,
+    pub tf_mgr: &'a mut TransformManager,
+    pub match_set_mgr: &'a mut MatchSetManager,
+    pub field_mgr: &'a FieldManager,
+    pub sv_mgr: &'a mut StreamValueManager,
+    pub temp_vec: &'a mut Vec<u8>,
+    pub batch_size: usize,
+    pub input_done: bool,
+    pub input_field_id: FieldId,
+    pub output_field_id: FieldId,
+    pub match_set_id: MatchSetId,
+    pub tf_id: TransformId,
+}
+
+pub fn basic_transform_update(
+    jd: &mut JobData,
+    tf_id: TransformId,
+    // if this is None, assume the output field of the transform
+    // is the only output
+    extra_output_fields: impl IntoIterator<Item = FieldId>,
+    input_iter_id: IterId,
+    mut f: impl for<'a> FnMut(
+        BasicUpdateData,
+        &mut AutoDerefIter<
+            'a,
+            BoundedIter<'a, Iter<'a, DestructuredFieldDataRef<'a>>>,
+        >,
+    ) -> usize,
+) {
+    let (batch_size, input_done) = jd.tf_mgr.claim_batch(tf_id);
+    let tf = &jd.tf_mgr.transforms[tf_id];
+    let output_field_id = tf.output_field;
+    let match_set_id = tf.match_set_id;
+    jd.tf_mgr.prepare_for_output(
+        &mut jd.field_mgr,
+        &mut jd.match_set_mgr,
+        tf_id,
+        std::iter::once(output_field_id).chain(extra_output_fields),
+    );
+
+    let input_field_id = jd.tf_mgr.get_input_field_id(&jd.field_mgr, tf_id);
+    let input_field = jd
+        .field_mgr
+        .get_cow_field_ref(&mut jd.match_set_mgr, input_field_id);
+    let mut iter = jd.field_mgr.get_auto_deref_iter(
+        input_field_id,
+        &input_field,
+        input_iter_id,
+        batch_size,
+    );
+    let produced_fields = f(
+        BasicUpdateData {
+            field_mgr: &jd.field_mgr,
+            session_data: jd.session_data,
+            tf_mgr: &mut jd.tf_mgr,
+            match_set_mgr: &mut jd.match_set_mgr,
+            sv_mgr: &mut jd.sv_mgr,
+            temp_vec: &mut jd.temp_vec,
+            batch_size,
+            input_done,
+            input_field_id,
+            output_field_id,
+            match_set_id,
+            tf_id,
+        },
+        &mut iter,
+    );
+    jd.field_mgr.store_iter(input_field_id, input_iter_id, iter);
+    drop(input_field);
+    if input_done {
+        jd.unlink_transform(tf_id, produced_fields);
+    } else {
+        jd.tf_mgr
+            .inform_successor_batch_available(tf_id, produced_fields);
+    }
 }

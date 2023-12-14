@@ -99,12 +99,12 @@ pub struct CliArgument<'a> {
 
 #[derive(Clone)]
 pub struct ParsedCliArgument<'a> {
-    argname: &'a str,
-    value: Option<&'a [u8]>,
-    label: Option<&'a str>,
-    cli_arg: CliArgument<'a>,
-    append_mode: bool,
-    transparent_mode: bool,
+    pub argname: &'a str,
+    pub value: Option<&'a [u8]>,
+    pub label: Option<&'a str>,
+    pub cli_arg: CliArgument<'a>,
+    pub append_mode: bool,
+    pub transparent_mode: bool,
 }
 
 lazy_static! {
@@ -125,6 +125,30 @@ lazy_static! {
         r"^(?<modes>(?:(?<append_mode>\+)|(?<transparent_mode>_))*)(?<argname>[^@=]+)(@(?<label>[^@=]+))?(=(?<value>(?:.|[\r\n])*))?$"
     ).build()
     .unwrap();
+}
+
+pub fn reject_operator_argument(
+    argname: &str,
+    value: Option<&[u8]>,
+    cli_arg_idx: Option<CliArgIdx>,
+) -> Result<(), OperatorCreationError> {
+    if value.is_some() {
+        return Err(OperatorCreationError::new_s(
+            format!("operator `{}` does not take an argument", argname),
+            cli_arg_idx,
+        ));
+    }
+    Ok(())
+}
+
+impl ParsedCliArgument<'_> {
+    pub fn reject_value(&self) -> Result<(), OperatorCreationError> {
+        reject_operator_argument(
+            self.argname,
+            self.value,
+            Some(self.cli_arg.idx),
+        )
+    }
 }
 
 fn try_parse_bool(val: &[u8]) -> Option<bool> {

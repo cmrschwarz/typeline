@@ -41,7 +41,7 @@ pub type RunLength = u32;
 // which are not actual data types, but helper representations / indirections
 // This also does not differentiate between the text and bytes type as they
 // have the same data layout
-#[derive(Default, Clone, Copy, PartialEq)]
+#[derive(Default, Debug, Clone, Copy, PartialEq)]
 pub enum FieldValueRepr {
     #[default]
     Null,

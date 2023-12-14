@@ -1,4 +1,4 @@
-use std::{mem::ManuallyDrop, ptr::NonNull};
+use std::{mem::ManuallyDrop, ops::Range, ptr::NonNull};
 
 use num_bigint::BigInt;
 use num_rational::BigRational;
@@ -21,6 +21,7 @@ use crate::{
 };
 use std::ops::Deref;
 
+#[derive(Clone)]
 pub enum TypedValue<'a> {
     Null(Null),
     Undefined(Undefined),
@@ -128,6 +129,29 @@ impl<'a> TypedValue<'a> {
             TypedValue::Object(v) => TypedSlice::Object(from_ref(v)),
             TypedValue::Array(v) => TypedSlice::Array(from_ref(v)),
             TypedValue::Custom(v) => TypedSlice::Custom(from_ref(v)),
+        }
+    }
+    pub fn subslice(&self, range: Range<usize>) -> Self {
+        match self {
+            TypedValue::BytesInline(v) => TypedValue::BytesInline(&v[range]),
+            TypedValue::TextInline(v) => TypedValue::TextInline(&v[range]),
+            TypedValue::BytesBuffer(v) => TypedValue::BytesInline(&v[range]),
+            TypedValue::Null(_)
+            | TypedValue::Undefined(_)
+            | TypedValue::Int(_)
+            | TypedValue::BigInt(_)
+            | TypedValue::Float(_)
+            | TypedValue::Rational(_)
+            | TypedValue::Array(_)
+            | TypedValue::Object(_)
+            | TypedValue::Custom(_)
+            | TypedValue::StreamValueId(_)
+            | TypedValue::Error(_)
+            | TypedValue::FieldReference(_)
+            | TypedValue::SlicedFieldReference(_) => panic!(
+                "typed value kind {:?} is not slicable",
+                self.as_slice().kind(),
+            ),
         }
     }
 }

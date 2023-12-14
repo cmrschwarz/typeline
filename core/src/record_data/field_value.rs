@@ -58,7 +58,9 @@ pub enum FieldValue {
     SlicedFieldReference(SlicedFieldReference),
 }
 
+#[derive(Clone, Copy, Debug)]
 pub struct Null;
+#[derive(Clone, Copy, Debug)]
 pub struct Undefined;
 
 #[derive(Debug, Clone, PartialEq)]

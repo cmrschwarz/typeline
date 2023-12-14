@@ -11,7 +11,7 @@ use super::{
     typed::{TypedField, TypedRange, ValidTypedRange},
 };
 
-pub trait FieldDataRef<'a>: Sized {
+pub trait FieldDataRef<'a>: Sized + Clone {
     fn headers(&self) -> &'a [FieldValueHeader];
     fn data(&self) -> &'a [u8];
     fn field_count(&self) -> usize;
@@ -83,7 +83,7 @@ impl<'a> DestructuredFieldDataRef<'a> {
     }
 }
 
-pub trait FieldIterator<'a>: Sized {
+pub trait FieldIterator<'a>: Sized + Clone {
     type FieldDataRefType: FieldDataRef<'a>;
     fn field_data_ref(&self) -> &Self::FieldDataRefType;
     fn into_base_iter(self) -> Iter<'a, Self::FieldDataRefType>;
@@ -189,8 +189,8 @@ pub trait FieldIterator<'a>: Sized {
     fn prev_n_fields(&mut self, n: usize) -> usize {
         self.prev_n_fields_with_fmt(n, [], true, 0, 0)
     }
-    fn typed_field_fwd(&mut self, limit: RunLength) -> Option<TypedField<'a>>;
-    fn typed_field_bwd(&mut self, limit: RunLength) -> Option<TypedField<'a>>;
+    fn typed_field_fwd(&mut self, limit: usize) -> Option<TypedField<'a>>;
+    fn typed_field_bwd(&mut self, limit: usize) -> Option<TypedField<'a>>;
     fn typed_range_fwd(
         &mut self,
         limit: usize,
@@ -520,7 +520,7 @@ impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for Iter<'a, R> {
             }
         }
     }
-    fn typed_field_fwd(&mut self, limit: RunLength) -> Option<TypedField<'a>> {
+    fn typed_field_fwd(&mut self, limit: usize) -> Option<TypedField<'a>> {
         if limit == 0 || !self.is_next_valid() {
             None
         } else {
@@ -528,13 +528,13 @@ impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for Iter<'a, R> {
             let fmt = self.header_fmt;
             let run_len = if self.header_fmt.shared_value() {
                 let rl = self.field_run_length_fwd();
-                if rl <= limit {
+                if rl as usize <= limit {
                     self.next_header();
                     rl
                 } else {
-                    self.header_rl_offset += limit;
-                    self.field_pos += limit as usize;
-                    limit
+                    self.header_rl_offset += limit as RunLength;
+                    self.field_pos += limit;
+                    limit as RunLength
                 }
             } else {
                 self.next_field();
@@ -543,7 +543,7 @@ impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for Iter<'a, R> {
             Some(unsafe { TypedField::new(&self.fdr, fmt, data, run_len) })
         }
     }
-    fn typed_field_bwd(&mut self, limit: RunLength) -> Option<TypedField<'a>> {
+    fn typed_field_bwd(&mut self, limit: usize) -> Option<TypedField<'a>> {
         if limit == 0 || self.prev_field() == 0 {
             None
         } else {
@@ -551,13 +551,13 @@ impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for Iter<'a, R> {
             let fmt = self.header_fmt;
             let run_len = if self.header_fmt.shared_value() {
                 let rl = self.field_run_length_bwd() + 1;
-                if rl <= limit {
+                if rl as usize <= limit {
                     self.prev_header();
                     rl
                 } else {
-                    self.header_rl_offset -= limit - 1;
-                    self.field_pos -= (limit - 1) as usize;
-                    limit
+                    self.header_rl_offset -= limit as RunLength - 1;
+                    self.field_pos -= limit - 1;
+                    limit as RunLength
                 }
             } else {
                 1
@@ -848,15 +848,11 @@ where
             data_check,
         )
     }
-    fn typed_field_fwd(&mut self, limit: RunLength) -> Option<TypedField<'a>> {
-        self.iter.typed_field_fwd(
-            (limit as usize).min(self.range_fwd()) as RunLength
-        )
+    fn typed_field_fwd(&mut self, limit: usize) -> Option<TypedField<'a>> {
+        self.iter.typed_field_fwd(limit.min(self.range_fwd()))
     }
-    fn typed_field_bwd(&mut self, limit: RunLength) -> Option<TypedField<'a>> {
-        self.iter.typed_field_bwd(
-            (limit as usize).min(self.range_bwd()) as RunLength
-        )
+    fn typed_field_bwd(&mut self, limit: usize) -> Option<TypedField<'a>> {
+        self.iter.typed_field_bwd(limit.min(self.range_bwd()))
     }
     fn typed_range_fwd(
         &mut self,

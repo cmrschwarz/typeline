@@ -119,9 +119,9 @@ pub struct LivenessData {
 }
 
 pub struct AccessFlags {
-    input_accessed: bool,
-    non_stringified_input_access: bool,
-    may_dup_or_drop: bool,
+    pub input_accessed: bool,
+    pub non_stringified_input_access: bool,
+    pub may_dup_or_drop: bool,
 }
 
 impl Var {
