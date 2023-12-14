@@ -9,7 +9,7 @@ use crate::{
     options::argument::CliArgIdx,
     record_data::{
         field_data::{field_value_flags, FieldValueRepr},
-        field_value::FormattingContext,
+        field_value::{format_rational, FormattingContext, RATIONAL_DIGITS},
         iter_hall::IterId,
         iters::{FieldIterator, UnfoldIterRunLength},
         push_interface::PushInterface,
@@ -161,6 +161,8 @@ pub fn handle_tf_print_raw(
     let mut iter =
         AutoDerefIter::new(&sess.field_mgr, input_field_id, base_iter);
     let mut string_store = None;
+    let print_rationals_raw =
+        sess.get_transform_chain(tf_id).settings.print_rationals_raw;
 
     'iter: while let Some(range) = iter.typed_range_fwd(
         &mut sess.match_set_mgr,
@@ -299,7 +301,12 @@ pub fn handle_tf_print_raw(
                     TypedSliceIter::from_range(&range.base, rationals)
                 {
                     for _ in 0..rl {
-                        stdout.write_fmt(format_args!("{}\n", v))?;
+                        if print_rationals_raw {
+                            stdout.write_fmt(format_args!("{}\n", v))?;
+                        } else {
+                            format_rational(stdout, v, RATIONAL_DIGITS)?;
+                            stdout.write_all(b"\n")?;
+                        }
                         *handled_field_count += 1;
                     }
                 }
@@ -312,6 +319,7 @@ pub fn handle_tf_print_raw(
                     ss,
                     fm: &sess.field_mgr,
                     msm: &sess.match_set_mgr,
+                    print_rationals_raw,
                 };
                 for a in
                     TypedSliceIter::from_range(&range.base, arrays).unfold_rl()
@@ -329,6 +337,7 @@ pub fn handle_tf_print_raw(
                     ss,
                     fm: &sess.field_mgr,
                     msm: &sess.match_set_mgr,
+                    print_rationals_raw,
                 };
                 for o in TypedSliceIter::from_range(&range.base, objects)
                     .unfold_rl()

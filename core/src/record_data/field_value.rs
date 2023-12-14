@@ -1,6 +1,9 @@
+use std::ops::{Add, AddAssign, Div, MulAssign, Rem, Sub};
+
 use indexmap::IndexMap;
+use num::BigRational;
 use num_bigint::BigInt;
-use num_rational::BigRational;
+use num_traits::{FromPrimitive, One, Signed, Zero};
 
 use crate::{
     operators::{
@@ -19,6 +22,7 @@ use super::{
 
 // the different logical data types
 // irrespective of representation in memory, see FieldDataRepr for that
+
 #[derive(PartialEq, Eq, Clone, Copy)]
 pub enum FieldValueKind {
     Undefined,
@@ -234,6 +238,60 @@ pub struct FormattingContext<'a> {
     pub ss: &'a StringStore,
     pub fm: &'a FieldManager,
     pub msm: &'a MatchSetManager,
+    pub print_rationals_raw: bool,
+}
+
+pub const RATIONAL_DIGITS: u32 = 40; // TODO: make this configurable
+
+pub fn format_rational(
+    w: &mut impl std::io::Write,
+    v: &BigRational,
+    decimals: u32,
+) -> std::io::Result<()> {
+    // PERF: this function is stupid
+    let negative = v.is_negative();
+    if v.is_integer() {
+        w.write_fmt(format_args!("{}", v))?;
+        return Ok(());
+    }
+    let mut whole_number = v.to_integer();
+    let mut v = v.sub(&whole_number).abs();
+    let one_half =
+        BigRational::new(BigInt::one(), BigInt::from_u8(2).unwrap());
+    if decimals == 0 {
+        if v >= one_half {
+            whole_number.add_assign(if negative {
+                -BigInt::one()
+            } else {
+                BigInt::one()
+            });
+        }
+        w.write_fmt(format_args!("{}", whole_number))?;
+        return Ok(());
+    }
+    w.write_fmt(format_args!("{}.", &whole_number))?;
+
+    v.mul_assign(BigInt::from_u64(10).unwrap().pow(decimals));
+    let mut decimal_part = v.to_integer();
+    v = v.sub(&decimal_part).abs();
+    if v >= one_half {
+        decimal_part.add_assign(BigInt::one());
+    }
+    if !v.is_zero() {
+        w.write_fmt(format_args!("{}", &decimal_part))?;
+        return Ok(());
+    }
+    let ten = BigInt::from_u8(10).unwrap();
+    // PERF: really bad
+    loop {
+        let rem = decimal_part.clone().rem(&ten);
+        if !rem.is_zero() {
+            break;
+        }
+        decimal_part = decimal_part.div(&ten).add(rem);
+    }
+    w.write_fmt(format_args!("{}", &decimal_part))?;
+    Ok(())
 }
 
 impl FieldValue {
@@ -247,10 +305,16 @@ impl FieldValue {
             FieldValue::Undefined => {
                 w.write(UNDEFINED_STR.as_bytes()).map(|_| ())
             }
-            FieldValue::Int(v) => w.write_fmt(format_args!("{}", v)),
-            FieldValue::BigInt(v) => w.write_fmt(format_args!("{}", v)),
-            FieldValue::Float(v) => w.write_fmt(format_args!("{}", v)),
-            FieldValue::Rational(v) => w.write_fmt(format_args!("{}", v)),
+            FieldValue::Int(v) => w.write_fmt(format_args!("{v}")),
+            FieldValue::BigInt(v) => w.write_fmt(format_args!("{v}")),
+            FieldValue::Float(v) => w.write_fmt(format_args!("{v}")),
+            FieldValue::Rational(v) => {
+                if fc.print_rationals_raw {
+                    w.write_fmt(format_args!("{v}"))
+                } else {
+                    format_rational(w, v, RATIONAL_DIGITS)
+                }
+            }
             FieldValue::Bytes(v) => format_bytes(w, v),
             FieldValue::Text(v) => format_quoted_string(w, v),
             FieldValue::Error(e) => format_error(w, e),

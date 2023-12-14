@@ -310,6 +310,8 @@ pub fn handle_tf_string_sink(
     let mut field_pos = out.data.len();
     let mut string_store = None;
     let mut last_error_end = 0;
+    let print_rationals_raw =
+        sess.get_transform_chain(tf_id).settings.print_rationals_raw;
     while let Some(range) = iter.typed_range_fwd(
         &mut sess.match_set_mgr,
         usize::MAX,
@@ -491,6 +493,7 @@ pub fn handle_tf_string_sink(
                     ss,
                     fm: &sess.field_mgr,
                     msm: &sess.match_set_mgr,
+                    print_rationals_raw,
                 };
                 for (a, rl) in TypedSliceIter::from_range(&range.base, arrays)
                 {
@@ -513,6 +516,7 @@ pub fn handle_tf_string_sink(
                     ss,
                     fm: &sess.field_mgr,
                     msm: &sess.match_set_mgr,
+                    print_rationals_raw,
                 };
                 for (a, rl) in TypedSliceIter::from_range(&range.base, object)
                 {

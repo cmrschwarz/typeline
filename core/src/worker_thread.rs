@@ -6,7 +6,7 @@ use crate::{
 };
 use std::sync::Arc;
 
-pub(crate) struct WorkerThread {
+pub struct WorkerThread {
     pub ctx_data: Arc<ContextData>,
     // in case of panics, we want to increment the waiter counter
     // if this is false

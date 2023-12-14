@@ -13,6 +13,8 @@ pub struct ChainOptions {
     pub default_text_encoding: Argument<TextEncoding>,
     pub prefer_parent_text_encoding: Argument<bool>,
     pub force_text_encoding: Argument<bool>,
+    pub floating_point_math: Argument<bool>,
+    pub print_rationals_raw: Argument<bool>,
     pub selenium_variant: Argument<Option<SeleniumVariant>>,
     pub selenium_download_strategy: Argument<SeleniumDownloadStrategy>,
     pub default_batch_size: Argument<usize>,
@@ -28,6 +30,8 @@ pub const DEFAULT_CHAIN_OPTIONS: ChainOptions = ChainOptions {
     default_text_encoding: Argument::new_v(TextEncoding::UTF8),
     prefer_parent_text_encoding: Argument::new_v(false),
     force_text_encoding: Argument::new_v(false),
+    floating_point_math: Argument::new_v(false),
+    print_rationals_raw: Argument::new_v(false),
     selenium_variant: Argument::new_v(None),
     selenium_download_strategy: Argument::new_v(SeleniumDownloadStrategy::Scr),
     default_batch_size: Argument::new_v(1024), // TODO: tweak me
@@ -65,6 +69,18 @@ impl ChainOptions {
                     .or_else(|| parent.map(|p| p.settings.force_text_encoding))
                     .unwrap_or(
                         DEFAULT_CHAIN_OPTIONS.force_text_encoding.unwrap(),
+                    ),
+                floating_point_math: self
+                    .floating_point_math
+                    .or_else(|| parent.map(|p| p.settings.floating_point_math))
+                    .unwrap_or(
+                        DEFAULT_CHAIN_OPTIONS.floating_point_math.unwrap(),
+                    ),
+                print_rationals_raw: self
+                    .print_rationals_raw
+                    .or_else(|| parent.map(|p| p.settings.print_rationals_raw))
+                    .unwrap_or(
+                        DEFAULT_CHAIN_OPTIONS.print_rationals_raw.unwrap(),
                     ),
                 selenium_download_strategy: self
                     .selenium_download_strategy

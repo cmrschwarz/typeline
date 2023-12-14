@@ -5,9 +5,11 @@ use regex::Regex;
 use smallstr::SmallString;
 
 use crate::{
-    extension::ExtensionRegistry,
     job_session::JobData,
-    options::argument::CliArgIdx,
+    options::{
+        argument::CliArgIdx, chain_options::DEFAULT_CHAIN_OPTIONS,
+        session_options::SessionOptions,
+    },
     record_data::{
         custom_data::CustomDataBox,
         field_value::{Array, FieldValue, FieldValueKind, Object},
@@ -368,7 +370,7 @@ pub fn parse_op_tyson(
     insert_count: Option<usize>,
     arg_idx: Option<CliArgIdx>,
     affinity: FieldValueKind,
-    exts: &ExtensionRegistry,
+    sess: &SessionOptions,
 ) -> Result<OperatorData, OperatorCreationError> {
     let value = value.ok_or_else(|| {
         OperatorCreationError::new_s(
@@ -376,20 +378,23 @@ pub fn parse_op_tyson(
             arg_idx,
         )
     })?;
-    let value = parse_tyson(value, Some(exts)).map_err(|e| {
-        OperatorCreationError::new_s(
-            format!(
-                "failed to parse value as {}: {}",
-                affinity.to_str(),
-                match e {
-                    TysonParseError::Io(e) => e.to_string(),
-                    TysonParseError::InvalidSyntax { kind, .. } =>
-                        kind.to_string(),
-                }
-            ),
-            arg_idx,
-        )
-    })?;
+    let value =
+        parse_tyson(value, use_fpm(Some(sess)), Some(&sess.extensions))
+            .map_err(|e| {
+                OperatorCreationError::new_s(
+                    format!(
+                        "failed to parse value as {}: {}",
+                        affinity.to_str(),
+                        match e {
+                            TysonParseError::Io(e) => e.to_string(),
+                            TysonParseError::InvalidSyntax {
+                                kind, ..
+                            } => kind.to_string(),
+                        }
+                    ),
+                    arg_idx,
+                )
+            })?;
     let lit = field_value_to_literal(value);
     Ok(OperatorData::Literal(OpLiteral {
         data: lit,
@@ -397,18 +402,34 @@ pub fn parse_op_tyson(
     }))
 }
 
+pub fn use_fpm(sess: Option<&SessionOptions>) -> bool {
+    let fpm_default = DEFAULT_CHAIN_OPTIONS.floating_point_math.get().unwrap();
+    sess.map(|sess| {
+        sess.chains[sess.curr_chain as usize]
+            .floating_point_math
+            .get()
+            .unwrap_or(fpm_default)
+    })
+    .unwrap_or(fpm_default)
+}
+
 pub fn parse_op_tyson_value(
     value: Option<&[u8]>,
     insert_count: Option<usize>,
     arg_idx: Option<CliArgIdx>,
-    exts: Option<&ExtensionRegistry>,
+    sess: Option<&SessionOptions>,
 ) -> Result<OperatorData, OperatorCreationError> {
     let value = value
         .ok_or_else(|| OperatorCreationError::new("missing value", arg_idx))?;
 
-    let value = parse_tyson(value, exts).map_err(|e| {
-        OperatorCreationError::new_s(format!("invalid tyson: {e}"), arg_idx)
-    })?;
+    let value =
+        parse_tyson(value, use_fpm(sess), sess.map(|sess| &*sess.extensions))
+            .map_err(|e| {
+                OperatorCreationError::new_s(
+                    format!("invalid tyson: {e}"),
+                    arg_idx,
+                )
+            })?;
     let lit = field_value_to_literal(value);
     Ok(OperatorData::Literal(OpLiteral {
         data: lit,
@@ -430,7 +451,7 @@ pub fn parse_op_literal(
     argument: &str,
     value: Option<&[u8]>,
     arg_idx: Option<CliArgIdx>,
-    ext: &ExtensionRegistry,
+    sess: &SessionOptions,
 ) -> Result<OperatorData, OperatorCreationError> {
     // this should not happen in the cli parser because it checks using
     // `argument_matches_data_inserter`
@@ -459,15 +480,17 @@ pub fn parse_op_literal(
         "~bytes" => parse_op_bytes(value, insert_count, arg_idx, true),
         "str" => parse_op_str(value, insert_count, arg_idx, false),
         "~str" => parse_op_str(value, insert_count, arg_idx, true),
-        "object" => parse_op_tyson(value, insert_count, arg_idx, Object, ext),
-        "array" => parse_op_tyson(value, insert_count, arg_idx, Array, ext),
-        "integer" => parse_op_tyson(value, insert_count, arg_idx, BigInt, ext),
-        "float" => parse_op_tyson(value, insert_count, arg_idx, Float, ext),
+        "object" => parse_op_tyson(value, insert_count, arg_idx, Object, sess),
+        "array" => parse_op_tyson(value, insert_count, arg_idx, Array, sess),
+        "integer" => {
+            parse_op_tyson(value, insert_count, arg_idx, BigInt, sess)
+        }
+        "float" => parse_op_tyson(value, insert_count, arg_idx, Float, sess),
         "rational" => {
-            parse_op_tyson(value, insert_count, arg_idx, Rational, ext)
+            parse_op_tyson(value, insert_count, arg_idx, Rational, sess)
         }
         "v" | "tyson" => {
-            parse_op_tyson_value(value, insert_count, arg_idx, Some(ext))
+            parse_op_tyson_value(value, insert_count, arg_idx, Some(sess))
         }
         "error" => {
             parse_op_error(arg_str, value, false, insert_count, arg_idx)

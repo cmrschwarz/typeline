@@ -551,6 +551,8 @@ impl<'a, I: FieldIterator<'a>> AutoDerefIter<'a, I> {
     ) -> Option<RefAwareTypedRange<'a>> {
         self.typed_range_fwd(msm, usize::MAX, field_value_flags::CONTENT_FLAGS)
     }
+    // using `next_range` and nesting RefAwareTypedSliceIters is significantly
+    // faster. for example, `scr seqn=1G sum p` gets a 5x speedup
     pub fn next_value(
         &mut self,
         msm: &mut MatchSetManager,

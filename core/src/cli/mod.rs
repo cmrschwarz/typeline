@@ -342,6 +342,22 @@ fn try_parse_as_chain_opt(
             )?;
             chain.force_text_encoding.set(fte, arg_idx)?;
         }
+        "fpm" => {
+            let fpm = try_parse_bool_arg_or_default(
+                arg.value,
+                true,
+                arg.cli_arg.idx,
+            )?;
+            chain.floating_point_math.set(fpm, arg_idx)?;
+        }
+        "prr" => {
+            let prr = try_parse_bool_arg_or_default(
+                arg.value,
+                true,
+                arg.cli_arg.idx,
+            )?;
+            chain.print_rationals_raw.set(prr, arg_idx)?;
+        }
         "sds" => {
             let sds =
                 try_parse_selenium_download_strategy(arg.value, &arg.cli_arg)?;
@@ -440,7 +456,7 @@ fn parse_operation(
             arg.argname,
             arg.value,
             idx,
-            &ctx_opts.extensions,
+            ctx_opts,
         )?));
     }
     if argument_matches_op_file_reader(arg.argname) {

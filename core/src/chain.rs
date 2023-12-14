@@ -19,6 +19,8 @@ pub struct ChainSettings {
     pub default_text_encoding: TextEncoding,
     pub prefer_parent_text_encoding: bool,
     pub force_text_encoding: bool,
+    pub floating_point_math: bool,
+    pub print_rationals_raw: bool,
     pub selenium_download_strategy: SeleniumDownloadStrategy,
     pub default_batch_size: usize,
     pub stream_buffer_size: usize,

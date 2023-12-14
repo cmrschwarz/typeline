@@ -710,6 +710,7 @@ dependencies = [
  "lazy_static",
  "memchr",
  "nonmax",
+ "num",
  "num-bigint",
  "num-rational",
  "num-traits",

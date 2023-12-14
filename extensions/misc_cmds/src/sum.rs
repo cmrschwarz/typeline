@@ -1,10 +1,10 @@
 use std::{
     borrow::Cow,
     collections::HashMap,
-    ops::{Add, AddAssign, Mul},
+    ops::{Add, AddAssign, Mul, MulAssign},
 };
 
-use num::ToPrimitive;
+use num::{FromPrimitive, ToPrimitive};
 use scr_core::{
     job_session::JobData,
     liveness_analysis::{
@@ -28,8 +28,8 @@ use scr_core::{
         iter_hall::IterId,
         iters::{BoundedIter, DestructuredFieldDataRef, Iter},
         push_interface::PushInterface,
-        ref_iter::AutoDerefIter,
-        typed::TypedValue,
+        ref_iter::{AutoDerefIter, RefAwareTypedSliceIter},
+        typed::TypedSlice,
     },
     smallbox,
     utils::identity_hasher::BuildIdentityHasher,
@@ -45,6 +45,13 @@ enum Aggregate {
     Float(f64),
     Rational(BigRational),
 }
+
+impl Default for Aggregate {
+    fn default() -> Self {
+        Aggregate::Int(0)
+    }
+}
+
 // TODO: use this to add max / min / avg functions
 impl Aggregate {
     fn push(self, tgt: &mut impl PushInterface) {
@@ -62,10 +69,10 @@ impl Aggregate {
         }
     }
     // PERF: this whole thing is slow and stupid
-    fn add_int(&mut self, v: i64, rl: RunLength) {
+    fn add_int(&mut self, v: i64, rl: RunLength, fpm: bool) {
         let mut v_x_rl = v;
         if rl != 1 {
-            let Some(r) = v.checked_mul(rl as i64) else {
+            let Some(res) = v.checked_mul(rl as i64) else {
                 match self {
                     Aggregate::Int(i) => {
                         *self =
@@ -75,7 +82,15 @@ impl Aggregate {
                         i.add_assign(BigInt::from(v).mul(rl));
                     }
                     Aggregate::Float(f) => {
-                        *f = (v as f64).mul_add(rl as f64, *f);
+                        if fpm {
+                            *f = (v as f64).mul_add(rl as f64, *f);
+                        } else if !f.is_nan() && !f.is_infinite() {
+                            *self = Aggregate::Rational(
+                                BigRational::from_f64(*f)
+                                    .unwrap()
+                                    .add(BigInt::from(v).mul(rl)),
+                            );
+                        }
                     }
                     Aggregate::Rational(r) => {
                         r.add_assign(BigInt::from(v).mul(rl))
@@ -83,7 +98,7 @@ impl Aggregate {
                 }
                 return;
             };
-            v_x_rl = r;
+            v_x_rl = res;
         }
         match self {
             Aggregate::Int(i) => {
@@ -94,11 +109,21 @@ impl Aggregate {
                 *self = Aggregate::BigInt(BigInt::from(*i).add(v_x_rl));
             }
             Aggregate::BigInt(v) => v.add_assign(v_x_rl),
-            Aggregate::Float(v) => v.add_assign(v_x_rl as f64),
+            Aggregate::Float(f) => {
+                if fpm {
+                    f.add_assign(v_x_rl as f64)
+                } else if !f.is_nan() && !f.is_infinite() {
+                    *self = Aggregate::Rational(
+                        BigRational::from_f64(*f)
+                            .unwrap()
+                            .add(BigInt::from(v).mul(rl)),
+                    );
+                }
+            }
             Aggregate::Rational(v) => v.add_assign(BigInt::from(v_x_rl)),
         }
     }
-    fn add_big_int(&mut self, v: &BigInt, rl: RunLength) {
+    fn add_big_int(&mut self, v: &BigInt, rl: RunLength, fpm: bool) {
         let v_x_rl = {
             if rl == 1 {
                 Cow::Borrowed(v)
@@ -111,22 +136,57 @@ impl Aggregate {
                 *self = Aggregate::BigInt(v_x_rl.into_owned().add(*i));
             }
             Aggregate::BigInt(i) => i.add_assign(&*v_x_rl),
-            // unwrap is fine, implementation of to_f64 never returns None
-            Aggregate::Float(v) => v.add_assign(v_x_rl.to_f64().unwrap()),
-
+            Aggregate::Float(f) => {
+                if fpm {
+                    f.add_assign(v_x_rl.to_f64().unwrap());
+                } else if !f.is_nan() && !f.is_infinite() {
+                    *self = Aggregate::Rational(
+                        BigRational::from_f64(*f).unwrap().add(&*v_x_rl),
+                    );
+                }
+            }
             Aggregate::Rational(v) => v.add_assign(&*v_x_rl),
         }
     }
-    fn add_float(&mut self, v: f64, rl: RunLength) {
-        let curr = match self {
-            Aggregate::Int(i) => *i as f64,
-            Aggregate::BigInt(i) => i.to_f64().unwrap(),
-            Aggregate::Float(f) => *f,
-            Aggregate::Rational(r) => r.to_f64().unwrap(),
+    fn add_float(&mut self, v: f64, rl: RunLength, fpm: bool) {
+        if fpm {
+            let curr = match self {
+                Aggregate::Int(i) => *i as f64,
+                Aggregate::BigInt(i) => i.to_f64().unwrap(),
+                Aggregate::Float(f) => *f,
+                Aggregate::Rational(r) => r.to_f64().unwrap(),
+            };
+            // floating point add is commutative, so this order is fine
+            // rle somewhat breaks order, you have to disable
+            // that if you care
+            *self = Aggregate::Float(v.mul_add(rl as f64, curr));
+            return;
+        }
+        if v.is_infinite() || v.is_nan() {
+            *self = Aggregate::Float(v);
+            return;
+        }
+        let curr = match std::mem::take(self) {
+            Aggregate::Int(i) => BigRational::from_i64(i).unwrap(),
+            Aggregate::BigInt(i) => {
+                BigRational::new(i, BigInt::from_u8(1).unwrap())
+            }
+            Aggregate::Float(f) => {
+                if f.is_infinite() || f.is_nan() {
+                    *self = Aggregate::Float(f);
+                    return;
+                }
+                BigRational::from_f64(f).unwrap()
+            }
+            Aggregate::Rational(r) => r,
         };
-        *self = Aggregate::Float(v.mul_add(rl as f64, curr));
+        let mut v_x_rl = BigRational::from_f64(v).unwrap();
+        if rl != 1 {
+            v_x_rl.mul_assign(BigInt::from_u32(rl).unwrap());
+        }
+        *self = Aggregate::Rational(curr.add(v_x_rl));
     }
-    fn add_rational(&mut self, v: &BigRational, rl: RunLength) {
+    fn add_rational(&mut self, v: &BigRational, rl: RunLength, fpm: bool) {
         let v_x_rl = {
             if rl == 1 {
                 Cow::Borrowed(v)
@@ -143,7 +203,18 @@ impl Aggregate {
             Aggregate::BigInt(i) => {
                 *self = Aggregate::Rational(v_x_rl.into_owned().add(&*i));
             }
-            Aggregate::Float(v) => v.add_assign(v_x_rl.to_f64().unwrap()),
+            Aggregate::Float(v) => {
+                if fpm {
+                    if v.is_infinite() || v.is_nan() {
+                        return;
+                    }
+                    *self = Aggregate::Rational(
+                        BigRational::from_f64(*v).unwrap().add(&*v_x_rl),
+                    );
+                } else {
+                    v.add_assign(v_x_rl.to_f64().unwrap());
+                }
+            }
             Aggregate::Rational(v) => v.add_assign(&*v_x_rl),
         }
     }
@@ -211,27 +282,57 @@ impl TfSum {
             BoundedIter<'a, Iter<'a, DestructuredFieldDataRef<'a>>>,
         >,
     ) -> usize {
+        let fpm = bud.session_data.chains[bud.session_data.operator_bases
+            [bud.tf_mgr.transforms[bud.tf_id].op_id.unwrap() as usize]
+            .chain_id
+            .unwrap() as usize]
+            .settings
+            .floating_point_math;
         let mut res = 0;
-        while let (Some((v, rl, _)), false) =
-            (iter.next_value(bud.match_set_mgr), self.error_occured)
+        while let (Some(range), false) =
+            (iter.next_range(bud.match_set_mgr), self.error_occured)
         {
-            match v {
-                TypedValue::Int(v) => self.aggregate.add_int(*v, rl),
-                TypedValue::BigInt(v) => self.aggregate.add_big_int(v, rl),
-                TypedValue::Float(v) => self.aggregate.add_float(*v, rl),
-                TypedValue::Rational(v) => self.aggregate.add_rational(v, rl),
-                TypedValue::Null(_)
-                | TypedValue::Undefined(_)
-                | TypedValue::BytesInline(_)
-                | TypedValue::TextInline(_)
-                | TypedValue::BytesBuffer(_)
-                | TypedValue::Array(_)
-                | TypedValue::Object(_)
-                | TypedValue::Custom(_)
-                | TypedValue::StreamValueId(_)
-                | TypedValue::Error(_)
-                | TypedValue::FieldReference(_)
-                | TypedValue::SlicedFieldReference(_) => {
+            match range.base.data {
+                TypedSlice::Int(ints) => {
+                    for (v, rl) in
+                        RefAwareTypedSliceIter::from_range(&range, ints)
+                    {
+                        self.aggregate.add_int(*v, rl, fpm)
+                    }
+                }
+                TypedSlice::BigInt(ints) => {
+                    for (v, rl) in
+                        RefAwareTypedSliceIter::from_range(&range, ints)
+                    {
+                        self.aggregate.add_big_int(v, rl, fpm)
+                    }
+                }
+                TypedSlice::Float(floats) => {
+                    for (v, rl) in
+                        RefAwareTypedSliceIter::from_range(&range, floats)
+                    {
+                        self.aggregate.add_float(*v, rl, fpm)
+                    }
+                }
+                TypedSlice::Rational(rationals) => {
+                    for (v, rl) in
+                        RefAwareTypedSliceIter::from_range(&range, rationals)
+                    {
+                        self.aggregate.add_rational(v, rl, fpm)
+                    }
+                }
+                TypedSlice::Null(_)
+                | TypedSlice::Undefined(_)
+                | TypedSlice::BytesInline(_)
+                | TypedSlice::TextInline(_)
+                | TypedSlice::BytesBuffer(_)
+                | TypedSlice::Array(_)
+                | TypedSlice::Object(_)
+                | TypedSlice::Custom(_)
+                | TypedSlice::StreamValueId(_)
+                | TypedSlice::Error(_)
+                | TypedSlice::FieldReference(_)
+                | TypedSlice::SlicedFieldReference(_) => {
                     bud.field_mgr
                         .borrow_field_dealiased_mut(bud.output_field_id)
                         .iter_hall
@@ -239,7 +340,7 @@ impl TfSum {
                             OperatorApplicationError::new_s(
                                 format!(
                                     "cannot sum over type `{}`",
-                                    v.as_slice().kind()
+                                    range.base.data.kind()
                                 ),
                                 bud.tf_mgr.transforms[bud.tf_id]
                                     .op_id
@@ -259,14 +360,16 @@ impl TfSum {
                 .field_mgr
                 .borrow_field_dealiased_mut(bud.output_field_id)
                 .iter_hall;
-            std::mem::replace(&mut self.aggregate, Aggregate::Int(0)).push(of);
+            std::mem::take(&mut self.aggregate).push(of);
             res = 1;
         }
         let ab =
             &mut bud.match_set_mgr.match_sets[bud.match_set_id].action_buffer;
-        ab.begin_action_group(self.actor_id);
-        ab.push_action(Drop, 0, bud.batch_size - res);
-        ab.end_action_group();
+        if bud.batch_size > 0 {
+            ab.begin_action_group(self.actor_id);
+            ab.push_action(Drop, 0, bud.batch_size - res);
+            ab.end_action_group();
+        }
         res
     }
 }

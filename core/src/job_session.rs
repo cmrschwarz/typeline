@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::{
-    chain::ChainId,
+    chain::{Chain, ChainId},
     context::{ContextData, Job, Session, VentureDescription},
     liveness_analysis::OpOutputIdx,
     operators::{
@@ -1140,5 +1140,15 @@ impl<'a> JobSession<'a> {
             }
             return Ok(());
         }
+    }
+}
+
+impl JobData<'_> {
+    pub fn get_transform_chain(&self, tf_id: TransformId) -> &Chain {
+        let op_id = self.tf_mgr.transforms[tf_id].op_id.unwrap();
+        let chain_id = self.session_data.operator_bases[op_id as usize]
+            .chain_id
+            .unwrap();
+        &self.session_data.chains[chain_id as usize]
     }
 }

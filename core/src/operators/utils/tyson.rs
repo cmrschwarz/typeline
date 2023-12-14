@@ -3,7 +3,7 @@ use std::{io::BufRead, ops::MulAssign};
 use arrayvec::{ArrayString, ArrayVec};
 use bstr::ByteSlice;
 use indexmap::IndexMap;
-use num_bigint::{BigInt, Sign};
+use num_bigint::BigInt;
 use num_rational::BigRational;
 use num_traits::{FromPrimitive, Pow};
 use smallstr::SmallString;
@@ -60,10 +60,11 @@ pub enum TysonParseError {
 
 struct TysonParser<'a, S: BufRead> {
     stream: S,
-    #[allow(unused)] // TODO
-    extension_registry: Option<&'a ExtensionRegistry>,
     line: usize,
     col: usize,
+    #[allow(unused)] // TODO
+    extension_registry: Option<&'a ExtensionRegistry>,
+    use_floating_point: bool,
 }
 
 impl PartialEq for TysonParseError {
@@ -89,11 +90,16 @@ impl PartialEq for TysonParseError {
 impl Eq for TysonParseError {}
 
 impl<'a, S: BufRead> TysonParser<'a, S> {
-    fn new(stream: S, exts: Option<&'a ExtensionRegistry>) -> Self {
+    fn new(
+        stream: S,
+        use_floating_point: bool,
+        exts: Option<&'a ExtensionRegistry>,
+    ) -> Self {
         Self {
             stream,
             line: 1,
             col: 1,
+            use_floating_point,
             extension_registry: exts,
         }
     }
@@ -481,13 +487,11 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
                 BigInt::parse_bytes(buf.as_bytes(), 10).unwrap(),
             ));
         }
-        if digit_count <= f64::DIGITS as usize
-            && exponent_digit_count <= f64::MAX_10_EXP.ilog10() as usize + 1
-        {
+        if self.use_floating_point {
             if let Ok(v) = buf.parse::<f64>() {
-                if !v.is_nan() && !v.is_infinite() {
-                    return Ok(FieldValue::Float(v));
-                }
+                // if !v.is_nan() && !v.is_infinite() {
+                return Ok(FieldValue::Float(v));
+                // }
             };
         }
         let mut rational = if let Some(fp) = floating_point {
@@ -640,9 +644,10 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
 
 pub fn parse_tyson(
     input: impl BufRead,
+    use_floating_point: bool,
     exts: Option<&ExtensionRegistry>,
 ) -> Result<FieldValue, TysonParseError> {
-    let mut tp = TysonParser::new(input, exts);
+    let mut tp = TysonParser::new(input, use_floating_point, exts);
     let res = tp.parse_value()?;
     tp.reject_further_input()?;
     Ok(res)
@@ -650,11 +655,12 @@ pub fn parse_tyson(
 
 pub fn parse_tyson_str(
     input: &str,
+    use_floating_point: bool,
     exts: Option<&ExtensionRegistry>,
 ) -> Result<FieldValue, TysonParseError> {
     // PERF: we could skip a lot of utf8 checking
     // if we already know that this is a string
-    parse_tyson(input.as_bytes(), exts)
+    parse_tyson(input.as_bytes(), use_floating_point, exts)
 }
 
 #[cfg(test)]
@@ -668,7 +674,7 @@ mod test {
     use super::{parse_tyson_str, TysonParseError, TysonParseErrorKind};
 
     fn parse(s: &str) -> Result<FieldValue, TysonParseError> {
-        parse_tyson_str(s, None)
+        parse_tyson_str(s, false, None)
     }
 
     #[test]

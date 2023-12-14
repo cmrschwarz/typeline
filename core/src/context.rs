@@ -48,23 +48,22 @@ pub struct Venture<'a> {
 }
 
 pub struct SessionSettings {
-    pub(crate) max_threads: usize,
-    pub(crate) repl: bool,
+    pub max_threads: usize,
+    pub repl: bool,
 }
 
 pub struct Session {
-    pub(crate) settings: SessionSettings,
-    pub(crate) chains: Vec<Chain>,
-    pub(crate) chain_labels:
-        HashMap<StringStoreEntry, ChainId, BuildIdentityHasher>,
-    pub(crate) operator_bases: Vec<OperatorBase>,
-    pub(crate) operator_data: Vec<OperatorData>,
-    pub(crate) cli_args: Option<Vec<Vec<u8>>>,
-    pub(crate) string_store: RwLock<StringStore>,
-    pub(crate) extensions: Arc<ExtensionRegistry>,
+    pub settings: SessionSettings,
+    pub chains: Vec<Chain>,
+    pub chain_labels: HashMap<StringStoreEntry, ChainId, BuildIdentityHasher>,
+    pub operator_bases: Vec<OperatorBase>,
+    pub operator_data: Vec<OperatorData>,
+    pub cli_args: Option<Vec<Vec<u8>>>,
+    pub string_store: RwLock<StringStore>,
+    pub extensions: Arc<ExtensionRegistry>,
 }
 
-pub(crate) struct SessionManager {
+pub struct SessionManager {
     pub session: Arc<Session>,
     pub job_queue: VecDeque<Job>,
     pub venture_queue: VecDeque<Venture<'static>>,
@@ -76,15 +75,15 @@ pub(crate) struct SessionManager {
     pub thread_join_handles: Vec<JoinHandle<()>>,
 }
 
-pub(crate) struct ContextData {
+pub struct ContextData {
     pub work_available: Condvar,
     pub worker_threads_finished: Condvar,
     pub sess_mgr: Mutex<SessionManager>,
 }
 
 pub struct Context {
-    pub(crate) session: Arc<Session>,
-    pub(crate) main_thread: WorkerThread,
+    pub session: Arc<Session>,
+    pub main_thread: WorkerThread,
 }
 
 impl SessionManager {
