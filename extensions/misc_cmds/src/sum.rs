@@ -279,7 +279,7 @@ impl TfSum {
             'a,
             BoundedIter<'a, Iter<'a, DestructuredFieldDataRef<'a>>>,
         >,
-    ) -> usize {
+    ) -> (usize, bool) {
         let fpm = bud.session_data.chains[bud.session_data.operator_bases
             [bud.tf_mgr.transforms[bud.tf_id].op_id.unwrap() as usize]
             .chain_id
@@ -368,7 +368,7 @@ impl TfSum {
             ab.push_action(Drop, 0, bud.batch_size - res);
             ab.end_action_group();
         }
-        res
+        (res, res != 0)
     }
 }
 

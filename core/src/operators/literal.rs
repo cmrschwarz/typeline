@@ -472,22 +472,47 @@ pub fn parse_op_literal(
         })
         .transpose()?;
     let arg_str = args.name("type").unwrap().as_str();
-    use FieldValueKind::*;
     match arg_str {
         "int" => parse_op_int(value, insert_count, arg_idx),
         "bytes" => parse_op_bytes(value, insert_count, arg_idx, false),
         "~bytes" => parse_op_bytes(value, insert_count, arg_idx, true),
         "str" => parse_op_str(value, insert_count, arg_idx, false),
         "~str" => parse_op_str(value, insert_count, arg_idx, true),
-        "object" => parse_op_tyson(value, insert_count, arg_idx, Object, sess),
-        "array" => parse_op_tyson(value, insert_count, arg_idx, Array, sess),
-        "integer" => {
-            parse_op_tyson(value, insert_count, arg_idx, BigInt, sess)
-        }
-        "float" => parse_op_tyson(value, insert_count, arg_idx, Float, sess),
-        "rational" => {
-            parse_op_tyson(value, insert_count, arg_idx, Rational, sess)
-        }
+        "object" => parse_op_tyson(
+            value,
+            insert_count,
+            arg_idx,
+            FieldValueKind::Object,
+            sess,
+        ),
+        "array" => parse_op_tyson(
+            value,
+            insert_count,
+            arg_idx,
+            FieldValueKind::Array,
+            sess,
+        ),
+        "integer" => parse_op_tyson(
+            value,
+            insert_count,
+            arg_idx,
+            FieldValueKind::BigInt,
+            sess,
+        ),
+        "float" => parse_op_tyson(
+            value,
+            insert_count,
+            arg_idx,
+            FieldValueKind::Float,
+            sess,
+        ),
+        "rational" => parse_op_tyson(
+            value,
+            insert_count,
+            arg_idx,
+            FieldValueKind::Rational,
+            sess,
+        ),
         "v" | "tyson" => {
             parse_op_tyson_value(value, insert_count, arg_idx, Some(sess))
         }

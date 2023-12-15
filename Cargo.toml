@@ -9,6 +9,7 @@ edition = "2021"
 
 [lib]
 name = "scr"
+# tests are all in scr_core, no need to bloat the output of `cargo test --all`
 test = false
 doctest = false
 

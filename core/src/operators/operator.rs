@@ -118,8 +118,8 @@ pub trait Operator: Send + Sync {
     fn is_terminating_generator(&self, _op_base: &OperatorBase) -> bool {
         false
     }
-    fn output_count(&self, op_base: &OperatorBase) -> usize;
-    fn has_dynamic_outputs(&self, op_base: &OperatorBase) -> bool;
+    fn output_count(&self, _op_base: &OperatorBase) -> usize;
+    fn has_dynamic_outputs(&self, _op_base: &OperatorBase) -> bool;
     fn on_op_added(&self, _sess: &mut SessionOptions) {}
     fn on_subchains_added(&mut self, _current_subchain_count: u32) {}
     fn register_output_var_names(
@@ -134,9 +134,9 @@ pub trait Operator: Send + Sync {
     // but may cause incorrect behavior if the promises made are broken later
     fn update_variable_liveness(
         &self,
-        ld: &mut LivenessData,
-        bb_id: BasicBlockId,
-        bb_offset: u32,
+        _ld: &mut LivenessData,
+        _bb_id: BasicBlockId,
+        _bb_offset: u32,
         access_flags: &mut AccessFlags,
     );
     fn setup(

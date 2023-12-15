@@ -10,7 +10,7 @@ pub const CHUNK_SIZE: usize = 32;
 
 type Chunk<T> = [MaybeUninit<T>; CHUNK_SIZE];
 
-// !Sync (enforced by NonNull), because we have interior mutabiltiy
+// this type is !Sync (enforced by NonNull), because we have interior mutabiltiy
 pub struct StableVec<T> {
     data: Cell<NonNull<*mut Chunk<T>>>,
     chunk_capacity: Cell<usize>,

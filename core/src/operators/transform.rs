@@ -40,6 +40,7 @@ use super::{
 
 pub type DefaultTransformName = SmallString<[u8; 16]>;
 pub type TransformId = NonMaxUsize;
+pub type StreamProducerIndex = NonMaxUsize;
 
 pub enum TransformData<'a> {
     Disabled,
@@ -154,6 +155,16 @@ impl TransformState {
 
 pub trait Transform: Send {
     fn display_name(&self) -> DefaultTransformName;
+    fn stream_producer_update(
+        &mut self,
+        _jd: &mut JobData,
+        _tf_id: TransformId,
+    ) {
+        unimplemented!(
+            "transform `{}` does not implement stream production",
+            self.display_name()
+        )
+    }
     fn handle_stream_value_update(
         &mut self,
         _sess: &mut JobData,
@@ -205,7 +216,7 @@ pub fn basic_transform_update(
             'a,
             BoundedIter<'a, Iter<'a, DestructuredFieldDataRef<'a>>>,
         >,
-    ) -> usize,
+    ) -> (usize, bool),
 ) {
     let (batch_size, input_done) = jd.tf_mgr.claim_batch(tf_id);
     let tf = &jd.tf_mgr.transforms[tf_id];
@@ -228,7 +239,7 @@ pub fn basic_transform_update(
         input_iter_id,
         batch_size,
     );
-    let produced_fields = f(
+    let (produced_fields, done) = f(
         BasicUpdateData {
             field_mgr: &jd.field_mgr,
             session_data: jd.session_data,
@@ -247,7 +258,7 @@ pub fn basic_transform_update(
     );
     jd.field_mgr.store_iter(input_field_id, input_iter_id, iter);
     drop(input_field);
-    if input_done {
+    if done {
         jd.unlink_transform(tf_id, produced_fields);
     } else {
         jd.tf_mgr

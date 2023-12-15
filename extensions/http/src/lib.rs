@@ -1,8 +1,12 @@
+pub mod http;
+
+use http::OpHttpRequest;
 use scr_core::{
     cli::ParsedCliArgument,
     extension::Extension,
     operators::{errors::OperatorCreationError, operator::OperatorData},
     options::session_options::SessionOptions,
+    smallbox,
 };
 
 extern crate scr_core;
@@ -19,10 +23,9 @@ impl Extension for HttpExtension {
     ) -> Result<Option<OperatorData>, OperatorCreationError> {
         if arg.argname == "GET" {
             arg.reject_value()?;
-            todo!();
-            // return Ok(Some(OperatorData::Custom(smallbox![
-            //     OpHTTPRequest::default()
-            // ])));
+            return Ok(Some(OperatorData::Custom(smallbox![
+                OpHttpRequest::default()
+            ])));
         }
         Ok(None)
     }

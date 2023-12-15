@@ -568,7 +568,8 @@ pub fn handle_tf_join(
 
     sess.field_mgr
         .store_iter(input_field_id, join.iter_id, iter);
-    if input_done {
+    let streams_done = join.current_stream_val.is_none();
+    if input_done && streams_done {
         let mut emit_incomplete = false;
         // if we dont drop incomplete and there are actual members
         emit_incomplete |= join.group_len > 0 && !join.drop_incomplete;
@@ -583,7 +584,7 @@ pub fn handle_tf_join(
             groups_emitted += 1;
         }
     }
-    let streams_done = join.current_stream_val.is_none();
+
     drop(input_field);
     drop(output_field);
 

@@ -19,7 +19,10 @@ use crate::{
         },
         cast::{build_tf_cast, handle_tf_cast},
         count::{build_tf_count, handle_tf_count},
-        file_reader::{build_tf_file_reader, handle_tf_file_reader},
+        file_reader::{
+            build_tf_file_reader, handle_tf_file_reader,
+            handle_tf_file_reader_stream,
+        },
         fork::{build_tf_fork, handle_fork_expansion, handle_tf_fork},
         forkcat::{
             build_tf_forkcat, handle_forkcat_subchain_expansion,
@@ -78,10 +81,12 @@ pub struct JobData<'a> {
     pub temp_vec: Vec<u8>,
 }
 
+#[derive(Default)]
 pub struct TransformManager {
     pub transforms: Universe<TransformId, TransformState>,
     pub ready_stack: Vec<TransformId>,
     pub stream_producers: VecDeque<TransformId>,
+    pub pre_stream_transform_stack_cutoff: Option<usize>,
 }
 
 impl TransformManager {
@@ -294,11 +299,7 @@ impl<'a> JobData<'a> {
     pub fn new(sess: &'a Session) -> Self {
         Self {
             session_data: sess,
-            tf_mgr: TransformManager {
-                transforms: Default::default(),
-                ready_stack: Default::default(),
-                stream_producers: Default::default(),
-            },
+            tf_mgr: TransformManager::default(),
             field_mgr: FieldManager::default(),
             match_set_mgr: MatchSetManager {
                 match_sets: Default::default(),
@@ -1107,39 +1108,97 @@ impl<'a> JobSession<'a> {
             TransformData::Disabled => unreachable!(),
         }
         if let Some(tf) = self.job_data.tf_mgr.transforms.get(tf_id) {
-            if tf.mark_for_removal {
+            if tf.mark_for_removal && !tf.is_stream_producer {
                 self.remove_transform(tf_id);
             }
         }
         Ok(())
     }
-    pub(crate) fn run(
+    pub(crate) fn run_stream_producer_update(&mut self, tf_id: TransformId) {
+        let tf_state = &mut self.job_data.tf_mgr.transforms[tf_id];
+        tf_state.is_stream_producer = false;
+        match &mut self.transform_data[tf_id.get()] {
+            TransformData::Disabled
+            | TransformData::Nop(_)
+            | TransformData::Terminator(_)
+            | TransformData::Call(_)
+            | TransformData::CallConcurrent(_)
+            | TransformData::CalleeConcurrent(_)
+            | TransformData::Cast(_)
+            | TransformData::Count(_)
+            | TransformData::Print(_)
+            | TransformData::Join(_)
+            | TransformData::Select(_)
+            | TransformData::StringSink(_)
+            | TransformData::Fork(_)
+            | TransformData::ForkCat(_)
+            | TransformData::Regex(_)
+            | TransformData::Literal(_)
+            | TransformData::Sequence(_)
+            | TransformData::Explode(_)
+            | TransformData::Format(_) => unreachable!(),
+            TransformData::FileReader(f) => {
+                handle_tf_file_reader_stream(&mut self.job_data, tf_id, f)
+            }
+            TransformData::Custom(c) => {
+                c.stream_producer_update(&mut self.job_data, tf_id)
+            }
+        }
+    }
+    pub fn is_in_streaming_mode(&self) -> bool {
+        !self.job_data.tf_mgr.stream_producers.is_empty()
+    }
+    pub(crate) fn run_streams(
         &mut self,
+        transform_stack_cutoff: usize,
         ctx: Option<&Arc<ContextData>>,
     ) -> Result<(), VentureDescription> {
+        self.job_data.tf_mgr.pre_stream_transform_stack_cutoff =
+            Some(transform_stack_cutoff);
         loop {
+            if self.job_data.tf_mgr.ready_stack.len() > transform_stack_cutoff
+            {
+                let tf_id = self.job_data.tf_mgr.ready_stack.pop().unwrap();
+                let tf = &mut self.job_data.tf_mgr.transforms[tf_id];
+                tf.is_ready = false;
+                self.handle_transform(tf_id, ctx)?;
+                continue;
+            }
             if let Some(svu) = self.job_data.sv_mgr.updates.pop_back() {
                 self.handle_stream_value_update(svu);
                 continue;
             }
-            if let Some(mut tf_id) = self.job_data.tf_mgr.ready_stack.pop() {
-                let mut tf = &mut self.job_data.tf_mgr.transforms[tf_id];
-                tf.is_ready = false;
-                if tf.is_stream_producer {
-                    tf_id = self
-                        .job_data
-                        .tf_mgr
-                        .stream_producers
-                        .pop_front()
-                        .unwrap();
-                    tf = &mut self.job_data.tf_mgr.transforms[tf_id];
-                    tf.is_stream_producer = false;
-                }
-                self.handle_transform(tf_id, ctx)?;
+            if let Some(tf_id) =
+                self.job_data.tf_mgr.stream_producers.pop_front()
+            {
+                self.run_stream_producer_update(tf_id);
                 continue;
             }
+            self.job_data.tf_mgr.pre_stream_transform_stack_cutoff = None;
             return Ok(());
         }
+    }
+    pub(crate) fn run(
+        &mut self,
+        ctx: Option<&Arc<ContextData>>,
+    ) -> Result<(), VentureDescription> {
+        if let Some(tsc) =
+            self.job_data.tf_mgr.pre_stream_transform_stack_cutoff
+        {
+            // happens if we continue after we suspended during a stream
+            // TODO: should we allow that at all?
+            self.run_streams(tsc, ctx)?;
+        }
+        while let Some(tf_id) = self.job_data.tf_mgr.ready_stack.pop() {
+            let stack_height = self.job_data.tf_mgr.ready_stack.len();
+            let tf = &mut self.job_data.tf_mgr.transforms[tf_id];
+            tf.is_ready = false;
+            self.handle_transform(tf_id, ctx)?;
+            if self.is_in_streaming_mode() {
+                self.run_streams(stack_height, ctx)?;
+            }
+        }
+        Ok(())
     }
 }
 

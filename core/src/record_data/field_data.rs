@@ -193,18 +193,33 @@ pub const INLINE_STR_MAX_LEN: usize = 8192;
 
 impl FieldValueRepr {
     pub fn needs_drop(self) -> bool {
-        use FieldValueRepr::*;
         match self {
-            Undefined | Null | Int | Float | FieldReference
-            | SlicedFieldReference | StreamValueId | BytesInline => false,
-            BigInt | Rational | Error | BytesBuffer | BytesFile | Object
-            | Array | Custom => true,
+            FieldValueRepr::Undefined
+            | FieldValueRepr::Null
+            | FieldValueRepr::Int
+            | FieldValueRepr::Float
+            | FieldValueRepr::FieldReference
+            | FieldValueRepr::SlicedFieldReference
+            | FieldValueRepr::StreamValueId
+            | FieldValueRepr::BytesInline => false,
+            FieldValueRepr::BigInt
+            | FieldValueRepr::Rational
+            | FieldValueRepr::Error
+            | FieldValueRepr::BytesBuffer
+            | FieldValueRepr::BytesFile
+            | FieldValueRepr::Object
+            | FieldValueRepr::Array
+            | FieldValueRepr::Custom => true,
         }
     }
     #[inline(always)]
     pub fn needs_alignment(self) -> bool {
-        use FieldValueRepr::*;
-        !matches!(self, Undefined | Null | BytesInline)
+        !matches!(
+            self,
+            FieldValueRepr::Undefined
+                | FieldValueRepr::Null
+                | FieldValueRepr::BytesInline
+        )
     }
     #[inline]
     pub fn needs_copy(self) -> bool {

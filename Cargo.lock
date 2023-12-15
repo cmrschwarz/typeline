@@ -729,6 +729,7 @@ dependencies = [
 name = "scr_ext_http"
 version = "0.1.0"
 dependencies = [
+ "mio",
  "scr_core",
 ]
 

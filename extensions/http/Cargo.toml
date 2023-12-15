@@ -5,6 +5,9 @@ edition = "2021"
 
 [lib]
 name = "scr_ext_http"
+test = false
+doctest = false
 
 [dependencies]
-scr_core = {path="../../core"}
+scr_core = { path = "../../core" }
+mio = { version = "0.8.10", features = ["net", "os-poll"] }

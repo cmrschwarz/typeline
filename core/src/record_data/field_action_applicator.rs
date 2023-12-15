@@ -714,6 +714,7 @@ mod test {
         typed::TypedSlice,
         typed_iters::TypedSliceIter,
     };
+    use FieldActionKind as FAK;
 
     fn test_actions_on_range_raw(
         input: impl Iterator<Item = i64>,
@@ -799,15 +800,17 @@ mod test {
         //    2         0           1
         //              1           2
         //              2
-        use FieldActionKind::*;
         test_actions_on_range(
             0..3,
-            &[FieldAction::new(Dup, 0, 2)],
+            &[FieldAction::new(FAK::Dup, 0, 2)],
             &[(0, 3), (1, 1), (2, 1)],
         );
         test_actions_on_range(
             0..3,
-            &[FieldAction::new(Dup, 0, 2), FieldAction::new(Drop, 1, 1)],
+            &[
+                FieldAction::new(FAK::Dup, 0, 2),
+                FieldAction::new(FAK::Drop, 1, 1),
+            ],
             &[(0, 2), (1, 1), (2, 1)],
         );
     }
@@ -817,10 +820,9 @@ mod test {
         //    0           0
         //    1           2
         //    2
-        use FieldActionKind::*;
         test_actions_on_range(
             0..3,
-            &[FieldAction::new(Drop, 1, 1)],
+            &[FieldAction::new(FAK::Drop, 1, 1)],
             &[(0, 1), (2, 1)],
         );
     }
@@ -831,15 +833,14 @@ mod test {
         //    0           0
         //    0           0
         //    0
-        use FieldActionKind::*;
         test_actions_on_range(
             std::iter::repeat(0).take(3),
-            &[FieldAction::new(Drop, 1, 1)],
+            &[FieldAction::new(FAK::Drop, 1, 1)],
             &[(0, 2)],
         );
         test_actions_on_range_no_rle(
             std::iter::repeat(0).take(3),
-            &[FieldAction::new(Drop, 1, 1)],
+            &[FieldAction::new(FAK::Drop, 1, 1)],
             &[(0, 1), (0, 1)],
         );
     }
