@@ -1,6 +1,5 @@
 use bstr::ByteSlice;
-use num_bigint::BigInt;
-use num_rational::BigRational;
+use num::{BigInt, BigRational};
 use regex::Regex;
 use smallstr::SmallString;
 

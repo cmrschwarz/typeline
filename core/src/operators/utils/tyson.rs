@@ -3,9 +3,7 @@ use std::{io::BufRead, ops::MulAssign};
 use arrayvec::{ArrayString, ArrayVec};
 use bstr::ByteSlice;
 use indexmap::IndexMap;
-use num_bigint::BigInt;
-use num_rational::BigRational;
-use num_traits::{FromPrimitive, Pow};
+use num::{pow::Pow, BigInt, BigRational, FromPrimitive};
 use smallstr::SmallString;
 use thiserror::Error;
 
@@ -666,7 +664,7 @@ pub fn parse_tyson_str(
 #[cfg(test)]
 mod test {
     use indexmap::indexmap;
-    use num_bigint::BigInt;
+    use num::BigInt;
     use rstest::rstest;
 
     use crate::record_data::field_value::{Array, FieldValue};

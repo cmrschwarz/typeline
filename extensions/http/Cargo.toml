@@ -1,10 +1,10 @@
 [package]
-name = "scr_ext_misc_cmds"
+name = "scr_ext_http"
 version = "0.1.0"
 edition = "2021"
 
 [lib]
-name = "scr_ext_misc_cmds"
+name = "scr_ext_http"
 
 [dependencies]
 scr_core = {path="../../core"}

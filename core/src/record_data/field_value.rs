@@ -1,9 +1,7 @@
 use std::ops::{Add, AddAssign, Div, MulAssign, Rem, Sub};
 
 use indexmap::IndexMap;
-use num::BigRational;
-use num_bigint::BigInt;
-use num_traits::{FromPrimitive, One, Signed, Zero};
+use num::{BigInt, BigRational, FromPrimitive, One, Signed, Zero};
 
 use crate::{
     operators::{

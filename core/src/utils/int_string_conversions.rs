@@ -1,6 +1,6 @@
 use arrayvec::ArrayString;
 use bstr::ByteSlice;
-use num_traits::{FromPrimitive, PrimInt};
+use num::{FromPrimitive, PrimInt};
 use smallstr::SmallString;
 use std::{
     borrow::Cow,

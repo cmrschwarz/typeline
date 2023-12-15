@@ -31,9 +31,6 @@ static_assertions = "1.1.0"
 thiserror = "1.0.38"
 
 # num for BigInt / BigRational / the PrimInt trait
-num-bigint = "0.4.1"
-num-rational="0.4.1"
-num-traits = "0.2.16"
 num = "0.4.1"
 
 # small size / layout optimizations

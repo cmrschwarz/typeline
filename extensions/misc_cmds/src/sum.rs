@@ -4,14 +4,12 @@ use std::{
     ops::{Add, AddAssign, Mul, MulAssign},
 };
 
-use num::{FromPrimitive, ToPrimitive};
 use scr_core::{
     job_session::JobData,
     liveness_analysis::{
         AccessFlags, BasicBlockId, LivenessData, OpOutputIdx,
     },
-    num_bigint::BigInt,
-    num_rational::BigRational,
+    num::{BigInt, BigRational, FromPrimitive, ToPrimitive},
     operators::{
         errors::OperatorApplicationError,
         operator::{Operator, OperatorBase},
@@ -41,7 +39,7 @@ pub struct OpSum {}
 #[derive(Clone)]
 enum Aggregate {
     Int(i64),
-    BigInt(scr_core::num_bigint::BigInt),
+    BigInt(scr_core::num::BigInt),
     Float(f64),
     Rational(BigRational),
 }

@@ -1,7 +1,6 @@
 use std::{mem::ManuallyDrop, ops::Range, ptr::NonNull};
 
-use num_bigint::BigInt;
-use num_rational::BigRational;
+use num::{BigInt, BigRational};
 
 use super::{
     custom_data::CustomDataBox,

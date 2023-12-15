@@ -694,6 +694,7 @@ name = "scr"
 version = "0.1.0"
 dependencies = [
  "scr_core",
+ "scr_ext_http",
  "scr_ext_misc_cmds",
  "scr_ext_sqlite",
 ]
@@ -711,9 +712,6 @@ dependencies = [
  "memchr",
  "nonmax",
  "num",
- "num-bigint",
- "num-rational",
- "num-traits",
  "reedline",
  "regex",
  "regex-syntax 0.7.5",
@@ -728,10 +726,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "scr_ext_http"
+version = "0.1.0"
+dependencies = [
+ "scr_core",
+]
+
+[[package]]
 name = "scr_ext_misc_cmds"
 version = "0.1.0"
 dependencies = [
- "num",
  "scr_core",
 ]
 

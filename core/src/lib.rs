@@ -21,8 +21,7 @@ extern crate thiserror;
 extern crate unicode_ident;
 
 // exposed due to FieldValue
-pub extern crate num_bigint;
-pub extern crate num_rational;
+pub extern crate num;
 
 #[cfg(feature = "repl")]
 extern crate reedline;

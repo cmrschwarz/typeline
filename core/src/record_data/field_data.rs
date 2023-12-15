@@ -23,8 +23,7 @@ use crate::{
 
 use self::field_value_flags::{BYTES_ARE_UTF8, SHARED_VALUE};
 pub use field_value_flags::FieldValueFlags;
-use num_bigint::BigInt;
-use num_rational::BigRational;
+use num::{BigInt, BigRational};
 
 use super::{
     iters::{FieldIterator, Iter},
