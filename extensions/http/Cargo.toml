@@ -11,3 +11,10 @@ doctest = false
 [dependencies]
 scr_core = { path = "../../core" }
 mio = { version = "0.8.10", features = ["net", "os-poll"] }
+rustls = "0.22.1"
+rustls-pemfile = "2.0.0"
+pki-types = { package = "rustls-pki-types", version = "1", features = ["std"] }
+webpki-roots = "0.26"
+thiserror = "1.0.51"
+bstr = "1.8.0"
+memchr = "2.6.4"

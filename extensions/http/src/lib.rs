@@ -1,4 +1,5 @@
 pub mod http;
+mod tls_client;
 
 use http::OpHttpRequest;
 use scr_core::{

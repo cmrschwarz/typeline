@@ -926,7 +926,7 @@ pub struct FixedSizeTypeInserter<'a, T: FieldValueType + PartialEq + Clone> {
 
 impl<'a, T: FieldValueType + PartialEq + Clone> FixedSizeTypeInserter<'a, T> {
     pub fn new(fd: &'a mut FieldData) -> Self {
-        assert!(T::ZST == false && T::DST == false);
+        assert!(!T::ZST && !T::DST);
         Self {
             raw: RawFixedSizedTypeInserter::new(fd),
             _phantom: PhantomData,
