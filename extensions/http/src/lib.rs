@@ -21,7 +21,7 @@ impl Extension for HttpExtension {
         arg: &ParsedCliArgument,
         _args: &[Vec<u8>],
     ) -> Result<Option<OperatorData>, OperatorCreationError> {
-        if arg.argname == "GET" {
+        if arg.argname == "GET" || arg.argname == "http-get" {
             arg.reject_value()?;
             return Ok(Some(OperatorData::Custom(smallbox![
                 OpHttpRequest::default()

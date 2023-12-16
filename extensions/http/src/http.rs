@@ -24,7 +24,7 @@ use scr_core::{
         typed::TypedValue,
     },
     smallbox,
-    utils::identity_hasher::BuildIdentityHasher,
+    utils::{identity_hasher::BuildIdentityHasher, universe::CountedUniverse},
 };
 
 #[derive(Default)]
@@ -38,7 +38,7 @@ pub struct Request {
 
 pub struct TfHttpRequest {
     iter_id: IterId,
-    pending_requests: Vec<Request>,
+    pending_requests: CountedUniverse<usize, Request>,
     poll: Poll,
     events: Events,
     stream_buffer_size: usize,
@@ -78,7 +78,7 @@ impl Operator for OpHttpRequest {
         _prebound_outputs: &HashMap<OpOutputIdx, FieldId, BuildIdentityHasher>,
     ) -> TransformData<'a> {
         let tf = TfHttpRequest {
-            pending_requests: Vec::new(),
+            pending_requests: CountedUniverse::default(),
             poll: Poll::new().unwrap(),
             events: Events::with_capacity(64),
             iter_id: sess.field_mgr.claim_iter(tf_state.input_field),
@@ -98,23 +98,21 @@ impl TfHttpRequest {
         bud: &mut BasicUpdateData,
     ) -> Result<StreamValueId, std::io::Error> {
         let addr = url.to_socket_addrs()?.next().unwrap();
-        let mut stream = TcpStream::connect(addr).unwrap();
+        let mut stream = TcpStream::connect(addr)?;
+        let token = self.pending_requests.peek_claim_id();
         // Register the stream with `Poll`
         self.poll
             .registry()
-            .register(
-                &mut stream,
-                Token(self.pending_requests.len()),
-                Interest::READABLE,
-            )
+            .register(&mut stream, Token(token), Interest::READABLE)
             .unwrap();
         let stream_value = bud.sv_mgr.stream_values.claim_with_value(
             StreamValue::new(StreamValueData::Bytes(Vec::new()), false, false),
         );
-        self.pending_requests.push(Request {
+        self.pending_requests.claim_with_value(Request {
             stream,
             stream_value: Some(stream_value),
         });
+
         Ok(stream_value)
     }
 
@@ -167,7 +165,10 @@ impl TfHttpRequest {
                 }
             }
         }
-        (0, false)
+        if !self.pending_requests.is_empty() {
+            bud.tf_mgr.make_stream_producer(bud.tf_id);
+        }
+        (bud.batch_size, bud.input_done)
     }
 }
 
@@ -188,18 +189,36 @@ impl Transform for TfHttpRequest {
         jd: &mut JobData,
         tf_id: TransformId,
     ) {
-        self.poll
+        if let Err(e) = self
+            .poll
             .poll(&mut self.events, Some(Duration::from_micros(1)))
-            .unwrap(); // TODO: handle errors?
+        {
+            for pe in self.pending_requests.iter_mut() {
+                let _ = self.poll.registry().deregister(&mut pe.stream);
+                let _ = pe.stream.shutdown(std::net::Shutdown::Both);
+                let sv_id = pe.stream_value.unwrap();
+                let sv = &mut jd.sv_mgr.stream_values[sv_id];
+                sv.data =
+                    StreamValueData::Error(OperatorApplicationError::new_s(
+                        format!("IO Error in HTTP GET Request: {e}"),
+                        jd.tf_mgr.transforms[tf_id].op_id.unwrap(),
+                    ));
+                sv.done = true;
+                jd.sv_mgr.inform_stream_value_subscribers(sv_id);
+                jd.sv_mgr.drop_field_value_subscription(sv_id, None);
+            }
+            self.pending_requests.clear();
+            return;
+        };
 
         for event in &self.events {
-            let Token(req_id) = event.token();
+            let Token(token) = event.token();
             debug_assert!(
                 event.is_read_closed()
                     || event.is_readable()
                     || event.is_error(),
             );
-            let req = &mut self.pending_requests[req_id];
+            let req = &mut self.pending_requests[token];
             let sv_id = req.stream_value.unwrap();
             let sv = &mut jd.sv_mgr.stream_values[sv_id];
             let StreamValueData::Bytes(buf) = &mut sv.data else {
@@ -218,12 +237,18 @@ impl Transform for TfHttpRequest {
                             jd.tf_mgr.transforms[tf_id].op_id.unwrap(),
                         ),
                     );
+                    sv.done = true;
+                    self.pending_requests.release(token);
                 }
                 Ok(bytes_read) => {
                     buf.truncate(buf_len_before + bytes_read);
                 }
             }
             jd.sv_mgr.inform_stream_value_subscribers(sv_id);
+            jd.sv_mgr.drop_field_value_subscription(sv_id, None);
+        }
+        if !self.pending_requests.is_empty() {
+            jd.tf_mgr.make_stream_producer(tf_id);
         }
     }
 }

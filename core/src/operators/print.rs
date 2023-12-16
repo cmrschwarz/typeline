@@ -407,7 +407,7 @@ pub fn handle_tf_print(
         }
     }
     drop(output_field);
-    if input_done {
+    if input_done && tf.current_stream_val.is_none() {
         sess.unlink_transform(tf_id, outputs_produced);
     } else {
         sess.tf_mgr.update_ready_state(tf_id);

@@ -243,7 +243,7 @@ pub fn handle_tf_cast(sess: &mut JobData, tf_id: TransformId, tfc: &TfCast) {
     drop(input_field);
     drop(output_field);
     let streams_done = tfc.pending_streams == 0;
-    if input_done && streams_done {
+    if input_done {
         sess.unlink_transform(tf_id, consumed_fields);
     } else {
         if streams_done {
@@ -307,4 +307,6 @@ pub fn handle_tf_cast_stream_value_update(
             sv_out.bytes_are_chunk = sv_in.bytes_are_chunk;
         }
     }
+    sess.tf_mgr.transforms[tf_id].pending_stream_values =
+        tf.pending_streams != 0;
 }

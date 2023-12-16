@@ -1838,6 +1838,12 @@ fn write_fmt_key(
         );
     }
 }
+fn drop_field_refs(sess: &mut JobData, fmt: &mut TfFormat) {
+    for r in &fmt.refs {
+        sess.field_mgr
+            .drop_field_refcount(r.field_id, &mut sess.match_set_mgr);
+    }
+}
 pub fn handle_tf_format(
     sess: &mut JobData,
     tf_id: TransformId,
@@ -1923,10 +1929,10 @@ pub fn handle_tf_format(
     fmt.output_targets.clear();
     drop(output_field);
     let streams_done = fmt.stream_value_handles.is_empty();
-    if input_done && streams_done {
-        for r in &fmt.refs {
-            sess.field_mgr
-                .drop_field_refcount(r.field_id, &mut sess.match_set_mgr);
+    sess.tf_mgr.transforms[tf_id].pending_stream_values = !streams_done;
+    if input_done {
+        if streams_done {
+            drop_field_refs(sess, fmt);
         }
         sess.unlink_transform(tf_id, batch_size);
     } else {
@@ -1941,12 +1947,12 @@ pub fn handle_tf_format(
 pub fn handle_tf_format_stream_value_update(
     sess: &mut JobData,
     tf_id: TransformId,
-    tf: &mut TfFormat,
+    fmt: &mut TfFormat,
     sv_id: StreamValueId,
     custom: usize,
 ) {
     let handle_id = NonMaxUsize::new(custom).unwrap();
-    let handle = &mut tf.stream_value_handles[handle_id];
+    let handle = &mut fmt.stream_value_handles[handle_id];
     let (sv, out_sv) = sess
         .sv_mgr
         .stream_values
@@ -1977,7 +1983,7 @@ pub fn handle_tf_format_stream_value_update(
                 }
                 if sv.done && handle.wait_to_end {
                     let FormatPart::Key(k) =
-                        &tf.op.parts[handle.part_idx as usize]
+                        &fmt.op.parts[handle.part_idx as usize]
                     else {
                         unreachable!();
                     };
@@ -2023,8 +2029,8 @@ pub fn handle_tf_format_stream_value_update(
     out_sv = &mut sess.sv_mgr.stream_values[handle.target_sv_id];
     let mut i = handle.part_idx as usize + 1;
     if let StreamValueData::Bytes(bb) = &mut out_sv.data {
-        while i < tf.op.parts.len() {
-            match &tf.op.parts[i] {
+        while i < fmt.op.parts.len() {
+            match &fmt.op.parts[i] {
                 FormatPart::ByteLiteral(l) => {
                     bb.extend_from_slice(l);
                     out_sv.bytes_are_utf8 = false;
@@ -2047,9 +2053,15 @@ pub fn handle_tf_format_stream_value_update(
         .drop_field_value_subscription(sv_id, Some(tf_id));
     sess.sv_mgr
         .drop_field_value_subscription(handle.target_sv_id, None);
-    tf.stream_value_handles.release(handle_id);
-    if tf.stream_value_handles.is_empty() {
-        sess.tf_mgr.update_ready_state(tf_id);
+    fmt.stream_value_handles.release(handle_id);
+    if fmt.stream_value_handles.is_empty() {
+        let tf = &mut sess.tf_mgr.transforms[tf_id];
+        tf.pending_stream_values = false;
+        if tf.mark_for_removal {
+            drop_field_refs(sess, fmt);
+        } else {
+            sess.tf_mgr.update_ready_state(tf_id);
+        }
     }
 }
 

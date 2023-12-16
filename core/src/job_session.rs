@@ -161,9 +161,10 @@ impl TransformManager {
     }
     pub fn make_stream_producer(&mut self, tf_id: TransformId) {
         let tf = &mut self.transforms[tf_id];
-        debug_assert!(!tf.is_stream_producer);
-        tf.is_stream_producer = true;
-        self.stream_producers.push_back(tf_id);
+        if !tf.is_stream_producer {
+            tf.is_stream_producer = true;
+            self.stream_producers.push_back(tf_id);
+        }
     }
     pub fn update_ready_state(&mut self, tf_id: TransformId) {
         let tf = &self.transforms[tf_id];
@@ -1110,7 +1111,10 @@ impl<'a> JobSession<'a> {
             TransformData::Disabled => unreachable!(),
         }
         if let Some(tf) = self.job_data.tf_mgr.transforms.get(tf_id) {
-            if tf.mark_for_removal && !tf.is_stream_producer {
+            if tf.mark_for_removal
+                && !tf.is_stream_producer
+                && !tf.pending_stream_values
+            {
                 self.remove_transform(tf_id);
             }
         }
