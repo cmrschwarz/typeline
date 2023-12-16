@@ -218,12 +218,11 @@ fn read_chunk(
     Ok((size, eof))
 }
 
-// returns true if we are streaming, false if an inline value was created
 fn start_streaming_file(
     sess: &mut JobData,
     tf_id: TransformId,
     fr: &mut TfFileReader,
-) -> bool {
+) {
     let of_id = sess.tf_mgr.prepare_output_field(
         &mut sess.field_mgr,
         &mut sess.match_set_mgr,
@@ -263,7 +262,7 @@ fn start_streaming_file(
                         false,
                     );
                 }
-                return false;
+                return;
             }
             size
         }
@@ -275,7 +274,7 @@ fn start_streaming_file(
             );
             output_field.iter_hall.push_error(err, 1, false, false);
             fr.file.take();
-            return false;
+            return;
         }
     };
     let mut buf = Vec::with_capacity(fr.stream_buffer_size);
@@ -303,7 +302,7 @@ fn start_streaming_file(
                 );
                 output_field.iter_hall.push_error(err, 1, false, false);
                 fr.file.take();
-                return false;
+                return;
             }
         }
     };
@@ -312,8 +311,10 @@ fn start_streaming_file(
         done,
         ref_count: 1,
         bytes_are_utf8: false,
-        bytes_are_chunk: true,
-        drop_previous_chunks: false,
+        // TODO: this is temporary. we should have a dummy iterator id
+        // to detect whether this stream was dropped off (and also has no clear delay)
+        // to ensure that nobody will refer to it in the future, requiring buffering
+        bytes_are_chunk: false,
         subscribers: Default::default(),
     });
     fr.stream_value = Some(sv_id);
@@ -323,7 +324,7 @@ fn start_streaming_file(
     drop(output_field);
     // even if the stream is already done, we can only drop the stream value
     // next time we are called once it was observed -> refcounted
-    true
+    sess.tf_mgr.make_stream_producer(tf_id);
 }
 
 pub fn handle_tf_file_reader_stream(
@@ -331,8 +332,13 @@ pub fn handle_tf_file_reader_stream(
     tf_id: TransformId,
     fr: &mut TfFileReader,
 ) {
-    let file = fr.file.as_mut().unwrap();
     let sv_id = fr.stream_value.unwrap();
+    let Some(file) = fr.file.as_mut() else {
+        // this happens if the stream is immediately done,
+        // but we had to wait for subscribers before unregistering it
+        sess.sv_mgr.drop_field_value_subscription(sv_id, None);
+        return;
+    };
     let sv = &mut sess.sv_mgr.stream_values[sv_id];
     let res = match &mut sv.data {
         StreamValueData::Bytes(ref mut bc) => {
@@ -375,14 +381,10 @@ pub fn handle_tf_file_reader(
     tf_id: TransformId,
     fr: &mut TfFileReader,
 ) {
-    let mut streaming = false;
     let initial_call = !fr.value_committed;
-    if !fr.value_committed {
+    if initial_call {
         fr.value_committed = true;
-        streaming = start_streaming_file(sess, tf_id, fr);
-    } else if fr.file.is_some() {
-        // stream update will eventually take() the file
-        streaming = true;
+        start_streaming_file(sess, tf_id, fr);
     }
     let (batch_size, input_done) = sess.tf_mgr.maintain_single_value(
         tf_id,
@@ -392,25 +394,8 @@ pub fn handle_tf_file_reader(
         initial_call,
         true,
     );
-    if streaming {
-        sess.tf_mgr.make_stream_producer(tf_id);
-        if !input_done {
-            // if further inputs might want to read this we can't drop
-            // it yet
-            // TODO: the whole buffering system needs an overhaul
-            sess.sv_mgr.stream_values[fr.stream_value.unwrap()]
-                .bytes_are_chunk = false;
-        }
-    }
 
     if input_done {
-        if !streaming {
-            // we only do this if the stream is already done, otherwise
-            // the stream update will do it
-            if let Some(sv_id) = fr.stream_value {
-                sess.sv_mgr.drop_field_value_subscription(sv_id, None);
-            }
-        }
         sess.unlink_transform(tf_id, batch_size);
     } else {
         sess.tf_mgr.update_ready_state(tf_id);

@@ -130,8 +130,9 @@ pub struct TfCast {
     // TODO
     #[allow(dead_code)]
     dont_convert_text_to_bytes: bool,
-    convert_errors: bool,
+    #[allow(dead_code)]
     target_type: FieldValueKind,
+    convert_errors: bool,
 }
 
 pub fn build_tf_cast<'a>(
@@ -268,15 +269,9 @@ pub fn handle_tf_cast_stream_value_update(
         StreamValueData::Dropped => unreachable!(),
         StreamValueData::Error(err) => {
             if tf.convert_errors {
-                sv_out.data = StreamValueData::Bytes(
-                    err.message().as_bytes().to_owned(),
-                );
-                sv_out.bytes_are_chunk = false;
-                sv_out.drop_previous_chunks = true;
-                sv_out.bytes_are_utf8 = tf.target_type == FieldValueKind::Text;
-            } else {
-                sv_out.data = StreamValueData::Error(err.clone());
+                todo!("this cannot be supported figure something out");
             }
+            sv_out.data = StreamValueData::Error(err.clone());
             sv_out.done = true;
             sess.sv_mgr.inform_stream_value_subscribers(sv_out_id);
             sess.sv_mgr
@@ -310,7 +305,6 @@ pub fn handle_tf_cast_stream_value_update(
             sv_out.data = sv_in.data.clone();
             sv_out.done = sv_in.done;
             sv_out.bytes_are_chunk = sv_in.bytes_are_chunk;
-            sv_out.drop_previous_chunks = sv_in.drop_previous_chunks;
         }
     }
 }

@@ -209,7 +209,6 @@ fn get_join_buffer<'a>(
             )),
             bytes_are_utf8: join.buffer_is_valid_utf8,
             bytes_are_chunk: true,
-            drop_previous_chunks: false,
             done: false,
             subscribers: Default::default(),
             ref_count: 1,
@@ -349,6 +348,9 @@ pub fn handle_tf_join(
     tf_id: TransformId,
     join: &mut TfJoin,
 ) {
+    if join.current_stream_val.is_some() {
+        return;
+    }
     let (batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
     sess.tf_mgr.prepare_output_field(
         &mut sess.field_mgr,
@@ -699,18 +701,11 @@ pub fn handle_tf_join_stream_value_update(
             let buf_ref = unsafe {
                 std::mem::transmute::<&'_ [u8], &'static [u8]>(b.as_slice())
             };
-            let drop_prev_chunks = sv.drop_previous_chunks;
-            let mut sv_added_len = join.stream_val_added_len;
+            let sv_added_len = join.stream_val_added_len;
             if sv.bytes_are_chunk {
                 let buf =
                     get_join_buffer(join, &mut sess.sv_mgr, buf_ref.len());
-                if drop_prev_chunks {
-                    buf.truncate(buf.len() - sv_added_len);
-                }
                 buf.extend_from_slice(buf_ref);
-                if drop_prev_chunks {
-                    join.stream_val_added_len = 0;
-                }
                 join.stream_val_added_len += buf_ref.len();
             } else if sv.done {
                 join.buffer_is_valid_utf8 &= sv.bytes_are_utf8;
@@ -719,10 +714,6 @@ pub fn handle_tf_join_stream_value_update(
                     join.stream_val_added_len = 0;
                     let buf =
                         get_join_buffer(join, &mut sess.sv_mgr, buf_ref.len());
-                    if drop_prev_chunks {
-                        buf.truncate(buf.len() - sv_added_len);
-                        sv_added_len = 0;
-                    }
                     buf.extend_from_slice(&buf_ref[sv_added_len..]);
                     join.stream_val_added_len = 0;
                     run_len -= 1;

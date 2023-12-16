@@ -998,21 +998,22 @@ pub fn setup_key_output_state(
                             let mut char_count =
                                 cached!(data.chars().count() + debug_add_len);
                             let text_len = data.len() + debug_add_len;
-                            let mut need_buffer = false;
-                            if !complete && !sv.is_buffered() {
+                            let mut is_buffered = sv.is_buffered();
+                            let mut make_buffered = false;
+                            if !complete && !is_buffered {
                                 if let Some(width_spec) = &k.width {
                                     let mut i = output_index;
                                     iter_output_states(fmt, &mut i, rl, |o| {
                                         if width_spec.width(o.target_width)
                                             > data.len() / MAX_UTF8_CHAR_LEN
                                         {
-                                            need_buffer = true;
+                                            make_buffered = true;
                                         }
                                     });
                                     idx_end = Some(i);
                                 }
                             }
-                            if complete || !need_buffer {
+                            if complete || !is_buffered {
                                 let mut i = output_index;
 
                                 iter_output_states(fmt, &mut i, rl, |o| {
@@ -1028,9 +1029,9 @@ pub fn setup_key_output_state(
                                 });
                                 idx_end = Some(i);
                             }
-
-                            if need_buffer {
+                            if make_buffered {
                                 sv.promote_to_buffer();
+                                is_buffered = true;
                             }
                             if !complete {
                                 let mut i = output_index;
@@ -1045,7 +1046,7 @@ pub fn setup_key_output_state(
                                             fmt.stream_value_handles
                                                 .peek_claim_id()
                                                 .into(),
-                                            need_buffer,
+                                            is_buffered,
                                         );
                                         let target_sv_id = sv_mgr
                                             .stream_values
@@ -1055,7 +1056,6 @@ pub fn setup_key_output_state(
                                                 ),
                                                 bytes_are_utf8: true,
                                                 bytes_are_chunk: true,
-                                                drop_previous_chunks: false,
                                                 done: false,
                                                 subscribers: Default::default(
                                                 ),
@@ -1071,7 +1071,7 @@ pub fn setup_key_output_state(
                                                         target_width: o
                                                             .target_width,
                                                         wait_to_end:
-                                                            need_buffer,
+                                                            is_buffered,
                                                     },
                                                 ),
                                         );
@@ -1838,6 +1838,9 @@ pub fn handle_tf_format(
     tf_id: TransformId,
     fmt: &mut TfFormat,
 ) {
+    if !fmt.stream_value_handles.is_empty() {
+        return;
+    }
     let (batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
     sess.tf_mgr.prepare_output_field(
         &mut sess.field_mgr,
@@ -1917,14 +1920,17 @@ pub fn handle_tf_format(
     fmt.output_states.clear();
     fmt.output_targets.clear();
     drop(output_field);
-    if input_done {
+    let streams_done = fmt.stream_value_handles.is_empty();
+    if input_done && streams_done {
         for r in &fmt.refs {
             sess.field_mgr
                 .drop_field_refcount(r.field_id, &mut sess.match_set_mgr);
         }
         sess.unlink_transform(tf_id, batch_size);
     } else {
-        sess.tf_mgr.update_ready_state(tf_id);
+        if streams_done {
+            sess.tf_mgr.update_ready_state(tf_id);
+        }
         sess.tf_mgr
             .inform_successor_batch_available(tf_id, batch_size);
     }
@@ -1950,66 +1956,60 @@ pub fn handle_tf_format_stream_value_update(
             debug_assert!(sv.done);
             out_sv.data = StreamValueData::Error(err.clone());
         }
-        StreamValueData::Bytes(data) => match &mut out_sv.data {
-            StreamValueData::Dropped => unreachable!(),
-            StreamValueData::Error(_) => unreachable!(),
-            StreamValueData::Bytes(tgt_buf) => {
-                if !sv.bytes_are_chunk {
-                    if !handle.wait_to_end {
-                        if sv.done {
-                            tgt_buf.extend(&data[handle.handled_len..]);
-                        } else {
-                            // TODO: change the subscription type
-                        }
-                    }
+        StreamValueData::Bytes(data) => {
+            let tgt_buf = match &mut out_sv.data {
+                StreamValueData::Dropped => unreachable!(),
+                StreamValueData::Error(_) => unreachable!(),
+                StreamValueData::Bytes(tgt_buf) => tgt_buf,
+            };
+            if !out_sv.bytes_are_chunk {
+                if !handle.wait_to_end {
                     if sv.done {
-                        if let FormatPart::Key(k) =
-                            &tf.op.parts[handle.part_idx as usize]
-                        {
-                            let len = calc_text_len(
-                                k,
-                                data.len(),
-                                handle.target_width,
-                                &mut || data.chars().count(),
-                            );
-                            tgt_buf.reserve(len);
-                            unsafe {
-                                // TODO: this is a hack, create a separate impl
-                                let mut output_target = OutputTarget {
-                                    run_len: 1,
-                                    target_width: handle.target_width,
-                                    target: Some(NonNull::new_unchecked(
-                                        tgt_buf
-                                            .as_mut_ptr()
-                                            .add(tgt_buf.len()),
-                                    )),
-                                    remaining_len: len,
-                                };
-                                write_padded_bytes(
-                                    k,
-                                    &mut output_target,
-                                    data,
-                                );
-                            };
-                        } else {
-                            unreachable!();
-                        }
+                        tgt_buf.extend(&data[handle.handled_len..]);
+                    } else {
+                        // TODO: change the subscription type
                     }
-                } else {
-                    out_sv.drop_previous_chunks = sv.drop_previous_chunks;
-                    if out_sv.bytes_are_chunk || sv.drop_previous_chunks {
-                        tgt_buf.clear();
-                    }
-                    if sv.drop_previous_chunks {
-                        handle.handled_len = 0;
-                    }
-                    handle.handled_len += data.len();
-                    tgt_buf.extend(data);
+                }
+                if sv.done {
+                    let FormatPart::Key(k) =
+                        &tf.op.parts[handle.part_idx as usize]
+                    else {
+                        unreachable!();
+                    };
+                    let len = calc_text_len(
+                        k,
+                        data.len(),
+                        handle.target_width,
+                        &mut || data.chars().count(),
+                    );
+                    tgt_buf.reserve(len);
+                    unsafe {
+                        // HACK: //TODO: create a separate impl
+                        // for write padded bytes
+                        let mut output_target = OutputTarget {
+                            run_len: 1,
+                            target_width: handle.target_width,
+                            target: Some(NonNull::new_unchecked(
+                                tgt_buf.as_mut_ptr().add(tgt_buf.len()),
+                            )),
+                            remaining_len: len,
+                        };
+                        write_padded_bytes(k, &mut output_target, data);
+                        tgt_buf.set_len(tgt_buf.len() + len);
+                    };
                     sess.sv_mgr
                         .inform_stream_value_subscribers(handle.target_sv_id);
                 }
+            } else {
+                if out_sv.bytes_are_chunk {
+                    tgt_buf.clear();
+                }
+                handle.handled_len += data.len();
+                tgt_buf.extend(data);
+                sess.sv_mgr
+                    .inform_stream_value_subscribers(handle.target_sv_id);
             }
-        },
+        }
         StreamValueData::Dropped => unreachable!(),
     }
     if !done {
@@ -2044,7 +2044,7 @@ pub fn handle_tf_format_stream_value_update(
     sess.sv_mgr
         .drop_field_value_subscription(handle.target_sv_id, None);
     tf.stream_value_handles.release(handle_id);
-    if !tf.stream_value_handles.is_empty() {
+    if tf.stream_value_handles.is_empty() {
         sess.tf_mgr.update_ready_state(tf_id);
     }
 }

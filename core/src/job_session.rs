@@ -161,6 +161,7 @@ impl TransformManager {
     }
     pub fn make_stream_producer(&mut self, tf_id: TransformId) {
         let tf = &mut self.transforms[tf_id];
+        debug_assert!(!tf.is_stream_producer);
         tf.is_stream_producer = true;
         self.stream_producers.push_back(tf_id);
     }
