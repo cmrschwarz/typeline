@@ -78,6 +78,7 @@ pub struct TfFileReader {
     file: Option<AnyFile>,
     stream_value: Option<StreamValueId>,
     value_committed: bool,
+    stream_value_committed: bool,
     line_buffered: bool,
     stream_buffer_size: usize,
     stream_size_threshold: usize,
@@ -141,6 +142,7 @@ pub fn build_tf_file_reader<'a>(
         stream_buffer_size: chain_settings.stream_buffer_size,
         insert_count: op.insert_count,
         value_committed: false,
+        stream_value_committed: false,
     })
 }
 
@@ -311,10 +313,7 @@ fn start_streaming_file(
         done,
         ref_count: 1,
         bytes_are_utf8: false,
-        // TODO: this is temporary. we should have a dummy iterator id
-        // to detect whether this stream was dropped off (and also has no clear delay)
-        // to ensure that nobody will refer to it in the future, requiring buffering
-        bytes_are_chunk: false,
+        bytes_are_chunk: true,
         subscribers: Default::default(),
     });
     fr.stream_value = Some(sv_id);
@@ -339,7 +338,26 @@ pub fn handle_tf_file_reader_stream(
         sess.sv_mgr.drop_field_value_subscription(sv_id, None);
         return;
     };
+    let mut need_buffering = false;
+    if !fr.stream_value_committed {
+        fr.stream_value_committed = true;
+        let tf = &sess.tf_mgr.transforms[tf_id];
+        // if input is not done, subsequent records might need the stream
+        if !tf.input_is_done {
+            need_buffering = true;
+        } else {
+            let input_field = sess.field_mgr.fields[tf.input_field].borrow();
+            // some fork variant / etc. might still need this value later
+            if input_field.get_clear_delay_request_count() != 0 {
+                need_buffering = true;
+            }
+        }
+    }
     let sv = &mut sess.sv_mgr.stream_values[sv_id];
+    if need_buffering {
+        sv.bytes_are_chunk = false;
+    }
+
     let res = match &mut sv.data {
         StreamValueData::Bytes(ref mut bc) => {
             if sv.bytes_are_chunk {

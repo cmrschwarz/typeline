@@ -937,10 +937,10 @@ pub fn setup_key_output_state(
                 }
             }
             TypedSlice::StreamValueId(svs) => {
-                for (v, range, rl) in
+                for (sv_id, range, rl) in
                     RefAwareStreamValueIter::from_range(&range, svs)
                 {
-                    let sv = &mut sv_mgr.stream_values[v];
+                    let sv = &mut sv_mgr.stream_values[sv_id];
 
                     match &sv.data {
                         StreamValueData::Dropped => unreachable!(),
@@ -1000,6 +1000,7 @@ pub fn setup_key_output_state(
                             let text_len = data.len() + debug_add_len;
                             let mut is_buffered = sv.is_buffered();
                             let mut make_buffered = false;
+                            let mut handled_len = data.len();
                             if !complete && !is_buffered {
                                 if let Some(width_spec) = &k.width {
                                     let mut i = output_index;
@@ -1033,6 +1034,9 @@ pub fn setup_key_output_state(
                                 sv.promote_to_buffer();
                                 is_buffered = true;
                             }
+                            if is_buffered {
+                                handled_len = 0;
+                            }
                             if !complete {
                                 let mut i = output_index;
 
@@ -1041,7 +1045,7 @@ pub fn setup_key_output_state(
                                     &mut i,
                                     rl as usize,
                                     |o| {
-                                        sv_mgr.stream_values[v].subscribe(
+                                        sv_mgr.stream_values[sv_id].subscribe(
                                             tf_id,
                                             fmt.stream_value_handles
                                                 .peek_claim_id()
@@ -1067,7 +1071,7 @@ pub fn setup_key_output_state(
                                                     TfFormatStreamValueHandle {
                                                         part_idx,
                                                         target_sv_id,
-                                                        handled_len: 0,
+                                                        handled_len,
                                                         target_width: o
                                                             .target_width,
                                                         wait_to_end:
@@ -1313,7 +1317,7 @@ fn setup_output_targets(
                 false,
             );
         } else if let Some(handle_id) = os.incomplete_stream_value_handle {
-            let handle = &fmt.stream_value_handles[handle_id];
+            let handle = &mut fmt.stream_value_handles[handle_id];
             if let StreamValueData::Bytes(buf) =
                 &mut sv_mgr.stream_values[handle.target_sv_id].data
             {
@@ -1371,6 +1375,7 @@ fn setup_output_targets(
             break;
         }
     }
+    debug_assert!(fmt.output_states.len() == fmt.output_targets.len());
 }
 unsafe fn write_padded_bytes_with_prefix_suffix(
     k: &FormatKey,
@@ -1898,12 +1903,12 @@ pub fn handle_tf_format(
         match part {
             FormatPart::ByteLiteral(v) => {
                 iter_output_targets(fmt, &mut 0, batch_size, |tgt| unsafe {
-                    write_bytes_to_target(tgt, v)
+                    write_bytes_to_target(tgt, v);
                 });
             }
             FormatPart::TextLiteral(v) => {
                 iter_output_targets(fmt, &mut 0, batch_size, |tgt| unsafe {
-                    write_bytes_to_target(tgt, v.as_bytes())
+                    write_bytes_to_target(tgt, v.as_bytes());
                 });
             }
             FormatPart::Key(k) => write_fmt_key(
@@ -1962,7 +1967,10 @@ pub fn handle_tf_format_stream_value_update(
                 StreamValueData::Error(_) => unreachable!(),
                 StreamValueData::Bytes(tgt_buf) => tgt_buf,
             };
-            if !out_sv.bytes_are_chunk {
+            if out_sv.bytes_are_chunk {
+                tgt_buf.clear();
+            }
+            if !sv.bytes_are_chunk {
                 if !handle.wait_to_end {
                     if sv.done {
                         tgt_buf.extend(&data[handle.handled_len..]);
@@ -1970,7 +1978,7 @@ pub fn handle_tf_format_stream_value_update(
                         // TODO: change the subscription type
                     }
                 }
-                if sv.done {
+                if sv.done && handle.wait_to_end {
                     let FormatPart::Key(k) =
                         &tf.op.parts[handle.part_idx as usize]
                     else {
@@ -1997,13 +2005,12 @@ pub fn handle_tf_format_stream_value_update(
                         write_padded_bytes(k, &mut output_target, data);
                         tgt_buf.set_len(tgt_buf.len() + len);
                     };
+                }
+                if sv.done {
                     sess.sv_mgr
                         .inform_stream_value_subscribers(handle.target_sv_id);
                 }
             } else {
-                if out_sv.bytes_are_chunk {
-                    tgt_buf.clear();
-                }
                 handle.handled_len += data.len();
                 tgt_buf.extend(data);
                 sess.sv_mgr
@@ -2016,8 +2023,6 @@ pub fn handle_tf_format_stream_value_update(
         return;
     }
 
-    sess.sv_mgr
-        .drop_field_value_subscription(sv_id, Some(tf_id));
     out_sv = &mut sess.sv_mgr.stream_values[handle.target_sv_id];
     let mut i = handle.part_idx as usize + 1;
     if let StreamValueData::Bytes(bb) = &mut out_sv.data {
@@ -2041,6 +2046,8 @@ pub fn handle_tf_format_stream_value_update(
         unreachable!();
     }
     out_sv.done = true;
+    sess.sv_mgr
+        .drop_field_value_subscription(sv_id, Some(tf_id));
     sess.sv_mgr
         .drop_field_value_subscription(handle.target_sv_id, None);
     tf.stream_value_handles.release(handle_id);

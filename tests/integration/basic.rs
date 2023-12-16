@@ -6,8 +6,12 @@ use scr_core::{
         file_reader::create_op_file_reader_custom,
         fork::create_op_fork,
         format::create_op_format,
+        join::create_op_join_str,
         key::create_op_key,
-        literal::{create_op_int, create_op_literal, create_op_str, Literal},
+        literal::{
+            create_op_error, create_op_int, create_op_literal, create_op_str,
+            Literal,
+        },
         next::create_op_next,
         regex::{create_op_regex, create_op_regex_with_opts, RegexOptions},
         select::create_op_select,
@@ -16,7 +20,7 @@ use scr_core::{
     },
     options::context_builder::ContextBuilder,
     scr_error::{ChainSetupError, ScrError},
-    utils::test_utils::{SliceReader, TricklingStream},
+    utils::test_utils::{ErroringStream, SliceReader, TricklingStream},
 };
 
 #[test]
@@ -420,9 +424,6 @@ fn error_on_sbs_0() {
     ));
 }
 
-// TODO: this test depends on us not buffering the stream from file_reader
-// this is work in progress
-#[cfg(disabled)]
 #[test]
 fn stream_error_after_regular_error() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();

@@ -91,11 +91,11 @@ fn join_streams() -> Result<(), ScrError> {
     ContextBuilder::default()
         .set_stream_buffer_size(1)
         .add_op(create_op_file_reader_custom(
-            Box::new(SliceReader::new("foo".as_bytes())),
+            Box::new(SliceReader::new("abc".as_bytes())),
             0,
         ))
         .add_op_appending(create_op_file_reader_custom(
-            Box::new(SliceReader::new("bar".as_bytes())),
+            Box::new(SliceReader::new("def".as_bytes())),
             0,
         ))
         .add_op(create_op_join(
@@ -105,7 +105,7 @@ fn join_streams() -> Result<(), ScrError> {
         ))
         .add_op(create_op_string_sink(&ss))
         .run()?;
-    assert_eq!(ss.get_data().unwrap().as_slice(), ["foo, bar"]);
+    assert_eq!(ss.get_data().unwrap().as_slice(), ["abc, def"]);
     Ok(())
 }
 

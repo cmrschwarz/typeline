@@ -186,14 +186,14 @@ fn stream_into_format() -> Result<(), ScrError> {
         .set_stream_buffer_size(1)
         .add_op(create_op_file_reader_custom(
             Box::new(SliceReader {
-                data: "xxx".as_bytes(),
+                data: "abc".as_bytes(),
             }),
             0,
         ))
         .add_op(create_op_format("a -> {} -> b".as_bytes()).unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
-    assert_eq!(ss.get_data().unwrap().as_slice(), ["a -> xxx -> b"]);
+    assert_eq!(ss.get_data().unwrap().as_slice(), ["a -> abc -> b"]);
     Ok(())
 }
 

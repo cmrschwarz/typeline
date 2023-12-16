@@ -715,7 +715,6 @@ pub fn handle_tf_join_stream_value_update(
                     let buf =
                         get_join_buffer(join, &mut sess.sv_mgr, buf_ref.len());
                     buf.extend_from_slice(&buf_ref[sv_added_len..]);
-                    join.stream_val_added_len = 0;
                     run_len -= 1;
                 }
                 push_bytes_raw(join, &mut sess.sv_mgr, buf_ref, run_len);
@@ -723,6 +722,7 @@ pub fn handle_tf_join_stream_value_update(
         }
     }
     if done {
+        join.stream_val_added_len = 0;
         join.current_stream_val = None;
         if input_done || Some(join.group_len) == join.group_capacity {
             sess.tf_mgr.push_tf_in_ready_stack(tf_id);
