@@ -1205,11 +1205,17 @@ impl<'a> JobSession<'a> {
 }
 
 impl JobData<'_> {
-    pub fn get_transform_chain(&self, tf_id: TransformId) -> &Chain {
-        let op_id = self.tf_mgr.transforms[tf_id].op_id.unwrap();
+    pub fn get_transform_chain_from_tf_state(
+        &self,
+        tf_state: &TransformState,
+    ) -> &Chain {
+        let op_id = tf_state.op_id.unwrap();
         let chain_id = self.session_data.operator_bases[op_id as usize]
             .chain_id
             .unwrap();
         &self.session_data.chains[chain_id as usize]
+    }
+    pub fn get_transform_chain(&self, tf_id: TransformId) -> &Chain {
+        self.get_transform_chain_from_tf_state(&self.tf_mgr.transforms[tf_id])
     }
 }

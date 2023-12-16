@@ -128,12 +128,8 @@ pub fn build_tf_file_reader<'a>(
                 .expect("attempted to create two transforms from a single custom FileKind"))
         }
     };
-    let chain_settings = &sess.session_data.chains[sess
-        .session_data
-        .operator_bases[tf_state.op_id.unwrap() as usize]
-        .chain_id
-        .unwrap() as usize]
-        .settings;
+    let chain_settings =
+        &sess.get_transform_chain_from_tf_state(tf_state).settings;
     TransformData::FileReader(TfFileReader {
         file: Some(file),
         stream_value: None,

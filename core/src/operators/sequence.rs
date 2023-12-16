@@ -7,9 +7,7 @@ use crate::{
     job_session::JobData,
     liveness_analysis::{LivenessData, NON_STRING_READS_OFFSET},
     options::argument::CliArgIdx,
-    record_data::push_interface::{
-        FixedSizeTypeInserter, VariableSizeTypeInserter,
-    },
+    record_data::push_interface::VariableSizeTypeInserter,
     utils::int_string_conversions::{
         i64_to_str, parse_int_with_units, I64_MAX_DECIMAL_DIGITS,
     },
@@ -122,7 +120,8 @@ pub fn handle_tf_sequence(
     let seq_size_rem = (seq.ss.end - seq.ss.start) / seq.ss.step;
     let count = batch_size.min(seq_size_rem as usize);
     if seq.non_string_reads {
-        let mut inserter = output_field.iter_hall.int_inserter();
+        let mut inserter =
+            output_field.iter_hall.fixed_size_type_inserter::<i64>();
         inserter.drop_and_reserve(count);
         for _ in 0..count {
             inserter.push(seq.ss.start);

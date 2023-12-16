@@ -338,7 +338,7 @@ impl TfSum {
                             OperatorApplicationError::new_s(
                                 format!(
                                     "cannot sum over type `{}`",
-                                    range.base.data.kind()
+                                    range.base.data.repr()
                                 ),
                                 bud.tf_mgr.transforms[bud.tf_id]
                                     .op_id

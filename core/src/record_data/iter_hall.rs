@@ -15,9 +15,8 @@ use super::{
     iters::{FieldDataRef, FieldIterator, Iter},
     match_set::MatchSetManager,
     push_interface::{
-        FieldReferenceInserter, FixedSizeTypeInserter, InlineBytesInserter,
-        InlineStringInserter, IntegerInserter, PushInterface,
-        VariableSizeTypeInserter, VaryingTypeInserter,
+        FixedSizeTypeInserter, InlineBytesInserter, InlineStringInserter,
+        PushInterface, VariableSizeTypeInserter, VaryingTypeInserter,
     },
     ref_iter::AutoDerefIter,
 };
@@ -336,11 +335,10 @@ impl IterHall {
             cow_targets: Default::default(),
         }
     }
-    pub fn int_inserter(&mut self) -> IntegerInserter {
-        IntegerInserter::new(self.get_owned_data())
-    }
-    pub fn field_reference_inserter(&mut self) -> FieldReferenceInserter {
-        FieldReferenceInserter::new(self.get_owned_data())
+    pub fn fixed_size_type_inserter<T: FieldValueType + PartialEq + Clone>(
+        &mut self,
+    ) -> FixedSizeTypeInserter<T> {
+        FixedSizeTypeInserter::<T>::new(self.get_owned_data())
     }
     pub fn inline_bytes_inserter(&mut self) -> InlineBytesInserter {
         InlineBytesInserter::new(self.get_owned_data())

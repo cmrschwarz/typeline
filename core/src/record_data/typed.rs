@@ -130,6 +130,9 @@ impl<'a> TypedValue<'a> {
             TypedValue::Custom(v) => TypedSlice::Custom(from_ref(v)),
         }
     }
+    pub fn repr(&self) -> FieldValueRepr {
+        self.as_slice().repr()
+    }
     pub fn subslice(&self, range: Range<usize>) -> Self {
         match self {
             TypedValue::BytesInline(v) => TypedValue::BytesInline(&v[range]),
@@ -147,10 +150,9 @@ impl<'a> TypedValue<'a> {
             | TypedValue::StreamValueId(_)
             | TypedValue::Error(_)
             | TypedValue::FieldReference(_)
-            | TypedValue::SlicedFieldReference(_) => panic!(
-                "typed value kind {:?} is not slicable",
-                self.as_slice().kind(),
-            ),
+            | TypedValue::SlicedFieldReference(_) => {
+                panic!("typed value kind {:?} is not slicable", self.repr(),)
+            }
         }
     }
 }
@@ -321,7 +323,7 @@ impl<'a> TypedSlice<'a> {
             }
         }
     }
-    pub fn kind(&self) -> FieldValueRepr {
+    pub fn repr(&self) -> FieldValueRepr {
         match self {
             TypedSlice::Undefined(_) => FieldValueRepr::Undefined,
             TypedSlice::Null(_) => FieldValueRepr::Null,
@@ -370,7 +372,7 @@ impl<'a> TypedSlice<'a> {
         &self,
         values: &[T],
     ) -> bool {
-        if T::REPR != self.kind() {
+        if T::REPR != self.repr() {
             return false;
         }
         values.len() == self.len()

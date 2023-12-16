@@ -1,4 +1,4 @@
-use std::{mem::ManuallyDrop, ops::DerefMut};
+use std::{marker::PhantomData, mem::ManuallyDrop, ops::DerefMut};
 
 use super::{
     custom_data::CustomDataBox,
@@ -919,58 +919,65 @@ impl<'a> RawFixedSizedTypeInserter<'a> {
     }
 }
 
-pub unsafe trait FixedSizeTypeInserter<'a>: Sized {
-    const REPR: FieldValueRepr;
-    const FLAGS: FieldValueFlags = field_value_flags::DEFAULT;
-    type ValueType: PartialEq + Clone + FieldValueType;
-    fn get_raw(&mut self) -> &mut RawFixedSizedTypeInserter<'a>;
-    fn new(fd: &'a mut FieldData) -> Self;
-    fn element_size() -> usize {
-        std::mem::size_of::<Self::ValueType>()
+pub struct FixedSizeTypeInserter<'a, T: FieldValueType + PartialEq + Clone> {
+    raw: RawFixedSizedTypeInserter<'a>,
+    _phantom: PhantomData<T>,
+}
+
+impl<'a, T: FieldValueType + PartialEq + Clone> FixedSizeTypeInserter<'a, T> {
+    pub fn new(fd: &'a mut FieldData) -> Self {
+        assert!(T::ZST == false && T::DST == false);
+        Self {
+            raw: RawFixedSizedTypeInserter::new(fd),
+            _phantom: PhantomData,
+        }
     }
-    fn element_format() -> FieldValueFormat {
+    pub fn element_size() -> usize {
+        std::mem::size_of::<T>()
+    }
+    pub fn element_format() -> FieldValueFormat {
         FieldValueFormat {
-            repr: Self::REPR,
-            flags: Self::FLAGS,
+            repr: T::REPR,
+            flags: field_value_flags::DEFAULT,
             size: Self::element_size() as FieldValueSize,
         }
     }
-    fn commit(&mut self) {
+    pub fn commit(&mut self) {
         unsafe {
-            self.get_raw().commit(Self::element_format());
+            self.raw.commit(Self::element_format());
         }
     }
-    fn drop_and_reserve(&mut self, new_max_inserts: usize) {
+    pub fn drop_and_reserve(&mut self, new_max_inserts: usize) {
         unsafe {
-            self.get_raw()
+            self.raw
                 .drop_and_reserve(Self::element_size(), new_max_inserts);
         }
     }
-    fn commit_and_reserve(&mut self, new_max_inserts: usize) {
+    pub fn commit_and_reserve(&mut self, new_max_inserts: usize) {
         unsafe {
-            self.get_raw()
+            self.raw
                 .commit_and_reserve(Self::element_format(), new_max_inserts);
         }
     }
     #[inline(always)]
-    fn push(&mut self, v: Self::ValueType) {
-        assert!(self.get_raw().count < self.get_raw().max);
+    pub fn push(&mut self, v: T) {
+        assert!(self.raw.count < self.raw.max);
         unsafe {
-            self.get_raw().push(v);
+            self.raw.push(v);
         }
     }
     #[inline(always)]
-    fn push_with_rl(&mut self, v: Self::ValueType, rl: usize) {
+    pub fn push_with_rl(&mut self, v: T, rl: usize) {
         if rl == 1 {
             self.push(v);
             return;
         }
-        let max_rem = self.get_raw().max - self.get_raw().count;
+        let max_rem = self.raw.max - self.raw.count;
         self.commit();
         unsafe {
-            self.get_raw().fd.push_fixed_size_type_unchecked(
-                Self::REPR,
-                Self::FLAGS,
+            self.raw.fd.push_fixed_size_type_unchecked(
+                T::REPR,
+                field_value_flags::DEFAULT,
                 v,
                 rl,
                 true,
@@ -978,6 +985,14 @@ pub unsafe trait FixedSizeTypeInserter<'a>: Sized {
             );
         }
         self.drop_and_reserve(max_rem);
+    }
+}
+
+impl<'a, T: FieldValueType + PartialEq + Clone> Drop
+    for FixedSizeTypeInserter<'a, T>
+{
+    fn drop(&mut self) {
+        self.commit()
     }
 }
 
@@ -1184,50 +1199,6 @@ pub unsafe trait ZeroSizedTypeInserter<'a>: Sized {
     #[inline(always)]
     fn push(&mut self, count: usize) {
         self.get_raw().push(count);
-    }
-}
-
-pub struct IntegerInserter<'a> {
-    raw: RawFixedSizedTypeInserter<'a>,
-}
-unsafe impl<'a> FixedSizeTypeInserter<'a> for IntegerInserter<'a> {
-    const REPR: FieldValueRepr = FieldValueRepr::Int;
-    const FLAGS: FieldValueFlags = field_value_flags::DEFAULT;
-    type ValueType = i64;
-    fn get_raw(&mut self) -> &mut RawFixedSizedTypeInserter<'a> {
-        &mut self.raw
-    }
-    fn new(fd: &'a mut FieldData) -> Self {
-        Self {
-            raw: RawFixedSizedTypeInserter::new(fd),
-        }
-    }
-}
-impl<'a> Drop for IntegerInserter<'a> {
-    fn drop(&mut self) {
-        self.commit();
-    }
-}
-
-pub struct FieldReferenceInserter<'a> {
-    raw: RawFixedSizedTypeInserter<'a>,
-}
-unsafe impl<'a> FixedSizeTypeInserter<'a> for FieldReferenceInserter<'a> {
-    const REPR: FieldValueRepr = FieldValueRepr::SlicedFieldReference;
-    type ValueType = SlicedFieldReference;
-
-    fn get_raw(&mut self) -> &mut RawFixedSizedTypeInserter<'a> {
-        &mut self.raw
-    }
-    fn new(fd: &'a mut FieldData) -> Self {
-        Self {
-            raw: RawFixedSizedTypeInserter::new(fd),
-        }
-    }
-}
-impl<'a> Drop for FieldReferenceInserter<'a> {
-    fn drop(&mut self) {
-        self.commit();
     }
 }
 

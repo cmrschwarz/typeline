@@ -1,10 +1,13 @@
-use std::{collections::HashMap, net::ToSocketAddrs, time::Duration};
+use std::{
+    collections::HashMap, io::Read, iter, net::ToSocketAddrs, time::Duration,
+};
 
 use mio::{net::TcpStream, Events, Interest, Poll, Token};
 use scr_core::{
     job_session::JobData,
     liveness_analysis::OpOutputIdx,
     operators::{
+        errors::OperatorApplicationError,
         operator::{Operator, OperatorBase},
         transform::{
             basic_transform_update, BasicUpdateData, Transform, TransformData,
@@ -15,6 +18,7 @@ use scr_core::{
         field::FieldId,
         iter_hall::IterId,
         iters::{BoundedIter, DestructuredFieldDataRef, Iter},
+        push_interface::PushInterface,
         ref_iter::AutoDerefIter,
         stream_value::{StreamValue, StreamValueData, StreamValueId},
         typed::TypedValue,
@@ -37,6 +41,7 @@ pub struct TfHttpRequest {
     pending_requests: Vec<Request>,
     poll: Poll,
     events: Events,
+    stream_buffer_size: usize,
 }
 
 impl Operator for OpHttpRequest {
@@ -77,6 +82,10 @@ impl Operator for OpHttpRequest {
             poll: Poll::new().unwrap(),
             events: Events::with_capacity(64),
             iter_id: sess.field_mgr.claim_iter(tf_state.input_field),
+            stream_buffer_size: sess
+                .get_transform_chain_from_tf_state(tf_state)
+                .settings
+                .stream_buffer_size,
         };
         TransformData::Custom(smallbox!(tf))
     }
@@ -87,7 +96,7 @@ impl TfHttpRequest {
         &mut self,
         url: &str,
         bud: &mut BasicUpdateData,
-    ) -> Result<(), std::io::Error> {
+    ) -> Result<StreamValueId, std::io::Error> {
         let addr = url.to_socket_addrs()?.next().unwrap();
         let mut stream = TcpStream::connect(addr).unwrap();
         // Register the stream with `Poll`
@@ -96,7 +105,7 @@ impl TfHttpRequest {
             .register(
                 &mut stream,
                 Token(self.pending_requests.len()),
-                Interest::READABLE | Interest::WRITABLE,
+                Interest::READABLE,
             )
             .unwrap();
         let stream_value = bud.sv_mgr.stream_values.claim_with_value(
@@ -106,7 +115,7 @@ impl TfHttpRequest {
             stream,
             stream_value: Some(stream_value),
         });
-        Ok(())
+        Ok(stream_value)
     }
 
     fn basic_update<'a>(
@@ -117,31 +126,44 @@ impl TfHttpRequest {
             BoundedIter<'a, Iter<'a, DestructuredFieldDataRef<'a>>>,
         >,
     ) -> (usize, bool) {
-        // Wait for the socket to become ready. This has to happens in a loop to
-        // handle spurious wakeups.
-        self.poll
-            .poll(&mut self.events, Some(Duration::from_micros(1)))
-            .unwrap(); // TODO: handle errors?
-
-        for event in &self.events {
-            if event.token() == Token(0) && event.is_writable() {
-                // The socket connected (probably, it could still be a spurious
-                // wakeup)
-                return (0, false);
-            }
-        }
-
+        let mut of = bud.field_mgr.fields[bud.output_field_id].borrow_mut();
+        let mut inserter = of.iter_hall.varying_type_inserter();
         while let Some((v, rl, _)) = iter.next_value(bud.match_set_mgr) {
             // we properly support fetching from the same url mutliple times,
             // but we don't bother making that fast
             for _ in 0..rl {
                 match v {
                     TypedValue::TextInline(txt) => {
-                        self.register_steam(txt, &mut bud).unwrap();
+                        match self.register_steam(txt, &mut bud) {
+                            Ok(sv_id) => inserter
+                                .push_stream_value_id(sv_id, 1, true, false),
+                            Err(e) => inserter.push_error(
+                                OperatorApplicationError::new_s(
+                                    format!("HTTP GET request failed: {e}"),
+                                    bud.tf_mgr.transforms[bud.tf_id]
+                                        .op_id
+                                        .unwrap(),
+                                ),
+                                1,
+                                true,
+                                false,
+                            ),
+                        }
                     }
                     TypedValue::BytesBuffer(_)
                     | TypedValue::BytesInline(_) => todo!(),
-                    _ => unimplemented!(),
+                    _ => inserter.push_error(
+                        OperatorApplicationError::new_s(
+                            format!(
+                                "unsupported datatype for http-get url: {}",
+                                v.repr()
+                            ),
+                            bud.tf_mgr.transforms[bud.tf_id].op_id.unwrap(),
+                        ),
+                        1,
+                        true,
+                        false,
+                    ),
                 }
             }
         }
@@ -163,16 +185,45 @@ impl Transform for TfHttpRequest {
     }
     fn stream_producer_update(
         &mut self,
-        _jd: &mut JobData,
-        _tf_id: TransformId,
+        jd: &mut JobData,
+        tf_id: TransformId,
     ) {
-    }
-    fn handle_stream_value_update(
-        &mut self,
-        _sess: &mut JobData,
-        _tf_id: TransformId,
-        _sv_id: StreamValueId,
-        _custom: usize,
-    ) {
+        self.poll
+            .poll(&mut self.events, Some(Duration::from_micros(1)))
+            .unwrap(); // TODO: handle errors?
+
+        for event in &self.events {
+            let Token(req_id) = event.token();
+            debug_assert!(
+                event.is_read_closed()
+                    || event.is_readable()
+                    || event.is_error(),
+            );
+            let req = &mut self.pending_requests[req_id];
+            let sv_id = req.stream_value.unwrap();
+            let sv = &mut jd.sv_mgr.stream_values[sv_id];
+            let StreamValueData::Bytes(buf) = &mut sv.data else {
+                unreachable!()
+            };
+            if sv.bytes_are_chunk {
+                buf.clear();
+            }
+            let buf_len_before = buf.len();
+            buf.extend(iter::repeat(0).take(self.stream_buffer_size));
+            match req.stream.read(&mut buf[buf_len_before..]) {
+                Err(e) => {
+                    sv.data = StreamValueData::Error(
+                        OperatorApplicationError::new_s(
+                            format!("IO Error in HTTP GET Request: {e}"),
+                            jd.tf_mgr.transforms[tf_id].op_id.unwrap(),
+                        ),
+                    );
+                }
+                Ok(bytes_read) => {
+                    buf.truncate(buf_len_before + bytes_read);
+                }
+            }
+            jd.sv_mgr.inform_stream_value_subscribers(sv_id);
+        }
     }
 }

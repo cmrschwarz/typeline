@@ -497,7 +497,7 @@ impl FieldData {
         let mut slice_start_ptr = data_ptr;
         while let Some(range) = iter.typed_range_fwd(usize::MAX, 0) {
             unsafe {
-                let kind = range.data.kind();
+                let kind = range.data.repr();
                 let len = range.data.len();
                 TypedSlice::drop_from_kind(slice_start_ptr, len, kind);
                 slice_start_ptr = data_ptr.add(iter.data);

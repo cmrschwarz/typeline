@@ -756,7 +756,7 @@ pub fn lookup_target_widths(
             _ => err_func(
                 fmt,
                 &mut output_index,
-                range.data.kind(),
+                range.data.repr(),
                 range.field_count,
             ),
         }
@@ -1139,7 +1139,7 @@ pub fn setup_key_output_state(
                         o.contained_error = Some(FormatError {
                             err_in_width: false,
                             part_idx,
-                            kind: range.base.data.kind(),
+                            kind: range.base.data.repr(),
                         });
                     },
                 );
