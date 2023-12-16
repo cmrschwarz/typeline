@@ -17,6 +17,9 @@ doctest = false
 name = "scr"
 test = false
 
+[dev-dependencies]
+rstest = "0.18.2"
+regex = "1.10"
 
 [dependencies]
 scr_core = { path = "./core", default-features = false }
