@@ -328,6 +328,7 @@ impl<'a> JobData<'a> {
             cont.successor = successor;
             cont.predecessor = predecessor;
             cont.available_batch_size = available_batch_size;
+            cont.input_is_done = input_is_done;
             cont.request_uncow = true;
             if let Some(pred_id) = predecessor {
                 self.tf_mgr.transforms[pred_id].successor = continuation;

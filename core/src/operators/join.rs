@@ -67,6 +67,7 @@ pub struct TfJoin<'a> {
     output_stream_val: Option<StreamValueId>,
     current_stream_val: Option<StreamValueId>,
     stream_val_added_len: usize,
+    clear_delay_requested: bool,
     separator: Option<&'a [u8]>,
     separator_is_valid_utf8: bool,
     iter_id: IterId,
@@ -131,6 +132,7 @@ pub fn build_tf_join<'a>(
     TransformData::Join(TfJoin {
         current_stream_val: None,
         stream_val_added_len: 0,
+        clear_delay_requested: false,
         separator: op.separator.as_deref(),
         separator_is_valid_utf8: op.separator_is_valid_utf8,
         iter_id: sess.field_mgr.claim_iter(tf_state.input_field),
@@ -349,6 +351,11 @@ pub fn handle_tf_join(
     join: &mut TfJoin,
 ) {
     if join.current_stream_val.is_some() {
+        let tf = &sess.tf_mgr.transforms[tf_id];
+        if tf.available_batch_size != 0 && !join.clear_delay_requested {
+            join.clear_delay_requested = true;
+            sess.field_mgr.request_clear_delay(tf.input_field);
+        }
         return;
     }
     let (batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
@@ -520,12 +527,17 @@ pub fn handle_tf_join(
                                             b_laundered.len();
                                         debug_assert!(offsets.is_none());
                                     }
-
+                                    let remaining_elems_in_batch =
+                                        batch_size - (pos - field_pos_start);
+                                    if remaining_elems_in_batch == 0 {
+                                        break 'iter;
+                                    }
                                     sess.field_mgr
                                         .request_clear_delay(input_field_id);
+                                    join.clear_delay_requested = true;
                                     sess.tf_mgr.unclaim_batch_size(
                                         tf_id,
-                                        batch_size - (pos - field_pos_start),
+                                        remaining_elems_in_batch,
                                     );
                                     buffer_remaining_stream_values_in_sv_iter(
                                         &mut sess.sv_mgr,
@@ -729,6 +741,9 @@ pub fn handle_tf_join_stream_value_update(
         } else {
             sess.tf_mgr.update_ready_state(tf_id);
         }
-        sess.field_mgr.relinquish_clear_delay(in_field_id);
+        if join.clear_delay_requested {
+            join.clear_delay_requested = false;
+            sess.field_mgr.relinquish_clear_delay(in_field_id);
+        }
     }
 }

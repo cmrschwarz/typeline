@@ -1843,9 +1843,6 @@ pub fn handle_tf_format(
     tf_id: TransformId,
     fmt: &mut TfFormat,
 ) {
-    if !fmt.stream_value_handles.is_empty() {
-        return;
-    }
     let (batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
     sess.tf_mgr.prepare_output_field(
         &mut sess.field_mgr,
