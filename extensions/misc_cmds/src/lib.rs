@@ -45,12 +45,27 @@ impl Extension for MiscCmdsExtension {
                 .unwrap(),
             ));
         }
+        if arg.argname == "chars" {
+            arg.reject_value()?;
+
+            return Ok(Some(
+                create_op_regex_with_opts(
+                    r".",
+                    RegexOptions {
+                        multimatch: true,
+                        dotall: true,
+                        ..Default::default()
+                    },
+                )
+                .unwrap(),
+            ));
+        }
         if arg.argname == "trim" {
             arg.reject_value()?;
 
             return Ok(Some(
                 create_op_regex_with_opts(
-                    r"\s+(?<>.*)\s+",
+                    r"^\s*(?<>.*?)\s*$",
                     RegexOptions {
                         dotall: true,
                         ..Default::default()
