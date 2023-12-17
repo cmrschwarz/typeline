@@ -1,7 +1,11 @@
 use scr_core::{
     cli::ParsedCliArgument,
     extension::Extension,
-    operators::{errors::OperatorCreationError, operator::OperatorData},
+    operators::{
+        errors::OperatorCreationError,
+        operator::OperatorData,
+        regex::{create_op_regex, create_op_regex_with_opts, RegexOptions},
+    },
     options::session_options::SessionOptions,
     smallbox,
 };
@@ -26,6 +30,25 @@ impl Extension for MiscCmdsExtension {
             return Ok(Some(OperatorData::Custom(
                 smallbox![OpSum::default()],
             )));
+        }
+        if arg.argname == "lines" {
+            arg.reject_value()?;
+
+            return Ok(Some(
+                create_op_regex_with_opts(
+                    r"[^\n]+",
+                    RegexOptions {
+                        multimatch: true,
+                        ..Default::default()
+                    },
+                )
+                .unwrap(),
+            ));
+        }
+        if arg.argname == "trim" {
+            arg.reject_value()?;
+
+            return Ok(Some(create_op_regex(r"\s+(?<>.*)\s+").unwrap()));
         }
         Ok(None)
     }
