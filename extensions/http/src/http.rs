@@ -357,7 +357,7 @@ impl Transform for TfHttpRequest {
                 buf.clear();
             }
             let buf_len_before = buf.len();
-            let mut update;
+            let mut update = false;
             match process_tls(event, req, buf, self.stream_buffer_size) {
                 Err(e) => {
                     sv.data = StreamValueData::Error(
@@ -367,17 +367,14 @@ impl Transform for TfHttpRequest {
                         ),
                     );
                     sv.done = true;
-                    update = true;
                 }
                 Ok(eof) => {
                     update = buf_len_before < buf.len() || eof;
-                    if update {
-                        if !req.header_parsed {
-                            if header_completed(req, buf) {
-                                // TODO: proper parsing
-                                buf.drain(0..req.header_parsed_until as usize);
-                                req.header_parsed = true;
-                            }
+                    if update && !req.header_parsed {
+                        if header_completed(req, buf) {
+                            // TODO: proper parsing
+                            buf.drain(0..req.header_parsed_until as usize);
+                            req.header_parsed = true;
                         } else {
                             update = false;
                         }
@@ -388,7 +385,7 @@ impl Transform for TfHttpRequest {
                 }
             }
             let done = sv.done;
-            if update {
+            if done || update {
                 jd.sv_mgr.inform_stream_value_subscribers(sv_id);
             }
             if done {

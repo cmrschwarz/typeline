@@ -145,7 +145,6 @@ pub fn handle_tf_print_raw(
     handled_field_count: &mut usize,
     stdout: &mut BufWriter<StdoutLock<'_>>,
 ) -> Result<(), std::io::Error> {
-    debug_assert!(print.current_stream_val.is_none());
     let tf = &sess.tf_mgr.transforms[tf_id];
     let input_field_id = tf.input_field;
 
@@ -366,6 +365,9 @@ pub fn handle_tf_print(
     tf_id: TransformId,
     tf: &mut TfPrint,
 ) {
+    if tf.current_stream_val.is_some() {
+        return;
+    }
     let (batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
     let mut handled_field_count = 0;
     let mut stdout = BufWriter::new(std::io::stdout().lock());

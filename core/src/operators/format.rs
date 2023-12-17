@@ -125,7 +125,6 @@ pub struct FormatKey {
     pub alternate_form: bool, /* prefix 0x for hex, 0o for octal and 0b for
                                * binary, pretty print objects / arrays */
     pub format_type: FormatType,
-    pub debug: bool,
     pub unicode: bool,
 }
 
@@ -1002,7 +1001,10 @@ pub fn setup_key_output_state(
                             let mut make_buffered = false;
                             let mut handled_len = data.len();
                             if !complete && !is_buffered {
-                                if let Some(width_spec) = &k.width {
+                                if debug_format {
+                                    // TODO: split up debug quotes instead
+                                    make_buffered = true;
+                                } else if let Some(width_spec) = &k.width {
                                     let mut i = output_index;
                                     iter_output_states(fmt, &mut i, rl, |o| {
                                         if width_spec.width(o.target_width)
@@ -1987,16 +1989,35 @@ pub fn handle_tf_format_stream_value_update(
                     else {
                         unreachable!();
                     };
+
+                    let qc = if sv.bytes_are_utf8 { '"' } else { '\'' };
+                    let left = [b'~', qc as u8];
+                    let right = [qc as u8];
+                    let none = b"".as_slice();
+                    let (left, right) = match k.format_type {
+                        FormatType::Debug => {
+                            (right.as_slice(), right.as_slice())
+                        }
+                        FormatType::MoreDebug => {
+                            (left.as_slice(), right.as_slice())
+                        }
+                        _ => (none, none),
+                    };
+
+                    let quotes_len = left.len() + right.len();
+
                     let len = calc_text_len(
                         k,
-                        data.len(),
+                        data.len() + quotes_len,
                         handle.target_width,
-                        &mut || data.chars().count(),
+                        &mut || data.chars().count() + quotes_len,
                     );
-                    tgt_buf.reserve(len);
+
+                    tgt_buf.reserve(len + quotes_len);
                     unsafe {
                         // HACK: //TODO: create a separate impl
                         // for write padded bytes
+
                         let mut output_target = OutputTarget {
                             run_len: 1,
                             target_width: handle.target_width,
@@ -2005,7 +2026,14 @@ pub fn handle_tf_format_stream_value_update(
                             )),
                             remaining_len: len,
                         };
-                        write_padded_bytes(k, &mut output_target, data);
+
+                        write_padded_bytes_with_prefix_suffix(
+                            k,
+                            &mut output_target,
+                            data,
+                            left,
+                            right,
+                        );
                         tgt_buf.set_len(tgt_buf.len() + len);
                     };
                 }

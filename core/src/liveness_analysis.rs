@@ -592,7 +592,6 @@ impl LivenessData {
                                 let non_stringified = fk.width.is_some()
                                     || fk.add_plus_sign
                                     || fk.alternate_form
-                                    || fk.debug
                                     || fk.zero_pad_numbers
                                     || fk.fill.is_some()
                                     || fk.float_precision.is_some()
