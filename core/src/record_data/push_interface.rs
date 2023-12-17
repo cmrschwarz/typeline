@@ -1,5 +1,7 @@
 use std::{marker::PhantomData, mem::ManuallyDrop, ops::DerefMut};
 
+use num::{BigInt, BigRational};
+
 use super::{
     custom_data::CustomDataBox,
     field_data::{
@@ -7,8 +9,15 @@ use super::{
         FieldValueHeader, FieldValueRepr, FieldValueSize, FieldValueType,
         RunLength, MAX_FIELD_ALIGN,
     },
-    field_value::{FieldValue, SlicedFieldReference},
+    field_value::{
+        Array, FieldReference, FieldValue, Object, SlicedFieldReference,
+    },
+    ref_iter::{
+        AnyRefSliceIter, RefAwareInlineBytesIter, RefAwareInlineTextIter,
+        RefAwareTypedRange, RefAwareTypedSliceIter,
+    },
     stream_value::StreamValueId,
+    typed::TypedSlice,
 };
 use crate::{
     operators::errors::OperatorApplicationError,
@@ -37,9 +46,7 @@ pub unsafe trait PushInterface {
         try_header_rle: bool,
         try_data_rle: bool,
     );
-    unsafe fn push_fixed_size_type_unchecked<
-        T: PartialEq + Clone + FieldValueType,
-    >(
+    unsafe fn push_fixed_size_type_unchecked<T: PartialEq + FieldValueType>(
         &mut self,
         repr: FieldValueRepr,
         flags: FieldValueFlags,
@@ -93,7 +100,7 @@ pub unsafe trait PushInterface {
             );
         }
     }
-    fn push_fixed_size_type<T: PartialEq + Clone + FieldValueType>(
+    fn push_fixed_size_type<T: PartialEq + FieldValueType>(
         &mut self,
         data: T,
         run_length: usize,
@@ -275,6 +282,48 @@ pub unsafe trait PushInterface {
             try_data_rle,
         );
     }
+    fn push_big_int(
+        &mut self,
+        data: BigInt,
+        run_length: usize,
+        try_header_rle: bool,
+        try_data_rle: bool,
+    ) {
+        self.push_fixed_size_type(
+            data,
+            run_length,
+            try_header_rle,
+            try_data_rle,
+        );
+    }
+    fn push_float(
+        &mut self,
+        data: f64,
+        run_length: usize,
+        try_header_rle: bool,
+        try_data_rle: bool,
+    ) {
+        self.push_fixed_size_type(
+            data,
+            run_length,
+            try_header_rle,
+            try_data_rle,
+        );
+    }
+    fn push_rational(
+        &mut self,
+        data: BigRational,
+        run_length: usize,
+        try_header_rle: bool,
+        try_data_rle: bool,
+    ) {
+        self.push_fixed_size_type(
+            data,
+            run_length,
+            try_header_rle,
+            try_data_rle,
+        );
+    }
     fn push_stream_value_id(
         &mut self,
         id: StreamValueId,
@@ -303,9 +352,41 @@ pub unsafe trait PushInterface {
             try_data_rle,
         );
     }
-    fn push_reference(
+    fn push_object(
+        &mut self,
+        v: Object,
+        run_length: usize,
+        try_header_rle: bool,
+        try_data_rle: bool,
+    ) {
+        self.push_fixed_size_type(v, run_length, try_header_rle, try_data_rle);
+    }
+    fn push_array(
+        &mut self,
+        v: Array,
+        run_length: usize,
+        try_header_rle: bool,
+        try_data_rle: bool,
+    ) {
+        self.push_fixed_size_type(v, run_length, try_header_rle, try_data_rle);
+    }
+    fn push_sliced_field_reference(
         &mut self,
         reference: SlicedFieldReference,
+        run_length: usize,
+        try_header_rle: bool,
+        try_data_rle: bool,
+    ) {
+        self.push_fixed_size_type(
+            reference,
+            run_length,
+            try_header_rle,
+            try_data_rle,
+        );
+    }
+    fn push_field_reference(
+        &mut self,
+        reference: FieldReference,
         run_length: usize,
         try_header_rle: bool,
         try_data_rle: bool,
@@ -398,6 +479,364 @@ pub unsafe trait PushInterface {
                 try_header_rle,
                 try_data_rle,
             ),
+        }
+    }
+    fn extend_from_ref_aware_range(
+        &mut self,
+        range: RefAwareTypedRange,
+        try_header_rle: bool,
+        try_data_rle: bool,
+    ) {
+        // PERF: this sucks
+        let fc = range.base.field_count;
+        match range.base.data {
+            TypedSlice::Null(_) => self.push_null(fc, try_header_rle),
+            TypedSlice::Undefined(_) => {
+                self.push_undefined(fc, try_header_rle)
+            }
+            TypedSlice::Int(vals) => {
+                for (v, rl) in RefAwareTypedSliceIter::from_range(&range, vals)
+                {
+                    self.push_int(
+                        *v,
+                        rl as usize,
+                        try_header_rle,
+                        try_data_rle,
+                    );
+                }
+            }
+            TypedSlice::BigInt(vals) => {
+                for (v, rl) in RefAwareTypedSliceIter::from_range(&range, vals)
+                {
+                    self.push_big_int(
+                        v.clone(),
+                        rl as usize,
+                        try_header_rle,
+                        try_data_rle,
+                    );
+                }
+            }
+            TypedSlice::Float(vals) => {
+                for (v, rl) in RefAwareTypedSliceIter::from_range(&range, vals)
+                {
+                    self.push_float(
+                        *v,
+                        rl as usize,
+                        try_header_rle,
+                        try_data_rle,
+                    );
+                }
+            }
+            TypedSlice::Rational(vals) => {
+                for (v, rl) in RefAwareTypedSliceIter::from_range(&range, vals)
+                {
+                    self.push_rational(
+                        v.clone(),
+                        rl as usize,
+                        try_header_rle,
+                        try_data_rle,
+                    );
+                }
+            }
+            TypedSlice::BytesInline(vals) => {
+                // we can ignore the offset here because we copy
+                for (v, rl, _offset) in
+                    RefAwareInlineBytesIter::from_range(&range, vals)
+                {
+                    self.push_inline_bytes(
+                        v,
+                        rl as usize,
+                        try_header_rle,
+                        try_data_rle,
+                    );
+                }
+            }
+            TypedSlice::TextInline(vals) => {
+                // we can ignore the offset here because we copy
+                for (v, rl, _offset) in
+                    RefAwareInlineTextIter::from_range(&range, vals)
+                {
+                    self.push_inline_str(
+                        v,
+                        rl as usize,
+                        try_header_rle,
+                        try_data_rle,
+                    );
+                }
+            }
+            TypedSlice::BytesBuffer(vals) => {
+                for (v, rl) in RefAwareTypedSliceIter::from_range(&range, vals)
+                {
+                    self.push_bytes_buffer(
+                        v.clone(),
+                        rl as usize,
+                        try_header_rle,
+                        try_data_rle,
+                    );
+                }
+            }
+            TypedSlice::Object(vals) => {
+                for (v, rl) in RefAwareTypedSliceIter::from_range(&range, vals)
+                {
+                    self.push_object(
+                        v.clone(),
+                        rl as usize,
+                        try_header_rle,
+                        try_data_rle,
+                    );
+                }
+            }
+            TypedSlice::Array(vals) => {
+                for (v, rl) in RefAwareTypedSliceIter::from_range(&range, vals)
+                {
+                    self.push_array(
+                        v.clone(),
+                        rl as usize,
+                        try_header_rle,
+                        try_data_rle,
+                    );
+                }
+            }
+            TypedSlice::Custom(vals) => {
+                for (v, rl) in RefAwareTypedSliceIter::from_range(&range, vals)
+                {
+                    self.push_custom(
+                        v.clone(),
+                        rl as usize,
+                        try_header_rle,
+                        try_data_rle,
+                    );
+                }
+            }
+            TypedSlice::Error(vals) => {
+                for (v, rl) in RefAwareTypedSliceIter::from_range(&range, vals)
+                {
+                    self.push_error(
+                        v.clone(),
+                        rl as usize,
+                        try_header_rle,
+                        try_data_rle,
+                    );
+                }
+            }
+            TypedSlice::StreamValueId(vals) => {
+                for (v, rl) in RefAwareTypedSliceIter::from_range(&range, vals)
+                {
+                    self.push_stream_value_id(
+                        *v,
+                        rl as usize,
+                        try_header_rle,
+                        try_data_rle,
+                    );
+                }
+            }
+            TypedSlice::FieldReference(_)
+            | TypedSlice::SlicedFieldReference(_) => unreachable!(),
+        }
+    }
+    fn extend_from_ref_aware_range_smart_ref(
+        &mut self,
+        range: RefAwareTypedRange,
+        try_header_rle: bool,
+        try_data_rle: bool,
+        try_ref_data_rle: bool,
+    ) {
+        match range.base.data {
+            TypedSlice::Undefined(_)
+            | TypedSlice::Null(_)
+            | TypedSlice::Int(_)
+            | TypedSlice::Float(_)
+            | TypedSlice::StreamValueId(_) => {
+                self.extend_from_ref_aware_range(
+                    range,
+                    try_header_rle,
+                    try_data_rle,
+                );
+            }
+            TypedSlice::BigInt(_)
+            | TypedSlice::Rational(_)
+            | TypedSlice::BytesBuffer(_)
+            | TypedSlice::Array(_)
+            | TypedSlice::Custom(_)
+            | TypedSlice::Error(_)
+            | TypedSlice::Object(_) => {
+                // HACK: we should really do the opposite in add_field_ref
+                // and add the directly referenced field in the end
+                // so clone would just work
+                let idx = if let Some(idx) = range.field_id_offset {
+                    idx.get() + 1
+                } else {
+                    0
+                };
+                self.push_field_reference(
+                    FieldReference::new(idx),
+                    range.base.field_count,
+                    try_header_rle,
+                    try_ref_data_rle,
+                );
+            }
+            TypedSlice::TextInline(vals) => {
+                match range.refs {
+                    Some(AnyRefSliceIter::SlicedFieldRef(_)) => {
+                        // in this case we need to create sliced field refs
+                        // aswell to respect the offset
+                        for (v, rl, offset) in
+                            RefAwareInlineTextIter::from_range(&range, vals)
+                        {
+                            self.push_sliced_field_reference(
+                                SlicedFieldReference::new(
+                                    range.field_id_offset.unwrap().get(),
+                                    offset,
+                                    offset + v.len(),
+                                ),
+                                rl as usize,
+                                try_header_rle,
+                                try_data_rle,
+                            )
+                        }
+                    }
+                    Some(AnyRefSliceIter::FieldRef(_)) | None => {
+                        // HACK: we should really do the opposite in add_field_ref
+                        // and add the directly referenced field in the end
+                        // so clone would just work
+                        let idx = if let Some(idx) = range.field_id_offset {
+                            idx.get() + 1
+                        } else {
+                            0
+                        };
+                        self.push_field_reference(
+                            FieldReference::new(idx),
+                            range.base.field_count,
+                            try_header_rle,
+                            try_ref_data_rle,
+                        );
+                    }
+                }
+            }
+            TypedSlice::BytesInline(vals) => {
+                match range.refs {
+                    Some(AnyRefSliceIter::SlicedFieldRef(_)) => {
+                        // in this case we need to create sliced field refs
+                        // aswell to respect the offset
+                        for (v, rl, offset) in
+                            RefAwareInlineBytesIter::from_range(&range, vals)
+                        {
+                            self.push_sliced_field_reference(
+                                SlicedFieldReference::new(
+                                    range.field_id_offset.unwrap().get(),
+                                    offset,
+                                    offset + v.len(),
+                                ),
+                                rl as usize,
+                                try_header_rle,
+                                try_data_rle,
+                            )
+                        }
+                    }
+                    Some(AnyRefSliceIter::FieldRef(_)) | None => {
+                        // HACK: we should really do the opposite in add_field_ref
+                        // and add the directly referenced field in the end
+                        // so clone would just work
+                        let idx = if let Some(idx) = range.field_id_offset {
+                            idx.get() + 1
+                        } else {
+                            0
+                        };
+                        self.push_field_reference(
+                            FieldReference::new(idx),
+                            range.base.field_count,
+                            try_header_rle,
+                            try_ref_data_rle,
+                        );
+                    }
+                }
+            }
+            TypedSlice::FieldReference(_)
+            | TypedSlice::SlicedFieldReference(_) => unreachable!(),
+        }
+    }
+    unsafe fn extend_unchecked<T: FieldValueType + Sized>(
+        &mut self,
+        repr: FieldValueRepr,
+        flags: FieldValueFlags,
+        iter: impl Iterator<Item = T>,
+        try_header_rle: bool,
+        try_data_rle: bool,
+    ) {
+        if T::ZST {
+            self.push_zst(T::REPR, iter.count(), try_header_rle);
+            return;
+        }
+        // implementers of this trait would do well to specialize this
+        for v in iter {
+            unsafe {
+                self.push_fixed_size_type_unchecked(
+                    repr,
+                    flags,
+                    v,
+                    1,
+                    try_header_rle,
+                    try_data_rle,
+                );
+            }
+        }
+    }
+    fn extend_from_strings(
+        &mut self,
+        iter: impl Iterator<Item = String>,
+        try_header_rle: bool,
+        try_data_rle: bool,
+    ) {
+        unsafe {
+            self.extend_unchecked(
+                FieldValueRepr::BytesBuffer,
+                field_value_flags::BYTES_ARE_UTF8,
+                iter.map(|v| v.into_bytes()),
+                try_header_rle,
+                try_data_rle,
+            )
+        }
+    }
+    fn extend<T: FieldValueType + Sized>(
+        &mut self,
+        iter: impl Iterator<Item = T>,
+        try_header_rle: bool,
+        try_data_rle: bool,
+    ) {
+        unsafe {
+            self.extend_unchecked(
+                T::REPR,
+                T::FLAGS,
+                iter,
+                try_header_rle,
+                try_data_rle,
+            )
+        }
+    }
+    fn extend_with_variable_sized_types<
+        'a,
+        T: FieldValueType + ?Sized + 'a,
+    >(
+        &mut self,
+        iter: impl Iterator<Item = &'a T>,
+        try_header_rle: bool,
+        try_data_rle: bool,
+    ) {
+        // implementers of this trait would do well to specialize this
+        for v in iter {
+            unsafe {
+                self.push_variable_sized_type_unchecked(
+                    T::REPR,
+                    T::FLAGS,
+                    std::slice::from_raw_parts(
+                        v as *const T as *const u8,
+                        std::mem::size_of_val(v),
+                    ),
+                    1,
+                    try_header_rle,
+                    try_data_rle,
+                );
+            }
         }
     }
 }
@@ -739,9 +1178,7 @@ unsafe impl PushInterface for FieldData {
             self.data.extend_from_slice(data);
         }
     }
-    unsafe fn push_fixed_size_type_unchecked<
-        T: PartialEq + Clone + FieldValueType,
-    >(
+    unsafe fn push_fixed_size_type_unchecked<T: PartialEq + FieldValueType>(
         &mut self,
         repr: FieldValueRepr,
         flags: FieldValueFlags,
@@ -1502,9 +1939,7 @@ unsafe impl<FD: DerefMut<Target = FieldData>> PushInterface
             std::ptr::copy_nonoverlapping(data.as_ptr(), data_ptr, data.len());
         }
     }
-    unsafe fn push_fixed_size_type_unchecked<
-        T: PartialEq + Clone + FieldValueType,
-    >(
+    unsafe fn push_fixed_size_type_unchecked<T: PartialEq + FieldValueType>(
         &mut self,
         repr: FieldValueRepr,
         flags: FieldValueFlags,

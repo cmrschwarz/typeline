@@ -24,9 +24,8 @@ use scr_core::{
         field_action::FieldActionKind::Drop,
         field_data::RunLength,
         iter_hall::IterId,
-        iters::{BoundedIter, DestructuredFieldDataRef, Iter},
         push_interface::PushInterface,
-        ref_iter::{AutoDerefIter, RefAwareTypedSliceIter},
+        ref_iter::RefAwareTypedSliceIter,
         typed::TypedSlice,
     },
     smallbox,
@@ -272,14 +271,7 @@ impl Operator for OpSum {
 }
 
 impl TfSum {
-    fn transform_update<'a>(
-        &mut self,
-        bud: BasicUpdateData,
-        iter: &mut AutoDerefIter<
-            'a,
-            BoundedIter<'a, Iter<'a, DestructuredFieldDataRef<'a>>>,
-        >,
-    ) -> (usize, bool) {
+    fn transform_update(&mut self, bud: BasicUpdateData) -> (usize, bool) {
         let fpm = bud.session_data.chains[bud.session_data.operator_bases
             [bud.tf_mgr.transforms[bud.tf_id].op_id.unwrap() as usize]
             .chain_id
@@ -288,7 +280,7 @@ impl TfSum {
             .floating_point_math;
         let mut res = 0;
         while let (Some(range), false) =
-            (iter.next_range(bud.match_set_mgr), self.error_occured)
+            (bud.iter.next_range(bud.match_set_mgr), self.error_occured)
         {
             match range.base.data {
                 TypedSlice::Int(ints) => {
@@ -382,12 +374,8 @@ impl Transform for TfSum {
         jd: &mut JobData,
         tf_id: scr_core::operators::transform::TransformId,
     ) {
-        basic_transform_update(
-            jd,
-            tf_id,
-            [],
-            self.input_iter_id,
-            |bud, iter| self.transform_update(bud, iter),
-        );
+        basic_transform_update(jd, tf_id, [], self.input_iter_id, |bud| {
+            self.transform_update(bud)
+        });
     }
 }

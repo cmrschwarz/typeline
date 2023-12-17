@@ -22,9 +22,7 @@ use scr_core::{
     record_data::{
         field::FieldId,
         iter_hall::IterId,
-        iters::{BoundedIter, DestructuredFieldDataRef, Iter},
         push_interface::PushInterface,
-        ref_iter::AutoDerefIter,
         stream_value::{StreamValue, StreamValueData, StreamValueId},
         typed::TypedValue,
     },
@@ -186,17 +184,10 @@ impl TfHttpRequest {
         Ok(stream_value)
     }
 
-    fn basic_update<'a>(
-        &mut self,
-        mut bud: BasicUpdateData,
-        iter: &mut AutoDerefIter<
-            'a,
-            BoundedIter<'a, Iter<'a, DestructuredFieldDataRef<'a>>>,
-        >,
-    ) -> (usize, bool) {
+    fn basic_update(&mut self, mut bud: BasicUpdateData) -> (usize, bool) {
         let mut of = bud.field_mgr.fields[bud.output_field_id].borrow_mut();
         let mut inserter = of.iter_hall.varying_type_inserter();
-        while let Some((v, rl, _)) = iter.next_value(bud.match_set_mgr) {
+        while let Some((v, rl, _)) = bud.iter.next_value(bud.match_set_mgr) {
             // we properly support fetching from the same url mutliple times,
             // but we don't bother making that fast
             for _ in 0..rl {
@@ -313,8 +304,8 @@ impl Transform for TfHttpRequest {
     }
 
     fn update(&mut self, jd: &mut JobData, tf_id: TransformId) {
-        basic_transform_update(jd, tf_id, [], self.iter_id, |bud, iter| {
-            self.basic_update(bud, iter)
+        basic_transform_update(jd, tf_id, [], self.iter_id, |bud| {
+            self.basic_update(bud)
         })
     }
     fn stream_producer_update(

@@ -5,6 +5,7 @@ pub mod count;
 pub mod errors;
 pub mod explode;
 pub mod file_reader;
+pub mod flatten;
 pub mod fork;
 pub mod forkcat;
 pub mod format;

@@ -135,8 +135,9 @@ pub mod field_value_flags {
 }
 
 // used to constrain generic functions that accept data for field values
-pub unsafe trait FieldValueType {
+pub unsafe trait FieldValueType: PartialEq {
     const REPR: FieldValueRepr;
+    const FLAGS: FieldValueFlags = field_value_flags::DEFAULT;
     const DST: bool = false;
     const ZST: bool = false;
 }
@@ -164,6 +165,7 @@ unsafe impl FieldValueType for OperatorApplicationError {
     const REPR: FieldValueRepr = FieldValueRepr::Error;
 }
 unsafe impl FieldValueType for [u8] {
+    const FLAGS: FieldValueFlags = field_value_flags::BYTES_ARE_UTF8;
     const REPR: FieldValueRepr = FieldValueRepr::BytesInline;
     const DST: bool = true;
 }

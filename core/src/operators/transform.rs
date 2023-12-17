@@ -190,7 +190,7 @@ pub trait Transform: Send {
 // TransformUtils::basic_update needs
 // to borrow the field manager in order to produce the iterator
 // that it forwards into its closure
-pub struct BasicUpdateData<'a> {
+pub struct BasicUpdateData<'a, 'b> {
     pub session_data: &'a Session,
     pub tf_mgr: &'a mut TransformManager,
     pub match_set_mgr: &'a mut MatchSetManager,
@@ -203,6 +203,10 @@ pub struct BasicUpdateData<'a> {
     pub output_field_id: FieldId,
     pub match_set_id: MatchSetId,
     pub tf_id: TransformId,
+    pub iter: &'a mut AutoDerefIter<
+        'b,
+        BoundedIter<'b, Iter<'b, DestructuredFieldDataRef<'b>>>,
+    >,
 }
 
 pub fn basic_transform_update(
@@ -212,13 +216,7 @@ pub fn basic_transform_update(
     // is the only output
     extra_output_fields: impl IntoIterator<Item = FieldId>,
     input_iter_id: IterId,
-    mut f: impl for<'a> FnMut(
-        BasicUpdateData,
-        &mut AutoDerefIter<
-            'a,
-            BoundedIter<'a, Iter<'a, DestructuredFieldDataRef<'a>>>,
-        >,
-    ) -> (usize, bool),
+    mut f: impl for<'b> FnMut(BasicUpdateData<'_, 'b>) -> (usize, bool),
 ) {
     let (batch_size, input_done) = jd.tf_mgr.claim_batch(tf_id);
     let tf = &jd.tf_mgr.transforms[tf_id];
@@ -241,23 +239,21 @@ pub fn basic_transform_update(
         input_iter_id,
         batch_size,
     );
-    let (produced_fields, done) = f(
-        BasicUpdateData {
-            field_mgr: &jd.field_mgr,
-            session_data: jd.session_data,
-            tf_mgr: &mut jd.tf_mgr,
-            match_set_mgr: &mut jd.match_set_mgr,
-            sv_mgr: &mut jd.sv_mgr,
-            temp_vec: &mut jd.temp_vec,
-            batch_size,
-            input_done,
-            input_field_id,
-            output_field_id,
-            match_set_id,
-            tf_id,
-        },
-        &mut iter,
-    );
+    let (produced_fields, done) = f(BasicUpdateData {
+        field_mgr: &jd.field_mgr,
+        session_data: jd.session_data,
+        tf_mgr: &mut jd.tf_mgr,
+        match_set_mgr: &mut jd.match_set_mgr,
+        sv_mgr: &mut jd.sv_mgr,
+        temp_vec: &mut jd.temp_vec,
+        batch_size,
+        input_done,
+        input_field_id,
+        output_field_id,
+        match_set_id,
+        tf_id,
+        iter: &mut iter,
+    });
     jd.field_mgr.store_iter(input_field_id, input_iter_id, iter);
     drop(input_field);
     if done {

@@ -626,6 +626,11 @@ impl<'a> RefAwareInlineBytesIter<'a> {
 
 impl<'a> Iterator for RefAwareInlineBytesIter<'a> {
     type Item = (&'a [u8], RunLength, usize);
+
+    // returns a triple of (data, run length, offset)
+    // the offset is the position of data in the original data slice
+    // this is needed if we want to create a field reference into the
+    // original data, because it has to include that offset
     #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
         match &mut self.refs {
@@ -1053,7 +1058,7 @@ mod ref_iter_tests {
         );
     }
     fn push_ref(fd: &mut FieldData, begin: usize, end: usize, rl: usize) {
-        fd.push_reference(
+        fd.push_sliced_field_reference(
             SlicedFieldReference {
                 field_id_offset: NonMaxU16::ZERO,
                 begin,

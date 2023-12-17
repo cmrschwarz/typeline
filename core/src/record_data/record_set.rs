@@ -53,9 +53,7 @@ unsafe impl PushInterface for RecordSet {
         }
     }
 
-    unsafe fn push_fixed_size_type_unchecked<
-        T: PartialEq + Clone + FieldValueType,
-    >(
+    unsafe fn push_fixed_size_type_unchecked<T: PartialEq + FieldValueType>(
         &mut self,
         repr: FieldValueRepr,
         flags: FieldValueFlags,

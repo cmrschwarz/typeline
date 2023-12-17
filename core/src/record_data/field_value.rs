@@ -1,6 +1,7 @@
 use std::ops::{Add, AddAssign, Div, MulAssign, Rem, Sub};
 
 use indexmap::IndexMap;
+use nonmax::NonMaxU16;
 use num::{BigInt, BigRational, FromPrimitive, One, Signed, Zero};
 
 use crate::{
@@ -60,9 +61,9 @@ pub enum FieldValue {
     SlicedFieldReference(SlicedFieldReference),
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Null;
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Undefined;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -97,6 +98,45 @@ pub struct SlicedFieldReference {
     pub field_id_offset: FieldIdOffset,
     pub begin: usize,
     pub end: usize,
+}
+
+impl SlicedFieldReference {
+    pub fn new(idx: u16, begin: usize, end: usize) -> Self {
+        Self {
+            field_id_offset: NonMaxU16::new(idx).unwrap(),
+            begin,
+            end,
+        }
+    }
+}
+impl FieldReference {
+    pub fn new(idx: u16) -> Self {
+        Self {
+            field_id_offset: NonMaxU16::new(idx).unwrap(),
+        }
+    }
+}
+
+impl Array {
+    pub fn len(&self) -> usize {
+        match self {
+            Array::Null(len) => *len,
+            Array::Undefined(len) => *len,
+            Array::Int(a) => a.len(),
+            Array::Bytes(a) => a.len(),
+            Array::String(a) => a.len(),
+            Array::Error(a) => a.len(),
+            Array::Array(a) => a.len(),
+            Array::Object(a) => a.len(),
+            Array::FieldReference(a) => a.len(),
+            Array::SlicedFieldReference(a) => a.len(),
+            Array::Custom(a) => a.len(),
+            Array::Mixed(a) => a.len(),
+        }
+    }
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 impl FieldValueKind {

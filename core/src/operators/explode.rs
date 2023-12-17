@@ -12,9 +12,9 @@ use crate::{
     },
     options::argument::CliArgIdx,
     record_data::{
-        field::{FieldId, FieldIdOffset, FieldManager},
-        field_data::{FieldData, FieldValueRepr},
-        field_value::{FieldReference, FieldValue, Object},
+        field::{FieldId, FieldManager},
+        field_data::FieldData,
+        field_value::{FieldValue, Object},
         iter_hall::IterId,
         match_set::{MatchSetId, MatchSetManager},
         push_interface::{PushInterface, VaryingTypeInserter},
@@ -196,41 +196,12 @@ impl Transform for TfExplode {
 
         while let Some(range) = iter.next_range(&mut jd.match_set_mgr) {
             match range.base.data {
-                TypedSlice::Undefined(_) => inserters[0].push_zst(
-                    FieldValueRepr::Undefined,
-                    range.base.field_count,
-                    true,
-                ),
-                TypedSlice::Null(_) => inserters[0].push_zst(
-                    FieldValueRepr::Undefined,
-                    range.base.field_count,
-                    true,
-                ),
-                TypedSlice::Int(ints) => {
-                    for (v, rl) in
-                        TypedSliceIter::from_range(&range.base, ints)
-                    {
-                        inserters[0].push_fixed_size_type(
-                            *v,
-                            rl as usize,
-                            true,
-                            false,
-                        );
-                    }
-                }
-                TypedSlice::Float(floats) => {
-                    for (v, rl) in
-                        TypedSliceIter::from_range(&range.base, floats)
-                    {
-                        inserters[0].push_fixed_size_type(
-                            *v,
-                            rl as usize,
-                            true,
-                            false,
-                        );
-                    }
-                }
-                TypedSlice::BigInt(_)
+                TypedSlice::Undefined(_)
+                | TypedSlice::Null(_)
+                | TypedSlice::Int(_)
+                | TypedSlice::Float(_)
+                | TypedSlice::StreamValueId(_)
+                | TypedSlice::BigInt(_)
                 | TypedSlice::Rational(_)
                 | TypedSlice::BytesInline(_)
                 | TypedSlice::TextInline(_)
@@ -238,32 +209,9 @@ impl Transform for TfExplode {
                 | TypedSlice::Array(_)
                 | TypedSlice::Custom(_)
                 | TypedSlice::Error(_) => {
-                    let idx = if let Some(idx) = range.field_id_offset {
-                        idx.get() + 1
-                    } else {
-                        0
-                    };
-                    let fr = FieldReference {
-                        field_id_offset: FieldIdOffset::new(idx).unwrap(),
-                    };
-                    inserters[0].push_fixed_size_type(
-                        fr,
-                        range.base.field_count,
-                        true,
-                        false,
+                    inserters[0].extend_from_ref_aware_range_smart_ref(
+                        range, true, false, true,
                     );
-                }
-                TypedSlice::StreamValueId(vals) => {
-                    for (v, rl) in
-                        TypedSliceIter::from_range(&range.base, vals)
-                    {
-                        inserters[0].push_fixed_size_type(
-                            *v,
-                            rl as usize,
-                            true,
-                            false,
-                        );
-                    }
                 }
                 TypedSlice::Object(objects) => {
                     let mut string_store = None;
