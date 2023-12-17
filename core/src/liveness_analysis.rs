@@ -589,13 +589,15 @@ impl LivenessData {
                             FormatPart::ByteLiteral(_) => (),
                             FormatPart::TextLiteral(_) => (),
                             FormatPart::Key(fk) => {
-                                let non_stringified = fk.width.is_some()
-                                    || fk.add_plus_sign
-                                    || fk.alternate_form
-                                    || fk.zero_pad_numbers
-                                    || fk.fill.is_some()
-                                    || fk.float_precision.is_some()
-                                    || fk.format_type != FormatType::Default;
+                                let non_stringified =
+                                    fk.min_char_count.is_some()
+                                        || fk.add_plus_sign
+                                        || fk.alternate_form
+                                        || fk.zero_pad_numbers
+                                        || fk.fill.is_some()
+                                        || fk.float_precision.is_some()
+                                        || fk.format_options
+                                            != FormatType::Default;
                                 if let Some(name) =
                                     fmt.refs_idx[fk.ref_idx as usize]
                                 {
@@ -612,7 +614,7 @@ impl LivenessData {
                                         non_stringified;
                                 }
                                 if let Some(FormatWidthSpec::Ref(ws_ref)) =
-                                    fk.width
+                                    fk.min_char_count
                                 {
                                     if let Some(name) =
                                         fmt.refs_idx[ws_ref as usize]

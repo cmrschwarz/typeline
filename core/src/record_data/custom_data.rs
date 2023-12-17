@@ -1,5 +1,7 @@
 use std::{any::Any, borrow::Cow, cmp::Ordering, fmt::Debug};
 
+use crate::operators::format::{FormatPart, RealizedFormatKey};
+
 pub fn custom_data_reference_eq<T: CustomData + ?Sized>(
     lhs: &T,
     rhs: &dyn CustomData,
@@ -119,37 +121,22 @@ pub trait CustomDataSafe: Any + Send + Sync + Clone + Debug {
     }
     fn type_name(&self) -> Cow<str>;
 
-    fn stringified_len(&self) -> Option<usize>;
-    fn stringified_char_count(&self) -> Option<usize>;
-    fn stringify_utf8(&self, w: &mut dyn std::fmt::Write) -> std::fmt::Result;
+    fn stringified_len(&self, format: &RealizedFormatKey) -> Option<usize>;
+    fn stringified_char_count(
+        &self,
+        format: &RealizedFormatKey,
+    ) -> Option<usize>;
+    fn stringify_utf8(
+        &self,
+        w: &mut dyn std::fmt::Write,
+        format: &RealizedFormatKey,
+    ) -> std::fmt::Result;
     fn stringify_non_utf8(
         &self,
         _w: &mut dyn std::io::Write,
+        format: &RealizedFormatKey,
     ) -> std::io::Result<()> {
         unimplemented!()
-    }
-
-    fn debug_stringified_len(&self) -> Option<usize> {
-        self.stringified_len().map(|l| l + 2)
-    }
-    fn debug_stringified_char_count(&self) -> Option<usize> {
-        self.stringified_char_count().map(|cc| cc + 2)
-    }
-    fn debug_stringify_utf8(
-        &self,
-        w: &mut dyn std::fmt::Write,
-    ) -> std::fmt::Result {
-        w.write_char('`')?;
-        self.stringify_utf8(w)?;
-        w.write_char('`')
-    }
-    fn debug_stringify_non_utf8(
-        &self,
-        w: &mut dyn std::io::Write,
-    ) -> std::io::Result<()> {
-        w.write_all(b"`")?;
-        self.stringify_non_utf8(w)?;
-        w.write_all(b"`")
     }
 }
 

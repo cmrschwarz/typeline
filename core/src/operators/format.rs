@@ -1,12 +1,14 @@
 use arrayvec::{ArrayString, ArrayVec};
 use bstr::ByteSlice;
 use nonmax::NonMaxUsize;
-use std::{borrow::Cow, cell::RefMut, fmt::Write, ptr::NonNull};
+use std::{borrow::Cow, cell::RefMut, fmt::Write, ops::Index, ptr::NonNull};
+use unicode_ident::is_xid_start;
 
 use smallstr::SmallString;
 
 use crate::{
     job_session::JobData,
+    operators::utils::tyson::is_valid_identifier,
     options::argument::CliArgIdx,
     record_data::{
         field::{Field, FieldId, FieldManager},
@@ -98,34 +100,84 @@ impl Default for FormatWidthSpec {
     }
 }
 
+/*
+// format string grammar:
+
+format_string = ( [<brace_escaped_text>] [format_key] )*
+format_key = '{' [key] [ ':' format_spec ] '}'
+format_spec = [[fill]align]['+']['#'|'##']['0'][width]['.'precision][debug_repr[number_format]]
+fill = <any character>
+align = '<' | '^' | '>'
+debug_repr = ['?' | '??'] ['%'] | '%'
+number_format = 'x' | 'X' | '0x' | '0X' | 'o' | '0o' | 'b' | '0b' | 'e' | 'E'
+key = identifier
+width = identifier | number
+precision = identifier | number
+identifier = basic_identifier | escaped_identifier
+basic_identifier = '\p{XID_Start}' '\p{XID_Continue}'
+escaped_identifier = '@{' <brace_escaped_text> '}'
+
+*/
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
-pub enum FormatType {
+pub enum NumberFormat {
     #[default]
-    Default, // the default value representation
-    Debug, // add typing information e.g. "42" insead of 42 (the string)
-    MoreDebug, // like debug, but prefix >>> for stream values
-    Binary, // print integers with base 2, e.g 101010 instead of 42
-    Octal, // print integers with base 8, e.g 52 instead of 42
-    Hex,   // print integers in lower case hexadecimal, e.g 2a instead of 42
-    UpperHex, // print integers in upper case hexadecimal, e.g 2A instead of 42
-    LowerExp, /* print numbers in lower case scientific notation, e.g. 4.2e1
-            * instead of 42 */
-    UpperExp, /* print numbers in upper case scientific notation, e.g.
-               * 4.2E1 instead of 42 */
+    Default, // the default value representation, e.g. '42' for 42
+    Binary,        // base 2, e.g '101010' for 42
+    BinaryZeroB,   // binary, but with leading 0b, e.g. '0b101010' for 42
+    Octal,         // base 8, e.g '52' for 42
+    OctalZeroO,    // ocatl, but with leading 0o, e.g. '0o52' for 42
+    LowerHex,      // lower case hexadecimal, e.g '2a' for 42
+    UpperHex,      // upper case hexadecimal, e.g '2A' for 42
+    LowerHexZeroX, // like LowerHex, but with leading 0x, e.g. '0x2a' for 42
+    UpperHexZeroX, // like UpperHex, but with leading 0x, e.g. '0x2A' for 42
+    LowerExp,      // lower case scientific notation, e.g. '4.2e1' for 42
+    UpperExp,      // upper case scientific notation, e.g. '4.2E1' for 42
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub enum TypeReprFormat {
+    #[default]
+    Regular, // regular representation, without string escaping etc.
+    Typed, // typed + escaped, e.g. "foo\n" insead of foo<newline>, no errors
+    Debug, // like typed, but prefix ~ for stream values
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub enum PrettyPrintFormat {
+    #[default]
+    Regular, // default. objects & arrays get spaces, but stay on one line
+    Pretty, // add newlines and indentation to objects. adds 0x to hex numbers
+    Compact, // no spaces at all
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct FormatOptions {
+    pub fill: Option<FormatFillSpec>,
+    pub add_plus_sign: bool,
+
+    pub number_format: NumberFormat,
+
+    pub type_repr: TypeReprFormat,
+
+    pub pretty_print: PrettyPrintFormat,
+
+    pub zero_pad_numbers: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct FormatKey {
     pub ref_idx: FormatKeyRefId,
-    pub fill: Option<FormatFillSpec>,
-    pub add_plus_sign: bool,
-    pub zero_pad_numbers: bool,
-    pub width: Option<FormatWidthSpec>,
+    pub min_char_count: Option<FormatWidthSpec>,
     pub float_precision: Option<FormatWidthSpec>,
-    pub alternate_form: bool, /* prefix 0x for hex, 0o for octal and 0b for
-                               * binary, pretty print objects / arrays */
-    pub format_type: FormatType,
-    pub unicode: bool,
+    pub opts: FormatOptions,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct RealizedFormatKey {
+    pub min_char_count: Option<usize>,
+    pub float_precision: Option<usize>,
+    pub opts: FormatOptions,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -170,10 +222,11 @@ struct FormatError {
 }
 #[derive(Default, Clone, Copy)]
 struct OutputState {
-    next: usize,
-    len: usize,
-    target_width: usize,
     run_len: usize,
+    len: usize,
+    next: usize,
+    min_char_count: usize,
+    float_precision: usize, // for non floats, this is the max width
     contains_raw_bytes: bool,
     contained_error: Option<FormatError>,
     incomplete_stream_value_handle: Option<TfFormatStreamValueHandleId>,
@@ -181,7 +234,8 @@ struct OutputState {
 
 struct OutputTarget {
     run_len: usize,
-    target_width: usize,
+    target_char_count: usize,
+    float_precision: usize,
     target: Option<NonNull<u8>>,
     remaining_len: usize,
 }
@@ -196,6 +250,16 @@ pub struct TfFormat<'a> {
         TfFormatStreamValueHandle,
     >,
 }
+
+impl FormatOptions {
+    fn fill_char_width(&self) -> usize {
+        if let Some(f) = self.fill {
+            return f.fill_char.map(|c| c.len_utf8()).unwrap_or(1);
+        }
+        1
+    }
+}
+
 // SAFETY:
 // while OutputTargets Pointer is not thread safe,
 // we make sure that output_states and output_targets is always empty
@@ -374,53 +438,63 @@ pub fn parse_format_flags(
     key: &mut FormatKey,
     refs: &mut Vec<Option<String>>,
 ) -> Result<usize, (usize, Cow<'static, str>)> {
-    fn next(fmt: &[u8], i: usize) -> Result<char, (usize, Cow<'static, str>)> {
-        Ok(*fmt.get(i).ok_or((i, NO_CLOSING_BRACE_ERR))? as char)
+    fn next(
+        fmt: &[u8],
+        i: &mut usize,
+    ) -> Result<char, (usize, Cow<'static, str>)> {
+        if fmt.len() == *i {
+            return Err((*i, NO_CLOSING_BRACE_ERR));
+        }
+        let c = (&fmt[*i..]).chars().next().unwrap();
+        *i += c.len_utf8();
+        Ok(c)
     }
 
-    debug_assert!(fmt[start] == b':');
-    let mut i = start + 1;
-    let mut c = next(fmt, i)?;
+    let mut i = start;
+    let mut c = next(fmt, &mut i)?;
     if c == '}' {
-        return Ok(1);
+        return Ok(i);
     }
-    const ALIGNMENT_SPECS: [char; 3] = ['<', '>', '^'];
+    const ALIGNMENT_CHARS: [char; 3] = ['<', '>', '^'];
+    const ALIGNMENT_VALS: [FormatFillAlignment; 3] = [
+        FormatFillAlignment::Left,
+        FormatFillAlignment::Center,
+        FormatFillAlignment::Right,
+    ];
 
     let mut align_spec = None;
-    let mut align_char = None;
-    if ALIGNMENT_SPECS.contains(&c) {
-        align_spec = Some(c);
-        i += 1;
-    } else if c != '}' {
-        let c2 = next(fmt, i + 1)?;
-        if ALIGNMENT_SPECS.contains(&c2) {
-            align_char = Some(c);
-            align_spec = Some(c2);
-            i += 2;
-        }
-    }
-    key.fill = match align_spec {
-        Some('<') => {
-            Some(FormatFillSpec::new(align_char, FormatFillAlignment::Left))
-        }
-        Some('^') => {
-            Some(FormatFillSpec::new(align_char, FormatFillAlignment::Center))
-        }
-        Some('>') => {
-            Some(FormatFillSpec::new(align_char, FormatFillAlignment::Right))
-        }
-        _ => None,
-    };
-    if key.fill.is_some() {
-        c = next(fmt, i)?;
+    let mut fill_char = None;
+    if let Some(idx) = ALIGNMENT_CHARS.iter().position(|v| *v == c) {
+        align_spec = Some(ALIGNMENT_VALS[idx]);
+        c = next(fmt, &mut i)?;
+    } else {
         if c == '}' {
-            return Ok(1);
+            if i + 1 == fmt.len() || fmt[i + 1] != b'}' {
+                return Ok(i);
+            }
+            i += 1;
+        }
+        let c2 = next(fmt, &mut i)?;
+
+        if let Some(idx) = ALIGNMENT_CHARS.iter().position(|v| *v == c2) {
+            fill_char = Some(c);
+            align_spec = Some(ALIGNMENT_VALS[idx]);
+        } else if c == '}' {
+            return Err((
+                i - c2.len_utf8() - 2,
+                "unexpected escaped brace in format key".into(),
+            ));
+        } else {
+            i -= c2.len_utf8();
         }
     }
+    key.opts.fill = align_spec.map(|a| FormatFillSpec {
+        fill_char,
+        alignment: a,
+    });
     if c == '+' {
-        key.add_plus_sign = true;
-        i += 1;
-        c = next(fmt, i)?;
+        key.opts.add_plus_sign = true;
+        c = next(fmt, &mut i)?;
     } else if c == '-' {
         return Err((
             i,
@@ -429,64 +503,81 @@ pub fn parse_format_flags(
         ));
     }
     if c == '#' {
-        key.alternate_form = true;
-        i += 1;
-        c = next(fmt, i)?;
+        c = next(fmt, &mut i)?;
+        if c == '#' {
+            key.opts.pretty_print = PrettyPrintFormat::Compact;
+            c = next(fmt, &mut i)?;
+        } else {
+            key.opts.pretty_print = PrettyPrintFormat::Pretty;
+        }
     }
     if c == '0' {
-        key.zero_pad_numbers = true;
-        i += 1;
-        c = next(fmt, i)?;
+        key.opts.zero_pad_numbers = true;
+        c = next(fmt, &mut i)?;
     }
-    let c2 = next(fmt, i + 1)?;
-    if !".}?".contains(c) && c2 != '?' {
-        (key.width, i) = parse_format_width_spec::<false>(fmt, i, refs)?;
-        c = next(fmt, i)?;
+    if c.is_ascii_digit() || is_xid_start(c) || c == '@' {
+        (key.min_char_count, i) =
+            parse_format_width_spec::<false>(fmt, i - c.len_utf8(), refs)?;
+        c = next(fmt, &mut i)?;
     }
     if c == '.' {
         (key.float_precision, i) =
             parse_format_width_spec::<true>(fmt, i + 1, refs)?;
-        c = next(fmt, i)?;
+        c = next(fmt, &mut i)?;
+    }
+    if c == '?' {
+        c = next(fmt, &mut i)?;
+        if c == '?' {
+            key.opts.type_repr = TypeReprFormat::Typed;
+            c = next(fmt, &mut i)?;
+        } else {
+            key.opts.type_repr = TypeReprFormat::Debug;
+        }
+    } else if c != '_' && c != '}' {
+        return Err((
+            i - c.len_utf8(),
+            format!("unexpected character '{c}'").into(),
+        ));
+    }
+    if c == '%' {
+        // regular repr mode, no action needed
+        c = next(fmt, &mut i)?;
     }
 
-    if c == '?' && c2 != '?' {
-        key.format_type = FormatType::Debug;
-        i += 1;
-        c = next(fmt, i)?;
-    } else {
-        if c == '}' {
-            return Ok(i);
-        }
-        let c2 = next(fmt, i + 1)?;
-        if c2 != '?' {
+    if c == '}' {
+        return Ok(i);
+    }
+    let c2 = next(fmt, &mut i)?;
+
+    let (len, num_format) = match (c, c2) {
+        ('b', _) => (1, NumberFormat::Binary),
+        ('0', 'b') => (2, NumberFormat::BinaryZeroB),
+        ('o', _) => (1, NumberFormat::Octal),
+        ('0', 'o') => (2, NumberFormat::OctalZeroO),
+        ('x', _) => (1, NumberFormat::LowerHex),
+        ('0', 'x') => (2, NumberFormat::LowerHexZeroX),
+        ('X', _) => (1, NumberFormat::UpperHex),
+        ('0', 'X') => (2, NumberFormat::UpperHexZeroX),
+        ('e', _) => (1, NumberFormat::LowerExp),
+        ('E', _) => (1, NumberFormat::LowerExp),
+        _ => {
             return Err((
                 i,
-                format!("expected '?' after type specifier '{c}'").into(),
-            ));
+                format!("unknown number format specifier '{c}' ").into(),
+            ))
         }
-        match c {
-            '?' => key.format_type = FormatType::MoreDebug,
-            'x' => key.format_type = FormatType::Hex,
-            'X' => key.format_type = FormatType::UpperHex,
-            'o' => key.format_type = FormatType::Octal,
-            'b' => key.format_type = FormatType::Binary,
-            'e' => key.format_type = FormatType::LowerExp,
-            'E' => key.format_type = FormatType::UpperExp,
-            _ => {
-                return Err((
-                    i,
-                    format!("unknown type specifier '{c}?' ").into(),
-                ))
-            }
-        }
-        i += 2;
-        c = next(fmt, i)?;
+    };
+    key.opts.number_format = num_format;
+    if len == 1 {
+        c = c2;
+    } else {
+        c = next(fmt, &mut i)?;
     }
+
     if c != '}' {
         return Err((
-            i,
-            format!("expected '}}' to terminate format key, found '{c}'")
-                .into(),
+            i - c.len_utf8(),
+            format!("unexpected character in format key: '{c}' ").into(),
         ));
     }
     Ok(i)
@@ -520,11 +611,11 @@ pub fn parse_format_key(
         };
         refs.push(ref_val);
         key.ref_idx = refs.len() as FormatKeyRefId - 1;
-        i = end;
+        i = end + 1;
         if c0 == ':' {
             i = parse_format_flags(fmt, i, &mut key, refs)?;
         }
-        return Ok((key, i + 1));
+        return Ok((key, i));
     }
     Err((fmt.len(), NO_CLOSING_BRACE_ERR))
 }
@@ -672,31 +763,36 @@ fn iter_output_targets(
 fn calc_text_len(
     k: &FormatKey,
     text_len: usize,
-    target_width: usize,
-    text_char_count: &mut impl ValueProducingCallable<usize>,
+    quotes_len: usize,
+    ouput: &OutputState,
+    text: &[u8],
 ) -> usize {
-    let max_width = match k.width {
-        Some(FormatWidthSpec::Ref(_)) => target_width,
+    let min_chars = match k.min_char_count {
+        Some(FormatWidthSpec::Ref(_)) => ouput.min_char_count,
         Some(FormatWidthSpec::Value(v)) => v,
         None => 0,
     };
-    if (text_len / MAX_UTF8_CHAR_LEN) >= max_width {
-        text_len
-    } else {
-        let char_count = text_char_count.call();
-        if char_count >= max_width {
-            text_len
-        } else {
-            text_len
-                + (max_width - char_count)
-                    * k.fill
-                        .as_ref()
-                        .map(|f| {
-                            f.fill_char.map(|c| c.len_utf8()).unwrap_or(1)
-                        })
-                        .unwrap_or(1)
+    let min_chars = min_chars.max(quotes_len);
+    let max_chars = match k.float_precision {
+        Some(FormatWidthSpec::Ref(_)) => ouput.float_precision,
+        Some(FormatWidthSpec::Value(v)) => v,
+        None => usize::MAX,
+    };
+    if max_chars == usize::MAX {
+        if (text_len / MAX_UTF8_CHAR_LEN + quotes_len) >= min_chars {
+            return text_len + quotes_len;
         }
+        let char_count = text.chars().count() + quotes_len;
+        if char_count >= min_chars {
+            return text_len + quotes_len;
+        }
+        return text_len + (min_chars - char_count) * k.opts.fill_char_width();
     }
+    if min_chars > max_chars {
+        let mut char_count = quotes_len;
+        for c in text.chars().take(min_chars.saturating_sub(quotes_len)) {}
+    }
+    0
 }
 fn calc_text_padding(
     k: &FormatKey,
@@ -704,12 +800,12 @@ fn calc_text_padding(
     target_width: usize,
     text_char_count: impl FnOnce() -> usize,
 ) -> usize {
-    let max_width = match k.width {
+    let max_width = match k.min_char_count {
         Some(FormatWidthSpec::Ref(_)) => target_width,
         Some(FormatWidthSpec::Value(v)) => v,
         None => 0,
     };
-    if (text_len >> MAX_UTF8_CHAR_LEN) >= max_width {
+    if (text_len / MAX_UTF8_CHAR_LEN) >= max_width {
         0
     } else {
         let char_count = text_char_count();
@@ -733,7 +829,8 @@ pub fn lookup_target_widths(
     // fmt, output idx, found field type, run length
     err_func: impl Fn(&mut TfFormat, &mut usize, FieldValueRepr, usize),
 ) {
-    let ident_ref = if let Some(FormatWidthSpec::Ref(ident)) = k.width {
+    let ident_ref = if let Some(FormatWidthSpec::Ref(ident)) = k.min_char_count
+    {
         fmt.refs[ident as usize]
     } else {
         return;
@@ -800,7 +897,7 @@ pub fn setup_key_output_state(
                 &mut fmt.output_states,
                 output_idx,
                 run_len,
-                |os| os.target_width = width,
+                |os| os.min_char_count = width,
             )
         },
         |fmt, output_idx, kind, run_len| {
@@ -830,8 +927,8 @@ pub fn setup_key_output_state(
 
     let mut output_index = 0;
     let mut handled_fields = 0;
-    let debug_format =
-        [FormatType::Debug, FormatType::MoreDebug].contains(&k.format_type);
+    let typed_format = [TypeReprFormat::Typed, TypeReprFormat::Debug]
+        .contains(&k.opts.type_repr);
     while let Some(range) = iter.typed_range_fwd(
         msm,
         usize::MAX,
@@ -842,15 +939,9 @@ pub fn setup_key_output_state(
                 for (v, rl, _offs) in
                     RefAwareInlineTextIter::from_range(&range, text)
                 {
-                    let mut chars_count = cached!(v.chars().count());
                     iter_output_states(fmt, &mut output_index, rl, |o| {
-                        o.len += calc_text_len(
-                            k,
-                            v.len(),
-                            o.target_width,
-                            &mut chars_count,
-                        );
-                        if debug_format {
+                        o.len += calc_text_len(k, v.len(), &o, v);
+                        if typed_format {
                             o.len += 2;
                         }
                     });
@@ -862,14 +953,10 @@ pub fn setup_key_output_state(
                 {
                     let mut chars_count = cached!(v.chars().count());
                     iter_output_states(fmt, &mut output_index, rl, |o| {
-                        o.len += calc_text_len(
-                            k,
-                            v.len(),
-                            o.target_width,
-                            &mut chars_count,
-                        );
+                        o.len +=
+                            calc_text_len(k, v.len(), &o, &mut chars_count);
                         o.contains_raw_bytes = true;
-                        if debug_format {
+                        if typed_format {
                             o.len += 2;
                         }
                     });
@@ -881,15 +968,11 @@ pub fn setup_key_output_state(
                 {
                     let mut chars_count = cached!(v.chars().count());
                     iter_output_states(fmt, &mut output_index, rl, |o| {
-                        o.len += calc_text_len(
-                            k,
-                            v.len(),
-                            o.target_width,
-                            &mut chars_count,
-                        );
+                        o.len +=
+                            calc_text_len(k, v.len(), &o, &mut chars_count);
                         o.contains_raw_bytes = true;
-                        if debug_format {
-                            o.len += 3;
+                        if typed_format {
+                            o.len += 2;
                         }
                     });
                 }
@@ -903,12 +986,8 @@ pub fn setup_key_output_state(
                         let mut chars_count =
                             cached!(v.stringified_char_count().unwrap_or(len));
                         iter_output_states(fmt, &mut output_index, rl, |o| {
-                            o.len += calc_text_len(
-                                k,
-                                len,
-                                o.target_width,
-                                &mut chars_count,
-                            );
+                            o.len +=
+                                calc_text_len(k, len, &o, &mut chars_count);
                             o.contains_raw_bytes |= invalid_utf8;
                         });
                     } else {
@@ -929,7 +1008,7 @@ pub fn setup_key_output_state(
                         o.len += calc_text_len(
                             k,
                             digits,
-                            o.target_width,
+                            o.min_char_count,
                             &mut || digits,
                         );
                     });
@@ -953,14 +1032,14 @@ pub fn setup_key_output_state(
                                         let (len, mut char_count) =
                                             formatted_error_string_len(
                                                 e,
-                                                k.format_type,
+                                                k.format_options,
                                                 k.alternate_form,
                                                 true,
                                             );
                                         o.len += calc_text_len(
                                             k,
                                             len,
-                                            o.target_width,
+                                            o.min_char_count,
                                             &mut char_count,
                                         );
                                     },
@@ -989,7 +1068,7 @@ pub fn setup_key_output_state(
                                 data = &data[r];
                                 complete = true;
                             }
-                            let debug_add_len = match k.format_type {
+                            let debug_add_len = match k.format_options {
                                 FormatType::Debug => 2,
                                 FormatType::MoreDebug => 3,
                                 _ => 0,
@@ -1004,10 +1083,12 @@ pub fn setup_key_output_state(
                                 if debug_format {
                                     // TODO: split up debug quotes instead
                                     make_buffered = true;
-                                } else if let Some(width_spec) = &k.width {
+                                } else if let Some(width_spec) =
+                                    &k.min_char_count
+                                {
                                     let mut i = output_index;
                                     iter_output_states(fmt, &mut i, rl, |o| {
-                                        if width_spec.width(o.target_width)
+                                        if width_spec.width(o.min_char_count)
                                             > data.len() / MAX_UTF8_CHAR_LEN
                                         {
                                             make_buffered = true;
@@ -1023,7 +1104,7 @@ pub fn setup_key_output_state(
                                     o.len += calc_text_len(
                                         k,
                                         text_len,
-                                        o.target_width,
+                                        o.min_char_count,
                                         &mut char_count,
                                     );
                                     if sv.bytes_are_utf8 {
@@ -1075,7 +1156,7 @@ pub fn setup_key_output_state(
                                                         target_sv_id,
                                                         handled_len,
                                                         target_width: o
-                                                            .target_width,
+                                                            .min_char_count,
                                                         wait_to_end:
                                                             is_buffered,
                                                     },
@@ -1099,8 +1180,12 @@ pub fn setup_key_output_state(
                     &mut output_index,
                     range.base.field_count,
                     |o| {
-                        o.len +=
-                            calc_text_len(k, len, o.target_width, &mut || len);
+                        o.len += calc_text_len(
+                            k,
+                            len,
+                            o.min_char_count,
+                            &mut || len,
+                        );
                     },
                 );
             }
@@ -1111,8 +1196,12 @@ pub fn setup_key_output_state(
                     &mut output_index,
                     range.base.field_count,
                     |o| {
-                        o.len +=
-                            calc_text_len(k, len, o.target_width, &mut || len);
+                        o.len += calc_text_len(
+                            k,
+                            len,
+                            o.min_char_count,
+                            &mut || len,
+                        );
                     },
                 );
             }
@@ -1120,14 +1209,14 @@ pub fn setup_key_output_state(
                 for (v, rl) in TypedSliceIter::from_range(&range.base, errs) {
                     let (len, mut char_count) = formatted_error_string_len(
                         v,
-                        k.format_type,
+                        k.format_options,
                         k.alternate_form,
                         false,
                     );
                     let mut cc = cached!(char_count.call());
                     iter_output_states(fmt, &mut output_index, rl, |o| {
                         o.len +=
-                            calc_text_len(k, len, o.target_width, &mut cc);
+                            calc_text_len(k, len, o.min_char_count, &mut cc);
                     });
                 }
             }
@@ -1172,7 +1261,7 @@ pub fn setup_key_output_state(
                 o.len += calc_text_len(
                     k,
                     UNDEFINED_STR.len(),
-                    o.target_width,
+                    o.min_char_count,
                     &mut || UNDEFINED_STR.len(),
                 );
             } else {
@@ -1294,7 +1383,7 @@ fn setup_output_targets(
                     (id_str.as_str(), "")
                 };
             let (width_ctx, width_label, width_ctx2) = if err.err_in_width {
-                if let Some(FormatWidthSpec::Ref(r)) = k.width {
+                if let Some(FormatWidthSpec::Ref(r)) = k.min_char_count {
                     if let Some(lbl) = fmt.op.refs_idx[r as usize] {
                         (" width spec '", ss.lookup(lbl), "' of")
                     } else {
@@ -1369,7 +1458,7 @@ fn setup_output_targets(
         fmt.output_targets.push(OutputTarget {
             run_len: os.run_len,
             target,
-            target_width: os.target_width,
+            target_char_count: os.min_char_count,
             remaining_len: os.len,
         });
         output_idx = os.next;
@@ -1386,12 +1475,12 @@ unsafe fn write_padded_bytes_with_prefix_suffix(
     prefix: &[u8],
     suffix: &[u8],
 ) {
-    if k.width.is_some() {
+    if k.min_char_count.is_some() {
         let fill_spec = k.fill.as_ref().copied().unwrap_or_default();
         let padding = calc_text_padding(
             k,
             data.len() + prefix.len() + suffix.len(),
-            tgt.target_width,
+            tgt.target_char_count,
             || {
                 data.chars().count()
                     + prefix.chars().count()
@@ -1430,7 +1519,7 @@ unsafe fn write_formatted_int(
     tgt: &mut OutputTarget,
     value: i64,
 ) {
-    if k.width.is_none() {
+    if k.min_char_count.is_none() {
         unsafe {
             write_bytes_to_target(
                 tgt,
@@ -1454,7 +1543,8 @@ unsafe fn write_formatted_int(
     }
     let val = u64_to_str(false, value.unsigned_abs());
     len += val.len();
-    let padding = calc_text_padding(k, len, tgt.target_width, || val.len());
+    let padding =
+        calc_text_padding(k, len, tgt.target_char_count, || val.len());
 
     unsafe {
         write_padding_to_tgt(tgt, Some('0'), padding);
@@ -1551,7 +1641,7 @@ fn write_fmt_key(
         false,
         |fmt, output_idx, width, run_len| {
             iter_output_targets(fmt, output_idx, run_len, |ot| {
-                ot.target_width = width
+                ot.target_char_count = width
             })
         },
         |_fmt, _output_idx, _kind, _run_len| (),
@@ -1565,7 +1655,7 @@ fn write_fmt_key(
     let field_pos_start = base_iter.get_next_field_pos();
     let mut iter = AutoDerefIter::new(fm, ident_ref.field_id, base_iter);
     let debug_format =
-        [FormatType::Debug, FormatType::MoreDebug].contains(&k.format_type);
+        [FormatType::Debug, FormatType::MoreDebug].contains(&k.format_options);
     let mut output_index = 0;
     while let Some(range) = iter.typed_range_fwd(
         msm,
@@ -1709,7 +1799,7 @@ fn write_fmt_key(
                 for (v, rl) in TypedSliceIter::from_range(&range.base, errs) {
                     let err_str = error_to_formatted_string(
                         v,
-                        k.format_type,
+                        k.format_options,
                         k.alternate_form,
                         false,
                     );
@@ -1735,7 +1825,7 @@ fn write_fmt_key(
                         StreamValueData::Error(e) => {
                             let err_str = error_to_formatted_string(
                                 e,
-                                k.format_type,
+                                k.format_options,
                                 k.alternate_form,
                                 true,
                             );
@@ -1766,7 +1856,7 @@ fn write_fmt_key(
                                 let left = [b'~', qc as u8];
                                 let right = [qc as u8];
                                 let none = b"".as_slice();
-                                let (left, right) = match k.format_type {
+                                let (left, right) = match k.format_options {
                                     FormatType::Debug => {
                                         (right.as_slice(), right.as_slice())
                                     }
@@ -1863,7 +1953,7 @@ pub fn handle_tf_format(
         run_len: batch_size,
         next: FINAL_OUTPUT_INDEX_NEXT_VAL,
         len: 0,
-        target_width: 0,
+        min_char_count: 0,
         contains_raw_bytes: false,
         contained_error: None,
         incomplete_stream_value_handle: None,
@@ -1994,7 +2084,7 @@ pub fn handle_tf_format_stream_value_update(
                     let left = [b'~', qc as u8];
                     let right = [qc as u8];
                     let none = b"".as_slice();
-                    let (left, right) = match k.format_type {
+                    let (left, right) = match k.format_options {
                         FormatType::Debug => {
                             (right.as_slice(), right.as_slice())
                         }
@@ -2020,7 +2110,7 @@ pub fn handle_tf_format_stream_value_update(
 
                         let mut output_target = OutputTarget {
                             run_len: 1,
-                            target_width: handle.target_width,
+                            target_char_count: handle.target_width,
                             target: Some(NonNull::new_unchecked(
                                 tgt_buf.as_mut_ptr().add(tgt_buf.len()),
                             )),
@@ -2159,7 +2249,7 @@ mod test {
         let mut idents = Default::default();
         let a = FormatKey {
             ref_idx: 0,
-            width: Some(FormatWidthSpec::Value(5)),
+            min_char_count: Some(FormatWidthSpec::Value(5)),
             fill: Some(FormatFillSpec::new(
                 Some('+'),
                 FormatFillAlignment::Left,
@@ -2178,7 +2268,7 @@ mod test {
         let mut idents = Default::default();
         let a = FormatKey {
             ref_idx: 0,
-            width: Some(FormatWidthSpec::Value(3)),
+            min_char_count: Some(FormatWidthSpec::Value(3)),
             float_precision: Some(FormatWidthSpec::Ref(1)),
             ..Default::default()
         };
@@ -2202,7 +2292,7 @@ mod test {
     fn fill_char_is_optional_not_an_ident() {
         let mut idents = Default::default();
         let a = FormatKey {
-            width: Some(FormatWidthSpec::Value(2)),
+            min_char_count: Some(FormatWidthSpec::Value(2)),
             fill: Some(FormatFillSpec::new(None, FormatFillAlignment::Center)),
             ..Default::default()
         };
