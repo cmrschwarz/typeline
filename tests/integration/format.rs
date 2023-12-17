@@ -24,12 +24,12 @@ fn debug_format_surrounds_with_quotes() -> Result<(), ScrError> {
         .add_op(create_op_str("foo", 0))
         .add_op_appending(create_op_bytes(b"bar", 0))
         .add_op_appending(create_op_error("baz", 0))
-        .add_op(create_op_format(b"{:#?}").unwrap())
+        .add_op(create_op_format(b"{:?}").unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(
         ss.get_data().unwrap().as_slice(),
-        ["\"foo\"", "'bar'", "!\"baz\""]
+        ["\"foo\"", "'bar'", "(error)\"baz\""]
     );
     Ok(())
 }
@@ -41,18 +41,19 @@ fn more_debug_format_surrounds_with_quotes() -> Result<(), ScrError> {
         .add_op(create_op_str("foo", 0))
         .add_op_appending(create_op_bytes(b"bar", 0))
         .add_op_appending(create_op_error("baz", 0))
-        .add_op(create_op_format(b"{:#??}").unwrap())
+        .add_op(create_op_format(b"{:??}").unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
-    assert_eq!(ss.get().data.as_slice(), ["\"foo\"", "'bar'", "!\"baz\""]);
+    assert_eq!(
+        ss.get().data.as_slice(),
+        ["\"foo\"", "'bar'", "(error)\"baz\""]
+    );
     Ok(())
 }
 
 #[rstest]
-#[case("{:?}", "!\"ERROR: in op id 0: A\"")]
-#[case("{:??}", "!\"ERROR: in op id 0: A\"")]
-#[case("{:#??}", "!\"A\"")]
-#[case("{:#??}", "!\"A\"")]
+#[case("{:?}", "(error)\"A\"")]
+#[case("{:??}", "(error)\"A\"")]
 fn error_formatting(
     #[case] fmt_string: &str,
     #[case] result: &str,
@@ -68,10 +69,8 @@ fn error_formatting(
 }
 
 #[rstest]
-#[case("{:?}", "!\"ERROR: in op id 0: A\"")]
-#[case("{:??}", "~!\"ERROR: in op id 0: A\"")]
-#[case("{:#?}", "!\"A\"")]
-#[case("{:#??}", "~!\"A\"")]
+#[case("{:?}", "(error)\"A\"")]
+#[case("{:??}", "~(error)\"A\"")]
 fn stream_error_formatting(
     #[case] fmt_string: &str,
     #[case] result: &str,

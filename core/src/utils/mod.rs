@@ -1,8 +1,11 @@
 use std::{fmt::Write, ops::Range};
 
+use bstr::ByteSlice;
+
 pub mod aligned_buf;
 pub mod dynamic_freelist;
 pub mod encoding;
+pub mod escaped_writer;
 pub mod identity_hasher;
 pub mod indexing_type;
 pub mod int_string_conversions;
@@ -10,6 +13,7 @@ pub mod io;
 pub mod nonzero_ext;
 pub mod offset_vec_deque;
 pub mod plattform;
+pub mod printable_unicode;
 pub mod small_box;
 pub mod stable_vec;
 pub mod string_store;
@@ -45,46 +49,14 @@ pub fn divide_by_char_len(len: usize, char_len: usize) -> usize {
     }
 }
 
-pub enum CachingCallable<T, CTOR: FnOnce() -> T> {
-    Unevaluated(CTOR),
-    Cached(T),
-    Dummy,
-}
-
 pub trait ValueProducingCallable<T> {
     fn call(&mut self) -> T;
 }
 
-impl<T: Clone, CTOR: FnOnce() -> T> ValueProducingCallable<T>
-    for CachingCallable<T, CTOR>
-{
-    fn call(&mut self) -> T {
-        if let CachingCallable::Cached(v) = &self {
-            return v.clone();
-        }
-        let v = std::mem::replace(self, CachingCallable::Dummy);
-        let res = match v {
-            CachingCallable::Unevaluated(func) => func(),
-            _ => unreachable!(),
-        };
-        *self = CachingCallable::Cached(res.clone());
-        res
-    }
-}
 impl<T, F: FnMut() -> T> ValueProducingCallable<T> for F {
     fn call(&mut self) -> T {
         self()
     }
-}
-
-macro_rules! cached {
-    ($b: block) => {{
-        use crate::utils::CachingCallable;
-        CachingCallable::Unevaluated(|| $b)
-    }};
-    ($x: expr) => {
-        cached!({ $x })
-    };
 }
 
 pub fn get_two_distinct_mut<T>(
@@ -112,14 +84,18 @@ impl Write for LengthCountingWriter {
         self.len += c.len_utf8();
         Ok(())
     }
+}
+impl std::io::Write for LengthCountingWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.len += buf.len();
+        Ok(buf.len())
+    }
 
-    fn write_fmt(
-        mut self: &mut Self,
-        args: std::fmt::Arguments<'_>,
-    ) -> std::fmt::Result {
-        std::fmt::write(&mut self, args)
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
     }
 }
+
 #[derive(Clone, Copy, Default)]
 pub struct LengthAndCharsCountingWriter {
     pub len: usize,
@@ -143,6 +119,17 @@ impl Write for LengthAndCharsCountingWriter {
         args: std::fmt::Arguments<'_>,
     ) -> std::fmt::Result {
         std::fmt::write(&mut self, args)
+    }
+}
+impl std::io::Write for LengthAndCharsCountingWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.len += buf.len();
+        self.char_count += buf.chars().count();
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
     }
 }
 

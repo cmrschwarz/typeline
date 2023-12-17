@@ -1,5 +1,5 @@
 pub mod http;
-mod tls_client;
+pub mod tls_client;
 pub mod url;
 
 use http::OpHttpRequest;

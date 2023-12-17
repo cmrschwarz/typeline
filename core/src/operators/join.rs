@@ -4,9 +4,12 @@ use smallstr::SmallString;
 
 use crate::{
     job_session::JobData,
-    operators::utils::buffer_stream_values::{
-        buffer_remaining_stream_values_in_auto_deref_iter,
-        buffer_remaining_stream_values_in_sv_iter,
+    operators::{
+        format::RealizedFormatKey,
+        utils::buffer_stream_values::{
+            buffer_remaining_stream_values_in_auto_deref_iter,
+            buffer_remaining_stream_values_in_sv_iter,
+        },
     },
     options::argument::CliArgIdx,
     record_data::{
@@ -620,7 +623,7 @@ fn push_custom_type(
     v: &CustomDataBox,
     rl: u32,
 ) {
-    let Some(len) = v.stringified_len() else {
+    let Some(len) = v.stringified_len(&RealizedFormatKey::default()) else {
         push_error(
             join,
             sv_mgr,
@@ -642,21 +645,30 @@ fn push_custom_type(
     let start_len = buf.len();
     buf.reserve(target_len);
     const ERR_MSG: &str = "custom stringify failed";
+    let rfk = RealizedFormatKey::default();
     unsafe {
         let start_ptr = buf.as_mut_ptr().add(start_len);
         if let Some(sep) = sep {
             let mut first_target_ptr = start_ptr;
             let mut ptr = start_ptr;
             if !first_record_added {
-                v.stringify_expect_len(len, &mut PointerWriter::new(ptr, len))
-                    .expect(ERR_MSG);
+                v.stringify_expect_len(
+                    &mut PointerWriter::new(ptr, len),
+                    len,
+                    &rfk,
+                )
+                .expect(ERR_MSG);
                 ptr = ptr.add(len);
             } else {
                 std::ptr::copy_nonoverlapping(sep.as_ptr(), ptr, sep_len);
                 ptr = ptr.add(sep_len);
                 first_target_ptr = ptr;
-                v.stringify_expect_len(len, &mut PointerWriter::new(ptr, len))
-                    .expect(ERR_MSG);
+                v.stringify_expect_len(
+                    &mut PointerWriter::new(ptr, len),
+                    len,
+                    &rfk,
+                )
+                .expect(ERR_MSG);
                 ptr = ptr.add(len);
             }
 
@@ -668,8 +680,12 @@ fn push_custom_type(
             }
         } else {
             let mut ptr = start_ptr;
-            v.stringify_expect_len(len, &mut PointerWriter::new(ptr, len))
-                .expect(ERR_MSG);
+            v.stringify_expect_len(
+                &mut PointerWriter::new(ptr, len),
+                len,
+                &rfk,
+            )
+            .expect(ERR_MSG);
             for _ in 1..rl {
                 ptr = ptr.add(len);
                 std::ptr::copy_nonoverlapping(start_ptr, ptr, len);

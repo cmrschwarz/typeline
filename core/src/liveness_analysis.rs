@@ -16,7 +16,7 @@ use crate::{
         call_concurrent::OpCallConcurrent,
         fork::OpFork,
         forkcat::OpForkCat,
-        format::{FormatPart, FormatType, FormatWidthSpec},
+        format::{FormatPart, FormatWidthSpec, NumberFormat, TypeReprFormat},
         operator::{
             Operator, OperatorData, OperatorId, OperatorOffsetInChain,
         },
@@ -591,13 +591,12 @@ impl LivenessData {
                             FormatPart::Key(fk) => {
                                 let non_stringified =
                                     fk.min_char_count.is_some()
-                                        || fk.add_plus_sign
-                                        || fk.alternate_form
-                                        || fk.zero_pad_numbers
-                                        || fk.fill.is_some()
-                                        || fk.float_precision.is_some()
-                                        || fk.format_options
-                                            != FormatType::Default;
+                                        || fk.opts.add_plus_sign
+                                        || fk.opts.number_format
+                                            != NumberFormat::Default
+                                        || fk.opts.zero_pad_numbers
+                                        || fk.opts.type_repr
+                                            != TypeReprFormat::Regular;
                                 if let Some(name) =
                                     fmt.refs_idx[fk.ref_idx as usize]
                                 {

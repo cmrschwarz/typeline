@@ -1,9 +1,11 @@
 use std::ops::{Deref, DerefMut};
 
-use scr_core::record_data::custom_data::CustomDataSafe;
-use url::Url;
+use scr_core::{
+    operators::format::RealizedFormatKey,
+    record_data::custom_data::CustomDataSafe,
+};
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub struct UrlValueType(url::Url);
 
 impl Deref for UrlValueType {
@@ -25,15 +27,15 @@ impl CustomDataSafe for UrlValueType {
         "url".into()
     }
 
-    fn stringified_len(&self) -> Option<usize> {
+    fn stringified_len(&self, _format: &RealizedFormatKey) -> Option<usize> {
         Some(self.0.as_str().len())
     }
 
-    fn stringified_char_count(&self) -> Option<usize> {
-        Some(self.0.as_str().chars().count())
-    }
-
-    fn stringify_utf8(&self, w: &mut dyn std::fmt::Write) -> std::fmt::Result {
+    fn stringify_utf8(
+        &self,
+        w: &mut dyn std::fmt::Write,
+        _format: &RealizedFormatKey,
+    ) -> std::fmt::Result {
         w.write_str(self.0.as_str())
     }
 }

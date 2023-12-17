@@ -33,6 +33,7 @@ use crate::{
 
 use super::{
     errors::OperatorApplicationError,
+    format::RealizedFormatKey,
     operator::{DefaultOperatorName, OperatorBase, OperatorData, OperatorId},
     transform::{TransformData, TransformId, TransformState},
     utils::{NULL_STR, UNDEFINED_STR},
@@ -349,9 +350,11 @@ pub fn handle_tf_string_sink(
                 for (v, rl) in
                     TypedSliceIter::from_range(&range.base, custom_types)
                 {
-                    if let Some(len) = v.stringified_len() {
+                    if let Some(len) =
+                        v.stringified_len(&RealizedFormatKey::default())
+                    {
                         let mut data = Vec::with_capacity(len);
-                        v.stringify(&mut data)
+                        v.stringify(&mut data, &RealizedFormatKey::default())
                             .expect("custom stringify failed");
                         if v.stringifies_as_valid_utf8() {
                             push_string(
@@ -494,6 +497,7 @@ pub fn handle_tf_string_sink(
                     fm: &sess.field_mgr,
                     msm: &sess.match_set_mgr,
                     print_rationals_raw,
+                    rfk: RealizedFormatKey::default(),
                 };
                 for (a, rl) in TypedSliceIter::from_range(&range.base, arrays)
                 {
@@ -517,6 +521,7 @@ pub fn handle_tf_string_sink(
                     fm: &sess.field_mgr,
                     msm: &sess.match_set_mgr,
                     print_rationals_raw,
+                    rfk: RealizedFormatKey::default(),
                 };
                 for (a, rl) in TypedSliceIter::from_range(&range.base, object)
                 {

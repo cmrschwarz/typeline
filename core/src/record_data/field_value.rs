@@ -7,6 +7,7 @@ use num::{BigInt, BigRational, FromPrimitive, One, Signed, Zero};
 use crate::{
     operators::{
         errors::OperatorApplicationError,
+        format::RealizedFormatKey,
         utils::{NULL_STR, UNDEFINED_STR},
     },
     utils::string_store::{StringStore, StringStoreEntry},
@@ -289,6 +290,7 @@ pub struct FormattingContext<'a> {
     pub fm: &'a FieldManager,
     pub msm: &'a MatchSetManager,
     pub print_rationals_raw: bool,
+    pub rfk: RealizedFormatKey,
 }
 
 pub const RATIONAL_DIGITS: u32 = 40; // TODO: make this configurable
@@ -372,7 +374,7 @@ impl FieldValue {
             FieldValue::Object(o) => o.format(w, fc),
             FieldValue::FieldReference(_) => todo!(),
             FieldValue::SlicedFieldReference(_) => todo!(),
-            FieldValue::Custom(v) => v.stringify(w).map(|_| ()),
+            FieldValue::Custom(v) => v.stringify(w, &fc.rfk).map(|_| ()),
         }
     }
 }
@@ -485,8 +487,8 @@ impl Array {
             Array::SlicedFieldReference(v) => {
                 format_array(w, fc, v.iter(), |_f, _, _v| todo!())
             }
-            Array::Custom(v) => format_array(w, fc, v.iter(), |f, _, v| {
-                v.stringify(f).map(|_| ())
+            Array::Custom(v) => format_array(w, fc, v.iter(), |f, fc, v| {
+                v.stringify(f, &fc.rfk).map(|_| ())
             }),
             Array::Mixed(v) => {
                 format_array(w, fc, v.iter(), |f, fc, v| v.format(f, fc))

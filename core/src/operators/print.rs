@@ -27,6 +27,7 @@ use crate::{
 
 use super::{
     errors::{OperatorApplicationError, OperatorCreationError},
+    format::RealizedFormatKey,
     operator::{OperatorBase, OperatorData},
     transform::{TransformData, TransformId, TransformState},
     utils::{ERROR_PREFIX_STR, NULL_STR, UNDEFINED_STR},
@@ -219,7 +220,7 @@ pub fn handle_tf_print_raw(
                 for v in TypedSliceIter::from_range(&range.base, custom_types)
                     .unfold_rl()
                 {
-                    v.stringify(stdout)?;
+                    v.stringify(stdout, &RealizedFormatKey::default())?;
                     stdout.write_all(b"\n")?;
                     *handled_field_count += 1;
                 }
@@ -319,6 +320,7 @@ pub fn handle_tf_print_raw(
                     fm: &sess.field_mgr,
                     msm: &sess.match_set_mgr,
                     print_rationals_raw,
+                    rfk: Default::default(),
                 };
                 for a in
                     TypedSliceIter::from_range(&range.base, arrays).unfold_rl()
@@ -337,6 +339,7 @@ pub fn handle_tf_print_raw(
                     fm: &sess.field_mgr,
                     msm: &sess.match_set_mgr,
                     print_rationals_raw,
+                    rfk: RealizedFormatKey::default(),
                 };
                 for o in TypedSliceIter::from_range(&range.base, objects)
                     .unfold_rl()

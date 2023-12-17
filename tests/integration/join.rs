@@ -257,7 +257,7 @@ fn join_on_error(#[case] batch_size: usize) -> Result<(), ScrError> {
         .add_op(create_op_format(b"{:#??}").unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
-    assert_eq!(ss.get().data.as_slice(), ["~!\"bar\""]);
+    assert_eq!(ss.get().data.as_slice(), ["~(error)\"bar\""]);
 
     Ok(())
 }

@@ -45,6 +45,7 @@ use super::{
     errors::{
         OperatorApplicationError, OperatorCreationError, OperatorSetupError,
     },
+    format::RealizedFormatKey,
     operator::{DefaultOperatorName, OperatorBase, OperatorData},
     transform::{TransformData, TransformId, TransformState},
 };
@@ -865,8 +866,11 @@ pub fn handle_tf_regex(
                     TypedSliceIter::from_range(&range.base, custom_types)
                 {
                     let prev_len = sess.temp_vec.len();
-                    v.stringify(&mut sess.temp_vec)
-                        .expect("custom stringify failed");
+                    v.stringify(
+                        &mut sess.temp_vec,
+                        &RealizedFormatKey::default(),
+                    )
+                    .expect("custom stringify failed");
                     let str = &sess.temp_vec[prev_len..sess.temp_vec.len()];
 
                     if let (Some(tr), true) =

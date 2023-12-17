@@ -1,7 +1,10 @@
 use std::borrow::Cow;
 
 use scr_core::{
-    operators::string_sink::{create_op_string_sink, StringSinkHandle},
+    operators::{
+        format::RealizedFormatKey,
+        string_sink::{create_op_string_sink, StringSinkHandle},
+    },
     options::context_builder::ContextBuilder,
     record_data::custom_data::CustomDataSafe,
     scr_error::ScrError,
@@ -14,13 +17,14 @@ impl CustomDataSafe for DummyCustomType {
     fn type_name(&self) -> Cow<str> {
         "dummy".into()
     }
-    fn stringified_len(&self) -> Option<usize> {
+    fn stringified_len(&self, _fmt: &RealizedFormatKey) -> Option<usize> {
         Some(self.type_name().len())
     }
-    fn stringified_char_count(&self) -> Option<usize> {
-        self.stringified_len()
-    }
-    fn stringify_utf8(&self, w: &mut dyn std::fmt::Write) -> std::fmt::Result {
+    fn stringify_utf8(
+        &self,
+        w: &mut dyn std::fmt::Write,
+        _fmt: &RealizedFormatKey,
+    ) -> std::fmt::Result {
         w.write_str(&self.type_name())
     }
 }
@@ -32,15 +36,13 @@ impl CustomDataSafe for DummyCustomTypeNoStringify {
     fn type_name(&self) -> Cow<str> {
         "dummy_no_stringify".into()
     }
-    fn stringified_len(&self) -> Option<usize> {
-        None
-    }
-    fn stringified_char_count(&self) -> Option<usize> {
+    fn stringified_len(&self, _fmt: &RealizedFormatKey) -> Option<usize> {
         None
     }
     fn stringify_utf8(
         &self,
         _w: &mut dyn std::fmt::Write,
+        _fmt: &RealizedFormatKey,
     ) -> std::fmt::Result {
         unimplemented!()
     }

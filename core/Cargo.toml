@@ -17,6 +17,7 @@ lazy_static = "1.4.0"
 memchr = "2.6.4"
 static_assertions = "1.1.0"
 thiserror = "1.0.51"
+derive_more = "0.99.17"
 
 # small size / layout optimizations
 arrayvec = "0.7.4"

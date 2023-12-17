@@ -436,12 +436,15 @@ fn stream_error_after_regular_error() -> Result<(), ScrError> {
             0,
         ))
         .add_op(create_op_join_str("", 1))
-        .add_op(create_op_format(b"{:#??}").unwrap())
+        .add_op(create_op_format(b"{:??}").unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(
         ss.get().data.as_slice(),
-        ["!\"A\"", "~!\"ErroringStream: Expected Debug Error\""]
+        [
+            "(error)\"A\"",
+            "~(error)\"ErroringStream: Expected Debug Error\""
+        ]
     );
     Ok(())
 }

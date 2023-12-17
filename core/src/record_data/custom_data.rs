@@ -1,6 +1,8 @@
 use std::{any::Any, borrow::Cow, cmp::Ordering, fmt::Debug};
 
-use crate::operators::format::{FormatPart, RealizedFormatKey};
+use crate::{
+    operators::format::RealizedFormatKey, utils::LengthAndCharsCountingWriter,
+};
 
 pub fn custom_data_reference_eq<T: CustomData + ?Sized>(
     lhs: &T,
@@ -31,15 +33,19 @@ pub unsafe trait CustomData: Any + Send + Sync + Debug {
     // While callers will prevent buffer overruns of the `Write`-rs,
     // they will assume the reported number of bytes to be initialized
     // (written to) after the call.
-    fn stringified_len(&self) -> Option<usize>;
-    fn stringified_char_count(&self) -> Option<usize>;
-    fn stringify(&self, w: &mut dyn std::io::Write) -> std::io::Result<usize>;
+    fn stringified_len(&self, format: &RealizedFormatKey) -> Option<usize>;
+    fn stringify(
+        &self,
+        w: &mut dyn std::io::Write,
+        format: &RealizedFormatKey,
+    ) -> std::io::Result<usize>;
     fn stringify_expect_len(
         &self,
-        len: usize,
         w: &mut dyn std::io::Write,
+        len: usize,
+        format: &RealizedFormatKey,
     ) -> std::io::Result<()> {
-        let reported_len = self.stringify(w)?;
+        let reported_len = self.stringify(w, format)?;
         if reported_len != len {
             panic!(
                 "unexpected length for stringify of custom type {}",
@@ -53,41 +59,6 @@ pub unsafe trait CustomData: Any + Send + Sync + Debug {
     // **must** only write valid utf8
     fn debug_stringifies_as_valid_utf8(&self) -> bool {
         self.stringifies_as_valid_utf8()
-    }
-
-    // SAFETY: **must** return the number of characters that a subsequent
-    // `debug_stringify` / `debug_stringify_expect_len` will write.
-    // While callers will prevent buffer overruns of the `Write`-rs,
-    // they will assume the reported number of bytes to be initialized
-    // (written to) after the call.
-    fn debug_stringified_len(&self) -> Option<usize> {
-        self.stringified_len().map(|l| l + 2)
-    }
-    fn debug_stringified_char_count(&self) -> Option<usize> {
-        self.stringified_char_count().map(|cc| cc + 2)
-    }
-    fn debug_stringify(
-        &self,
-        w: &mut dyn std::io::Write,
-    ) -> std::io::Result<usize> {
-        w.write_all(b"`")?;
-        let len = self.stringify(w)?;
-        w.write_all(b"`")?;
-        Ok(len + 2)
-    }
-    fn debug_stringify_expect_len(
-        &self,
-        len: usize,
-        w: &mut dyn std::io::Write,
-    ) -> std::io::Result<()> {
-        let reported_len = self.stringify(w)?;
-        if reported_len != len {
-            panic!(
-                "unexpected length for debug stringify of custom type {}",
-                self.type_name()
-            );
-        }
-        Ok(())
     }
 }
 
@@ -125,7 +96,10 @@ pub trait CustomDataSafe: Any + Send + Sync + Clone + Debug {
     fn stringified_char_count(
         &self,
         format: &RealizedFormatKey,
-    ) -> Option<usize>;
+    ) -> Option<usize> {
+        let mut w = LengthAndCharsCountingWriter::default();
+        self.stringify(&mut w, format).map(|_| w.char_count).ok()
+    }
     fn stringify_utf8(
         &self,
         w: &mut dyn std::fmt::Write,
@@ -134,7 +108,7 @@ pub trait CustomDataSafe: Any + Send + Sync + Clone + Debug {
     fn stringify_non_utf8(
         &self,
         _w: &mut dyn std::io::Write,
-        format: &RealizedFormatKey,
+        _format: &RealizedFormatKey,
     ) -> std::io::Result<()> {
         unimplemented!()
     }
@@ -203,56 +177,26 @@ unsafe impl<T: CustomDataSafe> CustomData for T {
         Self::STRINGIFIES_VALID_UTF8
     }
 
-    fn stringified_len(&self) -> Option<usize> {
-        CustomDataSafe::stringified_len(self)
+    fn stringified_len(&self, format: &RealizedFormatKey) -> Option<usize> {
+        CustomDataSafe::stringified_len(self, format)
     }
 
-    fn stringified_char_count(&self) -> Option<usize> {
-        CustomDataSafe::stringified_char_count(self)
-    }
-
-    fn debug_stringifies_as_valid_utf8(&self) -> bool {
-        Self::DEBUG_STRINGIFIES_VALID_UTF8
-    }
-
-    fn debug_stringified_len(&self) -> Option<usize> {
-        CustomDataSafe::debug_stringified_len(self)
-    }
-
-    fn debug_stringified_char_count(&self) -> Option<usize> {
-        CustomDataSafe::debug_stringified_char_count(self)
-    }
-
-    fn stringify(&self, w: &mut dyn std::io::Write) -> std::io::Result<usize> {
-        let len = if Self::STRINGIFIES_VALID_UTF8 {
-            let mut adapter = WriteAdapterUtf8::new(w);
-            let Ok(()) = CustomDataSafe::stringify_utf8(self, &mut adapter)
-            else {
-                return Err(adapter.io_error.unwrap());
-            };
-            adapter.bytes_written
-        } else {
-            let mut adapter = WriteAdapterNonUtf8::new(w);
-            CustomDataSafe::stringify_non_utf8(self, &mut adapter)?;
-            adapter.bytes_written
-        };
-        Ok(len)
-    }
-    fn debug_stringify(
+    fn stringify(
         &self,
         w: &mut dyn std::io::Write,
+        format: &RealizedFormatKey,
     ) -> std::io::Result<usize> {
         let len = if Self::STRINGIFIES_VALID_UTF8 {
             let mut adapter = WriteAdapterUtf8::new(w);
             let Ok(()) =
-                CustomDataSafe::debug_stringify_utf8(self, &mut adapter)
+                CustomDataSafe::stringify_utf8(self, &mut adapter, format)
             else {
                 return Err(adapter.io_error.unwrap());
             };
             adapter.bytes_written
         } else {
             let mut adapter = WriteAdapterNonUtf8::new(w);
-            CustomDataSafe::debug_stringify_non_utf8(self, &mut adapter)?;
+            CustomDataSafe::stringify_non_utf8(self, &mut adapter, format)?;
             adapter.bytes_written
         };
         Ok(len)
