@@ -9,4 +9,5 @@ test = false
 doctest = false
 
 [dependencies]
-scr_core = {path="../../core"}
+scr_core = { path = "../../core" }
+primes = "0.3.0"

@@ -1,3 +1,4 @@
+use primes::OpPrimes;
 use scr_core::{
     cli::ParsedCliArgument,
     extension::Extension,
@@ -13,6 +14,7 @@ use sum::OpSum;
 
 extern crate scr_core;
 
+pub mod primes;
 pub mod sum;
 
 #[derive(Default)]
@@ -30,6 +32,12 @@ impl Extension for MiscCmdsExtension {
             return Ok(Some(OperatorData::Custom(
                 smallbox![OpSum::default()],
             )));
+        }
+        if arg.argname == "primes" {
+            arg.reject_value()?;
+            return Ok(Some(OperatorData::Custom(smallbox![
+                OpPrimes::default()
+            ])));
         }
         if arg.argname == "lines" {
             arg.reject_value()?;

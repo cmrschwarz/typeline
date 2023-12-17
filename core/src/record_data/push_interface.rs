@@ -961,7 +961,11 @@ impl<'a, T: FieldValueType + PartialEq + Clone> FixedSizeTypeInserter<'a, T> {
     }
     #[inline(always)]
     pub fn push(&mut self, v: T) {
-        assert!(self.raw.count < self.raw.max);
+        if self.raw.count == self.raw.max {
+            self.commit_and_reserve(
+                (self.raw.fd.data.len() / std::mem::size_of::<T>()).min(4),
+            );
+        }
         unsafe {
             self.raw.push(v);
         }
@@ -985,6 +989,25 @@ impl<'a, T: FieldValueType + PartialEq + Clone> FixedSizeTypeInserter<'a, T> {
             );
         }
         self.drop_and_reserve(max_rem);
+    }
+
+    pub fn extend<I: Iterator<Item = T>>(&mut self, mut iter: I) {
+        if let (_, Some(count)) = iter.size_hint() {
+            self.commit_and_reserve(count);
+            unsafe {
+                let mut ptr = self.raw.data_ptr as *mut T;
+                for v in (&mut iter).take(count) {
+                    std::ptr::write(ptr, v);
+                    ptr = ptr.add(1);
+                }
+                self.raw.count +=
+                    ptr.offset_from(self.raw.data_ptr as *mut T) as usize;
+                self.raw.data_ptr = ptr as *mut u8;
+            }
+        }
+        for v in &mut iter {
+            self.push(v);
+        }
     }
 }
 
