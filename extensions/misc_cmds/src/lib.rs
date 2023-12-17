@@ -4,7 +4,7 @@ use scr_core::{
     operators::{
         errors::OperatorCreationError,
         operator::OperatorData,
-        regex::{create_op_regex, create_op_regex_with_opts, RegexOptions},
+        regex::{create_op_regex_with_opts, RegexOptions},
     },
     options::session_options::SessionOptions,
     smallbox,
@@ -48,7 +48,16 @@ impl Extension for MiscCmdsExtension {
         if arg.argname == "trim" {
             arg.reject_value()?;
 
-            return Ok(Some(create_op_regex(r"\s+(?<>.*)\s+").unwrap()));
+            return Ok(Some(
+                create_op_regex_with_opts(
+                    r"\s+(?<>.*)\s+",
+                    RegexOptions {
+                        dotall: true,
+                        ..Default::default()
+                    },
+                )
+                .unwrap(),
+            ));
         }
         Ok(None)
     }
