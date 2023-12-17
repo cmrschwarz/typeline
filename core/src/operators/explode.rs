@@ -258,6 +258,7 @@ impl Transform for TfExplode {
                             }
                         }
                     }
+                    inserters[0].push_null(range.base.field_count, true);
                 }
                 TypedSlice::FieldReference(_)
                 | TypedSlice::SlicedFieldReference(_) => unreachable!(),

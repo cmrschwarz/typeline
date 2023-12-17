@@ -352,7 +352,7 @@ pub fn handle_tf_print_raw(
         field_pos += range.base.field_count;
     }
     while *handled_field_count < batch_size {
-        stdout.write_fmt(format_args!("{NULL_STR}\n"))?;
+        stdout.write_fmt(format_args!("{UNDEFINED_STR}\n"))?;
         *handled_field_count += 1;
     }
     sess.field_mgr

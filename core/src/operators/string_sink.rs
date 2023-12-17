@@ -35,7 +35,7 @@ use super::{
     errors::OperatorApplicationError,
     operator::{DefaultOperatorName, OperatorBase, OperatorData, OperatorId},
     transform::{TransformData, TransformId, TransformState},
-    utils::NULL_STR,
+    utils::{NULL_STR, UNDEFINED_STR},
 };
 
 #[derive(Default)]
@@ -537,7 +537,7 @@ pub fn handle_tf_string_sink(
     let base_iter = iter.into_base_iter();
     let consumed_fields = base_iter.get_next_field_pos() - starting_pos;
     if consumed_fields < batch_size {
-        push_str(&mut out, NULL_STR, batch_size - consumed_fields);
+        push_str(&mut out, UNDEFINED_STR, batch_size - consumed_fields);
     }
     sess.field_mgr
         .store_iter(input_field_id, ss.batch_iter, base_iter);

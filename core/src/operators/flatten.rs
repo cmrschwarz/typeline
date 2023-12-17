@@ -8,9 +8,14 @@ use crate::{
     },
     options::argument::CliArgIdx,
     record_data::{
-        action_buffer::ActorId, field::FieldId, field_action::FieldActionKind,
-        field_value::Array, iter_hall::IterId, push_interface::PushInterface,
-        ref_iter::RefAwareTypedSliceIter, typed::TypedSlice,
+        action_buffer::{ActorId, ActorRef},
+        field::FieldId,
+        field_action::FieldActionKind,
+        field_value::{Array, FieldValue, Object},
+        iter_hall::IterId,
+        push_interface::{PushInterface, VaryingTypeInserter},
+        ref_iter::RefAwareTypedSliceIter,
+        typed::TypedSlice,
     },
     smallbox,
     utils::identity_hasher::BuildIdentityHasher,
@@ -85,19 +90,48 @@ impl Operator for OpFlatten {
         tf_state: &mut super::transform::TransformState,
         _prebound_outputs: &HashMap<OpOutputIdx, FieldId, BuildIdentityHasher>,
     ) -> TransformData<'a> {
+        let cb = &mut sess.match_set_mgr.match_sets[tf_state.match_set_id]
+            .action_buffer;
         let tfe = TfFlatten {
             may_consume_input: self.may_consume_input,
             input_iter_id: sess.field_mgr.claim_iter(tf_state.input_field),
-            actor_id: sess.match_set_mgr.match_sets[tf_state.match_set_id]
-                .action_buffer
-                .add_actor(),
+            actor_id: cb.add_actor(),
         };
+        sess.field_mgr.fields[tf_state.output_field]
+            .borrow_mut()
+            .first_actor = ActorRef::Unconfirmed(cb.peek_next_actor_id());
         sess.field_mgr.register_field_reference(
             tf_state.output_field,
             tf_state.input_field,
         );
         TransformData::Custom(smallbox!(tfe))
     }
+}
+
+fn insert_object_entry(
+    value: &FieldValue,
+    key: &str,
+    inserter: &mut VaryingTypeInserter<
+        &mut crate::record_data::field_data::FieldData,
+    >,
+) {
+    let arr = if let FieldValue::Text(str) = value {
+        Array::String(
+            [
+                key.to_string().into_boxed_str(),
+                str.clone().into_boxed_str(),
+            ]
+            .to_vec()
+            .into_boxed_slice(),
+        )
+    } else {
+        Array::Mixed(
+            [FieldValue::Text(key.to_string()), value.clone()]
+                .to_vec()
+                .into_boxed_slice(),
+        )
+    };
+    inserter.push_array(arr, 1, true, false);
 }
 
 impl TfFlatten {
@@ -109,6 +143,7 @@ impl TfFlatten {
             .action_buffer
             .begin_action_group(self.actor_id);
         let mut field_idx = bud.iter.get_next_field_pos();
+        let mut string_store = None;
         while let Some(range) = bud.iter.next_range(bud.match_set_mgr) {
             match range.base.data {
                 TypedSlice::Undefined(_)
@@ -122,12 +157,62 @@ impl TfFlatten {
                 | TypedSlice::TextInline(_)
                 | TypedSlice::BytesBuffer(_)
                 | TypedSlice::Custom(_)
-                | TypedSlice::Error(_)
-                | TypedSlice::Object(_) => {
+                | TypedSlice::Error(_) => {
                     field_idx += range.base.field_count;
                     inserter.extend_from_ref_aware_range_smart_ref(
                         range, true, false, true,
                     );
+                }
+                TypedSlice::Object(objects) => {
+                    let ab = &mut bud.match_set_mgr.match_sets
+                        [bud.match_set_id]
+                        .action_buffer;
+                    for (v, rl) in
+                        RefAwareTypedSliceIter::from_range(&range, objects)
+                    {
+                        let rl = rl as usize;
+                        let len = v.len();
+                        if len == 0 {
+                            ab.push_action(
+                                FieldActionKind::Drop,
+                                field_idx,
+                                rl,
+                            );
+                            continue;
+                        }
+                        let elem_count = len * rl;
+                        if len != 1 {
+                            ab.push_action(
+                                FieldActionKind::Dup,
+                                field_idx,
+                                elem_count - rl,
+                            );
+                        }
+                        field_idx += elem_count;
+                        match v {
+                            Object::KeysStored(d) => {
+                                for (k, v) in d.iter() {
+                                    insert_object_entry(v, k, &mut inserter);
+                                }
+                            }
+                            Object::KeysInterned(d) => {
+                                let ss =
+                                    string_store.get_or_insert_with(|| {
+                                        bud.session_data
+                                            .string_store
+                                            .write()
+                                            .unwrap()
+                                    });
+                                for (&k, v) in d.iter() {
+                                    insert_object_entry(
+                                        v,
+                                        ss.lookup(k),
+                                        &mut inserter,
+                                    );
+                                }
+                            }
+                        }
+                    }
                 }
                 TypedSlice::Array(arrays) => {
                     let ab = &mut bud.match_set_mgr.match_sets
@@ -146,14 +231,14 @@ impl TfFlatten {
                             );
                             continue;
                         }
+                        let elem_count = len * rl;
                         if len != 1 {
                             ab.push_action(
                                 FieldActionKind::Dup,
                                 field_idx,
-                                (len - 1) * rl,
+                                elem_count - rl,
                             );
                         }
-                        let elem_count = len * rl;
                         field_idx += elem_count;
                         // PERF: we could optimize this for len 1 and for the
                         // zsts
@@ -220,7 +305,10 @@ impl TfFlatten {
                 | TypedSlice::SlicedFieldReference(_) => unreachable!(),
             }
         }
-        (0, false)
+        bud.match_set_mgr.match_sets[bud.match_set_id]
+            .action_buffer
+            .end_action_group();
+        (field_idx, bud.input_done)
     }
 }
 

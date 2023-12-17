@@ -139,6 +139,18 @@ impl Array {
     }
 }
 
+impl Object {
+    pub fn len(&self) -> usize {
+        match self {
+            Object::KeysStored(d) => d.len(),
+            Object::KeysInterned(d) => d.len(),
+        }
+    }
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
 impl FieldValueKind {
     pub fn to_preferred_data_repr(self) -> FieldValueRepr {
         match self {
