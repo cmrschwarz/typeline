@@ -68,11 +68,11 @@ fn push_unicode_escape<const C: usize>(c: char, output: &mut ArrayVec<u8, C>) {
 
 #[inline(always)]
 fn push_char<const C: usize>(c: char, output: &mut ArrayVec<u8, C>) {
-    if is_char_printable(c) {
+    if c.is_ascii() {
+        push_byte_escape(c as u8, output);
+    } else if is_char_printable(c) {
         output.extend(std::iter::repeat(0u8).take(c.len_utf8()));
         c.encode_utf8(output);
-    } else if c.is_ascii() {
-        push_byte_escape(c as u8, output);
     } else {
         push_unicode_escape(c, output);
     }
@@ -210,7 +210,7 @@ impl<W: Write> Write for EscapedWriter<W> {
                     buf_offset += end;
                     continue 'handle_escapes;
                 }
-                if !is_char_printable(c) {
+                if c == '\\' || !is_char_printable(c) {
                     match self.base.write(&buf[buf_offset..][..start]) {
                         Ok(n) => {
                             if n != start {
@@ -296,6 +296,14 @@ mod test {
     #[test]
     fn emtpy_string() {
         assert_eq!(escape_to_string(b""), "");
+    }
+
+    #[rstest]
+    #[case(b"\\", "\\\\")]
+    #[case(b"\\n", "\\\\n")]
+    #[case(b"\xFF\\", "\\xFF\\\\")]
+    fn backslashes(#[case] input: &[u8], #[case] output: &str) {
+        assert_eq!(escape_to_string(input), output);
     }
 
     #[rstest]
