@@ -25,12 +25,15 @@ impl PointerWriter {
             remaining_bytes: max_len,
         }
     }
+    pub fn remaining_bytes(&self) -> usize {
+        self.remaining_bytes
+    }
 }
 
 impl std::io::Write for PointerWriter {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         let len = buf.len();
-        self.remaining_bytes -= self
+        self.remaining_bytes = self
             .remaining_bytes
             .checked_sub(len)
             .expect("buffer overrun in PointerWriter");

@@ -15,6 +15,10 @@ pub struct EscapedWriter<W: std::io::Write> {
     base: W,
     incomplete_char_missing_len: u8,
     buffer_offset: u8,
+    // worst case length is storing the 4 escaped bytes of a
+    // broken utf-8 codepoint ('\xFF' * 4) -> 16 bytes
+    // PERF: it would probably be better not to have this here
+    // and recompute the broken char instead
     buffer: ArrayVec<u8, 16>,
 }
 pub struct EscapedFmtWriter<F: std::fmt::Write>(
@@ -133,6 +137,7 @@ impl<W: std::fmt::Write> std::io::Write for EscapedFmtWriter<W> {
 
 impl<W: Write> Write for EscapedWriter<W> {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let mut buf_offset = 0;
         if self.incomplete_char_missing_len != 0 {
             if buf.len() < self.incomplete_char_missing_len as usize {
                 self.buffer.try_extend_from_slice(buf).unwrap();
@@ -144,6 +149,7 @@ impl<W: Write> Write for EscapedWriter<W> {
                     &buf[0..self.incomplete_char_missing_len as usize],
                 )
                 .unwrap();
+            buf_offset += self.incomplete_char_missing_len as usize;
             self.incomplete_char_missing_len = 0;
 
             if let Some(c) = self.buffer.chars().next() {
@@ -158,7 +164,7 @@ impl<W: Write> Write for EscapedWriter<W> {
                 }
             }
         }
-        let mut buf_offset = 0;
+
         'handle_escapes: loop {
             if !self.buffer.is_empty() {
                 let written = self
@@ -201,7 +207,7 @@ impl<W: Write> Write for EscapedWriter<W> {
                             &mut self.buffer,
                         );
                     }
-                    buf_offset = end;
+                    buf_offset += end;
                     continue 'handle_escapes;
                 }
                 if !is_char_printable(c) {
@@ -223,7 +229,7 @@ impl<W: Write> Write for EscapedWriter<W> {
                             return Err(e);
                         }
                     }
-                    buf_offset = end;
+                    buf_offset += end;
                     push_char(c, &mut self.buffer);
                     continue 'handle_escapes;
                 }

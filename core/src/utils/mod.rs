@@ -1,8 +1,7 @@
-use std::{fmt::Write, ops::Range};
-
-use bstr::ByteSlice;
+use std::ops::Range;
 
 pub mod aligned_buf;
+pub mod counting_writer;
 pub mod dynamic_freelist;
 pub mod encoding;
 pub mod escaped_writer;
@@ -68,68 +67,6 @@ pub fn get_two_distinct_mut<T>(
     unsafe {
         let ptr = slice.as_mut_ptr();
         (&mut *ptr.add(idx1), &mut *ptr.add(idx2))
-    }
-}
-#[derive(Clone, Copy, Default)]
-pub struct LengthCountingWriter {
-    pub len: usize,
-}
-impl Write for LengthCountingWriter {
-    fn write_str(&mut self, s: &str) -> std::fmt::Result {
-        self.len += s.len();
-        Ok(())
-    }
-
-    fn write_char(&mut self, c: char) -> std::fmt::Result {
-        self.len += c.len_utf8();
-        Ok(())
-    }
-}
-impl std::io::Write for LengthCountingWriter {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        self.len += buf.len();
-        Ok(buf.len())
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
-}
-
-#[derive(Clone, Copy, Default)]
-pub struct LengthAndCharsCountingWriter {
-    pub len: usize,
-    pub char_count: usize,
-}
-impl Write for LengthAndCharsCountingWriter {
-    fn write_str(&mut self, s: &str) -> std::fmt::Result {
-        self.len += s.len();
-        self.char_count += s.chars().count();
-        Ok(())
-    }
-
-    fn write_char(&mut self, c: char) -> std::fmt::Result {
-        self.len += c.len_utf8();
-        self.char_count += 1;
-        Ok(())
-    }
-
-    fn write_fmt(
-        mut self: &mut Self,
-        args: std::fmt::Arguments<'_>,
-    ) -> std::fmt::Result {
-        std::fmt::write(&mut self, args)
-    }
-}
-impl std::io::Write for LengthAndCharsCountingWriter {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        self.len += buf.len();
-        self.char_count += buf.chars().count();
-        Ok(buf.len())
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
     }
 }
 

@@ -1,7 +1,8 @@
 use std::{any::Any, borrow::Cow, cmp::Ordering, fmt::Debug};
 
 use crate::{
-    operators::format::RealizedFormatKey, utils::LengthAndCharsCountingWriter,
+    operators::format::RealizedFormatKey,
+    utils::counting_writer::LengthAndCharsCountingWriter,
 };
 
 pub fn custom_data_reference_eq<T: CustomData + ?Sized>(

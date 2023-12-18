@@ -1,7 +1,7 @@
 use arrayvec::{ArrayString, ArrayVec};
 use bstr::ByteSlice;
 use nonmax::NonMaxUsize;
-use std::{borrow::Cow, cell::RefMut, fmt::Write, ptr::NonNull};
+use std::{borrow::Cow, cell::RefMut, ptr::NonNull};
 use unicode_ident::is_xid_start;
 
 use smallstr::SmallString;
@@ -38,15 +38,19 @@ use crate::{
         typed_iters::TypedSliceIter,
     },
     utils::{
+        counting_writer::{
+            CharLimitedLengthAndCharsCountingWriter,
+            LengthAndCharsCountingWriter, LengthCountingWriter,
+        },
         divide_by_char_len,
-        escaped_writer::EscapedFmtWriter,
+        escaped_writer::{EscapedFmtWriter, EscapedWriter},
         int_string_conversions::{
             i64_to_str, u64_to_str, usize_to_str, USIZE_MAX_DECIMAL_DIGITS,
         },
         io::PointerWriter,
         string_store::{StringStore, StringStoreEntry},
         universe::CountedUniverse,
-        LengthCountingWriter, MAX_UTF8_CHAR_LEN,
+        MAX_UTF8_CHAR_LEN,
     },
 };
 
@@ -443,7 +447,7 @@ pub fn parse_format_flags(
         if fmt.len() == *i {
             return Err((*i, NO_CLOSING_BRACE_ERR));
         }
-        let c = (&fmt[*i..]).chars().next().unwrap();
+        let c = (fmt[*i..]).chars().next().unwrap();
         *i += c.len_utf8();
         Ok(c)
     }
@@ -780,6 +784,25 @@ impl TextLayout {
     }
 }
 
+fn escaped_text_len_and_char_count(text: &[u8]) -> (usize, usize) {
+    let mut w = LengthAndCharsCountingWriter::default();
+    let mut ew = EscapedWriter::new(&mut w);
+    std::io::Write::write_all(&mut ew, text).unwrap();
+    let w = ew.into_inner().unwrap();
+    (w.len, w.char_count)
+}
+
+fn char_capped_escaped_text_len_and_char_count(
+    text: &[u8],
+    max_char_count: usize,
+) -> (usize, usize) {
+    let w = CharLimitedLengthAndCharsCountingWriter::new(max_char_count);
+    let mut ew = EscapedWriter::new(w);
+    let _ = std::io::Write::write_all(&mut ew, text);
+    let w = ew.into_inner().unwrap();
+    (w.len, w.char_count)
+}
+
 // 'quotes_len' in a more general sense is the number of characters (always ascii)
 // that will be printed as part of the text that are non negotiable
 fn calc_text_layout(
@@ -794,19 +817,24 @@ fn calc_text_layout(
         Some(FormatWidthSpec::Value(v)) => v,
         None => 0,
     };
-    let min_chars = min_chars.max(quotes_len);
     let max_chars = match k.float_precision {
         Some(FormatWidthSpec::Ref(_)) => float_precision,
         Some(FormatWidthSpec::Value(v)) => v,
         None => usize::MAX,
     };
-    let text_len = text.len();
+    let escaped = k.opts.type_repr != TypeReprFormat::Regular;
     if max_chars == usize::MAX {
-        if (text_len / MAX_UTF8_CHAR_LEN + quotes_len) >= min_chars {
-            return TextLayout::new(text_len, 0);
+        if !escaped
+            && (text.len() / MAX_UTF8_CHAR_LEN + quotes_len) >= min_chars
+        {
+            return TextLayout::new(text.len(), 0);
         }
-        let char_count = text.chars().count() + quotes_len;
-        if char_count >= min_chars {
+        let (text_len, char_count) = if escaped {
+            escaped_text_len_and_char_count(text)
+        } else {
+            (text.len(), text.chars().count())
+        };
+        if char_count + quotes_len >= min_chars {
             return TextLayout::new(text_len, 0);
         }
         return TextLayout::new(text_len, min_chars - char_count);
@@ -814,23 +842,44 @@ fn calc_text_layout(
     let mut char_count = quotes_len;
     let mut len = 0;
     if min_chars > max_chars {
-        for c in text.chars() {
-            if char_count >= max_chars {
-                break;
+        if escaped {
+            let (l, cc) = char_capped_escaped_text_len_and_char_count(
+                text,
+                max_chars - char_count,
+            );
+            char_count += cc;
+            len += l;
+        } else {
+            for c in text.chars() {
+                if char_count >= max_chars {
+                    break;
+                }
+                char_count += 1;
+                len += c.len_utf8();
             }
-            char_count += 1;
-            len += c.len_utf8();
         }
         // we might have min_chars = 1, max_chars = 0, quote len = 2,
         // so we need the saturating sub
         return TextLayout::new(len, min_chars.saturating_sub(char_count));
     }
-    for c in text.chars() {
+    if escaped {
+        let (l, cc) = char_capped_escaped_text_len_and_char_count(
+            text,
+            max_chars - char_count,
+        );
+        len += l;
+        char_count += cc;
         if char_count >= max_chars {
             return TextLayout::new(len, 0);
         }
-        char_count += 1;
-        len += c.len_utf8();
+    } else {
+        for c in text.chars() {
+            if char_count >= max_chars {
+                return TextLayout::new(len, 0);
+            }
+            char_count += 1;
+            len += c.len_utf8();
+        }
     }
     if char_count >= min_chars {
         return TextLayout::new(len, 0);
@@ -979,8 +1028,16 @@ pub fn setup_key_output_state(
     let mut handled_fields = 0;
     let typed_format = [TypeReprFormat::Typed, TypeReprFormat::Debug]
         .contains(&k.opts.type_repr);
-    let quote_len_text = if typed_format { 2 } else { 0 };
-    let quote_len_stream_text = if typed_format { 3 } else { 0 };
+    let quote_len_text = match k.opts.type_repr {
+        TypeReprFormat::Regular => 0,
+        TypeReprFormat::Typed => 2,
+        TypeReprFormat::Debug => 2,
+    };
+    let quote_len_stream_text = match k.opts.type_repr {
+        TypeReprFormat::Regular => 0,
+        TypeReprFormat::Typed => 2,
+        TypeReprFormat::Debug => 3,
+    };
     while let Some(range) = iter.typed_range_fwd(
         msm,
         usize::MAX,
@@ -995,7 +1052,7 @@ pub fn setup_key_output_state(
                         o.len += calc_text_len_ost(
                             k,
                             quote_len_text,
-                            &o,
+                            o,
                             v.as_bytes(),
                         );
                     });
@@ -1006,7 +1063,7 @@ pub fn setup_key_output_state(
                     RefAwareInlineBytesIter::from_range(&range, bytes)
                 {
                     iter_output_states(fmt, &mut output_index, rl, |o| {
-                        o.len += calc_text_len_ost(k, quote_len_text, &o, v);
+                        o.len += calc_text_len_ost(k, quote_len_text, o, v);
                         o.contains_raw_bytes = true;
                     });
                 }
@@ -1016,7 +1073,7 @@ pub fn setup_key_output_state(
                     RefAwareBytesBufferIter::from_range(&range, bytes)
                 {
                     iter_output_states(fmt, &mut output_index, rl, |o| {
-                        o.len += calc_text_len_ost(k, quote_len_text, &o, v);
+                        o.len += calc_text_len_ost(k, quote_len_text, o, v);
                         o.contains_raw_bytes = true;
                     });
                 }
@@ -1121,14 +1178,14 @@ pub fn setup_key_output_state(
                                     idx_end = Some(i);
                                 }
                             }
-                            if complete || !is_buffered {
+                            if complete || (!is_buffered && !make_buffered) {
                                 let mut i = output_index;
 
                                 iter_output_states(fmt, &mut i, rl, |o| {
                                     o.len += calc_text_len_ost(
                                         k,
                                         quote_len_stream_text,
-                                        &o,
+                                        o,
                                         b,
                                     );
                                     if sv.bytes_are_utf8 {
@@ -1204,7 +1261,7 @@ pub fn setup_key_output_state(
                     &mut output_index,
                     range.base.field_count,
                     |o| {
-                        o.len += calc_text_len_ost(k, NULL_STR.len(), &o, b"");
+                        o.len += calc_text_len_ost(k, NULL_STR.len(), o, b"");
                     },
                 );
             }
@@ -1215,7 +1272,7 @@ pub fn setup_key_output_state(
                     range.base.field_count,
                     |o| {
                         o.len +=
-                            calc_text_len_ost(k, UNDEFINED_STR.len(), &o, b"");
+                            calc_text_len_ost(k, UNDEFINED_STR.len(), o, b"");
                     },
                 );
             }
@@ -1270,7 +1327,7 @@ pub fn setup_key_output_state(
         uninitialized_fields,
         |o| {
             if typed_format {
-                o.len += calc_text_len_ost(k, UNDEFINED_STR.len(), &o, b"");
+                o.len += calc_text_len_ost(k, UNDEFINED_STR.len(), o, b"");
             } else {
                 o.contained_error = Some(FormatError {
                     err_in_width: false,
@@ -1292,12 +1349,33 @@ fn claim_target_len(tgt: &mut OutputTarget, len: usize) {
 unsafe fn write_bytes_to_target(tgt: &mut OutputTarget, bytes: &[u8]) {
     let len = bytes.len();
     claim_target_len(tgt, len);
+    let ptr = tgt.target.unwrap().as_ptr();
     unsafe {
-        let ptr = tgt.target.unwrap().as_ptr();
         std::ptr::copy_nonoverlapping(bytes.as_ptr(), ptr, len);
         tgt.target = Some(NonNull::new_unchecked(ptr.add(len)));
     }
 }
+
+unsafe fn write_escaped_bytes_to_target(
+    escape: bool,
+    tgt: &mut OutputTarget,
+    bytes: &[u8],
+) {
+    if !escape {
+        return unsafe { write_bytes_to_target(tgt, bytes) };
+    }
+    let ptr = tgt.target.unwrap().as_ptr();
+    unsafe {
+        let mut w = PointerWriter::new(ptr, tgt.remaining_len);
+        let mut ew = EscapedWriter::new(&mut w);
+        std::io::Write::write_all(&mut ew, bytes).unwrap();
+        let bytes_written =
+            tgt.remaining_len - ew.into_inner().unwrap().remaining_bytes();
+        tgt.target = Some(NonNull::new_unchecked(ptr.add(bytes_written)));
+        claim_target_len(tgt, bytes_written);
+    }
+}
+
 unsafe fn write_padding_to_tgt(
     tgt: &mut OutputTarget,
     fill_char: Option<char>,
@@ -1476,42 +1554,48 @@ fn setup_output_targets(
     }
     debug_assert!(fmt.output_states.len() == fmt.output_targets.len());
 }
-unsafe fn write_padded_bytes_with_prefix_suffix(
+unsafe fn write_padded_text_with_prefix_suffix(
     k: &FormatKey,
     tgt: &mut OutputTarget,
     data: &[u8],
     prefix: &[u8],
     suffix: &[u8],
 ) {
-    if k.min_char_count.is_some() || k.float_precision.is_some() {
-        let fill_spec = k.opts.fill.as_ref().copied().unwrap_or_default();
-        let layout = calc_text_layout(
-            k,
-            prefix.len() + suffix.len(),
-            tgt.min_char_count,
-            tgt.float_precision,
-            data,
+    let escape = k.opts.type_repr != TypeReprFormat::Regular;
+    if k.min_char_count.is_none() && k.float_precision.is_none() {
+        unsafe {
+            write_bytes_to_target(tgt, prefix);
+            write_escaped_bytes_to_target(escape, tgt, data);
+            write_bytes_to_target(tgt, suffix);
+        }
+        return;
+    }
+    let fill_spec = k.opts.fill.as_ref().copied().unwrap_or_default();
+    let layout = calc_text_layout(
+        k,
+        prefix.len() + suffix.len(),
+        tgt.min_char_count,
+        tgt.float_precision,
+        data,
+    );
+    let (pad_left, pad_right) = match fill_spec.alignment {
+        FormatFillAlignment::Left => (layout.padding, 0),
+        FormatFillAlignment::Center => {
+            ((layout.padding + 1) / 2, layout.padding / 2)
+        }
+        FormatFillAlignment::Right => (0, layout.padding),
+    };
+
+    unsafe {
+        write_padding_to_tgt(tgt, fill_spec.fill_char, pad_left);
+        write_bytes_to_target(tgt, prefix);
+        write_escaped_bytes_to_target(
+            escape,
+            tgt,
+            &data[0..layout.truncated_text_len],
         );
-        let (pad_left, pad_right) = match fill_spec.alignment {
-            FormatFillAlignment::Left => (layout.padding, 0),
-            FormatFillAlignment::Center => {
-                ((layout.padding + 1) / 2, layout.padding / 2)
-            }
-            FormatFillAlignment::Right => (0, layout.padding),
-        };
-        unsafe {
-            write_padding_to_tgt(tgt, fill_spec.fill_char, pad_left);
-            write_bytes_to_target(tgt, prefix);
-            write_bytes_to_target(tgt, &data[0..layout.truncated_text_len]);
-            write_bytes_to_target(tgt, suffix);
-            write_padding_to_tgt(tgt, fill_spec.fill_char, pad_right);
-        }
-    } else {
-        unsafe {
-            write_bytes_to_target(tgt, prefix);
-            write_bytes_to_target(tgt, data);
-            write_bytes_to_target(tgt, suffix);
-        }
+        write_bytes_to_target(tgt, suffix);
+        write_padding_to_tgt(tgt, fill_spec.fill_char, pad_right);
     }
 }
 unsafe fn write_padded_bytes(
@@ -1519,7 +1603,7 @@ unsafe fn write_padded_bytes(
     tgt: &mut OutputTarget,
     data: &[u8],
 ) {
-    unsafe { write_padded_bytes_with_prefix_suffix(k, tgt, data, &[], &[]) };
+    unsafe { write_padded_text_with_prefix_suffix(k, tgt, data, &[], &[]) };
 }
 unsafe fn write_formatted_int(
     k: &FormatKey,
@@ -1564,7 +1648,7 @@ fn format_error(
     e: &OperatorApplicationError,
     opts: &FormatOptions,
     stream_value: bool,
-    mut w: &mut impl Write,
+    mut w: &mut impl std::fmt::Write,
 ) -> Result<(), std::fmt::Error> {
     let sv = match opts.type_repr {
         TypeReprFormat::Regular => unreachable!(),
@@ -1579,7 +1663,7 @@ fn format_error(
     };
     w.write_fmt(format_args!("{sv}(error)\""))?;
     let mut ew = EscapedFmtWriter::new(&mut w);
-    ew.write_str(e.message())?;
+    std::fmt::Write::write_str(&mut ew, e.message())?;
     drop(ew);
     w.write_char('"')?;
     Ok(())
@@ -1660,7 +1744,7 @@ fn write_fmt_key(
                         rl as usize,
                         |tgt| unsafe {
                             if type_repr {
-                                write_padded_bytes_with_prefix_suffix(
+                                write_padded_text_with_prefix_suffix(
                                     k,
                                     tgt,
                                     v.as_bytes(),
@@ -1684,7 +1768,7 @@ fn write_fmt_key(
                         rl as usize,
                         |tgt| unsafe {
                             if type_repr {
-                                write_padded_bytes_with_prefix_suffix(
+                                write_padded_text_with_prefix_suffix(
                                     k, tgt, v, b"'", b"'",
                                 );
                             } else {
@@ -1704,7 +1788,7 @@ fn write_fmt_key(
                         rl as usize,
                         |tgt| unsafe {
                             if type_repr {
-                                write_padded_bytes_with_prefix_suffix(
+                                write_padded_text_with_prefix_suffix(
                                     k, tgt, v, b"'", b"'",
                                 );
                             } else {
@@ -1830,8 +1914,7 @@ fn write_fmt_key(
                                 .map(|r| &b[r])
                                 .unwrap_or(b);
 
-                            if range.is_some() || sv.done || !sv.is_buffered()
-                            {
+                            if range.is_some() || !sv.is_buffered() {
                                 let qc =
                                     if sv.bytes_are_utf8 { '"' } else { '\'' };
                                 let left = [b'~', qc as u8];
@@ -1852,7 +1935,7 @@ fn write_fmt_key(
                                     rl as usize,
                                     |tgt| {
                                         unsafe {
-                                            write_padded_bytes_with_prefix_suffix(
+                                            write_padded_text_with_prefix_suffix(
                                             k, tgt, data, left, right,
                                         )
                                         }
@@ -2086,7 +2169,7 @@ pub fn handle_tf_format_stream_value_update(
                         data,
                     );
 
-                    tgt_buf.reserve(len + quotes_len);
+                    tgt_buf.reserve(len);
                     unsafe {
                         // HACK: //TODO: create a separate impl
                         // for write padded bytes
@@ -2101,7 +2184,7 @@ pub fn handle_tf_format_stream_value_update(
                             remaining_len: len,
                         };
 
-                        write_padded_bytes_with_prefix_suffix(
+                        write_padded_text_with_prefix_suffix(
                             k,
                             &mut output_target,
                             data,

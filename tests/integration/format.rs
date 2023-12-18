@@ -246,3 +246,51 @@ fn dup_between_format_and_key() -> Result<(), ScrError> {
     assert_eq!(ss.get_data().unwrap().as_slice(), &["xxx", "xxx", "xxx"]);
     Ok(())
 }
+
+#[test]
+fn debug_string_escapes() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::default();
+    ContextBuilder::default()
+        .set_batch_size(2)
+        .push_str("\n", 1)
+        .add_op(create_op_format("{:?}".as_bytes()).unwrap())
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    println!("{:?}", ss.get().data);
+    assert_eq!(ss.get_data().unwrap().as_slice(), &[r#""\n""#]);
+    Ok(())
+}
+
+#[test]
+fn debug_bytes_escapes() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::default();
+    ContextBuilder::default()
+        .set_batch_size(2)
+        .push_bytes(b"\n\x00", 1)
+        .add_op(create_op_format("{:?}".as_bytes()).unwrap())
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    println!("{:?}", ss.get().data);
+    assert_eq!(ss.get_data().unwrap().as_slice(), &[r#"'\n\x00'"#]);
+    Ok(())
+}
+
+#[test]
+fn debug_bytes_escapes_in_stream() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::default();
+    ContextBuilder::default()
+        .set_batch_size(2)
+        .set_stream_buffer_size(1)
+        .add_op(create_op_file_reader_custom(
+            Box::new(SliceReader {
+                data: "\n".as_bytes(),
+            }),
+            0,
+        ))
+        .add_op(create_op_format("{:?}".as_bytes()).unwrap())
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    println!("{:?}", ss.get().data);
+    assert_eq!(ss.get_data().unwrap().as_slice(), &[r#"'\n'"#]);
+    Ok(())
+}
