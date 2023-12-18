@@ -1290,7 +1290,7 @@ pub fn setup_key_output_state(
                 }
             }
             TypedSlice::Undefined(_) | TypedSlice::Error(_) => {
-                debug_assert!(typed_format);
+                debug_assert!(!typed_format);
                 iter_output_states_advanced(
                     &mut fmt.output_states,
                     &mut output_index,

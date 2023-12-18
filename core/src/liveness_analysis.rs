@@ -177,6 +177,7 @@ impl LivenessData {
                 }
                 OperatorData::Format(_) => 1,
                 OperatorData::StringSink(_) => 1,
+                OperatorData::FieldValueSink(_) => 1,
                 OperatorData::FileReader(_) => 1,
                 OperatorData::Literal(_) => 1,
                 OperatorData::Sequence(_) => 1,
@@ -247,6 +248,7 @@ impl LivenessData {
                         }
                     }
                     OperatorData::StringSink(_) => (),
+                    OperatorData::FieldValueSink(_) => (),
                     OperatorData::FileReader(_) => (),
                     OperatorData::Literal(_) => (),
                     OperatorData::Sequence(_) => (),
@@ -364,6 +366,7 @@ impl LivenessData {
                     OperatorData::Regex(_) => {}
                     OperatorData::Format(_) => (),
                     OperatorData::StringSink(_) => (),
+                    OperatorData::FieldValueSink(_) => (),
                     OperatorData::FileReader(_) => (),
                     OperatorData::Literal(_) => (),
                     OperatorData::Sequence(_) => (),
@@ -662,7 +665,7 @@ impl LivenessData {
                     flags.may_dup_or_drop = false;
                     flags.non_stringified_input_access = false;
                 }
-                OperatorData::Cast(_) => {
+                OperatorData::FieldValueSink(_) | OperatorData::Cast(_) => {
                     flags.may_dup_or_drop = false;
                 }
                 OperatorData::Next(_) => unreachable!(),

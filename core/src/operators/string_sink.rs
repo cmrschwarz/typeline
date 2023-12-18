@@ -121,7 +121,7 @@ pub fn create_op_string_sink(handle: &'_ StringSinkHandle) -> OperatorData {
     })
 }
 
-pub struct StreamValueHandle {
+struct StreamValueHandle {
     start_idx: usize,
     run_len: usize,
     contains_error: bool,

@@ -19,6 +19,10 @@ use crate::{
         },
         cast::{build_tf_cast, handle_tf_cast},
         count::{build_tf_count, handle_tf_count},
+        field_value_sink::{
+            build_tf_field_value_sink, handle_tf_field_value_sink,
+            handle_tf_field_value_sink_stream_value_update,
+        },
         file_reader::{
             build_tf_file_reader, handle_tf_file_reader,
             handle_tf_file_reader_stream,
@@ -774,6 +778,9 @@ impl<'a> JobSession<'a> {
                 OperatorData::StringSink(op) => {
                     build_tf_string_sink(jd, b, op, &mut tf_state)
                 }
+                OperatorData::FieldValueSink(op) => {
+                    build_tf_field_value_sink(jd, b, op, &mut tf_state)
+                }
                 OperatorData::FileReader(op) => {
                     build_tf_file_reader(jd, b, op, &tf_state)
                 }
@@ -861,6 +868,7 @@ impl<'a> JobSession<'a> {
                 OperatorData::Regex(_) => (),
                 OperatorData::Format(_) => (),
                 OperatorData::StringSink(_) => (),
+                OperatorData::FieldValueSink(_) => (),
                 OperatorData::FileReader(_) => (),
                 OperatorData::Literal(_) => (),
                 OperatorData::Sequence(_) => (),
@@ -969,6 +977,15 @@ impl<'a> JobSession<'a> {
                     svu.custom,
                 )
             }
+            TransformData::FieldValueSink(tf) => {
+                handle_tf_field_value_sink_stream_value_update(
+                    &mut self.job_data,
+                    svu.tf_id,
+                    tf,
+                    svu.sv_id,
+                    svu.custom,
+                )
+            }
             TransformData::Format(tf) => handle_tf_format_stream_value_update(
                 &mut self.job_data,
                 svu.tf_id,
@@ -1046,6 +1063,7 @@ impl<'a> JobSession<'a> {
             TransformData::Join(_) => (),
             TransformData::Select(_) => (),
             TransformData::StringSink(_) => (),
+            TransformData::FieldValueSink(_) => (),
             TransformData::Regex(_) => (),
             TransformData::Format(_) => (),
             TransformData::FileReader(_) => (),
@@ -1085,6 +1103,9 @@ impl<'a> JobSession<'a> {
             TransformData::Regex(tf) => handle_tf_regex(jd, tf_id, tf),
             TransformData::StringSink(tf) => {
                 handle_tf_string_sink(jd, tf_id, tf)
+            }
+            TransformData::FieldValueSink(tf) => {
+                handle_tf_field_value_sink(jd, tf_id, tf)
             }
             TransformData::FileReader(tf) => {
                 handle_tf_file_reader(jd, tf_id, tf)
@@ -1136,6 +1157,7 @@ impl<'a> JobSession<'a> {
             | TransformData::Join(_)
             | TransformData::Select(_)
             | TransformData::StringSink(_)
+            | TransformData::FieldValueSink(_)
             | TransformData::Fork(_)
             | TransformData::ForkCat(_)
             | TransformData::Regex(_)

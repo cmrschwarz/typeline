@@ -4,6 +4,7 @@ pub mod cast;
 pub mod count;
 pub mod errors;
 pub mod explode;
+pub mod field_value_sink;
 pub mod file_reader;
 pub mod flatten;
 pub mod fork;

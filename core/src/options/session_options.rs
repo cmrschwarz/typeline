@@ -135,6 +135,7 @@ impl SessionOptions {
             OperatorData::Regex(_) => (),
             OperatorData::Format(_) => (),
             OperatorData::StringSink(_) => (),
+            OperatorData::FieldValueSink(_) => (),
             OperatorData::FileReader(_) => (),
             OperatorData::Literal(_) => (),
             OperatorData::Sequence(_) => (),
@@ -269,6 +270,7 @@ impl SessionOptions {
                         OperatorData::Regex(_) => (),
                         OperatorData::Format(_) => (),
                         OperatorData::StringSink(_) => (),
+                        OperatorData::FieldValueSink(_) => (),
                         OperatorData::FileReader(_) => (),
                         OperatorData::Literal(_) => (),
                         OperatorData::Sequence(_) => (),
@@ -311,6 +313,7 @@ impl SessionOptions {
                     setup_op_file_reader(chain, op)?
                 }
                 OperatorData::StringSink(_) => (),
+                OperatorData::FieldValueSink(_) => (),
                 OperatorData::Fork(op) => {
                     setup_op_fork(chain, op_base, op, op_id)?
                 }
@@ -425,6 +428,7 @@ impl SessionOptions {
                 OperatorData::Regex(_) => (),
                 OperatorData::Format(_) => (),
                 OperatorData::StringSink(_) => (),
+                OperatorData::FieldValueSink(_) => (),
                 OperatorData::FileReader(_) => (),
                 OperatorData::Literal(_) => (),
                 OperatorData::Sequence(op) => {
