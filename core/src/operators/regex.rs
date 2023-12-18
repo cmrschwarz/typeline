@@ -13,7 +13,7 @@ use crate::{
     options::argument::CliArgIdx,
     record_data::{
         action_buffer::{ActionBuffer, ActorId, ActorRef},
-        field::{Field, FieldId, FieldIdOffset},
+        field::{Field, FieldId, FieldRefOffset},
         field_action::FieldActionKind,
         field_data::{
             field_value_flags, FieldData, FieldValueRepr, RunLength,
@@ -35,7 +35,6 @@ use crate::{
         int_string_conversions::{
             i64_to_str, usize_to_str, USIZE_MAX_DECIMAL_DIGITS,
         },
-        nonzero_ext::nonmax_u16_wrapping_add,
         string_store::{StringStore, StringStoreEntry},
     },
 };
@@ -70,6 +69,7 @@ pub struct TfRegex {
     multimatch: bool,
     non_mandatory: bool,
     allow_overlapping: bool,
+    input_field_ref_offset: FieldRefOffset,
 }
 
 #[derive(Clone, Default, PartialEq, Eq)]
@@ -415,6 +415,7 @@ pub fn build_tf_regex<'a>(
 
     output_field.first_actor = next_actor_id;
     drop(output_field);
+    let mut input_field_ref_offset = NonMaxU16::MAX;
     let cgfs: Vec<Option<FieldId>> = op
         .capture_group_names
         .iter()
@@ -444,8 +445,16 @@ pub fn build_tf_regex<'a>(
                 None
             };
             if let Some(id) = field_id {
-                sess.field_mgr
+                let fro = sess
+                    .field_mgr
                     .register_field_reference(id, tf_state.input_field);
+                // all output fields should have the same
+                // field ref layout
+                debug_assert!(
+                    input_field_ref_offset == fro
+                        || input_field_ref_offset == FieldRefOffset::MAX
+                );
+                input_field_ref_offset = fro;
             }
             field_id
         })
@@ -466,6 +475,7 @@ pub fn build_tf_regex<'a>(
         input_field_iter_id: sess.field_mgr.claim_iter(tf_state.input_field),
         next_start: 0,
         actor_id,
+        input_field_ref_offset,
     })
 }
 
@@ -627,7 +637,7 @@ fn match_regex_inner<const PUSH_REF: bool, R: AnyRegex>(
                     if PUSH_REF {
                         ins.push_fixed_size_type(
                             SlicedFieldReference {
-                                field_id_offset: rmis.field_ref_offset,
+                                field_ref_offset: rmis.input_field_ref_offset,
                                 begin: offset + cg_begin,
                                 end: offset + cg_end,
                             },
@@ -715,7 +725,7 @@ struct RegexBatchState<'a> {
 struct RegexMatchInnerState<'a, 'b> {
     batch_state: &'b mut RegexBatchState<'a>,
     action_buffer: &'b mut ActionBuffer,
-    field_ref_offset: FieldIdOffset,
+    input_field_ref_offset: FieldRefOffset,
 }
 
 pub fn handle_tf_regex(
@@ -801,10 +811,9 @@ pub fn handle_tf_regex(
             batch_state: &mut rbs,
             action_buffer: &mut sess.match_set_mgr.match_sets[tf.match_set_id]
                 .action_buffer,
-            field_ref_offset: range
-                .field_id_offset
-                .map(|o| nonmax_u16_wrapping_add(o, NonMaxU16::ONE))
-                .unwrap_or(NonMaxU16::ZERO),
+            input_field_ref_offset: range
+                .field_ref_offset
+                .unwrap_or(re.input_field_ref_offset),
         };
         match range.base.data {
             TypedSlice::TextInline(text) => {

@@ -4,6 +4,7 @@ use num::{BigInt, BigRational};
 
 use super::{
     custom_data::CustomDataBox,
+    field::FieldRefOffset,
     field_data::{
         field_value_flags, FieldData, FieldValueFlags, FieldValueFormat,
         FieldValueHeader, FieldValueRepr, FieldValueSize, FieldValueType,
@@ -640,6 +641,7 @@ pub unsafe trait PushInterface {
         try_header_rle: bool,
         try_data_rle: bool,
         try_ref_data_rle: bool,
+        input_field_ref_offset: FieldRefOffset,
     ) {
         match range.base.data {
             TypedSlice::Undefined(_)
@@ -660,16 +662,12 @@ pub unsafe trait PushInterface {
             | TypedSlice::Custom(_)
             | TypedSlice::Error(_)
             | TypedSlice::Object(_) => {
-                // HACK: we should really do the opposite in add_field_ref
-                // and add the directly referenced field in the end
-                // so clone would just work
-                let idx = if let Some(idx) = range.field_id_offset {
-                    idx.get() + 1
-                } else {
-                    0
-                };
                 self.push_field_reference(
-                    FieldReference::new(idx),
+                    FieldReference::new(
+                        range
+                            .field_ref_offset
+                            .unwrap_or(input_field_ref_offset),
+                    ),
                     range.base.field_count,
                     try_header_rle,
                     try_ref_data_rle,
@@ -685,7 +683,7 @@ pub unsafe trait PushInterface {
                         {
                             self.push_sliced_field_reference(
                                 SlicedFieldReference::new(
-                                    range.field_id_offset.unwrap().get(),
+                                    range.field_ref_offset.unwrap(),
                                     offset,
                                     offset + v.len(),
                                 ),
@@ -696,16 +694,12 @@ pub unsafe trait PushInterface {
                         }
                     }
                     Some(AnyRefSliceIter::FieldRef(_)) | None => {
-                        // HACK: we should really do the opposite in add_field_ref
-                        // and add the directly referenced field in the end
-                        // so clone would just work
-                        let idx = if let Some(idx) = range.field_id_offset {
-                            idx.get() + 1
-                        } else {
-                            0
-                        };
                         self.push_field_reference(
-                            FieldReference::new(idx),
+                            FieldReference::new(
+                                range
+                                    .field_ref_offset
+                                    .unwrap_or(input_field_ref_offset),
+                            ),
                             range.base.field_count,
                             try_header_rle,
                             try_ref_data_rle,
@@ -723,7 +717,7 @@ pub unsafe trait PushInterface {
                         {
                             self.push_sliced_field_reference(
                                 SlicedFieldReference::new(
-                                    range.field_id_offset.unwrap().get(),
+                                    range.field_ref_offset.unwrap(),
                                     offset,
                                     offset + v.len(),
                                 ),
@@ -734,16 +728,12 @@ pub unsafe trait PushInterface {
                         }
                     }
                     Some(AnyRefSliceIter::FieldRef(_)) | None => {
-                        // HACK: we should really do the opposite in add_field_ref
-                        // and add the directly referenced field in the end
-                        // so clone would just work
-                        let idx = if let Some(idx) = range.field_id_offset {
-                            idx.get() + 1
-                        } else {
-                            0
-                        };
                         self.push_field_reference(
-                            FieldReference::new(idx),
+                            FieldReference::new(
+                                range
+                                    .field_ref_offset
+                                    .unwrap_or(input_field_ref_offset),
+                            ),
                             range.base.field_count,
                             try_header_rle,
                             try_ref_data_rle,

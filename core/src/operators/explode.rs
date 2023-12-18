@@ -3,7 +3,7 @@ use std::{
     collections::HashMap,
 };
 
-use indexmap::IndexMap;
+use indexmap::{indexmap, IndexMap};
 
 use crate::{
     job_session::JobData,
@@ -12,7 +12,7 @@ use crate::{
     },
     options::argument::CliArgIdx,
     record_data::{
-        field::{FieldId, FieldManager},
+        field::{FieldId, FieldManager, FieldRefOffset},
         field_data::FieldData,
         field_value::{FieldValue, Object},
         iter_hall::IterId,
@@ -44,12 +44,12 @@ pub enum TargetField {
     Pending(u32),
 }
 
-#[derive(Default)]
 pub struct TfExplode {
     target_fields: IndexMap<Option<StringStoreEntry>, TargetField>,
     inserters: Vec<VaryingTypeInserter<RefMut<'static, FieldData>>>,
     pending_fields: StableVec<(RefCell<FieldData>, usize)>,
     input_iter_id: IterId,
+    input_field_field_ref_offset: FieldRefOffset,
 }
 
 // SAFETY: this type is not automatically sync because of pending_fields: StableVec
@@ -110,13 +110,20 @@ impl Operator for OpExplode {
         tf_state: &mut super::transform::TransformState,
         _prebound_outputs: &HashMap<OpOutputIdx, FieldId, BuildIdentityHasher>,
     ) -> TransformData<'a> {
-        let mut tfe = TfExplode::default();
-        tfe.target_fields
-            .insert(None, TargetField::Present(tf_state.output_field));
-        sess.field_mgr.register_field_reference(
-            tf_state.output_field,
-            tf_state.input_field,
-        );
+        let input_field_field_ref_offset =
+            sess.field_mgr.register_field_reference(
+                tf_state.output_field,
+                tf_state.input_field,
+            );
+        let tfe = TfExplode {
+            target_fields: indexmap! {
+                None => TargetField::Present(tf_state.output_field)
+            },
+            inserters: Default::default(),
+            pending_fields: Default::default(),
+            input_iter_id: sess.field_mgr.claim_iter(tf_state.input_field),
+            input_field_field_ref_offset,
+        };
         TransformData::Custom(smallbox!(tfe))
     }
 }
@@ -210,7 +217,11 @@ impl Transform for TfExplode {
                 | TypedSlice::Custom(_)
                 | TypedSlice::Error(_) => {
                     inserters[0].extend_from_ref_aware_range_smart_ref(
-                        range, true, false, true,
+                        range,
+                        true,
+                        false,
+                        true,
+                        self.input_field_field_ref_offset,
                     );
                 }
                 TypedSlice::Object(objects) => {

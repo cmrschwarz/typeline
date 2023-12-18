@@ -9,7 +9,7 @@ use crate::{
     options::argument::CliArgIdx,
     record_data::{
         action_buffer::{ActorId, ActorRef},
-        field::FieldId,
+        field::{FieldId, FieldRefOffset},
         field_action::FieldActionKind,
         field_value::{Array, FieldValue, Object},
         iter_hall::IterId,
@@ -40,6 +40,7 @@ pub struct TfFlatten {
     may_consume_input: bool,
     input_iter_id: IterId,
     actor_id: ActorId,
+    input_field_ref_offset: FieldRefOffset,
 }
 
 pub fn parse_op_flatten(
@@ -92,18 +93,19 @@ impl Operator for OpFlatten {
     ) -> TransformData<'a> {
         let cb = &mut sess.match_set_mgr.match_sets[tf_state.match_set_id]
             .action_buffer;
+        let input_field_ref_offset = sess.field_mgr.register_field_reference(
+            tf_state.output_field,
+            tf_state.input_field,
+        );
         let tfe = TfFlatten {
             may_consume_input: self.may_consume_input,
             input_iter_id: sess.field_mgr.claim_iter(tf_state.input_field),
             actor_id: cb.add_actor(),
+            input_field_ref_offset,
         };
         sess.field_mgr.fields[tf_state.output_field]
             .borrow_mut()
             .first_actor = ActorRef::Unconfirmed(cb.peek_next_actor_id());
-        sess.field_mgr.register_field_reference(
-            tf_state.output_field,
-            tf_state.input_field,
-        );
         TransformData::Custom(smallbox!(tfe))
     }
 }
@@ -160,7 +162,11 @@ impl TfFlatten {
                 | TypedSlice::Error(_) => {
                     field_idx += range.base.field_count;
                     inserter.extend_from_ref_aware_range_smart_ref(
-                        range, true, false, true,
+                        range,
+                        true,
+                        false,
+                        true,
+                        self.input_field_ref_offset,
                     );
                 }
                 TypedSlice::Object(objects) => {

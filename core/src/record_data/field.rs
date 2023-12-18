@@ -65,7 +65,13 @@ pub struct Field {
 }
 
 pub type FieldId = u32;
-pub type FieldIdOffset = NonMaxU16; // NonMaxU32;
+
+// Field references don't contain the `FieldId` of their target field directly,
+// but an index into the `field_references` Vec of the Field they reside in.
+// This is necessary so that when we COW the field we can just supply a
+// different `field_references` array for the COW field without having
+// to modify the original field data
+pub type FieldRefOffset = NonMaxU16;
 pub const DUMMY_FIELD_ID: FieldId = FieldId::MIN;
 
 impl Field {
@@ -796,15 +802,23 @@ impl FieldManager {
         &self,
         refs_field: FieldId,
         refs_target: FieldId,
-    ) {
+    ) -> FieldRefOffset {
         let mut src = self.fields[refs_field].borrow_mut();
         let mut tgt = self.fields[refs_target].borrow_mut();
-        src.field_refs.push(refs_target);
         tgt.ref_count += 1;
         for fr in &tgt.field_refs {
             self.fields[*fr].borrow_mut().ref_count += 1;
         }
         src.field_refs.extend_from_slice(&tgt.field_refs);
+        // we put the ref target itself last so that fields with only one
+        // ref (commonly to their input field), have the same offsets as their
+        // ref target and can be copy field refs (and objects containing them)
+        // straight to the output. This property is depended on by the
+        // `extend_from_ref_aware_range_smart_ref` function of the
+        // push interface, that is used e.g. by the flatten / explode operators
+        let id = FieldRefOffset::new(src.field_refs.len() as u16).unwrap();
+        src.field_refs.push(refs_target);
+        id
     }
     pub fn remove_field(&mut self, id: FieldId, msm: &mut MatchSetManager) {
         #[cfg(feature = "debug_logging")]

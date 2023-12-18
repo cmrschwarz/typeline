@@ -1,7 +1,6 @@
 use std::ops::{Add, AddAssign, Div, MulAssign, Rem, Sub};
 
 use indexmap::IndexMap;
-use nonmax::NonMaxU16;
 use num::{BigInt, BigRational, FromPrimitive, One, Signed, Zero};
 
 use crate::{
@@ -15,7 +14,7 @@ use crate::{
 
 use super::{
     custom_data::CustomDataBox,
-    field::{FieldIdOffset, FieldManager},
+    field::{FieldManager, FieldRefOffset},
     field_data::FieldValueRepr,
     match_set::MatchSetManager,
 };
@@ -91,30 +90,32 @@ pub enum Array {
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct FieldReference {
-    pub field_id_offset: FieldIdOffset,
+    pub field_ref_offset: FieldRefOffset,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct SlicedFieldReference {
-    pub field_id_offset: FieldIdOffset,
+    pub field_ref_offset: FieldRefOffset,
     pub begin: usize,
     pub end: usize,
 }
 
 impl SlicedFieldReference {
-    pub fn new(idx: u16, begin: usize, end: usize) -> Self {
+    pub fn new(
+        field_ref_offset: FieldRefOffset,
+        begin: usize,
+        end: usize,
+    ) -> Self {
         Self {
-            field_id_offset: NonMaxU16::new(idx).unwrap(),
+            field_ref_offset,
             begin,
             end,
         }
     }
 }
 impl FieldReference {
-    pub fn new(idx: u16) -> Self {
-        Self {
-            field_id_offset: NonMaxU16::new(idx).unwrap(),
-        }
+    pub fn new(field_ref_offset: FieldRefOffset) -> Self {
+        Self { field_ref_offset }
     }
 }
 
