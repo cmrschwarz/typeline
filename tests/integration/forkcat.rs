@@ -72,7 +72,7 @@ fn forkcat_sandwiched_write() -> Result<(), ScrError> {
         .add_op(create_op_forkcat())
         .add_op(create_op_nop())
         .add_op(create_op_next())
-        .add_op(create_op_format(b"{}{}").unwrap())
+        .add_op(create_op_format("{}{}").unwrap())
         .add_op(create_op_next())
         .add_op(create_op_nop())
         .add_op(create_op_up(1))
@@ -130,7 +130,7 @@ fn forkcat_input_equals_named_var() -> Result<(), ScrError> {
     ContextBuilder::default()
         .add_op_with_label(create_op_str("a", 1), "a")
         .add_op(create_op_forkcat())
-        .add_op(create_op_format(b"{a}").unwrap())
+        .add_op(create_op_format("{a}").unwrap())
         .add_op(create_op_up(1))
         .add_op(create_op_string_sink(&ss))
         .run()?;
@@ -148,7 +148,7 @@ fn forkcat_surviving_vars() -> Result<(), ScrError> {
         .add_op(create_op_next())
         .add_op(create_op_str("b", 0))
         .add_op(create_op_up(1))
-        .add_op(create_op_format(b"{lbl:?}: {}").unwrap())
+        .add_op(create_op_format("{lbl:?}: {}").unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(

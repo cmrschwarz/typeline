@@ -4,6 +4,7 @@ use std::{
     ops::Index,
 };
 
+use arrayvec::ArrayVec;
 use bstr::ByteSlice;
 
 use super::{utf8_codepoint_len_from_first_byte, MAX_UTF8_CHAR_LEN};
@@ -112,6 +113,7 @@ pub fn read_char(stream: &mut impl Read) -> Result<char, ReadCharError> {
         return Err(ReadCharError::Io(e));
     }
     let Some(tok) = buf.chars().next() else {
+        //PERF: ?
         return Err(ReadCharError::InvalidUtf8 {
             sequence: buf,
             len: codepoint_len,
@@ -180,6 +182,54 @@ impl<'a> ReplacementState<'a> {
             return Err(ReplacementError::NeedMoreCharacters);
         }
         Ok(self.lookahead[la_pos])
+    }
+    pub fn get_n<E>(
+        &self,
+        index: usize,
+        target: &mut [u8],
+    ) -> Result<(), ReplacementError<E>> {
+        if index + target.len() <= self.seq_len {
+            let start = self.buf_offset() + index;
+            target.copy_from_slice(&self.buf[start..start + target.len()]);
+            return Ok(());
+        }
+        let la_pos = index - self.seq_len;
+        if la_pos >= self.lookahead.len() {
+            return Err(ReplacementError::NeedMoreCharacters);
+        }
+        let start_in_buf = self.buf_offset() + index;
+        let len_in_buf = self.buf.len().saturating_sub(start_in_buf);
+        target[..len_in_buf].copy_from_slice(
+            &self.buf[start_in_buf..start_in_buf + len_in_buf],
+        );
+        let len_in_la = target.len() - len_in_buf;
+        target[len_in_buf..]
+            .copy_from_slice(&self.buf[la_pos..la_pos + len_in_la]);
+        Ok(())
+    }
+    pub fn get_char<E>(
+        &self,
+        index: usize,
+    ) -> Result<
+        Result<char, ArrayVec<u8, MAX_UTF8_CHAR_LEN>>,
+        ReplacementError<E>,
+    > {
+        let c = self.get(index)?;
+        if c.is_ascii() {
+            return Ok(Ok(c as char)); // ascii fast path
+        }
+        let Some(utf8_len) = utf8_codepoint_len_from_first_byte(c) else {
+            return Ok(Err(ArrayVec::from_iter([c])));
+        };
+        let mut buf = [0u8; MAX_UTF8_CHAR_LEN];
+        buf[0] = c;
+        self.get_n(index, &mut buf[1..])?;
+        let Some(c) = buf.chars().next() else {
+            return Ok(Err(ArrayVec::from_iter(
+                buf.iter().copied().take(utf8_len as usize),
+            )));
+        };
+        Ok(Ok(c))
     }
     pub fn find<E>(
         &self,

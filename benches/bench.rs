@@ -93,7 +93,7 @@ fn dummy_format(b: &mut test::Bencher) {
         let ss = StringSinkHandle::default();
         ContextBuilder::default()
             .add_op(create_op_seq(0, LEN as i64, 1).unwrap())
-            .add_op(create_op_format("{}".as_bytes()).unwrap())
+            .add_op(create_op_format("{}").unwrap())
             .add_op(create_op_string_sink(&ss))
             .run()
             .unwrap();
@@ -111,7 +111,7 @@ fn format_twice(b: &mut test::Bencher) {
         let ss = StringSinkHandle::default();
         ContextBuilder::default()
             .add_op(create_op_seq(0, LEN as i64, 1).unwrap())
-            .add_op(create_op_format("{}{}".as_bytes()).unwrap())
+            .add_op(create_op_format("{}{}").unwrap())
             .add_op(create_op_string_sink(&ss))
             .run()
             .unwrap();
@@ -141,7 +141,7 @@ fn regex_drop_uneven_into_format_twice(b: &mut test::Bencher) {
             .push_str(&input, 1)
             .add_op(create_op_regex_lines())
             .add_op(create_op_regex("^.*[02468]$").unwrap())
-            .add_op(create_op_format("{}{}".as_bytes()).unwrap())
+            .add_op(create_op_format("{}{}").unwrap())
             .add_op(create_op_string_sink(&ss))
             .run()
             .unwrap();

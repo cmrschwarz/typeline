@@ -213,7 +213,7 @@ fn optional_regex() -> Result<(), ScrError> {
             )
             .unwrap(),
         )
-        .add_op(create_op_format("{n}: {:?}".as_bytes()).unwrap())
+        .add_op(create_op_format("{n}: {:?}").unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(

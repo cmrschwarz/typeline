@@ -31,13 +31,21 @@ pub enum TysonParseErrorKind {
     #[error("invalid utf-8")]
     InvalidUtf8(ArrayVec<u8, MAX_UTF8_CHAR_LEN>),
     #[error("invalid unicode escape")]
-    InvalidUnicodeEscape([u8; 4]),
+    InvalidUnicodeEscape(ArrayString<4>),
     #[error("invalid unicode escape")]
     InvalidExtendedUnicodeEscape(ArrayString<6>),
     #[error("unicode escape is too long")]
     ExtendedUnicodeEscapeTooLong,
     #[error("character '{0}' cannot be escaped")]
-    NonEscapbleCharacter(u8),
+    NonEscapbleCharacter(char),
+    #[error(
+        "\"\\x\" is not allowed in \"unicode\" strings. Use \"\\u\" or a 'binary' string."
+    )]
+    ByteEscapeInUnicodeString,
+    #[error("invalid binary escape")]
+    InvalidByteEscape(ArrayString<4>),
+    #[error("expected \" or \' after leading b for parsing a binary string")]
+    ExpectedQuoteAfterB,
     #[error("invalid number")]
     InvalidNumber,
     #[error("stray character '{0}'")]
@@ -190,12 +198,32 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
             self.col += 1;
         }
     }
+    fn parse_binary_string_after_b(
+        &mut self,
+    ) -> Result<FieldValue, TysonParseError> {
+        let quote = self.read_char_eat_whitespace()?;
+        if !['\'', '"'].contains(&quote) {
+            return self.err(TysonParseErrorKind::ExpectedQuoteAfterB);
+        }
+        self.parse_string_after_quote(quote as u8, true)
+    }
     fn parse_string_token_after_quote(
         &mut self,
         quote_kind: u8,
     ) -> Result<String, TysonParseError> {
+        let FieldValue::Text(v) =
+            self.parse_string_after_quote(quote_kind, false)?
+        else {
+            unreachable!()
+        };
+        Ok(v)
+    }
+    fn parse_string_after_quote(
+        &mut self,
+        quote_kind: u8,
+        binary: bool,
+    ) -> Result<FieldValue, TysonParseError> {
         let mut buf = Vec::new();
-        debug_assert!([b'"', b'\''].contains(&quote_kind));
         let escape_sequences = [
             b'a', // audible bell
             b'b', // backspace
@@ -248,22 +276,58 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
             esc_value.encode_utf8(&mut buf[buf_offset..]);
             Ok(esc_end + 1)
         };
-        let parse_unicode_escape = |_s: ReplacementState| todo!();
+        let parse_unicode_escape = |_s: ReplacementState| {
+            // tricky because maybe two required because of surrogate pairs
+            todo!("\\uFFFF escape sequences");
+        };
+        let parse_byte_escape = |s: ReplacementState| {
+            let buf_offset = s.buf_offset();
+            let buf = s.pull_into_buf(4)?;
+            let esc_seq = &buf[buf_offset + 2..buf_offset + 4];
+            let esc_str = std::str::from_utf8(esc_seq).map_err(|e| {
+                let err_start = e.valid_up_to();
+                let err_end = e
+                    .error_len()
+                    .map(|l| err_start + l)
+                    .unwrap_or(esc_seq.len());
+                ReplacementError::Error(TysonParseErrorKind::InvalidUtf8(
+                    ArrayVec::from_iter(
+                        esc_seq[err_start..err_end].iter().copied(),
+                    ),
+                ))
+            })?;
+            let esc_value =
+                u8::from_str_radix(esc_str, 16).ok().ok_or_else(|| {
+                    ReplacementError::Error(
+                        TysonParseErrorKind::InvalidByteEscape(
+                            ArrayString::from(esc_str).unwrap(),
+                        ),
+                    )
+                })?;
+
+            buf.truncate(buf_offset);
+            buf.push(esc_value);
+            Ok(4)
+        };
         let escape_handler = |s: ReplacementState| {
             if s[0] == b'\n' {
                 debug_assert!(s.seq_len == 1);
-                let line = &s.buffer()[curr_line_begin..];
-                if let Err(e) = line.to_str() {
-                    let err_start = e.valid_up_to();
-                    let err_end = e
-                        .error_len()
-                        .map(|l| err_start + l)
-                        .unwrap_or(line.len());
-                    return Err(ReplacementError::Error(
-                        TysonParseErrorKind::InvalidUtf8(ArrayVec::from_iter(
-                            line[err_start..err_end].iter().copied(),
-                        )),
-                    ));
+                if !binary {
+                    let line = &s.buffer()[curr_line_begin..];
+                    if let Err(e) = line.to_str() {
+                        let err_start = e.valid_up_to();
+                        let err_end = e
+                            .error_len()
+                            .map(|l| err_start + l)
+                            .unwrap_or(line.len());
+                        return Err(ReplacementError::Error(
+                            TysonParseErrorKind::InvalidUtf8(
+                                ArrayVec::from_iter(
+                                    line[err_start..err_end].iter().copied(),
+                                ),
+                            ),
+                        ));
+                    }
                 }
                 self.line += 1;
                 self.col = 1;
@@ -279,6 +343,14 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
                 }
                 return parse_unicode_escape(s);
             }
+            if esc_kind == b'x' {
+                if !binary {
+                    return Err(ReplacementError::Error(
+                        TysonParseErrorKind::ByteEscapeInUnicodeString,
+                    ));
+                }
+                return parse_byte_escape(s);
+            }
             if let Some(i) = escape_sequences.find_byte(esc_kind) {
                 let seq_len = s.seq_len;
                 let buf = s.into_buffer();
@@ -286,7 +358,13 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
                 buf.push(replacements[i]);
                 return Ok(2);
             }
+            let esc_kind = s.get_char(1)?.map_err(|err_seq| {
+                ReplacementError::Error(TysonParseErrorKind::InvalidUtf8(
+                    err_seq,
+                ))
+            })?;
             Err(ReplacementError::Error(
+                //TODO: fix for non ascii
                 TysonParseErrorKind::NonEscapbleCharacter(esc_kind),
             ))
         };
@@ -321,6 +399,10 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
                 },
             };
         }
+        if binary {
+            return Ok(FieldValue::Bytes(buf));
+        }
+        // verify the last, uncompleted line of the string for utf8-compliance
         match buf[curr_line_begin..].to_str() {
             Err(e) => {
                 return Err(TysonParseError::InvalidSyntax {
@@ -338,7 +420,9 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
             }
         }
         // SAFETY: we already verified each line separately
-        Ok(unsafe { String::from_utf8_unchecked(buf) })
+        Ok(FieldValue::Text(unsafe {
+            String::from_utf8_unchecked(buf)
+        }))
     }
     fn err<T>(&self, kind: TysonParseErrorKind) -> Result<T, TysonParseError> {
         Err(self.error(kind))
@@ -349,14 +433,6 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
             col: self.col,
             kind,
         }
-    }
-    fn parse_string_after_quote(
-        &mut self,
-        quote_kind: u8,
-    ) -> Result<FieldValue, TysonParseError> {
-        Ok(FieldValue::Text(
-            self.parse_string_token_after_quote(quote_kind)?,
-        ))
     }
     fn parse_number(
         &mut self,
@@ -599,8 +675,9 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
         match c {
             '{' => self.parse_object_after_brace(),
             '0'..='9' | '+' | '-' | '.' => self.parse_number(c as u8),
-            '"' => self.parse_string_after_quote(b'"'),
-            '\'' => self.parse_string_after_quote(b'\''),
+            '"' => self.parse_string_after_quote(b'"', false),
+            '\'' => self.parse_string_after_quote(b'\'', false),
+            'b' => self.parse_binary_string_after_b(),
             '(' => self.parse_type_after_parenthesis(),
             '[' => self.parse_array_after_bracket(),
             'i' | 'I' | 'N' => self.parse_number(c as u8), // inf / NaN
@@ -722,10 +799,22 @@ mod test {
     }
 
     #[rstest]
-    #[case("\"1\"", "1")]
-    #[case("\\xFF", "\\xFF")]
-    fn string_escapes(#[case] v: &str, #[case] res: &str) {
-        assert_eq!(parse(v), Ok(FieldValue::Text(res.to_string())));
+    #[case("b'1'", b"1")]
+    #[case("b'\\xFF'", b"\xFF")]
+    fn byte_escapes(#[case] v: &str, #[case] res: &[u8]) {
+        assert_eq!(parse(v), Ok(FieldValue::Bytes(res.to_vec())));
+    }
+
+    #[test]
+    fn illegal_byte_escape_in_string() {
+        assert_eq!(
+            parse("\"\\xFF\""),
+            Err(TysonParseError::InvalidSyntax {
+                line: 1,
+                col: 2,
+                kind: TysonParseErrorKind::ByteEscapeInUnicodeString
+            })
+        );
     }
 
     #[test]

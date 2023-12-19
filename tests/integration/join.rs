@@ -236,7 +236,7 @@ fn join_turns_into_stream(#[case] batch_size: usize) -> Result<(), ScrError> {
         .add_op(create_op_str("foo", 0))
         .add_op_appending(create_op_str("bar", 0))
         .add_op(create_op_join_str(",", 2))
-        .add_op(create_op_format(b"{:#??}").unwrap())
+        .add_op(create_op_format("{:#??}").unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(ss.get_data().unwrap().as_slice(), ["~\"foo,bar\""]);
@@ -254,7 +254,7 @@ fn join_on_error(#[case] batch_size: usize) -> Result<(), ScrError> {
         .add_op(create_op_str("foo", 0))
         .add_op_appending(create_op_error("bar", 0))
         .add_op(create_op_join_str(",", 2))
-        .add_op(create_op_format(b"{:#??}").unwrap())
+        .add_op(create_op_format("{:#??}").unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(ss.get().data.as_slice(), ["~(error)\"bar\""]);

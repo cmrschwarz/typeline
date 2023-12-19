@@ -6,7 +6,7 @@ use scr_core::{
         key::create_op_key,
         literal::{
             create_op_bytes, create_op_error, create_op_str,
-            create_op_stream_error,
+            create_op_stream_error, create_op_v,
         },
         regex::{create_op_regex, create_op_regex_with_opts, RegexOptions},
         sequence::create_op_seq,
@@ -24,12 +24,12 @@ fn debug_format_surrounds_with_quotes() -> Result<(), ScrError> {
         .add_op(create_op_str("foo", 0))
         .add_op_appending(create_op_bytes(b"bar", 0))
         .add_op_appending(create_op_error("baz", 0))
-        .add_op(create_op_format(b"{:?}").unwrap())
+        .add_op(create_op_format("{:?}").unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(
         ss.get_data().unwrap().as_slice(),
-        ["\"foo\"", "'bar'", "(error)\"baz\""]
+        ["\"foo\"", "b'bar'", "(error)\"baz\""]
     );
     Ok(())
 }
@@ -41,12 +41,12 @@ fn more_debug_format_surrounds_with_quotes() -> Result<(), ScrError> {
         .add_op(create_op_str("foo", 0))
         .add_op_appending(create_op_bytes(b"bar", 0))
         .add_op_appending(create_op_error("baz", 0))
-        .add_op(create_op_format(b"{:??}").unwrap())
+        .add_op(create_op_format("{:??}").unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(
         ss.get().data.as_slice(),
-        ["\"foo\"", "'bar'", "(error)\"baz\""]
+        ["\"foo\"", "b'bar'", "(error)\"baz\""]
     );
     Ok(())
 }
@@ -61,7 +61,7 @@ fn error_formatting(
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .add_op(create_op_error("A", 1))
-        .add_op(create_op_format(fmt_string.as_bytes()).unwrap())
+        .add_op(create_op_format(fmt_string).unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(ss.get().data.as_slice(), [result]);
@@ -78,7 +78,7 @@ fn stream_error_formatting(
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .add_op(create_op_stream_error("A", 1))
-        .add_op(create_op_format(fmt_string.as_bytes()).unwrap())
+        .add_op(create_op_format(fmt_string).unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(ss.get().data.as_slice(), [result]);
@@ -93,7 +93,7 @@ fn format_width_spec() -> Result<(), ScrError> {
         .add_op(create_op_key("foo".to_owned()))
         .add_op(create_op_seq(0, 6, 1).unwrap())
         .add_op(create_op_key("bar".to_owned()))
-        .add_op(create_op_format("{foo:~^bar$}".as_bytes()).unwrap())
+        .add_op(create_op_format("{foo:~^bar$}").unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(
@@ -117,7 +117,7 @@ fn format_width_spec_over_stream() -> Result<(), ScrError> {
         .add_op(create_op_key("foo".to_owned()))
         .add_op(create_op_seq(2, 8, 1).unwrap())
         .add_op(create_op_key("bar".to_owned()))
-        .add_op(create_op_format("{foo:~^bar$}".as_bytes()).unwrap())
+        .add_op(create_op_format("{foo:~^bar$}").unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(
@@ -132,7 +132,7 @@ fn nonexisting_key() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .push_str("x", 3)
-        .add_op(create_op_format("{foo}".as_bytes()).unwrap())
+        .add_op(create_op_format("{foo}").unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert!(ss.get_data().is_err());
@@ -147,7 +147,7 @@ fn nonexisting_format_width_key() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .push_str("x", 3)
-        .add_op(create_op_format("{:foo$}".as_bytes()).unwrap())
+        .add_op(create_op_format("{:foo$}").unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert!(ss.get_data().is_err());
@@ -167,7 +167,7 @@ fn format_after_surrounding_drop() -> Result<(), ScrError> {
         .add_op(create_op_seq(0, 10, 1).unwrap())
         .add_op(create_op_regex("[3-5]").unwrap())
         .add_op(create_op_key("a".to_owned()))
-        .add_op(create_op_format("{a}".as_bytes()).unwrap())
+        .add_op(create_op_format("{a}").unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(ss.get_data().unwrap().as_slice(), ["3", "4", "5"]);
@@ -183,7 +183,7 @@ fn batched_format_after_drop() -> Result<(), ScrError> {
         .add_op(create_op_seq(0, COUNT, 1).unwrap())
         .add_op(create_op_regex(".*[3].*").unwrap())
         .add_op(create_op_key("a".to_owned()))
-        .add_op(create_op_format("{a}".as_bytes()).unwrap())
+        .add_op(create_op_format("{a}").unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(
@@ -213,7 +213,7 @@ fn stream_into_format() -> Result<(), ScrError> {
             }),
             0,
         ))
-        .add_op(create_op_format("a -> {} -> b".as_bytes()).unwrap())
+        .add_op(create_op_format("a -> {} -> b").unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(ss.get_data().unwrap().as_slice(), ["a -> abc -> b"]);
@@ -239,7 +239,7 @@ fn stream_into_multiple_different_formats(
             }),
             0,
         ))
-        .add_op(create_op_format("{key}: {}".as_bytes()).unwrap())
+        .add_op(create_op_format("{key}: {}").unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(ss.get_data().unwrap().as_slice(), ["foo: xxx", "bar: xxx"]);
@@ -263,7 +263,7 @@ fn dup_between_format_and_key() -> Result<(), ScrError> {
             )
             .unwrap(),
         )
-        .add_op(create_op_format("{foo}".as_bytes()).unwrap())
+        .add_op(create_op_format("{foo}").unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(ss.get_data().unwrap().as_slice(), &["xxx", "xxx", "xxx"]);
@@ -276,7 +276,7 @@ fn debug_string_escapes() -> Result<(), ScrError> {
     ContextBuilder::default()
         .set_batch_size(2)
         .push_str("\n", 1)
-        .add_op(create_op_format("{:?}".as_bytes()).unwrap())
+        .add_op(create_op_format("{:?}").unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(ss.get_data().unwrap().as_slice(), &[r#""\n""#]);
@@ -289,10 +289,10 @@ fn debug_bytes_escapes() -> Result<(), ScrError> {
     ContextBuilder::default()
         .set_batch_size(2)
         .push_bytes(b"\n\x00", 1)
-        .add_op(create_op_format("{:?}".as_bytes()).unwrap())
+        .add_op(create_op_format("{:?}").unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
-    assert_eq!(ss.get_data().unwrap().as_slice(), &[r#"'\n\x00'"#]);
+    assert_eq!(ss.get_data().unwrap().as_slice(), &[r#"b'\n\x00'"#]);
     Ok(())
 }
 
@@ -308,10 +308,10 @@ fn debug_bytes_escapes_in_stream() -> Result<(), ScrError> {
             }),
             0,
         ))
-        .add_op(create_op_format("{:?}".as_bytes()).unwrap())
+        .add_op(create_op_format("{:?}").unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
-    assert_eq!(ss.get_data().unwrap().as_slice(), &[r#"'\n'"#]);
+    assert_eq!(ss.get_data().unwrap().as_slice(), &[r#"b'\n'"#]);
     Ok(())
 }
 
@@ -321,7 +321,7 @@ fn sandwiched_format() -> Result<(), ScrError> {
     ContextBuilder::default()
         .add_op(create_op_seq(0, 3, 1).unwrap())
         .add_op(create_op_regex(".*").unwrap())
-        .add_op(create_op_format("{:?}".as_bytes()).unwrap())
+        .add_op(create_op_format("{:?}").unwrap())
         .add_op(
             create_op_regex_with_opts(
                 ".",
@@ -339,5 +339,17 @@ fn sandwiched_format() -> Result<(), ScrError> {
         ss.get_data().unwrap().as_slice(),
         &[q, "0", q, q, "1", q, q, "2", q]
     );
+    Ok(())
+}
+
+#[test]
+fn binary_string_formatting() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::default();
+    ContextBuilder::default()
+        .add_op(create_op_v("b'\\xFF'", 1).unwrap())
+        .add_op(create_op_format("{:?}").unwrap())
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(ss.get_data().unwrap().as_slice(), &["b'\\xFF'"]);
     Ok(())
 }

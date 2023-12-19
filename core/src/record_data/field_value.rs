@@ -1,11 +1,17 @@
-use std::ops::{Add, AddAssign, Div, MulAssign, Rem, Sub};
+use std::{
+    io::Write,
+    ops::{Add, AddAssign, Div, MulAssign, Rem, Sub},
+};
 
 use indexmap::IndexMap;
 use num::{BigInt, BigRational, FromPrimitive, One, Signed, Zero};
 
 use crate::{
     operators::{errors::OperatorApplicationError, format::RealizedFormatKey},
-    utils::string_store::{StringStore, StringStoreEntry},
+    utils::{
+        escaped_writer::EscapedWriter,
+        string_store::{StringStore, StringStoreEntry},
+    },
     NULL_STR, UNDEFINED_STR,
 };
 
@@ -262,18 +268,25 @@ impl FieldValue {
 }
 
 pub fn format_bytes(
-    _fmt: &mut impl std::io::Write,
-    _v: &[u8],
+    w: &mut impl std::io::Write,
+    v: &[u8],
 ) -> std::io::Result<()> {
-    todo!()
+    w.write_all(b"b'")?;
+    let mut w = EscapedWriter::new(w);
+    w.write_all(v)?;
+    w.into_inner().unwrap().write_all(b"'")?;
+    Ok(())
 }
 
 pub fn format_quoted_string(
-    fmt: &mut impl std::io::Write,
+    w: &mut impl std::io::Write,
     v: &str,
 ) -> std::io::Result<()> {
-    // TODO: escape properly
-    fmt.write_fmt(format_args!("{:?}", v))
+    w.write_all(b"\"")?;
+    let mut w = EscapedWriter::new(w);
+    w.write_all(v.as_bytes())?;
+    w.into_inner().unwrap().write_all(b"\"")?;
+    Ok(())
 }
 
 pub fn format_error(

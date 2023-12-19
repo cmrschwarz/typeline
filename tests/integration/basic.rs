@@ -141,7 +141,7 @@ fn basic_key_cow() -> Result<(), ScrError> {
         .set_batch_size(1)
         .add_op(create_op_seqn(1, 3, 1).unwrap())
         .add_op(create_op_key("foo".to_owned()))
-        .add_op(create_op_format(b"{:?}").unwrap())
+        .add_op(create_op_format("{:?}").unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(ss.get_data().unwrap().as_slice(), ["1", "2", "3"]);
@@ -168,7 +168,7 @@ fn double_key() -> Result<(), ScrError> {
         .add_op(create_op_literal(Literal::Int(42), None))
         .add_op(create_op_key("foo".to_owned()))
         .add_op(create_op_key("bar".to_owned()))
-        .add_op(create_op_format("foo: {foo}, bar: {bar}".as_bytes()).unwrap())
+        .add_op(create_op_format("foo: {foo}, bar: {bar}").unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(ss.get_data().unwrap().as_slice(), &["foo: 42, bar: 42"]);
@@ -198,7 +198,7 @@ fn unset_field_value() -> Result<(), ScrError> {
         .push_str("x", 1)
         .add_op(create_op_key("foo".to_owned()))
         .add_op(create_op_seq(0, 2, 1).unwrap())
-        .add_op(create_op_format("{foo}{}".as_bytes()).unwrap())
+        .add_op(create_op_format("{foo}{}").unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(
@@ -219,7 +219,7 @@ fn unset_field_value_debug_repr_is_undefined() -> Result<(), ScrError> {
         .push_str("x", 1)
         .add_op(create_op_key("foo".to_owned()))
         .add_op(create_op_seq(0, 2, 1).unwrap())
-        .add_op(create_op_format("{foo:?}_{}".as_bytes()).unwrap())
+        .add_op(create_op_format("{foo:?}_{}").unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(
@@ -236,7 +236,7 @@ fn seq_enum() -> Result<(), ScrError> {
         .push_str("x", 3)
         .add_op(create_op_key("foo".to_owned()))
         .add_op(create_op_enum(0, 5, 1).unwrap())
-        .add_op(create_op_format("{foo}{}".as_bytes()).unwrap())
+        .add_op(create_op_format("{foo}{}").unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(ss.get_data().unwrap().as_slice(), &["x0", "x1", "x2"]);
@@ -251,7 +251,7 @@ fn double_drop() -> Result<(), ScrError> {
         .add_op(create_op_seq(0, 15, 1).unwrap())
         .add_op(create_op_key("a".to_owned()))
         .add_op(create_op_regex("1.*").unwrap())
-        .add_op(create_op_format("{a}".as_bytes()).unwrap())
+        .add_op(create_op_format("{a}").unwrap())
         .add_op(create_op_regex(".*1.*").unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
@@ -436,7 +436,7 @@ fn stream_error_after_regular_error() -> Result<(), ScrError> {
             0,
         ))
         .add_op(create_op_join_str("", 1))
-        .add_op(create_op_format(b"{:??}").unwrap())
+        .add_op(create_op_format("{:??}").unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(

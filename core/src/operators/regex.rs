@@ -343,6 +343,12 @@ pub fn parse_op_regex(
     }))
 }
 
+pub fn create_op_regex_b(
+    regex: &[u8],
+    opts: RegexOptions,
+) -> Result<OperatorData, OperatorCreationError> {
+    parse_op_regex(Some(regex), None, opts)
+}
 pub fn create_op_regex_with_opts(
     regex: &str,
     opts: RegexOptions,

@@ -1005,6 +1005,11 @@ pub fn parse_op_format(
     }))
 }
 pub fn create_op_format(
+    val: &str,
+) -> Result<OperatorData, OperatorCreationError> {
+    parse_op_format(Some(val.as_bytes()), None)
+}
+pub fn create_op_format_b(
     val: &[u8],
 ) -> Result<OperatorData, OperatorCreationError> {
     parse_op_format(Some(val), None)
@@ -1266,6 +1271,11 @@ pub fn setup_key_output_state(
         TypeReprFormat::Typed => 2,
         TypeReprFormat::Debug => 2,
     };
+    let quote_len_bytes = match k.opts.type_repr {
+        TypeReprFormat::Regular => 0,
+        TypeReprFormat::Typed => 3,
+        TypeReprFormat::Debug => 3,
+    };
     let quote_len_stream_text = match k.opts.type_repr {
         TypeReprFormat::Regular => 0,
         TypeReprFormat::Typed => 2,
@@ -1303,7 +1313,7 @@ pub fn setup_key_output_state(
                         o.len += calc_fmt_len_ost(
                             k,
                             escape_text,
-                            quote_len_text,
+                            quote_len_bytes,
                             o,
                             v,
                         );
@@ -1319,7 +1329,7 @@ pub fn setup_key_output_state(
                         o.len += calc_fmt_len_ost(
                             k,
                             escape_text,
-                            quote_len_text,
+                            quote_len_bytes,
                             o,
                             v,
                         );
@@ -2089,7 +2099,7 @@ fn write_fmt_key(
                         |tgt| unsafe {
                             if type_repr {
                                 write_padded_text_with_prefix_suffix(
-                                    k, tgt, v, b"'", b"'",
+                                    k, tgt, v, b"b'", b"'",
                                 );
                             } else {
                                 write_padded_bytes(k, tgt, v);
@@ -2109,7 +2119,7 @@ fn write_fmt_key(
                         |tgt| unsafe {
                             if type_repr {
                                 write_padded_text_with_prefix_suffix(
-                                    k, tgt, v, b"'", b"'",
+                                    k, tgt, v, b"b'", b"'",
                                 );
                             } else {
                                 write_padded_bytes(k, tgt, v);
@@ -2222,19 +2232,13 @@ fn write_fmt_key(
                                 .unwrap_or(b);
 
                             if range.is_some() || !sv.is_buffered() {
-                                let qc =
-                                    if sv.bytes_are_utf8 { '"' } else { '\'' };
-                                let left = [b'~', qc as u8];
-                                let right = [qc as u8];
-                                let none = b"".as_slice();
-                                let (left, right) = match k.opts.type_repr {
-                                    TypeReprFormat::Typed => {
-                                        (right.as_slice(), right.as_slice())
-                                    }
-                                    TypeReprFormat::Debug => {
-                                        (left.as_slice(), right.as_slice())
-                                    }
-                                    _ => (none, none),
+                                let (left, right) = match (
+                                    &k.opts.type_repr,
+                                    sv.bytes_are_utf8,
+                                ) {
+                                    (TypeReprFormat::Regular, _) => ("", ""),
+                                    (_, true) => ("~\"", "\""),
+                                    (_, false) => ("~b'", "'"),
                                 };
                                 iter_output_targets(
                                     fmt,
@@ -2243,7 +2247,7 @@ fn write_fmt_key(
                                     |tgt| {
                                         unsafe {
                                             write_padded_text_with_prefix_suffix(
-                                            k, tgt, data, left, right,
+                                            k, tgt, data, left.as_bytes(), right.as_bytes(),
                                         )
                                         }
                                         if !sv.done {
@@ -2539,20 +2543,17 @@ pub fn handle_tf_format_stream_value_update(
                         unreachable!();
                     };
 
-                    let qc = if sv.bytes_are_utf8 { '"' } else { '\'' };
-                    let left = [b'~', qc as u8];
-                    let right = [qc as u8];
-                    let none = b"".as_slice();
-                    let (left, right) = match k.opts.type_repr {
-                        TypeReprFormat::Typed => {
-                            (right.as_slice(), right.as_slice())
-                        }
-                        TypeReprFormat::Debug => {
-                            (left.as_slice(), right.as_slice())
-                        }
-                        _ => (none, none),
-                    };
                     let escaped = k.opts.type_repr != TypeReprFormat::Regular;
+
+                    let (left, right) =
+                        match (&k.opts.type_repr, sv.bytes_are_utf8) {
+                            (TypeReprFormat::Regular, _) => ("", ""),
+                            (TypeReprFormat::Typed, true) => ("\"", "\""),
+                            (TypeReprFormat::Typed, false) => ("b'", "'"),
+                            (TypeReprFormat::Debug, true) => ("~\"", "\""),
+                            (TypeReprFormat::Debug, false) => ("~b'", "'"),
+                        };
+
                     let quotes_len = left.len() + right.len();
 
                     let len = calc_fmt_len(
@@ -2583,8 +2584,8 @@ pub fn handle_tf_format_stream_value_update(
                             k,
                             &mut output_target,
                             data,
-                            left,
-                            right,
+                            left.as_bytes(),
+                            right.as_bytes(),
                         );
                         tgt_buf.set_len(tgt_buf.len() + len);
                     };
