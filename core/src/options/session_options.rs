@@ -47,8 +47,6 @@ use super::{
     operator_base_options::OperatorBaseOptions,
 };
 
-// TODO: refactor this into SessionOptions
-
 pub struct SessionOptions {
     pub max_threads: Argument<usize>,
     pub any_threaded_operations: bool,

@@ -77,7 +77,7 @@ pub fn parse_op_call_concurrent(
 ) -> Result<OperatorData, OperatorCreationError> {
     let value_str = value
         .ok_or_else(|| {
-            // TODO: implicitly start subchain if callcc has no argument
+            // ENHANCE: implicitly start subchain if callcc has no argument
             OperatorCreationError::new(
                 "missing argument with target chain name",
                 arg_idx,

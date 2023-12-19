@@ -33,7 +33,7 @@ use super::{
     transform::{TransformData, TransformId, TransformState},
 };
 
-// TODO: bikeshed a better format for this
+// ENHANCE: bikeshed a better format for this
 const ERROR_PREFIX_STR: &str = "ERROR: ";
 
 #[derive(Clone)]
@@ -65,7 +65,7 @@ pub fn build_tf_print(
 ) -> TransformData<'static> {
     tf_state.preferred_input_type = Some(FieldValueRepr::BytesInline);
     TransformData::Print(TfPrint {
-        // TODO: should we make a config option for this?
+        // ENHANCE: should we make a config option for this?
         flush_on_every_print: std::io::stdout().is_terminal(),
         current_stream_val: None,
         iter_id: sess.field_mgr.claim_iter(tf_state.input_field),

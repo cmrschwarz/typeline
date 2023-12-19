@@ -21,6 +21,9 @@ use crate::{
     },
 };
 
+// ENHANCE: improve these error messages by handrolling the impl
+// e.g. special case for stray `\`s indicating that the user
+// probably wanted a string literal
 #[derive(Debug, PartialEq, Eq, Error)]
 pub enum TysonParseErrorKind {
     #[error("{0}")]
@@ -716,6 +719,13 @@ mod test {
     #[test]
     fn single_quoted_string() {
         assert_eq!(parse("'foo'"), Ok(FieldValue::Text("foo".into())));
+    }
+
+    #[rstest]
+    #[case("\"1\"", "1")]
+    #[case("\\xFF", "\\xFF")]
+    fn string_escapes(#[case] v: &str, #[case] res: &str) {
+        assert_eq!(parse(v), Ok(FieldValue::Text(res.to_string())));
     }
 
     #[test]

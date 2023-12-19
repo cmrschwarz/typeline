@@ -1412,7 +1412,7 @@ pub fn setup_key_output_state(
                             let mut handled_len = data.len();
                             if !complete && !is_buffered {
                                 if typed_format {
-                                    // TODO: split up debug quotes instead
+                                    // PERF: split up debug quotes instead
                                     make_buffered = true;
                                 } else if let Some(width_spec) =
                                     &k.min_char_count
@@ -1807,7 +1807,7 @@ fn setup_output_targets(
                         err.kind
                     ),
                     op_id,
-                ), // TODO: give more context
+                ), // ENHANCE: give more context
                 os.run_len,
                 true,
                 false,
@@ -2053,7 +2053,6 @@ fn write_fmt_key(
         usize::MAX,
         field_value_flags::BYTES_ARE_UTF8,
     ) {
-        // TODO: respect format options
         match range.base.data {
             TypedSlice::TextInline(text) => {
                 for (v, rl, _offs) in
@@ -2777,7 +2776,7 @@ mod test {
                 Cow::Borrowed(
                     "expected '?' or '_' before type identifier, found 'x'"
                 )
-            )) /* TODO: better error message for this case */
+            )) /* ENHANCE: better error message for this case */
         );
     }
 

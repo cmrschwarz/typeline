@@ -162,7 +162,7 @@ fn contextualize_op_id(
 }
 
 impl ScrError {
-    // TODO: avoid allocations by taking a &impl Write
+    // PERF: could avoid allocations by taking a &impl Write
     pub fn contextualize_message(
         &self,
         args: Option<&Vec<Vec<u8>>>,

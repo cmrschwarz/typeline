@@ -59,7 +59,7 @@ pub enum FieldValueRepr {
     StreamValueId,
     FieldReference,
     SlicedFieldReference,
-    // TODO (maybe): CustomDynamicLength, CustomDynamicLengthAligned
+    // ENHANCE //PERF (maybe): CustomDynamicLength, CustomDynamicLengthAligned
     // (store some subtype index at the start of the actual data)
 }
 
@@ -631,7 +631,7 @@ impl FieldData {
                             RefAwareInlineBytesIter::from_range(&tr, data)
                         {
                             targets_applicator(&mut |fd| {
-                                // TODO: maybe do a little rle here?
+                                // PERF: maybe do a little rle here?
                                 fd.headers.push(FieldValueHeader {
                                     fmt: FieldValueFormat {
                                         repr: FieldValueRepr::BytesInline,
@@ -649,7 +649,7 @@ impl FieldData {
                             RefAwareInlineTextIter::from_range(&tr, data)
                         {
                             targets_applicator(&mut |fd| {
-                                // TODO: maybe do a little rle here?
+                                // PERF: maybe do a little rle here?
                                 fd.headers.push(FieldValueHeader {
                                     fmt: FieldValueFormat {
                                         repr: FieldValueRepr::BytesInline,

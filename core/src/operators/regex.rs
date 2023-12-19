@@ -1002,7 +1002,7 @@ pub fn handle_tf_regex(
                     } else {
                         sv.promote_to_buffer();
                         sv.subscribe(tf_id, rl as usize, true);
-                        // TODO: if multimatch is false and we are in optional
+                        // PERF: if multimatch is false and we are in optional
                         // mode we can theoretically
                         // continue here, because there will always be exactly
                         // one match we would need
@@ -1127,7 +1127,7 @@ mod test {
             RegexOptions::default(),
         );
         assert!(res.is_err_and(|e| {
-            //TODO: improve this error message
+            // ENHANCE: improve this error message
             assert_eq!(e.message, "failed to compile regex: regex parse error:\n    ?(<>)(\n    ^\nerror: repetition operator missing expression");
             true
         }));

@@ -91,7 +91,6 @@ pub fn build_tf_file_reader<'a>(
     op: &'a OpFileReader,
     tf_state: &TransformState,
 ) -> TransformData<'a> {
-    // TODO: properly set up line buffering
     let mut check_if_tty = false;
     let mut line_buffered = match op.line_buffered {
         LineBufferedSetting::Yes => true,

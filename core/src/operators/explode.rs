@@ -160,7 +160,7 @@ fn fn_handle_object_key<'a>(
             }
         }
     };
-    // TODO: maybe handle stealing?
+    // PERF: maybe handle stealing?
     inserters[inserter_idx]
         .push_field_value_clone(value, run_length, true, false);
 }

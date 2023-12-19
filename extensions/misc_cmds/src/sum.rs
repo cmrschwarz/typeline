@@ -49,7 +49,7 @@ impl Default for Aggregate {
     }
 }
 
-// TODO: use this to add max / min / avg functions
+// ENHANCE: use this to add max / min / avg functions
 impl Aggregate {
     fn push(self, tgt: &mut impl PushInterface) {
         match self {
