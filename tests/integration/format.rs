@@ -266,7 +266,6 @@ fn dup_between_format_and_key() -> Result<(), ScrError> {
         .add_op(create_op_format("{foo}".as_bytes()).unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
-    println!("{:?}", ss.get().data);
     assert_eq!(ss.get_data().unwrap().as_slice(), &["xxx", "xxx", "xxx"]);
     Ok(())
 }
@@ -280,7 +279,6 @@ fn debug_string_escapes() -> Result<(), ScrError> {
         .add_op(create_op_format("{:?}".as_bytes()).unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
-    println!("{:?}", ss.get().data);
     assert_eq!(ss.get_data().unwrap().as_slice(), &[r#""\n""#]);
     Ok(())
 }
@@ -294,7 +292,6 @@ fn debug_bytes_escapes() -> Result<(), ScrError> {
         .add_op(create_op_format("{:?}".as_bytes()).unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
-    println!("{:?}", ss.get().data);
     assert_eq!(ss.get_data().unwrap().as_slice(), &[r#"'\n\x00'"#]);
     Ok(())
 }
@@ -314,7 +311,33 @@ fn debug_bytes_escapes_in_stream() -> Result<(), ScrError> {
         .add_op(create_op_format("{:?}".as_bytes()).unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
-    println!("{:?}", ss.get().data);
     assert_eq!(ss.get_data().unwrap().as_slice(), &[r#"'\n'"#]);
+    Ok(())
+}
+
+#[test]
+fn sandwiched_format() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::default();
+    ContextBuilder::default()
+        .add_op(create_op_seq(0, 2, 1).unwrap())
+        .add_op(create_op_regex(".*").unwrap())
+        .add_op(create_op_format("{:?}".as_bytes()).unwrap())
+        .add_op(
+            create_op_regex_with_opts(
+                ".",
+                RegexOptions {
+                    multimatch: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap(),
+        )
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    let q = "\"";
+    assert_eq!(
+        ss.get_data().unwrap().as_slice(),
+        &[q, "0", q, q, "1", q, q, "2", q]
+    );
     Ok(())
 }
