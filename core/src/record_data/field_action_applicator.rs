@@ -95,27 +95,47 @@ impl FieldActionApplicator {
             it.header_rl_offset -= drops_before as RunLength;
         }
     }
+    fn iters_after_offset_to_next_header_bumping_field_pos(
+        &self,
+        curr_header_iter_count: usize,
+        offset: RunLength,
+        extra_field_pos_bump: usize,
+        iterators: &mut [&mut IterState],
+        current_header: &FieldValueHeader,
+    ) {
+        let data_offset = current_header.total_size_unique();
+        let start = iterators.len() - curr_header_iter_count;
+        for it in &mut iterators[start..] {
+            if it.header_rl_offset <= offset {
+                continue;
+            }
+            it.field_pos += extra_field_pos_bump;
+            it.header_idx += 1;
+            it.data += data_offset;
+            it.header_rl_offset -= current_header.run_length;
+        }
+    }
     fn iters_to_next_header(
         &self,
         curr_header_iter_count: usize,
         iterators: &mut [&mut IterState],
-        header_to_skip: &FieldValueHeader,
+        current_header: &FieldValueHeader,
     ) {
-        let data_offset = header_to_skip.total_size_unique();
+        let data_offset = current_header.total_size_unique();
         let start = iterators.len() - curr_header_iter_count;
         for it in &mut iterators[start..] {
             it.header_idx += 1;
             it.data += data_offset;
-            it.header_rl_offset -= header_to_skip.run_length;
+            it.header_rl_offset -= current_header.run_length;
         }
     }
     fn iters_to_next_header_zero_offset(
         &self,
         curr_header_iter_count: usize,
         iterators: &mut [&mut IterState],
-        header_to_skip: &FieldValueHeader,
+        current_header: &FieldValueHeader,
     ) {
-        let data_offset = header_to_skip.total_size_unique();
+        let data_offset = current_header.total_size_unique();
         let start = iterators.len() - curr_header_iter_count;
         for it in &mut iterators[start..] {
             it.field_pos -= it.header_rl_offset as usize;
@@ -128,19 +148,19 @@ impl FieldActionApplicator {
         &self,
         curr_header_iter_count: usize,
         iterators: &mut [&mut IterState],
-        header_to_skip: &FieldValueHeader,
+        current_header: &FieldValueHeader,
     ) {
-        let data_offset = header_to_skip.total_size_unique();
+        let data_offset = current_header.total_size_unique();
         let start = iterators.len() - curr_header_iter_count;
         for it in &mut iterators[start..] {
             it.header_idx += 1;
             it.data += data_offset;
-            if it.header_rl_offset < header_to_skip.run_length {
+            if it.header_rl_offset < current_header.run_length {
                 it.field_pos -= it.header_rl_offset as usize;
                 it.header_rl_offset = 0;
             } else {
-                it.field_pos -= header_to_skip.run_length as usize;
-                it.header_rl_offset -= header_to_skip.run_length;
+                it.field_pos -= current_header.run_length as usize;
+                it.header_rl_offset -= current_header.run_length;
             }
         }
     }
@@ -148,7 +168,7 @@ impl FieldActionApplicator {
     fn handle_dup(
         &mut self,
         field_idx: usize,
-        run_len: usize,
+        dup_count: usize,
         header: &mut FieldValueHeader,
         field_pos: &mut usize,
         header_idx_new: &mut usize,
@@ -157,9 +177,18 @@ impl FieldActionApplicator {
         curr_header_iter_count: usize,
         iterators: &mut [&mut IterState],
     ) {
+        let pre = (field_idx - *field_pos) as RunLength;
         if header.shared_value() {
-            // iterators are unaffected in this case
-            let mut rl_res = header.run_length as usize + run_len;
+            let start = iterators.len() - curr_header_iter_count;
+            for it in &mut iterators[start..] {
+                if it.header_rl_offset <= pre {
+                    //iterators are sorted backwards
+                    // all later (-> smaller offset) ones will be unaffected
+                    break;
+                }
+                it.field_pos += dup_count;
+            }
+            let mut rl_res = header.run_length as usize + dup_count;
             if rl_res > RunLength::MAX as usize {
                 self.push_copy_command(
                     *header_idx_new,
@@ -181,9 +210,9 @@ impl FieldActionApplicator {
             header.run_length = rl_res as RunLength;
             return;
         }
-        let pre = (field_idx - *field_pos) as RunLength;
-        let mid_full_count = (run_len + 1) / RunLength::MAX as usize;
-        let mid_rem = ((run_len + 1)
+
+        let mid_full_count = (dup_count + 1) / RunLength::MAX as usize;
+        let mid_rem = ((dup_count + 1)
             - (mid_full_count * RunLength::MAX as usize))
             as RunLength;
         let post = (header.run_length - pre).saturating_sub(1);
@@ -199,8 +228,11 @@ impl FieldActionApplicator {
             pre,
         );
         *field_pos += pre as usize;
-        self.iters_to_next_header(
+        self.iters_after_offset_to_next_header_bumping_field_pos(
             curr_header_iter_count,
+            //only move iterators that refer to the element *after* the one we are duping, so not pre and mid
+            pre + 1,
+            dup_count,
             iterators,
             &FieldValueHeader {
                 fmt: header.fmt,

@@ -30,6 +30,9 @@ use crate::{
 };
 
 pub unsafe trait PushInterface {
+    // SAFETY: this is highly unsafe, we leave a slot of uninitialized
+    // data in our data buffer (it's not a standard Vec, so that's fine ;))
+    // the caller must ensure that that buffer is filled before it is ever read
     unsafe fn push_variable_sized_type_uninit(
         &mut self,
         kind: FieldValueRepr,
@@ -1111,7 +1114,15 @@ unsafe impl PushInterface for FieldData {
         }
         self.data.reserve(data_len);
         let res = self.data.get_head_ptr_mut();
-        unsafe { self.data.set_len(self.data.len() + data_len) };
+        unsafe {
+            // in debug mode, we initialize the memory with all ones
+            // to make it easier to detect in the debugger
+            #[cfg(debug_assertions)]
+            std::ptr::write_bytes(res, 0xFF, data_len);
+
+            self.data.set_len(self.data.len() + data_len);
+        };
+
         res
     }
     unsafe fn push_variable_sized_type_unchecked(

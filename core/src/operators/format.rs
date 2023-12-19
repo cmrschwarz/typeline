@@ -1754,13 +1754,9 @@ fn setup_output_targets(
             tgt_len += FieldValueRepr::BytesBuffer.size();
         }
     }
-    unsafe {
-        output_field
-            .iter_hall
-            .internals()
-            .data
-            .reserve(tgt_len - starting_len);
-    }
+    unsafe { output_field.iter_hall.internals() }
+        .data
+        .reserve(tgt_len - starting_len);
 
     loop {
         let os = &mut fmt.output_states[output_idx];

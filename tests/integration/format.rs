@@ -319,7 +319,7 @@ fn debug_bytes_escapes_in_stream() -> Result<(), ScrError> {
 fn sandwiched_format() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
-        .add_op(create_op_seq(0, 2, 1).unwrap())
+        .add_op(create_op_seq(0, 3, 1).unwrap())
         .add_op(create_op_regex(".*").unwrap())
         .add_op(create_op_format("{:?}".as_bytes()).unwrap())
         .add_op(
