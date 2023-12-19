@@ -1923,6 +1923,34 @@ unsafe fn write_padded_text_with_prefix_suffix(
         write_padding_to_tgt(tgt, fill_spec.fill_char, pad_right);
     }
 }
+unsafe fn write_formatted<'a, F: Formatable<'a>>(
+    k: &FormatKey,
+    ctx: F::FormattingContext,
+    tgt: &mut OutputTarget,
+    formatable: &F,
+) {
+    let fill_spec = k.opts.fill.as_ref().copied().unwrap_or_default();
+    let layout = calc_fmt_layout(
+        ctx,
+        k.realize_min_char_count(tgt.min_char_count),
+        k.realize_max_char_count(tgt.float_precision),
+        0,
+        formatable,
+    );
+    let (pad_left, pad_right) = match fill_spec.alignment {
+        FormatFillAlignment::Left => (layout.padding, 0),
+        FormatFillAlignment::Center => {
+            ((layout.padding + 1) / 2, layout.padding / 2)
+        }
+        FormatFillAlignment::Right => (0, layout.padding),
+    };
+
+    unsafe {
+        write_padding_to_tgt(tgt, fill_spec.fill_char, pad_left);
+        tgt.with_writer(|pw| formatable.format(ctx, pw));
+        write_padding_to_tgt(tgt, fill_spec.fill_char, pad_right);
+    }
+}
 unsafe fn write_padded_bytes(
     k: &FormatKey,
     tgt: &mut OutputTarget,
@@ -1988,6 +2016,7 @@ fn formatted_error_string_len(
         .total_len(&k.opts, w.len)
 }
 fn write_fmt_key(
+    sess: &Session,
     sv_mgr: &StreamValueManager,
     fm: &FieldManager,
     msm: &mut MatchSetManager,
@@ -2023,6 +2052,7 @@ fn write_fmt_key(
     let type_repr = [TypeReprFormat::Typed, TypeReprFormat::Debug]
         .contains(&k.opts.type_repr);
     let mut output_index = 0;
+    let mut string_store = None;
     while let Some(range) = iter.typed_range_fwd(
         msm,
         usize::MAX,
@@ -2139,7 +2169,8 @@ fn write_fmt_key(
                     );
                 }
             }
-            TypedSlice::Null(_) => {
+            TypedSlice::Null(_) | TypedSlice::Undefined(_) => {
+                debug_assert!(type_repr);
                 let data = typed_slice_zst_str(&range.base.data).as_bytes();
                 iter_output_targets(
                     fmt,
@@ -2150,18 +2181,8 @@ fn write_fmt_key(
                     },
                 );
             }
-            TypedSlice::Undefined(_) if type_repr => {
-                let data = typed_slice_zst_str(&range.base.data).as_bytes();
-                iter_output_targets(
-                    fmt,
-                    &mut output_index,
-                    range.base.field_count,
-                    |tgt| unsafe {
-                        write_padded_bytes(k, tgt, data);
-                    },
-                );
-            }
-            TypedSlice::Error(errs) if type_repr => {
+            TypedSlice::Error(errs) => {
+                debug_assert!(type_repr);
                 for (v, rl) in TypedSliceIter::from_range(&range.base, errs) {
                     let err_str = error_to_formatted_string(v, &k.opts, false);
                     iter_output_targets(
@@ -2250,22 +2271,107 @@ fn write_fmt_key(
                     }
                 }
             }
-            TypedSlice::BigInt(_)
-            | TypedSlice::Float(_)
-            | TypedSlice::Rational(_) => {
-                todo!();
+            TypedSlice::BigInt(vs) => {
+                for (v, rl) in TypedSliceIter::from_range(&range.base, vs) {
+                    iter_output_targets(
+                        fmt,
+                        &mut output_index,
+                        rl as usize,
+                        |tgt| unsafe {
+                            write_formatted(
+                                k,
+                                &k.realize(
+                                    tgt.min_char_count,
+                                    tgt.float_precision,
+                                ),
+                                tgt,
+                                v,
+                            );
+                        },
+                    );
+                }
             }
-            TypedSlice::Undefined(_)
-            | TypedSlice::Error(_)
-            | TypedSlice::Object(_)
-            | TypedSlice::Array(_) => {
-                // just to increase output index
-                iter_output_targets(
-                    fmt,
-                    &mut output_index,
-                    range.base.field_count,
-                    |_tgt| unreachable!(),
-                );
+            TypedSlice::Float(vs) => {
+                for (v, rl) in TypedSliceIter::from_range(&range.base, vs) {
+                    iter_output_targets(
+                        fmt,
+                        &mut output_index,
+                        rl as usize,
+                        |tgt| unsafe {
+                            write_formatted(
+                                k,
+                                &k.realize(
+                                    tgt.min_char_count,
+                                    tgt.float_precision,
+                                ),
+                                tgt,
+                                v,
+                            );
+                        },
+                    );
+                }
+            }
+            TypedSlice::Rational(vs) => {
+                for (v, rl) in TypedSliceIter::from_range(&range.base, vs) {
+                    iter_output_targets(
+                        fmt,
+                        &mut output_index,
+                        rl as usize,
+                        |tgt| unsafe {
+                            write_formatted(
+                                k,
+                                &k.realize(
+                                    tgt.min_char_count,
+                                    tgt.float_precision,
+                                ),
+                                tgt,
+                                v,
+                            );
+                        },
+                    );
+                }
+            }
+            TypedSlice::Object(vs) => {
+                let ss = string_store
+                    .get_or_insert_with(|| sess.string_store.read().unwrap());
+                let fc = FormattingContext {
+                    ss,
+                    fm,
+                    msm,
+                    print_rationals_raw: fmt.print_rationals_raw,
+                    rfk: RealizedFormatKey::default(),
+                };
+                for (v, rl) in TypedSliceIter::from_range(&range.base, vs) {
+                    iter_output_targets(
+                        fmt,
+                        &mut output_index,
+                        rl as usize,
+                        |tgt| unsafe {
+                            write_formatted(k, &fc, tgt, v);
+                        },
+                    );
+                }
+            }
+            TypedSlice::Array(vs) => {
+                let ss = string_store
+                    .get_or_insert_with(|| sess.string_store.read().unwrap());
+                let fc = FormattingContext {
+                    ss,
+                    fm,
+                    msm,
+                    print_rationals_raw: fmt.print_rationals_raw,
+                    rfk: RealizedFormatKey::default(),
+                };
+                for (v, rl) in TypedSliceIter::from_range(&range.base, vs) {
+                    iter_output_targets(
+                        fmt,
+                        &mut output_index,
+                        rl as usize,
+                        |tgt| unsafe {
+                            write_formatted(k, &fc, tgt, v);
+                        },
+                    );
+                }
             }
             TypedSlice::FieldReference(_)
             | TypedSlice::SlicedFieldReference(_) => unreachable!(),
@@ -2365,6 +2471,7 @@ pub fn handle_tf_format(
                 });
             }
             FormatPart::Key(k) => write_fmt_key(
+                sess.session_data,
                 &sess.sv_mgr,
                 &sess.field_mgr,
                 &mut sess.match_set_mgr,
