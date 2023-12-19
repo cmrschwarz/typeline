@@ -806,6 +806,30 @@ mod test {
     }
 
     #[test]
+    fn invalid_escape_char() {
+        assert_eq!(
+            parse("'\\q'"),
+            Err(TysonParseError::InvalidSyntax {
+                line: 1,
+                col: 2,
+                kind: TysonParseErrorKind::NonEscapbleCharacter('q')
+            })
+        );
+    }
+
+    #[test]
+    fn invalid_escape_char_non_ascii() {
+        assert_eq!(
+            parse("'\\\u{1F480}'"),
+            Err(TysonParseError::InvalidSyntax {
+                line: 1,
+                col: 2,
+                kind: TysonParseErrorKind::NonEscapbleCharacter('\u{1F480}')
+            })
+        );
+    }
+
+    #[test]
     fn illegal_byte_escape_in_string() {
         assert_eq!(
             parse("\"\\xFF\""),

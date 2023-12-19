@@ -985,7 +985,7 @@ pub fn parse_op_format(
 ) -> Result<OperatorData, OperatorCreationError> {
     let val = value.ok_or_else(|| {
         OperatorCreationError::new(
-            "missing argument for the regex operator",
+            "missing argument for the format operator",
             arg_idx,
         )
     })?;

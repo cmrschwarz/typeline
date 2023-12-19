@@ -193,18 +193,19 @@ impl<'a> ReplacementState<'a> {
             target.copy_from_slice(&self.buf[start..start + target.len()]);
             return Ok(());
         }
+        let start_in_buf = (self.buf_offset() + index).min(self.buf.len());
+        let len_in_buf = self.buf.len() - start_in_buf;
         let la_pos = index - self.seq_len;
-        if la_pos >= self.lookahead.len() {
+        let len_in_la = target.len() - len_in_buf;
+        if la_pos + len_in_la >= self.lookahead.len() {
             return Err(ReplacementError::NeedMoreCharacters);
         }
-        let start_in_buf = self.buf_offset() + index;
-        let len_in_buf = self.buf.len().saturating_sub(start_in_buf);
+
         target[..len_in_buf].copy_from_slice(
             &self.buf[start_in_buf..start_in_buf + len_in_buf],
         );
-        let len_in_la = target.len() - len_in_buf;
         target[len_in_buf..]
-            .copy_from_slice(&self.buf[la_pos..la_pos + len_in_la]);
+            .copy_from_slice(&self.lookahead[la_pos..la_pos + len_in_la]);
         Ok(())
     }
     pub fn get_char<E>(
@@ -223,7 +224,7 @@ impl<'a> ReplacementState<'a> {
         };
         let mut buf = [0u8; MAX_UTF8_CHAR_LEN];
         buf[0] = c;
-        self.get_n(index, &mut buf[1..])?;
+        self.get_n(index + 1, &mut buf[1..utf8_len as usize])?;
         let Some(c) = buf.chars().next() else {
             return Ok(Err(ArrayVec::from_iter(
                 buf.iter().copied().take(utf8_len as usize),
