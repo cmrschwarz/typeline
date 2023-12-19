@@ -23,6 +23,7 @@ use crate::{
         typed_iters::TypedSliceIter,
     },
     utils::int_string_conversions::i64_to_str,
+    NULL_STR, UNDEFINED_STR,
 };
 
 use super::{
@@ -30,8 +31,10 @@ use super::{
     format::RealizedFormatKey,
     operator::{OperatorBase, OperatorData},
     transform::{TransformData, TransformId, TransformState},
-    utils::{ERROR_PREFIX_STR, NULL_STR, UNDEFINED_STR},
 };
+
+// TODO: bikeshed a better format for this
+const ERROR_PREFIX_STR: &str = "ERROR: ";
 
 #[derive(Clone)]
 pub struct OpPrint {}

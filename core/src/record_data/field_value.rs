@@ -4,12 +4,9 @@ use indexmap::IndexMap;
 use num::{BigInt, BigRational, FromPrimitive, One, Signed, Zero};
 
 use crate::{
-    operators::{
-        errors::OperatorApplicationError,
-        format::RealizedFormatKey,
-        utils::{NULL_STR, UNDEFINED_STR},
-    },
+    operators::{errors::OperatorApplicationError, format::RealizedFormatKey},
     utils::string_store::{StringStore, StringStoreEntry},
+    NULL_STR, UNDEFINED_STR,
 };
 
 use super::{

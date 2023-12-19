@@ -2,12 +2,10 @@ use std::collections::HashMap;
 
 use crate::{
     cli::ParsedCliArgument,
-    operators::{
-        errors::OperatorCreationError, operator::OperatorData,
-        utils::tyson::TysonParseError,
-    },
+    operators::{errors::OperatorCreationError, operator::OperatorData},
     options::session_options::SessionOptions,
     record_data::field_value::FieldValue,
+    tyson::TysonParseError,
 };
 
 pub trait CustomTysonType: Send + Sync {

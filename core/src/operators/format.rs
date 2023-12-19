@@ -14,7 +14,6 @@ use super::{
     operator::{OperatorBase, OperatorData, OperatorId},
     print::typed_slice_zst_str,
     transform::{TransformData, TransformId, TransformState},
-    utils::{NULL_STR, UNDEFINED_STR},
 };
 use crate::{
     context::Session,
@@ -57,6 +56,7 @@ use crate::{
         universe::CountedUniverse,
         MAX_UTF8_CHAR_LEN,
     },
+    NULL_STR, UNDEFINED_STR,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -533,7 +533,6 @@ impl<'a> Formatable<'a> for f64 {
         }
         if ctx.opts.zero_pad_numbers {
             w.write_fmt(format_args!("{self:0char_count$}")).unwrap();
-            return;
         }
     }
 }
@@ -2435,7 +2434,7 @@ pub fn handle_tf_format(
                 });
             }
             FormatPart::Key(k) => setup_key_output_state(
-                &sess.session_data,
+                sess.session_data,
                 &mut sess.sv_mgr,
                 &sess.field_mgr,
                 &mut sess.match_set_mgr,

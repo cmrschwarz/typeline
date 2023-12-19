@@ -29,6 +29,7 @@ use crate::{
         identity_hasher::BuildIdentityHasher,
         int_string_conversions::i64_to_str, universe::CountedUniverse,
     },
+    NULL_STR, UNDEFINED_STR,
 };
 
 use super::{
@@ -36,7 +37,6 @@ use super::{
     format::RealizedFormatKey,
     operator::{DefaultOperatorName, OperatorBase, OperatorData, OperatorId},
     transform::{TransformData, TransformId, TransformState},
-    utils::{NULL_STR, UNDEFINED_STR},
 };
 
 #[derive(Default)]

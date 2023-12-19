@@ -15,13 +15,13 @@ use crate::{
         push_interface::PushInterface,
         stream_value::{StreamValue, StreamValueData},
     },
+    tyson::{parse_tyson, TysonParseError},
 };
 
 use super::{
     errors::{OperatorApplicationError, OperatorCreationError},
     operator::{DefaultOperatorName, OperatorBase, OperatorData},
     transform::{TransformData, TransformId, TransformState},
-    utils::tyson::{parse_tyson, TysonParseError},
 };
 
 #[derive(Clone)]

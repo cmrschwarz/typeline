@@ -42,4 +42,8 @@ pub mod options;
 pub mod record_data;
 pub mod scr_error;
 pub mod selenium;
+pub mod tyson;
 pub mod worker_thread;
+
+pub const UNDEFINED_STR: &str = "undefined";
+pub const NULL_STR: &str = "null";

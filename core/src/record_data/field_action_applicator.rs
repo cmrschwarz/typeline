@@ -59,7 +59,7 @@ impl FieldActionApplicator {
         });
         *copy_range_start_new += 1;
     }
-    fn push_insert_command_check_run_length(
+    fn push_insert_command_if_rl_gt_0(
         &mut self,
         header_idx_new: &mut usize,
         copy_range_start_new: &mut usize,
@@ -221,7 +221,7 @@ impl FieldActionApplicator {
             copy_range_start,
             copy_range_start_new,
         );
-        self.push_insert_command_check_run_length(
+        self.push_insert_command_if_rl_gt_0(
             header_idx_new,
             copy_range_start_new,
             header.fmt,
@@ -248,7 +248,7 @@ impl FieldActionApplicator {
         fmt_mid.set_shared_value(true);
         if mid_full_count != 0 {
             for _ in 0..mid_full_count {
-                self.push_insert_command_check_run_length(
+                self.push_insert_command(
                     header_idx_new,
                     copy_range_start_new,
                     fmt_mid,
@@ -270,7 +270,7 @@ impl FieldActionApplicator {
             header.fmt = fmt_mid;
             return;
         }
-        self.push_insert_command_check_run_length(
+        self.push_insert_command_if_rl_gt_0(
             header_idx_new,
             copy_range_start_new,
             fmt_mid,
@@ -312,7 +312,7 @@ impl FieldActionApplicator {
                 copy_range_start,
                 copy_range_start_new,
             );
-            self.push_insert_command_check_run_length(
+            self.push_insert_command_if_rl_gt_0(
                 header_idx_new,
                 copy_range_start_new,
                 header.fmt,
@@ -342,7 +342,7 @@ impl FieldActionApplicator {
                 }
                 let mut fmt_del = header.fmt;
                 fmt_del.set_deleted(true);
-                self.push_insert_command_check_run_length(
+                self.push_insert_command_if_rl_gt_0(
                     header_idx_new,
                     copy_range_start_new,
                     fmt_del,
@@ -406,7 +406,7 @@ impl FieldActionApplicator {
             );
             let mut fmt_del = header.fmt;
             fmt_del.set_deleted(true);
-            self.push_insert_command_check_run_length(
+            self.push_insert_command_if_rl_gt_0(
                 header_idx_new,
                 copy_range_start_new,
                 fmt_del,
