@@ -273,6 +273,7 @@ impl OutputTarget {
             )
         };
         f(&mut pw);
+        self.target = Some(NonNull::new(pw.ptr()).unwrap());
         self.remaining_len = pw.remaining_bytes();
     }
 }
@@ -293,18 +294,23 @@ impl FormatKey {
         float_precision_lookup: usize,
     ) -> RealizedFormatKey {
         RealizedFormatKey {
-            min_char_count: self
-                .min_char_count
-                .as_ref()
-                .map(|v| v.realize(min_chars_lookup))
-                .unwrap_or(0),
+            min_char_count: self.realize_min_char_count(min_chars_lookup),
             float_precision: self
-                .min_char_count
-                .as_ref()
-                .map(|v| v.realize(float_precision_lookup))
-                .unwrap_or(usize::MAX),
+                .realize_float_precision(float_precision_lookup),
             opts: self.opts.clone(),
         }
+    }
+    fn realize_min_char_count(&self, min_chars_lookup: usize) -> usize {
+        self.min_char_count
+            .as_ref()
+            .map(|v| v.realize(min_chars_lookup))
+            .unwrap_or(0)
+    }
+    fn realize_float_precision(&self, float_precision_lookup: usize) -> usize {
+        self.float_precision
+            .as_ref()
+            .map(|v| v.realize(float_precision_lookup))
+            .unwrap_or(usize::MAX)
     }
 }
 
@@ -349,12 +355,15 @@ impl Formatable<'_> for [u8] {
     }
 
     fn format<W: std::io::Write>(&self, escaped: bool, w: &mut W) {
-        if !escaped {
-            w.write_all(self).unwrap();
-            return;
+        let res = if !escaped {
+            w.write_all(self)
+        } else {
+            let mut ew = EscapedWriter::new(w);
+            ew.write_all(self)
+        };
+        if let Err(e) = res {
+            assert!(e.kind() == std::io::ErrorKind::WriteZero);
         }
-        let mut ew = EscapedWriter::new(w);
-        ew.write_all(self).unwrap();
     }
 
     fn length_total(&self, escaped: bool) -> usize {
@@ -1003,9 +1012,9 @@ fn calc_fmt_layout<'a, F: Formatable<'a> + ?Sized>(
         }
         return TextLayout::new(tb.len, min_chars - tb.char_count);
     }
+    let max_chars_no_quotes = max_chars.saturating_sub(quotes_len);
     if min_chars > max_chars {
-        let tb =
-            formatable.char_bound_text_bounds(ctx, max_chars - quotes_len);
+        let tb = formatable.char_bound_text_bounds(ctx, max_chars_no_quotes);
         // we might have min_chars = 1, max_chars = 0, quote len = 2,
         // so we need the saturating sub
         return TextLayout::new(
@@ -1013,8 +1022,8 @@ fn calc_fmt_layout<'a, F: Formatable<'a> + ?Sized>(
             min_chars.saturating_sub(tb.char_count + quotes_len),
         );
     }
-    let tb = formatable.char_bound_text_bounds(ctx, max_chars - quotes_len);
-    if tb.char_count + quotes_len >= max_chars {
+    let tb = formatable.char_bound_text_bounds(ctx, max_chars_no_quotes);
+    if tb.char_count >= max_chars_no_quotes {
         return TextLayout::new(tb.len, 0);
     }
     TextLayout::new(
@@ -1047,14 +1056,8 @@ fn calc_fmt_len_ost<'a, F: Formatable<'a> + ?Sized>(
     calc_fmt_len(
         k,
         ctx,
-        k.min_char_count
-            .as_ref()
-            .map(|v| v.realize(output.min_char_count))
-            .unwrap_or(0),
-        k.min_char_count
-            .as_ref()
-            .map(|v| v.realize(output.float_precision))
-            .unwrap_or(usize::MAX),
+        k.realize_min_char_count(output.min_char_count),
+        k.realize_float_precision(output.float_precision),
         quotes_len,
         formatable,
     )
@@ -1397,9 +1400,10 @@ pub fn setup_key_output_state(
                                                         part_idx,
                                                         target_sv_id,
                                                         handled_len,
-                                                        min_char_count: o
-                                                            .min_char_count,
-                                                        float_precision: o.float_precision,
+                                                        min_char_count:
+                                                            k.realize_min_char_count(o.min_char_count),
+                                                        float_precision:
+                                                            k.realize_float_precision(o.float_precision),
                                                         wait_to_end:
                                                             is_buffered,
                                                     },
@@ -1539,7 +1543,8 @@ unsafe fn write_escaped_bytes_to_target(
         return unsafe { write_bytes_to_target(tgt, bytes) };
     }
     tgt.with_writer(|pw| {
-        std::io::Write::write_all(pw, bytes).unwrap();
+        let mut ew = EscapedWriter::new(pw);
+        std::io::Write::write_all(&mut ew, bytes).unwrap();
     });
 }
 
@@ -1740,8 +1745,8 @@ unsafe fn write_padded_text_with_prefix_suffix(
     let fill_spec = k.opts.fill.as_ref().copied().unwrap_or_default();
     let layout = calc_fmt_layout(
         false,
-        tgt.min_char_count,
-        tgt.float_precision,
+        k.realize_min_char_count(tgt.min_char_count),
+        k.realize_float_precision(tgt.float_precision),
         prefix.len() + suffix.len(),
         data,
     );
@@ -1826,7 +1831,7 @@ fn formatted_error_string_len(
     let mut w = LengthCountingWriter::default();
     format_error(e, &k.opts, is_stream_value, &mut w).unwrap();
     // we should just implement formattable for error
-    calc_fmt_layout(false, w.len, min_char_count, float_precision, "")
+    calc_fmt_layout(false, min_char_count, float_precision, w.len, "")
         .total_len(&k.opts, w.len)
 }
 fn write_fmt_key(
@@ -1952,17 +1957,10 @@ fn write_fmt_key(
                         &mut output_index,
                         rl as usize,
                         |tgt| unsafe {
-                            rfk.min_char_count = k
-                                .min_char_count
-                                .as_ref()
-                                .map(|s| s.realize(tgt.min_char_count))
-                                .unwrap_or(0);
-                            rfk.float_precision = k
-                                .float_precision
-                                .as_ref()
-                                .map(|s| s.realize(tgt.float_precision))
-                                .unwrap_or(usize::MAX);
-
+                            rfk.min_char_count =
+                                k.realize_min_char_count(tgt.min_char_count);
+                            rfk.float_precision =
+                                k.realize_float_precision(tgt.float_precision);
                             claim_target_len(tgt, len);
                             let ptr = tgt.target.unwrap().as_ptr();
                             if let Some(src) = prev_target {
@@ -2305,9 +2303,9 @@ pub fn handle_tf_format_stream_value_update(
                     let len = calc_fmt_len(
                         k,
                         escaped,
-                        quotes_len,
                         handle.min_char_count,
                         handle.float_precision,
+                        quotes_len,
                         data.as_slice(),
                     );
 

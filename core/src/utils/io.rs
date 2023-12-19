@@ -28,6 +28,9 @@ impl PointerWriter {
     pub fn remaining_bytes(&self) -> usize {
         self.remaining_bytes
     }
+    pub fn ptr(&self) -> *mut u8 {
+        self.ptr
+    }
 }
 
 impl std::io::Write for PointerWriter {

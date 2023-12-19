@@ -104,6 +104,30 @@ fn format_width_spec() -> Result<(), ScrError> {
 }
 
 #[test]
+fn format_width_spec_over_stream() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::default();
+    ContextBuilder::default()
+        .set_stream_buffer_size(1)
+        .add_op(create_op_file_reader_custom(
+            Box::new(SliceReader {
+                data: "abc".as_bytes(),
+            }),
+            6,
+        ))
+        .add_op(create_op_key("foo".to_owned()))
+        .add_op(create_op_seq(2, 8, 1).unwrap())
+        .add_op(create_op_key("bar".to_owned()))
+        .add_op(create_op_format("{foo:~^bar$}".as_bytes()).unwrap())
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(
+        ss.get_data().unwrap().as_slice(),
+        &["abc", "abc", "~abc", "~abc~", "~~abc~", "~~abc~~"]
+    );
+    Ok(())
+}
+
+#[test]
 fn nonexisting_key() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
