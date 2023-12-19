@@ -11,6 +11,7 @@ pub mod int_string_conversions;
 pub mod io;
 pub mod nonzero_ext;
 pub mod offset_vec_deque;
+pub mod paths_store;
 pub mod plattform;
 pub mod printable_unicode;
 pub mod small_box;

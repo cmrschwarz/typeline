@@ -302,11 +302,11 @@ pub fn format_rational(
     decimals: u32,
 ) -> std::io::Result<()> {
     // PERF: this function is stupid
-    let negative = v.is_negative();
     if v.is_integer() {
         w.write_fmt(format_args!("{}", v))?;
         return Ok(());
     }
+    let negative = v.is_negative();
     let mut whole_number = v.to_integer();
     let mut v = v.sub(&whole_number).abs();
     let one_half =
@@ -351,7 +351,7 @@ impl FieldValue {
     pub fn format(
         &self,
         w: &mut impl std::io::Write,
-        fc: &mut FormattingContext<'_>,
+        fc: &FormattingContext<'_>,
     ) -> std::io::Result<()> {
         match self {
             FieldValue::Null => w.write(NULL_STR.as_bytes()).map(|_| ()),
@@ -384,7 +384,7 @@ impl Object {
     pub fn format(
         &self,
         w: &mut impl std::io::Write,
-        fc: &mut FormattingContext<'_>,
+        fc: &FormattingContext<'_>,
     ) -> std::io::Result<()> {
         w.write_all(b"{")?;
         // TODO: escape keys
@@ -424,7 +424,7 @@ impl Array {
     pub fn format(
         &self,
         w: &mut impl std::io::Write,
-        fc: &mut FormattingContext<'_>,
+        fc: &FormattingContext<'_>,
     ) -> std::io::Result<()> {
         fn format_array<
             'a,
@@ -433,11 +433,11 @@ impl Array {
             W: std::io::Write,
         >(
             w: &mut W,
-            fc: &mut FormattingContext<'_>,
+            fc: &FormattingContext<'_>,
             iter: I,
             mut f: impl FnMut(
                 &mut W,
-                &mut FormattingContext<'_>,
+                &FormattingContext<'_>,
                 &T,
             ) -> std::io::Result<()>,
         ) -> std::io::Result<()> {

@@ -1,7 +1,7 @@
 use arrayvec::{ArrayString, ArrayVec};
 use bstr::ByteSlice;
 use nonmax::NonMaxUsize;
-use std::{borrow::Cow, cell::RefMut, ptr::NonNull};
+use std::{borrow::Cow, cell::RefMut, io::Write, ptr::NonNull};
 use unicode_ident::is_xid_start;
 
 use smallstr::SmallString;
@@ -23,6 +23,7 @@ use crate::{
         field_data::{
             field_value_flags, FieldValueRepr, RunLength, INLINE_STR_MAX_LEN,
         },
+        field_value::{Array, FormattingContext, Object},
         iter_hall::IterId,
         iters::FieldIterator,
         match_set::MatchSetManager,
@@ -45,7 +46,7 @@ use crate::{
         divide_by_char_len,
         escaped_writer::{EscapedFmtWriter, EscapedWriter},
         int_string_conversions::{
-            i64_to_str, u64_to_str, usize_to_str, USIZE_MAX_DECIMAL_DIGITS,
+            i64_digits, usize_to_str, USIZE_MAX_DECIMAL_DIGITS,
         },
         io::PointerWriter,
         string_store::{StringStore, StringStoreEntry},
@@ -176,8 +177,8 @@ pub struct FormatKey {
 
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct RealizedFormatKey {
-    pub min_char_count: Option<usize>,
-    pub float_precision: Option<usize>,
+    pub min_char_count: usize,
+    pub float_precision: usize,
     pub opts: FormatOptions,
 }
 
@@ -251,6 +252,221 @@ pub struct TfFormat<'a> {
         TfFormatStreamValueHandleId,
         TfFormatStreamValueHandle,
     >,
+}
+
+struct TextLayout {
+    truncated_text_len: usize,
+    padding: usize,
+}
+
+struct TextBounds {
+    len: usize,
+    char_count: usize,
+}
+
+impl OutputTarget {
+    fn with_writer(&mut self, f: impl FnOnce(&mut PointerWriter)) {
+        let mut pw = unsafe {
+            PointerWriter::new(
+                self.target.unwrap().as_ptr(),
+                self.remaining_len,
+            )
+        };
+        f(&mut pw);
+        self.remaining_len = pw.remaining_bytes();
+    }
+}
+
+impl FormatWidthSpec {
+    pub fn realize(&self, lookup_value: usize) -> usize {
+        match self {
+            FormatWidthSpec::Value(v) => *v,
+            FormatWidthSpec::Ref(_) => lookup_value,
+        }
+    }
+}
+
+impl FormatKey {
+    pub fn realize(
+        &self,
+        min_chars_lookup: usize,
+        float_precision_lookup: usize,
+    ) -> RealizedFormatKey {
+        RealizedFormatKey {
+            min_char_count: self
+                .min_char_count
+                .as_ref()
+                .map(|v| v.realize(min_chars_lookup))
+                .unwrap_or(0),
+            float_precision: self
+                .min_char_count
+                .as_ref()
+                .map(|v| v.realize(float_precision_lookup))
+                .unwrap_or(usize::MAX),
+            opts: self.opts.clone(),
+        }
+    }
+}
+
+trait Formatable<'a> {
+    type FormattingContext: 'a + Copy;
+    const REFUSES_TRUNACTION: bool = false;
+    fn format<W: std::io::Write>(
+        &self,
+        ctx: Self::FormattingContext,
+        w: &mut W,
+    );
+    fn total_length_cheap(_ctx: Self::FormattingContext) -> bool {
+        false
+    }
+    fn length_total(&self, ctx: Self::FormattingContext) -> usize {
+        let mut w = LengthCountingWriter::default();
+        self.format(ctx, &mut w);
+        w.len
+    }
+    fn text_bounds_total(&self, ctx: Self::FormattingContext) -> TextBounds {
+        let mut w = LengthAndCharsCountingWriter::default();
+        self.format(ctx, &mut w);
+        TextBounds::new(w.len, w.char_count)
+    }
+    fn char_bound_text_bounds(
+        &self,
+        ctx: Self::FormattingContext,
+        max_chars: usize,
+    ) -> TextBounds {
+        debug_assert!(!Self::REFUSES_TRUNACTION);
+        let mut w = CharLimitedLengthAndCharsCountingWriter::new(max_chars);
+        self.format(ctx, &mut w);
+        TextBounds::new(w.len, w.char_count)
+    }
+}
+
+impl Formatable<'_> for [u8] {
+    type FormattingContext = bool; // true -> escaped
+
+    fn total_length_cheap(escaped: bool) -> bool {
+        !escaped
+    }
+
+    fn format<W: std::io::Write>(&self, escaped: bool, w: &mut W) {
+        if !escaped {
+            w.write_all(self).unwrap();
+            return;
+        }
+        let mut ew = EscapedWriter::new(w);
+        ew.write_all(self).unwrap();
+    }
+
+    fn length_total(&self, escaped: bool) -> usize {
+        if !escaped {
+            return self.len();
+        }
+        let mut w = LengthCountingWriter::default();
+        self.format(true, &mut w);
+        w.len
+    }
+}
+impl<'a> Formatable<'a> for str {
+    type FormattingContext = <[u8] as Formatable<'a>>::FormattingContext; // true -> escaped
+
+    fn total_length_cheap(ctx: Self::FormattingContext) -> bool {
+        <[u8] as Formatable>::total_length_cheap(ctx)
+    }
+
+    fn format<W: std::io::Write>(
+        &self,
+        ctx: Self::FormattingContext,
+        w: &mut W,
+    ) {
+        Formatable::format(self.as_bytes(), ctx, w)
+    }
+
+    fn length_total(&self, ctx: Self::FormattingContext) -> usize {
+        Formatable::length_total(self.as_bytes(), ctx)
+    }
+}
+impl<'a> Formatable<'a> for i64 {
+    type FormattingContext = &'a RealizedFormatKey;
+
+    const REFUSES_TRUNACTION: bool = true;
+
+    fn total_length_cheap(_ctx: &'a RealizedFormatKey) -> bool {
+        true
+    }
+
+    fn format<W: std::io::Write>(
+        &self,
+        ctx: &'a RealizedFormatKey,
+        w: &mut W,
+    ) {
+        let char_count = ctx.min_char_count;
+        if ctx.opts.add_plus_sign {
+            if ctx.opts.zero_pad_numbers {
+                w.write_fmt(format_args!("{self:+0char_count$}")).unwrap();
+                return;
+            }
+            w.write_fmt(format_args!("{self:+char_count$}")).unwrap();
+            return;
+        }
+        if ctx.opts.zero_pad_numbers {
+            w.write_fmt(format_args!("{self:0char_count$}")).unwrap();
+            return;
+        }
+        w.write_fmt(format_args!("{self}")).unwrap();
+    }
+    fn length_total(&self, ctx: Self::FormattingContext) -> usize {
+        let digits = i64_digits(ctx.opts.add_plus_sign, *self);
+        if !ctx.opts.zero_pad_numbers {
+            return digits;
+        }
+        digits.max(ctx.min_char_count)
+    }
+    fn text_bounds_total(&self, ctx: Self::FormattingContext) -> TextBounds {
+        let len = self.length_total(ctx);
+        TextBounds::new(len, len)
+    }
+}
+impl<'a> Formatable<'a> for Object {
+    type FormattingContext = &'a FormattingContext<'a>;
+
+    fn format<W: std::io::Write>(
+        &self,
+        fc: &'a FormattingContext<'a>,
+        w: &mut W,
+    ) {
+        self.format(w, fc).unwrap();
+    }
+}
+impl<'a> Formatable<'a> for Array {
+    type FormattingContext = &'a FormattingContext<'a>;
+
+    fn format<W: std::io::Write>(
+        &self,
+        fc: &'a FormattingContext<'a>,
+        w: &mut W,
+    ) {
+        self.format(w, fc).unwrap();
+    }
+}
+
+impl TextBounds {
+    fn new(len: usize, char_count: usize) -> Self {
+        Self { len, char_count }
+    }
+}
+
+impl TextLayout {
+    pub fn new(truncated_text_len: usize, padding: usize) -> Self {
+        Self {
+            truncated_text_len,
+            padding,
+        }
+    }
+    pub fn total_len(&self, opts: &FormatOptions, quotes_len: usize) -> usize {
+        self.truncated_text_len
+            + quotes_len
+            + self.padding * opts.fill_char_width()
+    }
 }
 
 impl FormatOptions {
@@ -765,153 +981,82 @@ fn iter_output_targets(
     }
 }
 
-struct TextLayout {
-    truncated_text_len: usize,
-    padding: usize,
-}
-
-impl TextLayout {
-    pub fn new(truncated_text_len: usize, padding: usize) -> Self {
-        Self {
-            truncated_text_len,
-            padding,
-        }
-    }
-    pub fn total_len(&self, opts: &FormatOptions, quotes_len: usize) -> usize {
-        self.truncated_text_len
-            + quotes_len
-            + self.padding * opts.fill_char_width()
-    }
-}
-
-fn escaped_text_len_and_char_count(text: &[u8]) -> (usize, usize) {
-    let mut w = LengthAndCharsCountingWriter::default();
-    let mut ew = EscapedWriter::new(&mut w);
-    std::io::Write::write_all(&mut ew, text).unwrap();
-    let w = ew.into_inner().unwrap();
-    (w.len, w.char_count)
-}
-
-fn char_capped_escaped_text_len_and_char_count(
-    text: &[u8],
-    max_char_count: usize,
-) -> (usize, usize) {
-    let w = CharLimitedLengthAndCharsCountingWriter::new(max_char_count);
-    let mut ew = EscapedWriter::new(w);
-    let _ = std::io::Write::write_all(&mut ew, text);
-    let w = ew.into_inner().unwrap();
-    (w.len, w.char_count)
-}
-
 // 'quotes_len' in a more general sense is the number of characters (always ascii)
 // that will be printed as part of the text that are non negotiable
-fn calc_text_layout(
-    k: &FormatKey,
+fn calc_fmt_layout<'a, F: Formatable<'a> + ?Sized>(
+    ctx: F::FormattingContext,
+    min_chars: usize,
+    max_chars: usize,
     quotes_len: usize,
-    min_char_count: usize,
-    float_precision: usize,
-    text: &[u8],
+    formatable: &F,
 ) -> TextLayout {
-    let min_chars = match k.min_char_count {
-        Some(FormatWidthSpec::Ref(_)) => min_char_count,
-        Some(FormatWidthSpec::Value(v)) => v,
-        None => 0,
-    };
-    let max_chars = match k.float_precision {
-        Some(FormatWidthSpec::Ref(_)) => float_precision,
-        Some(FormatWidthSpec::Value(v)) => v,
-        None => usize::MAX,
-    };
-    let escaped = k.opts.type_repr != TypeReprFormat::Regular;
-    if max_chars == usize::MAX {
-        if !escaped
-            && (text.len() / MAX_UTF8_CHAR_LEN + quotes_len) >= min_chars
-        {
-            return TextLayout::new(text.len(), 0);
-        }
-        let (text_len, char_count) = if escaped {
-            escaped_text_len_and_char_count(text)
-        } else {
-            (text.len(), text.chars().count())
-        };
-        if char_count + quotes_len >= min_chars {
-            return TextLayout::new(text_len, 0);
-        }
-        return TextLayout::new(text_len, min_chars - char_count);
-    }
-    let mut char_count = quotes_len;
-    let mut len = 0;
-    if min_chars > max_chars {
-        if escaped {
-            let (l, cc) = char_capped_escaped_text_len_and_char_count(
-                text,
-                max_chars - char_count,
-            );
-            char_count += cc;
-            len += l;
-        } else {
-            for c in text.chars() {
-                if char_count >= max_chars {
-                    break;
-                }
-                char_count += 1;
-                len += c.len_utf8();
+    if max_chars == usize::MAX || F::REFUSES_TRUNACTION {
+        if F::total_length_cheap(ctx) {
+            let text_len = formatable.length_total(ctx);
+            if (text_len / MAX_UTF8_CHAR_LEN + quotes_len) >= min_chars {
+                return TextLayout::new(text_len, 0);
             }
         }
+        let tb = formatable.text_bounds_total(ctx);
+        if tb.char_count + quotes_len >= min_chars {
+            return TextLayout::new(tb.len, 0);
+        }
+        return TextLayout::new(tb.len, min_chars - tb.char_count);
+    }
+    if min_chars > max_chars {
+        let tb =
+            formatable.char_bound_text_bounds(ctx, max_chars - quotes_len);
         // we might have min_chars = 1, max_chars = 0, quote len = 2,
         // so we need the saturating sub
-        return TextLayout::new(len, min_chars.saturating_sub(char_count));
-    }
-    if escaped {
-        let (l, cc) = char_capped_escaped_text_len_and_char_count(
-            text,
-            max_chars - char_count,
+        return TextLayout::new(
+            tb.len,
+            min_chars.saturating_sub(tb.char_count + quotes_len),
         );
-        len += l;
-        char_count += cc;
-        if char_count >= max_chars {
-            return TextLayout::new(len, 0);
-        }
-    } else {
-        for c in text.chars() {
-            if char_count >= max_chars {
-                return TextLayout::new(len, 0);
-            }
-            char_count += 1;
-            len += c.len_utf8();
-        }
     }
-    if char_count >= min_chars {
-        return TextLayout::new(len, 0);
+    let tb = formatable.char_bound_text_bounds(ctx, max_chars - quotes_len);
+    if tb.char_count + quotes_len >= max_chars {
+        return TextLayout::new(tb.len, 0);
     }
-    TextLayout::new(len, min_chars - char_count)
+    TextLayout::new(
+        tb.len,
+        min_chars.saturating_sub(tb.char_count + quotes_len),
+    )
 }
 
 // returns the number of *bytes* that the text will use up in the output
 // including padding / truncation
-fn calc_text_len(
+fn calc_fmt_len<'a, F: Formatable<'a> + ?Sized>(
     k: &FormatKey,
+    ctx: F::FormattingContext,
+    min_chars: usize,
+    max_chars: usize,
     quotes_len: usize,
-    min_char_count: usize,
-    float_precision: usize,
-    text: &[u8],
+    formatable: &F,
 ) -> usize {
-    calc_text_layout(k, quotes_len, min_char_count, float_precision, text)
+    calc_fmt_layout(ctx, min_chars, max_chars, quotes_len, formatable)
         .total_len(&k.opts, quotes_len)
 }
 
-fn calc_text_len_ost(
+fn calc_fmt_len_ost<'a, F: Formatable<'a> + ?Sized>(
     k: &FormatKey,
+    ctx: F::FormattingContext,
     quotes_len: usize,
     output: &OutputState,
-    text: &[u8],
+    formatable: &F,
 ) -> usize {
-    calc_text_len(
+    calc_fmt_len(
         k,
+        ctx,
+        k.min_char_count
+            .as_ref()
+            .map(|v| v.realize(output.min_char_count))
+            .unwrap_or(0),
+        k.min_char_count
+            .as_ref()
+            .map(|v| v.realize(output.float_precision))
+            .unwrap_or(usize::MAX),
         quotes_len,
-        output.min_char_count,
-        output.float_precision,
-        text,
+        formatable,
     )
 }
 
@@ -1038,6 +1183,7 @@ pub fn setup_key_output_state(
         TypeReprFormat::Typed => 2,
         TypeReprFormat::Debug => 3,
     };
+    let escape_text = k.opts.type_repr != TypeReprFormat::Regular;
     while let Some(range) = iter.typed_range_fwd(
         msm,
         usize::MAX,
@@ -1049,8 +1195,9 @@ pub fn setup_key_output_state(
                     RefAwareInlineTextIter::from_range(&range, text)
                 {
                     iter_output_states(fmt, &mut output_index, rl, |o| {
-                        o.len += calc_text_len_ost(
+                        o.len += calc_fmt_len_ost(
                             k,
+                            escape_text,
                             quote_len_text,
                             o,
                             v.as_bytes(),
@@ -1063,7 +1210,13 @@ pub fn setup_key_output_state(
                     RefAwareInlineBytesIter::from_range(&range, bytes)
                 {
                     iter_output_states(fmt, &mut output_index, rl, |o| {
-                        o.len += calc_text_len_ost(k, quote_len_text, o, v);
+                        o.len += calc_fmt_len_ost(
+                            k,
+                            escape_text,
+                            quote_len_text,
+                            o,
+                            v,
+                        );
                         o.contains_raw_bytes = true;
                     });
                 }
@@ -1073,39 +1226,46 @@ pub fn setup_key_output_state(
                     RefAwareBytesBufferIter::from_range(&range, bytes)
                 {
                     iter_output_states(fmt, &mut output_index, rl, |o| {
-                        o.len += calc_text_len_ost(k, quote_len_text, o, v);
+                        o.len += calc_fmt_len_ost(
+                            k,
+                            escape_text,
+                            quote_len_text,
+                            o,
+                            v,
+                        );
                         o.contains_raw_bytes = true;
                     });
                 }
             }
             TypedSlice::Custom(custom_data) => {
-                let mut rfk = RealizedFormatKey {
-                    min_char_count: None,
-                    float_precision: None,
-                    opts: k.opts.clone(),
-                };
                 for (v, rl) in
                     TypedSliceIter::from_range(&range.base, custom_data)
                 {
                     iter_output_states(fmt, &mut output_index, rl, |o| {
-                        rfk.min_char_count = k
-                            .min_char_count
-                            .as_ref()
-                            .map(|_| o.min_char_count);
-                        rfk.float_precision = k
-                            .float_precision
-                            .as_ref()
-                            .map(|_| o.float_precision);
-                        todo!("custom stringify {:?}", v)
+                        if let Some(len) = v.stringified_len(
+                            &k.realize(o.min_char_count, o.float_precision),
+                        ) {
+                            o.len += len;
+                        } else {
+                            o.contained_error = Some(FormatError {
+                                err_in_width: false,
+                                part_idx,
+                                kind: FieldValueRepr::Custom,
+                            })
+                        }
                     });
                 }
             }
             TypedSlice::Int(ints) => {
                 for (v, rl) in TypedSliceIter::from_range(&range.base, ints) {
-                    //TODO: zero pad
-                    let digits = i64_to_str(k.opts.add_plus_sign, *v);
                     iter_output_states(fmt, &mut output_index, rl, |o| {
-                        o.len += calc_text_len_ost(k, 0, o, digits.as_bytes());
+                        o.len += calc_fmt_len_ost(
+                            k,
+                            &k.realize(o.min_char_count, o.float_precision),
+                            0,
+                            o,
+                            v,
+                        );
                     });
                 }
             }
@@ -1182,11 +1342,12 @@ pub fn setup_key_output_state(
                                 let mut i = output_index;
 
                                 iter_output_states(fmt, &mut i, rl, |o| {
-                                    o.len += calc_text_len_ost(
+                                    o.len += calc_fmt_len_ost(
                                         k,
+                                        escape_text,
                                         quote_len_stream_text,
                                         o,
-                                        b,
+                                        b.as_slice(),
                                     );
                                     if sv.bytes_are_utf8 {
                                         o.contains_raw_bytes = true;
@@ -1261,7 +1422,9 @@ pub fn setup_key_output_state(
                     &mut output_index,
                     range.base.field_count,
                     |o| {
-                        o.len += calc_text_len_ost(k, NULL_STR.len(), o, b"");
+                        // we should probably just implement Formattable for null
+                        o.len +=
+                            calc_fmt_len_ost(k, false, NULL_STR.len(), o, "");
                     },
                 );
             }
@@ -1271,8 +1434,13 @@ pub fn setup_key_output_state(
                     &mut output_index,
                     range.base.field_count,
                     |o| {
-                        o.len +=
-                            calc_text_len_ost(k, UNDEFINED_STR.len(), o, b"");
+                        o.len += calc_fmt_len_ost(
+                            k,
+                            false,
+                            UNDEFINED_STR.len(),
+                            o,
+                            "",
+                        );
                     },
                 );
             }
@@ -1327,7 +1495,13 @@ pub fn setup_key_output_state(
         uninitialized_fields,
         |o| {
             if typed_format {
-                o.len += calc_text_len_ost(k, UNDEFINED_STR.len(), o, b"");
+                o.len += calc_fmt_len_ost(
+                    k,
+                    false,
+                    UNDEFINED_STR.len(),
+                    o,
+                    "".as_bytes(),
+                );
             } else {
                 o.contained_error = Some(FormatError {
                     err_in_width: false,
@@ -1364,16 +1538,9 @@ unsafe fn write_escaped_bytes_to_target(
     if !escape {
         return unsafe { write_bytes_to_target(tgt, bytes) };
     }
-    let ptr = tgt.target.unwrap().as_ptr();
-    unsafe {
-        let mut w = PointerWriter::new(ptr, tgt.remaining_len);
-        let mut ew = EscapedWriter::new(&mut w);
-        std::io::Write::write_all(&mut ew, bytes).unwrap();
-        let bytes_written =
-            tgt.remaining_len - ew.into_inner().unwrap().remaining_bytes();
-        tgt.target = Some(NonNull::new_unchecked(ptr.add(bytes_written)));
-        claim_target_len(tgt, bytes_written);
-    }
+    tgt.with_writer(|pw| {
+        std::io::Write::write_all(pw, bytes).unwrap();
+    });
 }
 
 unsafe fn write_padding_to_tgt(
@@ -1571,11 +1738,11 @@ unsafe fn write_padded_text_with_prefix_suffix(
         return;
     }
     let fill_spec = k.opts.fill.as_ref().copied().unwrap_or_default();
-    let layout = calc_text_layout(
-        k,
-        prefix.len() + suffix.len(),
+    let layout = calc_fmt_layout(
+        false,
         tgt.min_char_count,
         tgt.float_precision,
+        prefix.len() + suffix.len(),
         data,
     );
     let (pad_left, pad_right) = match fill_spec.alignment {
@@ -1610,38 +1777,8 @@ unsafe fn write_formatted_int(
     tgt: &mut OutputTarget,
     value: i64,
 ) {
-    if k.min_char_count.is_none() {
-        unsafe {
-            write_bytes_to_target(
-                tgt,
-                i64_to_str(k.opts.add_plus_sign, value).as_bytes(),
-            );
-        }
-        return;
-    }
-    if !k.opts.zero_pad_numbers {
-        let val = i64_to_str(k.opts.add_plus_sign, value);
-        unsafe { write_padded_bytes(k, tgt, val.as_bytes()) };
-        return;
-    }
-    let mut len = 0;
-    if value < 0 {
-        unsafe { write_bytes_to_target(tgt, "-".as_bytes()) };
-        len += 1;
-    } else if k.opts.add_plus_sign {
-        unsafe { write_bytes_to_target(tgt, "+".as_bytes()) };
-        len += 1;
-    }
-    let val = u64_to_str(false, value.unsigned_abs());
-    len += val.len();
-    let padding =
-        calc_text_layout(k, len, tgt.min_char_count, tgt.float_precision, b"")
-            .padding;
-
-    unsafe {
-        write_padding_to_tgt(tgt, Some('0'), padding);
-        write_bytes_to_target(tgt, val.as_bytes());
-    }
+    let rfk = &k.realize(tgt.min_char_count, tgt.float_precision);
+    tgt.with_writer(|pw| value.format(rfk, pw));
 }
 
 fn format_error(
@@ -1688,7 +1825,8 @@ fn formatted_error_string_len(
 ) -> usize {
     let mut w = LengthCountingWriter::default();
     format_error(e, &k.opts, is_stream_value, &mut w).unwrap();
-    calc_text_layout(k, w.len, min_char_count, float_precision, b"")
+    // we should just implement formattable for error
+    calc_fmt_layout(false, w.len, min_char_count, float_precision, "")
         .total_len(&k.opts, w.len)
 }
 fn write_fmt_key(
@@ -1801,8 +1939,8 @@ fn write_fmt_key(
             TypedSlice::Custom(custom_data) => {
                 let mut rfk = RealizedFormatKey {
                     opts: k.opts.clone(),
-                    min_char_count: None,
-                    float_precision: None,
+                    min_char_count: 0,
+                    float_precision: usize::MAX,
                 };
                 for (v, rl) in
                     TypedSliceIter::from_range(&range.base, custom_data)
@@ -1817,11 +1955,14 @@ fn write_fmt_key(
                             rfk.min_char_count = k
                                 .min_char_count
                                 .as_ref()
-                                .map(|_| tgt.min_char_count);
+                                .map(|s| s.realize(tgt.min_char_count))
+                                .unwrap_or(0);
                             rfk.float_precision = k
                                 .float_precision
                                 .as_ref()
-                                .map(|_| tgt.float_precision);
+                                .map(|s| s.realize(tgt.float_precision))
+                                .unwrap_or(usize::MAX);
+
                             claim_target_len(tgt, len);
                             let ptr = tgt.target.unwrap().as_ptr();
                             if let Some(src) = prev_target {
@@ -2158,15 +2299,16 @@ pub fn handle_tf_format_stream_value_update(
                         }
                         _ => (none, none),
                     };
-
+                    let escaped = k.opts.type_repr != TypeReprFormat::Regular;
                     let quotes_len = left.len() + right.len();
 
-                    let len = calc_text_len(
+                    let len = calc_fmt_len(
                         k,
+                        escaped,
                         quotes_len,
                         handle.min_char_count,
                         handle.float_precision,
-                        data,
+                        data.as_slice(),
                     );
 
                     tgt_buf.reserve(len);

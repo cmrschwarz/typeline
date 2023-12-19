@@ -315,7 +315,7 @@ pub fn handle_tf_print_raw(
                 let ss = string_store.get_or_insert_with(|| {
                     sess.session_data.string_store.read().unwrap()
                 });
-                let mut fc = FormattingContext {
+                let fc = FormattingContext {
                     ss,
                     fm: &sess.field_mgr,
                     msm: &sess.match_set_mgr,
@@ -325,7 +325,7 @@ pub fn handle_tf_print_raw(
                 for a in
                     TypedSliceIter::from_range(&range.base, arrays).unfold_rl()
                 {
-                    a.format(stdout, &mut fc)?;
+                    a.format(stdout, &fc)?;
                     stdout.write_all(b"\n")?;
                     *handled_field_count += 1;
                 }
@@ -334,7 +334,7 @@ pub fn handle_tf_print_raw(
                 let ss = string_store.get_or_insert_with(|| {
                     sess.session_data.string_store.read().unwrap()
                 });
-                let mut fc = FormattingContext {
+                let fc = FormattingContext {
                     ss,
                     fm: &sess.field_mgr,
                     msm: &sess.match_set_mgr,
@@ -344,7 +344,7 @@ pub fn handle_tf_print_raw(
                 for o in TypedSliceIter::from_range(&range.base, objects)
                     .unfold_rl()
                 {
-                    o.format(stdout, &mut fc)?;
+                    o.format(stdout, &fc)?;
                     stdout.write_all(b"\n")?;
                     *handled_field_count += 1;
                 }

@@ -492,7 +492,7 @@ pub fn handle_tf_string_sink(
                 let ss = string_store.get_or_insert_with(|| {
                     sess.session_data.string_store.read().unwrap()
                 });
-                let mut fc = FormattingContext {
+                let fc = FormattingContext {
                     ss,
                     fm: &sess.field_mgr,
                     msm: &sess.match_set_mgr,
@@ -502,7 +502,7 @@ pub fn handle_tf_string_sink(
                 for (a, rl) in TypedSliceIter::from_range(&range.base, arrays)
                 {
                     let mut data = Vec::new();
-                    a.format(&mut data, &mut fc).unwrap();
+                    a.format(&mut data, &fc).unwrap();
                     push_bytes_buffer(
                         op_id,
                         field_pos,
@@ -516,7 +516,7 @@ pub fn handle_tf_string_sink(
                 let ss = string_store.get_or_insert_with(|| {
                     sess.session_data.string_store.read().unwrap()
                 });
-                let mut fc = FormattingContext {
+                let fc = FormattingContext {
                     ss,
                     fm: &sess.field_mgr,
                     msm: &sess.match_set_mgr,
@@ -526,7 +526,7 @@ pub fn handle_tf_string_sink(
                 for (a, rl) in TypedSliceIter::from_range(&range.base, object)
                 {
                     let mut data = Vec::new();
-                    a.format(&mut data, &mut fc).unwrap();
+                    a.format(&mut data, &fc).unwrap();
                     push_bytes_buffer(
                         op_id,
                         field_pos,

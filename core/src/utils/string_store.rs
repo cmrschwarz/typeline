@@ -5,11 +5,23 @@ use std::{
 
 pub type StringStoreEntry = NonZeroU32;
 
+pub struct StringStore {
+    arena: Vec<Vec<u8>>,
+    existing_strings: Vec<Vec<OwnedStrPtr>>,
+    table_idx_to_str: Vec<StrPtr>,
+    table_str_to_idx: HashMap<StrPtr, StringStoreEntry>,
+}
+
+unsafe impl Send for StringStore {}
+unsafe impl Sync for StringStore {}
+
 #[derive(Clone, Copy)]
 struct StrPtr {
     data: *const u8,
     len: usize,
 }
+
+struct OwnedStrPtr(StrPtr);
 
 impl StrPtr {
     fn from_str(v: &str) -> Self {
@@ -26,8 +38,6 @@ impl StrPtr {
         }
     }
 }
-
-struct OwnedStrPtr(StrPtr);
 
 impl Clone for OwnedStrPtr {
     fn clone(&self) -> Self {
@@ -71,16 +81,6 @@ impl Hash for StrPtr {
         self.as_str().hash(state)
     }
 }
-
-pub struct StringStore {
-    arena: Vec<Vec<u8>>,
-    existing_strings: Vec<Vec<OwnedStrPtr>>,
-    table_idx_to_str: Vec<StrPtr>,
-    table_str_to_idx: HashMap<StrPtr, StringStoreEntry>,
-}
-
-unsafe impl Send for StringStore {}
-unsafe impl Sync for StringStore {}
 
 impl Default for StringStore {
     fn default() -> Self {
