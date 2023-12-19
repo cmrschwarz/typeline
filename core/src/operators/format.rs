@@ -1,6 +1,7 @@
 use arrayvec::{ArrayString, ArrayVec};
 use bstr::ByteSlice;
 use nonmax::NonMaxUsize;
+use num::{BigInt, BigRational};
 use std::{borrow::Cow, cell::RefMut, io::Write, ptr::NonNull};
 use unicode_ident::is_xid_start;
 
@@ -16,6 +17,7 @@ use super::{
     utils::{NULL_STR, UNDEFINED_STR},
 };
 use crate::{
+    context::Session,
     job_session::JobData,
     options::argument::CliArgIdx,
     record_data::{
@@ -23,7 +25,9 @@ use crate::{
         field_data::{
             field_value_flags, FieldValueRepr, RunLength, INLINE_STR_MAX_LEN,
         },
-        field_value::{Array, FormattingContext, Object},
+        field_value::{
+            format_rational, Array, FormattingContext, Object, RATIONAL_DIGITS,
+        },
         iter_hall::IterId,
         iters::FieldIterator,
         match_set::MatchSetManager,
@@ -178,7 +182,7 @@ pub struct FormatKey {
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct RealizedFormatKey {
     pub min_char_count: usize,
-    pub float_precision: usize,
+    pub float_precision: Option<usize>,
     pub opts: FormatOptions,
 }
 
@@ -252,6 +256,7 @@ pub struct TfFormat<'a> {
         TfFormatStreamValueHandleId,
         TfFormatStreamValueHandle,
     >,
+    print_rationals_raw: bool,
 }
 
 struct TextLayout {
@@ -306,10 +311,16 @@ impl FormatKey {
             .map(|v| v.realize(min_chars_lookup))
             .unwrap_or(0)
     }
-    fn realize_float_precision(&self, float_precision_lookup: usize) -> usize {
+    fn realize_float_precision(
+        &self,
+        float_precision_lookup: usize,
+    ) -> Option<usize> {
         self.float_precision
             .as_ref()
             .map(|v| v.realize(float_precision_lookup))
+    }
+    fn realize_max_char_count(&self, float_precision_lookup: usize) -> usize {
+        self.realize_float_precision(float_precision_lookup)
             .unwrap_or(usize::MAX)
     }
 }
@@ -457,6 +468,75 @@ impl<'a> Formatable<'a> for Array {
         self.format(w, fc).unwrap();
     }
 }
+impl<'a> Formatable<'a> for BigRational {
+    type FormattingContext = &'a RealizedFormatKey;
+
+    fn format<W: std::io::Write>(
+        &self,
+        _fc: &'a RealizedFormatKey,
+        w: &mut W,
+    ) {
+        //TODO: we dont support zero pad etc. for now
+        format_rational(w, self, RATIONAL_DIGITS).unwrap();
+    }
+}
+impl<'a> Formatable<'a> for BigInt {
+    type FormattingContext = &'a RealizedFormatKey;
+
+    fn format<W: std::io::Write>(
+        &self,
+        _fc: &'a RealizedFormatKey,
+        w: &mut W,
+    ) {
+        //TODO: we dont support zero pad etc. for now
+        w.write_fmt(format_args!("{self}")).unwrap();
+    }
+}
+impl<'a> Formatable<'a> for f64 {
+    type FormattingContext = &'a RealizedFormatKey;
+    const REFUSES_TRUNACTION: bool = true;
+
+    fn format<W: std::io::Write>(
+        &self,
+        ctx: &'a RealizedFormatKey,
+        w: &mut W,
+    ) {
+        let char_count = ctx.min_char_count;
+        if let Some(float_prec) = ctx.float_precision {
+            if ctx.opts.add_plus_sign {
+                if ctx.opts.zero_pad_numbers {
+                    w.write_fmt(format_args!(
+                        "{self:+0char_count$.float_prec$}"
+                    ))
+                    .unwrap();
+                    return;
+                }
+                w.write_fmt(format_args!("{self:+char_count$.float_prec$}"))
+                    .unwrap();
+                return;
+            }
+            if ctx.opts.zero_pad_numbers {
+                w.write_fmt(format_args!("{self:0char_count$.float_prec$}"))
+                    .unwrap();
+                return;
+            }
+            w.write_fmt(format_args!("{self:.float_prec$}")).unwrap();
+            return;
+        }
+        if ctx.opts.add_plus_sign {
+            if ctx.opts.zero_pad_numbers {
+                w.write_fmt(format_args!("{self:+0char_count$}")).unwrap();
+                return;
+            }
+            w.write_fmt(format_args!("{self:+char_count$}")).unwrap();
+            return;
+        }
+        if ctx.opts.zero_pad_numbers {
+            w.write_fmt(format_args!("{self:0char_count$}")).unwrap();
+            return;
+        }
+    }
+}
 
 impl TextBounds {
     fn new(len: usize, char_count: usize) -> Self {
@@ -549,12 +629,17 @@ pub fn build_tf_format<'a>(
             }
         })
         .collect();
+
     let tf = TfFormat {
         op,
         refs,
         output_states: Default::default(),
         output_targets: Default::default(),
         stream_value_handles: Default::default(),
+        print_rationals_raw: sess
+            .get_transform_chain_from_tf_state(tf_state)
+            .settings
+            .print_rationals_raw,
     };
     TransformData::Format(tf)
 }
@@ -1057,7 +1142,7 @@ fn calc_fmt_len_ost<'a, F: Formatable<'a> + ?Sized>(
         k,
         ctx,
         k.realize_min_char_count(output.min_char_count),
-        k.realize_float_precision(output.float_precision),
+        k.realize_max_char_count(output.float_precision),
         quotes_len,
         formatable,
     )
@@ -1122,6 +1207,7 @@ pub fn lookup_width_spec(
     }
 }
 pub fn setup_key_output_state(
+    sess: &Session,
     sv_mgr: &mut StreamValueManager,
     fm: &FieldManager,
     msm: &mut MatchSetManager,
@@ -1187,6 +1273,8 @@ pub fn setup_key_output_state(
         TypeReprFormat::Debug => 3,
     };
     let escape_text = k.opts.type_repr != TypeReprFormat::Regular;
+    let mut string_store = None;
+
     while let Some(range) = iter.typed_range_fwd(
         msm,
         usize::MAX,
@@ -1401,9 +1489,8 @@ pub fn setup_key_output_state(
                                                         target_sv_id,
                                                         handled_len,
                                                         min_char_count:
-                                                            k.realize_min_char_count(o.min_char_count),
-                                                        float_precision:
-                                                            k.realize_float_precision(o.float_precision),
+                                                            o.min_char_count,
+                                                        float_precision: o.float_precision,
                                                         wait_to_end:
                                                             is_buffered,
                                                     },
@@ -1476,16 +1563,82 @@ pub fn setup_key_output_state(
                     },
                 );
             }
-            TypedSlice::BigInt(_)
-            | TypedSlice::Float(_)
-            | TypedSlice::Rational(_) => {
-                todo!();
+            TypedSlice::BigInt(vs) => {
+                for (v, rl) in TypedSliceIter::from_range(&range.base, vs) {
+                    iter_output_states(fmt, &mut output_index, rl, |o| {
+                        o.len += calc_fmt_len_ost(
+                            k,
+                            &k.realize(o.min_char_count, o.float_precision),
+                            0,
+                            o,
+                            v,
+                        );
+                    });
+                }
             }
-            TypedSlice::Object(_) => {
-                todo!();
+            TypedSlice::Float(vs) => {
+                for (v, rl) in TypedSliceIter::from_range(&range.base, vs) {
+                    iter_output_states(fmt, &mut output_index, rl, |o| {
+                        o.len += calc_fmt_len_ost(
+                            k,
+                            &k.realize(o.min_char_count, o.float_precision),
+                            0,
+                            o,
+                            v,
+                        );
+                    });
+                }
             }
-            TypedSlice::Array(_) => {
-                todo!();
+            TypedSlice::Rational(vs) => {
+                for (v, rl) in TypedSliceIter::from_range(&range.base, vs) {
+                    iter_output_states(fmt, &mut output_index, rl, |o| {
+                        o.len += calc_fmt_len_ost(
+                            k,
+                            &k.realize(o.min_char_count, o.float_precision),
+                            0,
+                            o,
+                            v,
+                        );
+                    });
+                }
+            }
+            TypedSlice::Object(objects) => {
+                let ss = string_store
+                    .get_or_insert_with(|| sess.string_store.read().unwrap());
+                let mut fc = FormattingContext {
+                    ss,
+                    fm,
+                    msm,
+                    print_rationals_raw: fmt.print_rationals_raw,
+                    rfk: RealizedFormatKey::default(),
+                };
+                for (v, rl) in TypedSliceIter::from_range(&range.base, objects)
+                {
+                    iter_output_states(fmt, &mut output_index, rl, |o| {
+                        fc.rfk =
+                            k.realize(o.min_char_count, o.float_precision);
+                        o.len += calc_fmt_len_ost(k, &fc, 0, o, v);
+                    });
+                }
+            }
+            TypedSlice::Array(arrays) => {
+                let ss = string_store
+                    .get_or_insert_with(|| sess.string_store.read().unwrap());
+                let mut fc = FormattingContext {
+                    ss,
+                    fm,
+                    msm,
+                    print_rationals_raw: fmt.print_rationals_raw,
+                    rfk: RealizedFormatKey::default(),
+                };
+                for (v, rl) in TypedSliceIter::from_range(&range.base, arrays)
+                {
+                    iter_output_states(fmt, &mut output_index, rl, |o| {
+                        fc.rfk =
+                            k.realize(o.min_char_count, o.float_precision);
+                        o.len += calc_fmt_len_ost(k, &fc, 0, o, v);
+                    });
+                }
             }
             TypedSlice::FieldReference(_)
             | TypedSlice::SlicedFieldReference(_) => unreachable!(),
@@ -1746,7 +1899,7 @@ unsafe fn write_padded_text_with_prefix_suffix(
     let layout = calc_fmt_layout(
         false,
         k.realize_min_char_count(tgt.min_char_count),
-        k.realize_float_precision(tgt.float_precision),
+        k.realize_max_char_count(tgt.float_precision),
         prefix.len() + suffix.len(),
         data,
     );
@@ -1945,7 +2098,7 @@ fn write_fmt_key(
                 let mut rfk = RealizedFormatKey {
                     opts: k.opts.clone(),
                     min_char_count: 0,
-                    float_precision: usize::MAX,
+                    float_precision: None,
                 };
                 for (v, rl) in
                     TypedSliceIter::from_range(&range.base, custom_data)
@@ -2180,6 +2333,7 @@ pub fn handle_tf_format(
                 });
             }
             FormatPart::Key(k) => setup_key_output_state(
+                &sess.session_data,
                 &mut sess.sv_mgr,
                 &sess.field_mgr,
                 &mut sess.match_set_mgr,
@@ -2303,8 +2457,8 @@ pub fn handle_tf_format_stream_value_update(
                     let len = calc_fmt_len(
                         k,
                         escaped,
-                        handle.min_char_count,
-                        handle.float_precision,
+                        k.realize_min_char_count(handle.min_char_count),
+                        k.realize_max_char_count(handle.float_precision),
                         quotes_len,
                         data.as_slice(),
                     );
