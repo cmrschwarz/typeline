@@ -370,7 +370,8 @@ impl Formatable<'_> for [u8] {
         let res = if !escaped {
             w.write_all(self)
         } else {
-            let mut ew = EscapedWriter::new(w);
+            //TODO: make the quoting style dynamic
+            let mut ew = EscapedWriter::new(w, '"' as u8);
             ew.write_all(self)
         };
         if let Err(e) = res {
@@ -1759,7 +1760,8 @@ unsafe fn write_escaped_bytes_to_target(
         return unsafe { write_bytes_to_target(tgt, bytes) };
     }
     tgt.with_writer(|pw| {
-        let mut ew = EscapedWriter::new(pw);
+        //TODO: make the quoting style dynamic
+        let mut ew = EscapedWriter::new(pw, '"' as u8);
         std::io::Write::write_all(&mut ew, bytes).unwrap();
     });
 }
@@ -2044,7 +2046,7 @@ fn format_error(
         }
     };
     w.write_fmt(format_args!("{sv}(error)\""))?;
-    let mut ew = EscapedFmtWriter::new(&mut w);
+    let mut ew = EscapedFmtWriter::new(&mut w, '"' as u8);
     std::fmt::Write::write_str(&mut ew, e.message())?;
     drop(ew);
     w.write_char('"')?;

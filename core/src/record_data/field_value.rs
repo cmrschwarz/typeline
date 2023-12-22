@@ -272,7 +272,7 @@ pub fn format_bytes(
     v: &[u8],
 ) -> std::io::Result<()> {
     w.write_all(b"b'")?;
-    let mut w = EscapedWriter::new(w);
+    let mut w = EscapedWriter::new(w, '"' as u8);
     w.write_all(v)?;
     w.into_inner().unwrap().write_all(b"'")?;
     Ok(())
@@ -283,7 +283,7 @@ pub fn format_quoted_string(
     v: &str,
 ) -> std::io::Result<()> {
     w.write_all(b"\"")?;
-    let mut w = EscapedWriter::new(w);
+    let mut w = EscapedWriter::new(w, '"' as u8);
     w.write_all(v.as_bytes())?;
     w.into_inner().unwrap().write_all(b"\"")?;
     Ok(())

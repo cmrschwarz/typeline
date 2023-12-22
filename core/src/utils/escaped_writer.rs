@@ -15,6 +15,7 @@ pub struct EscapedWriter<W: std::io::Write> {
     base: W,
     incomplete_char_missing_len: u8,
     buffer_offset: u8,
+    quote_to_escape: u8,
     // worst case length is storing the 4 escaped bytes of a
     // broken utf-8 codepoint ('\xFF' * 4) -> 16 bytes
     // PERF: it would probably be better not to have this here
@@ -79,11 +80,12 @@ fn push_char<const C: usize>(c: char, output: &mut ArrayVec<u8, C>) {
 }
 
 impl<W: std::io::Write> EscapedWriter<W> {
-    pub fn new(base: W) -> Self {
+    pub fn new(base: W, quote_to_escape: u8) -> Self {
         Self {
             base,
             incomplete_char_missing_len: 0,
             buffer_offset: 0,
+            quote_to_escape,
             buffer: Default::default(),
         }
     }
@@ -94,8 +96,11 @@ impl<W: std::io::Write> EscapedWriter<W> {
 }
 
 impl<W: std::fmt::Write> EscapedFmtWriter<W> {
-    pub fn new(base: W) -> Self {
-        Self(EscapedWriter::new(EscapedWriterFmtAdapter(base)))
+    pub fn new(base: W, quote_to_escape: u8) -> Self {
+        Self(EscapedWriter::new(
+            EscapedWriterFmtAdapter(base),
+            quote_to_escape,
+        ))
     }
     pub fn into_inner(self) -> Result<W, std::fmt::Error> {
         Ok(self.0.into_inner().map_err(|_| std::fmt::Error)?.0)
@@ -210,7 +215,10 @@ impl<W: Write> Write for EscapedWriter<W> {
                     buf_offset += end;
                     continue 'handle_escapes;
                 }
-                if c == '\\' || !is_char_printable(c) {
+                if c == '\\'
+                    || c == self.quote_to_escape as char
+                    || !is_char_printable(c)
+                {
                     match self.base.write(&buf[buf_offset..][..start]) {
                         Ok(n) => {
                             if n != start {
@@ -279,9 +287,9 @@ impl<W: std::io::Write> Drop for EscapedWriter<W> {
     }
 }
 
-pub fn escape_to_string(input: &[u8]) -> String {
+pub fn escape_to_string(input: &[u8], quote_to_escape: u8) -> String {
     let mut res = String::new();
-    let mut w = EscapedFmtWriter::new(&mut res);
+    let mut w = EscapedFmtWriter::new(&mut res, quote_to_escape);
     w.write_all(input).unwrap();
     drop(w);
     res
@@ -290,12 +298,15 @@ pub fn escape_to_string(input: &[u8]) -> String {
 #[cfg(test)]
 
 mod test {
-    use super::escape_to_string;
     use rstest::rstest;
+
+    fn escape(input: &[u8]) -> String {
+        super::escape_to_string(input, '"' as u8)
+    }
 
     #[test]
     fn emtpy_string() {
-        assert_eq!(escape_to_string(b""), "");
+        assert_eq!(escape(b""), "");
     }
 
     #[rstest]
@@ -303,7 +314,7 @@ mod test {
     #[case(b"\\n", "\\\\n")]
     #[case(b"\xFF\\", "\\xFF\\\\")]
     fn backslashes(#[case] input: &[u8], #[case] output: &str) {
-        assert_eq!(escape_to_string(input), output);
+        assert_eq!(escape(input), output);
     }
 
     #[rstest]
@@ -315,7 +326,7 @@ mod test {
         #[case] input: &str,
         #[case] output: &str,
     ) {
-        assert_eq!(escape_to_string(input.as_bytes()), output);
+        assert_eq!(escape(input.as_bytes()), output);
     }
 
     #[rstest]
@@ -324,7 +335,7 @@ mod test {
     #[case("\t", "\\t")]
     #[case("\x00", "\\x00")]
     fn ascii_escapes(#[case] input: &str, #[case] output: &str) {
-        assert_eq!(escape_to_string(input.as_bytes()), output);
+        assert_eq!(escape(input.as_bytes()), output);
     }
 
     #[rstest]
@@ -332,6 +343,6 @@ mod test {
     #[case("foo\u{FEFF}", "foo\\u{FEFF}")]
     #[case("\u{FEFF}bar", "\\u{FEFF}bar")]
     fn unicode_escapes(#[case] input: &str, #[case] output: &str) {
-        assert_eq!(escape_to_string(input.as_bytes()), output);
+        assert_eq!(escape(input.as_bytes()), output);
     }
 }
