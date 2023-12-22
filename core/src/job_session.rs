@@ -8,6 +8,10 @@ use crate::{
     context::{ContextData, Job, Session, VentureDescription},
     liveness_analysis::OpOutputIdx,
     operators::{
+        aggregator::{
+            build_tf_aggregator, handle_tf_aggregator_stream_producer_update,
+            handle_tf_aggregator_stream_value_update,
+        },
         call::{
             build_tf_call, handle_eager_call_expansion,
             handle_lazy_call_expansion,
@@ -816,6 +820,9 @@ impl<'a> JobSession<'a> {
                 OperatorData::Custom(op) => {
                     op.build_transform(jd, b, &mut tf_state, prebound_outputs)
                 }
+                OperatorData::Aggregator(op) => {
+                    build_tf_aggregator(op, &mut tf_state, prebound_outputs)
+                }
             };
             output_field = tf_state.output_field;
             let appending = tf_state.is_appending;
@@ -873,6 +880,7 @@ impl<'a> JobSession<'a> {
                 OperatorData::Literal(_) => (),
                 OperatorData::Sequence(_) => (),
                 OperatorData::Explode(_) => (),
+                OperatorData::Aggregator(_) => (),
                 OperatorData::Custom(_) => (), // TODO: allow this?
             }
         }
@@ -1020,6 +1028,15 @@ impl<'a> JobSession<'a> {
                 svu.sv_id,
                 svu.custom,
             ),
+            TransformData::Aggretagor(op) => {
+                handle_tf_aggregator_stream_value_update(
+                    op,
+                    &mut self.job_data,
+                    svu.tf_id,
+                    svu.sv_id,
+                    svu.custom,
+                )
+            }
             TransformData::Custom(tf) => tf.handle_stream_value_update(
                 &mut self.job_data,
                 svu.tf_id,
@@ -1070,6 +1087,7 @@ impl<'a> JobSession<'a> {
             TransformData::Literal(_) => (),
             TransformData::Sequence(_) => (),
             TransformData::Terminator(_) => (),
+            TransformData::Aggretagor(_) => (),
             TransformData::Explode(tf) => {
                 debug_assert!(!tf.pre_update_required());
             }
@@ -1129,6 +1147,10 @@ impl<'a> JobSession<'a> {
             }
             TransformData::Explode(tf) => tf.update(&mut self.job_data, tf_id),
             TransformData::Custom(tf) => tf.update(&mut self.job_data, tf_id),
+            TransformData::Aggretagor(agg) => {
+                let idx = agg.current_sub_op;
+                self.handle_transform(idx, ctx)?;
+            }
             TransformData::Disabled => unreachable!(),
         }
         if let Some(tf) = self.job_data.tf_mgr.transforms.get(tf_id) {
@@ -1165,6 +1187,13 @@ impl<'a> JobSession<'a> {
             | TransformData::Sequence(_)
             | TransformData::Explode(_)
             | TransformData::Format(_) => unreachable!(),
+            TransformData::Aggretagor(agg) => {
+                handle_tf_aggregator_stream_producer_update(
+                    agg,
+                    &mut self.job_data,
+                    tf_id,
+                )
+            }
             TransformData::FileReader(f) => {
                 handle_tf_file_reader_stream(&mut self.job_data, tf_id, f)
             }

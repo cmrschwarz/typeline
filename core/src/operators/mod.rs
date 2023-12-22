@@ -1,3 +1,4 @@
+pub mod aggregator;
 pub mod call;
 pub mod call_concurrent;
 pub mod cast;

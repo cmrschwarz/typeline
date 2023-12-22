@@ -45,7 +45,6 @@ impl Operator for OpPrimes {
         &self,
         _ld: &mut LivenessData,
         _bb_id: BasicBlockId,
-        _bb_offset: u32,
         access_flags: &mut AccessFlags,
     ) {
         access_flags.input_accessed = false;

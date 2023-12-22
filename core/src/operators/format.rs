@@ -18,6 +18,7 @@ use super::{
 use crate::{
     context::Session,
     job_session::JobData,
+    liveness_analysis::{AccessFlags, LivenessData},
     options::argument::CliArgIdx,
     record_data::{
         field::{Field, FieldId, FieldManager},
@@ -641,6 +642,59 @@ pub fn build_tf_format<'a>(
             .print_rationals_raw,
     };
     TransformData::Format(tf)
+}
+
+pub fn update_op_format_variable_liveness(
+    fmt: &OpFormat,
+    ld: &mut LivenessData,
+    op_id: OperatorId,
+    access_flags: &mut AccessFlags,
+    any_writes_so_far: bool,
+) {
+    access_flags.may_dup_or_drop = false;
+    // might be set to true again in the loop below
+    access_flags.non_stringified_input_access = false;
+    access_flags.input_accessed = false;
+    for p in &fmt.parts {
+        match p {
+            FormatPart::ByteLiteral(_) => (),
+            FormatPart::TextLiteral(_) => (),
+            FormatPart::Key(fk) => {
+                let non_stringified = fk.min_char_count.is_some()
+                    || fk.opts.add_plus_sign
+                    || fk.opts.number_format != NumberFormat::Default
+                    || fk.opts.zero_pad_numbers
+                    || fk.opts.type_repr != TypeReprFormat::Regular;
+                if let Some(name) = fmt.refs_idx[fk.ref_idx as usize] {
+                    ld.access_field(
+                        op_id,
+                        ld.var_names[&name],
+                        any_writes_so_far,
+                        non_stringified,
+                        true,
+                    );
+                } else {
+                    access_flags.input_accessed = true;
+                    access_flags.non_stringified_input_access =
+                        non_stringified;
+                }
+                if let Some(FormatWidthSpec::Ref(ws_ref)) = fk.min_char_count {
+                    if let Some(name) = fmt.refs_idx[ws_ref as usize] {
+                        ld.access_field(
+                            op_id,
+                            ld.var_names[&name],
+                            any_writes_so_far,
+                            true,
+                            true,
+                        );
+                    } else {
+                        access_flags.input_accessed = true;
+                        access_flags.non_stringified_input_access = true;
+                    }
+                }
+            }
+        }
+    }
 }
 
 fn create_format_literal(fmt: Vec<u8>) -> FormatPart {

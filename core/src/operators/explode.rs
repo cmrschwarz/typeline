@@ -98,7 +98,6 @@ impl Operator for OpExplode {
         &self,
         _ld: &mut LivenessData,
         _bb_id: BasicBlockId,
-        _bb_offset: u32,
         _flags: &mut AccessFlags,
     ) {
     }

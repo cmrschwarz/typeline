@@ -104,7 +104,6 @@ impl Operator for OpHttpRequest {
         &self,
         _ld: &mut scr_core::liveness_analysis::LivenessData,
         _bb_id: scr_core::liveness_analysis::BasicBlockId,
-        _bb_offset: u32,
         access_flags: &mut scr_core::liveness_analysis::AccessFlags,
     ) {
         access_flags.non_stringified_input_access = false;

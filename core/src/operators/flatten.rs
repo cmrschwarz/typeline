@@ -79,7 +79,6 @@ impl Operator for OpFlatten {
         &self,
         _ld: &mut LivenessData,
         _bb_id: BasicBlockId,
-        _bb_offset: u32,
         _flags: &mut AccessFlags,
     ) {
     }

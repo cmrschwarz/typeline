@@ -19,6 +19,7 @@ use crate::{
 };
 
 use super::{
+    aggregator::OpAggregator,
     call::OpCall,
     call_concurrent::OpCallConcurrent,
     cast::OpCast,
@@ -69,6 +70,7 @@ pub enum OperatorData {
     Literal(OpLiteral),
     Sequence(OpSequence),
     Explode(OpExplode),
+    Aggregator(OpAggregator),
     Custom(SmallBox<dyn Operator, 96>),
 }
 
@@ -112,6 +114,7 @@ impl OperatorData {
             OperatorData::Nop(_) => "nop".into(),
             OperatorData::Explode(op) => op.default_name(),
             OperatorData::Custom(op) => op.default_name(),
+            OperatorData::Aggregator(_) => "aggregator".into(),
         }
     }
 }
@@ -139,7 +142,6 @@ pub trait Operator: Send + Sync {
         &self,
         _ld: &mut LivenessData,
         _bb_id: BasicBlockId,
-        _bb_offset: u32,
         access_flags: &mut AccessFlags,
     );
     fn setup(

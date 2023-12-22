@@ -17,6 +17,7 @@ use crate::{
 };
 
 use super::{
+    aggregator::TfAggregator,
     call::TfCall,
     call_concurrent::{TfCallConcurrent, TfCalleeConcurrent},
     cast::TfCast,
@@ -65,6 +66,7 @@ pub enum TransformData<'a> {
     Literal(TfLiteral<'a>),
     Sequence(TfSequence),
     Explode(TfExplode),
+    Aggretagor(TfAggregator),
     Custom(SmallBox<dyn Transform, 192>),
 }
 
@@ -97,6 +99,7 @@ impl TransformData<'_> {
             TransformData::Literal(_) => "literal",
             TransformData::Sequence(_) => "sequence",
             TransformData::Terminator(_) => "terminator",
+            TransformData::Aggretagor(_) => "aggregator",
             TransformData::Explode(tf) => return tf.display_name(),
             TransformData::Custom(tf) => return tf.display_name(),
         }

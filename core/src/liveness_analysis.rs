@@ -9,14 +9,14 @@ use bitvec::{slice::BitSlice, vec::BitVec};
 use smallvec::SmallVec;
 
 use crate::{
-    chain::ChainId,
+    chain::{Chain, ChainId},
     context::Session,
     operators::{
         call::OpCall,
         call_concurrent::OpCallConcurrent,
         fork::OpFork,
         forkcat::OpForkCat,
-        format::{FormatPart, FormatWidthSpec, NumberFormat, TypeReprFormat},
+        format::update_op_format_variable_liveness,
         operator::{
             Operator, OperatorData, OperatorId, OperatorOffsetInChain,
         },
@@ -87,6 +87,11 @@ pub struct OpOutput {
     pub field_references: SmallVec<[OpOutputIdx; 4]>,
 }
 
+// counts the number of different fields that an operator accesses *directly*
+// (directly meaning not through following field references)
+// it is mainly used by the can_consume_nth_access method where the operator
+// can check after liveness analysis whether he can steal the data from the
+// field that he accessed nth (usually first == 0) during liveness analysis
 type DirectOperatorAccessIndex = u32;
 
 #[derive(Clone)]
@@ -124,6 +129,23 @@ pub struct AccessFlags {
     pub may_dup_or_drop: bool,
 }
 
+impl AccessFlags {
+    pub fn or(&self, other: &Self) -> Self {
+        Self {
+            input_accessed: self.input_accessed | other.input_accessed,
+            non_stringified_input_access: self.non_stringified_input_access
+                | other.non_stringified_input_access,
+            may_dup_or_drop: self.may_dup_or_drop | other.may_dup_or_drop,
+        }
+    }
+}
+
+enum OperatorCallEffect {
+    Basic,   // normal operators
+    NoCall,  // 'meta' operators like key or select
+    Diverge, // diverging operators like call
+}
+
 impl Var {
     pub fn try_get_name(&self) -> Option<StringStoreEntry> {
         match self {
@@ -142,52 +164,63 @@ impl Var {
 }
 
 impl LivenessData {
+    fn op_output_count(&self, sess: &Session, op_id: OperatorId) -> usize {
+        let op_base = &sess.operator_bases[op_id as usize];
+        match &sess.operator_data[op_id as usize] {
+            OperatorData::Call(_) => 1,
+            OperatorData::CallConcurrent(_) => 1,
+            OperatorData::Cast(_) => 1,
+            OperatorData::Count(_) => 1,
+            OperatorData::Print(_) => 1,
+            OperatorData::Join(_) => 1,
+            OperatorData::Fork(_) => 0,
+            OperatorData::Nop(_) => 0,
+            // technically this has output, but it always introduces a
+            // separate BB so we don't want to allocate slots for that
+            OperatorData::ForkCat(_) => 0,
+            OperatorData::Next(_) => 0,
+            OperatorData::Up(_) => 0,
+            OperatorData::Key(_) => 1,
+            OperatorData::Select(_) => 0,
+            OperatorData::Regex(re) => {
+                re.capture_group_names
+                    .iter()
+                    .map(|n| n.map(|_| 1).unwrap_or(0))
+                    .sum::<usize>()
+                    + 1
+            }
+            OperatorData::Format(_) => 1,
+            OperatorData::StringSink(_) => 1,
+            OperatorData::FieldValueSink(_) => 1,
+            OperatorData::FileReader(_) => 1,
+            OperatorData::Literal(_) => 1,
+            OperatorData::Sequence(_) => 1,
+            OperatorData::Aggregator(agg) => {
+                let mut op_count = 1;
+                //TODO: do this properly, merging field names etc.
+                for &sub_op in &agg.sub_ops {
+                    op_count +=
+                        self.op_output_count(sess, sub_op).saturating_sub(1);
+                }
+                op_count
+            }
+            OperatorData::Explode(op) => op.output_count(op_base),
+            OperatorData::Custom(op) => op.output_count(op_base),
+        }
+    }
+
     pub fn setup_operator_outputs(&mut self, sess: &mut Session) {
         self.operator_liveness_data.extend(
             iter::repeat(Default::default()).take(sess.operator_data.len()),
         );
         let mut total_outputs_count = self.vars.len();
         for op_id in 0..sess.operator_data.len() {
-            let op_base = &mut sess.operator_bases[op_id];
+            let op_output_count =
+                self.op_output_count(sess, op_id as OperatorId);
 
+            let op_base = &mut sess.operator_bases[op_id];
             op_base.outputs_start = total_outputs_count as OpOutputIdx;
-            let app = if op_base.append_mode { 0 } else { 1 };
-            let mut outputs_count = match &sess.operator_data[op_id] {
-                OperatorData::Call(_) => 1,
-                OperatorData::CallConcurrent(_) => 1,
-                OperatorData::Cast(_) => 1,
-                OperatorData::Count(_) => 1,
-                OperatorData::Print(_) => 1,
-                OperatorData::Join(_) => 1,
-                OperatorData::Fork(_) => 0,
-                OperatorData::Nop(_) => 0,
-                // technically this has output, but it always introduces a
-                // separate BB so we don't want to allocate slots for that
-                OperatorData::ForkCat(_) => 0,
-                OperatorData::Next(_) => 0,
-                OperatorData::Up(_) => 0,
-                OperatorData::Key(_) => 1,
-                OperatorData::Select(_) => 0,
-                OperatorData::Regex(re) => {
-                    app + re
-                        .capture_group_names
-                        .iter()
-                        .map(|n| n.map(|_| 1).unwrap_or(0))
-                        .sum::<usize>()
-                }
-                OperatorData::Format(_) => 1,
-                OperatorData::StringSink(_) => 1,
-                OperatorData::FieldValueSink(_) => 1,
-                OperatorData::FileReader(_) => 1,
-                OperatorData::Literal(_) => 1,
-                OperatorData::Sequence(_) => 1,
-                OperatorData::Explode(op) => op.output_count(op_base),
-                OperatorData::Custom(op) => op.output_count(op_base),
-            };
-            if op_base.append_mode {
-                outputs_count = outputs_count.saturating_sub(1)
-            };
-            total_outputs_count += outputs_count;
+            total_outputs_count += op_output_count;
             op_base.outputs_end = total_outputs_count as OpOutputIdx;
         }
         self.op_outputs.extend(
@@ -213,52 +246,60 @@ impl LivenessData {
             self.add_var_name(name);
         }
     }
+    pub fn setup_op_vars(&mut self, sess: &Session, op_id: OperatorId) {
+        self.add_var_name_opt(sess.operator_bases[op_id as usize].label);
+        match &sess.operator_data[op_id as usize] {
+            OperatorData::Regex(re) => {
+                for n in &re.capture_group_names {
+                    self.add_var_name_opt(*n);
+                }
+            }
+            OperatorData::Key(k) => {
+                self.add_var_name(k.key_interned.unwrap());
+            }
+            OperatorData::Call(_) => (),
+            OperatorData::CallConcurrent(_) => (),
+            OperatorData::Cast(_) => (),
+            OperatorData::Count(_) => (),
+            OperatorData::Print(_) => (),
+            OperatorData::Join(_) => (),
+            OperatorData::Fork(_) => (),
+            OperatorData::ForkCat(_) => (),
+            OperatorData::Next(_) => (),
+            OperatorData::Up(_) => (),
+            OperatorData::Nop(_) => (),
+            OperatorData::Select(s) => {
+                self.add_var_name(s.key_interned.unwrap());
+            }
+            OperatorData::Format(fmt) => {
+                for r in &fmt.refs_idx {
+                    self.add_var_name_opt(*r);
+                }
+            }
+            OperatorData::StringSink(_) => (),
+            OperatorData::FieldValueSink(_) => (),
+            OperatorData::FileReader(_) => (),
+            OperatorData::Literal(_) => (),
+            OperatorData::Sequence(_) => (),
+            OperatorData::Aggregator(agg) => {
+                for &sub_op in &agg.sub_ops {
+                    self.setup_op_vars(sess, sub_op);
+                }
+            }
+            OperatorData::Explode(op) => {
+                op.register_output_var_names(self, sess)
+            }
+            OperatorData::Custom(op) => {
+                op.register_output_var_names(self, sess)
+            }
+        }
+    }
     pub fn setup_vars(&mut self, sess: &Session) {
         self.vars.push(Var::UnreachableDummyVar);
         self.vars.push(Var::BBInput);
         for c in &sess.chains {
-            for op in &c.operators {
-                self.add_var_name_opt(sess.operator_bases[*op as usize].label);
-                match &sess.operator_data[*op as usize] {
-                    OperatorData::Regex(re) => {
-                        for n in &re.capture_group_names {
-                            self.add_var_name_opt(*n);
-                        }
-                    }
-                    OperatorData::Key(k) => {
-                        self.add_var_name(k.key_interned.unwrap());
-                    }
-                    OperatorData::Call(_) => (),
-                    OperatorData::CallConcurrent(_) => (),
-                    OperatorData::Cast(_) => (),
-                    OperatorData::Count(_) => (),
-                    OperatorData::Print(_) => (),
-                    OperatorData::Join(_) => (),
-                    OperatorData::Fork(_) => (),
-                    OperatorData::ForkCat(_) => (),
-                    OperatorData::Next(_) => (),
-                    OperatorData::Up(_) => (),
-                    OperatorData::Nop(_) => (),
-                    OperatorData::Select(s) => {
-                        self.add_var_name(s.key_interned.unwrap());
-                    }
-                    OperatorData::Format(fmt) => {
-                        for r in &fmt.refs_idx {
-                            self.add_var_name_opt(*r);
-                        }
-                    }
-                    OperatorData::StringSink(_) => (),
-                    OperatorData::FieldValueSink(_) => (),
-                    OperatorData::FileReader(_) => (),
-                    OperatorData::Literal(_) => (),
-                    OperatorData::Sequence(_) => (),
-                    OperatorData::Explode(op) => {
-                        op.register_output_var_names(self, sess)
-                    }
-                    OperatorData::Custom(op) => {
-                        op.register_output_var_names(self, sess)
-                    }
-                }
+            for &op_id in &c.operators {
+                self.setup_op_vars(sess, op_id);
             }
         }
     }
@@ -289,6 +330,76 @@ impl LivenessData {
             self.updates_required.push(bb_id);
         }
     }
+    // returns true if the op ends the block
+    fn update_bb_for_op(
+        &mut self,
+        sess: &Session,
+        op_id: OperatorId,
+        op_n: OperatorOffsetInChain,
+        cn: &Chain,
+        bb_id: BasicBlockId,
+    ) -> bool {
+        let bb = &mut self.basic_blocks[bb_id];
+        match &sess.operator_data[op_id as usize] {
+            OperatorData::CallConcurrent(OpCallConcurrent {
+                target_resolved,
+                ..
+            })
+            | OperatorData::Call(OpCall {
+                target_resolved, ..
+            }) => {
+                bb.calls.push(target_resolved.unwrap() as BasicBlockId);
+                self.split_bb_at_call(bb_id, op_n);
+                return true;
+            }
+            OperatorData::Fork(OpFork {
+                subchains_start,
+                subchains_end,
+                ..
+            }) => {
+                for sc in &cn.subchains
+                    [*subchains_start as usize..*subchains_end as usize]
+                {
+                    bb.successors.push(*sc as BasicBlockId);
+                }
+                return true;
+            }
+            OperatorData::ForkCat(OpForkCat {
+                subchains_start,
+                subchains_end,
+                ..
+            }) => {
+                for sc in &cn.subchains
+                    [*subchains_start as usize..*subchains_end as usize]
+                {
+                    bb.calls.push(*sc as BasicBlockId);
+                }
+                self.split_bb_at_call(bb_id, op_n);
+                return true;
+            }
+            OperatorData::Cast(_) => (),
+            OperatorData::Nop(_) => (),
+            OperatorData::Count(_) => (),
+            OperatorData::Print(_) => (),
+            OperatorData::Join(_) => (),
+            OperatorData::Next(_) => unreachable!(),
+            OperatorData::Up(_) => unreachable!(),
+            OperatorData::Key(_) => {}
+            OperatorData::Select(_) => {}
+            OperatorData::Regex(_) => {}
+            OperatorData::Format(_) => (),
+            OperatorData::StringSink(_) => (),
+            OperatorData::FieldValueSink(_) => (),
+            OperatorData::FileReader(_) => (),
+            OperatorData::Literal(_) => (),
+            OperatorData::Sequence(_) => (),
+            OperatorData::Explode(_) => (),
+            // TODO: maybe support this
+            OperatorData::Custom(_) => (),
+            OperatorData::Aggregator(_) => todo!(),
+        };
+        return false;
+    }
     fn setup_bbs(&mut self, sess: &Session) {
         let var_count = self.vars.len();
         let bits_per_bb = var_count * SLOTS_PER_BASIC_BLOCK;
@@ -306,73 +417,17 @@ impl LivenessData {
             });
         }
         self.updates_required.extend(0..sess.chains.len());
-        while let Some(i) = self.updates_required.pop() {
-            let bb = &mut self.basic_blocks[i];
+        while let Some(bb_id) = self.updates_required.pop() {
+            let bb = &mut self.basic_blocks[bb_id];
             let cn = &sess.chains[bb.chain_id as usize];
-            for (op_n, op) in cn.operators
+            for (op_n, &op) in cn.operators
                 [bb.operators_start as usize..bb.operators_end as usize]
                 .iter()
                 .enumerate()
             {
                 let op_n = op_n as OperatorOffsetInChain;
-                let op_id = *op as usize;
-                match &sess.operator_data[op_id] {
-                    OperatorData::CallConcurrent(OpCallConcurrent {
-                        target_resolved,
-                        ..
-                    })
-                    | OperatorData::Call(OpCall {
-                        target_resolved, ..
-                    }) => {
-                        bb.calls
-                            .push(target_resolved.unwrap() as BasicBlockId);
-                        self.split_bb_at_call(i, op_n);
-                        break;
-                    }
-                    OperatorData::Fork(OpFork {
-                        subchains_start,
-                        subchains_end,
-                        ..
-                    }) => {
-                        for sc in &cn.subchains[*subchains_start as usize
-                            ..*subchains_end as usize]
-                        {
-                            bb.successors.push(*sc as BasicBlockId);
-                        }
-                        break;
-                    }
-                    OperatorData::ForkCat(OpForkCat {
-                        subchains_start,
-                        subchains_end,
-                        ..
-                    }) => {
-                        for sc in &cn.subchains[*subchains_start as usize
-                            ..*subchains_end as usize]
-                        {
-                            bb.calls.push(*sc as BasicBlockId);
-                        }
-                        self.split_bb_at_call(i, op_n);
-                        break;
-                    }
-                    OperatorData::Cast(_) => (),
-                    OperatorData::Nop(_) => (),
-                    OperatorData::Count(_) => (),
-                    OperatorData::Print(_) => (),
-                    OperatorData::Join(_) => (),
-                    OperatorData::Next(_) => unreachable!(),
-                    OperatorData::Up(_) => unreachable!(),
-                    OperatorData::Key(_) => {}
-                    OperatorData::Select(_) => {}
-                    OperatorData::Regex(_) => {}
-                    OperatorData::Format(_) => (),
-                    OperatorData::StringSink(_) => (),
-                    OperatorData::FieldValueSink(_) => (),
-                    OperatorData::FileReader(_) => (),
-                    OperatorData::Literal(_) => (),
-                    OperatorData::Sequence(_) => (),
-                    OperatorData::Explode(_) => (),
-                    // TODO: maybe support this
-                    OperatorData::Custom(_) => (),
+                if self.update_bb_for_op(sess, op, op_n, cn, bb_id) {
+                    break;
                 }
             }
         }
@@ -395,7 +450,7 @@ impl LivenessData {
             }
         }
     }
-    fn access_field(
+    pub fn access_field(
         &mut self,
         op_id: OperatorId,
         op_output_idx: OpOutputIdx,
@@ -410,13 +465,13 @@ impl LivenessData {
         }
         let oo_idx = op_output_idx as usize;
         let ooc = self.op_outputs.len();
-        let old = &mut self.operator_liveness_data[op_id as usize];
-        match old.accessed_outputs.entry(op_output_idx) {
+        let op_ld = &mut self.operator_liveness_data[op_id as usize];
+        match op_ld.accessed_outputs.entry(op_output_idx) {
             Entry::Occupied(mut e) => {
                 let acc = e.get_mut();
                 if direct_access && !acc.direct_access {
                     acc.direct_access = true;
-                    acc.direct_access_index = old.direct_access_count;
+                    acc.direct_access_index = op_ld.direct_access_count;
                 }
                 acc.header_write |= header_write;
                 acc.non_stringified |= non_stringified;
@@ -426,11 +481,12 @@ impl LivenessData {
                     header_write,
                     non_stringified,
                     direct_access,
-                    direct_access_index: old.direct_access_count,
+                    direct_access_index: op_ld.direct_access_count,
                 });
             }
         }
-        old.direct_access_count += direct_access as DirectOperatorAccessIndex;
+        op_ld.direct_access_count +=
+            direct_access as DirectOperatorAccessIndex;
         self.op_outputs_data
             .set_aliased(READS_OFFSET * ooc + oo_idx, true);
         if non_stringified {
@@ -479,6 +535,147 @@ impl LivenessData {
             self.op_outputs_data[tgt_idx] || self.op_outputs_data[src_idx],
         );
     }
+    fn update_liveness_for_op(
+        &mut self,
+        sess: &Session,
+        flags: &mut AccessFlags,
+        any_writes_so_far: bool,
+        op_id: OperatorId,
+        bb_id: BasicBlockId,
+        input_field: OpOutputIdx,
+    ) -> (OpOutputIdx, OperatorCallEffect) {
+        let op_idx = op_id as usize;
+        let op_base = &sess.operator_bases[op_idx];
+        let output_field = sess.operator_bases[op_idx].outputs_start;
+        match &sess.operator_data[op_idx] {
+            OperatorData::Fork(_) | OperatorData::ForkCat(_) => {
+                return (output_field, OperatorCallEffect::Diverge);
+            }
+            OperatorData::Call(_) | OperatorData::CallConcurrent(_) => {
+                debug_assert!(!op_base.append_mode);
+                return (output_field, OperatorCallEffect::Diverge);
+            }
+            OperatorData::Key(key) => {
+                let var_id = self.var_names[&key.key_interned.unwrap()];
+                debug_assert!(!op_base.append_mode);
+                self.vars_to_op_outputs_map[var_id as usize] = output_field;
+                self.op_outputs[output_field as usize]
+                    .field_references
+                    .push(input_field);
+                if let Some(prev_tgt) =
+                    self.key_aliases_map.insert(var_id, input_field)
+                {
+                    self.apply_var_remapping(var_id, prev_tgt);
+                }
+                return (input_field, OperatorCallEffect::NoCall);
+            }
+            OperatorData::Select(select) => {
+                let mut var = self.var_names[&select.key_interned.unwrap()];
+                // resolve rebinds
+                loop {
+                    let field = self.vars_to_op_outputs_map[var as usize];
+                    if field >= self.vars.len() as OpOutputIdx {
+                        break;
+                    }
+                    // var points to itself
+                    if field == var {
+                        break;
+                    }
+                    // OpOutput indices below vars.len() are the vars
+                    var = field as VarId;
+                }
+                return (var, OperatorCallEffect::NoCall);
+            }
+            OperatorData::Regex(re) => {
+                flags.may_dup_or_drop =
+                    !re.opts.non_mandatory || re.opts.multimatch;
+                flags.non_stringified_input_access = false;
+                for i in 0..re.capture_group_names.len() {
+                    self.op_outputs[sess.operator_bases[op_idx].outputs_start
+                        as usize
+                        + i]
+                        .field_references
+                        .push(input_field);
+                }
+
+                for (cgi, cgn) in re.capture_group_names.iter().enumerate() {
+                    if let Some(name) = cgn {
+                        let tgt_var_name = self.var_names[name];
+                        self.vars_to_op_outputs_map[tgt_var_name as usize] =
+                            sess.operator_bases[op_idx].outputs_start
+                                + cgi as OpOutputIdx;
+                    }
+                }
+            }
+            OperatorData::Format(fmt) => {
+                update_op_format_variable_liveness(
+                    fmt,
+                    self,
+                    op_id,
+                    flags,
+                    any_writes_so_far,
+                );
+            }
+            OperatorData::FileReader(_) => {
+                // this only inserts if input is done, so no write flag
+                // neccessary
+                flags.input_accessed = false;
+                flags.non_stringified_input_access = false;
+            }
+            OperatorData::Literal(di) => {
+                flags.may_dup_or_drop = di.insert_count.is_some();
+                flags.input_accessed = false;
+                flags.non_stringified_input_access = false;
+            }
+            OperatorData::Join(_) => {}
+            OperatorData::Sequence(seq) => {
+                flags.input_accessed = false;
+                flags.may_dup_or_drop = !seq.stop_after_input;
+                flags.non_stringified_input_access = false;
+            }
+            OperatorData::Count(_) => {
+                flags.input_accessed = false;
+                flags.non_stringified_input_access = false;
+            }
+            OperatorData::Nop(_)
+            | OperatorData::StringSink(_)
+            | OperatorData::Print(_) => {
+                flags.may_dup_or_drop = false;
+                flags.non_stringified_input_access = false;
+            }
+            OperatorData::FieldValueSink(_) | OperatorData::Cast(_) => {
+                flags.may_dup_or_drop = false;
+            }
+            OperatorData::Next(_) => unreachable!(),
+            OperatorData::Up(_) => unreachable!(),
+            OperatorData::Explode(op) => {
+                op.update_variable_liveness(self, bb_id, flags)
+            }
+            OperatorData::Custom(op) => {
+                op.update_variable_liveness(self, bb_id, flags)
+            }
+            OperatorData::Aggregator(op) => {
+                for &sub_op in &op.sub_ops {
+                    let mut sub_op_flags = AccessFlags {
+                        input_accessed: true,
+                        non_stringified_input_access: true,
+                        may_dup_or_drop: true,
+                    };
+                    self.update_liveness_for_op(
+                        sess,
+                        &mut sub_op_flags,
+                        any_writes_so_far,
+                        sub_op,
+                        bb_id,
+                        input_field,
+                    );
+                    *flags = flags.or(&sub_op_flags);
+                }
+                self.append_to_field(output_field);
+            }
+        }
+        (output_field, OperatorCallEffect::Basic)
+    }
     fn compute_local_liveness_for_bb(
         &mut self,
         sess: &Session,
@@ -489,205 +686,40 @@ impl LivenessData {
         let mut bb = &mut self.basic_blocks[bb_id];
         let cn = &sess.chains[bb.chain_id as usize];
         let mut input_field = BB_INPUT_VAR_OUTPUT_IDX;
-        let mut last_output_field = input_field;
         let mut any_writes_so_far = false;
         for op_n in bb.operators_start..bb.operators_end {
-            bb = &mut self.basic_blocks[bb_id]; // reborrow for lifetime
             let op_id = cn.operators[op_n as usize];
             let op_idx = op_id as usize;
             let op_base = &sess.operator_bases[op_idx];
-            let output_field = if op_base.append_mode {
-                last_output_field
-            } else {
-                sess.operator_bases[op_idx].outputs_start
-            };
-            let used_input_field = if op_base.append_mode
-                && last_output_field == BB_INPUT_VAR_OUTPUT_IDX
-            {
-                DUMMY_FIELD_OUTPUT_IDX
-            } else {
-                input_field
-            };
             let mut flags = AccessFlags {
                 input_accessed: true,
                 non_stringified_input_access: true,
                 may_dup_or_drop: true,
             };
-            match &sess.operator_data[op_idx] {
-                OperatorData::Fork(_) | OperatorData::ForkCat(_) => {
-                    debug_assert!(op_n + 1 == bb.operators_end);
-                    break;
-                }
-                OperatorData::Call(_) | OperatorData::CallConcurrent(_) => {
-                    debug_assert!(!op_base.append_mode);
-                    debug_assert!(op_n + 1 == bb.operators_end);
-                    break;
-                }
-                OperatorData::Key(key) => {
-                    let var_id = self.var_names[&key.key_interned.unwrap()];
-                    debug_assert!(!op_base.append_mode);
-                    self.vars_to_op_outputs_map[var_id as usize] =
-                        output_field;
-                    self.op_outputs[output_field as usize]
-                        .field_references
-                        .push(input_field);
-                    if let Some(prev_tgt) =
-                        self.key_aliases_map.insert(var_id, input_field)
-                    {
-                        self.apply_var_remapping(var_id, prev_tgt);
-                    }
+            let (output_field, ce) = self.update_liveness_for_op(
+                sess,
+                &mut flags,
+                any_writes_so_far,
+                op_id,
+                bb_id,
+                input_field,
+            );
+            match ce {
+                OperatorCallEffect::Basic => (),
+                OperatorCallEffect::NoCall => {
+                    input_field = output_field;
                     continue;
                 }
-                OperatorData::Select(select) => {
-                    let mut var =
-                        self.var_names[&select.key_interned.unwrap()];
-                    // resolve rebinds
-                    loop {
-                        input_field =
-                            self.vars_to_op_outputs_map[var as usize];
-                        if input_field >= self.vars.len() as OpOutputIdx {
-                            break;
-                        }
-                        // var points to itself
-                        if input_field == var {
-                            break;
-                        }
-                        // OpOutput indices below vars.len() are the vars
-                        var = input_field as VarId;
-                    }
-                    last_output_field = var;
-                    continue;
-                }
-                OperatorData::Regex(re) => {
-                    flags.may_dup_or_drop =
-                        !re.opts.non_mandatory || re.opts.multimatch;
-                    flags.non_stringified_input_access = false;
-                    for i in 0..re.capture_group_names.len() {
-                        self.op_outputs[sess.operator_bases[op_idx]
-                            .outputs_start
-                            as usize
-                            + i]
-                            .field_references
-                            .push(used_input_field);
-                    }
-
-                    for (cgi, cgn) in re.capture_group_names.iter().enumerate()
-                    {
-                        if let Some(name) = cgn {
-                            let tgt_var_name = self.var_names[name];
-                            self.vars_to_op_outputs_map
-                                [tgt_var_name as usize] =
-                                sess.operator_bases[op_idx].outputs_start
-                                    + cgi as OpOutputIdx;
-                        }
-                    }
-                }
-                OperatorData::Format(fmt) => {
-                    flags.may_dup_or_drop = false;
-                    // might be set to true again in the loop below
-                    flags.non_stringified_input_access = false;
-                    flags.input_accessed = false;
-                    for p in &fmt.parts {
-                        match p {
-                            FormatPart::ByteLiteral(_) => (),
-                            FormatPart::TextLiteral(_) => (),
-                            FormatPart::Key(fk) => {
-                                let non_stringified =
-                                    fk.min_char_count.is_some()
-                                        || fk.opts.add_plus_sign
-                                        || fk.opts.number_format
-                                            != NumberFormat::Default
-                                        || fk.opts.zero_pad_numbers
-                                        || fk.opts.type_repr
-                                            != TypeReprFormat::Regular;
-                                if let Some(name) =
-                                    fmt.refs_idx[fk.ref_idx as usize]
-                                {
-                                    self.access_field(
-                                        op_id,
-                                        self.var_names[&name],
-                                        any_writes_so_far,
-                                        non_stringified,
-                                        true,
-                                    );
-                                } else {
-                                    flags.input_accessed = true;
-                                    flags.non_stringified_input_access =
-                                        non_stringified;
-                                }
-                                if let Some(FormatWidthSpec::Ref(ws_ref)) =
-                                    fk.min_char_count
-                                {
-                                    if let Some(name) =
-                                        fmt.refs_idx[ws_ref as usize]
-                                    {
-                                        self.access_field(
-                                            op_id,
-                                            self.var_names[&name],
-                                            any_writes_so_far,
-                                            true,
-                                            true,
-                                        );
-                                    } else {
-                                        flags.input_accessed = true;
-                                        flags.non_stringified_input_access =
-                                            true;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                OperatorData::FileReader(_) => {
-                    // this only inserts if input is done, so no write flag
-                    // neccessary
-                    flags.input_accessed = false;
-                    flags.non_stringified_input_access = false;
-                }
-                OperatorData::Literal(di) => {
-                    flags.may_dup_or_drop = di.insert_count.is_some();
-                    flags.input_accessed = false;
-                    flags.non_stringified_input_access = false;
-                }
-                OperatorData::Join(_) => {}
-                OperatorData::Sequence(seq) => {
-                    flags.input_accessed = false;
-                    flags.may_dup_or_drop = !seq.stop_after_input;
-                    flags.non_stringified_input_access = false;
-                }
-                OperatorData::Count(_) => {
-                    flags.input_accessed = false;
-                    flags.non_stringified_input_access = false;
-                }
-                OperatorData::Nop(_)
-                | OperatorData::StringSink(_)
-                | OperatorData::Print(_) => {
-                    flags.may_dup_or_drop = false;
-                    flags.non_stringified_input_access = false;
-                }
-                OperatorData::FieldValueSink(_) | OperatorData::Cast(_) => {
-                    flags.may_dup_or_drop = false;
-                }
-                OperatorData::Next(_) => unreachable!(),
-                OperatorData::Up(_) => unreachable!(),
-                OperatorData::Explode(op) => {
-                    op.update_variable_liveness(self, bb_id, op_n, &mut flags)
-                }
-                OperatorData::Custom(op) => {
-                    op.update_variable_liveness(self, bb_id, op_n, &mut flags)
-                }
+                OperatorCallEffect::Diverge => break,
             }
             if flags.input_accessed {
                 self.access_field(
                     op_id,
-                    used_input_field,
+                    input_field,
                     any_writes_so_far,
                     flags.non_stringified_input_access,
                     true,
                 );
-            }
-            if op_base.append_mode {
-                self.append_to_field(output_field);
             }
             if let Some(label) = sess.operator_bases[op_idx].label {
                 let var_id = self.var_names[&label];
@@ -696,8 +728,7 @@ impl LivenessData {
             }
 
             any_writes_so_far |= flags.may_dup_or_drop;
-            last_output_field = output_field;
-            if !op_base.append_mode && !op_base.transparent_mode {
+            if !op_base.transparent_mode {
                 input_field = output_field;
                 self.vars_to_op_outputs_map[BB_INPUT_VAR as usize] =
                     sess.operator_bases[op_idx].outputs_start;

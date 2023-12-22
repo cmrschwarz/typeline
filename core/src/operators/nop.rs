@@ -8,6 +8,7 @@ use super::{
     transform::{TransformData, TransformId, TransformState},
 };
 
+//TODO: get rid of manual unlink once we have the aggregator
 #[derive(Clone, Default)]
 pub struct OpNop {
     pub manual_unlink: bool,

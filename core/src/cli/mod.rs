@@ -2,6 +2,7 @@ use crate::{
     chain::BufferingMode,
     extension::ExtensionRegistry,
     operators::{
+        aggregator::OpAggregator,
         call::parse_op_call,
         call_concurrent::parse_op_call_concurrent,
         cast::{argument_matches_op_cast, parse_op_cast},
@@ -18,7 +19,7 @@ use crate::{
         literal::{argument_matches_op_literal, parse_op_literal},
         next::parse_op_next,
         nop::parse_op_nop,
-        operator::OperatorData,
+        operator::{OperatorData, OperatorId},
         print::parse_op_print,
         regex::{parse_op_regex, try_match_regex_cli_argument},
         select::parse_op_select,
@@ -99,7 +100,7 @@ pub struct CliArgument<'a> {
 }
 
 #[derive(Clone)]
-pub struct ParsedCliArgument<'a> {
+pub struct ParsedCliArgumentParts<'a> {
     pub argname: &'a str,
     pub value: Option<&'a [u8]>,
     pub label: Option<&'a str>,
@@ -142,7 +143,7 @@ pub fn reject_operator_argument(
     Ok(())
 }
 
-impl ParsedCliArgument<'_> {
+impl ParsedCliArgumentParts<'_> {
     pub fn reject_value(&self) -> Result<(), OperatorCreationError> {
         reject_operator_argument(
             self.argname,
@@ -214,8 +215,7 @@ fn print_version(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 
 fn try_parse_as_context_opt(
     ctx_opts: &mut SessionOptions,
-    arg: &ParsedCliArgument,
-    allow_repl: bool,
+    arg: &ParsedCliArgumentParts,
 ) -> Result<bool, ScrError> {
     let mut matched = false;
     let arg_idx = Some(arg.cli_arg.idx);
@@ -271,7 +271,7 @@ fn try_parse_as_context_opt(
     if arg.argname == "repl" {
         let enabled =
             try_parse_bool_arg_or_default(arg.value, true, arg.cli_arg.idx)?;
-        if !allow_repl && enabled {
+        if !ctx_opts.allow_repl && enabled {
             return Err(ReplDisabledError {
                 cli_arg_idx: Some(arg.cli_arg.idx),
                 message: "REPL mode is not allowed",
@@ -282,7 +282,7 @@ fn try_parse_as_context_opt(
         matched = true
     }
     if arg.argname == "exit" {
-        if !allow_repl {
+        if !ctx_opts.allow_repl {
             return Err(ReplDisabledError {
                 cli_arg_idx: Some(arg.cli_arg.idx),
                 message: "exit cannot be requested outside of repl mode",
@@ -306,7 +306,7 @@ fn try_parse_as_context_opt(
 
 fn try_parse_as_chain_opt(
     ctx_opts: &mut SessionOptions,
-    arg: &ParsedCliArgument,
+    arg: &ParsedCliArgumentParts,
 ) -> Result<bool, ScrError> {
     let chain = &mut ctx_opts.chains[ctx_opts.curr_chain as usize];
     let arg_idx = Some(arg.cli_arg.idx);
@@ -440,10 +440,11 @@ fn try_parse_as_chain_opt(
     Ok(true)
 }
 
-fn parse_operation(
+fn try_parse_operator_data(
     ctx_opts: &mut SessionOptions,
-    arg: &ParsedCliArgument,
+    arg: &ParsedCliArgumentParts,
     args: &[Vec<u8>],
+    next_arg_idx: &mut usize,
 ) -> Result<Option<OperatorData>, OperatorCreationError> {
     let idx = Some(arg.cli_arg.idx);
     if let Some(opts) = try_match_regex_cli_argument(arg.argname, idx)? {
@@ -490,45 +491,109 @@ fn parse_operation(
         return Ok(Some(op));
     }
     for e in &ctx_opts.extensions.extensions {
-        if let Some(op) = e.try_match_cli_argument(ctx_opts, arg, args)? {
+        if let Some(op) =
+            e.try_match_cli_argument(ctx_opts, arg, args, next_arg_idx)?
+        {
             return Ok(Some(op));
         }
     }
     Ok(None)
 }
-
-fn try_parse_as_operation(
+pub fn add_op_from_arg_and_op_data(
     ctx_opts: &mut SessionOptions,
-    arg: &ParsedCliArgument,
-    args: &[Vec<u8>],
-) -> Result<bool, CliArgumentError> {
-    let op_data = parse_operation(ctx_opts, arg, args).map_err(|oce| {
-        CliArgumentError {
-            message: oce.message,
-            cli_arg_idx: arg.cli_arg.idx,
-        }
-    })?;
-    if let Some(op_data) = op_data {
-        let argname = ctx_opts.string_store.intern_cloned(arg.argname);
-        let label = arg.label.map(|l| ctx_opts.string_store.intern_cloned(l));
-        ctx_opts.add_op(
-            OperatorBaseOptions::new(
-                argname,
-                label,
-                arg.append_mode,
-                arg.transparent_mode,
-                Some(arg.cli_arg.idx),
-            ),
-            op_data,
+    arg: &ParsedCliArgumentParts,
+    op_data: OperatorData,
+) -> OperatorId {
+    let argname = ctx_opts.string_store.intern_cloned(arg.argname);
+    let label = arg.label.map(|l| ctx_opts.string_store.intern_cloned(l));
+    ctx_opts.add_op(
+        OperatorBaseOptions::new(
+            argname,
+            label,
+            arg.append_mode,
+            arg.transparent_mode,
+            Some(arg.cli_arg.idx),
+        ),
+        op_data,
+    )
+}
+pub fn parse_cli_argument_parts<'a>(
+    arg: CliArgument<'a>,
+) -> Result<ParsedCliArgumentParts<'a>, CliArgumentError> {
+    let Some(arg_match) = CLI_ARG_REGEX.captures(&arg.value) else {
+        return Err(
+            CliArgumentError::new("invalid argument syntax", arg.idx).into()
         );
-        Ok(true)
-    } else {
-        Ok(false)
+    };
+    let argname = from_utf8(arg_match.name("argname").unwrap().as_bytes())
+        .map_err(|_| {
+            CliArgumentError::new("argument name must be valid UTF-8", arg.idx)
+        })?;
+    if let Some(modes) = arg_match.name("modes") {
+        let modes_str = modes.as_bytes();
+        if modes_str.len() >= 2
+            || (modes_str.len() == 2 && modes_str[0] == modes_str[1])
+        {
+            return Err(CliArgumentError::new(
+                "operator modes cannot be specified twice",
+                arg.idx,
+            )
+            .into());
+        }
     }
+    let label = if let Some(lbl) = arg_match.name("label") {
+        Some(from_utf8(lbl.as_bytes()).map_err(|_| {
+            CliArgumentError::new("label must be valid UTF-8", arg.idx)
+        })?)
+    } else {
+        None
+    };
+    Ok(ParsedCliArgumentParts {
+        argname,
+        value: arg_match.name("value").map(|v| v.as_bytes()),
+        label,
+        cli_arg: arg,
+        append_mode: arg_match.name("append_mode").is_some(),
+        transparent_mode: arg_match.name("transparent_mode").is_some(),
+    })
+}
+
+pub fn try_parse_label(ctx_opts: &mut SessionOptions, arg_str: &[u8]) -> bool {
+    if let Some(m) = LABEL_REGEX.captures(arg_str) {
+        ctx_opts.add_label(
+            m.name("label")
+                .unwrap()
+                .as_bytes()
+                .to_str()
+                .unwrap() // we know this is valid utf-8 because of the regex match
+                .to_owned(),
+        );
+        return true;
+    }
+    false
+}
+
+pub fn submit_aggregate(
+    ctx_opts: &mut SessionOptions,
+    aggregate: Vec<OperatorId>,
+    aggregate_starter_is_appending: bool,
+) -> OperatorId {
+    let op_data = OperatorData::Aggregator(OpAggregator {
+        sub_ops: aggregate,
+        aggregate_starter_is_appending,
+    });
+    let op_base = OperatorBaseOptions::new(
+        ctx_opts.string_store.intern_cloned("aggregate"),
+        None,
+        false,
+        false,
+        None,
+    );
+    ctx_opts.add_op(op_base, op_data)
 }
 
 pub fn parse_cli_retain_args(
-    args: &Vec<Vec<u8>>,
+    args: &[Vec<u8>],
     allow_repl: bool,
     extensions: Arc<ExtensionRegistry>,
 ) -> Result<SessionOptions, ScrError> {
@@ -542,90 +607,83 @@ pub fn parse_cli_retain_args(
     }
     let mut ctx_opts = SessionOptions {
         extensions,
+        allow_repl,
         ..Default::default()
     };
-    let mut arg_idx = 0;
+    let mut arg_idx = 1; //skip executable name
+    let mut curr_aggregate = Vec::new();
+    let mut aggregate_starter_is_appending = false;
+    let mut last_non_append_op_id = None;
     while arg_idx < args.len() {
         let arg_str = &args[arg_idx];
+        arg_idx += 1;
+
         let cli_arg = CliArgument {
             idx: arg_idx as CliArgIdx + 1,
             value: arg_str,
         };
-        arg_idx += 1;
-        if let Some(m) = LABEL_REGEX.captures(arg_str) {
-            ctx_opts.add_label(
-                m.name("label")
-                    .unwrap()
-                    .as_bytes()
-                    .to_str()
-                    .unwrap() // we know this is valid utf-8 because of the regex match
-                    .to_owned(),
-            );
+
+        if try_parse_label(&mut ctx_opts, &arg_str) {
             continue;
         }
-        if let Some(m) = CLI_ARG_REGEX.captures(arg_str) {
-            let argname = from_utf8(m.name("argname").unwrap().as_bytes())
-                .map_err(|_| {
-                    CliArgumentError::new(
-                        "argument name must be valid UTF-8",
-                        cli_arg.idx,
-                    )
-                })?;
-            if let Some(modes) = m.name("modes") {
-                let modes_str = modes.as_bytes();
-                if modes_str.len() >= 2
-                    || (modes_str.len() == 2 && modes_str[0] == modes_str[1])
-                {
-                    return Err(CliArgumentError::new(
-                        "operator modes cannot be specified twice",
-                        cli_arg.idx,
-                    )
-                    .into());
-                }
-            }
-            let label = if let Some(lbl) = m.name("label") {
-                Some(from_utf8(lbl.as_bytes()).map_err(|_| {
-                    CliArgumentError::new(
-                        "label must be valid UTF-8",
-                        cli_arg.idx,
-                    )
-                })?)
-            } else {
-                None
-            };
 
-            let arg = ParsedCliArgument {
-                argname,
-                value: m.name("value").map(|v| v.as_bytes()),
-                label,
-                cli_arg,
-                append_mode: m.name("append_mode").is_some(),
-                transparent_mode: m.name("transparent_mode").is_some(),
-            };
-            if try_parse_as_context_opt(&mut ctx_opts, &arg, allow_repl)? {
-                continue;
-            }
-            if try_parse_as_chain_opt(&mut ctx_opts, &arg)? {
-                continue;
-            }
-            if !try_parse_as_operation(&mut ctx_opts, &arg, args)? {
-                return Err(CliArgumentError {
-                    message: format!("unknown operator '{}'", arg.argname)
-                        .into(),
-                    cli_arg_idx: arg.cli_arg.idx,
+        let arg = parse_cli_argument_parts(cli_arg)?;
+        if let Some(op_data) =
+            try_parse_operator_data(&mut ctx_opts, &arg, args, &mut arg_idx)?
+        {
+            let op_id =
+                add_op_from_arg_and_op_data(&mut ctx_opts, &arg, op_data);
+            if !arg.append_mode {
+                if !curr_aggregate.is_empty() {
+                    submit_aggregate(
+                        &mut ctx_opts,
+                        std::mem::take(&mut curr_aggregate),
+                        aggregate_starter_is_appending,
+                    );
                 }
-                .into());
+                if let Some(pred) = last_non_append_op_id {
+                    ctx_opts.setup_op(pred);
+                }
+                last_non_append_op_id = Some(op_id);
+                continue;
             }
-        } else {
-            return Err(CliArgumentError::new(
-                "invalid argument syntax",
-                cli_arg.idx,
-            )
-            .into());
+            if curr_aggregate.is_empty() {
+                if let Some(pred) = last_non_append_op_id {
+                    aggregate_starter_is_appending = false;
+                    curr_aggregate.push(pred);
+                    last_non_append_op_id = None;
+                } else {
+                    aggregate_starter_is_appending = true;
+                }
+            }
+            curr_aggregate.push(op_id);
         }
+
+        if try_parse_as_context_opt(&mut ctx_opts, &arg)? {
+            continue;
+        }
+        if try_parse_as_chain_opt(&mut ctx_opts, &arg)? {
+            continue;
+        }
+        return Err(CliArgumentError {
+            message: format!("unknown operator '{}'", arg.argname).into(),
+            cli_arg_idx: arg.cli_arg.idx,
+        }
+        .into());
+    }
+    if !curr_aggregate.is_empty() {
+        submit_aggregate(
+            &mut ctx_opts,
+            std::mem::take(&mut curr_aggregate),
+            aggregate_starter_is_appending,
+        );
+    }
+    if let Some(pred) = last_non_append_op_id {
+        ctx_opts.setup_op(pred);
     }
     Ok(ctx_opts)
 }
+
 pub fn parse_cli_raw(
     args: Vec<Vec<u8>>,
     allow_repl: bool,
@@ -654,14 +712,13 @@ pub fn collect_env_args() -> Result<Vec<Vec<u8>>, CliArgumentError> {
     #[cfg(unix)]
     {
         Ok(std::env::args_os()
-            .skip(1)
             .map(std::os::unix::prelude::OsStringExt::into_vec)
             .collect::<Vec<Vec<u8>>>())
     }
     #[cfg(windows)]
     {
         let args = Vec::new();
-        for (i, arg) in std::env::args_os().skip(1).enumerate() {
+        for (i, arg) in std::env::args_os().enumerate() {
             if let (Some(arg)) = arg.to_str() {
                 args.push(Vec::<u8>::from(arg));
             } else {

@@ -44,7 +44,8 @@ impl ContextBuilder {
             transparent_mode,
             None,
         );
-        self.data.opts.add_op(op_base, op_data);
+        let op_id = self.data.opts.add_op(op_base, op_data);
+        self.data.opts.setup_op(op_id); //TODO: delay slot for appending
         self
     }
     pub fn add_label(mut self, label: String) -> Self {

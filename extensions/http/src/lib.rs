@@ -4,7 +4,7 @@ pub mod url;
 
 use http::OpHttpRequest;
 use scr_core::{
-    cli::ParsedCliArgument,
+    cli::ParsedCliArgumentParts,
     extension::Extension,
     operators::{errors::OperatorCreationError, operator::OperatorData},
     options::session_options::SessionOptions,
@@ -20,8 +20,9 @@ impl Extension for HttpExtension {
     fn try_match_cli_argument(
         &self,
         _ctx_opts: &SessionOptions,
-        arg: &ParsedCliArgument,
+        arg: &ParsedCliArgumentParts,
         _args: &[Vec<u8>],
+        _next_arg_idx: &mut usize,
     ) -> Result<Option<OperatorData>, OperatorCreationError> {
         if arg.argname == "GET" || arg.argname == "http-get" {
             arg.reject_value()?;

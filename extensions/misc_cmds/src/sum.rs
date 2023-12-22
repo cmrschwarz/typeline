@@ -243,7 +243,6 @@ impl Operator for OpSum {
         &self,
         _ld: &mut LivenessData,
         _bb_id: BasicBlockId,
-        _bb_offset: u32,
         _access_flags: &mut AccessFlags,
     ) {
     }
