@@ -8,7 +8,7 @@ use bstr::ByteSlice;
 use crate::{
     chain::ChainId,
     context::{ContextData, SessionSettings, VentureDescription},
-    job_session::{JobData, JobSession},
+    job_session::{add_transform, JobData, JobSession},
     liveness_analysis::{
         LivenessData, Var, HEADER_WRITES_OFFSET, READS_OFFSET,
     },
@@ -439,8 +439,12 @@ pub fn setup_callee_concurrent(
     }
     drop(buf_data);
     let input_field = callee.target_fields[0];
-    let tf_id =
-        sess.add_transform(tf_state, TransformData::CalleeConcurrent(callee));
+    let tf_id = add_transform(
+        &mut sess.job_data,
+        &mut sess.transform_data,
+        tf_state,
+        TransformData::CalleeConcurrent(callee),
+    );
     let (_tf_start, tf_end) = sess.setup_transforms_from_op(
         ms_id,
         start_op_id,

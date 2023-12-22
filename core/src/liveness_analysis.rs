@@ -396,7 +396,11 @@ impl LivenessData {
             OperatorData::Explode(_) => (),
             // TODO: maybe support this
             OperatorData::Custom(_) => (),
-            OperatorData::Aggregator(_) => todo!(),
+            OperatorData::Aggregator(agg) => {
+                for &sub_op in &agg.sub_ops {
+                    self.update_bb_for_op(sess, sub_op, op_n, cn, bb_id);
+                }
+            }
         };
         return false;
     }

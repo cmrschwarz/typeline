@@ -20,22 +20,9 @@ pub struct OpAggregator {
 }
 
 pub struct TfAggregator {
-    pub(crate) current_sub_op: TransformId,
-    pub(crate) current_sub_op_idx: usize,
-    pub(crate) sub_ops: Vec<TransformId>,
-}
-
-pub fn build_tf_aggregator(
-    op: &OpAggregator,
-    tf_state: &TransformState,
-    prebound_outputs: &HashMap<OpOutputIdx, FieldId, BuildIdentityHasher>,
-) -> TransformData<'static> {
-    assert!(tf_state.is_transparent);
-    TransformData::Aggretagor(TfAggregator {
-        current_sub_op: todo!(),
-        current_sub_op_idx: todo!(),
-        sub_ops: todo!(),
-    })
+    pub(crate) current_sub_tf: TransformId,
+    pub(crate) current_sub_tf_idx: usize,
+    pub(crate) sub_tfs: Vec<TransformId>,
 }
 
 pub fn handle_tf_aggregator_stream_value_update(

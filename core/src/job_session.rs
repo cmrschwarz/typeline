@@ -9,8 +9,8 @@ use crate::{
     liveness_analysis::OpOutputIdx,
     operators::{
         aggregator::{
-            build_tf_aggregator, handle_tf_aggregator_stream_producer_update,
-            handle_tf_aggregator_stream_value_update,
+            handle_tf_aggregator_stream_producer_update,
+            handle_tf_aggregator_stream_value_update, TfAggregator,
         },
         call::{
             build_tf_call, handle_eager_call_expansion,
@@ -305,6 +305,22 @@ impl TransformManager {
     }
 }
 
+pub fn add_transform<'a>(
+    jd: &mut JobData,
+    tf_data: &mut Vec<TransformData<'a>>,
+    state: TransformState,
+    data: TransformData<'a>,
+) -> TransformId {
+    let id = jd.tf_mgr.transforms.claim_with_value(state);
+    if tf_data.len() < jd.tf_mgr.transforms.used_capacity() {
+        tf_data.resize_with(jd.tf_mgr.transforms.used_capacity(), || {
+            TransformData::Disabled
+        });
+    }
+    tf_data[usize::from(id)] = data;
+    id
+}
+
 impl<'a> JobData<'a> {
     pub fn new(sess: &'a Session) -> Self {
         Self {
@@ -586,11 +602,108 @@ impl<'a> JobSession<'a> {
             .field_mgr
             .inc_field_refcount(DUMMY_FIELD_ID, 2);
         let tf_data = setup_tf_terminator(&mut self.job_data, &tf_state);
-        let tf_id = self.add_transform(tf_state, tf_data);
+        let tf_id = add_transform(
+            &mut self.job_data,
+            &mut self.transform_data,
+            tf_state,
+            tf_data,
+        );
         let pred = &mut self.job_data.tf_mgr.transforms[last_tf];
         debug_assert!(pred.successor.is_none());
         pred.successor = Some(tf_id);
         tf_id
+    }
+    pub fn build_transform_data(
+        &mut self,
+        tf_state: &mut TransformState,
+        op_id: OperatorId,
+        prebound_outputs: &HashMap<OpOutputIdx, FieldId, BuildIdentityHasher>,
+    ) -> TransformData<'a> {
+        let jd = &mut self.job_data;
+        let op_base = &jd.session_data.operator_bases[op_id as usize];
+        let op_data = &jd.session_data.operator_data[op_id as usize];
+        match op_data {
+            OperatorData::Nop(op) => build_tf_nop(op, tf_state),
+            OperatorData::Cast(op) => build_tf_cast(jd, op_base, op, tf_state),
+            OperatorData::Count(op) => {
+                build_tf_count(jd, op_base, op, tf_state)
+            }
+            OperatorData::Fork(op) => build_tf_fork(jd, op_base, op, tf_state),
+            OperatorData::ForkCat(op) => {
+                build_tf_forkcat(jd, op_base, op, tf_state)
+            }
+            OperatorData::Print(op) => {
+                build_tf_print(jd, op_base, op, tf_state)
+            }
+            OperatorData::Join(op) => build_tf_join(jd, op_base, op, tf_state),
+            OperatorData::Regex(op) => {
+                build_tf_regex(jd, op_base, op, tf_state, prebound_outputs)
+            }
+            OperatorData::Format(op) => {
+                build_tf_format(jd, op_base, op, tf_state)
+            }
+            OperatorData::StringSink(op) => {
+                build_tf_string_sink(jd, op_base, op, tf_state)
+            }
+            OperatorData::FieldValueSink(op) => {
+                build_tf_field_value_sink(jd, op_base, op, tf_state)
+            }
+            OperatorData::FileReader(op) => {
+                build_tf_file_reader(jd, op_base, op, tf_state)
+            }
+            OperatorData::Literal(op) => {
+                build_tf_literal(jd, op_base, op, tf_state)
+            }
+            OperatorData::Sequence(op) => {
+                build_tf_sequence(jd, op_base, op, tf_state)
+            }
+            OperatorData::Select(op) => {
+                build_tf_select(jd, op_base, op, tf_state)
+            }
+            OperatorData::Call(op) => build_tf_call(jd, op_base, op, tf_state),
+            OperatorData::CallConcurrent(op) => {
+                build_tf_call_concurrent(jd, op_base, op, tf_state)
+            }
+            OperatorData::Key(_) => unreachable!(),
+            OperatorData::Next(_) => unreachable!(),
+            OperatorData::Up(_) => unreachable!(),
+            OperatorData::Explode(op) => {
+                op.build_transform(jd, op_base, tf_state, prebound_outputs)
+            }
+            OperatorData::Custom(op) => {
+                op.build_transform(jd, op_base, tf_state, prebound_outputs)
+            }
+            OperatorData::Aggregator(op) => {
+                let mut sub_tfs = Vec::new();
+                for &sub_op in &op.sub_ops {
+                    let mut sub_tf_state = TransformState::new(
+                        tf_state.input_field,
+                        tf_state.output_field,
+                        tf_state.match_set_id,
+                        tf_state.desired_batch_size,
+                        tf_state.predecessor,
+                        Some(sub_op),
+                    );
+                    let sub_tf_data = self.build_transform_data(
+                        &mut sub_tf_state,
+                        sub_op,
+                        prebound_outputs,
+                    );
+                    sub_tfs.push(add_transform(
+                        &mut self.job_data,
+                        &mut self.transform_data,
+                        sub_tf_state,
+                        sub_tf_data,
+                    ));
+                }
+
+                TransformData::Aggretagor(TfAggregator {
+                    current_sub_tf: sub_tfs[0],
+                    current_sub_tf_idx: 0,
+                    sub_tfs,
+                })
+            }
+        }
     }
     pub fn setup_transforms_from_op(
         &mut self,
@@ -609,7 +722,6 @@ impl<'a> JobSession<'a> {
         let ops = &self.job_data.session_data.chains
             [start_op.chain_id.unwrap() as usize]
             .operators[start_op.offset_in_chain as usize..];
-        let mut mark_prev_field_as_placeholder = false;
         for &op_id in ops {
             let op_base =
                 &self.job_data.session_data.operator_bases[op_id as usize];
@@ -655,8 +767,24 @@ impl<'a> JobSession<'a> {
                     }
                     make_input_output = true;
                 }
-                OperatorData::Key(_) => {
-                    make_input_output = true;
+                OperatorData::Key(k) => {
+                    if let Some(name) = op_base.label {
+                        self.job_data.match_set_mgr.add_field_alias(
+                            &mut self.job_data.field_mgr,
+                            input_field,
+                            name,
+                        );
+                    }
+                    last_output_field =
+                        self.job_data.match_set_mgr.add_field_alias(
+                            &mut self.job_data.field_mgr,
+                            input_field,
+                            k.key_interned.unwrap(),
+                        );
+                    if !op_base.transparent_mode {
+                        input_field = last_output_field;
+                    }
+                    continue;
                 }
                 OperatorData::Fork(_) | OperatorData::Nop(_) => {
                     dummy_output = true
@@ -733,102 +861,31 @@ impl<'a> JobSession<'a> {
             tf_state.is_transparent = op_base.transparent_mode;
             tf_state.is_appending = op_base.append_mode;
 
-            let tf_id_peek = self.job_data.tf_mgr.transforms.peek_claim_id();
             #[cfg(feature = "debug_logging")]
             if !dummy_output && !make_input_output {
                 let mut of =
                     self.job_data.field_mgr.fields[output_field].borrow_mut();
-                of.producing_transform_id = Some(tf_id_peek);
+                of.producing_transform_id =
+                    Some(self.job_data.tf_mgr.transforms.peek_claim_id());
                 of.producing_transform_arg =
                     self.job_data.session_data.operator_data[op_id as usize]
                         .default_op_name()
                         .to_string();
             }
-            if mark_prev_field_as_placeholder {
-                // let mut f =
-                //    self.job_data.field_mgr.fields[input_field].borrow_mut();
-                // f.added_as_placeholder_by_tf = Some(tf_id_peek);
-                mark_prev_field_as_placeholder = false;
-            }
-            let b = op_base;
-
-            let jd = &mut self.job_data;
-            let tf_data = match op_data {
-                OperatorData::Nop(op) => build_tf_nop(op, &tf_state),
-                OperatorData::Cast(op) => {
-                    build_tf_cast(jd, b, op, &mut tf_state)
-                }
-                OperatorData::Count(op) => {
-                    build_tf_count(jd, b, op, &mut tf_state)
-                }
-                OperatorData::Fork(op) => {
-                    build_tf_fork(jd, b, op, &mut tf_state)
-                }
-                OperatorData::ForkCat(op) => {
-                    build_tf_forkcat(jd, b, op, &mut tf_state)
-                }
-                OperatorData::Print(op) => {
-                    build_tf_print(jd, b, op, &mut tf_state)
-                }
-                OperatorData::Join(op) => {
-                    build_tf_join(jd, b, op, &mut tf_state)
-                }
-                OperatorData::Regex(op) => {
-                    build_tf_regex(jd, b, op, &mut tf_state, prebound_outputs)
-                }
-                OperatorData::Format(op) => {
-                    build_tf_format(jd, b, op, tf_id_peek, &tf_state)
-                }
-                OperatorData::StringSink(op) => {
-                    build_tf_string_sink(jd, b, op, &mut tf_state)
-                }
-                OperatorData::FieldValueSink(op) => {
-                    build_tf_field_value_sink(jd, b, op, &mut tf_state)
-                }
-                OperatorData::FileReader(op) => {
-                    build_tf_file_reader(jd, b, op, &tf_state)
-                }
-                OperatorData::Literal(op) => {
-                    build_tf_literal(jd, op_base, op, &mut tf_state)
-                }
-                OperatorData::Sequence(op) => {
-                    build_tf_sequence(jd, op_base, op, &mut tf_state)
-                }
-                OperatorData::Select(op) => {
-                    build_tf_select(jd, b, op, &mut tf_state)
-                }
-                OperatorData::Call(op) => {
-                    build_tf_call(jd, b, op, &mut tf_state)
-                }
-                OperatorData::CallConcurrent(op) => {
-                    build_tf_call_concurrent(jd, b, op, &tf_state)
-                }
-                OperatorData::Key(key) => {
-                    input_field = self.job_data.match_set_mgr.add_field_alias(
-                        &mut self.job_data.field_mgr,
-                        output_field,
-                        key.key_interned.unwrap(),
-                    );
-                    last_output_field = input_field;
-                    continue;
-                }
-                OperatorData::Next(_) => unreachable!(),
-                OperatorData::Up(_) => unreachable!(),
-                OperatorData::Explode(op) => {
-                    op.build_transform(jd, b, &mut tf_state, prebound_outputs)
-                }
-                OperatorData::Custom(op) => {
-                    op.build_transform(jd, b, &mut tf_state, prebound_outputs)
-                }
-                OperatorData::Aggregator(op) => {
-                    build_tf_aggregator(op, &mut tf_state, prebound_outputs)
-                }
-            };
+            let tf_data = self.build_transform_data(
+                &mut tf_state,
+                op_id,
+                prebound_outputs,
+            );
             output_field = tf_state.output_field;
             let appending = tf_state.is_appending;
             let transparent = tf_state.is_transparent;
-            let tf_id = self.add_transform(tf_state, tf_data);
-            debug_assert!(tf_id_peek == tf_id);
+            let tf_id = add_transform(
+                &mut self.job_data,
+                &mut self.transform_data,
+                tf_state,
+                tf_data,
+            );
 
             if appending {
                 if let Some(prev) = prev_tf {
@@ -918,7 +975,12 @@ impl<'a> JobSession<'a> {
         self.job_data.field_mgr.bump_field_refcount(DUMMY_FIELD_ID);
         tf_state.is_transparent = true;
         let tf_data = create_tf_nop(manual_unlink);
-        let mut pred_tf = self.add_transform(tf_state, tf_data);
+        let mut pred_tf = add_transform(
+            &mut self.job_data,
+            &mut self.transform_data,
+            tf_state,
+            tf_data,
+        );
         let (start_tf, end_tf) = self.setup_transforms_from_op(
             ms_id,
             start_op_id,
@@ -942,23 +1004,6 @@ impl<'a> JobSession<'a> {
             pred_tf = start_tf;
         }
         (pred_tf, end_tf)
-    }
-    pub fn add_transform(
-        &mut self,
-        state: TransformState,
-        data: TransformData<'a>,
-    ) -> TransformId {
-        let id = self.job_data.tf_mgr.transforms.claim_with_value(state);
-        if self.transform_data.len()
-            < self.job_data.tf_mgr.transforms.used_capacity()
-        {
-            self.transform_data.resize_with(
-                self.job_data.tf_mgr.transforms.used_capacity(),
-                || TransformData::Disabled,
-            );
-        }
-        self.transform_data[usize::from(id)] = data;
-        id
     }
     fn handle_stream_value_update(&mut self, svu: StreamValueUpdate) {
         match &mut self.transform_data[usize::from(svu.tf_id)] {
@@ -1148,7 +1193,7 @@ impl<'a> JobSession<'a> {
             TransformData::Explode(tf) => tf.update(&mut self.job_data, tf_id),
             TransformData::Custom(tf) => tf.update(&mut self.job_data, tf_id),
             TransformData::Aggretagor(agg) => {
-                let idx = agg.current_sub_op;
+                let idx = agg.current_sub_tf;
                 self.handle_transform(idx, ctx)?;
             }
             TransformData::Disabled => unreachable!(),

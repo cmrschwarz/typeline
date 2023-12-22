@@ -589,7 +589,9 @@ pub fn submit_aggregate(
         false,
         None,
     );
-    ctx_opts.add_op(op_base, op_data)
+    let op_id = ctx_opts.add_op(op_base, op_data);
+    ctx_opts.setup_op(op_id);
+    op_id
 }
 
 pub fn parse_cli_retain_args(
@@ -657,6 +659,7 @@ pub fn parse_cli_retain_args(
                 }
             }
             curr_aggregate.push(op_id);
+            continue;
         }
 
         if try_parse_as_context_opt(&mut ctx_opts, &arg)? {

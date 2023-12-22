@@ -588,7 +588,6 @@ pub fn build_tf_format<'a>(
     sess: &mut JobData,
     _op_base: &OperatorBase,
     op: &'a OpFormat,
-    _tf_id: TransformId,
     tf_state: &TransformState,
 ) -> TransformData<'a> {
     let refs: Vec<_> = op
