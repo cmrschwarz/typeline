@@ -1,6 +1,7 @@
 use crate::{
     chain::{BufferingMode, Chain, ChainId, ChainSettings},
     document::TextEncoding,
+    operators::operator::OperatorId,
     selenium::{SeleniumDownloadStrategy, SeleniumVariant},
     utils::string_store::StringStoreEntry,
 };
@@ -23,6 +24,7 @@ pub struct ChainOptions {
     pub buffering_mode: Argument<BufferingMode>,
     pub parent: ChainId,
     pub subchain_count: u32,
+    pub operators: Vec<OperatorId>,
 }
 
 pub const DEFAULT_CHAIN_OPTIONS: ChainOptions = ChainOptions {
@@ -40,6 +42,7 @@ pub const DEFAULT_CHAIN_OPTIONS: ChainOptions = ChainOptions {
     buffering_mode: Argument::new_v(BufferingMode::LineBufferStdinIfTTY),
     parent: 0,
     subchain_count: 0,
+    operators: Vec::new(),
 };
 impl ChainOptions {
     pub fn build_chain(&self, parent: Option<&Chain>) -> Chain {
@@ -118,7 +121,7 @@ impl ChainOptions {
                     .unwrap_or(DEFAULT_CHAIN_OPTIONS.buffering_mode.unwrap()),
             },
             subchains: Vec::new(),
-            operators: Vec::new(),
+            operators: self.operators.clone(), // PERF: :/
         }
     }
 }

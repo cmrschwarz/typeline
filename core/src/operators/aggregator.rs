@@ -25,6 +25,8 @@ pub struct TfAggregator {
     pub(crate) sub_tfs: Vec<TransformId>,
 }
 
+pub fn handle_tf_aggregator() {}
+
 pub fn handle_tf_aggregator_stream_value_update(
     _fr: &mut TfAggregator,
     _sess: &mut JobData,

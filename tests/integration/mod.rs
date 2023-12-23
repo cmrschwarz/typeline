@@ -1,3 +1,4 @@
+pub mod aggregator;
 mod basic;
 mod callcc;
 mod custom_types;

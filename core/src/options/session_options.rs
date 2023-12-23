@@ -114,7 +114,7 @@ impl SessionOptions {
     pub fn get_current_chain(&mut self) -> ChainId {
         self.curr_chain
     }
-    pub fn setup_op(&mut self, op_id: OperatorId) {
+    pub fn init_op(&mut self, op_id: OperatorId, add_to_chain: bool) {
         let op_idx = op_id as usize;
         let op_base_opts = &mut self.operator_base_options[op_idx];
         let op_data = &mut self.operator_data[op_idx];
@@ -125,6 +125,15 @@ impl SessionOptions {
             .default_batch_size
             .get()
             .unwrap_or(DEFAULT_CHAIN_OPTIONS.default_batch_size.unwrap());
+        let chain_opts = &mut self.chains[self.curr_chain as usize];
+        if add_to_chain {
+            op_base_opts.offset_in_chain =
+                chain_opts.operators.len() as OperatorOffsetInChain;
+            chain_opts.operators.push(op_id);
+        } else {
+            op_base_opts.offset_in_chain =
+                chain_opts.operators.len() as OperatorOffsetInChain - 1;
+        }
         match op_data {
             OperatorData::Call(_) => (),
             OperatorData::CallConcurrent(_) => {
@@ -194,7 +203,7 @@ impl SessionOptions {
                         unreachable!()
                     };
                     let sub_op_id = agg.sub_ops[i];
-                    self.setup_op(sub_op_id);
+                    self.init_op(sub_op_id, false);
                 }
             }
             OperatorData::Explode(_) => (),
@@ -210,7 +219,7 @@ impl SessionOptions {
             }
         }
     }
-    pub fn add_op(
+    pub fn add_op_uninit(
         &mut self,
         op_base_opts: OperatorBaseOptions,
         op_data: OperatorData,
@@ -218,6 +227,15 @@ impl SessionOptions {
         let op_id = self.operator_data.len() as OperatorId;
         self.operator_base_options.push(op_base_opts);
         self.operator_data.push(op_data);
+        op_id
+    }
+    pub fn add_op(
+        &mut self,
+        op_base_opts: OperatorBaseOptions,
+        op_data: OperatorData,
+    ) -> OperatorId {
+        let op_id = self.add_op_uninit(op_base_opts, op_data);
+        self.init_op(op_id, true);
         op_id
     }
     pub fn add_label(&mut self, label: String) {
@@ -388,7 +406,6 @@ impl SessionOptions {
         sess: &mut Session,
     ) -> Result<(), OperatorSetupError> {
         for i in 0..sess.operator_bases.len() {
-            let op_id = i as OperatorId;
             let op_base = &mut sess.operator_bases[i];
             let Some(chain_id) = op_base.chain_id else {
                 continue;
@@ -404,17 +421,12 @@ impl SessionOptions {
                 }
                 continue;
             }
-            let chain = &mut sess.chains[chain_id as usize];
-            let op_base = &mut sess.operator_bases[i];
-            op_base.offset_in_chain =
-                chain.operators.len() as OperatorOffsetInChain;
-            chain.operators.push(op_id);
         }
         let mut string_store = sess.string_store.write().unwrap();
         for op_idx in 0..sess.operator_bases.len() {
             let op_base = &mut sess.operator_bases[op_idx];
             let chain_id = if let Some(cid) = op_base.chain_id {
-                cid as usize
+                cid
             } else {
                 continue;
             };
@@ -425,7 +437,7 @@ impl SessionOptions {
                 &mut string_store,
                 &mut sess.settings,
                 op_idx as OperatorId,
-                &mut sess.chains[chain_id],
+                &mut sess.chains[chain_id as usize],
             )?;
         }
         Ok(())
@@ -566,21 +578,7 @@ impl SessionOptions {
             operator_bases: self
                 .operator_base_options
                 .iter()
-                .map(|obo| {
-                    OperatorBase {
-                        argname: obo.argname,
-                        label: obo.label,
-                        cli_arg_idx: obo.cli_arg_idx,
-                        chain_id: obo.chain_id,
-                        append_mode: obo.append_mode,
-                        transparent_mode: obo.transparent_mode,
-                        desired_batch_size: obo.desired_batch_size,
-                        // set during setup
-                        offset_in_chain: u32::MAX,
-                        outputs_start: 0,
-                        outputs_end: 0,
-                    }
-                })
+                .map(|obo| obo.build())
                 .collect(),
             cli_args: self.cli_args,
             chain_labels: Default::default(),

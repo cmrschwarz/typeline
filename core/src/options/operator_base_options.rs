@@ -1,5 +1,6 @@
 use crate::{
-    chain::ChainId, operators::operator::OperatorId,
+    chain::ChainId,
+    operators::operator::{OperatorBase, OperatorId, OperatorOffsetInChain},
     utils::string_store::StringStoreEntry,
 };
 
@@ -16,6 +17,7 @@ pub struct OperatorBaseOptions {
     pub desired_batch_size: usize,
     pub chain_id: Option<ChainId>,
     pub op_id: Option<OperatorId>,
+    pub offset_in_chain: OperatorOffsetInChain,
 }
 
 impl OperatorBaseOptions {
@@ -35,6 +37,22 @@ impl OperatorBaseOptions {
             desired_batch_size: 0,
             chain_id: None,
             op_id: None,
+            offset_in_chain: 0,
+        }
+    }
+    pub fn build(&self) -> OperatorBase {
+        OperatorBase {
+            argname: self.argname,
+            label: self.label,
+            cli_arg_idx: self.cli_arg_idx,
+            chain_id: self.chain_id,
+            append_mode: self.append_mode,
+            transparent_mode: self.transparent_mode,
+            desired_batch_size: self.desired_batch_size,
+            offset_in_chain: self.offset_in_chain,
+            // set during setup
+            outputs_start: 0,
+            outputs_end: 0,
         }
     }
 }

@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::{
     context::{Context, Session},
-    operators::operator::OperatorData,
+    operators::{aggregator::OpAggregator, operator::OperatorData},
     record_data::{
         custom_data::CustomDataBox, push_interface::PushInterface,
         record_set::RecordSet,
@@ -44,8 +44,7 @@ impl ContextBuilder {
             transparent_mode,
             None,
         );
-        let op_id = self.data.opts.add_op(op_base, op_data);
-        self.data.opts.setup_op(op_id); //TODO: delay slot for appending
+        self.data.opts.add_op(op_base, op_data);
         self
     }
     pub fn add_label(mut self, label: String) -> Self {
@@ -70,7 +69,10 @@ impl ContextBuilder {
             false,
         )
     }
-    pub fn add_ops<const N: usize>(self, op_data: [OperatorData; N]) -> Self {
+    pub fn add_ops(
+        self,
+        op_data: impl IntoIterator<Item = OperatorData>,
+    ) -> Self {
         let mut this = self;
         for op in op_data.into_iter() {
             this = this.add_op(op);
@@ -80,6 +82,30 @@ impl ContextBuilder {
     pub fn add_op_appending(self, op_data: OperatorData) -> Self {
         let argname = op_data.default_op_name();
         self.add_op_with_opts(op_data, Some(&argname), None, true, false)
+    }
+    pub fn add_op_aggregate(
+        mut self,
+        ops: impl IntoIterator<Item = OperatorData>,
+    ) -> Self {
+        let mut agg = OpAggregator {
+            aggregate_starter_is_appending: false,
+            sub_ops: Vec::new(),
+        };
+        for op_data in ops {
+            let op_base = OperatorBaseOptions::new(
+                self.data
+                    .opts
+                    .string_store
+                    .intern_cloned(op_data.default_op_name().as_str()),
+                None,
+                false,
+                false,
+                None,
+            );
+            agg.sub_ops
+                .push(self.data.opts.add_op_uninit(op_base, op_data));
+        }
+        self.add_op(OperatorData::Aggregator(agg))
     }
     pub fn add_op_transparent(self, op_data: OperatorData) -> Self {
         let argname = op_data.default_op_name();

@@ -499,14 +499,14 @@ fn try_parse_operator_data(
     }
     Ok(None)
 }
-pub fn add_op_from_arg_and_op_data(
+pub fn add_op_from_arg_and_op_data_uninit(
     ctx_opts: &mut SessionOptions,
     arg: &ParsedCliArgumentParts,
     op_data: OperatorData,
 ) -> OperatorId {
     let argname = ctx_opts.string_store.intern_cloned(arg.argname);
     let label = arg.label.map(|l| ctx_opts.string_store.intern_cloned(l));
-    ctx_opts.add_op(
+    ctx_opts.add_op_uninit(
         OperatorBaseOptions::new(
             argname,
             label,
@@ -589,9 +589,7 @@ pub fn submit_aggregate(
         false,
         None,
     );
-    let op_id = ctx_opts.add_op(op_base, op_data);
-    ctx_opts.setup_op(op_id);
-    op_id
+    ctx_opts.add_op(op_base, op_data)
 }
 
 pub fn parse_cli_retain_args(
@@ -633,8 +631,11 @@ pub fn parse_cli_retain_args(
         if let Some(op_data) =
             try_parse_operator_data(&mut ctx_opts, &arg, args, &mut arg_idx)?
         {
-            let op_id =
-                add_op_from_arg_and_op_data(&mut ctx_opts, &arg, op_data);
+            let op_id = add_op_from_arg_and_op_data_uninit(
+                &mut ctx_opts,
+                &arg,
+                op_data,
+            );
             if !arg.append_mode {
                 if !curr_aggregate.is_empty() {
                     submit_aggregate(
@@ -644,7 +645,7 @@ pub fn parse_cli_retain_args(
                     );
                 }
                 if let Some(pred) = last_non_append_op_id {
-                    ctx_opts.setup_op(pred);
+                    ctx_opts.init_op(pred, true);
                 }
                 last_non_append_op_id = Some(op_id);
                 continue;
@@ -682,7 +683,7 @@ pub fn parse_cli_retain_args(
         );
     }
     if let Some(pred) = last_non_append_op_id {
-        ctx_opts.setup_op(pred);
+        ctx_opts.init_op(pred, true);
     }
     Ok(ctx_opts)
 }

@@ -1193,8 +1193,16 @@ impl<'a> JobSession<'a> {
             TransformData::Explode(tf) => tf.update(&mut self.job_data, tf_id),
             TransformData::Custom(tf) => tf.update(&mut self.job_data, tf_id),
             TransformData::Aggretagor(agg) => {
-                let idx = agg.current_sub_tf;
-                self.handle_transform(idx, ctx)?;
+                let sub_tf_id = agg.current_sub_tf;
+                let (agg_tf, sub_tf) = self
+                    .job_data
+                    .tf_mgr
+                    .transforms
+                    .two_distinct_mut(tf_id, sub_tf_id);
+                sub_tf.available_batch_size = agg_tf.available_batch_size;
+                sub_tf.successor = agg_tf.successor;
+                sub_tf.input_is_done = agg_tf.input_is_done;
+                self.handle_transform(sub_tf_id, ctx)?;
             }
             TransformData::Disabled => unreachable!(),
         }
