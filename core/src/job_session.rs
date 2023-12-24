@@ -1245,6 +1245,8 @@ impl<'a> JobSession<'a> {
                     self.job_data.tf_mgr.claim_batch(tf_id);
                 if input_done {
                     agg_t.curr_sub_tf_idx += 1;
+                    self.job_data.tf_mgr.transforms[tf_id].input_is_done =
+                        false;
                 }
                 if input_done && agg_t.curr_sub_tf_idx == agg_t.sub_tf_count {
                     self.job_data.unlink_transform(tf_id, batch_size);
