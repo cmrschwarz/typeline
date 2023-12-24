@@ -8,10 +8,7 @@ use crate::{
     context::{ContextData, Job, Session, VentureDescription},
     liveness_analysis::OpOutputIdx,
     operators::{
-        aggregator::{
-            handle_tf_aggregator_stream_producer_update,
-            handle_tf_aggregator_stream_value_update, TfAggregator,
-        },
+        aggregator::{TfAggregatorHeader, TfAggregatorTrailer},
         call::{
             build_tf_call, handle_eager_call_expansion,
             handle_lazy_call_expansion,
@@ -674,7 +671,32 @@ impl<'a> JobSession<'a> {
                 op.build_transform(jd, op_base, tf_state, prebound_outputs)
             }
             OperatorData::Aggregator(op) => {
-                let mut sub_tfs = Vec::new();
+                let op_count = op.sub_ops.len();
+                self.job_data
+                    .field_mgr
+                    .inc_field_refcount(tf_state.input_field, op_count + 1);
+                self.job_data
+                    .field_mgr
+                    .inc_field_refcount(tf_state.output_field, op_count + 1);
+                let mut sub_tfs = Vec::with_capacity(op_count);
+                let trailer_tf_state = TransformState::new(
+                    tf_state.output_field,
+                    tf_state.output_field,
+                    tf_state.match_set_id,
+                    tf_state.desired_batch_size,
+                    None,
+                    Some(op_id),
+                );
+                tf_state.output_field = tf_state.input_field;
+                let trailer_tf_id = add_transform(
+                    &mut self.job_data,
+                    &mut self.transform_data,
+                    trailer_tf_state,
+                    TransformData::AggregatorTrailer(TfAggregatorTrailer {
+                        curr_sub_tf_idx: 0,
+                        sub_tf_count: op_count,
+                    }),
+                );
                 for &sub_op in &op.sub_ops {
                     let mut sub_tf_state = TransformState::new(
                         tf_state.input_field,
@@ -684,6 +706,7 @@ impl<'a> JobSession<'a> {
                         tf_state.predecessor,
                         Some(sub_op),
                     );
+                    sub_tf_state.successor = Some(trailer_tf_id);
                     let sub_tf_data = self.build_transform_data(
                         &mut sub_tf_state,
                         sub_op,
@@ -696,11 +719,9 @@ impl<'a> JobSession<'a> {
                         sub_tf_data,
                     ));
                 }
-
-                TransformData::Aggretagor(TfAggregator {
-                    current_sub_tf: sub_tfs[0],
-                    current_sub_tf_idx: 0,
+                TransformData::AggregatorHeader(TfAggregatorHeader {
                     sub_tfs,
+                    trailer_tf_id,
                 })
             }
         }
@@ -1073,15 +1094,9 @@ impl<'a> JobSession<'a> {
                 svu.sv_id,
                 svu.custom,
             ),
-            TransformData::Aggretagor(op) => {
-                handle_tf_aggregator_stream_value_update(
-                    op,
-                    &mut self.job_data,
-                    svu.tf_id,
-                    svu.sv_id,
-                    svu.custom,
-                )
-            }
+            //these go to the individual transforms
+            TransformData::AggregatorHeader(_) => unreachable!(),
+            TransformData::AggregatorTrailer(_) => unreachable!(),
             TransformData::Custom(tf) => tf.handle_stream_value_update(
                 &mut self.job_data,
                 svu.tf_id,
@@ -1132,7 +1147,8 @@ impl<'a> JobSession<'a> {
             TransformData::Literal(_) => (),
             TransformData::Sequence(_) => (),
             TransformData::Terminator(_) => (),
-            TransformData::Aggretagor(_) => (),
+            TransformData::AggregatorHeader(_) => (),
+            TransformData::AggregatorTrailer(_) => (),
             TransformData::Explode(tf) => {
                 debug_assert!(!tf.pre_update_required());
             }
@@ -1192,17 +1208,51 @@ impl<'a> JobSession<'a> {
             }
             TransformData::Explode(tf) => tf.update(&mut self.job_data, tf_id),
             TransformData::Custom(tf) => tf.update(&mut self.job_data, tf_id),
-            TransformData::Aggretagor(agg) => {
-                let sub_tf_id = agg.current_sub_tf;
+            TransformData::AggregatorHeader(agg) => {
+                let trailer_id = agg.trailer_tf_id;
+                let TransformData::AggregatorTrailer(trailer) =
+                    &self.transform_data[trailer_id.get() as usize]
+                else {
+                    unreachable!()
+                };
+                let sub_tf_idx = trailer.curr_sub_tf_idx;
+                let TransformData::AggregatorHeader(agg) =
+                    &self.transform_data[tf_id.get() as usize]
+                else {
+                    unreachable!()
+                };
+                let sub_tf_count = agg.sub_tfs.len();
+                let sub_tf_id = agg.sub_tfs[sub_tf_idx];
                 let (agg_tf, sub_tf) = self
                     .job_data
                     .tf_mgr
                     .transforms
                     .two_distinct_mut(tf_id, sub_tf_id);
+                let input_done = agg_tf.input_is_done;
+                sub_tf.input_is_done = input_done;
                 sub_tf.available_batch_size = agg_tf.available_batch_size;
-                sub_tf.successor = agg_tf.successor;
-                sub_tf.input_is_done = agg_tf.input_is_done;
+                //TODO: find a better solution for this
+                let successor = agg_tf.successor;
+                self.job_data.tf_mgr.transforms[trailer_id].successor =
+                    successor;
+                if !input_done || sub_tf_idx + 1 != sub_tf_count {
+                    self.job_data.tf_mgr.push_tf_in_ready_stack(tf_id);
+                }
                 self.handle_transform(sub_tf_id, ctx)?;
+            }
+            TransformData::AggregatorTrailer(agg_t) => {
+                let (batch_size, input_done) =
+                    self.job_data.tf_mgr.claim_batch(tf_id);
+                if input_done {
+                    agg_t.curr_sub_tf_idx += 1;
+                }
+                if input_done && agg_t.curr_sub_tf_idx == agg_t.sub_tf_count {
+                    self.job_data.unlink_transform(tf_id, batch_size);
+                } else {
+                    self.job_data
+                        .tf_mgr
+                        .inform_successor_batch_available(tf_id, batch_size);
+                }
             }
             TransformData::Disabled => unreachable!(),
         }
@@ -1240,13 +1290,9 @@ impl<'a> JobSession<'a> {
             | TransformData::Sequence(_)
             | TransformData::Explode(_)
             | TransformData::Format(_) => unreachable!(),
-            TransformData::Aggretagor(agg) => {
-                handle_tf_aggregator_stream_producer_update(
-                    agg,
-                    &mut self.job_data,
-                    tf_id,
-                )
-            }
+            //these go straight to the sub transforms
+            TransformData::AggregatorHeader(_) => unreachable!(),
+            TransformData::AggregatorTrailer(_) => unreachable!(),
             TransformData::FileReader(f) => {
                 handle_tf_file_reader_stream(&mut self.job_data, tf_id, f)
             }
