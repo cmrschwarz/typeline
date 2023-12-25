@@ -119,13 +119,13 @@ impl SessionOptions {
         let op_base_opts = &mut self.operator_base_options[op_idx];
         let op_data = &mut self.operator_data[op_idx];
         op_base_opts.op_id = Some(op_id);
-        op_base_opts.chain_id = Some(self.curr_chain);
         op_base_opts.desired_batch_size = self.chains
             [self.curr_chain as usize]
             .default_batch_size
             .get()
             .unwrap_or(DEFAULT_CHAIN_OPTIONS.default_batch_size.unwrap());
         let chain_opts = &mut self.chains[self.curr_chain as usize];
+        op_base_opts.chain_id = Some(self.curr_chain);
         if add_to_chain {
             op_base_opts.offset_in_chain =
                 chain_opts.operators.len() as OperatorOffsetInChain;
@@ -170,6 +170,9 @@ impl SessionOptions {
                 self.chains.push(new_chain);
             }
             OperatorData::Next(_) => {
+                if add_to_chain {
+                    chain_opts.operators.pop();
+                }
                 let parent = self.chains[self.curr_chain as usize].parent;
                 self.chains[parent as usize].subchain_count += 1;
                 let new_chain = ChainOptions {
@@ -181,6 +184,9 @@ impl SessionOptions {
                 op_base_opts.chain_id = None;
             }
             OperatorData::Up(up) => {
+                if add_to_chain {
+                    chain_opts.operators.pop();
+                }
                 up.start_chain = self.curr_chain;
                 for i in 0..up.step {
                     if self.curr_chain == 0 {
