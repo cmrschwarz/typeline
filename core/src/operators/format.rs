@@ -388,7 +388,9 @@ impl Formatable<'_> for [u8] {
             }
             return;
         }
-        if opts.is_stream_value {
+        if opts.is_stream_value
+            && opts.type_repr_format == TypeReprFormat::Debug
+        {
             w.write_all(b"~b\"").unwrap();
         } else {
             w.write_all(b"b\"").unwrap();
@@ -425,7 +427,9 @@ impl<'a> Formatable<'a> for str {
             }
             return;
         }
-        if opts.is_stream_value {
+        if opts.is_stream_value
+            && opts.type_repr_format == TypeReprFormat::Debug
+        {
             w.write_all(b"~\"").unwrap();
         } else {
             w.write_all(b"\"").unwrap();
@@ -1424,12 +1428,7 @@ pub fn setup_key_output_state(
                     RefAwareInlineTextIter::from_range(&range, text)
                 {
                     iter_output_states(fmt, &mut output_index, rl, |o| {
-                        o.len += calc_fmt_len_ost(
-                            k,
-                            formatting_opts,
-                            o,
-                            v.as_bytes(),
-                        );
+                        o.len += calc_fmt_len_ost(k, formatting_opts, o, v);
                     });
                 }
             }
