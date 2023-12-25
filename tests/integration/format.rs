@@ -29,7 +29,7 @@ fn debug_format_surrounds_with_quotes() -> Result<(), ScrError> {
         .run()?;
     assert_eq!(
         ss.get_data().unwrap().as_slice(),
-        ["\"foo\"", "b'bar'", "(error)\"baz\""]
+        ["\"foo\"", "b\"bar\"", "(error)\"baz\""]
     );
     Ok(())
 }
@@ -46,7 +46,7 @@ fn more_debug_format_surrounds_with_quotes() -> Result<(), ScrError> {
         .run()?;
     assert_eq!(
         ss.get().data.as_slice(),
-        ["\"foo\"", "b'bar'", "(error)\"baz\""]
+        ["\"foo\"", "b\"bar\"", "(error)\"baz\""]
     );
     Ok(())
 }
@@ -292,7 +292,7 @@ fn debug_bytes_escapes() -> Result<(), ScrError> {
         .add_op(create_op_format("{:?}").unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
-    assert_eq!(ss.get_data().unwrap().as_slice(), &[r#"b'\n\x00'"#]);
+    assert_eq!(ss.get_data().unwrap().as_slice(), &[r#"b"\n\x00""#]);
     Ok(())
 }
 
@@ -311,7 +311,7 @@ fn debug_bytes_escapes_in_stream() -> Result<(), ScrError> {
         .add_op(create_op_format("{:?}").unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
-    assert_eq!(ss.get_data().unwrap().as_slice(), &[r#"b'\n'"#]);
+    assert_eq!(ss.get_data().unwrap().as_slice(), &[r#"b"\n""#]);
     Ok(())
 }
 
@@ -350,6 +350,6 @@ fn binary_string_formatting() -> Result<(), ScrError> {
         .add_op(create_op_format("{:?}").unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
-    assert_eq!(ss.get_data().unwrap().as_slice(), &["b'\\xFF'"]);
+    assert_eq!(ss.get_data().unwrap().as_slice(), &[r#"b"\xFF""#]);
     Ok(())
 }

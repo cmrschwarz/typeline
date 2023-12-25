@@ -1558,17 +1558,30 @@ pub fn setup_key_output_state(
                             if complete || (!is_buffered && !make_buffered) {
                                 let mut i = output_index;
 
-                                iter_output_states(fmt, &mut i, rl, |o| {
-                                    o.len += calc_fmt_len_ost(
-                                        k,
-                                        formatting_opts,
-                                        o,
-                                        b.as_slice(),
-                                    );
-                                    if sv.bytes_are_utf8 {
+                                if sv.bytes_are_utf8 {
+                                    iter_output_states(fmt, &mut i, rl, |o| {
+                                        o.len += calc_fmt_len_ost(
+                                            k,
+                                            formatting_opts,
+                                            o,
+                                            unsafe {
+                                                std::str::from_utf8_unchecked(
+                                                    b,
+                                                )
+                                            },
+                                        );
                                         o.contains_raw_bytes = true;
-                                    }
-                                });
+                                    });
+                                } else {
+                                    iter_output_states(fmt, &mut i, rl, |o| {
+                                        o.len += calc_fmt_len_ost(
+                                            k,
+                                            formatting_opts,
+                                            o,
+                                            b.as_slice(),
+                                        );
+                                    });
+                                }
                                 idx_end = Some(i);
                             }
                             if make_buffered {
@@ -2197,12 +2210,23 @@ fn write_fmt_key(
                                     &mut output_index,
                                     rl as usize,
                                     |tgt| {
-                                        write_formatted(
-                                            k,
-                                            formatting_opts,
-                                            tgt,
-                                            b.as_slice(),
-                                        );
+                                        if sv.bytes_are_utf8 {
+                                            write_formatted(
+                                                k,
+                                                formatting_opts,
+                                                tgt,
+                                                unsafe {
+                                                    std::str::from_utf8_unchecked(b)
+                                                },
+                                            );
+                                        } else {
+                                            write_formatted(
+                                                k,
+                                                formatting_opts,
+                                                tgt,
+                                                b.as_slice(),
+                                            );
+                                        }
                                         if !sv.done {
                                             tgt.target = None;
                                         }
