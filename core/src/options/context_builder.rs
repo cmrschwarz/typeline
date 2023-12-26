@@ -2,7 +2,9 @@ use std::sync::Arc;
 
 use crate::{
     context::{Context, Session},
-    operators::{aggregator::OpAggregator, operator::OperatorData},
+    operators::{
+        aggregator::add_aggregate_to_sess_opts, operator::OperatorData,
+    },
     record_data::{
         custom_data::CustomDataBox, push_interface::PushInterface,
         record_set::RecordSet,
@@ -55,6 +57,20 @@ impl ContextBuilder {
         let argname = op_data.default_op_name();
         self.add_op_with_opts(op_data, Some(&argname), None, false, false)
     }
+    pub fn add_op_aggregate(
+        mut self,
+        sub_ops: impl IntoIterator<Item = OperatorData>,
+    ) -> Self {
+        add_aggregate_to_sess_opts(&mut self.data.opts, false, sub_ops);
+        self
+    }
+    pub fn add_op_aggregate_appending(
+        mut self,
+        sub_ops: impl IntoIterator<Item = OperatorData>,
+    ) -> Self {
+        add_aggregate_to_sess_opts(&mut self.data.opts, true, sub_ops);
+        self
+    }
     pub fn add_op_with_label(
         self,
         op_data: OperatorData,
@@ -82,30 +98,6 @@ impl ContextBuilder {
     pub fn add_op_appending(self, op_data: OperatorData) -> Self {
         let argname = op_data.default_op_name();
         self.add_op_with_opts(op_data, Some(&argname), None, true, false)
-    }
-    pub fn add_op_aggregate(
-        mut self,
-        ops: impl IntoIterator<Item = OperatorData>,
-    ) -> Self {
-        let mut agg = OpAggregator {
-            aggregate_starter_is_appending: false,
-            sub_ops: Vec::new(),
-        };
-        for op_data in ops {
-            let op_base = OperatorBaseOptions::new(
-                self.data
-                    .opts
-                    .string_store
-                    .intern_cloned(op_data.default_op_name().as_str()),
-                None,
-                false,
-                false,
-                None,
-            );
-            agg.sub_ops
-                .push(self.data.opts.add_op_uninit(op_base, op_data));
-        }
-        self.add_op(OperatorData::Aggregator(agg))
     }
     pub fn add_op_transparent(self, op_data: OperatorData) -> Self {
         let argname = op_data.default_op_name();

@@ -13,6 +13,7 @@ use crate::{
     extension::ExtensionRegistry,
     liveness_analysis::{self, LivenessData},
     operators::{
+        aggregator::setup_op_aggregator,
         call::setup_op_call,
         call_concurrent::{
             setup_op_call_concurrent, setup_op_call_concurrent_liveness_data,
@@ -206,7 +207,6 @@ impl SessionOptions {
                     );
                 }
             }
-            //TODO: do we need to do something here?
             OperatorData::Aggregator(agg) => {
                 for i in 0..agg.sub_ops.len() {
                     let OperatorData::Aggregator(agg) =
@@ -325,8 +325,8 @@ impl SessionOptions {
             OperatorData::Custom(op) => op.on_subchains_added(sc_count_after),
         }
     }
+    //we can't reborrow the whole Session because we want the locked string store
     pub fn setup_operator(
-        //we can't reborrow the whole chain because we also want the string store
         sess_operator_bases: &mut Vec<OperatorBase>,
         sess_operator_data: &mut Vec<OperatorData>,
         sess_chain_labels: &mut HashMap<
@@ -394,25 +394,17 @@ impl SessionOptions {
                 sess_chain_labels,
                 string_store,
             )?,
-            OperatorData::Aggregator(agg) => {
-                for i in 0..agg.sub_ops.len() {
-                    let OperatorData::Aggregator(agg) =
-                        &sess_operator_data[op_id as usize]
-                    else {
-                        unreachable!()
-                    };
-                    let sub_op_id = agg.sub_ops[i];
-                    Self::setup_operator(
-                        sess_operator_bases,
-                        sess_operator_data,
-                        sess_chain_labels,
-                        sess_chains,
-                        string_store,
-                        sess_settings,
-                        sub_op_id,
-                        chain_id,
-                    )?;
-                }
+            OperatorData::Aggregator(_) => {
+                setup_op_aggregator(
+                    op_id,
+                    sess_operator_data,
+                    sess_operator_bases,
+                    sess_chain_labels,
+                    sess_chains,
+                    string_store,
+                    sess_settings,
+                    chain_id,
+                )?;
             }
         }
         Ok(())

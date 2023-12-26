@@ -8,7 +8,7 @@ use crate::{
     context::{ContextData, Job, Session, VentureDescription},
     liveness_analysis::OpOutputIdx,
     operators::{
-        aggregator::{TfAggregatorHeader, TfAggregatorTrailer},
+        aggregator::build_tf_aggregator,
         call::{
             build_tf_call, handle_eager_call_expansion,
             handle_lazy_call_expansion,
@@ -303,7 +303,7 @@ impl TransformManager {
     }
 }
 
-pub fn add_transform<'a>(
+pub fn add_transform_to_job<'a>(
     jd: &mut JobData,
     tf_data: &mut Vec<TransformData<'a>>,
     state: TransformState,
@@ -600,7 +600,7 @@ impl<'a> JobSession<'a> {
             .field_mgr
             .inc_field_refcount(DUMMY_FIELD_ID, 2);
         let tf_data = setup_tf_terminator(&mut self.job_data, &tf_state);
-        let tf_id = add_transform(
+        let tf_id = add_transform_to_job(
             &mut self.job_data,
             &mut self.transform_data,
             tf_state,
@@ -672,62 +672,16 @@ impl<'a> JobSession<'a> {
             OperatorData::Custom(op) => {
                 op.build_transform(jd, op_base, tf_state, prebound_outputs)
             }
-            OperatorData::Aggregator(op) => {
-                let op_count = op.sub_ops.len();
-                self.job_data
-                    .field_mgr
-                    .inc_field_refcount(tf_state.input_field, op_count + 1);
-                self.job_data
-                    .field_mgr
-                    .inc_field_refcount(tf_state.output_field, op_count + 1);
-                let mut sub_tfs = Vec::with_capacity(op_count);
-                let trailer_tf_state = TransformState::new(
-                    tf_state.output_field,
-                    tf_state.output_field,
-                    tf_state.match_set_id,
-                    tf_state.desired_batch_size,
-                    None,
-                    Some(op_id),
-                );
-                tf_state.output_field = tf_state.input_field;
-                let trailer_tf_id = add_transform(
-                    &mut self.job_data,
-                    &mut self.transform_data,
-                    trailer_tf_state,
-                    TransformData::AggregatorTrailer(TfAggregatorTrailer {
-                        curr_sub_tf_idx: 0,
-                        sub_tf_count: op_count,
-                    }),
-                );
-                for &sub_op in &op.sub_ops {
-                    let mut sub_tf_state = TransformState::new(
-                        tf_state.input_field,
-                        tf_state.output_field,
-                        tf_state.match_set_id,
-                        tf_state.desired_batch_size,
-                        tf_state.predecessor,
-                        Some(sub_op),
-                    );
-                    sub_tf_state.successor = Some(trailer_tf_id);
-                    let sub_tf_data = self.build_transform_data(
-                        &mut sub_tf_state,
-                        sub_op,
-                        prebound_outputs,
-                    );
-                    sub_tfs.push(add_transform(
-                        &mut self.job_data,
-                        &mut self.transform_data,
-                        sub_tf_state,
-                        sub_tf_data,
-                    ));
-                }
-                TransformData::AggregatorHeader(TfAggregatorHeader {
-                    sub_tfs,
-                    trailer_tf_id,
-                })
-            }
+            OperatorData::Aggregator(op) => build_tf_aggregator(
+                self,
+                op,
+                tf_state,
+                op_id,
+                prebound_outputs,
+            ),
         }
     }
+
     pub fn setup_transforms_from_op(
         &mut self,
         ms_id: MatchSetId,
@@ -903,7 +857,7 @@ impl<'a> JobSession<'a> {
             output_field = tf_state.output_field;
             let appending = tf_state.is_appending;
             let transparent = tf_state.is_transparent;
-            let tf_id = add_transform(
+            let tf_id = add_transform_to_job(
                 &mut self.job_data,
                 &mut self.transform_data,
                 tf_state,
@@ -999,7 +953,7 @@ impl<'a> JobSession<'a> {
         self.job_data.field_mgr.bump_field_refcount(DUMMY_FIELD_ID);
         tf_state.is_transparent = true;
         let tf_data = create_tf_nop(manual_unlink);
-        let mut pred_tf = add_transform(
+        let mut pred_tf = add_transform_to_job(
             &mut self.job_data,
             &mut self.transform_data,
             tf_state,

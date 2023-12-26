@@ -2,7 +2,7 @@ use crate::{
     chain::BufferingMode,
     extension::ExtensionRegistry,
     operators::{
-        aggregator::OpAggregator,
+        aggregator::create_op_aggregate,
         call::parse_op_call,
         call_concurrent::parse_op_call_concurrent,
         cast::{argument_matches_op_cast, parse_op_cast},
@@ -575,25 +575,6 @@ pub fn try_parse_label(ctx_opts: &mut SessionOptions, arg_str: &[u8]) -> bool {
     false
 }
 
-pub fn submit_aggregate(
-    ctx_opts: &mut SessionOptions,
-    aggregate: Vec<OperatorId>,
-    aggregate_starter_is_appending: bool,
-) -> OperatorId {
-    let op_data = OperatorData::Aggregator(OpAggregator {
-        sub_ops: aggregate,
-        aggregate_starter_is_appending,
-    });
-    let op_base = OperatorBaseOptions::new(
-        ctx_opts.string_store.intern_cloned("aggregate"),
-        None,
-        false,
-        false,
-        None,
-    );
-    ctx_opts.add_op(op_base, op_data)
-}
-
 pub fn parse_cli_retain_args(
     args: &[Vec<u8>],
     allow_repl: bool,
@@ -640,11 +621,12 @@ pub fn parse_cli_retain_args(
             );
             if !arg.append_mode {
                 if !curr_aggregate.is_empty() {
-                    submit_aggregate(
+                    let (op_base, op_data) = create_op_aggregate(
                         &mut ctx_opts,
                         std::mem::take(&mut curr_aggregate),
                         aggregate_starter_is_appending,
                     );
+                    ctx_opts.add_op(op_base, op_data);
                 }
                 if let Some(pred) = last_non_append_op_id {
                     ctx_opts.init_op(pred, true);
@@ -678,11 +660,12 @@ pub fn parse_cli_retain_args(
         .into());
     }
     if !curr_aggregate.is_empty() {
-        submit_aggregate(
+        let (op_base, op_data) = create_op_aggregate(
             &mut ctx_opts,
             std::mem::take(&mut curr_aggregate),
             aggregate_starter_is_appending,
         );
+        ctx_opts.add_op(op_base, op_data);
     }
     if let Some(pred) = last_non_append_op_id {
         ctx_opts.init_op(pred, true);
