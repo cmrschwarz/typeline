@@ -40,6 +40,10 @@ impl OperatorBaseOptions {
             offset_in_chain: 0,
         }
     }
+    pub fn from_name(argname: StringStoreEntry) -> OperatorBaseOptions {
+        OperatorBaseOptions::new(argname, None, false, false, None)
+    }
+
     pub fn build(&self) -> OperatorBase {
         OperatorBase {
             argname: self.argname,

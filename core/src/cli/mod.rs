@@ -2,7 +2,9 @@ use crate::{
     chain::BufferingMode,
     extension::ExtensionRegistry,
     operators::{
-        aggregator::create_op_aggregate,
+        aggregator::{
+            create_op_aggregate, create_op_aggregator_append_leader,
+        },
         call::parse_op_call,
         call_concurrent::parse_op_call_concurrent,
         cast::{argument_matches_op_cast, parse_op_cast},
@@ -595,7 +597,6 @@ pub fn parse_cli_retain_args(
     };
     let mut arg_idx = 1; //skip executable name
     let mut curr_aggregate = Vec::new();
-    let mut aggregate_starter_is_appending = false;
     let mut last_non_append_op_id = None;
     while arg_idx < args.len() {
         let arg_str = &args[arg_idx];
@@ -624,7 +625,6 @@ pub fn parse_cli_retain_args(
                     let (op_base, op_data) = create_op_aggregate(
                         &mut ctx_opts,
                         std::mem::take(&mut curr_aggregate),
-                        aggregate_starter_is_appending,
                     );
                     ctx_opts.add_op(op_base, op_data);
                 }
@@ -636,11 +636,13 @@ pub fn parse_cli_retain_args(
             }
             if curr_aggregate.is_empty() {
                 if let Some(pred) = last_non_append_op_id {
-                    aggregate_starter_is_appending = false;
                     curr_aggregate.push(pred);
                     last_non_append_op_id = None;
                 } else {
-                    aggregate_starter_is_appending = true;
+                    let (op_base_opts, op_data) =
+                        create_op_aggregator_append_leader(&mut ctx_opts);
+                    curr_aggregate
+                        .push(ctx_opts.add_op_uninit(op_base_opts, op_data));
                 }
             }
             curr_aggregate.push(op_id);
@@ -663,7 +665,6 @@ pub fn parse_cli_retain_args(
         let (op_base, op_data) = create_op_aggregate(
             &mut ctx_opts,
             std::mem::take(&mut curr_aggregate),
-            aggregate_starter_is_appending,
         );
         ctx_opts.add_op(op_base, op_data);
     }

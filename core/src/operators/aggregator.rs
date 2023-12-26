@@ -15,12 +15,12 @@ use crate::{
 
 use super::{
     errors::OperatorSetupError,
+    nop_copy::create_op_nop_copy,
     operator::{OperatorBase, OperatorData, OperatorId},
     transform::{TransformData, TransformId, TransformState},
 };
 
 pub struct OpAggregator {
-    pub aggregate_starter_is_appending: bool,
     pub sub_ops: Vec<OperatorId>,
 }
 
@@ -37,12 +37,8 @@ pub struct TfAggregatorTrailer {
 pub fn create_op_aggregate(
     ctx_opts: &mut SessionOptions,
     sub_ops: Vec<OperatorId>,
-    aggregate_starter_is_appending: bool,
 ) -> (OperatorBaseOptions, OperatorData) {
-    let op_data = OperatorData::Aggregator(OpAggregator {
-        sub_ops,
-        aggregate_starter_is_appending,
-    });
+    let op_data = OperatorData::Aggregator(OpAggregator { sub_ops });
     let op_base = OperatorBaseOptions::new(
         ctx_opts.string_store.intern_cloned("aggregate"),
         None,
@@ -51,6 +47,18 @@ pub fn create_op_aggregate(
         None,
     );
     (op_base, op_data)
+}
+
+pub fn create_op_aggregator_append_leader(
+    ctx_opts: &mut SessionOptions,
+) -> (OperatorBaseOptions, OperatorData) {
+    let op_data = create_op_nop_copy();
+    let op_base_opts = OperatorBaseOptions::from_name(
+        ctx_opts
+            .string_store
+            .intern_cloned(op_data.default_op_name().as_str()),
+    );
+    (op_base_opts, op_data)
 }
 
 pub fn setup_op_aggregator(
@@ -97,19 +105,22 @@ pub fn add_aggregate_to_sess_opts(
     ops: impl IntoIterator<Item = OperatorData>,
 ) -> OperatorId {
     let mut sub_ops = Vec::new();
-    for op_data in ops {
-        let op_base = OperatorBaseOptions::new(
+    if aggregate_starter_is_appending {
+        let op_data = create_op_nop_copy();
+        let op_base = OperatorBaseOptions::from_name(
             sess.string_store
                 .intern_cloned(op_data.default_op_name().as_str()),
-            None,
-            false,
-            false,
-            None,
         );
         sub_ops.push(sess.add_op_uninit(op_base, op_data));
     }
-    let (op_base, op_data) =
-        create_op_aggregate(sess, sub_ops, aggregate_starter_is_appending);
+    for op_data in ops {
+        let op_base = OperatorBaseOptions::from_name(
+            sess.string_store
+                .intern_cloned(op_data.default_op_name().as_str()),
+        );
+        sub_ops.push(sess.add_op_uninit(op_base, op_data));
+    }
+    let (op_base, op_data) = create_op_aggregate(sess, sub_ops);
     sess.add_op(op_base, op_data)
 }
 
