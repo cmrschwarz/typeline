@@ -1,9 +1,9 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use crate::{
     chain::Chain,
-    context::SessionSettings,
-    job_session::{add_transform_to_job, JobSession},
+    context::{ContextData, SessionSettings, VentureDescription},
+    job_session::{add_transform_to_job, JobData, JobSession},
     liveness_analysis::OpOutputIdx,
     options::{
         operator_base_options::OperatorBaseOptions,
@@ -147,7 +147,6 @@ pub fn build_tf_aggregator<'a>(
         None,
         Some(op_id),
     );
-    tf_state.output_field = tf_state.input_field;
     let trailer_tf_id = add_transform_to_job(
         &mut sess.job_data,
         &mut sess.transform_data,
@@ -163,7 +162,7 @@ pub fn build_tf_aggregator<'a>(
             tf_state.output_field,
             tf_state.match_set_id,
             tf_state.desired_batch_size,
-            tf_state.predecessor,
+            None,
             Some(sub_op),
         );
         sub_tf_state.successor = Some(trailer_tf_id);
@@ -183,4 +182,59 @@ pub fn build_tf_aggregator<'a>(
         sub_tfs,
         trailer_tf_id,
     })
+}
+
+pub fn handle_tf_aggregator_header(
+    sess: &mut JobSession,
+    tf_trailer_id: TransformId,
+    tf_id: nonmax::NonMaxUsize,
+    ctx: Option<&Arc<ContextData>>,
+) -> Result<(), VentureDescription> {
+    let TransformData::AggregatorTrailer(trailer) =
+        &sess.transform_data[tf_trailer_id.get() as usize]
+    else {
+        unreachable!()
+    };
+    let sub_tf_idx = trailer.curr_sub_tf_idx;
+    let TransformData::AggregatorHeader(agg) =
+        &sess.transform_data[tf_id.get() as usize]
+    else {
+        unreachable!()
+    };
+    let sub_tf_count = agg.sub_tfs.len();
+    let sub_tf_id = agg.sub_tfs[sub_tf_idx];
+    let (batch_size, input_done) = sess.job_data.tf_mgr.claim_all(tf_id);
+    if batch_size == 0 && input_done == false {
+        // PERF: we could maybe figure this out from the trailer and
+        // prevent unnecessary rechecks
+        return Ok(());
+    }
+    let successor = sess.job_data.tf_mgr.transforms[tf_id].successor;
+    sess.job_data.tf_mgr.transforms[tf_trailer_id].successor = successor;
+    let sub_tf = &mut sess.job_data.tf_mgr.transforms[sub_tf_id];
+    sub_tf.available_batch_size += batch_size;
+    sub_tf.input_is_done |= input_done;
+    if !input_done || sub_tf_idx + 1 != sub_tf_count {
+        sess.job_data.tf_mgr.push_tf_in_ready_stack(tf_id);
+    }
+    sess.handle_transform(sub_tf_id, ctx)?;
+    Ok(())
+}
+
+pub fn handle_tf_aggregator_trailer(
+    jd: &mut JobData,
+    tf_id: nonmax::NonMaxUsize,
+    agg_t: &mut TfAggregatorTrailer,
+) {
+    let (batch_size, input_done) = jd.tf_mgr.claim_all(tf_id);
+    if input_done {
+        agg_t.curr_sub_tf_idx += 1;
+        jd.tf_mgr.transforms[tf_id].input_is_done = false;
+    }
+    if input_done && agg_t.curr_sub_tf_idx == agg_t.sub_tf_count {
+        jd.unlink_transform(tf_id, batch_size);
+    } else {
+        jd.tf_mgr
+            .inform_successor_batch_available(tf_id, batch_size);
+    }
 }

@@ -1,4 +1,4 @@
-use std::io::Read;
+use std::{io::Read, ops::Range};
 
 #[derive(Clone)]
 pub struct SliceReader<'a> {
@@ -86,12 +86,12 @@ impl<R: Read> Read for ErroringStream<R> {
     }
 }
 
-pub fn int_sequence_strings(count: usize) -> Vec<String> {
-    (0..count).map(|n| n.to_string()).collect()
+pub fn int_sequence_strings(range: Range<usize>) -> Vec<String> {
+    range.map(|n| n.to_string()).collect()
 }
 
-pub fn int_sequence_newline_separated(count: usize) -> String {
-    int_sequence_strings(count)
+pub fn int_sequence_newline_separated(range: Range<usize>) -> String {
+    int_sequence_strings(range)
         .iter()
         .fold(String::new(), |mut f, n| {
             f.push_str(n.to_string().as_str());
