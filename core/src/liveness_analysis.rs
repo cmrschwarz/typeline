@@ -175,6 +175,7 @@ impl LivenessData {
             OperatorData::Join(_) => 1,
             OperatorData::Fork(_) => 0,
             OperatorData::Nop(_) => 0,
+            OperatorData::NopCopy(_) => 1,
             // technically this has output, but it always introduces a
             // separate BB so we don't want to allocate slots for that
             OperatorData::ForkCat(_) => 0,
@@ -268,6 +269,7 @@ impl LivenessData {
             OperatorData::Next(_) => (),
             OperatorData::End(_) => (),
             OperatorData::Nop(_) => (),
+            OperatorData::NopCopy(_) => (),
             OperatorData::Select(s) => {
                 self.add_var_name(s.key_interned.unwrap());
             }
@@ -379,6 +381,7 @@ impl LivenessData {
             }
             OperatorData::Cast(_) => (),
             OperatorData::Nop(_) => (),
+            OperatorData::NopCopy(_) => (),
             OperatorData::Count(_) => (),
             OperatorData::Print(_) => (),
             OperatorData::Join(_) => (),
@@ -647,7 +650,9 @@ impl LivenessData {
                 flags.may_dup_or_drop = false;
                 flags.non_stringified_input_access = false;
             }
-            OperatorData::FieldValueSink(_) | OperatorData::Cast(_) => {
+            OperatorData::FieldValueSink(_)
+            | OperatorData::Cast(_)
+            | OperatorData::NopCopy(_) => {
                 flags.may_dup_or_drop = false;
             }
             OperatorData::Next(_) => unreachable!(),

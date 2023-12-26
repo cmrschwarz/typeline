@@ -37,6 +37,7 @@ use super::{
     literal::OpLiteral,
     next::OpNext,
     nop::OpNop,
+    nop_copy::OpNopCopy,
     print::OpPrint,
     regex::OpRegex,
     select::OpSelect,
@@ -50,6 +51,7 @@ pub type OperatorOffsetInChain = u32;
 
 pub enum OperatorData {
     Nop(OpNop),
+    NopCopy(OpNopCopy),
     Call(OpCall),
     CallConcurrent(OpCallConcurrent),
     Cast(OpCast),
@@ -112,6 +114,7 @@ impl OperatorData {
             OperatorData::Call(_) => "call".into(),
             OperatorData::CallConcurrent(_) => "callcc".into(),
             OperatorData::Nop(_) => "nop".into(),
+            OperatorData::NopCopy(_) => "nop-c".into(),
             OperatorData::Explode(op) => op.default_name(),
             OperatorData::Custom(op) => op.default_name(),
             OperatorData::Aggregator(_) => "aggregator".into(),

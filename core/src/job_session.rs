@@ -42,6 +42,7 @@ use crate::{
         },
         literal::{build_tf_literal, handle_tf_literal},
         nop::{build_tf_nop, create_tf_nop, handle_tf_nop},
+        nop_copy::{build_tf_nop_copy, handle_tf_nop_copy},
         operator::{Operator, OperatorData, OperatorId},
         print::{
             build_tf_print, handle_tf_print,
@@ -621,6 +622,7 @@ impl<'a> JobSession<'a> {
         let op_data = &jd.session_data.operator_data[op_id as usize];
         match op_data {
             OperatorData::Nop(op) => build_tf_nop(op, tf_state),
+            OperatorData::NopCopy(op) => build_tf_nop_copy(jd, op, tf_state),
             OperatorData::Cast(op) => build_tf_cast(jd, op_base, op, tf_state),
             OperatorData::Count(op) => {
                 build_tf_count(jd, op_base, op, tf_state)
@@ -933,6 +935,7 @@ impl<'a> JobSession<'a> {
             }
             match op_data {
                 OperatorData::Nop(_) => (),
+                OperatorData::NopCopy(_) => (),
                 OperatorData::Call(_) => (),
                 OperatorData::CallConcurrent(_) => (),
                 OperatorData::Cast(_) => (),
@@ -1080,6 +1083,7 @@ impl<'a> JobSession<'a> {
             TransformData::Terminator(_) => unreachable!(),
             TransformData::Call(_) => unreachable!(),
             TransformData::Nop(_) => unreachable!(),
+            TransformData::NopCopy(_) => unreachable!(),
             TransformData::Cast(_) => unreachable!(),
             TransformData::Count(_) => unreachable!(),
             TransformData::Select(_) => unreachable!(),
@@ -1135,6 +1139,7 @@ impl<'a> JobSession<'a> {
             TransformData::CalleeConcurrent(_) => (),
             TransformData::Cast(_) => (),
             TransformData::Nop(_) => (),
+            TransformData::NopCopy(_) => (),
             TransformData::Count(_) => (),
             TransformData::Print(_) => (),
             TransformData::Join(_) => (),
@@ -1178,6 +1183,7 @@ impl<'a> JobSession<'a> {
                 handle_tf_forkcat(&mut self.job_data, tf_id, fork)
             }
             TransformData::Nop(tf) => handle_tf_nop(jd, tf_id, tf),
+            TransformData::NopCopy(tf) => handle_tf_nop_copy(jd, tf_id, tf),
             TransformData::Print(tf) => handle_tf_print(jd, tf_id, tf),
             TransformData::Regex(tf) => handle_tf_regex(jd, tf_id, tf),
             TransformData::StringSink(tf) => {
@@ -1274,6 +1280,7 @@ impl<'a> JobSession<'a> {
         match &mut self.transform_data[tf_id.get()] {
             TransformData::Disabled
             | TransformData::Nop(_)
+            | TransformData::NopCopy(_)
             | TransformData::Terminator(_)
             | TransformData::Call(_)
             | TransformData::CallConcurrent(_)

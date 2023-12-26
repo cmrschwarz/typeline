@@ -31,6 +31,7 @@ use super::{
     join::TfJoin,
     literal::TfLiteral,
     nop::TfNop,
+    nop_copy::TfNopCopy,
     operator::OperatorId,
     print::TfPrint,
     regex::TfRegex,
@@ -47,6 +48,7 @@ pub type StreamProducerIndex = NonMaxUsize;
 pub enum TransformData<'a> {
     Disabled,
     Nop(TfNop),
+    NopCopy(TfNopCopy),
     Terminator(TfTerminator),
     Call(TfCall),
     CallConcurrent(TfCallConcurrent<'a>),
@@ -82,9 +84,10 @@ impl TransformData<'_> {
         match self {
             TransformData::Disabled => "disabled",
             TransformData::Nop(_) => "nop",
+            TransformData::NopCopy(_) => "nop-c",
             TransformData::Call(_) => "call",
-            TransformData::CallConcurrent(_) => "call-cc",
-            TransformData::CalleeConcurrent(_) => "callee-cc",
+            TransformData::CallConcurrent(_) => "callcc",
+            TransformData::CalleeConcurrent(_) => "callcc_callee",
             TransformData::Cast(_) => "cast",
             TransformData::Count(_) => "count",
             TransformData::Print(_) => "print",

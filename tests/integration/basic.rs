@@ -13,6 +13,7 @@ use scr_core::{
             Literal,
         },
         next::create_op_next,
+        nop_copy::create_op_nop_copy,
         regex::{create_op_regex, create_op_regex_with_opts, RegexOptions},
         select::create_op_select,
         sequence::{create_op_enum, create_op_seq, create_op_seqn},
@@ -492,5 +493,28 @@ fn basic_input_feeder() -> Result<(), ScrError> {
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(ss.get_data().unwrap().as_slice(), ["2"]);
+    Ok(())
+}
+
+#[test]
+fn field_refs_in_nopc() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::default();
+    ContextBuilder::default()
+        .push_str("123", 1)
+        .add_op(
+            create_op_regex_with_opts(
+                ".",
+                RegexOptions {
+                    multimatch: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap(),
+        )
+        .add_op(create_op_regex("[13]").unwrap())
+        .add_op(create_op_nop_copy())
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(ss.get_data().unwrap().as_slice(), ["1", "3"]);
     Ok(())
 }

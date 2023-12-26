@@ -27,6 +27,7 @@ use crate::{
         format::setup_op_format,
         key::setup_op_key,
         nop::{setup_op_nop, OpNop},
+        nop_copy::on_op_nop_copy_liveness_computed,
         operator::{
             Operator, OperatorBase, OperatorData, OperatorId,
             OperatorOffsetInChain,
@@ -144,6 +145,7 @@ impl SessionOptions {
             OperatorData::Cast(_) => (),
             OperatorData::Key(_) => (),
             OperatorData::Nop(_) => (),
+            OperatorData::NopCopy(_) => (),
             OperatorData::Select(_) => (),
             OperatorData::Regex(_) => (),
             OperatorData::Format(_) => (),
@@ -308,6 +310,7 @@ impl SessionOptions {
             OperatorData::Next(_) => (),
             OperatorData::End(_) => (),
             OperatorData::Nop(_) => (),
+            OperatorData::NopCopy(_) => (),
             OperatorData::Key(_) => (),
             OperatorData::Select(_) => (),
             OperatorData::Regex(_) => (),
@@ -351,6 +354,7 @@ impl SessionOptions {
                 setup_op_fork(chain, op_base, op, op_id)?
             }
             OperatorData::Nop(op) => setup_op_nop(chain, op_base, op, op_id)?,
+            OperatorData::NopCopy(_) => (),
             OperatorData::ForkCat(op) => {
                 setup_op_forkcat(chain, op_base, op, op_id)?
             }
@@ -484,6 +488,9 @@ impl SessionOptions {
             }
             OperatorData::Cast(_) => (),
             OperatorData::Nop(_) => (),
+            OperatorData::NopCopy(op) => {
+                on_op_nop_copy_liveness_computed(op, op_id, &ld)
+            }
             OperatorData::Count(_) => (),
             OperatorData::Print(_) => (),
             OperatorData::Join(_) => (),
