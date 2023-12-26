@@ -17,6 +17,7 @@ use crate::{
         call_concurrent::{
             setup_op_call_concurrent, setup_op_call_concurrent_liveness_data,
         },
+        end::setup_op_end,
         errors::OperatorSetupError,
         file_reader::setup_op_file_reader,
         fork::{setup_op_fork, setup_op_fork_liveness_data, OpFork},
@@ -33,7 +34,6 @@ use crate::{
         regex::setup_op_regex,
         select::{setup_op_select, setup_op_select_liveness_data},
         sequence::setup_op_sequence_concurrent_liveness_data,
-        up::setup_op_up,
     },
     scr_error::{
         result_into, ChainSetupError, ContextualizedScrError, ScrError,
@@ -183,22 +183,26 @@ impl SessionOptions {
                 self.chains.push(new_chain);
                 op_base_opts.chain_id = None;
             }
-            OperatorData::Up(up) => {
+            OperatorData::End(end) => {
                 if add_to_chain {
                     chain_opts.operators.pop();
                 }
-                up.start_chain = self.curr_chain;
-                for i in 0..up.step {
-                    if self.curr_chain == 0 {
-                        up.err_level = Some(i);
-                        break;
-                    }
-                    self.curr_chain =
-                        self.chains[self.curr_chain as usize].parent;
-                }
+                end.chain_id_before = self.curr_chain;
+                // the parent of the root chain is itself
+                self.curr_chain = self.chains[self.curr_chain as usize].parent;
+
                 op_base_opts.chain_id = Some(self.curr_chain);
-                up.subchain_count_after =
+                end.subchain_count_after =
                     self.chains[self.curr_chain as usize].subchain_count;
+                let subchain_count_after = end.subchain_count_after;
+                if let Some(&op_id) =
+                    self.chains[self.curr_chain as usize].operators.last()
+                {
+                    Self::on_operator_subchains_ended(
+                        &mut self.operator_data[op_id as usize],
+                        subchain_count_after,
+                    );
+                }
             }
             //TODO: do we need to do something here?
             OperatorData::Aggregator(agg) => {
@@ -287,14 +291,10 @@ impl SessionOptions {
         Ok(())
     }
     pub fn on_operator_subchains_ended(
-        sess: &mut Session,
-        chain_id: ChainId,
+        op: &mut OperatorData,
         sc_count_after: u32,
     ) {
-        let chain = &mut sess.chains[chain_id as usize];
-        match &mut sess.operator_data
-            [*chain.operators.last().unwrap() as usize]
-        {
+        match op {
             OperatorData::Fork(OpFork { subchains_end, .. })
             | OperatorData::ForkCat(OpForkCat { subchains_end, .. }) => {
                 *subchains_end = sc_count_after;
@@ -306,7 +306,7 @@ impl SessionOptions {
             OperatorData::Print(_) => (),
             OperatorData::Join(_) => (),
             OperatorData::Next(_) => (),
-            OperatorData::Up(_) => (),
+            OperatorData::End(_) => (),
             OperatorData::Nop(_) => (),
             OperatorData::Key(_) => (),
             OperatorData::Select(_) => (),
@@ -318,7 +318,7 @@ impl SessionOptions {
             OperatorData::Literal(_) => (),
             OperatorData::Sequence(_) => (),
             OperatorData::Aggregator(_) => (),
-            OperatorData::Explode(op) => op.on_subchains_added(sc_count_after),
+            OperatorData::Explode(_) => (),
             OperatorData::Custom(op) => op.on_subchains_added(sc_count_after),
         }
     }
@@ -331,11 +331,13 @@ impl SessionOptions {
             ChainId,
             BuildIdentityHasher,
         >,
+        sess_chains: &mut Vec<Chain>,
         string_store: &mut StringStore,
         sess_settings: &mut SessionSettings,
         op_id: OperatorId,
-        chain: &Chain,
+        chain_id: ChainId,
     ) -> Result<(), OperatorSetupError> {
+        let chain = &sess_chains[chain_id as usize];
         let op_base = &mut sess_operator_bases[op_id as usize];
         match &mut sess_operator_data[op_id as usize] {
             OperatorData::Regex(op) => setup_op_regex(string_store, op)?,
@@ -359,7 +361,9 @@ impl SessionOptions {
             OperatorData::Print(_) => (),
             OperatorData::Join(_) => (),
             OperatorData::Next(_) => unreachable!(),
-            OperatorData::Up(op) => setup_op_up(chain, op, op_id)?,
+            OperatorData::End(op) => {
+                setup_op_end(op, op_id)?;
+            }
             OperatorData::Call(op) => {
                 setup_op_call(sess_chain_labels, string_store, op, op_id)?
             }
@@ -398,10 +402,11 @@ impl SessionOptions {
                         sess_operator_bases,
                         sess_operator_data,
                         sess_chain_labels,
+                        sess_chains,
                         string_store,
                         sess_settings,
                         sub_op_id,
-                        chain,
+                        chain_id,
                     )?;
                 }
             }
@@ -411,23 +416,6 @@ impl SessionOptions {
     pub fn setup_operators(
         sess: &mut Session,
     ) -> Result<(), OperatorSetupError> {
-        for i in 0..sess.operator_bases.len() {
-            let op_base = &mut sess.operator_bases[i];
-            let Some(chain_id) = op_base.chain_id else {
-                continue;
-            };
-            if let OperatorData::Up(up) = &sess.operator_data[i] {
-                if up.err_level.is_none() {
-                    let sc_count_after = up.subchain_count_after;
-                    Self::on_operator_subchains_ended(
-                        sess,
-                        chain_id,
-                        sc_count_after,
-                    );
-                }
-                continue;
-            }
-        }
         let mut string_store = sess.string_store.write().unwrap();
         for op_idx in 0..sess.operator_bases.len() {
             let op_base = &mut sess.operator_bases[op_idx];
@@ -440,10 +428,11 @@ impl SessionOptions {
                 &mut sess.operator_bases,
                 &mut sess.operator_data,
                 &mut sess.chain_labels,
+                &mut sess.chains,
                 &mut string_store,
                 &mut sess.settings,
                 op_idx as OperatorId,
-                &mut sess.chains[chain_id as usize],
+                chain_id,
             )?;
         }
         Ok(())
@@ -505,7 +494,7 @@ impl SessionOptions {
                 setup_op_forkcat_liveness_data(sess, op, op_id, &ld)
             }
             OperatorData::Next(_) => (),
-            OperatorData::Up(_) => (),
+            OperatorData::End(_) => (),
             OperatorData::Key(_) => (),
             OperatorData::Select(op) => {
                 setup_op_select_liveness_data(op, op_id, &ld)

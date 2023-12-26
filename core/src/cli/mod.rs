@@ -7,6 +7,7 @@ use crate::{
         call_concurrent::parse_op_call_concurrent,
         cast::{argument_matches_op_cast, parse_op_cast},
         count::parse_op_count,
+        end::parse_op_end,
         errors::OperatorCreationError,
         explode::parse_op_explode,
         file_reader::{argument_matches_op_file_reader, parse_op_file_reader},
@@ -24,7 +25,6 @@ use crate::{
         regex::{parse_op_regex, try_match_regex_cli_argument},
         select::parse_op_select,
         sequence::parse_op_seq,
-        up::parse_op_up,
     },
     options::{
         argument::CliArgIdx, operator_base_options::OperatorBaseOptions,
@@ -485,7 +485,7 @@ fn try_parse_operator_data(
         "call" | "c" => Some(parse_op_call(arg.value, idx)?),
         "callcc" | "cc" => Some(parse_op_call_concurrent(arg.value, idx)?),
         "next" | "n" => Some(parse_op_next(arg.value, idx)?),
-        "up" | "u" => Some(parse_op_up(arg.value, idx)?),
+        "end" | "e" => Some(parse_op_end(arg.value, idx)?),
         _ => None,
     } {
         return Ok(Some(op));

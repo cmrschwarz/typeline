@@ -24,6 +24,7 @@ use super::{
     call_concurrent::OpCallConcurrent,
     cast::OpCast,
     count::OpCount,
+    end::OpEnd,
     errors::OperatorSetupError,
     explode::OpExplode,
     field_value_sink::OpFieldValueSink,
@@ -42,7 +43,6 @@ use super::{
     sequence::OpSequence,
     string_sink::OpStringSink,
     transform::{TransformData, TransformState},
-    up::OpUp,
 };
 
 pub type OperatorId = u32;
@@ -59,7 +59,7 @@ pub enum OperatorData {
     Fork(OpFork),
     ForkCat(OpForkCat),
     Next(OpNext),
-    Up(OpUp),
+    End(OpEnd),
     Key(OpKey),
     Select(OpSelect),
     Regex(OpRegex),
@@ -106,7 +106,7 @@ impl OperatorData {
             OperatorData::Literal(op) => op.default_op_name(),
             OperatorData::Join(op) => op.default_op_name(),
             OperatorData::Next(_) => "next".into(),
-            OperatorData::Up(_) => "up".into(),
+            OperatorData::End(_) => "end".into(),
             OperatorData::Count(_) => "count".into(),
             OperatorData::Cast(op) => op.default_op_name(),
             OperatorData::Call(_) => "call".into(),

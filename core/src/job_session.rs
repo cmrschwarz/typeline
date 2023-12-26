@@ -663,7 +663,7 @@ impl<'a> JobSession<'a> {
             }
             OperatorData::Key(_) => unreachable!(),
             OperatorData::Next(_) => unreachable!(),
-            OperatorData::Up(_) => unreachable!(),
+            OperatorData::End(_) => unreachable!(),
             OperatorData::Explode(op) => {
                 op.build_transform(jd, op_base, tf_state, prebound_outputs)
             }
@@ -947,7 +947,7 @@ impl<'a> JobSession<'a> {
                     );
                 }
                 OperatorData::Next(_) => (),
-                OperatorData::Up(_) => (),
+                OperatorData::End(_) => (),
                 OperatorData::Key(_) => (),
                 OperatorData::Select(_) => (),
                 OperatorData::Regex(_) => (),

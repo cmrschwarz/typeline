@@ -179,7 +179,7 @@ impl LivenessData {
             // separate BB so we don't want to allocate slots for that
             OperatorData::ForkCat(_) => 0,
             OperatorData::Next(_) => 0,
-            OperatorData::Up(_) => 0,
+            OperatorData::End(_) => 0,
             OperatorData::Key(_) => 1,
             OperatorData::Select(_) => 0,
             OperatorData::Regex(re) => {
@@ -266,7 +266,7 @@ impl LivenessData {
             OperatorData::Fork(_) => (),
             OperatorData::ForkCat(_) => (),
             OperatorData::Next(_) => (),
-            OperatorData::Up(_) => (),
+            OperatorData::End(_) => (),
             OperatorData::Nop(_) => (),
             OperatorData::Select(s) => {
                 self.add_var_name(s.key_interned.unwrap());
@@ -383,7 +383,7 @@ impl LivenessData {
             OperatorData::Print(_) => (),
             OperatorData::Join(_) => (),
             OperatorData::Next(_) => unreachable!(),
-            OperatorData::Up(_) => unreachable!(),
+            OperatorData::End(_) => unreachable!(),
             OperatorData::Key(_) => {}
             OperatorData::Select(_) => {}
             OperatorData::Regex(_) => {}
@@ -651,7 +651,7 @@ impl LivenessData {
                 flags.may_dup_or_drop = false;
             }
             OperatorData::Next(_) => unreachable!(),
-            OperatorData::Up(_) => unreachable!(),
+            OperatorData::End(_) => unreachable!(),
             OperatorData::Explode(op) => {
                 op.update_variable_liveness(self, bb_id, flags)
             }
