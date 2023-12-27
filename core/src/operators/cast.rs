@@ -220,7 +220,7 @@ pub fn handle_tf_cast(sess: &mut JobData, tf_id: TransformId, tfc: &TfCast) {
     while let Some(range) = iter.typed_range_fwd(
         &mut sess.match_set_mgr,
         usize::MAX,
-        field_value_flags::BYTES_ARE_UTF8,
+        field_value_flags::DEFAULT,
     ) {
         match range.base.data {
             TypedSlice::Error(errs) => {

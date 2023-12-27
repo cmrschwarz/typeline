@@ -37,6 +37,7 @@ use crate::{
         ref_iter::{
             AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter,
             RefAwareInlineTextIter, RefAwareStreamValueIter,
+            RefAwareTextBufferIter,
         },
         stream_value::{
             StreamValue, StreamValueData, StreamValueId, StreamValueManager,
@@ -1422,11 +1423,9 @@ pub fn setup_key_output_state(
         type_repr_format: k.opts.type_repr,
     };
 
-    while let Some(range) = iter.typed_range_fwd(
-        msm,
-        usize::MAX,
-        field_value_flags::BYTES_ARE_UTF8,
-    ) {
+    while let Some(range) =
+        iter.typed_range_fwd(msm, usize::MAX, field_value_flags::DEFAULT)
+    {
         match range.base.data {
             TypedSlice::TextInline(text) => {
                 for (v, rl, _offs) in
@@ -1440,6 +1439,16 @@ pub fn setup_key_output_state(
             TypedSlice::BytesInline(bytes) => {
                 for (v, rl, _offs) in
                     RefAwareInlineBytesIter::from_range(&range, bytes)
+                {
+                    iter_output_states(fmt, &mut output_index, rl, |o| {
+                        o.len += calc_fmt_len_ost(k, formatting_opts, o, v);
+                        o.contains_raw_bytes = true;
+                    });
+                }
+            }
+            TypedSlice::TextBuffer(text) => {
+                for (v, rl, _offs) in
+                    RefAwareTextBufferIter::from_range(&range, text)
                 {
                     iter_output_states(fmt, &mut output_index, rl, |o| {
                         o.len += calc_fmt_len_ost(k, formatting_opts, o, v);
@@ -1939,23 +1948,21 @@ fn setup_output_targets(
                 false,
             );
         } else if os.len <= INLINE_STR_MAX_LEN {
-            let flags = if os.contains_raw_bytes {
-                0
-            } else {
-                field_value_flags::BYTES_ARE_UTF8
-            };
             unsafe {
                 target = Some(NonNull::new_unchecked(
                     output_field.iter_hall.push_variable_sized_type_uninit(
-                        FieldValueRepr::BytesInline,
-                        flags | field_value_flags::SHARED_VALUE,
+                        if os.contains_raw_bytes {
+                            FieldValueRepr::BytesInline
+                        } else {
+                            FieldValueRepr::TextInline
+                        },
                         os.len,
                         os.run_len,
                         true,
                     ),
                 ));
             }
-        } else {
+        } else if os.contains_raw_bytes {
             let mut buf = Vec::with_capacity(os.len);
             unsafe {
                 target = Some(NonNull::new_unchecked(buf.as_mut_ptr()));
@@ -1965,6 +1972,16 @@ fn setup_output_targets(
             output_field
                 .iter_hall
                 .push_bytes_buffer(buf, os.run_len, true, false);
+        } else {
+            let mut buf = String::with_capacity(os.len);
+            unsafe {
+                target = Some(NonNull::new_unchecked(buf.as_mut_ptr()));
+            }
+            // just to be 'rust compliant' ...
+            buf.extend(std::iter::repeat('\0').take(os.len));
+            output_field
+                .iter_hall
+                .push_text_buffer(buf, os.run_len, true, false);
         };
         fmt.output_targets.push(OutputTarget {
             run_len: os.run_len,
@@ -2049,11 +2066,9 @@ fn write_fmt_key(
         is_stream_value: false,
         type_repr_format: k.opts.type_repr,
     };
-    while let Some(range) = iter.typed_range_fwd(
-        msm,
-        usize::MAX,
-        field_value_flags::BYTES_ARE_UTF8,
-    ) {
+    while let Some(range) =
+        iter.typed_range_fwd(msm, usize::MAX, field_value_flags::DEFAULT)
+    {
         match range.base.data {
             TypedSlice::TextInline(text) => {
                 for (v, rl, _offs) in
@@ -2072,6 +2087,20 @@ fn write_fmt_key(
             TypedSlice::BytesInline(bytes) => {
                 for (v, rl, _offs) in
                     RefAwareInlineBytesIter::from_range(&range, bytes)
+                {
+                    iter_output_targets(
+                        fmt,
+                        &mut output_index,
+                        rl as usize,
+                        |tgt| {
+                            write_formatted(k, formatting_opts, tgt, v);
+                        },
+                    );
+                }
+            }
+            TypedSlice::TextBuffer(text) => {
+                for (v, rl, _offs) in
+                    RefAwareTextBufferIter::from_range(&range, text)
                 {
                     iter_output_targets(
                         fmt,

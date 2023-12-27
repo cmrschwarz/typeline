@@ -314,6 +314,7 @@ impl TfSum {
                 | TypedSlice::Undefined(_)
                 | TypedSlice::BytesInline(_)
                 | TypedSlice::TextInline(_)
+                | TypedSlice::TextBuffer(_)
                 | TypedSlice::BytesBuffer(_)
                 | TypedSlice::Array(_)
                 | TypedSlice::Object(_)

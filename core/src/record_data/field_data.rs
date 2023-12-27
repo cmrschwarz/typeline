@@ -14,7 +14,7 @@ use super::{
     match_set::MatchSetManager,
     ref_iter::{
         AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter,
-        RefAwareInlineTextIter,
+        RefAwareInlineTextIter, RefAwareTextBufferIter,
     },
 };
 use crate::{
@@ -22,7 +22,7 @@ use crate::{
     utils::aligned_buf::AlignedBuf,
 };
 
-use self::field_value_flags::{BYTES_ARE_UTF8, SHARED_VALUE};
+use self::field_value_flags::SHARED_VALUE;
 pub use field_value_flags::FieldValueFlags;
 use num::{BigInt, BigRational};
 
@@ -50,6 +50,9 @@ pub enum FieldValueRepr {
     BigInt,
     Float,
     Rational,
+    TextInline,
+    TextBuffer,
+    TextFile,
     BytesInline,
     BytesBuffer,
     BytesFile,
@@ -62,6 +65,11 @@ pub enum FieldValueRepr {
     SlicedFieldReference,
     // ENHANCE //PERF (maybe): CustomDynamicLength, CustomDynamicLengthAligned
     // (store some subtype index at the start of the actual data)
+}
+
+#[derive(Clone)]
+pub struct TextBufferFile {
+    // TODO
 }
 
 #[derive(Clone)]
@@ -125,20 +133,16 @@ pub mod field_value_flags {
     pub const DELETED_OFFSET: FieldValueFlags = 7;
 
     pub const SHARED_VALUE: FieldValueFlags = 1 << SHARED_VALUE_OFFSET;
-    pub const BYTES_ARE_UTF8: FieldValueFlags = 1 << BYTES_ARE_UTF8_OFFSET;
     pub const DELETED: FieldValueFlags = 1 << DELETED_OFFSET;
     pub const SAME_VALUE_AS_PREVIOUS: FieldValueFlags =
         1 << SAME_VALUE_AS_PREVIOUS_OFFSET;
 
-    // flags relevant to the content of the field, not some meta information
-    pub const CONTENT_FLAGS: FieldValueFlags = BYTES_ARE_UTF8;
     pub const DEFAULT: FieldValueFlags = 0;
 }
 
 // used to constrain generic functions that accept data for field values
 pub unsafe trait FieldValueType: PartialEq + Any {
     const REPR: FieldValueRepr;
-    const FLAGS: FieldValueFlags = field_value_flags::DEFAULT;
     const DST: bool = false;
     const ZST: bool = false;
 }
@@ -151,7 +155,6 @@ pub unsafe trait FixedSizeFieldValueType:
 }
 unsafe impl<T: FixedSizeFieldValueType> FieldValueType for T {
     const REPR: FieldValueRepr = Self::REPR;
-    const FLAGS: FieldValueFlags = Self::FLAGS;
     const ZST: bool = Self::ZST;
     const DST: bool = false;
 }
@@ -182,6 +185,9 @@ unsafe impl FixedSizeFieldValueType for OperatorApplicationError {
 unsafe impl FixedSizeFieldValueType for Vec<u8> {
     const REPR: FieldValueRepr = FieldValueRepr::BytesBuffer;
 }
+unsafe impl FixedSizeFieldValueType for String {
+    const REPR: FieldValueRepr = FieldValueRepr::TextBuffer;
+}
 unsafe impl FixedSizeFieldValueType for Object {
     const REPR: FieldValueRepr = FieldValueRepr::Object;
 }
@@ -201,8 +207,11 @@ unsafe impl FixedSizeFieldValueType for CustomDataBox {
     const REPR: FieldValueRepr = FieldValueRepr::Custom;
 }
 unsafe impl FieldValueType for [u8] {
-    const FLAGS: FieldValueFlags = field_value_flags::BYTES_ARE_UTF8;
     const REPR: FieldValueRepr = FieldValueRepr::BytesInline;
+    const DST: bool = true;
+}
+unsafe impl FieldValueType for str {
+    const REPR: FieldValueRepr = FieldValueRepr::TextInline;
     const DST: bool = true;
 }
 
@@ -218,10 +227,13 @@ impl FieldValueRepr {
             | FieldValueRepr::FieldReference
             | FieldValueRepr::SlicedFieldReference
             | FieldValueRepr::StreamValueId
+            | FieldValueRepr::TextInline
             | FieldValueRepr::BytesInline => false,
             FieldValueRepr::BigInt
             | FieldValueRepr::Rational
             | FieldValueRepr::Error
+            | FieldValueRepr::TextBuffer
+            | FieldValueRepr::TextFile
             | FieldValueRepr::BytesBuffer
             | FieldValueRepr::BytesFile
             | FieldValueRepr::Object
@@ -292,6 +304,8 @@ impl FieldValueRepr {
                 size_of::<SlicedFieldReference>()
             }
             FieldValueRepr::Error => size_of::<OperatorApplicationError>(),
+            FieldValueRepr::TextBuffer => size_of::<String>(),
+            FieldValueRepr::TextFile => size_of::<TextBufferFile>(),
             FieldValueRepr::BytesBuffer => size_of::<Vec<u8>>(),
             FieldValueRepr::BytesFile => size_of::<BytesBufferFile>(),
             FieldValueRepr::Object => size_of::<Object>(),
@@ -299,11 +313,14 @@ impl FieldValueRepr {
             FieldValueRepr::Custom => size_of::<CustomDataBox>(),
             // should not be used for size calculations
             // but is used for example in is_zst
-            FieldValueRepr::BytesInline => usize::MAX,
+            FieldValueRepr::TextInline | FieldValueRepr::BytesInline => {
+                usize::MAX
+            }
         }
     }
     pub fn is_variable_sized_type(self) -> bool {
         self == FieldValueRepr::BytesInline
+            || self == FieldValueRepr::TextInline
     }
     pub fn is_zst(self) -> bool {
         self.size() == 0
@@ -326,6 +343,9 @@ impl FieldValueRepr {
             FieldValueRepr::FieldReference => "field_reference",
             FieldValueRepr::SlicedFieldReference => "sliced_field_reference",
             FieldValueRepr::Error => "error",
+            FieldValueRepr::TextInline => "text",
+            FieldValueRepr::TextBuffer => "text",
+            FieldValueRepr::TextFile => "text",
             FieldValueRepr::BytesInline => "bytes",
             FieldValueRepr::BytesBuffer => "bytes",
             FieldValueRepr::BytesFile => "bytes",
@@ -373,14 +393,6 @@ impl FieldValueFormat {
         self.flags &= !field_value_flags::SHARED_VALUE;
         self.flags |=
             (val as FieldValueFlags) << field_value_flags::SHARED_VALUE_OFFSET;
-    }
-    pub fn bytes_are_utf8(self) -> bool {
-        self.flags & field_value_flags::BYTES_ARE_UTF8 != 0
-    }
-    pub fn set_bytes_are_utf8(&mut self, val: bool) {
-        self.flags &= !field_value_flags::BYTES_ARE_UTF8;
-        self.flags |= (val as FieldValueFlags)
-            << field_value_flags::BYTES_ARE_UTF8_OFFSET;
     }
     #[inline(always)]
     pub fn leading_padding(self) -> usize {
@@ -617,7 +629,7 @@ impl FieldData {
         while let Some(tr) = iter.typed_range_fwd(
             match_set_mgr,
             usize::MAX,
-            field_value_flags::BYTES_ARE_UTF8 | field_value_flags::DELETED,
+            field_value_flags::DELETED,
         ) {
             copied_fields += tr.base.field_count;
             if tr.refs.is_none() {
@@ -667,8 +679,8 @@ impl FieldData {
                                 // PERF: maybe do a little rle here?
                                 fd.headers.push(FieldValueHeader {
                                     fmt: FieldValueFormat {
-                                        repr: FieldValueRepr::BytesInline,
-                                        flags: SHARED_VALUE | BYTES_ARE_UTF8,
+                                        repr: FieldValueRepr::TextInline,
+                                        flags: SHARED_VALUE,
                                         size: v.len() as FieldValueSize,
                                     },
                                     run_length: rl,
@@ -683,6 +695,15 @@ impl FieldData {
                         {
                             targets_applicator(&mut |fd| {
                                 fd.push_bytes(v, rl as usize, true, false);
+                            });
+                        }
+                    }
+                    TypedSlice::TextBuffer(data) => {
+                        for (v, rl, _offset) in
+                            RefAwareTextBufferIter::from_range(&tr, data)
+                        {
+                            targets_applicator(&mut |fd| {
+                                fd.push_str(v, rl as usize, true, false);
                             });
                         }
                     }
@@ -795,6 +816,9 @@ unsafe fn append_data(
             TypedSlice::BytesInline(v) => extend_raw(target_applicator, v),
             TypedSlice::TextInline(v) => {
                 extend_raw(target_applicator, v.as_bytes())
+            }
+            TypedSlice::TextBuffer(v) => {
+                extend_with_clones(target_applicator, v)
             }
             TypedSlice::BytesBuffer(v) => {
                 extend_with_clones(target_applicator, v)

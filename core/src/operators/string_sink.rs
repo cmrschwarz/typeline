@@ -20,6 +20,7 @@ use crate::{
         ref_iter::{
             AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter,
             RefAwareInlineTextIter, RefAwareStreamValueIter,
+            RefAwareTextBufferIter,
         },
         stream_value::{StreamValue, StreamValueData, StreamValueId},
         typed::TypedSlice,
@@ -316,7 +317,7 @@ pub fn handle_tf_string_sink(
     while let Some(range) = iter.typed_range_fwd(
         &mut sess.match_set_mgr,
         usize::MAX,
-        field_value_flags::BYTES_ARE_UTF8,
+        field_value_flags::DEFAULT,
     ) {
         match range.base.data {
             TypedSlice::TextInline(text) => {
@@ -331,6 +332,13 @@ pub fn handle_tf_string_sink(
                     RefAwareInlineBytesIter::from_range(&range, bytes)
                 {
                     push_bytes(op_id, field_pos, &mut out, v, rl as usize);
+                }
+            }
+            TypedSlice::TextBuffer(text) => {
+                for (v, rl, _offs) in
+                    RefAwareTextBufferIter::from_range(&range, text)
+                {
+                    push_str(&mut out, v, rl as usize);
                 }
             }
             TypedSlice::BytesBuffer(bytes) => {

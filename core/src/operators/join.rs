@@ -22,6 +22,7 @@ use crate::{
         ref_iter::{
             AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter,
             RefAwareInlineTextIter, RefAwareStreamValueIter,
+            RefAwareTextBufferIter,
         },
         stream_value::{
             StreamValue, StreamValueData, StreamValueId, StreamValueManager,
@@ -402,7 +403,7 @@ pub fn handle_tf_join(
         if let Some(range) = iter.typed_range_fwd(
             &mut sess.match_set_mgr,
             group_len_rem.min(batch_size_rem),
-            field_value_flags::BYTES_ARE_UTF8,
+            field_value_flags::DEFAULT,
         ) {
             match range.base.data {
                 TypedSlice::TextInline(text) => {
@@ -417,6 +418,13 @@ pub fn handle_tf_join(
                         RefAwareInlineBytesIter::from_range(&range, bytes)
                     {
                         push_bytes(join, sv_mgr, v, rl as usize);
+                    }
+                }
+                TypedSlice::TextBuffer(bytes) => {
+                    for (v, rl, _offs) in
+                        RefAwareTextBufferIter::from_range(&range, bytes)
+                    {
+                        push_str(join, sv_mgr, v, rl as usize);
                     }
                 }
                 TypedSlice::BytesBuffer(bytes) => {

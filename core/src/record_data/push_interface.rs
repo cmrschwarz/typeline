@@ -23,7 +23,7 @@ use super::{
 use crate::{
     operators::errors::OperatorApplicationError,
     record_data::field_data::{
-        field_value_flags::{BYTES_ARE_UTF8, DELETED, SHARED_VALUE},
+        field_value_flags::{DELETED, SHARED_VALUE},
         INLINE_STR_MAX_LEN,
     },
     utils::as_u8_slice,
@@ -36,7 +36,6 @@ pub unsafe trait PushInterface {
     unsafe fn push_variable_sized_type_uninit(
         &mut self,
         kind: FieldValueRepr,
-        flags: FieldValueFlags,
         data_len: usize,
         run_length: usize,
         try_header_rle: bool,
@@ -44,7 +43,6 @@ pub unsafe trait PushInterface {
     unsafe fn push_variable_sized_type_unchecked(
         &mut self,
         kind: FieldValueRepr,
-        flags: FieldValueFlags,
         data: &[u8],
         run_length: usize,
         try_header_rle: bool,
@@ -53,7 +51,6 @@ pub unsafe trait PushInterface {
     unsafe fn push_fixed_size_type_unchecked<T: PartialEq + FieldValueType>(
         &mut self,
         repr: FieldValueRepr,
-        flags: FieldValueFlags,
         data: T,
         run_length: usize,
         try_header_rle: bool,
@@ -77,7 +74,6 @@ pub unsafe trait PushInterface {
         unsafe {
             self.push_variable_sized_type_unchecked(
                 FieldValueRepr::BytesInline,
-                field_value_flags::DEFAULT,
                 data,
                 run_length,
                 try_header_rle,
@@ -95,8 +91,7 @@ pub unsafe trait PushInterface {
         assert!(data.len() < INLINE_STR_MAX_LEN);
         unsafe {
             self.push_variable_sized_type_unchecked(
-                FieldValueRepr::BytesInline,
-                field_value_flags::BYTES_ARE_UTF8,
+                FieldValueRepr::TextInline,
                 data.as_bytes(),
                 run_length,
                 try_header_rle,
@@ -115,7 +110,6 @@ pub unsafe trait PushInterface {
         unsafe {
             self.push_fixed_size_type_unchecked(
                 T::REPR,
-                field_value_flags::DEFAULT,
                 data,
                 run_length,
                 try_header_rle,
@@ -150,8 +144,7 @@ pub unsafe trait PushInterface {
     ) {
         unsafe {
             self.push_fixed_size_type_unchecked(
-                FieldValueRepr::BytesBuffer,
-                field_value_flags::BYTES_ARE_UTF8,
+                FieldValueRepr::TextBuffer,
                 data.as_bytes().to_vec(),
                 run_length,
                 try_header_rle,
@@ -169,7 +162,6 @@ pub unsafe trait PushInterface {
         unsafe {
             self.push_fixed_size_type_unchecked(
                 FieldValueRepr::BytesBuffer,
-                field_value_flags::DEFAULT,
                 data.to_vec(),
                 run_length,
                 try_header_rle,
@@ -234,9 +226,8 @@ pub unsafe trait PushInterface {
     ) {
         unsafe {
             self.push_fixed_size_type_unchecked(
-                FieldValueRepr::BytesBuffer,
-                field_value_flags::BYTES_ARE_UTF8,
-                data.into_bytes(),
+                FieldValueRepr::TextBuffer,
+                data,
                 run_length,
                 try_header_rle,
                 try_data_rle,
@@ -246,6 +237,20 @@ pub unsafe trait PushInterface {
     fn push_bytes_buffer(
         &mut self,
         data: Vec<u8>,
+        run_length: usize,
+        try_header_rle: bool,
+        try_data_rle: bool,
+    ) {
+        self.push_fixed_size_type(
+            data,
+            run_length,
+            try_header_rle,
+            try_data_rle,
+        );
+    }
+    fn push_text_buffer(
+        &mut self,
+        data: String,
         run_length: usize,
         try_header_rle: bool,
         try_data_rle: bool,
@@ -568,6 +573,17 @@ pub unsafe trait PushInterface {
                     );
                 }
             }
+            TypedSlice::TextBuffer(vals) => {
+                for (v, rl) in RefAwareTypedSliceIter::from_range(&range, vals)
+                {
+                    self.push_text_buffer(
+                        v.clone(),
+                        rl as usize,
+                        try_header_rle,
+                        try_data_rle,
+                    );
+                }
+            }
             TypedSlice::BytesBuffer(vals) => {
                 for (v, rl) in RefAwareTypedSliceIter::from_range(&range, vals)
                 {
@@ -660,6 +676,7 @@ pub unsafe trait PushInterface {
             }
             TypedSlice::BigInt(_)
             | TypedSlice::Rational(_)
+            | TypedSlice::TextBuffer(_)
             | TypedSlice::BytesBuffer(_)
             | TypedSlice::Array(_)
             | TypedSlice::Custom(_)
@@ -751,7 +768,6 @@ pub unsafe trait PushInterface {
     unsafe fn extend_unchecked<T: FieldValueType + Sized>(
         &mut self,
         repr: FieldValueRepr,
-        flags: FieldValueFlags,
         iter: impl Iterator<Item = T>,
         try_header_rle: bool,
         try_data_rle: bool,
@@ -765,7 +781,6 @@ pub unsafe trait PushInterface {
             unsafe {
                 self.push_fixed_size_type_unchecked(
                     repr,
-                    flags,
                     v,
                     1,
                     try_header_rle,
@@ -782,8 +797,7 @@ pub unsafe trait PushInterface {
     ) {
         unsafe {
             self.extend_unchecked(
-                FieldValueRepr::BytesBuffer,
-                field_value_flags::BYTES_ARE_UTF8,
+                FieldValueRepr::TextBuffer,
                 iter.map(|v| v.into_bytes()),
                 try_header_rle,
                 try_data_rle,
@@ -797,13 +811,7 @@ pub unsafe trait PushInterface {
         try_data_rle: bool,
     ) {
         unsafe {
-            self.extend_unchecked(
-                T::REPR,
-                T::FLAGS,
-                iter,
-                try_header_rle,
-                try_data_rle,
-            )
+            self.extend_unchecked(T::REPR, iter, try_header_rle, try_data_rle)
         }
     }
     fn extend_with_variable_sized_types<
@@ -820,7 +828,6 @@ pub unsafe trait PushInterface {
             unsafe {
                 self.push_variable_sized_type_unchecked(
                     T::REPR,
-                    T::FLAGS,
                     std::slice::from_raw_parts(
                         v as *const T as *const u8,
                         std::mem::size_of_val(v),
@@ -1077,7 +1084,6 @@ unsafe impl PushInterface for FieldData {
     unsafe fn push_variable_sized_type_uninit(
         &mut self,
         repr: FieldValueRepr,
-        flags: FieldValueFlags,
         data_len: usize,
         run_length: usize,
         try_header_rle: bool,
@@ -1087,21 +1093,15 @@ unsafe impl PushInterface for FieldData {
         self.field_count += run_length;
         let fmt = FieldValueFormat {
             repr,
-            flags: flags | SHARED_VALUE,
+            flags: SHARED_VALUE,
             size: data_len as FieldValueSize,
         };
-        const MUST_MATCH_HEADER_FLAGS: FieldValueFlags =
-            BYTES_ARE_UTF8 | DELETED;
 
         let mut header_rle = false;
 
         if try_header_rle {
             if let Some(h) = self.headers.last_mut() {
-                if h.repr == repr
-                    && h.size == fmt.size
-                    && h.flags & MUST_MATCH_HEADER_FLAGS
-                        == flags & MUST_MATCH_HEADER_FLAGS
-                {
+                if h.repr == repr && h.size == fmt.size && !h.deleted() {
                     header_rle = true;
                 }
             }
@@ -1128,7 +1128,6 @@ unsafe impl PushInterface for FieldData {
     unsafe fn push_variable_sized_type_unchecked(
         &mut self,
         kind: FieldValueRepr,
-        flags: FieldValueFlags,
         data: &[u8],
         run_length: usize,
         try_header_rle: bool,
@@ -1138,19 +1137,13 @@ unsafe impl PushInterface for FieldData {
         debug_assert!(data.len() <= INLINE_STR_MAX_LEN);
         self.field_count += run_length;
         let size = data.len() as FieldValueSize;
-        const MUST_MATCH_HEADER_FLAGS: FieldValueFlags =
-            BYTES_ARE_UTF8 | DELETED;
 
         let mut header_rle = false;
         let mut data_rle = false;
 
         if try_header_rle || try_data_rle {
             if let Some(h) = self.headers.last_mut() {
-                if h.repr == kind
-                    && h.size == size
-                    && h.flags & MUST_MATCH_HEADER_FLAGS
-                        == flags & MUST_MATCH_HEADER_FLAGS
-                {
+                if h.repr == kind && h.size == size && !h.deleted() {
                     header_rle = true;
                     if try_data_rle {
                         let len = h.size as usize;
@@ -1167,7 +1160,7 @@ unsafe impl PushInterface for FieldData {
         }
         let fmt = FieldValueFormat {
             repr: kind,
-            flags: flags | SHARED_VALUE,
+            flags: SHARED_VALUE,
             size,
         };
         unsafe {
@@ -1182,7 +1175,6 @@ unsafe impl PushInterface for FieldData {
     unsafe fn push_fixed_size_type_unchecked<T: PartialEq + FieldValueType>(
         &mut self,
         repr: FieldValueRepr,
-        flags: FieldValueFlags,
         data: T,
         run_length: usize,
         try_header_rle: bool,
@@ -1190,13 +1182,12 @@ unsafe impl PushInterface for FieldData {
     ) {
         assert!(repr == T::REPR);
         debug_assert!(repr.is_fixed_size_type());
-        const MUST_MATCH_HEADER_FLAGS: FieldValueFlags = DELETED;
         self.field_count += run_length;
         let mut data_rle = false;
         let mut header_rle = false;
         let fmt = FieldValueFormat {
             repr,
-            flags: flags | SHARED_VALUE,
+            flags: SHARED_VALUE,
             size: std::mem::size_of::<T>() as FieldValueSize,
         };
         if repr.needs_alignment() {
@@ -1216,10 +1207,7 @@ unsafe impl PushInterface for FieldData {
         }
         if try_header_rle || try_data_rle {
             if let Some(h) = self.headers.last_mut() {
-                if h.repr == repr
-                    && h.flags & MUST_MATCH_HEADER_FLAGS
-                        == flags & MUST_MATCH_HEADER_FLAGS
-                {
+                if h.repr == repr && !h.deleted() {
                     header_rle = true;
                     if try_data_rle {
                         data_rle = unsafe {
@@ -1419,7 +1407,6 @@ impl<'a, T: FieldValueType + PartialEq + Clone> FixedSizeTypeInserter<'a, T> {
         unsafe {
             self.raw.fd.push_fixed_size_type_unchecked(
                 T::REPR,
-                field_value_flags::DEFAULT,
                 v,
                 rl,
                 true,
@@ -1530,7 +1517,6 @@ impl<'a> RawVariableSizedTypeInserter<'a> {
 
 pub unsafe trait VariableSizeTypeInserter<'a>: Sized {
     const KIND: FieldValueRepr;
-    const FLAGS: FieldValueFlags = field_value_flags::DEFAULT;
     type ElementType: ?Sized;
     fn new(fd: &'a mut FieldData) -> Self;
     fn get_raw(&mut self) -> &mut RawVariableSizedTypeInserter<'a>;
@@ -1538,7 +1524,7 @@ pub unsafe trait VariableSizeTypeInserter<'a>: Sized {
     fn current_element_format(&mut self) -> FieldValueFormat {
         FieldValueFormat {
             repr: Self::KIND,
-            flags: Self::FLAGS,
+            flags: field_value_flags::DEFAULT,
             size: self.get_raw().expected_size as FieldValueSize,
         }
     }
@@ -1609,7 +1595,6 @@ pub unsafe trait VariableSizeTypeInserter<'a>: Sized {
         unsafe {
             self.get_raw().fd.push_variable_sized_type_unchecked(
                 Self::KIND,
-                Self::FLAGS,
                 v,
                 rl,
                 true,
@@ -1668,7 +1653,6 @@ pub struct InlineStringInserter<'a> {
 }
 unsafe impl<'a> VariableSizeTypeInserter<'a> for InlineStringInserter<'a> {
     const KIND: FieldValueRepr = FieldValueRepr::BytesInline;
-    const FLAGS: FieldValueFlags = field_value_flags::BYTES_ARE_UTF8;
     type ElementType = str;
     #[inline(always)]
     fn get_raw(&mut self) -> &mut RawVariableSizedTypeInserter<'a> {
@@ -1789,15 +1773,6 @@ impl<FD: DerefMut<Target = FieldData>> VaryingTypeInserter<FD> {
         self.fmt = fmt;
     }
     fn sanitize_format(fmt: FieldValueFormat) {
-        if fmt.bytes_are_utf8() {
-            assert!([
-                FieldValueRepr::BytesInline,
-                FieldValueRepr::BytesBuffer,
-                FieldValueRepr::BytesFile
-            ]
-            .contains(&fmt.repr));
-        }
-        assert!(fmt.flags & !field_value_flags::CONTENT_FLAGS == 0);
         if fmt.repr.is_variable_sized_type() {
             assert!(fmt.size <= INLINE_STR_MAX_LEN as FieldValueSize);
         }
@@ -1848,7 +1823,7 @@ impl<FD: DerefMut<Target = FieldData>> VaryingTypeInserter<FD> {
             self.fd.add_header_for_multiple_values(
                 self.fmt,
                 self.count,
-                field_value_flags::CONTENT_FLAGS,
+                field_value_flags::DEFAULT,
             );
             self.fd.field_count += self.count;
         }
@@ -1862,14 +1837,13 @@ unsafe impl<FD: DerefMut<Target = FieldData>> PushInterface
     unsafe fn push_variable_sized_type_uninit(
         &mut self,
         kind: FieldValueRepr,
-        flags: FieldValueFlags,
         data_len: usize,
         run_length: usize,
         try_header_rle: bool,
     ) -> *mut u8 {
         let fmt = FieldValueFormat {
             repr: kind,
-            flags,
+            flags: field_value_flags::DEFAULT,
             size: data_len as FieldValueSize,
         };
         if run_length > 1 || self.fmt != fmt || !try_header_rle {
@@ -1878,7 +1852,6 @@ unsafe impl<FD: DerefMut<Target = FieldData>> PushInterface
                 let res = unsafe {
                     self.fd.push_variable_sized_type_uninit(
                         kind,
-                        fmt.flags,
                         data_len,
                         run_length,
                         try_header_rle,
@@ -1906,7 +1879,6 @@ unsafe impl<FD: DerefMut<Target = FieldData>> PushInterface
     unsafe fn push_variable_sized_type_unchecked(
         &mut self,
         repr: FieldValueRepr,
-        flags: FieldValueFlags,
         data: &[u8],
         run_length: usize,
         try_header_rle: bool,
@@ -1917,7 +1889,6 @@ unsafe impl<FD: DerefMut<Target = FieldData>> PushInterface
                 self.commit();
                 self.fd.push_variable_sized_type_unchecked(
                     repr,
-                    flags,
                     data,
                     run_length,
                     try_header_rle,
@@ -1925,14 +1896,13 @@ unsafe impl<FD: DerefMut<Target = FieldData>> PushInterface
                 );
                 self.drop_and_reserve_reasonable_unchecked(FieldValueFormat {
                     repr,
-                    flags,
+                    flags: field_value_flags::DEFAULT,
                     size: data.len() as FieldValueSize,
                 });
                 return;
             }
             let data_ptr = self.push_variable_sized_type_uninit(
                 repr,
-                flags,
                 data.len(),
                 run_length,
                 try_header_rle,
@@ -1943,7 +1913,6 @@ unsafe impl<FD: DerefMut<Target = FieldData>> PushInterface
     unsafe fn push_fixed_size_type_unchecked<T: PartialEq + FieldValueType>(
         &mut self,
         repr: FieldValueRepr,
-        flags: FieldValueFlags,
         data: T,
         run_length: usize,
         try_header_rle: bool,
@@ -1951,7 +1920,7 @@ unsafe impl<FD: DerefMut<Target = FieldData>> PushInterface
     ) {
         let fmt = FieldValueFormat {
             repr,
-            flags,
+            flags: field_value_flags::DEFAULT,
             size: std::mem::size_of::<T>() as FieldValueSize,
         };
         if run_length > 1 || self.fmt != fmt || !try_header_rle || try_data_rle

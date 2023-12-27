@@ -154,8 +154,9 @@ impl TfFlatten {
                 | TypedSlice::StreamValueId(_)
                 | TypedSlice::BigInt(_)
                 | TypedSlice::Rational(_)
-                | TypedSlice::BytesInline(_)
                 | TypedSlice::TextInline(_)
+                | TypedSlice::TextBuffer(_)
+                | TypedSlice::BytesInline(_)
                 | TypedSlice::BytesBuffer(_)
                 | TypedSlice::Custom(_)
                 | TypedSlice::Error(_) => {

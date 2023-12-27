@@ -211,6 +211,7 @@ impl Transform for TfExplode {
                 | TypedSlice::Rational(_)
                 | TypedSlice::BytesInline(_)
                 | TypedSlice::TextInline(_)
+                | TypedSlice::TextBuffer(_)
                 | TypedSlice::BytesBuffer(_)
                 | TypedSlice::Array(_)
                 | TypedSlice::Custom(_)

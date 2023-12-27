@@ -16,7 +16,7 @@ use crate::{
         ref_iter::{
             AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter,
             RefAwareInlineTextIter, RefAwareStreamValueIter,
-            RefAwareUnfoldIterRunLength,
+            RefAwareTextBufferIter, RefAwareUnfoldIterRunLength,
         },
         stream_value::{StreamValue, StreamValueData, StreamValueId},
         typed::TypedSlice,
@@ -170,7 +170,7 @@ pub fn handle_tf_print_raw(
     'iter: while let Some(range) = iter.typed_range_fwd(
         &mut sess.match_set_mgr,
         usize::MAX,
-        field_value_flags::BYTES_ARE_UTF8,
+        field_value_flags::DEFAULT,
     ) {
         match range.base.data {
             TypedSlice::TextInline(text) => {
@@ -187,6 +187,15 @@ pub fn handle_tf_print_raw(
                     .unfold_rl()
                 {
                     stdout.write_all(v)?;
+                    stdout.write_all(b"\n")?;
+                    *handled_field_count += 1;
+                }
+            }
+            TypedSlice::TextBuffer(bytes) => {
+                for v in RefAwareTextBufferIter::from_range(&range, bytes)
+                    .unfold_rl()
+                {
+                    stdout.write_all(v.as_bytes())?;
                     stdout.write_all(b"\n")?;
                     *handled_field_count += 1;
                 }

@@ -5,8 +5,8 @@ use num::{BigInt, BigRational};
 use super::{
     custom_data::CustomDataBox,
     field_data::{
-        field_value_flags, FieldValueFlags, FieldValueFormat,
-        FieldValueHeader, FieldValueRepr, FieldValueType, RunLength,
+        FieldValueFormat, FieldValueHeader, FieldValueRepr, FieldValueType,
+        RunLength, TextBufferFile,
     },
     field_value::{
         Array, FieldReference, Null, Object, SlicedFieldReference, Undefined,
@@ -28,8 +28,9 @@ pub enum TypedValue<'a> {
     BigInt(&'a BigInt),
     Float(&'a f64),
     Rational(&'a BigRational),
-    BytesInline(&'a [u8]),
     TextInline(&'a str),
+    BytesInline(&'a [u8]),
+    TextBuffer(&'a String),
     BytesBuffer(&'a Vec<u8>),
     Array(&'a Array),
     Object(&'a Object),
@@ -50,18 +51,13 @@ impl<'a> TypedValue<'a> {
             match fmt.repr {
                 FieldValueRepr::Null => TypedValue::Null(Null),
                 FieldValueRepr::Undefined => TypedValue::Undefined(Undefined),
-                FieldValueRepr::BytesInline => {
-                    if fmt.flags & field_value_flags::BYTES_ARE_UTF8 != 0 {
-                        TypedValue::TextInline(std::str::from_utf8_unchecked(
-                            to_slice(fdr, data_begin, fmt.size as usize),
-                        ))
-                    } else {
-                        TypedValue::BytesInline(to_slice(
-                            fdr,
-                            data_begin,
-                            fmt.size as usize,
-                        ))
-                    }
+                FieldValueRepr::BytesInline => TypedValue::BytesInline(
+                    to_slice(fdr, data_begin, fmt.size as usize),
+                ),
+                FieldValueRepr::TextInline => {
+                    TypedValue::TextInline(std::str::from_utf8_unchecked(
+                        to_slice(fdr, data_begin, fmt.size as usize),
+                    ))
                 }
                 FieldValueRepr::Int => {
                     TypedValue::Int(to_ref(fdr, data_begin))
@@ -99,7 +95,11 @@ impl<'a> TypedValue<'a> {
                 FieldValueRepr::BytesBuffer => {
                     TypedValue::BytesBuffer(to_ref(fdr, data_begin))
                 }
+                FieldValueRepr::TextBuffer => {
+                    TypedValue::TextBuffer(to_ref(fdr, data_begin))
+                }
                 FieldValueRepr::BytesFile => todo!(),
+                FieldValueRepr::TextFile => todo!(),
             }
         }
     }
@@ -122,8 +122,9 @@ impl<'a> TypedValue<'a> {
                 TypedSlice::SlicedFieldReference(from_ref(v))
             }
             TypedValue::Error(v) => TypedSlice::Error(from_ref(v)),
-            TypedValue::BytesInline(v) => TypedSlice::BytesInline(v),
             TypedValue::TextInline(v) => TypedSlice::TextInline(v),
+            TypedValue::BytesInline(v) => TypedSlice::BytesInline(v),
+            TypedValue::TextBuffer(v) => TypedSlice::TextBuffer(from_ref(v)),
             TypedValue::BytesBuffer(v) => TypedSlice::BytesBuffer(from_ref(v)),
             TypedValue::Object(v) => TypedSlice::Object(from_ref(v)),
             TypedValue::Array(v) => TypedSlice::Array(from_ref(v)),
@@ -138,6 +139,7 @@ impl<'a> TypedValue<'a> {
             TypedValue::BytesInline(v) => TypedValue::BytesInline(&v[range]),
             TypedValue::TextInline(v) => TypedValue::TextInline(&v[range]),
             TypedValue::BytesBuffer(v) => TypedValue::BytesInline(&v[range]),
+            TypedValue::TextBuffer(v) => TypedValue::TextInline(&v[range]),
             TypedValue::Null(_)
             | TypedValue::Undefined(_)
             | TypedValue::Int(_)
@@ -188,8 +190,9 @@ pub enum TypedSlice<'a> {
     BigInt(&'a [BigInt]),
     Float(&'a [f64]),
     Rational(&'a [BigRational]),
-    BytesInline(&'a [u8]),
     TextInline(&'a str),
+    TextBuffer(&'a [String]),
+    BytesInline(&'a [u8]),
     BytesBuffer(&'a [Vec<u8>]),
     Object(&'a [Object]),
     Array(&'a [Array]),
@@ -231,7 +234,6 @@ impl<'a> TypedSlice<'a> {
     pub unsafe fn new<R: FieldDataRef<'a>>(
         fdr: R,
         fmt: FieldValueFormat,
-        flag_mask: FieldValueFlags,
         data_begin: usize,
         data_end: usize,
         field_count: usize,
@@ -244,20 +246,13 @@ impl<'a> TypedSlice<'a> {
                 FieldValueRepr::Null => {
                     TypedSlice::Null(to_zst_slice(field_count))
                 }
-                FieldValueRepr::BytesInline => {
-                    if fmt.flags
-                        & flag_mask
-                        & field_value_flags::BYTES_ARE_UTF8
-                        != 0
-                    {
-                        TypedSlice::TextInline(std::str::from_utf8_unchecked(
-                            to_slice(fdr, data_begin, data_end),
-                        ))
-                    } else {
-                        TypedSlice::BytesInline(to_slice(
-                            fdr, data_begin, data_end,
-                        ))
-                    }
+                FieldValueRepr::BytesInline => TypedSlice::BytesInline(
+                    to_slice(fdr, data_begin, data_end),
+                ),
+                FieldValueRepr::TextInline => {
+                    TypedSlice::TextInline(std::str::from_utf8_unchecked(
+                        to_slice(fdr, data_begin, data_end),
+                    ))
                 }
                 FieldValueRepr::Int => {
                     TypedSlice::Int(to_slice(fdr, data_begin, data_end))
@@ -297,7 +292,12 @@ impl<'a> TypedSlice<'a> {
                 FieldValueRepr::BytesBuffer => TypedSlice::BytesBuffer(
                     to_slice(fdr, data_begin, data_end),
                 ),
-                FieldValueRepr::BytesFile => todo!(),
+                FieldValueRepr::TextBuffer => {
+                    TypedSlice::TextBuffer(to_slice(fdr, data_begin, data_end))
+                }
+                FieldValueRepr::BytesFile | FieldValueRepr::TextFile => {
+                    todo!()
+                }
             }
         }
     }
@@ -317,6 +317,7 @@ impl<'a> TypedSlice<'a> {
                 TypedSlice::BytesInline(v) => v,
                 TypedSlice::TextInline(v) => v.as_bytes(),
                 TypedSlice::BytesBuffer(v) => slice_as_bytes(v),
+                TypedSlice::TextBuffer(v) => slice_as_bytes(v),
                 TypedSlice::Object(v) => slice_as_bytes(v),
                 TypedSlice::Array(v) => slice_as_bytes(v),
                 TypedSlice::Custom(v) => slice_as_bytes(v),
@@ -340,6 +341,7 @@ impl<'a> TypedSlice<'a> {
             TypedSlice::BytesInline(_) => FieldValueRepr::BytesInline,
             TypedSlice::TextInline(_) => FieldValueRepr::BytesInline,
             TypedSlice::BytesBuffer(_) => FieldValueRepr::BytesBuffer,
+            TypedSlice::TextBuffer(_) => FieldValueRepr::TextBuffer,
             TypedSlice::Object(_) => FieldValueRepr::Object,
             TypedSlice::Array(_) => FieldValueRepr::Array,
             TypedSlice::Custom(_) => FieldValueRepr::Custom,
@@ -359,6 +361,7 @@ impl<'a> TypedSlice<'a> {
             TypedSlice::Error(v) => v.len(),
             TypedSlice::BytesInline(v) => v.len(),
             TypedSlice::TextInline(v) => v.len(),
+            TypedSlice::TextBuffer(v) => v.len(),
             TypedSlice::BytesBuffer(v) => v.len(),
             TypedSlice::Object(v) => v.len(),
             TypedSlice::Array(v) => v.len(),
@@ -391,6 +394,11 @@ impl<'a> TypedSlice<'a> {
                 FieldValueRepr::Float => (),
                 FieldValueRepr::Rational => {
                     drop_slice::<BigRational>(ptr, len)
+                }
+                FieldValueRepr::TextInline => (),
+                FieldValueRepr::TextBuffer => drop_slice::<String>(ptr, len),
+                FieldValueRepr::TextFile => {
+                    drop_slice::<TextBufferFile>(ptr, len)
                 }
                 FieldValueRepr::BytesInline => (),
                 FieldValueRepr::BytesBuffer => drop_slice::<Vec<u8>>(ptr, len),
@@ -425,7 +433,6 @@ pub struct TypedRange<'a> {
 impl<'a> TypedRange<'a> {
     pub unsafe fn new<R: FieldDataRef<'a>>(
         fdr: R,
-        flag_mask: FieldValueFlags,
         fmt: FieldValueFormat,
         data_begin: usize,
         data_end: usize,
@@ -437,14 +444,7 @@ impl<'a> TypedRange<'a> {
     ) -> TypedRange<'a> {
         let headers = &fdr.headers()[header_begin..header_end];
         let data = unsafe {
-            TypedSlice::new(
-                fdr,
-                fmt,
-                flag_mask,
-                data_begin,
-                data_end,
-                field_count,
-            )
+            TypedSlice::new(fdr, fmt, data_begin, data_end, field_count)
         };
         TypedRange {
             headers,

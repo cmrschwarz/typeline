@@ -528,7 +528,6 @@ unsafe impl PushInterface for IterHall {
     unsafe fn push_variable_sized_type_unchecked(
         &mut self,
         kind: FieldValueRepr,
-        flags: FieldValueFlags,
         data: &[u8],
         run_length: usize,
         try_header_rle: bool,
@@ -537,7 +536,6 @@ unsafe impl PushInterface for IterHall {
         unsafe {
             self.get_owned_data().push_variable_sized_type_unchecked(
                 kind,
-                flags,
                 data,
                 run_length,
                 try_header_rle,
@@ -549,7 +547,6 @@ unsafe impl PushInterface for IterHall {
     unsafe fn push_fixed_size_type_unchecked<T: PartialEq + FieldValueType>(
         &mut self,
         kind: FieldValueRepr,
-        flags: FieldValueFlags,
         data: T,
         run_length: usize,
         try_header_rle: bool,
@@ -558,7 +555,6 @@ unsafe impl PushInterface for IterHall {
         unsafe {
             self.get_owned_data().push_fixed_size_type_unchecked(
                 kind,
-                flags,
                 data,
                 run_length,
                 try_header_rle,
@@ -585,7 +581,6 @@ unsafe impl PushInterface for IterHall {
     unsafe fn push_variable_sized_type_uninit(
         &mut self,
         kind: FieldValueRepr,
-        flags: FieldValueFlags,
         data_len: usize,
         run_length: usize,
         try_header_rle: bool,
@@ -593,7 +588,6 @@ unsafe impl PushInterface for IterHall {
         unsafe {
             self.get_owned_data().push_variable_sized_type_uninit(
                 kind,
-                flags,
                 data_len,
                 run_length,
                 try_header_rle,

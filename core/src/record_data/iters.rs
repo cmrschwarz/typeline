@@ -607,7 +607,6 @@ impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for Iter<'a, R> {
         unsafe {
             ValidTypedRange(TypedRange::new(
                 &self.fdr,
-                flag_mask,
                 fmt,
                 data_begin,
                 data_end,
@@ -649,7 +648,6 @@ impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for Iter<'a, R> {
         unsafe {
             ValidTypedRange(TypedRange::new(
                 &self.fdr,
-                flag_mask,
                 fmt,
                 data_start,
                 data_end,

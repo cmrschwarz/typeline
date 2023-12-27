@@ -292,7 +292,6 @@ impl<'a, R: ReferenceFieldValueType> RefIter<'a, R> {
                     data: TypedSlice::new(
                         self.data_iter.field_data_ref(),
                         (*header_ref).fmt,
-                        flag_mask,
                         data_start,
                         self.data_iter.get_prev_field_data_end(),
                         field_count,
@@ -525,10 +524,7 @@ impl<'a, I: FieldIterator<'a>> AutoDerefIter<'a, I> {
                     self.iter.typed_field_bwd(limit);
                     let range = self
                         .iter
-                        .typed_range_fwd(
-                            limit,
-                            field_value_flags::CONTENT_FLAGS,
-                        )
+                        .typed_range_fwd(limit, field_value_flags::DEFAULT)
                         .unwrap();
                     self.apply_field_refs_range(
                         match_set_mgr,
@@ -549,7 +545,7 @@ impl<'a, I: FieldIterator<'a>> AutoDerefIter<'a, I> {
         &mut self,
         msm: &'_ mut MatchSetManager,
     ) -> Option<RefAwareTypedRange<'a>> {
-        self.typed_range_fwd(msm, usize::MAX, field_value_flags::CONTENT_FLAGS)
+        self.typed_range_fwd(msm, usize::MAX, field_value_flags::DEFAULT)
     }
     // using `next_range` and nesting RefAwareTypedSliceIters is significantly
     // faster. for example, `scr seqn=1G sum p` gets a 5x speedup
@@ -738,6 +734,71 @@ impl<'a> RefAwareBytesBufferIter<'a> {
 
 impl<'a> Iterator for RefAwareBytesBufferIter<'a> {
     type Item = (&'a [u8], RunLength, usize);
+    #[inline(always)]
+    fn next(&mut self) -> Option<Self::Item> {
+        match &mut self.refs {
+            Some(AnyRefSliceIter::FieldRef(refs_iter)) => {
+                let (_fr, rl_ref) = refs_iter.peek()?;
+                let (data, rl_data) = self.iter.peek()?;
+                let run_len = rl_ref.min(rl_data);
+                self.iter.next_n_fields(run_len as usize);
+                refs_iter.next_n_fields(run_len as usize);
+                Some((&data, run_len, 0))
+            }
+            Some(AnyRefSliceIter::SlicedFieldRef(refs_iter)) => {
+                let (fr, rl_ref) = refs_iter.peek()?;
+                let (data, rl_data) = self.iter.peek()?;
+                let run_len = rl_ref.min(rl_data);
+                self.iter.next_n_fields(run_len as usize);
+                refs_iter.next_n_fields(run_len as usize);
+                Some((&data[fr.begin..fr.end], run_len, fr.begin))
+            }
+            None => {
+                let (data, rl) = self.iter.next()?;
+                Some((data, rl, 0))
+            }
+        }
+    }
+}
+
+pub struct RefAwareTextBufferIter<'a> {
+    iter: TypedSliceIter<'a, String>,
+    refs: Option<AnyRefSliceIter<'a>>,
+}
+
+impl<'a> RefAwareTextBufferIter<'a> {
+    pub unsafe fn new(
+        values: &'a [String],
+        headers: &'a [FieldValueHeader],
+        first_oversize: RunLength,
+        last_oversize: RunLength,
+        refs: Option<AnyRefSliceIter<'a>>,
+    ) -> Self {
+        Self {
+            iter: unsafe {
+                TypedSliceIter::new(
+                    values,
+                    headers,
+                    first_oversize,
+                    last_oversize,
+                )
+            },
+            refs,
+        }
+    }
+    pub fn from_range(
+        range: &'a RefAwareTypedRange,
+        values: &'a [String],
+    ) -> Self {
+        Self {
+            iter: TypedSliceIter::from_range(&range.base, values),
+            refs: range.refs.clone(),
+        }
+    }
+}
+
+impl<'a> Iterator for RefAwareTextBufferIter<'a> {
+    type Item = (&'a str, RunLength, usize);
     #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
         match &mut self.refs {
@@ -1000,7 +1061,7 @@ mod ref_iter_tests {
                 .typed_range_fwd(
                     &mut match_set_mgr,
                     usize::MAX,
-                    field_value_flags::BYTES_ARE_UTF8,
+                    field_value_flags::DEFAULT,
                 )
                 .unwrap();
             let iter = match range.base.data {

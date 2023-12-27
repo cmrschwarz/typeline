@@ -25,6 +25,7 @@ use crate::{
         ref_iter::{
             AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter,
             RefAwareInlineTextIter, RefAwareStreamValueIter,
+            RefAwareTextBufferIter,
         },
         stream_value::{StreamValueData, StreamValueId},
         typed::TypedSlice,
@@ -811,7 +812,7 @@ pub fn handle_tf_regex(
     'batch: while let Some(range) = iter.typed_range_fwd(
         &mut sess.match_set_mgr,
         usize::MAX,
-        field_value_flags::BYTES_ARE_UTF8,
+        field_value_flags::DEFAULT,
     ) {
         let mut rmis = RegexMatchInnerState {
             batch_state: &mut rbs,
@@ -855,6 +856,28 @@ pub fn handle_tf_regex(
                         rl,
                         offset,
                     );
+                    if bse {
+                        break 'batch;
+                    }
+                }
+            }
+            TypedSlice::TextBuffer(bytes) => {
+                for (v, rl, offset) in
+                    RefAwareTextBufferIter::from_range(&range, bytes)
+                {
+                    if let Some(tr) = &mut text_regex {
+                        bse = match_regex_inner::<true, _>(
+                            &mut rmis, tr, v, rl, offset,
+                        );
+                    } else {
+                        bse = match_regex_inner::<true, _>(
+                            &mut rmis,
+                            &mut bytes_regex,
+                            v.as_bytes(),
+                            rl,
+                            offset,
+                        );
+                    };
                     if bse {
                         break 'batch;
                     }
