@@ -9,7 +9,8 @@ use std::{
 use super::{
     custom_data::CustomDataBox,
     field_value::{
-        Array, FieldReference, Null, Object, SlicedFieldReference, Undefined,
+        Array, FieldReference, FieldValueKind, Null, Object,
+        SlicedFieldReference, Undefined,
     },
     match_set::MatchSetManager,
     ref_iter::{
@@ -343,16 +344,39 @@ impl FieldValueRepr {
             FieldValueRepr::FieldReference => "field_reference",
             FieldValueRepr::SlicedFieldReference => "sliced_field_reference",
             FieldValueRepr::Error => "error",
-            FieldValueRepr::TextInline => "text",
-            FieldValueRepr::TextBuffer => "text",
-            FieldValueRepr::TextFile => "text",
-            FieldValueRepr::BytesInline => "bytes",
-            FieldValueRepr::BytesBuffer => "bytes",
-            FieldValueRepr::BytesFile => "bytes",
+            FieldValueRepr::TextInline => "text_inline",
+            FieldValueRepr::TextBuffer => "text_buffer",
+            FieldValueRepr::TextFile => "text_file",
+            FieldValueRepr::BytesInline => "bytes_inline",
+            FieldValueRepr::BytesBuffer => "bytes_buffer",
+            FieldValueRepr::BytesFile => "bytes_file",
             FieldValueRepr::Object => "object",
             FieldValueRepr::Array => "array",
             FieldValueRepr::Custom => "custom",
         }
+    }
+    pub const fn kind(&self) -> Option<FieldValueKind> {
+        Some(match self {
+            FieldValueRepr::Undefined => FieldValueKind::Undefined,
+            FieldValueRepr::Null => FieldValueKind::Null,
+            FieldValueRepr::Int => FieldValueKind::Int,
+            FieldValueRepr::BigInt => FieldValueKind::BigInt,
+            FieldValueRepr::Float => FieldValueKind::Float,
+            FieldValueRepr::Rational => FieldValueKind::Rational,
+            FieldValueRepr::StreamValueId => return None,
+            FieldValueRepr::FieldReference => return None,
+            FieldValueRepr::SlicedFieldReference => return None,
+            FieldValueRepr::Error => FieldValueKind::Error,
+            FieldValueRepr::TextInline => FieldValueKind::Text,
+            FieldValueRepr::TextBuffer => FieldValueKind::Text,
+            FieldValueRepr::TextFile => FieldValueKind::Text,
+            FieldValueRepr::BytesInline => FieldValueKind::Bytes,
+            FieldValueRepr::BytesBuffer => FieldValueKind::Bytes,
+            FieldValueRepr::BytesFile => FieldValueKind::Bytes,
+            FieldValueRepr::Object => FieldValueKind::Object,
+            FieldValueRepr::Array => FieldValueKind::Array,
+            FieldValueRepr::Custom => FieldValueKind::Custom,
+        })
     }
     pub fn to_format(&self) -> FieldValueFormat {
         FieldValueFormat {

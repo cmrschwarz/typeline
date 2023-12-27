@@ -20,7 +20,7 @@ use crate::{
         },
         session_options::SessionOptions,
     },
-    record_data::field_data::FieldValueRepr,
+    record_data::{field_data::FieldValueRepr, field_value::FieldValueKind},
 };
 
 #[derive(Error, Debug, Clone)]
@@ -51,7 +51,7 @@ pub struct ReplDisabledError {
 pub struct CollectTypeMissmatch {
     pub index: usize,
     pub expected: FieldValueRepr,
-    pub got: FieldValueRepr,
+    pub got: FieldValueKind,
 }
 
 #[derive(Error, Debug, Clone)]

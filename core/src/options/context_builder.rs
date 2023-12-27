@@ -154,7 +154,7 @@ impl ContextBuilder {
                     CollectTypeMissmatch {
                         index: i,
                         expected: T::REPR,
-                        got: kind.to_preferred_data_repr(),
+                        got: kind,
                     }
                     .into(),
                     None,

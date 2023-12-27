@@ -1,5 +1,6 @@
 use std::{
     any::Any,
+    fmt::Display,
     io::Write,
     mem::ManuallyDrop,
     ops::{Add, AddAssign, Div, MulAssign, Rem, Sub},
@@ -27,7 +28,7 @@ use super::{
 // the different logical data types
 // irrespective of representation in memory, see FieldDataRepr for that
 
-#[derive(PartialEq, Eq, Clone, Copy)]
+#[derive(PartialEq, Eq, Clone, Copy, Debug)]
 pub enum FieldValueKind {
     Undefined,
     Null,
@@ -43,6 +44,12 @@ pub enum FieldValueKind {
     FieldReference,
     SlicedFieldReference,
     Custom,
+}
+
+impl Display for FieldValueKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.to_str())
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -169,7 +176,7 @@ impl FieldValueKind {
             FieldValueKind::Rational => FieldValueRepr::Rational,
             FieldValueKind::Error => FieldValueRepr::Error,
             FieldValueKind::Bytes => FieldValueRepr::BytesInline,
-            FieldValueKind::Text => FieldValueRepr::BytesInline,
+            FieldValueKind::Text => FieldValueRepr::TextInline,
             FieldValueKind::Object => FieldValueRepr::Object,
             FieldValueKind::Custom => FieldValueRepr::Custom,
             FieldValueKind::Array => FieldValueRepr::Array,
@@ -189,7 +196,7 @@ impl FieldValueKind {
             FieldValueKind::Rational => FieldValueRepr::Rational,
             FieldValueKind::Error => FieldValueRepr::Error,
             FieldValueKind::Bytes => FieldValueRepr::BytesBuffer,
-            FieldValueKind::Text => FieldValueRepr::BytesBuffer,
+            FieldValueKind::Text => FieldValueRepr::TextBuffer,
             FieldValueKind::Object => FieldValueRepr::Object,
             FieldValueKind::Custom => FieldValueRepr::Custom,
             FieldValueKind::Array => FieldValueRepr::Array,

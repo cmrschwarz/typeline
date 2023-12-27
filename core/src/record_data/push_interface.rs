@@ -145,7 +145,7 @@ pub unsafe trait PushInterface {
         unsafe {
             self.push_fixed_size_type_unchecked(
                 FieldValueRepr::TextBuffer,
-                data.as_bytes().to_vec(),
+                data.to_string(),
                 run_length,
                 try_header_rle,
                 try_data_rle,
@@ -1652,7 +1652,7 @@ pub struct InlineStringInserter<'a> {
     raw: RawVariableSizedTypeInserter<'a>,
 }
 unsafe impl<'a> VariableSizeTypeInserter<'a> for InlineStringInserter<'a> {
-    const KIND: FieldValueRepr = FieldValueRepr::BytesInline;
+    const KIND: FieldValueRepr = FieldValueRepr::TextInline;
     type ElementType = str;
     #[inline(always)]
     fn get_raw(&mut self) -> &mut RawVariableSizedTypeInserter<'a> {

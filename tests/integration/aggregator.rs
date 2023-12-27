@@ -60,15 +60,10 @@ fn append_after_fork() -> Result<(), ScrError> {
 #[test]
 fn parse_aggregation_across_fork() -> Result<(), ScrError> {
     let sess_opts = parse_cli_from_strings([
-        "scr", "seq=10", "forkcat", "+int=11", "r=.*",
+        "scr", "seqn=10", "forkcat", "+int=11", "r=.*",
     ])?;
     let res = ContextBuilder::from_session_opts(sess_opts)
-        .run_collect_as::<Vec<u8>>()?;
-    assert_eq!(
-        res.into_iter()
-            .map(|v| String::from_utf8(v).unwrap())
-            .collect::<Vec<_>>(),
-        int_sequence_strings(1..12)
-    );
+        .run_collect_as::<String>()?;
+    assert_eq!(res, int_sequence_strings(1..12));
     Ok(())
 }
