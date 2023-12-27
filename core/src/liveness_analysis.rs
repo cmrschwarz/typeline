@@ -95,12 +95,13 @@ pub enum Var {
     BBInput,
     UnreachableDummyVar,
 }
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct OpOutput {
     pub bound_vars_after_bb: SmallVec<[VarId; 4]>,
     // other outputs referenced in the data of this output, e.g. for regex
     // this is not flattened out, so recursion is required to get all refs
     pub field_references: SmallVec<[OpOutputIdx; 4]>,
+    pub producing_op: Option<OperatorId>,
 }
 
 // counts the number of different fields that an operator accesses *directly*
@@ -231,6 +232,14 @@ impl LivenessData {
             iter::repeat(Default::default()).take(sess.operator_data.len()),
         );
         let mut total_outputs_count = self.vars.len();
+        self.op_outputs.extend(
+            iter::repeat(OpOutput {
+                bound_vars_after_bb: Default::default(),
+                field_references: Default::default(),
+                producing_op: None,
+            })
+            .take(self.vars.len()),
+        );
         for op_id in 0..sess.operator_data.len() {
             let op_output_count =
                 self.op_output_count(sess, op_id as OperatorId);
@@ -239,10 +248,16 @@ impl LivenessData {
             op_base.outputs_start = total_outputs_count as OpOutputIdx;
             total_outputs_count += op_output_count;
             op_base.outputs_end = total_outputs_count as OpOutputIdx;
+            self.op_outputs.extend(
+                iter::repeat(OpOutput {
+                    bound_vars_after_bb: Default::default(),
+                    field_references: Default::default(),
+                    producing_op: Some(op_id as OperatorId),
+                })
+                .take(op_output_count),
+            );
         }
-        self.op_outputs.extend(
-            iter::repeat(Default::default()).take(total_outputs_count),
-        );
+        debug_assert!(self.op_outputs.len() == total_outputs_count);
         self.vars_to_op_outputs_map
             .extend(0..self.vars.len() as VarId);
 
@@ -486,9 +501,10 @@ impl LivenessData {
     }
     pub fn access_field(
         &mut self,
+        sess: &Session,
         op_id: OperatorId,
         op_output_idx: OpOutputIdx,
-        header_write: bool,
+        op_offset_after_last_write: OperatorOffsetInChain,
         non_stringified: bool,
         direct_access: bool,
     ) {
@@ -500,6 +516,15 @@ impl LivenessData {
         let oo_idx = op_output_idx as usize;
         let ooc = self.op_outputs.len();
         let op_ld = &mut self.operator_liveness_data[op_id as usize];
+
+        let header_write = if let Some(oo_producing_op) =
+            self.op_outputs[oo_idx].producing_op
+        {
+            sess.operator_bases[oo_producing_op as usize].offset_in_chain + 1
+                < op_offset_after_last_write
+        } else {
+            op_offset_after_last_write != 0
+        };
         match op_ld.accessed_outputs.entry(op_output_idx) {
             Entry::Occupied(mut e) => {
                 let acc = e.get_mut();
@@ -533,9 +558,10 @@ impl LivenessData {
         }
         for fri in 0..self.op_outputs[oo_idx].field_references.len() {
             self.access_field(
+                sess,
                 op_id,
                 self.op_outputs[oo_idx].field_references[fri],
-                header_write,
+                op_offset_after_last_write,
                 non_stringified,
                 false,
             );
@@ -566,7 +592,7 @@ impl LivenessData {
         &mut self,
         sess: &Session,
         flags: &mut AccessFlags,
-        any_writes_so_far: bool,
+        op_offset_after_last_write: OperatorOffsetInChain,
         op_id: OperatorId,
         bb_id: BasicBlockId,
         input_field: OpOutputIdx,
@@ -641,11 +667,12 @@ impl LivenessData {
             }
             OperatorData::Format(fmt) => {
                 update_op_format_variable_liveness(
+                    sess,
                     fmt,
                     self,
                     op_id,
                     flags,
-                    any_writes_so_far,
+                    op_offset_after_last_write,
                 );
             }
             OperatorData::FileReader(_) => {
@@ -699,7 +726,7 @@ impl LivenessData {
                     self.update_liveness_for_op(
                         sess,
                         &mut sub_op_flags,
-                        any_writes_so_far,
+                        op_offset_after_last_write,
                         sub_op,
                         bb_id,
                         input_field,
@@ -726,7 +753,7 @@ impl LivenessData {
         let mut bb = &mut self.basic_blocks[bb_id];
         let cn = &sess.chains[bb.chain_id as usize];
         let mut input_field = BB_INPUT_VAR_OUTPUT_IDX;
-        let mut any_writes_so_far = false;
+        let mut op_offset_after_last_write: OperatorOffsetInChain = 0;
         for op_n in bb.operators_start..bb.operators_end {
             let op_id = cn.operators[op_n as usize];
             let op_idx = op_id as usize;
@@ -739,7 +766,7 @@ impl LivenessData {
             let (output_field, ce) = self.update_liveness_for_op(
                 sess,
                 &mut flags,
-                any_writes_so_far,
+                op_offset_after_last_write,
                 op_id,
                 bb_id,
                 input_field,
@@ -754,20 +781,22 @@ impl LivenessData {
             }
             if flags.input_accessed {
                 self.access_field(
+                    sess,
                     op_id,
                     input_field,
-                    any_writes_so_far,
+                    op_offset_after_last_write,
                     flags.non_stringified_input_access,
                     true,
                 );
+            }
+            if flags.may_dup_or_drop {
+                op_offset_after_last_write = op_n + 1;
             }
             if let Some(label) = sess.operator_bases[op_idx].label {
                 let var_id = self.var_names[&label];
                 self.vars_to_op_outputs_map[var_id as usize] =
                     sess.operator_bases[op_idx].outputs_start;
             }
-
-            any_writes_so_far |= flags.may_dup_or_drop;
             if !op_base.transparent_mode {
                 input_field = output_field;
                 self.vars_to_op_outputs_map[BB_INPUT_VAR as usize] =
@@ -777,8 +806,19 @@ impl LivenessData {
         let vc = self.vars.len();
         let ooc = self.op_outputs.len();
         let var_data_start = bb_id * SLOTS_PER_BASIC_BLOCK * vc;
-        if any_writes_so_far {
+        if op_offset_after_last_write != 0 {
+            //TODO: maybe do something more sophisticated than this
+            // for now we just assume that any op_output that is bound
+            // after the bb might be accessed by someone and therefore needs
+            // header writes applied
             for &op_output_id in self.vars_to_op_outputs_map.iter() {
+                if let Some(producing_op) =
+                    self.op_outputs[op_output_id as usize].producing_op
+                {
+                    if producing_op >= op_offset_after_last_write - 1 {
+                        continue;
+                    }
+                }
                 self.op_outputs_data.set_aliased(
                     HEADER_WRITES_OFFSET * ooc + op_output_id as usize,
                     true,

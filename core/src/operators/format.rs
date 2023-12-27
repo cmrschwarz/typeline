@@ -11,7 +11,9 @@ use super::{
     errors::{
         OperatorApplicationError, OperatorCreationError, OperatorSetupError,
     },
-    operator::{OperatorBase, OperatorData, OperatorId},
+    operator::{
+        OperatorBase, OperatorData, OperatorId, OperatorOffsetInChain,
+    },
     transform::{TransformData, TransformId, TransformState},
 };
 use crate::{
@@ -736,11 +738,12 @@ pub fn build_tf_format<'a>(
 }
 
 pub fn update_op_format_variable_liveness(
+    sess: &Session,
     fmt: &OpFormat,
     ld: &mut LivenessData,
     op_id: OperatorId,
     access_flags: &mut AccessFlags,
-    any_writes_so_far: bool,
+    op_offset_after_last_write: OperatorOffsetInChain,
 ) {
     access_flags.may_dup_or_drop = false;
     // might be set to true again in the loop below
@@ -758,9 +761,10 @@ pub fn update_op_format_variable_liveness(
                     || fk.opts.type_repr != TypeReprFormat::Regular;
                 if let Some(name) = fmt.refs_idx[fk.ref_idx as usize] {
                     ld.access_field(
+                        sess,
                         op_id,
                         ld.var_names[&name],
-                        any_writes_so_far,
+                        op_offset_after_last_write,
                         non_stringified,
                         true,
                     );
@@ -772,9 +776,10 @@ pub fn update_op_format_variable_liveness(
                 if let Some(FormatWidthSpec::Ref(ws_ref)) = fk.min_char_count {
                     if let Some(name) = fmt.refs_idx[ws_ref as usize] {
                         ld.access_field(
+                            sess,
                             op_id,
                             ld.var_names[&name],
-                            any_writes_so_far,
+                            op_offset_after_last_write,
                             true,
                             true,
                         );
