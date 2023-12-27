@@ -22,7 +22,6 @@ use crate::{
         },
     },
     utils::{
-        get_two_distinct_mut,
         identity_hasher::BuildIdentityHasher,
         string_store::{StringStore, StringStoreEntry},
     },
@@ -756,7 +755,6 @@ impl LivenessData {
                     sess.operator_bases[op_idx].outputs_start;
             }
         }
-        bb = &mut self.basic_blocks[bb_id];
         let vc = self.vars.len();
         let ooc = self.op_outputs.len();
         let var_data_start = bb_id * SLOTS_PER_BASIC_BLOCK * vc;
@@ -778,9 +776,8 @@ impl LivenessData {
         self.var_data[var_data_start + SURVIVES_OFFSET * vc
             ..var_data_start + (SURVIVES_OFFSET + 1) * vc]
             .fill(true);
-        for (var_idx, &op_output_id) in
-            self.vars_to_op_outputs_map.iter().enumerate()
-        {
+        for var_idx in 0..self.vars_to_op_outputs_map.len() {
+            let op_output_id = self.vars_to_op_outputs_map[var_idx];
             if op_output_id >= self.vars.len() as OpOutputIdx {
                 self.var_data.set_aliased(
                     var_data_start
@@ -788,24 +785,10 @@ impl LivenessData {
                         + var_idx,
                     false,
                 );
-                let op_output = &mut self.op_outputs[op_output_id as usize];
-                let mut field_refs = None;
-                for fr in &op_output.field_references {
-                    if *fr < self.vars.len() as OpOutputIdx {
-                        let frs = if let Some(ref mut frs) = field_refs {
-                            frs
-                        } else {
-                            let frs = bb
-                                .field_references
-                                .entry(var_idx as VarId)
-                                .or_default();
-                            field_refs = Some(frs);
-                            field_refs.as_mut().unwrap()
-                        };
-                        frs.push(*fr);
-                    }
-                }
-                op_output.bound_vars_after_bb.push(var_idx as VarId);
+                self.insert_var_field_references(op_output_id, bb_id, var_idx);
+                self.op_outputs[op_output_id as usize]
+                    .bound_vars_after_bb
+                    .push(var_idx as VarId);
             } else {
                 debug_assert!(op_output_id == var_idx as VarId);
             }
@@ -821,6 +804,31 @@ impl LivenessData {
                 {
                     bb.key_aliases.insert(bv, op_output as VarId);
                 }
+            }
+        }
+    }
+
+    fn insert_var_field_references(
+        &mut self,
+        op_output_idx: OpOutputIdx,
+        bb_id: BasicBlockId,
+        var_idx: usize,
+    ) {
+        debug_assert!(op_output_idx as usize >= self.vars.len());
+        for fr_i in 0..self.op_outputs[op_output_idx as usize]
+            .field_references
+            .len()
+        {
+            let fr =
+                self.op_outputs[op_output_idx as usize].field_references[fr_i];
+            if fr < self.vars.len() as OpOutputIdx {
+                self.basic_blocks[bb_id as usize]
+                    .field_references
+                    .entry(var_idx as VarId)
+                    .or_default()
+                    .push(fr);
+            } else {
+                self.insert_var_field_references(fr, bb_id, var_idx);
             }
         }
     }
@@ -1290,6 +1298,7 @@ impl LivenessData {
         let vars_print_len = 3 * vc + 1;
         for bb_id in 0..self.basic_blocks.len() {
             println!("{:->PADDING_VARS$}{:-^vars_print_len$}", "", "");
+            println!("bb {bb_id:02}:");
             let vars_start = bb_id * SLOTS_PER_BASIC_BLOCK * vc;
             for (category_offs, category) in
                 ["local", "global", "succession"].iter().enumerate()
