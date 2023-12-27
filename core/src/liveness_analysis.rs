@@ -22,6 +22,7 @@ use crate::{
         },
     },
     utils::{
+        get_two_distinct_mut,
         identity_hasher::BuildIdentityHasher,
         string_store::{StringStore, StringStoreEntry},
     },
@@ -598,9 +599,7 @@ impl LivenessData {
                     !re.opts.non_mandatory || re.opts.multimatch;
                 flags.non_stringified_input_access = false;
                 for i in 0..re.capture_group_names.len() {
-                    self.op_outputs[sess.operator_bases[op_idx].outputs_start
-                        as usize
-                        + i]
+                    self.op_outputs[output_field as usize + i]
                         .field_references
                         .push(input_field);
                 }
@@ -613,6 +612,13 @@ impl LivenessData {
                                 + cgi as OpOutputIdx;
                     }
                 }
+            }
+            OperatorData::NopCopy(_) => {
+                flags.may_dup_or_drop = false;
+                flags.non_stringified_input_access = false;
+                self.op_outputs[output_field as usize]
+                    .field_references
+                    .push(input_field);
             }
             OperatorData::Format(fmt) => {
                 update_op_format_variable_liveness(
@@ -650,9 +656,7 @@ impl LivenessData {
                 flags.may_dup_or_drop = false;
                 flags.non_stringified_input_access = false;
             }
-            OperatorData::FieldValueSink(_)
-            | OperatorData::Cast(_)
-            | OperatorData::NopCopy(_) => {
+            OperatorData::FieldValueSink(_) | OperatorData::Cast(_) => {
                 flags.may_dup_or_drop = false;
             }
             OperatorData::Next(_) => unreachable!(),
@@ -664,6 +668,9 @@ impl LivenessData {
                 op.update_variable_liveness(self, bb_id, flags)
             }
             OperatorData::Aggregator(op) => {
+                flags.may_dup_or_drop = false;
+                flags.non_stringified_input_access = false;
+                flags.input_accessed = false;
                 for &sub_op in &op.sub_ops {
                     let mut sub_op_flags = AccessFlags {
                         input_accessed: true,
@@ -679,6 +686,12 @@ impl LivenessData {
                         input_field,
                     );
                     *flags = flags.or(&sub_op_flags);
+                    let sub_op = &sess.operator_bases[sub_op as usize];
+                    if sub_op.outputs_start != sub_op.outputs_end {
+                        self.op_outputs[output_field as usize]
+                            .field_references
+                            .push(sub_op.outputs_start);
+                    }
                 }
                 self.append_to_field(output_field);
             }
