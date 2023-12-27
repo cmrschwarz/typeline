@@ -22,6 +22,7 @@ use crate::{
         },
     },
     utils::{
+        get_two_distinct_mut,
         identity_hasher::BuildIdentityHasher,
         string_store::{StringStore, StringStoreEntry},
     },
@@ -30,23 +31,30 @@ use crate::{
 pub type BasicBlockId = usize;
 
 pub const READS_OFFSET: usize = 0;
-pub const HEADER_WRITES_OFFSET: usize = 1;
-pub const DATA_WRITES_OFFSET: usize = 2;
-pub const NON_STRING_READS_OFFSET: usize = 3;
-pub const REGULAR_FIELD_OFFSETS: [usize; 4] = [
-    READS_OFFSET,
-    HEADER_WRITES_OFFSET,
-    DATA_WRITES_OFFSET,
-    NON_STRING_READS_OFFSET,
-];
+pub const NON_STRING_READS_OFFSET: usize = 1;
+pub const HEADER_WRITES_OFFSET: usize = 2;
 
-pub const SURVIVES_OFFSET: usize = 4;
+// all fields except survives
+pub const REGULAR_FIELD_OFFSETS: [usize; 3] =
+    [READS_OFFSET, NON_STRING_READS_OFFSET, HEADER_WRITES_OFFSET];
 
-pub const SLOTS_PER_OP_OUTPUT: usize = 4; // output ops don't care about survives
-pub const LOCAL_SLOTS_PER_BASIC_BLOCK: usize = 5;
+// survives is special because
+// a) it does not make sense for output_ops, as they are valid across bbs
+// b) it does not get affected by aliases (survives means the value bound to
+// the var at the start of a bb remains bound to that same var after the bb)
+pub const SURVIVES_OFFSET: usize = 3;
+
+pub const SLOTS_PER_OP_OUTPUT: usize = 3; // output ops don't care about survives
+pub const LOCAL_SLOTS_PER_BASIC_BLOCK: usize = 4;
 pub const LOCAL_SLOTS_OFFSET: usize = 0;
 pub const GLOBAL_SLOTS_OFFSET: usize = LOCAL_SLOTS_PER_BASIC_BLOCK;
+
+/// 'Succession' combines the effect of callees and successors.
+///
+/// For blocks that *are* callees, it also include the effects of the successors
+/// of the *callers*.
 pub const SUCCESSION_SLOTS_OFFSET: usize = 2 * LOCAL_SLOTS_PER_BASIC_BLOCK;
+
 // local slots + global slots + succession data
 pub const SLOTS_PER_BASIC_BLOCK: usize = LOCAL_SLOTS_PER_BASIC_BLOCK * 3;
 
@@ -64,9 +72,16 @@ pub struct BasicBlock {
     pub operators_end: OperatorOffsetInChain,
     pub calls: SmallVec<[BasicBlockId; 2]>,
     pub successors: SmallVec<[BasicBlockId; 2]>,
+    // if this block is a callee, this contains the bb ids of all blocks
+    // that any caller of this block has as successors
+    // this is used to calculate 'succession' var data, which is in turn
+    // used to calculate the liveness of operator outputs created by this block
+    pub caller_successors: SmallVec<[BasicBlockId; 2]>,
+    // used to propagate changes during global liveness analysis
     pub predecessors: SmallVec<[BasicBlockId; 2]>,
-    // vars available at the start that may be accessed through
-    // data behind vars available at the end that contain field references
+    // Vars available at the start that may be accessed through
+    // data behind vars available at the end that contain field references.
+    // All field references are flattened out, so there's no need to recurse.
     pub field_references: HashMap<VarId, SmallVec<[VarId; 4]>>,
 
     // var name after the bb -> original var name
@@ -84,6 +99,7 @@ pub enum Var {
 pub struct OpOutput {
     pub bound_vars_after_bb: SmallVec<[VarId; 4]>,
     // other outputs referenced in the data of this output, e.g. for regex
+    // this is not flattened out, so recursion is required to get all refs
     pub field_references: SmallVec<[OpOutputIdx; 4]>,
 }
 
@@ -324,6 +340,7 @@ impl LivenessData {
                 operators_end: end,
                 calls: Default::default(),
                 successors: Default::default(),
+                caller_successors: Default::default(),
                 updates_required: true,
                 field_references: Default::default(),
                 predecessors: Default::default(),
@@ -417,6 +434,7 @@ impl LivenessData {
                 operators_end: c.operators.len() as u32,
                 calls: Default::default(),
                 successors: Default::default(),
+                caller_successors: Default::default(),
                 updates_required: true,
                 field_references: Default::default(),
                 predecessors: Default::default(),
@@ -446,6 +464,15 @@ impl LivenessData {
             for succ_n in 0..self.basic_blocks[bb_id].successors.len() {
                 let succ_id = self.basic_blocks[bb_id].successors[succ_n];
                 self.basic_blocks[succ_id].predecessors.push(bb_id);
+            }
+            for callee_n in 0..self.basic_blocks[bb_id].calls.len() {
+                let callee_id = self.basic_blocks[bb_id].calls[callee_n];
+                let (bb, callee) = get_two_distinct_mut(
+                    &mut self.basic_blocks,
+                    bb_id,
+                    callee_id,
+                );
+                callee.caller_successors.extend_from_slice(&bb.successors);
             }
             let bb = &self.basic_blocks[bb_id];
             let chain = &sess.chains[bb.chain_id as usize];
@@ -513,13 +540,6 @@ impl LivenessData {
                 false,
             );
         }
-    }
-    fn append_to_field(&self, op_output_idx: OpOutputIdx) {
-        debug_assert!(op_output_idx != DUMMY_FIELD_OUTPUT_IDX);
-        let oo_idx = op_output_idx as usize;
-        let ooc = self.op_outputs.len();
-        self.op_outputs_data
-            .set_aliased(DATA_WRITES_OFFSET * ooc + oo_idx, true);
     }
     fn reset_op_outputs_data_for_vars(&mut self) {
         let vc = self.vars.len();
@@ -692,7 +712,6 @@ impl LivenessData {
                             .push(sub_op.outputs_start);
                     }
                 }
-                self.append_to_field(output_field);
             }
         }
         (output_field, OperatorCallEffect::Basic)
@@ -887,8 +906,8 @@ impl LivenessData {
     }
     pub fn kill_non_survivors(
         &self,
-        tgt: &mut BitSlice<Cell<usize>>,
         survivors: &BitSlice<Cell<usize>>,
+        tgt: &mut BitSlice<Cell<usize>>,
     ) {
         let var_count = self.vars.len();
         let survivors_start = SURVIVES_OFFSET * var_count;
@@ -902,47 +921,36 @@ impl LivenessData {
     }
     pub fn apply_alias(
         &self,
-        tgt: &BitSlice<Cell<usize>>,
-        src: &BitSlice<Cell<usize>>,
+        bb_data: &BitSlice<Cell<usize>>,
+        succ_data: &BitSlice<Cell<usize>>,
         original_var: VarId,
-        alias_var: VarId,
+        alias_var: VarId, // var that after the bb refers to the original var
     ) {
         let var_count = self.vars.len();
         for i in REGULAR_FIELD_OFFSETS {
             let tgt_idx = i * var_count + original_var as usize;
             let src_idx = i * var_count + alias_var as usize;
-            tgt.set_aliased(tgt_idx, src[src_idx] || tgt[tgt_idx]);
+            bb_data
+                .set_aliased(tgt_idx, bb_data[tgt_idx] || succ_data[src_idx]);
         }
-    }
-    pub fn propagate_stringified_reads(
-        &self,
-        tgt: &BitSlice<Cell<usize>>,
-        src: &BitSlice<Cell<usize>>,
-        original_var: VarId,
-        alias_var: VarId,
-    ) {
-        let offset = NON_STRING_READS_OFFSET * self.vars.len();
-        let tgt_idx = offset + original_var as usize;
-        let src_idx = offset + alias_var as usize;
-        tgt.set_aliased(tgt_idx, src[src_idx] || tgt[tgt_idx]);
     }
     pub fn apply_bb_aliases(
         &self,
-        tgt: &BitSlice<Cell<usize>>,
-        src: &BitSlice<Cell<usize>>,
+        bb_data: &BitSlice<Cell<usize>>,
+        successor_data: &BitSlice<Cell<usize>>,
         bb: &BasicBlock,
     ) {
         for (&alias_var, &original_var) in &bb.key_aliases {
-            self.propagate_stringified_reads(
-                tgt,
-                src,
-                original_var,
-                alias_var,
-            );
+            self.apply_alias(bb_data, successor_data, original_var, alias_var);
         }
         for (alias_var, field_refs) in &bb.field_references {
             for original_var in field_refs {
-                self.apply_alias(tgt, src, *original_var, *alias_var);
+                self.apply_alias(
+                    bb_data,
+                    successor_data,
+                    *original_var,
+                    *alias_var,
+                );
             }
         }
     }
@@ -976,12 +984,15 @@ impl LivenessData {
                     let cbb = &self.basic_blocks[*call_bb_id];
                     self.apply_bb_aliases(calls, successors, cbb);
                 }
-                self.kill_non_survivors(successors, calls);
+                self.kill_non_survivors(calls, successors);
                 *calls |= &*successors;
             }
         }
     }
-    fn build_bb_succession_data(
+    // 'continuation' data describes the effects of calls and successors
+    // unlike 'succession' it does not include the effects of successors of
+    // callers in case the bb is a callee
+    fn build_bb_continuation_data(
         &self,
         bb: &BasicBlock,
         calls: &mut BitVec<Cell<usize>>,
@@ -1022,9 +1033,9 @@ impl LivenessData {
                 continue;
             }
             global.copy_from_bitslice(&self.var_data[bb_local_range.clone()]);
-            self.build_bb_succession_data(bb, &mut calls, &mut successors);
+            self.build_bb_continuation_data(bb, &mut calls, &mut successors);
             self.apply_bb_aliases(&calls, &global, bb);
-            self.kill_non_survivors(&mut calls, &global);
+            self.kill_non_survivors(&global, &mut calls);
             global |= &calls;
             if global != self.var_data[bb_global_range.clone()] {
                 self.var_data[bb_global_range.clone()]
@@ -1041,13 +1052,28 @@ impl LivenessData {
         calls.resize(var_bits, false);
         successors.resize(var_bits, false);
         for (bb_id, bb) in self.basic_blocks.iter().enumerate() {
-            self.build_bb_succession_data(bb, &mut calls, &mut successors);
-            let var_data_start = bb_id * SLOTS_PER_BASIC_BLOCK * vc;
-            self.var_data[var_data_start + SUCCESSION_SLOTS_OFFSET * vc
-                ..var_data_start
-                    + (SUCCESSION_SLOTS_OFFSET + LOCAL_SLOTS_PER_BASIC_BLOCK)
-                        * vc]
-                .copy_from_bitslice(&calls);
+            self.merge_calls_with_successors(
+                &mut successors,
+                &mut calls,
+                bb.successors.iter(),
+                bb.successors.is_empty(),
+                bb.caller_successors.iter(),
+                bb.caller_successors.is_empty(),
+            );
+            let vd_range = self.get_succession_var_data_bounds(bb_id);
+            if bb.calls.is_empty() {
+                self.var_data[vd_range].copy_from_bitslice(&successors);
+                continue;
+            }
+            self.get_global_var_data_ored(&mut calls, bb.calls.iter());
+
+            for &call_bb_id in &bb.calls {
+                let cbb = &self.basic_blocks[call_bb_id];
+                self.apply_bb_aliases(&calls, &successors, cbb);
+            }
+            self.kill_non_survivors(&calls, &mut successors);
+            *calls |= &*successors;
+            self.var_data[vd_range].copy_from_bitslice(&calls);
         }
     }
     fn compute_op_output_liveness(&mut self, sess: &Session) {
@@ -1058,7 +1084,10 @@ impl LivenessData {
                 &self.var_data[self.get_succession_var_data_bounds(bb_id)];
             let bb = &self.basic_blocks[bb_id];
             let chain = &sess.chains[bb.chain_id as usize];
-            if bb.successors.is_empty() && bb.calls.is_empty() {
+            if bb.successors.is_empty()
+                && bb.calls.is_empty()
+                && bb.caller_successors.is_empty()
+            {
                 continue;
             }
             for op_id in &chain.operators
@@ -1161,25 +1190,32 @@ impl LivenessData {
                 );
             }
             if !bb.calls.is_empty() {
-                print!("[ calls: ");
+                print!("[calls: ");
                 for c in &bb.calls {
-                    print!("{c:02} ");
+                    print!("{c:02},");
                 }
                 print!("] ");
             }
-            if !bb.successors.is_empty() {
-                print!("{{ successors: ");
-                for s in &bb.successors {
-                    print!("{s:02} ");
-                }
-                print!("}} ");
-            }
             if !bb.predecessors.is_empty() {
-                print!("{{ predecessors: ");
+                print!("{{predecessors: ");
                 for s in &bb.predecessors {
-                    print!("{s:02} ");
+                    print!("{s:02},");
                 }
-                print!("}} ");
+                print!("}}");
+            }
+            if !bb.successors.is_empty() {
+                print!("{{successors: ");
+                for s in &bb.successors {
+                    print!("{s:02},");
+                }
+                print!("}}");
+            }
+            if !bb.caller_successors.is_empty() {
+                print!("{{caller successors: ");
+                for s in &bb.caller_successors {
+                    print!("{s:02},");
+                }
+                print!("}}");
             }
             println!();
         }
@@ -1275,9 +1311,8 @@ impl LivenessData {
         println!();
         for (name, offs) in [
             ("reads", READS_OFFSET),
-            ("header writes", HEADER_WRITES_OFFSET),
-            ("data writes", DATA_WRITES_OFFSET),
             ("non string reads", NON_STRING_READS_OFFSET),
+            ("header writes", HEADER_WRITES_OFFSET),
         ] {
             print_bits(
                 name,
@@ -1308,9 +1343,8 @@ impl LivenessData {
                 }
                 for (name, offs) in [
                     ("reads", READS_OFFSET),
-                    ("header writes", HEADER_WRITES_OFFSET),
-                    ("data writes", DATA_WRITES_OFFSET),
                     ("non str reads", NON_STRING_READS_OFFSET),
+                    ("header writes", HEADER_WRITES_OFFSET),
                     ("survives", SURVIVES_OFFSET),
                 ] {
                     print_bits(

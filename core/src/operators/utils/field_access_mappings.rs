@@ -7,8 +7,7 @@ use bitvec::slice::BitSlice;
 
 use crate::{
     liveness_analysis::{
-        LivenessData, Var, DATA_WRITES_OFFSET, HEADER_WRITES_OFFSET,
-        READS_OFFSET,
+        LivenessData, Var, HEADER_WRITES_OFFSET, READS_OFFSET,
     },
     utils::{
         identity_hasher::BuildIdentityHasher, string_store::StringStoreEntry,
@@ -18,12 +17,11 @@ use crate::{
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub struct FieldAccessMode {
     pub header_writes: bool,
-    pub data_writes: bool,
 }
 
 impl FieldAccessMode {
     pub fn any_writes(&self) -> bool {
-        self.header_writes || self.data_writes
+        self.header_writes
     }
 }
 
@@ -52,7 +50,6 @@ impl AccessKind for FieldAccessMode {
         fam: FieldAccessMode,
     ) {
         self.header_writes |= fam.header_writes;
-        self.data_writes |= fam.data_writes;
     }
 }
 
@@ -93,10 +90,6 @@ impl AccessKind for WriteCountingFieldAccessType {
             res.header_write_count = 1;
             res.last_header_writing_sc = *subchain_id;
         }
-        if fam.data_writes {
-            res.data_write_count = 1;
-            res.last_data_writing_sc = *subchain_id;
-        }
         res
     }
 
@@ -108,10 +101,6 @@ impl AccessKind for WriteCountingFieldAccessType {
         if fam.header_writes {
             self.header_write_count += 1;
             self.last_header_writing_sc = *subchain_id;
-        }
-        if fam.data_writes {
-            self.data_write_count += 1;
-            self.last_data_writing_sc = *subchain_id;
         }
         self.access_count += 1;
         self.last_accessing_sc = *subchain_id;
@@ -142,12 +131,9 @@ impl<AT: AccessKind> AccessMappings<AT> {
             [var_count * READS_OFFSET..var_count * (READS_OFFSET + 1)];
         let header_writes = &var_data[var_count * HEADER_WRITES_OFFSET
             ..var_count * (HEADER_WRITES_OFFSET + 1)];
-        let data_writes = &var_data[var_count * DATA_WRITES_OFFSET
-            ..var_count * (DATA_WRITES_OFFSET + 1)];
         self.fields.reserve(reads.count_ones());
         for var_id in reads.iter_ones() {
             let mode = FieldAccessMode {
-                data_writes: data_writes[var_id],
                 header_writes: header_writes[var_id],
             };
             match ld.vars[var_id] {

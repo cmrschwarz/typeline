@@ -7,8 +7,8 @@ use crate::{
     context::Session,
     job_session::{JobData, JobSession},
     liveness_analysis::{
-        LivenessData, OpOutputIdx, Var, DATA_WRITES_OFFSET,
-        HEADER_WRITES_OFFSET, LOCAL_SLOTS_PER_BASIC_BLOCK, READS_OFFSET,
+        LivenessData, OpOutputIdx, Var, HEADER_WRITES_OFFSET,
+        LOCAL_SLOTS_PER_BASIC_BLOCK, READS_OFFSET,
     },
     options::argument::CliArgIdx,
     record_data::{
@@ -165,7 +165,7 @@ pub fn setup_op_forkcat_liveness_data(
     for (name, idx) in accessed_names_afterwards.iter_name_opt() {
         op.accessed_names_afterwards[idx.0] = name;
     }
-    ld.kill_non_survivors(&mut successors, &calls);
+    ld.kill_non_survivors(&calls, &mut successors);
     calls |= successors;
     let mut accessed_names_of_subchains_count = 0;
     let accessed_names_of_subchains =
@@ -188,10 +188,9 @@ pub fn setup_op_forkcat_liveness_data(
             &call_liveness
                 [READS_OFFSET * var_count..(READS_OFFSET + 1) * var_count],
         );
-        for o in [HEADER_WRITES_OFFSET, DATA_WRITES_OFFSET] {
-            calls[reads_range.clone()] |=
-                &call_liveness[o * var_count..(o + 1) * var_count];
-        }
+        calls[reads_range.clone()] |= &call_liveness[HEADER_WRITES_OFFSET
+            * var_count
+            ..(HEADER_WRITES_OFFSET + 1) * var_count];
         for i in calls[reads_range].iter_ones() {
             let var_name = match ld.vars[i] {
                 Var::Named(name) => Some(name),
