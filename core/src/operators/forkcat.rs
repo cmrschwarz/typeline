@@ -125,14 +125,11 @@ pub fn parse_op_forkcat(
 
 pub fn setup_op_forkcat(
     chain: &Chain,
-    op_base: &OperatorBase,
+    _op_base: &OperatorBase,
     op: &mut OpForkCat,
     offset_in_chain: OperatorOffsetInChain,
 ) -> Result<(), OperatorSetupError> {
     if op.subchains_end == 0 {
-        debug_assert!(
-            op_base.offset_in_chain as usize + 1 == chain.operators.len()
-        );
         op.subchains_end = chain.subchains.len() as u32;
     }
     op.continuation =

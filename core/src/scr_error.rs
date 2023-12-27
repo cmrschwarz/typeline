@@ -20,6 +20,7 @@ use crate::{
         },
         session_options::SessionOptions,
     },
+    record_data::field_data::FieldValueRepr,
 };
 
 #[derive(Error, Debug, Clone)]
@@ -43,6 +44,14 @@ impl ChainSetupError {
 pub struct ReplDisabledError {
     pub message: &'static str,
     pub cli_arg_idx: Option<CliArgIdx>,
+}
+
+#[derive(Error, Debug, Clone)]
+#[error("failed to collect {expected} as {got} (element index {index})")]
+pub struct CollectTypeMissmatch {
+    pub index: usize,
+    pub expected: FieldValueRepr,
+    pub got: FieldValueRepr,
 }
 
 #[derive(Error, Debug, Clone)]
@@ -73,6 +82,9 @@ pub enum ScrError {
 
     #[error(transparent)]
     OperationApplicationError(#[from] OperatorApplicationError),
+
+    #[error(transparent)]
+    CollectTypeMissmatch(#[from] CollectTypeMissmatch),
 }
 #[derive(Error, Debug, Clone)]
 #[error("{contextualized_message}")]
@@ -222,6 +234,7 @@ impl ScrError {
             ),
             ScrError::PrintInfoAndExitError(e) => format!("{}", e),
             ScrError::MissingArgumentsError(e) => format!("{}", e),
+            ScrError::CollectTypeMissmatch(e) => format!("{}", e),
         }
     }
 }

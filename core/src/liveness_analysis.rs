@@ -1136,7 +1136,7 @@ impl LivenessData {
                     sess.chains[bb.chain_id as usize].operators[op_n as usize];
                 print!(
                     "(op {op_id} `{}`) ",
-                    sess.operator_data[op_id as usize].default_op_name()
+                    sess.operator_data[op_id as usize].debug_op_name()
                 );
             }
             if !bb.calls.is_empty() {
@@ -1173,7 +1173,7 @@ impl LivenessData {
         for (op_id, old) in self.operator_liveness_data.iter().enumerate() {
             print!(
                 "op {op_id:02} ({}):",
-                sess.operator_data[op_id].default_op_name(),
+                sess.operator_data[op_id].debug_op_name(),
             );
             if !old.accessed_outputs.is_empty() {
                 print!(" [acc:");
@@ -1211,7 +1211,7 @@ impl LivenessData {
                 );
                 let oo = &self.op_outputs[oo_n as usize];
                 if !oo.bound_vars_after_bb.is_empty() {
-                    print!(" (vars: ");
+                    print!(" (bound vars: ");
                     for &v_id in &oo.bound_vars_after_bb {
                         print!(
                             "{} ",

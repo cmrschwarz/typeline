@@ -71,6 +71,8 @@ pub fn setup_op_fork(
     _op_id: OperatorId,
 ) -> Result<(), OperatorSetupError> {
     if op.subchains_end == 0 {
+        //TODO: this can happen for ContextBuilder::run_collect
+        //throw a decent error instead
         debug_assert!(
             op_base.offset_in_chain as usize + 1 == chain.operators.len()
         );

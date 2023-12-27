@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use crate::{
     cli::ParsedCliArgumentParts,
@@ -52,4 +52,8 @@ pub trait Extension: Send + Sync {
         args: &[Vec<u8>],
         next_arg_idx: &mut usize,
     ) -> Result<Option<OperatorData>, OperatorCreationError>;
+}
+
+pub fn build_empty_extension_registry() -> Arc<ExtensionRegistry> {
+    Arc::new(ExtensionRegistry::default())
 }

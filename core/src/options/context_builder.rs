@@ -3,13 +3,16 @@ use std::sync::Arc;
 use crate::{
     context::{Context, Session},
     operators::{
-        aggregator::add_aggregate_to_sess_opts, operator::OperatorData,
+        aggregator::add_aggregate_to_sess_opts,
+        field_value_sink::{create_op_field_value_sink, FieldValueSinkHandle},
+        operator::OperatorData,
     },
     record_data::{
-        custom_data::CustomDataBox, push_interface::PushInterface,
+        custom_data::CustomDataBox, field_data::FixedSizeFieldValueType,
+        field_value::FieldValue, push_interface::PushInterface,
         record_set::RecordSet,
     },
-    scr_error::ContextualizedScrError,
+    scr_error::{CollectTypeMissmatch, ContextualizedScrError},
 };
 
 use super::{
@@ -29,6 +32,14 @@ pub struct ContextBuilder {
 }
 
 impl ContextBuilder {
+    pub fn from_session_opts(opts: SessionOptions) -> Self {
+        Self {
+            data: Box::new(ContextBuilderData {
+                opts,
+                input_data: RecordSet::default(),
+            }),
+        }
+    }
     pub fn add_op_with_opts(
         mut self,
         op_data: OperatorData,
@@ -116,6 +127,43 @@ impl ContextBuilder {
     }
     pub fn build(self) -> Result<Context, ContextualizedScrError> {
         Ok(Context::new(Arc::new(self.build_session()?)))
+    }
+    pub fn run_collect(
+        mut self,
+    ) -> Result<Vec<FieldValue>, ContextualizedScrError> {
+        let sink = FieldValueSinkHandle::default();
+        self.data.opts.curr_chain = 0;
+        self.add_op(create_op_field_value_sink(&sink)).run()?;
+        let mut v = sink.get();
+        Ok(std::mem::take(&mut *v))
+    }
+    pub fn run_collect_as<T: FixedSizeFieldValueType>(
+        mut self,
+    ) -> Result<Vec<T>, ContextualizedScrError> {
+        let sink = FieldValueSinkHandle::default();
+        self.data.opts.curr_chain = 0;
+        self.add_op(create_op_field_value_sink(&sink)).run()?;
+        let mut v = sink.get();
+        let mut res = Vec::new();
+        for (i, fv) in std::mem::take(&mut *v).into_iter().enumerate() {
+            let kind = fv.kind();
+            if let Some(v) = fv.downcast() {
+                res.push(v)
+            } else {
+                return Err(ContextualizedScrError::from_scr_error(
+                    CollectTypeMissmatch {
+                        index: i,
+                        expected: T::REPR,
+                        got: kind.to_preferred_data_repr(),
+                    }
+                    .into(),
+                    None,
+                    None,
+                    None,
+                ));
+            }
+        }
+        Ok(res)
     }
     pub fn run(self) -> Result<(), ContextualizedScrError> {
         let sess = self.data.opts.build_session()?;

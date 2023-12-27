@@ -1,4 +1,5 @@
 use std::{
+    any::Any,
     fmt::Display,
     mem::{align_of, size_of, size_of_val, ManuallyDrop},
     ops::{Deref, DerefMut},
@@ -135,60 +136,74 @@ pub mod field_value_flags {
 }
 
 // used to constrain generic functions that accept data for field values
-pub unsafe trait FieldValueType: PartialEq {
+pub unsafe trait FieldValueType: PartialEq + Any {
     const REPR: FieldValueRepr;
     const FLAGS: FieldValueFlags = field_value_flags::DEFAULT;
     const DST: bool = false;
     const ZST: bool = false;
 }
-unsafe impl FieldValueType for Undefined {
+pub unsafe trait FixedSizeFieldValueType:
+    Clone + PartialEq + Any + Sized
+{
+    const REPR: FieldValueRepr;
+    const FLAGS: FieldValueFlags = field_value_flags::DEFAULT;
+    const ZST: bool = false;
+}
+unsafe impl<T: FixedSizeFieldValueType> FieldValueType for T {
+    const REPR: FieldValueRepr = Self::REPR;
+    const FLAGS: FieldValueFlags = Self::FLAGS;
+    const ZST: bool = Self::ZST;
+    const DST: bool = false;
+}
+
+unsafe impl FixedSizeFieldValueType for Undefined {
     const REPR: FieldValueRepr = FieldValueRepr::Null;
     const ZST: bool = true;
 }
-unsafe impl FieldValueType for Null {
+unsafe impl FixedSizeFieldValueType for Null {
     const REPR: FieldValueRepr = FieldValueRepr::Undefined;
     const ZST: bool = true;
 }
-unsafe impl FieldValueType for i64 {
+unsafe impl FixedSizeFieldValueType for i64 {
     const REPR: FieldValueRepr = FieldValueRepr::Int;
 }
-unsafe impl FieldValueType for StreamValueId {
+unsafe impl FixedSizeFieldValueType for StreamValueId {
     const REPR: FieldValueRepr = FieldValueRepr::StreamValueId;
 }
-unsafe impl FieldValueType for FieldReference {
+unsafe impl FixedSizeFieldValueType for FieldReference {
     const REPR: FieldValueRepr = FieldValueRepr::FieldReference;
 }
-unsafe impl FieldValueType for SlicedFieldReference {
+unsafe impl FixedSizeFieldValueType for SlicedFieldReference {
     const REPR: FieldValueRepr = FieldValueRepr::SlicedFieldReference;
 }
-unsafe impl FieldValueType for OperatorApplicationError {
+unsafe impl FixedSizeFieldValueType for OperatorApplicationError {
     const REPR: FieldValueRepr = FieldValueRepr::Error;
+}
+unsafe impl FixedSizeFieldValueType for Vec<u8> {
+    const REPR: FieldValueRepr = FieldValueRepr::BytesBuffer;
+}
+unsafe impl FixedSizeFieldValueType for Object {
+    const REPR: FieldValueRepr = FieldValueRepr::Object;
+}
+unsafe impl FixedSizeFieldValueType for Array {
+    const REPR: FieldValueRepr = FieldValueRepr::Array;
+}
+unsafe impl FixedSizeFieldValueType for BigInt {
+    const REPR: FieldValueRepr = FieldValueRepr::BigInt;
+}
+unsafe impl FixedSizeFieldValueType for f64 {
+    const REPR: FieldValueRepr = FieldValueRepr::Float;
+}
+unsafe impl FixedSizeFieldValueType for BigRational {
+    const REPR: FieldValueRepr = FieldValueRepr::Rational;
+}
+unsafe impl FixedSizeFieldValueType for CustomDataBox {
+    const REPR: FieldValueRepr = FieldValueRepr::Custom;
 }
 unsafe impl FieldValueType for [u8] {
     const FLAGS: FieldValueFlags = field_value_flags::BYTES_ARE_UTF8;
     const REPR: FieldValueRepr = FieldValueRepr::BytesInline;
     const DST: bool = true;
-}
-unsafe impl FieldValueType for Vec<u8> {
-    const REPR: FieldValueRepr = FieldValueRepr::BytesBuffer;
-}
-unsafe impl FieldValueType for Object {
-    const REPR: FieldValueRepr = FieldValueRepr::Object;
-}
-unsafe impl FieldValueType for Array {
-    const REPR: FieldValueRepr = FieldValueRepr::Array;
-}
-unsafe impl FieldValueType for BigInt {
-    const REPR: FieldValueRepr = FieldValueRepr::BigInt;
-}
-unsafe impl FieldValueType for f64 {
-    const REPR: FieldValueRepr = FieldValueRepr::Float;
-}
-unsafe impl FieldValueType for BigRational {
-    const REPR: FieldValueRepr = FieldValueRepr::Rational;
-}
-unsafe impl FieldValueType for CustomDataBox {
-    const REPR: FieldValueRepr = FieldValueRepr::Custom;
 }
 
 pub const INLINE_STR_MAX_LEN: usize = 8192;

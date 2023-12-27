@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt::Write};
 
 use smallstr::SmallString;
 
@@ -120,11 +120,61 @@ impl OperatorData {
             OperatorData::Aggregator(_) => "aggregator".into(),
         }
     }
+    pub fn debug_op_name(&self) -> DefaultOperatorName {
+        match self {
+            OperatorData::Aggregator(op) => {
+                let mut n = self.default_op_name();
+                n.push('<');
+                for (i, &so) in op.sub_ops.iter().enumerate() {
+                    if i > 0 {
+                        n.push_str(", ");
+                    }
+                    n.write_fmt(format_args!("{so}")).unwrap();
+                }
+                n.push('>');
+                n
+            }
+            _ => self.default_op_name(),
+        }
+    }
+    pub fn can_be_appended(&self) -> bool {
+        match self {
+            OperatorData::Print(_) => true,
+            OperatorData::Sequence(_) => true,
+            OperatorData::Fork(_) => false,
+            OperatorData::ForkCat(_) => false,
+            OperatorData::Key(_) => false,
+            OperatorData::Regex(_) => true,
+            OperatorData::FileReader(_) => true,
+            OperatorData::Format(_) => true,
+            OperatorData::Select(_) => false,
+            OperatorData::StringSink(_) => true,
+            OperatorData::FieldValueSink(_) => true,
+            OperatorData::Literal(_) => true,
+            OperatorData::Join(_) => true,
+            OperatorData::Next(_) => false,
+            OperatorData::End(_) => false,
+            OperatorData::Count(_) => true,
+            OperatorData::Cast(_) => true,
+            OperatorData::Call(_) => true,
+            OperatorData::CallConcurrent(_) => true,
+            OperatorData::Nop(_) => true,
+            OperatorData::NopCopy(_) => true,
+            OperatorData::Explode(_) => true,
+            OperatorData::Custom(op) => op.can_be_appended(),
+            OperatorData::Aggregator(_) => true,
+        }
+    }
 }
 
 pub trait Operator: Send + Sync {
     fn default_name(&self) -> DefaultOperatorName;
-    fn is_terminating_generator(&self, _op_base: &OperatorBase) -> bool {
+
+    // mainly used for operators that start subchains
+    // makes sure that e.g. `scr seqn=10 fork +int=11 p`
+    // does not try to aggregate `fork` with `int`
+    // `fork` cannot be appended directly (although `fork end +int=42` is legal)
+    fn can_be_appended(&self) -> bool {
         false
     }
     fn output_count(&self, _op_base: &OperatorBase) -> usize;

@@ -1,5 +1,7 @@
 use std::{
+    any::Any,
     io::Write,
+    mem::ManuallyDrop,
     ops::{Add, AddAssign, Div, MulAssign, Rem, Sub},
 };
 
@@ -18,7 +20,7 @@ use crate::{
 use super::{
     custom_data::CustomDataBox,
     field::{FieldManager, FieldRefOffset},
-    field_data::FieldValueRepr,
+    field_data::{FieldValueRepr, FieldValueType, FixedSizeFieldValueType},
     match_set::MatchSetManager,
 };
 
@@ -264,6 +266,46 @@ impl FieldValue {
             }
             FieldValue::Custom(_) => FieldValueKind::Custom,
         }
+    }
+    pub fn downcast_ref<R: FieldValueType>(&self) -> Option<&R> {
+        match self {
+            FieldValue::Null => <dyn Any>::downcast_ref(&Null),
+            FieldValue::Undefined => <dyn Any>::downcast_ref(&Undefined),
+            FieldValue::Int(v) => <dyn Any>::downcast_ref(v),
+            FieldValue::BigInt(v) => <dyn Any>::downcast_ref(v),
+            FieldValue::Float(v) => <dyn Any>::downcast_ref(v),
+            FieldValue::Rational(v) => <dyn Any>::downcast_ref(v),
+            FieldValue::Text(v) => <dyn Any>::downcast_ref(v),
+            FieldValue::Bytes(v) => <dyn Any>::downcast_ref(v),
+            FieldValue::Array(v) => <dyn Any>::downcast_ref(v),
+            FieldValue::Object(v) => <dyn Any>::downcast_ref(v),
+            FieldValue::Custom(v) => <dyn Any>::downcast_ref(v),
+            FieldValue::Error(v) => <dyn Any>::downcast_ref(v),
+            FieldValue::FieldReference(v) => <dyn Any>::downcast_ref(v),
+            FieldValue::SlicedFieldReference(v) => <dyn Any>::downcast_ref(v),
+        }
+    }
+    pub fn downcast_mut<R: FieldValueType>(&mut self) -> Option<&mut R> {
+        match self {
+            v @ FieldValue::Null => <dyn Any>::downcast_mut(v),
+            v @ FieldValue::Undefined => <dyn Any>::downcast_mut(v),
+            FieldValue::Int(v) => <dyn Any>::downcast_mut(v),
+            FieldValue::BigInt(v) => <dyn Any>::downcast_mut(v),
+            FieldValue::Float(v) => <dyn Any>::downcast_mut(v),
+            FieldValue::Rational(v) => <dyn Any>::downcast_mut(v),
+            FieldValue::Text(v) => <dyn Any>::downcast_mut(v),
+            FieldValue::Bytes(v) => <dyn Any>::downcast_mut(v),
+            FieldValue::Array(v) => <dyn Any>::downcast_mut(v),
+            FieldValue::Object(v) => <dyn Any>::downcast_mut(v),
+            FieldValue::Custom(v) => <dyn Any>::downcast_mut(v),
+            FieldValue::Error(v) => <dyn Any>::downcast_mut(v),
+            FieldValue::FieldReference(v) => <dyn Any>::downcast_mut(v),
+            FieldValue::SlicedFieldReference(v) => <dyn Any>::downcast_mut(v),
+        }
+    }
+    pub fn downcast<R: FixedSizeFieldValueType>(self) -> Option<R> {
+        let mut this = ManuallyDrop::new(self);
+        this.downcast_mut().map(|v| unsafe { std::ptr::read(v) })
     }
 }
 

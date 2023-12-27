@@ -598,6 +598,7 @@ pub fn parse_cli_retain_args(
     let mut arg_idx = 1; //skip executable name
     let mut curr_aggregate = Vec::new();
     let mut last_non_append_op_id = None;
+    let mut curr_op_appendable = true;
     while arg_idx < args.len() {
         let arg_str = &args[arg_idx];
         arg_idx += 1;
@@ -615,12 +616,14 @@ pub fn parse_cli_retain_args(
         if let Some(op_data) =
             try_parse_operator_data(&mut ctx_opts, &arg, args, &mut arg_idx)?
         {
+            let prev_op_appendable = curr_op_appendable;
+            curr_op_appendable = op_data.can_be_appended();
             let op_id = add_op_from_arg_and_op_data_uninit(
                 &mut ctx_opts,
                 &arg,
                 op_data,
             );
-            if !arg.append_mode {
+            if !arg.append_mode || !prev_op_appendable {
                 if !curr_aggregate.is_empty() {
                     let (op_base, op_data) = create_op_aggregate(
                         &mut ctx_opts,
@@ -630,6 +633,15 @@ pub fn parse_cli_retain_args(
                 }
                 if let Some(pred) = last_non_append_op_id {
                     ctx_opts.init_op(pred, true);
+                }
+                if arg.append_mode {
+                    let (op_base_opts, op_data) =
+                        create_op_aggregator_append_leader(&mut ctx_opts);
+                    curr_aggregate
+                        .push(ctx_opts.add_op_uninit(op_base_opts, op_data));
+                    curr_aggregate.push(op_id);
+                    last_non_append_op_id = None;
+                    continue;
                 }
                 last_non_append_op_id = Some(op_id);
                 continue;
