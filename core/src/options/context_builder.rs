@@ -147,7 +147,7 @@ impl ContextBuilder {
         let mut res = Vec::new();
         for (i, fv) in std::mem::take(&mut *v).into_iter().enumerate() {
             let kind = fv.kind();
-            if let Some(v) = fv.downcast() {
+            if let Some(v) = fv.downcast_allowing_text_as_bytes() {
                 res.push(v)
             } else {
                 return Err(ContextualizedScrError::from_scr_error(

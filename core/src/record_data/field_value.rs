@@ -314,6 +314,18 @@ impl FieldValue {
         let mut this = ManuallyDrop::new(self);
         this.downcast_mut().map(|v| unsafe { std::ptr::read(v) })
     }
+    pub fn downcast_allowing_text_as_bytes<R: FixedSizeFieldValueType>(
+        self,
+    ) -> Option<R> {
+        if let FieldValue::Text(text) = self {
+            if R::REPR != FieldValueRepr::TextBuffer {
+                return FieldValue::Bytes(text.into_bytes()).downcast();
+            }
+            return FieldValue::Text(text).downcast();
+        }
+        let mut this = ManuallyDrop::new(self);
+        this.downcast_mut().map(|v| unsafe { std::ptr::read(v) })
+    }
 }
 
 pub fn format_bytes(
