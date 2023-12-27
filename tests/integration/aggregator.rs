@@ -47,7 +47,13 @@ fn append_after_fork() -> Result<(), ScrError> {
         .set_batch_size(2)
         .add_op(create_op_seqn(1, 3, 1).unwrap())
         .add_op(create_op_fork())
-        .add_op_aggregate_appending([create_op_int(4, 1)])
+        .add_op_aggregate_with_opts(
+            None,
+            None,
+            true,
+            false,
+            [create_op_int(4, 1)],
+        )
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(

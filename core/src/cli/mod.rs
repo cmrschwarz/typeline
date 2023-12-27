@@ -625,9 +625,13 @@ pub fn parse_cli_retain_args(
             );
             if !arg.append_mode || !prev_op_appendable {
                 if !curr_aggregate.is_empty() {
-                    let (op_base, op_data) = create_op_aggregate(
-                        &mut ctx_opts,
-                        std::mem::take(&mut curr_aggregate),
+                    let op_data = create_op_aggregate(std::mem::take(
+                        &mut curr_aggregate,
+                    ));
+                    let op_base = OperatorBaseOptions::from_name(
+                        ctx_opts
+                            .string_store
+                            .intern_cloned(&op_data.default_op_name()),
                     );
                     ctx_opts.add_op(op_base, op_data);
                 }
@@ -674,9 +678,11 @@ pub fn parse_cli_retain_args(
         .into());
     }
     if !curr_aggregate.is_empty() {
-        let (op_base, op_data) = create_op_aggregate(
-            &mut ctx_opts,
-            std::mem::take(&mut curr_aggregate),
+        let op_data = create_op_aggregate(std::mem::take(&mut curr_aggregate));
+        let op_base = OperatorBaseOptions::from_name(
+            ctx_opts
+                .string_store
+                .intern_cloned(&op_data.default_op_name()),
         );
         ctx_opts.add_op(op_base, op_data);
     }

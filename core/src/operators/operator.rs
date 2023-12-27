@@ -19,7 +19,7 @@ use crate::{
 };
 
 use super::{
-    aggregator::OpAggregator,
+    aggregator::{OpAggregator, AGGREGATOR_DEFAULT_NAME},
     call::OpCall,
     call_concurrent::OpCallConcurrent,
     cast::OpCast,
@@ -117,7 +117,7 @@ impl OperatorData {
             OperatorData::NopCopy(_) => "nop-c".into(),
             OperatorData::Explode(op) => op.default_name(),
             OperatorData::Custom(op) => op.default_name(),
-            OperatorData::Aggregator(_) => "aggregator".into(),
+            OperatorData::Aggregator(_) => AGGREGATOR_DEFAULT_NAME.into(),
         }
     }
     pub fn debug_op_name(&self) -> DefaultOperatorName {

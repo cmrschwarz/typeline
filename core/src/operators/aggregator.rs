@@ -24,6 +24,8 @@ pub struct OpAggregator {
     pub sub_ops: Vec<OperatorId>,
 }
 
+pub const AGGREGATOR_DEFAULT_NAME: &str = "aggregator";
+
 pub struct TfAggregatorHeader {
     pub(crate) trailer_tf_id: TransformId,
     pub(crate) sub_tfs: Vec<TransformId>,
@@ -34,19 +36,9 @@ pub struct TfAggregatorTrailer {
     pub(crate) sub_tf_count: usize,
 }
 
-pub fn create_op_aggregate(
-    ctx_opts: &mut SessionOptions,
-    sub_ops: Vec<OperatorId>,
-) -> (OperatorBaseOptions, OperatorData) {
+pub fn create_op_aggregate(sub_ops: Vec<OperatorId>) -> OperatorData {
     let op_data = OperatorData::Aggregator(OpAggregator { sub_ops });
-    let op_base = OperatorBaseOptions::new(
-        ctx_opts.string_store.intern_cloned("aggregate"),
-        None,
-        false,
-        false,
-        None,
-    );
-    (op_base, op_data)
+    op_data
 }
 
 pub fn create_op_aggregator_append_leader(
@@ -99,8 +91,9 @@ pub fn setup_op_aggregator(
     })
 }
 
-pub fn add_aggregate_to_sess_opts(
+pub fn add_aggregate_to_sess_opts_uninit(
     sess: &mut SessionOptions,
+    op_aggregate_base: OperatorBaseOptions,
     aggregate_starter_is_appending: bool,
     ops: impl IntoIterator<Item = OperatorData>,
 ) -> OperatorId {
@@ -120,8 +113,8 @@ pub fn add_aggregate_to_sess_opts(
         );
         sub_ops.push(sess.add_op_uninit(op_base, op_data));
     }
-    let (op_base, op_data) = create_op_aggregate(sess, sub_ops);
-    sess.add_op(op_base, op_data)
+    let op_data = create_op_aggregate(sub_ops);
+    sess.add_op_uninit(op_aggregate_base, op_data)
 }
 
 pub fn build_tf_aggregator<'a>(

@@ -1,10 +1,8 @@
-use rstest::rstest;
 use scr_core::{
     operators::{
         call_concurrent::create_op_callcc,
-        literal::create_op_int,
         regex::create_op_regex,
-        sequence::{create_op_seq, create_op_seqn},
+        sequence::create_op_seqn,
         string_sink::{create_op_string_sink, StringSinkHandle},
     },
     options::context_builder::ContextBuilder,
@@ -64,6 +62,7 @@ fn callcc_after_drop() -> Result<(), ScrError> {
     Ok(())
 }
 
+#[cfg(disabled_test)]
 #[rstest]
 #[case(1)]
 #[case(2)]

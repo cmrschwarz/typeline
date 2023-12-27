@@ -3,9 +3,12 @@ use std::sync::Arc;
 use crate::{
     context::{Context, Session},
     operators::{
-        aggregator::add_aggregate_to_sess_opts,
+        aggregator::{
+            add_aggregate_to_sess_opts_uninit, create_op_aggregate,
+            create_op_aggregator_append_leader, AGGREGATOR_DEFAULT_NAME,
+        },
         field_value_sink::{create_op_field_value_sink, FieldValueSinkHandle},
-        operator::OperatorData,
+        operator::{DefaultOperatorName, OperatorData, OperatorId},
     },
     record_data::{
         custom_data::CustomDataBox, field_data::FixedSizeFieldValueType,
@@ -20,24 +23,129 @@ use super::{
     session_options::SessionOptions,
 };
 
-#[derive(Default)]
-pub struct ContextBuilderData {
+pub struct ContextBuilder {
     opts: SessionOptions,
     input_data: RecordSet,
+    pending_aggregate: Vec<OperatorId>,
+    last_non_append_op_id: Option<OperatorId>,
+    curr_op_appendable: bool,
 }
 
-#[derive(Default)]
-pub struct ContextBuilder {
-    data: Box<ContextBuilderData>,
+impl Default for ContextBuilder {
+    fn default() -> Self {
+        Self {
+            opts: Default::default(),
+            input_data: Default::default(),
+            pending_aggregate: Default::default(),
+            last_non_append_op_id: Default::default(),
+            curr_op_appendable: true,
+        }
+    }
 }
 
 impl ContextBuilder {
     pub fn from_session_opts(opts: SessionOptions) -> Self {
         Self {
-            data: Box::new(ContextBuilderData {
-                opts,
-                input_data: RecordSet::default(),
-            }),
+            opts,
+            ..Default::default()
+        }
+    }
+    fn create_op_base_opts<'a, F: FnOnce() -> DefaultOperatorName>(
+        &mut self,
+        default_name: F,
+        argname: Option<&str>,
+        label: Option<&str>,
+        append_mode: bool,
+        transparent_mode: bool,
+    ) -> OperatorBaseOptions {
+        OperatorBaseOptions::new(
+            self.opts
+                .string_store
+                .intern_cloned(argname.unwrap_or(default_name().as_str())),
+            label.map(|lbl| self.opts.string_store.intern_cloned(lbl)),
+            append_mode,
+            transparent_mode,
+            None,
+        )
+    }
+    fn add_op_uninit(
+        &mut self,
+        op_data: OperatorData,
+        argname: Option<&str>,
+        label: Option<&str>,
+        append_mode: bool,
+        transparent_mode: bool,
+    ) -> OperatorId {
+        let op_base = self.create_op_base_opts(
+            || op_data.default_op_name(),
+            argname,
+            label,
+            append_mode,
+            transparent_mode,
+        );
+        self.opts.add_op_uninit(op_base, op_data)
+    }
+    pub fn ref_add_op_with_opts(
+        &mut self,
+        op_data: OperatorData,
+        argname: Option<&str>,
+        label: Option<&str>,
+        append_mode: bool,
+        transparent_mode: bool,
+    ) {
+        let prev_op_appendable = self.curr_op_appendable;
+        self.curr_op_appendable = op_data.can_be_appended();
+        let op_id = self.add_op_uninit(
+            op_data,
+            argname,
+            label,
+            append_mode,
+            transparent_mode,
+        );
+        if !append_mode || !prev_op_appendable {
+            self.ref_terminate_current_aggregate();
+            if append_mode {
+                let (op_base_opts, op_data) =
+                    create_op_aggregator_append_leader(&mut self.opts);
+                self.pending_aggregate
+                    .push(self.opts.add_op_uninit(op_base_opts, op_data));
+                self.pending_aggregate.push(op_id);
+                self.last_non_append_op_id = None;
+                return;
+            }
+            self.last_non_append_op_id = Some(op_id);
+            return;
+        }
+        if self.pending_aggregate.is_empty() {
+            if let Some(pred) = self.last_non_append_op_id {
+                self.pending_aggregate.push(pred);
+                self.last_non_append_op_id = None;
+            } else {
+                let (op_base_opts, op_data) =
+                    create_op_aggregator_append_leader(&mut self.opts);
+                self.pending_aggregate
+                    .push(self.opts.add_op_uninit(op_base_opts, op_data));
+            }
+        }
+        self.pending_aggregate.push(op_id);
+    }
+    fn ref_terminate_current_aggregate(&mut self) {
+        if !self.pending_aggregate.is_empty() {
+            let op_data = create_op_aggregate(std::mem::take(
+                &mut self.pending_aggregate,
+            ));
+            let op_base = self.create_op_base_opts(
+                || op_data.default_op_name(),
+                None,
+                None,
+                false,
+                false,
+            );
+            self.opts.add_op(op_base, op_data);
+        }
+        if let Some(pred) = self.last_non_append_op_id {
+            self.opts.init_op(pred, true);
+            self.last_non_append_op_id = None;
         }
     }
     pub fn add_op_with_opts(
@@ -48,53 +156,71 @@ impl ContextBuilder {
         append_mode: bool,
         transparent_mode: bool,
     ) -> Self {
-        let op_base = OperatorBaseOptions::new(
-            self.data.opts.string_store.intern_cloned(
-                argname.unwrap_or(op_data.default_op_name().as_str()),
-            ),
-            label.map(|lbl| self.data.opts.string_store.intern_cloned(lbl)),
+        self.ref_add_op_with_opts(
+            op_data,
+            argname,
+            label,
             append_mode,
             transparent_mode,
-            None,
         );
-        self.data.opts.add_op(op_base, op_data);
         self
     }
     pub fn add_label(mut self, label: String) -> Self {
-        self.data.opts.add_label(label);
+        self.opts.add_label(label);
         self
     }
     pub fn add_op(self, op_data: OperatorData) -> Self {
-        let argname = op_data.default_op_name();
-        self.add_op_with_opts(op_data, Some(&argname), None, false, false)
+        self.add_op_with_opts(op_data, None, None, false, false)
+    }
+    pub fn add_op_aggregate_with_opts(
+        mut self,
+        argname: Option<&str>,
+        label: Option<&str>,
+        append_mode: bool,
+        transparent_mode: bool,
+        sub_ops: impl IntoIterator<Item = OperatorData>,
+    ) -> Self {
+        self.ref_terminate_current_aggregate();
+        let op_base = self.create_op_base_opts(
+            || AGGREGATOR_DEFAULT_NAME.into(),
+            argname,
+            label,
+            append_mode,
+            transparent_mode,
+        );
+        self.last_non_append_op_id = Some(add_aggregate_to_sess_opts_uninit(
+            &mut self.opts,
+            op_base,
+            true,
+            sub_ops,
+        ));
+        self
     }
     pub fn add_op_aggregate(
         mut self,
         sub_ops: impl IntoIterator<Item = OperatorData>,
     ) -> Self {
-        add_aggregate_to_sess_opts(&mut self.data.opts, false, sub_ops);
+        self.ref_terminate_current_aggregate();
+        let op_base = OperatorBaseOptions::from_name(
+            self.opts
+                .string_store
+                .intern_cloned(AGGREGATOR_DEFAULT_NAME),
+        );
+        self.last_non_append_op_id = Some(add_aggregate_to_sess_opts_uninit(
+            &mut self.opts,
+            op_base,
+            false,
+            sub_ops,
+        ));
         self
     }
-    pub fn add_op_aggregate_appending(
-        mut self,
-        sub_ops: impl IntoIterator<Item = OperatorData>,
-    ) -> Self {
-        add_aggregate_to_sess_opts(&mut self.data.opts, true, sub_ops);
-        self
-    }
+
     pub fn add_op_with_label(
         self,
         op_data: OperatorData,
         label: &str,
     ) -> Self {
-        let argname = op_data.default_op_name();
-        self.add_op_with_opts(
-            op_data,
-            Some(&argname),
-            Some(label),
-            false,
-            false,
-        )
+        self.add_op_with_opts(op_data, None, Some(label), false, false)
     }
     pub fn add_ops(
         self,
@@ -107,23 +233,34 @@ impl ContextBuilder {
         this
     }
     pub fn add_op_appending(self, op_data: OperatorData) -> Self {
-        let argname = op_data.default_op_name();
-        self.add_op_with_opts(op_data, Some(&argname), None, true, false)
+        self.add_op_with_opts(op_data, None, None, true, false)
     }
     pub fn add_op_transparent(self, op_data: OperatorData) -> Self {
-        let argname = op_data.default_op_name();
-        self.add_op_with_opts(op_data, Some(&argname), None, false, true)
+        self.add_op_with_opts(op_data, None, None, false, true)
     }
     pub fn add_op_transparent_appending(self, op_data: OperatorData) -> Self {
-        let argname = op_data.default_op_name();
-        self.add_op_with_opts(op_data, Some(&argname), None, true, true)
+        self.add_op_with_opts(op_data, None, None, true, true)
     }
     pub fn set_input(mut self, rs: RecordSet) -> Self {
-        self.data.input_data = rs;
+        self.input_data = rs;
         self
     }
-    pub fn build_session(self) -> Result<Session, ContextualizedScrError> {
-        self.data.opts.build_session()
+    pub fn build_session(mut self) -> Result<Session, ContextualizedScrError> {
+        if !self.pending_aggregate.is_empty() {
+            let op_data = create_op_aggregate(std::mem::take(
+                &mut self.pending_aggregate,
+            ));
+            let op_base = OperatorBaseOptions::from_name(
+                self.opts
+                    .string_store
+                    .intern_cloned(&op_data.default_op_name()),
+            );
+            self.opts.add_op(op_base, op_data);
+        }
+        if let Some(pred) = self.last_non_append_op_id {
+            self.opts.init_op(pred, true);
+        }
+        self.opts.build_session()
     }
     pub fn build(self) -> Result<Context, ContextualizedScrError> {
         Ok(Context::new(Arc::new(self.build_session()?)))
@@ -132,7 +269,7 @@ impl ContextBuilder {
         mut self,
     ) -> Result<Vec<FieldValue>, ContextualizedScrError> {
         let sink = FieldValueSinkHandle::default();
-        self.data.opts.curr_chain = 0;
+        self.opts.curr_chain = 0;
         self.add_op(create_op_field_value_sink(&sink)).run()?;
         let mut v = sink.get();
         Ok(std::mem::take(&mut *v))
@@ -141,7 +278,7 @@ impl ContextBuilder {
         mut self,
     ) -> Result<Vec<T>, ContextualizedScrError> {
         let sink = FieldValueSinkHandle::default();
-        self.data.opts.curr_chain = 0;
+        self.opts.curr_chain = 0;
         self.add_op(create_op_field_value_sink(&sink)).run()?;
         let mut v = sink.get();
         let mut res = Vec::new();
@@ -165,15 +302,14 @@ impl ContextBuilder {
         }
         Ok(res)
     }
-    pub fn run(self) -> Result<(), ContextualizedScrError> {
-        let sess = self.data.opts.build_session()?;
+    pub fn run(mut self) -> Result<(), ContextualizedScrError> {
+        let input_data = std::mem::take(&mut self.input_data);
+        let sess = self.build_session()?;
         if sess.settings.max_threads == 1 {
-            sess.run_job_unthreaded(
-                sess.construct_main_chain_job(self.data.input_data),
-            )
+            sess.run_job_unthreaded(sess.construct_main_chain_job(input_data))
         } else {
             let mut ctx = Context::new(Arc::new(sess));
-            ctx.run_main_chain(self.data.input_data);
+            ctx.run_main_chain(input_data);
         }
         Ok(())
     }
@@ -188,50 +324,50 @@ impl ContextBuilder {
 
 impl ContextBuilder {
     pub fn push_custom(mut self, v: CustomDataBox, run_length: usize) -> Self {
-        self.data.input_data.push_custom(v, run_length, true, false);
+        self.input_data.push_custom(v, run_length, true, false);
         self
     }
     pub fn push_str(mut self, v: &str, run_length: usize) -> Self {
-        self.data.input_data.push_str(v, run_length, true, false);
+        self.input_data.push_str(v, run_length, true, false);
         self
     }
     pub fn push_string(mut self, v: String, run_length: usize) -> Self {
-        self.data.input_data.push_string(v, run_length, true, false);
+        self.input_data.push_string(v, run_length, true, false);
         self
     }
     pub fn push_int(mut self, v: i64, run_length: usize) -> Self {
-        self.data.input_data.push_int(v, run_length, true, false);
+        self.input_data.push_int(v, run_length, true, false);
         self
     }
     pub fn push_bytes(mut self, v: &[u8], run_length: usize) -> Self {
-        self.data.input_data.push_bytes(v, run_length, true, false);
+        self.input_data.push_bytes(v, run_length, true, false);
         self
     }
     pub fn push_null(mut self, run_length: usize) -> Self {
-        self.data.input_data.push_null(run_length, true);
+        self.input_data.push_null(run_length, true);
         self
     }
 }
 
 impl ContextBuilder {
     pub fn set_max_thread_count(mut self, j: usize) -> Self {
-        self.data.opts.max_threads.force_set(j, None);
+        self.opts.max_threads.force_set(j, None);
         self
     }
     pub fn set_batch_size(mut self, bs: usize) -> Self {
-        self.data.opts.chains[self.data.opts.curr_chain as usize]
+        self.opts.chains[self.opts.curr_chain as usize]
             .default_batch_size
             .force_set(bs, None);
         self
     }
     pub fn set_stream_buffer_size(mut self, sbs: usize) -> Self {
-        self.data.opts.chains[self.data.opts.curr_chain as usize]
+        self.opts.chains[self.opts.curr_chain as usize]
             .stream_buffer_size
             .force_set(sbs, None);
         self
     }
     pub fn set_stream_size_threshold(mut self, sbs: usize) -> Self {
-        self.data.opts.chains[self.data.opts.curr_chain as usize]
+        self.opts.chains[self.opts.curr_chain as usize]
             .stream_size_threshold
             .force_set(sbs, None);
         self
