@@ -523,6 +523,7 @@ impl FieldManager {
         drop(field);
         cb.execute(self, field_id);
     }
+    // bumps the refcount of the field by one
     pub fn get_cross_ms_cow_field(
         &mut self,
         msm: &mut MatchSetManager,
@@ -534,7 +535,11 @@ impl FieldManager {
             self.add_field(msm, tgt_match_set, name, ActorRef::default());
         let vacant_entry =
             match msm.match_sets[tgt_match_set].cow_map.entry(src_field_id) {
-                Entry::Occupied(e) => return *e.get(),
+                Entry::Occupied(e) => {
+                    let field_id = *e.get();
+                    self.bump_field_refcount(field_id);
+                    return field_id;
+                }
                 Entry::Vacant(e) => e,
             };
         let mut src_field = self.fields[src_field_id].borrow_mut();
