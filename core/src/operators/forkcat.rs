@@ -46,17 +46,18 @@ pub struct OpForkCat {
     pub subchains_end: u32,
     pub continuation: Option<OperatorId>,
 
-    // accessed names of any of the subchains or successors
-    accessed_names_of_subchains: Vec<Option<StringStoreEntry>>,
+    // all names accessed by any of the subchains or any of the successors
+    accessed_names_of_subchains_or_succs: Vec<Option<StringStoreEntry>>,
 
-    // index into accessed_names_of_subchains
+    // names accessed by any successor (this is *not* affected by subchains)
+    accessed_names_of_successors: Vec<Option<StringStoreEntry>>,
+
+    // contains indices into accessed_names_of_subchains_or_succs
     accessed_names_per_subchain: Vec<Vec<usize>>,
 
-    // index into accessed_names_afterwards + OutputIdx
-    // parallel to accessed_names_afterwards
+    // index into accessed_names_of_successors + OutputIdx
+    // parallel to accessed_names_of_successors
     output_mappings_per_subchain: Vec<Vec<OutputMapping>>,
-
-    accessed_names_afterwards: Vec<Option<StringStoreEntry>>,
 }
 
 pub struct TfForkCat<'a> {
@@ -72,19 +73,19 @@ pub struct TfForkCat<'a> {
     pub prebound_outputs: HashMap<OpOutputIdx, FieldId, BuildIdentityHasher>,
 
     // fields created before the fc that are used during or after the fc
-    // parallel to OpForkCat::accessed_names_of_subchains
+    // parallel to OpForkCat::accessed_names_of_subchains_or_succs
     input_fields: Vec<FieldId>,
 
     // if the subchain does not shadow an input field, we add a cow'ed
     // copy of the field into to the subchain match set to get
     // actions applied to it
-    // parallel to OpForkCat::accessed_names_afterwards
+    // parallel to OpForkCat::accessed_names_of_successors
     output_field_sources: Vec<FieldId>,
 
     // Contains all fields that may be used by successors of the forkcat.
     // successor's match set, and have a cow source mirror fields
     // in the subchain
-    // parallel to OpForkCat::accessed_names_afterwards
+    // parallel to OpForkCat::accessed_names_of_successors
     output_fields: Vec<FieldId>,
 }
 
@@ -153,31 +154,31 @@ pub fn setup_op_forkcat_liveness_data(
     successors.resize(var_count * LOCAL_SLOTS_PER_BASIC_BLOCK, false);
     ld.get_global_var_data_ored(&mut calls, bb.calls.iter());
     ld.get_global_var_data_ored(&mut successors, bb.successors.iter());
-    let mut accessed_names_afterwards_count = 0;
-    let accessed_names_afterwards =
+    let mut accessed_names_of_successors_count = 0;
+    let accessed_names_of_successors =
         AccessMappings::<AccessedNamesIndexed>::from_var_data(
-            &mut accessed_names_afterwards_count,
+            &mut accessed_names_of_successors_count,
             ld,
             &successors,
         );
-    op.accessed_names_afterwards
-        .resize(accessed_names_afterwards_count, None);
-    for (name, idx) in accessed_names_afterwards.iter_name_opt() {
-        op.accessed_names_afterwards[idx.0] = name;
+    op.accessed_names_of_successors
+        .resize(accessed_names_of_successors_count, None);
+    for (name, idx) in accessed_names_of_successors.iter_name_opt() {
+        op.accessed_names_of_successors[idx.0] = name;
     }
     ld.kill_non_survivors(&calls, &mut successors);
     calls |= successors;
-    let mut accessed_names_of_subchains_count = 0;
-    let accessed_names_of_subchains =
+    let mut accessed_names_of_subchains_or_succs_count = 0;
+    let accessed_names_of_subchains_or_succs =
         AccessMappings::<AccessedNamesIndexed>::from_var_data(
-            &mut accessed_names_of_subchains_count,
+            &mut accessed_names_of_subchains_or_succs_count,
             ld,
             &calls,
         );
-    op.accessed_names_of_subchains
-        .resize(accessed_names_of_subchains_count, None);
-    for (name, idx) in accessed_names_of_subchains.iter_name_opt() {
-        op.accessed_names_of_subchains[idx.0] = name;
+    op.accessed_names_of_subchains_or_succs
+        .resize(accessed_names_of_subchains_or_succs_count, None);
+    for (name, idx) in accessed_names_of_subchains_or_succs.iter_name_opt() {
+        op.accessed_names_of_subchains_or_succs[idx.0] = name;
     }
     for &callee_id in bb.calls.iter() {
         let mut accessed_names = Vec::default();
@@ -197,15 +198,19 @@ pub fn setup_op_forkcat_liveness_data(
                 Var::BBInput => None,
                 Var::UnreachableDummyVar => continue,
             };
-            accessed_names
-                .push(accessed_names_of_subchains.get(var_name).unwrap().0);
+            accessed_names.push(
+                accessed_names_of_subchains_or_succs
+                    .get(var_name)
+                    .unwrap()
+                    .0,
+            );
         }
         op.accessed_names_per_subchain.push(accessed_names);
     }
     for sc_n in 0..op.accessed_names_per_subchain.len() {
         let mut mappings = Vec::new();
         mappings.resize(
-            op.accessed_names_afterwards.len(),
+            op.accessed_names_of_successors.len(),
             OutputMapping::InputIndex(0),
         );
         let sc_id = sess.chains
@@ -221,7 +226,8 @@ pub fn setup_op_forkcat_liveness_data(
                         Var::BBInput => None,
                         Var::UnreachableDummyVar => continue,
                     };
-                    if let Some(idx) = accessed_names_afterwards.get(var_name)
+                    if let Some(idx) =
+                        accessed_names_of_successors.get(var_name)
                     {
                         mappings[idx.0] = OutputMapping::OutputIdx(oo_id);
                     }
@@ -231,8 +237,8 @@ pub fn setup_op_forkcat_liveness_data(
         for (i, m) in mappings.iter_mut().enumerate() {
             if let OutputMapping::InputIndex(_) = m {
                 *m = OutputMapping::InputIndex(
-                    accessed_names_of_subchains
-                        .get(op.accessed_names_afterwards[i])
+                    accessed_names_of_subchains_or_succs
+                        .get(op.accessed_names_of_successors[i])
                         .unwrap()
                         .0 as u32,
                 );
@@ -256,10 +262,14 @@ pub fn build_tf_forkcat<'a>(
         input_size: 0,
         buffered_record_count: 0,
         prebound_outputs: Default::default(),
-        input_fields: Vec::with_capacity(op.accessed_names_of_subchains.len()),
-        output_fields: Vec::with_capacity(op.accessed_names_afterwards.len()),
+        input_fields: Vec::with_capacity(
+            op.accessed_names_of_subchains_or_succs.len(),
+        ),
+        output_fields: Vec::with_capacity(
+            op.accessed_names_of_successors.len(),
+        ),
         output_field_sources: Vec::with_capacity(
-            op.accessed_names_afterwards.len(),
+            op.accessed_names_of_successors.len(),
         ),
     })
 }
@@ -274,7 +284,7 @@ pub(crate) fn handle_initial_forkcat_expansion(
     else {
         unreachable!()
     };
-    for &f in &forkcat.op.accessed_names_of_subchains {
+    for &f in &forkcat.op.accessed_names_of_subchains_or_succs {
         let input_field = if let Some(name) = f {
             sess.job_data.match_set_mgr.match_sets[tf.match_set_id]
                 .field_name_map
@@ -357,7 +367,7 @@ fn setup_continuation(
     let cont_op_id = forkcat.op.continuation.unwrap();
 
     let output_ms_id = sess.job_data.match_set_mgr.add_match_set();
-    for name in &forkcat.op.accessed_names_afterwards {
+    for name in &forkcat.op.accessed_names_of_successors {
         let output_field_id = sess.job_data.field_mgr.add_field(
             &mut sess.job_data.match_set_mgr,
             output_ms_id,
@@ -374,7 +384,7 @@ fn setup_continuation(
         .chain_id
         .unwrap();
     let cont_input_field =
-        if forkcat.op.accessed_names_afterwards.first() == Some(&None) {
+        if forkcat.op.accessed_names_of_successors.first() == Some(&None) {
             forkcat.output_fields[0]
         } else {
             DUMMY_FIELD_ID
@@ -415,7 +425,7 @@ fn expand_for_subchain(sess: &mut JobSession, tf_id: TransformId, sc_n: u32) {
                 tgt_ms_id,
                 input_field,
             );
-        let name = forkcat.op.accessed_names_of_subchains[idx];
+        let name = forkcat.op.accessed_names_of_subchains_or_succs[idx];
         let tgt_ms = &mut sess.job_data.match_set_mgr.match_sets[tgt_ms_id];
         if let Some(name) = name {
             tgt_ms.field_name_map.insert(name, input_mirror_field);
@@ -434,7 +444,7 @@ fn expand_for_subchain(sess: &mut JobSession, tf_id: TransformId, sc_n: u32) {
                 let id = sess.job_data.field_mgr.add_field(
                     &mut sess.job_data.match_set_mgr,
                     tgt_ms_id,
-                    forkcat.op.accessed_names_afterwards[idx],
+                    forkcat.op.accessed_names_of_successors[idx],
                     Default::default(),
                 );
                 prebound_outputs.insert(output_idx, id);

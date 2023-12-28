@@ -127,16 +127,15 @@ pub fn handle_tf_fork(
             sess.tf_mgr.update_ready_state(tf_id);
         }
     }
-    for tf in &sp.targets {
-        sess.tf_mgr
-            .inform_transform_batch_available(*tf, batch_size);
+    // we reverse to make sure that the first subchain ends up
+    // on top of the stack and gets executed first
+    for &tf in sp.targets.iter().rev() {
+        sess.tf_mgr.inform_transform_batch_available(tf, batch_size);
     }
     if end_of_input {
-        for tf in &sp.targets {
-            sess.tf_mgr.push_tf_in_ready_stack(*tf);
-        }
-        for tf in &sp.targets {
-            sess.tf_mgr.transforms[*tf].input_is_done = true;
+        for &tf in sp.targets.iter().rev() {
+            sess.tf_mgr.transforms[tf].input_is_done = true;
+            sess.tf_mgr.push_tf_in_ready_stack(tf);
         }
         sess.unlink_transform(tf_id, 0);
     }
@@ -159,12 +158,9 @@ pub(crate) fn handle_fork_expansion(
         .chain_id
         .unwrap() as usize;
 
-    // by reversing this, the earlier subchains get the higher tf ordering ids
-    // -> get executed first
-    for i in (0..sess.job_data.session_data.chains[fork_chain_id]
+    for i in 0..sess.job_data.session_data.chains[fork_chain_id]
         .subchains
-        .len())
-        .rev()
+        .len()
     {
         let subchain_id = sess.job_data.session_data.chains[fork_chain_id]
             .subchains[i] as usize;

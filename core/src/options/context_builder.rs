@@ -185,34 +185,22 @@ impl ContextBuilder {
             || AGGREGATOR_DEFAULT_NAME.into(),
             argname,
             label,
-            append_mode,
+            false, //causes issues
             transparent_mode,
         );
         self.last_non_append_op_id = Some(add_aggregate_to_sess_opts_uninit(
             &mut self.opts,
             op_base,
-            true,
+            append_mode,
             sub_ops,
         ));
         self
     }
     pub fn add_op_aggregate(
-        mut self,
+        self,
         sub_ops: impl IntoIterator<Item = OperatorData>,
     ) -> Self {
-        self.ref_terminate_current_aggregate();
-        let op_base = OperatorBaseOptions::from_name(
-            self.opts
-                .string_store
-                .intern_cloned(AGGREGATOR_DEFAULT_NAME),
-        );
-        self.last_non_append_op_id = Some(add_aggregate_to_sess_opts_uninit(
-            &mut self.opts,
-            op_base,
-            false,
-            sub_ops,
-        ));
-        self
+        self.add_op_aggregate_with_opts(None, None, false, false, sub_ops)
     }
 
     pub fn add_op_with_label(
