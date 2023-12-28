@@ -322,6 +322,7 @@ pub fn handle_tf_forkcat(
         return;
     }
     if fc.curr_subchain_n != 0 {
+        sess.tf_mgr.push_tf_in_ready_stack(tf_id);
         sess.tf_mgr.inform_transform_batch_available(
             fc.curr_subchain_start.take().unwrap(),
             fc.input_size,

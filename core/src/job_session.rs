@@ -933,6 +933,11 @@ impl<'a> JobSession<'a> {
         tf_id: TransformId,
         ctx: Option<&Arc<ContextData>>,
     ) -> Result<(), VentureDescription> {
+        #[cfg(feature = "debug_logging")]
+        println!(
+            "> handling tf {}",
+            self.transform_data[tf_id.get() as usize].display_name()
+        );
         match &mut self.transform_data[usize::from(tf_id)] {
             TransformData::Fork(fork) => {
                 if !fork.expanded {

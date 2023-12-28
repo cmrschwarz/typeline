@@ -10,6 +10,7 @@ use crate::{
 // the first subchain is completed
 pub struct TfInputDoneEater {
     input_dones_to_eat: usize,
+    handled_predecessor: Option<TransformId>,
 }
 
 pub fn setup_tf_input_done_eater(
@@ -17,7 +18,10 @@ pub fn setup_tf_input_done_eater(
     input_dones_to_eat: usize,
 ) -> TransformData<'static> {
     tf_state.is_transparent = true;
-    TransformData::InputDoneEater(TfInputDoneEater { input_dones_to_eat })
+    TransformData::InputDoneEater(TfInputDoneEater {
+        input_dones_to_eat,
+        handled_predecessor: None,
+    })
 }
 
 pub fn handle_tf_input_done_eater(
@@ -26,11 +30,18 @@ pub fn handle_tf_input_done_eater(
     ide: &mut TfInputDoneEater,
 ) {
     let (batch_size, mut ps) = sess.tf_mgr.claim_all(tf_id);
+    let tf = &mut sess.tf_mgr.transforms[tf_id];
     if ps.input_done {
-        if ide.input_dones_to_eat > 0 {
-            ide.input_dones_to_eat -= 1;
+        //TODO: we might have an ABA problem here
+        let is_repeat = ide.handled_predecessor.is_some()
+            && tf.predecessor == ide.handled_predecessor;
+        if ide.input_dones_to_eat > 0 || is_repeat {
             ps.input_done = false;
-            sess.tf_mgr.transforms[tf_id].input_is_done = false;
+            tf.input_is_done = false;
+        }
+        if ide.input_dones_to_eat > 0 && !is_repeat {
+            ide.input_dones_to_eat -= 1;
+            ide.handled_predecessor = tf.predecessor;
         }
     }
     sess.tf_mgr.inform_successor_batch_available(
