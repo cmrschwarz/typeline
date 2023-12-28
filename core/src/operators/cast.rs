@@ -178,7 +178,7 @@ pub fn build_tf_cast<'a>(
 }
 
 pub fn handle_tf_cast(sess: &mut JobData, tf_id: TransformId, tfc: &TfCast) {
-    let (batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
+    let (batch_size, ps) = sess.tf_mgr.claim_batch(tf_id);
     let tf = &sess.tf_mgr.transforms[tf_id];
     let _op_id = tf.op_id.unwrap();
     let input_field_id = tf.input_field;
@@ -196,15 +196,14 @@ pub fn handle_tf_cast(sess: &mut JobData, tf_id: TransformId, tfc: &TfCast) {
             batch_size,
             true,
         );
-        if input_done {
-            drop(output_field);
-            drop(input_field);
-            sess.unlink_transform(tf_id, batch_size);
-            return;
+        if ps.next_batch_ready {
+            sess.tf_mgr.push_tf_in_ready_stack(tf_id);
         }
-        sess.tf_mgr.update_ready_state(tf_id);
-        sess.tf_mgr
-            .inform_successor_batch_available(tf_id, batch_size);
+        sess.tf_mgr.inform_successor_batch_available(
+            tf_id,
+            batch_size,
+            ps.input_done,
+        );
         return;
     }
     let ofd = &mut output_field.iter_hall;
@@ -243,15 +242,15 @@ pub fn handle_tf_cast(sess: &mut JobData, tf_id: TransformId, tfc: &TfCast) {
     drop(input_field);
     drop(output_field);
     let streams_done = tfc.pending_streams == 0;
-    if input_done {
-        sess.unlink_transform(tf_id, consumed_fields);
-    } else {
-        if streams_done {
-            sess.tf_mgr.update_ready_state(tf_id);
-        }
-        sess.tf_mgr
-            .inform_successor_batch_available(tf_id, consumed_fields);
+
+    if streams_done && ps.next_batch_ready {
+        sess.tf_mgr.push_tf_in_ready_stack(tf_id);
     }
+    sess.tf_mgr.inform_successor_batch_available(
+        tf_id,
+        consumed_fields,
+        ps.input_done,
+    );
 }
 
 pub fn handle_tf_cast_stream_value_update(

@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::{
-    chain::{Chain, ChainId},
+    chain::Chain,
     context::{ContextData, Job, Session, VentureDescription},
     liveness_analysis::OpOutputIdx,
     operators::{
@@ -44,7 +44,7 @@ use crate::{
             build_tf_join, handle_tf_join, handle_tf_join_stream_value_update,
         },
         literal::{build_tf_literal, handle_tf_literal},
-        nop::{build_tf_nop, create_tf_nop, handle_tf_nop},
+        nop::{build_tf_nop, handle_tf_nop},
         nop_copy::{build_tf_nop_copy, handle_tf_nop_copy},
         operator::{Operator, OperatorData, OperatorId},
         print::{
@@ -98,6 +98,19 @@ pub struct TransformManager {
     pub pre_stream_transform_stack_cutoff: Option<usize>,
 }
 
+#[derive(Clone, Copy, Default)]
+pub struct PipelineState {
+    pub input_done: bool,
+    pub output_done: bool,
+    pub next_batch_ready: bool,
+}
+
+impl PipelineState {
+    pub fn anybody_done(&self) -> bool {
+        self.input_done || self.output_done
+    }
+}
+
 impl TransformManager {
     pub fn get_input_field_id(
         &mut self,
@@ -112,20 +125,28 @@ impl TransformManager {
         &mut self,
         tf_id: TransformId,
         limit: usize,
-    ) -> (usize, bool) {
+    ) -> (usize, PipelineState) {
         let tf = &mut self.transforms[tf_id];
         let batch_size = tf.available_batch_size.min(limit);
         tf.available_batch_size -= batch_size;
-        let input_done = tf.input_is_done && tf.available_batch_size == 0;
-        (batch_size, input_done)
+
+        let ps = PipelineState {
+            input_done: tf.input_is_done && tf.available_batch_size == 0,
+            next_batch_ready: tf.available_batch_size > 0,
+            output_done: tf.output_is_done,
+        };
+        (batch_size, ps)
     }
-    pub fn claim_batch(&mut self, tf_id: TransformId) -> (usize, bool) {
+    pub fn claim_batch(
+        &mut self,
+        tf_id: TransformId,
+    ) -> (usize, PipelineState) {
         self.claim_batch_with_limit(
             tf_id,
             self.transforms[tf_id].desired_batch_size,
         )
     }
-    pub fn claim_all(&mut self, tf_id: TransformId) -> (usize, bool) {
+    pub fn claim_all(&mut self, tf_id: TransformId) -> (usize, PipelineState) {
         self.claim_batch_with_limit(tf_id, usize::MAX)
     }
     pub fn unclaim_batch_size(
@@ -139,21 +160,30 @@ impl TransformManager {
         &mut self,
         tf_id: TransformId,
         batch_size: usize,
+        input_done: bool,
     ) {
         let tf = &mut self.transforms[tf_id];
         tf.available_batch_size += batch_size;
-        if tf.available_batch_size > 0 && !tf.is_ready {
-            self.push_tf_in_ready_stack(tf_id);
+        if tf.available_batch_size == 0 && (!input_done || tf.input_is_done) {
+            return;
         }
+        tf.input_is_done |= input_done;
+        if tf.is_ready {
+            return;
+        }
+        self.push_tf_in_ready_stack(tf_id);
     }
     pub fn inform_successor_batch_available(
         &mut self,
         tf_id: TransformId,
         batch_size: usize,
+        input_done: bool,
     ) {
         let tf = &self.transforms[tf_id];
         if let Some(succ_tf_id) = tf.successor {
-            self.inform_transform_batch_available(succ_tf_id, batch_size);
+            self.inform_transform_batch_available(
+                succ_tf_id, batch_size, input_done,
+            );
         }
     }
     pub fn push_tf_in_ready_stack(&mut self, tf_id: TransformId) {
@@ -175,12 +205,6 @@ impl TransformManager {
             self.stream_producers.push_back(tf_id);
         }
     }
-    pub fn update_ready_state(&mut self, tf_id: TransformId) {
-        let tf = &self.transforms[tf_id];
-        if tf.available_batch_size > 0 {
-            self.push_tf_in_ready_stack(tf_id);
-        }
-    }
     pub fn maintain_single_value(
         &mut self,
         tf_id: TransformId,
@@ -189,7 +213,7 @@ impl TransformManager {
         match_set_mgr: &mut MatchSetManager,
         initial_call: bool,
         final_call_if_input_done: bool,
-    ) -> (usize, bool) {
+    ) -> (usize, PipelineState) {
         let tf = &mut self.transforms[tf_id];
         let output_field_id = tf.output_field;
         let match_set_id = tf.match_set_id;
@@ -205,13 +229,18 @@ impl TransformManager {
                         .iter_hall
                         .drop_last_value(1);
                 }
-                return (0, true);
+                let ps = PipelineState {
+                    input_done: true,
+                    output_done: false,
+                    next_batch_ready: false,
+                };
+                return (0, ps);
             }
             1
         } else {
             usize::MAX
         };
-        let (mut batch_size, mut input_done) = self.claim_batch_with_limit(
+        let (mut batch_size, mut ps) = self.claim_batch_with_limit(
             tf_id,
             max_batch_size.min(desired_batch_size),
         );
@@ -223,17 +252,18 @@ impl TransformManager {
                         .iter_hall
                         .drop_last_value(1);
                 }
-                return (0, true);
+                ps.input_done = true;
+                return (0, ps);
             }
             batch_size = length.unwrap_or(1);
         }
         if let Some(len) = length {
             *len -= batch_size;
             if *len == 0 {
-                input_done = true;
+                ps.input_done = true;
             }
         } else if has_appender {
-            input_done = true;
+            ps.input_done = true;
         }
         match_set_mgr.match_sets[match_set_id]
             .action_buffer
@@ -243,7 +273,7 @@ impl TransformManager {
         // from deleting our value. unless we are done, in which case
         // no additional value is inserted
         let mut output_field = field_mgr.fields[output_field_id].borrow_mut();
-        let drop_oversize = input_done && final_call_if_input_done;
+        let drop_oversize = ps.input_done && final_call_if_input_done;
         if batch_size == 0 && drop_oversize {
             output_field.iter_hall.drop_last_value(1);
         } else {
@@ -251,7 +281,7 @@ impl TransformManager {
                 .iter_hall
                 .dup_last_value(batch_size - drop_oversize as usize);
         }
-        (batch_size, input_done)
+        (batch_size, ps)
     }
 
     pub fn prepare_for_output(
@@ -841,62 +871,6 @@ impl<'a> JobSession<'a> {
         let start = start_tf_id.unwrap();
         let end = predecessor_tf.unwrap_or(start);
         (start, end)
-    }
-    // Because a fork / forkcat / etc. has multiple targets / successors, these
-    // can't be stored in the usual successor / predecessor fields in
-    // TransformState. Therefore the fork has a list of successor transform
-    // ids. This list is unknown to unlink_transform, which would therefore
-    // break the propagation if the first Transform after the fork has an
-    // appender. To solve this, we simply insert a nop transform before the
-    // first transform (if necessary) to get a stable transform index.
-    pub fn setup_transforms_with_stable_start(
-        &mut self,
-        ms_id: MatchSetId,
-        chain_id: ChainId,
-        start_op_id: OperatorId,
-        input_field_id: FieldId,
-        prebound_outputs: &HashMap<OpOutputIdx, FieldId, BuildIdentityHasher>,
-        manual_unlink: bool,
-    ) -> (TransformId, TransformId) {
-        let mut tf_state = TransformState::new(
-            input_field_id,
-            DUMMY_FIELD_ID,
-            ms_id,
-            self.job_data.session_data.chains[chain_id as usize]
-                .settings
-                .default_batch_size,
-            None,
-            None,
-        );
-        self.job_data.field_mgr.bump_field_refcount(input_field_id);
-        self.job_data.field_mgr.bump_field_refcount(DUMMY_FIELD_ID);
-        tf_state.is_transparent = true;
-        let tf_data = create_tf_nop(manual_unlink);
-        let mut pred_tf = add_transform_to_job(
-            &mut self.job_data,
-            &mut self.transform_data,
-            tf_state,
-            tf_data,
-        );
-        let (start_tf, end_tf) = self.setup_transforms_from_op(
-            ms_id,
-            start_op_id,
-            input_field_id,
-            Some(pred_tf),
-            prebound_outputs,
-        );
-        if !manual_unlink {
-            // if the first transform will live to the end
-            // (we currently just check whether it has an appender)
-            // TODO: this is insufficient e.g. for plugins
-            // we don't need the nop so we remove it
-            self.job_data
-                .tf_mgr
-                .disconnect_tf_from_predecessor(start_tf);
-            self.remove_transform(pred_tf);
-            pred_tf = start_tf;
-        }
-        (pred_tf, end_tf)
     }
     fn handle_stream_value_update(&mut self, svu: StreamValueUpdate) {
         match &mut self.transform_data[usize::from(svu.tf_id)] {

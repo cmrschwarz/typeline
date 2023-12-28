@@ -383,7 +383,7 @@ pub fn handle_tf_print(
     if tf.current_stream_val.is_some() {
         return;
     }
-    let (batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
+    let (batch_size, ps) = sess.tf_mgr.claim_batch(tf_id);
     let mut handled_field_count = 0;
     let mut stdout = BufWriter::new(std::io::stdout().lock());
     let res = handle_tf_print_raw(
@@ -424,13 +424,15 @@ pub fn handle_tf_print(
         }
     }
     drop(output_field);
-    if input_done && tf.current_stream_val.is_none() {
-        sess.unlink_transform(tf_id, outputs_produced);
-    } else {
-        sess.tf_mgr.update_ready_state(tf_id);
-        sess.tf_mgr
-            .inform_successor_batch_available(tf_id, outputs_produced);
+
+    if ps.next_batch_ready && tf.current_stream_val.is_none() {
+        sess.tf_mgr.push_tf_in_ready_stack(tf_id);
     }
+    sess.tf_mgr.inform_successor_batch_available(
+        tf_id,
+        outputs_produced,
+        ps.input_done,
+    );
 }
 
 pub fn handle_tf_print_stream_value_update(
@@ -482,5 +484,5 @@ pub fn handle_tf_print_stream_value_update(
     }
     print.current_stream_val = None;
     sess.field_mgr.relinquish_clear_delay(tf.input_field);
-    sess.tf_mgr.update_ready_state(tf_id);
+    sess.tf_mgr.push_tf_in_ready_stack(tf_id);
 }

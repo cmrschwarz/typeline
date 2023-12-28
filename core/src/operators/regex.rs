@@ -740,7 +740,7 @@ pub fn handle_tf_regex(
     tf_id: TransformId,
     re: &mut TfRegex,
 ) {
-    let (batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
+    let (batch_size, ps) = sess.tf_mgr.claim_batch(tf_id);
     sess.tf_mgr.prepare_for_output(
         &mut sess.field_mgr,
         &mut sess.match_set_mgr,
@@ -1091,13 +1091,15 @@ pub fn handle_tf_regex(
         }
     } else {
         drop(rbs);
-        if input_done {
+        if ps.input_done {
             drop(input_field);
             drop(output_fields);
             sess.unlink_transform(tf_id, produced_records);
             return;
         }
-        sess.tf_mgr.update_ready_state(tf_id);
+        if ps.next_batch_ready {
+            sess.tf_mgr.push_tf_in_ready_stack(tf_id);
+        }
     }
     if bse {
         // apply the action list first so we can move the iterator to the
@@ -1128,8 +1130,11 @@ pub fn handle_tf_regex(
             base_iter,
         );
     }
-    sess.tf_mgr
-        .inform_successor_batch_available(tf_id, produced_records);
+    sess.tf_mgr.inform_successor_batch_available(
+        tf_id,
+        produced_records,
+        ps.input_done,
+    );
 }
 
 pub fn handle_tf_regex_stream_value_update(

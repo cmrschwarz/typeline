@@ -29,18 +29,18 @@ pub fn handle_tf_count(
     tf_id: TransformId,
     count: &mut TfCount,
 ) {
-    let (batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
+    let (batch_size, ps) = sess.tf_mgr.claim_all(tf_id);
     count.count += batch_size; // TODO: maybe handle overflow?
-    if input_done {
-        let output_field_id = sess.tf_mgr.transforms[tf_id].output_field;
-        sess.field_mgr.fields[output_field_id]
-            .borrow_mut()
-            .iter_hall
-            .push_int(count.count as i64, 1, false, false);
-        sess.unlink_transform(tf_id, 1);
-    } else {
-        sess.tf_mgr.update_ready_state(tf_id);
+    if !ps.input_done {
+        return;
     }
+    let output_field_id = sess.tf_mgr.transforms[tf_id].output_field;
+    sess.field_mgr.fields[output_field_id]
+        .borrow_mut()
+        .iter_hall
+        .push_int(count.count as i64, 1, false, false);
+
+    sess.tf_mgr.inform_successor_batch_available(tf_id, 1, true);
 }
 
 pub fn parse_op_count(

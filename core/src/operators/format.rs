@@ -2410,7 +2410,7 @@ pub fn handle_tf_format(
     tf_id: TransformId,
     fmt: &mut TfFormat,
 ) {
-    let (batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
+    let (batch_size, ps) = sess.tf_mgr.claim_batch(tf_id);
     sess.tf_mgr.prepare_output_field(
         &mut sess.field_mgr,
         &mut sess.match_set_mgr,
@@ -2494,18 +2494,18 @@ pub fn handle_tf_format(
     drop(output_field);
     let streams_done = fmt.stream_value_handles.is_empty();
     sess.tf_mgr.transforms[tf_id].pending_stream_values = !streams_done;
-    if input_done {
-        if streams_done {
+    if streams_done {
+        if ps.input_done {
             drop_field_refs(sess, fmt);
+        } else if ps.next_batch_ready {
+            sess.tf_mgr.push_tf_in_ready_stack(tf_id);
         }
-        sess.unlink_transform(tf_id, batch_size);
-    } else {
-        if streams_done {
-            sess.tf_mgr.update_ready_state(tf_id);
-        }
-        sess.tf_mgr
-            .inform_successor_batch_available(tf_id, batch_size);
     }
+    sess.tf_mgr.inform_successor_batch_available(
+        tf_id,
+        batch_size,
+        ps.input_done,
+    );
 }
 
 pub fn handle_tf_format_stream_value_update(
@@ -2636,11 +2636,7 @@ pub fn handle_tf_format_stream_value_update(
     if fmt.stream_value_handles.is_empty() {
         let tf = &mut sess.tf_mgr.transforms[tf_id];
         tf.pending_stream_values = false;
-        if tf.mark_for_removal {
-            drop_field_refs(sess, fmt);
-        } else {
-            sess.tf_mgr.update_ready_state(tf_id);
-        }
+        sess.tf_mgr.push_tf_in_ready_stack(tf_id);
     }
 }
 

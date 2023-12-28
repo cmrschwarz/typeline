@@ -196,8 +196,8 @@ pub fn handle_tf_aggregator_header(
     };
     let sub_tf_count = agg.sub_tfs.len();
     let sub_tf_id = agg.sub_tfs[sub_tf_idx];
-    let (batch_size, input_done) = sess.job_data.tf_mgr.claim_all(tf_id);
-    if batch_size == 0 && input_done == false {
+    let (batch_size, ps) = sess.job_data.tf_mgr.claim_all(tf_id);
+    if batch_size == 0 && ps.input_done == false {
         // PERF: we could maybe figure this out from the trailer and
         // prevent unnecessary rechecks
         return Ok(());
@@ -206,8 +206,8 @@ pub fn handle_tf_aggregator_header(
     sess.job_data.tf_mgr.transforms[tf_trailer_id].successor = successor;
     let sub_tf = &mut sess.job_data.tf_mgr.transforms[sub_tf_id];
     sub_tf.available_batch_size += batch_size;
-    sub_tf.input_is_done |= input_done;
-    if !input_done || sub_tf_idx + 1 != sub_tf_count {
+    sub_tf.input_is_done |= ps.input_done;
+    if !ps.input_done || sub_tf_idx + 1 != sub_tf_count {
         sess.job_data.tf_mgr.push_tf_in_ready_stack(tf_id);
     }
     sess.handle_transform(sub_tf_id, ctx)?;
@@ -219,15 +219,15 @@ pub fn handle_tf_aggregator_trailer(
     tf_id: nonmax::NonMaxUsize,
     agg_t: &mut TfAggregatorTrailer,
 ) {
-    let (batch_size, input_done) = jd.tf_mgr.claim_all(tf_id);
-    if input_done {
+    let (batch_size, mut ps) = jd.tf_mgr.claim_all(tf_id);
+    if ps.input_done && agg_t.curr_sub_tf_idx != agg_t.sub_tf_count {
         agg_t.curr_sub_tf_idx += 1;
         jd.tf_mgr.transforms[tf_id].input_is_done = false;
+        ps.input_done = false;
     }
-    if input_done && agg_t.curr_sub_tf_idx == agg_t.sub_tf_count {
-        jd.unlink_transform(tf_id, batch_size);
-    } else {
-        jd.tf_mgr
-            .inform_successor_batch_available(tf_id, batch_size);
-    }
+    jd.tf_mgr.inform_successor_batch_available(
+        tf_id,
+        batch_size,
+        ps.input_done,
+    );
 }

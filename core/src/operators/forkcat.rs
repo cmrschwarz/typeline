@@ -5,7 +5,7 @@ use bitvec::vec::BitVec;
 use crate::{
     chain::Chain,
     context::Session,
-    job_session::{JobData, JobSession},
+    job_session::{JobData, JobSession, PipelineState},
     liveness_analysis::{
         LivenessData, OpOutputIdx, Var, HEADER_WRITES_OFFSET,
         LOCAL_SLOTS_PER_BASIC_BLOCK, READS_OFFSET,
@@ -320,15 +320,25 @@ pub fn handle_tf_forkcat(
         return;
     }
     if fc.curr_subchain_n == 0 {
-        let (batch_size, end_of_input) = sess.tf_mgr.claim_all(tf_id);
+        let (batch_size, ps) = sess.tf_mgr.claim_all(tf_id);
         fc.input_size += batch_size;
-        handle_tf_forkcat_subchain(sess, tf_id, fc, batch_size, end_of_input);
-        if !end_of_input {
+        handle_tf_forkcat_subchain(sess, tf_id, fc, batch_size, ps);
+        if !ps.input_done {
             return;
         }
     } else {
         sess.tf_mgr.push_tf_in_ready_stack(tf_id);
-        handle_tf_forkcat_subchain(sess, tf_id, fc, fc.input_size, true);
+        handle_tf_forkcat_subchain(
+            sess,
+            tf_id,
+            fc,
+            fc.input_size,
+            PipelineState {
+                input_done: true,
+                output_done: false,
+                next_batch_ready: false,
+            },
+        );
     }
     fc.curr_subchain_n += 1;
     fc.curr_subchain_start = None;
@@ -339,20 +349,20 @@ pub fn handle_tf_forkcat_subchain(
     tf_id: TransformId,
     fc: &mut TfForkCat,
     batch_size: usize,
-    end_of_input: bool,
+    ps: PipelineState,
 ) {
     let target_tf = fc.curr_subchain_start.unwrap();
-    if end_of_input {
+    if ps.input_done {
         sess.tf_mgr.push_tf_in_ready_stack(tf_id);
         sess.tf_mgr.transforms[target_tf].input_is_done = true;
-    } else {
-        sess.tf_mgr.update_ready_state(tf_id);
+    } else if ps.next_batch_ready {
+        sess.tf_mgr.push_tf_in_ready_stack(tf_id);
     }
-    sess.tf_mgr
-        .inform_transform_batch_available(target_tf, batch_size);
-    if end_of_input && batch_size == 0 {
-        sess.tf_mgr.push_tf_in_ready_stack(target_tf);
-    }
+    sess.tf_mgr.inform_transform_batch_available(
+        target_tf,
+        batch_size,
+        ps.input_done,
+    );
 }
 
 fn setup_continuation(
@@ -379,23 +389,18 @@ fn setup_continuation(
     forkcat.output_field_sources.extend(
         std::iter::repeat(DUMMY_FIELD_ID).take(forkcat.output_fields.len()),
     );
-    let cont_chain_id = sess.job_data.session_data.operator_bases
-        [cont_op_id as usize]
-        .chain_id
-        .unwrap();
     let cont_input_field =
         if forkcat.op.accessed_names_of_successors.first() == Some(&None) {
             forkcat.output_fields[0]
         } else {
             DUMMY_FIELD_ID
         };
-    sess.setup_transforms_with_stable_start(
+    sess.setup_transforms_from_op(
         output_ms_id,
-        cont_chain_id,
         cont_op_id,
         cont_input_field,
+        None,
         &Default::default(),
-        true,
     )
 }
 
@@ -460,13 +465,12 @@ fn expand_for_subchain(sess: &mut JobSession, tf_id: TransformId, sc_n: u32) {
         };
     }
 
-    let (start_tf, end_tf) = sess.setup_transforms_with_stable_start(
+    let (start_tf, end_tf) = sess.setup_transforms_from_op(
         tgt_ms_id,
-        sc_id,
         sess.job_data.session_data.chains[sc_id as usize].operators[0],
         subchain_input_field,
+        None,
         &prebound_outputs,
-        false,
     );
     let end_tf = sess.add_terminator(tgt_ms_id, end_tf);
     let TransformData::ForkCat(forkcat) =
@@ -514,11 +518,8 @@ pub(crate) fn handle_forkcat_subchain_expansion(
                 .field_mgr
                 .drop_field_refcount(f, &mut sess.job_data.match_set_mgr);
         }
-        let cont_id = fc.continuation.unwrap().get();
-        let TransformData::Nop(nop) = &mut sess.transform_data[cont_id] else {
-            unreachable!()
-        };
-        nop.manual_unlink = false;
+        let _cont_id = fc.continuation.unwrap().get();
+        //TODO: unlink the subchain(s) ?
         return;
     }
     for &of in &fc.output_fields {

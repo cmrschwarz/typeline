@@ -86,11 +86,10 @@ pub fn handle_tf_select(
     let tf = &sess.tf_mgr.transforms[tf_id];
     sess.field_mgr
         .apply_field_actions(&mut sess.match_set_mgr, tf.input_field);
-    let (batch_size, input_done) = sess.tf_mgr.claim_all(tf_id);
-    if input_done {
-        sess.unlink_transform(tf_id, batch_size);
-    } else {
-        sess.tf_mgr
-            .inform_successor_batch_available(tf_id, batch_size);
-    }
+    let (batch_size, ps) = sess.tf_mgr.claim_all(tf_id);
+    sess.tf_mgr.inform_successor_batch_available(
+        tf_id,
+        batch_size,
+        ps.input_done,
+    );
 }

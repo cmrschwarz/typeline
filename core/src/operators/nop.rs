@@ -8,14 +8,9 @@ use super::{
     transform::{TransformData, TransformId, TransformState},
 };
 
-//TODO: get rid of manual unlink once we have the aggregator
 #[derive(Clone, Default)]
-pub struct OpNop {
-    pub manual_unlink: bool,
-}
-pub struct TfNop {
-    pub manual_unlink: bool,
-}
+pub struct OpNop {}
+pub struct TfNop {}
 
 pub fn parse_op_nop(
     value: Option<&[u8]>,
@@ -44,23 +39,23 @@ pub fn setup_op_nop(
 }
 
 pub fn build_tf_nop(
-    op: &OpNop,
+    _op: &OpNop,
     tf_state: &TransformState,
 ) -> TransformData<'static> {
     assert!(tf_state.is_transparent);
-    create_tf_nop(op.manual_unlink)
+    create_tf_nop()
 }
 
-pub fn create_tf_nop(manual_unlink: bool) -> TransformData<'static> {
-    TransformData::Nop(TfNop { manual_unlink })
+pub fn create_tf_nop() -> TransformData<'static> {
+    TransformData::Nop(TfNop {})
 }
 
-pub fn handle_tf_nop(sess: &mut JobData, tf_id: TransformId, nop: &TfNop) {
-    let (batch_size, input_done) = sess.tf_mgr.claim_all(tf_id);
-    if input_done && !nop.manual_unlink {
-        sess.unlink_transform(tf_id, batch_size);
-    } else {
-        sess.tf_mgr
-            .inform_successor_batch_available(tf_id, batch_size);
-    }
+pub fn handle_tf_nop(sess: &mut JobData, tf_id: TransformId, _nop: &TfNop) {
+    let (batch_size, ps) = sess.tf_mgr.claim_all(tf_id);
+
+    sess.tf_mgr.inform_successor_batch_available(
+        tf_id,
+        batch_size,
+        ps.input_done,
+    );
 }

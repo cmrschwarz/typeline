@@ -99,7 +99,7 @@ pub fn handle_tf_sequence(
     tf_id: TransformId,
     seq: &mut TfSequence,
 ) {
-    let (mut batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
+    let (mut batch_size, ps) = sess.tf_mgr.claim_batch(tf_id);
     let of_id = sess.tf_mgr.prepare_output_field(
         &mut sess.field_mgr,
         &mut sess.match_set_mgr,
@@ -107,7 +107,7 @@ pub fn handle_tf_sequence(
     );
     let mut output_field = sess.field_mgr.fields[of_id].borrow_mut();
     let tf = &sess.tf_mgr.transforms[tf_id];
-    if batch_size == 0 && input_done && !seq.stop_after_input {
+    if batch_size == 0 && ps.input_done && !seq.stop_after_input {
         batch_size = if let Some(succ) = tf.successor {
             let succ = &sess.tf_mgr.transforms[succ];
             succ.desired_batch_size
@@ -155,24 +155,16 @@ pub fn handle_tf_sequence(
         }
     }
     let bs_rem = batch_size - count;
-
-    if input_done & seq.stop_after_input {
-        drop(output_field);
-        sess.unlink_transform(tf_id, count);
-        return;
-    }
+    let mut done = ps.input_done && seq.stop_after_input;
     if seq.ss.start == seq.ss.end {
         sess.tf_mgr.unclaim_batch_size(tf_id, bs_rem);
-        drop(output_field);
-        sess.unlink_transform(tf_id, count);
-        return;
+        done = true;
     }
-    if input_done {
+    if !done {
         sess.tf_mgr.push_tf_in_ready_stack(tf_id);
-    } else {
-        sess.tf_mgr.update_ready_state(tf_id);
     }
-    sess.tf_mgr.inform_successor_batch_available(tf_id, count);
+    sess.tf_mgr
+        .inform_successor_batch_available(tf_id, count, done);
 }
 
 pub fn parse_op_seq(

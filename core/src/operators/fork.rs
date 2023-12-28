@@ -3,7 +3,7 @@ use std::sync::Arc;
 use smallvec::SmallVec;
 
 use crate::{
-    chain::{Chain, ChainId},
+    chain::Chain,
     context::ContextData,
     job_session::{JobData, JobSession},
     liveness_analysis::LivenessData,
@@ -118,26 +118,19 @@ pub fn handle_tf_fork(
     tf_id: TransformId,
     sp: &mut TfFork,
 ) {
-    let (batch_size, end_of_input) = sess.tf_mgr.claim_all(tf_id);
+    let (batch_size, ps) = sess.tf_mgr.claim_all(tf_id);
 
-    if !end_of_input {
-        if batch_size == 0 {
-            sess.tf_mgr.push_tf_in_ready_stack(tf_id);
-        } else {
-            sess.tf_mgr.update_ready_state(tf_id);
-        }
+    if ps.next_batch_ready {
+        sess.tf_mgr.push_tf_in_ready_stack(tf_id);
     }
     // we reverse to make sure that the first subchain ends up
     // on top of the stack and gets executed first
     for &tf in sp.targets.iter().rev() {
-        sess.tf_mgr.inform_transform_batch_available(tf, batch_size);
-    }
-    if end_of_input {
-        for &tf in sp.targets.iter().rev() {
-            sess.tf_mgr.transforms[tf].input_is_done = true;
-            sess.tf_mgr.push_tf_in_ready_stack(tf);
-        }
-        sess.unlink_transform(tf_id, 0);
+        sess.tf_mgr.inform_transform_batch_available(
+            tf,
+            batch_size,
+            ps.input_done,
+        );
     }
 }
 
@@ -213,13 +206,12 @@ pub(crate) fn handle_fork_expansion(
         let input_field = chain_input_field.unwrap_or(DUMMY_FIELD_ID);
         let start_op_id =
             sess.job_data.session_data.chains[subchain_id].operators[0];
-        let (start_tf, _end_tf) = sess.setup_transforms_with_stable_start(
+        let (start_tf, _end_tf) = sess.setup_transforms_from_op(
             target_ms_id,
-            subchain_id as ChainId,
             start_op_id,
             input_field,
+            None,
             &Default::default(),
-            false,
         );
         targets.push(start_tf);
     }

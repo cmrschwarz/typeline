@@ -170,7 +170,7 @@ impl Transform for TfExplode {
     }
 
     fn update(&mut self, jd: &mut JobData, tf_id: TransformId) {
-        let (batch_size, input_done) = jd.tf_mgr.claim_batch(tf_id);
+        let (batch_size, ps) = jd.tf_mgr.claim_batch(tf_id);
         let mut inserters = BorrowedVec::new(&mut self.inserters);
         let present_fields = self.target_fields.values().map(|v| {
             let TargetField::Present(f) = v else {
@@ -293,11 +293,10 @@ impl Transform for TfExplode {
         }
         self.pending_fields = iter.into_empty_vec();
 
-        if input_done {
-            jd.unlink_transform(tf_id, batch_size);
-        } else {
-            jd.tf_mgr
-                .inform_successor_batch_available(tf_id, batch_size);
-        }
+        jd.tf_mgr.inform_successor_batch_available(
+            tf_id,
+            batch_size,
+            ps.input_done,
+        );
     }
 }

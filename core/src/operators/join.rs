@@ -362,7 +362,7 @@ pub fn handle_tf_join(
         }
         return;
     }
-    let (batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
+    let (batch_size, ps) = sess.tf_mgr.claim_batch(tf_id);
     sess.tf_mgr.prepare_output_field(
         &mut sess.field_mgr,
         &mut sess.match_set_mgr,
@@ -594,7 +594,7 @@ pub fn handle_tf_join(
     sess.field_mgr
         .store_iter(input_field_id, join.iter_id, iter);
     let streams_done = join.current_stream_val.is_none();
-    if input_done && streams_done {
+    if ps.input_done && streams_done {
         let mut emit_incomplete = false;
         // if we dont drop incomplete and there are actual members
         emit_incomplete |= join.group_len > 0 && !join.drop_incomplete;
@@ -613,15 +613,14 @@ pub fn handle_tf_join(
     drop(input_field);
     drop(output_field);
 
-    if input_done && streams_done {
-        sess.unlink_transform(tf_id, groups_emitted);
-    } else {
-        if streams_done {
-            sess.tf_mgr.update_ready_state(tf_id);
-        }
-        sess.tf_mgr
-            .inform_successor_batch_available(tf_id, groups_emitted);
+    if streams_done && ps.next_batch_ready {
+        sess.tf_mgr.push_tf_in_ready_stack(tf_id);
     }
+    sess.tf_mgr.inform_successor_batch_available(
+        tf_id,
+        groups_emitted,
+        ps.input_done,
+    );
 }
 
 fn push_custom_type(
@@ -713,6 +712,7 @@ pub fn handle_tf_join_stream_value_update(
     let mut run_len = custom;
     let tf = &sess.tf_mgr.transforms[tf_id];
     let input_done = tf.input_is_done;
+    let next_batch_ready = tf.available_batch_size > 0;
     let in_field_id = tf.input_field;
     let sv = &mut sess.sv_mgr.stream_values[sv_id];
     let done = sv.done;
@@ -762,8 +762,8 @@ pub fn handle_tf_join_stream_value_update(
         join.current_stream_val = None;
         if input_done || Some(join.group_len) == join.group_capacity {
             sess.tf_mgr.push_tf_in_ready_stack(tf_id);
-        } else {
-            sess.tf_mgr.update_ready_state(tf_id);
+        } else if next_batch_ready {
+            sess.tf_mgr.push_tf_in_ready_stack(tf_id);
         }
         if join.clear_delay_requested {
             join.clear_delay_requested = false;

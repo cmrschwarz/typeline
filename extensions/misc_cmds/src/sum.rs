@@ -345,7 +345,7 @@ impl TfSum {
                 }
             }
         }
-        if bud.input_done && !self.error_occured {
+        if bud.ps.input_done && !self.error_occured {
             let of = &mut bud
                 .field_mgr
                 .borrow_field_dealiased_mut(bud.output_field_id)

@@ -3,7 +3,7 @@ use smallstr::SmallString;
 
 use crate::{
     context::Session,
-    job_session::{JobData, JobSession, TransformManager},
+    job_session::{JobData, JobSession, PipelineState, TransformManager},
     record_data::{
         field::{FieldId, FieldManager},
         field_data::FieldValueRepr,
@@ -127,6 +127,7 @@ pub struct TransformState {
     pub has_appender: bool,
     pub is_transparent: bool,
     pub input_is_done: bool,
+    pub output_is_done: bool,
     pub mark_for_removal: bool,
     pub preferred_input_type: Option<FieldValueRepr>,
 }
@@ -155,6 +156,7 @@ impl TransformState {
             has_appender: false,
             is_transparent: false,
             input_is_done: false,
+            output_is_done: false,
             preferred_input_type: None,
             mark_for_removal: false,
         }
@@ -204,7 +206,7 @@ pub struct BasicUpdateData<'a, 'b> {
     pub sv_mgr: &'a mut StreamValueManager,
     pub temp_vec: &'a mut Vec<u8>,
     pub batch_size: usize,
-    pub input_done: bool,
+    pub ps: PipelineState,
     pub input_field_id: FieldId,
     pub output_field_id: FieldId,
     pub match_set_id: MatchSetId,
@@ -224,7 +226,7 @@ pub fn basic_transform_update(
     input_iter_id: IterId,
     mut f: impl for<'b> FnMut(BasicUpdateData<'_, 'b>) -> (usize, bool),
 ) {
-    let (batch_size, input_done) = jd.tf_mgr.claim_batch(tf_id);
+    let (batch_size, ps) = jd.tf_mgr.claim_batch(tf_id);
     let tf = &jd.tf_mgr.transforms[tf_id];
     let output_field_id = tf.output_field;
     let match_set_id = tf.match_set_id;
@@ -253,7 +255,7 @@ pub fn basic_transform_update(
         sv_mgr: &mut jd.sv_mgr,
         temp_vec: &mut jd.temp_vec,
         batch_size,
-        input_done,
+        ps,
         input_field_id,
         output_field_id,
         match_set_id,
@@ -261,11 +263,6 @@ pub fn basic_transform_update(
         iter: &mut iter,
     });
     jd.field_mgr.store_iter(input_field_id, input_iter_id, iter);
-    drop(input_field);
-    if done {
-        jd.unlink_transform(tf_id, produced_fields);
-    } else {
-        jd.tf_mgr
-            .inform_successor_batch_available(tf_id, produced_fields);
-    }
+    jd.tf_mgr
+        .inform_successor_batch_available(tf_id, produced_fields, done);
 }

@@ -314,7 +314,7 @@ impl TfFlatten {
         bud.match_set_mgr.match_sets[bud.match_set_id]
             .action_buffer
             .end_action_group();
-        (field_idx, bud.input_done)
+        (field_idx, bud.ps.input_done)
     }
 }
 

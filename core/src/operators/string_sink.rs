@@ -293,7 +293,7 @@ pub fn handle_tf_string_sink(
     tf_id: TransformId,
     ss: &mut TfStringSink<'_>,
 ) {
-    let (batch_size, input_done) = sess.tf_mgr.claim_batch(tf_id);
+    let (batch_size, ps) = sess.tf_mgr.claim_batch(tf_id);
     let tf = &mut sess.tf_mgr.transforms[tf_id];
     let op_id = tf.op_id.unwrap();
     let input_field_id = tf.input_field;
@@ -561,13 +561,15 @@ pub fn handle_tf_string_sink(
     drop(input_field);
     drop(output_field);
     let streams_done = ss.stream_value_handles.is_empty();
-    if input_done && streams_done {
-        sess.unlink_transform(tf_id, batch_size);
-    } else {
-        sess.tf_mgr.update_ready_state(tf_id);
-        sess.tf_mgr
-            .inform_successor_batch_available(tf_id, batch_size);
+
+    if !streams_done && ps.next_batch_ready {
+        sess.tf_mgr.push_tf_in_ready_stack(tf_id);
     }
+    sess.tf_mgr.inform_successor_batch_available(
+        tf_id,
+        batch_size,
+        ps.input_done,
+    );
 }
 
 pub fn handle_tf_string_sink_stream_value_update(
@@ -592,7 +594,7 @@ pub fn handle_tf_string_sink_stream_value_update(
         sess.sv_mgr.drop_field_value_subscription(sv_id, None);
         tf.stream_value_handles.release(custom);
         if tf.stream_value_handles.is_empty() {
-            sess.tf_mgr.update_ready_state(tf_id);
+            sess.tf_mgr.push_tf_in_ready_stack(tf_id);
         }
     }
 }

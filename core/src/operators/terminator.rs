@@ -27,7 +27,7 @@ pub fn handle_tf_terminator(
     tf_id: TransformId,
     tft: &mut TfTerminator,
 ) {
-    let (batch_size, input_done) = sess.tf_mgr.claim_all(tf_id);
+    let (batch_size, ps) = sess.tf_mgr.claim_all(tf_id);
     let tf = &sess.tf_mgr.transforms[tf_id];
     let ab = &mut sess.match_set_mgr.match_sets[tf.match_set_id].action_buffer;
     ab.begin_action_group(tft.actor_id);
@@ -41,13 +41,10 @@ pub fn handle_tf_terminator(
     }
     ab.push_action(FieldActionKind::Drop, 0, rows_to_drop);
     ab.end_action_group();
-    if input_done && tft.delayed_deletion_row_count == 0 {
-        sess.unlink_transform(tf_id, batch_size);
-        return;
-    }
     if tft.delayed_deletion_row_count > 0 {
         sess.tf_mgr.push_tf_in_ready_stack(tf_id);
     }
+    let done = ps.input_done && tft.delayed_deletion_row_count == 0;
     sess.tf_mgr
-        .inform_successor_batch_available(tf_id, batch_size);
+        .inform_successor_batch_available(tf_id, batch_size, done);
 }

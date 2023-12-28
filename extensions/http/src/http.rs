@@ -228,7 +228,7 @@ impl TfHttpRequest {
         if !self.running_connections.is_empty() {
             bud.tf_mgr.make_stream_producer(bud.tf_id);
         }
-        (bud.batch_size, bud.input_done)
+        (bud.batch_size, bud.ps.input_done)
     }
 }
 

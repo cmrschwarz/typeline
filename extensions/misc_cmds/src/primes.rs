@@ -75,7 +75,7 @@ impl Transform for TfPrimes {
     }
 
     fn update(&mut self, jd: &mut JobData, tf_id: TransformId) {
-        let (batch_size, input_done) = jd.tf_mgr.claim_batch(tf_id);
+        let (batch_size, ps) = jd.tf_mgr.claim_batch(tf_id);
         let tf = &jd.tf_mgr.transforms[tf_id];
         let output_field = tf.output_field;
         jd.tf_mgr.prepare_for_output(
@@ -85,13 +85,17 @@ impl Transform for TfPrimes {
             [output_field],
         );
         let mut primes_to_produce = batch_size;
-        if input_done {
+        let mut done = false;
+        if ps.output_done {
+            done = true;
+            primes_to_produce = 0;
+        } else if ps.input_done {
             if let Some(succ) = jd.tf_mgr.transforms[tf_id].successor {
                 primes_to_produce = primes_to_produce
                     .max(jd.tf_mgr.transforms[succ].desired_batch_size);
             } else {
-                jd.unlink_transform(tf_id, 0);
-                return;
+                done = true;
+                primes_to_produce = 0;
             }
         }
         let mut output_field = jd.field_mgr.fields[output_field].borrow_mut();
@@ -107,13 +111,13 @@ impl Transform for TfPrimes {
         );
         self.count += primes_to_produce;
 
-        if input_done {
+        if ps.next_batch_ready || (ps.input_done && !done) {
             jd.tf_mgr.push_tf_in_ready_stack(tf_id);
-        } else {
-            jd.tf_mgr.update_ready_state(tf_id);
         }
-
-        jd.tf_mgr
-            .inform_successor_batch_available(tf_id, primes_to_produce);
+        jd.tf_mgr.inform_successor_batch_available(
+            tf_id,
+            primes_to_produce,
+            done,
+        );
     }
 }

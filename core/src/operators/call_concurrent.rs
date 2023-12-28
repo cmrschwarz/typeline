@@ -318,7 +318,7 @@ pub fn handle_tf_call_concurrent(
     tf_id: TransformId,
     tfc: &mut TfCallConcurrent,
 ) {
-    let (batch_size, input_done) = sess.tf_mgr.claim_all(tf_id);
+    let (batch_size, ps) = sess.tf_mgr.claim_all(tf_id);
     let tf = &sess.tf_mgr.transforms[tf_id];
     for mapping in &tfc.field_mappings {
         sess.field_mgr.apply_field_actions(
@@ -360,7 +360,7 @@ pub fn handle_tf_call_concurrent(
             );
         }
     }
-    buf_data.input_done = input_done;
+    buf_data.input_done = ps.input_done;
     buf_data.available_batch_size += batch_size;
     drop(buf_data);
     tfc.buffer.updates.notify_one();
@@ -377,7 +377,8 @@ pub fn handle_tf_call_concurrent(
         sess.field_mgr
             .clear_if_owned(&mut sess.match_set_mgr, mapping.source_field_id);
     }
-    if input_done {
+    //TODO: handle output_done
+    if ps.input_done {
         for mapping in &tfc.field_mappings {
             sess.field_mgr.drop_field_refcount(
                 mapping.source_field_id,
@@ -492,11 +493,13 @@ pub fn handle_tf_callee_concurrent(
     }
     drop(buf_data);
     tfc.buffer.updates.notify_one();
-    if input_done {
-        sess.unlink_transform(tf_id, available_batch_size);
-    } else {
+    if !input_done {
+        // trigger a condvar wait if no further input is present
         sess.tf_mgr.push_tf_in_ready_stack(tf_id);
-        sess.tf_mgr
-            .inform_successor_batch_available(tf_id, available_batch_size);
     }
+    sess.tf_mgr.inform_successor_batch_available(
+        tf_id,
+        available_batch_size,
+        input_done,
+    );
 }

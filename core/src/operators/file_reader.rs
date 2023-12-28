@@ -399,7 +399,7 @@ pub fn handle_tf_file_reader(
         fr.value_committed = true;
         start_streaming_file(sess, tf_id, fr);
     }
-    let (batch_size, input_done) = sess.tf_mgr.maintain_single_value(
+    let (batch_size, ps) = sess.tf_mgr.maintain_single_value(
         tf_id,
         &mut fr.insert_count,
         &sess.field_mgr,
@@ -408,13 +408,14 @@ pub fn handle_tf_file_reader(
         true,
     );
 
-    if input_done {
-        sess.unlink_transform(tf_id, batch_size);
-    } else {
-        sess.tf_mgr.update_ready_state(tf_id);
-        sess.tf_mgr
-            .inform_successor_batch_available(tf_id, batch_size);
+    if ps.next_batch_ready {
+        sess.tf_mgr.push_tf_in_ready_stack(tf_id);
     }
+    sess.tf_mgr.inform_successor_batch_available(
+        tf_id,
+        batch_size,
+        ps.input_done,
+    );
 }
 
 lazy_static::lazy_static! {

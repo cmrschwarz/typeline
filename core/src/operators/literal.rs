@@ -198,7 +198,7 @@ pub fn handle_tf_literal(
             ),
         }
     }
-    let (batch_size, input_done) = sess.tf_mgr.maintain_single_value(
+    let (batch_size, ps) = sess.tf_mgr.maintain_single_value(
         tf_id,
         &mut lit.insert_count,
         &sess.field_mgr,
@@ -206,13 +206,15 @@ pub fn handle_tf_literal(
         initial_call,
         true,
     );
-    if input_done {
-        sess.unlink_transform(tf_id, batch_size);
-    } else {
+
+    if ps.next_batch_ready {
         sess.tf_mgr.push_tf_in_ready_stack(tf_id);
-        sess.tf_mgr
-            .inform_successor_batch_available(tf_id, batch_size);
     }
+    sess.tf_mgr.inform_successor_batch_available(
+        tf_id,
+        batch_size,
+        ps.input_done,
+    );
 }
 pub fn parse_op_literal_zst(
     arg: &str,
