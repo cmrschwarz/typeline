@@ -2,7 +2,7 @@ use rstest::rstest;
 use scr_core::{
     operators::{
         fork::create_op_fork,
-        literal::create_op_str,
+        literal::{create_op_int, create_op_str},
         regex::create_op_regex,
         sequence::create_op_seq,
         string_sink::{create_op_string_sink, StringSinkHandle},
@@ -11,7 +11,6 @@ use scr_core::{
     scr_error::ScrError,
 };
 
-#[cfg(disabled_test)]
 #[rstest]
 #[case(1)]
 #[case(2)]

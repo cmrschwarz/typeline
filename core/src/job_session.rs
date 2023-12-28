@@ -935,7 +935,7 @@ impl<'a> JobSession<'a> {
     ) -> Result<(), VentureDescription> {
         #[cfg(feature = "debug_logging")]
         println!(
-            "> handling tf {}",
+            "> handling tf {tf_id} (`{}`)",
             self.transform_data[tf_id.get() as usize].display_name()
         );
         match &mut self.transform_data[usize::from(tf_id)] {

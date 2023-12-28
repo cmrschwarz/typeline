@@ -160,7 +160,7 @@ pub fn handle_tf_sequence(
         sess.tf_mgr.unclaim_batch_size(tf_id, bs_rem);
         done = true;
     }
-    if !done {
+    if !done && (ps.next_batch_ready || ps.input_done) {
         sess.tf_mgr.push_tf_in_ready_stack(tf_id);
     }
     sess.tf_mgr

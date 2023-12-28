@@ -214,7 +214,9 @@ pub fn handle_tf_aggregator_header(
         prev_tf.available_batch_size = 0;
         header.prev_sub_tf_idx = sub_tf_idx;
     }
-    if sub_tf_count == sub_tf_idx || !ps.next_batch_ready && !ps.input_done {
+    if sub_tf_count == sub_tf_idx
+        || (!ps.next_batch_ready && !ps.input_done && batch_size == 0)
+    {
         // PERF: we could maybe figure this out from the trailer and
         // prevent unnecessary rechecks
         return Ok(());
