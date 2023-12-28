@@ -362,6 +362,8 @@ pub fn create_op_regex(
     create_op_regex_with_opts(regex, Default::default())
 }
 
+// mainly used tests, prefer using
+// `scr_ext_misc_cmds::string_utils::create_op_lines`
 pub fn create_op_regex_lines() -> OperatorData {
     parse_op_regex(
         Some("(?<>.+)\r?\n".as_bytes()),
@@ -1122,11 +1124,8 @@ pub fn handle_tf_regex(
             base_iter,
         );
     }
-    sess.tf_mgr.inform_successor_batch_available(
-        tf_id,
-        produced_records,
-        ps.input_done,
-    );
+    sess.tf_mgr
+        .submit_batch(tf_id, produced_records, ps.input_done);
 }
 
 pub fn handle_tf_regex_stream_value_update(

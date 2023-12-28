@@ -53,9 +53,5 @@ pub fn create_tf_nop() -> TransformData<'static> {
 pub fn handle_tf_nop(sess: &mut JobData, tf_id: TransformId, _nop: &TfNop) {
     let (batch_size, ps) = sess.tf_mgr.claim_all(tf_id);
 
-    sess.tf_mgr.inform_successor_batch_available(
-        tf_id,
-        batch_size,
-        ps.input_done,
-    );
+    sess.tf_mgr.submit_batch(tf_id, batch_size, ps.input_done);
 }

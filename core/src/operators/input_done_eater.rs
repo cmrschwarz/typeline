@@ -44,11 +44,7 @@ pub fn handle_tf_input_done_eater(
             ide.handled_predecessor = tf.predecessor;
         }
     }
-    sess.tf_mgr.inform_successor_batch_available(
-        tf_id,
-        batch_size,
-        ps.input_done,
-    );
+    sess.tf_mgr.submit_batch(tf_id, batch_size, ps.input_done);
 }
 
 pub fn add_input_done_eater(

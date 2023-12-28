@@ -385,7 +385,7 @@ pub fn handle_tf_call_concurrent(
                 &mut sess.match_set_mgr,
             );
         }
-        sess.tf_mgr.inform_successor_batch_available(tf_id, 0, true);
+        sess.tf_mgr.submit_batch(tf_id, 0, true);
     }
 }
 
@@ -497,9 +497,6 @@ pub fn handle_tf_callee_concurrent(
         // trigger a condvar wait if no further input is present
         sess.tf_mgr.push_tf_in_ready_stack(tf_id);
     }
-    sess.tf_mgr.inform_successor_batch_available(
-        tf_id,
-        available_batch_size,
-        input_done,
-    );
+    sess.tf_mgr
+        .submit_batch(tf_id, available_batch_size, input_done);
 }

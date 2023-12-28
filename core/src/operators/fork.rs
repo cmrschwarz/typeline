@@ -119,7 +119,9 @@ pub fn handle_tf_fork(
     sp: &mut TfFork,
 ) {
     let (batch_size, ps) = sess.tf_mgr.claim_all(tf_id);
-
+    if ps.input_done {
+        sess.tf_mgr.declare_transform_done(tf_id);
+    }
     if ps.next_batch_ready {
         sess.tf_mgr.push_tf_in_ready_stack(tf_id);
     }

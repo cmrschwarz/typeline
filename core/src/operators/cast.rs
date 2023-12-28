@@ -199,11 +199,7 @@ pub fn handle_tf_cast(sess: &mut JobData, tf_id: TransformId, tfc: &TfCast) {
         if ps.next_batch_ready {
             sess.tf_mgr.push_tf_in_ready_stack(tf_id);
         }
-        sess.tf_mgr.inform_successor_batch_available(
-            tf_id,
-            batch_size,
-            ps.input_done,
-        );
+        sess.tf_mgr.submit_batch(tf_id, batch_size, ps.input_done);
         return;
     }
     let ofd = &mut output_field.iter_hall;
@@ -246,11 +242,8 @@ pub fn handle_tf_cast(sess: &mut JobData, tf_id: TransformId, tfc: &TfCast) {
     if streams_done && ps.next_batch_ready {
         sess.tf_mgr.push_tf_in_ready_stack(tf_id);
     }
-    sess.tf_mgr.inform_successor_batch_available(
-        tf_id,
-        consumed_fields,
-        ps.input_done,
-    );
+    sess.tf_mgr
+        .submit_batch(tf_id, consumed_fields, ps.input_done);
 }
 
 pub fn handle_tf_cast_stream_value_update(

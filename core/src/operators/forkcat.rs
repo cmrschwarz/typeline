@@ -318,6 +318,7 @@ pub fn handle_tf_forkcat(
     if fc.op.subchains_start + fc.curr_subchain_n == fc.op.subchains_end {
         let cont = fc.continuation.unwrap();
         sess.tf_mgr.transforms[cont].input_is_done = true;
+        sess.tf_mgr.declare_transform_done(tf_id);
         sess.tf_mgr.push_tf_in_ready_stack(cont);
         return;
     }

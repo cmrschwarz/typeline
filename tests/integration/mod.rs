@@ -8,3 +8,6 @@ mod format;
 mod join;
 mod objects;
 mod regex;
+
+#[cfg(feature = "misc_cmds")]
+mod primes;

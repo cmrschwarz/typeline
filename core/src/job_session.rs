@@ -174,18 +174,30 @@ impl TransformManager {
         }
         self.push_tf_in_ready_stack(tf_id);
     }
-    pub fn inform_successor_batch_available(
+    pub fn inform_transform_successor_done(&mut self, tf_id: TransformId) {
+        let tf = &mut self.transforms[tf_id];
+        tf.output_is_done = true;
+    }
+    pub fn submit_batch(
         &mut self,
         tf_id: TransformId,
         batch_size: usize,
-        input_done: bool,
+        done: bool,
     ) {
-        let tf = &self.transforms[tf_id];
-        if let Some(succ_tf_id) = tf.successor {
+        if let Some(succ_tf_id) = self.transforms[tf_id].successor {
             self.inform_transform_batch_available(
-                succ_tf_id, batch_size, input_done,
+                succ_tf_id, batch_size, done,
             );
         }
+        if !done {
+            return;
+        }
+        if let Some(pred) = self.transforms[tf_id].predecessor {
+            self.inform_transform_successor_done(pred)
+        }
+    }
+    pub fn declare_transform_done(&mut self, tf_id: TransformId) {
+        self.submit_batch(tf_id, 0, true);
     }
     pub fn push_tf_in_ready_stack(&mut self, tf_id: TransformId) {
         let tf = &mut self.transforms[tf_id];

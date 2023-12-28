@@ -243,9 +243,5 @@ pub fn handle_tf_aggregator_trailer(
         jd.tf_mgr.transforms[tf_id].input_is_done = false;
         ps.input_done = agg_t.curr_sub_tf_idx == agg_t.sub_tf_count;
     }
-    jd.tf_mgr.inform_successor_batch_available(
-        tf_id,
-        batch_size,
-        ps.input_done,
-    );
+    jd.tf_mgr.submit_batch(tf_id, batch_size, ps.input_done);
 }

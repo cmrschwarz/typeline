@@ -12,7 +12,7 @@ use scr_core::{
     num::{BigInt, BigRational, FromPrimitive, ToPrimitive},
     operators::{
         errors::OperatorApplicationError,
-        operator::{Operator, OperatorBase},
+        operator::{Operator, OperatorBase, OperatorData},
         transform::{
             basic_transform_update, BasicUpdateData, DefaultTransformName,
             Transform, TransformData, TransformState,
@@ -378,4 +378,8 @@ impl Transform for TfSum {
             self.transform_update(bud)
         });
     }
+}
+
+pub fn create_op_sum() -> OperatorData {
+    OperatorData::Custom(smallbox!(OpSum {}))
 }

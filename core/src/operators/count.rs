@@ -40,7 +40,7 @@ pub fn handle_tf_count(
         .iter_hall
         .push_int(count.count as i64, 1, false, false);
 
-    sess.tf_mgr.inform_successor_batch_available(tf_id, 1, true);
+    sess.tf_mgr.submit_batch(tf_id, 1, true);
 }
 
 pub fn parse_op_count(

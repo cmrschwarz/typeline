@@ -411,11 +411,7 @@ pub fn handle_tf_file_reader(
     if ps.next_batch_ready {
         sess.tf_mgr.push_tf_in_ready_stack(tf_id);
     }
-    sess.tf_mgr.inform_successor_batch_available(
-        tf_id,
-        batch_size,
-        ps.input_done,
-    );
+    sess.tf_mgr.submit_batch(tf_id, batch_size, ps.input_done);
 }
 
 lazy_static::lazy_static! {

@@ -7,7 +7,7 @@ use scr_core::{
         AccessFlags, BasicBlockId, LivenessData, OpOutputIdx,
     },
     operators::{
-        operator::{Operator, OperatorBase},
+        operator::{Operator, OperatorBase, OperatorData},
         transform::{
             DefaultTransformName, Transform, TransformData, TransformId,
             TransformState,
@@ -114,10 +114,10 @@ impl Transform for TfPrimes {
         if ps.next_batch_ready || (ps.input_done && !done) {
             jd.tf_mgr.push_tf_in_ready_stack(tf_id);
         }
-        jd.tf_mgr.inform_successor_batch_available(
-            tf_id,
-            primes_to_produce,
-            done,
-        );
+        jd.tf_mgr.submit_batch(tf_id, primes_to_produce, done);
     }
+}
+
+pub fn create_op_primes() -> OperatorData {
+    OperatorData::Custom(smallbox!(OpPrimes {}))
 }

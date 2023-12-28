@@ -1,20 +1,17 @@
-use primes::OpPrimes;
+use primes::create_op_primes;
 use scr_core::{
     cli::ParsedCliArgumentParts,
     extension::Extension,
-    operators::{
-        errors::OperatorCreationError,
-        operator::OperatorData,
-        regex::{create_op_regex_with_opts, RegexOptions},
-    },
+    operators::{errors::OperatorCreationError, operator::OperatorData},
     options::session_options::SessionOptions,
-    smallbox,
 };
-use sum::OpSum;
+use string_utils::{create_op_chars, create_op_lines, create_op_trim};
+use sum::create_op_sum;
 
 extern crate scr_core;
 
 pub mod primes;
+pub mod string_utils;
 pub mod sum;
 
 #[derive(Default)]
@@ -28,62 +25,16 @@ impl Extension for MiscCmdsExtension {
         _args: &[Vec<u8>],
         _next_arg_idx: &mut usize,
     ) -> Result<Option<OperatorData>, OperatorCreationError> {
-        if arg.argname == "sum" {
-            arg.reject_value()?;
-            return Ok(Some(OperatorData::Custom(
-                smallbox![OpSum::default()],
-            )));
-        }
-        if arg.argname == "primes" {
-            arg.reject_value()?;
-            return Ok(Some(OperatorData::Custom(smallbox![
-                OpPrimes::default()
-            ])));
-        }
-        if arg.argname == "lines" {
-            arg.reject_value()?;
-
-            return Ok(Some(
-                create_op_regex_with_opts(
-                    r"[^\n]+",
-                    RegexOptions {
-                        multimatch: true,
-                        ..Default::default()
-                    },
-                )
-                .unwrap(),
-            ));
-        }
-        if arg.argname == "chars" {
-            arg.reject_value()?;
-
-            return Ok(Some(
-                create_op_regex_with_opts(
-                    r".",
-                    RegexOptions {
-                        multimatch: true,
-                        dotall: true,
-                        ..Default::default()
-                    },
-                )
-                .unwrap(),
-            ));
-        }
-        if arg.argname == "trim" {
-            arg.reject_value()?;
-
-            return Ok(Some(
-                create_op_regex_with_opts(
-                    r"^\s*(?<>.*?)\s*$",
-                    RegexOptions {
-                        dotall: true,
-                        ..Default::default()
-                    },
-                )
-                .unwrap(),
-            ));
-        }
-        Ok(None)
+        let ctor_fn = match arg.argname {
+            "sum" => create_op_sum,
+            "primes" => create_op_primes,
+            "lines" => create_op_lines,
+            "chars" => create_op_chars,
+            "trim" => create_op_trim,
+            _ => return Ok(None),
+        };
+        arg.reject_value()?;
+        Ok(Some(ctor_fn()))
     }
 
     fn setup(

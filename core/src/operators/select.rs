@@ -87,9 +87,5 @@ pub fn handle_tf_select(
     sess.field_mgr
         .apply_field_actions(&mut sess.match_set_mgr, tf.input_field);
     let (batch_size, ps) = sess.tf_mgr.claim_all(tf_id);
-    sess.tf_mgr.inform_successor_batch_available(
-        tf_id,
-        batch_size,
-        ps.input_done,
-    );
+    sess.tf_mgr.submit_batch(tf_id, batch_size, ps.input_done);
 }

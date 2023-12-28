@@ -53,10 +53,8 @@ pub fn build_tf_sequence<'a>(
     _sess: &mut JobData,
     _op_base: &OperatorBase,
     op: &'a OpSequence,
-    tf_state: &mut TransformState,
+    _tf_state: &mut TransformState,
 ) -> TransformData<'a> {
-    // we will forward the whole input in one go and unlink us from the chain
-    tf_state.desired_batch_size = usize::MAX;
     TransformData::Sequence(TfSequence {
         ss: op.ss,
         stop_after_input: op.stop_after_input,
@@ -163,8 +161,7 @@ pub fn handle_tf_sequence(
     if !done && (ps.next_batch_ready || ps.input_done) {
         sess.tf_mgr.push_tf_in_ready_stack(tf_id);
     }
-    sess.tf_mgr
-        .inform_successor_batch_available(tf_id, count, done);
+    sess.tf_mgr.submit_batch(tf_id, count, done);
 }
 
 pub fn parse_op_seq(
