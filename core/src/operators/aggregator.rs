@@ -1,8 +1,8 @@
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
 
 use crate::{
     chain::Chain,
-    context::{ContextData, SessionSettings, VentureDescription},
+    context::SessionSettings,
     job_session::{add_transform_to_job, JobData, JobSession},
     liveness_analysis::OpOutputIdx,
     options::{
@@ -183,8 +183,7 @@ pub fn build_tf_aggregator<'a>(
 pub fn handle_tf_aggregator_header(
     sess: &mut JobSession,
     tf_id: nonmax::NonMaxUsize,
-    ctx: Option<&Arc<ContextData>>,
-) -> Result<(), VentureDescription> {
+) {
     let TransformData::AggregatorHeader(header) =
         &sess.transform_data[tf_id.get() as usize]
     else {
@@ -219,7 +218,7 @@ pub fn handle_tf_aggregator_header(
     {
         // PERF: we could maybe figure this out from the trailer and
         // prevent unnecessary rechecks
-        return Ok(());
+        return;
     }
     let sub_tf_id = header.sub_tfs[sub_tf_idx];
     let successor = sess.job_data.tf_mgr.transforms[tf_id].successor;
@@ -230,8 +229,7 @@ pub fn handle_tf_aggregator_header(
     if !ps.input_done || sub_tf_idx + 1 != sub_tf_count {
         sess.job_data.tf_mgr.push_tf_in_ready_stack(tf_id);
     }
-    sess.handle_transform(sub_tf_id, ctx)?;
-    Ok(())
+    sess.job_data.tf_mgr.push_tf_in_ready_stack(sub_tf_id);
 }
 
 pub fn handle_tf_aggregator_trailer(

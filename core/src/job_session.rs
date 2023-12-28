@@ -449,7 +449,7 @@ impl<'a> JobSession<'a> {
             for (i, tf) in self.job_data.tf_mgr.transforms.iter_enumerated() {
                 let name = self.transform_data[i.get()].display_name();
                 println!(
-                    "tf {} -> {} [{} {} {}] (ms {}): {}",
+                    "tf {} -> {} [fields {} {} {}] (ms {}): {}",
                     i,
                     if let Some(s) = tf.successor {
                         format!("{s}")
@@ -848,6 +848,13 @@ impl<'a> JobSession<'a> {
         (start, end)
     }
     fn handle_stream_value_update(&mut self, svu: StreamValueUpdate) {
+        #[cfg(feature = "debug_logging")]
+        println!(
+            "> handling stream value {} update for tf {} (`{}`)",
+            svu.sv_id,
+            svu.tf_id,
+            self.transform_data[svu.tf_id.get() as usize].display_name()
+        );
         match &mut self.transform_data[usize::from(svu.tf_id)] {
             TransformData::Print(tf) => handle_tf_print_stream_value_update(
                 &mut self.job_data,
@@ -935,8 +942,9 @@ impl<'a> JobSession<'a> {
     ) -> Result<(), VentureDescription> {
         #[cfg(feature = "debug_logging")]
         println!(
-            "> handling tf {tf_id} (`{}`)",
-            self.transform_data[tf_id.get() as usize].display_name()
+            "> handling tf {tf_id} (`{}`) {:?}",
+            self.transform_data[tf_id.get() as usize].display_name(),
+            self.job_data.tf_mgr.ready_stack
         );
         match &mut self.transform_data[usize::from(tf_id)] {
             TransformData::Fork(fork) => {
@@ -1043,10 +1051,10 @@ impl<'a> JobSession<'a> {
             TransformData::Explode(tf) => tf.update(&mut self.job_data, tf_id),
             TransformData::Custom(tf) => tf.update(&mut self.job_data, tf_id),
             TransformData::AggregatorHeader(_) => {
-                handle_tf_aggregator_header(self, tf_id, ctx)?;
+                handle_tf_aggregator_header(self, tf_id)
             }
             TransformData::AggregatorTrailer(agg_t) => {
-                handle_tf_aggregator_trailer(&mut self.job_data, tf_id, agg_t);
+                handle_tf_aggregator_trailer(&mut self.job_data, tf_id, agg_t)
             }
             TransformData::Disabled => unreachable!(),
         }
@@ -1062,6 +1070,11 @@ impl<'a> JobSession<'a> {
     }
 
     pub(crate) fn run_stream_producer_update(&mut self, tf_id: TransformId) {
+        println!(
+            "> handling stream producer update for tf {} (`{}`)",
+            tf_id,
+            self.transform_data[tf_id.get() as usize].display_name()
+        );
         let tf_state = &mut self.job_data.tf_mgr.transforms[tf_id];
         tf_state.is_stream_producer = false;
         match &mut self.transform_data[tf_id.get()] {
