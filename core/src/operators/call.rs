@@ -151,5 +151,6 @@ pub(crate) fn handle_lazy_call_expansion(
         sess.job_data.tf_mgr.connect_tfs(end_tf, old_succ);
     }
     let (batch_size, _input_done) = sess.job_data.tf_mgr.claim_all(tf_id);
+    //TODO: is this fine considering e.g. forkcat with no predecessors?
     sess.job_data.unlink_transform(tf_id, batch_size);
 }

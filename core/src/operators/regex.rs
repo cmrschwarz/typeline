@@ -1089,18 +1089,10 @@ pub fn handle_tf_regex(
         if !hit_stream_val {
             sess.tf_mgr.push_tf_in_ready_stack(tf_id);
         }
-    } else {
-        drop(rbs);
-        if ps.input_done {
-            drop(input_field);
-            drop(output_fields);
-            sess.unlink_transform(tf_id, produced_records);
-            return;
-        }
-        if ps.next_batch_ready {
-            sess.tf_mgr.push_tf_in_ready_stack(tf_id);
-        }
+    } else if ps.next_batch_ready {
+        sess.tf_mgr.push_tf_in_ready_stack(tf_id);
     }
+
     if bse {
         // apply the action list first so we can move the iterator to the
         // correct continuation field
@@ -1122,7 +1114,7 @@ pub fn handle_tf_regex(
             re.input_field_iter_id,
             iter,
         );
-    } else {
+    } else if !ps.input_done {
         base_iter.move_to_field_pos(field_pos_input);
         sess.field_mgr.store_iter(
             input_field_id,

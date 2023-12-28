@@ -385,7 +385,7 @@ pub fn handle_tf_call_concurrent(
                 &mut sess.match_set_mgr,
             );
         }
-        sess.unlink_transform(tf_id, 0);
+        sess.tf_mgr.inform_successor_batch_available(tf_id, 0, true);
     }
 }
 
