@@ -39,9 +39,7 @@ pub fn setup_op_nop(
     _op: &mut OpNop,
     _op_id: OperatorId,
 ) -> Result<(), OperatorSetupError> {
-    if !op_base.append_mode {
-        op_base.transparent_mode = true;
-    }
+    op_base.transparent_mode = true;
     Ok(())
 }
 

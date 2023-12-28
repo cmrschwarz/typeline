@@ -55,7 +55,6 @@ impl ContextBuilder {
         default_name: F,
         argname: Option<&str>,
         label: Option<&str>,
-        append_mode: bool,
         transparent_mode: bool,
     ) -> OperatorBaseOptions {
         OperatorBaseOptions::new(
@@ -63,7 +62,6 @@ impl ContextBuilder {
                 .string_store
                 .intern_cloned(argname.unwrap_or(default_name().as_str())),
             label.map(|lbl| self.opts.string_store.intern_cloned(lbl)),
-            append_mode,
             transparent_mode,
             None,
         )
@@ -73,14 +71,12 @@ impl ContextBuilder {
         op_data: OperatorData,
         argname: Option<&str>,
         label: Option<&str>,
-        append_mode: bool,
         transparent_mode: bool,
     ) -> OperatorId {
         let op_base = self.create_op_base_opts(
             || op_data.default_op_name(),
             argname,
             label,
-            append_mode,
             transparent_mode,
         );
         self.opts.add_op_uninit(op_base, op_data)
@@ -95,13 +91,8 @@ impl ContextBuilder {
     ) {
         let prev_op_appendable = self.curr_op_appendable;
         self.curr_op_appendable = op_data.can_be_appended();
-        let op_id = self.add_op_uninit(
-            op_data,
-            argname,
-            label,
-            append_mode,
-            transparent_mode,
-        );
+        let op_id =
+            self.add_op_uninit(op_data, argname, label, transparent_mode);
         if !append_mode || !prev_op_appendable {
             self.ref_terminate_current_aggregate();
             if append_mode {
@@ -138,7 +129,6 @@ impl ContextBuilder {
                 || op_data.default_op_name(),
                 None,
                 None,
-                false,
                 false,
             );
             self.opts.add_op(op_base, op_data);
@@ -185,7 +175,6 @@ impl ContextBuilder {
             || AGGREGATOR_DEFAULT_NAME.into(),
             argname,
             label,
-            false, //causes issues
             transparent_mode,
         );
         self.last_non_append_op_id = Some(add_aggregate_to_sess_opts_uninit(

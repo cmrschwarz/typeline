@@ -514,7 +514,6 @@ pub fn add_op_from_arg_and_op_data_uninit(
         OperatorBaseOptions::new(
             argname,
             label,
-            arg.append_mode,
             arg.transparent_mode,
             Some(arg.cli_arg.idx),
         ),

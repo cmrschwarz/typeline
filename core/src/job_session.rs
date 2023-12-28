@@ -194,10 +194,10 @@ impl TransformManager {
         let output_field_id = tf.output_field;
         let match_set_id = tf.match_set_id;
         let desired_batch_size = tf.desired_batch_size;
-        let has_cont = tf.continuation.is_some();
+        let has_appender = tf.has_appender;
         let max_batch_size = if let Some(len) = length {
             *len
-        } else if has_cont {
+        } else if has_appender {
             if !initial_call {
                 if final_call_if_input_done {
                     field_mgr.fields[output_field_id]
@@ -232,7 +232,7 @@ impl TransformManager {
             if *len == 0 {
                 input_done = true;
             }
-        } else if has_cont {
+        } else if has_appender {
             input_done = true;
         }
         match_set_mgr.match_sets[match_set_id]
@@ -258,14 +258,9 @@ impl TransformManager {
         &mut self,
         fm: &mut FieldManager,
         msm: &mut MatchSetManager,
-        tf_id: TransformId,
+        _tf_id: TransformId,
         output_fields: impl IntoIterator<Item = FieldId>,
     ) {
-        let tf = &mut self.transforms[tf_id];
-        let appending = tf.is_appending;
-        tf.request_uncow = false;
-        tf.is_appending = false;
-
         for ofid in output_fields {
             fm.uncow(msm, ofid);
             let f = fm.fields[ofid].borrow();
@@ -273,7 +268,7 @@ impl TransformManager {
             if clear_delay {
                 drop(f);
                 fm.apply_field_actions(msm, ofid);
-            } else if !appending {
+            } else {
                 drop(f);
                 fm.clear_if_owned(msm, ofid);
             }
@@ -344,46 +339,9 @@ impl<'a> JobData<'a> {
         tf.mark_for_removal = true;
         let predecessor = tf.predecessor;
         let successor = tf.successor;
-        let continuation = tf.continuation;
         let input_is_done = tf.input_is_done;
         let available_batch_size = tf.available_batch_size;
         let is_transparent = tf.is_transparent;
-        if let Some(cont_id) = continuation {
-            let cont = &mut self.tf_mgr.transforms[cont_id];
-            cont.input_is_done = input_is_done;
-            cont.successor = successor;
-            cont.predecessor = predecessor;
-            cont.available_batch_size = available_batch_size;
-            cont.input_is_done = input_is_done;
-            cont.request_uncow = true;
-            if let Some(pred_id) = predecessor {
-                self.tf_mgr.transforms[pred_id].successor = continuation;
-            }
-            let mut cont_pushed = false;
-            if let Some(succ_id) = successor {
-                let succ = &mut self.tf_mgr.transforms[succ_id];
-                succ.predecessor = continuation;
-                succ.available_batch_size += available_batch_for_successor;
-                if succ.available_batch_size > 0 {
-                    if succ.is_ready {
-                        let succ_tf_id =
-                            self.tf_mgr.ready_stack.pop().unwrap();
-                        assert!(succ_tf_id == succ_id);
-                        self.tf_mgr.push_tf_in_ready_stack(cont_id);
-                        self.tf_mgr.ready_stack.push(succ_id);
-                    } else {
-                        self.tf_mgr.push_tf_in_ready_stack(cont_id);
-                        self.tf_mgr.push_tf_in_ready_stack(succ_id);
-                    }
-                    cont_pushed = true;
-                    self.tf_mgr.transforms[cont_id].is_appending = false;
-                }
-            }
-            if !cont_pushed {
-                self.tf_mgr.push_tf_in_ready_stack(cont_id);
-            }
-            return;
-        }
         if let Some(pred_id) = predecessor {
             self.tf_mgr.transforms[pred_id].successor = successor;
         }
@@ -457,7 +415,7 @@ impl<'a> JobSession<'a> {
             for (i, tf) in self.job_data.tf_mgr.transforms.iter_enumerated() {
                 let name = self.transform_data[i.get()].display_name();
                 println!(
-                    "tf {} -> {} [{} {}{}{}] (ms {}): {}",
+                    "tf {} -> {} [{} {} {}] (ms {}): {}",
                     i,
                     if let Some(s) = tf.successor {
                         format!("{s}")
@@ -466,7 +424,6 @@ impl<'a> JobSession<'a> {
                     },
                     tf.input_field,
                     if tf.is_transparent { "_>" } else { "->" },
-                    if tf.is_appending { "+" } else { " " },
                     tf.output_field,
                     tf.match_set_id,
                     name
@@ -517,18 +474,7 @@ impl<'a> JobSession<'a> {
         self.job_data.tf_mgr.push_tf_in_ready_stack(start_tf_id);
         let tf = &mut self.job_data.tf_mgr.transforms[start_tf_id];
         tf.input_is_done = true;
-
-        if tf.is_appending {
-            if let Some(succ) = tf.successor {
-                let tf = &mut self.job_data.tf_mgr.transforms[succ];
-                debug_assert!(!tf.is_appending);
-                tf.available_batch_size = input_record_count;
-                self.job_data.tf_mgr.push_tf_in_ready_stack(succ);
-            }
-        } else {
-            tf.available_batch_size = input_record_count;
-        }
-
+        tf.available_batch_size = input_record_count;
         for input_field_id in input_data_fields.iter() {
             self.job_data.field_mgr.drop_field_refcount(
                 *input_field_id,
@@ -696,9 +642,7 @@ impl<'a> JobSession<'a> {
         let mut start_tf_id = None;
         let start_op =
             &self.job_data.session_data.operator_bases[start_op_id as usize];
-        let mut prev_tf = predecessor_tf;
         let mut input_field = chain_input_field_id;
-        let mut last_output_field = chain_input_field_id;
         let ops = &self.job_data.session_data.chains
             [start_op.chain_id.unwrap() as usize]
             .operators[start_op.offset_in_chain as usize..];
@@ -731,7 +675,7 @@ impl<'a> JobSession<'a> {
                     {
                         input_field = field_id;
                     } else {
-                        let field_id = self.job_data.field_mgr.add_field(
+                        input_field = self.job_data.field_mgr.add_field(
                             &mut self.job_data.match_set_mgr,
                             ms_id,
                             Some(op.key_interned.unwrap()),
@@ -739,10 +683,8 @@ impl<'a> JobSession<'a> {
                                 .field_mgr
                                 .get_first_actor(input_field),
                         );
-                        input_field = field_id;
                     }
                     if !op.field_is_read {
-                        last_output_field = input_field;
                         continue;
                     }
                     make_input_output = true;
@@ -755,14 +697,14 @@ impl<'a> JobSession<'a> {
                             name,
                         );
                     }
-                    last_output_field =
+                    let output_field =
                         self.job_data.match_set_mgr.add_field_alias(
                             &mut self.job_data.field_mgr,
                             input_field,
                             k.key_interned.unwrap(),
                         );
                     if !op_base.transparent_mode {
-                        input_field = last_output_field;
+                        input_field = output_field;
                     }
                     continue;
                 }
@@ -778,11 +720,6 @@ impl<'a> JobSession<'a> {
             } else if make_input_output {
                 self.job_data.field_mgr.bump_field_refcount(input_field);
                 input_field
-            } else if op_base.append_mode {
-                self.job_data
-                    .field_mgr
-                    .bump_field_refcount(last_output_field);
-                last_output_field
             } else {
                 let first_actor =
                     self.job_data.field_mgr.get_first_actor(input_field);
@@ -817,21 +754,14 @@ impl<'a> JobSession<'a> {
                     );
                 }
             }
-            let input = if op_base.append_mode
-                && last_output_field == chain_input_field_id
-            {
-                DUMMY_FIELD_ID
-            } else {
-                self.job_data.field_mgr.setup_field_refs(
-                    &mut self.job_data.match_set_mgr,
-                    input_field,
-                );
-                input_field
-            };
-            self.job_data.field_mgr.bump_field_refcount(input);
+            self.job_data.field_mgr.setup_field_refs(
+                &mut self.job_data.match_set_mgr,
+                input_field,
+            );
+            self.job_data.field_mgr.bump_field_refcount(input_field);
 
             let mut tf_state = TransformState::new(
-                input,
+                input_field,
                 output_field,
                 ms_id,
                 op_base.desired_batch_size,
@@ -839,7 +769,6 @@ impl<'a> JobSession<'a> {
                 Some(op_id),
             );
             tf_state.is_transparent = op_base.transparent_mode;
-            tf_state.is_appending = op_base.append_mode;
 
             #[cfg(feature = "debug_logging")]
             if !dummy_output && !make_input_output {
@@ -858,7 +787,6 @@ impl<'a> JobSession<'a> {
                 prebound_outputs,
             );
             output_field = tf_state.output_field;
-            let appending = tf_state.is_appending;
             let transparent = tf_state.is_transparent;
             let tf_id = add_transform_to_job(
                 &mut self.job_data,
@@ -867,28 +795,16 @@ impl<'a> JobSession<'a> {
                 tf_data,
             );
 
-            if appending {
-                if let Some(prev) = prev_tf {
-                    self.job_data.tf_mgr.transforms[prev].continuation =
-                        Some(tf_id);
-                }
-            } else if let Some(pred) = predecessor_tf {
+            if let Some(pred) = predecessor_tf {
                 self.job_data.tf_mgr.transforms[pred].successor = Some(tf_id);
             }
 
             if start_tf_id.is_none() {
                 start_tf_id = Some(tf_id);
-                if predecessor_tf.is_none() {
-                    predecessor_tf = start_tf_id;
-                }
             }
-            prev_tf = Some(tf_id);
-            last_output_field = output_field;
-            if !appending {
-                predecessor_tf = Some(tf_id);
-                if !transparent {
-                    input_field = output_field;
-                }
+            predecessor_tf = Some(tf_id);
+            if !transparent {
+                input_field = output_field;
             }
             match op_data {
                 OperatorData::Nop(_) => (),
@@ -969,11 +885,7 @@ impl<'a> JobSession<'a> {
             Some(pred_tf),
             prebound_outputs,
         );
-        if !manual_unlink
-            && self.job_data.tf_mgr.transforms[start_tf]
-                .continuation
-                .is_none()
-        {
+        if !manual_unlink {
             // if the first transform will live to the end
             // (we currently just check whether it has an appender)
             // TODO: this is insufficient e.g. for plugins

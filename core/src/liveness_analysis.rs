@@ -598,19 +598,16 @@ impl LivenessData {
         input_field: OpOutputIdx,
     ) -> (OpOutputIdx, OperatorCallEffect) {
         let op_idx = op_id as usize;
-        let op_base = &sess.operator_bases[op_idx];
         let output_field = sess.operator_bases[op_idx].outputs_start;
         match &sess.operator_data[op_idx] {
             OperatorData::Fork(_) | OperatorData::ForkCat(_) => {
                 return (output_field, OperatorCallEffect::Diverge);
             }
             OperatorData::Call(_) | OperatorData::CallConcurrent(_) => {
-                debug_assert!(!op_base.append_mode);
                 return (output_field, OperatorCallEffect::Diverge);
             }
             OperatorData::Key(key) => {
                 let var_id = self.var_names[&key.key_interned.unwrap()];
-                debug_assert!(!op_base.append_mode);
                 self.vars_to_op_outputs_map[var_id as usize] = output_field;
                 self.op_outputs[output_field as usize]
                     .field_references

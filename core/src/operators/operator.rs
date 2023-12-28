@@ -82,7 +82,6 @@ pub struct OperatorBase {
     pub cli_arg_idx: Option<CliArgIdx>,
     pub chain_id: Option<ChainId>,
     pub offset_in_chain: OperatorOffsetInChain,
-    pub append_mode: bool,
     pub transparent_mode: bool,
     pub outputs_start: OpOutputIdx,
     pub outputs_end: OpOutputIdx,

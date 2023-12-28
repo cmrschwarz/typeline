@@ -11,7 +11,6 @@ pub struct OperatorBaseOptions {
     pub argname: StringStoreEntry,
     pub label: Option<StringStoreEntry>,
     pub cli_arg_idx: Option<CliArgIdx>,
-    pub append_mode: bool,
     pub transparent_mode: bool,
     // all following fields are set by the context on add_op
     pub desired_batch_size: usize,
@@ -24,7 +23,6 @@ impl OperatorBaseOptions {
     pub fn new(
         argname: StringStoreEntry,
         label: Option<StringStoreEntry>,
-        append_mode: bool,
         transparent_mode: bool,
         cli_arg_idx: Option<CliArgIdx>,
     ) -> OperatorBaseOptions {
@@ -32,7 +30,6 @@ impl OperatorBaseOptions {
             argname,
             label,
             cli_arg_idx,
-            append_mode,
             transparent_mode,
             desired_batch_size: 0,
             chain_id: None,
@@ -41,7 +38,7 @@ impl OperatorBaseOptions {
         }
     }
     pub fn from_name(argname: StringStoreEntry) -> OperatorBaseOptions {
-        OperatorBaseOptions::new(argname, None, false, false, None)
+        OperatorBaseOptions::new(argname, None, false, None)
     }
 
     pub fn build(&self) -> OperatorBase {
@@ -50,7 +47,6 @@ impl OperatorBaseOptions {
             label: self.label,
             cli_arg_idx: self.cli_arg_idx,
             chain_id: self.chain_id,
-            append_mode: self.append_mode,
             transparent_mode: self.transparent_mode,
             desired_batch_size: self.desired_batch_size,
             offset_in_chain: self.offset_in_chain,
