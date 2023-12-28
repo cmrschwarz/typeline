@@ -156,6 +156,7 @@ impl ContextBuilder {
         self
     }
     pub fn add_label(mut self, label: String) -> Self {
+        self.ref_terminate_current_aggregate();
         self.opts.add_label(label);
         self
     }
