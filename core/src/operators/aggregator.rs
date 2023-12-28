@@ -241,7 +241,7 @@ pub fn handle_tf_aggregator_trailer(
     if ps.input_done && agg_t.curr_sub_tf_idx != agg_t.sub_tf_count {
         agg_t.curr_sub_tf_idx += 1;
         jd.tf_mgr.transforms[tf_id].input_is_done = false;
-        ps.input_done = false;
+        ps.input_done = agg_t.curr_sub_tf_idx == agg_t.sub_tf_count;
     }
     jd.tf_mgr.inform_successor_batch_available(
         tf_id,
