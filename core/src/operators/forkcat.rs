@@ -5,7 +5,7 @@ use bitvec::vec::BitVec;
 use crate::{
     chain::Chain,
     context::Session,
-    job_session::{JobData, JobSession, PipelineState},
+    job_session::{JobData, JobSession},
     liveness_analysis::{
         LivenessData, OpOutputIdx, Var, HEADER_WRITES_OFFSET,
         LOCAL_SLOTS_PER_BASIC_BLOCK, READS_OFFSET,
@@ -319,47 +319,25 @@ pub fn handle_tf_forkcat(
         sess.tf_mgr.push_tf_in_ready_stack(cont);
         return;
     }
-    if fc.curr_subchain_n == 0 {
-        let (batch_size, ps) = sess.tf_mgr.claim_all(tf_id);
-        fc.input_size += batch_size;
-        handle_tf_forkcat_subchain(sess, tf_id, fc, batch_size, ps);
-        if !ps.input_done {
-            return;
-        }
-    } else {
-        sess.tf_mgr.push_tf_in_ready_stack(tf_id);
-        handle_tf_forkcat_subchain(
-            sess,
-            tf_id,
-            fc,
+    if fc.curr_subchain_n != 0 {
+        sess.tf_mgr.inform_transform_batch_available(
+            fc.curr_subchain_start.take().unwrap(),
             fc.input_size,
-            PipelineState {
-                input_done: true,
-                output_done: false,
-                next_batch_ready: false,
-            },
+            true,
         );
+        fc.curr_subchain_n += 1;
+        return;
     }
-    fc.curr_subchain_n += 1;
-    fc.curr_subchain_start = None;
-}
-
-pub fn handle_tf_forkcat_subchain(
-    sess: &mut JobData,
-    tf_id: TransformId,
-    fc: &mut TfForkCat,
-    batch_size: usize,
-    ps: PipelineState,
-) {
-    let target_tf = fc.curr_subchain_start.unwrap();
+    let (batch_size, ps) = sess.tf_mgr.claim_all(tf_id);
+    fc.input_size += batch_size;
+    let curr_subchain_start = fc.curr_subchain_start.unwrap();
     if ps.input_done {
         sess.tf_mgr.push_tf_in_ready_stack(tf_id);
-        sess.tf_mgr.transforms[target_tf].input_is_done = true;
-    } else if ps.next_batch_ready {
-        sess.tf_mgr.push_tf_in_ready_stack(tf_id);
+        fc.curr_subchain_n += 1;
+        fc.curr_subchain_start = None;
     }
     sess.tf_mgr.inform_transform_batch_available(
-        target_tf,
+        curr_subchain_start,
         batch_size,
         ps.input_done,
     );
