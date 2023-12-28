@@ -40,6 +40,7 @@ use crate::{
             build_tf_format, handle_tf_format,
             handle_tf_format_stream_value_update,
         },
+        input_done_eater::handle_tf_input_done_eater,
         join::{
             build_tf_join, handle_tf_join, handle_tf_join_stream_value_update,
         },
@@ -61,7 +62,7 @@ use crate::{
             build_tf_string_sink, handle_tf_string_sink,
             handle_tf_string_sink_stream_value_update,
         },
-        terminator::{handle_tf_terminator, setup_tf_terminator},
+        terminator::{add_terminator, handle_tf_terminator},
         transform::{Transform, TransformData, TransformId, TransformState},
     },
     record_data::{
@@ -503,7 +504,7 @@ impl<'a> JobSession<'a> {
             None,
             &Default::default(),
         );
-        self.add_terminator(ms_id, end_tf_id);
+        add_terminator(self, ms_id, end_tf_id);
         self.job_data.tf_mgr.push_tf_in_ready_stack(start_tf_id);
         let tf = &mut self.job_data.tf_mgr.transforms[start_tf_id];
         tf.input_is_done = true;
@@ -563,35 +564,6 @@ impl<'a> JobSession<'a> {
             .drop_field_refcount(tfof, &mut self.job_data.match_set_mgr);
         self.job_data.tf_mgr.transforms.release(tf_id);
         self.transform_data[usize::from(tf_id)] = TransformData::Disabled;
-    }
-    pub fn add_terminator(
-        &mut self,
-        ms_id: MatchSetId,
-        last_tf: TransformId,
-    ) -> TransformId {
-        let bs = self.job_data.tf_mgr.transforms[last_tf].desired_batch_size;
-        let tf_state = TransformState::new(
-            DUMMY_FIELD_ID,
-            DUMMY_FIELD_ID,
-            ms_id,
-            bs,
-            Some(last_tf),
-            None,
-        );
-        self.job_data
-            .field_mgr
-            .inc_field_refcount(DUMMY_FIELD_ID, 2);
-        let tf_data = setup_tf_terminator(&mut self.job_data, &tf_state);
-        let tf_id = add_transform_to_job(
-            &mut self.job_data,
-            &mut self.transform_data,
-            tf_state,
-            tf_data,
-        );
-        let pred = &mut self.job_data.tf_mgr.transforms[last_tf];
-        debug_assert!(pred.successor.is_none());
-        pred.successor = Some(tf_id);
-        tf_id
     }
     pub fn build_transform_data(
         &mut self,
@@ -930,6 +902,7 @@ impl<'a> JobSession<'a> {
             TransformData::Call(_) => unreachable!(),
             TransformData::Nop(_) => unreachable!(),
             TransformData::NopCopy(_) => unreachable!(),
+            TransformData::InputDoneEater(_) => unreachable!(),
             TransformData::Cast(_) => unreachable!(),
             TransformData::Count(_) => unreachable!(),
             TransformData::Select(_) => unreachable!(),
@@ -986,6 +959,7 @@ impl<'a> JobSession<'a> {
             TransformData::Cast(_) => (),
             TransformData::Nop(_) => (),
             TransformData::NopCopy(_) => (),
+            TransformData::InputDoneEater(_) => (),
             TransformData::Count(_) => (),
             TransformData::Print(_) => (),
             TransformData::Join(_) => (),
@@ -1030,6 +1004,9 @@ impl<'a> JobSession<'a> {
             }
             TransformData::Nop(tf) => handle_tf_nop(jd, tf_id, tf),
             TransformData::NopCopy(tf) => handle_tf_nop_copy(jd, tf_id, tf),
+            TransformData::InputDoneEater(tf) => {
+                handle_tf_input_done_eater(jd, tf_id, tf)
+            }
             TransformData::Print(tf) => handle_tf_print(jd, tf_id, tf),
             TransformData::Regex(tf) => handle_tf_regex(jd, tf_id, tf),
             TransformData::StringSink(tf) => {
@@ -1086,6 +1063,7 @@ impl<'a> JobSession<'a> {
             TransformData::Disabled
             | TransformData::Nop(_)
             | TransformData::NopCopy(_)
+            | TransformData::InputDoneEater(_)
             | TransformData::Terminator(_)
             | TransformData::Call(_)
             | TransformData::CallConcurrent(_)

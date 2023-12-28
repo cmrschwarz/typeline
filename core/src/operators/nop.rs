@@ -42,7 +42,7 @@ pub fn build_tf_nop(
     _op: &OpNop,
     tf_state: &TransformState,
 ) -> TransformData<'static> {
-    assert!(tf_state.is_transparent);
+    debug_assert!(tf_state.is_transparent);
     create_tf_nop()
 }
 

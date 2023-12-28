@@ -28,6 +28,7 @@ use super::{
     fork::TfFork,
     forkcat::TfForkCat,
     format::TfFormat,
+    input_done_eater::TfInputDoneEater,
     join::TfJoin,
     literal::TfLiteral,
     nop::TfNop,
@@ -49,6 +50,7 @@ pub enum TransformData<'a> {
     Disabled,
     Nop(TfNop),
     NopCopy(TfNopCopy),
+    InputDoneEater(TfInputDoneEater),
     Terminator(TfTerminator),
     Call(TfCall),
     CallConcurrent(TfCallConcurrent<'a>),
@@ -105,6 +107,7 @@ impl TransformData<'_> {
             TransformData::Terminator(_) => "terminator",
             TransformData::AggregatorHeader(_) => "aggregator_header",
             TransformData::AggregatorTrailer(_) => "aggregator_trailer",
+            TransformData::InputDoneEater(_) => "input_done_eater",
             TransformData::Explode(tf) => return tf.display_name(),
             TransformData::Custom(tf) => return tf.display_name(),
         }

@@ -22,9 +22,11 @@ use crate::{
 
 use super::{
     errors::{OperatorCreationError, OperatorSetupError},
+    input_done_eater::add_input_done_eater,
     operator::{
         OperatorBase, OperatorData, OperatorId, OperatorOffsetInChain,
     },
+    terminator::add_terminator,
     transform::{TransformData, TransformId, TransformState},
     utils::field_access_mappings::{
         AccessKind, AccessMappings, FieldAccessMode,
@@ -373,13 +375,25 @@ fn setup_continuation(
         } else {
             DUMMY_FIELD_ID
         };
-    sess.setup_transforms_from_op(
+    let sc_count = forkcat.op.subchains_end - forkcat.op.subchains_start;
+    let chain_id = sess.job_data.session_data.operator_bases
+        [cont_op_id as usize]
+        .chain_id
+        .unwrap();
+    let begin = add_input_done_eater(
+        sess,
+        chain_id,
+        output_ms_id,
+        sc_count as usize - 1,
+    );
+    let (_begin, end) = sess.setup_transforms_from_op(
         output_ms_id,
         cont_op_id,
         cont_input_field,
-        None,
+        Some(begin),
         &Default::default(),
-    )
+    );
+    (begin, end)
 }
 
 fn expand_for_subchain(sess: &mut JobSession, tf_id: TransformId, sc_n: u32) {
@@ -450,7 +464,7 @@ fn expand_for_subchain(sess: &mut JobSession, tf_id: TransformId, sc_n: u32) {
         None,
         &prebound_outputs,
     );
-    let end_tf = sess.add_terminator(tgt_ms_id, end_tf);
+    let end_tf = add_terminator(sess, tgt_ms_id, end_tf);
     let TransformData::ForkCat(forkcat) =
         &mut sess.transform_data[tf_id.get()]
     else {
