@@ -27,13 +27,14 @@ pub struct OpAggregator {
 pub const AGGREGATOR_DEFAULT_NAME: &str = "aggregator";
 
 pub struct TfAggregatorHeader {
-    pub(crate) trailer_tf_id: TransformId,
-    pub(crate) sub_tfs: Vec<TransformId>,
+    trailer_tf_id: TransformId,
+    sub_tfs: Vec<TransformId>,
+    prev_sub_tf_idx: usize,
 }
 
 pub struct TfAggregatorTrailer {
-    pub(crate) curr_sub_tf_idx: usize,
-    pub(crate) sub_tf_count: usize,
+    curr_sub_tf_idx: usize,
+    sub_tf_count: usize,
 }
 
 pub fn create_op_aggregate(sub_ops: Vec<OperatorId>) -> OperatorData {
@@ -149,19 +150,20 @@ pub fn build_tf_aggregator<'a>(
             sub_tf_count: op_count,
         }),
     );
-    for &sub_op in &op.sub_ops {
+    for (i, &sub_op_id) in op.sub_ops.iter().enumerate() {
         let mut sub_tf_state = TransformState::new(
             tf_state.input_field,
             tf_state.output_field,
             tf_state.match_set_id,
             tf_state.desired_batch_size,
             None,
-            Some(sub_op),
+            Some(sub_op_id),
         );
         sub_tf_state.successor = Some(trailer_tf_id);
+        sub_tf_state.has_appender = i + 1 < op_count;
         let sub_tf_data = sess.build_transform_data(
             &mut sub_tf_state,
-            sub_op,
+            sub_op_id,
             prebound_outputs,
         );
         sub_tfs.push(add_transform_to_job(
@@ -174,36 +176,52 @@ pub fn build_tf_aggregator<'a>(
     TransformData::AggregatorHeader(TfAggregatorHeader {
         sub_tfs,
         trailer_tf_id,
+        prev_sub_tf_idx: 0,
     })
 }
 
 pub fn handle_tf_aggregator_header(
     sess: &mut JobSession,
-    tf_trailer_id: TransformId,
     tf_id: nonmax::NonMaxUsize,
     ctx: Option<&Arc<ContextData>>,
 ) -> Result<(), VentureDescription> {
-    let TransformData::AggregatorTrailer(trailer) =
-        &sess.transform_data[tf_trailer_id.get() as usize]
-    else {
-        unreachable!()
-    };
-    let sub_tf_idx = trailer.curr_sub_tf_idx;
-    let TransformData::AggregatorHeader(agg) =
+    let TransformData::AggregatorHeader(header) =
         &sess.transform_data[tf_id.get() as usize]
     else {
         unreachable!()
     };
-    let sub_tf_count = agg.sub_tfs.len();
-    let sub_tf_id = agg.sub_tfs[sub_tf_idx];
-    let (batch_size, ps) = sess.job_data.tf_mgr.claim_all(tf_id);
-    if batch_size == 0 && ps.input_done == false {
+    let trailer_id = header.trailer_tf_id;
+    let sub_tf_idx = if let TransformData::AggregatorTrailer(trailer) =
+        &sess.transform_data[trailer_id.get() as usize]
+    {
+        trailer.curr_sub_tf_idx
+    } else {
+        unreachable!()
+    };
+    let TransformData::AggregatorHeader(header) =
+        &mut sess.transform_data[tf_id.get() as usize]
+    else {
+        unreachable!()
+    };
+    let sub_tf_count = header.sub_tfs.len();
+    let (mut batch_size, ps) = sess.job_data.tf_mgr.claim_all(tf_id);
+    if header.prev_sub_tf_idx != sub_tf_idx {
+        // in case the previous op left behind unclaimed records,
+        // we reclaim them and give them to the next
+        let prev_tf = &mut sess.job_data.tf_mgr.transforms
+            [header.sub_tfs[header.prev_sub_tf_idx]];
+        batch_size += prev_tf.available_batch_size;
+        prev_tf.available_batch_size = 0;
+        header.prev_sub_tf_idx = sub_tf_idx;
+    }
+    if sub_tf_count == sub_tf_idx || !ps.next_batch_ready && !ps.input_done {
         // PERF: we could maybe figure this out from the trailer and
         // prevent unnecessary rechecks
         return Ok(());
     }
+    let sub_tf_id = header.sub_tfs[sub_tf_idx];
     let successor = sess.job_data.tf_mgr.transforms[tf_id].successor;
-    sess.job_data.tf_mgr.transforms[tf_trailer_id].successor = successor;
+    sess.job_data.tf_mgr.transforms[trailer_id].successor = successor;
     let sub_tf = &mut sess.job_data.tf_mgr.transforms[sub_tf_id];
     sub_tf.available_batch_size += batch_size;
     sub_tf.input_is_done |= ps.input_done;

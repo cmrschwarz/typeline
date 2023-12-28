@@ -273,13 +273,16 @@ impl TransformManager {
         // from deleting our value. unless we are done, in which case
         // no additional value is inserted
         let mut output_field = field_mgr.fields[output_field_id].borrow_mut();
-        let drop_oversize = ps.input_done && final_call_if_input_done;
-        if batch_size == 0 && drop_oversize {
+        let done = ps.input_done && final_call_if_input_done;
+        if batch_size == 0 && done {
             output_field.iter_hall.drop_last_value(1);
         } else {
             output_field
                 .iter_hall
-                .dup_last_value(batch_size - drop_oversize as usize);
+                .dup_last_value(batch_size - done as usize);
+        }
+        if done {
+            ps.next_batch_ready = false;
         }
         (batch_size, ps)
     }
@@ -1057,9 +1060,8 @@ impl<'a> JobSession<'a> {
             }
             TransformData::Explode(tf) => tf.update(&mut self.job_data, tf_id),
             TransformData::Custom(tf) => tf.update(&mut self.job_data, tf_id),
-            TransformData::AggregatorHeader(agg) => {
-                let trailer_id = agg.trailer_tf_id;
-                handle_tf_aggregator_header(self, trailer_id, tf_id, ctx)?;
+            TransformData::AggregatorHeader(_) => {
+                handle_tf_aggregator_header(self, tf_id, ctx)?;
             }
             TransformData::AggregatorTrailer(agg_t) => {
                 handle_tf_aggregator_trailer(&mut self.job_data, tf_id, agg_t);
