@@ -8,6 +8,7 @@ use scr_core::{
 };
 use string_utils::{create_op_chars, create_op_lines, create_op_trim};
 use sum::create_op_sum;
+use tail::parse_op_tail;
 
 extern crate scr_core;
 
@@ -15,6 +16,7 @@ pub mod head;
 pub mod primes;
 pub mod string_utils;
 pub mod sum;
+pub mod tail;
 
 #[derive(Default)]
 pub struct MiscCmdsExtension {}
@@ -30,6 +32,12 @@ impl Extension for MiscCmdsExtension {
         let ctor_fn = match arg.argname {
             "head" => {
                 return Ok(Some(parse_op_head(
+                    arg.value,
+                    Some(arg.cli_arg.idx),
+                )?))
+            }
+            "tail" => {
+                return Ok(Some(parse_op_tail(
                     arg.value,
                     Some(arg.cli_arg.idx),
                 )?))

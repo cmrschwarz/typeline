@@ -7,7 +7,9 @@ use scr_core::{
     options::context_builder::ContextBuilder,
     scr_error::ScrError,
 };
-use scr_ext_misc_cmds::{head::create_op_head, primes::create_op_primes};
+use scr_ext_misc_cmds::{
+    head::create_op_head, primes::create_op_primes, tail::create_op_tail_add,
+};
 
 #[test]
 fn primes() -> Result<(), ScrError> {
@@ -26,10 +28,22 @@ fn primes() -> Result<(), ScrError> {
 fn primes_head() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
-        .add_op_with_opts(create_op_primes(), None, Some("p"), false, false)
+        .add_op(create_op_primes())
         .add_op(create_op_head(3))
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(ss.get_data().unwrap().as_slice(), ["2", "3", "5"]);
+    Ok(())
+}
+
+#[test]
+fn seq_tail_add() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::default();
+    ContextBuilder::default()
+        .add_op(create_op_seqn(1, 10, 1).unwrap())
+        .add_op(create_op_tail_add(7))
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(ss.get_data().unwrap().as_slice(), ["8", "9", "10"]);
     Ok(())
 }

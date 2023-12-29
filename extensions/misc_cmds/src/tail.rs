@@ -25,23 +25,22 @@ use scr_core::{
     },
 };
 
-// TODO: think about how to do subtract mode
-// we probably have to alias and bufferswap all field acce?
 #[derive(Default)]
-pub struct OpHead {
-    count: isize,
+pub struct OpTail {
+    count: usize,
+    add_mode: bool,
 }
 
-pub struct TfHead {
-    remaining: usize,
+pub struct TfTailAdd {
+    skip_count: usize,
     actor_id: ActorId,
 }
 
-impl Operator for OpHead {
+impl Operator for OpTail {
     fn default_name(
         &self,
     ) -> scr_core::operators::operator::DefaultOperatorName {
-        "head".into()
+        "tail".into()
     }
 
     fn output_count(&self, _op_base: &OperatorBase) -> usize {
@@ -78,19 +77,19 @@ impl Operator for OpHead {
             &mut sess.match_set_mgr,
         );
         tf_state.output_field = tf_state.input_field;
-        if self.count < 0 {
-            unimplemented!("head subtract mode")
+        if !self.add_mode {
+            unimplemented!("tail absolute mode")
         }
-        TransformData::Custom(smallbox!(TfHead {
-            remaining: self.count as usize,
+        TransformData::Custom(smallbox!(TfTailAdd {
+            skip_count: self.count as usize,
             actor_id
         }))
     }
 }
 
-impl Transform for TfHead {
+impl Transform for TfTailAdd {
     fn display_name(&self) -> DefaultTransformName {
-        "head".into()
+        "tail".into()
     }
 
     fn update(&mut self, jd: &mut JobData, tf_id: TransformId) {
@@ -109,51 +108,65 @@ impl Transform for TfHead {
             return;
         }
 
-        if self.remaining >= batch_size {
-            self.remaining -= batch_size;
-            jd.tf_mgr
-                .submit_batch(tf_id, batch_size, self.remaining == 0);
+        if self.skip_count == 0 {
+            jd.tf_mgr.submit_batch(tf_id, batch_size, ps.input_done);
             return;
         }
 
-        let rows_to_submit = self.remaining;
-        let rows_to_drop = batch_size - rows_to_submit;
-        self.remaining = 0;
+        let rows_to_skip = self.skip_count.min(batch_size);
+        let rows_to_submit = batch_size - rows_to_skip;
+        self.skip_count -= rows_to_skip;
 
         let ab =
             &mut jd.match_set_mgr.match_sets[tf.match_set_id].action_buffer;
         ab.begin_action_group(self.actor_id);
-        ab.push_action(FieldActionKind::Drop, rows_to_submit, rows_to_drop);
+        ab.push_action(FieldActionKind::Drop, 0, rows_to_skip);
         ab.end_action_group();
-        jd.tf_mgr.submit_batch(tf_id, rows_to_submit, true);
+        jd.tf_mgr.submit_batch(tf_id, rows_to_submit, ps.input_done);
     }
 }
 
-pub fn create_op_head(count: isize) -> OperatorData {
-    OperatorData::Custom(smallbox!(OpHead { count }))
+pub fn create_op_tail(count: usize) -> OperatorData {
+    OperatorData::Custom(smallbox!(OpTail {
+        count,
+        add_mode: false
+    }))
 }
 
-pub fn parse_op_head(
+pub fn create_op_tail_add(count: usize) -> OperatorData {
+    OperatorData::Custom(smallbox!(OpTail {
+        count,
+        add_mode: true
+    }))
+}
+
+pub fn parse_op_tail(
     value: Option<&[u8]>,
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
     let Some(value) = value else {
-        return Ok(create_op_head(1));
+        return Ok(create_op_tail(1));
     };
     let value_str = value
         .to_str()
         .map_err(|_| {
             OperatorCreationError::new(
-                "failed to parse `head` parameter (invalid utf-8)",
+                "failed to parse `tail` parameter (invalid utf-8)",
                 arg_idx,
             )
         })?
         .trim();
-    let count = parse_int_with_units(value_str).map_err(|msg| {
-        OperatorCreationError::new_s(
-            format!("failed to parse `head` parameter as integer: {msg}"),
-            arg_idx,
-        )
-    })?;
-    Ok(create_op_head(count))
+    let add_mode = value_str.chars().next() == Some('+');
+    let count = parse_int_with_units::<isize>(value_str)
+        .map_err(|msg| {
+            OperatorCreationError::new_s(
+                format!("failed to parse `tail` parameter as integer: {msg}"),
+                arg_idx,
+            )
+        })?
+        .abs();
+    if add_mode {
+        return Ok(create_op_tail_add(count as usize));
+    }
+    Ok(create_op_tail(count as usize))
 }
