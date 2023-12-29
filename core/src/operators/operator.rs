@@ -218,11 +218,14 @@ pub trait Operator: Send + Sync {
         _ld: &LivenessData,
     ) {
     }
-    fn build_transform<'a>(
-        &'a self,
+    // While lifetimes can be elided here, which is nice for simple TFs,
+    // it's good to remember that `TransformData<'a>` comes from `&'a self`
+    // and can take full advantage of that for sharing state between instances
+    fn build_transform(
+        &self,
         sess: &mut JobData,
         op_base: &OperatorBase,
         tf_state: &mut TransformState,
         prebound_outputs: &HashMap<OpOutputIdx, FieldId, BuildIdentityHasher>,
-    ) -> TransformData<'a>;
+    ) -> TransformData;
 }

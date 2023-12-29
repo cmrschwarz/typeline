@@ -1,4 +1,4 @@
-pub mod aggregator;
+mod aggregator;
 mod basic;
 mod callcc;
 mod custom_types;
@@ -8,6 +8,3 @@ mod format;
 mod join;
 mod objects;
 mod regex;
-
-#[cfg(feature = "misc_cmds")]
-mod primes;

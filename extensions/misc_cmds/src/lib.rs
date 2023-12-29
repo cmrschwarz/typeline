@@ -1,3 +1,4 @@
+use head::parse_op_head;
 use primes::create_op_primes;
 use scr_core::{
     cli::ParsedCliArgumentParts,
@@ -10,6 +11,7 @@ use sum::create_op_sum;
 
 extern crate scr_core;
 
+pub mod head;
 pub mod primes;
 pub mod string_utils;
 pub mod sum;
@@ -26,6 +28,12 @@ impl Extension for MiscCmdsExtension {
         _next_arg_idx: &mut usize,
     ) -> Result<Option<OperatorData>, OperatorCreationError> {
         let ctor_fn = match arg.argname {
+            "head" => {
+                return Ok(Some(parse_op_head(
+                    arg.value,
+                    Some(arg.cli_arg.idx),
+                )?))
+            }
             "sum" => create_op_sum,
             "primes" => create_op_primes,
             "lines" => create_op_lines,

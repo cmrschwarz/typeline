@@ -129,6 +129,8 @@ pub struct TransformState {
     pub is_ready: bool,
     pub has_appender: bool,
     pub is_transparent: bool,
+    //TODO: consider refactoring this into 'done' stored on the transform
+    // itself instead of this weird neighbor introspetive way
     pub input_is_done: bool,
     pub output_is_done: bool,
     pub mark_for_removal: bool,

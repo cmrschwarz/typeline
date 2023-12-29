@@ -196,6 +196,23 @@ impl TransformManager {
             self.inform_transform_successor_done(pred)
         }
     }
+    pub fn submit_batch_ready_for_more(
+        &mut self,
+        tf_id: TransformId,
+        batch_size: usize,
+        ps: PipelineState,
+    ) {
+        let done = ps.input_done || ps.output_done;
+        // In case we are done, there's no need to re-ready. There's 3 cases:
+        // a) our predecessor has more records and will push us himself (fine)
+        // b) a reset happens
+        // c) we terminate happily
+        // In all 3 cases we don't have to do anything.
+        if !done && ps.next_batch_ready {
+            self.push_tf_in_ready_stack(tf_id);
+        }
+        self.submit_batch(tf_id, batch_size, done);
+    }
     pub fn declare_transform_done(&mut self, tf_id: TransformId) {
         self.submit_batch(tf_id, 0, true);
     }
