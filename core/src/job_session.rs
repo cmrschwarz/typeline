@@ -1099,6 +1099,7 @@ impl<'a> JobSession<'a> {
     }
 
     pub(crate) fn run_stream_producer_update(&mut self, tf_id: TransformId) {
+        #[cfg(feature = "debug_logging")]
         println!(
             "> handling stream producer update for tf {} (`{}`)",
             tf_id,

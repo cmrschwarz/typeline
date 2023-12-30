@@ -13,7 +13,7 @@ use scr_core::{
     liveness_analysis::OpOutputIdx,
     operators::{
         errors::OperatorApplicationError,
-        operator::{Operator, OperatorBase},
+        operator::{Operator, OperatorBase, OperatorData},
         transform::{
             basic_transform_update, BasicUpdateData, Transform, TransformData,
             TransformId, TransformState,
@@ -390,4 +390,9 @@ impl Transform for TfHttpRequest {
             jd.tf_mgr.make_stream_producer(tf_id);
         }
     }
+}
+
+#[allow(non_snake_case)]
+pub fn create_op_GET() -> OperatorData {
+    OperatorData::Custom(smallbox![OpHttpRequest::default()])
 }

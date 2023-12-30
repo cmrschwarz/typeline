@@ -9,6 +9,7 @@ use crate::{
         },
         field_value_sink::{create_op_field_value_sink, FieldValueSinkHandle},
         operator::{DefaultOperatorName, OperatorData, OperatorId},
+        string_sink::{create_op_string_sink, StringSinkHandle},
     },
     record_data::{
         custom_data::CustomDataBox, field_data::FixedSizeFieldValueType,
@@ -163,6 +164,9 @@ impl ContextBuilder {
     pub fn add_op(self, op_data: OperatorData) -> Self {
         self.add_op_with_opts(op_data, None, None, false, false)
     }
+    pub fn ref_add_op(&mut self, op_data: OperatorData) {
+        self.ref_add_op_with_opts(op_data, None, None, false, false)
+    }
     pub fn add_op_aggregate_with_opts(
         mut self,
         argname: Option<&str>,
@@ -243,6 +247,39 @@ impl ContextBuilder {
     pub fn build(self) -> Result<Context, ContextualizedScrError> {
         Ok(Context::new(Arc::new(self.build_session()?)))
     }
+    pub fn run_collect_stringified(
+        mut self,
+    ) -> Result<Vec<String>, ContextualizedScrError> {
+        let sink = StringSinkHandle::default();
+        self.opts.curr_chain = 0;
+        self.ref_add_op(create_op_string_sink(&sink));
+        let input_data = std::mem::take(&mut self.input_data);
+        let sess = self.build_session()?;
+        let job = sess.construct_main_chain_job(input_data);
+        let mut val = if sess.settings.max_threads == 1 {
+            sess.run_job_unthreaded(job);
+            sink.get_data().map_err(|e| {
+                ContextualizedScrError::from_scr_error(
+                    (*e).clone().into(),
+                    None,
+                    None,
+                    Some(&sess),
+                )
+            })?
+        } else {
+            let sess_arc = Arc::new(sess);
+            Context::new(sess_arc.clone()).run_job(job);
+            sink.get_data().map_err(|e| {
+                ContextualizedScrError::from_scr_error(
+                    (*e).clone().into(),
+                    None,
+                    None,
+                    Some(&sess_arc),
+                )
+            })?
+        };
+        Ok(std::mem::take(&mut *val))
+    }
     pub fn run_collect(
         mut self,
     ) -> Result<Vec<FieldValue>, ContextualizedScrError> {
@@ -253,14 +290,10 @@ impl ContextBuilder {
         Ok(std::mem::take(&mut *v))
     }
     pub fn run_collect_as<T: FixedSizeFieldValueType>(
-        mut self,
+        self,
     ) -> Result<Vec<T>, ContextualizedScrError> {
-        let sink = FieldValueSinkHandle::default();
-        self.opts.curr_chain = 0;
-        self.add_op(create_op_field_value_sink(&sink)).run()?;
-        let mut v = sink.get();
         let mut res = Vec::new();
-        for (i, fv) in std::mem::take(&mut *v).into_iter().enumerate() {
+        for (i, fv) in self.run_collect()?.into_iter().enumerate() {
             let kind = fv.kind();
             if let Some(v) = fv.downcast_allowing_text_as_bytes() {
                 res.push(v)
@@ -283,12 +316,8 @@ impl ContextBuilder {
     pub fn run(mut self) -> Result<(), ContextualizedScrError> {
         let input_data = std::mem::take(&mut self.input_data);
         let sess = self.build_session()?;
-        if sess.settings.max_threads == 1 {
-            sess.run_job_unthreaded(sess.construct_main_chain_job(input_data))
-        } else {
-            let mut ctx = Context::new(Arc::new(sess));
-            ctx.run_main_chain(input_data);
-        }
+        let job = sess.construct_main_chain_job(input_data);
+        sess.run(job);
         Ok(())
     }
     pub fn run_collect_output(

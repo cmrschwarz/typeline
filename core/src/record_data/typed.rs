@@ -52,13 +52,15 @@ impl<'a> TypedValue<'a> {
                 FieldValueRepr::Null => TypedValue::Null(Null),
                 FieldValueRepr::Undefined => TypedValue::Undefined(Undefined),
                 FieldValueRepr::BytesInline => TypedValue::BytesInline(
-                    to_slice(fdr, data_begin, fmt.size as usize),
+                    to_slice(fdr, data_begin, data_begin + fmt.size as usize),
                 ),
-                FieldValueRepr::TextInline => {
-                    TypedValue::TextInline(std::str::from_utf8_unchecked(
-                        to_slice(fdr, data_begin, fmt.size as usize),
-                    ))
-                }
+                FieldValueRepr::TextInline => TypedValue::TextInline(
+                    std::str::from_utf8_unchecked(to_slice(
+                        fdr,
+                        data_begin,
+                        data_begin + fmt.size as usize,
+                    )),
+                ),
                 FieldValueRepr::Int => {
                     TypedValue::Int(to_ref(fdr, data_begin))
                 }

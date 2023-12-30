@@ -2,13 +2,12 @@ pub mod http;
 pub mod tls_client;
 pub mod url;
 
-use http::OpHttpRequest;
+use http::create_op_GET;
 use scr_core::{
     cli::ParsedCliArgumentParts,
     extension::Extension,
     operators::{errors::OperatorCreationError, operator::OperatorData},
     options::session_options::SessionOptions,
-    smallbox,
 };
 
 extern crate scr_core;
@@ -26,9 +25,7 @@ impl Extension for HttpExtension {
     ) -> Result<Option<OperatorData>, OperatorCreationError> {
         if arg.argname == "GET" || arg.argname == "http-get" {
             arg.reject_value()?;
-            return Ok(Some(OperatorData::Custom(smallbox![
-                OpHttpRequest::default()
-            ])));
+            return Ok(Some(create_op_GET()));
         }
         Ok(None)
     }
