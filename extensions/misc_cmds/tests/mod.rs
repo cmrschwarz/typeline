@@ -1,3 +1,4 @@
+use scr::parse_cli_from_strings;
 use scr_core::{
     operators::{
         select::create_op_select,
@@ -45,5 +46,28 @@ fn seq_tail_add() -> Result<(), ScrError> {
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(ss.get_data().unwrap().as_slice(), ["8", "9", "10"]);
+    Ok(())
+}
+
+#[test]
+fn primes_head_tail_add() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::default();
+    ContextBuilder::default()
+        .add_op(create_op_primes())
+        .add_op(create_op_tail_add(3))
+        .add_op(create_op_head(3))
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(ss.get_data().unwrap().as_slice(), ["7", "11", "13"]);
+    Ok(())
+}
+
+#[test]
+fn head_tail_cli() -> Result<(), ScrError> {
+    let sess_opts =
+        parse_cli_from_strings(["scr", "primes", "tail=+3", "head=5"])?;
+    let res = ContextBuilder::from_session_opts(sess_opts)
+        .run_collect_as::<String>()?;
+    assert_eq!(res, ["7", "11", "13"]);
     Ok(())
 }

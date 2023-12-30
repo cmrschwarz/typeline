@@ -104,7 +104,7 @@ impl Transform for TfTailAdd {
             ab.begin_action_group(self.actor_id);
             ab.push_action(FieldActionKind::Drop, 0, batch_size);
             ab.end_action_group();
-            jd.tf_mgr.submit_batch(tf_id, batch_size, true);
+            jd.tf_mgr.submit_batch(tf_id, 0, true);
             return;
         }
 

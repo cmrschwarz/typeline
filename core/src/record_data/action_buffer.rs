@@ -504,7 +504,7 @@ impl ActionBuffer {
                 let actor = &mut self.actors[actor_id];
                 let agq = &mut actor.action_group_queues[pow2 as usize];
                 let len_after = agq.actions.data.len();
-                let start = len_after - len_before;
+                let start = len_before;
                 let length = len_after - len_before;
                 agq.action_groups.data.push_back(ActionGroupWithRefs {
                     ag: ActionGroup { start, length },
