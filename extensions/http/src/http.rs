@@ -41,6 +41,10 @@ pub enum HttpRequestError {
     Io(#[from] std::io::Error),
     #[error(transparent)]
     Dns(#[from] InvalidDnsNameError),
+    #[error(transparent)]
+    Url(#[from] url::ParseError),
+    #[error("{0}")]
+    Other(String),
 }
 
 #[derive(Default)]
@@ -138,27 +142,53 @@ impl TfHttpRequest {
         url: &str,
         bud: &mut BasicUpdateData,
     ) -> Result<StreamValueId, HttpRequestError> {
-        let port = 443; // TODO
-        let hostname = url;
+        let url = url::Url::parse(url)?;
+        let mut https = false;
+        match url.scheme() {
+            "https" => {
+                https = true;
+            }
+            "" | "http" => (),
+            other => {
+                return Err(HttpRequestError::Other(format!(
+                    "unsupported url scheme '{other}'"
+                )))
+            }
+        }
+        let Some(hostname) = url.host_str() else {
+            return Err(url::ParseError::EmptyHost.into());
+        };
+        let port = url.port().unwrap_or(if https { 443 } else { 80 });
+
+        let location = url.path();
+
         let sock_addr = (hostname, port).to_socket_addrs()?.next().unwrap();
-        let mut stream = TcpStream::connect(sock_addr)?;
-
-        let server_name =
-            pki_types::ServerName::try_from(hostname)?.to_owned();
-
-        let mut tls_conn = rustls::ClientConnection::new(
-            self.tls_config.clone(),
-            server_name,
-        )?;
 
         let httpreq = format!(
-            "GET / HTTP/1.1\r\nHost: {hostname}\r\nConnection: \
-                               close\r\nAccept-Encoding: identity\r\n\r\n",
+            "GET {location} HTTP/1.1\r\n\
+            Host: {hostname}\r\n\
+            Connection: close\r\n\
+            Accept-Encoding: identity\r\n\
+            \r\n\
+            ",
         );
-        tls_conn.writer().write_all(httpreq.as_bytes())?;
+
+        let mut stream = TcpStream::connect(sock_addr)?;
+        let tls_conn = if https {
+            let server_name =
+                pki_types::ServerName::try_from(hostname)?.to_owned();
+            let mut tls = rustls::ClientConnection::new(
+                self.tls_config.clone(),
+                server_name,
+            )?;
+            tls.writer().write_all(httpreq.as_bytes())?;
+            Some(tls)
+        } else {
+            stream.write_all(httpreq.as_bytes())?;
+            None
+        };
 
         let token = self.running_connections.peek_claim_id();
-
         let interest = Interest::READABLE | Interest::WRITABLE;
 
         self.poll
@@ -173,7 +203,7 @@ impl TfHttpRequest {
         self.running_connections.claim_with_value(Connection {
             socket: stream,
             stream_value: Some(stream_value),
-            tls_conn: Some(tls_conn),
+            tls_conn,
             interest,
             header_parsed: false,
             header_lines_count: 0,
