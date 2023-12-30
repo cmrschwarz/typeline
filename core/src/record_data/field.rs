@@ -72,7 +72,7 @@ pub type FieldId = u32;
 // different `field_references` array for the COW field without having
 // to modify the original field data
 pub type FieldRefOffset = NonMaxU16;
-pub const DUMMY_FIELD_ID: FieldId = FieldId::MIN;
+pub const VOID_FIELD_ID: FieldId = FieldId::MIN;
 
 impl Field {
     pub fn get_clear_delay_request_count(&self) -> u16 {
@@ -356,7 +356,7 @@ impl FieldManager {
             return;
         };
         let shadowed_by = field.shadowed_by;
-        if shadowed_by != DUMMY_FIELD_ID {
+        if shadowed_by != VOID_FIELD_ID {
             drop(field);
             self.propagate_clear(msm, field_id, shadowed_by);
             field = self.fields[field_id].borrow_mut();
@@ -434,7 +434,7 @@ impl FieldManager {
             name,
             ref_count: 1,
             shadowed_since: ActionBuffer::MAX_ACTOR_ID,
-            shadowed_by: DUMMY_FIELD_ID,
+            shadowed_by: VOID_FIELD_ID,
             clear_delay_request_count: Cell::new(0),
             match_set: ms_id,
             first_actor,
@@ -875,7 +875,7 @@ impl Drop for FieldManager {
     fn drop(&mut self) {
         #[cfg(debug_assertions)]
         if !std::thread::panicking() {
-            self.fields.release(DUMMY_FIELD_ID);
+            self.fields.release(VOID_FIELD_ID);
             // TODO: this does not work yet, because e.g. callcc
             // does not properly clean up it's cow targets yet
             // reenable this once it works
@@ -895,7 +895,7 @@ impl Default for FieldManager {
             producing_transform_arg: "<Dummy Input Field>".to_string(),
             ..Default::default()
         }));
-        debug_assert!(DUMMY_FIELD_ID == id);
+        debug_assert!(VOID_FIELD_ID == id);
         res
     }
 }

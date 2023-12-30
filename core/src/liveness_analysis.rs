@@ -59,12 +59,18 @@ pub const SUCCESSION_SLOTS_OFFSET: usize = 2 * LOCAL_SLOTS_PER_BASIC_BLOCK;
 pub const SLOTS_PER_BASIC_BLOCK: usize = LOCAL_SLOTS_PER_BASIC_BLOCK * 3;
 
 pub type VarId = u32;
-pub const UNREACHABLE_DUMMY_VAR: VarId = 0;
-pub const BB_INPUT_VAR: VarId = 1;
+
+// the order and number of special variables has to be consistent
+// with the initialization in `LivenessData::setup_vars`
+pub const BB_INPUT_VAR_ID: VarId = 0;
+pub const VOID_VAR_ID: VarId = 1;
+pub const ANY_VAR_ID: VarId = 2;
+pub const DYN_VAR_ID: VarId = 3;
+pub const SPECIAL_VAR_COUNT: VarId = 4;
 
 pub type OpOutputIdx = u32;
-pub const BB_INPUT_VAR_OUTPUT_IDX: OpOutputIdx = BB_INPUT_VAR;
-pub const DUMMY_FIELD_OUTPUT_IDX: OpOutputIdx = UNREACHABLE_DUMMY_VAR;
+pub const BB_INPUT_VAR_OUTPUT_IDX: OpOutputIdx = BB_INPUT_VAR_ID;
+pub const VOID_VAR_OUTPUT_IDX: OpOutputIdx = VOID_VAR_ID;
 
 pub struct BasicBlock {
     pub chain_id: ChainId,
@@ -91,13 +97,19 @@ pub struct BasicBlock {
     updates_required: bool,
 }
 pub enum Var {
-    Named(StringStoreEntry),
     BBInput,
-    UnreachableDummyVar,
+    VoidVar,
+    AnyVar,
+    DynVar,
+    Named(StringStoreEntry),
 }
 #[derive(Clone)]
 pub struct OpOutput {
-    pub bound_vars_after_bb: SmallVec<[VarId; 4]>,
+    // after liveness analysis concludes, this contains the vars that
+    // are bound to the output at the end of the BB that contains it's
+    // originating operator. During (local) liveness analysis, it contains
+    // the vars bound to the output at the current point of 'execution'
+    pub bound_vars: SmallVec<[VarId; 4]>,
     // other outputs referenced in the data of this output, e.g. for regex
     // this is not flattened out, so recursion is required to get all refs
     pub field_references: SmallVec<[OpOutputIdx; 4]>,
@@ -108,7 +120,7 @@ pub struct OpOutput {
 // (directly meaning not through following field references)
 // it is mainly used by the can_consume_nth_access method where the operator
 // can check after liveness analysis whether he can steal the data from the
-// field that he accessed nth (usually first == 0) during liveness analysis
+// field that he accessed nth during liveness analysis
 type DirectOperatorAccessIndex = u32;
 
 #[derive(Clone)]
@@ -123,8 +135,13 @@ pub struct OutputAcccess {
 pub struct OperatorLivenessData {
     pub basic_block_id: BasicBlockId,
     pub direct_access_count: DirectOperatorAccessIndex,
+    pub accessed_vars: SmallVec<[VarId; 4]>,
+    //TODO: this is not populated correctly yet
+    pub killed_vars: SmallVec<[VarId; 4]>,
     pub accessed_outputs: HashMap<OpOutputIdx, OutputAcccess>,
     pub killed_outputs: SmallVec<[OpOutputIdx; 4]>,
+    pub outputs_start: OpOutputIdx,
+    pub outputs_end: OpOutputIdx,
 }
 #[derive(Default)]
 pub struct LivenessData {
@@ -164,18 +181,19 @@ enum OperatorCallEffect {
 }
 
 impl Var {
-    pub fn try_get_name(&self) -> Option<StringStoreEntry> {
+    pub fn get_name(&self) -> Option<StringStoreEntry> {
         match self {
             Var::Named(name) => Some(*name),
-            Var::BBInput => None,
-            Var::UnreachableDummyVar => None,
+            _ => None,
         }
     }
-    pub fn name<'a>(&self, string_store: &'a StringStore) -> &'a str {
+    pub fn debug_name<'a>(&self, string_store: &'a StringStore) -> &'a str {
         match self {
             Var::Named(n) => string_store.lookup(*n),
             Var::BBInput => "<bb input>",
-            Var::UnreachableDummyVar => "<dummy>",
+            Var::VoidVar => "<void>",
+            Var::AnyVar => "<any>",
+            Var::DynVar => "<dyn>",
         }
     }
 }
@@ -234,7 +252,7 @@ impl LivenessData {
         let mut total_outputs_count = self.vars.len();
         self.op_outputs.extend(
             iter::repeat(OpOutput {
-                bound_vars_after_bb: Default::default(),
+                bound_vars: Default::default(),
                 field_references: Default::default(),
                 producing_op: None,
             })
@@ -250,7 +268,7 @@ impl LivenessData {
             op_base.outputs_end = total_outputs_count as OpOutputIdx;
             self.op_outputs.extend(
                 iter::repeat(OpOutput {
-                    bound_vars_after_bb: Default::default(),
+                    bound_vars: Default::default(),
                     field_references: Default::default(),
                     producing_op: Some(op_id as OperatorId),
                 })
@@ -328,8 +346,12 @@ impl LivenessData {
         }
     }
     pub fn setup_vars(&mut self, sess: &Session) {
-        self.vars.push(Var::UnreachableDummyVar);
+        // the order of these special vars has to match the IDs specified
+        // at the top of this file for BB_INPUT_VAR_ID etc.
         self.vars.push(Var::BBInput);
+        self.vars.push(Var::VoidVar);
+        self.vars.push(Var::AnyVar);
+        self.vars.push(Var::DynVar);
         for c in &sess.chains {
             for &op_id in &c.operators {
                 self.setup_op_vars(sess, op_id);
@@ -499,7 +521,28 @@ impl LivenessData {
             }
         }
     }
-    pub fn access_field(
+    pub fn access_var(
+        &mut self,
+        sess: &Session,
+        op_id: OperatorId,
+        var_id: VarId,
+        op_offset_after_last_write: OperatorOffsetInChain,
+        non_stringified: bool,
+    ) {
+        self.operator_liveness_data[op_id as usize]
+            .accessed_vars
+            .push(var_id);
+        let output_id = self.vars_to_op_outputs_map[var_id as usize];
+        self.access_output(
+            sess,
+            op_id,
+            output_id,
+            op_offset_after_last_write,
+            non_stringified,
+            true,
+        );
+    }
+    pub fn access_output(
         &mut self,
         sess: &Session,
         op_id: OperatorId,
@@ -508,7 +551,7 @@ impl LivenessData {
         non_stringified: bool,
         direct_access: bool,
     ) {
-        if op_output_idx == DUMMY_FIELD_OUTPUT_IDX {
+        if op_output_idx == VOID_VAR_OUTPUT_IDX {
             // we don't want this field to be forwarded by fork and friends
             // so we just pretend it is never accessed.
             return;
@@ -557,7 +600,7 @@ impl LivenessData {
                 .set_aliased(HEADER_WRITES_OFFSET * ooc + oo_idx, true);
         }
         for fri in 0..self.op_outputs[oo_idx].field_references.len() {
-            self.access_field(
+            self.access_output(
                 sess,
                 op_id,
                 self.op_outputs[oo_idx].field_references[fri],
@@ -777,7 +820,7 @@ impl LivenessData {
                 OperatorCallEffect::Diverge => break,
             }
             if flags.input_accessed {
-                self.access_field(
+                self.access_output(
                     sess,
                     op_id,
                     input_field,
@@ -796,7 +839,7 @@ impl LivenessData {
             }
             if !op_base.transparent_mode {
                 input_field = output_field;
-                self.vars_to_op_outputs_map[BB_INPUT_VAR as usize] =
+                self.vars_to_op_outputs_map[BB_INPUT_VAR_ID as usize] =
                     sess.operator_bases[op_idx].outputs_start;
             }
         }
@@ -843,7 +886,7 @@ impl LivenessData {
                 );
                 self.insert_var_field_references(op_output_id, bb_id, var_idx);
                 self.op_outputs[op_output_id as usize]
-                    .bound_vars_after_bb
+                    .bound_vars
                     .push(var_idx as VarId);
             } else {
                 debug_assert!(op_output_id == var_idx as VarId);
@@ -855,9 +898,7 @@ impl LivenessData {
             if op_output < self.vars.len() as OpOutputIdx {
                 bb.key_aliases.insert(op_output as VarId, var_id);
             } else {
-                for &bv in
-                    &self.op_outputs[op_output as usize].bound_vars_after_bb
-                {
+                for &bv in &self.op_outputs[op_output as usize].bound_vars {
                     bb.key_aliases.insert(bv, op_output as VarId);
                 }
             }
@@ -1134,7 +1175,7 @@ impl LivenessData {
                 for op_output_id in op_base.outputs_start..op_base.outputs_end
                 {
                     let oo = &self.op_outputs[op_output_id as usize];
-                    for var_id in &oo.bound_vars_after_bb {
+                    for var_id in &oo.bound_vars {
                         for i in REGULAR_FIELD_OFFSETS {
                             let oo_idx =
                                 i * op_output_count + op_output_id as usize;
@@ -1151,8 +1192,8 @@ impl LivenessData {
     fn compute_operator_kills(&mut self, sess: &Session) {
         let var_count = self.vars.len();
         let output_count = self.op_outputs.len();
-        let mut live_operators = BitVec::<Cell<usize>>::new();
-        live_operators.resize(output_count, false);
+        let mut live_outputs = BitVec::<Cell<usize>>::new();
+        live_outputs.resize(output_count, false);
         for bb_id in 0..self.basic_blocks.len() {
             let succession_reads = &self.var_data
                 [self.get_succession_var_data_bounds(bb_id)]
@@ -1161,24 +1202,25 @@ impl LivenessData {
                 [self.get_local_var_data_bounds(bb_id)]
                 [SURVIVES_OFFSET * var_count
                     ..(SURVIVES_OFFSET + 1) * var_count];
-            let mut vars = &mut live_operators[0..var_count];
+            let mut vars = &mut live_outputs[0..var_count];
             vars.copy_from_bitslice(local_survives);
             vars = vars.not();
             *vars |= succession_reads;
 
             let bb = &self.basic_blocks[bb_id];
+
             let chain = &sess.chains[bb.chain_id as usize];
             let operators = &chain.operators
                 [bb.operators_start as usize..bb.operators_end as usize];
             for &op_id in operators {
                 let op_base = &sess.operator_bases[op_id as usize];
                 for output_id in op_base.outputs_start..op_base.outputs_end {
-                    let mut oid =
-                        live_operators.get_mut(output_id as usize).unwrap();
-                    for &v_id in &self.op_outputs[output_id as usize]
-                        .bound_vars_after_bb
+                    let mut output =
+                        live_outputs.get_mut(output_id as usize).unwrap();
+                    for &v_id in
+                        &self.op_outputs[output_id as usize].bound_vars
                     {
-                        *oid |= succession_reads[v_id as usize];
+                        *output |= succession_reads[v_id as usize];
                     }
                 }
             }
@@ -1186,9 +1228,9 @@ impl LivenessData {
                 let op_idx = *op_id as usize;
                 let op_ld = &mut self.operator_liveness_data[op_idx];
                 for &output_idx in op_ld.accessed_outputs.keys() {
-                    if !live_operators[output_idx as usize] {
+                    if !live_outputs[output_idx as usize] {
                         op_ld.killed_outputs.push(output_idx);
-                        live_operators.set(output_idx as usize, true);
+                        live_outputs.set(output_idx as usize, true);
                     }
                 }
                 op_ld.killed_outputs.sort_unstable();
@@ -1259,7 +1301,7 @@ impl LivenessData {
         println!();
         println!("vars:");
         for (v_id, v) in self.vars.iter().enumerate() {
-            println!("var {v_id:02}: {}", v.name(&string_store));
+            println!("var {v_id:02}: {}", v.debug_name(&string_store));
         }
         println!();
         println!("operators:");
@@ -1293,7 +1335,7 @@ impl LivenessData {
         println!();
         println!("op_outputs:");
         for (i, v) in self.vars.iter().enumerate() {
-            println!("op_output {i:02}: {}", v.name(&string_store));
+            println!("op_output {i:02}: {}", v.debug_name(&string_store));
         }
         for (op_id, op_base) in sess.operator_bases.iter().enumerate() {
             for oo_n in op_base.outputs_start..op_base.outputs_end {
@@ -1304,12 +1346,12 @@ impl LivenessData {
                     sess.operator_data[op_id].default_op_name()
                 );
                 let oo = &self.op_outputs[oo_n as usize];
-                if !oo.bound_vars_after_bb.is_empty() {
+                if !oo.bound_vars.is_empty() {
                     print!(" (bound vars: ");
-                    for &v_id in &oo.bound_vars_after_bb {
+                    for &v_id in &oo.bound_vars {
                         print!(
                             "{} ",
-                            self.vars[v_id as usize].name(&string_store)
+                            self.vars[v_id as usize].debug_name(&string_store)
                         );
                     }
                     print!(")");
@@ -1424,8 +1466,8 @@ impl LivenessData {
                     for &src in srcs {
                         print!(
                             "[{} <- {}] ",
-                            self.vars[src as usize].name(&string_store),
-                            self.vars[tgt as usize].name(&string_store),
+                            self.vars[src as usize].debug_name(&string_store),
+                            self.vars[tgt as usize].debug_name(&string_store),
                         )
                     }
                 }
@@ -1456,6 +1498,37 @@ impl LivenessData {
             }
         }
         false
+    }
+    pub fn accessed_names_afterwards(
+        &self,
+        _sess: &Session,
+        op_id: OperatorId,
+    ) -> BitVec<usize> {
+        let bb_id = self.operator_liveness_data[op_id as usize].basic_block_id;
+        let bb = &self.basic_blocks[bb_id];
+        let vc = self.vars.len();
+        let succ_range = self.get_succession_var_data_bounds(bb_id);
+        let mut reads = BitVec::<usize>::new();
+        reads.extend_from_bitslice(
+            &self.var_data[succ_range]
+                [vc * READS_OFFSET..vc * (READS_OFFSET + 1)],
+        );
+        for bb_op_id in (bb.operators_start..bb.operators_end).rev() {
+            if op_id == bb_op_id {
+                break;
+            }
+            for &var_id in
+                &self.operator_liveness_data[bb_op_id as usize].killed_vars
+            {
+                reads.set(var_id as usize, false);
+            }
+            for &var_id in
+                &self.operator_liveness_data[bb_op_id as usize].accessed_vars
+            {
+                reads.set(var_id as usize, true);
+            }
+        }
+        reads
     }
 }
 

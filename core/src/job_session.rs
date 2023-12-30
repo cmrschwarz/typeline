@@ -67,7 +67,7 @@ use crate::{
     },
     record_data::{
         action_buffer::ActorRef,
-        field::{FieldId, FieldManager, DUMMY_FIELD_ID},
+        field::{FieldId, FieldManager, VOID_FIELD_ID},
         match_set::{MatchSetId, MatchSetManager},
         record_buffer::RecordBuffer,
         stream_value::{StreamValueManager, StreamValueUpdate},
@@ -440,7 +440,7 @@ impl<'a> JobData<'a> {
             } else if !field.producing_transform_arg.is_empty() {
                 print!(" (`{}`)", field.producing_transform_arg)
             }
-            if field.shadowed_by != DUMMY_FIELD_ID {
+            if field.shadowed_by != VOID_FIELD_ID {
                 print!(
                     " (aliased by field id {} since actor id `{}`)",
                     field.shadowed_by, field.shadowed_since
@@ -518,7 +518,7 @@ impl<'a> JobSession<'a> {
                 input_data = Some(field_id);
             }
         }
-        let input_data = input_data.unwrap_or(DUMMY_FIELD_ID);
+        let input_data = input_data.unwrap_or(VOID_FIELD_ID);
 
         #[cfg(feature = "debug_logging")]
         for (i, f) in input_data_fields.iter().enumerate() {
@@ -749,8 +749,8 @@ impl<'a> JobSession<'a> {
             }
             let mut label_added = false;
             let mut output_field = if dummy_output {
-                self.job_data.field_mgr.bump_field_refcount(DUMMY_FIELD_ID);
-                DUMMY_FIELD_ID
+                self.job_data.field_mgr.bump_field_refcount(VOID_FIELD_ID);
+                VOID_FIELD_ID
             } else if make_input_output {
                 self.job_data.field_mgr.bump_field_refcount(input_field);
                 input_field

@@ -2,7 +2,7 @@ use super::transform::{TransformData, TransformId, TransformState};
 use crate::{
     chain::ChainId,
     job_session::{add_transform_to_job, JobData, JobSession},
-    record_data::{field::DUMMY_FIELD_ID, match_set::MatchSetId},
+    record_data::{field::VOID_FIELD_ID, match_set::MatchSetId},
 };
 
 // we use this e.g. as the successor of TfForcat subchains, to prevent
@@ -57,16 +57,14 @@ pub fn add_input_done_eater(
         .settings
         .default_batch_size;
     let mut tf_state = TransformState::new(
-        DUMMY_FIELD_ID,
-        DUMMY_FIELD_ID,
+        VOID_FIELD_ID,
+        VOID_FIELD_ID,
         ms_id,
         batch_size,
         None,
         None,
     );
-    sess.job_data
-        .field_mgr
-        .inc_field_refcount(DUMMY_FIELD_ID, 2);
+    sess.job_data.field_mgr.inc_field_refcount(VOID_FIELD_ID, 2);
     let tf_data = setup_tf_input_done_eater(&mut tf_state, input_dones_to_eat);
     let tf_id = add_transform_to_job(
         &mut sess.job_data,

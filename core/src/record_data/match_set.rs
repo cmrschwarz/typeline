@@ -4,7 +4,7 @@ use nonmax::NonMaxUsize;
 
 use crate::{
     operators::transform::TransformId,
-    record_data::{field::DUMMY_FIELD_ID, iter_hall::FieldDataSource},
+    record_data::{field::VOID_FIELD_ID, iter_hall::FieldDataSource},
     utils::{
         identity_hasher::BuildIdentityHasher, string_store::StringStoreEntry,
         universe::Universe,
@@ -50,7 +50,7 @@ impl MatchSetManager {
         let (ms_id, first_actor, shadowed_by) =
             (field.match_set, field.first_actor, field.shadowed_by);
         drop(field);
-        debug_assert!(shadowed_by == DUMMY_FIELD_ID);
+        debug_assert!(shadowed_by == VOID_FIELD_ID);
         fm.drop_field_refcount(shadowed_by, self);
         fm.bump_field_refcount(field_id);
         // PERF: if the field has no name, and no actor was added

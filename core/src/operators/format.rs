@@ -761,13 +761,12 @@ pub fn update_op_format_variable_liveness(
                     || fk.opts.zero_pad_numbers
                     || fk.opts.type_repr != TypeReprFormat::Regular;
                 if let Some(name) = fmt.refs_idx[fk.ref_idx as usize] {
-                    ld.access_field(
+                    ld.access_var(
                         sess,
                         op_id,
                         ld.var_names[&name],
                         op_offset_after_last_write,
                         non_stringified,
-                        true,
                     );
                 } else {
                     access_flags.input_accessed = true;
@@ -776,12 +775,11 @@ pub fn update_op_format_variable_liveness(
                 }
                 if let Some(FormatWidthSpec::Ref(ws_ref)) = fk.min_char_count {
                     if let Some(name) = fmt.refs_idx[ws_ref as usize] {
-                        ld.access_field(
+                        ld.access_var(
                             sess,
                             op_id,
                             ld.var_names[&name],
                             op_offset_after_last_write,
-                            true,
                             true,
                         );
                     } else {

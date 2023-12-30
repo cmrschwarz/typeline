@@ -83,9 +83,13 @@ pub struct OperatorBase {
     pub chain_id: Option<ChainId>,
     pub offset_in_chain: OperatorOffsetInChain,
     pub transparent_mode: bool,
+    pub desired_batch_size: usize,
+    // this is not part of the OperatorLivenessData struct because it is
+    // used in the `prebound_outputs` mechanism that is used during
+    // operators -> transforms expansion long after liveness analysis
+    // has concluded
     pub outputs_start: OpOutputIdx,
     pub outputs_end: OpOutputIdx,
-    pub desired_batch_size: usize,
 }
 
 pub type DefaultOperatorName = SmallString<[u8; 16]>;

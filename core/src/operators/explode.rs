@@ -100,6 +100,12 @@ impl Operator for OpExplode {
         _bb_id: BasicBlockId,
         _flags: &mut AccessFlags,
     ) {
+        // Counterintuitively, this operator does not impact liveness analysis.
+        // LA models the worst case (maximum amount of fields accessed).
+        // This op does not *access* any vars other that it's direct input.
+        // It may shadow any output, but we have to assume the worst case,
+        // which is that it shadowed none. This means that
+        // all outputs live before the op stay alive afterwards.
     }
 
     fn build_transform<'a>(

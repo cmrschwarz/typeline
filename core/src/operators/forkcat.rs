@@ -13,7 +13,7 @@ use crate::{
     options::argument::CliArgIdx,
     record_data::{
         action_buffer::ActorRef,
-        field::{FieldId, DUMMY_FIELD_ID},
+        field::{FieldId, VOID_FIELD_ID},
     },
     utils::{
         identity_hasher::BuildIdentityHasher, string_store::StringStoreEntry,
@@ -198,7 +198,8 @@ pub fn setup_op_forkcat_liveness_data(
             let var_name = match ld.vars[i] {
                 Var::Named(name) => Some(name),
                 Var::BBInput => None,
-                Var::UnreachableDummyVar => continue,
+                //TODO: investigate why this happens
+                Var::AnyVar | Var::DynVar | Var::VoidVar => continue,
             };
             accessed_names.push(
                 accessed_names_of_subchains_or_succs
@@ -222,11 +223,13 @@ pub fn setup_op_forkcat_liveness_data(
         for &op_id in &sess.chains[sc_id].operators {
             let op_base = &sess.operator_bases[op_id as usize];
             for oo_id in op_base.outputs_start..op_base.outputs_end {
-                for bv in &ld.op_outputs[oo_id as usize].bound_vars_after_bb {
+                for bv in &ld.op_outputs[oo_id as usize].bound_vars {
                     let var_name = match ld.vars[*bv as usize] {
                         Var::Named(name) => Some(name),
                         Var::BBInput => None,
-                        Var::UnreachableDummyVar => continue,
+                        Var::DynVar => todo!(),
+                        Var::AnyVar => todo!(),
+                        Var::VoidVar => unreachable!(),
                     };
                     if let Some(idx) =
                         accessed_names_of_successors.get(var_name)
@@ -292,7 +295,7 @@ pub(crate) fn handle_initial_forkcat_expansion(
                 .field_name_map
                 .get(&name)
                 .copied()
-                .unwrap_or(DUMMY_FIELD_ID)
+                .unwrap_or(VOID_FIELD_ID)
         } else {
             tf.input_field
         };
@@ -369,13 +372,13 @@ fn setup_continuation(
         forkcat.output_fields.push(output_field_id);
     }
     forkcat.output_field_sources.extend(
-        std::iter::repeat(DUMMY_FIELD_ID).take(forkcat.output_fields.len()),
+        std::iter::repeat(VOID_FIELD_ID).take(forkcat.output_fields.len()),
     );
     let cont_input_field =
         if forkcat.op.accessed_names_of_successors.first() == Some(&None) {
             forkcat.output_fields[0]
         } else {
-            DUMMY_FIELD_ID
+            VOID_FIELD_ID
         };
     let sc_count = forkcat.op.subchains_end - forkcat.op.subchains_start;
     let chain_id = sess.job_data.session_data.operator_bases
@@ -415,7 +418,7 @@ fn expand_for_subchain(sess: &mut JobSession, tf_id: TransformId, sc_n: u32) {
     let mut prebound_outputs = std::mem::take(&mut forkcat.prebound_outputs);
     prebound_outputs.clear();
 
-    let mut subchain_input_field = DUMMY_FIELD_ID;
+    let mut subchain_input_field = VOID_FIELD_ID;
     for &idx in &forkcat.op.accessed_names_per_subchain[sc_n as usize] {
         let input_field = forkcat.input_fields[idx];
         let input_mirror_field =

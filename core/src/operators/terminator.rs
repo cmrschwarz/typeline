@@ -1,7 +1,7 @@
 use crate::{
     job_session::{add_transform_to_job, JobData, JobSession},
     record_data::{
-        action_buffer::ActorId, field::DUMMY_FIELD_ID,
+        action_buffer::ActorId, field::VOID_FIELD_ID,
         field_action::FieldActionKind, match_set::MatchSetId,
     },
 };
@@ -57,16 +57,14 @@ pub fn add_terminator(
 ) -> TransformId {
     let bs = sess.job_data.tf_mgr.transforms[last_tf].desired_batch_size;
     let tf_state = TransformState::new(
-        DUMMY_FIELD_ID,
-        DUMMY_FIELD_ID,
+        VOID_FIELD_ID,
+        VOID_FIELD_ID,
         ms_id,
         bs,
         Some(last_tf),
         None,
     );
-    sess.job_data
-        .field_mgr
-        .inc_field_refcount(DUMMY_FIELD_ID, 2);
+    sess.job_data.field_mgr.inc_field_refcount(VOID_FIELD_ID, 2);
     let tf_data = setup_tf_terminator(&mut sess.job_data, &tf_state);
     let tf_id = add_transform_to_job(
         &mut sess.job_data,

@@ -9,7 +9,7 @@ use crate::{
     liveness_analysis::LivenessData,
     options::argument::CliArgIdx,
     record_data::{
-        field::{FieldId, DUMMY_FIELD_ID},
+        field::{FieldId, VOID_FIELD_ID},
         iter_hall::IterId,
     },
 };
@@ -205,7 +205,7 @@ pub(crate) fn handle_fork_expansion(
             }
             drop(src_field);
         }
-        let input_field = chain_input_field.unwrap_or(DUMMY_FIELD_ID);
+        let input_field = chain_input_field.unwrap_or(VOID_FIELD_ID);
         let start_op_id =
             sess.job_data.session_data.chains[subchain_id].operators[0];
         let (start_tf, _end_tf) = sess.setup_transforms_from_op(

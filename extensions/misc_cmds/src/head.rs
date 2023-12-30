@@ -4,7 +4,7 @@ use bstr::ByteSlice;
 use scr_core::{
     job_session::JobData,
     liveness_analysis::{
-        AccessFlags, BasicBlockId, LivenessData, OpOutputIdx,
+        AccessFlags, BasicBlockId, LivenessData, OpOutputIdx, DYN_VAR_ID,
     },
     operators::{
         errors::OperatorCreationError,
@@ -22,14 +22,15 @@ use scr_core::{
     utils::{
         identity_hasher::BuildIdentityHasher,
         int_string_conversions::parse_int_with_units,
+        string_store::StringStoreEntry,
     },
 };
 
-// TODO: think about how to do subtract mode
-// we probably have to alias and bufferswap all field acce?
 #[derive(Default)]
 pub struct OpHead {
     count: isize,
+    accessed_fields_after: Vec<Option<StringStoreEntry>>,
+    dyn_var_accessed: bool,
 }
 
 pub struct TfHead {
@@ -50,6 +51,26 @@ impl Operator for OpHead {
 
     fn has_dynamic_outputs(&self, _op_base: &OperatorBase) -> bool {
         false
+    }
+
+    fn on_liveness_computed(
+        &mut self,
+        sess: &scr_core::context::Session,
+        op_id: scr_core::operators::operator::OperatorId,
+        ld: &LivenessData,
+    ) {
+        if self.count > 0 {
+            // we don't need liveness information for normal mode
+            return;
+        }
+        let accessed_vars = ld.accessed_names_afterwards(sess, op_id);
+        if accessed_vars[DYN_VAR_ID as usize] {
+            self.dyn_var_accessed = true;
+            return;
+        }
+        for v_id in accessed_vars.iter_ones() {
+            self.accessed_fields_after.push(ld.vars[v_id].get_name());
+        }
     }
 
     fn update_variable_liveness(
@@ -130,7 +151,11 @@ impl Transform for TfHead {
 }
 
 pub fn create_op_head(count: isize) -> OperatorData {
-    OperatorData::Custom(smallbox!(OpHead { count }))
+    OperatorData::Custom(smallbox!(OpHead {
+        count,
+        accessed_fields_after: Vec::new(),
+        dyn_var_accessed: false
+    }))
 }
 
 pub fn parse_op_head(

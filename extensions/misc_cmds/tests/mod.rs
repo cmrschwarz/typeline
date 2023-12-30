@@ -67,7 +67,7 @@ fn head_tail_cli() -> Result<(), ScrError> {
     let sess_opts =
         parse_cli_from_strings(["scr", "primes", "tail=+3", "head=5"])?;
     let res = ContextBuilder::from_session_opts(sess_opts)
-        .run_collect_as::<String>()?;
-    assert_eq!(res, ["7", "11", "13"]);
+        .run_collect_as::<i64>()?;
+    assert_eq!(res, [7, 11, 13, 17, 19]);
     Ok(())
 }

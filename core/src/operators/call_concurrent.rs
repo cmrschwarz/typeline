@@ -15,7 +15,7 @@ use crate::{
     options::argument::CliArgIdx,
     record_data::{
         action_buffer::{ActorId, ActorRef},
-        field::{FieldId, FieldManager, DUMMY_FIELD_ID},
+        field::{FieldId, FieldManager, VOID_FIELD_ID},
         field_action::FieldActionKind,
         iter_hall::IterId,
         iters::FieldIterator,
@@ -145,7 +145,8 @@ pub fn setup_op_call_concurrent_liveness_data(
             Var::BBInput => {
                 op.target_accessed_fields.push((None, writes));
             }
-            Var::UnreachableDummyVar => (),
+            Var::AnyVar | Var::DynVar => todo!(),
+            Var::VoidVar => (),
         }
     }
 }
@@ -401,16 +402,14 @@ pub fn setup_callee_concurrent(
         .unwrap();
     let chain = &sess.job_data.session_data.chains[chain_id as usize];
     let tf_state = TransformState::new(
-        DUMMY_FIELD_ID,
-        DUMMY_FIELD_ID,
+        VOID_FIELD_ID,
+        VOID_FIELD_ID,
         ms_id,
         chain.settings.default_batch_size,
         None,
         None,
     );
-    sess.job_data
-        .field_mgr
-        .inc_field_refcount(DUMMY_FIELD_ID, 2);
+    sess.job_data.field_mgr.inc_field_refcount(VOID_FIELD_ID, 2);
     let mut callee = TfCalleeConcurrent {
         target_fields: Default::default(),
         buffer,
