@@ -61,6 +61,8 @@ pub struct Connection {
     header_parsed: bool,
     request_data: Box<[u8]>,
     request_offset: usize,
+    response_size: usize,
+    expected_response_size: Option<usize>,
 }
 
 impl Connection {
@@ -219,6 +221,8 @@ impl TfHttpRequest {
             header_parsed_until: 0,
             request_data: httpreq,
             request_offset: 0,
+            expected_response_size: None,
+            response_size: 0,
         });
 
         Ok(stream_value)
@@ -284,9 +288,11 @@ fn process_tls_event(
     let mut eof = event.is_read_closed();
 
     if event.is_readable() {
-        if tls_conn.read_tls(&mut c.socket)? == 0 {
+        let read = tls_conn.read_tls(&mut c.socket)?;
+        if read == 0 {
             eof = true;
         }
+        //println!("{:?}: tls read: {}", c.stream_value, read);
         let state = tls_conn.process_new_packets()?;
         eof |= state.peer_has_closed();
         std::io::copy(
@@ -295,6 +301,7 @@ fn process_tls_event(
                 .take(buffer_size.min(state.plaintext_bytes_to_read()) as u64),
             tgt,
         )?;
+        //println!("{:?}: buf read: {}", c.stream_value, tgt.len());
     }
 
     if event.is_writable() {
@@ -304,7 +311,8 @@ fn process_tls_event(
                 .write(&c.request_data[c.request_offset..])?;
         }
         if tls_conn.wants_write() {
-            tls_conn.write_tls(&mut c.socket)?;
+            let _written = tls_conn.write_tls(&mut c.socket)?;
+            //println!("{:?}: tls written: {written}", c.stream_value);
         }
     }
 
@@ -342,24 +350,45 @@ fn process_event(
     Ok(eof)
 }
 
+lazy_static::lazy_static! {
+    static ref CONTENT_LENGTH_REGEX: regex::bytes::Regex = regex::bytes::RegexBuilder::new(
+        r"^\s*Content-Length\s*:\s*([0-9]+)\s*\r?$"
+    ).case_insensitive(true).build().unwrap();
+}
+
 fn header_completed(req: &mut Connection, buf: &Vec<u8>) -> bool {
     let mut parsed_until = req.header_parsed_until as usize;
     let mut end_reached = false;
     while let Some(i) = memchr::memchr(b'\n', &buf[parsed_until..]) {
+        if i == 0 && req.header_lines_count > 0 {
+            parsed_until += i + 1;
+            end_reached = true;
+            break;
+        }
         let sequence =
             &buf[parsed_until + i + 1..(parsed_until + i + 3).min(buf.len())];
-        parsed_until += i + 1;
-
         if sequence == b"\r\n" {
-            parsed_until += 2;
+            parsed_until += i + 1 + 2;
             end_reached = true;
             break;
         }
         if &sequence[0..2.min(sequence.len())] == b"\n" {
-            parsed_until += 1;
+            parsed_until += i + 1 + 1;
             end_reached = true;
             break;
         }
+        let line = &buf[parsed_until..parsed_until + i];
+        //println!("line: {}", std::str::from_utf8(line).unwrap());
+        //PERF: don't allocate
+        if let Some(cl_match) = CONTENT_LENGTH_REGEX.captures(line) {
+            let len_seq = cl_match.get(1).unwrap().as_bytes();
+            if let Ok(len_str) = std::str::from_utf8(len_seq) {
+                if let Ok(len) = len_str.parse::<usize>() {
+                    req.expected_response_size = Some(len);
+                }
+            }
+        }
+        parsed_until += i + 1;
         req.header_lines_count += 1;
     }
     req.header_parsed_until = parsed_until as u32;
@@ -430,18 +459,34 @@ impl Transform for TfHttpRequest {
                     sv.done = true;
                 }
                 Ok(eof) => {
-                    update = buf_len_before < buf.len() || eof;
+                    let len_read = buf.len() - buf_len_before;
+                    req.response_size += len_read;
+                    update = len_read > 0 || eof;
                     if update && !req.header_parsed {
                         if header_completed(req, buf) {
                             // TODO: proper parsing
                             buf.drain(0..req.header_parsed_until as usize);
                             req.header_parsed = true;
+                            if let Some(len) = &mut req.expected_response_size
+                            {
+                                *len += req.header_parsed_until as usize;
+                            }
                         } else {
                             update = false;
                         }
                     }
                     if eof {
                         sv.done = true;
+                    }
+                }
+            }
+            if let Some(len) = req.expected_response_size {
+                if req.header_parsed && req.response_size >= len {
+                    if let Some(tls) = &mut req.tls_conn {
+                        tls.send_close_notify();
+                    } else {
+                        let _ignored =
+                            req.socket.shutdown(std::net::Shutdown::Both);
                     }
                 }
             }
@@ -453,6 +498,7 @@ impl Transform for TfHttpRequest {
                 let _ = self.poll.registry().deregister(&mut req.socket);
                 self.running_connections.release(token);
                 jd.sv_mgr.drop_field_value_subscription(sv_id, None);
+                //println!("{:?}: conn closed", sv_id);
             } else {
                 req.reregister(self.poll.registry(), mio::Token(token));
             }

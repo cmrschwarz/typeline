@@ -855,8 +855,10 @@ name = "scr_ext_http"
 version = "0.1.0"
 dependencies = [
  "bstr",
+ "lazy_static",
  "memchr",
  "mio",
+ "regex",
  "rustls",
  "rustls-pemfile",
  "rustls-pki-types",

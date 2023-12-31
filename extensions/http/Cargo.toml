@@ -19,3 +19,8 @@ thiserror = "1.0.51"
 bstr = "1.8.0"
 memchr = "2.6.4"
 url = "2.5.0"
+lazy_static = "1.4.0"
+regex = "1.10.2"
+
+[features]
+debug_log_http = []
