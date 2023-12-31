@@ -1823,7 +1823,7 @@ impl<FD: DerefMut<Target = FieldData>> VaryingTypeInserter<FD> {
             self.fd.add_header_for_multiple_values(
                 self.fmt,
                 self.count,
-                field_value_flags::DEFAULT,
+                field_value_flags::DELETED,
             );
             self.fd.field_count += self.count;
         }
