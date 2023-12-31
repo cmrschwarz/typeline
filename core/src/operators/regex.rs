@@ -1165,12 +1165,14 @@ pub fn handle_tf_regex(
 pub fn handle_tf_regex_stream_value_update(
     sess: &mut JobData,
     tf_id: TransformId,
-    _tf: &mut TfRegex,
+    _re: &mut TfRegex,
     sv_id: StreamValueId,
     _custom: usize,
 ) {
     debug_assert!(sess.sv_mgr.stream_values[sv_id].done);
     sess.tf_mgr.push_tf_in_ready_stack(tf_id);
+    let input_field = sess.tf_mgr.transforms[tf_id].input_field;
+    sess.field_mgr.relinquish_clear_delay(input_field)
 }
 
 #[cfg(test)]
