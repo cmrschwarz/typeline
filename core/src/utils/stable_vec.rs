@@ -65,7 +65,8 @@ impl<T> StableVec<T> {
         let chunk_count_new = if total_cap == self.capacity() {
             self.chunk_capacity.get() * 2
         } else {
-            total_cap.next_power_of_two().div_ceil(CHUNK_SIZE)
+            // rust now has `div_ceil`, don't use it for now
+            (total_cap.next_power_of_two() + CHUNK_SIZE - 1) / CHUNK_SIZE
         };
         if Self::holds_zsts() {
             self.chunk_capacity.set(chunk_count_new);
