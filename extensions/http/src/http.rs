@@ -283,21 +283,6 @@ fn process_tls_event(
     let tls_conn = c.tls_conn.as_mut().unwrap();
     let mut eof = event.is_read_closed();
 
-    if event.is_writable() {
-        if tls_conn.wants_write() {
-            tls_conn.write_tls(&mut c.socket)?;
-        }
-        if !request_done {
-            c.request_offset += tls_conn
-                .writer()
-                .write(&c.request_data[c.request_offset..])?;
-            tls_conn.writer().flush()?;
-        }
-        if tls_conn.wants_write() {
-            tls_conn.write_tls(&mut c.socket)?;
-        }
-    }
-
     if event.is_readable() {
         if tls_conn.read_tls(&mut c.socket)? == 0 {
             eof = true;
@@ -311,6 +296,18 @@ fn process_tls_event(
             tgt,
         )?;
     }
+
+    if event.is_writable() {
+        if !request_done {
+            c.request_offset += tls_conn
+                .writer()
+                .write(&c.request_data[c.request_offset..])?;
+        }
+        if tls_conn.wants_write() {
+            tls_conn.write_tls(&mut c.socket)?;
+        }
+    }
+
     Ok(eof)
 }
 

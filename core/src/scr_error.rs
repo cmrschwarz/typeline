@@ -131,7 +131,7 @@ fn contextualize_cli_arg(
         format!(
             "in cli arg {} `{}`: {}",
             cli_arg_idx,
-            String::from_utf8_lossy(&args[cli_arg_idx as usize - 1]),
+            String::from_utf8_lossy(&args[cli_arg_idx as usize - 2]),
             msg
         )
     } else {
