@@ -29,6 +29,7 @@ use scr_core::{
     smallbox,
     utils::{identity_hasher::BuildIdentityHasher, universe::CountedUniverse},
 };
+use std::io::ErrorKind as IoErrorKind;
 use thiserror::Error;
 
 use crate::tls_client::{make_config, TlsSettings};
@@ -58,25 +59,34 @@ pub struct Connection {
     header_parsed_until: u32,
     header_lines_count: u32,
     header_parsed: bool,
+    request_data: Box<[u8]>,
+    request_offset: usize,
 }
 
 impl Connection {
     fn reregister(&mut self, registry: &mio::Registry, token: mio::Token) {
-        let Some(conn) = &self.tls_conn else {
-            return;
+        let new_interest = if let Some(c) = &self.tls_conn {
+            let mut interest = mio::Interest::READABLE;
+            if !self.request_done() || c.is_handshaking() || c.wants_write() {
+                interest |= mio::Interest::WRITABLE;
+            }
+            interest
+        } else {
+            let mut interest = mio::Interest::READABLE;
+            if !self.request_done() {
+                interest |= mio::Interest::WRITABLE;
+            }
+            interest
         };
-        let new_interest = match (conn.wants_read(), conn.wants_write()) {
-            (true, true) => mio::Interest::READABLE | mio::Interest::WRITABLE,
-            (false, true) => mio::Interest::WRITABLE,
-            _ => mio::Interest::READABLE, // interest can't be empty
-        };
-
         if new_interest != self.interest {
             self.interest = new_interest;
             registry
                 .reregister(&mut self.socket, token, new_interest)
                 .unwrap();
         }
+    }
+    fn request_done(&self) -> bool {
+        self.request_offset == self.request_data.len()
     }
 }
 
@@ -164,6 +174,30 @@ impl TfHttpRequest {
 
         let sock_addr = (hostname, port).to_socket_addrs()?.next().unwrap();
 
+        let mut socket = TcpStream::connect(sock_addr)?;
+        let mut tls_conn = None;
+        if https {
+            let server_name =
+                pki_types::ServerName::try_from(hostname)?.to_owned();
+            let tls = rustls::ClientConnection::new(
+                self.tls_config.clone(),
+                server_name,
+            )?;
+            tls_conn = Some(tls)
+        }
+
+        let token = self.running_connections.peek_claim_id();
+        let interest = Interest::READABLE | Interest::WRITABLE;
+
+        self.poll
+            .registry()
+            .register(&mut socket, Token(token), interest)
+            .unwrap();
+
+        let stream_value = bud.sv_mgr.stream_values.claim_with_value(
+            StreamValue::new(StreamValueData::Bytes(Vec::new()), false, false),
+        );
+
         let httpreq = format!(
             "GET {location} HTTP/1.1\r\n\
             Host: {hostname}\r\n\
@@ -171,43 +205,20 @@ impl TfHttpRequest {
             Accept-Encoding: identity\r\n\
             \r\n\
             ",
-        );
-
-        let mut stream = TcpStream::connect(sock_addr)?;
-        let tls_conn = if https {
-            let server_name =
-                pki_types::ServerName::try_from(hostname)?.to_owned();
-            let mut tls = rustls::ClientConnection::new(
-                self.tls_config.clone(),
-                server_name,
-            )?;
-            tls.writer().write_all(httpreq.as_bytes())?;
-            Some(tls)
-        } else {
-            stream.write_all(httpreq.as_bytes())?;
-            None
-        };
-
-        let token = self.running_connections.peek_claim_id();
-        let interest = Interest::READABLE | Interest::WRITABLE;
-
-        self.poll
-            .registry()
-            .register(&mut stream, Token(token), interest)
-            .unwrap();
-
-        let stream_value = bud.sv_mgr.stream_values.claim_with_value(
-            StreamValue::new(StreamValueData::Bytes(Vec::new()), false, false),
-        );
+        )
+        .into_bytes()
+        .into_boxed_slice();
 
         self.running_connections.claim_with_value(Connection {
-            socket: stream,
+            socket,
             stream_value: Some(stream_value),
             tls_conn,
             interest,
             header_parsed: false,
             header_lines_count: 0,
             header_parsed_until: 0,
+            request_data: httpreq,
+            request_offset: 0,
         });
 
         Ok(stream_value)
@@ -262,28 +273,34 @@ impl TfHttpRequest {
     }
 }
 
-fn process_tls(
+fn process_tls_event(
     event: &Event,
     c: &mut Connection,
     tgt: &mut Vec<u8>,
     buffer_size: usize,
 ) -> Result<bool, HttpRequestError> {
+    let request_done = c.request_done();
     let tls_conn = c.tls_conn.as_mut().unwrap();
-
     let mut eof = event.is_read_closed();
 
-    if !eof && event.is_readable() {
-        match tls_conn.read_tls(&mut c.socket) {
-            Err(e) => {
-                if e.kind() != std::io::ErrorKind::WouldBlock {
-                    return Err(e.into());
-                }
-            }
-            Ok(0) => {
-                // if we are ready, but there's no data it means eof
-                eof = true;
-            }
-            Ok(_) => (),
+    if event.is_writable() {
+        if tls_conn.wants_write() {
+            tls_conn.write_tls(&mut c.socket)?;
+        }
+        if !request_done {
+            c.request_offset += tls_conn
+                .writer()
+                .write(&c.request_data[c.request_offset..])?;
+            tls_conn.writer().flush()?;
+        }
+        if tls_conn.wants_write() {
+            tls_conn.write_tls(&mut c.socket)?;
+        }
+    }
+
+    if event.is_readable() {
+        if tls_conn.read_tls(&mut c.socket)? == 0 {
+            eof = true;
         }
         let state = tls_conn.process_new_packets()?;
         eof |= state.peer_has_closed();
@@ -294,10 +311,37 @@ fn process_tls(
             tgt,
         )?;
     }
-    if event.is_writable() {
-        tls_conn.write_tls(&mut c.socket)?;
+    Ok(eof)
+}
+
+fn process_event(
+    event: &Event,
+    c: &mut Connection,
+    tgt: &mut Vec<u8>,
+    buffer_size: usize,
+) -> Result<bool, HttpRequestError> {
+    if c.tls_conn.is_some() {
+        return process_tls_event(event, c, tgt, buffer_size);
     }
 
+    if !c.request_done() && event.is_writable() {
+        c.request_offset +=
+            c.socket.write(&c.request_data[c.request_offset..])?;
+
+        if c.request_done() {
+            c.socket.flush()?;
+        }
+    }
+
+    let mut eof = event.is_read_closed();
+    if event.is_readable() {
+        match std::io::copy(&mut c.socket, tgt) {
+            Ok(0) => eof = true,
+            Ok(_) => (),
+            Err(e) if e.kind() == IoErrorKind::WouldBlock => (),
+            Err(e) => return Err(e.into()),
+        }
+    }
     Ok(eof)
 }
 
@@ -344,7 +388,7 @@ impl Transform for TfHttpRequest {
     ) {
         if let Err(e) = self
             .poll
-            .poll(&mut self.events, Some(Duration::from_secs(0)))
+            .poll(&mut self.events, Some(Duration::from_millis(1)))
         {
             for pe in self.running_connections.iter_mut() {
                 let _ = self.poll.registry().deregister(&mut pe.socket);
@@ -378,7 +422,7 @@ impl Transform for TfHttpRequest {
             }
             let buf_len_before = buf.len();
             let mut update = false;
-            match process_tls(event, req, buf, self.stream_buffer_size) {
+            match process_event(event, req, buf, self.stream_buffer_size) {
                 Err(e) => {
                     sv.data = StreamValueData::Error(
                         OperatorApplicationError::new_s(

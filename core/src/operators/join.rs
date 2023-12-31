@@ -84,6 +84,7 @@ pub struct TfJoin<'a> {
     current_group_error: Option<OperatorApplicationError>,
     drop_incomplete: bool,
     stream_len_threshold: usize,
+    streams_kept_alive: usize,
 }
 
 lazy_static::lazy_static! {
@@ -154,6 +155,7 @@ pub fn build_tf_join<'a>(
             .settings
             .stream_size_threshold,
         stream_value_error: false,
+        streams_kept_alive: 0,
     })
 }
 
@@ -506,6 +508,14 @@ pub fn handle_tf_join(
                                         &'static [u8],
                                     >(b)
                                 };
+                                if join.streams_kept_alive > 0 {
+                                    let rc_diff = (rl as usize)
+                                        .saturating_sub(
+                                            join.streams_kept_alive,
+                                        );
+                                    sv.ref_count -= rc_diff;
+                                    join.streams_kept_alive -= rc_diff;
+                                }
                                 if sv.done {
                                     sv_mgr = &mut sess.sv_mgr;
                                     push_bytes_raw(
@@ -514,9 +524,10 @@ pub fn handle_tf_join(
                                         b_laundered,
                                         rl as usize,
                                     );
+                                    sess.sv_mgr
+                                        .check_stream_value_ref_count(sv_id);
                                 } else {
                                     join.group_len += pos - field_pos;
-                                    iter.move_to_field_pos(pos);
                                     join.current_stream_val = Some(sv_id);
                                     let buffered = sv.is_buffered();
                                     sv.subscribe(
@@ -550,16 +561,17 @@ pub fn handle_tf_join(
                                         tf_id,
                                         remaining_elems_in_batch,
                                     );
-                                    buffer_remaining_stream_values_in_sv_iter(
+                                    join.streams_kept_alive += buffer_remaining_stream_values_in_sv_iter(
                                         &mut sess.sv_mgr,
                                         sv_iter,
                                     );
-                                    buffer_remaining_stream_values_in_auto_deref_iter(
+                                    join.streams_kept_alive +=  buffer_remaining_stream_values_in_auto_deref_iter(
                                         &mut sess.match_set_mgr,
                                         &mut sess.sv_mgr,
                                         iter.clone(),
                                         batch_size_rem - (pos - field_pos),
                                     );
+                                    iter.move_to_field_pos(pos);
                                     break 'iter;
                                 }
                             }

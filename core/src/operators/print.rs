@@ -42,6 +42,7 @@ pub struct TfPrint {
     flush_on_every_print: bool,
     current_stream_val: Option<StreamValueId>,
     iter_id: IterId,
+    streams_kept_alive: usize,
 }
 
 pub fn parse_op_print(
@@ -68,6 +69,7 @@ pub fn build_tf_print(
         // ENHANCE: should we make a config option for this?
         flush_on_every_print: std::io::stdout().is_terminal(),
         current_stream_val: None,
+        streams_kept_alive: 0,
         iter_id: sess.field_mgr.claim_iter(tf_state.input_field),
     })
 }
@@ -263,9 +265,16 @@ pub fn handle_tf_print_raw(
                         *handled_field_count += i;
                         e
                     })?;
-                    if !done {
+                    if print.streams_kept_alive > 0 {
+                        let rc_diff = (rl as usize)
+                            .saturating_sub(print.streams_kept_alive);
+                        sv.ref_count -= rc_diff;
+                        print.streams_kept_alive -= rc_diff;
+                    }
+                    if done {
+                        sess.sv_mgr.check_stream_value_ref_count(sv_id);
+                    } else {
                         print.current_stream_val = Some(sv_id);
-                        iter.move_to_field_pos(pos);
                         if rl > 1 {
                             sv.promote_to_buffer();
                         }
@@ -275,16 +284,19 @@ pub fn handle_tf_print_raw(
                             tf_id,
                             batch_size - (pos - field_pos_start),
                         );
-                        buffer_remaining_stream_values_in_sv_iter(
-                            &mut sess.sv_mgr,
-                            sv_iter,
-                        );
-                        buffer_remaining_stream_values_in_auto_deref_iter(
-                            &mut sess.match_set_mgr,
-                            &mut sess.sv_mgr,
-                            iter.clone(),
-                            usize::MAX,
-                        );
+                        print.streams_kept_alive +=
+                            buffer_remaining_stream_values_in_sv_iter(
+                                &mut sess.sv_mgr,
+                                sv_iter,
+                            );
+                        print.streams_kept_alive +=
+                            buffer_remaining_stream_values_in_auto_deref_iter(
+                                &mut sess.match_set_mgr,
+                                &mut sess.sv_mgr,
+                                iter.clone(),
+                                usize::MAX,
+                            );
+                        iter.move_to_field_pos(pos);
                         break 'iter;
                     }
                 }
@@ -366,7 +378,9 @@ pub fn handle_tf_print_raw(
         }
         field_pos += range.base.field_count;
     }
-    while *handled_field_count < batch_size {
+    while *handled_field_count < batch_size
+        && print.current_stream_val.is_none()
+    {
         stdout.write_fmt(format_args!("{UNDEFINED_STR}\n"))?;
         *handled_field_count += 1;
     }

@@ -122,4 +122,11 @@ impl StreamValueManager {
             );
         }
     }
+    pub fn check_stream_value_ref_count(&mut self, sv_id: StreamValueId) {
+        let sv = &mut self.stream_values[sv_id];
+        if sv.ref_count == 0 {
+            sv.data = StreamValueData::Dropped;
+            self.stream_values.release(sv_id);
+        }
+    }
 }

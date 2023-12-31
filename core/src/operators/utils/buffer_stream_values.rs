@@ -10,10 +10,15 @@ use crate::record_data::{
 pub fn buffer_remaining_stream_values_in_sv_iter(
     sv_mgr: &mut StreamValueManager,
     iter: RefAwareStreamValueIter,
-) {
-    for (sv_id, _range, _rl) in iter {
-        sv_mgr.stream_values[sv_id].promote_to_buffer();
+) -> usize {
+    let mut lines = 0;
+    for (sv_id, _range, rl) in iter {
+        let sv = &mut sv_mgr.stream_values[sv_id];
+        sv.promote_to_buffer();
+        sv.ref_count += rl as usize;
+        lines += rl as usize;
     }
+    lines
 }
 
 pub fn buffer_remaining_stream_values_in_auto_deref_iter<
@@ -24,15 +29,17 @@ pub fn buffer_remaining_stream_values_in_auto_deref_iter<
     sv_mgr: &mut StreamValueManager,
     mut iter: AutoDerefIter<'a, I>,
     limit: usize,
-) {
+) -> usize {
+    let mut lines = 0;
     while let Some(range) =
         iter.typed_range_fwd(match_set_mgr, limit, field_value_flags::DEFAULT)
     {
         if let TypedSlice::StreamValueId(svs) = range.base.data {
-            buffer_remaining_stream_values_in_sv_iter(
+            lines += buffer_remaining_stream_values_in_sv_iter(
                 sv_mgr,
                 RefAwareStreamValueIter::from_range(&range, svs),
             );
         }
     }
+    lines
 }

@@ -48,6 +48,10 @@ use super::{
     format::RealizedFormatKey,
     operator::{DefaultOperatorName, OperatorBase, OperatorData},
     transform::{TransformData, TransformId, TransformState},
+    utils::buffer_stream_values::{
+        buffer_remaining_stream_values_in_auto_deref_iter,
+        buffer_remaining_stream_values_in_sv_iter,
+    },
 };
 
 #[derive(Clone)]
@@ -71,6 +75,7 @@ pub struct TfRegex {
     non_mandatory: bool,
     allow_overlapping: bool,
     input_field_ref_offset: FieldRefOffset,
+    streams_kept_alive: usize,
 }
 
 #[derive(Clone, Default, PartialEq, Eq)]
@@ -485,6 +490,7 @@ pub fn build_tf_regex<'a>(
         next_start: 0,
         actor_id,
         input_field_ref_offset,
+        streams_kept_alive: 0,
     })
 }
 
@@ -972,10 +978,16 @@ pub fn handle_tf_regex(
                 };
             }
             TypedSlice::StreamValueId(svs) => {
-                for (v, offsets, rl) in
-                    RefAwareStreamValueIter::from_range(&range, svs)
-                {
-                    let sv = &mut sess.sv_mgr.stream_values[v];
+                let mut sv_iter =
+                    RefAwareStreamValueIter::from_range(&range, svs);
+                while let Some((sv_id, offsets, rl)) = sv_iter.next() {
+                    let sv = &mut sess.sv_mgr.stream_values[sv_id];
+                    if re.streams_kept_alive > 0 {
+                        let rc_diff = (rl as usize)
+                            .saturating_sub(re.streams_kept_alive);
+                        sv.ref_count -= rc_diff;
+                        re.streams_kept_alive -= rc_diff;
+                    }
                     if sv.done {
                         let data = match &sv.data {
                             StreamValueData::Dropped => unreachable!(),
@@ -995,6 +1007,8 @@ pub fn handle_tf_regex(
                                             false,
                                         );
                                 }
+                                sess.sv_mgr
+                                    .check_stream_value_ref_count(sv_id);
                                 continue;
                             }
                             StreamValueData::Bytes(b) => {
@@ -1029,7 +1043,8 @@ pub fn handle_tf_regex(
                                 rl,
                                 0,
                             )
-                        }
+                        };
+                        sess.sv_mgr.check_stream_value_ref_count(sv_id);
                     } else {
                         sv.promote_to_buffer();
                         sv.subscribe(tf_id, rl as usize, true);
@@ -1039,6 +1054,25 @@ pub fn handle_tf_regex(
                         // one match we would need
                         // StreamValueData to support null for that though
                         hit_stream_val = true;
+                        if re.streams_kept_alive > 0 {
+                            let rc_diff = (rl as usize)
+                                .saturating_sub(re.streams_kept_alive);
+                            sv.ref_count -= rc_diff;
+                            re.streams_kept_alive -= rc_diff;
+                        }
+                        sess.field_mgr.request_clear_delay(input_field_id);
+                        re.streams_kept_alive +=
+                            buffer_remaining_stream_values_in_sv_iter(
+                                &mut sess.sv_mgr,
+                                sv_iter,
+                            );
+                        re.streams_kept_alive +=
+                            buffer_remaining_stream_values_in_auto_deref_iter(
+                                &mut sess.match_set_mgr,
+                                &mut sess.sv_mgr,
+                                iter.clone(),
+                                usize::MAX,
+                            );
                         break 'batch;
                     }
                     if bse {

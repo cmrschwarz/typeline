@@ -1099,12 +1099,12 @@ impl<'a> JobSession<'a> {
     }
 
     pub(crate) fn run_stream_producer_update(&mut self, tf_id: TransformId) {
-        #[cfg(feature = "debug_logging")]
-        println!(
-            "> handling stream producer update for tf {} (`{}`)",
-            tf_id,
-            self.transform_data[tf_id.get() as usize].display_name()
-        );
+        //#[cfg(feature = "debug_logging")]
+        //println!(
+        //    "> handling stream producer update for tf {} (`{}`)",
+        //    tf_id,
+        //    self.transform_data[tf_id.get() as usize].display_name()
+        //);
         let tf_state = &mut self.job_data.tf_mgr.transforms[tf_id];
         tf_state.is_stream_producer = false;
         match &mut self.transform_data[tf_id.get()] {
