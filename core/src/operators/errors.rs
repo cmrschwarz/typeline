@@ -6,14 +6,14 @@ use crate::options::argument::CliArgIdx;
 
 use super::operator::OperatorId;
 
-#[derive(Error, Debug, Clone)]
+#[derive(Error, Debug, Clone, PartialEq, Eq)]
 #[error("{message}")]
 pub struct OperatorCreationError {
     pub cli_arg_idx: Option<CliArgIdx>,
     pub message: Cow<'static, str>,
 }
 
-#[derive(Error, Debug, Clone)]
+#[derive(Error, Debug, Clone, PartialEq, Eq)]
 #[error("in op id {op_id}: {message}")]
 pub struct OperatorSetupError {
     pub op_id: OperatorId,
@@ -22,7 +22,7 @@ pub struct OperatorSetupError {
 
 // optimized layout because it's otherwise the bottleneck of the FieldValue
 // enum
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq)]
 pub enum OperatorApplicationError {
     Borrowed {
         op_id: OperatorId,

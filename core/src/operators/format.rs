@@ -1657,13 +1657,12 @@ pub fn setup_key_output_state(
                     }
                 }
             }
-            TypedSlice::Null(_) => {
+            TypedSlice::Null(_) if typed_format => {
                 iter_output_states_advanced(
                     &mut fmt.output_states,
                     &mut output_index,
                     range.base.field_count,
                     |o| {
-                        // we should probably just implement Formattable for null
                         o.len += calc_fmt_len_ost(k, (), o, &Null);
                     },
                 );
@@ -1685,7 +1684,9 @@ pub fn setup_key_output_state(
                     });
                 }
             }
-            TypedSlice::Undefined(_) | TypedSlice::Error(_) => {
+            TypedSlice::Error(_)
+            | TypedSlice::Undefined(_)
+            | TypedSlice::Null(_) => {
                 debug_assert!(!typed_format);
                 iter_output_states_advanced(
                     &mut fmt.output_states,
@@ -2180,7 +2181,6 @@ fn write_fmt_key(
                 }
             }
             TypedSlice::Null(_) => {
-                debug_assert!(type_repr);
                 iter_output_targets(
                     fmt,
                     &mut output_index,
@@ -2191,7 +2191,6 @@ fn write_fmt_key(
                 );
             }
             TypedSlice::Undefined(_) => {
-                debug_assert!(type_repr);
                 iter_output_targets(
                     fmt,
                     &mut output_index,
@@ -2202,7 +2201,6 @@ fn write_fmt_key(
                 );
             }
             TypedSlice::Error(errs) => {
-                debug_assert!(type_repr);
                 for (v, rl) in TypedSliceIter::from_range(&range.base, errs) {
                     iter_output_targets(
                         fmt,

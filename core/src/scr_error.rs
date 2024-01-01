@@ -23,7 +23,7 @@ use crate::{
     record_data::{field_data::FieldValueRepr, field_value::FieldValueKind},
 };
 
-#[derive(Error, Debug, Clone)]
+#[derive(Error, Debug, Clone, PartialEq, Eq)]
 #[error("in chain {chain_id}: {message}")]
 pub struct ChainSetupError {
     pub chain_id: ChainId,
@@ -39,14 +39,14 @@ impl ChainSetupError {
     }
 }
 
-#[derive(Error, Debug, Clone)]
+#[derive(Error, Debug, Clone, PartialEq, Eq)]
 #[error("{message}")]
 pub struct ReplDisabledError {
     pub message: &'static str,
     pub cli_arg_idx: Option<CliArgIdx>,
 }
 
-#[derive(Error, Debug, Clone)]
+#[derive(Error, Debug, Clone, PartialEq, Eq)]
 #[error("failed to collect {expected} as {got} (element index {index})")]
 pub struct CollectTypeMissmatch {
     pub index: usize,
@@ -54,7 +54,7 @@ pub struct CollectTypeMissmatch {
     pub got: FieldValueKind,
 }
 
-#[derive(Error, Debug, Clone)]
+#[derive(Error, Debug, Clone, PartialEq, Eq)]
 pub enum ScrError {
     #[error(transparent)]
     PrintInfoAndExitError(#[from] PrintInfoAndExitError),

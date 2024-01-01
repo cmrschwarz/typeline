@@ -44,7 +44,7 @@ use lazy_static::lazy_static;
 use std::{borrow::Cow, fmt::Display, str::from_utf8, sync::Arc};
 use thiserror::Error;
 
-#[derive(Error, Debug, Clone)]
+#[derive(Error, Debug, Clone, PartialEq, Eq)]
 #[error("in cli arg {cli_arg_idx}: {message}")]
 pub struct CliArgumentError {
     pub message: Cow<'static, str>,
@@ -66,7 +66,7 @@ impl CliArgumentError {
     }
 }
 
-#[derive(Error, Debug, Clone)]
+#[derive(Error, Debug, Clone, PartialEq, Eq)]
 pub enum PrintInfoAndExitError {
     Help(Cow<'static, str>),
     Version,
@@ -87,7 +87,7 @@ impl Display for PrintInfoAndExitError {
     }
 }
 
-#[derive(Error, Debug, Clone)]
+#[derive(Error, Debug, Clone, PartialEq, Eq)]
 pub struct MissingArgumentsError;
 
 impl Display for MissingArgumentsError {

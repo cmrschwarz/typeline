@@ -1,11 +1,12 @@
 use rstest::rstest;
 use scr_core::{
     operators::{
+        errors::OperatorApplicationError,
         file_reader::create_op_file_reader_custom,
         format::create_op_format,
         key::create_op_key,
         literal::{
-            create_op_bytes, create_op_error, create_op_str,
+            create_op_bytes, create_op_error, create_op_null, create_op_str,
             create_op_stream_error, create_op_v,
         },
         regex::{create_op_regex, create_op_regex_with_opts, RegexOptions},
@@ -351,5 +352,22 @@ fn binary_string_formatting() -> Result<(), ScrError> {
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(ss.get_data().unwrap().as_slice(), &[r#"b"\xFF""#]);
+    Ok(())
+}
+
+#[test]
+fn null_format_error() -> Result<(), ScrError> {
+    let res = ContextBuilder::default()
+        .add_op(create_op_null(1))
+        .add_op(create_op_format("{}").unwrap())
+        .run_collect_stringified();
+    let Err(res) = res else { panic!() };
+    assert_eq!(
+        res.err,
+        ScrError::OperationApplicationError(OperatorApplicationError::new(
+            "unexpected type `null` in format key #1",
+            1,
+        ))
+    );
     Ok(())
 }

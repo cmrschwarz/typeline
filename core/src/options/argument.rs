@@ -8,7 +8,7 @@ pub struct Argument<T: Clone> {
     pub cli_arg_idx: Option<CliArgIdx>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ArgumentReassignmentError {
     pub prev_cli_arg_idx: Option<CliArgIdx>,
     pub cli_arg_idx: Option<CliArgIdx>,
