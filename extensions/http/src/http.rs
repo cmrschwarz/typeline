@@ -31,6 +31,7 @@ use scr_core::{
 };
 use std::io::ErrorKind as IoErrorKind;
 use thiserror::Error;
+use url::{ParseError, Url};
 
 use crate::tls_client::{make_config, TlsSettings};
 
@@ -43,7 +44,7 @@ pub enum HttpRequestError {
     #[error(transparent)]
     Dns(#[from] InvalidDnsNameError),
     #[error(transparent)]
-    Url(#[from] url::ParseError),
+    Url(#[from] ParseError),
     #[error("{0}")]
     Other(String),
 }
@@ -154,7 +155,20 @@ impl TfHttpRequest {
         url: &str,
         bud: &mut BasicUpdateData,
     ) -> Result<StreamValueId, HttpRequestError> {
-        let url = url::Url::parse(url)?;
+        let url = match Url::parse(url) {
+            Ok(u) => u,
+            Err(e) => match e {
+                ParseError::RelativeUrlWithoutBase => {
+                    if url.trim().starts_with("/") {
+                        return Err(e.into());
+                    }
+                    let mut with_scheme = String::from("http://");
+                    with_scheme.push_str(url);
+                    Url::parse(&with_scheme).map_err(|_| e)?
+                }
+                e => return Err(e.into()),
+            },
+        };
         let mut https = false;
         match url.scheme() {
             "https" => {
@@ -168,7 +182,7 @@ impl TfHttpRequest {
             }
         }
         let Some(hostname) = url.host_str() else {
-            return Err(url::ParseError::EmptyHost.into());
+            return Err(ParseError::EmptyHost.into());
         };
         let port = url.port().unwrap_or(if https { 443 } else { 80 });
 
