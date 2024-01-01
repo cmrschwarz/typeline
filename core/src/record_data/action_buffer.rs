@@ -90,7 +90,7 @@ struct Actor {
     latest_snapshot: SnapshotRef,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum ActionGroupIdentifier {
     Regular {
         actor_id: u32,
@@ -572,8 +572,12 @@ impl ActionBuffer {
         rhs: Option<ActionGroupIdentifier>,
     ) -> Option<ActionGroupIdentifier> {
         let res = self.merge_action_groups_into_temp_buffer(lhs, rhs);
-        self.release_temp_action_group(lhs);
-        self.release_temp_action_group(rhs);
+        if res != lhs {
+            self.release_temp_action_group(lhs);
+        }
+        if res != rhs {
+            self.release_temp_action_group(rhs);
+        }
         res
     }
     fn merge_action_groups_of_single_pow2(

@@ -79,6 +79,8 @@ pub fn subslice_slice_pair<'a, T>(
     let s1_len = s1.len();
     if range.start > s1_len {
         (&[], &s2[range.start - s1_len..range.end - s1_len])
+    } else if range.end <= s1_len {
+        (&s1[range.start..range.end], &[])
     } else {
         (
             &s1[range.start..],

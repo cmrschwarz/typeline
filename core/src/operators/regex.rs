@@ -1005,6 +1005,10 @@ pub fn handle_tf_regex(
                                         false,
                                     );
                                 }
+                                rmis.batch_state.field_pos_input +=
+                                    rl as usize;
+                                rmis.batch_state.field_pos_output +=
+                                    rl as usize;
                                 sess.sv_mgr
                                     .check_stream_value_ref_count(sv_id);
                                 continue;

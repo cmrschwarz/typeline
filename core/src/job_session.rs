@@ -971,8 +971,9 @@ impl<'a> JobSession<'a> {
     ) -> Result<(), VentureDescription> {
         #[cfg(feature = "debug_logging")]
         println!(
-            "> handling tf {tf_id} (`{}`) {:?}",
+            "> handling tf {tf_id} (`{}`) (bsa: {}) {:?}",
             self.transform_data[tf_id.get() as usize].display_name(),
+            self.job_data.tf_mgr.transforms[tf_id].available_batch_size,
             self.job_data.tf_mgr.ready_stack
         );
         match &mut self.transform_data[usize::from(tf_id)] {
