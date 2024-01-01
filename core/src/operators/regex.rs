@@ -992,20 +992,18 @@ pub fn handle_tf_regex(
                         let data = match &sv.data {
                             StreamValueData::Dropped => unreachable!(),
                             StreamValueData::Error(e) => {
-                                for cgi in re
-                                    .capture_group_fields
-                                    .iter()
-                                    .filter_map(|v| *v)
+                                for cgi in rmis
+                                    .batch_state
+                                    .inserters
+                                    .iter_mut()
+                                    .flatten()
                                 {
-                                    sess.field_mgr.fields[cgi]
-                                        .borrow_mut()
-                                        .iter_hall
-                                        .push_error(
-                                            e.clone(),
-                                            rl as usize,
-                                            true,
-                                            false,
-                                        );
+                                    cgi.push_error(
+                                        e.clone(),
+                                        rl as usize,
+                                        true,
+                                        false,
+                                    );
                                 }
                                 sess.sv_mgr
                                     .check_stream_value_ref_count(sv_id);
@@ -1089,23 +1087,37 @@ pub fn handle_tf_regex(
             | TypedSlice::FieldReference(_) => unreachable!(),
             TypedSlice::Null(_)
             | TypedSlice::Undefined(_)
-            | TypedSlice::Error(_)
             | TypedSlice::Object(_)
             | TypedSlice::Array(_) => {
                 rbs.field_pos_input += range.base.field_count;
                 rbs.field_pos_output += range.base.field_count;
-                for inserter in
-                    rbs.inserters.iter_mut().filter_map(|i| i.as_mut())
-                {
+                for inserter in rbs.inserters.iter_mut().flatten() {
                     inserter.push_fixed_size_type(
-                        OperatorApplicationError::new(
-                            "regex type error",
+                        OperatorApplicationError::new_s(
+                            format!(
+                                "regex can't handle values of type `{}`",
+                                range.base.data.repr()
+                            ),
                             op_id,
                         ),
                         range.base.field_count,
                         true,
                         true,
                     );
+                }
+            }
+            TypedSlice::Error(errs) => {
+                rbs.field_pos_input += range.base.field_count;
+                rbs.field_pos_output += range.base.field_count;
+                for (e, rl) in TypedSliceIter::from_range(&range.base, errs) {
+                    for inserter in rbs.inserters.iter_mut().flatten() {
+                        inserter.push_fixed_size_type(
+                            e.clone(),
+                            rl as usize,
+                            true,
+                            true,
+                        );
+                    }
                 }
             }
         }
