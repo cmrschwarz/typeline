@@ -11,31 +11,31 @@ use rustls::{
 #[derive(Debug, Default)]
 pub struct TlsSettings {
     // overrides the default TLS version list
-    tls_protocol_versions: Vec<String>,
+    pub tls_protocol_versions: Vec<String>,
 
     // overrides the default cipher suite list
-    cipher_suite: Vec<String>,
+    pub cipher_suite: Vec<String>,
 
     // use the ALPN extension to offer protocol(s). empty means no ALPN
-    alpn_protocol_list: Vec<String>,
+    pub alpn_protocol_list: Vec<String>,
 
     // Limit outgoing messages to M bytes
-    flag_max_frag_size: Option<usize>,
+    pub flag_max_frag_size: Option<usize>,
 
     // Read root certificates from the supplied file path
-    flag_cafile: Option<String>,
+    pub flag_cafile: Option<String>,
 
     // disable session ticket support
-    no_tickets: bool,
+    pub no_tickets: bool,
 
     // disable server name indication support
-    no_sni: bool,
+    pub no_sni: bool,
 
     // prevent InvalidCertificateErrors (this is obviously insecure)
-    disable_cert_verification: bool,
+    pub disable_cert_verification: bool,
 
-    client_auth_key: Option<String>,
-    client_auth_certs: Option<String>,
+    pub client_auth_key: Option<String>,
+    pub client_auth_certs: Option<String>,
 }
 
 /// Find a ciphersuite with the given name
@@ -222,7 +222,6 @@ pub fn make_config(args: &TlsSettings) -> Arc<rustls::ClientConfig> {
             panic!("must provide --auth-certs and --auth-key together");
         }
     };
-
     config.key_log = Arc::new(rustls::KeyLogFile::new());
 
     if args.no_tickets {

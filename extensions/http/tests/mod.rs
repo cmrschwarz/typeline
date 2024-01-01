@@ -38,8 +38,6 @@ fn multi_get_http_regex() -> Result<(), ScrError> {
 
 #[test]
 fn multi_get_https() -> Result<(), ScrError> {
-    //TODO: this test is very flaky. do we have to close the connection
-    // ourselves?
     let res = ContextBuilder::default()
         .push_str("MQ==", 1)
         .push_str("Mq==", 1)

@@ -56,7 +56,6 @@ pub struct Connection {
     socket: TcpStream,
     tls_conn: Option<rustls::ClientConnection>,
     stream_value: Option<StreamValueId>,
-    interest: mio::Interest,
     header_parsed_until: u32,
     header_lines_count: u32,
     header_parsed: bool,
@@ -68,7 +67,7 @@ pub struct Connection {
 
 impl Connection {
     fn reregister(&mut self, registry: &mio::Registry, token: mio::Token) {
-        let new_interest = if let Some(c) = &self.tls_conn {
+        let interest = if let Some(c) = &self.tls_conn {
             let mut interest = mio::Interest::READABLE;
             if !self.request_done() || c.is_handshaking() || c.wants_write() {
                 interest |= mio::Interest::WRITABLE;
@@ -81,12 +80,9 @@ impl Connection {
             }
             interest
         };
-        if new_interest != self.interest {
-            self.interest = new_interest;
-            registry
-                .reregister(&mut self.socket, token, new_interest)
-                .unwrap();
-        }
+        registry
+            .reregister(&mut self.socket, token, interest)
+            .unwrap();
     }
     fn request_done(&self) -> bool {
         self.request_offset == self.request_data.len()
@@ -134,6 +130,8 @@ impl Operator for OpHttpRequest {
         tf_state: &mut TransformState,
         _prebound_outputs: &HashMap<OpOutputIdx, FieldId, BuildIdentityHasher>,
     ) -> TransformData<'a> {
+        let mut tls_settings = TlsSettings::default();
+        tls_settings.alpn_protocol_list = vec!["HTTP/1.1".to_owned()];
         let tf = TfHttpRequest {
             running_connections: CountedUniverse::default(),
             poll: Poll::new().unwrap(),
@@ -143,7 +141,7 @@ impl Operator for OpHttpRequest {
                 .get_transform_chain_from_tf_state(tf_state)
                 .settings
                 .stream_buffer_size,
-            tls_config: make_config(&TlsSettings::default()), // TODO
+            tls_config: make_config(&tls_settings), // TODO
         };
         TransformData::Custom(smallbox!(tf))
     }
@@ -214,11 +212,11 @@ impl TfHttpRequest {
             StreamValue::new(StreamValueData::Bytes(Vec::new()), false, false),
         );
 
+        //Accept-Encoding: identity\r\n\
         let httpreq = format!(
             "GET {location} HTTP/1.1\r\n\
             Host: {hostname}\r\n\
             Connection: close\r\n\
-            Accept-Encoding: identity\r\n\
             \r\n\
             ",
         )
@@ -229,7 +227,6 @@ impl TfHttpRequest {
             socket,
             stream_value: Some(stream_value),
             tls_conn,
-            interest,
             header_parsed: false,
             header_lines_count: 0,
             header_parsed_until: 0,
@@ -306,18 +303,17 @@ fn process_tls_event(
         if read == 0 {
             eof = true;
         }
-        //println!("{:?}: tls read: {}", c.stream_value, read);
         let state = tls_conn.process_new_packets()?;
-        eof |= state.peer_has_closed();
-        std::io::copy(
-            &mut tls_conn
-                .reader()
-                .take(buffer_size.min(state.plaintext_bytes_to_read()) as u64),
-            tgt,
-        )?;
-        //println!("{:?}: buf read: {}", c.stream_value, tgt.len());
-    }
 
+        let bytes_to_read = state.plaintext_bytes_to_read();
+        if bytes_to_read > 0 {
+            tls_conn
+                .reader()
+                .take(buffer_size.min(bytes_to_read) as u64)
+                .read_to_end(tgt)?;
+        }
+        eof |= state.peer_has_closed();
+    }
     if event.is_writable() {
         if !request_done {
             c.request_offset += tls_conn
@@ -325,8 +321,7 @@ fn process_tls_event(
                 .write(&c.request_data[c.request_offset..])?;
         }
         if tls_conn.wants_write() {
-            let _written = tls_conn.write_tls(&mut c.socket)?;
-            //println!("{:?}: tls written: {written}", c.stream_value);
+            tls_conn.write_tls(&mut c.socket)?;
         }
     }
 
@@ -392,7 +387,6 @@ fn header_completed(req: &mut Connection, buf: &Vec<u8>) -> bool {
             break;
         }
         let line = &buf[parsed_until..parsed_until + i];
-        //println!("line: {}", std::str::from_utf8(line).unwrap());
         //PERF: don't allocate
         if let Some(cl_match) = CONTENT_LENGTH_REGEX.captures(line) {
             let len_seq = cl_match.get(1).unwrap().as_bytes();
@@ -490,17 +484,35 @@ impl Transform for TfHttpRequest {
                         }
                     }
                     if eof {
+                        if !req.header_parsed {
+                            sv.data = StreamValueData::Error(
+                                OperatorApplicationError::new(
+                                    if req.response_size == 0 {
+                                        "HTTP GET got no response"
+                                    } else {
+                                        "HTTP GET got invalid response"
+                                    },
+                                    jd.tf_mgr.transforms[tf_id].op_id.unwrap(),
+                                ),
+                            );
+                        }
                         sv.done = true;
                     }
                 }
             }
             if let Some(len) = req.expected_response_size {
-                if req.header_parsed && req.response_size >= len {
-                    if let Some(tls) = &mut req.tls_conn {
-                        tls.send_close_notify();
-                    } else {
-                        let _ignored =
-                            req.socket.shutdown(std::net::Shutdown::Both);
+                if let StreamValueData::Bytes(buf) = &mut sv.data {
+                    if req.header_parsed && req.response_size >= len {
+                        if let Some(tls) = &mut req.tls_conn {
+                            tls.send_close_notify();
+                        } else {
+                            let _ignored =
+                                req.socket.shutdown(std::net::Shutdown::Both);
+                        }
+                        if req.response_size > len {
+                            let handled = req.response_size - buf.len();
+                            buf.truncate(len - handled);
+                        };
                     }
                 }
             }
@@ -512,7 +524,6 @@ impl Transform for TfHttpRequest {
                 let _ = self.poll.registry().deregister(&mut req.socket);
                 self.running_connections.release(token);
                 jd.sv_mgr.drop_field_value_subscription(sv_id, None);
-                //println!("{:?}: conn closed", sv_id);
             } else {
                 req.reregister(self.poll.registry(), mio::Token(token));
             }
