@@ -1578,7 +1578,7 @@ pub fn setup_key_output_state(
                                             o,
                                             unsafe {
                                                 std::str::from_utf8_unchecked(
-                                                    b,
+                                                    data,
                                                 )
                                             },
                                         );
@@ -1590,7 +1590,7 @@ pub fn setup_key_output_state(
                                             k,
                                             formatting_opts,
                                             o,
-                                            b.as_slice(),
+                                            data,
                                         );
                                     });
                                 }
@@ -2234,7 +2234,9 @@ fn write_fmt_key(
                             );
                         }
                         StreamValueData::Bytes(b) => {
-                            if range.is_some() || !sv.is_buffered() {
+                            let has_range = range.is_some();
+                            let range = range.unwrap_or(0..b.len());
+                            if has_range || !sv.is_buffered() {
                                 iter_output_targets(
                                     fmt,
                                     &mut output_index,
@@ -2246,7 +2248,7 @@ fn write_fmt_key(
                                                 formatting_opts,
                                                 tgt,
                                                 unsafe {
-                                                    std::str::from_utf8_unchecked(b)
+                                                    std::str::from_utf8_unchecked(&b[range.clone()])
                                                 },
                                             );
                                         } else {
@@ -2254,7 +2256,7 @@ fn write_fmt_key(
                                                 k,
                                                 formatting_opts,
                                                 tgt,
-                                                b.as_slice(),
+                                                &b[range.clone()],
                                             );
                                         }
                                         if !sv.done {
