@@ -298,8 +298,11 @@ impl TfFlatten {
                                 ),
                                 Array::Mixed(vals) => {
                                     for v in vals.iter() {
-                                        inserter.push_field_value_clone(
-                                            v, 1, true, false,
+                                        inserter.push_field_value_unpacked(
+                                            v.clone(),
+                                            1,
+                                            true,
+                                            false,
                                         );
                                     }
                                 }

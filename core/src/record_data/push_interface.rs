@@ -413,9 +413,9 @@ pub unsafe trait PushInterface {
     fn push_undefined(&mut self, run_length: usize, try_header_rle: bool) {
         self.push_zst(FieldValueRepr::Undefined, run_length, try_header_rle);
     }
-    fn push_field_value_clone(
+    fn push_field_value_unpacked(
         &mut self,
-        v: &FieldValue,
+        v: FieldValue,
         run_length: usize,
         try_header_rle: bool,
         try_data_rle: bool,
@@ -426,7 +426,7 @@ pub unsafe trait PushInterface {
                 self.push_undefined(run_length, try_header_rle)
             }
             FieldValue::Int(v) => {
-                self.push_int(*v, run_length, try_header_rle, try_data_rle)
+                self.push_int(v, run_length, try_header_rle, try_data_rle)
             }
             FieldValue::BigInt(v) => self.push_fixed_size_type(
                 v.clone(),
@@ -435,55 +435,58 @@ pub unsafe trait PushInterface {
                 try_data_rle,
             ),
             FieldValue::Float(v) => self.push_fixed_size_type(
-                *v,
+                v,
                 run_length,
                 try_header_rle,
                 try_data_rle,
             ),
             FieldValue::Rational(v) => self.push_fixed_size_type(
-                (**v).clone(),
+                *v,
                 run_length,
                 try_header_rle,
                 try_data_rle,
             ),
             FieldValue::Text(v) => {
-                self.push_str(v, run_length, try_header_rle, try_data_rle)
+                self.push_string(v, run_length, try_header_rle, try_data_rle)
             }
-            FieldValue::Bytes(v) => {
-                self.push_bytes(v, run_length, try_header_rle, try_data_rle)
-            }
+            FieldValue::Bytes(v) => self.push_bytes_buffer(
+                v,
+                run_length,
+                try_header_rle,
+                try_data_rle,
+            ),
             FieldValue::Array(v) => self.push_fixed_size_type(
-                v.clone(),
+                v,
                 run_length,
                 try_header_rle,
                 try_data_rle,
             ),
             FieldValue::Object(v) => self.push_fixed_size_type(
-                v.clone(),
+                v,
                 run_length,
                 try_header_rle,
                 try_data_rle,
             ),
             FieldValue::Custom(v) => self.push_fixed_size_type(
-                v.clone(),
+                v,
                 run_length,
                 try_header_rle,
                 try_data_rle,
             ),
             FieldValue::Error(v) => self.push_fixed_size_type(
-                v.clone(),
+                v,
                 run_length,
                 try_header_rle,
                 try_data_rle,
             ),
             FieldValue::FieldReference(v) => self.push_fixed_size_type(
-                *v,
+                v,
                 run_length,
                 try_header_rle,
                 try_data_rle,
             ),
             FieldValue::SlicedFieldReference(v) => self.push_fixed_size_type(
-                *v,
+                v,
                 run_length,
                 try_header_rle,
                 try_data_rle,

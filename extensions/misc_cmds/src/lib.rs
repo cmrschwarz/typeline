@@ -1,3 +1,4 @@
+use from_tyson::create_op_from_tyson;
 use head::parse_op_head;
 use primes::create_op_primes;
 use scr_core::{
@@ -13,6 +14,7 @@ use tail::parse_op_tail;
 extern crate scr_core;
 
 pub mod any_number;
+pub mod from_tyson;
 pub mod head;
 pub mod primes;
 pub mod string_utils;
@@ -48,6 +50,7 @@ impl Extension for MiscCmdsExtension {
             "lines" => create_op_lines,
             "chars" => create_op_chars,
             "trim" => create_op_trim,
+            "from-tyson" => create_op_from_tyson,
             _ => return Ok(None),
         };
         arg.reject_value()?;

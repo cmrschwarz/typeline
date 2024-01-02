@@ -68,7 +68,7 @@ pub enum TysonParseError {
     },
 }
 
-struct TysonParser<'a, S: BufRead> {
+pub struct TysonParser<'a, S: BufRead> {
     stream: S,
     line: usize,
     col: usize,
@@ -100,7 +100,7 @@ impl PartialEq for TysonParseError {
 impl Eq for TysonParseError {}
 
 impl<'a, S: BufRead> TysonParser<'a, S> {
-    fn new(
+    pub fn new(
         stream: S,
         use_floating_point: bool,
         exts: Option<&'a ExtensionRegistry>,

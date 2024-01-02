@@ -132,7 +132,7 @@ impl Operator for OpExplode {
         TransformData::Custom(smallbox!(tfe))
     }
 }
-fn fn_handle_object_key<'a>(
+fn handle_object_key<'a>(
     target_fields: &mut IndexMap<Option<StringStoreEntry>, TargetField>,
     pending_fields: &'a StableVec<(RefCell<FieldData>, usize)>,
     inserters: &mut Vec<VaryingTypeInserter<RefMut<'a, FieldData>>>,
@@ -166,8 +166,12 @@ fn fn_handle_object_key<'a>(
         }
     };
     // PERF: maybe handle stealing?
-    inserters[inserter_idx]
-        .push_field_value_clone(value, run_length, true, false);
+    inserters[inserter_idx].push_field_value_unpacked(
+        value.clone(),
+        run_length,
+        true,
+        false,
+    );
 }
 
 impl Transform for TfExplode {
@@ -245,7 +249,7 @@ impl Transform for TfExplode {
                                             .unwrap()
                                     });
                                 for (k, v) in obj.iter() {
-                                    fn_handle_object_key(
+                                    handle_object_key(
                                         &mut self.target_fields,
                                         &self.pending_fields,
                                         &mut inserters,
@@ -260,7 +264,7 @@ impl Transform for TfExplode {
                             }
                             Object::KeysInterned(obj) => {
                                 for (&k, v) in obj.iter() {
-                                    fn_handle_object_key(
+                                    handle_object_key(
                                         &mut self.target_fields,
                                         &self.pending_fields,
                                         &mut inserters,
