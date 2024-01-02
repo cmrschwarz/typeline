@@ -9,7 +9,6 @@ use scr_core::{
     liveness_analysis::{
         AccessFlags, BasicBlockId, LivenessData, OpOutputIdx,
     },
-    num::{BigInt, BigRational, FromPrimitive, ToPrimitive},
     operators::{
         errors::OperatorApplicationError,
         operator::{Operator, OperatorBase, OperatorData},
@@ -22,7 +21,6 @@ use scr_core::{
         action_buffer::{ActorId, ActorRef},
         field::FieldId,
         field_action::FieldActionKind::Drop,
-        field_data::RunLength,
         iter_hall::IterId,
         push_interface::PushInterface,
         ref_iter::RefAwareTypedSliceIter,
@@ -32,194 +30,14 @@ use scr_core::{
     utils::identity_hasher::BuildIdentityHasher,
 };
 
+use crate::any_number::AnyNumber;
+
 #[derive(Clone, Default)]
 pub struct OpSum {}
 
-#[derive(Clone)]
-enum Aggregate {
-    Int(i64),
-    BigInt(scr_core::num::BigInt),
-    Float(f64),
-    Rational(BigRational),
-}
-
-impl Default for Aggregate {
-    fn default() -> Self {
-        Aggregate::Int(0)
-    }
-}
-
-// ENHANCE: use this to add max / min / avg functions
-impl Aggregate {
-    fn push(self, tgt: &mut impl PushInterface) {
-        match self {
-            Aggregate::Int(v) => tgt.push_fixed_size_type(v, 1, false, false),
-            Aggregate::BigInt(v) => {
-                tgt.push_fixed_size_type(v, 1, false, false)
-            }
-            Aggregate::Float(v) => {
-                tgt.push_fixed_size_type(v, 1, false, false)
-            }
-            Aggregate::Rational(v) => {
-                tgt.push_fixed_size_type(v, 1, false, false)
-            }
-        }
-    }
-    // PERF: this whole thing is slow and stupid
-    fn add_int(&mut self, v: i64, rl: RunLength, fpm: bool) {
-        let mut v_x_rl = v;
-        if rl != 1 {
-            let Some(res) = v.checked_mul(rl as i64) else {
-                match self {
-                    Aggregate::Int(i) => {
-                        *self =
-                            Aggregate::BigInt(BigInt::from(v).mul(rl).add(*i));
-                    }
-                    Aggregate::BigInt(i) => {
-                        i.add_assign(BigInt::from(v).mul(rl));
-                    }
-                    Aggregate::Float(f) => {
-                        if fpm {
-                            *f = (v as f64).mul_add(rl as f64, *f);
-                        } else if !f.is_nan() && !f.is_infinite() {
-                            *self = Aggregate::Rational(
-                                BigRational::from_f64(*f)
-                                    .unwrap()
-                                    .add(BigInt::from(v).mul(rl)),
-                            );
-                        }
-                    }
-                    Aggregate::Rational(r) => {
-                        r.add_assign(BigInt::from(v).mul(rl))
-                    }
-                }
-                return;
-            };
-            v_x_rl = res;
-        }
-        match self {
-            Aggregate::Int(i) => {
-                if let Some(r) = i.checked_add(v_x_rl) {
-                    *self = Aggregate::Int(r);
-                    return;
-                }
-                *self = Aggregate::BigInt(BigInt::from(*i).add(v_x_rl));
-            }
-            Aggregate::BigInt(v) => v.add_assign(v_x_rl),
-            Aggregate::Float(f) => {
-                if fpm {
-                    f.add_assign(v_x_rl as f64)
-                } else if !f.is_nan() && !f.is_infinite() {
-                    *self = Aggregate::Rational(
-                        BigRational::from_f64(*f)
-                            .unwrap()
-                            .add(BigInt::from(v).mul(rl)),
-                    );
-                }
-            }
-            Aggregate::Rational(v) => v.add_assign(BigInt::from(v_x_rl)),
-        }
-    }
-    fn add_big_int(&mut self, v: &BigInt, rl: RunLength, fpm: bool) {
-        let v_x_rl = {
-            if rl == 1 {
-                Cow::Borrowed(v)
-            } else {
-                Cow::Owned(v.clone().mul(rl))
-            }
-        };
-        match self {
-            Aggregate::Int(i) => {
-                *self = Aggregate::BigInt(v_x_rl.into_owned().add(*i));
-            }
-            Aggregate::BigInt(i) => i.add_assign(&*v_x_rl),
-            Aggregate::Float(f) => {
-                if fpm {
-                    f.add_assign(v_x_rl.to_f64().unwrap());
-                } else if !f.is_nan() && !f.is_infinite() {
-                    *self = Aggregate::Rational(
-                        BigRational::from_f64(*f).unwrap().add(&*v_x_rl),
-                    );
-                }
-            }
-            Aggregate::Rational(v) => v.add_assign(&*v_x_rl),
-        }
-    }
-    fn add_float(&mut self, v: f64, rl: RunLength, fpm: bool) {
-        if fpm {
-            let curr = match self {
-                Aggregate::Int(i) => *i as f64,
-                Aggregate::BigInt(i) => i.to_f64().unwrap(),
-                Aggregate::Float(f) => *f,
-                Aggregate::Rational(r) => r.to_f64().unwrap(),
-            };
-            // floating point add is commutative, so this order is fine
-            // rle somewhat breaks order, you have to disable
-            // that if you care
-            *self = Aggregate::Float(v.mul_add(rl as f64, curr));
-            return;
-        }
-        if v.is_infinite() || v.is_nan() {
-            *self = Aggregate::Float(v);
-            return;
-        }
-        let curr = match std::mem::take(self) {
-            Aggregate::Int(i) => BigRational::from_i64(i).unwrap(),
-            Aggregate::BigInt(i) => {
-                BigRational::new(i, BigInt::from_u8(1).unwrap())
-            }
-            Aggregate::Float(f) => {
-                if f.is_infinite() || f.is_nan() {
-                    *self = Aggregate::Float(f);
-                    return;
-                }
-                BigRational::from_f64(f).unwrap()
-            }
-            Aggregate::Rational(r) => r,
-        };
-        let mut v_x_rl = BigRational::from_f64(v).unwrap();
-        if rl != 1 {
-            v_x_rl.mul_assign(BigInt::from_u32(rl).unwrap());
-        }
-        *self = Aggregate::Rational(curr.add(v_x_rl));
-    }
-    fn add_rational(&mut self, v: &BigRational, rl: RunLength, fpm: bool) {
-        let v_x_rl = {
-            if rl == 1 {
-                Cow::Borrowed(v)
-            } else {
-                Cow::Owned(v.clone().mul(BigInt::from(rl)))
-            }
-        };
-        match self {
-            Aggregate::Int(i) => {
-                *self = Aggregate::Rational(
-                    v_x_rl.into_owned().add(BigInt::from(*i)),
-                );
-            }
-            Aggregate::BigInt(i) => {
-                *self = Aggregate::Rational(v_x_rl.into_owned().add(&*i));
-            }
-            Aggregate::Float(v) => {
-                if fpm {
-                    if v.is_infinite() || v.is_nan() {
-                        return;
-                    }
-                    *self = Aggregate::Rational(
-                        BigRational::from_f64(*v).unwrap().add(&*v_x_rl),
-                    );
-                } else {
-                    v.add_assign(v_x_rl.to_f64().unwrap());
-                }
-            }
-            Aggregate::Rational(v) => v.add_assign(&*v_x_rl),
-        }
-    }
-}
-
 pub struct TfSum {
     input_iter_id: IterId,
-    aggregate: Aggregate,
+    aggregate: AnyNumber,
     error_occured: bool,
     actor_id: ActorId,
 }
@@ -262,7 +80,7 @@ impl Operator for OpSum {
             .first_actor = ActorRef::Unconfirmed(ab.peek_next_actor_id());
         TransformData::Custom(smallbox!(TfSum {
             input_iter_id: sess.field_mgr.claim_iter(tf_state.input_field),
-            aggregate: Aggregate::Int(0),
+            aggregate: AnyNumber::Int(0),
             actor_id,
             error_occured: false
         }))

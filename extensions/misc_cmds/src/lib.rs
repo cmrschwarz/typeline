@@ -12,6 +12,7 @@ use tail::parse_op_tail;
 
 extern crate scr_core;
 
+pub mod any_number;
 pub mod head;
 pub mod primes;
 pub mod string_utils;

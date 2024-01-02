@@ -55,12 +55,12 @@ fn multi_get_https() -> Result<(), ScrError> {
 #[test]
 fn get_delay() -> Result<(), ScrError> {
     let res = ContextBuilder::default()
-        .add_op_with_label(create_op_seq(0, 6, 2).unwrap(), "a")
+        .add_op_with_label(create_op_seq(0, 9, 3).unwrap(), "a")
         .add_op(create_op_format("https://httpbin.org/delay/0.{}").unwrap())
         .add_op(create_op_GET())
         .add_op(create_op_regex(".").unwrap())
         .add_op(create_op_format("{}{a}").unwrap())
         .run_collect_stringified()?;
-    assert_eq!(&res, &["{0", "{2", "{4"]);
+    assert_eq!(&res, &["{0", "{3", "{6"]);
     Ok(())
 }
