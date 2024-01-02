@@ -1174,8 +1174,11 @@ pub fn handle_tf_regex(
             base_iter,
         );
     }
-    sess.tf_mgr
-        .submit_batch(tf_id, produced_records, ps.input_done);
+    sess.tf_mgr.submit_batch(
+        tf_id,
+        produced_records,
+        ps.input_done && !hit_stream_val && !bse,
+    );
 }
 
 pub fn handle_tf_regex_stream_value_update(

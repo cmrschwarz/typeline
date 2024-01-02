@@ -1,5 +1,8 @@
 use scr_core::{
-    operators::{format::create_op_format, regex::create_op_regex},
+    operators::{
+        format::create_op_format, regex::create_op_regex,
+        sequence::create_op_seq,
+    },
     options::context_builder::ContextBuilder,
     scr_error::ScrError,
 };
@@ -46,5 +49,18 @@ fn multi_get_https() -> Result<(), ScrError> {
         .add_op(create_op_GET())
         .run_collect_stringified()?;
     assert_eq!(&res, &["1", "2", "3"]);
+    Ok(())
+}
+
+#[test]
+fn get_delay() -> Result<(), ScrError> {
+    let res = ContextBuilder::default()
+        .add_op_with_label(create_op_seq(0, 6, 2).unwrap(), "a")
+        .add_op(create_op_format("https://httpbin.org/delay/0.{}").unwrap())
+        .add_op(create_op_GET())
+        .add_op(create_op_regex(".").unwrap())
+        .add_op(create_op_format("{}{a}").unwrap())
+        .run_collect_stringified()?;
+    assert_eq!(&res, &["{0", "{2", "{4"]);
     Ok(())
 }

@@ -970,12 +970,17 @@ impl<'a> JobSession<'a> {
         ctx: Option<&Arc<ContextData>>,
     ) -> Result<(), VentureDescription> {
         #[cfg(feature = "debug_logging")]
-        println!(
-            "> handling tf {tf_id} (`{}`) (bsa: {}) {:?}",
+        {
+            let tf = &self.job_data.tf_mgr.transforms[tf_id];
+            println!(
+            "> handling tf {tf_id} `{}`, bsa: {}, id: {}, od: {}, stack: {:?}",
             self.transform_data[tf_id.get() as usize].display_name(),
-            self.job_data.tf_mgr.transforms[tf_id].available_batch_size,
+            tf.available_batch_size,
+            tf.input_is_done,
+            tf.output_is_done,
             self.job_data.tf_mgr.ready_stack
         );
+        }
         match &mut self.transform_data[usize::from(tf_id)] {
             TransformData::Fork(fork) => {
                 if !fork.expanded {
