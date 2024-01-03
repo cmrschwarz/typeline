@@ -18,7 +18,7 @@ use crate::{
         field_data::{
             field_value_flags, FieldData, FieldValueRepr, RunLength,
         },
-        field_value::SlicedFieldReference,
+        field_value::{FieldValue, SlicedFieldReference},
         iter_hall::IterId,
         iters::FieldIterator,
         push_interface::{PushInterface, VaryingTypeInserter},
@@ -27,7 +27,7 @@ use crate::{
             RefAwareInlineTextIter, RefAwareStreamValueIter,
             RefAwareTextBufferIter,
         },
-        stream_value::{StreamValueData, StreamValueId},
+        stream_value::StreamValueId,
         typed::TypedSlice,
         typed_iters::TypedSliceIter,
     },
@@ -988,67 +988,8 @@ pub fn handle_tf_regex(
                         sv.ref_count -= rc_diff;
                         re.streams_kept_alive -= rc_diff;
                     }
-                    if sv.done {
-                        let data = match &sv.data {
-                            StreamValueData::Dropped => unreachable!(),
-                            StreamValueData::Error(e) => {
-                                for cgi in rmis
-                                    .batch_state
-                                    .inserters
-                                    .iter_mut()
-                                    .flatten()
-                                {
-                                    cgi.push_error(
-                                        e.clone(),
-                                        rl as usize,
-                                        true,
-                                        false,
-                                    );
-                                }
-                                rmis.batch_state.field_pos_input +=
-                                    rl as usize;
-                                rmis.batch_state.field_pos_output +=
-                                    rl as usize;
-                                sess.sv_mgr
-                                    .check_stream_value_ref_count(sv_id);
-                                continue;
-                            }
-                            StreamValueData::Bytes(b) => {
-                                &b[offsets.unwrap_or(0..b.len())]
-                            }
-                        };
-                        bse = if let Some(tr) = &mut text_regex {
-                            if sv.bytes_are_utf8 {
-                                match_regex_inner::<true, _>(
-                                    &mut rmis,
-                                    tr,
-                                    unsafe {
-                                        std::str::from_utf8_unchecked(data)
-                                    },
-                                    rl,
-                                    0,
-                                )
-                            } else {
-                                match_regex_inner::<true, _>(
-                                    &mut rmis,
-                                    &mut bytes_regex,
-                                    data,
-                                    rl,
-                                    0,
-                                )
-                            }
-                        } else {
-                            match_regex_inner::<true, _>(
-                                &mut rmis,
-                                &mut bytes_regex,
-                                data,
-                                rl,
-                                0,
-                            )
-                        };
-                        sess.sv_mgr.check_stream_value_ref_count(sv_id);
-                    } else {
-                        sv.promote_to_buffer();
+                    if !sv.done {
+                        sv.is_buffered = true;
                         sv.subscribe(tf_id, rl as usize, true);
                         // PERF: if multimatch is false and we are in optional
                         // mode we can theoretically
@@ -1077,6 +1018,51 @@ pub fn handle_tf_regex(
                             );
                         break 'batch;
                     }
+                    match &sv.value {
+                        FieldValue::Error(e) => {
+                            for cgi in
+                                rmis.batch_state.inserters.iter_mut().flatten()
+                            {
+                                cgi.push_error(
+                                    e.clone(),
+                                    rl as usize,
+                                    true,
+                                    false,
+                                );
+                            }
+                            rmis.batch_state.field_pos_input += rl as usize;
+                            rmis.batch_state.field_pos_output += rl as usize;
+                            sess.sv_mgr.check_stream_value_ref_count(sv_id);
+                            continue;
+                        }
+                        FieldValue::Bytes(b) => {
+                            bse = match_regex_inner::<true, _>(
+                                &mut rmis,
+                                &mut bytes_regex,
+                                &b[offsets.unwrap_or(0..b.len())],
+                                rl,
+                                0,
+                            );
+                        }
+                        FieldValue::Text(t) => {
+                            let t = &t[offsets.unwrap_or(0..t.len())];
+                            bse = if let Some(tr) = &mut text_regex {
+                                match_regex_inner::<true, _>(
+                                    &mut rmis, tr, t, rl, 0,
+                                )
+                            } else {
+                                match_regex_inner::<true, _>(
+                                    &mut rmis,
+                                    &mut bytes_regex,
+                                    t.as_bytes(),
+                                    rl,
+                                    0,
+                                )
+                            };
+                        }
+                        _ => todo!(),
+                    }
+                    sess.sv_mgr.check_stream_value_ref_count(sv_id);
                     if bse {
                         break 'batch;
                     }

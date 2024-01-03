@@ -3,7 +3,7 @@ use regex::Regex;
 use smallstr::SmallString;
 
 use crate::{
-    job_session::JobData,
+    job_session::{JobData, TransformManager},
     operators::{
         format::RealizedFormatKey,
         utils::buffer_stream_values::{
@@ -14,19 +14,19 @@ use crate::{
     options::argument::CliArgIdx,
     record_data::{
         custom_data::CustomDataBox,
-        field::Field,
+        field::{Field, FieldManager},
         field_data::{field_value_flags, FieldValueRepr, INLINE_STR_MAX_LEN},
+        field_value::{FieldValue, FieldValueKind},
         iter_hall::IterId,
         iters::FieldIterator,
+        match_set::MatchSetManager,
         push_interface::PushInterface,
         ref_iter::{
             AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter,
             RefAwareInlineTextIter, RefAwareStreamValueIter,
-            RefAwareTextBufferIter,
+            RefAwareTextBufferIter, RefAwareTypedRange,
         },
-        stream_value::{
-            StreamValue, StreamValueData, StreamValueId, StreamValueManager,
-        },
+        stream_value::{StreamValue, StreamValueId, StreamValueManager},
         typed::TypedSlice,
         typed_iters::TypedSliceIter,
     },
@@ -38,7 +38,7 @@ use crate::{
 
 use super::{
     errors::{OperatorApplicationError, OperatorCreationError},
-    operator::{DefaultOperatorName, OperatorBase, OperatorData},
+    operator::{DefaultOperatorName, OperatorBase, OperatorData, OperatorId},
     print::typed_slice_zst_str,
     transform::{TransformData, TransformId, TransformState},
 };
@@ -210,13 +210,14 @@ fn get_join_buffer<'a>(
         && join.buffer.len() + expected_len > join.stream_len_threshold
     {
         let cap = join.buffer.capacity();
+        let buf = std::mem::replace(&mut join.buffer, Vec::with_capacity(cap));
         let sv = sv_mgr.stream_values.claim_with_value(StreamValue {
-            data: StreamValueData::Bytes(std::mem::replace(
-                &mut join.buffer,
-                Vec::with_capacity(cap),
-            )),
-            bytes_are_utf8: join.buffer_is_valid_utf8,
-            bytes_are_chunk: true,
+            value: if join.buffer_is_valid_utf8 {
+                FieldValue::Text(unsafe { String::from_utf8_unchecked(buf) })
+            } else {
+                FieldValue::Bytes(buf)
+            },
+            is_buffered: false,
             done: false,
             subscribers: Default::default(),
             ref_count: 1,
@@ -225,9 +226,7 @@ fn get_join_buffer<'a>(
     }
 
     if let Some(sv_id) = join.output_stream_val {
-        if let StreamValueData::Bytes(bb) =
-            &mut sv_mgr.stream_values[sv_id].data
-        {
+        if let FieldValue::Bytes(bb) = &mut sv_mgr.stream_values[sv_id].value {
             bb
         } else {
             unreachable!();
@@ -344,7 +343,7 @@ fn push_error(
 ) {
     if let Some(sv_id) = join.output_stream_val {
         let sv = &mut sv_mgr.stream_values[sv_id];
-        sv.data = StreamValueData::Error(e);
+        sv.value = FieldValue::Error(e);
         sv.done = true;
         join.stream_value_error = true;
     } else {
@@ -371,6 +370,7 @@ pub fn handle_tf_join(
         tf_id,
     );
     let tf = &sess.tf_mgr.transforms[tf_id];
+    let op_id = tf.op_id.unwrap();
     let mut output_field = sess.field_mgr.fields[tf.output_field].borrow_mut();
     let input_field_id = tf.input_field;
     let input_field = sess
@@ -387,7 +387,7 @@ pub fn handle_tf_join(
     let mut group_len_rem =
         join.group_capacity.unwrap_or(usize::MAX) - join.group_len;
     let mut groups_emitted = 0;
-    let mut sv_mgr = &mut sess.sv_mgr;
+    let sv_mgr = &mut sess.sv_mgr;
     let mut batch_size_rem = batch_size;
     'iter: loop {
         if join.current_group_error.is_some() {
@@ -448,7 +448,7 @@ pub fn handle_tf_join(
                     for (v, rl) in
                         TypedSliceIter::from_range(&range.base, custom_data)
                     {
-                        push_custom_type(tf, join, sv_mgr, v, rl);
+                        push_custom_type(op_id, join, sv_mgr, v, rl);
                     }
                 }
                 TypedSlice::Error(errs) => {
@@ -461,122 +461,28 @@ pub fn handle_tf_join(
                         sv_mgr,
                         OperatorApplicationError::new_s(
                             format!("join does not support {str}"),
-                            tf.op_id.unwrap(),
+                            op_id,
                         ),
                     );
                 }
                 TypedSlice::StreamValueId(svs) => {
-                    let mut pos = field_pos;
-                    let mut sv_iter =
-                        RefAwareStreamValueIter::from_range(&range, svs);
-                    while let Some((sv_id, offsets, rl)) = sv_iter.next() {
-                        assert!(Some(sv_id) != join.output_stream_val); // TODO: do some loop error handling
-                        pos += rl as usize;
-                        let sv = &mut sv_mgr.stream_values[sv_id];
-                        match &sv.data {
-                            StreamValueData::Dropped => unreachable!(),
-                            StreamValueData::Error(err) => {
-                                let ec = err.clone();
-                                if let Some(sv_id) = join.output_stream_val {
-                                    let sv = &mut sv_mgr.stream_values[sv_id];
-                                    sv.data = StreamValueData::Error(ec);
-                                    sv.done = true;
-                                    join.stream_value_error = true;
-                                } else {
-                                    join.current_group_error = Some(ec);
-                                }
-                                break;
-                            }
-                            StreamValueData::Bytes(b) => {
-                                join.buffer_is_valid_utf8 &= sv.bytes_are_utf8;
-                                let b = offsets
-                                    .as_ref()
-                                    .map(|o| &b[o.clone()])
-                                    .unwrap_or(b);
-                                // SAFETY: this is a buffer on the heap so it
-                                // will not be affected
-                                // if the stream values vec is resized in case
-                                // push_bytes_raw decides
-                                // to alloc a stream value
-                                // we have to free this livetime from the
-                                // sv_mgr here so we can access
-                                // our (guaranteed to be distinct) target
-                                // stream value to push data
-                                let b_laundered = unsafe {
-                                    std::mem::transmute::<
-                                        &'_ [u8],
-                                        &'static [u8],
-                                    >(b)
-                                };
-                                if join.streams_kept_alive > 0 {
-                                    let rc_diff = (rl as usize)
-                                        .saturating_sub(
-                                            join.streams_kept_alive,
-                                        );
-                                    sv.ref_count -= rc_diff;
-                                    join.streams_kept_alive -= rc_diff;
-                                }
-                                if sv.done {
-                                    sv_mgr = &mut sess.sv_mgr;
-                                    push_bytes_raw(
-                                        join,
-                                        sv_mgr,
-                                        b_laundered,
-                                        rl as usize,
-                                    );
-                                    sess.sv_mgr
-                                        .check_stream_value_ref_count(sv_id);
-                                } else {
-                                    join.group_len += pos - field_pos;
-                                    join.current_stream_val = Some(sv_id);
-                                    let buffered = sv.is_buffered();
-                                    sv.subscribe(
-                                        tf_id,
-                                        rl as usize,
-                                        buffered || rl > 1,
-                                    );
-                                    if !buffered {
-                                        if rl != 1 {
-                                            sv.promote_to_buffer();
-                                        }
-                                        push_bytes_raw(
-                                            join,
-                                            sv_mgr,
-                                            b_laundered,
-                                            1,
-                                        );
-                                        join.stream_val_added_len =
-                                            b_laundered.len();
-                                        debug_assert!(offsets.is_none());
-                                    }
-                                    let remaining_elems_in_batch =
-                                        batch_size - (pos - field_pos_start);
-                                    if remaining_elems_in_batch == 0 {
-                                        break 'iter;
-                                    }
-                                    sess.field_mgr
-                                        .request_clear_delay(input_field_id);
-                                    join.clear_delay_requested = true;
-                                    sess.tf_mgr.unclaim_batch_size(
-                                        tf_id,
-                                        remaining_elems_in_batch,
-                                    );
-                                    join.streams_kept_alive += buffer_remaining_stream_values_in_sv_iter(
-                                        &mut sess.sv_mgr,
-                                        sv_iter,
-                                    );
-                                    join.streams_kept_alive +=  buffer_remaining_stream_values_in_auto_deref_iter(
-                                        &mut sess.match_set_mgr,
-                                        &mut sess.sv_mgr,
-                                        iter.clone(),
-                                        batch_size_rem - (pos - field_pos),
-                                    );
-                                    iter.move_to_field_pos(pos);
-                                    break 'iter;
-                                }
-                            }
-                        }
-                        sv_mgr = &mut sess.sv_mgr;
+                    if !try_consume_stream_values(
+                        tf_id,
+                        join,
+                        &mut sess.tf_mgr,
+                        &sess.field_mgr,
+                        &mut sess.match_set_mgr,
+                        sv_mgr,
+                        input_field_id,
+                        batch_size,
+                        batch_size_rem,
+                        &mut iter,
+                        &range,
+                        svs,
+                        field_pos,
+                        field_pos_start,
+                    ) {
+                        break 'iter;
                     }
                 }
                 TypedSlice::BigInt(_)
@@ -632,8 +538,112 @@ pub fn handle_tf_join(
         .submit_batch(tf_id, groups_emitted, ps.input_done);
 }
 
+fn try_consume_stream_values<'a>(
+    tf_id: TransformId,
+    join: &mut TfJoin<'_>,
+    tf_mgr: &mut TransformManager,
+    fm: &FieldManager,
+    msm: &mut MatchSetManager,
+    sv_mgr: &mut StreamValueManager,
+    input_field_id: u32,
+    batch_size: usize,
+    batch_size_rem: usize,
+    iter: &mut AutoDerefIter<'a, impl FieldIterator<'a>>,
+    range: &RefAwareTypedRange<'_>,
+    svs: &[StreamValueId],
+    field_pos: usize,
+    field_pos_start: usize,
+) -> bool {
+    let mut pos = field_pos;
+    let mut sv_iter = RefAwareStreamValueIter::from_range(range, svs);
+    while let Some((sv_id, offsets, rl)) = sv_iter.next() {
+        pos += rl as usize;
+        let sv = &mut sv_mgr.stream_values[sv_id];
+        match &sv.value {
+            FieldValue::Error(err) => {
+                let ec = err.clone();
+                if let Some(sv_id) = join.output_stream_val {
+                    let sv = &mut sv_mgr.stream_values[sv_id];
+                    sv.value = FieldValue::Error(ec);
+                    sv.done = true;
+                    join.stream_value_error = true;
+                } else {
+                    join.current_group_error = Some(ec);
+                }
+                break;
+            }
+            FieldValue::Bytes(_) | FieldValue::Text(_) => {
+                let bytes_are_utf8 = sv.value.kind() == FieldValueKind::Text;
+                join.buffer_is_valid_utf8 &= bytes_are_utf8;
+                let buf = sv.value.as_ref().as_slice().as_bytes();
+                let buf =
+                    offsets.as_ref().map(|o| &buf[o.clone()]).unwrap_or(buf);
+                // SAFETY: this is a buffer on the heap so it
+                // will not be affected
+                // if the stream values vec is resized in case
+                // push_bytes_raw decides
+                // to alloc a stream value
+                // we have to free this livetime from the
+                // sv_mgr here so we can access
+                // our (guaranteed to be distinct) target
+                // stream value to push data
+                assert!(Some(sv_id) != join.output_stream_val);
+                let b_laundered = unsafe {
+                    std::mem::transmute::<&'_ [u8], &'static [u8]>(buf)
+                };
+                if join.streams_kept_alive > 0 {
+                    let rc_diff =
+                        (rl as usize).saturating_sub(join.streams_kept_alive);
+                    sv.ref_count -= rc_diff;
+                    join.streams_kept_alive -= rc_diff;
+                }
+                if sv.done {
+                    push_bytes_raw(join, sv_mgr, b_laundered, rl as usize);
+                    sv_mgr.check_stream_value_ref_count(sv_id);
+                } else {
+                    join.group_len += pos - field_pos;
+                    join.current_stream_val = Some(sv_id);
+                    let buffered = sv.is_buffered;
+                    sv.subscribe(tf_id, rl as usize, buffered || rl > 1);
+                    if !buffered {
+                        if rl != 1 {
+                            sv.is_buffered = true;
+                        }
+                        push_bytes_raw(join, sv_mgr, b_laundered, 1);
+                        join.stream_val_added_len = b_laundered.len();
+                        debug_assert!(offsets.is_none());
+                    }
+                    let remaining_elems_in_batch =
+                        batch_size - (pos - field_pos_start);
+                    if remaining_elems_in_batch == 0 {
+                        return false;
+                    }
+                    fm.request_clear_delay(input_field_id);
+                    join.clear_delay_requested = true;
+                    tf_mgr.unclaim_batch_size(tf_id, remaining_elems_in_batch);
+                    join.streams_kept_alive +=
+                        buffer_remaining_stream_values_in_sv_iter(
+                            sv_mgr, sv_iter,
+                        );
+                    join.streams_kept_alive +=
+                        buffer_remaining_stream_values_in_auto_deref_iter(
+                            msm,
+                            sv_mgr,
+                            iter.clone(),
+                            batch_size_rem - (pos - field_pos),
+                        );
+                    iter.move_to_field_pos(pos);
+                    return false;
+                }
+            }
+            _ => todo!(),
+        }
+    }
+    true
+}
+
 fn push_custom_type(
-    tf: &TransformState,
+    op_id: OperatorId,
     join: &mut TfJoin<'_>,
     sv_mgr: &mut StreamValueManager,
     v: &CustomDataBox,
@@ -645,7 +655,7 @@ fn push_custom_type(
             sv_mgr,
             OperatorApplicationError::new_s(
                 format!("cannot stringify custom type {}", v.type_name()),
-                tf.op_id.unwrap(),
+                op_id,
             ),
         );
         return;
@@ -725,53 +735,55 @@ pub fn handle_tf_join_stream_value_update(
     let in_field_id = tf.input_field;
     let sv = &mut sess.sv_mgr.stream_values[sv_id];
     let done = sv.done;
-    match &sv.data {
-        StreamValueData::Dropped => unreachable!(),
-        StreamValueData::Error(err) => {
+    match &sv.value {
+        FieldValue::Error(err) => {
             let ec = err.clone();
             if let Some(sv_id) = join.output_stream_val {
                 let sv = &mut sess.sv_mgr.stream_values[sv_id];
                 sv.done = true;
-                sv.data = StreamValueData::Error(ec);
+                sv.value = FieldValue::Error(ec);
                 join.stream_value_error = true;
             } else {
                 join.current_group_error = Some(ec);
             }
         }
-        StreamValueData::Bytes(b) => {
-            join.buffer_is_valid_utf8 &= sv.bytes_are_utf8;
+        FieldValue::Bytes(_) | FieldValue::Text(_) => {
+            let bytes_are_utf8 = sv.value.kind() == FieldValueKind::Text;
+            join.buffer_is_valid_utf8 &= bytes_are_utf8;
+            let src_buf = sv.value.as_ref().as_slice().as_bytes();
+
             // SAFETY: the assert proves that these buffers
             // don't overlap, so it's safe to have both
             assert!(Some(sv_id) != join.output_stream_val);
-            let buf_ref = unsafe {
-                std::mem::transmute::<&'_ [u8], &'static [u8]>(b.as_slice())
+            let src_buf = unsafe {
+                std::mem::transmute::<&'_ [u8], &'static [u8]>(src_buf)
             };
             let sv_added_len = join.stream_val_added_len;
-            if sv.bytes_are_chunk {
+            if sv.is_buffered {
                 let buf =
-                    get_join_buffer(join, &mut sess.sv_mgr, buf_ref.len());
-                buf.extend_from_slice(buf_ref);
-                join.stream_val_added_len += buf_ref.len();
+                    get_join_buffer(join, &mut sess.sv_mgr, src_buf.len());
+                buf.extend_from_slice(src_buf);
+                join.stream_val_added_len += src_buf.len();
             } else if sv.done {
-                join.buffer_is_valid_utf8 &= sv.bytes_are_utf8;
-
                 if sv_added_len != 0 {
                     join.stream_val_added_len = 0;
                     let buf =
-                        get_join_buffer(join, &mut sess.sv_mgr, buf_ref.len());
-                    buf.extend_from_slice(&buf_ref[sv_added_len..]);
+                        get_join_buffer(join, &mut sess.sv_mgr, src_buf.len());
+                    buf.extend_from_slice(&src_buf[sv_added_len..]);
                     run_len -= 1;
                 }
-                push_bytes_raw(join, &mut sess.sv_mgr, buf_ref, run_len);
+                push_bytes_raw(join, &mut sess.sv_mgr, src_buf, run_len);
             }
         }
+        _ => todo!(),
     }
     if done {
         join.stream_val_added_len = 0;
         join.current_stream_val = None;
-        if input_done || Some(join.group_len) == join.group_capacity {
-            sess.tf_mgr.push_tf_in_ready_stack(tf_id);
-        } else if next_batch_ready {
+        if input_done
+            || Some(join.group_len) == join.group_capacity
+            || next_batch_ready
+        {
             sess.tf_mgr.push_tf_in_ready_stack(tf_id);
         }
         if join.clear_delay_requested {

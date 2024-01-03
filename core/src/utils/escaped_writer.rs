@@ -301,7 +301,7 @@ mod test {
     use rstest::rstest;
 
     fn escape(input: &[u8]) -> String {
-        super::escape_to_string(input, '"' as u8)
+        super::escape_to_string(input, b'"')
     }
 
     #[test]

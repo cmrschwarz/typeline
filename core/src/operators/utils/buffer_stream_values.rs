@@ -14,7 +14,7 @@ pub fn buffer_remaining_stream_values_in_sv_iter(
     let mut lines = 0;
     for (sv_id, _range, rl) in iter {
         let sv = &mut sv_mgr.stream_values[sv_id];
-        sv.promote_to_buffer();
+        sv.is_buffered = true;
         sv.ref_count += rl as usize;
         lines += rl as usize;
     }

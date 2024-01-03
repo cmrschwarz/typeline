@@ -17,7 +17,7 @@ use crate::record_data::{
         field_value_flags::FieldValueFlags, FieldValueHeader, RunLength,
     },
     iters::{FieldIterator, Iter},
-    typed::{TypedRange, TypedSlice, TypedValue, ValidTypedRange},
+    typed::{FieldValueRef, TypedRange, TypedSlice, ValidTypedRange},
     typed_iters::{InlineBytesIter, TypedSliceIter},
 };
 
@@ -46,7 +46,7 @@ impl ReferenceFieldValueType for SlicedFieldReference {
 
 pub struct FieldRefUnpacked<'a, R> {
     pub reference: R,
-    pub data: TypedValue<'a>,
+    pub data: FieldValueRef<'a>,
     pub header: FieldValueHeader,
 }
 
@@ -72,12 +72,12 @@ pub enum AnyRefSliceIter<'a> {
 }
 
 impl<'a, R: ReferenceFieldValueType> FieldRefUnpacked<'a, R> {
-    pub fn apply_ref(&self) -> (TypedValue<'a>, RunLength) {
+    pub fn apply_ref(&self) -> (FieldValueRef<'a>, RunLength) {
         (
             self.reference
                 .range()
                 .map(|r| self.data.subslice(r))
-                .unwrap_or(self.data.clone()),
+                .unwrap_or(self.data),
             self.header.run_length,
         )
     }
@@ -483,7 +483,7 @@ impl<'a, I: FieldIterator<'a>> AutoDerefIter<'a, I> {
         &mut self,
         match_set_mgr: &mut MatchSetManager,
         limit: usize,
-    ) -> Option<(TypedValue<'a>, RunLength, Option<FieldRefOffset>)> {
+    ) -> Option<(FieldValueRef<'a>, RunLength, Option<FieldRefOffset>)> {
         loop {
             if let Some(ri) = &mut self.ref_iter {
                 match ri {
@@ -518,8 +518,8 @@ impl<'a, I: FieldIterator<'a>> AutoDerefIter<'a, I> {
             if let Some(field) = self.iter.typed_field_fwd(limit) {
                 if matches!(
                     field.value,
-                    TypedValue::FieldReference(_)
-                        | TypedValue::SlicedFieldReference(_)
+                    FieldValueRef::FieldReference(_)
+                        | FieldValueRef::SlicedFieldReference(_)
                 ) {
                     self.iter.typed_field_bwd(limit);
                     let range = self
@@ -552,7 +552,7 @@ impl<'a, I: FieldIterator<'a>> AutoDerefIter<'a, I> {
     pub fn next_value(
         &mut self,
         msm: &mut MatchSetManager,
-    ) -> Option<(TypedValue<'a>, RunLength, Option<FieldRefOffset>)> {
+    ) -> Option<(FieldValueRef<'a>, RunLength, Option<FieldRefOffset>)> {
         self.typed_field_fwd(msm, usize::MAX)
     }
     pub fn next_n_fields(&mut self, mut limit: usize) -> usize {

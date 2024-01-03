@@ -9,7 +9,9 @@ use crate::{
     options::argument::CliArgIdx,
     record_data::{
         field_data::{field_value_flags, FieldValueRepr},
-        field_value::{format_rational, FormattingContext, RATIONAL_DIGITS},
+        field_value::{
+            format_rational, FieldValue, FormattingContext, RATIONAL_DIGITS,
+        },
         iter_hall::IterId,
         iters::{FieldIterator, UnfoldIterRunLength},
         push_interface::PushInterface,
@@ -18,7 +20,7 @@ use crate::{
             RefAwareInlineTextIter, RefAwareStreamValueIter,
             RefAwareTextBufferIter, RefAwareUnfoldIterRunLength,
         },
-        stream_value::{StreamValue, StreamValueData, StreamValueId},
+        stream_value::{StreamValue, StreamValueId},
         typed::TypedSlice,
         typed_iters::TypedSliceIter,
     },
@@ -106,14 +108,14 @@ pub fn write_stream_val_check_done(
 ) -> Result<bool, (usize, std::io::Error)> {
     let rl_to_attempt = if sv.done || run_len == 0 { run_len } else { 1 };
     debug_assert!(sv.done || offsets.is_none());
-    match &sv.data {
-        StreamValueData::Bytes(c) => {
-            if !sv.bytes_are_chunk && !sv.done {
+    match &sv.value {
+        FieldValue::Bytes(_) | FieldValue::Text(_) => {
+            if !sv.is_buffered && !sv.done {
                 return Ok(false);
             }
-            let mut data = c.as_slice();
+            let mut data = sv.value.as_ref().as_slice().as_bytes();
             if let Some(offsets) = offsets {
-                debug_assert!(sv.is_buffered());
+                debug_assert!(sv.is_buffered);
                 data = &data[offsets];
             }
             for i in 0..rl_to_attempt {
@@ -129,7 +131,7 @@ pub fn write_stream_val_check_done(
                     .map_err(|e| (i, e))?;
             }
         }
-        StreamValueData::Error(e) => {
+        FieldValue::Error(e) => {
             debug_assert!(sv.done);
             debug_assert!(offsets.is_none());
             for i in 0..rl_to_attempt {
@@ -138,7 +140,7 @@ pub fn write_stream_val_check_done(
                     .map_err(|e| (i, e))?;
             }
         }
-        StreamValueData::Dropped => panic!("dropped stream value observed"),
+        _ => todo!(),
     }
     Ok(sv.done)
 }
@@ -276,7 +278,7 @@ pub fn handle_tf_print_raw(
                     } else {
                         print.current_stream_val = Some(sv_id);
                         if rl > 1 {
-                            sv.promote_to_buffer();
+                            sv.is_buffered = true;
                         }
                         sv.subscribe(tf_id, rl as usize, false);
                         sess.field_mgr.request_clear_delay(input_field_id);

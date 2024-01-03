@@ -5,12 +5,12 @@ use crate::{
     options::argument::CliArgIdx,
     record_data::{
         field_data::field_value_flags,
-        field_value::FieldValueKind,
+        field_value::{FieldValue, FieldValueKind},
         iter_hall::IterId,
         iters::FieldIterator,
         push_interface::PushInterface,
         ref_iter::AutoDerefIter,
-        stream_value::{StreamValueData, StreamValueId},
+        stream_value::StreamValueId,
         typed::TypedSlice,
         typed_iters::TypedSliceIter,
     },
@@ -40,7 +40,7 @@ impl OpCast {
 }
 
 lazy_static::lazy_static! {
-    static ref ARG_REGEX: Regex = Regex::new(r"^to_(?<type>int|bytes|str|(?:~)error|null|undefined)?$").unwrap();
+    static ref ARG_REGEX: Regex = Regex::new(r"^to-(?<type>int|bytes|str|(?:~)error|null|undefined)?$").unwrap();
 }
 
 pub fn argument_matches_op_cast(arg: &str, value: Option<&[u8]>) -> bool {
@@ -257,23 +257,22 @@ pub fn handle_tf_cast_stream_value_update(
     let sv_out_id = custom;
     let (sv_in, sv_out) =
         sess.sv_mgr.stream_values.two_distinct_mut(sv_id, sv_out_id);
-    match &sv_in.data {
-        StreamValueData::Dropped => unreachable!(),
-        StreamValueData::Error(err) => {
-            if tf.convert_errors {
-                todo!("this cannot be supported figure something out");
-            }
-            sv_out.data = StreamValueData::Error(err.clone());
+    match &sv_in.value {
+        FieldValue::Error(err) => {
+            sv_out.value = FieldValue::Error(err.clone());
             sv_out.done = true;
             sess.sv_mgr.inform_stream_value_subscribers(sv_out_id);
             sess.sv_mgr
                 .drop_field_value_subscription(sv_id, Some(tf_id));
         }
-        StreamValueData::Bytes(bb) => {
-            let StreamValueData::Bytes(out_data) = &mut sv_out.data else {
-                unreachable!()
+        FieldValue::Bytes(bb) => {
+            let (out_is_utf8, out_data) = match &mut sv_out.value {
+                FieldValue::Bytes(data) => (false, data),
+                // SAFETY: we trust the decoder to produce valid utf-8
+                FieldValue::Text(data) => (true, unsafe { data.as_mut_vec() }),
+                _ => unreachable!(),
             };
-            if sv_out.bytes_are_utf8 && !sv_in.bytes_are_utf8 {
+            if out_is_utf8 {
                 let res = encoding::decode_to_utf8(
                     &mut encoding_rs::UTF_8.new_decoder_without_bom_handling(),
                     bb,
@@ -283,7 +282,7 @@ pub fn handle_tf_cast_stream_value_update(
                 );
                 if let Err((_i, e)) = res {
                     sv_out.done = true;
-                    sv_out.data = StreamValueData::Error(
+                    sv_out.value = FieldValue::Error(
                         OperatorApplicationError::new_s(e, op_id),
                     );
                     sess.sv_mgr.inform_stream_value_subscribers(sv_out_id);
@@ -294,11 +293,10 @@ pub fn handle_tf_cast_stream_value_update(
             }
             // PERF: find a way to avoid this. maybe some
             // AntiTextFieldValueReference or something
-            sv_out.data = sv_in.data.clone();
+            sv_out.value = sv_in.value.clone();
             sv_out.done = sv_in.done;
-            sv_out.bytes_are_chunk = sv_in.bytes_are_chunk;
+            sv_out.is_buffered = sv_in.is_buffered;
         }
+        _ => todo!(),
     }
-    sess.tf_mgr.transforms[tf_id].pending_stream_values =
-        tf.pending_streams != 0;
 }

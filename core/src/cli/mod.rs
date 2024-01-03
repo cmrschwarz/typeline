@@ -99,7 +99,7 @@ impl Display for MissingArgumentsError {
 #[derive(Clone, Debug)]
 pub struct CliArgument<'a> {
     pub idx: CliArgIdx,
-    pub value: &'a Vec<u8>,
+    pub value: &'a [u8],
 }
 
 #[derive(Clone)]
@@ -520,13 +520,11 @@ pub fn add_op_from_arg_and_op_data_uninit(
         op_data,
     )
 }
-pub fn parse_cli_argument_parts<'a>(
-    arg: CliArgument<'a>,
-) -> Result<ParsedCliArgumentParts<'a>, CliArgumentError> {
-    let Some(arg_match) = CLI_ARG_REGEX.captures(&arg.value) else {
-        return Err(
-            CliArgumentError::new("invalid argument syntax", arg.idx).into()
-        );
+pub fn parse_cli_argument_parts(
+    arg: CliArgument,
+) -> Result<ParsedCliArgumentParts, CliArgumentError> {
+    let Some(arg_match) = CLI_ARG_REGEX.captures(arg.value) else {
+        return Err(CliArgumentError::new("invalid argument syntax", arg.idx));
     };
     let argname = from_utf8(arg_match.name("argname").unwrap().as_bytes())
         .map_err(|_| {
@@ -540,8 +538,7 @@ pub fn parse_cli_argument_parts<'a>(
             return Err(CliArgumentError::new(
                 "operator modes cannot be specified twice",
                 arg.idx,
-            )
-            .into());
+            ));
         }
     }
     let label = if let Some(lbl) = arg_match.name("label") {
@@ -607,7 +604,7 @@ pub fn parse_cli_retain_args(
             value: arg_str,
         };
 
-        if try_parse_label(&mut ctx_opts, &arg_str) {
+        if try_parse_label(&mut ctx_opts, arg_str) {
             continue;
         }
 

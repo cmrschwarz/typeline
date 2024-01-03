@@ -19,8 +19,9 @@ use crate::{
             field_value_flags, FieldValueFormat, FieldValueRepr,
             FieldValueSize, INLINE_STR_MAX_LEN,
         },
+        field_value::FieldValue,
         push_interface::PushInterface,
-        stream_value::{StreamValue, StreamValueData, StreamValueId},
+        stream_value::{StreamValue, StreamValueId},
     },
 };
 
@@ -304,11 +305,10 @@ fn start_streaming_file(
         }
     };
     let sv_id = sess.sv_mgr.stream_values.claim_with_value(StreamValue {
-        data: StreamValueData::Bytes(buf),
+        value: FieldValue::Bytes(buf),
         done,
         ref_count: 1,
-        bytes_are_utf8: false,
-        bytes_are_chunk: true,
+        is_buffered: false,
         subscribers: Default::default(),
     });
     fr.stream_value = Some(sv_id);
@@ -350,20 +350,18 @@ pub fn handle_tf_file_reader_stream(
     }
     let sv = &mut sess.sv_mgr.stream_values[sv_id];
     if need_buffering {
-        sv.bytes_are_chunk = false;
+        sv.is_buffered = false;
     }
 
-    let res = match &mut sv.data {
-        StreamValueData::Bytes(ref mut bc) => {
-            if sv.bytes_are_chunk {
+    let res = match &mut sv.value {
+        FieldValue::Bytes(ref mut bc) => {
+            if !sv.is_buffered {
                 bc.clear();
             }
             read_chunk(bc, file, fr.stream_buffer_size, fr.line_buffered)
         }
-        StreamValueData::Error(_) => Ok((0, true)),
-        StreamValueData::Dropped => {
-            panic!("dropped stream value ovserved")
-        }
+        FieldValue::Error(_) => Ok((0, true)),
+        _ => unreachable!(),
     };
     let done = match res {
         Ok((_size, eof)) => eof,
@@ -372,7 +370,7 @@ pub fn handle_tf_file_reader_stream(
                 sess.tf_mgr.transforms[tf_id].op_id.unwrap(),
                 err,
             );
-            sv.data = StreamValueData::Error(err);
+            sv.value = FieldValue::Error(err);
             true
         }
     };

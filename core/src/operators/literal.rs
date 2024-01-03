@@ -13,7 +13,7 @@ use crate::{
         custom_data::CustomDataBox,
         field_value::{Array, FieldValue, FieldValueKind, Object},
         push_interface::PushInterface,
-        stream_value::{StreamValue, StreamValueData},
+        stream_value::StreamValue,
     },
     tyson::{parse_tyson, TysonParseError},
 };
@@ -123,26 +123,22 @@ pub fn handle_tf_literal(
                 output_field.iter_hall.push_undefined(1, true)
             }
             Literal::StreamError(ss) => {
-                let sv_id = sess.sv_mgr.stream_values.claim_with_value(
-                    StreamValue::new(
-                        StreamValueData::Error(
+                let sv_id =
+                    sess.sv_mgr.stream_values.claim_with_value(StreamValue {
+                        value: FieldValue::Error(
                             OperatorApplicationError::new_s(ss.clone(), op_id),
                         ),
-                        true,
-                        true,
-                    ),
-                );
+                        is_buffered: true,
+                        done: true,
+                        ..Default::default()
+                    });
                 output_field
                     .iter_hall
                     .push_stream_value_id(sv_id, 1, true, false);
             }
             Literal::StreamString(ss) => {
                 let sv_id = sess.sv_mgr.stream_values.claim_with_value(
-                    StreamValue::new(
-                        StreamValueData::Bytes(ss.clone().into_bytes()),
-                        true,
-                        true,
-                    ),
+                    StreamValue::from_value(FieldValue::Text(ss.clone())),
                 );
                 output_field
                     .iter_hall
@@ -150,11 +146,7 @@ pub fn handle_tf_literal(
             }
             Literal::StreamBytes(sb) => {
                 let sv_id = sess.sv_mgr.stream_values.claim_with_value(
-                    StreamValue::new(
-                        StreamValueData::Bytes(sb.clone()),
-                        true,
-                        true,
-                    ),
+                    StreamValue::from_value(FieldValue::Bytes(sb.clone())),
                 );
                 output_field
                     .iter_hall
@@ -353,6 +345,9 @@ pub fn field_value_to_literal(v: FieldValue) -> Literal {
         FieldValue::Array(v) => Literal::Array(v),
         FieldValue::Object(v) => Literal::Object(v),
         FieldValue::Custom(v) => Literal::Custom(v),
+        FieldValue::StreamValueId(_) => {
+            panic!("stream value id is not a valid literal")
+        }
         FieldValue::FieldReference(_)
         | FieldValue::SlicedFieldReference(_) => {
             panic!("field reference is not a valid literal")

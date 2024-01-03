@@ -66,11 +66,10 @@ pub fn add_input_done_eater(
     );
     sess.job_data.field_mgr.inc_field_refcount(VOID_FIELD_ID, 2);
     let tf_data = setup_tf_input_done_eater(&mut tf_state, input_dones_to_eat);
-    let tf_id = add_transform_to_job(
+    add_transform_to_job(
         &mut sess.job_data,
         &mut sess.transform_data,
         tf_state,
         tf_data,
-    );
-    tf_id
+    )
 }

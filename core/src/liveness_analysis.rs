@@ -199,7 +199,7 @@ impl Var {
 }
 
 impl LivenessData {
-    fn op_output_count(&self, sess: &Session, op_id: OperatorId) -> usize {
+    fn op_output_count(sess: &Session, op_id: OperatorId) -> usize {
         let op_base = &sess.operator_bases[op_id as usize];
         match &sess.operator_data[op_id as usize] {
             OperatorData::Call(_) => 1,
@@ -236,7 +236,7 @@ impl LivenessData {
                 //TODO: do this properly, merging field names etc.
                 for &sub_op in &agg.sub_ops {
                     op_count +=
-                        self.op_output_count(sess, sub_op).saturating_sub(1);
+                        Self::op_output_count(sess, sub_op).saturating_sub(1);
                 }
                 op_count
             }
@@ -260,7 +260,7 @@ impl LivenessData {
         );
         for op_id in 0..sess.operator_data.len() {
             let op_output_count =
-                self.op_output_count(sess, op_id as OperatorId);
+                Self::op_output_count(sess, op_id as OperatorId);
 
             let op_base = &mut sess.operator_bases[op_id];
             op_base.outputs_start = total_outputs_count as OpOutputIdx;
@@ -459,7 +459,7 @@ impl LivenessData {
                 }
             }
         };
-        return false;
+        false
     }
     fn setup_bbs(&mut self, sess: &Session) {
         let var_count = self.vars.len();
@@ -919,7 +919,7 @@ impl LivenessData {
             let fr =
                 self.op_outputs[op_output_idx as usize].field_references[fr_i];
             if fr < self.vars.len() as OpOutputIdx {
-                self.basic_blocks[bb_id as usize]
+                self.basic_blocks[bb_id]
                     .field_references
                     .entry(var_idx as VarId)
                     .or_default()

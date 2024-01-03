@@ -476,27 +476,27 @@ impl SessionOptions {
         match &mut op_data {
             OperatorData::Call(_) => (),
             OperatorData::CallConcurrent(op) => {
-                setup_op_call_concurrent_liveness_data(op, op_id, &ld)
+                setup_op_call_concurrent_liveness_data(op, op_id, ld)
             }
             OperatorData::Cast(_) => (),
             OperatorData::Nop(_) => (),
             OperatorData::NopCopy(op) => {
-                on_op_nop_copy_liveness_computed(op, op_id, &ld)
+                on_op_nop_copy_liveness_computed(op, op_id, ld)
             }
             OperatorData::Count(_) => (),
             OperatorData::Print(_) => (),
             OperatorData::Join(_) => (),
             OperatorData::Fork(op) => {
-                setup_op_fork_liveness_data(op, op_id, &ld)
+                setup_op_fork_liveness_data(op, op_id, ld)
             }
             OperatorData::ForkCat(op) => {
-                setup_op_forkcat_liveness_data(sess, op, op_id, &ld)
+                setup_op_forkcat_liveness_data(sess, op, op_id, ld)
             }
             OperatorData::Next(_) => (),
             OperatorData::End(_) => (),
             OperatorData::Key(_) => (),
             OperatorData::Select(op) => {
-                setup_op_select_liveness_data(op, op_id, &ld)
+                setup_op_select_liveness_data(op, op_id, ld)
             }
             OperatorData::Regex(_) => (),
             OperatorData::Format(_) => (),
@@ -505,15 +505,13 @@ impl SessionOptions {
             OperatorData::FileReader(_) => (),
             OperatorData::Literal(_) => (),
             OperatorData::Sequence(op) => {
-                setup_op_sequence_concurrent_liveness_data(
-                    sess, op, op_id, &ld,
-                )
+                setup_op_sequence_concurrent_liveness_data(sess, op, op_id, ld)
             }
             OperatorData::Explode(op) => {
-                op.on_liveness_computed(sess, op_id, &ld)
+                op.on_liveness_computed(sess, op_id, ld)
             }
             OperatorData::Custom(op) => {
-                op.on_liveness_computed(sess, op_id, &ld)
+                op.on_liveness_computed(sess, op_id, ld)
             }
             OperatorData::Aggregator(agg) => {
                 for &sc_id in &agg.sub_ops {

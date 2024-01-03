@@ -27,8 +27,8 @@ use crate::{
             field_value_flags, FieldValueRepr, RunLength, INLINE_STR_MAX_LEN,
         },
         field_value::{
-            format_rational, Array, FormattingContext, Null, Object,
-            Undefined, RATIONAL_DIGITS,
+            format_rational, Array, FieldValue, FormattingContext, Null,
+            Object, Undefined, RATIONAL_DIGITS,
         },
         iter_hall::IterId,
         iters::FieldIterator,
@@ -39,9 +39,7 @@ use crate::{
             RefAwareInlineTextIter, RefAwareStreamValueIter,
             RefAwareTextBufferIter,
         },
-        stream_value::{
-            StreamValue, StreamValueData, StreamValueId, StreamValueManager,
-        },
+        stream_value::{StreamValue, StreamValueId, StreamValueManager},
         typed::TypedSlice,
         typed_iters::TypedSliceIter,
     },
@@ -398,7 +396,7 @@ impl Formatable<'_> for [u8] {
         } else {
             w.write_all(b"b\"").unwrap();
         }
-        let mut ew = EscapedWriter::new(w, '"' as u8);
+        let mut ew = EscapedWriter::new(w, b'"');
         ew.write_all(self).unwrap();
         ew.into_inner().unwrap().write_all(b"\"").unwrap();
     }
@@ -437,7 +435,7 @@ impl<'a> Formatable<'a> for str {
         } else {
             w.write_all(b"\"").unwrap();
         }
-        let mut ew = EscapedWriter::new(w, '"' as u8);
+        let mut ew = EscapedWriter::new(w, b'"');
         ew.write_all(self.as_bytes()).unwrap();
         ew.into_inner().unwrap().write_all(b"\"").unwrap();
     }
@@ -627,7 +625,7 @@ impl<'a> Formatable<'a> for OperatorApplicationError {
             }
         };
         w.write_fmt(format_args!("{sv}(error)\"")).unwrap();
-        let mut ew = EscapedWriter::new(w, '"' as u8);
+        let mut ew = EscapedWriter::new(w, b'"');
         std::io::Write::write_all(&mut ew, self.message().as_bytes()).unwrap();
         ew.into_inner().unwrap().write_all(b"\"").unwrap();
     }
@@ -1500,14 +1498,14 @@ pub fn setup_key_output_state(
                     is_stream_value: true,
                     type_repr_format: k.opts.type_repr,
                 };
-                for (sv_id, range, rl) in
+                //TODO: use range
+                for (sv_id, _range, rl) in
                     RefAwareStreamValueIter::from_range(&range, svs)
                 {
                     let sv = &mut sv_mgr.stream_values[sv_id];
 
-                    match &sv.data {
-                        StreamValueData::Dropped => unreachable!(),
-                        StreamValueData::Error(e) => {
+                    match &sv.value {
+                        FieldValue::Error(e) => {
                             if typed_format {
                                 iter_output_states(
                                     fmt,
@@ -1538,72 +1536,60 @@ pub fn setup_key_output_state(
                                 );
                             }
                         }
-                        StreamValueData::Bytes(b) => {
-                            let mut complete = sv.done;
-                            let mut data = b.as_slice();
+                        FieldValue::Text(_) | FieldValue::Bytes(_) => {
                             let mut idx_end = None;
-                            if let Some(r) = range {
-                                data = &data[r];
-                                complete = true;
-                            }
-                            let mut is_buffered = sv.is_buffered();
-                            let mut make_buffered = false;
-                            let mut handled_len = data.len();
-                            if !complete && !is_buffered {
+                            let mut handled_len =
+                                sv.value.as_ref().as_slice().as_bytes().len();
+                            if !sv.done && !sv.is_buffered {
                                 if typed_format {
                                     // PERF: split up debug quotes instead
-                                    make_buffered = true;
+                                    sv.is_buffered = true;
                                 } else if let Some(width_spec) =
                                     &k.min_char_count
                                 {
                                     let mut i = output_index;
                                     iter_output_states(fmt, &mut i, rl, |o| {
                                         if width_spec.width(o.min_char_count)
-                                            > data.len() / MAX_UTF8_CHAR_LEN
+                                            > handled_len / MAX_UTF8_CHAR_LEN
                                         {
-                                            make_buffered = true;
+                                            sv.is_buffered = true;
                                         }
                                     });
                                     idx_end = Some(i);
                                 }
                             }
-                            if complete || (!is_buffered && !make_buffered) {
+                            if sv.done || !sv.is_buffered {
                                 let mut i = output_index;
 
-                                if sv.bytes_are_utf8 {
-                                    iter_output_states(fmt, &mut i, rl, |o| {
-                                        o.len += calc_fmt_len_ost(
-                                            k,
-                                            formatting_opts,
-                                            o,
-                                            unsafe {
-                                                std::str::from_utf8_unchecked(
-                                                    data,
-                                                )
-                                            },
-                                        );
-                                        o.contains_raw_bytes = true;
-                                    });
-                                } else {
-                                    iter_output_states(fmt, &mut i, rl, |o| {
-                                        o.len += calc_fmt_len_ost(
-                                            k,
-                                            formatting_opts,
-                                            o,
-                                            data,
-                                        );
-                                    });
-                                }
+                                iter_output_states(fmt, &mut i, rl, |o| {
+                                    o.len += match &sv.value {
+                                        FieldValue::Bytes(b) => {
+                                            calc_fmt_len_ost(
+                                                k,
+                                                formatting_opts,
+                                                o,
+                                                b.as_slice(),
+                                            )
+                                        }
+                                        FieldValue::Text(t) => {
+                                            calc_fmt_len_ost(
+                                                k,
+                                                formatting_opts,
+                                                o,
+                                                t.as_str(),
+                                            )
+                                        }
+                                        _ => unreachable!(),
+                                    };
+                                    o.contains_raw_bytes = true;
+                                });
+
                                 idx_end = Some(i);
                             }
-                            if make_buffered {
-                                sv.promote_to_buffer();
-                                is_buffered = true;
-                            }
-                            if is_buffered {
+                            if sv.is_buffered {
                                 handled_len = 0;
                             }
-                            if !complete {
+                            if !sv.done {
                                 let mut i = output_index;
 
                                 iter_output_states_advanced(
@@ -1611,26 +1597,28 @@ pub fn setup_key_output_state(
                                     &mut i,
                                     rl as usize,
                                     |o| {
-                                        sv_mgr.stream_values[sv_id].subscribe(
+                                        let sv =
+                                            &mut sv_mgr.stream_values[sv_id];
+                                        sv.subscribe(
                                             tf_id,
                                             fmt.stream_value_handles
                                                 .peek_claim_id()
                                                 .into(),
-                                            is_buffered,
+                                            sv.is_buffered,
                                         );
+                                        let value = sv
+                                            .value
+                                            .as_ref()
+                                            .subslice(0..0)
+                                            .to_field_value();
+                                        let wait_to_end = sv.is_buffered;
                                         let target_sv_id = sv_mgr
                                             .stream_values
-                                            .claim_with_value(StreamValue {
-                                                data: StreamValueData::Bytes(
-                                                    Vec::new(),
-                                                ),
-                                                bytes_are_utf8: true,
-                                                bytes_are_chunk: true,
-                                                done: false,
-                                                subscribers: Default::default(
-                                                ),
-                                                ref_count: 1,
-                                            });
+                                            .claim_with_value(StreamValue::from_value_unfinished(
+                                                value,
+                                                true,
+                                            ));
+
                                         o.incomplete_stream_value_handle = Some(
                                             fmt.stream_value_handles
                                                 .claim_with_value(
@@ -1641,19 +1629,28 @@ pub fn setup_key_output_state(
                                                         min_char_count:
                                                             o.min_char_count,
                                                         float_precision: o.float_precision,
-                                                        wait_to_end:
-                                                            is_buffered,
+                                                        wait_to_end,
                                                     },
                                                 ),
                                         );
                                     },
                                 );
-
                                 idx_end = Some(i);
                             }
-
                             output_index = idx_end.unwrap();
                         }
+                        FieldValue::Undefined
+                        | FieldValue::Null
+                        | FieldValue::Int(_)
+                        | FieldValue::BigInt(_)
+                        | FieldValue::Float(_)
+                        | FieldValue::Rational(_)
+                        | FieldValue::Array(_)
+                        | FieldValue::Object(_)
+                        | FieldValue::Custom(_)
+                        | FieldValue::StreamValueId(_)
+                        | FieldValue::FieldReference(_)
+                        | FieldValue::SlicedFieldReference(_) => todo!(),
                     }
                 }
             }
@@ -1928,18 +1925,19 @@ fn setup_output_targets(
             );
         } else if let Some(handle_id) = os.incomplete_stream_value_handle {
             let handle = &mut fmt.stream_value_handles[handle_id];
-            if let StreamValueData::Bytes(buf) =
-                &mut sv_mgr.stream_values[handle.target_sv_id].data
-            {
-                buf.reserve(os.len);
-                unsafe {
-                    target = Some(NonNull::new_unchecked(buf.as_mut_ptr()));
-                }
-                // just to be 'rust compliant' ...
-                buf.extend(std::iter::repeat(0).take(os.len));
-            } else {
-                unreachable!();
+            let sv = &mut sv_mgr.stream_values[handle.target_sv_id];
+            let buf = match &mut sv.value {
+                FieldValue::Text(buf) => unsafe { buf.as_mut_vec() },
+                FieldValue::Bytes(buf) => buf,
+                FieldValue::Array(_) => todo!(),
+                _ => todo!(),
+            };
+            buf.reserve(os.len);
+            unsafe {
+                target = Some(NonNull::new_unchecked(buf.as_mut_ptr()));
             }
+            // just to be 'rust compliant' ...
+            buf.extend(std::iter::repeat(0).take(os.len));
             output_field.iter_hall.push_stream_value_id(
                 handle.target_sv_id,
                 os.run_len,
@@ -2221,9 +2219,8 @@ fn write_fmt_key(
                 {
                     let sv = &sv_mgr.stream_values[v];
 
-                    match &sv.data {
-                        StreamValueData::Dropped => unreachable!(),
-                        StreamValueData::Error(e) => {
+                    match &sv.value {
+                        FieldValue::Error(e) => {
                             iter_output_targets(
                                 fmt,
                                 &mut output_index,
@@ -2233,31 +2230,34 @@ fn write_fmt_key(
                                 },
                             );
                         }
-                        StreamValueData::Bytes(b) => {
+                        FieldValue::Bytes(_) | FieldValue::Text(_) => {
                             let has_range = range.is_some();
-                            let range = range.unwrap_or(0..b.len());
-                            if has_range || !sv.is_buffered() {
+                            let len = sv.value.as_ref().as_slice().len();
+                            let range = range.unwrap_or(0..len);
+                            if has_range || !sv.is_buffered {
                                 iter_output_targets(
                                     fmt,
                                     &mut output_index,
                                     rl as usize,
                                     |tgt| {
-                                        if sv.bytes_are_utf8 {
-                                            write_formatted(
-                                                k,
-                                                formatting_opts,
-                                                tgt,
-                                                unsafe {
-                                                    std::str::from_utf8_unchecked(&b[range.clone()])
-                                                },
-                                            );
-                                        } else {
-                                            write_formatted(
-                                                k,
-                                                formatting_opts,
-                                                tgt,
-                                                &b[range.clone()],
-                                            );
+                                        match &sv.value {
+                                            FieldValue::Text(t) => {
+                                                write_formatted(
+                                                    k,
+                                                    formatting_opts,
+                                                    tgt,
+                                                    &t[range.clone()],
+                                                )
+                                            }
+                                            FieldValue::Bytes(b) => {
+                                                write_formatted(
+                                                    k,
+                                                    formatting_opts,
+                                                    tgt,
+                                                    &b[range.clone()],
+                                                )
+                                            }
+                                            _ => unreachable!(),
                                         }
                                         if !sv.done {
                                             tgt.target = None;
@@ -2275,6 +2275,7 @@ fn write_fmt_key(
                                 );
                             }
                         }
+                        _ => todo!(),
                     }
                 }
             }
@@ -2491,7 +2492,6 @@ pub fn handle_tf_format(
     fmt.output_targets.clear();
     drop(output_field);
     let streams_done = fmt.stream_value_handles.is_empty();
-    sess.tf_mgr.transforms[tf_id].pending_stream_values = !streams_done;
     if streams_done {
         if ps.input_done {
             drop_field_refs(sess, fmt);
@@ -2517,24 +2517,39 @@ pub fn handle_tf_format_stream_value_update(
         .get_two_distinct_mut(sv_id, handle.target_sv_id);
     let (sv, mut out_sv) = (sv.unwrap(), out_sv.unwrap());
     let done = sv.done;
-    match &sv.data {
-        StreamValueData::Error(err) => {
+    match &sv.value {
+        FieldValue::Error(err) => {
             debug_assert!(sv.done);
-            out_sv.data = StreamValueData::Error(err.clone());
+            out_sv.value = FieldValue::Error(err.clone());
         }
-        StreamValueData::Bytes(data) => {
-            let tgt_buf = match &mut out_sv.data {
-                StreamValueData::Dropped => unreachable!(),
-                StreamValueData::Error(_) => unreachable!(),
-                StreamValueData::Bytes(tgt_buf) => tgt_buf,
+        FieldValue::Bytes(_) | FieldValue::Text(_) => {
+            let mut src_is_utf8 = true;
+            let src_buf = match &mut sv.value {
+                FieldValue::Bytes(buf) => {
+                    src_is_utf8 = false;
+                    buf
+                }
+                FieldValue::Text(buf) => unsafe { buf.as_mut_vec() },
+                _ => unreachable!(),
             };
-            if out_sv.bytes_are_chunk {
+            let tgt_buf = match &mut out_sv.value {
+                FieldValue::Bytes(buf) => buf,
+                FieldValue::Text(buf) => {
+                    // TODO: enforce this by chosing a bytes stream value
+                    // in case any BytesLiteral or Key with a bytes stream value
+                    // is present
+                    assert!(src_is_utf8);
+                    unsafe { buf.as_mut_vec() }
+                }
+                _ => unreachable!(),
+            };
+            if out_sv.is_buffered {
                 tgt_buf.clear();
             }
-            if !sv.bytes_are_chunk {
+            if !sv.is_buffered {
                 if !handle.wait_to_end {
                     if sv.done {
-                        tgt_buf.extend(&data[handle.handled_len..]);
+                        tgt_buf.extend(&src_buf[handle.handled_len..]);
                     } else {
                         // TODO: change the subscription type
                     }
@@ -2556,7 +2571,7 @@ pub fn handle_tf_format_stream_value_update(
                         k.realize_min_char_count(handle.min_char_count),
                         k.realize_max_char_count(handle.float_precision),
                         0,
-                        data.as_slice(),
+                        src_buf.as_slice(), //text or bytes doesn't matter here
                     );
 
                     tgt_buf.reserve(len);
@@ -2577,7 +2592,7 @@ pub fn handle_tf_format_stream_value_update(
                             k,
                             formatting_opts,
                             &mut output_target,
-                            data.as_slice(),
+                            src_buf.as_slice(),
                         );
                         tgt_buf.set_len(tgt_buf.len() + len);
                     };
@@ -2587,13 +2602,13 @@ pub fn handle_tf_format_stream_value_update(
                         .inform_stream_value_subscribers(handle.target_sv_id);
                 }
             } else {
-                handle.handled_len += data.len();
-                tgt_buf.extend(data);
+                handle.handled_len += src_buf.len();
+                tgt_buf.extend_from_slice(src_buf);
                 sess.sv_mgr
                     .inform_stream_value_subscribers(handle.target_sv_id);
             }
         }
-        StreamValueData::Dropped => unreachable!(),
+        _ => todo!(),
     }
     if !done {
         return;
@@ -2601,15 +2616,27 @@ pub fn handle_tf_format_stream_value_update(
 
     out_sv = &mut sess.sv_mgr.stream_values[handle.target_sv_id];
     let mut i = handle.part_idx as usize + 1;
-    if let StreamValueData::Bytes(bb) = &mut out_sv.data {
+
+    let mut tgt_is_utf8 = false;
+    let tgt_buf = match &mut out_sv.value {
+        FieldValue::Bytes(buf) => Some(buf),
+        FieldValue::Text(buf) => {
+            tgt_is_utf8 = true;
+            unsafe { Some(buf.as_mut_vec()) }
+        }
+        FieldValue::Error(_) => None,
+        _ => todo!(),
+    };
+
+    if let Some(buf) = tgt_buf {
         while i < fmt.op.parts.len() {
             match &fmt.op.parts[i] {
                 FormatPart::ByteLiteral(l) => {
-                    bb.extend_from_slice(l);
-                    out_sv.bytes_are_utf8 = false;
+                    assert!(!tgt_is_utf8);
+                    buf.extend_from_slice(l);
                 }
                 FormatPart::TextLiteral(l) => {
-                    bb.extend_from_slice(l.as_bytes());
+                    buf.extend_from_slice(l.as_bytes());
                 }
                 FormatPart::Key(_k) => {
                     todo!();
@@ -2618,8 +2645,6 @@ pub fn handle_tf_format_stream_value_update(
             i += 1;
         }
         handle.part_idx = i as FormatPartIndex;
-    } else {
-        unreachable!();
     }
     out_sv.done = true;
     sess.sv_mgr
@@ -2628,8 +2653,6 @@ pub fn handle_tf_format_stream_value_update(
         .drop_field_value_subscription(handle.target_sv_id, None);
     fmt.stream_value_handles.release(handle_id);
     if fmt.stream_value_handles.is_empty() {
-        let tf = &mut sess.tf_mgr.transforms[tf_id];
-        tf.pending_stream_values = false;
         sess.tf_mgr.push_tf_in_ready_stack(tf_id);
     }
 }

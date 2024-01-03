@@ -23,6 +23,8 @@ use super::{
     field::{FieldManager, FieldRefOffset},
     field_data::{FieldValueRepr, FieldValueType, FixedSizeFieldValueType},
     match_set::MatchSetManager,
+    stream_value::StreamValueId,
+    typed::FieldValueRef,
 };
 
 // the different logical data types
@@ -43,6 +45,7 @@ pub enum FieldValueKind {
     Array,
     FieldReference,
     SlicedFieldReference,
+    StreamValueId,
     Custom,
 }
 
@@ -52,10 +55,11 @@ impl Display for FieldValueKind {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub enum FieldValue {
-    Null,
+    #[default]
     Undefined,
+    Null,
     Int(i64),
     // this is the only field that's allowed to be 32 bytes large
     // this still keeps FieldValue at 32 bytes due to Rust's
@@ -69,6 +73,7 @@ pub enum FieldValue {
     Object(Object),
     Custom(CustomDataBox),
     Error(OperatorApplicationError),
+    StreamValueId(StreamValueId),
     FieldReference(FieldReference),
     SlicedFieldReference(SlicedFieldReference),
 }
@@ -184,6 +189,7 @@ impl FieldValueKind {
             FieldValueKind::SlicedFieldReference => {
                 FieldValueRepr::SlicedFieldReference
             }
+            FieldValueKind::StreamValueId => FieldValueRepr::StreamValueId,
         }
     }
     pub fn to_guaranteed_data_repr(self) -> FieldValueRepr {
@@ -204,6 +210,7 @@ impl FieldValueKind {
             FieldValueKind::SlicedFieldReference => {
                 FieldValueRepr::SlicedFieldReference
             }
+            FieldValueKind::StreamValueId => FieldValueRepr::StreamValueId,
         }
     }
     pub fn to_str(self) -> &'static str {
@@ -222,6 +229,7 @@ impl FieldValueKind {
             FieldValueKind::Array => "array",
             FieldValueKind::FieldReference => "field_reference",
             FieldValueKind::SlicedFieldReference => "sliced_field_reference",
+            FieldValueKind::StreamValueId => "stream_value_id",
         }
     }
 }
@@ -245,6 +253,9 @@ impl PartialEq for FieldValue {
             }
             Self::SlicedFieldReference(l) => {
                 matches!(other, Self::SlicedFieldReference(r) if r == l)
+            }
+            Self::StreamValueId(l) => {
+                matches!(other, Self::StreamValueId(r) if l == r)
             }
             Self::Custom(l) => matches!(other, Self::Custom(r) if r == l),
             Self::Null => matches!(other, Self::Null),
@@ -272,6 +283,7 @@ impl FieldValue {
                 FieldValueKind::SlicedFieldReference
             }
             FieldValue::Custom(_) => FieldValueKind::Custom,
+            FieldValue::StreamValueId(_) => FieldValueKind::StreamValueId,
         }
     }
     pub fn downcast_ref<R: FieldValueType>(&self) -> Option<&R> {
@@ -290,6 +302,7 @@ impl FieldValue {
             FieldValue::Error(v) => <dyn Any>::downcast_ref(v),
             FieldValue::FieldReference(v) => <dyn Any>::downcast_ref(v),
             FieldValue::SlicedFieldReference(v) => <dyn Any>::downcast_ref(v),
+            FieldValue::StreamValueId(v) => <dyn Any>::downcast_ref(v),
         }
     }
     pub fn downcast_mut<R: FieldValueType>(&mut self) -> Option<&mut R> {
@@ -308,6 +321,7 @@ impl FieldValue {
             FieldValue::Error(v) => <dyn Any>::downcast_mut(v),
             FieldValue::FieldReference(v) => <dyn Any>::downcast_mut(v),
             FieldValue::SlicedFieldReference(v) => <dyn Any>::downcast_mut(v),
+            FieldValue::StreamValueId(v) => <dyn Any>::downcast_mut(v),
         }
     }
     pub fn downcast<R: FixedSizeFieldValueType>(self) -> Option<R> {
@@ -326,6 +340,58 @@ impl FieldValue {
         let mut this = ManuallyDrop::new(self);
         this.downcast_mut().map(|v| unsafe { std::ptr::read(v) })
     }
+    pub fn as_ref(&self) -> FieldValueRef {
+        match self {
+            FieldValue::Undefined => FieldValueRef::Undefined,
+            FieldValue::Null => FieldValueRef::Null,
+            FieldValue::Int(v) => FieldValueRef::Int(v),
+            FieldValue::BigInt(v) => FieldValueRef::BigInt(v),
+            FieldValue::Float(v) => FieldValueRef::Float(v),
+            FieldValue::Rational(v) => FieldValueRef::Rational(v),
+            FieldValue::Text(v) => FieldValueRef::Text(v),
+            FieldValue::Bytes(v) => FieldValueRef::Bytes(v),
+            FieldValue::Array(v) => FieldValueRef::Array(v),
+            FieldValue::Object(v) => FieldValueRef::Object(v),
+            FieldValue::Custom(v) => FieldValueRef::Custom(v),
+            FieldValue::Error(v) => FieldValueRef::Error(v),
+            FieldValue::StreamValueId(v) => FieldValueRef::StreamValueId(v),
+            FieldValue::FieldReference(v) => FieldValueRef::FieldReference(v),
+            FieldValue::SlicedFieldReference(v) => {
+                FieldValueRef::SlicedFieldReference(v)
+            }
+        }
+    }
+    pub fn format(
+        &self,
+        w: &mut impl std::io::Write,
+        fc: &FormattingContext<'_>,
+    ) -> std::io::Result<()> {
+        match self {
+            FieldValue::Null => w.write(NULL_STR.as_bytes()).map(|_| ()),
+            FieldValue::Undefined => {
+                w.write(UNDEFINED_STR.as_bytes()).map(|_| ())
+            }
+            FieldValue::Int(v) => w.write_fmt(format_args!("{v}")),
+            FieldValue::BigInt(v) => w.write_fmt(format_args!("{v}")),
+            FieldValue::Float(v) => w.write_fmt(format_args!("{v}")),
+            FieldValue::Rational(v) => {
+                if fc.print_rationals_raw {
+                    w.write_fmt(format_args!("{v}"))
+                } else {
+                    format_rational(w, v, RATIONAL_DIGITS)
+                }
+            }
+            FieldValue::Bytes(v) => format_bytes(w, v),
+            FieldValue::Text(v) => format_quoted_string(w, v),
+            FieldValue::Error(e) => format_error(w, e),
+            FieldValue::Array(a) => a.format(w, fc),
+            FieldValue::Object(o) => o.format(w, fc),
+            FieldValue::FieldReference(_) => todo!(),
+            FieldValue::SlicedFieldReference(_) => todo!(),
+            FieldValue::StreamValueId(_) => todo!(),
+            FieldValue::Custom(v) => v.stringify(w, &fc.rfk).map(|_| ()),
+        }
+    }
 }
 
 pub fn format_bytes(
@@ -333,7 +399,7 @@ pub fn format_bytes(
     v: &[u8],
 ) -> std::io::Result<()> {
     w.write_all(b"b'")?;
-    let mut w = EscapedWriter::new(w, '"' as u8);
+    let mut w = EscapedWriter::new(w, b'"');
     w.write_all(v)?;
     w.into_inner().unwrap().write_all(b"'")?;
     Ok(())
@@ -344,7 +410,7 @@ pub fn format_quoted_string(
     v: &str,
 ) -> std::io::Result<()> {
     w.write_all(b"\"")?;
-    let mut w = EscapedWriter::new(w, '"' as u8);
+    let mut w = EscapedWriter::new(w, b'"');
     w.write_all(v.as_bytes())?;
     w.into_inner().unwrap().write_all(b"\"")?;
     Ok(())
@@ -416,39 +482,6 @@ pub fn format_rational(
     }
     w.write_fmt(format_args!("{}", &decimal_part))?;
     Ok(())
-}
-
-impl FieldValue {
-    pub fn format(
-        &self,
-        w: &mut impl std::io::Write,
-        fc: &FormattingContext<'_>,
-    ) -> std::io::Result<()> {
-        match self {
-            FieldValue::Null => w.write(NULL_STR.as_bytes()).map(|_| ()),
-            FieldValue::Undefined => {
-                w.write(UNDEFINED_STR.as_bytes()).map(|_| ())
-            }
-            FieldValue::Int(v) => w.write_fmt(format_args!("{v}")),
-            FieldValue::BigInt(v) => w.write_fmt(format_args!("{v}")),
-            FieldValue::Float(v) => w.write_fmt(format_args!("{v}")),
-            FieldValue::Rational(v) => {
-                if fc.print_rationals_raw {
-                    w.write_fmt(format_args!("{v}"))
-                } else {
-                    format_rational(w, v, RATIONAL_DIGITS)
-                }
-            }
-            FieldValue::Bytes(v) => format_bytes(w, v),
-            FieldValue::Text(v) => format_quoted_string(w, v),
-            FieldValue::Error(e) => format_error(w, e),
-            FieldValue::Array(a) => a.format(w, fc),
-            FieldValue::Object(o) => o.format(w, fc),
-            FieldValue::FieldReference(_) => todo!(),
-            FieldValue::SlicedFieldReference(_) => todo!(),
-            FieldValue::Custom(v) => v.stringify(w, &fc.rfk).map(|_| ()),
-        }
-    }
 }
 
 impl Object {

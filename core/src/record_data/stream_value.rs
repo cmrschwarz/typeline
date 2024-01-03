@@ -2,25 +2,9 @@ use std::collections::VecDeque;
 
 use smallvec::SmallVec;
 
-use crate::{
-    operators::{errors::OperatorApplicationError, transform::TransformId},
-    utils::universe::Universe,
-};
+use crate::{operators::transform::TransformId, utils::universe::Universe};
 
-#[derive(Clone)]
-pub enum StreamValueData {
-    Dropped,
-    Error(OperatorApplicationError),
-    Bytes(Vec<u8>),
-    // // TODO
-    // BytesChunk(Vec<u8>),
-    // BytesBuffer(Vec<u8>),
-    // BytesFile(File),
-    // TextFile(File),
-    // ArrayChunk(FieldData),
-    // ArrayBuffer(FieldData),
-    // ArrayFile(File, File),
-}
+use super::field_value::FieldValue;
 
 pub struct StreamValueUpdate {
     pub sv_id: StreamValueId,
@@ -35,9 +19,8 @@ pub struct StreamValueSubscription {
 }
 
 pub struct StreamValue {
-    pub data: StreamValueData,
-    pub bytes_are_utf8: bool,
-    pub bytes_are_chunk: bool,
+    pub value: FieldValue,
+    pub is_buffered: bool,
     pub done: bool,
     // transforms that want to be readied as soon as this receives any data
     pub subscribers: SmallVec<[StreamValueSubscription; 1]>,
@@ -45,11 +28,6 @@ pub struct StreamValue {
 }
 
 impl StreamValue {
-    pub fn promote_to_buffer(&mut self) {
-        if let StreamValueData::Bytes(_) = self.data {
-            self.bytes_are_chunk = false;
-        }
-    }
     pub fn subscribe(
         &mut self,
         tf_id: TransformId,
@@ -63,22 +41,31 @@ impl StreamValue {
         });
         self.ref_count += 1;
     }
-    pub fn is_buffered(&self) -> bool {
-        match self.data {
-            StreamValueData::Dropped => true,
-            StreamValueData::Error(_) => true,
-            StreamValueData::Bytes(_) => !self.bytes_are_chunk,
-        }
-    }
-    pub fn new(data: StreamValueData, utf8: bool, done: bool) -> StreamValue {
-        StreamValue {
-            data,
-            bytes_are_utf8: utf8,
-            bytes_are_chunk: !done,
-            done,
+    pub fn from_value(value: FieldValue) -> Self {
+        Self {
+            value,
+            is_buffered: true,
+            done: true,
             subscribers: Default::default(),
             ref_count: 1,
         }
+    }
+    pub fn from_value_unfinished(
+        value: FieldValue,
+        is_buffered: bool,
+    ) -> Self {
+        Self {
+            value,
+            is_buffered,
+            done: false,
+            subscribers: Default::default(),
+            ref_count: 1,
+        }
+    }
+}
+impl Default for StreamValue {
+    fn default() -> Self {
+        Self::from_value_unfinished(FieldValue::Undefined, false)
     }
 }
 
@@ -111,7 +98,7 @@ impl StreamValueManager {
         let sv = &mut self.stream_values[sv_id];
         sv.ref_count -= 1;
         if sv.ref_count == 0 {
-            sv.data = StreamValueData::Dropped;
+            sv.value = FieldValue::Undefined;
             self.stream_values.release(sv_id);
         } else if let Some(tf_id) = tf_id_to_remove {
             sv.subscribers.swap_remove(
@@ -125,7 +112,7 @@ impl StreamValueManager {
     pub fn check_stream_value_ref_count(&mut self, sv_id: StreamValueId) {
         let sv = &mut self.stream_values[sv_id];
         if sv.ref_count == 0 {
-            sv.data = StreamValueData::Dropped;
+            sv.value = FieldValue::Undefined;
             self.stream_values.release(sv_id);
         }
     }

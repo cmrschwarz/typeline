@@ -21,10 +21,11 @@ use scr_core::{
     },
     record_data::{
         field::FieldId,
+        field_value::FieldValue,
         iter_hall::IterId,
         push_interface::PushInterface,
-        stream_value::{StreamValue, StreamValueData, StreamValueId},
-        typed::TypedValue,
+        stream_value::{StreamValue, StreamValueId},
+        typed::FieldValueRef,
     },
     smallbox,
     utils::{identity_hasher::BuildIdentityHasher, universe::CountedUniverse},
@@ -130,8 +131,10 @@ impl Operator for OpHttpRequest {
         tf_state: &mut TransformState,
         _prebound_outputs: &HashMap<OpOutputIdx, FieldId, BuildIdentityHasher>,
     ) -> TransformData<'a> {
-        let mut tls_settings = TlsSettings::default();
-        tls_settings.alpn_protocol_list = vec!["HTTP/1.1".to_owned()];
+        let tls_settings = TlsSettings {
+            alpn_protocol_list: vec!["HTTP/1.1".to_owned()],
+            ..Default::default()
+        };
         let tf = TfHttpRequest {
             running_connections: CountedUniverse::default(),
             poll: Poll::new().unwrap(),
@@ -157,7 +160,7 @@ impl TfHttpRequest {
             Ok(u) => u,
             Err(e) => match e {
                 ParseError::RelativeUrlWithoutBase => {
-                    if url.trim().starts_with("/") {
+                    if url.trim().starts_with('/') {
                         return Err(e.into());
                     }
                     let mut with_scheme = String::from("http://");
@@ -209,7 +212,10 @@ impl TfHttpRequest {
             .unwrap();
 
         let stream_value = bud.sv_mgr.stream_values.claim_with_value(
-            StreamValue::new(StreamValueData::Bytes(Vec::new()), false, false),
+            StreamValue::from_value_unfinished(
+                FieldValue::Bytes(Vec::new()),
+                false,
+            ),
         );
 
         //Accept-Encoding: identity\r\n\
@@ -247,7 +253,7 @@ impl TfHttpRequest {
             // but we don't bother making that fast
             for _ in 0..rl {
                 match v {
-                    TypedValue::TextInline(txt) => {
+                    FieldValueRef::Text(txt) => {
                         match self.register_steam(txt, &mut bud) {
                             Ok(sv_id) => inserter
                                 .push_stream_value_id(sv_id, 1, true, false),
@@ -264,8 +270,7 @@ impl TfHttpRequest {
                             ),
                         }
                     }
-                    TypedValue::BytesBuffer(_)
-                    | TypedValue::BytesInline(_) => todo!(),
+                    FieldValueRef::Bytes(_) => todo!(),
                     _ => inserter.push_error(
                         OperatorApplicationError::new_s(
                             format!(
@@ -429,11 +434,10 @@ impl Transform for TfHttpRequest {
                 let _ = pe.socket.shutdown(std::net::Shutdown::Both);
                 let sv_id = pe.stream_value.unwrap();
                 let sv = &mut jd.sv_mgr.stream_values[sv_id];
-                sv.data =
-                    StreamValueData::Error(OperatorApplicationError::new_s(
-                        format!("IO Error in HTTP GET Request: {e}"),
-                        jd.tf_mgr.transforms[tf_id].op_id.unwrap(),
-                    ));
+                sv.value = FieldValue::Error(OperatorApplicationError::new_s(
+                    format!("IO Error in HTTP GET Request: {e}"),
+                    jd.tf_mgr.transforms[tf_id].op_id.unwrap(),
+                ));
                 sv.done = true;
                 jd.sv_mgr.inform_stream_value_subscribers(sv_id);
                 jd.sv_mgr.drop_field_value_subscription(sv_id, None);
@@ -448,22 +452,21 @@ impl Transform for TfHttpRequest {
             let sv_id = req.stream_value.unwrap();
             let sv = &mut jd.sv_mgr.stream_values[sv_id];
 
-            let StreamValueData::Bytes(buf) = &mut sv.data else {
+            let FieldValue::Bytes(buf) = &mut sv.value else {
                 unreachable!()
             };
-            if req.header_parsed && sv.bytes_are_chunk {
+            if req.header_parsed && sv.is_buffered {
                 buf.clear();
             }
             let buf_len_before = buf.len();
             let mut update = false;
             match process_event(event, req, buf, self.stream_buffer_size) {
                 Err(e) => {
-                    sv.data = StreamValueData::Error(
-                        OperatorApplicationError::new_s(
+                    sv.value =
+                        FieldValue::Error(OperatorApplicationError::new_s(
                             format!("IO Error in HTTP GET Request: {e}"),
                             jd.tf_mgr.transforms[tf_id].op_id.unwrap(),
-                        ),
-                    );
+                        ));
                     sv.done = true;
                 }
                 Ok(eof) => {
@@ -485,7 +488,7 @@ impl Transform for TfHttpRequest {
                     }
                     if eof {
                         if !req.header_parsed {
-                            sv.data = StreamValueData::Error(
+                            sv.value = FieldValue::Error(
                                 OperatorApplicationError::new(
                                     if req.response_size == 0 {
                                         "HTTP GET got no response"
@@ -501,7 +504,7 @@ impl Transform for TfHttpRequest {
                 }
             }
             if let Some(len) = req.expected_response_size {
-                if let StreamValueData::Bytes(buf) = &mut sv.data {
+                if let FieldValue::Bytes(buf) = &mut sv.value {
                     if req.header_parsed && req.response_size >= len {
                         if let Some(tls) = &mut req.tls_conn {
                             tls.send_close_notify();

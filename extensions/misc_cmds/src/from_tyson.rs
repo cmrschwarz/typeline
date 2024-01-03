@@ -10,19 +10,22 @@ use scr_core::{
         operator::{Operator, OperatorBase, OperatorData, OperatorId},
         transform::{
             basic_transform_update, BasicUpdateData, DefaultTransformName,
-            Transform, TransformData, TransformState,
+            Transform, TransformData, TransformId, TransformState,
         },
     },
     record_data::{
         action_buffer::ActorRef,
         field::FieldId,
         field_data::{FieldData, RunLength},
+        field_value::FieldValue,
         iter_hall::IterId,
         push_interface::{PushInterface, VaryingTypeInserter},
         ref_iter::{
             RefAwareBytesBufferIter, RefAwareInlineBytesIter,
-            RefAwareInlineTextIter, RefAwareTextBufferIter,
+            RefAwareInlineTextIter, RefAwareStreamValueIter,
+            RefAwareTextBufferIter,
         },
+        stream_value::StreamValueId,
         typed::TypedSlice,
     },
     smallbox,
@@ -169,7 +172,39 @@ impl TfFromTyson {
                         );
                     }
                 }
-                TypedSlice::StreamValueId(_) => {}
+                TypedSlice::StreamValueId(vals) => {
+                    for (sv_id, range, rl) in
+                        RefAwareStreamValueIter::from_range(&range, vals)
+                    {
+                        let sv = &bud.sv_mgr.stream_values[sv_id];
+                        match &sv.value {
+                            FieldValue::Bytes(b) => {
+                                if sv.done {
+                                    self.push_as_tyson(
+                                        &bud,
+                                        &mut inserter,
+                                        &b[range.unwrap_or(0..b.len())],
+                                        rl,
+                                        op_id,
+                                        fpm,
+                                    )
+                                } else {
+                                    let out_sv_id =
+                                        bud.sv_mgr.stream_values.claim();
+                                    bud.sv_mgr.stream_values[sv_id]
+                                        .subscribe(bud.tf_id, out_sv_id, true)
+                                }
+                            }
+                            FieldValue::Error(e) => inserter.push_error(
+                                e.clone(),
+                                rl as usize,
+                                true,
+                                true,
+                            ),
+                            _ => todo!(),
+                        }
+                    }
+                }
                 TypedSlice::Undefined(_)
                 | TypedSlice::Null(_)
                 | TypedSlice::Int(_)
@@ -214,6 +249,15 @@ impl Transform for TfFromTyson {
         basic_transform_update(jd, tf_id, [], self.input_iter_id, |bud| {
             self.transform_update(bud)
         });
+    }
+
+    fn handle_stream_value_update(
+        &mut self,
+        _sess: &mut JobData,
+        _tf_id: TransformId,
+        _sv_id: StreamValueId,
+        _custom: usize,
+    ) {
     }
 }
 

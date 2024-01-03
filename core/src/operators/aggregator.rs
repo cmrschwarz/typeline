@@ -38,8 +38,7 @@ pub struct TfAggregatorTrailer {
 }
 
 pub fn create_op_aggregate(sub_ops: Vec<OperatorId>) -> OperatorData {
-    let op_data = OperatorData::Aggregator(OpAggregator { sub_ops });
-    op_data
+    OperatorData::Aggregator(OpAggregator { sub_ops })
 }
 
 pub fn create_op_aggregator_append_leader(
@@ -72,7 +71,7 @@ pub fn setup_op_aggregator(
     else {
         unreachable!()
     };
-    Ok(for i in 0..agg.sub_ops.len() {
+    for i in 0..agg.sub_ops.len() {
         let OperatorData::Aggregator(agg) =
             &sess_operator_data[op_id as usize]
         else {
@@ -89,7 +88,8 @@ pub fn setup_op_aggregator(
             sub_op_id,
             chain_id,
         )?;
-    })
+    }
+    Ok(())
 }
 
 pub fn add_aggregate_to_sess_opts_uninit(
@@ -185,20 +185,20 @@ pub fn handle_tf_aggregator_header(
     tf_id: nonmax::NonMaxUsize,
 ) {
     let TransformData::AggregatorHeader(header) =
-        &sess.transform_data[tf_id.get() as usize]
+        &sess.transform_data[tf_id.get()]
     else {
         unreachable!()
     };
     let trailer_id = header.trailer_tf_id;
     let sub_tf_idx = if let TransformData::AggregatorTrailer(trailer) =
-        &sess.transform_data[trailer_id.get() as usize]
+        &sess.transform_data[trailer_id.get()]
     {
         trailer.curr_sub_tf_idx
     } else {
         unreachable!()
     };
     let TransformData::AggregatorHeader(header) =
-        &mut sess.transform_data[tf_id.get() as usize]
+        &mut sess.transform_data[tf_id.get()]
     else {
         unreachable!()
     };

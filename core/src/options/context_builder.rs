@@ -51,7 +51,7 @@ impl ContextBuilder {
             ..Default::default()
         }
     }
-    fn create_op_base_opts<'a, F: FnOnce() -> DefaultOperatorName>(
+    fn create_op_base_opts<F: FnOnce() -> DefaultOperatorName>(
         &mut self,
         default_name: F,
         argname: Option<&str>,

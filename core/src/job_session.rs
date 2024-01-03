@@ -882,7 +882,7 @@ impl<'a> JobSession<'a> {
             "> handling stream value {} update for tf {} (`{}`)",
             svu.sv_id,
             svu.tf_id,
-            self.transform_data[svu.tf_id.get() as usize].display_name()
+            self.transform_data[svu.tf_id.get()].display_name()
         );
         match &mut self.transform_data[usize::from(svu.tf_id)] {
             TransformData::Print(tf) => handle_tf_print_stream_value_update(
@@ -974,7 +974,7 @@ impl<'a> JobSession<'a> {
             let tf = &self.job_data.tf_mgr.transforms[tf_id];
             println!(
             "> handling tf {tf_id} `{}`, bsa: {}, id: {}, od: {}, stack: {:?}",
-            self.transform_data[tf_id.get() as usize].display_name(),
+            self.transform_data[tf_id.get()].display_name(),
             tf.available_batch_size,
             tf.input_is_done,
             tf.output_is_done,
@@ -1094,10 +1094,7 @@ impl<'a> JobSession<'a> {
             TransformData::Disabled => unreachable!(),
         }
         if let Some(tf) = self.job_data.tf_mgr.transforms.get(tf_id) {
-            if tf.mark_for_removal
-                && !tf.is_stream_producer
-                && !tf.pending_stream_values
-            {
+            if tf.mark_for_removal && !tf.is_stream_producer {
                 self.remove_transform(tf_id);
             }
         }

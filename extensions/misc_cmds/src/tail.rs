@@ -81,7 +81,7 @@ impl Operator for OpTail {
             unimplemented!("tail absolute mode")
         }
         TransformData::Custom(smallbox!(TfTailAdd {
-            skip_count: self.count as usize,
+            skip_count: self.count,
             actor_id
         }))
     }
@@ -156,7 +156,7 @@ pub fn parse_op_tail(
             )
         })?
         .trim();
-    let add_mode = value_str.chars().next() == Some('+');
+    let add_mode = value_str.starts_with('+');
     let count = parse_int_with_units::<isize>(value_str)
         .map_err(|msg| {
             OperatorCreationError::new_s(

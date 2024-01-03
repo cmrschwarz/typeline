@@ -16,7 +16,7 @@ use crate::{
             RefAwareInlineTextIter, RefAwareStreamValueIter,
             RefAwareTextBufferIter,
         },
-        stream_value::{StreamValueData, StreamValueId},
+        stream_value::StreamValueId,
         typed::TypedSlice,
         typed_iters::TypedSliceIter,
     },
@@ -84,30 +84,6 @@ pub fn build_tf_field_value_sink<'a>(
         batch_iter: sess.field_mgr.claim_iter(tf_state.input_field),
         stream_value_handles: Default::default(),
     })
-}
-
-fn append_to_index(
-    fvs: &mut FieldValueSink,
-    start_idx: usize,
-    run_len: usize,
-    data: &[u8],
-    utf8: bool,
-) {
-    for fv in &mut fvs[start_idx..start_idx + run_len] {
-        match fv {
-            FieldValue::Text(t) => {
-                if utf8 {
-                    t.push_str(unsafe { std::str::from_utf8_unchecked(data) });
-                } else {
-                    let mut b = std::mem::take(t).into_bytes();
-                    b.extend_from_slice(data);
-                    *fv = FieldValue::Bytes(b);
-                }
-            }
-            FieldValue::Bytes(b) => b.extend_from_slice(data),
-            _ => unreachable!(),
-        }
-    }
 }
 
 fn push_field_values(fvs: &mut FieldValueSink, v: FieldValue, run_len: usize) {
@@ -270,59 +246,27 @@ pub fn handle_tf_field_value_sink(
                 for (svid, range, rl) in
                     RefAwareStreamValueIter::from_range(&range, svs)
                 {
+                    let start_idx = pos;
+                    let run_len = rl as usize;
+                    pos += run_len;
                     let sv = &mut sess.sv_mgr.stream_values[svid];
-
-                    match &sv.data {
-                        StreamValueData::Bytes(bytes) => {
-                            let data =
-                                range.map(|r| &bytes[r]).unwrap_or(bytes);
-                            let fv = if sv.done || sv.bytes_are_chunk {
-                                if sv.bytes_are_utf8 {
-                                    FieldValue::Bytes(data.to_vec())
-                                } else {
-                                    FieldValue::Text(
-                                        unsafe {
-                                            std::str::from_utf8_unchecked(data)
-                                        }
-                                        .to_string(),
-                                    )
-                                }
-                            } else {
-                                // just to initialize the slots
-                                FieldValue::Bytes(Vec::new())
-                            };
-                            push_field_values(&mut fvs, fv, rl as usize);
-                            if !sv.done {
-                                sv.subscribe(
-                                    tf_id,
-                                    ss.stream_value_handles.peek_claim_id(),
-                                    sv.is_buffered(),
-                                );
-                                ss.stream_value_handles.claim_with_value(
-                                    StreamValueHandle {
-                                        start_idx: pos,
-                                        run_len: rl as usize,
-                                    },
-                                );
-                            }
-                        }
-                        StreamValueData::Error(e) => {
-                            push_field_values(
-                                &mut fvs,
-                                FieldValue::Error(e.clone()),
-                                rl as usize,
+                    if !sv.done {
+                        let handle_id =
+                            ss.stream_value_handles.claim_with_value(
+                                StreamValueHandle { start_idx, run_len },
                             );
-                            push_errors(
-                                e.clone(),
-                                rl as usize,
-                                pos,
-                                &mut last_error_end,
-                                &mut output_field,
-                            );
-                        }
-                        StreamValueData::Dropped => unreachable!(),
+                        sv.subscribe(tf_id, handle_id, true);
+                        continue;
                     }
-                    pos += rl as usize;
+                    if let Some(range) = range {
+                        push_field_values(
+                            &mut fvs,
+                            sv.value.as_ref().subslice(range).to_field_value(),
+                            run_len,
+                        );
+                        continue;
+                    }
+                    push_field_values(&mut fvs, sv.value.clone(), run_len);
                 }
             }
             TypedSlice::BigInt(_)
@@ -384,49 +328,16 @@ pub fn handle_tf_field_value_sink_stream_value_update(
     sv_id: StreamValueId,
     custom: usize,
 ) {
-    let mut out = tf.handle.lock().unwrap();
+    let mut fvs = tf.handle.lock().unwrap();
     let svh = &mut tf.stream_value_handles[custom];
     let sv = &mut sess.sv_mgr.stream_values[sv_id];
-
-    match &sv.data {
-        StreamValueData::Bytes(b) => {
-            if sv.bytes_are_chunk || sv.done {
-                let out_bytes = match &mut out[svh.start_idx] {
-                    FieldValue::Text(t) => t.as_bytes(),
-                    FieldValue::Bytes(b) => b,
-                    _ => unreachable!(),
-                };
-                let buf = if sv.bytes_are_chunk {
-                    b.as_slice()
-                } else {
-                    // this could have been promoted to buffer after
-                    // we started treating it as a chunk, so skip any
-                    // data we already have
-                    &b[out_bytes.len()..]
-                };
-                append_to_index(
-                    &mut out,
-                    svh.start_idx,
-                    svh.run_len,
-                    buf,
-                    sv.bytes_are_utf8,
-                );
-            }
-        }
-        StreamValueData::Error(e) => {
-            debug_assert!(sv.done);
-            for i in svh.start_idx..svh.start_idx + svh.run_len {
-                out[i] = FieldValue::Error(e.clone());
-            }
-        }
-        StreamValueData::Dropped => panic!("dropped stream value observed"),
+    debug_assert!(sv.done);
+    for fv in &mut fvs[svh.start_idx..svh.start_idx + svh.run_len] {
+        *fv = sv.value.clone();
     }
-
-    if sv.done || matches!(sv.data, StreamValueData::Error(_)) {
-        sess.sv_mgr.drop_field_value_subscription(sv_id, None);
-        tf.stream_value_handles.release(custom);
-        if tf.stream_value_handles.is_empty() {
-            sess.tf_mgr.push_tf_in_ready_stack(tf_id);
-        }
+    sess.sv_mgr.drop_field_value_subscription(sv_id, None);
+    tf.stream_value_handles.release(custom);
+    if tf.stream_value_handles.is_empty() {
+        sess.tf_mgr.push_tf_in_ready_stack(tf_id);
     }
 }

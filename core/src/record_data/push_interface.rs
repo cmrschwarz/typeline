@@ -491,6 +491,12 @@ pub unsafe trait PushInterface {
                 try_header_rle,
                 try_data_rle,
             ),
+            FieldValue::StreamValueId(v) => self.push_fixed_size_type(
+                v,
+                run_length,
+                try_header_rle,
+                try_data_rle,
+            ),
         }
     }
     fn extend_from_ref_aware_range(
