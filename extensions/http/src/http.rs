@@ -455,7 +455,7 @@ impl Transform for TfHttpRequest {
             let FieldValue::Bytes(buf) = &mut sv.value else {
                 unreachable!()
             };
-            if req.header_parsed && sv.is_buffered {
+            if req.header_parsed && !sv.is_buffered {
                 buf.clear();
             }
             let buf_len_before = buf.len();

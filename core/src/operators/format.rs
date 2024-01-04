@@ -1498,8 +1498,7 @@ pub fn setup_key_output_state(
                     is_stream_value: true,
                     type_repr_format: k.opts.type_repr,
                 };
-                //TODO: use range
-                for (sv_id, _range, rl) in
+                for (sv_id, range, rl) in
                     RefAwareStreamValueIter::from_range(&range, svs)
                 {
                     let sv = &mut sv_mgr.stream_values[sv_id];
@@ -1558,7 +1557,7 @@ pub fn setup_key_output_state(
                                     idx_end = Some(i);
                                 }
                             }
-                            if sv.done || !sv.is_buffered {
+                            if sv.done || !sv.is_buffered || range.is_some() {
                                 let mut i = output_index;
 
                                 iter_output_states(fmt, &mut i, rl, |o| {
@@ -1568,7 +1567,9 @@ pub fn setup_key_output_state(
                                                 k,
                                                 formatting_opts,
                                                 o,
-                                                b.as_slice(),
+                                                &b[range
+                                                    .clone()
+                                                    .unwrap_or(0..b.len())],
                                             )
                                         }
                                         FieldValue::Text(t) => {
@@ -1576,7 +1577,9 @@ pub fn setup_key_output_state(
                                                 k,
                                                 formatting_opts,
                                                 o,
-                                                t.as_str(),
+                                                &t[range
+                                                    .clone()
+                                                    .unwrap_or(0..t.len())],
                                             )
                                         }
                                         _ => unreachable!(),
