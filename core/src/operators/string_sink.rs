@@ -469,18 +469,14 @@ pub fn handle_tf_string_sink(
                         _ => todo!(),
                     }
                     if !sv.done {
-                        sv.subscribe(
-                            tf_id,
-                            ss.stream_value_handles.peek_claim_id(),
-                            sv.is_buffered,
-                        );
-                        ss.stream_value_handles.claim_with_value(
-                            StreamValueHandle {
+                        let handle_id = ss
+                            .stream_value_handles
+                            .claim_with_value(StreamValueHandle {
                                 start_idx: pos,
                                 run_len: rl,
                                 contains_error: false,
-                            },
-                        );
+                            });
+                        sv.subscribe(tf_id, handle_id, sv.is_buffered);
                     }
                     pos += rl;
                 }

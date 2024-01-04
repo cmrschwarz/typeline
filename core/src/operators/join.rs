@@ -193,19 +193,13 @@ pub fn create_op_join_str(separator: &str, join_count: usize) -> OperatorData {
         drop_incomplete: false,
     })
 }
-pub fn push_str(
-    join: &mut TfJoin,
-    sv_mgr: &mut StreamValueManager,
-    data: &str,
-    rl: usize,
-) {
-    push_bytes_raw(join, sv_mgr, data.as_bytes(), rl);
-}
-fn get_join_buffer<'a>(
+unsafe fn get_join_buffer<'a>(
     join: &'a mut TfJoin,
     sv_mgr: &'a mut StreamValueManager,
     expected_len: usize,
+    expect_utf8: bool,
 ) -> &'a mut Vec<u8> {
+    join.buffer_is_valid_utf8 &= expect_utf8;
     if join.output_stream_val.is_none()
         && join.buffer.len() + expected_len > join.stream_len_threshold
     {
@@ -226,29 +220,33 @@ fn get_join_buffer<'a>(
     }
 
     if let Some(sv_id) = join.output_stream_val {
-        if let FieldValue::Bytes(bb) = &mut sv_mgr.stream_values[sv_id].value {
-            bb
-        } else {
-            unreachable!();
+        match &mut sv_mgr.stream_values[sv_id].value {
+            FieldValue::Bytes(bb) => bb,
+            FieldValue::Text(txt) => unsafe { txt.as_mut_vec() },
+            _ => unreachable!(),
         }
     } else {
         &mut join.buffer
     }
 }
-fn push_bytes_raw(
+unsafe fn push_bytes_raw(
     join: &mut TfJoin,
     sv_mgr: &mut StreamValueManager,
     data: &[u8],
     mut rl: usize,
+    expect_utf8: bool,
 ) {
     let first_record_added = join.first_record_added;
     join.first_record_added = true;
     let sep = join.separator;
-    let buf = get_join_buffer(
-        join,
-        sv_mgr,
-        (data.len() + join.separator.map(|s| s.len()).unwrap_or(0)) * rl,
-    );
+    let buf = unsafe {
+        get_join_buffer(
+            join,
+            sv_mgr,
+            (data.len() + join.separator.map(|s| s.len()).unwrap_or(0)) * rl,
+            expect_utf8,
+        )
+    };
     if let Some(sep) = sep {
         if !first_record_added {
             buf.extend_from_slice(data);
@@ -270,8 +268,7 @@ pub fn push_bytes(
     data: &[u8],
     rl: usize,
 ) {
-    join.buffer_is_valid_utf8 = false;
-    push_bytes_raw(join, sv_mgr, data, rl);
+    unsafe { push_bytes_raw(join, sv_mgr, data, rl, false) };
 }
 pub fn push_bytes_known_string(
     join: &mut TfJoin,
@@ -279,7 +276,15 @@ pub fn push_bytes_known_string(
     data: &[u8],
     rl: usize,
 ) {
-    push_bytes_raw(join, sv_mgr, data, rl);
+    unsafe { push_bytes_raw(join, sv_mgr, data, rl, true) };
+}
+pub fn push_str(
+    join: &mut TfJoin,
+    sv_mgr: &mut StreamValueManager,
+    data: &str,
+    rl: usize,
+) {
+    unsafe { push_bytes_raw(join, sv_mgr, data.as_bytes(), rl, true) };
 }
 
 pub fn emit_group(
@@ -598,7 +603,15 @@ fn try_consume_stream_values<'a>(
                     join.streams_kept_alive -= rc_diff;
                 }
                 if sv.done {
-                    push_bytes_raw(join, sv_mgr, b_laundered, rl as usize);
+                    unsafe {
+                        push_bytes_raw(
+                            join,
+                            sv_mgr,
+                            b_laundered,
+                            rl as usize,
+                            bytes_are_utf8,
+                        );
+                    }
                     sv_mgr.check_stream_value_ref_count(sv_id);
                 } else {
                     join.group_len += pos - field_pos;
@@ -609,7 +622,15 @@ fn try_consume_stream_values<'a>(
                         if rl != 1 {
                             sv.is_buffered = true;
                         }
-                        push_bytes_raw(join, sv_mgr, b_laundered, 1);
+                        unsafe {
+                            push_bytes_raw(
+                                join,
+                                sv_mgr,
+                                b_laundered,
+                                1,
+                                bytes_are_utf8,
+                            );
+                        }
                         join.stream_val_added_len = b_laundered.len();
                         debug_assert!(offsets.is_none());
                     }
@@ -660,14 +681,13 @@ fn push_custom_type(
         );
         return;
     };
-
-    join.buffer_is_valid_utf8 &= v.stringifies_as_valid_utf8();
     let first_record_added = join.first_record_added;
     join.first_record_added = true;
     let sep = join.separator;
     let sep_len = sep.map(|s| s.len()).unwrap_or(0);
     let target_len = (len + sep_len) * rl as usize;
-    let buf = get_join_buffer(join, sv_mgr, target_len);
+    let valid_utf8 = v.stringifies_as_valid_utf8();
+    let buf = unsafe { get_join_buffer(join, sv_mgr, target_len, valid_utf8) };
     let start_len = buf.len();
     buf.reserve(target_len);
     const ERR_MSG: &str = "custom stringify failed";
@@ -759,20 +779,40 @@ pub fn handle_tf_join_stream_value_update(
                 std::mem::transmute::<&'_ [u8], &'static [u8]>(src_buf)
             };
             let sv_added_len = join.stream_val_added_len;
-            if sv.is_buffered {
-                let buf =
-                    get_join_buffer(join, &mut sess.sv_mgr, src_buf.len());
+            if !sv.is_buffered {
+                let buf = unsafe {
+                    get_join_buffer(
+                        join,
+                        &mut sess.sv_mgr,
+                        src_buf.len(),
+                        bytes_are_utf8,
+                    )
+                };
                 buf.extend_from_slice(src_buf);
                 join.stream_val_added_len += src_buf.len();
             } else if sv.done {
                 if sv_added_len != 0 {
                     join.stream_val_added_len = 0;
-                    let buf =
-                        get_join_buffer(join, &mut sess.sv_mgr, src_buf.len());
+                    let buf = unsafe {
+                        get_join_buffer(
+                            join,
+                            &mut sess.sv_mgr,
+                            src_buf.len(),
+                            bytes_are_utf8,
+                        )
+                    };
                     buf.extend_from_slice(&src_buf[sv_added_len..]);
                     run_len -= 1;
                 }
-                push_bytes_raw(join, &mut sess.sv_mgr, src_buf, run_len);
+                unsafe {
+                    push_bytes_raw(
+                        join,
+                        &mut sess.sv_mgr,
+                        src_buf,
+                        run_len,
+                        bytes_are_utf8,
+                    )
+                };
             }
         }
         _ => todo!(),

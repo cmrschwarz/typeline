@@ -63,11 +63,6 @@ impl StreamValue {
         }
     }
 }
-impl Default for StreamValue {
-    fn default() -> Self {
-        Self::from_value_unfinished(FieldValue::Undefined, false)
-    }
-}
 
 pub type StreamValueId = usize;
 

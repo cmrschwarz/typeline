@@ -123,15 +123,11 @@ pub fn handle_tf_literal(
                 output_field.iter_hall.push_undefined(1, true)
             }
             Literal::StreamError(ss) => {
-                let sv_id =
-                    sess.sv_mgr.stream_values.claim_with_value(StreamValue {
-                        value: FieldValue::Error(
-                            OperatorApplicationError::new_s(ss.clone(), op_id),
-                        ),
-                        is_buffered: true,
-                        done: true,
-                        ..Default::default()
-                    });
+                let sv_id = sess.sv_mgr.stream_values.claim_with_value(
+                    StreamValue::from_value(FieldValue::Error(
+                        OperatorApplicationError::new_s(ss.clone(), op_id),
+                    )),
+                );
                 output_field
                     .iter_hall
                     .push_stream_value_id(sv_id, 1, true, false);

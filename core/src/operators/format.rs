@@ -1599,19 +1599,20 @@ pub fn setup_key_output_state(
                                     |o| {
                                         let sv =
                                             &mut sv_mgr.stream_values[sv_id];
+                                        let wait_to_end = sv.is_buffered;
                                         sv.subscribe(
                                             tf_id,
                                             fmt.stream_value_handles
                                                 .peek_claim_id()
                                                 .into(),
-                                            sv.is_buffered,
+                                            wait_to_end,
                                         );
                                         let value = sv
                                             .value
                                             .as_ref()
                                             .subslice(0..0)
                                             .to_field_value();
-                                        let wait_to_end = sv.is_buffered;
+
                                         let target_sv_id = sv_mgr
                                             .stream_values
                                             .claim_with_value(StreamValue::from_value_unfinished(
@@ -2517,6 +2518,7 @@ pub fn handle_tf_format_stream_value_update(
         .get_two_distinct_mut(sv_id, handle.target_sv_id);
     let (sv, mut out_sv) = (sv.unwrap(), out_sv.unwrap());
     let done = sv.done;
+    let mut update_out_sv = false;
     match &sv.value {
         FieldValue::Error(err) => {
             debug_assert!(sv.done);
@@ -2543,10 +2545,10 @@ pub fn handle_tf_format_stream_value_update(
                 }
                 _ => unreachable!(),
             };
-            if out_sv.is_buffered {
+            if !out_sv.is_buffered {
                 tgt_buf.clear();
             }
-            if !sv.is_buffered {
+            if sv.is_buffered {
                 if !handle.wait_to_end {
                     if sv.done {
                         tgt_buf.extend(&src_buf[handle.handled_len..]);
@@ -2598,19 +2600,22 @@ pub fn handle_tf_format_stream_value_update(
                     };
                 }
                 if sv.done {
-                    sess.sv_mgr
-                        .inform_stream_value_subscribers(handle.target_sv_id);
+                    update_out_sv = true;
                 }
             } else {
                 handle.handled_len += src_buf.len();
                 tgt_buf.extend_from_slice(src_buf);
-                sess.sv_mgr
-                    .inform_stream_value_subscribers(handle.target_sv_id);
+                update_out_sv = true;
             }
         }
         _ => todo!(),
     }
+
     if !done {
+        if update_out_sv {
+            sess.sv_mgr
+                .inform_stream_value_subscribers(handle.target_sv_id);
+        }
         return;
     }
 
@@ -2647,6 +2652,8 @@ pub fn handle_tf_format_stream_value_update(
         handle.part_idx = i as FormatPartIndex;
     }
     out_sv.done = true;
+    sess.sv_mgr
+        .inform_stream_value_subscribers(handle.target_sv_id);
     sess.sv_mgr
         .drop_field_value_subscription(sv_id, Some(tf_id));
     sess.sv_mgr
