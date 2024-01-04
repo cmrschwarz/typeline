@@ -567,6 +567,12 @@ pub fn create_op_v(
         None,
     )
 }
+pub fn create_op_stream_bytes(v: &[u8], insert_count: usize) -> OperatorData {
+    create_op_literal_n(Literal::StreamBytes(v.to_owned()), insert_count)
+}
+pub fn create_op_stream_str(v: &str, insert_count: usize) -> OperatorData {
+    create_op_literal_n(Literal::StreamString(v.to_owned()), insert_count)
+}
 pub fn create_op_bytes(v: &[u8], insert_count: usize) -> OperatorData {
     create_op_literal_n(Literal::Bytes(v.to_owned()), insert_count)
 }

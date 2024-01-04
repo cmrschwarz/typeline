@@ -7,7 +7,7 @@ use scr_core::{
         key::create_op_key,
         literal::{
             create_op_bytes, create_op_error, create_op_null, create_op_str,
-            create_op_stream_error, create_op_v,
+            create_op_stream_error, create_op_stream_str, create_op_v,
         },
         regex::{create_op_regex, create_op_regex_with_opts, RegexOptions},
         sequence::create_op_seq,
@@ -352,6 +352,18 @@ fn binary_string_formatting() -> Result<(), ScrError> {
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(ss.get_data().unwrap().as_slice(), &[r#"b"\xFF""#]);
+    Ok(())
+}
+
+#[test]
+fn debug_format_stream_value() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::default();
+    ContextBuilder::default()
+        .add_op(create_op_stream_str("foo", 1))
+        .add_op(create_op_format("{:??}").unwrap())
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(ss.get_data().unwrap().as_slice(), &[r#"~"foo""#]);
     Ok(())
 }
 

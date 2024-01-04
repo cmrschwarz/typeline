@@ -25,7 +25,7 @@ use scr_core::{
             RefAwareInlineTextIter, RefAwareStreamValueIter,
             RefAwareTextBufferIter,
         },
-        stream_value::StreamValueId,
+        stream_value::{StreamValue, StreamValueId},
         typed::TypedSlice,
     },
     smallbox,
@@ -189,8 +189,15 @@ impl TfFromTyson {
                                         fpm,
                                     )
                                 } else {
-                                    let out_sv_id =
-                                        bud.sv_mgr.stream_values.claim();
+                                    let out_sv_id = bud
+                                        .sv_mgr
+                                        .stream_values
+                                        .claim_with_value(
+                                            StreamValue::from_value_unfinished(
+                                                FieldValue::Undefined,
+                                                true,
+                                            ),
+                                        );
                                     bud.sv_mgr.stream_values[sv_id]
                                         .subscribe(bud.tf_id, out_sv_id, true)
                                 }

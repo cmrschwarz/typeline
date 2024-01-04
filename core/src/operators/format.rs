@@ -2233,9 +2233,9 @@ fn write_fmt_key(
                         }
                         FieldValue::Bytes(_) | FieldValue::Text(_) => {
                             let has_range = range.is_some();
-                            let len = sv.value.as_ref().as_slice().len();
-                            let range = range.unwrap_or(0..len);
-                            if has_range || !sv.is_buffered {
+                            if has_range || !sv.is_buffered || sv.done {
+                                let len = sv.value.as_ref().as_slice().len();
+                                let range = range.unwrap_or(0..len);
                                 iter_output_targets(
                                     fmt,
                                     &mut output_index,

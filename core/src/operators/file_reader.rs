@@ -6,7 +6,6 @@ use std::{
     sync::Mutex,
 };
 
-use bstr::ByteSlice;
 use regex::Regex;
 use smallstr::SmallString;
 
@@ -443,8 +442,6 @@ pub fn parse_op_file_reader(
     match args.name("kind").unwrap().as_str() {
         "file" => parse_op_file(value, insert_count, arg_idx),
         "stdin" => parse_op_stdin(value, insert_count, arg_idx),
-        "~str" => parse_op_stream_str(value, insert_count, arg_idx),
-        "~bytes" => parse_op_stream_bytes(value, insert_count, arg_idx),
         _ => unreachable!(),
     }
 }
@@ -493,39 +490,6 @@ pub fn parse_op_stdin(
     Ok(create_op_stdin(insert_count.unwrap_or(0)))
 }
 
-pub fn parse_op_stream_str(
-    value: Option<&[u8]>,
-    insert_count: Option<usize>,
-    arg_idx: Option<CliArgIdx>,
-) -> Result<OperatorData, OperatorCreationError> {
-    let value_str = value
-        .ok_or_else(|| {
-            OperatorCreationError::new("missing value for ~str", arg_idx)
-        })?
-        .to_str()
-        .map_err(|_| {
-            OperatorCreationError::new(
-                "~str argument must be valid UTF-8, consider using ~bytes=...",
-                arg_idx,
-            )
-        })?;
-    Ok(create_op_stream_str(value_str, insert_count.unwrap_or(0)))
-}
-
-pub fn parse_op_stream_bytes(
-    value: Option<&[u8]>,
-    insert_count: Option<usize>,
-    arg_idx: Option<CliArgIdx>,
-) -> Result<OperatorData, OperatorCreationError> {
-    let value_bytes = value.ok_or_else(|| {
-        OperatorCreationError::new("missing value for ~bytes", arg_idx)
-    })?;
-    Ok(create_op_stream_bytes(
-        value_bytes,
-        insert_count.unwrap_or(0),
-    ))
-}
-
 // insert count 0 means all input will be consumed
 pub fn create_op_file_reader(
     file_kind: FileKind,
@@ -550,13 +514,7 @@ pub fn create_op_stdin(insert_count: usize) -> OperatorData {
     create_op_file_reader(FileKind::Stdin, insert_count)
 }
 
-pub fn create_op_stream_str(value: &str, insert_count: usize) -> OperatorData {
-    create_op_file_reader_custom(
-        Box::new(BytesReader::from_string(value.to_owned())),
-        insert_count,
-    )
-}
-pub fn create_op_stream_bytes(
+pub fn create_op_stream_dummy(
     value: &[u8],
     insert_count: usize,
 ) -> OperatorData {
