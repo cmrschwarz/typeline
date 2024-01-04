@@ -20,17 +20,16 @@ use {
 use crate::{
     chain::{Chain, ChainId},
     extension::ExtensionRegistry,
-    job_session::{JobData, JobSession},
+    job::{Job, JobData},
     operators::operator::{OperatorBase, OperatorData, OperatorId},
     record_data::{record_buffer::RecordBuffer, record_set::RecordSet},
     utils::{
         identity_hasher::BuildIdentityHasher,
         string_store::{StringStore, StringStoreEntry},
     },
-    worker_thread::WorkerThread,
 };
 
-pub struct Job {
+pub struct JobDescription {
     pub operator: OperatorId,
     pub data: RecordSet,
 }
@@ -44,7 +43,7 @@ pub struct VentureDescription {
 pub struct Venture<'a> {
     pub venture_id: usize,
     pub description: VentureDescription,
-    pub source_job_session: Option<Box<JobSession<'a>>>,
+    pub source_job_session: Option<Box<Job<'a>>>,
 }
 
 pub struct SessionSettings {
@@ -52,7 +51,7 @@ pub struct SessionSettings {
     pub repl: bool,
 }
 
-pub struct Session {
+pub struct SessionData {
     pub settings: SessionSettings,
     pub chains: Vec<Chain>,
     pub chain_labels: HashMap<StringStoreEntry, ChainId, BuildIdentityHasher>,
@@ -63,35 +62,190 @@ pub struct Session {
     pub extensions: Arc<ExtensionRegistry>,
 }
 
-pub struct SessionManager {
-    pub session: Arc<Session>,
-    pub job_queue: VecDeque<Job>,
-    pub venture_queue: VecDeque<Venture<'static>>,
-    pub terminate: bool,
-    pub waiting_worker_threads: usize,
-    pub total_worker_threads: usize,
-    pub waiting_venture_participants: usize,
-    pub venture_id_counter: usize,
-    pub thread_join_handles: Vec<JoinHandle<()>>,
+pub struct Session {
+    pub(crate) session_data: Arc<SessionData>,
+    pub(crate) job_queue: VecDeque<JobDescription>,
+    pub(crate) venture_queue: VecDeque<Venture<'static>>,
+    pub(crate) terminate: bool,
+    pub(crate) waiting_worker_threads: usize,
+    pub(crate) total_worker_threads: usize,
+    pub(crate) waiting_venture_participants: usize,
+    pub(crate) venture_id_counter: usize,
+    pub(crate) thread_join_handles: Vec<JoinHandle<()>>,
 }
 
 pub struct ContextData {
-    pub work_available: Condvar,
-    pub worker_threads_finished: Condvar,
-    pub sess_mgr: Mutex<SessionManager>,
+    pub(crate) session: Mutex<Session>,
+    pub(crate) work_available: Condvar,
+    pub(crate) worker_threads_finished: Condvar,
+}
+
+struct WorkerThread {
+    pub ctx_data: Arc<ContextData>,
+    // in case of panics, we want to increment the waiter counter
+    // if this is false
+    pub waiting: bool,
 }
 
 pub struct Context {
-    pub session: Arc<Session>,
-    pub main_thread: WorkerThread,
+    session: Arc<SessionData>,
+    main_thread: WorkerThread,
 }
 
-impl SessionManager {
+impl Drop for WorkerThread {
+    fn drop(&mut self) {
+        if !self.waiting {
+            let mut sess = self.ctx_data.session.lock().unwrap();
+            sess.waiting_worker_threads += 1;
+            if sess.waiting_worker_threads == sess.total_worker_threads {
+                self.ctx_data.worker_threads_finished.notify_one();
+            }
+        }
+    }
+}
+
+impl WorkerThread {
+    pub(crate) fn new(ctx_data: Arc<ContextData>) -> Self {
+        Self {
+            ctx_data,
+            waiting: false,
+        }
+    }
+    pub fn run_venture<'a>(
+        &mut self,
+        sess: &'a SessionData,
+        start_op_id: OperatorId,
+        buffer: Arc<RecordBuffer>,
+        mut starting_job_session: Option<Box<Job<'a>>>,
+    ) {
+        if let Some(ref mut js) = starting_job_session {
+            match js.run(Some(&self.ctx_data)) {
+                Ok(_) => (),
+                Err(venture_desc) => {
+                    self.ctx_data.session.lock().unwrap().submit_venture(
+                        venture_desc,
+                        starting_job_session,
+                        &self.ctx_data,
+                    );
+                }
+            }
+        }
+        let mut js = Job {
+            transform_data: Default::default(),
+            job_data: JobData::new(sess),
+            temp_vec: Default::default(),
+        };
+        js.setup_venture(Some(&self.ctx_data), buffer, start_op_id);
+        match js.run(Some(&self.ctx_data)) {
+            Ok(_) => (),
+            Err(venture_desc) => {
+                self.ctx_data.session.lock().unwrap().submit_venture(
+                    venture_desc,
+                    Some(Box::new(js)),
+                    &self.ctx_data,
+                );
+            }
+        }
+    }
+
+    pub fn run_job(&mut self, sess: &SessionData, job: JobDescription) {
+        let mut js = Job {
+            transform_data: Default::default(),
+            job_data: JobData::new(sess),
+            temp_vec: Default::default(),
+        };
+        js.setup_job(job);
+        match js.run(Some(&self.ctx_data)) {
+            Ok(_) => (),
+            Err(venture_desc) => {
+                self.ctx_data.session.lock().unwrap().submit_venture(
+                    venture_desc,
+                    Some(Box::new(js)),
+                    &self.ctx_data,
+                );
+            }
+        }
+    }
+
+    pub fn run(&mut self) {
+        let mut sess_mgr = self.ctx_data.session.lock().unwrap();
+
+        loop {
+            if !sess_mgr.terminate {
+                let waiting_venture_participants =
+                    sess_mgr.waiting_venture_participants;
+                if let Some(venture) = sess_mgr.venture_queue.front_mut() {
+                    let job_sess = venture.source_job_session.take();
+                    let buffer = venture.description.buffer.clone();
+                    let participants_needed =
+                        venture.description.participans_needed;
+                    let start_op_id = venture.description.starting_points
+                        [waiting_venture_participants];
+                    let sess;
+                    sess_mgr.waiting_venture_participants += 1;
+                    if sess_mgr.waiting_venture_participants
+                        == participants_needed
+                    {
+                        sess_mgr.waiting_venture_participants = 0;
+                        sess_mgr.venture_queue.pop_front();
+                        sess_mgr.venture_id_counter =
+                            sess_mgr.venture_id_counter.wrapping_add(1);
+                        sess = sess_mgr.session_data.clone();
+                        drop(sess_mgr);
+                        self.ctx_data.work_available.notify_all();
+                    } else {
+                        let counter = sess_mgr.venture_id_counter;
+                        loop {
+                            if counter != sess_mgr.venture_id_counter {
+                                sess = sess_mgr.session_data.clone();
+                                drop(sess_mgr);
+                                break;
+                            }
+                            sess_mgr = self
+                                .ctx_data
+                                .work_available
+                                .wait(sess_mgr)
+                                .unwrap();
+                        }
+                    }
+                    self.run_venture(&sess, start_op_id, buffer, job_sess);
+                    sess_mgr = self.ctx_data.session.lock().unwrap();
+                    continue;
+                }
+                if let Some(job) = sess_mgr.job_queue.pop_front() {
+                    let sess = sess_mgr.session_data.clone();
+                    drop(sess_mgr);
+                    self.run_job(&sess, job);
+                    sess_mgr = self.ctx_data.session.lock().unwrap();
+                    continue;
+                }
+            }
+            sess_mgr.waiting_worker_threads += 1;
+            self.waiting = true;
+            if sess_mgr.waiting_worker_threads == sess_mgr.total_worker_threads
+            {
+                self.ctx_data.worker_threads_finished.notify_one();
+            }
+            if sess_mgr.terminate {
+                return;
+            }
+            sess_mgr = self.ctx_data.work_available.wait(sess_mgr).unwrap();
+            sess_mgr.waiting_worker_threads -= 1;
+            self.waiting = false;
+        }
+    }
+}
+
+impl Session {
     #[allow(dead_code)] // TODO
-    pub fn submit_job(&mut self, ctx_data: &Arc<ContextData>, job: Job) {
+    pub fn submit_job(
+        &mut self,
+        ctx_data: &Arc<ContextData>,
+        job: JobDescription,
+    ) {
         self.job_queue.push_back(job);
         // TODO: better check
-        if self.session.settings.max_threads < self.total_worker_threads
+        if self.session_data.settings.max_threads < self.total_worker_threads
             && self.waiting_worker_threads == 0
         {
             self.add_worker_thread(ctx_data)
@@ -103,7 +257,7 @@ impl SessionManager {
         #[cfg(feature = "debug_logging")]
         println!(
             "added worker thread: {} / {}",
-            self.total_worker_threads, self.session.settings.max_threads
+            self.total_worker_threads, self.session_data.settings.max_threads
         );
         self.thread_join_handles.push(std::thread::spawn(move || {
             WorkerThread::new(ctx_data).run()
@@ -112,7 +266,7 @@ impl SessionManager {
     pub fn submit_venture<'a>(
         &mut self,
         desc: VentureDescription,
-        starting_job_session: Option<Box<JobSession<'a>>>,
+        starting_job_session: Option<Box<Job<'a>>>,
         ctx_data: &Arc<ContextData>,
     ) {
         // SAFETY: this assert ensures that we ourselves hold an Arc<Session>
@@ -123,13 +277,13 @@ impl SessionManager {
             .as_ref()
             .map(|js| std::ptr::eq(
                 js.job_data.session_data,
-                self.session.as_ref()
+                self.session_data.as_ref()
             ))
             .unwrap_or(true));
         let id = self.venture_id_counter;
         self.venture_id_counter = id.wrapping_add(1);
         let spawnable_thread_count =
-            self.session.settings.max_threads - self.total_worker_threads;
+            self.session_data.settings.max_threads - self.total_worker_threads;
         let threads_needed =
             desc.participans_needed.min(spawnable_thread_count);
         self.venture_queue.push_back(Venture {
@@ -139,8 +293,8 @@ impl SessionManager {
             // justified
             source_job_session: unsafe {
                 std::mem::transmute::<
-                    Option<Box<JobSession<'a>>>,
-                    Option<Box<JobSession<'static>>>,
+                    Option<Box<Job<'a>>>,
+                    Option<Box<Job<'static>>>,
                 >(starting_job_session)
             },
         });
@@ -148,22 +302,22 @@ impl SessionManager {
             self.add_worker_thread(ctx_data)
         }
     }
-    pub fn set_session(&mut self, sess: Arc<Session>) {
+    pub fn set_session(&mut self, sess: Arc<SessionData>) {
         assert!(self.job_queue.is_empty());
         assert!(self.venture_queue.is_empty());
         // SAFETY: the asserts above make sure that nobody is still refering to
         // the old session
-        self.session = sess;
+        self.session_data = sess;
     }
 }
 
 impl Context {
-    pub fn new(session: Arc<Session>) -> Self {
+    pub fn new(session: Arc<SessionData>) -> Self {
         let ctx_data = Arc::new(ContextData {
             work_available: Condvar::new(),
             worker_threads_finished: Condvar::new(),
             // we add 1 total / waiting thread for the main thread
-            sess_mgr: Mutex::new(SessionManager {
+            session: Mutex::new(Session {
                 terminate: false,
                 total_worker_threads: 1,
                 venture_id_counter: 0,
@@ -171,7 +325,7 @@ impl Context {
                 waiting_worker_threads: 1,
                 venture_queue: Default::default(),
                 job_queue: Default::default(),
-                session: session.clone(),
+                session_data: session.clone(),
                 thread_join_handles: Default::default(),
             }),
         });
@@ -182,7 +336,7 @@ impl Context {
     }
     fn wait_for_worker_threads(&self) {
         let ctx = self.main_thread.ctx_data.as_ref();
-        let mut sess_mgr = ctx.sess_mgr.lock().unwrap();
+        let mut sess_mgr = ctx.session.lock().unwrap();
         loop {
             if sess_mgr.waiting_worker_threads == sess_mgr.total_worker_threads
             {
@@ -191,7 +345,7 @@ impl Context {
             sess_mgr = ctx.worker_threads_finished.wait(sess_mgr).unwrap();
         }
     }
-    pub fn set_session(&mut self, mut session: Session) {
+    pub fn set_session(&mut self, mut session: SessionData) {
         if self.session.settings.max_threads < session.settings.max_threads {
             // TODO: we might want to lower ours instead?
             // but this is simple and prevents deadlocks for now
@@ -202,14 +356,14 @@ impl Context {
         // PERF: this lock is completely pointless, we known nobody else
         // is using this right now. we could get rid of this using unsafe,
         // but it's probably not worth it
-        let mut sess_mgr = self.main_thread.ctx_data.sess_mgr.lock().unwrap();
+        let mut sess_mgr = self.main_thread.ctx_data.session.lock().unwrap();
         sess_mgr.set_session(new_sess.clone());
         self.session = new_sess;
     }
-    pub fn get_session(&self) -> &Session {
+    pub fn get_session(&self) -> &SessionData {
         &self.session
     }
-    pub fn run_job(&mut self, job: Job) {
+    pub fn run_job(&mut self, job: JobDescription) {
         self.main_thread.run_job(&self.session, job);
         if self.session.settings.max_threads > 1 {
             self.wait_for_worker_threads();
@@ -341,7 +495,7 @@ impl Drop for Context {
             return;
         }
         let ctx = self.main_thread.ctx_data.as_ref();
-        let mut sess_mgr = ctx.sess_mgr.lock().unwrap();
+        let mut sess_mgr = ctx.session.lock().unwrap();
         sess_mgr.terminate = true;
         ctx.work_available.notify_all();
         while sess_mgr.waiting_worker_threads < sess_mgr.total_worker_threads {
@@ -351,20 +505,23 @@ impl Drop for Context {
     }
 }
 
-impl Session {
+impl SessionData {
     pub fn has_no_command(&self) -> bool {
         self.chains[0].operators.is_empty()
     }
-    pub fn construct_main_chain_job(&self, input_data: RecordSet) -> Job {
+    pub fn construct_main_chain_job(
+        &self,
+        input_data: RecordSet,
+    ) -> JobDescription {
         let operator = self.chains[0].operators[0];
-        Job {
+        JobDescription {
             operator,
             data: input_data,
         }
     }
-    pub fn run_job_unthreaded(&self, job: Job) {
+    pub fn run_job_unthreaded(&self, job: JobDescription) {
         assert!(!self.settings.repl);
-        let mut js = JobSession {
+        let mut js = Job {
             transform_data: Vec::new(),
             job_data: JobData::new(self),
             temp_vec: Vec::default(),
@@ -374,7 +531,7 @@ impl Session {
             unreachable!()
         }
     }
-    pub fn run(self, job: Job) {
+    pub fn run(self, job: JobDescription) {
         assert!(!self.settings.repl);
         if self.settings.max_threads == 1 {
             self.run_job_unthreaded(job);

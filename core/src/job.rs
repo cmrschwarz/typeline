@@ -5,7 +5,7 @@ use std::{
 
 use crate::{
     chain::Chain,
-    context::{ContextData, Job, Session, VentureDescription},
+    context::{ContextData, JobDescription, SessionData, VentureDescription},
     liveness_analysis::OpOutputIdx,
     operators::{
         aggregator::{
@@ -75,20 +75,21 @@ use crate::{
     utils::{identity_hasher::BuildIdentityHasher, universe::Universe},
 };
 
-pub struct JobSession<'a> {
-    pub transform_data: Vec<TransformData<'a>>,
-    pub job_data: JobData<'a>,
-    pub temp_vec: Vec<FieldId>,
-}
 // a helper type so we can pass a transform handler typed
 // TransformData + all the other Data of the WorkerThreadSession
 pub struct JobData<'a> {
-    pub session_data: &'a Session,
+    pub session_data: &'a SessionData,
     pub tf_mgr: TransformManager,
     pub match_set_mgr: MatchSetManager,
     pub field_mgr: FieldManager,
     pub sv_mgr: StreamValueManager,
     pub temp_vec: Vec<u8>,
+}
+
+pub struct Job<'a> {
+    pub job_data: JobData<'a>,
+    pub transform_data: Vec<TransformData<'a>>,
+    pub temp_vec: Vec<FieldId>,
 }
 
 #[derive(Default)]
@@ -381,7 +382,7 @@ pub fn add_transform_to_job<'a>(
 }
 
 impl<'a> JobData<'a> {
-    pub fn new(sess: &'a Session) -> Self {
+    pub fn new(sess: &'a SessionData) -> Self {
         Self {
             session_data: sess,
             tf_mgr: TransformManager::default(),
@@ -471,7 +472,7 @@ impl<'a> JobData<'a> {
     }
 }
 
-impl<'a> JobSession<'a> {
+impl<'a> Job<'a> {
     pub fn log_state(&self, message: &str) {
         if cfg!(feature = "debug_logging") {
             println!("{message}");
@@ -499,7 +500,7 @@ impl<'a> JobSession<'a> {
             }
         }
     }
-    pub fn setup_job(&mut self, mut job: Job) {
+    pub fn setup_job(&mut self, mut job: JobDescription) {
         let ms_id = self.job_data.match_set_mgr.add_match_set();
         // TODO: unpack record set properly here
         let input_record_count = job.data.adjust_field_lengths();

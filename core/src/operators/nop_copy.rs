@@ -1,6 +1,6 @@
 use crate::{
     cli::reject_operator_argument,
-    job_session::JobData,
+    job::JobData,
     liveness_analysis::LivenessData,
     options::argument::CliArgIdx,
     record_data::{
@@ -55,22 +55,22 @@ pub fn on_op_nop_copy_liveness_computed(
 }
 
 pub fn build_tf_nop_copy(
-    sess: &mut JobData,
+    jd: &mut JobData,
     op: &OpNopCopy,
     tf_state: &TransformState,
 ) -> TransformData<'static> {
-    let cb = &mut sess.match_set_mgr.match_sets[tf_state.match_set_id]
-        .action_buffer;
-    let input_field_ref_offset = sess
+    let cb =
+        &mut jd.match_set_mgr.match_sets[tf_state.match_set_id].action_buffer;
+    let input_field_ref_offset = jd
         .field_mgr
         .register_field_reference(tf_state.output_field, tf_state.input_field);
     let tfc = TfNopCopy {
         may_consume_input: op.may_consume_input,
-        input_iter_id: sess.field_mgr.claim_iter(tf_state.input_field),
+        input_iter_id: jd.field_mgr.claim_iter(tf_state.input_field),
         actor_id: cb.add_actor(),
         input_field_ref_offset,
     };
-    sess.field_mgr.fields[tf_state.output_field]
+    jd.field_mgr.fields[tf_state.output_field]
         .borrow_mut()
         .first_actor = ActorRef::Unconfirmed(cb.peek_next_actor_id());
     TransformData::NopCopy(tfc)

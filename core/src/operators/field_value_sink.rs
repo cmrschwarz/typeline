@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use smallstr::SmallString;
 
 use crate::{
-    job_session::JobData,
+    job::JobData,
     record_data::{
         field::Field,
         field_data::{field_value_flags, FieldValueRepr},
@@ -73,7 +73,7 @@ pub struct TfFieldValueSink<'a> {
 }
 
 pub fn build_tf_field_value_sink<'a>(
-    sess: &mut JobData,
+    jd: &mut JobData,
     _op_base: &OperatorBase,
     ss: &'a OpFieldValueSink,
     tf_state: &mut TransformState,
@@ -81,7 +81,7 @@ pub fn build_tf_field_value_sink<'a>(
     tf_state.preferred_input_type = Some(FieldValueRepr::BytesInline);
     TransformData::FieldValueSink(TfFieldValueSink {
         handle: &ss.handle.data,
-        batch_iter: sess.field_mgr.claim_iter(tf_state.input_field),
+        batch_iter: jd.field_mgr.claim_iter(tf_state.input_field),
         stream_value_handles: Default::default(),
     })
 }
@@ -116,29 +116,29 @@ pub fn push_errors(
 }
 
 pub fn handle_tf_field_value_sink(
-    sess: &mut JobData,
+    jd: &mut JobData,
     tf_id: TransformId,
     ss: &mut TfFieldValueSink<'_>,
 ) {
-    let (batch_size, ps) = sess.tf_mgr.claim_batch(tf_id);
-    let tf = &mut sess.tf_mgr.transforms[tf_id];
+    let (batch_size, ps) = jd.tf_mgr.claim_batch(tf_id);
+    let tf = &mut jd.tf_mgr.transforms[tf_id];
     let input_field_id = tf.input_field;
-    let input_field = sess
+    let input_field = jd
         .field_mgr
-        .get_cow_field_ref(&mut sess.match_set_mgr, tf.input_field);
-    let mut output_field = sess.field_mgr.fields[tf.output_field].borrow_mut();
-    let base_iter = sess
+        .get_cow_field_ref(&mut jd.match_set_mgr, tf.input_field);
+    let mut output_field = jd.field_mgr.fields[tf.output_field].borrow_mut();
+    let base_iter = jd
         .field_mgr
         .lookup_iter(tf.input_field, &input_field, ss.batch_iter)
         .bounded(0, batch_size);
     let starting_pos = base_iter.get_next_field_pos();
     let mut iter =
-        AutoDerefIter::new(&sess.field_mgr, tf.input_field, base_iter);
+        AutoDerefIter::new(&jd.field_mgr, tf.input_field, base_iter);
     let mut fvs = ss.handle.lock().unwrap();
     let mut last_error_end = 0;
     let mut field_pos = fvs.len();
     while let Some(range) = iter.typed_range_fwd(
-        &mut sess.match_set_mgr,
+        &mut jd.match_set_mgr,
         usize::MAX,
         field_value_flags::DEFAULT,
     ) {
@@ -249,7 +249,7 @@ pub fn handle_tf_field_value_sink(
                     let start_idx = pos;
                     let run_len = rl as usize;
                     pos += run_len;
-                    let sv = &mut sess.sv_mgr.stream_values[svid];
+                    let sv = &mut jd.sv_mgr.stream_values[svid];
                     if !sv.done {
                         let handle_id =
                             ss.stream_value_handles.claim_with_value(
@@ -306,7 +306,7 @@ pub fn handle_tf_field_value_sink(
             batch_size - consumed_fields,
         );
     }
-    sess.field_mgr
+    jd.field_mgr
         .store_iter(input_field_id, ss.batch_iter, base_iter);
     let success_count = field_pos - last_error_end;
     if success_count > 0 {
@@ -316,13 +316,13 @@ pub fn handle_tf_field_value_sink(
     drop(output_field);
     let streams_done = ss.stream_value_handles.is_empty();
     if streams_done && ps.next_batch_ready {
-        sess.tf_mgr.push_tf_in_ready_stack(tf_id);
+        jd.tf_mgr.push_tf_in_ready_stack(tf_id);
     }
-    sess.tf_mgr.submit_batch(tf_id, batch_size, ps.input_done);
+    jd.tf_mgr.submit_batch(tf_id, batch_size, ps.input_done);
 }
 
 pub fn handle_tf_field_value_sink_stream_value_update(
-    sess: &mut JobData,
+    jd: &mut JobData,
     tf_id: TransformId,
     tf: &mut TfFieldValueSink<'_>,
     sv_id: StreamValueId,
@@ -330,14 +330,14 @@ pub fn handle_tf_field_value_sink_stream_value_update(
 ) {
     let mut fvs = tf.handle.lock().unwrap();
     let svh = &mut tf.stream_value_handles[custom];
-    let sv = &mut sess.sv_mgr.stream_values[sv_id];
+    let sv = &mut jd.sv_mgr.stream_values[sv_id];
     debug_assert!(sv.done);
     for fv in &mut fvs[svh.start_idx..svh.start_idx + svh.run_len] {
         *fv = sv.value.clone();
     }
-    sess.sv_mgr.drop_field_value_subscription(sv_id, None);
+    jd.sv_mgr.drop_field_value_subscription(sv_id, None);
     tf.stream_value_handles.release(custom);
     if tf.stream_value_handles.is_empty() {
-        sess.tf_mgr.push_tf_in_ready_stack(tf_id);
+        jd.tf_mgr.push_tf_in_ready_stack(tf_id);
     }
 }

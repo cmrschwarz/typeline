@@ -1,6 +1,4 @@
-use crate::{
-    chain::Chain, job_session::JobData, options::argument::CliArgIdx,
-};
+use crate::{chain::Chain, job::JobData, options::argument::CliArgIdx};
 
 use super::{
     errors::{OperatorCreationError, OperatorSetupError},
@@ -50,8 +48,8 @@ pub fn create_tf_nop() -> TransformData<'static> {
     TransformData::Nop(TfNop {})
 }
 
-pub fn handle_tf_nop(sess: &mut JobData, tf_id: TransformId, _nop: &TfNop) {
-    let (batch_size, ps) = sess.tf_mgr.claim_all(tf_id);
+pub fn handle_tf_nop(jd: &mut JobData, tf_id: TransformId, _nop: &TfNop) {
+    let (batch_size, ps) = jd.tf_mgr.claim_all(tf_id);
 
-    sess.tf_mgr.submit_batch(tf_id, batch_size, ps.input_done);
+    jd.tf_mgr.submit_batch(tf_id, batch_size, ps.input_done);
 }

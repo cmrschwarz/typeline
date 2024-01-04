@@ -8,7 +8,7 @@ use bstr::ByteSlice;
 use smallstr::SmallString;
 
 use crate::{
-    job_session::JobData,
+    job::JobData,
     operators::print::error_to_string,
     record_data::{
         field::Field,
@@ -135,7 +135,7 @@ pub struct TfStringSink<'a> {
 }
 
 pub fn build_tf_string_sink<'a>(
-    sess: &mut JobData,
+    jd: &mut JobData,
     _op_base: &OperatorBase,
     ss: &'a OpStringSink,
     tf_state: &mut TransformState,
@@ -143,7 +143,7 @@ pub fn build_tf_string_sink<'a>(
     tf_state.preferred_input_type = Some(FieldValueRepr::BytesInline);
     TransformData::StringSink(TfStringSink {
         handle: &ss.handle.data,
-        batch_iter: sess.field_mgr.claim_iter(tf_state.input_field),
+        batch_iter: jd.field_mgr.claim_iter(tf_state.input_field),
         stream_value_handles: Default::default(),
     })
 }
@@ -296,33 +296,33 @@ pub fn push_errors(
     *last_error_end = field_pos;
 }
 pub fn handle_tf_string_sink(
-    sess: &mut JobData,
+    jd: &mut JobData,
     tf_id: TransformId,
     ss: &mut TfStringSink<'_>,
 ) {
-    let (batch_size, ps) = sess.tf_mgr.claim_batch(tf_id);
-    let tf = &mut sess.tf_mgr.transforms[tf_id];
+    let (batch_size, ps) = jd.tf_mgr.claim_batch(tf_id);
+    let tf = &mut jd.tf_mgr.transforms[tf_id];
     let op_id = tf.op_id.unwrap();
     let input_field_id = tf.input_field;
-    let input_field = sess
+    let input_field = jd
         .field_mgr
-        .get_cow_field_ref(&mut sess.match_set_mgr, tf.input_field);
-    let mut output_field = sess.field_mgr.fields[tf.output_field].borrow_mut();
-    let base_iter = sess
+        .get_cow_field_ref(&mut jd.match_set_mgr, tf.input_field);
+    let mut output_field = jd.field_mgr.fields[tf.output_field].borrow_mut();
+    let base_iter = jd
         .field_mgr
         .lookup_iter(tf.input_field, &input_field, ss.batch_iter)
         .bounded(0, batch_size);
     let starting_pos = base_iter.get_next_field_pos();
     let mut iter =
-        AutoDerefIter::new(&sess.field_mgr, tf.input_field, base_iter);
+        AutoDerefIter::new(&jd.field_mgr, tf.input_field, base_iter);
     let mut out = ss.handle.lock().unwrap();
     let mut field_pos = out.data.len();
     let mut string_store = None;
     let mut last_error_end = 0;
     let print_rationals_raw =
-        sess.get_transform_chain(tf_id).settings.print_rationals_raw;
+        jd.get_transform_chain(tf_id).settings.print_rationals_raw;
     while let Some(range) = iter.typed_range_fwd(
-        &mut sess.match_set_mgr,
+        &mut jd.match_set_mgr,
         usize::MAX,
         field_value_flags::DEFAULT,
     ) {
@@ -439,7 +439,7 @@ pub fn handle_tf_string_sink(
                     RefAwareStreamValueIter::from_range(&range, svs)
                 {
                     let rl = rl as usize;
-                    let sv = &mut sess.sv_mgr.stream_values[svid];
+                    let sv = &mut jd.sv_mgr.stream_values[svid];
                     match &sv.value {
                         FieldValue::Bytes(bytes) => {
                             let bytes =
@@ -488,12 +488,12 @@ pub fn handle_tf_string_sink(
             }
             TypedSlice::Array(arrays) => {
                 let ss = string_store.get_or_insert_with(|| {
-                    sess.session_data.string_store.read().unwrap()
+                    jd.session_data.string_store.read().unwrap()
                 });
                 let fc = FormattingContext {
                     ss,
-                    fm: &sess.field_mgr,
-                    msm: &sess.match_set_mgr,
+                    fm: &jd.field_mgr,
+                    msm: &jd.match_set_mgr,
                     print_rationals_raw,
                     rfk: RealizedFormatKey::default(),
                 };
@@ -512,12 +512,12 @@ pub fn handle_tf_string_sink(
             }
             TypedSlice::Object(object) => {
                 let ss = string_store.get_or_insert_with(|| {
-                    sess.session_data.string_store.read().unwrap()
+                    jd.session_data.string_store.read().unwrap()
                 });
                 let fc = FormattingContext {
                     ss,
-                    fm: &sess.field_mgr,
-                    msm: &sess.match_set_mgr,
+                    fm: &jd.field_mgr,
+                    msm: &jd.match_set_mgr,
                     print_rationals_raw,
                     rfk: RealizedFormatKey::default(),
                 };
@@ -542,7 +542,7 @@ pub fn handle_tf_string_sink(
     if consumed_fields < batch_size {
         push_str(&mut out, UNDEFINED_STR, batch_size - consumed_fields);
     }
-    sess.field_mgr
+    jd.field_mgr
         .store_iter(input_field_id, ss.batch_iter, base_iter);
     let success_count = field_pos - last_error_end;
     if success_count > 0 {
@@ -553,13 +553,13 @@ pub fn handle_tf_string_sink(
     let streams_done = ss.stream_value_handles.is_empty();
 
     if !streams_done && ps.next_batch_ready {
-        sess.tf_mgr.push_tf_in_ready_stack(tf_id);
+        jd.tf_mgr.push_tf_in_ready_stack(tf_id);
     }
-    sess.tf_mgr.submit_batch(tf_id, batch_size, ps.input_done);
+    jd.tf_mgr.submit_batch(tf_id, batch_size, ps.input_done);
 }
 
 pub fn handle_tf_string_sink_stream_value_update(
-    sess: &mut JobData,
+    jd: &mut JobData,
     tf_id: TransformId,
     tf: &mut TfStringSink<'_>,
     sv_id: StreamValueId,
@@ -567,9 +567,9 @@ pub fn handle_tf_string_sink_stream_value_update(
 ) {
     let mut out = tf.handle.lock().unwrap();
     let svh = &mut tf.stream_value_handles[custom];
-    let sv = &mut sess.sv_mgr.stream_values[sv_id];
+    let sv = &mut jd.sv_mgr.stream_values[sv_id];
     append_stream_val(
-        sess.tf_mgr.transforms[tf_id].op_id.unwrap(),
+        jd.tf_mgr.transforms[tf_id].op_id.unwrap(),
         sv,
         svh,
         &mut out,
@@ -577,10 +577,10 @@ pub fn handle_tf_string_sink_stream_value_update(
         svh.run_len,
     );
     if sv.done {
-        sess.sv_mgr.drop_field_value_subscription(sv_id, None);
+        jd.sv_mgr.drop_field_value_subscription(sv_id, None);
         tf.stream_value_handles.release(custom);
         if tf.stream_value_handles.is_empty() {
-            sess.tf_mgr.push_tf_in_ready_stack(tf_id);
+            jd.tf_mgr.push_tf_in_ready_stack(tf_id);
         }
     }
 }

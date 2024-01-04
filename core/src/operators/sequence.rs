@@ -3,8 +3,8 @@ use arrayvec::ArrayVec;
 use bstr::ByteSlice;
 
 use crate::{
-    context::Session,
-    job_session::JobData,
+    context::SessionData,
+    job::JobData,
     liveness_analysis::{LivenessData, NON_STRING_READS_OFFSET},
     options::argument::CliArgIdx,
     record_data::push_interface::VariableSizeTypeInserter,
@@ -50,7 +50,7 @@ pub struct TfSequence {
 }
 
 pub fn build_tf_sequence<'a>(
-    _sess: &mut JobData,
+    _jd: &mut JobData,
     _op_base: &OperatorBase,
     op: &'a OpSequence,
     _tf_state: &mut TransformState,
@@ -63,7 +63,7 @@ pub fn build_tf_sequence<'a>(
 }
 
 pub fn setup_op_sequence_concurrent_liveness_data(
-    sess: &Session,
+    sess: &SessionData,
     op: &mut OpSequence,
     op_id: OperatorId,
     ld: &LivenessData,
@@ -93,21 +93,21 @@ pub fn increment_int_str(data: &mut ArrayVec<u8, I64_MAX_DECIMAL_DIGITS>) {
 const FAST_SEQ_MAX_STEP: i64 = 200;
 
 pub fn handle_tf_sequence(
-    sess: &mut JobData,
+    jd: &mut JobData,
     tf_id: TransformId,
     seq: &mut TfSequence,
 ) {
-    let (mut batch_size, ps) = sess.tf_mgr.claim_batch(tf_id);
-    let of_id = sess.tf_mgr.prepare_output_field(
-        &mut sess.field_mgr,
-        &mut sess.match_set_mgr,
+    let (mut batch_size, ps) = jd.tf_mgr.claim_batch(tf_id);
+    let of_id = jd.tf_mgr.prepare_output_field(
+        &mut jd.field_mgr,
+        &mut jd.match_set_mgr,
         tf_id,
     );
-    let mut output_field = sess.field_mgr.fields[of_id].borrow_mut();
-    let tf = &sess.tf_mgr.transforms[tf_id];
+    let mut output_field = jd.field_mgr.fields[of_id].borrow_mut();
+    let tf = &jd.tf_mgr.transforms[tf_id];
     if batch_size == 0 && ps.input_done && !seq.stop_after_input {
         batch_size = if let Some(succ) = tf.successor {
-            let succ = &sess.tf_mgr.transforms[succ];
+            let succ = &jd.tf_mgr.transforms[succ];
             succ.desired_batch_size
                 .saturating_sub(succ.available_batch_size)
         } else {
@@ -155,13 +155,13 @@ pub fn handle_tf_sequence(
     let bs_rem = batch_size - count;
     let mut done = ps.input_done && seq.stop_after_input;
     if seq.ss.start == seq.ss.end {
-        sess.tf_mgr.unclaim_batch_size(tf_id, bs_rem);
+        jd.tf_mgr.unclaim_batch_size(tf_id, bs_rem);
         done = true;
     }
     if !done && (ps.next_batch_ready || ps.input_done) {
-        sess.tf_mgr.push_tf_in_ready_stack(tf_id);
+        jd.tf_mgr.push_tf_in_ready_stack(tf_id);
     }
-    sess.tf_mgr.submit_batch(tf_id, count, done);
+    jd.tf_mgr.submit_batch(tf_id, count, done);
 }
 
 pub fn parse_op_seq(

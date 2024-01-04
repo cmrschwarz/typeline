@@ -4,8 +4,8 @@ use bitvec::vec::BitVec;
 
 use crate::{
     chain::Chain,
-    context::Session,
-    job_session::{JobData, JobSession},
+    context::SessionData,
+    job::{Job, JobData},
     liveness_analysis::{
         LivenessData, OpOutputIdx, Var, HEADER_WRITES_OFFSET,
         LOCAL_SLOTS_PER_BASIC_BLOCK, READS_OFFSET,
@@ -141,7 +141,7 @@ pub fn setup_op_forkcat(
 }
 
 pub fn setup_op_forkcat_liveness_data(
-    sess: &Session,
+    sess: &SessionData,
     op: &mut OpForkCat,
     op_id: OperatorId,
     ld: &LivenessData,
@@ -254,7 +254,7 @@ pub fn setup_op_forkcat_liveness_data(
 }
 
 pub fn build_tf_forkcat<'a>(
-    _sess: &mut JobData,
+    _jd: &mut JobData,
     _op_base: &OperatorBase,
     op: &'a OpForkCat,
     _tf_state: &mut TransformState,
@@ -280,7 +280,7 @@ pub fn build_tf_forkcat<'a>(
 }
 
 pub(crate) fn handle_initial_forkcat_expansion(
-    sess: &mut JobSession,
+    sess: &mut Job,
     tf_id: TransformId,
 ) -> TransformId {
     let tf = &sess.job_data.tf_mgr.transforms[tf_id];
@@ -314,20 +314,20 @@ pub(crate) fn handle_initial_forkcat_expansion(
 }
 
 pub fn handle_tf_forkcat(
-    sess: &mut JobData,
+    jd: &mut JobData,
     tf_id: TransformId,
     fc: &mut TfForkCat,
 ) {
     if fc.op.subchains_start + fc.curr_subchain_n == fc.op.subchains_end {
         let cont = fc.continuation.unwrap();
-        sess.tf_mgr.transforms[cont].input_is_done = true;
-        sess.tf_mgr.declare_transform_done(tf_id);
-        sess.tf_mgr.push_tf_in_ready_stack(cont);
+        jd.tf_mgr.transforms[cont].input_is_done = true;
+        jd.tf_mgr.declare_transform_done(tf_id);
+        jd.tf_mgr.push_tf_in_ready_stack(cont);
         return;
     }
     if fc.curr_subchain_n != 0 {
-        sess.tf_mgr.push_tf_in_ready_stack(tf_id);
-        sess.tf_mgr.inform_transform_batch_available(
+        jd.tf_mgr.push_tf_in_ready_stack(tf_id);
+        jd.tf_mgr.inform_transform_batch_available(
             fc.curr_subchain_start.take().unwrap(),
             fc.input_size,
             true,
@@ -335,15 +335,15 @@ pub fn handle_tf_forkcat(
         fc.curr_subchain_n += 1;
         return;
     }
-    let (batch_size, ps) = sess.tf_mgr.claim_all(tf_id);
+    let (batch_size, ps) = jd.tf_mgr.claim_all(tf_id);
     fc.input_size += batch_size;
     let curr_subchain_start = fc.curr_subchain_start.unwrap();
     if ps.input_done {
-        sess.tf_mgr.push_tf_in_ready_stack(tf_id);
+        jd.tf_mgr.push_tf_in_ready_stack(tf_id);
         fc.curr_subchain_n += 1;
         fc.curr_subchain_start = None;
     }
-    sess.tf_mgr.inform_transform_batch_available(
+    jd.tf_mgr.inform_transform_batch_available(
         curr_subchain_start,
         batch_size,
         ps.input_done,
@@ -351,7 +351,7 @@ pub fn handle_tf_forkcat(
 }
 
 fn setup_continuation(
-    sess: &mut JobSession,
+    sess: &mut Job,
     tf_id: TransformId,
 ) -> (TransformId, TransformId) {
     let TransformData::ForkCat(forkcat) =
@@ -401,7 +401,7 @@ fn setup_continuation(
     (begin, end)
 }
 
-fn expand_for_subchain(sess: &mut JobSession, tf_id: TransformId, sc_n: u32) {
+fn expand_for_subchain(sess: &mut Job, tf_id: TransformId, sc_n: u32) {
     let tgt_ms_id = sess.job_data.match_set_mgr.add_match_set();
     let TransformData::ForkCat(forkcat) =
         &mut sess.transform_data[tf_id.get()]
@@ -500,7 +500,7 @@ fn expand_for_subchain(sess: &mut JobSession, tf_id: TransformId, sc_n: u32) {
 }
 
 pub(crate) fn handle_forkcat_subchain_expansion(
-    sess: &mut JobSession,
+    sess: &mut Job,
     tf_id: TransformId,
 ) {
     let TransformData::ForkCat(fc) = &mut sess.transform_data[tf_id.get()]

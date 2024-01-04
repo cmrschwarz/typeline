@@ -11,7 +11,7 @@ use smallstr::SmallString;
 
 use crate::{
     chain::{BufferingMode, Chain},
-    job_session::JobData,
+    job::JobData,
     options::argument::CliArgIdx,
     record_data::{
         field_data::{
@@ -86,7 +86,7 @@ pub struct TfFileReader {
 }
 
 pub fn build_tf_file_reader<'a>(
-    sess: &mut JobData,
+    jd: &mut JobData,
     _op_base: &OperatorBase,
     op: &'a OpFileReader,
     tf_state: &TransformState,
@@ -128,7 +128,7 @@ pub fn build_tf_file_reader<'a>(
         }
     };
     let chain_settings =
-        &sess.get_transform_chain_from_tf_state(tf_state).settings;
+        &jd.get_transform_chain_from_tf_state(tf_state).settings;
     TransformData::FileReader(TfFileReader {
         file: Some(file),
         stream_value: None,
@@ -216,17 +216,17 @@ fn read_chunk(
 }
 
 fn start_streaming_file(
-    sess: &mut JobData,
+    jd: &mut JobData,
     tf_id: TransformId,
     fr: &mut TfFileReader,
 ) {
-    let of_id = sess.tf_mgr.prepare_output_field(
-        &mut sess.field_mgr,
-        &mut sess.match_set_mgr,
+    let of_id = jd.tf_mgr.prepare_output_field(
+        &mut jd.field_mgr,
+        &mut jd.match_set_mgr,
         tf_id,
     );
 
-    let mut output_field = sess.field_mgr.fields[of_id].borrow_mut();
+    let mut output_field = jd.field_mgr.fields[of_id].borrow_mut();
     // we want to write the chunk straight into field data to avoid a copy
     // SAFETY: this relies on the memory layout in field_data.
     // since that is a submodule of us, this is fine.
@@ -266,7 +266,7 @@ fn start_streaming_file(
         Err(e) => {
             fdi.data.truncate(size_before);
             let err = io_error_to_op_error(
-                sess.tf_mgr.transforms[tf_id].op_id.unwrap(),
+                jd.tf_mgr.transforms[tf_id].op_id.unwrap(),
                 e,
             );
             output_field.iter_hall.push_error(err, 1, false, false);
@@ -294,7 +294,7 @@ fn start_streaming_file(
             }
             Err(e) => {
                 let err = io_error_to_op_error(
-                    sess.tf_mgr.transforms[tf_id].op_id.unwrap(),
+                    jd.tf_mgr.transforms[tf_id].op_id.unwrap(),
                     e,
                 );
                 output_field.iter_hall.push_error(err, 1, false, false);
@@ -303,7 +303,7 @@ fn start_streaming_file(
             }
         }
     };
-    let sv_id = sess.sv_mgr.stream_values.claim_with_value(StreamValue {
+    let sv_id = jd.sv_mgr.stream_values.claim_with_value(StreamValue {
         value: FieldValue::Bytes(buf),
         done,
         ref_count: 1,
@@ -317,11 +317,11 @@ fn start_streaming_file(
     drop(output_field);
     // even if the stream is already done, we can only drop the stream value
     // next time we are called once it was observed -> refcounted
-    sess.tf_mgr.make_stream_producer(tf_id);
+    jd.tf_mgr.make_stream_producer(tf_id);
 }
 
 pub fn handle_tf_file_reader_stream(
-    sess: &mut JobData,
+    jd: &mut JobData,
     tf_id: TransformId,
     fr: &mut TfFileReader,
 ) {
@@ -329,25 +329,25 @@ pub fn handle_tf_file_reader_stream(
     let Some(file) = fr.file.as_mut() else {
         // this happens if the stream is immediately done,
         // but we had to wait for subscribers before unregistering it
-        sess.sv_mgr.drop_field_value_subscription(sv_id, None);
+        jd.sv_mgr.drop_field_value_subscription(sv_id, None);
         return;
     };
     let mut need_buffering = false;
     if !fr.stream_value_committed {
         fr.stream_value_committed = true;
-        let tf = &sess.tf_mgr.transforms[tf_id];
+        let tf = &jd.tf_mgr.transforms[tf_id];
         // if input is not done, subsequent records might need the stream
         if !tf.input_is_done {
             need_buffering = true;
         } else {
-            let input_field = sess.field_mgr.fields[tf.input_field].borrow();
+            let input_field = jd.field_mgr.fields[tf.input_field].borrow();
             // some fork variant / etc. might still need this value later
             if input_field.get_clear_delay_request_count() != 0 {
                 need_buffering = true;
             }
         }
     }
-    let sv = &mut sess.sv_mgr.stream_values[sv_id];
+    let sv = &mut jd.sv_mgr.stream_values[sv_id];
     if need_buffering {
         sv.is_buffered = false;
     }
@@ -366,7 +366,7 @@ pub fn handle_tf_file_reader_stream(
         Ok((_size, eof)) => eof,
         Err(err) => {
             let err = io_error_to_op_error(
-                sess.tf_mgr.transforms[tf_id].op_id.unwrap(),
+                jd.tf_mgr.transforms[tf_id].op_id.unwrap(),
                 err,
             );
             sv.value = FieldValue::Error(err);
@@ -374,38 +374,37 @@ pub fn handle_tf_file_reader_stream(
         }
     };
     sv.done = done;
-    sess.sv_mgr.inform_stream_value_subscribers(sv_id);
+    jd.sv_mgr.inform_stream_value_subscribers(sv_id);
     if done {
         fr.file.take();
         // we only drop our stream value once all input is already handled
-        if sess.tf_mgr.transforms[tf_id].mark_for_removal {
-            sess.sv_mgr.drop_field_value_subscription(sv_id, None);
+        if jd.tf_mgr.transforms[tf_id].mark_for_removal {
+            jd.sv_mgr.drop_field_value_subscription(sv_id, None);
         }
         return;
     }
-    sess.tf_mgr.make_stream_producer(tf_id);
+    jd.tf_mgr.make_stream_producer(tf_id);
 }
 
 pub fn handle_tf_file_reader(
-    sess: &mut JobData,
+    jd: &mut JobData,
     tf_id: TransformId,
     fr: &mut TfFileReader,
 ) {
     let initial_call = !fr.value_committed;
     if initial_call {
         fr.value_committed = true;
-        start_streaming_file(sess, tf_id, fr);
+        start_streaming_file(jd, tf_id, fr);
     }
-    let (batch_size, ps) = sess.tf_mgr.maintain_single_value(
+    let (batch_size, ps) = jd.tf_mgr.maintain_single_value(
         tf_id,
         &mut fr.insert_count,
-        &sess.field_mgr,
-        &mut sess.match_set_mgr,
+        &jd.field_mgr,
+        &mut jd.match_set_mgr,
         initial_call,
         true,
     );
-    sess.tf_mgr
-        .submit_batch_ready_for_more(tf_id, batch_size, ps);
+    jd.tf_mgr.submit_batch_ready_for_more(tf_id, batch_size, ps);
 }
 
 lazy_static::lazy_static! {

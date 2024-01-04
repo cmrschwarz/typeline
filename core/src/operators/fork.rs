@@ -5,7 +5,7 @@ use smallvec::SmallVec;
 use crate::{
     chain::Chain,
     context::ContextData,
-    job_session::{JobData, JobSession},
+    job::{Job, JobData},
     liveness_analysis::LivenessData,
     options::argument::CliArgIdx,
     record_data::{
@@ -101,7 +101,7 @@ pub fn setup_op_fork_liveness_data(
 }
 
 pub fn build_tf_fork<'a>(
-    _sess: &mut JobData,
+    _jd: &mut JobData,
     _op_base: &OperatorBase,
     op: &'a OpFork,
     _tf_state: &mut TransformState,
@@ -113,22 +113,18 @@ pub fn build_tf_fork<'a>(
     })
 }
 
-pub fn handle_tf_fork(
-    sess: &mut JobData,
-    tf_id: TransformId,
-    sp: &mut TfFork,
-) {
-    let (batch_size, ps) = sess.tf_mgr.claim_all(tf_id);
+pub fn handle_tf_fork(jd: &mut JobData, tf_id: TransformId, sp: &mut TfFork) {
+    let (batch_size, ps) = jd.tf_mgr.claim_all(tf_id);
     if ps.input_done {
-        sess.tf_mgr.declare_transform_done(tf_id);
+        jd.tf_mgr.declare_transform_done(tf_id);
     }
     if ps.next_batch_ready {
-        sess.tf_mgr.push_tf_in_ready_stack(tf_id);
+        jd.tf_mgr.push_tf_in_ready_stack(tf_id);
     }
     // we reverse to make sure that the first subchain ends up
     // on top of the stack and gets executed first
     for &tf in sp.targets.iter().rev() {
-        sess.tf_mgr.inform_transform_batch_available(
+        jd.tf_mgr.inform_transform_batch_available(
             tf,
             batch_size,
             ps.input_done,
@@ -137,7 +133,7 @@ pub fn handle_tf_fork(
 }
 
 pub(crate) fn handle_fork_expansion(
-    sess: &mut JobSession,
+    sess: &mut Job,
     tf_id: TransformId,
     _ctx: Option<&Arc<ContextData>>,
 ) {

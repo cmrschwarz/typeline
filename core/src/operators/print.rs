@@ -1,7 +1,7 @@
 use std::io::{BufWriter, IsTerminal, StdoutLock, Write};
 
 use crate::{
-    job_session::JobData,
+    job::JobData,
     operators::utils::buffer_stream_values::{
         buffer_remaining_stream_values_in_auto_deref_iter,
         buffer_remaining_stream_values_in_sv_iter,
@@ -61,7 +61,7 @@ pub fn parse_op_print(
 }
 
 pub fn build_tf_print(
-    sess: &mut JobData,
+    jd: &mut JobData,
     _op_base: &OperatorBase,
     _op: &OpPrint,
     tf_state: &mut TransformState,
@@ -72,7 +72,7 @@ pub fn build_tf_print(
         flush_on_every_print: std::io::stdout().is_terminal(),
         current_stream_val: None,
         streams_kept_alive: 0,
-        iter_id: sess.field_mgr.claim_iter(tf_state.input_field),
+        iter_id: jd.field_mgr.claim_iter(tf_state.input_field),
     })
 }
 
@@ -146,33 +146,33 @@ pub fn write_stream_val_check_done(
 }
 
 pub fn handle_tf_print_raw(
-    sess: &mut JobData,
+    jd: &mut JobData,
     tf_id: TransformId,
     print: &mut TfPrint,
     batch_size: usize,
     handled_field_count: &mut usize,
     stdout: &mut BufWriter<StdoutLock<'_>>,
 ) -> Result<(), std::io::Error> {
-    let tf = &sess.tf_mgr.transforms[tf_id];
+    let tf = &jd.tf_mgr.transforms[tf_id];
     let input_field_id = tf.input_field;
 
-    let input_field = sess
+    let input_field = jd
         .field_mgr
-        .get_cow_field_ref(&mut sess.match_set_mgr, input_field_id);
-    let base_iter = sess
+        .get_cow_field_ref(&mut jd.match_set_mgr, input_field_id);
+    let base_iter = jd
         .field_mgr
         .lookup_iter(input_field_id, &input_field, print.iter_id)
         .bounded(0, batch_size);
     let field_pos_start = base_iter.get_next_field_pos();
     let mut field_pos = field_pos_start;
     let mut iter =
-        AutoDerefIter::new(&sess.field_mgr, input_field_id, base_iter);
+        AutoDerefIter::new(&jd.field_mgr, input_field_id, base_iter);
     let mut string_store = None;
     let print_rationals_raw =
-        sess.get_transform_chain(tf_id).settings.print_rationals_raw;
+        jd.get_transform_chain(tf_id).settings.print_rationals_raw;
 
     'iter: while let Some(range) = iter.typed_range_fwd(
-        &mut sess.match_set_mgr,
+        &mut jd.match_set_mgr,
         usize::MAX,
         field_value_flags::DEFAULT,
     ) {
@@ -256,7 +256,7 @@ pub fn handle_tf_print_raw(
                 while let Some((sv_id, offsets, rl)) = sv_iter.next() {
                     pos += rl as usize;
                     *handled_field_count += rl as usize;
-                    let sv = &mut sess.sv_mgr.stream_values[sv_id];
+                    let sv = &mut jd.sv_mgr.stream_values[sv_id];
                     let done = write_stream_val_check_done(
                         stdout,
                         sv,
@@ -274,27 +274,27 @@ pub fn handle_tf_print_raw(
                         print.streams_kept_alive -= rc_diff;
                     }
                     if done {
-                        sess.sv_mgr.check_stream_value_ref_count(sv_id);
+                        jd.sv_mgr.check_stream_value_ref_count(sv_id);
                     } else {
                         print.current_stream_val = Some(sv_id);
                         if rl > 1 {
                             sv.is_buffered = true;
                         }
                         sv.subscribe(tf_id, rl as usize, false);
-                        sess.field_mgr.request_clear_delay(input_field_id);
-                        sess.tf_mgr.unclaim_batch_size(
+                        jd.field_mgr.request_clear_delay(input_field_id);
+                        jd.tf_mgr.unclaim_batch_size(
                             tf_id,
                             batch_size - (pos - field_pos_start),
                         );
                         print.streams_kept_alive +=
                             buffer_remaining_stream_values_in_sv_iter(
-                                &mut sess.sv_mgr,
+                                &mut jd.sv_mgr,
                                 sv_iter,
                             );
                         print.streams_kept_alive +=
                             buffer_remaining_stream_values_in_auto_deref_iter(
-                                &mut sess.match_set_mgr,
-                                &mut sess.sv_mgr,
+                                &mut jd.match_set_mgr,
+                                &mut jd.sv_mgr,
                                 iter.clone(),
                                 usize::MAX,
                             );
@@ -339,12 +339,12 @@ pub fn handle_tf_print_raw(
             }
             TypedSlice::Array(arrays) => {
                 let ss = string_store.get_or_insert_with(|| {
-                    sess.session_data.string_store.read().unwrap()
+                    jd.session_data.string_store.read().unwrap()
                 });
                 let fc = FormattingContext {
                     ss,
-                    fm: &sess.field_mgr,
-                    msm: &sess.match_set_mgr,
+                    fm: &jd.field_mgr,
+                    msm: &jd.match_set_mgr,
                     print_rationals_raw,
                     rfk: Default::default(),
                 };
@@ -358,12 +358,12 @@ pub fn handle_tf_print_raw(
             }
             TypedSlice::Object(objects) => {
                 let ss = string_store.get_or_insert_with(|| {
-                    sess.session_data.string_store.read().unwrap()
+                    jd.session_data.string_store.read().unwrap()
                 });
                 let fc = FormattingContext {
                     ss,
-                    fm: &sess.field_mgr,
-                    msm: &sess.match_set_mgr,
+                    fm: &jd.field_mgr,
+                    msm: &jd.match_set_mgr,
                     print_rationals_raw,
                     rfk: RealizedFormatKey::default(),
                 };
@@ -386,24 +386,23 @@ pub fn handle_tf_print_raw(
         stdout.write_fmt(format_args!("{UNDEFINED_STR}\n"))?;
         *handled_field_count += 1;
     }
-    sess.field_mgr
-        .store_iter(input_field_id, print.iter_id, iter);
+    jd.field_mgr.store_iter(input_field_id, print.iter_id, iter);
     Ok(())
 }
 
 pub fn handle_tf_print(
-    sess: &mut JobData,
+    jd: &mut JobData,
     tf_id: TransformId,
     tf: &mut TfPrint,
 ) {
     if tf.current_stream_val.is_some() {
         return;
     }
-    let (batch_size, ps) = sess.tf_mgr.claim_batch(tf_id);
+    let (batch_size, ps) = jd.tf_mgr.claim_batch(tf_id);
     let mut handled_field_count = 0;
     let mut stdout = BufWriter::new(std::io::stdout().lock());
     let res = handle_tf_print_raw(
-        sess,
+        jd,
         tf_id,
         tf,
         batch_size,
@@ -414,13 +413,13 @@ pub fn handle_tf_print(
         stdout.flush().ok();
     }
     drop(stdout);
-    let op_id = sess.tf_mgr.transforms[tf_id].op_id.unwrap();
-    let of_id = sess.tf_mgr.prepare_output_field(
-        &mut sess.field_mgr,
-        &mut sess.match_set_mgr,
+    let op_id = jd.tf_mgr.transforms[tf_id].op_id.unwrap();
+    let of_id = jd.tf_mgr.prepare_output_field(
+        &mut jd.field_mgr,
+        &mut jd.match_set_mgr,
         tf_id,
     );
-    let mut output_field = sess.field_mgr.fields[of_id].borrow_mut();
+    let mut output_field = jd.field_mgr.fields[of_id].borrow_mut();
     let mut outputs_produced = handled_field_count;
     match res {
         Ok(()) => {
@@ -442,14 +441,14 @@ pub fn handle_tf_print(
     drop(output_field);
 
     if ps.next_batch_ready && tf.current_stream_val.is_none() {
-        sess.tf_mgr.push_tf_in_ready_stack(tf_id);
+        jd.tf_mgr.push_tf_in_ready_stack(tf_id);
     }
-    sess.tf_mgr
+    jd.tf_mgr
         .submit_batch(tf_id, outputs_produced, ps.input_done);
 }
 
 pub fn handle_tf_print_stream_value_update(
-    sess: &mut JobData,
+    jd: &mut JobData,
     tf_id: TransformId,
     print: &mut TfPrint,
     sv_id: StreamValueId,
@@ -458,7 +457,7 @@ pub fn handle_tf_print_stream_value_update(
     // we don't use a buffered writer here because stream chunks
     // are large and we want to avoid the copy
     let mut stdout = std::io::stdout().lock();
-    let sv = &mut sess.sv_mgr.stream_values[sv_id];
+    let sv = &mut jd.sv_mgr.stream_values[sv_id];
     let run_len = custom;
     let mut success_count = run_len;
     let mut error_count = 0;
@@ -474,8 +473,8 @@ pub fn handle_tf_print_stream_value_update(
             err_message = Some(e.to_string());
         }
     }
-    let tf = &sess.tf_mgr.transforms[tf_id];
-    let mut output_field = sess.field_mgr.fields[tf.output_field].borrow_mut();
+    let tf = &jd.tf_mgr.transforms[tf_id];
+    let mut output_field = jd.field_mgr.fields[tf.output_field].borrow_mut();
     if success_count > 0 {
         output_field.iter_hall.push_null(success_count, true);
     }
@@ -483,19 +482,18 @@ pub fn handle_tf_print_stream_value_update(
         output_field.iter_hall.push_error(
             OperatorApplicationError::new_s(
                 err_message,
-                sess.tf_mgr.transforms[tf_id].op_id.unwrap(),
+                jd.tf_mgr.transforms[tf_id].op_id.unwrap(),
             ),
             error_count,
             true,
             false,
         );
-        sess.sv_mgr
-            .drop_field_value_subscription(sv_id, Some(tf_id));
+        jd.sv_mgr.drop_field_value_subscription(sv_id, Some(tf_id));
     }
     if print.flush_on_every_print {
         stdout.flush().ok();
     }
     print.current_stream_val = None;
-    sess.field_mgr.relinquish_clear_delay(tf.input_field);
-    sess.tf_mgr.push_tf_in_ready_stack(tf_id);
+    jd.field_mgr.relinquish_clear_delay(tf.input_field);
+    jd.tf_mgr.push_tf_in_ready_stack(tf_id);
 }

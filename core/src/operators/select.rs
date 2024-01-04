@@ -1,7 +1,7 @@
 use bstr::ByteSlice;
 
 use crate::{
-    job_session::JobData,
+    job::JobData,
     liveness_analysis::{LivenessData, READS_OFFSET},
     options::argument::CliArgIdx,
     utils::string_store::{StringStore, StringStoreEntry},
@@ -70,7 +70,7 @@ pub fn create_op_select(key: String) -> OperatorData {
 }
 
 pub fn build_tf_select(
-    _sess: &mut JobData,
+    _jd: &mut JobData,
     _op_base: &OperatorBase,
     _op: &OpSelect,
     _tf_state: &mut TransformState,
@@ -79,13 +79,13 @@ pub fn build_tf_select(
 }
 
 pub fn handle_tf_select(
-    sess: &mut JobData,
+    jd: &mut JobData,
     tf_id: TransformId,
     _sel: &mut TfSelect,
 ) {
-    let tf = &sess.tf_mgr.transforms[tf_id];
-    sess.field_mgr
-        .apply_field_actions(&mut sess.match_set_mgr, tf.input_field);
-    let (batch_size, ps) = sess.tf_mgr.claim_all(tf_id);
-    sess.tf_mgr.submit_batch(tf_id, batch_size, ps.input_done);
+    let tf = &jd.tf_mgr.transforms[tf_id];
+    jd.field_mgr
+        .apply_field_actions(&mut jd.match_set_mgr, tf.input_field);
+    let (batch_size, ps) = jd.tf_mgr.claim_all(tf_id);
+    jd.tf_mgr.submit_batch(tf_id, batch_size, ps.input_done);
 }

@@ -4,8 +4,8 @@ use smallstr::SmallString;
 
 use crate::{
     chain::{Chain, ChainId},
-    context::{Session, SessionSettings},
-    job_session::JobData,
+    context::{SessionData, SessionSettings},
+    job::JobData,
     liveness_analysis::{
         AccessFlags, BasicBlockId, LivenessData, OpOutputIdx,
     },
@@ -187,7 +187,7 @@ pub trait Operator: Send + Sync {
     fn register_output_var_names(
         &self,
         _ld: &mut LivenessData,
-        _sess: &Session,
+        _sess: &SessionData,
     ) {
     }
 
@@ -217,7 +217,7 @@ pub trait Operator: Send + Sync {
     }
     fn on_liveness_computed(
         &mut self,
-        _sess: &Session,
+        _sess: &SessionData,
         _op_id: OperatorId,
         _ld: &LivenessData,
     ) {
@@ -227,7 +227,7 @@ pub trait Operator: Send + Sync {
     // and can take full advantage of that for sharing state between instances
     fn build_transform(
         &self,
-        sess: &mut JobData,
+        jd: &mut JobData,
         op_base: &OperatorBase,
         tf_state: &mut TransformState,
         prebound_outputs: &HashMap<OpOutputIdx, FieldId, BuildIdentityHasher>,

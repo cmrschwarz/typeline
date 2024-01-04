@@ -8,7 +8,7 @@ use bstr::ByteSlice;
 use crate::{
     chain::ChainId,
     context::{ContextData, SessionSettings, VentureDescription},
-    job_session::{add_transform_to_job, JobData, JobSession},
+    job::{add_transform_to_job, Job, JobData},
     liveness_analysis::{
         LivenessData, Var, HEADER_WRITES_OFFSET, READS_OFFSET,
     },
@@ -160,7 +160,7 @@ pub fn create_op_callcc(name: String) -> OperatorData {
 }
 
 pub fn build_tf_call_concurrent<'a>(
-    sess: &mut JobData,
+    jd: &mut JobData,
     _op_base: &OperatorBase,
     op: &'a OpCallConcurrent,
     tf_state: &TransformState,
@@ -178,7 +178,7 @@ pub fn build_tf_call_concurrent<'a>(
         target_chain: op.target_resolved.unwrap(),
         field_mappings: Default::default(),
         buffer,
-        actor_id: sess.match_set_mgr.match_sets[tf_state.match_set_id]
+        actor_id: jd.match_set_mgr.match_sets[tf_state.match_set_id]
             .action_buffer
             .add_actor(),
         target_accessed_fields: &op.target_accessed_fields,
@@ -220,7 +220,7 @@ fn insert_mapping(
     }
 }
 fn setup_target_field_mappings(
-    sess: &mut JobData,
+    jd: &mut JobData,
     tf_id: TransformId,
     call: &mut TfCallConcurrent,
 ) {
@@ -228,8 +228,8 @@ fn setup_target_field_mappings(
     let buf_data = buf.fields.get_mut().unwrap();
     let mut mappings_present =
         HashMap::<FieldId, usize, BuildIdentityHasher>::default();
-    let tf = &sess.tf_mgr.transforms[tf_id];
-    let source_match_set = &sess.match_set_mgr.match_sets[tf.match_set_id];
+    let tf = &jd.tf_mgr.transforms[tf_id];
+    let source_match_set = &jd.match_set_mgr.match_sets[tf.match_set_id];
 
     for (name, _write) in call.target_accessed_fields {
         // PERF: if the field is never written, and we know that the source
@@ -248,7 +248,7 @@ fn setup_target_field_mappings(
         };
 
         insert_mapping(
-            &sess.field_mgr,
+            &jd.field_mgr,
             &mut mappings_present,
             field_id,
             buf_data,
@@ -259,11 +259,11 @@ fn setup_target_field_mappings(
     let mut i = 0;
     while i < call.field_mappings.len() {
         let src_field_id = call.field_mappings[i].source_field_id;
-        let src = sess.field_mgr.fields[src_field_id].borrow();
+        let src = jd.field_mgr.fields[src_field_id].borrow();
         let tgt_buf_field_idx = call.field_mappings[i].buf_field;
         for fr in &src.field_refs {
             let mapping = insert_mapping(
-                &sess.field_mgr,
+                &jd.field_mgr,
                 &mut mappings_present,
                 *fr,
                 buf_data,
@@ -277,18 +277,18 @@ fn setup_target_field_mappings(
 }
 
 pub(crate) fn handle_call_concurrent_expansion(
-    sess: &mut JobSession,
+    job: &mut Job,
     tf_id: TransformId,
     ctx: Option<&Arc<ContextData>>,
 ) -> Result<(), VentureDescription> {
     let TransformData::CallConcurrent(call) =
-        &mut sess.transform_data[tf_id.get()]
+        &mut job.transform_data[tf_id.get()]
     else {
         unreachable!()
     };
     call.expanded = true;
-    setup_target_field_mappings(&mut sess.job_data, tf_id, call);
-    let starting_op = sess.job_data.session_data.chains
+    setup_target_field_mappings(&mut job.job_data, tf_id, call);
+    let starting_op = job.job_data.session_data.chains
         [call.target_chain as usize]
         .operators[0];
     let mut venture_desc = VentureDescription {
@@ -297,7 +297,7 @@ pub(crate) fn handle_call_concurrent_expansion(
         buffer: call.buffer.clone(),
     };
     let ctx = ctx.unwrap();
-    let mut sess = ctx.sess_mgr.lock().unwrap();
+    let mut sess = ctx.session.lock().unwrap();
     let threads_needed = sess
         .venture_queue
         .front()
@@ -305,7 +305,7 @@ pub(crate) fn handle_call_concurrent_expansion(
         .unwrap_or(0)
         + 2;
 
-    if threads_needed > sess.session.settings.max_threads {
+    if threads_needed > sess.session_data.settings.max_threads {
         return Err(venture_desc);
     }
     venture_desc.participans_needed -= 1;
@@ -315,15 +315,15 @@ pub(crate) fn handle_call_concurrent_expansion(
 }
 
 pub fn handle_tf_call_concurrent(
-    sess: &mut JobData,
+    jd: &mut JobData,
     tf_id: TransformId,
     tfc: &mut TfCallConcurrent,
 ) {
-    let (batch_size, ps) = sess.tf_mgr.claim_all(tf_id);
-    let tf = &sess.tf_mgr.transforms[tf_id];
+    let (batch_size, ps) = jd.tf_mgr.claim_all(tf_id);
+    let tf = &jd.tf_mgr.transforms[tf_id];
     for mapping in &tfc.field_mappings {
-        sess.field_mgr.apply_field_actions(
-            &mut sess.match_set_mgr,
+        jd.field_mgr.apply_field_actions(
+            &mut jd.match_set_mgr,
             mapping.source_field_id,
         );
     }
@@ -334,28 +334,27 @@ pub fn handle_tf_call_concurrent(
         buf_data = tfc.buffer.updates.wait(buf_data).unwrap();
     }
     for mapping in tfc.field_mappings.iter() {
-        let cfdr = sess.field_mgr.get_cow_field_ref(
-            &mut sess.match_set_mgr,
-            mapping.source_field_id,
-        );
-        let mut iter = sess.field_mgr.lookup_iter(
+        let cfdr = jd
+            .field_mgr
+            .get_cow_field_ref(&mut jd.match_set_mgr, mapping.source_field_id);
+        let mut iter = jd.field_mgr.lookup_iter(
             mapping.source_field_id,
             &cfdr,
             mapping.source_field_iter,
         );
         if iter.get_next_field_pos() != 0 {
-            sess.field_mgr.append_to_buffer(
+            jd.field_mgr.append_to_buffer(
                 &mut iter,
                 &buf_data.fields[mapping.buf_field],
             );
-            sess.field_mgr.store_iter(
+            jd.field_mgr.store_iter(
                 mapping.source_field_id,
                 mapping.source_field_iter,
                 iter,
             );
         } else {
             drop(cfdr);
-            sess.field_mgr.swap_into_buffer(
+            jd.field_mgr.swap_into_buffer(
                 mapping.source_field_id,
                 &mut buf_data.fields[mapping.buf_field],
             );
@@ -365,33 +364,32 @@ pub fn handle_tf_call_concurrent(
     buf_data.available_batch_size += batch_size;
     drop(buf_data);
     tfc.buffer.updates.notify_one();
-    let cb = &mut sess.match_set_mgr.match_sets[tf.match_set_id].action_buffer;
+    let cb = &mut jd.match_set_mgr.match_sets[tf.match_set_id].action_buffer;
     cb.begin_action_group(tfc.actor_id);
     cb.push_action(FieldActionKind::Drop, 0, batch_size);
     cb.end_action_group();
     for mapping in &tfc.field_mappings {
-        let src_field =
-            sess.field_mgr.fields[mapping.source_field_id].borrow();
+        let src_field = jd.field_mgr.fields[mapping.source_field_id].borrow();
         drop(src_field);
         // TODO: make sure the source field does not have more rows than
         // our current batch size before stealing it
-        sess.field_mgr
-            .clear_if_owned(&mut sess.match_set_mgr, mapping.source_field_id);
+        jd.field_mgr
+            .clear_if_owned(&mut jd.match_set_mgr, mapping.source_field_id);
     }
     //TODO: handle output_done
     if ps.input_done {
         for mapping in &tfc.field_mappings {
-            sess.field_mgr.drop_field_refcount(
+            jd.field_mgr.drop_field_refcount(
                 mapping.source_field_id,
-                &mut sess.match_set_mgr,
+                &mut jd.match_set_mgr,
             );
         }
-        sess.tf_mgr.submit_batch(tf_id, 0, true);
+        jd.tf_mgr.submit_batch(tf_id, 0, true);
     }
 }
 
 pub fn setup_callee_concurrent(
-    sess: &mut JobSession,
+    sess: &mut Job,
     ms_id: MatchSetId,
     buffer: Arc<RecordBuffer>,
     start_op_id: OperatorId,
@@ -456,13 +454,13 @@ pub fn setup_callee_concurrent(
 }
 
 pub fn handle_tf_callee_concurrent(
-    sess: &mut JobData,
+    jd: &mut JobData,
     tf_id: TransformId,
     tfc: &mut TfCalleeConcurrent,
 ) {
-    sess.tf_mgr.prepare_for_output(
-        &mut sess.field_mgr,
-        &mut sess.match_set_mgr,
+    jd.tf_mgr.prepare_for_output(
+        &mut jd.field_mgr,
+        &mut jd.match_set_mgr,
         tf_id,
         tfc.target_fields.iter().filter_map(|f| *f),
     );
@@ -475,7 +473,7 @@ pub fn handle_tf_callee_concurrent(
     buf_data.available_batch_size = 0;
     for i in 0..tfc.target_fields.len() {
         if let Some(field_id) = tfc.target_fields[i] {
-            let mut field_tgt = sess.field_mgr.fields[field_id].borrow_mut();
+            let mut field_tgt = jd.field_mgr.fields[field_id].borrow_mut();
             let field_src = &mut buf_data.fields
                 [RecordBufferFieldId::new(i as u32).unwrap()];
             std::mem::swap(field_src.get_data_mut(), unsafe {
@@ -484,8 +482,8 @@ pub fn handle_tf_callee_concurrent(
             if input_done || field_tgt.ref_count == 1 {
                 field_src.refcount -= 1;
                 drop(field_tgt);
-                sess.field_mgr
-                    .drop_field_refcount(field_id, &mut sess.match_set_mgr);
+                jd.field_mgr
+                    .drop_field_refcount(field_id, &mut jd.match_set_mgr);
                 tfc.target_fields[i] = None;
             }
         }
@@ -494,8 +492,8 @@ pub fn handle_tf_callee_concurrent(
     tfc.buffer.updates.notify_one();
     if !input_done {
         // trigger a condvar wait if no further input is present
-        sess.tf_mgr.push_tf_in_ready_stack(tf_id);
+        jd.tf_mgr.push_tf_in_ready_stack(tf_id);
     }
-    sess.tf_mgr
+    jd.tf_mgr
         .submit_batch(tf_id, available_batch_size, input_done);
 }

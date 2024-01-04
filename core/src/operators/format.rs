@@ -17,8 +17,8 @@ use super::{
     transform::{TransformData, TransformId, TransformState},
 };
 use crate::{
-    context::Session,
-    job_session::JobData,
+    context::SessionData,
+    job::JobData,
     liveness_analysis::{AccessFlags, LivenessData},
     options::argument::CliArgIdx,
     record_data::{
@@ -677,7 +677,7 @@ pub fn setup_op_format(
 }
 
 pub fn build_tf_format<'a>(
-    sess: &mut JobData,
+    jd: &mut JobData,
     _op_base: &OperatorBase,
     op: &'a OpFormat,
     tf_state: &TransformState,
@@ -687,28 +687,27 @@ pub fn build_tf_format<'a>(
         .iter()
         .map(|name| {
             let field_id = if let Some(name) = name {
-                if let Some(id) = sess.match_set_mgr.match_sets
+                if let Some(id) = jd.match_set_mgr.match_sets
                     [tf_state.match_set_id]
                     .field_name_map
                     .get(name)
                     .copied()
                 {
-                    sess.field_mgr
-                        .setup_field_refs(&mut sess.match_set_mgr, id);
-                    let mut f = sess.field_mgr.fields[id].borrow_mut();
+                    jd.field_mgr.setup_field_refs(&mut jd.match_set_mgr, id);
+                    let mut f = jd.field_mgr.fields[id].borrow_mut();
                     f.ref_count += 1;
                     id
                 } else {
-                    sess.field_mgr.add_field(
-                        &mut sess.match_set_mgr,
+                    jd.field_mgr.add_field(
+                        &mut jd.match_set_mgr,
                         tf_state.match_set_id,
                         Some(*name),
-                        sess.field_mgr.get_first_actor(tf_state.input_field),
+                        jd.field_mgr.get_first_actor(tf_state.input_field),
                     )
                 }
             } else {
                 let mut f =
-                    sess.field_mgr.fields[tf_state.input_field].borrow_mut();
+                    jd.field_mgr.fields[tf_state.input_field].borrow_mut();
                 // while the ref count was already bumped by the transform
                 // creation cleaning up this transform is
                 // simpler this way
@@ -717,7 +716,7 @@ pub fn build_tf_format<'a>(
             };
             FormatIdentRef {
                 field_id,
-                iter_id: sess.field_mgr.claim_iter(field_id),
+                iter_id: jd.field_mgr.claim_iter(field_id),
             }
         })
         .collect();
@@ -728,7 +727,7 @@ pub fn build_tf_format<'a>(
         output_states: Default::default(),
         output_targets: Default::default(),
         stream_value_handles: Default::default(),
-        print_rationals_raw: sess
+        print_rationals_raw: jd
             .get_transform_chain_from_tf_state(tf_state)
             .settings
             .print_rationals_raw,
@@ -737,7 +736,7 @@ pub fn build_tf_format<'a>(
 }
 
 pub fn update_op_format_variable_liveness(
-    sess: &Session,
+    sess: &SessionData,
     fmt: &OpFormat,
     ld: &mut LivenessData,
     op_id: OperatorId,
@@ -1357,7 +1356,7 @@ pub fn lookup_width_spec(
     }
 }
 pub fn setup_key_output_state(
-    sess: &Session,
+    sess: &SessionData,
     sv_mgr: &mut StreamValueManager,
     fm: &FieldManager,
     msm: &mut MatchSetManager,
@@ -2026,7 +2025,7 @@ fn write_formatted<'a, F: Formatable<'a> + ?Sized>(
 }
 
 fn write_fmt_key(
-    sess: &Session,
+    sess: &SessionData,
     sv_mgr: &StreamValueManager,
     fm: &FieldManager,
     msm: &mut MatchSetManager,
@@ -2402,25 +2401,25 @@ fn write_fmt_key(
         );
     }
 }
-fn drop_field_refs(sess: &mut JobData, fmt: &mut TfFormat) {
+fn drop_field_refs(jd: &mut JobData, fmt: &mut TfFormat) {
     for r in &fmt.refs {
-        sess.field_mgr
-            .drop_field_refcount(r.field_id, &mut sess.match_set_mgr);
+        jd.field_mgr
+            .drop_field_refcount(r.field_id, &mut jd.match_set_mgr);
     }
 }
 pub fn handle_tf_format(
-    sess: &mut JobData,
+    jd: &mut JobData,
     tf_id: TransformId,
     fmt: &mut TfFormat,
 ) {
-    let (batch_size, ps) = sess.tf_mgr.claim_batch(tf_id);
-    sess.tf_mgr.prepare_output_field(
-        &mut sess.field_mgr,
-        &mut sess.match_set_mgr,
+    let (batch_size, ps) = jd.tf_mgr.claim_batch(tf_id);
+    jd.tf_mgr.prepare_output_field(
+        &mut jd.field_mgr,
+        &mut jd.match_set_mgr,
         tf_id,
     );
-    let tf = &sess.tf_mgr.transforms[tf_id];
-    let mut output_field = sess.field_mgr.fields[tf.output_field].borrow_mut();
+    let tf = &jd.tf_mgr.transforms[tf_id];
+    let mut output_field = jd.field_mgr.fields[tf.output_field].borrow_mut();
     fmt.output_states.push(OutputState {
         run_len: batch_size,
         next: FINAL_OUTPUT_INDEX_NEXT_VAL,
@@ -2449,10 +2448,10 @@ pub fn handle_tf_format(
                 });
             }
             FormatPart::Key(k) => setup_key_output_state(
-                sess.session_data,
-                &mut sess.sv_mgr,
-                &sess.field_mgr,
-                &mut sess.match_set_mgr,
+                jd.session_data,
+                &mut jd.sv_mgr,
+                &jd.field_mgr,
+                &mut jd.match_set_mgr,
                 tf_id,
                 fmt,
                 batch_size,
@@ -2462,9 +2461,9 @@ pub fn handle_tf_format(
         }
     }
     setup_output_targets(
-        &sess.session_data.string_store.read().unwrap(),
+        &jd.session_data.string_store.read().unwrap(),
         fmt,
-        &mut sess.sv_mgr,
+        &mut jd.sv_mgr,
         tf.op_id.unwrap(),
         &mut output_field,
     );
@@ -2481,10 +2480,10 @@ pub fn handle_tf_format(
                 });
             }
             FormatPart::Key(k) => write_fmt_key(
-                sess.session_data,
-                &sess.sv_mgr,
-                &sess.field_mgr,
-                &mut sess.match_set_mgr,
+                jd.session_data,
+                &jd.sv_mgr,
+                &jd.field_mgr,
+                &mut jd.match_set_mgr,
                 fmt,
                 batch_size,
                 k,
@@ -2498,16 +2497,16 @@ pub fn handle_tf_format(
     let streams_done = fmt.stream_value_handles.is_empty();
     if streams_done {
         if ps.input_done {
-            drop_field_refs(sess, fmt);
+            drop_field_refs(jd, fmt);
         } else if ps.next_batch_ready {
-            sess.tf_mgr.push_tf_in_ready_stack(tf_id);
+            jd.tf_mgr.push_tf_in_ready_stack(tf_id);
         }
     }
-    sess.tf_mgr.submit_batch(tf_id, batch_size, ps.input_done);
+    jd.tf_mgr.submit_batch(tf_id, batch_size, ps.input_done);
 }
 
 pub fn handle_tf_format_stream_value_update(
-    sess: &mut JobData,
+    jd: &mut JobData,
     tf_id: TransformId,
     fmt: &mut TfFormat,
     sv_id: StreamValueId,
@@ -2515,7 +2514,7 @@ pub fn handle_tf_format_stream_value_update(
 ) {
     let handle_id = NonMaxUsize::new(custom).unwrap();
     let handle = &mut fmt.stream_value_handles[handle_id];
-    let (sv, out_sv) = sess
+    let (sv, out_sv) = jd
         .sv_mgr
         .stream_values
         .get_two_distinct_mut(sv_id, handle.target_sv_id);
@@ -2616,13 +2615,13 @@ pub fn handle_tf_format_stream_value_update(
 
     if !done {
         if update_out_sv {
-            sess.sv_mgr
+            jd.sv_mgr
                 .inform_stream_value_subscribers(handle.target_sv_id);
         }
         return;
     }
 
-    out_sv = &mut sess.sv_mgr.stream_values[handle.target_sv_id];
+    out_sv = &mut jd.sv_mgr.stream_values[handle.target_sv_id];
     let mut i = handle.part_idx as usize + 1;
 
     let mut tgt_is_utf8 = false;
@@ -2655,15 +2654,14 @@ pub fn handle_tf_format_stream_value_update(
         handle.part_idx = i as FormatPartIndex;
     }
     out_sv.done = true;
-    sess.sv_mgr
+    jd.sv_mgr
         .inform_stream_value_subscribers(handle.target_sv_id);
-    sess.sv_mgr
-        .drop_field_value_subscription(sv_id, Some(tf_id));
-    sess.sv_mgr
+    jd.sv_mgr.drop_field_value_subscription(sv_id, Some(tf_id));
+    jd.sv_mgr
         .drop_field_value_subscription(handle.target_sv_id, None);
     fmt.stream_value_handles.release(handle_id);
     if fmt.stream_value_handles.is_empty() {
-        sess.tf_mgr.push_tf_in_ready_stack(tf_id);
+        jd.tf_mgr.push_tf_in_ready_stack(tf_id);
     }
 }
 

@@ -873,6 +873,7 @@ name = "scr_ext_misc_cmds"
 version = "0.1.0"
 dependencies = [
  "bstr",
+ "num",
  "primes",
  "scr",
  "scr_core",

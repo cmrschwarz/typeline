@@ -5,7 +5,7 @@ use thiserror::Error;
 use crate::{
     chain::ChainId,
     cli::{CliArgumentError, MissingArgumentsError, PrintInfoAndExitError},
-    context::Session,
+    context::SessionData,
     operators::{
         errors::{
             OperatorApplicationError, OperatorCreationError,
@@ -98,7 +98,7 @@ impl ContextualizedScrError {
         err: ScrError,
         args: Option<&Vec<Vec<u8>>>,
         ctx_opts: Option<&SessionOptions>,
-        sess: Option<&Session>,
+        sess: Option<&SessionData>,
     ) -> Self {
         Self {
             contextualized_message: err
@@ -144,7 +144,7 @@ fn contextualize_op_id(
     op_id: OperatorId,
     args: Option<&Vec<Vec<u8>>>,
     ctx_opts: Option<&SessionOptions>,
-    sess: Option<&Session>,
+    sess: Option<&SessionData>,
 ) -> String {
     let cli_arg_id = ctx_opts
         .and_then(|o| o.operator_base_options[op_id as usize].cli_arg_idx)
@@ -179,7 +179,7 @@ impl ScrError {
         &self,
         args: Option<&Vec<Vec<u8>>>,
         ctx_opts: Option<&SessionOptions>,
-        sess: Option<&Session>,
+        sess: Option<&SessionData>,
     ) -> String {
         let args_gathered = args
             .or_else(|| ctx_opts.and_then(|o| o.cli_args.as_ref()))

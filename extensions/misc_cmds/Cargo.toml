@@ -12,6 +12,7 @@ doctest = false
 scr_core = { path = "../../core" }
 bstr = { version = "1.8.0", default-features = false }
 primes = "0.3.0"
+num = "0.4.1"
 
 [dev-dependencies]
 scr = { path = "../../", features = ["misc_cmds"] }

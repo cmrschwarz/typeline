@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use primes::PrimeSet;
 use scr_core::{
-    job_session::JobData,
+    job::JobData,
     liveness_analysis::{
         AccessFlags, BasicBlockId, LivenessData, OpOutputIdx,
     },
@@ -52,14 +52,14 @@ impl Operator for OpPrimes {
 
     fn build_transform<'a>(
         &'a self,
-        sess: &mut JobData,
+        jd: &mut JobData,
         _op_base: &OperatorBase,
         tf_state: &mut TransformState,
         _prebound_outputs: &HashMap<OpOutputIdx, FieldId, BuildIdentityHasher>,
     ) -> TransformData<'a> {
-        let ab = &mut sess.match_set_mgr.match_sets[tf_state.match_set_id]
+        let ab = &mut jd.match_set_mgr.match_sets[tf_state.match_set_id]
             .action_buffer;
-        sess.field_mgr.fields[tf_state.output_field]
+        jd.field_mgr.fields[tf_state.output_field]
             .borrow_mut()
             .first_actor = ActorRef::Unconfirmed(ab.peek_next_actor_id());
         TransformData::Custom(smallbox!(TfPrimes {

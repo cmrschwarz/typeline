@@ -6,7 +6,7 @@ use std::{
 use indexmap::{indexmap, IndexMap};
 
 use crate::{
-    job_session::JobData,
+    job::JobData,
     liveness_analysis::{
         AccessFlags, BasicBlockId, LivenessData, OpOutputIdx,
     },
@@ -87,7 +87,7 @@ impl Operator for OpExplode {
 
     fn on_liveness_computed(
         &mut self,
-        _sess: &crate::context::Session,
+        _sess: &crate::context::SessionData,
         op_id: super::operator::OperatorId,
         ld: &LivenessData,
     ) {
@@ -110,13 +110,13 @@ impl Operator for OpExplode {
 
     fn build_transform<'a>(
         &'a self,
-        sess: &mut JobData,
+        jd: &mut JobData,
         _op_base: &OperatorBase,
         tf_state: &mut super::transform::TransformState,
         _prebound_outputs: &HashMap<OpOutputIdx, FieldId, BuildIdentityHasher>,
     ) -> TransformData<'a> {
         let input_field_field_ref_offset =
-            sess.field_mgr.register_field_reference(
+            jd.field_mgr.register_field_reference(
                 tf_state.output_field,
                 tf_state.input_field,
             );
@@ -126,7 +126,7 @@ impl Operator for OpExplode {
             },
             inserters: Default::default(),
             pending_fields: Default::default(),
-            input_iter_id: sess.field_mgr.claim_iter(tf_state.input_field),
+            input_iter_id: jd.field_mgr.claim_iter(tf_state.input_field),
             input_field_field_ref_offset,
         };
         TransformData::Custom(smallbox!(tfe))

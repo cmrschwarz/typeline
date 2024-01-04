@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::{
-    context::{Context, Session},
+    context::{Context, SessionData},
     operators::{
         aggregator::{
             add_aggregate_to_sess_opts_uninit, create_op_aggregate,
@@ -227,7 +227,9 @@ impl ContextBuilder {
         self.input_data = rs;
         self
     }
-    pub fn build_session(mut self) -> Result<Session, ContextualizedScrError> {
+    pub fn build_session(
+        mut self,
+    ) -> Result<SessionData, ContextualizedScrError> {
         if !self.pending_aggregate.is_empty() {
             let op_data = create_op_aggregate(std::mem::take(
                 &mut self.pending_aggregate,

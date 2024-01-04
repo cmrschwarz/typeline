@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use crate::{
     chain::Chain,
     context::SessionSettings,
-    job_session::{add_transform_to_job, JobData, JobSession},
+    job::{add_transform_to_job, Job, JobData},
     liveness_analysis::OpOutputIdx,
     options::{
         operator_base_options::OperatorBaseOptions,
@@ -119,7 +119,7 @@ pub fn add_aggregate_to_sess_opts_uninit(
 }
 
 pub fn build_tf_aggregator<'a>(
-    sess: &mut JobSession,
+    sess: &mut Job,
     op: &'a OpAggregator,
     tf_state: &mut TransformState,
     op_id: u32,
@@ -181,7 +181,7 @@ pub fn build_tf_aggregator<'a>(
 }
 
 pub fn handle_tf_aggregator_header(
-    sess: &mut JobSession,
+    sess: &mut Job,
     tf_id: nonmax::NonMaxUsize,
 ) {
     let TransformData::AggregatorHeader(header) =

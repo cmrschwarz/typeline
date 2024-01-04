@@ -4,7 +4,7 @@ use regex::Regex;
 use smallstr::SmallString;
 
 use crate::{
-    job_session::JobData,
+    job::JobData,
     options::{
         argument::CliArgIdx, chain_options::DEFAULT_CHAIN_OPTIONS,
         session_options::SessionOptions,
@@ -80,7 +80,7 @@ impl OpLiteral {
 }
 
 pub fn build_tf_literal<'a>(
-    _sess: &mut JobData,
+    _jd: &mut JobData,
     _op_base: &OperatorBase,
     op: &'a OpLiteral,
     _tf_state: &mut TransformState,
@@ -93,21 +93,21 @@ pub fn build_tf_literal<'a>(
 }
 
 pub fn handle_tf_literal(
-    sess: &mut JobData,
+    jd: &mut JobData,
     tf_id: TransformId,
     lit: &mut TfLiteral,
 ) {
-    let tf = &sess.tf_mgr.transforms[tf_id];
+    let tf = &jd.tf_mgr.transforms[tf_id];
     let initial_call = !lit.value_inserted;
     if !lit.value_inserted {
         lit.value_inserted = true;
         let op_id = tf.op_id.unwrap();
-        let of_id = sess.tf_mgr.prepare_output_field(
-            &mut sess.field_mgr,
-            &mut sess.match_set_mgr,
+        let of_id = jd.tf_mgr.prepare_output_field(
+            &mut jd.field_mgr,
+            &mut jd.match_set_mgr,
             tf_id,
         );
-        let mut output_field = sess.field_mgr.fields[of_id].borrow_mut();
+        let mut output_field = jd.field_mgr.fields[of_id].borrow_mut();
         match lit.data {
             Literal::Bytes(b) => {
                 output_field.iter_hall.push_bytes(b, 1, true, true)
@@ -123,7 +123,7 @@ pub fn handle_tf_literal(
                 output_field.iter_hall.push_undefined(1, true)
             }
             Literal::StreamError(ss) => {
-                let sv_id = sess.sv_mgr.stream_values.claim_with_value(
+                let sv_id = jd.sv_mgr.stream_values.claim_with_value(
                     StreamValue::from_value(FieldValue::Error(
                         OperatorApplicationError::new_s(ss.clone(), op_id),
                     )),
@@ -133,7 +133,7 @@ pub fn handle_tf_literal(
                     .push_stream_value_id(sv_id, 1, true, false);
             }
             Literal::StreamString(ss) => {
-                let sv_id = sess.sv_mgr.stream_values.claim_with_value(
+                let sv_id = jd.sv_mgr.stream_values.claim_with_value(
                     StreamValue::from_value(FieldValue::Text(ss.clone())),
                 );
                 output_field
@@ -141,7 +141,7 @@ pub fn handle_tf_literal(
                     .push_stream_value_id(sv_id, 1, true, false);
             }
             Literal::StreamBytes(sb) => {
-                let sv_id = sess.sv_mgr.stream_values.claim_with_value(
+                let sv_id = jd.sv_mgr.stream_values.claim_with_value(
                     StreamValue::from_value(FieldValue::Bytes(sb.clone())),
                 );
                 output_field
@@ -186,16 +186,15 @@ pub fn handle_tf_literal(
             ),
         }
     }
-    let (batch_size, ps) = sess.tf_mgr.maintain_single_value(
+    let (batch_size, ps) = jd.tf_mgr.maintain_single_value(
         tf_id,
         &mut lit.insert_count,
-        &sess.field_mgr,
-        &mut sess.match_set_mgr,
+        &jd.field_mgr,
+        &mut jd.match_set_mgr,
         initial_call,
         true,
     );
-    sess.tf_mgr
-        .submit_batch_ready_for_more(tf_id, batch_size, ps);
+    jd.tf_mgr.submit_batch_ready_for_more(tf_id, batch_size, ps);
 }
 pub fn parse_op_literal_zst(
     arg: &str,

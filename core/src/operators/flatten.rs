@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::{
     cli::reject_operator_argument,
-    job_session::JobData,
+    job::JobData,
     liveness_analysis::{
         AccessFlags, BasicBlockId, LivenessData, OpOutputIdx,
     },
@@ -68,7 +68,7 @@ impl Operator for OpFlatten {
 
     fn on_liveness_computed(
         &mut self,
-        _sess: &crate::context::Session,
+        _sess: &crate::context::SessionData,
         op_id: super::operator::OperatorId,
         ld: &LivenessData,
     ) {
@@ -85,24 +85,24 @@ impl Operator for OpFlatten {
 
     fn build_transform<'a>(
         &'a self,
-        sess: &mut JobData,
+        jd: &mut JobData,
         _op_base: &OperatorBase,
         tf_state: &mut super::transform::TransformState,
         _prebound_outputs: &HashMap<OpOutputIdx, FieldId, BuildIdentityHasher>,
     ) -> TransformData<'a> {
-        let cb = &mut sess.match_set_mgr.match_sets[tf_state.match_set_id]
+        let cb = &mut jd.match_set_mgr.match_sets[tf_state.match_set_id]
             .action_buffer;
-        let input_field_ref_offset = sess.field_mgr.register_field_reference(
+        let input_field_ref_offset = jd.field_mgr.register_field_reference(
             tf_state.output_field,
             tf_state.input_field,
         );
         let tfe = TfFlatten {
             may_consume_input: self.may_consume_input,
-            input_iter_id: sess.field_mgr.claim_iter(tf_state.input_field),
+            input_iter_id: jd.field_mgr.claim_iter(tf_state.input_field),
             actor_id: cb.add_actor(),
             input_field_ref_offset,
         };
-        sess.field_mgr.fields[tf_state.output_field]
+        jd.field_mgr.fields[tf_state.output_field]
             .borrow_mut()
             .first_actor = ActorRef::Unconfirmed(cb.peek_next_actor_id());
         TransformData::Custom(smallbox!(tfe))

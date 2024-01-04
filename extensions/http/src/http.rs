@@ -9,7 +9,7 @@ use std::{
 use mio::{event::Event, net::TcpStream, Events, Interest, Poll, Token};
 use pki_types::InvalidDnsNameError;
 use scr_core::{
-    job_session::JobData,
+    job::JobData,
     liveness_analysis::OpOutputIdx,
     operators::{
         errors::OperatorApplicationError,
@@ -126,7 +126,7 @@ impl Operator for OpHttpRequest {
 
     fn build_transform<'a>(
         &'a self,
-        sess: &mut JobData,
+        jd: &mut JobData,
         _op_base: &OperatorBase,
         tf_state: &mut TransformState,
         _prebound_outputs: &HashMap<OpOutputIdx, FieldId, BuildIdentityHasher>,
@@ -139,8 +139,8 @@ impl Operator for OpHttpRequest {
             running_connections: CountedUniverse::default(),
             poll: Poll::new().unwrap(),
             events: Events::with_capacity(64),
-            iter_id: sess.field_mgr.claim_iter(tf_state.input_field),
-            stream_buffer_size: sess
+            iter_id: jd.field_mgr.claim_iter(tf_state.input_field),
+            stream_buffer_size: jd
                 .get_transform_chain_from_tf_state(tf_state)
                 .settings
                 .stream_buffer_size,

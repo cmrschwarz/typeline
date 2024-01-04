@@ -1,7 +1,7 @@
 use super::transform::{TransformData, TransformId, TransformState};
 use crate::{
     chain::ChainId,
-    job_session::{add_transform_to_job, JobData, JobSession},
+    job::{add_transform_to_job, Job, JobData},
     record_data::{field::VOID_FIELD_ID, match_set::MatchSetId},
 };
 
@@ -25,12 +25,12 @@ pub fn setup_tf_input_done_eater(
 }
 
 pub fn handle_tf_input_done_eater(
-    sess: &mut JobData,
+    jd: &mut JobData,
     tf_id: TransformId,
     ide: &mut TfInputDoneEater,
 ) {
-    let (batch_size, mut ps) = sess.tf_mgr.claim_all(tf_id);
-    let tf = &mut sess.tf_mgr.transforms[tf_id];
+    let (batch_size, mut ps) = jd.tf_mgr.claim_all(tf_id);
+    let tf = &mut jd.tf_mgr.transforms[tf_id];
     if ps.input_done {
         //TODO: we might have an ABA problem here
         let is_repeat = ide.handled_predecessor.is_some()
@@ -44,11 +44,11 @@ pub fn handle_tf_input_done_eater(
             ide.handled_predecessor = tf.predecessor;
         }
     }
-    sess.tf_mgr.submit_batch(tf_id, batch_size, ps.input_done);
+    jd.tf_mgr.submit_batch(tf_id, batch_size, ps.input_done);
 }
 
 pub fn add_input_done_eater(
-    sess: &mut JobSession,
+    sess: &mut Job,
     chain_id: ChainId, // to get desired batch size
     ms_id: MatchSetId,
     input_dones_to_eat: usize,

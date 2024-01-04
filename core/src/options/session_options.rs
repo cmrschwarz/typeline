@@ -9,7 +9,7 @@ use lazy_static::lazy_static;
 
 use crate::{
     chain::{Chain, ChainId},
-    context::{Session, SessionSettings},
+    context::{SessionData, SessionSettings},
     extension::ExtensionRegistry,
     liveness_analysis::{self, LivenessData},
     operators::{
@@ -269,7 +269,7 @@ impl SessionOptions {
         self.curr_chain = new_chain_id;
         self.chains.push(new_chain);
     }
-    pub fn verify_bounds(sess: &Session) -> Result<(), ScrError> {
+    pub fn verify_bounds(sess: &SessionData) -> Result<(), ScrError> {
         if sess.operator_bases.len() >= OperatorOffsetInChain::MAX as usize {
             return Err(OperatorSetupError {
                 message: Cow::Owned(format!(
@@ -410,7 +410,7 @@ impl SessionOptions {
         Ok(())
     }
     pub fn setup_operators(
-        sess: &mut Session,
+        sess: &mut SessionData,
     ) -> Result<(), OperatorSetupError> {
         let mut string_store = sess.string_store.write().unwrap();
         for op_idx in 0..sess.operator_bases.len() {
@@ -434,7 +434,7 @@ impl SessionOptions {
         Ok(())
     }
     pub fn validate_chain(
-        sess: &Session,
+        sess: &SessionData,
         chain_id: ChainId,
     ) -> Result<(), ChainSetupError> {
         let chain = &sess.chains[chain_id as usize];
@@ -451,21 +451,21 @@ impl SessionOptions {
         }
         Ok(())
     }
-    pub fn setup_chain_labels(sess: &mut Session) {
+    pub fn setup_chain_labels(sess: &mut SessionData) {
         for i in 0..sess.chains.len() {
             if let Some(label) = sess.chains[i].label {
                 sess.chain_labels.insert(label, i as ChainId);
             }
         }
     }
-    pub fn setup_chains(sess: &Session) -> Result<(), ChainSetupError> {
+    pub fn setup_chains(sess: &SessionData) -> Result<(), ChainSetupError> {
         for i in 0..sess.chains.len() {
             Self::validate_chain(sess, i as ChainId)?;
         }
         Ok(())
     }
     pub fn setup_op_liveness(
-        sess: &mut Session,
+        sess: &mut SessionData,
         ld: &LivenessData,
         op_id: OperatorId,
     ) {
@@ -521,14 +521,16 @@ impl SessionOptions {
         }
         std::mem::swap(&mut sess.operator_data[op_id as usize], &mut op_data);
     }
-    pub fn compute_liveness(sess: &mut Session) {
+    pub fn compute_liveness(sess: &mut SessionData) {
         let ld = liveness_analysis::compute_liveness_data(sess);
         for i in 0..sess.operator_bases.len() {
             let op_id = i as OperatorId;
             Self::setup_op_liveness(sess, &ld, op_id);
         }
     }
-    pub fn build_session(mut self) -> Result<Session, ContextualizedScrError> {
+    pub fn build_session(
+        mut self,
+    ) -> Result<SessionData, ContextualizedScrError> {
         let mut max_threads;
         if !self.any_threaded_operations {
             max_threads = 1;
@@ -558,7 +560,7 @@ impl SessionOptions {
             chains.push(chain);
         }
 
-        let mut sess = Session {
+        let mut sess = SessionData {
             settings: SessionSettings {
                 max_threads,
                 repl: self

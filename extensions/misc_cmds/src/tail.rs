@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use bstr::ByteSlice;
 use scr_core::{
-    job_session::JobData,
+    job::JobData,
     liveness_analysis::{
         AccessFlags, BasicBlockId, LivenessData, OpOutputIdx,
     },
@@ -62,20 +62,18 @@ impl Operator for OpTail {
 
     fn build_transform(
         &self,
-        sess: &mut JobData,
+        jd: &mut JobData,
         _op_base: &OperatorBase,
         tf_state: &mut TransformState,
         _prebound_outputs: &HashMap<OpOutputIdx, FieldId, BuildIdentityHasher>,
     ) -> TransformData {
-        let ab = &mut sess.match_set_mgr.match_sets[tf_state.match_set_id]
+        let ab = &mut jd.match_set_mgr.match_sets[tf_state.match_set_id]
             .action_buffer;
         let actor_id = ab.add_actor();
         // TODO: creae a nicer api for this usecase where we don't want
         // an output field
-        sess.field_mgr.drop_field_refcount(
-            tf_state.output_field,
-            &mut sess.match_set_mgr,
-        );
+        jd.field_mgr
+            .drop_field_refcount(tf_state.output_field, &mut jd.match_set_mgr);
         tf_state.output_field = tf_state.input_field;
         if !self.add_mode {
             unimplemented!("tail absolute mode")

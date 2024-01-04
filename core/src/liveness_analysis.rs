@@ -10,7 +10,7 @@ use smallvec::SmallVec;
 
 use crate::{
     chain::{Chain, ChainId},
-    context::Session,
+    context::SessionData,
     operators::{
         call::OpCall,
         call_concurrent::OpCallConcurrent,
@@ -199,7 +199,7 @@ impl Var {
 }
 
 impl LivenessData {
-    fn op_output_count(sess: &Session, op_id: OperatorId) -> usize {
+    fn op_output_count(sess: &SessionData, op_id: OperatorId) -> usize {
         let op_base = &sess.operator_bases[op_id as usize];
         match &sess.operator_data[op_id as usize] {
             OperatorData::Call(_) => 1,
@@ -245,7 +245,7 @@ impl LivenessData {
         }
     }
 
-    pub fn setup_operator_outputs(&mut self, sess: &mut Session) {
+    pub fn setup_operator_outputs(&mut self, sess: &mut SessionData) {
         self.operator_liveness_data.extend(
             iter::repeat(Default::default()).take(sess.operator_data.len()),
         );
@@ -296,7 +296,7 @@ impl LivenessData {
             self.add_var_name(name);
         }
     }
-    pub fn setup_op_vars(&mut self, sess: &Session, op_id: OperatorId) {
+    pub fn setup_op_vars(&mut self, sess: &SessionData, op_id: OperatorId) {
         self.add_var_name_opt(sess.operator_bases[op_id as usize].label);
         match &sess.operator_data[op_id as usize] {
             OperatorData::Regex(re) => {
@@ -345,7 +345,7 @@ impl LivenessData {
             }
         }
     }
-    pub fn setup_vars(&mut self, sess: &Session) {
+    pub fn setup_vars(&mut self, sess: &SessionData) {
         // the order of these special vars has to match the IDs specified
         // at the top of this file for BB_INPUT_VAR_ID etc.
         self.vars.push(Var::BBInput);
@@ -389,7 +389,7 @@ impl LivenessData {
     // returns true if the op ends the block
     fn update_bb_for_op(
         &mut self,
-        sess: &Session,
+        sess: &SessionData,
         op_id: OperatorId,
         op_n: OperatorOffsetInChain,
         cn: &Chain,
@@ -461,7 +461,7 @@ impl LivenessData {
         };
         false
     }
-    fn setup_bbs(&mut self, sess: &Session) {
+    fn setup_bbs(&mut self, sess: &SessionData) {
         let var_count = self.vars.len();
         let bits_per_bb = var_count * SLOTS_PER_BASIC_BLOCK;
         for (i, c) in sess.chains.iter().enumerate() {
@@ -496,7 +496,7 @@ impl LivenessData {
         self.var_data
             .resize(bits_per_bb * self.basic_blocks.len(), false);
     }
-    fn setup_bb_linkage_data(&mut self, sess: &Session) {
+    fn setup_bb_linkage_data(&mut self, sess: &SessionData) {
         for bb_id in 0..self.basic_blocks.len() {
             for succ_n in 0..self.basic_blocks[bb_id].successors.len() {
                 let succ_id = self.basic_blocks[bb_id].successors[succ_n];
@@ -523,7 +523,7 @@ impl LivenessData {
     }
     pub fn access_var(
         &mut self,
-        sess: &Session,
+        sess: &SessionData,
         op_id: OperatorId,
         var_id: VarId,
         op_offset_after_last_write: OperatorOffsetInChain,
@@ -544,7 +544,7 @@ impl LivenessData {
     }
     pub fn access_output(
         &mut self,
-        sess: &Session,
+        sess: &SessionData,
         op_id: OperatorId,
         op_output_idx: OpOutputIdx,
         op_offset_after_last_write: OperatorOffsetInChain,
@@ -633,7 +633,7 @@ impl LivenessData {
     }
     fn update_liveness_for_op(
         &mut self,
-        sess: &Session,
+        sess: &SessionData,
         flags: &mut AccessFlags,
         op_offset_after_last_write: OperatorOffsetInChain,
         op_id: OperatorId,
@@ -785,7 +785,7 @@ impl LivenessData {
     }
     fn compute_local_liveness_for_bb(
         &mut self,
-        sess: &Session,
+        sess: &SessionData,
         bb_id: BasicBlockId,
     ) {
         self.key_aliases_map.clear();
@@ -929,7 +929,7 @@ impl LivenessData {
             }
         }
     }
-    fn compute_local_liveness(&mut self, sess: &Session) {
+    fn compute_local_liveness(&mut self, sess: &SessionData) {
         for i in 0..self.basic_blocks.len() {
             self.compute_local_liveness_for_bb(sess, i);
         }
@@ -1154,7 +1154,7 @@ impl LivenessData {
             self.var_data[vd_range].copy_from_bitslice(&calls);
         }
     }
-    fn compute_op_output_liveness(&mut self, sess: &Session) {
+    fn compute_op_output_liveness(&mut self, sess: &SessionData) {
         let var_count = self.vars.len();
         let op_output_count = self.op_outputs.len();
         for bb_id in 0..self.basic_blocks.len() {
@@ -1189,7 +1189,7 @@ impl LivenessData {
             }
         }
     }
-    fn compute_operator_kills(&mut self, sess: &Session) {
+    fn compute_operator_kills(&mut self, sess: &SessionData) {
         let var_count = self.vars.len();
         let output_count = self.op_outputs.len();
         let mut live_outputs = BitVec::<Cell<usize>>::new();
@@ -1238,7 +1238,7 @@ impl LivenessData {
         }
     }
     #[cfg(feature = "debug_logging")]
-    fn log_liveness_data(&mut self, sess: &Session) {
+    fn log_liveness_data(&mut self, sess: &SessionData) {
         let string_store = sess.string_store.read().unwrap();
         println!("{:-^80}", " <liveness analysis> ");
         println!("chains:");
@@ -1501,7 +1501,7 @@ impl LivenessData {
     }
     pub fn accessed_names_afterwards(
         &self,
-        _sess: &Session,
+        _sess: &SessionData,
         op_id: OperatorId,
     ) -> BitVec<usize> {
         let bb_id = self.operator_liveness_data[op_id as usize].basic_block_id;
@@ -1532,7 +1532,7 @@ impl LivenessData {
     }
 }
 
-pub fn compute_liveness_data(sess: &mut Session) -> LivenessData {
+pub fn compute_liveness_data(sess: &mut SessionData) -> LivenessData {
     let mut ld = LivenessData::default();
     ld.setup_vars(sess);
     ld.setup_operator_outputs(sess);

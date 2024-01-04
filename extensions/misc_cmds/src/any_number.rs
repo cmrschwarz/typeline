@@ -3,15 +3,15 @@ use std::{
     ops::{Add, AddAssign, Mul, MulAssign},
 };
 
-use scr_core::{
-    num::{BigInt, BigRational, FromPrimitive, ToPrimitive},
-    record_data::{field_data::RunLength, push_interface::PushInterface},
+use num::{BigInt, BigRational, FromPrimitive, ToPrimitive};
+use scr_core::record_data::{
+    field_data::RunLength, push_interface::PushInterface,
 };
 
 #[derive(Clone)]
 pub enum AnyNumber {
     Int(i64),
-    BigInt(scr_core::num::BigInt),
+    BigInt(num::BigInt),
     Float(f64),
     Rational(BigRational),
 }

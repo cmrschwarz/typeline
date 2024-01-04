@@ -1,5 +1,5 @@
 use crate::{
-    job_session::{add_transform_to_job, JobData, JobSession},
+    job::{add_transform_to_job, Job, JobData},
     record_data::{
         action_buffer::ActorId, field::VOID_FIELD_ID,
         field_action::FieldActionKind, match_set::MatchSetId,
@@ -14,11 +14,11 @@ pub struct TfTerminator {
 }
 
 pub fn setup_tf_terminator(
-    sess: &mut JobData,
+    jd: &mut JobData,
     tf_state: &TransformState,
 ) -> TransformData<'static> {
-    let cb = &mut sess.match_set_mgr.match_sets[tf_state.match_set_id]
-        .action_buffer;
+    let cb =
+        &mut jd.match_set_mgr.match_sets[tf_state.match_set_id].action_buffer;
     TransformData::Terminator(TfTerminator {
         actor_id: cb.add_actor(),
         delayed_deletion_row_count: 0,
@@ -26,13 +26,13 @@ pub fn setup_tf_terminator(
 }
 
 pub fn handle_tf_terminator(
-    sess: &mut JobData,
+    jd: &mut JobData,
     tf_id: TransformId,
     tft: &mut TfTerminator,
 ) {
-    let (batch_size, ps) = sess.tf_mgr.claim_all(tf_id);
-    let tf = &sess.tf_mgr.transforms[tf_id];
-    let ab = &mut sess.match_set_mgr.match_sets[tf.match_set_id].action_buffer;
+    let (batch_size, ps) = jd.tf_mgr.claim_all(tf_id);
+    let tf = &jd.tf_mgr.transforms[tf_id];
+    let ab = &mut jd.match_set_mgr.match_sets[tf.match_set_id].action_buffer;
     ab.begin_action_group(tft.actor_id);
     let rows_to_drop;
     if tf.successor.is_some() {
@@ -45,13 +45,13 @@ pub fn handle_tf_terminator(
     ab.push_action(FieldActionKind::Drop, 0, rows_to_drop);
     ab.end_action_group();
     if tft.delayed_deletion_row_count > 0 {
-        sess.tf_mgr.push_tf_in_ready_stack(tf_id);
+        jd.tf_mgr.push_tf_in_ready_stack(tf_id);
     }
-    sess.tf_mgr.submit_batch(tf_id, batch_size, ps.input_done);
+    jd.tf_mgr.submit_batch(tf_id, batch_size, ps.input_done);
 }
 
 pub fn add_terminator(
-    sess: &mut JobSession,
+    sess: &mut Job,
     ms_id: MatchSetId,
     last_tf: TransformId,
 ) -> TransformId {

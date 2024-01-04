@@ -1,7 +1,7 @@
 use regex::Regex;
 
 use crate::{
-    job_session::JobData,
+    job::JobData,
     options::argument::CliArgIdx,
     record_data::{
         field_data::field_value_flags,
@@ -136,7 +136,7 @@ pub struct TfCast {
 }
 
 pub fn build_tf_cast<'a>(
-    sess: &mut JobData,
+    jd: &mut JobData,
     _op_base: &OperatorBase,
     op: &'a OpCast,
     tf_state: &mut TransformState,
@@ -168,7 +168,7 @@ pub fn build_tf_cast<'a>(
             .clone_dyn(),
         };
     TransformData::Cast(TfCast {
-        batch_iter: sess.field_mgr.claim_iter(tf_state.input_field),
+        batch_iter: jd.field_mgr.claim_iter(tf_state.input_field),
         pending_streams: 0,
         invalid_unicode_handler: replacement_fn,
         target_type: op.target_type,
@@ -177,16 +177,16 @@ pub fn build_tf_cast<'a>(
     })
 }
 
-pub fn handle_tf_cast(sess: &mut JobData, tf_id: TransformId, tfc: &TfCast) {
-    let (batch_size, ps) = sess.tf_mgr.claim_batch(tf_id);
-    let tf = &sess.tf_mgr.transforms[tf_id];
+pub fn handle_tf_cast(jd: &mut JobData, tf_id: TransformId, tfc: &TfCast) {
+    let (batch_size, ps) = jd.tf_mgr.claim_batch(tf_id);
+    let tf = &jd.tf_mgr.transforms[tf_id];
     let _op_id = tf.op_id.unwrap();
     let input_field_id = tf.input_field;
-    let input_field = sess
+    let input_field = jd
         .field_mgr
-        .get_cow_field_ref(&mut sess.match_set_mgr, tf.input_field);
+        .get_cow_field_ref(&mut jd.match_set_mgr, tf.input_field);
 
-    let mut output_field = sess.field_mgr.fields[tf.output_field].borrow_mut();
+    let mut output_field = jd.field_mgr.fields[tf.output_field].borrow_mut();
 
     if tf.preferred_input_type.is_some_and(|i| i.is_zst())
         && tfc.convert_errors
@@ -197,23 +197,23 @@ pub fn handle_tf_cast(sess: &mut JobData, tf_id: TransformId, tfc: &TfCast) {
             true,
         );
         if ps.next_batch_ready {
-            sess.tf_mgr.push_tf_in_ready_stack(tf_id);
+            jd.tf_mgr.push_tf_in_ready_stack(tf_id);
         }
-        sess.tf_mgr.submit_batch(tf_id, batch_size, ps.input_done);
+        jd.tf_mgr.submit_batch(tf_id, batch_size, ps.input_done);
         return;
     }
     let ofd = &mut output_field.iter_hall;
-    let base_iter = sess
+    let base_iter = jd
         .field_mgr
         .lookup_iter(tf.input_field, &input_field, tfc.batch_iter)
         .bounded(0, batch_size);
     let starting_pos = base_iter.get_next_field_pos();
 
     let mut iter =
-        AutoDerefIter::new(&sess.field_mgr, tf.input_field, base_iter);
+        AutoDerefIter::new(&jd.field_mgr, tf.input_field, base_iter);
 
     while let Some(range) = iter.typed_range_fwd(
-        &mut sess.match_set_mgr,
+        &mut jd.match_set_mgr,
         usize::MAX,
         field_value_flags::DEFAULT,
     ) {
@@ -233,37 +233,36 @@ pub fn handle_tf_cast(sess: &mut JobData, tf_id: TransformId, tfc: &TfCast) {
     }
     let iter_base = iter.into_base_iter();
     let consumed_fields = iter_base.get_next_field_pos() - starting_pos;
-    sess.field_mgr
+    jd.field_mgr
         .store_iter(input_field_id, tfc.batch_iter, iter_base);
     drop(input_field);
     drop(output_field);
     let streams_done = tfc.pending_streams == 0;
 
     if streams_done && ps.next_batch_ready {
-        sess.tf_mgr.push_tf_in_ready_stack(tf_id);
+        jd.tf_mgr.push_tf_in_ready_stack(tf_id);
     }
-    sess.tf_mgr
+    jd.tf_mgr
         .submit_batch(tf_id, consumed_fields, ps.input_done);
 }
 
 pub fn handle_tf_cast_stream_value_update(
-    sess: &mut JobData,
+    jd: &mut JobData,
     tf_id: TransformId,
     tf: &mut TfCast,
     sv_id: StreamValueId,
     custom: usize,
 ) {
-    let op_id = sess.tf_mgr.transforms[tf_id].op_id.unwrap();
+    let op_id = jd.tf_mgr.transforms[tf_id].op_id.unwrap();
     let sv_out_id = custom;
     let (sv_in, sv_out) =
-        sess.sv_mgr.stream_values.two_distinct_mut(sv_id, sv_out_id);
+        jd.sv_mgr.stream_values.two_distinct_mut(sv_id, sv_out_id);
     match &sv_in.value {
         FieldValue::Error(err) => {
             sv_out.value = FieldValue::Error(err.clone());
             sv_out.done = true;
-            sess.sv_mgr.inform_stream_value_subscribers(sv_out_id);
-            sess.sv_mgr
-                .drop_field_value_subscription(sv_id, Some(tf_id));
+            jd.sv_mgr.inform_stream_value_subscribers(sv_out_id);
+            jd.sv_mgr.drop_field_value_subscription(sv_id, Some(tf_id));
         }
         FieldValue::Bytes(bb) => {
             let (out_is_utf8, out_data) = match &mut sv_out.value {
@@ -285,8 +284,8 @@ pub fn handle_tf_cast_stream_value_update(
                     sv_out.value = FieldValue::Error(
                         OperatorApplicationError::new_s(e, op_id),
                     );
-                    sess.sv_mgr.inform_stream_value_subscribers(sv_out_id);
-                    sess.sv_mgr
+                    jd.sv_mgr.inform_stream_value_subscribers(sv_out_id);
+                    jd.sv_mgr
                         .drop_field_value_subscription(sv_id, Some(tf_id));
                     return;
                 }

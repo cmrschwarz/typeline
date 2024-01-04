@@ -2,8 +2,8 @@ use nonmax::NonMaxUsize;
 use smallstr::SmallString;
 
 use crate::{
-    context::Session,
-    job_session::{JobData, JobSession, PipelineState, TransformManager},
+    context::SessionData,
+    job::{Job, JobData, PipelineState, TransformManager},
     record_data::{
         field::{FieldId, FieldManager},
         field_data::FieldValueRepr,
@@ -180,7 +180,7 @@ pub trait Transform: Send {
     }
     fn handle_stream_value_update(
         &mut self,
-        _sess: &mut JobData,
+        _jd: &mut JobData,
         _tf_id: TransformId,
         _sv_id: StreamValueId,
         _custom: usize,
@@ -193,7 +193,7 @@ pub trait Transform: Send {
     fn pre_update_required(&self) -> bool {
         false
     }
-    fn pre_update(&mut self, _sess: &mut JobSession, _tf_id: TransformId) {}
+    fn pre_update(&mut self, _sess: &mut Job, _tf_id: TransformId) {}
     fn update(&mut self, jd: &mut JobData, tf_id: TransformId);
 }
 
@@ -202,7 +202,7 @@ pub trait Transform: Send {
 // to borrow the field manager in order to produce the iterator
 // that it forwards into its closure
 pub struct BasicUpdateData<'a, 'b> {
-    pub session_data: &'a Session,
+    pub session_data: &'a SessionData,
     pub tf_mgr: &'a mut TransformManager,
     pub match_set_mgr: &'a mut MatchSetManager,
     pub field_mgr: &'a FieldManager,

@@ -8,7 +8,7 @@ use smallvec::SmallVec;
 use std::{borrow::Cow, cell::RefMut, collections::HashMap};
 
 use crate::{
-    job_session::JobData,
+    job::JobData,
     liveness_analysis::OpOutputIdx,
     options::argument::CliArgIdx,
     record_data::{
@@ -414,18 +414,18 @@ pub fn setup_op_regex(
 }
 
 pub fn build_tf_regex<'a>(
-    sess: &mut JobData,
+    jd: &mut JobData,
     op_base: &OperatorBase,
     op: &'a OpRegex,
     tf_state: &mut TransformState,
     prebound_outputs: &HashMap<OpOutputIdx, FieldId, BuildIdentityHasher>,
 ) -> TransformData<'a> {
-    let cb = &mut sess.match_set_mgr.match_sets[tf_state.match_set_id]
-        .action_buffer;
+    let cb =
+        &mut jd.match_set_mgr.match_sets[tf_state.match_set_id].action_buffer;
     let actor_id = cb.add_actor();
     let next_actor_id = ActorRef::Unconfirmed(cb.peek_next_actor_id());
     let mut output_field =
-        sess.field_mgr.fields[tf_state.output_field].borrow_mut();
+        jd.field_mgr.fields[tf_state.output_field].borrow_mut();
 
     output_field.first_actor = next_actor_id;
     drop(output_field);
@@ -442,13 +442,13 @@ pub fn build_tf_regex<'a>(
                     .get(&(op_base.outputs_start + i as OpOutputIdx))
                 {
                     debug_assert!(
-                        sess.field_mgr.fields[*field_id].borrow().name
+                        jd.field_mgr.fields[*field_id].borrow().name
                             == Some(*name)
                     );
                     *field_id
                 } else {
-                    sess.field_mgr.add_field(
-                        &mut sess.match_set_mgr,
+                    jd.field_mgr.add_field(
+                        &mut jd.match_set_mgr,
                         tf_state.match_set_id,
                         Some(*name),
                         next_actor_id,
@@ -459,7 +459,7 @@ pub fn build_tf_regex<'a>(
                 None
             };
             if let Some(id) = field_id {
-                let fro = sess
+                let fro = jd
                     .field_mgr
                     .register_field_reference(id, tf_state.input_field);
                 // all output fields should have the same
@@ -486,7 +486,7 @@ pub fn build_tf_regex<'a>(
         multimatch: op.opts.multimatch,
         non_mandatory: op.opts.non_mandatory,
         allow_overlapping: op.opts.overlapping,
-        input_field_iter_id: sess.field_mgr.claim_iter(tf_state.input_field),
+        input_field_iter_id: jd.field_mgr.claim_iter(tf_state.input_field),
         next_start: 0,
         actor_id,
         input_field_ref_offset,
@@ -744,28 +744,28 @@ struct RegexMatchInnerState<'a, 'b> {
 }
 
 pub fn handle_tf_regex(
-    sess: &mut JobData,
+    jd: &mut JobData,
     tf_id: TransformId,
     re: &mut TfRegex,
 ) {
-    let (batch_size, ps) = sess.tf_mgr.claim_batch(tf_id);
-    sess.tf_mgr.prepare_for_output(
-        &mut sess.field_mgr,
-        &mut sess.match_set_mgr,
+    let (batch_size, ps) = jd.tf_mgr.claim_batch(tf_id);
+    jd.tf_mgr.prepare_for_output(
+        &mut jd.field_mgr,
+        &mut jd.match_set_mgr,
         tf_id,
         re.capture_group_fields.iter().filter_map(|x| *x),
     );
-    let tf = &sess.tf_mgr.transforms[tf_id];
+    let tf = &jd.tf_mgr.transforms[tf_id];
     let input_field_id = tf.input_field;
     let op_id = tf.op_id.unwrap();
 
-    let input_field = sess
+    let input_field = jd
         .field_mgr
-        .get_cow_field_ref(&mut sess.match_set_mgr, input_field_id);
-    sess.match_set_mgr.match_sets[tf.match_set_id]
+        .get_cow_field_ref(&mut jd.match_set_mgr, input_field_id);
+    jd.match_set_mgr.match_sets[tf.match_set_id]
         .action_buffer
         .begin_action_group(re.actor_id);
-    let iter_base = sess
+    let iter_base = jd
         .field_mgr
         .lookup_iter(input_field_id, &input_field, re.input_field_iter_id)
         .bounded(0, batch_size);
@@ -773,7 +773,7 @@ pub fn handle_tf_regex(
     let mut output_fields = SmallVec::<[Option<RefMut<'_, Field>>; 4]>::new();
     let mut output_field_inserters =
         SmallVec::<[Option<VaryingTypeInserter<&'_ mut FieldData>>; 4]>::new();
-    let f_mgr = &sess.field_mgr;
+    let f_mgr = &jd.field_mgr;
     for of in &re.capture_group_fields {
         output_fields.push(of.map(|f| f_mgr.fields[f].borrow_mut()));
     }
@@ -799,7 +799,7 @@ pub fn handle_tf_regex(
     };
 
     let mut iter =
-        AutoDerefIter::new(&sess.field_mgr, input_field_id, iter_base);
+        AutoDerefIter::new(&jd.field_mgr, input_field_id, iter_base);
 
     let mut text_regex =
         re.text_only_regex
@@ -818,13 +818,13 @@ pub fn handle_tf_regex(
     let mut bse = false; // 'batch size exceeded'
     let mut hit_stream_val = false;
     'batch: while let Some(range) = iter.typed_range_fwd(
-        &mut sess.match_set_mgr,
+        &mut jd.match_set_mgr,
         usize::MAX,
         field_value_flags::DEFAULT,
     ) {
         let mut rmis = RegexMatchInnerState {
             batch_state: &mut rbs,
-            action_buffer: &mut sess.match_set_mgr.match_sets[tf.match_set_id]
+            action_buffer: &mut jd.match_set_mgr.match_sets[tf.match_set_id]
                 .action_buffer,
             input_field_ref_offset: range
                 .field_ref_offset
@@ -911,13 +911,13 @@ pub fn handle_tf_regex(
                 for (v, rl) in
                     TypedSliceIter::from_range(&range.base, custom_types)
                 {
-                    let prev_len = sess.temp_vec.len();
+                    let prev_len = jd.temp_vec.len();
                     v.stringify(
-                        &mut sess.temp_vec,
+                        &mut jd.temp_vec,
                         &RealizedFormatKey::default(),
                     )
                     .expect("custom stringify failed");
-                    let str = &sess.temp_vec[prev_len..sess.temp_vec.len()];
+                    let str = &jd.temp_vec[prev_len..jd.temp_vec.len()];
 
                     if let (Some(tr), true) =
                         (&mut text_regex, v.stringifies_as_valid_utf8())
@@ -938,7 +938,7 @@ pub fn handle_tf_regex(
                             0,
                         );
                     };
-                    sess.temp_vec.truncate(prev_len);
+                    jd.temp_vec.truncate(prev_len);
                     if bse {
                         break 'batch;
                     }
@@ -981,7 +981,7 @@ pub fn handle_tf_regex(
                 let mut sv_iter =
                     RefAwareStreamValueIter::from_range(&range, svs);
                 while let Some((sv_id, offsets, rl)) = sv_iter.next() {
-                    let sv = &mut sess.sv_mgr.stream_values[sv_id];
+                    let sv = &mut jd.sv_mgr.stream_values[sv_id];
                     if re.streams_kept_alive > 0 {
                         let rc_diff = (rl as usize)
                             .saturating_sub(re.streams_kept_alive);
@@ -1003,16 +1003,16 @@ pub fn handle_tf_regex(
                             sv.ref_count -= rc_diff;
                             re.streams_kept_alive -= rc_diff;
                         }
-                        sess.field_mgr.request_clear_delay(input_field_id);
+                        jd.field_mgr.request_clear_delay(input_field_id);
                         re.streams_kept_alive +=
                             buffer_remaining_stream_values_in_sv_iter(
-                                &mut sess.sv_mgr,
+                                &mut jd.sv_mgr,
                                 sv_iter,
                             );
                         re.streams_kept_alive +=
                             buffer_remaining_stream_values_in_auto_deref_iter(
-                                &mut sess.match_set_mgr,
-                                &mut sess.sv_mgr,
+                                &mut jd.match_set_mgr,
+                                &mut jd.sv_mgr,
                                 iter.clone(),
                                 usize::MAX,
                             );
@@ -1032,7 +1032,7 @@ pub fn handle_tf_regex(
                             }
                             rmis.batch_state.field_pos_input += rl as usize;
                             rmis.batch_state.field_pos_output += rl as usize;
-                            sess.sv_mgr.check_stream_value_ref_count(sv_id);
+                            jd.sv_mgr.check_stream_value_ref_count(sv_id);
                             continue;
                         }
                         FieldValue::Bytes(b) => {
@@ -1062,7 +1062,7 @@ pub fn handle_tf_regex(
                         }
                         _ => todo!(),
                     }
-                    sess.sv_mgr.check_stream_value_ref_count(sv_id);
+                    jd.sv_mgr.check_stream_value_ref_count(sv_id);
                     if bse {
                         break 'batch;
                     }
@@ -1115,20 +1115,20 @@ pub fn handle_tf_regex(
     re.next_start = rbs.next_start;
     let field_pos_input = rbs.field_pos_input;
     let produced_records = rbs.field_pos_output - field_pos_start;
-    sess.match_set_mgr.match_sets[tf.match_set_id]
+    jd.match_set_mgr.match_sets[tf.match_set_id]
         .action_buffer
         .end_action_group();
     let mut base_iter = iter.into_base_iter();
     if bse || hit_stream_val {
         let unclaimed_batch_size =
             batch_size - (rbs.field_pos_input - field_pos_start);
-        sess.tf_mgr.unclaim_batch_size(tf_id, unclaimed_batch_size);
+        jd.tf_mgr.unclaim_batch_size(tf_id, unclaimed_batch_size);
         drop(rbs);
         if !hit_stream_val {
-            sess.tf_mgr.push_tf_in_ready_stack(tf_id);
+            jd.tf_mgr.push_tf_in_ready_stack(tf_id);
         }
     } else if ps.next_batch_ready {
-        sess.tf_mgr.push_tf_in_ready_stack(tf_id);
+        jd.tf_mgr.push_tf_in_ready_stack(tf_id);
     }
 
     if bse {
@@ -1137,30 +1137,27 @@ pub fn handle_tf_regex(
         // we explicitly don't store the iterator here so it stays at the
         // start position while we apply the action list
         drop(input_field);
-        let input_field = sess
+        let input_field = jd
             .field_mgr
-            .get_cow_field_ref(&mut sess.match_set_mgr, input_field_id);
-        let mut iter = sess.field_mgr.lookup_iter(
+            .get_cow_field_ref(&mut jd.match_set_mgr, input_field_id);
+        let mut iter = jd.field_mgr.lookup_iter(
             input_field_id,
             &input_field,
             re.input_field_iter_id,
         );
         let records = iter.next_n_fields(produced_records);
         debug_assert!(records == produced_records);
-        sess.field_mgr.store_iter(
-            input_field_id,
-            re.input_field_iter_id,
-            iter,
-        );
+        jd.field_mgr
+            .store_iter(input_field_id, re.input_field_iter_id, iter);
     } else if !ps.input_done {
         base_iter.move_to_field_pos(field_pos_input);
-        sess.field_mgr.store_iter(
+        jd.field_mgr.store_iter(
             input_field_id,
             re.input_field_iter_id,
             base_iter,
         );
     }
-    sess.tf_mgr.submit_batch(
+    jd.tf_mgr.submit_batch(
         tf_id,
         produced_records,
         ps.input_done && !hit_stream_val && !bse,
@@ -1168,16 +1165,16 @@ pub fn handle_tf_regex(
 }
 
 pub fn handle_tf_regex_stream_value_update(
-    sess: &mut JobData,
+    jd: &mut JobData,
     tf_id: TransformId,
     _re: &mut TfRegex,
     sv_id: StreamValueId,
     _custom: usize,
 ) {
-    debug_assert!(sess.sv_mgr.stream_values[sv_id].done);
-    sess.tf_mgr.push_tf_in_ready_stack(tf_id);
-    let input_field = sess.tf_mgr.transforms[tf_id].input_field;
-    sess.field_mgr.relinquish_clear_delay(input_field)
+    debug_assert!(jd.sv_mgr.stream_values[sv_id].done);
+    jd.tf_mgr.push_tf_in_ready_stack(tf_id);
+    let input_field = jd.tf_mgr.transforms[tf_id].input_field;
+    jd.field_mgr.relinquish_clear_delay(input_field)
 }
 
 #[cfg(test)]

@@ -4,7 +4,7 @@ use bstr::ByteSlice;
 
 use crate::{
     chain::ChainId,
-    job_session::{JobData, JobSession},
+    job::{Job, JobData},
     options::argument::CliArgIdx,
     record_data::{field::FieldId, match_set::MatchSetId},
     utils::{
@@ -97,7 +97,7 @@ pub fn create_op_call_eager(target: ChainId) -> OperatorData {
 }
 
 pub fn build_tf_call(
-    _sess: &mut JobData,
+    _jd: &mut JobData,
     _op_base: &OperatorBase,
     op: &OpCall,
     _tf_state: &mut TransformState,
@@ -107,7 +107,7 @@ pub fn build_tf_call(
     })
 }
 pub(crate) fn handle_eager_call_expansion(
-    sess: &mut JobSession,
+    sess: &mut Job,
     op_id: OperatorId,
     ms_id: MatchSetId,
     input_field: FieldId,
@@ -129,10 +129,7 @@ pub(crate) fn handle_eager_call_expansion(
     )
 }
 
-pub(crate) fn handle_lazy_call_expansion(
-    sess: &mut JobSession,
-    tf_id: TransformId,
-) {
+pub(crate) fn handle_lazy_call_expansion(sess: &mut Job, tf_id: TransformId) {
     let tf = &mut sess.job_data.tf_mgr.transforms[tf_id];
     let old_successor = tf.successor;
     let input_field = tf.input_field;

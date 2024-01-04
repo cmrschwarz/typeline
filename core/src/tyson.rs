@@ -170,16 +170,6 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
         self.col += 1;
         Ok(res)
     }
-    fn reject_further_input(&mut self) -> Result<(), TysonParseError> {
-        match self.read_char_eat_whitespace() {
-            Ok(c) => self.err(TysonParseErrorKind::TrailingCharacters(c)),
-            Err(TysonParseError::InvalidSyntax {
-                kind: TysonParseErrorKind::UnexpectedEof,
-                ..
-            }) => Ok(()),
-            Err(e) => Err(e),
-        }
-    }
     fn parse_identifier_after_first_char(
         &mut self,
         fist_char: char,
@@ -670,7 +660,7 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
     ) -> Result<FieldValue, TysonParseError> {
         todo!();
     }
-    fn parse_value(&mut self) -> Result<FieldValue, TysonParseError> {
+    pub fn parse_value(&mut self) -> Result<FieldValue, TysonParseError> {
         let c = self.consume_char_eat_whitespace()?;
         match c {
             '{' => self.parse_object_after_brace(),
@@ -717,6 +707,16 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
                 self.col -= 1;
                 self.err(TysonParseErrorKind::StrayToken(other))
             }
+        }
+    }
+    pub fn reject_further_input(&mut self) -> Result<(), TysonParseError> {
+        match self.read_char_eat_whitespace() {
+            Ok(c) => self.err(TysonParseErrorKind::TrailingCharacters(c)),
+            Err(TysonParseError::InvalidSyntax {
+                kind: TysonParseErrorKind::UnexpectedEof,
+                ..
+            }) => Ok(()),
+            Err(e) => Err(e),
         }
     }
 }

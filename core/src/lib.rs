@@ -20,9 +20,6 @@ extern crate thin_vec;
 extern crate thiserror;
 extern crate unicode_ident;
 
-// exposed due to FieldValue
-pub extern crate num;
-
 #[cfg(feature = "repl")]
 extern crate reedline;
 #[cfg(feature = "repl")]
@@ -35,7 +32,7 @@ pub mod cli;
 pub mod context;
 pub mod document;
 pub mod extension;
-pub mod job_session;
+pub mod job;
 pub mod liveness_analysis;
 pub mod operators;
 pub mod options;
@@ -43,7 +40,6 @@ pub mod record_data;
 pub mod scr_error;
 pub mod selenium;
 pub mod tyson;
-pub mod worker_thread;
 
 pub const UNDEFINED_STR: &str = "undefined";
 pub const NULL_STR: &str = "null";

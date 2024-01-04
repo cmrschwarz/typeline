@@ -3,7 +3,7 @@ use regex::Regex;
 use smallstr::SmallString;
 
 use crate::{
-    job_session::{JobData, TransformManager},
+    job::{JobData, TransformManager},
     operators::{
         format::RealizedFormatKey,
         utils::buffer_stream_values::{
@@ -128,7 +128,7 @@ pub fn parse_op_join(
 }
 
 pub fn build_tf_join<'a>(
-    sess: &mut JobData,
+    jd: &mut JobData,
     op_base: &OperatorBase,
     op: &'a OpJoin,
     tf_state: &mut TransformState,
@@ -140,7 +140,7 @@ pub fn build_tf_join<'a>(
         clear_delay_requested: false,
         separator: op.separator.as_deref(),
         separator_is_valid_utf8: op.separator_is_valid_utf8,
-        iter_id: sess.field_mgr.claim_iter(tf_state.input_field),
+        iter_id: jd.field_mgr.claim_iter(tf_state.input_field),
         buffer: Vec::new(),
         buffer_is_valid_utf8: true,
         first_record_added: false,
@@ -150,7 +150,7 @@ pub fn build_tf_join<'a>(
         drop_incomplete: op.drop_incomplete,
         output_stream_val: None,
         // TODO: add a separate setting for this
-        stream_len_threshold: sess.session_data.chains
+        stream_len_threshold: jd.session_data.chains
             [op_base.chain_id.unwrap() as usize]
             .settings
             .stream_size_threshold,
@@ -356,43 +356,43 @@ fn push_error(
     }
 }
 pub fn handle_tf_join(
-    sess: &mut JobData,
+    jd: &mut JobData,
     tf_id: TransformId,
     join: &mut TfJoin,
 ) {
     if join.current_stream_val.is_some() {
-        let tf = &sess.tf_mgr.transforms[tf_id];
+        let tf = &jd.tf_mgr.transforms[tf_id];
         if tf.available_batch_size != 0 && !join.clear_delay_requested {
             join.clear_delay_requested = true;
-            sess.field_mgr.request_clear_delay(tf.input_field);
+            jd.field_mgr.request_clear_delay(tf.input_field);
         }
         return;
     }
-    let (batch_size, ps) = sess.tf_mgr.claim_batch(tf_id);
-    sess.tf_mgr.prepare_output_field(
-        &mut sess.field_mgr,
-        &mut sess.match_set_mgr,
+    let (batch_size, ps) = jd.tf_mgr.claim_batch(tf_id);
+    jd.tf_mgr.prepare_output_field(
+        &mut jd.field_mgr,
+        &mut jd.match_set_mgr,
         tf_id,
     );
-    let tf = &sess.tf_mgr.transforms[tf_id];
+    let tf = &jd.tf_mgr.transforms[tf_id];
     let op_id = tf.op_id.unwrap();
-    let mut output_field = sess.field_mgr.fields[tf.output_field].borrow_mut();
+    let mut output_field = jd.field_mgr.fields[tf.output_field].borrow_mut();
     let input_field_id = tf.input_field;
-    let input_field = sess
+    let input_field = jd
         .field_mgr
-        .get_cow_field_ref(&mut sess.match_set_mgr, input_field_id);
+        .get_cow_field_ref(&mut jd.match_set_mgr, input_field_id);
     let base_iter =
-        sess.field_mgr
+        jd.field_mgr
             .lookup_iter(input_field_id, &input_field, join.iter_id);
     let field_pos_start = base_iter.get_next_field_pos();
     let mut field_pos = field_pos_start;
     let mut iter =
-        AutoDerefIter::new(&sess.field_mgr, input_field_id, base_iter);
+        AutoDerefIter::new(&jd.field_mgr, input_field_id, base_iter);
 
     let mut group_len_rem =
         join.group_capacity.unwrap_or(usize::MAX) - join.group_len;
     let mut groups_emitted = 0;
-    let sv_mgr = &mut sess.sv_mgr;
+    let sv_mgr = &mut jd.sv_mgr;
     let mut batch_size_rem = batch_size;
     'iter: loop {
         if join.current_group_error.is_some() {
@@ -408,7 +408,7 @@ pub fn handle_tf_join(
         group_len_rem =
             join.group_capacity.unwrap_or(usize::MAX) - join.group_len;
         if let Some(range) = iter.typed_range_fwd(
-            &mut sess.match_set_mgr,
+            &mut jd.match_set_mgr,
             group_len_rem.min(batch_size_rem),
             field_value_flags::DEFAULT,
         ) {
@@ -474,9 +474,9 @@ pub fn handle_tf_join(
                     if !try_consume_stream_values(
                         tf_id,
                         join,
-                        &mut sess.tf_mgr,
-                        &sess.field_mgr,
-                        &mut sess.match_set_mgr,
+                        &mut jd.tf_mgr,
+                        &jd.field_mgr,
+                        &mut jd.match_set_mgr,
                         sv_mgr,
                         input_field_id,
                         batch_size,
@@ -514,8 +514,7 @@ pub fn handle_tf_join(
         }
     }
 
-    sess.field_mgr
-        .store_iter(input_field_id, join.iter_id, iter);
+    jd.field_mgr.store_iter(input_field_id, join.iter_id, iter);
     let streams_done = join.current_stream_val.is_none();
     if ps.input_done && streams_done {
         let mut emit_incomplete = false;
@@ -528,7 +527,7 @@ pub fn handle_tf_join(
         emit_incomplete |=
             join.group_capacity.is_none() && !join.drop_incomplete;
         if emit_incomplete {
-            emit_group(join, &mut sess.sv_mgr, &mut output_field);
+            emit_group(join, &mut jd.sv_mgr, &mut output_field);
             groups_emitted += 1;
         }
     }
@@ -537,10 +536,9 @@ pub fn handle_tf_join(
     drop(output_field);
 
     if streams_done && ps.next_batch_ready {
-        sess.tf_mgr.push_tf_in_ready_stack(tf_id);
+        jd.tf_mgr.push_tf_in_ready_stack(tf_id);
     }
-    sess.tf_mgr
-        .submit_batch(tf_id, groups_emitted, ps.input_done);
+    jd.tf_mgr.submit_batch(tf_id, groups_emitted, ps.input_done);
 }
 
 fn try_consume_stream_values<'a>(
@@ -742,24 +740,24 @@ fn push_custom_type(
 }
 
 pub fn handle_tf_join_stream_value_update(
-    sess: &mut JobData,
+    jd: &mut JobData,
     tf_id: TransformId,
     join: &mut TfJoin,
     sv_id: StreamValueId,
     custom: usize,
 ) {
     let mut run_len = custom;
-    let tf = &sess.tf_mgr.transforms[tf_id];
+    let tf = &jd.tf_mgr.transforms[tf_id];
     let input_done = tf.input_is_done;
     let next_batch_ready = tf.available_batch_size > 0;
     let in_field_id = tf.input_field;
-    let sv = &mut sess.sv_mgr.stream_values[sv_id];
+    let sv = &mut jd.sv_mgr.stream_values[sv_id];
     let done = sv.done;
     match &sv.value {
         FieldValue::Error(err) => {
             let ec = err.clone();
             if let Some(sv_id) = join.output_stream_val {
-                let sv = &mut sess.sv_mgr.stream_values[sv_id];
+                let sv = &mut jd.sv_mgr.stream_values[sv_id];
                 sv.done = true;
                 sv.value = FieldValue::Error(ec);
                 join.stream_value_error = true;
@@ -783,7 +781,7 @@ pub fn handle_tf_join_stream_value_update(
                 let buf = unsafe {
                     get_join_buffer(
                         join,
-                        &mut sess.sv_mgr,
+                        &mut jd.sv_mgr,
                         src_buf.len(),
                         bytes_are_utf8,
                     )
@@ -796,7 +794,7 @@ pub fn handle_tf_join_stream_value_update(
                     let buf = unsafe {
                         get_join_buffer(
                             join,
-                            &mut sess.sv_mgr,
+                            &mut jd.sv_mgr,
                             src_buf.len(),
                             bytes_are_utf8,
                         )
@@ -807,7 +805,7 @@ pub fn handle_tf_join_stream_value_update(
                 unsafe {
                     push_bytes_raw(
                         join,
-                        &mut sess.sv_mgr,
+                        &mut jd.sv_mgr,
                         src_buf,
                         run_len,
                         bytes_are_utf8,
@@ -824,11 +822,11 @@ pub fn handle_tf_join_stream_value_update(
             || Some(join.group_len) == join.group_capacity
             || next_batch_ready
         {
-            sess.tf_mgr.push_tf_in_ready_stack(tf_id);
+            jd.tf_mgr.push_tf_in_ready_stack(tf_id);
         }
         if join.clear_delay_requested {
             join.clear_delay_requested = false;
-            sess.field_mgr.relinquish_clear_delay(in_field_id);
+            jd.field_mgr.relinquish_clear_delay(in_field_id);
         }
     }
 }
