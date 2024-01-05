@@ -817,9 +817,15 @@ pub fn handle_tf_regex(
 
     let mut bse = false; // 'batch size exceeded'
     let mut hit_stream_val = false;
+
+    // we have do this to preserve the output order for cases
+    // like `scr str=foo dup r-m=. p`
+    // PERF: there are better way to do this, e.g. copying the matches
+    // from our own output instead of rematching
+    let max_run_len = if re.multimatch { 1 } else { usize::MAX };
     'batch: while let Some(range) = iter.typed_range_fwd(
         &mut jd.match_set_mgr,
-        usize::MAX,
+        max_run_len,
         field_value_flags::DEFAULT,
     ) {
         let mut rmis = RegexMatchInnerState {

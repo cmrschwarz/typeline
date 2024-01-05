@@ -140,8 +140,7 @@ fn flatten_duped_objects() -> Result<(), ScrError> {
         .add_op(create_op_seqn(1, 3, 1).unwrap())
         .add_op(create_op_v("{a:3}", 0).unwrap())
         .add_op(create_op_flatten())
-        .run_collect()
-        .unwrap();
+        .run_collect()?;
     assert_eq!(
         res,
         std::iter::repeat(FieldValue::Array(Array::Mixed(

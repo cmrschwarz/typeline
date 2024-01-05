@@ -20,12 +20,15 @@ test = false
 [dev-dependencies]
 rstest = "0.18.2"
 regex = "1.10"
+scr_ext_utils = { path="./extensions/utils" }
+
 
 [dependencies]
 scr_core = { path = "./core", default-features = false }
 scr_ext_sqlite = {path="./extensions/sqlite", optional = true}
 scr_ext_http = {path="./extensions/http", optional = true}
 scr_ext_utils = {path="./extensions/utils", optional = true}
+
 
 [profile.release-with-debug]
 inherits = "release"

@@ -258,8 +258,11 @@ impl LivenessData {
         for op_id in 0..sess.operator_data.len() {
             let op_output_count =
                 Self::op_output_count(sess, op_id as OperatorId);
-
             let op_base = &mut sess.operator_bases[op_id];
+            if op_output_count == 0 {
+                op_base.transparent_mode = true;
+            }
+
             op_base.outputs_start = total_outputs_count as OpOutputIdx;
             total_outputs_count += op_output_count;
             op_base.outputs_end = total_outputs_count as OpOutputIdx;
