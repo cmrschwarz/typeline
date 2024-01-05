@@ -1,5 +1,6 @@
 #![allow(clippy::too_many_arguments)]
 
+use dup::parse_op_dup;
 use explode::parse_op_explode;
 use flatten::parse_op_flatten;
 use from_tyson::create_op_from_tyson;
@@ -17,6 +18,7 @@ use tail::parse_op_tail;
 
 extern crate scr_core;
 
+pub mod dup;
 pub mod explode;
 pub mod flatten;
 pub mod from_tyson;
@@ -40,6 +42,7 @@ impl Extension for MiscCmdsExtension {
         let ctor_with_arg: Option<fn(_, _) -> _> = match arg.argname {
             "head" | "h" => Some(parse_op_head),
             "tail" | "t" => Some(parse_op_tail),
+            "dup" => Some(parse_op_dup),
             "explode" => Some(parse_op_explode),
             "flatten" => Some(parse_op_flatten),
             _ => None,

@@ -33,13 +33,21 @@ use crate::{
     },
     scr_error::{ContextualizedScrError, ReplDisabledError, ScrError},
     selenium::{SeleniumDownloadStrategy, SeleniumVariant},
-    utils::int_string_conversions::parse_int_with_units_from_bytes,
+    utils::int_string_conversions::{
+        parse_int_with_units, parse_int_with_units_from_bytes,
+    },
 };
 use bstr::ByteSlice;
 
 use lazy_static::lazy_static;
+use num::{FromPrimitive, PrimInt};
 
-use std::{borrow::Cow, fmt::Display, str::from_utf8, sync::Arc};
+use std::{
+    borrow::Cow,
+    fmt::Display,
+    str::{from_utf8, FromStr},
+    sync::Arc,
+};
 use thiserror::Error;
 
 #[derive(Error, Debug, Clone, PartialEq, Eq)]
@@ -142,6 +150,46 @@ pub fn reject_operator_argument(
         ));
     }
     Ok(())
+}
+
+pub fn parse_arg_value_as_number<I>(
+    argname: &str,
+    value: Option<&[u8]>,
+    cli_arg_idx: Option<CliArgIdx>,
+) -> Result<I, OperatorCreationError>
+where
+    I: PrimInt
+        + Display
+        + FromPrimitive
+        + FromStr<Err = std::num::ParseIntError>,
+{
+    let Some(value) = value else {
+        return Err(OperatorCreationError::new_s(
+            format!("missing argument for operator `{argname}`"),
+            cli_arg_idx,
+        ));
+    };
+    let value_str = value
+        .to_str()
+        .map_err(|_| {
+            OperatorCreationError::new_s(
+                format!(
+                    "failed to parse `{argname}` parameter (invalid utf-8)",
+                ),
+                cli_arg_idx,
+            )
+        })?
+        .trim();
+    let v =
+        parse_int_with_units::<I>(value_str).map_err(|msg| {
+            OperatorCreationError::new_s(
+                format!(
+                    "failed to parse `{argname}` parameter as integer: {msg}",
+                ),
+                cli_arg_idx,
+            )
+        })?;
+    Ok(v)
 }
 
 impl ParsedCliArgumentParts<'_> {

@@ -4,7 +4,6 @@ use crate::{
     job::JobData,
     options::argument::CliArgIdx,
     record_data::{
-        field_data::field_value_flags,
         field_value::{FieldValue, FieldValueKind},
         iter_hall::IterId,
         iters::FieldIterator,
@@ -212,11 +211,7 @@ pub fn handle_tf_cast(jd: &mut JobData, tf_id: TransformId, tfc: &TfCast) {
     let mut iter =
         AutoDerefIter::new(&jd.field_mgr, tf.input_field, base_iter);
 
-    while let Some(range) = iter.typed_range_fwd(
-        &mut jd.match_set_mgr,
-        usize::MAX,
-        field_value_flags::DEFAULT,
-    ) {
+    while let Some(range) = iter.next_range(&mut jd.match_set_mgr) {
         match range.base.data {
             TypedSlice::Error(errs) => {
                 if tfc.convert_errors {

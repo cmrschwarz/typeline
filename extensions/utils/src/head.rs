@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
-use bstr::ByteSlice;
 use scr_core::{
+    cli::parse_arg_value_as_number,
     job::JobData,
     liveness_analysis::{
         AccessFlags, BasicBlockId, LivenessData, OpOutputIdx, DYN_VAR_ID,
@@ -20,9 +20,7 @@ use scr_core::{
     },
     smallbox,
     utils::{
-        identity_hasher::BuildIdentityHasher,
-        int_string_conversions::parse_int_with_units,
-        string_store::StringStoreEntry,
+        identity_hasher::BuildIdentityHasher, string_store::StringStoreEntry,
     },
 };
 
@@ -117,14 +115,12 @@ impl Transform for TfHead {
         let tf = &jd.tf_mgr.transforms[tf_id];
 
         if ps.output_done {
-            // Help out with dropping records if the successor is done.
-            // Since we have an action_buffer we might aswell use it.
-            let ab = &mut jd.match_set_mgr.match_sets[tf.match_set_id]
-                .action_buffer;
-            ab.begin_action_group(self.actor_id);
-            ab.push_action(FieldActionKind::Drop, 0, batch_size);
-            ab.end_action_group();
-            jd.tf_mgr.submit_batch(tf_id, 0, true);
+            jd.tf_mgr.help_out_with_output_done(
+                &mut jd.match_set_mgr,
+                tf_id,
+                self.actor_id,
+                batch_size,
+            );
             return;
         }
 
@@ -160,23 +156,10 @@ pub fn parse_op_head(
     value: Option<&[u8]>,
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
-    let Some(value) = value else {
-        return Ok(create_op_head(1));
+    let count = if value.is_none() {
+        1
+    } else {
+        parse_arg_value_as_number("head", value, arg_idx)?
     };
-    let value_str = value
-        .to_str()
-        .map_err(|_| {
-            OperatorCreationError::new(
-                "failed to parse `head` parameter (invalid utf-8)",
-                arg_idx,
-            )
-        })?
-        .trim();
-    let count = parse_int_with_units(value_str).map_err(|msg| {
-        OperatorCreationError::new_s(
-            format!("failed to parse `head` parameter as integer: {msg}"),
-            arg_idx,
-        )
-    })?;
     Ok(create_op_head(count))
 }

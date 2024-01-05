@@ -66,8 +66,9 @@ use crate::{
         transform::{TransformData, TransformId, TransformState},
     },
     record_data::{
-        action_buffer::ActorRef,
+        action_buffer::{ActorId, ActorRef},
         field::{FieldId, FieldManager, VOID_FIELD_ID},
+        field_action::FieldActionKind,
         match_set::{MatchSetId, MatchSetManager},
         record_buffer::RecordBuffer,
         stream_value::{StreamValueManager, StreamValueUpdate},
@@ -196,6 +197,22 @@ impl TransformManager {
         if let Some(pred) = self.transforms[tf_id].predecessor {
             self.inform_transform_successor_done(pred)
         }
+    }
+    // Help out with dropping records if the successor is done.
+    // If we have an action_buffer we might aswell use it.
+    pub fn help_out_with_output_done(
+        &mut self,
+        msm: &mut MatchSetManager,
+        tf_id: TransformId,
+        actor_id: ActorId,
+        batch_size: usize,
+    ) {
+        let ms_id = self.transforms[tf_id].match_set_id;
+        let ab = &mut msm.match_sets[ms_id].action_buffer;
+        ab.begin_action_group(actor_id);
+        ab.push_action(FieldActionKind::Drop, 0, batch_size);
+        ab.end_action_group();
+        self.submit_batch(tf_id, 0, true);
     }
     pub fn submit_batch_ready_for_more(
         &mut self,
