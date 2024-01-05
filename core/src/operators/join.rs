@@ -107,7 +107,7 @@ pub fn parse_op_join(
         .map(|ic| {
             ic.as_str().parse::<usize>().map_err(|_| {
                 OperatorCreationError::new(
-                    "failed to parse insertion count as integer",
+                    "failed to parse insertion count as an integer",
                     arg_idx,
                 )
             })

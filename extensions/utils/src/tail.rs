@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 
-use bstr::ByteSlice;
 use scr_core::{
+    cli::parse_arg_value_as_str,
     job::JobData,
     liveness_analysis::{
-        AccessFlags, BasicBlockId, LivenessData, OpOutputIdx,
+        AccessFlags, BasicBlockId, LivenessData, OpOutputIdx, DYN_VAR_ID,
     },
     operators::{
         errors::OperatorCreationError,
@@ -17,21 +17,36 @@ use scr_core::{
     options::argument::CliArgIdx,
     record_data::{
         action_buffer::ActorId, field::FieldId, field_action::FieldActionKind,
+        field_data::FieldData,
     },
     smallbox,
     utils::{
         identity_hasher::BuildIdentityHasher,
         int_string_conversions::parse_int_with_units,
+        string_store::StringStoreEntry,
     },
 };
 
 #[derive(Default)]
 pub struct OpTail {
     count: usize,
-    add_mode: bool,
+    additive_mode: bool,
+    accessed_fields_after: Vec<Option<StringStoreEntry>>,
+    dyn_var_accessed: bool,
 }
 
-pub struct TfTailAdd {
+struct ShadowedField {
+    id: FieldId,
+    data: [FieldData; 2],
+}
+
+pub struct TfTail {
+    count: usize,
+    actor_id: ActorId,
+    shadowed_fields: Vec<ShadowedField>,
+}
+
+pub struct TfTailAdditive {
     skip_count: usize,
     actor_id: ActorId,
 }
@@ -49,6 +64,26 @@ impl Operator for OpTail {
 
     fn has_dynamic_outputs(&self, _op_base: &OperatorBase) -> bool {
         false
+    }
+
+    fn on_liveness_computed(
+        &mut self,
+        sess: &scr_core::context::SessionData,
+        op_id: scr_core::operators::operator::OperatorId,
+        ld: &LivenessData,
+    ) {
+        if self.additive_mode {
+            // we don't need liveness information for additive mode
+            return;
+        }
+        let accessed_vars = ld.accessed_names_afterwards(sess, op_id);
+        if accessed_vars[DYN_VAR_ID as usize] {
+            self.dyn_var_accessed = true;
+            return;
+        }
+        for v_id in accessed_vars.iter_ones() {
+            self.accessed_fields_after.push(ld.vars[v_id].get_name());
+        }
     }
 
     fn update_variable_liveness(
@@ -70,22 +105,46 @@ impl Operator for OpTail {
         let ab = &mut jd.match_set_mgr.match_sets[tf_state.match_set_id]
             .action_buffer;
         let actor_id = ab.add_actor();
-        // TODO: creae a nicer api for this usecase where we don't want
-        // an output field
         jd.field_mgr
             .drop_field_refcount(tf_state.output_field, &mut jd.match_set_mgr);
         tf_state.output_field = tf_state.input_field;
-        if !self.add_mode {
-            unimplemented!("tail absolute mode")
+        if !self.additive_mode {
+            return TransformData::Custom(smallbox!(TfTail {
+                count: self.count,
+                actor_id,
+                shadowed_fields: Default::default()
+            }));
         }
-        TransformData::Custom(smallbox!(TfTailAdd {
+        TransformData::Custom(smallbox!(TfTailAdditive {
             skip_count: self.count,
             actor_id
         }))
     }
 }
 
-impl Transform for TfTailAdd {
+impl Transform for TfTail {
+    fn display_name(&self) -> DefaultTransformName {
+        "tail".into()
+    }
+
+    fn update(&mut self, jd: &mut JobData, tf_id: TransformId) {
+        let (batch_size, ps) = jd.tf_mgr.claim_all(tf_id);
+        let tf = &jd.tf_mgr.transforms[tf_id];
+
+        if ps.output_done {
+            jd.tf_mgr.help_out_with_output_done(
+                &mut jd.match_set_mgr,
+                tf_id,
+                self.actor_id,
+                batch_size,
+            );
+            return;
+        }
+        todo!()
+    }
+}
+
+impl Transform for TfTailAdditive {
     fn display_name(&self) -> DefaultTransformName {
         "tail".into()
     }
@@ -125,14 +184,18 @@ impl Transform for TfTailAdd {
 pub fn create_op_tail(count: usize) -> OperatorData {
     OperatorData::Custom(smallbox!(OpTail {
         count,
-        add_mode: false
+        additive_mode: false,
+        accessed_fields_after: Default::default(),
+        dyn_var_accessed: Default::default()
     }))
 }
 
 pub fn create_op_tail_add(count: usize) -> OperatorData {
     OperatorData::Custom(smallbox!(OpTail {
         count,
-        add_mode: true
+        additive_mode: true,
+        accessed_fields_after: Default::default(),
+        dyn_var_accessed: Default::default()
     }))
 }
 
@@ -140,23 +203,17 @@ pub fn parse_op_tail(
     value: Option<&[u8]>,
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
-    let Some(value) = value else {
+    if value.is_none() {
         return Ok(create_op_tail(1));
     };
-    let value_str = value
-        .to_str()
-        .map_err(|_| {
-            OperatorCreationError::new(
-                "failed to parse `tail` parameter (invalid utf-8)",
-                arg_idx,
-            )
-        })?
-        .trim();
+    let value_str = parse_arg_value_as_str("tail", value, arg_idx)?.trim();
     let add_mode = value_str.starts_with('+');
     let count = parse_int_with_units::<isize>(value_str)
         .map_err(|msg| {
             OperatorCreationError::new_s(
-                format!("failed to parse `tail` parameter as integer: {msg}"),
+                format!(
+                    "failed to parse `tail` parameter as an integer: {msg}"
+                ),
                 arg_idx,
             )
         })?

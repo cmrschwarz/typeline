@@ -152,6 +152,26 @@ pub fn reject_operator_argument(
     Ok(())
 }
 
+pub fn parse_arg_value_as_str<'a>(
+    argname: &str,
+    value: Option<&'a [u8]>,
+    cli_arg_idx: Option<CliArgIdx>,
+) -> Result<&'a str, OperatorCreationError> {
+    let Some(value) = value else {
+        return Err(OperatorCreationError::new_s(
+            format!("missing argument for operator `{argname}`"),
+            cli_arg_idx,
+        ));
+    };
+    let value_str = value.to_str().map_err(|_| {
+        OperatorCreationError::new_s(
+            format!("failed to parse `{argname}` parameter (invalid utf-8)",),
+            cli_arg_idx,
+        )
+    })?;
+    Ok(value_str)
+}
+
 pub fn parse_arg_value_as_number<I>(
     argname: &str,
     value: Option<&[u8]>,
@@ -163,32 +183,16 @@ where
         + FromPrimitive
         + FromStr<Err = std::num::ParseIntError>,
 {
-    let Some(value) = value else {
-        return Err(OperatorCreationError::new_s(
-            format!("missing argument for operator `{argname}`"),
+    let value_str =
+        parse_arg_value_as_str(argname, value, cli_arg_idx)?.trim();
+    let v = parse_int_with_units::<I>(value_str).map_err(|msg| {
+        OperatorCreationError::new_s(
+            format!(
+                "failed to parse `{argname}` parameter as an integer: {msg}",
+            ),
             cli_arg_idx,
-        ));
-    };
-    let value_str = value
-        .to_str()
-        .map_err(|_| {
-            OperatorCreationError::new_s(
-                format!(
-                    "failed to parse `{argname}` parameter (invalid utf-8)",
-                ),
-                cli_arg_idx,
-            )
-        })?
-        .trim();
-    let v =
-        parse_int_with_units::<I>(value_str).map_err(|msg| {
-            OperatorCreationError::new_s(
-                format!(
-                    "failed to parse `{argname}` parameter as integer: {msg}",
-                ),
-                cli_arg_idx,
-            )
-        })?;
+        )
+    })?;
     Ok(v)
 }
 
@@ -250,7 +254,7 @@ fn try_parse_usize_arg(
     match parse_int_with_units_from_bytes::<usize>(val) {
         Ok(v) => Ok(v),
         Err(msg) => Err(CliArgumentError::new_s(
-            format!("failed to parse as integer: {msg}"),
+            format!("failed to parse as an integer: {msg}"),
             cli_arg_idx,
         )),
     }

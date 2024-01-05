@@ -4,6 +4,7 @@ use regex::Regex;
 use smallstr::SmallString;
 
 use crate::{
+    cli::parse_arg_value_as_str,
     job::JobData,
     options::{
         argument::CliArgIdx, chain_options::DEFAULT_CHAIN_OPTIONS,
@@ -284,19 +285,12 @@ pub fn parse_op_int(
     insert_count: Option<usize>,
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
-    let value_str = value
-        .ok_or_else(|| {
-            OperatorCreationError::new("missing value for int", arg_idx)
-        })?
-        .to_str()
-        .map_err(|_| {
-            OperatorCreationError::new(
-                "failed to parse value as integer (invalid utf-8)",
-                arg_idx,
-            )
-        })?;
+    let value_str = parse_arg_value_as_str("int", value, arg_idx)?;
     let parsed_value = str::parse::<i64>(value_str).map_err(|_| {
-        OperatorCreationError::new("failed to parse value as integer", arg_idx)
+        OperatorCreationError::new(
+            "failed to parse value as an integer",
+            arg_idx,
+        )
     })?;
     Ok(OperatorData::Literal(OpLiteral {
         data: Literal::Int(parsed_value),
@@ -450,7 +444,7 @@ pub fn parse_op_literal(
         .map(|ic| {
             ic.as_str().parse::<usize>().map_err(|_| {
                 OperatorCreationError::new(
-                    "failed to parse insertion count as integer",
+                    "failed to parse insertion count as an integer",
                     arg_idx,
                 )
             })

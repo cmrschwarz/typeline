@@ -1,8 +1,7 @@
 use arrayvec::ArrayVec;
 
-use bstr::ByteSlice;
-
 use crate::{
+    cli::parse_arg_value_as_str,
     context::SessionData,
     job::JobData,
     liveness_analysis::{LivenessData, NON_STRING_READS_OFFSET},
@@ -178,20 +177,7 @@ pub fn parse_op_seq(
             arg_idx,
         );
     }
-    let value_str = value
-        .ok_or_else(|| {
-            OperatorCreationError::new(
-                "missing parameter for sequence",
-                arg_idx,
-            )
-        })?
-        .to_str()
-        .map_err(|_| {
-            OperatorCreationError::new(
-                "failed to parse sequence parameter (invalid utf-8)",
-                arg_idx,
-            )
-        })?;
+    let value_str = parse_arg_value_as_str("seq", value, arg_idx)?;
     let parts: ArrayVec<&str, 4> = value_str.split(',').take(4).collect();
     if parts.len() == 4 {
         return Err(OperatorCreationError::new(
@@ -209,7 +195,7 @@ pub fn parse_op_seq(
         }
         2 | 3 => parse_int_with_units(parts[0]).map_err(|msg| {
             OperatorCreationError::new_s(
-                format!("failed to parse sequence start as integer: {msg}"),
+                format!("failed to parse sequence start as an integer: {msg}"),
                 arg_idx,
             )
         })?,
@@ -221,7 +207,7 @@ pub fn parse_op_seq(
             parse_int_with_units(step).map_err(|msg| {
                 OperatorCreationError::new_s(
                     format!(
-                        "failed to parse sequence step size as integer: {msg}"
+                        "failed to parse sequence step size as an integer: {msg}"
                     ),
                     arg_idx,
                 )
@@ -238,7 +224,7 @@ pub fn parse_op_seq(
 
     let mut end = parse_int_with_units(end_str).map_err(|msg| {
         OperatorCreationError::new_s(
-            format!("failed to parse sequence end as integer: {msg}"),
+            format!("failed to parse sequence end as an integer: {msg}"),
             arg_idx,
         )
     })?;
