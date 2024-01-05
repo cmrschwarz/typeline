@@ -141,7 +141,7 @@ impl IterHall {
         state: &mut IterState,
     ) -> FieldValueHeader {
         if state.header_idx == fr.headers().len() {
-            let diff = fr.field_count() - state.field_pos;
+            let diff = fr.field_count().saturating_sub(state.field_pos);
             if diff == 0 {
                 return Default::default();
             }

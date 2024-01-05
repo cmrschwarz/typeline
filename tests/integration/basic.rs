@@ -231,6 +231,25 @@ fn unset_field_value_debug_repr_is_undefined() -> Result<(), ScrError> {
 }
 
 #[test]
+fn unset_field_value_does_not_trigger_underflow() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::default();
+    ContextBuilder::default()
+        .push_str("x", 1)
+        .add_op(create_op_key("x".to_owned()))
+        .set_batch_size(1)
+        //TODO: investigate why this bug did not trigger for 3 elements
+        .add_op(create_op_seq(0, 4, 1).unwrap())
+        .add_op(create_op_format("{x:?}").unwrap())
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(
+        ss.get_data().unwrap().as_slice(),
+        &["\"x\"", "undefined", "undefined", "undefined"]
+    );
+    Ok(())
+}
+
+#[test]
 fn seq_enum() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
