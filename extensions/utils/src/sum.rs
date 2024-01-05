@@ -26,7 +26,7 @@ use scr_core::{
     utils::identity_hasher::BuildIdentityHasher,
 };
 
-use crate::any_number::AnyNumber;
+use scr_core::operators::utils::any_number::AnyNumber;
 
 #[derive(Clone, Default)]
 pub struct OpSum {}

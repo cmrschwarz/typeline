@@ -8,6 +8,7 @@ use scr_core::{
         string_sink::{create_op_string_sink, StringSinkHandle},
     },
     options::context_builder::ContextBuilder,
+    record_data::field_value::{Array, FieldValue},
     scr_error::ScrError,
 };
 use scr_ext_utils::{
@@ -129,6 +130,25 @@ fn object_flatten() -> Result<(), ScrError> {
     assert_eq!(
         ss.get_data().unwrap().as_slice(),
         [r#"["a", 3]"#, r#"["b", "5"]"#]
+    );
+    Ok(())
+}
+
+#[test]
+fn flatten_duped_objects() -> Result<(), ScrError> {
+    let res = ContextBuilder::default()
+        .add_op(create_op_seqn(1, 3, 1).unwrap())
+        .add_op(create_op_v("{a:3}", 0).unwrap())
+        .add_op(create_op_flatten())
+        .run_collect()
+        .unwrap();
+    assert_eq!(
+        res,
+        std::iter::repeat(FieldValue::Array(Array::Mixed(
+            [FieldValue::Text("a".to_string()), FieldValue::Int(3)].into()
+        )))
+        .take(3)
+        .collect::<Vec<_>>()
     );
     Ok(())
 }

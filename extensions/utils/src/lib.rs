@@ -17,7 +17,6 @@ use tail::parse_op_tail;
 
 extern crate scr_core;
 
-pub mod any_number;
 pub mod explode;
 pub mod flatten;
 pub mod from_tyson;

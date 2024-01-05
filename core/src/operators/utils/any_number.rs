@@ -3,10 +3,10 @@ use std::{
     ops::{Add, AddAssign, Mul, MulAssign},
 };
 
-use num::{BigInt, BigRational, FromPrimitive, ToPrimitive};
-use scr_core::record_data::{
+use crate::record_data::{
     field_data::RunLength, push_interface::PushInterface,
 };
+use num::{BigInt, BigRational, FromPrimitive, ToPrimitive};
 
 #[derive(Clone)]
 pub enum AnyNumber {

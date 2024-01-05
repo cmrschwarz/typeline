@@ -197,26 +197,33 @@ impl TfFlatten {
                             );
                         }
                         field_idx += elem_count;
-                        match v {
-                            Object::KeysStored(d) => {
-                                for (k, v) in d.iter() {
-                                    insert_object_entry(v, k, &mut inserter);
+                        for _ in 0..rl {
+                            match v {
+                                Object::KeysStored(d) => {
+                                    for (k, v) in d.iter() {
+                                        insert_object_entry(
+                                            v,
+                                            k,
+                                            &mut inserter,
+                                        );
+                                    }
                                 }
-                            }
-                            Object::KeysInterned(d) => {
-                                let ss =
-                                    string_store.get_or_insert_with(|| {
-                                        bud.session_data
-                                            .string_store
-                                            .write()
-                                            .unwrap()
-                                    });
-                                for (&k, v) in d.iter() {
-                                    insert_object_entry(
-                                        v,
-                                        ss.lookup(k),
-                                        &mut inserter,
+                                Object::KeysInterned(d) => {
+                                    let ss = string_store.get_or_insert_with(
+                                        || {
+                                            bud.session_data
+                                                .string_store
+                                                .write()
+                                                .unwrap()
+                                        },
                                     );
+                                    for (&k, v) in d.iter() {
+                                        insert_object_entry(
+                                            v,
+                                            ss.lookup(k),
+                                            &mut inserter,
+                                        );
+                                    }
                                 }
                             }
                         }
