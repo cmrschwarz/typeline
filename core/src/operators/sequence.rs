@@ -108,8 +108,7 @@ pub fn handle_tf_sequence(
     if batch_size == 0 && ps.input_done && !seq.stop_after_input {
         batch_size = if let Some(succ) = tf.successor {
             let succ = &jd.tf_mgr.transforms[succ];
-            succ.desired_batch_size
-                .saturating_sub(succ.available_batch_size)
+            succ.desired_batch_size.max(tf.desired_batch_size)
         } else {
             tf.desired_batch_size
         };

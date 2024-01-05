@@ -813,13 +813,12 @@ impl LivenessData {
                 OperatorCallEffect::Diverge => break,
             }
             if flags.input_accessed {
-                self.access_output(
+                self.access_var(
                     sess,
                     op_id,
-                    input_field,
+                    BB_INPUT_VAR_ID,
                     op_offset_after_last_write,
                     flags.non_stringified_input_access,
-                    true,
                 );
             }
             if flags.may_dup_or_drop {
@@ -1309,7 +1308,7 @@ impl LivenessData {
                 for (&idx, acc) in &old.accessed_outputs {
                     print!(
                         " {idx}::{}{}{}",
-                        flag(acc.direct_access, 'D'),
+                        flag(!acc.direct_access, 'R'),
                         flag(acc.header_write, 'W'),
                         flag(!acc.non_stringified, 'S')
                     )
@@ -1494,11 +1493,12 @@ impl LivenessData {
     }
     pub fn accessed_names_afterwards(
         &self,
-        _sess: &SessionData,
+        sess: &SessionData,
         op_id: OperatorId,
     ) -> BitVec<usize> {
         let bb_id = self.operator_liveness_data[op_id as usize].basic_block_id;
         let bb = &self.basic_blocks[bb_id];
+        let chain = &sess.chains[bb.chain_id as usize];
         let vc = self.vars.len();
         let succ_range = self.get_succession_var_data_bounds(bb_id);
         let mut reads = BitVec::<usize>::new();
@@ -1506,7 +1506,8 @@ impl LivenessData {
             &self.var_data[succ_range]
                 [vc * READS_OFFSET..vc * (READS_OFFSET + 1)],
         );
-        for bb_op_id in (bb.operators_start..bb.operators_end).rev() {
+        for bb_op_offset in (bb.operators_start..bb.operators_end).rev() {
+            let bb_op_id = chain.operators[bb_op_offset as usize];
             if op_id == bb_op_id {
                 break;
             }

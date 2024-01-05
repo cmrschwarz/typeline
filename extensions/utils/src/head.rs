@@ -36,6 +36,12 @@ pub struct TfHead {
     actor_id: ActorId,
 }
 
+pub struct TfHeadSubtractive {
+    drop_count: usize,
+    actor_id: ActorId,
+    clear_delayed_fields: Vec<FieldId>,
+}
+
 impl Operator for OpHead {
     fn default_name(
         &self,
@@ -96,7 +102,29 @@ impl Operator for OpHead {
             .drop_field_refcount(tf_state.output_field, &mut jd.match_set_mgr);
         tf_state.output_field = tf_state.input_field;
         if self.count < 0 {
-            unimplemented!("head subtract mode")
+            let mut clear_delayed_fields =
+                Vec::with_capacity(self.accessed_fields_after.len());
+            for &name in &self.accessed_fields_after {
+                let Some(name) = name else {
+                    clear_delayed_fields.push(tf_state.input_field);
+                    continue;
+                };
+                if let Some(&field_id) = jd.match_set_mgr.match_sets
+                    [tf_state.match_set_id]
+                    .field_name_map
+                    .get(&name)
+                {
+                    clear_delayed_fields.push(field_id);
+                }
+            }
+            for &f in &clear_delayed_fields {
+                jd.field_mgr.request_clear_delay(f);
+            }
+            return TransformData::Custom(smallbox!(TfHeadSubtractive {
+                drop_count: (-self.count) as usize,
+                actor_id,
+                clear_delayed_fields
+            }));
         }
         TransformData::Custom(smallbox!(TfHead {
             remaining: self.count as usize,
@@ -144,10 +172,43 @@ impl Transform for TfHead {
     }
 }
 
+impl Transform for TfHeadSubtractive {
+    fn display_name(&self) -> DefaultTransformName {
+        "head".into()
+    }
+
+    fn update(&mut self, jd: &mut JobData, tf_id: TransformId) {
+        let tf = &mut jd.tf_mgr.transforms[tf_id];
+        //TODO: update clear delay for dynamic fields / aliases
+
+        if !tf.input_is_done {
+            return;
+        }
+        let match_set_id = tf.match_set_id;
+        let batch_size = tf.available_batch_size;
+        tf.available_batch_size = 0;
+
+        for &f in &self.clear_delayed_fields {
+            jd.field_mgr.relinquish_clear_delay(f);
+        }
+
+        let ab = &mut jd.match_set_mgr.match_sets[match_set_id].action_buffer;
+
+        let rows_to_drop = batch_size.min(self.drop_count);
+        let rows_to_submit = batch_size - rows_to_drop;
+
+        ab.begin_action_group(self.actor_id);
+        ab.push_action(FieldActionKind::Drop, rows_to_submit, rows_to_drop);
+        ab.end_action_group();
+
+        jd.tf_mgr.submit_batch(tf_id, rows_to_submit, true);
+    }
+}
+
 pub fn create_op_head(count: isize) -> OperatorData {
     OperatorData::Custom(smallbox!(OpHead {
         count,
-        accessed_fields_after: Vec::new(),
+        accessed_fields_after: Default::default(),
         dyn_var_accessed: false
     }))
 }

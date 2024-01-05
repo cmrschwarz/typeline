@@ -76,6 +76,17 @@ fn head_tail_cli() -> Result<(), ScrError> {
     Ok(())
 }
 
+#[test]
+fn subtractive_head_multibatch() -> Result<(), ScrError> {
+    let res = ContextBuilder::default()
+        .set_batch_size(2)
+        .add_op(create_op_seqn(1, 10, 1).unwrap())
+        .add_op(create_op_head(-5))
+        .run_collect_as::<i64>()?;
+    assert_eq!(res, [1, 2, 3, 4, 5]);
+    Ok(())
+}
+
 #[rstest]
 #[case("{}", "null")]
 #[case("[]", "[]")]
