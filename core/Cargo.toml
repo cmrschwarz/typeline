@@ -43,7 +43,6 @@ rstest = "0.18.2"
 default = []
 
 repl = ["dep:shlex", "dep:reedline"]
-
 full = ["repl"]
 
 unstable = []

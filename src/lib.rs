@@ -19,10 +19,10 @@ pub fn build_extension_registry() -> Arc<ExtensionRegistry> {
         .extensions
         .push(Box::<scr_ext_sqlite::SqliteExtension>::default());
 
-    #[cfg(feature = "misc_cmds")]
+    #[cfg(feature = "utils")]
     extensions
         .extensions
-        .push(Box::<scr_ext_misc_cmds::MiscCmdsExtension>::default());
+        .push(Box::<scr_ext_utils::MiscCmdsExtension>::default());
 
     #[cfg(feature = "http")]
     extensions

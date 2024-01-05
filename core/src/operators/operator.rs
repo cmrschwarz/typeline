@@ -26,7 +26,6 @@ use super::{
     count::OpCount,
     end::OpEnd,
     errors::OperatorSetupError,
-    explode::OpExplode,
     field_value_sink::OpFieldValueSink,
     file_reader::OpFileReader,
     fork::OpFork,
@@ -71,7 +70,6 @@ pub enum OperatorData {
     FileReader(OpFileReader),
     Literal(OpLiteral),
     Sequence(OpSequence),
-    Explode(OpExplode),
     Aggregator(OpAggregator),
     Custom(SmallBox<dyn Operator, 96>),
 }
@@ -118,7 +116,6 @@ impl OperatorData {
             OperatorData::CallConcurrent(_) => "callcc".into(),
             OperatorData::Nop(_) => "nop".into(),
             OperatorData::NopCopy(_) => "nop-c".into(),
-            OperatorData::Explode(op) => op.default_name(),
             OperatorData::Custom(op) => op.default_name(),
             OperatorData::Aggregator(_) => AGGREGATOR_DEFAULT_NAME.into(),
         }
@@ -163,7 +160,6 @@ impl OperatorData {
             OperatorData::CallConcurrent(_) => true,
             OperatorData::Nop(_) => true,
             OperatorData::NopCopy(_) => true,
-            OperatorData::Explode(_) => true,
             OperatorData::Custom(op) => op.can_be_appended(),
             OperatorData::Aggregator(_) => true,
         }

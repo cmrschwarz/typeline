@@ -819,8 +819,8 @@ dependencies = [
  "rstest",
  "scr_core",
  "scr_ext_http",
- "scr_ext_misc_cmds",
  "scr_ext_sqlite",
+ "scr_ext_utils",
 ]
 
 [[package]]
@@ -869,20 +869,22 @@ dependencies = [
 ]
 
 [[package]]
-name = "scr_ext_misc_cmds"
+name = "scr_ext_sqlite"
 version = "0.1.0"
 dependencies = [
- "bstr",
- "num",
- "primes",
- "scr",
  "scr_core",
 ]
 
 [[package]]
-name = "scr_ext_sqlite"
+name = "scr_ext_utils"
 version = "0.1.0"
 dependencies = [
+ "bstr",
+ "indexmap",
+ "num",
+ "primes",
+ "rstest",
+ "scr",
  "scr_core",
 ]
 

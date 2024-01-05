@@ -17,9 +17,7 @@ use crate::{
         fork::OpFork,
         forkcat::OpForkCat,
         format::update_op_format_variable_liveness,
-        operator::{
-            Operator, OperatorData, OperatorId, OperatorOffsetInChain,
-        },
+        operator::{OperatorData, OperatorId, OperatorOffsetInChain},
     },
     utils::{
         get_two_distinct_mut,
@@ -240,7 +238,6 @@ impl LivenessData {
                 }
                 op_count
             }
-            OperatorData::Explode(op) => op.output_count(op_base),
             OperatorData::Custom(op) => op.output_count(op_base),
         }
     }
@@ -336,9 +333,6 @@ impl LivenessData {
                 for &sub_op in &agg.sub_ops {
                     self.setup_op_vars(sess, sub_op);
                 }
-            }
-            OperatorData::Explode(op) => {
-                op.register_output_var_names(self, sess)
             }
             OperatorData::Custom(op) => {
                 op.register_output_var_names(self, sess)
@@ -450,7 +444,6 @@ impl LivenessData {
             OperatorData::FileReader(_) => (),
             OperatorData::Literal(_) => (),
             OperatorData::Sequence(_) => (),
-            OperatorData::Explode(_) => (),
             // TODO: maybe support this
             OperatorData::Custom(_) => (),
             OperatorData::Aggregator(agg) => {
@@ -747,9 +740,6 @@ impl LivenessData {
             }
             OperatorData::Next(_) => unreachable!(),
             OperatorData::End(_) => unreachable!(),
-            OperatorData::Explode(op) => {
-                op.update_variable_liveness(self, bb_id, flags)
-            }
             OperatorData::Custom(op) => {
                 op.update_variable_liveness(self, bb_id, flags)
             }

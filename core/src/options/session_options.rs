@@ -30,8 +30,7 @@ use crate::{
         nop::{setup_op_nop, OpNop},
         nop_copy::on_op_nop_copy_liveness_computed,
         operator::{
-            Operator, OperatorBase, OperatorData, OperatorId,
-            OperatorOffsetInChain,
+            OperatorBase, OperatorData, OperatorId, OperatorOffsetInChain,
         },
         regex::setup_op_regex,
         select::{setup_op_select, setup_op_select_liveness_data},
@@ -218,7 +217,6 @@ impl SessionOptions {
                     self.init_op(sub_op_id, false);
                 }
             }
-            OperatorData::Explode(_) => (),
             OperatorData::Custom(_) => {
                 let OperatorData::Custom(op) = std::mem::replace(
                     op_data,
@@ -321,7 +319,6 @@ impl SessionOptions {
             OperatorData::Literal(_) => (),
             OperatorData::Sequence(_) => (),
             OperatorData::Aggregator(_) => (),
-            OperatorData::Explode(_) => (),
             OperatorData::Custom(op) => op.on_subchains_added(sc_count_after),
         }
     }
@@ -377,14 +374,6 @@ impl SessionOptions {
                 string_store,
                 op,
                 op_id,
-            )?,
-            OperatorData::Explode(op) => op.setup(
-                op_id,
-                op_base,
-                chain,
-                sess_settings,
-                sess_chain_labels,
-                string_store,
             )?,
             OperatorData::Custom(op) => op.setup(
                 op_id,
@@ -506,9 +495,6 @@ impl SessionOptions {
             OperatorData::Literal(_) => (),
             OperatorData::Sequence(op) => {
                 setup_op_sequence_concurrent_liveness_data(sess, op, op_id, ld)
-            }
-            OperatorData::Explode(op) => {
-                op.on_liveness_computed(sess, op_id, ld)
             }
             OperatorData::Custom(op) => {
                 op.on_liveness_computed(sess, op_id, ld)

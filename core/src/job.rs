@@ -47,7 +47,7 @@ use crate::{
         literal::{build_tf_literal, handle_tf_literal},
         nop::{build_tf_nop, handle_tf_nop},
         nop_copy::{build_tf_nop_copy, handle_tf_nop_copy},
-        operator::{Operator, OperatorData, OperatorId},
+        operator::{OperatorData, OperatorId},
         print::{
             build_tf_print, handle_tf_print,
             handle_tf_print_stream_value_update,
@@ -63,7 +63,7 @@ use crate::{
             handle_tf_string_sink_stream_value_update,
         },
         terminator::{add_terminator, handle_tf_terminator},
-        transform::{Transform, TransformData, TransformId, TransformState},
+        transform::{TransformData, TransformId, TransformState},
     },
     record_data::{
         action_buffer::ActorRef,
@@ -650,9 +650,6 @@ impl<'a> Job<'a> {
             OperatorData::Key(_) => unreachable!(),
             OperatorData::Next(_) => unreachable!(),
             OperatorData::End(_) => unreachable!(),
-            OperatorData::Explode(op) => {
-                op.build_transform(jd, op_base, tf_state, prebound_outputs)
-            }
             OperatorData::Custom(op) => {
                 op.build_transform(jd, op_base, tf_state, prebound_outputs)
             }
@@ -868,7 +865,6 @@ impl<'a> Job<'a> {
                 OperatorData::FileReader(_) => (),
                 OperatorData::Literal(_) => (),
                 OperatorData::Sequence(_) => (),
-                OperatorData::Explode(_) => (),
                 OperatorData::Aggregator(_) => (),
                 OperatorData::Custom(_) => (), // TODO: allow this?
             }
@@ -948,12 +944,6 @@ impl<'a> Job<'a> {
             TransformData::Disabled => unreachable!(),
             TransformData::Literal(_) => unreachable!(),
             TransformData::CalleeConcurrent(_) => unreachable!(),
-            TransformData::Explode(tf) => tf.handle_stream_value_update(
-                &mut self.job_data,
-                svu.tf_id,
-                svu.sv_id,
-                svu.custom,
-            ),
             //these go to the individual transforms
             TransformData::AggregatorHeader(_) => unreachable!(),
             TransformData::AggregatorTrailer(_) => unreachable!(),
@@ -1023,9 +1013,6 @@ impl<'a> Job<'a> {
             TransformData::Terminator(_) => (),
             TransformData::AggregatorHeader(_) => (),
             TransformData::AggregatorTrailer(_) => (),
-            TransformData::Explode(tf) => {
-                debug_assert!(!tf.pre_update_required());
-            }
             TransformData::Custom(tf) => {
                 if tf.pre_update_required() {
                     let mut tf = std::mem::replace(
@@ -1084,7 +1071,6 @@ impl<'a> Job<'a> {
             TransformData::Terminator(tf) => {
                 handle_tf_terminator(jd, tf_id, tf)
             }
-            TransformData::Explode(tf) => tf.update(&mut self.job_data, tf_id),
             TransformData::Custom(tf) => tf.update(&mut self.job_data, tf_id),
             TransformData::AggregatorHeader(_) => {
                 handle_tf_aggregator_header(self, tf_id)
@@ -1132,7 +1118,6 @@ impl<'a> Job<'a> {
             | TransformData::Regex(_)
             | TransformData::Literal(_)
             | TransformData::Sequence(_)
-            | TransformData::Explode(_)
             | TransformData::Format(_) => unreachable!(),
             //these go straight to the sub transforms
             TransformData::AggregatorHeader(_) => unreachable!(),

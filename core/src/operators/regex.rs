@@ -368,7 +368,7 @@ pub fn create_op_regex(
 }
 
 // mainly used tests, prefer using
-// `scr_ext_misc_cmds::string_utils::create_op_lines`
+// `scr_ext_utils::string_utils::create_op_lines`
 pub fn create_op_regex_lines() -> OperatorData {
     parse_op_regex(
         Some("(?<>.+)\r?\n".as_bytes()),

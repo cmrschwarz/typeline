@@ -1,16 +1,29 @@
 use std::collections::HashMap;
 
-use crate::{
+use scr_core::{
     cli::reject_operator_argument,
+    context::SessionData,
     job::JobData,
     liveness_analysis::{
         AccessFlags, BasicBlockId, LivenessData, OpOutputIdx,
+    },
+    operators::{
+        errors::OperatorCreationError,
+        operator::{
+            DefaultOperatorName, Operator, OperatorBase, OperatorData,
+            OperatorId,
+        },
+        transform::{
+            basic_transform_update, BasicUpdateData, DefaultTransformName,
+            Transform, TransformData, TransformId, TransformState,
+        },
     },
     options::argument::CliArgIdx,
     record_data::{
         action_buffer::{ActorId, ActorRef},
         field::{FieldId, FieldRefOffset},
         field_action::FieldActionKind,
+        field_data::FieldData,
         field_value::{Array, FieldValue, Object},
         iter_hall::IterId,
         push_interface::{PushInterface, VaryingTypeInserter},
@@ -19,15 +32,6 @@ use crate::{
     },
     smallbox,
     utils::identity_hasher::BuildIdentityHasher,
-};
-
-use super::{
-    errors::OperatorCreationError,
-    operator::{DefaultOperatorName, Operator, OperatorBase, OperatorData},
-    transform::{
-        basic_transform_update, BasicUpdateData, DefaultTransformName,
-        Transform, TransformData, TransformId,
-    },
 };
 
 #[derive(Default)]
@@ -68,8 +72,8 @@ impl Operator for OpFlatten {
 
     fn on_liveness_computed(
         &mut self,
-        _sess: &crate::context::SessionData,
-        op_id: super::operator::OperatorId,
+        _sess: &SessionData,
+        op_id: OperatorId,
         ld: &LivenessData,
     ) {
         self.may_consume_input = ld.can_consume_nth_access(op_id, 0);
@@ -87,7 +91,7 @@ impl Operator for OpFlatten {
         &'a self,
         jd: &mut JobData,
         _op_base: &OperatorBase,
-        tf_state: &mut super::transform::TransformState,
+        tf_state: &mut TransformState,
         _prebound_outputs: &HashMap<OpOutputIdx, FieldId, BuildIdentityHasher>,
     ) -> TransformData<'a> {
         let cb = &mut jd.match_set_mgr.match_sets[tf_state.match_set_id]
@@ -112,9 +116,7 @@ impl Operator for OpFlatten {
 fn insert_object_entry(
     value: &FieldValue,
     key: &str,
-    inserter: &mut VaryingTypeInserter<
-        &mut crate::record_data::field_data::FieldData,
-    >,
+    inserter: &mut VaryingTypeInserter<&mut FieldData>,
 ) {
     let arr = if let FieldValue::Text(str) = value {
         Array::String(

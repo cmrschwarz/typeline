@@ -1,5 +1,5 @@
 [workspace]
-members = ["core", "extensions/sqlite", "extensions/http", "extensions/misc_cmds"]
+members = ["core", "extensions/sqlite", "extensions/http", "extensions/utils"]
 
 [package]
 name = "scr"
@@ -25,7 +25,7 @@ regex = "1.10"
 scr_core = { path = "./core", default-features = false }
 scr_ext_sqlite = {path="./extensions/sqlite", optional = true}
 scr_ext_http = {path="./extensions/http", optional = true}
-scr_ext_misc_cmds = {path="./extensions/misc_cmds", optional = true}
+scr_ext_utils = {path="./extensions/utils", optional = true}
 
 [profile.release-with-debug]
 inherits = "release"
@@ -42,10 +42,10 @@ panic = "unwind"
 repl = ["scr_core/repl"]
 sqlite = ["dep:scr_ext_sqlite"]
 http = ["dep:scr_ext_http"]
-misc_cmds = ["dep:scr_ext_misc_cmds"]
+utils = ["dep:scr_ext_utils"]
 
 default = []
-full = ["scr_core/full", "repl", "sqlite", "http", "misc_cmds",]
+full = ["scr_core/full", "repl", "sqlite", "http", "utils"]
 
 unstable = ["scr_core/unstable"]
 debug_logging = ["scr_core/debug_logging"]

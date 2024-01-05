@@ -6,5 +6,4 @@ mod fork;
 mod forkcat;
 mod format;
 mod join;
-mod objects;
 mod regex;

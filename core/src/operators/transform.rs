@@ -22,7 +22,6 @@ use super::{
     call_concurrent::{TfCallConcurrent, TfCalleeConcurrent},
     cast::TfCast,
     count::TfCount,
-    explode::TfExplode,
     field_value_sink::TfFieldValueSink,
     file_reader::TfFileReader,
     fork::TfFork,
@@ -69,7 +68,6 @@ pub enum TransformData<'a> {
     FileReader(TfFileReader),
     Literal(TfLiteral<'a>),
     Sequence(TfSequence),
-    Explode(TfExplode),
     AggregatorHeader(TfAggregatorHeader),
     AggregatorTrailer(TfAggregatorTrailer),
     Custom(SmallBox<dyn Transform, 192>),
@@ -108,7 +106,6 @@ impl TransformData<'_> {
             TransformData::AggregatorHeader(_) => "aggregator_header",
             TransformData::AggregatorTrailer(_) => "aggregator_trailer",
             TransformData::InputDoneEater(_) => "input_done_eater",
-            TransformData::Explode(tf) => return tf.display_name(),
             TransformData::Custom(tf) => return tf.display_name(),
         }
         .into()

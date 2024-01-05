@@ -5,10 +5,22 @@ use std::{
 
 use indexmap::{indexmap, IndexMap};
 
-use crate::{
+use scr_core::{
+    context::SessionData,
     job::JobData,
     liveness_analysis::{
         AccessFlags, BasicBlockId, LivenessData, OpOutputIdx,
+    },
+    operators::{
+        errors::OperatorCreationError,
+        operator::{
+            DefaultOperatorName, Operator, OperatorBase, OperatorData,
+            OperatorId,
+        },
+        transform::{
+            DefaultTransformName, Transform, TransformData, TransformId,
+            TransformState,
+        },
     },
     options::argument::CliArgIdx,
     record_data::{
@@ -26,12 +38,6 @@ use crate::{
         identity_hasher::BuildIdentityHasher, stable_vec::StableVec,
         string_store::StringStoreEntry, temp_vec::BorrowedVec,
     },
-};
-
-use super::{
-    errors::OperatorCreationError,
-    operator::{DefaultOperatorName, Operator, OperatorBase, OperatorData},
-    transform::{DefaultTransformName, Transform, TransformData, TransformId},
 };
 
 #[derive(Default)]
@@ -71,7 +77,7 @@ pub fn parse_op_explode(
 }
 
 pub fn create_op_explode() -> OperatorData {
-    OperatorData::Explode(OpExplode::default())
+    OperatorData::Custom(smallbox!(OpExplode::default()))
 }
 
 impl Operator for OpExplode {
@@ -87,8 +93,8 @@ impl Operator for OpExplode {
 
     fn on_liveness_computed(
         &mut self,
-        _sess: &crate::context::SessionData,
-        op_id: super::operator::OperatorId,
+        _sess: &SessionData,
+        op_id: OperatorId,
         ld: &LivenessData,
     ) {
         self.may_consume_input = ld.can_consume_nth_access(op_id, 0);
@@ -112,7 +118,7 @@ impl Operator for OpExplode {
         &'a self,
         jd: &mut JobData,
         _op_base: &OperatorBase,
-        tf_state: &mut super::transform::TransformState,
+        tf_state: &mut TransformState,
         _prebound_outputs: &HashMap<OpOutputIdx, FieldId, BuildIdentityHasher>,
     ) -> TransformData<'a> {
         let input_field_field_ref_offset =
@@ -132,13 +138,14 @@ impl Operator for OpExplode {
         TransformData::Custom(smallbox!(tfe))
     }
 }
-fn handle_object_key<'a>(
-    target_fields: &mut IndexMap<Option<StringStoreEntry>, TargetField>,
+
+fn insert_into_key<'a>(
     pending_fields: &'a StableVec<(RefCell<FieldData>, usize)>,
-    inserters: &mut Vec<VaryingTypeInserter<RefMut<'a, FieldData>>>,
-    match_set_id: MatchSetId,
-    msm: &mut MatchSetManager,
     fm: &'a FieldManager,
+    target_fields: &mut IndexMap<Option<StringStoreEntry>, TargetField>,
+    inserters: &mut Vec<VaryingTypeInserter<RefMut<'a, FieldData>>>,
+    msm: &mut MatchSetManager,
+    match_set_id: MatchSetId,
     key: StringStoreEntry,
     value: &FieldValue,
     run_length: usize,
@@ -249,13 +256,13 @@ impl Transform for TfExplode {
                                             .unwrap()
                                     });
                                 for (k, v) in obj.iter() {
-                                    handle_object_key(
-                                        &mut self.target_fields,
+                                    insert_into_key(
                                         &self.pending_fields,
-                                        &mut inserters,
-                                        match_set_id,
-                                        &mut jd.match_set_mgr,
                                         &jd.field_mgr,
+                                        &mut self.target_fields,
+                                        &mut inserters,
+                                        &mut jd.match_set_mgr,
+                                        match_set_id,
                                         ss.intern_cloned(k),
                                         v,
                                         rl as usize,
@@ -264,13 +271,13 @@ impl Transform for TfExplode {
                             }
                             Object::KeysInterned(obj) => {
                                 for (&k, v) in obj.iter() {
-                                    handle_object_key(
-                                        &mut self.target_fields,
+                                    insert_into_key(
                                         &self.pending_fields,
-                                        &mut inserters,
-                                        match_set_id,
-                                        &mut jd.match_set_mgr,
                                         &jd.field_mgr,
+                                        &mut self.target_fields,
+                                        &mut inserters,
+                                        &mut jd.match_set_mgr,
+                                        match_set_id,
                                         k,
                                         v,
                                         rl as usize,

@@ -1,6 +1,8 @@
+use rstest::rstest;
 use scr::parse_cli_from_strings;
 use scr_core::{
     operators::{
+        literal::create_op_v,
         select::create_op_select,
         sequence::create_op_seqn,
         string_sink::{create_op_string_sink, StringSinkHandle},
@@ -8,7 +10,8 @@ use scr_core::{
     options::context_builder::ContextBuilder,
     scr_error::ScrError,
 };
-use scr_ext_misc_cmds::{
+use scr_ext_utils::{
+    explode::create_op_explode, flatten::create_op_flatten,
     head::create_op_head, primes::create_op_primes, tail::create_op_tail_add,
 };
 
@@ -69,5 +72,63 @@ fn head_tail_cli() -> Result<(), ScrError> {
     let res = ContextBuilder::from_session_opts(sess_opts)
         .run_collect_as::<i64>()?;
     assert_eq!(res, [7, 11, 13, 17, 19]);
+    Ok(())
+}
+
+#[rstest]
+#[case("{}", "null")]
+#[case("[]", "[]")]
+#[case("[{}]", "[{}]")]
+fn explode_output_col(
+    #[case] input: &str,
+    #[case] output: &str,
+) -> Result<(), ScrError> {
+    let ss = StringSinkHandle::default();
+    ContextBuilder::default()
+        .add_op(create_op_v(input, 1).unwrap())
+        .add_op(create_op_explode())
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(ss.get_data().unwrap().as_slice(), [output]);
+    Ok(())
+}
+
+#[test]
+fn explode_into_select() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::default();
+    ContextBuilder::default()
+        .add_op(create_op_v("{'foo': 3}", 1).unwrap())
+        .add_op(create_op_explode())
+        .add_op(create_op_select("foo".into()))
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(ss.get_data().unwrap().as_slice(), ["3"]);
+    Ok(())
+}
+
+#[test]
+fn flatten() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::default();
+    ContextBuilder::default()
+        .add_op(create_op_v("[1,2,3]", 1).unwrap())
+        .add_op(create_op_flatten())
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(ss.get_data().unwrap().as_slice(), ["1", "2", "3"]);
+    Ok(())
+}
+
+#[test]
+fn object_flatten() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::default();
+    ContextBuilder::default()
+        .add_op(create_op_v("{a: 3, b: '5'}", 1).unwrap())
+        .add_op(create_op_flatten())
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(
+        ss.get_data().unwrap().as_slice(),
+        [r#"["a", 3]"#, r#"["b", "5"]"#]
+    );
     Ok(())
 }
