@@ -6,15 +6,15 @@ use crate::{
     job::JobData,
     record_data::{
         field::Field,
-        field_data::{field_value_flags, FieldValueRepr},
         field_value::FieldValue,
+        field_value_repr::{field_value_flags, FieldValueRepr},
         iter_hall::IterId,
         iters::FieldIterator,
         push_interface::PushInterface,
         ref_iter::{
             AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter,
             RefAwareInlineTextIter, RefAwareStreamValueIter,
-            RefAwareTextBufferIter,
+            RefAwareTextBufferIter, RefAwareTypedSliceIter,
         },
         stream_value::StreamValueId,
         typed::TypedSlice,
@@ -95,24 +95,18 @@ pub fn push_errors(
     err: OperatorApplicationError,
     run_length: usize,
     mut field_pos: usize,
-    last_error_end: &mut usize,
+    last_interruption_end: &mut usize,
     output_field: &mut Field,
 ) {
     field_pos += run_length;
-    let successes_so_far = field_pos - *last_error_end;
-    if successes_so_far > 0 {
-        output_field
-            .iter_hall
-            .push_null(field_pos - *last_error_end, true);
-        output_field
-            .iter_hall
-            .push_error(err, run_length, false, false);
-    } else {
-        output_field
-            .iter_hall
-            .push_error(err, run_length, true, true);
-    }
-    *last_error_end = field_pos;
+    output_field
+        .iter_hall
+        .push_null(field_pos - *last_interruption_end, true);
+    output_field
+        .iter_hall
+        .push_error(err, run_length, false, false);
+
+    *last_interruption_end = field_pos;
 }
 
 pub fn handle_tf_field_value_sink(
@@ -135,14 +129,25 @@ pub fn handle_tf_field_value_sink(
     let mut iter =
         AutoDerefIter::new(&jd.field_mgr, tf.input_field, base_iter);
     let mut fvs = ss.handle.lock().unwrap();
-    let mut last_error_end = 0;
+    // interruptions are either errors or field separators
+    // they interrupt a run of nulls that we output foi successes
+    let mut last_interruption_end = 0;
     let mut field_pos = fvs.len();
+    let mut separators_count = 0;
     while let Some(range) = iter.typed_range_fwd(
         &mut jd.match_set_mgr,
         usize::MAX,
         field_value_flags::DEFAULT,
     ) {
         match range.base.data {
+            TypedSlice::GroupSeparator(_) => {
+                separators_count += range.base.field_count;
+                output_field
+                    .iter_hall
+                    .push_null(field_pos - last_interruption_end, true);
+                last_interruption_end = field_pos;
+                continue;
+            }
             TypedSlice::TextInline(text) => {
                 for (v, rl, _offs) in
                     RefAwareInlineTextIter::from_range(&range, text)
@@ -188,7 +193,7 @@ pub fn handle_tf_field_value_sink(
                 }
             }
             TypedSlice::Int(ints) => {
-                for (v, rl) in TypedSliceIter::from_range(&range.base, ints) {
+                for (v, rl) in TypedSliceIter::from_range(&range, ints) {
                     push_field_values(
                         &mut fvs,
                         FieldValue::Int(*v),
@@ -198,7 +203,7 @@ pub fn handle_tf_field_value_sink(
             }
             TypedSlice::Custom(custom_types) => {
                 for (v, rl) in
-                    TypedSliceIter::from_range(&range.base, custom_types)
+                    RefAwareTypedSliceIter::from_range(&range, custom_types)
                 {
                     push_field_values(
                         &mut fvs,
@@ -218,7 +223,8 @@ pub fn handle_tf_field_value_sink(
             }
             TypedSlice::Error(errs) => {
                 let mut pos = field_pos;
-                for (v, rl) in TypedSliceIter::from_range(&range.base, errs) {
+                for (v, rl) in RefAwareTypedSliceIter::from_range(&range, errs)
+                {
                     push_field_values(
                         &mut fvs,
                         FieldValue::Error(v.clone()),
@@ -228,7 +234,7 @@ pub fn handle_tf_field_value_sink(
                         v.clone(),
                         rl as usize,
                         pos,
-                        &mut last_error_end,
+                        &mut last_interruption_end,
                         &mut output_field,
                     );
                     pos += rl as usize;
@@ -275,7 +281,8 @@ pub fn handle_tf_field_value_sink(
                 todo!();
             }
             TypedSlice::Array(arrays) => {
-                for (v, rl) in TypedSliceIter::from_range(&range.base, arrays)
+                for (v, rl) in
+                    RefAwareTypedSliceIter::from_range(&range, arrays)
                 {
                     push_field_values(
                         &mut fvs,
@@ -285,7 +292,8 @@ pub fn handle_tf_field_value_sink(
                 }
             }
             TypedSlice::Object(object) => {
-                for (v, rl) in TypedSliceIter::from_range(&range.base, object)
+                for (v, rl) in
+                    RefAwareTypedSliceIter::from_range(&range, object)
                 {
                     push_field_values(
                         &mut fvs,
@@ -299,7 +307,9 @@ pub fn handle_tf_field_value_sink(
     }
     let base_iter = iter.into_base_iter();
     let consumed_fields = base_iter.get_next_field_pos() - starting_pos;
-    if consumed_fields < batch_size {
+    // TODO: get rid of this once we removed the short fields mechanism
+    // from sequence
+    if consumed_fields < batch_size - separators_count {
         push_field_values(
             &mut fvs,
             FieldValue::Undefined,
@@ -308,9 +318,11 @@ pub fn handle_tf_field_value_sink(
     }
     jd.field_mgr
         .store_iter(input_field_id, ss.batch_iter, base_iter);
-    let success_count = field_pos - last_error_end;
-    if success_count > 0 {
-        output_field.iter_hall.push_null(success_count, true);
+    let last_success_run_length = field_pos - last_interruption_end;
+    if last_success_run_length > 0 {
+        output_field
+            .iter_hall
+            .push_null(last_success_run_length, true);
     }
     drop(input_field);
     drop(output_field);

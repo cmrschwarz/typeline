@@ -23,8 +23,8 @@ use scr_core::{
         action_buffer::{ActorId, ActorRef},
         field::{FieldId, FieldRefOffset},
         field_action::FieldActionKind,
-        field_data::FieldData,
         field_value::{Array, FieldValue, Object},
+        field_value_repr::FieldData,
         iter_hall::IterId,
         push_interface::{PushInterface, VaryingTypeInserter},
         ref_iter::RefAwareTypedSliceIter,
@@ -151,6 +151,7 @@ impl TfFlatten {
             match range.base.data {
                 TypedSlice::Undefined(_)
                 | TypedSlice::Null(_)
+                | TypedSlice::GroupSeparator(_)
                 | TypedSlice::Int(_)
                 | TypedSlice::Float(_)
                 | TypedSlice::StreamValueId(_)

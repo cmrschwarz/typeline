@@ -8,10 +8,9 @@ use crate::{
         iter_hall::IterId,
         iters::FieldIterator,
         push_interface::PushInterface,
-        ref_iter::AutoDerefIter,
+        ref_iter::{AutoDerefIter, RefAwareTypedSliceIter},
         stream_value::StreamValueId,
         typed::TypedSlice,
-        typed_iters::TypedSliceIter,
     },
     utils::encoding::{
         self, utf8_surrocate_escape, UTF8_REPLACEMENT_CHARACTER,
@@ -217,7 +216,7 @@ pub fn handle_tf_cast(jd: &mut JobData, tf_id: TransformId, tfc: &TfCast) {
                 if tfc.convert_errors {
                 } else {
                     for (v, rl) in
-                        TypedSliceIter::from_range(&range.base, errs)
+                        RefAwareTypedSliceIter::from_range(&range, errs)
                     {
                         ofd.push_error(v.clone(), rl as usize, true, true);
                     }

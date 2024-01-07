@@ -9,13 +9,14 @@ use std::{
 use super::{
     custom_data::CustomDataBox,
     field_value::{
-        Array, FieldReference, FieldValueKind, Null, Object,
+        Array, FieldReference, FieldValueKind, GroupSeparator, Null, Object,
         SlicedFieldReference, Undefined,
     },
     match_set::MatchSetManager,
     ref_iter::{
         AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter,
         RefAwareInlineTextIter, RefAwareTextBufferIter,
+        RefAwareTypedSliceIter,
     },
 };
 use crate::{
@@ -47,6 +48,7 @@ pub enum FieldValueRepr {
     #[default]
     Null,
     Undefined,
+    GroupSeparator,
     Int,
     BigInt,
     Float,
@@ -107,13 +109,20 @@ pub struct FieldDataInternals<'a> {
 }
 
 // only used to figure out the maximum alignment needed for fields
-// the size cannot be used because of the the `Object` shenanegans, see below
 #[repr(C)]
 union FieldValueAlignmentCheckUnion {
+    int: i64,
+    float: f64,
+    bigint: ManuallyDrop<BigInt>,
+    rational: ManuallyDrop<BigRational>,
     text: ManuallyDrop<String>,
     bytes: ManuallyDrop<Vec<u8>>,
     bytes_file: ManuallyDrop<BytesBufferFile>,
+    field_ref: FieldReference,
+    sliced_field_ref: SlicedFieldReference,
     object: ManuallyDrop<Object>,
+    array: ManuallyDrop<Array>,
+    custom: ManuallyDrop<CustomDataBox>,
 }
 
 pub const MAX_FIELD_ALIGN: usize = align_of::<FieldValueAlignmentCheckUnion>();
@@ -144,41 +153,64 @@ pub mod field_value_flags {
 // used to constrain generic functions that accept data for field values
 pub unsafe trait FieldValueType: PartialEq + Any {
     const REPR: FieldValueRepr;
-    const DST: bool = false;
+    const DST: bool = true;
     const ZST: bool = false;
+    const TRIVIALLY_COPYABLE: bool = Self::ZST;
+    const SUPPORTS_REFS: bool = !Self::TRIVIALLY_COPYABLE;
 }
+unsafe impl FieldValueType for [u8] {
+    const REPR: FieldValueRepr = FieldValueRepr::BytesInline;
+}
+unsafe impl FieldValueType for str {
+    const REPR: FieldValueRepr = FieldValueRepr::TextInline;
+}
+
 pub unsafe trait FixedSizeFieldValueType:
     Clone + PartialEq + Any + Sized
 {
     const REPR: FieldValueRepr;
     const FLAGS: FieldValueFlags = field_value_flags::DEFAULT;
-    const ZST: bool = false;
+    const ZST: bool = std::mem::size_of::<Self>() == 0;
+    const TRIVIALLY_COPYABLE: bool = Self::ZST;
+    const SUPPORTS_REFS: bool = !Self::TRIVIALLY_COPYABLE;
 }
 unsafe impl<T: FixedSizeFieldValueType> FieldValueType for T {
+    const DST: bool = false;
     const REPR: FieldValueRepr = Self::REPR;
     const ZST: bool = Self::ZST;
-    const DST: bool = false;
+    const TRIVIALLY_COPYABLE: bool = Self::TRIVIALLY_COPYABLE;
+    const SUPPORTS_REFS: bool = Self::SUPPORTS_REFS;
 }
-
 unsafe impl FixedSizeFieldValueType for Undefined {
     const REPR: FieldValueRepr = FieldValueRepr::Null;
-    const ZST: bool = true;
 }
 unsafe impl FixedSizeFieldValueType for Null {
     const REPR: FieldValueRepr = FieldValueRepr::Undefined;
-    const ZST: bool = true;
+}
+unsafe impl FixedSizeFieldValueType for GroupSeparator {
+    const REPR: FieldValueRepr = FieldValueRepr::GroupSeparator;
 }
 unsafe impl FixedSizeFieldValueType for i64 {
     const REPR: FieldValueRepr = FieldValueRepr::Int;
+    const TRIVIALLY_COPYABLE: bool = true;
+}
+unsafe impl FixedSizeFieldValueType for f64 {
+    const REPR: FieldValueRepr = FieldValueRepr::Float;
+    const TRIVIALLY_COPYABLE: bool = true;
 }
 unsafe impl FixedSizeFieldValueType for StreamValueId {
     const REPR: FieldValueRepr = FieldValueRepr::StreamValueId;
+    const TRIVIALLY_COPYABLE: bool = true;
+    // this is useful because of slicing
+    const SUPPORTS_REFS: bool = true;
 }
 unsafe impl FixedSizeFieldValueType for FieldReference {
     const REPR: FieldValueRepr = FieldValueRepr::FieldReference;
+    const TRIVIALLY_COPYABLE: bool = true;
 }
 unsafe impl FixedSizeFieldValueType for SlicedFieldReference {
     const REPR: FieldValueRepr = FieldValueRepr::SlicedFieldReference;
+    const TRIVIALLY_COPYABLE: bool = true;
 }
 unsafe impl FixedSizeFieldValueType for OperatorApplicationError {
     const REPR: FieldValueRepr = FieldValueRepr::Error;
@@ -198,24 +230,12 @@ unsafe impl FixedSizeFieldValueType for Array {
 unsafe impl FixedSizeFieldValueType for BigInt {
     const REPR: FieldValueRepr = FieldValueRepr::BigInt;
 }
-unsafe impl FixedSizeFieldValueType for f64 {
-    const REPR: FieldValueRepr = FieldValueRepr::Float;
-}
 unsafe impl FixedSizeFieldValueType for BigRational {
     const REPR: FieldValueRepr = FieldValueRepr::Rational;
 }
 unsafe impl FixedSizeFieldValueType for CustomDataBox {
     const REPR: FieldValueRepr = FieldValueRepr::Custom;
 }
-unsafe impl FieldValueType for [u8] {
-    const REPR: FieldValueRepr = FieldValueRepr::BytesInline;
-    const DST: bool = true;
-}
-unsafe impl FieldValueType for str {
-    const REPR: FieldValueRepr = FieldValueRepr::TextInline;
-    const DST: bool = true;
-}
-
 pub const INLINE_STR_MAX_LEN: usize = 8192;
 
 impl FieldValueRepr {
@@ -223,6 +243,7 @@ impl FieldValueRepr {
         match self {
             FieldValueRepr::Undefined
             | FieldValueRepr::Null
+            | FieldValueRepr::GroupSeparator
             | FieldValueRepr::Int
             | FieldValueRepr::Float
             | FieldValueRepr::FieldReference
@@ -295,6 +316,7 @@ impl FieldValueRepr {
         match self {
             FieldValueRepr::Undefined => 0,
             FieldValueRepr::Null => 0,
+            FieldValueRepr::GroupSeparator => 0,
             FieldValueRepr::Int => size_of::<i64>(),
             FieldValueRepr::BigInt => size_of::<BigInt>(),
             FieldValueRepr::Float => size_of::<f64>(),
@@ -336,6 +358,7 @@ impl FieldValueRepr {
         match self {
             FieldValueRepr::Undefined => "undefined",
             FieldValueRepr::Null => "null",
+            FieldValueRepr::GroupSeparator => "group_separator",
             FieldValueRepr::Int => "int",
             FieldValueRepr::BigInt => "integer",
             FieldValueRepr::Float => "float",
@@ -359,13 +382,16 @@ impl FieldValueRepr {
         Some(match self {
             FieldValueRepr::Undefined => FieldValueKind::Undefined,
             FieldValueRepr::Null => FieldValueKind::Null,
+            FieldValueRepr::GroupSeparator => return None,
             FieldValueRepr::Int => FieldValueKind::Int,
             FieldValueRepr::BigInt => FieldValueKind::BigInt,
             FieldValueRepr::Float => FieldValueKind::Float,
             FieldValueRepr::Rational => FieldValueKind::Rational,
-            FieldValueRepr::StreamValueId => return None,
-            FieldValueRepr::FieldReference => return None,
-            FieldValueRepr::SlicedFieldReference => return None,
+            FieldValueRepr::StreamValueId => FieldValueKind::StreamValueId,
+            FieldValueRepr::FieldReference => FieldValueKind::FieldReference,
+            FieldValueRepr::SlicedFieldReference => {
+                FieldValueKind::SlicedFieldReference
+            }
             FieldValueRepr::Error => FieldValueKind::Error,
             FieldValueRepr::TextInline => FieldValueKind::Text,
             FieldValueRepr::TextBuffer => FieldValueKind::Text,
@@ -731,22 +757,103 @@ impl FieldData {
                             });
                         }
                     }
-                    // we currently only use field refs for text/bytes types
-                    // so these never happen
-                    // we might reconsider this for Object / Custom though
+                    TypedSlice::BigInt(data) => {
+                        for (v, rl) in
+                            RefAwareTypedSliceIter::from_range(&tr, data)
+                        {
+                            targets_applicator(&mut |fd| {
+                                fd.push_big_int(
+                                    v.clone(),
+                                    rl as usize,
+                                    true,
+                                    false,
+                                );
+                            });
+                        }
+                    }
+                    TypedSlice::Rational(data) => {
+                        for (v, rl) in
+                            RefAwareTypedSliceIter::from_range(&tr, data)
+                        {
+                            targets_applicator(&mut |fd| {
+                                fd.push_rational(
+                                    v.clone(),
+                                    rl as usize,
+                                    true,
+                                    false,
+                                );
+                            });
+                        }
+                    }
+                    //TODO: do we have to worry about internal
+                    // field references?
+                    TypedSlice::Object(data) => {
+                        for (v, rl) in
+                            RefAwareTypedSliceIter::from_range(&tr, data)
+                        {
+                            targets_applicator(&mut |fd| {
+                                fd.push_object(
+                                    v.clone(),
+                                    rl as usize,
+                                    true,
+                                    false,
+                                );
+                            });
+                        }
+                    }
+                    TypedSlice::Array(data) => {
+                        for (v, rl) in
+                            RefAwareTypedSliceIter::from_range(&tr, data)
+                        {
+                            targets_applicator(&mut |fd| {
+                                fd.push_array(
+                                    v.clone(),
+                                    rl as usize,
+                                    true,
+                                    false,
+                                );
+                            });
+                        }
+                    }
+                    TypedSlice::Custom(data) => {
+                        for (v, rl) in
+                            RefAwareTypedSliceIter::from_range(&tr, data)
+                        {
+                            targets_applicator(&mut |fd| {
+                                fd.push_custom(
+                                    v.clone_dyn(),
+                                    rl as usize,
+                                    true,
+                                    false,
+                                );
+                            });
+                        }
+                    }
+                    TypedSlice::Error(data) => {
+                        for (v, rl) in
+                            RefAwareTypedSliceIter::from_range(&tr, data)
+                        {
+                            targets_applicator(&mut |fd| {
+                                fd.push_error(
+                                    v.clone(),
+                                    rl as usize,
+                                    true,
+                                    false,
+                                );
+                            });
+                        }
+                    }
+                    // these types don't support field references
                     TypedSlice::Undefined(_)
                     | TypedSlice::Null(_)
                     | TypedSlice::Int(_)
-                    | TypedSlice::BigInt(_)
                     | TypedSlice::Float(_)
-                    | TypedSlice::Rational(_)
                     | TypedSlice::StreamValueId(_)
                     | TypedSlice::FieldReference(_)
-                    | TypedSlice::SlicedFieldReference(_)
-                    | TypedSlice::Error(_)
-                    | TypedSlice::Custom(_)
-                    | TypedSlice::Object(_)
-                    | TypedSlice::Array(_) => unreachable!(),
+                    | TypedSlice::GroupSeparator(_)
+                    | TypedSlice::SlicedFieldReference(_) => {
+                        unreachable!();
+                    }
                 }
             }
         }
@@ -825,7 +932,9 @@ unsafe fn append_data(
 ) {
     unsafe {
         match ts {
-            TypedSlice::Null(_) | TypedSlice::Undefined(_) => (),
+            TypedSlice::Null(_)
+            | TypedSlice::Undefined(_)
+            | TypedSlice::GroupSeparator(_) => (),
             TypedSlice::Int(v) => extend_raw(target_applicator, v),
             TypedSlice::BigInt(v) => extend_with_clones(target_applicator, v),
             TypedSlice::Float(v) => extend_raw(target_applicator, v),

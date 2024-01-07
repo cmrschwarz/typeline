@@ -3,7 +3,9 @@ use smallvec::{smallvec, SmallVec};
 use crate::utils::string_store::StringStoreEntry;
 
 use super::{
-    field_data::{FieldData, FieldValueFlags, FieldValueRepr, FieldValueType},
+    field_value_repr::{
+        FieldData, FieldValueFlags, FieldValueRepr, FieldValueType,
+    },
     push_interface::PushInterface,
 };
 

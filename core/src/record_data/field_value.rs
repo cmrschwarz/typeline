@@ -21,7 +21,9 @@ use crate::{
 use super::{
     custom_data::CustomDataBox,
     field::{FieldManager, FieldRefOffset},
-    field_data::{FieldValueRepr, FieldValueType, FixedSizeFieldValueType},
+    field_value_repr::{
+        FieldValueRepr, FieldValueType, FixedSizeFieldValueType,
+    },
     match_set::MatchSetManager,
     stream_value::StreamValueId,
     typed::FieldValueRef,
@@ -82,6 +84,8 @@ pub enum FieldValue {
 pub struct Null;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Undefined;
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct GroupSeparator;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Object {

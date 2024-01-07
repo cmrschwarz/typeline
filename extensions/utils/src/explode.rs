@@ -25,13 +25,13 @@ use scr_core::{
     options::argument::CliArgIdx,
     record_data::{
         field::{FieldId, FieldManager, FieldRefOffset},
-        field_data::FieldData,
         field_value::{FieldValue, Object},
+        field_value_repr::FieldData,
         iter_hall::IterId,
         match_set::{MatchSetId, MatchSetManager},
         push_interface::{PushInterface, VaryingTypeInserter},
+        ref_iter::RefAwareTypedSliceIter,
         typed::TypedSlice,
-        typed_iters::TypedSliceIter,
     },
     smallbox,
     utils::{
@@ -221,6 +221,7 @@ impl Transform for TfExplode {
             match range.base.data {
                 TypedSlice::Undefined(_)
                 | TypedSlice::Null(_)
+                | TypedSlice::GroupSeparator(_)
                 | TypedSlice::Int(_)
                 | TypedSlice::Float(_)
                 | TypedSlice::StreamValueId(_)
@@ -244,7 +245,7 @@ impl Transform for TfExplode {
                 TypedSlice::Object(objects) => {
                     let mut string_store = None;
                     for (v, rl) in
-                        TypedSliceIter::from_range(&range.base, objects)
+                        RefAwareTypedSliceIter::from_range(&range, objects)
                     {
                         match v {
                             Object::KeysStored(obj) => {

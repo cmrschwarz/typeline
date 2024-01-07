@@ -16,8 +16,8 @@ use scr_core::{
     record_data::{
         action_buffer::ActorRef,
         field::FieldId,
-        field_data::{FieldData, RunLength},
         field_value::FieldValue,
+        field_value_repr::{FieldData, RunLength},
         iter_hall::IterId,
         push_interface::{PushInterface, VaryingTypeInserter},
         ref_iter::{
@@ -116,6 +116,10 @@ impl TfFromTyson {
             .floating_point_math;
         while let Some(range) = bud.iter.next_range(bud.match_set_mgr) {
             match range.base.data {
+                TypedSlice::GroupSeparator(_) => {
+                    inserter
+                        .push_group_separator(range.base.field_count, true);
+                }
                 TypedSlice::TextInline(vals) => {
                     for (v, rl, _offset) in
                         RefAwareInlineTextIter::from_range(&range, vals)

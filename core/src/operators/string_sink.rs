@@ -12,15 +12,15 @@ use crate::{
     operators::print::error_to_string,
     record_data::{
         field::Field,
-        field_data::{field_value_flags, FieldValueRepr},
         field_value::{FieldValue, FormattingContext},
+        field_value_repr::{field_value_flags, FieldValueRepr},
         iter_hall::IterId,
         iters::FieldIterator,
         push_interface::PushInterface,
         ref_iter::{
             AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter,
             RefAwareInlineTextIter, RefAwareStreamValueIter,
-            RefAwareTextBufferIter,
+            RefAwareTextBufferIter, RefAwareTypedSliceIter,
         },
         stream_value::{StreamValue, StreamValueId},
         typed::TypedSlice,
@@ -271,7 +271,7 @@ pub fn push_errors(
     err: OperatorApplicationError,
     run_length: usize,
     mut field_pos: usize,
-    last_error_end: &mut usize,
+    last_interruption_end: &mut usize,
     output_field: &mut Field,
 ) {
     push_string(out, error_to_string(&err), run_length);
@@ -280,11 +280,11 @@ pub fn push_errors(
         out.append_error(field_pos + i, e.clone());
     }
     field_pos += run_length;
-    let successes_so_far = field_pos - *last_error_end;
+    let successes_so_far = field_pos - *last_interruption_end;
     if successes_so_far > 0 {
         output_field
             .iter_hall
-            .push_null(field_pos - *last_error_end, true);
+            .push_null(field_pos - *last_interruption_end, true);
         output_field
             .iter_hall
             .push_error(err, run_length, false, false);
@@ -293,7 +293,7 @@ pub fn push_errors(
             .iter_hall
             .push_error(err, run_length, true, true);
     }
-    *last_error_end = field_pos;
+    *last_interruption_end = field_pos;
 }
 pub fn handle_tf_string_sink(
     jd: &mut JobData,
@@ -318,7 +318,8 @@ pub fn handle_tf_string_sink(
     let mut out = ss.handle.lock().unwrap();
     let mut field_pos = out.data.len();
     let mut string_store = None;
-    let mut last_error_end = 0;
+    // interruption meaning error or group separator
+    let mut last_interruption_end = 0;
     let print_rationals_raw =
         jd.get_transform_chain(tf_id).settings.print_rationals_raw;
     while let Some(range) = iter.typed_range_fwd(
@@ -327,6 +328,14 @@ pub fn handle_tf_string_sink(
         field_value_flags::DEFAULT,
     ) {
         match range.base.data {
+            TypedSlice::GroupSeparator(_) => {
+                let count = range.base.field_count;
+                output_field
+                    .iter_hall
+                    .push_null(field_pos - last_interruption_end, true);
+                output_field.iter_hall.push_group_separator(count, false);
+                last_interruption_end = field_pos + count;
+            }
             TypedSlice::TextInline(text) => {
                 for (v, rl, _offs) in
                     RefAwareInlineTextIter::from_range(&range, text)
@@ -356,14 +365,14 @@ pub fn handle_tf_string_sink(
                 }
             }
             TypedSlice::Int(ints) => {
-                for (v, rl) in TypedSliceIter::from_range(&range.base, ints) {
+                for (v, rl) in TypedSliceIter::from_range(&range, ints) {
                     let v = i64_to_str(false, *v);
                     push_str(&mut out, v.as_str(), rl as usize);
                 }
             }
             TypedSlice::Custom(custom_types) => {
                 for (v, rl) in
-                    TypedSliceIter::from_range(&range.base, custom_types)
+                    RefAwareTypedSliceIter::from_range(&range, custom_types)
                 {
                     if let Some(len) =
                         v.stringified_len(&RealizedFormatKey::default())
@@ -398,7 +407,7 @@ pub fn handle_tf_string_sink(
                             ),
                             range.base.field_count,
                             field_pos,
-                            &mut last_error_end,
+                            &mut last_interruption_end,
                             &mut output_field,
                         );
                     }
@@ -411,13 +420,14 @@ pub fn handle_tf_string_sink(
             }
             TypedSlice::Error(errs) => {
                 let mut pos = field_pos;
-                for (v, rl) in TypedSliceIter::from_range(&range.base, errs) {
+                for (v, rl) in RefAwareTypedSliceIter::from_range(&range, errs)
+                {
                     push_errors(
                         &mut out,
                         v.clone(),
                         rl as usize,
                         pos,
-                        &mut last_error_end,
+                        &mut last_interruption_end,
                         &mut output_field,
                     );
                     pos += rl as usize;
@@ -429,7 +439,7 @@ pub fn handle_tf_string_sink(
                     OperatorApplicationError::new("value is undefined", op_id),
                     range.base.field_count,
                     field_pos,
-                    &mut last_error_end,
+                    &mut last_interruption_end,
                     &mut output_field,
                 );
             }
@@ -463,7 +473,7 @@ pub fn handle_tf_string_sink(
                             e.clone(),
                             rl,
                             pos,
-                            &mut last_error_end,
+                            &mut last_interruption_end,
                             &mut output_field,
                         ),
                         _ => todo!(),
@@ -497,7 +507,8 @@ pub fn handle_tf_string_sink(
                     print_rationals_raw,
                     rfk: RealizedFormatKey::default(),
                 };
-                for (a, rl) in TypedSliceIter::from_range(&range.base, arrays)
+                for (a, rl) in
+                    RefAwareTypedSliceIter::from_range(&range, arrays)
                 {
                     let mut data = Vec::new();
                     a.format(&mut data, &fc).unwrap();
@@ -521,7 +532,8 @@ pub fn handle_tf_string_sink(
                     print_rationals_raw,
                     rfk: RealizedFormatKey::default(),
                 };
-                for (a, rl) in TypedSliceIter::from_range(&range.base, object)
+                for (a, rl) in
+                    RefAwareTypedSliceIter::from_range(&range, object)
                 {
                     let mut data = Vec::new();
                     a.format(&mut data, &fc).unwrap();
@@ -539,14 +551,17 @@ pub fn handle_tf_string_sink(
     }
     let base_iter = iter.into_base_iter();
     let consumed_fields = base_iter.get_next_field_pos() - starting_pos;
+    //TODO: remove once sequence is sane
     if consumed_fields < batch_size {
         push_str(&mut out, UNDEFINED_STR, batch_size - consumed_fields);
     }
     jd.field_mgr
         .store_iter(input_field_id, ss.batch_iter, base_iter);
-    let success_count = field_pos - last_error_end;
-    if success_count > 0 {
-        output_field.iter_hall.push_null(success_count, true);
+    let final_success_run_length = field_pos - last_interruption_end;
+    if final_success_run_length > 0 {
+        output_field
+            .iter_hall
+            .push_null(final_success_run_length, true);
     }
     drop(input_field);
     drop(output_field);

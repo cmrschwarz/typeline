@@ -23,12 +23,12 @@ use crate::{
     options::argument::CliArgIdx,
     record_data::{
         field::{Field, FieldId, FieldManager},
-        field_data::{
-            field_value_flags, FieldValueRepr, RunLength, INLINE_STR_MAX_LEN,
-        },
         field_value::{
             format_rational, Array, FieldValue, FormattingContext, Null,
             Object, Undefined, RATIONAL_DIGITS,
+        },
+        field_value_repr::{
+            field_value_flags, FieldValueRepr, RunLength, INLINE_STR_MAX_LEN,
         },
         iter_hall::IterId,
         iters::FieldIterator,
@@ -37,7 +37,7 @@ use crate::{
         ref_iter::{
             AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter,
             RefAwareInlineTextIter, RefAwareStreamValueIter,
-            RefAwareTextBufferIter,
+            RefAwareTextBufferIter, RefAwareTypedSliceIter,
         },
         stream_value::{StreamValue, StreamValueId, StreamValueManager},
         typed::TypedSlice,
@@ -223,11 +223,16 @@ type TfFormatStreamValueHandleId = NonMaxUsize;
 
 const FINAL_OUTPUT_INDEX_NEXT_VAL: usize = usize::MAX;
 
+// We call this an 'exception'
+// (in the literal sense of the word, not the programming language meaning),
+// instead of an error because it is either an error, or a GroupSeparator
 #[derive(Clone, Copy)]
-struct FormatError {
-    err_in_width: bool,
-    part_idx: FormatPartIndex,
+struct FormatException {
+    // special case: if this is GroupSeparator, we output
+    // a GroupSeparator instead of an actual error
     kind: FieldValueRepr,
+    exception_in_width: bool,
+    part_idx: FormatPartIndex,
 }
 #[derive(Default, Clone, Copy)]
 struct OutputState {
@@ -235,9 +240,10 @@ struct OutputState {
     len: usize,
     next: usize,
     min_char_count: usize,
-    float_precision: usize, // for non floats, this is the max width
+    float_precision: usize, // for non floats, this is 'max_char_count'
     contains_raw_bytes: bool,
-    contained_error: Option<FormatError>,
+    // first error wins, all hope of outputting a value is lost immediately
+    contained_exception: Option<FormatException>,
     incomplete_stream_value_handle: Option<TfFormatStreamValueHandleId>,
 }
 
@@ -1189,6 +1195,7 @@ fn iter_output_states_advanced(
     }
     let next = output_states.len();
     let o = &mut output_states[*output_idx];
+    //PERF: we might want to prevent splits if there was already an error?
     if run_len < o.run_len {
         let mut o2 = *o;
         o.next = next;
@@ -1200,7 +1207,7 @@ fn iter_output_states_advanced(
 
     while run_len > 0 {
         let o = &mut output_states[*output_idx];
-        if o.contained_error.is_none()
+        if o.contained_exception.is_none()
             && o.incomplete_stream_value_handle.is_none()
         {
             func(o);
@@ -1317,13 +1324,14 @@ pub fn lookup_width_spec(
         return;
     };
     let field = fm.get_cow_field_ref(msm, ident_ref.field_id);
-    let mut iter = fm
+    let iter = fm
         .lookup_iter(ident_ref.field_id, &field, ident_ref.iter_id)
         .bounded(0, batch_size);
+    let mut iter = AutoDerefIter::new(fm, ident_ref.field_id, iter);
     let mut output_index = 0;
     let mut handled_fields = 0;
-    while let Some(range) = iter.typed_range_fwd(usize::MAX, 0) {
-        match range.data {
+    while let Some(range) = iter.typed_range_fwd(msm, usize::MAX, 0) {
+        match range.base.data {
             TypedSlice::Int(ints) => {
                 for (v, rl) in TypedSliceIter::from_range(&range, ints) {
                     let width = if *v < 0 { 0 } else { *v as usize };
@@ -1333,19 +1341,19 @@ pub fn lookup_width_spec(
             _ => err_func(
                 fmt,
                 &mut output_index,
-                range.data.repr(),
-                range.field_count,
+                range.base.data.repr(),
+                range.base.field_count,
             ),
         }
-        handled_fields += range.field_count;
+        handled_fields += range.base.field_count;
     }
     iter_output_states_advanced(
         &mut fmt.output_states,
         &mut output_index,
         batch_size - handled_fields,
         |os| {
-            os.contained_error = Some(FormatError {
-                err_in_width: true,
+            os.contained_exception = Some(FormatException {
+                exception_in_width: true,
                 part_idx,
                 kind: FieldValueRepr::Undefined,
             })
@@ -1388,8 +1396,8 @@ pub fn setup_key_output_state(
                 output_idx,
                 run_len,
                 |os| {
-                    os.contained_error = Some(FormatError {
-                        err_in_width: true,
+                    os.contained_exception = Some(FormatException {
+                        exception_in_width: true,
                         part_idx,
                         kind,
                     })
@@ -1422,6 +1430,21 @@ pub fn setup_key_output_state(
         iter.typed_range_fwd(msm, usize::MAX, field_value_flags::DEFAULT)
     {
         match range.base.data {
+            TypedSlice::GroupSeparator(_) => {
+                iter_output_states_advanced(
+                    &mut fmt.output_states,
+                    &mut output_index,
+                    range.base.field_count,
+                    |o| {
+                        // not really an error, but uses the same mechanism
+                        o.contained_exception = Some(FormatException {
+                            exception_in_width: false,
+                            part_idx,
+                            kind: FieldValueRepr::GroupSeparator,
+                        });
+                    },
+                );
+            }
             TypedSlice::TextInline(text) => {
                 for (v, rl, _offs) in
                     RefAwareInlineTextIter::from_range(&range, text)
@@ -1463,7 +1486,7 @@ pub fn setup_key_output_state(
             }
             TypedSlice::Custom(custom_data) => {
                 for (v, rl) in
-                    TypedSliceIter::from_range(&range.base, custom_data)
+                    RefAwareTypedSliceIter::from_range(&range, custom_data)
                 {
                     iter_output_states(fmt, &mut output_index, rl, |o| {
                         if let Some(len) = v.stringified_len(
@@ -1471,8 +1494,8 @@ pub fn setup_key_output_state(
                         ) {
                             o.len += len;
                         } else {
-                            o.contained_error = Some(FormatError {
-                                err_in_width: false,
+                            o.contained_exception = Some(FormatException {
+                                exception_in_width: false,
                                 part_idx,
                                 kind: FieldValueRepr::Custom,
                             })
@@ -1481,7 +1504,7 @@ pub fn setup_key_output_state(
                 }
             }
             TypedSlice::Int(ints) => {
-                for (v, rl) in TypedSliceIter::from_range(&range.base, ints) {
+                for (v, rl) in TypedSliceIter::from_range(&range, ints) {
                     iter_output_states(fmt, &mut output_index, rl, |o| {
                         o.len += calc_fmt_len_ost(
                             k,
@@ -1524,9 +1547,9 @@ pub fn setup_key_output_state(
                                     &mut output_index,
                                     rl,
                                     |o| {
-                                        o.contained_error =
-                                            Some(FormatError {
-                                                err_in_width: false,
+                                        o.contained_exception =
+                                            Some(FormatException {
+                                                exception_in_width: false,
                                                 part_idx,
                                                 kind: FieldValueRepr::Error,
                                             });
@@ -1678,7 +1701,8 @@ pub fn setup_key_output_state(
                 );
             }
             TypedSlice::Error(errs) if typed_format => {
-                for (v, rl) in TypedSliceIter::from_range(&range.base, errs) {
+                for (v, rl) in RefAwareTypedSliceIter::from_range(&range, errs)
+                {
                     iter_output_states(fmt, &mut output_index, rl, |o| {
                         o.len += calc_fmt_len_ost(k, formatting_opts, o, v);
                     });
@@ -1693,8 +1717,8 @@ pub fn setup_key_output_state(
                     &mut output_index,
                     range.base.field_count,
                     |o| {
-                        o.contained_error = Some(FormatError {
-                            err_in_width: false,
+                        o.contained_exception = Some(FormatException {
+                            exception_in_width: false,
                             part_idx,
                             kind: range.base.data.repr(),
                         });
@@ -1702,7 +1726,7 @@ pub fn setup_key_output_state(
                 );
             }
             TypedSlice::BigInt(vs) => {
-                for (v, rl) in TypedSliceIter::from_range(&range.base, vs) {
+                for (v, rl) in TypedSliceIter::from_range(&range, vs) {
                     iter_output_states(fmt, &mut output_index, rl, |o| {
                         o.len += calc_fmt_len_ost(
                             k,
@@ -1714,7 +1738,7 @@ pub fn setup_key_output_state(
                 }
             }
             TypedSlice::Float(vs) => {
-                for (v, rl) in TypedSliceIter::from_range(&range.base, vs) {
+                for (v, rl) in TypedSliceIter::from_range(&range, vs) {
                     iter_output_states(fmt, &mut output_index, rl, |o| {
                         o.len += calc_fmt_len_ost(
                             k,
@@ -1726,7 +1750,7 @@ pub fn setup_key_output_state(
                 }
             }
             TypedSlice::Rational(vs) => {
-                for (v, rl) in TypedSliceIter::from_range(&range.base, vs) {
+                for (v, rl) in TypedSliceIter::from_range(&range, vs) {
                     iter_output_states(fmt, &mut output_index, rl, |o| {
                         o.len += calc_fmt_len_ost(
                             k,
@@ -1747,7 +1771,8 @@ pub fn setup_key_output_state(
                     print_rationals_raw: fmt.print_rationals_raw,
                     rfk: RealizedFormatKey::default(),
                 };
-                for (v, rl) in TypedSliceIter::from_range(&range.base, objects)
+                for (v, rl) in
+                    RefAwareTypedSliceIter::from_range(&range, objects)
                 {
                     iter_output_states(fmt, &mut output_index, rl, |o| {
                         fc.rfk =
@@ -1766,7 +1791,8 @@ pub fn setup_key_output_state(
                     print_rationals_raw: fmt.print_rationals_raw,
                     rfk: RealizedFormatKey::default(),
                 };
-                for (v, rl) in TypedSliceIter::from_range(&range.base, arrays)
+                for (v, rl) in
+                    RefAwareTypedSliceIter::from_range(&range, arrays)
                 {
                     iter_output_states(fmt, &mut output_index, rl, |o| {
                         fc.rfk =
@@ -1789,8 +1815,8 @@ pub fn setup_key_output_state(
             if typed_format {
                 o.len += calc_fmt_len_ost(k, (), o, &Undefined);
             } else {
-                o.contained_error = Some(FormatError {
-                    err_in_width: false,
+                o.contained_exception = Some(FormatException {
+                    exception_in_width: false,
                     part_idx,
                     kind: FieldValueRepr::Undefined,
                 })
@@ -1854,9 +1880,12 @@ fn setup_output_targets(
         unsafe { output_field.iter_hall.internals().data.len() };
     let mut tgt_len = starting_len;
     for os in fmt.output_states.iter() {
-        if os.contained_error.is_some() {
-            tgt_len = FieldValueRepr::Error.align_size_up(tgt_len);
-            tgt_len += FieldValueRepr::Error.size();
+        if let Some(ex) = os.contained_exception {
+            //the GS is a ZST, so nothing to do there
+            if ex.kind != FieldValueRepr::GroupSeparator {
+                tgt_len = FieldValueRepr::Error.align_size_up(tgt_len);
+                tgt_len += FieldValueRepr::Error.size();
+            }
         } else if os.incomplete_stream_value_handle.is_some() {
             tgt_len = FieldValueRepr::StreamValueId.align_size_up(tgt_len);
             tgt_len += FieldValueRepr::StreamValueId.size();
@@ -1872,117 +1901,15 @@ fn setup_output_targets(
         .reserve(tgt_len - starting_len);
 
     loop {
+        let target = insert_output_target(
+            fmt,
+            output_idx,
+            ss,
+            output_field,
+            op_id,
+            sv_mgr,
+        );
         let os = &mut fmt.output_states[output_idx];
-        let target: Option<NonNull<u8>>;
-        if let Some(err) = os.contained_error {
-            target = None;
-            let k = if let FormatPart::Key(k) =
-                &fmt.op.parts[err.part_idx as usize]
-            {
-                k
-            } else {
-                unreachable!()
-            };
-            let mut id_str =
-                ArrayString::<{ USIZE_MAX_DECIMAL_DIGITS + 1 }>::default();
-            let (key_str, key_quote) =
-                if let Some(part) = fmt.op.refs_idx[k.ref_idx as usize] {
-                    (ss.lookup(part), "'")
-                } else {
-                    let key_index = fmt
-                        .op
-                        .parts
-                        .iter()
-                        .take(err.part_idx as usize)
-                        .filter(|p| matches!(p, FormatPart::Key(_)))
-                        .count()
-                        + 1;
-                    id_str.push('#');
-                    id_str.push_str(&usize_to_str(key_index));
-                    (id_str.as_str(), "")
-                };
-            let (width_ctx, width_label, width_ctx2) = if err.err_in_width {
-                if let Some(FormatWidthSpec::Ref(r)) = k.min_char_count {
-                    if let Some(lbl) = fmt.op.refs_idx[r as usize] {
-                        (" width spec '", ss.lookup(lbl), "' of")
-                    } else {
-                        (" width spec of", "", "")
-                    }
-                } else {
-                    unreachable!()
-                }
-            } else {
-                ("", "", "")
-            };
-            output_field.iter_hall.push_error(
-                OperatorApplicationError::new_s(
-                    format!(
-                        "unexpected type `{}` in{width_ctx}{width_label}{width_ctx2} format key {key_quote}{key_str}{key_quote}",
-                        err.kind
-                    ),
-                    op_id,
-                ), // ENHANCE: give more context
-                os.run_len,
-                true,
-                false,
-            );
-        } else if let Some(handle_id) = os.incomplete_stream_value_handle {
-            let handle = &mut fmt.stream_value_handles[handle_id];
-            let sv = &mut sv_mgr.stream_values[handle.target_sv_id];
-            let buf = match &mut sv.value {
-                FieldValue::Text(buf) => unsafe { buf.as_mut_vec() },
-                FieldValue::Bytes(buf) => buf,
-                FieldValue::Array(_) => todo!(),
-                _ => todo!(),
-            };
-            buf.reserve(os.len);
-            unsafe {
-                target = Some(NonNull::new_unchecked(buf.as_mut_ptr()));
-            }
-            // just to be 'rust compliant' ...
-            buf.extend(std::iter::repeat(0).take(os.len));
-            output_field.iter_hall.push_stream_value_id(
-                handle.target_sv_id,
-                os.run_len,
-                true,
-                false,
-            );
-        } else if os.len <= INLINE_STR_MAX_LEN {
-            unsafe {
-                target = Some(NonNull::new_unchecked(
-                    output_field.iter_hall.push_variable_sized_type_uninit(
-                        if os.contains_raw_bytes {
-                            FieldValueRepr::BytesInline
-                        } else {
-                            FieldValueRepr::TextInline
-                        },
-                        os.len,
-                        os.run_len,
-                        true,
-                    ),
-                ));
-            }
-        } else if os.contains_raw_bytes {
-            let mut buf = Vec::with_capacity(os.len);
-            unsafe {
-                target = Some(NonNull::new_unchecked(buf.as_mut_ptr()));
-            }
-            // just to be 'rust compliant' ...
-            buf.extend(std::iter::repeat(0).take(os.len));
-            output_field
-                .iter_hall
-                .push_bytes_buffer(buf, os.run_len, true, false);
-        } else {
-            let mut buf = String::with_capacity(os.len);
-            unsafe {
-                target = Some(NonNull::new_unchecked(buf.as_mut_ptr()));
-            }
-            // just to be 'rust compliant' ...
-            buf.extend(std::iter::repeat('\0').take(os.len));
-            output_field
-                .iter_hall
-                .push_text_buffer(buf, os.run_len, true, false);
-        };
         fmt.output_targets.push(OutputTarget {
             run_len: os.run_len,
             target,
@@ -1996,6 +1923,131 @@ fn setup_output_targets(
         }
     }
     debug_assert!(fmt.output_states.len() == fmt.output_targets.len());
+}
+
+fn insert_output_target(
+    fmt: &mut TfFormat<'_>,
+    output_idx: usize,
+    ss: &StringStore,
+    output_field: &mut RefMut<'_, Field>,
+    op_id: u32,
+    sv_mgr: &mut StreamValueManager,
+) -> Option<NonNull<u8>> {
+    let os = &mut fmt.output_states[output_idx];
+    if let Some(ex) = os.contained_exception {
+        if ex.kind == FieldValueRepr::GroupSeparator {
+            output_field
+                .iter_hall
+                .push_group_separator(os.run_len, true);
+            return None;
+        }
+        let k = if let FormatPart::Key(k) = &fmt.op.parts[ex.part_idx as usize]
+        {
+            k
+        } else {
+            unreachable!()
+        };
+        let mut id_str =
+            ArrayString::<{ USIZE_MAX_DECIMAL_DIGITS + 1 }>::default();
+        let (key_str, key_quote) =
+            if let Some(part) = fmt.op.refs_idx[k.ref_idx as usize] {
+                (ss.lookup(part), "'")
+            } else {
+                let key_index = fmt
+                    .op
+                    .parts
+                    .iter()
+                    .take(ex.part_idx as usize)
+                    .filter(|p| matches!(p, FormatPart::Key(_)))
+                    .count()
+                    + 1;
+                id_str.push('#');
+                id_str.push_str(&usize_to_str(key_index));
+                (id_str.as_str(), "")
+            };
+        let (width_ctx, width_label, width_ctx2) = if ex.exception_in_width {
+            if let Some(FormatWidthSpec::Ref(r)) = k.min_char_count {
+                if let Some(lbl) = fmt.op.refs_idx[r as usize] {
+                    (" width spec '", ss.lookup(lbl), "' of")
+                } else {
+                    (" width spec of", "", "")
+                }
+            } else {
+                unreachable!()
+            }
+        } else {
+            ("", "", "")
+        };
+        output_field.iter_hall.push_error(
+            OperatorApplicationError::new_s(
+                format!(
+                    "unexpected type `{}` in{width_ctx}{width_label}{width_ctx2} format key {key_quote}{key_str}{key_quote}",
+                    ex.kind
+                ),
+                op_id,
+            ), // ENHANCE: give more context
+            os.run_len,
+            true,
+            false,
+        );
+        return None;
+    }
+    if let Some(handle_id) = os.incomplete_stream_value_handle {
+        let handle = &mut fmt.stream_value_handles[handle_id];
+        let sv = &mut sv_mgr.stream_values[handle.target_sv_id];
+        let buf = match &mut sv.value {
+            FieldValue::Text(buf) => unsafe { buf.as_mut_vec() },
+            FieldValue::Bytes(buf) => buf,
+            FieldValue::Array(_) => todo!(),
+            _ => todo!(),
+        };
+        buf.reserve(os.len);
+        let target = unsafe { Some(NonNull::new_unchecked(buf.as_mut_ptr())) };
+        // just to be 'rust compliant' ...
+        buf.extend(std::iter::repeat(0).take(os.len));
+        output_field.iter_hall.push_stream_value_id(
+            handle.target_sv_id,
+            os.run_len,
+            true,
+            false,
+        );
+        return target;
+    }
+    if os.len <= INLINE_STR_MAX_LEN {
+        let target = unsafe {
+            Some(NonNull::new_unchecked(
+                output_field.iter_hall.push_variable_sized_type_uninit(
+                    if os.contains_raw_bytes {
+                        FieldValueRepr::BytesInline
+                    } else {
+                        FieldValueRepr::TextInline
+                    },
+                    os.len,
+                    os.run_len,
+                    true,
+                ),
+            ))
+        };
+        return target;
+    }
+    if os.contains_raw_bytes {
+        let mut buf = Vec::with_capacity(os.len);
+        let target = unsafe { Some(NonNull::new_unchecked(buf.as_mut_ptr())) };
+        // just to be 'rust compliant' ...
+        buf.extend(std::iter::repeat(0).take(os.len));
+        output_field
+            .iter_hall
+            .push_bytes_buffer(buf, os.run_len, true, false);
+        return target;
+    }
+    let mut buf = String::with_capacity(os.len);
+    let target = unsafe { Some(NonNull::new_unchecked(buf.as_mut_ptr())) };
+    // just to be 'rust compliant' ...
+    buf.extend(std::iter::repeat('\0').take(os.len));
+    output_field
+        .iter_hall
+        .push_text_buffer(buf, os.run_len, true, false);
+    target
 }
 fn write_formatted<'a, F: Formatable<'a> + ?Sized>(
     k: &FormatKey,
@@ -2070,6 +2122,14 @@ fn write_fmt_key(
         iter.typed_range_fwd(msm, usize::MAX, field_value_flags::DEFAULT)
     {
         match range.base.data {
+            TypedSlice::GroupSeparator(_) => {
+                iter_output_targets(
+                    fmt,
+                    &mut output_index,
+                    range.base.field_count,
+                    |_| unreachable!(), // the GS is always an exception
+                );
+            }
             TypedSlice::TextInline(text) => {
                 for (v, rl, _offs) in
                     RefAwareInlineTextIter::from_range(&range, text)
@@ -2133,7 +2193,7 @@ fn write_fmt_key(
                     float_precision: None,
                 };
                 for (v, rl) in
-                    TypedSliceIter::from_range(&range.base, custom_data)
+                    RefAwareTypedSliceIter::from_range(&range, custom_data)
                 {
                     let len = v.stringified_len(&rfk).unwrap();
                     let mut prev_target: Option<*mut u8> = None;
@@ -2162,7 +2222,7 @@ fn write_fmt_key(
                 }
             }
             TypedSlice::Int(ints) => {
-                for (v, rl) in TypedSliceIter::from_range(&range.base, ints) {
+                for (v, rl) in TypedSliceIter::from_range(&range, ints) {
                     iter_output_targets(
                         fmt,
                         &mut output_index,
@@ -2202,7 +2262,8 @@ fn write_fmt_key(
                 );
             }
             TypedSlice::Error(errs) => {
-                for (v, rl) in TypedSliceIter::from_range(&range.base, errs) {
+                for (v, rl) in RefAwareTypedSliceIter::from_range(&range, errs)
+                {
                     iter_output_targets(
                         fmt,
                         &mut output_index,
@@ -2211,7 +2272,6 @@ fn write_fmt_key(
                     );
                 }
             }
-
             TypedSlice::StreamValueId(svs) => {
                 let formatting_opts = FormattingOpts {
                     is_stream_value: true,
@@ -2283,7 +2343,7 @@ fn write_fmt_key(
                 }
             }
             TypedSlice::BigInt(vs) => {
-                for (v, rl) in TypedSliceIter::from_range(&range.base, vs) {
+                for (v, rl) in RefAwareTypedSliceIter::from_range(&range, vs) {
                     iter_output_targets(
                         fmt,
                         &mut output_index,
@@ -2303,7 +2363,7 @@ fn write_fmt_key(
                 }
             }
             TypedSlice::Float(vs) => {
-                for (v, rl) in TypedSliceIter::from_range(&range.base, vs) {
+                for (v, rl) in TypedSliceIter::from_range(&range, vs) {
                     iter_output_targets(
                         fmt,
                         &mut output_index,
@@ -2323,7 +2383,7 @@ fn write_fmt_key(
                 }
             }
             TypedSlice::Rational(vs) => {
-                for (v, rl) in TypedSliceIter::from_range(&range.base, vs) {
+                for (v, rl) in RefAwareTypedSliceIter::from_range(&range, vs) {
                     iter_output_targets(
                         fmt,
                         &mut output_index,
@@ -2352,7 +2412,7 @@ fn write_fmt_key(
                     print_rationals_raw: fmt.print_rationals_raw,
                     rfk: RealizedFormatKey::default(),
                 };
-                for (v, rl) in TypedSliceIter::from_range(&range.base, vs) {
+                for (v, rl) in RefAwareTypedSliceIter::from_range(&range, vs) {
                     iter_output_targets(
                         fmt,
                         &mut output_index,
@@ -2373,7 +2433,7 @@ fn write_fmt_key(
                     print_rationals_raw: fmt.print_rationals_raw,
                     rfk: RealizedFormatKey::default(),
                 };
-                for (v, rl) in TypedSliceIter::from_range(&range.base, vs) {
+                for (v, rl) in RefAwareTypedSliceIter::from_range(&range, vs) {
                     iter_output_targets(
                         fmt,
                         &mut output_index,
@@ -2427,7 +2487,7 @@ pub fn handle_tf_format(
         min_char_count: 0,
         float_precision: 0,
         contains_raw_bytes: false,
-        contained_error: None,
+        contained_exception: None,
         incomplete_stream_value_handle: None,
     });
     for (part_idx, part) in fmt.op.parts.iter().enumerate() {

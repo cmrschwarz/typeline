@@ -1,7 +1,8 @@
 use std::{marker::PhantomData, ptr::NonNull};
 
 use super::{
-    field_data::{FieldValueHeader, FieldValueType, RunLength},
+    field_value_repr::{FieldValueHeader, FieldValueType, RunLength},
+    ref_iter::RefAwareTypedRange,
     typed::{TypedRange, ValidTypedRange},
 };
 
@@ -57,7 +58,20 @@ impl<'a, T: FieldValueType + 'static> TypedSliceIter<'a, T> {
             _phantom_data: PhantomData,
         }
     }
-    pub fn from_range(range: &ValidTypedRange<'a>, values: &'a [T]) -> Self {
+    pub fn from_range(
+        range: &RefAwareTypedRange<'a>,
+        values: &'a [T],
+    ) -> Self {
+        assert!(!T::SUPPORTS_REFS);
+        Self::from_valid_range(&range.base, values)
+    }
+    pub fn from_valid_range(
+        range: &ValidTypedRange<'a>,
+        values: &'a [T],
+    ) -> Self {
+        // we explicitly *don't* check for SUPPORTS_REFS here
+        // because this is used in the RefAware version of this iterator
+        // as a base, where this check would then fail
         assert!(range.data.matches_values(values));
         unsafe {
             Self::new(
@@ -517,7 +531,7 @@ impl<'a> Iterator for InlineTextIter<'a> {
 #[cfg(test)]
 mod test_slice_iter {
     use crate::record_data::{
-        field_data::{FieldData, FieldValueType, RunLength},
+        field_value_repr::{FieldData, FieldValueType, RunLength},
         push_interface::PushInterface,
     };
 
@@ -601,7 +615,7 @@ mod test_text_iter {
     use bstr::ByteSlice;
 
     use crate::record_data::{
-        field_data::{FieldData, RunLength},
+        field_value_repr::{FieldData, RunLength},
         push_interface::PushInterface,
         typed_iters::InlineTextIter,
     };

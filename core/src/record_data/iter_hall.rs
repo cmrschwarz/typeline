@@ -8,7 +8,7 @@ use crate::utils::universe::Universe;
 
 use super::{
     field::{FieldId, FieldManager},
-    field_data::{
+    field_value_repr::{
         FieldData, FieldDataBuffer, FieldDataInternals, FieldValueFlags,
         FieldValueHeader, FieldValueRepr, FieldValueType, RunLength,
     },

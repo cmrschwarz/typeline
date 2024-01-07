@@ -12,7 +12,7 @@ use super::{
     field::{FieldId, FieldManager},
     field_action::{merge_action_lists, FieldAction, FieldActionKind},
     field_action_applicator::FieldActionApplicator,
-    field_data::RunLength,
+    field_value_repr::RunLength,
     iter_hall::FieldDataSource,
 };
 pub type ActorId = u32;

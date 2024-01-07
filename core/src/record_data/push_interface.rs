@@ -5,13 +5,13 @@ use num::{BigInt, BigRational};
 use super::{
     custom_data::CustomDataBox,
     field::FieldRefOffset,
-    field_data::{
+    field_value::{
+        Array, FieldReference, FieldValue, Object, SlicedFieldReference,
+    },
+    field_value_repr::{
         field_value_flags, FieldData, FieldValueFlags, FieldValueFormat,
         FieldValueHeader, FieldValueRepr, FieldValueSize, FieldValueType,
         RunLength, MAX_FIELD_ALIGN,
-    },
-    field_value::{
-        Array, FieldReference, FieldValue, Object, SlicedFieldReference,
     },
     ref_iter::{
         AnyRefSliceIter, RefAwareInlineBytesIter, RefAwareInlineTextIter,
@@ -19,10 +19,11 @@ use super::{
     },
     stream_value::StreamValueId,
     typed::TypedSlice,
+    typed_iters::TypedSliceIter,
 };
 use crate::{
     operators::errors::OperatorApplicationError,
-    record_data::field_data::{
+    record_data::field_value_repr::{
         field_value_flags::{DELETED, SHARED_VALUE},
         INLINE_STR_MAX_LEN,
     },
@@ -413,6 +414,17 @@ pub unsafe trait PushInterface {
     fn push_undefined(&mut self, run_length: usize, try_header_rle: bool) {
         self.push_zst(FieldValueRepr::Undefined, run_length, try_header_rle);
     }
+    fn push_group_separator(
+        &mut self,
+        run_length: usize,
+        try_header_rle: bool,
+    ) {
+        self.push_zst(
+            FieldValueRepr::GroupSeparator,
+            run_length,
+            try_header_rle,
+        );
+    }
     fn push_field_value_unpacked(
         &mut self,
         v: FieldValue,
@@ -512,9 +524,11 @@ pub unsafe trait PushInterface {
             TypedSlice::Undefined(_) => {
                 self.push_undefined(fc, try_header_rle)
             }
+            TypedSlice::GroupSeparator(_) => {
+                self.push_group_separator(fc, try_header_rle)
+            }
             TypedSlice::Int(vals) => {
-                for (v, rl) in RefAwareTypedSliceIter::from_range(&range, vals)
-                {
+                for (v, rl) in TypedSliceIter::from_range(&range, vals) {
                     self.push_int(
                         *v,
                         rl as usize,
@@ -649,8 +663,7 @@ pub unsafe trait PushInterface {
                 }
             }
             TypedSlice::StreamValueId(vals) => {
-                for (v, rl) in RefAwareTypedSliceIter::from_range(&range, vals)
-                {
+                for (v, rl) in TypedSliceIter::from_range(&range, vals) {
                     self.push_stream_value_id(
                         *v,
                         rl as usize,
@@ -674,6 +687,7 @@ pub unsafe trait PushInterface {
         match range.base.data {
             TypedSlice::Undefined(_)
             | TypedSlice::Null(_)
+            | TypedSlice::GroupSeparator(_)
             | TypedSlice::Int(_)
             | TypedSlice::Float(_)
             | TypedSlice::StreamValueId(_) => {
@@ -1990,7 +2004,7 @@ impl<FD: DerefMut<Target = FieldData>> Drop for VaryingTypeInserter<FD> {
 #[cfg(test)]
 mod test {
     use crate::record_data::{
-        field_data::FieldData, push_interface::PushInterface,
+        field_value_repr::FieldData, push_interface::PushInterface,
     };
 
     #[test]

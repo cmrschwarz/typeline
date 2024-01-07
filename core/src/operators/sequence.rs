@@ -153,7 +153,9 @@ pub fn handle_tf_sequence(
     let bs_rem = batch_size - count;
     let mut done = ps.input_done && seq.stop_after_input;
     if seq.ss.start == seq.ss.end {
-        jd.tf_mgr.unclaim_batch_size(tf_id, bs_rem);
+        if !ps.input_done {
+            jd.tf_mgr.unclaim_batch_size(tf_id, bs_rem);
+        }
         done = true;
     }
     if !done && (ps.next_batch_ready || ps.input_done) {

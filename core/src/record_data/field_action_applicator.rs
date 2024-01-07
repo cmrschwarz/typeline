@@ -4,7 +4,7 @@ use crate::{
 
 use super::{
     field_action::FieldAction,
-    field_data::{
+    field_value_repr::{
         FieldDataBuffer, FieldValueFormat, FieldValueHeader, RunLength,
     },
     iter_hall::IterState,
@@ -739,7 +739,7 @@ mod test {
     use crate::record_data::{
         field_action::{FieldAction, FieldActionKind},
         field_action_applicator::FieldActionApplicator,
-        field_data::{FieldData, RunLength},
+        field_value_repr::{FieldData, RunLength},
         iter_hall::IterState,
         iters::FieldIterator,
         push_interface::PushInterface,
@@ -779,7 +779,7 @@ mod test {
         while let Some(range) = iter.typed_range_fwd(usize::MAX, 0) {
             if let TypedSlice::Int(ints) = range.data {
                 results.extend(
-                    TypedSliceIter::from_range(&range, ints)
+                    TypedSliceIter::from_valid_range(&range, ints)
                         .map(|(i, rl)| (*i, rl)),
                 );
             } else {

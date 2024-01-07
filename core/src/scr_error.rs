@@ -20,7 +20,9 @@ use crate::{
         },
         session_options::SessionOptions,
     },
-    record_data::{field_data::FieldValueRepr, field_value::FieldValueKind},
+    record_data::{
+        field_value::FieldValueKind, field_value_repr::FieldValueRepr,
+    },
 };
 
 #[derive(Error, Debug, Clone, PartialEq, Eq)]

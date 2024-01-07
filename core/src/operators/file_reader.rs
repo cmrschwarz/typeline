@@ -14,11 +14,11 @@ use crate::{
     job::JobData,
     options::argument::CliArgIdx,
     record_data::{
-        field_data::{
+        field_value::FieldValue,
+        field_value_repr::{
             field_value_flags, FieldValueFormat, FieldValueRepr,
             FieldValueSize, INLINE_STR_MAX_LEN,
         },
-        field_value::FieldValue,
         push_interface::PushInterface,
         stream_value::{StreamValue, StreamValueId},
     },

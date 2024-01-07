@@ -15,8 +15,10 @@ use crate::{
     record_data::{
         custom_data::CustomDataBox,
         field::{Field, FieldManager},
-        field_data::{field_value_flags, FieldValueRepr, INLINE_STR_MAX_LEN},
         field_value::{FieldValue, FieldValueKind},
+        field_value_repr::{
+            field_value_flags, FieldValueRepr, INLINE_STR_MAX_LEN,
+        },
         iter_hall::IterId,
         iters::FieldIterator,
         match_set::MatchSetManager,
@@ -25,6 +27,7 @@ use crate::{
             AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter,
             RefAwareInlineTextIter, RefAwareStreamValueIter,
             RefAwareTextBufferIter, RefAwareTypedRange,
+            RefAwareTypedSliceIter,
         },
         stream_value::{StreamValue, StreamValueId, StreamValueManager},
         typed::TypedSlice,
@@ -413,6 +416,8 @@ pub fn handle_tf_join(
             field_value_flags::DEFAULT,
         ) {
             match range.base.data {
+                //TODO: this is gonna be annoying...
+                TypedSlice::GroupSeparator(_) => todo!(),
                 TypedSlice::TextInline(text) => {
                     for (v, rl, _offs) in
                         RefAwareInlineTextIter::from_range(&range, text)
@@ -442,16 +447,14 @@ pub fn handle_tf_join(
                     }
                 }
                 TypedSlice::Int(ints) => {
-                    for (v, rl) in
-                        TypedSliceIter::from_range(&range.base, ints)
-                    {
+                    for (v, rl) in TypedSliceIter::from_range(&range, ints) {
                         let v = i64_to_str(false, *v);
                         push_str(join, sv_mgr, v.as_str(), rl as usize);
                     }
                 }
                 TypedSlice::Custom(custom_data) => {
                     for (v, rl) in
-                        TypedSliceIter::from_range(&range.base, custom_data)
+                        RefAwareTypedSliceIter::from_range(&range, custom_data)
                     {
                         push_custom_type(op_id, join, sv_mgr, v, rl);
                     }

@@ -15,17 +15,17 @@ use crate::{
         action_buffer::{ActionBuffer, ActorId, ActorRef},
         field::{Field, FieldId, FieldRefOffset},
         field_action::FieldActionKind,
-        field_data::{
+        field_value::{FieldValue, SlicedFieldReference},
+        field_value_repr::{
             field_value_flags, FieldData, FieldValueRepr, RunLength,
         },
-        field_value::{FieldValue, SlicedFieldReference},
         iter_hall::IterId,
         iters::FieldIterator,
         push_interface::{PushInterface, VaryingTypeInserter},
         ref_iter::{
             AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter,
             RefAwareInlineTextIter, RefAwareStreamValueIter,
-            RefAwareTextBufferIter,
+            RefAwareTextBufferIter, RefAwareTypedSliceIter,
         },
         stream_value::StreamValueId,
         typed::TypedSlice,
@@ -69,7 +69,7 @@ pub struct TfRegex {
     text_only_regex: Option<(regex::Regex, regex::CaptureLocations)>,
     capture_group_fields: Vec<Option<FieldId>>,
     input_field_iter_id: IterId,
-    next_start: usize,
+    unfinished_value_offset: usize,
     actor_id: ActorId,
     multimatch: bool,
     non_mandatory: bool,
@@ -487,7 +487,10 @@ pub fn build_tf_regex<'a>(
         non_mandatory: op.opts.non_mandatory,
         allow_overlapping: op.opts.overlapping,
         input_field_iter_id: jd.field_mgr.claim_iter(tf_state.input_field),
-        next_start: 0,
+        // if we reach our target batch size while we are in the middle
+        // of matching the regex agains a value (typically happens in multimatch mode),
+        // we stop and continue next time at this offset
+        unfinished_value_offset: 0,
         actor_id,
         input_field_ref_offset,
         streams_kept_alive: 0,
@@ -635,15 +638,19 @@ fn match_regex_inner<const PUSH_REF: bool, R: AnyRegex>(
     data: &R::Data,
     run_length: RunLength,
     offset: usize,
-) -> bool {
+) {
     if rmis.batch_state.field_pos_output
-        == rmis.batch_state.batch_end_field_pos_output
+        >= rmis.batch_state.batch_end_field_pos_output
     {
-        return true;
+        debug_assert!(
+            rmis.batch_state.field_pos_output
+                == rmis.batch_state.batch_end_field_pos_output
+        );
+        return;
     }
     let mut match_count: usize = 0;
     let rl = run_length as usize;
-    let mut bse = false;
+    let mut batch_size_exceeded = false;
     while regex.next(data, &mut rmis.batch_state.next_start) {
         match_count += 1;
         for c in 0..regex.captures_locs_len() {
@@ -683,12 +690,12 @@ fn match_regex_inner<const PUSH_REF: bool, R: AnyRegex>(
         if rmis.batch_state.field_pos_output + match_count
             == rmis.batch_state.batch_end_field_pos_output
         {
-            bse = true;
+            batch_size_exceeded = true;
             break;
         }
     }
 
-    if bse {
+    if batch_size_exceeded {
         rmis.action_buffer.push_action(
             FieldActionKind::Dup,
             rmis.batch_state.field_pos_output,
@@ -717,14 +724,11 @@ fn match_regex_inner<const PUSH_REF: bool, R: AnyRegex>(
         }
     }
 
-    if !bse {
+    if !batch_size_exceeded {
         rmis.batch_state.next_start = 0;
-    }
-    rmis.batch_state.field_pos_output += match_count;
-    if !bse {
         rmis.batch_state.field_pos_input += run_length as usize;
     }
-    bse
+    rmis.batch_state.field_pos_output += match_count;
 }
 
 struct RegexBatchState<'a> {
@@ -735,6 +739,23 @@ struct RegexBatchState<'a> {
     non_mandatory: bool,
     next_start: usize,
     inserters: SmallVec<[Option<VaryingTypeInserter<&'a mut FieldData>>; 4]>,
+}
+
+impl RegexBatchState<'_> {
+    fn batch_size_reached(&self) -> bool {
+        debug_assert!(
+            self.field_pos_output <= self.batch_end_field_pos_output
+        );
+        self.field_pos_output == self.batch_end_field_pos_output
+    }
+    fn consume_fields(&mut self, mut count: usize) -> usize {
+        if self.field_pos_output + count >= self.batch_end_field_pos_output {
+            count = self.batch_end_field_pos_output - self.field_pos_output;
+        }
+        self.field_pos_input += count;
+        self.field_pos_output += count;
+        count
+    }
 }
 
 struct RegexMatchInnerState<'a, 'b> {
@@ -794,7 +815,7 @@ pub fn handle_tf_regex(
         field_pos_output: field_pos_start,
         multimatch: re.multimatch,
         non_mandatory: re.non_mandatory,
-        next_start: re.next_start,
+        next_start: re.unfinished_value_offset,
         inserters: output_field_inserters,
     };
 
@@ -815,7 +836,6 @@ pub fn handle_tf_regex(
         allow_overlapping: re.allow_overlapping,
     };
 
-    let mut bse = false; // 'batch size exceeded'
     let mut hit_stream_val = false;
 
     // we have do this to preserve the output order for cases
@@ -823,11 +843,17 @@ pub fn handle_tf_regex(
     // PERF: there are better way to do this, e.g. copying the matches
     // from our own output instead of rematching
     let max_run_len = if re.multimatch { 1 } else { usize::MAX };
-    'batch: while let Some(range) = iter.typed_range_fwd(
-        &mut jd.match_set_mgr,
-        max_run_len,
-        field_value_flags::DEFAULT,
-    ) {
+    'batch: loop {
+        if rbs.batch_size_reached() {
+            break;
+        }
+        let Some(range) = iter.typed_range_fwd(
+            &mut jd.match_set_mgr,
+            max_run_len,
+            field_value_flags::DEFAULT,
+        ) else {
+            break;
+        };
         let mut rmis = RegexMatchInnerState {
             batch_state: &mut rbs,
             action_buffer: &mut jd.match_set_mgr.match_sets[tf.match_set_id]
@@ -837,16 +863,25 @@ pub fn handle_tf_regex(
                 .unwrap_or(re.input_field_ref_offset),
         };
         match range.base.data {
+            TypedSlice::GroupSeparator(_) => {
+                let count = rbs.consume_fields(range.base.field_count);
+                for inserter in rbs.inserters.iter_mut().flatten() {
+                    inserter.push_group_separator(count, true);
+                }
+                if rbs.batch_size_reached() {
+                    break 'batch;
+                }
+            }
             TypedSlice::TextInline(text) => {
                 for (v, rl, offset) in
                     RefAwareInlineTextIter::from_range(&range, text)
                 {
                     if let Some(tr) = &mut text_regex {
-                        bse = match_regex_inner::<true, _>(
+                        match_regex_inner::<true, _>(
                             &mut rmis, tr, v, rl, offset,
                         );
                     } else {
-                        bse = match_regex_inner::<true, _>(
+                        match_regex_inner::<true, _>(
                             &mut rmis,
                             &mut bytes_regex,
                             v.as_bytes(),
@@ -854,7 +889,7 @@ pub fn handle_tf_regex(
                             offset,
                         );
                     };
-                    if bse {
+                    if rmis.batch_state.batch_size_reached() {
                         break 'batch;
                     }
                 }
@@ -863,14 +898,14 @@ pub fn handle_tf_regex(
                 for (v, rl, offset) in
                     RefAwareInlineBytesIter::from_range(&range, bytes)
                 {
-                    bse = match_regex_inner::<true, _>(
+                    match_regex_inner::<true, _>(
                         &mut rmis,
                         &mut bytes_regex,
                         v,
                         rl,
                         offset,
                     );
-                    if bse {
+                    if rmis.batch_state.batch_size_reached() {
                         break 'batch;
                     }
                 }
@@ -880,11 +915,11 @@ pub fn handle_tf_regex(
                     RefAwareTextBufferIter::from_range(&range, bytes)
                 {
                     if let Some(tr) = &mut text_regex {
-                        bse = match_regex_inner::<true, _>(
+                        match_regex_inner::<true, _>(
                             &mut rmis, tr, v, rl, offset,
                         );
                     } else {
-                        bse = match_regex_inner::<true, _>(
+                        match_regex_inner::<true, _>(
                             &mut rmis,
                             &mut bytes_regex,
                             v.as_bytes(),
@@ -892,7 +927,7 @@ pub fn handle_tf_regex(
                             offset,
                         );
                     };
-                    if bse {
+                    if rmis.batch_state.batch_size_reached() {
                         break 'batch;
                     }
                 }
@@ -901,21 +936,21 @@ pub fn handle_tf_regex(
                 for (v, rl, offset) in
                     RefAwareBytesBufferIter::from_range(&range, bytes)
                 {
-                    bse = match_regex_inner::<true, _>(
+                    match_regex_inner::<true, _>(
                         &mut rmis,
                         &mut bytes_regex,
                         v,
                         rl,
                         offset,
                     );
-                    if bse {
+                    if rmis.batch_state.batch_size_reached() {
                         break 'batch;
                     }
                 }
             }
             TypedSlice::Custom(custom_types) => {
                 for (v, rl) in
-                    TypedSliceIter::from_range(&range.base, custom_types)
+                    RefAwareTypedSliceIter::from_range(&range, custom_types)
                 {
                     let prev_len = jd.temp_vec.len();
                     v.stringify(
@@ -928,7 +963,7 @@ pub fn handle_tf_regex(
                     if let (Some(tr), true) =
                         (&mut text_regex, v.stringifies_as_valid_utf8())
                     {
-                        bse = match_regex_inner::<true, _>(
+                        match_regex_inner::<true, _>(
                             &mut rmis,
                             tr,
                             unsafe { std::str::from_utf8_unchecked(str) },
@@ -936,7 +971,7 @@ pub fn handle_tf_regex(
                             0,
                         );
                     } else {
-                        bse = match_regex_inner::<true, _>(
+                        match_regex_inner::<true, _>(
                             &mut rmis,
                             &mut bytes_regex,
                             str,
@@ -945,39 +980,35 @@ pub fn handle_tf_regex(
                         );
                     };
                     jd.temp_vec.truncate(prev_len);
-                    if bse {
+                    if rmis.batch_state.batch_size_reached() {
                         break 'batch;
                     }
                 }
             }
             TypedSlice::Int(ints) => {
                 if let Some(tr) = &mut text_regex {
-                    for (v, rl) in
-                        TypedSliceIter::from_range(&range.base, ints)
-                    {
-                        bse = match_regex_inner::<false, _>(
+                    for (v, rl) in TypedSliceIter::from_range(&range, ints) {
+                        match_regex_inner::<false, _>(
                             &mut rmis,
                             tr,
                             &i64_to_str(false, *v),
                             rl,
                             0,
                         );
-                        if bse {
+                        if rmis.batch_state.batch_size_reached() {
                             break 'batch;
                         }
                     }
                 } else {
-                    for (v, rl) in
-                        TypedSliceIter::from_range(&range.base, ints)
-                    {
-                        bse = match_regex_inner::<false, _>(
+                    for (v, rl) in TypedSliceIter::from_range(&range, ints) {
+                        match_regex_inner::<false, _>(
                             &mut rmis,
                             &mut bytes_regex,
                             i64_to_str(false, *v).as_bytes(),
                             rl,
                             0,
                         );
-                        if bse {
+                        if rmis.batch_state.batch_size_reached() {
                             break 'batch;
                         }
                     }
@@ -1042,17 +1073,20 @@ pub fn handle_tf_regex(
                             continue;
                         }
                         FieldValue::Bytes(b) => {
-                            bse = match_regex_inner::<true, _>(
+                            match_regex_inner::<true, _>(
                                 &mut rmis,
                                 &mut bytes_regex,
                                 &b[offsets.unwrap_or(0..b.len())],
                                 rl,
                                 0,
                             );
+                            if rmis.batch_state.batch_size_reached() {
+                                break 'batch;
+                            }
                         }
                         FieldValue::Text(t) => {
                             let t = &t[offsets.unwrap_or(0..t.len())];
-                            bse = if let Some(tr) = &mut text_regex {
+                            if let Some(tr) = &mut text_regex {
                                 match_regex_inner::<true, _>(
                                     &mut rmis, tr, t, rl, 0,
                                 )
@@ -1065,13 +1099,13 @@ pub fn handle_tf_regex(
                                     0,
                                 )
                             };
+                            if rmis.batch_state.batch_size_reached() {
+                                break 'batch;
+                            }
                         }
                         _ => todo!(),
                     }
                     jd.sv_mgr.check_stream_value_ref_count(sv_id);
-                    if bse {
-                        break 'batch;
-                    }
                 }
             }
             TypedSlice::BigInt(_)
@@ -1085,8 +1119,7 @@ pub fn handle_tf_regex(
             | TypedSlice::Undefined(_)
             | TypedSlice::Object(_)
             | TypedSlice::Array(_) => {
-                rbs.field_pos_input += range.base.field_count;
-                rbs.field_pos_output += range.base.field_count;
+                let count = rbs.consume_fields(range.base.field_count);
                 for inserter in rbs.inserters.iter_mut().flatten() {
                     inserter.push_fixed_size_type(
                         OperatorApplicationError::new_s(
@@ -1096,31 +1129,39 @@ pub fn handle_tf_regex(
                             ),
                             op_id,
                         ),
-                        range.base.field_count,
+                        count,
                         true,
                         true,
                     );
                 }
+                if rbs.batch_size_reached() {
+                    break 'batch;
+                }
             }
             TypedSlice::Error(errs) => {
-                rbs.field_pos_input += range.base.field_count;
-                rbs.field_pos_output += range.base.field_count;
-                for (e, rl) in TypedSliceIter::from_range(&range.base, errs) {
+                for (e, rl) in RefAwareTypedSliceIter::from_range(&range, errs)
+                {
+                    let count = rbs.consume_fields(rl as usize);
                     for inserter in rbs.inserters.iter_mut().flatten() {
                         inserter.push_fixed_size_type(
                             e.clone(),
-                            rl as usize,
+                            count,
                             true,
                             true,
                         );
+                    }
+                    if rbs.batch_size_reached() {
+                        break 'batch;
                     }
                 }
             }
         }
     }
-    re.next_start = rbs.next_start;
-    let field_pos_input = rbs.field_pos_input;
+    re.unfinished_value_offset = rbs.next_start;
+    let field_pos_input = rbs.field_pos_input; // brrwchck...
+    let consumed_inputs = rbs.field_pos_input - field_pos_start;
     let produced_records = rbs.field_pos_output - field_pos_start;
+    let bse = consumed_inputs < batch_size;
     jd.match_set_mgr.match_sets[tf.match_set_id]
         .action_buffer
         .end_action_group();

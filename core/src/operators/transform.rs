@@ -6,7 +6,7 @@ use crate::{
     job::{Job, JobData, PipelineState, TransformManager},
     record_data::{
         field::{FieldId, FieldManager},
-        field_data::FieldValueRepr,
+        field_value_repr::FieldValueRepr,
         iter_hall::IterId,
         iters::{BoundedIter, DestructuredFieldDataRef, Iter},
         match_set::{MatchSetId, MatchSetManager},

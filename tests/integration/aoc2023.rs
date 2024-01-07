@@ -53,7 +53,6 @@
 //         seq@rule_id="len(maps[group_id])"
 //         compute@start="maps[group_id][rule_id][dest_id]"
 //         compute@stop="start + maps[group_id][rule_id][len_id]"
-//         compute="if start <= _ && stop > _ then _ else null end"
-//         filter="_!=null" +select=loc head@loc
+//         filter="start <= _ && stop > _" +select=loc head@loc
 //     end
 // end min select@seed p
