@@ -4,9 +4,7 @@ use crate::{
     liveness_analysis::LivenessData,
     options::argument::CliArgIdx,
     record_data::{
-        action_buffer::{ActorId, ActorRef},
-        field::FieldRefOffset,
-        iter_hall::IterId,
+        field::FieldRefOffset, iter_hall::IterId,
         push_interface::PushInterface,
     },
 };
@@ -31,7 +29,6 @@ pub struct TfNopCopy {
     #[allow(unused)] // TODO
     may_consume_input: bool,
     input_iter_id: IterId,
-    actor_id: ActorId,
     input_field_ref_offset: FieldRefOffset,
 }
 
@@ -59,20 +56,14 @@ pub fn build_tf_nop_copy(
     op: &OpNopCopy,
     tf_state: &TransformState,
 ) -> TransformData<'static> {
-    let cb =
-        &mut jd.match_set_mgr.match_sets[tf_state.match_set_id].action_buffer;
     let input_field_ref_offset = jd
         .field_mgr
         .register_field_reference(tf_state.output_field, tf_state.input_field);
     let tfc = TfNopCopy {
         may_consume_input: op.may_consume_input,
         input_iter_id: jd.field_mgr.claim_iter(tf_state.input_field),
-        actor_id: cb.add_actor(),
         input_field_ref_offset,
     };
-    jd.field_mgr.fields[tf_state.output_field]
-        .borrow_mut()
-        .first_actor = ActorRef::Unconfirmed(cb.peek_next_actor_id());
     TransformData::NopCopy(tfc)
 }
 
@@ -81,9 +72,6 @@ impl TfNopCopy {
         let mut output_field =
             bud.field_mgr.fields[bud.output_field_id].borrow_mut();
         let mut inserter = output_field.iter_hall.varying_type_inserter();
-        bud.match_set_mgr.match_sets[bud.match_set_id]
-            .action_buffer
-            .begin_action_group(self.actor_id);
         while let Some(range) = bud.iter.next_range(bud.match_set_mgr) {
             inserter.extend_from_ref_aware_range_smart_ref(
                 range,
@@ -93,9 +81,6 @@ impl TfNopCopy {
                 self.input_field_ref_offset,
             );
         }
-        bud.match_set_mgr.match_sets[bud.match_set_id]
-            .action_buffer
-            .end_action_group();
         (bud.batch_size, bud.ps.input_done)
     }
 }
