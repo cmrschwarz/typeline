@@ -1,12 +1,15 @@
 use arrayvec::ArrayVec;
 
 use crate::{
-    cli::parse_arg_value_as_str,
+    cli::{parse_arg_value_as_str, ParsedCliArgumentParts},
     context::SessionData,
     job::JobData,
-    liveness_analysis::{LivenessData, NON_STRING_READS_OFFSET},
+    liveness_analysis::{AccessFlags, LivenessData, NON_STRING_READS_OFFSET},
     options::argument::CliArgIdx,
-    record_data::push_interface::VariableSizeTypeInserter,
+    record_data::{
+        action_buffer::{ActorId, ActorRef},
+        push_interface::VariableSizeTypeInserter,
+    },
     utils::int_string_conversions::{
         i64_to_str, parse_int_with_units, I64_MAX_DECIMAL_DIGITS,
     },
@@ -27,36 +30,70 @@ pub struct SequenceSpec {
 
 #[derive(Clone)]
 pub struct OpSequence {
-    pub ss: SequenceSpec,
-    pub stop_after_input: bool,
-    pub non_string_reads: bool,
+    ss: SequenceSpec,
+    mode: OpSequenceMode,
+    non_string_reads: bool,
 }
 
 impl OpSequence {
     pub fn default_op_name(&self) -> DefaultOperatorName {
-        match self.stop_after_input {
-            false => "seq",
-            true => "enum",
+        match self.mode {
+            OpSequenceMode::Sequence => "seq",
+            OpSequenceMode::Enum => "enum",
+            OpSequenceMode::EnumUnbounded => "enum-u",
         }
         .into()
     }
 }
 
+#[derive(Clone, Copy)]
+pub enum OpSequenceMode {
+    Sequence,
+    Enum,
+    EnumUnbounded,
+}
+
+#[derive(Clone, Copy)]
+enum TfSequenceMode {
+    #[allow(unused)] //TODO
+    Sequence {
+        actor_id: ActorId,
+    },
+    Enum,
+    EnumUnbounded,
+}
+
 pub struct TfSequence {
     pub non_string_reads: bool,
     ss: SequenceSpec,
-    stop_after_input: bool,
+    mode: TfSequenceMode,
 }
 
 pub fn build_tf_sequence<'a>(
-    _jd: &mut JobData,
+    jd: &mut JobData,
     _op_base: &OperatorBase,
     op: &'a OpSequence,
-    _tf_state: &mut TransformState,
+    tf_state: &mut TransformState,
 ) -> TransformData<'a> {
+    let mode = match op.mode {
+        OpSequenceMode::Enum => TfSequenceMode::Enum,
+        OpSequenceMode::EnumUnbounded => TfSequenceMode::EnumUnbounded,
+        OpSequenceMode::Sequence => {
+            let cb = &mut jd.match_set_mgr.match_sets[tf_state.match_set_id]
+                .action_buffer;
+            let actor_id = cb.add_actor();
+            let next_actor_id = ActorRef::Unconfirmed(cb.peek_next_actor_id());
+            let mut output_field =
+                jd.field_mgr.fields[tf_state.output_field].borrow_mut();
+
+            output_field.first_actor = next_actor_id;
+            TfSequenceMode::Sequence { actor_id }
+        }
+    };
+
     TransformData::Sequence(TfSequence {
         ss: op.ss,
-        stop_after_input: op.stop_after_input,
+        mode,
         non_string_reads: op.non_string_reads,
     })
 }
@@ -71,6 +108,15 @@ pub fn setup_op_sequence_concurrent_liveness_data(
     let stride = ld.op_outputs.len();
     op.non_string_reads = ld.op_outputs_data
         [NON_STRING_READS_OFFSET * stride + output_id as usize];
+}
+
+pub fn update_op_sequence_variable_liveness(
+    flags: &mut AccessFlags,
+    seq: &OpSequence,
+) {
+    flags.input_accessed = false;
+    flags.may_dup_or_drop = matches!(seq.mode, OpSequenceMode::Sequence);
+    flags.non_stringified_input_access = false;
 }
 
 pub fn increment_int_str(data: &mut ArrayVec<u8, I64_MAX_DECIMAL_DIGITS>) {
@@ -97,21 +143,33 @@ pub fn handle_tf_sequence(
     seq: &mut TfSequence,
 ) {
     let (mut batch_size, ps) = jd.tf_mgr.claim_batch(tf_id);
+    let tf = &jd.tf_mgr.transforms[tf_id];
+    let no_input = batch_size == 0;
+    match seq.mode {
+        TfSequenceMode::Enum => {
+            if no_input && ps.input_done {
+                jd.tf_mgr.declare_transform_done(tf_id);
+                return;
+            }
+        }
+        TfSequenceMode::Sequence { .. } | TfSequenceMode::EnumUnbounded => {
+            if no_input && ps.input_done {
+                batch_size = if let Some(succ) = tf.successor {
+                    let succ = &jd.tf_mgr.transforms[succ];
+                    succ.desired_batch_size.max(tf.desired_batch_size)
+                } else {
+                    tf.desired_batch_size
+                };
+            }
+        }
+    };
+
     let of_id = jd.tf_mgr.prepare_output_field(
         &mut jd.field_mgr,
         &mut jd.match_set_mgr,
         tf_id,
     );
     let mut output_field = jd.field_mgr.fields[of_id].borrow_mut();
-    let tf = &jd.tf_mgr.transforms[tf_id];
-    if batch_size == 0 && ps.input_done && !seq.stop_after_input {
-        batch_size = if let Some(succ) = tf.successor {
-            let succ = &jd.tf_mgr.transforms[succ];
-            succ.desired_batch_size.max(tf.desired_batch_size)
-        } else {
-            tf.desired_batch_size
-        };
-    }
 
     let seq_size_rem = (seq.ss.end - seq.ss.start) / seq.ss.step;
     let count = batch_size.min(seq_size_rem as usize);
@@ -151,7 +209,7 @@ pub fn handle_tf_sequence(
         }
     }
     let bs_rem = batch_size - count;
-    let mut done = ps.input_done && seq.stop_after_input;
+    let mut done = ps.input_done && matches!(seq.mode, TfSequenceMode::Enum);
     if seq.ss.start == seq.ss.end {
         if !ps.input_done {
             jd.tf_mgr.unclaim_batch_size(tf_id, bs_rem);
@@ -165,21 +223,23 @@ pub fn handle_tf_sequence(
 }
 
 pub fn parse_op_seq(
-    value: Option<&[u8]>,
-    stop_after_input: bool,
+    arg: &ParsedCliArgumentParts,
+    mode: OpSequenceMode,
     natural_number_mode: bool,
-    arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
-    if stop_after_input && value.is_none() {
-        return create_op_seq_with_cli_arg_idx(
+    let arg_idx = Some(arg.cli_arg.idx);
+    if matches!(mode, OpSequenceMode::Enum | OpSequenceMode::EnumUnbounded)
+        && arg.value.is_none()
+    {
+        return create_op_sequence_with_opts(
             natural_number_mode as i64,
             i64::MAX,
             1,
-            true,
+            mode,
             arg_idx,
         );
     }
-    let value_str = parse_arg_value_as_str("seq", value, arg_idx)?;
+    let value_str = parse_arg_value_as_str("seq", arg.value, arg_idx)?;
     let parts: ArrayVec<&str, 4> = value_str.split(',').take(4).collect();
     if parts.len() == 4 {
         return Err(OperatorCreationError::new(
@@ -233,14 +293,14 @@ pub fn parse_op_seq(
     if natural_number_mode {
         end += 1;
     }
-    create_op_seq_with_cli_arg_idx(start, end, step, stop_after_input, arg_idx)
+    create_op_sequence_with_opts(start, end, step, mode, arg_idx)
 }
 
-fn create_op_seq_with_cli_arg_idx(
+fn create_op_sequence_with_opts(
     start: i64,
     mut end: i64,
     step: i64,
-    stop_after_input: bool,
+    mode: OpSequenceMode,
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
     if step == 0 {
@@ -272,7 +332,7 @@ fn create_op_seq_with_cli_arg_idx(
     }
     Ok(OperatorData::Sequence(OpSequence {
         ss: SequenceSpec { start, step, end },
-        stop_after_input,
+        mode,
         non_string_reads: true,
     }))
 }
@@ -281,9 +341,32 @@ pub fn create_op_sequence(
     start: i64,
     end: i64,
     step: i64,
-    stop_after_input: bool,
 ) -> Result<OperatorData, OperatorCreationError> {
-    create_op_seq_with_cli_arg_idx(start, end, step, stop_after_input, None)
+    create_op_sequence_with_opts(
+        start,
+        end,
+        step,
+        OpSequenceMode::Sequence,
+        None,
+    )
+}
+pub fn create_op_enum_with_opts(
+    start: i64,
+    end: i64,
+    step: i64,
+    unbounded: bool,
+) -> Result<OperatorData, OperatorCreationError> {
+    create_op_sequence_with_opts(
+        start,
+        end,
+        step,
+        if unbounded {
+            OpSequenceMode::EnumUnbounded
+        } else {
+            OpSequenceMode::Enum
+        },
+        None,
+    )
 }
 
 pub fn create_op_seq(
@@ -291,20 +374,19 @@ pub fn create_op_seq(
     end: i64,
     step: i64,
 ) -> Result<OperatorData, OperatorCreationError> {
-    create_op_seq_with_cli_arg_idx(start, end, step, false, None)
+    create_op_sequence(start, end, step)
 }
 pub fn create_op_seqn(
     start: i64,
     end: i64,
     step: i64,
 ) -> Result<OperatorData, OperatorCreationError> {
-    create_op_seq_with_cli_arg_idx(start, end + 1, step, false, None)
+    create_op_sequence(start, end + 1, step)
 }
-
 pub fn create_op_enum(
     start: i64,
     end: i64,
     step: i64,
 ) -> Result<OperatorData, OperatorCreationError> {
-    create_op_seq_with_cli_arg_idx(start, end, step, true, None)
+    create_op_enum_with_opts(start, end, step, false)
 }

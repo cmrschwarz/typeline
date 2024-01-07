@@ -18,6 +18,7 @@ use crate::{
         forkcat::OpForkCat,
         format::update_op_format_variable_liveness,
         operator::{OperatorData, OperatorId, OperatorOffsetInChain},
+        sequence::update_op_sequence_variable_liveness,
     },
     utils::{
         get_two_distinct_mut,
@@ -724,9 +725,7 @@ impl LivenessData {
             }
             OperatorData::Join(_) => {}
             OperatorData::Sequence(seq) => {
-                flags.input_accessed = false;
-                flags.may_dup_or_drop = !seq.stop_after_input;
-                flags.non_stringified_input_access = false;
+                update_op_sequence_variable_liveness(flags, seq);
             }
             OperatorData::Count(_) => {
                 flags.input_accessed = false;

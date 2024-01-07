@@ -25,7 +25,7 @@ use crate::{
         print::parse_op_print,
         regex::{parse_op_regex, try_match_regex_cli_argument},
         select::parse_op_select,
-        sequence::parse_op_seq,
+        sequence::{parse_op_seq, OpSequenceMode},
     },
     options::{
         argument::CliArgIdx, operator_base_options::OperatorBaseOptions,
@@ -525,10 +525,16 @@ fn try_parse_operator_data(
         "format" | "f" => Some(parse_op_format(arg.value, idx)?),
         "key" => Some(parse_op_key(arg.value, idx)?),
         "select" => Some(parse_op_select(arg.value, idx)?),
-        "seq" => Some(parse_op_seq(arg.value, false, false, idx)?),
-        "seqn" => Some(parse_op_seq(arg.value, false, true, idx)?),
-        "enum" => Some(parse_op_seq(arg.value, true, false, idx)?),
-        "enumn" => Some(parse_op_seq(arg.value, true, true, idx)?),
+        "seq" => Some(parse_op_seq(arg, OpSequenceMode::Sequence, false)?),
+        "seqn" => Some(parse_op_seq(arg, OpSequenceMode::Sequence, true)?),
+        "enum" => Some(parse_op_seq(arg, OpSequenceMode::Enum, false)?),
+        "enumn" => Some(parse_op_seq(arg, OpSequenceMode::Enum, true)?),
+        "enum-u" => {
+            Some(parse_op_seq(arg, OpSequenceMode::EnumUnbounded, false)?)
+        }
+        "enumn-u" => {
+            Some(parse_op_seq(arg, OpSequenceMode::EnumUnbounded, true)?)
+        }
         "count" => Some(parse_op_count(arg.value, idx)?),
         "nop" | "scr" => Some(parse_op_nop(arg.value, idx)?),
         "nop-c" => Some(parse_op_nop_copy(arg.value, idx)?),

@@ -104,14 +104,8 @@ pub struct TransformManager {
 #[derive(Clone, Copy, Default)]
 pub struct PipelineState {
     pub input_done: bool,
-    pub output_done: bool,
+    pub output_batch_done: bool,
     pub next_batch_ready: bool,
-}
-
-impl PipelineState {
-    pub fn anybody_done(&self) -> bool {
-        self.input_done || self.output_done
-    }
 }
 
 impl TransformManager {
@@ -136,7 +130,7 @@ impl TransformManager {
         let ps = PipelineState {
             input_done: tf.input_is_done && tf.available_batch_size == 0,
             next_batch_ready: tf.available_batch_size > 0,
-            output_done: tf.output_is_done,
+            output_batch_done: tf.output_is_done,
         };
         (batch_size, ps)
     }
@@ -220,7 +214,7 @@ impl TransformManager {
         batch_size: usize,
         ps: PipelineState,
     ) {
-        let done = ps.input_done || ps.output_done;
+        let done = ps.input_done || ps.output_batch_done;
         // In case we are done, there's no need to re-ready. There's 3 cases:
         // a) our predecessor has more records and will push us himself (fine)
         // b) a reset happens
@@ -279,7 +273,7 @@ impl TransformManager {
                 }
                 let ps = PipelineState {
                     input_done: true,
-                    output_done: false,
+                    output_batch_done: false,
                     next_batch_ready: false,
                 };
                 return (0, ps);
