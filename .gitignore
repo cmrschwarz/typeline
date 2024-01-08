@@ -8,6 +8,7 @@
 /flamegraph.svg
 /perf.data
 /perf.data.old
+/coverage.cobertura.xml
 
 # named pipe for stdin testing
 /test
