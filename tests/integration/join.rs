@@ -7,7 +7,7 @@ use scr_core::{
         key::create_op_key,
         literal::{
             create_op_error, create_op_int, create_op_literal, create_op_str,
-            Literal,
+            create_op_str_n, Literal,
         },
         regex::{create_op_regex_with_opts, RegexOptions},
         select::create_op_select,
@@ -113,8 +113,8 @@ fn join_streams() -> Result<(), ScrError> {
 fn join_after_append() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
-        .add_op(create_op_str("foo", 1))
-        .add_op_appending(create_op_str("bar", 1))
+        .add_op(create_op_str("foo"))
+        .add_op_appending(create_op_str("bar"))
         .add_op(create_op_join_str(", ", 0))
         .add_op(create_op_string_sink(&ss))
         .run()?;
@@ -126,7 +126,7 @@ fn join_after_append() -> Result<(), ScrError> {
 fn join_after_enum() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
-        .add_op(create_op_str("foo", 2))
+        .add_op(create_op_str_n("foo", 2))
         .add_op(create_op_enum(0, i64::MAX, 1).unwrap())
         .add_op(create_op_join_str(",", 0))
         .add_op(create_op_string_sink(&ss))
@@ -144,7 +144,7 @@ fn join_dropped_streams() -> Result<(), ScrError> {
             Box::new(SliceReader::new("foo".as_bytes())),
             0,
         ))
-        .add_op_appending(create_op_literal(Literal::Int(1), Some(1)))
+        .add_op_appending(create_op_literal(Literal::Int(1)))
         .add_op_appending(create_op_file_reader_custom(
             Box::new(SliceReader::new("bar".as_bytes())),
             0,
@@ -176,7 +176,7 @@ fn stream_error_in_join() -> Result<(), ScrError> {
             )),
             0,
         ))
-        .add_op_appending(create_op_literal(Literal::Int(1), Some(1)))
+        .add_op_appending(create_op_literal(Literal::Int(1)))
         .add_op(create_op_join(
             Some(", ".as_bytes().to_owned()),
             Some(3),
@@ -202,7 +202,7 @@ fn stream_into_dup_into_join() -> Result<(), ScrError> {
             0,
         ))
         .add_op(create_op_key("foo".to_owned()))
-        .add_op(create_op_str("123", 1))
+        .add_op(create_op_str("123"))
         .add_op(
             create_op_regex_with_opts(
                 ".",
@@ -233,8 +233,8 @@ fn join_turns_into_stream(#[case] batch_size: usize) -> Result<(), ScrError> {
     ContextBuilder::default()
         .set_batch_size(batch_size)
         .set_stream_size_threshold(2)
-        .add_op(create_op_str("foo", 0))
-        .add_op_appending(create_op_str("bar", 0))
+        .add_op(create_op_str("foo"))
+        .add_op_appending(create_op_str("bar"))
         .add_op(create_op_join_str(",", 2))
         .add_op(create_op_format("{:#??}").unwrap())
         .add_op(create_op_string_sink(&ss))
@@ -251,8 +251,8 @@ fn join_on_error(#[case] batch_size: usize) -> Result<(), ScrError> {
     ContextBuilder::default()
         .set_batch_size(batch_size)
         .set_stream_size_threshold(2)
-        .add_op(create_op_str("foo", 0))
-        .add_op_appending(create_op_error("bar", 0))
+        .add_op(create_op_str("foo"))
+        .add_op_appending(create_op_error("bar"))
         .add_op(create_op_join_str(",", 2))
         .add_op(create_op_format("{:#??}").unwrap())
         .add_op(create_op_string_sink(&ss))
@@ -271,7 +271,7 @@ fn join_with_value_between_streams() -> Result<(), ScrError> {
             Box::new(SliceReader::new(b"AAA")),
             0,
         ))
-        .add_op_appending(create_op_int(42, 0))
+        .add_op_appending(create_op_int(42))
         .add_op_appending(create_op_file_reader_custom(
             Box::new(SliceReader::new(b"BBB")),
             0,

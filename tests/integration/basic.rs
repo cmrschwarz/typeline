@@ -9,8 +9,8 @@ use scr_core::{
         join::create_op_join_str,
         key::create_op_key,
         literal::{
-            create_op_error, create_op_int, create_op_literal, create_op_str,
-            Literal,
+            create_op_error, create_op_int_n, create_op_literal,
+            create_op_literal_n, create_op_str, Literal,
         },
         next::create_op_next,
         nop_copy::create_op_nop_copy,
@@ -39,7 +39,7 @@ fn string_sink() -> Result<(), ScrError> {
 fn tf_literal() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
-        .add_op(create_op_literal(Literal::String("foo".to_owned()), None))
+        .add_op(create_op_literal(Literal::String("foo".to_owned())))
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(ss.get_data().unwrap().as_slice(), ["foo"]);
@@ -50,7 +50,7 @@ fn tf_literal() -> Result<(), ScrError> {
 fn counted_tf_literal() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
-        .add_op(create_op_literal(Literal::String("x".to_owned()), Some(3)))
+        .add_op(create_op_literal_n(Literal::String("x".to_owned()), 3))
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(ss.get_data().unwrap().as_slice(), ["x", "x", "x"]);
@@ -166,7 +166,7 @@ fn batched_use_after_key() -> Result<(), ScrError> {
 fn double_key() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
-        .add_op(create_op_literal(Literal::Int(42), None))
+        .add_op(create_op_literal(Literal::Int(42)))
         .add_op(create_op_key("foo".to_owned()))
         .add_op(create_op_key("bar".to_owned()))
         .add_op(create_op_format("foo: {foo}, bar: {bar}").unwrap())
@@ -288,7 +288,7 @@ fn select() -> Result<(), ScrError> {
     ContextBuilder::default()
         .set_batch_size(5)
         .add_op_with_opts(
-            create_op_literal(Literal::String("foo".to_owned()), Some(3)),
+            create_op_literal_n(Literal::String("foo".to_owned()), 3),
             None,
             Some("a"),
             false,
@@ -307,7 +307,7 @@ fn select_after_key() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .set_batch_size(5)
-        .add_op(create_op_literal(Literal::String("foo".to_owned()), None))
+        .add_op(create_op_literal(Literal::String("foo".to_owned())))
         .add_op(create_op_key("a".to_owned()))
         .add_op(create_op_enum(0, 3, 1).unwrap())
         .add_op(create_op_select("a".to_owned()))
@@ -394,9 +394,9 @@ fn chained_streams() -> Result<(), ScrError> {
 fn tf_literal_yields_to_cont() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
-        .add_op(create_op_int(1, 3))
-        .add_op(create_op_str("foo", 0))
-        .add_op_appending(create_op_str("bar", 0))
+        .add_op(create_op_int_n(1, 3))
+        .add_op(create_op_str("foo"))
+        .add_op_appending(create_op_str("bar"))
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(ss.get().data.as_slice(), ["foo", "bar", "bar"]);
@@ -414,7 +414,7 @@ fn tf_file_yields_to_cont(
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .set_stream_buffer_size(stream_buffer_size)
-        .add_op(create_op_int(1, 3))
+        .add_op(create_op_int_n(1, 3))
         .add_op(create_op_file_reader_custom(
             Box::new(SliceReader::new(b"foo")),
             0,
@@ -434,7 +434,7 @@ fn error_on_sbs_0() {
     assert!(matches!(
         ContextBuilder::default()
             .set_stream_buffer_size(0)
-            .add_op(create_op_int(1, 3))
+            .add_op(create_op_int_n(1, 3))
             .run()
             .map_err(|e| e.err),
         Err(ScrError::ChainSetupError(ChainSetupError {
@@ -450,7 +450,7 @@ fn stream_error_after_regular_error() -> Result<(), ScrError> {
     ContextBuilder::default()
         .set_stream_buffer_size(2)
         .set_stream_size_threshold(3)
-        .add_op(create_op_error("A", 0))
+        .add_op(create_op_error("A"))
         .add_op_appending(create_op_file_reader_custom(
             Box::new(ErroringStream::new(5, SliceReader::new(b"BBBBB"))),
             0,

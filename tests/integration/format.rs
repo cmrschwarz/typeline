@@ -22,9 +22,9 @@ use scr_core::{
 fn debug_format_surrounds_with_quotes() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
-        .add_op(create_op_str("foo", 0))
-        .add_op_appending(create_op_bytes(b"bar", 0))
-        .add_op_appending(create_op_error("baz", 0))
+        .add_op(create_op_str("foo"))
+        .add_op_appending(create_op_bytes(b"bar"))
+        .add_op_appending(create_op_error("baz"))
         .add_op(create_op_format("{:?}").unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
@@ -39,9 +39,9 @@ fn debug_format_surrounds_with_quotes() -> Result<(), ScrError> {
 fn more_debug_format_surrounds_with_quotes() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
-        .add_op(create_op_str("foo", 0))
-        .add_op_appending(create_op_bytes(b"bar", 0))
-        .add_op_appending(create_op_error("baz", 0))
+        .add_op(create_op_str("foo"))
+        .add_op_appending(create_op_bytes(b"bar"))
+        .add_op_appending(create_op_error("baz"))
         .add_op(create_op_format("{:??}").unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
@@ -61,7 +61,7 @@ fn error_formatting(
 ) -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
-        .add_op(create_op_error("A", 1))
+        .add_op(create_op_error("A"))
         .add_op(create_op_format(fmt_string).unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
@@ -78,7 +78,7 @@ fn stream_error_formatting(
 ) -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
-        .add_op(create_op_stream_error("A", 1))
+        .add_op(create_op_stream_error("A"))
         .add_op(create_op_format(fmt_string).unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
@@ -347,7 +347,7 @@ fn sandwiched_format() -> Result<(), ScrError> {
 fn binary_string_formatting() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
-        .add_op(create_op_v("b'\\xFF'", 1).unwrap())
+        .add_op(create_op_v("b'\\xFF'").unwrap())
         .add_op(create_op_format("{:?}").unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
@@ -359,7 +359,7 @@ fn binary_string_formatting() -> Result<(), ScrError> {
 fn debug_format_stream_value() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
-        .add_op(create_op_stream_str("foo", 1))
+        .add_op(create_op_stream_str("foo"))
         .add_op(create_op_format("{:??}").unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
@@ -370,7 +370,7 @@ fn debug_format_stream_value() -> Result<(), ScrError> {
 #[test]
 fn null_format_error() -> Result<(), ScrError> {
     let res = ContextBuilder::default()
-        .add_op(create_op_null(1))
+        .add_op(create_op_null())
         .add_op(create_op_format("{}").unwrap())
         .run_collect_stringified();
     let Err(res) = res else { panic!() };

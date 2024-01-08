@@ -20,9 +20,9 @@ fn basic_forkcat() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .add_op(create_op_forkcat())
-        .add_op(create_op_str("foo", 1))
+        .add_op(create_op_str("foo"))
         .add_op(create_op_next())
-        .add_op(create_op_str("bar", 1))
+        .add_op(create_op_str("bar"))
         .add_op(create_op_end())
         .add_op(create_op_string_sink(&ss))
         .run()?;
@@ -35,7 +35,7 @@ fn forkcat_with_input() -> Result<(), ScrError> {
     let ss1 = StringSinkHandle::default();
     let ss2 = StringSinkHandle::default();
     ContextBuilder::default()
-        .add_op(create_op_str("foo", 1))
+        .add_op(create_op_str("foo"))
         .add_op(create_op_forkcat())
         .add_op(create_op_string_sink(&ss1))
         .add_op(create_op_next())
@@ -52,7 +52,7 @@ fn forkcat_with_input() -> Result<(), ScrError> {
 fn forkcat_dup() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
-        .add_op(create_op_str("foo", 1))
+        .add_op(create_op_str("foo"))
         .add_op(create_op_forkcat())
         .add_op(create_op_nop())
         .add_op(create_op_next())
@@ -68,7 +68,7 @@ fn forkcat_dup() -> Result<(), ScrError> {
 fn forkcat_sandwiched_write() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
-        .add_op(create_op_str("foo", 1))
+        .add_op(create_op_str("foo"))
         .add_op(create_op_forkcat())
         .add_op(create_op_nop())
         .add_op(create_op_next())
@@ -86,7 +86,7 @@ fn forkcat_sandwiched_write() -> Result<(), ScrError> {
 fn forkcat_into_join() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
-        .add_op(create_op_str("foo", 1))
+        .add_op(create_op_str("foo"))
         .add_op(create_op_forkcat())
         .add_op(create_op_nop())
         .add_op(create_op_next())
@@ -105,13 +105,13 @@ fn forkcat_build_sql_insert() -> Result<(), ScrError> {
     ContextBuilder::default()
         .add_ops([
             create_op_forkcat(),
-            create_op_str("INSERT INTO T VALUES ", 1),
+            create_op_str("INSERT INTO T VALUES "),
             create_op_next(),
             create_op_seq(0, 5, 1).unwrap(),
             create_op_format_from_str("({})").unwrap(),
             create_op_join(Some(b", ".to_vec()), None, false),
             create_op_next(),
-            create_op_str(";", 1),
+            create_op_str(";"),
             create_op_end(),
             create_op_join(None, None, false),
             create_op_string_sink(&ss),
@@ -128,7 +128,7 @@ fn forkcat_build_sql_insert() -> Result<(), ScrError> {
 fn forkcat_input_equals_named_var() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
-        .add_op_with_label(create_op_str("a", 1), "a")
+        .add_op_with_label(create_op_str("a"), "a")
         .add_op(create_op_forkcat())
         .add_op(create_op_format("{a}").unwrap())
         .add_op(create_op_end())
@@ -144,9 +144,9 @@ fn forkcat_surviving_vars() -> Result<(), ScrError> {
     ContextBuilder::default()
         .add_op_with_label(create_op_seq(0, 2, 1).unwrap(), "lbl")
         .add_op(create_op_forkcat())
-        .add_op(create_op_str("a", 0))
+        .add_op(create_op_str("a"))
         .add_op(create_op_next())
-        .add_op(create_op_str("b", 0))
+        .add_op(create_op_str("b"))
         .add_op(create_op_end())
         .add_op(create_op_format("{lbl:?}: {}").unwrap())
         .add_op(create_op_string_sink(&ss))

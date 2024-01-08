@@ -519,65 +519,90 @@ pub fn parse_op_literal(
     }
 }
 
-pub fn create_op_literal(
+pub fn create_op_literal_with_insert_count(
     data: Literal,
     insert_count: Option<usize>,
 ) -> OperatorData {
     OperatorData::Literal(OpLiteral { data, insert_count })
 }
+
+pub fn create_op_literal(data: Literal) -> OperatorData {
+    create_op_literal_with_insert_count(data, None)
+}
 pub fn create_op_literal_n(
     data: Literal,
     insert_count: usize,
 ) -> OperatorData {
-    OperatorData::Literal(OpLiteral {
-        data,
-        insert_count: if insert_count == 0 {
-            None
-        } else {
-            Some(insert_count)
-        },
-    })
+    create_op_literal_with_insert_count(data, Some(insert_count))
 }
 
-pub fn create_op_error(str: &str, insert_count: usize) -> OperatorData {
+pub fn create_op_error(str: &str) -> OperatorData {
+    create_op_literal(Literal::Error(str.to_owned()))
+}
+pub fn create_op_str(str: &str) -> OperatorData {
+    create_op_literal(Literal::String(str.to_owned()))
+}
+pub fn create_op_stream_bytes(v: &[u8]) -> OperatorData {
+    create_op_literal(Literal::StreamBytes(v.to_owned()))
+}
+pub fn create_op_stream_str(v: &str) -> OperatorData {
+    create_op_literal(Literal::StreamString(v.to_owned()))
+}
+pub fn create_op_bytes(v: &[u8]) -> OperatorData {
+    create_op_literal(Literal::Bytes(v.to_owned()))
+}
+pub fn create_op_stream_error(str: &str) -> OperatorData {
+    create_op_literal(Literal::StreamError(str.to_owned()))
+}
+pub fn create_op_int(v: i64) -> OperatorData {
+    create_op_literal(Literal::Int(v))
+}
+pub fn create_op_null() -> OperatorData {
+    create_op_literal(Literal::Null)
+}
+pub fn create_op_success() -> OperatorData {
+    create_op_literal(Literal::Undefined)
+}
+pub fn create_op_v(str: &str) -> Result<OperatorData, OperatorCreationError> {
+    parse_op_tyson_value(Some(str.as_bytes()), None, None, None)
+}
+
+pub fn create_op_error_n(str: &str, insert_count: usize) -> OperatorData {
     create_op_literal_n(Literal::Error(str.to_owned()), insert_count)
 }
-pub fn create_op_str(str: &str, insert_count: usize) -> OperatorData {
+pub fn create_op_str_n(str: &str, insert_count: usize) -> OperatorData {
     create_op_literal_n(Literal::String(str.to_owned()), insert_count)
 }
-pub fn create_op_v(
+pub fn create_op_stream_bytes_n(
+    v: &[u8],
+    insert_count: usize,
+) -> OperatorData {
+    create_op_literal_n(Literal::StreamBytes(v.to_owned()), insert_count)
+}
+pub fn create_op_stream_str_n(v: &str, insert_count: usize) -> OperatorData {
+    create_op_literal_n(Literal::StreamString(v.to_owned()), insert_count)
+}
+pub fn create_op_bytes_n(v: &[u8], insert_count: usize) -> OperatorData {
+    create_op_literal_n(Literal::Bytes(v.to_owned()), insert_count)
+}
+pub fn create_op_stream_error_n(
+    str: &str,
+    insert_count: usize,
+) -> OperatorData {
+    create_op_literal_n(Literal::StreamError(str.to_owned()), insert_count)
+}
+pub fn create_op_int_n(v: i64, insert_count: usize) -> OperatorData {
+    create_op_literal_n(Literal::Int(v), insert_count)
+}
+pub fn create_op_null_n(insert_count: usize) -> OperatorData {
+    create_op_literal_n(Literal::Null, insert_count)
+}
+pub fn create_op_success_n(insert_count: usize) -> OperatorData {
+    create_op_literal_n(Literal::Undefined, insert_count)
+}
+pub fn create_op_v_n(
     str: &str,
     insert_count: usize,
 ) -> Result<OperatorData, OperatorCreationError> {
-    parse_op_tyson_value(
-        Some(str.as_bytes()),
-        if insert_count == 0 {
-            None
-        } else {
-            Some(insert_count)
-        },
-        None,
-        None,
-    )
-}
-pub fn create_op_stream_bytes(v: &[u8], insert_count: usize) -> OperatorData {
-    create_op_literal_n(Literal::StreamBytes(v.to_owned()), insert_count)
-}
-pub fn create_op_stream_str(v: &str, insert_count: usize) -> OperatorData {
-    create_op_literal_n(Literal::StreamString(v.to_owned()), insert_count)
-}
-pub fn create_op_bytes(v: &[u8], insert_count: usize) -> OperatorData {
-    create_op_literal_n(Literal::Bytes(v.to_owned()), insert_count)
-}
-pub fn create_op_stream_error(str: &str, insert_count: usize) -> OperatorData {
-    create_op_literal_n(Literal::StreamError(str.to_owned()), insert_count)
-}
-pub fn create_op_int(v: i64, insert_count: usize) -> OperatorData {
-    create_op_literal_n(Literal::Int(v), insert_count)
-}
-pub fn create_op_null(insert_count: usize) -> OperatorData {
-    create_op_literal_n(Literal::Null, insert_count)
-}
-pub fn create_op_success(insert_count: usize) -> OperatorData {
-    create_op_literal_n(Literal::Undefined, insert_count)
+    parse_op_tyson_value(Some(str.as_bytes()), Some(insert_count), None, None)
 }

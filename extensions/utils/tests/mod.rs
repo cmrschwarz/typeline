@@ -97,7 +97,7 @@ fn explode_output_col(
 ) -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
-        .add_op(create_op_v(input, 1).unwrap())
+        .add_op(create_op_v(input).unwrap())
         .add_op(create_op_explode())
         .add_op(create_op_string_sink(&ss))
         .run()?;
@@ -109,7 +109,7 @@ fn explode_output_col(
 fn explode_into_select() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
-        .add_op(create_op_v("{'foo': 3}", 1).unwrap())
+        .add_op(create_op_v("{'foo': 3}").unwrap())
         .add_op(create_op_explode())
         .add_op(create_op_select("foo".into()))
         .add_op(create_op_string_sink(&ss))
@@ -122,7 +122,7 @@ fn explode_into_select() -> Result<(), ScrError> {
 fn flatten() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
-        .add_op(create_op_v("[1,2,3]", 1).unwrap())
+        .add_op(create_op_v("[1,2,3]").unwrap())
         .add_op(create_op_flatten())
         .add_op(create_op_string_sink(&ss))
         .run()?;
@@ -134,7 +134,7 @@ fn flatten() -> Result<(), ScrError> {
 fn object_flatten() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
-        .add_op(create_op_v("{a: 3, b: '5'}", 1).unwrap())
+        .add_op(create_op_v("{a: 3, b: '5'}").unwrap())
         .add_op(create_op_flatten())
         .add_op(create_op_string_sink(&ss))
         .run()?;
@@ -149,7 +149,7 @@ fn object_flatten() -> Result<(), ScrError> {
 fn flatten_duped_objects() -> Result<(), ScrError> {
     let res = ContextBuilder::default()
         .add_op(create_op_seqn(1, 3, 1).unwrap())
-        .add_op(create_op_v("{a:3}", 0).unwrap())
+        .add_op(create_op_v("{a:3}").unwrap())
         .add_op(create_op_flatten())
         .run_collect()?;
     assert_eq!(

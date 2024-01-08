@@ -235,7 +235,7 @@ fn optional_regex() -> Result<(), ScrError> {
 fn zero_length_regex_match() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
-        .add_op(create_op_str("babab", 1))
+        .add_op(create_op_str("babab"))
         .add_op(
             create_op_regex_with_opts(
                 "a*",
@@ -262,7 +262,7 @@ fn regex_match_overlapping(
 ) -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
-        .add_op(create_op_str(input, 1))
+        .add_op(create_op_str(input))
         .add_op(
             create_op_regex_with_opts(
                 re,
@@ -335,7 +335,7 @@ fn double_regex() -> Result<(), ScrError> {
 #[test]
 fn multimatch_after_dup() -> Result<(), ScrError> {
     let res = ContextBuilder::default()
-        .add_op(create_op_str("foo", 1))
+        .add_op(create_op_str("foo"))
         .add_op(create_op_dup(2))
         .add_op(
             create_op_regex_with_opts(

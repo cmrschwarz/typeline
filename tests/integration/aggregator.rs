@@ -15,7 +15,7 @@ use scr_core::{
 fn simple_aggregate() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
-        .add_op_aggregate([create_op_str("foo", 1), create_op_str("bar", 1)])
+        .add_op_aggregate([create_op_str("foo"), create_op_str("bar")])
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(ss.get_data().unwrap().as_slice(), ["foo", "bar"]);
@@ -52,7 +52,7 @@ fn append_after_fork() -> Result<(), ScrError> {
             None,
             true,
             false,
-            [create_op_int(4, 1)],
+            [create_op_int(4)],
         )
         .add_op(create_op_string_sink(&ss))
         .run()?;

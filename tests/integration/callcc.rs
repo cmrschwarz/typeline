@@ -76,7 +76,7 @@ fn appending_callcc(#[case] batch_size: usize) -> Result<(), ScrError> {
         .add_op(create_op_seq(0, 2, 1).unwrap())
         .add_op(create_op_callcc("foo".to_string()))
         .add_label("foo".to_string())
-        .add_op_appending(create_op_int(2, 1))
+        .add_op_appending(create_op_int(2))
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(ss.get_data().unwrap().as_slice(), ["0", "1", "2"]);
