@@ -65,7 +65,6 @@ pub struct OpForkCat {
 pub struct TfForkCat<'a> {
     pub op: &'a OpForkCat,
     pub curr_subchain_n: u32,
-    pub curr_subchain_start: Option<TransformId>,
     pub continuation: Option<TransformId>,
     pub buffered_record_count: usize,
     pub input_size: usize,
@@ -261,7 +260,6 @@ pub fn insert_tf_forkcat<'a>(
 ) -> (TransformId, TransformId, FieldId, TransformContinuationKind) {
     let tf_data = TransformData::ForkCat(TfForkCat {
         curr_subchain_n: op.subchains_start,
-        curr_subchain_start: None,
         continuation: None,
         op,
         input_size: 0,
@@ -326,15 +324,15 @@ pub fn handle_tf_forkcat(
 ) {
     if fc.op.subchains_start + fc.curr_subchain_n == fc.op.subchains_end {
         let cont = fc.continuation.unwrap();
-        jd.tf_mgr.transforms[cont].input_is_done = true;
+        jd.tf_mgr.transforms[cont].predecessor_done = true;
         jd.tf_mgr.declare_transform_done(tf_id);
-        jd.tf_mgr.push_tf_in_ready_stack(cont);
         return;
     }
     if fc.curr_subchain_n != 0 {
         jd.tf_mgr.push_tf_in_ready_stack(tf_id);
+        let sc_start = jd.tf_mgr.transforms[tf_id].successor.take().unwrap();
         jd.tf_mgr.inform_transform_batch_available(
-            fc.curr_subchain_start.take().unwrap(),
+            sc_start,
             fc.input_size,
             true,
         );
@@ -343,11 +341,11 @@ pub fn handle_tf_forkcat(
     }
     let (batch_size, ps) = jd.tf_mgr.claim_all(tf_id);
     fc.input_size += batch_size;
-    let curr_subchain_start = fc.curr_subchain_start.unwrap();
+    let curr_subchain_start = jd.tf_mgr.transforms[tf_id].successor.unwrap();
     if ps.input_done {
         jd.tf_mgr.push_tf_in_ready_stack(tf_id);
         fc.curr_subchain_n += 1;
-        fc.curr_subchain_start = None;
+        jd.tf_mgr.transforms[tf_id].successor = None;
     }
     jd.tf_mgr.inform_transform_batch_available(
         curr_subchain_start,
@@ -483,7 +481,8 @@ fn expand_for_subchain(sess: &mut Job, tf_id: TransformId, sc_n: u32) {
     };
     let cont = forkcat.continuation.unwrap();
     let cont_tf = &mut sess.job_data.tf_mgr.transforms[cont];
-    cont_tf.input_is_done = false;
+    cont_tf.predecessor_done = false;
+
     sess.job_data.field_mgr.setup_cross_ms_cow_fields(
         &mut sess.job_data.match_set_mgr,
         tgt_ms_id,
@@ -492,9 +491,11 @@ fn expand_for_subchain(sess: &mut Job, tf_id: TransformId, sc_n: u32) {
         &forkcat.output_fields,
     );
 
-    sess.job_data.tf_mgr.connect_tfs(end_tf, cont);
-    sess.job_data.tf_mgr.transforms[cont].input_is_done = false;
-    forkcat.curr_subchain_start = Some(start_tf);
+    sess.job_data.tf_mgr.transforms[end_tf].successor = Some(cont);
+    sess.job_data.tf_mgr.transforms[cont].predecessor_done = false;
+
+    sess.job_data.tf_mgr.transforms[tf_id].successor = Some(start_tf);
+
     forkcat.prebound_outputs = prebound_outputs;
     #[cfg(feature = "debug_logging")]
     {

@@ -108,7 +108,7 @@ pub struct TransformManager {
 #[derive(Clone, Copy, Default)]
 pub struct PipelineState {
     pub input_done: bool,
-    pub output_batch_done: bool,
+    pub successor_done: bool,
     pub next_batch_ready: bool,
 }
 
@@ -130,11 +130,17 @@ impl TransformManager {
         let tf = &mut self.transforms[tf_id];
         let batch_size = tf.available_batch_size.min(limit);
         tf.available_batch_size -= batch_size;
-
+        let next_batch_ready = tf.available_batch_size > 0;
+        let input_done = tf.predecessor_done && !next_batch_ready;
+        let successor_done = if let Some(succ) = tf.successor {
+            self.transforms[succ].done
+        } else {
+            true
+        };
         let ps = PipelineState {
-            input_done: tf.input_is_done && tf.available_batch_size == 0,
-            next_batch_ready: tf.available_batch_size > 0,
-            output_batch_done: tf.output_is_done,
+            input_done,
+            next_batch_ready,
+            successor_done,
         };
         (batch_size, ps)
     }
@@ -161,22 +167,20 @@ impl TransformManager {
         &mut self,
         tf_id: TransformId,
         batch_size: usize,
-        input_done: bool,
+        predecessor_done: bool,
     ) {
         let tf = &mut self.transforms[tf_id];
         tf.available_batch_size += batch_size;
-        if tf.available_batch_size == 0 && (!input_done || tf.input_is_done) {
+        if tf.available_batch_size == 0
+            && (!predecessor_done || tf.predecessor_done)
+        {
             return;
         }
-        tf.input_is_done |= input_done;
+        tf.predecessor_done |= predecessor_done;
         if tf.is_ready {
             return;
         }
         self.push_tf_in_ready_stack(tf_id);
-    }
-    pub fn inform_transform_successor_done(&mut self, tf_id: TransformId) {
-        let tf = &mut self.transforms[tf_id];
-        tf.output_is_done = true;
     }
     pub fn submit_batch(
         &mut self,
@@ -184,16 +188,14 @@ impl TransformManager {
         batch_size: usize,
         done: bool,
     ) {
+        if done {
+            debug_assert!(!self.transforms[tf_id].done);
+            self.transforms[tf_id].done = true;
+        }
         if let Some(succ_tf_id) = self.transforms[tf_id].successor {
             self.inform_transform_batch_available(
                 succ_tf_id, batch_size, done,
             );
-        }
-        if !done {
-            return;
-        }
-        if let Some(pred) = self.transforms[tf_id].predecessor {
-            self.inform_transform_successor_done(pred)
         }
     }
     // Help out with dropping records if the successor is done.
@@ -218,7 +220,7 @@ impl TransformManager {
         batch_size: usize,
         ps: PipelineState,
     ) {
-        let done = ps.input_done || ps.output_batch_done;
+        let done = ps.input_done || ps.successor_done;
         // In case we are done, there's no need to re-ready. There's 3 cases:
         // a) our predecessor has more records and will push us himself (fine)
         // b) a reset happens
@@ -277,7 +279,7 @@ impl TransformManager {
                 }
                 let ps = PipelineState {
                     input_done: true,
-                    output_batch_done: false,
+                    successor_done: false,
                     next_batch_ready: false,
                 };
                 return (0, ps);
@@ -368,16 +370,6 @@ impl TransformManager {
         );
         output_field_id
     }
-    pub fn connect_tfs(&mut self, left: TransformId, right: TransformId) {
-        self.transforms[left].successor = Some(right);
-        self.transforms[right].predecessor = Some(left);
-    }
-    pub fn disconnect_tf_from_predecessor(&mut self, tf_id: TransformId) {
-        if let Some(pred) = self.transforms[tf_id].predecessor {
-            self.transforms[pred].successor = None;
-            self.transforms[tf_id].predecessor = None;
-        }
-    }
 }
 
 // TODO: bump field refcounts in here and initialize fields with rc 0 isntead
@@ -418,18 +410,13 @@ impl<'a> JobData<'a> {
     ) {
         let tf = &mut self.tf_mgr.transforms[tf_id];
         tf.mark_for_removal = true;
-        let predecessor = tf.predecessor;
         let successor = tf.successor;
-        let input_is_done = tf.input_is_done;
+        let input_is_done = tf.predecessor_done;
         let available_batch_size = tf.available_batch_size;
         let is_transparent = tf.is_transparent;
-        if let Some(pred_id) = predecessor {
-            self.tf_mgr.transforms[pred_id].successor = successor;
-        }
         if let Some(succ_id) = successor {
             let succ = &mut self.tf_mgr.transforms[succ_id];
-            succ.predecessor = predecessor;
-            succ.input_is_done = input_is_done;
+            succ.predecessor_done = input_is_done;
             let mut bs = available_batch_for_successor;
             if is_transparent {
                 bs += available_batch_size;
@@ -560,7 +547,7 @@ impl<'a> Job<'a> {
         add_terminator(self, ms_id, end_tf_id);
         self.job_data.tf_mgr.push_tf_in_ready_stack(start_tf_id);
         let tf = &mut self.job_data.tf_mgr.transforms[start_tf_id];
-        tf.input_is_done = true;
+        tf.predecessor_done = true;
         tf.available_batch_size = input_record_count;
         for input_field_id in input_data_fields.iter() {
             self.job_data.field_mgr.drop_field_refcount(
@@ -846,7 +833,6 @@ impl<'a> Job<'a> {
                 output_field,
                 ms_id,
                 op_base.desired_batch_size,
-                predecessor_tf,
                 Some(op_id),
             );
             tf_state.is_transparent = op_base.transparent_mode;
@@ -865,6 +851,16 @@ impl<'a> Job<'a> {
             let (first_tf_id, last_tf_id, next_input_field, cont) = self
                 .insert_transform_from_op(tf_state, op_id, prebound_outputs);
             input_field = next_input_field;
+
+            if let Some(pred) = predecessor_tf {
+                self.job_data.tf_mgr.transforms[pred].successor =
+                    Some(first_tf_id);
+            }
+
+            if start_tf_id.is_none() {
+                start_tf_id = Some(first_tf_id);
+            }
+
             match cont {
                 TransformContinuationKind::Regular => (),
                 TransformContinuationKind::SelfExpanded => {
@@ -876,14 +872,6 @@ impl<'a> Job<'a> {
                 }
             }
 
-            if let Some(pred) = predecessor_tf {
-                self.job_data.tf_mgr.transforms[pred].successor =
-                    Some(first_tf_id);
-            }
-
-            if start_tf_id.is_none() {
-                start_tf_id = Some(first_tf_id);
-            }
             predecessor_tf = Some(last_tf_id);
         }
         let start = start_tf_id.unwrap();
@@ -983,11 +971,11 @@ impl<'a> Job<'a> {
         {
             let tf = &self.job_data.tf_mgr.transforms[tf_id];
             println!(
-            "> handling tf {tf_id} `{}`, bsa: {}, id: {}, od: {}, stack: {:?}",
+            "> handling tf {tf_id} `{}`, bsa: {}, pred_done: {}, done: {}, stack: {:?}",
             self.transform_data[tf_id.get()].display_name(),
             tf.available_batch_size,
-            tf.input_is_done,
-            tf.output_is_done,
+            tf.predecessor_done,
+            tf.done,
             self.job_data.tf_mgr.ready_stack
         );
         }
@@ -997,8 +985,8 @@ impl<'a> Job<'a> {
                     handle_fork_expansion(self, tf_id, ctx);
                 }
             }
-            TransformData::ForkCat(forkcat) => {
-                if forkcat.curr_subchain_start.is_none() {
+            TransformData::ForkCat(_) => {
+                if self.job_data.tf_mgr.transforms[tf_id].successor.is_none() {
                     handle_forkcat_subchain_expansion(self, tf_id);
                 }
             }

@@ -337,7 +337,7 @@ pub fn handle_tf_file_reader_stream(
         fr.stream_value_committed = true;
         let tf = &jd.tf_mgr.transforms[tf_id];
         // if input is not done, subsequent records might need the stream
-        if !tf.input_is_done {
+        if !tf.predecessor_done {
             need_buffering = true;
         } else {
             let input_field = jd.field_mgr.fields[tf.input_field].borrow();

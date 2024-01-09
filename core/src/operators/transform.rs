@@ -119,7 +119,6 @@ impl TransformData<'_> {
 
 pub struct TransformState {
     pub successor: Option<TransformId>,
-    pub predecessor: Option<TransformId>,
     pub input_field: FieldId,
     pub output_field: FieldId,
     pub available_batch_size: usize,
@@ -130,10 +129,11 @@ pub struct TransformState {
     pub is_ready: bool,
     pub has_appender: bool,
     pub is_transparent: bool,
-    //TODO: consider refactoring this into 'done' stored on the transform
-    // itself instead of this weird neighbor introspetive way
-    pub input_is_done: bool,
-    pub output_is_done: bool,
+    // means that the a transform that has us as it's successor indicated to us
+    // that it will not produce any more records
+    pub predecessor_done: bool,
+    // means that this transform will not produce any more records
+    pub done: bool,
     pub mark_for_removal: bool,
     pub preferred_input_type: Option<FieldValueRepr>,
 }
@@ -144,7 +144,6 @@ impl TransformState {
         output_field: FieldId,
         ms_id: MatchSetId,
         desired_batch_size: usize,
-        predecessor: Option<TransformId>,
         op_id: Option<OperatorId>,
     ) -> Self {
         TransformState {
@@ -154,14 +153,13 @@ impl TransformState {
             match_set_id: ms_id,
             desired_batch_size,
             successor: None,
-            predecessor,
             op_id,
             is_ready: false,
             is_stream_producer: false,
             has_appender: false,
             is_transparent: false,
-            input_is_done: false,
-            output_is_done: false,
+            predecessor_done: false,
+            done: false,
             preferred_input_type: None,
             mark_for_removal: false,
         }

@@ -86,7 +86,7 @@ impl Transform for TfPrimes {
         );
         let mut primes_to_produce = batch_size;
         let mut done = false;
-        if ps.output_batch_done {
+        if ps.successor_done {
             done = true;
             primes_to_produce = 0;
         } else if ps.input_done {

@@ -133,7 +133,6 @@ pub fn insert_tf_aggregator(
             out_fid,
             ms_id,
             desired_batch_size,
-            Some(header_tf_id),
             Some(sub_op_id),
         );
         sub_tf_state.has_appender = i + 1 < op_count;
@@ -150,7 +149,6 @@ pub fn insert_tf_aggregator(
         out_fid,
         ms_id,
         desired_batch_size,
-        None,
         Some(op_id),
     );
     let trailer_tf_id = add_transform_to_job(
@@ -206,7 +204,7 @@ pub fn handle_tf_aggregator_header(
 
     let sub_tf = &mut jd.tf_mgr.transforms[sub_tf_id];
     sub_tf.available_batch_size += batch_size;
-    sub_tf.input_is_done |= ps.input_done;
+    sub_tf.predecessor_done |= ps.input_done;
     if !ps.input_done || agg_h.curr_sub_tf_idx + 1 != sub_tf_count {
         jd.tf_mgr.push_tf_in_ready_stack(tf_id);
     }
@@ -232,7 +230,7 @@ pub fn handle_tf_aggregator_trailer(
             unreachable!()
         };
         agg_h.curr_sub_tf_idx += 1;
-        job.job_data.tf_mgr.transforms[tf_id].input_is_done = false;
+        job.job_data.tf_mgr.transforms[tf_id].predecessor_done = false;
         ps.input_done = agg_h.curr_sub_tf_idx == agg_h.sub_tfs.len();
     }
     job.job_data

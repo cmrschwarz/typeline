@@ -32,6 +32,7 @@ pub fn handle_tf_terminator(
 ) {
     let (batch_size, ps) = jd.tf_mgr.claim_all(tf_id);
     let tf = &jd.tf_mgr.transforms[tf_id];
+    let done = tf.done;
     let ab = &mut jd.match_set_mgr.match_sets[tf.match_set_id].action_buffer;
     ab.begin_action_group(tft.actor_id);
     let rows_to_drop;
@@ -47,7 +48,9 @@ pub fn handle_tf_terminator(
     if tft.delayed_deletion_row_count > 0 {
         jd.tf_mgr.push_tf_in_ready_stack(tf_id);
     }
-    jd.tf_mgr.submit_batch(tf_id, batch_size, ps.input_done);
+    if !done {
+        jd.tf_mgr.submit_batch(tf_id, batch_size, ps.input_done);
+    }
 }
 
 pub fn add_terminator(
@@ -56,14 +59,8 @@ pub fn add_terminator(
     last_tf: TransformId,
 ) -> TransformId {
     let bs = sess.job_data.tf_mgr.transforms[last_tf].desired_batch_size;
-    let tf_state = TransformState::new(
-        VOID_FIELD_ID,
-        VOID_FIELD_ID,
-        ms_id,
-        bs,
-        Some(last_tf),
-        None,
-    );
+    let tf_state =
+        TransformState::new(VOID_FIELD_ID, VOID_FIELD_ID, ms_id, bs, None);
     sess.job_data.field_mgr.inc_field_refcount(VOID_FIELD_ID, 2);
     let tf_data = setup_tf_terminator(&mut sess.job_data, &tf_state);
     let tf_id = add_transform_to_job(

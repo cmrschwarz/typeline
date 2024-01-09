@@ -93,7 +93,7 @@ impl Transform for TfDup {
         let (batch_size, ps) = jd.tf_mgr.claim_all(tf_id);
         let tf = &jd.tf_mgr.transforms[tf_id];
 
-        if ps.output_batch_done {
+        if ps.successor_done {
             jd.tf_mgr.help_out_with_output_done(
                 &mut jd.match_set_mgr,
                 tf_id,

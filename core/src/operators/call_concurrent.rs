@@ -405,7 +405,6 @@ pub fn setup_callee_concurrent(
         ms_id,
         chain.settings.default_batch_size,
         None,
-        None,
     );
     sess.job_data.field_mgr.inc_field_refcount(VOID_FIELD_ID, 2);
     let mut callee = TfCalleeConcurrent {

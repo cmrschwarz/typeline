@@ -147,9 +147,7 @@ pub(crate) fn handle_lazy_call_expansion(sess: &mut Job, tf_id: TransformId) {
             Some(tf_id),
             &Default::default(),
         );
-    if let Some(old_succ) = old_successor {
-        sess.job_data.tf_mgr.connect_tfs(end_tf, old_succ);
-    }
+    sess.job_data.tf_mgr.transforms[end_tf].successor = old_successor;
     let (batch_size, _input_done) = sess.job_data.tf_mgr.claim_all(tf_id);
     //TODO: is this fine considering e.g. forkcat with no predecessors?
     sess.job_data.unlink_transform(tf_id, batch_size);

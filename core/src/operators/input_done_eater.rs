@@ -10,7 +10,6 @@ use crate::{
 // the first subchain is completed
 pub struct TfInputDoneEater {
     input_dones_to_eat: usize,
-    handled_predecessor: Option<TransformId>,
 }
 
 pub fn setup_tf_input_done_eater(
@@ -18,10 +17,7 @@ pub fn setup_tf_input_done_eater(
     input_dones_to_eat: usize,
 ) -> TransformData<'static> {
     tf_state.is_transparent = true;
-    TransformData::InputDoneEater(TfInputDoneEater {
-        input_dones_to_eat,
-        handled_predecessor: None,
-    })
+    TransformData::InputDoneEater(TfInputDoneEater { input_dones_to_eat })
 }
 
 pub fn handle_tf_input_done_eater(
@@ -31,18 +27,15 @@ pub fn handle_tf_input_done_eater(
 ) {
     let (batch_size, mut ps) = jd.tf_mgr.claim_all(tf_id);
     let tf = &mut jd.tf_mgr.transforms[tf_id];
-    if ps.input_done {
-        //TODO: we might have an ABA problem here
-        let is_repeat = ide.handled_predecessor.is_some()
-            && tf.predecessor == ide.handled_predecessor;
-        if ide.input_dones_to_eat > 0 || is_repeat {
-            ps.input_done = false;
-            tf.input_is_done = false;
-        }
-        if ide.input_dones_to_eat > 0 && !is_repeat {
-            ide.input_dones_to_eat -= 1;
-            ide.handled_predecessor = tf.predecessor;
-        }
+    if ps.input_done && ide.input_dones_to_eat > 0 {
+        ps.input_done = false;
+        tf.predecessor_done = false;
+        ide.input_dones_to_eat -= 1;
+        #[cfg(feature = "debug_logging")]
+        println!(
+            "  tf {}: input_done_eater chomped, {} remaining",
+            tf_id, ide.input_dones_to_eat
+        );
     }
     jd.tf_mgr.submit_batch(tf_id, batch_size, ps.input_done);
 }
@@ -61,7 +54,6 @@ pub fn add_input_done_eater(
         VOID_FIELD_ID,
         ms_id,
         batch_size,
-        None,
         None,
     );
     sess.job_data.field_mgr.inc_field_refcount(VOID_FIELD_ID, 2);

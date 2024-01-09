@@ -2562,7 +2562,8 @@ pub fn handle_tf_format(
             jd.tf_mgr.push_tf_in_ready_stack(tf_id);
         }
     }
-    jd.tf_mgr.submit_batch(tf_id, batch_size, ps.input_done);
+    jd.tf_mgr
+        .submit_batch(tf_id, batch_size, ps.input_done && streams_done);
 }
 
 pub fn handle_tf_format_stream_value_update(

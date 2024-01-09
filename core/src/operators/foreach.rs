@@ -116,7 +116,7 @@ pub fn insert_tf_foreach(
             prebound_outputs,
         );
         trailer_output_field = next_input_field;
-        job.job_data.tf_mgr.connect_tfs(header_tf_id, first);
+        job.job_data.tf_mgr.transforms[header_tf_id].successor = Some(first);
         last
     } else {
         header_tf_id
@@ -129,7 +129,6 @@ pub fn insert_tf_foreach(
         trailer_output_field,
         ms_id,
         desired_batch_size,
-        None,
         Some(op_id),
     );
     let trailer_tf_id = add_transform_to_job(
@@ -140,7 +139,7 @@ pub fn insert_tf_foreach(
             actor_id: trailer_actor_id,
         }),
     );
-    job.job_data.tf_mgr.connect_tfs(last_tf_id, trailer_tf_id);
+    job.job_data.tf_mgr.transforms[last_tf_id].successor = Some(trailer_tf_id);
     (
         header_tf_id,
         trailer_tf_id,

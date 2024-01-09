@@ -541,7 +541,11 @@ pub fn handle_tf_join(
     if streams_done && ps.next_batch_ready {
         jd.tf_mgr.push_tf_in_ready_stack(tf_id);
     }
-    jd.tf_mgr.submit_batch(tf_id, groups_emitted, ps.input_done);
+    jd.tf_mgr.submit_batch(
+        tf_id,
+        groups_emitted,
+        ps.input_done && streams_done,
+    );
 }
 
 fn try_consume_stream_values<'a>(
@@ -751,7 +755,7 @@ pub fn handle_tf_join_stream_value_update(
 ) {
     let mut run_len = custom;
     let tf = &jd.tf_mgr.transforms[tf_id];
-    let input_done = tf.input_is_done;
+    let input_done = tf.predecessor_done;
     let next_batch_ready = tf.available_batch_size > 0;
     let in_field_id = tf.input_field;
     let sv = &mut jd.sv_mgr.stream_values[sv_id];

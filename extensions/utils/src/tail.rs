@@ -145,7 +145,7 @@ impl Transform for TfTail {
         // PERF: just like with the subtractive mode for head
         // this implementation *sucks* and will buffer the whole input
 
-        if !tf.input_is_done {
+        if !tf.done {
             return;
         }
         let match_set_id = tf.match_set_id;
@@ -178,7 +178,7 @@ impl Transform for TfTailAdditive {
         let (batch_size, ps) = jd.tf_mgr.claim_all(tf_id);
         let tf = &jd.tf_mgr.transforms[tf_id];
 
-        if ps.output_batch_done {
+        if ps.successor_done {
             jd.tf_mgr.help_out_with_output_done(
                 &mut jd.match_set_mgr,
                 tf_id,
