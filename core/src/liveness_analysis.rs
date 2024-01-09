@@ -1236,106 +1236,106 @@ impl LivenessData {
     #[cfg(feature = "debug_logging")]
     fn log_liveness_data(&mut self, sess: &SessionData) {
         let string_store = sess.string_store.read().unwrap();
-        println!("{:-^80}", " <liveness analysis> ");
-        println!("chains:");
+        eprintln!("{:-^80}", " <liveness analysis> ");
+        eprintln!("chains:");
         for (bb_id, c) in sess.chains.iter().enumerate() {
-            print!("chain {bb_id:02}");
+            eprint!("chain {bb_id:02}");
             if let Some(l) = c.label {
                 print!(" '{}'", string_store.lookup(l));
             }
-            print!(": ");
+            eprint!(": ");
             for &op_id in &c.operators {
                 print!(
                     "(op {op_id} `{}`) ",
                     sess.operator_data[op_id as usize].default_op_name()
                 );
             }
-            println!();
+            eprintln!();
         }
-        println!();
-        println!("bbs:");
+        eprintln!();
+        eprintln!("bbs:");
         for (bb_id, bb) in self.basic_blocks.iter().enumerate() {
             print!("bb {bb_id:02}: ");
             for op_n in bb.operators_start..bb.operators_end {
                 let op_id =
                     sess.chains[bb.chain_id as usize].operators[op_n as usize];
-                print!(
+                eprint!(
                     "(op {op_id} `{}`) ",
                     sess.operator_data[op_id as usize].debug_op_name()
                 );
             }
             if !bb.calls.is_empty() {
-                print!("[calls: ");
+                eprint!("[calls: ");
                 for c in &bb.calls {
                     print!("{c:02},");
                 }
-                print!("] ");
+                eprint!("] ");
             }
             if !bb.predecessors.is_empty() {
-                print!("{{predecessors: ");
+                eprint!("{{predecessors: ");
                 for s in &bb.predecessors {
                     print!("{s:02},");
                 }
-                print!("}}");
+                eprint!("}}");
             }
             if !bb.successors.is_empty() {
-                print!("{{successors: ");
+                eprint!("{{successors: ");
                 for s in &bb.successors {
-                    print!("{s:02},");
+                    eprint!("{s:02},");
                 }
-                print!("}}");
+                eprint!("}}");
             }
             if !bb.caller_successors.is_empty() {
-                print!("{{caller successors: ");
+                eprint!("{{caller successors: ");
                 for s in &bb.caller_successors {
-                    print!("{s:02},");
+                    eprint!("{s:02},");
                 }
-                print!("}}");
+                eprint!("}}");
             }
-            println!();
+            eprintln!();
         }
-        println!();
-        println!("vars:");
+        eprintln!();
+        eprintln!("vars:");
         for (v_id, v) in self.vars.iter().enumerate() {
-            println!("var {v_id:02}: {}", v.debug_name(&string_store));
+            eprintln!("var {v_id:02}: {}", v.debug_name(&string_store));
         }
-        println!();
-        println!("operators:");
+        eprintln!();
+        eprintln!("operators:");
         let flag = |c: bool, t: char| if c { t } else { '-' };
         for (op_id, old) in self.operator_liveness_data.iter().enumerate() {
-            print!(
+            eprint!(
                 "op {op_id:02} ({}):",
                 sess.operator_data[op_id].debug_op_name(),
             );
             if !old.accessed_outputs.is_empty() {
-                print!(" [acc:");
+                eprint!(" [acc:");
                 for (&idx, acc) in &old.accessed_outputs {
-                    print!(
+                    eprint!(
                         " {idx}::{}{}{}",
                         flag(!acc.direct_access, 'R'),
                         flag(acc.header_write, 'W'),
                         flag(!acc.non_stringified, 'S')
                     )
                 }
-                print!("]");
+                eprint!("]");
             }
             if !old.killed_outputs.is_empty() {
-                print!(" (kills:");
+                eprint!(" (kills:");
                 for idx in &old.killed_outputs {
-                    print!(" {idx}")
+                    eprint!(" {idx}")
                 }
-                print!(")");
+                eprint!(")");
             }
-            println!();
+            eprintln!();
         }
-        println!();
-        println!("op_outputs:");
+        eprintln!();
+        eprintln!("op_outputs:");
         for (i, v) in self.vars.iter().enumerate() {
-            println!("op_output {i:02}: {}", v.debug_name(&string_store));
+            eprintln!("op_output {i:02}: {}", v.debug_name(&string_store));
         }
         for (op_id, op_base) in sess.operator_bases.iter().enumerate() {
             for oo_n in op_base.outputs_start..op_base.outputs_end {
-                print!(
+                eprint!(
                     "op_output {oo_n:02}: chain {:02}, bb {:02}, op_id {op_id:02} `{}`",
                     op_base.chain_id.map(|x| x as i64).unwrap_or(-1),
                     self.operator_liveness_data[op_id].basic_block_id,
@@ -1343,26 +1343,26 @@ impl LivenessData {
                 );
                 let oo = &self.op_outputs[oo_n as usize];
                 if !oo.bound_vars.is_empty() {
-                    print!(" (bound vars: ");
+                    eprint!(" (bound vars: ");
                     for &v_id in &oo.bound_vars {
-                        print!(
+                        eprint!(
                             "{} ",
                             self.vars[v_id as usize].debug_name(&string_store)
                         );
                     }
-                    print!(")");
+                    eprint!(")");
                 }
                 if !oo.field_references.is_empty() {
-                    print!(" (field refs: ");
+                    eprint!(" (field refs: ");
                     for &fr in &oo.field_references {
                         print!("{fr} ");
                     }
-                    print!(")");
+                    eprint!(")");
                 }
-                println!();
+                eprintln!();
             }
         }
-        println!();
+        eprintln!();
         fn print_bits(
             label: &str,
             padding: usize,
@@ -1374,16 +1374,16 @@ impl LivenessData {
             for i in offset..offset + count {
                 print!(" {} ", if livness_data[i] { "X" } else { "-" });
             }
-            println!();
+            eprintln!();
         }
         const PADDING_OOS: usize = 16;
         let vc = self.vars.len();
         let ooc = self.op_outputs.len();
-        print!("{:>PADDING_OOS$}: ", "op_output id");
+        eprint!("{:>PADDING_OOS$}: ", "op_output id");
         for oo_n in 0..ooc {
             print!("{oo_n:02} ");
         }
-        println!();
+        eprintln!();
         for (name, offs) in [
             ("reads", READS_OFFSET),
             ("non string reads", NON_STRING_READS_OFFSET),
@@ -1404,17 +1404,17 @@ impl LivenessData {
         for vid in 0..vc {
             print!("{vid:02} ");
         }
-        println!();
+        eprintln!();
         let vars_print_len = 3 * vc + 1;
         for bb_id in 0..self.basic_blocks.len() {
-            println!("{:->PADDING_VARS$}{:-^vars_print_len$}", "", "");
-            println!("bb {bb_id:02}:");
+            eprintln!("{:->PADDING_VARS$}{:-^vars_print_len$}", "", "");
+            eprintln!("bb {bb_id:02}:");
             let vars_start = bb_id * SLOTS_PER_BASIC_BLOCK * vc;
             for (category_offs, category) in
                 ["local", "global", "succession"].iter().enumerate()
             {
                 if category_offs != 0 {
-                    println!();
+                    eprintln!();
                 }
                 for (name, offs) in [
                     ("reads", READS_OFFSET),
@@ -1469,9 +1469,9 @@ impl LivenessData {
                 }
             }
 
-            println!();
+            eprintln!();
         }
-        println!("{:-^80}", " </liveness analysis> ");
+        eprintln!("{:-^80}", " </liveness analysis> ");
     }
     pub fn can_consume_output(
         &self,

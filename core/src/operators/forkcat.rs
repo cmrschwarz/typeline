@@ -503,9 +503,9 @@ fn expand_for_subchain(sess: &mut Job, tf_id: TransformId, sc_n: u32) {
     forkcat.prebound_outputs = prebound_outputs;
     #[cfg(feature = "debug_logging")]
     {
-        println!("input fields: {:?}", forkcat.input_fields);
-        println!("output fields sources: {:?}", forkcat.output_field_sources);
-        println!("output fields: {:?}", forkcat.output_fields);
+        eprintln!("input fields: {:?}", forkcat.input_fields);
+        eprintln!("output fields sources: {:?}", forkcat.output_field_sources);
+        eprintln!("output fields: {:?}", forkcat.output_fields);
         sess.log_state(&format!("expanded sc #{sc_n} for forkcat"));
     }
 }

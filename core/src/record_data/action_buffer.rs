@@ -254,14 +254,14 @@ impl ActionBuffer {
             agq.actions.next_free_index().wrapping_sub(action_count);
         #[cfg(feature = "debug_logging")]
         {
-            println!(
+            eprintln!(
                 "ms {}, actor {}: added action group {}:",
                 self.match_set_id,
                 ai,
                 agq.action_groups.next_free_index()
             );
             for a in agq.actions.data.range(actions_start..) {
-                println!("   > {:?}:", a);
+                eprintln!("   > {:?}:", a);
             }
         }
         let next_action_group_id_succ = if ai != self.actors.max_index() {
@@ -971,12 +971,12 @@ impl ActionBuffer {
         };
         #[cfg(feature = "debug_logging")]
         {
-            println!(
+            eprintln!(
                 "executing for field {} (first actor: {}):",
                 field_id, actor_id,
             );
             for a in actions.clone() {
-                println!("   > {:?}:", a);
+                eprintln!("   > {:?}:", a);
             }
         }
         self.actions_applicator.run(
@@ -1027,7 +1027,7 @@ impl ActionBuffer {
         }
         #[cfg(feature = "debug_logging")]
         {
-            println!(
+            eprintln!(
                 "dropping actions for field {} (ms: {}, first actor: {})",
                 field_id, self.match_set_id, actor_id,
             );

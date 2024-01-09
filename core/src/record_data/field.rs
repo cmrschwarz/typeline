@@ -828,8 +828,8 @@ impl FieldManager {
     pub fn remove_field(&mut self, id: FieldId, msm: &mut MatchSetManager) {
         #[cfg(feature = "debug_logging")]
         {
-            print!("removing field {id}");
-            println!();
+            eprint!("removing field {id}");
+            eprintln!();
         }
         let mut field = self.fields[id].borrow_mut();
 
@@ -865,8 +865,8 @@ impl FieldManager {
         if rc == 0 {
             self.remove_field(field_id, msm);
         } else if cfg!(feature = "debug_logging") {
-            print!("dropped ref to field {field_id} (rc {})", rc);
-            println!();
+            eprint!("dropped ref to field {field_id} (rc {})", rc);
+            eprintln!();
         }
     }
 }

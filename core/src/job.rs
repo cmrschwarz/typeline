@@ -487,10 +487,10 @@ pub enum TransformContinuationKind {
 impl<'a> Job<'a> {
     pub fn log_state(&self, message: &str) {
         if cfg!(feature = "debug_logging") {
-            println!("{message}");
+            eprintln!("{message}");
             for (i, tf) in self.job_data.tf_mgr.transforms.iter_enumerated() {
                 let name = self.transform_data[i.get()].display_name();
-                println!(
+                eprintln!(
                     "tf {} -> {} [fields {} {} {}] (ms {}): {}",
                     i,
                     if let Some(s) = tf.successor {
@@ -508,7 +508,7 @@ impl<'a> Job<'a> {
             #[cfg(feature = "debug_logging")]
             for (i, _) in self.job_data.field_mgr.fields.iter_enumerated() {
                 self.job_data.print_field_stats(i);
-                println!();
+                eprintln!();
             }
         }
     }
@@ -597,7 +597,7 @@ impl<'a> Job<'a> {
             } else {
                 self.transform_data[tf_id.get()].display_name().to_string()
             };
-            println!("removing tf id {tf_id}: `{name}`");
+            eprintln!("removing tf id {tf_id}: `{name}`");
         }
         self.job_data
             .field_mgr
@@ -885,7 +885,7 @@ impl<'a> Job<'a> {
     }
     fn handle_stream_value_update(&mut self, svu: StreamValueUpdate) {
         #[cfg(feature = "debug_logging")]
-        println!(
+        eprintln!(
             "> handling stream value {} update for tf {} (`{}`)",
             svu.sv_id,
             svu.tf_id,
@@ -975,7 +975,7 @@ impl<'a> Job<'a> {
         #[cfg(feature = "debug_logging")]
         {
             let tf = &self.job_data.tf_mgr.transforms[tf_id];
-            println!(
+            eprintln!(
             "> handling tf {tf_id} `{}`, bsa: {}, pred_done: {}, done: {}, stack: {:?}",
             self.transform_data[tf_id.get()].display_name(),
             tf.available_batch_size,
@@ -1114,7 +1114,7 @@ impl<'a> Job<'a> {
 
     pub(crate) fn run_stream_producer_update(&mut self, tf_id: TransformId) {
         //#[cfg(feature = "debug_logging")]
-        //println!(
+        //eprintln!(
         //    "> handling stream producer update for tf {} (`{}`)",
         //    tf_id,
         //    self.transform_data[tf_id.get() as usize].display_name()

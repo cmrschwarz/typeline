@@ -255,7 +255,7 @@ impl Session {
         let ctx_data = ctx_data.clone();
         self.total_worker_threads += 1;
         #[cfg(feature = "debug_logging")]
-        println!(
+        eprintln!(
             "added worker thread: {} / {}",
             self.total_worker_threads, self.session_data.settings.max_threads
         );
@@ -464,7 +464,7 @@ impl Context {
                             }
                         }
                         Err(e) => {
-                            println!("\x1b[0;31mError:\x1b[0m {e}");
+                            eprintln!("\x1b[0;31mError:\x1b[0m {e}");
                             continue;
                         }
                     }
@@ -473,15 +473,15 @@ impl Context {
                     }
                 }
                 Ok(Signal::CtrlC) => {
-                    //  println!("^C");
+                    // eprintln!("^C");
                     continue;
                 }
                 Ok(Signal::CtrlD) => {
-                    println!("exit");
+                    eprintln!("exit");
                     break;
                 }
                 Err(err) => {
-                    println!("IO Error: {}", err);
+                    eprintln!("IO Error: {}", err);
                     break;
                 }
             }
