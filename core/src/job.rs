@@ -435,21 +435,21 @@ impl<'a> JobData<'a> {
         {
             let id = _id;
             let field = self.field_mgr.fields[id].borrow();
-            print!("field id {id}");
+            eprint!("field id {id}");
             // if let Some(name) = field.name {
-            //    print!(" '@{}'", self.session_data.string_store.lookup(name));
+            //    eprint!(" '@{}'", self.session_data.string_store.lookup(name));
             //}
-            print!(", ms {}", field.match_set);
+            eprint!(", ms {}", field.match_set);
             if let Some(prod_id) = field.producing_transform_id {
-                print!(
+                eprint!(
                     " (output of tf {prod_id} `{}`)",
                     field.producing_transform_arg
                 )
             } else if !field.producing_transform_arg.is_empty() {
-                print!(" (`{}`)", field.producing_transform_arg)
+                eprint!(" (`{}`)", field.producing_transform_arg)
             }
             if field.shadowed_by != VOID_FIELD_ID {
-                print!(
+                eprint!(
                     " (aliased by field id {} since actor id `{}`)",
                     field.shadowed_by, field.shadowed_since
                 )
@@ -457,7 +457,7 @@ impl<'a> JobData<'a> {
             if let (cow_src_field, Some(data_cow)) =
                 field.iter_hall.cow_source_field(&self.field_mgr)
             {
-                print!(
+                eprint!(
                     " [{}cow{}]",
                     if data_cow { "data " } else { "" },
                     if let Some(src) = cow_src_field {
@@ -468,13 +468,13 @@ impl<'a> JobData<'a> {
                 );
             }
             if !field.field_refs.is_empty() {
-                print!(" ( field refs:");
+                eprint!(" ( field refs:");
                 for fr in &field.field_refs {
-                    print!(" {fr}");
+                    eprint!(" {fr}");
                 }
-                print!(" )");
+                eprint!(" )");
             }
-            print!(" (rc {})", field.ref_count);
+            eprint!(" (rc {})", field.ref_count);
         }
     }
 }

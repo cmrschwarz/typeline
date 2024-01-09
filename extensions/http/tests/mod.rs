@@ -1,10 +1,11 @@
 use scr_core::{
     operators::{
-        format::create_op_format, regex::create_op_regex,
-        sequence::create_op_seq,
+        format::create_op_format, print::create_op_print_with_target,
+        regex::create_op_regex, sequence::create_op_seq,
     },
     options::context_builder::ContextBuilder,
     scr_error::ScrError,
+    utils::test_utils::DummyWritableTarget,
 };
 use scr_ext_http::http::create_op_GET;
 
@@ -49,6 +50,21 @@ fn multi_get_https() -> Result<(), ScrError> {
         .add_op(create_op_GET())
         .run_collect_stringified()?;
     assert_eq!(&res, &["1", "2", "3"]);
+    Ok(())
+}
+
+#[test]
+fn multi_get_into_print() -> Result<(), ScrError> {
+    let target = DummyWritableTarget::default();
+    ContextBuilder::default()
+        .push_str("MQ==", 1)
+        .push_str("Mq==", 1)
+        .push_str("Mw==", 1)
+        .add_op(create_op_format("http://httpbin.org/base64/{}").unwrap())
+        .add_op(create_op_GET())
+        .add_op(create_op_print_with_target(target.get_target()))
+        .run()?;
+    assert_eq!(&*target.get(), "1\n2\n3\n");
     Ok(())
 }
 

@@ -1,4 +1,4 @@
-use std::io::{BufWriter, IsTerminal, StdoutLock, Write};
+use std::io::{IsTerminal, Write};
 
 use crate::{
     job::JobData,
@@ -35,18 +35,22 @@ use super::{
     format::RealizedFormatKey,
     operator::{OperatorBase, OperatorData},
     transform::{TransformData, TransformId, TransformState},
+    utils::writable::{AnyWriter, WritableTarget},
 };
 
 // ENHANCE: bikeshed a better format for this
 const ERROR_PREFIX_STR: &str = "ERROR: ";
 
-#[derive(Clone)]
-pub struct OpPrint {}
+pub struct OpPrint {
+    target: WritableTarget,
+}
+
 pub struct TfPrint {
     flush_on_every_print: bool,
     current_stream_val: Option<StreamValueId>,
     iter_id: IterId,
     streams_kept_alive: usize,
+    target: AnyWriter,
 }
 
 pub fn parse_op_print(
@@ -59,27 +63,36 @@ pub fn parse_op_print(
             arg_idx,
         ));
     }
-    Ok(OperatorData::Print(OpPrint {}))
+    Ok(OperatorData::Print(OpPrint {
+        target: WritableTarget::Stdout,
+    }))
 }
 
 pub fn build_tf_print(
     jd: &mut JobData,
     _op_base: &OperatorBase,
-    _op: &OpPrint,
+    op: &OpPrint,
     tf_state: &mut TransformState,
 ) -> TransformData<'static> {
     tf_state.preferred_input_type = Some(FieldValueRepr::BytesInline);
     TransformData::Print(TfPrint {
-        // ENHANCE: should we make a config option for this?
-        flush_on_every_print: std::io::stdout().is_terminal(),
+        // ENHANCE: should we config options for this stuff?
+        flush_on_every_print: matches!(op.target, WritableTarget::Stdout)
+            && std::io::stdout().is_terminal(),
         current_stream_val: None,
         streams_kept_alive: 0,
         iter_id: jd.field_mgr.claim_iter(tf_state.input_field),
+        target: op.target.take_writer(true),
     })
 }
 
 pub fn create_op_print() -> OperatorData {
-    OperatorData::Print(OpPrint {})
+    OperatorData::Print(OpPrint {
+        target: WritableTarget::Stdout,
+    })
+}
+pub fn create_op_print_with_target(target: WritableTarget) -> OperatorData {
+    OperatorData::Print(OpPrint { target })
 }
 
 pub fn typed_slice_zst_str(ts: &TypedSlice) -> &'static str {
@@ -112,7 +125,7 @@ pub fn write_stream_val_check_done(
     debug_assert!(sv.done || offsets.is_none());
     match &sv.value {
         FieldValue::Bytes(_) | FieldValue::Text(_) => {
-            if !sv.is_buffered && !sv.done {
+            if sv.is_buffered && !sv.done {
                 return Ok(false);
             }
             let mut data = sv.value.as_ref().as_slice().as_bytes();
@@ -154,11 +167,11 @@ pub fn handle_tf_print_raw(
     output_field_id: FieldId,
     batch_size: usize,
     print: &mut TfPrint,
-    stdout: &mut BufWriter<StdoutLock<'_>>,
     // we need these even in case of an error, so it's an output parameter :/
     handled_field_count: &mut usize,
     last_group_separator_end: &mut usize,
 ) -> Result<(), std::io::Error> {
+    let mut stream = print.target.aquire(true);
     *handled_field_count = 0;
     *last_group_separator_end = 0;
     let tf = &jd.tf_mgr.transforms[tf_id];
@@ -198,8 +211,8 @@ pub fn handle_tf_print_raw(
                 for v in RefAwareInlineTextIter::from_range(&range, text)
                     .unfold_rl()
                 {
-                    stdout.write_all(v.as_bytes())?;
-                    stdout.write_all(b"\n")?;
+                    stream.write_all(v.as_bytes())?;
+                    stream.write_all(b"\n")?;
                     *handled_field_count += 1;
                 }
             }
@@ -207,8 +220,8 @@ pub fn handle_tf_print_raw(
                 for v in RefAwareInlineBytesIter::from_range(&range, bytes)
                     .unfold_rl()
                 {
-                    stdout.write_all(v)?;
-                    stdout.write_all(b"\n")?;
+                    stream.write_all(v)?;
+                    stream.write_all(b"\n")?;
                     *handled_field_count += 1;
                 }
             }
@@ -216,8 +229,8 @@ pub fn handle_tf_print_raw(
                 for v in RefAwareTextBufferIter::from_range(&range, bytes)
                     .unfold_rl()
                 {
-                    stdout.write_all(v.as_bytes())?;
-                    stdout.write_all(b"\n")?;
+                    stream.write_all(v.as_bytes())?;
+                    stream.write_all(b"\n")?;
                     *handled_field_count += 1;
                 }
             }
@@ -225,8 +238,8 @@ pub fn handle_tf_print_raw(
                 for v in RefAwareBytesBufferIter::from_range(&range, bytes)
                     .unfold_rl()
                 {
-                    stdout.write_all(v)?;
-                    stdout.write_all(b"\n")?;
+                    stream.write_all(v)?;
+                    stream.write_all(b"\n")?;
                     *handled_field_count += 1;
                 }
             }
@@ -234,8 +247,8 @@ pub fn handle_tf_print_raw(
                 for (v, rl) in TypedSliceIter::from_range(&range, ints) {
                     let v = i64_to_str(false, *v);
                     for _ in 0..rl {
-                        stdout.write_all(v.as_bytes())?;
-                        stdout.write_all(b"\n")?;
+                        stream.write_all(v.as_bytes())?;
+                        stream.write_all(b"\n")?;
                         *handled_field_count += 1;
                     }
                 }
@@ -244,7 +257,7 @@ pub fn handle_tf_print_raw(
                 for v in RefAwareTypedSliceIter::from_range(&range, errs)
                     .unfold_rl()
                 {
-                    stdout
+                    stream
                         .write_fmt(format_args!("{ERROR_PREFIX_STR}{v}\n"))?;
                     *handled_field_count += 1;
                 }
@@ -254,15 +267,15 @@ pub fn handle_tf_print_raw(
                     RefAwareTypedSliceIter::from_range(&range, custom_types)
                         .unfold_rl()
                 {
-                    v.stringify(stdout, &RealizedFormatKey::default())?;
-                    stdout.write_all(b"\n")?;
+                    v.stringify(&mut stream, &RealizedFormatKey::default())?;
+                    stream.write_all(b"\n")?;
                     *handled_field_count += 1;
                 }
             }
             TypedSlice::Null(_) | TypedSlice::Undefined(_) => {
                 let zst_str = typed_slice_zst_str(&range.base.data);
                 for _ in 0..range.base.field_count {
-                    stdout.write_fmt(format_args!("{zst_str}\n"))?;
+                    stream.write_fmt(format_args!("{zst_str}\n"))?;
                     *handled_field_count += 1;
                 }
             }
@@ -276,7 +289,7 @@ pub fn handle_tf_print_raw(
                     *handled_field_count += rl as usize;
                     let sv = &mut jd.sv_mgr.stream_values[sv_id];
                     let done = write_stream_val_check_done(
-                        stdout,
+                        &mut stream,
                         sv,
                         offsets,
                         rl as usize,
@@ -326,7 +339,7 @@ pub fn handle_tf_print_raw(
                     RefAwareTypedSliceIter::from_range(&range, big_ints)
                 {
                     for _ in 0..rl {
-                        stdout.write_fmt(format_args!("{}\n", v))?;
+                        stream.write_fmt(format_args!("{}\n", v))?;
                         *handled_field_count += 1;
                     }
                 }
@@ -334,7 +347,7 @@ pub fn handle_tf_print_raw(
             TypedSlice::Float(floats) => {
                 for (v, rl) in TypedSliceIter::from_range(&range, floats) {
                     for _ in 0..rl {
-                        stdout.write_fmt(format_args!("{}\n", v))?;
+                        stream.write_fmt(format_args!("{}\n", v))?;
                         *handled_field_count += 1;
                     }
                 }
@@ -345,10 +358,10 @@ pub fn handle_tf_print_raw(
                 {
                     for _ in 0..rl {
                         if print_rationals_raw {
-                            stdout.write_fmt(format_args!("{}\n", v))?;
+                            stream.write_fmt(format_args!("{}\n", v))?;
                         } else {
-                            format_rational(stdout, v, RATIONAL_DIGITS)?;
-                            stdout.write_all(b"\n")?;
+                            format_rational(&mut stream, v, RATIONAL_DIGITS)?;
+                            stream.write_all(b"\n")?;
                         }
                         *handled_field_count += 1;
                     }
@@ -368,8 +381,8 @@ pub fn handle_tf_print_raw(
                 for a in RefAwareTypedSliceIter::from_range(&range, arrays)
                     .unfold_rl()
                 {
-                    a.format(stdout, &fc)?;
-                    stdout.write_all(b"\n")?;
+                    a.format(&mut stream, &fc)?;
+                    stream.write_all(b"\n")?;
                     *handled_field_count += 1;
                 }
             }
@@ -387,8 +400,8 @@ pub fn handle_tf_print_raw(
                 for o in RefAwareTypedSliceIter::from_range(&range, objects)
                     .unfold_rl()
                 {
-                    o.format(stdout, &fc)?;
-                    stdout.write_all(b"\n")?;
+                    o.format(&mut stream, &fc)?;
+                    stream.write_all(b"\n")?;
                     *handled_field_count += 1;
                 }
             }
@@ -400,7 +413,7 @@ pub fn handle_tf_print_raw(
     while *handled_field_count < batch_size
         && print.current_stream_val.is_none()
     {
-        stdout.write_fmt(format_args!("{UNDEFINED_STR}\n"))?;
+        stream.write_fmt(format_args!("{UNDEFINED_STR}\n"))?;
         *handled_field_count += 1;
     }
     jd.field_mgr.store_iter(input_field_id, print.iter_id, iter);
@@ -417,7 +430,6 @@ pub fn handle_tf_print(
     }
     let (batch_size, ps) = jd.tf_mgr.claim_batch(tf_id);
 
-    let mut stdout = BufWriter::new(std::io::stdout().lock());
     let op_id = jd.tf_mgr.transforms[tf_id].op_id.unwrap();
     let of_id = jd.tf_mgr.prepare_output_field(
         &mut jd.field_mgr,
@@ -433,14 +445,12 @@ pub fn handle_tf_print(
         of_id,
         batch_size,
         tf,
-        &mut stdout,
         &mut handled_field_count,
         &mut last_group_separator,
     );
     if tf.flush_on_every_print {
-        stdout.flush().ok();
+        tf.target.aquire(false).flush().ok();
     }
-    drop(stdout);
     let mut output_field = jd.field_mgr.fields[of_id].borrow_mut();
     let mut outputs_produced = handled_field_count;
     match res {
@@ -483,13 +493,14 @@ pub fn handle_tf_print_stream_value_update(
 ) {
     // we don't use a buffered writer here because stream chunks
     // are large and we want to avoid the copy
-    let mut stdout = std::io::stdout().lock();
     let sv = &mut jd.sv_mgr.stream_values[sv_id];
     let run_len = custom;
     let mut success_count = run_len;
     let mut error_count = 0;
     let mut err_message = None;
-    match write_stream_val_check_done(&mut stdout, sv, None, run_len) {
+
+    let mut stream = print.target.aquire(true);
+    match write_stream_val_check_done(&mut stream, sv, None, run_len) {
         Ok(false) => {
             return;
         }
@@ -499,6 +510,10 @@ pub fn handle_tf_print_stream_value_update(
             success_count = run_len - error_count;
             err_message = Some(e.to_string());
         }
+    }
+
+    if print.flush_on_every_print {
+        let _ = stream.flush();
     }
     let tf = &jd.tf_mgr.transforms[tf_id];
     let mut output_field = jd.field_mgr.fields[tf.output_field].borrow_mut();
@@ -517,9 +532,7 @@ pub fn handle_tf_print_stream_value_update(
         );
         jd.sv_mgr.drop_field_value_subscription(sv_id, Some(tf_id));
     }
-    if print.flush_on_every_print {
-        stdout.flush().ok();
-    }
+
     print.current_stream_val = None;
     jd.field_mgr.relinquish_clear_delay(tf.input_field);
     jd.tf_mgr.push_tf_in_ready_stack(tf_id);

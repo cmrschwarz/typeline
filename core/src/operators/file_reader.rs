@@ -32,13 +32,13 @@ use super::{
     transform::{TransformData, TransformId, TransformState},
 };
 
-pub enum FileKind {
+pub enum ReadableFileKind {
     Stdin,
     File(PathBuf),
     Custom(Mutex<Option<Box<dyn Read + Send>>>),
 }
 
-pub enum AnyFile {
+pub enum AnyFileReader {
     Stdin, // we can't hold the lock here because that wouldn't be Send...
     File(File),
     BufferedFile(BufReader<File>),
@@ -55,7 +55,7 @@ enum LineBufferedSetting {
 }
 
 pub struct OpFileReader {
-    file_kind: FileKind,
+    file_kind: ReadableFileKind,
     line_buffered: LineBufferedSetting,
     insert_count: Option<usize>,
 }
@@ -64,9 +64,11 @@ impl OpFileReader {
     pub fn default_op_name(&self) -> DefaultOperatorName {
         let mut res = SmallString::new();
         match self.file_kind {
-            FileKind::Stdin => res.push_str("stdin"),
-            FileKind::File(_) => res.push_str("file"),
-            FileKind::Custom(_) => res.push_str("<custom_file_stream>"),
+            ReadableFileKind::Stdin => res.push_str("stdin"),
+            ReadableFileKind::File(_) => res.push_str("file"),
+            ReadableFileKind::Custom(_) => {
+                res.push_str("<custom_file_stream>")
+            }
         }
         res
     }
@@ -75,7 +77,7 @@ impl OpFileReader {
 pub struct TfFileReader {
     // in case of errors, we close this by take()ing the file, therefore
     // option
-    file: Option<AnyFile>,
+    file: Option<AnyFileReader>,
     stream_value: Option<StreamValueId>,
     value_committed: bool,
     stream_value_committed: bool,
@@ -101,26 +103,26 @@ pub fn build_tf_file_reader<'a>(
         }
     };
     let file = match &op.file_kind {
-        FileKind::Stdin => {
+        ReadableFileKind::Stdin => {
             let stdin = std::io::stdin().lock();
             if check_if_tty {
                 line_buffered = stdin.is_terminal();
             }
-            AnyFile::Stdin
+            AnyFileReader::Stdin
         }
-        FileKind::File(path) => match File::open(path) {
+        ReadableFileKind::File(path) => match File::open(path) {
             Ok(f) => {
                 if check_if_tty && f.is_terminal() {
                     line_buffered = true;
-                    AnyFile::BufferedFile(BufReader::new(f))
+                    AnyFileReader::BufferedFile(BufReader::new(f))
                 } else {
-                    AnyFile::File(f)
+                    AnyFileReader::File(f)
                 }
             }
-            Err(e) => AnyFile::FileOpenIoError(Some(e)),
+            Err(e) => AnyFileReader::FileOpenIoError(Some(e)),
         },
-        FileKind::Custom(reader) => {
-            AnyFile::Custom(reader
+        ReadableFileKind::Custom(reader) => {
+            AnyFileReader::Custom(reader
                 .lock()
                 .unwrap()
                 .take()
@@ -197,20 +199,20 @@ fn read_mode_based<F: BufRead>(
 
 fn read_chunk(
     target: &mut impl Write,
-    file: &mut AnyFile,
+    file: &mut AnyFileReader,
     limit: usize,
     line_buffered: bool,
 ) -> Result<(usize, bool), std::io::Error> {
     let (size, eof) = match file {
-        AnyFile::BufferedFile(f) => {
+        AnyFileReader::BufferedFile(f) => {
             read_mode_based(f, limit, target, line_buffered)
         }
-        AnyFile::Stdin => {
+        AnyFileReader::Stdin => {
             read_mode_based(&mut stdin().lock(), limit, target, line_buffered)
         }
-        AnyFile::File(f) => read_size_limited(f, limit, target),
-        AnyFile::FileOpenIoError(e) => Err(e.take().unwrap()),
-        AnyFile::Custom(r) => read_size_limited(r, limit, target),
+        AnyFileReader::File(f) => read_size_limited(f, limit, target),
+        AnyFileReader::FileOpenIoError(e) => Err(e.take().unwrap()),
+        AnyFileReader::Custom(r) => read_size_limited(r, limit, target),
     }?;
     Ok((size, eof))
 }
@@ -491,7 +493,7 @@ pub fn parse_op_stdin(
 
 // insert count 0 means all input will be consumed
 pub fn create_op_file_reader(
-    file_kind: FileKind,
+    file_kind: ReadableFileKind,
     insert_count: usize,
 ) -> OperatorData {
     OperatorData::FileReader(OpFileReader {
@@ -507,10 +509,10 @@ pub fn create_op_file_reader(
 }
 
 pub fn create_op_file(path: PathBuf, insert_count: usize) -> OperatorData {
-    create_op_file_reader(FileKind::File(path), insert_count)
+    create_op_file_reader(ReadableFileKind::File(path), insert_count)
 }
 pub fn create_op_stdin(insert_count: usize) -> OperatorData {
-    create_op_file_reader(FileKind::Stdin, insert_count)
+    create_op_file_reader(ReadableFileKind::Stdin, insert_count)
 }
 
 pub fn create_op_stream_dummy(
@@ -528,7 +530,7 @@ pub fn create_op_file_reader_custom(
     insert_count: usize,
 ) -> OperatorData {
     create_op_file_reader(
-        FileKind::Custom(Mutex::new(Some(read))),
+        ReadableFileKind::Custom(Mutex::new(Some(read))),
         insert_count,
     )
 }
@@ -542,7 +544,7 @@ pub fn create_op_file_reader_custom_not_cloneable(
     insert_count: usize,
 ) -> OperatorData {
     create_op_file_reader(
-        FileKind::Custom(Mutex::new(Some(read))),
+        ReadableFileKind::Custom(Mutex::new(Some(read))),
         insert_count,
     )
 }
@@ -555,12 +557,12 @@ pub fn setup_op_file_reader(
         BufferingMode::BlockBuffer => LineBufferedSetting::No,
         BufferingMode::LineBuffer => LineBufferedSetting::Yes,
         BufferingMode::LineBufferStdin => match op.file_kind {
-            FileKind::Stdin => LineBufferedSetting::Yes,
+            ReadableFileKind::Stdin => LineBufferedSetting::Yes,
             _ => LineBufferedSetting::No,
         },
         BufferingMode::LineBufferIfTTY => LineBufferedSetting::IfTTY,
         BufferingMode::LineBufferStdinIfTTY => match op.file_kind {
-            FileKind::Stdin => LineBufferedSetting::IfTTY,
+            ReadableFileKind::Stdin => LineBufferedSetting::IfTTY,
             _ => LineBufferedSetting::No,
         },
     };

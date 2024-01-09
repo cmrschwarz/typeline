@@ -1241,11 +1241,11 @@ impl LivenessData {
         for (bb_id, c) in sess.chains.iter().enumerate() {
             eprint!("chain {bb_id:02}");
             if let Some(l) = c.label {
-                print!(" '{}'", string_store.lookup(l));
+                eprint!(" '{}'", string_store.lookup(l));
             }
             eprint!(": ");
             for &op_id in &c.operators {
-                print!(
+                eprint!(
                     "(op {op_id} `{}`) ",
                     sess.operator_data[op_id as usize].default_op_name()
                 );
@@ -1255,7 +1255,7 @@ impl LivenessData {
         eprintln!();
         eprintln!("bbs:");
         for (bb_id, bb) in self.basic_blocks.iter().enumerate() {
-            print!("bb {bb_id:02}: ");
+            eprint!("bb {bb_id:02}: ");
             for op_n in bb.operators_start..bb.operators_end {
                 let op_id =
                     sess.chains[bb.chain_id as usize].operators[op_n as usize];
@@ -1267,14 +1267,14 @@ impl LivenessData {
             if !bb.calls.is_empty() {
                 eprint!("[calls: ");
                 for c in &bb.calls {
-                    print!("{c:02},");
+                    eprint!("{c:02},");
                 }
                 eprint!("] ");
             }
             if !bb.predecessors.is_empty() {
                 eprint!("{{predecessors: ");
                 for s in &bb.predecessors {
-                    print!("{s:02},");
+                    eprint!("{s:02},");
                 }
                 eprint!("}}");
             }
@@ -1355,7 +1355,7 @@ impl LivenessData {
                 if !oo.field_references.is_empty() {
                     eprint!(" (field refs: ");
                     for &fr in &oo.field_references {
-                        print!("{fr} ");
+                        eprint!("{fr} ");
                     }
                     eprint!(")");
                 }
@@ -1370,9 +1370,9 @@ impl LivenessData {
             offset: usize,
             livness_data: &BitSlice<Cell<usize>>,
         ) {
-            print!("{:>padding$}: ", label);
+            eprint!("{:>padding$}: ", label);
             for i in offset..offset + count {
-                print!(" {} ", if livness_data[i] { "X" } else { "-" });
+                eprint!(" {} ", if livness_data[i] { "X" } else { "-" });
             }
             eprintln!();
         }
@@ -1381,7 +1381,7 @@ impl LivenessData {
         let ooc = self.op_outputs.len();
         eprint!("{:>PADDING_OOS$}: ", "op_output id");
         for oo_n in 0..ooc {
-            print!("{oo_n:02} ");
+            eprint!("{oo_n:02} ");
         }
         eprintln!();
         for (name, offs) in [
@@ -1399,10 +1399,10 @@ impl LivenessData {
         }
 
         const PADDING_VARS: usize = 32;
-        print!("\n{:>PADDING_VARS$}: ", "var id");
+        eprint!("\n{:>PADDING_VARS$}: ", "var id");
 
         for vid in 0..vc {
-            print!("{vid:02} ");
+            eprint!("{vid:02} ");
         }
         eprintln!();
         let vars_print_len = 3 * vc + 1;
@@ -1457,10 +1457,10 @@ impl LivenessData {
                 if elements.peek().is_none() {
                     continue;
                 }
-                print!("\n{name}: ");
+                eprint!("\n{name}: ");
                 for (&tgt, srcs) in elements {
                     for &src in srcs {
-                        print!(
+                        eprint!(
                             "[{} <- {}] ",
                             self.vars[src as usize].debug_name(&string_store),
                             self.vars[tgt as usize].debug_name(&string_store),

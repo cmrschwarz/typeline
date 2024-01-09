@@ -1,4 +1,12 @@
-use std::{io::Read, ops::Range};
+use std::{
+    io::{Read, Write},
+    ops::Range,
+    sync::{Arc, Mutex, MutexGuard},
+};
+
+use bstr::ByteSlice;
+
+use crate::operators::utils::writable::WritableTarget;
 
 #[derive(Clone)]
 pub struct SliceReader<'a> {
@@ -98,4 +106,32 @@ pub fn int_sequence_newline_separated(range: Range<usize>) -> String {
             f.push('\n');
             f
         })
+}
+
+#[derive(Clone, Default)]
+pub struct DummyWritableTarget {
+    target: Arc<Mutex<String>>,
+}
+
+impl Write for DummyWritableTarget {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.target.lock().unwrap().push_str(buf.to_str().unwrap());
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+impl DummyWritableTarget {
+    pub fn new() -> Self {
+        Default::default()
+    }
+    pub fn get_target(&self) -> WritableTarget {
+        WritableTarget::Custom(Mutex::new(Some(Box::new(self.clone()))))
+    }
+    pub fn get(&self) -> MutexGuard<String> {
+        self.target.lock().unwrap()
+    }
 }
