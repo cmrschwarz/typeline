@@ -1,22 +1,21 @@
 use std::collections::HashMap;
 
 use crate::{
-    chain::Chain,
-    context::SessionSettings,
-    job::{add_transform_to_job, Job, JobData},
+    context::SessionData,
+    job::{add_transform_to_job, Job, JobData, TransformContinuationKind},
     liveness_analysis::OpOutputIdx,
     options::{
         operator_base_options::OperatorBaseOptions,
         session_options::SessionOptions,
     },
     record_data::field::FieldId,
-    utils::{identity_hasher::BuildIdentityHasher, string_store::StringStore},
+    utils::identity_hasher::BuildIdentityHasher,
 };
 
 use super::{
     errors::OperatorSetupError,
     nop_copy::create_op_nop_copy,
-    operator::{OperatorBase, OperatorData, OperatorId},
+    operator::{OperatorData, OperatorId},
     transform::{TransformData, TransformId, TransformState},
 };
 
@@ -27,14 +26,12 @@ pub struct OpAggregator {
 pub const AGGREGATOR_DEFAULT_NAME: &str = "aggregator";
 
 pub struct TfAggregatorHeader {
-    trailer_tf_id: TransformId,
+    curr_sub_tf_idx: usize,
     sub_tfs: Vec<TransformId>,
-    prev_sub_tf_idx: usize,
 }
 
 pub struct TfAggregatorTrailer {
-    curr_sub_tf_idx: usize,
-    sub_tf_count: usize,
+    header_tf_id: TransformId,
 }
 
 pub fn create_op_aggregate(sub_ops: Vec<OperatorId>) -> OperatorData {
@@ -54,40 +51,22 @@ pub fn create_op_aggregator_append_leader(
 }
 
 pub fn setup_op_aggregator(
-    op_id: u32, //we can't take the operator because the borrow checker hates us
-    sess_operator_data: &mut Vec<OperatorData>,
-    sess_operator_bases: &mut Vec<OperatorBase>,
-    sess_chain_labels: &mut HashMap<
-        std::num::NonZeroU32,
-        u32,
-        BuildIdentityHasher,
-    >,
-    sess_chains: &mut Vec<Chain>,
-    string_store: &mut StringStore,
-    sess_settings: &mut SessionSettings,
+    sess: &mut SessionData,
     chain_id: u32,
+    op_id: u32, //we can't take the operator because the borrow checker hates us
 ) -> Result<(), OperatorSetupError> {
-    let OperatorData::Aggregator(agg) = &sess_operator_data[op_id as usize]
+    let OperatorData::Aggregator(agg) = &sess.operator_data[op_id as usize]
     else {
         unreachable!()
     };
     for i in 0..agg.sub_ops.len() {
         let OperatorData::Aggregator(agg) =
-            &sess_operator_data[op_id as usize]
+            &sess.operator_data[op_id as usize]
         else {
             unreachable!()
         };
         let sub_op_id = agg.sub_ops[i];
-        SessionOptions::setup_operator(
-            sess_operator_bases,
-            sess_operator_data,
-            sess_chain_labels,
-            sess_chains,
-            string_store,
-            sess_settings,
-            sub_op_id,
-            chain_id,
-        )?;
+        SessionOptions::setup_operator(sess, chain_id, sub_op_id)?;
     }
     Ok(())
 }
@@ -118,130 +97,145 @@ pub fn add_aggregate_to_sess_opts_uninit(
     sess.add_op_uninit(op_aggregate_base, op_data)
 }
 
-pub fn build_tf_aggregator<'a>(
-    sess: &mut Job,
-    op: &'a OpAggregator,
-    tf_state: &mut TransformState,
+pub fn insert_tf_aggregator(
+    job: &mut Job,
+    op: &OpAggregator,
+    mut tf_state: TransformState,
     op_id: u32,
     prebound_outputs: &HashMap<OpOutputIdx, FieldId, BuildIdentityHasher>,
-) -> TransformData<'a> {
+) -> (TransformId, TransformId, FieldId, TransformContinuationKind) {
     let op_count = op.sub_ops.len();
-    sess.job_data
+    let in_fid = tf_state.input_field;
+    let out_fid = tf_state.output_field;
+    let ms_id = tf_state.match_set_id;
+    let desired_batch_size = tf_state.desired_batch_size;
+    job.job_data
         .field_mgr
-        .inc_field_refcount(tf_state.input_field, op_count + 1);
-    sess.job_data
+        .inc_field_refcount(in_fid, op_count + 1);
+    job.job_data
         .field_mgr
-        .inc_field_refcount(tf_state.output_field, op_count + 1);
+        .inc_field_refcount(out_fid, op_count + 1);
+    tf_state.output_field = in_fid;
+    let header_tf_id = add_transform_to_job(
+        &mut job.job_data,
+        &mut job.transform_data,
+        tf_state,
+        TransformData::AggregatorHeader(TfAggregatorHeader {
+            sub_tfs: Default::default(),
+            curr_sub_tf_idx: 0,
+        }),
+    );
+
     let mut sub_tfs = Vec::with_capacity(op_count);
+    for (i, &sub_op_id) in op.sub_ops.iter().enumerate() {
+        let mut sub_tf_state = TransformState::new(
+            in_fid,
+            out_fid,
+            ms_id,
+            desired_batch_size,
+            Some(header_tf_id),
+            Some(sub_op_id),
+        );
+        sub_tf_state.has_appender = i + 1 < op_count;
+        let (sub_tf_start, _sub_tf_end, _next_input_field, _diverged) = job
+            .insert_transform_from_op(
+                sub_tf_state,
+                sub_op_id,
+                prebound_outputs,
+            );
+        sub_tfs.push(sub_tf_start);
+    }
     let trailer_tf_state = TransformState::new(
-        tf_state.output_field,
-        tf_state.output_field,
-        tf_state.match_set_id,
-        tf_state.desired_batch_size,
+        out_fid,
+        out_fid,
+        ms_id,
+        desired_batch_size,
         None,
         Some(op_id),
     );
     let trailer_tf_id = add_transform_to_job(
-        &mut sess.job_data,
-        &mut sess.transform_data,
+        &mut job.job_data,
+        &mut job.transform_data,
         trailer_tf_state,
-        TransformData::AggregatorTrailer(TfAggregatorTrailer {
-            curr_sub_tf_idx: 0,
-            sub_tf_count: op_count,
-        }),
+        TransformData::AggregatorTrailer(TfAggregatorTrailer { header_tf_id }),
     );
-    for (i, &sub_op_id) in op.sub_ops.iter().enumerate() {
-        let mut sub_tf_state = TransformState::new(
-            tf_state.input_field,
-            tf_state.output_field,
-            tf_state.match_set_id,
-            tf_state.desired_batch_size,
-            None,
-            Some(sub_op_id),
-        );
-        sub_tf_state.successor = Some(trailer_tf_id);
-        sub_tf_state.has_appender = i + 1 < op_count;
-        let sub_tf_data = sess.build_transform_data(
-            &mut sub_tf_state,
-            sub_op_id,
-            prebound_outputs,
-        );
-        sub_tfs.push(add_transform_to_job(
-            &mut sess.job_data,
-            &mut sess.transform_data,
-            sub_tf_state,
-            sub_tf_data,
-        ));
+    for &sub_tf_id in &sub_tfs {
+        job.job_data.tf_mgr.transforms[sub_tf_id].successor =
+            Some(trailer_tf_id);
     }
-    TransformData::AggregatorHeader(TfAggregatorHeader {
-        sub_tfs,
+    let TransformData::AggregatorHeader(header) =
+        &mut job.transform_data[header_tf_id.get()]
+    else {
+        unreachable!()
+    };
+    header.sub_tfs = sub_tfs;
+    job.job_data.tf_mgr.transforms[header_tf_id].successor =
+        Some(header.sub_tfs.first().copied().unwrap_or(trailer_tf_id));
+    (
+        header_tf_id,
         trailer_tf_id,
-        prev_sub_tf_idx: 0,
-    })
+        out_fid,
+        TransformContinuationKind::Regular,
+    )
 }
 
 pub fn handle_tf_aggregator_header(
-    sess: &mut Job,
+    jd: &mut JobData,
     tf_id: nonmax::NonMaxUsize,
+    agg_h: &mut TfAggregatorHeader,
 ) {
-    let TransformData::AggregatorHeader(header) =
-        &sess.transform_data[tf_id.get()]
-    else {
-        unreachable!()
-    };
-    let trailer_id = header.trailer_tf_id;
-    let sub_tf_idx = if let TransformData::AggregatorTrailer(trailer) =
-        &sess.transform_data[trailer_id.get()]
-    {
-        trailer.curr_sub_tf_idx
-    } else {
-        unreachable!()
-    };
-    let TransformData::AggregatorHeader(header) =
-        &mut sess.transform_data[tf_id.get()]
-    else {
-        unreachable!()
-    };
-    let sub_tf_count = header.sub_tfs.len();
-    let (mut batch_size, ps) = sess.job_data.tf_mgr.claim_all(tf_id);
-    if header.prev_sub_tf_idx != sub_tf_idx {
-        // in case the previous op left behind unclaimed records,
-        // we reclaim them and give them to the next
-        let prev_tf = &mut sess.job_data.tf_mgr.transforms
-            [header.sub_tfs[header.prev_sub_tf_idx]];
-        batch_size += prev_tf.available_batch_size;
-        prev_tf.available_batch_size = 0;
-        header.prev_sub_tf_idx = sub_tf_idx;
-    }
-    if sub_tf_count == sub_tf_idx
+    let (mut batch_size, ps) = jd.tf_mgr.claim_all(tf_id);
+    let sub_tf_count = agg_h.sub_tfs.len();
+    if sub_tf_count == agg_h.curr_sub_tf_idx
         || (!ps.next_batch_ready && !ps.input_done && batch_size == 0)
     {
-        // PERF: we could maybe figure this out from the trailer and
-        // prevent unnecessary rechecks
         return;
     }
-    let sub_tf_id = header.sub_tfs[sub_tf_idx];
-    let successor = sess.job_data.tf_mgr.transforms[tf_id].successor;
-    sess.job_data.tf_mgr.transforms[trailer_id].successor = successor;
-    let sub_tf = &mut sess.job_data.tf_mgr.transforms[sub_tf_id];
+    let tf = &mut jd.tf_mgr.transforms[tf_id];
+    let prev_sub_tf_id = tf.successor.unwrap();
+    let sub_tf_id = agg_h.sub_tfs[agg_h.curr_sub_tf_idx];
+
+    if prev_sub_tf_id != sub_tf_id {
+        tf.successor = Some(sub_tf_id);
+        // in case the previous op left behind unclaimed records,
+        // we reclaim them and give them to the next
+        let prev_tf = &mut jd.tf_mgr.transforms[prev_sub_tf_id];
+        batch_size += prev_tf.available_batch_size;
+        prev_tf.available_batch_size = 0;
+    }
+
+    let sub_tf = &mut jd.tf_mgr.transforms[sub_tf_id];
     sub_tf.available_batch_size += batch_size;
     sub_tf.input_is_done |= ps.input_done;
-    if !ps.input_done || sub_tf_idx + 1 != sub_tf_count {
-        sess.job_data.tf_mgr.push_tf_in_ready_stack(tf_id);
+    if !ps.input_done || agg_h.curr_sub_tf_idx + 1 != sub_tf_count {
+        jd.tf_mgr.push_tf_in_ready_stack(tf_id);
     }
-    sess.job_data.tf_mgr.push_tf_in_ready_stack(sub_tf_id);
+    jd.tf_mgr.push_tf_in_ready_stack(sub_tf_id);
 }
 
 pub fn handle_tf_aggregator_trailer(
-    jd: &mut JobData,
+    job: &mut Job,
     tf_id: nonmax::NonMaxUsize,
-    agg_t: &mut TfAggregatorTrailer,
 ) {
-    let (batch_size, mut ps) = jd.tf_mgr.claim_all(tf_id);
-    if ps.input_done && agg_t.curr_sub_tf_idx != agg_t.sub_tf_count {
-        agg_t.curr_sub_tf_idx += 1;
-        jd.tf_mgr.transforms[tf_id].input_is_done = false;
-        ps.input_done = agg_t.curr_sub_tf_idx == agg_t.sub_tf_count;
+    let (batch_size, mut ps) = job.job_data.tf_mgr.claim_all(tf_id);
+
+    if ps.input_done {
+        let TransformData::AggregatorTrailer(agg_t) =
+            &mut job.transform_data[tf_id.get()]
+        else {
+            unreachable!()
+        };
+        let header_tf_id = agg_t.header_tf_id;
+        let TransformData::AggregatorHeader(agg_h) =
+            &mut job.transform_data[header_tf_id.get()]
+        else {
+            unreachable!()
+        };
+        agg_h.curr_sub_tf_idx += 1;
+        job.job_data.tf_mgr.transforms[tf_id].input_is_done = false;
+        ps.input_done = agg_h.curr_sub_tf_idx == agg_h.sub_tfs.len();
     }
-    jd.tf_mgr.submit_batch(tf_id, batch_size, ps.input_done);
+    job.job_data
+        .tf_mgr
+        .submit_batch(tf_id, batch_size, ps.input_done);
 }

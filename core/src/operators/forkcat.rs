@@ -3,9 +3,9 @@ use std::{cell::Cell, collections::HashMap, ops::DerefMut};
 use bitvec::vec::BitVec;
 
 use crate::{
-    chain::Chain,
+    chain::{Chain, SubchainOffset},
     context::SessionData,
-    job::{Job, JobData},
+    job::{add_transform_to_job, Job, JobData, TransformContinuationKind},
     liveness_analysis::{
         LivenessData, OpOutputIdx, Var, HEADER_WRITES_OFFSET,
         LOCAL_SLOTS_PER_BASIC_BLOCK, READS_OFFSET,
@@ -44,8 +44,8 @@ enum OutputMapping {
 
 #[derive(Clone, Default)]
 pub struct OpForkCat {
-    pub subchains_start: u32,
-    pub subchains_end: u32,
+    pub subchains_start: SubchainOffset,
+    pub subchains_end: SubchainOffset,
     pub continuation: Option<OperatorId>,
 
     // all names accessed by any of the subchains or any of the successors
@@ -253,13 +253,13 @@ pub fn setup_op_forkcat_liveness_data(
     }
 }
 
-pub fn build_tf_forkcat<'a>(
-    _jd: &mut JobData,
+pub fn insert_tf_forkcat<'a>(
+    job: &mut Job<'a>,
     _op_base: &OperatorBase,
     op: &'a OpForkCat,
-    _tf_state: &mut TransformState,
-) -> TransformData<'a> {
-    TransformData::ForkCat(TfForkCat {
+    tf_state: TransformState,
+) -> (TransformId, TransformId, FieldId, TransformContinuationKind) {
+    let tf_data = TransformData::ForkCat(TfForkCat {
         curr_subchain_n: op.subchains_start,
         curr_subchain_start: None,
         continuation: None,
@@ -276,22 +276,22 @@ pub fn build_tf_forkcat<'a>(
         output_field_sources: Vec::with_capacity(
             op.accessed_names_of_successors.len(),
         ),
-    })
-}
-
-pub(crate) fn handle_initial_forkcat_expansion(
-    sess: &mut Job,
-    tf_id: TransformId,
-) -> TransformId {
-    let tf = &sess.job_data.tf_mgr.transforms[tf_id];
+    });
+    let fc_tf_id = add_transform_to_job(
+        &mut job.job_data,
+        &mut job.transform_data,
+        tf_state,
+        tf_data,
+    );
+    let tf = &job.job_data.tf_mgr.transforms[fc_tf_id];
     let TransformData::ForkCat(forkcat) =
-        &mut sess.transform_data[tf_id.get()]
+        &mut job.transform_data[fc_tf_id.get()]
     else {
         unreachable!()
     };
     for &f in &forkcat.op.accessed_names_of_subchains_or_succs {
         let input_field = if let Some(name) = f {
-            sess.job_data.match_set_mgr.match_sets[tf.match_set_id]
+            job.job_data.match_set_mgr.match_sets[tf.match_set_id]
                 .field_name_map
                 .get(&name)
                 .copied()
@@ -299,18 +299,24 @@ pub(crate) fn handle_initial_forkcat_expansion(
         } else {
             tf.input_field
         };
-        sess.job_data.field_mgr.request_clear_delay(input_field);
+        job.job_data.field_mgr.request_clear_delay(input_field);
         forkcat.input_fields.push(input_field);
     }
 
-    let (cont_start, _) = setup_continuation(sess, tf_id);
-    let TransformData::ForkCat(fc) = &mut sess.transform_data[tf_id.get()]
+    let (cont_start, cont_end, next_input_field) =
+        setup_continuation(job, fc_tf_id);
+    let TransformData::ForkCat(fc) = &mut job.transform_data[fc_tf_id.get()]
     else {
         unreachable!()
     };
     fc.continuation = Some(cont_start);
-    expand_for_subchain(sess, tf_id, 0);
-    tf_id
+    expand_for_subchain(job, fc_tf_id, 0);
+    (
+        fc_tf_id,
+        cont_end,
+        next_input_field,
+        TransformContinuationKind::SelfExpanded,
+    )
 }
 
 pub fn handle_tf_forkcat(
@@ -353,7 +359,7 @@ pub fn handle_tf_forkcat(
 fn setup_continuation(
     sess: &mut Job,
     tf_id: TransformId,
-) -> (TransformId, TransformId) {
+) -> (TransformId, TransformId, FieldId) {
     let TransformData::ForkCat(forkcat) =
         &mut sess.transform_data[tf_id.get()]
     else {
@@ -391,14 +397,14 @@ fn setup_continuation(
         output_ms_id,
         sc_count as usize - 1,
     );
-    let (_begin, end) = sess.setup_transforms_from_op(
+    let (_begin, end, next_input_field) = sess.setup_transforms_from_op(
         output_ms_id,
         cont_op_id,
         cont_input_field,
         Some(begin),
         &Default::default(),
     );
-    (begin, end)
+    (begin, end, next_input_field)
 }
 
 fn expand_for_subchain(sess: &mut Job, tf_id: TransformId, sc_n: u32) {
@@ -462,7 +468,7 @@ fn expand_for_subchain(sess: &mut Job, tf_id: TransformId, sc_n: u32) {
         };
     }
 
-    let (start_tf, end_tf) = sess.setup_transforms_from_op(
+    let (start_tf, end_tf, _next_input_field) = sess.setup_transforms_from_op(
         tgt_ms_id,
         sess.job_data.session_data.chains[sc_id as usize].operators[0],
         subchain_input_field,

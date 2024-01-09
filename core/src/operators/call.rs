@@ -112,7 +112,7 @@ pub(crate) fn handle_eager_call_expansion(
     ms_id: MatchSetId,
     input_field: FieldId,
     predecessor_tf: Option<TransformId>,
-) -> (TransformId, TransformId) {
+) -> (TransformId, TransformId, FieldId) {
     let OperatorData::Call(op) =
         &sess.job_data.session_data.operator_data[op_id as usize]
     else {
@@ -137,13 +137,16 @@ pub(crate) fn handle_lazy_call_expansion(sess: &mut Job, tf_id: TransformId) {
     let TransformData::Call(call) = &sess.transform_data[tf_id.get()] else {
         unreachable!()
     };
-    let (_target_tf, end_tf) = sess.setup_transforms_from_op(
-        ms_id,
-        sess.job_data.session_data.chains[call.target as usize].operators[0],
-        input_field,
-        Some(tf_id),
-        &Default::default(),
-    );
+    //TODO: do we need a prebound output so succesor can keep it's input field?
+    let (_target_tf, end_tf, _next_input_field) = sess
+        .setup_transforms_from_op(
+            ms_id,
+            sess.job_data.session_data.chains[call.target as usize].operators
+                [0],
+            input_field,
+            Some(tf_id),
+            &Default::default(),
+        );
     if let Some(old_succ) = old_successor {
         sess.job_data.tf_mgr.connect_tfs(end_tf, old_succ);
     }

@@ -10,6 +10,7 @@ pub enum FieldActionKind {
     #[default]
     Dup,
     Drop,
+    InsertGroupSeparator,
 }
 
 #[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
@@ -147,6 +148,7 @@ pub fn merge_action_lists<
             let mut kind = action_left.kind;
 
             match action_left.kind {
+                FieldActionKind::InsertGroupSeparator => todo!("FAK"),
                 FieldActionKind::Dup => {
                     let space_to_next = left
                         .peek()
@@ -183,6 +185,7 @@ pub fn merge_action_lists<
             let mut run_len = action_right.run_len as usize;
 
             match action_right.kind {
+                FieldActionKind::InsertGroupSeparator => todo!("FAK"),
                 FieldActionKind::Dup => {
                     field_pos_offset_left += run_len as isize;
                 }

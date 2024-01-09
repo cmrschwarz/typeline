@@ -3,7 +3,7 @@ use std::sync::Arc;
 use smallvec::SmallVec;
 
 use crate::{
-    chain::Chain,
+    chain::{Chain, SubchainOffset},
     context::ContextData,
     job::{Job, JobData},
     liveness_analysis::LivenessData,
@@ -29,8 +29,8 @@ pub struct OpFork {
     // forkcc
     // forkjoin[=merge_col,..] [CC]
     // forkcat [CC]
-    pub subchains_start: u32,
-    pub subchains_end: u32,
+    pub subchains_start: SubchainOffset,
+    pub subchains_end: SubchainOffset,
     pub accessed_fields_per_subchain: Vec<FieldAccessMappings>,
 }
 
@@ -204,13 +204,14 @@ pub(crate) fn handle_fork_expansion(
         let input_field = chain_input_field.unwrap_or(VOID_FIELD_ID);
         let start_op_id =
             sess.job_data.session_data.chains[subchain_id].operators[0];
-        let (start_tf, _end_tf) = sess.setup_transforms_from_op(
-            target_ms_id,
-            start_op_id,
-            input_field,
-            None,
-            &Default::default(),
-        );
+        let (start_tf, _end_tf, _next_input_field) = sess
+            .setup_transforms_from_op(
+                target_ms_id,
+                start_op_id,
+                input_field,
+                None,
+                &Default::default(),
+            );
         targets.push(start_tf);
     }
     sess.log_state("expanded fork");

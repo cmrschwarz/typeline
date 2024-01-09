@@ -503,6 +503,7 @@ impl FieldActionApplicator {
                     break 'advance_action;
                 };
                 match action.kind {
+                    FieldActionKind::InsertGroupSeparator => todo!("FAK"),
                     FieldActionKind::Dup => {
                         if action.field_idx != curr_action_pos {
                             if curr_action_pos_outstanding_dups > 0 {

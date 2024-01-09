@@ -54,7 +54,7 @@ impl Extension for MiscCmdsExtension {
         let ctor_without_arg: Option<fn() -> _> = match arg.argname {
             "sum" => Some(create_op_sum),
             "primes" => Some(create_op_primes),
-            "lines" => Some(create_op_lines),
+            "lines" | "l" => Some(create_op_lines),
             "chars" => Some(create_op_chars),
             "trim" => Some(create_op_trim),
             "from-tyson" => Some(create_op_from_tyson),

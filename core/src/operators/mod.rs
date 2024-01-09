@@ -26,3 +26,4 @@ pub mod string_sink;
 pub mod terminator;
 pub mod transform;
 pub mod utils;
+pub mod foreach;

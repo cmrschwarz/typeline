@@ -393,7 +393,7 @@ pub fn setup_callee_concurrent(
     ms_id: MatchSetId,
     buffer: Arc<RecordBuffer>,
     start_op_id: OperatorId,
-) -> (TransformId, TransformId) {
+) -> (TransformId, TransformId, FieldId) {
     let chain_id = sess.job_data.session_data.operator_bases
         [start_op_id as usize]
         .chain_id
@@ -443,14 +443,14 @@ pub fn setup_callee_concurrent(
         tf_state,
         TransformData::CalleeConcurrent(callee),
     );
-    let (_tf_start, tf_end) = sess.setup_transforms_from_op(
+    let (_tf_start, tf_end, next_input_field) = sess.setup_transforms_from_op(
         ms_id,
         start_op_id,
         input_field.unwrap(),
         Some(tf_id),
         &Default::default(),
     );
-    (tf_id, tf_end)
+    (tf_id, tf_end, next_input_field)
 }
 
 pub fn handle_tf_callee_concurrent(

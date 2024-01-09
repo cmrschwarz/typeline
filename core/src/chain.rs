@@ -4,6 +4,7 @@ use crate::{
 };
 
 pub type ChainId = u32;
+pub type SubchainOffset = u32;
 
 #[derive(Clone, Copy)]
 pub enum BufferingMode {

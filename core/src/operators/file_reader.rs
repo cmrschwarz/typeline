@@ -440,7 +440,7 @@ pub fn parse_op_file_reader(
         .transpose()?;
     match args.name("kind").unwrap().as_str() {
         "file" => parse_op_file(value, insert_count, arg_idx),
-        "stdin" => parse_op_stdin(value, insert_count, arg_idx),
+        "stdin" | "in" => parse_op_stdin(value, insert_count, arg_idx),
         _ => unreachable!(),
     }
 }

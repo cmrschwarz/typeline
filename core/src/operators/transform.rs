@@ -24,6 +24,7 @@ use super::{
     count::TfCount,
     field_value_sink::TfFieldValueSink,
     file_reader::TfFileReader,
+    foreach::{TfForeachHeader, TfForeachTrailer},
     fork::TfFork,
     forkcat::TfForkCat,
     format::TfFormat,
@@ -70,6 +71,8 @@ pub enum TransformData<'a> {
     Sequence(TfSequence),
     AggregatorHeader(TfAggregatorHeader),
     AggregatorTrailer(TfAggregatorTrailer),
+    ForeachHeader(TfForeachHeader),
+    ForeachTrailer(TfForeachTrailer),
     Custom(SmallBox<dyn Transform, 192>),
 }
 
@@ -105,6 +108,8 @@ impl TransformData<'_> {
             TransformData::Terminator(_) => "terminator",
             TransformData::AggregatorHeader(_) => "aggregator_header",
             TransformData::AggregatorTrailer(_) => "aggregator_trailer",
+            TransformData::ForeachHeader(_) => "each_header",
+            TransformData::ForeachTrailer(_) => "each_trailer",
             TransformData::InputDoneEater(_) => "input_done_eater",
             TransformData::Custom(tf) => return tf.display_name(),
         }

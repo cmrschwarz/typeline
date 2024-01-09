@@ -1,6 +1,5 @@
 use std::{
     borrow::Cow,
-    collections::HashMap,
     num::NonZeroUsize,
     sync::{Arc, RwLock},
 };
@@ -21,6 +20,7 @@ use crate::{
         end::setup_op_end,
         errors::OperatorSetupError,
         file_reader::setup_op_file_reader,
+        foreach::{setup_op_foreach, OpForeach},
         fork::{setup_op_fork, setup_op_fork_liveness_data, OpFork},
         forkcat::{
             setup_op_forkcat, setup_op_forkcat_liveness_data, OpForkCat,
@@ -29,9 +29,7 @@ use crate::{
         key::setup_op_key,
         nop::{setup_op_nop, OpNop},
         nop_copy::on_op_nop_copy_liveness_computed,
-        operator::{
-            OperatorBase, OperatorData, OperatorId, OperatorOffsetInChain,
-        },
+        operator::{OperatorData, OperatorId, OperatorOffsetInChain},
         regex::setup_op_regex,
         select::{setup_op_select, setup_op_select_liveness_data},
         sequence::setup_op_sequence_concurrent_liveness_data,
@@ -40,10 +38,7 @@ use crate::{
         result_into, ChainSetupError, ContextualizedScrError, ScrError,
     },
     selenium::SeleniumVariant,
-    utils::{
-        identity_hasher::BuildIdentityHasher,
-        string_store::{StringStore, StringStoreEntry},
-    },
+    utils::string_store::StringStore,
 };
 
 use super::{
@@ -155,7 +150,10 @@ impl SessionOptions {
             OperatorData::Literal(_) => (),
             OperatorData::Sequence(_) => (),
             OperatorData::Join(_) => (),
-            OperatorData::Fork(OpFork {
+            OperatorData::Foreach(OpForeach {
+                subchains_start, ..
+            })
+            | OperatorData::Fork(OpFork {
                 subchains_start, ..
             })
             | OperatorData::ForkCat(OpForkCat {
@@ -296,6 +294,7 @@ impl SessionOptions {
     ) {
         match op {
             OperatorData::Fork(OpFork { subchains_end, .. })
+            | OperatorData::Foreach(OpForeach { subchains_end, .. })
             | OperatorData::ForkCat(OpForkCat { subchains_end, .. }) => {
                 *subchains_end = sc_count_after;
             }
@@ -324,31 +323,33 @@ impl SessionOptions {
     }
     //we can't reborrow the whole Session because we want the locked string store
     pub fn setup_operator(
-        sess_operator_bases: &mut Vec<OperatorBase>,
-        sess_operator_data: &mut Vec<OperatorData>,
-        sess_chain_labels: &mut HashMap<
-            StringStoreEntry,
-            ChainId,
-            BuildIdentityHasher,
-        >,
-        sess_chains: &mut Vec<Chain>,
-        string_store: &mut StringStore,
-        sess_settings: &mut SessionSettings,
-        op_id: OperatorId,
+        sess: &mut SessionData,
         chain_id: ChainId,
+        op_id: OperatorId,
     ) -> Result<(), OperatorSetupError> {
-        let chain = &sess_chains[chain_id as usize];
-        let op_base = &mut sess_operator_bases[op_id as usize];
-        match &mut sess_operator_data[op_id as usize] {
-            OperatorData::Regex(op) => setup_op_regex(string_store, op)?,
-            OperatorData::Format(op) => setup_op_format(string_store, op)?,
-            OperatorData::Key(op) => setup_op_key(string_store, op)?,
-            OperatorData::Select(op) => setup_op_select(string_store, op)?,
+        let chain = &sess.chains[chain_id as usize];
+        let op_base = &mut sess.operator_bases[op_id as usize];
+        match &mut sess.operator_data[op_id as usize] {
+            OperatorData::Regex(op) => {
+                setup_op_regex(sess.string_store.get_mut().unwrap(), op)?
+            }
+            OperatorData::Format(op) => {
+                setup_op_format(sess.string_store.get_mut().unwrap(), op)?
+            }
+            OperatorData::Key(op) => {
+                setup_op_key(sess.string_store.get_mut().unwrap(), op)?
+            }
+            OperatorData::Select(op) => {
+                setup_op_select(sess.string_store.get_mut().unwrap(), op)?
+            }
             OperatorData::FileReader(op) => setup_op_file_reader(chain, op)?,
             OperatorData::StringSink(_) => (),
             OperatorData::FieldValueSink(_) => (),
             OperatorData::Fork(op) => {
                 setup_op_fork(chain, op_base, op, op_id)?
+            }
+            OperatorData::Foreach(_) => {
+                setup_op_foreach(sess, chain_id, op_id)?;
             }
             OperatorData::Nop(op) => setup_op_nop(chain, op_base, op, op_id)?,
             OperatorData::NopCopy(_) => (),
@@ -365,13 +366,16 @@ impl SessionOptions {
             OperatorData::End(op) => {
                 setup_op_end(op, op_id)?;
             }
-            OperatorData::Call(op) => {
-                setup_op_call(sess_chain_labels, string_store, op, op_id)?
-            }
+            OperatorData::Call(op) => setup_op_call(
+                &sess.chain_labels,
+                sess.string_store.get_mut().unwrap(),
+                op,
+                op_id,
+            )?,
             OperatorData::CallConcurrent(op) => setup_op_call_concurrent(
-                sess_settings,
-                sess_chain_labels,
-                string_store,
+                &sess.settings,
+                &sess.chain_labels,
+                sess.string_store.get_mut().unwrap(),
                 op,
                 op_id,
             )?,
@@ -379,21 +383,12 @@ impl SessionOptions {
                 op_id,
                 op_base,
                 chain,
-                sess_settings,
-                sess_chain_labels,
-                string_store,
+                &sess.settings,
+                &sess.chain_labels,
+                sess.string_store.get_mut().unwrap(),
             )?,
             OperatorData::Aggregator(_) => {
-                setup_op_aggregator(
-                    op_id,
-                    sess_operator_data,
-                    sess_operator_bases,
-                    sess_chain_labels,
-                    sess_chains,
-                    string_store,
-                    sess_settings,
-                    chain_id,
-                )?;
+                setup_op_aggregator(sess, chain_id, op_id)?;
             }
         }
         Ok(())
@@ -401,7 +396,6 @@ impl SessionOptions {
     pub fn setup_operators(
         sess: &mut SessionData,
     ) -> Result<(), OperatorSetupError> {
-        let mut string_store = sess.string_store.write().unwrap();
         for op_idx in 0..sess.operator_bases.len() {
             let op_base = &mut sess.operator_bases[op_idx];
             let chain_id = if let Some(cid) = op_base.chain_id {
@@ -409,16 +403,7 @@ impl SessionOptions {
             } else {
                 continue;
             };
-            Self::setup_operator(
-                &mut sess.operator_bases,
-                &mut sess.operator_data,
-                &mut sess.chain_labels,
-                &mut sess.chains,
-                &mut string_store,
-                &mut sess.settings,
-                op_idx as OperatorId,
-                chain_id,
-            )?;
+            Self::setup_operator(sess, chain_id, op_idx as OperatorId)?;
         }
         Ok(())
     }
@@ -475,6 +460,7 @@ impl SessionOptions {
             OperatorData::Count(_) => (),
             OperatorData::Print(_) => (),
             OperatorData::Join(_) => (),
+            OperatorData::Foreach(_) => (),
             OperatorData::Fork(op) => {
                 setup_op_fork_liveness_data(op, op_id, ld)
             }

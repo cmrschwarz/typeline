@@ -148,6 +148,7 @@ pub mod field_value_flags {
         1 << SAME_VALUE_AS_PREVIOUS_OFFSET;
 
     pub const DEFAULT: FieldValueFlags = 0;
+    pub const NONE: FieldValueFlags = 0;
 }
 
 // used to constrain generic functions that accept data for field values

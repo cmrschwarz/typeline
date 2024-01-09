@@ -28,6 +28,7 @@ use super::{
     errors::OperatorSetupError,
     field_value_sink::OpFieldValueSink,
     file_reader::OpFileReader,
+    foreach::OpForeach,
     fork::OpFork,
     forkcat::OpForkCat,
     format::OpFormat,
@@ -71,6 +72,7 @@ pub enum OperatorData {
     Literal(OpLiteral),
     Sequence(OpSequence),
     Aggregator(OpAggregator),
+    Foreach(OpForeach),
     Custom(SmallBox<dyn Operator, 96>),
 }
 
@@ -98,6 +100,7 @@ impl OperatorData {
             OperatorData::Print(_) => "p".into(),
             OperatorData::Sequence(op) => op.default_op_name(),
             OperatorData::Fork(_) => "fork".into(),
+            OperatorData::Foreach(_) => "foreach".into(),
             OperatorData::ForkCat(_) => "forkcat".into(),
             OperatorData::Key(_) => "key".into(),
             OperatorData::Regex(op) => op.default_op_name(),
@@ -142,6 +145,7 @@ impl OperatorData {
             OperatorData::Print(_) => true,
             OperatorData::Sequence(_) => true,
             OperatorData::Fork(_) => false,
+            OperatorData::Foreach(_) => false,
             OperatorData::ForkCat(_) => false,
             OperatorData::Key(_) => false,
             OperatorData::Regex(_) => true,

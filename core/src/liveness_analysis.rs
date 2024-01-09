@@ -230,6 +230,7 @@ impl LivenessData {
             OperatorData::FileReader(_) => 1,
             OperatorData::Literal(_) => 1,
             OperatorData::Sequence(_) => 1,
+            OperatorData::Foreach(_) => 0, //last sc output is output
             OperatorData::Aggregator(agg) => {
                 let mut op_count = 1;
                 //TODO: do this properly, merging field names etc.
@@ -319,6 +320,7 @@ impl LivenessData {
             OperatorData::Next(_) => (),
             OperatorData::End(_) => (),
             OperatorData::Nop(_) => (),
+            OperatorData::Foreach(_) => (),
             OperatorData::NopCopy(_) => (),
             OperatorData::Select(s) => {
                 self.add_var_name(s.key_interned.unwrap());
@@ -431,6 +433,7 @@ impl LivenessData {
                 self.split_bb_at_call(bb_id, op_n);
                 return true;
             }
+            OperatorData::Foreach(_) => (),
             OperatorData::Cast(_) => (),
             OperatorData::Nop(_) => (),
             OperatorData::NopCopy(_) => (),
@@ -640,7 +643,9 @@ impl LivenessData {
         let op_idx = op_id as usize;
         let output_field = sess.operator_bases[op_idx].outputs_start;
         match &sess.operator_data[op_idx] {
-            OperatorData::Fork(_) | OperatorData::ForkCat(_) => {
+            OperatorData::Fork(_)
+            | OperatorData::ForkCat(_)
+            | OperatorData::Foreach(_) => {
                 return (output_field, OperatorCallEffect::Diverge);
             }
             OperatorData::Call(_) | OperatorData::CallConcurrent(_) => {
