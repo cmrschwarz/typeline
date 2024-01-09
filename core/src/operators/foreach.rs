@@ -107,20 +107,27 @@ pub fn insert_tf_foreach(
         .borrow_mut()
         .first_actor = ActorRef::Present(trailer_actor_id);
 
-    let last_tf_id = if let Some(&op_id) = sc_start_op_id {
-        let (first, last, next_input_field) = job.setup_transforms_from_op(
-            ms_id,
-            op_id,
-            input_field,
-            None,
-            prebound_outputs,
-        );
+    let (last_tf_id, cont) = if let Some(&op_id) = sc_start_op_id {
+        let (first, last, next_input_field, cont) = job
+            .setup_transforms_from_op(
+                ms_id,
+                op_id,
+                input_field,
+                None,
+                prebound_outputs,
+            );
         trailer_output_field = next_input_field;
         job.job_data.tf_mgr.transforms[header_tf_id].successor = Some(first);
-        last
+        (last, cont)
     } else {
-        header_tf_id
+        (header_tf_id, TransformContinuationKind::Regular)
     };
+    match cont {
+        TransformContinuationKind::SelfExpanded => {
+            return (header_tf_id, last_tf_id, trailer_output_field, cont);
+        }
+        TransformContinuationKind::Regular => (),
+    }
     job.job_data
         .field_mgr
         .bump_field_refcount(trailer_output_field);

@@ -10,6 +10,7 @@ use crate::{
         LivenessData, OpOutputIdx, Var, HEADER_WRITES_OFFSET,
         LOCAL_SLOTS_PER_BASIC_BLOCK, READS_OFFSET,
     },
+    operators::terminator::add_terminator_tf_cont_dependant,
     options::argument::CliArgIdx,
     record_data::{
         action_buffer::ActorRef,
@@ -26,7 +27,6 @@ use super::{
     operator::{
         OperatorBase, OperatorData, OperatorId, OperatorOffsetInChain,
     },
-    terminator::add_terminator,
     transform::{TransformData, TransformId, TransformState},
     utils::field_access_mappings::{
         AccessKind, AccessMappings, FieldAccessMode,
@@ -301,7 +301,7 @@ pub fn insert_tf_forkcat<'a>(
         forkcat.input_fields.push(input_field);
     }
 
-    let (cont_start, cont_end, next_input_field) =
+    let (cont_start, cont_end, next_input_field, _cont) =
         setup_continuation(job, fc_tf_id);
     let TransformData::ForkCat(fc) = &mut job.transform_data[fc_tf_id.get()]
     else {
@@ -357,7 +357,7 @@ pub fn handle_tf_forkcat(
 fn setup_continuation(
     sess: &mut Job,
     tf_id: TransformId,
-) -> (TransformId, TransformId, FieldId) {
+) -> (TransformId, TransformId, FieldId, TransformContinuationKind) {
     let TransformData::ForkCat(forkcat) =
         &mut sess.transform_data[tf_id.get()]
     else {
@@ -395,14 +395,14 @@ fn setup_continuation(
         output_ms_id,
         sc_count as usize - 1,
     );
-    let (_begin, end, next_input_field) = sess.setup_transforms_from_op(
+    let (_begin, end, next_input_field, cont) = sess.setup_transforms_from_op(
         output_ms_id,
         cont_op_id,
         cont_input_field,
         Some(begin),
         &Default::default(),
     );
-    (begin, end, next_input_field)
+    (begin, end, next_input_field, cont)
 }
 
 fn expand_for_subchain(sess: &mut Job, tf_id: TransformId, sc_n: u32) {
@@ -466,14 +466,16 @@ fn expand_for_subchain(sess: &mut Job, tf_id: TransformId, sc_n: u32) {
         };
     }
 
-    let (start_tf, end_tf, _next_input_field) = sess.setup_transforms_from_op(
-        tgt_ms_id,
-        sess.job_data.session_data.chains[sc_id as usize].operators[0],
-        subchain_input_field,
-        None,
-        &prebound_outputs,
-    );
-    let end_tf = add_terminator(sess, tgt_ms_id, end_tf);
+    let (start_tf, end_tf, _next_input_field, cont) = sess
+        .setup_transforms_from_op(
+            tgt_ms_id,
+            sess.job_data.session_data.chains[sc_id as usize].operators[0],
+            subchain_input_field,
+            None,
+            &prebound_outputs,
+        );
+    let end_tf =
+        add_terminator_tf_cont_dependant(sess, end_tf, cont).unwrap_or(end_tf);
     let TransformData::ForkCat(forkcat) =
         &mut sess.transform_data[tf_id.get()]
     else {
@@ -481,7 +483,9 @@ fn expand_for_subchain(sess: &mut Job, tf_id: TransformId, sc_n: u32) {
     };
     let cont = forkcat.continuation.unwrap();
     let cont_tf = &mut sess.job_data.tf_mgr.transforms[cont];
-    cont_tf.predecessor_done = false;
+
+    // the input done eater should have done it's job
+    debug_assert!(!cont_tf.predecessor_done);
 
     sess.job_data.field_mgr.setup_cross_ms_cow_fields(
         &mut sess.job_data.match_set_mgr,

@@ -17,6 +17,7 @@ use crate::{
 use super::{
     errors::{OperatorCreationError, OperatorSetupError},
     operator::{OperatorBase, OperatorData, OperatorId},
+    terminator::add_terminator_tf_cont_dependant,
     transform::{TransformData, TransformId, TransformState},
     utils::field_access_mappings::FieldAccessMappings,
 };
@@ -204,7 +205,7 @@ pub(crate) fn handle_fork_expansion(
         let input_field = chain_input_field.unwrap_or(VOID_FIELD_ID);
         let start_op_id =
             sess.job_data.session_data.chains[subchain_id].operators[0];
-        let (start_tf, _end_tf, _next_input_field) = sess
+        let (start_tf, end_tf, _next_input_field, cont) = sess
             .setup_transforms_from_op(
                 target_ms_id,
                 start_op_id,
@@ -212,6 +213,7 @@ pub(crate) fn handle_fork_expansion(
                 None,
                 &Default::default(),
             );
+        add_terminator_tf_cont_dependant(sess, end_tf, cont);
         targets.push(start_tf);
     }
     sess.log_state("expanded fork");

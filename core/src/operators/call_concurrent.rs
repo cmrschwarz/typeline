@@ -8,7 +8,7 @@ use bstr::ByteSlice;
 use crate::{
     chain::ChainId,
     context::{ContextData, SessionSettings, VentureDescription},
-    job::{add_transform_to_job, Job, JobData},
+    job::{add_transform_to_job, Job, JobData, TransformContinuationKind},
     liveness_analysis::{
         LivenessData, Var, HEADER_WRITES_OFFSET, READS_OFFSET,
     },
@@ -393,7 +393,7 @@ pub fn setup_callee_concurrent(
     ms_id: MatchSetId,
     buffer: Arc<RecordBuffer>,
     start_op_id: OperatorId,
-) -> (TransformId, TransformId, FieldId) {
+) -> (TransformId, TransformId, FieldId, TransformContinuationKind) {
     let chain_id = sess.job_data.session_data.operator_bases
         [start_op_id as usize]
         .chain_id
@@ -442,14 +442,15 @@ pub fn setup_callee_concurrent(
         tf_state,
         TransformData::CalleeConcurrent(callee),
     );
-    let (_tf_start, tf_end, next_input_field) = sess.setup_transforms_from_op(
-        ms_id,
-        start_op_id,
-        input_field.unwrap(),
-        Some(tf_id),
-        &Default::default(),
-    );
-    (tf_id, tf_end, next_input_field)
+    let (_tf_start, tf_end, next_input_field, cont) = sess
+        .setup_transforms_from_op(
+            ms_id,
+            start_op_id,
+            input_field.unwrap(),
+            Some(tf_id),
+            &Default::default(),
+        );
+    (tf_id, tf_end, next_input_field, cont)
 }
 
 pub fn handle_tf_callee_concurrent(

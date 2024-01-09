@@ -1,8 +1,8 @@
 use crate::{
-    job::{add_transform_to_job, Job, JobData},
+    job::{add_transform_to_job, Job, JobData, TransformContinuationKind},
     record_data::{
         action_buffer::ActorId, field::VOID_FIELD_ID,
-        field_action::FieldActionKind, match_set::MatchSetId,
+        field_action::FieldActionKind,
     },
 };
 
@@ -53,24 +53,37 @@ pub fn handle_tf_terminator(
     }
 }
 
-pub fn add_terminator(
+pub fn add_terminator_tf_cont_dependant(
     sess: &mut Job,
-    ms_id: MatchSetId,
-    last_tf: TransformId,
-) -> TransformId {
-    let bs = sess.job_data.tf_mgr.transforms[last_tf].desired_batch_size;
-    let tf_state =
-        TransformState::new(VOID_FIELD_ID, VOID_FIELD_ID, ms_id, bs, None);
+    last_tf_id: TransformId,
+    cont: TransformContinuationKind,
+) -> Option<TransformId> {
+    match cont {
+        TransformContinuationKind::Regular => {
+            Some(add_terminator(sess, last_tf_id))
+        }
+        TransformContinuationKind::SelfExpanded => None,
+    }
+}
+
+pub fn add_terminator(sess: &mut Job, last_tf_id: TransformId) -> TransformId {
+    let term_tf_id = sess.job_data.tf_mgr.transforms.peek_claim_id();
+    let last_tf = &mut sess.job_data.tf_mgr.transforms[last_tf_id];
+    debug_assert!(last_tf.successor.is_none());
+    last_tf.successor = Some(term_tf_id);
+    let tf_state = TransformState::new(
+        VOID_FIELD_ID,
+        VOID_FIELD_ID,
+        last_tf.match_set_id,
+        last_tf.desired_batch_size,
+        None,
+    );
     sess.job_data.field_mgr.inc_field_refcount(VOID_FIELD_ID, 2);
     let tf_data = setup_tf_terminator(&mut sess.job_data, &tf_state);
-    let tf_id = add_transform_to_job(
+    add_transform_to_job(
         &mut sess.job_data,
         &mut sess.transform_data,
         tf_state,
         tf_data,
-    );
-    let pred = &mut sess.job_data.tf_mgr.transforms[last_tf];
-    debug_assert!(pred.successor.is_none());
-    pred.successor = Some(tf_id);
-    tf_id
+    )
 }

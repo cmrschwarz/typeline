@@ -4,7 +4,7 @@ use bstr::ByteSlice;
 
 use crate::{
     chain::ChainId,
-    job::{Job, JobData},
+    job::{Job, JobData, TransformContinuationKind},
     options::argument::CliArgIdx,
     record_data::{field::FieldId, match_set::MatchSetId},
     utils::{
@@ -112,7 +112,7 @@ pub(crate) fn handle_eager_call_expansion(
     ms_id: MatchSetId,
     input_field: FieldId,
     predecessor_tf: Option<TransformId>,
-) -> (TransformId, TransformId, FieldId) {
+) -> (TransformId, TransformId, FieldId, TransformContinuationKind) {
     let OperatorData::Call(op) =
         &sess.job_data.session_data.operator_data[op_id as usize]
     else {
@@ -138,7 +138,7 @@ pub(crate) fn handle_lazy_call_expansion(sess: &mut Job, tf_id: TransformId) {
         unreachable!()
     };
     //TODO: do we need a prebound output so succesor can keep it's input field?
-    let (_target_tf, end_tf, _next_input_field) = sess
+    let (_target_tf, end_tf, _next_input_field, _cont) = sess
         .setup_transforms_from_op(
             ms_id,
             sess.job_data.session_data.chains[call.target as usize].operators

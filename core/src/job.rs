@@ -66,7 +66,7 @@ use crate::{
             build_tf_string_sink, handle_tf_string_sink,
             handle_tf_string_sink_stream_value_update,
         },
-        terminator::{add_terminator, handle_tf_terminator},
+        terminator::{add_terminator_tf_cont_dependant, handle_tf_terminator},
         transform::{TransformData, TransformId, TransformState},
     },
     record_data::{
@@ -207,12 +207,15 @@ impl TransformManager {
         actor_id: ActorId,
         batch_size: usize,
     ) {
-        let ms_id = self.transforms[tf_id].match_set_id;
+        let tf = &self.transforms[tf_id];
+        let ms_id = tf.match_set_id;
         let ab = &mut msm.match_sets[ms_id].action_buffer;
         ab.begin_action_group(actor_id);
         ab.push_action(FieldActionKind::Drop, 0, batch_size);
         ab.end_action_group();
-        self.submit_batch(tf_id, 0, true);
+        if !tf.done {
+            self.submit_batch(tf_id, 0, true);
+        }
     }
     pub fn submit_batch_ready_for_more(
         &mut self,
@@ -536,7 +539,7 @@ impl<'a> Job<'a> {
                 .borrow_mut()
                 .producing_transform_arg = format!("<Input Field #{i}>");
         }
-        let (start_tf_id, end_tf_id, _next_input_field) = self
+        let (start_tf_id, end_tf_id, _next_input_field, cont) = self
             .setup_transforms_from_op(
                 ms_id,
                 job.operator,
@@ -544,7 +547,7 @@ impl<'a> Job<'a> {
                 None,
                 &Default::default(),
             );
-        add_terminator(self, ms_id, end_tf_id);
+        add_terminator_tf_cont_dependant(self, end_tf_id, cont);
         self.job_data.tf_mgr.push_tf_in_ready_stack(start_tf_id);
         let tf = &mut self.job_data.tf_mgr.transforms[start_tf_id];
         tf.predecessor_done = true;
@@ -565,7 +568,7 @@ impl<'a> Job<'a> {
         start_op_id: OperatorId,
     ) {
         let ms_id = self.job_data.match_set_mgr.add_match_set();
-        let (start_tf_id, _end_tf_id, _next_input_field) =
+        let (start_tf_id, _end_tf_id, _next_input_field, _cont) =
             setup_callee_concurrent(self, ms_id, buffer, start_op_id);
         self.job_data.tf_mgr.push_tf_in_ready_stack(start_tf_id);
         self.log_state("setting up venture");
@@ -701,7 +704,7 @@ impl<'a> Job<'a> {
         chain_input_field_id: FieldId,
         mut predecessor_tf: Option<TransformId>,
         prebound_outputs: &HashMap<OpOutputIdx, FieldId, BuildIdentityHasher>,
-    ) -> (TransformId, TransformId, FieldId) {
+    ) -> (TransformId, TransformId, FieldId, TransformContinuationKind) {
         let mut start_tf_id = None;
         let start_op =
             &self.job_data.session_data.operator_bases[start_op_id as usize];
@@ -719,7 +722,7 @@ impl<'a> Job<'a> {
             match op_data {
                 OperatorData::Call(op) => {
                     if !op.lazy {
-                        let (start_exp, end_exp, next_input_field) =
+                        let (start_exp, end_exp, next_input_field, cont) =
                             handle_eager_call_expansion(
                                 self,
                                 op_id,
@@ -731,6 +734,7 @@ impl<'a> Job<'a> {
                             start_tf_id.unwrap_or(start_exp),
                             end_exp,
                             next_input_field,
+                            cont,
                         );
                     }
                 }
@@ -868,6 +872,7 @@ impl<'a> Job<'a> {
                         start_tf_id.unwrap_or(first_tf_id),
                         last_tf_id,
                         next_input_field,
+                        cont,
                     )
                 }
             }
@@ -876,7 +881,7 @@ impl<'a> Job<'a> {
         }
         let start = start_tf_id.unwrap();
         let end = predecessor_tf.unwrap_or(start);
-        (start, end, input_field)
+        (start, end, input_field, TransformContinuationKind::Regular)
     }
     fn handle_stream_value_update(&mut self, svu: StreamValueUpdate) {
         #[cfg(feature = "debug_logging")]

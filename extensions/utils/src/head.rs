@@ -185,7 +185,7 @@ impl Transform for TfHeadSubtractive {
         // one if we have 11.
         // we could have two sets of all fields and then swap
 
-        if !tf.done {
+        if !tf.predecessor_done {
             return;
         }
         let match_set_id = tf.match_set_id;

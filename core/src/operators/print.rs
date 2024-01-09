@@ -462,11 +462,16 @@ pub fn handle_tf_print(
     }
     drop(output_field);
 
-    if ps.next_batch_ready && tf.current_stream_val.is_none() {
+    let streams_done = tf.current_stream_val.is_none();
+
+    if ps.next_batch_ready && streams_done {
         jd.tf_mgr.push_tf_in_ready_stack(tf_id);
     }
-    jd.tf_mgr
-        .submit_batch(tf_id, outputs_produced, ps.input_done);
+    jd.tf_mgr.submit_batch(
+        tf_id,
+        outputs_produced,
+        ps.input_done && streams_done,
+    );
 }
 
 pub fn handle_tf_print_stream_value_update(
