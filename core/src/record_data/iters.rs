@@ -347,22 +347,27 @@ impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for Iter<'a, R> {
             return 0;
         }
         self.header_rl_offset = 0;
-        self.data += self.fdr.headers()[self.header_idx].data_size_unique();
         self.field_pos += stride as usize;
+        let headers = self.fdr.headers();
+        let mut prev_header_size = headers[self.header_idx].data_size();
         loop {
             self.header_idx += 1;
-            if self.header_idx == self.fdr.headers().len() {
+            if self.header_idx == headers.len() {
                 self.header_rl_total = 0;
                 // to make sure there's no padding
                 self.header_fmt = Default::default();
+                self.data += prev_header_size;
                 return stride;
             }
-
-            let h = self.fdr.headers()[self.header_idx];
+            let h = headers[self.header_idx];
+            if !h.same_value_as_previous() {
+                self.data += prev_header_size;
+            }
             if h.deleted() {
-                self.data += h.total_size_unique();
+                prev_header_size = h.total_size();
                 continue;
             }
+
             self.data += h.leading_padding();
             self.header_fmt = h.fmt;
             self.header_rl_total = h.run_length;

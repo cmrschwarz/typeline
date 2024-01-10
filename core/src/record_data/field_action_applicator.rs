@@ -222,7 +222,6 @@ impl FieldActionApplicator {
 
             if mid_rem == 0 {
                 header.run_length = post;
-                header.set_shared_value(post == 1);
                 return;
             }
         }
@@ -236,7 +235,6 @@ impl FieldActionApplicator {
         self.push_insert_command_if_rl_gt_0(faas, fmt_mid, mid_rem);
         faas.field_pos += mid_rem as usize;
         header.run_length = post;
-        header.set_shared_value(post == 1);
     }
 
     fn handle_dup(
@@ -850,7 +848,8 @@ mod test {
         //    1         1
         //    1         GS
         //    1         1
-        //    2         2
+        //    2         1
+        //              2
         test_actions_on_range_raw(
             [0, 1, 1, 1, 2].iter().map(|v| (FieldValue::Int(*v), 1)),
             true,
@@ -860,7 +859,7 @@ mod test {
                 (FieldValue::Int(0), 1),
                 (FieldValue::Int(1), 1),
                 (FieldValue::GroupSeparator, 1),
-                (FieldValue::Int(1), 1),
+                (FieldValue::Int(1), 2),
                 (FieldValue::Int(2), 1),
             ],
             &[],

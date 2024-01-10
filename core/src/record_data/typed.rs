@@ -144,8 +144,7 @@ impl<'a> FieldValueRef<'a> {
     pub fn to_field_value(&self) -> FieldValue {
         match *self {
             FieldValueRef::Undefined => FieldValue::Undefined,
-            // TODO: is this fine?
-            FieldValueRef::GroupSeparator => FieldValue::Undefined,
+            FieldValueRef::GroupSeparator => FieldValue::GroupSeparator,
             FieldValueRef::Null => FieldValue::Null,
             FieldValueRef::Int(v) => FieldValue::Int(*v),
             FieldValueRef::BigInt(v) => FieldValue::BigInt(v.clone()),
