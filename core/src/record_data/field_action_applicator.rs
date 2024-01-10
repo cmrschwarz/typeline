@@ -5,7 +5,8 @@ use crate::{
 use super::{
     field_action::FieldAction,
     field_value_repr::{
-        FieldDataBuffer, FieldValueFormat, FieldValueHeader, RunLength,
+        FieldDataBuffer, FieldValueFormat, FieldValueHeader, FieldValueRepr,
+        RunLength,
     },
     iter_hall::IterState,
 };
@@ -103,6 +104,7 @@ impl FieldActionApplicator {
         curr_header_iter_count: usize,
         offset: RunLength,
         extra_field_pos_bump: usize,
+        header_pos_bump: usize,
         iterators: &mut [&mut IterState],
         current_header: &FieldValueHeader,
     ) {
@@ -113,7 +115,7 @@ impl FieldActionApplicator {
                 continue;
             }
             it.field_pos += extra_field_pos_bump;
-            it.header_idx += 1;
+            it.header_idx += header_pos_bump;
             it.data += data_offset;
             it.header_rl_offset -= current_header.run_length;
         }
@@ -168,13 +170,73 @@ impl FieldActionApplicator {
         }
     }
 
-    fn handle_inserts(
+    fn handle_zst_inserts(
         &mut self,
         header: &mut FieldValueHeader,
         iterators: &mut [&mut IterState],
         faas: &mut FieldActionApplicationState,
+        zst_repr: FieldValueRepr,
     ) {
-        todo!();
+        if header.fmt.repr == zst_repr {
+            return self.handle_dup(header, iterators, faas);
+        }
+        let insert_count = faas.curr_action_run_length;
+        let pre = (faas.curr_action_pos - faas.field_pos) as RunLength;
+        let mut mid_full_count = insert_count / RunLength::MAX as usize;
+        let mut mid_rem =
+            (insert_count % RunLength::MAX as usize) as RunLength;
+        let post = header.run_length - pre;
+        if mid_rem == 0 && post == 0 {
+            mid_full_count -= 1; // must be > 0 because `insert_count` != 0
+            mid_rem = RunLength::MAX;
+        }
+
+        self.push_copy_command(faas);
+        self.push_insert_command_if_rl_gt_0(faas, header.fmt, pre);
+        faas.field_pos += pre as usize;
+        self.iters_after_offset_to_next_header_bumping_field_pos(
+            faas.curr_header_iter_count,
+            pre,
+            insert_count,
+            (pre > 0) as usize + mid_full_count,
+            iterators,
+            &FieldValueHeader {
+                fmt: header.fmt,
+                run_length: pre,
+            },
+        );
+        let mut fmt_mid = header.fmt;
+        if fmt_mid.shared_value() && pre > 0 {
+            fmt_mid.set_same_value_as_previous(true);
+            header.set_same_value_as_previous(true);
+        }
+        fmt_mid.set_shared_value(true);
+        fmt_mid.repr = zst_repr;
+
+        if mid_full_count != 0 {
+            for _ in 0..mid_full_count {
+                self.push_insert_command(faas, fmt_mid, RunLength::MAX);
+                fmt_mid.set_same_value_as_previous(true);
+            }
+            faas.field_pos += mid_full_count * RunLength::MAX as usize;
+
+            if mid_rem == 0 {
+                header.run_length = post;
+                header.set_shared_value(post == 1);
+                return;
+            }
+        }
+
+        if post == 0 {
+            header.run_length = mid_rem;
+            header.fmt = fmt_mid;
+            return;
+        }
+
+        self.push_insert_command_if_rl_gt_0(faas, fmt_mid, mid_rem);
+        faas.field_pos += mid_rem as usize;
+        header.run_length = post;
+        header.set_shared_value(post == 1);
     }
 
     fn handle_dup(
@@ -183,6 +245,7 @@ impl FieldActionApplicator {
         iterators: &mut [&mut IterState],
         faas: &mut FieldActionApplicationState,
     ) {
+        // TODO: handle padding correctly and create tests for that
         let dup_count = faas.curr_action_run_length;
         let pre = (faas.curr_action_pos - faas.field_pos) as RunLength;
         if header.shared_value() {
@@ -223,6 +286,7 @@ impl FieldActionApplicator {
             // we are duping, so not pre and mid
             pre + 1,
             dup_count,
+            (pre > 0) as usize + mid_full_count,
             iterators,
             &FieldValueHeader {
                 fmt: header.fmt,
@@ -484,10 +548,11 @@ impl FieldActionApplicator {
                         break;
                     }
                     FieldActionKind::InsertGroupSeparator => {
-                        self.handle_inserts(
+                        self.handle_zst_inserts(
                             &mut headers[faas.header_idx],
                             iterators,
                             &mut faas,
+                            FieldValueRepr::GroupSeparator,
                         );
                         faas.curr_action_pos += faas.curr_action_run_length;
                         self.update_current_iters(iterators, &mut faas);
