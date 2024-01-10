@@ -8,7 +8,7 @@ use scr_core::{
 fn basic_foreach() -> Result<(), ScrError> {
     let res = ContextBuilder::default()
         .add_op(create_op_str_n("foo", 2))
-        //  .add_op(create_op_foreach())
+        //.add_op(create_op_foreach())
         .run_collect_stringified()?;
     assert_eq!(res, ["foo", "foo"]);
     Ok(())

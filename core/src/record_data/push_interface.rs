@@ -437,6 +437,9 @@ pub unsafe trait PushInterface {
             FieldValue::Undefined => {
                 self.push_undefined(run_length, try_header_rle)
             }
+            FieldValue::GroupSeparator => {
+                self.push_group_separator(run_length, try_header_rle)
+            }
             FieldValue::Int(v) => {
                 self.push_int(v, run_length, try_header_rle, try_data_rle)
             }

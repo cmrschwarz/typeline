@@ -334,12 +334,12 @@ pub fn field_value_to_literal(v: FieldValue) -> Literal {
         FieldValue::Array(v) => Literal::Array(v),
         FieldValue::Object(v) => Literal::Object(v),
         FieldValue::Custom(v) => Literal::Custom(v),
-        FieldValue::StreamValueId(_) => {
-            panic!("stream value id is not a valid literal")
-        }
-        FieldValue::FieldReference(_)
+
+        FieldValue::GroupSeparator
+        | FieldValue::StreamValueId(_)
+        | FieldValue::FieldReference(_)
         | FieldValue::SlicedFieldReference(_) => {
-            panic!("field reference is not a valid literal")
+            panic!("{} is not a valid literal", v.kind().to_str())
         }
     }
 }

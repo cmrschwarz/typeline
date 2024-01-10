@@ -512,6 +512,10 @@ impl FieldActionApplicator {
             faas.curr_action_kind = action.kind;
             faas.curr_action_pos = action.field_idx;
             faas.curr_action_run_length = action.run_len as usize;
+            debug_assert!(
+                faas.curr_action_pos >= faas.field_pos,
+                "overlapping field actions"
+            );
             while let Some(next_action) = actions.peek() {
                 if next_action.field_idx != faas.curr_action_pos {
                     break;
@@ -720,28 +724,32 @@ mod test {
     use crate::record_data::{
         field_action::{FieldAction, FieldActionKind},
         field_action_applicator::FieldActionApplicator,
-        field_value_repr::{FieldData, RunLength},
+        field_value::FieldValue,
+        field_value_repr::{FieldData, FixedSizeFieldValueType, RunLength},
         iter_hall::IterState,
         iters::FieldIterator,
         push_interface::PushInterface,
-        typed::TypedSlice,
-        typed_iters::TypedSliceIter,
     };
     use FieldActionKind as FAK;
 
     fn test_actions_on_range_raw(
-        input: impl Iterator<Item = i64>,
+        input: impl Iterator<Item = (FieldValue, RunLength)>,
         header_rle: bool,
         value_rle: bool,
         actions: &[FieldAction],
-        output: &[(i64, RunLength)],
+        output: &[(FieldValue, RunLength)],
         iter_states_in: &[IterState],
         iter_states_out: &[IterState],
     ) {
         let mut fd = FieldData::default();
         let mut len_before = 0;
-        for v in input {
-            fd.push_int(v, 1, header_rle, value_rle);
+        for (v, rl) in input {
+            fd.push_field_value_unpacked(
+                v,
+                rl as usize,
+                header_rle,
+                value_rle,
+            );
             len_before += 1;
         }
         let mut faa = FieldActionApplicator::default();
@@ -755,15 +763,9 @@ mod test {
         );
         let mut iter = fd.iter();
         let mut results = Vec::new();
-        while let Some(range) = iter.typed_range_fwd(usize::MAX, 0) {
-            if let TypedSlice::Int(ints) = range.data {
-                results.extend(
-                    TypedSliceIter::from_valid_range(&range, ints)
-                        .map(|(i, rl)| (*i, rl)),
-                );
-            } else {
-                panic!("resulting field data has wrong type");
-            }
+        while let Some(field) = iter.typed_field_fwd(usize::MAX) {
+            results
+                .push((field.value.to_field_value(), field.header.run_length));
         }
         assert_eq!(results, output);
         assert_eq!(iter_states, iter_states_out);
@@ -772,12 +774,35 @@ mod test {
                 - len_before;
         assert_eq!(fc_delta, expected_field_count_delta);
     }
-    fn test_actions_on_range(
-        input: impl Iterator<Item = i64>,
+    fn test_actions_on_range_single_type<T: FixedSizeFieldValueType>(
+        input: impl Iterator<Item = T>,
+        header_rle: bool,
+        value_rle: bool,
         actions: &[FieldAction],
-        output: &[(i64, RunLength)],
+        output: &[(T, RunLength)],
+        iter_states_in: &[IterState],
+        iter_states_out: &[IterState],
     ) {
+        let output_fv = output
+            .iter()
+            .map(|(v, rl)| (FieldValue::from_fixed_sized_type(v.clone()), *rl))
+            .collect::<Vec<_>>();
         test_actions_on_range_raw(
+            input.map(|v| (FieldValue::from_fixed_sized_type(v), 1)),
+            header_rle,
+            value_rle,
+            actions,
+            &output_fv,
+            iter_states_in,
+            iter_states_out,
+        );
+    }
+    fn test_actions_on_range<T: FixedSizeFieldValueType>(
+        input: impl Iterator<Item = T>,
+        actions: &[FieldAction],
+        output: &[(T, RunLength)],
+    ) {
+        test_actions_on_range_single_type(
             input,
             true,
             true,
@@ -792,7 +817,7 @@ mod test {
         actions: &[FieldAction],
         output: &[(i64, RunLength)],
     ) {
-        test_actions_on_range_raw(
+        test_actions_on_range_single_type(
             input,
             false,
             false,
@@ -804,7 +829,51 @@ mod test {
     }
 
     #[test]
-    fn drop_after_dup() {
+    fn basic_dup() {
+        //  Before  Dup(0, 2)
+        //    0         0
+        //    1         0
+        //    2         0
+        //              1
+        //              2
+        test_actions_on_range(
+            0i64..3,
+            &[FieldAction::new(FAK::Dup, 0, 2)],
+            &[(0, 3), (1, 1), (2, 1)],
+        );
+    }
+
+    #[test]
+    fn basic_insert() {
+        //  Before  Dup(0, 2)
+        //    0         0
+        //    1         1
+        //    1         GS
+        //    1         1
+        //    2         2
+        test_actions_on_range_raw(
+            [0, 1, 1, 1, 2].iter().map(|v| (FieldValue::Int(*v), 1)),
+            true,
+            true,
+            &[FieldAction::new(FAK::InsertGroupSeparator, 2, 1)],
+            &[
+                (FieldValue::Int(0), 1),
+                (FieldValue::Int(1), 1),
+                (FieldValue::GroupSeparator, 1),
+                (FieldValue::Int(1), 1),
+                (FieldValue::Int(2), 1),
+            ],
+            &[],
+            &[],
+        );
+    }
+
+    // we are testing for a debug assertion to trigger
+    // so we can't use this in release mode
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic = "overlapping field actions"]
+    fn drop_within_dup() {
         //  Before  Dup(0, 2)  Drop(1, 1)
         //    0         0           0
         //    1         0           0
@@ -812,12 +881,7 @@ mod test {
         //              1           2
         //              2
         test_actions_on_range(
-            0..3,
-            &[FieldAction::new(FAK::Dup, 0, 2)],
-            &[(0, 3), (1, 1), (2, 1)],
-        );
-        test_actions_on_range(
-            0..3,
+            0i64..3,
             &[
                 FieldAction::new(FAK::Dup, 0, 2),
                 FieldAction::new(FAK::Drop, 1, 1),
@@ -825,6 +889,7 @@ mod test {
             &[(0, 2), (1, 1), (2, 1)],
         );
     }
+
     #[test]
     fn in_between_drop() {
         //  Before   Drop(1, 1)
@@ -832,7 +897,7 @@ mod test {
         //    1           2
         //    2
         test_actions_on_range(
-            0..3,
+            0i64..3,
             &[FieldAction::new(FAK::Drop, 1, 1)],
             &[(0, 1), (2, 1)],
         );
@@ -845,12 +910,12 @@ mod test {
         //    0           0
         //    0
         test_actions_on_range(
-            std::iter::repeat(0).take(3),
+            std::iter::repeat(0i64).take(3),
             &[FieldAction::new(FAK::Drop, 1, 1)],
             &[(0, 2)],
         );
         test_actions_on_range_no_rle(
-            std::iter::repeat(0).take(3),
+            std::iter::repeat(0i64).take(3),
             &[FieldAction::new(FAK::Drop, 1, 1)],
             &[(0, 1), (0, 1)],
         );

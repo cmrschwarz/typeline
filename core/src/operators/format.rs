@@ -1667,6 +1667,7 @@ pub fn setup_key_output_state(
                         }
                         FieldValue::Undefined
                         | FieldValue::Null
+                        | FieldValue::GroupSeparator
                         | FieldValue::Int(_)
                         | FieldValue::BigInt(_)
                         | FieldValue::Float(_)

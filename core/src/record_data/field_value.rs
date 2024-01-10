@@ -36,6 +36,7 @@ use super::{
 pub enum FieldValueKind {
     Undefined,
     Null,
+    GroupSeparator,
     Int,
     BigInt,
     Float,
@@ -62,6 +63,7 @@ pub enum FieldValue {
     #[default]
     Undefined,
     Null,
+    GroupSeparator,
     Int(i64),
     // this is the only field that's allowed to be 32 bytes large
     // this still keeps FieldValue at 32 bytes due to Rust's
@@ -179,6 +181,7 @@ impl FieldValueKind {
         match self {
             FieldValueKind::Undefined => FieldValueRepr::Undefined,
             FieldValueKind::Null => FieldValueRepr::Null,
+            FieldValueKind::GroupSeparator => FieldValueRepr::GroupSeparator,
             FieldValueKind::Int => FieldValueRepr::Int,
             FieldValueKind::BigInt => FieldValueRepr::BigInt,
             FieldValueKind::Float => FieldValueRepr::Float,
@@ -200,6 +203,7 @@ impl FieldValueKind {
         match self {
             FieldValueKind::Undefined => FieldValueRepr::Undefined,
             FieldValueKind::Null => FieldValueRepr::Null,
+            FieldValueKind::GroupSeparator => FieldValueRepr::GroupSeparator,
             FieldValueKind::Int => FieldValueRepr::Int,
             FieldValueKind::BigInt => FieldValueRepr::BigInt,
             FieldValueKind::Float => FieldValueRepr::Float,
@@ -221,6 +225,7 @@ impl FieldValueKind {
         match self {
             FieldValueKind::Undefined => "undefined",
             FieldValueKind::Null => "null",
+            FieldValueKind::GroupSeparator => "group_separator",
             FieldValueKind::Int => "int",
             FieldValueKind::BigInt => "integer",
             FieldValueKind::Float => "float",
@@ -264,6 +269,7 @@ impl PartialEq for FieldValue {
             Self::Custom(l) => matches!(other, Self::Custom(r) if r == l),
             Self::Null => matches!(other, Self::Null),
             Self::Undefined => matches!(other, Self::Undefined),
+            Self::GroupSeparator => matches!(other, Self::GroupSeparator),
         }
     }
 }
@@ -273,6 +279,7 @@ impl FieldValue {
         match self {
             FieldValue::Null => FieldValueKind::Null,
             FieldValue::Undefined => FieldValueKind::Undefined,
+            FieldValue::GroupSeparator => FieldValueKind::GroupSeparator,
             FieldValue::Int(_) => FieldValueKind::Int,
             FieldValue::BigInt(_) => FieldValueKind::BigInt,
             FieldValue::Float(_) => FieldValueKind::Float,
@@ -294,6 +301,9 @@ impl FieldValue {
         match self {
             FieldValue::Null => <dyn Any>::downcast_ref(&Null),
             FieldValue::Undefined => <dyn Any>::downcast_ref(&Undefined),
+            FieldValue::GroupSeparator => {
+                <dyn Any>::downcast_ref(&GroupSeparator)
+            }
             FieldValue::Int(v) => <dyn Any>::downcast_ref(v),
             FieldValue::BigInt(v) => <dyn Any>::downcast_ref(v),
             FieldValue::Float(v) => <dyn Any>::downcast_ref(v),
@@ -313,6 +323,7 @@ impl FieldValue {
         match self {
             v @ FieldValue::Null => <dyn Any>::downcast_mut(v),
             v @ FieldValue::Undefined => <dyn Any>::downcast_mut(v),
+            v @ FieldValue::GroupSeparator => <dyn Any>::downcast_mut(v),
             FieldValue::Int(v) => <dyn Any>::downcast_mut(v),
             FieldValue::BigInt(v) => <dyn Any>::downcast_mut(v),
             FieldValue::Float(v) => <dyn Any>::downcast_mut(v),
@@ -348,6 +359,7 @@ impl FieldValue {
         match self {
             FieldValue::Undefined => FieldValueRef::Undefined,
             FieldValue::Null => FieldValueRef::Null,
+            FieldValue::GroupSeparator => FieldValueRef::GroupSeparator,
             FieldValue::Int(v) => FieldValueRef::Int(v),
             FieldValue::BigInt(v) => FieldValueRef::BigInt(v),
             FieldValue::Float(v) => FieldValueRef::Float(v),
@@ -375,6 +387,9 @@ impl FieldValue {
             FieldValue::Undefined => {
                 w.write(UNDEFINED_STR.as_bytes()).map(|_| ())
             }
+            FieldValue::GroupSeparator => {
+                panic!("attempted to format a GroupSeparator")
+            }
             FieldValue::Int(v) => w.write_fmt(format_args!("{v}")),
             FieldValue::BigInt(v) => w.write_fmt(format_args!("{v}")),
             FieldValue::Float(v) => w.write_fmt(format_args!("{v}")),
@@ -394,6 +409,54 @@ impl FieldValue {
             FieldValue::SlicedFieldReference(_) => todo!(),
             FieldValue::StreamValueId(_) => todo!(),
             FieldValue::Custom(v) => v.stringify(w, &fc.rfk).map(|_| ()),
+        }
+    }
+    pub fn from_fixed_sized_type<T: FixedSizeFieldValueType + Sized>(
+        v: T,
+    ) -> Self {
+        // SAFETY: this is the almighty 'cast anything into anything' function.
+        // We only use it for the special circumstance below
+        // where we *know* that `T` and `Q` will be *identical* because of the
+        // check on `T::REPR`. `FixedSizeFieldValueType` is an unsafe
+        // trait, so assuming that nobody gave us an incorrect `REPR`
+        // is sound.
+        unsafe fn xx<T, Q>(v: T) -> Q {
+            unsafe { std::ptr::read(&v as *const T as *const Q) }
+        }
+        unsafe {
+            match T::REPR {
+                FieldValueRepr::Null => FieldValue::Null,
+                FieldValueRepr::Undefined => FieldValue::Undefined,
+                FieldValueRepr::GroupSeparator => FieldValue::GroupSeparator,
+                FieldValueRepr::Int => FieldValue::Int(xx(v)),
+                FieldValueRepr::BigInt => xx(v),
+                FieldValueRepr::Float => FieldValue::Float(xx(v)),
+                FieldValueRepr::Rational => {
+                    FieldValue::Rational(Box::new(xx::<T, BigRational>(v)))
+                }
+                FieldValueRepr::TextBuffer => FieldValue::Text(xx(v)),
+                FieldValueRepr::BytesBuffer => FieldValue::Bytes(xx(v)),
+                FieldValueRepr::Object => FieldValue::Object(xx(v)),
+                FieldValueRepr::Array => FieldValue::Array(xx(v)),
+                FieldValueRepr::Custom => FieldValue::Custom(xx(v)),
+                FieldValueRepr::Error => FieldValue::Error(xx(v)),
+                FieldValueRepr::StreamValueId => {
+                    FieldValue::StreamValueId(xx(v))
+                }
+                FieldValueRepr::FieldReference => {
+                    FieldValue::FieldReference(xx(v))
+                }
+                FieldValueRepr::SlicedFieldReference => {
+                    FieldValue::SlicedFieldReference(xx(v))
+                }
+                FieldValueRepr::TextFile | FieldValueRepr::BytesFile => {
+                    todo!()
+                }
+                // not fixed size types
+                FieldValueRepr::TextInline | FieldValueRepr::BytesInline => {
+                    unreachable!()
+                }
+            }
         }
     }
 }
