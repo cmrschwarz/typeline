@@ -292,6 +292,10 @@ impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for Iter<'a, R> {
         }
     }
     fn get_prev_field_data_end(&self) -> usize {
+        if self.header_fmt.same_value_as_previous() {
+            debug_assert!(self.header_fmt.shared_value());
+            return self.data + self.header_fmt.size as usize;
+        }
         if self.header_rl_offset > 0 {
             if self.header_fmt.shared_value() {
                 return self.data + self.header_fmt.size as usize;

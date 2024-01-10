@@ -192,6 +192,8 @@ impl FieldActionApplicator {
         }
 
         self.push_copy_command(faas);
+        let mut pre_fmt = header.fmt;
+        pre_fmt.set_shared_value(pre_fmt.shared_value() || pre == 1);
         self.push_insert_command_if_rl_gt_0(faas, header.fmt, pre);
         faas.field_pos += pre as usize;
         self.iters_after_offset_to_next_header_bumping_field_pos(
@@ -222,6 +224,7 @@ impl FieldActionApplicator {
 
             if mid_rem == 0 {
                 header.run_length = post;
+                header.set_shared_value_if_rl_1();
                 return;
             }
         }
@@ -235,6 +238,7 @@ impl FieldActionApplicator {
         self.push_insert_command_if_rl_gt_0(faas, fmt_mid, mid_rem);
         faas.field_pos += mid_rem as usize;
         header.run_length = post;
+        header.set_shared_value_if_rl_1();
     }
 
     fn handle_dup(
@@ -308,7 +312,7 @@ impl FieldActionApplicator {
         faas.field_pos += mid_full_count * RunLength::MAX as usize;
         if mid_rem == 0 {
             header.run_length = post;
-            header.set_shared_value(post == 1);
+            header.set_shared_value_if_rl_1();
             return;
         }
 
@@ -320,7 +324,7 @@ impl FieldActionApplicator {
         self.push_insert_command_if_rl_gt_0(faas, fmt_mid, mid_rem);
         faas.field_pos += mid_rem as usize;
         header.run_length = post;
-        header.set_shared_value(post == 1);
+        header.set_shared_value_if_rl_1();
     }
     fn handle_drop(
         &mut self,

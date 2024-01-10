@@ -147,7 +147,7 @@ pub mod field_value_flags {
     pub const SHARED_VALUE_OFFSET: FieldValueFlags = 5;
     pub const BYTES_ARE_UTF8_OFFSET: FieldValueFlags = 6;
     pub const DELETED_OFFSET: FieldValueFlags = 7;
-
+    // When the run_length is one, `SHARED_VALUE` **must** also be set
     pub const SHARED_VALUE: FieldValueFlags = 1 << SHARED_VALUE_OFFSET;
     pub const DELETED: FieldValueFlags = 1 << DELETED_OFFSET;
     pub const SAME_VALUE_AS_PREVIOUS: FieldValueFlags =
@@ -451,6 +451,13 @@ impl FieldValueFormat {
         self.flags |=
             (val as FieldValueFlags) << field_value_flags::SHARED_VALUE_OFFSET;
     }
+
+    #[inline(always)]
+    pub fn set_shared_value_if_rl_1(&mut self, rl: RunLength) {
+        if rl == 1 {
+            self.set_shared_value(true);
+        }
+    }
     #[inline(always)]
     pub fn leading_padding(self) -> usize {
         (self.flags & field_value_flags::LEADING_PADDING) as usize
@@ -497,6 +504,9 @@ impl DerefMut for FieldValueHeader {
 }
 
 impl FieldValueHeader {
+    pub fn set_shared_value_if_rl_1(&mut self) {
+        self.fmt.set_shared_value_if_rl_1(self.run_length);
+    }
     pub fn unique_data_element_count(&self) -> RunLength {
         if self.shared_value() {
             if self.same_value_as_previous() {
