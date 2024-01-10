@@ -985,8 +985,6 @@ impl ActionBuffer {
             data,
             field_count,
             iterators,
-            0,
-            0,
         );
     }
     fn initialize_first_actor(

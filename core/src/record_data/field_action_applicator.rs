@@ -27,42 +27,50 @@ pub(super) struct FieldActionApplicator {
     iters: Vec<&'static mut FieldAction>,
 }
 
+struct FieldActionApplicationState {
+    header_idx: usize,
+    field_pos: usize,
+    header_idx_new: usize,
+    copy_range_start: usize,
+    copy_range_start_new: usize,
+    field_pos_old: usize,
+    data_end: usize,
+    curr_header_iter_count: usize,
+    curr_header_original_rl: RunLength,
+    curr_action_kind: FieldActionKind,
+    curr_action_pos: usize,
+    curr_action_run_length: usize,
+}
+
 impl FieldActionApplicator {
-    fn push_copy_command(
-        &mut self,
-        header_idx_new: usize,
-        copy_range_start: &mut usize,
-        copy_range_start_new: &mut usize,
-    ) {
-        let copy_len = header_idx_new - *copy_range_start_new;
-        if copy_len > 0 && *copy_range_start_new > 0 {
+    fn push_copy_command(&mut self, faas: &mut FieldActionApplicationState) {
+        let copy_len = faas.header_idx_new - faas.copy_range_start_new;
+        if copy_len > 0 && faas.copy_range_start_new > 0 {
             self.copies.push(CopyCommand {
-                source: *copy_range_start,
-                target: *copy_range_start_new,
+                source: faas.copy_range_start,
+                target: faas.copy_range_start_new,
                 len: copy_len,
             });
         }
-        *copy_range_start += copy_len;
-        *copy_range_start_new += copy_len;
+        faas.copy_range_start += copy_len;
+        faas.copy_range_start_new += copy_len;
     }
     fn push_insert_command(
         &mut self,
-        header_idx_new: &mut usize,
-        copy_range_start_new: &mut usize,
+        faas: &mut FieldActionApplicationState,
         fmt: FieldValueFormat,
         run_length: RunLength,
     ) {
-        *header_idx_new += 1;
+        faas.header_idx_new += 1;
         self.insertions.push(InsertionCommand {
-            index: *copy_range_start_new,
+            index: faas.copy_range_start_new,
             value: FieldValueHeader { fmt, run_length },
         });
-        *copy_range_start_new += 1;
+        faas.copy_range_start_new += 1;
     }
     fn push_insert_command_if_rl_gt_0(
         &mut self,
-        header_idx_new: &mut usize,
-        copy_range_start_new: &mut usize,
+        faas: &mut FieldActionApplicationState,
         mut fmt: FieldValueFormat,
         run_length: RunLength,
     ) {
@@ -72,12 +80,7 @@ impl FieldActionApplicator {
         if run_length == 1 {
             fmt.set_shared_value(true);
         }
-        self.push_insert_command(
-            header_idx_new,
-            copy_range_start_new,
-            fmt,
-            run_length,
-        );
+        self.push_insert_command(faas, fmt, run_length);
     }
     fn iters_adjust_drop_before(
         &self,
@@ -165,24 +168,28 @@ impl FieldActionApplicator {
         }
     }
 
+    fn handle_inserts(
+        &mut self,
+        header: &mut FieldValueHeader,
+        iterators: &mut [&mut IterState],
+        faas: &mut FieldActionApplicationState,
+    ) {
+        todo!();
+    }
+
     fn handle_dup(
         &mut self,
-        field_idx: usize,
-        dup_count: usize,
         header: &mut FieldValueHeader,
-        field_pos: &mut usize,
-        header_idx_new: &mut usize,
-        copy_range_start: &mut usize,
-        copy_range_start_new: &mut usize,
-        curr_header_iter_count: usize,
         iterators: &mut [&mut IterState],
+        faas: &mut FieldActionApplicationState,
     ) {
-        let pre = (field_idx - *field_pos) as RunLength;
+        let dup_count = faas.curr_action_run_length;
+        let pre = (faas.curr_action_pos - faas.field_pos) as RunLength;
         if header.shared_value() {
-            let start = iterators.len() - curr_header_iter_count;
+            let start = iterators.len() - faas.curr_header_iter_count;
             for it in &mut iterators[start..] {
                 if it.header_rl_offset <= pre {
-                    //iterators are sorted backwards
+                    // iterators are sorted backwards
                     // all later (-> smaller offset) ones will be unaffected
                     break;
                 }
@@ -190,20 +197,11 @@ impl FieldActionApplicator {
             }
             let mut rl_res = header.run_length as usize + dup_count;
             if rl_res > RunLength::MAX as usize {
-                self.push_copy_command(
-                    *header_idx_new,
-                    copy_range_start,
-                    copy_range_start_new,
-                );
+                self.push_copy_command(faas);
                 while rl_res > RunLength::MAX as usize {
-                    self.push_insert_command(
-                        header_idx_new,
-                        copy_range_start_new,
-                        header.fmt,
-                        RunLength::MAX,
-                    );
+                    self.push_insert_command(faas, header.fmt, RunLength::MAX);
                     header.set_same_value_as_previous(true);
-                    *field_pos += RunLength::MAX as usize;
+                    faas.field_pos += RunLength::MAX as usize;
                     rl_res -= RunLength::MAX as usize;
                 }
             }
@@ -216,21 +214,13 @@ impl FieldActionApplicator {
             - (mid_full_count * RunLength::MAX as usize))
             as RunLength;
         let post = (header.run_length - pre).saturating_sub(1);
-        self.push_copy_command(
-            *header_idx_new,
-            copy_range_start,
-            copy_range_start_new,
-        );
-        self.push_insert_command_if_rl_gt_0(
-            header_idx_new,
-            copy_range_start_new,
-            header.fmt,
-            pre,
-        );
-        *field_pos += pre as usize;
+        self.push_copy_command(faas);
+        self.push_insert_command_if_rl_gt_0(faas, header.fmt, pre);
+        faas.field_pos += pre as usize;
         self.iters_after_offset_to_next_header_bumping_field_pos(
-            curr_header_iter_count,
-            //only move iterators that refer to the element *after* the one we are duping, so not pre and mid
+            faas.curr_header_iter_count,
+            // only move iterators that refer to the element *after* the one
+            // we are duping, so not pre and mid
             pre + 1,
             dup_count,
             iterators,
@@ -248,17 +238,12 @@ impl FieldActionApplicator {
         fmt_mid.set_shared_value(true);
         if mid_full_count != 0 {
             for _ in 0..mid_full_count {
-                self.push_insert_command(
-                    header_idx_new,
-                    copy_range_start_new,
-                    fmt_mid,
-                    RunLength::MAX,
-                );
+                self.push_insert_command(faas, fmt_mid, RunLength::MAX);
                 fmt_mid.set_same_value_as_previous(true);
             }
         }
 
-        *field_pos += mid_full_count * RunLength::MAX as usize;
+        faas.field_pos += mid_full_count * RunLength::MAX as usize;
         if mid_rem == 0 {
             header.run_length = post;
             header.set_shared_value(post == 1);
@@ -270,71 +255,53 @@ impl FieldActionApplicator {
             header.fmt = fmt_mid;
             return;
         }
-        self.push_insert_command_if_rl_gt_0(
-            header_idx_new,
-            copy_range_start_new,
-            fmt_mid,
-            mid_rem,
-        );
-        *field_pos += mid_rem as usize;
+        self.push_insert_command_if_rl_gt_0(faas, fmt_mid, mid_rem);
+        faas.field_pos += mid_rem as usize;
         header.run_length = post;
         header.set_shared_value(post == 1);
     }
     fn handle_drop(
         &mut self,
-        action_pos: usize,
-        curr_action_pos_outstanding_drops: &mut RunLength,
         header: &mut FieldValueHeader,
-        field_pos: &mut usize,
-        header_idx_new: &mut usize,
-        copy_range_start: &mut usize,
-        copy_range_start_new: &mut usize,
-        curr_header_iter_count: usize,
         iterators: &mut [&mut IterState],
+        faas: &mut FieldActionApplicationState,
     ) {
-        let rl_to_del = *curr_action_pos_outstanding_drops;
-        let rl_pre = (action_pos - *field_pos) as RunLength;
+        let drop_count = faas.curr_action_run_length;
+        let rl_pre = (faas.curr_action_pos - faas.field_pos) as RunLength;
         if rl_pre > 0 {
             let rl_rem = header.run_length - rl_pre;
-            if header.shared_value() && rl_to_del <= rl_rem {
+            if header.shared_value() && drop_count <= rl_rem as usize {
+                let rl_to_del = drop_count as RunLength;
                 header.run_length -= rl_to_del;
-                *curr_action_pos_outstanding_drops = 0;
+                faas.curr_action_run_length = 0;
                 self.iters_adjust_drop_before(
-                    curr_header_iter_count,
+                    faas.curr_header_iter_count,
                     iterators,
-                    *field_pos,
+                    faas.field_pos,
                     rl_to_del,
                 );
                 return;
             }
-            self.push_copy_command(
-                *header_idx_new,
-                copy_range_start,
-                copy_range_start_new,
-            );
-            self.push_insert_command_if_rl_gt_0(
-                header_idx_new,
-                copy_range_start_new,
-                header.fmt,
-                rl_pre,
-            );
+            self.push_copy_command(faas);
+            self.push_insert_command_if_rl_gt_0(faas, header.fmt, rl_pre);
             self.iters_to_next_header(
-                curr_header_iter_count,
+                faas.curr_header_iter_count,
                 iterators,
                 &FieldValueHeader {
                     fmt: header.fmt,
                     run_length: rl_pre,
                 },
             );
-            *field_pos += rl_pre as usize;
+            faas.field_pos += rl_pre as usize;
             header.run_length -= rl_pre;
-            if rl_to_del <= rl_rem {
+            if drop_count <= rl_rem as usize {
+                let rl_to_del = drop_count as RunLength;
                 debug_assert!(!header.shared_value());
                 if rl_to_del == rl_rem {
                     header.set_deleted(true);
-                    *curr_action_pos_outstanding_drops = 0;
+                    faas.curr_action_run_length = 0;
                     self.iters_to_next_header_zero_offset(
-                        curr_header_iter_count,
+                        faas.curr_header_iter_count,
                         iterators,
                         header,
                     );
@@ -342,15 +309,10 @@ impl FieldActionApplicator {
                 }
                 let mut fmt_del = header.fmt;
                 fmt_del.set_deleted(true);
-                self.push_insert_command_if_rl_gt_0(
-                    header_idx_new,
-                    copy_range_start_new,
-                    fmt_del,
-                    rl_to_del,
-                );
+                self.push_insert_command_if_rl_gt_0(faas, fmt_del, rl_to_del);
                 header.run_length -= rl_to_del;
                 self.iters_to_next_header_adjusting_deleted_offset(
-                    curr_header_iter_count,
+                    faas.curr_header_iter_count,
                     iterators,
                     &FieldValueHeader {
                         fmt: header.fmt,
@@ -360,61 +322,54 @@ impl FieldActionApplicator {
                 if header.run_length == 1 {
                     header.set_shared_value(true);
                 }
-                *curr_action_pos_outstanding_drops = 0;
+                faas.curr_action_run_length = 0;
                 return;
             }
             header.set_deleted(true);
             self.iters_to_next_header_adjusting_deleted_offset(
-                curr_header_iter_count,
+                faas.curr_header_iter_count,
                 iterators,
                 header,
             );
             if header.shared_value() {
-                *copy_range_start += 1;
-                *copy_range_start_new += 1;
-                *curr_action_pos_outstanding_drops -= rl_rem;
+                faas.copy_range_start += 1;
+                faas.copy_range_start_new += 1;
+                faas.curr_action_run_length -= rl_rem as usize;
                 return;
             }
-            *curr_action_pos_outstanding_drops -= rl_rem;
+            faas.curr_action_run_length -= rl_rem as usize;
             return;
         }
-        if rl_to_del > header.run_length {
+        if drop_count > header.run_length as usize {
             header.set_deleted(true);
-            *curr_action_pos_outstanding_drops -= header.run_length;
+            faas.curr_action_run_length -= header.run_length as usize;
             self.iters_to_next_header_adjusting_deleted_offset(
-                curr_header_iter_count,
+                faas.curr_header_iter_count,
                 iterators,
                 header,
             );
             return;
         }
-        *curr_action_pos_outstanding_drops = 0;
+        // otherwise the if statement above must be true
+        let rl_to_del = drop_count as RunLength;
+        faas.curr_action_run_length = 0;
         if rl_to_del == header.run_length {
             header.set_deleted(true);
             self.iters_to_next_header_zero_offset(
-                curr_header_iter_count,
+                faas.curr_header_iter_count,
                 iterators,
                 header,
             );
             return;
         }
         if !header.shared_value() {
-            self.push_copy_command(
-                *header_idx_new,
-                copy_range_start,
-                copy_range_start_new,
-            );
+            self.push_copy_command(faas);
             let mut fmt_del = header.fmt;
             fmt_del.set_deleted(true);
-            self.push_insert_command_if_rl_gt_0(
-                header_idx_new,
-                copy_range_start_new,
-                fmt_del,
-                rl_to_del,
-            );
+            self.push_insert_command_if_rl_gt_0(faas, fmt_del, rl_to_del);
             header.run_length -= rl_to_del;
             self.iters_to_next_header_adjusting_deleted_offset(
-                curr_header_iter_count,
+                faas.curr_header_iter_count,
                 iterators,
                 &FieldValueHeader {
                     fmt: header.fmt,
@@ -424,9 +379,9 @@ impl FieldActionApplicator {
             return;
         }
         self.iters_adjust_drop_before(
-            curr_header_iter_count,
+            faas.curr_header_iter_count,
             iterators,
-            *field_pos,
+            faas.field_pos,
             rl_to_del,
         );
         header.run_length -= rl_to_del;
@@ -434,14 +389,13 @@ impl FieldActionApplicator {
     fn update_current_iters(
         &self,
         iterators: &mut Vec<&mut IterState>,
-        curr_header_iter_count: &mut usize,
-        curr_action_pos: usize,
+        faas: &mut FieldActionApplicationState,
     ) {
-        while *curr_header_iter_count > 0 {
+        while faas.curr_header_iter_count > 0 {
             let it = &iterators.last().unwrap();
-            if it.field_pos < curr_action_pos {
+            if it.field_pos < faas.curr_action_pos {
                 iterators.pop();
-                *curr_header_iter_count -= 1;
+                faas.curr_header_iter_count -= 1;
                 continue;
             }
             break;
@@ -455,198 +409,117 @@ impl FieldActionApplicator {
         headers: &mut Vec<FieldValueHeader>,
         data: Option<&mut FieldDataBuffer>,
         iterators: &mut Vec<&mut IterState>,
-        mut header_idx: usize,
-        mut field_pos: usize,
     ) -> isize {
         if headers.is_empty() {
-            #[cfg(debug_assertions)]
-            {
-                debug_assert!(actions
-                    .copied()
-                    .all(|a| a.kind == FieldActionKind::Drop));
-            }
-            if let Some(data) = data {
-                data.clear();
-            }
+            debug_assert!(actions
+                .copied()
+                .all(|a| a.kind == FieldActionKind::Drop));
+            debug_assert!(data.map(|d| d.is_empty()).unwrap_or(true));
             return 0;
         }
-        let mut header;
-        let mut header_idx_new = header_idx;
-
-        let mut copy_range_start = 0;
-        let mut copy_range_start_new = 0;
-        let mut field_pos_old = field_pos;
-        let mut curr_action_pos = 0;
-        let mut curr_action_pos_outstanding_dups = 0;
-        let mut curr_action_pos_outstanding_drops = 0;
-        let mut curr_header_original_rl = headers
-            .first()
-            .map(|h| h.effective_run_length())
-            .unwrap_or(0);
-        let mut data_end = 0;
-        let mut curr_header_iter_count = 0;
-
+        let mut faas = FieldActionApplicationState {
+            header_idx: 0,
+            field_pos: 0,
+            header_idx_new: 0,
+            copy_range_start: 0,
+            copy_range_start_new: 0,
+            field_pos_old: 0,
+            data_end: 0,
+            curr_header_iter_count: 0,
+            curr_header_original_rl: headers
+                .first()
+                .map(|h| h.effective_run_length())
+                .unwrap_or(0),
+            curr_action_kind: FieldActionKind::Dup,
+            curr_action_run_length: 0,
+            curr_action_pos: 0,
+        };
         for it in iterators.iter().rev() {
-            if it.header_idx != header_idx {
+            if it.header_idx != faas.header_idx {
                 break;
             }
-            curr_header_iter_count += 1;
+            faas.curr_header_iter_count += 1;
         }
         let mut actions = actions.peekable();
-
-        'advance_action: loop {
-            loop {
-                let Some(&action) = actions.peek() else {
-                    if curr_action_pos_outstanding_dups > 0 {
-                        break;
-                    }
-                    break 'advance_action;
-                };
-                match action.kind {
-                    FieldActionKind::InsertGroupSeparator => todo!("FAK"),
-                    FieldActionKind::Dup => {
-                        if action.field_idx != curr_action_pos {
-                            if curr_action_pos_outstanding_dups > 0 {
-                                break;
-                            }
-                            curr_action_pos = action.field_idx;
-                        }
-                        curr_action_pos_outstanding_dups +=
-                            action.run_len as usize;
-                    }
-                    FieldActionKind::Drop => {
-                        if curr_action_pos_outstanding_dups == 0 {
-                            curr_action_pos = action.field_idx;
-                            curr_action_pos_outstanding_drops = action.run_len;
-                            actions.next();
-                            break;
-                        }
-                        let action_gap = action.field_idx - curr_action_pos;
-                        if curr_action_pos_outstanding_dups < action_gap {
-                            break;
-                        }
-                        if curr_action_pos_outstanding_dups
-                            >= action_gap + action.run_len as usize
-                        {
-                            curr_action_pos_outstanding_dups -=
-                                action.run_len as usize;
-                        } else if action_gap == 0 {
-                            curr_action_pos_outstanding_dups = 0;
-                            curr_action_pos_outstanding_drops = action.run_len
-                                - curr_action_pos_outstanding_dups
-                                    as RunLength;
-                            actions.next();
-                            break;
-                        } else {
-                            curr_action_pos_outstanding_drops = action.run_len
-                                - (curr_action_pos_outstanding_dups
-                                    - action_gap)
-                                    as RunLength;
-                            curr_action_pos_outstanding_dups = action_gap;
-                        }
-                    }
+        loop {
+            let Some(action) = actions.next().copied() else {
+                break;
+            };
+            faas.curr_action_kind = action.kind;
+            faas.curr_action_pos = action.field_idx;
+            faas.curr_action_run_length = action.run_len as usize;
+            while let Some(next_action) = actions.peek() {
+                if next_action.field_idx != faas.curr_action_pos {
+                    break;
                 }
+                if next_action.kind != faas.curr_action_kind {
+                    // if we have a dup on an index, we won't drop
+                    // that index or insert at its position later,
+                    // as stated by the `FieldAction` invariants
+                    debug_assert!(
+                        faas.curr_action_kind != FieldActionKind::Dup
+                    );
+                    break;
+                }
+                faas.curr_action_run_length += next_action.run_len as usize;
                 actions.next();
             }
-            'advance_header: loop {
-                loop {
-                    header = &mut headers[header_idx];
-                    if !header.deleted() {
-                        let field_pos_new =
-                            field_pos + header.run_length as usize;
-                        if field_pos_new > curr_action_pos {
+            loop {
+                self.move_header_idx_to_action_pos(
+                    headers, iterators, &mut faas,
+                );
+                if faas.header_idx == headers.len() {
+                    faas.header_idx -= 1;
+                    break;
+                }
+                match faas.curr_action_kind {
+                    FieldActionKind::Dup => {
+                        self.handle_dup(
+                            &mut headers[faas.header_idx],
+                            iterators,
+                            &mut faas,
+                        );
+                        faas.curr_action_pos += faas.curr_action_run_length;
+                        self.update_current_iters(iterators, &mut faas);
+                        break;
+                    }
+                    FieldActionKind::InsertGroupSeparator => {
+                        self.handle_inserts(
+                            &mut headers[faas.header_idx],
+                            iterators,
+                            &mut faas,
+                        );
+                        faas.curr_action_pos += faas.curr_action_run_length;
+                        self.update_current_iters(iterators, &mut faas);
+                        break;
+                    }
+                    FieldActionKind::Drop => {
+                        self.handle_drop(
+                            &mut headers[faas.header_idx],
+                            iterators,
+                            &mut faas,
+                        );
+                        if faas.curr_action_run_length == 0 {
                             break;
                         }
-                        field_pos = field_pos_new;
                     }
-                    field_pos_old += curr_header_original_rl as usize;
-                    if !header.same_value_as_previous() {
-                        data_end += header.total_size();
-                    }
-                    let field_pos_delta =
-                        field_pos as isize - field_pos_old as isize;
-                    iterators
-                        .drain(iterators.len() - curr_header_iter_count..);
-                    let len = iterators.len();
-                    curr_header_iter_count = 0;
-                    while len > curr_header_iter_count {
-                        let it =
-                            &mut iterators[len - curr_header_iter_count - 1];
-                        if it.header_idx != header_idx + 1 {
-                            break;
-                        }
-                        it.field_pos =
-                            (it.field_pos as isize + field_pos_delta) as usize;
-                        it.header_idx += header_idx_new - header_idx;
-                        curr_header_iter_count += 1;
-                    }
-                    if header_idx + 1 == headers.len() {
-                        // this can happen if the field is too short (has)
-                        // implicit nulls at the end
-                        break 'advance_action;
-                    }
-                    header_idx += 1;
-                    curr_header_original_rl =
-                        headers[header_idx].effective_run_length();
-                    header_idx_new += 1;
-                }
-                self.update_current_iters(
-                    iterators,
-                    &mut curr_header_iter_count,
-                    curr_action_pos,
-                );
-                if curr_action_pos_outstanding_dups > 0 {
-                    self.handle_dup(
-                        curr_action_pos,
-                        curr_action_pos_outstanding_dups,
-                        header,
-                        &mut field_pos,
-                        &mut header_idx_new,
-                        &mut copy_range_start,
-                        &mut copy_range_start_new,
-                        curr_header_iter_count,
-                        iterators,
-                    );
-                    let prev_dups = curr_action_pos_outstanding_dups;
-                    curr_action_pos_outstanding_dups = 0;
-                    if curr_action_pos_outstanding_drops == 0 {
-                        continue 'advance_action;
-                    }
-                    curr_action_pos += prev_dups;
-                    self.update_current_iters(
-                        iterators,
-                        &mut curr_header_iter_count,
-                        curr_action_pos,
-                    );
-                }
-                self.handle_drop(
-                    curr_action_pos,
-                    &mut curr_action_pos_outstanding_drops,
-                    header,
-                    &mut field_pos,
-                    &mut header_idx_new,
-                    &mut copy_range_start,
-                    &mut copy_range_start_new,
-                    curr_header_iter_count,
-                    iterators,
-                );
-                if curr_action_pos_outstanding_drops == 0 {
-                    continue 'advance_action;
-                } else {
-                    continue 'advance_header;
                 }
             }
         }
-        let headers_rem = headers.len() - header_idx;
-        header_idx_new += headers_rem;
+        let headers_rem = headers.len() - faas.header_idx;
+        faas.header_idx_new += headers_rem;
         if headers_rem > 0 {
-            field_pos += headers[header_idx].effective_run_length() as usize;
-            field_pos_old += curr_header_original_rl as usize;
-            let header_idx_delta =
-                header_idx_new as isize - (header_idx + headers_rem) as isize;
-            let field_pos_delta = field_pos as isize - field_pos_old as isize;
+            faas.field_pos +=
+                headers[faas.header_idx].effective_run_length() as usize;
+            faas.field_pos_old += faas.curr_header_original_rl as usize;
+            let header_idx_delta = faas.header_idx_new as isize
+                - (faas.header_idx + headers_rem) as isize;
+            let field_pos_delta =
+                faas.field_pos as isize - faas.field_pos_old as isize;
             let iters_len = iterators.len();
-            for it in &mut iterators[0..iters_len - curr_header_iter_count] {
+            for it in
+                &mut iterators[0..iters_len - faas.curr_header_iter_count]
+            {
                 it.field_pos =
                     (it.field_pos as isize + field_pos_delta) as usize;
                 it.header_idx =
@@ -655,26 +528,70 @@ impl FieldActionApplicator {
         } else if let Some(data) = data {
             // if we touched all headers, there is a chance that the final
             // headers are deleted
-            while header_idx > 0 {
-                let h = headers[header_idx - 1];
+            while faas.header_idx > 0 {
+                let h = headers[faas.header_idx - 1];
                 if !h.deleted() {
                     break;
                 }
-                header_idx_new -= 1;
-                header_idx -= 1;
+                faas.header_idx_new -= 1;
+                faas.header_idx -= 1;
                 if !h.same_value_as_previous() {
-                    data_end -= h.total_size();
+                    faas.data_end -= h.total_size();
                 }
             }
-            data.truncate(data_end);
+            data.truncate(faas.data_end);
         }
-        self.push_copy_command(
-            header_idx_new,
-            &mut copy_range_start,
-            &mut copy_range_start_new,
-        );
+        self.push_copy_command(&mut faas);
+        faas.field_pos as isize - faas.field_pos_old as isize
+    }
 
-        field_pos as isize - field_pos_old as isize
+    fn move_header_idx_to_action_pos(
+        &mut self,
+        headers: &mut Vec<FieldValueHeader>,
+        iterators: &mut Vec<&mut IterState>,
+        faas: &mut FieldActionApplicationState,
+    ) {
+        let mut header;
+        loop {
+            header = &mut headers[faas.header_idx];
+            if !header.deleted() {
+                let field_pos_new =
+                    faas.field_pos + header.run_length as usize;
+                if field_pos_new > faas.curr_action_pos {
+                    break;
+                }
+                faas.field_pos = field_pos_new;
+            }
+            faas.field_pos_old += faas.curr_header_original_rl as usize;
+            if !header.same_value_as_previous() {
+                faas.data_end += header.total_size();
+            }
+            let field_pos_delta =
+                faas.field_pos as isize - faas.field_pos_old as isize;
+            iterators.drain(iterators.len() - faas.curr_header_iter_count..);
+            let len = iterators.len();
+            faas.curr_header_iter_count = 0;
+            while len > faas.curr_header_iter_count {
+                let it = &mut iterators[len - faas.curr_header_iter_count - 1];
+                if it.header_idx != faas.header_idx + 1 {
+                    break;
+                }
+                it.field_pos =
+                    (it.field_pos as isize + field_pos_delta) as usize;
+                it.header_idx += faas.header_idx_new - faas.header_idx;
+                faas.curr_header_iter_count += 1;
+            }
+            faas.header_idx += 1;
+            // this can happen if the field is too short (has)
+            // implicit nulls at the end
+            if faas.header_idx == headers.len() {
+                return;
+            }
+            faas.curr_header_original_rl =
+                headers[faas.header_idx].effective_run_length();
+            faas.header_idx_new += 1;
+        }
+        self.update_current_iters(iterators, faas);
     }
 
     fn execute_commands(&mut self, headers: &mut Vec<FieldValueHeader>) {
@@ -714,8 +631,6 @@ impl FieldActionApplicator {
         data: Option<&mut FieldDataBuffer>,
         field_count: &mut usize,
         iterators: impl Iterator<Item = &'a mut IterState>,
-        header_idx: usize,
-        field_pos: usize,
     ) -> isize {
         let mut iters = transmute_vec(std::mem::take(&mut self.iters));
         iters.extend(iterators);
@@ -723,7 +638,7 @@ impl FieldActionApplicator {
         // we handled
         iters.sort_by(|lhs, rhs| lhs.field_pos.cmp(&rhs.field_pos).reverse());
         let field_count_delta = self.generate_commands_from_actions(
-            actions, headers, data, &mut iters, header_idx, field_pos,
+            actions, headers, data, &mut iters,
         );
         debug_assert!(*field_count as isize + field_count_delta >= 0);
         *field_count = (*field_count as isize + field_count_delta) as usize;
@@ -772,8 +687,6 @@ mod test {
             Some(&mut fd.data),
             &mut fd.field_count,
             iter_states.iter_mut(),
-            0,
-            0,
         );
         let mut iter = fd.iter();
         let mut results = Vec::new();
