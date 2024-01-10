@@ -107,6 +107,13 @@ impl<'a> CowFieldDataRef<'a> {
             _phantom: PhantomData,
         }
     }
+    pub fn destructured_field_ref(&'a self) -> DestructuredFieldDataRef<'a> {
+        DestructuredFieldDataRef {
+            headers: &self.headers_ref,
+            data: &self.data_ref,
+            field_count: self.field_count,
+        }
+    }
 }
 
 impl<'a> FieldDataRef<'a> for &'a CowFieldDataRef<'a> {
@@ -130,16 +137,6 @@ impl<'a> Clone for CowFieldDataRef<'a> {
             headers_ref: Ref::clone(&self.headers_ref),
             data_ref: Ref::clone(&self.data_ref),
             _phantom: PhantomData,
-        }
-    }
-}
-
-impl<'a> CowFieldDataRef<'a> {
-    pub fn destructured_field_ref(&'a self) -> DestructuredFieldDataRef<'a> {
-        DestructuredFieldDataRef {
-            headers: &self.headers_ref,
-            data: &self.data_ref,
-            field_count: self.field_count,
         }
     }
 }

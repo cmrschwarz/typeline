@@ -7,3 +7,4 @@ mod forkcat;
 mod format;
 mod join;
 mod regex;
+pub mod foreach;

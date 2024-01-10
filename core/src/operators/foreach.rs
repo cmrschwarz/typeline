@@ -12,7 +12,7 @@ use crate::{
         field::FieldId,
         field_action::FieldActionKind,
         field_value_repr::{field_value_flags, FieldValueRepr},
-        iters::{FieldIterator, Iter},
+        iters::{FieldDataRef, FieldIterator, Iter},
         push_interface::PushInterface,
     },
     utils::identity_hasher::BuildIdentityHasher,
@@ -47,9 +47,9 @@ pub fn parse_op_foreach(
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
     reject_operator_argument("foreach", value, arg_idx)?;
-    Ok(create_op_nop())
+    Ok(create_op_foreach())
 }
-pub fn create_op_nop() -> OperatorData {
+pub fn create_op_foreach() -> OperatorData {
     OperatorData::Foreach(OpForeach::default())
 }
 
@@ -61,9 +61,9 @@ pub fn setup_op_foreach(
     let OperatorData::Foreach(op) = &sess.operator_data[op_id as usize] else {
         unreachable!()
     };
-    if op.subchains_end != op.subchains_start + 1 {
+    if op.subchains_end > op.subchains_start + 1 {
         return Err(OperatorSetupError::new(
-            "operator `each` must have exactly one subchain",
+            "operator `foreach` does not support multiple subchains",
             op_id,
         )); //ENHANCE: error on the `next` already?
     }
@@ -73,7 +73,7 @@ pub fn setup_op_foreach(
 pub fn insert_tf_foreach(
     job: &mut Job,
     op: &OpForeach,
-    mut tf_state: TransformState,
+    tf_state: TransformState,
     chain_id: ChainId,
     op_id: u32,
     prebound_outputs: &HashMap<OpOutputIdx, FieldId, BuildIdentityHasher>,
@@ -87,10 +87,8 @@ pub fn insert_tf_foreach(
     let ms_id = tf_state.match_set_id;
     let desired_batch_size = tf_state.desired_batch_size;
     let input_field = tf_state.input_field;
-    let group_separator_flag_field = tf_state.output_field;
     let mut trailer_output_field = input_field;
-    tf_state.output_field = input_field;
-    job.job_data.field_mgr.bump_field_refcount(input_field);
+    let group_separator_flag_field = tf_state.output_field;
     let ab = &mut job.job_data.match_set_mgr.match_sets[ms_id].action_buffer;
     let header_actor_id = ab.add_actor();
     let trailer_actor_id = ab.add_actor();
@@ -128,6 +126,9 @@ pub fn insert_tf_foreach(
         }
         TransformContinuationKind::Regular => (),
     }
+    job.job_data
+        .field_mgr
+        .bump_field_refcount(group_separator_flag_field);
     job.job_data
         .field_mgr
         .bump_field_refcount(trailer_output_field);
@@ -191,7 +192,7 @@ pub fn handle_tf_foreach_header(
         field_idx += 2;
     }
     ab.end_action_group();
-    jd.tf_mgr.submit_batch_ready_for_more(tf_id, batch_size, ps);
+    jd.tf_mgr.submit_batch_ready_for_more(tf_id, field_idx, ps);
 }
 
 pub fn handle_tf_foreach_trailer(
@@ -204,11 +205,14 @@ pub fn handle_tf_foreach_trailer(
     let input_field = jd
         .field_mgr
         .get_cow_field_ref(&mut jd.match_set_mgr, tf.input_field);
+    debug_assert!(
+        batch_size == input_field.destructured_field_ref().field_count()
+    );
     let mut iter = Iter::from_start(&input_field);
-    let mut bs_rem = batch_size;
     let mut field_pos = 0;
     let ab = &mut jd.match_set_mgr.match_sets[tf.match_set_id].action_buffer;
     ab.begin_action_group(fet.actor_id);
+    let mut bs_rem = batch_size;
     while bs_rem > 0 {
         let non_gs_records = iter.next_n_fields_with_fmt(
             batch_size,
@@ -225,7 +229,7 @@ pub fn handle_tf_foreach_trailer(
         let gs_records = iter.next_n_fields_with_fmt(
             batch_size,
             [FieldValueRepr::GroupSeparator],
-            true,
+            false,
             field_value_flags::DELETED,
             !field_value_flags::DELETED,
         );
