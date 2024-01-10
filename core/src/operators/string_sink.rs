@@ -13,7 +13,7 @@ use crate::{
     record_data::{
         field::Field,
         field_value::{FieldValue, FormattingContext},
-        field_value_repr::{field_value_flags, FieldValueRepr},
+        field_value_repr::field_value_flags,
         iter_hall::IterId,
         iters::FieldIterator,
         push_interface::PushInterface,
@@ -140,7 +140,6 @@ pub fn build_tf_string_sink<'a>(
     ss: &'a OpStringSink,
     tf_state: &mut TransformState,
 ) -> TransformData<'a> {
-    tf_state.preferred_input_type = Some(FieldValueRepr::BytesInline);
     TransformData::StringSink(TfStringSink {
         handle: &ss.handle.data,
         batch_iter: jd.field_mgr.claim_iter(tf_state.input_field),

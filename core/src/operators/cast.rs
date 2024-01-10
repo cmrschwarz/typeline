@@ -139,8 +139,6 @@ pub fn build_tf_cast<'a>(
     op: &'a OpCast,
     tf_state: &mut TransformState,
 ) -> TransformData<'a> {
-    tf_state.preferred_input_type =
-        Some(op.target_type.to_preferred_data_repr());
     let replacement_fn: Box<dyn InvalidUnicodeHandlerFn> =
         match &op.invalid_unicode_handler {
             Some(h) => match h {
@@ -186,20 +184,6 @@ pub fn handle_tf_cast(jd: &mut JobData, tf_id: TransformId, tfc: &TfCast) {
 
     let mut output_field = jd.field_mgr.fields[tf.output_field].borrow_mut();
 
-    if tf.preferred_input_type.is_some_and(|i| i.is_zst())
-        && tfc.convert_errors
-    {
-        output_field.iter_hall.push_zst(
-            tf.preferred_input_type.unwrap(),
-            batch_size,
-            true,
-        );
-        if ps.next_batch_ready {
-            jd.tf_mgr.push_tf_in_ready_stack(tf_id);
-        }
-        jd.tf_mgr.submit_batch(tf_id, batch_size, ps.input_done);
-        return;
-    }
     let ofd = &mut output_field.iter_hall;
     let base_iter = jd
         .field_mgr

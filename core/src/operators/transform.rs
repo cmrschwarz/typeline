@@ -6,7 +6,6 @@ use crate::{
     job::{Job, JobData, PipelineState, TransformManager},
     record_data::{
         field::{FieldId, FieldManager},
-        field_value_repr::FieldValueRepr,
         iter_hall::IterId,
         iters::{BoundedIter, DestructuredFieldDataRef, Iter},
         match_set::{MatchSetId, MatchSetManager},
@@ -135,7 +134,6 @@ pub struct TransformState {
     // means that this transform will not produce any more records
     pub done: bool,
     pub mark_for_removal: bool,
-    pub preferred_input_type: Option<FieldValueRepr>,
 }
 
 impl TransformState {
@@ -160,7 +158,6 @@ impl TransformState {
             is_transparent: false,
             predecessor_done: false,
             done: false,
-            preferred_input_type: None,
             mark_for_removal: false,
         }
     }

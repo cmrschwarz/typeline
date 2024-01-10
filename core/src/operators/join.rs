@@ -16,9 +16,7 @@ use crate::{
         custom_data::CustomDataBox,
         field::{Field, FieldManager},
         field_value::{FieldValue, FieldValueKind},
-        field_value_repr::{
-            field_value_flags, FieldValueRepr, INLINE_STR_MAX_LEN,
-        },
+        field_value_repr::{field_value_flags, INLINE_STR_MAX_LEN},
         iter_hall::IterId,
         iters::FieldIterator,
         match_set::MatchSetManager,
@@ -136,7 +134,6 @@ pub fn build_tf_join<'a>(
     op: &'a OpJoin,
     tf_state: &mut TransformState,
 ) -> TransformData<'a> {
-    tf_state.preferred_input_type = Some(FieldValueRepr::BytesInline);
     TransformData::Join(TfJoin {
         current_stream_val: None,
         stream_val_added_len: 0,

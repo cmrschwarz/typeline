@@ -473,7 +473,6 @@ pub fn build_tf_regex<'a>(
             field_id
         })
         .collect();
-    tf_state.preferred_input_type = Some(FieldValueRepr::BytesInline);
 
     TransformData::Regex(TfRegex {
         regex: op.regex.clone(),

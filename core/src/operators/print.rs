@@ -12,7 +12,7 @@ use crate::{
         field_value::{
             format_rational, FieldValue, FormattingContext, RATIONAL_DIGITS,
         },
-        field_value_repr::{field_value_flags, FieldValueRepr},
+        field_value_repr::field_value_flags,
         iter_hall::IterId,
         iters::{FieldIterator, UnfoldIterRunLength},
         push_interface::PushInterface,
@@ -74,7 +74,6 @@ pub fn build_tf_print(
     op: &OpPrint,
     tf_state: &mut TransformState,
 ) -> TransformData<'static> {
-    tf_state.preferred_input_type = Some(FieldValueRepr::BytesInline);
     TransformData::Print(TfPrint {
         // ENHANCE: should we config options for this stuff?
         flush_on_every_print: matches!(op.target, WritableTarget::Stdout)
