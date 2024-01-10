@@ -113,7 +113,7 @@ pub fn read_char(stream: &mut impl Read) -> Result<char, ReadCharError> {
         return Err(ReadCharError::Io(e));
     }
     let Some(tok) = buf.chars().next() else {
-        //PERF: ?
+        // PERF: ?
         return Err(ReadCharError::InvalidUtf8 {
             sequence: buf,
             len: codepoint_len,

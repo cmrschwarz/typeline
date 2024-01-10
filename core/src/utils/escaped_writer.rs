@@ -189,7 +189,7 @@ impl<W: Write> Write for EscapedWriter<W> {
                 if c == std::char::REPLACEMENT_CHARACTER {
                     if &buf[buf_offset..][start..end] == "\u{FFFD}".as_bytes()
                     {
-                        //the replacement character is considered printable
+                        // the replacement character is considered printable
                         continue;
                     }
                     if buf.len() - (buf_offset + start) < MAX_UTF8_CHAR_LEN

@@ -409,7 +409,7 @@ pub fn handle_tf_print_raw(
             | TypedSlice::SlicedFieldReference(_) => unreachable!(),
         }
     }
-    //TODO: remove this once `sequence` became a reasonable member of society
+    // TODO: remove this once `sequence` became a reasonable member of society
     while *handled_field_count < batch_size
         && print.current_stream_val.is_none()
     {

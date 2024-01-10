@@ -488,8 +488,9 @@ pub fn build_tf_regex<'a>(
         allow_overlapping: op.opts.overlapping,
         input_field_iter_id: jd.field_mgr.claim_iter(tf_state.input_field),
         // if we reach our target batch size while we are in the middle
-        // of matching the regex agains a value (typically happens in multimatch mode),
-        // we stop and continue next time at this offset
+        // of matching the regex agains a value (typically happens in
+        // multimatch mode), we stop and continue next time at this
+        // offset
         unfinished_value_offset: 0,
         actor_id,
         input_field_ref_offset,

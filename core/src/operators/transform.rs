@@ -129,8 +129,8 @@ pub struct TransformState {
     pub is_ready: bool,
     pub has_appender: bool,
     pub is_transparent: bool,
-    // means that the a transform that has us as it's successor indicated to us
-    // that it will not produce any more records
+    // means that the a transform that has us as it's successor indicated to
+    // us that it will not produce any more records
     pub predecessor_done: bool,
     // means that this transform will not produce any more records
     pub done: bool,

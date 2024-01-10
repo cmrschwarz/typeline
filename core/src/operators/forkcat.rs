@@ -197,7 +197,7 @@ pub fn setup_op_forkcat_liveness_data(
             let var_name = match ld.vars[i] {
                 Var::Named(name) => Some(name),
                 Var::BBInput => None,
-                //TODO: investigate why this happens
+                // TODO: investigate why this happens
                 Var::AnyVar | Var::DynVar | Var::VoidVar => continue,
             };
             accessed_names.push(
@@ -527,7 +527,7 @@ pub(crate) fn handle_forkcat_subchain_expansion(
                 .drop_field_refcount(f, &mut sess.job_data.match_set_mgr);
         }
         let _cont_id = fc.continuation.unwrap().get();
-        //TODO: unlink the subchain(s) ?
+        // TODO: unlink the subchain(s) ?
         return;
     }
     for &of in &fc.output_fields {

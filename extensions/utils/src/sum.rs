@@ -96,7 +96,7 @@ impl TfSum {
             (bud.iter.next_range(bud.match_set_mgr), self.error_occured)
         {
             match range.base.data {
-                //TODO: GS
+                // TODO: GS
                 TypedSlice::GroupSeparator(_) => todo!(),
                 TypedSlice::Int(ints) => {
                     for (v, rl) in

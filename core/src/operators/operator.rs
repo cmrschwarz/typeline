@@ -176,7 +176,8 @@ pub trait Operator: Send + Sync {
     // mainly used for operators that start subchains
     // makes sure that e.g. `scr seqn=10 fork +int=11 p`
     // does not try to aggregate `fork` with `int`
-    // `fork` cannot be appended directly (although `fork end +int=42` is legal)
+    // `fork` cannot be appended directly (although `fork end +int=42` is
+    // legal)
     fn can_be_appended(&self) -> bool {
         false
     }

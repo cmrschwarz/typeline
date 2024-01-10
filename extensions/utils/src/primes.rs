@@ -117,7 +117,11 @@ impl Transform for TfPrimes {
         if ps.next_batch_ready || (ps.input_done && !done) {
             jd.tf_mgr.push_tf_in_ready_stack(tf_id);
         }
-        jd.tf_mgr.submit_batch(tf_id, primes_to_produce, ps.input_done && done);
+        jd.tf_mgr.submit_batch(
+            tf_id,
+            primes_to_produce,
+            ps.input_done && done,
+        );
     }
 }
 

@@ -108,9 +108,9 @@ impl Default for FormatWidthSpec {
     }
 }
 
-/*
 // format string grammar:
-
+#[rustfmt::skip]
+/*
 format_string = ( [<brace_escaped_text>] [format_key] )*
 format_key = '{' [key] [ ':' format_spec ] '}'
 format_spec = [[fill]align]['+']['#'|'##']['0'][width]['.'precision][debug_repr[number_format]]
@@ -124,7 +124,6 @@ precision = identifier | number
 identifier = basic_identifier | escaped_identifier
 basic_identifier = '\p{XID_Start}' '\p{XID_Continue}'
 escaped_identifier = '@{' <brace_escaped_text> '}'
-
 */
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -155,7 +154,8 @@ pub enum TypeReprFormat {
 pub enum PrettyPrintFormat {
     #[default]
     Regular, // default. objects & arrays get spaces, but stay on one line
-    Pretty, // add newlines and indentation to objects. adds 0x to hex numbers
+    Pretty,  /* add newlines and indentation to objects. adds 0x to hex
+              * numbers */
     Compact, // no spaces at all
 }
 
@@ -521,7 +521,7 @@ impl<'a> Formatable<'a> for BigRational {
         _fc: &'a RealizedFormatKey,
         w: &mut W,
     ) {
-        //TODO: we dont support zero pad etc. for now
+        // TODO: we dont support zero pad etc. for now
         format_rational(w, self, RATIONAL_DIGITS).unwrap();
     }
 }
@@ -533,7 +533,7 @@ impl<'a> Formatable<'a> for BigInt {
         _fc: &'a RealizedFormatKey,
         w: &mut W,
     ) {
-        //TODO: we dont support zero pad etc. for now
+        // TODO: we dont support zero pad etc. for now
         w.write_fmt(format_args!("{self}")).unwrap();
     }
 }
@@ -613,7 +613,7 @@ impl<'a> Formatable<'a> for Undefined {
     }
 }
 impl<'a> Formatable<'a> for OperatorApplicationError {
-    type FormattingContext = FormattingOpts; //is_stream_value
+    type FormattingContext = FormattingOpts; // is_stream_value
     fn format<W: std::io::Write>(
         &self,
         opts: Self::FormattingContext,
@@ -1195,7 +1195,7 @@ fn iter_output_states_advanced(
     }
     let next = output_states.len();
     let o = &mut output_states[*output_idx];
-    //PERF: we might want to prevent splits if there was already an error?
+    // PERF: we might want to prevent splits if there was already an error?
     if run_len < o.run_len {
         let mut o2 = *o;
         o.next = next;
@@ -1232,8 +1232,8 @@ fn iter_output_targets(
     }
 }
 
-// 'quotes_len' in a more general sense is the number of characters (always ascii)
-// that will be printed as part of the text that are non negotiable
+// 'quotes_len' in a more general sense is the number of characters (always
+// ascii) that will be printed as part of the text that are non negotiable
 fn calc_fmt_layout<'a, F: Formatable<'a> + ?Sized>(
     ctx: F::FormattingContext,
     min_chars: usize,
@@ -1881,7 +1881,7 @@ fn setup_output_targets(
     let mut tgt_len = starting_len;
     for os in fmt.output_states.iter() {
         if let Some(ex) = os.contained_exception {
-            //the GS is a ZST, so nothing to do there
+            // the GS is a ZST, so nothing to do there
             if ex.kind != FieldValueRepr::GroupSeparator {
                 tgt_len = FieldValueRepr::Error.align_size_up(tgt_len);
                 tgt_len += FieldValueRepr::Error.size();
@@ -2601,8 +2601,8 @@ pub fn handle_tf_format_stream_value_update(
                 FieldValue::Bytes(buf) => buf,
                 FieldValue::Text(buf) => {
                     // TODO: enforce this by chosing a bytes stream value
-                    // in case any BytesLiteral or Key with a bytes stream value
-                    // is present
+                    // in case any BytesLiteral or Key with a bytes stream
+                    // value is present
                     assert!(src_is_utf8);
                     unsafe { buf.as_mut_vec() }
                 }
@@ -2636,7 +2636,8 @@ pub fn handle_tf_format_stream_value_update(
                         k.realize_min_char_count(handle.min_char_count),
                         k.realize_max_char_count(handle.float_precision),
                         0,
-                        src_buf.as_slice(), //text or bytes doesn't matter here
+                        src_buf.as_slice(), /* text or bytes doesn't matter
+                                             * here */
                     );
 
                     tgt_buf.reserve(len);
@@ -2857,7 +2858,7 @@ mod test {
                 Cow::Borrowed(
                     "expected '?' or '_' before type identifier, found 'x'"
                 )
-            )) /* ENHANCE: better error message for this case */
+            )) // ENHANCE: better error message for this case
         );
     }
 

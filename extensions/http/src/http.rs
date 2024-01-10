@@ -218,7 +218,7 @@ impl TfHttpRequest {
             ),
         );
 
-        //Accept-Encoding: identity\r\n\
+        // Accept-Encoding: identity\r\n\
         let httpreq = format!(
             "GET {location} HTTP/1.1\r\n\
             Host: {hostname}\r\n\
@@ -392,7 +392,7 @@ fn header_completed(req: &mut Connection, buf: &Vec<u8>) -> bool {
             break;
         }
         let line = &buf[parsed_until..parsed_until + i];
-        //PERF: don't allocate
+        // PERF: don't allocate
         if let Some(cl_match) = CONTENT_LENGTH_REGEX.captures(line) {
             let len_seq = cl_match.get(1).unwrap().as_bytes();
             if let Ok(len_str) = std::str::from_utf8(len_seq) {

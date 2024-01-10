@@ -58,8 +58,8 @@ pub struct TfExplode {
     input_field_field_ref_offset: FieldRefOffset,
 }
 
-// SAFETY: this type is not automatically sync because of pending_fields: StableVec
-// but we ensure that the StableVec is never exposed and only used
+// SAFETY: this type is not automatically sync because of pending_fields:
+// StableVec but we ensure that the StableVec is never exposed and only used
 // by &mut self functions
 unsafe impl Sync for TfExplode {}
 

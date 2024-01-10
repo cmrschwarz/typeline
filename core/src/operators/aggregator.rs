@@ -53,7 +53,8 @@ pub fn create_op_aggregator_append_leader(
 pub fn setup_op_aggregator(
     sess: &mut SessionData,
     chain_id: u32,
-    op_id: u32, //we can't take the operator because the borrow checker hates us
+    // we can't take the operator because the borrow checker hates us
+    op_id: u32,
 ) -> Result<(), OperatorSetupError> {
     let OperatorData::Aggregator(agg) = &sess.operator_data[op_id as usize]
     else {

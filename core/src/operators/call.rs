@@ -137,7 +137,8 @@ pub(crate) fn handle_lazy_call_expansion(sess: &mut Job, tf_id: TransformId) {
     let TransformData::Call(call) = &sess.transform_data[tf_id.get()] else {
         unreachable!()
     };
-    //TODO: do we need a prebound output so succesor can keep it's input field?
+    // TODO: do we need a prebound output so succesor can keep it's input
+    // field?
     let (_target_tf, end_tf, _next_input_field, _cont) = sess
         .setup_transforms_from_op(
             ms_id,
@@ -149,6 +150,6 @@ pub(crate) fn handle_lazy_call_expansion(sess: &mut Job, tf_id: TransformId) {
         );
     sess.job_data.tf_mgr.transforms[end_tf].successor = old_successor;
     let (batch_size, _input_done) = sess.job_data.tf_mgr.claim_all(tf_id);
-    //TODO: is this fine considering e.g. forkcat with no predecessors?
+    // TODO: is this fine considering e.g. forkcat with no predecessors?
     sess.job_data.unlink_transform(tf_id, batch_size);
 }

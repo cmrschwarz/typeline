@@ -437,7 +437,8 @@ impl<'a> JobData<'a> {
             let field = self.field_mgr.fields[id].borrow();
             eprint!("field id {id}");
             // if let Some(name) = field.name {
-            //    eprint!(" '@{}'", self.session_data.string_store.lookup(name));
+            //    eprint!(" '@{}'",
+            // self.session_data.string_store.lookup(name));
             //}
             eprint!(", ms {}", field.match_set);
             if let Some(prod_id) = field.producing_transform_id {
@@ -956,7 +957,7 @@ impl<'a> Job<'a> {
             TransformData::Disabled => unreachable!(),
             TransformData::Literal(_) => unreachable!(),
             TransformData::CalleeConcurrent(_) => unreachable!(),
-            //these go to the individual transforms
+            // these go to the individual transforms
             TransformData::AggregatorHeader(_) => unreachable!(),
             TransformData::AggregatorTrailer(_) => unreachable!(),
             TransformData::Custom(tf) => tf.handle_stream_value_update(
@@ -1114,7 +1115,7 @@ impl<'a> Job<'a> {
 
     pub(crate) fn run_stream_producer_update(&mut self, tf_id: TransformId) {
         //#[cfg(feature = "debug_logging")]
-        //eprintln!(
+        // eprintln!(
         //    "> handling stream producer update for tf {} (`{}`)",
         //    tf_id,
         //    self.transform_data[tf_id.get() as usize].display_name()

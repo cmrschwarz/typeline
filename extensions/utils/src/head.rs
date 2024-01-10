@@ -179,7 +179,7 @@ impl Transform for TfHeadSubtractive {
 
     fn update(&mut self, jd: &mut JobData, tf_id: TransformId) {
         let tf = &mut jd.tf_mgr.transforms[tf_id];
-        //TODO: update clear delay for dynamic fields / aliases
+        // TODO: update clear delay for dynamic fields / aliases
         // PERF: e.g. for `head=-10`, we should never have to buffer
         // more than 10 elements, as we can already release the first
         // one if we have 11.

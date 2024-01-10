@@ -1,7 +1,7 @@
 // NOTE(cmrs): the following code is based on the same logic found in
 // https://github.com/rust-lang/rust/blob/master/library/core/src/unicode/printable.rs
-// It is used here under the terms of the MIT License, just like
-// the rest of the Rust standard library that this project already makes use of.
+// It is used here under the terms of the MIT License, just like the rest of
+// the Rust standard library that this project already makes use of.
 
 use std::cmp::Ordering;
 

@@ -551,7 +551,7 @@ pub fn handle_tf_string_sink(
     }
     let base_iter = iter.into_base_iter();
     let consumed_fields = base_iter.get_next_field_pos() - starting_pos;
-    //TODO: remove once sequence is sane
+    // TODO: remove once sequence is sane
     if consumed_fields < batch_size {
         push_str(&mut out, UNDEFINED_STR, batch_size - consumed_fields);
     }

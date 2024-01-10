@@ -34,8 +34,9 @@ pub struct TfForeachHeader {
     // We don't want to insert a group separator before the first
     // record that is submitted to the successor, and we don't want
     // a separator after the last record.
-    // Therefore, on each subsequent invocation of this transform, we *do* want
-    // to emit a group separator to terminate the previously submitted record.
+    // Therefore, on each subsequent invocation of this transform, we *do*
+    // want to emit a group separator to terminate the previously
+    // submitted record.
     any_records_submitted: bool,
 }
 pub struct TfForeachTrailer {
@@ -65,7 +66,7 @@ pub fn setup_op_foreach(
         return Err(OperatorSetupError::new(
             "operator `foreach` does not support multiple subchains",
             op_id,
-        )); //ENHANCE: error on the `next` already?
+        )); // ENHANCE: error on the `next` already?
     }
     Ok(())
 }

@@ -66,8 +66,9 @@ pub enum FieldValueRepr {
     StreamValueId,
     FieldReference,
     SlicedFieldReference,
-    // ENHANCE //PERF (maybe): CustomDynamicLength, CustomDynamicLengthAligned
-    // (store some subtype index at the start of the actual data)
+    // ENHANCE //PERF (maybe): CustomDynamicLength,
+    // CustomDynamicLengthAligned (store some subtype index at the start
+    // of the actual data)
 }
 
 #[derive(Clone)]
@@ -136,7 +137,12 @@ pub mod field_value_flags {
     pub type FieldValueFlags = u8;
     // offset must be zero so we don't have to shift
     const_assert!(MAX_FIELD_ALIGN.is_power_of_two() && MAX_FIELD_ALIGN <= 16);
-    pub const LEADING_PADDING: FieldValueFlags = 0xF; // consumes offsets 0 through 3
+    // consumes offsets 0 through 3
+    // Storing this (instead of computing it from the kind & position)
+    // is necessary because otherwise we couldn't iterate backwards.
+    // We wouldn't know by how much the type before an element had to be padded
+    // to make the successor aligned.
+    pub const LEADING_PADDING: FieldValueFlags = 0xF;
     pub const SAME_VALUE_AS_PREVIOUS_OFFSET: FieldValueFlags = 4;
     pub const SHARED_VALUE_OFFSET: FieldValueFlags = 5;
     pub const BYTES_ARE_UTF8_OFFSET: FieldValueFlags = 6;
@@ -786,8 +792,8 @@ impl FieldData {
                             });
                         }
                     }
-                    //TODO: do we have to worry about internal
-                    // field references?
+                    // TODO: do we have to worry about internal field
+                    // references?
                     TypedSlice::Object(data) => {
                         for (v, rl) in
                             RefAwareTypedSliceIter::from_range(&tr, data)

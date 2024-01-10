@@ -647,7 +647,7 @@ pub fn parse_cli_retain_args(
         allow_repl,
         ..Default::default()
     };
-    let mut arg_idx = 1; //skip executable name
+    let mut arg_idx = 1; // skip executable name
     let mut curr_aggregate = Vec::new();
     let mut last_non_append_op_id = None;
     let mut curr_op_appendable = true;

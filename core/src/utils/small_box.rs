@@ -330,7 +330,8 @@ mod tests {
         let capture = [1; 42];
         let summize: SmallBox<dyn Fn(usize) -> usize, 0> =
             smallbox!(|v: usize| capture.iter().sum::<usize>() + v);
-        // probably heap allocated, but we don't want to depend on the optimizer
+        // probably heap allocated, but we don't want to depend on the
+        // optimizer
         assert_eq!(summize(7), 49);
     }
 

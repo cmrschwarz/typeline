@@ -1,4 +1,4 @@
 max_width = 79
 imports_granularity = "Crate"
-wrap_comments = false
-normalize_comments = false
+wrap_comments = true
+normalize_comments = true

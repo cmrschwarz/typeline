@@ -354,7 +354,7 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
                 ))
             })?;
             Err(ReplacementError::Error(
-                //TODO: fix for non ascii
+                // TODO: fix for non ascii
                 TysonParseErrorKind::NonEscapbleCharacter(esc_kind),
             ))
         };

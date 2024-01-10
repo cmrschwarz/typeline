@@ -416,7 +416,7 @@ pub fn handle_tf_join(
             field_value_flags::DEFAULT,
         ) {
             match range.base.data {
-                //TODO: this is gonna be annoying...
+                // TODO: this is gonna be annoying...
                 TypedSlice::GroupSeparator(_) => todo!(),
                 TypedSlice::TextInline(text) => {
                     for (v, rl, _offs) in

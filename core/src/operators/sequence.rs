@@ -55,7 +55,7 @@ pub enum OpSequenceMode {
 
 #[derive(Clone, Copy)]
 enum TfSequenceMode {
-    #[allow(unused)] //TODO
+    #[allow(unused)] // TODO
     Sequence {
         actor_id: ActorId,
     },

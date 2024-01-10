@@ -321,7 +321,8 @@ impl SessionOptions {
             OperatorData::Custom(op) => op.on_subchains_added(sc_count_after),
         }
     }
-    //we can't reborrow the whole Session because we want the locked string store
+    // we can't reborrow the whole Session because we want the locked string
+    // store
     pub fn setup_operator(
         sess: &mut SessionData,
         chain_id: ChainId,

@@ -50,8 +50,8 @@ pub const GLOBAL_SLOTS_OFFSET: usize = LOCAL_SLOTS_PER_BASIC_BLOCK;
 
 /// 'Succession' combines the effect of callees and successors.
 ///
-/// For blocks that *are* callees, it also include the effects of the successors
-/// of the *callers*.
+/// For blocks that *are* callees, it also include the effects of the
+/// successors of the *callers*.
 pub const SUCCESSION_SLOTS_OFFSET: usize = 2 * LOCAL_SLOTS_PER_BASIC_BLOCK;
 
 // local slots + global slots + succession data
@@ -80,7 +80,8 @@ pub struct BasicBlock {
     // if this block is a callee, this contains the bb ids of all blocks
     // that any caller of this block has as successors
     // this is used to calculate 'succession' var data, which is in turn
-    // used to calculate the liveness of operator outputs created by this block
+    // used to calculate the liveness of operator outputs created by this
+    // block
     pub caller_successors: SmallVec<[BasicBlockId; 2]>,
     // used to propagate changes during global liveness analysis
     pub predecessors: SmallVec<[BasicBlockId; 2]>,
@@ -135,7 +136,7 @@ pub struct OperatorLivenessData {
     pub basic_block_id: BasicBlockId,
     pub direct_access_count: DirectOperatorAccessIndex,
     pub accessed_vars: SmallVec<[VarId; 4]>,
-    //TODO: this is not populated correctly yet
+    // TODO: this is not populated correctly yet
     pub killed_vars: SmallVec<[VarId; 4]>,
     pub accessed_outputs: HashMap<OpOutputIdx, OutputAcccess>,
     pub killed_outputs: SmallVec<[OpOutputIdx; 4]>,
@@ -230,10 +231,10 @@ impl LivenessData {
             OperatorData::FileReader(_) => 1,
             OperatorData::Literal(_) => 1,
             OperatorData::Sequence(_) => 1,
-            OperatorData::Foreach(_) => 0, //last sc output is output
+            OperatorData::Foreach(_) => 0, // last sc output is output
             OperatorData::Aggregator(agg) => {
                 let mut op_count = 1;
-                //TODO: do this properly, merging field names etc.
+                // TODO: do this properly, merging field names etc.
                 for &sub_op in &agg.sub_ops {
                     op_count +=
                         Self::op_output_count(sess, sub_op).saturating_sub(1);
@@ -843,7 +844,7 @@ impl LivenessData {
         let ooc = self.op_outputs.len();
         let var_data_start = bb_id * SLOTS_PER_BASIC_BLOCK * vc;
         if op_offset_after_last_write != 0 {
-            //TODO: maybe do something more sophisticated than this
+            // TODO: maybe do something more sophisticated than this
             // for now we just assume that any op_output that is bound
             // after the bb might be accessed by someone and therefore needs
             // header writes applied

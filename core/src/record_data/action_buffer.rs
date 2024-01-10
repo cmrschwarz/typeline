@@ -43,11 +43,9 @@ const SNAPSHOT_PREFIX_LEN: usize = 2;
 // snapshots are a list of `SnapshotEntry`s where
 // - the first one is the refcount,
 // - the second one is the number of actors present at snapshot creation
-// - all subsequent ones are the current action group id of the actors in
-//   the order that would be returned by
-//   Pow2LookupStepsIter::new(
-//       <`ActorId` containing the snapshot>,
-//       <number of actors present at snapshot creation>
+// - all subsequent ones are the current action group id of the actors in the
+//   order that would be returned by Pow2LookupStepsIter::new( <`ActorId`
+//   containing the snapshot>, <number of actors present at snapshot creation>
 //   )
 const_assert!(
     size_of::<SnapshotEntry>() == size_of::<ActorId>()
