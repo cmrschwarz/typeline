@@ -158,10 +158,11 @@ pub fn merge_action_lists<
 
     let mut next_action_field_idx_left;
     let mut next_action_field_idx_right;
-    let mut field_pos_offset_left = 0isize;
-    let mut outstanding_drops_right = 0usize;
+    let mut field_pos_offset_left: isize = 0;
+    let mut outstanding_drops_right: usize = 0;
     while let Some(action_left) = left.peek() {
-        if let Some(action_right) = right.peek() {
+        let action_right = right.peek();
+        if let Some(action_right) = action_right {
             next_action_field_idx_right =
                 action_right.field_idx + outstanding_drops_right;
         } else {
@@ -169,7 +170,22 @@ pub fn merge_action_lists<
         }
         next_action_field_idx_left =
             (action_left.field_idx as isize + field_pos_offset_left) as usize;
-        if next_action_field_idx_left <= next_action_field_idx_right {
+
+        let mut consume_left =
+            next_action_field_idx_left <= next_action_field_idx_right;
+
+        if next_action_field_idx_left == next_action_field_idx_right
+            && action_right.map(|a| a.kind)
+                == Some(FieldActionKind::InsertGroupSeparator)
+            && action_left.kind != FieldActionKind::InsertGroupSeparator
+        {
+            // We must put `Insert`s before `Dup`s because after the `Dup`,
+            // the insert will refer to an earlier index, violating our
+            // invariants (see `FieldAction`).
+            consume_left = false;
+        }
+
+        if consume_left {
             let action_left = *action_left;
             left.next();
             let field_idx = (action_left.field_idx as isize
@@ -178,8 +194,8 @@ pub fn merge_action_lists<
             let mut kind = action_left.kind;
 
             match action_left.kind {
-                FieldActionKind::InsertGroupSeparator => todo!("FAK"),
-                FieldActionKind::Dup => {
+                FieldActionKind::InsertGroupSeparator
+                | FieldActionKind::Dup => {
                     let space_to_next = left
                         .peek()
                         .map(|a| a.field_idx - action_left.field_idx)
@@ -215,8 +231,8 @@ pub fn merge_action_lists<
             let mut run_len = action_right.run_len as usize;
 
             match action_right.kind {
-                FieldActionKind::InsertGroupSeparator => todo!("FAK"),
-                FieldActionKind::Dup => {
+                FieldActionKind::InsertGroupSeparator
+                | FieldActionKind::Dup => {
                     field_pos_offset_left += run_len as isize;
                 }
                 FieldActionKind::Drop => {
@@ -301,6 +317,7 @@ mod test {
             compare_merge_result(blank, unmerged, merged);
         }
     }
+
     #[test]
     fn left_field_indices_are_adjusted() {
         let left = &[FieldAction {
@@ -322,6 +339,60 @@ mod test {
             FieldAction {
                 kind: FAK::Drop,
                 field_idx: 6,
+                run_len: 1,
+            },
+        ];
+        compare_merge_result(left, right, merged);
+    }
+
+    #[test]
+    fn basic_inserts_test() {
+        let left = &[FieldAction {
+            kind: FAK::Drop,
+            field_idx: 1,
+            run_len: 1,
+        }];
+        let right = &[FieldAction {
+            kind: FAK::InsertGroupSeparator,
+            field_idx: 0,
+            run_len: 5,
+        }];
+        let merged = &[
+            FieldAction {
+                kind: FAK::InsertGroupSeparator,
+                field_idx: 0,
+                run_len: 5,
+            },
+            FieldAction {
+                kind: FAK::Drop,
+                field_idx: 6,
+                run_len: 1,
+            },
+        ];
+        compare_merge_result(left, right, merged);
+    }
+
+    #[test]
+    fn inserts_come_before_dups() {
+        let left = &[FieldAction {
+            kind: FAK::Dup,
+            field_idx: 0,
+            run_len: 1,
+        }];
+        let right = &[FieldAction {
+            kind: FAK::InsertGroupSeparator,
+            field_idx: 0,
+            run_len: 1,
+        }];
+        let merged = &[
+            FieldAction {
+                kind: FAK::InsertGroupSeparator,
+                field_idx: 0,
+                run_len: 1,
+            },
+            FieldAction {
+                kind: FAK::Dup,
+                field_idx: 1,
                 run_len: 1,
             },
         ];
