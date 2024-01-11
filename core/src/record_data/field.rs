@@ -114,6 +114,12 @@ impl<'a> CowFieldDataRef<'a> {
             field_count: self.field_count,
         }
     }
+    pub fn iter(&'a self) -> Iter<'a, &'a CowFieldDataRef<'a>> {
+        Iter::from_start(self)
+    }
+    pub fn iter_from_end(&'a self) -> Iter<'a, &'a CowFieldDataRef<'a>> {
+        Iter::from_end(self)
+    }
 }
 
 impl<'a> FieldDataRef<'a> for &'a CowFieldDataRef<'a> {

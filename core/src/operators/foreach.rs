@@ -11,8 +11,8 @@ use crate::{
         action_buffer::{ActorId, ActorRef},
         field::FieldId,
         field_action::FieldActionKind,
-        field_value_repr::{field_value_flags, FieldValueRepr},
-        iters::{FieldDataRef, FieldIterator, Iter},
+        field_value_repr::FieldValueRepr,
+        iters::{FieldDataRef, FieldIterator},
         push_interface::PushInterface,
     },
     utils::identity_hasher::BuildIdentityHasher,
@@ -220,7 +220,7 @@ pub fn handle_tf_foreach_trailer(
     debug_assert!(
         batch_size == input_field.destructured_field_ref().field_count()
     );
-    let mut iter = Iter::from_start(&input_field);
+    let mut iter = input_field.iter();
     let mut field_pos = 0;
     let ab = &mut jd.match_set_mgr.match_sets[tf.match_set_id].action_buffer;
     ab.begin_action_group(fet.actor_id);
@@ -242,8 +242,8 @@ pub fn handle_tf_foreach_trailer(
             batch_size,
             [FieldValueRepr::Null],
             false,
-            field_value_flags::DELETED,
-            !field_value_flags::DELETED,
+            0,
+            0,
         );
         ab.push_action(FieldActionKind::Drop, field_pos, gs_records);
         bs_rem -= gs_records;

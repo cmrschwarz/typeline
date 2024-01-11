@@ -17,6 +17,7 @@ use scr_core::{
     options::argument::CliArgIdx,
     record_data::{
         action_buffer::ActorId, field::FieldId, field_action::FieldActionKind,
+        field_value_repr::FieldValueRepr, iters::FieldIterator,
     },
     smallbox,
     utils::identity_hasher::BuildIdentityHasher,
@@ -102,26 +103,52 @@ impl Transform for TfDup {
             );
             return;
         }
-        let mut field_idx = 0;
-        match self.count {
-            0 => (),
-            1 => field_idx = batch_size,
-            _ => {
-                let ab = &mut jd.match_set_mgr.match_sets[tf.match_set_id]
-                    .action_buffer;
-                ab.begin_action_group(self.actor_id);
-                for _ in 0..batch_size {
-                    ab.push_action(
-                        FieldActionKind::Dup,
-                        field_idx,
-                        self.count - 1,
-                    );
-                    field_idx += self.count;
-                }
-                ab.end_action_group();
+        if self.count == 0 {
+            jd.tf_mgr.submit_batch(tf_id, batch_size, ps.input_done);
+            return;
+        }
+
+        let input_field = jd
+            .field_mgr
+            .get_cow_field_ref(&mut jd.match_set_mgr, tf.input_field);
+
+        let mut iter = input_field.iter();
+
+        let ab =
+            &mut jd.match_set_mgr.match_sets[tf.match_set_id].action_buffer;
+        ab.begin_action_group(self.actor_id);
+        let mut field_pos = 0;
+        let mut bs_rem = batch_size;
+        while bs_rem > 0 {
+            let non_gs_records = iter.next_n_fields_with_fmt(
+                batch_size,
+                [FieldValueRepr::GroupSeparator],
+                true,
+                0,
+                0,
+            );
+            for _ in 0..non_gs_records {
+                ab.push_action(FieldActionKind::Dup, field_pos, self.count);
+                field_pos += 2;
             }
-        };
-        jd.tf_mgr.submit_batch(tf_id, field_idx, ps.input_done);
+            bs_rem -= non_gs_records;
+            if bs_rem == 0 {
+                break;
+            }
+            let gs_records = iter.next_n_fields_with_fmt(
+                batch_size,
+                [FieldValueRepr::GroupSeparator],
+                false,
+                0,
+                0,
+            );
+            field_pos += gs_records;
+            bs_rem -= gs_records;
+            // prevent an infinite loop in case of an incorrect batch size
+            assert!(non_gs_records > 0 || gs_records > 0);
+        }
+        ab.end_action_group();
+        jd.tf_mgr.submit_batch(tf_id, field_pos, ps.input_done);
     }
 }
 
