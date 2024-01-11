@@ -293,6 +293,9 @@ impl<'a, R: ReferenceFieldValueType> RefIter<'a, R> {
                         self.data_iter.field_data_ref(),
                         (*header_ref).fmt,
                         data_start,
+                        // HACK // SAFETY:
+                        // this is unsound. we might have skipped over
+                        // dead fields with another type
                         self.data_iter.get_prev_field_data_end(),
                         field_count,
                     ),
