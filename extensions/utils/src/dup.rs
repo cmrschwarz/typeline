@@ -129,7 +129,7 @@ impl Transform for TfDup {
             );
             for _ in 0..non_gs_records {
                 ab.push_action(FieldActionKind::Dup, field_pos, self.count);
-                field_pos += 2;
+                field_pos += self.count + 1;
             }
             bs_rem -= non_gs_records;
             if bs_rem == 0 {
