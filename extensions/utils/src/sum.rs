@@ -22,6 +22,7 @@ use scr_core::{
         push_interface::{PushInterface, VaryingTypeInserter},
         ref_iter::RefAwareTypedSliceIter,
         typed::TypedSlice,
+        typed_iters::TypedSliceIter,
     },
     smallbox,
     utils::identity_hasher::BuildIdentityHasher,
@@ -163,9 +164,7 @@ impl TfSum {
                     finished_group_count += gs_count;
                 }
                 TypedSlice::Int(ints) => {
-                    for (v, rl) in
-                        RefAwareTypedSliceIter::from_range(&range, ints)
-                    {
+                    for (v, rl) in TypedSliceIter::from_range(&range, ints) {
                         self.aggregate.add_int(*v, rl, fpm)
                     }
                 }
@@ -177,9 +176,7 @@ impl TfSum {
                     }
                 }
                 TypedSlice::Float(floats) => {
-                    for (v, rl) in
-                        RefAwareTypedSliceIter::from_range(&range, floats)
-                    {
+                    for (v, rl) in TypedSliceIter::from_range(&range, floats) {
                         self.aggregate.add_float(*v, rl, fpm)
                     }
                 }

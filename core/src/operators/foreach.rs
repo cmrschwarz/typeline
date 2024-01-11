@@ -225,7 +225,7 @@ pub fn handle_tf_foreach_trailer(
     while bs_rem > 0 {
         let non_gs_records = iter.next_n_fields_with_fmt(
             batch_size,
-            [FieldValueRepr::GroupSeparator],
+            [FieldValueRepr::Null],
             true,
             0,
             0,
@@ -237,7 +237,7 @@ pub fn handle_tf_foreach_trailer(
         }
         let gs_records = iter.next_n_fields_with_fmt(
             batch_size,
-            [FieldValueRepr::GroupSeparator],
+            [FieldValueRepr::Null],
             false,
             field_value_flags::DELETED,
             !field_value_flags::DELETED,

@@ -14,6 +14,7 @@ use crate::{
     operators::{
         call::OpCall,
         call_concurrent::OpCallConcurrent,
+        foreach::OpForeach,
         fork::OpFork,
         forkcat::OpForkCat,
         format::update_op_format_variable_liveness,
@@ -434,7 +435,14 @@ impl LivenessData {
                 self.split_bb_at_call(bb_id, op_n);
                 return true;
             }
-            OperatorData::Foreach(_) => (),
+            OperatorData::Foreach(OpForeach {
+                subchains_start, ..
+            }) => {
+                bb.calls.push(
+                    cn.subchains[*subchains_start as usize] as BasicBlockId,
+                );
+                self.split_bb_at_call(bb_id, op_n);
+            }
             OperatorData::Cast(_) => (),
             OperatorData::Nop(_) => (),
             OperatorData::NopCopy(_) => (),
