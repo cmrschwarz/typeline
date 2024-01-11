@@ -441,6 +441,8 @@ impl<'a> JobData<'a> {
             // self.session_data.string_store.lookup(name));
             //}
             eprint!(", ms {}", field.match_set);
+            eprint!(", rc {}", field.ref_count);
+            eprint!(", actor {:?}", field.first_actor);
             if let Some(prod_id) = field.producing_transform_id {
                 eprint!(
                     " (output of tf {prod_id} `{}`)",
@@ -475,7 +477,6 @@ impl<'a> JobData<'a> {
                 }
                 eprint!(" )");
             }
-            eprint!(" (rc {})", field.ref_count);
         }
     }
 }
@@ -748,13 +749,16 @@ impl<'a> Job<'a> {
                     {
                         input_field = field_id;
                     } else {
+                        let actor = ActorRef::Unconfirmed(
+                            self.job_data.match_set_mgr.match_sets[ms_id]
+                                .action_buffer
+                                .peek_next_actor_id(),
+                        );
                         input_field = self.job_data.field_mgr.add_field(
                             &mut self.job_data.match_set_mgr,
                             ms_id,
                             Some(op.key_interned.unwrap()),
-                            self.job_data
-                                .field_mgr
-                                .get_first_actor(input_field),
+                            actor,
                         );
                     }
                     if !op.field_is_read {
@@ -794,8 +798,11 @@ impl<'a> Job<'a> {
                 self.job_data.field_mgr.bump_field_refcount(input_field);
                 input_field
             } else {
-                let first_actor =
-                    self.job_data.field_mgr.get_first_actor(input_field);
+                let first_actor = ActorRef::Unconfirmed(
+                    self.job_data.match_set_mgr.match_sets[ms_id]
+                        .action_buffer
+                        .peek_next_actor_id(),
+                );
                 if let Some(field_idx) =
                     prebound_outputs.get(&op_base.outputs_start)
                 {

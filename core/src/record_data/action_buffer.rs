@@ -1,4 +1,4 @@
-use std::{mem::size_of, ops::DerefMut};
+use std::{fmt::Debug, mem::size_of, ops::DerefMut};
 
 use crate::utils::{
     dynamic_freelist::DynamicArrayFreelist, launder_slice,
@@ -113,6 +113,15 @@ enum ActionGroupIdentifier {
 impl Default for ActorRef {
     fn default() -> Self {
         ActorRef::Unconfirmed(0)
+    }
+}
+
+impl Debug for ActorRef {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Present(id) => f.write_fmt(format_args!("{id}")),
+            Self::Unconfirmed(id) => f.write_fmt(format_args!("{id}?")),
+        }
     }
 }
 
