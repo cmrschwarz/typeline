@@ -13,10 +13,14 @@ use crate::{
     },
     options::argument::CliArgIdx,
     record_data::{
+        action_buffer::{ActorId, ActorRef},
         custom_data::CustomDataBox,
         field::{Field, FieldManager},
+        field_action::FieldActionKind,
         field_value::{FieldValue, FieldValueKind},
-        field_value_repr::{field_value_flags, INLINE_STR_MAX_LEN},
+        field_value_repr::{
+            field_value_flags, FieldValueRepr, INLINE_STR_MAX_LEN,
+        },
         iter_hall::IterId,
         iters::FieldIterator,
         match_set::MatchSetManager,
@@ -86,6 +90,7 @@ pub struct TfJoin<'a> {
     drop_incomplete: bool,
     stream_len_threshold: usize,
     streams_kept_alive: usize,
+    actor_id: ActorId,
 }
 
 lazy_static::lazy_static! {
@@ -134,6 +139,13 @@ pub fn build_tf_join<'a>(
     op: &'a OpJoin,
     tf_state: &mut TransformState,
 ) -> TransformData<'a> {
+    let cb =
+        &mut jd.match_set_mgr.match_sets[tf_state.match_set_id].action_buffer;
+    let actor_id = cb.add_actor();
+    let next_actor_id = ActorRef::Unconfirmed(cb.peek_next_actor_id());
+    let mut output_field =
+        jd.field_mgr.fields[tf_state.output_field].borrow_mut();
+    output_field.first_actor = next_actor_id;
     TransformData::Join(TfJoin {
         current_stream_val: None,
         stream_val_added_len: 0,
@@ -156,6 +168,7 @@ pub fn build_tf_join<'a>(
             .stream_size_threshold,
         stream_value_error: false,
         streams_kept_alive: 0,
+        actor_id,
     })
 }
 
@@ -286,7 +299,12 @@ pub fn push_str(
 ) {
     unsafe { push_bytes_raw(join, sv_mgr, data.as_bytes(), rl, true) };
 }
-
+pub fn drop_group(join: &mut TfJoin) {
+    join.group_len = 0;
+    join.first_record_added = false;
+    join.output_stream_val = None;
+    join.buffer.clear();
+}
 pub fn emit_group(
     join: &mut TfJoin,
     sv_mgr: &mut StreamValueManager,
@@ -337,9 +355,7 @@ pub fn emit_group(
                 .push_bytes_buffer(buffer, 1, true, false);
         }
     }
-    join.group_len = 0;
-    join.first_record_added = false;
-    join.output_stream_val = None;
+    drop_group(join);
 }
 fn push_error(
     join: &mut TfJoin,
@@ -355,6 +371,19 @@ fn push_error(
         join.current_group_error = Some(e);
     }
 }
+
+fn should_drop_group(join: &mut TfJoin) -> bool {
+    let mut emit_incomplete = false;
+    // if we dont drop incomplete and there are actual members
+    emit_incomplete |= join.group_len > 0 && !join.drop_incomplete;
+    // if we join all output, and there is output
+    emit_incomplete |= join.group_capacity.is_none() && join.group_len > 0;
+    // if we join all output, there is potentially no output,
+    // but we don't drop incomplete
+    emit_incomplete |= join.group_capacity.is_none() && !join.drop_incomplete;
+    !emit_incomplete
+}
+
 pub fn handle_tf_join(
     jd: &mut JobData,
     tf_id: TransformId,
@@ -375,6 +404,7 @@ pub fn handle_tf_join(
         tf_id,
     );
     let tf = &jd.tf_mgr.transforms[tf_id];
+    let ms_id = tf.match_set_id;
     let op_id = tf.op_id.unwrap();
     let mut output_field = jd.field_mgr.fields[tf.output_field].borrow_mut();
     let input_field_id = tf.input_field;
@@ -391,9 +421,16 @@ pub fn handle_tf_join(
 
     let mut group_len_rem =
         join.group_capacity.unwrap_or(usize::MAX) - join.group_len;
+    let mut group_separators_emitted = 0;
     let mut groups_emitted = 0;
     let sv_mgr = &mut jd.sv_mgr;
     let mut batch_size_rem = batch_size;
+    let mut last_group_end = 0;
+
+    jd.match_set_mgr.match_sets[ms_id]
+        .action_buffer
+        .begin_action_group(join.actor_id);
+
     'iter: loop {
         if join.current_group_error.is_some() {
             let consumed =
@@ -407,14 +444,58 @@ pub fn handle_tf_join(
         }
         group_len_rem =
             join.group_capacity.unwrap_or(usize::MAX) - join.group_len;
+
         if let Some(range) = iter.typed_range_fwd(
             &mut jd.match_set_mgr,
             group_len_rem.min(batch_size_rem),
             field_value_flags::DEFAULT,
         ) {
             match range.base.data {
-                // TODO: this is gonna be annoying...
-                TypedSlice::GroupSeparator(_) => todo!(),
+                TypedSlice::GroupSeparator(_) => {
+                    let count = range.base.field_count;
+                    let should_drop = should_drop_group(join);
+                    let ab =
+                        &mut jd.match_set_mgr.match_sets[ms_id].action_buffer;
+                    let mut out_field_pos =
+                        groups_emitted + group_separators_emitted;
+                    ab.push_action(
+                        FieldActionKind::Drop,
+                        out_field_pos,
+                        (field_pos - last_group_end)
+                            .saturating_sub(!should_drop as usize),
+                    );
+                    if join.group_len == 0 && !should_drop {
+                        ab.push_action(
+                            FieldActionKind::InsertZst(
+                                FieldValueRepr::Undefined,
+                            ),
+                            out_field_pos,
+                            1,
+                        );
+                    }
+                    last_group_end = field_pos + count;
+                    if should_drop {
+                        drop_group(join);
+                    } else {
+                        emit_group(join, sv_mgr, &mut output_field);
+                        groups_emitted += 1;
+                    }
+                    output_field.iter_hall.push_group_separator(count, true);
+                    out_field_pos += 2;
+                    group_separators_emitted += count;
+                    for _ in 1..count {
+                        // TODO: this is fucked. we need to actually emit a
+                        // group
+                        ab.push_action(
+                            FieldActionKind::InsertZst(
+                                FieldValueRepr::Undefined,
+                            ),
+                            out_field_pos + 1,
+                            1,
+                        );
+                        out_field_pos += 2;
+                    }
+                }
                 TypedSlice::TextInline(text) => {
                     for (v, rl, _offs) in
                         RefAwareInlineTextIter::from_range(&range, text)
@@ -516,21 +597,30 @@ pub fn handle_tf_join(
 
     jd.field_mgr.store_iter(input_field_id, join.iter_id, iter);
     let streams_done = join.current_stream_val.is_none();
+    let ab = &mut jd.match_set_mgr.match_sets[ms_id].action_buffer;
+    let mut records_produced = groups_emitted + group_separators_emitted;
     if ps.input_done && streams_done {
-        let mut emit_incomplete = false;
-        // if we dont drop incomplete and there are actual members
-        emit_incomplete |= join.group_len > 0 && !join.drop_incomplete;
-        // if we join all output, and there is output
-        emit_incomplete |= join.group_capacity.is_none() && join.group_len > 0;
-        // if we join all output, there is potentially no output, but we don't
-        // drop incomplete
-        emit_incomplete |=
-            join.group_capacity.is_none() && !join.drop_incomplete;
-        if emit_incomplete {
-            emit_group(join, &mut jd.sv_mgr, &mut output_field);
-            groups_emitted += 1;
+        let should_drop = should_drop_group(join);
+        ab.push_action(
+            FieldActionKind::Drop,
+            records_produced,
+            (field_pos - last_group_end).saturating_sub(!should_drop as usize),
+        );
+        if should_drop {
+            drop_group(join);
+        } else {
+            if join.group_len == 0 {
+                ab.push_action(
+                    FieldActionKind::InsertZst(FieldValueRepr::Undefined),
+                    records_produced,
+                    1,
+                );
+            }
+            emit_group(join, sv_mgr, &mut output_field);
+            records_produced += 1;
         }
     }
+    ab.end_action_group();
 
     drop(input_field);
     drop(output_field);
@@ -540,7 +630,7 @@ pub fn handle_tf_join(
     }
     jd.tf_mgr.submit_batch(
         tf_id,
-        groups_emitted,
+        records_produced,
         ps.input_done && streams_done,
     );
 }

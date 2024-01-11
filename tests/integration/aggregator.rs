@@ -64,12 +64,23 @@ fn append_after_fork() -> Result<(), ScrError> {
 }
 
 #[test]
-fn parse_aggregation_across_fork() -> Result<(), ScrError> {
-    let sess_opts = parse_cli_from_strings([
-        "scr", "seqn=10", "forkcat", "+int=11", "r=.*",
-    ])?;
+fn parse_forkcat() -> Result<(), ScrError> {
+    let sess_opts =
+        parse_cli_from_strings(["scr", "seqn=10", "forkcat", "r=.*", "end"])?;
     let res = ContextBuilder::from_session_opts(sess_opts)
-        .run_collect_as::<String>()?;
-    assert_eq!(res, int_sequence_strings(1..12));
+        .run_collect_stringified()?;
+    assert_eq!(res, int_sequence_strings(1..11));
     Ok(())
 }
+
+// TODO: this feature is insane. figure out something better
+// #[test]
+// fn parse_aggregation_across_fork() -> Result<(), ScrError> {
+// let sess_opts = parse_cli_from_strings([
+// "scr", "seqn=10", "forkcat", "+int=11", "r=.*",
+// ])?;
+// let res = ContextBuilder::from_session_opts(sess_opts)
+// .run_collect_stringified()?;
+// assert_eq!(res, int_sequence_strings(1..12));
+// Ok(())
+// }

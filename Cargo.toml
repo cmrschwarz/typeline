@@ -47,7 +47,7 @@ sqlite = ["dep:scr_ext_sqlite"]
 http = ["dep:scr_ext_http"]
 utils = ["dep:scr_ext_utils"]
 
-default = []
+default = ["utils"]
 full = ["scr_core/full", "repl", "sqlite", "http", "utils"]
 
 unstable = ["scr_core/unstable"]

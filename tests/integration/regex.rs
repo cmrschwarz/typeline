@@ -336,7 +336,7 @@ fn double_regex() -> Result<(), ScrError> {
 fn multimatch_after_dup() -> Result<(), ScrError> {
     let res = ContextBuilder::default()
         .add_op(create_op_str("foo"))
-        .add_op(create_op_dup(2))
+        .add_op(create_op_dup(1))
         .add_op(
             create_op_regex_with_opts(
                 ".",

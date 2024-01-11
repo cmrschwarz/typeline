@@ -1,7 +1,7 @@
 use scr_core::{
     operators::{
-        foreach::create_op_foreach, literal::create_op_str_n,
-        sequence::create_op_seqn,
+        foreach::create_op_foreach, join::create_op_join,
+        literal::create_op_str_n, sequence::create_op_seqn,
     },
     options::context_builder::ContextBuilder,
     record_data::field_value::FieldValue,
@@ -45,5 +45,17 @@ fn foreach_dup_sum() -> Result<(), ScrError> {
         res,
         &[FieldValue::Int(2), FieldValue::Int(4), FieldValue::Int(6)]
     );
+    Ok(())
+}
+
+#[test]
+fn foreach_dup_join() -> Result<(), ScrError> {
+    let res = ContextBuilder::default()
+        .add_op(create_op_seqn(1, 3, 1).unwrap())
+        .add_op(create_op_foreach())
+        .add_op(create_op_dup(1))
+        .add_op(create_op_join(None, None, false))
+        .run_collect_stringified()?;
+    assert_eq!(res, &["11", "22", "33"]);
     Ok(())
 }

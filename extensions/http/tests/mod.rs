@@ -28,7 +28,7 @@ fn multi_get_http_regex() -> Result<(), ScrError> {
     // keep stream values alive for long enough
     // this is sort of a regression test against this
     let res = ContextBuilder::default()
-        .set_batch_size(2) // TODO
+        .set_batch_size(2)
         .push_str("MQ==", 1)
         .push_str("Mq==", 1)
         .push_str("Mw==", 1)

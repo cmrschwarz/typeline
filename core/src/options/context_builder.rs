@@ -240,7 +240,6 @@ impl ContextBuilder {
         mut self,
     ) -> Result<Vec<String>, ContextualizedScrError> {
         let sink = StringSinkHandle::default();
-        self.opts.curr_chain = 0;
         self.ref_add_op(create_op_string_sink(&sink));
         let input_data = std::mem::take(&mut self.input_data);
         let sess = self.build_session()?;
@@ -273,8 +272,6 @@ impl ContextBuilder {
         mut self,
     ) -> Result<Vec<FieldValue>, ContextualizedScrError> {
         let sink = FieldValueSinkHandle::default();
-        self.ref_terminate_current_aggregate();
-        self.opts.curr_chain = 0;
         self.ref_add_op(create_op_field_value_sink(&sink));
         self.run()?;
         let mut v = sink.get();

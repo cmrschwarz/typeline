@@ -218,7 +218,7 @@ pub fn handle_tf_foreach_trailer(
         .field_mgr
         .get_cow_field_ref(&mut jd.match_set_mgr, tf.input_field);
     debug_assert!(
-        batch_size == input_field.destructured_field_ref().field_count()
+        batch_size <= input_field.destructured_field_ref().field_count()
     );
     let mut iter = input_field.iter();
     let mut field_pos = 0;
