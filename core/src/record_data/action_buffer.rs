@@ -234,6 +234,24 @@ impl Default for Actor {
         }
     }
 }
+
+pub fn eprint_action_list<'a>(actions: impl Iterator<Item = &'a FieldAction>) {
+    let mut idx_delta = 0isize;
+    for a in actions {
+        eprintln!(
+            "   > {:?} (src_idx: {})",
+            a,
+            idx_delta + a.field_idx as isize
+        );
+        match a.kind {
+            FieldActionKind::Dup | FieldActionKind::InsertZst(_) => {
+                idx_delta -= a.run_len as isize
+            }
+            FieldActionKind::Drop => idx_delta += a.run_len as isize,
+        }
+    }
+}
+
 impl ActionBuffer {
     pub const MAX_ACTOR_ID: ActorId = ActorId::MAX;
     pub fn begin_action_group(&mut self, actor_id: u32) {
@@ -258,9 +276,7 @@ impl ActionBuffer {
                 ai,
                 agq.action_groups.next_free_index()
             );
-            for a in agq.actions.data.range(actions_start..) {
-                eprintln!("   > {:?}:", a);
-            }
+            eprint_action_list(agq.actions.data.range(actions_start..));
         }
         let next_action_group_id_succ = if ai != self.actors.max_index() {
             let next_agq = &self.actors[ai].action_group_queues[0];
@@ -973,9 +989,7 @@ impl ActionBuffer {
                 "executing for field {} (first actor: {}):",
                 field_id, actor_id,
             );
-            for a in actions.clone() {
-                eprintln!("   > {:?}:", a);
-            }
+            eprint_action_list(actions.clone());
         }
         self.actions_applicator.run(
             actions,
