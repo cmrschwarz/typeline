@@ -163,8 +163,7 @@ pub fn merge_action_lists<
     while let Some(action_left) = left.peek() {
         let action_right = right.peek();
         if let Some(action_right) = action_right {
-            next_action_field_idx_right =
-                action_right.field_idx + outstanding_drops_right;
+            next_action_field_idx_right = action_right.field_idx;
         } else {
             next_action_field_idx_right = usize::MAX;
         }
@@ -199,11 +198,12 @@ pub fn merge_action_lists<
                         .map(|a| a.field_idx - action_left.field_idx)
                         .unwrap_or(usize::MAX);
                     if outstanding_drops_right >= run_len {
-                        kind = FieldActionKind::Drop;
                         outstanding_drops_right -= run_len;
                         field_pos_offset_left -= run_len as isize;
+                        kind = FieldActionKind::Drop;
                         run_len = outstanding_drops_right.min(space_to_next);
                         outstanding_drops_right -= run_len;
+                        field_pos_offset_left -= run_len as isize;
                     } else {
                         run_len -= outstanding_drops_right;
                         outstanding_drops_right = 0;
@@ -224,7 +224,6 @@ pub fn merge_action_lists<
             );
             continue;
         }
-        debug_assert!(outstanding_drops_right == 0);
         let action_right = right.next().unwrap();
         let field_idx = action_right.field_idx;
         let mut run_len = action_right.run_len as usize;
@@ -416,6 +415,13 @@ mod test {
 
     #[test]
     fn drop_cancels_insert_2() {
+        // Before:  Left:    Right
+        //    0       0        0
+        //    1       GS       1
+        //    2       1        2
+        //            GS
+        //            2
+
         let left = &[
             FieldAction {
                 kind: FAK::InsertZst(FieldValueRepr::GroupSeparator),
@@ -429,6 +435,49 @@ mod test {
             },
         ];
         let right = &[
+            FieldAction {
+                kind: FAK::Drop,
+                field_idx: 1,
+                run_len: 1,
+            },
+            FieldAction {
+                kind: FAK::Drop,
+                field_idx: 2,
+                run_len: 1,
+            },
+        ];
+        let merged = &[];
+        compare_merge_result(left, right, merged);
+    }
+
+    #[test]
+    fn drop_cancels_insert_3() {
+        // Before:  Left:    Right
+        //    0       0        0
+        //    1       GS       1
+        //    2       GS       2
+        //            1
+        //            GS
+        //            2
+
+        let left = &[
+            FieldAction {
+                kind: FAK::InsertZst(FieldValueRepr::GroupSeparator),
+                field_idx: 1,
+                run_len: 2,
+            },
+            FieldAction {
+                kind: FAK::InsertZst(FieldValueRepr::GroupSeparator),
+                field_idx: 4,
+                run_len: 1,
+            },
+        ];
+        let right = &[
+            FieldAction {
+                kind: FAK::Drop,
+                field_idx: 1,
+                run_len: 1,
+            },
             FieldAction {
                 kind: FAK::Drop,
                 field_idx: 1,
@@ -466,6 +515,20 @@ mod test {
 
     #[test]
     fn interrupted_left_actions() {
+        //  # | BF  L1  L2  R1  R2 | BF  M1  M2  M3 |
+        //  0 | a   a   a   e   e  | a   e   e   e  |
+        //  1 | b   a   a   f   f  | b   f   f   f  |
+        //  2 | c   b   b   g   i  | c   g   i   i  |
+        //  3 | d   c   c   h   i  | d   h   j   i  |
+        //  4 | e   d   d   i   j  | e   i       j  |
+        //  5 | f   e   e   i      | f   j          |
+        //  6 | g   f   f   j      | g              |
+        //  7 | h   g   g          | h              |
+        //  8 | i   h   h          | i              |
+        // 10 | j   i   i          | j              |
+        // 11 |     j   i          |                |
+        // 12 |         j          |                |
+
         let left = &[
             FieldAction {
                 kind: FAK::Dup,
@@ -503,8 +566,60 @@ mod test {
             },
             FieldAction {
                 kind: FAK::Dup,
-                field_idx: 3,
+                field_idx: 2,
                 run_len: 1,
+            },
+        ];
+        compare_merge_result(left, right, merged);
+    }
+
+    #[test]
+    fn interrupted_left_actions_2() {
+        // # | BF  L1  L2  R1  R2 | BF  M1  M2 |
+        // 0 | a   a   a   b   b  | a   b   b  |
+        // 1 | b   b   b   c   c  | b   c   c  |
+        // 2 | c   b   b   d   f  | c   d   f  |
+        // 3 | d   c   c   e   g  | d   e   g  |
+        // 4 | e   d   d   f      | e   f      |
+        // 5 | f   e   e   f      | f   g      |
+        // 6 | g   f   f   g      | g          |
+        // 7 |     g   f          |            |
+        // 8 |         g          |            |
+
+        let left = &[
+            FieldAction {
+                kind: FAK::Dup,
+                field_idx: 1,
+                run_len: 1,
+            },
+            FieldAction {
+                kind: FAK::Dup,
+                field_idx: 6,
+                run_len: 1,
+            },
+        ];
+        let right = &[
+            FieldAction {
+                kind: FAK::Drop,
+                field_idx: 0,
+                run_len: 2,
+            },
+            FieldAction {
+                kind: FAK::Drop,
+                field_idx: 2,
+                run_len: 3,
+            },
+        ];
+        let merged = &[
+            FieldAction {
+                kind: FAK::Drop,
+                field_idx: 0,
+                run_len: 1,
+            },
+            FieldAction {
+                kind: FAK::Drop,
+                field_idx: 2,
+                run_len: 2,
             },
         ];
         compare_merge_result(left, right, merged);
