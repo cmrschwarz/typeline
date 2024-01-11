@@ -247,6 +247,8 @@ pub fn handle_tf_foreach_trailer(
         );
         ab.push_action(FieldActionKind::Drop, field_pos, gs_records);
         bs_rem -= gs_records;
+        // prevent an infinite loop in case of an incorrect batch size
+        assert!(non_gs_records > 0 || gs_records > 0);
     }
     ab.end_action_group();
     jd.tf_mgr.submit_batch(tf_id, field_pos, ps.input_done);

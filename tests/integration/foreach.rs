@@ -43,7 +43,7 @@ fn foreach_dup_sum() -> Result<(), ScrError> {
         .run_collect()?;
     assert_eq!(
         res,
-        &[FieldValue::Int(1), FieldValue::Int(2), FieldValue::Int(3)]
+        &[FieldValue::Int(2), FieldValue::Int(4), FieldValue::Int(6)]
     );
     Ok(())
 }

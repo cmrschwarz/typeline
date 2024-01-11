@@ -86,7 +86,7 @@ impl Operator for OpDup {
 
 impl Transform for TfDup {
     fn display_name(&self) -> DefaultTransformName {
-        "head".into()
+        "dup".into()
     }
 
     fn update(&mut self, jd: &mut JobData, tf_id: TransformId) {

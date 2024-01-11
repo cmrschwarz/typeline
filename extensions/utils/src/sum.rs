@@ -136,7 +136,7 @@ impl TfSum {
                     let gs_count = range.base.field_count;
                     let group_size =
                         field_pos - last_finished_group_end - gs_count;
-                    let output_record_count = finished_group_count * 2;
+                    let mut output_record_count = finished_group_count * 2;
                     let ab = &mut bud.match_set_mgr.match_sets
                         [bud.match_set_id]
                         .action_buffer;
@@ -157,8 +157,16 @@ impl TfSum {
                     self.finish_group(op_id, &mut inserter);
                     inserter.push_group_separator(1, true);
                     for _ in 1..gs_count {
+                        ab.push_action(
+                            FieldActionKind::InsertZst(
+                                FieldValueRepr::Undefined,
+                            ),
+                            output_record_count,
+                            1,
+                        );
                         inserter.push_int(0, 1, true, true);
                         inserter.push_group_separator(1, true);
+                        output_record_count += 2;
                     }
                     last_finished_group_end = field_pos;
                     finished_group_count += gs_count;
