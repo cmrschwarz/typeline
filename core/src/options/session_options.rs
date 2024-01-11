@@ -415,7 +415,7 @@ impl SessionOptions {
         let chain = &sess.chains[chain_id as usize];
         let mut message = "";
         if chain.operators.is_empty() && !sess.settings.repl {
-            message = "chain must habe at least one operation";
+            message = "chain must have at least one operation";
         } else if chain.settings.default_batch_size == 0 {
             message = "default batch size cannot be zero";
         } else if chain.settings.stream_buffer_size == 0 {

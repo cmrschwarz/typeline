@@ -141,9 +141,10 @@ pub fn handle_tf_field_value_sink(
         match range.base.data {
             TypedSlice::GroupSeparator(_) => {
                 separators_count += range.base.field_count;
-                output_field
-                    .iter_hall
-                    .push_null(field_pos - last_interruption_end, true);
+                let count = field_pos - last_interruption_end;
+                if count > 0 {
+                    output_field.iter_hall.push_null(count, true);
+                }
                 last_interruption_end = field_pos;
                 continue;
             }

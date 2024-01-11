@@ -177,6 +177,7 @@ impl FieldActionApplicator {
         faas: &mut FieldActionApplicationState,
         zst_repr: FieldValueRepr,
     ) {
+        debug_assert!(zst_repr.is_zst());
         if header.fmt.repr == zst_repr {
             return self.handle_dup(header, iterators, faas);
         }
@@ -553,12 +554,12 @@ impl FieldActionApplicator {
                         self.update_current_iters(iterators, &mut faas);
                         break;
                     }
-                    FieldActionKind::InsertGroupSeparator => {
+                    FieldActionKind::InsertZst(zst_repr) => {
                         self.handle_zst_inserts(
                             &mut headers[faas.header_idx],
                             iterators,
                             &mut faas,
-                            FieldValueRepr::GroupSeparator,
+                            zst_repr,
                         );
                         faas.curr_action_pos += faas.curr_action_run_length;
                         self.update_current_iters(iterators, &mut faas);
@@ -727,7 +728,9 @@ mod test {
         field_action::{FieldAction, FieldActionKind},
         field_action_applicator::FieldActionApplicator,
         field_value::FieldValue,
-        field_value_repr::{FieldData, FixedSizeFieldValueType, RunLength},
+        field_value_repr::{
+            FieldData, FieldValueRepr, FixedSizeFieldValueType, RunLength,
+        },
         iter_hall::IterState,
         iters::FieldIterator,
         push_interface::PushInterface,
@@ -858,7 +861,11 @@ mod test {
             [0, 1, 1, 1, 2].iter().map(|v| (FieldValue::Int(*v), 1)),
             true,
             true,
-            &[FieldAction::new(FAK::InsertGroupSeparator, 2, 1)],
+            &[FieldAction::new(
+                FAK::InsertZst(FieldValueRepr::GroupSeparator),
+                2,
+                1,
+            )],
             &[
                 (FieldValue::Int(0), 1),
                 (FieldValue::Int(1), 1),

@@ -230,20 +230,7 @@ impl ContextBuilder {
     pub fn build_session(
         mut self,
     ) -> Result<SessionData, ContextualizedScrError> {
-        if !self.pending_aggregate.is_empty() {
-            let op_data = create_op_aggregate(std::mem::take(
-                &mut self.pending_aggregate,
-            ));
-            let op_base = OperatorBaseOptions::from_name(
-                self.opts
-                    .string_store
-                    .intern_cloned(&op_data.default_op_name()),
-            );
-            self.opts.add_op(op_base, op_data);
-        }
-        if let Some(pred) = self.last_non_append_op_id {
-            self.opts.init_op(pred, true);
-        }
+        self.ref_terminate_current_aggregate();
         self.opts.build_session()
     }
     pub fn build(self) -> Result<Context, ContextualizedScrError> {
@@ -286,8 +273,10 @@ impl ContextBuilder {
         mut self,
     ) -> Result<Vec<FieldValue>, ContextualizedScrError> {
         let sink = FieldValueSinkHandle::default();
+        self.ref_terminate_current_aggregate();
         self.opts.curr_chain = 0;
-        self.add_op(create_op_field_value_sink(&sink)).run()?;
+        self.ref_add_op(create_op_field_value_sink(&sink));
+        self.run()?;
         let mut v = sink.get();
         Ok(std::mem::take(&mut *v))
     }

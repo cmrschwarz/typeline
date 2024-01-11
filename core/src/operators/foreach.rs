@@ -177,7 +177,11 @@ pub fn handle_tf_foreach_header(
     let ab = &mut jd.match_set_mgr.match_sets[tf.match_set_id].action_buffer;
     ab.begin_action_group(feh.actor_id);
     let mut field_idx = if feh.any_records_submitted {
-        ab.push_action(FieldActionKind::InsertGroupSeparator, 0, 1);
+        ab.push_action(
+            FieldActionKind::InsertZst(FieldValueRepr::GroupSeparator),
+            0,
+            1,
+        );
         output_field.iter_hall.push_null(1, false);
         output_field.iter_hall.push_undefined(1, false);
         2
@@ -187,7 +191,11 @@ pub fn handle_tf_foreach_header(
         1
     };
     for _ in 0..batch_size - 1 {
-        ab.push_action(FieldActionKind::InsertGroupSeparator, field_idx, 1);
+        ab.push_action(
+            FieldActionKind::InsertZst(FieldValueRepr::GroupSeparator),
+            field_idx,
+            1,
+        );
         output_field.iter_hall.push_null(1, false);
         output_field.iter_hall.push_undefined(1, false);
         field_idx += 2;

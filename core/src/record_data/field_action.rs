@@ -3,14 +3,14 @@ use std::{
     ops::{Index, IndexMut},
 };
 
-use super::field_value_repr::RunLength;
+use super::field_value_repr::{FieldValueRepr, RunLength};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum FieldActionKind {
     #[default]
     Dup,
     Drop,
-    InsertGroupSeparator,
+    InsertZst(FieldValueRepr),
 }
 
 /// In lists of `FieldAction`s, the indices assume that all previous actions
@@ -46,8 +46,8 @@ pub enum FieldActionKind {
 #[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
 pub struct FieldAction {
     pub kind: FieldActionKind,
-    pub field_idx: usize,
     pub run_len: RunLength,
+    pub field_idx: usize,
 }
 
 impl FieldAction {
@@ -175,9 +175,11 @@ pub fn merge_action_lists<
             next_action_field_idx_left <= next_action_field_idx_right;
 
         if next_action_field_idx_left == next_action_field_idx_right
-            && action_right.map(|a| a.kind)
-                == Some(FieldActionKind::InsertGroupSeparator)
-            && action_left.kind != FieldActionKind::InsertGroupSeparator
+            && matches!(
+                action_right.map(|a| a.kind),
+                Some(FieldActionKind::InsertZst(_))
+            )
+            && !matches!(action_left.kind, FieldActionKind::InsertZst(_))
         {
             // We must put `Insert`s before `Dup`s because after the `Dup`,
             // the insert will refer to an earlier index, violating our
@@ -194,8 +196,7 @@ pub fn merge_action_lists<
             let mut kind = action_left.kind;
 
             match action_left.kind {
-                FieldActionKind::InsertGroupSeparator
-                | FieldActionKind::Dup => {
+                FieldActionKind::InsertZst(_) | FieldActionKind::Dup => {
                     let space_to_next = left
                         .peek()
                         .map(|a| a.field_idx - action_left.field_idx)
@@ -231,8 +232,7 @@ pub fn merge_action_lists<
             let mut run_len = action_right.run_len as usize;
 
             match action_right.kind {
-                FieldActionKind::InsertGroupSeparator
-                | FieldActionKind::Dup => {
+                FieldActionKind::InsertZst(_) | FieldActionKind::Dup => {
                     field_pos_offset_left += run_len as isize;
                 }
                 FieldActionKind::Drop => {
@@ -267,6 +267,8 @@ pub fn merge_action_lists<
 
 #[cfg(test)]
 mod test {
+    use crate::record_data::field_value_repr::FieldValueRepr;
+
     use super::FieldActionKind;
 
     use super::FieldAction;
@@ -353,13 +355,13 @@ mod test {
             run_len: 1,
         }];
         let right = &[FieldAction {
-            kind: FAK::InsertGroupSeparator,
+            kind: FAK::InsertZst(FieldValueRepr::GroupSeparator),
             field_idx: 0,
             run_len: 5,
         }];
         let merged = &[
             FieldAction {
-                kind: FAK::InsertGroupSeparator,
+                kind: FAK::InsertZst(FieldValueRepr::GroupSeparator),
                 field_idx: 0,
                 run_len: 5,
             },
@@ -380,13 +382,13 @@ mod test {
             run_len: 1,
         }];
         let right = &[FieldAction {
-            kind: FAK::InsertGroupSeparator,
+            kind: FAK::InsertZst(FieldValueRepr::GroupSeparator),
             field_idx: 0,
             run_len: 1,
         }];
         let merged = &[
             FieldAction {
-                kind: FAK::InsertGroupSeparator,
+                kind: FAK::InsertZst(FieldValueRepr::GroupSeparator),
                 field_idx: 0,
                 run_len: 1,
             },
