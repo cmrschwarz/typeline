@@ -46,8 +46,8 @@ pub enum FieldActionKind {
 #[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
 pub struct FieldAction {
     pub kind: FieldActionKind,
-    pub run_len: RunLength,
     pub field_idx: usize,
+    pub run_len: RunLength,
 }
 
 impl FieldAction {
@@ -174,17 +174,14 @@ pub fn merge_action_lists<
         let mut consume_left =
             next_action_field_idx_left <= next_action_field_idx_right;
 
-        if next_action_field_idx_left == next_action_field_idx_right
-            && matches!(
-                action_right.map(|a| a.kind),
-                Some(FieldActionKind::InsertZst(_))
-            )
-            && !matches!(action_left.kind, FieldActionKind::InsertZst(_))
-        {
-            // We must put `Insert`s before `Dup`s because after the `Dup`,
-            // the insert will refer to an earlier index, violating our
-            // invariants (see `FieldAction`).
-            consume_left = false;
+        if next_action_field_idx_left == next_action_field_idx_right {
+            consume_left =
+                match (action_left.kind, action_right.map(|a| a.kind)) {
+                    (FieldActionKind::Drop, _) => true,
+                    (_, Some(FieldActionKind::Drop)) => false,
+                    (_, Some(FieldActionKind::InsertZst(_))) => false,
+                    (_, _) => true,
+                };
         }
 
         if consume_left {
@@ -204,9 +201,9 @@ pub fn merge_action_lists<
                     if outstanding_drops_right >= run_len {
                         kind = FieldActionKind::Drop;
                         outstanding_drops_right -= run_len;
+                        field_pos_offset_left -= run_len as isize;
                         run_len = outstanding_drops_right.min(space_to_next);
                         outstanding_drops_right -= run_len;
-                        field_pos_offset_left -= run_len as isize;
                     } else {
                         run_len -= outstanding_drops_right;
                         outstanding_drops_right = 0;
@@ -225,34 +222,34 @@ pub fn merge_action_lists<
                 field_idx,
                 run_len,
             );
-        } else {
-            debug_assert!(outstanding_drops_right == 0);
-            let action_right = right.next().unwrap();
-            let field_idx = action_right.field_idx;
-            let mut run_len = action_right.run_len as usize;
-
-            match action_right.kind {
-                FieldActionKind::InsertZst(_) | FieldActionKind::Dup => {
-                    field_pos_offset_left += run_len as isize;
-                }
-                FieldActionKind::Drop => {
-                    let gap_to_start_left = next_action_field_idx_left
-                        - next_action_field_idx_right;
-                    if gap_to_start_left < run_len {
-                        outstanding_drops_right += run_len - gap_to_start_left;
-                        run_len = gap_to_start_left;
-                    }
-                    field_pos_offset_left -= run_len as isize;
-                }
-            }
-            push_merged_action(
-                target,
-                &mut first_insert,
-                action_right.kind,
-                field_idx,
-                run_len,
-            );
+            continue;
         }
+        debug_assert!(outstanding_drops_right == 0);
+        let action_right = right.next().unwrap();
+        let field_idx = action_right.field_idx;
+        let mut run_len = action_right.run_len as usize;
+
+        match action_right.kind {
+            FieldActionKind::InsertZst(_) | FieldActionKind::Dup => {
+                field_pos_offset_left += run_len as isize;
+            }
+            FieldActionKind::Drop => {
+                let gap_to_start_left =
+                    next_action_field_idx_left - next_action_field_idx_right;
+                if gap_to_start_left < run_len {
+                    outstanding_drops_right += run_len - gap_to_start_left;
+                    run_len = gap_to_start_left;
+                }
+                field_pos_offset_left -= run_len as isize;
+            }
+        }
+        push_merged_action(
+            target,
+            &mut first_insert,
+            action_right.kind,
+            field_idx,
+            run_len,
+        );
     }
     for action in right {
         push_merged_action(
@@ -398,6 +395,52 @@ mod test {
                 run_len: 1,
             },
         ];
+        compare_merge_result(left, right, merged);
+    }
+
+    #[test]
+    fn drop_cancels_insert() {
+        let left = &[FieldAction {
+            kind: FAK::InsertZst(FieldValueRepr::GroupSeparator),
+            field_idx: 0,
+            run_len: 1,
+        }];
+        let right = &[FieldAction {
+            kind: FAK::Drop,
+            field_idx: 0,
+            run_len: 1,
+        }];
+        let merged = &[];
+        compare_merge_result(left, right, merged);
+    }
+
+    #[test]
+    fn drop_cancels_insert_2() {
+        let left = &[
+            FieldAction {
+                kind: FAK::InsertZst(FieldValueRepr::GroupSeparator),
+                field_idx: 1,
+                run_len: 1,
+            },
+            FieldAction {
+                kind: FAK::InsertZst(FieldValueRepr::GroupSeparator),
+                field_idx: 3,
+                run_len: 1,
+            },
+        ];
+        let right = &[
+            FieldAction {
+                kind: FAK::Drop,
+                field_idx: 1,
+                run_len: 1,
+            },
+            FieldAction {
+                kind: FAK::Drop,
+                field_idx: 2,
+                run_len: 1,
+            },
+        ];
+        let merged = &[];
         compare_merge_result(left, right, merged);
     }
 

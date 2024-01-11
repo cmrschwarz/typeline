@@ -7,7 +7,6 @@ use scr_core::{
     record_data::field_value::FieldValue,
     scr_error::ScrError,
 };
-use scr_ext_utils::sum::create_op_sum;
 
 #[test]
 fn basic_foreach() -> Result<(), ScrError> {

@@ -246,5 +246,5 @@ pub fn handle_tf_foreach_trailer(
         bs_rem -= gs_records;
     }
     ab.end_action_group();
-    jd.tf_mgr.submit_batch(tf_id, batch_size, ps.input_done);
+    jd.tf_mgr.submit_batch(tf_id, field_pos, ps.input_done);
 }
