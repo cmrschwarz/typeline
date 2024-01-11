@@ -517,7 +517,13 @@ impl FieldActionApplicator {
             faas.curr_action_kind = action.kind;
             faas.curr_action_pos = action.field_idx;
             faas.curr_action_run_length = action.run_len as usize;
-            debug_assert!(
+            // SAFETY: If this assumption is violated,
+            // we might produce misstyped fields, leading to unsound memory
+            // casts by the iterators. It is possible to produce this state
+            // by violating the `FieldAction` list invariants, which are
+            // (currently) not fully checked by the ActionBuffer on insertion.
+            // Therefore a `debug_assert` would be insufficient here.
+            assert!(
                 faas.curr_action_pos >= faas.field_pos,
                 "overlapping field actions"
             );
@@ -880,9 +886,6 @@ mod test {
         );
     }
 
-    // we are testing for a debug assertion to trigger
-    // so we can't use this in release mode
-    #[cfg(debug_assertions)]
     #[test]
     #[should_panic = "overlapping field actions"]
     fn drop_within_dup() {
