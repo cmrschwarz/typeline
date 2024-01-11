@@ -20,7 +20,6 @@ use crate::{
 
 use super::{
     errors::{OperatorCreationError, OperatorSetupError},
-    next,
     operator::{OperatorData, OperatorId},
     transform::{TransformData, TransformId, TransformState},
 };

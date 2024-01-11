@@ -93,6 +93,7 @@ pub struct FieldValueFormat {
 #[derive(Clone, Copy, Default)]
 pub struct FieldValueHeader {
     pub fmt: FieldValueFormat,
+    // this shal never be zero, **even for deleted fields**
     pub run_length: RunLength,
 }
 

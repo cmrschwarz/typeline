@@ -1,7 +1,7 @@
 use scr_core::{
     operators::{
         foreach::create_op_foreach, literal::create_op_str_n,
-        nop::create_op_nop, sequence::create_op_seqn,
+        sequence::create_op_seqn,
     },
     options::context_builder::ContextBuilder,
     record_data::field_value::FieldValue,
@@ -24,7 +24,6 @@ fn sum_foreach() -> Result<(), ScrError> {
     let res = ContextBuilder::default()
         .add_op(create_op_seqn(1, 3, 1).unwrap())
         .add_op(create_op_foreach())
-        //.add_op(create_op_nop())
         .add_op(create_op_sum())
         .run_collect()?;
     assert_eq!(

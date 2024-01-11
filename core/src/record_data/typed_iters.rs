@@ -176,9 +176,13 @@ impl<'a, T: FieldValueType + 'static> TypedSliceIter<'a, T> {
             if !h.deleted() {
                 break;
             }
-            unsafe {
-                self.advance_value(h.unique_data_element_count() as usize)
-            };
+            // we allow deleted ZSTs (like the GroupSeparator) to not
+            // interrupt a range, so we have to check for that here
+            if h.fmt.size != 0 {
+                unsafe {
+                    self.advance_value(h.unique_data_element_count() as usize)
+                };
+            }
         }
         self.header_rl_rem = h.run_length;
         unsafe {
