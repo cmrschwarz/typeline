@@ -108,22 +108,32 @@ impl ActionContainer for VecDeque<FieldAction> {
 fn push_merged_action<T: ActionContainer>(
     target: &mut T,
     first_insert: &mut bool,
-    kind: FieldActionKind,
+    mut kind: FieldActionKind,
     field_idx: usize,
     mut run_len: usize,
 ) {
+    if run_len == 0 {
+        return;
+    }
     if *first_insert {
-        if run_len == 0 {
-            return;
-        }
         *first_insert = false;
     } else {
         let prev = target.last_mut().unwrap();
-        if prev.field_idx == field_idx && prev.kind == kind {
-            let space_rem =
-                (RunLength::MAX as usize - prev.run_len as usize).min(run_len);
-            prev.run_len += space_rem as RunLength;
-            run_len -= space_rem;
+        if prev.field_idx == field_idx {
+            let mut merge = prev.kind == kind;
+            if kind == FieldActionKind::Dup
+                && matches!(prev.kind, FieldActionKind::InsertZst(_))
+            {
+                kind = prev.kind;
+                merge = true;
+            }
+            if merge {
+                let space_rem = (RunLength::MAX as usize
+                    - prev.run_len as usize)
+                    .min(run_len);
+                prev.run_len += space_rem as RunLength;
+                run_len -= space_rem;
+            }
         }
     }
     let mut action = FieldAction {
@@ -392,6 +402,87 @@ mod test {
                 kind: FAK::Dup,
                 field_idx: 1,
                 run_len: 1,
+            },
+        ];
+        compare_merge_result(left, right, merged);
+    }
+
+    #[test]
+    fn inserts_can_be_duplicated() {
+        let left = &[FieldAction {
+            kind: FAK::InsertZst(FieldValueRepr::GroupSeparator),
+            field_idx: 0,
+            run_len: 1,
+        }];
+        let right = &[FieldAction {
+            kind: FAK::Dup,
+            field_idx: 0,
+            run_len: 1,
+        }];
+        let merged = &[FieldAction {
+            kind: FAK::InsertZst(FieldValueRepr::GroupSeparator),
+            field_idx: 0,
+            run_len: 2,
+        }];
+        compare_merge_result(left, right, merged);
+    }
+
+    #[test]
+    fn inserts_can_be_duplicated_2() {
+        let left = &[
+            FieldAction {
+                kind: FAK::InsertZst(FieldValueRepr::GroupSeparator),
+                field_idx: 1,
+                run_len: 1,
+            },
+            FieldAction {
+                kind: FAK::InsertZst(FieldValueRepr::GroupSeparator),
+                field_idx: 3,
+                run_len: 1,
+            },
+        ];
+        let right = &[
+            FieldAction {
+                kind: FAK::Dup,
+                field_idx: 0,
+                run_len: 1,
+            },
+            FieldAction {
+                kind: FAK::Dup,
+                field_idx: 2,
+                run_len: 1,
+            },
+            FieldAction {
+                kind: FAK::Dup,
+                field_idx: 4,
+                run_len: 1,
+            },
+            FieldAction {
+                kind: FAK::Dup,
+                field_idx: 6,
+                run_len: 1,
+            },
+        ];
+        let merged = &[
+            FieldAction {
+                kind: FAK::Dup,
+                field_idx: 0,
+                run_len: 1,
+            },
+            FieldAction {
+                kind: FAK::InsertZst(FieldValueRepr::GroupSeparator),
+                field_idx: 2,
+                run_len: 2,
+            },
+            FieldAction {
+                kind: FAK::Dup,
+                field_idx: 4,
+                run_len: 1,
+            },
+            FieldAction {
+                kind: FAK::InsertZst(FieldValueRepr::GroupSeparator),
+                field_idx: 6,
+                run_len: 2,
             },
         ];
         compare_merge_result(left, right, merged);
