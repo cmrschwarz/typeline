@@ -20,6 +20,7 @@ use crate::{
 
 use super::{
     errors::{OperatorCreationError, OperatorSetupError},
+    next,
     operator::{OperatorData, OperatorId},
     transform::{TransformData, TransformId, TransformState},
 };
@@ -92,7 +93,7 @@ pub fn insert_tf_foreach(
     let group_separator_flag_field = tf_state.output_field;
     let ab = &mut job.job_data.match_set_mgr.match_sets[ms_id].action_buffer;
     let header_actor_id = ab.add_actor();
-    let trailer_actor_id = ab.add_actor();
+    let next_actor = ActorRef::Unconfirmed(ab.peek_next_actor_id());
     let header_tf_id = add_transform_to_job(
         &mut job.job_data,
         &mut job.transform_data,
@@ -104,7 +105,7 @@ pub fn insert_tf_foreach(
     );
     job.job_data.field_mgr.fields[group_separator_flag_field]
         .borrow_mut()
-        .first_actor = ActorRef::Present(trailer_actor_id);
+        .first_actor = next_actor;
 
     let (last_tf_id, cont) = if let Some(&op_id) = sc_start_op_id {
         let (first, last, next_input_field, cont) = job
@@ -133,6 +134,9 @@ pub fn insert_tf_foreach(
     job.job_data
         .field_mgr
         .bump_field_refcount(trailer_output_field);
+    let trailer_actor_id = job.job_data.match_set_mgr.match_sets[ms_id]
+        .action_buffer
+        .add_actor();
     let trailer_tf_state = TransformState::new(
         group_separator_flag_field,
         trailer_output_field,

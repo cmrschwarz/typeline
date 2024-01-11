@@ -212,6 +212,8 @@ impl FieldActionApplicator {
         if fmt_mid.shared_value() && pre > 0 {
             fmt_mid.set_same_value_as_previous(true);
             header.set_same_value_as_previous(true);
+        } else {
+            fmt_mid.size = 0;
         }
         fmt_mid.set_shared_value(true);
         fmt_mid.repr = zst_repr;

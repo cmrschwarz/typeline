@@ -7,6 +7,7 @@ use scr_core::{
     record_data::field_value::FieldValue,
     scr_error::ScrError,
 };
+use scr_ext_utils::sum::create_op_sum;
 
 #[test]
 fn basic_foreach() -> Result<(), ScrError> {
@@ -23,8 +24,8 @@ fn sum_foreach() -> Result<(), ScrError> {
     let res = ContextBuilder::default()
         .add_op(create_op_seqn(1, 3, 1).unwrap())
         .add_op(create_op_foreach())
-        .add_op(create_op_nop())
-        // .add_op(create_op_sum())
+        //.add_op(create_op_nop())
+        .add_op(create_op_sum())
         .run_collect()?;
     assert_eq!(
         res,
