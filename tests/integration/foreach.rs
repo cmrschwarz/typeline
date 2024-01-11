@@ -7,7 +7,7 @@ use scr_core::{
     record_data::field_value::FieldValue,
     scr_error::ScrError,
 };
-use scr_ext_utils::sum::create_op_sum;
+use scr_ext_utils::{dup::create_op_dup, sum::create_op_sum};
 
 #[test]
 fn basic_foreach() -> Result<(), ScrError> {
@@ -20,10 +20,25 @@ fn basic_foreach() -> Result<(), ScrError> {
 }
 
 #[test]
-fn sum_foreach() -> Result<(), ScrError> {
+fn foreach_sum() -> Result<(), ScrError> {
     let res = ContextBuilder::default()
         .add_op(create_op_seqn(1, 3, 1).unwrap())
         .add_op(create_op_foreach())
+        .add_op(create_op_sum())
+        .run_collect()?;
+    assert_eq!(
+        res,
+        &[FieldValue::Int(1), FieldValue::Int(2), FieldValue::Int(3)]
+    );
+    Ok(())
+}
+
+#[test]
+fn foreach_dup_sum() -> Result<(), ScrError> {
+    let res = ContextBuilder::default()
+        .add_op(create_op_seqn(1, 3, 1).unwrap())
+        .add_op(create_op_foreach())
+        .add_op(create_op_dup(2))
         .add_op(create_op_sum())
         .run_collect()?;
     assert_eq!(
