@@ -11,7 +11,7 @@ use scr_core::{
 };
 use scr_ext_http::http::create_op_GET;
 
-fn setup_moqito_test_server() -> mockito::ServerGuard {
+pub fn setup_mockito_test_server() -> mockito::ServerGuard {
     let mut server = mockito::Server::new();
 
     server
@@ -36,7 +36,7 @@ fn setup_moqito_test_server() -> mockito::ServerGuard {
 
 #[test]
 fn multi_get_http() -> Result<(), ScrError> {
-    let server = setup_moqito_test_server();
+    let server = setup_mockito_test_server();
     let fmt = format!("{}/echo/{{}}", server.url());
     let res = ContextBuilder::default()
         .add_op(create_op_seqn(1, 3, 1).unwrap())
@@ -53,7 +53,7 @@ fn multi_get_http_regex() -> Result<(), ScrError> {
     // keep stream values alive for long enough
     // this is sort of a regression test against this
 
-    let server = setup_moqito_test_server();
+    let server = setup_mockito_test_server();
     let fmt = format!("{}/echo/{{}}", server.url());
 
     let res = ContextBuilder::default()
@@ -67,23 +67,9 @@ fn multi_get_http_regex() -> Result<(), ScrError> {
     Ok(())
 }
 
-// TODO: find a less brittle way to test https
-#[test]
-fn multi_get_https() -> Result<(), ScrError> {
-    let res = ContextBuilder::default()
-        .push_str("MQ==", 1)
-        .push_str("Mq==", 1)
-        .push_str("Mw==", 1)
-        .add_op(create_op_format("https://httpbin.org/base64/{}").unwrap())
-        .add_op(create_op_GET())
-        .run_collect_stringified()?;
-    assert_eq!(&res, &["1", "2", "3"]);
-    Ok(())
-}
-
 #[test]
 fn multi_get_into_print() -> Result<(), ScrError> {
-    let server = setup_moqito_test_server();
+    let server = setup_mockito_test_server();
     let fmt = format!("{}/echo/{{}}", server.url());
     let target = DummyWritableTarget::default();
     ContextBuilder::default()
@@ -98,7 +84,7 @@ fn multi_get_into_print() -> Result<(), ScrError> {
 
 #[test]
 fn get_delay() -> Result<(), ScrError> {
-    let server = setup_moqito_test_server();
+    let server = setup_mockito_test_server();
     let fmt = format!("{}/delay/0.{{}}", server.url());
     let res = ContextBuilder::default()
         .add_op_with_label(create_op_seq(0, 9, 3).unwrap(), "a")

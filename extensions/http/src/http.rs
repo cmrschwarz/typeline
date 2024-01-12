@@ -8,6 +8,7 @@ use std::{
 
 use mio::{event::Event, net::TcpStream, Events, Interest, Poll, Token};
 use pki_types::InvalidDnsNameError;
+use rustls::ClientConfig;
 use scr_core::{
     job::JobData,
     liveness_analysis::OpOutputIdx,
@@ -50,8 +51,9 @@ pub enum HttpRequestError {
     Other(String),
 }
 
-#[derive(Default)]
-pub struct OpHttpRequest {}
+pub struct OpHttpRequest {
+    client_config: Arc<ClientConfig>,
+}
 
 pub struct Connection {
     socket: TcpStream,
@@ -131,10 +133,6 @@ impl Operator for OpHttpRequest {
         tf_state: &mut TransformState,
         _prebound_outputs: &HashMap<OpOutputIdx, FieldId, BuildIdentityHasher>,
     ) -> TransformData<'a> {
-        let tls_settings = TlsSettings {
-            alpn_protocol_list: vec!["HTTP/1.1".to_owned()],
-            ..Default::default()
-        };
         let tf = TfHttpRequest {
             running_connections: CountedUniverse::default(),
             poll: Poll::new().unwrap(),
@@ -144,7 +142,7 @@ impl Operator for OpHttpRequest {
                 .get_transform_chain_from_tf_state(tf_state)
                 .settings
                 .stream_buffer_size,
-            tls_config: make_config(&tls_settings), // TODO
+            tls_config: self.client_config.clone(),
         };
         TransformData::Custom(smallbox!(tf))
     }
@@ -538,6 +536,15 @@ impl Transform for TfHttpRequest {
 }
 
 #[allow(non_snake_case)]
+pub fn create_op_GET_with_opts(
+    tls_settings: TlsSettings,
+) -> Result<OperatorData, rustls::Error> {
+    Ok(OperatorData::Custom(smallbox![OpHttpRequest {
+        client_config: make_config(tls_settings)?
+    }]))
+}
+
+#[allow(non_snake_case)]
 pub fn create_op_GET() -> OperatorData {
-    OperatorData::Custom(smallbox![OpHttpRequest::default()])
+    create_op_GET_with_opts(TlsSettings::default()).unwrap()
 }

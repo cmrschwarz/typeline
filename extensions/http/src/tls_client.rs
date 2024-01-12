@@ -1,4 +1,10 @@
-use std::{fs, io::BufReader, str, sync::Arc};
+use std::{
+    fs,
+    io::{BufRead, BufReader},
+    path::Path,
+    str,
+    sync::Arc,
+};
 
 use pki_types::UnixTime;
 use rustls::{
@@ -7,6 +13,12 @@ use rustls::{
     pki_types::{CertificateDer, PrivateKeyDer, ServerName},
     DigitallySignedStruct, RootCertStore,
 };
+
+#[derive(Debug)]
+pub struct ClientAuthSettings {
+    pub key: PrivateKeyDer<'static>,
+    pub cert_chain: Vec<CertificateDer<'static>>,
+}
 
 #[derive(Debug, Default)]
 pub struct TlsSettings {
@@ -22,8 +34,12 @@ pub struct TlsSettings {
     // Limit outgoing messages to M bytes
     pub flag_max_frag_size: Option<usize>,
 
-    // Read root certificates from the supplied file path
-    pub flag_cafile: Option<String>,
+    // do not accept the default list of root certificates
+    // hardcoded into webpki_roots::TLS_SERVER_ROOTS
+    pub disable_root_certs_from_webpki: bool,
+
+    // additional root certificates to accept
+    pub additional_root_certs: Vec<CertificateDer<'static>>,
 
     // disable session ticket support
     pub no_tickets: bool,
@@ -34,8 +50,32 @@ pub struct TlsSettings {
     // prevent InvalidCertificateErrors (this is obviously insecure)
     pub disable_cert_verification: bool,
 
-    pub client_auth_key: Option<String>,
-    pub client_auth_certs: Option<String>,
+    pub client_auth: Option<ClientAuthSettings>,
+}
+
+impl TlsSettings {
+    /// load certificates from a stream in the PEM format
+    pub fn load_additional_root_certs(
+        &mut self,
+        reader: &mut impl BufRead,
+    ) -> Result<(), std::io::Error> {
+        load_ca_certs(reader, &mut self.additional_root_certs)
+    }
+
+    /// load client auth key and cert chain from from streams in the PEM format
+    pub fn load_client_auth(
+        &mut self,
+        key_reader: &mut impl BufRead,
+        cert_chain_reader: &mut impl BufRead,
+    ) -> Result<(), std::io::Error> {
+        let mut client_auth = ClientAuthSettings {
+            key: load_private_key(key_reader)?,
+            cert_chain: Vec::default(),
+        };
+        load_ca_certs(cert_chain_reader, &mut client_auth.cert_chain)?;
+        self.client_auth = Some(client_auth);
+        Ok(())
+    }
 }
 
 /// Find a ciphersuite with the given name
@@ -66,11 +106,10 @@ fn lookup_suites(suites: &[String]) -> Vec<rustls::SupportedCipherSuite> {
 }
 
 /// Make a vector of protocol versions named in `versions`
-fn lookup_versions(
-    versions: &[String],
-) -> Vec<&'static rustls::SupportedProtocolVersion> {
-    let mut out = Vec::new();
-
+fn load_tls_procol_versions<'a>(
+    versions: impl IntoIterator<Item = &'a str>,
+    target: &mut Vec<&'static rustls::SupportedProtocolVersion>,
+) -> Result<(), rustls::Error> {
     for vname in versions {
         if let Some(v) = rustls::ALL_VERSIONS.iter().find(|v| {
             v.version
@@ -78,45 +117,15 @@ fn lookup_versions(
                 .unwrap()
                 .eq_ignore_ascii_case(vname.trim())
         }) {
-            out.push(*v);
+            target.push(*v);
         } else {
-            todo!("report error");
+            return Err(rustls::Error::General(format!(
+                "invalid TLS procotol version '{vname}'"
+            )));
         }
     }
 
-    out
-}
-
-fn load_certs(filename: &str) -> Vec<CertificateDer<'static>> {
-    let certfile =
-        fs::File::open(filename).expect("cannot open certificate file");
-    let mut reader = BufReader::new(certfile);
-    rustls_pemfile::certs(&mut reader)
-        .map(|result| result.unwrap())
-        .collect()
-}
-
-fn load_private_key(filename: &str) -> PrivateKeyDer<'static> {
-    let keyfile =
-        fs::File::open(filename).expect("cannot open private key file");
-    let mut reader = BufReader::new(keyfile);
-
-    loop {
-        match rustls_pemfile::read_one(&mut reader)
-            .expect("cannot parse private key .pem file")
-        {
-            Some(rustls_pemfile::Item::Pkcs1Key(key)) => return key.into(),
-            Some(rustls_pemfile::Item::Pkcs8Key(key)) => return key.into(),
-            Some(rustls_pemfile::Item::Sec1Key(key)) => return key.into(),
-            None => break,
-            _ => {}
-        }
-    }
-
-    panic!(
-        "no keys found in {:?} (encrypted keys not supported)",
-        filename
-    );
+    Ok(())
 }
 
 #[derive(Debug)]
@@ -171,18 +180,52 @@ impl ServerCertVerifier for NoCertificateVerification {
     }
 }
 
-pub fn make_config(args: &TlsSettings) -> Arc<rustls::ClientConfig> {
+pub fn load_private_key(
+    reader: &mut impl BufRead,
+) -> Result<PrivateKeyDer<'static>, std::io::Error> {
+    loop {
+        match rustls_pemfile::read_one(reader)? {
+            Some(rustls_pemfile::Item::Pkcs1Key(key)) => return Ok(key.into()),
+            Some(rustls_pemfile::Item::Pkcs8Key(key)) => return Ok(key.into()),
+            Some(rustls_pemfile::Item::Sec1Key(key)) => return Ok(key.into()),
+            None => break,
+            _ => {}
+        }
+    }
+
+    Err(std::io::Error::new(
+        std::io::ErrorKind::InvalidData,
+        "no private keys found (encrypted keys not supported)",
+    ))
+}
+
+/// load certificates from a stream in the PEM format
+pub fn load_ca_certs(
+    reader: &mut impl BufRead,
+    target: &mut Vec<CertificateDer<'static>>,
+) -> Result<(), std::io::Error> {
+    for cert in rustls_pemfile::certs(reader) {
+        target.push(cert?);
+    }
+    Ok(())
+}
+
+pub fn load_ca_certs_from_file(
+    path: impl AsRef<Path>,
+    target: &mut Vec<CertificateDer<'static>>,
+) -> Result<(), std::io::Error> {
+    let mut reader = BufReader::new(fs::File::open(path)?);
+    load_ca_certs(&mut reader, target)
+}
+
+pub fn make_config(
+    args: TlsSettings,
+) -> Result<Arc<rustls::ClientConfig>, rustls::Error> {
     let mut root_store = RootCertStore::empty();
 
-    if args.flag_cafile.is_some() {
-        let cafile = args.flag_cafile.as_ref().unwrap();
+    root_store.add_parsable_certificates(args.additional_root_certs);
 
-        let certfile = fs::File::open(cafile).expect("Cannot open CA file");
-        let mut reader = BufReader::new(certfile);
-        root_store.add_parsable_certificates(
-            rustls_pemfile::certs(&mut reader).map(|result| result.unwrap()),
-        );
-    } else {
+    if !args.disable_root_certs_from_webpki {
         root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
     }
 
@@ -193,7 +236,12 @@ pub fn make_config(args: &TlsSettings) -> Arc<rustls::ClientConfig> {
     };
 
     let versions = if !args.tls_protocol_versions.is_empty() {
-        lookup_versions(&args.tls_protocol_versions)
+        let mut versions = Vec::default();
+        load_tls_procol_versions(
+            args.tls_protocol_versions.iter().map(|v| v.as_str()),
+            &mut versions,
+        )?;
+        versions
     } else {
         rustls::DEFAULT_VERSIONS.to_vec()
     };
@@ -205,23 +253,16 @@ pub fn make_config(args: &TlsSettings) -> Arc<rustls::ClientConfig> {
         }
         .into(),
     )
-    .with_protocol_versions(&versions)
-    .expect("inconsistent cipher-suite/versions selected")
+    .with_protocol_versions(&versions)?
     .with_root_certificates(root_store);
 
-    let mut config = match (&args.client_auth_key, &args.client_auth_certs) {
-        (Some(key_file), Some(certs_file)) => {
-            let certs = load_certs(certs_file);
-            let key = load_private_key(key_file);
-            config
-                .with_client_auth_cert(certs, key)
-                .expect("invalid client auth certs/key")
-        }
-        (None, None) => config.with_no_client_auth(),
-        (_, _) => {
-            panic!("must provide --auth-certs and --auth-key together");
-        }
+    let mut config = if let Some(client_auth) = args.client_auth {
+        config
+            .with_client_auth_cert(client_auth.cert_chain, client_auth.key)?
+    } else {
+        config.with_no_client_auth()
     };
+
     config.key_log = Arc::new(rustls::KeyLogFile::new());
 
     if args.no_tickets {
@@ -236,8 +277,8 @@ pub fn make_config(args: &TlsSettings) -> Arc<rustls::ClientConfig> {
 
     config.alpn_protocols = args
         .alpn_protocol_list
-        .iter()
-        .map(|proto| proto.as_bytes().to_vec())
+        .into_iter()
+        .map(|proto| proto.into_bytes())
         .collect();
     config.max_fragment_size = args.flag_max_frag_size;
 
@@ -247,5 +288,5 @@ pub fn make_config(args: &TlsSettings) -> Arc<rustls::ClientConfig> {
             .set_certificate_verifier(Arc::new(NoCertificateVerification {}));
     }
 
-    Arc::new(config)
+    Ok(Arc::new(config))
 }
