@@ -22,5 +22,8 @@ url = "2.5.0"
 lazy_static = "1.4.0"
 regex = "1.10.2"
 
+[dev-dependencies]
+mockito = "1.2.0"
+
 [features]
 debug_log_http = []
