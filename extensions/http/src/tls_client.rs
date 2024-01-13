@@ -8,8 +8,10 @@ use std::{
 
 use pki_types::UnixTime;
 use rustls::{
-    client::danger::{HandshakeSignatureValid, ServerCertVerifier},
-    crypto::{verify_tls12_signature, verify_tls13_signature, CryptoProvider},
+    client::danger::{
+        HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier,
+    },
+    crypto::CryptoProvider,
     pki_types::{CertificateDer, PrivateKeyDer, ServerName},
     DigitallySignedStruct, RootCertStore,
 };
@@ -36,7 +38,7 @@ pub struct TlsSettings {
 
     // do not accept the default list of root certificates
     // hardcoded into webpki_roots::TLS_SERVER_ROOTS
-    pub disable_root_certs_from_webpki: bool,
+    pub no_webpki_root_certs: bool,
 
     // additional root certificates to accept
     pub additional_root_certs: Vec<CertificateDer<'static>>,
@@ -48,7 +50,7 @@ pub struct TlsSettings {
     pub no_sni: bool,
 
     // prevent InvalidCertificateErrors (this is obviously insecure)
-    pub disable_cert_verification: bool,
+    pub no_cert_verification: bool,
 
     pub client_auth: Option<ClientAuthSettings>,
 }
@@ -138,39 +140,40 @@ impl ServerCertVerifier for NoCertificateVerification {
         _server_name: &ServerName<'_>,
         _ocsp: &[u8],
         _now: UnixTime,
-    ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error>
-    {
-        Ok(rustls::client::danger::ServerCertVerified::assertion())
+    ) -> Result<ServerCertVerified, rustls::Error> {
+        Ok(ServerCertVerified::assertion())
     }
 
     fn verify_tls12_signature(
         &self,
-        message: &[u8],
-        cert: &CertificateDer<'_>,
-        dss: &DigitallySignedStruct,
+        _message: &[u8],
+        _cert: &CertificateDer<'_>,
+        _dss: &DigitallySignedStruct,
     ) -> Result<HandshakeSignatureValid, rustls::Error> {
-        verify_tls12_signature(
-            message,
-            cert,
-            dss,
-            &rustls::crypto::ring::default_provider()
-                .signature_verification_algorithms,
-        )
+        Ok(HandshakeSignatureValid::assertion())
+        // verify_tls12_signature(
+        //    message,
+        //    cert,
+        //    dss,
+        //    &rustls::crypto::ring::default_provider()
+        //        .signature_verification_algorithms,
+        //)
     }
 
     fn verify_tls13_signature(
         &self,
-        message: &[u8],
-        cert: &CertificateDer<'_>,
-        dss: &DigitallySignedStruct,
+        _message: &[u8],
+        _cert: &CertificateDer<'_>,
+        _dss: &DigitallySignedStruct,
     ) -> Result<HandshakeSignatureValid, rustls::Error> {
-        verify_tls13_signature(
-            message,
-            cert,
-            dss,
-            &rustls::crypto::ring::default_provider()
-                .signature_verification_algorithms,
-        )
+        Ok(HandshakeSignatureValid::assertion())
+        // verify_tls13_signature(
+        //    message,
+        //    cert,
+        //    dss,
+        //    &rustls::crypto::ring::default_provider()
+        //        .signature_verification_algorithms,
+        //)
     }
 
     fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
@@ -219,26 +222,26 @@ pub fn load_ca_certs_from_file(
 }
 
 pub fn make_config(
-    args: TlsSettings,
+    settings: TlsSettings,
 ) -> Result<Arc<rustls::ClientConfig>, rustls::Error> {
     let mut root_store = RootCertStore::empty();
 
-    root_store.add_parsable_certificates(args.additional_root_certs);
+    root_store.add_parsable_certificates(settings.additional_root_certs);
 
-    if !args.disable_root_certs_from_webpki {
+    if !settings.no_webpki_root_certs {
         root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
     }
 
-    let suites = if !args.cipher_suite.is_empty() {
-        lookup_suites(&args.cipher_suite)
+    let suites = if !settings.cipher_suite.is_empty() {
+        lookup_suites(&settings.cipher_suite)
     } else {
-        rustls::crypto::ring::DEFAULT_CIPHER_SUITES.to_vec()
+        rustls::crypto::ring::ALL_CIPHER_SUITES.to_vec()
     };
 
-    let versions = if !args.tls_protocol_versions.is_empty() {
+    let versions = if !settings.tls_protocol_versions.is_empty() {
         let mut versions = Vec::default();
         load_tls_procol_versions(
-            args.tls_protocol_versions.iter().map(|v| v.as_str()),
+            settings.tls_protocol_versions.iter().map(|v| v.as_str()),
             &mut versions,
         )?;
         versions
@@ -256,7 +259,7 @@ pub fn make_config(
     .with_protocol_versions(&versions)?
     .with_root_certificates(root_store);
 
-    let mut config = if let Some(client_auth) = args.client_auth {
+    let mut config = if let Some(client_auth) = settings.client_auth {
         config
             .with_client_auth_cert(client_auth.cert_chain, client_auth.key)?
     } else {
@@ -265,24 +268,24 @@ pub fn make_config(
 
     config.key_log = Arc::new(rustls::KeyLogFile::new());
 
-    if args.no_tickets {
+    if settings.no_tickets {
         config.resumption = config
             .resumption
             .tls12_resumption(rustls::client::Tls12Resumption::SessionIdOnly);
     }
 
-    if args.no_sni {
+    if settings.no_sni {
         config.enable_sni = false;
     }
 
-    config.alpn_protocols = args
+    config.alpn_protocols = settings
         .alpn_protocol_list
         .into_iter()
         .map(|proto| proto.into_bytes())
         .collect();
-    config.max_fragment_size = args.flag_max_frag_size;
+    config.max_fragment_size = settings.flag_max_frag_size;
 
-    if args.disable_cert_verification {
+    if settings.no_cert_verification {
         config
             .dangerous()
             .set_certificate_verifier(Arc::new(NoCertificateVerification {}));

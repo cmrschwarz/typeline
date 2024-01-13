@@ -1,6 +1,6 @@
 use std::{
     future::Future,
-    net::{Ipv4Addr, SocketAddr},
+    net::{Ipv4Addr, Ipv6Addr, SocketAddr},
     sync::Arc,
 };
 
@@ -18,14 +18,9 @@ use rustls::ServerConfig;
 use tokio::net::TcpListener;
 use tokio_rustls::TlsAcceptor;
 
-// can be generated using
-// `openssl genrsa 2048 > example_host.key`
-pub const EXAMPLE_HOST_KEY: &[u8] = include_bytes!("example_host.key");
-
-#[rustfmt::skip]
-// can be generated using
-// `openssl req -new -x509 -subj "/CN=localhost" -key example_host.key -out example_host.crt`
-pub const EXAMPLE_HOST_CERT: &[u8] = include_bytes!("example_host.crt");
+// can be generated using ./gen_certs.sh
+pub const TEST_KEY: &[u8] = include_bytes!("example.rsa");
+pub const TEST_CERT: &[u8] = include_bytes!("example.pem");
 
 pub async fn echo_handler(
     req: Request<Incoming>,
@@ -52,17 +47,19 @@ pub async fn run_https_test_server<
     port: u16,
     request_handler: F,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), port);
-
-    let mut certs_file = std::io::Cursor::new(EXAMPLE_HOST_CERT);
+    let mut certs_file = std::io::Cursor::new(TEST_CERT);
     let certs = rustls_pemfile::certs(&mut certs_file)
         .collect::<std::io::Result<Vec<_>>>()?;
 
-    let mut key_file = std::io::Cursor::new(EXAMPLE_HOST_KEY);
+    let mut key_file = std::io::Cursor::new(TEST_KEY);
     let key =
         rustls_pemfile::private_key(&mut key_file).map(|key| key.unwrap())?;
 
-    let incoming = TcpListener::bind(&addr).await?;
+    let addr_v4 = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), port);
+    let addr_v6 = SocketAddr::new(Ipv6Addr::LOCALHOST.into(), port);
+
+    let incoming_v4 = TcpListener::bind(&addr_v4).await?;
+    let incoming_v6 = TcpListener::bind(&addr_v6).await?;
 
     let mut server_config = ServerConfig::builder()
         .with_no_client_auth()
@@ -77,13 +74,20 @@ pub async fn run_https_test_server<
     let service = service_fn(request_handler);
 
     loop {
-        let (tcp_stream, _remote_addr) = incoming.accept().await?;
+        let (tcp_stream, _remote_addr) = tokio::select! {
+            val = incoming_v4.accept() => {
+               val?
+            }
+            val = incoming_v6.accept() => {
+                val?
+            }
+        };
         let acceptor = acceptor.clone();
         tokio::spawn(async move {
             let tls_stream = match acceptor.accept(tcp_stream).await {
                 Ok(tls_stream) => tls_stream,
                 Err(err) => {
-                    panic!("tls handshake failed: {err:#}");
+                    panic!("tls handshake failed: {err:?}");
                 }
             };
             // Aborting the server might raise an error, so we ignore it.
