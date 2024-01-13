@@ -154,7 +154,7 @@ impl TfHttpRequest {
         url: &str,
         bud: &mut BasicUpdateData,
     ) -> Result<StreamValueId, HttpRequestError> {
-        let url = match Url::parse(url) {
+        let mut url_parsed = match Url::parse(url) {
             Ok(u) => u,
             Err(e) => match e {
                 ParseError::RelativeUrlWithoutBase => {
@@ -169,23 +169,30 @@ impl TfHttpRequest {
             },
         };
         let mut https = false;
-        match url.scheme() {
+
+        match url_parsed.scheme() {
             "https" => {
                 https = true;
             }
             "" | "http" => (),
             other => {
-                return Err(HttpRequestError::Other(format!(
-                    "unsupported url scheme '{other}'"
-                )))
+                let mut with_scheme = String::from("http://");
+                with_scheme.push_str(url);
+                let Ok(url_parsed_with_scheme) = Url::parse(&with_scheme)
+                else {
+                    return Err(HttpRequestError::Other(format!(
+                        "unsupported url scheme '{other}'"
+                    )));
+                };
+                url_parsed = url_parsed_with_scheme;
             }
         }
-        let Some(hostname) = url.host_str() else {
+        let Some(hostname) = url_parsed.host_str() else {
             return Err(ParseError::EmptyHost.into());
         };
-        let port = url.port().unwrap_or(if https { 443 } else { 80 });
+        let port = url_parsed.port().unwrap_or(if https { 443 } else { 80 });
 
-        let location = url.path();
+        let location = url_parsed.path();
 
         let sock_addr = (hostname, port).to_socket_addrs()?.next().unwrap();
 

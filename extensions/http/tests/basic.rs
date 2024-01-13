@@ -1,9 +1,7 @@
 use scr_core::{
     operators::{
-        format::create_op_format,
-        print::create_op_print_with_target,
-        regex::create_op_regex,
-        sequence::{create_op_seq, create_op_seqn},
+        format::create_op_format, print::create_op_print_with_target,
+        regex::create_op_regex, sequence::create_op_seqn,
     },
     options::context_builder::ContextBuilder,
     scr_error::ScrError,
@@ -87,12 +85,28 @@ fn get_delay() -> Result<(), ScrError> {
     let server = setup_mockito_test_server();
     let fmt = format!("{}/delay/0.{{}}", server.url());
     let res = ContextBuilder::default()
-        .add_op_with_label(create_op_seq(0, 9, 3).unwrap(), "a")
+        .add_op_with_label(create_op_seqn(1, 3, 1).unwrap(), "a")
         .add_op(create_op_format(&fmt).unwrap())
         .add_op(create_op_GET())
         .add_op(create_op_regex(".*").unwrap())
         .add_op(create_op_format("{a}_{}").unwrap())
         .run_collect_stringified()?;
-    assert_eq!(&res, &["0_ok: 0", "3_ok: 0.3", "6_ok: 0.6"]);
+    assert_eq!(&res, &["1_ok: 0.1", "2_ok: 0.2", "3_ok: 0.3"]);
+    Ok(())
+}
+
+#[test]
+fn localhost_not_parsed_as_scheme() -> Result<(), ScrError> {
+    let server = setup_mockito_test_server();
+    let fmt = format!(
+        "localhost:{}/echo/{{}}",
+        server.host_with_port().split(':').nth(1).unwrap()
+    );
+    let res = ContextBuilder::default()
+        .push_str("foo", 1)
+        .add_op(create_op_format(&fmt).unwrap())
+        .add_op(create_op_GET())
+        .run_collect_stringified()?;
+    assert_eq!(&res, &["foo"]);
     Ok(())
 }
