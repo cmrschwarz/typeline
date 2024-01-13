@@ -4,6 +4,8 @@ use std::{
     sync::Arc,
 };
 
+use futures::{stream::FuturesUnordered, StreamExt};
+
 use http::{Request, Response, StatusCode};
 use http_body_util::Full;
 use hyper::{
@@ -19,8 +21,9 @@ use tokio::net::TcpListener;
 use tokio_rustls::TlsAcceptor;
 
 // can be generated using ./gen_certs.sh
-pub const TEST_KEY: &[u8] = include_bytes!("example.rsa");
-pub const TEST_CERT: &[u8] = include_bytes!("example.pem");
+pub const TEST_HOST_KEY: &[u8] = include_bytes!("host.rsa");
+pub const TEST_HOST_CERT: &[u8] = include_bytes!("host.pem");
+pub const TEST_CA_CERT: &[u8] = include_bytes!("ca.pem");
 
 pub async fn echo_handler(
     req: Request<Incoming>,
@@ -37,6 +40,28 @@ pub async fn echo_handler(
     Ok(response)
 }
 
+#[derive(Default)]
+pub enum IpSupport {
+    #[default]
+    Both,
+    IpV4Only,
+    IpV6Only,
+}
+
+pub struct HttpsTestServerOpts {
+    pub port: u16,
+    pub ip_support: IpSupport,
+}
+
+impl Default for HttpsTestServerOpts {
+    fn default() -> Self {
+        Self {
+            port: 8080,
+            ip_support: IpSupport::Both,
+        }
+    }
+}
+
 pub async fn run_https_test_server<
     E: std::error::Error + Send + Sync + 'static,
     D: Send + 'static,
@@ -44,22 +69,27 @@ pub async fn run_https_test_server<
     R: Future<Output = Result<Response<B>, hyper::Error>> + Send + 'static,
     F: Fn(Request<Incoming>) -> R + Send + Copy + 'static,
 >(
-    port: u16,
     request_handler: F,
+    opts: HttpsTestServerOpts,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let mut certs_file = std::io::Cursor::new(TEST_CERT);
+    let mut certs_file = std::io::Cursor::new(TEST_HOST_CERT);
     let certs = rustls_pemfile::certs(&mut certs_file)
         .collect::<std::io::Result<Vec<_>>>()?;
 
-    let mut key_file = std::io::Cursor::new(TEST_KEY);
+    let mut key_file = std::io::Cursor::new(TEST_HOST_KEY);
     let key =
         rustls_pemfile::private_key(&mut key_file).map(|key| key.unwrap())?;
 
-    let addr_v4 = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), port);
-    let addr_v6 = SocketAddr::new(Ipv6Addr::LOCALHOST.into(), port);
+    let mut listeners = Vec::new();
 
-    let incoming_v4 = TcpListener::bind(&addr_v4).await?;
-    let incoming_v6 = TcpListener::bind(&addr_v6).await?;
+    if matches!(opts.ip_support, IpSupport::IpV4Only | IpSupport::Both) {
+        let addr_v4 = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), opts.port);
+        listeners.push(TcpListener::bind(&addr_v4).await?);
+    }
+    if matches!(opts.ip_support, IpSupport::IpV6Only | IpSupport::Both) {
+        let addr_v6 = SocketAddr::new(Ipv6Addr::LOCALHOST.into(), opts.port);
+        listeners.push(TcpListener::bind(&addr_v6).await?);
+    }
 
     let mut server_config = ServerConfig::builder()
         .with_no_client_auth()
@@ -73,15 +103,19 @@ pub async fn run_https_test_server<
     let acceptor = TlsAcceptor::from(Arc::new(server_config));
     let service = service_fn(request_handler);
 
+    let mut futures = FuturesUnordered::new();
+
+    let mut prev_listener = None;
+
     loop {
-        let (tcp_stream, _remote_addr) = tokio::select! {
-            val = incoming_v4.accept() => {
-               val?
+        for (i, listener) in listeners.iter().enumerate() {
+            if Some(i) == prev_listener || prev_listener.is_none() {
+                futures.push(async move { (i, listener.accept().await) });
             }
-            val = incoming_v6.accept() => {
-                val?
-            }
-        };
+        }
+        let (listener_idx, res) = futures.next().await.unwrap();
+        let (tcp_stream, _remote_addr) = res?;
+        prev_listener = Some(listener_idx);
         let acceptor = acceptor.clone();
         tokio::spawn(async move {
             let tls_stream = match acceptor.accept(tcp_stream).await {
@@ -101,9 +135,11 @@ pub async fn run_https_test_server<
     }
 }
 
-pub fn spawn_https_echo_server(port: u16) -> tokio::task::JoinHandle<()> {
+pub fn spawn_https_echo_server(
+    opts: HttpsTestServerOpts,
+) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
-        run_https_test_server(port, echo_handler).await.unwrap();
+        run_https_test_server(echo_handler, opts).await.unwrap();
     })
 }
 

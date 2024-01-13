@@ -89,4 +89,5 @@ openssl x509 -req \
             -extensions v3_end -extfile openssl.cnf
 
 cat end.cert inter.cert ca.cert > "$key_name.pem"
+cp ca.cert ca.pem
 rm *.key *.cert *.req

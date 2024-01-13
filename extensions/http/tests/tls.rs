@@ -1,5 +1,6 @@
 mod https_mock_server;
 
+use https_mock_server::IpSupport;
 use reqwest::{Certificate, ClientBuilder};
 use scr_core::{
     operators::{format::create_op_format, sequence::create_op_seqn},
@@ -9,15 +10,19 @@ use scr_core::{
 use scr_ext_http::{http::create_op_GET_with_opts, tls_client::TlsSettings};
 
 use crate::https_mock_server::{
-    abort_https_test_server, spawn_https_echo_server, TEST_CERT,
+    abort_https_test_server, spawn_https_echo_server, HttpsTestServerOpts,
+    TEST_CA_CERT,
 };
 
 #[tokio::test]
 async fn tls_server_sanity_check() {
-    let server = spawn_https_echo_server(1234);
+    let server = spawn_https_echo_server(HttpsTestServerOpts {
+        port: 1234,
+        ip_support: IpSupport::Both,
+    });
 
     let client = ClientBuilder::new()
-        .add_root_certificate(Certificate::from_pem(TEST_CERT).unwrap())
+        .add_root_certificate(Certificate::from_pem(TEST_CA_CERT).unwrap())
         .build()
         .unwrap();
 
@@ -35,25 +40,31 @@ async fn tls_server_sanity_check() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn multi_get_https() -> Result<(), ScrError> {
-    let server = spawn_https_echo_server(8080);
+    // TODO: V4Only relies on implementing multiple connection attemps
+    for ip_support in [IpSupport::Both, IpSupport::IpV6Only] {
+        let server = spawn_https_echo_server(HttpsTestServerOpts {
+            port: 8080,
+            ip_support,
+        });
 
-    let mut tls_settings = TlsSettings::default();
+        let mut tls_settings = TlsSettings::default();
+        tls_settings
+            .load_additional_root_certs(&mut std::io::Cursor::new(
+                TEST_CA_CERT,
+            ))
+            .unwrap();
 
-    // tls_settings.no_cert_verification = true;
+        let res = ContextBuilder::default()
+            .add_op(create_op_seqn(1, 3, 1).unwrap())
+            .add_op(
+                create_op_format("https://localhost:8080/echo/{}").unwrap(),
+            )
+            .add_op(create_op_GET_with_opts(tls_settings).unwrap())
+            .run_collect_stringified();
 
-    tls_settings
-        .load_additional_root_certs(&mut std::io::Cursor::new(TEST_CERT))
-        .unwrap();
+        assert_eq!(res?, &["1", "2", "3"]);
 
-    let res = ContextBuilder::default()
-        .add_op(create_op_seqn(1, 3, 1).unwrap())
-        .add_op(create_op_format("https://localhost:8080/echo/{}").unwrap())
-        .add_op(create_op_GET_with_opts(tls_settings).unwrap())
-        .run_collect_stringified();
-
-    assert_eq!(res?, &["1", "2", "3"]);
-
-    abort_https_test_server(server).await;
-
+        abort_https_test_server(server).await;
+    }
     Ok(())
 }
