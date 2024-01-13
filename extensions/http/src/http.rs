@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     io::{Read, Write},
-    net::ToSocketAddrs,
+    net::{SocketAddr, ToSocketAddrs},
     sync::Arc,
     time::Duration,
 };
@@ -66,6 +66,9 @@ pub struct Connection {
     request_offset: usize,
     response_size: usize,
     expected_response_size: Option<usize>,
+    // once we receive anything, we will no longer try other addresses
+    received_anything: bool,
+    remaining_socket_addresses: Vec<SocketAddr>,
 }
 
 impl Connection {
@@ -178,6 +181,8 @@ impl TfHttpRequest {
             other => {
                 let mut with_scheme = String::from("http://");
                 with_scheme.push_str(url);
+                // Last ditch effort to catch cases like 'localhost:8080'
+                // where 'localhost' will be interpreted as a scheme at first.
                 let Ok(url_parsed_with_scheme) = Url::parse(&with_scheme)
                 else {
                     return Err(HttpRequestError::Other(format!(
@@ -194,9 +199,20 @@ impl TfHttpRequest {
 
         let location = url_parsed.path();
 
-        let sock_addr = (hostname, port).to_socket_addrs()?.next().unwrap();
+        let mut socket_addresses = (hostname, port)
+            .to_socket_addrs()?
+            // We pop these, but we want to keep the 'intended' order.
+            // Usually IPv6 is reported first by this etc...
+            .rev()
+            .collect::<Vec<_>>();
 
-        let mut socket = TcpStream::connect(sock_addr)?;
+        let Some(first_addr) = socket_addresses.pop() else {
+            return Err(HttpRequestError::Other(format!(
+                "failed to resolve hostname '{hostname}'"
+            )));
+        };
+
+        let mut socket = TcpStream::connect(first_addr)?;
         let mut tls_conn = None;
         if https {
             let server_name =
@@ -245,6 +261,8 @@ impl TfHttpRequest {
             request_offset: 0,
             expected_response_size: None,
             response_size: 0,
+            remaining_socket_addresses: socket_addresses,
+            received_anything: false,
         });
 
         Ok(stream_value)
