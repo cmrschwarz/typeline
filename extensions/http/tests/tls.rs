@@ -16,32 +16,37 @@ use crate::https_mock_server::{
 
 #[tokio::test]
 async fn tls_server_sanity_check() {
-    let server = spawn_https_echo_server(HttpsTestServerOpts {
-        port: 1234,
-        ip_support: IpSupport::Both,
-    });
+    for ip_support in
+        [IpSupport::Both, IpSupport::IpV6Only, IpSupport::IpV4Only]
+    {
+        let server = spawn_https_echo_server(HttpsTestServerOpts {
+            port: 1234,
+            ip_support,
+        });
 
-    let client = ClientBuilder::new()
-        .add_root_certificate(Certificate::from_pem(TEST_CA_CERT).unwrap())
-        .build()
-        .unwrap();
+        let client = ClientBuilder::new()
+            .add_root_certificate(Certificate::from_pem(TEST_CA_CERT).unwrap())
+            .build()
+            .unwrap();
 
-    let request = client
-        .get("https://localhost:1234/echo/foobar")
-        .build()
-        .unwrap();
-    let response =
-        client.execute(request).await.unwrap().text().await.unwrap();
+        let request = client
+            .get("https://localhost:1234/echo/foobar")
+            .build()
+            .unwrap();
+        let response =
+            client.execute(request).await.unwrap().text().await.unwrap();
 
-    assert_eq!(response, "foobar");
+        assert_eq!(response, "foobar");
 
-    abort_https_test_server(server).await;
+        abort_https_test_server(server).await;
+    }
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn multi_get_https() -> Result<(), ScrError> {
-    // TODO: V4Only relies on implementing multiple connection attemps
-    for ip_support in [IpSupport::Both, IpSupport::IpV6Only] {
+    for ip_support in
+        [IpSupport::Both, IpSupport::IpV4Only, IpSupport::IpV6Only]
+    {
         let server = spawn_https_echo_server(HttpsTestServerOpts {
             port: 8080,
             ip_support,

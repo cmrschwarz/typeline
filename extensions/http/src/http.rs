@@ -56,6 +56,7 @@ pub struct OpHttpRequest {
 }
 
 pub struct Connection {
+    hostname: String,
     socket: TcpStream,
     tls_conn: Option<rustls::ClientConnection>,
     stream_value: Option<StreamValueId>,
@@ -66,8 +67,6 @@ pub struct Connection {
     request_offset: usize,
     response_size: usize,
     expected_response_size: Option<usize>,
-    // once we receive anything, we will no longer try other addresses
-    received_anything: bool,
     remaining_socket_addresses: Vec<SocketAddr>,
 }
 
@@ -211,26 +210,9 @@ impl TfHttpRequest {
                 "failed to resolve hostname '{hostname}'"
             )));
         };
-
-        let mut socket = TcpStream::connect(first_addr)?;
-        let mut tls_conn = None;
-        if https {
-            let server_name =
-                pki_types::ServerName::try_from(hostname)?.to_owned();
-            let tls = rustls::ClientConnection::new(
-                self.tls_config.clone(),
-                server_name,
-            )?;
-            tls_conn = Some(tls)
-        }
-
         let token = self.running_connections.peek_claim_id();
-        let interest = Interest::READABLE | Interest::WRITABLE;
-
-        self.poll
-            .registry()
-            .register(&mut socket, Token(token), interest)
-            .unwrap();
+        let (socket, tls_conn) =
+            self.setup_connection(first_addr, https, hostname, token)?;
 
         let stream_value = bud.sv_mgr.stream_values.claim_with_value(
             StreamValue::from_value_unfinished(
@@ -251,6 +233,7 @@ impl TfHttpRequest {
         .into_boxed_slice();
 
         self.running_connections.claim_with_value(Connection {
+            hostname: hostname.to_owned(),
             socket,
             stream_value: Some(stream_value),
             tls_conn,
@@ -262,10 +245,36 @@ impl TfHttpRequest {
             expected_response_size: None,
             response_size: 0,
             remaining_socket_addresses: socket_addresses,
-            received_anything: false,
         });
 
         Ok(stream_value)
+    }
+
+    fn setup_connection(
+        &self,
+        address: SocketAddr,
+        https: bool,
+        hostname: &str,
+        token: usize,
+    ) -> Result<(TcpStream, Option<rustls::ClientConnection>), HttpRequestError>
+    {
+        let mut socket = TcpStream::connect(address)?;
+        let mut tls_conn = None;
+        if https {
+            let server_name =
+                pki_types::ServerName::try_from(hostname)?.to_owned();
+            let tls = rustls::ClientConnection::new(
+                self.tls_config.clone(),
+                server_name,
+            )?;
+            tls_conn = Some(tls)
+        }
+        let interest = Interest::READABLE | Interest::WRITABLE;
+        self.poll
+            .registry()
+            .register(&mut socket, Token(token), interest)
+            .unwrap();
+        Ok((socket, tls_conn))
     }
 
     fn basic_update(&mut self, mut bud: BasicUpdateData) -> (usize, bool) {
@@ -448,6 +457,7 @@ impl Transform for TfHttpRequest {
         jd: &mut JobData,
         tf_id: TransformId,
     ) {
+        let op_id = jd.tf_mgr.transforms[tf_id].op_id.unwrap();
         if let Err(e) = self
             .poll
             .poll(&mut self.events, Some(Duration::from_millis(1)))
@@ -471,7 +481,7 @@ impl Transform for TfHttpRequest {
 
         for event in &self.events {
             let Token(token) = event.token();
-            let req = &mut self.running_connections[token];
+            let mut req = &mut self.running_connections[token];
             let sv_id = req.stream_value.unwrap();
             let sv = &mut jd.sv_mgr.stream_values[sv_id];
 
@@ -484,11 +494,39 @@ impl Transform for TfHttpRequest {
             let buf_len_before = buf.len();
             let mut update = false;
             match process_event(event, req, buf, self.stream_buffer_size) {
+                Err(HttpRequestError::Io(e))
+                    if e.kind() == std::io::ErrorKind::ConnectionRefused
+                        && !req.remaining_socket_addresses.is_empty() =>
+                {
+                    let addr = req.remaining_socket_addresses.pop().unwrap();
+                    let imm_req = &self.running_connections[token];
+                    let https = imm_req.tls_conn.is_some();
+                    let hostname = &imm_req.hostname;
+                    let result =
+                        self.setup_connection(addr, https, hostname, token);
+                    req = &mut self.running_connections[token];
+                    match result {
+                        Ok((socket, tls_conn)) => {
+                            req.tls_conn = tls_conn;
+                            req.socket = socket;
+                        }
+                        Err(e) => {
+                            sv.value = FieldValue::Error(
+                                // ENHANCE: include number of addresses tried
+                                OperatorApplicationError::new_s(
+                                    format!("HTTP GET request failed: {e}"),
+                                    op_id,
+                                ),
+                            );
+                            sv.done = true;
+                        }
+                    }
+                }
                 Err(e) => {
                     sv.value =
                         FieldValue::Error(OperatorApplicationError::new_s(
                             format!("IO Error in HTTP GET Request: {e}"),
-                            jd.tf_mgr.transforms[tf_id].op_id.unwrap(),
+                            op_id,
                         ));
                     sv.done = true;
                 }
