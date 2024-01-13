@@ -83,7 +83,7 @@ fn multi_get_into_print() -> Result<(), ScrError> {
 #[test]
 fn get_delay() -> Result<(), ScrError> {
     let server = setup_mockito_test_server();
-    let fmt = format!("{}/delay/0.{{}}", server.url());
+    let fmt = format!("{}/delay/0.0{{}}", server.url());
     let res = ContextBuilder::default()
         .add_op_with_label(create_op_seqn(1, 3, 1).unwrap(), "a")
         .add_op(create_op_format(&fmt).unwrap())
@@ -91,7 +91,7 @@ fn get_delay() -> Result<(), ScrError> {
         .add_op(create_op_regex(".*").unwrap())
         .add_op(create_op_format("{a}_{}").unwrap())
         .run_collect_stringified()?;
-    assert_eq!(&res, &["1_ok: 0.1", "2_ok: 0.2", "3_ok: 0.3"]);
+    assert_eq!(&res, &["1_ok: 0.01", "2_ok: 0.02", "3_ok: 0.03"]);
     Ok(())
 }
 
