@@ -36,7 +36,8 @@ struct FieldActionApplicationState {
     copy_range_start_new: usize,
     field_pos_old: usize,
     data_end: usize,
-    curr_header_iter_count: usize,
+    curr_header_iters_start: usize,
+    curr_header_iters_end: usize,
     curr_header_original_rl: RunLength,
     curr_action_kind: FieldActionKind,
     curr_action_pos: usize,
@@ -85,12 +86,15 @@ impl FieldActionApplicator {
     }
     fn iters_adjust_drop_before(
         &self,
-        curr_header_iter_count: usize,
+        faas: &mut FieldActionApplicationState,
         iterators: &mut [&mut IterState],
         field_pos: usize,
         amount: RunLength,
     ) {
-        for it in &mut iterators[0..curr_header_iter_count] {
+        // TODO: this scales quardratically if we have many drops
+        // and many iters. maybe we should do this instead when
+        // we actually hit the header that the iters sit on.
+        for it in &mut iterators[faas.curr_header_iters_start..] {
             if it.field_pos <= field_pos {
                 continue;
             }
@@ -101,7 +105,7 @@ impl FieldActionApplicator {
     }
     fn iters_after_offset_to_next_header_bumping_field_pos(
         &self,
-        curr_header_iter_count: usize,
+        faas: &mut FieldActionApplicationState,
         offset: RunLength,
         extra_field_pos_bump: usize,
         header_pos_bump: usize,
@@ -109,10 +113,13 @@ impl FieldActionApplicator {
         current_header: &FieldValueHeader,
     ) {
         let data_offset = current_header.total_size_unique();
-        let start = iterators.len() - curr_header_iter_count;
-        for it in &mut iterators[start..] {
+        for it in &mut iterators
+            [faas.curr_header_iters_start..faas.curr_header_iters_end]
+            .iter_mut()
+            .rev()
+        {
             if it.header_rl_offset <= offset {
-                continue;
+                break;
             }
             it.field_pos += extra_field_pos_bump;
             it.header_idx += header_pos_bump;
@@ -122,13 +129,14 @@ impl FieldActionApplicator {
     }
     fn iters_to_next_header(
         &self,
-        curr_header_iter_count: usize,
+        faas: &mut FieldActionApplicationState,
         iterators: &mut [&mut IterState],
         current_header: &FieldValueHeader,
     ) {
         let data_offset = current_header.total_size_unique();
-        let start = iterators.len() - curr_header_iter_count;
-        for it in &mut iterators[start..] {
+        for it in &mut iterators
+            [faas.curr_header_iters_start..faas.curr_header_iters_end]
+        {
             it.header_idx += 1;
             it.data += data_offset;
             it.header_rl_offset -= current_header.run_length;
@@ -136,13 +144,14 @@ impl FieldActionApplicator {
     }
     fn iters_to_next_header_zero_offset(
         &self,
-        curr_header_iter_count: usize,
+        faas: &FieldActionApplicationState,
         iterators: &mut [&mut IterState],
         current_header: &FieldValueHeader,
     ) {
         let data_offset = current_header.total_size_unique();
-        let start = iterators.len() - curr_header_iter_count;
-        for it in &mut iterators[start..] {
+        for it in &mut iterators
+            [faas.curr_header_iters_start..faas.curr_header_iters_end]
+        {
             it.field_pos -= it.header_rl_offset as usize;
             it.header_idx += 1;
             it.data += data_offset;
@@ -151,13 +160,14 @@ impl FieldActionApplicator {
     }
     fn iters_to_next_header_adjusting_deleted_offset(
         &self,
-        curr_header_iter_count: usize,
+        faas: &FieldActionApplicationState,
         iterators: &mut [&mut IterState],
         current_header: &FieldValueHeader,
     ) {
         let data_offset = current_header.total_size_unique();
-        let start = iterators.len() - curr_header_iter_count;
-        for it in &mut iterators[start..] {
+        for it in &mut iterators
+            [faas.curr_header_iters_start..faas.curr_header_iters_end]
+        {
             it.header_idx += 1;
             it.data += data_offset;
             if it.header_rl_offset < current_header.run_length {
@@ -198,7 +208,7 @@ impl FieldActionApplicator {
         self.push_insert_command_if_rl_gt_0(faas, header.fmt, pre);
         faas.field_pos += pre as usize;
         self.iters_after_offset_to_next_header_bumping_field_pos(
-            faas.curr_header_iter_count,
+            faas,
             pre,
             insert_count,
             (pre > 0) as usize + mid_full_count,
@@ -254,11 +264,13 @@ impl FieldActionApplicator {
         let dup_count = faas.curr_action_run_length;
         let pre = (faas.curr_action_pos - faas.field_pos) as RunLength;
         if header.shared_value() {
-            let start = iterators.len() - faas.curr_header_iter_count;
-            for it in &mut iterators[start..] {
+            for it in &mut iterators
+                [faas.curr_header_iters_start..faas.curr_header_iters_end]
+                .iter_mut()
+                .rev()
+            {
                 if it.header_rl_offset <= pre {
-                    // iterators are sorted backwards
-                    // all later (-> smaller offset) ones will be unaffected
+                    // all earlier (-> smaller offset) iters will be unaffected
                     break;
                 }
                 it.field_pos += dup_count;
@@ -286,7 +298,7 @@ impl FieldActionApplicator {
         self.push_insert_command_if_rl_gt_0(faas, header.fmt, pre);
         faas.field_pos += pre as usize;
         self.iters_after_offset_to_next_header_bumping_field_pos(
-            faas.curr_header_iter_count,
+            faas,
             // only move iterators that refer to the element *after* the one
             // we are duping, so not pre and mid
             pre + 1,
@@ -344,7 +356,7 @@ impl FieldActionApplicator {
                 header.run_length -= rl_to_del;
                 faas.curr_action_run_length = 0;
                 self.iters_adjust_drop_before(
-                    faas.curr_header_iter_count,
+                    faas,
                     iterators,
                     faas.field_pos,
                     rl_to_del,
@@ -353,8 +365,9 @@ impl FieldActionApplicator {
             }
             self.push_copy_command(faas);
             self.push_insert_command_if_rl_gt_0(faas, header.fmt, rl_pre);
+            // TODO: shouldn't this only affect the ones after rl_pre?
             self.iters_to_next_header(
-                faas.curr_header_iter_count,
+                faas,
                 iterators,
                 &FieldValueHeader {
                     fmt: header.fmt,
@@ -370,9 +383,7 @@ impl FieldActionApplicator {
                     header.set_deleted(true);
                     faas.curr_action_run_length = 0;
                     self.iters_to_next_header_zero_offset(
-                        faas.curr_header_iter_count,
-                        iterators,
-                        header,
+                        faas, iterators, header,
                     );
                     return;
                 }
@@ -381,7 +392,7 @@ impl FieldActionApplicator {
                 self.push_insert_command_if_rl_gt_0(faas, fmt_del, rl_to_del);
                 header.run_length -= rl_to_del;
                 self.iters_to_next_header_adjusting_deleted_offset(
-                    faas.curr_header_iter_count,
+                    faas,
                     iterators,
                     &FieldValueHeader {
                         fmt: header.fmt,
@@ -396,9 +407,7 @@ impl FieldActionApplicator {
             }
             header.set_deleted(true);
             self.iters_to_next_header_adjusting_deleted_offset(
-                faas.curr_header_iter_count,
-                iterators,
-                header,
+                faas, iterators, header,
             );
             if header.shared_value() {
                 faas.copy_range_start += 1;
@@ -413,9 +422,7 @@ impl FieldActionApplicator {
             header.set_deleted(true);
             faas.curr_action_run_length -= header.run_length as usize;
             self.iters_to_next_header_adjusting_deleted_offset(
-                faas.curr_header_iter_count,
-                iterators,
-                header,
+                faas, iterators, header,
             );
             return;
         }
@@ -424,11 +431,7 @@ impl FieldActionApplicator {
         faas.curr_action_run_length = 0;
         if rl_to_del == header.run_length {
             header.set_deleted(true);
-            self.iters_to_next_header_zero_offset(
-                faas.curr_header_iter_count,
-                iterators,
-                header,
-            );
+            self.iters_to_next_header_zero_offset(faas, iterators, header);
             return;
         }
         if !header.shared_value() {
@@ -438,7 +441,7 @@ impl FieldActionApplicator {
             self.push_insert_command_if_rl_gt_0(faas, fmt_del, rl_to_del);
             header.run_length -= rl_to_del;
             self.iters_to_next_header_adjusting_deleted_offset(
-                faas.curr_header_iter_count,
+                faas,
                 iterators,
                 &FieldValueHeader {
                     fmt: header.fmt,
@@ -448,23 +451,22 @@ impl FieldActionApplicator {
             return;
         }
         self.iters_adjust_drop_before(
-            faas.curr_header_iter_count,
+            faas,
             iterators,
             faas.field_pos,
             rl_to_del,
         );
         header.run_length -= rl_to_del;
     }
-    fn update_current_iters(
+    fn update_current_iters_start(
         &self,
         iterators: &mut Vec<&mut IterState>,
         faas: &mut FieldActionApplicationState,
     ) {
-        while faas.curr_header_iter_count > 0 {
-            let it = &iterators.last().unwrap();
+        while faas.curr_header_iters_start != faas.curr_header_iters_end {
+            let it = &iterators[faas.curr_header_iters_start];
             if it.field_pos < faas.curr_action_pos {
-                iterators.pop();
-                faas.curr_header_iter_count -= 1;
+                faas.curr_header_iters_start += 1;
                 continue;
             }
             break;
@@ -494,7 +496,8 @@ impl FieldActionApplicator {
             copy_range_start_new: 0,
             field_pos_old: 0,
             data_end: 0,
-            curr_header_iter_count: 0,
+            curr_header_iters_start: 0,
+            curr_header_iters_end: 0,
             curr_header_original_rl: headers
                 .first()
                 .map(|h| h.effective_run_length())
@@ -503,11 +506,11 @@ impl FieldActionApplicator {
             curr_action_run_length: 0,
             curr_action_pos: 0,
         };
-        for it in iterators.iter().rev() {
-            if it.header_idx != faas.header_idx {
+        for it in iterators.iter() {
+            if it.header_idx != 0 {
                 break;
             }
-            faas.curr_header_iter_count += 1;
+            faas.curr_header_iters_end += 1;
         }
         let mut actions = actions.peekable();
         loop {
@@ -559,7 +562,7 @@ impl FieldActionApplicator {
                             &mut faas,
                         );
                         faas.curr_action_pos += faas.curr_action_run_length;
-                        self.update_current_iters(iterators, &mut faas);
+                        self.update_current_iters_start(iterators, &mut faas);
                         break;
                     }
                     FieldActionKind::InsertZst(zst_repr) => {
@@ -570,7 +573,7 @@ impl FieldActionApplicator {
                             zst_repr,
                         );
                         faas.curr_action_pos += faas.curr_action_run_length;
-                        self.update_current_iters(iterators, &mut faas);
+                        self.update_current_iters_start(iterators, &mut faas);
                         break;
                     }
                     FieldActionKind::Drop => {
@@ -589,6 +592,7 @@ impl FieldActionApplicator {
         let headers_rem = headers.len() - faas.header_idx;
         faas.header_idx_new += headers_rem;
         if headers_rem > 0 {
+            //TODO //WIP: reverse this
             faas.field_pos +=
                 headers[faas.header_idx].effective_run_length() as usize;
             faas.field_pos_old += faas.curr_header_original_rl as usize;
@@ -596,16 +600,22 @@ impl FieldActionApplicator {
                 - (faas.header_idx + headers_rem) as isize;
             let field_pos_delta =
                 faas.field_pos as isize - faas.field_pos_old as isize;
-            let iters_len = iterators.len();
-            for it in
-                &mut iterators[0..iters_len - faas.curr_header_iter_count]
-            {
+            for it in &mut iterators[faas.curr_header_iters_end..] {
                 it.field_pos =
                     (it.field_pos as isize + field_pos_delta) as usize;
                 it.header_idx =
                     (it.header_idx as isize + header_idx_delta) as usize;
             }
-        } else if let Some(data) = data {
+        } else if let Some(_data) = data {
+            // TODO: create a proper mechanism for freeing data
+            // this is completely busted:
+            // - it leaks if data needs to be dropped
+            // - it semantically breaks cow targets that may not have deleted
+            //   these fields yet
+            // - worse, once this field get's pushed into later, it potentially
+            //   allows data cow targets to access misstyped memory through
+            //   their iterators (-> rip soundness)
+            /*
             // if we touched all headers, there is a chance that the final
             // headers are deleted
             while faas.header_idx > 0 {
@@ -620,6 +630,7 @@ impl FieldActionApplicator {
                 }
             }
             data.truncate(faas.data_end);
+            */
         }
         self.push_copy_command(&mut faas);
         faas.field_pos as isize - faas.field_pos_old as isize
@@ -648,18 +659,17 @@ impl FieldActionApplicator {
             }
             let field_pos_delta =
                 faas.field_pos as isize - faas.field_pos_old as isize;
-            iterators.drain(iterators.len() - faas.curr_header_iter_count..);
+            faas.curr_header_iters_start = faas.curr_header_iters_end;
             let len = iterators.len();
-            faas.curr_header_iter_count = 0;
-            while len > faas.curr_header_iter_count {
-                let it = &mut iterators[len - faas.curr_header_iter_count - 1];
+            while len > faas.curr_header_iters_end {
+                let it = &mut iterators[faas.curr_header_iters_end];
                 if it.header_idx != faas.header_idx + 1 {
                     break;
                 }
                 it.field_pos =
                     (it.field_pos as isize + field_pos_delta) as usize;
                 it.header_idx += faas.header_idx_new - faas.header_idx;
-                faas.curr_header_iter_count += 1;
+                faas.curr_header_iters_end += 1;
             }
             faas.header_idx += 1;
             // this can happen if the field is too short (has)
@@ -671,7 +681,7 @@ impl FieldActionApplicator {
                 headers[faas.header_idx].effective_run_length();
             faas.header_idx_new += 1;
         }
-        self.update_current_iters(iterators, faas);
+        self.update_current_iters_start(iterators, faas);
     }
 
     fn execute_commands(&mut self, headers: &mut Vec<FieldValueHeader>) {
@@ -714,9 +724,7 @@ impl FieldActionApplicator {
     ) -> isize {
         let mut iters = transmute_vec(std::mem::take(&mut self.iters));
         iters.extend(iterators);
-        // we sort and use this backwards so we can pop() the ones
-        // we handled
-        iters.sort_by(|lhs, rhs| lhs.field_pos.cmp(&rhs.field_pos).reverse());
+        iters.sort_by(|lhs, rhs| lhs.field_pos.cmp(&rhs.field_pos));
         let field_count_delta = self.generate_commands_from_actions(
             actions, headers, data, &mut iters,
         );

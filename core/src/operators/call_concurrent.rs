@@ -61,7 +61,16 @@ pub struct TfCalleeConcurrent {
     pub target_fields: Vec<Option<FieldId>>,
     pub buffer: Arc<RecordBuffer>,
 }
-
+// These two drop impls are just to prevent deadlocks
+// in case the other side's thread panics. This is mainly useful for debugging.
+impl Drop for TfCallConcurrent<'_> {
+    fn drop(&mut self) {
+        let mut buf = self.buffer.fields.lock().unwrap();
+        buf.input_done = true;
+        drop(buf);
+        self.buffer.updates.notify_all();
+    }
+}
 impl Drop for TfCalleeConcurrent {
     fn drop(&mut self) {
         let mut buf = self.buffer.fields.lock().unwrap();
@@ -321,6 +330,8 @@ pub fn handle_tf_call_concurrent(
 ) {
     let (batch_size, ps) = jd.tf_mgr.claim_all(tf_id);
     let tf = &jd.tf_mgr.transforms[tf_id];
+    // The `get_cow_field_ref` below would also do this,
+    // but we want to do it outside the lock
     for mapping in &tfc.field_mappings {
         jd.field_mgr.apply_field_actions(
             &mut jd.match_set_mgr,

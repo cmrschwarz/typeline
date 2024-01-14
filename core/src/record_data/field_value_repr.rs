@@ -273,12 +273,7 @@ impl FieldValueRepr {
     }
     #[inline(always)]
     pub fn needs_alignment(self) -> bool {
-        !matches!(
-            self,
-            FieldValueRepr::Undefined
-                | FieldValueRepr::Null
-                | FieldValueRepr::BytesInline
-        )
+        !self.is_zst() && !self.is_variable_sized_type()
     }
     #[inline]
     pub fn needs_copy(self) -> bool {
@@ -322,9 +317,9 @@ impl FieldValueRepr {
     }
     pub fn size(self) -> usize {
         match self {
-            FieldValueRepr::Undefined => 0,
-            FieldValueRepr::Null => 0,
-            FieldValueRepr::GroupSeparator => 0,
+            FieldValueRepr::Undefined => size_of::<Undefined>(),
+            FieldValueRepr::Null => size_of::<Null>(),
+            FieldValueRepr::GroupSeparator => size_of::<GroupSeparator>(),
             FieldValueRepr::Int => size_of::<i64>(),
             FieldValueRepr::BigInt => size_of::<BigInt>(),
             FieldValueRepr::Float => size_of::<f64>(),
@@ -606,6 +601,8 @@ impl FieldData {
     }
 
     pub unsafe fn pad_to_align(&mut self) -> usize {
+        // TODO: we should really only align to the target align of the field
+        // e.g. field references are 2 bytes, no need to align to 8
         let mut align = self.data.len() % MAX_FIELD_ALIGN;
         if align == 0 {
             return 0;

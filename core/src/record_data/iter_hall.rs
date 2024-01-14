@@ -36,6 +36,10 @@ pub(super) enum FieldDataSource {
     RecordBufferCow(*const UnsafeCell<FieldData>),
     RecordBufferDataCow(*const UnsafeCell<FieldData>),
 }
+// SAFETY: We make sure that the referenced RecordBufferField (and the
+// UnsafeCell<FieldData> inside it) does not get modified while any fields are
+// actively using it
+unsafe impl Send for FieldDataSource {}
 
 #[derive(Default)]
 pub struct IterHall {
@@ -44,8 +48,6 @@ pub struct IterHall {
     pub(super) iters: Universe<IterId, Cell<IterState>>,
     pub(super) cow_targets: ThinVec<FieldId>,
 }
-unsafe impl Send for IterHall {}
-unsafe impl Sync for IterHall {}
 
 #[derive(Default, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct IterState {
@@ -201,12 +203,19 @@ impl IterHall {
         let mut state = self.iters[iter_id].get();
         state.field_pos = iter.field_pos;
         state.header_rl_offset = iter.header_rl_offset;
-        if iter.header_idx == iter.field_data_ref().headers().len()
-            && iter.header_idx > 0
-        {
+
+        if iter.header_rl_offset == 0 {
+            // We don't store iterators pointing to the start of a header
+            // (except the first one). That's because if that header
+            // gets amended (last header + data rle) or inserted to
+            // (ZST header), the iterator would now skip that value.
+
             if iter.field_pos == 0 {
-                // this happens if all fields before are deleted
-                // calling prev_field would fail here
+                // When our header index is already 0, resetting is a noop.
+                // The other case (header_idx > 0) happens if all fields before
+                // are deleted. Calling `prev_field`, like in
+                // the other branch, would fail here, but
+                // having the iterator sit at 0/0 works out.
                 self.reset_iter(iter_id);
                 return;
             } else {
