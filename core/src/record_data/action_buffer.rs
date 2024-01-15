@@ -995,8 +995,8 @@ impl ActionBuffer {
         #[cfg(feature = "debug_logging")]
         {
             eprintln!(
-                "executing for field {} (first actor: {}):",
-                field_id, actor_id,
+                "executing for field {} (ms {}, first actor: {}):",
+                field_id, field.match_set, actor_id
             );
             eprint_action_list(actions.clone());
         }

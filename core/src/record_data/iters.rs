@@ -351,7 +351,9 @@ impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for Iter<'a, R> {
             return 0;
         }
         self.header_rl_offset = 0;
-        self.field_pos += stride as usize;
+        if !self.header_fmt.deleted() {
+            self.field_pos += stride as usize;
+        }
         let headers = self.fdr.headers();
         let mut prev_header_size = headers[self.header_idx].data_size();
         loop {

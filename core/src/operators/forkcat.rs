@@ -301,7 +301,7 @@ pub fn insert_tf_forkcat<'a>(
         forkcat.input_fields.push(input_field);
     }
 
-    let (cont_start, cont_end, next_input_field, _cont) =
+    let (cont_start, cont_end, next_input_field, cont) =
         setup_continuation(job, fc_tf_id);
     let TransformData::ForkCat(fc) = &mut job.transform_data[fc_tf_id.get()]
     else {
@@ -309,6 +309,8 @@ pub fn insert_tf_forkcat<'a>(
     };
     fc.continuation = Some(cont_start);
     expand_for_subchain(job, fc_tf_id, 0);
+    let cont_end = add_terminator_tf_cont_dependant(job, cont_end, cont)
+        .unwrap_or(cont_end);
     (
         fc_tf_id,
         cont_end,

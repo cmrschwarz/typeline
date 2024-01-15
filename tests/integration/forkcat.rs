@@ -1,3 +1,4 @@
+use rstest::rstest;
 use scr_core::{
     operators::{
         end::create_op_end,
@@ -193,11 +194,17 @@ fn forkcat_with_batches() -> Result<(), ScrError> {
     Ok(())
 }
 
-#[test]
-fn forkcat_on_unapplied_commands() -> Result<(), ScrError> {
+#[rstest]
+#[case(1)]
+#[case(2)]
+#[case(3)]
+#[case(10)]
+fn forkcat_on_unapplied_commands(
+    #[case] batch_size: usize,
+) -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
-        .set_batch_size(1)
+        .set_batch_size(batch_size)
         .add_op(create_op_seqn(1, 5, 1).unwrap())
         .add_op(create_op_regex("[24]").unwrap())
         .add_op(create_op_forkcat())

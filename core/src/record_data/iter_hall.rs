@@ -49,10 +49,18 @@ pub struct IterHall {
     pub(super) cow_targets: ThinVec<FieldId>,
 }
 
+/// Position of an iterator inside of FieldData to be stored inside of an
+/// IterHall.
 #[derive(Default, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct IterState {
     pub(super) field_pos: usize,
     pub(super) data: usize,
+    // The `header_idx` will never be greater than or equal to the field's
+    // header count, unless that count is 0. This means that we have to
+    // push an iterator that reached the end of the field slightly
+    // backwards to sit after the last `header_rl_offset` on the previous
+    // header. We do this to avoid appends from having to adjust iters
+    // that are 'after' them.
     pub(super) header_idx: usize,
     pub(super) header_rl_offset: RunLength,
 }
@@ -143,36 +151,20 @@ impl IterHall {
         state: &mut IterState,
     ) -> FieldValueHeader {
         if state.header_idx == fr.headers().len() {
-            let diff = fr.field_count().saturating_sub(state.field_pos);
-            if diff == 0 {
-                return Default::default();
-            }
-            state.header_idx -= 1;
-            let h = fr.headers()[state.header_idx];
-            if !h.same_value_as_previous() {
-                state.data -= if h.shared_value() {
-                    h.size as usize
-                } else {
-                    h.size as usize * (h.run_length as usize - diff)
-                };
-            }
-            state.header_rl_offset = h.run_length - diff as RunLength;
+            debug_assert!(state.header_idx == 0);
+            return Default::default();
+        }
+        let h = fr.headers()[state.header_idx];
+        if h.run_length != state.header_rl_offset {
             return h;
         }
-        let mut h = fr.headers()[state.header_idx];
-        if h.run_length == state.header_rl_offset
-            && state.header_idx < fr.headers().len()
-        {
-            state.header_idx += 1;
-            state.header_rl_offset = 0;
-            state.data += h.total_size();
-            if state.header_idx == fr.headers().len() {
-                h = Default::default();
-            } else {
-                h = fr.headers()[state.header_idx];
-            }
+        state.header_idx += 1;
+        state.header_rl_offset = 0;
+        state.data += h.total_size_unique();
+        if state.header_idx == fr.headers().len() {
+            return Default::default();
         }
-        h
+        fr.headers()[state.header_idx]
     }
     // SAFETY: caller must ensure that the state comes from this data source
     pub unsafe fn get_iter_from_state_unchecked<'a, R: FieldDataRef<'a>>(
@@ -204,12 +196,11 @@ impl IterHall {
         state.field_pos = iter.field_pos;
         state.header_rl_offset = iter.header_rl_offset;
 
-        if iter.header_rl_offset == 0 {
-            // We don't store iterators pointing to the start of a header
-            // (except the first one). That's because if that header
-            // gets amended (last header + data rle) or inserted to
-            // (ZST header), the iterator would now skip that value.
-
+        if iter.header_rl_offset == 0
+            && iter.field_pos == self.field_data.field_count
+        {
+            // Uphold the 'no `IterState` on the last header except 0'
+            // invariant.
             if iter.field_pos == 0 {
                 // When our header index is already 0, resetting is a noop.
                 // The other case (header_idx > 0) happens if all fields before

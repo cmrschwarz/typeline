@@ -91,10 +91,9 @@ impl FieldActionApplicator {
         field_pos: usize,
         amount: RunLength,
     ) {
-        // TODO: this scales quardratically if we have many drops
-        // and many iters. maybe we should do this instead when
-        // we actually hit the header that the iters sit on.
-        for it in &mut iterators[faas.curr_header_iters_start..] {
+        for it in &mut iterators
+            [faas.curr_header_iters_start..faas.curr_header_iters_end]
+        {
             if it.field_pos <= field_pos {
                 continue;
             }
@@ -460,7 +459,7 @@ impl FieldActionApplicator {
     }
     fn update_current_iters_start(
         &self,
-        iterators: &mut Vec<&mut IterState>,
+        iterators: &mut [&mut IterState],
         faas: &mut FieldActionApplicationState,
     ) {
         while faas.curr_header_iters_start != faas.curr_header_iters_end {
@@ -712,6 +711,37 @@ impl FieldActionApplicator {
             }
             headers.set_len(new_size);
         }
+        self.insertions.clear();
+        self.copies.clear();
+    }
+
+    fn canonicalize_iters(
+        &self,
+        field_count: usize,
+        headers: &[FieldValueHeader],
+        iterators: &mut [&mut IterState],
+    ) {
+        for it in iterators.iter_mut().rev() {
+            if it.field_pos < field_count {
+                break;
+            }
+            if it.header_rl_offset != 0 {
+                continue;
+            }
+            if it.header_idx == 0 {
+                continue;
+            }
+            // being on a deleted header is fine for this
+            // the only reason we do this is to avoid pushes
+            // from causing the iter to skip fields
+            if it.header_idx == headers.len()
+                || !headers[it.header_idx].same_value_as_previous()
+            {
+                it.data -= headers[it.header_idx - 1].total_size_unique();
+            }
+            it.header_idx -= 1;
+            it.header_rl_offset = headers[it.header_idx].run_length;
+        }
     }
 
     pub fn run<'a>(
@@ -730,10 +760,9 @@ impl FieldActionApplicator {
         );
         debug_assert!(*field_count as isize + field_count_delta >= 0);
         *field_count = (*field_count as isize + field_count_delta) as usize;
-        self.iters = transmute_vec(iters);
         self.execute_commands(headers);
-        self.insertions.clear();
-        self.copies.clear();
+        self.canonicalize_iters(*field_count, headers, &mut iters);
+        self.iters = transmute_vec(iters);
         field_count_delta
     }
 }
