@@ -6,12 +6,14 @@ use crate::{operators::transform::TransformId, utils::universe::Universe};
 
 use super::field_value::FieldValue;
 
+#[derive(Clone, Copy)]
 pub struct StreamValueUpdate {
     pub sv_id: StreamValueId,
     pub tf_id: TransformId,
     pub custom: usize,
 }
 
+#[derive(Clone, Copy)]
 pub struct StreamValueSubscription {
     pub tf_id: TransformId,
     pub custom_data: usize,
@@ -46,7 +48,7 @@ impl StreamValue {
             value,
             is_buffered: true,
             done: true,
-            subscribers: Default::default(),
+            subscribers: SmallVec::new(),
             ref_count: 1,
         }
     }
@@ -58,7 +60,7 @@ impl StreamValue {
             value,
             is_buffered,
             done: false,
-            subscribers: Default::default(),
+            subscribers: SmallVec::new(),
             ref_count: 1,
         }
     }

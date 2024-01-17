@@ -253,7 +253,7 @@ impl<'a, R: FieldDataRef<'a>> Iter<'a, R> {
             header_idx: fdr.headers().len(),
             header_rl_offset: 0,
             header_rl_total: 0,
-            header_fmt: Default::default(),
+            header_fmt: FieldValueFormat::default(),
             fdr,
             _phantom_data: PhantomData,
         }
@@ -361,7 +361,7 @@ impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for Iter<'a, R> {
             if self.header_idx == headers.len() {
                 self.header_rl_total = 0;
                 // to make sure there's no padding
-                self.header_fmt = Default::default();
+                self.header_fmt = FieldValueFormat::default();
                 self.data += prev_header_size;
                 return stride;
             }

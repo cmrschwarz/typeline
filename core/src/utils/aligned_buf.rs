@@ -146,10 +146,10 @@ impl<const ALIGN: usize> AlignedBuf<ALIGN> {
     pub fn clear(&mut self) {
         self.len = 0
     }
-    pub fn get_head_ptr(&self) -> *const u8 {
+    pub fn get_tail_ptr(&self) -> *const u8 {
         unsafe { self.data.as_ptr().add(self.len) }
     }
-    pub fn get_head_ptr_mut(&mut self) -> *mut u8 {
+    pub fn get_tail_ptr_mut(&mut self) -> *mut u8 {
         unsafe { self.data.as_ptr().add(self.len) }
     }
 }

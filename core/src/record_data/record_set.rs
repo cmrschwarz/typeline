@@ -126,7 +126,7 @@ impl RecordSet {
             .map(|f| f.data.field_count())
             .max()
             .unwrap_or(0);
-        for f in self.fields.iter_mut() {
+        for f in &mut self.fields {
             let len = f.data.field_count();
             if len < max_field_len {
                 f.data.push_null(max_field_len - len, true);

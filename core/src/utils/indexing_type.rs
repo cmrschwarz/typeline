@@ -1,3 +1,5 @@
+#![allow(clippy::inline_always)]
+
 use nonmax::{NonMaxU32, NonMaxUsize};
 
 pub trait IndexingType:
@@ -34,6 +36,9 @@ pub trait IndexingTypeIntoUsize {
 }
 pub trait IndexingTypeFromUsize: Sized {
     fn from_usize(v: usize) -> Self;
+    fn from_isize(v: isize) -> Self {
+        Self::from_usize(usize::try_from(v).unwrap())
+    }
 }
 
 // usize

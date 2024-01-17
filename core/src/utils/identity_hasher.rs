@@ -17,21 +17,22 @@ pub struct IdentityHasher {
 
 impl Hasher for IdentityHasher {
     fn finish(&self) -> u64 {
-        #[cfg(debug_assertions)]
-        if !self.accessed {
-            panic!("IdentityHasher: finish() called before writing")
-        }
+        debug_assert!(
+            self.accessed,
+            "IdentityHasher: finish() called before writing"
+        );
         self.hash
     }
     fn write(&mut self, _: &[u8]) {
         panic!("IdentityHasher: attempted to write a byte slice")
     }
     fn write_u64(&mut self, n: u64) {
+        debug_assert!(
+            !self.accessed,
+            "IdentityHasher: attempted to write a second time"
+        );
         #[cfg(debug_assertions)]
         {
-            if self.accessed {
-                panic!("IdentityHasher: attempted to write a second time")
-            }
             self.accessed = true;
         }
         self.hash = n

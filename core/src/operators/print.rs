@@ -159,7 +159,6 @@ pub fn write_stream_val_check_done(
     Ok(sv.done)
 }
 
-#[inline(always)]
 pub fn handle_tf_print_raw(
     jd: &mut JobData,
     tf_id: TransformId,
@@ -338,7 +337,7 @@ pub fn handle_tf_print_raw(
                     RefAwareTypedSliceIter::from_range(&range, big_ints)
                 {
                     for _ in 0..rl {
-                        stream.write_fmt(format_args!("{}\n", v))?;
+                        stream.write_fmt(format_args!("{v}\n"))?;
                         *handled_field_count += 1;
                     }
                 }
@@ -346,7 +345,7 @@ pub fn handle_tf_print_raw(
             TypedSlice::Float(floats) => {
                 for (v, rl) in TypedSliceIter::from_range(&range, floats) {
                     for _ in 0..rl {
-                        stream.write_fmt(format_args!("{}\n", v))?;
+                        stream.write_fmt(format_args!("{v}\n"))?;
                         *handled_field_count += 1;
                     }
                 }
@@ -357,7 +356,7 @@ pub fn handle_tf_print_raw(
                 {
                     for _ in 0..rl {
                         if print_rationals_raw {
-                            stream.write_fmt(format_args!("{}\n", v))?;
+                            stream.write_fmt(format_args!("{v}\n"))?;
                         } else {
                             format_rational(&mut stream, v, RATIONAL_DIGITS)?;
                             stream.write_all(b"\n")?;
@@ -375,7 +374,7 @@ pub fn handle_tf_print_raw(
                     fm: &jd.field_mgr,
                     msm: &jd.match_set_mgr,
                     print_rationals_raw,
-                    rfk: Default::default(),
+                    rfk: RealizedFormatKey::default(),
                 };
                 for a in RefAwareTypedSliceIter::from_range(&range, arrays)
                     .unfold_rl()

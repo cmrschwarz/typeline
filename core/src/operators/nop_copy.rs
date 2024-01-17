@@ -68,7 +68,7 @@ pub fn build_tf_nop_copy(
 }
 
 impl TfNopCopy {
-    fn basic_update(&self, bud: BasicUpdateData) -> (usize, bool) {
+    fn basic_update(&self, bud: &mut BasicUpdateData) -> (usize, bool) {
         let mut output_field =
             bud.field_mgr.fields[bud.output_field_id].borrow_mut();
         let mut inserter = output_field.iter_hall.varying_type_inserter();
@@ -90,7 +90,7 @@ pub fn handle_tf_nop_copy(
     tf_id: TransformId,
     nc: &TfNopCopy,
 ) {
-    basic_transform_update(jd, tf_id, [], nc.input_iter_id, |bud| {
-        nc.basic_update(bud)
+    basic_transform_update(jd, tf_id, [], nc.input_iter_id, |mut bud| {
+        nc.basic_update(&mut bud)
     });
 }

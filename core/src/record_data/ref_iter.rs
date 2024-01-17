@@ -117,12 +117,12 @@ impl<'a, R: ReferenceFieldValueType> RefIter<'a, R> {
         };
         data_iter.move_to_field_pos(field_pos);
         Self {
-            refs_field,
             refs_iter,
-            field_mgr,
+            refs_field,
             last_field_id_offset,
             data_iter,
             data_cow_ref,
+            field_mgr,
         }
     }
     pub fn reset(
@@ -256,9 +256,9 @@ impl<'a, R: ReferenceFieldValueType> RefIter<'a, R> {
                 self.refs_iter.next_n_fields(data_stride);
                 refs_oversize_end = field_rl - data_stride as RunLength;
                 break;
-            } else {
-                self.refs_iter.next();
             }
+            self.refs_iter.next();
+
             if let Some(v) = self.refs_iter.peek() {
                 (field_ref, field_rl) = v;
                 if field_ref.field_id_offset() != field_id_offset {
@@ -477,9 +477,8 @@ impl<'a, I: FieldIterator<'a>> AutoDerefIter<'a, I> {
                     refs: None,
                     field_ref_offset: None,
                 });
-            } else {
-                return None;
             }
+            return None;
         }
     }
     pub fn typed_field_fwd(
@@ -539,9 +538,8 @@ impl<'a, I: FieldIterator<'a>> AutoDerefIter<'a, I> {
                     continue;
                 }
                 return Some((field.value, field.header.run_length, None));
-            } else {
-                return None;
             }
+            return None;
         }
     }
     pub fn next_range(
@@ -1022,6 +1020,7 @@ mod ref_iter_tests {
         ref_iter::{AutoDerefIter, RefAwareInlineTextIter},
     };
     use crate::record_data::{
+        action_buffer::ActorRef,
         field_value::SlicedFieldReference,
         field_value_repr::{
             field_value_flags, FieldData, FieldValueFormat, FieldValueHeader,
@@ -1045,14 +1044,14 @@ mod ref_iter_tests {
             &mut match_set_mgr,
             ms_id,
             None,
-            Default::default(),
+            ActorRef::default(),
             fd,
         );
         let refs_field_id = field_mgr.add_field_with_data(
             &mut match_set_mgr,
             ms_id,
             None,
-            Default::default(),
+            ActorRef::default(),
             fd_refs,
         );
         field_mgr.register_field_reference(refs_field_id, field_id);
@@ -1086,19 +1085,8 @@ mod ref_iter_tests {
         expected: &[(&'static str, RunLength)],
     ) {
         let mut fd_refs = FieldData::default();
-        for h in fd.headers.iter_mut() {
-            if !h.same_value_as_previous() {
-                push_ref(
-                    &mut fd_refs,
-                    0,
-                    h.size as usize,
-                    h.run_length as usize,
-                );
-                let h_ref = fd_refs.headers.last_mut().unwrap();
-                h_ref.flags |= h.flags
-                    & (field_value_flags::DELETED
-                        | field_value_flags::SHARED_VALUE);
-            } else {
+        for h in &mut fd.headers {
+            if h.same_value_as_previous() {
                 fd_refs.headers.push(FieldValueHeader {
                     fmt: FieldValueFormat {
                         repr: FieldValueRepr::SlicedFieldReference,
@@ -1111,6 +1099,17 @@ mod ref_iter_tests {
                     },
                     run_length: h.run_length,
                 });
+            } else {
+                push_ref(
+                    &mut fd_refs,
+                    0,
+                    h.size as usize,
+                    h.run_length as usize,
+                );
+                let h_ref = fd_refs.headers.last_mut().unwrap();
+                h_ref.flags |= h.flags
+                    & (field_value_flags::DELETED
+                        | field_value_flags::SHARED_VALUE);
             }
         }
 

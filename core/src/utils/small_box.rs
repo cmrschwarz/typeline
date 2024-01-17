@@ -79,7 +79,7 @@ impl<T: ?Sized, const SPACE: usize> SmallBox<T, SPACE> {
             );
             if this.is_heap_allocated() {
                 std::alloc::dealloc(
-                    this.ptr as *mut u8,
+                    this.ptr.cast(),
                     Layout::for_value(val_ref),
                 );
             }
@@ -111,7 +111,7 @@ impl<T: ?Sized, const SPACE: usize> SmallBox<T, SPACE> {
         let align = align_of_val(val_ref);
 
         let mut res = SmallBox {
-            ptr: target_type_ptr as *mut T,
+            ptr: target_type_ptr.cast_mut(),
             data: [MaybeUninit::uninit(); SPACE],
             _phantom: PhantomData,
         };
@@ -119,7 +119,7 @@ impl<T: ?Sized, const SPACE: usize> SmallBox<T, SPACE> {
         let (ptr_address_value, data_ptr) =
             if size <= SPACE && align <= Self::data_align() {
                 // this covers ZSTs aswell
-                (ptr::null_mut(), res.data.as_mut_ptr() as *mut u8)
+                (ptr::null_mut(), res.data.as_mut_ptr().cast::<u8>())
             } else {
                 let layout = Layout::for_value::<U>(unsafe { &*val });
                 let heap_ptr = unsafe { std::alloc::alloc(layout) };
@@ -127,8 +127,9 @@ impl<T: ?Sized, const SPACE: usize> SmallBox<T, SPACE> {
             };
 
         unsafe {
-            *(&mut res.ptr as *mut *mut T as *mut *mut u8) = ptr_address_value;
-            ptr::copy_nonoverlapping(val as *const u8, data_ptr, size);
+            *(std::ptr::addr_of_mut!(res.ptr).cast::<*mut u8>()) =
+                ptr_address_value;
+            ptr::copy_nonoverlapping(val.cast(), data_ptr, size);
         }
         res
     }
@@ -140,8 +141,7 @@ impl<T: ?Sized, const SPACE: usize> SmallBox<T, SPACE> {
         // Overwrite the pointer but retain metadata in case of a fat pointer.
         let mut ptr = self.ptr;
         unsafe {
-            *(&mut ptr as *mut *mut T as *mut *mut u8) =
-                self.data.as_ptr() as *mut u8;
+            *std::ptr::addr_of_mut!(ptr).cast() = self.data.as_ptr();
         }
         ptr
     }
@@ -155,8 +155,7 @@ impl<T: ?Sized, const SPACE: usize> SmallBox<T, SPACE> {
         }
         let mut ptr = self.ptr;
         unsafe {
-            *(&mut ptr as *mut *mut T as *mut *mut u8) =
-                self.data.as_mut_ptr() as *mut u8;
+            *std::ptr::addr_of_mut!(ptr).cast() = self.data.as_mut_ptr();
         }
         ptr
     }
@@ -171,7 +170,7 @@ impl<T: ?Sized, const SPACE: usize> SmallBox<T, SPACE> {
         if self.is_heap_allocated() {
             let layout = Layout::new::<T>();
             unsafe {
-                std::alloc::dealloc(self.ptr as *mut u8, layout);
+                std::alloc::dealloc(self.ptr.cast(), layout);
             }
         }
         std::mem::forget(self);
@@ -200,7 +199,7 @@ impl<T: ?Sized, const SPACE: usize> ops::Drop for SmallBox<T, SPACE> {
             std::ptr::drop_in_place(self.as_mut_ptr());
             if self.is_heap_allocated() {
                 std::alloc::dealloc(
-                    self.ptr as *mut u8,
+                    self.ptr.cast(),
                     Layout::for_value::<T>(&*self),
                 );
             }
@@ -302,7 +301,7 @@ mod tests {
         let val: [u64; 2] = [1, 2];
 
         unsafe {
-            let val_ptr = &val as *const _;
+            let val_ptr = std::ptr::addr_of!(val);
             let sb: SmallBox<[u64], 16> =
                 SmallBox::new_unchecked(val_ptr, val_ptr);
             assert_eq!(*sb, [1, 2]);

@@ -32,7 +32,6 @@ const HEX_DIGITS_UPPER: [u8; 16] = [
     b'C', b'D', b'E', b'F',
 ];
 
-#[inline(always)]
 fn push_byte_escape<const C: usize>(byte: u8, output: &mut ArrayVec<u8, C>) {
     match byte {
         b'\t' => output.try_extend_from_slice(b"\\t").unwrap(),
@@ -53,7 +52,6 @@ fn push_byte_escape<const C: usize>(byte: u8, output: &mut ArrayVec<u8, C>) {
     }
 }
 
-#[inline(always)]
 fn push_unicode_escape<const C: usize>(c: char, output: &mut ArrayVec<u8, C>) {
     let c = c as u32;
 
@@ -67,7 +65,6 @@ fn push_unicode_escape<const C: usize>(c: char, output: &mut ArrayVec<u8, C>) {
     output.push(b'}')
 }
 
-#[inline(always)]
 fn push_char<const C: usize>(c: char, output: &mut ArrayVec<u8, C>) {
     if c.is_ascii() {
         push_byte_escape(c as u8, output);
@@ -86,7 +83,7 @@ impl<W: std::io::Write> EscapedWriter<W> {
             incomplete_char_missing_len: 0,
             buffer_offset: 0,
             quote_to_escape,
-            buffer: Default::default(),
+            buffer: ArrayVec::new(),
         }
     }
     pub fn into_inner(mut self) -> std::io::Result<W> {
@@ -115,7 +112,7 @@ impl<F: std::fmt::Write> std::io::Write for EscapedWriterFmtAdapter<F> {
         // we can assume the escaped data to be valid utf-8.
         let buf_str = unsafe { std::str::from_utf8_unchecked(buf) };
         match self.0.write_str(buf_str) {
-            Ok(_) => Ok(buf.len()),
+            Ok(()) => Ok(buf.len()),
             Err(e) => Err(std::io::Error::new(ErrorKind::Other, e)),
         }
     }

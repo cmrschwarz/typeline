@@ -396,11 +396,13 @@ impl FieldValueRepr {
                 FieldValueKind::SlicedFieldReference
             }
             FieldValueRepr::Error => FieldValueKind::Error,
-            FieldValueRepr::TextInline => FieldValueKind::Text,
-            FieldValueRepr::TextBuffer => FieldValueKind::Text,
+            FieldValueRepr::TextInline | FieldValueRepr::TextBuffer => {
+                FieldValueKind::Text
+            }
+            FieldValueRepr::BytesInline | FieldValueRepr::BytesBuffer => {
+                FieldValueKind::Bytes
+            }
             FieldValueRepr::TextFile => FieldValueKind::Text,
-            FieldValueRepr::BytesInline => FieldValueKind::Bytes,
-            FieldValueRepr::BytesBuffer => FieldValueKind::Bytes,
             FieldValueRepr::BytesFile => FieldValueKind::Bytes,
             FieldValueRepr::Object => FieldValueKind::Object,
             FieldValueRepr::Array => FieldValueKind::Array,
@@ -444,8 +446,8 @@ impl FieldValueFormat {
     #[inline(always)]
     pub fn set_shared_value(&mut self, val: bool) {
         self.flags &= !field_value_flags::SHARED_VALUE;
-        self.flags |=
-            (val as FieldValueFlags) << field_value_flags::SHARED_VALUE_OFFSET;
+        self.flags |= FieldValueFlags::from(val)
+            << field_value_flags::SHARED_VALUE_OFFSET;
     }
 
     #[inline(always)]
@@ -472,7 +474,7 @@ impl FieldValueFormat {
     pub fn set_deleted(&mut self, val: bool) {
         self.flags &= !field_value_flags::DELETED;
         self.flags |=
-            (val as FieldValueFlags) << field_value_flags::DELETED_OFFSET;
+            FieldValueFlags::from(val) << field_value_flags::DELETED_OFFSET;
     }
     #[inline(always)]
     pub fn same_value_as_previous(self) -> bool {
@@ -481,7 +483,7 @@ impl FieldValueFormat {
     #[inline(always)]
     pub fn set_same_value_as_previous(&mut self, val: bool) {
         self.flags &= !field_value_flags::SAME_VALUE_AS_PREVIOUS;
-        self.flags |= (val as FieldValueFlags)
+        self.flags |= FieldValueFlags::from(val)
             << field_value_flags::SAME_VALUE_AS_PREVIOUS_OFFSET;
     }
 }
@@ -505,11 +507,7 @@ impl FieldValueHeader {
     }
     pub fn unique_data_element_count(&self) -> RunLength {
         if self.shared_value() {
-            if self.same_value_as_previous() {
-                0
-            } else {
-                1
-            }
+            RunLength::from(!self.same_value_as_previous())
         } else {
             self.run_length
         }
@@ -875,7 +873,7 @@ impl FieldData {
         targets_applicator(&mut |fd| fd.field_count += copied_fields);
         copied_fields
     }
-
+    #[allow(clippy::iter_not_returning_iterator)]
     pub fn iter(&self) -> Iter<'_, &'_ FieldData> {
         Iter::from_start(self)
     }
@@ -900,7 +898,7 @@ unsafe fn extend_with_clones<T: Clone>(
     target_applicator(&mut |data| {
         data.reserve(src_size);
         unsafe {
-            let mut tgt = data.as_mut_ptr_range().end as *mut T;
+            let mut tgt = data.as_mut_ptr_range().end.cast::<T>();
             for v in src {
                 std::ptr::write(tgt, v.clone());
                 tgt = tgt.add(1);
@@ -918,10 +916,14 @@ unsafe fn extend_with_custom_clones(
     let src_size = size_of::<CustomDataBox>();
     target_applicator(&mut |data| {
         data.reserve(src_size);
+        let mut tgt = data.get_tail_ptr_mut();
+        debug_assert_eq!(
+            0,
+            tgt as usize % std::mem::align_of::<CustomDataBox>()
+        );
         unsafe {
-            let mut tgt = data.as_mut_ptr_range().end as *mut CustomDataBox;
             for v in src {
-                std::ptr::write(tgt, v.clone_dyn());
+                std::ptr::write(tgt.cast(), v.clone_dyn());
                 tgt = tgt.add(1);
             }
             data.set_len(data.len() + src_size);
@@ -935,7 +937,7 @@ unsafe fn extend_raw<T: Sized + Copy>(
     src: &[T],
 ) {
     let src_bytes = unsafe {
-        std::slice::from_raw_parts(src.as_ptr() as *const u8, size_of_val(src))
+        std::slice::from_raw_parts(src.as_ptr().cast(), size_of_val(src))
     };
     target_applicator(&mut |data| data.extend_from_slice(src_bytes));
 }

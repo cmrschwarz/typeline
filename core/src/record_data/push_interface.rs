@@ -824,7 +824,7 @@ pub unsafe trait PushInterface {
         unsafe {
             self.extend_unchecked(
                 FieldValueRepr::TextBuffer,
-                iter.map(|v| v.into_bytes()),
+                iter.map(String::into_bytes),
                 try_header_rle,
                 try_data_rle,
             )
@@ -855,7 +855,7 @@ pub unsafe trait PushInterface {
                 self.push_variable_sized_type_unchecked(
                     T::REPR,
                     std::slice::from_raw_parts(
-                        v as *const T as *const u8,
+                        (v as *const T).cast(),
                         std::mem::size_of_val(v),
                     ),
                     1,
@@ -1139,7 +1139,7 @@ unsafe impl PushInterface for FieldData {
             );
         }
         self.data.reserve(data_len);
-        let res = self.data.get_head_ptr_mut();
+        let res = self.data.get_tail_ptr_mut();
         unsafe {
             // in debug mode, we initialize the memory with all ones
             // to make it easier to detect in the debugger
@@ -1237,12 +1237,12 @@ unsafe impl PushInterface for FieldData {
                     header_rle = true;
                     if try_data_rle {
                         data_rle = unsafe {
-                            data == *(self
+                            data == *self
                                 .data
                                 .as_ptr_range()
                                 .end
                                 .sub(std::mem::size_of::<T>())
-                                as *const T)
+                                .cast::<T>()
                         };
                     }
                 }
@@ -1342,7 +1342,7 @@ impl<'a> RawFixedSizedTypeInserter<'a> {
         self.fd
             .data
             .reserve(MAX_FIELD_ALIGN + max_inserts * element_size);
-        self.data_ptr = self.fd.data.get_head_ptr_mut();
+        self.data_ptr = self.fd.data.get_tail_ptr_mut();
         self.max = max_inserts;
         self.count = 0;
     }
@@ -1360,8 +1360,8 @@ impl<'a> RawFixedSizedTypeInserter<'a> {
     unsafe fn push<T>(&mut self, v: T) {
         unsafe {
             std::ptr::copy_nonoverlapping(
-                &v as *const T,
-                self.data_ptr as *mut T,
+                std::ptr::addr_of!(v),
+                self.data_ptr.cast(),
                 1,
             );
             self.data_ptr = self.data_ptr.add(std::mem::size_of::<T>());
@@ -1446,14 +1446,14 @@ impl<'a, T: FieldValueType + PartialEq + Clone> FixedSizeTypeInserter<'a, T> {
         if let (_, Some(count)) = iter.size_hint() {
             self.commit_and_reserve(count);
             unsafe {
-                let mut ptr = self.raw.data_ptr as *mut T;
+                let mut ptr = self.raw.data_ptr.cast::<T>();
                 for v in (&mut iter).take(count) {
                     std::ptr::write(ptr, v);
                     ptr = ptr.add(1);
                 }
                 self.raw.count +=
-                    ptr.offset_from(self.raw.data_ptr as *mut T) as usize;
-                self.raw.data_ptr = ptr as *mut u8;
+                    ptr.offset_from(self.raw.data_ptr.cast()) as usize;
+                self.raw.data_ptr = ptr.cast();
             }
         }
         for v in &mut iter {
@@ -1513,7 +1513,7 @@ impl<'a> RawVariableSizedTypeInserter<'a> {
         self.fd
             .data
             .reserve(MAX_FIELD_ALIGN + max_inserts * new_expected_size);
-        self.data_ptr = self.fd.data.get_head_ptr_mut();
+        self.data_ptr = self.fd.data.get_tail_ptr_mut();
         self.max = max_inserts;
         self.count = 0;
         self.expected_size = new_expected_size;
@@ -1795,7 +1795,7 @@ impl<FD: DerefMut<Target = FieldData>> VaryingTypeInserter<FD> {
         self.fd
             .data
             .reserve(MAX_FIELD_ALIGN + reserved_elements * fmt.size as usize);
-        self.data_ptr = self.fd.data.get_head_ptr_mut();
+        self.data_ptr = self.fd.data.get_tail_ptr_mut();
         self.fmt = fmt;
     }
     fn sanitize_format(fmt: FieldValueFormat) {
@@ -1814,7 +1814,7 @@ impl<FD: DerefMut<Target = FieldData>> VaryingTypeInserter<FD> {
             .max(std::mem::size_of::<FieldValue>() * 4);
         let len = (size / fmt.size as usize).max(2);
         self.fd.data.reserve(fmt.size as usize * len);
-        self.data_ptr = self.fd.data.get_head_ptr_mut();
+        self.data_ptr = self.fd.data.get_tail_ptr_mut();
         self.max = len;
         self.fmt = fmt;
         self.count = 0;
@@ -1972,7 +1972,7 @@ unsafe impl<FD: DerefMut<Target = FieldData>> PushInterface
             }
         }
         unsafe {
-            std::ptr::write(self.data_ptr as *mut T, data);
+            std::ptr::write(self.data_ptr.cast(), data);
             self.data_ptr = self.data_ptr.add(fmt.size as usize);
         }
         self.count += 1;

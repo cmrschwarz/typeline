@@ -145,8 +145,7 @@ impl FieldReference {
 impl Array {
     pub fn len(&self) -> usize {
         match self {
-            Array::Null(len) => *len,
-            Array::Undefined(len) => *len,
+            Array::Null(len) | Array::Undefined(len) => *len,
             Array::Int(a) => a.len(),
             Array::Bytes(a) => a.len(),
             Array::String(a) => a.len(),
@@ -420,8 +419,9 @@ impl FieldValue {
         // check on `T::REPR`. `FixedSizeFieldValueType` is an unsafe
         // trait, so assuming that nobody gave us an incorrect `REPR`
         // is sound.
+        #[allow(clippy::needless_pass_by_value)]
         unsafe fn xx<T, Q>(v: T) -> Q {
-            unsafe { std::ptr::read(&v as *const T as *const Q) }
+            unsafe { std::ptr::read(std::ptr::addr_of!(v).cast::<Q>()) }
         }
         unsafe {
             match T::REPR {
@@ -487,7 +487,7 @@ pub fn format_error(
     w: &mut impl std::io::Write,
     v: &OperatorApplicationError,
 ) -> std::io::Result<()> {
-    w.write_fmt(format_args!("(\"error\")\"{}\"", v))
+    w.write_fmt(format_args!("(\"error\")\"{v}\""))
 }
 
 pub struct FormattingContext<'a> {
@@ -507,7 +507,7 @@ pub fn format_rational(
 ) -> std::io::Result<()> {
     // PERF: this function is stupid
     if v.is_integer() {
-        w.write_fmt(format_args!("{}", v))?;
+        w.write_fmt(format_args!("{v}"))?;
         return Ok(());
     }
     let negative = v.is_negative();
@@ -523,7 +523,7 @@ pub fn format_rational(
                 BigInt::one()
             });
         }
-        w.write_fmt(format_args!("{}", whole_number))?;
+        w.write_fmt(format_args!("{whole_number}"))?;
         return Ok(());
     }
     w.write_fmt(format_args!("{}.", &whole_number))?;
@@ -626,12 +626,12 @@ impl Array {
         }
         match self {
             Array::Null(v) => {
-                format_array(w, fc, (0..*v).map(|_| &()), |f, _, _| {
+                format_array(w, fc, (0..*v).map(|_| &()), |f, _, ()| {
                     f.write_all(NULL_STR.as_bytes())
                 })
             }
             Array::Undefined(v) => {
-                format_array(w, fc, (0..*v).map(|_| &()), |f, _, _| {
+                format_array(w, fc, (0..*v).map(|_| &()), |f, _, ()| {
                     f.write_all(UNDEFINED_STR.as_bytes())
                 })
             }

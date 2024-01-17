@@ -143,7 +143,7 @@ pub fn build_tf_string_sink<'a>(
     TransformData::StringSink(TfStringSink {
         handle: &ss.handle.data,
         batch_iter: jd.field_mgr.claim_iter(tf_state.input_field),
-        stream_value_handles: Default::default(),
+        stream_value_handles: CountedUniverse::default(),
     })
 }
 fn push_string(out: &mut StringSink, string: String, run_len: usize) {
@@ -211,13 +211,13 @@ fn append_stream_val(
             if sv.is_buffered && !sv.done {
                 return;
             }
-            let buf = if !sv.is_buffered {
-                b.as_slice()
-            } else {
+            let buf = if sv.is_buffered {
                 // this could have been promoted to buffer after
                 // we started treating it as a chunk, so skip any
                 // data we already have
                 &b[out.data[start_idx].len()..]
+            } else {
+                b.as_slice()
             };
             let Ok(text) = std::str::from_utf8(buf) else {
                 if !sv_handle.contains_error {
@@ -244,11 +244,11 @@ fn append_stream_val(
             if sv.is_buffered && !sv.done {
                 return;
             }
-            let text = if !sv.is_buffered {
-                t.as_str()
-            } else {
+            let text = if sv.is_buffered {
                 // same as above for Bytes
                 &t[out.data[start_idx].len()..]
+            } else {
+                t.as_str()
             };
             for i in start_idx..end_idx {
                 out.data[i].push_str(text);
@@ -412,8 +412,8 @@ pub fn handle_tf_string_sink(
                     }
                 }
             }
-            TypedSlice::FieldReference(_) => unreachable!(),
-            TypedSlice::SlicedFieldReference(_) => unreachable!(),
+            TypedSlice::FieldReference(_)
+            | TypedSlice::SlicedFieldReference(_) => unreachable!(),
             TypedSlice::Null(_) => {
                 push_str(&mut out, NULL_STR, range.base.field_count);
             }

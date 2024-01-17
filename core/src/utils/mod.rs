@@ -28,7 +28,7 @@ pub const fn ilog2_usize(v: usize) -> usize {
 pub unsafe fn as_u8_slice<T: Sized>(p: &T) -> &[u8] {
     unsafe {
         std::slice::from_raw_parts(
-            (p as *const T) as *const u8,
+            (p as *const T).cast(),
             std::mem::size_of::<T>(),
         )
     }
@@ -38,7 +38,6 @@ pub const MAX_UTF8_CHAR_LEN: usize = 4;
 
 // unnecessary overengineering to reduce sadness induced by having to look
 // at idiv
-#[inline(always)]
 pub fn divide_by_char_len(len: usize, char_len: usize) -> usize {
     match char_len {
         1 => len,

@@ -59,7 +59,7 @@ impl Drop for OwnedStrPtr {
     fn drop(&mut self) {
         unsafe {
             std::alloc::dealloc(
-                self.0.data as *mut u8,
+                self.0.data.cast_mut(),
                 Layout::from_size_align_unchecked(
                     self.0.len,
                     std::mem::align_of::<u8>(),
@@ -85,8 +85,8 @@ impl Hash for StrPtr {
 impl Default for StringStore {
     fn default() -> Self {
         Self {
-            table_str_to_idx: Default::default(),
-            table_idx_to_str: Default::default(),
+            table_str_to_idx: HashMap::default(),
+            table_idx_to_str: Vec::new(),
             arena: vec![Vec::with_capacity(1024)],
             existing_strings: vec![Vec::with_capacity(8)],
         }
@@ -106,11 +106,11 @@ impl Clone for StringStore {
             ),
         };
 
-        for ex_str_buf in self.existing_strings.iter() {
+        for ex_str_buf in &self.existing_strings {
             res.existing_strings
                 .push(Vec::with_capacity(ex_str_buf.capacity()));
         }
-        for arena_buf in self.arena.iter() {
+        for arena_buf in &self.arena {
             res.arena.push(Vec::with_capacity(arena_buf.capacity()));
         }
 
@@ -122,8 +122,9 @@ impl Clone for StringStore {
         for i in 0..self.table_idx_to_str.len() {
             let idx = StringStoreEntry::try_from(i as u32 + 1).unwrap();
             let str = self.table_idx_to_str[i];
-            let arena_str_start_ptr =
-                &self.arena[arena_outer_idx][arena_inner_idx] as *const u8;
+            let arena_str_start_ptr = std::ptr::addr_of!(
+                self.arena[arena_outer_idx][arena_inner_idx]
+            );
             if arena_str_start_ptr == str.data {
                 res.arena[arena_outer_idx].extend(str.as_str().as_bytes());
                 let str_clone = &res.arena[arena_outer_idx].as_slice()

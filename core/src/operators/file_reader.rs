@@ -8,6 +8,7 @@ use std::{
 
 use regex::Regex;
 use smallstr::SmallString;
+use smallvec::SmallVec;
 
 use crate::{
     chain::{BufferingMode, Chain},
@@ -166,15 +167,12 @@ fn read_line_buffered<F: BufRead>(
                 Err(ref e) if e.kind() == ErrorKind::Interrupted => continue,
                 Err(e) => return Err(e),
             };
-            match memchr::memchr(b'\n', available) {
-                Some(i) => {
-                    target.write_all(&available[..=i])?;
-                    (true, i + 1)
-                }
-                None => {
-                    target.write_all(available)?;
-                    (false, available.len())
-                }
+            if let Some(i) = memchr::memchr(b'\n', available) {
+                target.write_all(&available[..=i])?;
+                (true, i + 1)
+            } else {
+                target.write_all(available)?;
+                (false, available.len())
             }
         };
         r.consume(used);
@@ -222,13 +220,13 @@ fn start_streaming_file(
     tf_id: TransformId,
     fr: &mut TfFileReader,
 ) {
-    let of_id = jd.tf_mgr.prepare_output_field(
+    let out_fid = jd.tf_mgr.prepare_output_field(
         &mut jd.field_mgr,
         &mut jd.match_set_mgr,
         tf_id,
     );
 
-    let mut output_field = jd.field_mgr.fields[of_id].borrow_mut();
+    let mut output_field = jd.field_mgr.fields[out_fid].borrow_mut();
     // we want to write the chunk straight into field data to avoid a copy
     // SAFETY: this relies on the memory layout in field_data.
     // since that is a submodule of us, this is fine.
@@ -269,7 +267,7 @@ fn start_streaming_file(
             fdi.data.truncate(size_before);
             let err = io_error_to_op_error(
                 jd.tf_mgr.transforms[tf_id].op_id.unwrap(),
-                e,
+                &e,
             );
             output_field.iter_hall.push_error(err, 1, false, false);
             fr.file.take();
@@ -297,7 +295,7 @@ fn start_streaming_file(
             Err(e) => {
                 let err = io_error_to_op_error(
                     jd.tf_mgr.transforms[tf_id].op_id.unwrap(),
-                    e,
+                    &e,
                 );
                 output_field.iter_hall.push_error(err, 1, false, false);
                 fr.file.take();
@@ -310,7 +308,7 @@ fn start_streaming_file(
         done,
         ref_count: 1,
         is_buffered: false,
-        subscribers: Default::default(),
+        subscribers: SmallVec::new(),
     });
     fr.stream_value = Some(sv_id);
     output_field
@@ -339,14 +337,14 @@ pub fn handle_tf_file_reader_stream(
         fr.stream_value_committed = true;
         let tf = &jd.tf_mgr.transforms[tf_id];
         // if input is not done, subsequent records might need the stream
-        if !tf.predecessor_done {
-            need_buffering = true;
-        } else {
+        if tf.predecessor_done {
             let input_field = jd.field_mgr.fields[tf.input_field].borrow();
             // some fork variant / etc. might still need this value later
             if input_field.get_clear_delay_request_count() != 0 {
                 need_buffering = true;
             }
+        } else {
+            need_buffering = true;
         }
     }
     let sv = &mut jd.sv_mgr.stream_values[sv_id];
@@ -369,7 +367,7 @@ pub fn handle_tf_file_reader_stream(
         Err(err) => {
             let err = io_error_to_op_error(
                 jd.tf_mgr.transforms[tf_id].op_id.unwrap(),
-                err,
+                &err,
             );
             sv.value = FieldValue::Error(err);
             true

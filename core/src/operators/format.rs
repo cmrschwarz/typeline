@@ -322,8 +322,7 @@ impl FormatKey {
     fn realize_min_char_count(&self, min_chars_lookup: usize) -> usize {
         self.min_char_count
             .as_ref()
-            .map(|v| v.realize(min_chars_lookup))
-            .unwrap_or(0)
+            .map_or(0, |v| v.realize(min_chars_lookup))
     }
     fn realize_float_precision(
         &self,
@@ -660,7 +659,7 @@ impl TextLayout {
 impl FormatOptions {
     fn fill_char_width(&self) -> usize {
         if let Some(f) = self.fill {
-            return f.fill_char.map(|c| c.len_utf8()).unwrap_or(1);
+            return f.fill_char.map_or(1, char::len_utf8);
         }
         1
     }
@@ -676,7 +675,7 @@ pub fn setup_op_format(
     string_store: &mut StringStore,
     op: &mut OpFormat,
 ) -> Result<(), OperatorSetupError> {
-    for r in std::mem::take(&mut op.refs_str).into_iter() {
+    for r in std::mem::take(&mut op.refs_str) {
         op.refs_idx.push(r.map(|r| string_store.intern_moved(r)));
     }
     Ok(())
@@ -730,9 +729,9 @@ pub fn build_tf_format<'a>(
     let tf = TfFormat {
         op,
         refs,
-        output_states: Default::default(),
-        output_targets: Default::default(),
-        stream_value_handles: Default::default(),
+        output_states: Vec::new(),
+        output_targets: Vec::new(),
+        stream_value_handles: CountedUniverse::default(),
         print_rationals_raw: jd
             .get_transform_chain_from_tf_state(tf_state)
             .settings
@@ -755,8 +754,7 @@ pub fn update_op_format_variable_liveness(
     access_flags.input_accessed = false;
     for p in &fmt.parts {
         match p {
-            FormatPart::ByteLiteral(_) => (),
-            FormatPart::TextLiteral(_) => (),
+            FormatPart::ByteLiteral(_) | FormatPart::TextLiteral(_) => (),
             FormatPart::Key(fk) => {
                 let non_stringified = fk.min_char_count.is_some()
                     || fk.opts.add_plus_sign
@@ -1024,7 +1022,7 @@ pub fn parse_format_flags(
         ('X', _) => (1, NumberFormat::UpperHex),
         ('0', 'X') => (2, NumberFormat::UpperHexZeroX),
         ('e', _) => (1, NumberFormat::LowerExp),
-        ('E', _) => (1, NumberFormat::LowerExp),
+        ('E', _) => (1, NumberFormat::UpperExp),
         _ => {
             return Err((
                 i,
@@ -1103,12 +1101,12 @@ pub fn parse_format_string(
                         "unmatched '}', consider using '}}'".into(),
                     ));
                 }
-                pending_literal.extend_from_slice(&fmt[i..nbb + 1]);
+                pending_literal.extend_from_slice(&fmt[i..=nbb]);
                 i = nbb + 2;
                 continue;
             }
             if fmt[nbb + 1] == b'{' {
-                pending_literal.extend_from_slice(&fmt[i..nbb + 1]);
+                pending_literal.extend_from_slice(&fmt[i..=nbb]);
                 i = nbb + 2;
                 continue;
             }
@@ -1116,7 +1114,7 @@ pub fn parse_format_string(
             i = nbb;
             if !pending_literal.is_empty() {
                 parts.push(create_format_literal(pending_literal));
-                pending_literal = Default::default();
+                pending_literal = Vec::new();
             }
             let (key, end) = parse_format_key(fmt, i, refs)?;
             parts.push(FormatPart::Key(key));
@@ -1145,7 +1143,7 @@ pub fn parse_op_format(
     let parts =
         parse_format_string(val, &mut refs_str).map_err(|(i, msg)| {
             OperatorCreationError {
-                message: format!("format string index {}: {}", i, msg).into(),
+                message: format!("format string index {i}: {msg}").into(),
                 cli_arg_idx: arg_idx,
             }
         })?;
@@ -1334,7 +1332,7 @@ pub fn lookup_width_spec(
         match range.base.data {
             TypedSlice::Int(ints) => {
                 for (v, rl) in TypedSliceIter::from_range(&range, ints) {
-                    let width = if *v < 0 { 0 } else { *v as usize };
+                    let width = usize::try_from(*v).unwrap_or(0);
                     succ_func(fmt, &mut output_index, width, rl as usize);
                 }
             }
@@ -1880,7 +1878,7 @@ fn setup_output_targets(
     let starting_len =
         unsafe { output_field.iter_hall.internals().data.len() };
     let mut tgt_len = starting_len;
-    for os in fmt.output_states.iter() {
+    for os in &fmt.output_states {
         if let Some(ex) = os.contained_exception {
             // the GS is a ZST, so nothing to do there
             if ex.kind != FieldValueRepr::GroupSeparator {
@@ -1942,10 +1940,7 @@ fn insert_output_target(
                 .push_group_separator(os.run_len, true);
             return None;
         }
-        let k = if let FormatPart::Key(k) = &fmt.op.parts[ex.part_idx as usize]
-        {
-            k
-        } else {
+        let FormatPart::Key(k) = &fmt.op.parts[ex.part_idx as usize] else {
             unreachable!()
         };
         let mut id_str =
@@ -2741,7 +2736,7 @@ mod test {
 
     #[test]
     fn empty_format_string() {
-        let mut dummy = Default::default();
+        let mut dummy = Vec::new();
         assert_eq!(parse_format_string(&[], &mut dummy).unwrap(), &[]);
     }
 
@@ -2758,7 +2753,7 @@ mod test {
             ("foo{{bar", "foo{bar"),
             ("{{foo{{{{bar}}baz}}}}", "{foo{{bar}baz}}"),
         ] {
-            let mut dummy = Default::default();
+            let mut dummy = Vec::new();
             assert_eq!(
                 parse_format_string(lit.as_bytes(), &mut dummy).unwrap(),
                 &[FormatPart::TextLiteral(res.to_owned())]
@@ -2768,7 +2763,7 @@ mod test {
 
     #[test]
     fn two_keys() {
-        let mut idents = Default::default();
+        let mut idents = Vec::new();
         let a = FormatKey {
             ref_idx: 0,
             ..Default::default()
@@ -2792,7 +2787,7 @@ mod test {
 
     #[test]
     fn fill_char() {
-        let mut idents = Default::default();
+        let mut idents = Vec::new();
         let a = FormatKey {
             min_char_count: Some(FormatWidthSpec::Ref(1)),
             opts: FormatOptions {
@@ -2813,7 +2808,7 @@ mod test {
 
     #[test]
     fn fill_options() {
-        let mut idents = Default::default();
+        let mut idents = Vec::new();
         let a = FormatKey {
             ref_idx: 0,
             min_char_count: Some(FormatWidthSpec::Value(5)),
@@ -2835,7 +2830,7 @@ mod test {
 
     #[test]
     fn float_precision() {
-        let mut idents = Default::default();
+        let mut idents = Vec::new();
         let a = FormatKey {
             ref_idx: 0,
             min_char_count: Some(FormatWidthSpec::Value(3)),
@@ -2851,7 +2846,7 @@ mod test {
 
     #[test]
     fn width_not_an_ident() {
-        let mut idents = Default::default();
+        let mut idents = Vec::new();
         assert_eq!(
             parse_format_string("{a:1x$}".as_bytes(), &mut idents),
             Err((
@@ -2865,7 +2860,7 @@ mod test {
 
     #[test]
     fn fill_char_is_optional_not_an_ident() {
-        let mut idents = Default::default();
+        let mut idents = Vec::new();
         let a = FormatKey {
             min_char_count: Some(FormatWidthSpec::Value(2)),
             opts: FormatOptions {

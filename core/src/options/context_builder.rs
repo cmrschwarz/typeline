@@ -35,10 +35,10 @@ pub struct ContextBuilder {
 impl Default for ContextBuilder {
     fn default() -> Self {
         Self {
-            opts: Default::default(),
-            input_data: Default::default(),
-            pending_aggregate: Default::default(),
-            last_non_append_op_id: Default::default(),
+            opts: SessionOptions::default(),
+            input_data: RecordSet::default(),
+            pending_aggregate: Vec::new(),
+            last_non_append_op_id: None,
             curr_op_appendable: true,
         }
     }
@@ -209,7 +209,7 @@ impl ContextBuilder {
         op_data: impl IntoIterator<Item = OperatorData>,
     ) -> Self {
         let mut this = self;
-        for op in op_data.into_iter() {
+        for op in op_data {
             this = this.add_op(op);
         }
         this

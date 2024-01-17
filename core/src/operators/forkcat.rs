@@ -1,4 +1,4 @@
-use std::{cell::Cell, collections::HashMap, ops::DerefMut};
+use std::{cell::Cell, collections::HashMap};
 
 use bitvec::vec::BitVec;
 
@@ -181,7 +181,7 @@ pub fn setup_op_forkcat_liveness_data(
     for (name, idx) in accessed_names_of_subchains_or_succs.iter_name_opt() {
         op.accessed_names_of_subchains_or_succs[idx.0] = name;
     }
-    for &callee_id in bb.calls.iter() {
+    for &callee_id in &bb.calls {
         let mut accessed_names = Vec::default();
         let call_liveness = ld.get_global_var_data(callee_id);
         let reads_range =
@@ -264,7 +264,7 @@ pub fn insert_tf_forkcat<'a>(
         op,
         input_size: 0,
         buffered_record_count: 0,
-        prebound_outputs: Default::default(),
+        prebound_outputs: HashMap::default(),
         input_fields: Vec::with_capacity(
             op.accessed_names_of_subchains_or_succs.len(),
         ),
@@ -402,7 +402,7 @@ fn setup_continuation(
         cont_op_id,
         cont_input_field,
         Some(begin),
-        &Default::default(),
+        &HashMap::default(),
     );
     (begin, end, next_input_field, cont)
 }
@@ -453,7 +453,7 @@ fn expand_for_subchain(sess: &mut Job, tf_id: TransformId, sc_n: u32) {
                     &mut sess.job_data.match_set_mgr,
                     tgt_ms_id,
                     forkcat.op.accessed_names_of_successors[idx],
-                    Default::default(),
+                    ActorRef::default(),
                 );
                 prebound_outputs.insert(output_idx, id);
                 id
@@ -537,7 +537,7 @@ pub(crate) fn handle_forkcat_subchain_expansion(
         f.iter_hall.reset_iterators();
         assert!(f.get_clear_delay_request_count() == 0);
         let msm = &mut sess.job_data.match_set_mgr.match_sets[f.match_set];
-        let fr = f.deref_mut();
+        let fr = &mut *f;
         msm.action_buffer.drop_field_commands(
             of,
             &mut fr.first_actor,

@@ -125,7 +125,7 @@ pub(crate) fn handle_eager_call_expansion(
         chain.operators[0],
         input_field,
         predecessor_tf,
-        &Default::default(),
+        &HashMap::default(),
     )
 }
 
@@ -146,7 +146,7 @@ pub(crate) fn handle_lazy_call_expansion(sess: &mut Job, tf_id: TransformId) {
                 [0],
             input_field,
             Some(tf_id),
-            &Default::default(),
+            &HashMap::default(),
         );
     sess.job_data.tf_mgr.transforms[end_tf].successor = old_successor;
     let (batch_size, _input_done) = sess.job_data.tf_mgr.claim_all(tf_id);

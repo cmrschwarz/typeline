@@ -171,7 +171,7 @@ fn contextualize_op_id(
             msg
         )
     } else {
-        format!("in global op id {}: {}", op_id, msg)
+        format!("in global op id {op_id}: {msg}")
     }
 }
 
@@ -234,9 +234,9 @@ impl ScrError {
                 ctx_opts,
                 sess,
             ),
-            ScrError::PrintInfoAndExitError(e) => format!("{}", e),
-            ScrError::MissingArgumentsError(e) => format!("{}", e),
-            ScrError::CollectTypeMissmatch(e) => format!("{}", e),
+            ScrError::PrintInfoAndExitError(e) => e.to_string(),
+            ScrError::MissingArgumentsError(e) => e.to_string(),
+            ScrError::CollectTypeMissmatch(e) => e.to_string(),
         }
     }
 }

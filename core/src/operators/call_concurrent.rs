@@ -102,7 +102,7 @@ pub fn parse_op_call_concurrent(
     Ok(OperatorData::CallConcurrent(OpCallConcurrent {
         target_name: value_str.to_owned(),
         target_resolved: None,
-        target_accessed_fields: Default::default(),
+        target_accessed_fields: Vec::new(),
     }))
 }
 
@@ -164,7 +164,7 @@ pub fn create_op_callcc(name: String) -> OperatorData {
     OperatorData::CallConcurrent(OpCallConcurrent {
         target_name: name,
         target_resolved: None,
-        target_accessed_fields: Default::default(),
+        target_accessed_fields: Vec::new(),
     })
 }
 
@@ -185,7 +185,7 @@ pub fn build_tf_call_concurrent<'a>(
     TransformData::CallConcurrent(TfCallConcurrent {
         expanded: false,
         target_chain: op.target_resolved.unwrap(),
-        field_mappings: Default::default(),
+        field_mappings: Vec::new(),
         buffer,
         actor_id: jd.match_set_mgr.match_sets[tf_state.match_set_id]
             .action_buffer
@@ -310,8 +310,7 @@ pub(crate) fn handle_call_concurrent_expansion(
     let threads_needed = sess
         .venture_queue
         .front()
-        .map(|v| v.description.participans_needed)
-        .unwrap_or(0)
+        .map_or(0, |v| v.description.participans_needed)
         + 2;
 
     if threads_needed > sess.session_data.settings.max_threads {
@@ -344,7 +343,7 @@ pub fn handle_tf_call_concurrent(
     {
         buf_data = tfc.buffer.updates.wait(buf_data).unwrap();
     }
-    for mapping in tfc.field_mappings.iter() {
+    for mapping in &tfc.field_mappings {
         let cfdr = jd
             .field_mgr
             .get_cow_field_ref(&mut jd.match_set_mgr, mapping.source_field_id);
@@ -419,7 +418,7 @@ pub fn setup_callee_concurrent(
     );
     sess.job_data.field_mgr.inc_field_refcount(VOID_FIELD_ID, 2);
     let mut callee = TfCalleeConcurrent {
-        target_fields: Default::default(),
+        target_fields: Vec::new(),
         buffer,
     };
     let mut buf_data = callee.buffer.fields.lock().unwrap();
@@ -459,7 +458,7 @@ pub fn setup_callee_concurrent(
             start_op_id,
             input_field.unwrap(),
             Some(tf_id),
-            &Default::default(),
+            &HashMap::default(),
         );
     (tf_id, tf_end, next_input_field, cont)
 }

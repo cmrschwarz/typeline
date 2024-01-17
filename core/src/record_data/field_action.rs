@@ -187,8 +187,13 @@ pub fn merge_action_lists<
             consume_left =
                 match (action_left.kind, action_right.map(|a| a.kind)) {
                     (FieldActionKind::Drop, _) => true,
-                    (_, Some(FieldActionKind::Drop)) => false,
-                    (_, Some(FieldActionKind::InsertZst(_))) => false,
+                    (
+                        _,
+                        Some(
+                            FieldActionKind::Drop
+                            | FieldActionKind::InsertZst(_),
+                        ),
+                    ) => false,
                     (_, _) => true,
                 };
         }
@@ -203,7 +208,7 @@ pub fn merge_action_lists<
 
             match action_left.kind {
                 FieldActionKind::InsertZst(_) | FieldActionKind::Dup => {
-                    let space_to_next = left
+                    let space_to_next: usize = left
                         .peek()
                         .map(|a| a.field_idx - action_left.field_idx)
                         .unwrap_or(usize::MAX);

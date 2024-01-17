@@ -316,7 +316,7 @@ pub fn parse_op_regex(
         .unicode(!opts.ascii_mode)
         .build()
         .map_err(|e| OperatorCreationError {
-            message: Cow::Owned(format!("failed to compile regex: {}", e)),
+            message: Cow::Owned(format!("failed to compile regex: {e}")),
             cli_arg_idx: arg_idx,
         })?;
 
@@ -328,7 +328,9 @@ pub fn parse_op_regex(
             .map(|(i, _cn)| i)
             .unwrap();
     }
-    let text_only_regex = if !opts.binary_mode {
+    let text_only_regex = if opts.binary_mode {
+        None
+    } else {
         regex::RegexBuilder::new(&re)
             .multi_line(opts.line_based)
             .dot_matches_new_line(opts.dotall)
@@ -336,14 +338,12 @@ pub fn parse_op_regex(
             .unicode(!opts.ascii_mode)
             .build()
             .ok()
-    } else {
-        None
     };
 
     Ok(OperatorData::Regex(OpRegex {
         regex,
         text_only_regex,
-        capture_group_names: Default::default(),
+        capture_group_names: Vec::new(),
         output_group_id,
         opts,
     }))
@@ -364,7 +364,7 @@ pub fn create_op_regex_with_opts(
 pub fn create_op_regex(
     regex: &str,
 ) -> Result<OperatorData, OperatorCreationError> {
-    create_op_regex_with_opts(regex, Default::default())
+    create_op_regex_with_opts(regex, RegexOptions::default())
 }
 
 // mainly used tests, prefer using
@@ -389,27 +389,24 @@ pub fn setup_op_regex(
     let mut unnamed_capture_groups: usize = 0;
 
     op.capture_group_names
-        .extend(op.regex.capture_names().enumerate().map(
-            |(i, name)| match name {
-                Some(name) => {
-                    if i == op.output_group_id {
-                        None
-                    } else {
-                        Some(string_store.intern_cloned(name))
-                    }
+        .extend(op.regex.capture_names().enumerate().map(|(i, name)| {
+            if let Some(name) = name {
+                if i == op.output_group_id {
+                    None
+                } else {
+                    Some(string_store.intern_cloned(name))
                 }
-                None => {
-                    unnamed_capture_groups += 1;
-                    if i == 0 {
-                        None
-                    } else {
-                        let id = string_store
-                            .intern_moved(unnamed_capture_groups.to_string());
-                        Some(id)
-                    }
+            } else {
+                unnamed_capture_groups += 1;
+                if i == 0 {
+                    None
+                } else {
+                    let id = string_store
+                        .intern_moved(unnamed_capture_groups.to_string());
+                    Some(id)
                 }
-            },
-        ));
+            }
+        }));
     Ok(())
 }
 

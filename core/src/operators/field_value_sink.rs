@@ -81,7 +81,7 @@ pub fn build_tf_field_value_sink<'a>(
     TransformData::FieldValueSink(TfFieldValueSink {
         handle: &ss.handle.data,
         batch_iter: jd.field_mgr.claim_iter(tf_state.input_field),
-        stream_value_handles: Default::default(),
+        stream_value_handles: CountedUniverse::default(),
     })
 }
 
@@ -212,8 +212,8 @@ pub fn handle_tf_field_value_sink(
                     );
                 }
             }
-            TypedSlice::FieldReference(_) => unreachable!(),
-            TypedSlice::SlicedFieldReference(_) => unreachable!(),
+            TypedSlice::FieldReference(_)
+            | TypedSlice::SlicedFieldReference(_) => unreachable!(),
             TypedSlice::Null(_) => {
                 push_field_values(
                     &mut fvs,
@@ -247,10 +247,10 @@ pub fn handle_tf_field_value_sink(
                     range.base.field_count,
                 );
             }
-            TypedSlice::StreamValueId(svs) => {
+            TypedSlice::StreamValueId(sv_ids) => {
                 let mut pos = field_pos;
                 for (svid, range, rl) in
-                    RefAwareStreamValueIter::from_range(&range, svs)
+                    RefAwareStreamValueIter::from_range(&range, sv_ids)
                 {
                     let start_idx = pos;
                     let run_len = rl as usize;

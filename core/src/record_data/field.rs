@@ -2,7 +2,6 @@ use std::{
     cell::{Cell, Ref, RefCell, RefMut},
     collections::hash_map::Entry,
     marker::PhantomData,
-    ops::DerefMut,
 };
 
 use nonmax::NonMaxU16;
@@ -114,6 +113,7 @@ impl<'a> CowFieldDataRef<'a> {
             field_count: self.field_count,
         }
     }
+    #[allow(clippy::iter_not_returning_iterator)]
     pub fn iter(&'a self) -> Iter<'a, &'a CowFieldDataRef<'a>> {
         Iter::from_start(self)
     }
@@ -301,30 +301,28 @@ impl FieldManager {
                     field.iter_hall.data_source
                 )
             }
-            FieldDataSource::Alias(_) | FieldDataSource::Cow(_) => (),
-            FieldDataSource::RecordBufferCow(_) => (),
+            FieldDataSource::Alias(_)
+            | FieldDataSource::Cow(_)
+            | FieldDataSource::RecordBufferCow(_) => (),
             FieldDataSource::DataCow {
                 src_field,
                 header_iter: _,
             } => {
                 if field.get_clear_delay_request_count() > 0 {
                     return false;
-                } else {
-                    field.iter_hall.data_source =
-                        FieldDataSource::Cow(*src_field);
                 }
+                field.iter_hall.data_source = FieldDataSource::Cow(*src_field);
             }
             FieldDataSource::RecordBufferDataCow(data_ref) => {
                 if field.get_clear_delay_request_count() > 0 {
                     return false;
-                } else {
-                    field.iter_hall.data_source =
-                        FieldDataSource::RecordBufferCow(*data_ref);
                 }
+                field.iter_hall.data_source =
+                    FieldDataSource::RecordBufferCow(*data_ref);
             }
         }
         field.iter_hall.reset_iterators();
-        let fr = field.deref_mut();
+        let fr = &mut *field;
         msm.match_sets[fr.match_set]
             .action_buffer
             .drop_field_commands(
@@ -397,7 +395,7 @@ impl FieldManager {
             field.iter_hall.field_data.clear();
         }
         field.iter_hall.reset_iterators();
-        let fr = field.deref_mut();
+        let fr = &mut *field;
         msm.match_sets[fr.match_set]
             .action_buffer
             .drop_field_commands(
@@ -441,13 +439,13 @@ impl FieldManager {
             clear_delay_request_count: Cell::new(0),
             match_set: ms_id,
             first_actor,
-            snapshot: Default::default(),
+            snapshot: SnapshotRef::default(),
             iter_hall: IterHall::new_with_data(data),
-            field_refs: Default::default(),
+            field_refs: SmallVec::new(),
             #[cfg(feature = "debug_logging")]
             producing_transform_id: None,
             #[cfg(feature = "debug_logging")]
-            producing_transform_arg: "".to_string(),
+            producing_transform_arg: String::default(),
         };
         self.bump_field_refcount(field.shadowed_by);
         field.iter_hall.reserve_iter_id(FIELD_REF_LOOKUP_ITER_ID);
@@ -706,19 +704,16 @@ impl FieldManager {
             drop(field);
             for i in 0..field_ref_len {
                 let fr_src = self.fields[field_id].borrow().field_refs[i];
-                let fr = if self.fields[fr_src].borrow().match_set != ms_id {
-                    if let Some(&id) =
-                        msm.match_sets[ms_id].cow_map.get(&fr_src)
-                    {
-                        id
-                    } else {
-                        let id =
-                            self.get_cross_ms_cow_field(msm, ms_id, fr_src);
-                        self.setup_field_refs(msm, id);
-                        id
-                    }
-                } else {
+                let fr = if self.fields[fr_src].borrow().match_set == ms_id {
                     fr_src
+                } else if let Some(&id) =
+                    msm.match_sets[ms_id].cow_map.get(&fr_src)
+                {
+                    id
+                } else {
+                    let id = self.get_cross_ms_cow_field(msm, ms_id, fr_src);
+                    self.setup_field_refs(msm, id);
+                    id
                 };
                 self.fields[field_id].borrow_mut().field_refs[i] = fr;
             }
@@ -868,7 +863,7 @@ impl FieldManager {
         if rc == 0 {
             self.remove_field(field_id, msm);
         } else if cfg!(feature = "debug_logging") {
-            eprint!("dropped ref to field {field_id} (rc {})", rc);
+            eprint!("dropped ref to field {field_id} (rc {rc})");
             eprintln!();
         }
     }
@@ -890,7 +885,7 @@ impl Drop for FieldManager {
 impl Default for FieldManager {
     fn default() -> Self {
         let mut res = Self {
-            fields: Default::default(),
+            fields: Universe::default(),
         };
         let id = res.fields.claim_with_value(RefCell::new(Field {
             ref_count: 1,

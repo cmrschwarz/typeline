@@ -70,7 +70,7 @@ use crate::{
         transform::{TransformData, TransformId, TransformState},
     },
     record_data::{
-        action_buffer::{ActorId, ActorRef},
+        action_buffer::{ActorId, ActorRef, SnapshotRef},
         field::{FieldId, FieldManager, VOID_FIELD_ID},
         field_action::FieldActionKind,
         match_set::{MatchSetId, MatchSetManager},
@@ -139,8 +139,8 @@ impl TransformManager {
         };
         let ps = PipelineState {
             input_done,
-            next_batch_ready,
             successor_done,
+            next_batch_ready,
         };
         (batch_size, ps)
     }
@@ -330,7 +330,7 @@ impl TransformManager {
         } else {
             output_field
                 .iter_hall
-                .dup_last_value(batch_size - done as usize);
+                .dup_last_value(batch_size - usize::from(done));
         }
         if done {
             ps.next_batch_ready = false;
@@ -400,10 +400,10 @@ impl<'a> JobData<'a> {
             tf_mgr: TransformManager::default(),
             field_mgr: FieldManager::default(),
             match_set_mgr: MatchSetManager {
-                match_sets: Default::default(),
+                match_sets: Universe::default(),
             },
-            sv_mgr: Default::default(),
-            temp_vec: Default::default(),
+            sv_mgr: StreamValueManager::default(),
+            temp_vec: Vec::default(),
         }
     }
     pub fn unlink_transform(
@@ -433,6 +433,7 @@ impl<'a> JobData<'a> {
     pub fn print_field_stats(&self, _id: FieldId) {
         #[cfg(feature = "debug_logging")]
         {
+            #[allow(clippy::used_underscore_binding)]
             let id = _id;
             let field = self.field_mgr.fields[id].borrow();
             eprint!("field id {id}");
@@ -447,15 +448,15 @@ impl<'a> JobData<'a> {
                 eprint!(
                     " (output of tf {prod_id} `{}`)",
                     field.producing_transform_arg
-                )
+                );
             } else if !field.producing_transform_arg.is_empty() {
-                eprint!(" (`{}`)", field.producing_transform_arg)
+                eprint!(" (`{}`)", field.producing_transform_arg);
             }
             if field.shadowed_by != VOID_FIELD_ID {
                 eprint!(
                     " (aliased by field id {} since actor id `{}`)",
                     field.shadowed_by, field.shadowed_since
-                )
+                );
             }
             if let (cow_src_field, Some(data_cow)) =
                 field.iter_hall.cow_source_field(&self.field_mgr)
@@ -466,7 +467,7 @@ impl<'a> JobData<'a> {
                     if let Some(src) = cow_src_field {
                         format!(" src: {src}")
                     } else {
-                        "".to_owned()
+                        String::default()
                     }
                 );
             }
@@ -481,6 +482,7 @@ impl<'a> JobData<'a> {
     }
 }
 
+#[derive(Clone, Copy)]
 pub enum TransformContinuationKind {
     Regular,
     SelfExpanded,
@@ -520,7 +522,7 @@ impl<'a> Job<'a> {
         let input_record_count = job.data.adjust_field_lengths();
         let mut input_data = None;
         let mut input_data_fields = std::mem::take(&mut self.temp_vec);
-        for fd in job.data.fields.into_iter() {
+        for fd in job.data.fields {
             let field_id = self.job_data.field_mgr.add_field_with_data(
                 &mut self.job_data.match_set_mgr,
                 ms_id,
@@ -547,14 +549,14 @@ impl<'a> Job<'a> {
                 job.operator,
                 input_data,
                 None,
-                &Default::default(),
+                &HashMap::default(),
             );
         add_terminator_tf_cont_dependant(self, end_tf_id, cont);
         self.job_data.tf_mgr.push_tf_in_ready_stack(start_tf_id);
         let tf = &mut self.job_data.tf_mgr.transforms[start_tf_id];
         tf.predecessor_done = true;
         tf.available_batch_size = input_record_count;
-        for input_field_id in input_data_fields.iter() {
+        for input_field_id in &input_data_fields {
             self.job_data.field_mgr.drop_field_refcount(
                 *input_field_id,
                 &mut self.job_data.match_set_mgr,
@@ -579,8 +581,8 @@ impl<'a> Job<'a> {
     pub fn remove_transform(&mut self, tf_id: TransformId) {
         let tf = &self.job_data.tf_mgr.transforms[tf_id];
         debug_assert!(!tf.is_ready);
-        let tfif = tf.input_field;
-        let tfof = tf.output_field;
+        let tf_in_fid = tf.input_field;
+        let tf_out_fid = tf.output_field;
         #[cfg(feature = "debug_logging")]
         {
             let tf = &self.job_data.tf_mgr.transforms[tf_id];
@@ -603,10 +605,10 @@ impl<'a> Job<'a> {
         }
         self.job_data
             .field_mgr
-            .drop_field_refcount(tfif, &mut self.job_data.match_set_mgr);
+            .drop_field_refcount(tf_in_fid, &mut self.job_data.match_set_mgr);
         self.job_data
             .field_mgr
-            .drop_field_refcount(tfof, &mut self.job_data.match_set_mgr);
+            .drop_field_refcount(tf_out_fid, &mut self.job_data.match_set_mgr);
         self.job_data.tf_mgr.transforms.release(tf_id);
         self.transform_data[usize::from(tf_id)] = TransformData::Disabled;
     }
@@ -666,9 +668,9 @@ impl<'a> Job<'a> {
             OperatorData::CallConcurrent(op) => {
                 build_tf_call_concurrent(jd, op_base, op, tfs)
             }
-            OperatorData::Key(_) => unreachable!(),
-            OperatorData::Next(_) => unreachable!(),
-            OperatorData::End(_) => unreachable!(),
+            OperatorData::Key(_)
+            | OperatorData::Next(_)
+            | OperatorData::End(_) => unreachable!(),
             OperatorData::Custom(op) => {
                 op.build_transform(jd, op_base, tfs, prebound_outputs)
             }
@@ -786,7 +788,7 @@ impl<'a> Job<'a> {
                     continue;
                 }
                 OperatorData::Fork(_) | OperatorData::Nop(_) => {
-                    dummy_output = true
+                    dummy_output = true;
                 }
                 _ => (),
             }
@@ -812,7 +814,7 @@ impl<'a> Job<'a> {
                     debug_assert!(f.name == op_base.label);
                     label_added = true;
                     f.first_actor = first_actor;
-                    f.snapshot = Default::default();
+                    f.snapshot = SnapshotRef::default();
                     f.match_set = ms_id;
                     *field_idx
                 } else {
@@ -921,7 +923,7 @@ impl<'a> Job<'a> {
                     tf,
                     svu.sv_id,
                     svu.custom,
-                )
+                );
             }
             TransformData::FieldValueSink(tf) => {
                 handle_tf_field_value_sink_stream_value_update(
@@ -930,7 +932,7 @@ impl<'a> Job<'a> {
                     tf,
                     svu.sv_id,
                     svu.custom,
-                )
+                );
             }
             TransformData::Format(tf) => handle_tf_format_stream_value_update(
                 &mut self.job_data,
@@ -946,26 +948,26 @@ impl<'a> Job<'a> {
                 svu.sv_id,
                 svu.custom,
             ),
-            TransformData::Fork(_) => (),
-            TransformData::ForeachHeader(_) => unreachable!(),
-            TransformData::ForeachTrailer(_) => unreachable!(),
-            TransformData::ForkCat(_) => (),
-            TransformData::CallConcurrent(_) => (),
-            TransformData::Terminator(_) => unreachable!(),
-            TransformData::Call(_) => unreachable!(),
-            TransformData::Nop(_) => unreachable!(),
-            TransformData::NopCopy(_) => unreachable!(),
-            TransformData::InputDoneEater(_) => unreachable!(),
-            TransformData::Cast(_) => unreachable!(),
-            TransformData::Count(_) => unreachable!(),
-            TransformData::Select(_) => unreachable!(),
-            TransformData::FileReader(_) => unreachable!(),
-            TransformData::Sequence(_) => unreachable!(),
-            TransformData::Disabled => unreachable!(),
-            TransformData::Literal(_) => unreachable!(),
-            TransformData::CalleeConcurrent(_) => unreachable!(),
+            TransformData::CallConcurrent(_) |
+            TransformData::Fork(_) |
+            TransformData::ForkCat(_) |
+            TransformData::ForeachHeader(_) |
+            TransformData::ForeachTrailer(_) |
+            TransformData::Terminator(_) |
+            TransformData::Call(_) |
+            TransformData::Nop(_) |
+            TransformData::NopCopy(_) |
+            TransformData::InputDoneEater(_) |
+            TransformData::Cast(_) |
+            TransformData::Count(_) |
+            TransformData::Select(_) |
+            TransformData::FileReader(_) |
+            TransformData::Sequence(_) |
+            TransformData::Disabled |
+            TransformData::Literal(_) |
+            TransformData::CalleeConcurrent(_) |
             // these go to the individual transforms
-            TransformData::AggregatorHeader(_) => unreachable!(),
+            TransformData::AggregatorHeader(_) |
             TransformData::AggregatorTrailer(_) => unreachable!(),
             TransformData::Custom(tf) => tf.handle_stream_value_update(
                 &mut self.job_data,
@@ -1005,7 +1007,7 @@ impl<'a> Job<'a> {
             }
             TransformData::CallConcurrent(callcc) => {
                 if !callcc.expanded {
-                    handle_call_concurrent_expansion(self, tf_id, ctx)?
+                    handle_call_concurrent_expansion(self, tf_id, ctx)?;
                 }
             }
             TransformData::Call(_) => {
@@ -1013,28 +1015,28 @@ impl<'a> Job<'a> {
                 // so no need for any check
                 handle_lazy_call_expansion(self, tf_id);
             }
-            TransformData::Disabled => (),
-            TransformData::ForeachHeader(_) => (),
-            TransformData::ForeachTrailer(_) => (),
-            TransformData::CalleeConcurrent(_) => (),
-            TransformData::Cast(_) => (),
-            TransformData::Nop(_) => (),
-            TransformData::NopCopy(_) => (),
-            TransformData::InputDoneEater(_) => (),
-            TransformData::Count(_) => (),
-            TransformData::Print(_) => (),
-            TransformData::Join(_) => (),
-            TransformData::Select(_) => (),
-            TransformData::StringSink(_) => (),
-            TransformData::FieldValueSink(_) => (),
-            TransformData::Regex(_) => (),
-            TransformData::Format(_) => (),
-            TransformData::FileReader(_) => (),
-            TransformData::Literal(_) => (),
-            TransformData::Sequence(_) => (),
-            TransformData::Terminator(_) => (),
-            TransformData::AggregatorHeader(_) => (),
-            TransformData::AggregatorTrailer(_) => (),
+            TransformData::Disabled
+            | TransformData::ForeachHeader(_)
+            | TransformData::ForeachTrailer(_)
+            | TransformData::CalleeConcurrent(_)
+            | TransformData::Cast(_)
+            | TransformData::Nop(_)
+            | TransformData::NopCopy(_)
+            | TransformData::InputDoneEater(_)
+            | TransformData::Count(_)
+            | TransformData::Print(_)
+            | TransformData::Join(_)
+            | TransformData::Select(_)
+            | TransformData::StringSink(_)
+            | TransformData::FieldValueSink(_)
+            | TransformData::Regex(_)
+            | TransformData::Format(_)
+            | TransformData::FileReader(_)
+            | TransformData::Literal(_)
+            | TransformData::Sequence(_)
+            | TransformData::Terminator(_)
+            | TransformData::AggregatorHeader(_)
+            | TransformData::AggregatorTrailer(_) => (),
             TransformData::Custom(tf) => {
                 if tf.pre_update_required() {
                     let mut tf = std::mem::replace(
@@ -1055,26 +1057,26 @@ impl<'a> Job<'a> {
         let jd = &mut self.job_data;
         match &mut self.transform_data[usize::from(tf_id)] {
             TransformData::Fork(tf) => {
-                handle_tf_fork(&mut self.job_data, tf_id, tf)
+                handle_tf_fork(&mut self.job_data, tf_id, tf);
             }
             TransformData::ForkCat(fork) => {
-                handle_tf_forkcat(&mut self.job_data, tf_id, fork)
+                handle_tf_forkcat(&mut self.job_data, tf_id, fork);
             }
             TransformData::Nop(tf) => handle_tf_nop(jd, tf_id, tf),
             TransformData::NopCopy(tf) => handle_tf_nop_copy(jd, tf_id, tf),
             TransformData::InputDoneEater(tf) => {
-                handle_tf_input_done_eater(jd, tf_id, tf)
+                handle_tf_input_done_eater(jd, tf_id, tf);
             }
             TransformData::Print(tf) => handle_tf_print(jd, tf_id, tf),
             TransformData::Regex(tf) => handle_tf_regex(jd, tf_id, tf),
             TransformData::StringSink(tf) => {
-                handle_tf_string_sink(jd, tf_id, tf)
+                handle_tf_string_sink(jd, tf_id, tf);
             }
             TransformData::FieldValueSink(tf) => {
-                handle_tf_field_value_sink(jd, tf_id, tf)
+                handle_tf_field_value_sink(jd, tf_id, tf);
             }
             TransformData::FileReader(tf) => {
-                handle_tf_file_reader(jd, tf_id, tf)
+                handle_tf_file_reader(jd, tf_id, tf);
             }
             TransformData::Literal(tf) => handle_tf_literal(jd, tf_id, tf),
             TransformData::Sequence(tf) => handle_tf_sequence(jd, tf_id, tf),
@@ -1099,7 +1101,7 @@ impl<'a> Job<'a> {
                     &mut self.job_data,
                     tf_id,
                     agg_header,
-                )
+                );
             }
             TransformData::AggregatorTrailer(_) => {
                 handle_tf_aggregator_trailer(self, tf_id)

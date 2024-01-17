@@ -2,7 +2,6 @@ use crate::{
     chain::{BufferingMode, Chain, ChainId, ChainSettings},
     document::TextEncoding,
     operators::operator::OperatorId,
-    selenium::{SeleniumDownloadStrategy, SeleniumVariant},
     utils::string_store::StringStoreEntry,
 };
 
@@ -16,8 +15,6 @@ pub struct ChainOptions {
     pub force_text_encoding: Argument<bool>,
     pub floating_point_math: Argument<bool>,
     pub print_rationals_raw: Argument<bool>,
-    pub selenium_variant: Argument<Option<SeleniumVariant>>,
-    pub selenium_download_strategy: Argument<SeleniumDownloadStrategy>,
     pub default_batch_size: Argument<usize>,
     pub stream_buffer_size: Argument<usize>,
     pub stream_size_threshold: Argument<usize>,
@@ -34,8 +31,6 @@ pub const DEFAULT_CHAIN_OPTIONS: ChainOptions = ChainOptions {
     force_text_encoding: Argument::new_v(false),
     floating_point_math: Argument::new_v(false),
     print_rationals_raw: Argument::new_v(false),
-    selenium_variant: Argument::new_v(None),
-    selenium_download_strategy: Argument::new_v(SeleniumDownloadStrategy::Scr),
     default_batch_size: Argument::new_v(1024),
     stream_buffer_size: Argument::new_v(1024),
     stream_size_threshold: Argument::new_v(1024),
@@ -84,16 +79,6 @@ impl ChainOptions {
                     .or_else(|| parent.map(|p| p.settings.print_rationals_raw))
                     .unwrap_or(
                         DEFAULT_CHAIN_OPTIONS.print_rationals_raw.unwrap(),
-                    ),
-                selenium_download_strategy: self
-                    .selenium_download_strategy
-                    .or_else(|| {
-                        parent.map(|p| p.settings.selenium_download_strategy)
-                    })
-                    .unwrap_or(
-                        DEFAULT_CHAIN_OPTIONS
-                            .selenium_download_strategy
-                            .unwrap(),
                     ),
                 default_batch_size: self
                     .default_batch_size

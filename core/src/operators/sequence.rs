@@ -172,7 +172,7 @@ pub fn handle_tf_sequence(
     let mut output_field = jd.field_mgr.fields[of_id].borrow_mut();
 
     let seq_size_rem = (seq.ss.end - seq.ss.start) / seq.ss.step;
-    let count = batch_size.min(seq_size_rem as usize);
+    let count = batch_size.min(usize::try_from(seq_size_rem).unwrap_or(0));
     if seq.non_string_reads {
         let mut inserter =
             output_field.iter_hall.fixed_size_type_inserter::<i64>();
@@ -232,7 +232,7 @@ pub fn parse_op_seq(
         && arg.value.is_none()
     {
         return create_op_sequence_with_opts(
-            natural_number_mode as i64,
+            i64::from(natural_number_mode),
             i64::MAX,
             1,
             mode,
@@ -248,13 +248,7 @@ pub fn parse_op_seq(
         ));
     }
     let start = match parts.len() {
-        1 => {
-            if natural_number_mode {
-                1
-            } else {
-                0
-            }
-        }
+        1 => i64::from(natural_number_mode),
         2 | 3 => parse_int_with_units(parts[0]).map_err(|msg| {
             OperatorCreationError::new_s(
                 format!("failed to parse sequence start as an integer: {msg}"),
@@ -331,7 +325,7 @@ fn create_op_sequence_with_opts(
         }
     }
     Ok(OperatorData::Sequence(OpSequence {
-        ss: SequenceSpec { start, step, end },
+        ss: SequenceSpec { start, end, step },
         mode,
         non_string_reads: true,
     }))

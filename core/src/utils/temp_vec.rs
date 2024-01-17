@@ -18,7 +18,7 @@ impl<T> From<Vec<T>> for TempVec {
         v.clear();
         unsafe {
             TempVec {
-                ptr: NonNull::new_unchecked(v.as_mut_ptr() as *mut u8),
+                ptr: NonNull::new_unchecked(v.as_mut_ptr().cast()),
                 layout: Layout::array::<T>(v.capacity()).unwrap_unchecked(),
             }
         }
@@ -33,7 +33,7 @@ impl<T> From<TempVec> for Vec<T> {
             return Vec::default();
         }
         let v = ManuallyDrop::new(v);
-        unsafe { Vec::from_raw_parts(v.ptr.as_ptr() as *mut T, 0, capacity) }
+        unsafe { Vec::from_raw_parts(v.ptr.as_ptr().cast(), 0, capacity) }
     }
 }
 
@@ -83,14 +83,14 @@ impl<T, U> LayoutCompatible<T, U> {
 
 pub fn transmute_vec<T, U>(mut v: Vec<T>) -> Vec<U> {
     #[allow(clippy::let_unit_value)]
-    let _ = LayoutCompatible::<T, U>::ASSERT_COMPATIBLE;
+    let () = LayoutCompatible::<T, U>::ASSERT_COMPATIBLE;
 
     v.clear();
 
     let mut v = std::mem::ManuallyDrop::new(v);
 
     let (ptr, len, cap) = (v.as_mut_ptr(), v.len(), v.capacity());
-    unsafe { Vec::from_raw_parts(ptr as *mut U, len, cap) }
+    unsafe { Vec::from_raw_parts(ptr.cast(), len, cap) }
 }
 
 pub fn temp_vec<T, U, R>(

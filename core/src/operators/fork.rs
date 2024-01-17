@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use smallvec::SmallVec;
 
@@ -61,7 +61,7 @@ pub fn parse_op_fork(
     Ok(OperatorData::Fork(OpFork {
         subchains_start: 0,
         subchains_end: 0,
-        accessed_fields_per_subchain: Default::default(),
+        accessed_fields_per_subchain: Vec::new(),
     }))
 }
 
@@ -90,7 +90,7 @@ pub fn setup_op_fork_liveness_data(
     let bb_id = ld.operator_liveness_data[op_id as usize].basic_block_id;
     debug_assert!(ld.basic_blocks[bb_id].calls.is_empty());
     let bb = &ld.basic_blocks[bb_id];
-    for callee_bb_id in bb.successors.iter() {
+    for callee_bb_id in &bb.successors {
         op.accessed_fields_per_subchain.push(
             FieldAccessMappings::from_var_data(
                 &mut (),
@@ -109,7 +109,7 @@ pub fn build_tf_fork<'a>(
 ) -> TransformData<'a> {
     TransformData::Fork(TfFork {
         expanded: false,
-        targets: Default::default(),
+        targets: Vec::new(),
         accessed_fields_per_subchain: &op.accessed_fields_per_subchain,
     })
 }
@@ -211,7 +211,7 @@ pub(crate) fn handle_fork_expansion(
                 start_op_id,
                 input_field,
                 None,
-                &Default::default(),
+                &HashMap::default(),
             );
         add_terminator_tf_cont_dependant(sess, end_tf, cont);
         targets.push(start_tf);
@@ -231,6 +231,6 @@ pub fn create_op_fork() -> OperatorData {
     OperatorData::Fork(OpFork {
         subchains_start: 0,
         subchains_end: 0,
-        accessed_fields_per_subchain: Default::default(),
+        accessed_fields_per_subchain: Vec::new(),
     })
 }

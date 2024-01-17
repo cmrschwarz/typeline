@@ -245,17 +245,14 @@ impl<'a> Default for TypedSlice<'a> {
 
 pub unsafe fn slice_as_bytes<T>(v: &[T]) -> &[u8] {
     unsafe {
-        std::slice::from_raw_parts(
-            v.as_ptr() as *const u8,
-            std::mem::size_of_val(v),
-        )
+        std::slice::from_raw_parts(v.as_ptr().cast(), std::mem::size_of_val(v))
     }
 }
 
 unsafe fn drop_slice<T>(slice_start_ptr: *mut u8, len: usize) {
     unsafe {
         let droppable = std::slice::from_raw_parts_mut(
-            slice_start_ptr as *mut ManuallyDrop<T>,
+            slice_start_ptr.cast::<ManuallyDrop<T>>(),
             len,
         );
         for e in droppable.iter_mut() {
@@ -341,9 +338,9 @@ impl<'a> TypedSlice<'a> {
     pub fn as_bytes(&self) -> &'a [u8] {
         unsafe {
             match self {
-                TypedSlice::Undefined(_) => &[],
-                TypedSlice::Null(_) => &[],
-                TypedSlice::GroupSeparator(_) => &[],
+                TypedSlice::Undefined(_)
+                | TypedSlice::Null(_)
+                | TypedSlice::GroupSeparator(_) => &[],
                 TypedSlice::Int(v) => slice_as_bytes(v),
                 TypedSlice::BigInt(v) => slice_as_bytes(v),
                 TypedSlice::Float(v) => slice_as_bytes(v),
@@ -377,8 +374,8 @@ impl<'a> TypedSlice<'a> {
                 FieldValueRepr::SlicedFieldReference
             }
             TypedSlice::Error(_) => FieldValueRepr::Error,
+            TypedSlice::TextInline(_) => FieldValueRepr::TextInline,
             TypedSlice::BytesInline(_) => FieldValueRepr::BytesInline,
-            TypedSlice::TextInline(_) => FieldValueRepr::BytesInline,
             TypedSlice::BytesBuffer(_) => FieldValueRepr::BytesBuffer,
             TypedSlice::TextBuffer(_) => FieldValueRepr::TextBuffer,
             TypedSlice::Object(_) => FieldValueRepr::Object,
@@ -427,21 +424,14 @@ impl<'a> TypedSlice<'a> {
     ) {
         unsafe {
             match kind {
-                FieldValueRepr::Undefined => (),
-                FieldValueRepr::Null => (),
-                FieldValueRepr::GroupSeparator => (),
-                FieldValueRepr::Int => (),
                 FieldValueRepr::BigInt => drop_slice::<BigInt>(ptr, len),
-                FieldValueRepr::Float => (),
                 FieldValueRepr::Rational => {
                     drop_slice::<BigRational>(ptr, len)
                 }
-                FieldValueRepr::TextInline => (),
                 FieldValueRepr::TextBuffer => drop_slice::<String>(ptr, len),
                 FieldValueRepr::TextFile => {
                     drop_slice::<TextBufferFile>(ptr, len)
                 }
-                FieldValueRepr::BytesInline => (),
                 FieldValueRepr::BytesBuffer => drop_slice::<Vec<u8>>(ptr, len),
                 FieldValueRepr::BytesFile => {
                     drop_slice::<BytesBufferFile>(ptr, len)
@@ -454,9 +444,16 @@ impl<'a> TypedSlice<'a> {
                 FieldValueRepr::Error => {
                     drop_slice::<OperatorApplicationError>(ptr, len)
                 }
-                FieldValueRepr::StreamValueId => (),
-                FieldValueRepr::FieldReference => (),
-                FieldValueRepr::SlicedFieldReference => (),
+                FieldValueRepr::Undefined
+                | FieldValueRepr::Null
+                | FieldValueRepr::GroupSeparator
+                | FieldValueRepr::Int
+                | FieldValueRepr::Float
+                | FieldValueRepr::TextInline
+                | FieldValueRepr::BytesInline
+                | FieldValueRepr::StreamValueId
+                | FieldValueRepr::FieldReference
+                | FieldValueRepr::SlicedFieldReference => (),
             }
         }
     }
@@ -519,10 +516,7 @@ impl<'a> ValidTypedRange<'a> {
 
 unsafe fn to_zst_slice<T: Sized>(len: usize) -> &'static [T] {
     unsafe {
-        std::slice::from_raw_parts(
-            NonNull::dangling().as_ptr() as *const T,
-            len,
-        )
+        std::slice::from_raw_parts(NonNull::<T>::dangling().as_ptr(), len)
     }
 }
 
@@ -536,7 +530,7 @@ unsafe fn to_slice<'a, T: Sized, R: FieldDataRef<'a>>(
     }
     unsafe {
         std::slice::from_raw_parts::<T>(
-            fdr.data().as_ptr().add(data_begin) as *const T,
+            fdr.data().as_ptr().add(data_begin).cast(),
             (data_end - data_begin) / std::mem::size_of::<T>(),
         )
     }
@@ -546,5 +540,5 @@ unsafe fn to_ref<'a, T: Sized, R: FieldDataRef<'a>>(
     fdr: R,
     data_begin: usize,
 ) -> &'a T {
-    unsafe { std::mem::transmute::<&'a u8, &'a T>(&fdr.data()[data_begin]) }
+    unsafe { &*fdr.data().as_ptr().add(data_begin).cast() }
 }

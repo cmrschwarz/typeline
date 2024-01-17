@@ -1,4 +1,4 @@
-use std::{fmt::Debug, mem::size_of, ops::DerefMut};
+use std::{cell::Cell, fmt::Debug, mem::size_of};
 
 use crate::utils::{
     dynamic_freelist::DynamicArrayFreelist, launder_slice,
@@ -128,8 +128,8 @@ impl Debug for ActorRef {
 impl ActionGroupIdentifier {
     fn temp_idx(&self) -> Option<usize> {
         match self {
-            ActionGroupIdentifier::Regular { .. } => None,
-            ActionGroupIdentifier::LocalMerge { .. } => None,
+            ActionGroupIdentifier::Regular { .. }
+            | ActionGroupIdentifier::LocalMerge { .. } => None,
             ActionGroupIdentifier::TempBuffer { idx, .. } => Some(*idx),
         }
     }
@@ -236,10 +236,10 @@ impl Iterator for Pow2InsertStepsIter {
 impl Default for Actor {
     fn default() -> Self {
         Self {
-            action_group_queues: vec![Default::default()],
-            merges: Default::default(),
-            subscribers: Default::default(),
-            latest_snapshot: Default::default(),
+            action_group_queues: vec![ActionGroupQueue::default()],
+            merges: Vec::new(),
+            subscribers: Vec::new(),
+            latest_snapshot: SnapshotRef::default(),
         }
     }
 }
@@ -250,13 +250,15 @@ pub fn eprint_action_list<'a>(actions: impl Iterator<Item = &'a FieldAction>) {
         eprintln!(
             "   > {:?} (src_idx: {})",
             a,
-            idx_delta + a.field_idx as isize
+            idx_delta + isize::try_from(a.field_idx).unwrap()
         );
         match a.kind {
             FieldActionKind::Dup | FieldActionKind::InsertZst(_) => {
-                idx_delta -= a.run_len as isize
+                idx_delta -= isize::try_from(a.run_len).unwrap()
             }
-            FieldActionKind::Drop => idx_delta += a.run_len as isize,
+            FieldActionKind::Drop => {
+                idx_delta += isize::try_from(a.run_len).unwrap()
+            }
         }
     }
 }
@@ -287,11 +289,11 @@ impl ActionBuffer {
             );
             eprint_action_list(agq.actions.data.range(actions_start..));
         }
-        let next_action_group_id_succ = if ai != self.actors.max_index() {
+        let next_action_group_id_succ = if ai == self.actors.max_index() {
+            0
+        } else {
             let next_agq = &self.actors[ai].action_group_queues[0];
             next_agq.action_groups.next_free_index() as ActionGroupId
-        } else {
-            0
         };
         agq = &mut self.actors[ai].action_group_queues[0];
         agq.action_groups.data.push_back(ActionGroupWithRefs {
@@ -372,7 +374,7 @@ impl ActionBuffer {
                 ..Default::default()
             })
         }
-        self.actors.data.push_back(Default::default());
+        self.actors.data.push_back(Actor::default());
         actor_id
     }
     pub fn last_valid_actor_id(&self) -> ActorId {
@@ -394,7 +396,6 @@ impl ActionBuffer {
         }
     }
     fn get_free_temp_idx(
-        &self,
         lhs: &ActionGroupIdentifier,
         rhs: &ActionGroupIdentifier,
     ) -> usize {
@@ -437,7 +438,6 @@ impl ActionBuffer {
         }
     }
     fn action_group_not_from_actor_pow2(
-        &self,
         actor_id: ActorId,
         pow2: u8,
         ag: &ActionGroupIdentifier,
@@ -448,8 +448,8 @@ impl ActionBuffer {
                 pow2: ag_pow2,
                 ..
             } => *ag_actor_id != actor_id || *ag_pow2 != pow2,
-            ActionGroupIdentifier::LocalMerge { .. } => true,
-            ActionGroupIdentifier::TempBuffer { .. } => true,
+            ActionGroupIdentifier::LocalMerge { .. }
+            | ActionGroupIdentifier::TempBuffer { .. } => true,
         }
     }
     fn append_action_group(
@@ -462,7 +462,7 @@ impl ActionBuffer {
     ) -> ActionGroupIdentifier {
         let (s1, s2) = self.get_action_group_slices(ag);
         let length = s1.len() + s2.len();
-        assert!(self.action_group_not_from_actor_pow2(actor_id, pow2, &ag));
+        assert!(Self::action_group_not_from_actor_pow2(actor_id, pow2, &ag));
         let start = unsafe {
             // SAFETY: the assert above ensures that s1 and s2 do not point
             // into the VecDeque that we are apppending to
@@ -504,10 +504,12 @@ impl ActionBuffer {
             if let Some(rhs) = rhs {
                 let (l1, l2) = self.get_action_group_slices(lhs);
                 let (r1, r2) = self.get_action_group_slices(rhs);
-                assert!(self
-                    .action_group_not_from_actor_pow2(actor_id, pow2, &lhs));
-                assert!(self
-                    .action_group_not_from_actor_pow2(actor_id, pow2, &rhs));
+                assert!(Self::action_group_not_from_actor_pow2(
+                    actor_id, pow2, &lhs
+                ));
+                assert!(Self::action_group_not_from_actor_pow2(
+                    actor_id, pow2, &rhs
+                ));
                 let len_before = unsafe {
                     // SAFETY: the asserts above ensure that lhs and rhs do
                     // not come from the VecDeque that we are apppending to,
@@ -562,7 +564,7 @@ impl ActionBuffer {
             if let Some(rhs) = rhs {
                 let (l1, l2) = self.get_action_group_slices(lhs);
                 let (r1, r2) = self.get_action_group_slices(rhs);
-                let idx = self.get_free_temp_idx(&lhs, &rhs);
+                let idx = Self::get_free_temp_idx(&lhs, &rhs);
                 let (start, length) = unsafe {
                     // SAFETY: get_free_temp_idx makes sure that
                     // action_temp_buffers[idx] is neither
@@ -837,7 +839,7 @@ impl ActionBuffer {
             }
             let mut self_prev = prev;
             let mut succ_prev = 0;
-            for i_pow2 in pow2 + 1..(n_pow2 + 1) {
+            for i_pow2 in pow2 + 1..=n_pow2 {
                 let children_pow2 = i_pow2 - 1;
                 let ag = &self.actors[ai].action_group_queues[i_pow2 as usize]
                     .action_groups
@@ -909,7 +911,7 @@ impl ActionBuffer {
     }
     pub fn execute(&mut self, fm: &FieldManager, field_id: FieldId) {
         let mut field_ref = fm.fields[field_id].borrow_mut();
-        let field = field_ref.deref_mut();
+        let field = &mut *field_ref;
         let Some(actor_id) =
             self.initialize_first_actor(field_id, &mut field.first_actor)
         else {
@@ -954,8 +956,7 @@ impl ActionBuffer {
                     panic!("cannot execute commands on COW iter hall")
                 }
             };
-        let iterators =
-            field.iter_hall.iters.iter_mut().map(|it| it.get_mut());
+        let iterators = field.iter_hall.iters.iter_mut().map(Cell::get_mut);
         let actions = match actions {
             ActionGroupIdentifier::Regular {
                 actor_id,

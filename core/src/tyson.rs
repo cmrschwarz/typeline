@@ -130,11 +130,11 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
             Ok(c) => Ok(c),
             Err(e) => match e {
                 ReadCharError::Io(e) => Err(TysonParseError::Io(e)),
-                ReadCharError::InvalidUtf8 { len, sequence } => self.err(
-                    TysonParseErrorKind::InvalidUtf8(ArrayVec::from_iter(
-                        sequence[..len as usize].iter().copied(),
-                    )),
-                ),
+                ReadCharError::InvalidUtf8 { len, sequence } => {
+                    self.err(TysonParseErrorKind::InvalidUtf8(
+                        sequence[..len as usize].iter().copied().collect(),
+                    ))
+                }
                 ReadCharError::Eof => {
                     self.err(TysonParseErrorKind::UnexpectedEof)
                 }
@@ -245,9 +245,7 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
                     .map(|l| err_start + l)
                     .unwrap_or(esc_seq.len());
                 ReplacementError::Error(TysonParseErrorKind::InvalidUtf8(
-                    ArrayVec::from_iter(
-                        esc_seq[err_start..err_end].iter().copied(),
-                    ),
+                    esc_seq[err_start..err_end].iter().copied().collect(),
                 ))
             })?;
 
@@ -281,9 +279,7 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
                     .map(|l| err_start + l)
                     .unwrap_or(esc_seq.len());
                 ReplacementError::Error(TysonParseErrorKind::InvalidUtf8(
-                    ArrayVec::from_iter(
-                        esc_seq[err_start..err_end].iter().copied(),
-                    ),
+                    esc_seq[err_start..err_end].iter().copied().collect(),
                 ))
             })?;
             let esc_value =
@@ -312,9 +308,10 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
                             .unwrap_or(line.len());
                         return Err(ReplacementError::Error(
                             TysonParseErrorKind::InvalidUtf8(
-                                ArrayVec::from_iter(
-                                    line[err_start..err_end].iter().copied(),
-                                ),
+                                line[err_start..err_end]
+                                    .iter()
+                                    .copied()
+                                    .collect(),
                             ),
                         ));
                     }
@@ -399,9 +396,7 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
                     line: self.line,
                     col: buf[curr_line_begin..e.valid_up_to()].chars().count(),
                     kind: TysonParseErrorKind::InvalidUtf8(
-                        ArrayVec::from_iter(
-                            buf[e.valid_up_to()..].iter().copied(),
-                        ),
+                        buf[e.valid_up_to()..].iter().copied().collect(),
                     ),
                 });
             }
@@ -665,12 +660,15 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
         match c {
             '{' => self.parse_object_after_brace(),
             '0'..='9' | '+' | '-' | '.' => self.parse_number(c as u8),
+            'i' | 'I' | 'N' => {
+                // inf / NaN
+                self.parse_number(c as u8)
+            }
             '"' => self.parse_string_after_quote(b'"', false),
             '\'' => self.parse_string_after_quote(b'\'', false),
             'b' => self.parse_binary_string_after_b(),
             '(' => self.parse_type_after_parenthesis(),
             '[' => self.parse_array_after_bracket(),
-            'i' | 'I' | 'N' => self.parse_number(c as u8), // inf / NaN
             'n' => {
                 let b = self.peek_byte()?;
                 if b == Some(b'a') {
@@ -894,11 +892,12 @@ mod test {
             ))
         );
     }
-    #[test]
-    fn inf() {
-        assert_eq!(parse(r#"Inf"#), Ok(FieldValue::Float(f64::INFINITY)));
-        assert_eq!(parse(r#"+inf"#), Ok(FieldValue::Float(f64::INFINITY)));
-        assert_eq!(parse(r#"-inf"#), Ok(FieldValue::Float(f64::NEG_INFINITY)));
+    #[rstest]
+    #[case("Inf", f64::INFINITY)]
+    #[case("+inf", f64::INFINITY)]
+    #[case("-inf", f64::NEG_INFINITY)]
+    fn inf(#[case] v: &str, #[case] res: f64) {
+        assert_eq!(parse(v), Ok(FieldValue::Float(res)));
     }
     #[rstest]
     #[case("nan")]

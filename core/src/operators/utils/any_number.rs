@@ -42,7 +42,7 @@ impl AnyNumber {
     pub fn add_int(&mut self, v: i64, rl: RunLength, fpm: bool) {
         let mut v_x_rl = v;
         if rl != 1 {
-            let Some(res) = v.checked_mul(rl as i64) else {
+            let Some(res) = v.checked_mul(i64::from(rl)) else {
                 match self {
                     AnyNumber::Int(i) => {
                         *self =
@@ -53,7 +53,9 @@ impl AnyNumber {
                     }
                     AnyNumber::Float(f) => {
                         if fpm {
-                            *f = (v as f64).mul_add(rl as f64, *f);
+                            #[allow(clippy::cast_precision_loss)]
+                            let v_f = v as f64;
+                            *f = v_f.mul_add(f64::from(rl), *f);
                         } else if !f.is_nan() && !f.is_infinite() {
                             *self = AnyNumber::Rational(
                                 BigRational::from_f64(*f)
@@ -81,7 +83,8 @@ impl AnyNumber {
             AnyNumber::BigInt(v) => v.add_assign(v_x_rl),
             AnyNumber::Float(f) => {
                 if fpm {
-                    f.add_assign(v_x_rl as f64)
+                    #[allow(clippy::cast_precision_loss)]
+                    f.add_assign(v_x_rl as f64);
                 } else if !f.is_nan() && !f.is_infinite() {
                     *self = AnyNumber::Rational(
                         BigRational::from_f64(*f)
@@ -121,6 +124,7 @@ impl AnyNumber {
     pub fn add_float(&mut self, v: f64, rl: RunLength, fpm: bool) {
         if fpm {
             let curr = match self {
+                #[allow(clippy::cast_precision_loss)]
                 AnyNumber::Int(i) => *i as f64,
                 AnyNumber::BigInt(i) => i.to_f64().unwrap(),
                 AnyNumber::Float(f) => *f,
@@ -129,7 +133,7 @@ impl AnyNumber {
             // floating point add is commutative, so this order is fine
             // rle somewhat breaks order, you have to disable
             // that if you care
-            *self = AnyNumber::Float(v.mul_add(rl as f64, curr));
+            *self = AnyNumber::Float(v.mul_add(f64::from(rl), curr));
             return;
         }
         if v.is_infinite() || v.is_nan() {

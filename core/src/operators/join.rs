@@ -1,6 +1,7 @@
 use bstr::ByteSlice;
 use regex::Regex;
 use smallstr::SmallString;
+use smallvec::SmallVec;
 
 use crate::{
     job::{JobData, TransformManager},
@@ -127,7 +128,7 @@ pub fn parse_op_join(
         ));
     }
     Ok(create_op_join(
-        value.map(|v| v.to_owned()),
+        value.map(<[_]>::to_owned),
         insert_count,
         drop_incomplete,
     ))
@@ -177,11 +178,9 @@ pub fn create_op_join(
     join_count: Option<usize>,
     drop_incomplete: bool,
 ) -> OperatorData {
-    let separator_is_valid_utf8 = separator
-        .as_ref()
-        .map(|v| v.to_str().is_ok())
-        .unwrap_or(true);
-    let sep = separator.map(|v| v.into_boxed_slice());
+    let separator_is_valid_utf8 =
+        separator.as_ref().map_or(true, |v| v.to_str().is_ok());
+    let sep = separator.map(Vec::into_boxed_slice);
     OperatorData::Join(OpJoin {
         separator: sep,
         separator_is_valid_utf8,
@@ -226,7 +225,7 @@ unsafe fn get_join_buffer<'a>(
             },
             is_buffered: false,
             done: false,
-            subscribers: Default::default(),
+            subscribers: SmallVec::new(),
             ref_count: 1,
         });
         join.output_stream_val = Some(sv);
@@ -256,7 +255,7 @@ unsafe fn push_bytes_raw(
         get_join_buffer(
             join,
             sv_mgr,
-            (data.len() + join.separator.map(|s| s.len()).unwrap_or(0)) * rl,
+            (data.len() + join.separator.map_or(0, <[_]>::len)) * rl,
             expect_utf8,
         )
     };
@@ -462,7 +461,7 @@ pub fn handle_tf_join(
                         FieldActionKind::Drop,
                         out_field_pos,
                         (field_pos - last_group_end)
-                            .saturating_sub(!should_drop as usize),
+                            .saturating_sub(usize::from(!should_drop)),
                     );
                     if join.group_len == 0 && !should_drop {
                         ab.push_action(
@@ -604,7 +603,8 @@ pub fn handle_tf_join(
         ab.push_action(
             FieldActionKind::Drop,
             records_produced,
-            (field_pos - last_group_end).saturating_sub(!should_drop as usize),
+            (field_pos - last_group_end)
+                .saturating_sub(usize::from(!should_drop)),
         );
         if should_drop {
             drop_group(join);
@@ -673,8 +673,7 @@ fn try_consume_stream_values<'a>(
                 let bytes_are_utf8 = sv.value.kind() == FieldValueKind::Text;
                 join.buffer_is_valid_utf8 &= bytes_are_utf8;
                 let buf = sv.value.as_ref().as_slice().as_bytes();
-                let buf =
-                    offsets.as_ref().map(|o| &buf[o.clone()]).unwrap_or(buf);
+                let buf = offsets.as_ref().map_or(buf, |o| &buf[o.clone()]);
                 // SAFETY: this is a buffer on the heap so it
                 // will not be affected
                 // if the stream values vec is resized in case
@@ -776,7 +775,7 @@ fn push_custom_type(
     let first_record_added = join.first_record_added;
     join.first_record_added = true;
     let sep = join.separator;
-    let sep_len = sep.map(|s| s.len()).unwrap_or(0);
+    let sep_len = sep.map_or(0, <[_]>::len);
     let target_len = (len + sep_len) * rl as usize;
     let valid_utf8 = v.stringifies_as_valid_utf8();
     let buf = unsafe { get_join_buffer(join, sv_mgr, target_len, valid_utf8) };
@@ -789,7 +788,10 @@ fn push_custom_type(
         if let Some(sep) = sep {
             let mut first_target_ptr = start_ptr;
             let mut ptr = start_ptr;
-            if !first_record_added {
+            if first_record_added {
+                std::ptr::copy_nonoverlapping(sep.as_ptr(), ptr, sep_len);
+                ptr = ptr.add(sep_len);
+                first_target_ptr = ptr;
                 v.stringify_expect_len(
                     &mut PointerWriter::new(ptr, len),
                     len,
@@ -798,9 +800,6 @@ fn push_custom_type(
                 .expect(ERR_MSG);
                 ptr = ptr.add(len);
             } else {
-                std::ptr::copy_nonoverlapping(sep.as_ptr(), ptr, sep_len);
-                ptr = ptr.add(sep_len);
-                first_target_ptr = ptr;
                 v.stringify_expect_len(
                     &mut PointerWriter::new(ptr, len),
                     len,

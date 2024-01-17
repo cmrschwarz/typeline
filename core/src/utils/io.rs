@@ -107,7 +107,7 @@ pub fn read_char(stream: &mut impl Read) -> Result<char, ReadCharError> {
         });
     };
     if let Err(e) = std::io::copy(
-        &mut stream.take((codepoint_len - 1) as u64),
+        &mut stream.take(u64::from(codepoint_len - 1)),
         &mut SliceWriter::new(&mut buf[1..]),
     ) {
         return Err(ReadCharError::Io(e));
@@ -226,9 +226,11 @@ impl<'a> ReplacementState<'a> {
         buf[0] = c;
         self.get_n(index + 1, &mut buf[1..utf8_len as usize])?;
         let Some(c) = buf.chars().next() else {
-            return Ok(Err(ArrayVec::from_iter(
-                buf.iter().copied().take(utf8_len as usize),
-            )));
+            return Ok(Err(buf
+                .iter()
+                .copied()
+                .take(utf8_len as usize)
+                .collect()));
         };
         Ok(Ok(c))
     }
@@ -327,9 +329,8 @@ pub fn read_until_unescape2<
             Err(e) => {
                 if e.kind() == ErrorKind::Interrupted {
                     continue;
-                } else {
-                    return Err(ReadUntilUnescapeError::Io(e));
                 }
+                return Err(ReadUntilUnescapeError::Io(e));
             }
         };
         if available.is_empty() {

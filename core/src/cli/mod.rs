@@ -33,7 +33,6 @@ use crate::{
         session_options::SessionOptions,
     },
     scr_error::{ContextualizedScrError, ReplDisabledError, ScrError},
-    selenium::{SeleniumDownloadStrategy, SeleniumVariant},
     utils::int_string_conversions::{
         parse_int_with_units, parse_int_with_units_from_bytes,
     },
@@ -51,6 +50,7 @@ use std::{
 };
 use thiserror::Error;
 
+#[must_use]
 #[derive(Error, Debug, Clone, PartialEq, Eq)]
 #[error("in cli arg {cli_arg_idx}: {message}")]
 pub struct CliArgumentError {
@@ -146,7 +146,7 @@ pub fn reject_operator_argument(
 ) -> Result<(), OperatorCreationError> {
     if value.is_some() {
         return Err(OperatorCreationError::new_s(
-            format!("operator `{}` does not take an argument", argname),
+            format!("operator `{argname}` does not take an argument"),
             cli_arg_idx,
         ));
     }
@@ -217,19 +217,6 @@ fn try_parse_bool(val: &[u8]) -> Option<bool> {
     None
 }
 
-fn try_parse_selenium_variant(
-    _value: Option<&[u8]>,
-    _cli_arg: &CliArgument,
-) -> Result<Option<SeleniumVariant>, CliArgumentError> {
-    todo!()
-}
-fn try_parse_selenium_download_strategy(
-    _value: Option<&[u8]>,
-    _cli_arg: &CliArgument,
-) -> Result<SeleniumDownloadStrategy, CliArgumentError> {
-    todo!()
-}
-
 fn try_parse_bool_arg_or_default(
     val: Option<&[u8]>,
     default: bool,
@@ -263,7 +250,7 @@ fn try_parse_usize_arg(
 
 fn print_version(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     const VERSION: &str = env!("CARGO_PKG_VERSION");
-    write!(f, "scr {}", VERSION)?;
+    write!(f, "scr {VERSION}")?;
     Ok(())
 }
 
@@ -271,12 +258,12 @@ fn try_parse_as_context_opt(
     ctx_opts: &mut SessionOptions,
     arg: &ParsedCliArgumentParts,
 ) -> Result<bool, ScrError> {
+    const MAIN_HELP_PAGE: &str = include_str!("help_sections/main.txt");
     let mut matched = false;
     let arg_idx = Some(arg.cli_arg.idx);
     if ["--version", "-v"].contains(&arg.argname) {
         return Err(PrintInfoAndExitError::Version.into());
     }
-    const MAIN_HELP_PAGE: &str = include_str!("help_sections/main.txt");
     if ["--help", "-h", "help", "h"].contains(&arg.argname) {
         let text = if let Some(v) = arg.value {
             let section = String::from_utf8_lossy(v);
@@ -320,7 +307,7 @@ fn try_parse_as_context_opt(
             )
             .into());
         }
-        matched = true
+        matched = true;
     }
     if arg.argname == "repl" {
         let enabled =
@@ -333,7 +320,7 @@ fn try_parse_as_context_opt(
             .into());
         }
         ctx_opts.repl.set(enabled, arg_idx)?;
-        matched = true
+        matched = true;
     }
     if arg.argname == "exit" {
         if !ctx_opts.allow_repl {
@@ -346,7 +333,7 @@ fn try_parse_as_context_opt(
         let enabled =
             try_parse_bool_arg_or_default(arg.value, true, arg.cli_arg.idx)?;
         ctx_opts.exit_repl.set(enabled, arg_idx)?;
-        matched = true
+        matched = true;
     }
     if matched && arg.label.is_some() {
         return Err(CliArgumentError::new(
@@ -365,11 +352,6 @@ fn try_parse_as_chain_opt(
     let chain = &mut ctx_opts.chains[ctx_opts.curr_chain as usize];
     let arg_idx = Some(arg.cli_arg.idx);
     match arg.argname {
-        "sel" => {
-            let sv = try_parse_selenium_variant(arg.value, &arg.cli_arg)?;
-            chain.selenium_variant.set(sv, arg_idx)?;
-            return Ok(true);
-        }
         "denc" => {
             if let Some(_val) = &arg.value {
                 todo!("parse text encoding");
@@ -412,11 +394,6 @@ fn try_parse_as_chain_opt(
                 arg.cli_arg.idx,
             )?;
             chain.print_rationals_raw.set(prr, arg_idx)?;
-        }
-        "sds" => {
-            let sds =
-                try_parse_selenium_download_strategy(arg.value, &arg.cli_arg)?;
-            chain.selenium_download_strategy.set(sds, arg_idx)?;
         }
         "bs" => {
             if let Some(val) = arg.value {
@@ -643,8 +620,8 @@ pub fn parse_cli_retain_args(
         return Err(MissingArgumentsError.into());
     }
     let mut ctx_opts = SessionOptions {
-        extensions,
         allow_repl,
+        extensions,
         ..Default::default()
     };
     let mut arg_idx = 1; // skip executable name

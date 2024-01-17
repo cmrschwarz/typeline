@@ -126,7 +126,7 @@ impl Write for DummyWritableTarget {
 
 impl DummyWritableTarget {
     pub fn new() -> Self {
-        Default::default()
+        DummyWritableTarget::default()
     }
     pub fn get_target(&self) -> WritableTarget {
         WritableTarget::Custom(Mutex::new(Some(Box::new(self.clone()))))

@@ -44,7 +44,7 @@ pub fn is_char_printable(x: char) -> bool {
         if (0x323b0..0xe0100).contains(&x) {
             return false;
         }
-        if (0xe01f0..0x110000).contains(&x) {
+        if (0xe01f0..0x110_000).contains(&x) {
             return false;
         }
         true
@@ -75,14 +75,14 @@ fn check(
         lowerstart = lowerend;
     }
 
-    let mut x = x as i32;
-    let mut normal = normal.iter().cloned();
+    let mut x = i32::from(x);
+    let mut normal = normal.iter().copied();
     let mut current = true;
     while let Some(v) = normal.next() {
         let len = if v & 0x80 != 0 {
-            ((v & 0x7f) as i32) << 8 | normal.next().unwrap() as i32
+            (i32::from(v & 0x7f)) << 8 | i32::from(normal.next().unwrap())
         } else {
-            v as i32
+            i32::from(v)
         };
         x -= len;
         if x < 0 {

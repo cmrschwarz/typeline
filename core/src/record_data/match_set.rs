@@ -72,10 +72,10 @@ impl MatchSetManager {
     pub fn add_match_set(&mut self) -> MatchSetId {
         #[allow(unused_mut)]
         let mut ms = MatchSet {
-            stream_participants: Default::default(),
-            action_buffer: Default::default(),
-            field_name_map: Default::default(),
-            cow_map: Default::default(),
+            stream_participants: Vec::new(),
+            action_buffer: ActionBuffer::default(),
+            field_name_map: HashMap::default(),
+            cow_map: HashMap::default(),
         };
         #[cfg(feature = "debug_logging")]
         {

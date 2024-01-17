@@ -74,20 +74,21 @@ impl<T> StableVec<T> {
             return;
         }
         unsafe {
+            #[allow(clippy::cast_ptr_alignment)]
             let data = if self.chunk_capacity.get() == 0 {
                 std::alloc::alloc(Self::layout(self.chunk_capacity.get()))
             } else {
                 std::alloc::realloc(
-                    self.data.get().as_ptr() as *mut u8,
+                    self.data.get().as_ptr().cast(),
                     Self::layout(self.chunk_capacity.get()),
                     chunk_count_new,
                 )
-            } as *mut *mut Chunk<T>;
+            }
+            .cast::<*mut Chunk<T>>();
 
             for i in self.chunk_capacity.get()..chunk_count_new {
                 data.add(i)
-                    .write(std::alloc::alloc(Self::chunk_layout())
-                        as *mut Chunk<T>);
+                    .write(std::alloc::alloc(Self::chunk_layout()).cast());
             }
             self.data.set(NonNull::new_unchecked(data));
         }
@@ -107,7 +108,7 @@ impl<T> StableVec<T> {
         self.len.set(self.len.get() + 1);
     }
     pub unsafe fn get_chunk_ptr_unchecked(&self, chunk_idx: usize) -> *mut T {
-        unsafe { (*self.data.get().as_ptr().add(chunk_idx)) as *mut T }
+        unsafe { (*self.data.get().as_ptr().add(chunk_idx)).cast() }
     }
     pub unsafe fn get_element_pointer_unchecked(
         &self,
@@ -148,6 +149,12 @@ impl<T> StableVec<T> {
     pub fn first_mut(&mut self) -> Option<&mut T> {
         self.get_mut(0)
     }
+    pub fn iter(&self) -> StableVecIter<T> {
+        StableVecIter::new(self)
+    }
+    pub fn iter_mut(&mut self) -> StableVecIterMut<T> {
+        StableVecIterMut::new(self)
+    }
 }
 
 impl<T> Drop for StableVec<T> {
@@ -160,8 +167,10 @@ impl<T> Drop for StableVec<T> {
             let remainder = self.len.get() % CHUNK_SIZE;
             unsafe {
                 for i in 0..full_chunks {
-                    std::ptr::drop_in_place(self.get_chunk_ptr_unchecked(i)
-                        as *mut [T; CHUNK_SIZE]);
+                    std::ptr::drop_in_place(
+                        self.get_chunk_ptr_unchecked(i)
+                            .cast::<[T; CHUNK_SIZE]>(),
+                    );
                 }
                 if remainder > 0 {
                     std::ptr::drop_in_place(
@@ -175,7 +184,7 @@ impl<T> Drop for StableVec<T> {
         }
         unsafe {
             std::alloc::dealloc(
-                self.data.get().as_ptr() as *mut _,
+                self.data.get().as_ptr().cast(),
                 Self::layout(self.chunk_capacity.get()),
             );
         }
@@ -291,8 +300,11 @@ impl<T> StableVecIntoIter<T> {
                 curr_chunk_rem,
             ));
             for i in first_full_chunk..first_full_chunk + full_chunks {
-                std::ptr::drop_in_place(self.vec.get_chunk_ptr_unchecked(i)
-                    as *mut [T; CHUNK_SIZE]);
+                std::ptr::drop_in_place(
+                    self.vec
+                        .get_chunk_ptr_unchecked(i)
+                        .cast::<[T; CHUNK_SIZE]>(),
+                );
             }
             if last_chunk_rem > 0 {
                 std::ptr::drop_in_place(std::ptr::slice_from_raw_parts_mut(
@@ -304,7 +316,7 @@ impl<T> StableVecIntoIter<T> {
     }
     pub fn into_empty_vec(self) -> StableVec<T> {
         unsafe { self.drop_remaining_elements() };
-        let vec = unsafe { std::ptr::read(&self.vec as *const StableVec<T>) };
+        let vec = unsafe { std::ptr::read(std::ptr::addr_of!(self.vec)) };
         vec.len.set(0);
         let _ = ManuallyDrop::new(self);
         vec
@@ -343,7 +355,7 @@ impl<T> Drop for StableVecIntoIter<T> {
 
         unsafe {
             std::alloc::dealloc(
-                self.vec.data.get().as_ptr() as *mut _,
+                self.vec.data.get().as_ptr().cast(),
                 StableVec::<T>::layout(self.vec.chunk_capacity.get()),
             );
         }

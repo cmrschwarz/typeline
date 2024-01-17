@@ -171,7 +171,7 @@ impl<AT: AccessKind> AccessMappings<AT> {
         &self,
     ) -> impl Iterator<Item = (Option<StringStoreEntry>, AT)> + '_ {
         std::iter::once((None, self.input_field.clone().unwrap_or_default()))
-            .take(if self.input_field.is_some() { 1 } else { 0 })
+            .take(usize::from(self.input_field.is_some()))
             .chain(
                 self.fields
                     .iter()

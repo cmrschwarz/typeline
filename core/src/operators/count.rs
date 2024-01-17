@@ -38,7 +38,7 @@ pub fn handle_tf_count(
     jd.field_mgr.fields[output_field_id]
         .borrow_mut()
         .iter_hall
-        .push_int(count.count as i64, 1, false, false);
+        .push_int(i64::try_from(count.count).unwrap(), 1, false, false);
 
     jd.tf_mgr.submit_batch(tf_id, 1, true);
 }

@@ -202,6 +202,7 @@ impl Var {
 impl LivenessData {
     fn op_output_count(sess: &SessionData, op_id: OperatorId) -> usize {
         let op_base = &sess.operator_bases[op_id as usize];
+        #[allow(clippy::match_same_arms)]
         match &sess.operator_data[op_id as usize] {
             OperatorData::Call(_) => 1,
             OperatorData::CallConcurrent(_) => 1,
@@ -248,13 +249,14 @@ impl LivenessData {
 
     pub fn setup_operator_outputs(&mut self, sess: &mut SessionData) {
         self.operator_liveness_data.extend(
-            iter::repeat(Default::default()).take(sess.operator_data.len()),
+            iter::repeat(OperatorLivenessData::default())
+                .take(sess.operator_data.len()),
         );
         let mut total_outputs_count = self.vars.len();
         self.op_outputs.extend(
             iter::repeat(OpOutput {
-                bound_vars: Default::default(),
-                field_references: Default::default(),
+                bound_vars: SmallVec::new(),
+                field_references: SmallVec::new(),
                 producing_op: None,
             })
             .take(self.vars.len()),
@@ -272,8 +274,8 @@ impl LivenessData {
             op_base.outputs_end = total_outputs_count as OpOutputIdx;
             self.op_outputs.extend(
                 iter::repeat(OpOutput {
-                    bound_vars: Default::default(),
-                    field_references: Default::default(),
+                    bound_vars: SmallVec::new(),
+                    field_references: SmallVec::new(),
                     producing_op: Some(op_id as OperatorId),
                 })
                 .take(op_output_count),
@@ -311,19 +313,6 @@ impl LivenessData {
             OperatorData::Key(k) => {
                 self.add_var_name(k.key_interned.unwrap());
             }
-            OperatorData::Call(_) => (),
-            OperatorData::CallConcurrent(_) => (),
-            OperatorData::Cast(_) => (),
-            OperatorData::Count(_) => (),
-            OperatorData::Print(_) => (),
-            OperatorData::Join(_) => (),
-            OperatorData::Fork(_) => (),
-            OperatorData::ForkCat(_) => (),
-            OperatorData::Next(_) => (),
-            OperatorData::End(_) => (),
-            OperatorData::Nop(_) => (),
-            OperatorData::Foreach(_) => (),
-            OperatorData::NopCopy(_) => (),
             OperatorData::Select(s) => {
                 self.add_var_name(s.key_interned.unwrap());
             }
@@ -332,11 +321,6 @@ impl LivenessData {
                     self.add_var_name_opt(*r);
                 }
             }
-            OperatorData::StringSink(_) => (),
-            OperatorData::FieldValueSink(_) => (),
-            OperatorData::FileReader(_) => (),
-            OperatorData::Literal(_) => (),
-            OperatorData::Sequence(_) => (),
             OperatorData::Aggregator(agg) => {
                 for &sub_op in &agg.sub_ops {
                     self.setup_op_vars(sess, sub_op);
@@ -345,6 +329,24 @@ impl LivenessData {
             OperatorData::Custom(op) => {
                 op.register_output_var_names(self, sess)
             }
+            OperatorData::Call(_)
+            | OperatorData::CallConcurrent(_)
+            | OperatorData::Cast(_)
+            | OperatorData::Count(_)
+            | OperatorData::Print(_)
+            | OperatorData::Join(_)
+            | OperatorData::Fork(_)
+            | OperatorData::ForkCat(_)
+            | OperatorData::Next(_)
+            | OperatorData::End(_)
+            | OperatorData::Nop(_)
+            | OperatorData::Foreach(_)
+            | OperatorData::NopCopy(_)
+            | OperatorData::StringSink(_)
+            | OperatorData::FieldValueSink(_)
+            | OperatorData::FileReader(_)
+            | OperatorData::Literal(_)
+            | OperatorData::Sequence(_) => (),
         }
     }
     pub fn setup_vars(&mut self, sess: &SessionData) {
@@ -377,13 +379,13 @@ impl LivenessData {
                 chain_id,
                 operators_start: op_n + 1,
                 operators_end: end,
-                calls: Default::default(),
-                successors: Default::default(),
-                caller_successors: Default::default(),
+                calls: SmallVec::new(),
+                successors: SmallVec::new(),
+                caller_successors: SmallVec::new(),
                 updates_required: true,
-                field_references: Default::default(),
-                predecessors: Default::default(),
-                key_aliases: Default::default(),
+                field_references: HashMap::new(),
+                predecessors: SmallVec::new(),
+                key_aliases: HashMap::default(),
             });
             self.updates_required.push(bb_id);
         }
@@ -443,25 +445,25 @@ impl LivenessData {
                 );
                 self.split_bb_at_call(bb_id, op_n);
             }
-            OperatorData::Cast(_) => (),
-            OperatorData::Nop(_) => (),
-            OperatorData::NopCopy(_) => (),
-            OperatorData::Count(_) => (),
-            OperatorData::Print(_) => (),
-            OperatorData::Join(_) => (),
-            OperatorData::Next(_) => unreachable!(),
-            OperatorData::End(_) => unreachable!(),
-            OperatorData::Key(_) => {}
-            OperatorData::Select(_) => {}
-            OperatorData::Regex(_) => {}
-            OperatorData::Format(_) => (),
-            OperatorData::StringSink(_) => (),
-            OperatorData::FieldValueSink(_) => (),
-            OperatorData::FileReader(_) => (),
-            OperatorData::Literal(_) => (),
-            OperatorData::Sequence(_) => (),
-            // TODO: maybe support this
-            OperatorData::Custom(_) => (),
+            OperatorData::Next(_) | OperatorData::End(_) => unreachable!(),
+            OperatorData::Cast(_)
+            | OperatorData::Nop(_)
+            | OperatorData::NopCopy(_)
+            | OperatorData::Count(_)
+            | OperatorData::Print(_)
+            | OperatorData::Join(_)
+            | OperatorData::Key(_)
+            | OperatorData::Select(_)
+            | OperatorData::Regex(_)
+            | OperatorData::Format(_)
+            | OperatorData::StringSink(_)
+            | OperatorData::FieldValueSink(_)
+            | OperatorData::FileReader(_)
+            | OperatorData::Literal(_)
+            | OperatorData::Sequence(_) => (),
+            OperatorData::Custom(_) => {
+                // TODO: maybe support this
+            }
             OperatorData::Aggregator(agg) => {
                 for &sub_op in &agg.sub_ops {
                     self.update_bb_for_op(sess, sub_op, op_n, cn, bb_id);
@@ -478,13 +480,13 @@ impl LivenessData {
                 chain_id: i as ChainId,
                 operators_start: 0,
                 operators_end: c.operators.len() as u32,
-                calls: Default::default(),
-                successors: Default::default(),
-                caller_successors: Default::default(),
+                calls: SmallVec::new(),
+                successors: SmallVec::new(),
+                caller_successors: SmallVec::new(),
                 updates_required: true,
-                field_references: Default::default(),
-                predecessors: Default::default(),
-                key_aliases: Default::default(),
+                field_references: HashMap::new(),
+                predecessors: SmallVec::new(),
+                key_aliases: HashMap::default(),
             });
         }
         self.updates_required.extend(0..sess.chains.len());
@@ -567,7 +569,7 @@ impl LivenessData {
         }
         let oo_idx = op_output_idx as usize;
         let ooc = self.op_outputs.len();
-        let op_ld = &mut self.operator_liveness_data[op_id as usize];
+        let ld = &mut self.operator_liveness_data[op_id as usize];
 
         let header_write = if let Some(oo_producing_op) =
             self.op_outputs[oo_idx].producing_op
@@ -577,12 +579,12 @@ impl LivenessData {
         } else {
             op_offset_after_last_write != 0
         };
-        match op_ld.accessed_outputs.entry(op_output_idx) {
+        match ld.accessed_outputs.entry(op_output_idx) {
             Entry::Occupied(mut e) => {
                 let acc = e.get_mut();
                 if direct_access && !acc.direct_access {
                     acc.direct_access = true;
-                    acc.direct_access_index = op_ld.direct_access_count;
+                    acc.direct_access_index = ld.direct_access_count;
                 }
                 acc.header_write |= header_write;
                 acc.non_stringified |= non_stringified;
@@ -592,12 +594,12 @@ impl LivenessData {
                     header_write,
                     non_stringified,
                     direct_access,
-                    direct_access_index: op_ld.direct_access_count,
+                    direct_access_index: ld.direct_access_count,
                 });
             }
         }
-        op_ld.direct_access_count +=
-            direct_access as DirectOperatorAccessIndex;
+        ld.direct_access_count +=
+            DirectOperatorAccessIndex::from(direct_access);
         self.op_outputs_data
             .set_aliased(READS_OFFSET * ooc + oo_idx, true);
         if non_stringified {
@@ -654,10 +656,9 @@ impl LivenessData {
         match &sess.operator_data[op_idx] {
             OperatorData::Fork(_)
             | OperatorData::ForkCat(_)
-            | OperatorData::Foreach(_) => {
-                return (output_field, OperatorCallEffect::Diverge);
-            }
-            OperatorData::Call(_) | OperatorData::CallConcurrent(_) => {
+            | OperatorData::Foreach(_)
+            | OperatorData::Call(_)
+            | OperatorData::CallConcurrent(_) => {
                 return (output_field, OperatorCallEffect::Diverge);
             }
             OperatorData::Key(key) => {
@@ -726,7 +727,7 @@ impl LivenessData {
                     op_offset_after_last_write,
                 );
             }
-            OperatorData::FileReader(_) => {
+            OperatorData::FileReader(_) | OperatorData::Count(_) => {
                 // this only inserts if input is done, so no write flag
                 // neccessary
                 flags.input_accessed = false;
@@ -741,10 +742,6 @@ impl LivenessData {
             OperatorData::Sequence(seq) => {
                 update_op_sequence_variable_liveness(flags, seq);
             }
-            OperatorData::Count(_) => {
-                flags.input_accessed = false;
-                flags.non_stringified_input_access = false;
-            }
             OperatorData::Nop(_)
             | OperatorData::StringSink(_)
             | OperatorData::Print(_) => {
@@ -754,8 +751,7 @@ impl LivenessData {
             OperatorData::FieldValueSink(_) | OperatorData::Cast(_) => {
                 flags.may_dup_or_drop = false;
             }
-            OperatorData::Next(_) => unreachable!(),
-            OperatorData::End(_) => unreachable!(),
+            OperatorData::Next(_) | OperatorData::End(_) => unreachable!(),
             OperatorData::Custom(op) => {
                 op.update_variable_liveness(self, bb_id, flags)
             }
@@ -856,7 +852,7 @@ impl LivenessData {
             // for now we just assume that any op_output that is bound
             // after the bb might be accessed by someone and therefore needs
             // header writes applied
-            for &op_output_id in self.vars_to_op_outputs_map.iter() {
+            for &op_output_id in &self.vars_to_op_outputs_map {
                 if let Some(producing_op) =
                     self.op_outputs[op_output_id as usize].producing_op
                 {
@@ -1244,6 +1240,19 @@ impl LivenessData {
     }
     #[cfg(feature = "debug_logging")]
     fn log_liveness_data(&mut self, sess: &SessionData) {
+        fn print_bits(
+            label: &str,
+            padding: usize,
+            count: usize,
+            offset: usize,
+            livness_data: &BitSlice<Cell<usize>>,
+        ) {
+            eprint!("{label:>padding$}: ");
+            for i in offset..offset + count {
+                eprint!(" {} ", if livness_data[i] { "X" } else { "-" });
+            }
+            eprintln!();
+        }
         let string_store = sess.string_store.read().unwrap();
         eprintln!("{:-^80}", " <liveness analysis> ");
         eprintln!("chains:");
@@ -1346,7 +1355,7 @@ impl LivenessData {
             for oo_n in op_base.outputs_start..op_base.outputs_end {
                 eprint!(
                     "op_output {oo_n:02}: chain {:02}, bb {:02}, op_id {op_id:02} `{}`",
-                    op_base.chain_id.map(|x| x as i64).unwrap_or(-1),
+                    op_base.chain_id.map_or(-1, i64::from),
                     self.operator_liveness_data[op_id].basic_block_id,
                     sess.operator_data[op_id].default_op_name()
                 );
@@ -1372,23 +1381,10 @@ impl LivenessData {
             }
         }
         eprintln!();
-        fn print_bits(
-            label: &str,
-            padding: usize,
-            count: usize,
-            offset: usize,
-            livness_data: &BitSlice<Cell<usize>>,
-        ) {
-            eprint!("{:>padding$}: ", label);
-            for i in offset..offset + count {
-                eprint!(" {} ", if livness_data[i] { "X" } else { "-" });
-            }
-            eprintln!();
-        }
-        const PADDING_OOS: usize = 16;
         let vc = self.vars.len();
         let ooc = self.op_outputs.len();
-        eprint!("{:>PADDING_OOS$}: ", "op_output id");
+        const PADDING_OP_OUTPUTS: usize = 16;
+        eprint!("{:>PADDING_OP_OUTPUTS$}: ", "op_output id");
         for oo_n in 0..ooc {
             eprint!("{oo_n:02} ");
         }
@@ -1400,13 +1396,12 @@ impl LivenessData {
         ] {
             print_bits(
                 name,
-                PADDING_OOS,
+                PADDING_OP_OUTPUTS,
                 ooc,
                 offs * ooc,
                 &self.op_outputs_data,
             );
         }
-
         const PADDING_VARS: usize = 32;
         eprint!("\n{:>PADDING_VARS$}: ", "var id");
 

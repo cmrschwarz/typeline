@@ -13,8 +13,8 @@ pub fn custom_data_reference_eq<T: CustomData + ?Sized>(
         return std::mem::size_of_val(rhs) == 0
             && lhs.type_id() == rhs.type_id();
     }
-    let self_ptr = lhs as *const T as *const u8;
-    let other_ptr = rhs as *const dyn CustomData as *const u8;
+    let self_ptr = (lhs as *const T).cast::<u8>();
+    let other_ptr = (rhs as *const dyn CustomData).cast::<u8>();
     self_ptr == other_ptr
 }
 
@@ -47,12 +47,11 @@ pub unsafe trait CustomData: Any + Send + Sync + Debug {
         format: &RealizedFormatKey,
     ) -> std::io::Result<()> {
         let reported_len = self.stringify(w, format)?;
-        if reported_len != len {
-            panic!(
-                "unexpected length for stringify of custom type {}",
-                self.type_name()
-            );
-        }
+        assert!(
+            reported_len == len,
+            "unexpected length for stringify of custom type {}",
+            self.type_name()
+        );
         Ok(())
     }
     // SAFETY: if this returns true, subsequent calls to
@@ -157,7 +156,7 @@ impl<'a> WriteAdapterNonUtf8<'a> {
 impl<'a> std::io::Write for WriteAdapterNonUtf8<'a> {
     fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
         self.bytes_written += data.len();
-        self.base_writer.write_all(data).map(|_| data.len())
+        self.base_writer.write_all(data).map(|()| data.len())
     }
 
     fn flush(&mut self) -> std::io::Result<()> {

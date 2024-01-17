@@ -6,6 +6,7 @@ use crate::options::argument::CliArgIdx;
 
 use super::operator::OperatorId;
 
+#[must_use]
 #[derive(Error, Debug, Clone, PartialEq, Eq)]
 #[error("{message}")]
 pub struct OperatorCreationError {
@@ -75,8 +76,8 @@ impl OperatorApplicationError {
     }
     pub fn op_id(&self) -> OperatorId {
         match self {
-            OperatorApplicationError::Borrowed { op_id, .. } => *op_id,
-            OperatorApplicationError::Owned { op_id, .. } => *op_id,
+            OperatorApplicationError::Borrowed { op_id, .. }
+            | OperatorApplicationError::Owned { op_id, .. } => *op_id,
         }
     }
     pub fn message(&self) -> &str {
@@ -120,7 +121,7 @@ impl PartialOrd for OperatorApplicationError {
 
 pub fn io_error_to_op_error(
     op_id: OperatorId,
-    err: std::io::Error,
+    err: &std::io::Error,
 ) -> OperatorApplicationError {
     OperatorApplicationError::new_s(err.to_string(), op_id)
 }

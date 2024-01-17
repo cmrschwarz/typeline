@@ -3,6 +3,24 @@
 #![allow(clippy::missing_safety_doc)]
 #![allow(clippy::too_many_arguments)]
 #![allow(clippy::type_complexity)]
+// pedantic
+#![warn(clippy::pedantic)]
+#![allow(clippy::must_use_candidate)]
+#![allow(clippy::module_name_repetitions)]
+#![allow(clippy::struct_excessive_bools)]
+#![allow(clippy::missing_errors_doc)]
+#![allow(clippy::too_many_lines)]
+#![allow(clippy::missing_panics_doc)]
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::cast_possible_wrap)]
+#![allow(clippy::cast_sign_loss)]
+#![allow(clippy::semicolon_if_nothing_returned)]
+#![allow(clippy::return_self_not_must_use)]
+#![allow(clippy::match_on_vec_items)]
+#![allow(clippy::similar_names)]
+#![allow(clippy::items_after_statements)]
+#![allow(clippy::map_unwrap_or)]
+#![allow(clippy::inline_always)]
 
 #[macro_use]
 extern crate static_assertions;
@@ -38,7 +56,6 @@ pub mod operators;
 pub mod options;
 pub mod record_data;
 pub mod scr_error;
-pub mod selenium;
 pub mod tyson;
 
 pub const UNDEFINED_STR: &str = "undefined";

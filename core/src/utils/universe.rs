@@ -37,9 +37,9 @@ impl<T> UniverseEntry<T> {
 impl<I, T> Default for Universe<I, T> {
     fn default() -> Self {
         Self {
-            data: Default::default(),
-            first_vacant_entry: Default::default(),
-            _phantom_data: Default::default(),
+            data: Vec::new(),
+            first_vacant_entry: None,
+            _phantom_data: PhantomData,
         }
     }
 }
@@ -172,20 +172,22 @@ impl<I: IndexingType, T> Universe<I, T> {
         let offset_in_entry = if let UniverseEntry::Occupied(v) = &self.data[0]
         {
             unsafe {
-                (v as *const T as *const u8)
-                    .offset_from(self.data.as_ptr() as *const u8)
-                    as usize
+                (v as *const T)
+                    .cast::<u8>()
+                    .offset_from(self.data.as_ptr().cast())
             }
         } else {
             panic!("element not in Universe")
         };
         let ptr = unsafe {
-            (entry as *const T as *const u8).sub(offset_in_entry)
-                as *const UniverseEntry<T>
+            (entry as *const T)
+                .cast::<u8>()
+                .sub(usize::try_from(offset_in_entry).unwrap_unchecked())
+                .cast()
         };
         let range = self.data.as_ptr_range();
         assert!(range.contains(&ptr));
-        I::from_usize(unsafe { ptr.offset_from(range.start) } as usize)
+        I::from_isize(unsafe { ptr.offset_from(range.start) })
     }
     pub fn get(&self, id: I) -> Option<&T> {
         match self.data.get(id.into_usize()) {

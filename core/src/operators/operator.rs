@@ -142,30 +142,30 @@ impl OperatorData {
     }
     pub fn can_be_appended(&self) -> bool {
         match self {
-            OperatorData::Print(_) => true,
-            OperatorData::Sequence(_) => true,
-            OperatorData::Fork(_) => false,
-            OperatorData::Foreach(_) => false,
-            OperatorData::ForkCat(_) => false,
-            OperatorData::Key(_) => false,
-            OperatorData::Regex(_) => true,
-            OperatorData::FileReader(_) => true,
-            OperatorData::Format(_) => true,
-            OperatorData::Select(_) => false,
-            OperatorData::StringSink(_) => true,
-            OperatorData::FieldValueSink(_) => true,
-            OperatorData::Literal(_) => true,
-            OperatorData::Join(_) => true,
-            OperatorData::Next(_) => false,
-            OperatorData::End(_) => false,
-            OperatorData::Count(_) => true,
-            OperatorData::Cast(_) => true,
-            OperatorData::Call(_) => true,
-            OperatorData::CallConcurrent(_) => true,
-            OperatorData::Nop(_) => true,
-            OperatorData::NopCopy(_) => true,
+            OperatorData::Print(_)
+            | OperatorData::Sequence(_)
+            | OperatorData::Regex(_)
+            | OperatorData::FileReader(_)
+            | OperatorData::Format(_)
+            | OperatorData::StringSink(_)
+            | OperatorData::FieldValueSink(_)
+            | OperatorData::Literal(_)
+            | OperatorData::Join(_)
+            | OperatorData::Count(_)
+            | OperatorData::Cast(_)
+            | OperatorData::Call(_)
+            | OperatorData::CallConcurrent(_)
+            | OperatorData::Nop(_)
+            | OperatorData::Aggregator(_)
+            | OperatorData::NopCopy(_) => true,
+            OperatorData::Fork(_)
+            | OperatorData::Foreach(_)
+            | OperatorData::ForkCat(_)
+            | OperatorData::Key(_)
+            | OperatorData::Select(_)
+            | OperatorData::Next(_)
+            | OperatorData::End(_) => false,
             OperatorData::Custom(op) => op.can_be_appended(),
-            OperatorData::Aggregator(_) => true,
         }
     }
 }

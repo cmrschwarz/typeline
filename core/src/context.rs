@@ -120,7 +120,7 @@ impl WorkerThread {
     ) {
         if let Some(ref mut js) = starting_job_session {
             match js.run(Some(&self.ctx_data)) {
-                Ok(_) => (),
+                Ok(()) => (),
                 Err(venture_desc) => {
                     self.ctx_data.session.lock().unwrap().submit_venture(
                         venture_desc,
@@ -131,13 +131,13 @@ impl WorkerThread {
             }
         }
         let mut js = Job {
-            transform_data: Default::default(),
+            transform_data: Vec::new(),
             job_data: JobData::new(sess),
-            temp_vec: Default::default(),
+            temp_vec: Vec::new(),
         };
         js.setup_venture(Some(&self.ctx_data), buffer, start_op_id);
         match js.run(Some(&self.ctx_data)) {
-            Ok(_) => (),
+            Ok(()) => (),
             Err(venture_desc) => {
                 self.ctx_data.session.lock().unwrap().submit_venture(
                     venture_desc,
@@ -150,13 +150,13 @@ impl WorkerThread {
 
     pub fn run_job(&mut self, sess: &SessionData, job: JobDescription) {
         let mut js = Job {
-            transform_data: Default::default(),
+            transform_data: Vec::new(),
             job_data: JobData::new(sess),
-            temp_vec: Default::default(),
+            temp_vec: Vec::new(),
         };
         js.setup_job(job);
         match js.run(Some(&self.ctx_data)) {
-            Ok(_) => (),
+            Ok(()) => (),
             Err(venture_desc) => {
                 self.ctx_data.session.lock().unwrap().submit_venture(
                     venture_desc,
@@ -248,7 +248,7 @@ impl Session {
         if self.session_data.settings.max_threads < self.total_worker_threads
             && self.waiting_worker_threads == 0
         {
-            self.add_worker_thread(ctx_data)
+            self.add_worker_thread(ctx_data);
         }
     }
     pub fn add_worker_thread(&mut self, ctx_data: &Arc<ContextData>) {
@@ -260,7 +260,7 @@ impl Session {
             self.total_worker_threads, self.session_data.settings.max_threads
         );
         self.thread_join_handles.push(std::thread::spawn(move || {
-            WorkerThread::new(ctx_data).run()
+            WorkerThread::new(ctx_data).run();
         }));
     }
     pub fn submit_venture<'a>(
@@ -299,7 +299,7 @@ impl Session {
             },
         });
         for _ in 0..threads_needed {
-            self.add_worker_thread(ctx_data)
+            self.add_worker_thread(ctx_data);
         }
     }
     pub fn set_session(&mut self, sess: Arc<SessionData>) {
@@ -323,10 +323,10 @@ impl Context {
                 venture_id_counter: 0,
                 waiting_venture_participants: 0,
                 waiting_worker_threads: 1,
-                venture_queue: Default::default(),
-                job_queue: Default::default(),
+                venture_queue: VecDeque::new(),
+                job_queue: VecDeque::new(),
                 session_data: session.clone(),
-                thread_join_handles: Default::default(),
+                thread_join_handles: Vec::new(),
             }),
         });
         Self {
@@ -370,7 +370,7 @@ impl Context {
         }
     }
     pub fn run_main_chain(&mut self, input_data: RecordSet) {
-        self.run_job(self.session.construct_main_chain_job(input_data))
+        self.run_job(self.session.construct_main_chain_job(input_data));
     }
     #[cfg(feature = "repl")]
     pub fn run_repl(&mut self) {

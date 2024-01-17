@@ -1,5 +1,6 @@
 use std::{
     borrow::Cow,
+    collections::HashMap,
     num::NonZeroUsize,
     sync::{Arc, RwLock},
 };
@@ -37,7 +38,6 @@ use crate::{
     scr_error::{
         result_into, ChainSetupError, ContextualizedScrError, ScrError,
     },
-    selenium::SeleniumVariant,
     utils::string_store::StringStore,
 };
 
@@ -52,8 +52,6 @@ pub struct SessionOptions {
     pub any_threaded_operations: bool,
     pub repl: Argument<bool>,
     pub exit_repl: Argument<bool>,
-    pub install_selenium_drivers: Vec<Argument<SeleniumVariant>>,
-    pub update_selenium_drivers: Vec<Argument<SeleniumVariant>>,
     pub(crate) string_store: StringStore,
     pub(crate) operator_base_options: Vec<OperatorBaseOptions>,
     pub(crate) operator_data: Vec<OperatorData>,
@@ -67,17 +65,15 @@ pub struct SessionOptions {
 impl Default for SessionOptions {
     fn default() -> Self {
         Self {
-            max_threads: Default::default(),
-            repl: Default::default(),
-            exit_repl: Default::default(),
-            install_selenium_drivers: Default::default(),
-            update_selenium_drivers: Default::default(),
+            max_threads: Argument::default(),
+            repl: Argument::default(),
+            exit_repl: Argument::default(),
             chains: vec![ChainOptions::default()],
-            curr_chain: Default::default(),
-            operator_base_options: Default::default(),
-            operator_data: Default::default(),
-            string_store: Default::default(),
-            cli_args: Default::default(),
+            curr_chain: 0,
+            operator_base_options: Vec::new(),
+            operator_data: Vec::new(),
+            string_store: StringStore::default(),
+            cli_args: None,
             any_threaded_operations: false,
             extensions: Arc::clone(&EMPTY_EXTENSION_REGISTRY),
             allow_repl: true,
@@ -92,8 +88,6 @@ lazy_static! {
         max_threads: Argument::new_v(0),
         repl: Argument::new_v(false),
         exit_repl: Argument::new_v(false),
-        install_selenium_drivers: Vec::new(),
-        update_selenium_drivers: Vec::new(),
         chains: Vec::new(),
         operator_base_options: Vec::new(),
         operator_data: Vec::new(),
@@ -131,25 +125,9 @@ impl SessionOptions {
                 chain_opts.operators.len() as OperatorOffsetInChain - 1;
         }
         match op_data {
-            OperatorData::Call(_) => (),
             OperatorData::CallConcurrent(_) => {
                 self.any_threaded_operations = true;
             }
-            OperatorData::Print(_) => (),
-            OperatorData::Count(_) => (),
-            OperatorData::Cast(_) => (),
-            OperatorData::Key(_) => (),
-            OperatorData::Nop(_) => (),
-            OperatorData::NopCopy(_) => (),
-            OperatorData::Select(_) => (),
-            OperatorData::Regex(_) => (),
-            OperatorData::Format(_) => (),
-            OperatorData::StringSink(_) => (),
-            OperatorData::FieldValueSink(_) => (),
-            OperatorData::FileReader(_) => (),
-            OperatorData::Literal(_) => (),
-            OperatorData::Sequence(_) => (),
-            OperatorData::Join(_) => (),
             OperatorData::Foreach(OpForeach {
                 subchains_start, ..
             })
@@ -225,6 +203,22 @@ impl SessionOptions {
                 op.on_op_added(self);
                 self.operator_data[op_idx] = OperatorData::Custom(op);
             }
+            OperatorData::Print(_)
+            | OperatorData::Call(_)
+            | OperatorData::Count(_)
+            | OperatorData::Cast(_)
+            | OperatorData::Key(_)
+            | OperatorData::Nop(_)
+            | OperatorData::NopCopy(_)
+            | OperatorData::Select(_)
+            | OperatorData::Regex(_)
+            | OperatorData::Format(_)
+            | OperatorData::StringSink(_)
+            | OperatorData::FieldValueSink(_)
+            | OperatorData::FileReader(_)
+            | OperatorData::Literal(_)
+            | OperatorData::Sequence(_)
+            | OperatorData::Join(_) => (),
         }
     }
     pub fn add_op_uninit(
@@ -298,27 +292,27 @@ impl SessionOptions {
             | OperatorData::ForkCat(OpForkCat { subchains_end, .. }) => {
                 *subchains_end = sc_count_after;
             }
-            OperatorData::Call(_) => (),
-            OperatorData::CallConcurrent(_) => (),
-            OperatorData::Cast(_) => (),
-            OperatorData::Count(_) => (),
-            OperatorData::Print(_) => (),
-            OperatorData::Join(_) => (),
-            OperatorData::Next(_) => (),
-            OperatorData::End(_) => (),
-            OperatorData::Nop(_) => (),
-            OperatorData::NopCopy(_) => (),
-            OperatorData::Key(_) => (),
-            OperatorData::Select(_) => (),
-            OperatorData::Regex(_) => (),
-            OperatorData::Format(_) => (),
-            OperatorData::StringSink(_) => (),
-            OperatorData::FieldValueSink(_) => (),
-            OperatorData::FileReader(_) => (),
-            OperatorData::Literal(_) => (),
-            OperatorData::Sequence(_) => (),
-            OperatorData::Aggregator(_) => (),
             OperatorData::Custom(op) => op.on_subchains_added(sc_count_after),
+            OperatorData::Call(_)
+            | OperatorData::CallConcurrent(_)
+            | OperatorData::Cast(_)
+            | OperatorData::Count(_)
+            | OperatorData::Print(_)
+            | OperatorData::Join(_)
+            | OperatorData::Next(_)
+            | OperatorData::End(_)
+            | OperatorData::Nop(_)
+            | OperatorData::NopCopy(_)
+            | OperatorData::Key(_)
+            | OperatorData::Select(_)
+            | OperatorData::Regex(_)
+            | OperatorData::Format(_)
+            | OperatorData::StringSink(_)
+            | OperatorData::FieldValueSink(_)
+            | OperatorData::FileReader(_)
+            | OperatorData::Literal(_)
+            | OperatorData::Sequence(_)
+            | OperatorData::Aggregator(_) => (),
         }
     }
     // we can't reborrow the whole Session because we want the locked string
@@ -344,8 +338,6 @@ impl SessionOptions {
                 setup_op_select(sess.string_store.get_mut().unwrap(), op)?
             }
             OperatorData::FileReader(op) => setup_op_file_reader(chain, op)?,
-            OperatorData::StringSink(_) => (),
-            OperatorData::FieldValueSink(_) => (),
             OperatorData::Fork(op) => {
                 setup_op_fork(chain, op_base, op, op_id)?
             }
@@ -353,16 +345,10 @@ impl SessionOptions {
                 setup_op_foreach(sess, chain_id, op_id)?;
             }
             OperatorData::Nop(op) => setup_op_nop(chain, op_base, op, op_id)?,
-            OperatorData::NopCopy(_) => (),
             OperatorData::ForkCat(op) => {
                 setup_op_forkcat(chain, op_base, op, op_id)?
             }
-            OperatorData::Cast(_) => (),
-            OperatorData::Count(_) => (),
-            OperatorData::Sequence(_) => (),
-            OperatorData::Literal(_) => (),
-            OperatorData::Print(_) => (),
-            OperatorData::Join(_) => (),
+
             OperatorData::Next(_) => unreachable!(),
             OperatorData::End(op) => {
                 setup_op_end(op, op_id)?;
@@ -391,6 +377,15 @@ impl SessionOptions {
             OperatorData::Aggregator(_) => {
                 setup_op_aggregator(sess, chain_id, op_id)?;
             }
+            OperatorData::Cast(_)
+            | OperatorData::Count(_)
+            | OperatorData::Sequence(_)
+            | OperatorData::Literal(_)
+            | OperatorData::Print(_)
+            | OperatorData::Join(_)
+            | OperatorData::NopCopy(_)
+            | OperatorData::StringSink(_)
+            | OperatorData::FieldValueSink(_) => {}
         }
         Ok(())
     }
@@ -399,9 +394,7 @@ impl SessionOptions {
     ) -> Result<(), OperatorSetupError> {
         for op_idx in 0..sess.operator_bases.len() {
             let op_base = &mut sess.operator_bases[op_idx];
-            let chain_id = if let Some(cid) = op_base.chain_id {
-                cid
-            } else {
+            let Some(chain_id) = op_base.chain_id else {
                 continue;
             };
             Self::setup_operator(sess, chain_id, op_idx as OperatorId)?;
@@ -449,37 +442,21 @@ impl SessionOptions {
             OperatorData::Nop(OpNop::default()),
         );
         match &mut op_data {
-            OperatorData::Call(_) => (),
             OperatorData::CallConcurrent(op) => {
                 setup_op_call_concurrent_liveness_data(op, op_id, ld)
             }
-            OperatorData::Cast(_) => (),
-            OperatorData::Nop(_) => (),
             OperatorData::NopCopy(op) => {
                 on_op_nop_copy_liveness_computed(op, op_id, ld)
             }
-            OperatorData::Count(_) => (),
-            OperatorData::Print(_) => (),
-            OperatorData::Join(_) => (),
-            OperatorData::Foreach(_) => (),
             OperatorData::Fork(op) => {
                 setup_op_fork_liveness_data(op, op_id, ld)
             }
             OperatorData::ForkCat(op) => {
                 setup_op_forkcat_liveness_data(sess, op, op_id, ld)
             }
-            OperatorData::Next(_) => (),
-            OperatorData::End(_) => (),
-            OperatorData::Key(_) => (),
             OperatorData::Select(op) => {
                 setup_op_select_liveness_data(op, op_id, ld)
             }
-            OperatorData::Regex(_) => (),
-            OperatorData::Format(_) => (),
-            OperatorData::StringSink(_) => (),
-            OperatorData::FieldValueSink(_) => (),
-            OperatorData::FileReader(_) => (),
-            OperatorData::Literal(_) => (),
             OperatorData::Sequence(op) => {
                 setup_op_sequence_concurrent_liveness_data(sess, op, op_id, ld)
             }
@@ -491,6 +468,22 @@ impl SessionOptions {
                     Self::setup_op_liveness(sess, ld, sc_id);
                 }
             }
+            OperatorData::Cast(_)
+            | OperatorData::Call(_)
+            | OperatorData::Nop(_)
+            | OperatorData::Count(_)
+            | OperatorData::Print(_)
+            | OperatorData::Join(_)
+            | OperatorData::Foreach(_)
+            | OperatorData::Next(_)
+            | OperatorData::End(_)
+            | OperatorData::Key(_)
+            | OperatorData::Regex(_)
+            | OperatorData::Format(_)
+            | OperatorData::StringSink(_)
+            | OperatorData::FieldValueSink(_)
+            | OperatorData::FileReader(_)
+            | OperatorData::Literal(_) => (),
         }
         std::mem::swap(&mut sess.operator_data[op_id as usize], &mut op_data);
     }
@@ -504,20 +497,21 @@ impl SessionOptions {
     pub fn build_session(
         mut self,
     ) -> Result<SessionData, ContextualizedScrError> {
-        let mut max_threads;
-        if !self.any_threaded_operations {
-            max_threads = 1;
-        } else {
-            max_threads = self
+        let max_threads = if self.any_threaded_operations {
+            let mt_setting = self
                 .max_threads
                 .value
                 .unwrap_or(DEFAULT_CONTEXT_OPTIONS.max_threads.unwrap());
-            if max_threads == 0 {
-                max_threads = std::thread::available_parallelism()
+            if mt_setting == 0 {
+                std::thread::available_parallelism()
                     .unwrap_or(NonZeroUsize::new(1).unwrap())
-                    .get();
+                    .get()
+            } else {
+                mt_setting
             }
-        }
+        } else {
+            1
+        };
 
         let mut chains = Vec::with_capacity(self.chains.len());
         for i in 0..self.chains.len() {
@@ -545,10 +539,10 @@ impl SessionOptions {
             operator_bases: self
                 .operator_base_options
                 .iter()
-                .map(|obo| obo.build())
+                .map(OperatorBaseOptions::build)
                 .collect(),
             cli_args: self.cli_args,
-            chain_labels: Default::default(),
+            chain_labels: HashMap::default(),
             string_store: RwLock::new(self.string_store),
             extensions: self.extensions,
         };

@@ -122,7 +122,7 @@ pub fn insert_tf_aggregator(
         &mut job.transform_data,
         tf_state,
         TransformData::AggregatorHeader(TfAggregatorHeader {
-            sub_tfs: Default::default(),
+            sub_tfs: Vec::new(),
             curr_sub_tf_idx: 0,
         }),
     );

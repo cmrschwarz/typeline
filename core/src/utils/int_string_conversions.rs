@@ -55,18 +55,18 @@ pub fn parse_int_with_units<
         unit.pop();
     }
     let unit_mult: usize = match unit.as_str() {
-        "ei" => 1152921504606846976,
-        "e" => 1000000000000000000,
-        "pi" => 1125899906842624,
-        "p" => 1000000000000000,
-        "ti" => 1099511627776,
-        "t" => 1000000000000,
-        "gi" => 1073741824,
-        "g" => 1000000000,
-        "mi" => 1048576,
-        "m" => 1000000,
-        "ki" => 1024,
-        "k" => 1000,
+        "e" => 1_000_000_000_000_000_000,
+        "p" => 1_000_000_000_000_000,
+        "t" => 1_000_000_000_000,
+        "g" => 1_000_000_000,
+        "m" => 1_000_000,
+        "k" => 1_000,
+        "ei" => 1_152_921_504_606_846_976,
+        "pi" => 1_125_899_906_842_624,
+        "ti" => 1_099_511_627_776,
+        "gi" => 1_073_741_824,
+        "mi" => 1_048_576,
+        "ki" => 1_024,
         "" => 1,
         _ => return Err(format!("unknown integer unit '{unit_str}'").into()),
     };
@@ -86,9 +86,8 @@ pub fn parse_int_with_units_from_bytes<
 >(
     v: &[u8],
 ) -> Result<I, Cow<'static, str>> {
-    let v = match v.to_str() {
-        Ok(v) => v,
-        Err(_) => return Err("invalid UTF-8".into()),
+    let Ok(v) = v.to_str() else {
+        return Err("invalid UTF-8".into());
     };
     parse_int_with_units(v)
 }
@@ -134,7 +133,7 @@ pub fn i64_digits(display_plus_sign: bool, mut v: i64) -> usize {
         v = -v;
         1
     } else {
-        display_plus_sign as usize
+        usize::from(display_plus_sign)
     };
     sign_len + v.checked_ilog10().unwrap_or(0) as usize + 1
 }

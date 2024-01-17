@@ -1,5 +1,8 @@
 use core::panic;
-use std::cell::{Cell, UnsafeCell};
+use std::{
+    cell::{Cell, UnsafeCell},
+    marker::PhantomData,
+};
 
 use nonmax::NonMaxU32;
 use thin_vec::ThinVec;
@@ -49,8 +52,8 @@ pub struct IterHall {
     pub(super) cow_targets: ThinVec<FieldId>,
 }
 
-/// Position of an iterator inside of FieldData to be stored inside of an
-/// IterHall.
+/// Position of an iterator inside of `FieldData` to be stored inside of an
+/// `IterHall`.
 #[derive(Default, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct IterState {
     pub(super) field_pos: usize,
@@ -100,7 +103,7 @@ impl IterHall {
                     .field_data
                     .headers
                     .last()
-                    .map(|h| h.total_size_unique())
+                    .map(FieldValueHeader::total_size_unique)
                     .unwrap_or(0),
             // TODO: respect cow
             header_idx: self.field_data.headers.len() - 1,
@@ -146,13 +149,12 @@ impl IterHall {
         self.iters[iter_id].get()
     }
     fn calculate_start_header<'a, R: FieldDataRef<'a>>(
-        &self,
         fr: &R,
         state: &mut IterState,
     ) -> FieldValueHeader {
         if state.header_idx == fr.headers().len() {
             debug_assert!(state.header_idx == 0);
-            return Default::default();
+            return FieldValueHeader::default();
         }
         let h = fr.headers()[state.header_idx];
         if h.run_length != state.header_rl_offset {
@@ -162,7 +164,7 @@ impl IterHall {
         state.header_rl_offset = 0;
         state.data += h.total_size_unique();
         if state.header_idx == fr.headers().len() {
-            return Default::default();
+            return FieldValueHeader::default();
         }
         fr.headers()[state.header_idx]
     }
@@ -172,7 +174,7 @@ impl IterHall {
         fr: R,
         mut state: IterState,
     ) -> Iter<'a, R> {
-        let h = self.calculate_start_header(&fr, &mut state);
+        let h = Self::calculate_start_header(&fr, &mut state);
         let mut res = Iter {
             fdr: fr,
             field_pos: state.field_pos,
@@ -181,7 +183,7 @@ impl IterHall {
             header_rl_offset: state.header_rl_offset,
             header_rl_total: h.run_length,
             header_fmt: h.fmt,
-            _phantom_data: Default::default(),
+            _phantom_data: PhantomData,
         };
         res.skip_dead_fields();
         res
@@ -209,10 +211,9 @@ impl IterHall {
                 // having the iterator sit at 0/0 works out.
                 self.reset_iter(iter_id);
                 return;
-            } else {
-                iter.prev_field();
-                state.header_rl_offset = iter.field_run_length_bwd() + 1;
             }
+            iter.prev_field();
+            state.header_rl_offset = iter.field_run_length_bwd() + 1;
         }
         state.header_idx = iter.header_idx;
         state.data = iter.data;
@@ -228,7 +229,7 @@ impl IterHall {
         self.iters[iter_id].set(iter_state);
     }
 
-    /// returns a tuple of (FieldData, initial_field_offset, field_count)
+    /// returns a tuple of `(field_data, initial_field_offset, field_count)`
     pub unsafe fn internals(&mut self) -> FieldDataInternals {
         unsafe { self.get_owned_data().internals() }
     }
@@ -302,8 +303,7 @@ impl IterHall {
     }
     pub fn reset_cow_headers(&mut self, fm: &FieldManager) {
         match &mut self.data_source {
-            FieldDataSource::Owned => (),
-            FieldDataSource::Cow(_) => (),
+            FieldDataSource::Owned | FieldDataSource::Cow(_) => (),
             FieldDataSource::Alias(src) => {
                 fm.fields[*src].borrow_mut().iter_hall.reset_cow_headers(fm)
             }
@@ -331,8 +331,8 @@ impl IterHall {
         Self {
             data_source: FieldDataSource::Owned,
             field_data: fd,
-            iters: Default::default(),
-            cow_targets: Default::default(),
+            iters: Universe::default(),
+            cow_targets: ThinVec::new(),
         }
     }
     pub fn fixed_size_type_inserter<T: FieldValueType + PartialEq + Clone>(
@@ -492,9 +492,9 @@ impl IterHall {
     }
     pub fn uncow_headers(&mut self, fm: &FieldManager) {
         match self.data_source {
-            FieldDataSource::Owned => (),
-            FieldDataSource::DataCow { .. } => (),
-            FieldDataSource::RecordBufferDataCow(_) => (),
+            FieldDataSource::Owned
+            | FieldDataSource::DataCow { .. }
+            | FieldDataSource::RecordBufferDataCow(_) => (),
             FieldDataSource::Alias(src_field_id) => {
                 fm.fields[src_field_id]
                     .borrow_mut()

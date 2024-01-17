@@ -24,7 +24,7 @@ impl<'a, T> Default for TypedSliceIter<'a, T> {
             header_end: std::ptr::null(),
             header_rl_rem: 0,
             last_oversize: 0,
-            _phantom_data: Default::default(),
+            _phantom_data: PhantomData,
         }
     }
 }
@@ -47,7 +47,7 @@ impl<'a, T: FieldValueType + 'static> TypedSliceIter<'a, T> {
         let values = if values.is_empty() {
             NonNull::dangling()
         } else {
-            unsafe { NonNull::new_unchecked(values.as_ptr() as *mut T) }
+            unsafe { NonNull::new_unchecked(values.as_ptr().cast_mut()) }
         };
         Self {
             values,
@@ -257,7 +257,7 @@ impl<'a> Default for InlineBytesIter<'a> {
             header_end: std::ptr::null(),
             header_rl_rem: 0,
             last_oversize: 0,
-            _phantom_data: Default::default(),
+            _phantom_data: PhantomData,
         }
     }
 }
@@ -280,7 +280,7 @@ impl<'a> InlineBytesIter<'a> {
         let values = if values.is_empty() {
             NonNull::dangling()
         } else {
-            unsafe { NonNull::new_unchecked(values.as_ptr() as *mut u8) }
+            unsafe { NonNull::new_unchecked(values.as_ptr().cast_mut()) }
         };
         Self {
             values,
@@ -550,7 +550,7 @@ mod test_slice_iter {
         let iter = unsafe {
             TypedSliceIter::new(
                 std::slice::from_raw_parts(
-                    fd.data.as_ptr() as *const T,
+                    fd.data.as_ptr().cast::<T>(),
                     fd.data.len() / std::mem::size_of::<T>(),
                 ),
                 &fd.headers,

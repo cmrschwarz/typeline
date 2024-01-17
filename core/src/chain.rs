@@ -1,6 +1,6 @@
 use crate::{
     document::TextEncoding, operators::operator::OperatorId,
-    selenium::SeleniumDownloadStrategy, utils::string_store::StringStoreEntry,
+    utils::string_store::StringStoreEntry,
 };
 
 pub type ChainId = u32;
@@ -22,7 +22,6 @@ pub struct ChainSettings {
     pub force_text_encoding: bool,
     pub floating_point_math: bool,
     pub print_rationals_raw: bool,
-    pub selenium_download_strategy: SeleniumDownloadStrategy,
     pub default_batch_size: usize,
     pub stream_buffer_size: usize,
     pub stream_size_threshold: usize,
