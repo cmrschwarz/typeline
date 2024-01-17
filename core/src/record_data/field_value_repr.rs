@@ -90,7 +90,7 @@ pub struct FieldValueFormat {
     pub size: FieldValueSize,
 }
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, Debug)]
 pub struct FieldValueHeader {
     pub fmt: FieldValueFormat,
     // this shal never be zero, **even for deleted fields**
@@ -105,6 +105,11 @@ pub struct FieldData {
 }
 
 pub struct FieldDataInternals<'a> {
+    pub data: &'a FieldDataBuffer,
+    pub header: &'a Vec<FieldValueHeader>,
+    pub field_count: &'a usize,
+}
+pub struct FieldDataInternalsMut<'a> {
     pub data: &'a mut FieldDataBuffer,
     pub header: &'a mut Vec<FieldValueHeader>,
     pub field_count: &'a mut usize,
@@ -156,6 +161,14 @@ pub mod field_value_flags {
 
     pub const DEFAULT: FieldValueFlags = 0;
     pub const NONE: FieldValueFlags = 0;
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct FieldValueFlagsDebugRepr {
+    pub padding: u8,
+    pub deleted: bool,
+    pub shared_value: bool,
+    pub same_as_prev: bool,
 }
 
 // used to constrain generic functions that accept data for field values
@@ -425,6 +438,31 @@ impl FieldValueRepr {
 impl Display for FieldValueRepr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.to_str())
+    }
+}
+
+impl From<field_value_flags::FieldValueFlags> for FieldValueFlagsDebugRepr {
+    fn from(value: field_value_flags::FieldValueFlags) -> Self {
+        let h = FieldValueFormat {
+            flags: value,
+            ..Default::default()
+        };
+        Self {
+            padding: h.leading_padding() as u8,
+            deleted: h.deleted(),
+            shared_value: h.shared_value(),
+            same_as_prev: h.same_value_as_previous(),
+        }
+    }
+}
+
+impl std::fmt::Debug for FieldValueFormat {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FieldValueFormat")
+            .field("repr", &self.repr)
+            .field("size", &self.size)
+            .field("flags", &FieldValueFlagsDebugRepr::from(self.flags))
+            .finish()
     }
 }
 
@@ -877,11 +915,18 @@ impl FieldData {
     pub fn iter(&self) -> Iter<'_, &'_ FieldData> {
         Iter::from_start(self)
     }
-    pub unsafe fn internals(&mut self) -> FieldDataInternals {
-        FieldDataInternals {
+    pub unsafe fn internals_mut(&mut self) -> FieldDataInternalsMut {
+        FieldDataInternalsMut {
             data: &mut self.data,
             header: &mut self.headers,
             field_count: &mut self.field_count,
+        }
+    }
+    pub fn internals(&self) -> FieldDataInternals {
+        FieldDataInternals {
+            data: &self.data,
+            header: &self.headers,
+            field_count: &self.field_count,
         }
     }
     pub fn field_count(&self) -> usize {

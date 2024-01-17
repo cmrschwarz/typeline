@@ -1876,7 +1876,7 @@ fn setup_output_targets(
     let mut output_idx = 0;
 
     let starting_len =
-        unsafe { output_field.iter_hall.internals().data.len() };
+        unsafe { output_field.iter_hall.internals_mut().data.len() };
     let mut tgt_len = starting_len;
     for os in &fmt.output_states {
         if let Some(ex) = os.contained_exception {
@@ -1895,7 +1895,7 @@ fn setup_output_targets(
             tgt_len += FieldValueRepr::BytesBuffer.size();
         }
     }
-    unsafe { output_field.iter_hall.internals() }
+    unsafe { output_field.iter_hall.internals_mut() }
         .data
         .reserve(tgt_len - starting_len);
 

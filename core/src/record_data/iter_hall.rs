@@ -12,8 +12,9 @@ use crate::utils::universe::Universe;
 use super::{
     field::{FieldId, FieldManager},
     field_value_repr::{
-        FieldData, FieldDataBuffer, FieldDataInternals, FieldValueFlags,
-        FieldValueHeader, FieldValueRepr, FieldValueType, RunLength,
+        FieldData, FieldDataBuffer, FieldDataInternals, FieldDataInternalsMut,
+        FieldValueFlags, FieldValueHeader, FieldValueRepr, FieldValueType,
+        RunLength,
     },
     iters::{FieldDataRef, FieldIterator, Iter},
     match_set::MatchSetManager,
@@ -230,11 +231,15 @@ impl IterHall {
     }
 
     /// returns a tuple of `(field_data, initial_field_offset, field_count)`
-    pub unsafe fn internals(&mut self) -> FieldDataInternals {
-        unsafe { self.get_owned_data().internals() }
+    pub fn internals(&self) -> FieldDataInternals {
+        self.field_data.internals()
+    }
+    /// returns a tuple of `(field_data, initial_field_offset, field_count)`
+    pub unsafe fn internals_mut(&mut self) -> FieldDataInternalsMut {
+        unsafe { self.get_owned_data_mut().internals_mut() }
     }
     pub unsafe fn raw(&mut self) -> &mut FieldData {
-        self.get_owned_data()
+        self.get_owned_data_mut()
     }
 
     pub fn copy<'a>(
@@ -243,7 +248,8 @@ impl IterHall {
     ) -> usize {
         let adapted_target_applicator =
             &mut |f: &mut dyn FnMut(&mut FieldData)| {
-                let g = &mut |fdih: &mut IterHall| f(fdih.get_owned_data());
+                let g =
+                    &mut |fdih: &mut IterHall| f(fdih.get_owned_data_mut());
                 targets_applicator(g);
             };
         FieldData::copy(iter, adapted_target_applicator)
@@ -255,7 +261,8 @@ impl IterHall {
     ) -> usize {
         let adapted_target_applicator =
             &mut |f: &mut dyn FnMut(&mut FieldData)| {
-                let g = &mut |fdih: &mut IterHall| f(fdih.get_owned_data());
+                let g =
+                    &mut |fdih: &mut IterHall| f(fdih.get_owned_data_mut());
                 targets_applicator(g);
             };
         FieldData::copy_resolve_refs(
@@ -338,20 +345,20 @@ impl IterHall {
     pub fn fixed_size_type_inserter<T: FieldValueType + PartialEq + Clone>(
         &mut self,
     ) -> FixedSizeTypeInserter<T> {
-        FixedSizeTypeInserter::<T>::new(self.get_owned_data())
+        FixedSizeTypeInserter::<T>::new(self.get_owned_data_mut())
     }
     pub fn inline_bytes_inserter(&mut self) -> InlineBytesInserter {
-        InlineBytesInserter::new(self.get_owned_data())
+        InlineBytesInserter::new(self.get_owned_data_mut())
     }
     pub fn inline_str_inserter(&mut self) -> InlineStringInserter {
-        InlineStringInserter::new(self.get_owned_data())
+        InlineStringInserter::new(self.get_owned_data_mut())
     }
     pub fn varying_type_inserter(
         &mut self,
     ) -> VaryingTypeInserter<&mut FieldData> {
-        VaryingTypeInserter::new(self.get_owned_data())
+        VaryingTypeInserter::new(self.get_owned_data_mut())
     }
-    fn get_owned_data(&mut self) -> &mut FieldData {
+    fn get_owned_data_mut(&mut self) -> &mut FieldData {
         match &mut self.data_source {
             FieldDataSource::Owned => &mut self.field_data,
             _ => panic!("IterHall uses COW!"),
@@ -534,13 +541,14 @@ unsafe impl PushInterface for IterHall {
         try_data_rle: bool,
     ) {
         unsafe {
-            self.get_owned_data().push_variable_sized_type_unchecked(
-                kind,
-                data,
-                run_length,
-                try_header_rle,
-                try_data_rle,
-            );
+            self.get_owned_data_mut()
+                .push_variable_sized_type_unchecked(
+                    kind,
+                    data,
+                    run_length,
+                    try_header_rle,
+                    try_data_rle,
+                );
         }
     }
 
@@ -553,7 +561,7 @@ unsafe impl PushInterface for IterHall {
         try_data_rle: bool,
     ) {
         unsafe {
-            self.get_owned_data().push_fixed_size_type_unchecked(
+            self.get_owned_data_mut().push_fixed_size_type_unchecked(
                 kind,
                 data,
                 run_length,
@@ -570,7 +578,7 @@ unsafe impl PushInterface for IterHall {
         try_header_rle: bool,
     ) {
         unsafe {
-            self.get_owned_data().push_zst_unchecked(
+            self.get_owned_data_mut().push_zst_unchecked(
                 kind,
                 flags,
                 run_length,
@@ -586,7 +594,7 @@ unsafe impl PushInterface for IterHall {
         try_header_rle: bool,
     ) -> *mut u8 {
         unsafe {
-            self.get_owned_data().push_variable_sized_type_uninit(
+            self.get_owned_data_mut().push_variable_sized_type_uninit(
                 kind,
                 data_len,
                 run_length,
@@ -597,9 +605,9 @@ unsafe impl PushInterface for IterHall {
 }
 impl IterHall {
     pub fn dup_last_value(&mut self, run_length: usize) {
-        self.get_owned_data().dup_last_value(run_length);
+        self.get_owned_data_mut().dup_last_value(run_length);
     }
     pub fn drop_last_value(&mut self, run_length: usize) {
-        self.get_owned_data().drop_last_value(run_length);
+        self.get_owned_data_mut().drop_last_value(run_length);
     }
 }
