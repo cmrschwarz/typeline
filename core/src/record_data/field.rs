@@ -18,7 +18,7 @@ use super::{
         field_value_flags::SAME_VALUE_AS_PREVIOUS, FieldData, FieldDataBuffer,
         FieldValueFormat, FieldValueHeader,
     },
-    iter_hall::{FieldDataSource, IterHall, IterId},
+    iter_hall::{CowDataSource, FieldDataSource, IterHall, IterId},
     iters::{
         BoundedIter, DestructuredFieldDataRef, FieldDataRef, FieldIterator,
         Iter,
@@ -215,8 +215,12 @@ impl FieldManager {
         fr: Ref<'a, Field>,
     ) -> (Ref<'a, Vec<FieldValueHeader>>, usize) {
         match fr.iter_hall.data_source {
-            FieldDataSource::Cow(src) | FieldDataSource::Alias(src) => {
-                self.get_field_headers(self.fields[src].borrow())
+            FieldDataSource::Cow(CowDataSource {
+                src_field_id: src_field,
+                ..
+            })
+            | FieldDataSource::Alias(src_field) => {
+                self.get_field_headers(self.fields[src_field].borrow())
             }
             FieldDataSource::RecordBufferCow(src) => {
                 let f = &unsafe { &*(*src).get() };
@@ -238,12 +242,17 @@ impl FieldManager {
         fr: Ref<'a, Field>,
     ) -> Ref<'a, FieldDataBuffer> {
         match &fr.iter_hall.data_source {
-            FieldDataSource::Cow(src_field)
-            | FieldDataSource::Alias(src_field)
-            | FieldDataSource::DataCow {
-                src_field,
-                header_iter: _,
-            } => self.get_field_data(self.fields[*src_field].borrow()),
+            FieldDataSource::Cow(CowDataSource {
+                src_field_id: src_field,
+                ..
+            })
+            | FieldDataSource::DataCow(CowDataSource {
+                src_field_id: src_field,
+                ..
+            })
+            | FieldDataSource::Alias(src_field) => {
+                self.get_field_data(self.fields[*src_field].borrow())
+            }
             FieldDataSource::RecordBufferCow(_)
             | FieldDataSource::RecordBufferDataCow(_)
             | FieldDataSource::Owned => {
@@ -304,14 +313,11 @@ impl FieldManager {
             FieldDataSource::Alias(_)
             | FieldDataSource::Cow(_)
             | FieldDataSource::RecordBufferCow(_) => (),
-            FieldDataSource::DataCow {
-                src_field,
-                header_iter: _,
-            } => {
+            FieldDataSource::DataCow(cds) => {
                 if field.get_clear_delay_request_count() > 0 {
                     return false;
                 }
-                field.iter_hall.data_source = FieldDataSource::Cow(*src_field);
+                field.iter_hall.data_source = FieldDataSource::Cow(*cds);
             }
             FieldDataSource::RecordBufferDataCow(data_ref) => {
                 if field.get_clear_delay_request_count() > 0 {
@@ -457,16 +463,12 @@ impl FieldManager {
     }
     pub fn update_data_cow_headers(&self, field_id: FieldId) {
         let mut field = self.fields[field_id].borrow_mut();
-        let FieldDataSource::DataCow {
-            src_field,
-            header_iter,
-        } = field.iter_hall.data_source
-        else {
+        let FieldDataSource::DataCow(cds) = field.iter_hall.data_source else {
             return;
         };
 
-        let src = self.fields[src_field].borrow();
-        let iter = src.iter_hall.get_iter_state(header_iter);
+        let src = self.fields[cds.src_field_id].borrow();
+        let iter = src.iter_hall.get_iter_state(cds.header_iter_id);
         let (headers, count) = self.get_field_headers(src);
         let mut copy_headers_from = iter.header_idx;
         if iter.header_rl_offset != 0 {
@@ -495,10 +497,10 @@ impl FieldManager {
             .headers
             .extend_from_slice(&headers[copy_headers_from..]);
         field.iter_hall.field_data.field_count += additional_len;
-        let src = self.fields[src_field].borrow();
+        let src = self.fields[cds.src_field_id].borrow();
         unsafe {
             src.iter_hall.store_iter_state_unchecked(
-                header_iter,
+                cds.header_iter_id,
                 src.iter_hall.get_iter_state_at_end(self),
             );
         }
@@ -509,10 +511,13 @@ impl FieldManager {
         msm: &mut MatchSetManager,
         mut field_id: FieldId,
     ) {
+        // PERF: if we are about to clear our headers, make sure
+        // that `apply_field_actions` on the cow source does not
+        // copy them
         let mut field = self.borrow_field_dealiased(&mut field_id);
         if let (Some(cow_src_id), _) = field.iter_hall.cow_source_field(self) {
-            self.apply_field_actions(msm, cow_src_id);
             drop(field);
+            self.apply_field_actions(msm, cow_src_id);
             self.update_data_cow_headers(field_id);
             field = self.fields[field_id].borrow();
         }
@@ -547,8 +552,12 @@ impl FieldManager {
         src_field.ref_count += 1;
         src_field.iter_hall.cow_targets.push(field_id);
         vacant_entry.insert(field_id);
+        let header_iter = src_field.iter_hall.claim_iter_at_end(self);
         let mut field = self.fields[field_id].borrow_mut();
-        field.iter_hall.data_source = FieldDataSource::Cow(src_field_id);
+        field.iter_hall.data_source = FieldDataSource::Cow(CowDataSource {
+            src_field_id,
+            header_iter_id: header_iter,
+        });
         for i in 0..src_field.field_refs.len() {
             let ref_field_id = src_field.field_refs[i];
             drop(src_field);
@@ -604,7 +613,12 @@ impl FieldManager {
             let mut tgt_field = self.fields[tgt_id].borrow_mut();
             src_field.ref_count += 1;
             src_field.iter_hall.cow_targets.push(tgt_id);
-            tgt_field.iter_hall.data_source = FieldDataSource::Cow(src_id);
+            let header_iter_id = src_field.iter_hall.claim_iter_at_end(self);
+            tgt_field.iter_hall.data_source =
+                FieldDataSource::Cow(CowDataSource {
+                    src_field_id: src_id,
+                    header_iter_id,
+                });
             for i in 0..src_field.field_refs.len() {
                 let ref_field_id = src_field.field_refs[i];
                 drop(src_field);
@@ -637,15 +651,13 @@ impl FieldManager {
             FieldDataSource::Owned => {
                 std::mem::swap(tgt, &mut src.iter_hall.field_data);
             }
-            FieldDataSource::Cow(src) | FieldDataSource::Alias(src) => {
-                let fr = self.get_cow_field_ref_raw(src);
+            FieldDataSource::Cow(CowDataSource { src_field_id, .. })
+            | FieldDataSource::Alias(src_field_id) => {
+                let fr = self.get_cow_field_ref_raw(src_field_id);
                 let mut iter = Iter::from_start(fr.destructured_field_ref());
                 FieldData::copy(&mut iter, &mut |f| f(tgt));
             }
-            FieldDataSource::DataCow {
-                src_field,
-                header_iter: _,
-            } => {
+            FieldDataSource::DataCow(cds) => {
                 std::mem::swap(
                     &mut tgt.field_count,
                     &mut src.iter_hall.field_data.field_count,
@@ -654,7 +666,7 @@ impl FieldManager {
                     &mut tgt.headers,
                     &mut src.iter_hall.field_data.headers,
                 );
-                let fr = self.get_cow_field_ref_raw(src_field);
+                let fr = self.get_cow_field_ref_raw(cds.src_field_id);
                 let iter = Iter::from_start(fr.destructured_field_ref());
                 unsafe {
                     FieldData::copy_data(iter, &mut |f| f(tgt));
