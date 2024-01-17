@@ -120,6 +120,12 @@ impl<'a> CowFieldDataRef<'a> {
     pub fn iter_from_end(&'a self) -> Iter<'a, &'a CowFieldDataRef<'a>> {
         Iter::from_end(self)
     }
+    pub fn headers(&'a self) -> &'a [FieldValueHeader] {
+        &self.headers_ref
+    }
+    pub fn data(&'a self) -> &'a FieldDataBuffer {
+        &self.data_ref
+    }
 }
 
 impl<'a> FieldDataRef<'a> for &'a CowFieldDataRef<'a> {
@@ -461,7 +467,7 @@ impl FieldManager {
         }
         field_id
     }
-    pub fn update_data_cow_headers(&self, field_id: FieldId) {
+    pub fn update_data_cow(&self, field_id: FieldId) {
         let mut field = self.fields[field_id].borrow_mut();
         let FieldDataSource::DataCow(cds) = field.iter_hall.data_source else {
             return;
@@ -518,7 +524,7 @@ impl FieldManager {
         if let (Some(cow_src_id), _) = field.iter_hall.cow_source_field(self) {
             drop(field);
             self.apply_field_actions(msm, cow_src_id);
-            self.update_data_cow_headers(field_id);
+            self.update_data_cow(field_id);
             field = self.fields[field_id].borrow();
         }
         for &f in &field.field_refs {

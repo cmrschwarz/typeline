@@ -910,8 +910,8 @@ impl ActionBuffer {
         new_ss
     }
     pub fn execute(&mut self, fm: &FieldManager, field_id: FieldId) {
-        let mut field_ref = fm.fields[field_id].borrow_mut();
-        let field = &mut *field_ref;
+        let mut field_ref_mut = fm.fields[field_id].borrow_mut();
+        let field = &mut *field_ref_mut;
         let Some(actor_id) =
             self.initialize_first_actor(field_id, &mut field.first_actor)
         else {
@@ -937,6 +937,17 @@ impl ActionBuffer {
         let Some(actions) = actions else { return };
 
         field.iter_hall.uncow_headers(fm);
+
+        drop(field_ref_mut);
+        // uncow headers reborrows the field unfortunately.
+        // PERF: inline `uncow_headers` to avoid that
+        let field_ref = fm.fields[field_id].borrow();
+        for &f in &field_ref.iter_hall.cow_targets {
+            fm.fields[f].borrow_mut().iter_hall.uncow_headers(fm);
+        }
+        drop(field_ref);
+        let mut field_ref_mut = fm.fields[field_id].borrow_mut();
+        let field = &mut *field_ref_mut;
 
         let fd = &mut field.iter_hall.field_data;
         let (headers, data, field_count) =

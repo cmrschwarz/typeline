@@ -500,7 +500,7 @@ impl IterHall {
             }
         }
     }
-    pub fn uncow_headers(&mut self, fm: &FieldManager) {
+    pub(crate) fn uncow_headers(&mut self, fm: &FieldManager) {
         match self.data_source {
             FieldDataSource::Owned
             | FieldDataSource::DataCow { .. }
@@ -513,10 +513,11 @@ impl IterHall {
             }
             FieldDataSource::Cow(cds) => {
                 debug_assert!(self.field_data.is_empty());
-                let src_field = fm.fields[cds.src_field_id].borrow();
-                self.field_data.field_count = src_field
-                    .iter_hall
-                    .append_headers_to(fm, &mut self.field_data.headers);
+                let src_field = fm.get_cow_field_ref_raw(cds.src_field_id);
+                debug_assert!(self.field_data.headers.is_empty());
+                self.field_data.headers.extend(src_field.headers());
+                let iter = src_field.iter_from_end();
+                fm.store_iter(cds.src_field_id, cds.header_iter_id, iter);
                 self.data_source = FieldDataSource::DataCow(cds);
             }
             FieldDataSource::RecordBufferCow(rb) => {
