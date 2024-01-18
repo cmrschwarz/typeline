@@ -79,10 +79,11 @@ pub fn build_tf_sequence<'a>(
         OpSequenceMode::Enum => TfSequenceMode::Enum,
         OpSequenceMode::EnumUnbounded => TfSequenceMode::EnumUnbounded,
         OpSequenceMode::Sequence => {
-            let cb = &mut jd.match_set_mgr.match_sets[tf_state.match_set_id]
-                .action_buffer;
-            let actor_id = cb.add_actor();
-            let next_actor_id = ActorRef::Unconfirmed(cb.peek_next_actor_id());
+            let mut ab = jd.match_set_mgr.match_sets[tf_state.match_set_id]
+                .action_buffer
+                .borrow_mut();
+            let actor_id = ab.add_actor();
+            let next_actor_id = ActorRef::Unconfirmed(ab.peek_next_actor_id());
             let mut output_field =
                 jd.field_mgr.fields[tf_state.output_field].borrow_mut();
 

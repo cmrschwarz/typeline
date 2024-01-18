@@ -184,12 +184,13 @@ impl TransformManager {
     }
     pub fn inform_cross_ms_transform_batch_available(
         &mut self,
+        fm: &FieldManager,
         msm: &mut MatchSetManager,
         tf_id: TransformId,
         batch_size: usize,
         predecessor_done: bool,
     ) {
-        msm.update_cow_targets(self.transforms[tf_id].match_set_id);
+        msm.update_cow_targets(fm, self.transforms[tf_id].match_set_id);
         self.inform_transform_batch_available(
             tf_id,
             batch_size,
@@ -223,7 +224,7 @@ impl TransformManager {
     ) {
         let tf = &self.transforms[tf_id];
         let ms_id = tf.match_set_id;
-        let ab = &mut msm.match_sets[ms_id].action_buffer;
+        let mut ab = msm.match_sets[ms_id].action_buffer.borrow_mut();
         ab.begin_action_group(actor_id);
         ab.push_action(FieldActionKind::Drop, 0, batch_size);
         ab.end_action_group();
@@ -332,6 +333,7 @@ impl TransformManager {
         }
         match_set_mgr.match_sets[match_set_id]
             .action_buffer
+            .borrow_mut()
             .execute(field_mgr, output_field_id);
         // this results in always one more element being present than we
         // advertise as batch size. this prevents apply_field_actions
@@ -768,6 +770,7 @@ impl<'a> Job<'a> {
                         let actor = ActorRef::Unconfirmed(
                             self.job_data.match_set_mgr.match_sets[ms_id]
                                 .action_buffer
+                                .borrow()
                                 .peek_next_actor_id(),
                         );
                         input_field = self.job_data.field_mgr.add_field(
@@ -817,6 +820,7 @@ impl<'a> Job<'a> {
                 let first_actor = ActorRef::Unconfirmed(
                     self.job_data.match_set_mgr.match_sets[ms_id]
                         .action_buffer
+                        .borrow()
                         .peek_next_actor_id(),
                 );
                 if let Some(field_idx) =

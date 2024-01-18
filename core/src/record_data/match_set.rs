@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{cell::RefCell, collections::HashMap};
 
 use nonmax::NonMaxUsize;
 
@@ -22,7 +22,7 @@ pub type MatchSetId = NonMaxUsize;
 #[derive(Default)]
 pub struct MatchSet {
     pub stream_participants: Vec<TransformId>,
-    pub action_buffer: ActionBuffer,
+    pub action_buffer: RefCell<ActionBuffer>,
     pub field_name_map:
         HashMap<StringStoreEntry, FieldId, BuildIdentityHasher>,
     // stores original field -> cow copy
@@ -61,6 +61,7 @@ impl MatchSetManager {
         field.shadowed_by = alias_id;
         field.shadowed_since = self.match_sets[field.match_set]
             .action_buffer
+            .borrow()
             .peek_next_actor_id();
 
         let mut alias = fm.fields[alias_id].borrow_mut();
@@ -73,21 +74,33 @@ impl MatchSetManager {
         #[allow(unused_mut)]
         let mut ms = MatchSet {
             stream_participants: Vec::new(),
-            action_buffer: ActionBuffer::default(),
+            action_buffer: RefCell::default(),
             field_name_map: HashMap::default(),
             cow_map: HashMap::default(),
         };
         #[cfg(feature = "debug_logging")]
         {
-            ms.action_buffer.match_set_id = self.match_sets.peek_claim_id();
+            ms.action_buffer.borrow_mut().match_set_id =
+                self.match_sets.peek_claim_id();
         }
         self.match_sets.claim_with_value(ms)
     }
     pub fn remove_match_set(&mut self, _ms_id: MatchSetId) {
         todo!()
     }
-    pub fn update_cow_targets(&mut self, _ms_id: MatchSetId) {
-        // TODO: actually update. we don't use `todo!()` here
-        // so we can keep using our test suite.
+    pub fn update_cow_targets(
+        &mut self,
+        fm: &FieldManager,
+        ms_id: MatchSetId,
+    ) {
+        let cm = &self.match_sets[ms_id].cow_map;
+        for &src in cm.keys() {
+            let src_ms_id = fm.fields[src].borrow().match_set;
+            self.match_sets[src_ms_id]
+                .action_buffer
+                .borrow_mut()
+                .execute(fm, src);
+            // TODO: append to targets
+        }
     }
 }

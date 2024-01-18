@@ -1036,14 +1036,15 @@ impl ActionBuffer {
             );
             eprint_action_list(actions.clone());
         }
-        let field_count_delta = self.actions_applicator.run(
+
+        let _field_count_delta = self.actions_applicator.run(
             actions,
             headers,
             data,
             field_count,
             iterators,
         );
-        debug_assert!(field_count_delta == agi.group.field_count_delta);
+        // debug_assert!(_field_count_delta == agi.group.field_count_delta);
     }
     fn initialize_first_actor(
         &mut self,

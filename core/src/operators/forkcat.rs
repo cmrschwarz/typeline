@@ -335,6 +335,7 @@ pub fn handle_tf_forkcat(
         jd.tf_mgr.push_tf_in_ready_stack(tf_id);
         let sc_start = jd.tf_mgr.transforms[tf_id].successor.take().unwrap();
         jd.tf_mgr.inform_cross_ms_transform_batch_available(
+            &jd.field_mgr,
             &mut jd.match_set_mgr,
             sc_start,
             fc.input_size,
@@ -352,6 +353,7 @@ pub fn handle_tf_forkcat(
         jd.tf_mgr.transforms[tf_id].successor = None;
     }
     jd.tf_mgr.inform_cross_ms_transform_batch_available(
+        &jd.field_mgr,
         &mut jd.match_set_mgr,
         curr_subchain_start,
         batch_size,
@@ -541,7 +543,7 @@ pub(crate) fn handle_forkcat_subchain_expansion(
         assert!(f.get_clear_delay_request_count() == 0);
         let msm = &mut sess.job_data.match_set_mgr.match_sets[f.match_set];
         let fr = &mut *f;
-        msm.action_buffer.drop_field_commands(
+        msm.action_buffer.borrow_mut().drop_field_commands(
             of,
             &mut fr.first_actor,
             &mut fr.snapshot,

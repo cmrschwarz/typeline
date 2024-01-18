@@ -94,8 +94,9 @@ impl Operator for OpFlatten {
         tf_state: &mut TransformState,
         _prebound_outputs: &HashMap<OpOutputIdx, FieldId, BuildIdentityHasher>,
     ) -> TransformData<'a> {
-        let cb = &mut jd.match_set_mgr.match_sets[tf_state.match_set_id]
-            .action_buffer;
+        let mut ab = jd.match_set_mgr.match_sets[tf_state.match_set_id]
+            .action_buffer
+            .borrow_mut();
         let input_field_ref_offset = jd.field_mgr.register_field_reference(
             tf_state.output_field,
             tf_state.input_field,
@@ -103,12 +104,12 @@ impl Operator for OpFlatten {
         let tfe = TfFlatten {
             may_consume_input: self.may_consume_input,
             input_iter_id: jd.field_mgr.claim_iter(tf_state.input_field),
-            actor_id: cb.add_actor(),
+            actor_id: ab.add_actor(),
             input_field_ref_offset,
         };
         jd.field_mgr.fields[tf_state.output_field]
             .borrow_mut()
-            .first_actor = ActorRef::Unconfirmed(cb.peek_next_actor_id());
+            .first_actor = ActorRef::Unconfirmed(ab.peek_next_actor_id());
         TransformData::Custom(smallbox!(tfe))
     }
 }
@@ -144,6 +145,7 @@ impl TfFlatten {
         let mut inserter = output_field.iter_hall.varying_type_inserter();
         bud.match_set_mgr.match_sets[bud.match_set_id]
             .action_buffer
+            .borrow_mut()
             .begin_action_group(self.actor_id);
         let mut field_idx = bud.iter.get_next_field_pos();
         let mut string_store = None;
@@ -173,9 +175,10 @@ impl TfFlatten {
                     );
                 }
                 TypedSlice::Object(objects) => {
-                    let ab = &mut bud.match_set_mgr.match_sets
+                    let mut ab = bud.match_set_mgr.match_sets
                         [bud.match_set_id]
-                        .action_buffer;
+                        .action_buffer
+                        .borrow_mut();
                     for (v, rl) in
                         RefAwareTypedSliceIter::from_range(&range, objects)
                     {
@@ -231,9 +234,10 @@ impl TfFlatten {
                     }
                 }
                 TypedSlice::Array(arrays) => {
-                    let ab = &mut bud.match_set_mgr.match_sets
+                    let mut ab = bud.match_set_mgr.match_sets
                         [bud.match_set_id]
-                        .action_buffer;
+                        .action_buffer
+                        .borrow_mut();
                     for (v, rl) in
                         RefAwareTypedSliceIter::from_range(&range, arrays)
                     {
@@ -326,6 +330,7 @@ impl TfFlatten {
         }
         bud.match_set_mgr.match_sets[bud.match_set_id]
             .action_buffer
+            .borrow_mut()
             .end_action_group();
         (field_idx, bud.ps.input_done)
     }

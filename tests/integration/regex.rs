@@ -130,7 +130,7 @@ fn large_batch_seq(
         .add_op(create_op_regex(r"\d{1,3}").unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
-    // large output -> no assert_eq!
+    // large output -> no `assert_eq!`
     assert!(
         ss.get_data().unwrap().as_slice()
             == (0..count)

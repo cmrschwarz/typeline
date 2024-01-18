@@ -90,9 +90,12 @@ pub fn insert_tf_foreach(
     let input_field = tf_state.input_field;
     let mut trailer_output_field = input_field;
     let group_separator_flag_field = tf_state.output_field;
-    let ab = &mut job.job_data.match_set_mgr.match_sets[ms_id].action_buffer;
+    let mut ab = job.job_data.match_set_mgr.match_sets[ms_id]
+        .action_buffer
+        .borrow_mut();
     let header_actor_id = ab.add_actor();
     let next_actor = ActorRef::Unconfirmed(ab.peek_next_actor_id());
+    drop(ab);
     let header_tf_id = add_transform_to_job(
         &mut job.job_data,
         &mut job.transform_data,
@@ -135,6 +138,7 @@ pub fn insert_tf_foreach(
         .bump_field_refcount(trailer_output_field);
     let trailer_actor_id = job.job_data.match_set_mgr.match_sets[ms_id]
         .action_buffer
+        .borrow_mut()
         .add_actor();
     let trailer_tf_state = TransformState::new(
         group_separator_flag_field,
@@ -177,7 +181,9 @@ pub fn handle_tf_foreach_header(
     }
     let tf = &jd.tf_mgr.transforms[tf_id];
     let mut output_field = jd.field_mgr.fields[tf.output_field].borrow_mut();
-    let ab = &mut jd.match_set_mgr.match_sets[tf.match_set_id].action_buffer;
+    let mut ab = jd.match_set_mgr.match_sets[tf.match_set_id]
+        .action_buffer
+        .borrow_mut();
     ab.begin_action_group(feh.actor_id);
     let mut field_idx = if feh.any_records_submitted {
         ab.push_action(
@@ -222,7 +228,9 @@ pub fn handle_tf_foreach_trailer(
     );
     let mut iter = input_field.iter();
     let mut field_pos = 0;
-    let ab = &mut jd.match_set_mgr.match_sets[tf.match_set_id].action_buffer;
+    let mut ab = jd.match_set_mgr.match_sets[tf.match_set_id]
+        .action_buffer
+        .borrow_mut();
     ab.begin_action_group(fet.actor_id);
     let mut bs_rem = batch_size;
     while bs_rem > 0 {

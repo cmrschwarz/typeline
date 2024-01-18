@@ -189,6 +189,7 @@ pub fn build_tf_call_concurrent<'a>(
         buffer,
         actor_id: jd.match_set_mgr.match_sets[tf_state.match_set_id]
             .action_buffer
+            .borrow_mut()
             .add_actor(),
         target_accessed_fields: &op.target_accessed_fields,
     })
@@ -374,10 +375,13 @@ pub fn handle_tf_call_concurrent(
     buf_data.available_batch_size += batch_size;
     drop(buf_data);
     tfc.buffer.updates.notify_one();
-    let cb = &mut jd.match_set_mgr.match_sets[tf.match_set_id].action_buffer;
-    cb.begin_action_group(tfc.actor_id);
-    cb.push_action(FieldActionKind::Drop, 0, batch_size);
-    cb.end_action_group();
+    let mut ab = jd.match_set_mgr.match_sets[tf.match_set_id]
+        .action_buffer
+        .borrow_mut();
+    ab.begin_action_group(tfc.actor_id);
+    ab.push_action(FieldActionKind::Drop, 0, batch_size);
+    ab.end_action_group();
+    drop(ab);
     for mapping in &tfc.field_mappings {
         let src_field = jd.field_mgr.fields[mapping.source_field_id].borrow();
         drop(src_field);

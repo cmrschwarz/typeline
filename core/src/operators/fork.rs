@@ -126,6 +126,7 @@ pub fn handle_tf_fork(jd: &mut JobData, tf_id: TransformId, sp: &mut TfFork) {
     // on top of the stack and gets executed first
     for &tf in sp.targets.iter().rev() {
         jd.tf_mgr.inform_cross_ms_transform_batch_available(
+            &jd.field_mgr,
             &mut jd.match_set_mgr,
             tf,
             batch_size,

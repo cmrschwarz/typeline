@@ -71,8 +71,9 @@ impl Operator for OpSum {
         tf_state: &mut TransformState,
         _prebound_outputs: &HashMap<OpOutputIdx, FieldId, BuildIdentityHasher>,
     ) -> TransformData<'a> {
-        let ab = &mut jd.match_set_mgr.match_sets[tf_state.match_set_id]
-            .action_buffer;
+        let mut ab = jd.match_set_mgr.match_sets[tf_state.match_set_id]
+            .action_buffer
+            .borrow_mut();
         let actor_id = ab.add_actor();
         jd.field_mgr.fields[tf_state.output_field]
             .borrow_mut()
@@ -126,6 +127,7 @@ impl TfSum {
 
         bud.match_set_mgr.match_sets[bud.match_set_id]
             .action_buffer
+            .borrow_mut()
             .begin_action_group(self.actor_id);
 
         while let Some(range) = bud.iter.next_range(bud.match_set_mgr) {
@@ -137,9 +139,10 @@ impl TfSum {
                     let group_size =
                         field_pos - last_finished_group_end - gs_count;
                     let mut output_record_count = finished_group_count * 2;
-                    let ab = &mut bud.match_set_mgr.match_sets
+                    let mut ab = &mut bud.match_set_mgr.match_sets
                         [bud.match_set_id]
-                        .action_buffer;
+                        .action_buffer
+                        .borrow_mut();
                     ab.push_action(
                         Drop,
                         output_record_count,
@@ -215,8 +218,9 @@ impl TfSum {
         }
         let last_group_size = field_pos - last_finished_group_end;
         let mut output_record_count = finished_group_count * 2;
-        let ab =
-            &mut bud.match_set_mgr.match_sets[bud.match_set_id].action_buffer;
+        let mut ab = bud.match_set_mgr.match_sets[bud.match_set_id]
+            .action_buffer
+            .borrow_mut();
         if bud.ps.input_done {
             self.finish_group(op_id, &mut inserter);
             ab.push_action(

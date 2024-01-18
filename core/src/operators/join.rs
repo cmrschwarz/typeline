@@ -140,10 +140,11 @@ pub fn build_tf_join<'a>(
     op: &'a OpJoin,
     tf_state: &mut TransformState,
 ) -> TransformData<'a> {
-    let cb =
-        &mut jd.match_set_mgr.match_sets[tf_state.match_set_id].action_buffer;
-    let actor_id = cb.add_actor();
-    let next_actor_id = ActorRef::Unconfirmed(cb.peek_next_actor_id());
+    let mut ab = jd.match_set_mgr.match_sets[tf_state.match_set_id]
+        .action_buffer
+        .borrow_mut();
+    let actor_id = ab.add_actor();
+    let next_actor_id = ActorRef::Unconfirmed(ab.peek_next_actor_id());
     let mut output_field =
         jd.field_mgr.fields[tf_state.output_field].borrow_mut();
     output_field.first_actor = next_actor_id;
@@ -428,6 +429,7 @@ pub fn handle_tf_join(
 
     jd.match_set_mgr.match_sets[ms_id]
         .action_buffer
+        .borrow_mut()
         .begin_action_group(join.actor_id);
 
     'iter: loop {
@@ -453,8 +455,9 @@ pub fn handle_tf_join(
                 TypedSlice::GroupSeparator(_) => {
                     let count = range.base.field_count;
                     let should_drop = should_drop_group(join);
-                    let ab =
-                        &mut jd.match_set_mgr.match_sets[ms_id].action_buffer;
+                    let mut ab = jd.match_set_mgr.match_sets[ms_id]
+                        .action_buffer
+                        .borrow_mut();
                     let mut out_field_pos =
                         groups_emitted + group_separators_emitted;
                     ab.push_action(
@@ -596,7 +599,9 @@ pub fn handle_tf_join(
 
     jd.field_mgr.store_iter(input_field_id, join.iter_id, iter);
     let streams_done = join.current_stream_val.is_none();
-    let ab = &mut jd.match_set_mgr.match_sets[ms_id].action_buffer;
+    let mut ab = jd.match_set_mgr.match_sets[ms_id]
+        .action_buffer
+        .borrow_mut();
     let mut records_produced = groups_emitted + group_separators_emitted;
     if ps.input_done && streams_done {
         let should_drop = should_drop_group(join);

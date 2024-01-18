@@ -93,9 +93,10 @@ impl Operator for OpHead {
         tf_state: &mut TransformState,
         _prebound_outputs: &HashMap<OpOutputIdx, FieldId, BuildIdentityHasher>,
     ) -> TransformData {
-        let ab = &mut jd.match_set_mgr.match_sets[tf_state.match_set_id]
-            .action_buffer;
-        let actor_id = ab.add_actor();
+        let actor_id = jd.match_set_mgr.match_sets[tf_state.match_set_id]
+            .action_buffer
+            .borrow_mut()
+            .add_actor();
         // TODO: creae a nicer api for this usecase where we don't want
         // an output field
         jd.field_mgr
@@ -163,8 +164,9 @@ impl Transform for TfHead {
         let rows_to_drop = batch_size - rows_to_submit;
         self.remaining = 0;
 
-        let ab =
-            &mut jd.match_set_mgr.match_sets[tf.match_set_id].action_buffer;
+        let mut ab = jd.match_set_mgr.match_sets[tf.match_set_id]
+            .action_buffer
+            .borrow_mut();
         ab.begin_action_group(self.actor_id);
         ab.push_action(FieldActionKind::Drop, rows_to_submit, rows_to_drop);
         ab.end_action_group();
@@ -196,7 +198,9 @@ impl Transform for TfHeadSubtractive {
             jd.field_mgr.relinquish_clear_delay(f);
         }
 
-        let ab = &mut jd.match_set_mgr.match_sets[match_set_id].action_buffer;
+        let mut ab = jd.match_set_mgr.match_sets[match_set_id]
+            .action_buffer
+            .borrow_mut();
 
         let rows_to_drop = batch_size.min(self.drop_count);
         let rows_to_submit = batch_size - rows_to_drop;

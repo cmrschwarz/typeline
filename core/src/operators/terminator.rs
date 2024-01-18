@@ -17,10 +17,11 @@ pub fn setup_tf_terminator(
     jd: &mut JobData,
     tf_state: &TransformState,
 ) -> TransformData<'static> {
-    let cb =
-        &mut jd.match_set_mgr.match_sets[tf_state.match_set_id].action_buffer;
+    let mut ab = jd.match_set_mgr.match_sets[tf_state.match_set_id]
+        .action_buffer
+        .borrow_mut();
     TransformData::Terminator(TfTerminator {
-        actor_id: cb.add_actor(),
+        actor_id: ab.add_actor(),
         delayed_deletion_row_count: 0,
     })
 }
@@ -33,7 +34,9 @@ pub fn handle_tf_terminator(
     let (batch_size, ps) = jd.tf_mgr.claim_all(tf_id);
     let tf = &jd.tf_mgr.transforms[tf_id];
     let done = tf.done;
-    let ab = &mut jd.match_set_mgr.match_sets[tf.match_set_id].action_buffer;
+    let mut ab = jd.match_set_mgr.match_sets[tf.match_set_id]
+        .action_buffer
+        .borrow_mut();
     ab.begin_action_group(tft.actor_id);
     let rows_to_drop;
     if tf.successor.is_some() {

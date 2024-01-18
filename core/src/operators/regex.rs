@@ -417,10 +417,12 @@ pub fn build_tf_regex<'a>(
     tf_state: &mut TransformState,
     prebound_outputs: &HashMap<OpOutputIdx, FieldId, BuildIdentityHasher>,
 ) -> TransformData<'a> {
-    let cb =
-        &mut jd.match_set_mgr.match_sets[tf_state.match_set_id].action_buffer;
-    let actor_id = cb.add_actor();
-    let next_actor_id = ActorRef::Unconfirmed(cb.peek_next_actor_id());
+    let mut ab = jd.match_set_mgr.match_sets[tf_state.match_set_id]
+        .action_buffer
+        .borrow_mut();
+    let actor_id = ab.add_actor();
+    let next_actor_id = ActorRef::Unconfirmed(ab.peek_next_actor_id());
+    drop(ab);
     let mut output_field =
         jd.field_mgr.fields[tf_state.output_field].borrow_mut();
 
@@ -630,7 +632,7 @@ impl<'a> AnyRegex for BytesRegex<'a> {
 
 #[inline(always)]
 fn match_regex_inner<const PUSH_REF: bool, R: AnyRegex>(
-    rmis: &mut RegexMatchInnerState<'_, '_>,
+    rmis: &mut RegexMatchInnerState<'_, '_, '_>,
     regex: &mut R,
     data: &R::Data,
     run_length: RunLength,
@@ -755,9 +757,9 @@ impl RegexBatchState<'_> {
     }
 }
 
-struct RegexMatchInnerState<'a, 'b> {
+struct RegexMatchInnerState<'a, 'b, 'c> {
     batch_state: &'b mut RegexBatchState<'a>,
-    action_buffer: &'b mut ActionBuffer,
+    action_buffer: RefMut<'c, ActionBuffer>,
     input_field_ref_offset: FieldRefOffset,
 }
 
@@ -780,9 +782,6 @@ pub fn handle_tf_regex(
     let input_field = jd
         .field_mgr
         .get_cow_field_ref(&mut jd.match_set_mgr, input_field_id);
-    jd.match_set_mgr.match_sets[tf.match_set_id]
-        .action_buffer
-        .begin_action_group(re.actor_id);
     let iter_base = jd
         .field_mgr
         .lookup_iter(input_field_id, &input_field, re.input_field_iter_id)
@@ -806,6 +805,10 @@ pub fn handle_tf_regex(
             ins
         }));
     }
+    jd.match_set_mgr.match_sets[tf.match_set_id]
+        .action_buffer
+        .borrow_mut()
+        .begin_action_group(re.actor_id);
     let mut rbs = RegexBatchState {
         batch_end_field_pos_output: field_pos_start + tf.desired_batch_size,
         field_pos_input: field_pos_start,
@@ -853,16 +856,19 @@ pub fn handle_tf_regex(
         };
         let mut rmis = RegexMatchInnerState {
             batch_state: &mut rbs,
-            action_buffer: &mut jd.match_set_mgr.match_sets[tf.match_set_id]
-                .action_buffer,
+            action_buffer: jd.match_set_mgr.match_sets[tf.match_set_id]
+                .action_buffer
+                .borrow_mut(),
             input_field_ref_offset: range
                 .field_ref_offset
                 .unwrap_or(re.input_field_ref_offset),
         };
         match range.base.data {
             TypedSlice::GroupSeparator(_) => {
-                let count = rbs.consume_fields(range.base.field_count);
-                for inserter in rbs.inserters.iter_mut().flatten() {
+                let count =
+                    rmis.batch_state.consume_fields(range.base.field_count);
+                for inserter in rmis.batch_state.inserters.iter_mut().flatten()
+                {
                     inserter.push_group_separator(count, true);
                 }
                 if rbs.batch_size_reached() {
@@ -1043,6 +1049,7 @@ pub fn handle_tf_regex(
                                 &mut jd.sv_mgr,
                                 sv_iter,
                             );
+                        drop(rmis);
                         re.streams_kept_alive +=
                             buffer_remaining_stream_values_in_auto_deref_iter(
                                 &mut jd.match_set_mgr,
@@ -1161,6 +1168,7 @@ pub fn handle_tf_regex(
     let bse = consumed_inputs < batch_size;
     jd.match_set_mgr.match_sets[tf.match_set_id]
         .action_buffer
+        .borrow_mut()
         .end_action_group();
     let mut base_iter = iter.into_base_iter();
     if bse || hit_stream_val {

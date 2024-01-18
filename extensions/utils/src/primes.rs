@@ -57,11 +57,13 @@ impl Operator for OpPrimes {
         tf_state: &mut TransformState,
         _prebound_outputs: &HashMap<OpOutputIdx, FieldId, BuildIdentityHasher>,
     ) -> TransformData<'a> {
-        let ab = &mut jd.match_set_mgr.match_sets[tf_state.match_set_id]
-            .action_buffer;
+        let actor_id = jd.match_set_mgr.match_sets[tf_state.match_set_id]
+            .action_buffer
+            .borrow()
+            .peek_next_actor_id();
         jd.field_mgr.fields[tf_state.output_field]
             .borrow_mut()
-            .first_actor = ActorRef::Unconfirmed(ab.peek_next_actor_id());
+            .first_actor = ActorRef::Unconfirmed(actor_id);
         TransformData::Custom(smallbox!(TfPrimes {
             sieve: primes::Sieve::new(),
             count: 0

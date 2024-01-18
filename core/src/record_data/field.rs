@@ -336,6 +336,7 @@ impl FieldManager {
         let fr = &mut *field;
         msm.match_sets[fr.match_set]
             .action_buffer
+            .borrow_mut()
             .drop_field_commands(
                 field_id,
                 &mut fr.first_actor,
@@ -409,6 +410,7 @@ impl FieldManager {
         let fr = &mut *field;
         msm.match_sets[fr.match_set]
             .action_buffer
+            .borrow_mut()
             .drop_field_commands(
                 field_id,
                 &mut fr.first_actor,
@@ -530,9 +532,9 @@ impl FieldManager {
             self.apply_field_actions(msm, f);
         }
         let match_set = field.match_set;
-        let cb = &mut msm.match_sets[match_set].action_buffer;
+        let ab = &mut msm.match_sets[match_set].action_buffer.borrow_mut();
         drop(field);
-        cb.execute(self, field_id);
+        ab.execute(self, field_id);
     }
     // bumps the refcount of the field by one
     pub fn get_cross_ms_cow_field(

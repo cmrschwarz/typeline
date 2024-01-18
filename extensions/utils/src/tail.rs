@@ -96,9 +96,10 @@ impl Operator for OpTail {
         tf_state: &mut TransformState,
         _prebound_outputs: &HashMap<OpOutputIdx, FieldId, BuildIdentityHasher>,
     ) -> TransformData {
-        let ab = &mut jd.match_set_mgr.match_sets[tf_state.match_set_id]
-            .action_buffer;
-        let actor_id = ab.add_actor();
+        let actor_id = jd.match_set_mgr.match_sets[tf_state.match_set_id]
+            .action_buffer
+            .borrow_mut()
+            .add_actor();
         jd.field_mgr
             .drop_field_refcount(tf_state.output_field, &mut jd.match_set_mgr);
         tf_state.output_field = tf_state.input_field;
@@ -156,7 +157,9 @@ impl Transform for TfTail {
             jd.field_mgr.relinquish_clear_delay(f);
         }
 
-        let ab = &mut jd.match_set_mgr.match_sets[match_set_id].action_buffer;
+        let mut ab = jd.match_set_mgr.match_sets[match_set_id]
+            .action_buffer
+            .borrow_mut();
 
         let rows_to_submit = batch_size.min(self.count);
         let rows_to_drop = batch_size - rows_to_submit;
@@ -197,8 +200,9 @@ impl Transform for TfTailAdditive {
         let rows_to_submit = batch_size - rows_to_skip;
         self.skip_count -= rows_to_skip;
 
-        let ab =
-            &mut jd.match_set_mgr.match_sets[tf.match_set_id].action_buffer;
+        let mut ab = jd.match_set_mgr.match_sets[tf.match_set_id]
+            .action_buffer
+            .borrow_mut();
         ab.begin_action_group(self.actor_id);
         ab.push_action(FieldActionKind::Drop, 0, rows_to_skip);
         ab.end_action_group();
