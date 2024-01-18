@@ -622,13 +622,19 @@ impl FieldData {
     pub fn clear(&mut self) {
         let data_ptr = self.data.as_mut_ptr();
         let mut iter = self.iter();
-        let mut slice_start_ptr = data_ptr;
-        while let Some(range) = iter.typed_range_fwd(usize::MAX, 0) {
+        loop {
+            let slice_start_pos = iter.get_next_field_data();
+            let Some(range) = iter.typed_range_fwd(usize::MAX, 0) else {
+                break;
+            };
             unsafe {
                 let kind = range.data.repr();
                 let len = range.data.len();
-                TypedSlice::drop_from_kind(slice_start_ptr, len, kind);
-                slice_start_ptr = data_ptr.add(iter.data);
+                TypedSlice::drop_from_kind(
+                    data_ptr.add(slice_start_pos),
+                    len,
+                    kind,
+                );
             }
         }
         self.field_count = 0;

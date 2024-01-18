@@ -172,7 +172,7 @@ impl IterHall {
             debug_assert!(state.header_idx == 0);
             return FieldValueHeader::default();
         }
-        let h = fr.headers()[state.header_idx];
+        let mut h = fr.headers()[state.header_idx];
         if h.run_length != state.header_rl_offset {
             return h;
         }
@@ -182,7 +182,9 @@ impl IterHall {
         if state.header_idx == fr.headers().len() {
             return FieldValueHeader::default();
         }
-        fr.headers()[state.header_idx]
+        h = fr.headers()[state.header_idx];
+        state.data += h.leading_padding();
+        h
     }
     // SAFETY: caller must ensure that the state comes from this data source
     pub unsafe fn get_iter_from_state_unchecked<'a, R: FieldDataRef<'a>>(
