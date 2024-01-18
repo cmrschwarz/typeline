@@ -27,17 +27,17 @@ use super::{
 
 pub type IterId = NonMaxU32;
 
-#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
-pub struct CowDataSource {
+#[derive(Default, Clone, Copy, PartialEq, Eq)]
+pub(super) struct CowDataSource {
     pub src_field_id: FieldId,
     // When the data source gets appended, we need to know up to which point
     // we already copied when appending.
-    // This matters for Cow and DataCow, since in both cases we only want
-    // to copy over the new headers.
+    // We also need this in case the headers are cow'ed because the source
+    // could be amended
     pub header_iter_id: IterId,
 }
 
-#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default, Clone, Copy, PartialEq, Eq)]
 pub(super) enum FieldDataSource {
     #[default]
     Owned,

@@ -312,8 +312,7 @@ impl FieldManager {
         match &field.iter_hall.data_source {
             FieldDataSource::Owned => {
                 panic!(
-                    "propagate_clear called for {:?}",
-                    field.iter_hall.data_source
+                    "propagate_clear called for non owned field (id {field_id})"
                 )
             }
             FieldDataSource::Alias(_)

@@ -32,7 +32,7 @@ pub enum ActorRef {
 #[derive(Clone, Copy, PartialEq, Eq, Default)]
 pub struct SnapshotRef {
     snapshot_len: SnapshotEntry,
-    freelist_id: SnapshotLookupId,
+    snapshot_id: SnapshotLookupId,
 }
 
 type SnapshotEntry = u32;
@@ -740,7 +740,7 @@ impl ActionBuffer {
         }
         SnapshotRef {
             snapshot_len: snapshot_len as SnapshotLookupId,
-            freelist_id,
+            snapshot_id: freelist_id,
         }
     }
     fn validate_snapshot_and_refresh_action_groups(
@@ -756,7 +756,7 @@ impl ActionBuffer {
         } else {
             let ss = &self.snapshot_freelists
                 [snapshot.snapshot_len as usize - SNAPSHOT_LEN_MIN]
-                [snapshot.freelist_id];
+                [snapshot.snapshot_id];
             let ss_actor_count = ss[SNAPSHOT_ACTOR_COUNT_OFFSET];
             if ss_actor_count != actor_count {
                 snapshot_valid = false;
@@ -768,7 +768,7 @@ impl ActionBuffer {
             let next_ag = self.refresh_action_group(actor_id, pow2);
             if snapshot_valid && i < snapshot_len {
                 let ss = &self.snapshot_freelists
-                    [snapshot_len - SNAPSHOT_LEN_MIN][snapshot.freelist_id];
+                    [snapshot_len - SNAPSHOT_LEN_MIN][snapshot.snapshot_id];
                 snapshot_valid &= ss[SNAPSHOT_PREFIX_LEN + i] == next_ag;
             }
         }
@@ -783,7 +783,7 @@ impl ActionBuffer {
         }
         self.snapshot_freelists
             [snapshot.snapshot_len as usize - SNAPSHOT_LEN_MIN]
-            [snapshot.freelist_id][SNAPSHOT_ACTOR_COUNT_OFFSET]
+            [snapshot.snapshot_id][SNAPSHOT_ACTOR_COUNT_OFFSET]
     }
     fn bump_snapshot_refcount(&mut self, snapshot: SnapshotRef, bump: u32) {
         debug_assert!(
@@ -791,7 +791,7 @@ impl ActionBuffer {
         );
         let ss_rc = &mut self.snapshot_freelists
             [snapshot.snapshot_len as usize - SNAPSHOT_LEN_MIN]
-            [snapshot.freelist_id][SNAPSHOT_REFCOUNT_OFFSET];
+            [snapshot.snapshot_id][SNAPSHOT_REFCOUNT_OFFSET];
         *ss_rc += bump;
     }
     fn drop_snapshot_refcount(&mut self, snapshot: SnapshotRef, drop: u32) {
@@ -800,12 +800,12 @@ impl ActionBuffer {
         }
         let ss_rc = &mut self.snapshot_freelists
             [snapshot.snapshot_len as usize - SNAPSHOT_LEN_MIN]
-            [snapshot.freelist_id][SNAPSHOT_REFCOUNT_OFFSET];
+            [snapshot.snapshot_id][SNAPSHOT_REFCOUNT_OFFSET];
         *ss_rc -= drop;
         if *ss_rc == 0 {
             self.snapshot_freelists
                 [snapshot.snapshot_len as usize - SNAPSHOT_LEN_MIN]
-                .release(snapshot.freelist_id);
+                .release(snapshot.snapshot_id);
         }
     }
     fn apply_from_snapshot_with_same_actor_count(
@@ -820,7 +820,7 @@ impl ActionBuffer {
         {
             let ss = &self.snapshot_freelists
                 [ssr.snapshot_len as usize - SNAPSHOT_LEN_MIN]
-                [ssr.freelist_id];
+                [ssr.snapshot_id];
             let prev = ss[SNAPSHOT_PREFIX_LEN + i];
             let next = self.actors[ai].action_group_queues[pow2 as usize]
                 .action_groups
@@ -849,7 +849,7 @@ impl ActionBuffer {
         for (ai, pow2) in prev_ss_actor_iter {
             let prev = self.snapshot_freelists
                 [ssr.snapshot_len as usize - SNAPSHOT_LEN_MIN]
-                [ssr.freelist_id][SNAPSHOT_PREFIX_LEN + i];
+                [ssr.snapshot_id][SNAPSHOT_PREFIX_LEN + i];
             let (n_ai, n_pow2) = iter.next().unwrap();
             debug_assert!(n_ai == ai && n_pow2 >= pow2);
             if prev == 0 || n_pow2 == pow2 {
