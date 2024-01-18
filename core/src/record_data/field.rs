@@ -221,7 +221,7 @@ impl FieldManager {
         fr: Ref<'a, Field>,
     ) -> (Ref<'a, Vec<FieldValueHeader>>, usize) {
         match fr.iter_hall.data_source {
-            FieldDataSource::Cow(CowDataSource {
+            FieldDataSource::FullCow(CowDataSource {
                 src_field_id: src_field,
                 ..
             })
@@ -248,7 +248,7 @@ impl FieldManager {
         fr: Ref<'a, Field>,
     ) -> Ref<'a, FieldDataBuffer> {
         match &fr.iter_hall.data_source {
-            FieldDataSource::Cow(CowDataSource {
+            FieldDataSource::FullCow(CowDataSource {
                 src_field_id: src_field,
                 ..
             })
@@ -316,13 +316,13 @@ impl FieldManager {
                 )
             }
             FieldDataSource::Alias(_)
-            | FieldDataSource::Cow(_)
+            | FieldDataSource::FullCow(_)
             | FieldDataSource::RecordBufferCow(_) => (),
             FieldDataSource::DataCow(cds) => {
                 if field.get_clear_delay_request_count() > 0 {
                     return false;
                 }
-                field.iter_hall.data_source = FieldDataSource::Cow(*cds);
+                field.iter_hall.data_source = FieldDataSource::FullCow(*cds);
             }
             FieldDataSource::RecordBufferDataCow(data_ref) => {
                 if field.get_clear_delay_request_count() > 0 {
@@ -559,10 +559,11 @@ impl FieldManager {
         vacant_entry.insert(field_id);
         let header_iter = src_field.iter_hall.claim_iter_at_end(self);
         let mut field = self.fields[field_id].borrow_mut();
-        field.iter_hall.data_source = FieldDataSource::Cow(CowDataSource {
-            src_field_id,
-            header_iter_id: header_iter,
-        });
+        field.iter_hall.data_source =
+            FieldDataSource::FullCow(CowDataSource {
+                src_field_id,
+                header_iter_id: header_iter,
+            });
         for i in 0..src_field.field_refs.len() {
             let ref_field_id = src_field.field_refs[i];
             drop(src_field);
@@ -620,7 +621,7 @@ impl FieldManager {
             src_field.iter_hall.cow_targets.push(tgt_id);
             let header_iter_id = src_field.iter_hall.claim_iter_at_end(self);
             tgt_field.iter_hall.data_source =
-                FieldDataSource::Cow(CowDataSource {
+                FieldDataSource::FullCow(CowDataSource {
                     src_field_id: src_id,
                     header_iter_id,
                 });
@@ -656,7 +657,9 @@ impl FieldManager {
             FieldDataSource::Owned => {
                 std::mem::swap(tgt, &mut src.iter_hall.field_data);
             }
-            FieldDataSource::Cow(CowDataSource { src_field_id, .. })
+            FieldDataSource::FullCow(CowDataSource {
+                src_field_id, ..
+            })
             | FieldDataSource::Alias(src_field_id) => {
                 let fr = self.get_cow_field_ref_raw(src_field_id);
                 let mut iter = Iter::from_start(fr.destructured_field_ref());

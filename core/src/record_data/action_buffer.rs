@@ -991,7 +991,7 @@ impl ActionBuffer {
                 FieldDataSource::Alias(_) => {
                     panic!("cannot execute commands on Alias iter hall")
                 }
-                FieldDataSource::Cow(_)
+                FieldDataSource::FullCow(_)
                 | FieldDataSource::RecordBufferCow(_) => {
                     panic!("cannot execute commands on COW iter hall")
                 }

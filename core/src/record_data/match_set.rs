@@ -86,4 +86,8 @@ impl MatchSetManager {
     pub fn remove_match_set(&mut self, _ms_id: MatchSetId) {
         todo!()
     }
+    pub fn update_cow_targets(&mut self, _ms_id: MatchSetId) {
+        // TODO: actually update. we don't use `todo!()` here
+        // so we can keep using our test suite.
+    }
 }

@@ -27,6 +27,13 @@ use super::{
 
 pub type IterId = NonMaxU32;
 
+/// A COW Field reflects the state of another field **at a certain point
+/// in time**. This means that when source or target change, the other side
+/// remains unaffected (semantically). In practice, we have to change from
+/// `FullCow` to `DataCow` in the target whenever one side changes, unless
+/// all fields from the source have already been deleted in the target.
+/// Source and target can be re-synced by calling the
+/// `MatchSet::update_cow_targets` method.
 #[derive(Default, Clone, Copy, PartialEq, Eq)]
 pub(super) struct CowDataSource {
     pub src_field_id: FieldId,
@@ -42,7 +49,7 @@ pub(super) enum FieldDataSource {
     #[default]
     Owned,
     Alias(FieldId),
-    Cow(CowDataSource),
+    FullCow(CowDataSource),
     DataCow(CowDataSource),
     RecordBufferCow(*const UnsafeCell<FieldData>),
     RecordBufferDataCow(*const UnsafeCell<FieldData>),
@@ -126,7 +133,9 @@ impl IterHall {
     pub fn get_field_data_len(&self, fm: &FieldManager) -> usize {
         match self.data_source {
             FieldDataSource::Owned => self.field_data.data.len(),
-            FieldDataSource::Cow(CowDataSource { src_field_id, .. })
+            FieldDataSource::FullCow(CowDataSource {
+                src_field_id, ..
+            })
             | FieldDataSource::DataCow(CowDataSource {
                 src_field_id, ..
             })
@@ -293,7 +302,9 @@ impl IterHall {
             FieldDataSource::Alias(src) => {
                 fm.fields[src].borrow().iter_hall.cow_source_field(fm)
             }
-            FieldDataSource::Cow(cds) => (Some(cds.src_field_id), Some(false)),
+            FieldDataSource::FullCow(cds) => {
+                (Some(cds.src_field_id), Some(false))
+            }
             FieldDataSource::DataCow(cds) => {
                 (Some(cds.src_field_id), Some(true))
             }
@@ -315,12 +326,12 @@ impl IterHall {
     }
     pub fn reset_cow_headers(&mut self, fm: &FieldManager) {
         match &mut self.data_source {
-            FieldDataSource::Owned | FieldDataSource::Cow(_) => (),
+            FieldDataSource::Owned | FieldDataSource::FullCow(_) => (),
             FieldDataSource::Alias(src) => {
                 fm.fields[*src].borrow_mut().iter_hall.reset_cow_headers(fm)
             }
             FieldDataSource::DataCow(cds) => {
-                self.data_source = FieldDataSource::Cow(*cds)
+                self.data_source = FieldDataSource::FullCow(*cds)
             }
             FieldDataSource::RecordBufferCow(_) => todo!(),
             FieldDataSource::RecordBufferDataCow(data_ref) => {
@@ -380,7 +391,9 @@ impl IterHall {
                 header_tgt.extend_from_slice(&self.field_data.headers);
                 self.field_data.field_count
             }
-            FieldDataSource::Cow(CowDataSource { src_field_id, .. })
+            FieldDataSource::FullCow(CowDataSource {
+                src_field_id, ..
+            })
             | FieldDataSource::Alias(src_field_id) => fm.fields[src_field_id]
                 .borrow()
                 .iter_hall
@@ -401,7 +414,9 @@ impl IterHall {
             FieldDataSource::Owned => {
                 self.field_data.append_data_to(target);
             }
-            FieldDataSource::Cow(CowDataSource { src_field_id, .. })
+            FieldDataSource::FullCow(CowDataSource {
+                src_field_id, ..
+            })
             | FieldDataSource::Alias(src_field_id) => {
                 fm.fields[src_field_id]
                     .borrow()
@@ -421,7 +436,9 @@ impl IterHall {
     pub fn append_to(&self, fm: &FieldManager, target: &mut FieldData) {
         match self.data_source {
             FieldDataSource::Owned => self.field_data.clone_into(target),
-            FieldDataSource::Cow(CowDataSource { src_field_id, .. })
+            FieldDataSource::FullCow(CowDataSource {
+                src_field_id, ..
+            })
             | FieldDataSource::Alias(src_field_id) => fm.fields[src_field_id]
                 .borrow()
                 .iter_hall
@@ -450,7 +467,9 @@ impl IterHall {
             | FieldDataSource::RecordBufferDataCow(_) => {
                 self.field_data.field_count
             }
-            FieldDataSource::Cow(CowDataSource { src_field_id, .. })
+            FieldDataSource::FullCow(CowDataSource {
+                src_field_id, ..
+            })
             | FieldDataSource::Alias(src_field_id) => fm.fields[src_field_id]
                 .borrow()
                 .iter_hall
@@ -473,7 +492,7 @@ impl IterHall {
                 .borrow_mut()
                 .iter_hall
                 .uncow_get_field_with_rc(fm),
-            FieldDataSource::Cow(cds) => {
+            FieldDataSource::FullCow(cds) => {
                 debug_assert!(self.field_data.is_empty());
                 let src = fm.fields[cds.src_field_id].borrow();
                 self.field_data.append_from_other(&src.iter_hall.field_data);
@@ -511,7 +530,7 @@ impl IterHall {
                     .iter_hall
                     .uncow_headers(fm);
             }
-            FieldDataSource::Cow(cds) => {
+            FieldDataSource::FullCow(cds) => {
                 debug_assert!(self.field_data.is_empty());
                 let src_field = fm.get_cow_field_ref_raw(cds.src_field_id);
                 debug_assert!(self.field_data.headers.is_empty());

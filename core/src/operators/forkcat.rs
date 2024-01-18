@@ -330,10 +330,12 @@ pub fn handle_tf_forkcat(
         jd.tf_mgr.declare_transform_done(tf_id);
         return;
     }
+
     if fc.curr_subchain_n != 0 {
         jd.tf_mgr.push_tf_in_ready_stack(tf_id);
         let sc_start = jd.tf_mgr.transforms[tf_id].successor.take().unwrap();
-        jd.tf_mgr.inform_transform_batch_available(
+        jd.tf_mgr.inform_cross_ms_transform_batch_available(
+            &mut jd.match_set_mgr,
             sc_start,
             fc.input_size,
             true,
@@ -349,7 +351,8 @@ pub fn handle_tf_forkcat(
         fc.curr_subchain_n += 1;
         jd.tf_mgr.transforms[tf_id].successor = None;
     }
-    jd.tf_mgr.inform_transform_batch_available(
+    jd.tf_mgr.inform_cross_ms_transform_batch_available(
+        &mut jd.match_set_mgr,
         curr_subchain_start,
         batch_size,
         ps.input_done,
