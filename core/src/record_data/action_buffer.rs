@@ -52,13 +52,15 @@ const_assert!(
         && size_of::<SnapshotEntry>() == size_of::<ActionGroupId>() //
 );
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct ActionGroup {
     start: ActionId,
     length: ActionId,
+    field_count_delta: isize,
 }
 
 struct ActionGroupWithRefs {
-    ag: ActionGroup,
+    group: ActionGroup,
     // initialized as usize::MAX, wrapping add, saturating sub
     #[allow(unused)] // TODO
     refcount: u32,
@@ -88,25 +90,25 @@ struct Actor {
     latest_snapshot: SnapshotRef,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum ActionGroupIdentifier {
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ActionGroupIdentifier {
+    group: ActionGroup,
+    location: ActionGroupLocation,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ActionGroupLocation {
     Regular {
         actor_id: u32,
         pow2: u8,
-        start: usize,
-        length: usize,
     },
     #[allow(unused)] // TODO
     LocalMerge {
         actor_id: u32,
         merge_pow2: u8,
-        start: usize,
-        length: usize,
     },
     TempBuffer {
         idx: usize,
-        start: usize,
-        length: usize,
     },
 }
 
@@ -127,10 +129,10 @@ impl Debug for ActorRef {
 
 impl ActionGroupIdentifier {
     fn temp_idx(&self) -> Option<usize> {
-        match self {
-            ActionGroupIdentifier::Regular { .. }
-            | ActionGroupIdentifier::LocalMerge { .. } => None,
-            ActionGroupIdentifier::TempBuffer { idx, .. } => Some(*idx),
+        match self.location {
+            ActionGroupLocation::Regular { .. }
+            | ActionGroupLocation::LocalMerge { .. } => None,
+            ActionGroupLocation::TempBuffer { idx, .. } => Some(idx),
         }
     }
 }
@@ -143,6 +145,7 @@ pub struct ActionBuffer {
     action_temp_buffers: [Vec<FieldAction>; 3],
     pending_action_group_actor_id: Option<ActorId>,
     pending_action_group_action_count: usize,
+    pending_action_group_field_count_delta: isize,
     snapshot_freelists:
         Vec<DynamicArrayFreelist<SnapshotLookupId, SnapshotEntry>>,
     actions_applicator: FieldActionApplicator,
@@ -272,10 +275,12 @@ impl ActionBuffer {
     pub fn end_action_group(&mut self) {
         let ai = self.pending_action_group_actor_id.take().unwrap();
         let action_count = self.pending_action_group_action_count;
+        let field_count_delta = self.pending_action_group_field_count_delta;
         if action_count == 0 {
             return;
         }
         self.pending_action_group_action_count = 0;
+        self.pending_action_group_field_count_delta = 0;
         let mut agq = &mut self.actors[ai].action_group_queues[0];
         let actions_start =
             agq.actions.next_free_index().wrapping_sub(action_count);
@@ -297,9 +302,10 @@ impl ActionBuffer {
         };
         agq = &mut self.actors[ai].action_group_queues[0];
         agq.action_groups.data.push_back(ActionGroupWithRefs {
-            ag: ActionGroup {
+            group: ActionGroup {
                 start: actions_start,
                 length: action_count,
+                field_count_delta,
             },
             refcount: 0,
             next_action_group_id_self: agq.action_groups.next_free_index()
@@ -321,12 +327,29 @@ impl ActionBuffer {
             agq.dirty = true;
         }
     }
+    fn apply_action_field_count_delta(
+        &mut self,
+        kind: FieldActionKind,
+        run_length: usize,
+    ) {
+        let rl_delta = isize::try_from(run_length).unwrap();
+        match kind {
+            FieldActionKind::Dup | FieldActionKind::InsertZst(_) => {
+                // TODO: on 32 bit, consider checked adds?
+                self.pending_action_group_field_count_delta += rl_delta
+            }
+            FieldActionKind::Drop => {
+                self.pending_action_group_field_count_delta -= rl_delta
+            }
+        }
+    }
     pub fn push_action(
         &mut self,
         kind: FieldActionKind,
         field_idx: usize,
         mut run_length: usize,
     ) {
+        self.apply_action_field_count_delta(kind, run_length);
         let actor_id = self.pending_action_group_actor_id.unwrap();
         let actions =
             &mut self.actors[actor_id].action_group_queues[0].actions;
@@ -385,15 +408,15 @@ impl ActionBuffer {
     }
     fn release_temp_action_group(
         &mut self,
-        ag: Option<ActionGroupIdentifier>,
+        agi: Option<ActionGroupIdentifier>,
     ) {
-        if let Some(ActionGroupIdentifier::TempBuffer { idx, start, length }) =
-            ag
-        {
-            let tb = &mut self.action_temp_buffers[idx];
-            debug_assert!(tb.len() == start + length);
-            tb.truncate(tb.len() - length);
-        }
+        let Some(ag) = agi else { return };
+        let ActionGroupLocation::TempBuffer { idx } = ag.location else {
+            return;
+        };
+        let tb = &mut self.action_temp_buffers[idx];
+        debug_assert!(tb.len() == ag.group.start + ag.group.length);
+        tb.truncate(tb.len() - ag.group.length);
     }
     fn get_free_temp_idx(
         lhs: &ActionGroupIdentifier,
@@ -405,51 +428,47 @@ impl ActionBuffer {
     }
     fn get_action_group_slices(
         &self,
-        ag: ActionGroupIdentifier,
+        agi: &ActionGroupIdentifier,
     ) -> (&[FieldAction], &[FieldAction]) {
-        match ag {
-            ActionGroupIdentifier::Regular {
-                actor_id,
-                pow2,
-                mut start,
-                length,
-            } => {
+        match agi.location {
+            ActionGroupLocation::Regular { actor_id, pow2 } => {
                 let actor = &self.actors[actor_id];
                 let agq = &actor.action_group_queues[pow2 as usize];
                 let (s1, s2) = agq.actions.data.as_slices();
-                start = start.wrapping_sub(agq.actions.offset);
-                subslice_slice_pair(s1, s2, start..start + length)
+                let start = agi.group.start.wrapping_sub(agq.actions.offset);
+                subslice_slice_pair(s1, s2, start..start + agi.group.length)
             }
-            ActionGroupIdentifier::LocalMerge {
+            ActionGroupLocation::LocalMerge {
                 actor_id,
                 merge_pow2,
-                mut start,
-                length,
             } => {
                 let actor = &self.actors[actor_id];
                 let merge_lvl = &actor.merges[merge_pow2 as usize];
-                start = start.wrapping_sub(merge_lvl.actions.offset);
+                let start =
+                    agi.group.start.wrapping_sub(merge_lvl.actions.offset);
                 let (s1, s2) = merge_lvl.actions.data.as_slices();
-                subslice_slice_pair(s1, s2, start..start + length)
+                subslice_slice_pair(s1, s2, start..start + agi.group.length)
             }
-            ActionGroupIdentifier::TempBuffer { idx, start, length } => {
-                (&[], &self.action_temp_buffers[idx][start..start + length])
-            }
+            ActionGroupLocation::TempBuffer { idx } => (
+                &[],
+                &self.action_temp_buffers[idx]
+                    [agi.group.start..agi.group.start + agi.group.length],
+            ),
         }
     }
     fn action_group_not_from_actor_pow2(
         actor_id: ActorId,
         pow2: u8,
-        ag: &ActionGroupIdentifier,
+        agi: &ActionGroupIdentifier,
     ) -> bool {
-        match ag {
-            ActionGroupIdentifier::Regular {
+        match agi.location {
+            ActionGroupLocation::Regular {
                 actor_id: ag_actor_id,
                 pow2: ag_pow2,
                 ..
-            } => *ag_actor_id != actor_id || *ag_pow2 != pow2,
-            ActionGroupIdentifier::LocalMerge { .. }
-            | ActionGroupIdentifier::TempBuffer { .. } => true,
+            } => ag_actor_id != actor_id || ag_pow2 != pow2,
+            ActionGroupLocation::LocalMerge { .. }
+            | ActionGroupLocation::TempBuffer { .. } => true,
         }
     }
     fn append_action_group(
@@ -458,11 +477,10 @@ impl ActionBuffer {
         pow2: u8,
         next_self: ActionGroupId,
         next_succ: ActionGroupId,
-        ag: ActionGroupIdentifier,
+        ag: &ActionGroupIdentifier,
     ) -> ActionGroupIdentifier {
         let (s1, s2) = self.get_action_group_slices(ag);
-        let length = s1.len() + s2.len();
-        assert!(Self::action_group_not_from_actor_pow2(actor_id, pow2, &ag));
+        assert!(Self::action_group_not_from_actor_pow2(actor_id, pow2, ag));
         let start = unsafe {
             // SAFETY: the assert above ensures that s1 and s2 do not point
             // into the VecDeque that we are apppending to
@@ -479,22 +497,20 @@ impl ActionBuffer {
         let actor = &mut self.actors[actor_id];
         let agq = &mut actor.action_group_queues[pow2 as usize];
         agq.action_groups.data.push_back(ActionGroupWithRefs {
-            ag: ActionGroup { start, length },
+            group: ActionGroup { start, ..ag.group },
             refcount: 0,
             next_action_group_id_self: next_self,
             next_action_group_id_succ: next_succ,
         });
-        ActionGroupIdentifier::Regular {
-            actor_id,
-            pow2,
-            start,
-            length,
+        ActionGroupIdentifier {
+            location: ActionGroupLocation::Regular { actor_id, pow2 },
+            group: ActionGroup { start, ..ag.group },
         }
     }
     fn merge_action_groups_into_actor_action_group(
         &mut self,
-        lhs: Option<ActionGroupIdentifier>,
-        rhs: Option<ActionGroupIdentifier>,
+        lhs: Option<&ActionGroupIdentifier>,
+        rhs: Option<&ActionGroupIdentifier>,
         actor_id: ActorId,
         pow2: u8,
         next_self: ActionGroupId,
@@ -505,10 +521,10 @@ impl ActionBuffer {
                 let (l1, l2) = self.get_action_group_slices(lhs);
                 let (r1, r2) = self.get_action_group_slices(rhs);
                 assert!(Self::action_group_not_from_actor_pow2(
-                    actor_id, pow2, &lhs
+                    actor_id, pow2, lhs
                 ));
                 assert!(Self::action_group_not_from_actor_pow2(
-                    actor_id, pow2, &rhs
+                    actor_id, pow2, rhs
                 ));
                 let len_before = unsafe {
                     // SAFETY: the asserts above ensure that lhs and rhs do
@@ -531,17 +547,22 @@ impl ActionBuffer {
                 let len_after = agq.actions.data.len();
                 let start = len_before;
                 let length = len_after - len_before;
+                let field_count_delta =
+                    lhs.group.field_count_delta + rhs.group.field_count_delta;
+                let ag = ActionGroup {
+                    start,
+                    length,
+                    field_count_delta,
+                };
                 agq.action_groups.data.push_back(ActionGroupWithRefs {
-                    ag: ActionGroup { start, length },
+                    group: ag,
                     refcount: 0,
                     next_action_group_id_self: next_self,
                     next_action_group_id_succ: next_succ,
                 });
-                return Some(ActionGroupIdentifier::Regular {
-                    actor_id,
-                    pow2,
-                    start,
-                    length,
+                return Some(ActionGroupIdentifier {
+                    group: ag,
+                    location: ActionGroupLocation::Regular { actor_id, pow2 },
                 });
             }
             return Some(self.append_action_group(
@@ -557,14 +578,14 @@ impl ActionBuffer {
     }
     fn merge_action_groups_into_temp_buffer(
         &mut self,
-        lhs: Option<ActionGroupIdentifier>,
-        rhs: Option<ActionGroupIdentifier>,
+        lhs: Option<&ActionGroupIdentifier>,
+        rhs: Option<&ActionGroupIdentifier>,
     ) -> Option<ActionGroupIdentifier> {
         if let Some(lhs) = lhs {
             if let Some(rhs) = rhs {
                 let (l1, l2) = self.get_action_group_slices(lhs);
                 let (r1, r2) = self.get_action_group_slices(rhs);
-                let idx = Self::get_free_temp_idx(&lhs, &rhs);
+                let idx = Self::get_free_temp_idx(lhs, rhs);
                 let (start, length) = unsafe {
                     // SAFETY: get_free_temp_idx makes sure that
                     // action_temp_buffers[idx] is neither
@@ -581,22 +602,27 @@ impl ActionBuffer {
                     );
                     (start, buff.len() - start)
                 };
-                return Some(ActionGroupIdentifier::TempBuffer {
-                    idx,
-                    start,
-                    length,
+                return Some(ActionGroupIdentifier {
+                    group: ActionGroup {
+                        start,
+                        length,
+                        field_count_delta: lhs.group.field_count_delta
+                            + rhs.group.field_count_delta,
+                    },
+                    location: ActionGroupLocation::TempBuffer { idx },
                 });
             }
-            return Some(lhs);
+            return Some(lhs.clone());
         }
-        rhs
+        rhs.cloned()
     }
     fn merge_action_groups_into_temp_buffer_release_inputs(
         &mut self,
         lhs: Option<ActionGroupIdentifier>,
         rhs: Option<ActionGroupIdentifier>,
     ) -> Option<ActionGroupIdentifier> {
-        let res = self.merge_action_groups_into_temp_buffer(lhs, rhs);
+        let res = self
+            .merge_action_groups_into_temp_buffer(lhs.as_ref(), rhs.as_ref());
         if res != lhs {
             self.release_temp_action_group(lhs);
         }
@@ -624,11 +650,9 @@ impl ActionBuffer {
             let agq = &mut actor.action_group_queues[pow2 as usize];
             let ag = &mut agq.action_groups[curr_ag_id];
 
-            let curr = Some(ActionGroupIdentifier::Regular {
-                actor_id,
-                pow2,
-                start: ag.ag.start,
-                length: ag.ag.length,
+            let curr = Some(ActionGroupIdentifier {
+                location: ActionGroupLocation::Regular { actor_id, pow2 },
+                group: ag.group,
             });
             res = self.merge_action_groups_into_temp_buffer_release_inputs(
                 res, curr,
@@ -672,7 +696,12 @@ impl ActionBuffer {
         );
 
         self.merge_action_groups_into_actor_action_group(
-            self_merge, succ_merge, actor_id, pow2, self_next, succ_next,
+            self_merge.as_ref(),
+            succ_merge.as_ref(),
+            actor_id,
+            pow2,
+            self_next,
+            succ_next,
         );
         self.release_temp_action_group(self_merge);
         self.release_temp_action_group(succ_merge);
@@ -890,8 +919,9 @@ impl ActionBuffer {
                 .next_free_index();
             let next_ag =
                 self.merge_action_groups_of_single_pow2(ai, pow2, 0, next);
-            res = self.merge_action_groups_into_temp_buffer(res, next_ag);
-            self.release_temp_action_group(next_ag);
+            res = self.merge_action_groups_into_temp_buffer_release_inputs(
+                res, next_ag,
+            );
         }
         res
     }
@@ -923,8 +953,7 @@ impl ActionBuffer {
             return;
         }
         let field_ss_actor_count = self.get_snapshot_actor_count(field_ss);
-        let actions = if field_ss_actor_count == self.actors.next_free_index()
-        {
+        let agi = if field_ss_actor_count == self.actors.next_free_index() {
             self.apply_from_snapshot_with_same_actor_count(actor_id, field_ss)
         } else {
             self.apply_from_snapshot_with_different_actor_count(
@@ -934,7 +963,7 @@ impl ActionBuffer {
         self.drop_snapshot_refcount(field_ss, 1);
         field.snapshot = actor_ss;
         self.bump_snapshot_refcount(actor_ss, 1);
-        let Some(actions) = actions else { return };
+        let Some(agi) = agi else { return };
 
         field.iter_hall.uncow_headers(fm);
 
@@ -968,13 +997,10 @@ impl ActionBuffer {
                 }
             };
         let iterators = field.iter_hall.iters.iter_mut().map(Cell::get_mut);
-        let actions = match actions {
-            ActionGroupIdentifier::Regular {
-                actor_id,
-                pow2,
-                start,
-                length,
-            } => {
+        let start = agi.group.start;
+        let length = agi.group.length;
+        let actions = match agi.location {
+            ActionGroupLocation::Regular { actor_id, pow2 } => {
                 let actions = &self.actors[actor_id].action_group_queues
                     [pow2 as usize]
                     .actions;
@@ -984,11 +1010,9 @@ impl ActionBuffer {
                     subslice_slice_pair(s1, s2, start..start + length);
                 s1.iter().chain(s2)
             }
-            ActionGroupIdentifier::LocalMerge {
+            ActionGroupLocation::LocalMerge {
                 actor_id,
                 merge_pow2,
-                start,
-                length,
             } => {
                 let actions = &self.actors[actor_id].action_group_queues
                     [merge_pow2 as usize]
@@ -999,7 +1023,7 @@ impl ActionBuffer {
                     subslice_slice_pair(s1, s2, start..start + length);
                 s1.iter().chain(s2)
             }
-            ActionGroupIdentifier::TempBuffer { idx, start, length } => self
+            ActionGroupLocation::TempBuffer { idx } => self
                 .action_temp_buffers[idx][start..start + length]
                 .iter()
                 .chain(&[]),
@@ -1012,13 +1036,14 @@ impl ActionBuffer {
             );
             eprint_action_list(actions.clone());
         }
-        self.actions_applicator.run(
+        let field_count_delta = self.actions_applicator.run(
             actions,
             headers,
             data,
             field_count,
             iterators,
         );
+        debug_assert!(field_count_delta == agi.group.field_count_delta);
     }
     fn initialize_first_actor(
         &mut self,
