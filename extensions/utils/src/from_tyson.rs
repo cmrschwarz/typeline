@@ -70,9 +70,10 @@ impl Operator for OpFromTyson {
         tf_state: &mut TransformState,
         _prebound_outputs: &HashMap<OpOutputIdx, FieldId, BuildIdentityHasher>,
     ) -> TransformData<'a> {
-        let mut ab = jd.match_set_mgr.match_sets[tf_state.match_set_id]
+        let ab = jd.match_set_mgr.match_sets[tf_state.match_set_id]
             .action_buffer
-            .borrow_mut();
+            .borrow();
+
         jd.field_mgr.fields[tf_state.output_field]
             .borrow_mut()
             .first_actor = ActorRef::Unconfirmed(ab.peek_next_actor_id());

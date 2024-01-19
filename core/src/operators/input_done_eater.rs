@@ -37,6 +37,10 @@ pub fn handle_tf_input_done_eater(
             tf_id, ide.input_dones_to_eat
         );
     }
+    jd.match_set_mgr.update_cow_targets(
+        &jd.field_mgr,
+        jd.tf_mgr.transforms[tf_id].match_set_id,
+    );
     jd.tf_mgr.submit_batch(tf_id, batch_size, ps.input_done);
 }
 

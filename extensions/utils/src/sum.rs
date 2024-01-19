@@ -139,7 +139,7 @@ impl TfSum {
                     let group_size =
                         field_pos - last_finished_group_end - gs_count;
                     let mut output_record_count = finished_group_count * 2;
-                    let mut ab = &mut bud.match_set_mgr.match_sets
+                    let mut ab = bud.match_set_mgr.match_sets
                         [bud.match_set_id]
                         .action_buffer
                         .borrow_mut();

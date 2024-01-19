@@ -117,13 +117,23 @@ impl Default for ActorRef {
         ActorRef::Unconfirmed(0)
     }
 }
-
 impl Debug for ActorRef {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Present(id) => f.write_fmt(format_args!("{id}")),
             Self::Unconfirmed(id) => f.write_fmt(format_args!("{id}?")),
         }
+    }
+}
+impl ActorRef {
+    pub fn confirmed_id(&self) -> Option<ActorId> {
+        match self {
+            ActorRef::Present(id) => Some(*id),
+            ActorRef::Unconfirmed(_) => None,
+        }
+    }
+    pub fn unwrap(&self) -> ActorId {
+        self.confirmed_id().unwrap()
     }
 }
 
@@ -939,45 +949,50 @@ impl ActionBuffer {
         self.actors[actor_id].latest_snapshot = new_ss;
         new_ss
     }
-    pub fn execute(&mut self, fm: &FieldManager, field_id: FieldId) {
+    fn update_field_snapshot(
+        &mut self,
+        fm: &FieldManager,
+        field_id: FieldId,
+    ) -> Option<(ActorId, SnapshotRef)> {
         let mut field_ref_mut = fm.fields[field_id].borrow_mut();
         let field = &mut *field_ref_mut;
         let Some(actor_id) =
             self.initialize_first_actor(field_id, &mut field.first_actor)
         else {
-            return;
+            return None;
         };
         let field_ss = field.snapshot;
         let actor_ss = self.update_actor_snapshot(actor_id);
         if actor_ss == field_ss {
-            return;
+            return None;
         }
-        let field_ss_actor_count = self.get_snapshot_actor_count(field_ss);
-        let agi = if field_ss_actor_count == self.actors.next_free_index() {
-            self.apply_from_snapshot_with_same_actor_count(actor_id, field_ss)
+        self.bump_snapshot_refcount(actor_ss, 1);
+        field.snapshot = actor_ss;
+        Some((actor_id, field_ss))
+    }
+    fn build_actions_from_snapshot(
+        &mut self,
+        actor_id: ActorId,
+        snapshot: SnapshotRef,
+    ) -> Option<ActionGroupIdentifier> {
+        let field_ss_actor_count = self.get_snapshot_actor_count(snapshot);
+        if field_ss_actor_count == self.actors.next_free_index() {
+            self.apply_from_snapshot_with_same_actor_count(actor_id, snapshot)
         } else {
             self.apply_from_snapshot_with_different_actor_count(
-                actor_id, field_ss,
+                actor_id, snapshot,
             )
-        };
-        self.drop_snapshot_refcount(field_ss, 1);
-        field.snapshot = actor_ss;
-        self.bump_snapshot_refcount(actor_ss, 1);
-        let Some(agi) = agi else { return };
-
-        field.iter_hall.uncow_headers(fm);
-
-        drop(field_ref_mut);
-        // uncow headers reborrows the field unfortunately.
-        // PERF: inline `uncow_headers` to avoid that
-        let field_ref = fm.fields[field_id].borrow();
-        for &f in &field_ref.iter_hall.cow_targets {
-            fm.fields[f].borrow_mut().iter_hall.uncow_headers(fm);
         }
-        drop(field_ref);
+    }
+    fn execute_actions(
+        &mut self,
+        fm: &FieldManager,
+        field_id: FieldId,
+        agi: &ActionGroupIdentifier,
+    ) {
         let mut field_ref_mut = fm.fields[field_id].borrow_mut();
         let field = &mut *field_ref_mut;
-
+        field.iter_hall.uncow_headers(fm);
         let fd = &mut field.iter_hall.field_data;
         let (headers, data, field_count) =
             match &mut field.iter_hall.data_source {
@@ -992,8 +1007,9 @@ impl ActionBuffer {
                     panic!("cannot execute commands on Alias iter hall")
                 }
                 FieldDataSource::FullCow(_)
-                | FieldDataSource::RecordBufferCow(_) => {
-                    panic!("cannot execute commands on COW iter hall")
+                | FieldDataSource::RecordBufferFullCow(_) => {
+                    // we just uncow'ed
+                    unreachable!()
                 }
             };
         let iterators = field.iter_hall.iters.iter_mut().map(Cell::get_mut);
@@ -1031,8 +1047,8 @@ impl ActionBuffer {
         #[cfg(feature = "debug_logging")]
         {
             eprintln!(
-                "executing for field {} (ms {}, first actor: {}):",
-                field_id, field.match_set, actor_id
+                "executing for field {} (ms {}, first actor: {:?}):",
+                field_id, field.match_set, field.first_actor
             );
             eprint_action_list(actions.clone());
         }
@@ -1045,6 +1061,26 @@ impl ActionBuffer {
             iterators,
         );
         // debug_assert!(_field_count_delta == agi.group.field_count_delta);
+    }
+    pub fn update_field(&mut self, fm: &FieldManager, field_id: FieldId) {
+        let Some((actor_id, ss_prev)) =
+            self.update_field_snapshot(fm, field_id)
+        else {
+            return;
+        };
+
+        let res = self.build_actions_from_snapshot(actor_id, ss_prev);
+        self.drop_snapshot_refcount(ss_prev, 1);
+        let Some(agi) = res else { return };
+
+        let field_ref = fm.fields[field_id].borrow();
+        for &f in &field_ref.iter_hall.cow_targets {
+            fm.fields[f].borrow_mut().iter_hall.uncow_headers(fm);
+        }
+        drop(field_ref);
+
+        self.execute_actions(fm, field_id, &agi);
+        self.release_temp_action_group(Some(agi));
     }
     fn initialize_first_actor(
         &mut self,

@@ -51,7 +51,7 @@ pub(super) enum FieldDataSource {
     Alias(FieldId),
     FullCow(CowDataSource),
     DataCow(CowDataSource),
-    RecordBufferCow(*const UnsafeCell<FieldData>),
+    RecordBufferFullCow(*const UnsafeCell<FieldData>),
     RecordBufferDataCow(*const UnsafeCell<FieldData>),
 }
 // SAFETY: We make sure that the referenced RecordBufferField (and the
@@ -143,7 +143,7 @@ impl IterHall {
                 .borrow()
                 .iter_hall
                 .get_field_data_len(fm),
-            FieldDataSource::RecordBufferCow(data)
+            FieldDataSource::RecordBufferFullCow(data)
             | FieldDataSource::RecordBufferDataCow(data) => {
                 unsafe { &*(*data).get() }.data.len()
             }
@@ -310,7 +310,7 @@ impl IterHall {
             FieldDataSource::DataCow(cds) => {
                 (Some(cds.src_field_id), Some(true))
             }
-            FieldDataSource::RecordBufferCow(_) => (None, Some(false)),
+            FieldDataSource::RecordBufferFullCow(_) => (None, Some(false)),
             FieldDataSource::RecordBufferDataCow(_) => (None, Some(true)),
         }
     }
@@ -335,9 +335,10 @@ impl IterHall {
             FieldDataSource::DataCow(cds) => {
                 self.data_source = FieldDataSource::FullCow(*cds)
             }
-            FieldDataSource::RecordBufferCow(_) => todo!(),
+            FieldDataSource::RecordBufferFullCow(_) => todo!(),
             FieldDataSource::RecordBufferDataCow(data_ref) => {
-                self.data_source = FieldDataSource::RecordBufferCow(*data_ref)
+                self.data_source =
+                    FieldDataSource::RecordBufferFullCow(*data_ref)
             }
         }
     }
@@ -400,7 +401,7 @@ impl IterHall {
                 .borrow()
                 .iter_hall
                 .append_headers_to(fm, header_tgt),
-            FieldDataSource::RecordBufferCow(rb) => {
+            FieldDataSource::RecordBufferFullCow(rb) => {
                 let fd = unsafe { &*(*rb).get() };
                 header_tgt.extend_from_slice(&fd.headers);
                 fd.field_count
@@ -430,7 +431,7 @@ impl IterHall {
                 .iter_hall
                 .append_data_to(fm, target),
             FieldDataSource::RecordBufferDataCow(data_ref)
-            | FieldDataSource::RecordBufferCow(data_ref) => {
+            | FieldDataSource::RecordBufferFullCow(data_ref) => {
                 unsafe { &*(*data_ref).get() }.append_data_to(target);
             }
         }
@@ -451,7 +452,7 @@ impl IterHall {
                     .iter_hall
                     .append_to(fm, target);
             }
-            FieldDataSource::RecordBufferCow(data_ref) => {
+            FieldDataSource::RecordBufferFullCow(data_ref) => {
                 target.append_from_other(unsafe { &*(*data_ref).get() });
             }
             FieldDataSource::RecordBufferDataCow(data_ref) => {
@@ -476,7 +477,7 @@ impl IterHall {
                 .borrow()
                 .iter_hall
                 .get_field_count(fm),
-            FieldDataSource::RecordBufferCow(data_ref) => {
+            FieldDataSource::RecordBufferFullCow(data_ref) => {
                 let fd = &unsafe { &*(*data_ref).get() };
                 fd.field_count
             }
@@ -508,7 +509,7 @@ impl IterHall {
                 src.iter_hall.append_data_to(fm, &mut self.field_data.data);
                 Some(cds.src_field_id) // TODO: fix up header_iter
             }
-            FieldDataSource::RecordBufferCow(data_ref) => {
+            FieldDataSource::RecordBufferFullCow(data_ref) => {
                 debug_assert!(self.field_data.is_empty());
                 self.field_data = unsafe { &*(*data_ref).get() }.clone();
                 None
@@ -540,7 +541,7 @@ impl IterHall {
                 fm.store_iter(cds.src_field_id, cds.header_iter_id, iter);
                 self.data_source = FieldDataSource::DataCow(cds);
             }
-            FieldDataSource::RecordBufferCow(rb) => {
+            FieldDataSource::RecordBufferFullCow(rb) => {
                 let fd = unsafe { &*(*rb).get() };
                 debug_assert!(self.field_data.is_empty());
                 self.field_data.field_count = fd.field_count;

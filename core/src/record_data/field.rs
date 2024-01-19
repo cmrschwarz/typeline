@@ -228,7 +228,7 @@ impl FieldManager {
             | FieldDataSource::Alias(src_field) => {
                 self.get_field_headers(self.fields[src_field].borrow())
             }
-            FieldDataSource::RecordBufferCow(src) => {
+            FieldDataSource::RecordBufferFullCow(src) => {
                 let f = &unsafe { &*(*src).get() };
                 (Ref::map(fr, |_| &f.headers), f.field_count)
             }
@@ -259,11 +259,11 @@ impl FieldManager {
             | FieldDataSource::Alias(src_field) => {
                 self.get_field_data(self.fields[*src_field].borrow())
             }
-            FieldDataSource::RecordBufferCow(_)
+            FieldDataSource::RecordBufferFullCow(_)
             | FieldDataSource::RecordBufferDataCow(_)
             | FieldDataSource::Owned => {
                 Ref::map(fr, |f| match f.iter_hall.data_source {
-                    FieldDataSource::RecordBufferCow(data_ref)
+                    FieldDataSource::RecordBufferFullCow(data_ref)
                     | FieldDataSource::RecordBufferDataCow(data_ref) => {
                         &unsafe { &*(*data_ref).get() }.data
                     }
@@ -317,7 +317,7 @@ impl FieldManager {
             }
             FieldDataSource::Alias(_)
             | FieldDataSource::FullCow(_)
-            | FieldDataSource::RecordBufferCow(_) => (),
+            | FieldDataSource::RecordBufferFullCow(_) => (),
             FieldDataSource::DataCow(cds) => {
                 if field.get_clear_delay_request_count() > 0 {
                     return false;
@@ -329,7 +329,7 @@ impl FieldManager {
                     return false;
                 }
                 field.iter_hall.data_source =
-                    FieldDataSource::RecordBufferCow(*data_ref);
+                    FieldDataSource::RecordBufferFullCow(*data_ref);
             }
         }
         field.iter_hall.reset_iterators();
@@ -534,7 +534,7 @@ impl FieldManager {
         let match_set = field.match_set;
         let ab = &mut msm.match_sets[match_set].action_buffer.borrow_mut();
         drop(field);
-        ab.execute(self, field_id);
+        ab.update_field(self, field_id);
     }
     // bumps the refcount of the field by one
     pub fn get_cross_ms_cow_field(
@@ -682,7 +682,7 @@ impl FieldManager {
                     FieldData::copy_data(iter, &mut |f| f(tgt));
                 }
             }
-            FieldDataSource::RecordBufferCow(rb) => {
+            FieldDataSource::RecordBufferFullCow(rb) => {
                 let fd = unsafe { &mut *(*rb).get() };
                 let mut iter = fd.iter();
                 FieldData::copy(&mut iter, &mut |f| f(tgt));
