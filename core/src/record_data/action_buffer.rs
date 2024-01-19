@@ -436,13 +436,14 @@ impl ActionBuffer {
         let rhs_idx = rhs.temp_idx().unwrap_or(3);
         (6 - lhs_idx - rhs_idx) % 3
     }
-    fn get_action_group_slices(
-        &self,
+    fn get_action_group_slices_raw<'a>(
+        actors: &'a OffsetVecDeque<ActorId, Actor>,
+        action_temp_buffers: &'a [Vec<FieldAction>; 3],
         agi: &ActionGroupIdentifier,
-    ) -> (&[FieldAction], &[FieldAction]) {
+    ) -> (&'a [FieldAction], &'a [FieldAction]) {
         match agi.location {
             ActionGroupLocation::Regular { actor_id, pow2 } => {
-                let actor = &self.actors[actor_id];
+                let actor = &actors[actor_id];
                 let agq = &actor.action_group_queues[pow2 as usize];
                 let (s1, s2) = agq.actions.data.as_slices();
                 let start = agi.group.start.wrapping_sub(agq.actions.offset);
@@ -452,7 +453,7 @@ impl ActionBuffer {
                 actor_id,
                 merge_pow2,
             } => {
-                let actor = &self.actors[actor_id];
+                let actor = &actors[actor_id];
                 let merge_lvl = &actor.merges[merge_pow2 as usize];
                 let start =
                     agi.group.start.wrapping_sub(merge_lvl.actions.offset);
@@ -460,11 +461,21 @@ impl ActionBuffer {
                 subslice_slice_pair(s1, s2, start..start + agi.group.length)
             }
             ActionGroupLocation::TempBuffer { idx } => (
-                &[],
-                &self.action_temp_buffers[idx]
+                &action_temp_buffers[idx]
                     [agi.group.start..agi.group.start + agi.group.length],
+                &[],
             ),
         }
+    }
+    fn get_action_group_slices(
+        &self,
+        agi: &ActionGroupIdentifier,
+    ) -> (&[FieldAction], &[FieldAction]) {
+        Self::get_action_group_slices_raw(
+            &self.actors,
+            &self.action_temp_buffers,
+            agi,
+        )
     }
     fn action_group_not_from_actor_pow2(
         actor_id: ActorId,
@@ -992,7 +1003,6 @@ impl ActionBuffer {
     ) {
         let mut field_ref_mut = fm.fields[field_id].borrow_mut();
         let field = &mut *field_ref_mut;
-        field.iter_hall.uncow_headers(fm);
         let fd = &mut field.iter_hall.field_data;
         let (headers, data, field_count) =
             match &mut field.iter_hall.data_source {
@@ -1008,42 +1018,16 @@ impl ActionBuffer {
                 }
                 FieldDataSource::FullCow(_)
                 | FieldDataSource::RecordBufferFullCow(_) => {
-                    // we just uncow'ed
-                    unreachable!()
+                    panic!("cannot execute commands on FullCow iter hall")
                 }
             };
         let iterators = field.iter_hall.iters.iter_mut().map(Cell::get_mut);
-        let start = agi.group.start;
-        let length = agi.group.length;
-        let actions = match agi.location {
-            ActionGroupLocation::Regular { actor_id, pow2 } => {
-                let actions = &self.actors[actor_id].action_group_queues
-                    [pow2 as usize]
-                    .actions;
-                let start = start.wrapping_sub(actions.offset);
-                let (s1, s2) = actions.data.as_slices();
-                let (s1, s2) =
-                    subslice_slice_pair(s1, s2, start..start + length);
-                s1.iter().chain(s2)
-            }
-            ActionGroupLocation::LocalMerge {
-                actor_id,
-                merge_pow2,
-            } => {
-                let actions = &self.actors[actor_id].action_group_queues
-                    [merge_pow2 as usize]
-                    .actions;
-                let start = start.wrapping_sub(actions.offset);
-                let (s1, s2) = actions.data.as_slices();
-                let (s1, s2) =
-                    subslice_slice_pair(s1, s2, start..start + length);
-                s1.iter().chain(s2)
-            }
-            ActionGroupLocation::TempBuffer { idx } => self
-                .action_temp_buffers[idx][start..start + length]
-                .iter()
-                .chain(&[]),
-        };
+        let (s1, s2) = Self::get_action_group_slices_raw(
+            &self.actors,
+            &self.action_temp_buffers,
+            agi,
+        );
+        let actions = s1.iter().chain(s2);
         #[cfg(feature = "debug_logging")]
         {
             eprintln!(
@@ -1062,6 +1046,46 @@ impl ActionBuffer {
         );
         // debug_assert!(_field_count_delta == agi.group.field_count_delta);
     }
+    fn preserve_full_cow_fields(
+        &mut self,
+        fm: &FieldManager,
+        field_id: FieldId,
+        agi: &ActionGroupIdentifier,
+    ) {
+        let field = fm.fields[field_id].borrow();
+        if !field.has_cow_targets() {
+            return;
+        }
+
+        let (s1, s2) = self.get_action_group_slices(agi);
+        let Some(first_action_index) =
+            s1.first().or_else(|| s2.first()).map(|a| a.field_idx)
+        else {
+            return;
+        };
+
+        for &tgt_field_id in &field.iter_hall.cow_targets {
+            let mut tgt_field = fm.fields[tgt_field_id].borrow_mut();
+            let cds = match tgt_field.iter_hall.data_source {
+                FieldDataSource::FullCow(cds) => cds,
+                FieldDataSource::DataCow(_) => continue,
+                FieldDataSource::Owned
+                | FieldDataSource::Alias(_)
+                | FieldDataSource::RecordBufferFullCow(_)
+                | FieldDataSource::RecordBufferDataCow(_) => unreachable!(),
+            };
+            let tgt_cow_end = field.iter_hall.iters[cds.header_iter_id].get();
+            if tgt_cow_end.field_pos > first_action_index {
+                debug_assert!(tgt_field.iter_hall.field_data.is_empty());
+                tgt_field.iter_hall.data_source =
+                    FieldDataSource::DataCow(cds);
+                tgt_field.iter_hall.copy_headers_from_cow_src(
+                    &field.iter_hall.field_data.headers,
+                    tgt_cow_end,
+                );
+            }
+        }
+    }
     pub fn update_field(&mut self, fm: &FieldManager, field_id: FieldId) {
         let Some((actor_id, ss_prev)) =
             self.update_field_snapshot(fm, field_id)
@@ -1073,11 +1097,8 @@ impl ActionBuffer {
         self.drop_snapshot_refcount(ss_prev, 1);
         let Some(agi) = res else { return };
 
-        let field_ref = fm.fields[field_id].borrow();
-        for &f in &field_ref.iter_hall.cow_targets {
-            fm.fields[f].borrow_mut().iter_hall.uncow_headers(fm);
-        }
-        drop(field_ref);
+        fm.fields[field_id].borrow_mut().iter_hall.uncow_headers(fm);
+        self.preserve_full_cow_fields(fm, field_id, &agi);
 
         self.execute_actions(fm, field_id, &agi);
         self.release_temp_action_group(Some(agi));

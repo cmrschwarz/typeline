@@ -522,6 +522,20 @@ impl IterHall {
             }
         }
     }
+    pub(crate) fn copy_headers_from_cow_src(
+        &mut self,
+        src_headers: &[FieldValueHeader],
+        cow_end: IterState,
+    ) {
+        self.field_data
+            .headers
+            .extend(&src_headers[..cow_end.header_idx]);
+        if cow_end.header_rl_offset != 0 {
+            let mut last_header = src_headers[cow_end.header_idx];
+            last_header.run_length = cow_end.header_rl_offset - 1;
+            self.field_data.headers.push(last_header);
+        }
+    }
     pub(crate) fn uncow_headers(&mut self, fm: &FieldManager) {
         match self.data_source {
             FieldDataSource::Owned
@@ -535,13 +549,17 @@ impl IterHall {
             }
             FieldDataSource::FullCow(cds) => {
                 debug_assert!(self.field_data.is_empty());
+                let cow_end =
+                    fm.fields[cds.src_field_id].borrow().iter_hall.iters
+                        [cds.header_iter_id]
+                        .get();
                 let src_field = fm.get_cow_field_ref_raw(cds.src_field_id);
-                self.field_data.headers.extend(src_field.headers());
-                let iter = src_field.iter_from_end();
-                fm.store_iter(cds.src_field_id, cds.header_iter_id, iter);
+                let src_headers = src_field.headers();
+                self.copy_headers_from_cow_src(src_headers, cow_end);
                 self.data_source = FieldDataSource::DataCow(cds);
             }
             FieldDataSource::RecordBufferFullCow(rb) => {
+                // TODO: add an iterator to these aswell
                 let fd = unsafe { &*(*rb).get() };
                 debug_assert!(self.field_data.is_empty());
                 self.field_data.field_count = fd.field_count;
