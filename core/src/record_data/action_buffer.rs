@@ -5,15 +5,13 @@ use crate::utils::{
     offset_vec_deque::OffsetVecDeque, subslice_slice_pair,
 };
 
-#[cfg(feature = "debug_logging")]
-use super::match_set::MatchSetId;
-
 use super::{
     field::{FieldId, FieldManager},
     field_action::{merge_action_lists, FieldAction, FieldActionKind},
     field_action_applicator::FieldActionApplicator,
     field_value_repr::RunLength,
-    iter_hall::FieldDataSource,
+    iter_hall::{CowVariant, FieldDataSource},
+    match_set::MatchSetId,
 };
 pub type ActorId = u32;
 pub type ActionGroupId = u32;
@@ -1046,10 +1044,11 @@ impl ActionBuffer {
         );
         // debug_assert!(_field_count_delta == agi.group.field_count_delta);
     }
-    fn preserve_full_cow_fields(
+    fn preserve_full_cow_fields_pre_exec(
         &mut self,
         fm: &FieldManager,
         field_id: FieldId,
+        update_cow_ms: Option<MatchSetId>,
         agi: &ActionGroupIdentifier,
     ) {
         let field = fm.fields[field_id].borrow();
@@ -1066,27 +1065,87 @@ impl ActionBuffer {
 
         for &tgt_field_id in &field.iter_hall.cow_targets {
             let mut tgt_field = fm.fields[tgt_field_id].borrow_mut();
-            let cds = match tgt_field.iter_hall.data_source {
-                FieldDataSource::FullCow(cds) => cds,
-                FieldDataSource::DataCow(_) => continue,
-                FieldDataSource::Owned
-                | FieldDataSource::Alias(_)
-                | FieldDataSource::RecordBufferFullCow(_)
-                | FieldDataSource::RecordBufferDataCow(_) => unreachable!(),
-            };
+            let cow_variant = tgt_field.iter_hall.data_source.cow_variant();
+            if Some(tgt_field.match_set) == update_cow_ms {
+                continue;
+            }
+            if cow_variant == Some(CowVariant::DataCow) {
+                continue;
+            }
+            // TODO: support RecordBuffers
+            debug_assert!(cow_variant == Some(CowVariant::FullCow));
+            let cds = tgt_field.iter_hall.get_cow_data_source_mut().unwrap();
             let tgt_cow_end = field.iter_hall.iters[cds.header_iter_id].get();
             if tgt_cow_end.field_pos > first_action_index {
-                debug_assert!(tgt_field.iter_hall.field_data.is_empty());
                 tgt_field.iter_hall.data_source =
-                    FieldDataSource::DataCow(cds);
+                    FieldDataSource::DataCow(*cds);
+                debug_assert!(tgt_field.iter_hall.field_data.is_empty());
                 tgt_field.iter_hall.copy_headers_from_cow_src(
                     &field.iter_hall.field_data.headers,
                     tgt_cow_end,
                 );
             }
+            continue;
         }
     }
-    pub fn update_field(&mut self, fm: &FieldManager, field_id: FieldId) {
+    fn update_full_cow_fields_post_exec(
+        &mut self,
+        fm: &FieldManager,
+        field_id: FieldId,
+        update_cow_ms: Option<MatchSetId>,
+    ) {
+        let field = fm.fields[field_id].borrow();
+        if !field.has_cow_targets() {
+            return;
+        }
+
+        for &tgt_field_id in &field.iter_hall.cow_targets {
+            let mut tgt_field = fm.fields[tgt_field_id].borrow_mut();
+            if Some(tgt_field.match_set) != update_cow_ms {
+                continue;
+            }
+            let cow_variant = tgt_field.iter_hall.data_source.cow_variant();
+            let cds = *tgt_field.iter_hall.get_cow_data_source_mut().unwrap();
+            let tgt_cow_end = field.iter_hall.iters[cds.header_iter_id].get();
+            field.iter_hall.iters[cds.header_iter_id]
+                .set(field.iter_hall.get_iter_state_at_end(fm));
+            if cow_variant != Some(CowVariant::DataCow) {
+                // TODO: support RecordBufferDataCow
+                debug_assert!(cow_variant == Some(CowVariant::FullCow));
+                continue;
+            }
+            if tgt_cow_end.field_pos == 0 {
+                if tgt_field.iter_hall.field_data.field_count == 0 {
+                    tgt_field.iter_hall.data_source =
+                        FieldDataSource::FullCow(cds);
+                    continue;
+                }
+                tgt_field
+                    .iter_hall
+                    .field_data
+                    .headers
+                    .retain(|h| !h.deleted());
+                for h in &mut tgt_field.iter_hall.field_data.headers {
+                    debug_assert!(h.fmt.repr.is_zst());
+                    h.size = 0;
+                    h.set_same_value_as_previous(false);
+                }
+                tgt_field
+                    .iter_hall
+                    .field_data
+                    .headers
+                    .extend(&field.iter_hall.field_data.headers);
+                continue;
+            }
+            todo!("append to DataCow");
+        }
+    }
+    pub fn update_field(
+        &mut self,
+        fm: &FieldManager,
+        field_id: FieldId,
+        update_cow_ms: Option<MatchSetId>,
+    ) {
         let Some((actor_id, ss_prev)) =
             self.update_field_snapshot(fm, field_id)
         else {
@@ -1098,10 +1157,15 @@ impl ActionBuffer {
         let Some(agi) = res else { return };
 
         fm.fields[field_id].borrow_mut().iter_hall.uncow_headers(fm);
-        self.preserve_full_cow_fields(fm, field_id, &agi);
-
+        self.preserve_full_cow_fields_pre_exec(
+            fm,
+            field_id,
+            update_cow_ms,
+            &agi,
+        );
         self.execute_actions(fm, field_id, &agi);
         self.release_temp_action_group(Some(agi));
+        self.update_full_cow_fields_post_exec(fm, field_id, update_cow_ms);
     }
     fn initialize_first_actor(
         &mut self,

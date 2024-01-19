@@ -91,6 +91,31 @@ impl IterState {
         self.field_pos = usize::MAX
     }
 }
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum CowVariant {
+    FullCow,
+    DataCow,
+    RecordBufferDataCow,
+    RecordBufferFullCow,
+}
+
+impl FieldDataSource {
+    pub fn cow_variant(&self) -> Option<CowVariant> {
+        match self {
+            FieldDataSource::Owned | FieldDataSource::Alias(_) => None,
+            FieldDataSource::FullCow(_) => Some(CowVariant::FullCow),
+            FieldDataSource::DataCow(_) => Some(CowVariant::DataCow),
+            FieldDataSource::RecordBufferFullCow(_) => {
+                Some(CowVariant::RecordBufferFullCow)
+            }
+            FieldDataSource::RecordBufferDataCow(_) => {
+                Some(CowVariant::RecordBufferDataCow)
+            }
+        }
+    }
+}
+
 impl IterHall {
     pub fn claim_iter(&mut self) -> IterId {
         let iter_id = self.iters.claim();
@@ -520,6 +545,18 @@ impl IterHall {
                     .append_data_to(&mut self.field_data.data);
                 None
             }
+        }
+    }
+    pub(super) fn get_cow_data_source_mut(
+        &mut self,
+    ) -> Option<&mut CowDataSource> {
+        match &mut self.data_source {
+            FieldDataSource::FullCow(cds) => Some(cds),
+            FieldDataSource::DataCow(cds) => Some(cds),
+            FieldDataSource::Owned
+            | FieldDataSource::Alias(_)
+            | FieldDataSource::RecordBufferFullCow(_)
+            | FieldDataSource::RecordBufferDataCow(_) => None,
         }
     }
     pub(crate) fn copy_headers_from_cow_src(

@@ -334,7 +334,7 @@ impl TransformManager {
         match_set_mgr.match_sets[match_set_id]
             .action_buffer
             .borrow_mut()
-            .update_field(field_mgr, output_field_id);
+            .update_field(field_mgr, output_field_id, None);
         // this results in always one more element being present than we
         // advertise as batch size. this prevents apply_field_actions
         // from deleting our value. unless we are done, in which case
