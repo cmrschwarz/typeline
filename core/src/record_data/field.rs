@@ -984,6 +984,21 @@ impl FieldManager {
         }
         eprint!("]");
     }
+    pub fn print_fields_with_header_data(&self) {
+        for (id, _) in self.fields.iter_enumerated() {
+            self.print_field_stats(id);
+            eprint!(" ");
+            self.print_field_header_data(id);
+            eprintln!();
+        }
+    }
+    pub fn print_fields_with_iter_data(&self) {
+        for (id, _) in self.fields.iter_enumerated() {
+            eprint!("field {id}: ");
+            self.print_field_iter_data(id);
+            eprintln!();
+        }
+    }
 }
 
 impl Drop for FieldManager {

@@ -146,6 +146,29 @@ impl IterHall {
         fm: &FieldManager,
         kind: IterKind,
     ) -> IterState {
+        match self.data_source {
+            FieldDataSource::Owned | FieldDataSource::DataCow(_) => (),
+            FieldDataSource::Alias(src_field_id) => {
+                return fm.fields[src_field_id]
+                    .borrow()
+                    .iter_hall
+                    .get_iter_state_at_end(fm, kind);
+            }
+            FieldDataSource::FullCow(CowDataSource {
+                src_field_id,
+                header_iter_id,
+            }) => {
+                let iter = fm.fields[src_field_id].borrow().iter_hall.iters
+                    [header_iter_id]
+                    .get();
+                #[cfg(feature = "debug_logging")]
+                let iter = IterState { kind, ..iter };
+                return iter;
+            }
+            FieldDataSource::RecordBufferFullCow(_) => todo!(),
+            FieldDataSource::RecordBufferDataCow(_) => todo!(),
+        }
+
         if self.field_data.field_count == 0 {
             return self.get_iter_state_at_begin(kind);
         }

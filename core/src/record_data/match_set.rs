@@ -88,6 +88,16 @@ impl MatchSetManager {
     pub fn remove_match_set(&mut self, _ms_id: MatchSetId) {
         todo!()
     }
+    fn print_updating_cow_bindings(&self, ms_id: MatchSetId) {
+        let cm = &self.match_sets[ms_id].cow_map;
+        let mut iter = cm.iter().peekable();
+        while let Some((src, usr)) = iter.next() {
+            eprint!("{src} <- {usr}");
+            if iter.peek().is_some() {
+                eprint!(", ");
+            }
+        }
+    }
     pub fn update_cow_targets(
         &mut self,
         fm: &FieldManager,
@@ -98,25 +108,10 @@ impl MatchSetManager {
         {
             eprintln!("{:-^80}", " <updating cow bindings> ");
             eprint!("updating: ");
-            let mut iter = cm.iter().peekable();
-            while let Some((src, usr)) = iter.next() {
-                eprint!("{src} <- {usr}");
-                if iter.peek().is_some() {
-                    eprint!(", ");
-                }
-            }
+            self.print_updating_cow_bindings(ms_id);
             eprintln!();
-            for (id, _) in fm.fields.iter_enumerated() {
-                fm.print_field_stats(id);
-                eprint!(" ");
-                fm.print_field_header_data(id);
-                eprintln!();
-            }
-            for (id, _) in fm.fields.iter_enumerated() {
-                eprint!("field {id}: ");
-                fm.print_field_iter_data(id);
-                eprintln!();
-            }
+            fm.print_fields_with_header_data();
+            fm.print_fields_with_iter_data();
             eprintln!("{:-^80}", " </updating cow bindings> ");
         }
 
@@ -129,31 +124,17 @@ impl MatchSetManager {
                 .action_buffer
                 .borrow_mut()
                 .update_field(fm, src, Some(ms_id));
+            ActionBuffer::update_cow_fields_post_exec(fm, src, ms_id);
         }
 
         #[cfg(feature = "cow_field_logging")]
         {
             eprintln!("{:-^80}", " <updated cow bindings> ");
             eprint!("updated: ");
-            let mut iter = cm.iter().peekable();
-            while let Some((src, usr)) = iter.next() {
-                eprint!("{src} <- {usr}");
-                if iter.peek().is_some() {
-                    eprint!(", ");
-                }
-            }
+            self.print_updating_cow_bindings(ms_id);
             eprintln!();
-            for (id, _) in fm.fields.iter_enumerated() {
-                fm.print_field_stats(id);
-                eprint!(" ");
-                fm.print_field_header_data(id);
-                eprintln!();
-            }
-            for (id, _) in fm.fields.iter_enumerated() {
-                eprint!("field {id}: ");
-                fm.print_field_iter_data(id);
-                eprintln!();
-            }
+            fm.print_fields_with_header_data();
+            fm.print_fields_with_iter_data();
             eprintln!("{:-^80}", " </updated cow bindings> ");
         }
     }

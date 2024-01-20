@@ -1102,20 +1102,15 @@ impl ActionBuffer {
             full_cow_field_refs.push(tgt_field);
         }
     }
-    fn update_full_cow_fields_post_exec(
-        &mut self,
+    pub(super) fn update_cow_fields_post_exec(
         fm: &FieldManager,
         field_id: FieldId,
-        update_cow_ms: Option<MatchSetId>,
+        update_cow_ms: MatchSetId,
     ) {
         let field = fm.fields[field_id].borrow();
-        if !field.has_cow_targets() {
-            return;
-        }
-
         for &tgt_field_id in &field.iter_hall.cow_targets {
             let mut tgt_field = fm.fields[tgt_field_id].borrow_mut();
-            if Some(tgt_field.match_set) != update_cow_ms {
+            if tgt_field.match_set != update_cow_ms {
                 continue;
             }
             let cow_variant = tgt_field.iter_hall.data_source.cow_variant();
@@ -1187,7 +1182,6 @@ impl ActionBuffer {
         self.execute_actions(fm, field_id, &agi, &mut full_cow_fields);
         self.temp_field_refs = transmute_vec(full_cow_fields);
         self.release_temp_action_group(Some(agi));
-        self.update_full_cow_fields_post_exec(fm, field_id, update_cow_ms);
     }
     fn initialize_first_actor(
         &mut self,
