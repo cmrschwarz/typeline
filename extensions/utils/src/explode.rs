@@ -27,7 +27,7 @@ use scr_core::{
         field::{FieldId, FieldManager, FieldRefOffset},
         field_value::{FieldValue, Object},
         field_value_repr::FieldData,
-        iter_hall::IterId,
+        iter_hall::{IterId, IterKind},
         match_set::{MatchSetId, MatchSetManager},
         push_interface::{PushInterface, VaryingTypeInserter},
         ref_iter::RefAwareTypedSliceIter,
@@ -132,7 +132,10 @@ impl Operator for OpExplode {
             },
             inserters: Default::default(),
             pending_fields: Default::default(),
-            input_iter_id: jd.field_mgr.claim_iter(tf_state.input_field),
+            input_iter_id: jd.field_mgr.claim_iter(
+                tf_state.input_field,
+                IterKind::Transform(jd.tf_mgr.transforms.peek_claim_id()),
+            ),
             input_field_field_ref_offset,
         };
         TransformData::Custom(smallbox!(tfe))

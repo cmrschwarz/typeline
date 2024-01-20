@@ -14,7 +14,7 @@ use crate::{
         field::Field,
         field_value::{FieldValue, FormattingContext},
         field_value_repr::field_value_flags,
-        iter_hall::IterId,
+        iter_hall::{IterId, IterKind},
         iters::FieldIterator,
         push_interface::PushInterface,
         ref_iter::{
@@ -142,7 +142,10 @@ pub fn build_tf_string_sink<'a>(
 ) -> TransformData<'a> {
     TransformData::StringSink(TfStringSink {
         handle: &ss.handle.data,
-        batch_iter: jd.field_mgr.claim_iter(tf_state.input_field),
+        batch_iter: jd.field_mgr.claim_iter(
+            tf_state.input_field,
+            IterKind::Transform(jd.tf_mgr.transforms.peek_claim_id()),
+        ),
         stream_value_handles: CountedUniverse::default(),
     })
 }

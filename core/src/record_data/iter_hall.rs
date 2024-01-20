@@ -7,7 +7,7 @@ use std::{
 use nonmax::NonMaxU32;
 use thin_vec::ThinVec;
 
-use crate::utils::universe::Universe;
+use crate::{operators::transform::TransformId, utils::universe::Universe};
 
 use super::{
     field::{FieldId, FieldManager},
@@ -67,9 +67,17 @@ pub struct IterHall {
     pub(super) cow_targets: ThinVec<FieldId>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum IterKind {
+    Undefined, // used in release mode
+    Transform(TransformId),
+    CowField(FieldId),
+    RefLookup,
+}
+
 /// Position of an iterator inside of `FieldData` to be stored inside of an
 /// `IterHall`.
-#[derive(Default, Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct IterState {
     pub(super) field_pos: usize,
     pub(super) data: usize,
@@ -81,6 +89,8 @@ pub struct IterState {
     // that are 'after' them.
     pub(super) header_idx: usize,
     pub(super) header_rl_offset: RunLength,
+    #[cfg(feature = "debug_logging")]
+    pub(super) kind: IterKind,
 }
 
 impl IterState {
@@ -117,24 +127,27 @@ impl FieldDataSource {
 }
 
 impl IterHall {
-    pub fn claim_iter(&mut self) -> IterId {
-        let iter_id = self.iters.claim();
-        self.iters[iter_id].set(IterState {
+    pub fn get_iter_state_at_begin(
+        &self,
+        #[allow(unused)] kind: IterKind,
+    ) -> IterState {
+        IterState {
             field_pos: 0,
             data: 0,
             header_idx: 0,
             header_rl_offset: 0,
-        });
-        iter_id
+            #[cfg(feature = "debug_logging")]
+            kind,
+        }
     }
-    pub fn get_iter_state_at_end(&self, fm: &FieldManager) -> IterState {
+
+    pub fn get_iter_state_at_end(
+        &self,
+        fm: &FieldManager,
+        kind: IterKind,
+    ) -> IterState {
         if self.field_data.field_count == 0 {
-            return IterState {
-                field_pos: 0,
-                data: 0,
-                header_idx: 0,
-                header_rl_offset: 0,
-            };
+            return self.get_iter_state_at_begin(kind);
         }
         IterState {
             field_pos: self.field_data.field_count,
@@ -153,8 +166,16 @@ impl IterHall {
                 .last()
                 .unwrap()
                 .run_length,
+            #[cfg(feature = "debug_logging")]
+            kind,
         }
     }
+
+    pub fn claim_iter(&mut self, kind: IterKind) -> IterId {
+        self.iters
+            .claim_with_value(Cell::new(self.get_iter_state_at_begin(kind)))
+    }
+
     pub fn get_field_data_len(&self, fm: &FieldManager) -> usize {
         match self.data_source {
             FieldDataSource::Owned => self.field_data.data.len(),
@@ -174,13 +195,17 @@ impl IterHall {
             }
         }
     }
-    pub fn claim_iter_at_end(&mut self, fm: &FieldManager) -> IterId {
-        let iter_id = self.iters.claim();
-        self.iters[iter_id].set(self.get_iter_state_at_end(fm));
-        iter_id
+    pub fn claim_iter_at_end(
+        &mut self,
+        fm: &FieldManager,
+        kind: IterKind,
+    ) -> IterId {
+        self.iters
+            .claim_with_value(Cell::new(self.get_iter_state_at_end(fm, kind)))
     }
-    pub fn reserve_iter_id(&mut self, iter_id: IterId) {
-        self.iters.reserve_id(iter_id);
+    pub fn reserve_iter_id(&mut self, iter_id: IterId, kind: IterKind) {
+        let v = Cell::new(self.get_iter_state_at_begin(kind));
+        self.iters.reserve_id_with(iter_id, || v);
     }
     pub fn release_iter(&mut self, iter_id: IterId) {
         self.iters[iter_id].get_mut().invalidate();
@@ -339,16 +364,19 @@ impl IterHall {
             FieldDataSource::RecordBufferDataCow(_) => (None, Some(true)),
         }
     }
+    pub fn get_iter_kind(&self, #[allow(unused)] iter_id: IterId) -> IterKind {
+        #[cfg(not(feature = "debug_logging"))]
+        return IterKind::Undefined;
+        #[cfg(feature = "debug_logging")]
+        return self.iters[iter_id].get().kind;
+    }
     pub fn reset_iter(&self, iter_id: IterId) {
-        self.iters[iter_id].set(IterState::default());
+        self.iters[iter_id]
+            .set(self.get_iter_state_at_begin(self.get_iter_kind(iter_id)));
     }
     pub fn reset_iterators(&mut self) {
-        for it in self.iters.iter_mut() {
-            let it = it.get_mut();
-            it.data = 0;
-            it.header_rl_offset = 0;
-            it.header_idx = 0;
-            it.field_pos = 0;
+        for (i, _) in &mut self.iters.iter_enumerated() {
+            self.reset_iter(i)
         }
     }
     pub fn reset_cow_headers(&mut self, fm: &FieldManager) {

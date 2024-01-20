@@ -17,7 +17,7 @@ use crate::{
         action_buffer::{ActorId, ActorRef},
         field::{FieldId, FieldManager, VOID_FIELD_ID},
         field_action::FieldActionKind,
-        iter_hall::IterId,
+        iter_hall::{IterId, IterKind},
         iters::FieldIterator,
         match_set::MatchSetId,
         record_buffer::{
@@ -197,6 +197,7 @@ pub fn build_tf_call_concurrent<'a>(
 
 fn insert_mapping(
     field_mgr: &FieldManager,
+    tf_id: TransformId,
     mappings_present: &mut HashMap<FieldId, usize, BuildIdentityHasher>,
     source_field_id: FieldId,
     buf_data: &mut RecordBufferData,
@@ -222,7 +223,8 @@ fn insert_mapping(
             let buf_field = buf_data.fields.claim_with_value(rbf);
             field_mappings.push(RecordBufferFieldMapping {
                 source_field_id,
-                source_field_iter: field_mgr.claim_iter(source_field_id),
+                source_field_iter: field_mgr
+                    .claim_iter(source_field_id, IterKind::Transform(tf_id)),
                 buf_field,
             });
             buf_field
@@ -259,6 +261,7 @@ fn setup_target_field_mappings(
 
         insert_mapping(
             &jd.field_mgr,
+            tf_id,
             &mut mappings_present,
             field_id,
             buf_data,
@@ -274,6 +277,7 @@ fn setup_target_field_mappings(
         for fr in &src.field_refs {
             let mapping = insert_mapping(
                 &jd.field_mgr,
+                tf_id,
                 &mut mappings_present,
                 *fr,
                 buf_data,
@@ -426,7 +430,7 @@ pub fn setup_callee_concurrent(
         buffer,
     };
     let mut buf_data = callee.buffer.fields.lock().unwrap();
-    for field in buf_data.fields.iter_mut() {
+    for field in &buf_data.fields {
         let field_id = sess.job_data.field_mgr.add_field(
             &mut sess.job_data.match_set_mgr,
             ms_id,

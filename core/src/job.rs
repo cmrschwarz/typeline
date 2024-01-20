@@ -955,8 +955,9 @@ impl<'a> Job<'a> {
         {
             let tf = &self.job_data.tf_mgr.transforms[tf_id];
             eprintln!(
-            "> handling tf {tf_id} `{}`, bsa: {}, pred_done: {}, done: {}, stack: {:?}",
+            "> handling tf {tf_id} `{}`, in_fid: {}, bsa: {}, pred_done: {}, done: {}, stack: {:?}",
             self.transform_data[tf_id.get()].display_name(),
+            tf.input_field,
             tf.available_batch_size,
             tf.predecessor_done,
             tf.done,

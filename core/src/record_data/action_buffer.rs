@@ -1000,7 +1000,7 @@ impl ActionBuffer {
         fm: &FieldManager,
         field_id: FieldId,
         agi: &ActionGroupIdentifier,
-        full_cow_field_refs: &mut Vec<std::cell::RefMut<'_, Field>>,
+        full_cow_field_refs: &mut [std::cell::RefMut<'_, Field>],
     ) {
         let mut field_ref_mut = fm.fields[field_id].borrow_mut();
         let field = &mut *field_ref_mut;
@@ -1121,8 +1121,12 @@ impl ActionBuffer {
             let cow_variant = tgt_field.iter_hall.data_source.cow_variant();
             let cds = *tgt_field.iter_hall.get_cow_data_source_mut().unwrap();
             let tgt_cow_end = field.iter_hall.iters[cds.header_iter_id].get();
-            field.iter_hall.iters[cds.header_iter_id]
-                .set(field.iter_hall.get_iter_state_at_end(fm));
+            field.iter_hall.iters[cds.header_iter_id].set(
+                field.iter_hall.get_iter_state_at_end(
+                    fm,
+                    field.iter_hall.get_iter_kind(cds.header_iter_id),
+                ),
+            );
             if cow_variant != Some(CowVariant::DataCow) {
                 // TODO: support RecordBufferDataCow
                 debug_assert!(cow_variant == Some(CowVariant::FullCow));

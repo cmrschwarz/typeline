@@ -69,63 +69,27 @@ impl<I: IndexingType, T> Universe<I, T> {
         self.first_vacant_entry = None;
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = &T> {
-        self.data.iter().filter_map(|e| {
-            if let UniverseEntry::Occupied(v) = e {
-                Some(v)
-            } else {
-                None
-            }
-        })
+    pub fn iter(&self) -> UniverseIter<T> {
+        UniverseIter {
+            base: self.data.iter(),
+        }
     }
-    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut T> {
-        self.data.iter_mut().filter_map(|e| {
-            if let UniverseEntry::Occupied(v) = e {
-                Some(v)
-            } else {
-                None
-            }
-        })
+    pub fn iter_mut(&mut self) -> UniverseIterMut<T> {
+        UniverseIterMut {
+            base: self.data.iter_mut(),
+        }
     }
-    pub fn iter_options(&self) -> impl Iterator<Item = Option<&T>> {
-        self.data.iter().map(|e| {
-            if let UniverseEntry::Occupied(v) = e {
-                Some(v)
-            } else {
-                None
-            }
-        })
+    pub fn iter_enumerated(&self) -> UniverseEnumeratedIter<I, T> {
+        UniverseEnumeratedIter {
+            base: &self.data,
+            idx: I::from_usize(0),
+        }
     }
-    pub fn iter_options_mut(
-        &mut self,
-    ) -> impl Iterator<Item = Option<&mut T>> {
-        self.data.iter_mut().map(|e| {
-            if let UniverseEntry::Occupied(v) = e {
-                Some(v)
-            } else {
-                None
-            }
-        })
-    }
-    pub fn iter_enumerated(&self) -> impl Iterator<Item = (I, &T)> {
-        self.data.iter().enumerate().filter_map(|(i, e)| {
-            if let UniverseEntry::Occupied(v) = e {
-                Some((I::from_usize(i), v))
-            } else {
-                None
-            }
-        })
-    }
-    pub fn iter_enumerated_mut(
-        &mut self,
-    ) -> impl Iterator<Item = (I, &mut T)> {
-        self.data.iter_mut().enumerate().filter_map(|(i, e)| {
-            if let UniverseEntry::Occupied(v) = e {
-                Some((I::from_usize(i), v))
-            } else {
-                None
-            }
-        })
+    pub fn iter_enumerated_mut(&mut self) -> UniverseEnumeratedIterMut<I, T> {
+        UniverseEnumeratedIterMut {
+            base: &mut self.data,
+            idx: I::from_usize(0),
+        }
     }
     pub fn any_used(&mut self) -> Option<&mut T> {
         self.iter_mut().next()
@@ -249,6 +213,7 @@ impl<I: IndexingType, T> IndexMut<I> for Universe<I, T> {
     }
 }
 
+#[derive(Clone)]
 pub struct UniverseIter<'a, T> {
     base: std::slice::Iter<'a, UniverseEntry<T>>,
 }
@@ -263,17 +228,6 @@ impl<'a, T> Iterator for UniverseIter<'a, T> {
                 Some(UniverseEntry::Vacant(_)) => continue,
                 None => return None,
             }
-        }
-    }
-}
-
-impl<'a, I: IndexingType, T> IntoIterator for &'a Universe<I, T> {
-    type Item = &'a T;
-    type IntoIter = UniverseIter<'a, T>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        UniverseIter {
-            base: self.data.iter(),
         }
     }
 }
@@ -296,14 +250,72 @@ impl<'a, T> Iterator for UniverseIterMut<'a, T> {
     }
 }
 
+impl<'a, I: IndexingType, T> IntoIterator for &'a Universe<I, T> {
+    type Item = &'a T;
+    type IntoIter = UniverseIter<'a, T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
 impl<'a, I: IndexingType, T> IntoIterator for &'a mut Universe<I, T> {
     type Item = &'a mut T;
     type IntoIter = UniverseIterMut<'a, T>;
 
     fn into_iter(self) -> Self::IntoIter {
-        UniverseIterMut {
-            base: self.data.iter_mut(),
+        self.iter_mut()
+    }
+}
+
+#[derive(Clone)]
+pub struct UniverseEnumeratedIter<'a, I, T> {
+    base: &'a [UniverseEntry<T>],
+    idx: I,
+}
+
+impl<'a, I: IndexingType, T> Iterator for UniverseEnumeratedIter<'a, I, T> {
+    type Item = (I, &'a T);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        for i in self.idx.into_usize()..self.base.len() {
+            let idx = self.idx;
+            self.idx = I::from_usize(i + 1);
+            match &self.base[i] {
+                UniverseEntry::Occupied(v) => return Some((idx, v)),
+                UniverseEntry::Vacant(_) => continue,
+            }
         }
+        None
+    }
+}
+
+pub struct UniverseEnumeratedIterMut<'a, I, T> {
+    base: &'a mut [UniverseEntry<T>],
+    idx: I,
+}
+
+impl<'a, I: IndexingType, T> Iterator for UniverseEnumeratedIterMut<'a, I, T> {
+    type Item = (I, &'a mut T);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        for i in self.idx.into_usize()..self.base.len() {
+            let idx = self.idx;
+            self.idx = I::from_usize(i + 1);
+            match &self.base[i] {
+                UniverseEntry::Occupied(_) => {
+                    // SAFETY: the iterator makes sure that each element
+                    // is only handed out once
+                    let v = unsafe { &mut *self.base.as_mut_ptr().add(i) };
+                    let UniverseEntry::Occupied(v) = v else {
+                        unreachable!()
+                    };
+                    return Some((idx, v));
+                }
+                UniverseEntry::Vacant(_) => continue,
+            }
+        }
+        None
     }
 }
 
@@ -325,26 +337,16 @@ impl<I: IndexingType, T> CountedUniverse<I, T> {
         self.universe.clear();
         self.occupied_entries = 0;
     }
-    pub fn iter(&self) -> impl Iterator<Item = &T> {
+    pub fn iter(&self) -> UniverseIter<T> {
         self.universe.iter()
     }
-    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut T> {
+    pub fn iter_mut(&mut self) -> UniverseIterMut<T> {
         self.universe.iter_mut()
     }
-    pub fn iter_options(&self) -> impl Iterator<Item = Option<&T>> {
-        self.universe.iter_options()
-    }
-    pub fn iter_options_mut(
-        &mut self,
-    ) -> impl Iterator<Item = Option<&mut T>> {
-        self.universe.iter_options_mut()
-    }
-    pub fn iter_enumerated(&self) -> impl Iterator<Item = (I, &T)> {
+    pub fn iter_enumerated(&self) -> UniverseEnumeratedIter<I, T> {
         self.universe.iter_enumerated()
     }
-    pub fn iter_enumerated_mut(
-        &mut self,
-    ) -> impl Iterator<Item = (I, &mut T)> {
+    pub fn iter_enumerated_mut(&mut self) -> UniverseEnumeratedIterMut<I, T> {
         self.universe.iter_enumerated_mut()
     }
     pub fn any_used(&mut self) -> Option<&mut T> {
@@ -422,5 +424,23 @@ impl<I: IndexingType, T> IndexMut<I> for CountedUniverse<I, T> {
     #[inline]
     fn index_mut(&mut self, index: I) -> &mut Self::Output {
         self.universe.index_mut(index)
+    }
+}
+
+impl<'a, I: IndexingType, T> IntoIterator for &'a CountedUniverse<I, T> {
+    type Item = &'a T;
+    type IntoIter = UniverseIter<'a, T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+impl<'a, I: IndexingType, T> IntoIterator for &'a mut CountedUniverse<I, T> {
+    type Item = &'a mut T;
+    type IntoIter = UniverseIterMut<'a, T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter_mut()
     }
 }

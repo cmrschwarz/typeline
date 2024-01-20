@@ -18,7 +18,7 @@ use scr_core::{
         field::FieldId,
         field_action::FieldActionKind::{self, Drop},
         field_value_repr::{FieldData, FieldValueRepr},
-        iter_hall::IterId,
+        iter_hall::{IterId, IterKind},
         push_interface::{PushInterface, VaryingTypeInserter},
         ref_iter::RefAwareTypedSliceIter,
         typed::TypedSlice,
@@ -83,7 +83,10 @@ impl Operator for OpSum {
             .settings
             .floating_point_math;
         TransformData::Custom(smallbox!(TfSum {
-            input_iter_id: jd.field_mgr.claim_iter(tf_state.input_field),
+            input_iter_id: jd.field_mgr.claim_iter(
+                tf_state.input_field,
+                IterKind::Transform(jd.tf_mgr.transforms.peek_claim_id())
+            ),
             aggregate: AnyNumber::Int(0),
             actor_id,
             current_group_error_type: None,

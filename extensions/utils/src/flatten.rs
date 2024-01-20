@@ -25,7 +25,7 @@ use scr_core::{
         field_action::FieldActionKind,
         field_value::{Array, FieldValue, Object},
         field_value_repr::FieldData,
-        iter_hall::IterId,
+        iter_hall::{IterId, IterKind},
         push_interface::{PushInterface, VaryingTypeInserter},
         ref_iter::RefAwareTypedSliceIter,
         typed::TypedSlice,
@@ -103,7 +103,10 @@ impl Operator for OpFlatten {
         );
         let tfe = TfFlatten {
             may_consume_input: self.may_consume_input,
-            input_iter_id: jd.field_mgr.claim_iter(tf_state.input_field),
+            input_iter_id: jd.field_mgr.claim_iter(
+                tf_state.input_field,
+                IterKind::Transform(jd.tf_mgr.transforms.peek_claim_id()),
+            ),
             actor_id: ab.add_actor(),
             input_field_ref_offset,
         };

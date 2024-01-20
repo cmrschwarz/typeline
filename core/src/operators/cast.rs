@@ -5,7 +5,7 @@ use crate::{
     options::argument::CliArgIdx,
     record_data::{
         field_value::{FieldValue, FieldValueKind},
-        iter_hall::IterId,
+        iter_hall::{IterId, IterKind},
         iters::FieldIterator,
         push_interface::PushInterface,
         ref_iter::{AutoDerefIter, RefAwareTypedSliceIter},
@@ -164,7 +164,10 @@ pub fn build_tf_cast<'a>(
             .clone_dyn(),
         };
     TransformData::Cast(TfCast {
-        batch_iter: jd.field_mgr.claim_iter(tf_state.input_field),
+        batch_iter: jd.field_mgr.claim_iter(
+            tf_state.input_field,
+            IterKind::Transform(jd.tf_mgr.transforms.peek_claim_id()),
+        ),
         pending_streams: 0,
         invalid_unicode_handler: replacement_fn,
         target_type: op.target_type,

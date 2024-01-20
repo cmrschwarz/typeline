@@ -93,13 +93,33 @@ impl MatchSetManager {
         fm: &FieldManager,
         ms_id: MatchSetId,
     ) {
+        let cm = &self.match_sets[ms_id].cow_map;
         #[cfg(feature = "cow_field_logging")]
         {
-            eprintln!("{:-^80}", " <updating cow targets> ");
-            fm.print_field_header_data();
-            eprintln!("{:-^80}", " </updating cow targets> ");
+            eprintln!("{:-^80}", " <updating cow bindings> ");
+            eprint!("updating: ");
+            let mut iter = cm.iter().peekable();
+            while let Some((src, usr)) = iter.next() {
+                eprint!("{src} <- {usr}");
+                if iter.peek().is_some() {
+                    eprint!(", ");
+                }
+            }
+            eprintln!();
+            for (id, _) in fm.fields.iter_enumerated() {
+                fm.print_field_stats(id);
+                eprint!(" ");
+                fm.print_field_header_data(id);
+                eprintln!();
+            }
+            for (id, _) in fm.fields.iter_enumerated() {
+                eprint!("field {id}: ");
+                fm.print_field_iter_data(id);
+                eprintln!();
+            }
+            eprintln!("{:-^80}", " </updating cow bindings> ");
         }
-        let cm = &self.match_sets[ms_id].cow_map;
+
         for &src in cm.keys() {
             let src_ms_id = fm.fields[src].borrow().match_set;
             // PERF: we should only apply actions when there is
@@ -109,6 +129,32 @@ impl MatchSetManager {
                 .action_buffer
                 .borrow_mut()
                 .update_field(fm, src, Some(ms_id));
+        }
+
+        #[cfg(feature = "cow_field_logging")]
+        {
+            eprintln!("{:-^80}", " <updated cow bindings> ");
+            eprint!("updated: ");
+            let mut iter = cm.iter().peekable();
+            while let Some((src, usr)) = iter.next() {
+                eprint!("{src} <- {usr}");
+                if iter.peek().is_some() {
+                    eprint!(", ");
+                }
+            }
+            eprintln!();
+            for (id, _) in fm.fields.iter_enumerated() {
+                fm.print_field_stats(id);
+                eprint!(" ");
+                fm.print_field_header_data(id);
+                eprintln!();
+            }
+            for (id, _) in fm.fields.iter_enumerated() {
+                eprint!("field {id}: ");
+                fm.print_field_iter_data(id);
+                eprintln!();
+            }
+            eprintln!("{:-^80}", " </updated cow bindings> ");
         }
     }
 }

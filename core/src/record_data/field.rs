@@ -18,7 +18,7 @@ use super::{
         field_value_flags::SAME_VALUE_AS_PREVIOUS, FieldData, FieldDataBuffer,
         FieldValueFormat, FieldValueHeader,
     },
-    iter_hall::{CowDataSource, FieldDataSource, IterHall, IterId},
+    iter_hall::{CowDataSource, FieldDataSource, IterHall, IterId, IterKind},
     iters::{
         BoundedIter, DestructuredFieldDataRef, FieldDataRef, FieldIterator,
         Iter,
@@ -28,9 +28,6 @@ use super::{
     record_buffer::RecordBufferField,
     ref_iter::AutoDerefIter,
 };
-
-#[cfg(feature = "debug_logging")]
-use crate::operators::transform::TransformId;
 
 pub const FIELD_REF_LOOKUP_ITER_ID: IterId = IterId::MIN;
 
@@ -58,7 +55,8 @@ pub struct Field {
     pub ref_count: usize,
 
     #[cfg(feature = "debug_logging")]
-    pub producing_transform_id: Option<TransformId>,
+    pub producing_transform_id:
+        Option<crate::operators::transform::TransformId>,
     #[cfg(feature = "debug_logging")]
     pub producing_transform_arg: String,
 }
@@ -154,10 +152,10 @@ impl<'a> Clone for CowFieldDataRef<'a> {
 }
 
 impl FieldManager {
-    pub fn claim_iter(&self, field_id: FieldId) -> IterId {
+    pub fn claim_iter(&self, field_id: FieldId, kind: IterKind) -> IterId {
         self.borrow_field_dealiased_mut(field_id)
             .iter_hall
-            .claim_iter()
+            .claim_iter(kind)
     }
     pub fn dealias_field_id(&self, mut field_id: FieldId) -> FieldId {
         loop {
@@ -461,7 +459,9 @@ impl FieldManager {
             producing_transform_arg: String::default(),
         };
         self.bump_field_refcount(field.shadowed_by);
-        field.iter_hall.reserve_iter_id(FIELD_REF_LOOKUP_ITER_ID);
+        field
+            .iter_hall
+            .reserve_iter_id(FIELD_REF_LOOKUP_ITER_ID, IterKind::RefLookup);
         let field_id = self.fields.claim_with_value(RefCell::new(field));
         if let Some(name) = name {
             msm.match_sets[ms_id].field_name_map.insert(name, field_id);
@@ -508,7 +508,10 @@ impl FieldManager {
         unsafe {
             src.iter_hall.store_iter_state_unchecked(
                 cds.header_iter_id,
-                src.iter_hall.get_iter_state_at_end(self),
+                src.iter_hall.get_iter_state_at_end(
+                    self,
+                    src.iter_hall.get_iter_kind(cds.header_iter_id),
+                ),
             );
         }
     }
@@ -559,7 +562,9 @@ impl FieldManager {
         src_field.ref_count += 1;
         src_field.iter_hall.cow_targets.push(field_id);
         vacant_entry.insert(field_id);
-        let header_iter = src_field.iter_hall.claim_iter_at_end(self);
+        let header_iter = src_field
+            .iter_hall
+            .claim_iter_at_end(self, IterKind::CowField(field_id));
         let mut field = self.fields[field_id].borrow_mut();
         field.iter_hall.data_source =
             FieldDataSource::FullCow(CowDataSource {
@@ -621,7 +626,9 @@ impl FieldManager {
             let mut tgt_field = self.fields[tgt_id].borrow_mut();
             src_field.ref_count += 1;
             src_field.iter_hall.cow_targets.push(tgt_id);
-            let header_iter_id = src_field.iter_hall.claim_iter_at_end(self);
+            let header_iter_id = src_field
+                .iter_hall
+                .claim_iter_at_end(self, IterKind::CowField(tgt_id));
             tgt_field.iter_hall.data_source =
                 FieldDataSource::FullCow(CowDataSource {
                     src_field_id: src_id,
@@ -889,22 +896,20 @@ impl FieldManager {
             eprintln!();
         }
     }
-    pub fn print_field_stats(&self, _id: FieldId) {
+    pub fn print_field_stats(&self, id: FieldId) {
+        let field = self.fields[id].borrow();
+        eprint!("field id {id:02}");
+        // if let Some(name) = field.name {
+        //    eprint!(" '@{}'",
+        // self.session_data.string_store.lookup(name));
+        //}
+        eprint!(", ms {}", field.match_set);
+        eprint!(", rc {:>2}", field.ref_count);
+        eprint!(", actor {:?}", field.first_actor);
+        eprint!(", hc {}", field.iter_hall.field_data.headers.len());
+        eprint!(", ds {:>2}", field.iter_hall.field_data.data.len());
         #[cfg(feature = "debug_logging")]
         {
-            #[allow(clippy::used_underscore_binding)]
-            let id = _id;
-            let field = self.fields[id].borrow();
-            eprint!("field id {id:02}");
-            // if let Some(name) = field.name {
-            //    eprint!(" '@{}'",
-            // self.session_data.string_store.lookup(name));
-            //}
-            eprint!(", ms {}", field.match_set);
-            eprint!(", rc {:>2}", field.ref_count);
-            eprint!(", actor {:?}", field.first_actor);
-            eprint!(", hc {}", field.iter_hall.field_data.headers.len());
-            eprint!(", ds {:>2}", field.iter_hall.field_data.data.len());
             if let Some(prod_id) = field.producing_transform_id {
                 eprint!(
                     " (output of tf {prod_id} `{}`)",
@@ -913,49 +918,71 @@ impl FieldManager {
             } else if !field.producing_transform_arg.is_empty() {
                 eprint!(" (`{}`)", field.producing_transform_arg);
             }
-            if field.shadowed_by != VOID_FIELD_ID {
-                eprint!(
-                    " (aliased by field id {} since actor id `{}`)",
-                    field.shadowed_by, field.shadowed_since
-                );
-            }
-            if let (cow_src_field, Some(data_cow)) =
-                field.iter_hall.cow_source_field(&self)
-            {
-                eprint!(
-                    " [{}cow{}]",
-                    if data_cow { "data " } else { "" },
-                    if let Some(src) = cow_src_field {
-                        format!(" src: {src}")
-                    } else {
-                        String::default()
-                    }
-                );
-            }
-            if !field.field_refs.is_empty() {
-                eprint!(" ( field refs:");
-                for fr in &field.field_refs {
-                    eprint!(" {fr}");
+        }
+        if field.shadowed_by != VOID_FIELD_ID {
+            eprint!(
+                " (aliased by field id {} since actor id `{}`)",
+                field.shadowed_by, field.shadowed_since
+            );
+        }
+        if let (cow_src_field, Some(data_cow)) =
+            field.iter_hall.cow_source_field(self)
+        {
+            eprint!(
+                " [{} cow{}]",
+                if data_cow { "data" } else { "full" },
+                if let Some(src) = cow_src_field {
+                    format!(" src: {src}")
+                } else {
+                    String::default()
                 }
-                eprint!(" )");
+            );
+        }
+        if !field.field_refs.is_empty() {
+            eprint!(" ( field refs:");
+            for fr in &field.field_refs {
+                eprint!(" {fr}");
             }
+            eprint!(" )");
         }
     }
-    pub fn print_field_header_data(&self) {
-        for (i, f) in self.fields.iter_enumerated() {
-            self.print_field_stats(i);
-            let f = f.borrow();
-            let fd = &f.iter_hall.field_data;
-            if fd.headers.is_empty() {
-                eprintln!(" []");
-                continue;
-            }
-            eprintln!(" [");
-            for &h in &fd.headers {
-                eprintln!("    {h:?},");
-            }
-            eprintln!("]");
+    pub fn print_field_header_data(&self, id: FieldId) {
+        let f = self.fields[id].borrow();
+        let fd = &f.iter_hall.field_data;
+        if fd.headers.is_empty() {
+            eprint!("[]");
+            return;
         }
+        eprintln!("[");
+        for &h in &fd.headers {
+            eprintln!("    {h:?},");
+        }
+        eprint!("]");
+    }
+    pub fn print_field_iter_data(&self, id: FieldId) {
+        let f = self.fields[id].borrow();
+        let mut iter =
+            f.iter_hall.iters.iter().filter(|#[allow(unused)] v| {
+                #[cfg(feature = "debug_logging")]
+                let res = v.get().kind != IterKind::RefLookup;
+                #[cfg(not(feature = "debug_logging"))]
+                let res = false;
+                res
+            });
+        let count = iter.clone().take(2).count();
+        if count == 0 {
+            eprint!("[]");
+            return;
+        }
+        if count == 1 {
+            eprint!("[ {:?} ]", iter.next().unwrap().get());
+            return;
+        }
+        eprintln!("[");
+        for is in iter {
+            eprintln!("    {:?},", is.get());
+        }
+        eprint!("]");
     }
 }
 

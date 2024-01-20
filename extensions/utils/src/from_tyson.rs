@@ -18,7 +18,7 @@ use scr_core::{
         field::FieldId,
         field_value::FieldValue,
         field_value_repr::{FieldData, RunLength},
-        iter_hall::IterId,
+        iter_hall::{IterId, IterKind},
         push_interface::{PushInterface, VaryingTypeInserter},
         ref_iter::{
             RefAwareBytesBufferIter, RefAwareInlineBytesIter,
@@ -78,7 +78,10 @@ impl Operator for OpFromTyson {
             .borrow_mut()
             .first_actor = ActorRef::Unconfirmed(ab.peek_next_actor_id());
         TransformData::Custom(smallbox!(TfFromTyson {
-            input_iter_id: jd.field_mgr.claim_iter(tf_state.input_field),
+            input_iter_id: jd.field_mgr.claim_iter(
+                tf_state.input_field,
+                IterKind::Transform(jd.tf_mgr.transforms.peek_claim_id())
+            ),
         }))
     }
 }

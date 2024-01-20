@@ -22,7 +22,7 @@ use crate::{
         field_value_repr::{
             field_value_flags, FieldValueRepr, INLINE_STR_MAX_LEN,
         },
-        iter_hall::IterId,
+        iter_hall::{IterId, IterKind},
         iters::FieldIterator,
         match_set::MatchSetManager,
         push_interface::PushInterface,
@@ -154,7 +154,10 @@ pub fn build_tf_join<'a>(
         clear_delay_requested: false,
         separator: op.separator.as_deref(),
         separator_is_valid_utf8: op.separator_is_valid_utf8,
-        iter_id: jd.field_mgr.claim_iter(tf_state.input_field),
+        iter_id: jd.field_mgr.claim_iter(
+            tf_state.input_field,
+            IterKind::Transform(jd.tf_mgr.transforms.peek_claim_id()),
+        ),
         buffer: Vec::new(),
         buffer_is_valid_utf8: true,
         first_record_added: false,

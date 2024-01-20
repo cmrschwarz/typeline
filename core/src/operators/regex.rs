@@ -19,7 +19,7 @@ use crate::{
         field_value_repr::{
             field_value_flags, FieldData, FieldValueRepr, RunLength,
         },
-        iter_hall::IterId,
+        iter_hall::{IterId, IterKind},
         iters::FieldIterator,
         push_interface::{PushInterface, VaryingTypeInserter},
         ref_iter::{
@@ -484,7 +484,10 @@ pub fn build_tf_regex<'a>(
         multimatch: op.opts.multimatch,
         non_mandatory: op.opts.non_mandatory,
         allow_overlapping: op.opts.overlapping,
-        input_field_iter_id: jd.field_mgr.claim_iter(tf_state.input_field),
+        input_field_iter_id: jd.field_mgr.claim_iter(
+            tf_state.input_field,
+            IterKind::Transform(jd.tf_mgr.transforms.peek_claim_id()),
+        ),
         // if we reach our target batch size while we are in the middle
         // of matching the regex agains a value (typically happens in
         // multimatch mode), we stop and continue next time at this

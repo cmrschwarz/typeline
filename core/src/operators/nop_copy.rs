@@ -4,7 +4,8 @@ use crate::{
     liveness_analysis::LivenessData,
     options::argument::CliArgIdx,
     record_data::{
-        field::FieldRefOffset, iter_hall::IterId,
+        field::FieldRefOffset,
+        iter_hall::{IterId, IterKind},
         push_interface::PushInterface,
     },
 };
@@ -61,7 +62,10 @@ pub fn build_tf_nop_copy(
         .register_field_reference(tf_state.output_field, tf_state.input_field);
     let tfc = TfNopCopy {
         may_consume_input: op.may_consume_input,
-        input_iter_id: jd.field_mgr.claim_iter(tf_state.input_field),
+        input_iter_id: jd.field_mgr.claim_iter(
+            tf_state.input_field,
+            IterKind::Transform(jd.tf_mgr.transforms.peek_claim_id()),
+        ),
         input_field_ref_offset,
     };
     TransformData::NopCopy(tfc)

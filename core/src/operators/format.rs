@@ -30,7 +30,7 @@ use crate::{
         field_value_repr::{
             field_value_flags, FieldValueRepr, RunLength, INLINE_STR_MAX_LEN,
         },
-        iter_hall::IterId,
+        iter_hall::{IterId, IterKind},
         iters::FieldIterator,
         match_set::MatchSetManager,
         push_interface::PushInterface,
@@ -721,7 +721,10 @@ pub fn build_tf_format<'a>(
             };
             FormatIdentRef {
                 field_id,
-                iter_id: jd.field_mgr.claim_iter(field_id),
+                iter_id: jd.field_mgr.claim_iter(
+                    field_id,
+                    IterKind::Transform(jd.tf_mgr.transforms.peek_claim_id()),
+                ),
             }
         })
         .collect();
