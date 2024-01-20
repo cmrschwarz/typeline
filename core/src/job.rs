@@ -447,56 +447,6 @@ impl<'a> JobData<'a> {
             }
         }
     }
-    pub fn print_field_stats(&self, _id: FieldId) {
-        #[cfg(feature = "debug_logging")]
-        {
-            #[allow(clippy::used_underscore_binding)]
-            let id = _id;
-            let field = self.field_mgr.fields[id].borrow();
-            eprint!("field id {id}");
-            // if let Some(name) = field.name {
-            //    eprint!(" '@{}'",
-            // self.session_data.string_store.lookup(name));
-            //}
-            eprint!(", ms {}", field.match_set);
-            eprint!(", rc {}", field.ref_count);
-            eprint!(", actor {:?}", field.first_actor);
-            if let Some(prod_id) = field.producing_transform_id {
-                eprint!(
-                    " (output of tf {prod_id} `{}`)",
-                    field.producing_transform_arg
-                );
-            } else if !field.producing_transform_arg.is_empty() {
-                eprint!(" (`{}`)", field.producing_transform_arg);
-            }
-            if field.shadowed_by != VOID_FIELD_ID {
-                eprint!(
-                    " (aliased by field id {} since actor id `{}`)",
-                    field.shadowed_by, field.shadowed_since
-                );
-            }
-            if let (cow_src_field, Some(data_cow)) =
-                field.iter_hall.cow_source_field(&self.field_mgr)
-            {
-                eprint!(
-                    " [{}cow{}]",
-                    if data_cow { "data " } else { "" },
-                    if let Some(src) = cow_src_field {
-                        format!(" src: {src}")
-                    } else {
-                        String::default()
-                    }
-                );
-            }
-            if !field.field_refs.is_empty() {
-                eprint!(" ( field refs:");
-                for fr in &field.field_refs {
-                    eprint!(" {fr}");
-                }
-                eprint!(" )");
-            }
-        }
-    }
 }
 
 #[derive(Clone, Copy)]
@@ -528,7 +478,7 @@ impl<'a> Job<'a> {
             }
             #[cfg(feature = "debug_logging")]
             for (i, _) in self.job_data.field_mgr.fields.iter_enumerated() {
-                self.job_data.print_field_stats(i);
+                self.job_data.field_mgr.print_field_stats(i);
                 eprintln!();
             }
         }

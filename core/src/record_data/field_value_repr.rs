@@ -163,7 +163,7 @@ pub mod field_value_flags {
     pub const NONE: FieldValueFlags = 0;
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy)]
 pub struct FieldValueFlagsDebugRepr {
     pub padding: u8,
     pub deleted: bool,
@@ -453,6 +453,17 @@ impl From<field_value_flags::FieldValueFlags> for FieldValueFlagsDebugRepr {
             shared_value: h.shared_value(),
             same_as_prev: h.same_value_as_previous(),
         }
+    }
+}
+
+impl std::fmt::Debug for FieldValueFlagsDebugRepr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Flags")
+            .field("pad", &usize::from(self.padding))
+            .field("del", &usize::from(self.deleted))
+            .field("shared_val", &usize::from(self.shared_value))
+            .field("same_as_prev", &usize::from(self.same_as_prev))
+            .finish()
     }
 }
 

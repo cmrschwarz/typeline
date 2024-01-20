@@ -96,14 +96,7 @@ impl MatchSetManager {
         #[cfg(feature = "cow_field_logging")]
         {
             eprintln!("{:-^80}", " <updating cow targets> ");
-            for (i, f) in fm.fields.iter_enumerated() {
-                let f = f.borrow_mut();
-                println!(
-                    "field {i:02} (ds: {}): {:?}",
-                    f.iter_hall.field_data.data.len(),
-                    &f.iter_hall.field_data.headers
-                )
-            }
+            fm.print_field_header_data();
             eprintln!("{:-^80}", " </updating cow targets> ");
         }
         let cm = &self.match_sets[ms_id].cow_map;

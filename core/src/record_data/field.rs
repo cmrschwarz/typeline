@@ -889,6 +889,74 @@ impl FieldManager {
             eprintln!();
         }
     }
+    pub fn print_field_stats(&self, _id: FieldId) {
+        #[cfg(feature = "debug_logging")]
+        {
+            #[allow(clippy::used_underscore_binding)]
+            let id = _id;
+            let field = self.fields[id].borrow();
+            eprint!("field id {id:02}");
+            // if let Some(name) = field.name {
+            //    eprint!(" '@{}'",
+            // self.session_data.string_store.lookup(name));
+            //}
+            eprint!(", ms {}", field.match_set);
+            eprint!(", rc {:>2}", field.ref_count);
+            eprint!(", actor {:?}", field.first_actor);
+            eprint!(", hc {}", field.iter_hall.field_data.headers.len());
+            eprint!(", ds {:>2}", field.iter_hall.field_data.data.len());
+            if let Some(prod_id) = field.producing_transform_id {
+                eprint!(
+                    " (output of tf {prod_id} `{}`)",
+                    field.producing_transform_arg
+                );
+            } else if !field.producing_transform_arg.is_empty() {
+                eprint!(" (`{}`)", field.producing_transform_arg);
+            }
+            if field.shadowed_by != VOID_FIELD_ID {
+                eprint!(
+                    " (aliased by field id {} since actor id `{}`)",
+                    field.shadowed_by, field.shadowed_since
+                );
+            }
+            if let (cow_src_field, Some(data_cow)) =
+                field.iter_hall.cow_source_field(&self)
+            {
+                eprint!(
+                    " [{}cow{}]",
+                    if data_cow { "data " } else { "" },
+                    if let Some(src) = cow_src_field {
+                        format!(" src: {src}")
+                    } else {
+                        String::default()
+                    }
+                );
+            }
+            if !field.field_refs.is_empty() {
+                eprint!(" ( field refs:");
+                for fr in &field.field_refs {
+                    eprint!(" {fr}");
+                }
+                eprint!(" )");
+            }
+        }
+    }
+    pub fn print_field_header_data(&self) {
+        for (i, f) in self.fields.iter_enumerated() {
+            self.print_field_stats(i);
+            let f = f.borrow();
+            let fd = &f.iter_hall.field_data;
+            if fd.headers.is_empty() {
+                eprintln!(" []");
+                continue;
+            }
+            eprintln!(" [");
+            for &h in &fd.headers {
+                eprintln!("    {h:?},");
+            }
+            eprintln!("]");
+        }
+    }
 }
 
 impl Drop for FieldManager {

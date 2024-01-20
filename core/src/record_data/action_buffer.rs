@@ -119,8 +119,8 @@ impl Default for ActorRef {
 impl Debug for ActorRef {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Present(id) => f.write_fmt(format_args!("{id}")),
-            Self::Unconfirmed(id) => f.write_fmt(format_args!("{id}?")),
+            Self::Present(id) => f.write_fmt(format_args!(" {id}")),
+            Self::Unconfirmed(id) => f.write_fmt(format_args!("?{id}")),
         }
     }
 }
