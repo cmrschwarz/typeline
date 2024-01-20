@@ -88,6 +88,7 @@ impl MatchSetManager {
     pub fn remove_match_set(&mut self, _ms_id: MatchSetId) {
         todo!()
     }
+    #[cfg(feature = "cow_field_logging")]
     fn print_updating_cow_bindings(&self, ms_id: MatchSetId) {
         let cm = &self.match_sets[ms_id].cow_map;
         let mut iter = cm.iter().peekable();

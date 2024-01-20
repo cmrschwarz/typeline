@@ -961,21 +961,15 @@ impl FieldManager {
     }
     pub fn print_field_iter_data(&self, id: FieldId) {
         let f = self.fields[id].borrow();
-        let mut iter =
-            f.iter_hall.iters.iter().filter(|#[allow(unused)] v| {
-                #[cfg(feature = "debug_logging")]
-                let res = v.get().kind != IterKind::RefLookup;
-                #[cfg(not(feature = "debug_logging"))]
-                let res = false;
-                res
-            });
-        let count = iter.clone().take(2).count();
-        if count == 0 {
+        let iter = f.iter_hall.iters.iter().filter(|#[allow(unused)] v| {
+            #[cfg(feature = "debug_logging")]
+            let res = v.get().kind != IterKind::RefLookup;
+            #[cfg(not(feature = "debug_logging"))]
+            let res = false;
+            res
+        });
+        if iter.clone().next().is_none() {
             eprint!("[]");
-            return;
-        }
-        if count == 1 {
-            eprint!("[ {:?} ]", iter.next().unwrap().get());
             return;
         }
         eprintln!("[");
@@ -994,7 +988,8 @@ impl FieldManager {
     }
     pub fn print_fields_with_iter_data(&self) {
         for (id, _) in self.fields.iter_enumerated() {
-            eprint!("field {id}: ");
+            self.print_field_stats(id);
+            eprint!(" ");
             self.print_field_iter_data(id);
             eprintln!();
         }

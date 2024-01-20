@@ -1057,11 +1057,10 @@ impl ActionBuffer {
         // debug_assert!(_field_count_delta == agi.group.field_count_delta);
     }
     fn preserve_full_cow_fields_pre_exec<'a>(
-        &mut self,
         fm: &'a FieldManager,
         field_id: FieldId,
         update_cow_ms: Option<MatchSetId>,
-        agi: &ActionGroupIdentifier,
+        first_action_index: usize,
         full_cow_field_refs: &mut Vec<std::cell::RefMut<'a, Field>>,
     ) {
         let field = fm.fields[field_id].borrow();
@@ -1069,23 +1068,26 @@ impl ActionBuffer {
             return;
         }
 
-        let (s1, s2) = self.get_action_group_slices(agi);
-        let Some(first_action_index) =
-            s1.first().or_else(|| s2.first()).map(|a| a.field_idx)
-        else {
-            return;
-        };
-
         for &tgt_field_id in &field.iter_hall.cow_targets {
-            let mut tgt_field = fm.fields[tgt_field_id].borrow_mut();
+            let tgt_field = fm.fields[tgt_field_id].borrow();
             let cow_variant = tgt_field.iter_hall.data_source.cow_variant();
-            if Some(tgt_field.match_set) == update_cow_ms {
-                continue;
-            }
             if cow_variant == Some(CowVariant::DataCow) {
                 continue;
             }
+            drop(tgt_field);
+            Self::preserve_full_cow_fields_pre_exec(
+                fm,
+                tgt_field_id,
+                None,
+                first_action_index,
+                full_cow_field_refs,
+            );
+            let mut tgt_field = fm.fields[tgt_field_id].borrow_mut();
             // TODO: support RecordBuffers
+            if Some(tgt_field.match_set) == update_cow_ms {
+                full_cow_field_refs.push(tgt_field);
+                continue;
+            }
             debug_assert!(cow_variant == Some(CowVariant::FullCow));
             let cds = tgt_field.iter_hall.get_cow_data_source_mut().unwrap();
             let tgt_cow_end = field.iter_hall.iters[cds.header_iter_id].get();
@@ -1172,11 +1174,18 @@ impl ActionBuffer {
         fm.fields[field_id].borrow_mut().iter_hall.uncow_headers(fm);
         let mut full_cow_fields =
             transmute_vec(std::mem::take(&mut self.temp_field_refs));
-        self.preserve_full_cow_fields_pre_exec(
+
+        let (s1, s2) = self.get_action_group_slices(&agi);
+        let Some(first_action_index) =
+            s1.first().or_else(|| s2.first()).map(|a| a.field_idx)
+        else {
+            return;
+        };
+        Self::preserve_full_cow_fields_pre_exec(
             fm,
             field_id,
             update_cow_ms,
-            &agi,
+            first_action_index,
             &mut full_cow_fields,
         );
         self.execute_actions(fm, field_id, &agi, &mut full_cow_fields);

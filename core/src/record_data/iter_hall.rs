@@ -288,9 +288,9 @@ impl IterHall {
         let mut state = self.iters[iter_id].get();
         state.field_pos = iter.field_pos;
         state.header_rl_offset = iter.header_rl_offset;
-
+        // we use the field count from the iter becase the field might be cow
         if iter.header_rl_offset == 0
-            && iter.field_pos == self.field_data.field_count
+            && iter.field_pos == iter.fdr.field_count()
         {
             // Uphold the 'no `IterState` on the last header except 0'
             // invariant.
