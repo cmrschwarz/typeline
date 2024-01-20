@@ -2,11 +2,12 @@ use std::{cell::Cell, fmt::Debug, mem::size_of};
 
 use crate::utils::{
     dynamic_freelist::DynamicArrayFreelist, launder_slice,
-    offset_vec_deque::OffsetVecDeque, subslice_slice_pair,
+    offset_vec_deque::OffsetVecDeque, phantom_slot::PhantomSlot,
+    subslice_slice_pair, temp_vec::transmute_vec,
 };
 
 use super::{
-    field::{FieldId, FieldManager},
+    field::{Field, FieldId, FieldManager},
     field_action::{merge_action_lists, FieldAction, FieldActionKind},
     field_action_applicator::FieldActionApplicator,
     field_value_repr::RunLength,
@@ -157,6 +158,7 @@ pub struct ActionBuffer {
     snapshot_freelists:
         Vec<DynamicArrayFreelist<SnapshotLookupId, SnapshotEntry>>,
     actions_applicator: FieldActionApplicator,
+    temp_field_refs: Vec<PhantomSlot<std::cell::RefMut<'static, Field>>>,
     #[cfg(feature = "debug_logging")]
     pub match_set_id: MatchSetId,
 }
@@ -998,6 +1000,7 @@ impl ActionBuffer {
         fm: &FieldManager,
         field_id: FieldId,
         agi: &ActionGroupIdentifier,
+        full_cow_field_refs: &mut Vec<std::cell::RefMut<'_, Field>>,
     ) {
         let mut field_ref_mut = fm.fields[field_id].borrow_mut();
         let field = &mut *field_ref_mut;
@@ -1019,7 +1022,6 @@ impl ActionBuffer {
                     panic!("cannot execute commands on FullCow iter hall")
                 }
             };
-        let iterators = field.iter_hall.iters.iter_mut().map(Cell::get_mut);
         let (s1, s2) = Self::get_action_group_slices_raw(
             &self.actors,
             &self.action_temp_buffers,
@@ -1034,6 +1036,16 @@ impl ActionBuffer {
             );
             eprint_action_list(actions.clone());
         }
+        let iterators = field
+            .iter_hall
+            .iters
+            .iter_mut()
+            .chain(
+                full_cow_field_refs
+                    .iter_mut()
+                    .flat_map(|f| f.iter_hall.iters.iter_mut()),
+            )
+            .map(Cell::get_mut);
 
         let _field_count_delta = self.actions_applicator.run(
             actions,
@@ -1044,12 +1056,13 @@ impl ActionBuffer {
         );
         // debug_assert!(_field_count_delta == agi.group.field_count_delta);
     }
-    fn preserve_full_cow_fields_pre_exec(
+    fn preserve_full_cow_fields_pre_exec<'a>(
         &mut self,
-        fm: &FieldManager,
+        fm: &'a FieldManager,
         field_id: FieldId,
         update_cow_ms: Option<MatchSetId>,
         agi: &ActionGroupIdentifier,
+        full_cow_field_refs: &mut Vec<std::cell::RefMut<'a, Field>>,
     ) {
         let field = fm.fields[field_id].borrow();
         if !field.has_cow_targets() {
@@ -1084,8 +1097,9 @@ impl ActionBuffer {
                     &field.iter_hall.field_data.headers,
                     tgt_cow_end,
                 );
+                continue;
             }
-            continue;
+            full_cow_field_refs.push(tgt_field);
         }
     }
     fn update_full_cow_fields_post_exec(
@@ -1157,13 +1171,17 @@ impl ActionBuffer {
         let Some(agi) = res else { return };
 
         fm.fields[field_id].borrow_mut().iter_hall.uncow_headers(fm);
+        let mut full_cow_fields =
+            transmute_vec(std::mem::take(&mut self.temp_field_refs));
         self.preserve_full_cow_fields_pre_exec(
             fm,
             field_id,
             update_cow_ms,
             &agi,
+            &mut full_cow_fields,
         );
-        self.execute_actions(fm, field_id, &agi);
+        self.execute_actions(fm, field_id, &agi, &mut full_cow_fields);
+        self.temp_field_refs = transmute_vec(full_cow_fields);
         self.release_temp_action_group(Some(agi));
         self.update_full_cow_fields_post_exec(fm, field_id, update_cow_ms);
     }

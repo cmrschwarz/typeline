@@ -47,3 +47,4 @@ full = ["repl"]
 
 unstable = []
 debug_logging = []
+cow_field_logging = []

@@ -249,6 +249,64 @@ impl<I: IndexingType, T> IndexMut<I> for Universe<I, T> {
     }
 }
 
+pub struct UniverseIter<'a, T> {
+    base: std::slice::Iter<'a, UniverseEntry<T>>,
+}
+
+impl<'a, T> Iterator for UniverseIter<'a, T> {
+    type Item = &'a T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            match self.base.next() {
+                Some(UniverseEntry::Occupied(v)) => return Some(v),
+                Some(UniverseEntry::Vacant(_)) => continue,
+                None => return None,
+            }
+        }
+    }
+}
+
+impl<'a, I: IndexingType, T> IntoIterator for &'a Universe<I, T> {
+    type Item = &'a T;
+    type IntoIter = UniverseIter<'a, T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        UniverseIter {
+            base: self.data.iter(),
+        }
+    }
+}
+
+pub struct UniverseIterMut<'a, T> {
+    base: std::slice::IterMut<'a, UniverseEntry<T>>,
+}
+
+impl<'a, T> Iterator for UniverseIterMut<'a, T> {
+    type Item = &'a mut T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            match self.base.next() {
+                Some(UniverseEntry::Occupied(v)) => return Some(v),
+                Some(UniverseEntry::Vacant(_)) => continue,
+                None => return None,
+            }
+        }
+    }
+}
+
+impl<'a, I: IndexingType, T> IntoIterator for &'a mut Universe<I, T> {
+    type Item = &'a mut T;
+    type IntoIter = UniverseIterMut<'a, T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        UniverseIterMut {
+            base: self.data.iter_mut(),
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct CountedUniverse<I, T> {
     universe: Universe<I, T>,

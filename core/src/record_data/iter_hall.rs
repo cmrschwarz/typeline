@@ -551,8 +551,9 @@ impl IterHall {
         &mut self,
     ) -> Option<&mut CowDataSource> {
         match &mut self.data_source {
-            FieldDataSource::FullCow(cds) => Some(cds),
-            FieldDataSource::DataCow(cds) => Some(cds),
+            FieldDataSource::FullCow(cds) | FieldDataSource::DataCow(cds) => {
+                Some(cds)
+            }
             FieldDataSource::Owned
             | FieldDataSource::Alias(_)
             | FieldDataSource::RecordBufferFullCow(_)
@@ -569,9 +570,11 @@ impl IterHall {
             .extend(&src_headers[..cow_end.header_idx]);
         if cow_end.header_rl_offset != 0 {
             let mut last_header = src_headers[cow_end.header_idx];
-            last_header.run_length = cow_end.header_rl_offset - 1;
+            last_header.run_length =
+                cow_end.header_rl_offset.min(last_header.run_length);
             self.field_data.headers.push(last_header);
         }
+        self.field_data.field_count = cow_end.field_pos;
     }
     pub(crate) fn uncow_headers(&mut self, fm: &FieldManager) {
         match self.data_source {

@@ -93,9 +93,25 @@ impl MatchSetManager {
         fm: &FieldManager,
         ms_id: MatchSetId,
     ) {
+        #[cfg(feature = "cow_field_logging")]
+        {
+            eprintln!("{:-^80}", " <updating cow targets> ");
+            for (i, f) in fm.fields.iter_enumerated() {
+                let f = f.borrow_mut();
+                println!(
+                    "field {i:02} (ds: {}): {:?}",
+                    f.iter_hall.field_data.data.len(),
+                    &f.iter_hall.field_data.headers
+                )
+            }
+            eprintln!("{:-^80}", " </updating cow targets> ");
+        }
         let cm = &self.match_sets[ms_id].cow_map;
         for &src in cm.keys() {
             let src_ms_id = fm.fields[src].borrow().match_set;
+            // PERF: we should only apply actions when there is
+            // at least one data cow, otherwise we can delay that
+            // if we give the full cow a snapshot ref
             self.match_sets[src_ms_id]
                 .action_buffer
                 .borrow_mut()
