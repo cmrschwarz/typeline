@@ -625,7 +625,7 @@ impl IterHall {
                 cow_end.header_rl_offset.min(last_header.run_length);
             self.field_data.headers.push(last_header);
         }
-        self.field_data.field_count = cow_end.field_pos;
+        self.field_data.field_count += cow_end.field_pos;
     }
     pub(crate) fn uncow_headers(&mut self, fm: &FieldManager) {
         match self.data_source {

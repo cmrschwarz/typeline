@@ -1,4 +1,8 @@
-use std::{cell::Cell, fmt::Debug, mem::size_of};
+use std::{
+    cell::{Cell, Ref},
+    fmt::Debug,
+    mem::size_of,
+};
 
 use crate::utils::{
     dynamic_freelist::DynamicArrayFreelist, launder_slice,
@@ -1129,30 +1133,26 @@ impl ActionBuffer {
                 debug_assert!(cow_variant == Some(CowVariant::FullCow));
                 continue;
             }
-            if tgt_cow_end.field_pos == 0 {
-                if tgt_field.iter_hall.field_data.field_count == 0 {
-                    tgt_field.iter_hall.data_source =
-                        FieldDataSource::FullCow(cds);
-                    continue;
-                }
-                tgt_field
-                    .iter_hall
-                    .field_data
-                    .headers
-                    .retain(|h| !h.deleted());
-                for h in &mut tgt_field.iter_hall.field_data.headers {
-                    debug_assert!(h.fmt.repr.is_zst());
-                    h.size = 0;
-                    h.set_same_value_as_previous(false);
-                }
-                tgt_field
-                    .iter_hall
-                    .field_data
-                    .headers
-                    .extend(&field.iter_hall.field_data.headers);
+            if tgt_cow_end.field_pos == 0
+                && tgt_field.iter_hall.field_data.field_count == 0
+            {
+                tgt_field.iter_hall.data_source =
+                    FieldDataSource::FullCow(cds);
                 continue;
             }
-            todo!("append to DataCow");
+            let (headers, count) = fm.get_field_headers(Ref::clone(&field));
+            let tgt_fd = &mut tgt_field.iter_hall.field_data;
+            let start_idx = tgt_cow_end.header_idx;
+            if tgt_cow_end.header_rl_offset != 0 {
+                let mut first_header = headers[start_idx];
+                first_header.run_length =
+                    tgt_cow_end.header_rl_offset.min(first_header.run_length);
+                tgt_fd.headers.push(first_header);
+            }
+            if start_idx + 1 < headers.len() {
+                tgt_fd.headers.extend(&headers[start_idx + 1..]);
+            }
+            tgt_fd.field_count += count - tgt_cow_end.field_pos;
         }
     }
     pub fn update_field(
