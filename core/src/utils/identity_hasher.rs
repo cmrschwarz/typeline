@@ -2,21 +2,17 @@ use std::hash::{BuildHasherDefault, Hasher};
 
 pub type BuildIdentityHasher = BuildHasherDefault<IdentityHasher>;
 
-#[cfg(debug_assertions)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct IdentityHasher {
     hash: u64,
+    #[cfg(debug_assertions)]
     accessed: bool,
-}
-
-#[cfg(not(debug_assertions))]
-#[derive(Clone, Copy, Debug, Default)]
-pub struct IdentityHasher {
-    hash: u64,
 }
 
 impl Hasher for IdentityHasher {
     fn finish(&self) -> u64 {
+        // cfg needed because self.accessed doesn't exist in release mode
+        #[cfg(debug_assertions)]
         debug_assert!(
             self.accessed,
             "IdentityHasher: finish() called before writing"
@@ -27,12 +23,12 @@ impl Hasher for IdentityHasher {
         panic!("IdentityHasher: attempted to write a byte slice")
     }
     fn write_u64(&mut self, n: u64) {
-        debug_assert!(
-            !self.accessed,
-            "IdentityHasher: attempted to write a second time"
-        );
         #[cfg(debug_assertions)]
         {
+            debug_assert!(
+                !self.accessed,
+                "IdentityHasher: attempted to write a second time"
+            );
             self.accessed = true;
         }
         self.hash = n

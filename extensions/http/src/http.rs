@@ -23,7 +23,7 @@ use scr_core::{
     record_data::{
         field::FieldId,
         field_value::FieldValue,
-        iter_hall::IterId,
+        iter_hall::{IterId, IterKind},
         push_interface::PushInterface,
         stream_value::{StreamValue, StreamValueId},
         typed::FieldValueRef,
@@ -139,7 +139,10 @@ impl Operator for OpHttpRequest {
             running_connections: CountedUniverse::default(),
             poll: Poll::new().unwrap(),
             events: Events::with_capacity(64),
-            iter_id: jd.field_mgr.claim_iter(tf_state.input_field),
+            iter_id: jd.field_mgr.claim_iter(
+                tf_state.input_field,
+                IterKind::Transform(jd.tf_mgr.transforms.peek_claim_id()),
+            ),
             stream_buffer_size: jd
                 .get_transform_chain_from_tf_state(tf_state)
                 .settings
