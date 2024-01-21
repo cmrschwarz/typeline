@@ -80,6 +80,8 @@ pub enum IterKind {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct IterState {
     pub(super) field_pos: usize,
+    // Will be **after** any leading padding introduced by the current header,
+    // just like the iterator would be.
     pub(super) data: usize,
     // The `header_idx` will never be greater than or equal to the field's
     // header count, unless that count is 0. This means that we have to
@@ -251,7 +253,7 @@ impl IterHall {
         }
         state.header_idx += 1;
         state.header_rl_offset = 0;
-        state.data += h.total_size_unique();
+        state.data += h.data_size_unique();
         if state.header_idx == fr.headers().len() {
             return FieldValueHeader::default();
         }
