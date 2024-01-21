@@ -390,7 +390,7 @@ impl FieldActionApplicator {
                     iterators,
                     FieldValueHeader {
                         fmt: header.fmt,
-                        run_length: rl_pre,
+                        run_length: rl_to_del,
                     },
                 );
                 if header.run_length == 1 {
