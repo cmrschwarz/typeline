@@ -80,8 +80,7 @@ pub enum IterKind {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct IterState {
     pub(super) field_pos: usize,
-    // Will be **after** any leading padding introduced by the current header,
-    // just like the iterator would be.
+    // Will **not** include leading padding introduced by the current header.
     pub(super) data: usize,
     // The `header_idx` will never be greater than or equal to the field's
     // header count, unless that count is 0. This means that we have to
@@ -253,12 +252,11 @@ impl IterHall {
         }
         state.header_idx += 1;
         state.header_rl_offset = 0;
-        state.data += h.data_size_unique();
+        state.data += h.total_size_unique();
         if state.header_idx == fr.headers().len() {
             return FieldValueHeader::default();
         }
         h = fr.headers()[state.header_idx];
-        state.data += h.leading_padding();
         h
     }
     // SAFETY: caller must ensure that the state comes from this data source
@@ -271,7 +269,7 @@ impl IterHall {
         let mut res = Iter {
             fdr: fr,
             field_pos: state.field_pos,
-            data: state.data,
+            data: state.data + h.leading_padding(),
             header_idx: state.header_idx,
             header_rl_offset: state.header_rl_offset,
             header_rl_total: h.run_length,
@@ -309,10 +307,8 @@ impl IterHall {
             state.header_rl_offset = iter.field_run_length_bwd() + 1;
         }
         state.header_idx = iter.header_idx;
-        state.data = iter.data;
-        unsafe {
-            self.store_iter_state_unchecked(iter_id, state);
-        }
+        state.data = iter.data - iter.header_fmt.leading_padding();
+        self.iters[iter_id].set(state);
     }
     pub unsafe fn store_iter_state_unchecked(
         &self,
