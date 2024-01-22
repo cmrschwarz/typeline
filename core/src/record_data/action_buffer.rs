@@ -1143,11 +1143,19 @@ impl ActionBuffer {
             let (headers, count) = fm.get_field_headers(Ref::clone(&field));
             let tgt_fd = &mut tgt_field.iter_hall.field_data;
             let start_idx = tgt_cow_end.header_idx;
-            if tgt_cow_end.header_rl_offset != 0 {
+            if start_idx != headers.len() {
                 let mut first_header = headers[start_idx];
-                first_header.run_length =
-                    tgt_cow_end.header_rl_offset.min(first_header.run_length);
-                tgt_fd.headers.push(first_header);
+                first_header.run_length -= tgt_cow_end.header_rl_offset;
+                if first_header.run_length != 0 {
+                    if first_header.shared_value()
+                        && tgt_cow_end.header_rl_offset != 0
+                    {
+                        // if we already have parts of this header,
+                        // we must make sure to not mess up our data offset
+                        first_header.set_same_value_as_previous(true);
+                    }
+                    tgt_fd.headers.push(first_header);
+                }
             }
             if start_idx + 1 < headers.len() {
                 tgt_fd.headers.extend(&headers[start_idx + 1..]);

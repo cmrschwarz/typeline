@@ -34,11 +34,10 @@ macro_rules! smallbox {
     }};
 }
 
-/// A small size optimized box
-
 #[cfg(feature = "generic_const_exprs")]
 type SufficientSmallBox<T: ?Sized, U> = SmallBox<T, { size_of::<U>() }>;
 
+/// A small size optimized box
 #[repr(C)]
 pub struct SmallBox<T: ?Sized, const SPACE: usize> {
     ptr: *mut T,
@@ -343,10 +342,12 @@ mod tests {
         assert!(!is_thirteen(12));
 
         // currently crashes the rust compiler
-        //  let capture = [1; 42];
-        //  let summize: SmallBox<dyn Fn(u32) -> u32, 0> =
-        //      SmallBox::new(|v: u32| capture.iter().sum::<u32>() + v);
-        //  assert_eq!(summize(7), 49);
+        // version: rustc 1.76.0-nightly (f5dc2653f 2023-11-25))
+        // commit-hash: f5dc2653fdd8b5d177b2ccbd84057954340a89fc
+        let capture = [1; 42];
+        let summize: SmallBox<dyn Fn(u32) -> u32, 0> =
+            SmallBox::new(|v: u32| capture.iter().sum::<u32>() + v);
+        assert_eq!(summize(7), 49);
     }
 
     #[test]

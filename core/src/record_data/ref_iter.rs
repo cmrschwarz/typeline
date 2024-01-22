@@ -107,7 +107,7 @@ impl<'a, R: ReferenceFieldValueType> RefIter<'a, R> {
     ) -> Self {
         let refs_field = field_mgr.fields[refs_field_id].borrow();
         let last_field_id =
-            refs_field.field_refs[last_field_id_offset.get() as usize];
+            refs_field.field_refs[usize::from(last_field_id_offset)];
         let (data_cow_ref, mut data_iter) = unsafe {
             Self::get_data_ref_and_iter(
                 field_mgr,
@@ -144,10 +144,10 @@ impl<'a, R: ReferenceFieldValueType> RefIter<'a, R> {
         if self.last_field_id_offset == field_id_offset {
             return;
         }
-        let prev_field_id = self.refs_field.field_refs
-            [self.last_field_id_offset.get() as usize];
+        let prev_field_id =
+            self.refs_field.field_refs[usize::from(self.last_field_id_offset)];
         let field_id =
-            self.refs_field.field_refs[field_id_offset.get() as usize];
+            self.refs_field.field_refs[usize::from(field_id_offset)];
         let (cow_ref_new, data_iter_new) = unsafe {
             Self::get_data_ref_and_iter(self.field_mgr, msm, field_id)
         };
@@ -1012,8 +1012,6 @@ impl<I: Iterator<Item = (T, RunLength, usize)>, T: Clone> Iterator
 
 #[cfg(test)]
 mod ref_iter_tests {
-    use nonmax::NonMaxU16;
-
     use super::super::{
         field::FieldManager,
         match_set::MatchSetManager,
@@ -1021,6 +1019,7 @@ mod ref_iter_tests {
     };
     use crate::record_data::{
         action_buffer::ActorRef,
+        field::FieldRefOffset,
         field_value::SlicedFieldReference,
         field_value_repr::{
             field_value_flags, FieldData, FieldValueFormat, FieldValueHeader,
@@ -1125,7 +1124,7 @@ mod ref_iter_tests {
     fn push_ref(fd: &mut FieldData, begin: usize, end: usize, rl: usize) {
         fd.push_sliced_field_reference(
             SlicedFieldReference {
-                field_ref_offset: NonMaxU16::ZERO,
+                field_ref_offset: FieldRefOffset::from(0u8),
                 begin,
                 end,
             },

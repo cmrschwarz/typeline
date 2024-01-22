@@ -1,7 +1,6 @@
 use arrayvec::ArrayString;
 
 use lazy_static::lazy_static;
-use nonmax::NonMaxU16;
 use regex::{self, bytes, Regex, RegexBuilder};
 use smallstr::SmallString;
 use smallvec::SmallVec;
@@ -428,7 +427,7 @@ pub fn build_tf_regex<'a>(
 
     output_field.first_actor = next_actor_id;
     drop(output_field);
-    let mut input_field_ref_offset = NonMaxU16::MAX;
+    let mut input_field_ref_offset = FieldRefOffset::MAX;
     let cgfs: Vec<Option<FieldId>> = op
         .capture_group_names
         .iter()

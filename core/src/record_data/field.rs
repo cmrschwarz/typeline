@@ -4,7 +4,6 @@ use std::{
     marker::PhantomData,
 };
 
-use nonmax::NonMaxU16;
 use smallvec::SmallVec;
 
 use crate::utils::{
@@ -68,7 +67,7 @@ pub type FieldId = u32;
 // This is necessary so that when we COW the field we can just supply a
 // different `field_references` array for the COW field without having
 // to modify the original field data
-pub type FieldRefOffset = NonMaxU16;
+pub type FieldRefOffset = u16;
 pub const VOID_FIELD_ID: FieldId = FieldId::MIN;
 
 impl Field {
@@ -848,7 +847,7 @@ impl FieldManager {
         // straight to the output. This property is depended on by the
         // `extend_from_ref_aware_range_smart_ref` function of the
         // push interface, that is used e.g. by the flatten / explode operators
-        let id = FieldRefOffset::new(src.field_refs.len() as u16).unwrap();
+        let id = FieldRefOffset::try_from(src.field_refs.len()).unwrap();
         src.field_refs.push(refs_target);
         id
     }
