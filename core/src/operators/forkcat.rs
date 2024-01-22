@@ -7,7 +7,7 @@ use crate::{
     context::SessionData,
     job::{add_transform_to_job, Job, JobData, TransformContinuationKind},
     liveness_analysis::{
-        LivenessData, OpOutputIdx, Var, HEADER_WRITES_OFFSET,
+        LivenessData, OpOutputIdx, Var, GLOBAL_SLOTS_OFFSET,
         LOCAL_SLOTS_PER_BASIC_BLOCK, READS_OFFSET,
     },
     operators::terminator::add_terminator_tf_cont_dependant,
@@ -28,9 +28,6 @@ use super::{
         OperatorBase, OperatorData, OperatorId, OperatorOffsetInChain,
     },
     transform::{TransformData, TransformId, TransformState},
-    utils::field_access_mappings::{
-        AccessKind, AccessMappings, FieldAccessMode,
-    },
 };
 
 #[derive(Clone, Copy)]
@@ -55,7 +52,7 @@ pub struct OpForkCat {
     accessed_names_of_successors: Vec<Option<StringStoreEntry>>,
 
     // contains indices into accessed_names_of_subchains_or_succs
-    accessed_names_per_subchain: Vec<Vec<usize>>,
+    accessed_names_per_subchain: Vec<Vec<u32>>,
 
     // index into accessed_names_of_successors + OutputIdx
     // parallel to accessed_names_of_successors
@@ -90,28 +87,6 @@ pub struct TfForkCat<'a> {
     output_fields: Vec<FieldId>,
 }
 
-#[derive(Default, Clone)]
-struct AccessedNamesIndexed(usize);
-
-impl AccessKind for AccessedNamesIndexed {
-    type ContextType = usize;
-
-    fn from_field_access_mode(
-        output_idx: &mut usize,
-        _fam: FieldAccessMode,
-    ) -> Self {
-        let idx = *output_idx;
-        *output_idx += 1;
-        AccessedNamesIndexed(idx)
-    }
-
-    fn append_field_access_mode(
-        &mut self,
-        _output_idx: &mut usize,
-        _fam: FieldAccessMode,
-    ) {
-    }
-}
 pub fn parse_op_forkcat(
     value: Option<&[u8]>,
     arg_idx: Option<CliArgIdx>,
@@ -155,57 +130,50 @@ pub fn setup_op_forkcat_liveness_data(
     successors.resize(var_count * LOCAL_SLOTS_PER_BASIC_BLOCK, false);
     ld.get_global_var_data_ored(&mut calls, bb.calls.iter());
     ld.get_global_var_data_ored(&mut successors, bb.successors.iter());
-    let mut accessed_names_of_successors_count = 0;
-    let accessed_names_of_successors =
-        AccessMappings::<AccessedNamesIndexed>::from_var_data(
-            &mut accessed_names_of_successors_count,
-            ld,
-            &successors,
-        );
-    op.accessed_names_of_successors
-        .resize(accessed_names_of_successors_count, None);
-    for (name, idx) in accessed_names_of_successors.iter_name_opt() {
-        op.accessed_names_of_successors[idx.0] = name;
+    let successors_reads = &successors[ld.get_var_slot_range(READS_OFFSET)];
+    let mut reads_of_succs_idx_map = HashMap::new();
+    for var_id in successors_reads.iter_ones() {
+        let var_name = ld.vars[var_id].get_name();
+        reads_of_succs_idx_map
+            .insert(var_name, op.accessed_names_of_successors.len());
+        op.accessed_names_of_successors
+            .push(ld.vars[var_id].get_name());
     }
     ld.kill_non_survivors(&calls, &mut successors);
-    calls |= successors;
-    let mut accessed_names_of_subchains_or_succs_count = 0;
-    let accessed_names_of_subchains_or_succs =
-        AccessMappings::<AccessedNamesIndexed>::from_var_data(
-            &mut accessed_names_of_subchains_or_succs_count,
-            ld,
-            &calls,
+    calls |= &successors;
+    let reads_of_subchains_or_succs =
+        &calls[ld.get_var_slot_range(READS_OFFSET)];
+
+    let mut reads_of_scs_or_succs_idx_map = HashMap::new();
+    for var_id in reads_of_subchains_or_succs.iter_ones() {
+        let var_name = ld.vars[var_id].get_name();
+        reads_of_scs_or_succs_idx_map.insert(
+            var_name,
+            op.accessed_names_of_subchains_or_succs.len() as u32,
         );
-    op.accessed_names_of_subchains_or_succs
-        .resize(accessed_names_of_subchains_or_succs_count, None);
-    for (name, idx) in accessed_names_of_subchains_or_succs.iter_name_opt() {
-        op.accessed_names_of_subchains_or_succs[idx.0] = name;
+        op.accessed_names_of_subchains_or_succs.push(var_name);
     }
+
     for &callee_id in &bb.calls {
         let mut accessed_names = Vec::default();
-        let call_liveness = ld.get_global_var_data(callee_id);
-        let reads_range =
-            READS_OFFSET * var_count..(READS_OFFSET + 1) * var_count;
-        calls[reads_range.clone()].copy_from_bitslice(
-            &call_liveness
-                [READS_OFFSET * var_count..(READS_OFFSET + 1) * var_count],
+        let call_reads = ld.get_var_data_field(
+            callee_id,
+            GLOBAL_SLOTS_OFFSET,
+            READS_OFFSET,
         );
-        calls[reads_range.clone()] |= &call_liveness[HEADER_WRITES_OFFSET
-            * var_count
-            ..(HEADER_WRITES_OFFSET + 1) * var_count];
-        for i in calls[reads_range].iter_ones() {
-            let var_name = match ld.vars[i] {
-                Var::Named(name) => Some(name),
-                Var::BBInput => None,
-                // TODO: investigate why this happens
-                Var::AnyVar | Var::DynVar | Var::VoidVar => continue,
-            };
-            accessed_names.push(
-                accessed_names_of_subchains_or_succs
-                    .get(var_name)
-                    .unwrap()
-                    .0,
-            );
+        let mut reads_of_subchains_or_succs_offset = 0;
+        let mut prev = 0;
+        for i in call_reads.iter_ones() {
+            // let var_name = match ld.vars[i] {
+            //    Var::Named(name) => Some(name),
+            //    Var::BBInput => None,
+            //    // TODO: investigate why this happens
+            //    Var::AnyVar | Var::DynVar | Var::VoidVar => continue,
+            //};
+            reads_of_subchains_or_succs_offset +=
+                reads_of_subchains_or_succs[prev..i].count_ones() as u32;
+            accessed_names.push(reads_of_subchains_or_succs_offset);
+            prev = i;
         }
         op.accessed_names_per_subchain.push(accessed_names);
     }
@@ -230,10 +198,8 @@ pub fn setup_op_forkcat_liveness_data(
                         Var::AnyVar => todo!(),
                         Var::VoidVar => unreachable!(),
                     };
-                    if let Some(idx) =
-                        accessed_names_of_successors.get(var_name)
-                    {
-                        mappings[idx.0] = OutputMapping::OutputIdx(oo_id);
+                    if let Some(&idx) = reads_of_succs_idx_map.get(&var_name) {
+                        mappings[idx] = OutputMapping::OutputIdx(oo_id);
                     }
                 }
             }
@@ -241,10 +207,8 @@ pub fn setup_op_forkcat_liveness_data(
         for (i, m) in mappings.iter_mut().enumerate() {
             if let OutputMapping::InputIndex(_) = m {
                 *m = OutputMapping::InputIndex(
-                    accessed_names_of_subchains_or_succs
-                        .get(op.accessed_names_of_successors[i])
-                        .unwrap()
-                        .0 as u32,
+                    reads_of_scs_or_succs_idx_map
+                        [&op.accessed_names_of_successors[i]],
                 );
             }
         }
@@ -431,6 +395,7 @@ fn expand_for_subchain(sess: &mut Job, tf_id: TransformId, sc_n: u32) {
 
     let mut subchain_input_field = VOID_FIELD_ID;
     for &idx in &forkcat.op.accessed_names_per_subchain[sc_n as usize] {
+        let idx = idx as usize;
         let input_field = forkcat.input_fields[idx];
         let input_mirror_field =
             sess.job_data.field_mgr.get_cross_ms_cow_field(

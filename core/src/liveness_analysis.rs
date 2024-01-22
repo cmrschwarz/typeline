@@ -935,7 +935,7 @@ impl LivenessData {
             self.compute_local_liveness_for_bb(sess, i);
         }
     }
-    fn get_slot_group_var_data_bounds(
+    pub fn get_slot_group_var_data_bounds(
         &self,
         bb_id: BasicBlockId,
         slot_group_offset: usize,
@@ -962,6 +962,20 @@ impl LivenessData {
         bb_id: BasicBlockId,
     ) -> Range<usize> {
         self.get_slot_group_var_data_bounds(bb_id, LOCAL_SLOTS_OFFSET)
+    }
+    pub fn get_var_slot_range(&self, slot_offset: usize) -> Range<usize> {
+        let vc = self.vars.len();
+        vc * slot_offset..vc * (slot_offset + 1)
+    }
+    pub fn get_var_data_field(
+        &self,
+        bb_id: BasicBlockId,
+        slot_group_offset: usize,
+        slot_offset: usize,
+    ) -> &BitSlice<Cell<usize>> {
+        &self.var_data
+            [self.get_slot_group_var_data_bounds(bb_id, slot_group_offset)]
+            [self.get_var_slot_range(slot_offset)]
     }
     pub fn get_global_var_data(
         &self,

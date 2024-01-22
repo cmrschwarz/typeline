@@ -1,4 +1,7 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use smallvec::SmallVec;
 
@@ -6,12 +9,13 @@ use crate::{
     chain::{Chain, SubchainOffset},
     context::ContextData,
     job::{Job, JobData},
-    liveness_analysis::LivenessData,
+    liveness_analysis::{LivenessData, GLOBAL_SLOTS_OFFSET, READS_OFFSET},
     options::argument::CliArgIdx,
     record_data::{
         field::{FieldId, VOID_FIELD_ID},
         iter_hall::IterId,
     },
+    utils::string_store::StringStoreEntry,
 };
 
 use super::{
@@ -19,7 +23,6 @@ use super::{
     operator::{OperatorBase, OperatorData, OperatorId},
     terminator::add_terminator_tf_cont_dependant,
     transform::{TransformData, TransformId, TransformState},
-    utils::field_access_mappings::FieldAccessMappings,
 };
 
 #[derive(Clone)]
@@ -32,7 +35,7 @@ pub struct OpFork {
     // forkcat [CC]
     pub subchains_start: SubchainOffset,
     pub subchains_end: SubchainOffset,
-    pub accessed_fields_per_subchain: Vec<FieldAccessMappings>,
+    pub accessed_fields_per_subchain: Vec<HashSet<Option<StringStoreEntry>>>,
 }
 
 pub struct TfForkFieldMapping {
@@ -45,7 +48,8 @@ pub struct TfForkFieldMapping {
 pub struct TfFork<'a> {
     pub expanded: bool,
     pub targets: Vec<TransformId>,
-    pub accessed_fields_per_subchain: &'a Vec<FieldAccessMappings>,
+    pub accessed_fields_per_subchain:
+        &'a Vec<HashSet<Option<StringStoreEntry>>>,
 }
 
 pub fn parse_op_fork(
@@ -90,14 +94,19 @@ pub fn setup_op_fork_liveness_data(
     let bb_id = ld.operator_liveness_data[op_id as usize].basic_block_id;
     debug_assert!(ld.basic_blocks[bb_id].calls.is_empty());
     let bb = &ld.basic_blocks[bb_id];
-    for callee_bb_id in &bb.successors {
-        op.accessed_fields_per_subchain.push(
-            FieldAccessMappings::from_var_data(
-                &mut (),
-                ld,
-                ld.get_global_var_data(*callee_bb_id),
-            ),
-        );
+    for &callee_bb_id in &bb.successors {
+        let mut accessed_vars = HashSet::new();
+        for var_id in ld
+            .get_var_data_field(
+                callee_bb_id,
+                GLOBAL_SLOTS_OFFSET,
+                READS_OFFSET,
+            )
+            .iter_ones()
+        {
+            accessed_vars.insert(ld.vars[var_id].get_name());
+        }
+        op.accessed_fields_per_subchain.push(accessed_vars);
     }
 }
 
@@ -167,7 +176,7 @@ pub(crate) fn handle_fork_expansion(
             unreachable!();
         };
         let mut chain_input_field = None;
-        for (name, _fam) in field_access_mapping.iter_name_opt() {
+        for &name in field_access_mapping {
             let src_field_id;
             if let Some(name) = name {
                 if let Some(field) = sess.job_data.match_set_mgr.match_sets
