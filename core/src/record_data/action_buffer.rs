@@ -14,7 +14,7 @@ use super::{
     field::{Field, FieldId, FieldManager},
     field_action::{merge_action_lists, FieldAction, FieldActionKind},
     field_action_applicator::FieldActionApplicator,
-    field_value_repr::RunLength,
+    field_data::RunLength,
     iter_hall::{CowVariant, FieldDataSource},
     match_set::MatchSetId,
 };

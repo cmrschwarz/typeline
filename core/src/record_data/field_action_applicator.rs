@@ -4,7 +4,7 @@ use crate::{
 
 use super::{
     field_action::FieldAction,
-    field_value_repr::{
+    field_data::{
         FieldDataBuffer, FieldValueFormat, FieldValueHeader, FieldValueRepr,
         RunLength,
     },
@@ -764,10 +764,10 @@ mod test {
     use crate::record_data::{
         field_action::{FieldAction, FieldActionKind},
         field_action_applicator::FieldActionApplicator,
-        field_value::FieldValue,
-        field_value_repr::{
+        field_data::{
             FieldData, FieldValueRepr, FixedSizeFieldValueType, RunLength,
         },
+        field_value::FieldValue,
         iter_hall::IterState,
         iters::FieldIterator,
         push_interface::PushInterface,

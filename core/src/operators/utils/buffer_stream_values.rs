@@ -1,5 +1,5 @@
 use crate::record_data::{
-    field_value_repr::field_value_flags,
+    field_data::field_value_flags,
     iters::FieldIterator,
     match_set::MatchSetManager,
     ref_iter::{AutoDerefIter, RefAwareStreamValueIter},

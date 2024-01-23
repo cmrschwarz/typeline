@@ -23,12 +23,12 @@ use crate::{
     options::argument::CliArgIdx,
     record_data::{
         field::{Field, FieldId, FieldManager},
+        field_data::{
+            field_value_flags, FieldValueRepr, RunLength, INLINE_STR_MAX_LEN,
+        },
         field_value::{
             format_rational, Array, FieldValue, FormattingContext, Null,
             Object, Undefined, RATIONAL_DIGITS,
-        },
-        field_value_repr::{
-            field_value_flags, FieldValueRepr, RunLength, INLINE_STR_MAX_LEN,
         },
         iter_hall::{IterId, IterKind},
         iters::FieldIterator,

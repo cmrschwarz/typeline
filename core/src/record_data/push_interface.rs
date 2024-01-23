@@ -5,13 +5,13 @@ use num::{BigInt, BigRational};
 use super::{
     custom_data::CustomDataBox,
     field::FieldRefOffset,
-    field_value::{
-        Array, FieldReference, FieldValue, Object, SlicedFieldReference,
-    },
-    field_value_repr::{
+    field_data::{
         field_value_flags, FieldData, FieldValueFlags, FieldValueFormat,
         FieldValueHeader, FieldValueRepr, FieldValueSize, FieldValueType,
         RunLength, MAX_FIELD_ALIGN,
+    },
+    field_value::{
+        Array, FieldReference, FieldValue, Object, SlicedFieldReference,
     },
     ref_iter::{
         AnyRefSliceIter, RefAwareInlineBytesIter, RefAwareInlineTextIter,
@@ -23,7 +23,7 @@ use super::{
 };
 use crate::{
     operators::errors::OperatorApplicationError,
-    record_data::field_value_repr::{
+    record_data::field_data::{
         field_value_flags::{DELETED, SHARED_VALUE},
         INLINE_STR_MAX_LEN,
     },
@@ -2007,7 +2007,7 @@ impl<FD: DerefMut<Target = FieldData>> Drop for VaryingTypeInserter<FD> {
 #[cfg(test)]
 mod test {
     use crate::record_data::{
-        field_value_repr::FieldData, push_interface::PushInterface,
+        field_data::FieldData, push_interface::PushInterface,
     };
 
     #[test]

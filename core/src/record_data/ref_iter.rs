@@ -5,15 +5,15 @@ use super::{
         CowFieldDataRef, Field, FieldId, FieldManager, FieldRefOffset,
         FIELD_REF_LOOKUP_ITER_ID,
     },
+    field_data::{field_value_flags, FieldValueType},
     field_value::{FieldReference, SlicedFieldReference},
-    field_value_repr::{field_value_flags, FieldValueType},
     iters::{DestructuredFieldDataRef, FieldDataRef},
     match_set::MatchSetManager,
     stream_value::StreamValueId,
 };
 
 use crate::record_data::{
-    field_value_repr::{
+    field_data::{
         field_value_flags::FieldValueFlags, FieldValueHeader, RunLength,
     },
     iters::{FieldIterator, Iter},
@@ -1020,11 +1020,11 @@ mod ref_iter_tests {
     use crate::record_data::{
         action_buffer::ActorRef,
         field::FieldRefOffset,
-        field_value::SlicedFieldReference,
-        field_value_repr::{
+        field_data::{
             field_value_flags, FieldData, FieldValueFormat, FieldValueHeader,
             FieldValueRepr, RunLength,
         },
+        field_value::SlicedFieldReference,
         iters::Iter,
         push_interface::PushInterface,
         typed::TypedSlice,

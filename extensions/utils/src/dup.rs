@@ -17,7 +17,7 @@ use scr_core::{
     options::argument::CliArgIdx,
     record_data::{
         action_buffer::ActorId, field::FieldId, field_action::FieldActionKind,
-        field_value_repr::FieldValueRepr, iters::FieldIterator,
+        field_data::FieldValueRepr, iters::FieldIterator,
     },
     smallbox,
     utils::identity_hasher::BuildIdentityHasher,

@@ -16,8 +16,8 @@ use scr_core::{
     record_data::{
         action_buffer::ActorRef,
         field::FieldId,
+        field_data::{FieldData, RunLength},
         field_value::FieldValue,
-        field_value_repr::{FieldData, RunLength},
         iter_hall::{IterId, IterKind},
         push_interface::{PushInterface, VaryingTypeInserter},
         ref_iter::{

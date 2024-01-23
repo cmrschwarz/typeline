@@ -9,10 +9,10 @@ use crate::{
     options::argument::CliArgIdx,
     record_data::{
         field::FieldId,
+        field_data::field_value_flags,
         field_value::{
             format_rational, FieldValue, FormattingContext, RATIONAL_DIGITS,
         },
-        field_value_repr::field_value_flags,
         iter_hall::{IterId, IterKind},
         iters::{FieldIterator, UnfoldIterRunLength},
         push_interface::PushInterface,

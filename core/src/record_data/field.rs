@@ -13,7 +13,7 @@ use crate::utils::{
 
 use super::{
     action_buffer::{ActionBuffer, ActorId, ActorRef, SnapshotRef},
-    field_value_repr::{
+    field_data::{
         field_value_flags::SAME_VALUE_AS_PREVIOUS, FieldData, FieldDataBuffer,
         FieldValueFormat, FieldValueHeader,
     },

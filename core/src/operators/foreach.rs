@@ -11,7 +11,7 @@ use crate::{
         action_buffer::{ActorId, ActorRef},
         field::FieldId,
         field_action::FieldActionKind,
-        field_value_repr::FieldValueRepr,
+        field_data::FieldValueRepr,
         iters::{FieldDataRef, FieldIterator},
         push_interface::PushInterface,
     },

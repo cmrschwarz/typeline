@@ -6,8 +6,8 @@ use crate::{
     job::JobData,
     record_data::{
         field::Field,
+        field_data::field_value_flags,
         field_value::FieldValue,
-        field_value_repr::field_value_flags,
         iter_hall::{IterId, IterKind},
         iters::FieldIterator,
         push_interface::PushInterface,

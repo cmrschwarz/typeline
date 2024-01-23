@@ -17,7 +17,7 @@ use scr_core::{
         action_buffer::{ActorId, ActorRef},
         field::FieldId,
         field_action::FieldActionKind::{self, Drop},
-        field_value_repr::{FieldData, FieldValueRepr},
+        field_data::{FieldData, FieldValueRepr},
         iter_hall::{IterId, IterKind},
         push_interface::{PushInterface, VaryingTypeInserter},
         ref_iter::RefAwareTypedSliceIter,

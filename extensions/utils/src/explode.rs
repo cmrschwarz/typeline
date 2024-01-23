@@ -25,8 +25,8 @@ use scr_core::{
     options::argument::CliArgIdx,
     record_data::{
         field::{FieldId, FieldManager, FieldRefOffset},
+        field_data::FieldData,
         field_value::{FieldValue, Object},
-        field_value_repr::FieldData,
         iter_hall::{IterId, IterKind},
         match_set::{MatchSetId, MatchSetManager},
         push_interface::{PushInterface, VaryingTypeInserter},

@@ -11,7 +11,7 @@ use crate::{operators::transform::TransformId, utils::universe::Universe};
 
 use super::{
     field::{FieldId, FieldManager},
-    field_value_repr::{
+    field_data::{
         FieldData, FieldDataBuffer, FieldDataInternals, FieldDataInternalsMut,
         FieldValueFlags, FieldValueHeader, FieldValueRepr, FieldValueType,
         RunLength,

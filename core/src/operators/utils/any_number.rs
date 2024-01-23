@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::record_data::{
-    field_value_repr::RunLength, push_interface::PushInterface,
+    field_data::RunLength, push_interface::PushInterface,
 };
 use num::{BigInt, BigRational, FromPrimitive, ToPrimitive};
 

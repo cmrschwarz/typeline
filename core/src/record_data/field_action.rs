@@ -3,7 +3,7 @@ use std::{
     ops::{Index, IndexMut},
 };
 
-use super::field_value_repr::{FieldValueRepr, RunLength};
+use super::field_data::{FieldValueRepr, RunLength};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum FieldActionKind {
@@ -278,7 +278,7 @@ pub fn merge_action_lists<
 
 #[cfg(test)]
 mod test {
-    use crate::record_data::field_value_repr::FieldValueRepr;
+    use crate::record_data::field_data::FieldValueRepr;
 
     use super::FieldActionKind;
 

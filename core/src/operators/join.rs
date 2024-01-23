@@ -18,10 +18,8 @@ use crate::{
         custom_data::CustomDataBox,
         field::{Field, FieldManager},
         field_action::FieldActionKind,
+        field_data::{field_value_flags, FieldValueRepr, INLINE_STR_MAX_LEN},
         field_value::{FieldValue, FieldValueKind},
-        field_value_repr::{
-            field_value_flags, FieldValueRepr, INLINE_STR_MAX_LEN,
-        },
         iter_hall::{IterId, IterKind},
         iters::FieldIterator,
         match_set::MatchSetManager,

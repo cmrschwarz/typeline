@@ -1,7 +1,7 @@
 use std::{marker::PhantomData, ptr::NonNull};
 
 use super::{
-    field_value_repr::{FieldValueHeader, FieldValueType, RunLength},
+    field_data::{FieldValueHeader, FieldValueType, RunLength},
     ref_iter::RefAwareTypedRange,
     typed::{TypedRange, ValidTypedRange},
 };
@@ -535,7 +535,7 @@ impl<'a> Iterator for InlineTextIter<'a> {
 #[cfg(test)]
 mod test_slice_iter {
     use crate::record_data::{
-        field_value_repr::{FieldData, FieldValueType, RunLength},
+        field_data::{FieldData, FieldValueType, RunLength},
         push_interface::PushInterface,
     };
 
@@ -619,7 +619,7 @@ mod test_text_iter {
     use bstr::ByteSlice;
 
     use crate::record_data::{
-        field_value_repr::{FieldData, RunLength},
+        field_data::{FieldData, RunLength},
         push_interface::PushInterface,
         typed_iters::InlineTextIter,
     };

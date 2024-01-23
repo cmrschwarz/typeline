@@ -14,10 +14,10 @@ use crate::{
         action_buffer::{ActionBuffer, ActorId, ActorRef},
         field::{Field, FieldId, FieldRefOffset},
         field_action::FieldActionKind,
-        field_value::{FieldValue, SlicedFieldReference},
-        field_value_repr::{
+        field_data::{
             field_value_flags, FieldData, FieldValueRepr, RunLength,
         },
+        field_value::{FieldValue, SlicedFieldReference},
         iter_hall::{IterId, IterKind},
         iters::FieldIterator,
         push_interface::{PushInterface, VaryingTypeInserter},

@@ -4,20 +4,20 @@ use num::{BigInt, BigRational};
 
 use super::{
     custom_data::CustomDataBox,
+    field_data::{
+        FieldValueFormat, FieldValueHeader, FieldValueRepr, FieldValueType,
+        RunLength, TextBufferFile,
+    },
     field_value::{
         Array, FieldReference, FieldValue, GroupSeparator, Null, Object,
         SlicedFieldReference, Undefined,
-    },
-    field_value_repr::{
-        FieldValueFormat, FieldValueHeader, FieldValueRepr, FieldValueType,
-        RunLength, TextBufferFile,
     },
     iters::FieldDataRef,
     stream_value::StreamValueId,
 };
 use crate::{
     operators::errors::OperatorApplicationError,
-    record_data::field_value_repr::BytesBufferFile,
+    record_data::field_data::BytesBufferFile,
 };
 use std::ops::Deref;
 

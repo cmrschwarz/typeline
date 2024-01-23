@@ -1,4 +1,4 @@
-use crate::record_data::field_value_repr::{
+use crate::record_data::field_data::{
     field_value_flags, FieldData, FieldValueFlags, FieldValueFormat,
     FieldValueHeader, FieldValueRepr, RunLength,
 };
@@ -6,7 +6,7 @@ use std::{cmp::Ordering, marker::PhantomData};
 
 use super::{
     field::{FieldId, FieldManager},
-    field_value_repr::FieldDataBuffer,
+    field_data::FieldDataBuffer,
     ref_iter::AutoDerefIter,
     typed::{TypedField, TypedRange, ValidTypedRange},
 };

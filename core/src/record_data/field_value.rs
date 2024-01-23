@@ -21,7 +21,7 @@ use crate::{
 use super::{
     custom_data::CustomDataBox,
     field::{FieldManager, FieldRefOffset},
-    field_value_repr::{
+    field_data::{
         FieldValueRepr, FieldValueType, FixedSizeFieldValueType,
     },
     match_set::MatchSetManager,

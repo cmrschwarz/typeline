@@ -12,9 +12,9 @@ use crate::{
         string_sink::{create_op_string_sink, StringSinkHandle},
     },
     record_data::{
-        custom_data::CustomDataBox, field_value::FieldValue,
-        field_value_repr::FixedSizeFieldValueType,
-        push_interface::PushInterface, record_set::RecordSet,
+        custom_data::CustomDataBox, field_data::FixedSizeFieldValueType,
+        field_value::FieldValue, push_interface::PushInterface,
+        record_set::RecordSet,
     },
     scr_error::{CollectTypeMissmatch, ContextualizedScrError},
 };
