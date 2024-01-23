@@ -1,6 +1,6 @@
 use std::{
     cell::{Cell, Ref, RefCell, RefMut},
-    collections::hash_map::Entry,
+    collections::{hash_map::Entry, VecDeque},
     marker::PhantomData,
 };
 
@@ -85,7 +85,7 @@ pub struct FieldManager {
 
 pub struct CowFieldDataRef<'a> {
     field_count: usize,
-    headers_ref: Ref<'a, Vec<FieldValueHeader>>,
+    headers_ref: Ref<'a, VecDeque<FieldValueHeader>>,
     data_ref: Ref<'a, FieldDataBuffer>,
     _phantom: PhantomData<&'a FieldData>,
 }
@@ -93,7 +93,7 @@ pub struct CowFieldDataRef<'a> {
 impl<'a> CowFieldDataRef<'a> {
     pub fn new(
         field_count: usize,
-        headers_ref: Ref<'a, Vec<FieldValueHeader>>,
+        headers_ref: Ref<'a, VecDeque<FieldValueHeader>>,
         data_ref: Ref<'a, FieldDataBuffer>,
     ) -> Self {
         Self {
@@ -117,7 +117,7 @@ impl<'a> CowFieldDataRef<'a> {
     pub fn iter_from_end(&'a self) -> Iter<'a, &'a CowFieldDataRef<'a>> {
         Iter::from_end(self)
     }
-    pub fn headers(&'a self) -> &'a [FieldValueHeader] {
+    pub fn headers(&'a self) -> &'a VecDeque<FieldValueHeader> {
         &self.headers_ref
     }
     pub fn data(&'a self) -> &'a FieldDataBuffer {
@@ -126,7 +126,7 @@ impl<'a> CowFieldDataRef<'a> {
 }
 
 impl<'a> FieldDataRef<'a> for &'a CowFieldDataRef<'a> {
-    fn headers(&self) -> &'a [FieldValueHeader] {
+    fn headers(&self) -> &'a VecDeque<FieldValueHeader> {
         &self.headers_ref
     }
 
@@ -216,7 +216,7 @@ impl FieldManager {
     pub fn get_field_headers<'a>(
         &'a self,
         fr: Ref<'a, Field>,
-    ) -> (Ref<'a, Vec<FieldValueHeader>>, usize) {
+    ) -> (Ref<'a, VecDeque<FieldValueHeader>>, usize) {
         match fr.iter_hall.data_source {
             FieldDataSource::FullCow(CowDataSource {
                 src_field_id: src_field,
@@ -481,18 +481,20 @@ impl FieldManager {
             let h = headers[iter.header_idx];
             let additional_run_len = h.run_length - iter.header_rl_offset;
             if additional_run_len > 0 {
-                field.iter_hall.field_data.headers.push(FieldValueHeader {
-                    fmt: FieldValueFormat {
-                        flags: h.flags
-                            | if h.shared_value() {
-                                SAME_VALUE_AS_PREVIOUS
-                            } else {
-                                0
-                            },
-                        ..h.fmt
+                field.iter_hall.field_data.headers.push_back(
+                    FieldValueHeader {
+                        fmt: FieldValueFormat {
+                            flags: h.flags
+                                | if h.shared_value() {
+                                    SAME_VALUE_AS_PREVIOUS
+                                } else {
+                                    0
+                                },
+                            ..h.fmt
+                        },
+                        run_length: additional_run_len,
                     },
-                    run_length: additional_run_len,
-                })
+                )
             }
             copy_headers_from += 1;
         }
@@ -501,7 +503,7 @@ impl FieldManager {
             .iter_hall
             .field_data
             .headers
-            .extend_from_slice(&headers[copy_headers_from..]);
+            .extend(headers.range(copy_headers_from..));
         field.iter_hall.field_data.field_count += additional_len;
         let src = self.fields[cds.src_field_id].borrow();
         unsafe {

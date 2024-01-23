@@ -544,16 +544,17 @@ mod test_slice_iter {
     fn compare_iter_output<
         T: Eq + std::fmt::Debug + Clone + FieldValueType + 'static,
     >(
-        fd: &FieldData,
+        fd: &mut FieldData,
         expected: &[(T, RunLength)],
     ) {
+        fd.headers.make_contiguous();
         let iter = unsafe {
             TypedSliceIter::new(
                 std::slice::from_raw_parts(
                     fd.data.as_ptr().cast::<T>(),
                     fd.data.len() / std::mem::size_of::<T>(),
                 ),
-                &fd.headers,
+                &fd.headers.as_slices().0,
                 0,
                 0,
             )
@@ -570,7 +571,7 @@ mod test_slice_iter {
         fd.push_int(1, 1, false, false);
         fd.push_int(2, 2, false, false);
         fd.push_int(3, 3, false, false);
-        compare_iter_output::<i64>(&fd, &[(1, 1), (2, 2), (3, 3)]);
+        compare_iter_output::<i64>(&mut fd, &[(1, 1), (2, 2), (3, 3)]);
     }
 
     #[test]
@@ -581,20 +582,20 @@ mod test_slice_iter {
         fd.push_int(3, 3, false, false);
         fd.headers[1].set_deleted(true);
         fd.field_count -= 2;
-        compare_iter_output::<i64>(&fd, &[(1, 1), (3, 3)]);
+        compare_iter_output::<i64>(&mut fd, &[(1, 1), (3, 3)]);
     }
 
     #[test]
     fn with_same_as_previous() {
         let mut fd = FieldData::default();
         fd.push_int(1, 1, false, false);
-        fd.headers.extend_from_within(0..1);
+        fd.headers.push_back(fd.headers[0]);
         fd.headers[1].set_same_value_as_previous(true);
         fd.headers[1].set_shared_value(true);
         fd.headers[1].run_length = 5;
         fd.field_count += 5;
         fd.push_int(3, 3, false, false);
-        compare_iter_output::<i64>(&fd, &[(1, 1), (1, 5), (3, 3)]);
+        compare_iter_output::<i64>(&mut fd, &[(1, 1), (1, 5), (3, 3)]);
     }
 
     #[test]
@@ -602,7 +603,7 @@ mod test_slice_iter {
         let mut fd = FieldData::default();
         fd.push_int(0, 1, false, false);
         fd.push_int(1, 1, false, false);
-        fd.headers.extend_from_within(1..2);
+        fd.headers.push_back(fd.headers[1]);
         fd.headers[2].set_same_value_as_previous(true);
         fd.headers[2].run_length = 5;
         fd.headers[2].set_shared_value(true);
@@ -610,7 +611,7 @@ mod test_slice_iter {
         fd.headers[1].set_deleted(true);
         fd.field_count -= 1;
         fd.push_int(3, 3, false, false);
-        compare_iter_output::<i64>(&fd, &[(0, 1), (1, 5), (3, 3)]);
+        compare_iter_output::<i64>(&mut fd, &[(0, 1), (1, 5), (3, 3)]);
     }
 }
 
@@ -625,7 +626,7 @@ mod test_text_iter {
     };
 
     fn compare_iter_output(
-        fd: &FieldData,
+        fd: &mut FieldData,
         expected: &[(&'static str, RunLength)],
     ) {
         let data = unsafe {
@@ -633,7 +634,8 @@ mod test_text_iter {
                 .to_str()
                 .unwrap()
         };
-        let iter = InlineTextIter::new(data, &fd.headers, 0, 0);
+        fd.headers.make_contiguous();
+        let iter = InlineTextIter::new(data, &fd.headers.as_slices().0, 0, 0);
         assert_eq!(iter.collect::<Vec<_>>(), expected);
     }
 
@@ -643,7 +645,7 @@ mod test_text_iter {
         fd.push_str("a", 1, false, false);
         fd.push_str("bb", 2, false, false);
         fd.push_str("ccc", 3, false, false);
-        compare_iter_output(&fd, &[("a", 1), ("bb", 2), ("ccc", 3)]);
+        compare_iter_output(&mut fd, &[("a", 1), ("bb", 2), ("ccc", 3)]);
     }
 
     #[test]
@@ -654,20 +656,20 @@ mod test_text_iter {
         fd.push_str("ccc", 3, false, false);
         fd.headers[1].set_deleted(true);
         fd.field_count -= 2;
-        compare_iter_output(&fd, &[("a", 1), ("ccc", 3)]);
+        compare_iter_output(&mut fd, &[("a", 1), ("ccc", 3)]);
     }
 
     #[test]
     fn with_same_as_previous() {
         let mut fd = FieldData::default();
         fd.push_str("aaa", 1, false, false);
-        fd.headers.extend_from_within(0..1);
+        fd.headers.push_back(fd.headers[0]);
         fd.headers[1].set_same_value_as_previous(true);
         fd.headers[1].run_length = 5;
         fd.headers[1].set_shared_value(true);
         fd.field_count += 5;
         fd.push_str("c", 3, false, false);
-        compare_iter_output(&fd, &[("aaa", 1), ("aaa", 5), ("c", 3)]);
+        compare_iter_output(&mut fd, &[("aaa", 1), ("aaa", 5), ("c", 3)]);
     }
 
     #[test]
@@ -675,7 +677,7 @@ mod test_text_iter {
         let mut fd = FieldData::default();
         fd.push_str("00", 1, false, false);
         fd.push_str("1", 1, false, false);
-        fd.headers.extend_from_within(1..2);
+        fd.headers.push_back(fd.headers[1]);
         fd.headers[2].set_same_value_as_previous(true);
         fd.headers[2].run_length = 5;
         fd.headers[2].set_shared_value(true);
@@ -683,6 +685,6 @@ mod test_text_iter {
         fd.headers[1].set_deleted(true);
         fd.field_count -= 1;
         fd.push_str("333", 3, false, false);
-        compare_iter_output(&fd, &[("00", 1), ("1", 5), ("333", 3)]);
+        compare_iter_output(&mut fd, &[("00", 1), ("1", 5), ("333", 3)]);
     }
 }

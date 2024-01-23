@@ -480,7 +480,12 @@ impl<'a> TypedRange<'a> {
         first_header_run_length_oversize: RunLength,
         last_header_run_length_oversize: RunLength,
     ) -> TypedRange<'a> {
-        let headers = &fdr.headers()[header_begin..header_end];
+        let (h_s1, h_s2) = fdr.headers().as_slices();
+        let headers = if header_begin < h_s1.len() {
+            &h_s1[header_begin..header_end]
+        } else {
+            &h_s2[header_begin - h_s1.len()..header_end - h_s1.len()]
+        };
         let data = unsafe {
             TypedSlice::new(fdr, fmt, data_begin, data_end, field_count)
         };

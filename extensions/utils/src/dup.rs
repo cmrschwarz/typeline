@@ -128,6 +128,7 @@ impl Transform for TfDup {
                 true,
                 0,
                 0,
+                true,
             );
             for _ in 0..non_gs_records {
                 ab.push_action(FieldActionKind::Dup, field_pos, self.count);
@@ -143,6 +144,7 @@ impl Transform for TfDup {
                 false,
                 0,
                 0,
+                true,
             );
             field_pos += gs_records;
             bs_rem -= gs_records;

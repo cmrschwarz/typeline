@@ -240,6 +240,7 @@ pub fn handle_tf_foreach_trailer(
             true,
             0,
             0,
+            true,
         );
         field_pos += non_gs_records;
         bs_rem -= non_gs_records;
@@ -252,6 +253,7 @@ pub fn handle_tf_foreach_trailer(
             false,
             0,
             0,
+            true,
         );
         ab.push_action(FieldActionKind::Drop, field_pos, gs_records);
         bs_rem -= gs_records;

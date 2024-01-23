@@ -1199,7 +1199,7 @@ pub fn handle_tf_regex(
             &input_field,
             re.input_field_iter_id,
         );
-        let records = iter.next_n_fields(produced_records);
+        let records = iter.next_n_fields(produced_records, true);
         debug_assert!(records == produced_records);
         jd.field_mgr
             .store_iter(input_field_id, re.input_field_iter_id, iter);

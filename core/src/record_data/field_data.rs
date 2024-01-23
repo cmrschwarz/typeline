@@ -1,5 +1,6 @@
 use std::{
     any::Any,
+    collections::VecDeque,
     fmt::Display,
     mem::{align_of, size_of, size_of_val, ManuallyDrop},
     ops::{Deref, DerefMut},
@@ -100,18 +101,18 @@ pub struct FieldValueHeader {
 #[derive(Default)]
 pub struct FieldData {
     pub(super) data: FieldDataBuffer,
-    pub(super) headers: Vec<FieldValueHeader>,
+    pub(super) headers: VecDeque<FieldValueHeader>,
     pub(super) field_count: usize,
 }
 
 pub struct FieldDataInternals<'a> {
     pub data: &'a FieldDataBuffer,
-    pub header: &'a Vec<FieldValueHeader>,
+    pub header: &'a VecDeque<FieldValueHeader>,
     pub field_count: &'a usize,
 }
 pub struct FieldDataInternalsMut<'a> {
     pub data: &'a mut FieldDataBuffer,
-    pub header: &'a mut Vec<FieldValueHeader>,
+    pub header: &'a mut VecDeque<FieldValueHeader>,
     pub field_count: &'a mut usize,
 }
 
@@ -608,7 +609,7 @@ impl Clone for FieldData {
     fn clone(&self) -> Self {
         let mut fd = Self {
             data: FieldDataBuffer::with_capacity(self.data.len()),
-            headers: Vec::with_capacity(self.headers.len()),
+            headers: VecDeque::with_capacity(self.headers.len()),
             field_count: 0, // set by copy
         };
         let fd_ref = &mut fd;
@@ -620,7 +621,7 @@ impl Clone for FieldData {
 
 impl FieldData {
     pub unsafe fn from_raw_parts(
-        header: Vec<FieldValueHeader>,
+        header: VecDeque<FieldValueHeader>,
         data: FieldDataBuffer,
         field_count: usize,
     ) -> Self {
@@ -716,7 +717,7 @@ impl FieldData {
             copied_fields += tr.field_count;
             targets_applicator(&mut |fd| {
                 let first_header_idx = fd.headers.len();
-                fd.headers.extend_from_slice(tr.headers);
+                fd.headers.extend(tr.headers);
                 if tr.headers[0].repr.needs_alignment() {
                     let align = unsafe { fd.pad_to_align() };
                     fd.headers[first_header_idx].set_leading_padding(align);
@@ -753,7 +754,7 @@ impl FieldData {
             if tr.refs.is_none() {
                 targets_applicator(&mut |fd| {
                     let first_header_idx = fd.headers.len();
-                    fd.headers.extend_from_slice(tr.base.headers);
+                    fd.headers.extend(tr.base.headers);
                     if tr.base.headers[0].repr.needs_alignment() {
                         let align = unsafe { fd.pad_to_align() };
                         fd.headers[first_header_idx]
@@ -777,7 +778,7 @@ impl FieldData {
                         {
                             targets_applicator(&mut |fd| {
                                 // PERF: maybe do a little rle here?
-                                fd.headers.push(FieldValueHeader {
+                                fd.headers.push_back(FieldValueHeader {
                                     fmt: FieldValueFormat {
                                         repr: FieldValueRepr::BytesInline,
                                         flags: SHARED_VALUE,
@@ -795,7 +796,7 @@ impl FieldData {
                         {
                             targets_applicator(&mut |fd| {
                                 // PERF: maybe do a little rle here?
-                                fd.headers.push(FieldValueHeader {
+                                fd.headers.push_back(FieldValueHeader {
                                     fmt: FieldValueFormat {
                                         repr: FieldValueRepr::TextInline,
                                         flags: SHARED_VALUE,

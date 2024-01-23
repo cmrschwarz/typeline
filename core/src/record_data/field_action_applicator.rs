@@ -1,3 +1,5 @@
+use std::collections::VecDeque;
+
 use crate::{
     record_data::field_action::FieldActionKind, utils::temp_vec::transmute_vec,
 };
@@ -470,7 +472,7 @@ impl FieldActionApplicator {
     fn generate_commands_from_actions<'a>(
         &mut self,
         actions: impl Iterator<Item = &'a FieldAction>,
-        headers: &mut Vec<FieldValueHeader>,
+        headers: &mut VecDeque<FieldValueHeader>,
         data: Option<&mut FieldDataBuffer>,
         iterators: &mut Vec<&mut IterState>,
     ) -> isize {
@@ -492,7 +494,7 @@ impl FieldActionApplicator {
             curr_header_iters_start: 0,
             curr_header_iters_end: 0,
             curr_header_original_rl: headers
-                .first()
+                .front()
                 .map(FieldValueHeader::effective_run_length)
                 .unwrap_or(0),
             curr_action_kind: FieldActionKind::Dup,
@@ -630,7 +632,7 @@ impl FieldActionApplicator {
     }
     #[allow(clippy::mut_mut)]
     fn move_header_idx_to_action_pos(
-        headers: &mut Vec<FieldValueHeader>,
+        headers: &mut VecDeque<FieldValueHeader>,
         iterators: &mut Vec<&mut IterState>,
         faas: &mut FieldActionApplicationState,
     ) {
@@ -676,7 +678,7 @@ impl FieldActionApplicator {
         Self::update_current_iters_start(iterators, faas);
     }
 
-    fn execute_commands(&mut self, headers: &mut Vec<FieldValueHeader>) {
+    fn execute_commands(&mut self, headers: &mut VecDeque<FieldValueHeader>) {
         if self.copies.is_empty() && self.insertions.is_empty() {
             return;
         }
@@ -686,9 +688,11 @@ impl FieldActionApplicator {
             .map(|i| i.index + 1)
             .unwrap_or(0)
             .max(self.copies.last().map(|c| c.target + c.len).unwrap());
-        headers.reserve(new_size - headers.len());
+        //TODO: do something clever instead
+        headers.resize(new_size, Default::default());
+        headers.make_contiguous();
+        let header_ptr = headers.as_mut_slices().0.as_mut_ptr();
 
-        let header_ptr = headers.as_mut_ptr();
         // PERF: it *might* be faster to interleave the insertions and copies
         // for better cache utilization
         unsafe {
@@ -702,7 +706,6 @@ impl FieldActionApplicator {
             for i in &self.insertions {
                 (*header_ptr.add(i.index)) = i.value;
             }
-            headers.set_len(new_size);
         }
         self.insertions.clear();
         self.copies.clear();
@@ -710,7 +713,7 @@ impl FieldActionApplicator {
 
     fn canonicalize_iters(
         field_count: usize,
-        headers: &[FieldValueHeader],
+        headers: &VecDeque<FieldValueHeader>,
         iterators: &mut [&mut IterState],
     ) {
         for it in iterators.iter_mut().rev() {
@@ -739,7 +742,7 @@ impl FieldActionApplicator {
     pub fn run<'a>(
         &mut self,
         actions: impl Iterator<Item = &'a FieldAction>,
-        headers: &mut Vec<FieldValueHeader>,
+        headers: &mut VecDeque<FieldValueHeader>,
         data: Option<&mut FieldDataBuffer>,
         field_count: &mut usize,
         iterators: impl Iterator<Item = &'a mut IterState>,

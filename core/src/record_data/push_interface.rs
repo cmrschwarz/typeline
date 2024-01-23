@@ -875,13 +875,13 @@ impl FieldData {
     ) {
         debug_assert!(run_length > 0);
         while run_length > RunLength::MAX as usize {
-            self.headers.push(FieldValueHeader {
+            self.headers.push_back(FieldValueHeader {
                 fmt,
                 run_length: RunLength::MAX,
             });
             run_length -= RunLength::MAX as usize;
         }
-        self.headers.push(FieldValueHeader {
+        self.headers.push_back(FieldValueHeader {
             fmt,
             run_length: run_length as RunLength,
         });
@@ -893,7 +893,7 @@ impl FieldData {
     ) {
         debug_assert!(run_length > 0);
         let rl_to_push = run_length.min(RunLength::MAX as usize);
-        self.headers.push(FieldValueHeader {
+        self.headers.push_back(FieldValueHeader {
             fmt,
             run_length: rl_to_push as RunLength,
         });
@@ -920,7 +920,7 @@ impl FieldData {
         // branch above since header rle only makes sense with a previous
         // header
         let last_header =
-            unsafe { self.headers.last_mut().unwrap_unchecked() };
+            unsafe { self.headers.back_mut().unwrap_unchecked() };
         if last_header.run_length == 1 {
             last_header.set_shared_value(data_rle);
         }
@@ -976,7 +976,7 @@ impl FieldData {
         debug_assert!(fmt.shared_value());
         fmt.set_leading_padding(padding);
         let rl_to_push = run_length.min(RunLength::MAX as usize);
-        self.headers.push(FieldValueHeader {
+        self.headers.push_back(FieldValueHeader {
             fmt,
             run_length: rl_to_push as RunLength,
         });
@@ -999,7 +999,7 @@ impl FieldData {
         debug_assert!(!fmt.shared_value());
         fmt.set_leading_padding(padding);
         let rl_to_push = run_length.min(RunLength::MAX as usize);
-        self.headers.push(FieldValueHeader {
+        self.headers.push_back(FieldValueHeader {
             fmt,
             run_length: rl_to_push as RunLength,
         });
@@ -1020,7 +1020,7 @@ impl FieldData {
         format_flags_mask: FieldValueFlags,
     ) {
         debug_assert!(!fmt.shared_value());
-        match self.headers.last_mut() {
+        match self.headers.back_mut() {
             None => (),
             Some(last_header) => {
                 if last_header.repr == fmt.repr
@@ -1052,7 +1052,7 @@ impl FieldData {
         if run_length == 0 {
             return;
         }
-        let last_header = self.headers.last_mut().unwrap();
+        let last_header = self.headers.back_mut().unwrap();
         // command buffer should clear data after last non deleted
         debug_assert!(!last_header.deleted());
         self.field_count += run_length;
@@ -1081,7 +1081,7 @@ impl FieldData {
             if run_length == 0 {
                 return;
             }
-            let last_header = self.headers.last_mut().unwrap();
+            let last_header = self.headers.back_mut().unwrap();
             if last_header.run_length as usize > run_length {
                 if !last_header.deleted() {
                     last_header.run_length -= run_length as RunLength;
@@ -1101,7 +1101,7 @@ impl FieldData {
                 self.data
                     .truncate(self.data.len() - last_header.total_size());
             }
-            self.headers.pop();
+            self.headers.pop_back();
         }
     }
 }
@@ -1126,7 +1126,7 @@ unsafe impl PushInterface for FieldData {
         let mut header_rle = false;
 
         if try_header_rle {
-            if let Some(h) = self.headers.last_mut() {
+            if let Some(h) = self.headers.back_mut() {
                 if h.repr == repr && h.size == fmt.size && !h.deleted() {
                     header_rle = true;
                 }
@@ -1168,7 +1168,7 @@ unsafe impl PushInterface for FieldData {
         let mut data_rle = false;
 
         if try_header_rle || try_data_rle {
-            if let Some(h) = self.headers.last_mut() {
+            if let Some(h) = self.headers.back_mut() {
                 if h.repr == kind && h.size == size && !h.deleted() {
                     header_rle = true;
                     if try_data_rle {
@@ -1232,7 +1232,7 @@ unsafe impl PushInterface for FieldData {
             }
         }
         if try_header_rle || try_data_rle {
-            if let Some(h) = self.headers.last_mut() {
+            if let Some(h) = self.headers.back_mut() {
                 if h.repr == repr && !h.deleted() {
                     header_rle = true;
                     if try_data_rle {
@@ -1275,7 +1275,7 @@ unsafe impl PushInterface for FieldData {
         };
         let mut header_rle = false;
         if try_header_rle {
-            if let Some(h) = self.headers.last_mut() {
+            if let Some(h) = self.headers.back_mut() {
                 header_rle = h.repr == kind
                     && h.flags & MUST_MATCH_HEADER_FLAGS
                         == flags & MUST_MATCH_HEADER_FLAGS;

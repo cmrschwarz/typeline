@@ -236,7 +236,6 @@ impl<'a, R: ReferenceFieldValueType> RefIter<'a, R> {
         let fmt = self.data_iter.get_next_field_format();
 
         let data_start = self.data_iter.get_next_field_data();
-        let header_ref = self.data_iter.get_next_header_ptr();
         let oversize_start = self.data_iter.field_run_length_bwd();
         let header_idx = self.data_iter.get_next_header_index();
 
@@ -249,6 +248,7 @@ impl<'a, R: ReferenceFieldValueType> RefIter<'a, R> {
                 false,
                 flag_mask,
                 fmt.flags,
+                false,
             );
             field_count += data_stride;
             limit -= data_stride;
@@ -283,15 +283,20 @@ impl<'a, R: ReferenceFieldValueType> RefIter<'a, R> {
             refs_data_len += 1;
         }
         unsafe {
+            let (h_s1, h_s2) =
+                self.data_iter.field_data_ref().headers().as_slices();
+            let headers = if h_s1.len() > header_idx {
+                &h_s1[header_idx..header_idx + header_count]
+            } else {
+                &h_s2[header_idx - h_s1.len()
+                    ..header_idx - h_s1.len() + header_count]
+            };
             Some((
                 ValidTypedRange::new(TypedRange {
-                    headers: std::slice::from_raw_parts(
-                        header_ref,
-                        header_count,
-                    ),
+                    headers,
                     data: TypedSlice::new(
                         self.data_iter.field_data_ref(),
-                        (*header_ref).fmt,
+                        fmt,
                         data_start,
                         // HACK // SAFETY:
                         // this is unsound. we might have skipped over
@@ -317,12 +322,17 @@ impl<'a, R: ReferenceFieldValueType> RefIter<'a, R> {
             ))
         }
     }
-    pub fn next_n_fields(&mut self, limit: usize) -> usize {
+    pub fn next_n_fields(
+        &mut self,
+        limit: usize,
+        allow_ring_wrap: bool,
+    ) -> usize {
         let ref_skip = self.refs_iter.next_n_fields(limit);
         if self.refs_iter.peek().map(|(v, _rl)| v.field_id_offset())
             == Some(self.last_field_id_offset)
         {
-            let data_skip = self.data_iter.next_n_fields(ref_skip);
+            let data_skip =
+                self.data_iter.next_n_fields(ref_skip, allow_ring_wrap);
             assert!(data_skip == ref_skip);
         }
         ref_skip
@@ -560,15 +570,17 @@ impl<'a, I: FieldIterator<'a>> AutoDerefIter<'a, I> {
         let mut ri_count = 0;
         if let Some(ri) = &mut self.ref_iter {
             ri_count = match ri {
-                AnyRefIter::FieldRef(iter) => iter.next_n_fields(limit),
-                AnyRefIter::SlicedFieldRef(iter) => iter.next_n_fields(limit),
+                AnyRefIter::FieldRef(iter) => iter.next_n_fields(limit, true),
+                AnyRefIter::SlicedFieldRef(iter) => {
+                    iter.next_n_fields(limit, true)
+                }
             };
             if ri_count == limit {
                 return limit;
             }
             limit -= ri_count;
         }
-        let base_count = self.iter.next_n_fields(limit);
+        let base_count = self.iter.next_n_fields(limit, true);
         if base_count > 0 {
             self.ref_iter = None;
         }
@@ -1086,7 +1098,7 @@ mod ref_iter_tests {
         let mut fd_refs = FieldData::default();
         for h in &mut fd.headers {
             if h.same_value_as_previous() {
-                fd_refs.headers.push(FieldValueHeader {
+                fd_refs.headers.push_back(FieldValueHeader {
                     fmt: FieldValueFormat {
                         repr: FieldValueRepr::SlicedFieldReference,
                         flags: h.flags
@@ -1105,7 +1117,7 @@ mod ref_iter_tests {
                     h.size as usize,
                     h.run_length as usize,
                 );
-                let h_ref = fd_refs.headers.last_mut().unwrap();
+                let h_ref = fd_refs.headers.back_mut().unwrap();
                 h_ref.flags |= h.flags
                     & (field_value_flags::DELETED
                         | field_value_flags::SHARED_VALUE);
@@ -1186,7 +1198,7 @@ mod ref_iter_tests {
         let mut fd = FieldData::default();
         fd.push_str("aaa", 1, false, false);
 
-        fd.headers.extend_from_within(0..1);
+        fd.headers.push_back(fd.headers[0]);
         fd.headers[1].set_same_value_as_previous(true);
         fd.headers[1].run_length = 5;
         fd.headers[1].set_shared_value(true);
@@ -1204,7 +1216,7 @@ mod ref_iter_tests {
         let mut fd = FieldData::default();
         fd.push_str("00", 1, false, false);
         fd.push_str("1", 1, false, false);
-        fd.headers.extend_from_within(1..2);
+        fd.headers.push_back(fd.headers[1]);
         fd.headers[2].set_same_value_as_previous(true);
         fd.headers[2].run_length = 5;
         fd.headers[2].set_shared_value(true);

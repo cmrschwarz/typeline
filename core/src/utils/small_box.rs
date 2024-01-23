@@ -361,8 +361,9 @@ mod tests {
 
         let flag = Cell::new(false);
         let sb1: SmallBox<_, { size_of::<DropTest>() }> =
-            SmallBox::new(DropTest(&flag, 0));
+            SmallBox::new(DropTest(&flag, 42));
         assert!(sb1.is_stack_allocated());
+        assert!(sb1.1 == 42);
         assert!(!flag.get());
         drop(sb1);
         assert!(flag.get());

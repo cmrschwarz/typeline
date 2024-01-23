@@ -1,6 +1,7 @@
 use core::panic;
 use std::{
     cell::{Cell, UnsafeCell},
+    collections::VecDeque,
     marker::PhantomData,
 };
 
@@ -179,7 +180,7 @@ impl IterHall {
                 - self
                     .field_data
                     .headers
-                    .last()
+                    .back()
                     .map(FieldValueHeader::total_size_unique)
                     .unwrap_or(0),
             // TODO: respect cow
@@ -187,7 +188,7 @@ impl IterHall {
             header_rl_offset: self
                 .field_data
                 .headers
-                .last()
+                .back()
                 .unwrap()
                 .run_length,
             #[cfg(feature = "debug_logging")]
@@ -465,7 +466,7 @@ impl IterHall {
             FieldDataSource::Owned
             | FieldDataSource::DataCow { .. }
             | FieldDataSource::RecordBufferDataCow(_) => {
-                header_tgt.extend_from_slice(&self.field_data.headers);
+                header_tgt.extend(&self.field_data.headers);
                 self.field_data.field_count
             }
             FieldDataSource::FullCow(CowDataSource {
@@ -477,7 +478,7 @@ impl IterHall {
                 .append_headers_to(fm, header_tgt),
             FieldDataSource::RecordBufferFullCow(rb) => {
                 let fd = unsafe { &*(*rb).get() };
-                header_tgt.extend_from_slice(&fd.headers);
+                header_tgt.extend(&fd.headers);
                 fd.field_count
             }
         }
@@ -530,7 +531,7 @@ impl IterHall {
                 target.append_from_other(unsafe { &*(*data_ref).get() });
             }
             FieldDataSource::RecordBufferDataCow(data_ref) => {
-                target.headers.extend_from_slice(&self.field_data.headers);
+                target.headers.extend(&self.field_data.headers);
                 target.field_count += self.field_data.field_count;
                 unsafe { &*(*data_ref).get() }
                     .append_data_to(&mut target.data);
@@ -611,17 +612,17 @@ impl IterHall {
     }
     pub(crate) fn copy_headers_from_cow_src(
         &mut self,
-        src_headers: &[FieldValueHeader],
+        src_headers: &VecDeque<FieldValueHeader>,
         cow_end: IterState,
     ) {
         self.field_data
             .headers
-            .extend(&src_headers[..cow_end.header_idx]);
+            .extend(src_headers.range(..cow_end.header_idx));
         if cow_end.header_rl_offset != 0 {
             let mut last_header = src_headers[cow_end.header_idx];
             last_header.run_length =
                 cow_end.header_rl_offset.min(last_header.run_length);
-            self.field_data.headers.push(last_header);
+            self.field_data.headers.push_back(last_header);
         }
         self.field_data.field_count += cow_end.field_pos;
     }
@@ -652,7 +653,7 @@ impl IterHall {
                 let fd = unsafe { &*(*rb).get() };
                 debug_assert!(self.field_data.is_empty());
                 self.field_data.field_count = fd.field_count;
-                self.field_data.headers.extend_from_slice(&fd.headers);
+                self.field_data.headers.extend(&fd.headers);
                 self.data_source = FieldDataSource::RecordBufferDataCow(rb);
             }
         };

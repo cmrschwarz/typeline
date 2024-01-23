@@ -1154,11 +1154,11 @@ impl ActionBuffer {
                         // we must make sure to not mess up our data offset
                         first_header.set_same_value_as_previous(true);
                     }
-                    tgt_fd.headers.push(first_header);
+                    tgt_fd.headers.push_back(first_header);
                 }
             }
             if start_idx + 1 < headers.len() {
-                tgt_fd.headers.extend(&headers[start_idx + 1..]);
+                tgt_fd.headers.extend(headers.range(start_idx + 1..));
             }
             tgt_fd.field_count += count - tgt_cow_end.field_pos;
         }
