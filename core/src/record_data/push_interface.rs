@@ -1138,8 +1138,8 @@ unsafe impl PushInterface for FieldData {
                 fmt, run_length, header_rle, false,
             );
         }
-        self.data.reserve(data_len);
-        let res = self.data.get_tail_ptr_mut();
+        self.data.reserve_contiguous(data_len);
+        let res = self.data.tail_ptr_mut();
         unsafe {
             // in debug mode, we initialize the memory with all ones
             // to make it easier to detect in the debugger
@@ -1175,7 +1175,8 @@ unsafe impl PushInterface for FieldData {
                         let len = h.size as usize;
                         let prev_data = unsafe {
                             std::slice::from_raw_parts(
-                                self.data.as_ptr_range().end.sub(len),
+                                self.data
+                                    .ptr_from_index(self.data.len() - len),
                                 len,
                             )
                         };
@@ -1239,9 +1240,9 @@ unsafe impl PushInterface for FieldData {
                         data_rle = unsafe {
                             data == *self
                                 .data
-                                .as_ptr_range()
-                                .end
-                                .sub(std::mem::size_of::<T>())
+                                .ptr_from_index(
+                                    self.data.len() - std::mem::size_of::<T>(),
+                                )
                                 .cast::<T>()
                         };
                     }
@@ -1342,8 +1343,13 @@ impl<'a> RawFixedSizedTypeInserter<'a> {
         self.fd
             .data
             .reserve(MAX_FIELD_ALIGN + max_inserts * element_size);
-        self.data_ptr = self.fd.data.get_tail_ptr_mut();
-        self.max = max_inserts;
+        self.fd
+            .data
+            .reserve_contiguous(MAX_FIELD_ALIGN + element_size);
+        self.data_ptr = self.fd.data.tail_ptr_mut();
+        self.max = (self.fd.data.contiguous_tail_space_available()
+            - MAX_FIELD_ALIGN)
+            / element_size;
         self.count = 0;
     }
     unsafe fn commit_and_reserve(
@@ -1510,11 +1516,10 @@ impl<'a> RawVariableSizedTypeInserter<'a> {
         max_inserts: usize,
         new_expected_size: usize,
     ) {
-        self.fd
-            .data
-            .reserve(MAX_FIELD_ALIGN + max_inserts * new_expected_size);
-        self.data_ptr = self.fd.data.get_tail_ptr_mut();
-        self.max = max_inserts;
+        self.fd.data.reserve(max_inserts * new_expected_size);
+        self.data_ptr = self.fd.data.tail_ptr_mut();
+        self.max =
+            self.fd.data.contiguous_tail_space_available() / new_expected_size;
         self.count = 0;
         self.expected_size = new_expected_size;
     }
@@ -1790,12 +1795,17 @@ impl<FD: DerefMut<Target = FieldData>> VaryingTypeInserter<FD> {
     ) {
         // TODO: we might want to restrict reservation size
         // in case there is one very large string
-        self.max = reserved_elements;
         self.count = 0;
         self.fd
             .data
             .reserve(MAX_FIELD_ALIGN + reserved_elements * fmt.size as usize);
-        self.data_ptr = self.fd.data.get_tail_ptr_mut();
+        self.fd
+            .data
+            .reserve_contiguous(MAX_FIELD_ALIGN + fmt.size as usize);
+        self.max = (self.fd.data.contiguous_tail_space_available()
+            - MAX_FIELD_ALIGN)
+            / fmt.size as usize;
+        self.data_ptr = self.fd.data.tail_ptr_mut();
         self.fmt = fmt;
     }
     fn sanitize_format(fmt: FieldValueFormat) {
@@ -1813,9 +1823,16 @@ impl<FD: DerefMut<Target = FieldData>> VaryingTypeInserter<FD> {
             .len()
             .max(std::mem::size_of::<FieldValue>() * 4);
         let len = (size / fmt.size as usize).max(2);
-        self.fd.data.reserve(fmt.size as usize * len);
-        self.data_ptr = self.fd.data.get_tail_ptr_mut();
-        self.max = len;
+        self.fd
+            .data
+            .reserve(MAX_FIELD_ALIGN + fmt.size as usize * len);
+        self.fd
+            .data
+            .reserve_contiguous(MAX_FIELD_ALIGN + fmt.size as usize);
+        self.data_ptr = self.fd.data.tail_ptr_mut();
+        self.max = (self.fd.data.contiguous_tail_space_available()
+            - MAX_FIELD_ALIGN)
+            / fmt.size as usize;
         self.fmt = fmt;
         self.count = 0;
     }

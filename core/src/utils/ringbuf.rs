@@ -1,17 +1,28 @@
 use std::{alloc::Layout, io::Write, ptr::NonNull};
 
+// TODO: //PERF: we should probably add a `trailing_padding` member
+// to this instead of calling `reserve_contiguous` all over the place
+
 use std::ops::Range;
-// this is conceptually just a Vec<u8>, but
+
+// this is conceptually just a VecDeque<u8>, but
 // - the data buffer is at least `ALIGN` bytes aligned
+// - `head` is always ALIGN bytes aligned (a `pop_front` that is not a multiple
+//   of ALIGN causes a panic)
+// - the physical align of any logical index will be at least as large as it's
+//   logical align, modulo `ALIGN`. For example, the logical index 8 is
+//   guaranteed to be at least 8 bytes aligned, assuming `ALIGN >= 8`.
 // - it has less strict ownership guarantees (the data pointer is not `Unique`)
-// - no unneccessarily strict rules about `set_len` that make it technically
-//   illegal to call it before initializing the data
 pub struct RingBuf<const ALIGN: usize> {
     data: NonNull<u8>,
     head: usize,
     len: usize,
     cap: usize,
+    front_padding: u16,
+    back_padding: u16,
 }
+
+const MIN_ALLOC_SIZE: usize = 64;
 
 unsafe impl<const ALIGN: usize> Send for RingBuf<ALIGN> {}
 unsafe impl<const ALIGN: usize> Sync for RingBuf<ALIGN> {}
@@ -25,6 +36,8 @@ impl<const ALIGN: usize> Default for RingBuf<ALIGN> {
             head: 0,
             len: 0,
             cap: 0,
+            front_padding: 0,
+            back_padding: 0,
         }
     }
 }
@@ -74,9 +87,9 @@ impl<const ALIGN: usize> RingBuf<ALIGN> {
         self.cap
     }
     pub fn to_physical_idx(&self, logical_idx: usize) -> usize {
-        let space_bottom = self.cap - self.head;
-        if logical_idx > space_bottom {
-            return logical_idx - space_bottom;
+        let space_back = self.cap - self.head - self.back_padding as usize;
+        if logical_idx > space_back {
+            return logical_idx - space_back + self.front_padding as usize;
         }
         self.head + logical_idx
     }
@@ -125,7 +138,7 @@ impl<const ALIGN: usize> RingBuf<ALIGN> {
         }
     }
     fn calculate_new_cap(&self, cap_needed: usize) -> usize {
-        let mut cap_new = self.cap.max(ALIGN).max(16);
+        let mut cap_new = self.cap.max(ALIGN).max(MIN_ALLOC_SIZE);
         while cap_new < cap_needed {
             cap_new <<= 1;
         }
@@ -133,29 +146,172 @@ impl<const ALIGN: usize> RingBuf<ALIGN> {
     }
     pub fn reserve(&mut self, additional_cap: usize) {
         let cap_needed = self.len + additional_cap;
-        if self.cap >= cap_needed {
+        if self.cap
+            >= cap_needed
+                + self.front_padding as usize
+                + self.back_padding as usize
+        {
             return;
         }
         let cap_new = self.calculate_new_cap(cap_needed);
         unsafe { self.realloc(cap_new) };
     }
-    pub fn reserve_contiguous(&mut self, additional_cap: usize) {
-        let space_bottom = (self.cap - self.head).saturating_sub(self.len);
-        if space_bottom > additional_cap {
-            return;
-        }
-        let cap_needed = self.cap + additional_cap;
-        if cap_needed > self.cap {
-            let cap_new = self.calculate_new_cap(self.cap + additional_cap);
-            unsafe { self.realloc(cap_new) };
-            return;
-        }
-        if space_bottom == 0 {
+    // Padding needed to ceil `len` to a multiple of `ALIGN`.
+    fn len_to_align_padding(&self) -> usize {
+        (ALIGN - self.len % ALIGN) % ALIGN
+    }
+    pub fn make_contiguous(&mut self) {
+        let used_space_back = self.space_back();
+        if used_space_back >= self.len {
             return;
         }
         let ptr = self.data.as_ptr();
-        unsafe { std::ptr::copy(ptr.add(self.head), ptr, self.len) };
+        let front_pad = self.front_padding as usize;
+        let back_pad = self.back_padding as usize;
+        self.front_padding = 0;
+        self.back_padding = 0;
+        let space_free = self.cap - self.len - front_pad - back_pad;
+        let used_space_front = self.len - used_space_back;
+        if space_free + front_pad >= used_space_back {
+            // before: XDEFGH...ABCX
+            // after:  ABCDEFGH.....
+            unsafe {
+                // X~~DEFGH.ABCX
+                std::ptr::copy(
+                    ptr.add(front_pad),
+                    ptr.add(used_space_back),
+                    used_space_front,
+                );
+                // ABCDEFGH.~~~X
+                std::ptr::copy_nonoverlapping(
+                    ptr.add(self.head),
+                    ptr,
+                    used_space_back,
+                );
+            }
+            self.head = 0;
+            return;
+        }
+        // If we want one contiguous slice at the end, we need to have this
+        // amount of trailing padding to keep `head` `ALIGN`ed
+        let len_ceil_pad = self.len_to_align_padding();
+        if space_free + back_pad >= used_space_front + len_ceil_pad {
+            let head_new =
+                self.cap - used_space_back - used_space_front - len_ceil_pad;
+            // before: XFGH...ABCDEX
+            // after:  ....ABCDEFGHY
+            unsafe {
+                // XFGH..ABCDE~~X
+                std::ptr::copy(
+                    ptr.add(self.head),
+                    ptr.add(head_new),
+                    used_space_back,
+                );
+                // X~~~..ABCDEFGH
+                std::ptr::copy_nonoverlapping(
+                    ptr.add(front_pad),
+                    ptr.add(self.cap - used_space_front - len_ceil_pad),
+                    used_space_front,
+                );
+            }
+            self.head = head_new;
+            return;
+        }
+
+        // we have insufficient free space for a simple swap,
+        // so we shove the two slices together and use `[u8]::rotate`
+
+        // only moving front only works if it's new starting position
+        // (which will become `head`) will be aligned
+        let can_move_front = used_space_front % ALIGN == 0;
+
+        // only moving the back only works if the current end of front
+        // (which will become `head`) is aligned
+        let can_move_back = (front_pad + used_space_front) % ALIGN == 0;
+
+        if can_move_back
+            && (used_space_back <= used_space_front || !can_move_front)
+        {
+            // the bottom space is smaller, and the end of front is aligned
+            // so we can get away with moving bottom
+            // before: XDEFGH..ABCX
+            // after:  XABCDEFGH...
+            unsafe {
+                // XDEFGHABC~~X
+                std::ptr::copy(
+                    ptr.add(self.head),
+                    ptr.add(front_pad + used_space_front),
+                    used_space_back,
+                );
+                std::slice::from_raw_parts_mut(ptr.add(front_pad), self.len)
+                    .rotate_left(used_space_front);
+            }
+            self.head = front_pad;
+            return;
+        }
+
+        if can_move_front {
+            let head_new = self.head - used_space_front;
+            // before: XFGH.ABCDEX
+            // after:  ..ABCDEFGHX
+            unsafe {
+                // X~FGHABCDEX
+                std::ptr::copy(
+                    ptr.add(front_pad),
+                    ptr.add(head_new),
+                    used_space_front,
+                );
+                // X~ABCDEFGHX
+                std::slice::from_raw_parts_mut(ptr.add(head_new), self.len)
+                    .rotate_left(used_space_front);
+            }
+            self.head = head_new;
+            return;
+        }
+
+        // If neither moving front nor back is sufficient, we have to move
+        // both buffers to end up with correct alignment in the end.
+        // before: XFGH..ABCDEX
+        // after:  ABCDEFGH....
+        unsafe {
+            // FGH~..ABCDEX
+            std::ptr::copy(ptr.add(front_pad), ptr, used_space_front);
+            // FGHABCDE~~~X
+            std::ptr::copy(
+                ptr.add(self.head),
+                ptr.add(used_space_front),
+                used_space_back,
+            );
+            // ABCDEFGH...X
+            std::slice::from_raw_parts_mut(ptr, self.len)
+                .rotate_left(used_space_front);
+        }
         self.head = 0;
+    }
+    pub fn reserve_contiguous(&mut self, additional_cap: usize) {
+        let space_back = self.space_back();
+
+        if self.len >= space_back {
+            let free_space_front = self.head
+                - (self.len - space_back)
+                - self.front_padding as usize;
+            if free_space_front > additional_cap {
+                return;
+            }
+        } else {
+            if self.len + additional_cap <= space_back {
+                return;
+            }
+            if self.head > additional_cap + self.len_to_align_padding() {
+                return;
+            }
+        }
+        if self.cap - self.len >= additional_cap {
+            self.make_contiguous();
+            return;
+        }
+        let cap_new = self.calculate_new_cap(self.len + additional_cap);
+        unsafe { self.realloc(cap_new) };
     }
     pub fn extend_from_slice(&mut self, slice: &[u8]) {
         self.reserve_contiguous(slice.len());
@@ -195,8 +351,11 @@ impl<const ALIGN: usize> RingBuf<ALIGN> {
         self.len = 0;
         self.head = 0;
     }
+    fn space_back(&self) -> usize {
+        self.cap - self.head - self.back_padding as usize
+    }
     pub fn slice_lengths(&self) -> (usize, usize) {
-        let len_s1 = (self.cap - self.head).min(self.len);
+        let len_s1 = self.space_back().min(self.len);
         let len_s2 = self.len - len_s1;
         (len_s1, len_s2)
     }
@@ -236,6 +395,41 @@ impl<const ALIGN: usize> RingBuf<ALIGN> {
     pub fn tail_ptr_mut(&mut self) -> *mut u8 {
         unsafe { self.data.as_ptr().add(self.to_physical_idx(self.len)) }
     }
+    pub fn contiguous_tail_space_available(&mut self) -> usize {
+        let space_back = self.cap - self.head;
+        if self.len >= space_back {
+            return self.head - (self.len - space_back);
+        }
+        space_back - self.len
+    }
+    pub fn range(&self, range: Range<usize>) -> Iter {
+        let (s1, s2) = self.as_slices();
+        let l1 = s1.len();
+        if range.end >= l1 {
+            return Iter {
+                s1: s1[range].iter(),
+                s2: [].iter(),
+            };
+        }
+        if range.start >= l1 {
+            return Iter {
+                s1: s2[range.start - l1..range.end - l1].iter(),
+                s2: [].iter(),
+            };
+        }
+        Iter {
+            s1: s1[range.start..range.end.min(l1)].iter(),
+            s2: s2[range.start - l1..range.end - l1].iter(),
+        }
+    }
+    pub fn ptr_from_index(&self, index: usize) -> *const u8 {
+        let idx_phys = self.to_physical_idx(index);
+        unsafe { self.data.as_ptr().add(idx_phys) }
+    }
+    pub fn ptr_from_index_mut(&mut self, index: usize) -> *mut u8 {
+        let idx_phys = self.to_physical_idx(index);
+        unsafe { self.data.as_ptr().add(idx_phys) }
+    }
 }
 
 impl<const ALIGN: usize> Write for RingBuf<ALIGN> {
@@ -251,5 +445,51 @@ impl<const ALIGN: usize> Write for RingBuf<ALIGN> {
     fn write_all(&mut self, buf: &[u8]) -> std::io::Result<()> {
         self.extend_from_slice(buf);
         Ok(())
+    }
+}
+
+pub struct Iter<'a> {
+    s1: std::slice::Iter<'a, u8>,
+    s2: std::slice::Iter<'a, u8>,
+}
+
+impl<'a> Iterator for Iter<'a> {
+    type Item = &'a u8;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.s1.next().or_else(|| {
+            // swap to reduce branches on subsequent `next` calls
+            std::mem::swap(&mut self.s1, &mut self.s2);
+            self.s1.next()
+        })
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let (s1_min, s1_max) = self.s1.size_hint();
+        let (s2_min, s2_max) = self.s2.size_hint();
+        (s1_min + s2_min, Some(s1_max.unwrap() + s2_max.unwrap()))
+    }
+
+    fn count(self) -> usize
+    where
+        Self: Sized,
+    {
+        self.s1.count() + self.s2.count()
+    }
+
+    fn last(self) -> Option<Self::Item>
+    where
+        Self: Sized,
+    {
+        self.s1.last().or(self.s2.last())
+    }
+
+    fn nth(&mut self, n: usize) -> Option<Self::Item> {
+        let s1_len = self.s1.size_hint().0;
+        if s1_len >= n {
+            return self.s1.nth(n);
+        }
+        self.s1 = std::mem::take(&mut self.s2);
+        self.s1.nth(n - s1_len)
     }
 }

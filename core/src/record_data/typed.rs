@@ -243,6 +243,14 @@ impl<'a> Default for TypedSlice<'a> {
     }
 }
 
+pub unsafe fn value_as_bytes<T>(v: &T) -> &[u8] {
+    unsafe {
+        std::slice::from_raw_parts(
+            (v as *const T).cast::<u8>(),
+            std::mem::size_of_val(v),
+        )
+    }
+}
 pub unsafe fn slice_as_bytes<T>(v: &[T]) -> &[u8] {
     unsafe {
         std::slice::from_raw_parts(v.as_ptr().cast(), std::mem::size_of_val(v))
@@ -337,7 +345,7 @@ impl<'a> TypedSlice<'a> {
     }
     pub fn as_bytes(&self) -> &'a [u8] {
         unsafe {
-            match self {
+            match *self {
                 TypedSlice::Undefined(_)
                 | TypedSlice::Null(_)
                 | TypedSlice::GroupSeparator(_) => &[],
@@ -535,7 +543,7 @@ unsafe fn to_slice<'a, T: Sized, R: FieldDataRef<'a>>(
     }
     unsafe {
         std::slice::from_raw_parts::<T>(
-            fdr.data().as_ptr().add(data_begin).cast(),
+            fdr.data().ptr_from_index(data_begin).cast(),
             (data_end - data_begin) / std::mem::size_of::<T>(),
         )
     }
@@ -545,5 +553,5 @@ unsafe fn to_ref<'a, T: Sized, R: FieldDataRef<'a>>(
     fdr: R,
     data_begin: usize,
 ) -> &'a T {
-    unsafe { &*fdr.data().as_ptr().add(data_begin).cast() }
+    unsafe { &*fdr.data().ptr_from_index(data_begin).cast() }
 }

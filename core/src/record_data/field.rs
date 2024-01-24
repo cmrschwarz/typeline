@@ -130,7 +130,7 @@ impl<'a> FieldDataRef<'a> for &'a CowFieldDataRef<'a> {
         &self.headers_ref
     }
 
-    fn data(&self) -> &'a [u8] {
+    fn data(&self) -> &'a FieldDataBuffer {
         &self.data_ref
     }
 

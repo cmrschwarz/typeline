@@ -1,12 +1,12 @@
 // day1:
 // TODO: `foreach`, `to-int`
-// oneliner: in l fe! r-m="\d" fc! h n t e j toi e sum p
+// oneliner: in l fe! r-m="\d" fc! h n t e j to_i e sum p
 // stdin lines foreach!
 //     regex-m="\d" forkcat!
 //         head
 //     next
 //         tail
-//     end join toint
+//     end join to_i
 // end sum print
 
 // day2:

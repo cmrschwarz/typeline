@@ -688,8 +688,8 @@ impl FieldActionApplicator {
             .map(|i| i.index + 1)
             .unwrap_or(0)
             .max(self.copies.last().map(|c| c.target + c.len).unwrap());
-        //TODO: do something clever instead
-        headers.resize(new_size, Default::default());
+        // TODO: do something clever instead
+        headers.resize(new_size, FieldValueHeader::default());
         headers.make_contiguous();
         let header_ptr = headers.as_mut_slices().0.as_mut_ptr();
 

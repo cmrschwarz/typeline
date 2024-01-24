@@ -275,7 +275,7 @@ fn start_streaming_file(
         }
     };
     let mut buf = Vec::with_capacity(fr.stream_buffer_size);
-    buf.extend_from_slice(&fdi.data[size_before..(size_before + chunk_size)]);
+    buf.extend(fdi.data.range(size_before..(size_before + chunk_size)));
     fdi.data.truncate(size_before);
     let mut done = false;
     let buf_len = buf.len();

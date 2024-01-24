@@ -13,7 +13,7 @@ use super::{
 
 pub trait FieldDataRef<'a>: Sized + Clone {
     fn headers(&self) -> &'a VecDeque<FieldValueHeader>;
-    fn data(&self) -> &'a [u8];
+    fn data(&self) -> &'a FieldDataBuffer;
     fn field_count(&self) -> usize;
     fn equals<'b, R: FieldDataRef<'b>>(&self, other: &R) -> bool {
         self.field_count() == other.field_count()
@@ -28,7 +28,7 @@ impl<'a> FieldDataRef<'a> for &'a FieldData {
         &self.headers
     }
     #[inline(always)]
-    fn data(&self) -> &'a [u8] {
+    fn data(&self) -> &'a FieldDataBuffer {
         &self.data
     }
     #[inline(always)]
@@ -43,7 +43,7 @@ impl<'a, R: FieldDataRef<'a>> FieldDataRef<'a> for &R {
         (**self).headers()
     }
     #[inline(always)]
-    fn data(&self) -> &'a [u8] {
+    fn data(&self) -> &'a FieldDataBuffer {
         (**self).data()
     }
     #[inline(always)]
@@ -64,7 +64,7 @@ impl<'a> FieldDataRef<'a> for DestructuredFieldDataRef<'a> {
         self.headers
     }
 
-    fn data(&self) -> &'a [u8] {
+    fn data(&self) -> &'a FieldDataBuffer {
         self.data
     }
 
@@ -470,9 +470,10 @@ impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for Iter<'a, R> {
                 || (self.header_fmt.flags & flag_mask) != flags
                 || (kinds.contains(&self.header_fmt.repr)
                     == invert_kinds_check)
-                || !data_check(&self.header_fmt, unsafe {
-                    self.fdr.data().as_ptr().add(self.get_next_field_data())
-                })
+                || !data_check(
+                    &self.header_fmt,
+                    self.fdr.data().ptr_from_index(self.get_next_field_data()),
+                )
                 || self.header_idx == wrap_idx
             {
                 return n - stride_rem;
@@ -529,9 +530,10 @@ impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for Iter<'a, R> {
                 || (self.header_fmt.flags & flag_mask) != flags
                 || (kinds.contains(&self.header_fmt.repr)
                     == invert_kinds_check)
-                || !data_check(&self.header_fmt, unsafe {
-                    self.fdr.data().as_ptr().add(self.get_next_field_data())
-                })
+                || !data_check(
+                    &self.header_fmt,
+                    self.fdr.data().ptr_from_index(self.get_next_field_data()),
+                )
                 || wrap_idx == self.header_idx
             {
                 return n - stride_rem;

@@ -19,10 +19,10 @@ use super::{
         RefAwareInlineTextIter, RefAwareTextBufferIter,
         RefAwareTypedSliceIter,
     },
+    typed::value_as_bytes,
 };
 use crate::{
-    operators::errors::OperatorApplicationError,
-    utils::aligned_buf::AlignedBuf,
+    operators::errors::OperatorApplicationError, utils::ringbuf::RingBuf,
 };
 
 use self::field_value_flags::SHARED_VALUE;
@@ -135,7 +135,7 @@ union FieldValueAlignmentCheckUnion {
 
 pub const MAX_FIELD_ALIGN: usize = align_of::<FieldValueAlignmentCheckUnion>();
 pub const FIELD_ALIGN_MASK: usize = !(MAX_FIELD_ALIGN - 1);
-pub type FieldDataBuffer = AlignedBuf<MAX_FIELD_ALIGN>;
+pub type FieldDataBuffer = RingBuf<MAX_FIELD_ALIGN>;
 
 pub type FieldValueSize = u16;
 
@@ -632,7 +632,9 @@ impl FieldData {
         }
     }
     pub fn clear(&mut self) {
-        let data_ptr = self.data.as_mut_ptr();
+        let (d1, d2) = self.data.as_slices_mut();
+        let l1 = d1.len();
+        let (d1, d2) = (d1.as_mut_ptr(), d2.as_mut_ptr());
         let mut iter = self.iter();
         loop {
             let slice_start_pos = iter.get_next_field_data();
@@ -643,7 +645,11 @@ impl FieldData {
                 let kind = range.data.repr();
                 let len = range.data.len();
                 TypedSlice::drop_from_kind(
-                    data_ptr.add(slice_start_pos),
+                    if slice_start_pos < l1 {
+                        d1.add(slice_start_pos)
+                    } else {
+                        d2.add(slice_start_pos - l1)
+                    },
                     len,
                     kind,
                 );
@@ -960,36 +966,12 @@ unsafe fn extend_with_clones<T: Clone>(
     let src_size = size_of_val(src);
     target_applicator(&mut |data| {
         data.reserve(src_size);
-        unsafe {
-            let mut tgt = data.as_mut_ptr_range().end.cast::<T>();
-            for v in src {
-                std::ptr::write(tgt, v.clone());
-                tgt = tgt.add(1);
-            }
-            data.set_len(data.len() + src_size);
-        }
-    });
-}
-
-#[inline(always)]
-unsafe fn extend_with_custom_clones(
-    target_applicator: &mut impl FnMut(&mut dyn Fn(&mut FieldDataBuffer)),
-    src: &[CustomDataBox],
-) {
-    let src_size = size_of::<CustomDataBox>();
-    target_applicator(&mut |data| {
-        data.reserve(src_size);
-        let mut tgt = data.get_tail_ptr_mut();
-        debug_assert_eq!(
-            0,
-            tgt as usize % std::mem::align_of::<CustomDataBox>()
-        );
-        unsafe {
-            for v in src {
-                std::ptr::write(tgt.cast(), v.clone_dyn());
-                tgt = tgt.add(1);
-            }
-            data.set_len(data.len() + src_size);
+        for v in src {
+            // PERF: this will do a `reserve_contiguous` on each iteration
+            // we should be able to do better than this
+            data.extend_from_slice(unsafe {
+                value_as_bytes(&ManuallyDrop::new(v.clone()))
+            });
         }
     });
 }
@@ -1039,9 +1021,7 @@ unsafe fn append_data(
             TypedSlice::Error(v) => extend_with_clones(target_applicator, v),
             TypedSlice::Object(v) => extend_with_clones(target_applicator, v),
             TypedSlice::Array(v) => extend_with_clones(target_applicator, v),
-            TypedSlice::Custom(v) => {
-                extend_with_custom_clones(target_applicator, v)
-            }
+            TypedSlice::Custom(v) => extend_with_clones(target_applicator, v),
         };
     }
 }

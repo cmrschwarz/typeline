@@ -548,13 +548,14 @@ mod test_slice_iter {
         expected: &[(T, RunLength)],
     ) {
         fd.headers.make_contiguous();
+        fd.data.make_contiguous();
         let iter = unsafe {
             TypedSliceIter::new(
                 std::slice::from_raw_parts(
-                    fd.data.as_ptr().cast::<T>(),
+                    fd.data.head_ptr().cast::<T>(),
                     fd.data.len() / std::mem::size_of::<T>(),
                 ),
-                &fd.headers.as_slices().0,
+                fd.headers.as_slices().0,
                 0,
                 0,
             )
@@ -629,12 +630,14 @@ mod test_text_iter {
         fd: &mut FieldData,
         expected: &[(&'static str, RunLength)],
     ) {
+        fd.headers.make_contiguous();
+        fd.data.make_contiguous();
         let data = unsafe {
-            std::slice::from_raw_parts(fd.data.as_ptr(), fd.data.len())
+            std::slice::from_raw_parts(fd.data.head_ptr(), fd.data.len())
                 .to_str()
                 .unwrap()
         };
-        fd.headers.make_contiguous();
+
         let iter = InlineTextIter::new(data, &fd.headers.as_slices().0, 0, 0);
         assert_eq!(iter.collect::<Vec<_>>(), expected);
     }
