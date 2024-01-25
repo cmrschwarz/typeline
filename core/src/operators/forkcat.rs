@@ -261,7 +261,6 @@ pub fn insert_tf_forkcat<'a>(
         } else {
             tf.input_field
         };
-        job.job_data.field_mgr.request_clear_delay(input_field);
         forkcat.input_fields.push(input_field);
     }
 
@@ -505,7 +504,6 @@ pub(crate) fn handle_forkcat_subchain_expansion(
     for &of in &fc.output_fields {
         let mut f = sess.job_data.field_mgr.fields[of].borrow_mut();
         f.iter_hall.reset_iterators();
-        assert!(f.get_clear_delay_request_count() == 0);
         let msm = &mut sess.job_data.match_set_mgr.match_sets[f.match_set];
         let fr = &mut *f;
         msm.action_buffer.borrow_mut().drop_field_commands(

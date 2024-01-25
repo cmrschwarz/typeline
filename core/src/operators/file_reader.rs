@@ -340,7 +340,8 @@ pub fn handle_tf_file_reader_stream(
         if tf.predecessor_done {
             let input_field = jd.field_mgr.fields[tf.input_field].borrow();
             // some fork variant / etc. might still need this value later
-            if input_field.get_clear_delay_request_count() != 0 {
+            // TODO: this seems weird
+            if input_field.iter_hall.get_field_count(&jd.field_mgr) > 0 {
                 need_buffering = true;
             }
         } else {

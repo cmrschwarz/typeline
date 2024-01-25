@@ -1045,7 +1045,6 @@ pub fn handle_tf_regex(
                             sv.ref_count -= rc_diff;
                             re.streams_kept_alive -= rc_diff;
                         }
-                        jd.field_mgr.request_clear_delay(input_field_id);
                         re.streams_kept_alive +=
                             buffer_remaining_stream_values_in_sv_iter(
                                 &mut jd.sv_mgr,
@@ -1227,8 +1226,6 @@ pub fn handle_tf_regex_stream_value_update(
 ) {
     debug_assert!(jd.sv_mgr.stream_values[sv_id].done);
     jd.tf_mgr.push_tf_in_ready_stack(tf_id);
-    let input_field = jd.tf_mgr.transforms[tf_id].input_field;
-    jd.field_mgr.relinquish_clear_delay(input_field)
 }
 
 #[cfg(test)]

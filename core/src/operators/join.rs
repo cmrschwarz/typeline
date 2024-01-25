@@ -16,7 +16,7 @@ use crate::{
     record_data::{
         action_buffer::{ActorId, ActorRef},
         custom_data::CustomDataBox,
-        field::{Field, FieldManager},
+        field::Field,
         field_action::FieldActionKind,
         field_data::{field_value_flags, FieldValueRepr, INLINE_STR_MAX_LEN},
         field_value::{FieldValue, FieldValueKind},
@@ -75,7 +75,6 @@ pub struct TfJoin<'a> {
     output_stream_val: Option<StreamValueId>,
     current_stream_val: Option<StreamValueId>,
     stream_val_added_len: usize,
-    clear_delay_requested: bool,
     separator: Option<&'a [u8]>,
     separator_is_valid_utf8: bool,
     iter_id: IterId,
@@ -149,7 +148,6 @@ pub fn build_tf_join<'a>(
     TransformData::Join(TfJoin {
         current_stream_val: None,
         stream_val_added_len: 0,
-        clear_delay_requested: false,
         separator: op.separator.as_deref(),
         separator_is_valid_utf8: op.separator_is_valid_utf8,
         iter_id: jd.field_mgr.claim_iter(
@@ -391,11 +389,6 @@ pub fn handle_tf_join(
     join: &mut TfJoin,
 ) {
     if join.current_stream_val.is_some() {
-        let tf = &jd.tf_mgr.transforms[tf_id];
-        if tf.available_batch_size != 0 && !join.clear_delay_requested {
-            join.clear_delay_requested = true;
-            jd.field_mgr.request_clear_delay(tf.input_field);
-        }
         return;
     }
     let (batch_size, ps) = jd.tf_mgr.claim_batch(tf_id);
@@ -559,10 +552,8 @@ pub fn handle_tf_join(
                         tf_id,
                         join,
                         &mut jd.tf_mgr,
-                        &jd.field_mgr,
                         &mut jd.match_set_mgr,
                         sv_mgr,
-                        input_field_id,
                         batch_size,
                         batch_size_rem,
                         &mut iter,
@@ -645,10 +636,8 @@ fn try_consume_stream_values<'a>(
     tf_id: TransformId,
     join: &mut TfJoin<'_>,
     tf_mgr: &mut TransformManager,
-    fm: &FieldManager,
     msm: &mut MatchSetManager,
     sv_mgr: &mut StreamValueManager,
-    input_field_id: u32,
     batch_size: usize,
     batch_size_rem: usize,
     iter: &mut AutoDerefIter<'a, impl FieldIterator<'a>>,
@@ -736,8 +725,6 @@ fn try_consume_stream_values<'a>(
                     if remaining_elems_in_batch == 0 {
                         return false;
                     }
-                    fm.request_clear_delay(input_field_id);
-                    join.clear_delay_requested = true;
                     tf_mgr.unclaim_batch_size(tf_id, remaining_elems_in_batch);
                     join.streams_kept_alive +=
                         buffer_remaining_stream_values_in_sv_iter(
@@ -849,7 +836,6 @@ pub fn handle_tf_join_stream_value_update(
     let tf = &jd.tf_mgr.transforms[tf_id];
     let input_done = tf.predecessor_done;
     let next_batch_ready = tf.available_batch_size > 0;
-    let in_field_id = tf.input_field;
     let sv = &mut jd.sv_mgr.stream_values[sv_id];
     let done = sv.done;
     match &sv.value {
@@ -922,10 +908,6 @@ pub fn handle_tf_join_stream_value_update(
             || next_batch_ready
         {
             jd.tf_mgr.push_tf_in_ready_stack(tf_id);
-        }
-        if join.clear_delay_requested {
-            join.clear_delay_requested = false;
-            jd.field_mgr.relinquish_clear_delay(in_field_id);
         }
     }
 }

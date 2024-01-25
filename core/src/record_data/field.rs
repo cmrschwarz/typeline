@@ -1,5 +1,5 @@
 use std::{
-    cell::{Cell, Ref, RefCell, RefMut},
+    cell::{Ref, RefCell, RefMut},
     collections::{hash_map::Entry, VecDeque},
     marker::PhantomData,
 };
@@ -47,9 +47,6 @@ pub struct Field {
 
     pub match_set: MatchSetId,
 
-    // typically called on input fields which we don't want to borrow mut
-    pub clear_delay_request_count: Cell<u16>,
-
     pub name: Option<StringStoreEntry>,
     pub ref_count: usize,
 
@@ -71,9 +68,6 @@ pub type FieldRefOffset = u16;
 pub const VOID_FIELD_ID: FieldId = FieldId::MIN;
 
 impl Field {
-    pub fn get_clear_delay_request_count(&self) -> u16 {
-        self.clear_delay_request_count.get()
-    }
     pub fn has_cow_targets(&self) -> bool {
         !self.iter_hall.cow_targets.is_empty()
     }
@@ -270,24 +264,6 @@ impl FieldManager {
             }
         }
     }
-    pub fn request_clear_delay(&self, field_id: FieldId) {
-        let field = self.fields[field_id].borrow();
-        field
-            .clear_delay_request_count
-            .set(field.clear_delay_request_count.get() + 1);
-        for &fr in &field.field_refs {
-            self.request_clear_delay(fr);
-        }
-    }
-    pub fn relinquish_clear_delay(&self, field_id: FieldId) {
-        let field = self.fields[field_id].borrow();
-        field
-            .clear_delay_request_count
-            .set(field.clear_delay_request_count.get() - 1);
-        for &fr in &field.field_refs {
-            self.relinquish_clear_delay(fr);
-        }
-    }
     pub fn get_varying_type_inserter(
         &self,
         field_id: FieldId,
@@ -296,123 +272,6 @@ impl FieldManager {
             self.fields[field_id].borrow_mut(),
             |f| unsafe { f.iter_hall.raw() },
         ))
-    }
-    // returns false if it was uncow'ed
-    fn propagate_clear(
-        &mut self,
-        msm: &mut MatchSetManager,
-        source_field_id: FieldId,
-        field_id: FieldId,
-    ) -> bool {
-        let cow_source = self.fields[source_field_id].borrow_mut();
-        let mut field = self.fields[field_id].borrow_mut();
-        match &field.iter_hall.data_source {
-            FieldDataSource::Owned => {
-                panic!(
-                    "propagate_clear called for non owned field (id {field_id})"
-                )
-            }
-            FieldDataSource::Alias(_)
-            | FieldDataSource::FullCow(_)
-            | FieldDataSource::RecordBufferFullCow(_) => (),
-            FieldDataSource::DataCow(cds) => {
-                if field.get_clear_delay_request_count() > 0 {
-                    return false;
-                }
-                field.iter_hall.data_source = FieldDataSource::FullCow(*cds);
-            }
-            FieldDataSource::RecordBufferDataCow(data_ref) => {
-                if field.get_clear_delay_request_count() > 0 {
-                    return false;
-                }
-                field.iter_hall.data_source =
-                    FieldDataSource::RecordBufferFullCow(*data_ref);
-            }
-        }
-        field.iter_hall.reset_iterators();
-        let fr = &mut *field;
-        msm.match_sets[fr.match_set]
-            .action_buffer
-            .borrow_mut()
-            .drop_field_commands(
-                field_id,
-                &mut fr.first_actor,
-                &mut fr.snapshot,
-            );
-        drop(cow_source);
-        let mut i = 0;
-        while field.iter_hall.cow_targets.len() > i {
-            let cow_tgt_id = field.iter_hall.cow_targets[i];
-            drop(field);
-            let still_cowed = self.propagate_clear(msm, field_id, cow_tgt_id);
-            field = self.fields[field_id].borrow_mut();
-            if still_cowed {
-                i += 1;
-            } else {
-                let mut cow_tgt = self.fields[cow_tgt_id].borrow_mut();
-                field.iter_hall.cow_targets.swap_remove(i);
-                cow_tgt.iter_hall.uncow_get_field_with_rc(self);
-            }
-        }
-        true
-    }
-    pub fn clear_if_owned(
-        &mut self,
-        msm: &mut MatchSetManager,
-        field_id: FieldId,
-    ) {
-        let mut field = self.fields[field_id].borrow_mut();
-        let FieldDataSource::Owned = &field.iter_hall.data_source else {
-            return;
-        };
-        let shadowed_by = field.shadowed_by;
-        if shadowed_by != VOID_FIELD_ID {
-            drop(field);
-            self.propagate_clear(msm, field_id, shadowed_by);
-            field = self.fields[field_id].borrow_mut();
-        }
-
-        let mut i = 0;
-        let mut first_uncow_field_id = None;
-
-        while field.iter_hall.cow_targets.len() > i {
-            let cow_tgt_id = field.iter_hall.cow_targets[i];
-            drop(field);
-            let still_cowed = self.propagate_clear(msm, field_id, cow_tgt_id);
-            field = self.fields[field_id].borrow_mut();
-            if still_cowed {
-                i += 1;
-            } else {
-                field.iter_hall.cow_targets.swap_remove(i);
-                if first_uncow_field_id.is_none() {
-                    first_uncow_field_id = Some(cow_tgt_id);
-                } else {
-                    let mut cow_tgt = self.fields[cow_tgt_id].borrow_mut();
-                    cow_tgt.iter_hall.uncow_get_field_with_rc(self);
-                }
-            }
-        }
-        if let Some(first_uncow_field_id) = first_uncow_field_id {
-            let mut cow_tgt = self.fields[first_uncow_field_id].borrow_mut();
-            std::mem::swap(
-                &mut cow_tgt.iter_hall.field_data,
-                &mut field.iter_hall.field_data,
-            );
-            debug_assert!(field.iter_hall.field_data.is_empty());
-            cow_tgt.iter_hall.data_source = FieldDataSource::Owned;
-        } else {
-            field.iter_hall.field_data.clear();
-        }
-        field.iter_hall.reset_iterators();
-        let fr = &mut *field;
-        msm.match_sets[fr.match_set]
-            .action_buffer
-            .borrow_mut()
-            .drop_field_commands(
-                field_id,
-                &mut fr.first_actor,
-                &mut fr.snapshot,
-            );
     }
     pub fn get_first_actor(&self, field_id: FieldId) -> ActorRef {
         let field = self.fields[field_id].borrow();
@@ -446,7 +305,6 @@ impl FieldManager {
             ref_count: 1,
             shadowed_since: ActionBuffer::MAX_ACTOR_ID,
             shadowed_by: VOID_FIELD_ID,
-            clear_delay_request_count: Cell::new(0),
             match_set: ms_id,
             first_actor,
             snapshot: SnapshotRef::default(),

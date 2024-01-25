@@ -313,7 +313,6 @@ pub fn handle_tf_print_raw(
                             sv.is_buffered = true;
                         }
                         sv.subscribe(tf_id, rl as usize, false);
-                        jd.field_mgr.request_clear_delay(input_field_id);
                         jd.tf_mgr.unclaim_batch_size(
                             tf_id,
                             batch_size - *handled_field_count,
@@ -535,6 +534,5 @@ pub fn handle_tf_print_stream_value_update(
     }
 
     print.current_stream_val = None;
-    jd.field_mgr.relinquish_clear_delay(tf.input_field);
     jd.tf_mgr.push_tf_in_ready_stack(tf_id);
 }

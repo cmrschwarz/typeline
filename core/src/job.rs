@@ -364,15 +364,8 @@ impl TransformManager {
         for ofid in output_fields {
             fm.uncow(msm, ofid);
             let f = fm.fields[ofid].borrow();
-            let clear_delay = f.get_clear_delay_request_count() > 0;
-            // TODO: remove clear delay
-            if clear_delay || true {
-                drop(f);
-                fm.apply_field_actions(msm, ofid);
-            } else {
-                drop(f);
-                fm.clear_if_owned(msm, ofid);
-            }
+            drop(f);
+            fm.apply_field_actions(msm, ofid);
         }
     }
     pub fn prepare_output_field(

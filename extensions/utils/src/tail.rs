@@ -37,7 +37,6 @@ pub struct OpTail {
 pub struct TfTail {
     count: usize,
     actor_id: ActorId,
-    clear_delayed_fields: Vec<FieldId>,
 }
 
 pub struct TfTailAdditive {
@@ -104,28 +103,9 @@ impl Operator for OpTail {
             .drop_field_refcount(tf_state.output_field, &mut jd.match_set_mgr);
         tf_state.output_field = tf_state.input_field;
         if !self.additive_mode {
-            let mut clear_delayed_fields =
-                Vec::with_capacity(self.accessed_fields_after.len());
-            for &name in &self.accessed_fields_after {
-                let Some(name) = name else {
-                    clear_delayed_fields.push(tf_state.input_field);
-                    continue;
-                };
-                if let Some(&field_id) = jd.match_set_mgr.match_sets
-                    [tf_state.match_set_id]
-                    .field_name_map
-                    .get(&name)
-                {
-                    clear_delayed_fields.push(field_id);
-                }
-            }
-            for &f in &clear_delayed_fields {
-                jd.field_mgr.request_clear_delay(f);
-            }
             return TransformData::Custom(smallbox!(TfTail {
                 count: self.count,
                 actor_id,
-                clear_delayed_fields
             }));
         }
         TransformData::Custom(smallbox!(TfTailAdditive {
@@ -152,10 +132,6 @@ impl Transform for TfTail {
         let match_set_id = tf.match_set_id;
         let batch_size = tf.available_batch_size;
         tf.available_batch_size = 0;
-
-        for &f in &self.clear_delayed_fields {
-            jd.field_mgr.relinquish_clear_delay(f);
-        }
 
         let mut ab = jd.match_set_mgr.match_sets[match_set_id]
             .action_buffer

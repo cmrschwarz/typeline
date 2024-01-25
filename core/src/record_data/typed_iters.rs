@@ -638,7 +638,7 @@ mod test_text_iter {
                 .unwrap()
         };
 
-        let iter = InlineTextIter::new(data, &fd.headers.as_slices().0, 0, 0);
+        let iter = InlineTextIter::new(data, fd.headers.as_slices().0, 0, 0);
         assert_eq!(iter.collect::<Vec<_>>(), expected);
     }
 

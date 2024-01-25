@@ -386,14 +386,6 @@ pub fn handle_tf_call_concurrent(
     ab.push_action(FieldActionKind::Drop, 0, batch_size);
     ab.end_action_group();
     drop(ab);
-    for mapping in &tfc.field_mappings {
-        let src_field = jd.field_mgr.fields[mapping.source_field_id].borrow();
-        drop(src_field);
-        // TODO: make sure the source field does not have more rows than
-        // our current batch size before stealing it
-        jd.field_mgr
-            .clear_if_owned(&mut jd.match_set_mgr, mapping.source_field_id);
-    }
     // TODO: handle output_done
     if ps.input_done {
         for mapping in &tfc.field_mappings {
