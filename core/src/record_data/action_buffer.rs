@@ -1,5 +1,6 @@
 use std::{
     cell::{Cell, Ref},
+    collections::VecDeque,
     fmt::Debug,
     mem::size_of,
 };
@@ -14,7 +15,7 @@ use super::{
     field::{Field, FieldId, FieldManager},
     field_action::{merge_action_lists, FieldAction, FieldActionKind},
     field_action_applicator::FieldActionApplicator,
-    field_data::RunLength,
+    field_data::{FieldValueHeader, RunLength},
     iter_hall::{CowVariant, FieldDataSource},
     match_set::MatchSetId,
 };
@@ -40,6 +41,8 @@ pub struct SnapshotRef {
 
 type SnapshotEntry = u32;
 const SNAPSHOT_REFCOUNT_OFFSET: usize = 0;
+// **not** the amount of actors in the snapshot, but the total amount of actors
+// present in the action buffer at the time the snapshot was created
 const SNAPSHOT_ACTOR_COUNT_OFFSET: usize = 1;
 const SNAPSHOT_LEN_MIN: usize = 1;
 const SNAPSHOT_PREFIX_LEN: usize = 2;
@@ -150,6 +153,13 @@ impl ActionGroupIdentifier {
     }
 }
 
+struct DataCowFieldRef<'a> {
+    field: std::cell::RefMut<'a, Field>,
+    // For fields that have only partially copied over the data.
+    // `dead_data_trailing` needs to take that into account
+    data_end: usize,
+}
+
 #[derive(Default)]
 pub struct ActionBuffer {
     actors: OffsetVecDeque<ActorId, Actor>,
@@ -162,7 +172,9 @@ pub struct ActionBuffer {
     snapshot_freelists:
         Vec<DynamicArrayFreelist<SnapshotLookupId, SnapshotEntry>>,
     actions_applicator: FieldActionApplicator,
-    temp_field_refs: Vec<PhantomSlot<std::cell::RefMut<'static, Field>>>,
+    full_cow_field_refs_temp:
+        Vec<PhantomSlot<std::cell::RefMut<'static, Field>>>,
+    data_cow_field_refs_temp: Vec<PhantomSlot<DataCowFieldRef<'static>>>,
     #[cfg(feature = "debug_logging")]
     pub match_set_id: MatchSetId,
 }
@@ -282,6 +294,14 @@ pub fn eprint_action_list<'a>(actions: impl Iterator<Item = &'a FieldAction>) {
 
 impl ActionBuffer {
     pub const MAX_ACTOR_ID: ActorId = ActorId::MAX;
+    fn eprint_action_list_from_agi(&self, agi: &ActionGroupIdentifier) {
+        let (s1, s2) = Self::get_action_group_slices_raw(
+            &self.actors,
+            &self.action_temp_buffers,
+            agi,
+        );
+        eprint_action_list(s1.iter().chain(s2));
+    }
     pub fn begin_action_group(&mut self, actor_id: u32) {
         assert!(self.pending_action_group_actor_id.is_none());
         self.pending_action_group_actor_id = Some(actor_id)
@@ -1060,12 +1080,49 @@ impl ActionBuffer {
         );
         // debug_assert!(_field_count_delta == agi.group.field_count_delta);
     }
+    fn calc_dead_data(
+        headers: &VecDeque<FieldValueHeader>,
+        dead_data_leading: &mut usize,
+        dead_data_trailing: &mut usize,
+        data_end: usize,
+    ) {
+        let mut data = 0;
+        let leading = *dead_data_leading;
+        let trailing = *dead_data_trailing;
+        for &h in headers {
+            if data >= leading {
+                break;
+            }
+            if h.references_alive_data() {
+                *dead_data_leading = leading.min(data);
+                break;
+            }
+            data += h.total_size_unique();
+        }
+        if *dead_data_leading == data_end {
+            // if everything is dead, we don't reduce trailing
+            return;
+        }
+        data = 0;
+        for &h in headers.iter().rev() {
+            if data >= trailing {
+                break;
+            }
+            if h.references_alive_data() {
+                *dead_data_trailing = trailing.min(data);
+                break;
+            }
+            data += h.total_size_unique();
+        }
+    }
     fn preserve_full_cow_fields_pre_exec<'a>(
         fm: &'a FieldManager,
         field_id: FieldId,
         update_cow_ms: Option<MatchSetId>,
         first_action_index: usize,
+        through_data_cow: bool,
         full_cow_field_refs: &mut Vec<std::cell::RefMut<'a, Field>>,
+        data_cow_field_refs: &mut Vec<DataCowFieldRef<'a>>,
     ) {
         let field = fm.fields[field_id].borrow();
         if !field.has_cow_targets() {
@@ -1075,26 +1132,42 @@ impl ActionBuffer {
         for &tgt_field_id in &field.iter_hall.cow_targets {
             let tgt_field = fm.fields[tgt_field_id].borrow();
             let cow_variant = tgt_field.iter_hall.data_source.cow_variant();
-            if cow_variant == Some(CowVariant::DataCow) {
-                continue;
-            }
+            let is_data_cow = matches!(cow_variant, Some(CowVariant::DataCow));
+            let ms_id = tgt_field.match_set;
+
             drop(tgt_field);
             Self::preserve_full_cow_fields_pre_exec(
                 fm,
                 tgt_field_id,
                 None,
                 first_action_index,
+                is_data_cow || through_data_cow,
                 full_cow_field_refs,
+                data_cow_field_refs,
             );
             let mut tgt_field = fm.fields[tgt_field_id].borrow_mut();
+            if !is_data_cow && through_data_cow {
+                continue;
+            }
+
+            let cds = tgt_field.iter_hall.get_cow_data_source_mut().unwrap();
+            let tgt_cow_end = field.iter_hall.iters[cds.header_iter_id].get();
+
+            if is_data_cow {
+                data_cow_field_refs.push(DataCowFieldRef {
+                    field: tgt_field,
+                    data_end: tgt_cow_end.data,
+                });
+                continue;
+            }
+
             // TODO: support RecordBuffers
-            if Some(tgt_field.match_set) == update_cow_ms {
+            debug_assert!(cow_variant == Some(CowVariant::FullCow));
+
+            if Some(ms_id) == update_cow_ms {
                 full_cow_field_refs.push(tgt_field);
                 continue;
             }
-            debug_assert!(cow_variant == Some(CowVariant::FullCow));
-            let cds = tgt_field.iter_hall.get_cow_data_source_mut().unwrap();
-            let tgt_cow_end = field.iter_hall.iters[cds.header_iter_id].get();
             if tgt_cow_end.field_pos > first_action_index {
                 tgt_field.iter_hall.data_source =
                     FieldDataSource::DataCow(*cds);
@@ -1103,6 +1176,13 @@ impl ActionBuffer {
                     &field.iter_hall.field_data.headers,
                     tgt_cow_end,
                 );
+                // TODO: we could optimize this case because we might
+                // end up calculating the dead data multiple times because of
+                // this, but we don't care for now
+                data_cow_field_refs.push(DataCowFieldRef {
+                    field: tgt_field,
+                    data_end: tgt_cow_end.data,
+                });
                 continue;
             }
             full_cow_field_refs.push(tgt_field);
@@ -1163,6 +1243,73 @@ impl ActionBuffer {
             tgt_fd.field_count += count - tgt_cow_end.field_pos;
         }
     }
+    fn drop_dead_field_data(
+        field: &mut Field,
+        dead_data_leading: usize,
+        dead_data_trailing: usize,
+    ) {
+        let fd = &mut field.iter_hall.field_data;
+        let data_size = fd.data.len();
+        Self::drop_dead_cow_headers(
+            &mut fd.headers,
+            dead_data_leading,
+            dead_data_trailing,
+            data_size,
+            data_size,
+        );
+        fd.data.drop_front(dead_data_leading);
+        fd.data.drop_back(dead_data_trailing);
+    }
+    fn drop_dead_cow_headers(
+        headers: &mut VecDeque<FieldValueHeader>,
+        dead_data_leading: usize,
+        dead_data_trailing: usize,
+        origin_field_data_size: usize,
+        field_data_size: usize,
+    ) {
+        let mut dead_data_rem_leading = dead_data_leading;
+        let mut dead_headers_leading = 0;
+        while dead_headers_leading < headers.len() {
+            let h_ds = headers[dead_headers_leading].total_size_unique();
+            if dead_data_rem_leading < h_ds {
+                break;
+            }
+            dead_data_rem_leading -= h_ds;
+            dead_headers_leading += 1;
+        }
+        let field_size_diff = origin_field_data_size - field_data_size;
+        let mut dead_data_rem_trailing =
+            dead_data_trailing.saturating_sub(field_size_diff);
+        let mut last_header_alive = headers.len();
+        while last_header_alive > 0 {
+            let h_ds = headers[last_header_alive - 1].total_size_unique();
+            if dead_data_rem_trailing < h_ds {
+                break;
+            }
+            last_header_alive -= 1;
+            dead_data_rem_trailing -= h_ds;
+        }
+        if dead_data_rem_leading > 0 {
+            let header_elem_size =
+                headers[dead_data_leading].fmt.size as usize;
+            let elem_count = dead_data_rem_leading / header_elem_size;
+            debug_assert!(
+                elem_count * header_elem_size == dead_data_rem_leading
+            );
+            headers[dead_data_leading].run_length -= elem_count as RunLength;
+        }
+        if dead_data_rem_trailing > 0 {
+            let header_elem_size =
+                headers[last_header_alive].fmt.size as usize;
+            let elem_count = dead_data_rem_trailing / header_elem_size;
+            debug_assert!(
+                elem_count * header_elem_size == dead_data_rem_trailing
+            );
+            headers[last_header_alive].run_length -= elem_count as RunLength;
+        }
+        headers.drain(last_header_alive..);
+        headers.drain(0..dead_headers_leading);
+    }
     pub fn update_field(
         &mut self,
         fm: &FieldManager,
@@ -1179,9 +1326,17 @@ impl ActionBuffer {
         self.drop_snapshot_refcount(ss_prev, 1);
         let Some(agi) = res else { return };
 
-        fm.fields[field_id].borrow_mut().iter_hall.uncow_headers(fm);
+        let mut field = fm.fields[field_id].borrow_mut();
+        field.iter_hall.uncow_headers(fm);
+
+        let field_count = field.iter_hall.get_field_count(fm);
+        let field_ms_id = field.match_set;
+        let field_data_size: usize = field.iter_hall.get_field_data_len(fm);
+
         let mut full_cow_fields =
-            transmute_vec(std::mem::take(&mut self.temp_field_refs));
+            transmute_vec(std::mem::take(&mut self.full_cow_field_refs_temp));
+        let mut data_cow_fields =
+            transmute_vec(std::mem::take(&mut self.data_cow_field_refs_temp));
 
         let (s1, s2) = self.get_action_group_slices(&agi);
         let Some(first_action_index) =
@@ -1189,15 +1344,79 @@ impl ActionBuffer {
         else {
             return;
         };
+        drop(field);
         Self::preserve_full_cow_fields_pre_exec(
             fm,
             field_id,
             update_cow_ms,
             first_action_index,
+            false,
             &mut full_cow_fields,
+            &mut data_cow_fields,
         );
-        self.execute_actions(fm, field_id, &agi, &mut full_cow_fields);
-        self.temp_field_refs = transmute_vec(full_cow_fields);
+        let mut dead_data_leading = field_data_size;
+        let mut dead_data_trailing = field_data_size;
+        for dcf in &mut data_cow_fields {
+            Self::calc_dead_data(
+                &dcf.field.iter_hall.field_data.headers,
+                &mut dead_data_leading,
+                &mut dead_data_trailing,
+                dcf.data_end,
+            )
+        }
+        debug_assert!(-agi.group.field_count_delta <= field_count as isize);
+        let field_cleared =
+            -agi.group.field_count_delta == field_count as isize;
+        if !field_cleared {
+            self.execute_actions(fm, field_id, &agi, &mut full_cow_fields);
+        }
+        let mut field = fm.fields[field_id].borrow_mut();
+        if field_cleared {
+            eprintln!(
+                "clearing field {} (ms {}, first actor: {}, field_count: {}):",
+                field_id, field_ms_id, actor_id, field_count
+            );
+            self.eprint_action_list_from_agi(&agi);
+            if dead_data_leading == field_data_size {
+                field.iter_hall.reset_iterators();
+                field.iter_hall.field_data.clear();
+                dead_data_leading = 0;
+            } else {
+                dead_data_leading = dead_data_leading
+                    .min(field_data_size - dead_data_trailing);
+                Self::drop_dead_field_data(
+                    &mut field,
+                    dead_data_leading,
+                    dead_data_trailing,
+                );
+            }
+        } else {
+            Self::calc_dead_data(
+                &field.iter_hall.field_data.headers,
+                &mut dead_data_leading,
+                &mut dead_data_trailing,
+                field_data_size,
+            );
+            dead_data_leading =
+                dead_data_leading.min(field_data_size - dead_data_trailing);
+            Self::drop_dead_field_data(
+                &mut field,
+                dead_data_leading,
+                dead_data_trailing,
+            );
+        }
+
+        for dcf in &mut data_cow_fields {
+            Self::drop_dead_cow_headers(
+                &mut dcf.field.iter_hall.field_data.headers,
+                dead_data_leading,
+                dead_data_trailing,
+                field_data_size,
+                dcf.data_end,
+            );
+        }
+        self.full_cow_field_refs_temp = transmute_vec(full_cow_fields);
+        self.data_cow_field_refs_temp = transmute_vec(data_cow_fields);
         self.release_temp_action_group(Some(agi));
     }
     fn initialize_first_actor(

@@ -7,8 +7,8 @@ use std::ops::Range;
 
 // this is conceptually just a VecDeque<u8>, but
 // - the data buffer is at least `ALIGN` bytes aligned
-// - `head` is always ALIGN bytes aligned (a `pop_front` that is not a multiple
-//   of ALIGN causes a panic)
+// - `head` is always ALIGN bytes aligned (a `drop_front` that is not a
+//   multiple of ALIGN causes a panic)
 // - the physical align of any logical index will be at least as large as it's
 //   logical align, modulo `ALIGN`. For example, the logical index 8 is
 //   guaranteed to be at least 8 bytes aligned, assuming `ALIGN >= 8`.
@@ -332,7 +332,8 @@ impl<const ALIGN: usize> RingBuf<ALIGN> {
         self.len += 1;
     }
     pub fn truncate(&mut self, len: usize) {
-        self.len = self.len.min(len);
+        assert!(self.len >= len);
+        self.len = len;
     }
     pub fn resize(&mut self, new_len: usize, value: u8) {
         if new_len > self.len {
@@ -353,6 +354,9 @@ impl<const ALIGN: usize> RingBuf<ALIGN> {
     }
     fn space_back(&self) -> usize {
         self.cap - self.head - self.back_padding as usize
+    }
+    fn used_space_back(&self) -> usize {
+        self.space_back().min(self.len)
     }
     pub fn slice_lengths(&self) -> (usize, usize) {
         let len_s1 = self.space_back().min(self.len);
@@ -396,7 +400,7 @@ impl<const ALIGN: usize> RingBuf<ALIGN> {
         unsafe { self.data.as_ptr().add(self.to_physical_idx(self.len)) }
     }
     pub fn contiguous_tail_space_available(&mut self) -> usize {
-        let space_back = self.cap - self.head;
+        let space_back = self.space_back();
         if self.len >= space_back {
             return self.head - (self.len - space_back);
         }
@@ -429,6 +433,22 @@ impl<const ALIGN: usize> RingBuf<ALIGN> {
     pub fn ptr_from_index_mut(&mut self, index: usize) -> *mut u8 {
         let idx_phys = self.to_physical_idx(index);
         unsafe { self.data.as_ptr().add(idx_phys) }
+    }
+    pub fn drop_back(&mut self, count: usize) {
+        assert!(count <= self.len());
+        self.truncate(self.len() - count);
+    }
+    pub fn drop_front(&mut self, count: usize) {
+        assert!(count % ALIGN == 0 && count <= self.len());
+        let len_back = self.used_space_back();
+        if count < len_back {
+            self.head += count;
+            return;
+        }
+        self.head = self.front_padding as usize + count - len_back;
+        self.back_padding = 0;
+        self.front_padding = 0;
+        self.len -= count;
     }
 }
 

@@ -21,6 +21,7 @@
 #![allow(clippy::items_after_statements)]
 #![allow(clippy::map_unwrap_or)]
 #![allow(clippy::inline_always)]
+#![allow(clippy::uninlined_format_args)]
 
 #[macro_use]
 extern crate static_assertions;

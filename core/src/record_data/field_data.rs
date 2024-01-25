@@ -1,7 +1,7 @@
 use std::{
     any::Any,
     collections::VecDeque,
-    fmt::Display,
+    fmt::{Debug, Display},
     mem::{align_of, size_of, size_of_val, ManuallyDrop},
     ops::{Deref, DerefMut},
     u8,
@@ -520,6 +520,9 @@ impl FieldValueFormat {
     #[inline(always)]
     pub fn deleted(self) -> bool {
         self.flags & field_value_flags::DELETED != 0
+    }
+    pub fn references_alive_data(self) -> bool {
+        !self.deleted() && !self.repr.is_zst()
     }
     pub fn set_deleted(&mut self, val: bool) {
         self.flags &= !field_value_flags::DELETED;

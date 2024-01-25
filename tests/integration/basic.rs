@@ -23,6 +23,7 @@ use scr_core::{
     scr_error::{ChainSetupError, ScrError},
     utils::test_utils::{ErroringStream, SliceReader, TricklingStream},
 };
+use scr_ext_utils::string_utils::create_op_chars;
 
 #[test]
 fn string_sink() -> Result<(), ScrError> {
@@ -338,6 +339,7 @@ fn basic_cow() -> Result<(), ScrError> {
     assert_eq!(ss.get_data().unwrap().as_slice(), ["1", "2", "3"]);
     Ok(())
 }
+
 #[rstest]
 #[case(1)]
 #[case(2)]
@@ -535,5 +537,16 @@ fn field_refs_in_nopc() -> Result<(), ScrError> {
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(ss.get_data().unwrap().as_slice(), ["1", "3"]);
+    Ok(())
+}
+
+#[test]
+fn basic_batching() -> Result<(), ScrError> {
+    let res = ContextBuilder::default()
+        .add_op(create_op_str("1234"))
+        .set_batch_size(2)
+        .add_op(create_op_chars())
+        .run_collect_stringified()?;
+    assert_eq!(res, ["1", "2", "3", "4"]);
     Ok(())
 }
