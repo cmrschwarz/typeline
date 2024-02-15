@@ -260,25 +260,40 @@ impl FieldActionApplicator {
         let dup_count = faas.curr_action_run_length;
         let pre = (faas.curr_action_pos - faas.field_pos) as RunLength;
         if header.shared_value() {
-            for it in &mut iterators
+            let mut rl_res = header.run_length as usize + dup_count;
+            let iterators = iterators
                 [faas.curr_header_iters_start..faas.curr_header_iters_end]
                 .iter_mut()
-                .rev()
-            {
-                if it.header_rl_offset <= pre {
-                    // all earlier (-> smaller offset) iters will be unaffected
-                    break;
-                }
-                it.field_pos += dup_count;
-            }
-            let mut rl_res = header.run_length as usize + dup_count;
+                .rev();
             if rl_res > RunLength::MAX as usize {
                 self.push_copy_command(faas);
+                let mut full_header_count = 0;
                 while rl_res > RunLength::MAX as usize {
                     self.push_insert_command(faas, header.fmt, RunLength::MAX);
                     header.set_same_value_as_previous(true);
                     faas.field_pos += RunLength::MAX as usize;
                     rl_res -= RunLength::MAX as usize;
+                    full_header_count += 1;
+                }
+                let new_rl_offset = (pre as usize + dup_count
+                    - full_header_count * RunLength::MAX as usize)
+                    as RunLength;
+                for it in iterators {
+                    if it.header_rl_offset <= pre {
+                        break;
+                    }
+                    it.field_pos += dup_count;
+                    it.header_idx += full_header_count;
+                    it.header_rl_offset =
+                        new_rl_offset + (it.header_rl_offset - pre);
+                }
+            } else {
+                for it in iterators {
+                    if it.header_rl_offset <= pre {
+                        break;
+                    }
+                    it.field_pos += dup_count;
+                    it.header_rl_offset += dup_count as RunLength;
                 }
             }
             header.run_length = rl_res as RunLength;

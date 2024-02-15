@@ -1,6 +1,6 @@
 // day1:
 // TODO: `foreach`, `to-int`
-// oneliner: in l fe! r-m="\d" fc! h n t e j to_i e sum p
+// oneliner: in-l fe: r-m="\d" fc: h n t e j to_i e sum p
 // stdin lines foreach!
 //     regex-m="\d" forkcat!
 //         head
@@ -19,8 +19,8 @@
 // end filter=possible select=game_id toint sum print
 
 // day3
-// TODO: `collect`, `forkjoin`, `atoms`, `max`, `seq` (compute for provoking element)
-// stdin lines enum@line_nr fj
+// TODO: `collect`, `forkjoin`, `atoms`, `max`, `seq` (compute for provoking
+// element) stdin lines enum@line_nr fj
 //     collect atom@rows
 // next
 //     regex-m@num="\d+"
@@ -48,8 +48,8 @@
 //     end
 // next
 //    head split=" "
-// end foreach!@seed key=loc #TODO: make sequence DUP and produce output for each record
-//     seq@group_id="len(maps)" scaneach!
+// end foreach!@seed key=loc #TODO: make sequence DUP and produce output for
+// each record     seq@group_id="len(maps)" scaneach!
 //         seq@rule_id="len(maps[group_id])"
 //         compute@start="maps[group_id][rule_id][dest_id]"
 //         compute@stop="start + maps[group_id][rule_id][len_id]"

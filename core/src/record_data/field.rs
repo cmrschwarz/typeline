@@ -159,6 +159,11 @@ impl FieldManager {
             field_id = alias_src;
         }
     }
+    // convenience wrapper for getting and modifying field id
+    pub fn get_dealiased_field_id(&self, field_id: &mut FieldId) -> FieldId {
+        *field_id = self.dealias_field_id(*field_id);
+        *field_id
+    }
     pub fn borrow_field_dealiased(
         &self,
         field_id: &mut FieldId,
@@ -610,7 +615,7 @@ impl FieldManager {
     pub(crate) fn get_cow_field_ref_raw(
         &self,
         field_id: FieldId,
-    ) -> CowFieldDataRef<'_> {
+    ) -> CowFieldDataRef {
         let field = self.fields[field_id].borrow();
         let (headers_ref, field_count) =
             self.get_field_headers(Ref::clone(&field));
@@ -626,10 +631,19 @@ impl FieldManager {
         &self,
         msm: &mut MatchSetManager,
         field_id: FieldId,
-    ) -> CowFieldDataRef<'_> {
+    ) -> CowFieldDataRef {
         let field_id = self.dealias_field_id(field_id);
         self.apply_field_actions(msm, field_id);
-        return self.get_cow_field_ref_raw(field_id);
+        self.get_cow_field_ref_raw(field_id)
+    }
+    pub fn get_cow_field_ref_update_fr(
+        &self,
+        msm: &mut MatchSetManager,
+        field_id: &mut FieldId,
+    ) -> CowFieldDataRef {
+        let field_id = self.get_dealiased_field_id(field_id);
+        self.apply_field_actions(msm, field_id);
+        self.get_cow_field_ref_raw(field_id)
     }
     pub fn get_auto_deref_iter<'a>(
         &'a self,

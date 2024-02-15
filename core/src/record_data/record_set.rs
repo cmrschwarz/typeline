@@ -35,7 +35,7 @@ unsafe impl PushInterface for RecordSet {
         try_header_rle: bool,
         try_data_rle: bool,
     ) {
-        self.push_null_to_secondary_cols(run_length);
+        self.push_undefined_to_secondary_cols(run_length);
         unsafe {
             self.fields
                 .first_mut()
@@ -59,7 +59,7 @@ unsafe impl PushInterface for RecordSet {
         try_header_rle: bool,
         try_data_rle: bool,
     ) {
-        self.push_null_to_secondary_cols(run_length);
+        self.push_undefined_to_secondary_cols(run_length);
         unsafe {
             self.fields
                 .first_mut()
@@ -82,7 +82,7 @@ unsafe impl PushInterface for RecordSet {
         run_length: usize,
         try_header_rle: bool,
     ) {
-        self.push_null_to_secondary_cols(run_length);
+        self.push_undefined_to_secondary_cols(run_length);
         unsafe {
             self.fields.first_mut().unwrap().data.push_zst_unchecked(
                 kind,
@@ -100,7 +100,7 @@ unsafe impl PushInterface for RecordSet {
         run_length: usize,
         try_header_rle: bool,
     ) -> *mut u8 {
-        self.push_null_to_secondary_cols(run_length);
+        self.push_undefined_to_secondary_cols(run_length);
         unsafe {
             self.fields
                 .first_mut()
@@ -127,14 +127,14 @@ impl RecordSet {
         for f in &mut self.fields {
             let len = f.data.field_count();
             if len < max_field_len {
-                f.data.push_null(max_field_len - len, true);
+                f.data.push_undefined(max_field_len - len, true);
             }
         }
         max_field_len
     }
-    fn push_null_to_secondary_cols(&mut self, run_length: usize) {
+    fn push_undefined_to_secondary_cols(&mut self, run_length: usize) {
         for f in self.fields.iter_mut().skip(1) {
-            f.data.push_null(run_length, true);
+            f.data.push_undefined(run_length, true);
         }
     }
 }

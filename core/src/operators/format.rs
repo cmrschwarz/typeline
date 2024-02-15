@@ -2641,9 +2641,6 @@ pub fn handle_tf_format_stream_value_update(
 
                     tgt_buf.reserve(len);
                     unsafe {
-                        // HACK: //TODO: create a separate impl
-                        // for write padded bytes
-
                         let mut output_target = OutputTarget {
                             run_len: 1,
                             min_char_count: handle.min_char_count,

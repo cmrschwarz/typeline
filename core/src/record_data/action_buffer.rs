@@ -1285,6 +1285,7 @@ impl ActionBuffer {
             field_data_size,
         );
         let fd = &mut field.iter_hall.field_data;
+        // LEAK this leaks all resources of the data. //TODO: drop before
         fd.data
             .drop_front(dead_data_leading.prev_multiple_of(&MAX_FIELD_ALIGN));
         fd.data.drop_back(dead_data_trailing);
@@ -1415,6 +1416,7 @@ impl ActionBuffer {
                 dcf.data_end,
             )
         }
+        self.eprint_action_list_from_agi(&agi);
         debug_assert!(-agi.group.field_count_delta <= field_count as isize);
         let all_fields_dead =
             -agi.group.field_count_delta == field_count as isize;
@@ -1435,7 +1437,7 @@ impl ActionBuffer {
         let all_data_dead = dead_data_leading == field_data_size;
         let some_data_dead = dead_data_leading != 0 || dead_data_trailing != 0;
 
-        if all_fields_dead && cfg!(feature = "debug_log") {
+        if all_fields_dead && cfg!(feature = "debug_logging") {
             eprintln!(
                 "clearing field {} (ms {}, first actor: {}, field_count: {}) ({}):",
                 field_id, field_ms_id, actor_id, field_count,
@@ -1444,12 +1446,11 @@ impl ActionBuffer {
             self.eprint_action_list_from_agi(&agi);
         }
 
-        if all_data_dead {
+        if all_data_dead && all_fields_dead {
             field.iter_hall.reset_iterators();
             field.iter_hall.field_data.clear();
             dead_data_leading = 0;
-        }
-        if !all_data_dead && some_data_dead {
+        } else if some_data_dead {
             dead_data_padding = Self::calculate_dead_data_padding(
                 &mut dead_data_leading,
                 &mut dead_data_trailing,

@@ -74,6 +74,7 @@ use crate::{
         field::{FieldId, FieldManager, VOID_FIELD_ID},
         field_action::FieldActionKind,
         match_set::{MatchSetId, MatchSetManager},
+        push_interface::PushInterface,
         record_buffer::RecordBuffer,
         stream_value::{StreamValueManager, StreamValueUpdate},
     },
@@ -480,9 +481,12 @@ impl<'a> Job<'a> {
         let ms_id = self.job_data.match_set_mgr.add_match_set();
         // TODO: unpack record set properly here
         let input_record_count = job.data.adjust_field_lengths();
-        let mut input_data = None;
+        let mut input_field = None;
         let mut input_data_fields = std::mem::take(&mut self.temp_vec);
-        for fd in job.data.fields {
+        for mut fd in job.data.fields {
+            if input_record_count == 0 {
+                fd.data.push_null(1, true);
+            }
             let field_id = self.job_data.field_mgr.add_field_with_data(
                 &mut self.job_data.match_set_mgr,
                 ms_id,
@@ -491,11 +495,12 @@ impl<'a> Job<'a> {
                 fd.data,
             );
             input_data_fields.push(field_id);
-            if input_data.is_none() {
-                input_data = Some(field_id);
+            if input_field.is_none() {
+                input_field = Some(field_id);
             }
         }
-        let input_data = input_data.unwrap_or(VOID_FIELD_ID);
+        let input_record_count = input_record_count.max(1);
+        let input_field = input_field.unwrap();
 
         #[cfg(feature = "debug_logging")]
         for (i, f) in input_data_fields.iter().enumerate() {
@@ -507,7 +512,7 @@ impl<'a> Job<'a> {
             .setup_transforms_from_op(
                 ms_id,
                 job.operator,
-                input_data,
+                input_field,
                 None,
                 &HashMap::default(),
             );

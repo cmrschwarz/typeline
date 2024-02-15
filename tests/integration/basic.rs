@@ -181,6 +181,21 @@ fn double_key() -> Result<(), ScrError> {
 fn chained_seq() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
+        .add_op(create_op_seq(0, 6, 1).unwrap())
+        .add_op_appending(create_op_seq(6, 11, 1).unwrap())
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(
+        ss.get_data().unwrap().as_slice(),
+        (0..11).map(|v| v.to_string()).collect::<Vec<_>>()
+    );
+    Ok(())
+}
+
+#[test]
+fn chained_seq_with_input_data() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::default();
+    ContextBuilder::default()
         .push_int(0, 1)
         .add_op_appending(create_op_seq(1, 6, 1).unwrap())
         .add_op_appending(create_op_seq(6, 11, 1).unwrap())
