@@ -66,6 +66,7 @@ impl<const ALIGN: usize> Clone for RingBuf<ALIGN> {
 }
 
 impl<const ALIGN: usize> RingBuf<ALIGN> {
+    pub const ALIGN: usize = ALIGN;
     pub fn new() -> Self {
         Self::default()
     }
@@ -333,6 +334,11 @@ impl<const ALIGN: usize> RingBuf<ALIGN> {
     }
     pub fn truncate(&mut self, len: usize) {
         assert!(self.len >= len);
+        let used_space_back = self.used_space_back();
+        if self.len > used_space_back && len <= used_space_back {
+            self.back_padding = 0;
+            self.front_padding = 0;
+        }
         self.len = len;
     }
     pub fn resize(&mut self, new_len: usize, value: u8) {

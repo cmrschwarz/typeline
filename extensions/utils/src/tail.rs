@@ -126,7 +126,7 @@ impl Transform for TfTail {
         // PERF: just like with the subtractive mode for head
         // this implementation *sucks* and will buffer the whole input
 
-        if !tf.done {
+        if !tf.predecessor_done {
             return;
         }
         let match_set_id = tf.match_set_id;

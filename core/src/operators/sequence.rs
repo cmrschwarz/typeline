@@ -8,6 +8,7 @@ use crate::{
     options::argument::CliArgIdx,
     record_data::{
         action_buffer::{ActorId, ActorRef},
+        field_action::FieldActionKind,
         push_interface::VariableSizeTypeInserter,
     },
     utils::int_string_conversions::{
@@ -58,6 +59,7 @@ enum TfSequenceMode {
     #[allow(unused)] // TODO
     Sequence {
         actor_id: ActorId,
+        field_idx: usize,
     },
     Enum,
     EnumUnbounded,
@@ -88,7 +90,10 @@ pub fn build_tf_sequence<'a>(
                 jd.field_mgr.fields[tf_state.output_field].borrow_mut();
 
             output_field.first_actor = next_actor_id;
-            TfSequenceMode::Sequence { actor_id }
+            TfSequenceMode::Sequence {
+                actor_id,
+                field_idx: 0,
+            }
         }
     };
 
@@ -145,6 +150,7 @@ pub fn handle_tf_sequence(
 ) {
     let (mut batch_size, ps) = jd.tf_mgr.claim_batch(tf_id);
     let tf = &jd.tf_mgr.transforms[tf_id];
+    let ms_id = tf.match_set_id;
     let no_input = batch_size == 0;
     match seq.mode {
         TfSequenceMode::Enum => {
@@ -219,6 +225,25 @@ pub fn handle_tf_sequence(
     }
     if !done && (ps.next_batch_ready || ps.input_done) {
         jd.tf_mgr.push_tf_in_ready_stack(tf_id);
+    }
+    if let TfSequenceMode::Sequence {
+        actor_id,
+        field_idx,
+    } = &mut seq.mode
+    {
+        let ab = jd.match_set_mgr.match_sets[ms_id].action_buffer.get_mut();
+        ab.begin_action_group(*actor_id);
+        if done && count == 0 {
+            ab.push_action(FieldActionKind::Drop, *field_idx, 1);
+        } else {
+            ab.push_action(
+                FieldActionKind::Dup,
+                *field_idx,
+                count - usize::from(done),
+            );
+        }
+        *field_idx += count;
+        ab.end_action_group();
     }
     jd.tf_mgr.submit_batch(tf_id, count, done);
 }

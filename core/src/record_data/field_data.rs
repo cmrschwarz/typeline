@@ -511,9 +511,7 @@ impl FieldValueFormat {
         (self.flags & field_value_flags::LEADING_PADDING) as usize
     }
     pub fn set_leading_padding(&mut self, val: usize) {
-        debug_assert!(
-            val & !(field_value_flags::LEADING_PADDING as usize) == 0
-        );
+        debug_assert!(val < MAX_FIELD_ALIGN);
         self.flags &= !field_value_flags::LEADING_PADDING;
         self.flags |= (val as u8) & field_value_flags::LEADING_PADDING;
     }

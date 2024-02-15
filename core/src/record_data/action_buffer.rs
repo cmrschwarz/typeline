@@ -5,6 +5,8 @@ use std::{
     mem::size_of,
 };
 
+use num::Integer;
+
 use crate::utils::{
     dynamic_freelist::DynamicArrayFreelist, launder_slice,
     offset_vec_deque::OffsetVecDeque, phantom_slot::PhantomSlot,
@@ -15,7 +17,7 @@ use super::{
     field::{Field, FieldId, FieldManager},
     field_action::{merge_action_lists, FieldAction, FieldActionKind},
     field_action_applicator::FieldActionApplicator,
-    field_data::{FieldValueHeader, RunLength},
+    field_data::{FieldValueHeader, RunLength, MAX_FIELD_ALIGN},
     iter_hall::{CowVariant, FieldDataSource},
     match_set::MatchSetId,
 };
@@ -1243,30 +1245,59 @@ impl ActionBuffer {
             tgt_fd.field_count += count - tgt_cow_end.field_pos;
         }
     }
+    fn calculate_dead_data_padding(
+        dead_data_leading: &mut usize,
+        dead_data_trailing: &mut usize,
+        field_data_size: usize,
+    ) -> usize {
+        let mut lead = *dead_data_leading;
+        let trail = *dead_data_trailing;
+        if field_data_size == trail {
+            *dead_data_leading = 0;
+            return 0;
+        }
+        lead = lead.min(field_data_size - lead);
+        *dead_data_leading = lead;
+        let misalign = lead % MAX_FIELD_ALIGN;
+        (MAX_FIELD_ALIGN - misalign) % MAX_FIELD_ALIGN
+    }
     fn drop_dead_field_data(
         field: &mut Field,
         dead_data_leading: usize,
+        dead_data_padding: usize,
         dead_data_trailing: usize,
     ) {
-        let fd = &mut field.iter_hall.field_data;
-        let data_size = fd.data.len();
-        Self::drop_dead_cow_headers(
-            &mut fd.headers,
+        let field_data_size = field.iter_hall.field_data.data.len();
+        #[cfg(feature = "debug_logging")]
+        eprintln!(
+            "   + dropping_dead_data (leading: {}, pad: {}, rem: {}, trailing: {})",
             dead_data_leading,
-            dead_data_trailing,
-            data_size,
-            data_size,
+            dead_data_padding,
+            field_data_size - dead_data_leading - dead_data_trailing,
+            dead_data_trailing
         );
-        fd.data.drop_front(dead_data_leading);
+        Self::drop_dead_cow_headers(
+            field,
+            dead_data_leading,
+            dead_data_padding,
+            dead_data_trailing,
+            field_data_size,
+            field_data_size,
+        );
+        let fd = &mut field.iter_hall.field_data;
+        fd.data
+            .drop_front(dead_data_leading.prev_multiple_of(&MAX_FIELD_ALIGN));
         fd.data.drop_back(dead_data_trailing);
     }
     fn drop_dead_cow_headers(
-        headers: &mut VecDeque<FieldValueHeader>,
+        field: &mut Field,
         dead_data_leading: usize,
+        dead_data_padding: usize,
         dead_data_trailing: usize,
         origin_field_data_size: usize,
         field_data_size: usize,
     ) {
+        let headers = &mut field.iter_hall.field_data.headers;
         let mut dead_data_rem_leading = dead_data_leading;
         let mut dead_headers_leading = 0;
         while dead_headers_leading < headers.len() {
@@ -1289,15 +1320,6 @@ impl ActionBuffer {
             last_header_alive -= 1;
             dead_data_rem_trailing -= h_ds;
         }
-        if dead_data_rem_leading > 0 {
-            let header_elem_size =
-                headers[dead_data_leading].fmt.size as usize;
-            let elem_count = dead_data_rem_leading / header_elem_size;
-            debug_assert!(
-                elem_count * header_elem_size == dead_data_rem_leading
-            );
-            headers[dead_data_leading].run_length -= elem_count as RunLength;
-        }
         if dead_data_rem_trailing > 0 {
             let header_elem_size =
                 headers[last_header_alive].fmt.size as usize;
@@ -1308,7 +1330,35 @@ impl ActionBuffer {
             headers[last_header_alive].run_length -= elem_count as RunLength;
         }
         headers.drain(last_header_alive..);
-        headers.drain(0..dead_headers_leading);
+        if dead_data_leading != 0 {
+            let h = &mut headers[dead_headers_leading];
+            let mut dropped_elem_count = 0;
+            if dead_data_rem_leading != 0 {
+                let header_elem_size = h.fmt.size as usize;
+                dropped_elem_count =
+                    (dead_data_rem_leading / header_elem_size) as RunLength;
+                debug_assert!(
+                    dropped_elem_count as usize * header_elem_size
+                        == dead_data_rem_leading
+                );
+                h.run_length -= dropped_elem_count;
+            }
+            let tgt_padding = h.leading_padding() + dead_data_padding;
+            h.set_leading_padding(tgt_padding);
+
+            let data_sub = dead_data_leading - dead_data_padding;
+            for it in field.iter_hall.iters.iter_mut().map(Cell::get_mut) {
+                it.data = it.data.saturating_sub(data_sub);
+                if it.header_idx == dead_headers_leading {
+                    it.header_rl_offset =
+                        it.header_rl_offset.saturating_sub(dropped_elem_count);
+                }
+                it.header_idx =
+                    it.header_idx.saturating_sub(dead_headers_leading);
+            }
+
+            headers.drain(0..dead_headers_leading);
+        }
     }
     pub fn update_field(
         &mut self,
@@ -1356,6 +1406,7 @@ impl ActionBuffer {
         );
         let mut dead_data_leading = field_data_size;
         let mut dead_data_trailing = field_data_size;
+        let mut dead_data_padding = 0;
         for dcf in &mut data_cow_fields {
             Self::calc_dead_data(
                 &dcf.field.iter_hall.field_data.headers,
@@ -1365,55 +1416,63 @@ impl ActionBuffer {
             )
         }
         debug_assert!(-agi.group.field_count_delta <= field_count as isize);
-        let field_cleared =
+        let all_fields_dead =
             -agi.group.field_count_delta == field_count as isize;
-        if !field_cleared {
+        if !all_fields_dead {
             self.execute_actions(fm, field_id, &agi, &mut full_cow_fields);
         }
         let mut field = fm.fields[field_id].borrow_mut();
-        if field_cleared {
-            eprintln!(
-                "clearing field {} (ms {}, first actor: {}, field_count: {}):",
-                field_id, field_ms_id, actor_id, field_count
-            );
-            self.eprint_action_list_from_agi(&agi);
-            if dead_data_leading == field_data_size {
-                field.iter_hall.reset_iterators();
-                field.iter_hall.field_data.clear();
-                dead_data_leading = 0;
-            } else {
-                dead_data_leading = dead_data_leading
-                    .min(field_data_size - dead_data_trailing);
-                Self::drop_dead_field_data(
-                    &mut field,
-                    dead_data_leading,
-                    dead_data_trailing,
-                );
-            }
-        } else {
+        if !all_fields_dead {
             Self::calc_dead_data(
                 &field.iter_hall.field_data.headers,
                 &mut dead_data_leading,
                 &mut dead_data_trailing,
                 field_data_size,
             );
-            dead_data_leading =
-                dead_data_leading.min(field_data_size - dead_data_trailing);
+        }
+        // Even if the field no longer uses the data, some data COWs might,
+        // in which case we can't clear it.
+        let all_data_dead = dead_data_leading == field_data_size;
+        let some_data_dead = dead_data_leading != 0 || dead_data_trailing != 0;
+
+        if all_fields_dead && cfg!(feature = "debug_log") {
+            eprintln!(
+                "clearing field {} (ms {}, first actor: {}, field_count: {}) ({}):",
+                field_id, field_ms_id, actor_id, field_count,
+                if all_data_dead {"all data dead"} else {"some data remains alive"}
+            );
+            self.eprint_action_list_from_agi(&agi);
+        }
+
+        if all_data_dead {
+            field.iter_hall.reset_iterators();
+            field.iter_hall.field_data.clear();
+            dead_data_leading = 0;
+        }
+        if !all_data_dead && some_data_dead {
+            dead_data_padding = Self::calculate_dead_data_padding(
+                &mut dead_data_leading,
+                &mut dead_data_trailing,
+                field_data_size,
+            );
             Self::drop_dead_field_data(
                 &mut field,
                 dead_data_leading,
+                dead_data_padding,
                 dead_data_trailing,
             );
         }
-
-        for dcf in &mut data_cow_fields {
-            Self::drop_dead_cow_headers(
-                &mut dcf.field.iter_hall.field_data.headers,
-                dead_data_leading,
-                dead_data_trailing,
-                field_data_size,
-                dcf.data_end,
-            );
+        if some_data_dead {
+            for dcf in &mut data_cow_fields {
+                Self::drop_dead_cow_headers(
+                    &mut dcf.field,
+                    dead_data_leading,
+                    dead_data_padding,
+                    dead_data_trailing,
+                    field_data_size,
+                    dcf.data_end,
+                );
+            }
         }
         self.full_cow_field_refs_temp = transmute_vec(full_cow_fields);
         self.data_cow_field_refs_temp = transmute_vec(data_cow_fields);

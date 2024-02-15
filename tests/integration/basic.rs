@@ -23,7 +23,7 @@ use scr_core::{
     scr_error::{ChainSetupError, ScrError},
     utils::test_utils::{ErroringStream, SliceReader, TricklingStream},
 };
-use scr_ext_utils::string_utils::create_op_chars;
+use scr_ext_utils::{string_utils::create_op_chars, tail::create_op_tail};
 
 #[test]
 fn string_sink() -> Result<(), ScrError> {
@@ -548,5 +548,16 @@ fn basic_batching() -> Result<(), ScrError> {
         .add_op(create_op_chars())
         .run_collect_stringified()?;
     assert_eq!(res, ["1", "2", "3", "4"]);
+    Ok(())
+}
+
+#[test]
+fn basic_batched_head() -> Result<(), ScrError> {
+    let res = ContextBuilder::default()
+        .add_op(create_op_str("1234"))
+        .add_op(create_op_chars())
+        .add_op(create_op_tail(3))
+        .run_collect_stringified()?;
+    assert_eq!(res, ["2", "3", "4"]);
     Ok(())
 }
