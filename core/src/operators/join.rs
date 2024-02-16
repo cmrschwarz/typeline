@@ -14,7 +14,7 @@ use crate::{
     },
     options::argument::CliArgIdx,
     record_data::{
-        action_buffer::{ActorId, ActorRef},
+        action_buffer::ActorId,
         custom_data::CustomDataBox,
         field::Field,
         field_action::FieldActionKind,
@@ -137,14 +137,6 @@ pub fn build_tf_join<'a>(
     op: &'a OpJoin,
     tf_state: &mut TransformState,
 ) -> TransformData<'a> {
-    let mut ab = jd.match_set_mgr.match_sets[tf_state.match_set_id]
-        .action_buffer
-        .borrow_mut();
-    let actor_id = ab.add_actor();
-    let next_actor_id = ActorRef::Unconfirmed(ab.peek_next_actor_id());
-    let mut output_field =
-        jd.field_mgr.fields[tf_state.output_field].borrow_mut();
-    output_field.first_actor = next_actor_id;
     TransformData::Join(TfJoin {
         current_stream_val: None,
         stream_val_added_len: 0,
@@ -169,7 +161,7 @@ pub fn build_tf_join<'a>(
             .stream_size_threshold,
         stream_value_error: false,
         streams_kept_alive: 0,
-        actor_id,
+        actor_id: jd.add_actor_for_tf_state(tf_state),
     })
 }
 

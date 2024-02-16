@@ -7,10 +7,8 @@ use crate::{
     liveness_analysis::{AccessFlags, LivenessData, NON_STRING_READS_OFFSET},
     options::argument::CliArgIdx,
     record_data::{
-        action_buffer::{ActorId, ActorRef},
-        field_action::FieldActionKind,
-        iter_hall::{IterId, IterKind},
-        iters::FieldIterator,
+        action_buffer::ActorId, field_action::FieldActionKind,
+        iter_hall::IterId, iters::FieldIterator,
         push_interface::VariableSizeTypeInserter,
     },
     utils::int_string_conversions::{
@@ -82,30 +80,16 @@ pub fn build_tf_sequence<'a>(
     let mode = match op.mode {
         OpSequenceMode::Enum => TfSequenceMode::Enum,
         OpSequenceMode::EnumUnbounded => TfSequenceMode::EnumUnbounded,
-        OpSequenceMode::Sequence => {
-            let mut ab = jd.match_set_mgr.match_sets[tf_state.match_set_id]
-                .action_buffer
-                .borrow_mut();
-            let actor_id = ab.add_actor();
-            let next_actor_id = ActorRef::Unconfirmed(ab.peek_next_actor_id());
-            let mut output_field =
-                jd.field_mgr.fields[tf_state.output_field].borrow_mut();
-
-            output_field.first_actor = next_actor_id;
-            TfSequenceMode::Sequence { actor_id }
-        }
+        OpSequenceMode::Sequence => TfSequenceMode::Sequence {
+            actor_id: jd.add_actor_for_tf_state(tf_state),
+        },
     };
 
     TransformData::Sequence(TfSequence {
         ss: op.ss,
         mode,
         non_string_reads: op.non_string_reads,
-        iter_id: jd.field_mgr.fields[tf_state.input_field]
-            .borrow_mut()
-            .iter_hall
-            .claim_iter(IterKind::Transform(
-                jd.tf_mgr.transforms.peek_claim_id(),
-            )),
+        iter_id: jd.add_iter_for_tf_state(tf_state),
     })
 }
 

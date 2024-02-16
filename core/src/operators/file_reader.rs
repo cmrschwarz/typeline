@@ -20,6 +20,7 @@ use crate::{
             FieldValueSize, INLINE_STR_MAX_LEN,
         },
         field_value::FieldValue,
+        iter_hall::IterId,
         push_interface::PushInterface,
         stream_value::{StreamValue, StreamValueId},
     },
@@ -31,6 +32,7 @@ use super::{
     },
     operator::{DefaultOperatorName, OperatorBase, OperatorData},
     transform::{TransformData, TransformId, TransformState},
+    utils::maintain_single_value::{maintain_single_value, ExplicitCount},
 };
 
 pub enum ReadableFileKind {
@@ -85,7 +87,8 @@ pub struct TfFileReader {
     line_buffered: bool,
     stream_buffer_size: usize,
     stream_size_threshold: usize,
-    insert_count: Option<usize>,
+    explicit_count: Option<ExplicitCount>,
+    iter_id: IterId,
 }
 
 pub fn build_tf_file_reader<'a>(
@@ -138,7 +141,11 @@ pub fn build_tf_file_reader<'a>(
         line_buffered,
         stream_size_threshold: chain_settings.stream_size_threshold,
         stream_buffer_size: chain_settings.stream_buffer_size,
-        insert_count: op.insert_count,
+        explicit_count: op.insert_count.map(|count| ExplicitCount {
+            count,
+            actor_id: jd.add_actor_for_tf_state(tf_state),
+        }),
+        iter_id: jd.add_iter_for_tf_state(tf_state),
         value_committed: false,
         stream_value_committed: false,
     })
@@ -397,13 +404,11 @@ pub fn handle_tf_file_reader(
         fr.value_committed = true;
         start_streaming_file(jd, tf_id, fr);
     }
-    let (batch_size, ps) = jd.tf_mgr.maintain_single_value(
+    let (batch_size, ps) = maintain_single_value(
+        jd,
         tf_id,
-        &mut fr.insert_count,
-        &jd.field_mgr,
-        &mut jd.match_set_mgr,
-        initial_call,
-        true,
+        fr.explicit_count.as_ref(),
+        fr.iter_id,
     );
     jd.tf_mgr.submit_batch_ready_for_more(tf_id, batch_size, ps);
 }

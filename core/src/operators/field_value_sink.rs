@@ -8,7 +8,7 @@ use crate::{
         field::Field,
         field_data::field_value_flags,
         field_value::FieldValue,
-        iter_hall::{IterId, IterKind},
+        iter_hall::IterId,
         iters::FieldIterator,
         push_interface::PushInterface,
         ref_iter::{
@@ -80,10 +80,7 @@ pub fn build_tf_field_value_sink<'a>(
 ) -> TransformData<'a> {
     TransformData::FieldValueSink(TfFieldValueSink {
         handle: &ss.handle.data,
-        batch_iter: jd.field_mgr.claim_iter(
-            tf_state.input_field,
-            IterKind::Transform(jd.tf_mgr.transforms.peek_claim_id()),
-        ),
+        batch_iter: jd.add_iter_for_tf_state(tf_state),
         stream_value_handles: CountedUniverse::default(),
     })
 }

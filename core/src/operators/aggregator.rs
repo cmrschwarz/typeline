@@ -156,15 +156,14 @@ pub fn insert_tf_aggregator(
     );
 
     let mut sub_tfs = Vec::with_capacity(op_count);
-    for (i, &sub_op_id) in op.sub_ops.iter().enumerate() {
-        let mut sub_tf_state = TransformState::new(
+    for &sub_op_id in &op.sub_ops {
+        let sub_tf_state = TransformState::new(
             in_fid,
             out_fid,
             ms_id,
             desired_batch_size,
             Some(sub_op_id),
         );
-        sub_tf_state.has_appender = i + 1 < op_count;
         let (sub_tf_start, _sub_tf_end, _next_input_field, _diverged) = job
             .insert_transform_from_op(
                 sub_tf_state,

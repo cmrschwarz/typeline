@@ -13,6 +13,7 @@ use crate::{
     record_data::{
         custom_data::CustomDataBox,
         field_value::{Array, FieldValue, FieldValueKind, Object},
+        iter_hall::IterId,
         push_interface::PushInterface,
         stream_value::StreamValue,
     },
@@ -23,6 +24,7 @@ use super::{
     errors::{OperatorApplicationError, OperatorCreationError},
     operator::{DefaultOperatorName, OperatorBase, OperatorData},
     transform::{TransformData, TransformId, TransformState},
+    utils::maintain_single_value::{maintain_single_value, ExplicitCount},
 };
 
 #[derive(Clone)]
@@ -52,8 +54,9 @@ pub struct OpLiteral {
 
 pub struct TfLiteral<'a> {
     data: &'a Literal,
-    insert_count: Option<usize>,
+    explicit_count: Option<ExplicitCount>,
     value_inserted: bool,
+    iter_id: IterId,
 }
 
 impl OpLiteral {
@@ -81,16 +84,112 @@ impl OpLiteral {
 }
 
 pub fn build_tf_literal<'a>(
-    _jd: &mut JobData,
+    jd: &mut JobData,
     _op_base: &OperatorBase,
     op: &'a OpLiteral,
-    _tf_state: &mut TransformState,
+    tf_state: &mut TransformState,
 ) -> TransformData<'a> {
+    let iter_id = jd.add_iter_for_tf_state(tf_state);
     TransformData::Literal(TfLiteral {
         data: &op.data,
-        insert_count: op.insert_count,
+        explicit_count: op.insert_count.map(|count| ExplicitCount {
+            count,
+            actor_id: jd.add_actor_for_tf_state(tf_state),
+        }),
         value_inserted: false,
+        iter_id,
     })
+}
+
+pub fn insert_value(
+    jd: &mut JobData,
+    tf_id: TransformId,
+    lit: &mut TfLiteral,
+) {
+    let tf = &jd.tf_mgr.transforms[tf_id];
+    let op_id = tf.op_id.unwrap();
+    let of_id = jd.tf_mgr.prepare_output_field(
+        &mut jd.field_mgr,
+        &mut jd.match_set_mgr,
+        tf_id,
+    );
+    let mut output_field = jd.field_mgr.fields[of_id].borrow_mut();
+    match lit.data {
+        Literal::Bytes(b) => {
+            output_field.iter_hall.push_bytes(b, 1, true, true)
+        }
+        Literal::String(s) => {
+            output_field.iter_hall.push_str(s, 1, true, true)
+        }
+        Literal::Int(i) => output_field.iter_hall.push_int(*i, 1, true, true),
+        Literal::Null => output_field.iter_hall.push_null(1, true),
+        Literal::Undefined => output_field.iter_hall.push_undefined(1, true),
+        Literal::StreamError(ss) => {
+            let sv_id = jd.sv_mgr.stream_values.claim_with_value(
+                StreamValue::from_value(FieldValue::Error(
+                    OperatorApplicationError::new_s(ss.clone(), op_id),
+                )),
+            );
+            output_field
+                .iter_hall
+                .push_stream_value_id(sv_id, 1, true, false);
+        }
+        Literal::StreamString(ss) => {
+            let sv_id = jd.sv_mgr.stream_values.claim_with_value(
+                StreamValue::from_value(FieldValue::Text(ss.clone())),
+            );
+            output_field
+                .iter_hall
+                .push_stream_value_id(sv_id, 1, true, false);
+        }
+        Literal::StreamBytes(sb) => {
+            let sv_id = jd.sv_mgr.stream_values.claim_with_value(
+                StreamValue::from_value(FieldValue::Bytes(sb.clone())),
+            );
+            output_field
+                .iter_hall
+                .push_stream_value_id(sv_id, 1, true, false);
+        }
+        Literal::Error(e) => output_field.iter_hall.push_error(
+            OperatorApplicationError::new_s(e.clone(), op_id),
+            1,
+            true,
+            false,
+        ),
+        Literal::Object(o) => output_field.iter_hall.push_fixed_size_type(
+            o.clone(),
+            1,
+            true,
+            true,
+        ),
+        Literal::Array(v) => output_field.iter_hall.push_fixed_size_type(
+            v.clone(),
+            1,
+            true,
+            true,
+        ),
+        Literal::BigInt(v) => output_field.iter_hall.push_fixed_size_type(
+            v.clone(),
+            1,
+            true,
+            true,
+        ),
+        Literal::Float(v) => output_field
+            .iter_hall
+            .push_fixed_size_type(*v, 1, true, true),
+        Literal::Rational(v) => output_field.iter_hall.push_fixed_size_type(
+            v.clone(),
+            1,
+            true,
+            true,
+        ),
+        Literal::Custom(v) => output_field.iter_hall.push_fixed_size_type(
+            v.clone(),
+            1,
+            true,
+            true,
+        ),
+    }
 }
 
 pub fn handle_tf_literal(
@@ -98,102 +197,15 @@ pub fn handle_tf_literal(
     tf_id: TransformId,
     lit: &mut TfLiteral,
 ) {
-    let tf = &jd.tf_mgr.transforms[tf_id];
-    let initial_call = !lit.value_inserted;
     if !lit.value_inserted {
         lit.value_inserted = true;
-        let op_id = tf.op_id.unwrap();
-        let of_id = jd.tf_mgr.prepare_output_field(
-            &mut jd.field_mgr,
-            &mut jd.match_set_mgr,
-            tf_id,
-        );
-        let mut output_field = jd.field_mgr.fields[of_id].borrow_mut();
-        match lit.data {
-            Literal::Bytes(b) => {
-                output_field.iter_hall.push_bytes(b, 1, true, true)
-            }
-            Literal::String(s) => {
-                output_field.iter_hall.push_str(s, 1, true, true)
-            }
-            Literal::Int(i) => {
-                output_field.iter_hall.push_int(*i, 1, true, true)
-            }
-            Literal::Null => output_field.iter_hall.push_null(1, true),
-            Literal::Undefined => {
-                output_field.iter_hall.push_undefined(1, true)
-            }
-            Literal::StreamError(ss) => {
-                let sv_id = jd.sv_mgr.stream_values.claim_with_value(
-                    StreamValue::from_value(FieldValue::Error(
-                        OperatorApplicationError::new_s(ss.clone(), op_id),
-                    )),
-                );
-                output_field
-                    .iter_hall
-                    .push_stream_value_id(sv_id, 1, true, false);
-            }
-            Literal::StreamString(ss) => {
-                let sv_id = jd.sv_mgr.stream_values.claim_with_value(
-                    StreamValue::from_value(FieldValue::Text(ss.clone())),
-                );
-                output_field
-                    .iter_hall
-                    .push_stream_value_id(sv_id, 1, true, false);
-            }
-            Literal::StreamBytes(sb) => {
-                let sv_id = jd.sv_mgr.stream_values.claim_with_value(
-                    StreamValue::from_value(FieldValue::Bytes(sb.clone())),
-                );
-                output_field
-                    .iter_hall
-                    .push_stream_value_id(sv_id, 1, true, false);
-            }
-            Literal::Error(e) => output_field.iter_hall.push_error(
-                OperatorApplicationError::new_s(e.clone(), op_id),
-                1,
-                true,
-                false,
-            ),
-            Literal::Object(o) => output_field.iter_hall.push_fixed_size_type(
-                o.clone(),
-                1,
-                true,
-                true,
-            ),
-            Literal::Array(v) => output_field.iter_hall.push_fixed_size_type(
-                v.clone(),
-                1,
-                true,
-                true,
-            ),
-            Literal::BigInt(v) => output_field.iter_hall.push_fixed_size_type(
-                v.clone(),
-                1,
-                true,
-                true,
-            ),
-            Literal::Float(v) => output_field
-                .iter_hall
-                .push_fixed_size_type(*v, 1, true, true),
-            Literal::Rational(v) => output_field
-                .iter_hall
-                .push_fixed_size_type(v.clone(), 1, true, true),
-            Literal::Custom(v) => output_field.iter_hall.push_fixed_size_type(
-                v.clone(),
-                1,
-                true,
-                true,
-            ),
-        }
+        insert_value(jd, tf_id, lit);
     }
-    let (batch_size, ps) = jd.tf_mgr.maintain_single_value(
+    let (batch_size, ps) = maintain_single_value(
+        jd,
         tf_id,
-        &mut lit.insert_count,
-        &jd.field_mgr,
-        &mut jd.match_set_mgr,
-        initial_call,
-        true,
+        lit.explicit_count.as_ref(),
+        lit.iter_id,
     );
     jd.tf_mgr.submit_batch_ready_for_more(tf_id, batch_size, ps);
 }

@@ -13,7 +13,7 @@ use crate::{
         field_value::{
             format_rational, FieldValue, FormattingContext, RATIONAL_DIGITS,
         },
-        iter_hall::{IterId, IterKind},
+        iter_hall::IterId,
         iters::{FieldIterator, UnfoldIterRunLength},
         push_interface::PushInterface,
         ref_iter::{
@@ -80,10 +80,7 @@ pub fn build_tf_print(
             && std::io::stdout().is_terminal(),
         current_stream_val: None,
         streams_kept_alive: 0,
-        iter_id: jd.field_mgr.claim_iter(
-            tf_state.input_field,
-            IterKind::Transform(jd.tf_mgr.transforms.peek_claim_id()),
-        ),
+        iter_id: jd.add_iter_for_tf_state(tf_state),
         target: op.target.take_writer(true),
     })
 }

@@ -73,6 +73,7 @@ use crate::{
         action_buffer::{ActorId, ActorRef, SnapshotRef},
         field::{FieldId, FieldManager, VOID_FIELD_ID},
         field_action::FieldActionKind,
+        iter_hall::{IterId, IterKind},
         match_set::{MatchSetId, MatchSetManager},
         push_interface::PushInterface,
         record_buffer::RecordBuffer,
@@ -271,88 +272,6 @@ impl TransformManager {
             tf.is_stream_producer = true;
             self.stream_producers.push_back(tf_id);
         }
-    }
-    pub fn maintain_single_value(
-        &mut self,
-        tf_id: TransformId,
-        length: &mut Option<usize>,
-        field_mgr: &FieldManager,
-        match_set_mgr: &mut MatchSetManager,
-        initial_call: bool,
-        final_call_if_input_done: bool,
-    ) -> (usize, PipelineState) {
-        let tf = &mut self.transforms[tf_id];
-        let output_field_id = tf.output_field;
-        let match_set_id = tf.match_set_id;
-        let desired_batch_size = tf.desired_batch_size;
-        let has_appender = tf.has_appender;
-        let max_batch_size = if let Some(len) = length {
-            *len
-        } else if has_appender {
-            if !initial_call {
-                if final_call_if_input_done {
-                    field_mgr.fields[output_field_id]
-                        .borrow_mut()
-                        .iter_hall
-                        .drop_last_value(1);
-                }
-                let ps = PipelineState {
-                    input_done: true,
-                    successor_done: false,
-                    next_batch_ready: false,
-                };
-                return (0, ps);
-            }
-            1
-        } else {
-            usize::MAX
-        };
-        let (mut batch_size, mut ps) = self.claim_batch_with_limit(
-            tf_id,
-            max_batch_size.min(desired_batch_size),
-        );
-        if batch_size == 0 {
-            if !initial_call {
-                if final_call_if_input_done {
-                    field_mgr.fields[output_field_id]
-                        .borrow_mut()
-                        .iter_hall
-                        .drop_last_value(1);
-                }
-                ps.input_done = true;
-                return (0, ps);
-            }
-            batch_size = length.unwrap_or(1);
-        }
-        if let Some(len) = length {
-            *len -= batch_size;
-            if *len == 0 {
-                ps.input_done = true;
-            }
-        } else if has_appender {
-            ps.input_done = true;
-        }
-        match_set_mgr.match_sets[match_set_id]
-            .action_buffer
-            .borrow_mut()
-            .update_field(field_mgr, output_field_id, None);
-        // this results in always one more element being present than we
-        // advertise as batch size. this prevents apply_field_actions
-        // from deleting our value. unless we are done, in which case
-        // no additional value is inserted
-        let mut output_field = field_mgr.fields[output_field_id].borrow_mut();
-        let done = ps.input_done && final_call_if_input_done;
-        if batch_size == 0 && done {
-            output_field.iter_hall.drop_last_value(1);
-        } else {
-            output_field
-                .iter_hall
-                .dup_last_value(batch_size - usize::from(done));
-        }
-        if done {
-            ps.next_batch_ready = false;
-        }
-        (batch_size, ps)
     }
 
     pub fn prepare_for_output(
@@ -1204,5 +1123,27 @@ impl JobData<'_> {
     }
     pub fn get_transform_chain(&self, tf_id: TransformId) -> &Chain {
         self.get_transform_chain_from_tf_state(&self.tf_mgr.transforms[tf_id])
+    }
+    pub fn add_actor_for_tf_state(
+        &self,
+        tf_state: &TransformState,
+    ) -> ActorId {
+        let mut ab = self.match_set_mgr.match_sets[tf_state.match_set_id]
+            .action_buffer
+            .borrow_mut();
+        let actor_id = ab.add_actor();
+        let mut input_field =
+            self.field_mgr.fields[tf_state.output_field].borrow_mut();
+        input_field.first_actor =
+            ActorRef::Unconfirmed(ab.peek_next_actor_id());
+        actor_id
+    }
+    pub fn add_iter_for_tf_state(&self, tf_state: &TransformState) -> IterId {
+        self.field_mgr.fields[tf_state.input_field]
+            .borrow_mut()
+            .iter_hall
+            .claim_iter(IterKind::Transform(
+                self.tf_mgr.transforms.peek_claim_id(),
+            ))
     }
 }

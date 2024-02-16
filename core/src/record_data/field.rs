@@ -636,15 +636,6 @@ impl FieldManager {
         self.apply_field_actions(msm, field_id);
         self.get_cow_field_ref_raw(field_id)
     }
-    pub fn get_cow_field_ref_update_fr(
-        &self,
-        msm: &mut MatchSetManager,
-        field_id: &mut FieldId,
-    ) -> CowFieldDataRef {
-        let field_id = self.get_dealiased_field_id(field_id);
-        self.apply_field_actions(msm, field_id);
-        self.get_cow_field_ref_raw(field_id)
-    }
     pub fn get_auto_deref_iter<'a>(
         &'a self,
         input_field_id: FieldId,

@@ -14,7 +14,7 @@ use crate::{
         field::Field,
         field_data::field_value_flags,
         field_value::{FieldValue, FormattingContext},
-        iter_hall::{IterId, IterKind},
+        iter_hall::IterId,
         iters::FieldIterator,
         push_interface::PushInterface,
         ref_iter::{
@@ -130,7 +130,7 @@ struct StreamValueHandle {
 
 pub struct TfStringSink<'a> {
     handle: &'a Mutex<StringSink>,
-    batch_iter: IterId,
+    iter_id: IterId,
     stream_value_handles: CountedUniverse<usize, StreamValueHandle>,
 }
 
@@ -142,10 +142,7 @@ pub fn build_tf_string_sink<'a>(
 ) -> TransformData<'a> {
     TransformData::StringSink(TfStringSink {
         handle: &ss.handle.data,
-        batch_iter: jd.field_mgr.claim_iter(
-            tf_state.input_field,
-            IterKind::Transform(jd.tf_mgr.transforms.peek_claim_id()),
-        ),
+        iter_id: jd.add_iter_for_tf_state(tf_state),
         stream_value_handles: CountedUniverse::default(),
     })
 }
@@ -312,7 +309,7 @@ pub fn handle_tf_string_sink(
     let mut output_field = jd.field_mgr.fields[tf.output_field].borrow_mut();
     let base_iter = jd
         .field_mgr
-        .lookup_iter(tf.input_field, &input_field, ss.batch_iter)
+        .lookup_iter(tf.input_field, &input_field, ss.iter_id)
         .bounded(0, batch_size);
     let starting_pos = base_iter.get_next_field_pos();
     let mut iter =
@@ -558,7 +555,7 @@ pub fn handle_tf_string_sink(
         push_str(&mut out, UNDEFINED_STR, batch_size - consumed_fields);
     }
     jd.field_mgr
-        .store_iter(input_field_id, ss.batch_iter, base_iter);
+        .store_iter(input_field_id, ss.iter_id, base_iter);
     let final_success_run_length = field_pos - last_interruption_end;
     if final_success_run_length > 0 {
         output_field
