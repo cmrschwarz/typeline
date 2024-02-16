@@ -1258,8 +1258,7 @@ impl ActionBuffer {
         }
         lead = lead.min(field_data_size - lead);
         *dead_data_leading = lead;
-        let misalign = lead % MAX_FIELD_ALIGN;
-        (MAX_FIELD_ALIGN - misalign) % MAX_FIELD_ALIGN
+        lead % MAX_FIELD_ALIGN
     }
     fn drop_dead_field_data(
         field: &mut Field,
@@ -1347,7 +1346,7 @@ impl ActionBuffer {
             let tgt_padding = h.leading_padding() + dead_data_padding;
             h.set_leading_padding(tgt_padding);
 
-            let data_sub = dead_data_leading - dead_data_padding;
+            let data_sub = dead_data_leading;
             for it in field.iter_hall.iters.iter_mut().map(Cell::get_mut) {
                 it.data = it.data.saturating_sub(data_sub);
                 if it.header_idx == dead_headers_leading {
