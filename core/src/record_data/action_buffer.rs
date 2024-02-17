@@ -1415,7 +1415,6 @@ impl ActionBuffer {
                 dcf.data_end,
             )
         }
-        self.eprint_action_list_from_agi(&agi);
         debug_assert!(-agi.group.field_count_delta <= field_count as isize);
         let all_fields_dead =
             -agi.group.field_count_delta == field_count as isize;

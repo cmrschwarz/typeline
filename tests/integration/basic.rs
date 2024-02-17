@@ -100,6 +100,18 @@ fn sequence() -> Result<(), ScrError> {
 }
 
 #[test]
+fn double_sequence() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::default();
+    ContextBuilder::default()
+        .add_op(create_op_seq(0, 3, 1).unwrap())
+        .add_op(create_op_seq(0, 1, 1).unwrap())
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(ss.get_data().unwrap().as_slice(), ["0", "1"].repeat(3));
+    Ok(())
+}
+
+#[test]
 fn in_between_drop() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()

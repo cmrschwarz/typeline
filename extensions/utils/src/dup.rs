@@ -17,7 +17,7 @@ use scr_core::{
     options::argument::CliArgIdx,
     record_data::{
         action_buffer::ActorId, field::FieldId, field_action::FieldActionKind,
-        field_data::FieldValueRepr, iters::FieldIterator,
+        iters::FieldIterator,
     },
     smallbox,
     utils::identity_hasher::BuildIdentityHasher,
@@ -122,14 +122,7 @@ impl Transform for TfDup {
         let mut field_pos = 0;
         let mut bs_rem = batch_size;
         while bs_rem > 0 {
-            let non_gs_records = iter.next_n_fields_with_fmt(
-                batch_size,
-                [FieldValueRepr::GroupSeparator],
-                true,
-                0,
-                0,
-                true,
-            );
+            let non_gs_records = iter.skip_non_group_separators(batch_size);
             for _ in 0..non_gs_records {
                 ab.push_action(FieldActionKind::Dup, field_pos, self.count);
                 field_pos += self.count + 1;
@@ -138,14 +131,7 @@ impl Transform for TfDup {
             if bs_rem == 0 {
                 break;
             }
-            let gs_records = iter.next_n_fields_with_fmt(
-                batch_size,
-                [FieldValueRepr::GroupSeparator],
-                false,
-                0,
-                0,
-                true,
-            );
+            let gs_records = iter.skip_group_separators(batch_size);
             field_pos += gs_records;
             bs_rem -= gs_records;
             // prevent an infinite loop in case of an incorrect batch size

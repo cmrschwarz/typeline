@@ -1132,10 +1132,9 @@ impl JobData<'_> {
             .action_buffer
             .borrow_mut();
         let actor_id = ab.add_actor();
-        let mut input_field =
-            self.field_mgr.fields[tf_state.output_field].borrow_mut();
-        input_field.first_actor =
-            ActorRef::Unconfirmed(ab.peek_next_actor_id());
+        self.field_mgr.fields[tf_state.output_field]
+            .borrow_mut()
+            .first_actor = ActorRef::Unconfirmed(ab.peek_next_actor_id());
         actor_id
     }
     pub fn add_iter_for_tf_state(&self, tf_state: &TransformState) -> IterId {

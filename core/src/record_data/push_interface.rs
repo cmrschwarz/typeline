@@ -1116,6 +1116,9 @@ unsafe impl PushInterface for FieldData {
     ) -> *mut u8 {
         debug_assert!(repr.is_variable_sized_type());
         debug_assert!(data_len <= INLINE_STR_MAX_LEN);
+        if run_length == 0 {
+            return std::ptr::null_mut();
+        }
         self.field_count += run_length;
         let fmt = FieldValueFormat {
             repr,
@@ -1161,6 +1164,9 @@ unsafe impl PushInterface for FieldData {
     ) {
         debug_assert!(kind.is_variable_sized_type());
         debug_assert!(data.len() <= INLINE_STR_MAX_LEN);
+        if run_length == 0 {
+            return;
+        }
         self.field_count += run_length;
         let size = data.len() as FieldValueSize;
 
@@ -1209,6 +1215,9 @@ unsafe impl PushInterface for FieldData {
     ) {
         assert!(repr == T::REPR);
         debug_assert!(repr.is_fixed_size_type());
+        if run_length == 0 {
+            return;
+        }
         self.field_count += run_length;
         let mut data_rle = false;
         let mut header_rle = false;
@@ -1268,6 +1277,9 @@ unsafe impl PushInterface for FieldData {
     ) {
         const MUST_MATCH_HEADER_FLAGS: FieldValueFlags = DELETED;
         debug_assert!(kind.is_zst());
+        if run_length == 0 {
+            return;
+        }
         self.field_count += run_length;
         let fmt = FieldValueFormat {
             repr: kind,
@@ -1430,6 +1442,9 @@ impl<'a, T: FieldValueType + PartialEq + Clone> FixedSizeTypeInserter<'a, T> {
     }
     #[inline(always)]
     pub fn push_with_rl(&mut self, v: T, rl: usize) {
+        if rl == 0 {
+            return;
+        }
         if rl == 1 {
             self.push(v);
             return;

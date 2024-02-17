@@ -3,13 +3,16 @@ use arrayvec::ArrayVec;
 use crate::{
     cli::{parse_arg_value_as_str, ParsedCliArgumentParts},
     context::SessionData,
-    job::JobData,
+    job::{JobData, PipelineState, TransformManager},
     liveness_analysis::{AccessFlags, LivenessData, NON_STRING_READS_OFFSET},
     options::argument::CliArgIdx,
     record_data::{
-        action_buffer::ActorId, field_action::FieldActionKind,
-        iter_hall::IterId, iters::FieldIterator,
-        push_interface::VariableSizeTypeInserter,
+        action_buffer::{ActionBuffer, ActorId},
+        field::{Field, FieldId, FieldManager},
+        field_action::FieldActionKind,
+        iter_hall::IterId,
+        iters::{DestructuredFieldDataRef, FieldIterator, Iter},
+        push_interface::{PushInterface, VariableSizeTypeInserter},
     },
     utils::int_string_conversions::{
         i64_to_str, parse_int_with_units, I64_MAX_DECIMAL_DIGITS,
@@ -21,6 +24,8 @@ use super::{
     operator::{DefaultOperatorName, OperatorBase, OperatorData, OperatorId},
     transform::{TransformData, TransformId, TransformState},
 };
+
+const FAST_SEQ_MAX_STEP: i64 = 200;
 
 #[derive(Clone, Copy)]
 pub struct SequenceSpec {
@@ -34,6 +39,7 @@ pub struct OpSequence {
     ss: SequenceSpec,
     mode: OpSequenceMode,
     non_string_reads: bool,
+    seq_len_total: u64,
 }
 
 impl OpSequence {
@@ -57,9 +63,7 @@ pub enum OpSequenceMode {
 #[derive(Clone, Copy)]
 enum TfSequenceMode {
     #[allow(unused)] // TODO
-    Sequence {
-        actor_id: ActorId,
-    },
+    Sequence,
     Enum,
     EnumUnbounded,
 }
@@ -67,8 +71,17 @@ enum TfSequenceMode {
 pub struct TfSequence {
     pub non_string_reads: bool,
     ss: SequenceSpec,
+    current_value: i64,
     mode: TfSequenceMode,
     iter_id: IterId,
+    actor_id: ActorId,
+    seq_len_total: u64,
+}
+
+impl SequenceSpec {
+    fn remaining_len(&self, value: i64) -> u64 {
+        ((self.end - value) / self.step) as u64
+    }
 }
 
 pub fn build_tf_sequence<'a>(
@@ -80,16 +93,17 @@ pub fn build_tf_sequence<'a>(
     let mode = match op.mode {
         OpSequenceMode::Enum => TfSequenceMode::Enum,
         OpSequenceMode::EnumUnbounded => TfSequenceMode::EnumUnbounded,
-        OpSequenceMode::Sequence => TfSequenceMode::Sequence {
-            actor_id: jd.add_actor_for_tf_state(tf_state),
-        },
+        OpSequenceMode::Sequence => TfSequenceMode::Sequence {},
     };
 
     TransformData::Sequence(TfSequence {
         ss: op.ss,
+        current_value: op.ss.start,
         mode,
         non_string_reads: op.non_string_reads,
         iter_id: jd.add_iter_for_tf_state(tf_state),
+        actor_id: jd.add_actor_for_tf_state(tf_state),
+        seq_len_total: op.seq_len_total,
     })
 }
 
@@ -130,21 +144,19 @@ pub fn increment_int_str(data: &mut ArrayVec<u8, I64_MAX_DECIMAL_DIGITS>) {
     data.insert(0, b'1');
 }
 
-const FAST_SEQ_MAX_STEP: i64 = 200;
+pub fn handle_sequence_mode() {}
 
 pub fn handle_tf_sequence(
     jd: &mut JobData,
     tf_id: TransformId,
     seq: &mut TfSequence,
 ) {
-    let (mut batch_size, ps) = jd.tf_mgr.claim_batch(tf_id);
+    let (batch_size, ps) = jd.tf_mgr.claim_batch(tf_id);
     let tf = &mut jd.tf_mgr.transforms[tf_id];
     let ms_id = tf.match_set_id;
-    let no_input = batch_size == 0;
     let input_field_id =
         jd.field_mgr.get_dealiased_field_id(&mut tf.input_field);
 
-    let mut max_count = batch_size;
     let desired_batch_size = if let Some(succ) = tf.successor {
         let bs_max = tf.desired_batch_size;
         let succ = &jd.tf_mgr.transforms[succ];
@@ -152,26 +164,6 @@ pub fn handle_tf_sequence(
     } else {
         tf.desired_batch_size
     };
-
-    match seq.mode {
-        TfSequenceMode::Enum => {
-            if no_input && ps.input_done {
-                jd.tf_mgr.declare_transform_done(tf_id);
-                return;
-            }
-        }
-        TfSequenceMode::EnumUnbounded => {
-            if no_input && ps.input_done {
-                batch_size = desired_batch_size;
-            }
-        }
-        TfSequenceMode::Sequence { .. } => {
-            // TODO: proper foreach
-            max_count = desired_batch_size.max(batch_size);
-        }
-    };
-    let seq_size_rem = (seq.ss.end - seq.ss.start) / seq.ss.step;
-    let count = max_count.min(usize::try_from(seq_size_rem).unwrap_or(0));
 
     let of_id = jd.tf_mgr.prepare_output_field(
         &mut jd.field_mgr,
@@ -187,26 +179,196 @@ pub fn handle_tf_sequence(
     let iter =
         jd.field_mgr
             .lookup_iter(input_field_id, &input_field, seq.iter_id);
-    let field_pos = iter.get_next_field_pos();
 
+    let mut ab = jd.match_set_mgr.match_sets[ms_id]
+        .action_buffer
+        .borrow_mut();
+    ab.begin_action_group(seq.actor_id);
+
+    match seq.mode {
+        TfSequenceMode::Sequence => handle_seq_mode(
+            tf_id,
+            input_field_id,
+            seq,
+            &mut ab,
+            &jd.field_mgr,
+            &mut jd.tf_mgr,
+            iter,
+            batch_size,
+            desired_batch_size,
+            ps,
+            &mut output_field,
+        ),
+        TfSequenceMode::Enum => handle_enum_mode(
+            tf_id,
+            input_field_id,
+            seq,
+            &mut ab,
+            &jd.field_mgr,
+            &mut jd.tf_mgr,
+            iter,
+            batch_size,
+            ps,
+            &mut output_field,
+        ),
+        TfSequenceMode::EnumUnbounded => todo!(),
+    }
+    ab.end_action_group();
+}
+
+fn handle_enum_mode<'a>(
+    tf_id: TransformId,
+    input_field_id: FieldId,
+    seq: &mut TfSequence,
+    ab: &mut ActionBuffer,
+    fm: &FieldManager,
+    tf_mgr: &mut TransformManager,
+    mut iter: Iter<'a, DestructuredFieldDataRef<'a>>,
+    batch_size: usize,
+    ps: PipelineState,
+    output_field: &mut Field,
+) {
+    let field_pos = iter.get_next_field_pos();
+    let seq_size_rem = seq.ss.remaining_len(seq.current_value);
+    let mut out_batch_size = 0;
+    while out_batch_size != batch_size {
+        let field_count =
+            iter.skip_non_group_separators(batch_size - out_batch_size);
+        let count = (field_count as u64).min(seq_size_rem) as usize;
+        seq.current_value =
+            advance_sequence(seq, seq.current_value, output_field, count);
+        out_batch_size += count;
+        let rem = field_count - count;
+        if rem > 0 {
+            if batch_size == out_batch_size {
+                tf_mgr.unclaim_batch_size(tf_id, rem);
+                tf_mgr.submit_batch(tf_id, out_batch_size, true);
+                fm.store_iter(input_field_id, seq.iter_id, iter);
+                return;
+            }
+            ab.push_action(
+                FieldActionKind::Drop,
+                field_pos + out_batch_size + count,
+                rem,
+            );
+        }
+        let gs_count = iter.skip_group_separators(batch_size - out_batch_size);
+        if gs_count > 0 {
+            output_field
+                .iter_hall
+                .push_group_separator(gs_count, count == 0);
+            seq.current_value = seq.ss.start;
+            out_batch_size += gs_count;
+        }
+    }
+    fm.store_iter(input_field_id, seq.iter_id, iter);
+    tf_mgr.submit_batch_ready_for_more(tf_id, out_batch_size, ps);
+}
+
+fn handle_seq_mode<'a>(
+    tf_id: TransformId,
+    input_field_id: FieldId,
+    seq: &mut TfSequence,
+    ab: &mut ActionBuffer,
+    fm: &FieldManager,
+    tf_mgr: &mut TransformManager,
+    mut iter: Iter<'a, DestructuredFieldDataRef<'a>>,
+    batch_size: usize,
+    desired_batch_size: usize,
+    ps: PipelineState,
+    output_field: &mut Field,
+) {
+    let mut field_pos = iter.get_next_field_pos();
+    let mut field_dup_count = 0;
+    let field_pos_end = field_pos + batch_size;
+    let mut out_batch_size_rem = desired_batch_size;
+
+    let seq_len_total = seq.seq_len_total;
+    let seq_len_trunc = usize::try_from(seq_len_total).unwrap_or(0);
+
+    let mut seq_len_rem = seq.ss.remaining_len(seq.current_value);
+    while field_pos != field_pos_end && out_batch_size_rem != 0 {
+        let gs_count = iter.skip_group_separators(out_batch_size_rem);
+        output_field.iter_hall.push_group_separator(gs_count, false);
+        out_batch_size_rem -= gs_count;
+        field_pos += gs_count;
+
+        if field_pos == field_pos_end || out_batch_size_rem == 0 {
+            break;
+        }
+        if seq_len_rem > out_batch_size_rem as u64
+            || seq_len_rem != seq_len_total
+        {
+            let count = seq_len_rem.min(out_batch_size_rem as u64) as usize;
+            let seq_done = count as u64 == seq_len_rem;
+            seq.current_value =
+                advance_sequence(seq, seq.ss.start, output_field, count);
+            let dup_count = count - usize::from(seq_done);
+            ab.push_action(FieldActionKind::Dup, field_pos, dup_count);
+            field_dup_count += dup_count;
+            out_batch_size_rem -= count;
+            if seq_done {
+                iter.next_field();
+                seq.current_value = seq.ss.start;
+                field_pos += 1;
+            }
+            if field_pos == field_pos_end || out_batch_size_rem == 0 {
+                break;
+            }
+            seq_len_rem = seq_len_total;
+        }
+
+        let full_seqs_rem =
+            (out_batch_size_rem as u64 / seq_len_total) as usize;
+        let field_count = iter.skip_non_group_separators(
+            full_seqs_rem.max(1).min(field_pos_end - field_pos),
+        );
+
+        // PERF: we could optimize this to a memcopy for the subsequent
+        // ones
+        for _ in 0..field_count {
+            advance_sequence(seq, seq.ss.start, output_field, seq_len_trunc);
+        }
+        for _ in 0..field_count {
+            let dup_count = seq_len_trunc - 1;
+            ab.push_action(
+                FieldActionKind::Dup,
+                field_pos + field_dup_count,
+                dup_count,
+            );
+            field_dup_count += dup_count;
+            field_pos += 1;
+        }
+        out_batch_size_rem -= seq_len_trunc * field_count;
+    }
+    fm.store_iter(input_field_id, seq.iter_id, iter);
+    tf_mgr.unclaim_batch_size(tf_id, field_pos_end - field_pos);
+    tf_mgr.submit_batch_ready_for_more(
+        tf_id,
+        desired_batch_size - out_batch_size_rem,
+        ps,
+    );
+}
+
+fn advance_sequence(
+    seq: &TfSequence,
+    mut curr: i64,
+    output_field: &mut Field,
+    count: usize,
+) -> i64 {
     if seq.non_string_reads {
         let mut inserter =
             output_field.iter_hall.fixed_size_type_inserter::<i64>();
         inserter.drop_and_reserve(count);
         for _ in 0..count {
-            inserter.push(seq.ss.start);
-            seq.ss.start += seq.ss.step;
+            inserter.push(curr);
+            curr += seq.ss.step;
         }
     } else {
         let mut inserter = output_field.iter_hall.inline_str_inserter();
-        if seq.ss.start >= 0
-            && seq.ss.step > 0
-            && seq.ss.step < FAST_SEQ_MAX_STEP
-        {
+        if curr >= 0 && seq.ss.step > 0 && seq.ss.step < FAST_SEQ_MAX_STEP {
             let mut int_str = ArrayVec::new();
-            int_str.extend(
-                i64_to_str(false, seq.ss.start).as_bytes().iter().copied(),
-            );
+            int_str.extend(i64_to_str(false, curr).as_bytes().iter().copied());
             inserter.drop_and_reserve(count, int_str.len());
             for _ in 0..count {
                 inserter.push_may_rereserve(unsafe {
@@ -215,41 +377,16 @@ pub fn handle_tf_sequence(
                 for _ in 0..seq.ss.step {
                     increment_int_str(&mut int_str);
                 }
-                seq.ss.start += seq.ss.step;
+                curr += seq.ss.step;
             }
         } else {
             for _ in 0..count {
-                inserter.push_may_rereserve(&i64_to_str(false, seq.ss.start));
-                seq.ss.start += seq.ss.step;
+                inserter.push_may_rereserve(&i64_to_str(false, curr));
+                curr += seq.ss.step;
             }
         }
     }
-    let bs_rem = batch_size.saturating_sub(count);
-    let mut done = ps.input_done && matches!(seq.mode, TfSequenceMode::Enum);
-    if seq.ss.start == seq.ss.end {
-        if !ps.input_done {
-            jd.tf_mgr.unclaim_batch_size(tf_id, bs_rem);
-        }
-        done = true;
-    }
-    if !done && (ps.next_batch_ready || ps.input_done) {
-        jd.tf_mgr.push_tf_in_ready_stack(tf_id);
-    }
-    if let TfSequenceMode::Sequence { actor_id } = &mut seq.mode {
-        let ab = jd.match_set_mgr.match_sets[ms_id].action_buffer.get_mut();
-        ab.begin_action_group(*actor_id);
-        if done && count == 0 {
-            ab.push_action(FieldActionKind::Drop, field_pos, 1);
-        } else {
-            ab.push_action(
-                FieldActionKind::Dup,
-                field_pos,
-                count - usize::from(done),
-            );
-        }
-        ab.end_action_group();
-    }
-    jd.tf_mgr.submit_batch(tf_id, count, done);
+    curr
 }
 
 pub fn parse_op_seq(
@@ -354,10 +491,12 @@ fn create_op_sequence_with_opts(
             end -= -step - rem;
         }
     }
+    let ss = SequenceSpec { start, end, step };
     Ok(OperatorData::Sequence(OpSequence {
-        ss: SequenceSpec { start, end, step },
+        ss,
         mode,
         non_string_reads: true,
+        seq_len_total: ss.remaining_len(ss.start),
     }))
 }
 
