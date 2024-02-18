@@ -5,7 +5,7 @@ use scr_core::{
     operators::{
         file_reader::create_op_file_reader_custom,
         fork::create_op_fork,
-        format::create_op_format,
+        format::{create_op_format, create_op_format_from_str},
         join::create_op_join_str,
         key::create_op_key,
         literal::{
@@ -88,10 +88,15 @@ fn trickling_stream() -> Result<(), ScrError> {
     Ok(())
 }
 
-#[test]
-fn sequence() -> Result<(), ScrError> {
+#[rstest]
+#[case(1)]
+#[case(2)]
+#[case(3)]
+#[case(4)]
+fn sequence(#[case] batch_size: usize) -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
+        .set_batch_size(batch_size)
         .add_op(create_op_seq(0, 3, 1).unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
@@ -99,15 +104,48 @@ fn sequence() -> Result<(), ScrError> {
     Ok(())
 }
 
-#[test]
-fn double_sequence() -> Result<(), ScrError> {
+#[rstest]
+#[case(1, 1)]
+#[case(2, 1)]
+#[case(3, 1)]
+#[case(1, 2)]
+#[case(2, 2)]
+#[case(3, 2)]
+fn double_sequence(
+    #[case] batch_size_1: usize,
+    #[case] batch_size_2: usize,
+) -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
+        .set_batch_size(batch_size_1)
         .add_op(create_op_seq(0, 3, 1).unwrap())
-        .add_op(create_op_seq(0, 1, 1).unwrap())
+        .set_batch_size(batch_size_2)
+        .add_op(create_op_seq(0, 2, 1).unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(ss.get_data().unwrap().as_slice(), ["0", "1"].repeat(3));
+    Ok(())
+}
+
+#[rstest]
+#[case(1)]
+#[case(2)]
+#[case(3)]
+#[case(100)]
+fn triple_sequence(#[case] batch_size: usize) -> Result<(), ScrError> {
+    let ss = StringSinkHandle::default();
+    ContextBuilder::default()
+        .set_batch_size(batch_size)
+        .add_op_with_label(create_op_seq(0, 2, 1).unwrap(), "a")
+        .add_op_with_label(create_op_seq(0, 2, 1).unwrap(), "b")
+        .add_op_with_label(create_op_seq(0, 2, 1).unwrap(), "c")
+        .add_op(create_op_format_from_str("{a}{b}{c}").unwrap())
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(
+        ss.get_data().unwrap().as_slice(),
+        (0..=7).map(|v| format!("{v:03b}")).collect::<Vec<_>>()
+    );
     Ok(())
 }
 

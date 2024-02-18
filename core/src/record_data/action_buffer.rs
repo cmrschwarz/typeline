@@ -458,9 +458,14 @@ impl ActionBuffer {
         lhs: &ActionGroupIdentifier,
         rhs: &ActionGroupIdentifier,
     ) -> usize {
-        let lhs_idx = lhs.temp_idx().unwrap_or(3);
-        let rhs_idx = rhs.temp_idx().unwrap_or(3);
-        (6 - lhs_idx - rhs_idx) % 3
+        let lhs_idx = lhs.temp_idx().unwrap_or(0);
+        let rhs_idx = rhs.temp_idx().unwrap_or(0);
+        match lhs_idx + rhs_idx {
+            0 => 1,
+            1 => 2,
+            2 | 3 => 0,
+            _ => unreachable!(),
+        }
     }
     fn get_action_group_slices_raw<'a>(
         actors: &'a OffsetVecDeque<ActorId, Actor>,

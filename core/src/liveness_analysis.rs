@@ -1333,6 +1333,10 @@ impl LivenessData {
         }
         eprintln!();
         eprintln!("operators:");
+        eprintln!("# I: only through field refs");
+        eprintln!("# W: headers modified");
+        eprintln!("# S: stringified only");
+        eprintln!();
         let flag = |c: bool, t: char| if c { t } else { '-' };
         for (op_id, old) in self.operator_liveness_data.iter().enumerate() {
             eprint!(
@@ -1344,7 +1348,7 @@ impl LivenessData {
                 for (&idx, acc) in &old.accessed_outputs {
                     eprint!(
                         " {idx}::{}{}{}",
-                        flag(!acc.direct_access, 'R'),
+                        flag(!acc.direct_access, 'I'),
                         flag(acc.header_write, 'W'),
                         flag(!acc.non_stringified, 'S')
                     )

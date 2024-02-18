@@ -108,39 +108,44 @@ impl ActionContainer for VecDeque<FieldAction> {
 fn push_merged_action<T: ActionContainer>(
     target: &mut T,
     first_insert: &mut bool,
-    mut kind: FieldActionKind,
+    kind: FieldActionKind,
     field_idx: usize,
     mut run_len: usize,
 ) {
     if run_len == 0 {
         return;
     }
-    if *first_insert {
-        *first_insert = false;
-    } else {
-        let prev = target.last_mut().unwrap();
-        if prev.field_idx == field_idx {
-            let mut merge = prev.kind == kind;
-            if kind == FieldActionKind::Dup
-                && matches!(prev.kind, FieldActionKind::InsertZst(_))
-            {
-                kind = prev.kind;
-                merge = true;
-            }
-            if merge {
-                let space_rem = (RunLength::MAX as usize
-                    - prev.run_len as usize)
-                    .min(run_len);
-                prev.run_len += space_rem as RunLength;
-                run_len -= space_rem;
-            }
-        }
-    }
     let mut action = FieldAction {
         kind,
         field_idx,
         run_len: 0,
     };
+    if *first_insert {
+        *first_insert = false;
+    } else {
+        let prev = target.last_mut().unwrap();
+        let overlapping = field_idx < prev.field_idx + prev.run_len as usize;
+        let same_idx = field_idx == prev.field_idx;
+        let same_kind = kind == prev.kind;
+        let merge = match prev.kind {
+            FieldActionKind::Dup => same_kind && overlapping,
+            FieldActionKind::InsertZst(_) => {
+                if kind == FieldActionKind::Dup {
+                    overlapping
+                } else {
+                    same_idx
+                }
+            }
+            FieldActionKind::Drop => same_idx && same_kind,
+        };
+        if merge {
+            let space_rem =
+                (RunLength::MAX as usize - prev.run_len as usize).min(run_len);
+            prev.run_len += space_rem as RunLength;
+            run_len -= space_rem;
+            action = *prev;
+        }
+    }
     while run_len > RunLength::MAX as usize {
         action.run_len = RunLength::MAX;
         target.push(action);
@@ -329,6 +334,57 @@ mod test {
             compare_merge_result(unmerged, blank, merged);
             compare_merge_result(blank, unmerged, merged);
         }
+    }
+
+    #[test]
+    fn dup_inside_previous_dup() {
+        // # | BF  L1  L2  R1  R2 | BF  M1  M2 |
+        // 0 | a   a   a   a   a  | a   a   a  |
+        // 1 | b   a   a   a   a  | b   a   a  |
+        // 2 | c   a   a   a   a  | c   a   a  |
+        // 3 |     b   b   a   a  |     a   a  |
+        // 4 |     c   b   a   a  |     a   a  |
+        // 5 |         c   b   a  |     a   a  |
+        // 6 |             b   b  |     b   b  |
+        // 7 |             c   b  |     c   b  |
+        // 8 |                 c  |         c  |
+        let left = &[
+            FieldAction {
+                kind: FAK::Dup,
+                field_idx: 0,
+                run_len: 2,
+            },
+            FieldAction {
+                kind: FAK::Dup,
+                field_idx: 3,
+                run_len: 1,
+            },
+        ];
+        let right = &[
+            FieldAction {
+                kind: FAK::Dup,
+                field_idx: 0,
+                run_len: 2,
+            },
+            FieldAction {
+                kind: FAK::Dup,
+                field_idx: 3,
+                run_len: 1,
+            },
+        ];
+        let merged = &[
+            FieldAction {
+                kind: FAK::Dup,
+                field_idx: 0,
+                run_len: 5,
+            },
+            FieldAction {
+                kind: FAK::Dup,
+                field_idx: 6,
+                run_len: 1,
+            },
+        ];
+        compare_merge_result(left, right, merged);
     }
 
     #[test]

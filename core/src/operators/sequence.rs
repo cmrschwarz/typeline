@@ -121,10 +121,10 @@ pub fn setup_op_sequence_concurrent_liveness_data(
 
 pub fn update_op_sequence_variable_liveness(
     flags: &mut AccessFlags,
-    seq: &OpSequence,
+    _seq: &OpSequence,
 ) {
-    flags.input_accessed = false;
-    flags.may_dup_or_drop = matches!(seq.mode, OpSequenceMode::Sequence);
+    flags.input_accessed = true;
+    flags.may_dup_or_drop = true;
     flags.non_stringified_input_access = false;
 }
 
@@ -275,7 +275,7 @@ fn handle_seq_mode<'a>(
     mut iter: Iter<'a, DestructuredFieldDataRef<'a>>,
     batch_size: usize,
     desired_batch_size: usize,
-    ps: PipelineState,
+    mut ps: PipelineState,
     output_field: &mut Field,
 ) {
     let mut field_pos = iter.get_next_field_pos();
@@ -302,9 +302,13 @@ fn handle_seq_mode<'a>(
             let count = seq_len_rem.min(out_batch_size_rem as u64) as usize;
             let seq_done = count as u64 == seq_len_rem;
             seq.current_value =
-                advance_sequence(seq, seq.ss.start, output_field, count);
+                advance_sequence(seq, seq.current_value, output_field, count);
             let dup_count = count - usize::from(seq_done);
-            ab.push_action(FieldActionKind::Dup, field_pos, dup_count);
+            ab.push_action(
+                FieldActionKind::Dup,
+                field_pos + field_dup_count,
+                dup_count,
+            );
             field_dup_count += dup_count;
             out_batch_size_rem -= count;
             if seq_done {
@@ -342,7 +346,9 @@ fn handle_seq_mode<'a>(
         out_batch_size_rem -= seq_len_trunc * field_count;
     }
     fm.store_iter(input_field_id, seq.iter_id, iter);
-    tf_mgr.unclaim_batch_size(tf_id, field_pos_end - field_pos);
+    let unclaimed_input = field_pos_end - field_pos;
+    tf_mgr.unclaim_batch_size(tf_id, unclaimed_input);
+    ps.next_batch_ready |= unclaimed_input > 0;
     tf_mgr.submit_batch_ready_for_more(
         tf_id,
         desired_batch_size - out_batch_size_rem,
