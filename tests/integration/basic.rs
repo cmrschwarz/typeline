@@ -550,7 +550,7 @@ fn single_operator() -> Result<(), ScrError> {
 fn seq_with_changing_str_length() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
-        .add_op_appending(create_op_seq(1, 11, 1).unwrap())
+        .add_op(create_op_seq(1, 11, 1).unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(

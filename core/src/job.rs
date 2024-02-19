@@ -1134,11 +1134,9 @@ impl JobData<'_> {
         actor_id
     }
     pub fn add_iter_for_tf_state(&self, tf_state: &TransformState) -> IterId {
-        self.field_mgr.fields[tf_state.input_field]
-            .borrow_mut()
-            .iter_hall
-            .claim_iter(IterKind::Transform(
-                self.tf_mgr.transforms.peek_claim_id(),
-            ))
+        self.field_mgr.claim_iter(
+            tf_state.input_field,
+            IterKind::Transform(self.tf_mgr.transforms.peek_claim_id()),
+        )
     }
 }
