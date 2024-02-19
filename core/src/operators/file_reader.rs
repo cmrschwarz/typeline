@@ -83,7 +83,6 @@ pub struct TfFileReader {
     file: Option<AnyFileReader>,
     stream_value: Option<StreamValueId>,
     value_committed: bool,
-    stream_value_committed: bool,
     line_buffered: bool,
     stream_buffer_size: usize,
     stream_size_threshold: usize,
@@ -147,7 +146,6 @@ pub fn build_tf_file_reader<'a>(
         }),
         iter_id: jd.add_iter_for_tf_state(tf_state),
         value_committed: false,
-        stream_value_committed: false,
     })
 }
 
@@ -339,25 +337,11 @@ pub fn handle_tf_file_reader_stream(
         jd.sv_mgr.drop_field_value_subscription(sv_id, None);
         return;
     };
-    let mut need_buffering = false;
-    if !fr.stream_value_committed {
-        fr.stream_value_committed = true;
-        let tf = &jd.tf_mgr.transforms[tf_id];
-        // if input is not done, subsequent records might need the stream
-        if tf.predecessor_done {
-            let input_field = jd.field_mgr.fields[tf.input_field].borrow();
-            // some fork variant / etc. might still need this value later
-            // TODO: this seems weird
-            if input_field.iter_hall.get_field_count(&jd.field_mgr) > 0 {
-                need_buffering = true;
-            }
-        } else {
-            need_buffering = true;
-        }
-    }
     let sv = &mut jd.sv_mgr.stream_values[sv_id];
-    if need_buffering {
-        sv.is_buffered = false;
+    let tf = &jd.tf_mgr.transforms[tf_id];
+    if !tf.predecessor_done {
+        // if we aren't done, subsequent records might need the stream
+        sv.is_buffered = true;
     }
 
     let res = match &mut sv.value {
@@ -399,8 +383,7 @@ pub fn handle_tf_file_reader(
     tf_id: TransformId,
     fr: &mut TfFileReader,
 ) {
-    let initial_call = !fr.value_committed;
-    if initial_call {
+    if !fr.value_committed {
         fr.value_committed = true;
         start_streaming_file(jd, tf_id, fr);
     }

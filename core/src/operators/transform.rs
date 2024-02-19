@@ -133,6 +133,9 @@ pub struct TransformState {
     // means that this transform will not produce any more records
     pub done: bool,
     pub mark_for_removal: bool,
+    // true if this transform is part of a splictat and not the last
+    // element. Used in maintain_single_value to yield early
+    pub is_split: bool,
 }
 
 impl TransformState {
@@ -157,6 +160,7 @@ impl TransformState {
             predecessor_done: false,
             done: false,
             mark_for_removal: false,
+            is_split: false,
         }
     }
 }

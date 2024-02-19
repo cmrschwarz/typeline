@@ -18,8 +18,9 @@ pub fn maintain_single_value(
     explicit_count: Option<&ExplicitCount>,
     iter_id: IterId,
 ) -> (usize, PipelineState) {
-    let (mut batch_size, ps) = jd.tf_mgr.claim_batch(tf_id);
+    let (mut batch_size, mut ps) = jd.tf_mgr.claim_batch(tf_id);
     let tf = &jd.tf_mgr.transforms[tf_id];
+    let output_field = tf.output_field;
 
     let mut count = batch_size;
     if let Some(ec) = explicit_count {
@@ -42,8 +43,12 @@ pub fn maintain_single_value(
         jd.field_mgr.store_iter(tf.input_field, iter_id, iter);
         count *= ec.count;
         batch_size = count;
-    };
-    let mut output_field = jd.field_mgr.fields[tf.output_field].borrow_mut();
+    } else if tf.is_split && batch_size >= 1 {
+        count = 1;
+        jd.tf_mgr.unclaim_batch_size(tf_id, batch_size - 1);
+        ps.input_done = true;
+    }
+    let mut output_field = jd.field_mgr.fields[output_field].borrow_mut();
     if ps.input_done && count == 0 {
         output_field.iter_hall.drop_last_value(1);
     } else {
