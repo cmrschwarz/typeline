@@ -10,6 +10,7 @@ use crate::{
         action_buffer::{ActionBuffer, ActorId},
         field::{Field, FieldId, FieldManager},
         field_action::FieldActionKind,
+        field_data::FieldValueRepr,
         iter_hall::IterId,
         iters::{DestructuredFieldDataRef, FieldIterator, Iter},
         push_interface::{PushInterface, VariableSizeTypeInserter},
@@ -144,7 +145,19 @@ pub fn increment_int_str(data: &mut ArrayVec<u8, I64_MAX_DECIMAL_DIGITS>) {
     data.insert(0, b'1');
 }
 
-pub fn handle_sequence_mode() {}
+struct SequenceBatchState<'a, 'b> {
+    tf_id: TransformId,
+    input_field_id: FieldId,
+    seq: &'a mut TfSequence,
+    ab: &'a mut ActionBuffer,
+    fm: &'a FieldManager,
+    tf_mgr: &'a mut TransformManager,
+    iter: Iter<'b, DestructuredFieldDataRef<'b>>,
+    batch_size: usize,
+    desired_batch_size: usize,
+    ps: PipelineState,
+    output_field: &'a mut Field,
+}
 
 pub fn handle_tf_sequence(
     jd: &mut JobData,
@@ -185,111 +198,43 @@ pub fn handle_tf_sequence(
         .borrow_mut();
     ab.begin_action_group(seq.actor_id);
 
-    match seq.mode {
-        TfSequenceMode::Sequence => handle_seq_mode(
-            tf_id,
-            input_field_id,
-            seq,
-            &mut ab,
-            &jd.field_mgr,
-            &mut jd.tf_mgr,
-            iter,
-            batch_size,
-            desired_batch_size,
-            ps,
-            &mut output_field,
-        ),
-        TfSequenceMode::Enum => handle_enum_mode(
-            tf_id,
-            input_field_id,
-            seq,
-            &mut ab,
-            &jd.field_mgr,
-            &mut jd.tf_mgr,
-            iter,
-            batch_size,
-            ps,
-            &mut output_field,
-        ),
-        TfSequenceMode::EnumUnbounded => todo!(),
+    let ss = SequenceBatchState {
+        tf_id,
+        input_field_id,
+        seq,
+        ab: &mut ab,
+        fm: &jd.field_mgr,
+        tf_mgr: &mut jd.tf_mgr,
+        iter,
+        batch_size,
+        desired_batch_size,
+        ps,
+        output_field: &mut output_field,
+    };
+
+    match ss.seq.mode {
+        TfSequenceMode::Sequence => handle_seq_mode(ss),
+        TfSequenceMode::Enum => handle_enum_mode(ss),
+        TfSequenceMode::EnumUnbounded => handle_enum_unbounded_mode(ss),
     }
     ab.end_action_group();
 }
 
-fn handle_enum_mode<'a>(
-    tf_id: TransformId,
-    input_field_id: FieldId,
-    seq: &mut TfSequence,
-    ab: &mut ActionBuffer,
-    fm: &FieldManager,
-    tf_mgr: &mut TransformManager,
-    mut iter: Iter<'a, DestructuredFieldDataRef<'a>>,
-    batch_size: usize,
-    ps: PipelineState,
-    output_field: &mut Field,
-) {
-    let field_pos = iter.get_next_field_pos();
-    let seq_size_rem = seq.ss.remaining_len(seq.current_value);
-    let mut out_batch_size = 0;
-    while out_batch_size != batch_size {
-        let field_count =
-            iter.skip_non_group_separators(batch_size - out_batch_size);
-        let count = (field_count as u64).min(seq_size_rem) as usize;
-        seq.current_value =
-            advance_sequence(seq, seq.current_value, output_field, count);
-        out_batch_size += count;
-        let rem = field_count - count;
-        if rem > 0 {
-            if batch_size == out_batch_size {
-                tf_mgr.unclaim_batch_size(tf_id, rem);
-                tf_mgr.submit_batch(tf_id, out_batch_size, true);
-                fm.store_iter(input_field_id, seq.iter_id, iter);
-                return;
-            }
-            ab.push_action(
-                FieldActionKind::Drop,
-                field_pos + out_batch_size + count,
-                rem,
-            );
-        }
-        let gs_count = iter.skip_group_separators(batch_size - out_batch_size);
-        if gs_count > 0 {
-            output_field
-                .iter_hall
-                .push_group_separator(gs_count, count == 0);
-            seq.current_value = seq.ss.start;
-            out_batch_size += gs_count;
-        }
-    }
-    fm.store_iter(input_field_id, seq.iter_id, iter);
-    tf_mgr.submit_batch_ready_for_more(tf_id, out_batch_size, ps);
-}
-
-fn handle_seq_mode<'a>(
-    tf_id: TransformId,
-    input_field_id: FieldId,
-    seq: &mut TfSequence,
-    ab: &mut ActionBuffer,
-    fm: &FieldManager,
-    tf_mgr: &mut TransformManager,
-    mut iter: Iter<'a, DestructuredFieldDataRef<'a>>,
-    batch_size: usize,
-    desired_batch_size: usize,
-    mut ps: PipelineState,
-    output_field: &mut Field,
-) {
-    let mut field_pos = iter.get_next_field_pos();
+fn handle_seq_mode(mut sbs: SequenceBatchState) {
+    let mut field_pos = sbs.iter.get_next_field_pos();
     let mut field_dup_count = 0;
-    let field_pos_end = field_pos + batch_size;
-    let mut out_batch_size_rem = desired_batch_size;
+    let field_pos_end = field_pos + sbs.batch_size;
+    let mut out_batch_size_rem = sbs.desired_batch_size;
 
-    let seq_len_total = seq.seq_len_total;
+    let seq_len_total = sbs.seq.seq_len_total;
     let seq_len_trunc = usize::try_from(seq_len_total).unwrap_or(0);
 
-    let mut seq_len_rem = seq.ss.remaining_len(seq.current_value);
+    let mut seq_len_rem = sbs.seq.ss.remaining_len(sbs.seq.current_value);
     while field_pos != field_pos_end && out_batch_size_rem != 0 {
-        let gs_count = iter.skip_group_separators(out_batch_size_rem);
-        output_field.iter_hall.push_group_separator(gs_count, false);
+        let gs_count = sbs.iter.skip_group_separators(out_batch_size_rem);
+        sbs.output_field
+            .iter_hall
+            .push_group_separator(gs_count, false);
         out_batch_size_rem -= gs_count;
         field_pos += gs_count;
 
@@ -301,10 +246,14 @@ fn handle_seq_mode<'a>(
         {
             let count = seq_len_rem.min(out_batch_size_rem as u64) as usize;
             let seq_done = count as u64 == seq_len_rem;
-            seq.current_value =
-                advance_sequence(seq, seq.current_value, output_field, count);
+            sbs.seq.current_value = advance_sequence(
+                sbs.seq,
+                sbs.seq.current_value,
+                sbs.output_field,
+                count,
+            );
             let dup_count = count - usize::from(seq_done);
-            ab.push_action(
+            sbs.ab.push_action(
                 FieldActionKind::Dup,
                 field_pos + field_dup_count,
                 dup_count,
@@ -312,8 +261,8 @@ fn handle_seq_mode<'a>(
             field_dup_count += dup_count;
             out_batch_size_rem -= count;
             if seq_done {
-                iter.next_field();
-                seq.current_value = seq.ss.start;
+                sbs.iter.next_field();
+                sbs.seq.current_value = sbs.seq.ss.start;
                 field_pos += 1;
             }
             if field_pos == field_pos_end || out_batch_size_rem == 0 {
@@ -324,18 +273,23 @@ fn handle_seq_mode<'a>(
 
         let full_seqs_rem =
             (out_batch_size_rem as u64 / seq_len_total) as usize;
-        let field_count = iter.skip_non_group_separators(
+        let field_count = sbs.iter.skip_non_group_separators(
             full_seqs_rem.max(1).min(field_pos_end - field_pos),
         );
 
         // PERF: we could optimize this to a memcopy for the subsequent
         // ones
         for _ in 0..field_count {
-            advance_sequence(seq, seq.ss.start, output_field, seq_len_trunc);
+            advance_sequence(
+                sbs.seq,
+                sbs.seq.ss.start,
+                sbs.output_field,
+                seq_len_trunc,
+            );
         }
         for _ in 0..field_count {
             let dup_count = seq_len_trunc - 1;
-            ab.push_action(
+            sbs.ab.push_action(
                 FieldActionKind::Dup,
                 field_pos + field_dup_count,
                 dup_count,
@@ -345,14 +299,176 @@ fn handle_seq_mode<'a>(
         }
         out_batch_size_rem -= seq_len_trunc * field_count;
     }
-    fm.store_iter(input_field_id, seq.iter_id, iter);
+    sbs.fm
+        .store_iter(sbs.input_field_id, sbs.seq.iter_id, sbs.iter);
     let unclaimed_input = field_pos_end - field_pos;
-    tf_mgr.unclaim_batch_size(tf_id, unclaimed_input);
-    ps.next_batch_ready |= unclaimed_input > 0;
-    tf_mgr.submit_batch_ready_for_more(
-        tf_id,
-        desired_batch_size - out_batch_size_rem,
-        ps,
+    sbs.tf_mgr.unclaim_batch_size(sbs.tf_id, unclaimed_input);
+    sbs.ps.next_batch_ready |= unclaimed_input > 0;
+    sbs.tf_mgr.submit_batch_ready_for_more(
+        sbs.tf_id,
+        sbs.desired_batch_size - out_batch_size_rem,
+        sbs.ps,
+    );
+}
+
+fn handle_enum_mode(mut sbs: SequenceBatchState) {
+    let field_pos = sbs.iter.get_next_field_pos();
+    let seq_size_rem = sbs.seq.ss.remaining_len(sbs.seq.current_value);
+    let mut out_batch_size = 0;
+    while out_batch_size != sbs.batch_size {
+        let field_count = sbs
+            .iter
+            .skip_non_group_separators(sbs.batch_size - out_batch_size);
+        let count = (field_count as u64).min(seq_size_rem) as usize;
+        sbs.seq.current_value = advance_sequence(
+            sbs.seq,
+            sbs.seq.current_value,
+            sbs.output_field,
+            count,
+        );
+        out_batch_size += count;
+        let rem = field_count - count;
+        if rem > 0 {
+            if sbs.batch_size == out_batch_size {
+                sbs.tf_mgr.unclaim_batch_size(sbs.tf_id, rem);
+                sbs.tf_mgr.submit_batch(sbs.tf_id, out_batch_size, true);
+                sbs.fm.store_iter(
+                    sbs.input_field_id,
+                    sbs.seq.iter_id,
+                    sbs.iter,
+                );
+                return;
+            }
+            sbs.ab.push_action(
+                FieldActionKind::Drop,
+                field_pos + out_batch_size + count,
+                rem,
+            );
+        }
+        let gs_count = sbs
+            .iter
+            .skip_group_separators(sbs.batch_size - out_batch_size);
+        if gs_count > 0 {
+            sbs.output_field
+                .iter_hall
+                .push_group_separator(gs_count, count == 0);
+            sbs.seq.current_value = sbs.seq.ss.start;
+            out_batch_size += gs_count;
+        }
+    }
+    sbs.fm
+        .store_iter(sbs.input_field_id, sbs.seq.iter_id, sbs.iter);
+    sbs.tf_mgr
+        .submit_batch_ready_for_more(sbs.tf_id, out_batch_size, sbs.ps);
+}
+
+fn handle_enum_unbounded_mode(mut sbs: SequenceBatchState) {
+    let mut field_pos = sbs.iter.get_next_field_pos();
+    let mut field_dup_count = 0;
+    let field_pos_end = field_pos + sbs.batch_size;
+    let mut out_batch_size_rem = sbs.desired_batch_size;
+
+    let seq_len_total = sbs.seq.seq_len_total;
+    let seq_len_trunc = usize::try_from(seq_len_total).unwrap_or(usize::MAX);
+
+    let seq_len_rem = sbs.seq.ss.remaining_len(sbs.seq.current_value);
+    while field_pos != field_pos_end && out_batch_size_rem != 0 {
+        let field_count =
+            sbs.iter.skip_non_group_separators(out_batch_size_rem);
+        let gs_count = sbs
+            .iter
+            .skip_group_separators(out_batch_size_rem - field_count);
+        let seq_adv = if gs_count == 0 && !(sbs.ps.input_done) {
+            seq_len_rem.min(field_count as u64) as usize
+        } else {
+            seq_len_rem.min(out_batch_size_rem as u64) as usize
+        };
+        sbs.seq.current_value = advance_sequence(
+            sbs.seq,
+            sbs.seq.current_value,
+            sbs.output_field,
+            seq_adv,
+        );
+
+        out_batch_size_rem -= seq_adv;
+        field_pos += field_count;
+
+        let fields_rem = field_count.saturating_sub(seq_adv);
+        if fields_rem > 0 {
+            sbs.ab.push_action(
+                FieldActionKind::InsertZst(FieldValueRepr::Undefined),
+                field_pos + field_dup_count - 1,
+                fields_rem,
+            );
+            sbs.output_field
+                .iter_hall
+                .push_undefined(fields_rem, seq_adv == 0);
+            field_dup_count += fields_rem;
+            out_batch_size_rem -= fields_rem;
+        }
+        let fields_overhang = seq_adv.saturating_sub(field_count);
+        if fields_overhang > 0 {
+            sbs.ab.push_action(
+                FieldActionKind::InsertZst(FieldValueRepr::Undefined),
+                field_pos + field_dup_count,
+                fields_overhang,
+            );
+            field_dup_count += fields_overhang;
+        }
+
+        if gs_count == 0 {
+            continue;
+        }
+        sbs.seq.current_value = sbs.seq.ss.start;
+        if gs_count == 1 {
+            sbs.seq.current_value = sbs.seq.ss.start;
+            sbs.output_field
+                .iter_hall
+                .push_group_separator(1, seq_adv == 0);
+            field_pos += 1;
+            out_batch_size_rem -= 1;
+            continue;
+        }
+        let empty_group_count = gs_count - 1;
+
+        let full_seqs_rem =
+            (out_batch_size_rem as u64 / seq_len_total) as usize;
+
+        let full_seqs_count = empty_group_count.min(full_seqs_rem);
+
+        // PERF: we could optimize this to a memcopy for the subsequent
+        // ones
+        for _ in 0..full_seqs_count {
+            advance_sequence(
+                sbs.seq,
+                sbs.seq.ss.start,
+                sbs.output_field,
+                seq_len_trunc,
+            );
+            sbs.output_field
+                .iter_hall
+                .push_group_separator(1, seq_len_trunc == 0);
+        }
+        for _ in 0..full_seqs_count {
+            sbs.ab.push_action(
+                FieldActionKind::InsertZst(FieldValueRepr::Undefined),
+                field_pos + field_dup_count,
+                seq_len_trunc,
+            );
+            field_dup_count += seq_len_trunc;
+            field_pos += 1;
+        }
+        out_batch_size_rem -= seq_len_trunc * full_seqs_count;
+    }
+    sbs.fm
+        .store_iter(sbs.input_field_id, sbs.seq.iter_id, sbs.iter);
+    let unclaimed_input = field_pos_end - field_pos;
+    sbs.tf_mgr.unclaim_batch_size(sbs.tf_id, unclaimed_input);
+    sbs.ps.next_batch_ready |= unclaimed_input > 0;
+    sbs.tf_mgr.submit_batch_ready_for_more(
+        sbs.tf_id,
+        sbs.desired_batch_size - out_batch_size_rem,
+        sbs.ps,
     );
 }
 
@@ -519,25 +635,6 @@ pub fn create_op_sequence(
         None,
     )
 }
-pub fn create_op_enum_with_opts(
-    start: i64,
-    end: i64,
-    step: i64,
-    unbounded: bool,
-) -> Result<OperatorData, OperatorCreationError> {
-    create_op_sequence_with_opts(
-        start,
-        end,
-        step,
-        if unbounded {
-            OpSequenceMode::EnumUnbounded
-        } else {
-            OpSequenceMode::Enum
-        },
-        None,
-    )
-}
-
 pub fn create_op_seq(
     start: i64,
     end: i64,
@@ -557,5 +654,18 @@ pub fn create_op_enum(
     end: i64,
     step: i64,
 ) -> Result<OperatorData, OperatorCreationError> {
-    create_op_enum_with_opts(start, end, step, false)
+    create_op_sequence_with_opts(start, end, step, OpSequenceMode::Enum, None)
+}
+pub fn create_op_enum_unbounded(
+    start: i64,
+    end: i64,
+    step: i64,
+) -> Result<OperatorData, OperatorCreationError> {
+    create_op_sequence_with_opts(
+        start,
+        end,
+        step,
+        OpSequenceMode::EnumUnbounded,
+        None,
+    )
 }

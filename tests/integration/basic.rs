@@ -1,6 +1,10 @@
 use std::borrow::Cow;
 
 use rstest::rstest;
+use scr::operators::{
+    foreach::create_op_foreach, literal::create_op_str_n,
+    sequence::create_op_enum_unbounded,
+};
 use scr_core::{
     operators::{
         file_reader::create_op_file_reader_custom,
@@ -264,7 +268,7 @@ fn unset_field_value() -> Result<(), ScrError> {
     ContextBuilder::default()
         .push_str("x", 1)
         .add_op(create_op_key("foo".to_owned()))
-        .add_op(create_op_seq(0, 2, 1).unwrap())
+        .add_op(create_op_enum_unbounded(0, 2, 1).unwrap())
         .add_op(create_op_format("{foo}{}").unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
@@ -275,6 +279,23 @@ fn unset_field_value() -> Result<(), ScrError> {
     assert_eq!(
         ss.get().get_first_error_message(),
         Some("unexpected type `undefined` in format key 'foo'")
+    );
+    Ok(())
+}
+
+#[test]
+fn unset_field_value_in_forkeach() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::default();
+    ContextBuilder::default()
+        .add_op_with_label(create_op_seq(0, 2, 1).unwrap(), "foo")
+        .add_op(create_op_foreach())
+        .add_op(create_op_enum_unbounded(0, 2, 1).unwrap())
+        .add_op(create_op_format("{foo:?}: {}").unwrap())
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(
+        ss.get().data.as_slice(),
+        &["0: 0", "undefined: 1", "1: 0", "undefined: 1"]
     );
     Ok(())
 }

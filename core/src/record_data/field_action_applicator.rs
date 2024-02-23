@@ -48,8 +48,8 @@ struct FieldActionApplicationState {
 
 impl FieldActionApplicator {
     fn push_copy_command(&mut self, faas: &mut FieldActionApplicationState) {
-        let copy_len = faas.header_idx_new - faas.copy_range_start_new;
-        if copy_len > 0 && faas.copy_range_start_new > 0 {
+        let copy_len = faas.header_idx - faas.copy_range_start;
+        if copy_len > 0 && faas.copy_range_start != faas.copy_range_start_new {
             self.copies.push(CopyCommand {
                 source: faas.copy_range_start,
                 target: faas.copy_range_start_new,
@@ -522,9 +522,11 @@ impl FieldActionApplicator {
             }
             faas.curr_header_iters_end += 1;
         }
+        let mut curr_action;
         let mut actions = actions.peekable();
-        loop {
-            let Some(action) = actions.next().copied() else {
+        'consume_actions: loop {
+            curr_action = actions.next().copied();
+            let Some(action) = curr_action else {
                 break;
             };
             faas.curr_action_kind = action.kind;
@@ -561,8 +563,7 @@ impl FieldActionApplicator {
                     headers, iterators, &mut faas,
                 );
                 if faas.header_idx == headers.len() {
-                    faas.header_idx -= 1;
-                    break;
+                    break 'consume_actions;
                 }
                 match faas.curr_action_kind {
                     FieldActionKind::Dup => {
@@ -600,9 +601,7 @@ impl FieldActionApplicator {
             }
         }
         let headers_rem = headers.len() - faas.header_idx;
-        faas.header_idx_new += headers_rem;
         if headers_rem > 0 {
-            //TODO //WIP: reverse this
             faas.field_pos +=
                 headers[faas.header_idx].effective_run_length() as usize;
             faas.field_pos_old += faas.curr_header_original_rl as usize;
@@ -616,33 +615,25 @@ impl FieldActionApplicator {
                 it.header_idx =
                     (it.header_idx as isize + header_idx_delta) as usize;
             }
-        } else if let Some(_data) = data {
-            // TODO: create a proper mechanism for freeing data
-            // this is completely busted:
-            // - it leaks if data needs to be dropped
-            // - it semantically breaks cow targets that may not have deleted
-            //   these fields yet
-            // - worse, once this field get's pushed into later, it potentially
-            //   allows data cow targets to access misstyped memory through
-            //   their iterators (-> rip soundness)
-            /*
-            // if we touched all headers, there is a chance that the final
-            // headers are deleted
-            while faas.header_idx > 0 {
-                let h = headers[faas.header_idx - 1];
-                if !h.deleted() {
-                    break;
-                }
-                faas.header_idx_new -= 1;
-                faas.header_idx -= 1;
-                if !h.same_value_as_previous() {
-                    faas.data_end -= h.total_size();
-                }
-            }
-            data.truncate(faas.data_end);
-            */
+            faas.header_idx_new += headers_rem;
+            faas.header_idx += headers_rem;
         }
         self.push_copy_command(&mut faas);
+        for a in curr_action.iter().copied().chain(actions.copied()) {
+            assert!(a.field_idx == faas.field_pos);
+            let FieldActionKind::InsertZst(repr) = a.kind else {
+                unreachable!()
+            };
+            self.push_insert_command(
+                &mut faas,
+                FieldValueFormat {
+                    repr,
+                    ..Default::default()
+                },
+                a.run_len,
+            );
+            faas.field_pos += a.run_len as usize;
+        }
         faas.field_pos as isize - faas.field_pos_old as isize
     }
     #[allow(clippy::mut_mut)]
