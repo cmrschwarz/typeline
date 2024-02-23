@@ -605,8 +605,8 @@ impl FieldActionApplicator {
             faas.field_pos +=
                 headers[faas.header_idx].effective_run_length() as usize;
             faas.field_pos_old += faas.curr_header_original_rl as usize;
-            let header_idx_delta = faas.header_idx_new as isize
-                - (faas.header_idx + headers_rem) as isize;
+            let header_idx_delta =
+                faas.header_idx_new as isize - faas.header_idx as isize;
             let field_pos_delta =
                 faas.field_pos as isize - faas.field_pos_old as isize;
             for it in &mut iterators[faas.curr_header_iters_end..] {
