@@ -7,8 +7,7 @@ use crate::{
 use super::{
     field_action::FieldAction,
     field_data::{
-        FieldDataBuffer, FieldValueFormat, FieldValueHeader, FieldValueRepr,
-        RunLength,
+        FieldValueFormat, FieldValueHeader, FieldValueRepr, RunLength,
     },
     iter_hall::IterState,
 };
@@ -488,16 +487,8 @@ impl FieldActionApplicator {
         &mut self,
         actions: impl Iterator<Item = &'a FieldAction>,
         headers: &mut VecDeque<FieldValueHeader>,
-        data: Option<&mut FieldDataBuffer>,
         iterators: &mut Vec<&mut IterState>,
     ) -> isize {
-        if headers.is_empty() {
-            debug_assert!(actions
-                .copied()
-                .all(|a| a.kind == FieldActionKind::Drop));
-            debug_assert!(data.map(|d| d.is_empty()).unwrap_or(true));
-            return 0;
-        }
         let mut faas = FieldActionApplicationState {
             header_idx: 0,
             field_pos: 0,
@@ -559,6 +550,9 @@ impl FieldActionApplicator {
                 actions.next();
             }
             loop {
+                if faas.header_idx == headers.len() {
+                    break 'consume_actions;
+                }
                 Self::move_header_idx_to_action_pos(
                     headers, iterators, &mut faas,
                 );
@@ -754,16 +748,14 @@ impl FieldActionApplicator {
         &mut self,
         actions: impl Iterator<Item = &'a FieldAction>,
         headers: &mut VecDeque<FieldValueHeader>,
-        data: Option<&mut FieldDataBuffer>,
         field_count: &mut usize,
         iterators: impl Iterator<Item = &'a mut IterState>,
     ) -> isize {
         let mut iters = transmute_vec(std::mem::take(&mut self.iters));
         iters.extend(iterators);
         iters.sort_by(|lhs, rhs| lhs.field_pos.cmp(&rhs.field_pos));
-        let field_count_delta = self.generate_commands_from_actions(
-            actions, headers, data, &mut iters,
-        );
+        let field_count_delta =
+            self.generate_commands_from_actions(actions, headers, &mut iters);
         debug_assert!(*field_count as isize + field_count_delta >= 0);
         *field_count = (*field_count as isize + field_count_delta) as usize;
         self.execute_commands(headers);
@@ -813,7 +805,6 @@ mod test {
         let fc_delta = faa.run(
             actions.iter(),
             &mut fd.headers,
-            Some(&mut fd.data),
             &mut fd.field_count,
             iter_states.iter_mut(),
         );

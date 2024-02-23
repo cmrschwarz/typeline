@@ -1036,23 +1036,20 @@ impl ActionBuffer {
         let mut field_ref_mut = fm.fields[field_id].borrow_mut();
         let field = &mut *field_ref_mut;
         let fd = &mut field.iter_hall.field_data;
-        let (headers, data, field_count) =
-            match &mut field.iter_hall.data_source {
-                FieldDataSource::Owned => {
-                    (&mut fd.headers, Some(&mut fd.data), &mut fd.field_count)
-                }
-                FieldDataSource::DataCow { .. }
-                | FieldDataSource::RecordBufferDataCow(_) => {
-                    (&mut fd.headers, None, &mut fd.field_count)
-                }
-                FieldDataSource::Alias(_) => {
-                    panic!("cannot execute commands on Alias iter hall")
-                }
-                FieldDataSource::FullCow(_)
-                | FieldDataSource::RecordBufferFullCow(_) => {
-                    panic!("cannot execute commands on FullCow iter hall")
-                }
-            };
+        let (headers, field_count) = match &mut field.iter_hall.data_source {
+            FieldDataSource::Owned => (&mut fd.headers, &mut fd.field_count),
+            FieldDataSource::DataCow { .. }
+            | FieldDataSource::RecordBufferDataCow(_) => {
+                (&mut fd.headers, &mut fd.field_count)
+            }
+            FieldDataSource::Alias(_) => {
+                panic!("cannot execute commands on Alias iter hall")
+            }
+            FieldDataSource::FullCow(_)
+            | FieldDataSource::RecordBufferFullCow(_) => {
+                panic!("cannot execute commands on FullCow iter hall")
+            }
+        };
         let (s1, s2) = Self::get_action_group_slices_raw(
             &self.actors,
             &self.action_temp_buffers,
@@ -1081,7 +1078,6 @@ impl ActionBuffer {
         let _field_count_delta = self.actions_applicator.run(
             actions,
             headers,
-            data,
             field_count,
             iterators,
         );

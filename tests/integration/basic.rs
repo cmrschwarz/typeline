@@ -305,7 +305,7 @@ fn unset_field_value_debug_repr_is_undefined() -> Result<(), ScrError> {
     ContextBuilder::default()
         .push_str("x", 1)
         .add_op(create_op_key("foo".to_owned()))
-        .add_op(create_op_seq(0, 2, 1).unwrap())
+        .add_op(create_op_enum_unbounded(0, 2, 1).unwrap())
         .add_op(create_op_format("{foo:?}_{}").unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
@@ -323,8 +323,7 @@ fn unset_field_value_does_not_trigger_underflow() -> Result<(), ScrError> {
         .push_str("x", 1)
         .add_op(create_op_key("x".to_owned()))
         .set_batch_size(1)
-        // TODO: investigate why this bug did not trigger for 3 elements
-        .add_op(create_op_seq(0, 4, 1).unwrap())
+        .add_op(create_op_enum_unbounded(0, 4, 1).unwrap())
         .add_op(create_op_format("{x:?}").unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;

@@ -231,7 +231,9 @@ fn handle_seq_mode(mut sbs: SequenceBatchState) {
 
     let mut seq_len_rem = sbs.seq.ss.remaining_len(sbs.seq.current_value);
     while field_pos != field_pos_end && out_batch_size_rem != 0 {
-        let gs_count = sbs.iter.skip_group_separators(out_batch_size_rem);
+        let gs_count = sbs.iter.skip_group_separators(
+            out_batch_size_rem.min(field_pos_end - field_pos),
+        );
         sbs.output_field
             .iter_hall
             .push_group_separator(gs_count, false);
@@ -371,13 +373,21 @@ fn handle_enum_unbounded_mode(mut sbs: SequenceBatchState) {
     let seq_len_total = sbs.seq.seq_len_total;
     let seq_len_trunc = usize::try_from(seq_len_total).unwrap_or(usize::MAX);
 
-    let seq_len_rem = sbs.seq.ss.remaining_len(sbs.seq.current_value);
-    while field_pos != field_pos_end && out_batch_size_rem != 0 {
-        let field_count =
-            sbs.iter.skip_non_group_separators(out_batch_size_rem);
-        let gs_count = sbs
+    let mut seq_len_rem = sbs.seq.ss.remaining_len(sbs.seq.current_value);
+    while out_batch_size_rem != 0 {
+        let input_rem = field_pos_end - field_pos;
+        if input_rem == 0 && (!sbs.ps.input_done || seq_len_rem == 0) {
+            break;
+        }
+        let field_count = sbs
             .iter
-            .skip_group_separators(out_batch_size_rem - field_count);
+            .skip_non_group_separators(out_batch_size_rem.min(input_rem));
+        let gs_count = sbs.iter.skip_group_separators(
+            ((out_batch_size_rem as u64)
+                .saturating_sub(seq_len_rem)
+                .div_ceil(seq_len_total))
+            .min(input_rem as u64) as usize,
+        );
         let seq_adv = if gs_count == 0 && !(sbs.ps.input_done) {
             seq_len_rem.min(field_count as u64) as usize
         } else {
@@ -389,6 +399,7 @@ fn handle_enum_unbounded_mode(mut sbs: SequenceBatchState) {
             sbs.output_field,
             seq_adv,
         );
+        seq_len_rem -= seq_adv as u64;
 
         out_batch_size_rem -= seq_adv;
         field_pos += field_count;
@@ -427,6 +438,7 @@ fn handle_enum_unbounded_mode(mut sbs: SequenceBatchState) {
                 .push_group_separator(1, seq_adv == 0);
             field_pos += 1;
             out_batch_size_rem -= 1;
+            seq_len_rem = seq_len_total;
             continue;
         }
         let empty_group_count = gs_count - 1;
@@ -465,10 +477,14 @@ fn handle_enum_unbounded_mode(mut sbs: SequenceBatchState) {
     let unclaimed_input = field_pos_end - field_pos;
     sbs.tf_mgr.unclaim_batch_size(sbs.tf_id, unclaimed_input);
     sbs.ps.next_batch_ready |= unclaimed_input > 0;
-    sbs.tf_mgr.submit_batch_ready_for_more(
+    let seq_unfinished = seq_len_rem != 0;
+    if sbs.ps.next_batch_ready || (sbs.ps.input_done && seq_unfinished) {
+        sbs.tf_mgr.push_tf_in_ready_stack(sbs.tf_id);
+    }
+    sbs.tf_mgr.submit_batch(
         sbs.tf_id,
         sbs.desired_batch_size - out_batch_size_rem,
-        sbs.ps,
+        sbs.ps.input_done && !seq_unfinished,
     );
 }
 
