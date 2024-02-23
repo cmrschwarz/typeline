@@ -283,6 +283,20 @@ fn unset_field_value() -> Result<(), ScrError> {
 }
 
 #[test]
+fn unbounded_enum_backoff() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::default();
+    ContextBuilder::default()
+        .set_batch_size(2)
+        .add_op(create_op_seq(0, 3, 1).unwrap())
+        .add_op(create_op_enum_unbounded(0, 1, 1).unwrap())
+        .add_op_appending(create_op_enum_unbounded(1, 3, 1).unwrap())
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(ss.get_data().unwrap().as_slice(), ["0", "1", "2"]);
+    Ok(())
+}
+
+#[test]
 fn unset_field_value_in_forkeach() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()

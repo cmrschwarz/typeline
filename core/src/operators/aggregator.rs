@@ -242,7 +242,9 @@ pub fn handle_tf_aggregator_header(
         // in case the previous op left behind unclaimed records,
         // we reclaim them and give them to the next
         let prev_tf = &mut jd.tf_mgr.transforms[prev_sub_tf_id];
-        batch_size += prev_tf.available_batch_size;
+        batch_size += prev_tf
+            .available_batch_size
+            .saturating_sub(usize::from(agg_h.last_elem_multiplied));
         prev_tf.available_batch_size = 0;
     }
 
