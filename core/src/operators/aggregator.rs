@@ -211,7 +211,7 @@ pub fn handle_tf_aggregator_header(
     tf_id: nonmax::NonMaxUsize,
     agg_h: &mut TfAggregatorHeader,
 ) {
-    let (mut batch_size, ps) = jd.tf_mgr.claim_all(tf_id);
+    let (mut batch_size, mut ps) = jd.tf_mgr.claim_all(tf_id);
 
     let sub_tf_count = agg_h.sub_tfs.len();
     if sub_tf_count == agg_h.curr_sub_tf_idx
@@ -246,14 +246,17 @@ pub fn handle_tf_aggregator_header(
         prev_tf.available_batch_size = 0;
     }
 
-    let sub_tf = &mut jd.tf_mgr.transforms[sub_tf_id];
-    if !ps.input_done && !agg_h.elem_buffered {
+    batch_size += usize::from(ps.input_done && agg_h.elem_buffered);
+    if !agg_h.elem_buffered
+        && sub_tfs_after != 0
+        && batch_size > 0
+        && (!ps.input_done || batch_size > 1)
+    {
         agg_h.elem_buffered = true;
         batch_size -= 1;
-    }
-    batch_size += usize::from(ps.input_done && agg_h.elem_buffered);
-
-    if ps.input_done
+        iter.next_n_fields(batch_size, true);
+        ps.input_done = false;
+    } else if ps.input_done
         && (agg_h.elem_buffered || batch_size > 0)
         && sub_tfs_after != 0
         && !agg_h.last_elem_multiplied
@@ -271,7 +274,7 @@ pub fn handle_tf_aggregator_header(
     } else {
         iter.next_n_fields(batch_size, true);
     }
-
+    let sub_tf = &mut jd.tf_mgr.transforms[sub_tf_id];
     jd.field_mgr.store_iter(input_field_id, iter_id, iter);
     sub_tf.available_batch_size += batch_size;
     sub_tf.predecessor_done |= ps.input_done;

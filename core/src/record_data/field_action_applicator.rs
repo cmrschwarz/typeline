@@ -693,7 +693,12 @@ impl FieldActionApplicator {
             .last()
             .map(|i| i.index + 1)
             .unwrap_or(0)
-            .max(self.copies.last().map(|c| c.target + c.len).unwrap());
+            .max(
+                self.copies
+                    .last()
+                    .map(|c| c.target + c.len)
+                    .unwrap_or(headers.len()),
+            );
         // TODO: do something clever instead
         headers.resize(new_size, FieldValueHeader::default());
         headers.make_contiguous();

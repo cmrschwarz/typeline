@@ -2,8 +2,7 @@ use std::borrow::Cow;
 
 use rstest::rstest;
 use scr::operators::{
-    foreach::create_op_foreach, literal::create_op_str_n,
-    sequence::create_op_enum_unbounded,
+    foreach::create_op_foreach, sequence::create_op_enum_unbounded,
 };
 use scr_core::{
     operators::{

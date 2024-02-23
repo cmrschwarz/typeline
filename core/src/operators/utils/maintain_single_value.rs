@@ -18,7 +18,7 @@ pub fn maintain_single_value(
     explicit_count: Option<&ExplicitCount>,
     iter_id: IterId,
 ) -> (usize, PipelineState) {
-    let (mut batch_size, mut ps) = jd.tf_mgr.claim_batch(tf_id);
+    let (batch_size, mut ps) = jd.tf_mgr.claim_batch(tf_id);
     let tf = &jd.tf_mgr.transforms[tf_id];
     let output_field = tf.output_field;
 
@@ -42,7 +42,6 @@ pub fn maintain_single_value(
         ab.end_action_group();
         jd.field_mgr.store_iter(tf.input_field, iter_id, iter);
         count *= ec.count;
-        batch_size = count;
     } else if tf.is_split && batch_size >= 1 {
         count = 1;
         jd.tf_mgr.unclaim_batch_size(tf_id, batch_size - 1);
@@ -56,5 +55,5 @@ pub fn maintain_single_value(
             .iter_hall
             .dup_last_value(count - usize::from(ps.input_done));
     }
-    (batch_size, ps)
+    (count, ps)
 }

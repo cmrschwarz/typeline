@@ -1427,7 +1427,8 @@ impl ActionBuffer {
             self.execute_actions(fm, field_id, &agi, &mut full_cow_fields);
         }
         let mut field = fm.fields[field_id].borrow_mut();
-        if !all_fields_dead {
+        let data_owned = field.iter_hall.data_source == FieldDataSource::Owned;
+        if !all_fields_dead && data_owned {
             Self::calc_dead_data(
                 &field.iter_hall.field_data.headers,
                 &mut dead_data_leading,
@@ -1437,8 +1438,9 @@ impl ActionBuffer {
         }
         // Even if the field no longer uses the data, some data COWs might,
         // in which case we can't clear it.
-        let all_data_dead = dead_data_leading == field_data_size;
-        let some_data_dead = dead_data_leading != 0 || dead_data_trailing != 0;
+        let all_data_dead = data_owned && dead_data_leading == field_data_size;
+        let some_data_dead =
+            data_owned && (dead_data_leading != 0 || dead_data_trailing != 0);
 
         if all_fields_dead && cfg!(feature = "debug_logging") {
             eprintln!(
