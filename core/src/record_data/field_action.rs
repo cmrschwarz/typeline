@@ -124,14 +124,15 @@ fn push_merged_action<T: ActionContainer>(
         *first_insert = false;
     } else {
         let prev = target.last_mut().unwrap();
-        let overlapping = field_idx < prev.field_idx + prev.run_len as usize;
+        let overlapping_with_dup =
+            field_idx <= prev.field_idx + prev.run_len as usize;
         let same_idx = field_idx == prev.field_idx;
         let same_kind = kind == prev.kind;
         let merge = match prev.kind {
-            FieldActionKind::Dup => same_kind && overlapping,
+            FieldActionKind::Dup => same_kind && overlapping_with_dup,
             FieldActionKind::InsertZst(_) => {
                 if kind == FieldActionKind::Dup {
-                    overlapping
+                    overlapping_with_dup
                 } else {
                     same_idx
                 }
@@ -381,6 +382,55 @@ mod test {
             FieldAction {
                 kind: FAK::Dup,
                 field_idx: 6,
+                run_len: 1,
+            },
+        ];
+        compare_merge_result(left, right, merged);
+    }
+
+    #[test]
+    fn dup_inside_previous_dup_2() {
+        // # | BF  L1  L2  R1  R2 | BF  M1  M2 |
+        // 0 | a   a   a   a   a  | a   a   a  |
+        // 1 | b   a   a   a   a  | b   a   a  |
+        // 2 | c   b   b   a   a  | c   a   a  |
+        // 3 |     c   b   b   a  |     a   a  |
+        // 4 |         c   b   b  |     b   b  |
+        // 5 |             c   b  |     c   b  |
+        // 6 |                 c  |         c  |
+        let left = &[
+            FieldAction {
+                kind: FAK::Dup,
+                field_idx: 0,
+                run_len: 1,
+            },
+            FieldAction {
+                kind: FAK::Dup,
+                field_idx: 2,
+                run_len: 1,
+            },
+        ];
+        let right = &[
+            FieldAction {
+                kind: FAK::Dup,
+                field_idx: 0,
+                run_len: 1,
+            },
+            FieldAction {
+                kind: FAK::Dup,
+                field_idx: 2,
+                run_len: 1,
+            },
+        ];
+        let merged = &[
+            FieldAction {
+                kind: FAK::Dup,
+                field_idx: 0,
+                run_len: 3,
+            },
+            FieldAction {
+                kind: FAK::Dup,
+                field_idx: 4,
                 run_len: 1,
             },
         ];
