@@ -386,11 +386,19 @@ fn handle_enum_unbounded_mode(mut sbs: SequenceBatchState) {
     let seq_len_trunc =
         usize::try_from(seq_len_total).unwrap_or(isize::MAX as usize);
 
+    let mut yield_to_split = false;
+
     let mut seq_len_rem = sbs.seq.ss.remaining_len(sbs.seq.current_value);
     while out_batch_size_rem != 0 {
         let input_rem = field_pos_end - field_pos;
-        if input_rem == 0 && (!sbs.ps.input_done || seq_len_rem == 0) {
-            break;
+        if input_rem == 0 {
+            if seq_len_rem == 0 {
+                yield_to_split = sbs.is_split;
+                break;
+            }
+            if !sbs.ps.input_done {
+                break;
+            }
         }
         let field_count = sbs
             .iter
@@ -421,6 +429,7 @@ fn handle_enum_unbounded_mode(mut sbs: SequenceBatchState) {
         if fields_rem > 0 {
             if sbs.is_split && sbs.ps.input_done && input_rem == field_count {
                 field_pos -= fields_rem;
+                yield_to_split = true;
                 break;
             }
             sbs.ab.push_action(
@@ -491,14 +500,16 @@ fn handle_enum_unbounded_mode(mut sbs: SequenceBatchState) {
     let unclaimed_input = field_pos_end - field_pos;
     sbs.tf_mgr.unclaim_batch_size(sbs.tf_id, unclaimed_input);
     sbs.ps.next_batch_ready |= unclaimed_input > 0;
-    let seq_unfinished = seq_len_rem != 0;
-    if sbs.ps.next_batch_ready || (sbs.ps.input_done && seq_unfinished) {
+    let seq_unfinished = seq_len_rem != 0 && !yield_to_split;
+    if (sbs.ps.next_batch_ready && !yield_to_split)
+        || (sbs.ps.input_done && seq_unfinished)
+    {
         sbs.tf_mgr.push_tf_in_ready_stack(sbs.tf_id);
     }
     sbs.tf_mgr.submit_batch(
         sbs.tf_id,
         sbs.desired_batch_size - out_batch_size_rem,
-        sbs.ps.input_done && !seq_unfinished,
+        (sbs.ps.input_done || yield_to_split) && !seq_unfinished,
     );
 }
 

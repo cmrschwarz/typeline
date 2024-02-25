@@ -1,5 +1,5 @@
 use rstest::rstest;
-use scr::operators::sequence::{create_op_enum, create_op_enum_unbounded};
+use scr::operators::sequence::create_op_enum;
 use scr_core::{
     operators::{
         fork::create_op_fork,

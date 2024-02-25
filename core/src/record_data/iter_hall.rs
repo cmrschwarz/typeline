@@ -142,7 +142,6 @@ impl IterHall {
             kind,
         }
     }
-
     pub fn get_iter_state_at_end(
         &self,
         fm: &FieldManager,

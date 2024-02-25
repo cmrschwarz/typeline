@@ -207,6 +207,13 @@ pub trait FieldIterator<'a>: Sized + Clone {
     fn prev_n_fields(&mut self, n: usize, allow_ring_wrap: bool) -> usize {
         self.prev_n_fields_with_fmt(n, [], true, 0, 0, allow_ring_wrap)
     }
+    fn move_n_fields(&mut self, delta: isize, allow_ring_wrap: bool) -> isize {
+        if delta < 0 {
+            -(self.prev_n_fields((-delta) as usize, allow_ring_wrap) as isize)
+        } else {
+            self.next_n_fields(delta as usize, allow_ring_wrap) as isize
+        }
+    }
     fn typed_field_fwd(&mut self, limit: usize) -> Option<TypedField<'a>>;
     fn typed_field_bwd(&mut self, limit: usize) -> Option<TypedField<'a>>;
     fn typed_range_fwd(

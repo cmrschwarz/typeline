@@ -636,6 +636,24 @@ impl FieldManager {
         self.apply_field_actions(msm, field_id);
         self.get_cow_field_ref_raw(field_id)
     }
+    pub fn move_iter(
+        &self,
+        msm: &mut MatchSetManager,
+        field_id: FieldId,
+        iter_id: IterId,
+        delta: isize,
+    ) {
+        let field_id = self.dealias_field_id(field_id);
+        let fr = self.get_cow_field_ref(msm, field_id);
+        let mut iter = self.lookup_iter(field_id, &fr, iter_id);
+        iter.move_n_fields(delta, true);
+        unsafe {
+            self.fields[field_id]
+                .borrow()
+                .iter_hall
+                .store_iter_unchecked(iter_id, iter)
+        }
+    }
     pub fn get_auto_deref_iter<'a>(
         &'a self,
         input_field_id: FieldId,

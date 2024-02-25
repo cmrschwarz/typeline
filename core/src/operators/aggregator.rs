@@ -31,6 +31,22 @@ pub struct OpAggregator {
 
 pub const AGGREGATOR_DEFAULT_NAME: &str = "aggregator";
 
+// TODO: rename this primitive to splitcat and support whole subchains
+// Gives input records to the first subchain that accepts it, concatenates the
+// results. Basic approach:
+// - Sandwich subchains between a header and a trailer transform
+// - Start by giving records to the first subchain.
+// - Once a subchain proclaims `done`, move to the next one, including any
+//   `available_batch_size` still remaining in the previous chain.
+// - If the last subchain proclaims `done`, ignore it and keep feeding it
+//   records.
+// - If input records are available, always give each subchain at least one
+//   record (TODO: make this configurable).
+// - To achieve this, keep the last record received so far buffered and don't
+//   hand it out to the current subchain.
+// - Once `input_done` is received, hand out the last record but `dup` it
+//   beforehand for any following subchains in case it is consumed.
+
 pub struct TfAggregatorHeader {
     curr_sub_tf_idx: usize,
     sub_tfs: Vec<TransformId>,
@@ -211,7 +227,7 @@ pub fn handle_tf_aggregator_header(
     tf_id: nonmax::NonMaxUsize,
     agg_h: &mut TfAggregatorHeader,
 ) {
-    let (mut batch_size, mut ps) = jd.tf_mgr.claim_all(tf_id);
+    let (mut batch_size, ps) = jd.tf_mgr.claim_all(tf_id);
 
     let sub_tf_count = agg_h.sub_tfs.len();
     if sub_tf_count == agg_h.curr_sub_tf_idx
@@ -228,6 +244,7 @@ pub fn handle_tf_aggregator_header(
     let ms_id = tf.match_set_id;
     let actor_id = agg_h.actor_id;
     let sub_tfs_after = sub_tf_count - agg_h.curr_sub_tf_idx - 1;
+    let last_sc = sub_tfs_after == 0;
 
     let input_field = jd
         .field_mgr
@@ -248,21 +265,30 @@ pub fn handle_tf_aggregator_header(
         prev_tf.available_batch_size = 0;
     }
 
-    batch_size += usize::from(ps.input_done && agg_h.elem_buffered);
-    if !agg_h.elem_buffered
-        && sub_tfs_after != 0
-        && batch_size > 0
-        && (!ps.input_done || batch_size > 1)
-    {
-        agg_h.elem_buffered = true;
-        batch_size -= 1;
+    if !ps.input_done {
+        if last_sc && agg_h.elem_buffered {
+            batch_size += 1;
+            agg_h.elem_buffered = false;
+        }
+        if !last_sc && !agg_h.elem_buffered && batch_size > 0 {
+            batch_size -= 1;
+            agg_h.elem_buffered = true;
+        }
         iter.next_n_fields(batch_size, true);
-        ps.input_done = false;
-    } else if ps.input_done
-        && (agg_h.elem_buffered || batch_size > 0)
-        && sub_tfs_after != 0
-        && !agg_h.last_elem_multiplied
-    {
+        jd.field_mgr.store_iter(input_field_id, iter_id, iter);
+        jd.tf_mgr.submit_batch_ready_for_more(tf_id, batch_size, ps);
+        return;
+    }
+
+    if agg_h.elem_buffered {
+        agg_h.elem_buffered = false;
+        batch_size += 1;
+    }
+    if agg_h.last_elem_multiplied {
+        batch_size += 1;
+    }
+
+    if !last_sc && !agg_h.last_elem_multiplied && batch_size > 0 {
         let pos = iter.get_next_field_pos() + batch_size - 1;
         let mut ab = jd.match_set_mgr.match_sets[ms_id]
             .action_buffer
@@ -270,22 +296,29 @@ pub fn handle_tf_aggregator_header(
         ab.begin_action_group(actor_id);
         ab.push_action(FieldActionKind::Dup, pos, sub_tfs_after);
         ab.end_action_group();
-        agg_h.elem_buffered = true;
+
         agg_h.last_elem_multiplied = true;
         iter.next_n_fields(batch_size - 1, true);
+        jd.field_mgr.store_iter(input_field_id, iter_id, iter);
+        drop(ab);
+        drop(input_field);
+        // this implicitly applies the dup so when we move we don't skip over
+        // the dup'ed field entirely, but just over one instance
+        jd.field_mgr.move_iter(
+            &mut jd.match_set_mgr,
+            input_field_id,
+            iter_id,
+            1,
+        );
     } else {
         iter.next_n_fields(batch_size, true);
+        jd.field_mgr.store_iter(input_field_id, iter_id, iter);
     }
-    let sub_tf = &mut jd.tf_mgr.transforms[sub_tf_id];
-    jd.field_mgr.store_iter(input_field_id, iter_id, iter);
-    sub_tf.available_batch_size += batch_size;
-    sub_tf.predecessor_done |= ps.input_done;
-    if batch_size > 0 || ps.input_done {
-        if !ps.input_done || agg_h.curr_sub_tf_idx + 1 != sub_tf_count {
-            jd.tf_mgr.push_tf_in_ready_stack(tf_id);
-        }
-        jd.tf_mgr.push_tf_in_ready_stack(sub_tf_id);
+    if !last_sc {
+        jd.tf_mgr.push_tf_in_ready_stack(tf_id);
     }
+    jd.tf_mgr
+        .inform_transform_batch_available(sub_tf_id, batch_size, true);
 }
 
 pub fn handle_tf_aggregator_trailer(
