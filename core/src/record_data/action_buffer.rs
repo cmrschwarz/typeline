@@ -18,7 +18,7 @@ use super::{
     field_action::{merge_action_lists, FieldAction, FieldActionKind},
     field_action_applicator::FieldActionApplicator,
     field_data::{FieldValueHeader, RunLength, MAX_FIELD_ALIGN},
-    iter_hall::{CowVariant, FieldDataSource},
+    iter_hall::{CowVariant, FieldDataSource, IterState},
     match_set::MatchSetId,
 };
 pub type ActorId = u32;
@@ -155,11 +155,27 @@ impl ActionGroupIdentifier {
     }
 }
 
+#[derive(Default, Clone, Copy)]
+struct HeaderDropInfo {
+    dead_headers_leading: usize,
+    first_header_dropped_elem_count: RunLength,
+}
+
 struct DataCowFieldRef<'a> {
-    field: std::cell::RefMut<'a, Field>,
+    field: Option<std::cell::RefMut<'a, Field>>,
     // For fields that have only partially copied over the data.
     // `dead_data_trailing` needs to take that into account
     data_end: usize,
+    drop_info: HeaderDropInfo,
+}
+
+struct FullCowFieldRef<'a> {
+    field: Option<std::cell::RefMut<'a, Field>>,
+    data_cow_idx: Option<usize>,
+    // a full cow of a data cow. still relevant for advancing iterators
+    // after dropping data, but not relevant for adjusting iterators during
+    // action application
+    through_data_cow: bool,
 }
 
 #[derive(Default)]
@@ -174,8 +190,7 @@ pub struct ActionBuffer {
     snapshot_freelists:
         Vec<DynamicArrayFreelist<SnapshotLookupId, SnapshotEntry>>,
     actions_applicator: FieldActionApplicator,
-    full_cow_field_refs_temp:
-        Vec<PhantomSlot<std::cell::RefMut<'static, Field>>>,
+    full_cow_field_refs_temp: Vec<PhantomSlot<FullCowFieldRef<'static>>>,
     data_cow_field_refs_temp: Vec<PhantomSlot<DataCowFieldRef<'static>>>,
     #[cfg(feature = "debug_logging")]
     pub match_set_id: MatchSetId,
@@ -998,11 +1013,8 @@ impl ActionBuffer {
     ) -> Option<(ActorId, SnapshotRef)> {
         let mut field_ref_mut = fm.fields[field_id].borrow_mut();
         let field = &mut *field_ref_mut;
-        let Some(actor_id) =
-            self.initialize_first_actor(field_id, &mut field.first_actor)
-        else {
-            return None;
-        };
+        let actor_id =
+            self.initialize_first_actor(field_id, &mut field.first_actor)?;
         let field_ss = field.snapshot;
         let actor_ss = self.update_actor_snapshot(actor_id);
         if actor_ss == field_ss {
@@ -1031,7 +1043,7 @@ impl ActionBuffer {
         fm: &FieldManager,
         field_id: FieldId,
         agi: &ActionGroupIdentifier,
-        full_cow_field_refs: &mut [std::cell::RefMut<'_, Field>],
+        full_cow_field_refs: &mut [FullCowFieldRef],
     ) {
         let mut field_ref_mut = fm.fields[field_id].borrow_mut();
         let field = &mut *field_ref_mut;
@@ -1071,7 +1083,10 @@ impl ActionBuffer {
             .chain(
                 full_cow_field_refs
                     .iter_mut()
-                    .flat_map(|f| f.iter_hall.iters.iter_mut()),
+                    .filter(|fcf| !fcf.through_data_cow)
+                    .flat_map(|f| {
+                        f.field.as_mut().unwrap().iter_hall.iters.iter_mut()
+                    }),
             )
             .map(Cell::get_mut);
 
@@ -1118,14 +1133,86 @@ impl ActionBuffer {
             data += h.total_size_unique();
         }
     }
+    // returns the target index of the field and whether or not it is data cow
+    fn push_cow_field<'a>(
+        fm: &'a FieldManager,
+        tgt_field_id: u32,
+        through_data_cow: bool,
+        field: &Ref<'_, Field>,
+        data_cow_field_refs: &mut Vec<DataCowFieldRef<'a>>,
+        update_cow_ms: Option<nonmax::NonMaxUsize>,
+        full_cow_field_refs: &mut Vec<FullCowFieldRef<'a>>,
+        data_cow_idx: Option<usize>,
+        first_action_index: usize,
+    ) -> (usize, bool) {
+        let mut tgt_field = fm.fields[tgt_field_id].borrow_mut();
+
+        let cow_variant = tgt_field.iter_hall.data_source.cow_variant();
+        let is_data_cow = matches!(cow_variant, Some(CowVariant::DataCow));
+        let ms_id = tgt_field.match_set;
+
+        if !is_data_cow && through_data_cow {
+            full_cow_field_refs.push(FullCowFieldRef {
+                field: None,
+                data_cow_idx,
+                through_data_cow,
+            });
+            return (full_cow_field_refs.len() - 1, false);
+        }
+        let cds = tgt_field.iter_hall.get_cow_data_source_mut().unwrap();
+        let tgt_cow_end = field.iter_hall.iters[cds.header_iter_id].get();
+        if is_data_cow {
+            data_cow_field_refs.push(DataCowFieldRef {
+                field: None,
+                data_end: tgt_cow_end.data,
+                drop_info: HeaderDropInfo::default(),
+            });
+            return (data_cow_field_refs.len() - 1, true);
+        }
+        debug_assert!(cow_variant == Some(CowVariant::FullCow));
+        if Some(ms_id) == update_cow_ms {
+            full_cow_field_refs.push(FullCowFieldRef {
+                field: None,
+                data_cow_idx,
+                through_data_cow,
+            });
+            return (full_cow_field_refs.len() - 1, false);
+        }
+        if tgt_cow_end.field_pos > first_action_index {
+            tgt_field.iter_hall.data_source = FieldDataSource::DataCow(*cds);
+            debug_assert!(tgt_field.iter_hall.field_data.is_empty());
+            tgt_field.iter_hall.copy_headers_from_cow_src(
+                &field.iter_hall.field_data.headers,
+                tgt_cow_end,
+            );
+            // TODO: we could optimize this case because we might
+            // end up calculating the dead data multiple times because of
+            // this, but we don't care for now
+            data_cow_field_refs.push(DataCowFieldRef {
+                field: None,
+                data_end: tgt_cow_end.data,
+                drop_info: HeaderDropInfo::default(),
+            });
+            return (data_cow_field_refs.len() - 1, true);
+        }
+        full_cow_field_refs.push(FullCowFieldRef {
+            field: None,
+            data_cow_idx,
+            through_data_cow,
+        });
+        // TODO: support RecordBuffers
+        (full_cow_field_refs.len() - 1, false)
+    }
+
     fn preserve_full_cow_fields_pre_exec<'a>(
         fm: &'a FieldManager,
         field_id: FieldId,
         update_cow_ms: Option<MatchSetId>,
         first_action_index: usize,
         through_data_cow: bool,
-        full_cow_field_refs: &mut Vec<std::cell::RefMut<'a, Field>>,
+        full_cow_field_refs: &mut Vec<FullCowFieldRef<'a>>,
         data_cow_field_refs: &mut Vec<DataCowFieldRef<'a>>,
+        data_cow_idx: Option<usize>,
     ) {
         let field = fm.fields[field_id].borrow();
         if !field.has_cow_targets() {
@@ -1133,62 +1220,37 @@ impl ActionBuffer {
         }
 
         for &tgt_field_id in &field.iter_hall.cow_targets {
-            let tgt_field = fm.fields[tgt_field_id].borrow();
-            let cow_variant = tgt_field.iter_hall.data_source.cow_variant();
-            let is_data_cow = matches!(cow_variant, Some(CowVariant::DataCow));
-            let ms_id = tgt_field.match_set;
-
-            drop(tgt_field);
+            let (curr_field_tgt_idx, data_cow) = Self::push_cow_field(
+                fm,
+                tgt_field_id,
+                through_data_cow,
+                &field,
+                data_cow_field_refs,
+                update_cow_ms,
+                full_cow_field_refs,
+                data_cow_idx,
+                first_action_index,
+            );
             Self::preserve_full_cow_fields_pre_exec(
                 fm,
                 tgt_field_id,
                 None,
                 first_action_index,
-                is_data_cow || through_data_cow,
+                data_cow || through_data_cow,
                 full_cow_field_refs,
                 data_cow_field_refs,
+                if data_cow {
+                    Some(curr_field_tgt_idx)
+                } else {
+                    data_cow_idx
+                },
             );
-            let mut tgt_field = fm.fields[tgt_field_id].borrow_mut();
-            if !is_data_cow && through_data_cow {
-                continue;
+            let tgt_field = Some(fm.fields[tgt_field_id].borrow_mut());
+            if data_cow {
+                data_cow_field_refs[curr_field_tgt_idx].field = tgt_field;
+            } else {
+                full_cow_field_refs[curr_field_tgt_idx].field = tgt_field;
             }
-
-            let cds = tgt_field.iter_hall.get_cow_data_source_mut().unwrap();
-            let tgt_cow_end = field.iter_hall.iters[cds.header_iter_id].get();
-
-            if is_data_cow {
-                data_cow_field_refs.push(DataCowFieldRef {
-                    field: tgt_field,
-                    data_end: tgt_cow_end.data,
-                });
-                continue;
-            }
-
-            // TODO: support RecordBuffers
-            debug_assert!(cow_variant == Some(CowVariant::FullCow));
-
-            if Some(ms_id) == update_cow_ms {
-                full_cow_field_refs.push(tgt_field);
-                continue;
-            }
-            if tgt_cow_end.field_pos > first_action_index {
-                tgt_field.iter_hall.data_source =
-                    FieldDataSource::DataCow(*cds);
-                debug_assert!(tgt_field.iter_hall.field_data.is_empty());
-                tgt_field.iter_hall.copy_headers_from_cow_src(
-                    &field.iter_hall.field_data.headers,
-                    tgt_cow_end,
-                );
-                // TODO: we could optimize this case because we might
-                // end up calculating the dead data multiple times because of
-                // this, but we don't care for now
-                data_cow_field_refs.push(DataCowFieldRef {
-                    field: tgt_field,
-                    data_end: tgt_cow_end.data,
-                });
-                continue;
-            }
-            full_cow_field_refs.push(tgt_field);
         }
     }
     pub(super) fn update_cow_fields_post_exec(
@@ -1266,7 +1328,7 @@ impl ActionBuffer {
         dead_data_leading: usize,
         dead_data_padding: usize,
         dead_data_trailing: usize,
-    ) {
+    ) -> HeaderDropInfo {
         let field_data_size = field.iter_hall.field_data.data.len();
         #[cfg(feature = "debug_logging")]
         eprintln!(
@@ -1276,7 +1338,7 @@ impl ActionBuffer {
             field_data_size - dead_data_leading - dead_data_trailing,
             dead_data_trailing
         );
-        Self::drop_dead_cow_headers(
+        let drop_info = Self::drop_dead_cow_headers(
             field,
             dead_data_leading,
             dead_data_padding,
@@ -1289,6 +1351,23 @@ impl ActionBuffer {
         fd.data
             .drop_front(dead_data_leading.prev_multiple_of(&MAX_FIELD_ALIGN));
         fd.data.drop_back(dead_data_trailing);
+        drop_info
+    }
+    fn adjust_iters_to_data_drop<'a>(
+        iters: impl IntoIterator<Item = &'a mut Cell<IterState>>,
+        dead_data_leading: usize,
+        drop_info: HeaderDropInfo,
+    ) {
+        for it in iters.into_iter().map(Cell::get_mut) {
+            it.data = it.data.saturating_sub(dead_data_leading);
+            if it.header_idx == drop_info.dead_headers_leading {
+                it.header_rl_offset = it
+                    .header_rl_offset
+                    .saturating_sub(drop_info.first_header_dropped_elem_count);
+            }
+            it.header_idx =
+                it.header_idx.saturating_sub(drop_info.dead_headers_leading);
+        }
     }
     fn drop_dead_cow_headers(
         field: &mut Field,
@@ -1297,7 +1376,7 @@ impl ActionBuffer {
         dead_data_trailing: usize,
         origin_field_data_size: usize,
         field_data_size: usize,
-    ) {
+    ) -> HeaderDropInfo {
         let headers = &mut field.iter_hall.field_data.headers;
         let mut dead_data_rem_leading = dead_data_leading;
         let mut dead_headers_leading = 0;
@@ -1331,35 +1410,35 @@ impl ActionBuffer {
             headers[last_header_alive].run_length -= elem_count as RunLength;
         }
         headers.drain(last_header_alive..);
-        if dead_data_leading != 0 {
+        let mut drop_info = HeaderDropInfo {
+            dead_headers_leading,
+            first_header_dropped_elem_count: 0,
+        };
+        if dead_data_leading != 0 || dead_headers_leading != 0 {
             let h = &mut headers[dead_headers_leading];
-            let mut dropped_elem_count = 0;
             if dead_data_rem_leading != 0 {
                 let header_elem_size = h.fmt.size as usize;
-                dropped_elem_count =
+                let dropped_elem_count =
                     (dead_data_rem_leading / header_elem_size) as RunLength;
                 debug_assert!(
                     dropped_elem_count as usize * header_elem_size
                         == dead_data_rem_leading
                 );
                 h.run_length -= dropped_elem_count;
+                drop_info.first_header_dropped_elem_count = dropped_elem_count;
             }
             let tgt_padding = h.leading_padding() + dead_data_padding;
             h.set_leading_padding(tgt_padding);
 
-            let data_sub = dead_data_leading;
-            for it in field.iter_hall.iters.iter_mut().map(Cell::get_mut) {
-                it.data = it.data.saturating_sub(data_sub);
-                if it.header_idx == dead_headers_leading {
-                    it.header_rl_offset =
-                        it.header_rl_offset.saturating_sub(dropped_elem_count);
-                }
-                it.header_idx =
-                    it.header_idx.saturating_sub(dead_headers_leading);
-            }
+            Self::adjust_iters_to_data_drop(
+                &mut field.iter_hall.iters,
+                dead_data_leading,
+                drop_info,
+            );
 
             headers.drain(0..dead_headers_leading);
         }
+        drop_info
     }
     pub fn update_field(
         &mut self,
@@ -1404,13 +1483,13 @@ impl ActionBuffer {
             false,
             &mut full_cow_fields,
             &mut data_cow_fields,
+            None,
         );
         let mut dead_data_leading = field_data_size;
         let mut dead_data_trailing = field_data_size;
-        let mut dead_data_padding = 0;
         for dcf in &mut data_cow_fields {
             Self::calc_dead_data(
-                &dcf.field.iter_hall.field_data.headers,
+                &dcf.field.as_ref().unwrap().iter_hall.field_data.headers,
                 &mut dead_data_leading,
                 &mut dead_data_trailing,
                 dcf.data_end,
@@ -1434,9 +1513,12 @@ impl ActionBuffer {
         }
         // Even if the field no longer uses the data, some data COWs might,
         // in which case we can't clear it.
-        let all_data_dead = data_owned && dead_data_leading == field_data_size;
-        let some_data_dead =
-            data_owned && (dead_data_leading != 0 || dead_data_trailing != 0);
+        let all_data_dead = data_owned
+            && dead_data_leading == field_data_size
+            && all_fields_dead;
+        let data_partially_dead = data_owned
+            && (dead_data_leading != 0 || dead_data_trailing != 0)
+            && !all_data_dead;
 
         if all_fields_dead && cfg!(feature = "debug_logging") {
             eprintln!(
@@ -1447,33 +1529,43 @@ impl ActionBuffer {
             self.eprint_action_list_from_agi(&agi);
         }
 
-        if all_data_dead && all_fields_dead {
+        if all_data_dead {
             field.iter_hall.reset_iterators();
             field.iter_hall.field_data.clear();
             dead_data_leading = 0;
-        } else if some_data_dead {
-            dead_data_padding = Self::calculate_dead_data_padding(
+        }
+        if data_partially_dead {
+            let dead_data_padding = Self::calculate_dead_data_padding(
                 &mut dead_data_leading,
                 &mut dead_data_trailing,
                 field_data_size,
             );
-            Self::drop_dead_field_data(
+            let root_drop_info = Self::drop_dead_field_data(
                 &mut field,
                 dead_data_leading,
                 dead_data_padding,
                 dead_data_trailing,
             );
-        }
-        if some_data_dead {
             for dcf in &mut data_cow_fields {
-                Self::drop_dead_cow_headers(
-                    &mut dcf.field,
+                dcf.drop_info = Self::drop_dead_cow_headers(
+                    dcf.field.as_mut().unwrap(),
                     dead_data_leading,
                     dead_data_padding,
                     dead_data_trailing,
                     field_data_size,
                     dcf.data_end,
                 );
+            }
+            for fcf in &mut full_cow_fields {
+                let drop_info = fcf
+                    .data_cow_idx
+                    .map(|idx| data_cow_fields[idx].drop_info)
+                    .unwrap_or(root_drop_info);
+                Self::adjust_iters_to_data_drop(
+                    &mut fcf.field.as_mut().unwrap().iter_hall.iters,
+                    dead_data_leading,
+                    drop_info,
+                )
             }
         }
         self.full_cow_field_refs_temp = transmute_vec(full_cow_fields);

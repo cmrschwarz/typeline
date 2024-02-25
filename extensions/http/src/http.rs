@@ -405,7 +405,7 @@ lazy_static::lazy_static! {
     ).case_insensitive(true).build().unwrap();
 }
 
-fn header_completed(req: &mut Connection, buf: &Vec<u8>) -> bool {
+fn header_completed(req: &mut Connection, buf: &[u8]) -> bool {
     let mut parsed_until = req.header_parsed_until as usize;
     let mut end_reached = false;
     while let Some(i) = memchr::memchr(b'\n', &buf[parsed_until..]) {

@@ -1,7 +1,7 @@
 use arrayvec::ArrayString;
 
 use lazy_static::lazy_static;
-use regex::{self, bytes, Regex, RegexBuilder};
+use regex::{bytes, Regex, RegexBuilder};
 use smallstr::SmallString;
 use smallvec::SmallVec;
 use std::{borrow::Cow, cell::RefMut, collections::HashMap};

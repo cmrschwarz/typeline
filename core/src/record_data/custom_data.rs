@@ -13,8 +13,8 @@ pub fn custom_data_reference_eq<T: CustomData + ?Sized>(
         return std::mem::size_of_val(rhs) == 0
             && lhs.type_id() == rhs.type_id();
     }
-    let self_ptr = (lhs as *const T).cast::<u8>();
-    let other_ptr = (rhs as *const dyn CustomData).cast::<u8>();
+    let self_ptr = std::ptr::from_ref(lhs).cast::<u8>();
+    let other_ptr = std::ptr::from_ref(rhs).cast::<u8>();
     self_ptr == other_ptr
 }
 

@@ -487,7 +487,7 @@ impl FieldActionApplicator {
         &mut self,
         actions: impl Iterator<Item = &'a FieldAction>,
         headers: &mut VecDeque<FieldValueHeader>,
-        iterators: &mut Vec<&mut IterState>,
+        iterators: &mut [&mut IterState],
     ) -> isize {
         let mut faas = FieldActionApplicationState {
             header_idx: 0,
@@ -633,7 +633,7 @@ impl FieldActionApplicator {
     #[allow(clippy::mut_mut)]
     fn move_header_idx_to_action_pos(
         headers: &mut VecDeque<FieldValueHeader>,
-        iterators: &mut Vec<&mut IterState>,
+        iterators: &mut [&mut IterState],
         faas: &mut FieldActionApplicationState,
     ) {
         let mut header;

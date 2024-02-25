@@ -855,7 +855,7 @@ pub unsafe trait PushInterface {
                 self.push_variable_sized_type_unchecked(
                     T::REPR,
                     std::slice::from_raw_parts(
-                        (v as *const T).cast(),
+                        std::ptr::from_ref(v).cast(),
                         std::mem::size_of_val(v),
                     ),
                     1,

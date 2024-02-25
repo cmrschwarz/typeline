@@ -649,7 +649,7 @@ impl<'a> Iterator for RefAwareInlineBytesIter<'a> {
                 let run_len = rl_ref.min(rl_data);
                 self.iter.next_n_fields(run_len as usize);
                 refs_iter.next_n_fields(run_len as usize);
-                Some((&data, run_len, 0))
+                Some((data, run_len, 0))
             }
             Some(AnyRefSliceIter::SlicedFieldRef(refs_iter)) => {
                 let (fr, rl_ref) = refs_iter.peek()?;
@@ -756,7 +756,7 @@ impl<'a> Iterator for RefAwareBytesBufferIter<'a> {
                 let run_len = rl_ref.min(rl_data);
                 self.iter.next_n_fields(run_len as usize);
                 refs_iter.next_n_fields(run_len as usize);
-                Some((&data, run_len, 0))
+                Some((data, run_len, 0))
             }
             Some(AnyRefSliceIter::SlicedFieldRef(refs_iter)) => {
                 let (fr, rl_ref) = refs_iter.peek()?;
@@ -821,7 +821,7 @@ impl<'a> Iterator for RefAwareTextBufferIter<'a> {
                 let run_len = rl_ref.min(rl_data);
                 self.iter.next_n_fields(run_len as usize);
                 refs_iter.next_n_fields(run_len as usize);
-                Some((&data, run_len, 0))
+                Some((data, run_len, 0))
             }
             Some(AnyRefSliceIter::SlicedFieldRef(refs_iter)) => {
                 let (fr, rl_ref) = refs_iter.peek()?;
