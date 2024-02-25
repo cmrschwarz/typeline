@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use scr_core::{
-    cli::parse_arg_value_as_number,
+    cli::{parse_arg_value_as_number, reject_operator_argument},
     job::JobData,
     liveness_analysis::{
         AccessFlags, BasicBlockId, LivenessData, OpOutputIdx,
@@ -88,7 +88,7 @@ impl Operator for OpDup {
 
 impl Transform for TfDup {
     fn display_name(&self) -> DefaultTransformName {
-        "dup".into()
+        if self.count == 0 { "drop" } else { "dup" }.into()
     }
 
     fn update(&mut self, jd: &mut JobData, tf_id: TransformId) {
@@ -104,7 +104,7 @@ impl Transform for TfDup {
             );
             return;
         }
-        if self.count == 0 {
+        if self.count == 1 {
             jd.tf_mgr.submit_batch(tf_id, batch_size, ps.input_done);
             return;
         }
@@ -123,10 +123,23 @@ impl Transform for TfDup {
         let mut bs_rem = batch_size;
         while bs_rem > 0 {
             let non_gs_records = iter.skip_non_group_separators(batch_size);
-            for _ in 0..non_gs_records {
-                ab.push_action(FieldActionKind::Dup, field_pos, self.count);
-                field_pos += self.count + 1;
+            if self.count == 0 {
+                ab.push_action(
+                    FieldActionKind::Dup,
+                    field_pos,
+                    non_gs_records,
+                );
+            } else {
+                for _ in 0..non_gs_records {
+                    ab.push_action(
+                        FieldActionKind::Dup,
+                        field_pos,
+                        self.count - 1,
+                    );
+                    field_pos += self.count;
+                }
             }
+
             bs_rem -= non_gs_records;
             if bs_rem == 0 {
                 break;
@@ -156,4 +169,12 @@ pub fn parse_op_dup(
         parse_arg_value_as_number("dup", value, arg_idx)?
     };
     Ok(create_op_dup(count))
+}
+
+pub fn parse_op_drop(
+    value: Option<&[u8]>,
+    arg_idx: Option<CliArgIdx>,
+) -> Result<OperatorData, OperatorCreationError> {
+    reject_operator_argument("drop", value, arg_idx)?;
+    Ok(create_op_dup(0))
 }

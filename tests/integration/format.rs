@@ -90,7 +90,7 @@ fn stream_error_formatting(
 fn format_width_spec() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
-        .push_str("x", 6)
+        .push_str("x", 1)
         .add_op(create_op_key("foo".to_owned()))
         .add_op(create_op_seq(0, 6, 1).unwrap())
         .add_op(create_op_key("bar".to_owned()))

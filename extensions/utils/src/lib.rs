@@ -1,6 +1,6 @@
 #![allow(clippy::too_many_arguments)]
 
-use dup::parse_op_dup;
+use dup::{parse_op_drop, parse_op_dup};
 use explode::parse_op_explode;
 use flatten::parse_op_flatten;
 use from_tyson::create_op_from_tyson;
@@ -43,6 +43,7 @@ impl Extension for MiscCmdsExtension {
             "head" | "h" => Some(parse_op_head),
             "tail" | "t" => Some(parse_op_tail),
             "dup" => Some(parse_op_dup),
+            "drop" => Some(parse_op_drop),
             "explode" => Some(parse_op_explode),
             "flatten" => Some(parse_op_flatten),
             _ => None,

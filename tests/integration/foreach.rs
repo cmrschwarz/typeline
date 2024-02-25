@@ -38,7 +38,7 @@ fn foreach_dup_sum() -> Result<(), ScrError> {
     let res = ContextBuilder::default()
         .add_op(create_op_seqn(1, 3, 1).unwrap())
         .add_op(create_op_foreach())
-        .add_op(create_op_dup(1))
+        .add_op(create_op_dup(2))
         .add_op(create_op_sum())
         .run_collect()?;
     assert_eq!(
@@ -53,7 +53,7 @@ fn foreach_dup_join() -> Result<(), ScrError> {
     let res = ContextBuilder::default()
         .add_op(create_op_seqn(1, 3, 1).unwrap())
         .add_op(create_op_foreach())
-        .add_op(create_op_dup(1))
+        .add_op(create_op_dup(2))
         .add_op(create_op_join(None, None, false))
         .run_collect_stringified()?;
     assert_eq!(res, &["11", "22", "33"]);

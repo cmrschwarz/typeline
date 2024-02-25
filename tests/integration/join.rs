@@ -18,6 +18,7 @@ use scr_core::{
     scr_error::ScrError,
     utils::test_utils::{ErroringStream, SliceReader},
 };
+use scr_ext_utils::dup::create_op_dup;
 
 #[test]
 fn join() -> Result<(), ScrError> {
@@ -60,12 +61,8 @@ fn join_drop_incomplete() -> Result<(), ScrError> {
 #[test]
 fn join_empty() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    //   ContextBuilder::default()
-    // .add_op(create_op_join(None, None, true))
-    // .add_op(create_op_string_sink(&ss))
-    // .run()?;
-    // assert_eq!(ss.get_data().unwrap().as_slice(), &[] as &[String]);
     ContextBuilder::default()
+        .add_op(create_op_dup(0))
         .add_op(create_op_join(None, None, false))
         .add_op(create_op_string_sink(&ss))
         .run()?;
