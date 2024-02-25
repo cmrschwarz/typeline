@@ -155,10 +155,13 @@ impl ActionGroupIdentifier {
     }
 }
 
-#[derive(Default, Clone, Copy)]
+#[derive(Default)]
 struct HeaderDropInfo {
     dead_headers_leading: usize,
+    header_count_rem: usize,
     first_header_dropped_elem_count: RunLength,
+    last_header_run_len: RunLength,
+    last_header_data_pos: usize,
 }
 
 struct DataCowFieldRef<'a> {
@@ -1356,8 +1359,9 @@ impl ActionBuffer {
     fn adjust_iters_to_data_drop<'a>(
         iters: impl IntoIterator<Item = &'a mut Cell<IterState>>,
         dead_data_leading: usize,
-        drop_info: HeaderDropInfo,
+        drop_info: &HeaderDropInfo,
     ) {
+        let last_header_idx = drop_info.header_count_rem.saturating_sub(1);
         for it in iters.into_iter().map(Cell::get_mut) {
             it.data = it.data.saturating_sub(dead_data_leading);
             if it.header_idx == drop_info.dead_headers_leading {
@@ -1367,6 +1371,14 @@ impl ActionBuffer {
             }
             it.header_idx =
                 it.header_idx.saturating_sub(drop_info.dead_headers_leading);
+            if it.header_idx > last_header_idx {
+                it.header_idx = last_header_idx;
+                it.data = drop_info.last_header_data_pos;
+            }
+            if it.header_idx == last_header_idx {
+                it.header_rl_offset =
+                    it.header_rl_offset.min(drop_info.last_header_run_len);
+            }
         }
     }
     fn drop_dead_cow_headers(
@@ -1410,9 +1422,16 @@ impl ActionBuffer {
             headers[last_header_alive].run_length -= elem_count as RunLength;
         }
         headers.drain(last_header_alive..);
+        let last_header = headers.back().copied().unwrap_or_default();
         let mut drop_info = HeaderDropInfo {
             dead_headers_leading,
             first_header_dropped_elem_count: 0,
+            header_count_rem: last_header_alive - dead_headers_leading,
+            last_header_run_len: last_header.run_length,
+            last_header_data_pos: (field_data_size
+                - dead_data_leading
+                - dead_data_trailing)
+                - last_header.total_size_unique(),
         };
         if dead_data_leading != 0 || dead_headers_leading != 0 {
             let h = &mut headers[dead_headers_leading];
@@ -1433,7 +1452,7 @@ impl ActionBuffer {
             Self::adjust_iters_to_data_drop(
                 &mut field.iter_hall.iters,
                 dead_data_leading,
-                drop_info,
+                &drop_info,
             );
 
             headers.drain(0..dead_headers_leading);
@@ -1559,8 +1578,8 @@ impl ActionBuffer {
             for fcf in &mut full_cow_fields {
                 let drop_info = fcf
                     .data_cow_idx
-                    .map(|idx| data_cow_fields[idx].drop_info)
-                    .unwrap_or(root_drop_info);
+                    .map(|idx| &data_cow_fields[idx].drop_info)
+                    .unwrap_or(&root_drop_info);
                 Self::adjust_iters_to_data_drop(
                     &mut fcf.field.as_mut().unwrap().iter_hall.iters,
                     dead_data_leading,

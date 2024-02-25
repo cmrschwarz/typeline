@@ -282,6 +282,10 @@ fn handle_seq_mode(mut sbs: SequenceBatchState) {
             full_seqs_rem.max(1).min(field_pos_end - field_pos),
         );
 
+        debug_assert!(
+            field_count > 0 || gs_count > 0 || field_pos == field_pos_end
+        );
+
         // PERF: we could optimize this to a memcopy for the subsequent
         // ones
         for _ in 0..field_count {
