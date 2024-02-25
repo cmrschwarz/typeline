@@ -265,5 +265,8 @@ pub fn basic_transform_update(
         iter: &mut iter,
     });
     jd.field_mgr.store_iter(input_field_id, input_iter_id, iter);
+    if ps.next_batch_ready && !done {
+        jd.tf_mgr.push_tf_in_ready_stack(tf_id);
+    }
     jd.tf_mgr.submit_batch(tf_id, produced_fields, done);
 }
