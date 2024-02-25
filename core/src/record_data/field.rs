@@ -846,7 +846,7 @@ impl FieldManager {
         let f = self.fields[id].borrow();
         let iter = f.iter_hall.iters.iter().filter(|#[allow(unused)] v| {
             #[cfg(feature = "debug_logging")]
-            let res = v.get().kind != IterKind::RefLookup;
+            let res = true; // v.get().kind != IterKind::RefLookup;
             #[cfg(not(feature = "debug_logging"))]
             let res = false;
             res

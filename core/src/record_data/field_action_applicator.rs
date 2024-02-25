@@ -64,6 +64,7 @@ impl FieldActionApplicator {
         fmt: FieldValueFormat,
         run_length: RunLength,
     ) {
+        debug_assert!(run_length > 0);
         faas.header_idx_new += 1;
         self.insertions.push(InsertionCommand {
             index: faas.copy_range_start_new,
@@ -214,6 +215,9 @@ impl FieldActionApplicator {
             },
         );
         let mut fmt_mid = header.fmt;
+        if pre > 0 {
+            fmt_mid.set_leading_padding(0);
+        }
         if fmt_mid.shared_value() && pre > 0 {
             fmt_mid.set_same_value_as_previous(true);
             header.set_same_value_as_previous(true);
@@ -374,8 +378,10 @@ impl FieldActionApplicator {
                 return;
             }
             self.push_copy_command(faas);
-            self.push_insert_command_if_rl_gt_0(faas, header.fmt, rl_pre);
-            // TODO: shouldn't this only affect the ones after rl_pre?
+            self.push_insert_command(faas, header.fmt, rl_pre);
+            // this only affects the iterators ones after rl_pre
+            // because the earlier ones were already advanced  past
+            // by update_current_iters_start
             Self::iters_to_next_header(
                 faas,
                 iterators,
@@ -385,6 +391,7 @@ impl FieldActionApplicator {
                 },
             );
             faas.field_pos += rl_pre as usize;
+            header.set_leading_padding(0);
             header.run_length -= rl_pre;
             if drop_count <= rl_rem as usize {
                 let rl_to_del = drop_count as RunLength;
@@ -448,8 +455,9 @@ impl FieldActionApplicator {
             self.push_copy_command(faas);
             let mut fmt_del = header.fmt;
             fmt_del.set_deleted(true);
-            self.push_insert_command_if_rl_gt_0(faas, fmt_del, rl_to_del);
+            self.push_insert_command(faas, fmt_del, rl_to_del);
             header.run_length -= rl_to_del;
+            header.set_leading_padding(0);
             Self::iters_to_next_header_adjusting_deleted_offset(
                 faas,
                 iterators,

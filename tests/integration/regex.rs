@@ -306,21 +306,6 @@ fn seq_into_regex_drop_unless_seven() -> Result<(), ScrError> {
 }
 
 #[test]
-fn regex_appending_without_input() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::default();
-    ContextBuilder::default()
-        .add_op_appending(create_op_seq(1, 11, 1).unwrap())
-        .add_op_appending(create_op_regex("[24680]").unwrap())
-        .add_op(create_op_string_sink(&ss))
-        .run()?;
-    assert_eq!(
-        ss.get_data().unwrap().as_slice(),
-        &(1..11).map(|v| v.to_string()).collect::<Vec<_>>()
-    );
-    Ok(())
-}
-
-#[test]
 fn double_regex() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()

@@ -165,6 +165,8 @@ struct HeaderDropInfo {
 }
 
 struct DataCowFieldRef<'a> {
+    #[cfg(feature = "debug_logging")]
+    _field_id: FieldId,
     field: Option<std::cell::RefMut<'a, Field>>,
     // For fields that have only partially copied over the data.
     // `dead_data_trailing` needs to take that into account
@@ -173,6 +175,8 @@ struct DataCowFieldRef<'a> {
 }
 
 struct FullCowFieldRef<'a> {
+    #[cfg(feature = "debug_logging")]
+    _field_id: FieldId,
     field: Option<std::cell::RefMut<'a, Field>>,
     data_cow_idx: Option<usize>,
     // a full cow of a data cow. still relevant for advancing iterators
@@ -1156,6 +1160,8 @@ impl ActionBuffer {
 
         if !is_data_cow && through_data_cow {
             full_cow_field_refs.push(FullCowFieldRef {
+                #[cfg(feature = "debug_logging")]
+                _field_id: tgt_field_id,
                 field: None,
                 data_cow_idx,
                 through_data_cow,
@@ -1166,6 +1172,8 @@ impl ActionBuffer {
         let tgt_cow_end = field.iter_hall.iters[cds.header_iter_id].get();
         if is_data_cow {
             data_cow_field_refs.push(DataCowFieldRef {
+                #[cfg(feature = "debug_logging")]
+                _field_id: tgt_field_id,
                 field: None,
                 data_end: tgt_cow_end.data,
                 drop_info: HeaderDropInfo::default(),
@@ -1175,6 +1183,8 @@ impl ActionBuffer {
         debug_assert!(cow_variant == Some(CowVariant::FullCow));
         if Some(ms_id) == update_cow_ms {
             full_cow_field_refs.push(FullCowFieldRef {
+                #[cfg(feature = "debug_logging")]
+                _field_id: tgt_field_id,
                 field: None,
                 data_cow_idx,
                 through_data_cow,
@@ -1192,6 +1202,8 @@ impl ActionBuffer {
             // end up calculating the dead data multiple times because of
             // this, but we don't care for now
             data_cow_field_refs.push(DataCowFieldRef {
+                #[cfg(feature = "debug_logging")]
+                _field_id: tgt_field_id,
                 field: None,
                 data_end: tgt_cow_end.data,
                 drop_info: HeaderDropInfo::default(),
@@ -1199,6 +1211,8 @@ impl ActionBuffer {
             return (data_cow_field_refs.len() - 1, true);
         }
         full_cow_field_refs.push(FullCowFieldRef {
+            #[cfg(feature = "debug_logging")]
+            _field_id: tgt_field_id,
             field: None,
             data_cow_idx,
             through_data_cow,

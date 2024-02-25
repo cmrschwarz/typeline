@@ -1,4 +1,5 @@
 use rstest::rstest;
+use scr::operators::sequence::create_op_enum;
 use scr_core::{
     operators::{
         errors::OperatorApplicationError,
@@ -116,7 +117,7 @@ fn format_width_spec_over_stream() -> Result<(), ScrError> {
             6,
         ))
         .add_op(create_op_key("foo".to_owned()))
-        .add_op(create_op_seq(2, 8, 1).unwrap())
+        .add_op(create_op_enum(2, 8, 1).unwrap())
         .add_op(create_op_key("bar".to_owned()))
         .add_op(create_op_format("{foo:~^bar$}").unwrap())
         .add_op(create_op_string_sink(&ss))
