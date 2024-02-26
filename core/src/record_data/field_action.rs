@@ -176,8 +176,10 @@ fn push_merged_action<T: ActionContainer>(
             add = same_idx;
         }
         (FAK::InsertZst(_), FAK::Dup) => {
-            add = overlapping_exclusive;
-            curr.kind = prev.kind;
+            if overlapping_exclusive {
+                add = true;
+                curr.kind = prev.kind;
+            }
         }
         (FAK::InsertZst(_), FAK::Drop) => {
             subtract = overlapping_exclusive;
@@ -339,6 +341,7 @@ mod test {
     use super::FieldAction;
     use FieldActionKind as FAK;
 
+    #[track_caller]
     fn compare_merge_result(
         left: &[FieldAction],
         right: &[FieldAction],

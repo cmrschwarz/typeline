@@ -82,7 +82,7 @@ pub struct BytesBufferFile {
     // TODO
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct FieldValueFormat {
     pub repr: FieldValueRepr,
     pub flags: FieldValueFlags,
@@ -91,7 +91,7 @@ pub struct FieldValueFormat {
     pub size: FieldValueSize,
 }
 
-#[derive(Clone, Copy, Default, Debug)]
+#[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
 pub struct FieldValueHeader {
     pub fmt: FieldValueFormat,
     // this shal never be zero, **even for deleted fields**
