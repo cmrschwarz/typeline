@@ -112,6 +112,7 @@ impl MatchSetManager {
             self.print_updating_cow_bindings(ms_id);
             eprintln!();
             fm.print_fields_with_header_data();
+            eprintln!("{:=^80}", "");
             fm.print_fields_with_iter_data();
             eprintln!("{:-^80}", " </updating cow bindings> ");
         }
@@ -135,6 +136,7 @@ impl MatchSetManager {
             self.print_updating_cow_bindings(ms_id);
             eprintln!();
             fm.print_fields_with_header_data();
+            eprintln!("{:=^80}", "");
             fm.print_fields_with_iter_data();
             eprintln!("{:-^80}", " </updated cow bindings> ");
         }

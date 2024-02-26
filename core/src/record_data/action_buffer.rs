@@ -1110,10 +1110,12 @@ impl ActionBuffer {
         dead_data_leading: &mut usize,
         dead_data_trailing: &mut usize,
         data_end: usize,
+        origin_field_data_size: usize,
     ) {
         let mut data = 0;
         let leading = *dead_data_leading;
         let trailing = *dead_data_trailing;
+
         for &h in headers {
             if data >= leading {
                 break;
@@ -1124,11 +1126,11 @@ impl ActionBuffer {
             }
             data += h.total_size_unique();
         }
-        if *dead_data_leading == data_end {
+        if *dead_data_leading == origin_field_data_size {
             // if everything is dead, we don't reduce trailing
             return;
         }
-        data = 0;
+        data = origin_field_data_size - data_end;
         for &h in headers.iter().rev() {
             if data >= trailing {
                 break;
@@ -1140,12 +1142,27 @@ impl ActionBuffer {
             data += h.total_size_unique();
         }
     }
+    fn get_data_cow_data_end(field: &Field, iter_state: &IterState) -> usize {
+        let headers = &field.iter_hall.field_data.headers;
+        let mut data_end = iter_state.data;
+        let h = headers[iter_state.header_idx];
+        if !h.same_value_as_previous() {
+            data_end += h.leading_padding();
+            if h.shared_value() {
+                data_end += h.size as usize;
+            } else {
+                data_end +=
+                    h.size as usize * iter_state.header_rl_offset as usize;
+            }
+        }
+        data_end
+    }
     // returns the target index of the field and whether or not it is data cow
     fn push_cow_field<'a>(
         fm: &'a FieldManager,
         tgt_field_id: u32,
         through_data_cow: bool,
-        field: &Ref<'_, Field>,
+        field: &Field,
         data_cow_field_refs: &mut Vec<DataCowFieldRef<'a>>,
         update_cow_ms: Option<nonmax::NonMaxUsize>,
         full_cow_field_refs: &mut Vec<FullCowFieldRef<'a>>,
@@ -1170,12 +1187,13 @@ impl ActionBuffer {
         }
         let cds = tgt_field.iter_hall.get_cow_data_source_mut().unwrap();
         let tgt_cow_end = field.iter_hall.iters[cds.header_iter_id].get();
+
         if is_data_cow {
             data_cow_field_refs.push(DataCowFieldRef {
                 #[cfg(feature = "debug_logging")]
                 _field_id: tgt_field_id,
                 field: None,
-                data_end: tgt_cow_end.data,
+                data_end: Self::get_data_cow_data_end(field, &tgt_cow_end),
                 drop_info: HeaderDropInfo::default(),
             });
             return (data_cow_field_refs.len() - 1, true);
@@ -1205,7 +1223,7 @@ impl ActionBuffer {
                 #[cfg(feature = "debug_logging")]
                 _field_id: tgt_field_id,
                 field: None,
-                data_end: tgt_cow_end.data,
+                data_end: Self::get_data_cow_data_end(field, &tgt_cow_end),
                 drop_info: HeaderDropInfo::default(),
             });
             return (data_cow_field_refs.len() - 1, true);
@@ -1526,6 +1544,7 @@ impl ActionBuffer {
                 &mut dead_data_leading,
                 &mut dead_data_trailing,
                 dcf.data_end,
+                field_data_size,
             )
         }
         debug_assert!(-agi.group.field_count_delta <= field_count as isize);
@@ -1541,6 +1560,7 @@ impl ActionBuffer {
                 &field.iter_hall.field_data.headers,
                 &mut dead_data_leading,
                 &mut dead_data_trailing,
+                field_data_size,
                 field_data_size,
             );
         }
