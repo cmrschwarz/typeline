@@ -1397,6 +1397,11 @@ impl ActionBuffer {
             field_data_size,
             field_data_size,
         );
+        Self::adjust_iters_to_data_drop(
+            &mut field.iter_hall.iters,
+            dead_data_leading,
+            &drop_info,
+        );
         let fd = &mut field.iter_hall.field_data;
         // LEAK this leaks all resources of the data. //TODO: drop before
         fd.data
