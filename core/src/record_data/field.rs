@@ -829,7 +829,7 @@ impl FieldManager {
             eprint!(" )");
         }
     }
-    pub fn print_field_header_data(&self, id: FieldId) {
+    pub fn print_field_header_data(&self, id: FieldId, indent_level: usize) {
         let f = self.fields[id].borrow();
         let fd = &f.iter_hall.field_data;
         if fd.headers.is_empty() {
@@ -838,11 +838,11 @@ impl FieldManager {
         }
         eprintln!("[");
         for &h in &fd.headers {
-            eprintln!("    {h:?},");
+            eprintln!("{:indent_level$}    {h:?},", "");
         }
-        eprint!("]");
+        eprint!("{:indent_level$}]", "");
     }
-    pub fn print_field_iter_data(&self, id: FieldId) {
+    pub fn print_field_iter_data(&self, id: FieldId, indent_level: usize) {
         let f = self.fields[id].borrow();
         let iter = f.iter_hall.iters.iter().filter(|#[allow(unused)] v| {
             #[cfg(feature = "debug_logging")]
@@ -857,15 +857,15 @@ impl FieldManager {
         }
         eprintln!("[");
         for is in iter {
-            eprintln!("    {:?},", is.get());
+            eprintln!("{:indent_level$}    {:?},", "", is.get());
         }
-        eprint!("]");
+        eprint!("{:indent_level$}]", "");
     }
     pub fn print_fields_with_header_data(&self) {
         for (id, _) in self.fields.iter_enumerated() {
             self.print_field_stats(id);
             eprint!(" ");
-            self.print_field_header_data(id);
+            self.print_field_header_data(id, 0);
             eprintln!();
         }
     }
@@ -873,7 +873,7 @@ impl FieldManager {
         for (id, _) in self.fields.iter_enumerated() {
             self.print_field_stats(id);
             eprint!(" ");
-            self.print_field_iter_data(id);
+            self.print_field_iter_data(id, 0);
             eprintln!();
         }
     }

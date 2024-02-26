@@ -1052,6 +1052,27 @@ impl ActionBuffer {
         agi: &ActionGroupIdentifier,
         full_cow_field_refs: &mut [FullCowFieldRef],
     ) {
+        let (s1, s2) = Self::get_action_group_slices_raw(
+            &self.actors,
+            &self.action_temp_buffers,
+            agi,
+        );
+        let actions = s1.iter().chain(s2);
+        #[cfg(feature = "debug_logging")]
+        {
+            let field = fm.fields[field_id].borrow();
+            eprintln!(
+                "executing for field {} (ms {}, first actor: {:?}):",
+                field_id, field.match_set, field.first_actor
+            );
+            drop(field);
+            eprint_action_list(actions.clone());
+            eprint!("   + before: ");
+            fm.print_field_header_data(field_id, 3);
+            eprint!("\n   ");
+            fm.print_field_iter_data(field_id, 3);
+            eprintln!();
+        }
         let mut field_ref_mut = fm.fields[field_id].borrow_mut();
         let field = &mut *field_ref_mut;
         let fd = &mut field.iter_hall.field_data;
@@ -1069,20 +1090,6 @@ impl ActionBuffer {
                 panic!("cannot execute commands on FullCow iter hall")
             }
         };
-        let (s1, s2) = Self::get_action_group_slices_raw(
-            &self.actors,
-            &self.action_temp_buffers,
-            agi,
-        );
-        let actions = s1.iter().chain(s2);
-        #[cfg(feature = "debug_logging")]
-        {
-            eprintln!(
-                "executing for field {} (ms {}, first actor: {:?}):",
-                field_id, field.match_set, field.first_actor
-            );
-            eprint_action_list(actions.clone());
-        }
         let iterators = field
             .iter_hall
             .iters
@@ -1103,6 +1110,15 @@ impl ActionBuffer {
             field_count,
             iterators,
         );
+        #[cfg(feature = "debug_logging")]
+        {
+            drop(field_ref_mut);
+            eprint!("   + after: ");
+            fm.print_field_header_data(field_id, 3);
+            eprint!("\n   ");
+            fm.print_field_iter_data(field_id, 3);
+            eprintln!();
+        }
         // debug_assert!(_field_count_delta == agi.group.field_count_delta);
     }
     fn calc_dead_data(
