@@ -14,6 +14,7 @@ use crate::{
 use super::{
     action_buffer::ActionBuffer,
     field::{FieldId, FieldManager},
+    group_tracker::GroupTracker,
 };
 
 pub type MatchSetId = NonMaxUsize;
@@ -23,6 +24,7 @@ pub type MatchSetId = NonMaxUsize;
 pub struct MatchSet {
     pub stream_participants: Vec<TransformId>,
     pub action_buffer: RefCell<ActionBuffer>,
+    pub group_tracker: GroupTracker,
     pub field_name_map:
         HashMap<StringStoreEntry, FieldId, BuildIdentityHasher>,
     // stores original field -> cow copy
