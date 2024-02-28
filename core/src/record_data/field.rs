@@ -877,6 +877,14 @@ impl FieldManager {
             eprintln!();
         }
     }
+    pub fn print_field_report(&self, field_id: FieldId) {
+        self.print_field_stats(field_id);
+        eprint!("\n    ");
+        self.print_field_header_data(field_id, 4);
+        eprint!("\n    ");
+        self.print_field_iter_data(field_id, 4);
+        eprintln!();
+    }
 }
 
 impl Drop for FieldManager {

@@ -449,6 +449,7 @@ impl<const ALIGN: usize> RingBuf<ALIGN> {
         let len_back = self.used_space_back();
         if count < len_back {
             self.head += count;
+            self.len -= count;
             return;
         }
         self.head = self.front_padding as usize + count - len_back;

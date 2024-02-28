@@ -1383,7 +1383,7 @@ impl ActionBuffer {
         let field_data_size = field.iter_hall.field_data.data.len();
         #[cfg(feature = "debug_logging")]
         eprintln!(
-            "   + dropping_dead_data (leading: {}, pad: {}, rem: {}, trailing: {})",
+            "   + dropping dead data (leading: {}, pad: {}, rem: {}, trailing: {})",
             dead_data_leading,
             dead_data_padding,
             field_data_size - dead_data_leading - dead_data_trailing,
@@ -1594,19 +1594,17 @@ impl ActionBuffer {
             && (dead_data_leading != 0 || dead_data_trailing != 0)
             && !all_data_dead;
 
-        if all_fields_dead && cfg!(feature = "debug_logging") {
-            eprintln!(
+        if all_data_dead {
+            if cfg!(feature = "debug_logging") {
+                eprintln!(
                 "clearing field {} (ms {}, first actor: {}, field_count: {}) ({}):",
                 field_id, field_ms_id, actor_id, field_count,
                 if all_data_dead {"all data dead"} else {"some data remains alive"}
             );
-            self.eprint_action_list_from_agi(&agi);
-        }
-
-        if all_data_dead {
+                self.eprint_action_list_from_agi(&agi);
+            }
             field.iter_hall.reset_iterators();
             field.iter_hall.field_data.clear();
-            dead_data_leading = 0;
         }
         if data_partially_dead {
             let dead_data_padding = Self::calculate_dead_data_padding(
