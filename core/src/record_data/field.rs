@@ -778,8 +778,7 @@ impl FieldManager {
             eprintln!();
         }
     }
-    pub fn print_field_stats(&self, id: FieldId) {
-        let field = self.fields[id].borrow();
+    pub fn print_field_stats_for_ref(&self, field: &Field, id: FieldId) {
         eprint!("field id {id:02}");
         // if let Some(name) = field.name {
         //    eprint!(" '@{}'",
@@ -829,9 +828,15 @@ impl FieldManager {
             eprint!(" )");
         }
     }
-    pub fn print_field_header_data(&self, id: FieldId, indent_level: usize) {
-        let f = self.fields[id].borrow();
-        let fd = &f.iter_hall.field_data;
+    pub fn print_field_stats(&self, id: FieldId) {
+        self.print_field_stats_for_ref(&self.fields[id].borrow(), id)
+    }
+    pub fn print_field_header_data_for_ref(
+        &self,
+        field: &Field,
+        indent_level: usize,
+    ) {
+        let fd = &field.iter_hall.field_data;
         if fd.headers.is_empty() {
             eprint!("[]");
             return;
@@ -842,15 +847,25 @@ impl FieldManager {
         }
         eprint!("{:indent_level$}]", "");
     }
-    pub fn print_field_iter_data(&self, id: FieldId, indent_level: usize) {
-        let f = self.fields[id].borrow();
-        let iter = f.iter_hall.iters.iter().filter(|#[allow(unused)] v| {
-            #[cfg(feature = "debug_logging")]
-            let res = true; // v.get().kind != IterKind::RefLookup;
-            #[cfg(not(feature = "debug_logging"))]
-            let res = false;
-            res
-        });
+    pub fn print_field_header_data(&self, id: FieldId, indent_level: usize) {
+        self.print_field_header_data_for_ref(
+            &self.fields[id].borrow(),
+            indent_level,
+        );
+    }
+    pub fn print_field_iter_data_for_ref(
+        &self,
+        field: &Field,
+        indent_level: usize,
+    ) {
+        let iter =
+            field.iter_hall.iters.iter().filter(|#[allow(unused)] v| {
+                #[cfg(feature = "debug_logging")]
+                let res = true; // v.get().kind != IterKind::RefLookup;
+                #[cfg(not(feature = "debug_logging"))]
+                let res = false;
+                res
+            });
         if iter.clone().next().is_none() {
             eprint!("[]");
             return;
@@ -860,6 +875,10 @@ impl FieldManager {
             eprintln!("{:indent_level$}    {:?},", "", is.get());
         }
         eprint!("{:indent_level$}]", "");
+    }
+    pub fn print_field_iter_data(&self, id: FieldId, indent_level: usize) {
+        let field = self.fields[id].borrow();
+        self.print_field_iter_data_for_ref(&field, indent_level);
     }
     pub fn print_fields_with_header_data(&self) {
         for (id, _) in self.fields.iter_enumerated() {
@@ -877,13 +896,16 @@ impl FieldManager {
             eprintln!();
         }
     }
-    pub fn print_field_report(&self, field_id: FieldId) {
-        self.print_field_stats(field_id);
+    pub fn print_field_report_for_ref(&self, field: &Field, id: FieldId) {
+        self.print_field_stats_for_ref(field, id);
         eprint!("\n    ");
-        self.print_field_header_data(field_id, 4);
+        self.print_field_header_data_for_ref(field, 4);
         eprint!("\n    ");
-        self.print_field_iter_data(field_id, 4);
+        self.print_field_iter_data_for_ref(field, 4);
         eprintln!();
+    }
+    pub fn print_field_report(&self, id: FieldId) {
+        self.print_field_report_for_ref(&self.fields[id].borrow(), id);
     }
 }
 

@@ -739,3 +739,15 @@ impl IterHall {
         self.get_owned_data_mut().drop_last_value(run_length);
     }
 }
+
+impl Drop for IterHall {
+    fn drop(&mut self) {
+        if !matches!(self.data_source, FieldDataSource::Owned) {
+            // we don't want the destructor for
+            // `FieldData` to assume that headers and data match
+            // and drop the data contents, so we clear them beforehand
+            self.field_data.headers.clear();
+            self.field_data.data.clear();
+        }
+    }
+}

@@ -1370,25 +1370,19 @@ impl ActionBuffer {
             *dead_data_leading = 0;
             return 0;
         }
-        lead = lead.min(field_data_size - lead);
+        lead = lead.min(field_data_size - trail);
         *dead_data_leading = lead;
         lead % MAX_FIELD_ALIGN
     }
     fn drop_dead_field_data(
+        #[cfg_attr(not(feature = "debug_logging"), allow(unused))]
+        fm: &FieldManager,
         field: &mut Field,
         dead_data_leading: usize,
         dead_data_padding: usize,
         dead_data_trailing: usize,
     ) -> HeaderDropInfo {
         let field_data_size = field.iter_hall.field_data.data.len();
-        #[cfg(feature = "debug_logging")]
-        eprintln!(
-            "   + dropping dead data (leading: {}, pad: {}, rem: {}, trailing: {})",
-            dead_data_leading,
-            dead_data_padding,
-            field_data_size - dead_data_leading - dead_data_trailing,
-            dead_data_trailing
-        );
         let drop_info = Self::drop_dead_cow_headers(
             field,
             dead_data_leading,
@@ -1407,6 +1401,21 @@ impl ActionBuffer {
         fd.data
             .drop_front(dead_data_leading.prev_multiple_of(&MAX_FIELD_ALIGN));
         fd.data.drop_back(dead_data_trailing);
+        #[cfg(feature = "debug_logging")]
+        {
+            eprintln!(
+            "   + dropping dead data (leading: {}, pad: {}, rem: {}, trailing: {})",
+            dead_data_leading,
+            dead_data_padding,
+            field_data_size - dead_data_leading - dead_data_trailing,
+            dead_data_trailing
+        );
+            eprint!("    ");
+            fm.print_field_header_data_for_ref(field, 4);
+            eprint!("\n    ");
+            fm.print_field_iter_data_for_ref(field, 4);
+            eprintln!();
+        }
         drop_info
     }
     fn adjust_iters_to_data_drop<'a>(
@@ -1613,6 +1622,7 @@ impl ActionBuffer {
                 field_data_size,
             );
             let root_drop_info = Self::drop_dead_field_data(
+                fm,
                 &mut field,
                 dead_data_leading,
                 dead_data_padding,
