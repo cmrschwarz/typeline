@@ -1,14 +1,17 @@
-/target
-/chromedriver*
-/geckodriver*
+# dev setup
 /.vscode
 
+# rust / toolchain
+/target
+/.cargo
+/rust-toolchain.toml
+
+# selenium drivers for testing
+/chromedriver*
+/geckodriver*
 
 # benchmarking output
 /flamegraph.svg
 /perf.data
 /perf.data.old
 /coverage.cobertura.xml
-
-# named pipe for stdin testing
-/test
