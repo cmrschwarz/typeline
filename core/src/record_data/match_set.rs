@@ -74,12 +74,7 @@ impl MatchSetManager {
 
     pub fn add_match_set(&mut self) -> MatchSetId {
         #[allow(unused_mut)]
-        let mut ms = MatchSet {
-            stream_participants: Vec::new(),
-            action_buffer: RefCell::default(),
-            field_name_map: HashMap::default(),
-            cow_map: HashMap::default(),
-        };
+        let mut ms = MatchSet::default();
         #[cfg(feature = "debug_logging")]
         {
             ms.action_buffer.borrow_mut().match_set_id =
