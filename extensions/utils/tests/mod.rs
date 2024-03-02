@@ -1,5 +1,5 @@
 use rstest::rstest;
-use scr::parse_cli_from_strings;
+use scr::{operators::sequence::create_op_enum, parse_cli_from_strings};
 use scr_core::{
     operators::{
         literal::create_op_v,
@@ -21,7 +21,7 @@ fn primes() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .add_op_with_opts(create_op_primes(), None, Some("p"), false, false)
-        .add_op(create_op_seqn(1, 3, 1).unwrap())
+        .add_op(create_op_enum(0, 3, 1).unwrap())
         .add_op(create_op_select("p".into()))
         .add_op(create_op_string_sink(&ss))
         .run()?;

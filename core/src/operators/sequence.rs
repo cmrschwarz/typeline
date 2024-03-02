@@ -325,6 +325,7 @@ fn handle_enum_mode(mut sbs: SequenceBatchState) {
     let mut seq_size_rem = sbs.seq.ss.remaining_len(sbs.seq.current_value);
     let mut out_batch_size = 0;
     let mut drop_count = 0;
+    let mut set_done = false;
     loop {
         let input_rem = sbs.batch_size - out_batch_size - drop_count;
         if input_rem == 0 {
@@ -357,15 +358,21 @@ fn handle_enum_mode(mut sbs: SequenceBatchState) {
             }
             sbs.ab.push_action(
                 FieldActionKind::Drop,
-                field_pos + out_batch_size + count,
+                // TODO: investigate primes testcase based on
+                // 897f778cf36c596f84521bdadef7159c84c1d70e~1
+                // to fix the weird unreachable instead of assertion failure
+                field_pos + out_batch_size,
                 rem,
             );
             drop_count += rem;
         }
+        seq_size_rem -= count as u64;
+        set_done = seq_size_rem == 0;
         let gs_count = sbs.iter.skip_group_separators(
             sbs.batch_size - out_batch_size - drop_count,
         );
         if gs_count > 0 {
+            set_done = false;
             sbs.output_field
                 .iter_hall
                 .push_group_separator(gs_count, count == 0);
@@ -376,8 +383,14 @@ fn handle_enum_mode(mut sbs: SequenceBatchState) {
     }
     sbs.fm
         .store_iter(sbs.input_field_id, sbs.seq.iter_id, sbs.iter);
-    sbs.tf_mgr
-        .submit_batch_ready_for_more(sbs.tf_id, out_batch_size, sbs.ps);
+    if sbs.ps.next_batch_ready {
+        sbs.tf_mgr.push_successor_in_ready_queue(sbs.tf_id);
+    }
+    sbs.tf_mgr.submit_batch(
+        sbs.tf_id,
+        out_batch_size,
+        sbs.ps.input_done || sbs.ps.successor_done || set_done,
+    );
 }
 
 fn handle_enum_unbounded_mode(mut sbs: SequenceBatchState) {
