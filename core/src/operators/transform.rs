@@ -1,4 +1,3 @@
-use nonmax::NonMaxUsize;
 use smallstr::SmallString;
 
 use crate::{
@@ -12,7 +11,7 @@ use crate::{
         ref_iter::AutoDerefIter,
         stream_value::{StreamValueId, StreamValueManager},
     },
-    utils::small_box::SmallBox,
+    utils::{debuggable_nonmax::DebuggableNonMaxUsize, small_box::SmallBox},
 };
 
 use super::{
@@ -42,8 +41,8 @@ use super::{
 };
 
 pub type DefaultTransformName = SmallString<[u8; 16]>;
-pub type TransformId = NonMaxUsize;
-pub type StreamProducerIndex = NonMaxUsize;
+pub type TransformId = DebuggableNonMaxUsize;
+pub type StreamProducerIndex = DebuggableNonMaxUsize;
 
 pub enum TransformData<'a> {
     Disabled,

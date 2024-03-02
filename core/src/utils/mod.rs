@@ -2,6 +2,7 @@ use std::ops::Range;
 
 pub mod aligned_buf;
 pub mod counting_writer;
+pub mod debuggable_nonmax;
 pub mod dynamic_freelist;
 pub mod encoding;
 pub mod escaped_writer;
@@ -9,20 +10,19 @@ pub mod identity_hasher;
 pub mod indexing_type;
 pub mod int_string_conversions;
 pub mod io;
-pub mod nonzero_ext;
 pub mod offset_vec_deque;
 pub mod paths_store;
 pub mod phantom_slot;
 pub mod plattform;
 pub mod printable_unicode;
 pub mod ringbuf;
+pub mod size_classed_vec;
 pub mod small_box;
 pub mod stable_vec;
 pub mod string_store;
 pub mod temp_vec;
 pub mod test_utils;
 pub mod universe;
-pub mod size_classed_vec;
 
 pub const fn ilog2_usize(v: usize) -> usize {
     (std::mem::size_of::<usize>() * 8) - v.leading_zeros() as usize

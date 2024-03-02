@@ -1180,7 +1180,7 @@ impl ActionBuffer {
         through_data_cow: bool,
         field: &Field,
         data_cow_field_refs: &mut Vec<DataCowFieldRef<'a>>,
-        update_cow_ms: Option<nonmax::NonMaxUsize>,
+        update_cow_ms: Option<MatchSetId>,
         full_cow_field_refs: &mut Vec<FullCowFieldRef<'a>>,
         data_cow_idx: Option<usize>,
         first_action_index: usize,

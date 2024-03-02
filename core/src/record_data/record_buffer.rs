@@ -3,10 +3,12 @@ use std::{
     sync::{Condvar, Mutex},
 };
 
-use nonmax::NonMaxU32;
 use smallvec::SmallVec;
 
-use crate::utils::{string_store::StringStoreEntry, universe::Universe};
+use crate::utils::{
+    debuggable_nonmax::DebuggableNonMaxU32, string_store::StringStoreEntry,
+    universe::Universe,
+};
 
 use super::field_data::FieldData;
 
@@ -32,7 +34,7 @@ pub struct RecordBufferData {
     pub fields: Universe<RecordBufferFieldId, RecordBufferField>,
 }
 
-pub type RecordBufferFieldId = NonMaxU32;
+pub type RecordBufferFieldId = DebuggableNonMaxU32;
 
 #[derive(Default)]
 pub struct RecordBuffer {

@@ -5,10 +5,12 @@ use std::{
     marker::PhantomData,
 };
 
-use nonmax::NonMaxU32;
 use thin_vec::ThinVec;
 
-use crate::{operators::transform::TransformId, utils::universe::Universe};
+use crate::{
+    operators::transform::TransformId,
+    utils::{debuggable_nonmax::DebuggableNonMaxU32, universe::Universe},
+};
 
 use super::{
     field::{FieldId, FieldManager},
@@ -26,7 +28,7 @@ use super::{
     ref_iter::AutoDerefIter,
 };
 
-pub type IterId = NonMaxU32;
+pub type IterId = DebuggableNonMaxU32;
 
 /// A COW Field reflects the state of another field **at a certain point
 /// in time**. This means that when source or target change, the other side

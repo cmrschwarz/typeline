@@ -22,7 +22,7 @@ derive_more = "0.99.17"
 # small size / layout optimizations
 arrayvec = "0.7.4"
 bitvec = { version = "1.0", features = ["std"], default-features = false }
-nonmax = "0.5.5"
+#nonmax = "0.5.5"
 smallstr = { version = "0.3.0", features = ["union"] }
 smallvec = { version = "1.11.2", features = ["union", "write"] }
 thin-vec = "0.2.13"

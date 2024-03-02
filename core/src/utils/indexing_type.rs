@@ -1,6 +1,6 @@
 #![allow(clippy::inline_always)]
 
-use nonmax::{NonMaxU32, NonMaxUsize};
+use super::debuggable_nonmax::{DebuggableNonMaxU32, DebuggableNonMaxUsize};
 
 pub trait IndexingType:
     Clone
@@ -69,30 +69,22 @@ impl IndexingTypeFromUsize for u32 {
     }
 }
 
-// NonMaxU32
-impl IndexingTypeIntoUsize for NonMaxU32 {
-    #[inline(always)]
-    fn into_usize(self) -> usize {
-        self.get() as usize
-    }
-}
-impl IndexingTypeFromUsize for NonMaxU32 {
-    #[inline(always)]
-    fn from_usize(v: usize) -> Self {
-        NonMaxU32::new(v as u32).unwrap()
-    }
+macro_rules! indexing_type_for_nonmax {
+    ($nonmax: ident, $primitive: ident) => {
+        impl IndexingTypeIntoUsize for $nonmax {
+            #[inline(always)]
+            fn into_usize(self) -> usize {
+                self.get() as usize
+            }
+        }
+        impl IndexingTypeFromUsize for $nonmax {
+            #[inline(always)]
+            fn from_usize(v: usize) -> Self {
+                $nonmax::new(v as $primitive).unwrap()
+            }
+        }
+    };
 }
 
-// NonMaxUsize
-impl IndexingTypeIntoUsize for NonMaxUsize {
-    #[inline(always)]
-    fn into_usize(self) -> usize {
-        self.get()
-    }
-}
-impl IndexingTypeFromUsize for NonMaxUsize {
-    #[inline(always)]
-    fn from_usize(v: usize) -> Self {
-        NonMaxUsize::new(v).unwrap()
-    }
-}
+indexing_type_for_nonmax!(DebuggableNonMaxUsize, usize);
+indexing_type_for_nonmax!(DebuggableNonMaxU32, u32);

@@ -3,9 +3,9 @@ use std::{
     ops::{Index, IndexMut},
 };
 
-use nonmax::NonMaxUsize;
-
-use super::indexing_type::IndexingType;
+use super::{
+    debuggable_nonmax::DebuggableNonMaxUsize, indexing_type::IndexingType,
+};
 
 use super::get_two_distinct_mut;
 // TODO: create a Vec using this Index type but without the whole reclaiming
@@ -14,13 +14,13 @@ use super::get_two_distinct_mut;
 #[derive(Clone)]
 enum UniverseEntry<T> {
     Occupied(T),
-    Vacant(Option<NonMaxUsize>),
+    Vacant(Option<DebuggableNonMaxUsize>),
 }
 
 #[derive(Clone)]
 pub struct Universe<I, T> {
     data: Vec<UniverseEntry<T>>,
-    first_vacant_entry: Option<NonMaxUsize>,
+    first_vacant_entry: Option<DebuggableNonMaxUsize>,
     _phantom_data: PhantomData<I>,
 }
 
@@ -50,7 +50,7 @@ impl<I: IndexingType, T> Universe<I, T> {
         // memory
         let res = UniverseEntry::Vacant(self.first_vacant_entry);
         self.first_vacant_entry =
-            Some(unsafe { NonMaxUsize::new_unchecked(index) });
+            Some(unsafe { DebuggableNonMaxUsize::new_unchecked(index) });
         res
     }
     pub fn release(&mut self, id: I) {

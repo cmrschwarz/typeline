@@ -1,6 +1,5 @@
 use arrayvec::{ArrayString, ArrayVec};
 use bstr::ByteSlice;
-use nonmax::NonMaxUsize;
 use num::{BigInt, BigRational};
 use std::{borrow::Cow, cell::RefMut, io::Write, ptr::NonNull};
 use unicode_ident::is_xid_start;
@@ -48,6 +47,7 @@ use crate::{
             CharLimitedLengthAndCharsCountingWriter,
             LengthAndCharsCountingWriter, LengthCountingWriter,
         },
+        debuggable_nonmax::DebuggableNonMaxUsize,
         divide_by_char_len,
         escaped_writer::EscapedWriter,
         int_string_conversions::{
@@ -219,7 +219,7 @@ struct TfFormatStreamValueHandle {
     target_sv_id: StreamValueId,
     wait_to_end: bool,
 }
-type TfFormatStreamValueHandleId = NonMaxUsize;
+type TfFormatStreamValueHandleId = DebuggableNonMaxUsize;
 
 const FINAL_OUTPUT_INDEX_NEXT_VAL: usize = usize::MAX;
 
@@ -2572,7 +2572,7 @@ pub fn handle_tf_format_stream_value_update(
     sv_id: StreamValueId,
     custom: usize,
 ) {
-    let handle_id = NonMaxUsize::new(custom).unwrap();
+    let handle_id = TfFormatStreamValueHandleId::new(custom).unwrap();
     let handle = &mut fmt.stream_value_handles[handle_id];
     let (sv, out_sv) = jd
         .sv_mgr

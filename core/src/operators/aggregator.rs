@@ -224,7 +224,7 @@ pub fn insert_tf_aggregator(
 
 pub fn handle_tf_aggregator_header(
     jd: &mut JobData,
-    tf_id: nonmax::NonMaxUsize,
+    tf_id: TransformId,
     agg_h: &mut TfAggregatorHeader,
 ) {
     let (mut batch_size, ps) = jd.tf_mgr.claim_all(tf_id);
@@ -321,10 +321,7 @@ pub fn handle_tf_aggregator_header(
         .inform_transform_batch_available(sub_tf_id, batch_size, true);
 }
 
-pub fn handle_tf_aggregator_trailer(
-    job: &mut Job,
-    tf_id: nonmax::NonMaxUsize,
-) {
+pub fn handle_tf_aggregator_trailer(job: &mut Job, tf_id: TransformId) {
     let (batch_size, mut ps) = job.job_data.tf_mgr.claim_all(tf_id);
 
     if ps.input_done {

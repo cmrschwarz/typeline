@@ -6,10 +6,7 @@ use std::{
 
 use smallvec::SmallVec;
 
-use crate::utils::{
-    nonzero_ext::NonMaxU32Ext, string_store::StringStoreEntry,
-    universe::Universe,
-};
+use crate::utils::{string_store::StringStoreEntry, universe::Universe};
 
 use super::{
     action_buffer::{ActionBuffer, ActorId, ActorRef, SnapshotRef},

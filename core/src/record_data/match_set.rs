@@ -1,11 +1,10 @@
 use std::{cell::RefCell, collections::HashMap};
 
-use nonmax::NonMaxUsize;
-
 use crate::{
     operators::transform::TransformId,
     record_data::{field::VOID_FIELD_ID, iter_hall::FieldDataSource},
     utils::{
+        debuggable_nonmax::DebuggableNonMaxUsize,
         identity_hasher::BuildIdentityHasher, string_store::StringStoreEntry,
         universe::Universe,
     },
@@ -17,7 +16,7 @@ use super::{
     group_tracker::GroupTracker,
 };
 
-pub type MatchSetId = NonMaxUsize;
+pub type MatchSetId = DebuggableNonMaxUsize;
 
 #[repr(C)]
 #[derive(Default)]

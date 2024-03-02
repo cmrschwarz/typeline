@@ -24,6 +24,10 @@ pub struct GroupList {
     parent_list: Option<GroupsListId>,
     group_index_offset: GroupIdx,
     group_lengths: SizeClassedVec,
+    // Index of the 'parent group'. This is necessary to make sense of zero
+    // length groups, where we would otherwise lose this connection, since
+    // we can't find the right partner by lockstep iterating over both
+    // group lists anymore. Used during `insert_fields` to update parents.
     parent_group_indices: SizeClassedVec,
     iter_states: Universe<PerGroupListIterIdx, GroupsIterState>,
 }
