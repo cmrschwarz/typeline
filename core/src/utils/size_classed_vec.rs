@@ -1,3 +1,5 @@
+use std::{marker::PhantomData, ops::Range};
+
 pub enum SizeClassedVec {
     Sc8(Vec<u8>),
     Sc16(Vec<u16>),
@@ -38,6 +40,14 @@ impl SizeClassedVec {
     }
     pub fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+    pub fn size_class(&self) -> usize {
+        match self {
+            SizeClassedVec::Sc8(_) => 8,
+            SizeClassedVec::Sc16(_) => 16,
+            SizeClassedVec::Sc32(_) => 32,
+            SizeClassedVec::Sc64(_) => 64,
+        }
     }
     pub fn size_class_max(&self) -> usize {
         match self {
@@ -122,5 +132,81 @@ impl SizeClassedVec {
             },
             _ => panic!("invalid size class: {sc}"),
         }
+    }
+    pub fn as_ptr_range(&self) -> Range<*const u8> {
+        fn range2u8<T>(r: Range<*const T>) -> Range<*const u8> {
+            Range {
+                start: r.start as *const u8,
+                end: r.end as *const u8,
+            }
+        }
+        match self {
+            SizeClassedVec::Sc8(v) => v.as_ptr_range(),
+            SizeClassedVec::Sc16(v) => range2u8(v.as_ptr_range()),
+            SizeClassedVec::Sc32(v) => range2u8(v.as_ptr_range()),
+            SizeClassedVec::Sc64(v) => range2u8(v.as_ptr_range()),
+        }
+    }
+    pub fn as_mut_ptr_range(&mut self) -> Range<*mut u8> {
+        fn range2u8mut<T>(r: Range<*mut T>) -> Range<*mut u8> {
+            Range {
+                start: r.start as *mut u8,
+                end: r.end as *mut u8,
+            }
+        }
+        match self {
+            SizeClassedVec::Sc8(v) => v.as_mut_ptr_range(),
+            SizeClassedVec::Sc16(v) => range2u8mut(v.as_mut_ptr_range()),
+            SizeClassedVec::Sc32(v) => range2u8mut(v.as_mut_ptr_range()),
+            SizeClassedVec::Sc64(v) => range2u8mut(v.as_mut_ptr_range()),
+        }
+    }
+    pub fn iter(&self) -> Iter {
+        let range = self.as_ptr_range();
+        let stride = (self.size_class() / 8) as u8;
+        Iter {
+            ptr: range.start,
+            end: range.end,
+            stride,
+            _phantom_data: PhantomData,
+        }
+    }
+}
+
+impl<'a> IntoIterator for &'a SizeClassedVec {
+    type Item = usize;
+    type IntoIter = Iter<'a>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+pub struct Iter<'a> {
+    ptr: *const u8,
+    end: *const u8,
+    stride: u8,
+    _phantom_data: PhantomData<&'a usize>,
+}
+
+impl<'a> Iterator for Iter<'a> {
+    type Item = usize;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.ptr == self.end {
+            return None;
+        }
+        let res = unsafe {
+            match self.stride {
+                1 => *(self.ptr as *const u8) as usize,
+                2 => *(self.ptr as *const u16) as usize,
+                4 => *(self.ptr as *const u32) as usize,
+                8 => *(self.ptr as *const u64) as usize,
+                _ => std::hint::unreachable_unchecked(),
+            }
+        };
+        unsafe {
+            self.ptr = self.ptr.add(self.stride as usize);
+        }
+        Some(res)
     }
 }
