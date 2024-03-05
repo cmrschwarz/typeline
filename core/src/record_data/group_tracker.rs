@@ -5,6 +5,11 @@ use std::{
 
 use crate::utils::{size_classed_vec::SizeClassedVec, universe::Universe};
 
+use super::{
+    action_buffer::{ActionBuffer, ActorRef, SnapshotRef},
+    field_action::{FieldAction, FieldActionKind},
+};
+
 pub type GroupIdx = usize;
 pub type GroupLen = usize;
 
@@ -21,6 +26,7 @@ struct GroupsIterState {
 }
 
 pub struct GroupList {
+    actor: ActorRef,
     parent_list: Option<GroupsListId>,
     group_index_offset: GroupIdx,
     group_lengths: SizeClassedVec,
@@ -30,11 +36,53 @@ pub struct GroupList {
     // group lists anymore. Used during `insert_fields` to update parents.
     parent_group_indices: SizeClassedVec,
     iter_states: Universe<PerGroupListIterIdx, GroupsIterState>,
+    snapshot: SnapshotRef,
 }
 
 impl GroupList {
     pub fn adjust_group_index_from_child(&self, group_index: usize) -> usize {
         group_index.wrapping_sub(self.group_index_offset)
+    }
+    fn apply_field_actions_list<'a>(
+        &mut self,
+        action_list: impl Iterator<Item = &'a FieldAction>,
+    ) {
+        let mut iter = GroupsIterBase {
+            field_pos: 0,
+            group_index: 0,
+            group_len_rem: self.group_lengths.try_get(0).unwrap_or(0),
+            list: self,
+        };
+        for a in action_list {
+            iter.next_n_fields(a.field_idx - iter.field_pos);
+            match a.kind {
+                FieldActionKind::Dup => todo!(),
+                FieldActionKind::Drop => todo!(),
+                FieldActionKind::InsertZst(_) => todo!(),
+            }
+        }
+    }
+    fn apply_field_actions(&mut self, ab: &mut ActionBuffer) {
+        let Some((actor_id, ss_prev)) =
+            ab.update_snapshot(None, &mut self.actor, &mut self.snapshot)
+        else {
+            return;
+        };
+        let agi = ab.build_actions_from_snapshot(actor_id, ss_prev);
+        if let Some(agi) = &agi {
+            let (s1, s2) = ab.get_action_group_slices(agi);
+            self.apply_field_actions_list(s1.iter().chain(s2.iter()));
+        };
+        ab.drop_snapshot_refcount(ss_prev, 1);
+        ab.release_temp_action_group(agi);
+    }
+    pub fn iter(&self) -> GroupsIterBase<&GroupList> {
+        GroupsIterBase {
+            list: self,
+            field_pos: 0,
+            group_index: 0,
+            group_len_rem: self.group_lengths.try_get(0).unwrap_or(0),
+        }
     }
 }
 
@@ -46,6 +94,22 @@ pub struct GroupTracker {
 }
 
 impl GroupTracker {
+    pub fn add_group_list(&mut self, actor: ActorRef) -> GroupsListId {
+        let list_id = self.lists.claim_with_value(RefCell::new(GroupList {
+            actor,
+            parent_list: self.active_lists.last().copied(),
+            group_index_offset: 0,
+            group_lengths: SizeClassedVec::default(),
+            parent_group_indices: SizeClassedVec::default(),
+            iter_states: Universe::default(),
+            snapshot: SnapshotRef::default(),
+        }));
+        self.active_lists.push(list_id);
+        list_id
+    }
+    pub fn pop_active_group_list(&mut self) -> Option<GroupsListId> {
+        self.active_lists.pop()
+    }
     pub fn claim_groups_iter(&mut self) -> GroupsIterId {
         let list_id = *self.active_lists.last().unwrap();
         let per_group_iter_id = self.lists[list_id]
@@ -69,6 +133,42 @@ impl GroupTracker {
                 - iter_state.group_offset,
             list,
         }
+    }
+    pub fn active_group_list(&self) -> GroupsListId {
+        *self.active_lists.last().unwrap()
+    }
+    pub fn apply_field_actions_to_all_active(
+        &mut self,
+        ab: &mut ActionBuffer,
+    ) {
+        let mut prev_diff = (SnapshotRef::default(), SnapshotRef::default());
+        let mut agi = None;
+        for &list_id in &self.active_lists {
+            let mut list_ref = self.lists[list_id].borrow_mut();
+            let list = &mut *list_ref;
+            let Some((actor_id, ss_prev)) =
+                ab.update_snapshot(None, &mut list.actor, &mut list.snapshot)
+            else {
+                return;
+            };
+            let diff = (ss_prev, list.snapshot);
+            if prev_diff != diff {
+                prev_diff = diff;
+                ab.release_temp_action_group(agi);
+                agi = ab.build_actions_from_snapshot(actor_id, ss_prev);
+            }
+            if let Some(agi) = &agi {
+                let (s1, s2) = ab.get_action_group_slices(agi);
+                list.apply_field_actions_list(s1.iter().chain(s2.iter()));
+            };
+            ab.drop_snapshot_refcount(ss_prev, 1);
+        }
+        ab.release_temp_action_group(agi);
+    }
+    pub fn apply_field_actions_to_current(&mut self, ab: &mut ActionBuffer) {
+        self.lists[self.active_group_list()]
+            .borrow_mut()
+            .apply_field_actions(ab)
     }
 }
 

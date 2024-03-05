@@ -7,6 +7,12 @@ pub enum SizeClassedVec {
     Sc64(Vec<u64>),
 }
 
+impl Default for SizeClassedVec {
+    fn default() -> Self {
+        SizeClassedVec::Sc8(Vec::new())
+    }
+}
+
 impl SizeClassedVec {
     fn required_size_class_for_value(value: usize) -> u32 {
         (usize::BITS - value.leading_zeros() + 7) / 8 * 8

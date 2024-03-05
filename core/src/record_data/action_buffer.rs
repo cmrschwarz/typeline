@@ -99,7 +99,7 @@ struct Actor {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct ActionGroupIdentifier {
+pub(super) struct ActionGroupIdentifier {
     group: ActionGroup,
     location: ActionGroupLocation,
 }
@@ -464,7 +464,7 @@ impl ActionBuffer {
     pub fn peek_next_actor_id(&self) -> ActorId {
         self.actors.next_free_index()
     }
-    fn release_temp_action_group(
+    pub(super) fn release_temp_action_group(
         &mut self,
         agi: Option<ActionGroupIdentifier>,
     ) {
@@ -520,7 +520,7 @@ impl ActionBuffer {
             ),
         }
     }
-    fn get_action_group_slices(
+    pub(super) fn get_action_group_slices(
         &self,
         agi: &ActionGroupIdentifier,
     ) -> (&[FieldAction], &[FieldAction]) {
@@ -868,7 +868,11 @@ impl ActionBuffer {
             [snapshot.snapshot_id][SNAPSHOT_REFCOUNT_OFFSET];
         *ss_rc += bump;
     }
-    fn drop_snapshot_refcount(&mut self, snapshot: SnapshotRef, drop: u32) {
+    pub(super) fn drop_snapshot_refcount(
+        &mut self,
+        snapshot: SnapshotRef,
+        drop: u32,
+    ) {
         if snapshot.snapshot_len < SNAPSHOT_LEN_MIN as SnapshotEntry {
             return;
         }
@@ -1013,25 +1017,23 @@ impl ActionBuffer {
         self.actors[actor_id].latest_snapshot = new_ss;
         new_ss
     }
-    fn update_field_snapshot(
+    pub(super) fn update_snapshot(
         &mut self,
-        fm: &FieldManager,
-        field_id: FieldId,
+        subscriber: Option<FieldId>,
+        actor_ref: &mut ActorRef,
+        snapshot_ref: &mut SnapshotRef,
     ) -> Option<(ActorId, SnapshotRef)> {
-        let mut field_ref_mut = fm.fields[field_id].borrow_mut();
-        let field = &mut *field_ref_mut;
-        let actor_id =
-            self.initialize_first_actor(field_id, &mut field.first_actor)?;
-        let field_ss = field.snapshot;
+        let actor_id = self.initialize_first_actor(subscriber, actor_ref)?;
         let actor_ss = self.update_actor_snapshot(actor_id);
-        if actor_ss == field_ss {
+        let prev_ss = *snapshot_ref;
+        if actor_ss == prev_ss {
             return None;
         }
         self.bump_snapshot_refcount(actor_ss, 1);
-        field.snapshot = actor_ss;
-        Some((actor_id, field_ss))
+        *snapshot_ref = actor_ss;
+        Some((actor_id, prev_ss))
     }
-    fn build_actions_from_snapshot(
+    pub(super) fn build_actions_from_snapshot(
         &mut self,
         actor_id: ActorId,
         snapshot: SnapshotRef,
@@ -1527,16 +1529,63 @@ impl ActionBuffer {
         field_id: FieldId,
         update_cow_ms: Option<MatchSetId>,
     ) {
-        let Some((actor_id, ss_prev)) =
-            self.update_field_snapshot(fm, field_id)
+        let mut field = fm.fields[field_id].borrow_mut();
+        let fr = &mut *field;
+        let Some((actor_id, ss_prev)) = self.update_snapshot(
+            Some(field_id),
+            &mut fr.first_actor,
+            &mut fr.snapshot,
+        ) else {
+            return;
+        };
+        drop(field);
+
+        let res = self.build_actions_from_snapshot(actor_id, ss_prev);
+        let Some(agi) = res else {
+            self.drop_snapshot_refcount(ss_prev, 1);
+            return;
+        };
+        let (s1, s2) = self.get_action_group_slices(&agi);
+        let Some(first_action_index) =
+            s1.first().or_else(|| s2.first()).map(|a| a.field_idx)
         else {
+            self.drop_snapshot_refcount(ss_prev, 1);
             return;
         };
 
-        let res = self.build_actions_from_snapshot(actor_id, ss_prev);
-        self.drop_snapshot_refcount(ss_prev, 1);
-        let Some(agi) = res else { return };
+        let mut full_cow_fields =
+            transmute_vec(std::mem::take(&mut self.full_cow_field_refs_temp));
+        let mut data_cow_fields =
+            transmute_vec(std::mem::take(&mut self.data_cow_field_refs_temp));
 
+        self.apply_actions_to_field(
+            fm,
+            field_id,
+            actor_id,
+            update_cow_ms,
+            &agi,
+            first_action_index,
+            &mut full_cow_fields,
+            &mut data_cow_fields,
+        );
+
+        self.full_cow_field_refs_temp = transmute_vec(full_cow_fields);
+        self.data_cow_field_refs_temp = transmute_vec(data_cow_fields);
+        self.release_temp_action_group(Some(agi));
+        self.drop_snapshot_refcount(ss_prev, 1);
+    }
+
+    fn apply_actions_to_field<'a>(
+        &mut self,
+        fm: &'a FieldManager,
+        field_id: u32,
+        actor_id: u32,
+        update_cow_ms: Option<MatchSetId>,
+        agi: &ActionGroupIdentifier,
+        first_action_index: usize,
+        mut full_cow_fields: &mut Vec<FullCowFieldRef<'a>>,
+        mut data_cow_fields: &mut Vec<DataCowFieldRef<'a>>,
+    ) {
         let mut field = fm.fields[field_id].borrow_mut();
         field.iter_hall.uncow_headers(fm);
 
@@ -1544,17 +1593,6 @@ impl ActionBuffer {
         let field_ms_id = field.match_set;
         let field_data_size: usize = field.iter_hall.get_field_data_len(fm);
 
-        let mut full_cow_fields =
-            transmute_vec(std::mem::take(&mut self.full_cow_field_refs_temp));
-        let mut data_cow_fields =
-            transmute_vec(std::mem::take(&mut self.data_cow_field_refs_temp));
-
-        let (s1, s2) = self.get_action_group_slices(&agi);
-        let Some(first_action_index) =
-            s1.first().or_else(|| s2.first()).map(|a| a.field_idx)
-        else {
-            return;
-        };
         drop(field);
         Self::preserve_full_cow_fields_pre_exec(
             fm,
@@ -1568,7 +1606,7 @@ impl ActionBuffer {
         );
         let mut dead_data_leading = field_data_size;
         let mut dead_data_trailing = field_data_size;
-        for dcf in &mut data_cow_fields {
+        for dcf in &mut *data_cow_fields {
             Self::calc_dead_data(
                 &dcf.field.as_ref().unwrap().iter_hall.field_data.headers,
                 &mut dead_data_leading,
@@ -1581,7 +1619,7 @@ impl ActionBuffer {
         let all_fields_dead =
             -agi.group.field_count_delta == field_count as isize;
         if !all_fields_dead {
-            self.execute_actions(fm, field_id, &agi, &mut full_cow_fields);
+            self.execute_actions(fm, field_id, agi, &mut full_cow_fields);
         }
         let mut field = fm.fields[field_id].borrow_mut();
         let data_owned = field.iter_hall.data_source == FieldDataSource::Owned;
@@ -1610,7 +1648,7 @@ impl ActionBuffer {
                 field_id, field_ms_id, actor_id, field_count,
                 if all_data_dead {"all data dead"} else {"some data remains alive"}
             );
-                self.eprint_action_list_from_agi(&agi);
+                self.eprint_action_list_from_agi(agi);
             }
             field.iter_hall.reset_iterators();
             field.iter_hall.field_data.clear();
@@ -1628,7 +1666,7 @@ impl ActionBuffer {
                 dead_data_padding,
                 dead_data_trailing,
             );
-            for dcf in &mut data_cow_fields {
+            for dcf in &mut *data_cow_fields {
                 dcf.drop_info = Self::drop_dead_cow_headers(
                     dcf.field.as_mut().unwrap(),
                     dead_data_leading,
@@ -1638,7 +1676,7 @@ impl ActionBuffer {
                     dcf.data_end,
                 );
             }
-            for fcf in &mut full_cow_fields {
+            for fcf in &mut *full_cow_fields {
                 let drop_info = fcf
                     .data_cow_idx
                     .map(|idx| &data_cow_fields[idx].drop_info)
@@ -1650,13 +1688,10 @@ impl ActionBuffer {
                 )
             }
         }
-        self.full_cow_field_refs_temp = transmute_vec(full_cow_fields);
-        self.data_cow_field_refs_temp = transmute_vec(data_cow_fields);
-        self.release_temp_action_group(Some(agi));
     }
     fn initialize_first_actor(
         &mut self,
-        field_id: FieldId,
+        subscriber: Option<FieldId>,
         first_actor: &mut ActorRef,
     ) -> Option<ActorId> {
         match *first_actor {
@@ -1664,7 +1699,9 @@ impl ActionBuffer {
             ActorRef::Unconfirmed(actor) => {
                 if self.actors.next_free_index() > actor {
                     *first_actor = ActorRef::Present(actor);
-                    self.actors[actor].subscribers.push(field_id);
+                    if let Some(field_id) = subscriber {
+                        self.actors[actor].subscribers.push(field_id);
+                    }
                     Some(actor)
                 } else {
                     None
@@ -1682,7 +1719,7 @@ impl ActionBuffer {
             return;
         }
         let Some(actor_id) =
-            self.initialize_first_actor(field_id, first_actor)
+            self.initialize_first_actor(Some(field_id), first_actor)
         else {
             return;
         };
