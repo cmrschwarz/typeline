@@ -1583,8 +1583,8 @@ impl ActionBuffer {
         update_cow_ms: Option<MatchSetId>,
         agi: &ActionGroupIdentifier,
         first_action_index: usize,
-        mut full_cow_fields: &mut Vec<FullCowFieldRef<'a>>,
-        mut data_cow_fields: &mut Vec<DataCowFieldRef<'a>>,
+        full_cow_fields: &mut Vec<FullCowFieldRef<'a>>,
+        data_cow_fields: &mut Vec<DataCowFieldRef<'a>>,
     ) {
         let mut field = fm.fields[field_id].borrow_mut();
         field.iter_hall.uncow_headers(fm);
@@ -1600,8 +1600,8 @@ impl ActionBuffer {
             update_cow_ms,
             first_action_index,
             false,
-            &mut full_cow_fields,
-            &mut data_cow_fields,
+            full_cow_fields,
+            data_cow_fields,
             None,
         );
         let mut dead_data_leading = field_data_size;
@@ -1619,7 +1619,7 @@ impl ActionBuffer {
         let all_fields_dead =
             -agi.group.field_count_delta == field_count as isize;
         if !all_fields_dead {
-            self.execute_actions(fm, field_id, agi, &mut full_cow_fields);
+            self.execute_actions(fm, field_id, agi, full_cow_fields);
         }
         let mut field = fm.fields[field_id].borrow_mut();
         let data_owned = field.iter_hall.data_source == FieldDataSource::Owned;

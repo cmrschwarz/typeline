@@ -20,6 +20,16 @@ impl SizeClassedVec {
     pub fn promote_to_size_class_of_value(&mut self, value: usize) {
         self.promote_to_size_class(Self::required_size_class_for_value(value));
     }
+    pub unsafe fn get_unchecked(&self, index: usize) -> usize {
+        unsafe {
+            match self {
+                SizeClassedVec::Sc8(v) => *v.get_unchecked(index) as usize,
+                SizeClassedVec::Sc16(v) => *v.get_unchecked(index) as usize,
+                SizeClassedVec::Sc32(v) => *v.get_unchecked(index) as usize,
+                SizeClassedVec::Sc64(v) => *v.get_unchecked(index) as usize,
+            }
+        }
+    }
     pub fn get(&self, index: usize) -> usize {
         match self {
             SizeClassedVec::Sc8(v) => v[index] as usize,
@@ -27,6 +37,19 @@ impl SizeClassedVec {
             SizeClassedVec::Sc32(v) => v[index] as usize,
             SizeClassedVec::Sc64(v) => v[index] as usize,
         }
+    }
+    pub fn first(&self) -> Option<usize> {
+        if self.is_empty() {
+            return None;
+        }
+        Some(unsafe { self.get_unchecked(0) })
+    }
+    pub fn last(&self) -> Option<usize> {
+        let len = self.len();
+        if len == 0 {
+            return None;
+        }
+        Some(unsafe { self.get_unchecked(len - 1) })
     }
     pub fn try_get(&self, index: usize) -> Option<usize> {
         match self {
@@ -142,8 +165,8 @@ impl SizeClassedVec {
     pub fn as_ptr_range(&self) -> Range<*const u8> {
         fn range2u8<T>(r: Range<*const T>) -> Range<*const u8> {
             Range {
-                start: r.start as *const u8,
-                end: r.end as *const u8,
+                start: r.start.cast(),
+                end: r.end.cast(),
             }
         }
         match self {
@@ -156,8 +179,8 @@ impl SizeClassedVec {
     pub fn as_mut_ptr_range(&mut self) -> Range<*mut u8> {
         fn range2u8mut<T>(r: Range<*mut T>) -> Range<*mut u8> {
             Range {
-                start: r.start as *mut u8,
-                end: r.end as *mut u8,
+                start: r.start.cast(),
+                end: r.end.cast(),
             }
         }
         match self {
@@ -202,11 +225,12 @@ impl<'a> Iterator for Iter<'a> {
             return None;
         }
         let res = unsafe {
+            #[allow(clippy::cast_ptr_alignment)]
             match self.stride {
-                1 => *(self.ptr as *const u8) as usize,
-                2 => *(self.ptr as *const u16) as usize,
-                4 => *(self.ptr as *const u32) as usize,
-                8 => *(self.ptr as *const u64) as usize,
+                1 => *(self.ptr.cast::<u8>()) as usize,
+                2 => *(self.ptr.cast::<u16>()) as usize,
+                4 => *(self.ptr.cast::<u32>()) as usize,
+                8 => *(self.ptr.cast::<u64>()) as usize,
                 _ => std::hint::unreachable_unchecked(),
             }
         };
