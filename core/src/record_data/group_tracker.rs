@@ -113,12 +113,17 @@ impl GroupList {
             gi
         }
         let mut field_pos = 0;
-        let mut group_idx = None;
-        let mut group_len = 0;
+        let mut group_idx =
+            if self.passed_fields_count > 0 || self.group_lengths.is_empty() {
+                None
+            } else {
+                Some(0)
+            };
         let mut modified = false;
-        let Some(mut group_len_rem) = self.group_lengths.first() else {
+        let Some(mut group_len) = self.group_lengths.first() else {
             return;
         };
+        let mut group_len_rem = group_len;
         for a in action_list {
             while (a.field_idx - field_pos) > group_len_rem {
                 field_pos += group_len_rem;
@@ -209,7 +214,7 @@ impl GroupList {
         let iter_state = list.iter_states[iter_id].get();
         GroupListIterBase {
             field_pos: iter_state.field_pos,
-            group_idx: iter_state.group_idx,
+            group_idx_phys: iter_state.group_idx,
             group_len_rem: list.group_lengths.get(iter_state.group_idx)
                 - iter_state.group_offset,
             list,
@@ -222,11 +227,11 @@ impl GroupList {
     ) {
         let iter_state = GroupsIterState {
             field_pos: iter.field_pos,
-            group_idx: iter.group_idx,
+            group_idx: iter.group_idx_phys,
             group_offset: iter
                 .list
                 .group_lengths
-                .try_get(iter.group_idx)
+                .try_get(iter.group_idx_phys)
                 .unwrap_or(0)
                 - iter.group_len_rem,
         };
@@ -383,7 +388,7 @@ impl GroupTracker {
 pub struct GroupListIterBase<L> {
     list: L,
     field_pos: usize,
-    group_idx: GroupIdx,
+    group_idx_phys: GroupIdx,
     group_len_rem: GroupLen,
 }
 
@@ -391,8 +396,11 @@ impl<L: Deref<Target = GroupList>> GroupListIterBase<L> {
     pub fn field_pos(&self) -> usize {
         self.field_pos
     }
-    pub fn group_idx(&self) -> GroupIdx {
-        self.group_idx
+    pub fn group_idx_phys(&self) -> usize {
+        self.group_idx_phys
+    }
+    pub fn group_idx_logical(&self) -> GroupIdx {
+        self.list.physical_idx_to_group_idx(self.group_idx_phys)
     }
     pub fn group_len_rem(&self) -> usize {
         self.group_len_rem
@@ -405,9 +413,9 @@ impl<L: Deref<Target = GroupList>> GroupListIterBase<L> {
             return n;
         }
         while let Some(group_len) =
-            self.list.group_lengths.try_get(self.group_idx + 1)
+            self.list.group_lengths.try_get(self.group_idx_phys + 1)
         {
-            self.group_idx += 1;
+            self.group_idx_phys += 1;
             if group_len >= n_rem {
                 self.group_len_rem = group_len - n_rem;
                 return n;
@@ -418,12 +426,23 @@ impl<L: Deref<Target = GroupList>> GroupListIterBase<L> {
     }
     pub fn next_group(&mut self) -> usize {
         let gl_rem = self.group_len_rem;
-        self.group_idx += 1;
-        self.group_len_rem = self.list.group_lengths.get(self.group_len_rem);
+        self.group_idx_phys += 1;
+        self.group_len_rem = self.list.group_lengths.get(self.group_idx_phys);
         gl_rem
     }
+    pub fn try_next_group(&mut self) -> Option<usize> {
+        let Some(next_group_len) =
+            self.list.group_lengths.try_get(self.group_idx_phys + 1)
+        else {
+            return None;
+        };
+        self.group_idx_phys += 1;
+        let prev_gl_len_rem = self.group_len_rem;
+        self.group_len_rem = next_group_len;
+        Some(prev_gl_len_rem)
+    }
     pub fn is_last_group(&self) -> bool {
-        self.list.group_lengths.len() == self.group_idx + 1
+        self.list.group_lengths.len() == self.group_idx_phys + 1
     }
 }
 
@@ -450,7 +469,7 @@ impl<'a> DerefMut for GroupListIterMut<'a> {
 
 impl<'a> GroupListIterMut<'a> {
     pub fn insert_fields(&mut self, count: usize) {
-        let mut group_index = self.base.group_idx;
+        let mut group_index = self.base.group_idx_phys;
         self.base.list.group_lengths.add_value(group_index, count);
         let Some(mut parent_list_idx) = self.base.list.parent_list else {
             return;

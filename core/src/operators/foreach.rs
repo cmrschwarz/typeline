@@ -173,7 +173,7 @@ pub fn handle_tf_foreach_header(
     let mut size_rem = batch_size;
     while size_rem > 0 {
         let gs_rem = parent_group_list_iter.group_len_rem().min(size_rem);
-        let parent_group_idx = parent_group_list_iter.group_idx();
+        let parent_group_idx = parent_group_list_iter.group_idx_logical();
         parent_group_list_iter.next_n_fields(gs_rem);
         group_list
             .parent_group_indices
@@ -185,6 +185,7 @@ pub fn handle_tf_foreach_header(
             .group_lengths
             .extend_truncated(iter::repeat(1).take(gs_rem));
         size_rem -= gs_rem;
+        parent_group_list_iter.try_next_group();
     }
     ms.group_tracker.store_group_list_iter(
         feh.parent_group_list_iter,

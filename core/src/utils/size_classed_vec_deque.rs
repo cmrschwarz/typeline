@@ -19,7 +19,7 @@ impl Default for SizeClassedVecDeque {
 
 impl SizeClassedVecDeque {
     fn required_size_class_for_value(value: usize) -> u32 {
-        (usize::BITS - value.leading_zeros() + 7) / 8 * 8
+        (usize::BITS - value.max(1).leading_zeros() + 7) / 8 * 8
     }
     pub fn promote_to_size_class_of_value(&mut self, value: usize) {
         self.promote_to_size_class(Self::required_size_class_for_value(value));
