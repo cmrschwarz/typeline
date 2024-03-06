@@ -464,6 +464,13 @@ impl ActionBuffer {
     pub fn peek_next_actor_id(&self) -> ActorId {
         self.actors.next_free_index()
     }
+    pub fn last_actor_ref(&self) -> ActorRef {
+        if self.actors.is_empty() {
+            ActorRef::Unconfirmed(self.actors.next_free_index())
+        } else {
+            ActorRef::Present(self.actors.max_index())
+        }
+    }
     pub(super) fn release_temp_action_group(
         &mut self,
         agi: Option<ActionGroupIdentifier>,

@@ -16,7 +16,7 @@ pub mod phantom_slot;
 pub mod plattform;
 pub mod printable_unicode;
 pub mod ringbuf;
-pub mod size_classed_vec;
+pub mod size_classed_vec_deque;
 pub mod small_box;
 pub mod stable_vec;
 pub mod string_store;

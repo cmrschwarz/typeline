@@ -92,6 +92,15 @@ pub struct OperatorBase {
     pub outputs_end: OpOutputIdx,
 }
 
+#[derive(Default, PartialEq, Eq, Clone, Copy)]
+pub enum OutputFieldKind {
+    #[default]
+    Unique,
+    Dummy,
+    SameAsInput,
+    Unconfigured,
+}
+
 pub type DefaultOperatorName = SmallString<[u8; 16]>;
 
 impl OperatorData {
@@ -168,6 +177,38 @@ impl OperatorData {
             OperatorData::Custom(op) => op.can_be_appended(),
         }
     }
+    pub fn output_field_kind(
+        &self,
+        op_base: &OperatorBase,
+    ) -> OutputFieldKind {
+        match self {
+            OperatorData::Print(_)
+            | OperatorData::Sequence(_)
+            | OperatorData::Regex(_)
+            | OperatorData::FileReader(_)
+            | OperatorData::Format(_)
+            | OperatorData::StringSink(_)
+            | OperatorData::FieldValueSink(_)
+            | OperatorData::Literal(_)
+            | OperatorData::Join(_)
+            | OperatorData::Count(_)
+            | OperatorData::Cast(_)
+            | OperatorData::Call(_)
+            | OperatorData::CallConcurrent(_)
+            | OperatorData::Aggregator(_)
+            | OperatorData::NopCopy(_)
+            | OperatorData::Fork(_) => OutputFieldKind::Unique,
+            OperatorData::Foreach(_) | OperatorData::Nop(_) => {
+                OutputFieldKind::SameAsInput
+            }
+            OperatorData::ForkCat(_)
+            | OperatorData::Key(_)
+            | OperatorData::Select(_)
+            | OperatorData::Next(_)
+            | OperatorData::End(_) => OutputFieldKind::Unconfigured,
+            OperatorData::Custom(op) => op.output_field_kind(op_base),
+        }
+    }
 }
 
 pub trait Operator: Send + Sync {
@@ -180,6 +221,9 @@ pub trait Operator: Send + Sync {
     // legal)
     fn can_be_appended(&self) -> bool {
         false
+    }
+    fn output_field_kind(&self, _op_base: &OperatorBase) -> OutputFieldKind {
+        OutputFieldKind::Unique
     }
     fn output_count(&self, _op_base: &OperatorBase) -> usize;
     fn has_dynamic_outputs(&self, _op_base: &OperatorBase) -> bool;

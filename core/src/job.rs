@@ -51,7 +51,7 @@ use crate::{
         literal::{build_tf_literal, handle_tf_literal},
         nop::{build_tf_nop, handle_tf_nop},
         nop_copy::{build_tf_nop_copy, handle_tf_nop_copy},
-        operator::{OperatorData, OperatorId},
+        operator::{OperatorData, OperatorId, OutputFieldKind},
         print::{
             build_tf_print, handle_tf_print,
             handle_tf_print_stream_value_update,
@@ -416,6 +416,9 @@ impl<'a> Job<'a> {
         }
         let input_record_count = input_record_count.max(1);
         let input_field = input_field.unwrap();
+        self.job_data.match_set_mgr.match_sets[ms_id]
+            .group_tracker
+            .append_group_to_all_active_lists(input_record_count);
 
         #[cfg(feature = "debug_logging")]
         for (i, f) in input_data_fields.iter().enumerate() {
@@ -580,7 +583,6 @@ impl<'a> Job<'a> {
             TransformContinuationKind::Regular,
         )
     }
-
     pub fn setup_transforms_from_op(
         &mut self,
         ms_id: MatchSetId,
@@ -601,8 +603,6 @@ impl<'a> Job<'a> {
                 &self.job_data.session_data.operator_bases[op_id as usize];
             let op_data =
                 &self.job_data.session_data.operator_data[op_id as usize];
-            let mut dummy_output = false;
-            let mut make_input_output = false;
             match op_data {
                 OperatorData::Call(op) => {
                     if !op.lazy {
@@ -647,7 +647,6 @@ impl<'a> Job<'a> {
                     if !op.field_is_read {
                         continue;
                     }
-                    make_input_output = true;
                 }
                 OperatorData::Key(k) => {
                     if let Some(name) = op_base.label {
@@ -668,46 +667,51 @@ impl<'a> Job<'a> {
                     }
                     continue;
                 }
-                OperatorData::Fork(_) | OperatorData::Nop(_) => {
-                    dummy_output = true;
-                }
                 _ => (),
             }
             let mut label_added = false;
-            let output_field = if dummy_output {
-                self.job_data.field_mgr.bump_field_refcount(VOID_FIELD_ID);
-                VOID_FIELD_ID
-            } else if make_input_output {
-                self.job_data.field_mgr.bump_field_refcount(input_field);
-                input_field
-            } else {
-                let first_actor = ActorRef::Unconfirmed(
-                    self.job_data.match_set_mgr.match_sets[ms_id]
-                        .action_buffer
-                        .borrow()
-                        .peek_next_actor_id(),
-                );
-                if let Some(field_idx) =
-                    prebound_outputs.get(&op_base.outputs_start)
-                {
-                    self.job_data.field_mgr.bump_field_refcount(*field_idx);
-                    let mut f = self.job_data.field_mgr.fields[*field_idx]
-                        .borrow_mut();
-                    debug_assert!(f.name == op_base.label);
-                    label_added = true;
-                    f.first_actor = first_actor;
-                    f.snapshot = SnapshotRef::default();
-                    f.match_set = ms_id;
-                    *field_idx
-                } else {
-                    label_added = true;
-                    self.job_data.field_mgr.add_field(
-                        &mut self.job_data.match_set_mgr,
-                        ms_id,
-                        op_base.label,
-                        first_actor,
-                    )
+            let output_field_kind = op_data.output_field_kind(op_base);
+            let output_field = match output_field_kind {
+                OutputFieldKind::Dummy => {
+                    self.job_data.field_mgr.bump_field_refcount(VOID_FIELD_ID);
+                    VOID_FIELD_ID
                 }
+                OutputFieldKind::SameAsInput => {
+                    self.job_data.field_mgr.bump_field_refcount(input_field);
+                    input_field
+                }
+                OutputFieldKind::Unique => {
+                    let first_actor = ActorRef::Unconfirmed(
+                        self.job_data.match_set_mgr.match_sets[ms_id]
+                            .action_buffer
+                            .borrow()
+                            .peek_next_actor_id(),
+                    );
+                    if let Some(field_idx) =
+                        prebound_outputs.get(&op_base.outputs_start)
+                    {
+                        self.job_data
+                            .field_mgr
+                            .bump_field_refcount(*field_idx);
+                        let mut f = self.job_data.field_mgr.fields[*field_idx]
+                            .borrow_mut();
+                        debug_assert!(f.name == op_base.label);
+                        label_added = true;
+                        f.first_actor = first_actor;
+                        f.snapshot = SnapshotRef::default();
+                        f.match_set = ms_id;
+                        *field_idx
+                    } else {
+                        label_added = true;
+                        self.job_data.field_mgr.add_field(
+                            &mut self.job_data.match_set_mgr,
+                            ms_id,
+                            op_base.label,
+                            first_actor,
+                        )
+                    }
+                }
+                OutputFieldKind::Unconfigured => VOID_FIELD_ID,
             };
             if !label_added {
                 if let Some(name) = op_base.label {
@@ -734,7 +738,7 @@ impl<'a> Job<'a> {
             tf_state.is_transparent = op_base.transparent_mode;
 
             #[cfg(feature = "debug_logging")]
-            if !dummy_output && !make_input_output {
+            if output_field_kind == OutputFieldKind::Unique {
                 let mut of =
                     self.job_data.field_mgr.fields[output_field].borrow_mut();
                 of.producing_transform_id =

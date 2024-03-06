@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, iter};
 
 use crate::{
     chain::{ChainId, SubchainOffset},
@@ -8,12 +8,8 @@ use crate::{
     liveness_analysis::OpOutputIdx,
     options::argument::CliArgIdx,
     record_data::{
-        action_buffer::{ActorId, ActorRef},
         field::FieldId,
-        field_action::FieldActionKind,
-        field_data::FieldValueRepr,
-        iters::{FieldDataRef, FieldIterator},
-        push_interface::PushInterface,
+        group_tracker::{GroupListId, GroupListIterId},
     },
     utils::identity_hasher::BuildIdentityHasher,
 };
@@ -30,17 +26,11 @@ pub struct OpForeach {
     pub subchains_end: SubchainOffset,
 }
 pub struct TfForeachHeader {
-    actor_id: ActorId,
-    // We don't want to insert a group separator before the first
-    // record that is submitted to the successor, and we don't want
-    // a separator after the last record.
-    // Therefore, on each subsequent invocation of this transform, we *do*
-    // want to emit a group separator to terminate the previously
-    // submitted record.
-    any_records_submitted: bool,
+    parent_group_list_iter: GroupListIterId,
+    group_list: GroupListId,
 }
 pub struct TfForeachTrailer {
-    actor_id: ActorId,
+    group_list: GroupListId,
 }
 
 pub fn parse_op_foreach(
@@ -89,26 +79,22 @@ pub fn insert_tf_foreach(
     let desired_batch_size = tf_state.desired_batch_size;
     let input_field = tf_state.input_field;
     let mut trailer_output_field = input_field;
-    let group_separator_flag_field = tf_state.output_field;
-    let mut ab = job.job_data.match_set_mgr.match_sets[ms_id]
-        .action_buffer
-        .borrow_mut();
-    let header_actor_id = ab.add_actor();
-    let next_actor = ActorRef::Unconfirmed(ab.peek_next_actor_id());
-    drop(ab);
+
+    let ms = &mut job.job_data.match_set_mgr.match_sets[ms_id];
+    let curr_actor_id = ms.action_buffer.borrow().last_actor_ref();
+    let parent_group_list_iter =
+        ms.group_tracker.claim_group_list_iter_for_active();
+    let group_list = ms.group_tracker.add_group_list(curr_actor_id);
+    ms.group_tracker.push_active_group_list(group_list);
     let header_tf_id = add_transform_to_job(
         &mut job.job_data,
         &mut job.transform_data,
         tf_state,
         TransformData::ForeachHeader(TfForeachHeader {
-            actor_id: header_actor_id,
-            any_records_submitted: false,
+            parent_group_list_iter,
+            group_list,
         }),
     );
-    job.job_data.field_mgr.fields[group_separator_flag_field]
-        .borrow_mut()
-        .first_actor = next_actor;
-
     let (last_tf_id, cont) = if let Some(&op_id) = sc_start_op_id {
         let (first, last, next_input_field, cont) = job
             .setup_transforms_from_op(
@@ -130,18 +116,13 @@ pub fn insert_tf_foreach(
         }
         TransformContinuationKind::Regular => (),
     }
+
     job.job_data
         .field_mgr
-        .bump_field_refcount(group_separator_flag_field);
-    job.job_data
-        .field_mgr
-        .bump_field_refcount(trailer_output_field);
-    let trailer_actor_id = job.job_data.match_set_mgr.match_sets[ms_id]
-        .action_buffer
-        .borrow_mut()
-        .add_actor();
+        .inc_field_refcount(trailer_output_field, 2);
+
     let trailer_tf_state = TransformState::new(
-        group_separator_flag_field,
+        trailer_output_field,
         trailer_output_field,
         ms_id,
         desired_batch_size,
@@ -151,11 +132,13 @@ pub fn insert_tf_foreach(
         &mut job.job_data,
         &mut job.transform_data,
         trailer_tf_state,
-        TransformData::ForeachTrailer(TfForeachTrailer {
-            actor_id: trailer_actor_id,
-        }),
+        TransformData::ForeachTrailer(TfForeachTrailer { group_list }),
     );
     job.job_data.tf_mgr.transforms[last_tf_id].successor = Some(trailer_tf_id);
+    job.job_data.match_set_mgr.match_sets[ms_id]
+        .group_tracker
+        .pop_active_group_list();
+
     (
         header_tf_id,
         trailer_tf_id,
@@ -169,48 +152,45 @@ pub fn handle_tf_foreach_header(
     tf_id: TransformId,
     feh: &mut TfForeachHeader,
 ) {
-    jd.tf_mgr.prepare_output_field(
-        &mut jd.field_mgr,
-        &mut jd.match_set_mgr,
-        tf_id,
-    );
     let (batch_size, ps) = jd.tf_mgr.claim_batch(tf_id);
     if batch_size == 0 {
         jd.tf_mgr.submit_batch(tf_id, batch_size, ps.input_done);
         return;
     }
+
     let tf = &jd.tf_mgr.transforms[tf_id];
-    let mut output_field = jd.field_mgr.fields[tf.output_field].borrow_mut();
-    let mut ab = jd.match_set_mgr.match_sets[tf.match_set_id]
-        .action_buffer
-        .borrow_mut();
-    ab.begin_action_group(feh.actor_id);
-    let mut field_idx = if feh.any_records_submitted {
-        ab.push_action(
-            FieldActionKind::InsertZst(FieldValueRepr::GroupSeparator),
-            0,
-            1,
+    let ms = &mut jd.match_set_mgr.match_sets[tf.match_set_id];
+    let mut ab = ms.action_buffer.borrow_mut();
+    let mut parent_group_list_iter =
+        ms.group_tracker.lookup_group_list_iter_applying_actions(
+            &mut ab,
+            feh.parent_group_list_iter,
         );
-        output_field.iter_hall.push_null(1, false);
-        output_field.iter_hall.push_undefined(1, false);
-        2
-    } else {
-        feh.any_records_submitted = true;
-        output_field.iter_hall.push_undefined(1, false);
-        1
-    };
-    for _ in 0..batch_size - 1 {
-        ab.push_action(
-            FieldActionKind::InsertZst(FieldValueRepr::GroupSeparator),
-            field_idx,
-            1,
-        );
-        output_field.iter_hall.push_null(1, false);
-        output_field.iter_hall.push_undefined(1, false);
-        field_idx += 2;
+    let mut group_list =
+        ms.group_tracker.borrow_group_list_mut(feh.group_list);
+    group_list.apply_field_actions(&mut ab);
+
+    let mut size_rem = batch_size;
+    while size_rem > 0 {
+        let gs_rem = parent_group_list_iter.group_len_rem().min(size_rem);
+        let parent_group_idx = parent_group_list_iter.group_idx();
+        parent_group_list_iter.next_n_fields(gs_rem);
+        group_list
+            .parent_group_indices
+            .promote_to_size_class_of_value(parent_group_idx);
+        group_list
+            .parent_group_indices
+            .extend_truncated(iter::repeat(parent_group_idx).take(gs_rem));
+        group_list
+            .group_lengths
+            .extend_truncated(iter::repeat(1).take(gs_rem));
+        size_rem -= gs_rem;
     }
-    ab.end_action_group();
-    jd.tf_mgr.submit_batch_ready_for_more(tf_id, field_idx, ps);
+    ms.group_tracker.store_group_list_iter(
+        feh.parent_group_list_iter,
+        &parent_group_list_iter,
+    );
+    jd.tf_mgr.submit_batch_ready_for_more(tf_id, batch_size, ps);
 }
 
 pub fn handle_tf_foreach_trailer(
@@ -220,46 +200,10 @@ pub fn handle_tf_foreach_trailer(
 ) {
     let (batch_size, ps) = jd.tf_mgr.claim_all(tf_id);
     let tf = &jd.tf_mgr.transforms[tf_id];
-    let input_field = jd
-        .field_mgr
-        .get_cow_field_ref(&mut jd.match_set_mgr, tf.input_field);
-    debug_assert!(
-        batch_size <= input_field.destructured_field_ref().field_count()
-    );
-    let mut iter = input_field.iter();
-    let mut field_pos = 0;
-    let mut ab = jd.match_set_mgr.match_sets[tf.match_set_id]
-        .action_buffer
-        .borrow_mut();
-    ab.begin_action_group(fet.actor_id);
-    let mut bs_rem = batch_size;
-    while bs_rem > 0 {
-        let non_gs_records = iter.next_n_fields_with_fmt(
-            batch_size,
-            [FieldValueRepr::Null],
-            true,
-            0,
-            0,
-            true,
-        );
-        field_pos += non_gs_records;
-        bs_rem -= non_gs_records;
-        if bs_rem == 0 {
-            break;
-        }
-        let gs_records = iter.next_n_fields_with_fmt(
-            batch_size,
-            [FieldValueRepr::Null],
-            false,
-            0,
-            0,
-            true,
-        );
-        ab.push_action(FieldActionKind::Drop, field_pos, gs_records);
-        bs_rem -= gs_records;
-        // prevent an infinite loop in case of an incorrect batch size
-        assert!(non_gs_records > 0 || gs_records > 0);
-    }
-    ab.end_action_group();
-    jd.tf_mgr.submit_batch(tf_id, field_pos, ps.input_done);
+    let ms = &mut jd.match_set_mgr.match_sets[tf.match_set_id];
+    let mut group_list =
+        ms.group_tracker.borrow_group_list_mut(fet.group_list);
+    group_list.apply_field_actions(&mut ms.action_buffer.borrow_mut());
+    group_list.drop_leading_fields(batch_size, ps.input_done);
+    jd.tf_mgr.submit_batch(tf_id, batch_size, ps.input_done);
 }

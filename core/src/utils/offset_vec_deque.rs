@@ -52,4 +52,13 @@ impl<I: IndexingType, T> OffsetVecDeque<I, T> {
     pub fn next_free_index(&self) -> I {
         I::from_usize(self.data.len().wrapping_add(self.offset.into_usize()))
     }
+    pub fn len(&self) -> usize {
+        self.data.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.data.is_empty()
+    }
+    pub fn offset(&self) -> I {
+        self.offset
+    }
 }
