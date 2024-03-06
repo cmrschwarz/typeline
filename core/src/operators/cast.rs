@@ -183,7 +183,7 @@ pub fn handle_tf_cast(jd: &mut JobData, tf_id: TransformId, tfc: &TfCast) {
     let input_field_id = tf.input_field;
     let input_field = jd
         .field_mgr
-        .get_cow_field_ref(&mut jd.match_set_mgr, tf.input_field);
+        .get_cow_field_ref(&jd.match_set_mgr, tf.input_field);
 
     let mut output_field = jd.field_mgr.fields[tf.output_field].borrow_mut();
 

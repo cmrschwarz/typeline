@@ -379,7 +379,7 @@ impl FieldManager {
 
     pub fn apply_field_actions(
         &self,
-        msm: &mut MatchSetManager,
+        msm: &MatchSetManager,
         mut field_id: FieldId,
     ) {
         // PERF: if we are about to clear our headers, make sure
@@ -626,7 +626,7 @@ impl FieldManager {
     }
     pub fn get_cow_field_ref(
         &self,
-        msm: &mut MatchSetManager,
+        msm: &MatchSetManager,
         field_id: FieldId,
     ) -> CowFieldDataRef {
         let field_id = self.dealias_field_id(field_id);

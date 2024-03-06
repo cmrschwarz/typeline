@@ -189,7 +189,7 @@ pub fn handle_tf_sequence(
 
     let input_field = jd
         .field_mgr
-        .get_cow_field_ref(&mut jd.match_set_mgr, input_field_id);
+        .get_cow_field_ref(& jd.match_set_mgr, input_field_id);
 
     let iter =
         jd.field_mgr

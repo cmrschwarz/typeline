@@ -241,7 +241,7 @@ pub fn basic_transform_update(
     let input_field_id = jd.tf_mgr.get_input_field_id(&jd.field_mgr, tf_id);
     let input_field = jd
         .field_mgr
-        .get_cow_field_ref(&mut jd.match_set_mgr, input_field_id);
+        .get_cow_field_ref(&jd.match_set_mgr, input_field_id);
     let mut iter = jd.field_mgr.get_auto_deref_iter(
         input_field_id,
         &input_field,

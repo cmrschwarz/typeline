@@ -396,7 +396,7 @@ pub fn handle_tf_join(
     let input_field_id = tf.input_field;
     let input_field = jd
         .field_mgr
-        .get_cow_field_ref(&mut jd.match_set_mgr, input_field_id);
+        .get_cow_field_ref(&jd.match_set_mgr, input_field_id);
     let base_iter =
         jd.field_mgr
             .lookup_iter(input_field_id, &input_field, join.iter_id);
@@ -433,7 +433,7 @@ pub fn handle_tf_join(
             join.group_capacity.unwrap_or(usize::MAX) - join.group_len;
 
         if let Some(range) = iter.typed_range_fwd(
-            &mut jd.match_set_mgr,
+            &jd.match_set_mgr,
             group_len_rem.min(batch_size_rem),
             field_value_flags::DEFAULT,
         ) {

@@ -248,7 +248,7 @@ pub fn handle_tf_aggregator_header(
 
     let input_field = jd
         .field_mgr
-        .get_cow_field_ref(&mut jd.match_set_mgr, input_field_id);
+        .get_cow_field_ref(&jd.match_set_mgr, input_field_id);
 
     let mut iter =
         jd.field_mgr

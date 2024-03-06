@@ -287,11 +287,11 @@ impl GroupTracker {
         let list = self.lists[list_id].borrow();
         GroupList::lookup_group_list_iter(list, iter_id)
     }
-    pub fn lookup_group_list_iter_applying_actions(
-        &self,
+    pub fn lookup_group_list_iter_applying_actions<'a>(
+        &'a self,
         ab: &mut ActionBuffer,
         iter_id: GroupListIterId,
-    ) -> GroupListIter {
+    ) -> GroupListIter<'a> {
         let (list_id, iter_idx) = self.iters[iter_id];
         let list_ref = &self.lists[list_id];
         let mut list = list_ref.borrow_mut();
@@ -431,11 +431,8 @@ impl<L: Deref<Target = GroupList>> GroupListIterBase<L> {
         gl_rem
     }
     pub fn try_next_group(&mut self) -> Option<usize> {
-        let Some(next_group_len) =
-            self.list.group_lengths.try_get(self.group_idx_phys + 1)
-        else {
-            return None;
-        };
+        let next_group_len =
+            self.list.group_lengths.try_get(self.group_idx_phys + 1)?;
         self.group_idx_phys += 1;
         let prev_gl_len_rem = self.group_len_rem;
         self.group_len_rem = next_group_len;

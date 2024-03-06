@@ -111,7 +111,7 @@ impl Transform for TfDup {
 
         let input_field = jd
             .field_mgr
-            .get_cow_field_ref(&mut jd.match_set_mgr, tf.input_field);
+            .get_cow_field_ref(&jd.match_set_mgr, tf.input_field);
 
         let mut iter = input_field.iter();
 

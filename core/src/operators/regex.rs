@@ -783,7 +783,7 @@ pub fn handle_tf_regex(
 
     let input_field = jd
         .field_mgr
-        .get_cow_field_ref(&mut jd.match_set_mgr, input_field_id);
+        .get_cow_field_ref(&jd.match_set_mgr, input_field_id);
     let iter_base = jd
         .field_mgr
         .lookup_iter(input_field_id, &input_field, re.input_field_iter_id)
@@ -850,7 +850,7 @@ pub fn handle_tf_regex(
             break;
         }
         let Some(range) = iter.typed_range_fwd(
-            &mut jd.match_set_mgr,
+            &jd.match_set_mgr,
             max_run_len,
             field_value_flags::DEFAULT,
         ) else {
@@ -1192,7 +1192,7 @@ pub fn handle_tf_regex(
         drop(input_field);
         let input_field = jd
             .field_mgr
-            .get_cow_field_ref(&mut jd.match_set_mgr, input_field_id);
+            .get_cow_field_ref(&jd.match_set_mgr, input_field_id);
         let mut iter = jd.field_mgr.lookup_iter(
             input_field_id,
             &input_field,

@@ -337,10 +337,8 @@ pub fn handle_tf_call_concurrent(
     // The `get_cow_field_ref` below would also do this,
     // but we want to do it outside the lock
     for mapping in &tfc.field_mappings {
-        jd.field_mgr.apply_field_actions(
-            &mut jd.match_set_mgr,
-            mapping.source_field_id,
-        );
+        jd.field_mgr
+            .apply_field_actions(&jd.match_set_mgr, mapping.source_field_id);
     }
     let mut buf_data = tfc.buffer.fields.lock().unwrap();
     while buf_data.available_batch_size != 0
@@ -351,7 +349,7 @@ pub fn handle_tf_call_concurrent(
     for mapping in &tfc.field_mappings {
         let cfdr = jd
             .field_mgr
-            .get_cow_field_ref(&mut jd.match_set_mgr, mapping.source_field_id);
+            .get_cow_field_ref(&jd.match_set_mgr, mapping.source_field_id);
         let mut iter = jd.field_mgr.lookup_iter(
             mapping.source_field_id,
             &cfdr,

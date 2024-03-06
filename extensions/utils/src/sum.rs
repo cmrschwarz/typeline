@@ -18,6 +18,7 @@ use scr_core::{
         field::FieldId,
         field_action::FieldActionKind::{self, Drop},
         field_data::{FieldData, FieldValueRepr},
+        group_tracker::GroupListIterId,
         iter_hall::{IterId, IterKind},
         push_interface::{PushInterface, VaryingTypeInserter},
         ref_iter::RefAwareTypedSliceIter,
@@ -35,6 +36,7 @@ pub struct OpSum {}
 
 pub struct TfSum {
     input_iter_id: IterId,
+    groups_iter: GroupListIterId,
     aggregate: AnyNumber,
     current_group_error_type: Option<FieldValueRepr>,
     actor_id: ActorId,
@@ -71,9 +73,8 @@ impl Operator for OpSum {
         tf_state: &mut TransformState,
         _prebound_outputs: &HashMap<OpOutputIdx, FieldId, BuildIdentityHasher>,
     ) -> TransformData<'a> {
-        let mut ab = jd.match_set_mgr.match_sets[tf_state.match_set_id]
-            .action_buffer
-            .borrow_mut();
+        let ms = &mut jd.match_set_mgr.match_sets[tf_state.match_set_id];
+        let mut ab = ms.action_buffer.borrow_mut();
         let actor_id = ab.add_actor();
         jd.field_mgr.fields[tf_state.output_field]
             .borrow_mut()
@@ -83,6 +84,7 @@ impl Operator for OpSum {
             .settings
             .floating_point_math;
         TransformData::Custom(smallbox!(TfSum {
+            groups_iter: ms.group_tracker.claim_group_list_iter_for_active(),
             input_iter_id: jd.field_mgr.claim_iter(
                 tf_state.input_field,
                 IterKind::Transform(jd.tf_mgr.transforms.peek_claim_id())
@@ -90,7 +92,7 @@ impl Operator for OpSum {
             aggregate: AnyNumber::Int(0),
             actor_id,
             current_group_error_type: None,
-            floating_point_math
+            floating_point_math,
         }))
     }
 }
@@ -127,18 +129,30 @@ impl TfSum {
             .borrow_field_dealiased_mut(bud.output_field_id);
         let mut inserter = output_field.iter_hall.varying_type_inserter();
         let mut field_pos = 0;
+        let ms = &bud.match_set_mgr.match_sets[bud.match_set_id];
 
-        bud.match_set_mgr.match_sets[bud.match_set_id]
-            .action_buffer
-            .borrow_mut()
-            .begin_action_group(self.actor_id);
+        let mut ab = ms.action_buffer.borrow_mut();
 
-        while let Some(range) = bud.iter.next_range(bud.match_set_mgr) {
-            field_pos += range.base.field_count;
+        let mut groups_iter =
+            ms.group_tracker.lookup_group_list_iter_applying_actions(
+                &mut ab,
+                self.groups_iter,
+            );
+        ab.begin_action_group(self.actor_id);
+        drop(ab);
+
+        while let Some(range) = bud.iter.typed_range_fwd(
+            bud.match_set_mgr,
+            groups_iter.group_len_rem(),
+            0,
+        ) {
+            let count = range.base.field_count;
+            groups_iter.next_n_fields(count);
+            field_pos += count;
             match range.base.data {
                 TypedSlice::GroupSeparator(_) => {
                     // group separators don't count
-                    let gs_count = range.base.field_count;
+                    let gs_count = count;
                     let group_size =
                         field_pos - last_finished_group_end - gs_count;
                     let mut output_record_count = finished_group_count * 2;

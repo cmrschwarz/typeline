@@ -177,7 +177,7 @@ pub fn handle_tf_print_raw(
 
     let input_field = jd
         .field_mgr
-        .get_cow_field_ref(&mut jd.match_set_mgr, input_field_id);
+        .get_cow_field_ref(&jd.match_set_mgr, input_field_id);
     let base_iter = jd
         .field_mgr
         .lookup_iter(input_field_id, &input_field, print.iter_id)
@@ -189,7 +189,7 @@ pub fn handle_tf_print_raw(
         jd.get_transform_chain(tf_id).settings.print_rationals_raw;
     let mut output_field = jd.field_mgr.fields[output_field_id].borrow_mut();
     'iter: while let Some(range) = iter.typed_range_fwd(
-        &mut jd.match_set_mgr,
+        &jd.match_set_mgr,
         usize::MAX,
         field_value_flags::DEFAULT,
     ) {
