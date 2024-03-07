@@ -4,22 +4,25 @@ use std::{
 };
 
 use crate::utils::{
-    debuggable_nonmax::DebuggableNonMaxUsize,
-    size_classed_vec_deque::SizeClassedVecDeque, universe::Universe,
+    debuggable_nonmax::DebuggableNonMaxU32,
+    size_classed_vec_deque::SizeClassedVecDeque, subslice_slice_pair,
+    universe::Universe,
 };
 
 use super::{
-    action_buffer::{ActionBuffer, ActorRef, SnapshotRef},
+    action_buffer::{
+        self, ActionBuffer, ActionGroupId, ActorId, ActorRef, SnapshotRef,
+    },
     field_action::{FieldAction, FieldActionKind},
+    field_data::FieldValueRepr,
+    match_set::{MatchSet, MatchSetManager},
 };
 
 pub type GroupIdx = usize;
 pub type GroupLen = usize;
 
 pub type GroupListIterId = u32;
-pub type GroupListId = DebuggableNonMaxUsize;
-
-pub type PerGroupListIterIdx = u32;
+pub type GroupListId = DebuggableNonMaxU32;
 
 #[derive(Default, Clone, Copy)]
 pub struct GroupsIterState {
@@ -43,15 +46,30 @@ pub struct GroupList {
     // we can't find the right partner by lockstep iterating over both
     // group lists anymore. Used during `insert_fields` to update parents.
     pub parent_group_indices: SizeClassedVecDeque,
-    pub iter_states: Universe<PerGroupListIterIdx, Cell<GroupsIterState>>,
+    pub iter_states: Universe<GroupListIterId, Cell<GroupsIterState>>,
     pub snapshot: SnapshotRef,
 }
 
 pub struct GroupTracker {
     lists: Universe<GroupListId, RefCell<GroupList>>,
-    iters: Universe<GroupListIterId, (GroupListId, PerGroupListIterIdx)>,
     last_group: GroupListId,
     active_lists: Vec<GroupListId>,
+}
+
+pub struct GroupListIter<L> {
+    list: L,
+    field_pos: usize,
+    group_idx_phys: GroupIdx,
+    group_len_rem: GroupLen,
+}
+pub struct GroupListIterMut<'a, T> {
+    base: GroupListIter<T>,
+    tracker: &'a GroupTracker,
+    group_len: usize,
+    update_group_len: bool,
+    actions_applied_in_parents: bool,
+    action_count_applied_to_parents: usize,
+    action_buffer: &'a mut ActionBuffer,
 }
 
 impl Default for GroupTracker {
@@ -60,7 +78,6 @@ impl Default for GroupTracker {
         let dummy_gl = lists.claim();
         Self {
             lists,
-            iters: Universe::default(),
             last_group: dummy_gl,
             active_lists: vec![dummy_gl],
         }
@@ -207,12 +224,18 @@ impl GroupList {
             self.group_index_offset.wrapping_add(groups_done);
         self.passed_fields_count += count;
     }
-    pub fn lookup_group_list_iter<T: Deref<Target = Self>>(
+    pub fn lookup_iter(
+        &self,
+        iter_id: GroupListIterId,
+    ) -> GroupListIter<&Self> {
+        Self::lookup_iter_for_deref(self, iter_id)
+    }
+    pub fn lookup_iter_for_deref<T: Deref<Target = Self>>(
         list: T,
-        iter_id: PerGroupListIterIdx,
-    ) -> GroupListIterBase<T> {
+        iter_id: GroupListIterId,
+    ) -> GroupListIter<T> {
         let iter_state = list.iter_states[iter_id].get();
-        GroupListIterBase {
+        GroupListIter {
             field_pos: iter_state.field_pos,
             group_idx_phys: iter_state.group_idx,
             group_len_rem: list.group_lengths.get(iter_state.group_idx)
@@ -220,10 +243,29 @@ impl GroupList {
             list,
         }
     }
-    pub fn store_group_list_iter<T: Deref<Target = Self>>(
+    pub fn lookup_iter_for_deref_mut<'a, T: DerefMut<Target = Self>>(
+        tracker: &'a GroupTracker,
+        list: T,
+        iter_id: GroupListIterId,
+        action_buffer: &'a mut ActionBuffer,
+        actor_id: ActorId,
+    ) -> GroupListIterMut<'a, T> {
+        let base = GroupList::lookup_iter_for_deref(list, iter_id);
+        action_buffer.begin_action_group(actor_id);
+        GroupListIterMut {
+            group_len: base.group_len_rem,
+            base,
+            tracker,
+            actions_applied_in_parents: false,
+            action_count_applied_to_parents: 0,
+            update_group_len: false,
+            action_buffer,
+        }
+    }
+    pub fn store_iter<T: Deref<Target = Self>>(
         &self,
-        iter_idx: PerGroupListIterIdx,
-        iter: &GroupListIterBase<T>,
+        iter_idx: GroupListIterId,
+        iter: &GroupListIter<T>,
     ) {
         let iter_state = GroupsIterState {
             field_pos: iter.field_pos,
@@ -265,55 +307,47 @@ impl GroupTracker {
         &mut self,
         group_list_id: GroupListId,
     ) -> GroupListIterId {
-        let per_group_iter_id =
-            self.lists[group_list_id].borrow_mut().iter_states.claim();
-        self.iters
-            .claim_with_value((group_list_id, per_group_iter_id))
+        self.lists[group_list_id].borrow_mut().iter_states.claim()
     }
     pub fn claim_group_list_iter_for_active(&mut self) -> GroupListIterId {
         self.claim_group_list_iter(self.active_group_list())
     }
-    pub fn get_group_list_of_iter(
-        &self,
-        iter_id: GroupListIterId,
-    ) -> GroupListId {
-        self.iters[iter_id].0
-    }
     pub fn lookup_group_list_iter(
         &self,
+        list_id: GroupListId,
         iter_id: GroupListIterId,
-    ) -> GroupListIter {
-        let (list_id, iter_id) = self.iters[iter_id];
+    ) -> GroupListIter<Ref<GroupList>> {
         let list = self.lists[list_id].borrow();
-        GroupList::lookup_group_list_iter(list, iter_id)
+        GroupList::lookup_iter_for_deref(list, iter_id)
     }
-    pub fn lookup_group_list_iter_applying_actions<'a>(
+    pub fn lookup_group_list_iter_mut<'a>(
         &'a self,
-        ab: &mut ActionBuffer,
+        list_id: GroupListId,
         iter_id: GroupListIterId,
-    ) -> GroupListIter<'a> {
-        let (list_id, iter_idx) = self.iters[iter_id];
-        let list_ref = &self.lists[list_id];
-        let mut list = list_ref.borrow_mut();
-        list.apply_field_actions(ab);
-        drop(list);
-        GroupList::lookup_group_list_iter(list_ref.borrow(), iter_idx)
+        action_buffer: &'a mut ActionBuffer,
+        actor_id: ActorId,
+    ) -> GroupListIterMut<RefMut<'a, GroupList>> {
+        GroupList::lookup_iter_for_deref_mut(
+            self,
+            self.borrow_group_list_mut(list_id),
+            iter_id,
+            action_buffer,
+            actor_id,
+        )
     }
     pub fn store_group_list_iter<L: Deref<Target = GroupList>>(
         &self,
+        list_id: GroupListId,
         iter_id: GroupListIterId,
-        iter: &GroupListIterBase<L>,
+        iter: &GroupListIter<L>,
     ) {
-        let (list_id, iter_idx) = self.iters[iter_id];
-        self.lists[list_id]
-            .borrow()
-            .store_group_list_iter(iter_idx, iter);
+        self.lists[list_id].borrow().store_iter(iter_id, iter);
     }
     pub fn active_group_list(&self) -> GroupListId {
         self.active_lists.last().copied().unwrap()
     }
     pub fn apply_actions_to_list_and_parents(
-        &mut self,
+        &self,
         ab: &mut ActionBuffer,
         group_list_id: GroupListId,
     ) {
@@ -385,14 +419,7 @@ impl GroupTracker {
     }
 }
 
-pub struct GroupListIterBase<L> {
-    list: L,
-    field_pos: usize,
-    group_idx_phys: GroupIdx,
-    group_len_rem: GroupLen,
-}
-
-impl<L: Deref<Target = GroupList>> GroupListIterBase<L> {
+impl<L: Deref<Target = GroupList>> GroupListIter<L> {
     pub fn field_pos(&self) -> usize {
         self.field_pos
     }
@@ -405,7 +432,6 @@ impl<L: Deref<Target = GroupList>> GroupListIterBase<L> {
     pub fn group_len_rem(&self) -> usize {
         self.group_len_rem
     }
-
     pub fn next_n_fields(&mut self, n: usize) -> usize {
         let mut n_rem = n;
         if n <= self.group_len_rem {
@@ -424,48 +450,130 @@ impl<L: Deref<Target = GroupList>> GroupListIterBase<L> {
         }
         n - n_rem
     }
-    pub fn next_group(&mut self) -> usize {
-        let gl_rem = self.group_len_rem;
+    pub fn next_group(&mut self) {
         self.group_idx_phys += 1;
+        self.field_pos += self.group_len_rem;
         self.group_len_rem = self.list.group_lengths.get(self.group_idx_phys);
-        gl_rem
     }
-    pub fn try_next_group(&mut self) -> Option<usize> {
-        let next_group_len =
-            self.list.group_lengths.try_get(self.group_idx_phys + 1)?;
+    pub fn try_next_group(&mut self) -> bool {
+        let Some(next_group_len) =
+            self.list.group_lengths.try_get(self.group_idx_phys + 1)
+        else {
+            return false;
+        };
         self.group_idx_phys += 1;
-        let prev_gl_len_rem = self.group_len_rem;
         self.group_len_rem = next_group_len;
-        Some(prev_gl_len_rem)
+        true
     }
     pub fn is_last_group(&self) -> bool {
         self.list.group_lengths.len() == self.group_idx_phys + 1
     }
 }
 
-pub type GroupListIter<'a> = GroupListIterBase<Ref<'a, GroupList>>;
-
-pub struct GroupListIterMut<'a> {
-    base: GroupListIterBase<RefMut<'a, GroupList>>,
-    tracker: &'a GroupTracker,
-}
-
-impl<'a> Deref for GroupListIterMut<'a> {
-    type Target = GroupListIterBase<RefMut<'a, GroupList>>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.base
+impl<'a, T: DerefMut<Target = GroupList>> GroupListIterMut<'a, T> {
+    pub fn field_pos(&self) -> usize {
+        self.base.field_pos()
     }
-}
-
-impl<'a> DerefMut for GroupListIterMut<'a> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.base
+    pub fn group_idx_phys(&self) -> usize {
+        self.base.group_idx_phys()
     }
-}
-
-impl<'a> GroupListIterMut<'a> {
-    pub fn insert_fields(&mut self, count: usize) {
+    pub fn group_idx_logical(&self) -> GroupIdx {
+        self.base.group_idx_logical()
+    }
+    pub fn group_len_rem(&self) -> usize {
+        self.base.group_len_rem()
+    }
+    pub fn is_last_group(&self) -> bool {
+        self.base.is_last_group()
+    }
+    pub fn write_back_group_len(&mut self) {
+        self.base
+            .list
+            .group_lengths
+            .set(self.base.group_idx_phys, self.group_len);
+    }
+    pub fn update_group(&mut self) {
+        if self.update_group_len {
+            self.write_back_group_len();
+            self.update_group_len = false;
+        }
+    }
+    pub fn next_n_fields(&mut self, n: usize) -> usize {
+        let mut n_rem = n;
+        if n <= self.base.group_len_rem {
+            self.base.group_len_rem -= n;
+            return n;
+        }
+        self.update_group();
+        let mut new_group_len = self.group_len;
+        let mut group_idx_phys = self.base.group_idx_phys;
+        while let Some(group_len) =
+            self.base.list.group_lengths.try_get(group_idx_phys + 1)
+        {
+            new_group_len = group_len;
+            if group_len >= n_rem {
+                n_rem = 0;
+                break;
+            }
+            n_rem -= group_len;
+            group_idx_phys += 1;
+        }
+        self.base.group_idx_phys = group_idx_phys;
+        self.group_len = new_group_len;
+        self.base.group_len_rem = new_group_len - n_rem;
+        n - n_rem
+    }
+    fn next_group_raw(&mut self) {
+        self.base.group_idx_phys += 1;
+        self.base.field_pos += self.base.group_len_rem;
+        let gl = self.base.list.group_lengths.get(self.base.group_idx_phys);
+        self.group_len = gl;
+        self.base.group_len_rem = gl;
+    }
+    pub fn next_group(&mut self) {
+        self.update_group();
+        self.next_group_raw()
+    }
+    fn try_next_group_raw(&mut self) -> bool {
+        self.base.try_next_group()
+    }
+    pub fn try_next_group(&mut self) -> bool {
+        self.update_group();
+        self.try_next_group_raw()
+    }
+    pub fn insert_fields(&mut self, repr: FieldValueRepr, count: usize) {
+        if self.group_len == 0 {
+            if !self.actions_applied_in_parents {
+                self.actions_applied_in_parents = true;
+                if let Some(parent) = self.base.list.parent_list {
+                    self.tracker.apply_actions_to_list_and_parents(
+                        self.action_buffer,
+                        parent,
+                    )
+                }
+            }
+            let action_count =
+                self.action_buffer.get_curr_action_group_action_count();
+            if action_count != self.action_count_applied_to_parents {
+                let (s1, s2) = subslice_slice_pair(
+                    self.action_buffer.get_curr_action_group_slices(),
+                    self.action_count_applied_to_parents..action_count,
+                );
+                let actions = s1.iter().chain(s2.iter());
+                let mut parent_opt = self.base.list.parent_list;
+                while let Some(parent) = parent_opt {
+                    let mut list = self.tracker.lists[parent].borrow_mut();
+                    list.apply_field_actions_list(actions.clone());
+                    parent_opt = list.parent_list;
+                }
+                self.action_count_applied_to_parents = action_count + 1;
+            }
+        }
+        self.action_buffer.push_action(
+            FieldActionKind::InsertZst(repr),
+            self.base.field_pos,
+            count,
+        );
         let mut group_index = self.base.group_idx_phys;
         self.base.list.group_lengths.add_value(group_index, count);
         let Some(mut parent_list_idx) = self.base.list.parent_list else {
@@ -482,5 +590,49 @@ impl<'a> GroupListIterMut<'a> {
             parent_list_idx = idx;
             group_index = list.parent_group_indices.get(group_index_phys);
         }
+    }
+    pub fn dup(&mut self, count: usize) {
+        if self.group_len == 0 {
+            self.update_group();
+            loop {
+                self.next_group_raw();
+                if self.group_len != 0 {
+                    break;
+                }
+            }
+        }
+        self.base.group_len_rem += count;
+        self.group_len += count;
+        self.update_group_len = true;
+        self.action_buffer.push_action(
+            FieldActionKind::Dup,
+            self.base.field_pos,
+            count,
+        );
+    }
+    pub fn drop(&mut self, mut count: usize) {
+        if count > self.base.group_len_rem {
+            self.group_len -= self.base.group_len_rem;
+            count -= self.base.group_len_rem;
+            self.base.group_len_rem = 0;
+            self.update_group_len = false;
+            self.write_back_group_len();
+            self.next_group_raw();
+            while self.group_len < count {
+                count -= self.group_len;
+                self.group_len = 0;
+                self.base.group_len_rem = 0;
+                self.write_back_group_len();
+                self.next_group_raw();
+            }
+        }
+        self.base.group_len_rem -= count;
+        self.group_len -= count;
+        self.update_group_len = true;
+        self.action_buffer.push_action(
+            FieldActionKind::Drop,
+            self.base.field_pos,
+            count,
+        );
     }
 }

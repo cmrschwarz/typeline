@@ -18,7 +18,7 @@ use scr_core::{
         field::FieldId,
         field_action::FieldActionKind::{self, Drop},
         field_data::{FieldData, FieldValueRepr},
-        group_tracker::GroupListIterId,
+        group_tracker::{GroupList, GroupListId, GroupListIterId},
         iter_hall::{IterId, IterKind},
         push_interface::{PushInterface, VaryingTypeInserter},
         ref_iter::RefAwareTypedSliceIter,
@@ -36,7 +36,8 @@ pub struct OpSum {}
 
 pub struct TfSum {
     input_iter_id: IterId,
-    groups_iter: GroupListIterId,
+    group_list_id: GroupListId,
+    group_list_iter_id: GroupListIterId,
     aggregate: AnyNumber,
     current_group_error_type: Option<FieldValueRepr>,
     actor_id: ActorId,
@@ -84,7 +85,10 @@ impl Operator for OpSum {
             .settings
             .floating_point_math;
         TransformData::Custom(smallbox!(TfSum {
-            groups_iter: ms.group_tracker.claim_group_list_iter_for_active(),
+            group_list_id: ms.group_tracker.active_group_list(),
+            group_list_iter_id: ms
+                .group_tracker
+                .claim_group_list_iter_for_active(),
             input_iter_id: jd.field_mgr.claim_iter(
                 tf_state.input_field,
                 IterKind::Transform(jd.tf_mgr.transforms.peek_claim_id())
@@ -133,21 +137,25 @@ impl TfSum {
 
         let mut ab = ms.action_buffer.borrow_mut();
 
-        let mut groups_iter =
-            ms.group_tracker.lookup_group_list_iter_applying_actions(
-                &mut ab,
-                self.groups_iter,
-            );
-        ab.begin_action_group(self.actor_id);
-        drop(ab);
+        let mut group_list =
+            ms.group_tracker.borrow_group_list_mut(self.group_list_id);
+        group_list.apply_field_actions(&mut ab);
+
+        let mut group_iter = GroupList::lookup_iter_for_deref_mut(
+            &ms.group_tracker,
+            group_list,
+            self.group_list_iter_id,
+            &mut ab,
+            self.actor_id,
+        );
 
         while let Some(range) = bud.iter.typed_range_fwd(
             bud.match_set_mgr,
-            groups_iter.group_len_rem(),
+            group_iter.group_len_rem(),
             0,
         ) {
             let count = range.base.field_count;
-            groups_iter.next_n_fields(count);
+            group_iter.next_n_fields(count);
             field_pos += count;
             match range.base.data {
                 TypedSlice::GroupSeparator(_) => {
@@ -156,12 +164,7 @@ impl TfSum {
                     let group_size =
                         field_pos - last_finished_group_end - gs_count;
                     let mut output_record_count = finished_group_count * 2;
-                    let mut ab = bud.match_set_mgr.match_sets
-                        [bud.match_set_id]
-                        .action_buffer
-                        .borrow_mut();
-                    ab.push_action(
-                        Drop,
+                    group_iter.drop(
                         output_record_count,
                         group_size.saturating_sub(1),
                     );
@@ -235,9 +238,6 @@ impl TfSum {
         }
         let last_group_size = field_pos - last_finished_group_end;
         let mut output_record_count = finished_group_count * 2;
-        let mut ab = bud.match_set_mgr.match_sets[bud.match_set_id]
-            .action_buffer
-            .borrow_mut();
         if bud.ps.input_done {
             self.finish_group(op_id, &mut inserter);
             ab.push_action(

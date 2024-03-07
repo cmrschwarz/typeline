@@ -74,10 +74,10 @@ pub fn get_two_distinct_mut<T>(
 }
 
 pub fn subslice_slice_pair<'a, T>(
-    s1: &'a [T],
-    s2: &'a [T],
+    slices: (&'a [T], &'a [T]),
     range: Range<usize>,
 ) -> (&'a [T], &'a [T]) {
+    let (s1, s2) = slices;
     let s1_len = s1.len();
     if range.start > s1_len {
         (&[], &s2[range.start - s1_len..range.end - s1_len])
@@ -92,10 +92,10 @@ pub fn subslice_slice_pair<'a, T>(
 }
 
 pub fn subslice_slice_pair_mut<'a, T>(
-    s1: &'a mut [T],
-    s2: &'a mut [T],
+    slices: (&'a mut [T], &'a mut [T]),
     range: Range<usize>,
 ) -> (&'a mut [T], &'a mut [T]) {
+    let (s1, s2) = slices;
     let s1_len = s1.len();
     if range.start > s1_len {
         (&mut [], &mut s2[range.start - s1_len..range.end - s1_len])

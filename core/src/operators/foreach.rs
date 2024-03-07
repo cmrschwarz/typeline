@@ -161,14 +161,15 @@ pub fn handle_tf_foreach_header(
     let tf = &jd.tf_mgr.transforms[tf_id];
     let ms = &mut jd.match_set_mgr.match_sets[tf.match_set_id];
     let mut ab = ms.action_buffer.borrow_mut();
-    let mut parent_group_list_iter =
-        ms.group_tracker.lookup_group_list_iter_applying_actions(
-            &mut ab,
-            feh.parent_group_list_iter,
-        );
     let mut group_list =
         ms.group_tracker.borrow_group_list_mut(feh.group_list);
     group_list.apply_field_actions(&mut ab);
+    let mut parent_group_list = ms
+        .group_tracker
+        .borrow_group_list_mut(group_list.parent_list.unwrap());
+    parent_group_list.apply_field_actions(&mut ab);
+    let mut parent_group_list_iter =
+        parent_group_list.lookup_iter(feh.parent_group_list_iter);
 
     let mut size_rem = batch_size;
     while size_rem > 0 {
@@ -187,10 +188,8 @@ pub fn handle_tf_foreach_header(
         size_rem -= gs_rem;
         parent_group_list_iter.try_next_group();
     }
-    ms.group_tracker.store_group_list_iter(
-        feh.parent_group_list_iter,
-        &parent_group_list_iter,
-    );
+    parent_group_list
+        .store_iter(feh.parent_group_list_iter, &parent_group_list_iter);
     jd.tf_mgr.submit_batch_ready_for_more(tf_id, batch_size, ps);
 }
 

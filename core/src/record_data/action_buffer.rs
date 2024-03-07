@@ -330,6 +330,27 @@ impl ActionBuffer {
         assert!(self.pending_action_group_actor_id.is_none());
         self.pending_action_group_actor_id = Some(actor_id)
     }
+    pub fn get_curr_action_group_slices(
+        &self,
+    ) -> (&[FieldAction], &[FieldAction]) {
+        let ai = self.pending_action_group_actor_id.unwrap();
+        let action_count = self.pending_action_group_action_count;
+        let agq = &self.actors[ai].action_group_queues[0];
+        let actions_start =
+            agq.actions.next_free_index().wrapping_sub(action_count);
+        subslice_slice_pair(
+            agq.actions.data.as_slices(),
+            actions_start..actions_start + action_count,
+        )
+    }
+    pub fn get_curr_action_group_action_count(&self) -> usize {
+        debug_assert!(self.pending_action_group_actor_id.is_some());
+        self.pending_action_group_action_count
+    }
+    pub fn get_curr_action_group_field_count_delta(&self) -> isize {
+        debug_assert!(self.pending_action_group_actor_id.is_some());
+        self.pending_action_group_field_count_delta
+    }
     pub fn end_action_group(&mut self) {
         let ai = self.pending_action_group_actor_id.take().unwrap();
         let action_count = self.pending_action_group_action_count;
@@ -505,9 +526,11 @@ impl ActionBuffer {
             ActionGroupLocation::Regular { actor_id, pow2 } => {
                 let actor = &actors[actor_id];
                 let agq = &actor.action_group_queues[pow2 as usize];
-                let (s1, s2) = agq.actions.data.as_slices();
                 let start = agi.group.start.wrapping_sub(agq.actions.offset);
-                subslice_slice_pair(s1, s2, start..start + agi.group.length)
+                subslice_slice_pair(
+                    agq.actions.data.as_slices(),
+                    start..start + agi.group.length,
+                )
             }
             ActionGroupLocation::LocalMerge {
                 actor_id,
@@ -517,8 +540,10 @@ impl ActionBuffer {
                 let merge_lvl = &actor.merges[merge_pow2 as usize];
                 let start =
                     agi.group.start.wrapping_sub(merge_lvl.actions.offset);
-                let (s1, s2) = merge_lvl.actions.data.as_slices();
-                subslice_slice_pair(s1, s2, start..start + agi.group.length)
+                subslice_slice_pair(
+                    merge_lvl.actions.data.as_slices(),
+                    start..start + agi.group.length,
+                )
             }
             ActionGroupLocation::TempBuffer { idx } => (
                 &action_temp_buffers[idx]
