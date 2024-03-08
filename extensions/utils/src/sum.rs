@@ -16,9 +16,8 @@ use scr_core::{
     record_data::{
         action_buffer::{ActorId, ActorRef},
         field::FieldId,
-        field_action::FieldActionKind::{self, Drop},
         field_data::{FieldData, FieldValueRepr},
-        group_tracker::{GroupList, GroupListId, GroupListIterId},
+        group_tracker::{GroupListId, GroupListIterId},
         iter_hall::{IterId, IterKind},
         push_interface::{PushInterface, VaryingTypeInserter},
         ref_iter::RefAwareTypedSliceIter,
@@ -42,6 +41,7 @@ pub struct TfSum {
     current_group_error_type: Option<FieldValueRepr>,
     actor_id: ActorId,
     floating_point_math: bool,
+    pending_field: bool,
 }
 
 impl Operator for OpSum {
@@ -97,6 +97,7 @@ impl Operator for OpSum {
             actor_id,
             current_group_error_type: None,
             floating_point_math,
+            pending_field: false
         }))
     }
 }
@@ -119,80 +120,75 @@ impl TfSum {
                 false,
             );
         } else {
-            result.push(inserter);
+            result.push(inserter, true, true);
         }
     }
     fn transform_update(&mut self, bud: BasicUpdateData) -> (usize, bool) {
         let op_id = bud.tf_mgr.transforms[bud.tf_id].op_id.unwrap();
         let fpm = self.floating_point_math;
 
-        let mut finished_group_count = 0;
-        let mut last_finished_group_end = 0;
         let mut output_field = bud
             .field_mgr
             .borrow_field_dealiased_mut(bud.output_field_id);
         let mut inserter = output_field.iter_hall.varying_type_inserter();
-        let mut field_pos = 0;
+
         let ms = &bud.match_set_mgr.match_sets[bud.match_set_id];
 
         let mut ab = ms.action_buffer.borrow_mut();
 
-        let mut group_list =
-            ms.group_tracker.borrow_group_list_mut(self.group_list_id);
-        group_list.apply_field_actions(&mut ab);
-
-        let mut group_iter = GroupList::lookup_iter_for_deref_mut(
-            &ms.group_tracker,
-            group_list,
+        let mut group_iter = ms.group_tracker.lookup_group_list_iter_mut(
+            self.group_list_id,
             self.group_list_iter_id,
             &mut ab,
             self.actor_id,
         );
 
-        while let Some(range) = bud.iter.typed_range_fwd(
-            bud.match_set_mgr,
-            group_iter.group_len_rem(),
-            0,
-        ) {
+        let mut field_pos = group_iter.field_pos();
+        let mut finished_group_count = 0;
+        let mut last_finished_group_end = field_pos;
+
+        loop {
+            if group_iter.is_end_of_group(bud.ps.input_done) {
+                let group_size = field_pos - last_finished_group_end
+                    + usize::from(self.pending_field);
+                let mut zero_count = 0;
+                if group_size == 0 {
+                    group_iter.insert_fields(FieldValueRepr::Undefined, 1);
+                    zero_count += 1;
+                } else {
+                    group_iter.drop_before(field_pos, group_size - 1);
+                    self.finish_group(op_id, &mut inserter);
+                    finished_group_count += 1;
+                }
+                let eof = bud.ps.input_done && !bud.iter.is_next_valid();
+                loop {
+                    if !group_iter.try_next_group() {
+                        break;
+                    }
+                    if !group_iter.is_end_of_group(eof) {
+                        break;
+                    }
+                    group_iter.insert_fields(FieldValueRepr::Undefined, 1);
+                    zero_count += 1;
+                }
+                last_finished_group_end = field_pos;
+                inserter.push_int(0, zero_count, true, true);
+                finished_group_count += zero_count;
+            }
+            let Some(range) = bud.iter.typed_range_fwd(
+                bud.match_set_mgr,
+                group_iter.group_len_rem(),
+                0,
+            ) else {
+                break;
+            };
+
             let count = range.base.field_count;
             group_iter.next_n_fields(count);
             field_pos += count;
             match range.base.data {
                 TypedSlice::GroupSeparator(_) => {
-                    // group separators don't count
-                    let gs_count = count;
-                    let group_size =
-                        field_pos - last_finished_group_end - gs_count;
-                    let mut output_record_count = finished_group_count * 2;
-                    group_iter.drop(
-                        output_record_count,
-                        group_size.saturating_sub(1),
-                    );
-                    if group_size == 0 {
-                        ab.push_action(
-                            FieldActionKind::InsertZst(
-                                FieldValueRepr::Undefined,
-                            ),
-                            output_record_count,
-                            1,
-                        );
-                    }
-                    self.finish_group(op_id, &mut inserter);
-                    inserter.push_group_separator(1, true);
-                    for _ in 1..gs_count {
-                        ab.push_action(
-                            FieldActionKind::InsertZst(
-                                FieldValueRepr::Undefined,
-                            ),
-                            output_record_count,
-                            1,
-                        );
-                        inserter.push_int(0, 1, true, true);
-                        inserter.push_group_separator(1, true);
-                        output_record_count += 2;
-                    }
-                    last_finished_group_end = field_pos;
-                    finished_group_count += gs_count;
+                    todo!()
                 }
                 TypedSlice::Int(ints) => {
                     for (v, rl) in TypedSliceIter::from_range(&range, ints) {
@@ -236,27 +232,13 @@ impl TfSum {
                 }
             }
         }
-        let last_group_size = field_pos - last_finished_group_end;
-        let mut output_record_count = finished_group_count * 2;
-        if bud.ps.input_done {
-            self.finish_group(op_id, &mut inserter);
-            ab.push_action(
-                Drop,
-                output_record_count,
-                last_group_size.saturating_sub(bud.ps.input_done as usize),
-            );
-            if last_group_size == 0 {
-                ab.push_action(
-                    FieldActionKind::InsertZst(FieldValueRepr::Undefined),
-                    output_record_count,
-                    1,
-                );
-                output_record_count += 1;
-            }
-            output_record_count += 1;
+        let pending_group_size = field_pos - last_finished_group_end;
+        self.pending_field = pending_group_size > 0;
+        if pending_group_size > 1 {
+            let drop_count = pending_group_size - 1;
+            group_iter.drop_before(field_pos - drop_count, drop_count)
         }
-        ab.end_action_group();
-        (output_record_count, bud.ps.input_done)
+        (finished_group_count, bud.ps.input_done)
     }
 }
 

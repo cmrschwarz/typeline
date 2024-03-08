@@ -592,6 +592,9 @@ impl<'a, I: FieldIterator<'a>> AutoDerefIter<'a, I> {
     pub fn clone_base(self) -> I {
         self.iter
     }
+    pub fn is_next_valid(&self) -> bool {
+        self.iter.is_next_valid()
+    }
 }
 
 impl<'a, R: FieldDataRef<'a>, I: FieldIterator<'a, FieldDataRefType = R>>

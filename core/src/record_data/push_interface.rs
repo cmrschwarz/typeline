@@ -1899,6 +1899,9 @@ unsafe impl<FD: DerefMut<Target = FieldData>> PushInterface
         run_length: usize,
         try_header_rle: bool,
     ) -> *mut u8 {
+        if run_length == 0 {
+            return self.data_ptr;
+        }
         let fmt = FieldValueFormat {
             repr: kind,
             flags: field_value_flags::DEFAULT,
@@ -1942,6 +1945,9 @@ unsafe impl<FD: DerefMut<Target = FieldData>> PushInterface
         try_header_rle: bool,
         try_data_rle: bool,
     ) {
+        if run_length == 0 {
+            return;
+        }
         unsafe {
             if try_data_rle {
                 self.commit();
@@ -1976,6 +1982,9 @@ unsafe impl<FD: DerefMut<Target = FieldData>> PushInterface
         try_header_rle: bool,
         try_data_rle: bool,
     ) {
+        if run_length == 0 {
+            return;
+        }
         let fmt = FieldValueFormat {
             repr,
             flags: field_value_flags::DEFAULT,
@@ -2016,6 +2025,9 @@ unsafe impl<FD: DerefMut<Target = FieldData>> PushInterface
         run_length: usize,
         try_header_rle: bool,
     ) {
+        if run_length == 0 {
+            return;
+        }
         if self.fmt.repr != repr || flags != self.fmt.flags || !try_header_rle
         {
             self.commit();

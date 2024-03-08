@@ -24,17 +24,24 @@ impl Default for AnyNumber {
 
 // ENHANCE: use this to add max / min / avg functions
 impl AnyNumber {
-    pub fn push(self, tgt: &mut impl PushInterface) {
+    pub fn push(
+        self,
+        tgt: &mut impl PushInterface,
+        header_rle: bool,
+        data_rle: bool,
+    ) {
         match self {
-            AnyNumber::Int(v) => tgt.push_fixed_size_type(v, 1, false, false),
+            AnyNumber::Int(v) => {
+                tgt.push_fixed_size_type(v, 1, header_rle, data_rle)
+            }
             AnyNumber::BigInt(v) => {
-                tgt.push_fixed_size_type(v, 1, false, false)
+                tgt.push_fixed_size_type(v, 1, header_rle, data_rle)
             }
             AnyNumber::Float(v) => {
-                tgt.push_fixed_size_type(v, 1, false, false)
+                tgt.push_fixed_size_type(v, 1, header_rle, data_rle)
             }
             AnyNumber::Rational(v) => {
-                tgt.push_fixed_size_type(v, 1, false, false)
+                tgt.push_fixed_size_type(v, 1, header_rle, data_rle)
             }
         }
     }
