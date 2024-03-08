@@ -34,6 +34,21 @@ fn foreach_sum() -> Result<(), ScrError> {
 }
 
 #[test]
+fn foreach_sum_nested() -> Result<(), ScrError> {
+    let res = ContextBuilder::default()
+        .add_op(create_op_seqn(1, 3, 1).unwrap())
+        .add_op(create_op_foreach())
+        .add_op(create_op_seqn(1, 3, 1).unwrap())
+        .add_op(create_op_sum())
+        .run_collect()?;
+    assert_eq!(
+        res,
+        &[FieldValue::Int(6), FieldValue::Int(6), FieldValue::Int(6)]
+    );
+    Ok(())
+}
+
+#[test]
 fn foreach_dup_sum() -> Result<(), ScrError> {
     let res = ContextBuilder::default()
         .add_op(create_op_seqn(1, 3, 1).unwrap())

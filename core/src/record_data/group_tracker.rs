@@ -60,7 +60,7 @@ pub struct GroupListIter<L> {
     group_idx_phys: GroupIdx,
     group_len_rem: GroupLen,
 }
-pub struct GroupListIterMut<'a, T> {
+pub struct GroupListIterMut<'a, T: DerefMut<Target = GroupList>> {
     base: GroupListIter<T>,
     tracker: &'a GroupTracker,
     group_len: usize,
@@ -140,7 +140,11 @@ impl GroupList {
         };
         let mut group_len_rem = group_len;
         for a in action_list {
-            while (a.field_idx - field_pos) > group_len_rem {
+            loop {
+                let field_pos_delta = a.field_idx - field_pos;
+                if field_pos_delta == 0 || field_pos_delta < group_len_rem {
+                    break;
+                }
                 field_pos += group_len_rem;
                 debug_assert!(group_idx != Some(self.group_lengths.len()));
                 next_group(
@@ -184,16 +188,42 @@ impl GroupList {
             &mut group_len_rem,
         );
     }
-    pub fn apply_field_actions(&mut self, ab: &mut ActionBuffer) {
+    pub fn apply_field_actions(
+        &mut self,
+        ab: &mut ActionBuffer,
+        #[cfg_attr(not(feature = "debug_logging"), allow(unused))]
+        list_id: GroupListId,
+    ) {
         let Some((actor_id, ss_prev)) =
             ab.update_snapshot(None, &mut self.actor, &mut self.snapshot)
         else {
             return;
         };
         let agi = ab.build_actions_from_snapshot(actor_id, ss_prev);
+
         if let Some(agi) = &agi {
             let (s1, s2) = ab.get_action_group_slices(agi);
-            self.apply_field_actions_list(s1.iter().chain(s2.iter()));
+
+            let actions = s1.iter().chain(s2.iter());
+
+            #[cfg(feature = "debug_logging")]
+            {
+                eprintln!(
+                    "applying actions to group list {:02} (actor {:02}):",
+                    list_id, actor_id
+                );
+                eprint_action_list(actions.clone());
+                eprintln!(
+                    "   before: {} + {:?}",
+                    self.passed_fields_count, self.group_lengths
+                );
+            }
+            self.apply_field_actions_list(actions);
+            #[cfg(feature = "debug_logging")]
+            eprintln!(
+                "   after:  {} + {:?}",
+                self.passed_fields_count, self.group_lengths
+            );
         };
         ab.drop_snapshot_refcount(ss_prev, 1);
         ab.release_temp_action_group(agi);
@@ -319,7 +349,7 @@ impl GroupTracker {
     ) -> GroupListIter<Ref<GroupList>> {
         self.lists[list_id]
             .borrow_mut()
-            .apply_field_actions(action_buffer);
+            .apply_field_actions(action_buffer, list_id);
         GroupList::lookup_iter_for_deref(self.lists[list_id].borrow(), iter_id)
     }
     pub fn lookup_group_list_iter_mut<'a>(
@@ -330,7 +360,7 @@ impl GroupTracker {
         actor_id: ActorId,
     ) -> GroupListIterMut<RefMut<'a, GroupList>> {
         let mut list = self.borrow_group_list_mut(list_id);
-        list.apply_field_actions(action_buffer);
+        list.apply_field_actions(action_buffer, list_id);
         GroupList::lookup_iter_for_deref_mut(
             self,
             list,
@@ -392,7 +422,7 @@ impl GroupTracker {
     ) {
         self.lists[group_list_id]
             .borrow_mut()
-            .apply_field_actions(ab)
+            .apply_field_actions(ab, group_list_id)
     }
     pub fn append_group_to_all_active_lists(&mut self, field_count: usize) {
         let mut parent_idx = None;
@@ -436,10 +466,14 @@ impl<L: Deref<Target = GroupList>> GroupListIter<L> {
     pub fn group_len_rem(&self) -> usize {
         self.group_len_rem
     }
+    pub fn store_iter(&self, iter_idx: GroupListIterId) {
+        self.list.store_iter(iter_idx, self);
+    }
     pub fn next_n_fields(&mut self, n: usize) -> usize {
         let mut n_rem = n;
         if n <= self.group_len_rem {
             self.group_len_rem -= n;
+            self.field_pos += n;
             return n;
         }
         while let Some(group_len) =
@@ -452,7 +486,9 @@ impl<L: Deref<Target = GroupList>> GroupListIter<L> {
             }
             n_rem -= group_len;
         }
-        n - n_rem
+        let fields_advanced = n - n_rem;
+        self.field_pos += fields_advanced;
+        fields_advanced
     }
     pub fn next_group(&mut self) {
         self.group_idx_phys += 1;
@@ -521,6 +557,7 @@ impl<'a, T: DerefMut<Target = GroupList>> GroupListIterMut<'a, T> {
         let mut n_rem = n;
         if n <= self.base.group_len_rem {
             self.base.group_len_rem -= n;
+            self.base.field_pos += n;
             return n;
         }
         self.update_group();
@@ -540,7 +577,9 @@ impl<'a, T: DerefMut<Target = GroupList>> GroupListIterMut<'a, T> {
         self.base.group_idx_phys = group_idx_phys;
         self.group_len = new_group_len;
         self.base.group_len_rem = new_group_len - n_rem;
-        n - n_rem
+        let fields_advanced = n - n_rem;
+        self.base.field_pos += fields_advanced;
+        fields_advanced
     }
     fn next_group_raw(&mut self) {
         self.base.group_idx_phys += 1;
@@ -554,7 +593,11 @@ impl<'a, T: DerefMut<Target = GroupList>> GroupListIterMut<'a, T> {
         self.next_group_raw()
     }
     fn try_next_group_raw(&mut self) -> bool {
-        self.base.try_next_group()
+        if !self.base.try_next_group() {
+            return false;
+        }
+        self.group_len = self.base.group_len_rem;
+        true
     }
     pub fn try_next_group(&mut self) -> bool {
         self.update_group();
@@ -704,6 +747,20 @@ impl<'a, T: DerefMut<Target = GroupList>> GroupListIterMut<'a, T> {
             count,
         );
     }
+    pub fn drop_backwards(&mut self, count: usize) {
+        if count == 0 {
+            return;
+        }
+        debug_assert!(self.group_len - self.base.group_len_rem >= count);
+        self.action_buffer.push_action(
+            FieldActionKind::Drop,
+            self.base.field_pos - count,
+            count,
+        );
+        self.group_len -= count;
+        self.update_group_len = true;
+        self.base.field_pos -= count;
+    }
     pub fn drop_before(&mut self, field_pos: usize, count: usize) {
         if count == 0 {
             return;
@@ -773,8 +830,30 @@ impl<'a, T: DerefMut<Target = GroupList>> GroupListIterMut<'a, T> {
     }
 }
 
-impl<'a, T> Drop for GroupListIterMut<'a, T> {
+impl<'a, T: DerefMut<Target = GroupList>> Drop for GroupListIterMut<'a, T> {
     fn drop(&mut self) {
         self.action_buffer.end_action_group();
+        let list = &mut *self.base.list;
+        if let Some((_actor_id, ss_prev)) = self.action_buffer.update_snapshot(
+            None,
+            &mut list.actor,
+            &mut list.snapshot,
+        ) {
+            self.action_buffer.drop_snapshot_refcount(ss_prev, 1);
+        }
+        if self.action_count_applied_to_parents != 0 {
+            let mut parent_id = list.parent_list;
+            while let Some(list_id) = parent_id {
+                let mut list_ref = self.tracker.lists[list_id].borrow_mut();
+                let list = &mut *list_ref;
+                if let Some((_actor_id, ss_prev)) = self
+                    .action_buffer
+                    .update_snapshot(None, &mut list.actor, &mut list.snapshot)
+                {
+                    self.action_buffer.drop_snapshot_refcount(ss_prev, 1);
+                }
+                parent_id = list.parent_list;
+            }
+        }
     }
 }

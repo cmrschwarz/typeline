@@ -1006,6 +1006,22 @@ impl<'a> Job<'a> {
                 self.remove_transform(tf_id);
             }
         }
+
+        #[cfg(feature = "output_field_logging")]
+        {
+            let output_field_id =
+                self.job_data.tf_mgr.transforms[tf_id].output_field;
+            eprint!(
+                "/> tf {} `{}` output field: ",
+                tf_id,
+                self.transform_data[tf_id.get()].display_name()
+            );
+            self.job_data.field_mgr.print_field_stats(output_field_id);
+            self.job_data
+                .field_mgr
+                .print_field_header_data(output_field_id, 0);
+            eprintln!();
+        }
         Ok(())
     }
 

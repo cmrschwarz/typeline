@@ -492,6 +492,9 @@ impl ActionBuffer {
             ActorRef::Present(self.actors.max_index())
         }
     }
+    pub fn next_actor_ref(&self) -> ActorRef {
+        ActorRef::Unconfirmed(self.actors.next_free_index())
+    }
     pub(super) fn release_temp_action_group(
         &mut self,
         agi: Option<ActionGroupIdentifier>,

@@ -156,7 +156,7 @@ impl TfSum {
                     group_iter.insert_fields(FieldValueRepr::Undefined, 1);
                     zero_count += 1;
                 } else {
-                    group_iter.drop_before(field_pos, group_size - 1);
+                    group_iter.drop_backwards(group_size - 1);
                     self.finish_group(op_id, &mut inserter);
                     finished_group_count += 1;
                 }
@@ -236,7 +236,7 @@ impl TfSum {
         self.pending_field = pending_group_size > 0;
         if pending_group_size > 1 {
             let drop_count = pending_group_size - 1;
-            group_iter.drop_before(field_pos - drop_count, drop_count)
+            group_iter.drop_backwards(drop_count)
         }
         (finished_group_count, bud.ps.input_done)
     }

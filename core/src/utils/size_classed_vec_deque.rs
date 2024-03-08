@@ -1,5 +1,6 @@
 use std::{
     collections::VecDeque,
+    fmt::Debug,
     marker::PhantomData,
     ops::{Range, RangeBounds},
 };
@@ -324,5 +325,16 @@ impl<'a> Iterator for Iter<'a> {
             self.range_1.start = self.range_1.start.add(self.stride as usize);
         }
         Some(res)
+    }
+}
+
+impl Debug for SizeClassedVecDeque {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Sc8(v) => Debug::fmt(v, f),
+            Self::Sc16(v) => Debug::fmt(v, f),
+            Self::Sc32(v) => Debug::fmt(v, f),
+            Self::Sc64(v) => Debug::fmt(v, f),
+        }
     }
 }

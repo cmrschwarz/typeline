@@ -81,10 +81,10 @@ pub fn insert_tf_foreach(
     let mut trailer_output_field = input_field;
 
     let ms = &mut job.job_data.match_set_mgr.match_sets[ms_id];
-    let curr_actor_id = ms.action_buffer.borrow().last_actor_ref();
+    let next_actor_id = ms.action_buffer.borrow().next_actor_ref();
     let parent_group_list_iter =
         ms.group_tracker.claim_group_list_iter_for_active();
-    let group_list = ms.group_tracker.add_group_list(curr_actor_id);
+    let group_list = ms.group_tracker.add_group_list(next_actor_id);
     ms.group_tracker.push_active_group_list(group_list);
     let header_tf_id = add_transform_to_job(
         &mut job.job_data,
@@ -163,13 +163,12 @@ pub fn handle_tf_foreach_header(
     let mut ab = ms.action_buffer.borrow_mut();
     let mut group_list =
         ms.group_tracker.borrow_group_list_mut(feh.group_list);
-    group_list.apply_field_actions(&mut ab);
-    let mut parent_group_list = ms
-        .group_tracker
-        .borrow_group_list_mut(group_list.parent_list.unwrap());
-    parent_group_list.apply_field_actions(&mut ab);
-    let mut parent_group_list_iter =
-        parent_group_list.lookup_iter(feh.parent_group_list_iter);
+    group_list.apply_field_actions(&mut ab, feh.group_list);
+    let mut parent_group_list_iter = ms.group_tracker.lookup_group_list_iter(
+        group_list.parent_list.unwrap(),
+        feh.parent_group_list_iter,
+        &mut ab,
+    );
 
     let mut size_rem = batch_size;
     while size_rem > 0 {
@@ -188,8 +187,7 @@ pub fn handle_tf_foreach_header(
         size_rem -= gs_rem;
         parent_group_list_iter.try_next_group();
     }
-    parent_group_list
-        .store_iter(feh.parent_group_list_iter, &parent_group_list_iter);
+    parent_group_list_iter.store_iter(feh.parent_group_list_iter);
     jd.tf_mgr.submit_batch_ready_for_more(tf_id, batch_size, ps);
 }
 
@@ -203,7 +201,10 @@ pub fn handle_tf_foreach_trailer(
     let ms = &mut jd.match_set_mgr.match_sets[tf.match_set_id];
     let mut group_list =
         ms.group_tracker.borrow_group_list_mut(fet.group_list);
-    group_list.apply_field_actions(&mut ms.action_buffer.borrow_mut());
+    group_list.apply_field_actions(
+        &mut ms.action_buffer.borrow_mut(),
+        fet.group_list,
+    );
     group_list.drop_leading_fields(batch_size, ps.input_done);
     jd.tf_mgr.submit_batch(tf_id, batch_size, ps.input_done);
 }
