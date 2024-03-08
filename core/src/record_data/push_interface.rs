@@ -414,17 +414,6 @@ pub unsafe trait PushInterface {
     fn push_undefined(&mut self, run_length: usize, try_header_rle: bool) {
         self.push_zst(FieldValueRepr::Undefined, run_length, try_header_rle);
     }
-    fn push_group_separator(
-        &mut self,
-        run_length: usize,
-        try_header_rle: bool,
-    ) {
-        self.push_zst(
-            FieldValueRepr::GroupSeparator,
-            run_length,
-            try_header_rle,
-        );
-    }
     fn push_field_value_unpacked(
         &mut self,
         v: FieldValue,
@@ -436,9 +425,6 @@ pub unsafe trait PushInterface {
             FieldValue::Null => self.push_null(run_length, try_header_rle),
             FieldValue::Undefined => {
                 self.push_undefined(run_length, try_header_rle)
-            }
-            FieldValue::GroupSeparator => {
-                self.push_group_separator(run_length, try_header_rle)
             }
             FieldValue::Int(v) => {
                 self.push_int(v, run_length, try_header_rle, try_data_rle)
@@ -526,9 +512,6 @@ pub unsafe trait PushInterface {
             TypedSlice::Null(_) => self.push_null(fc, try_header_rle),
             TypedSlice::Undefined(_) => {
                 self.push_undefined(fc, try_header_rle)
-            }
-            TypedSlice::GroupSeparator(_) => {
-                self.push_group_separator(fc, try_header_rle)
             }
             TypedSlice::Int(vals) => {
                 for (v, rl) in TypedSliceIter::from_range(&range, vals) {
@@ -690,7 +673,6 @@ pub unsafe trait PushInterface {
         match range.base.data {
             TypedSlice::Undefined(_)
             | TypedSlice::Null(_)
-            | TypedSlice::GroupSeparator(_)
             | TypedSlice::Int(_)
             | TypedSlice::Float(_)
             | TypedSlice::StreamValueId(_) => {

@@ -144,26 +144,6 @@ pub trait FieldIterator<'a>: Sized + Clone {
             |_, _| true,
         )
     }
-    fn skip_group_separators(&mut self, max: usize) -> usize {
-        self.next_n_fields_with_fmt(
-            max,
-            [FieldValueRepr::GroupSeparator],
-            false,
-            0,
-            0,
-            true,
-        )
-    }
-    fn skip_non_group_separators(&mut self, max: usize) -> usize {
-        self.next_n_fields_with_fmt(
-            max,
-            [FieldValueRepr::GroupSeparator],
-            true,
-            0,
-            0,
-            true,
-        )
-    }
     fn prev_n_fields_with_fmt_and_data_check<const N: usize>(
         &mut self,
         n: usize,

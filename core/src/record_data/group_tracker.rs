@@ -22,6 +22,12 @@ pub type GroupLen = usize;
 pub type GroupListIterId = u32;
 pub type GroupListId = DebuggableNonMaxU32;
 
+#[derive(Clone, Copy)]
+pub struct GroupListIterRef {
+    pub list_id: GroupListId,
+    pub iter_id: GroupListIterId,
+}
+
 #[derive(Default, Clone, Copy)]
 pub struct GroupsIterState {
     field_pos: usize,
@@ -177,6 +183,7 @@ impl GroupList {
                     }
                     group_len -= action_run_len;
                     group_len_rem -= action_run_len;
+                    modified = true;
                 }
             }
         }
@@ -212,7 +219,9 @@ impl GroupList {
                     "applying actions to group list {:02} (actor {:02}):",
                     list_id, actor_id
                 );
-                eprint_action_list(actions.clone());
+                crate::record_data::action_buffer::eprint_action_list(
+                    actions.clone(),
+                );
                 eprintln!(
                     "   before: {} + {:?}",
                     self.passed_fields_count, self.group_lengths
@@ -259,11 +268,10 @@ impl GroupList {
     ) -> GroupListIter<&Self> {
         Self::lookup_iter_for_deref(self, iter_id)
     }
-    pub fn lookup_iter_for_deref<T: Deref<Target = Self>>(
+    fn build_iter_from_iter_state<T: Deref<Target = Self>>(
         list: T,
-        iter_id: GroupListIterId,
+        iter_state: GroupsIterState,
     ) -> GroupListIter<T> {
-        let iter_state = list.iter_states[iter_id].get();
         GroupListIter {
             field_pos: iter_state.field_pos,
             group_idx_phys: iter_state.group_idx,
@@ -272,6 +280,13 @@ impl GroupList {
             list,
         }
     }
+    pub fn lookup_iter_for_deref<T: Deref<Target = Self>>(
+        list: T,
+        iter_id: GroupListIterId,
+    ) -> GroupListIter<T> {
+        let iter_state = list.iter_states[iter_id].get();
+        Self::build_iter_from_iter_state(list, iter_state)
+    }
     pub fn lookup_iter_for_deref_mut<'a, T: DerefMut<Target = Self>>(
         tracker: &'a GroupTracker,
         list: T,
@@ -279,10 +294,11 @@ impl GroupList {
         action_buffer: &'a mut ActionBuffer,
         actor_id: ActorId,
     ) -> GroupListIterMut<'a, T> {
-        let base = GroupList::lookup_iter_for_deref(list, iter_id);
+        let iter_state = list.iter_states[iter_id].get();
+        let base = Self::build_iter_from_iter_state(list, iter_state);
         action_buffer.begin_action_group(actor_id);
         GroupListIterMut {
-            group_len: base.group_len_rem,
+            group_len: base.group_len_rem + iter_state.group_offset,
             base,
             tracker,
             actions_applied_in_parents: false,
@@ -293,7 +309,7 @@ impl GroupList {
     }
     pub fn store_iter<T: Deref<Target = Self>>(
         &self,
-        iter_idx: GroupListIterId,
+        iter_id: GroupListIterId,
         iter: &GroupListIter<T>,
     ) {
         let iter_state = GroupsIterState {
@@ -306,7 +322,7 @@ impl GroupList {
                 .unwrap_or(0)
                 - iter.group_len_rem,
         };
-        self.iter_states[iter_idx].set(iter_state);
+        self.iter_states[iter_id].set(iter_state);
     }
 }
 
@@ -340,6 +356,15 @@ impl GroupTracker {
     }
     pub fn claim_group_list_iter_for_active(&mut self) -> GroupListIterId {
         self.claim_group_list_iter(self.active_group_list())
+    }
+    pub fn claim_group_list_iter_ref_for_active(
+        &mut self,
+    ) -> GroupListIterRef {
+        let list_id = self.active_group_list();
+        GroupListIterRef {
+            list_id,
+            iter_id: self.claim_group_list_iter(list_id),
+        }
     }
     pub fn lookup_group_list_iter(
         &self,
@@ -466,8 +491,8 @@ impl<L: Deref<Target = GroupList>> GroupListIter<L> {
     pub fn group_len_rem(&self) -> usize {
         self.group_len_rem
     }
-    pub fn store_iter(&self, iter_idx: GroupListIterId) {
-        self.list.store_iter(iter_idx, self);
+    pub fn store_iter(&self, iter_id: GroupListIterId) {
+        self.list.store_iter(iter_id, self);
     }
     pub fn next_n_fields(&mut self, n: usize) -> usize {
         let mut n_rem = n;
@@ -541,6 +566,9 @@ impl<'a, T: DerefMut<Target = GroupList>> GroupListIterMut<'a, T> {
     pub fn group_len_before(&self) -> usize {
         self.group_len - self.base.group_len_rem
     }
+    pub fn store_iter(&self, iter_id: GroupListIterId) {
+        self.base.store_iter(iter_id);
+    }
     pub fn write_back_group_len(&mut self) {
         self.base
             .list
@@ -553,11 +581,14 @@ impl<'a, T: DerefMut<Target = GroupList>> GroupListIterMut<'a, T> {
             self.update_group_len = false;
         }
     }
+    pub fn next_n_fields_in_group(&mut self, n: usize) {
+        self.base.group_len_rem -= n;
+        self.base.field_pos += n;
+    }
     pub fn next_n_fields(&mut self, n: usize) -> usize {
         let mut n_rem = n;
         if n <= self.base.group_len_rem {
-            self.base.group_len_rem -= n;
-            self.base.field_pos += n;
+            self.next_n_fields_in_group(n);
             return n;
         }
         self.update_group();
@@ -817,14 +848,12 @@ impl<'a, T: DerefMut<Target = GroupList>> GroupListIterMut<'a, T> {
     /// The initial group does *not* have to be empty, but the iterator
     /// must have passed all it's elements. Otherwise 0 is returned.
     pub fn skip_empty_groups(&mut self) -> usize {
-        if self.base.group_len_rem != 0 {
+        if self.base.group_len_rem != 0 || !self.try_next_group() {
             return 0;
-        }
-        self.next_group();
+        };
         let mut count = 1;
-        while self.group_len == 0 {
+        while self.group_len == 0 && self.try_next_group() {
             count += 1;
-            self.next_group();
         }
         count
     }

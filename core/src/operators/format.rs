@@ -223,15 +223,10 @@ type TfFormatStreamValueHandleId = DebuggableNonMaxUsize;
 
 const FINAL_OUTPUT_INDEX_NEXT_VAL: usize = usize::MAX;
 
-// We call this an 'exception'
-// (in the literal sense of the word, not the programming language meaning),
-// instead of an error because it is either an error, or a GroupSeparator
 #[derive(Clone, Copy)]
-struct FormatException {
-    // special case: if this is GroupSeparator, we output
-    // a GroupSeparator instead of an actual error
+struct FormatError {
     kind: FieldValueRepr,
-    exception_in_width: bool,
+    error_in_width: bool,
     part_idx: FormatPartIndex,
 }
 #[derive(Default, Clone, Copy)]
@@ -243,7 +238,7 @@ struct OutputState {
     float_precision: usize, // for non floats, this is 'max_char_count'
     contains_raw_bytes: bool,
     // first error wins, all hope of outputting a value is lost immediately
-    contained_exception: Option<FormatException>,
+    contained_error: Option<FormatError>,
     incomplete_stream_value_handle: Option<TfFormatStreamValueHandleId>,
 }
 
@@ -1208,7 +1203,7 @@ fn iter_output_states_advanced(
 
     while run_len > 0 {
         let o = &mut output_states[*output_idx];
-        if o.contained_exception.is_none()
+        if o.contained_error.is_none()
             && o.incomplete_stream_value_handle.is_none()
         {
             func(o);
@@ -1353,8 +1348,8 @@ pub fn lookup_width_spec(
         &mut output_index,
         batch_size - handled_fields,
         |os| {
-            os.contained_exception = Some(FormatException {
-                exception_in_width: true,
+            os.contained_error = Some(FormatError {
+                error_in_width: true,
                 part_idx,
                 kind: FieldValueRepr::Undefined,
             })
@@ -1397,8 +1392,8 @@ pub fn setup_key_output_state(
                 output_idx,
                 run_len,
                 |os| {
-                    os.contained_exception = Some(FormatException {
-                        exception_in_width: true,
+                    os.contained_error = Some(FormatError {
+                        error_in_width: true,
                         part_idx,
                         kind,
                     })
@@ -1431,21 +1426,6 @@ pub fn setup_key_output_state(
         iter.typed_range_fwd(msm, usize::MAX, field_value_flags::DEFAULT)
     {
         match range.base.data {
-            TypedSlice::GroupSeparator(_) => {
-                iter_output_states_advanced(
-                    &mut fmt.output_states,
-                    &mut output_index,
-                    range.base.field_count,
-                    |o| {
-                        // not really an error, but uses the same mechanism
-                        o.contained_exception = Some(FormatException {
-                            exception_in_width: false,
-                            part_idx,
-                            kind: FieldValueRepr::GroupSeparator,
-                        });
-                    },
-                );
-            }
             TypedSlice::TextInline(text) => {
                 for (v, rl, _offs) in
                     RefAwareInlineTextIter::from_range(&range, text)
@@ -1495,8 +1475,8 @@ pub fn setup_key_output_state(
                         ) {
                             o.len += len;
                         } else {
-                            o.contained_exception = Some(FormatException {
-                                exception_in_width: false,
+                            o.contained_error = Some(FormatError {
+                                error_in_width: false,
                                 part_idx,
                                 kind: FieldValueRepr::Custom,
                             })
@@ -1548,9 +1528,9 @@ pub fn setup_key_output_state(
                                     &mut output_index,
                                     rl,
                                     |o| {
-                                        o.contained_exception =
-                                            Some(FormatException {
-                                                exception_in_width: false,
+                                        o.contained_error =
+                                            Some(FormatError {
+                                                error_in_width: false,
                                                 part_idx,
                                                 kind: FieldValueRepr::Error,
                                             });
@@ -1668,7 +1648,6 @@ pub fn setup_key_output_state(
                         }
                         FieldValue::Undefined
                         | FieldValue::Null
-                        | FieldValue::GroupSeparator
                         | FieldValue::Int(_)
                         | FieldValue::BigInt(_)
                         | FieldValue::Float(_)
@@ -1719,8 +1698,8 @@ pub fn setup_key_output_state(
                     &mut output_index,
                     range.base.field_count,
                     |o| {
-                        o.contained_exception = Some(FormatException {
-                            exception_in_width: false,
+                        o.contained_error = Some(FormatError {
+                            error_in_width: false,
                             part_idx,
                             kind: range.base.data.repr(),
                         });
@@ -1817,8 +1796,8 @@ pub fn setup_key_output_state(
             if typed_format {
                 o.len += calc_fmt_len_ost(k, (), o, &Undefined);
             } else {
-                o.contained_exception = Some(FormatException {
-                    exception_in_width: false,
+                o.contained_error = Some(FormatError {
+                    error_in_width: false,
                     part_idx,
                     kind: FieldValueRepr::Undefined,
                 })
@@ -1882,12 +1861,9 @@ fn setup_output_targets(
         unsafe { output_field.iter_hall.internals_mut().data.len() };
     let mut tgt_len = starting_len;
     for os in &fmt.output_states {
-        if let Some(ex) = os.contained_exception {
-            // the GS is a ZST, so nothing to do there
-            if ex.kind != FieldValueRepr::GroupSeparator {
-                tgt_len = FieldValueRepr::Error.align_size_up(tgt_len);
-                tgt_len += FieldValueRepr::Error.size();
-            }
+        if os.contained_error.is_some() {
+            tgt_len = FieldValueRepr::Error.align_size_up(tgt_len);
+            tgt_len += FieldValueRepr::Error.size();
         } else if os.incomplete_stream_value_handle.is_some() {
             tgt_len = FieldValueRepr::StreamValueId.align_size_up(tgt_len);
             tgt_len += FieldValueRepr::StreamValueId.size();
@@ -1936,13 +1912,7 @@ fn insert_output_target(
     sv_mgr: &mut StreamValueManager,
 ) -> Option<NonNull<u8>> {
     let os = &mut fmt.output_states[output_idx];
-    if let Some(ex) = os.contained_exception {
-        if ex.kind == FieldValueRepr::GroupSeparator {
-            output_field
-                .iter_hall
-                .push_group_separator(os.run_len, true);
-            return None;
-        }
+    if let Some(ex) = os.contained_error {
         let FormatPart::Key(k) = &fmt.op.parts[ex.part_idx as usize] else {
             unreachable!()
         };
@@ -1964,7 +1934,7 @@ fn insert_output_target(
                 id_str.push_str(&usize_to_str(key_index));
                 (id_str.as_str(), "")
             };
-        let (width_ctx, width_label, width_ctx2) = if ex.exception_in_width {
+        let (width_ctx, width_label, width_ctx2) = if ex.error_in_width {
             if let Some(FormatWidthSpec::Ref(r)) = k.min_char_count {
                 if let Some(lbl) = fmt.op.refs_idx[r as usize] {
                     (" width spec '", ss.lookup(lbl), "' of")
@@ -2121,14 +2091,6 @@ fn write_fmt_key(
         iter.typed_range_fwd(msm, usize::MAX, field_value_flags::DEFAULT)
     {
         match range.base.data {
-            TypedSlice::GroupSeparator(_) => {
-                iter_output_targets(
-                    fmt,
-                    &mut output_index,
-                    range.base.field_count,
-                    |_| unreachable!(), // the GS is always an exception
-                );
-            }
             TypedSlice::TextInline(text) => {
                 for (v, rl, _offs) in
                     RefAwareInlineTextIter::from_range(&range, text)
@@ -2486,7 +2448,7 @@ pub fn handle_tf_format(
         min_char_count: 0,
         float_precision: 0,
         contains_raw_bytes: false,
-        contained_exception: None,
+        contained_error: None,
         incomplete_stream_value_handle: None,
     });
     for (part_idx, part) in fmt.op.parts.iter().enumerate() {

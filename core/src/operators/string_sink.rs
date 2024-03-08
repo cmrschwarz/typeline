@@ -327,14 +327,6 @@ pub fn handle_tf_string_sink(
         field_value_flags::DEFAULT,
     ) {
         match range.base.data {
-            TypedSlice::GroupSeparator(_) => {
-                let count = range.base.field_count;
-                output_field
-                    .iter_hall
-                    .push_null(field_pos - last_interruption_end, true);
-                output_field.iter_hall.push_group_separator(count, false);
-                last_interruption_end = field_pos + count;
-            }
             TypedSlice::TextInline(text) => {
                 for (v, rl, _offs) in
                     RefAwareInlineTextIter::from_range(&range, text)

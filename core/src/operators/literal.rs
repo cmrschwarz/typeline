@@ -347,8 +347,7 @@ pub fn field_value_to_literal(v: FieldValue) -> Literal {
         FieldValue::Object(v) => Literal::Object(v),
         FieldValue::Custom(v) => Literal::Custom(v),
 
-        FieldValue::GroupSeparator
-        | FieldValue::StreamValueId(_)
+        FieldValue::StreamValueId(_)
         | FieldValue::FieldReference(_)
         | FieldValue::SlicedFieldReference(_) => {
             panic!("{} is not a valid literal", v.kind().to_str())

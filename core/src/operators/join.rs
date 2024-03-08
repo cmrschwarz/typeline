@@ -17,9 +17,9 @@ use crate::{
         action_buffer::ActorId,
         custom_data::CustomDataBox,
         field::Field,
-        field_action::FieldActionKind,
         field_data::{field_value_flags, FieldValueRepr, INLINE_STR_MAX_LEN},
         field_value::{FieldValue, FieldValueKind},
+        group_tracker::GroupListIterRef,
         iter_hall::{IterId, IterKind},
         iters::FieldIterator,
         match_set::MatchSetManager,
@@ -89,6 +89,7 @@ pub struct TfJoin<'a> {
     stream_len_threshold: usize,
     streams_kept_alive: usize,
     actor_id: ActorId,
+    group_list_iter_ref: GroupListIterRef,
 }
 
 lazy_static::lazy_static! {
@@ -162,6 +163,10 @@ pub fn build_tf_join<'a>(
         stream_value_error: false,
         streams_kept_alive: 0,
         actor_id: jd.add_actor_for_tf_state(tf_state),
+        group_list_iter_ref: jd.match_set_mgr.match_sets
+            [tf_state.match_set_id]
+            .group_tracker
+            .claim_group_list_iter_ref_for_active(),
     })
 }
 
@@ -401,215 +406,181 @@ pub fn handle_tf_join(
         jd.field_mgr
             .lookup_iter(input_field_id, &input_field, join.iter_id);
     let field_pos_start = base_iter.get_next_field_pos();
-    let mut field_pos = field_pos_start;
     let mut iter =
         AutoDerefIter::new(&jd.field_mgr, input_field_id, base_iter);
 
-    let mut group_len_rem =
+    let mut desired_group_len_rem =
         join.group_capacity.unwrap_or(usize::MAX) - join.group_len;
-    let mut group_separators_emitted = 0;
     let mut groups_emitted = 0;
     let sv_mgr = &mut jd.sv_mgr;
     let mut batch_size_rem = batch_size;
-    let mut last_group_end = 0;
+    let mut last_group_end = field_pos_start;
+    let mut prebuffered_record = join.first_record_added;
 
-    jd.match_set_mgr.match_sets[ms_id]
-        .action_buffer
-        .borrow_mut()
-        .begin_action_group(join.actor_id);
+    let ms = &jd.match_set_mgr.match_sets[ms_id];
+    let mut ab = ms.action_buffer.borrow_mut();
+
+    let mut groups_iter = ms.group_tracker.lookup_group_list_iter_mut(
+        join.group_list_iter_ref.list_id,
+        join.group_list_iter_ref.iter_id,
+        &mut ab,
+        join.actor_id,
+    );
 
     'iter: loop {
         if join.current_group_error.is_some() {
-            let consumed =
-                iter.next_n_fields(group_len_rem.min(batch_size_rem));
-            group_len_rem -= consumed;
+            let consumed = iter.next_n_fields(
+                desired_group_len_rem
+                    .min(batch_size_rem)
+                    .min(groups_iter.group_len_rem()),
+            );
+            groups_iter.next_n_fields(consumed);
+            desired_group_len_rem -= consumed;
             join.group_len += consumed;
         }
-        if group_len_rem == 0 {
-            emit_group(join, sv_mgr, &mut output_field);
-            groups_emitted += 1;
-        }
-        group_len_rem =
-            join.group_capacity.unwrap_or(usize::MAX) - join.group_len;
-
-        if let Some(range) = iter.typed_range_fwd(
-            &jd.match_set_mgr,
-            group_len_rem.min(batch_size_rem),
-            field_value_flags::DEFAULT,
-        ) {
-            match range.base.data {
-                TypedSlice::GroupSeparator(_) => {
-                    let count = range.base.field_count;
-                    let should_drop = should_drop_group(join);
-                    let mut ab = jd.match_set_mgr.match_sets[ms_id]
-                        .action_buffer
-                        .borrow_mut();
-                    let mut out_field_pos =
-                        groups_emitted + group_separators_emitted;
-                    ab.push_action(
-                        FieldActionKind::Drop,
-                        out_field_pos,
-                        (field_pos - last_group_end)
-                            .saturating_sub(usize::from(!should_drop)),
-                    );
-                    if join.group_len == 0 && !should_drop {
-                        ab.push_action(
-                            FieldActionKind::InsertZst(
-                                FieldValueRepr::Undefined,
-                            ),
-                            out_field_pos,
-                            1,
-                        );
-                    }
-                    last_group_end = field_pos + count;
-                    if should_drop {
-                        drop_group(join);
-                    } else {
-                        emit_group(join, sv_mgr, &mut output_field);
-                        groups_emitted += 1;
-                    }
-                    output_field.iter_hall.push_group_separator(count, true);
-                    out_field_pos += 2;
-                    group_separators_emitted += count;
-                    for _ in 1..count {
-                        // TODO: this is fucked. we need to actually emit a
-                        // group
-                        ab.push_action(
-                            FieldActionKind::InsertZst(
-                                FieldValueRepr::Undefined,
-                            ),
-                            out_field_pos + 1,
-                            1,
-                        );
-                        out_field_pos += 2;
-                    }
-                }
-                TypedSlice::TextInline(text) => {
-                    for (v, rl, _offs) in
-                        RefAwareInlineTextIter::from_range(&range, text)
-                    {
-                        push_str(join, sv_mgr, v, rl as usize);
-                    }
-                }
-                TypedSlice::BytesInline(bytes) => {
-                    for (v, rl, _offs) in
-                        RefAwareInlineBytesIter::from_range(&range, bytes)
-                    {
-                        push_bytes(join, sv_mgr, v, rl as usize);
-                    }
-                }
-                TypedSlice::TextBuffer(bytes) => {
-                    for (v, rl, _offs) in
-                        RefAwareTextBufferIter::from_range(&range, bytes)
-                    {
-                        push_str(join, sv_mgr, v, rl as usize);
-                    }
-                }
-                TypedSlice::BytesBuffer(bytes) => {
-                    for (v, rl, _offs) in
-                        RefAwareBytesBufferIter::from_range(&range, bytes)
-                    {
-                        push_bytes(join, sv_mgr, v, rl as usize);
-                    }
-                }
-                TypedSlice::Int(ints) => {
-                    for (v, rl) in TypedSliceIter::from_range(&range, ints) {
-                        let v = i64_to_str(false, *v);
-                        push_str(join, sv_mgr, v.as_str(), rl as usize);
-                    }
-                }
-                TypedSlice::Custom(custom_data) => {
-                    for (v, rl) in
-                        RefAwareTypedSliceIter::from_range(&range, custom_data)
-                    {
-                        push_custom_type(op_id, join, sv_mgr, v, rl);
-                    }
-                }
-                TypedSlice::Error(errs) => {
-                    push_error(join, sv_mgr, errs[0].clone());
-                }
-                TypedSlice::Null(_) | TypedSlice::Undefined(_) => {
-                    let str = typed_slice_zst_str(&range.base.data);
-                    push_error(
-                        join,
-                        sv_mgr,
-                        OperatorApplicationError::new_s(
-                            format!("join does not support {str}"),
-                            op_id,
-                        ),
-                    );
-                }
-                TypedSlice::StreamValueId(svs) => {
-                    if !try_consume_stream_values(
-                        tf_id,
-                        join,
-                        &mut jd.tf_mgr,
-                        &mut jd.match_set_mgr,
-                        sv_mgr,
-                        batch_size,
-                        batch_size_rem,
-                        &mut iter,
-                        &range,
-                        svs,
-                        field_pos,
-                        field_pos_start,
-                    ) {
-                        break 'iter;
-                    }
-                }
-                TypedSlice::BigInt(_)
-                | TypedSlice::Float(_)
-                | TypedSlice::Rational(_) => {
-                    todo!();
-                }
-                TypedSlice::Object(_) => {
-                    todo!();
-                }
-                TypedSlice::Array(_) => {
-                    todo!();
-                }
-                TypedSlice::FieldReference(_)
-                | TypedSlice::SlicedFieldReference(_) => unreachable!(),
+        let end_of_group = groups_iter.is_end_of_group(ps.input_done);
+        if end_of_group || desired_group_len_rem == 0 {
+            let field_pos = iter.get_next_field_pos();
+            let should_drop =
+                desired_group_len_rem != 0 && should_drop_group(join);
+            let drop_count =
+                field_pos - last_group_end + usize::from(prebuffered_record);
+            groups_iter.drop_before(
+                groups_iter.field_pos() - drop_count,
+                drop_count.saturating_sub(usize::from(!should_drop)),
+            );
+            prebuffered_record = false;
+            if join.group_len == 0 && !should_drop {
+                groups_iter.insert_fields(FieldValueRepr::Undefined, 1);
             }
-            let fc = range.base.field_count;
-            join.group_len += fc;
-            group_len_rem -= fc;
-            field_pos += fc;
-            batch_size_rem -= fc;
-        } else {
-            break;
+            last_group_end = field_pos;
+            if should_drop {
+                drop_group(join);
+            } else {
+                emit_group(join, sv_mgr, &mut output_field);
+                groups_emitted += 1;
+            }
+
+            if end_of_group {
+                loop {
+                    if !groups_iter.try_next_group() {
+                        break;
+                    }
+                    if !groups_iter.is_end_of_group(ps.input_done) {
+                        break;
+                    }
+                    groups_iter.insert_fields(FieldValueRepr::Undefined, 1);
+                }
+            }
+            desired_group_len_rem = join.group_capacity.unwrap_or(usize::MAX);
         }
+
+        let Some(range) = iter.typed_range_fwd(
+            &jd.match_set_mgr,
+            desired_group_len_rem
+                .min(batch_size_rem)
+                .min(groups_iter.group_len_rem()),
+            field_value_flags::DEFAULT,
+        ) else {
+            break;
+        };
+        match range.base.data {
+            TypedSlice::TextInline(text) => {
+                for (v, rl, _offs) in
+                    RefAwareInlineTextIter::from_range(&range, text)
+                {
+                    push_str(join, sv_mgr, v, rl as usize);
+                }
+            }
+            TypedSlice::BytesInline(bytes) => {
+                for (v, rl, _offs) in
+                    RefAwareInlineBytesIter::from_range(&range, bytes)
+                {
+                    push_bytes(join, sv_mgr, v, rl as usize);
+                }
+            }
+            TypedSlice::TextBuffer(bytes) => {
+                for (v, rl, _offs) in
+                    RefAwareTextBufferIter::from_range(&range, bytes)
+                {
+                    push_str(join, sv_mgr, v, rl as usize);
+                }
+            }
+            TypedSlice::BytesBuffer(bytes) => {
+                for (v, rl, _offs) in
+                    RefAwareBytesBufferIter::from_range(&range, bytes)
+                {
+                    push_bytes(join, sv_mgr, v, rl as usize);
+                }
+            }
+            TypedSlice::Int(ints) => {
+                for (v, rl) in TypedSliceIter::from_range(&range, ints) {
+                    let v = i64_to_str(false, *v);
+                    push_str(join, sv_mgr, v.as_str(), rl as usize);
+                }
+            }
+            TypedSlice::Custom(custom_data) => {
+                for (v, rl) in
+                    RefAwareTypedSliceIter::from_range(&range, custom_data)
+                {
+                    push_custom_type(op_id, join, sv_mgr, v, rl);
+                }
+            }
+            TypedSlice::Error(errs) => {
+                push_error(join, sv_mgr, errs[0].clone());
+            }
+            TypedSlice::Null(_) | TypedSlice::Undefined(_) => {
+                let str = typed_slice_zst_str(&range.base.data);
+                push_error(
+                    join,
+                    sv_mgr,
+                    OperatorApplicationError::new_s(
+                        format!("join does not support {str}"),
+                        op_id,
+                    ),
+                );
+            }
+            TypedSlice::StreamValueId(svs) => {
+                if !try_consume_stream_values(
+                    tf_id,
+                    join,
+                    &mut jd.tf_mgr,
+                    &jd.match_set_mgr,
+                    sv_mgr,
+                    batch_size,
+                    batch_size_rem,
+                    &mut iter,
+                    &range,
+                    svs,
+                    field_pos_start,
+                ) {
+                    break 'iter;
+                }
+            }
+            TypedSlice::BigInt(_)
+            | TypedSlice::Float(_)
+            | TypedSlice::Rational(_) => {
+                todo!();
+            }
+            TypedSlice::Object(_) => {
+                todo!();
+            }
+            TypedSlice::Array(_) => {
+                todo!();
+            }
+            TypedSlice::FieldReference(_)
+            | TypedSlice::SlicedFieldReference(_) => unreachable!(),
+        }
+        let fc = range.base.field_count;
+        join.group_len += fc;
+        desired_group_len_rem -= fc;
+        batch_size_rem -= fc;
+        groups_iter.next_n_fields(fc);
     }
 
     jd.field_mgr.store_iter(input_field_id, join.iter_id, iter);
+    groups_iter.store_iter(join.group_list_iter_ref.iter_id);
     let streams_done = join.current_stream_val.is_none();
-    let mut ab = jd.match_set_mgr.match_sets[ms_id]
-        .action_buffer
-        .borrow_mut();
-    let mut records_produced = groups_emitted + group_separators_emitted;
-    if ps.input_done && streams_done {
-        let should_drop = should_drop_group(join);
-        ab.push_action(
-            FieldActionKind::Drop,
-            records_produced,
-            (field_pos - last_group_end)
-                .saturating_sub(usize::from(!should_drop)),
-        );
-        if should_drop {
-            drop_group(join);
-        } else {
-            if join.group_len == 0 {
-                ab.push_action(
-                    FieldActionKind::InsertZst(FieldValueRepr::Undefined),
-                    records_produced,
-                    1,
-                );
-            }
-            emit_group(join, sv_mgr, &mut output_field);
-            records_produced += 1;
-        }
-    }
-    ab.end_action_group();
 
     drop(input_field);
     drop(output_field);
@@ -619,7 +590,7 @@ pub fn handle_tf_join(
     }
     jd.tf_mgr.submit_batch(
         tf_id,
-        records_produced,
+        groups_emitted,
         ps.input_done && streams_done,
     );
 }
@@ -628,17 +599,17 @@ fn try_consume_stream_values<'a>(
     tf_id: TransformId,
     join: &mut TfJoin<'_>,
     tf_mgr: &mut TransformManager,
-    msm: &mut MatchSetManager,
+    msm: &MatchSetManager,
     sv_mgr: &mut StreamValueManager,
     batch_size: usize,
     batch_size_rem: usize,
     iter: &mut AutoDerefIter<'a, impl FieldIterator<'a>>,
     range: &RefAwareTypedRange<'_>,
     svs: &[StreamValueId],
-    field_pos: usize,
     field_pos_start: usize,
 ) -> bool {
-    let mut pos = field_pos;
+    let start_pos = iter.get_next_field_pos();
+    let mut pos = start_pos;
     let mut sv_iter = RefAwareStreamValueIter::from_range(range, svs);
     while let Some((sv_id, offsets, rl)) = sv_iter.next() {
         pos += rl as usize;
@@ -692,7 +663,7 @@ fn try_consume_stream_values<'a>(
                     }
                     sv_mgr.check_stream_value_ref_count(sv_id);
                 } else {
-                    join.group_len += pos - field_pos;
+                    join.group_len += pos - start_pos;
                     join.current_stream_val = Some(sv_id);
                     let buffered = sv.is_buffered;
                     sv.subscribe(tf_id, rl as usize, buffered || rl > 1);
@@ -727,7 +698,7 @@ fn try_consume_stream_values<'a>(
                             msm,
                             sv_mgr,
                             iter.clone(),
-                            batch_size_rem - (pos - field_pos),
+                            batch_size_rem - (pos - start_pos),
                         );
                     iter.move_to_field_pos(pos);
                     return false;

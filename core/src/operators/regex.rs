@@ -866,17 +866,6 @@ pub fn handle_tf_regex(
                 .unwrap_or(re.input_field_ref_offset),
         };
         match range.base.data {
-            TypedSlice::GroupSeparator(_) => {
-                let count =
-                    rmis.batch_state.consume_fields(range.base.field_count);
-                for inserter in rmis.batch_state.inserters.iter_mut().flatten()
-                {
-                    inserter.push_group_separator(count, true);
-                }
-                if rbs.batch_size_reached() {
-                    break 'batch;
-                }
-            }
             TypedSlice::TextInline(text) => {
                 for (v, rl, offset) in
                     RefAwareInlineTextIter::from_range(&range, text)
@@ -1053,7 +1042,7 @@ pub fn handle_tf_regex(
                         drop(rmis);
                         re.streams_kept_alive +=
                             buffer_remaining_stream_values_in_auto_deref_iter(
-                                &mut jd.match_set_mgr,
+                                &jd.match_set_mgr,
                                 &mut jd.sv_mgr,
                                 iter.clone(),
                                 usize::MAX,

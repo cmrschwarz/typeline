@@ -10,7 +10,7 @@ use std::{
 use super::{
     custom_data::CustomDataBox,
     field_value::{
-        Array, FieldReference, FieldValueKind, GroupSeparator, Null, Object,
+        Array, FieldReference, FieldValueKind, Null, Object,
         SlicedFieldReference, Undefined,
     },
     match_set::MatchSetManager,
@@ -49,7 +49,6 @@ pub enum FieldValueRepr {
     #[default]
     Null,
     Undefined,
-    GroupSeparator,
     Int,
     BigInt,
     Float,
@@ -211,9 +210,6 @@ unsafe impl FixedSizeFieldValueType for Undefined {
 unsafe impl FixedSizeFieldValueType for Null {
     const REPR: FieldValueRepr = FieldValueRepr::Undefined;
 }
-unsafe impl FixedSizeFieldValueType for GroupSeparator {
-    const REPR: FieldValueRepr = FieldValueRepr::GroupSeparator;
-}
 unsafe impl FixedSizeFieldValueType for i64 {
     const REPR: FieldValueRepr = FieldValueRepr::Int;
     const TRIVIALLY_COPYABLE: bool = true;
@@ -267,7 +263,6 @@ impl FieldValueRepr {
         match self {
             FieldValueRepr::Undefined
             | FieldValueRepr::Null
-            | FieldValueRepr::GroupSeparator
             | FieldValueRepr::Int
             | FieldValueRepr::Float
             | FieldValueRepr::FieldReference
@@ -335,7 +330,6 @@ impl FieldValueRepr {
         match self {
             FieldValueRepr::Undefined => size_of::<Undefined>(),
             FieldValueRepr::Null => size_of::<Null>(),
-            FieldValueRepr::GroupSeparator => size_of::<GroupSeparator>(),
             FieldValueRepr::Int => size_of::<i64>(),
             FieldValueRepr::BigInt => size_of::<BigInt>(),
             FieldValueRepr::Float => size_of::<f64>(),
@@ -377,7 +371,6 @@ impl FieldValueRepr {
         match self {
             FieldValueRepr::Undefined => "undefined",
             FieldValueRepr::Null => "null",
-            FieldValueRepr::GroupSeparator => "group_separator",
             FieldValueRepr::Int => "int",
             FieldValueRepr::BigInt => "integer",
             FieldValueRepr::Float => "float",
@@ -401,7 +394,6 @@ impl FieldValueRepr {
         Some(match self {
             FieldValueRepr::Undefined => FieldValueKind::Undefined,
             FieldValueRepr::Null => FieldValueKind::Null,
-            FieldValueRepr::GroupSeparator => return None,
             FieldValueRepr::Int => FieldValueKind::Int,
             FieldValueRepr::BigInt => FieldValueKind::BigInt,
             FieldValueRepr::Float => FieldValueKind::Float,
@@ -928,7 +920,6 @@ impl FieldData {
                     | TypedSlice::Float(_)
                     | TypedSlice::StreamValueId(_)
                     | TypedSlice::FieldReference(_)
-                    | TypedSlice::GroupSeparator(_)
                     | TypedSlice::SlicedFieldReference(_) => {
                         unreachable!();
                     }
@@ -997,9 +988,7 @@ unsafe fn append_data(
 ) {
     unsafe {
         match ts {
-            TypedSlice::Null(_)
-            | TypedSlice::Undefined(_)
-            | TypedSlice::GroupSeparator(_) => (),
+            TypedSlice::Null(_) | TypedSlice::Undefined(_) => (),
             TypedSlice::Int(v) => extend_raw(target_applicator, v),
             TypedSlice::BigInt(v) => extend_with_clones(target_applicator, v),
             TypedSlice::Float(v) => extend_raw(target_applicator, v),

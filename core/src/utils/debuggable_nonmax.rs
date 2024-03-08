@@ -3,17 +3,20 @@ use std::{
     fmt::{Debug, Display},
 };
 
+#[cfg(not(debug_assertions))]
+use std::num::{NonZeroU32, NonZeroU64, NonZeroUsize};
+
 #[derive(Debug)]
 pub struct NonMaxOutOfRangeError;
 
 macro_rules! debuggable_nonmax {
     ($nonmax: ident, $nonzero: ident, $primitive: ident) => {
         #[cfg(debug_assertions)]
-        #[derive(Copy, Clone, PartialEq, Eq, Hash, Default)]
+        #[derive(Copy, Clone, PartialEq, Eq, Hash)]
         pub struct $nonmax($primitive);
 
         #[cfg(not(debug_assertions))]
-        #[derive(Copy, Clone, PartialEq, Eq, Hash, Default)]
+        #[derive(Copy, Clone, PartialEq, Eq, Hash)]
         pub struct $nonmax($nonzero);
 
         impl From<$nonmax> for $primitive {
@@ -46,13 +49,13 @@ macro_rules! debuggable_nonmax {
         impl $nonmax {
             #[inline]
             pub const fn get(self) -> $primitive {
-                self.0 ^ $primitive::MAX
+                self.0.get() ^ $primitive::MAX
             }
 
             #[inline]
             pub const unsafe fn new_unchecked(value: $primitive) -> Self {
                 Self(unsafe {
-                    $nonzero::new_unckecked(value ^ $primitive::MAX)
+                    $nonzero::new_unchecked(value ^ $primitive::MAX)
                 })
             }
         }
@@ -149,9 +152,14 @@ macro_rules! debuggable_nonmax {
                 Some(self.cmp(other))
             }
         }
+        impl Default for $nonmax {
+            fn default() -> Self {
+                Self::ZERO
+            }
+        }
     };
 }
 
 debuggable_nonmax!(DebuggableNonMaxUsize, NonZeroUsize, usize);
 debuggable_nonmax!(DebuggableNonMaxU32, NonZeroU32, u32);
-debuggable_nonmax!(DebuggableNonMaxU64, NonZerou64, u64);
+debuggable_nonmax!(DebuggableNonMaxU64, NonZeroU64, u64);

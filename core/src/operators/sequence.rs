@@ -11,9 +11,10 @@ use crate::{
         field::{Field, FieldId, FieldManager},
         field_action::FieldActionKind,
         field_data::FieldValueRepr,
+        group_tracker::{GroupListIterRef, GroupTracker},
         iter_hall::IterId,
         iters::{DestructuredFieldDataRef, FieldIterator, Iter},
-        push_interface::{PushInterface, VariableSizeTypeInserter},
+        push_interface::VariableSizeTypeInserter,
     },
     utils::int_string_conversions::{
         i64_to_str, parse_int_with_units, I64_MAX_DECIMAL_DIGITS,
@@ -77,6 +78,7 @@ pub struct TfSequence {
     iter_id: IterId,
     actor_id: ActorId,
     seq_len_total: u64,
+    group_list_iter_ref: Option<GroupListIterRef>,
 }
 
 impl SequenceSpec {
@@ -97,6 +99,13 @@ pub fn build_tf_sequence<'a>(
         OpSequenceMode::Sequence => TfSequenceMode::Sequence {},
     };
 
+    let group_list_iter_ref = (!matches!(op.mode, OpSequenceMode::Sequence))
+        .then(|| {
+            jd.match_set_mgr.match_sets[tf_state.match_set_id]
+                .group_tracker
+                .claim_group_list_iter_ref_for_active()
+        });
+
     TransformData::Sequence(TfSequence {
         ss: op.ss,
         current_value: op.ss.start,
@@ -105,6 +114,7 @@ pub fn build_tf_sequence<'a>(
         iter_id: jd.add_iter_for_tf_state(tf_state),
         actor_id: jd.add_actor_for_tf_state(tf_state),
         seq_len_total: op.seq_len_total,
+        group_list_iter_ref,
     })
 }
 
@@ -150,6 +160,7 @@ struct SequenceBatchState<'a, 'b> {
     input_field_id: FieldId,
     seq: &'a mut TfSequence,
     ab: &'a mut ActionBuffer,
+    gt: &'a mut GroupTracker,
     fm: &'a FieldManager,
     tf_mgr: &'a mut TransformManager,
     iter: Iter<'b, DestructuredFieldDataRef<'b>>,
@@ -189,22 +200,21 @@ pub fn handle_tf_sequence(
 
     let input_field = jd
         .field_mgr
-        .get_cow_field_ref(& jd.match_set_mgr, input_field_id);
+        .get_cow_field_ref(&jd.match_set_mgr, input_field_id);
 
     let iter =
         jd.field_mgr
             .lookup_iter(input_field_id, &input_field, seq.iter_id);
 
-    let mut ab = jd.match_set_mgr.match_sets[ms_id]
-        .action_buffer
-        .borrow_mut();
-    ab.begin_action_group(seq.actor_id);
+    let ms = &mut jd.match_set_mgr.match_sets[ms_id];
+    let mut ab = ms.action_buffer.borrow_mut();
 
     let ss = SequenceBatchState {
         tf_id,
         input_field_id,
         seq,
         ab: &mut ab,
+        gt: &mut ms.group_tracker,
         fm: &jd.field_mgr,
         tf_mgr: &mut jd.tf_mgr,
         iter,
@@ -220,10 +230,10 @@ pub fn handle_tf_sequence(
         TfSequenceMode::Enum => handle_enum_mode(ss),
         TfSequenceMode::EnumUnbounded => handle_enum_unbounded_mode(ss),
     }
-    ab.end_action_group();
 }
 
 fn handle_seq_mode(mut sbs: SequenceBatchState) {
+    sbs.ab.begin_action_group(sbs.seq.actor_id);
     let mut field_pos = sbs.iter.get_next_field_pos();
     let mut field_dup_count = 0;
     let field_pos_end = field_pos + sbs.batch_size;
@@ -233,16 +243,8 @@ fn handle_seq_mode(mut sbs: SequenceBatchState) {
     let seq_len_trunc = usize::try_from(seq_len_total).unwrap_or(0);
 
     let mut seq_len_rem = sbs.seq.ss.remaining_len(sbs.seq.current_value);
-    while field_pos != field_pos_end && out_batch_size_rem != 0 {
-        let gs_count = sbs.iter.skip_group_separators(
-            out_batch_size_rem.min(field_pos_end - field_pos),
-        );
-        sbs.output_field
-            .iter_hall
-            .push_group_separator(gs_count, false);
-        out_batch_size_rem -= gs_count;
-        field_pos += gs_count;
 
+    while field_pos != field_pos_end && out_batch_size_rem != 0 {
         if field_pos == field_pos_end || out_batch_size_rem == 0 {
             break;
         }
@@ -278,13 +280,12 @@ fn handle_seq_mode(mut sbs: SequenceBatchState) {
 
         let full_seqs_rem =
             (out_batch_size_rem as u64 / seq_len_total) as usize;
-        let field_count = sbs.iter.skip_non_group_separators(
+        let field_count = sbs.iter.next_n_fields(
             full_seqs_rem.max(1).min(field_pos_end - field_pos),
+            true,
         );
 
-        debug_assert!(
-            field_count > 0 || gs_count > 0 || field_pos == field_pos_end
-        );
+        debug_assert!(field_count > 0 || field_pos == field_pos_end);
 
         // PERF: we could optimize this to a memcopy for the subsequent
         // ones
@@ -318,21 +319,32 @@ fn handle_seq_mode(mut sbs: SequenceBatchState) {
         sbs.desired_batch_size - out_batch_size_rem,
         sbs.ps,
     );
+    sbs.ab.end_action_group();
 }
 
 fn handle_enum_mode(mut sbs: SequenceBatchState) {
-    let field_pos = sbs.iter.get_next_field_pos();
     let mut seq_size_rem = sbs.seq.ss.remaining_len(sbs.seq.current_value);
     let mut out_batch_size = 0;
     let mut drop_count = 0;
     let mut set_done = false;
+    let group_iter_ref = sbs.seq.group_list_iter_ref.unwrap();
+    let mut group_iter = sbs.gt.lookup_group_list_iter_mut(
+        group_iter_ref.list_id,
+        group_iter_ref.iter_id,
+        sbs.ab,
+        sbs.seq.actor_id,
+    );
+
     loop {
         let input_rem = sbs.batch_size - out_batch_size - drop_count;
         if input_rem == 0 {
             break;
         }
-        let field_count = sbs.iter.skip_non_group_separators(input_rem);
+        let field_count = sbs
+            .iter
+            .next_n_fields(input_rem.min(group_iter.group_len_rem()), true);
         let count = (field_count as u64).min(seq_size_rem) as usize;
+        group_iter.next_n_fields_in_group(count);
         sbs.seq.current_value = advance_sequence(
             sbs.seq,
             sbs.seq.current_value,
@@ -342,47 +354,29 @@ fn handle_enum_mode(mut sbs: SequenceBatchState) {
         out_batch_size += count;
         let rem = field_count - count;
         if rem > 0 {
-            if sbs.batch_size == out_batch_size {
-                sbs.tf_mgr.unclaim_batch_size(sbs.tf_id, rem);
-                sbs.tf_mgr.submit_batch(sbs.tf_id, out_batch_size, true);
-                sbs.fm.store_iter(
-                    sbs.input_field_id,
-                    sbs.seq.iter_id,
-                    sbs.iter,
-                );
-                return;
-            }
-            if sbs.is_split && sbs.ps.input_done && input_rem == field_count {
+            if sbs.batch_size == out_batch_size
+                || (sbs.is_split
+                    && sbs.ps.input_done
+                    && input_rem == field_count)
+            {
                 sbs.tf_mgr.unclaim_batch_size(sbs.tf_id, rem);
                 break;
             }
-            sbs.ab.push_action(
-                FieldActionKind::Drop,
-                // TODO: investigate primes testcase based on
-                // 897f778cf36c596f84521bdadef7159c84c1d70e~1
-                // to fix the weird unreachable instead of assertion failure
-                field_pos + out_batch_size,
-                rem,
-            );
+            group_iter.drop(rem);
             drop_count += rem;
         }
         seq_size_rem -= count as u64;
         set_done = seq_size_rem == 0;
-        let gs_count = sbs.iter.skip_group_separators(
-            sbs.batch_size - out_batch_size - drop_count,
-        );
-        if gs_count > 0 {
+        if group_iter.is_end_of_group(sbs.ps.input_done) {
             set_done = false;
-            sbs.output_field
-                .iter_hall
-                .push_group_separator(gs_count, count == 0);
             sbs.seq.current_value = sbs.seq.ss.start;
-            out_batch_size += gs_count;
             seq_size_rem = sbs.seq.seq_len_total;
+            group_iter.skip_empty_groups();
         }
     }
     sbs.fm
         .store_iter(sbs.input_field_id, sbs.seq.iter_id, sbs.iter);
+    group_iter.store_iter(group_iter_ref.iter_id);
     if sbs.ps.next_batch_ready {
         sbs.tf_mgr.push_successor_in_ready_queue(sbs.tf_id);
     }
@@ -394,9 +388,7 @@ fn handle_enum_mode(mut sbs: SequenceBatchState) {
 }
 
 fn handle_enum_unbounded_mode(mut sbs: SequenceBatchState) {
-    let mut field_pos = sbs.iter.get_next_field_pos();
-    let mut field_dup_count: isize = 0;
-    let field_pos_end = field_pos + sbs.batch_size;
+    let field_pos_end = sbs.iter.get_next_field_pos() + sbs.batch_size;
     let mut out_batch_size_rem = sbs.desired_batch_size;
 
     let seq_len_total = sbs.seq.seq_len_total;
@@ -406,8 +398,17 @@ fn handle_enum_unbounded_mode(mut sbs: SequenceBatchState) {
     let mut yield_to_split = false;
 
     let mut seq_len_rem = sbs.seq.ss.remaining_len(sbs.seq.current_value);
+
+    let group_iter_ref = sbs.seq.group_list_iter_ref.unwrap();
+    let mut group_iter = sbs.gt.lookup_group_list_iter_mut(
+        group_iter_ref.list_id,
+        group_iter_ref.iter_id,
+        sbs.ab,
+        sbs.seq.actor_id,
+    );
+
     while out_batch_size_rem != 0 {
-        let input_rem = field_pos_end - field_pos;
+        let input_rem = field_pos_end - sbs.iter.get_next_field_pos();
         if input_rem == 0 {
             if seq_len_rem == 0 {
                 yield_to_split = sbs.is_split;
@@ -417,19 +418,18 @@ fn handle_enum_unbounded_mode(mut sbs: SequenceBatchState) {
                 break;
             }
         }
-        let field_count = sbs
-            .iter
-            .skip_non_group_separators(out_batch_size_rem.min(input_rem));
-        let gs_count = sbs.iter.skip_group_separators(
-            ((out_batch_size_rem as u64)
-                .saturating_sub(seq_len_rem)
-                .div_ceil(seq_len_total))
-            .min(input_rem as u64) as usize,
+        let field_count = sbs.iter.next_n_fields(
+            out_batch_size_rem
+                .min(input_rem)
+                .min(group_iter.group_len_rem()),
+            true,
         );
-        let seq_adv = if gs_count == 0 && !(sbs.ps.input_done) {
-            seq_len_rem.min(field_count as u64) as usize
-        } else {
+        group_iter.next_n_fields(field_count);
+        let end_of_group = group_iter.is_end_of_group(sbs.ps.input_done);
+        let seq_adv = if end_of_group {
             seq_len_rem.min(out_batch_size_rem as u64) as usize
+        } else {
+            seq_len_rem.min(field_count as u64) as usize
         };
         sbs.seq.current_value = advance_sequence(
             sbs.seq,
@@ -440,81 +440,48 @@ fn handle_enum_unbounded_mode(mut sbs: SequenceBatchState) {
         seq_len_rem -= seq_adv as u64;
 
         out_batch_size_rem -= seq_adv;
-        field_pos += field_count;
 
         let fields_rem = field_count.saturating_sub(seq_adv);
         if fields_rem > 0 {
             if sbs.is_split && sbs.ps.input_done && input_rem == field_count {
-                field_pos -= fields_rem;
                 yield_to_split = true;
                 break;
             }
-            sbs.ab.push_action(
-                FieldActionKind::Drop,
-                (field_pos as isize + field_dup_count) as usize,
-                fields_rem,
-            );
-            field_dup_count -= fields_rem as isize;
+            group_iter.drop(fields_rem);
             out_batch_size_rem -= fields_rem;
         }
         let fields_overhang = seq_adv.saturating_sub(field_count);
         if fields_overhang > 0 {
-            sbs.ab.push_action(
-                FieldActionKind::InsertZst(FieldValueRepr::Undefined),
-                (field_pos as isize + field_dup_count) as usize,
-                fields_overhang,
-            );
-            field_dup_count += fields_overhang as isize;
+            group_iter
+                .insert_fields(FieldValueRepr::Undefined, fields_overhang);
         }
 
-        if gs_count == 0 {
+        if !end_of_group {
             continue;
+        }
+        if !group_iter.try_next_group() {
+            break;
         }
         sbs.seq.current_value = sbs.seq.ss.start;
-        if gs_count == 1 {
-            sbs.seq.current_value = sbs.seq.ss.start;
-            sbs.output_field
-                .iter_hall
-                .push_group_separator(1, seq_adv == 0);
-            field_pos += 1;
-            out_batch_size_rem -= 1;
-            seq_len_rem = seq_len_total;
-            continue;
-        }
-        let empty_group_count = gs_count - 1;
-
-        let full_seqs_rem =
-            (out_batch_size_rem as u64 / seq_len_total) as usize;
-
-        let full_seqs_count = empty_group_count.min(full_seqs_rem);
+        seq_len_rem = seq_len_total;
 
         // PERF: we could optimize this to a memcopy for the subsequent
         // ones
-        for _ in 0..full_seqs_count {
+        while group_iter.group_len_rem() == 0 {
             advance_sequence(
                 sbs.seq,
                 sbs.seq.ss.start,
                 sbs.output_field,
                 seq_len_trunc,
             );
-            sbs.output_field
-                .iter_hall
-                .push_group_separator(1, seq_len_trunc == 0);
+            group_iter.insert_fields(FieldValueRepr::Undefined, seq_len_trunc);
+            out_batch_size_rem -= seq_len_trunc;
         }
-        for _ in 0..full_seqs_count {
-            sbs.ab.push_action(
-                FieldActionKind::InsertZst(FieldValueRepr::Undefined),
-                (field_pos as isize + field_dup_count) as usize,
-                seq_len_trunc,
-            );
-            field_dup_count += seq_len_trunc as isize;
-            field_pos += 1;
-        }
-        out_batch_size_rem -= seq_len_trunc * full_seqs_count;
     }
+    let unclaimed_input = field_pos_end - sbs.iter.get_next_field_pos();
     sbs.fm
         .store_iter(sbs.input_field_id, sbs.seq.iter_id, sbs.iter);
-    let unclaimed_input = field_pos_end - field_pos;
+    group_iter.store_iter(group_iter_ref.iter_id);
     sbs.tf_mgr.unclaim_batch_size(sbs.tf_id, unclaimed_input);
     sbs.ps.next_batch_ready |= unclaimed_input > 0;
     let seq_unfinished = seq_len_rem != 0 && !yield_to_split;

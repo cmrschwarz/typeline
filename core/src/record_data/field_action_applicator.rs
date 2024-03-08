@@ -948,14 +948,14 @@ mod test {
             true,
             true,
             &[FieldAction::new(
-                FAK::InsertZst(FieldValueRepr::GroupSeparator),
+                FAK::InsertZst(FieldValueRepr::Undefined),
                 2,
                 1,
             )],
             &[
                 (FieldValue::Int(0), 1),
                 (FieldValue::Int(1), 1),
-                (FieldValue::GroupSeparator, 1),
+                (FieldValue::Undefined, 1),
                 (FieldValue::Int(1), 2),
                 (FieldValue::Int(2), 1),
             ],

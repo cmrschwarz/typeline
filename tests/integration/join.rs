@@ -1,4 +1,5 @@
 use rstest::rstest;
+use scr::operators::foreach::create_op_foreach;
 use scr_core::{
     operators::{
         file_reader::create_op_file_reader_custom,
@@ -31,6 +32,35 @@ fn join() -> Result<(), ScrError> {
     assert_eq!(ss.get_data().unwrap().as_slice(), ["1,2,3"]);
     Ok(())
 }
+
+#[test]
+fn join_groups() -> Result<(), ScrError> {
+    let res = ContextBuilder::default()
+        .add_op(create_op_seqn(1, 3, 1).unwrap())
+        .add_op(create_op_foreach())
+        .add_op(create_op_seqn(1, 3, 1).unwrap())
+        .add_op(create_op_join(None, None, false))
+        .run_collect_stringified()?;
+    assert_eq!(res, ["123", "123", "123"]);
+    Ok(())
+}
+
+#[test]
+fn join_bounded_groups() -> Result<(), ScrError> {
+    let res = ContextBuilder::default()
+        .add_op(create_op_seq(1, 3, 1).unwrap())
+        .add_op(create_op_foreach())
+        .add_op(create_op_seq(1, 4, 1).unwrap())
+        .add_op(create_op_join(
+            Some(",".as_bytes().to_owned()),
+            Some(2),
+            false,
+        ))
+        .run_collect_stringified()?;
+    assert_eq!(res, ["1,2", "3", "1,2", "3"]);
+    Ok(())
+}
+
 #[test]
 fn join_single() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();

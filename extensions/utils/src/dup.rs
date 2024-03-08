@@ -17,7 +17,6 @@ use scr_core::{
     options::argument::CliArgIdx,
     record_data::{
         action_buffer::ActorId, field::FieldId, field_action::FieldActionKind,
-        iters::FieldIterator,
     },
     smallbox,
     utils::identity_hasher::BuildIdentityHasher,
@@ -109,46 +108,22 @@ impl Transform for TfDup {
             return;
         }
 
-        let input_field = jd
-            .field_mgr
-            .get_cow_field_ref(&jd.match_set_mgr, tf.input_field);
-
-        let mut iter = input_field.iter();
-
         let mut ab = jd.match_set_mgr.match_sets[tf.match_set_id]
             .action_buffer
             .borrow_mut();
         ab.begin_action_group(self.actor_id);
         let mut field_pos = 0;
-        let mut bs_rem = batch_size;
-        while bs_rem > 0 {
-            let non_gs_records = iter.skip_non_group_separators(batch_size);
-            if self.count == 0 {
+        if self.count == 0 {
+            ab.push_action(FieldActionKind::Drop, field_pos, batch_size);
+        } else {
+            for _ in 0..batch_size {
                 ab.push_action(
                     FieldActionKind::Dup,
                     field_pos,
-                    non_gs_records,
+                    self.count - 1,
                 );
-            } else {
-                for _ in 0..non_gs_records {
-                    ab.push_action(
-                        FieldActionKind::Dup,
-                        field_pos,
-                        self.count - 1,
-                    );
-                    field_pos += self.count;
-                }
+                field_pos += self.count;
             }
-
-            bs_rem -= non_gs_records;
-            if bs_rem == 0 {
-                break;
-            }
-            let gs_records = iter.skip_group_separators(batch_size);
-            field_pos += gs_records;
-            bs_rem -= gs_records;
-            // prevent an infinite loop in case of an incorrect batch size
-            assert!(non_gs_records > 0 || gs_records > 0);
         }
         ab.end_action_group();
         jd.tf_mgr.submit_batch(tf_id, field_pos, ps.input_done);

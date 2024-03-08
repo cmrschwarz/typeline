@@ -523,13 +523,13 @@ mod test {
             run_len: 1,
         }];
         let right = &[FieldAction {
-            kind: FAK::InsertZst(FieldValueRepr::GroupSeparator),
+            kind: FAK::InsertZst(FieldValueRepr::Undefined),
             field_idx: 0,
             run_len: 5,
         }];
         let merged = &[
             FieldAction {
-                kind: FAK::InsertZst(FieldValueRepr::GroupSeparator),
+                kind: FAK::InsertZst(FieldValueRepr::Undefined),
                 field_idx: 0,
                 run_len: 5,
             },
@@ -550,13 +550,13 @@ mod test {
             run_len: 1,
         }];
         let right = &[FieldAction {
-            kind: FAK::InsertZst(FieldValueRepr::GroupSeparator),
+            kind: FAK::InsertZst(FieldValueRepr::Undefined),
             field_idx: 0,
             run_len: 1,
         }];
         let merged = &[
             FieldAction {
-                kind: FAK::InsertZst(FieldValueRepr::GroupSeparator),
+                kind: FAK::InsertZst(FieldValueRepr::Undefined),
                 field_idx: 0,
                 run_len: 1,
             },
@@ -572,7 +572,7 @@ mod test {
     #[test]
     fn inserts_can_be_duplicated() {
         let left = &[FieldAction {
-            kind: FAK::InsertZst(FieldValueRepr::GroupSeparator),
+            kind: FAK::InsertZst(FieldValueRepr::Undefined),
             field_idx: 0,
             run_len: 1,
         }];
@@ -582,7 +582,7 @@ mod test {
             run_len: 1,
         }];
         let merged = &[FieldAction {
-            kind: FAK::InsertZst(FieldValueRepr::GroupSeparator),
+            kind: FAK::InsertZst(FieldValueRepr::Undefined),
             field_idx: 0,
             run_len: 2,
         }];
@@ -593,12 +593,12 @@ mod test {
     fn inserts_can_be_duplicated_2() {
         let left = &[
             FieldAction {
-                kind: FAK::InsertZst(FieldValueRepr::GroupSeparator),
+                kind: FAK::InsertZst(FieldValueRepr::Undefined),
                 field_idx: 1,
                 run_len: 1,
             },
             FieldAction {
-                kind: FAK::InsertZst(FieldValueRepr::GroupSeparator),
+                kind: FAK::InsertZst(FieldValueRepr::Undefined),
                 field_idx: 3,
                 run_len: 1,
             },
@@ -632,7 +632,7 @@ mod test {
                 run_len: 1,
             },
             FieldAction {
-                kind: FAK::InsertZst(FieldValueRepr::GroupSeparator),
+                kind: FAK::InsertZst(FieldValueRepr::Undefined),
                 field_idx: 2,
                 run_len: 2,
             },
@@ -642,7 +642,7 @@ mod test {
                 run_len: 1,
             },
             FieldAction {
-                kind: FAK::InsertZst(FieldValueRepr::GroupSeparator),
+                kind: FAK::InsertZst(FieldValueRepr::Undefined),
                 field_idx: 6,
                 run_len: 2,
             },
@@ -653,7 +653,7 @@ mod test {
     #[test]
     fn drop_cancels_insert() {
         let left = &[FieldAction {
-            kind: FAK::InsertZst(FieldValueRepr::GroupSeparator),
+            kind: FAK::InsertZst(FieldValueRepr::Undefined),
             field_idx: 0,
             run_len: 1,
         }];
@@ -677,12 +677,12 @@ mod test {
 
         let left = &[
             FieldAction {
-                kind: FAK::InsertZst(FieldValueRepr::GroupSeparator),
+                kind: FAK::InsertZst(FieldValueRepr::Undefined),
                 field_idx: 1,
                 run_len: 1,
             },
             FieldAction {
-                kind: FAK::InsertZst(FieldValueRepr::GroupSeparator),
+                kind: FAK::InsertZst(FieldValueRepr::Undefined),
                 field_idx: 3,
                 run_len: 1,
             },
@@ -715,12 +715,12 @@ mod test {
 
         let left = &[
             FieldAction {
-                kind: FAK::InsertZst(FieldValueRepr::GroupSeparator),
+                kind: FAK::InsertZst(FieldValueRepr::Undefined),
                 field_idx: 1,
                 run_len: 2,
             },
             FieldAction {
-                kind: FAK::InsertZst(FieldValueRepr::GroupSeparator),
+                kind: FAK::InsertZst(FieldValueRepr::Undefined),
                 field_idx: 4,
                 run_len: 1,
             },

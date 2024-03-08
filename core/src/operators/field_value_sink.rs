@@ -132,22 +132,12 @@ pub fn handle_tf_field_value_sink(
     // they interrupt a run of nulls that we output foi successes
     let mut last_interruption_end = 0;
     let mut field_pos = fvs.len();
-    let mut separators_count = 0;
     while let Some(range) = iter.typed_range_fwd(
         &jd.match_set_mgr,
         usize::MAX,
         field_value_flags::DEFAULT,
     ) {
         match range.base.data {
-            TypedSlice::GroupSeparator(_) => {
-                separators_count += range.base.field_count;
-                let count = field_pos - last_interruption_end;
-                if count > 0 {
-                    output_field.iter_hall.push_null(count, true);
-                }
-                last_interruption_end = field_pos;
-                continue;
-            }
             TypedSlice::TextInline(text) => {
                 for (v, rl, _offs) in
                     RefAwareInlineTextIter::from_range(&range, text)
@@ -309,7 +299,7 @@ pub fn handle_tf_field_value_sink(
     let consumed_fields = base_iter.get_next_field_pos() - starting_pos;
     // TODO: get rid of this once we removed the short fields mechanism
     // from sequence
-    if consumed_fields < batch_size - separators_count {
+    if consumed_fields < batch_size {
         push_field_values(
             &mut fvs,
             FieldValue::Undefined,

@@ -25,7 +25,7 @@ pub fn buffer_remaining_stream_values_in_auto_deref_iter<
     'a,
     I: FieldIterator<'a>,
 >(
-    match_set_mgr: &mut MatchSetManager,
+    match_set_mgr: &MatchSetManager,
     sv_mgr: &mut StreamValueManager,
     mut iter: AutoDerefIter<'a, I>,
     limit: usize,

@@ -151,21 +151,24 @@ impl TfSum {
             if group_iter.is_end_of_group(bud.ps.input_done) {
                 let group_size = field_pos - last_finished_group_end
                     + usize::from(self.pending_field);
+                self.pending_field = false;
                 let mut zero_count = 0;
                 if group_size == 0 {
                     group_iter.insert_fields(FieldValueRepr::Undefined, 1);
                     zero_count += 1;
                 } else {
-                    group_iter.drop_backwards(group_size - 1);
+                    group_iter.drop_before(
+                        group_iter.field_pos() - group_size,
+                        group_size - 1,
+                    );
                     self.finish_group(op_id, &mut inserter);
                     finished_group_count += 1;
                 }
-                let eof = bud.ps.input_done && !bud.iter.is_next_valid();
                 loop {
                     if !group_iter.try_next_group() {
                         break;
                     }
-                    if !group_iter.is_end_of_group(eof) {
+                    if !group_iter.is_end_of_group(bud.ps.input_done) {
                         break;
                     }
                     group_iter.insert_fields(FieldValueRepr::Undefined, 1);
@@ -184,12 +187,9 @@ impl TfSum {
             };
 
             let count = range.base.field_count;
-            group_iter.next_n_fields(count);
+            group_iter.next_n_fields_in_group(count);
             field_pos += count;
             match range.base.data {
-                TypedSlice::GroupSeparator(_) => {
-                    todo!()
-                }
                 TypedSlice::Int(ints) => {
                     for (v, rl) in TypedSliceIter::from_range(&range, ints) {
                         self.aggregate.add_int(*v, rl, fpm)
@@ -236,7 +236,10 @@ impl TfSum {
         self.pending_field = pending_group_size > 0;
         if pending_group_size > 1 {
             let drop_count = pending_group_size - 1;
-            group_iter.drop_backwards(drop_count)
+            group_iter.drop_before(
+                group_iter.field_pos() - drop_count - 1,
+                drop_count,
+            )
         }
         (finished_group_count, bud.ps.input_done)
     }

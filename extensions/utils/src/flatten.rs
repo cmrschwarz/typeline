@@ -156,7 +156,6 @@ impl TfFlatten {
             match range.base.data {
                 TypedSlice::Undefined(_)
                 | TypedSlice::Null(_)
-                | TypedSlice::GroupSeparator(_)
                 | TypedSlice::Int(_)
                 | TypedSlice::Float(_)
                 | TypedSlice::StreamValueId(_)

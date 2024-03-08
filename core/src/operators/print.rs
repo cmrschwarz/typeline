@@ -8,7 +8,6 @@ use crate::{
     },
     options::argument::CliArgIdx,
     record_data::{
-        field::FieldId,
         field_data::field_value_flags,
         field_value::{
             format_rational, FieldValue, FormattingContext, RATIONAL_DIGITS,
@@ -162,7 +161,6 @@ pub fn write_stream_val_check_done(
 pub fn handle_tf_print_raw(
     jd: &mut JobData,
     tf_id: TransformId,
-    output_field_id: FieldId,
     batch_size: usize,
     print: &mut TfPrint,
     // we need these even in case of an error, so it's an output parameter :/
@@ -187,24 +185,12 @@ pub fn handle_tf_print_raw(
     let mut string_store = None;
     let print_rationals_raw =
         jd.get_transform_chain(tf_id).settings.print_rationals_raw;
-    let mut output_field = jd.field_mgr.fields[output_field_id].borrow_mut();
     'iter: while let Some(range) = iter.typed_range_fwd(
         &jd.match_set_mgr,
         usize::MAX,
         field_value_flags::DEFAULT,
     ) {
         match range.base.data {
-            TypedSlice::GroupSeparator(_) => {
-                let count = range.base.field_count;
-                output_field.iter_hall.push_null(
-                    *handled_field_count - *last_group_separator_end,
-                    true,
-                );
-                output_field.iter_hall.push_group_separator(count, false);
-                *handled_field_count += count;
-                *last_group_separator_end = *handled_field_count;
-                continue;
-            }
             TypedSlice::TextInline(text) => {
                 for v in RefAwareInlineTextIter::from_range(&range, text)
                     .unfold_rl()
@@ -321,7 +307,7 @@ pub fn handle_tf_print_raw(
                             );
                         print.streams_kept_alive +=
                             buffer_remaining_stream_values_in_auto_deref_iter(
-                                &mut jd.match_set_mgr,
+                                &jd.match_set_mgr,
                                 &mut jd.sv_mgr,
                                 iter.clone(),
                                 usize::MAX,
@@ -439,7 +425,6 @@ pub fn handle_tf_print(
     let res = handle_tf_print_raw(
         jd,
         tf_id,
-        of_id,
         batch_size,
         tf,
         &mut handled_field_count,

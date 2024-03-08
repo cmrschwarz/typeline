@@ -9,8 +9,8 @@ use super::{
         RunLength, TextBufferFile,
     },
     field_value::{
-        Array, FieldReference, FieldValue, GroupSeparator, Null, Object,
-        SlicedFieldReference, Undefined,
+        Array, FieldReference, FieldValue, Null, Object, SlicedFieldReference,
+        Undefined,
     },
     iters::FieldDataRef,
     stream_value::StreamValueId,
@@ -25,7 +25,6 @@ use std::ops::Deref;
 pub enum FieldValueRef<'a> {
     Null,
     Undefined,
-    GroupSeparator,
     Int(&'a i64),
     BigInt(&'a BigInt),
     Float(&'a f64),
@@ -51,9 +50,6 @@ impl<'a> FieldValueRef<'a> {
             match fmt.repr {
                 FieldValueRepr::Null => FieldValueRef::Null,
                 FieldValueRepr::Undefined => FieldValueRef::Undefined,
-                FieldValueRepr::GroupSeparator => {
-                    FieldValueRef::GroupSeparator
-                }
                 FieldValueRepr::BytesInline => FieldValueRef::Bytes(to_slice(
                     fdr,
                     data_begin,
@@ -117,9 +113,6 @@ impl<'a> FieldValueRef<'a> {
         match self {
             FieldValueRef::Undefined => TypedSlice::Undefined(&[Undefined]),
             FieldValueRef::Null => TypedSlice::Null(&[Null]),
-            FieldValueRef::GroupSeparator => {
-                TypedSlice::GroupSeparator(&[GroupSeparator])
-            }
             FieldValueRef::Int(v) => TypedSlice::Int(from_ref(v)),
             FieldValueRef::BigInt(v) => TypedSlice::BigInt(from_ref(v)),
             FieldValueRef::Float(v) => TypedSlice::Float(from_ref(v)),
@@ -144,7 +137,6 @@ impl<'a> FieldValueRef<'a> {
     pub fn to_field_value(&self) -> FieldValue {
         match *self {
             FieldValueRef::Undefined => FieldValue::Undefined,
-            FieldValueRef::GroupSeparator => FieldValue::GroupSeparator,
             FieldValueRef::Null => FieldValue::Null,
             FieldValueRef::Int(v) => FieldValue::Int(*v),
             FieldValueRef::BigInt(v) => FieldValue::BigInt(v.clone()),
@@ -175,7 +167,6 @@ impl<'a> FieldValueRef<'a> {
             FieldValueRef::Array(_) => todo!(),
             FieldValueRef::Null
             | FieldValueRef::Undefined
-            | FieldValueRef::GroupSeparator
             | FieldValueRef::Int(_)
             | FieldValueRef::BigInt(_)
             | FieldValueRef::Float(_)
@@ -219,7 +210,6 @@ impl<'a> TypedField<'a> {
 pub enum TypedSlice<'a> {
     Null(&'a [Null]),
     Undefined(&'a [Undefined]),
-    GroupSeparator(&'a [GroupSeparator]),
     Int(&'a [i64]),
     BigInt(&'a [BigInt]),
     Float(&'a [f64]),
@@ -285,9 +275,6 @@ impl<'a> TypedSlice<'a> {
                 FieldValueRepr::Null => {
                     TypedSlice::Null(to_zst_slice(field_count))
                 }
-                FieldValueRepr::GroupSeparator => {
-                    TypedSlice::GroupSeparator(to_zst_slice(field_count))
-                }
                 FieldValueRepr::BytesInline => TypedSlice::BytesInline(
                     to_slice(fdr, data_begin, data_end),
                 ),
@@ -346,9 +333,7 @@ impl<'a> TypedSlice<'a> {
     pub fn as_bytes(&self) -> &'a [u8] {
         unsafe {
             match *self {
-                TypedSlice::Undefined(_)
-                | TypedSlice::Null(_)
-                | TypedSlice::GroupSeparator(_) => &[],
+                TypedSlice::Undefined(_) | TypedSlice::Null(_) => &[],
                 TypedSlice::Int(v) => slice_as_bytes(v),
                 TypedSlice::BigInt(v) => slice_as_bytes(v),
                 TypedSlice::Float(v) => slice_as_bytes(v),
@@ -371,7 +356,6 @@ impl<'a> TypedSlice<'a> {
         match self {
             TypedSlice::Undefined(_) => FieldValueRepr::Undefined,
             TypedSlice::Null(_) => FieldValueRepr::Null,
-            TypedSlice::GroupSeparator(_) => FieldValueRepr::GroupSeparator,
             TypedSlice::Int(_) => FieldValueRepr::Int,
             TypedSlice::BigInt(_) => FieldValueRepr::BigInt,
             TypedSlice::Float(_) => FieldValueRepr::Float,
@@ -395,7 +379,6 @@ impl<'a> TypedSlice<'a> {
         match self {
             TypedSlice::Undefined(v) => v.len(),
             TypedSlice::Null(v) => v.len(),
-            TypedSlice::GroupSeparator(v) => v.len(),
             TypedSlice::Int(v) => v.len(),
             TypedSlice::BigInt(v) => v.len(),
             TypedSlice::Float(v) => v.len(),
@@ -454,7 +437,6 @@ impl<'a> TypedSlice<'a> {
                 }
                 FieldValueRepr::Undefined
                 | FieldValueRepr::Null
-                | FieldValueRepr::GroupSeparator
                 | FieldValueRepr::Int
                 | FieldValueRepr::Float
                 | FieldValueRepr::TextInline
