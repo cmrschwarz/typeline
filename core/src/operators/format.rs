@@ -34,13 +34,14 @@ use crate::{
         match_set::MatchSetManager,
         push_interface::PushInterface,
         ref_iter::{
-            AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter,
+            AutoDerefIter, RefAwareBytesBufferIter,
+            RefAwareFieldValueSliceIter, RefAwareInlineBytesIter,
             RefAwareInlineTextIter, RefAwareStreamValueIter,
-            RefAwareTextBufferIter, RefAwareTypedSliceIter,
+            RefAwareTextBufferIter,
         },
         stream_value::{StreamValue, StreamValueId, StreamValueManager},
-        typed::TypedSlice,
-        typed_iters::TypedSliceIter,
+        field_value_ref::FieldValueSlice,
+        field_value_slice_iter::FieldValueSliceIter,
     },
     utils::{
         counting_writer::{
@@ -1328,8 +1329,8 @@ pub fn lookup_width_spec(
     let mut handled_fields = 0;
     while let Some(range) = iter.typed_range_fwd(msm, usize::MAX, 0) {
         match range.base.data {
-            TypedSlice::Int(ints) => {
-                for (v, rl) in TypedSliceIter::from_range(&range, ints) {
+            FieldValueSlice::Int(ints) => {
+                for (v, rl) in FieldValueSliceIter::from_range(&range, ints) {
                     let width = usize::try_from(*v).unwrap_or(0);
                     succ_func(fmt, &mut output_index, width, rl as usize);
                 }
@@ -1426,7 +1427,7 @@ pub fn setup_key_output_state(
         iter.typed_range_fwd(msm, usize::MAX, field_value_flags::DEFAULT)
     {
         match range.base.data {
-            TypedSlice::TextInline(text) => {
+            FieldValueSlice::TextInline(text) => {
                 for (v, rl, _offs) in
                     RefAwareInlineTextIter::from_range(&range, text)
                 {
@@ -1435,7 +1436,7 @@ pub fn setup_key_output_state(
                     });
                 }
             }
-            TypedSlice::BytesInline(bytes) => {
+            FieldValueSlice::BytesInline(bytes) => {
                 for (v, rl, _offs) in
                     RefAwareInlineBytesIter::from_range(&range, bytes)
                 {
@@ -1445,7 +1446,7 @@ pub fn setup_key_output_state(
                     });
                 }
             }
-            TypedSlice::TextBuffer(text) => {
+            FieldValueSlice::TextBuffer(text) => {
                 for (v, rl, _offs) in
                     RefAwareTextBufferIter::from_range(&range, text)
                 {
@@ -1455,7 +1456,7 @@ pub fn setup_key_output_state(
                     });
                 }
             }
-            TypedSlice::BytesBuffer(bytes) => {
+            FieldValueSlice::BytesBuffer(bytes) => {
                 for (v, rl, _offs) in
                     RefAwareBytesBufferIter::from_range(&range, bytes)
                 {
@@ -1465,10 +1466,11 @@ pub fn setup_key_output_state(
                     });
                 }
             }
-            TypedSlice::Custom(custom_data) => {
-                for (v, rl) in
-                    RefAwareTypedSliceIter::from_range(&range, custom_data)
-                {
+            FieldValueSlice::Custom(custom_data) => {
+                for (v, rl) in RefAwareFieldValueSliceIter::from_range(
+                    &range,
+                    custom_data,
+                ) {
                     iter_output_states(fmt, &mut output_index, rl, |o| {
                         if let Some(len) = v.stringified_len(
                             &k.realize(o.min_char_count, o.float_precision),
@@ -1484,8 +1486,8 @@ pub fn setup_key_output_state(
                     });
                 }
             }
-            TypedSlice::Int(ints) => {
-                for (v, rl) in TypedSliceIter::from_range(&range, ints) {
+            FieldValueSlice::Int(ints) => {
+                for (v, rl) in FieldValueSliceIter::from_range(&range, ints) {
                     iter_output_states(fmt, &mut output_index, rl, |o| {
                         o.len += calc_fmt_len_ost(
                             k,
@@ -1496,7 +1498,7 @@ pub fn setup_key_output_state(
                     });
                 }
             }
-            TypedSlice::StreamValueId(svs) => {
+            FieldValueSlice::StreamValueId(svs) => {
                 let formatting_opts = FormattingOpts {
                     is_stream_value: true,
                     type_repr_format: k.opts.type_repr,
@@ -1661,7 +1663,7 @@ pub fn setup_key_output_state(
                     }
                 }
             }
-            TypedSlice::Null(_) if typed_format => {
+            FieldValueSlice::Null(_) if typed_format => {
                 iter_output_states_advanced(
                     &mut fmt.output_states,
                     &mut output_index,
@@ -1671,7 +1673,7 @@ pub fn setup_key_output_state(
                     },
                 );
             }
-            TypedSlice::Undefined(_) if typed_format => {
+            FieldValueSlice::Undefined(_) if typed_format => {
                 iter_output_states_advanced(
                     &mut fmt.output_states,
                     &mut output_index,
@@ -1681,17 +1683,18 @@ pub fn setup_key_output_state(
                     },
                 );
             }
-            TypedSlice::Error(errs) if typed_format => {
-                for (v, rl) in RefAwareTypedSliceIter::from_range(&range, errs)
+            FieldValueSlice::Error(errs) if typed_format => {
+                for (v, rl) in
+                    RefAwareFieldValueSliceIter::from_range(&range, errs)
                 {
                     iter_output_states(fmt, &mut output_index, rl, |o| {
                         o.len += calc_fmt_len_ost(k, formatting_opts, o, v);
                     });
                 }
             }
-            TypedSlice::Error(_)
-            | TypedSlice::Undefined(_)
-            | TypedSlice::Null(_) => {
+            FieldValueSlice::Error(_)
+            | FieldValueSlice::Undefined(_)
+            | FieldValueSlice::Null(_) => {
                 debug_assert!(!typed_format);
                 iter_output_states_advanced(
                     &mut fmt.output_states,
@@ -1706,8 +1709,8 @@ pub fn setup_key_output_state(
                     },
                 );
             }
-            TypedSlice::BigInt(vs) => {
-                for (v, rl) in TypedSliceIter::from_range(&range, vs) {
+            FieldValueSlice::BigInt(vs) => {
+                for (v, rl) in FieldValueSliceIter::from_range(&range, vs) {
                     iter_output_states(fmt, &mut output_index, rl, |o| {
                         o.len += calc_fmt_len_ost(
                             k,
@@ -1718,8 +1721,8 @@ pub fn setup_key_output_state(
                     });
                 }
             }
-            TypedSlice::Float(vs) => {
-                for (v, rl) in TypedSliceIter::from_range(&range, vs) {
+            FieldValueSlice::Float(vs) => {
+                for (v, rl) in FieldValueSliceIter::from_range(&range, vs) {
                     iter_output_states(fmt, &mut output_index, rl, |o| {
                         o.len += calc_fmt_len_ost(
                             k,
@@ -1730,8 +1733,8 @@ pub fn setup_key_output_state(
                     });
                 }
             }
-            TypedSlice::Rational(vs) => {
-                for (v, rl) in TypedSliceIter::from_range(&range, vs) {
+            FieldValueSlice::Rational(vs) => {
+                for (v, rl) in FieldValueSliceIter::from_range(&range, vs) {
                     iter_output_states(fmt, &mut output_index, rl, |o| {
                         o.len += calc_fmt_len_ost(
                             k,
@@ -1742,7 +1745,7 @@ pub fn setup_key_output_state(
                     });
                 }
             }
-            TypedSlice::Object(objects) => {
+            FieldValueSlice::Object(objects) => {
                 let ss = string_store
                     .get_or_insert_with(|| sess.string_store.read().unwrap());
                 let mut fc = FormattingContext {
@@ -1753,7 +1756,7 @@ pub fn setup_key_output_state(
                     rfk: RealizedFormatKey::default(),
                 };
                 for (v, rl) in
-                    RefAwareTypedSliceIter::from_range(&range, objects)
+                    RefAwareFieldValueSliceIter::from_range(&range, objects)
                 {
                     iter_output_states(fmt, &mut output_index, rl, |o| {
                         fc.rfk =
@@ -1762,7 +1765,7 @@ pub fn setup_key_output_state(
                     });
                 }
             }
-            TypedSlice::Array(arrays) => {
+            FieldValueSlice::Array(arrays) => {
                 let ss = string_store
                     .get_or_insert_with(|| sess.string_store.read().unwrap());
                 let mut fc = FormattingContext {
@@ -1773,7 +1776,7 @@ pub fn setup_key_output_state(
                     rfk: RealizedFormatKey::default(),
                 };
                 for (v, rl) in
-                    RefAwareTypedSliceIter::from_range(&range, arrays)
+                    RefAwareFieldValueSliceIter::from_range(&range, arrays)
                 {
                     iter_output_states(fmt, &mut output_index, rl, |o| {
                         fc.rfk =
@@ -1782,8 +1785,8 @@ pub fn setup_key_output_state(
                     });
                 }
             }
-            TypedSlice::FieldReference(_)
-            | TypedSlice::SlicedFieldReference(_) => unreachable!(),
+            FieldValueSlice::FieldReference(_)
+            | FieldValueSlice::SlicedFieldReference(_) => unreachable!(),
         }
         handled_fields += range.base.field_count;
     }
@@ -2091,7 +2094,7 @@ fn write_fmt_key(
         iter.typed_range_fwd(msm, usize::MAX, field_value_flags::DEFAULT)
     {
         match range.base.data {
-            TypedSlice::TextInline(text) => {
+            FieldValueSlice::TextInline(text) => {
                 for (v, rl, _offs) in
                     RefAwareInlineTextIter::from_range(&range, text)
                 {
@@ -2105,7 +2108,7 @@ fn write_fmt_key(
                     );
                 }
             }
-            TypedSlice::BytesInline(bytes) => {
+            FieldValueSlice::BytesInline(bytes) => {
                 for (v, rl, _offs) in
                     RefAwareInlineBytesIter::from_range(&range, bytes)
                 {
@@ -2119,7 +2122,7 @@ fn write_fmt_key(
                     );
                 }
             }
-            TypedSlice::TextBuffer(text) => {
+            FieldValueSlice::TextBuffer(text) => {
                 for (v, rl, _offs) in
                     RefAwareTextBufferIter::from_range(&range, text)
                 {
@@ -2133,7 +2136,7 @@ fn write_fmt_key(
                     );
                 }
             }
-            TypedSlice::BytesBuffer(bytes) => {
+            FieldValueSlice::BytesBuffer(bytes) => {
                 for (v, rl, _offs) in
                     RefAwareBytesBufferIter::from_range(&range, bytes)
                 {
@@ -2147,15 +2150,16 @@ fn write_fmt_key(
                     );
                 }
             }
-            TypedSlice::Custom(custom_data) => {
+            FieldValueSlice::Custom(custom_data) => {
                 let mut rfk = RealizedFormatKey {
                     opts: k.opts.clone(),
                     min_char_count: 0,
                     float_precision: None,
                 };
-                for (v, rl) in
-                    RefAwareTypedSliceIter::from_range(&range, custom_data)
-                {
+                for (v, rl) in RefAwareFieldValueSliceIter::from_range(
+                    &range,
+                    custom_data,
+                ) {
                     let len = v.stringified_len(&rfk).unwrap();
                     let mut prev_target: Option<*mut u8> = None;
                     iter_output_targets(
@@ -2182,8 +2186,8 @@ fn write_fmt_key(
                     );
                 }
             }
-            TypedSlice::Int(ints) => {
-                for (v, rl) in TypedSliceIter::from_range(&range, ints) {
+            FieldValueSlice::Int(ints) => {
+                for (v, rl) in FieldValueSliceIter::from_range(&range, ints) {
                     iter_output_targets(
                         fmt,
                         &mut output_index,
@@ -2202,7 +2206,7 @@ fn write_fmt_key(
                     );
                 }
             }
-            TypedSlice::Null(_) => {
+            FieldValueSlice::Null(_) => {
                 iter_output_targets(
                     fmt,
                     &mut output_index,
@@ -2212,7 +2216,7 @@ fn write_fmt_key(
                     },
                 );
             }
-            TypedSlice::Undefined(_) => {
+            FieldValueSlice::Undefined(_) => {
                 iter_output_targets(
                     fmt,
                     &mut output_index,
@@ -2222,8 +2226,9 @@ fn write_fmt_key(
                     },
                 );
             }
-            TypedSlice::Error(errs) => {
-                for (v, rl) in RefAwareTypedSliceIter::from_range(&range, errs)
+            FieldValueSlice::Error(errs) => {
+                for (v, rl) in
+                    RefAwareFieldValueSliceIter::from_range(&range, errs)
                 {
                     iter_output_targets(
                         fmt,
@@ -2233,7 +2238,7 @@ fn write_fmt_key(
                     );
                 }
             }
-            TypedSlice::StreamValueId(svs) => {
+            FieldValueSlice::StreamValueId(svs) => {
                 let formatting_opts = FormattingOpts {
                     is_stream_value: true,
                     type_repr_format: k.opts.type_repr,
@@ -2303,8 +2308,10 @@ fn write_fmt_key(
                     }
                 }
             }
-            TypedSlice::BigInt(vs) => {
-                for (v, rl) in RefAwareTypedSliceIter::from_range(&range, vs) {
+            FieldValueSlice::BigInt(vs) => {
+                for (v, rl) in
+                    RefAwareFieldValueSliceIter::from_range(&range, vs)
+                {
                     iter_output_targets(
                         fmt,
                         &mut output_index,
@@ -2323,8 +2330,8 @@ fn write_fmt_key(
                     );
                 }
             }
-            TypedSlice::Float(vs) => {
-                for (v, rl) in TypedSliceIter::from_range(&range, vs) {
+            FieldValueSlice::Float(vs) => {
+                for (v, rl) in FieldValueSliceIter::from_range(&range, vs) {
                     iter_output_targets(
                         fmt,
                         &mut output_index,
@@ -2343,8 +2350,10 @@ fn write_fmt_key(
                     );
                 }
             }
-            TypedSlice::Rational(vs) => {
-                for (v, rl) in RefAwareTypedSliceIter::from_range(&range, vs) {
+            FieldValueSlice::Rational(vs) => {
+                for (v, rl) in
+                    RefAwareFieldValueSliceIter::from_range(&range, vs)
+                {
                     iter_output_targets(
                         fmt,
                         &mut output_index,
@@ -2363,7 +2372,7 @@ fn write_fmt_key(
                     );
                 }
             }
-            TypedSlice::Object(vs) => {
+            FieldValueSlice::Object(vs) => {
                 let ss = string_store
                     .get_or_insert_with(|| sess.string_store.read().unwrap());
                 let fc = FormattingContext {
@@ -2373,7 +2382,9 @@ fn write_fmt_key(
                     print_rationals_raw: fmt.print_rationals_raw,
                     rfk: RealizedFormatKey::default(),
                 };
-                for (v, rl) in RefAwareTypedSliceIter::from_range(&range, vs) {
+                for (v, rl) in
+                    RefAwareFieldValueSliceIter::from_range(&range, vs)
+                {
                     iter_output_targets(
                         fmt,
                         &mut output_index,
@@ -2384,7 +2395,7 @@ fn write_fmt_key(
                     );
                 }
             }
-            TypedSlice::Array(vs) => {
+            FieldValueSlice::Array(vs) => {
                 let ss = string_store
                     .get_or_insert_with(|| sess.string_store.read().unwrap());
                 let fc = FormattingContext {
@@ -2394,7 +2405,9 @@ fn write_fmt_key(
                     print_rationals_raw: fmt.print_rationals_raw,
                     rfk: RealizedFormatKey::default(),
                 };
-                for (v, rl) in RefAwareTypedSliceIter::from_range(&range, vs) {
+                for (v, rl) in
+                    RefAwareFieldValueSliceIter::from_range(&range, vs)
+                {
                     iter_output_targets(
                         fmt,
                         &mut output_index,
@@ -2405,8 +2418,8 @@ fn write_fmt_key(
                     );
                 }
             }
-            TypedSlice::FieldReference(_)
-            | TypedSlice::SlicedFieldReference(_) => unreachable!(),
+            FieldValueSlice::FieldReference(_)
+            | FieldValueSlice::SlicedFieldReference(_) => unreachable!(),
         }
     }
     let base_iter = iter.into_base_iter();

@@ -2,12 +2,12 @@ use std::{marker::PhantomData, ptr::NonNull};
 
 use super::{
     field_data::{FieldValueHeader, FieldValueType, RunLength},
+    field_value_ref::{TypedRange, ValidTypedRange},
     ref_iter::RefAwareTypedRange,
-    typed::{TypedRange, ValidTypedRange},
 };
 
 #[derive(Clone)]
-pub struct TypedSliceIter<'a, T> {
+pub struct FieldValueSliceIter<'a, T> {
     values: NonNull<T>,
     header: *const FieldValueHeader,
     header_end: *const FieldValueHeader,
@@ -16,7 +16,22 @@ pub struct TypedSliceIter<'a, T> {
     _phantom_data: PhantomData<&'a FieldValueHeader>,
 }
 
-impl<'a, T> Default for TypedSliceIter<'a, T> {
+#[derive(Clone)]
+pub struct InlineBytesIter<'a> {
+    values: NonNull<u8>,
+    header: *const FieldValueHeader,
+    header_end: *const FieldValueHeader,
+    header_rl_rem: RunLength,
+    last_oversize: RunLength,
+    _phantom_data: PhantomData<&'a FieldValueHeader>,
+}
+
+#[derive(Default)]
+pub struct InlineTextIter<'a> {
+    iter: InlineBytesIter<'a>,
+}
+
+impl<'a, T> Default for FieldValueSliceIter<'a, T> {
     fn default() -> Self {
         Self {
             values: NonNull::dangling(),
@@ -29,7 +44,7 @@ impl<'a, T> Default for TypedSliceIter<'a, T> {
     }
 }
 
-impl<'a, T: FieldValueType + 'static> TypedSliceIter<'a, T> {
+impl<'a, T: FieldValueType + 'static> FieldValueSliceIter<'a, T> {
     pub unsafe fn new(
         values: &'a [T],
         headers: &'a [FieldValueHeader],
@@ -213,7 +228,7 @@ impl<'a, T: FieldValueType + 'static> TypedSliceIter<'a, T> {
     }
 }
 
-impl<'a, T: FieldValueType + 'static> Iterator for TypedSliceIter<'a, T> {
+impl<'a, T: FieldValueType + 'static> Iterator for FieldValueSliceIter<'a, T> {
     type Item = (&'a T, RunLength);
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -237,16 +252,6 @@ impl<'a, T: FieldValueType + 'static> Iterator for TypedSliceIter<'a, T> {
             Some((value, 1))
         }
     }
-}
-
-#[derive(Clone)]
-pub struct InlineBytesIter<'a> {
-    values: NonNull<u8>,
-    header: *const FieldValueHeader,
-    header_end: *const FieldValueHeader,
-    header_rl_rem: RunLength,
-    last_oversize: RunLength,
-    _phantom_data: PhantomData<&'a FieldValueHeader>,
 }
 
 impl<'a> Default for InlineBytesIter<'a> {
@@ -460,11 +465,6 @@ impl<'a> Iterator for InlineBytesIter<'a> {
     }
 }
 
-#[derive(Default)]
-pub struct InlineTextIter<'a> {
-    iter: InlineBytesIter<'a>,
-}
-
 impl<'a> InlineTextIter<'a> {
     pub fn new(
         values: &'a str,
@@ -539,7 +539,7 @@ mod test_slice_iter {
         push_interface::PushInterface,
     };
 
-    use super::TypedSliceIter;
+    use super::FieldValueSliceIter;
 
     fn compare_iter_output<
         T: Eq + std::fmt::Debug + Clone + FieldValueType + 'static,
@@ -550,7 +550,7 @@ mod test_slice_iter {
         fd.headers.make_contiguous();
         fd.data.make_contiguous();
         let iter = unsafe {
-            TypedSliceIter::new(
+            FieldValueSliceIter::new(
                 std::slice::from_raw_parts(
                     fd.data.head_ptr().cast::<T>(),
                     fd.data.len() / std::mem::size_of::<T>(),
@@ -622,8 +622,8 @@ mod test_text_iter {
 
     use crate::record_data::{
         field_data::{FieldData, RunLength},
+        field_value_slice_iter::InlineTextIter,
         push_interface::PushInterface,
-        typed_iters::InlineTextIter,
     };
 
     fn compare_iter_output(

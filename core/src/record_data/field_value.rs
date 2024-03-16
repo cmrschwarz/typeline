@@ -22,9 +22,9 @@ use super::{
     custom_data::CustomDataBox,
     field::{FieldManager, FieldRefOffset},
     field_data::{FieldValueRepr, FieldValueType, FixedSizeFieldValueType},
+    field_value_ref::FieldValueRef,
     match_set::MatchSetManager,
     stream_value::StreamValueId,
-    typed::FieldValueRef,
 };
 
 // the different logical data types
@@ -440,6 +440,9 @@ impl FieldValue {
                 }
             }
         }
+    }
+    pub fn is_error(&self) -> bool {
+        matches!(self, FieldValue::Error(_))
     }
 }
 

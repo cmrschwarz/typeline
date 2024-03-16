@@ -14,5 +14,5 @@ pub mod record_buffer;
 pub mod record_set;
 pub mod ref_iter;
 pub mod stream_value;
-pub mod typed;
-pub mod typed_iters;
+pub mod field_value_ref;
+pub mod field_value_slice_iter;

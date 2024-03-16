@@ -22,13 +22,14 @@ use crate::{
         iters::FieldIterator,
         push_interface::{PushInterface, VaryingTypeInserter},
         ref_iter::{
-            AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter,
+            AutoDerefIter, RefAwareBytesBufferIter,
+            RefAwareFieldValueSliceIter, RefAwareInlineBytesIter,
             RefAwareInlineTextIter, RefAwareStreamValueIter,
-            RefAwareTextBufferIter, RefAwareTypedSliceIter,
+            RefAwareTextBufferIter,
         },
         stream_value::StreamValueId,
-        typed::TypedSlice,
-        typed_iters::TypedSliceIter,
+        field_value_ref::FieldValueSlice,
+        field_value_slice_iter::FieldValueSliceIter,
     },
     utils::{
         identity_hasher::BuildIdentityHasher,
@@ -866,7 +867,7 @@ pub fn handle_tf_regex(
                 .unwrap_or(re.input_field_ref_offset),
         };
         match range.base.data {
-            TypedSlice::TextInline(text) => {
+            FieldValueSlice::TextInline(text) => {
                 for (v, rl, offset) in
                     RefAwareInlineTextIter::from_range(&range, text)
                 {
@@ -888,7 +889,7 @@ pub fn handle_tf_regex(
                     }
                 }
             }
-            TypedSlice::BytesInline(bytes) => {
+            FieldValueSlice::BytesInline(bytes) => {
                 for (v, rl, offset) in
                     RefAwareInlineBytesIter::from_range(&range, bytes)
                 {
@@ -904,7 +905,7 @@ pub fn handle_tf_regex(
                     }
                 }
             }
-            TypedSlice::TextBuffer(bytes) => {
+            FieldValueSlice::TextBuffer(bytes) => {
                 for (v, rl, offset) in
                     RefAwareTextBufferIter::from_range(&range, bytes)
                 {
@@ -926,7 +927,7 @@ pub fn handle_tf_regex(
                     }
                 }
             }
-            TypedSlice::BytesBuffer(bytes) => {
+            FieldValueSlice::BytesBuffer(bytes) => {
                 for (v, rl, offset) in
                     RefAwareBytesBufferIter::from_range(&range, bytes)
                 {
@@ -942,10 +943,11 @@ pub fn handle_tf_regex(
                     }
                 }
             }
-            TypedSlice::Custom(custom_types) => {
-                for (v, rl) in
-                    RefAwareTypedSliceIter::from_range(&range, custom_types)
-                {
+            FieldValueSlice::Custom(custom_types) => {
+                for (v, rl) in RefAwareFieldValueSliceIter::from_range(
+                    &range,
+                    custom_types,
+                ) {
                     let prev_len = jd.temp_vec.len();
                     v.stringify(
                         &mut jd.temp_vec,
@@ -979,9 +981,11 @@ pub fn handle_tf_regex(
                     }
                 }
             }
-            TypedSlice::Int(ints) => {
+            FieldValueSlice::Int(ints) => {
                 if let Some(tr) = &mut text_regex {
-                    for (v, rl) in TypedSliceIter::from_range(&range, ints) {
+                    for (v, rl) in
+                        FieldValueSliceIter::from_range(&range, ints)
+                    {
                         match_regex_inner::<false, _>(
                             &mut rmis,
                             tr,
@@ -994,7 +998,9 @@ pub fn handle_tf_regex(
                         }
                     }
                 } else {
-                    for (v, rl) in TypedSliceIter::from_range(&range, ints) {
+                    for (v, rl) in
+                        FieldValueSliceIter::from_range(&range, ints)
+                    {
                         match_regex_inner::<false, _>(
                             &mut rmis,
                             &mut bytes_regex,
@@ -1008,7 +1014,7 @@ pub fn handle_tf_regex(
                     }
                 };
             }
-            TypedSlice::StreamValueId(svs) => {
+            FieldValueSlice::StreamValueId(svs) => {
                 let mut sv_iter =
                     RefAwareStreamValueIter::from_range(&range, svs);
                 while let Some((sv_id, offsets, rl)) = sv_iter.next() {
@@ -1102,17 +1108,17 @@ pub fn handle_tf_regex(
                     jd.sv_mgr.check_stream_value_ref_count(sv_id);
                 }
             }
-            TypedSlice::BigInt(_)
-            | TypedSlice::Float(_)
-            | TypedSlice::Rational(_) => {
+            FieldValueSlice::BigInt(_)
+            | FieldValueSlice::Float(_)
+            | FieldValueSlice::Rational(_) => {
                 todo!();
             }
-            TypedSlice::SlicedFieldReference(_)
-            | TypedSlice::FieldReference(_) => unreachable!(),
-            TypedSlice::Null(_)
-            | TypedSlice::Undefined(_)
-            | TypedSlice::Object(_)
-            | TypedSlice::Array(_) => {
+            FieldValueSlice::SlicedFieldReference(_)
+            | FieldValueSlice::FieldReference(_) => unreachable!(),
+            FieldValueSlice::Null(_)
+            | FieldValueSlice::Undefined(_)
+            | FieldValueSlice::Object(_)
+            | FieldValueSlice::Array(_) => {
                 let count = rbs.consume_fields(range.base.field_count);
                 for inserter in rbs.inserters.iter_mut().flatten() {
                     inserter.push_fixed_size_type(
@@ -1132,8 +1138,9 @@ pub fn handle_tf_regex(
                     break 'batch;
                 }
             }
-            TypedSlice::Error(errs) => {
-                for (e, rl) in RefAwareTypedSliceIter::from_range(&range, errs)
+            FieldValueSlice::Error(errs) => {
+                for (e, rl) in
+                    RefAwareFieldValueSliceIter::from_range(&range, errs)
                 {
                     let count = rbs.consume_fields(rl as usize);
                     for inserter in rbs.inserters.iter_mut().flatten() {

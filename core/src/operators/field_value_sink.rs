@@ -12,13 +12,14 @@ use crate::{
         iters::FieldIterator,
         push_interface::PushInterface,
         ref_iter::{
-            AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter,
+            AutoDerefIter, RefAwareBytesBufferIter,
+            RefAwareFieldValueSliceIter, RefAwareInlineBytesIter,
             RefAwareInlineTextIter, RefAwareStreamValueIter,
-            RefAwareTextBufferIter, RefAwareTypedSliceIter,
+            RefAwareTextBufferIter,
         },
         stream_value::StreamValueId,
-        typed::TypedSlice,
-        typed_iters::TypedSliceIter,
+        field_value_ref::FieldValueSlice,
+        field_value_slice_iter::FieldValueSliceIter,
     },
     utils::universe::CountedUniverse,
 };
@@ -138,7 +139,7 @@ pub fn handle_tf_field_value_sink(
         field_value_flags::DEFAULT,
     ) {
         match range.base.data {
-            TypedSlice::TextInline(text) => {
+            FieldValueSlice::TextInline(text) => {
                 for (v, rl, _offs) in
                     RefAwareInlineTextIter::from_range(&range, text)
                 {
@@ -149,7 +150,7 @@ pub fn handle_tf_field_value_sink(
                     );
                 }
             }
-            TypedSlice::BytesInline(bytes) => {
+            FieldValueSlice::BytesInline(bytes) => {
                 for (v, rl, _offs) in
                     RefAwareInlineBytesIter::from_range(&range, bytes)
                 {
@@ -160,7 +161,7 @@ pub fn handle_tf_field_value_sink(
                     );
                 }
             }
-            TypedSlice::TextBuffer(bytes) => {
+            FieldValueSlice::TextBuffer(bytes) => {
                 for (v, rl, _offs) in
                     RefAwareTextBufferIter::from_range(&range, bytes)
                 {
@@ -171,7 +172,7 @@ pub fn handle_tf_field_value_sink(
                     );
                 }
             }
-            TypedSlice::BytesBuffer(bytes) => {
+            FieldValueSlice::BytesBuffer(bytes) => {
                 for (v, rl, _offs) in
                     RefAwareBytesBufferIter::from_range(&range, bytes)
                 {
@@ -182,8 +183,8 @@ pub fn handle_tf_field_value_sink(
                     );
                 }
             }
-            TypedSlice::Int(ints) => {
-                for (v, rl) in TypedSliceIter::from_range(&range, ints) {
+            FieldValueSlice::Int(ints) => {
+                for (v, rl) in FieldValueSliceIter::from_range(&range, ints) {
                     push_field_values(
                         &mut fvs,
                         FieldValue::Int(*v),
@@ -191,10 +192,11 @@ pub fn handle_tf_field_value_sink(
                     );
                 }
             }
-            TypedSlice::Custom(custom_types) => {
-                for (v, rl) in
-                    RefAwareTypedSliceIter::from_range(&range, custom_types)
-                {
+            FieldValueSlice::Custom(custom_types) => {
+                for (v, rl) in RefAwareFieldValueSliceIter::from_range(
+                    &range,
+                    custom_types,
+                ) {
                     push_field_values(
                         &mut fvs,
                         FieldValue::Custom(v.clone()),
@@ -202,18 +204,19 @@ pub fn handle_tf_field_value_sink(
                     );
                 }
             }
-            TypedSlice::FieldReference(_)
-            | TypedSlice::SlicedFieldReference(_) => unreachable!(),
-            TypedSlice::Null(_) => {
+            FieldValueSlice::FieldReference(_)
+            | FieldValueSlice::SlicedFieldReference(_) => unreachable!(),
+            FieldValueSlice::Null(_) => {
                 push_field_values(
                     &mut fvs,
                     FieldValue::Null,
                     range.base.field_count,
                 );
             }
-            TypedSlice::Error(errs) => {
+            FieldValueSlice::Error(errs) => {
                 let mut pos = field_pos;
-                for (v, rl) in RefAwareTypedSliceIter::from_range(&range, errs)
+                for (v, rl) in
+                    RefAwareFieldValueSliceIter::from_range(&range, errs)
                 {
                     push_field_values(
                         &mut fvs,
@@ -230,14 +233,14 @@ pub fn handle_tf_field_value_sink(
                     pos += rl as usize;
                 }
             }
-            TypedSlice::Undefined(_) => {
+            FieldValueSlice::Undefined(_) => {
                 push_field_values(
                     &mut fvs,
                     FieldValue::Undefined,
                     range.base.field_count,
                 );
             }
-            TypedSlice::StreamValueId(sv_ids) => {
+            FieldValueSlice::StreamValueId(sv_ids) => {
                 let mut pos = field_pos;
                 for (svid, range, rl) in
                     RefAwareStreamValueIter::from_range(&range, sv_ids)
@@ -265,14 +268,14 @@ pub fn handle_tf_field_value_sink(
                     push_field_values(&mut fvs, sv.value.clone(), run_len);
                 }
             }
-            TypedSlice::BigInt(_)
-            | TypedSlice::Float(_)
-            | TypedSlice::Rational(_) => {
+            FieldValueSlice::BigInt(_)
+            | FieldValueSlice::Float(_)
+            | FieldValueSlice::Rational(_) => {
                 todo!();
             }
-            TypedSlice::Array(arrays) => {
+            FieldValueSlice::Array(arrays) => {
                 for (v, rl) in
-                    RefAwareTypedSliceIter::from_range(&range, arrays)
+                    RefAwareFieldValueSliceIter::from_range(&range, arrays)
                 {
                     push_field_values(
                         &mut fvs,
@@ -281,9 +284,9 @@ pub fn handle_tf_field_value_sink(
                     );
                 }
             }
-            TypedSlice::Object(object) => {
+            FieldValueSlice::Object(object) => {
                 for (v, rl) in
-                    RefAwareTypedSliceIter::from_range(&range, object)
+                    RefAwareFieldValueSliceIter::from_range(&range, object)
                 {
                     push_field_values(
                         &mut fvs,

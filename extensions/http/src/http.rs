@@ -26,7 +26,7 @@ use scr_core::{
         iter_hall::{IterId, IterKind},
         push_interface::PushInterface,
         stream_value::{StreamValue, StreamValueId},
-        typed::FieldValueRef,
+        field_value_ref::FieldValueRef,
     },
     smallbox,
     utils::{identity_hasher::BuildIdentityHasher, universe::CountedUniverse},

@@ -8,7 +8,7 @@ use super::{
     field::{FieldId, FieldManager},
     field_data::FieldDataBuffer,
     ref_iter::AutoDerefIter,
-    typed::{TypedField, TypedRange, ValidTypedRange},
+    field_value_ref::{TypedField, TypedRange, ValidTypedRange},
 };
 
 pub trait FieldDataRef<'a>: Sized + Clone {

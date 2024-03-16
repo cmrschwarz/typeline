@@ -16,14 +16,14 @@ use crate::{
         iters::{FieldIterator, UnfoldIterRunLength},
         push_interface::PushInterface,
         ref_iter::{
-            AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter,
+            AutoDerefIter, RefAwareBytesBufferIter,
+            RefAwareFieldValueSliceIter, RefAwareInlineBytesIter,
             RefAwareInlineTextIter, RefAwareStreamValueIter,
-            RefAwareTextBufferIter, RefAwareTypedSliceIter,
-            RefAwareUnfoldIterRunLength,
+            RefAwareTextBufferIter, RefAwareUnfoldIterRunLength,
         },
         stream_value::{StreamValue, StreamValueId},
-        typed::TypedSlice,
-        typed_iters::TypedSliceIter,
+        field_value_ref::FieldValueSlice,
+        field_value_slice_iter::FieldValueSliceIter,
     },
     utils::int_string_conversions::i64_to_str,
     NULL_STR, UNDEFINED_STR,
@@ -93,10 +93,10 @@ pub fn create_op_print_with_target(target: WritableTarget) -> OperatorData {
     OperatorData::Print(OpPrint { target })
 }
 
-pub fn typed_slice_zst_str(ts: &TypedSlice) -> &'static str {
+pub fn typed_slice_zst_str(ts: &FieldValueSlice) -> &'static str {
     match ts {
-        TypedSlice::Undefined(_) => UNDEFINED_STR,
-        TypedSlice::Null(_) => NULL_STR,
+        FieldValueSlice::Undefined(_) => UNDEFINED_STR,
+        FieldValueSlice::Null(_) => NULL_STR,
         _ => unreachable!(),
     }
 }
@@ -191,7 +191,7 @@ pub fn handle_tf_print_raw(
         field_value_flags::DEFAULT,
     ) {
         match range.base.data {
-            TypedSlice::TextInline(text) => {
+            FieldValueSlice::TextInline(text) => {
                 for v in RefAwareInlineTextIter::from_range(&range, text)
                     .unfold_rl()
                 {
@@ -200,7 +200,7 @@ pub fn handle_tf_print_raw(
                     *handled_field_count += 1;
                 }
             }
-            TypedSlice::BytesInline(bytes) => {
+            FieldValueSlice::BytesInline(bytes) => {
                 for v in RefAwareInlineBytesIter::from_range(&range, bytes)
                     .unfold_rl()
                 {
@@ -209,7 +209,7 @@ pub fn handle_tf_print_raw(
                     *handled_field_count += 1;
                 }
             }
-            TypedSlice::TextBuffer(bytes) => {
+            FieldValueSlice::TextBuffer(bytes) => {
                 for v in RefAwareTextBufferIter::from_range(&range, bytes)
                     .unfold_rl()
                 {
@@ -218,7 +218,7 @@ pub fn handle_tf_print_raw(
                     *handled_field_count += 1;
                 }
             }
-            TypedSlice::BytesBuffer(bytes) => {
+            FieldValueSlice::BytesBuffer(bytes) => {
                 for v in RefAwareBytesBufferIter::from_range(&range, bytes)
                     .unfold_rl()
                 {
@@ -227,8 +227,8 @@ pub fn handle_tf_print_raw(
                     *handled_field_count += 1;
                 }
             }
-            TypedSlice::Int(ints) => {
-                for (v, rl) in TypedSliceIter::from_range(&range, ints) {
+            FieldValueSlice::Int(ints) => {
+                for (v, rl) in FieldValueSliceIter::from_range(&range, ints) {
                     let v = i64_to_str(false, *v);
                     for _ in 0..rl {
                         stream.write_all(v.as_bytes())?;
@@ -237,8 +237,8 @@ pub fn handle_tf_print_raw(
                     }
                 }
             }
-            TypedSlice::Error(errs) => {
-                for v in RefAwareTypedSliceIter::from_range(&range, errs)
+            FieldValueSlice::Error(errs) => {
+                for v in RefAwareFieldValueSliceIter::from_range(&range, errs)
                     .unfold_rl()
                 {
                     stream
@@ -246,17 +246,19 @@ pub fn handle_tf_print_raw(
                     *handled_field_count += 1;
                 }
             }
-            TypedSlice::Custom(custom_types) => {
-                for v in
-                    RefAwareTypedSliceIter::from_range(&range, custom_types)
-                        .unfold_rl()
+            FieldValueSlice::Custom(custom_types) => {
+                for v in RefAwareFieldValueSliceIter::from_range(
+                    &range,
+                    custom_types,
+                )
+                .unfold_rl()
                 {
                     v.stringify(&mut stream, &RealizedFormatKey::default())?;
                     stream.write_all(b"\n")?;
                     *handled_field_count += 1;
                 }
             }
-            TypedSlice::Null(_) | TypedSlice::Undefined(_) => {
+            FieldValueSlice::Null(_) | FieldValueSlice::Undefined(_) => {
                 let zst_str = typed_slice_zst_str(&range.base.data);
                 for _ in 0..range.base.field_count {
                     stream.write_fmt(format_args!("{zst_str}\n"))?;
@@ -264,7 +266,7 @@ pub fn handle_tf_print_raw(
                 }
             }
 
-            TypedSlice::StreamValueId(svs) => {
+            FieldValueSlice::StreamValueId(svs) => {
                 let mut pos = *handled_field_count;
                 let mut sv_iter =
                     RefAwareStreamValueIter::from_range(&range, svs);
@@ -317,9 +319,9 @@ pub fn handle_tf_print_raw(
                     }
                 }
             }
-            TypedSlice::BigInt(big_ints) => {
+            FieldValueSlice::BigInt(big_ints) => {
                 for (v, rl) in
-                    RefAwareTypedSliceIter::from_range(&range, big_ints)
+                    RefAwareFieldValueSliceIter::from_range(&range, big_ints)
                 {
                     for _ in 0..rl {
                         stream.write_fmt(format_args!("{v}\n"))?;
@@ -327,17 +329,18 @@ pub fn handle_tf_print_raw(
                     }
                 }
             }
-            TypedSlice::Float(floats) => {
-                for (v, rl) in TypedSliceIter::from_range(&range, floats) {
+            FieldValueSlice::Float(floats) => {
+                for (v, rl) in FieldValueSliceIter::from_range(&range, floats)
+                {
                     for _ in 0..rl {
                         stream.write_fmt(format_args!("{v}\n"))?;
                         *handled_field_count += 1;
                     }
                 }
             }
-            TypedSlice::Rational(rationals) => {
+            FieldValueSlice::Rational(rationals) => {
                 for (v, rl) in
-                    RefAwareTypedSliceIter::from_range(&range, rationals)
+                    RefAwareFieldValueSliceIter::from_range(&range, rationals)
                 {
                     for _ in 0..rl {
                         if print_rationals_raw {
@@ -350,7 +353,7 @@ pub fn handle_tf_print_raw(
                     }
                 }
             }
-            TypedSlice::Array(arrays) => {
+            FieldValueSlice::Array(arrays) => {
                 let ss = string_store.get_or_insert_with(|| {
                     jd.session_data.string_store.read().unwrap()
                 });
@@ -361,15 +364,16 @@ pub fn handle_tf_print_raw(
                     print_rationals_raw,
                     rfk: RealizedFormatKey::default(),
                 };
-                for a in RefAwareTypedSliceIter::from_range(&range, arrays)
-                    .unfold_rl()
+                for a in
+                    RefAwareFieldValueSliceIter::from_range(&range, arrays)
+                        .unfold_rl()
                 {
                     a.format(&mut stream, &fc)?;
                     stream.write_all(b"\n")?;
                     *handled_field_count += 1;
                 }
             }
-            TypedSlice::Object(objects) => {
+            FieldValueSlice::Object(objects) => {
                 let ss = string_store.get_or_insert_with(|| {
                     jd.session_data.string_store.read().unwrap()
                 });
@@ -380,16 +384,17 @@ pub fn handle_tf_print_raw(
                     print_rationals_raw,
                     rfk: RealizedFormatKey::default(),
                 };
-                for o in RefAwareTypedSliceIter::from_range(&range, objects)
-                    .unfold_rl()
+                for o in
+                    RefAwareFieldValueSliceIter::from_range(&range, objects)
+                        .unfold_rl()
                 {
                     o.format(&mut stream, &fc)?;
                     stream.write_all(b"\n")?;
                     *handled_field_count += 1;
                 }
             }
-            TypedSlice::FieldReference(_)
-            | TypedSlice::SlicedFieldReference(_) => unreachable!(),
+            FieldValueSlice::FieldReference(_)
+            | FieldValueSlice::SlicedFieldReference(_) => unreachable!(),
         }
     }
     // TODO: remove this once `sequence` became a reasonable member of society

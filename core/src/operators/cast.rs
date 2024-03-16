@@ -8,9 +8,9 @@ use crate::{
         iter_hall::{IterId, IterKind},
         iters::FieldIterator,
         push_interface::PushInterface,
-        ref_iter::{AutoDerefIter, RefAwareTypedSliceIter},
+        ref_iter::{AutoDerefIter, RefAwareFieldValueSliceIter},
         stream_value::StreamValueId,
-        typed::TypedSlice,
+        field_value_ref::FieldValueSlice,
     },
     utils::encoding::{
         self, utf8_surrocate_escape, UTF8_REPLACEMENT_CHARACTER,
@@ -199,11 +199,11 @@ pub fn handle_tf_cast(jd: &mut JobData, tf_id: TransformId, tfc: &TfCast) {
 
     while let Some(range) = iter.next_range(&mut jd.match_set_mgr) {
         match range.base.data {
-            TypedSlice::Error(errs) => {
+            FieldValueSlice::Error(errs) => {
                 if tfc.convert_errors {
                 } else {
                     for (v, rl) in
-                        RefAwareTypedSliceIter::from_range(&range, errs)
+                        RefAwareFieldValueSliceIter::from_range(&range, errs)
                     {
                         ofd.push_error(v.clone(), rl as usize, true, true);
                     }

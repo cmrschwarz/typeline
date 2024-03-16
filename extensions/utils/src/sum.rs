@@ -20,9 +20,9 @@ use scr_core::{
         group_tracker::{GroupListId, GroupListIterId},
         iter_hall::{IterId, IterKind},
         push_interface::{PushInterface, VaryingTypeInserter},
-        ref_iter::RefAwareTypedSliceIter,
-        typed::TypedSlice,
-        typed_iters::TypedSliceIter,
+        ref_iter::RefAwareFieldValueSliceIter,
+        field_value_ref::FieldValueSlice,
+        field_value_slice_iter::FieldValueSliceIter,
     },
     smallbox,
     utils::identity_hasher::BuildIdentityHasher,
@@ -190,43 +190,47 @@ impl TfSum {
             group_iter.next_n_fields_in_group(count);
             field_pos += count;
             match range.base.data {
-                TypedSlice::Int(ints) => {
-                    for (v, rl) in TypedSliceIter::from_range(&range, ints) {
+                FieldValueSlice::Int(ints) => {
+                    for (v, rl) in
+                        FieldValueSliceIter::from_range(&range, ints)
+                    {
                         self.aggregate.add_int(*v, rl, fpm)
                     }
                 }
-                TypedSlice::BigInt(ints) => {
+                FieldValueSlice::BigInt(ints) => {
                     for (v, rl) in
-                        RefAwareTypedSliceIter::from_range(&range, ints)
+                        RefAwareFieldValueSliceIter::from_range(&range, ints)
                     {
                         self.aggregate.add_big_int(v, rl, fpm)
                     }
                 }
-                TypedSlice::Float(floats) => {
-                    for (v, rl) in TypedSliceIter::from_range(&range, floats) {
+                FieldValueSlice::Float(floats) => {
+                    for (v, rl) in
+                        FieldValueSliceIter::from_range(&range, floats)
+                    {
                         self.aggregate.add_float(*v, rl, fpm)
                     }
                 }
-                TypedSlice::Rational(rationals) => {
-                    for (v, rl) in
-                        RefAwareTypedSliceIter::from_range(&range, rationals)
-                    {
+                FieldValueSlice::Rational(rationals) => {
+                    for (v, rl) in RefAwareFieldValueSliceIter::from_range(
+                        &range, rationals,
+                    ) {
                         self.aggregate.add_rational(v, rl, fpm)
                     }
                 }
-                TypedSlice::Null(_)
-                | TypedSlice::Undefined(_)
-                | TypedSlice::BytesInline(_)
-                | TypedSlice::TextInline(_)
-                | TypedSlice::TextBuffer(_)
-                | TypedSlice::BytesBuffer(_)
-                | TypedSlice::Array(_)
-                | TypedSlice::Object(_)
-                | TypedSlice::Custom(_)
-                | TypedSlice::StreamValueId(_)
-                | TypedSlice::Error(_)
-                | TypedSlice::FieldReference(_)
-                | TypedSlice::SlicedFieldReference(_) => {
+                FieldValueSlice::Null(_)
+                | FieldValueSlice::Undefined(_)
+                | FieldValueSlice::BytesInline(_)
+                | FieldValueSlice::TextInline(_)
+                | FieldValueSlice::TextBuffer(_)
+                | FieldValueSlice::BytesBuffer(_)
+                | FieldValueSlice::Array(_)
+                | FieldValueSlice::Object(_)
+                | FieldValueSlice::Custom(_)
+                | FieldValueSlice::StreamValueId(_)
+                | FieldValueSlice::Error(_)
+                | FieldValueSlice::FieldReference(_)
+                | FieldValueSlice::SlicedFieldReference(_) => {
                     self.current_group_error_type =
                         Some(range.base.data.repr());
                 }

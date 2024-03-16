@@ -27,8 +27,8 @@ use scr_core::{
         field_value::{Array, FieldValue, Object},
         iter_hall::{IterId, IterKind},
         push_interface::{PushInterface, VaryingTypeInserter},
-        ref_iter::RefAwareTypedSliceIter,
-        typed::TypedSlice,
+        ref_iter::RefAwareFieldValueSliceIter,
+        field_value_ref::FieldValueSlice,
     },
     smallbox,
     utils::identity_hasher::BuildIdentityHasher,
@@ -154,19 +154,19 @@ impl TfFlatten {
         let mut string_store = None;
         while let Some(range) = bud.iter.next_range(bud.match_set_mgr) {
             match range.base.data {
-                TypedSlice::Undefined(_)
-                | TypedSlice::Null(_)
-                | TypedSlice::Int(_)
-                | TypedSlice::Float(_)
-                | TypedSlice::StreamValueId(_)
-                | TypedSlice::BigInt(_)
-                | TypedSlice::Rational(_)
-                | TypedSlice::TextInline(_)
-                | TypedSlice::TextBuffer(_)
-                | TypedSlice::BytesInline(_)
-                | TypedSlice::BytesBuffer(_)
-                | TypedSlice::Custom(_)
-                | TypedSlice::Error(_) => {
+                FieldValueSlice::Undefined(_)
+                | FieldValueSlice::Null(_)
+                | FieldValueSlice::Int(_)
+                | FieldValueSlice::Float(_)
+                | FieldValueSlice::StreamValueId(_)
+                | FieldValueSlice::BigInt(_)
+                | FieldValueSlice::Rational(_)
+                | FieldValueSlice::TextInline(_)
+                | FieldValueSlice::TextBuffer(_)
+                | FieldValueSlice::BytesInline(_)
+                | FieldValueSlice::BytesBuffer(_)
+                | FieldValueSlice::Custom(_)
+                | FieldValueSlice::Error(_) => {
                     field_idx += range.base.field_count;
                     inserter.extend_from_ref_aware_range_smart_ref(
                         range,
@@ -176,14 +176,14 @@ impl TfFlatten {
                         self.input_field_ref_offset,
                     );
                 }
-                TypedSlice::Object(objects) => {
+                FieldValueSlice::Object(objects) => {
                     let mut ab = bud.match_set_mgr.match_sets
                         [bud.match_set_id]
                         .action_buffer
                         .borrow_mut();
-                    for (v, rl) in
-                        RefAwareTypedSliceIter::from_range(&range, objects)
-                    {
+                    for (v, rl) in RefAwareFieldValueSliceIter::from_range(
+                        &range, objects,
+                    ) {
                         let rl = rl as usize;
                         let len = v.len();
                         if len == 0 {
@@ -235,13 +235,13 @@ impl TfFlatten {
                         }
                     }
                 }
-                TypedSlice::Array(arrays) => {
+                FieldValueSlice::Array(arrays) => {
                     let mut ab = bud.match_set_mgr.match_sets
                         [bud.match_set_id]
                         .action_buffer
                         .borrow_mut();
                     for (v, rl) in
-                        RefAwareTypedSliceIter::from_range(&range, arrays)
+                        RefAwareFieldValueSliceIter::from_range(&range, arrays)
                     {
                         let rl = rl as usize;
                         let len = v.len();
@@ -326,8 +326,8 @@ impl TfFlatten {
                         }
                     }
                 }
-                TypedSlice::FieldReference(_)
-                | TypedSlice::SlicedFieldReference(_) => unreachable!(),
+                FieldValueSlice::FieldReference(_)
+                | FieldValueSlice::SlicedFieldReference(_) => unreachable!(),
             }
         }
         bud.match_set_mgr.match_sets[bud.match_set_id]

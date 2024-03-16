@@ -26,7 +26,7 @@ use scr_core::{
             RefAwareTextBufferIter,
         },
         stream_value::{StreamValue, StreamValueId},
-        typed::TypedSlice,
+        field_value_ref::FieldValueSlice,
     },
     smallbox,
     tyson::parse_tyson,
@@ -121,7 +121,7 @@ impl TfFromTyson {
             .floating_point_math;
         while let Some(range) = bud.iter.next_range(bud.match_set_mgr) {
             match range.base.data {
-                TypedSlice::TextInline(vals) => {
+                FieldValueSlice::TextInline(vals) => {
                     for (v, rl, _offset) in
                         RefAwareInlineTextIter::from_range(&range, vals)
                     {
@@ -135,7 +135,7 @@ impl TfFromTyson {
                         );
                     }
                 }
-                TypedSlice::TextBuffer(vals) => {
+                FieldValueSlice::TextBuffer(vals) => {
                     for (v, rl, _offset) in
                         RefAwareTextBufferIter::from_range(&range, vals)
                     {
@@ -149,7 +149,7 @@ impl TfFromTyson {
                         );
                     }
                 }
-                TypedSlice::BytesInline(vals) => {
+                FieldValueSlice::BytesInline(vals) => {
                     for (v, rl, _offset) in
                         RefAwareInlineBytesIter::from_range(&range, vals)
                     {
@@ -163,7 +163,7 @@ impl TfFromTyson {
                         );
                     }
                 }
-                TypedSlice::BytesBuffer(vals) => {
+                FieldValueSlice::BytesBuffer(vals) => {
                     for (v, rl, _offset) in
                         RefAwareBytesBufferIter::from_range(&range, vals)
                     {
@@ -177,7 +177,7 @@ impl TfFromTyson {
                         );
                     }
                 }
-                TypedSlice::StreamValueId(vals) => {
+                FieldValueSlice::StreamValueId(vals) => {
                     for (sv_id, range, rl) in
                         RefAwareStreamValueIter::from_range(&range, vals)
                     {
@@ -217,16 +217,16 @@ impl TfFromTyson {
                         }
                     }
                 }
-                TypedSlice::Undefined(_)
-                | TypedSlice::Null(_)
-                | TypedSlice::Int(_)
-                | TypedSlice::Float(_)
-                | TypedSlice::BigInt(_)
-                | TypedSlice::Rational(_)
-                | TypedSlice::Custom(_)
-                | TypedSlice::Object(_)
-                | TypedSlice::Array(_)
-                | TypedSlice::Error(_) => {
+                FieldValueSlice::Undefined(_)
+                | FieldValueSlice::Null(_)
+                | FieldValueSlice::Int(_)
+                | FieldValueSlice::Float(_)
+                | FieldValueSlice::BigInt(_)
+                | FieldValueSlice::Rational(_)
+                | FieldValueSlice::Custom(_)
+                | FieldValueSlice::Object(_)
+                | FieldValueSlice::Array(_)
+                | FieldValueSlice::Error(_) => {
                     inserter.push_fixed_size_type(
                         OperatorApplicationError::new_s(
                             format!(
@@ -240,8 +240,8 @@ impl TfFromTyson {
                         true,
                     );
                 }
-                TypedSlice::FieldReference(_)
-                | TypedSlice::SlicedFieldReference(_) => unreachable!(),
+                FieldValueSlice::FieldReference(_)
+                | FieldValueSlice::SlicedFieldReference(_) => unreachable!(),
             }
         }
         (bud.batch_size, bud.ps.input_done)

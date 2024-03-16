@@ -30,8 +30,8 @@ use scr_core::{
         iter_hall::{IterId, IterKind},
         match_set::{MatchSetId, MatchSetManager},
         push_interface::{PushInterface, VaryingTypeInserter},
-        ref_iter::RefAwareTypedSliceIter,
-        typed::TypedSlice,
+        ref_iter::RefAwareFieldValueSliceIter,
+        field_value_ref::FieldValueSlice,
     },
     smallbox,
     utils::{
@@ -222,20 +222,20 @@ impl Transform for TfExplode {
 
         while let Some(range) = iter.next_range(&mut jd.match_set_mgr) {
             match range.base.data {
-                TypedSlice::Undefined(_)
-                | TypedSlice::Null(_)
-                | TypedSlice::Int(_)
-                | TypedSlice::Float(_)
-                | TypedSlice::StreamValueId(_)
-                | TypedSlice::BigInt(_)
-                | TypedSlice::Rational(_)
-                | TypedSlice::BytesInline(_)
-                | TypedSlice::TextInline(_)
-                | TypedSlice::TextBuffer(_)
-                | TypedSlice::BytesBuffer(_)
-                | TypedSlice::Array(_)
-                | TypedSlice::Custom(_)
-                | TypedSlice::Error(_) => {
+                FieldValueSlice::Undefined(_)
+                | FieldValueSlice::Null(_)
+                | FieldValueSlice::Int(_)
+                | FieldValueSlice::Float(_)
+                | FieldValueSlice::StreamValueId(_)
+                | FieldValueSlice::BigInt(_)
+                | FieldValueSlice::Rational(_)
+                | FieldValueSlice::BytesInline(_)
+                | FieldValueSlice::TextInline(_)
+                | FieldValueSlice::TextBuffer(_)
+                | FieldValueSlice::BytesBuffer(_)
+                | FieldValueSlice::Array(_)
+                | FieldValueSlice::Custom(_)
+                | FieldValueSlice::Error(_) => {
                     inserters[0].extend_from_ref_aware_range_smart_ref(
                         range,
                         true,
@@ -244,11 +244,11 @@ impl Transform for TfExplode {
                         self.input_field_field_ref_offset,
                     );
                 }
-                TypedSlice::Object(objects) => {
+                FieldValueSlice::Object(objects) => {
                     let mut string_store = None;
-                    for (v, rl) in
-                        RefAwareTypedSliceIter::from_range(&range, objects)
-                    {
+                    for (v, rl) in RefAwareFieldValueSliceIter::from_range(
+                        &range, objects,
+                    ) {
                         match v {
                             Object::KeysStored(obj) => {
                                 let ss =
@@ -291,8 +291,8 @@ impl Transform for TfExplode {
                     }
                     inserters[0].push_null(range.base.field_count, true);
                 }
-                TypedSlice::FieldReference(_)
-                | TypedSlice::SlicedFieldReference(_) => unreachable!(),
+                FieldValueSlice::FieldReference(_)
+                | FieldValueSlice::SlicedFieldReference(_) => unreachable!(),
             }
         }
         drop(inserters);

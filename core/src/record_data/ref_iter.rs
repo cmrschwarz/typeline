@@ -17,8 +17,8 @@ use crate::record_data::{
         field_value_flags::FieldValueFlags, FieldValueHeader, RunLength,
     },
     iters::{FieldIterator, Iter},
-    typed::{FieldValueRef, TypedRange, TypedSlice, ValidTypedRange},
-    typed_iters::{InlineBytesIter, TypedSliceIter},
+    field_value_ref::{FieldValueRef, FieldValueSlice, TypedRange, ValidTypedRange},
+    field_value_slice_iter::{FieldValueSliceIter, InlineBytesIter},
 };
 
 pub trait ReferenceFieldValueType: FieldValueType + Clone + 'static {
@@ -51,7 +51,7 @@ pub struct FieldRefUnpacked<'a, R> {
 }
 
 pub struct RefIter<'a, R> {
-    refs_iter: TypedSliceIter<'a, R>,
+    refs_iter: FieldValueSliceIter<'a, R>,
     refs_field: Ref<'a, Field>,
     last_field_id_offset: FieldRefOffset,
     data_iter: Iter<'a, DestructuredFieldDataRef<'a>>,
@@ -67,8 +67,8 @@ pub enum AnyRefIter<'a> {
 
 #[derive(Clone)]
 pub enum AnyRefSliceIter<'a> {
-    FieldRef(TypedSliceIter<'a, FieldReference>),
-    SlicedFieldRef(TypedSliceIter<'a, SlicedFieldReference>),
+    FieldRef(FieldValueSliceIter<'a, FieldReference>),
+    SlicedFieldRef(FieldValueSliceIter<'a, SlicedFieldReference>),
 }
 
 impl<'a, R: ReferenceFieldValueType> FieldRefUnpacked<'a, R> {
@@ -99,7 +99,7 @@ impl<'a, R: ReferenceFieldValueType> Clone for RefIter<'a, R> {
 impl<'a, R: ReferenceFieldValueType> RefIter<'a, R> {
     pub fn new(
         refs_field_id: FieldId,
-        refs_iter: TypedSliceIter<'a, R>,
+        refs_iter: FieldValueSliceIter<'a, R>,
         field_mgr: &'a FieldManager,
         match_set_mgr: &'_ MatchSetManager,
         last_field_id_offset: FieldRefOffset,
@@ -128,7 +128,7 @@ impl<'a, R: ReferenceFieldValueType> RefIter<'a, R> {
     pub fn reset(
         &mut self,
         match_set_mgr: &'_ MatchSetManager,
-        refs_iter: TypedSliceIter<'a, R>,
+        refs_iter: FieldValueSliceIter<'a, R>,
         field_id_offset: FieldRefOffset,
         field_pos: usize,
     ) {
@@ -196,7 +196,7 @@ impl<'a, R: ReferenceFieldValueType> RefIter<'a, R> {
         }
         self.data_iter.move_to_field_pos(field_pos);
     }
-    pub fn set_refs_iter(&mut self, refs_iter: TypedSliceIter<'a, R>) {
+    pub fn set_refs_iter(&mut self, refs_iter: FieldValueSliceIter<'a, R>) {
         self.refs_iter = refs_iter;
     }
     pub fn typed_field_fwd(
@@ -225,7 +225,7 @@ impl<'a, R: ReferenceFieldValueType> RefIter<'a, R> {
         match_set_mgr: &'_ MatchSetManager,
         mut limit: usize,
         flag_mask: FieldValueFlags,
-    ) -> Option<(ValidTypedRange<'a>, TypedSliceIter<'a, R>)> {
+    ) -> Option<(ValidTypedRange<'a>, FieldValueSliceIter<'a, R>)> {
         let (mut field_ref, mut field_rl) = self.refs_iter.peek()?;
         let refs_headers_start = self.refs_iter.header_ptr();
         let refs_data_start = self.refs_iter.data_ptr();
@@ -294,7 +294,7 @@ impl<'a, R: ReferenceFieldValueType> RefIter<'a, R> {
             Some((
                 ValidTypedRange::new(TypedRange {
                     headers,
-                    data: TypedSlice::new(
+                    data: FieldValueSlice::new(
                         self.data_iter.field_data_ref(),
                         fmt,
                         data_start,
@@ -310,7 +310,7 @@ impl<'a, R: ReferenceFieldValueType> RefIter<'a, R> {
                         .data_iter
                         .field_run_length_fwd_oversize(),
                 }),
-                TypedSliceIter::new(
+                FieldValueSliceIter::new(
                     std::slice::from_raw_parts(refs_data_start, refs_data_len),
                     std::slice::from_raw_parts(
                         refs_headers_start,
@@ -388,8 +388,8 @@ impl<'a, I: FieldIterator<'a>> AutoDerefIter<'a, I> {
         field_pos_before: usize,
         range: &ValidTypedRange<'a>,
     ) -> bool {
-        if let TypedSlice::FieldReference(refs) = range.data {
-            let refs_iter = TypedSliceIter::from_valid_range(range, refs);
+        if let FieldValueSlice::FieldReference(refs) = range.data {
+            let refs_iter = FieldValueSliceIter::from_valid_range(range, refs);
             let field_id_offset = refs_iter.peek().unwrap().0.field_ref_offset;
             if let Some(AnyRefIter::FieldRef(ri)) = &mut self.ref_iter {
                 ri.reset(
@@ -410,8 +410,8 @@ impl<'a, I: FieldIterator<'a>> AutoDerefIter<'a, I> {
             }
             return true;
         }
-        if let TypedSlice::SlicedFieldReference(refs) = range.data {
-            let refs_iter = TypedSliceIter::from_valid_range(range, refs);
+        if let FieldValueSlice::SlicedFieldReference(refs) = range.data {
+            let refs_iter = FieldValueSliceIter::from_valid_range(range, refs);
             let field_id_offset = refs_iter.peek().unwrap().0.field_ref_offset;
             if let Some(AnyRefIter::SlicedFieldRef(ri)) = &mut self.ref_iter {
                 ri.reset(
@@ -713,7 +713,7 @@ impl<'a> Iterator for RefAwareInlineTextIter<'a> {
 }
 
 pub struct RefAwareBytesBufferIter<'a> {
-    iter: TypedSliceIter<'a, Vec<u8>>,
+    iter: FieldValueSliceIter<'a, Vec<u8>>,
     refs: Option<AnyRefSliceIter<'a>>,
 }
 
@@ -727,7 +727,7 @@ impl<'a> RefAwareBytesBufferIter<'a> {
     ) -> Self {
         Self {
             iter: unsafe {
-                TypedSliceIter::new(
+                FieldValueSliceIter::new(
                     values,
                     headers,
                     first_oversize,
@@ -742,7 +742,7 @@ impl<'a> RefAwareBytesBufferIter<'a> {
         values: &'a [Vec<u8>],
     ) -> Self {
         Self {
-            iter: TypedSliceIter::from_valid_range(&range.base, values),
+            iter: FieldValueSliceIter::from_valid_range(&range.base, values),
             refs: range.refs.clone(),
         }
     }
@@ -778,7 +778,7 @@ impl<'a> Iterator for RefAwareBytesBufferIter<'a> {
 }
 
 pub struct RefAwareTextBufferIter<'a> {
-    iter: TypedSliceIter<'a, String>,
+    iter: FieldValueSliceIter<'a, String>,
     refs: Option<AnyRefSliceIter<'a>>,
 }
 
@@ -792,7 +792,7 @@ impl<'a> RefAwareTextBufferIter<'a> {
     ) -> Self {
         Self {
             iter: unsafe {
-                TypedSliceIter::new(
+                FieldValueSliceIter::new(
                     values,
                     headers,
                     first_oversize,
@@ -807,7 +807,7 @@ impl<'a> RefAwareTextBufferIter<'a> {
         values: &'a [String],
     ) -> Self {
         Self {
-            iter: TypedSliceIter::from_valid_range(&range.base, values),
+            iter: FieldValueSliceIter::from_valid_range(&range.base, values),
             refs: range.refs.clone(),
         }
     }
@@ -843,7 +843,7 @@ impl<'a> Iterator for RefAwareTextBufferIter<'a> {
 }
 
 pub struct RefAwareStreamValueIter<'a> {
-    iter: TypedSliceIter<'a, StreamValueId>,
+    iter: FieldValueSliceIter<'a, StreamValueId>,
     refs: Option<AnyRefSliceIter<'a>>,
 }
 
@@ -857,7 +857,7 @@ impl<'a> RefAwareStreamValueIter<'a> {
     ) -> Self {
         Self {
             iter: unsafe {
-                TypedSliceIter::new(
+                FieldValueSliceIter::new(
                     values,
                     headers,
                     first_oversize,
@@ -872,7 +872,7 @@ impl<'a> RefAwareStreamValueIter<'a> {
         values: &'a [StreamValueId],
     ) -> Self {
         Self {
-            iter: TypedSliceIter::from_valid_range(&range.base, values),
+            iter: FieldValueSliceIter::from_valid_range(&range.base, values),
             refs: range.refs.clone(),
         }
     }
@@ -907,15 +907,15 @@ impl<'a> Iterator for RefAwareStreamValueIter<'a> {
     }
 }
 
-pub struct RefAwareTypedSliceIter<'a, T> {
-    iter: TypedSliceIter<'a, T>,
-    refs: Option<TypedSliceIter<'a, FieldReference>>,
+pub struct RefAwareFieldValueSliceIter<'a, T> {
+    iter: FieldValueSliceIter<'a, T>,
+    refs: Option<FieldValueSliceIter<'a, FieldReference>>,
 }
 
-impl<'a, T: FieldValueType + 'static> RefAwareTypedSliceIter<'a, T> {
+impl<'a, T: FieldValueType + 'static> RefAwareFieldValueSliceIter<'a, T> {
     fn unpack_refs_iter(
         refs: Option<AnyRefSliceIter<'a>>,
-    ) -> Option<TypedSliceIter<'a, FieldReference>> {
+    ) -> Option<FieldValueSliceIter<'a, FieldReference>> {
         match refs {
             Some(AnyRefSliceIter::FieldRef(iter)) => Some(iter),
             Some(AnyRefSliceIter::SlicedFieldRef(_)) => {
@@ -937,7 +937,7 @@ impl<'a, T: FieldValueType + 'static> RefAwareTypedSliceIter<'a, T> {
         debug_assert!(T::SUPPORTS_REFS);
         Self {
             iter: unsafe {
-                TypedSliceIter::new(
+                FieldValueSliceIter::new(
                     values,
                     headers,
                     first_oversize,
@@ -950,14 +950,14 @@ impl<'a, T: FieldValueType + 'static> RefAwareTypedSliceIter<'a, T> {
     pub fn from_range(range: &'a RefAwareTypedRange, values: &'a [T]) -> Self {
         debug_assert!(T::SUPPORTS_REFS);
         Self {
-            iter: TypedSliceIter::from_valid_range(&range.base, values),
+            iter: FieldValueSliceIter::from_valid_range(&range.base, values),
             refs: Self::unpack_refs_iter(range.refs.clone()),
         }
     }
 }
 
 impl<'a, T: FieldValueType + 'static> Iterator
-    for RefAwareTypedSliceIter<'a, T>
+    for RefAwareFieldValueSliceIter<'a, T>
 {
     type Item = (&'a T, RunLength);
     #[inline(always)]
@@ -1042,7 +1042,7 @@ mod ref_iter_tests {
         field_value::SlicedFieldReference,
         iters::Iter,
         push_interface::PushInterface,
-        typed::TypedSlice,
+        field_value_ref::FieldValueSlice,
     };
 
     fn compare_iter_output(
@@ -1083,7 +1083,7 @@ mod ref_iter_tests {
                 )
                 .unwrap();
             let iter = match range.base.data {
-                TypedSlice::TextInline(v) => {
+                FieldValueSlice::TextInline(v) => {
                     RefAwareInlineTextIter::from_range(&range, v)
                 }
                 _ => panic!("wrong data type"),

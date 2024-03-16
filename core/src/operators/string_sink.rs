@@ -18,13 +18,14 @@ use crate::{
         iters::FieldIterator,
         push_interface::PushInterface,
         ref_iter::{
-            AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter,
+            AutoDerefIter, RefAwareBytesBufferIter,
+            RefAwareFieldValueSliceIter, RefAwareInlineBytesIter,
             RefAwareInlineTextIter, RefAwareStreamValueIter,
-            RefAwareTextBufferIter, RefAwareTypedSliceIter,
+            RefAwareTextBufferIter,
         },
         stream_value::{StreamValue, StreamValueId},
-        typed::TypedSlice,
-        typed_iters::TypedSliceIter,
+        field_value_ref::FieldValueSlice,
+        field_value_slice_iter::FieldValueSliceIter,
     },
     utils::{
         identity_hasher::BuildIdentityHasher,
@@ -327,44 +328,45 @@ pub fn handle_tf_string_sink(
         field_value_flags::DEFAULT,
     ) {
         match range.base.data {
-            TypedSlice::TextInline(text) => {
+            FieldValueSlice::TextInline(text) => {
                 for (v, rl, _offs) in
                     RefAwareInlineTextIter::from_range(&range, text)
                 {
                     push_str(&mut out, v, rl as usize);
                 }
             }
-            TypedSlice::BytesInline(bytes) => {
+            FieldValueSlice::BytesInline(bytes) => {
                 for (v, rl, _offs) in
                     RefAwareInlineBytesIter::from_range(&range, bytes)
                 {
                     push_bytes(op_id, field_pos, &mut out, v, rl as usize);
                 }
             }
-            TypedSlice::TextBuffer(text) => {
+            FieldValueSlice::TextBuffer(text) => {
                 for (v, rl, _offs) in
                     RefAwareTextBufferIter::from_range(&range, text)
                 {
                     push_str(&mut out, v, rl as usize);
                 }
             }
-            TypedSlice::BytesBuffer(bytes) => {
+            FieldValueSlice::BytesBuffer(bytes) => {
                 for (v, rl, _offs) in
                     RefAwareBytesBufferIter::from_range(&range, bytes)
                 {
                     push_bytes(op_id, field_pos, &mut out, v, rl as usize);
                 }
             }
-            TypedSlice::Int(ints) => {
-                for (v, rl) in TypedSliceIter::from_range(&range, ints) {
+            FieldValueSlice::Int(ints) => {
+                for (v, rl) in FieldValueSliceIter::from_range(&range, ints) {
                     let v = i64_to_str(false, *v);
                     push_str(&mut out, v.as_str(), rl as usize);
                 }
             }
-            TypedSlice::Custom(custom_types) => {
-                for (v, rl) in
-                    RefAwareTypedSliceIter::from_range(&range, custom_types)
-                {
+            FieldValueSlice::Custom(custom_types) => {
+                for (v, rl) in RefAwareFieldValueSliceIter::from_range(
+                    &range,
+                    custom_types,
+                ) {
                     if let Some(len) =
                         v.stringified_len(&RealizedFormatKey::default())
                     {
@@ -404,14 +406,15 @@ pub fn handle_tf_string_sink(
                     }
                 }
             }
-            TypedSlice::FieldReference(_)
-            | TypedSlice::SlicedFieldReference(_) => unreachable!(),
-            TypedSlice::Null(_) => {
+            FieldValueSlice::FieldReference(_)
+            | FieldValueSlice::SlicedFieldReference(_) => unreachable!(),
+            FieldValueSlice::Null(_) => {
                 push_str(&mut out, NULL_STR, range.base.field_count);
             }
-            TypedSlice::Error(errs) => {
+            FieldValueSlice::Error(errs) => {
                 let mut pos = field_pos;
-                for (v, rl) in RefAwareTypedSliceIter::from_range(&range, errs)
+                for (v, rl) in
+                    RefAwareFieldValueSliceIter::from_range(&range, errs)
                 {
                     push_errors(
                         &mut out,
@@ -424,7 +427,7 @@ pub fn handle_tf_string_sink(
                     pos += rl as usize;
                 }
             }
-            TypedSlice::Undefined(_) => {
+            FieldValueSlice::Undefined(_) => {
                 push_errors(
                     &mut out,
                     OperatorApplicationError::new("value is undefined", op_id),
@@ -434,7 +437,7 @@ pub fn handle_tf_string_sink(
                     &mut output_field,
                 );
             }
-            TypedSlice::StreamValueId(svs) => {
+            FieldValueSlice::StreamValueId(svs) => {
                 let mut pos = field_pos;
                 for (svid, range, rl) in
                     RefAwareStreamValueIter::from_range(&range, svs)
@@ -482,12 +485,12 @@ pub fn handle_tf_string_sink(
                     pos += rl;
                 }
             }
-            TypedSlice::BigInt(_)
-            | TypedSlice::Float(_)
-            | TypedSlice::Rational(_) => {
+            FieldValueSlice::BigInt(_)
+            | FieldValueSlice::Float(_)
+            | FieldValueSlice::Rational(_) => {
                 todo!();
             }
-            TypedSlice::Array(arrays) => {
+            FieldValueSlice::Array(arrays) => {
                 let ss = string_store.get_or_insert_with(|| {
                     jd.session_data.string_store.read().unwrap()
                 });
@@ -499,7 +502,7 @@ pub fn handle_tf_string_sink(
                     rfk: RealizedFormatKey::default(),
                 };
                 for (a, rl) in
-                    RefAwareTypedSliceIter::from_range(&range, arrays)
+                    RefAwareFieldValueSliceIter::from_range(&range, arrays)
                 {
                     let mut data = Vec::new();
                     a.format(&mut data, &fc).unwrap();
@@ -512,7 +515,7 @@ pub fn handle_tf_string_sink(
                     );
                 }
             }
-            TypedSlice::Object(object) => {
+            FieldValueSlice::Object(object) => {
                 let ss = string_store.get_or_insert_with(|| {
                     jd.session_data.string_store.read().unwrap()
                 });
@@ -524,7 +527,7 @@ pub fn handle_tf_string_sink(
                     rfk: RealizedFormatKey::default(),
                 };
                 for (a, rl) in
-                    RefAwareTypedSliceIter::from_range(&range, object)
+                    RefAwareFieldValueSliceIter::from_range(&range, object)
                 {
                     let mut data = Vec::new();
                     a.format(&mut data, &fc).unwrap();

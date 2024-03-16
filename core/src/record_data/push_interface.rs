@@ -14,12 +14,12 @@ use super::{
         Array, FieldReference, FieldValue, Object, SlicedFieldReference,
     },
     ref_iter::{
-        AnyRefSliceIter, RefAwareInlineBytesIter, RefAwareInlineTextIter,
-        RefAwareTypedRange, RefAwareTypedSliceIter,
+        AnyRefSliceIter, RefAwareFieldValueSliceIter, RefAwareInlineBytesIter,
+        RefAwareInlineTextIter, RefAwareTypedRange,
     },
     stream_value::StreamValueId,
-    typed::TypedSlice,
-    typed_iters::TypedSliceIter,
+    field_value_ref::FieldValueSlice,
+    field_value_slice_iter::FieldValueSliceIter,
 };
 use crate::{
     operators::errors::OperatorApplicationError,
@@ -509,12 +509,12 @@ pub unsafe trait PushInterface {
         // PERF: this sucks
         let fc = range.base.field_count;
         match range.base.data {
-            TypedSlice::Null(_) => self.push_null(fc, try_header_rle),
-            TypedSlice::Undefined(_) => {
+            FieldValueSlice::Null(_) => self.push_null(fc, try_header_rle),
+            FieldValueSlice::Undefined(_) => {
                 self.push_undefined(fc, try_header_rle)
             }
-            TypedSlice::Int(vals) => {
-                for (v, rl) in TypedSliceIter::from_range(&range, vals) {
+            FieldValueSlice::Int(vals) => {
+                for (v, rl) in FieldValueSliceIter::from_range(&range, vals) {
                     self.push_int(
                         *v,
                         rl as usize,
@@ -523,8 +523,9 @@ pub unsafe trait PushInterface {
                     );
                 }
             }
-            TypedSlice::BigInt(vals) => {
-                for (v, rl) in RefAwareTypedSliceIter::from_range(&range, vals)
+            FieldValueSlice::BigInt(vals) => {
+                for (v, rl) in
+                    RefAwareFieldValueSliceIter::from_range(&range, vals)
                 {
                     self.push_big_int(
                         v.clone(),
@@ -534,8 +535,9 @@ pub unsafe trait PushInterface {
                     );
                 }
             }
-            TypedSlice::Float(vals) => {
-                for (v, rl) in RefAwareTypedSliceIter::from_range(&range, vals)
+            FieldValueSlice::Float(vals) => {
+                for (v, rl) in
+                    RefAwareFieldValueSliceIter::from_range(&range, vals)
                 {
                     self.push_float(
                         *v,
@@ -545,8 +547,9 @@ pub unsafe trait PushInterface {
                     );
                 }
             }
-            TypedSlice::Rational(vals) => {
-                for (v, rl) in RefAwareTypedSliceIter::from_range(&range, vals)
+            FieldValueSlice::Rational(vals) => {
+                for (v, rl) in
+                    RefAwareFieldValueSliceIter::from_range(&range, vals)
                 {
                     self.push_rational(
                         v.clone(),
@@ -556,7 +559,7 @@ pub unsafe trait PushInterface {
                     );
                 }
             }
-            TypedSlice::BytesInline(vals) => {
+            FieldValueSlice::BytesInline(vals) => {
                 // we can ignore the offset here because we copy
                 for (v, rl, _offset) in
                     RefAwareInlineBytesIter::from_range(&range, vals)
@@ -569,7 +572,7 @@ pub unsafe trait PushInterface {
                     );
                 }
             }
-            TypedSlice::TextInline(vals) => {
+            FieldValueSlice::TextInline(vals) => {
                 // we can ignore the offset here because we copy
                 for (v, rl, _offset) in
                     RefAwareInlineTextIter::from_range(&range, vals)
@@ -582,8 +585,9 @@ pub unsafe trait PushInterface {
                     );
                 }
             }
-            TypedSlice::TextBuffer(vals) => {
-                for (v, rl) in RefAwareTypedSliceIter::from_range(&range, vals)
+            FieldValueSlice::TextBuffer(vals) => {
+                for (v, rl) in
+                    RefAwareFieldValueSliceIter::from_range(&range, vals)
                 {
                     self.push_text_buffer(
                         v.clone(),
@@ -593,8 +597,9 @@ pub unsafe trait PushInterface {
                     );
                 }
             }
-            TypedSlice::BytesBuffer(vals) => {
-                for (v, rl) in RefAwareTypedSliceIter::from_range(&range, vals)
+            FieldValueSlice::BytesBuffer(vals) => {
+                for (v, rl) in
+                    RefAwareFieldValueSliceIter::from_range(&range, vals)
                 {
                     self.push_bytes_buffer(
                         v.clone(),
@@ -604,8 +609,9 @@ pub unsafe trait PushInterface {
                     );
                 }
             }
-            TypedSlice::Object(vals) => {
-                for (v, rl) in RefAwareTypedSliceIter::from_range(&range, vals)
+            FieldValueSlice::Object(vals) => {
+                for (v, rl) in
+                    RefAwareFieldValueSliceIter::from_range(&range, vals)
                 {
                     self.push_object(
                         v.clone(),
@@ -615,8 +621,9 @@ pub unsafe trait PushInterface {
                     );
                 }
             }
-            TypedSlice::Array(vals) => {
-                for (v, rl) in RefAwareTypedSliceIter::from_range(&range, vals)
+            FieldValueSlice::Array(vals) => {
+                for (v, rl) in
+                    RefAwareFieldValueSliceIter::from_range(&range, vals)
                 {
                     self.push_array(
                         v.clone(),
@@ -626,8 +633,9 @@ pub unsafe trait PushInterface {
                     );
                 }
             }
-            TypedSlice::Custom(vals) => {
-                for (v, rl) in RefAwareTypedSliceIter::from_range(&range, vals)
+            FieldValueSlice::Custom(vals) => {
+                for (v, rl) in
+                    RefAwareFieldValueSliceIter::from_range(&range, vals)
                 {
                     self.push_custom(
                         v.clone(),
@@ -637,8 +645,9 @@ pub unsafe trait PushInterface {
                     );
                 }
             }
-            TypedSlice::Error(vals) => {
-                for (v, rl) in RefAwareTypedSliceIter::from_range(&range, vals)
+            FieldValueSlice::Error(vals) => {
+                for (v, rl) in
+                    RefAwareFieldValueSliceIter::from_range(&range, vals)
                 {
                     self.push_error(
                         v.clone(),
@@ -648,8 +657,8 @@ pub unsafe trait PushInterface {
                     );
                 }
             }
-            TypedSlice::StreamValueId(vals) => {
-                for (v, rl) in TypedSliceIter::from_range(&range, vals) {
+            FieldValueSlice::StreamValueId(vals) => {
+                for (v, rl) in FieldValueSliceIter::from_range(&range, vals) {
                     self.push_stream_value_id(
                         *v,
                         rl as usize,
@@ -658,8 +667,8 @@ pub unsafe trait PushInterface {
                     );
                 }
             }
-            TypedSlice::FieldReference(_)
-            | TypedSlice::SlicedFieldReference(_) => unreachable!(),
+            FieldValueSlice::FieldReference(_)
+            | FieldValueSlice::SlicedFieldReference(_) => unreachable!(),
         }
     }
     fn extend_from_ref_aware_range_smart_ref(
@@ -671,25 +680,25 @@ pub unsafe trait PushInterface {
         input_field_ref_offset: FieldRefOffset,
     ) {
         match range.base.data {
-            TypedSlice::Undefined(_)
-            | TypedSlice::Null(_)
-            | TypedSlice::Int(_)
-            | TypedSlice::Float(_)
-            | TypedSlice::StreamValueId(_) => {
+            FieldValueSlice::Undefined(_)
+            | FieldValueSlice::Null(_)
+            | FieldValueSlice::Int(_)
+            | FieldValueSlice::Float(_)
+            | FieldValueSlice::StreamValueId(_) => {
                 self.extend_from_ref_aware_range(
                     range,
                     try_header_rle,
                     try_data_rle,
                 );
             }
-            TypedSlice::BigInt(_)
-            | TypedSlice::Rational(_)
-            | TypedSlice::TextBuffer(_)
-            | TypedSlice::BytesBuffer(_)
-            | TypedSlice::Array(_)
-            | TypedSlice::Custom(_)
-            | TypedSlice::Error(_)
-            | TypedSlice::Object(_) => {
+            FieldValueSlice::BigInt(_)
+            | FieldValueSlice::Rational(_)
+            | FieldValueSlice::TextBuffer(_)
+            | FieldValueSlice::BytesBuffer(_)
+            | FieldValueSlice::Array(_)
+            | FieldValueSlice::Custom(_)
+            | FieldValueSlice::Error(_)
+            | FieldValueSlice::Object(_) => {
                 self.push_field_reference(
                     FieldReference::new(
                         range
@@ -701,7 +710,7 @@ pub unsafe trait PushInterface {
                     try_ref_data_rle,
                 );
             }
-            TypedSlice::TextInline(vals) => {
+            FieldValueSlice::TextInline(vals) => {
                 match range.refs {
                     Some(AnyRefSliceIter::SlicedFieldRef(_)) => {
                         // in this case we need to create sliced field refs
@@ -735,7 +744,7 @@ pub unsafe trait PushInterface {
                     }
                 }
             }
-            TypedSlice::BytesInline(vals) => {
+            FieldValueSlice::BytesInline(vals) => {
                 match range.refs {
                     Some(AnyRefSliceIter::SlicedFieldRef(_)) => {
                         // in this case we need to create sliced field refs
@@ -769,8 +778,8 @@ pub unsafe trait PushInterface {
                     }
                 }
             }
-            TypedSlice::FieldReference(_)
-            | TypedSlice::SlicedFieldReference(_) => unreachable!(),
+            FieldValueSlice::FieldReference(_)
+            | FieldValueSlice::SlicedFieldReference(_) => unreachable!(),
         }
     }
     unsafe fn extend_unchecked<T: FieldValueType + Sized>(

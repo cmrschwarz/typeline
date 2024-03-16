@@ -4,7 +4,7 @@ use crate::record_data::{
     match_set::MatchSetManager,
     ref_iter::{AutoDerefIter, RefAwareStreamValueIter},
     stream_value::StreamValueManager,
-    typed::TypedSlice,
+    field_value_ref::FieldValueSlice,
 };
 
 pub fn buffer_remaining_stream_values_in_sv_iter(
@@ -34,7 +34,7 @@ pub fn buffer_remaining_stream_values_in_auto_deref_iter<
     while let Some(range) =
         iter.typed_range_fwd(match_set_mgr, limit, field_value_flags::DEFAULT)
     {
-        if let TypedSlice::StreamValueId(svs) = range.base.data {
+        if let FieldValueSlice::StreamValueId(svs) = range.base.data {
             lines += buffer_remaining_stream_values_in_sv_iter(
                 sv_mgr,
                 RefAwareStreamValueIter::from_range(&range, svs),

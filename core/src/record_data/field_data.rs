@@ -15,11 +15,11 @@ use super::{
     },
     match_set::MatchSetManager,
     ref_iter::{
-        AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter,
-        RefAwareInlineTextIter, RefAwareTextBufferIter,
-        RefAwareTypedSliceIter,
+        AutoDerefIter, RefAwareBytesBufferIter, RefAwareFieldValueSliceIter,
+        RefAwareInlineBytesIter, RefAwareInlineTextIter,
+        RefAwareTextBufferIter,
     },
-    typed::value_as_bytes,
+    field_value_ref::value_as_bytes,
 };
 use crate::{
     operators::errors::OperatorApplicationError, utils::ringbuf::RingBuf,
@@ -33,7 +33,7 @@ use super::{
     iters::{FieldIterator, Iter},
     push_interface::PushInterface,
     stream_value::StreamValueId,
-    typed::TypedSlice,
+    field_value_ref::FieldValueSlice,
 };
 
 // if the u32 overflows we just split into two values
@@ -639,7 +639,7 @@ impl FieldData {
             unsafe {
                 let kind = range.data.repr();
                 let len = range.data.len();
-                TypedSlice::drop_from_kind(
+                FieldValueSlice::drop_from_kind(
                     if slice_start_pos < l1 {
                         d1.add(slice_start_pos)
                     } else {
@@ -773,7 +773,7 @@ impl FieldData {
                 };
             } else {
                 match tr.base.data {
-                    TypedSlice::BytesInline(data) => {
+                    FieldValueSlice::BytesInline(data) => {
                         for (v, rl, _offset) in
                             RefAwareInlineBytesIter::from_range(&tr, data)
                         {
@@ -791,7 +791,7 @@ impl FieldData {
                             });
                         }
                     }
-                    TypedSlice::TextInline(data) => {
+                    FieldValueSlice::TextInline(data) => {
                         for (v, rl, _offset) in
                             RefAwareInlineTextIter::from_range(&tr, data)
                         {
@@ -809,7 +809,7 @@ impl FieldData {
                             });
                         }
                     }
-                    TypedSlice::BytesBuffer(data) => {
+                    FieldValueSlice::BytesBuffer(data) => {
                         for (v, rl, _offset) in
                             RefAwareBytesBufferIter::from_range(&tr, data)
                         {
@@ -818,7 +818,7 @@ impl FieldData {
                             });
                         }
                     }
-                    TypedSlice::TextBuffer(data) => {
+                    FieldValueSlice::TextBuffer(data) => {
                         for (v, rl, _offset) in
                             RefAwareTextBufferIter::from_range(&tr, data)
                         {
@@ -827,9 +827,9 @@ impl FieldData {
                             });
                         }
                     }
-                    TypedSlice::BigInt(data) => {
+                    FieldValueSlice::BigInt(data) => {
                         for (v, rl) in
-                            RefAwareTypedSliceIter::from_range(&tr, data)
+                            RefAwareFieldValueSliceIter::from_range(&tr, data)
                         {
                             targets_applicator(&mut |fd| {
                                 fd.push_big_int(
@@ -841,9 +841,9 @@ impl FieldData {
                             });
                         }
                     }
-                    TypedSlice::Rational(data) => {
+                    FieldValueSlice::Rational(data) => {
                         for (v, rl) in
-                            RefAwareTypedSliceIter::from_range(&tr, data)
+                            RefAwareFieldValueSliceIter::from_range(&tr, data)
                         {
                             targets_applicator(&mut |fd| {
                                 fd.push_rational(
@@ -857,9 +857,9 @@ impl FieldData {
                     }
                     // TODO: do we have to worry about internal field
                     // references?
-                    TypedSlice::Object(data) => {
+                    FieldValueSlice::Object(data) => {
                         for (v, rl) in
-                            RefAwareTypedSliceIter::from_range(&tr, data)
+                            RefAwareFieldValueSliceIter::from_range(&tr, data)
                         {
                             targets_applicator(&mut |fd| {
                                 fd.push_object(
@@ -871,9 +871,9 @@ impl FieldData {
                             });
                         }
                     }
-                    TypedSlice::Array(data) => {
+                    FieldValueSlice::Array(data) => {
                         for (v, rl) in
-                            RefAwareTypedSliceIter::from_range(&tr, data)
+                            RefAwareFieldValueSliceIter::from_range(&tr, data)
                         {
                             targets_applicator(&mut |fd| {
                                 fd.push_array(
@@ -885,9 +885,9 @@ impl FieldData {
                             });
                         }
                     }
-                    TypedSlice::Custom(data) => {
+                    FieldValueSlice::Custom(data) => {
                         for (v, rl) in
-                            RefAwareTypedSliceIter::from_range(&tr, data)
+                            RefAwareFieldValueSliceIter::from_range(&tr, data)
                         {
                             targets_applicator(&mut |fd| {
                                 fd.push_custom(
@@ -899,9 +899,9 @@ impl FieldData {
                             });
                         }
                     }
-                    TypedSlice::Error(data) => {
+                    FieldValueSlice::Error(data) => {
                         for (v, rl) in
-                            RefAwareTypedSliceIter::from_range(&tr, data)
+                            RefAwareFieldValueSliceIter::from_range(&tr, data)
                         {
                             targets_applicator(&mut |fd| {
                                 fd.push_error(
@@ -914,13 +914,13 @@ impl FieldData {
                         }
                     }
                     // these types don't support field references
-                    TypedSlice::Undefined(_)
-                    | TypedSlice::Null(_)
-                    | TypedSlice::Int(_)
-                    | TypedSlice::Float(_)
-                    | TypedSlice::StreamValueId(_)
-                    | TypedSlice::FieldReference(_)
-                    | TypedSlice::SlicedFieldReference(_) => {
+                    FieldValueSlice::Undefined(_)
+                    | FieldValueSlice::Null(_)
+                    | FieldValueSlice::Int(_)
+                    | FieldValueSlice::Float(_)
+                    | FieldValueSlice::StreamValueId(_)
+                    | FieldValueSlice::FieldReference(_)
+                    | FieldValueSlice::SlicedFieldReference(_) => {
                         unreachable!();
                     }
                 }
@@ -983,37 +983,53 @@ unsafe fn extend_raw<T: Sized + Copy>(
 
 #[inline(always)]
 unsafe fn append_data(
-    ts: TypedSlice<'_>,
+    ts: FieldValueSlice<'_>,
     target_applicator: &mut impl FnMut(&mut dyn Fn(&mut FieldDataBuffer)),
 ) {
     unsafe {
         match ts {
-            TypedSlice::Null(_) | TypedSlice::Undefined(_) => (),
-            TypedSlice::Int(v) => extend_raw(target_applicator, v),
-            TypedSlice::BigInt(v) => extend_with_clones(target_applicator, v),
-            TypedSlice::Float(v) => extend_raw(target_applicator, v),
-            TypedSlice::Rational(v) => {
+            FieldValueSlice::Null(_) | FieldValueSlice::Undefined(_) => (),
+            FieldValueSlice::Int(v) => extend_raw(target_applicator, v),
+            FieldValueSlice::BigInt(v) => {
                 extend_with_clones(target_applicator, v)
             }
-            TypedSlice::StreamValueId(v) => extend_raw(target_applicator, v),
-            TypedSlice::FieldReference(v) => extend_raw(target_applicator, v),
-            TypedSlice::SlicedFieldReference(v) => {
+            FieldValueSlice::Float(v) => extend_raw(target_applicator, v),
+            FieldValueSlice::Rational(v) => {
+                extend_with_clones(target_applicator, v)
+            }
+            FieldValueSlice::StreamValueId(v) => {
                 extend_raw(target_applicator, v)
             }
-            TypedSlice::BytesInline(v) => extend_raw(target_applicator, v),
-            TypedSlice::TextInline(v) => {
+            FieldValueSlice::FieldReference(v) => {
+                extend_raw(target_applicator, v)
+            }
+            FieldValueSlice::SlicedFieldReference(v) => {
+                extend_raw(target_applicator, v)
+            }
+            FieldValueSlice::BytesInline(v) => {
+                extend_raw(target_applicator, v)
+            }
+            FieldValueSlice::TextInline(v) => {
                 extend_raw(target_applicator, v.as_bytes())
             }
-            TypedSlice::TextBuffer(v) => {
+            FieldValueSlice::TextBuffer(v) => {
                 extend_with_clones(target_applicator, v)
             }
-            TypedSlice::BytesBuffer(v) => {
+            FieldValueSlice::BytesBuffer(v) => {
                 extend_with_clones(target_applicator, v)
             }
-            TypedSlice::Error(v) => extend_with_clones(target_applicator, v),
-            TypedSlice::Object(v) => extend_with_clones(target_applicator, v),
-            TypedSlice::Array(v) => extend_with_clones(target_applicator, v),
-            TypedSlice::Custom(v) => extend_with_clones(target_applicator, v),
+            FieldValueSlice::Error(v) => {
+                extend_with_clones(target_applicator, v)
+            }
+            FieldValueSlice::Object(v) => {
+                extend_with_clones(target_applicator, v)
+            }
+            FieldValueSlice::Array(v) => {
+                extend_with_clones(target_applicator, v)
+            }
+            FieldValueSlice::Custom(v) => {
+                extend_with_clones(target_applicator, v)
+            }
         };
     }
 }
