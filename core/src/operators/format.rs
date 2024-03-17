@@ -1,7 +1,6 @@
 use arrayvec::{ArrayString, ArrayVec};
 use bstr::ByteSlice;
-use num::{BigInt, BigRational};
-use std::{borrow::Cow, cell::RefMut, io::Write, ptr::NonNull};
+use std::{borrow::Cow, cell::RefMut, ptr::NonNull};
 use unicode_ident::is_xid_start;
 
 use smallstr::SmallString;
@@ -25,12 +24,14 @@ use crate::{
         field_data::{
             field_value_flags, FieldValueRepr, RunLength, INLINE_STR_MAX_LEN,
         },
-        field_value::{
-            format_rational, Array, FieldValue, FormattingContext, Null,
-            Object, Undefined, RATIONAL_DIGITS,
-        },
+        field_value::{FieldValue, FormattingContext, Null, Undefined},
         field_value_ref::FieldValueSlice,
         field_value_slice_iter::FieldValueSliceIter,
+        formattable::{
+            calc_fmt_layout, FormatFillAlignment, FormatFillSpec,
+            FormatOptions, Formatable, NumberFormat, PrettyPrintFormat,
+            RealizedFormatKey, TypeReprFormat, ValueFormattingOpts,
+        },
         iter_hall::{IterId, IterKind},
         iters::FieldIterator,
         match_set::MatchSetManager,
@@ -44,50 +45,16 @@ use crate::{
         stream_value::{StreamValue, StreamValueId, StreamValueManager},
     },
     utils::{
-        counting_writer::{
-            CharLimitedLengthAndCharsCountingWriter,
-            LengthAndCharsCountingWriter, LengthCountingWriter,
-        },
         debuggable_nonmax::DebuggableNonMaxUsize,
         divide_by_char_len,
-        escaped_writer::EscapedWriter,
-        int_string_conversions::{
-            i64_digits, usize_to_str, USIZE_MAX_DECIMAL_DIGITS,
-        },
+        int_string_conversions::{usize_to_str, USIZE_MAX_DECIMAL_DIGITS},
         io::PointerWriter,
         string_store::{StringStore, StringStoreEntry},
         text_write::TextWriteIoAdapter,
         universe::CountedUniverse,
         MAX_UTF8_CHAR_LEN,
     },
-    NULL_STR, UNDEFINED_STR,
 };
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum FormatFillAlignment {
-    #[default]
-    Right,
-    Left,
-    Center,
-}
-
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub struct FormatFillSpec {
-    fill_char: Option<char>,
-    alignment: FormatFillAlignment,
-}
-
-impl FormatFillSpec {
-    pub fn new(
-        fill_char: Option<char>,
-        alignment: FormatFillAlignment,
-    ) -> Self {
-        Self {
-            fill_char,
-            alignment,
-        }
-    }
-}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FormatWidthSpec {
@@ -110,83 +77,11 @@ impl Default for FormatWidthSpec {
     }
 }
 
-// format string grammar:
-#[rustfmt::skip]
-/*
-format_string = ( [<brace_escaped_text>] [format_key] )*
-format_key = '{' [key] [ ':' format_spec ] '}'
-format_spec = [[fill]align]['+']['#'|'##']['0'][width]['.'precision][debug_repr[number_format]]
-fill = <any character>
-align = '<' | '^' | '>'
-debug_repr = ['?' | '??'] ['%'] | '%'
-number_format = 'x' | 'X' | '0x' | '0X' | 'o' | '0o' | 'b' | '0b' | 'e' | 'E'
-key = identifier
-width = identifier | number
-precision = identifier | number
-identifier = basic_identifier | escaped_identifier
-basic_identifier = '\p{XID_Start}' '\p{XID_Continue}'
-escaped_identifier = '@{' <brace_escaped_text> '}'
-*/
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
-pub enum NumberFormat {
-    #[default]
-    Default, // the default value representation, e.g. '42' for 42
-    Binary,        // base 2, e.g '101010' for 42
-    BinaryZeroB,   // binary, but with leading 0b, e.g. '0b101010' for 42
-    Octal,         // base 8, e.g '52' for 42
-    OctalZeroO,    // ocatl, but with leading 0o, e.g. '0o52' for 42
-    LowerHex,      // lower case hexadecimal, e.g '2a' for 42
-    UpperHex,      // upper case hexadecimal, e.g '2A' for 42
-    LowerHexZeroX, // like LowerHex, but with leading 0x, e.g. '0x2a' for 42
-    UpperHexZeroX, // like UpperHex, but with leading 0x, e.g. '0x2A' for 42
-    LowerExp,      // lower case scientific notation, e.g. '4.2e1' for 42
-    UpperExp,      // upper case scientific notation, e.g. '4.2E1' for 42
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
-pub enum TypeReprFormat {
-    #[default]
-    Regular, // regular representation, without string escaping etc.
-    Typed, // typed + escaped, e.g. "foo\n" insead of foo<newline>, no errors
-    Debug, // like typed, but prefix ~ for stream values
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
-pub enum PrettyPrintFormat {
-    #[default]
-    Regular, // default. objects & arrays get spaces, but stay on one line
-    Pretty,  /* add newlines and indentation to objects. adds 0x to hex
-              * numbers */
-    Compact, // no spaces at all
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Default)]
-pub struct FormatOptions {
-    pub fill: Option<FormatFillSpec>,
-    pub add_plus_sign: bool,
-
-    pub number_format: NumberFormat,
-
-    pub type_repr: TypeReprFormat,
-
-    pub pretty_print: PrettyPrintFormat,
-
-    pub zero_pad_numbers: bool,
-}
-
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct FormatKey {
     pub ref_idx: FormatKeyRefId,
     pub min_char_count: Option<FormatWidthSpec>,
     pub float_precision: Option<FormatWidthSpec>,
-    pub opts: FormatOptions,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Default)]
-pub struct RealizedFormatKey {
-    pub min_char_count: usize,
-    pub float_precision: Option<usize>,
     pub opts: FormatOptions,
 }
 
@@ -252,12 +147,6 @@ struct OutputTarget {
     remaining_len: usize,
 }
 
-#[derive(Clone, Copy)]
-struct FormattingOpts {
-    is_stream_value: bool,
-    type_repr_format: TypeReprFormat,
-}
-
 pub struct TfFormat<'a> {
     op: &'a OpFormat,
     refs: Vec<FormatIdentRef>,
@@ -268,16 +157,6 @@ pub struct TfFormat<'a> {
         TfFormatStreamValueHandle,
     >,
     print_rationals_raw: bool,
-}
-
-struct TextLayout {
-    truncated_text_len: usize,
-    padding: usize,
-}
-
-struct TextBounds {
-    len: usize,
-    char_count: usize,
 }
 
 impl OutputTarget {
@@ -332,334 +211,6 @@ impl FormatKey {
     fn realize_max_char_count(&self, float_precision_lookup: usize) -> usize {
         self.realize_float_precision(float_precision_lookup)
             .unwrap_or(usize::MAX)
-    }
-}
-
-trait Formatable<'a> {
-    type FormattingContext: 'a + Copy;
-    fn format<W: std::io::Write>(
-        &self,
-        ctx: Self::FormattingContext,
-        w: &mut W,
-    );
-    fn refuses_truncation(_ctx: Self::FormattingContext) -> bool {
-        true
-    }
-    fn total_length_cheap(_ctx: Self::FormattingContext) -> bool {
-        false
-    }
-    fn length_total(&self, ctx: Self::FormattingContext) -> usize {
-        let mut w = LengthCountingWriter::default();
-        self.format(ctx, &mut w);
-        w.len
-    }
-    fn text_bounds_total(&self, ctx: Self::FormattingContext) -> TextBounds {
-        let mut w = LengthAndCharsCountingWriter::default();
-        self.format(ctx, &mut w);
-        TextBounds::new(w.len, w.char_count)
-    }
-    fn char_bound_text_bounds(
-        &self,
-        ctx: Self::FormattingContext,
-        max_chars: usize,
-    ) -> TextBounds {
-        if Self::refuses_truncation(ctx) {
-            return self.text_bounds_total(ctx);
-        }
-        let mut w = CharLimitedLengthAndCharsCountingWriter::new(max_chars);
-        self.format(ctx, &mut w);
-        TextBounds::new(w.len, w.char_count)
-    }
-}
-
-impl Formatable<'_> for [u8] {
-    type FormattingContext = FormattingOpts; // true -> escaped
-    fn refuses_truncation(opts: Self::FormattingContext) -> bool {
-        opts.type_repr_format == TypeReprFormat::Regular
-    }
-    fn total_length_cheap(opts: Self::FormattingContext) -> bool {
-        opts.type_repr_format != TypeReprFormat::Regular
-    }
-    fn format<W: std::io::Write>(
-        &self,
-        opts: Self::FormattingContext,
-        w: &mut W,
-    ) {
-        if opts.type_repr_format == TypeReprFormat::Regular {
-            if let Err(e) = w.write_all(self) {
-                assert!(e.kind() == std::io::ErrorKind::WriteZero);
-            }
-            return;
-        }
-        if opts.is_stream_value
-            && opts.type_repr_format == TypeReprFormat::Debug
-        {
-            w.write_all(b"~b\"").unwrap();
-        } else {
-            w.write_all(b"b\"").unwrap();
-        }
-        let mut ew = EscapedWriter::new(TextWriteIoAdapter(w), b'"');
-        ew.write_all(self).unwrap();
-        ew.into_inner().unwrap().0.write_all(b"\"").unwrap();
-    }
-    fn length_total(&self, opts: Self::FormattingContext) -> usize {
-        if opts.type_repr_format == TypeReprFormat::Regular {
-            return self.len();
-        }
-        let mut w = LengthCountingWriter::default();
-        self.format(opts, &mut w);
-        w.len
-    }
-}
-impl<'a> Formatable<'a> for str {
-    type FormattingContext = FormattingOpts; // true -> escaped
-    fn refuses_truncation(opts: Self::FormattingContext) -> bool {
-        opts.type_repr_format == TypeReprFormat::Regular
-    }
-    fn total_length_cheap(opts: Self::FormattingContext) -> bool {
-        opts.type_repr_format != TypeReprFormat::Regular
-    }
-    fn format<W: std::io::Write>(
-        &self,
-        opts: Self::FormattingContext,
-        w: &mut W,
-    ) {
-        if opts.type_repr_format == TypeReprFormat::Regular {
-            if let Err(e) = w.write_all(self.as_bytes()) {
-                assert!(e.kind() == std::io::ErrorKind::WriteZero);
-            }
-            return;
-        }
-        if opts.is_stream_value
-            && opts.type_repr_format == TypeReprFormat::Debug
-        {
-            w.write_all(b"~\"").unwrap();
-        } else {
-            w.write_all(b"\"").unwrap();
-        }
-        let mut ew = EscapedWriter::new(TextWriteIoAdapter(w), b'"');
-        ew.write_all(self.as_bytes()).unwrap();
-        ew.into_inner().unwrap().0.write_all(b"\"").unwrap();
-    }
-    fn length_total(&self, opts: Self::FormattingContext) -> usize {
-        if opts.type_repr_format == TypeReprFormat::Regular {
-            return self.len();
-        }
-        let mut w = LengthCountingWriter::default();
-        self.format(opts, &mut w);
-        w.len
-    }
-}
-impl<'a> Formatable<'a> for i64 {
-    type FormattingContext = &'a RealizedFormatKey;
-    fn total_length_cheap(_ctx: &'a RealizedFormatKey) -> bool {
-        true
-    }
-    fn format<W: std::io::Write>(
-        &self,
-        ctx: &'a RealizedFormatKey,
-        w: &mut W,
-    ) {
-        let char_count = ctx.min_char_count;
-        if ctx.opts.add_plus_sign {
-            if ctx.opts.zero_pad_numbers {
-                w.write_fmt(format_args!("{self:+0char_count$}")).unwrap();
-                return;
-            }
-            w.write_fmt(format_args!("{self:+char_count$}")).unwrap();
-            return;
-        }
-        if ctx.opts.zero_pad_numbers {
-            w.write_fmt(format_args!("{self:0char_count$}")).unwrap();
-            return;
-        }
-        w.write_fmt(format_args!("{self}")).unwrap();
-    }
-    fn length_total(&self, ctx: Self::FormattingContext) -> usize {
-        let digits = i64_digits(ctx.opts.add_plus_sign, *self);
-        if !ctx.opts.zero_pad_numbers {
-            return digits;
-        }
-        digits.max(ctx.min_char_count)
-    }
-    fn text_bounds_total(&self, ctx: Self::FormattingContext) -> TextBounds {
-        let len = self.length_total(ctx);
-        TextBounds::new(len, len)
-    }
-}
-impl<'a> Formatable<'a> for Object {
-    type FormattingContext = &'a FormattingContext<'a>;
-
-    fn format<W: std::io::Write>(
-        &self,
-        fc: &'a FormattingContext<'a>,
-        w: &mut W,
-    ) {
-        self.format(&mut TextWriteIoAdapter(w), fc).unwrap();
-    }
-}
-impl<'a> Formatable<'a> for Array {
-    type FormattingContext = &'a FormattingContext<'a>;
-
-    fn format<W: std::io::Write>(
-        &self,
-        fc: &'a FormattingContext<'a>,
-        w: &mut W,
-    ) {
-        self.format(&mut TextWriteIoAdapter(w), fc).unwrap();
-    }
-}
-impl<'a> Formatable<'a> for BigRational {
-    type FormattingContext = &'a RealizedFormatKey;
-
-    fn format<W: std::io::Write>(
-        &self,
-        _fc: &'a RealizedFormatKey,
-        w: &mut W,
-    ) {
-        // TODO: we dont support zero pad etc. for now
-        format_rational(&mut TextWriteIoAdapter(w), self, RATIONAL_DIGITS)
-            .unwrap();
-    }
-}
-impl<'a> Formatable<'a> for BigInt {
-    type FormattingContext = &'a RealizedFormatKey;
-
-    fn format<W: std::io::Write>(
-        &self,
-        _fc: &'a RealizedFormatKey,
-        w: &mut W,
-    ) {
-        // TODO: we dont support zero pad etc. for now
-        w.write_fmt(format_args!("{self}")).unwrap();
-    }
-}
-impl<'a> Formatable<'a> for f64 {
-    type FormattingContext = &'a RealizedFormatKey;
-
-    fn format<W: std::io::Write>(
-        &self,
-        ctx: &'a RealizedFormatKey,
-        w: &mut W,
-    ) {
-        let char_count = ctx.min_char_count;
-        if let Some(float_prec) = ctx.float_precision {
-            if ctx.opts.add_plus_sign {
-                if ctx.opts.zero_pad_numbers {
-                    w.write_fmt(format_args!(
-                        "{self:+0char_count$.float_prec$}"
-                    ))
-                    .unwrap();
-                    return;
-                }
-                w.write_fmt(format_args!("{self:+char_count$.float_prec$}"))
-                    .unwrap();
-                return;
-            }
-            if ctx.opts.zero_pad_numbers {
-                w.write_fmt(format_args!("{self:0char_count$.float_prec$}"))
-                    .unwrap();
-                return;
-            }
-            w.write_fmt(format_args!("{self:.float_prec$}")).unwrap();
-            return;
-        }
-        if ctx.opts.add_plus_sign {
-            if ctx.opts.zero_pad_numbers {
-                w.write_fmt(format_args!("{self:+0char_count$}")).unwrap();
-                return;
-            }
-            w.write_fmt(format_args!("{self:+char_count$}")).unwrap();
-            return;
-        }
-        if ctx.opts.zero_pad_numbers {
-            w.write_fmt(format_args!("{self:0char_count$}")).unwrap();
-        }
-    }
-}
-impl<'a> Formatable<'a> for Null {
-    type FormattingContext = ();
-    fn total_length_cheap(_ctx: ()) -> bool {
-        true
-    }
-    fn format<W: std::io::Write>(&self, _ctx: (), w: &mut W) {
-        w.write_all(NULL_STR.as_bytes()).unwrap();
-    }
-    fn length_total(&self, _ctx: Self::FormattingContext) -> usize {
-        NULL_STR.len()
-    }
-    fn text_bounds_total(&self, _ctx: Self::FormattingContext) -> TextBounds {
-        let len = NULL_STR.len();
-        TextBounds::new(len, len)
-    }
-}
-impl<'a> Formatable<'a> for Undefined {
-    type FormattingContext = ();
-    fn total_length_cheap(_ctx: ()) -> bool {
-        true
-    }
-    fn format<W: std::io::Write>(&self, _ctx: (), w: &mut W) {
-        w.write_all(UNDEFINED_STR.as_bytes()).unwrap();
-    }
-    fn length_total(&self, _ctx: Self::FormattingContext) -> usize {
-        UNDEFINED_STR.len()
-    }
-    fn text_bounds_total(&self, _ctx: Self::FormattingContext) -> TextBounds {
-        let len = UNDEFINED_STR.len();
-        TextBounds::new(len, len)
-    }
-}
-impl<'a> Formatable<'a> for OperatorApplicationError {
-    type FormattingContext = FormattingOpts; // is_stream_value
-    fn format<W: std::io::Write>(
-        &self,
-        opts: Self::FormattingContext,
-        w: &mut W,
-    ) {
-        let sv = match opts.type_repr_format {
-            TypeReprFormat::Regular => unreachable!(),
-            TypeReprFormat::Typed => "",
-            TypeReprFormat::Debug => {
-                if opts.is_stream_value {
-                    "~"
-                } else {
-                    ""
-                }
-            }
-        };
-        w.write_fmt(format_args!("{sv}(error)\"")).unwrap();
-        let mut ew = EscapedWriter::new(TextWriteIoAdapter(w), b'"');
-        std::io::Write::write_all(&mut ew, self.message().as_bytes()).unwrap();
-        ew.into_inner().unwrap().0.write_all(b"\"").unwrap();
-    }
-}
-
-impl TextBounds {
-    fn new(len: usize, char_count: usize) -> Self {
-        Self { len, char_count }
-    }
-}
-
-impl TextLayout {
-    pub fn new(truncated_text_len: usize, padding: usize) -> Self {
-        Self {
-            truncated_text_len,
-            padding,
-        }
-    }
-    pub fn total_len(&self, opts: &FormatOptions, quotes_len: usize) -> usize {
-        self.truncated_text_len
-            + quotes_len
-            + self.padding * opts.fill_char_width()
-    }
-}
-
-impl FormatOptions {
-    fn fill_char_width(&self) -> usize {
-        if let Some(f) = self.fill {
-            return f.fill_char.map_or(1, char::len_utf8);
-        }
-        1
     }
 }
 
@@ -1231,48 +782,6 @@ fn iter_output_targets(
     }
 }
 
-// 'quotes_len' in a more general sense is the number of characters (always
-// ascii) that will be printed as part of the text that are non negotiable
-fn calc_fmt_layout<'a, F: Formatable<'a> + ?Sized>(
-    ctx: F::FormattingContext,
-    min_chars: usize,
-    max_chars: usize,
-    quotes_len: usize,
-    formatable: &F,
-) -> TextLayout {
-    if max_chars == usize::MAX || F::refuses_truncation(ctx) {
-        if F::total_length_cheap(ctx) {
-            let text_len = formatable.length_total(ctx);
-            if (text_len / MAX_UTF8_CHAR_LEN + quotes_len) >= min_chars {
-                return TextLayout::new(text_len, 0);
-            }
-        }
-        let tb = formatable.text_bounds_total(ctx);
-        if tb.char_count + quotes_len >= min_chars {
-            return TextLayout::new(tb.len, 0);
-        }
-        return TextLayout::new(tb.len, min_chars - tb.char_count);
-    }
-    let max_chars_no_quotes = max_chars.saturating_sub(quotes_len);
-    if min_chars > max_chars {
-        let tb = formatable.char_bound_text_bounds(ctx, max_chars_no_quotes);
-        // we might have min_chars = 1, max_chars = 0, quote len = 2,
-        // so we need the saturating sub
-        return TextLayout::new(
-            tb.len,
-            min_chars.saturating_sub(tb.char_count + quotes_len),
-        );
-    }
-    let tb = formatable.char_bound_text_bounds(ctx, max_chars_no_quotes);
-    if tb.char_count >= max_chars_no_quotes {
-        return TextLayout::new(tb.len, 0);
-    }
-    TextLayout::new(
-        tb.len,
-        min_chars.saturating_sub(tb.char_count + quotes_len),
-    )
-}
-
 // returns the number of *bytes* that the text will use up in the output
 // including padding / truncation
 fn calc_fmt_len<'a, F: Formatable<'a> + ?Sized>(
@@ -1280,11 +789,9 @@ fn calc_fmt_len<'a, F: Formatable<'a> + ?Sized>(
     ctx: F::FormattingContext,
     min_chars: usize,
     max_chars: usize,
-    quotes_len: usize,
     formatable: &F,
 ) -> usize {
-    calc_fmt_layout(ctx, min_chars, max_chars, quotes_len, formatable)
-        .total_len(&k.opts, quotes_len)
+    calc_fmt_layout(ctx, min_chars, max_chars, formatable).total_len(&k.opts)
 }
 
 fn calc_fmt_len_ost<'a, F: Formatable<'a> + ?Sized>(
@@ -1298,7 +805,6 @@ fn calc_fmt_len_ost<'a, F: Formatable<'a> + ?Sized>(
         ctx,
         k.realize_min_char_count(output.min_char_count),
         k.realize_max_char_count(output.float_precision),
-        0,
         formatable,
     )
 }
@@ -1420,7 +926,7 @@ pub fn setup_key_output_state(
         .contains(&k.opts.type_repr);
 
     let mut string_store = None;
-    let formatting_opts = FormattingOpts {
+    let formatting_opts = ValueFormattingOpts {
         is_stream_value: false,
         type_repr_format: k.opts.type_repr,
     };
@@ -1501,7 +1007,7 @@ pub fn setup_key_output_state(
                 }
             }
             FieldValueSlice::StreamValueId(svs) => {
-                let formatting_opts = FormattingOpts {
+                let formatting_opts = ValueFormattingOpts {
                     is_stream_value: true,
                     type_repr_format: k.opts.type_repr,
                 };
@@ -1830,14 +1336,14 @@ fn write_bytes_to_target(tgt: &mut OutputTarget, bytes: &[u8]) {
 
 fn write_padding_to_tgt(
     tgt: &mut OutputTarget,
-    fill_char: Option<char>,
+    fill_char: char,
     mut len: usize,
 ) {
     if len == 0 {
         return;
     }
     let mut char_enc = [0u8; MAX_UTF8_CHAR_LEN];
-    let char_slice = fill_char.unwrap_or(' ').encode_utf8(&mut char_enc);
+    let char_slice = fill_char.encode_utf8(&mut char_enc);
     let mut buf = ArrayVec::<u8, 32>::new();
     let chars_cap = divide_by_char_len(buf.capacity(), char_slice.len());
     for _ in 0..chars_cap.min(len) {
@@ -2034,20 +1540,13 @@ fn write_formatted<'a, F: Formatable<'a> + ?Sized>(
         ctx,
         k.realize_min_char_count(tgt.min_char_count),
         k.realize_max_char_count(tgt.float_precision),
-        0,
         formatable,
     );
-    let (pad_left, pad_right) = match fill_spec.alignment {
-        FormatFillAlignment::Left => (layout.padding, 0),
-        FormatFillAlignment::Center => {
-            ((layout.padding + 1) / 2, layout.padding / 2)
-        }
-        FormatFillAlignment::Right => (0, layout.padding),
-    };
+    let (pad_left, pad_right) = fill_spec.distribute_padding(layout.padding);
 
-    write_padding_to_tgt(tgt, fill_spec.fill_char, pad_left);
+    write_padding_to_tgt(tgt, fill_spec.get_fill_char(), pad_left);
     tgt.with_writer(|pw| formatable.format(ctx, pw));
-    write_padding_to_tgt(tgt, fill_spec.fill_char, pad_right);
+    write_padding_to_tgt(tgt, fill_spec.get_fill_char(), pad_right);
 }
 
 fn write_fmt_key(
@@ -2088,7 +1587,7 @@ fn write_fmt_key(
         .contains(&k.opts.type_repr);
     let mut output_index = 0;
     let mut string_store = None;
-    let formatting_opts = FormattingOpts {
+    let formatting_opts = ValueFormattingOpts {
         is_stream_value: false,
         type_repr_format: k.opts.type_repr,
     };
@@ -2248,7 +1747,7 @@ fn write_fmt_key(
                 }
             }
             FieldValueSlice::StreamValueId(svs) => {
-                let formatting_opts = FormattingOpts {
+                let formatting_opts = ValueFormattingOpts {
                     is_stream_value: true,
                     type_repr_format: k.opts.type_repr,
                 };
@@ -2608,7 +2107,7 @@ pub fn handle_tf_format_stream_value_update(
                     else {
                         unreachable!();
                     };
-                    let formatting_opts = FormattingOpts {
+                    let formatting_opts = ValueFormattingOpts {
                         is_stream_value: false,
                         type_repr_format: k.opts.type_repr,
                     };
@@ -2618,7 +2117,6 @@ pub fn handle_tf_format_stream_value_update(
                         formatting_opts,
                         k.realize_min_char_count(handle.min_char_count),
                         k.realize_max_char_count(handle.float_precision),
-                        0,
                         src_buf.as_slice(), /* text or bytes doesn't matter
                                              * here */
                     );

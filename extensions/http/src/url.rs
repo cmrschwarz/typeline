@@ -1,8 +1,12 @@
 use std::ops::{Deref, DerefMut};
 
 use scr_core::{
-    operators::format::RealizedFormatKey,
-    record_data::custom_data::{CustomData, FieldValueFormattingError},
+    record_data::{
+        custom_data::{
+            format_custom_data_padded, CustomData, FieldValueFormattingError,
+        },
+        formattable::RealizedFormatKey,
+    },
     utils::text_write::TextWrite,
 };
 
@@ -35,9 +39,11 @@ impl CustomData for UrlValueType {
     fn format(
         &self,
         w: &mut dyn TextWrite,
-        _format: &RealizedFormatKey,
+        format: &RealizedFormatKey,
     ) -> Result<(), FieldValueFormattingError> {
-        w.write_text_fmt(format_args!("{}", self.0))?;
-        Ok(())
+        format_custom_data_padded(self, false, format, w, |w| {
+            w.write_text_fmt(format_args!("{}", self.0))?;
+            Ok(())
+        })
     }
 }

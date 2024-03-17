@@ -16,6 +16,7 @@ use crate::{
         field_value::{FieldValue, FormattingContext},
         field_value_ref::FieldValueSlice,
         field_value_slice_iter::FieldValueSliceIter,
+        formattable::RealizedFormatKey,
         iter_hall::IterId,
         iters::FieldIterator,
         push_interface::PushInterface,
@@ -38,7 +39,6 @@ use crate::{
 
 use super::{
     errors::OperatorApplicationError,
-    format::RealizedFormatKey,
     operator::{DefaultOperatorName, OperatorBase, OperatorData, OperatorId},
     transform::{TransformData, TransformId, TransformState},
 };
@@ -378,7 +378,7 @@ pub fn handle_tf_string_sink(
                             &mut out,
                             OperatorApplicationError::new_s(
                                 format!(
-                                    "failed to stringify custom type {}: {e}",
+                                    "failed to stringify custom type '{}': {e}",
                                     v.type_name()
                                 ),
                                 op_id,

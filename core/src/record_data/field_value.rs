@@ -10,7 +10,7 @@ use indexmap::IndexMap;
 use num::{BigInt, BigRational, FromPrimitive, One, Signed, Zero};
 
 use crate::{
-    operators::{errors::OperatorApplicationError, format::RealizedFormatKey},
+    operators::errors::OperatorApplicationError,
     utils::{
         escaped_writer::EscapedWriter,
         string_store::{StringStore, StringStoreEntry},
@@ -26,6 +26,7 @@ use super::{
     field::{FieldManager, FieldRefOffset},
     field_data::{FieldValueRepr, FieldValueType, FixedSizeFieldValueType},
     field_value_ref::FieldValueRef,
+    formattable::RealizedFormatKey,
     match_set::MatchSetManager,
     stream_value::StreamValueId,
 };
@@ -642,25 +643,25 @@ impl Array {
         match self {
             Array::Null(v) => {
                 format_array(w, fc, (0..*v).map(|_| &()), |f, _, ()| {
-                    f.write_all_text(NULL_STR).map_err(|e| e.into())
+                    f.write_all_text(NULL_STR).map_err(Into::into)
                 })
             }
             Array::Undefined(v) => {
                 format_array(w, fc, (0..*v).map(|_| &()), |f, _, ()| {
-                    f.write_all_text(UNDEFINED_STR).map_err(|e| e.into())
+                    f.write_all_text(UNDEFINED_STR).map_err(Into::into)
                 })
             }
             Array::Int(v) => format_array(w, fc, v.iter(), |f, _, v| {
-                f.write_text_fmt(format_args!("{v}")).map_err(|e| e.into())
+                f.write_text_fmt(format_args!("{v}")).map_err(Into::into)
             }),
             Array::Bytes(v) => format_array(w, fc, v.iter(), |f, _, v| {
-                format_bytes(f, v).map_err(|e| e.into())
+                format_bytes(f, v).map_err(Into::into)
             }),
             Array::String(v) => format_array(w, fc, v.iter(), |f, _, v| {
-                format_quoted_string(f, v).map_err(|e| e.into())
+                format_quoted_string(f, v).map_err(Into::into)
             }),
             Array::Error(v) => format_array(w, fc, v.iter(), |f, _, v| {
-                format_error(f, v).map_err(|e| e.into())
+                format_error(f, v).map_err(Into::into)
             }),
             Array::Array(v) => {
                 format_array(w, fc, v.iter(), |f, fc, v| v.format(f, fc))

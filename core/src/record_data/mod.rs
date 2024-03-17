@@ -1,4 +1,5 @@
 pub mod action_buffer;
+pub mod bytes_insertion_stream;
 pub mod custom_data;
 pub mod field;
 pub mod field_action;
@@ -8,6 +9,7 @@ pub mod field_value;
 pub mod field_value_ref;
 pub mod field_value_slice_iter;
 pub mod fixed_sized_type_inserter;
+pub mod formattable;
 pub mod group_tracker;
 pub mod iter_hall;
 pub mod iters;
@@ -19,4 +21,3 @@ pub mod ref_iter;
 pub mod stream_value;
 pub mod variable_sized_type_inserter;
 pub mod varying_type_inserter;
-pub mod bytes_insertion_stream;

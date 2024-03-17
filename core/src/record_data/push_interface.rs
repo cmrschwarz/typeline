@@ -20,6 +20,7 @@ use super::{
     },
     field_value_ref::FieldValueSlice,
     field_value_slice_iter::FieldValueSliceIter,
+    formattable::RealizedFormatKey,
     match_set::MatchSetManager,
     ref_iter::{
         AnyRefSliceIter, RefAwareFieldValueSliceIter, RefAwareInlineBytesIter,
@@ -28,7 +29,7 @@ use super::{
     stream_value::StreamValueId,
 };
 use crate::{
-    operators::{errors::OperatorApplicationError, format::RealizedFormatKey},
+    operators::errors::OperatorApplicationError,
     record_data::field_data::{
         field_value_flags::{DELETED, SHARED_VALUE},
         INLINE_STR_MAX_LEN,

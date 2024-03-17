@@ -2,16 +2,15 @@ use std::{any::Any, borrow::Cow, cmp::Ordering, fmt::Debug};
 
 use thiserror::Error;
 
-use crate::{
-    operators::format::RealizedFormatKey,
-    utils::{
-        counting_writer::{
-            LengthAndCharsCountingWriter, LengthCountingWriter, TextInfo,
-            TextInfoWriter,
-        },
-        text_write::{MaybeTextWrite, TextWrite, TextWriteIoAdapter},
+use crate::utils::{
+    counting_writer::{
+        LengthAndCharsCountingWriter, LengthCountingWriter, TextInfo,
+        TextInfoWriter,
     },
+    text_write::{MaybeTextWrite, TextWrite, TextWriteIoAdapter},
 };
+
+use super::formattable::{calc_fmt_layout, RealizedFormatKey};
 
 pub fn custom_data_reference_eq<T: CustomData + ?Sized>(
     lhs: &T,
@@ -145,11 +144,27 @@ impl PartialOrd for CustomDataBox {
     }
 }
 
-pub fn format_custom_data_padded<C: CustomData>(
-    len: usize,
-    char_count: usize,
-    format: &RealizedFormatKey,
-    f: impl FnOnce(&mut C, &RealizedFormatKey),
-) {
-    
+pub fn format_custom_data_padded<C: CustomData, W: TextWrite + ?Sized>(
+    _cd: &C,
+    _allow_truncation: bool,
+    _format: &RealizedFormatKey,
+    w: &mut W,
+    format_unpadded: impl FnOnce(&mut W) -> Result<(), FieldValueFormattingError>,
+) -> Result<(), FieldValueFormattingError> {
+    // TODO: make CustomData a Formattable, integrate with calc_fmt_layout ...
+    format_unpadded(w)
+}
+
+pub fn format_custom_data_padded_raw<
+    C: CustomData,
+    W: MaybeTextWrite + ?Sized,
+>(
+    _cd: &C,
+    _allow_truncation: bool,
+    _format: &RealizedFormatKey,
+    w: &mut W,
+    format_unpadded: impl FnOnce(&mut W) -> Result<(), FieldValueFormattingError>,
+) -> Result<(), FieldValueFormattingError> {
+    // TODO: make CustomData a Formattable, integrate with calc_fmt_layout ...
+    format_unpadded(w)
 }

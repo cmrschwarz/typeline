@@ -20,6 +20,7 @@ use crate::{
         field_value::{FieldValue, SlicedFieldReference},
         field_value_ref::FieldValueSlice,
         field_value_slice_iter::FieldValueSliceIter,
+        formattable::RealizedFormatKey,
         iter_hall::{IterId, IterKind},
         iters::FieldIterator,
         push_interface::PushInterface,
@@ -47,7 +48,6 @@ use super::{
     errors::{
         OperatorApplicationError, OperatorCreationError, OperatorSetupError,
     },
-    format::RealizedFormatKey,
     operator::{DefaultOperatorName, OperatorBase, OperatorData},
     transform::{TransformData, TransformId, TransformState},
     utils::buffer_stream_values::{

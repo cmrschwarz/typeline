@@ -1,5 +1,11 @@
 use std::io::{IsTerminal, Write};
 
+use super::{
+    errors::{OperatorApplicationError, OperatorCreationError},
+    operator::{OperatorBase, OperatorData},
+    transform::{TransformData, TransformId, TransformState},
+    utils::writable::{AnyWriter, WritableTarget},
+};
 use crate::{
     job::JobData,
     operators::utils::buffer_stream_values::{
@@ -15,6 +21,7 @@ use crate::{
         },
         field_value_ref::FieldValueSlice,
         field_value_slice_iter::FieldValueSliceIter,
+        formattable::RealizedFormatKey,
         iter_hall::IterId,
         iters::{FieldIterator, UnfoldIterRunLength},
         push_interface::PushInterface,
@@ -30,14 +37,6 @@ use crate::{
         int_string_conversions::i64_to_str, text_write::TextWriteIoAdapter,
     },
     NULL_STR, UNDEFINED_STR,
-};
-
-use super::{
-    errors::{OperatorApplicationError, OperatorCreationError},
-    format::RealizedFormatKey,
-    operator::{OperatorBase, OperatorData},
-    transform::{TransformData, TransformId, TransformState},
-    utils::writable::{AnyWriter, WritableTarget},
 };
 
 // ENHANCE: bikeshed a better format for this

@@ -1,11 +1,11 @@
 use std::borrow::Cow;
 
-use scr::record_data::custom_data::{CustomData, FieldValueFormattingError};
+use scr::record_data::{
+    custom_data::{CustomData, FieldValueFormattingError},
+    formattable::RealizedFormatKey,
+};
 use scr_core::{
-    operators::{
-        format::RealizedFormatKey,
-        string_sink::{create_op_string_sink, StringSinkHandle},
-    },
+    operators::string_sink::{create_op_string_sink, StringSinkHandle},
     options::context_builder::ContextBuilder,
     scr_error::ScrError,
 };
@@ -28,7 +28,7 @@ impl CustomData for DummyCustomType {
         _format: &RealizedFormatKey,
     ) -> Result<(), scr::record_data::custom_data::FieldValueFormattingError>
     {
-        w.write_all_text("<dummy data stringified>")?;
+        w.write_all_text("dummy")?;
         Ok(())
     }
 }
@@ -73,7 +73,7 @@ fn custom_type_that_cannot_stringify() -> Result<(), ScrError> {
         .run()?;
     assert_eq!(
         ss.get().get_first_error_message(),
-        Some("cannot stringify custom type dummy_no_stringify")
+        Some("failed to stringify custom type 'dummy_no_stringify': not supported")
     );
     Ok(())
 }

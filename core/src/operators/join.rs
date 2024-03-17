@@ -10,7 +10,6 @@ use smallvec::SmallVec;
 
 use crate::{
     job::{JobData, TransformManager},
-    operators::format::RealizedFormatKey,
     options::argument::CliArgIdx,
     record_data::{
         action_buffer::ActorId,
@@ -23,6 +22,7 @@ use crate::{
         field_value::{FieldValue, FieldValueKind},
         field_value_ref::FieldValueSlice,
         field_value_slice_iter::FieldValueSliceIter,
+        formattable::RealizedFormatKey,
         group_tracker::{GroupList, GroupListIterMut, GroupListIterRef},
         iter_hall::{IterId, IterKind},
         iters::{DestructuredFieldDataRef, FieldIterator, Iter},
@@ -716,13 +716,15 @@ fn handle_single_elem_group<'a, 'b>(
         msm,
         string_store,
         string_store_ref,
-        iter.next_range(msm).unwrap(),
+        iter.typed_range_fwd(msm, 1, field_value_flags::DEFAULT)
+            .unwrap(),
         true,
         true,
         true,
         join.input_field_ref_offset,
         true, // TODO: configurable
     );
+    groups_iter.next_group();
 }
 
 fn try_consume_stream_values<'a>(
