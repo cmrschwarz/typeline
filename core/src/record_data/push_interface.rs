@@ -1,33 +1,44 @@
-use std::{marker::PhantomData, mem::ManuallyDrop, ops::DerefMut};
+use std::{
+    mem::ManuallyDrop,
+    sync::{RwLock, RwLockReadGuard},
+};
 
 use num::{BigInt, BigRational};
 
 use super::{
+    bytes_insertion_stream::{BytesInsertionStream, TextInsertionStream},
     custom_data::CustomDataBox,
-    field::FieldRefOffset,
+    field::{FieldManager, FieldRefOffset},
     field_data::{
         field_value_flags, FieldData, FieldValueFlags, FieldValueFormat,
         FieldValueHeader, FieldValueRepr, FieldValueSize, FieldValueType,
-        RunLength, MAX_FIELD_ALIGN,
+        RunLength,
     },
     field_value::{
-        Array, FieldReference, FieldValue, Object, SlicedFieldReference,
+        Array, FieldReference, FieldValue, FormattingContext, Object,
+        SlicedFieldReference,
     },
+    field_value_ref::FieldValueSlice,
+    field_value_slice_iter::FieldValueSliceIter,
+    match_set::MatchSetManager,
     ref_iter::{
         AnyRefSliceIter, RefAwareFieldValueSliceIter, RefAwareInlineBytesIter,
         RefAwareInlineTextIter, RefAwareTypedRange,
     },
     stream_value::StreamValueId,
-    field_value_ref::FieldValueSlice,
-    field_value_slice_iter::FieldValueSliceIter,
 };
 use crate::{
-    operators::errors::OperatorApplicationError,
+    operators::{errors::OperatorApplicationError, format::RealizedFormatKey},
     record_data::field_data::{
         field_value_flags::{DELETED, SHARED_VALUE},
         INLINE_STR_MAX_LEN,
     },
-    utils::as_u8_slice,
+    utils::{
+        as_u8_slice,
+        int_string_conversions::{f64_to_str, i64_to_str},
+        string_store::StringStore,
+    },
+    NULL_STR, UNDEFINED_STR,
 };
 
 pub unsafe trait PushInterface {
@@ -64,6 +75,14 @@ pub unsafe trait PushInterface {
         run_length: usize,
         try_header_rle: bool,
     );
+    fn bytes_insertion_stream(
+        &mut self,
+        run_length: usize,
+    ) -> BytesInsertionStream;
+    fn text_insertion_stream(
+        &mut self,
+        run_length: usize,
+    ) -> TextInsertionStream;
     fn push_inline_bytes(
         &mut self,
         data: &[u8],
@@ -782,6 +801,167 @@ pub unsafe trait PushInterface {
             | FieldValueSlice::SlicedFieldReference(_) => unreachable!(),
         }
     }
+    #[allow(clippy::fn_params_excessive_bools)]
+    fn extend_from_ref_aware_range_stringified_smart_ref<'a>(
+        &mut self,
+        fm: &FieldManager,
+        msm: &MatchSetManager,
+        string_store: &'a RwLock<StringStore>,
+        string_store_ref: &mut Option<RwLockReadGuard<'a, StringStore>>,
+        range: RefAwareTypedRange,
+        try_header_rle: bool,
+        try_data_rle: bool,
+        try_ref_data_rle: bool,
+        input_field_ref_offset: FieldRefOffset,
+        print_rationals_raw: bool,
+    ) {
+        // PERF: this sucks
+        let fc = range.base.field_count;
+        match range.base.data {
+            FieldValueSlice::BytesInline(_)
+            | FieldValueSlice::TextInline(_)
+            | FieldValueSlice::TextBuffer(_)
+            | FieldValueSlice::BytesBuffer(_) => {
+                self.extend_from_ref_aware_range_smart_ref(
+                    range,
+                    try_header_rle,
+                    try_data_rle,
+                    try_ref_data_rle,
+                    input_field_ref_offset,
+                );
+            }
+            FieldValueSlice::Null(_) => self.push_inline_str(
+                NULL_STR,
+                fc,
+                try_header_rle,
+                try_data_rle,
+            ),
+            FieldValueSlice::Undefined(_) => self.push_inline_str(
+                UNDEFINED_STR,
+                fc,
+                try_header_rle,
+                try_data_rle,
+            ),
+            FieldValueSlice::Int(vals) => {
+                for (v, rl) in FieldValueSliceIter::from_range(&range, vals) {
+                    self.push_inline_str(
+                        &i64_to_str(false, *v),
+                        rl as usize,
+                        try_header_rle,
+                        try_data_rle,
+                    );
+                }
+            }
+            FieldValueSlice::BigInt(vals) => {
+                for (v, rl) in
+                    RefAwareFieldValueSliceIter::from_range(&range, vals)
+                {
+                    // PERF: sucks
+                    self.push_string(
+                        v.to_string(),
+                        rl as usize,
+                        try_header_rle,
+                        try_data_rle,
+                    );
+                }
+            }
+            FieldValueSlice::Float(vals) => {
+                for (v, rl) in
+                    RefAwareFieldValueSliceIter::from_range(&range, vals)
+                {
+                    // PERF: sucks
+                    self.push_str(
+                        &f64_to_str(*v),
+                        rl as usize,
+                        try_header_rle,
+                        try_data_rle,
+                    );
+                }
+            }
+            FieldValueSlice::Rational(vals) => {
+                for (v, rl) in
+                    RefAwareFieldValueSliceIter::from_range(&range, vals)
+                {
+                    // PERF: sucks
+                    self.push_rational(
+                        v.clone(),
+                        rl as usize,
+                        try_header_rle,
+                        try_data_rle,
+                    );
+                }
+            }
+
+            FieldValueSlice::Object(vals) => {
+                let ss = string_store_ref
+                    .get_or_insert_with(|| string_store.read().unwrap());
+                let fc = FormattingContext {
+                    ss,
+                    fm,
+                    msm,
+                    print_rationals_raw,
+                    rfk: RealizedFormatKey::default(),
+                };
+                for (o, rl) in
+                    RefAwareFieldValueSliceIter::from_range(&range, vals)
+                {
+                    o.format(
+                        &mut self.text_insertion_stream(rl as usize),
+                        &fc,
+                    )
+                    .unwrap();
+                }
+            }
+            FieldValueSlice::Array(vals) => {
+                for (v, rl) in
+                    RefAwareFieldValueSliceIter::from_range(&range, vals)
+                {
+                    self.push_array(
+                        v.clone(),
+                        rl as usize,
+                        try_header_rle,
+                        try_data_rle,
+                    );
+                }
+            }
+            FieldValueSlice::Custom(vals) => {
+                for (v, rl) in
+                    RefAwareFieldValueSliceIter::from_range(&range, vals)
+                {
+                    self.push_custom(
+                        v.clone(),
+                        rl as usize,
+                        try_header_rle,
+                        try_data_rle,
+                    );
+                }
+            }
+            FieldValueSlice::Error(vals) => {
+                for (v, rl) in
+                    RefAwareFieldValueSliceIter::from_range(&range, vals)
+                {
+                    self.push_error(
+                        v.clone(),
+                        rl as usize,
+                        try_header_rle,
+                        try_data_rle,
+                    );
+                }
+            }
+            FieldValueSlice::StreamValueId(vals) => {
+                for (v, rl) in FieldValueSliceIter::from_range(&range, vals) {
+                    self.push_stream_value_id(
+                        *v,
+                        rl as usize,
+                        try_header_rle,
+                        try_data_rle,
+                    );
+                }
+            }
+            FieldValueSlice::FieldReference(_)
+            | FieldValueSlice::SlicedFieldReference(_) => unreachable!(),
+        }
+    }
     unsafe fn extend_unchecked<T: FieldValueType + Sized>(
         &mut self,
         repr: FieldValueRepr,
@@ -1132,7 +1312,7 @@ unsafe impl PushInterface for FieldData {
                 fmt, run_length, header_rle, false,
             );
         }
-        self.data.reserve_contiguous(data_len);
+        self.data.reserve_contiguous(data_len, 0);
         let res = self.data.tail_ptr_mut();
         unsafe {
             // in debug mode, we initialize the memory with all ones
@@ -1293,749 +1473,18 @@ unsafe impl PushInterface for FieldData {
             );
         }
     }
-}
 
-pub struct RawFixedSizedTypeInserter<'a> {
-    fd: &'a mut FieldData,
-    count: usize,
-    max: usize,
-    data_ptr: *mut u8,
-}
-
-impl<'a> RawFixedSizedTypeInserter<'a> {
-    fn new(fd: &'a mut FieldData) -> Self {
-        Self {
-            fd,
-            count: 0,
-            max: 0,
-            data_ptr: std::ptr::null_mut(),
-        }
-    }
-    unsafe fn commit(&mut self, fmt: FieldValueFormat) {
-        self.max = 0;
-        if self.count == 0 {
-            return;
-        }
-        let new_len = self.fd.data.len() + self.count * fmt.size as usize;
-        unsafe {
-            self.fd.data.set_len(new_len);
-            let mut padding = 0;
-            if fmt.repr.needs_alignment() {
-                padding = self.fd.pad_to_align();
-            }
-            if padding != 0 {
-                self.fd.add_header_padded_for_multiple_values(
-                    fmt, self.count, padding,
-                );
-            } else {
-                self.fd.add_header_for_multiple_values(
-                    fmt,
-                    self.count,
-                    fmt.flags | DELETED,
-                )
-            }
-        };
-        self.fd.field_count += self.count;
-        self.count = 0;
-    }
-    unsafe fn drop_and_reserve(
+    fn bytes_insertion_stream(
         &mut self,
-        element_size: usize,
-        max_inserts: usize,
-    ) {
-        self.fd
-            .data
-            .reserve(MAX_FIELD_ALIGN + max_inserts * element_size);
-        self.fd
-            .data
-            .reserve_contiguous(MAX_FIELD_ALIGN + element_size);
-        self.data_ptr = self.fd.data.tail_ptr_mut();
-        self.max = (self.fd.data.contiguous_tail_space_available()
-            - MAX_FIELD_ALIGN)
-            / element_size;
-        self.count = 0;
+        run_len: usize,
+    ) -> BytesInsertionStream {
+        BytesInsertionStream::new(self, run_len)
     }
-    unsafe fn commit_and_reserve(
+    fn text_insertion_stream(
         &mut self,
-        fmt: FieldValueFormat,
-        new_max_inserts: usize,
-    ) {
-        unsafe {
-            self.commit(fmt);
-            self.drop_and_reserve(new_max_inserts, fmt.size as usize);
-        }
-    }
-    #[inline(always)]
-    unsafe fn push<T>(&mut self, v: T) {
-        unsafe {
-            std::ptr::copy_nonoverlapping(
-                std::ptr::addr_of!(v),
-                self.data_ptr.cast(),
-                1,
-            );
-            self.data_ptr = self.data_ptr.add(std::mem::size_of::<T>());
-        }
-        std::mem::forget(v);
-        self.count += 1;
-    }
-}
-
-pub struct FixedSizeTypeInserter<'a, T: FieldValueType + PartialEq + Clone> {
-    raw: RawFixedSizedTypeInserter<'a>,
-    _phantom: PhantomData<T>,
-}
-
-impl<'a, T: FieldValueType + PartialEq + Clone> FixedSizeTypeInserter<'a, T> {
-    pub fn new(fd: &'a mut FieldData) -> Self {
-        assert!(!T::ZST && !T::DST);
-        Self {
-            raw: RawFixedSizedTypeInserter::new(fd),
-            _phantom: PhantomData,
-        }
-    }
-    pub fn element_size() -> usize {
-        std::mem::size_of::<T>()
-    }
-    pub fn element_format() -> FieldValueFormat {
-        FieldValueFormat {
-            repr: T::REPR,
-            flags: field_value_flags::DEFAULT,
-            size: Self::element_size() as FieldValueSize,
-        }
-    }
-    pub fn commit(&mut self) {
-        unsafe {
-            self.raw.commit(Self::element_format());
-        }
-    }
-    pub fn drop_and_reserve(&mut self, new_max_inserts: usize) {
-        unsafe {
-            self.raw
-                .drop_and_reserve(Self::element_size(), new_max_inserts);
-        }
-    }
-    pub fn commit_and_reserve(&mut self, new_max_inserts: usize) {
-        unsafe {
-            self.raw
-                .commit_and_reserve(Self::element_format(), new_max_inserts);
-        }
-    }
-    #[inline(always)]
-    pub fn push(&mut self, v: T) {
-        if self.raw.count == self.raw.max {
-            self.commit_and_reserve(
-                (self.raw.fd.data.len() / std::mem::size_of::<T>()).min(4),
-            );
-        }
-        unsafe {
-            self.raw.push(v);
-        }
-    }
-    #[inline(always)]
-    pub fn push_with_rl(&mut self, v: T, rl: usize) {
-        if rl == 0 {
-            return;
-        }
-        if rl == 1 {
-            self.push(v);
-            return;
-        }
-        let max_rem = self.raw.max - self.raw.count;
-        self.commit();
-        unsafe {
-            self.raw.fd.push_fixed_size_type_unchecked(
-                T::REPR,
-                v,
-                rl,
-                true,
-                false,
-            );
-        }
-        self.drop_and_reserve(max_rem);
-    }
-
-    pub fn extend<I: Iterator<Item = T>>(&mut self, mut iter: I) {
-        if let (_, Some(count)) = iter.size_hint() {
-            self.commit_and_reserve(count);
-            unsafe {
-                let mut ptr = self.raw.data_ptr.cast::<T>();
-                for v in (&mut iter).take(count) {
-                    std::ptr::write(ptr, v);
-                    ptr = ptr.add(1);
-                }
-                self.raw.count +=
-                    ptr.offset_from(self.raw.data_ptr.cast()) as usize;
-                self.raw.data_ptr = ptr.cast();
-            }
-        }
-        for v in &mut iter {
-            self.push(v);
-        }
-    }
-}
-
-impl<'a, T: FieldValueType + PartialEq + Clone> Drop
-    for FixedSizeTypeInserter<'a, T>
-{
-    fn drop(&mut self) {
-        self.commit()
-    }
-}
-
-pub struct RawVariableSizedTypeInserter<'a> {
-    fd: &'a mut FieldData,
-    count: usize,
-    max: usize,
-    expected_size: usize,
-    data_ptr: *mut u8,
-}
-
-impl<'a> RawVariableSizedTypeInserter<'a> {
-    fn new(fd: &'a mut FieldData) -> Self {
-        Self {
-            fd,
-            count: 0,
-            max: 0,
-            expected_size: 0,
-            data_ptr: std::ptr::null_mut(),
-        }
-    }
-    unsafe fn commit(&mut self, fmt: FieldValueFormat) {
-        self.max = 0;
-        if self.count == 0 {
-            return;
-        }
-        let new_len = self.fd.data.len() + self.count * fmt.size as usize;
-        unsafe {
-            self.fd.data.set_len(new_len);
-            self.fd.add_header_for_multiple_values(
-                fmt,
-                self.count,
-                fmt.flags | DELETED,
-            )
-        };
-        self.fd.field_count += self.count;
-        self.count = 0;
-    }
-    unsafe fn drop_and_reserve(
-        &mut self,
-        max_inserts: usize,
-        new_expected_size: usize,
-    ) {
-        self.fd.data.reserve(max_inserts * new_expected_size);
-        self.data_ptr = self.fd.data.tail_ptr_mut();
-        self.max =
-            self.fd.data.contiguous_tail_space_available() / new_expected_size;
-        self.count = 0;
-        self.expected_size = new_expected_size;
-    }
-    unsafe fn commit_and_reserve(
-        &mut self,
-        fmt: FieldValueFormat,
-        new_max_inserts: usize,
-        new_expected_size: usize,
-    ) {
-        unsafe {
-            self.commit(fmt);
-            self.drop_and_reserve(new_max_inserts, new_expected_size);
-        }
-    }
-    // assumes that v.len() == self.expected_size
-    // and self.count < self.max
-    #[inline(always)]
-    unsafe fn push(&mut self, v: &[u8]) {
-        unsafe {
-            std::ptr::copy_nonoverlapping(v.as_ptr(), self.data_ptr, v.len());
-            self.data_ptr = self.data_ptr.add(v.len());
-        }
-        self.count += 1;
-    }
-}
-
-pub unsafe trait VariableSizeTypeInserter<'a>: Sized {
-    const KIND: FieldValueRepr;
-    type ElementType: ?Sized;
-    fn new(fd: &'a mut FieldData) -> Self;
-    fn get_raw(&mut self) -> &mut RawVariableSizedTypeInserter<'a>;
-    fn element_as_bytes(v: &Self::ElementType) -> &[u8];
-    fn current_element_format(&mut self) -> FieldValueFormat {
-        FieldValueFormat {
-            repr: Self::KIND,
-            flags: field_value_flags::DEFAULT,
-            size: self.get_raw().expected_size as FieldValueSize,
-        }
-    }
-    fn commit(&mut self) {
-        let fmt = self.current_element_format();
-        unsafe {
-            self.get_raw().commit(fmt);
-        }
-    }
-    fn drop_and_reserve(
-        &mut self,
-        new_max_inserts: usize,
-        new_expected_size: usize,
-    ) {
-        unsafe {
-            self.get_raw()
-                .drop_and_reserve(new_max_inserts, new_expected_size);
-        }
-    }
-    fn commit_and_reserve(
-        &mut self,
-        new_max_inserts: usize,
-        new_expected_size: usize,
-    ) {
-        let fmt = self.current_element_format();
-        unsafe {
-            self.get_raw().commit_and_reserve(
-                fmt,
-                new_max_inserts,
-                new_expected_size,
-            );
-        }
-    }
-    #[inline(always)]
-    fn push_same_size(&mut self, v: &Self::ElementType) {
-        let v = Self::element_as_bytes(v);
-        assert!(self.get_raw().count < self.get_raw().max);
-        assert!(v.len() == self.get_raw().expected_size);
-        unsafe {
-            self.get_raw().push(v);
-        }
-    }
-    #[inline(always)]
-    fn push_may_rereserve(&mut self, v: &Self::ElementType) {
-        let v_bytes = Self::element_as_bytes(v);
-        let raw = self.get_raw();
-        if v_bytes.len() == raw.expected_size {
-            self.push_same_size(v);
-            return;
-        }
-        assert!(raw.count < raw.max);
-        let count_rem = raw.max - raw.count;
-        let fmt = self.current_element_format();
-        unsafe {
-            self.get_raw()
-                .commit_and_reserve(fmt, count_rem, v_bytes.len());
-            self.get_raw().push(v_bytes);
-        }
-    }
-    fn push_with_rl(&mut self, v: &Self::ElementType, rl: usize) {
-        if rl == 1 {
-            self.push_may_rereserve(v);
-            return;
-        }
-        let v = Self::element_as_bytes(v);
-        let max_rem = self.get_raw().max - self.get_raw().count;
-        self.commit();
-        unsafe {
-            self.get_raw().fd.push_variable_sized_type_unchecked(
-                Self::KIND,
-                v,
-                rl,
-                true,
-                false,
-            );
-        }
-        self.drop_and_reserve(max_rem, v.len());
-    }
-}
-
-pub struct RawZeroSizedTypeInserter<'a> {
-    fd: &'a mut FieldData,
-    count: usize,
-}
-
-impl<'a> RawZeroSizedTypeInserter<'a> {
-    pub fn new(fd: &'a mut FieldData) -> Self {
-        Self { fd, count: 0 }
-    }
-    pub fn push(&mut self, count: usize) {
-        self.count += count;
-    }
-    pub unsafe fn commit(
-        &mut self,
-        kind: FieldValueRepr,
-        flags: FieldValueFlags,
-    ) {
-        if self.count == 0 {
-            return;
-        }
-        unsafe {
-            self.fd.push_zst_unchecked(kind, flags, self.count, true);
-        }
-        self.count = 0;
-    }
-}
-
-pub unsafe trait ZeroSizedTypeInserter<'a>: Sized {
-    const KIND: FieldValueRepr;
-    const FLAGS: FieldValueFlags = field_value_flags::DEFAULT;
-    fn get_raw(&mut self) -> &mut RawZeroSizedTypeInserter<'a>;
-    fn new(fd: &'a mut FieldData) -> Self;
-    fn commit(&mut self) {
-        unsafe {
-            self.get_raw().commit(Self::KIND, Self::FLAGS);
-        }
-    }
-    #[inline(always)]
-    fn push(&mut self, count: usize) {
-        self.get_raw().push(count);
-    }
-}
-
-pub struct InlineStringInserter<'a> {
-    raw: RawVariableSizedTypeInserter<'a>,
-}
-unsafe impl<'a> VariableSizeTypeInserter<'a> for InlineStringInserter<'a> {
-    const KIND: FieldValueRepr = FieldValueRepr::TextInline;
-    type ElementType = str;
-    #[inline(always)]
-    fn get_raw(&mut self) -> &mut RawVariableSizedTypeInserter<'a> {
-        &mut self.raw
-    }
-    #[inline(always)]
-    fn element_as_bytes(v: &Self::ElementType) -> &[u8] {
-        v.as_bytes()
-    }
-    fn new(fd: &'a mut FieldData) -> Self {
-        Self {
-            raw: RawVariableSizedTypeInserter::new(fd),
-        }
-    }
-}
-impl<'a> Drop for InlineStringInserter<'a> {
-    fn drop(&mut self) {
-        self.commit();
-    }
-}
-
-pub struct InlineBytesInserter<'a> {
-    raw: RawVariableSizedTypeInserter<'a>,
-}
-unsafe impl<'a> VariableSizeTypeInserter<'a> for InlineBytesInserter<'a> {
-    const KIND: FieldValueRepr = FieldValueRepr::BytesInline;
-    type ElementType = [u8];
-    #[inline(always)]
-    fn get_raw(&mut self) -> &mut RawVariableSizedTypeInserter<'a> {
-        &mut self.raw
-    }
-    #[inline(always)]
-    fn element_as_bytes(v: &Self::ElementType) -> &[u8] {
-        v
-    }
-    fn new(fd: &'a mut FieldData) -> Self {
-        Self {
-            raw: RawVariableSizedTypeInserter::new(fd),
-        }
-    }
-}
-impl<'a> Drop for InlineBytesInserter<'a> {
-    fn drop(&mut self) {
-        self.commit();
-    }
-}
-
-pub struct NullsInserter<'a> {
-    raw: RawZeroSizedTypeInserter<'a>,
-}
-unsafe impl<'a> ZeroSizedTypeInserter<'a> for NullsInserter<'a> {
-    const KIND: FieldValueRepr = FieldValueRepr::Null;
-    #[inline(always)]
-    fn get_raw(&mut self) -> &mut RawZeroSizedTypeInserter<'a> {
-        &mut self.raw
-    }
-    fn new(fd: &'a mut FieldData) -> Self {
-        Self {
-            raw: RawZeroSizedTypeInserter::new(fd),
-        }
-    }
-}
-impl<'a> Drop for NullsInserter<'a> {
-    fn drop(&mut self) {
-        self.commit();
-    }
-}
-
-pub struct VaryingTypeInserter<FD: DerefMut<Target = FieldData>> {
-    fd: FD,
-    count: usize,
-    max: usize,
-    data_ptr: *mut u8,
-    fmt: FieldValueFormat,
-}
-
-unsafe impl<FD: DerefMut<Target = FieldData>> Send
-    for VaryingTypeInserter<FD>
-{
-}
-unsafe impl<FD: DerefMut<Target = FieldData>> Sync
-    for VaryingTypeInserter<FD>
-{
-}
-
-impl<FD: DerefMut<Target = FieldData>> VaryingTypeInserter<FD> {
-    pub fn new(fd: FD) -> Self {
-        Self {
-            fd,
-            count: 0,
-            max: 0,
-            data_ptr: std::ptr::null_mut(),
-            fmt: FieldValueFormat::default(),
-        }
-    }
-    pub fn with_reservation(
-        fd: FD,
-        fmt: FieldValueFormat,
-        reserved_elements: usize,
-    ) -> Self {
-        let mut v = Self::new(fd);
-        v.drop_and_reserve(reserved_elements, fmt);
-        v
-    }
-    pub unsafe fn drop_and_reserve_unchecked(
-        &mut self,
-        reserved_elements: usize,
-        fmt: FieldValueFormat,
-    ) {
-        // TODO: we might want to restrict reservation size
-        // in case there is one very large string
-        self.count = 0;
-        self.fd
-            .data
-            .reserve(MAX_FIELD_ALIGN + reserved_elements * fmt.size as usize);
-        self.fd
-            .data
-            .reserve_contiguous(MAX_FIELD_ALIGN + fmt.size as usize);
-        self.max = (self.fd.data.contiguous_tail_space_available()
-            - MAX_FIELD_ALIGN)
-            / fmt.size as usize;
-        self.data_ptr = self.fd.data.tail_ptr_mut();
-        self.fmt = fmt;
-    }
-    fn sanitize_format(fmt: FieldValueFormat) {
-        if fmt.repr.is_variable_sized_type() {
-            assert!(fmt.size <= INLINE_STR_MAX_LEN as FieldValueSize);
-        }
-    }
-    pub unsafe fn drop_and_reserve_reasonable_unchecked(
-        &mut self,
-        fmt: FieldValueFormat,
-    ) {
-        let size = self
-            .fd
-            .data
-            .len()
-            .max(std::mem::size_of::<FieldValue>() * 4);
-        let len = (size / fmt.size as usize).max(2);
-        self.fd
-            .data
-            .reserve(MAX_FIELD_ALIGN + fmt.size as usize * len);
-        self.fd
-            .data
-            .reserve_contiguous(MAX_FIELD_ALIGN + fmt.size as usize);
-        self.data_ptr = self.fd.data.tail_ptr_mut();
-        self.max = (self.fd.data.contiguous_tail_space_available()
-            - MAX_FIELD_ALIGN)
-            / fmt.size as usize;
-        self.fmt = fmt;
-        self.count = 0;
-    }
-    pub fn drop_and_reserve_reasonable(&mut self, fmt: FieldValueFormat) {
-        Self::sanitize_format(fmt);
-        unsafe { self.drop_and_reserve_reasonable_unchecked(fmt) }
-    }
-    pub fn drop_and_reserve(
-        &mut self,
-        reserved_elements: usize,
-        fmt: FieldValueFormat,
-    ) {
-        Self::sanitize_format(fmt);
-        unsafe {
-            self.drop_and_reserve_unchecked(reserved_elements, fmt);
-        }
-    }
-    pub fn commit(&mut self) {
-        if self.count == 0 {
-            return;
-        }
-        self.max -= self.count;
-        if self.fmt.repr.is_zst() {
-            self.fd.push_zst(self.fmt.repr, self.count, true);
-            self.count = 0;
-            return;
-        }
-        let new_len = self.fd.data.len() + self.fmt.size as usize * self.count;
-        unsafe {
-            self.fd.data.set_len(new_len);
-            self.fd.add_header_for_multiple_values(
-                self.fmt,
-                self.count,
-                field_value_flags::DELETED,
-            );
-            self.fd.field_count += self.count;
-        }
-        self.count = 0;
-    }
-}
-
-unsafe impl<FD: DerefMut<Target = FieldData>> PushInterface
-    for VaryingTypeInserter<FD>
-{
-    unsafe fn push_variable_sized_type_uninit(
-        &mut self,
-        kind: FieldValueRepr,
-        data_len: usize,
-        run_length: usize,
-        try_header_rle: bool,
-    ) -> *mut u8 {
-        if run_length == 0 {
-            return self.data_ptr;
-        }
-        let fmt = FieldValueFormat {
-            repr: kind,
-            flags: field_value_flags::DEFAULT,
-            size: data_len as FieldValueSize,
-        };
-        if run_length > 1 || self.fmt != fmt || !try_header_rle {
-            self.commit();
-            if run_length > 1 {
-                let res = unsafe {
-                    self.fd.push_variable_sized_type_uninit(
-                        kind,
-                        data_len,
-                        run_length,
-                        try_header_rle,
-                    )
-                };
-                self.fmt.repr = FieldValueRepr::Null;
-                return res;
-            }
-            unsafe {
-                self.drop_and_reserve_reasonable_unchecked(fmt);
-            }
-        } else if self.count == self.max {
-            self.commit();
-            unsafe {
-                self.drop_and_reserve_reasonable_unchecked(fmt);
-            }
-        }
-        let res = self.data_ptr;
-        unsafe {
-            self.data_ptr = self.data_ptr.add(data_len);
-        }
-        self.count += 1;
-        res
-    }
-    unsafe fn push_variable_sized_type_unchecked(
-        &mut self,
-        repr: FieldValueRepr,
-        data: &[u8],
-        run_length: usize,
-        try_header_rle: bool,
-        try_data_rle: bool,
-    ) {
-        if run_length == 0 {
-            return;
-        }
-        unsafe {
-            if try_data_rle {
-                self.commit();
-                self.fd.push_variable_sized_type_unchecked(
-                    repr,
-                    data,
-                    run_length,
-                    try_header_rle,
-                    try_data_rle,
-                );
-                self.drop_and_reserve_reasonable_unchecked(FieldValueFormat {
-                    repr,
-                    flags: field_value_flags::DEFAULT,
-                    size: data.len() as FieldValueSize,
-                });
-                return;
-            }
-            let data_ptr = self.push_variable_sized_type_uninit(
-                repr,
-                data.len(),
-                run_length,
-                try_header_rle,
-            );
-            std::ptr::copy_nonoverlapping(data.as_ptr(), data_ptr, data.len());
-        }
-    }
-    unsafe fn push_fixed_size_type_unchecked<T: PartialEq + FieldValueType>(
-        &mut self,
-        repr: FieldValueRepr,
-        data: T,
-        run_length: usize,
-        try_header_rle: bool,
-        try_data_rle: bool,
-    ) {
-        if run_length == 0 {
-            return;
-        }
-        let fmt = FieldValueFormat {
-            repr,
-            flags: field_value_flags::DEFAULT,
-            size: std::mem::size_of::<T>() as FieldValueSize,
-        };
-        if run_length > 1 || self.fmt != fmt || !try_header_rle || try_data_rle
-        {
-            self.commit();
-            if run_length > 1 {
-                self.fd.push_fixed_size_type(
-                    data,
-                    run_length,
-                    try_header_rle,
-                    try_data_rle,
-                );
-                self.fmt.repr = FieldValueRepr::Null;
-                return;
-            }
-            unsafe {
-                self.drop_and_reserve_reasonable_unchecked(fmt);
-            }
-        } else if self.count == self.max {
-            self.commit();
-            unsafe {
-                self.drop_and_reserve_reasonable_unchecked(fmt);
-            }
-        }
-        unsafe {
-            std::ptr::write(self.data_ptr.cast(), data);
-            self.data_ptr = self.data_ptr.add(fmt.size as usize);
-        }
-        self.count += 1;
-    }
-    unsafe fn push_zst_unchecked(
-        &mut self,
-        repr: FieldValueRepr,
-        flags: FieldValueFlags,
-        run_length: usize,
-        try_header_rle: bool,
-    ) {
-        if run_length == 0 {
-            return;
-        }
-        if self.fmt.repr != repr || flags != self.fmt.flags || !try_header_rle
-        {
-            self.commit();
-            self.fmt = FieldValueFormat {
-                repr,
-                flags,
-                size: 0,
-            };
-        }
-        self.count += run_length;
-        self.max = self.max.max(self.count);
-    }
-}
-
-impl<FD: DerefMut<Target = FieldData>> Drop for VaryingTypeInserter<FD> {
-    fn drop(&mut self) {
-        self.commit()
+        run_len: usize,
+    ) -> TextInsertionStream {
+        TextInsertionStream::new(self, run_len)
     }
 }
 

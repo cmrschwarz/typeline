@@ -14,12 +14,15 @@ use crate::{
     utils::{
         escaped_writer::EscapedWriter,
         string_store::{StringStore, StringStoreEntry},
+        text_write::{
+            MaybeTextWrite, TextWrite, TextWriteIoAdapter, TextWriteRefAdapter,
+        },
     },
     NULL_STR, UNDEFINED_STR,
 };
 
 use super::{
-    custom_data::CustomDataBox,
+    custom_data::{CustomDataBox, FieldValueFormattingError},
     field::{FieldManager, FieldRefOffset},
     field_data::{FieldValueRepr, FieldValueType, FixedSizeFieldValueType},
     field_value_ref::FieldValueRef,
@@ -364,20 +367,18 @@ impl FieldValue {
     }
     pub fn format(
         &self,
-        w: &mut impl std::io::Write,
+        w: &mut impl TextWrite,
         fc: &FormattingContext<'_>,
-    ) -> std::io::Result<()> {
+    ) -> Result<(), FieldValueFormattingError> {
         match self {
-            FieldValue::Null => w.write(NULL_STR.as_bytes()).map(|_| ()),
-            FieldValue::Undefined => {
-                w.write(UNDEFINED_STR.as_bytes()).map(|_| ())
-            }
-            FieldValue::Int(v) => w.write_fmt(format_args!("{v}")),
-            FieldValue::BigInt(v) => w.write_fmt(format_args!("{v}")),
-            FieldValue::Float(v) => w.write_fmt(format_args!("{v}")),
+            FieldValue::Null => w.write_all_text(NULL_STR),
+            FieldValue::Undefined => w.write_all_text(UNDEFINED_STR),
+            FieldValue::Int(v) => w.write_text_fmt(format_args!("{v}")),
+            FieldValue::BigInt(v) => w.write_text_fmt(format_args!("{v}")),
+            FieldValue::Float(v) => w.write_text_fmt(format_args!("{v}")),
             FieldValue::Rational(v) => {
                 if fc.print_rationals_raw {
-                    w.write_fmt(format_args!("{v}"))
+                    w.write_text_fmt(format_args!("{v}"))
                 } else {
                     format_rational(w, v, RATIONAL_DIGITS)
                 }
@@ -385,12 +386,41 @@ impl FieldValue {
             FieldValue::Bytes(v) => format_bytes(w, v),
             FieldValue::Text(v) => format_quoted_string(w, v),
             FieldValue::Error(e) => format_error(w, e),
-            FieldValue::Array(a) => a.format(w, fc),
-            FieldValue::Object(o) => o.format(w, fc),
             FieldValue::FieldReference(_) => todo!(),
             FieldValue::SlicedFieldReference(_) => todo!(),
             FieldValue::StreamValueId(_) => todo!(),
-            FieldValue::Custom(v) => v.stringify(w, &fc.rfk).map(|_| ()),
+            FieldValue::Array(a) => return a.format(w, fc),
+            FieldValue::Object(o) => return o.format(w, fc),
+            FieldValue::Custom(v) => {
+                return v.format(w, &fc.rfk).map(|_| ());
+            }
+        }
+        .map_err(|e| e.into())
+    }
+    pub fn format_raw(
+        &self,
+        w: &mut impl MaybeTextWrite,
+        fc: &FormattingContext<'_>,
+    ) -> Result<(), FieldValueFormattingError> {
+        match self {
+            FieldValue::Null
+            | FieldValue::Undefined
+            | FieldValue::Int(_)
+            | FieldValue::BigInt(_)
+            | FieldValue::Float(_)
+            | FieldValue::Rational(_)
+            | FieldValue::Error(_)
+            | FieldValue::Array(_)
+            | FieldValue::Object(_)
+            | FieldValue::Text(_) => self.format(w, fc),
+
+            FieldValue::FieldReference(_) => todo!(),
+            FieldValue::SlicedFieldReference(_) => todo!(),
+            FieldValue::StreamValueId(_) => todo!(),
+            FieldValue::Bytes(v) => {
+                format_bytes_raw(w, v).map_err(|e| e.into())
+            }
+            FieldValue::Custom(v) => v.format_raw(w, &fc.rfk).map(|_| ()),
         }
     }
     pub fn from_fixed_sized_type<T: FixedSizeFieldValueType + Sized>(
@@ -446,33 +476,37 @@ impl FieldValue {
     }
 }
 
-pub fn format_bytes(
+pub fn format_bytes(w: &mut impl TextWrite, v: &[u8]) -> std::io::Result<()> {
+    w.write_all_text("b'")?;
+    let mut w = EscapedWriter::new(TextWriteRefAdapter(w), b'"');
+    std::io::Write::write_all(&mut w, v)?;
+    w.into_inner().unwrap().write_all_text("'")?;
+    Ok(())
+}
+pub fn format_bytes_raw(
     w: &mut impl std::io::Write,
     v: &[u8],
 ) -> std::io::Result<()> {
-    w.write_all(b"b'")?;
-    let mut w = EscapedWriter::new(w, b'"');
-    w.write_all(v)?;
-    w.into_inner().unwrap().write_all(b"'")?;
-    Ok(())
+    // TODO: proper raw encoding
+    format_bytes(&mut TextWriteIoAdapter(w), v)
 }
 
 pub fn format_quoted_string(
-    w: &mut impl std::io::Write,
+    w: &mut impl TextWrite,
     v: &str,
 ) -> std::io::Result<()> {
-    w.write_all(b"\"")?;
-    let mut w = EscapedWriter::new(w, b'"');
+    w.write_all_text("\"")?;
+    let mut w = EscapedWriter::new(TextWriteRefAdapter(w), b'"');
     w.write_all(v.as_bytes())?;
-    w.into_inner().unwrap().write_all(b"\"")?;
+    w.into_inner().unwrap().write_all_text("\"")?;
     Ok(())
 }
 
 pub fn format_error(
-    w: &mut impl std::io::Write,
+    w: &mut impl TextWrite,
     v: &OperatorApplicationError,
 ) -> std::io::Result<()> {
-    w.write_fmt(format_args!("(\"error\")\"{v}\""))
+    w.write_text_fmt(format_args!("(\"error\")\"{v}\""))
 }
 
 pub struct FormattingContext<'a> {
@@ -486,13 +520,13 @@ pub struct FormattingContext<'a> {
 pub const RATIONAL_DIGITS: u32 = 40; // TODO: make this configurable
 
 pub fn format_rational(
-    w: &mut impl std::io::Write,
+    w: &mut impl TextWrite,
     v: &BigRational,
     decimals: u32,
 ) -> std::io::Result<()> {
     // PERF: this function is stupid
     if v.is_integer() {
-        w.write_fmt(format_args!("{v}"))?;
+        w.write_text_fmt(format_args!("{v}"))?;
         return Ok(());
     }
     let negative = v.is_negative();
@@ -508,10 +542,10 @@ pub fn format_rational(
                 BigInt::one()
             });
         }
-        w.write_fmt(format_args!("{whole_number}"))?;
+        w.write_text_fmt(format_args!("{whole_number}"))?;
         return Ok(());
     }
-    w.write_fmt(format_args!("{}.", &whole_number))?;
+    w.write_text_fmt(format_args!("{}.", &whole_number))?;
 
     v.mul_assign(BigInt::from_u64(10).unwrap().pow(decimals));
     let mut decimal_part = v.to_integer();
@@ -520,7 +554,7 @@ pub fn format_rational(
         decimal_part.add_assign(BigInt::one());
     }
     if !v.is_zero() {
-        w.write_fmt(format_args!("{}", &decimal_part))?;
+        w.write_text_fmt(format_args!("{}", &decimal_part))?;
         return Ok(());
     }
     let ten = BigInt::from_u8(10).unwrap();
@@ -532,17 +566,17 @@ pub fn format_rational(
         }
         decimal_part = decimal_part.div(&ten).add(rem);
     }
-    w.write_fmt(format_args!("{}", &decimal_part))?;
+    w.write_text_fmt(format_args!("{}", &decimal_part))?;
     Ok(())
 }
 
 impl Object {
     pub fn format(
         &self,
-        w: &mut impl std::io::Write,
+        w: &mut impl TextWrite,
         fc: &FormattingContext<'_>,
-    ) -> std::io::Result<()> {
-        w.write_all(b"{")?;
+    ) -> Result<(), FieldValueFormattingError> {
+        w.write_all_text("{")?;
         // TODO: escape keys
         let mut first = true;
         match self {
@@ -551,10 +585,10 @@ impl Object {
                     if first {
                         first = false;
                     } else {
-                        w.write_all(b", ")?;
+                        w.write_all_text(", ")?;
                     }
                     format_quoted_string(w, k)?;
-                    w.write_all(b": ")?;
+                    w.write_all_text(": ")?;
                     v.format(w, fc)?;
                 }
             }
@@ -563,15 +597,15 @@ impl Object {
                     if first {
                         first = false;
                     } else {
-                        w.write_all(b", ")?;
+                        w.write_all_text(", ")?;
                     }
                     format_quoted_string(w, fc.ss.lookup(k))?;
-                    w.write_all(b": ")?;
+                    w.write_all_text(": ")?;
                     v.format(w, fc)?;
                 }
             }
         }
-        w.write_all(b"}")?;
+        w.write_all_text("}")?;
         Ok(())
     }
 }
@@ -579,15 +613,10 @@ impl Object {
 impl Array {
     pub fn format(
         &self,
-        w: &mut impl std::io::Write,
+        w: &mut impl TextWrite,
         fc: &FormattingContext<'_>,
-    ) -> std::io::Result<()> {
-        fn format_array<
-            'a,
-            T: 'a,
-            I: Iterator<Item = &'a T>,
-            W: std::io::Write,
-        >(
+    ) -> Result<(), FieldValueFormattingError> {
+        fn format_array<'a, T: 'a, I: Iterator<Item = &'a T>, W: TextWrite>(
             w: &mut W,
             fc: &FormattingContext<'_>,
             iter: I,
@@ -595,43 +624,44 @@ impl Array {
                 &mut W,
                 &FormattingContext<'_>,
                 &T,
-            ) -> std::io::Result<()>,
-        ) -> std::io::Result<()> {
-            w.write_all(b"[")?;
+            ) -> Result<(), FieldValueFormattingError>,
+        ) -> Result<(), FieldValueFormattingError> {
+            w.write_all_text("[")?;
             let mut first = true;
             for i in iter {
                 if first {
                     first = false;
                 } else {
-                    w.write_all(b", ")?;
+                    w.write_all_text(", ")?;
                 }
                 f(w, fc, i)?;
             }
-            w.write_all(b"]")
+            w.write_all_text("]")?;
+            Ok(())
         }
         match self {
             Array::Null(v) => {
                 format_array(w, fc, (0..*v).map(|_| &()), |f, _, ()| {
-                    f.write_all(NULL_STR.as_bytes())
+                    f.write_all_text(NULL_STR).map_err(|e| e.into())
                 })
             }
             Array::Undefined(v) => {
                 format_array(w, fc, (0..*v).map(|_| &()), |f, _, ()| {
-                    f.write_all(UNDEFINED_STR.as_bytes())
+                    f.write_all_text(UNDEFINED_STR).map_err(|e| e.into())
                 })
             }
             Array::Int(v) => format_array(w, fc, v.iter(), |f, _, v| {
-                f.write_fmt(format_args!("{v}"))
+                f.write_text_fmt(format_args!("{v}")).map_err(|e| e.into())
             }),
-            Array::Bytes(v) => {
-                format_array(w, fc, v.iter(), |f, _, v| format_bytes(f, v))
-            }
+            Array::Bytes(v) => format_array(w, fc, v.iter(), |f, _, v| {
+                format_bytes(f, v).map_err(|e| e.into())
+            }),
             Array::String(v) => format_array(w, fc, v.iter(), |f, _, v| {
-                format_quoted_string(f, v)
+                format_quoted_string(f, v).map_err(|e| e.into())
             }),
-            Array::Error(v) => {
-                format_array(w, fc, v.iter(), |f, _, v| format_error(f, v))
-            }
+            Array::Error(v) => format_array(w, fc, v.iter(), |f, _, v| {
+                format_error(f, v).map_err(|e| e.into())
+            }),
             Array::Array(v) => {
                 format_array(w, fc, v.iter(), |f, fc, v| v.format(f, fc))
             }
@@ -645,7 +675,7 @@ impl Array {
                 format_array(w, fc, v.iter(), |_f, _, _v| todo!())
             }
             Array::Custom(v) => format_array(w, fc, v.iter(), |f, fc, v| {
-                v.stringify(f, &fc.rfk).map(|_| ())
+                v.format(f, &fc.rfk).map(|_| ())
             }),
             Array::Mixed(v) => {
                 format_array(w, fc, v.iter(), |f, fc, v| v.format(f, fc))

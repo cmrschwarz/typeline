@@ -1,50 +1,55 @@
 use std::borrow::Cow;
 
+use scr::record_data::custom_data::{CustomData, FieldValueFormattingError};
 use scr_core::{
     operators::{
         format::RealizedFormatKey,
         string_sink::{create_op_string_sink, StringSinkHandle},
     },
     options::context_builder::ContextBuilder,
-    record_data::custom_data::CustomDataSafe,
     scr_error::ScrError,
 };
 
 #[derive(Debug, Clone)]
 struct DummyCustomType;
 
-impl CustomDataSafe for DummyCustomType {
+impl CustomData for DummyCustomType {
     fn type_name(&self) -> Cow<str> {
         "dummy".into()
     }
-    fn stringified_len(&self, _fmt: &RealizedFormatKey) -> Option<usize> {
-        Some(self.type_name().len())
+
+    fn clone_dyn(&self) -> Box<dyn CustomData> {
+        Box::new(self.clone())
     }
-    fn stringify_utf8(
+
+    fn format(
         &self,
-        w: &mut dyn std::fmt::Write,
-        _fmt: &RealizedFormatKey,
-    ) -> std::fmt::Result {
-        w.write_str(&self.type_name())
+        w: &mut dyn scr::utils::text_write::TextWrite,
+        _format: &RealizedFormatKey,
+    ) -> Result<(), scr::record_data::custom_data::FieldValueFormattingError>
+    {
+        w.write_all_text("<dummy data stringified>")?;
+        Ok(())
     }
 }
 
 #[derive(Debug, Clone)]
 struct DummyCustomTypeNoStringify;
 
-impl CustomDataSafe for DummyCustomTypeNoStringify {
+impl CustomData for DummyCustomTypeNoStringify {
     fn type_name(&self) -> Cow<str> {
         "dummy_no_stringify".into()
     }
-    fn stringified_len(&self, _fmt: &RealizedFormatKey) -> Option<usize> {
-        None
+    fn clone_dyn(&self) -> Box<dyn CustomData> {
+        Box::new(self.clone())
     }
-    fn stringify_utf8(
+    fn format(
         &self,
-        _w: &mut dyn std::fmt::Write,
-        _fmt: &RealizedFormatKey,
-    ) -> std::fmt::Result {
-        unimplemented!()
+        _w: &mut dyn scr::utils::text_write::TextWrite,
+        _format: &RealizedFormatKey,
+    ) -> Result<(), scr::record_data::custom_data::FieldValueFormattingError>
+    {
+        Err(FieldValueFormattingError::NotSupported)
     }
 }
 

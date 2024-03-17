@@ -13,13 +13,13 @@ use super::{
         Array, FieldReference, FieldValueKind, Null, Object,
         SlicedFieldReference, Undefined,
     },
+    field_value_ref::value_as_bytes,
     match_set::MatchSetManager,
     ref_iter::{
         AutoDerefIter, RefAwareBytesBufferIter, RefAwareFieldValueSliceIter,
         RefAwareInlineBytesIter, RefAwareInlineTextIter,
         RefAwareTextBufferIter,
     },
-    field_value_ref::value_as_bytes,
 };
 use crate::{
     operators::errors::OperatorApplicationError, utils::ringbuf::RingBuf,
@@ -30,10 +30,10 @@ pub use field_value_flags::FieldValueFlags;
 use num::{BigInt, BigRational};
 
 use super::{
+    field_value_ref::FieldValueSlice,
     iters::{FieldIterator, Iter},
     push_interface::PushInterface,
     stream_value::StreamValueId,
-    field_value_ref::FieldValueSlice,
 };
 
 // if the u32 overflows we just split into two values
@@ -151,7 +151,6 @@ pub mod field_value_flags {
     pub const LEADING_PADDING: FieldValueFlags = 0xF;
     pub const SAME_VALUE_AS_PREVIOUS_OFFSET: FieldValueFlags = 4;
     pub const SHARED_VALUE_OFFSET: FieldValueFlags = 5;
-    pub const BYTES_ARE_UTF8_OFFSET: FieldValueFlags = 6;
     pub const DELETED_OFFSET: FieldValueFlags = 7;
     // When the run_length is one, `SHARED_VALUE` **must** also be set
     pub const SHARED_VALUE: FieldValueFlags = 1 << SHARED_VALUE_OFFSET;
@@ -597,6 +596,14 @@ impl FieldValueHeader {
         } else {
             self.run_length
         }
+    }
+    pub fn is_compatible(&self, other: FieldValueFormat) -> bool {
+        const RELEVANT_FLAGS: field_value_flags::FieldValueFlags =
+            field_value_flags::DELETED;
+
+        self.repr == other.repr
+            && self.size == other.size
+            && self.flags & RELEVANT_FLAGS == other.flags & RELEVANT_FLAGS
     }
 }
 

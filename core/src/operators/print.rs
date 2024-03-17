@@ -8,10 +8,13 @@ use crate::{
     },
     options::argument::CliArgIdx,
     record_data::{
+        custom_data::FieldValueFormattingError,
         field_data::field_value_flags,
         field_value::{
             format_rational, FieldValue, FormattingContext, RATIONAL_DIGITS,
         },
+        field_value_ref::FieldValueSlice,
+        field_value_slice_iter::FieldValueSliceIter,
         iter_hall::IterId,
         iters::{FieldIterator, UnfoldIterRunLength},
         push_interface::PushInterface,
@@ -22,10 +25,10 @@ use crate::{
             RefAwareTextBufferIter, RefAwareUnfoldIterRunLength,
         },
         stream_value::{StreamValue, StreamValueId},
-        field_value_ref::FieldValueSlice,
-        field_value_slice_iter::FieldValueSliceIter,
     },
-    utils::int_string_conversions::i64_to_str,
+    utils::{
+        int_string_conversions::i64_to_str, text_write::TextWriteIoAdapter,
+    },
     NULL_STR, UNDEFINED_STR,
 };
 
@@ -166,7 +169,7 @@ pub fn handle_tf_print_raw(
     // we need these even in case of an error, so it's an output parameter :/
     handled_field_count: &mut usize,
     last_group_separator_end: &mut usize,
-) -> Result<(), std::io::Error> {
+) -> Result<(), FieldValueFormattingError> {
     let mut stream = print.target.aquire(true);
     *handled_field_count = 0;
     *last_group_separator_end = 0;
@@ -253,7 +256,10 @@ pub fn handle_tf_print_raw(
                 )
                 .unfold_rl()
                 {
-                    v.stringify(&mut stream, &RealizedFormatKey::default())?;
+                    v.format_raw(
+                        &mut TextWriteIoAdapter(&mut stream),
+                        &RealizedFormatKey::default(),
+                    )?;
                     stream.write_all(b"\n")?;
                     *handled_field_count += 1;
                 }
@@ -346,7 +352,11 @@ pub fn handle_tf_print_raw(
                         if print_rationals_raw {
                             stream.write_fmt(format_args!("{v}\n"))?;
                         } else {
-                            format_rational(&mut stream, v, RATIONAL_DIGITS)?;
+                            format_rational(
+                                &mut TextWriteIoAdapter(&mut stream),
+                                v,
+                                RATIONAL_DIGITS,
+                            )?;
                             stream.write_all(b"\n")?;
                         }
                         *handled_field_count += 1;
@@ -368,7 +378,7 @@ pub fn handle_tf_print_raw(
                     RefAwareFieldValueSliceIter::from_range(&range, arrays)
                         .unfold_rl()
                 {
-                    a.format(&mut stream, &fc)?;
+                    a.format(&mut TextWriteIoAdapter(&mut stream), &fc)?;
                     stream.write_all(b"\n")?;
                     *handled_field_count += 1;
                 }
@@ -388,7 +398,7 @@ pub fn handle_tf_print_raw(
                     RefAwareFieldValueSliceIter::from_range(&range, objects)
                         .unfold_rl()
                 {
-                    o.format(&mut stream, &fc)?;
+                    o.format(&mut TextWriteIoAdapter(&mut stream), &fc)?;
                     stream.write_all(b"\n")?;
                     *handled_field_count += 1;
                 }

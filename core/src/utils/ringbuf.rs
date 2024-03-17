@@ -163,6 +163,7 @@ impl<const ALIGN: usize> RingBuf<ALIGN> {
     }
     pub fn make_contiguous(&mut self) {
         let used_space_back = self.space_back();
+        // if we don't return here, `space_back == used_space_back`
         if used_space_back >= self.len {
             return;
         }
@@ -289,17 +290,25 @@ impl<const ALIGN: usize> RingBuf<ALIGN> {
         }
         self.head = 0;
     }
-    pub fn reserve_contiguous(&mut self, additional_cap: usize) {
+    pub fn reserve_contiguous(
+        &mut self,
+        additional_cap: usize,
+        tail_data_to_join_with: usize,
+    ) {
         let space_back = self.space_back();
 
         if self.len >= space_back {
             let free_space_front = self.head
                 - (self.len - space_back)
                 - self.front_padding as usize;
-            if free_space_front > additional_cap {
+            if free_space_front > additional_cap
+                && tail_data_to_join_with <= self.used_space_front()
+            {
                 return;
             }
         } else {
+            // we are currently contiguous, so `tail_data_to_join_with` doesn't
+            // matter
             if self.len + additional_cap <= space_back {
                 return;
             }
@@ -315,7 +324,7 @@ impl<const ALIGN: usize> RingBuf<ALIGN> {
         unsafe { self.realloc(cap_new) };
     }
     pub fn extend_from_slice(&mut self, slice: &[u8]) {
-        self.reserve_contiguous(slice.len());
+        self.reserve_contiguous(slice.len(), 0);
         unsafe {
             std::ptr::copy_nonoverlapping(
                 slice.as_ptr(),
@@ -363,6 +372,9 @@ impl<const ALIGN: usize> RingBuf<ALIGN> {
     }
     fn used_space_back(&self) -> usize {
         self.space_back().min(self.len)
+    }
+    fn used_space_front(&self) -> usize {
+        self.len - self.used_space_back()
     }
     pub fn slice_lengths(&self) -> (usize, usize) {
         let len_s1 = self.space_back().min(self.len);

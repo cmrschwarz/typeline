@@ -1,4 +1,8 @@
+use std::ops::{Deref, DerefMut};
+
 use bstr::ByteSlice;
+
+use super::text_write::{MaybeTextWriteFlaggedAdapter, TextWriteIoAdapter};
 
 #[derive(Clone, Copy, Default)]
 pub struct LengthCountingWriter {
@@ -51,6 +55,7 @@ impl std::fmt::Write for LengthAndCharsCountingWriter {
         std::fmt::write(&mut self, args)
     }
 }
+
 impl std::io::Write for LengthAndCharsCountingWriter {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         self.len += buf.len();
@@ -167,3 +172,53 @@ pub trait IntoLengthCappedIoWriter: Sized + std::io::Write {
     }
 }
 impl<W: std::io::Write> IntoLengthCappedIoWriter for W {}
+
+pub struct TextInfo {
+    pub len: usize,
+    pub char_count: usize,
+    pub valid_utf8: bool,
+}
+impl Default for TextInfo {
+    fn default() -> Self {
+        Self {
+            len: 0,
+            char_count: 0,
+            valid_utf8: true,
+        }
+    }
+}
+
+#[derive(Default, Clone)]
+pub struct TextInfoWriter(
+    MaybeTextWriteFlaggedAdapter<
+        TextWriteIoAdapter<LengthAndCharsCountingWriter>,
+    >,
+);
+impl TextInfoWriter {
+    pub fn into_text_info(self) -> TextInfo {
+        let valid_utf8 = self.0.is_utf8();
+        let inner = self.0.into_inner();
+        TextInfo {
+            valid_utf8,
+            len: inner.len,
+            char_count: inner.char_count,
+        }
+    }
+    pub fn text_info(&self) -> TextInfo {
+        self.clone().into_text_info()
+    }
+}
+
+impl Deref for TextInfoWriter {
+    type Target = MaybeTextWriteFlaggedAdapter<
+        TextWriteIoAdapter<LengthAndCharsCountingWriter>,
+    >;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl DerefMut for TextInfoWriter {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}

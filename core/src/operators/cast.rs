@@ -5,12 +5,12 @@ use crate::{
     options::argument::CliArgIdx,
     record_data::{
         field_value::{FieldValue, FieldValueKind},
+        field_value_ref::FieldValueSlice,
         iter_hall::{IterId, IterKind},
         iters::FieldIterator,
         push_interface::PushInterface,
         ref_iter::{AutoDerefIter, RefAwareFieldValueSliceIter},
         stream_value::StreamValueId,
-        field_value_ref::FieldValueSlice,
     },
     utils::encoding::{
         self, utf8_surrocate_escape, UTF8_REPLACEMENT_CHARACTER,
@@ -197,7 +197,7 @@ pub fn handle_tf_cast(jd: &mut JobData, tf_id: TransformId, tfc: &TfCast) {
     let mut iter =
         AutoDerefIter::new(&jd.field_mgr, tf.input_field, base_iter);
 
-    while let Some(range) = iter.next_range(&mut jd.match_set_mgr) {
+    while let Some(range) = iter.next_range(&jd.match_set_mgr) {
         match range.base.data {
             FieldValueSlice::Error(errs) => {
                 if tfc.convert_errors {

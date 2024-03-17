@@ -2,7 +2,8 @@ use std::ops::{Deref, DerefMut};
 
 use scr_core::{
     operators::format::RealizedFormatKey,
-    record_data::custom_data::CustomDataSafe,
+    record_data::custom_data::{CustomData, FieldValueFormattingError},
+    utils::text_write::TextWrite,
 };
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -22,20 +23,21 @@ impl DerefMut for UrlValueType {
     }
 }
 
-impl CustomDataSafe for UrlValueType {
+impl CustomData for UrlValueType {
     fn type_name(&self) -> std::borrow::Cow<str> {
         "url".into()
     }
 
-    fn stringified_len(&self, _format: &RealizedFormatKey) -> Option<usize> {
-        Some(self.0.as_str().len())
+    fn clone_dyn(&self) -> scr_core::record_data::custom_data::CustomDataBox {
+        Box::new(self.clone())
     }
 
-    fn stringify_utf8(
+    fn format(
         &self,
-        w: &mut dyn std::fmt::Write,
+        w: &mut dyn TextWrite,
         _format: &RealizedFormatKey,
-    ) -> std::fmt::Result {
-        w.write_str(self.0.as_str())
+    ) -> Result<(), FieldValueFormattingError> {
+        w.write_text_fmt(format_args!("{}", self.0))?;
+        Ok(())
     }
 }

@@ -137,3 +137,9 @@ pub fn i64_digits(display_plus_sign: bool, mut v: i64) -> usize {
     };
     sign_len + v.checked_ilog10().unwrap_or(0) as usize + 1
 }
+
+pub fn f64_to_str(val: f64) -> SmallString<[u8; 32]> {
+    let mut res = SmallString::new();
+    res.write_fmt(format_args!("{val}")).unwrap();
+    res
+}

@@ -16,9 +16,11 @@ use crate::record_data::{
     field_data::{
         field_value_flags::FieldValueFlags, FieldValueHeader, RunLength,
     },
-    iters::{FieldIterator, Iter},
-    field_value_ref::{FieldValueRef, FieldValueSlice, TypedRange, ValidTypedRange},
+    field_value_ref::{
+        FieldValueRef, FieldValueSlice, TypedRange, ValidTypedRange,
+    },
     field_value_slice_iter::{FieldValueSliceIter, InlineBytesIter},
+    iters::{FieldIterator, Iter},
 };
 
 pub trait ReferenceFieldValueType: FieldValueType + Clone + 'static {
@@ -554,7 +556,7 @@ impl<'a, I: FieldIterator<'a>> AutoDerefIter<'a, I> {
     }
     pub fn next_range(
         &mut self,
-        msm: &'_ mut MatchSetManager,
+        msm: &'_ MatchSetManager,
     ) -> Option<RefAwareTypedRange<'a>> {
         self.typed_range_fwd(msm, usize::MAX, field_value_flags::DEFAULT)
     }
@@ -1040,9 +1042,9 @@ mod ref_iter_tests {
             FieldValueRepr, RunLength,
         },
         field_value::SlicedFieldReference,
+        field_value_ref::FieldValueSlice,
         iters::Iter,
         push_interface::PushInterface,
-        field_value_ref::FieldValueSlice,
     };
 
     fn compare_iter_output(

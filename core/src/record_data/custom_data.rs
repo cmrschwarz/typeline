@@ -1,8 +1,16 @@
 use std::{any::Any, borrow::Cow, cmp::Ordering, fmt::Debug};
 
+use thiserror::Error;
+
 use crate::{
     operators::format::RealizedFormatKey,
-    utils::counting_writer::LengthAndCharsCountingWriter,
+    utils::{
+        counting_writer::{
+            LengthAndCharsCountingWriter, LengthCountingWriter, TextInfo,
+            TextInfoWriter,
+        },
+        text_write::{MaybeTextWrite, TextWrite, TextWriteIoAdapter},
+    },
 };
 
 pub fn custom_data_reference_eq<T: CustomData + ?Sized>(
@@ -18,47 +26,104 @@ pub fn custom_data_reference_eq<T: CustomData + ?Sized>(
     self_ptr == other_ptr
 }
 
-pub unsafe trait CustomData: Any + Send + Sync + Debug {
+#[derive(Error, Debug)]
+pub enum FieldValueFormattingError {
+    #[error("not supported")]
+    NotSupported,
+    #[error("IO Error: {0}")]
+    IoError(std::io::Error),
+    #[error("{0}")]
+    Other(Cow<'static, str>),
+}
+
+#[derive(Debug)]
+pub enum CustomDataWritingError {}
+
+impl From<std::io::Error> for FieldValueFormattingError {
+    fn from(e: std::io::Error) -> Self {
+        FieldValueFormattingError::IoError(e)
+    }
+}
+
+impl From<Cow<'static, str>> for FieldValueFormattingError {
+    fn from(e: Cow<'static, str>) -> Self {
+        FieldValueFormattingError::Other(e)
+    }
+}
+
+impl FieldValueFormattingError {
+    pub fn into_io_error(self) -> std::io::Error {
+        match self {
+            FieldValueFormattingError::NotSupported => {
+                std::io::ErrorKind::Unsupported.into()
+            }
+            FieldValueFormattingError::IoError(e) => e,
+            FieldValueFormattingError::Other(e) => std::io::Error::other(e),
+        }
+    }
+}
+
+pub trait CustomData: Any + Send + Sync + Debug {
     fn clone_dyn(&self) -> CustomDataBox;
     fn type_name(&self) -> Cow<str>;
     fn cmp(&self, _rhs: &dyn CustomData) -> Option<Ordering> {
         None
     }
 
-    // SAFETY: if this returns true, subsequent calls to
-    // `stringify` / `stringify_expecte_len` **must** only write valid utf8
-    fn stringifies_as_valid_utf8(&self) -> bool;
+    fn format(
+        &self,
+        w: &mut dyn TextWrite,
+        format: &RealizedFormatKey,
+    ) -> Result<(), FieldValueFormattingError>;
+    // should return the number of characters that a subsequent
+    // `format` / `format_expect_len` will write.
+    fn formatted_len(
+        &self,
+        format: &RealizedFormatKey,
+    ) -> Result<usize, FieldValueFormattingError> {
+        let mut w = TextWriteIoAdapter(LengthCountingWriter::default());
+        self.format(&mut w, format)?;
+        Ok(w.len)
+    }
+    fn formatted_text_info(
+        &self,
+        format: &RealizedFormatKey,
+    ) -> Result<TextInfo, FieldValueFormattingError> {
+        let mut w =
+            TextWriteIoAdapter(LengthAndCharsCountingWriter::default());
+        self.format(&mut w, format)?;
+        Ok(TextInfo {
+            len: w.len,
+            char_count: w.char_count,
+            valid_utf8: true,
+        })
+    }
 
-    // SAFETY: **must** return the number of characters that a subsequent
-    // `stringify` / `stringify_expect_len` will write.
-    // While callers will prevent buffer overruns of the `Write`-rs,
-    // they will assume the reported number of bytes to be initialized
-    // (written to) after the call.
-    fn stringified_len(&self, format: &RealizedFormatKey) -> Option<usize>;
-    fn stringify(
+    fn format_raw(
         &self,
-        w: &mut dyn std::io::Write,
+        w: &mut dyn MaybeTextWrite,
         format: &RealizedFormatKey,
-    ) -> std::io::Result<usize>;
-    fn stringify_expect_len(
-        &self,
-        w: &mut dyn std::io::Write,
-        len: usize,
-        format: &RealizedFormatKey,
-    ) -> std::io::Result<()> {
-        let reported_len = self.stringify(w, format)?;
-        assert!(
-            reported_len == len,
-            "unexpected length for stringify of custom type {}",
-            self.type_name()
-        );
+    ) -> Result<(), FieldValueFormattingError> {
+        self.format(w.as_text_write(), format)?;
         Ok(())
     }
-    // SAFETY: if this returns true, subsequent calls to
-    // `debug_stringify` / `debug_stringify_expecte_len`
-    // **must** only write valid utf8
-    fn debug_stringifies_as_valid_utf8(&self) -> bool {
-        self.stringifies_as_valid_utf8()
+    // should return the number of characters that a subsequent
+    // `format_raw` / `format_raw_expect_len` will write.
+    fn formatted_len_raw(
+        &self,
+        format: &RealizedFormatKey,
+    ) -> Result<usize, FieldValueFormattingError> {
+        let mut w = TextWriteIoAdapter(LengthCountingWriter::default());
+        self.format_raw(&mut w, format)?;
+        Ok(w.len)
+    }
+    fn formatted_text_info_raw(
+        &self,
+        format: &RealizedFormatKey,
+    ) -> Result<TextInfo, FieldValueFormattingError> {
+        let mut w = TextInfoWriter::default();
+        self.format_raw(&mut *w, format)?;
+        Ok(w.into_text_info())
     }
 }
 
@@ -80,125 +145,11 @@ impl PartialOrd for CustomDataBox {
     }
 }
 
-pub trait CustomDataSafe: Any + Send + Sync + Clone + Debug {
-    const STRINGIFIES_VALID_UTF8: bool = true;
-    const DEBUG_STRINGIFIES_VALID_UTF8: bool = true;
-
-    fn equals(&self, other: &dyn CustomData) -> bool {
-        custom_data_reference_eq(self, other)
-    }
-    fn clone_dyn(&self) -> CustomDataBox {
-        Box::new(self.clone())
-    }
-    fn type_name(&self) -> Cow<str>;
-
-    fn stringified_len(&self, format: &RealizedFormatKey) -> Option<usize>;
-    fn stringified_char_count(
-        &self,
-        format: &RealizedFormatKey,
-    ) -> Option<usize> {
-        let mut w = LengthAndCharsCountingWriter::default();
-        self.stringify(&mut w, format).map(|_| w.char_count).ok()
-    }
-    fn stringify_utf8(
-        &self,
-        w: &mut dyn std::fmt::Write,
-        format: &RealizedFormatKey,
-    ) -> std::fmt::Result;
-    fn stringify_non_utf8(
-        &self,
-        _w: &mut dyn std::io::Write,
-        _format: &RealizedFormatKey,
-    ) -> std::io::Result<()> {
-        unimplemented!()
-    }
-}
-
-struct WriteAdapterUtf8<'a> {
-    io_error: Option<std::io::Error>,
-    base_writer: &'a mut dyn std::io::Write,
-    bytes_written: usize,
-}
-impl<'a> WriteAdapterUtf8<'a> {
-    fn new(base_writer: &'a mut dyn std::io::Write) -> Self {
-        Self {
-            io_error: None,
-            base_writer,
-            bytes_written: 0,
-        }
-    }
-}
-impl<'a> std::fmt::Write for WriteAdapterUtf8<'a> {
-    fn write_str(&mut self, s: &str) -> std::fmt::Result {
-        if self.io_error.is_some() {
-            return Err(std::fmt::Error);
-        }
-        self.bytes_written += s.len();
-        if let Err(e) = self.base_writer.write_all(s.as_bytes()) {
-            self.io_error = Some(e);
-            return Err(std::fmt::Error);
-        }
-        Ok(())
-    }
-}
-struct WriteAdapterNonUtf8<'a> {
-    base_writer: &'a mut dyn std::io::Write,
-    bytes_written: usize,
-}
-impl<'a> WriteAdapterNonUtf8<'a> {
-    fn new(base_writer: &'a mut dyn std::io::Write) -> Self {
-        Self {
-            base_writer,
-            bytes_written: 0,
-        }
-    }
-}
-impl<'a> std::io::Write for WriteAdapterNonUtf8<'a> {
-    fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
-        self.bytes_written += data.len();
-        self.base_writer.write_all(data).map(|()| data.len())
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        self.base_writer.flush()
-    }
-}
-
-unsafe impl<T: CustomDataSafe> CustomData for T {
-    fn clone_dyn(&self) -> CustomDataBox {
-        CustomDataSafe::clone_dyn(self)
-    }
-
-    fn type_name(&self) -> Cow<str> {
-        CustomDataSafe::type_name(self)
-    }
-
-    fn stringifies_as_valid_utf8(&self) -> bool {
-        Self::STRINGIFIES_VALID_UTF8
-    }
-
-    fn stringified_len(&self, format: &RealizedFormatKey) -> Option<usize> {
-        CustomDataSafe::stringified_len(self, format)
-    }
-
-    fn stringify(
-        &self,
-        w: &mut dyn std::io::Write,
-        format: &RealizedFormatKey,
-    ) -> std::io::Result<usize> {
-        let len = if Self::STRINGIFIES_VALID_UTF8 {
-            let mut adapter = WriteAdapterUtf8::new(w);
-            let Ok(()) =
-                CustomDataSafe::stringify_utf8(self, &mut adapter, format)
-            else {
-                return Err(adapter.io_error.unwrap());
-            };
-            adapter.bytes_written
-        } else {
-            let mut adapter = WriteAdapterNonUtf8::new(w);
-            CustomDataSafe::stringify_non_utf8(self, &mut adapter, format)?;
-            adapter.bytes_written
-        };
-        Ok(len)
-    }
+pub fn format_custom_data_padded<C: CustomData>(
+    len: usize,
+    char_count: usize,
+    format: &RealizedFormatKey,
+    f: impl FnOnce(&mut C, &RealizedFormatKey),
+) {
+    
 }

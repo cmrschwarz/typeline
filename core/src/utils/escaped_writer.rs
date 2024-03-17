@@ -1,17 +1,15 @@
-use std::{
-    io::{ErrorKind, Write},
-    mem::ManuallyDrop,
-};
+use std::{io::ErrorKind, mem::ManuallyDrop};
 
 use arrayvec::ArrayVec;
 use bstr::ByteSlice;
 
 use super::{
-    printable_unicode::is_char_printable, utf8_codepoint_len_from_first_byte,
-    MAX_UTF8_CHAR_LEN,
+    printable_unicode::is_char_printable,
+    text_write::{TextWrite, TextWriteFormatAdapter},
+    utf8_codepoint_len_from_first_byte, MAX_UTF8_CHAR_LEN,
 };
 
-pub struct EscapedWriter<W: std::io::Write> {
+pub struct EscapedWriter<W: TextWrite> {
     base: W,
     incomplete_char_missing_len: u8,
     buffer_offset: u8,
@@ -76,7 +74,7 @@ fn push_char<const C: usize>(c: char, output: &mut ArrayVec<u8, C>) {
     }
 }
 
-impl<W: std::io::Write> EscapedWriter<W> {
+impl<W: TextWrite> EscapedWriter<W> {
     pub fn new(base: W, quote_to_escape: u8) -> Self {
         Self {
             base,
@@ -87,7 +85,7 @@ impl<W: std::io::Write> EscapedWriter<W> {
         }
     }
     pub fn into_inner(mut self) -> std::io::Result<W> {
-        self.flush()?;
+        std::io::Write::flush(&mut self)?;
         Ok(unsafe { std::ptr::read(&ManuallyDrop::new(self).base) })
     }
 }
@@ -104,8 +102,11 @@ impl<W: std::fmt::Write> EscapedFmtWriter<W> {
     }
 }
 
-impl<F: std::fmt::Write> std::io::Write for EscapedWriterFmtAdapter<F> {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+impl<F: std::fmt::Write> TextWrite for EscapedWriterFmtAdapter<F> {
+    unsafe fn write_text_unchecked(
+        &mut self,
+        buf: &[u8],
+    ) -> std::io::Result<usize> {
         // SAFETY: EscapedWriter will only split up utf-8 if it is
         // forced to do so by an InterruptedError.
         // As this adapter will never trigger this error
@@ -117,14 +118,15 @@ impl<F: std::fmt::Write> std::io::Write for EscapedWriterFmtAdapter<F> {
         }
     }
 
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
+    fn flush_text(&mut self) -> std::io::Result<()> {
+        todo!()
     }
 }
 
 impl<W: std::fmt::Write> std::fmt::Write for EscapedFmtWriter<W> {
     fn write_str(&mut self, s: &str) -> std::fmt::Result {
-        self.0.write_all(s.as_bytes()).map_err(|_| std::fmt::Error)
+        std::io::Write::write_all(&mut self.0, s.as_bytes())
+            .map_err(|_| std::fmt::Error)
     }
 }
 impl<W: std::fmt::Write> std::io::Write for EscapedFmtWriter<W> {
@@ -137,7 +139,7 @@ impl<W: std::fmt::Write> std::io::Write for EscapedFmtWriter<W> {
     }
 }
 
-impl<W: Write> Write for EscapedWriter<W> {
+impl<W: TextWrite> std::io::Write for EscapedWriter<W> {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         let mut buf_offset = 0;
         if self.incomplete_char_missing_len != 0 {
@@ -169,9 +171,12 @@ impl<W: Write> Write for EscapedWriter<W> {
 
         'handle_escapes: loop {
             if !self.buffer.is_empty() {
-                let written = self
-                    .base
-                    .write(&self.buffer[self.buffer_offset as usize..])?;
+                let written = unsafe {
+                    // TODO: this seems wrong
+                    self.base.write_text_unchecked(
+                        &self.buffer[self.buffer_offset as usize..],
+                    )?
+                };
                 if written != self.buffer.len() + self.buffer_offset as usize {
                     self.buffer_offset += written as u8;
                     if buf_offset == 0 {
@@ -216,7 +221,10 @@ impl<W: Write> Write for EscapedWriter<W> {
                     || c == self.quote_to_escape as char
                     || !is_char_printable(c)
                 {
-                    match self.base.write(&buf[buf_offset..][..start]) {
+                    match unsafe {
+                        self.base
+                            .write_text_unchecked(&buf[buf_offset..][..start])
+                    } {
                         Ok(n) => {
                             if n != start {
                                 if n == 0 && buf_offset == 0 {
@@ -241,7 +249,7 @@ impl<W: Write> Write for EscapedWriter<W> {
             }
             break;
         }
-        match self.base.write(&buf[buf_offset..]) {
+        match unsafe { self.base.write_text_unchecked(&buf[buf_offset..]) } {
             Ok(n) => {
                 if n == 0 && buf_offset == 0 {
                     return Err(ErrorKind::Interrupted.into());
@@ -269,25 +277,29 @@ impl<W: Write> Write for EscapedWriter<W> {
             self.incomplete_char_missing_len = 0;
         }
         if !self.buffer.is_empty() {
-            self.base
-                .write_all(&self.buffer[self.buffer_offset as usize..])?;
+            unsafe {
+                self.base.write_text_unchecked(
+                    &self.buffer[self.buffer_offset as usize..],
+                )?
+            };
             self.buffer.clear();
             self.buffer_offset = 0;
         }
-        self.base.flush()
+        self.base.flush_text()
     }
 }
 
-impl<W: std::io::Write> Drop for EscapedWriter<W> {
+impl<W: TextWrite> Drop for EscapedWriter<W> {
     fn drop(&mut self) {
-        let _ = self.flush();
+        let _ = std::io::Write::flush(self);
     }
 }
 
 pub fn escape_to_string(input: &[u8], quote_to_escape: u8) -> String {
     let mut res = String::new();
-    let mut w = EscapedFmtWriter::new(&mut res, quote_to_escape);
-    w.write_all(input).unwrap();
+    let mut w =
+        EscapedWriter::new(TextWriteFormatAdapter(&mut res), quote_to_escape);
+    std::io::Write::write_all(&mut w, input).unwrap();
     drop(w);
     res
 }

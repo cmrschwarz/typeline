@@ -18,9 +18,11 @@ use crate::{
             field_value_flags, FieldData, FieldValueRepr, RunLength,
         },
         field_value::{FieldValue, SlicedFieldReference},
+        field_value_ref::FieldValueSlice,
+        field_value_slice_iter::FieldValueSliceIter,
         iter_hall::{IterId, IterKind},
         iters::FieldIterator,
-        push_interface::{PushInterface, VaryingTypeInserter},
+        push_interface::PushInterface,
         ref_iter::{
             AutoDerefIter, RefAwareBytesBufferIter,
             RefAwareFieldValueSliceIter, RefAwareInlineBytesIter,
@@ -28,8 +30,7 @@ use crate::{
             RefAwareTextBufferIter,
         },
         stream_value::StreamValueId,
-        field_value_ref::FieldValueSlice,
-        field_value_slice_iter::FieldValueSliceIter,
+        varying_type_inserter::VaryingTypeInserter,
     },
     utils::{
         identity_hasher::BuildIdentityHasher,
@@ -37,6 +38,7 @@ use crate::{
             i64_to_str, usize_to_str, USIZE_MAX_DECIMAL_DIGITS,
         },
         string_store::{StringStore, StringStoreEntry},
+        text_write::{MaybeTextWriteFlaggedAdapter, TextWriteIoAdapter},
     },
 };
 use bstr::ByteSlice;
@@ -949,16 +951,15 @@ pub fn handle_tf_regex(
                     custom_types,
                 ) {
                     let prev_len = jd.temp_vec.len();
-                    v.stringify(
-                        &mut jd.temp_vec,
-                        &RealizedFormatKey::default(),
-                    )
-                    .expect("custom stringify failed");
+                    let mut w = MaybeTextWriteFlaggedAdapter::new(
+                        TextWriteIoAdapter(&mut jd.temp_vec),
+                    );
+                    v.format_raw(&mut w, &RealizedFormatKey::default())
+                        .expect("custom stringify failed");
+                    let valid_utf8 = w.is_utf8();
                     let str = &jd.temp_vec[prev_len..jd.temp_vec.len()];
 
-                    if let (Some(tr), true) =
-                        (&mut text_regex, v.stringifies_as_valid_utf8())
-                    {
+                    if let (Some(tr), true) = (&mut text_regex, valid_utf8) {
                         match_regex_inner::<true, _>(
                             &mut rmis,
                             tr,

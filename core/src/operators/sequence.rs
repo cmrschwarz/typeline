@@ -14,7 +14,7 @@ use crate::{
         group_tracker::{GroupListIterRef, GroupTracker},
         iter_hall::IterId,
         iters::{DestructuredFieldDataRef, FieldIterator, Iter},
-        push_interface::VariableSizeTypeInserter,
+        variable_sized_type_inserter::VariableSizeTypeInserter,
     },
     utils::int_string_conversions::{
         i64_to_str, parse_int_with_units, I64_MAX_DECIMAL_DIGITS,

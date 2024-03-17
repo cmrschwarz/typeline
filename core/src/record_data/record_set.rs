@@ -114,6 +114,30 @@ unsafe impl PushInterface for RecordSet {
                 )
         }
     }
+
+    fn bytes_insertion_stream(
+        &mut self,
+        run_length: usize,
+    ) -> super::bytes_insertion_stream::BytesInsertionStream {
+        self.push_undefined_to_secondary_cols(run_length);
+        self.fields
+            .first_mut()
+            .unwrap()
+            .data
+            .bytes_insertion_stream(run_length)
+    }
+
+    fn text_insertion_stream(
+        &mut self,
+        run_length: usize,
+    ) -> super::bytes_insertion_stream::TextInsertionStream {
+        self.push_undefined_to_secondary_cols(run_length);
+        self.fields
+            .first_mut()
+            .unwrap()
+            .data
+            .text_insertion_stream(run_length)
+    }
 }
 
 impl RecordSet {

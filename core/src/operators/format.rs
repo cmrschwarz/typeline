@@ -29,6 +29,8 @@ use crate::{
             format_rational, Array, FieldValue, FormattingContext, Null,
             Object, Undefined, RATIONAL_DIGITS,
         },
+        field_value_ref::FieldValueSlice,
+        field_value_slice_iter::FieldValueSliceIter,
         iter_hall::{IterId, IterKind},
         iters::FieldIterator,
         match_set::MatchSetManager,
@@ -40,8 +42,6 @@ use crate::{
             RefAwareTextBufferIter,
         },
         stream_value::{StreamValue, StreamValueId, StreamValueManager},
-        field_value_ref::FieldValueSlice,
-        field_value_slice_iter::FieldValueSliceIter,
     },
     utils::{
         counting_writer::{
@@ -56,6 +56,7 @@ use crate::{
         },
         io::PointerWriter,
         string_store::{StringStore, StringStoreEntry},
+        text_write::TextWriteIoAdapter,
         universe::CountedUniverse,
         MAX_UTF8_CHAR_LEN,
     },
@@ -397,9 +398,9 @@ impl Formatable<'_> for [u8] {
         } else {
             w.write_all(b"b\"").unwrap();
         }
-        let mut ew = EscapedWriter::new(w, b'"');
+        let mut ew = EscapedWriter::new(TextWriteIoAdapter(w), b'"');
         ew.write_all(self).unwrap();
-        ew.into_inner().unwrap().write_all(b"\"").unwrap();
+        ew.into_inner().unwrap().0.write_all(b"\"").unwrap();
     }
     fn length_total(&self, opts: Self::FormattingContext) -> usize {
         if opts.type_repr_format == TypeReprFormat::Regular {
@@ -436,9 +437,9 @@ impl<'a> Formatable<'a> for str {
         } else {
             w.write_all(b"\"").unwrap();
         }
-        let mut ew = EscapedWriter::new(w, b'"');
+        let mut ew = EscapedWriter::new(TextWriteIoAdapter(w), b'"');
         ew.write_all(self.as_bytes()).unwrap();
-        ew.into_inner().unwrap().write_all(b"\"").unwrap();
+        ew.into_inner().unwrap().0.write_all(b"\"").unwrap();
     }
     fn length_total(&self, opts: Self::FormattingContext) -> usize {
         if opts.type_repr_format == TypeReprFormat::Regular {
@@ -494,7 +495,7 @@ impl<'a> Formatable<'a> for Object {
         fc: &'a FormattingContext<'a>,
         w: &mut W,
     ) {
-        self.format(w, fc).unwrap();
+        self.format(&mut TextWriteIoAdapter(w), fc).unwrap();
     }
 }
 impl<'a> Formatable<'a> for Array {
@@ -505,7 +506,7 @@ impl<'a> Formatable<'a> for Array {
         fc: &'a FormattingContext<'a>,
         w: &mut W,
     ) {
-        self.format(w, fc).unwrap();
+        self.format(&mut TextWriteIoAdapter(w), fc).unwrap();
     }
 }
 impl<'a> Formatable<'a> for BigRational {
@@ -517,7 +518,8 @@ impl<'a> Formatable<'a> for BigRational {
         w: &mut W,
     ) {
         // TODO: we dont support zero pad etc. for now
-        format_rational(w, self, RATIONAL_DIGITS).unwrap();
+        format_rational(&mut TextWriteIoAdapter(w), self, RATIONAL_DIGITS)
+            .unwrap();
     }
 }
 impl<'a> Formatable<'a> for BigInt {
@@ -626,9 +628,9 @@ impl<'a> Formatable<'a> for OperatorApplicationError {
             }
         };
         w.write_fmt(format_args!("{sv}(error)\"")).unwrap();
-        let mut ew = EscapedWriter::new(w, b'"');
+        let mut ew = EscapedWriter::new(TextWriteIoAdapter(w), b'"');
         std::io::Write::write_all(&mut ew, self.message().as_bytes()).unwrap();
-        ew.into_inner().unwrap().write_all(b"\"").unwrap();
+        ew.into_inner().unwrap().0.write_all(b"\"").unwrap();
     }
 }
 
@@ -1472,7 +1474,7 @@ pub fn setup_key_output_state(
                     custom_data,
                 ) {
                     iter_output_states(fmt, &mut output_index, rl, |o| {
-                        if let Some(len) = v.stringified_len(
+                        if let Ok(len) = v.formatted_len_raw(
                             &k.realize(o.min_char_count, o.float_precision),
                         ) {
                             o.len += len;
@@ -2160,7 +2162,7 @@ fn write_fmt_key(
                     &range,
                     custom_data,
                 ) {
-                    let len = v.stringified_len(&rfk).unwrap();
+                    let len = v.formatted_len_raw(&rfk).expect("second invocation of formatted_len_raw failed while first one succeeded");
                     let mut prev_target: Option<*mut u8> = None;
                     iter_output_targets(
                         fmt,
@@ -2176,8 +2178,15 @@ fn write_fmt_key(
                             if let Some(src) = prev_target {
                                 std::ptr::copy_nonoverlapping(src, ptr, len);
                             } else {
-                                v.stringify_expect_len( &mut PointerWriter::new(ptr, len), len, &rfk)
-                                .expect("custom stringify failed despite sufficient space");
+                                let mut w = TextWriteIoAdapter(
+                                    PointerWriter::new(ptr, len),
+                                );
+                                let res = v.format_raw(&mut w, &rfk);
+                                res.expect("custom format failed despite sufficient space");
+                                assert!(
+                                    w.0.remaining_bytes() == 0,
+                                    "custom format lied about len",
+                                );
                                 prev_target = Some(ptr);
                             }
                             tgt.target =

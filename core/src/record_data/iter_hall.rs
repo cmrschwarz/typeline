@@ -13,19 +13,22 @@ use crate::{
 };
 
 use super::{
+    bytes_insertion_stream::{BytesInsertionStream, TextInsertionStream},
     field::{FieldId, FieldManager},
     field_data::{
         FieldData, FieldDataBuffer, FieldDataInternals, FieldDataInternalsMut,
         FieldValueFlags, FieldValueHeader, FieldValueRepr, FieldValueType,
         RunLength,
     },
+    fixed_sized_type_inserter::FixedSizeTypeInserter,
     iters::{FieldDataRef, FieldIterator, Iter},
     match_set::MatchSetManager,
-    push_interface::{
-        FixedSizeTypeInserter, InlineBytesInserter, InlineStringInserter,
-        PushInterface, VariableSizeTypeInserter, VaryingTypeInserter,
-    },
+    push_interface::PushInterface,
     ref_iter::AutoDerefIter,
+    variable_sized_type_inserter::{
+        InlineBytesInserter, InlineStringInserter, VariableSizeTypeInserter,
+    },
+    varying_type_inserter::VaryingTypeInserter,
 };
 
 pub type IterId = DebuggableNonMaxU32;
@@ -731,6 +734,20 @@ unsafe impl PushInterface for IterHall {
                 try_header_rle,
             )
         }
+    }
+
+    fn bytes_insertion_stream(
+        &mut self,
+        run_length: usize,
+    ) -> BytesInsertionStream {
+        self.field_data.bytes_insertion_stream(run_length)
+    }
+
+    fn text_insertion_stream(
+        &mut self,
+        run_length: usize,
+    ) -> TextInsertionStream {
+        self.field_data.text_insertion_stream(run_length)
     }
 }
 impl IterHall {

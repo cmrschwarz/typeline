@@ -1,4 +1,7 @@
-use std::cell::RefMut;
+use std::{
+    cell::RefMut,
+    sync::{RwLock, RwLockReadGuard},
+};
 
 use bstr::ByteSlice;
 use regex::Regex;
@@ -11,7 +14,8 @@ use crate::{
     options::argument::CliArgIdx,
     record_data::{
         action_buffer::ActorId,
-        custom_data::CustomDataBox,
+        custom_data::CustomData,
+        field::{FieldManager, FieldRefOffset},
         field_data::{
             field_value_flags, FieldData, FieldValueRepr, RunLength,
             INLINE_STR_MAX_LEN,
@@ -23,7 +27,7 @@ use crate::{
         iter_hall::{IterId, IterKind},
         iters::{DestructuredFieldDataRef, FieldIterator, Iter},
         match_set::MatchSetManager,
-        push_interface::{PushInterface, VaryingTypeInserter},
+        push_interface::PushInterface,
         ref_iter::{
             AutoDerefIter, RefAwareBytesBufferIter,
             RefAwareFieldValueSliceIter, RefAwareInlineBytesIter,
@@ -31,11 +35,14 @@ use crate::{
             RefAwareTextBufferIter, RefAwareTypedRange,
         },
         stream_value::{StreamValue, StreamValueId, StreamValueManager},
+        varying_type_inserter::VaryingTypeInserter,
     },
     utils::{
         debuggable_nonmax::DebuggableNonMaxUsize,
         int_string_conversions::{i64_to_str, usize_to_str},
         io::PointerWriter,
+        string_store::StringStore,
+        text_write::{MaybeTextWriteFlaggedAdapter, TextWriteIoAdapter},
         universe::Universe,
     },
 };
@@ -85,6 +92,7 @@ pub struct TfJoin<'a> {
     group_capacity: Option<usize>,
     drop_incomplete: bool,
     stream_len_threshold: usize,
+    input_field_ref_offset: FieldRefOffset,
 
     group_list_iter_ref: GroupListIterRef,
     iter_id: IterId,
@@ -153,7 +161,8 @@ pub fn build_tf_join<'a>(
     op: &'a OpJoin,
     tf_state: &mut TransformState,
 ) -> TransformData<'a> {
-    jd.field_mgr
+    let input_field_ref_offset = jd
+        .field_mgr
         .register_field_reference(tf_state.output_field, tf_state.input_field);
 
     TransformData::Join(TfJoin {
@@ -165,6 +174,7 @@ pub fn build_tf_join<'a>(
             [op_base.chain_id.unwrap() as usize]
             .settings
             .stream_size_threshold,
+        input_field_ref_offset,
         group_list_iter_ref: jd.match_set_mgr.match_sets
             [tf_state.match_set_id]
             .group_tracker
@@ -184,8 +194,8 @@ pub fn build_tf_join<'a>(
         active_stream_value: None,
         active_stream_val_len_added: 0,
         active_group_batch: None,
-        group_batches: Universe::default(),
         active_group_batch_appended: false,
+        group_batches: Universe::default(),
     })
 }
 
@@ -282,13 +292,45 @@ unsafe fn get_join_buffer<'a>(
     }
 
     if let Some(sv_id) = join.active_stream_value {
-        match &mut sv_mgr.stream_values[sv_id].value {
+        let value = &mut sv_mgr.stream_values[sv_id].value;
+
+        if !expect_utf8 {
+            if let FieldValue::Text(txt) = value {
+                let buf = std::mem::take(txt).into_bytes();
+                *value = FieldValue::Bytes(buf);
+                let FieldValue::Bytes(bb) = value else {
+                    unreachable!()
+                };
+                return bb;
+            }
+        }
+        match value {
             FieldValue::Bytes(bb) => bb,
             FieldValue::Text(txt) => unsafe { txt.as_mut_vec() },
             _ => unreachable!(),
         }
     } else {
         &mut join.buffer
+    }
+}
+fn update_valid_utf8(
+    join: &mut TfJoin,
+    sv_mgr: &mut StreamValueManager,
+    valid_utf8: bool,
+) {
+    if !join.buffer_is_valid_utf8 || valid_utf8 {
+        return;
+    }
+    join.buffer_is_valid_utf8 = false;
+    let Some(sv_id) = join.active_stream_value else {
+        return;
+    };
+
+    let value = &mut sv_mgr.stream_values[sv_id].value;
+
+    if let FieldValue::Text(txt) = value {
+        let buf = std::mem::take(txt).into_bytes();
+        *value = FieldValue::Bytes(buf);
     }
 }
 unsafe fn push_bytes_raw(
@@ -457,6 +499,8 @@ pub fn handle_tf_join(
     let mut batch_size_rem = batch_size;
     let mut last_group_end = field_pos_start;
     let mut prebuffered_record = join.first_record_added;
+    let x = jd.session_data.string_store.read().unwrap();
+    let mut string_store_ref = None;
 
     let ms = &jd.match_set_mgr.match_sets[ms_id];
     let mut ab = ms.action_buffer.borrow_mut();
@@ -530,6 +574,10 @@ pub fn handle_tf_join(
                 }
                 handle_single_elem_group(
                     join,
+                    &jd.field_mgr,
+                    &jd.match_set_mgr,
+                    &jd.session_data.string_store,
+                    &mut string_store_ref,
                     &mut iter,
                     &mut groups_iter,
                     &mut output_inserter,
@@ -587,7 +635,7 @@ pub fn handle_tf_join(
                     &range,
                     custom_data,
                 ) {
-                    push_custom_type(op_id, join, sv_mgr, v, rl);
+                    push_custom_type(op_id, join, sv_mgr, &**v, rl);
                 }
             }
             FieldValueSlice::Error(errs) => {
@@ -653,13 +701,28 @@ pub fn handle_tf_join(
     jd.tf_mgr.submit_batch(tf_id, groups_emitted, ps.input_done);
 }
 
-fn handle_single_elem_group<'a>(
+fn handle_single_elem_group<'a, 'b>(
     join: &mut TfJoin,
+    fm: &FieldManager,
+    msm: &MatchSetManager,
+    string_store: &'b RwLock<StringStore>,
+    string_store_ref: &mut Option<RwLockReadGuard<'b, StringStore>>,
     iter: &mut AutoDerefIter<'a, Iter<'a, DestructuredFieldDataRef<'a>>>,
     groups_iter: &mut GroupListIterMut<RefMut<GroupList>>,
     output_inserter: &mut VaryingTypeInserter<&mut FieldData>,
 ) {
-    todo!()
+    output_inserter.extend_from_ref_aware_range_stringified_smart_ref(
+        fm,
+        msm,
+        string_store,
+        string_store_ref,
+        iter.next_range(msm).unwrap(),
+        true,
+        true,
+        true,
+        join.input_field_ref_offset,
+        true, // TODO: configurable
+    );
 }
 
 fn try_consume_stream_values<'a>(
@@ -678,7 +741,7 @@ fn try_consume_stream_values<'a>(
     let start_pos = iter.get_next_field_pos();
     let mut pos = start_pos;
     let mut sv_iter = RefAwareStreamValueIter::from_range(range, svs);
-    while let Some((sv_id, offsets, rl)) = sv_iter.next() {
+    for (sv_id, offsets, rl) in sv_iter {
         pos += rl as usize;
         let sv = &mut sv_mgr.stream_values[sv_id];
         match &sv.value {
@@ -749,34 +812,59 @@ fn try_consume_stream_values<'a>(
     true
 }
 
+unsafe fn write_custom_data(
+    ptr: &mut *mut u8,
+    len: usize,
+    v: &dyn CustomData,
+    rfk: &RealizedFormatKey,
+    valid_utf8: &mut bool,
+) {
+    const ERR_MSG: &str = "custom stringify failed";
+    const LEN_ERR_MSG: &str = "custom type lied about it's `formatted_len`";
+    let mut w =
+        MaybeTextWriteFlaggedAdapter::new(TextWriteIoAdapter(unsafe {
+            PointerWriter::new(*ptr, len)
+        }));
+    v.format_raw(&mut w, rfk).expect(ERR_MSG);
+    *valid_utf8 = w.is_utf8();
+    assert!(w.into_inner().remaining_bytes() == 0, "{LEN_ERR_MSG}");
+    *ptr = unsafe { ptr.add(len) };
+}
+
 fn push_custom_type(
     op_id: OperatorId,
     join: &mut TfJoin<'_>,
     sv_mgr: &mut StreamValueManager,
-    v: &CustomDataBox,
+    value: &dyn CustomData,
     rl: u32,
 ) {
-    let Some(len) = v.stringified_len(&RealizedFormatKey::default()) else {
-        push_error(
-            join,
-            sv_mgr,
-            OperatorApplicationError::new_s(
-                format!("cannot stringify custom type {}", v.type_name()),
-                op_id,
-            ),
-        );
-        return;
+    let len = match value.formatted_len(&RealizedFormatKey::default()) {
+        Ok(len) => len,
+        Err(e) => {
+            push_error(
+                join,
+                sv_mgr,
+                OperatorApplicationError::new_s(
+                    format!(
+                        "cannot stringify custom type {}: '{e}'",
+                        value.type_name()
+                    ),
+                    op_id,
+                ),
+            );
+            return;
+        }
     };
     let first_record_added = join.first_record_added;
     join.first_record_added = true;
     let sep = join.separator;
     let sep_len = sep.map_or(0, <[_]>::len);
     let target_len = (len + sep_len) * rl as usize;
-    let valid_utf8 = v.stringifies_as_valid_utf8();
-    let buf = unsafe { get_join_buffer(join, sv_mgr, target_len, valid_utf8) };
+    let buf = unsafe { get_join_buffer(join, sv_mgr, target_len, true) };
+    let mut valid_utf8 = true;
     let start_len = buf.len();
     buf.reserve(target_len);
-    const ERR_MSG: &str = "custom stringify failed";
+
     let rfk = RealizedFormatKey::default();
     unsafe {
         let start_ptr = buf.as_mut_ptr().add(start_len);
@@ -787,21 +875,9 @@ fn push_custom_type(
                 std::ptr::copy_nonoverlapping(sep.as_ptr(), ptr, sep_len);
                 ptr = ptr.add(sep_len);
                 first_target_ptr = ptr;
-                v.stringify_expect_len(
-                    &mut PointerWriter::new(ptr, len),
-                    len,
-                    &rfk,
-                )
-                .expect(ERR_MSG);
-                ptr = ptr.add(len);
+                write_custom_data(&mut ptr, len, value, &rfk, &mut valid_utf8);
             } else {
-                v.stringify_expect_len(
-                    &mut PointerWriter::new(ptr, len),
-                    len,
-                    &rfk,
-                )
-                .expect(ERR_MSG);
-                ptr = ptr.add(len);
+                write_custom_data(&mut ptr, len, value, &rfk, &mut valid_utf8);
             }
 
             for _ in 1..rl {
@@ -812,12 +888,7 @@ fn push_custom_type(
             }
         } else {
             let mut ptr = start_ptr;
-            v.stringify_expect_len(
-                &mut PointerWriter::new(ptr, len),
-                len,
-                &rfk,
-            )
-            .expect(ERR_MSG);
+            write_custom_data(&mut ptr, len, value, &rfk, &mut valid_utf8);
             for _ in 1..rl {
                 ptr = ptr.add(len);
                 std::ptr::copy_nonoverlapping(start_ptr, ptr, len);
@@ -825,6 +896,7 @@ fn push_custom_type(
         }
         buf.set_len(start_len + target_len);
     }
+    update_valid_utf8(join, sv_mgr, valid_utf8);
 }
 
 pub fn handle_tf_join_stream_value_update(

@@ -14,6 +14,8 @@ use crate::{
         field::Field,
         field_data::field_value_flags,
         field_value::{FieldValue, FormattingContext},
+        field_value_ref::FieldValueSlice,
+        field_value_slice_iter::FieldValueSliceIter,
         iter_hall::IterId,
         iters::FieldIterator,
         push_interface::PushInterface,
@@ -24,12 +26,12 @@ use crate::{
             RefAwareTextBufferIter,
         },
         stream_value::{StreamValue, StreamValueId},
-        field_value_ref::FieldValueSlice,
-        field_value_slice_iter::FieldValueSliceIter,
     },
     utils::{
         identity_hasher::BuildIdentityHasher,
-        int_string_conversions::i64_to_str, universe::CountedUniverse,
+        int_string_conversions::i64_to_str,
+        text_write::{MaybeTextWriteFlaggedAdapter, TextWriteIoAdapter},
+        universe::CountedUniverse,
     },
     NULL_STR, UNDEFINED_STR,
 };
@@ -367,33 +369,16 @@ pub fn handle_tf_string_sink(
                     &range,
                     custom_types,
                 ) {
-                    if let Some(len) =
-                        v.stringified_len(&RealizedFormatKey::default())
-                    {
-                        let mut data = Vec::with_capacity(len);
-                        v.stringify(&mut data, &RealizedFormatKey::default())
-                            .expect("custom stringify failed");
-                        if v.stringifies_as_valid_utf8() {
-                            push_string(
-                                &mut out,
-                                unsafe { String::from_utf8_unchecked(data) },
-                                rl as usize,
-                            );
-                        } else {
-                            push_bytes(
-                                op_id,
-                                field_pos,
-                                &mut out,
-                                &data,
-                                rl as usize,
-                            );
-                        }
-                    } else {
-                        push_errors(
+                    let mut data = Vec::new();
+                    let mut w = MaybeTextWriteFlaggedAdapter::new(
+                        TextWriteIoAdapter(&mut data),
+                    );
+                    match v.format_raw(&mut w, &RealizedFormatKey::default()) {
+                        Err(e) => push_errors(
                             &mut out,
                             OperatorApplicationError::new_s(
                                 format!(
-                                    "cannot stringify custom type {}",
+                                    "failed to stringify custom type {}: {e}",
                                     v.type_name()
                                 ),
                                 op_id,
@@ -402,7 +387,24 @@ pub fn handle_tf_string_sink(
                             field_pos,
                             &mut last_interruption_end,
                             &mut output_field,
-                        );
+                        ),
+
+                        Ok(()) if w.is_utf8() => {
+                            push_string(
+                                &mut out,
+                                unsafe { String::from_utf8_unchecked(data) },
+                                rl as usize,
+                            );
+                        }
+                        Ok(()) => {
+                            push_bytes(
+                                op_id,
+                                field_pos,
+                                &mut out,
+                                &data,
+                                rl as usize,
+                            );
+                        }
                     }
                 }
             }
@@ -505,7 +507,7 @@ pub fn handle_tf_string_sink(
                     RefAwareFieldValueSliceIter::from_range(&range, arrays)
                 {
                     let mut data = Vec::new();
-                    a.format(&mut data, &fc).unwrap();
+                    a.format(&mut TextWriteIoAdapter(&mut data), &fc).unwrap();
                     push_bytes_buffer(
                         op_id,
                         field_pos,
@@ -530,7 +532,7 @@ pub fn handle_tf_string_sink(
                     RefAwareFieldValueSliceIter::from_range(&range, object)
                 {
                     let mut data = Vec::new();
-                    a.format(&mut data, &fc).unwrap();
+                    a.format(&mut TextWriteIoAdapter(&mut data), &fc).unwrap();
                     push_bytes_buffer(
                         op_id,
                         field_pos,
