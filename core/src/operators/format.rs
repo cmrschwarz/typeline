@@ -24,7 +24,7 @@ use crate::{
         field_data::{
             field_value_flags, FieldValueRepr, RunLength, INLINE_STR_MAX_LEN,
         },
-        field_value::{FieldValue, FormattingContext, Null, Undefined},
+        field_value::{FormattingContext, Null, Undefined},
         field_value_ref::FieldValueSlice,
         field_value_slice_iter::FieldValueSliceIter,
         formattable::{
@@ -42,7 +42,9 @@ use crate::{
             RefAwareInlineTextIter, RefAwareStreamValueIter,
             RefAwareTextBufferIter,
         },
-        stream_value::{StreamValue, StreamValueId, StreamValueManager},
+        stream_value::{
+            StreamValue, StreamValueData, StreamValueId, StreamValueManager,
+        },
     },
     utils::{
         debuggable_nonmax::DebuggableNonMaxUsize,
@@ -1016,8 +1018,8 @@ pub fn setup_key_output_state(
                 {
                     let sv = &mut sv_mgr.stream_values[sv_id];
 
-                    match &sv.value {
-                        FieldValue::Error(e) => {
+                    match &sv.data {
+                        StreamValueData::Error(e) => {
                             if typed_format {
                                 iter_output_states(
                                     fmt,
@@ -1048,10 +1050,15 @@ pub fn setup_key_output_state(
                                 );
                             }
                         }
-                        FieldValue::Text(_) | FieldValue::Bytes(_) => {
+                        StreamValueData::Text(_)
+                        | StreamValueData::Bytes(_) => {
                             let mut idx_end = None;
-                            let mut handled_len =
-                                sv.value.as_ref().as_slice().as_bytes().len();
+                            let mut handled_len = sv
+                                .data
+                                .as_field_value_ref()
+                                .as_slice()
+                                .as_bytes()
+                                .len();
                             if !sv.done && !sv.is_buffered {
                                 if typed_format {
                                     // PERF: split up debug quotes instead
@@ -1074,8 +1081,8 @@ pub fn setup_key_output_state(
                                 let mut i = output_index;
 
                                 iter_output_states(fmt, &mut i, rl, |o| {
-                                    o.len += match &sv.value {
-                                        FieldValue::Bytes(b) => {
+                                    o.len += match &sv.data {
+                                        StreamValueData::Bytes(b) => {
                                             calc_fmt_len_ost(
                                                 k,
                                                 formatting_opts,
@@ -1085,7 +1092,7 @@ pub fn setup_key_output_state(
                                                     .unwrap_or(0..b.len())],
                                             )
                                         }
-                                        FieldValue::Text(t) => {
+                                        StreamValueData::Text(t) => {
                                             calc_fmt_len_ost(
                                                 k,
                                                 formatting_opts,
@@ -1095,7 +1102,9 @@ pub fn setup_key_output_state(
                                                     .unwrap_or(0..t.len())],
                                             )
                                         }
-                                        _ => unreachable!(),
+                                        StreamValueData::Error(_) => {
+                                            unreachable!()
+                                        }
                                     };
                                     o.contains_raw_bytes = true;
                                 });
@@ -1124,15 +1133,15 @@ pub fn setup_key_output_state(
                                             wait_to_end,
                                         );
                                         let value = sv
-                                            .value
-                                            .as_ref()
+                                            .data
+                                            .as_field_value_ref()
                                             .subslice(0..0)
                                             .to_field_value();
 
                                         let target_sv_id = sv_mgr
                                             .stream_values
-                                            .claim_with_value(StreamValue::from_value_unfinished(
-                                                value,
+                                            .claim_with_value(StreamValue::from_data_unfinished(
+                                                value.try_into().unwrap(),
                                                 true,
                                             ));
 
@@ -1156,18 +1165,6 @@ pub fn setup_key_output_state(
                             }
                             output_index = idx_end.unwrap();
                         }
-                        FieldValue::Undefined
-                        | FieldValue::Null
-                        | FieldValue::Int(_)
-                        | FieldValue::BigInt(_)
-                        | FieldValue::Float(_)
-                        | FieldValue::Rational(_)
-                        | FieldValue::Array(_)
-                        | FieldValue::Object(_)
-                        | FieldValue::Custom(_)
-                        | FieldValue::StreamValueId(_)
-                        | FieldValue::FieldReference(_)
-                        | FieldValue::SlicedFieldReference(_) => todo!(),
                     }
                 }
             }
@@ -1475,11 +1472,10 @@ fn insert_output_target(
     if let Some(handle_id) = os.incomplete_stream_value_handle {
         let handle = &mut fmt.stream_value_handles[handle_id];
         let sv = &mut sv_mgr.stream_values[handle.target_sv_id];
-        let buf = match &mut sv.value {
-            FieldValue::Text(buf) => unsafe { buf.as_mut_vec() },
-            FieldValue::Bytes(buf) => buf,
-            FieldValue::Array(_) => todo!(),
-            _ => todo!(),
+        let buf = match &mut sv.data {
+            StreamValueData::Text(buf) => unsafe { buf.as_mut_vec() },
+            StreamValueData::Bytes(buf) => buf,
+            StreamValueData::Error(_) => unreachable!(),
         };
         buf.reserve(os.len);
         let target = unsafe { Some(NonNull::new_unchecked(buf.as_mut_ptr())) };
@@ -1756,8 +1752,8 @@ fn write_fmt_key(
                 {
                     let sv = &sv_mgr.stream_values[v];
 
-                    match &sv.value {
-                        FieldValue::Error(e) => {
+                    match &sv.data {
+                        StreamValueData::Error(e) => {
                             iter_output_targets(
                                 fmt,
                                 &mut output_index,
@@ -1767,18 +1763,23 @@ fn write_fmt_key(
                                 },
                             );
                         }
-                        FieldValue::Bytes(_) | FieldValue::Text(_) => {
+                        StreamValueData::Bytes(_)
+                        | StreamValueData::Text(_) => {
                             let has_range = range.is_some();
                             if has_range || !sv.is_buffered || sv.done {
-                                let len = sv.value.as_ref().as_slice().len();
+                                let len = sv
+                                    .data
+                                    .as_field_value_ref()
+                                    .as_slice()
+                                    .len();
                                 let range = range.unwrap_or(0..len);
                                 iter_output_targets(
                                     fmt,
                                     &mut output_index,
                                     rl as usize,
                                     |tgt| {
-                                        match &sv.value {
-                                            FieldValue::Text(t) => {
+                                        match &sv.data {
+                                            StreamValueData::Text(t) => {
                                                 write_formatted(
                                                     k,
                                                     formatting_opts,
@@ -1786,7 +1787,7 @@ fn write_fmt_key(
                                                     &t[range.clone()],
                                                 )
                                             }
-                                            FieldValue::Bytes(b) => {
+                                            StreamValueData::Bytes(b) => {
                                                 write_formatted(
                                                     k,
                                                     formatting_opts,
@@ -1812,7 +1813,6 @@ fn write_fmt_key(
                                 );
                             }
                         }
-                        _ => todo!(),
                     }
                 }
             }
@@ -2064,24 +2064,24 @@ pub fn handle_tf_format_stream_value_update(
     let (sv, mut out_sv) = (sv.unwrap(), out_sv.unwrap());
     let done = sv.done;
     let mut update_out_sv = false;
-    match &sv.value {
-        FieldValue::Error(err) => {
+    match &sv.data {
+        StreamValueData::Error(err) => {
             debug_assert!(sv.done);
-            out_sv.value = FieldValue::Error(err.clone());
+            out_sv.data = StreamValueData::Error(err.clone());
         }
-        FieldValue::Bytes(_) | FieldValue::Text(_) => {
+        StreamValueData::Bytes(_) | StreamValueData::Text(_) => {
             let mut src_is_utf8 = true;
-            let src_buf = match &mut sv.value {
-                FieldValue::Bytes(buf) => {
+            let src_buf = match &mut sv.data {
+                StreamValueData::Bytes(buf) => {
                     src_is_utf8 = false;
                     buf
                 }
-                FieldValue::Text(buf) => unsafe { buf.as_mut_vec() },
+                StreamValueData::Text(buf) => unsafe { buf.as_mut_vec() },
                 _ => unreachable!(),
             };
-            let tgt_buf = match &mut out_sv.value {
-                FieldValue::Bytes(buf) => buf,
-                FieldValue::Text(buf) => {
+            let tgt_buf = match &mut out_sv.data {
+                StreamValueData::Bytes(buf) => buf,
+                StreamValueData::Text(buf) => {
                     // TODO: enforce this by chosing a bytes stream value
                     // in case any BytesLiteral or Key with a bytes stream
                     // value is present
@@ -2150,7 +2150,6 @@ pub fn handle_tf_format_stream_value_update(
                 update_out_sv = true;
             }
         }
-        _ => todo!(),
     }
 
     if !done {
@@ -2165,14 +2164,13 @@ pub fn handle_tf_format_stream_value_update(
     let mut i = handle.part_idx as usize + 1;
 
     let mut tgt_is_utf8 = false;
-    let tgt_buf = match &mut out_sv.value {
-        FieldValue::Bytes(buf) => Some(buf),
-        FieldValue::Text(buf) => {
+    let tgt_buf = match &mut out_sv.data {
+        StreamValueData::Bytes(buf) => Some(buf),
+        StreamValueData::Text(buf) => {
             tgt_is_utf8 = true;
             unsafe { Some(buf.as_mut_vec()) }
         }
-        FieldValue::Error(_) => None,
-        _ => todo!(),
+        StreamValueData::Error(_) => None,
     };
 
     if let Some(buf) = tgt_buf {

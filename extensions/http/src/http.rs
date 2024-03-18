@@ -22,11 +22,10 @@ use scr_core::{
     },
     record_data::{
         field::FieldId,
-        field_value::FieldValue,
         field_value_ref::FieldValueRef,
         iter_hall::{IterId, IterKind},
         push_interface::PushInterface,
-        stream_value::{StreamValue, StreamValueId},
+        stream_value::{StreamValue, StreamValueData, StreamValueId},
     },
     smallbox,
     utils::{identity_hasher::BuildIdentityHasher, universe::CountedUniverse},
@@ -218,8 +217,8 @@ impl TfHttpRequest {
             self.setup_connection(first_addr, https, hostname, token)?;
 
         let stream_value = bud.sv_mgr.stream_values.claim_with_value(
-            StreamValue::from_value_unfinished(
-                FieldValue::Bytes(Vec::new()),
+            StreamValue::from_data_unfinished(
+                StreamValueData::Bytes(Vec::new()),
                 false,
             ),
         );
@@ -470,10 +469,11 @@ impl Transform for TfHttpRequest {
                 let _ = pe.socket.shutdown(std::net::Shutdown::Both);
                 let sv_id = pe.stream_value.unwrap();
                 let sv = &mut jd.sv_mgr.stream_values[sv_id];
-                sv.value = FieldValue::Error(OperatorApplicationError::new_s(
-                    format!("IO Error in HTTP GET Request: {e}"),
-                    jd.tf_mgr.transforms[tf_id].op_id.unwrap(),
-                ));
+                sv.data =
+                    StreamValueData::Error(OperatorApplicationError::new_s(
+                        format!("IO Error in HTTP GET Request: {e}"),
+                        jd.tf_mgr.transforms[tf_id].op_id.unwrap(),
+                    ));
                 sv.done = true;
                 jd.sv_mgr.inform_stream_value_subscribers(sv_id);
                 jd.sv_mgr.drop_field_value_subscription(sv_id, None);
@@ -488,7 +488,7 @@ impl Transform for TfHttpRequest {
             let sv_id = req.stream_value.unwrap();
             let sv = &mut jd.sv_mgr.stream_values[sv_id];
 
-            let FieldValue::Bytes(buf) = &mut sv.value else {
+            let StreamValueData::Bytes(buf) = &mut sv.data else {
                 unreachable!()
             };
             if req.header_parsed && !sv.is_buffered {
@@ -514,7 +514,7 @@ impl Transform for TfHttpRequest {
                             req.socket = socket;
                         }
                         Err(e) => {
-                            sv.value = FieldValue::Error(
+                            sv.data = StreamValueData::Error(
                                 // ENHANCE: include number of addresses tried
                                 OperatorApplicationError::new_s(
                                     format!("HTTP GET request failed: {e}"),
@@ -526,11 +526,12 @@ impl Transform for TfHttpRequest {
                     }
                 }
                 Err(e) => {
-                    sv.value =
-                        FieldValue::Error(OperatorApplicationError::new_s(
+                    sv.data = StreamValueData::Error(
+                        OperatorApplicationError::new_s(
                             format!("IO Error in HTTP GET Request: {e}"),
                             op_id,
-                        ));
+                        ),
+                    );
                     sv.done = true;
                 }
                 Ok(eof) => {
@@ -552,7 +553,7 @@ impl Transform for TfHttpRequest {
                     }
                     if eof {
                         if !req.header_parsed {
-                            sv.value = FieldValue::Error(
+                            sv.data = StreamValueData::Error(
                                 OperatorApplicationError::new(
                                     if req.response_size == 0 {
                                         "HTTP GET got no response"
@@ -568,7 +569,7 @@ impl Transform for TfHttpRequest {
                 }
             }
             if let Some(len) = req.expected_response_size {
-                if let FieldValue::Bytes(buf) = &mut sv.value {
+                if let StreamValueData::Bytes(buf) = &mut sv.data {
                     if req.header_parsed && req.response_size >= len {
                         if let Some(tls) = &mut req.tls_conn {
                             tls.send_close_notify();

@@ -15,7 +15,7 @@ use crate::{
         field_value::{Array, FieldValue, FieldValueKind, Object},
         iter_hall::IterId,
         push_interface::PushInterface,
-        stream_value::StreamValue,
+        stream_value::{StreamValue, StreamValueData},
     },
     tyson::{parse_tyson, TysonParseError},
 };
@@ -126,7 +126,7 @@ pub fn insert_value(
         Literal::Undefined => output_field.iter_hall.push_undefined(1, true),
         Literal::StreamError(ss) => {
             let sv_id = jd.sv_mgr.stream_values.claim_with_value(
-                StreamValue::from_value(FieldValue::Error(
+                StreamValue::from_data(StreamValueData::Error(
                     OperatorApplicationError::new_s(ss.clone(), op_id),
                 )),
             );
@@ -136,7 +136,7 @@ pub fn insert_value(
         }
         Literal::StreamString(ss) => {
             let sv_id = jd.sv_mgr.stream_values.claim_with_value(
-                StreamValue::from_value(FieldValue::Text(ss.clone())),
+                StreamValue::from_data(StreamValueData::Text(ss.clone())),
             );
             output_field
                 .iter_hall
@@ -144,7 +144,7 @@ pub fn insert_value(
         }
         Literal::StreamBytes(sb) => {
             let sv_id = jd.sv_mgr.stream_values.claim_with_value(
-                StreamValue::from_value(FieldValue::Bytes(sb.clone())),
+                StreamValue::from_data(StreamValueData::Bytes(sb.clone())),
             );
             output_field
                 .iter_hall

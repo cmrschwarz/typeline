@@ -16,9 +16,7 @@ use crate::{
     record_data::{
         custom_data::FieldValueFormattingError,
         field_data::field_value_flags,
-        field_value::{
-            format_rational, FieldValue, FormattingContext, RATIONAL_DIGITS,
-        },
+        field_value::{format_rational, FormattingContext, RATIONAL_DIGITS},
         field_value_ref::FieldValueSlice,
         field_value_slice_iter::FieldValueSliceIter,
         formattable::RealizedFormatKey,
@@ -31,7 +29,7 @@ use crate::{
             RefAwareInlineTextIter, RefAwareStreamValueIter,
             RefAwareTextBufferIter, RefAwareUnfoldIterRunLength,
         },
-        stream_value::{StreamValue, StreamValueId},
+        stream_value::{StreamValue, StreamValueData, StreamValueId},
     },
     utils::{
         int_string_conversions::i64_to_str, text_write::TextWriteIoAdapter,
@@ -123,12 +121,12 @@ pub fn write_stream_val_check_done(
 ) -> Result<bool, (usize, std::io::Error)> {
     let rl_to_attempt = if sv.done || run_len == 0 { run_len } else { 1 };
     debug_assert!(sv.done || offsets.is_none());
-    match &sv.value {
-        FieldValue::Bytes(_) | FieldValue::Text(_) => {
+    match &sv.data {
+        StreamValueData::Bytes(_) | StreamValueData::Text(_) => {
             if sv.is_buffered && !sv.done {
                 return Ok(false);
             }
-            let mut data = sv.value.as_ref().as_slice().as_bytes();
+            let mut data = sv.data.as_field_value_ref().as_slice().as_bytes();
             if let Some(offsets) = offsets {
                 debug_assert!(sv.is_buffered);
                 data = &data[offsets];
@@ -146,7 +144,7 @@ pub fn write_stream_val_check_done(
                     .map_err(|e| (i, e))?;
             }
         }
-        FieldValue::Error(e) => {
+        StreamValueData::Error(e) => {
             debug_assert!(sv.done);
             debug_assert!(offsets.is_none());
             for i in 0..rl_to_attempt {
@@ -155,7 +153,6 @@ pub fn write_stream_val_check_done(
                     .map_err(|e| (i, e))?;
             }
         }
-        _ => todo!(),
     }
     Ok(sv.done)
 }

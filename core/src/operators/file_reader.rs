@@ -19,10 +19,9 @@ use crate::{
             field_value_flags, FieldValueFormat, FieldValueRepr,
             FieldValueSize, INLINE_STR_MAX_LEN,
         },
-        field_value::FieldValue,
         iter_hall::IterId,
         push_interface::PushInterface,
-        stream_value::{StreamValue, StreamValueId},
+        stream_value::{StreamValue, StreamValueData, StreamValueId},
     },
 };
 
@@ -309,7 +308,7 @@ fn start_streaming_file(
         }
     };
     let sv_id = jd.sv_mgr.stream_values.claim_with_value(StreamValue {
-        value: FieldValue::Bytes(buf),
+        data: StreamValueData::Bytes(buf),
         done,
         ref_count: 1,
         is_buffered: false,
@@ -344,14 +343,14 @@ pub fn handle_tf_file_reader_stream(
         sv.is_buffered = true;
     }
 
-    let res = match &mut sv.value {
-        FieldValue::Bytes(ref mut bc) => {
+    let res = match &mut sv.data {
+        StreamValueData::Bytes(ref mut bc) => {
             if !sv.is_buffered {
                 bc.clear();
             }
             read_chunk(bc, file, fr.stream_buffer_size, fr.line_buffered)
         }
-        FieldValue::Error(_) => Ok((0, true)),
+        StreamValueData::Error(_) => Ok((0, true)),
         _ => unreachable!(),
     };
     let done = match res {
@@ -361,7 +360,7 @@ pub fn handle_tf_file_reader_stream(
                 jd.tf_mgr.transforms[tf_id].op_id.unwrap(),
                 &err,
             );
-            sv.value = FieldValue::Error(err);
+            sv.data = StreamValueData::Error(err);
             true
         }
     };

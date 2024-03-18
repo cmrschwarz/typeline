@@ -13,7 +13,7 @@ use crate::{
     record_data::{
         field::Field,
         field_data::field_value_flags,
-        field_value::{FieldValue, FormattingContext},
+        field_value::FormattingContext,
         field_value_ref::FieldValueSlice,
         field_value_slice_iter::FieldValueSliceIter,
         formattable::RealizedFormatKey,
@@ -26,7 +26,7 @@ use crate::{
             RefAwareInlineTextIter, RefAwareStreamValueIter,
             RefAwareTextBufferIter,
         },
-        stream_value::{StreamValue, StreamValueId},
+        stream_value::{StreamValue, StreamValueData, StreamValueId},
     },
     utils::{
         identity_hasher::BuildIdentityHasher,
@@ -209,8 +209,8 @@ fn append_stream_val(
 ) {
     debug_assert!(run_len > 0);
     let end_idx = start_idx + run_len;
-    match &sv.value {
-        FieldValue::Bytes(b) => {
+    match &sv.data {
+        StreamValueData::Bytes(b) => {
             if sv.is_buffered && !sv.done {
                 return;
             }
@@ -243,7 +243,7 @@ fn append_stream_val(
                 out.data[i].push_str(text);
             }
         }
-        FieldValue::Text(t) => {
+        StreamValueData::Text(t) => {
             if sv.is_buffered && !sv.done {
                 return;
             }
@@ -257,7 +257,7 @@ fn append_stream_val(
                 out.data[i].push_str(text);
             }
         }
-        FieldValue::Error(e) => {
+        StreamValueData::Error(e) => {
             debug_assert!(sv.done);
             let err = Arc::new(e.clone());
             push_string(out, error_to_string(e), run_len);
@@ -265,7 +265,6 @@ fn append_stream_val(
                 out.append_error(i, err.clone());
             }
         }
-        _ => todo!(),
     }
 }
 pub fn push_errors(
@@ -446,8 +445,8 @@ pub fn handle_tf_string_sink(
                 {
                     let rl = rl as usize;
                     let sv = &mut jd.sv_mgr.stream_values[svid];
-                    match &sv.value {
-                        FieldValue::Bytes(bytes) => {
+                    match &sv.data {
+                        StreamValueData::Bytes(bytes) => {
                             let bytes =
                                 range.map(|r| &bytes[r]).unwrap_or(bytes);
                             if sv.done || !sv.is_buffered {
@@ -456,7 +455,7 @@ pub fn handle_tf_string_sink(
                                 push_string(&mut out, String::new(), rl);
                             }
                         }
-                        FieldValue::Text(text) => {
+                        StreamValueData::Text(text) => {
                             let text = range.map(|r| &text[r]).unwrap_or(text);
                             if sv.done || !sv.is_buffered {
                                 push_str(&mut out, text, rl);
@@ -464,7 +463,7 @@ pub fn handle_tf_string_sink(
                                 push_string(&mut out, String::new(), rl);
                             }
                         }
-                        FieldValue::Error(e) => push_errors(
+                        StreamValueData::Error(e) => push_errors(
                             &mut out,
                             e.clone(),
                             rl,
@@ -472,7 +471,6 @@ pub fn handle_tf_string_sink(
                             &mut last_interruption_end,
                             &mut output_field,
                         ),
-                        _ => todo!(),
                     }
                     if !sv.done {
                         let handle_id = ss

@@ -4,13 +4,13 @@ use crate::{
     job::JobData,
     options::argument::CliArgIdx,
     record_data::{
-        field_value::{FieldValue, FieldValueKind},
+        field_value::FieldValueKind,
         field_value_ref::FieldValueSlice,
         iter_hall::{IterId, IterKind},
         iters::FieldIterator,
         push_interface::PushInterface,
         ref_iter::{AutoDerefIter, RefAwareFieldValueSliceIter},
-        stream_value::StreamValueId,
+        stream_value::{StreamValueData, StreamValueId},
     },
     utils::encoding::{
         self, utf8_surrocate_escape, UTF8_REPLACEMENT_CHARACTER,
@@ -238,18 +238,20 @@ pub fn handle_tf_cast_stream_value_update(
     let sv_out_id = custom;
     let (sv_in, sv_out) =
         jd.sv_mgr.stream_values.two_distinct_mut(sv_id, sv_out_id);
-    match &sv_in.value {
-        FieldValue::Error(err) => {
-            sv_out.value = FieldValue::Error(err.clone());
+    match &sv_in.data {
+        StreamValueData::Error(err) => {
+            sv_out.data = StreamValueData::Error(err.clone());
             sv_out.done = true;
             jd.sv_mgr.inform_stream_value_subscribers(sv_out_id);
             jd.sv_mgr.drop_field_value_subscription(sv_id, Some(tf_id));
         }
-        FieldValue::Bytes(bb) => {
-            let (out_is_utf8, out_data) = match &mut sv_out.value {
-                FieldValue::Bytes(data) => (false, data),
+        StreamValueData::Bytes(bb) => {
+            let (out_is_utf8, out_data) = match &mut sv_out.data {
+                StreamValueData::Bytes(data) => (false, data),
                 // SAFETY: we trust the decoder to produce valid utf-8
-                FieldValue::Text(data) => (true, unsafe { data.as_mut_vec() }),
+                StreamValueData::Text(data) => {
+                    (true, unsafe { data.as_mut_vec() })
+                }
                 _ => unreachable!(),
             };
             if out_is_utf8 {
@@ -262,7 +264,7 @@ pub fn handle_tf_cast_stream_value_update(
                 );
                 if let Err((_i, e)) = res {
                     sv_out.done = true;
-                    sv_out.value = FieldValue::Error(
+                    sv_out.data = StreamValueData::Error(
                         OperatorApplicationError::new_s(e, op_id),
                     );
                     jd.sv_mgr.inform_stream_value_subscribers(sv_out_id);
@@ -273,7 +275,7 @@ pub fn handle_tf_cast_stream_value_update(
             }
             // PERF: find a way to avoid this. maybe some
             // AntiTextFieldValueReference or something
-            sv_out.value = sv_in.value.clone();
+            sv_out.data = sv_in.data.clone();
             sv_out.done = sv_in.done;
             sv_out.is_buffered = sv_in.is_buffered;
         }

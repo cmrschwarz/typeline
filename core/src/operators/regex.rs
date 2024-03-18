@@ -17,7 +17,7 @@ use crate::{
         field_data::{
             field_value_flags, FieldData, FieldValueRepr, RunLength,
         },
-        field_value::{FieldValue, SlicedFieldReference},
+        field_value::SlicedFieldReference,
         field_value_ref::FieldValueSlice,
         field_value_slice_iter::FieldValueSliceIter,
         formattable::RealizedFormatKey,
@@ -30,7 +30,7 @@ use crate::{
             RefAwareInlineTextIter, RefAwareStreamValueIter,
             RefAwareTextBufferIter,
         },
-        stream_value::StreamValueId,
+        stream_value::{StreamValueData, StreamValueId},
         varying_type_inserter::VaryingTypeInserter,
     },
     utils::{
@@ -1056,8 +1056,8 @@ pub fn handle_tf_regex(
                             );
                         break 'batch;
                     }
-                    match &sv.value {
-                        FieldValue::Error(e) => {
+                    match &sv.data {
+                        StreamValueData::Error(e) => {
                             for cgi in
                                 rmis.batch_state.inserters.iter_mut().flatten()
                             {
@@ -1073,7 +1073,7 @@ pub fn handle_tf_regex(
                             jd.sv_mgr.check_stream_value_ref_count(sv_id);
                             continue;
                         }
-                        FieldValue::Bytes(b) => {
+                        StreamValueData::Bytes(b) => {
                             match_regex_inner::<true, _>(
                                 &mut rmis,
                                 &mut bytes_regex,
@@ -1085,7 +1085,7 @@ pub fn handle_tf_regex(
                                 break 'batch;
                             }
                         }
-                        FieldValue::Text(t) => {
+                        StreamValueData::Text(t) => {
                             let t = &t[offsets.unwrap_or(0..t.len())];
                             if let Some(tr) = &mut text_regex {
                                 match_regex_inner::<true, _>(
@@ -1104,7 +1104,6 @@ pub fn handle_tf_regex(
                                 break 'batch;
                             }
                         }
-                        _ => todo!(),
                     }
                     jd.sv_mgr.check_stream_value_ref_count(sv_id);
                 }

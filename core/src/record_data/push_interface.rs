@@ -28,10 +28,10 @@ use super::{
         AnyRefSliceIter, RefAwareFieldValueSliceIter, RefAwareInlineBytesIter,
         RefAwareInlineTextIter, RefAwareTypedRange,
     },
-    stream_value::{StreamValueId, StreamValueManager},
+    stream_value::{StreamValueData, StreamValueId, StreamValueManager},
 };
 use crate::{
-    operators::{errors::OperatorApplicationError, operator::OperatorId},
+    operators::errors::OperatorApplicationError,
     record_data::field_data::{
         field_value_flags::{DELETED, SHARED_VALUE},
         INLINE_STR_MAX_LEN,
@@ -815,7 +815,6 @@ pub unsafe trait PushInterface {
         fm: &FieldManager,
         msm: &MatchSetManager,
         sv_mgr: &StreamValueManager,
-        op_id: OperatorId,
         string_store: &'a RwLock<StringStore>,
         string_store_ref: &mut Option<RwLockReadGuard<'a, StringStore>>,
         range: RefAwareTypedRange,
@@ -951,58 +950,24 @@ pub unsafe trait PushInterface {
             FieldValueSlice::StreamValueId(vals) => {
                 for (v, rl) in FieldValueSliceIter::from_range(&range, vals) {
                     let sv = &sv_mgr.stream_values[*v];
-                    match &sv.value {
-                        FieldValue::Undefined
-                        | FieldValue::Null
-                        | FieldValue::Int(_)
-                        | FieldValue::BigInt(_)
-                        | FieldValue::Float(_)
-                        | FieldValue::Rational(_)
-                        | FieldValue::Error(_) => {
+                    match &sv.data {
+                        StreamValueData::Error(e) => {
                             debug_assert!(sv.done);
-                            self.push_field_value_unpacked(
-                                sv.value.clone(),
+                            self.push_error(
+                                e.clone(),
                                 rl as usize,
                                 try_header_rle,
                                 try_data_rle,
                             )
                         }
-                        FieldValue::Text(_) | FieldValue::Bytes(_) => self
+                        StreamValueData::Text(_)
+                        | StreamValueData::Bytes(_) => self
                             .push_stream_value_id(
                                 *v,
                                 rl as usize,
                                 try_header_rle,
                                 try_data_rle,
                             ),
-                        // TODO: mechanism for having a stream value
-                        // update that triggers a simple function instead of
-                        // a transform so we can stringifiy these
-                        FieldValue::Array(_) => todo!(),
-                        FieldValue::Object(_) => todo!(),
-                        FieldValue::Custom(v) => {
-                            let mut stream =
-                                self.maybe_text_insertion_stream(rl as usize);
-                            if let Err(e) = v.format_raw(
-                                &mut stream,
-                                &RealizedFormatKey::default(),
-                            ) {
-                                stream.abort();
-                                self.push_error(
-                                    e.as_operator_application_error(
-                                        op_id,
-                                        &v.type_name(),
-                                    ),
-                                    rl as usize,
-                                    try_header_rle,
-                                    try_data_rle,
-                                );
-                            }
-                        }
-                        FieldValue::FieldReference(_)
-                        | FieldValue::SlicedFieldReference(_)
-                        | FieldValue::StreamValueId(_) => {
-                            unreachable!()
-                        }
                     }
                 }
             }

@@ -2,9 +2,15 @@ use std::collections::VecDeque;
 
 use smallvec::SmallVec;
 
-use crate::{operators::transform::TransformId, utils::universe::Universe};
+use crate::{
+    operators::{errors::OperatorApplicationError, transform::TransformId},
+    utils::universe::Universe,
+};
 
-use super::field_value::FieldValue;
+use super::{
+    field_value::{FieldValue, FieldValueKind},
+    field_value_ref::FieldValueRef,
+};
 
 #[derive(Clone, Copy)]
 pub struct StreamValueUpdate {
@@ -20,8 +26,15 @@ pub struct StreamValueSubscription {
     pub notify_only_once_done: bool,
 }
 
+#[derive(Clone)]
+pub enum StreamValueData {
+    Text(String),
+    Bytes(Vec<u8>),
+    Error(OperatorApplicationError),
+}
+
 pub struct StreamValue {
-    pub value: FieldValue,
+    pub data: StreamValueData,
     pub is_buffered: bool,
     pub done: bool,
     // transforms that want to be readied as soon as this receives any data
@@ -43,26 +56,102 @@ impl StreamValue {
         });
         self.ref_count += 1;
     }
-    pub fn from_value(value: FieldValue) -> Self {
+    pub fn from_data(data: StreamValueData) -> Self {
         Self {
-            value,
+            data,
             is_buffered: true,
             done: true,
             subscribers: SmallVec::new(),
             ref_count: 1,
         }
     }
-    pub fn from_value_unfinished(
-        value: FieldValue,
+    pub fn from_data_unfinished(
+        value: StreamValueData,
         is_buffered: bool,
     ) -> Self {
         Self {
-            value,
+            data: value,
             is_buffered,
             done: false,
             subscribers: SmallVec::new(),
             ref_count: 1,
         }
+    }
+    pub fn clear_buffer(&mut self) {
+        match &mut self.data {
+            StreamValueData::Text(t) => t.clear(),
+            StreamValueData::Bytes(bb) => bb.clear(),
+            StreamValueData::Error(_) => (),
+        }
+    }
+    pub fn clear_unless_buffered(&mut self) {
+        if self.is_buffered {
+            return;
+        };
+        self.clear_buffer();
+    }
+}
+
+impl StreamValueData {
+    pub fn as_field_value_ref<'a>(&'a self) -> FieldValueRef<'a> {
+        match &self {
+            StreamValueData::Text(v) => FieldValueRef::Text(v),
+            StreamValueData::Bytes(v) => FieldValueRef::Bytes(v),
+            StreamValueData::Error(v) => FieldValueRef::Error(v),
+        }
+    }
+    pub fn to_field_value(&self) -> FieldValue {
+        self.as_field_value_ref().to_field_value()
+    }
+    pub fn kind(&self) -> FieldValueKind {
+        self.as_field_value_ref().repr().kind().unwrap()
+    }
+    pub fn is_error(&self) -> bool {
+        matches!(self, StreamValueData::Error(_))
+    }
+    pub fn extend_with_bytes(&mut self, bytes: &[u8]) {
+        match self {
+            StreamValueData::Text(t) => {
+                let mut b = std::mem::take(t).into_bytes();
+                b.extend(bytes);
+                *self = StreamValueData::Bytes(b);
+            }
+            StreamValueData::Bytes(b) => b.extend(bytes),
+            StreamValueData::Error(_) => unimplemented!(),
+        }
+    }
+    pub fn extend_with_text(&mut self, text: &str) {
+        match self {
+            StreamValueData::Text(t) => t.push_str(text),
+            StreamValueData::Bytes(b) => b.extend(text.as_bytes()),
+            StreamValueData::Error(_) => unimplemented!(),
+        }
+    }
+}
+
+impl Default for StreamValueData {
+    fn default() -> Self {
+        StreamValueData::Text(String::new())
+    }
+}
+#[derive(Debug)]
+pub struct UnsupportedStreamValueDataKindError(pub FieldValueKind);
+
+impl TryFrom<FieldValue> for StreamValueData {
+    type Error = UnsupportedStreamValueDataKindError;
+
+    fn try_from(
+        value: FieldValue,
+    ) -> Result<Self, UnsupportedStreamValueDataKindError> {
+        let v = match value {
+            FieldValue::Text(t) => StreamValueData::Text(t),
+            FieldValue::Bytes(t) => StreamValueData::Bytes(t),
+            FieldValue::Error(t) => StreamValueData::Error(t),
+            _ => {
+                return Err(UnsupportedStreamValueDataKindError(value.kind()))
+            }
+        };
+        Ok(v)
     }
 }
 
@@ -95,7 +184,7 @@ impl StreamValueManager {
         let sv = &mut self.stream_values[sv_id];
         sv.ref_count -= 1;
         if sv.ref_count == 0 {
-            sv.value = FieldValue::Undefined;
+            std::mem::take(&mut sv.data);
             self.stream_values.release(sv_id);
         } else if let Some(tf_id) = tf_id_to_remove {
             sv.subscribers.swap_remove(
@@ -109,7 +198,7 @@ impl StreamValueManager {
     pub fn check_stream_value_ref_count(&mut self, sv_id: StreamValueId) {
         let sv = &mut self.stream_values[sv_id];
         if sv.ref_count == 0 {
-            sv.value = FieldValue::Undefined;
+            std::mem::take(&mut sv.data);
             self.stream_values.release(sv_id);
         }
     }

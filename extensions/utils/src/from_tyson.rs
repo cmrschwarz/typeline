@@ -17,7 +17,6 @@ use scr_core::{
         action_buffer::ActorRef,
         field::FieldId,
         field_data::{FieldData, RunLength},
-        field_value::FieldValue,
         field_value_ref::FieldValueSlice,
         iter_hall::{IterId, IterKind},
         push_interface::PushInterface,
@@ -26,7 +25,7 @@ use scr_core::{
             RefAwareInlineTextIter, RefAwareStreamValueIter,
             RefAwareTextBufferIter,
         },
-        stream_value::{StreamValue, StreamValueId},
+        stream_value::{StreamValue, StreamValueData, StreamValueId},
         varying_type_inserter::VaryingTypeInserter,
     },
     smallbox,
@@ -183,8 +182,8 @@ impl TfFromTyson {
                         RefAwareStreamValueIter::from_range(&range, vals)
                     {
                         let sv = &bud.sv_mgr.stream_values[sv_id];
-                        match &sv.value {
-                            FieldValue::Bytes(b) => {
+                        match &sv.data {
+                            StreamValueData::Bytes(b) => {
                                 if sv.done {
                                     self.push_as_tyson(
                                         &bud,
@@ -199,8 +198,8 @@ impl TfFromTyson {
                                         .sv_mgr
                                         .stream_values
                                         .claim_with_value(
-                                            StreamValue::from_value_unfinished(
-                                                FieldValue::Undefined,
+                                            StreamValue::from_data_unfinished(
+                                                StreamValueData::default(),
                                                 true,
                                             ),
                                         );
@@ -208,7 +207,7 @@ impl TfFromTyson {
                                         .subscribe(bud.tf_id, out_sv_id, true)
                                 }
                             }
-                            FieldValue::Error(e) => inserter.push_error(
+                            StreamValueData::Error(e) => inserter.push_error(
                                 e.clone(),
                                 rl as usize,
                                 true,

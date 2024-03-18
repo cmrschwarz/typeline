@@ -173,6 +173,13 @@ impl Object {
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
+
+    pub fn clear(&mut self) {
+        match self {
+            Object::KeysStored(o) => o.clear(),
+            Object::KeysInterned(o) => o.clear(),
+        }
+    }
 }
 
 impl FieldValueKind {

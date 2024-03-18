@@ -260,12 +260,19 @@ pub fn handle_tf_field_value_sink(
                     if let Some(range) = range {
                         push_field_values(
                             &mut fvs,
-                            sv.value.as_ref().subslice(range).to_field_value(),
+                            sv.data
+                                .as_field_value_ref()
+                                .subslice(range)
+                                .to_field_value(),
                             run_len,
                         );
                         continue;
                     }
-                    push_field_values(&mut fvs, sv.value.clone(), run_len);
+                    push_field_values(
+                        &mut fvs,
+                        sv.data.to_field_value(),
+                        run_len,
+                    );
                 }
             }
             FieldValueSlice::BigInt(_)
@@ -338,7 +345,7 @@ pub fn handle_tf_field_value_sink_stream_value_update(
     let sv = &mut jd.sv_mgr.stream_values[sv_id];
     debug_assert!(sv.done);
     for fv in &mut fvs[svh.start_idx..svh.start_idx + svh.run_len] {
-        *fv = sv.value.clone();
+        *fv = sv.data.to_field_value();
     }
     jd.sv_mgr.drop_field_value_subscription(sv_id, None);
     tf.stream_value_handles.release(custom);

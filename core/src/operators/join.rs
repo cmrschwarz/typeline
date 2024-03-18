@@ -4,7 +4,7 @@ use smallstr::SmallString;
 use smallvec::SmallVec;
 
 use crate::{
-    job::{JobData, TransformManager},
+    job::JobData,
     options::argument::CliArgIdx,
     record_data::{
         action_buffer::ActorId,
@@ -21,7 +21,6 @@ use crate::{
         group_tracker::GroupListIterRef,
         iter_hall::{IterId, IterKind},
         iters::FieldIterator,
-        match_set::MatchSetManager,
         push_interface::PushInterface,
         ref_iter::{
             AutoDerefIter, RefAwareBytesBufferIter,
@@ -29,7 +28,9 @@ use crate::{
             RefAwareInlineTextIter, RefAwareStreamValueIter,
             RefAwareTextBufferIter, RefAwareTypedRange,
         },
-        stream_value::{StreamValue, StreamValueId, StreamValueManager},
+        stream_value::{
+            StreamValue, StreamValueData, StreamValueId, StreamValueManager,
+        },
         varying_type_inserter::VaryingTypeInserter,
     },
     utils::{
@@ -234,10 +235,10 @@ fn claim_stream_value(
         Vec::new()
     };
     let sv_id = sv_mgr.stream_values.claim_with_value(StreamValue {
-        value: if join.buffer_is_valid_utf8 {
-            FieldValue::Text(unsafe { String::from_utf8_unchecked(buf) })
+        data: if join.buffer_is_valid_utf8 {
+            StreamValueData::Text(unsafe { String::from_utf8_unchecked(buf) })
         } else {
-            FieldValue::Bytes(buf)
+            StreamValueData::Bytes(buf)
         },
         is_buffered: false,
         done: false,
@@ -282,21 +283,21 @@ unsafe fn get_join_buffer<'a>(
     }
 
     if let Some(sv_id) = join.active_stream_value {
-        let value = &mut sv_mgr.stream_values[sv_id].value;
+        let value = &mut sv_mgr.stream_values[sv_id].data;
 
         if !expect_utf8 {
-            if let FieldValue::Text(txt) = value {
+            if let StreamValueData::Text(txt) = value {
                 let buf = std::mem::take(txt).into_bytes();
-                *value = FieldValue::Bytes(buf);
-                let FieldValue::Bytes(bb) = value else {
+                *value = StreamValueData::Bytes(buf);
+                let StreamValueData::Bytes(bb) = value else {
                     unreachable!()
                 };
                 return bb;
             }
         }
         match value {
-            FieldValue::Bytes(bb) => bb,
-            FieldValue::Text(txt) => unsafe { txt.as_mut_vec() },
+            StreamValueData::Bytes(bb) => bb,
+            StreamValueData::Text(txt) => unsafe { txt.as_mut_vec() },
             _ => unreachable!(),
         }
     } else {
@@ -316,11 +317,11 @@ fn update_valid_utf8(
         return;
     };
 
-    let value = &mut sv_mgr.stream_values[sv_id].value;
+    let value = &mut sv_mgr.stream_values[sv_id].data;
 
-    if let FieldValue::Text(txt) = value {
+    if let StreamValueData::Text(txt) = value {
         let buf = std::mem::take(txt).into_bytes();
-        *value = FieldValue::Bytes(buf);
+        *value = StreamValueData::Bytes(buf);
     }
 }
 unsafe fn push_bytes_raw(
@@ -389,17 +390,13 @@ pub fn drop_group(join: &mut TfJoin) {
 }
 pub fn emit_group(
     join: &mut TfJoin,
-    sv_mgr: &mut StreamValueManager,
     output_inserter: &mut VaryingTypeInserter<&mut FieldData>,
 ) {
     let len = join.buffer.len();
     let valid_utf8 = join.buffer_is_valid_utf8 && join.separator_is_valid_utf8;
-    if let Some(sv_id) = join.active_stream_value {
-        // TODO:
+    if join.active_stream_value.is_some() {
         join.active_stream_value = None;
-        if let Some(gb_id) = join.active_group_batch {
-            join.active_group_batch = None;
-        }
+        join.active_group_batch = None;
     } else if let Some(err) = join.current_group_error.take() {
         output_inserter.push_error(err, 1, true, false);
     } else if len < INLINE_STR_MAX_LEN {
@@ -437,7 +434,7 @@ fn push_error(
 ) {
     if let Some(sv_id) = join.active_stream_value {
         let sv = &mut sv_mgr.stream_values[sv_id];
-        sv.value = FieldValue::Error(e);
+        sv.data = StreamValueData::Error(e);
         sv.done = true;
         join.stream_value_error = true;
     } else {
@@ -535,7 +532,7 @@ pub fn handle_tf_join(
             if should_drop {
                 drop_group(join);
             } else {
-                emit_group(join, sv_mgr, &mut output_inserter);
+                emit_group(join, &mut output_inserter);
                 groups_emitted += 1;
             }
 
@@ -582,7 +579,6 @@ pub fn handle_tf_join(
                             &jd.field_mgr,
                             &jd.match_set_mgr,
                             sv_mgr,
-                            op_id,
                             &jd.session_data.string_store,
                             &mut string_store_ref,
                             range,
@@ -666,16 +662,7 @@ pub fn handle_tf_join(
                 );
             }
             FieldValueSlice::StreamValueId(svs) => {
-                if !try_consume_stream_values(
-                    tf_id,
-                    join,
-                    &mut jd.tf_mgr,
-                    &jd.match_set_mgr,
-                    sv_mgr,
-                    &mut iter,
-                    &range,
-                    svs,
-                ) {
+                if !try_consume_stream_values(join, sv_mgr, &range, svs) {
                     break 'iter;
                 }
             }
@@ -712,26 +699,22 @@ pub fn handle_tf_join(
 }
 
 fn try_consume_stream_values<'a>(
-    tf_id: TransformId,
     join: &mut TfJoin<'_>,
-    tf_mgr: &mut TransformManager,
-    msm: &MatchSetManager,
     sv_mgr: &mut StreamValueManager,
-    iter: &mut AutoDerefIter<'a, impl FieldIterator<'a>>,
     range: &RefAwareTypedRange<'_>,
     svs: &[StreamValueId],
 ) -> bool {
     let sv_iter = RefAwareStreamValueIter::from_range(range, svs);
     for (sv_id, offsets, rl) in sv_iter {
         let sv = &mut sv_mgr.stream_values[sv_id];
-        match &sv.value {
-            FieldValue::Error(err) => {
+        match &sv.data {
+            StreamValueData::Error(err) => {
                 let ec = err.clone();
                 if let Some(sv_id) = join.active_stream_value {
                     let sv = &mut sv_mgr.stream_values[sv_id];
                     // otherwise this group would have been skipped
-                    debug_assert!(!sv.value.is_error());
-                    sv.value = FieldValue::Error(ec);
+                    debug_assert!(!sv.data.is_error());
+                    sv.data = StreamValueData::Error(ec);
                     sv.done = true;
                     join.stream_value_error = true;
                 } else {
@@ -739,7 +722,7 @@ fn try_consume_stream_values<'a>(
                 }
                 return true;
             }
-            FieldValue::Bytes(_) | FieldValue::Text(_) => {
+            StreamValueData::Bytes(_) | StreamValueData::Text(_) => {
                 if !sv.done {
                     if let Some(gbi) = join.active_group_batch {
                         let gb = &mut join.group_batches[gbi];
@@ -768,8 +751,8 @@ fn try_consume_stream_values<'a>(
                 // our (guaranteed to be distinct) target
                 // stream value to push data
                 assert!(Some(sv_id) != join.active_stream_value);
-                let bytes_are_utf8 = sv.value.kind() == FieldValueKind::Text;
-                let buf = sv.value.as_ref().as_slice().as_bytes();
+                let bytes_are_utf8 = sv.data.kind() == FieldValueKind::Text;
+                let buf = sv.data.as_field_value_ref().as_slice().as_bytes();
                 let buf_sliced = offsets.map_or(buf, |o| &buf[o]);
                 let buf_laundered = unsafe {
                     std::mem::transmute::<&'_ [u8], &'static [u8]>(buf_sliced)
@@ -786,7 +769,6 @@ fn try_consume_stream_values<'a>(
 
                 return false;
             }
-            _ => todo!(),
         }
     }
     true
@@ -895,29 +877,16 @@ pub fn handle_tf_join_stream_value_update(
         .two_distinct_mut(sv_id, gb.output_stream_value);
 
     let mut done = in_sv.done;
+    debug_assert!(!out_sv.done);
 
-    match &in_sv.value {
-        FieldValue::Undefined => todo!(),
-        FieldValue::Null => todo!(),
-        FieldValue::Int(_) => todo!(),
-        FieldValue::BigInt(_) => todo!(),
-        FieldValue::Float(_) => todo!(),
-        FieldValue::Rational(_) => todo!(),
-        FieldValue::Text(_) => todo!(),
-        FieldValue::Bytes(_) => todo!(),
-        FieldValue::Array(_) => todo!(),
-        FieldValue::Object(_) => todo!(),
-        FieldValue::Custom(_) => todo!(),
-        FieldValue::Error(e) => {
-            out_sv.value = FieldValue::Error(e.clone());
+    out_sv.clear_unless_buffered();
+    match &in_sv.data {
+        StreamValueData::Bytes(b) => out_sv.data.extend_with_bytes(b),
+        StreamValueData::Text(t) => out_sv.data.extend_with_text(t),
+        StreamValueData::Error(e) => {
+            out_sv.data = StreamValueData::Error(e.clone());
             done = true;
         }
-        FieldValue::StreamValueId(_) => {
-            // TODO: maybe support this? could be useful for `join` itself
-            todo!("nested stream value")
-        }
-        FieldValue::FieldReference(_)
-        | FieldValue::SlicedFieldReference(_) => unreachable!(),
     }
 
     if done {
