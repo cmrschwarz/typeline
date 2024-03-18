@@ -46,6 +46,17 @@ fn join_groups() -> Result<(), ScrError> {
 }
 
 #[test]
+fn join_size_one_groups() -> Result<(), ScrError> {
+    let res = ContextBuilder::default()
+        .add_op(create_op_seqn(1, 3, 1).unwrap())
+        .add_op(create_op_foreach())
+        .add_op(create_op_join(None, None, false))
+        .run_collect_stringified()?;
+    assert_eq!(res, ["1", "2", "3"]);
+    Ok(())
+}
+
+#[test]
 fn join_bounded_groups() -> Result<(), ScrError> {
     let res = ContextBuilder::default()
         .add_op(create_op_seq(1, 3, 1).unwrap())

@@ -798,8 +798,11 @@ impl<'a, T: DerefMut<Target = GroupList>> GroupListIterMut<'a, T> {
         }
         let pos_delta = self.base.field_pos - field_pos;
         debug_assert!(pos_delta <= self.group_len_before());
-        self.action_buffer
-            .push_action(FieldActionKind::Dup, field_pos, count);
+        self.action_buffer.push_action(
+            FieldActionKind::Drop,
+            field_pos,
+            count,
+        );
         if pos_delta >= count {
             self.group_len -= count;
             self.update_group_len = true;
@@ -816,8 +819,11 @@ impl<'a, T: DerefMut<Target = GroupList>> GroupListIterMut<'a, T> {
         }
         let pos_delta = field_pos - self.base.field_pos;
         debug_assert!(self.base.group_len_rem >= pos_delta + count);
-        self.action_buffer
-            .push_action(FieldActionKind::Dup, field_pos, count);
+        self.action_buffer.push_action(
+            FieldActionKind::Drop,
+            field_pos,
+            count,
+        );
         if count <= self.base.group_len_rem - pos_delta {
             self.group_len -= count;
             self.base.group_len_rem -= count;

@@ -583,6 +583,7 @@ pub fn handle_tf_join(
                     &mut output_inserter,
                 );
                 batch_size_rem -= 1;
+                groups_emitted += 1;
             }
         }
 
@@ -724,7 +725,7 @@ fn handle_single_elem_group<'a, 'b>(
         join.input_field_ref_offset,
         true, // TODO: configurable
     );
-    groups_iter.next_group();
+    groups_iter.try_next_group();
 }
 
 fn try_consume_stream_values<'a>(
