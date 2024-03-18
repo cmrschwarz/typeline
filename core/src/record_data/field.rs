@@ -656,6 +656,18 @@ impl FieldManager {
         input_field_id: FieldId,
         input_field: &'a CowFieldDataRef<'a>,
         input_iter_id: IterId,
+    ) -> AutoDerefIter<'a, Iter<DestructuredFieldDataRef<'a>>> {
+        AutoDerefIter::new(
+            self,
+            input_field_id,
+            self.lookup_iter(input_field_id, input_field, input_iter_id),
+        )
+    }
+    pub fn get_bounded_auto_deref_iter<'a>(
+        &'a self,
+        input_field_id: FieldId,
+        input_field: &'a CowFieldDataRef<'a>,
+        input_iter_id: IterId,
         batch_size: usize,
     ) -> AutoDerefIter<'a, BoundedIter<Iter<DestructuredFieldDataRef<'a>>>>
     {

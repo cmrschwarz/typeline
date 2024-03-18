@@ -155,6 +155,7 @@ impl ActionGroupIdentifier {
     }
 }
 
+// used to adjust iterators based on the dropped headers
 #[derive(Default)]
 struct HeaderDropInfo {
     dead_headers_leading: usize,
@@ -171,6 +172,8 @@ struct DataCowFieldRef<'a> {
     // For fields that have only partially copied over the data.
     // `dead_data_trailing` needs to take that into account
     data_end: usize,
+    // required for the corresponding full cow fields
+    // (`FullCowFieldRef::data_cow_idx`) that need this do adjust their iterators
     drop_info: HeaderDropInfo,
 }
 
@@ -1174,6 +1177,7 @@ impl ActionBuffer {
                 break;
             }
             if h.references_alive_data() {
+                data += h.leading_padding();
                 *dead_data_leading = leading.min(data);
                 break;
             }
@@ -1491,14 +1495,28 @@ impl ActionBuffer {
         let headers = &mut field.iter_hall.field_data.headers;
         let mut dead_data_rem_leading = dead_data_leading;
         let mut dead_headers_leading = 0;
+        let mut first_header_dropped_elem_count = 0;
+
         while dead_headers_leading < headers.len() {
-            let h_ds = headers[dead_headers_leading].total_size_unique();
+            let h = &mut headers[dead_headers_leading];
+            let h_ds = h.total_size_unique();
             if dead_data_rem_leading < h_ds {
+                let header_elem_size = h.fmt.size as usize;
+                first_header_dropped_elem_count =
+                    (dead_data_rem_leading / header_elem_size) as RunLength;
+                h.run_length -= first_header_dropped_elem_count;
+                let padding_drop = dead_data_rem_leading
+                    - first_header_dropped_elem_count as usize
+                        * header_elem_size;
+                let final_padding =
+                    h.leading_padding() + dead_data_padding - padding_drop;
+                h.set_leading_padding(final_padding);
                 break;
             }
             dead_data_rem_leading -= h_ds;
             dead_headers_leading += 1;
         }
+
         let field_size_diff = origin_field_data_size - field_data_size;
         let mut dead_data_rem_trailing =
             dead_data_trailing.saturating_sub(field_size_diff);
@@ -1522,38 +1540,22 @@ impl ActionBuffer {
         }
         headers.drain(last_header_alive..);
         let last_header = headers.back().copied().unwrap_or_default();
-        let mut drop_info = HeaderDropInfo {
+        let drop_info = HeaderDropInfo {
             dead_headers_leading,
-            first_header_dropped_elem_count: 0,
+            first_header_dropped_elem_count,
             header_count_rem: last_header_alive - dead_headers_leading,
             last_header_run_len: last_header.run_length,
             last_header_data_pos: (field_data_size
-                - dead_data_leading
+                - (dead_data_leading - dead_data_padding)
                 - dead_data_trailing)
                 - last_header.total_size_unique(),
         };
         if dead_data_leading != 0 || dead_headers_leading != 0 {
-            let h = &mut headers[dead_headers_leading];
-            if dead_data_rem_leading != 0 {
-                let header_elem_size = h.fmt.size as usize;
-                let dropped_elem_count =
-                    (dead_data_rem_leading / header_elem_size) as RunLength;
-                debug_assert!(
-                    dropped_elem_count as usize * header_elem_size
-                        == dead_data_rem_leading
-                );
-                h.run_length -= dropped_elem_count;
-                drop_info.first_header_dropped_elem_count = dropped_elem_count;
-            }
-            let tgt_padding = h.leading_padding() + dead_data_padding;
-            h.set_leading_padding(tgt_padding);
-
             Self::adjust_iters_to_data_drop(
                 &mut field.iter_hall.iters,
                 dead_data_leading,
                 &drop_info,
             );
-
             headers.drain(0..dead_headers_leading);
         }
         drop_info
@@ -1776,7 +1778,7 @@ impl ActionBuffer {
 }
 
 #[cfg(test)]
-mod test {
+mod test_iter {
     use crate::record_data::action_buffer::{
         Pow2InsertStepsIter, Pow2LookupStepsIter,
     };
@@ -1834,5 +1836,52 @@ mod test {
             [(1, 0), (0, 1), (0, 2), (0, 3), (0, 4)],
         );
         assert_eq!(collect_insert_steps(2, 1, 5), [(2, 0), (2, 1)],);
+    }
+}
+
+#[cfg(test)]
+mod test_dead_data_drop {
+    use crate::record_data::{
+        field::{FieldManager, FIELD_REF_LOOKUP_ITER_ID},
+        field_action::FieldActionKind,
+        field_value::FieldValue,
+        match_set::MatchSetManager,
+        push_interface::PushInterface,
+    };
+
+    use super::ActorRef;
+
+    #[test]
+    fn padding_dropped_correctly() {
+        let mut fm = FieldManager::default();
+        let mut msm = MatchSetManager::default();
+        let ms_id = msm.add_match_set();
+        let field_id =
+            fm.add_field(&mut msm, ms_id, None, ActorRef::default());
+
+        {
+            let mut field = fm.fields[field_id].borrow_mut();
+            field.iter_hall.push_str("foo", 1, false, false);
+            field.iter_hall.push_int(0, 1, false, false);
+        }
+        {
+            let mut ab = msm.match_sets[ms_id].action_buffer.borrow_mut();
+            let actor_id = ab.add_actor();
+            ab.begin_action_group(actor_id);
+            ab.push_action(FieldActionKind::Drop, 0, 1);
+            ab.end_action_group();
+        }
+        fm.apply_field_actions(&msm, field_id);
+        let field_ref = fm.get_cow_field_ref(&msm, field_id);
+        let iter = fm.get_auto_deref_iter(
+            field_id,
+            &field_ref,
+            FIELD_REF_LOOKUP_ITER_ID,
+        );
+        let res = iter
+            .into_value_ref_iter(&msm)
+            .map(|(v, rl, _offs)| (v.to_field_value(), rl))
+            .collect::<Vec<_>>();
+        assert_eq!(&res, &[(FieldValue::Int(0), 1)]);
     }
 }

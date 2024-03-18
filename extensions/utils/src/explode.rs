@@ -214,14 +214,14 @@ impl Transform for TfExplode {
         let input_field = jd
             .field_mgr
             .get_cow_field_ref(&jd.match_set_mgr, input_field_id);
-        let mut iter = jd.field_mgr.get_auto_deref_iter(
+        let mut iter = jd.field_mgr.get_bounded_auto_deref_iter(
             input_field_id,
             &input_field,
             self.input_iter_id,
             batch_size,
         );
 
-        while let Some(range) = iter.next_range(&mut jd.match_set_mgr) {
+        while let Some(range) = iter.next_range(&jd.match_set_mgr) {
             match range.base.data {
                 FieldValueSlice::Undefined(_)
                 | FieldValueSlice::Null(_)

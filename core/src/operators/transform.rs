@@ -242,7 +242,7 @@ pub fn basic_transform_update(
     let input_field = jd
         .field_mgr
         .get_cow_field_ref(&jd.match_set_mgr, input_field_id);
-    let mut iter = jd.field_mgr.get_auto_deref_iter(
+    let mut iter = jd.field_mgr.get_bounded_auto_deref_iter(
         input_field_id,
         &input_field,
         input_iter_id,

@@ -203,7 +203,7 @@ impl<'a, R: ReferenceFieldValueType> RefIter<'a, R> {
     }
     pub fn typed_field_fwd(
         &mut self,
-        match_set_mgr: &'_ mut MatchSetManager,
+        match_set_mgr: &'_ MatchSetManager,
         limit: usize,
     ) -> Option<FieldRefUnpacked<'a, R>> {
         let (field_ref, rl) = self.refs_iter.peek()?;
@@ -345,7 +345,7 @@ impl<'a, R: ReferenceFieldValueType> RefIter<'a, R> {
 }
 
 #[derive(Clone)]
-pub struct AutoDerefIter<'a, I: FieldIterator<'a>> {
+pub struct AutoDerefIter<'a, I> {
     iter: I,
     iter_field_id: FieldId,
     ref_iter: Option<AnyRefIter<'a>>,
@@ -495,7 +495,7 @@ impl<'a, I: FieldIterator<'a>> AutoDerefIter<'a, I> {
     }
     pub fn typed_field_fwd(
         &mut self,
-        match_set_mgr: &mut MatchSetManager,
+        match_set_mgr: &MatchSetManager,
         limit: usize,
     ) -> Option<(FieldValueRef<'a>, RunLength, Option<FieldRefOffset>)> {
         loop {
@@ -564,7 +564,7 @@ impl<'a, I: FieldIterator<'a>> AutoDerefIter<'a, I> {
     // faster. for example, `scr seqn=1G sum p` gets a 5x speedup
     pub fn next_value(
         &mut self,
-        msm: &mut MatchSetManager,
+        msm: &MatchSetManager,
     ) -> Option<(FieldValueRef<'a>, RunLength, Option<FieldRefOffset>)> {
         self.typed_field_fwd(msm, usize::MAX)
     }
@@ -596,6 +596,25 @@ impl<'a, I: FieldIterator<'a>> AutoDerefIter<'a, I> {
     }
     pub fn is_next_valid(&self) -> bool {
         self.iter.is_next_valid()
+    }
+    pub fn into_value_ref_iter(
+        self,
+        msm: &'a MatchSetManager,
+    ) -> AutoDerefValueRefIter<'a, I> {
+        AutoDerefValueRefIter { msm, iter: self }
+    }
+}
+
+pub struct AutoDerefValueRefIter<'a, I> {
+    pub msm: &'a MatchSetManager,
+    pub iter: AutoDerefIter<'a, I>,
+}
+
+impl<'a, I: FieldIterator<'a>> Iterator for AutoDerefValueRefIter<'a, I> {
+    type Item = (FieldValueRef<'a>, RunLength, Option<FieldRefOffset>);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.iter.next_value(self.msm)
     }
 }
 

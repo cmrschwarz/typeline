@@ -1,8 +1,3 @@
-use std::{
-    cell::RefMut,
-    sync::{RwLock, RwLockReadGuard},
-};
-
 use bstr::ByteSlice;
 use regex::Regex;
 use smallstr::SmallString;
@@ -14,7 +9,7 @@ use crate::{
     record_data::{
         action_buffer::ActorId,
         custom_data::CustomData,
-        field::{FieldManager, FieldRefOffset},
+        field::FieldRefOffset,
         field_data::{
             field_value_flags, FieldData, FieldValueRepr, RunLength,
             INLINE_STR_MAX_LEN,
@@ -23,9 +18,9 @@ use crate::{
         field_value_ref::FieldValueSlice,
         field_value_slice_iter::FieldValueSliceIter,
         formattable::RealizedFormatKey,
-        group_tracker::{GroupList, GroupListIterMut, GroupListIterRef},
+        group_tracker::GroupListIterRef,
         iter_hall::{IterId, IterKind},
-        iters::{DestructuredFieldDataRef, FieldIterator, Iter},
+        iters::FieldIterator,
         match_set::MatchSetManager,
         push_interface::PushInterface,
         ref_iter::{
@@ -41,7 +36,6 @@ use crate::{
         debuggable_nonmax::DebuggableNonMaxUsize,
         int_string_conversions::{i64_to_str, usize_to_str},
         io::PointerWriter,
-        string_store::StringStore,
         text_write::{MaybeTextWriteFlaggedAdapter, TextWriteIoAdapter},
         universe::Universe,
     },
@@ -401,7 +395,11 @@ pub fn emit_group(
     let len = join.buffer.len();
     let valid_utf8 = join.buffer_is_valid_utf8 && join.separator_is_valid_utf8;
     if let Some(sv_id) = join.active_stream_value {
-        todo!();
+        // TODO:
+        join.active_stream_value = None;
+        if let Some(gb_id) = join.active_group_batch {
+            join.active_group_batch = None;
+        }
     } else if let Some(err) = join.current_group_error.take() {
         output_inserter.push_error(err, 1, true, false);
     } else if len < INLINE_STR_MAX_LEN {
@@ -674,12 +672,9 @@ pub fn handle_tf_join(
                     &mut jd.tf_mgr,
                     &jd.match_set_mgr,
                     sv_mgr,
-                    batch_size,
-                    batch_size_rem,
                     &mut iter,
                     &range,
                     svs,
-                    field_pos_start,
                 ) {
                     break 'iter;
                 }
@@ -722,18 +717,12 @@ fn try_consume_stream_values<'a>(
     tf_mgr: &mut TransformManager,
     msm: &MatchSetManager,
     sv_mgr: &mut StreamValueManager,
-    batch_size: usize,
-    batch_size_rem: usize,
     iter: &mut AutoDerefIter<'a, impl FieldIterator<'a>>,
     range: &RefAwareTypedRange<'_>,
     svs: &[StreamValueId],
-    field_pos_start: usize,
 ) -> bool {
-    let start_pos = iter.get_next_field_pos();
-    let mut pos = start_pos;
-    let mut sv_iter = RefAwareStreamValueIter::from_range(range, svs);
+    let sv_iter = RefAwareStreamValueIter::from_range(range, svs);
     for (sv_id, offsets, rl) in sv_iter {
-        pos += rl as usize;
         let sv = &mut sv_mgr.stream_values[sv_id];
         match &sv.value {
             FieldValue::Error(err) => {
