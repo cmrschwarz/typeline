@@ -80,24 +80,30 @@ impl<FD: DerefMut<Target = FieldData>> VaryingTypeInserter<FD> {
         &mut self,
         fmt: FieldValueFormat,
     ) {
-        let size = self
+        self.fmt = fmt;
+        self.count = 0;
+        let elem_size = fmt.size as usize;
+        if elem_size == 0 {
+            self.data_ptr = self.fd.data.tail_ptr_mut();
+            self.max = usize::MAX;
+            return;
+        }
+        let curr_field_len = self
             .fd
             .data
             .len()
             .max(std::mem::size_of::<FieldValue>() * 4);
-        let len = (size / fmt.size as usize).max(2);
+        let reserved_len = (curr_field_len / elem_size).max(2);
         self.fd
             .data
-            .reserve(MAX_FIELD_ALIGN + fmt.size as usize * len);
+            .reserve(MAX_FIELD_ALIGN + elem_size * reserved_len);
         self.fd
             .data
-            .reserve_contiguous(MAX_FIELD_ALIGN + fmt.size as usize, 0);
-        self.data_ptr = self.fd.data.tail_ptr_mut();
+            .reserve_contiguous(MAX_FIELD_ALIGN + elem_size, 0);
         self.max = (self.fd.data.contiguous_tail_space_available()
             - MAX_FIELD_ALIGN)
-            / fmt.size as usize;
-        self.fmt = fmt;
-        self.count = 0;
+            / elem_size;
+        self.data_ptr = self.fd.data.tail_ptr_mut();
     }
     pub fn drop_and_reserve_reasonable(&mut self, fmt: FieldValueFormat) {
         Self::sanitize_format(fmt);
