@@ -868,7 +868,42 @@ impl<'a, T: DerefMut<Target = GroupList>> GroupListIterMut<'a, T> {
             return 0;
         };
         let mut count = 1;
-        while self.group_len == 0 && self.try_next_group() {
+        while self.group_len == 0 && self.try_next_group_raw() {
+            count += 1;
+        }
+        count
+    }
+
+    /// Advances the iterator until it points at the start of a group with
+    /// **not** exactly one element. Returns the number of groups skipped.
+    /// The initial group must have 1 element *remaining* (not necessarily
+    /// total), otherwise 0 is returned. If the iterator reaches the last
+    /// group, it has exactly one element and `end_of_input` is true, the
+    /// one element is skipped and the group is included in the count.
+    pub fn skip_single_elem_groups(
+        &mut self,
+        end_of_input: bool,
+        max: usize,
+    ) -> usize {
+        if self.base.group_len_rem != 1 || max == 0 {
+            return 0;
+        };
+        if !self.try_next_group() {
+            if end_of_input {
+                self.base.group_len_rem = 0;
+                return 1;
+            }
+            return 0;
+        }
+        let mut count = 1;
+        while count < max && self.group_len == 1 {
+            if !self.try_next_group_raw() {
+                if end_of_input {
+                    self.base.group_len_rem = 0;
+                    return count + 1;
+                }
+                return count;
+            }
             count += 1;
         }
         count

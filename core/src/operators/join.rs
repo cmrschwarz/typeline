@@ -556,31 +556,47 @@ pub fn handle_tf_join(
         }
 
         if join.curr_group_len == 0 {
-            loop {
-                if batch_size_rem == 0 {
-                    break 'iter;
+            // optimized case for groups of length 1,
+            // where we can just copy straight to output without any buffering
+            // or separators
+            if batch_size_rem == 0 {
+                break;
+            }
+            let target_group_len = join
+                .group_capacity
+                .unwrap_or(2)
+                .min(groups_iter.group_len_rem());
+            if target_group_len == 1 {
+                let count = groups_iter
+                    .skip_single_elem_groups(ps.input_done, batch_size_rem);
+                let mut rem = count;
+                while rem > 0 {
+                    let range = iter
+                        .typed_range_fwd(
+                            &jd.match_set_mgr,
+                            rem,
+                            field_value_flags::DEFAULT,
+                        )
+                        .unwrap();
+                    rem -= range.base.field_count;
+                    output_inserter
+                        .extend_from_ref_aware_range_stringified_smart_ref(
+                            &jd.field_mgr,
+                            &jd.match_set_mgr,
+                            sv_mgr,
+                            op_id,
+                            &jd.session_data.string_store,
+                            &mut string_store_ref,
+                            range,
+                            true,
+                            true,
+                            true,
+                            join.input_field_ref_offset,
+                            true, // TODO: configurable
+                        );
                 }
-                let target_group_len = join
-                    .group_capacity
-                    .unwrap_or(2)
-                    .min(groups_iter.group_len_rem());
-                if target_group_len != 1 {
-                    break;
-                }
-                handle_single_elem_group(
-                    join,
-                    &jd.field_mgr,
-                    &jd.match_set_mgr,
-                    sv_mgr,
-                    op_id,
-                    &jd.session_data.string_store,
-                    &mut string_store_ref,
-                    &mut iter,
-                    &mut groups_iter,
-                    &mut output_inserter,
-                );
-                batch_size_rem -= 1;
-                groups_emitted += 1;
+                batch_size_rem -= count;
+                groups_emitted += count;
                 last_group_end = iter.get_next_field_pos();
             }
         }
@@ -698,36 +714,6 @@ pub fn handle_tf_join(
         jd.tf_mgr.push_tf_in_ready_stack(tf_id);
     }
     jd.tf_mgr.submit_batch(tf_id, groups_emitted, ps.input_done);
-}
-
-fn handle_single_elem_group<'a, 'b>(
-    join: &mut TfJoin,
-    fm: &FieldManager,
-    msm: &MatchSetManager,
-    sv_mgr: &mut StreamValueManager,
-    op_id: OperatorId,
-    string_store: &'b RwLock<StringStore>,
-    string_store_ref: &mut Option<RwLockReadGuard<'b, StringStore>>,
-    iter: &mut AutoDerefIter<'a, Iter<'a, DestructuredFieldDataRef<'a>>>,
-    groups_iter: &mut GroupListIterMut<RefMut<GroupList>>,
-    output_inserter: &mut VaryingTypeInserter<&mut FieldData>,
-) {
-    output_inserter.extend_from_ref_aware_range_stringified_smart_ref(
-        fm,
-        msm,
-        sv_mgr,
-        op_id,
-        string_store,
-        string_store_ref,
-        iter.typed_range_fwd(msm, 1, field_value_flags::DEFAULT)
-            .unwrap(),
-        true,
-        true,
-        true,
-        join.input_field_ref_offset,
-        true, // TODO: configurable
-    );
-    groups_iter.try_next_group();
 }
 
 fn try_consume_stream_values<'a>(
