@@ -1,10 +1,10 @@
 use crate::record_data::{
     field_data::field_value_flags,
+    field_value_ref::FieldValueSlice,
     iters::FieldIterator,
     match_set::MatchSetManager,
     ref_iter::{AutoDerefIter, RefAwareStreamValueIter},
     stream_value::StreamValueManager,
-    field_value_ref::FieldValueSlice,
 };
 
 pub fn buffer_remaining_stream_values_in_sv_iter(

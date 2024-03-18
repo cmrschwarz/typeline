@@ -7,8 +7,8 @@ use std::{cmp::Ordering, collections::VecDeque, marker::PhantomData};
 use super::{
     field::{FieldId, FieldManager},
     field_data::FieldDataBuffer,
-    ref_iter::AutoDerefIter,
     field_value_ref::{TypedField, TypedRange, ValidTypedRange},
+    ref_iter::AutoDerefIter,
 };
 
 pub trait FieldDataRef<'a>: Sized + Clone {

@@ -1,6 +1,7 @@
 use std::{
     cell::{Cell, Ref, RefCell, RefMut},
     cmp::Ordering,
+    fmt::Display,
     ops::{Deref, DerefMut},
 };
 
@@ -52,6 +53,15 @@ pub struct GroupList {
     pub parent_group_indices: SizeClassedVecDeque,
     pub iter_states: Universe<GroupListIterId, Cell<GroupsIterState>>,
     pub snapshot: SnapshotRef,
+}
+
+impl Display for GroupList {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!(
+            "{} + {:?}",
+            self.passed_fields_count, self.group_lengths
+        ))
+    }
 }
 
 pub struct GroupTracker {

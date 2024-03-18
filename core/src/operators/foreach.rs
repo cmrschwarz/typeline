@@ -189,6 +189,14 @@ pub fn handle_tf_foreach_header(
     }
     parent_group_list_iter.store_iter(feh.parent_group_list_iter);
     jd.tf_mgr.submit_batch_ready_for_more(tf_id, batch_size, ps);
+
+    #[cfg(feature = "output_field_logging")]
+    {
+        eprintln!(
+            "foreach header (tf {tf_id}) set up group list {}: {}",
+            feh.group_list, group_list
+        );
+    }
 }
 
 pub fn handle_tf_foreach_trailer(

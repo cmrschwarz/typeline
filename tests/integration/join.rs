@@ -59,9 +59,9 @@ fn join_size_one_groups() -> Result<(), ScrError> {
 #[test]
 fn join_bounded_groups() -> Result<(), ScrError> {
     let res = ContextBuilder::default()
-        .add_op(create_op_seq(1, 3, 1).unwrap())
+        .add_op(create_op_seqn(1, 2, 1).unwrap())
         .add_op(create_op_foreach())
-        .add_op(create_op_seq(1, 4, 1).unwrap())
+        .add_op(create_op_seqn(1, 3, 1).unwrap())
         .add_op(create_op_join(
             Some(",".as_bytes().to_owned()),
             Some(2),

@@ -108,10 +108,8 @@ pub struct TfJoin<'a> {
     curr_group_len: usize,
 
     active_stream_value: Option<StreamValueId>,
-    active_stream_val_len_added: usize,
 
     active_group_batch: Option<GroupBatchId>,
-    active_group_batch_appended: bool,
     group_batches: Universe<GroupBatchId, GroupBatch>,
 }
 
@@ -192,9 +190,7 @@ pub fn build_tf_join<'a>(
         current_group_error: None,
         curr_group_len: 0,
         active_stream_value: None,
-        active_stream_val_len_added: 0,
         active_group_batch: None,
-        active_group_batch_appended: false,
         group_batches: Universe::default(),
     })
 }
@@ -499,7 +495,6 @@ pub fn handle_tf_join(
     let mut batch_size_rem = batch_size;
     let mut last_group_end = field_pos_start;
     let mut prebuffered_record = join.first_record_added;
-    let x = jd.session_data.string_store.read().unwrap();
     let mut string_store_ref = None;
 
     let ms = &jd.match_set_mgr.match_sets[ms_id];
@@ -576,6 +571,8 @@ pub fn handle_tf_join(
                     join,
                     &jd.field_mgr,
                     &jd.match_set_mgr,
+                    sv_mgr,
+                    op_id,
                     &jd.session_data.string_store,
                     &mut string_store_ref,
                     &mut iter,
@@ -584,6 +581,7 @@ pub fn handle_tf_join(
                 );
                 batch_size_rem -= 1;
                 groups_emitted += 1;
+                last_group_end = iter.get_next_field_pos();
             }
         }
 
@@ -706,6 +704,8 @@ fn handle_single_elem_group<'a, 'b>(
     join: &mut TfJoin,
     fm: &FieldManager,
     msm: &MatchSetManager,
+    sv_mgr: &mut StreamValueManager,
+    op_id: OperatorId,
     string_store: &'b RwLock<StringStore>,
     string_store_ref: &mut Option<RwLockReadGuard<'b, StringStore>>,
     iter: &mut AutoDerefIter<'a, Iter<'a, DestructuredFieldDataRef<'a>>>,
@@ -715,6 +715,8 @@ fn handle_single_elem_group<'a, 'b>(
     output_inserter.extend_from_ref_aware_range_stringified_smart_ref(
         fm,
         msm,
+        sv_mgr,
+        op_id,
         string_store,
         string_store_ref,
         iter.typed_range_fwd(msm, 1, field_value_flags::DEFAULT)

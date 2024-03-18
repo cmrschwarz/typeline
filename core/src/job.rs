@@ -1088,7 +1088,7 @@ impl<'a> Job<'a> {
                 self.handle_transform(tf_id, ctx)?;
                 continue;
             }
-            // we need to process updates in a stack, because updates 
+            // we need to process updates in a stack, because updates
             if let Some(svu) = self.job_data.sv_mgr.updates.pop_back() {
                 self.handle_stream_value_update(svu);
                 continue;

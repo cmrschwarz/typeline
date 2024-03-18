@@ -3,7 +3,9 @@ use std::ops::DerefMut;
 use crate::record_data::field_data::INLINE_STR_MAX_LEN;
 
 use super::{
-    bytes_insertion_stream::{BytesInsertionStream, TextInsertionStream},
+    bytes_insertion_stream::{
+        BytesInsertionStream, MaybeTextInsertionStream, TextInsertionStream,
+    },
     field_data::{
         field_value_flags::{self, FieldValueFlags},
         FieldData, FieldValueFormat, FieldValueRepr, FieldValueSize,
@@ -291,6 +293,7 @@ unsafe impl<FD: DerefMut<Target = FieldData>> PushInterface
         &mut self,
         run_length: usize,
     ) -> BytesInsertionStream {
+        self.commit();
         self.fd.bytes_insertion_stream(run_length)
     }
 
@@ -298,7 +301,15 @@ unsafe impl<FD: DerefMut<Target = FieldData>> PushInterface
         &mut self,
         run_length: usize,
     ) -> TextInsertionStream {
+        self.commit();
         self.fd.text_insertion_stream(run_length)
+    }
+    fn maybe_text_insertion_stream(
+        &mut self,
+        run_length: usize,
+    ) -> MaybeTextInsertionStream {
+        self.commit();
+        self.fd.maybe_text_insertion_stream(run_length)
     }
 }
 

@@ -2,15 +2,18 @@ use std::{any::Any, borrow::Cow, cmp::Ordering, fmt::Debug};
 
 use thiserror::Error;
 
-use crate::utils::{
-    counting_writer::{
-        LengthAndCharsCountingWriter, LengthCountingWriter, TextInfo,
-        TextInfoWriter,
+use crate::{
+    operators::{errors::OperatorApplicationError, operator::OperatorId},
+    utils::{
+        counting_writer::{
+            LengthAndCharsCountingWriter, LengthCountingWriter, TextInfo,
+            TextInfoWriter,
+        },
+        text_write::{MaybeTextWrite, TextWrite, TextWriteIoAdapter},
     },
-    text_write::{MaybeTextWrite, TextWrite, TextWriteIoAdapter},
 };
 
-use super::formattable::{calc_fmt_layout, RealizedFormatKey};
+use super::formattable::RealizedFormatKey;
 
 pub fn custom_data_reference_eq<T: CustomData + ?Sized>(
     lhs: &T,
@@ -59,6 +62,26 @@ impl FieldValueFormattingError {
             FieldValueFormattingError::IoError(e) => e,
             FieldValueFormattingError::Other(e) => std::io::Error::other(e),
         }
+    }
+    pub fn build_message_string(&self, custom_data_name: &str) -> String {
+        match self {
+            FieldValueFormattingError::NotSupported =>
+                format!("formatting custom type '{custom_data_name}' is not supported"),
+            FieldValueFormattingError::IoError(e) =>
+                format!("IO error during formatting of custom type '{custom_data_name}': {e}"),
+            FieldValueFormattingError::Other(e) =>
+                format!("failed to format custom type '{custom_data_name}': {e}" ),
+        }
+    }
+    pub fn as_operator_application_error(
+        &self,
+        op_id: OperatorId,
+        custom_data_name: &str,
+    ) -> OperatorApplicationError {
+        OperatorApplicationError::new_s(
+            self.build_message_string(custom_data_name),
+            op_id,
+        )
     }
 }
 

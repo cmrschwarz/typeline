@@ -113,6 +113,9 @@ impl<'a> RawBytesInserter<'a> {
         }
         self.commit_inline(text);
     }
+    fn free_memory(&mut self) {
+        std::mem::take(&mut self.target);
+    }
 }
 
 pub struct BytesInsertionStream<'a>(RawBytesInserter<'a>);
@@ -122,6 +125,10 @@ impl<'a> BytesInsertionStream<'a> {
     }
     pub fn commit(self) {
         drop(self)
+    }
+    pub fn abort(mut self) {
+        self.0.free_memory();
+        std::mem::forget(self);
     }
 }
 impl Drop for BytesInsertionStream<'_> {
@@ -148,6 +155,10 @@ impl<'a> TextInsertionStream<'a> {
     }
     pub fn commit(self) {
         drop(self)
+    }
+    pub fn abort(mut self) {
+        self.0.free_memory();
+        std::mem::forget(self);
     }
 }
 impl TextWrite for TextInsertionStream<'_> {
@@ -183,8 +194,9 @@ impl<'a> MaybeTextInsertionStream<'a> {
     pub fn commit(self) {
         drop(self)
     }
-    pub fn write_bytes(&mut self, buf: &[u8]) {
-        self.base.write_bytes(buf);
+    pub fn abort(mut self) {
+        self.base.free_memory();
+        std::mem::forget(self);
     }
     pub unsafe fn set_is_text(&mut self, is_text: bool) {
         self.is_text = is_text;
@@ -203,6 +215,17 @@ impl TextWrite for MaybeTextInsertionStream<'_> {
     }
 
     fn flush_text(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+impl std::io::Write for MaybeTextInsertionStream<'_> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.is_text = false;
+        self.base.write_bytes(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
     }
 }

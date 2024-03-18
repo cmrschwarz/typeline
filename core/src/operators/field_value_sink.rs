@@ -8,6 +8,8 @@ use crate::{
         field::Field,
         field_data::field_value_flags,
         field_value::FieldValue,
+        field_value_ref::FieldValueSlice,
+        field_value_slice_iter::FieldValueSliceIter,
         iter_hall::IterId,
         iters::FieldIterator,
         push_interface::PushInterface,
@@ -18,8 +20,6 @@ use crate::{
             RefAwareTextBufferIter,
         },
         stream_value::StreamValueId,
-        field_value_ref::FieldValueSlice,
-        field_value_slice_iter::FieldValueSliceIter,
     },
     utils::universe::CountedUniverse,
 };

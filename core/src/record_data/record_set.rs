@@ -3,6 +3,9 @@ use smallvec::{smallvec, SmallVec};
 use crate::utils::string_store::StringStoreEntry;
 
 use super::{
+    bytes_insertion_stream::{
+        BytesInsertionStream, MaybeTextInsertionStream, TextInsertionStream,
+    },
     field_data::{FieldData, FieldValueFlags, FieldValueRepr, FieldValueType},
     push_interface::PushInterface,
 };
@@ -118,7 +121,7 @@ unsafe impl PushInterface for RecordSet {
     fn bytes_insertion_stream(
         &mut self,
         run_length: usize,
-    ) -> super::bytes_insertion_stream::BytesInsertionStream {
+    ) -> BytesInsertionStream {
         self.push_undefined_to_secondary_cols(run_length);
         self.fields
             .first_mut()
@@ -130,13 +133,24 @@ unsafe impl PushInterface for RecordSet {
     fn text_insertion_stream(
         &mut self,
         run_length: usize,
-    ) -> super::bytes_insertion_stream::TextInsertionStream {
+    ) -> TextInsertionStream {
         self.push_undefined_to_secondary_cols(run_length);
         self.fields
             .first_mut()
             .unwrap()
             .data
             .text_insertion_stream(run_length)
+    }
+    fn maybe_text_insertion_stream(
+        &mut self,
+        run_length: usize,
+    ) -> MaybeTextInsertionStream {
+        self.push_undefined_to_secondary_cols(run_length);
+        self.fields
+            .first_mut()
+            .unwrap()
+            .data
+            .maybe_text_insertion_stream(run_length)
     }
 }
 

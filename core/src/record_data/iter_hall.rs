@@ -13,7 +13,9 @@ use crate::{
 };
 
 use super::{
-    bytes_insertion_stream::{BytesInsertionStream, TextInsertionStream},
+    bytes_insertion_stream::{
+        BytesInsertionStream, MaybeTextInsertionStream, TextInsertionStream,
+    },
     field::{FieldId, FieldManager},
     field_data::{
         FieldData, FieldDataBuffer, FieldDataInternals, FieldDataInternalsMut,
@@ -748,6 +750,12 @@ unsafe impl PushInterface for IterHall {
         run_length: usize,
     ) -> TextInsertionStream {
         self.field_data.text_insertion_stream(run_length)
+    }
+    fn maybe_text_insertion_stream(
+        &mut self,
+        run_length: usize,
+    ) -> MaybeTextInsertionStream {
+        self.field_data.maybe_text_insertion_stream(run_length)
     }
 }
 impl IterHall {
