@@ -351,7 +351,7 @@ pub fn handle_tf_file_reader_stream(
             read_chunk(bc, file, fr.stream_buffer_size, fr.line_buffered)
         }
         StreamValueData::Error(_) => Ok((0, true)),
-        _ => unreachable!(),
+        StreamValueData::Text(_) => unreachable!(),
     };
     let done = match res {
         Ok((_size, eof)) => eof,

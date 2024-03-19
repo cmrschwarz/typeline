@@ -93,7 +93,7 @@ impl StreamValue {
 }
 
 impl StreamValueData {
-    pub fn as_field_value_ref<'a>(&'a self) -> FieldValueRef<'a> {
+    pub fn as_field_value_ref(&self) -> FieldValueRef {
         match &self {
             StreamValueData::Text(v) => FieldValueRef::Text(v),
             StreamValueData::Bytes(v) => FieldValueRef::Bytes(v),

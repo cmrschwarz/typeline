@@ -252,7 +252,7 @@ pub fn handle_tf_cast_stream_value_update(
                 StreamValueData::Text(data) => {
                     (true, unsafe { data.as_mut_vec() })
                 }
-                _ => unreachable!(),
+                StreamValueData::Error(_) => unreachable!(),
             };
             if out_is_utf8 {
                 let res = encoding::decode_to_utf8(
@@ -279,6 +279,6 @@ pub fn handle_tf_cast_stream_value_update(
             sv_out.done = sv_in.done;
             sv_out.is_buffered = sv_in.is_buffered;
         }
-        _ => todo!(),
+        StreamValueData::Text(_) => todo!(),
     }
 }

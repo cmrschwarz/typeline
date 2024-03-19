@@ -400,10 +400,10 @@ impl FieldValue {
             FieldValue::Array(a) => return a.format(w, fc),
             FieldValue::Object(o) => return o.format(w, fc),
             FieldValue::Custom(v) => {
-                return v.format(w, &fc.rfk).map(|_| ());
+                return v.format(w, &fc.rfk);
             }
         }
-        .map_err(|e| e.into())
+        .map_err(Into::into)
     }
     pub fn format_raw(
         &self,
@@ -425,10 +425,8 @@ impl FieldValue {
             FieldValue::FieldReference(_) => todo!(),
             FieldValue::SlicedFieldReference(_) => todo!(),
             FieldValue::StreamValueId(_) => todo!(),
-            FieldValue::Bytes(v) => {
-                format_bytes_raw(w, v).map_err(|e| e.into())
-            }
-            FieldValue::Custom(v) => v.format_raw(w, &fc.rfk).map(|_| ()),
+            FieldValue::Bytes(v) => format_bytes_raw(w, v).map_err(Into::into),
+            FieldValue::Custom(v) => v.format_raw(w, &fc.rfk),
         }
     }
     pub fn from_fixed_sized_type<T: FixedSizeFieldValueType + Sized>(
@@ -682,9 +680,9 @@ impl Array {
             Array::SlicedFieldReference(v) => {
                 format_array(w, fc, v.iter(), |_f, _, _v| todo!())
             }
-            Array::Custom(v) => format_array(w, fc, v.iter(), |f, fc, v| {
-                v.format(f, &fc.rfk).map(|_| ())
-            }),
+            Array::Custom(v) => {
+                format_array(w, fc, v.iter(), |f, fc, v| v.format(f, &fc.rfk))
+            }
             Array::Mixed(v) => {
                 format_array(w, fc, v.iter(), |f, fc, v| v.format(f, fc))
             }

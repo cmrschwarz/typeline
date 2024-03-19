@@ -1795,7 +1795,9 @@ fn write_fmt_key(
                                                     &b[range.clone()],
                                                 )
                                             }
-                                            _ => unreachable!(),
+                                            StreamValueData::Error(_) => {
+                                                unreachable!()
+                                            }
                                         }
                                         if !sv.done {
                                             tgt.target = None;
@@ -2077,7 +2079,7 @@ pub fn handle_tf_format_stream_value_update(
                     buf
                 }
                 StreamValueData::Text(buf) => unsafe { buf.as_mut_vec() },
-                _ => unreachable!(),
+                StreamValueData::Error(_) => unreachable!(),
             };
             let tgt_buf = match &mut out_sv.data {
                 StreamValueData::Bytes(buf) => buf,
@@ -2088,7 +2090,7 @@ pub fn handle_tf_format_stream_value_update(
                     assert!(src_is_utf8);
                     unsafe { buf.as_mut_vec() }
                 }
-                _ => unreachable!(),
+                StreamValueData::Error(_) => unreachable!(),
             };
             if !out_sv.is_buffered {
                 tgt_buf.clear();

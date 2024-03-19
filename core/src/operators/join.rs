@@ -298,7 +298,7 @@ unsafe fn get_join_buffer<'a>(
         match value {
             StreamValueData::Bytes(bb) => bb,
             StreamValueData::Text(txt) => unsafe { txt.as_mut_vec() },
-            _ => unreachable!(),
+            StreamValueData::Error(_) => unreachable!(),
         }
     } else {
         &mut join.buffer
@@ -695,7 +695,7 @@ pub fn handle_tf_join(
     jd.tf_mgr.submit_batch(tf_id, groups_emitted, ps.input_done);
 }
 
-fn try_consume_stream_values<'a>(
+fn try_consume_stream_values(
     join: &mut TfJoin<'_>,
     sv_mgr: &mut StreamValueManager,
     range: &RefAwareTypedRange<'_>,
