@@ -512,6 +512,7 @@ pub fn handle_tf_join(
             groups_iter.next_n_fields(consumed);
             desired_group_len_rem -= consumed;
             join.curr_group_len += consumed;
+            batch_size_rem -= consumed;
         }
         let end_of_group = groups_iter.is_end_of_group(ps.input_done);
         if end_of_group || desired_group_len_rem == 0 {
@@ -550,49 +551,45 @@ pub fn handle_tf_join(
             desired_group_len_rem = join.group_capacity.unwrap_or(usize::MAX);
         }
 
-        if join.curr_group_len == 0 {
+        if batch_size_rem != 0
+            && join.curr_group_len == 0
+            && join.group_capacity.unwrap_or(1) == 1
+            && groups_iter.group_len_rem() == 1
+        {
             // optimized case for groups of length 1,
             // where we can just copy straight to output without any buffering
             // or separators
-            if batch_size_rem == 0 {
-                break;
+
+            let count = groups_iter
+                .skip_single_elem_groups(ps.input_done, batch_size_rem);
+            let mut rem = count;
+            while rem > 0 {
+                let range = iter
+                    .typed_range_fwd(
+                        &jd.match_set_mgr,
+                        rem,
+                        field_value_flags::DEFAULT,
+                    )
+                    .unwrap();
+                rem -= range.base.field_count;
+                output_inserter
+                    .extend_from_ref_aware_range_stringified_smart_ref(
+                        &jd.field_mgr,
+                        &jd.match_set_mgr,
+                        sv_mgr,
+                        &jd.session_data.string_store,
+                        &mut string_store_ref,
+                        range,
+                        true,
+                        true,
+                        true,
+                        join.input_field_ref_offset,
+                        true, // TODO: configurable
+                    );
             }
-            let target_group_len = join
-                .group_capacity
-                .unwrap_or(2)
-                .min(groups_iter.group_len_rem());
-            if target_group_len == 1 {
-                let count = groups_iter
-                    .skip_single_elem_groups(ps.input_done, batch_size_rem);
-                let mut rem = count;
-                while rem > 0 {
-                    let range = iter
-                        .typed_range_fwd(
-                            &jd.match_set_mgr,
-                            rem,
-                            field_value_flags::DEFAULT,
-                        )
-                        .unwrap();
-                    rem -= range.base.field_count;
-                    output_inserter
-                        .extend_from_ref_aware_range_stringified_smart_ref(
-                            &jd.field_mgr,
-                            &jd.match_set_mgr,
-                            sv_mgr,
-                            &jd.session_data.string_store,
-                            &mut string_store_ref,
-                            range,
-                            true,
-                            true,
-                            true,
-                            join.input_field_ref_offset,
-                            true, // TODO: configurable
-                        );
-                }
-                batch_size_rem -= count;
-                groups_emitted += count;
-                last_group_end = iter.get_next_field_pos();
-            }
+            last_group_end = iter.get_next_field_pos();
+            groups_emitted += count;
+            batch_size_rem -= count;
         }
 
         let Some(range) = iter.typed_range_fwd(
