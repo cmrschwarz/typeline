@@ -1126,6 +1126,7 @@ pub fn setup_key_output_state(
                                             &mut sv_mgr.stream_values[sv_id];
                                         let wait_to_end = sv.is_buffered;
                                         sv.subscribe(
+                                            sv_id,
                                             tf_id,
                                             fmt.stream_value_handles
                                                 .peek_claim_id()

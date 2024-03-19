@@ -12,7 +12,7 @@ use super::{
     field_value_ref::FieldValueRef,
 };
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct StreamValueUpdate {
     pub sv_id: StreamValueId,
     pub tf_id: TransformId,
@@ -26,7 +26,7 @@ pub struct StreamValueSubscription {
     pub notify_only_once_done: bool,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum StreamValueData {
     Text(String),
     Bytes(Vec<u8>),
@@ -45,6 +45,8 @@ pub struct StreamValue {
 impl StreamValue {
     pub fn subscribe(
         &mut self,
+        #[cfg_attr(not(feature = "debug_logging"), allow(unused))]
+        sv_id: StreamValueId,
         tf_id: TransformId,
         custom_data: usize,
         notify_only_once_done: bool,
@@ -55,6 +57,13 @@ impl StreamValue {
             notify_only_once_done,
         });
         self.ref_count += 1;
+        #[cfg(feature = "debug_logging")]
+        eprintln!(
+            ":: tf {tf_id:02} subscribed to stream value {sv_id:02} (subs: {:?}, rc {}), [{:?}]",
+            self.subscribers.iter().map(|svs|svs.tf_id).collect::<Vec<_>>(),
+            self.ref_count,
+            self.data
+        );
     }
     pub fn from_data(data: StreamValueData) -> Self {
         Self {
@@ -109,22 +118,40 @@ impl StreamValueData {
     pub fn is_error(&self) -> bool {
         matches!(self, StreamValueData::Error(_))
     }
-    pub fn extend_with_bytes(&mut self, bytes: &[u8]) {
+    pub unsafe fn extend_with_bytes_raw(
+        &mut self,
+        bytes: &[u8],
+        valid_utf8: bool,
+    ) {
         match self {
             StreamValueData::Text(t) => {
-                let mut b = std::mem::take(t).into_bytes();
-                b.extend(bytes);
-                *self = StreamValueData::Bytes(b);
+                if valid_utf8 {
+                    t.push_str(unsafe { std::str::from_utf8_unchecked(bytes) })
+                } else {
+                    let mut b = std::mem::take(t).into_bytes();
+                    b.extend(bytes);
+                    *self = StreamValueData::Bytes(b);
+                }
             }
             StreamValueData::Bytes(b) => b.extend(bytes),
             StreamValueData::Error(_) => unimplemented!(),
         }
     }
+    pub fn extend_with_bytes(&mut self, bytes: &[u8]) {
+        unsafe { self.extend_with_bytes_raw(bytes, false) }
+    }
     pub fn extend_with_text(&mut self, text: &str) {
-        match self {
-            StreamValueData::Text(t) => t.push_str(text),
-            StreamValueData::Bytes(b) => b.extend(text.as_bytes()),
-            StreamValueData::Error(_) => unimplemented!(),
+        unsafe { self.extend_with_bytes_raw(text.as_bytes(), true) }
+    }
+    pub fn extend_from_sv_data(&mut self, data: &StreamValueData) {
+        match data {
+            StreamValueData::Text(t) => self.extend_with_text(t),
+            StreamValueData::Bytes(b) => self.extend_with_bytes(b),
+            StreamValueData::Error(e) => {
+                if !self.is_error() {
+                    *self = StreamValueData::Error(e.clone());
+                }
+            }
         }
     }
 }
@@ -175,6 +202,24 @@ impl StreamValueManager {
                 });
             }
         }
+        #[cfg(feature = "debug_logging")]
+        {
+            eprintln!(
+                ":: queued updates to the {} subscriber(s) of stream value {sv_id:02} [{}done: {:?}]: {:?}",
+                sv.subscribers.len(),
+                if sv.done  {""} else { "not " },
+                sv.data,
+                self.updates
+            );
+        }
+    }
+    pub fn release_stream_value(&mut self, sv_id: StreamValueId) {
+        #[cfg(feature = "debug_logging")]
+        eprintln!(
+            ":: releasing stream value {sv_id:02} [{:?}]",
+            self.stream_values[sv_id].data
+        );
+        self.stream_values.release(sv_id);
     }
     pub fn drop_field_value_subscription(
         &mut self,
@@ -182,10 +227,19 @@ impl StreamValueManager {
         tf_id_to_remove: Option<TransformId>,
     ) {
         let sv = &mut self.stream_values[sv_id];
+
+        #[cfg(feature = "debug_logging")]
+        eprintln!(
+            ":: tf {:02} dropping stream value subscription to sv {sv_id:02} (subs: {:?}) [{} done, rc {}, {:?}]",
+            tf_id_to_remove.map(|v|v.get() as i64).unwrap_or(-1),
+            sv.subscribers.iter().map(|svs|svs.tf_id).collect::<Vec<_>>(),
+            if sv.done {""} else {"not "},
+            sv.ref_count,
+            sv.data
+        );
         sv.ref_count -= 1;
         if sv.ref_count == 0 {
-            std::mem::take(&mut sv.data);
-            self.stream_values.release(sv_id);
+            self.release_stream_value(sv_id);
         } else if let Some(tf_id) = tf_id_to_remove {
             sv.subscribers.swap_remove(
                 sv.subscribers
@@ -198,8 +252,30 @@ impl StreamValueManager {
     pub fn check_stream_value_ref_count(&mut self, sv_id: StreamValueId) {
         let sv = &mut self.stream_values[sv_id];
         if sv.ref_count == 0 {
-            std::mem::take(&mut sv.data);
-            self.stream_values.release(sv_id);
+            self.release_stream_value(sv_id);
         }
+    }
+    pub fn claim_stream_value(&mut self, sv: StreamValue) -> StreamValueId {
+        let sv_id = self.stream_values.claim_with_value(sv);
+        #[cfg(feature = "debug_logging")]
+        eprintln!(
+            ":: claimed stream value {sv_id:02} [{:?}]",
+            self.stream_values[sv_id].data
+        );
+        sv_id
+    }
+    pub fn subscribe_to_stream_value(
+        &mut self,
+        sv_id: StreamValueId,
+        tf_id: TransformId,
+        custom_data: usize,
+        notify_only_once_done: bool,
+    ) {
+        self.stream_values[sv_id].subscribe(
+            sv_id,
+            tf_id,
+            custom_data,
+            notify_only_once_done,
+        )
     }
 }

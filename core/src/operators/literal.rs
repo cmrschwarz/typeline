@@ -125,27 +125,28 @@ pub fn insert_value(
         Literal::Null => output_field.iter_hall.push_null(1, true),
         Literal::Undefined => output_field.iter_hall.push_undefined(1, true),
         Literal::StreamError(ss) => {
-            let sv_id = jd.sv_mgr.stream_values.claim_with_value(
-                StreamValue::from_data(StreamValueData::Error(
-                    OperatorApplicationError::new_s(ss.clone(), op_id),
+            let sv_id = jd.sv_mgr.claim_stream_value(StreamValue::from_data(
+                StreamValueData::Error(OperatorApplicationError::new_s(
+                    ss.clone(),
+                    op_id,
                 )),
-            );
+            ));
             output_field
                 .iter_hall
                 .push_stream_value_id(sv_id, 1, true, false);
         }
         Literal::StreamString(ss) => {
-            let sv_id = jd.sv_mgr.stream_values.claim_with_value(
-                StreamValue::from_data(StreamValueData::Text(ss.clone())),
-            );
+            let sv_id = jd.sv_mgr.claim_stream_value(StreamValue::from_data(
+                StreamValueData::Text(ss.clone()),
+            ));
             output_field
                 .iter_hall
                 .push_stream_value_id(sv_id, 1, true, false);
         }
         Literal::StreamBytes(sb) => {
-            let sv_id = jd.sv_mgr.stream_values.claim_with_value(
-                StreamValue::from_data(StreamValueData::Bytes(sb.clone())),
-            );
+            let sv_id = jd.sv_mgr.claim_stream_value(StreamValue::from_data(
+                StreamValueData::Bytes(sb.clone()),
+            ));
             output_field
                 .iter_hall
                 .push_stream_value_id(sv_id, 1, true, false);

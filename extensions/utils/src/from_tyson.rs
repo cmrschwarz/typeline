@@ -203,8 +203,9 @@ impl TfFromTyson {
                                                 true,
                                             ),
                                         );
-                                    bud.sv_mgr.stream_values[sv_id]
-                                        .subscribe(bud.tf_id, out_sv_id, true)
+                                    bud.sv_mgr.subscribe_to_stream_value(
+                                        sv_id, bud.tf_id, out_sv_id, true,
+                                    )
                                 }
                             }
                             StreamValueData::Error(e) => inserter.push_error(

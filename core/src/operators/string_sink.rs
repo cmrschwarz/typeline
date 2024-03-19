@@ -440,11 +440,11 @@ pub fn handle_tf_string_sink(
             }
             FieldValueSlice::StreamValueId(svs) => {
                 let mut pos = field_pos;
-                for (svid, range, rl) in
+                for (sv_id, range, rl) in
                     RefAwareStreamValueIter::from_range(&range, svs)
                 {
                     let rl = rl as usize;
-                    let sv = &mut jd.sv_mgr.stream_values[svid];
+                    let sv = &mut jd.sv_mgr.stream_values[sv_id];
                     match &sv.data {
                         StreamValueData::Bytes(bytes) => {
                             let bytes =
@@ -480,7 +480,7 @@ pub fn handle_tf_string_sink(
                                 run_len: rl,
                                 contains_error: false,
                             });
-                        sv.subscribe(tf_id, handle_id, sv.is_buffered);
+                        sv.subscribe(sv_id, tf_id, handle_id, sv.is_buffered);
                     }
                     pos += rl;
                 }
@@ -587,7 +587,7 @@ pub fn handle_tf_string_sink_stream_value_update(
         svh.run_len,
     );
     if sv.done {
-        jd.sv_mgr.drop_field_value_subscription(sv_id, None);
+        jd.sv_mgr.drop_field_value_subscription(sv_id, Some(tf_id));
         tf.stream_value_handles.release(custom);
         if tf.stream_value_handles.is_empty() {
             jd.tf_mgr.push_tf_in_ready_stack(tf_id);

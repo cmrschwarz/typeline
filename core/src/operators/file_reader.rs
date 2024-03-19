@@ -307,7 +307,7 @@ fn start_streaming_file(
             }
         }
     };
-    let sv_id = jd.sv_mgr.stream_values.claim_with_value(StreamValue {
+    let sv_id = jd.sv_mgr.claim_stream_value(StreamValue {
         data: StreamValueData::Bytes(buf),
         done,
         ref_count: 1,

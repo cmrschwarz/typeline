@@ -244,6 +244,25 @@ impl FieldValueKind {
             FieldValueKind::StreamValueId => "stream_value_id",
         }
     }
+    pub fn is_valid_utf8(self) -> bool {
+        match self {
+            FieldValueKind::Undefined
+            | FieldValueKind::Null
+            | FieldValueKind::Int
+            | FieldValueKind::BigInt
+            | FieldValueKind::Float
+            | FieldValueKind::Rational
+            | FieldValueKind::Error
+            | FieldValueKind::Text
+            | FieldValueKind::Object
+            | FieldValueKind::Array => true,
+            FieldValueKind::Bytes
+            | FieldValueKind::FieldReference
+            | FieldValueKind::SlicedFieldReference
+            | FieldValueKind::StreamValueId
+            | FieldValueKind::Custom => false,
+        }
+    }
 }
 
 impl PartialEq for FieldValue {
@@ -479,6 +498,9 @@ impl FieldValue {
     }
     pub fn is_error(&self) -> bool {
         matches!(self, FieldValue::Error(_))
+    }
+    pub fn is_valid_utf8(&self) -> bool {
+        self.kind().is_valid_utf8()
     }
 }
 

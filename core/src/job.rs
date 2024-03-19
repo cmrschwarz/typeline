@@ -46,7 +46,9 @@ use crate::{
         },
         input_done_eater::handle_tf_input_done_eater,
         join::{
-            build_tf_join, handle_tf_join, handle_tf_join_stream_value_update,
+            build_tf_join, handle_tf_join,
+            handle_tf_join_stream_producer_update,
+            handle_tf_join_stream_value_update,
         },
         literal::{build_tf_literal, handle_tf_literal},
         nop::{build_tf_nop, handle_tf_nop},
@@ -265,6 +267,16 @@ impl TransformManager {
     pub fn make_stream_producer(&mut self, tf_id: TransformId) {
         let tf = &mut self.transforms[tf_id];
         if !tf.is_stream_producer {
+            #[cfg(feature = "debug_logging")]
+            {
+                eprintln!(
+                    ">> tf {tf_id:02} became a stream producer: {:?}, stack: {:?}, cutoff: {}",
+                    self.stream_producers,
+                    self.ready_stack,
+                    self.pre_stream_transform_stack_cutoff.map(|v|v as i64).unwrap_or(-1)
+                )
+            }
+
             tf.is_stream_producer = true;
             self.stream_producers.push_back(tf_id);
         }
@@ -781,12 +793,22 @@ impl<'a> Job<'a> {
     }
     fn handle_stream_value_update(&mut self, svu: StreamValueUpdate) {
         #[cfg(feature = "debug_logging")]
-        eprintln!(
-            "> handling stream value {} update for tf {} (`{}`)",
+        {
+            eprintln!(
+            "> handling stream value {} update for tf {} (`{}`): producers: {:?}, stack: {:?}, cutoff: {:?}",
             svu.sv_id,
             svu.tf_id,
-            self.transform_data[svu.tf_id.get()].display_name()
+            self.transform_data[svu.tf_id.get()].display_name(),
+            self.job_data.tf_mgr.stream_producers,
+            self.job_data.tf_mgr.ready_stack,
+            self.job_data.tf_mgr.pre_stream_transform_stack_cutoff.map(|v|v as i64).unwrap_or(-1)
+
         );
+            eprintln!(
+                "     pending updates: {:?}",
+                self.job_data.sv_mgr.updates
+            );
+        }
         match &mut self.transform_data[usize::from(svu.tf_id)] {
             TransformData::Print(tf) => handle_tf_print_stream_value_update(
                 &mut self.job_data,
@@ -1026,12 +1048,14 @@ impl<'a> Job<'a> {
     }
 
     pub(crate) fn run_stream_producer_update(&mut self, tf_id: TransformId) {
-        //#[cfg(feature = "debug_logging")]
-        // eprintln!(
-        //    "> handling stream producer update for tf {} (`{}`)",
-        //    tf_id,
-        //    self.transform_data[tf_id.get() as usize].display_name()
-        //);
+        #[cfg(feature = "debug_logging")]
+        eprintln!(
+            "> handling stream producer update for tf {} (`{}`), producers: {:?}, stack: {:?}",
+            tf_id,
+            self.transform_data[tf_id.get()].display_name(),
+            self.job_data.tf_mgr.stream_producers,
+            self.job_data.tf_mgr.ready_stack,
+        );
         let tf_state = &mut self.job_data.tf_mgr.transforms[tf_id];
         tf_state.is_stream_producer = false;
         match &mut self.transform_data[tf_id.get()] {
@@ -1046,7 +1070,6 @@ impl<'a> Job<'a> {
             | TransformData::Cast(_)
             | TransformData::Count(_)
             | TransformData::Print(_)
-            | TransformData::Join(_)
             | TransformData::Select(_)
             | TransformData::StringSink(_)
             | TransformData::FieldValueSink(_)
@@ -1061,6 +1084,9 @@ impl<'a> Job<'a> {
             | TransformData::AggregatorTrailer(_)
             | TransformData::ForeachHeader(_)
             | TransformData::ForeachTrailer(_) => unreachable!(),
+            TransformData::Join(j) => {
+                handle_tf_join_stream_producer_update(&mut self.job_data, tf_id, j)
+            }
             TransformData::FileReader(f) => {
                 handle_tf_file_reader_stream(&mut self.job_data, tf_id, f)
             }
@@ -1068,6 +1094,14 @@ impl<'a> Job<'a> {
                 c.stream_producer_update(&mut self.job_data, tf_id)
             }
         }
+        #[cfg(feature = "debug_logging")]
+        eprintln!(
+            "/> finished stream producer update for tf {} (`{}`), producers: {:?}, stack: {:?}",
+            tf_id,
+            self.transform_data[tf_id.get()].display_name(),
+            self.job_data.tf_mgr.stream_producers,
+            self.job_data.tf_mgr.ready_stack,
+        );
     }
     pub fn is_in_streaming_mode(&self) -> bool {
         !self.job_data.tf_mgr.stream_producers.is_empty()
@@ -1077,6 +1111,18 @@ impl<'a> Job<'a> {
         transform_stack_cutoff: usize,
         ctx: Option<&Arc<ContextData>>,
     ) -> Result<(), VentureDescription> {
+        #[cfg(feature = "debug_logging")]
+        {
+            eprintln!(">> entering streaming mode: producers: {:?}, stack: {:?}, cutoff: {:?}",
+                self.job_data.tf_mgr.stream_producers,
+                self.job_data.tf_mgr.ready_stack,
+                transform_stack_cutoff
+            );
+            eprintln!(
+                "    pending updates: {:?}",
+                self.job_data.sv_mgr.updates
+            );
+        }
         self.job_data.tf_mgr.pre_stream_transform_stack_cutoff =
             Some(transform_stack_cutoff);
         loop {
@@ -1100,6 +1146,17 @@ impl<'a> Job<'a> {
                 continue;
             }
             self.job_data.tf_mgr.pre_stream_transform_stack_cutoff = None;
+            #[cfg(feature = "debug_logging")]
+            {
+                eprintln!(
+                    ">> exiting streaming mode: stack: {:?}",
+                    self.job_data.tf_mgr.ready_stack,
+                );
+                eprintln!(
+                    "    pending updates: {:?}",
+                    self.job_data.sv_mgr.updates
+                );
+            }
             return Ok(());
         }
     }

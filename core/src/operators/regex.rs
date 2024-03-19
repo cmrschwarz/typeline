@@ -1028,7 +1028,7 @@ pub fn handle_tf_regex(
                     }
                     if !sv.done {
                         sv.is_buffered = true;
-                        sv.subscribe(tf_id, rl as usize, true);
+                        sv.subscribe(sv_id, tf_id, rl as usize, true);
                         // PERF: if multimatch is false and we are in optional
                         // mode we can theoretically
                         // continue here, because there will always be exactly

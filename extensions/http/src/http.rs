@@ -216,12 +216,12 @@ impl TfHttpRequest {
         let (socket, tls_conn) =
             self.setup_connection(first_addr, https, hostname, token)?;
 
-        let stream_value = bud.sv_mgr.stream_values.claim_with_value(
-            StreamValue::from_data_unfinished(
-                StreamValueData::Bytes(Vec::new()),
-                false,
-            ),
-        );
+        let stream_value =
+            bud.sv_mgr
+                .claim_stream_value(StreamValue::from_data_unfinished(
+                    StreamValueData::Bytes(Vec::new()),
+                    false,
+                ));
 
         // Accept-Encoding: identity\r\n\
         let httpreq = format!(

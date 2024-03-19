@@ -21,3 +21,4 @@ pub mod ref_iter;
 pub mod stream_value;
 pub mod variable_sized_type_inserter;
 pub mod varying_type_inserter;
+pub mod spot_value;
