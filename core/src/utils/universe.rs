@@ -14,6 +14,8 @@ use super::get_two_distinct_mut;
 #[derive(Clone)]
 enum UniverseEntry<T> {
     Occupied(T),
+    // PERF: maybe use the indexing type / a derived non max type
+    // here instead to save memory for u32s, e.g. in `GroupList`
     Vacant(Option<DebuggableNonMaxUsize>),
 }
 

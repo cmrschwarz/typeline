@@ -127,7 +127,7 @@ fn join_no_sep() -> Result<(), ScrError> {
 fn join_streams() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
-        .set_stream_buffer_size(1)
+        .set_stream_buffer_size(2)
         .add_op(create_op_file_reader_custom(
             Box::new(SliceReader::new("abc".as_bytes())),
             0,
