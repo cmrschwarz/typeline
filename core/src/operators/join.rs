@@ -791,7 +791,7 @@ fn try_consume_stream_values(
 ) -> bool {
     let sv_iter = RefAwareStreamValueIter::from_range(range, svs);
     for (sv_id, offsets, rl) in sv_iter {
-        let mut sv = &mut sv_mgr.stream_values[sv_id];
+        let sv = &mut sv_mgr.stream_values[sv_id];
         match &sv.data {
             StreamValueData::Error(err) => {
                 let ec = err.clone();
@@ -824,16 +824,14 @@ fn try_consume_stream_values(
                         }
                         gbi
                     } else {
-                        let gbi = claim_group_batch(join, sv_mgr);
-                        // reborrow
-                        sv = &mut sv_mgr.stream_values[sv_id];
-                        gbi
+                        claim_group_batch(join, sv_mgr)
                     };
                     let gb = &mut join.group_batches[gbi];
                     gb.pending_stream_value = Some(sv_id);
                     let (sv_in, sv_out) = sv_mgr
                         .stream_values
                         .two_distinct_mut(sv_id, gb.output_stream_value);
+                    join.first_record_added = true;
                     sv_out.data.extend_from_sv_data(&sv_in.data);
                     sv_in.subscribe(sv_id, tf_id, gbi.get(), false);
                     continue;
@@ -985,20 +983,12 @@ pub fn handle_tf_join_stream_value_update(
         .stream_values
         .two_distinct_mut(in_sv_id, out_sv_id);
 
-    let mut done = in_sv.done;
     debug_assert!(!out_sv.done);
 
     out_sv.clear_unless_buffered();
-    match &in_sv.data {
-        StreamValueData::Bytes(b) => out_sv.data.extend_with_bytes(b),
-        StreamValueData::Text(t) => out_sv.data.extend_with_text(t),
-        StreamValueData::Error(e) => {
-            out_sv.data = StreamValueData::Error(e.clone());
-            done = true;
-        }
-    }
+    out_sv.data.extend_from_sv_data(&in_sv.data);
 
-    if done {
+    if in_sv.done {
         gb.pending_stream_value = None;
         if gb.outstanding_values.is_empty() {
             if Some(group_batch_id) != join.active_group_batch {
@@ -1049,6 +1039,15 @@ pub fn handle_tf_join_stream_producer_update(
                 continue 'group_batches;
             };
             let run_len = *run_len_ref;
+
+            if let Some(sep) = join.separator {
+                unsafe {
+                    out_sv.data.extend_with_bytes_raw(
+                        sep,
+                        join.separator_is_valid_utf8,
+                    );
+                }
+            }
 
             match sv {
                 FieldValue::Undefined => todo!(),
