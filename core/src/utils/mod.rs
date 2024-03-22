@@ -1,4 +1,4 @@
-use std::ops::Range;
+use std::ops::{Range, RangeBounds};
 
 pub mod aligned_buf;
 pub mod counting_writer;
@@ -126,4 +126,21 @@ pub fn utf8_codepoint_len_from_first_byte(first_byte: u8) -> Option<u8> {
         return Some(4);
     }
     None
+}
+
+pub fn range_bounds_to_range(
+    rb: impl RangeBounds<usize>,
+    len: usize,
+) -> Range<usize> {
+    let start = match rb.start_bound() {
+        std::ops::Bound::Included(i) => *i,
+        std::ops::Bound::Excluded(i) => *i + 1,
+        std::ops::Bound::Unbounded => 0,
+    };
+    let end = match rb.end_bound() {
+        std::ops::Bound::Included(i) => *i + 1,
+        std::ops::Bound::Excluded(i) => *i,
+        std::ops::Bound::Unbounded => len,
+    };
+    start..end
 }

@@ -2,11 +2,11 @@ use std::{
     cell::{Cell, Ref, RefCell, RefMut},
     cmp::Ordering,
     fmt::Display,
-    ops::{Deref, DerefMut, Range},
+    ops::{Deref, DerefMut, Range, RangeBounds},
 };
 
 use crate::utils::{
-    debuggable_nonmax::DebuggableNonMaxU32,
+    debuggable_nonmax::DebuggableNonMaxU32, range_bounds_to_range,
     size_classed_vec_deque::SizeClassedVecDeque, subslice_slice_pair,
     universe::Universe,
 };
@@ -17,8 +17,8 @@ use super::{
     field_data::FieldValueRepr,
 };
 
-pub type GroupIdxLogical = usize;
-pub type GroupIdxPhysical = usize;
+pub type GroupIdxStable = usize;
+pub type GroupIdx = usize;
 pub type GroupLen = usize;
 
 pub type GroupListIterId = u32;
@@ -31,35 +31,37 @@ pub struct GroupListIterRef {
     pub iter_id: GroupListIterId,
 }
 
-#[derive(Default, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy)]
 pub struct GroupsIterState {
     field_pos: usize,
-    group_idx: GroupIdxLogical,
+    group_idx: GroupIdx,
     group_offset: GroupLen,
     iter_id: GroupListIterId,
 }
 
 #[derive(Default)]
 pub struct GroupList {
-    pub actor: ActorRef,
-    pub parent_list: Option<GroupListId>,
-    pub prev_list: Option<GroupListId>,
-    pub group_index_offset: GroupIdxLogical,
-    pub group_lengths: SizeClassedVecDeque,
-    // fields that passed the `end` of the grouping operator but weren't
-    // dropped yet.
-    pub passed_fields_count: usize,
-    // Index of the 'parent group'. This is necessary to make sense of zero
-    // length groups, where we would otherwise lose this connection, since
-    // we can't find the right partner by lockstep iterating over both
-    // group lists anymore. Used during `insert_fields` to update parents.
-    pub parent_group_indices: SizeClassedVecDeque,
+    actor: ActorRef,
+    parent_list: Option<GroupListId>,
+    prev_list: Option<GroupListId>,
+    group_index_offset: GroupIdx,
+
     iter_lookup_table: Universe<GroupListIterId, GroupListIterSortedIndex>,
     iter_states: Vec<Cell<GroupsIterState>>,
     // store iter potentially invalidates the sort order of the iter_states
     // for performance reasons, it does not eagerly resort
     iter_states_sorted: Cell<bool>,
     snapshot: SnapshotRef,
+
+    // fields that passed the `end` of the grouping operator but weren't
+    // dropped yet.
+    pub passed_fields_count: usize,
+    pub group_lengths: SizeClassedVecDeque,
+    // Index of the 'parent group'. This is necessary to make sense of zero
+    // length groups, where we would otherwise lose this connection, since
+    // we can't find the right partner by lockstep iterating over both
+    // group lists anymore. Used during `insert_fields` to update parents.
+    pub parent_group_indices_stable: SizeClassedVecDeque,
 }
 
 pub struct GroupTracker {
@@ -71,7 +73,7 @@ pub struct GroupTracker {
 pub struct GroupListIter<L> {
     list: L,
     field_pos: usize,
-    group_idx_phys: GroupIdxLogical,
+    group_idx: GroupIdx,
     group_len_rem: GroupLen,
 }
 pub struct GroupListIterMut<'a, T: DerefMut<Target = GroupList>> {
@@ -132,118 +134,283 @@ impl Default for GroupTracker {
     }
 }
 
+struct GroupActionsApplicator<'a> {
+    gl: &'a mut GroupList,
+    group_idx: GroupIdx,
+    inside_passed_elems: bool,
+    modified: bool,
+    group_len: usize,
+    group_len_rem: usize,
+    // Only used to check whether the `affected_iters` are outdated.
+    iter_group_idx: GroupIdx,
+    affected_iters_start: GroupListIterSortedIndex,
+    affected_iters_end: GroupListIterSortedIndex,
+    field_pos: usize,
+    future_iters_field_pos_delta: isize,
+    curr_iters_field_pos_delta: isize,
+}
+
+impl<'a> GroupActionsApplicator<'a> {
+    fn new(gl: &'a mut GroupList) -> Self {
+        gl.sort_iters();
+
+        let inside_passed_elems = gl.passed_fields_count > 0;
+
+        let group_len = if inside_passed_elems {
+            gl.passed_fields_count
+        } else {
+            gl.group_lengths.try_get(0).unwrap_or(0)
+        };
+
+        GroupActionsApplicator {
+            group_idx: 0,
+            gl,
+            group_len,
+            group_len_rem: group_len,
+            inside_passed_elems,
+            modified: false,
+            // Just so it's not the current group.
+            iter_group_idx: usize::MAX,
+            affected_iters_start: 0,
+            affected_iters_end: 0,
+            field_pos: 0,
+            curr_iters_field_pos_delta: 0,
+            future_iters_field_pos_delta: 0,
+        }
+    }
+
+    fn move_to_action_field_idx(&mut self, field_idx: usize) {
+        loop {
+            let field_pos_delta = field_idx - self.field_pos;
+            if field_pos_delta == 0 {
+                break;
+            }
+            if field_pos_delta < self.group_len_rem {
+                self.group_len_rem -= field_pos_delta;
+                self.field_pos += field_pos_delta;
+                break;
+            }
+            self.field_pos += self.group_len_rem;
+            self.next_group();
+        }
+        if self.iter_group_idx != self.group_idx {
+            self.advance_affected_iters_to_group();
+        }
+        self.advance_affected_iters_to_group_offset();
+    }
+    fn apply_modifications(&mut self) {
+        if !self.modified {
+            return;
+        }
+        self.modified = false;
+        if self.inside_passed_elems {
+            self.gl.passed_fields_count = self.group_len;
+            return;
+        }
+        self.gl.group_lengths.set(self.group_idx, self.group_len);
+        self.phase_out_current_iters();
+    }
+    fn next_group(&mut self) {
+        self.apply_modifications();
+        if self.inside_passed_elems {
+            self.inside_passed_elems = false;
+        } else {
+            self.group_idx += 1;
+        }
+        debug_assert!(
+            self.group_idx < self.gl.group_lengths.len(),
+            "action index out of bounds for group list"
+        );
+        self.group_len = self.gl.group_len(self.group_idx);
+        self.group_len_rem = self.group_len;
+    }
+    fn apply_action(&mut self, a: &FieldAction) {
+        self.move_to_action_field_idx(a.field_idx);
+        let mut action_run_len = a.run_len as usize;
+        match a.kind {
+            FieldActionKind::Dup | FieldActionKind::InsertZst(_) => {
+                self.group_len_rem += action_run_len;
+                self.group_len += action_run_len;
+                self.curr_iters_field_pos_delta += action_run_len as isize;
+                self.modified = true;
+            }
+            FieldActionKind::Drop => {
+                while action_run_len > self.group_len_rem {
+                    self.group_len -= self.group_len_rem;
+                    self.curr_iters_field_pos_delta -=
+                        self.group_len_rem as isize;
+                    action_run_len -= self.group_len_rem;
+                    self.modified = true;
+                    self.next_group();
+                }
+                self.curr_iters_field_pos_delta -= action_run_len as isize;
+                self.group_len -= action_run_len;
+                self.group_len_rem -= action_run_len;
+                self.modified = true;
+            }
+        }
+    }
+    fn apply_iter_field_pos_delta(
+        &mut self,
+        iter_idx: GroupListIterSortedIndex,
+    ) {
+        let is = self.gl.iter_states[iter_idx as usize].get_mut();
+        is.field_pos = (is.field_pos as isize
+            + self.future_iters_field_pos_delta)
+            as usize;
+    }
+    fn advance_affected_iters_to_group(&mut self) {
+        debug_assert!(self.iter_group_idx != self.group_idx);
+        self.iter_group_idx = self.group_idx;
+        self.phase_out_current_iters();
+
+        loop {
+            if self.affected_iters_start as usize == self.gl.iter_states.len()
+            {
+                self.affected_iters_end = self.affected_iters_start;
+                return;
+            }
+            let iter_state = self.gl.iter_states
+                [self.affected_iters_start as usize]
+                .get_mut();
+            if iter_state.group_idx > self.group_idx {
+                self.affected_iters_end = self.affected_iters_start;
+                return;
+            }
+            if iter_state.group_idx == self.group_idx {
+                break;
+            }
+            self.affected_iters_start += 1;
+            self.apply_iter_field_pos_delta(self.affected_iters_start);
+        }
+        self.affected_iters_end = self.affected_iters_start + 1;
+        loop {
+            if self.affected_iters_end as usize == self.gl.iter_states.len() {
+                return;
+            }
+            let iter_state = self.gl.iter_states
+                [self.affected_iters_end as usize]
+                .get_mut();
+            if iter_state.group_idx > self.group_idx {
+                return;
+            }
+            self.apply_iter_field_pos_delta(self.affected_iters_end);
+            self.affected_iters_end += 1
+        }
+    }
+
+    fn apply_curr_iter_offset(&mut self, iter_idx: GroupListIterSortedIndex) {
+        let is = self.gl.iter_states[iter_idx as usize].get_mut();
+        is.group_offset = (is.group_offset as isize
+            + self.curr_iters_field_pos_delta)
+            as usize;
+        is.field_pos =
+            (is.field_pos as isize + self.curr_iters_field_pos_delta) as usize;
+    }
+
+    fn advance_affected_iters_to_group_offset(&mut self) {
+        let group_offset = self.group_len - self.group_len_rem;
+        loop {
+            if self.affected_iters_start == self.affected_iters_end {
+                return;
+            }
+            let is = self.gl.iter_states[self.affected_iters_start as usize]
+                .get_mut();
+            debug_assert!(is.group_idx == self.group_idx);
+            if is.group_offset > group_offset {
+                return;
+            }
+            self.apply_curr_iter_offset(self.affected_iters_start);
+            self.affected_iters_start += 1;
+        }
+    }
+
+    fn phase_out_current_iters(&mut self) {
+        for i in self.affected_iters_start..self.affected_iters_end {
+            self.apply_curr_iter_offset(i);
+        }
+        self.affected_iters_start = self.affected_iters_end;
+        self.future_iters_field_pos_delta += self.curr_iters_field_pos_delta;
+        self.curr_iters_field_pos_delta = 0;
+    }
+
+    fn apply_future_iter_modifications(&mut self) {
+        for i in self.affected_iters_end as usize..self.gl.iter_states.len() {
+            let is = self.gl.iter_states[i].get_mut();
+            is.field_pos = (is.field_pos as isize
+                + self.future_iters_field_pos_delta)
+                as usize;
+        }
+        self.affected_iters_end =
+            self.gl.iter_states.len() as GroupListIterSortedIndex;
+        self.affected_iters_start = self.affected_iters_end;
+    }
+}
+
+impl<'a> Drop for GroupActionsApplicator<'a> {
+    fn drop(&mut self) {
+        self.apply_modifications();
+        self.phase_out_current_iters();
+        self.apply_future_iter_modifications();
+    }
+}
+
 impl GroupList {
-    pub fn group_idx_to_physical_idx(
+    pub fn parent_list_id(&self) -> Option<GroupListId> {
+        self.parent_list
+    }
+    pub fn stable_idx_from_group_idx(
         &self,
-        group_index: GroupIdxLogical,
-    ) -> GroupIdxPhysical {
+        group_index: GroupIdx,
+    ) -> GroupIdxStable {
         group_index.wrapping_sub(self.group_index_offset)
     }
-    pub fn physical_idx_to_group_idx(
+    pub fn group_idx_from_stable_idx(
         &self,
-        physical_idx: GroupIdxPhysical,
-    ) -> GroupIdxLogical {
-        physical_idx.wrapping_add(self.group_index_offset)
+        stable_idx: GroupIdxStable,
+    ) -> GroupIdx {
+        stable_idx.wrapping_add(self.group_index_offset)
     }
-    pub fn next_group_idx(&self) -> GroupIdxLogical {
-        self.physical_idx_to_group_idx(self.group_lengths.len())
+    pub fn next_group_idx(&self) -> GroupIdx {
+        self.group_lengths.len()
+    }
+    pub fn group_len(&self, group_index: GroupIdx) -> usize {
+        self.get_group_len(group_index).unwrap()
+    }
+    pub fn parent_group_idx_stable(
+        &self,
+        group_index: GroupIdx,
+    ) -> GroupIdxStable {
+        self.parent_group_indices_stable.get(group_index)
+    }
+    pub fn parent_group_idx(&self, group_index: GroupIdx) -> GroupIdx {
+        self.group_idx_from_stable_idx(
+            self.parent_group_idx_stable(group_index),
+        )
+    }
+    pub fn get_group_len(&self, group_index: GroupIdx) -> Option<usize> {
+        self.group_lengths.try_get(group_index)
+    }
+    pub fn group_len_from_stable_idx(
+        &self,
+        group_index_stable: GroupIdxStable,
+    ) -> usize {
+        self.group_lengths
+            .get(self.group_idx_from_stable_idx(group_index_stable))
     }
     fn apply_field_actions_list<'a>(
         &mut self,
-        action_list: impl Iterator<Item = &'a FieldAction>,
+        action_list: impl IntoIterator<Item = &'a FieldAction>,
     ) {
-        fn next_group(
-            gl: &mut GroupList,
-            group_idx: &mut Option<usize>,
-            modified: &mut bool,
-            group_len: &mut usize,
-            group_len_rem: &mut usize,
-        ) {
-            let group_count = gl.group_lengths.len();
-            let gi = match *group_idx {
-                Some(gi) if gi == group_count => gi,
-                Some(gi) => {
-                    if *modified {
-                        gl.group_lengths.set(gi, *group_len);
-                        *modified = false;
-                    }
-                    gi + 1
-                }
-                None => {
-                    if *modified {
-                        gl.passed_fields_count = *group_len;
-                        *modified = false;
-                    }
-                    0
-                }
-            };
-            *group_idx = Some(gi);
-            let len = gl.group_lengths.try_get(gi).unwrap_or(0);
-            *group_len = len;
-            *group_len_rem = len;
+        let action_list = action_list.into_iter();
+
+        let mut gaa = GroupActionsApplicator::new(self);
+
+        // PERF: we could split this loop into two phases,
+        // inside_passed_elems and after
+        for action in action_list {
+            gaa.apply_action(action);
         }
-        self.sort_iters();
-        let mut field_pos = 0;
-        let mut group_idx =
-            if self.passed_fields_count > 0 || self.group_lengths.is_empty() {
-                None
-            } else {
-                Some(0)
-            };
-        let mut modified = false;
-        let Some(mut group_len) = self.group_lengths.first() else {
-            return;
-        };
-        let mut group_len_rem = group_len;
-        for a in action_list {
-            loop {
-                let field_pos_delta = a.field_idx - field_pos;
-                if field_pos_delta == 0 || field_pos_delta < group_len_rem {
-                    break;
-                }
-                field_pos += group_len_rem;
-                debug_assert!(group_idx != Some(self.group_lengths.len()));
-                next_group(
-                    self,
-                    &mut group_idx,
-                    &mut modified,
-                    &mut group_len,
-                    &mut group_len_rem,
-                );
-            }
-            let mut action_run_len = a.run_len as usize;
-            match a.kind {
-                FieldActionKind::Dup | FieldActionKind::InsertZst(_) => {
-                    group_len_rem += action_run_len;
-                    group_len += action_run_len;
-                    modified = true;
-                }
-                FieldActionKind::Drop => {
-                    while action_run_len > group_len_rem {
-                        group_len -= group_len_rem;
-                        action_run_len -= group_len_rem;
-                        modified = true;
-                        next_group(
-                            self,
-                            &mut group_idx,
-                            &mut modified,
-                            &mut group_len,
-                            &mut group_len_rem,
-                        );
-                    }
-                    group_len -= action_run_len;
-                    group_len_rem -= action_run_len;
-                    modified = true;
-                }
-            }
-        }
-        next_group(
-            self,
-            &mut group_idx,
-            &mut modified,
-            &mut group_len,
-            &mut group_len_rem,
-        );
     }
     pub fn apply_field_actions(
         &mut self,
@@ -306,7 +473,7 @@ impl GroupList {
         }
         self.group_lengths.drain(0..groups_done);
         if self.parent_list.is_some() {
-            self.parent_group_indices.drain(0..groups_done);
+            self.parent_group_indices_stable.drain(0..groups_done);
         }
         self.group_index_offset =
             self.group_index_offset.wrapping_add(groups_done);
@@ -324,8 +491,8 @@ impl GroupList {
     ) -> GroupListIter<T> {
         GroupListIter {
             field_pos: iter_state.field_pos,
-            group_idx_phys: iter_state.group_idx,
-            group_len_rem: list.group_lengths.get(iter_state.group_idx)
+            group_idx: iter_state.group_idx,
+            group_len_rem: list.group_len(iter_state.group_idx)
                 - iter_state.group_offset,
             list,
         }
@@ -367,11 +534,11 @@ impl GroupList {
         let iter_sorting_idx = self.iter_lookup_table[iter_id] as usize;
         let iter_state = GroupsIterState {
             field_pos: iter.field_pos,
-            group_idx: iter.group_idx_phys,
+            group_idx: iter.group_idx,
             group_offset: iter
                 .list
                 .group_lengths
-                .try_get(iter.group_idx_phys)
+                .try_get(iter.group_idx)
                 .unwrap_or(0)
                 - iter.group_len_rem,
             iter_id,
@@ -383,23 +550,24 @@ impl GroupList {
     }
     fn lookup_iter_sort_key_range(
         &self,
-        group_index_range: Range<GroupIdxLogical>,
-        group_offset_start: usize,
-        group_len_rem_end: usize,
+        group_index_range: impl RangeBounds<GroupIdx>,
+        field_pos_range: impl RangeBounds<usize>,
     ) -> Range<GroupListIterSortedIndex> {
-        if group_index_range.is_empty() {
-            return 0..0;
-        }
+        let group_index_range =
+            range_bounds_to_range(group_index_range, self.iter_states.len());
+        let field_pos_range =
+            range_bounds_to_range(field_pos_range, usize::MAX);
+
         let mut start = self
             .iter_states
             .binary_search_by_key(
-                &(group_index_range.start, group_offset_start),
+                &(group_index_range.start, field_pos_range.start),
                 |is| {
                     let is = is.get();
                     (is.group_idx, is.group_offset)
                 },
             )
-            .unwrap_or_else(|ev| ev);
+            .unwrap_or_else(|insert_point| insert_point);
         let mut end = if start == self.iter_states.len() {
             start
         } else {
@@ -414,29 +582,19 @@ impl GroupList {
                 break;
             }
             if is.group_idx == group_index_range.start
-                && is.group_offset < group_offset_start
+                && is.field_pos < field_pos_range.start
             {
                 break;
             }
             start -= 1;
         }
-        let mut lazy_group_offset_end = None;
-
         loop {
             if end == self.iter_states.len() {
                 break;
             }
             let is = self.iter_states[end].get();
-            if is.group_idx >= group_index_range.end {
-                break;
-            }
-            let group_offset_end =
-                *lazy_group_offset_end.get_or_insert_with(|| {
-                    self.group_lengths.get(group_index_range.end - 1)
-                        - group_len_rem_end
-                });
-            if is.group_idx == group_index_range.start
-                && is.group_offset >= group_offset_end
+            if is.group_idx >= group_index_range.end
+                || is.field_pos >= field_pos_range.end
             {
                 break;
             }
@@ -466,6 +624,37 @@ impl GroupList {
             self.iter_lookup_table[iter_id] = iter_sorting_idx as u32;
         }
     }
+    fn advance_affected_iters(
+        &mut self,
+        iters: Range<GroupListIterSortedIndex>,
+        count: isize,
+    ) {
+        for i in iters.clone() {
+            let is = self.iter_states[i as usize].get_mut();
+            is.group_offset = (is.group_offset as isize + count) as usize;
+            is.field_pos = (is.field_pos as isize + count) as usize;
+        }
+        // TODO: // PERF: this is terrible. optimize on the caller side
+        // by being lazy and carrying some sort of pending delta
+        for is in &mut self.iter_states[iters.end as usize..] {
+            let is = is.get_mut();
+            is.field_pos = (is.field_pos as isize + count) as usize;
+        }
+    }
+    fn lookup_and_advance_affected_iters_(
+        &mut self,
+        group_index_range: impl RangeBounds<GroupIdx>,
+        field_pos_range: impl RangeBounds<usize>,
+        count: isize,
+    ) {
+        self.advance_affected_iters(
+            self.lookup_iter_sort_key_range(
+                group_index_range,
+                field_pos_range,
+            ),
+            count,
+        )
+    }
 }
 
 impl GroupTracker {
@@ -477,7 +666,7 @@ impl GroupTracker {
             group_index_offset: 0,
             passed_fields_count: 0,
             group_lengths: SizeClassedVecDeque::default(),
-            parent_group_indices: SizeClassedVecDeque::default(),
+            parent_group_indices_stable: SizeClassedVecDeque::default(),
             iter_states: Vec::default(),
             iter_lookup_table: Universe::default(),
             snapshot: SnapshotRef::default(),
@@ -607,7 +796,7 @@ impl GroupTracker {
             debug_assert!(gl.parent_list.is_some() == parent_idx.is_some());
             debug_assert!(gl.parent_list == prev);
             if let Some(parent_idx) = parent_idx {
-                gl.parent_group_indices.push_back(parent_idx);
+                gl.parent_group_indices_stable.push_back(parent_idx);
             }
             parent_idx = Some(gl.next_group_idx());
             prev = Some(gl_idx);
@@ -631,11 +820,11 @@ impl<L: Deref<Target = GroupList>> GroupListIter<L> {
     pub fn field_pos(&self) -> usize {
         self.field_pos
     }
-    pub fn group_idx_phys(&self) -> usize {
-        self.group_idx_phys
+    pub fn group_idx(&self) -> usize {
+        self.group_idx
     }
-    pub fn group_idx_logical(&self) -> GroupIdxLogical {
-        self.list.physical_idx_to_group_idx(self.group_idx_phys)
+    pub fn group_idx_stable(&self) -> GroupIdxStable {
+        self.list.stable_idx_from_group_idx(self.group_idx)
     }
     pub fn group_len_rem(&self) -> usize {
         self.group_len_rem
@@ -651,9 +840,9 @@ impl<L: Deref<Target = GroupList>> GroupListIter<L> {
             return n;
         }
         while let Some(group_len) =
-            self.list.group_lengths.try_get(self.group_idx_phys + 1)
+            self.list.group_lengths.try_get(self.group_idx + 1)
         {
-            self.group_idx_phys += 1;
+            self.group_idx += 1;
             if group_len >= n_rem {
                 self.group_len_rem = group_len - n_rem;
                 return n;
@@ -665,28 +854,28 @@ impl<L: Deref<Target = GroupList>> GroupListIter<L> {
         fields_advanced
     }
     pub fn next_group(&mut self) {
-        self.group_idx_phys += 1;
+        self.group_idx += 1;
         self.field_pos += self.group_len_rem;
-        self.group_len_rem = self.list.group_lengths.get(self.group_idx_phys);
+        self.group_len_rem = self.list.group_lengths.get(self.group_idx);
     }
     pub fn try_next_group(&mut self) -> bool {
         let Some(next_group_len) =
-            self.list.group_lengths.try_get(self.group_idx_phys + 1)
+            self.list.group_lengths.try_get(self.group_idx + 1)
         else {
             return false;
         };
-        self.group_idx_phys += 1;
+        self.group_idx += 1;
         self.group_len_rem = next_group_len;
         true
     }
     pub fn is_last_group(&self) -> bool {
-        self.list.group_lengths.len() == self.group_idx_phys + 1
+        self.list.group_lengths.len() == self.group_idx + 1
     }
     pub fn is_end_of_group(&self, end_of_input: bool) -> bool {
         if self.group_len_rem != 0 {
             return false;
         }
-        if self.group_idx_phys + 1 == self.list.group_lengths.len() {
+        if self.group_idx + 1 == self.list.group_lengths.len() {
             return end_of_input;
         }
         true
@@ -698,10 +887,10 @@ impl<'a, T: DerefMut<Target = GroupList>> GroupListIterMut<'a, T> {
         self.base.field_pos()
     }
     pub fn group_idx_phys(&self) -> usize {
-        self.base.group_idx_phys()
+        self.base.group_idx()
     }
-    pub fn group_idx_logical(&self) -> GroupIdxLogical {
-        self.base.group_idx_logical()
+    pub fn group_idx_logical(&self) -> GroupIdxStable {
+        self.base.group_idx_stable()
     }
     pub fn group_len_rem(&self) -> usize {
         self.base.group_len_rem()
@@ -722,7 +911,7 @@ impl<'a, T: DerefMut<Target = GroupList>> GroupListIterMut<'a, T> {
         self.base
             .list
             .group_lengths
-            .set(self.base.group_idx_phys, self.group_len);
+            .set(self.base.group_idx, self.group_len);
     }
     pub fn update_group(&mut self) {
         if self.update_group_len {
@@ -742,7 +931,7 @@ impl<'a, T: DerefMut<Target = GroupList>> GroupListIterMut<'a, T> {
         }
         self.update_group();
         let mut new_group_len = self.group_len;
-        let mut group_idx_phys = self.base.group_idx_phys;
+        let mut group_idx_phys = self.base.group_idx;
         while let Some(group_len) =
             self.base.list.group_lengths.try_get(group_idx_phys + 1)
         {
@@ -754,7 +943,7 @@ impl<'a, T: DerefMut<Target = GroupList>> GroupListIterMut<'a, T> {
             n_rem -= group_len;
             group_idx_phys += 1;
         }
-        self.base.group_idx_phys = group_idx_phys;
+        self.base.group_idx = group_idx_phys;
         self.group_len = new_group_len;
         self.base.group_len_rem = new_group_len - n_rem;
         let fields_advanced = n - n_rem;
@@ -762,9 +951,9 @@ impl<'a, T: DerefMut<Target = GroupList>> GroupListIterMut<'a, T> {
         fields_advanced
     }
     fn next_group_raw(&mut self) {
-        self.base.group_idx_phys += 1;
+        self.base.group_idx += 1;
         self.base.field_pos += self.base.group_len_rem;
-        let gl = self.base.list.group_lengths.get(self.base.group_idx_phys);
+        let gl = self.base.list.group_lengths.get(self.base.group_idx);
         self.group_len = gl;
         self.base.group_len_rem = gl;
     }
@@ -784,6 +973,12 @@ impl<'a, T: DerefMut<Target = GroupList>> GroupListIterMut<'a, T> {
         self.try_next_group_raw()
     }
     pub fn insert_fields(&mut self, repr: FieldValueRepr, count: usize) {
+        self.base.list.lookup_and_advance_affected_iters_(
+            self.base.group_idx..=self.base.group_idx,
+            self.base.field_pos + 1..,
+            count as isize,
+        );
+
         if self.group_len != 0 {
             self.action_buffer.push_action(
                 FieldActionKind::InsertZst(repr),
@@ -827,21 +1022,28 @@ impl<'a, T: DerefMut<Target = GroupList>> GroupListIterMut<'a, T> {
             count,
         );
 
-        let mut group_index = self.base.group_idx_phys;
+        let mut group_index = self.base.group_idx;
         self.base.list.group_lengths.add_value(group_index, count);
         let Some(mut parent_list_idx) = self.base.list.parent_list else {
             return;
         };
-        group_index = self.base.list.parent_group_indices.get(group_index);
+        group_index = self.base.list.parent_group_idx(group_index);
         loop {
             let mut list = self.tracker.lists[parent_list_idx].borrow_mut();
-            let group_index_phys = list.group_idx_to_physical_idx(group_index);
-            list.group_lengths.add_value(group_index_phys, count);
+            list.sort_iters();
+
+            list.lookup_and_advance_affected_iters_(
+                group_index..=group_index,
+                self.base.field_pos + 1..,
+                count as isize,
+            );
+
+            list.group_lengths.add_value(group_index, count);
             let Some(idx) = list.parent_list else {
                 break;
             };
             parent_list_idx = idx;
-            group_index = list.parent_group_indices.get(group_index_phys);
+            group_index = list.parent_group_idx(group_index);
         }
     }
     pub fn field_pos_is_in_group(&self, field_pos: usize) -> bool {
@@ -874,6 +1076,11 @@ impl<'a, T: DerefMut<Target = GroupList>> GroupListIterMut<'a, T> {
             self.base.field_pos,
             count,
         );
+        self.base.list.lookup_and_advance_affected_iters_(
+            self.base.group_idx..=self.base.group_idx,
+            self.base.field_pos + 1..,
+            count as isize,
+        );
     }
     pub fn dup_before(&mut self, field_pos: usize, count: usize) {
         if count == 0 {
@@ -886,6 +1093,11 @@ impl<'a, T: DerefMut<Target = GroupList>> GroupListIterMut<'a, T> {
         self.update_group_len = true;
         self.action_buffer
             .push_action(FieldActionKind::Dup, field_pos, count);
+        self.base.list.lookup_and_advance_affected_iters_(
+            self.base.group_idx..=self.base.group_idx,
+            field_pos + 1..,
+            count as isize,
+        );
     }
     pub fn dup_after(&mut self, field_pos: usize, count: usize) {
         if count == 0 {
@@ -899,6 +1111,11 @@ impl<'a, T: DerefMut<Target = GroupList>> GroupListIterMut<'a, T> {
         self.update_group_len = true;
         self.action_buffer
             .push_action(FieldActionKind::Dup, field_pos, count);
+        self.base.list.lookup_and_advance_affected_iters_(
+            self.base.group_idx..=self.base.group_idx,
+            field_pos + 1..,
+            count as isize,
+        );
     }
     pub fn dup_with_field_pos(&mut self, field_pos: usize, count: usize) {
         match self.base.field_pos.cmp(&field_pos) {
@@ -926,6 +1143,7 @@ impl<'a, T: DerefMut<Target = GroupList>> GroupListIterMut<'a, T> {
         self.base.group_len_rem -= count;
         self.group_len -= count;
         self.update_group_len = true;
+        todo!("update iters");
     }
     pub fn drop(&mut self, count: usize) {
         if count == 0 {
@@ -951,6 +1169,11 @@ impl<'a, T: DerefMut<Target = GroupList>> GroupListIterMut<'a, T> {
         self.group_len -= count;
         self.update_group_len = true;
         self.base.field_pos -= count;
+        self.base.list.lookup_and_advance_affected_iters_(
+            self.base.group_idx..=self.base.group_idx,
+            self.base.field_pos + 1..,
+            -(count as isize),
+        );
     }
     pub fn drop_before(&mut self, field_pos: usize, count: usize) {
         if count == 0 {
@@ -967,6 +1190,11 @@ impl<'a, T: DerefMut<Target = GroupList>> GroupListIterMut<'a, T> {
             self.group_len -= count;
             self.update_group_len = true;
             self.base.field_pos -= count;
+            self.base.list.lookup_and_advance_affected_iters_(
+                self.base.group_idx..=self.base.group_idx,
+                self.base.field_pos - pos_delta + 1..,
+                -(count as isize),
+            );
             return;
         }
         self.group_len -= pos_delta;
@@ -985,6 +1213,11 @@ impl<'a, T: DerefMut<Target = GroupList>> GroupListIterMut<'a, T> {
             count,
         );
         if count <= self.base.group_len_rem - pos_delta {
+            self.base.list.lookup_and_advance_affected_iters_(
+                self.base.group_idx..=self.base.group_idx,
+                field_pos + 1..,
+                -(count as isize),
+            );
             self.group_len -= count;
             self.base.group_len_rem -= count;
             self.update_group_len = true;
@@ -992,11 +1225,11 @@ impl<'a, T: DerefMut<Target = GroupList>> GroupListIterMut<'a, T> {
         }
         let group_pos = self.group_len - self.base.group_len_rem;
         let group_len = field_pos;
-        let group_idx_phys = self.base.group_idx_phys;
+        let group_idx_phys = self.base.group_idx;
         self.base.group_len_rem -= pos_delta;
         self.drop_raw(count);
         self.write_back_group_len();
-        self.base.group_idx_phys = group_idx_phys;
+        self.base.group_idx = group_idx_phys;
         self.group_len = group_len;
         self.base.group_len_rem = group_len - group_pos;
     }
@@ -1085,5 +1318,62 @@ impl<'a, T: DerefMut<Target = GroupList>> Drop for GroupListIterMut<'a, T> {
                 parent_id = list.parent_list;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::{cell::Cell, collections::VecDeque};
+
+    use crate::{
+        record_data::{
+            field_action::{FieldAction, FieldActionKind},
+            group_tracker::{GroupList, GroupsIterState},
+        },
+        utils::{
+            size_classed_vec_deque::SizeClassedVecDeque, universe::Universe,
+        },
+    };
+
+    #[test]
+    fn drop_on_passed_fields() {
+        let mut gl = GroupList {
+            passed_fields_count: 2,
+            ..Default::default()
+        };
+
+        let action_list = [FieldAction::new(FieldActionKind::Drop, 1, 1)];
+        gl.apply_field_actions_list(&action_list);
+
+        assert_eq!(gl.passed_fields_count, 1);
+    }
+
+    #[test]
+    fn drop_affects_iterator_correctly() {
+        let mut gl = GroupList {
+            passed_fields_count: 2,
+            group_lengths: SizeClassedVecDeque::Sc8(VecDeque::from([2])),
+            iter_states: vec![Cell::new(GroupsIterState {
+                field_pos: 1,
+                group_idx: 0,
+                group_offset: 1,
+                iter_id: 0,
+            })],
+            iter_lookup_table: Universe::from([0].into_iter()),
+            ..Default::default()
+        };
+
+        let action_list = [FieldAction::new(FieldActionKind::Drop, 0, 1)];
+        gl.apply_field_actions_list(&action_list);
+
+        assert_eq!(
+            gl.iter_states[0].get(),
+            GroupsIterState {
+                field_pos: 0,
+                group_idx: 0,
+                group_offset: 0,
+                iter_id: 0,
+            }
+        );
     }
 }

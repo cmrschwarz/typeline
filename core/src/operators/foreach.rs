@@ -165,7 +165,7 @@ pub fn handle_tf_foreach_header(
         ms.group_tracker.borrow_group_list_mut(feh.group_list);
     group_list.apply_field_actions(&mut ab, feh.group_list);
     let mut parent_group_list_iter = ms.group_tracker.lookup_group_list_iter(
-        group_list.parent_list.unwrap(),
+        group_list.parent_list_id().unwrap(),
         feh.parent_group_list_iter,
         &mut ab,
     );
@@ -173,14 +173,15 @@ pub fn handle_tf_foreach_header(
     let mut size_rem = batch_size;
     while size_rem > 0 {
         let gs_rem = parent_group_list_iter.group_len_rem().min(size_rem);
-        let parent_group_idx = parent_group_list_iter.group_idx_logical();
+        let parent_group_idx_stable =
+            parent_group_list_iter.group_idx_stable();
         parent_group_list_iter.next_n_fields(gs_rem);
         group_list
-            .parent_group_indices
-            .promote_to_size_class_of_value(parent_group_idx);
-        group_list
-            .parent_group_indices
-            .extend_truncated(iter::repeat(parent_group_idx).take(gs_rem));
+            .parent_group_indices_stable
+            .promote_to_size_class_of_value(parent_group_idx_stable);
+        group_list.parent_group_indices_stable.extend_truncated(
+            iter::repeat(parent_group_idx_stable).take(gs_rem),
+        );
         group_list
             .group_lengths
             .extend_truncated(iter::repeat(1).take(gs_rem));

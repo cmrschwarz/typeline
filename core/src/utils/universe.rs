@@ -446,3 +446,15 @@ impl<'a, I: IndexingType, T> IntoIterator for &'a mut CountedUniverse<I, T> {
         self.iter_mut()
     }
 }
+
+impl<I: IndexingType, T, II: IntoIterator<Item = T>> From<II>
+    for Universe<I, T>
+{
+    fn from(ii: II) -> Self {
+        let mut u = Universe::default();
+        for i in ii {
+            u.claim_with_value(i);
+        }
+        u
+    }
+}
