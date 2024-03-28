@@ -21,7 +21,9 @@ use crate::{
     NULL_STR, UNDEFINED_STR,
 };
 
-use super::field_value::Null;
+use super::{
+    custom_data::CustomData, field_value::Null, field_value_ref::FieldValueRef,
+};
 
 // format string grammar:
 #[rustfmt::skip]
@@ -181,10 +183,10 @@ pub trait Formatable<'a> {
         ctx: Self::FormattingContext,
         w: &mut W,
     );
-    fn refuses_truncation(_ctx: Self::FormattingContext) -> bool {
+    fn refuses_truncation(&self, _ctx: Self::FormattingContext) -> bool {
         true
     }
-    fn total_length_cheap(_ctx: Self::FormattingContext) -> bool {
+    fn total_length_cheap(&self, _ctx: Self::FormattingContext) -> bool {
         false
     }
     fn length_total(&self, ctx: Self::FormattingContext) -> usize {
@@ -202,7 +204,7 @@ pub trait Formatable<'a> {
         ctx: Self::FormattingContext,
         max_chars: usize,
     ) -> TextBounds {
-        if Self::refuses_truncation(ctx) {
+        if self.refuses_truncation(ctx) {
             return self.text_bounds_total(ctx);
         }
         let mut w = CharLimitedLengthAndCharsCountingWriter::new(max_chars);
@@ -213,10 +215,10 @@ pub trait Formatable<'a> {
 
 impl Formatable<'_> for [u8] {
     type FormattingContext = ValueFormattingOpts;
-    fn refuses_truncation(opts: Self::FormattingContext) -> bool {
+    fn refuses_truncation(&self, opts: Self::FormattingContext) -> bool {
         opts.type_repr_format == TypeReprFormat::Regular
     }
-    fn total_length_cheap(opts: Self::FormattingContext) -> bool {
+    fn total_length_cheap(&self, opts: Self::FormattingContext) -> bool {
         opts.type_repr_format != TypeReprFormat::Regular
     }
     fn format<W: std::io::Write>(
@@ -252,10 +254,10 @@ impl Formatable<'_> for [u8] {
 }
 impl<'a> Formatable<'a> for str {
     type FormattingContext = ValueFormattingOpts;
-    fn refuses_truncation(opts: Self::FormattingContext) -> bool {
+    fn refuses_truncation(&self, opts: Self::FormattingContext) -> bool {
         opts.type_repr_format == TypeReprFormat::Regular
     }
-    fn total_length_cheap(opts: Self::FormattingContext) -> bool {
+    fn total_length_cheap(&self, opts: Self::FormattingContext) -> bool {
         opts.type_repr_format != TypeReprFormat::Regular
     }
     fn format<W: std::io::Write>(
@@ -291,7 +293,7 @@ impl<'a> Formatable<'a> for str {
 }
 impl<'a> Formatable<'a> for i64 {
     type FormattingContext = &'a RealizedFormatKey;
-    fn total_length_cheap(_ctx: &'a RealizedFormatKey) -> bool {
+    fn total_length_cheap(&self, _ctx: &'a RealizedFormatKey) -> bool {
         true
     }
     fn format<W: std::io::Write>(
@@ -345,7 +347,7 @@ impl<'a> Formatable<'a> for Array {
         fc: &'a FormattingContext<'a>,
         w: &mut W,
     ) {
-        self.format(&mut TextWriteIoAdapter(w), fc).unwrap();
+        Array::format(self, &mut TextWriteIoAdapter(w), fc).unwrap();
     }
 }
 impl<'a> Formatable<'a> for BigRational {
@@ -418,7 +420,7 @@ impl<'a> Formatable<'a> for f64 {
 }
 impl<'a> Formatable<'a> for Null {
     type FormattingContext = ();
-    fn total_length_cheap(_ctx: ()) -> bool {
+    fn total_length_cheap(&self, _ctx: ()) -> bool {
         true
     }
     fn format<W: std::io::Write>(&self, _ctx: (), w: &mut W) {
@@ -434,7 +436,7 @@ impl<'a> Formatable<'a> for Null {
 }
 impl<'a> Formatable<'a> for Undefined {
     type FormattingContext = ();
-    fn total_length_cheap(_ctx: ()) -> bool {
+    fn total_length_cheap(&self, _ctx: ()) -> bool {
         true
     }
     fn format<W: std::io::Write>(&self, _ctx: (), w: &mut W) {
@@ -473,14 +475,276 @@ impl<'a> Formatable<'a> for OperatorApplicationError {
     }
 }
 
+impl<'a> Formatable<'a> for dyn CustomData {
+    type FormattingContext = &'a RealizedFormatKey;
+
+    fn format<W: std::io::Write>(
+        &self,
+        ctx: Self::FormattingContext,
+        w: &mut W,
+    ) {
+        CustomData::format_raw(self, &mut TextWriteIoAdapter(w), ctx).unwrap();
+    }
+}
+
+impl<'a> Formatable<'a> for FieldValueRef<'a> {
+    type FormattingContext = &'a FormattingContext<'a>;
+    fn format<W: std::io::Write>(
+        &self,
+        opts: Self::FormattingContext,
+        w: &mut W,
+    ) {
+        match *self {
+            FieldValueRef::Null => Formatable::format(&Null, (), w),
+            FieldValueRef::Undefined => Formatable::format(&Undefined, (), w),
+            FieldValueRef::Int(v) => Formatable::format(v, &opts.rfk, w),
+            FieldValueRef::BigInt(v) => Formatable::format(v, &opts.rfk, w),
+            FieldValueRef::Float(v) => Formatable::format(v, &opts.rfk, w),
+            FieldValueRef::Rational(v) => Formatable::format(v, &opts.rfk, w),
+            FieldValueRef::Text(v) => {
+                Formatable::format(v, opts.value_formatting_opts(), w)
+            }
+            FieldValueRef::Bytes(v) => {
+                Formatable::format(v, opts.value_formatting_opts(), w)
+            }
+            FieldValueRef::Array(v) => Formatable::format(v, opts, w),
+            FieldValueRef::Object(v) => Formatable::format(v, opts, w),
+            FieldValueRef::Custom(v) => Formatable::format(&**v, &opts.rfk, w),
+            FieldValueRef::Error(v) => {
+                Formatable::format(v, opts.value_formatting_opts(), w)
+            }
+            FieldValueRef::StreamValueId(_)
+            | FieldValueRef::FieldReference(_)
+            | FieldValueRef::SlicedFieldReference(_) => {
+                FieldValueRef::format(self, &mut TextWriteIoAdapter(w), opts)
+                    .unwrap()
+            }
+        }
+    }
+
+    fn refuses_truncation(&self, opts: Self::FormattingContext) -> bool {
+        match *self {
+            FieldValueRef::Null => Formatable::refuses_truncation(&Null, ()),
+            FieldValueRef::Undefined => {
+                Formatable::refuses_truncation(&Undefined, ())
+            }
+            FieldValueRef::Int(v) => {
+                Formatable::refuses_truncation(v, &opts.rfk)
+            }
+            FieldValueRef::BigInt(v) => {
+                Formatable::refuses_truncation(v, &opts.rfk)
+            }
+            FieldValueRef::Float(v) => {
+                Formatable::refuses_truncation(v, &opts.rfk)
+            }
+            FieldValueRef::Rational(v) => {
+                Formatable::refuses_truncation(v, &opts.rfk)
+            }
+            FieldValueRef::Text(v) => {
+                Formatable::refuses_truncation(v, opts.value_formatting_opts())
+            }
+            FieldValueRef::Bytes(v) => {
+                Formatable::refuses_truncation(v, opts.value_formatting_opts())
+            }
+            FieldValueRef::Array(v) => Formatable::refuses_truncation(v, opts),
+            FieldValueRef::Object(v) => {
+                Formatable::refuses_truncation(v, opts)
+            }
+            FieldValueRef::Custom(v) => {
+                Formatable::refuses_truncation(&**v, &opts.rfk)
+            }
+            FieldValueRef::Error(v) => {
+                Formatable::refuses_truncation(v, opts.value_formatting_opts())
+            }
+            FieldValueRef::StreamValueId(_)
+            | FieldValueRef::FieldReference(_)
+            | FieldValueRef::SlicedFieldReference(_) => {
+                todo!()
+            }
+        }
+    }
+
+    fn total_length_cheap(&self, opts: Self::FormattingContext) -> bool {
+        match *self {
+            FieldValueRef::Null => Formatable::total_length_cheap(&Null, ()),
+            FieldValueRef::Undefined => {
+                Formatable::total_length_cheap(&Undefined, ())
+            }
+            FieldValueRef::Int(v) => {
+                Formatable::total_length_cheap(v, &opts.rfk)
+            }
+            FieldValueRef::BigInt(v) => {
+                Formatable::total_length_cheap(v, &opts.rfk)
+            }
+            FieldValueRef::Float(v) => {
+                Formatable::total_length_cheap(v, &opts.rfk)
+            }
+            FieldValueRef::Rational(v) => {
+                Formatable::total_length_cheap(v, &opts.rfk)
+            }
+            FieldValueRef::Text(v) => {
+                Formatable::total_length_cheap(v, opts.value_formatting_opts())
+            }
+            FieldValueRef::Bytes(v) => {
+                Formatable::total_length_cheap(v, opts.value_formatting_opts())
+            }
+            FieldValueRef::Array(v) => Formatable::total_length_cheap(v, opts),
+            FieldValueRef::Object(v) => {
+                Formatable::total_length_cheap(v, opts)
+            }
+            FieldValueRef::Custom(v) => {
+                Formatable::total_length_cheap(&**v, &opts.rfk)
+            }
+            FieldValueRef::Error(v) => {
+                Formatable::total_length_cheap(v, opts.value_formatting_opts())
+            }
+            FieldValueRef::StreamValueId(_)
+            | FieldValueRef::FieldReference(_)
+            | FieldValueRef::SlicedFieldReference(_) => {
+                todo!()
+            }
+        }
+    }
+
+    fn length_total(&self, opts: Self::FormattingContext) -> usize {
+        match *self {
+            FieldValueRef::Null => Formatable::length_total(&Null, ()),
+            FieldValueRef::Undefined => {
+                Formatable::length_total(&Undefined, ())
+            }
+            FieldValueRef::Int(v) => Formatable::length_total(v, &opts.rfk),
+            FieldValueRef::BigInt(v) => Formatable::length_total(v, &opts.rfk),
+            FieldValueRef::Float(v) => Formatable::length_total(v, &opts.rfk),
+            FieldValueRef::Rational(v) => {
+                Formatable::length_total(v, &opts.rfk)
+            }
+            FieldValueRef::Text(v) => {
+                Formatable::length_total(v, opts.value_formatting_opts())
+            }
+            FieldValueRef::Bytes(v) => {
+                Formatable::length_total(v, opts.value_formatting_opts())
+            }
+            FieldValueRef::Array(v) => Formatable::length_total(v, opts),
+            FieldValueRef::Object(v) => Formatable::length_total(v, opts),
+            FieldValueRef::Custom(v) => {
+                Formatable::length_total(&**v, &opts.rfk)
+            }
+            FieldValueRef::Error(v) => {
+                Formatable::length_total(v, opts.value_formatting_opts())
+            }
+            FieldValueRef::StreamValueId(_)
+            | FieldValueRef::FieldReference(_)
+            | FieldValueRef::SlicedFieldReference(_) => {
+                todo!()
+            }
+        }
+    }
+
+    fn text_bounds_total(&self, opts: Self::FormattingContext) -> TextBounds {
+        match *self {
+            FieldValueRef::Null => Formatable::text_bounds_total(&Null, ()),
+            FieldValueRef::Undefined => {
+                Formatable::text_bounds_total(&Undefined, ())
+            }
+            FieldValueRef::Int(v) => {
+                Formatable::text_bounds_total(v, &opts.rfk)
+            }
+            FieldValueRef::BigInt(v) => {
+                Formatable::text_bounds_total(v, &opts.rfk)
+            }
+            FieldValueRef::Float(v) => {
+                Formatable::text_bounds_total(v, &opts.rfk)
+            }
+            FieldValueRef::Rational(v) => {
+                Formatable::text_bounds_total(v, &opts.rfk)
+            }
+            FieldValueRef::Text(v) => {
+                Formatable::text_bounds_total(v, opts.value_formatting_opts())
+            }
+            FieldValueRef::Bytes(v) => {
+                Formatable::text_bounds_total(v, opts.value_formatting_opts())
+            }
+            FieldValueRef::Array(v) => Formatable::text_bounds_total(v, opts),
+            FieldValueRef::Object(v) => Formatable::text_bounds_total(v, opts),
+            FieldValueRef::Custom(v) => {
+                Formatable::text_bounds_total(&**v, &opts.rfk)
+            }
+            FieldValueRef::Error(v) => {
+                Formatable::text_bounds_total(v, opts.value_formatting_opts())
+            }
+            FieldValueRef::StreamValueId(_)
+            | FieldValueRef::FieldReference(_)
+            | FieldValueRef::SlicedFieldReference(_) => {
+                todo!()
+            }
+        }
+    }
+
+    fn char_bound_text_bounds(
+        &self,
+        opts: Self::FormattingContext,
+        max_chars: usize,
+    ) -> TextBounds {
+        match *self {
+            FieldValueRef::Null => {
+                Formatable::char_bound_text_bounds(&Null, (), max_chars)
+            }
+            FieldValueRef::Undefined => {
+                Formatable::char_bound_text_bounds(&Undefined, (), max_chars)
+            }
+            FieldValueRef::Int(v) => {
+                Formatable::char_bound_text_bounds(v, &opts.rfk, max_chars)
+            }
+            FieldValueRef::BigInt(v) => {
+                Formatable::char_bound_text_bounds(v, &opts.rfk, max_chars)
+            }
+            FieldValueRef::Float(v) => {
+                Formatable::char_bound_text_bounds(v, &opts.rfk, max_chars)
+            }
+            FieldValueRef::Rational(v) => {
+                Formatable::char_bound_text_bounds(v, &opts.rfk, max_chars)
+            }
+            FieldValueRef::Text(v) => Formatable::char_bound_text_bounds(
+                v,
+                opts.value_formatting_opts(),
+                max_chars,
+            ),
+            FieldValueRef::Bytes(v) => Formatable::char_bound_text_bounds(
+                v,
+                opts.value_formatting_opts(),
+                max_chars,
+            ),
+            FieldValueRef::Array(v) => {
+                Formatable::char_bound_text_bounds(v, opts, max_chars)
+            }
+            FieldValueRef::Object(v) => {
+                Formatable::char_bound_text_bounds(v, opts, max_chars)
+            }
+            FieldValueRef::Custom(v) => {
+                Formatable::char_bound_text_bounds(&**v, &opts.rfk, max_chars)
+            }
+            FieldValueRef::Error(v) => Formatable::char_bound_text_bounds(
+                v,
+                opts.value_formatting_opts(),
+                max_chars,
+            ),
+            FieldValueRef::StreamValueId(_)
+            | FieldValueRef::FieldReference(_)
+            | FieldValueRef::SlicedFieldReference(_) => {
+                todo!()
+            }
+        }
+    }
+}
+
 pub fn calc_fmt_layout<'a, F: Formatable<'a> + ?Sized>(
     ctx: F::FormattingContext,
     min_chars: usize,
     max_chars: usize,
     formatable: &F,
 ) -> TextLayout {
-    if max_chars == usize::MAX || F::refuses_truncation(ctx) {
-        if F::total_length_cheap(ctx) {
+    if max_chars == usize::MAX || formatable.refuses_truncation(ctx) {
+        if formatable.total_length_cheap(ctx) {
             let text_len = formatable.length_total(ctx);
             if (text_len / MAX_UTF8_CHAR_LEN) >= min_chars {
                 return TextLayout::new(text_len, 0);

@@ -1259,6 +1259,7 @@ pub fn setup_key_output_state(
                     fm,
                     msm,
                     print_rationals_raw: fmt.print_rationals_raw,
+                    is_stream_value: false,
                     rfk: RealizedFormatKey::default(),
                 };
                 for (v, rl) in
@@ -1279,6 +1280,7 @@ pub fn setup_key_output_state(
                     fm,
                     msm,
                     print_rationals_raw: fmt.print_rationals_raw,
+                    is_stream_value: false,
                     rfk: RealizedFormatKey::default(),
                 };
                 for (v, rl) in
@@ -1891,6 +1893,7 @@ fn write_fmt_key(
                     fm,
                     msm,
                     print_rationals_raw: fmt.print_rationals_raw,
+                    is_stream_value: false,
                     rfk: RealizedFormatKey::default(),
                 };
                 for (v, rl) in
@@ -1914,6 +1917,7 @@ fn write_fmt_key(
                     fm,
                     msm,
                     print_rationals_raw: fmt.print_rationals_raw,
+                    is_stream_value: false,
                     rfk: RealizedFormatKey::default(),
                 };
                 for (v, rl) in
@@ -2067,28 +2071,28 @@ pub fn handle_tf_format_stream_value_update(
     let (sv, mut out_sv) = (sv.unwrap(), out_sv.unwrap());
     let done = sv.done;
     let mut update_out_sv = false;
+    let FormatPart::Key(format_key) = &fmt.op.parts[handle.part_idx as usize]
+    else {
+        unreachable!();
+    };
+
     match &sv.data {
-        StreamValueData::Error(err) => {
+        StreamValueData::Error(err)
+            if format_key.opts.type_repr != TypeReprFormat::Debug =>
+        {
             debug_assert!(sv.done);
+            // if out was already an error we would have unsubscribed
             out_sv.data = StreamValueData::Error(err.clone());
         }
-        StreamValueData::Bytes(_) | StreamValueData::Text(_) => {
-            let mut src_is_utf8 = true;
-            let src_buf = match &mut sv.data {
-                StreamValueData::Bytes(buf) => {
-                    src_is_utf8 = false;
-                    buf
-                }
-                StreamValueData::Text(buf) => unsafe { buf.as_mut_vec() },
-                StreamValueData::Error(_) => unreachable!(),
-            };
+        StreamValueData::Bytes(_)
+        | StreamValueData::Text(_)
+        | StreamValueData::Error(_) => {
             let tgt_buf = match &mut out_sv.data {
                 StreamValueData::Bytes(buf) => buf,
                 StreamValueData::Text(buf) => {
                     // TODO: enforce this by chosing a bytes stream value
                     // in case any BytesLiteral or Key with a bytes stream
                     // value is present
-                    assert!(src_is_utf8);
                     unsafe { buf.as_mut_vec() }
                 }
                 StreamValueData::Error(_) => unreachable!(),
@@ -2096,6 +2100,11 @@ pub fn handle_tf_format_stream_value_update(
             if !out_sv.is_buffered {
                 tgt_buf.clear();
             }
+            let src_buf = match &mut sv.data {
+                StreamValueData::Bytes(buf) => buf,
+                StreamValueData::Text(buf) => unsafe { buf.as_mut_vec() },
+                StreamValueData::Error(e) => e.message().as_bytes(),
+            };
             if sv.is_buffered {
                 if !handle.wait_to_end {
                     if sv.done {
@@ -2105,23 +2114,27 @@ pub fn handle_tf_format_stream_value_update(
                     }
                 }
                 if sv.done && handle.wait_to_end {
-                    let FormatPart::Key(k) =
-                        &fmt.op.parts[handle.part_idx as usize]
-                    else {
-                        unreachable!();
+                    let ss = jd.session_data.string_store.read().unwrap();
+                    let fc = FormattingContext {
+                        ss: &ss,
+                        fm: &jd.field_mgr,
+                        msm: &jd.match_set_mgr,
+                        print_rationals_raw: fmt.print_rationals_raw,
+                        is_stream_value: true,
+                        rfk: format_key.realize(
+                            handle.min_char_count,
+                            handle.float_precision,
+                        ),
                     };
-                    let formatting_opts = ValueFormattingOpts {
-                        is_stream_value: false,
-                        type_repr_format: k.opts.type_repr,
-                    };
-
+                    let field_value_ref = sv.data.as_field_value_ref();
                     let len = calc_fmt_len(
-                        k,
-                        formatting_opts,
-                        k.realize_min_char_count(handle.min_char_count),
-                        k.realize_max_char_count(handle.float_precision),
-                        src_buf.as_slice(), /* text or bytes doesn't matter
-                                             * here */
+                        format_key,
+                        &fc,
+                        format_key
+                            .realize_min_char_count(handle.min_char_count),
+                        format_key
+                            .realize_max_char_count(handle.float_precision),
+                        &field_value_ref,
                     );
 
                     tgt_buf.reserve(len);
@@ -2136,10 +2149,10 @@ pub fn handle_tf_format_stream_value_update(
                             remaining_len: len,
                         };
                         write_formatted(
-                            k,
-                            formatting_opts,
+                            format_key,
+                            &fc,
                             &mut output_target,
-                            src_buf.as_slice(),
+                            &field_value_ref,
                         );
                         tgt_buf.set_len(tgt_buf.len() + len);
                     };

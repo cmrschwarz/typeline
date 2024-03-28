@@ -106,7 +106,7 @@ pub struct TransformManager {
     pub transforms: Universe<TransformId, TransformState>,
     pub ready_stack: Vec<TransformId>,
     pub stream_producers: VecDeque<TransformId>,
-    pub pre_stream_transform_stack_cutoff: Option<usize>,
+    pub pre_stream_transform_stack_cutoff: usize,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -273,8 +273,13 @@ impl TransformManager {
                     ">> tf {tf_id:02} became a stream producer: {:?}, stack: {:?}, cutoff: {}",
                     self.stream_producers,
                     self.ready_stack,
-                    self.pre_stream_transform_stack_cutoff.map(|v|v as i64).unwrap_or(-1)
+                    self.pre_stream_transform_stack_cutoff
                 )
+            }
+
+            if self.pre_stream_transform_stack_cutoff != 0 {
+                self.pre_stream_transform_stack_cutoff =
+                    self.ready_stack.len();
             }
 
             tf.is_stream_producer = true;
@@ -801,7 +806,7 @@ impl<'a> Job<'a> {
             self.transform_data[svu.tf_id.get()].display_name(),
             self.job_data.tf_mgr.stream_producers,
             self.job_data.tf_mgr.ready_stack,
-            self.job_data.tf_mgr.pre_stream_transform_stack_cutoff.map(|v|v as i64).unwrap_or(-1)
+            self.job_data.tf_mgr.pre_stream_transform_stack_cutoff
 
         );
             eprintln!(
@@ -1106,27 +1111,13 @@ impl<'a> Job<'a> {
     pub fn is_in_streaming_mode(&self) -> bool {
         !self.job_data.tf_mgr.stream_producers.is_empty()
     }
-    pub(crate) fn run_streams(
+    pub(crate) fn run(
         &mut self,
-        transform_stack_cutoff: usize,
         ctx: Option<&Arc<ContextData>>,
     ) -> Result<(), VentureDescription> {
-        #[cfg(feature = "debug_logging")]
-        {
-            eprintln!(">> entering streaming mode: producers: {:?}, stack: {:?}, cutoff: {:?}",
-                self.job_data.tf_mgr.stream_producers,
-                self.job_data.tf_mgr.ready_stack,
-                transform_stack_cutoff
-            );
-            eprintln!(
-                "    pending updates: {:?}",
-                self.job_data.sv_mgr.updates
-            );
-        }
-        self.job_data.tf_mgr.pre_stream_transform_stack_cutoff =
-            Some(transform_stack_cutoff);
         loop {
-            if self.job_data.tf_mgr.ready_stack.len() > transform_stack_cutoff
+            if self.job_data.tf_mgr.ready_stack.len()
+                > self.job_data.tf_mgr.pre_stream_transform_stack_cutoff
             {
                 let tf_id = self.job_data.tf_mgr.ready_stack.pop().unwrap();
                 let tf = &mut self.job_data.tf_mgr.transforms[tf_id];
@@ -1145,40 +1136,10 @@ impl<'a> Job<'a> {
                 self.run_stream_producer_update(tf_id);
                 continue;
             }
-            self.job_data.tf_mgr.pre_stream_transform_stack_cutoff = None;
-            #[cfg(feature = "debug_logging")]
-            {
-                eprintln!(
-                    ">> exiting streaming mode: stack: {:?}",
-                    self.job_data.tf_mgr.ready_stack,
-                );
-                eprintln!(
-                    "    pending updates: {:?}",
-                    self.job_data.sv_mgr.updates
-                );
+            if self.job_data.tf_mgr.pre_stream_transform_stack_cutoff == 0 {
+                break;
             }
-            return Ok(());
-        }
-    }
-    pub(crate) fn run(
-        &mut self,
-        ctx: Option<&Arc<ContextData>>,
-    ) -> Result<(), VentureDescription> {
-        if let Some(tsc) =
-            self.job_data.tf_mgr.pre_stream_transform_stack_cutoff
-        {
-            // happens if we continue after we suspended during a stream
-            // TODO: should we allow that at all?
-            self.run_streams(tsc, ctx)?;
-        }
-        while let Some(tf_id) = self.job_data.tf_mgr.ready_stack.pop() {
-            let stack_height = self.job_data.tf_mgr.ready_stack.len();
-            let tf = &mut self.job_data.tf_mgr.transforms[tf_id];
-            tf.is_ready = false;
-            self.handle_transform(tf_id, ctx)?;
-            if self.is_in_streaming_mode() {
-                self.run_streams(stack_height, ctx)?;
-            }
+            self.job_data.tf_mgr.pre_stream_transform_stack_cutoff = 0;
         }
         Ok(())
     }

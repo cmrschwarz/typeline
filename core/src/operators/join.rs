@@ -413,13 +413,52 @@ pub fn push_str(
 ) {
     unsafe { push_bytes_raw(join, sv_mgr, data.as_bytes(), rl, true) };
 }
-pub fn drop_group(join: &mut TfJoin) {
-    debug_assert!(join.active_stream_value.is_none());
+pub fn reset_group_stats(join: &mut TfJoin) {
     join.curr_group_len = 0;
     join.first_record_added = false;
     join.buffer.clear();
-    join.current_group_error = None;
     join.active_stream_value_submitted = false;
+    join.active_stream_value = None;
+    join.active_group_batch = None;
+    join.current_group_error = None;
+}
+
+pub fn drop_group(
+    join: &mut TfJoin,
+    sv_mgr: &mut StreamValueManager,
+    tf_id: TransformId,
+) {
+    if let Some(gbi) = join.active_group_batch {
+        let gb = &mut join.group_batches[gbi];
+        for (sv, _rl) in &mut gb.outstanding_values {
+            match sv {
+                FieldValue::Undefined
+                | FieldValue::Null
+                | FieldValue::Int(_)
+                | FieldValue::BigInt(_)
+                | FieldValue::Float(_)
+                | FieldValue::Rational(_)
+                | FieldValue::Text(_)
+                | FieldValue::Bytes(_)
+                | FieldValue::Array(_)
+                | FieldValue::Object(_)
+                | FieldValue::Custom(_)
+                | FieldValue::Error(_) => (),
+                FieldValue::FieldReference(_)
+                | FieldValue::SlicedFieldReference(_) => unreachable!(),
+                FieldValue::StreamValueId(sv_id) => {
+                    sv_mgr.drop_field_value_subscription(*sv_id, None);
+                }
+            }
+        }
+        if let Some(sv_id) = gb.pending_stream_value {
+            sv_mgr.drop_field_value_subscription(sv_id, Some(tf_id));
+        }
+        join.group_batches.release(gbi);
+    } else {
+        debug_assert!(join.active_stream_value.is_none());
+    }
+    reset_group_stats(join);
 }
 pub fn emit_group(
     join: &mut TfJoin,
@@ -482,7 +521,7 @@ pub fn emit_group(
             output_inserter.push_bytes_buffer(buffer, 1, true, false);
         }
     }
-    drop_group(join);
+    reset_group_stats(join);
     *groups_emitted += usize::from(emitted);
 }
 fn push_error(
@@ -495,6 +534,7 @@ fn push_error(
         sv.data = StreamValueData::Error(e);
         sv.done = true;
         join.stream_value_error = true;
+        join.active_stream_value_appended = true;
     } else {
         join.current_group_error = Some(e);
     }
@@ -577,8 +617,9 @@ pub fn handle_tf_join(
             let field_pos = iter.get_next_field_pos();
             let should_drop =
                 desired_group_len_rem != 0 && should_drop_group(join);
-            let drop_count =
-                field_pos - last_group_end + usize::from(prebuffered_record);
+            let drop_count = (field_pos - last_group_end
+                + usize::from(prebuffered_record))
+            .saturating_sub(1);
             groups_iter.drop_before(
                 groups_iter.field_pos() - drop_count,
                 drop_count.saturating_sub(usize::from(!should_drop)),
@@ -589,7 +630,7 @@ pub fn handle_tf_join(
             }
             last_group_end = field_pos;
             if should_drop {
-                drop_group(join);
+                drop_group(join, sv_mgr, tf_id);
             } else {
                 emit_group(
                     join,
@@ -813,6 +854,7 @@ fn try_consume_stream_values(
                         let gb = &mut join.group_batches[gbi];
                         if gb.pending_stream_value.is_some() {
                             sv.is_buffered = true;
+                            sv.ref_count += 1;
                             if offsets.is_some() {
                                 todo!("spot references");
                             }
@@ -827,13 +869,29 @@ fn try_consume_stream_values(
                         claim_group_batch(join, sv_mgr)
                     };
                     let gb = &mut join.group_batches[gbi];
-                    gb.pending_stream_value = Some(sv_id);
+
                     let (sv_in, sv_out) = sv_mgr
                         .stream_values
                         .two_distinct_mut(sv_id, gb.output_stream_value);
-                    join.first_record_added = true;
+                    gb.pending_stream_value = Some(sv_id);
+                    sv_out.clear_unless_buffered();
+                    if join.first_record_added {
+                        if let Some(sep) = join.separator {
+                            unsafe {
+                                sv_out.data.extend_with_bytes_raw(
+                                    sep,
+                                    join.separator_is_valid_utf8,
+                                );
+                            }
+                        }
+                    } else {
+                        join.first_record_added = true;
+                    }
                     sv_out.data.extend_from_sv_data(&sv_in.data);
                     sv_in.subscribe(sv_id, tf_id, gbi.get(), false);
+                    sv_mgr.inform_stream_value_subscribers(
+                        gb.output_stream_value,
+                    );
                     continue;
                 }
                 // SAFETY: this is a buffer on the heap so it

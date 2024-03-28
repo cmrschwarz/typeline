@@ -3,14 +3,15 @@ use std::{mem::ManuallyDrop, ops::Range, ptr::NonNull};
 use num::{BigInt, BigRational};
 
 use super::{
-    custom_data::CustomDataBox,
+    custom_data::{CustomDataBox, FieldValueFormattingError},
     field_data::{
         FieldValueFormat, FieldValueHeader, FieldValueRepr, FieldValueType,
         RunLength, TextBufferFile,
     },
     field_value::{
-        Array, FieldReference, FieldValue, Null, Object, SlicedFieldReference,
-        Undefined,
+        format_bytes, format_bytes_raw, format_error, format_quoted_string,
+        format_rational, Array, FieldReference, FieldValue, FormattingContext,
+        Null, Object, SlicedFieldReference, Undefined, RATIONAL_DIGITS,
     },
     iters::FieldDataRef,
     stream_value::StreamValueId,
@@ -18,6 +19,8 @@ use super::{
 use crate::{
     operators::errors::OperatorApplicationError,
     record_data::field_data::BytesBufferFile,
+    utils::text_write::{MaybeTextWrite, TextWrite},
+    NULL_STR, UNDEFINED_STR,
 };
 use std::ops::Deref;
 
@@ -225,6 +228,64 @@ impl<'a> FieldValueRef<'a> {
             | FieldValueRef::SlicedFieldReference(_) => {
                 panic!("typed value kind {:?} is not slicable", self.repr(),)
             }
+        }
+    }
+    pub fn format(
+        &self,
+        w: &mut impl TextWrite,
+        fc: &FormattingContext<'_>,
+    ) -> Result<(), FieldValueFormattingError> {
+        match self {
+            FieldValueRef::Null => w.write_all_text(NULL_STR),
+            FieldValueRef::Undefined => w.write_all_text(UNDEFINED_STR),
+            FieldValueRef::Int(v) => w.write_text_fmt(format_args!("{v}")),
+            FieldValueRef::BigInt(v) => w.write_text_fmt(format_args!("{v}")),
+            FieldValueRef::Float(v) => w.write_text_fmt(format_args!("{v}")),
+            FieldValueRef::Rational(v) => {
+                if fc.print_rationals_raw {
+                    w.write_text_fmt(format_args!("{v}"))
+                } else {
+                    format_rational(w, v, RATIONAL_DIGITS)
+                }
+            }
+            FieldValueRef::Bytes(v) => format_bytes(w, v),
+            FieldValueRef::Text(v) => format_quoted_string(w, v),
+            FieldValueRef::Error(e) => format_error(w, e),
+            FieldValueRef::FieldReference(_) => todo!(),
+            FieldValueRef::SlicedFieldReference(_) => todo!(),
+            FieldValueRef::StreamValueId(_) => todo!(),
+            FieldValueRef::Array(a) => return a.format(w, fc),
+            FieldValueRef::Object(o) => return o.format(w, fc),
+            FieldValueRef::Custom(v) => {
+                return v.format(w, &fc.rfk);
+            }
+        }
+        .map_err(Into::into)
+    }
+    pub fn format_raw(
+        &self,
+        w: &mut impl MaybeTextWrite,
+        fc: &FormattingContext<'_>,
+    ) -> Result<(), FieldValueFormattingError> {
+        match self {
+            FieldValueRef::Null
+            | FieldValueRef::Undefined
+            | FieldValueRef::Int(_)
+            | FieldValueRef::BigInt(_)
+            | FieldValueRef::Float(_)
+            | FieldValueRef::Rational(_)
+            | FieldValueRef::Error(_)
+            | FieldValueRef::Array(_)
+            | FieldValueRef::Object(_)
+            | FieldValueRef::Text(_) => self.format(w, fc),
+
+            FieldValueRef::FieldReference(_) => todo!(),
+            FieldValueRef::SlicedFieldReference(_) => todo!(),
+            FieldValueRef::StreamValueId(_) => todo!(),
+            FieldValueRef::Bytes(v) => {
+                format_bytes_raw(w, v).map_err(Into::into)
+            }
+            FieldValueRef::Custom(v) => v.format_raw(w, &fc.rfk),
         }
     }
 }

@@ -260,8 +260,8 @@ fn append_stream_val(
         StreamValueData::Error(e) => {
             debug_assert!(sv.done);
             let err = Arc::new(e.clone());
-            push_string(out, error_to_string(e), run_len);
             for i in start_idx..end_idx {
+                out.data[i] = error_to_string(e);
                 out.append_error(i, err.clone());
             }
         }
@@ -499,6 +499,7 @@ pub fn handle_tf_string_sink(
                     fm: &jd.field_mgr,
                     msm: &jd.match_set_mgr,
                     print_rationals_raw,
+                    is_stream_value: false,
                     rfk: RealizedFormatKey::default(),
                 };
                 for (a, rl) in
@@ -524,6 +525,7 @@ pub fn handle_tf_string_sink(
                     fm: &jd.field_mgr,
                     msm: &jd.match_set_mgr,
                     print_rationals_raw,
+                    is_stream_value: false,
                     rfk: RealizedFormatKey::default(),
                 };
                 for (a, rl) in

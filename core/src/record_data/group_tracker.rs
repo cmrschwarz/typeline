@@ -350,7 +350,6 @@ impl<'a> GroupActionsApplicator<'a> {
 impl<'a> Drop for GroupActionsApplicator<'a> {
     fn drop(&mut self) {
         self.apply_modifications();
-        self.phase_out_current_iters();
         self.apply_future_iter_modifications();
     }
 }
@@ -1187,14 +1186,14 @@ impl<'a, T: DerefMut<Target = GroupList>> GroupListIterMut<'a, T> {
             count,
         );
         if pos_delta >= count {
-            self.group_len -= count;
-            self.update_group_len = true;
-            self.base.field_pos -= count;
             self.base.list.lookup_and_advance_affected_iters_(
                 self.base.group_idx..=self.base.group_idx,
                 self.base.field_pos - pos_delta + 1..,
                 -(count as isize),
             );
+            self.group_len -= count;
+            self.update_group_len = true;
+            self.base.field_pos -= count;
             return;
         }
         self.group_len -= pos_delta;

@@ -897,6 +897,7 @@ pub unsafe trait PushInterface {
                     fm,
                     msm,
                     print_rationals_raw,
+                    is_stream_value: false,
                     rfk: RealizedFormatKey::default(),
                 };
                 for (o, rl) in
@@ -917,6 +918,7 @@ pub unsafe trait PushInterface {
                     fm,
                     msm,
                     print_rationals_raw,
+                    is_stream_value: false,
                     rfk: RealizedFormatKey::default(),
                 };
                 for (v, rl) in

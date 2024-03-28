@@ -26,7 +26,7 @@ use super::{
     field::{FieldManager, FieldRefOffset},
     field_data::{FieldValueRepr, FieldValueType, FixedSizeFieldValueType},
     field_value_ref::FieldValueRef,
-    formattable::RealizedFormatKey,
+    formattable::{RealizedFormatKey, ValueFormattingOpts},
     match_set::MatchSetManager,
     stream_value::StreamValueId,
 };
@@ -397,56 +397,14 @@ impl FieldValue {
         w: &mut impl TextWrite,
         fc: &FormattingContext<'_>,
     ) -> Result<(), FieldValueFormattingError> {
-        match self {
-            FieldValue::Null => w.write_all_text(NULL_STR),
-            FieldValue::Undefined => w.write_all_text(UNDEFINED_STR),
-            FieldValue::Int(v) => w.write_text_fmt(format_args!("{v}")),
-            FieldValue::BigInt(v) => w.write_text_fmt(format_args!("{v}")),
-            FieldValue::Float(v) => w.write_text_fmt(format_args!("{v}")),
-            FieldValue::Rational(v) => {
-                if fc.print_rationals_raw {
-                    w.write_text_fmt(format_args!("{v}"))
-                } else {
-                    format_rational(w, v, RATIONAL_DIGITS)
-                }
-            }
-            FieldValue::Bytes(v) => format_bytes(w, v),
-            FieldValue::Text(v) => format_quoted_string(w, v),
-            FieldValue::Error(e) => format_error(w, e),
-            FieldValue::FieldReference(_) => todo!(),
-            FieldValue::SlicedFieldReference(_) => todo!(),
-            FieldValue::StreamValueId(_) => todo!(),
-            FieldValue::Array(a) => return a.format(w, fc),
-            FieldValue::Object(o) => return o.format(w, fc),
-            FieldValue::Custom(v) => {
-                return v.format(w, &fc.rfk);
-            }
-        }
-        .map_err(Into::into)
+        self.as_ref().format(w, fc)
     }
     pub fn format_raw(
         &self,
         w: &mut impl MaybeTextWrite,
         fc: &FormattingContext<'_>,
     ) -> Result<(), FieldValueFormattingError> {
-        match self {
-            FieldValue::Null
-            | FieldValue::Undefined
-            | FieldValue::Int(_)
-            | FieldValue::BigInt(_)
-            | FieldValue::Float(_)
-            | FieldValue::Rational(_)
-            | FieldValue::Error(_)
-            | FieldValue::Array(_)
-            | FieldValue::Object(_)
-            | FieldValue::Text(_) => self.format(w, fc),
-
-            FieldValue::FieldReference(_) => todo!(),
-            FieldValue::SlicedFieldReference(_) => todo!(),
-            FieldValue::StreamValueId(_) => todo!(),
-            FieldValue::Bytes(v) => format_bytes_raw(w, v).map_err(Into::into),
-            FieldValue::Custom(v) => v.format_raw(w, &fc.rfk),
-        }
+        self.as_ref().format_raw(w, fc)
     }
     pub fn from_fixed_sized_type<T: FixedSizeFieldValueType + Sized>(
         v: T,
@@ -542,7 +500,17 @@ pub struct FormattingContext<'a> {
     pub fm: &'a FieldManager,
     pub msm: &'a MatchSetManager,
     pub print_rationals_raw: bool,
+    pub is_stream_value: bool,
     pub rfk: RealizedFormatKey,
+}
+
+impl<'a> FormattingContext<'a> {
+    pub fn value_formatting_opts(&self) -> ValueFormattingOpts {
+        ValueFormattingOpts {
+            is_stream_value: self.is_stream_value,
+            type_repr_format: self.rfk.opts.type_repr,
+        }
+    }
 }
 
 pub const RATIONAL_DIGITS: u32 = 40; // TODO: make this configurable

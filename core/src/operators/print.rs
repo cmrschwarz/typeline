@@ -368,6 +368,7 @@ pub fn handle_tf_print_raw(
                     fm: &jd.field_mgr,
                     msm: &jd.match_set_mgr,
                     print_rationals_raw,
+                    is_stream_value: false,
                     rfk: RealizedFormatKey::default(),
                 };
                 for a in
@@ -388,6 +389,7 @@ pub fn handle_tf_print_raw(
                     fm: &jd.field_mgr,
                     msm: &jd.match_set_mgr,
                     print_rationals_raw,
+                    is_stream_value: false,
                     rfk: RealizedFormatKey::default(),
                 };
                 for o in

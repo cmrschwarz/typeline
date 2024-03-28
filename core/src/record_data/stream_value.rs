@@ -230,7 +230,7 @@ impl StreamValueManager {
 
         #[cfg(feature = "debug_logging")]
         eprintln!(
-            ":: tf {:02} dropping stream value subscription to sv {sv_id:02} (subs: {:?}) [{} done, rc {}, {:?}]",
+            ":: tf {:02} dropping stream value subscription to sv {sv_id:02} (subs: {:?}) [{}done, rc {}, {:?}]",
             tf_id_to_remove.map(|v|v.get() as i64).unwrap_or(-1),
             sv.subscribers.iter().map(|svs|svs.tf_id).collect::<Vec<_>>(),
             if sv.done {""} else {"not "},
