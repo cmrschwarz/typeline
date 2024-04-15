@@ -180,6 +180,9 @@ impl<'a> GroupActionsApplicator<'a> {
     }
 
     fn move_to_action_field_idx(&mut self, field_idx: usize) {
+        if field_idx < self.gl.passed_fields_count {
+            return;
+        }
         loop {
             let field_pos_delta = field_idx - self.field_pos;
             if field_pos_delta == 0 {
@@ -203,12 +206,12 @@ impl<'a> GroupActionsApplicator<'a> {
             return;
         }
         self.modified = false;
+        self.phase_out_current_iters();
         if self.inside_passed_elems {
             self.gl.passed_fields_count = self.group_len;
             return;
         }
         self.gl.group_lengths.set(self.group_idx, self.group_len);
-        self.phase_out_current_iters();
     }
     fn next_group(&mut self) {
         self.apply_modifications();
@@ -1341,19 +1344,22 @@ mod test {
             ..Default::default()
         };
 
-        let action_list = [FieldAction::new(FieldActionKind::Drop, 1, 1)];
-        gl.apply_field_actions_list(&action_list);
+        gl.apply_field_actions_list(&[FieldAction::new(
+            FieldActionKind::Drop,
+            1,
+            1,
+        )]);
 
         assert_eq!(gl.passed_fields_count, 1);
     }
 
     #[test]
-    fn drop_affects_iterator_correctly() {
+    fn drop_in_passed_affects_iterator_correctly() {
         let mut gl = GroupList {
             passed_fields_count: 2,
             group_lengths: SizeClassedVecDeque::Sc8(VecDeque::from([2])),
             iter_states: vec![Cell::new(GroupsIterState {
-                field_pos: 1,
+                field_pos: 3,
                 group_idx: 0,
                 group_offset: 1,
                 iter_id: 0,
@@ -1362,17 +1368,68 @@ mod test {
             ..Default::default()
         };
 
-        let action_list = [FieldAction::new(FieldActionKind::Drop, 0, 1)];
-        gl.apply_field_actions_list(&action_list);
+        gl.apply_field_actions_list(&[FieldAction::new(
+            FieldActionKind::Drop,
+            0,
+            1,
+        )]);
 
         assert_eq!(
             gl.iter_states[0].get(),
             GroupsIterState {
-                field_pos: 0,
+                field_pos: 2,
                 group_idx: 0,
-                group_offset: 0,
+                group_offset: 1,
                 iter_id: 0,
             }
+        );
+    }
+
+    #[test]
+    fn drop_in_group_affects_iterator_correctly() {
+        let mut gl = GroupList {
+            passed_fields_count: 1,
+            group_lengths: SizeClassedVecDeque::Sc8(VecDeque::from([3])),
+            iter_states: vec![
+                Cell::new(GroupsIterState {
+                    field_pos: 2,
+                    group_idx: 0,
+                    group_offset: 1,
+                    iter_id: 0,
+                }),
+                Cell::new(GroupsIterState {
+                    field_pos: 3,
+                    group_idx: 0,
+                    group_offset: 2,
+                    iter_id: 0,
+                }),
+            ],
+            iter_lookup_table: Universe::from([0].into_iter()),
+            ..Default::default()
+        };
+
+        gl.apply_field_actions_list(&[FieldAction::new(
+            FieldActionKind::Drop,
+            2,
+            1,
+        )]);
+
+        assert_eq!(
+            &gl.iter_states.iter().map(Cell::get).collect::<Vec<_>>(),
+            &[
+                GroupsIterState {
+                    field_pos: 2,
+                    group_idx: 0,
+                    group_offset: 1,
+                    iter_id: 0,
+                },
+                GroupsIterState {
+                    field_pos: 2,
+                    group_idx: 0,
+                    group_offset: 1,
+                    iter_id: 0,
+                }
+            ]
         );
     }
 }
