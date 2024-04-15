@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use bstr::ByteSlice;
 use num::{BigInt, BigRational};
 use regex::Regex;
@@ -30,9 +32,9 @@ use super::{
 #[derive(Clone)]
 pub enum Literal {
     Bytes(Vec<u8>),
-    StreamBytes(Vec<u8>),
+    StreamBytes(Arc<Vec<u8>>),
     String(String),
-    StreamString(String),
+    StreamString(Arc<String>),
     Object(Object),
     Array(Array),
     Int(i64),
@@ -125,28 +127,36 @@ pub fn insert_value(
         Literal::Null => output_field.iter_hall.push_null(1, true),
         Literal::Undefined => output_field.iter_hall.push_undefined(1, true),
         Literal::StreamError(ss) => {
-            let sv_id = jd.sv_mgr.claim_stream_value(StreamValue::from_data(
-                StreamValueData::Error(OperatorApplicationError::new_s(
+            let sv_id = jd.sv_mgr.claim_stream_value(StreamValue {
+                error: Some(Arc::new(OperatorApplicationError::new_s(
                     ss.clone(),
                     op_id,
-                )),
-            ));
+                ))),
+                done: true,
+                ..Default::default()
+            });
             output_field
                 .iter_hall
                 .push_stream_value_id(sv_id, 1, true, false);
         }
         Literal::StreamString(ss) => {
-            let sv_id = jd.sv_mgr.claim_stream_value(StreamValue::from_data(
-                StreamValueData::Text(ss.clone()),
-            ));
+            let sv_id = jd.sv_mgr.claim_stream_value(
+                StreamValue::from_data_done(StreamValueData::Text {
+                    data: ss.clone(),
+                    range: 0..ss.len(),
+                }),
+            );
             output_field
                 .iter_hall
                 .push_stream_value_id(sv_id, 1, true, false);
         }
         Literal::StreamBytes(sb) => {
-            let sv_id = jd.sv_mgr.claim_stream_value(StreamValue::from_data(
-                StreamValueData::Bytes(sb.clone()),
-            ));
+            let sv_id = jd.sv_mgr.claim_stream_value(
+                StreamValue::from_data_done(StreamValueData::Bytes {
+                    data: sb.clone(),
+                    range: 0..sb.len(),
+                }),
+            );
             output_field
                 .iter_hall
                 .push_stream_value_id(sv_id, 1, true, false);
@@ -253,7 +263,7 @@ pub fn parse_op_str(
     let value_owned = value_str.to_owned();
     Ok(OperatorData::Literal(OpLiteral {
         data: if stream_str {
-            Literal::StreamString(value_owned)
+            Literal::StreamString(Arc::new(value_owned))
         } else {
             Literal::String(value_owned)
         },
@@ -326,7 +336,7 @@ pub fn parse_op_bytes(
     };
     Ok(OperatorData::Literal(OpLiteral {
         data: if stream_bytes {
-            Literal::StreamBytes(parsed_value)
+            Literal::StreamBytes(Arc::new(parsed_value))
         } else {
             Literal::Bytes(parsed_value)
         },
@@ -555,10 +565,10 @@ pub fn create_op_str(str: &str) -> OperatorData {
     create_op_literal(Literal::String(str.to_owned()))
 }
 pub fn create_op_stream_bytes(v: &[u8]) -> OperatorData {
-    create_op_literal(Literal::StreamBytes(v.to_owned()))
+    create_op_literal(Literal::StreamBytes(Arc::new(v.to_owned())))
 }
 pub fn create_op_stream_str(v: &str) -> OperatorData {
-    create_op_literal(Literal::StreamString(v.to_owned()))
+    create_op_literal(Literal::StreamString(Arc::new(v.to_owned())))
 }
 pub fn create_op_bytes(v: &[u8]) -> OperatorData {
     create_op_literal(Literal::Bytes(v.to_owned()))
@@ -589,10 +599,16 @@ pub fn create_op_stream_bytes_n(
     v: &[u8],
     insert_count: usize,
 ) -> OperatorData {
-    create_op_literal_n(Literal::StreamBytes(v.to_owned()), insert_count)
+    create_op_literal_n(
+        Literal::StreamBytes(Arc::new(v.to_owned())),
+        insert_count,
+    )
 }
 pub fn create_op_stream_str_n(v: &str, insert_count: usize) -> OperatorData {
-    create_op_literal_n(Literal::StreamString(v.to_owned()), insert_count)
+    create_op_literal_n(
+        Literal::StreamString(Arc::new(v.to_owned())),
+        insert_count,
+    )
 }
 pub fn create_op_bytes_n(v: &[u8], insert_count: usize) -> OperatorData {
     create_op_literal_n(Literal::Bytes(v.to_owned()), insert_count)

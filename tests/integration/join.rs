@@ -1,5 +1,7 @@
 use rstest::rstest;
-use scr::operators::foreach::create_op_foreach;
+use scr::{
+    operators::foreach::create_op_foreach, utils::maybe_text::MaybeText,
+};
 use scr_core::{
     operators::{
         file_reader::create_op_file_reader_custom,
@@ -26,7 +28,11 @@ fn join() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .add_op(create_op_seq(1, 4, 1).unwrap())
-        .add_op(create_op_join(Some(",".as_bytes().to_owned()), None, false))
+        .add_op(create_op_join(
+            Some(MaybeText::from_bytes(b",")),
+            None,
+            false,
+        ))
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(ss.get_data().unwrap().as_slice(), ["1,2,3"]);
@@ -63,7 +69,7 @@ fn join_bounded_groups() -> Result<(), ScrError> {
         .add_op(create_op_foreach())
         .add_op(create_op_seqn(1, 3, 1).unwrap())
         .add_op(create_op_join(
-            Some(",".as_bytes().to_owned()),
+            Some(MaybeText::from_bytes(b",")),
             Some(2),
             false,
         ))
@@ -78,7 +84,7 @@ fn join_single() -> Result<(), ScrError> {
     ContextBuilder::default()
         .add_op(create_op_seq(1, 2, 1).unwrap())
         .add_op(create_op_join(
-            Some(",".as_bytes().to_owned()),
+            Some(MaybeText::from_bytes(b",")),
             Some(2),
             false,
         ))
@@ -137,7 +143,7 @@ fn join_streams() -> Result<(), ScrError> {
             0,
         ))
         .add_op(create_op_join(
-            Some(", ".as_bytes().to_owned()),
+            Some(MaybeText::from_bytes(b",")),
             None,
             false,
         ))
@@ -188,7 +194,7 @@ fn join_dropped_streams() -> Result<(), ScrError> {
             0,
         ))
         .add_op(create_op_join(
-            Some(", ".as_bytes().to_owned()),
+            Some(MaybeText::from_bytes(b", ")),
             Some(2),
             true,
         ))
@@ -216,7 +222,7 @@ fn stream_error_in_join() -> Result<(), ScrError> {
         ))
         .add_op_appending(create_op_literal(Literal::Int(1)))
         .add_op(create_op_join(
-            Some(", ".as_bytes().to_owned()),
+            Some(MaybeText::from_bytes(b", ")),
             Some(3),
             true,
         ))
@@ -253,7 +259,7 @@ fn stream_into_dup_into_join() -> Result<(), ScrError> {
         )
         .add_op(create_op_select("foo".to_owned()))
         .add_op(create_op_join(
-            Some(",".as_bytes().to_owned()),
+            Some(MaybeText::from_bytes(b",")),
             Some(3),
             true,
         ))

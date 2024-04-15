@@ -21,7 +21,6 @@ use crate::{
             handle_tf_call_concurrent, handle_tf_callee_concurrent,
             setup_callee_concurrent,
         },
-        cast::{build_tf_cast, handle_tf_cast},
         count::{build_tf_count, handle_tf_count},
         field_value_sink::{
             build_tf_field_value_sink, handle_tf_field_value_sink,
@@ -69,6 +68,10 @@ use crate::{
             handle_tf_string_sink_stream_value_update,
         },
         terminator::{add_terminator_tf_cont_dependant, handle_tf_terminator},
+        to_str::{
+            build_tf_to_str, handle_tf_to_str,
+            handle_tf_to_str_stream_value_update,
+        },
         transform::{TransformData, TransformId, TransformState},
     },
     record_data::{
@@ -91,7 +94,7 @@ pub struct JobData<'a> {
     pub tf_mgr: TransformManager,
     pub match_set_mgr: MatchSetManager,
     pub field_mgr: FieldManager,
-    pub sv_mgr: StreamValueManager,
+    pub sv_mgr: StreamValueManager<'a>,
     pub temp_vec: Vec<u8>,
 }
 
@@ -526,7 +529,7 @@ impl<'a> Job<'a> {
         let tf_data = match op_data {
             OperatorData::Nop(op) => build_tf_nop(op, tfs),
             OperatorData::NopCopy(op) => build_tf_nop_copy(jd, op, tfs),
-            OperatorData::Cast(op) => build_tf_cast(jd, op_base, op, tfs),
+            OperatorData::ToStr(op) => build_tf_to_str(jd, op_base, op, tfs),
             OperatorData::Count(op) => build_tf_count(jd, op_base, op, tfs),
             OperatorData::Foreach(op) => {
                 return insert_tf_foreach(
@@ -797,6 +800,7 @@ impl<'a> Job<'a> {
         (start, end, input_field, TransformContinuationKind::Regular)
     }
     fn handle_stream_value_update(&mut self, svu: StreamValueUpdate) {
+        let jd = &mut self.job_data;
         #[cfg(feature = "debug_logging")]
         {
             eprintln!(
@@ -804,43 +808,34 @@ impl<'a> Job<'a> {
             svu.sv_id,
             svu.tf_id,
             self.transform_data[svu.tf_id.get()].display_name(),
-            self.job_data.tf_mgr.stream_producers,
-            self.job_data.tf_mgr.ready_stack,
-            self.job_data.tf_mgr.pre_stream_transform_stack_cutoff
+            jd.tf_mgr.stream_producers,
+            jd.tf_mgr.ready_stack,
+            jd.tf_mgr.pre_stream_transform_stack_cutoff
 
         );
-            eprintln!(
-                "     pending updates: {:?}",
-                self.job_data.sv_mgr.updates
-            );
+            eprintln!("     pending updates: {:?}", jd.sv_mgr.updates);
         }
         match &mut self.transform_data[usize::from(svu.tf_id)] {
             TransformData::Print(tf) => handle_tf_print_stream_value_update(
-                &mut self.job_data,
-                svu.tf_id,
+                jd,
                 tf,
-                svu.sv_id,
-                svu.custom,
+                svu
             ),
             TransformData::Join(tf) => handle_tf_join_stream_value_update(
-                &mut self.job_data,
-                svu.tf_id,
+                jd,
                 tf,
-                svu.sv_id,
-                svu.custom,
+                svu
             ),
             TransformData::StringSink(tf) => {
                 handle_tf_string_sink_stream_value_update(
-                    &mut self.job_data,
-                    svu.tf_id,
+                    jd,
                     tf,
-                    svu.sv_id,
-                    svu.custom,
+                    svu
                 );
             }
             TransformData::FieldValueSink(tf) => {
                 handle_tf_field_value_sink_stream_value_update(
-                    &mut self.job_data,
+                   jd,
                     svu.tf_id,
                     tf,
                     svu.sv_id,
@@ -848,19 +843,18 @@ impl<'a> Job<'a> {
                 );
             }
             TransformData::Format(tf) => handle_tf_format_stream_value_update(
-                &mut self.job_data,
-                svu.tf_id,
+               jd,
                 tf,
-                svu.sv_id,
-                svu.custom,
+                svu
             ),
             TransformData::Regex(tf) => handle_tf_regex_stream_value_update(
-                &mut self.job_data,
+               jd,
                 svu.tf_id,
                 tf,
                 svu.sv_id,
                 svu.custom,
             ),
+            TransformData::ToStr(tf) => handle_tf_to_str_stream_value_update(jd, tf, svu),
             TransformData::CallConcurrent(_) |
             TransformData::Fork(_) |
             TransformData::ForkCat(_) |
@@ -871,7 +865,6 @@ impl<'a> Job<'a> {
             TransformData::Nop(_) |
             TransformData::NopCopy(_) |
             TransformData::InputDoneEater(_) |
-            TransformData::Cast(_) |
             TransformData::Count(_) |
             TransformData::Select(_) |
             TransformData::FileReader(_) |
@@ -883,7 +876,7 @@ impl<'a> Job<'a> {
             TransformData::AggregatorHeader(_) |
             TransformData::AggregatorTrailer(_) => unreachable!(),
             TransformData::Custom(tf) => tf.handle_stream_value_update(
-                &mut self.job_data,
+            jd,
                 svu.tf_id,
                 svu.sv_id,
                 svu.custom,
@@ -933,7 +926,7 @@ impl<'a> Job<'a> {
             | TransformData::ForeachHeader(_)
             | TransformData::ForeachTrailer(_)
             | TransformData::CalleeConcurrent(_)
-            | TransformData::Cast(_)
+            | TransformData::ToStr(_)
             | TransformData::Nop(_)
             | TransformData::NopCopy(_)
             | TransformData::InputDoneEater(_)
@@ -998,7 +991,7 @@ impl<'a> Job<'a> {
             TransformData::Join(tf) => handle_tf_join(jd, tf_id, tf),
             TransformData::Select(tf) => handle_tf_select(jd, tf_id, tf),
             TransformData::Count(tf) => handle_tf_count(jd, tf_id, tf),
-            TransformData::Cast(tf) => handle_tf_cast(jd, tf_id, tf),
+            TransformData::ToStr(tf) => handle_tf_to_str(jd, tf_id, tf),
             TransformData::CallConcurrent(tf) => {
                 handle_tf_call_concurrent(jd, tf_id, tf)
             }
@@ -1072,7 +1065,7 @@ impl<'a> Job<'a> {
             | TransformData::Call(_)
             | TransformData::CallConcurrent(_)
             | TransformData::CalleeConcurrent(_)
-            | TransformData::Cast(_)
+            | TransformData::ToStr(_)
             | TransformData::Count(_)
             | TransformData::Print(_)
             | TransformData::Select(_)
@@ -1090,7 +1083,9 @@ impl<'a> Job<'a> {
             | TransformData::ForeachHeader(_)
             | TransformData::ForeachTrailer(_) => unreachable!(),
             TransformData::Join(j) => {
-                handle_tf_join_stream_producer_update(&mut self.job_data, tf_id, j)
+                handle_tf_join_stream_producer_update(
+                    &mut self.job_data, j, tf_id
+                )
             }
             TransformData::FileReader(f) => {
                 handle_tf_file_reader_stream(&mut self.job_data, tf_id, f)

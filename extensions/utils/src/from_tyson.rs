@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, io::BufRead};
 
 use scr_core::{
     job::JobData,
@@ -18,14 +18,17 @@ use scr_core::{
         field::FieldId,
         field_data::{FieldData, RunLength},
         field_value_ref::FieldValueSlice,
+        field_value_slice_iter::FieldValueSliceIter,
         iter_hall::{IterId, IterKind},
         push_interface::PushInterface,
         ref_iter::{
             RefAwareBytesBufferIter, RefAwareInlineBytesIter,
-            RefAwareInlineTextIter, RefAwareStreamValueIter,
-            RefAwareTextBufferIter,
+            RefAwareInlineTextIter, RefAwareTextBufferIter,
         },
-        stream_value::{StreamValue, StreamValueData, StreamValueId},
+        stream_value::{
+            StreamValue, StreamValueBufferMode, StreamValueData,
+            StreamValueDataOffset, StreamValueDataType, StreamValueId,
+        },
         varying_type_inserter::VaryingTypeInserter,
     },
     smallbox,
@@ -91,7 +94,7 @@ impl TfFromTyson {
         &self,
         bud: &BasicUpdateData,
         inserter: &mut VaryingTypeInserter<&mut FieldData>,
-        data: &[u8],
+        data: impl BufRead,
         rl: RunLength,
         op_id: OperatorId,
         fpm: bool,
@@ -178,43 +181,63 @@ impl TfFromTyson {
                     }
                 }
                 FieldValueSlice::StreamValueId(vals) => {
-                    for (sv_id, range, rl) in
-                        RefAwareStreamValueIter::from_range(&range, vals)
+                    for (&sv_id, rl) in
+                        FieldValueSliceIter::from_range(&range, vals)
                     {
                         let sv = &bud.sv_mgr.stream_values[sv_id];
-                        match &sv.data {
-                            StreamValueData::Bytes(b) => {
-                                if sv.done {
-                                    self.push_as_tyson(
-                                        &bud,
-                                        &mut inserter,
-                                        &b[range.unwrap_or(0..b.len())],
-                                        rl,
-                                        op_id,
-                                        fpm,
-                                    )
-                                } else {
-                                    let out_sv_id = bud
-                                        .sv_mgr
-                                        .stream_values
-                                        .claim_with_value(
-                                            StreamValue::from_data_unfinished(
-                                                StreamValueData::default(),
-                                                true,
-                                            ),
-                                        );
-                                    bud.sv_mgr.subscribe_to_stream_value(
-                                        sv_id, bud.tf_id, out_sv_id, true,
-                                    )
-                                }
-                            }
-                            StreamValueData::Error(e) => inserter.push_error(
-                                e.clone(),
+                        if let Some(err) = &sv.error {
+                            inserter.push_error(
+                                (**err).clone(),
                                 rl as usize,
                                 true,
                                 true,
-                            ),
-                            _ => todo!(),
+                            );
+                            continue;
+                        }
+                        if sv.done {
+                            let dt = sv.data_type.unwrap();
+                            match dt {
+                                StreamValueDataType::Text
+                                | StreamValueDataType::MaybeText
+                                | StreamValueDataType::Bytes => (),
+                                StreamValueDataType::VariableTypeArray
+                                | StreamValueDataType::FixedTypeArray(_) => {
+                                    inserter.push_error(
+                                        OperatorApplicationError::new_s(
+                                            format!(
+                                                "cannot parse `{}` as tyson",
+                                                dt.kind()
+                                            ),
+                                            op_id,
+                                        ),
+                                        rl as usize,
+                                        true,
+                                        true,
+                                    );
+                                    continue;
+                                }
+                            }
+                            self.push_as_tyson(
+                                &bud,
+                                &mut inserter,
+                                sv.data_iter(StreamValueDataOffset::default()),
+                                rl,
+                                op_id,
+                                fpm,
+                            )
+                        } else {
+                            let out_sv_id = bud
+                                .sv_mgr
+                                .stream_values
+                                .claim_with_value(StreamValue::from_data(
+                                    None,
+                                    StreamValueData::default(),
+                                    StreamValueBufferMode::Stream,
+                                    false,
+                                ));
+                            bud.sv_mgr.subscribe_to_stream_value(
+                                sv_id, bud.tf_id, out_sv_id, true,
+                            )
                         }
                     }
                 }

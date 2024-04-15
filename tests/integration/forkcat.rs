@@ -1,4 +1,5 @@
 use rstest::rstest;
+use scr::utils::maybe_text::MaybeText;
 use scr_core::{
     operators::{
         end::create_op_end,
@@ -93,7 +94,11 @@ fn forkcat_into_join() -> Result<(), ScrError> {
         .add_op(create_op_next())
         .add_op(create_op_nop())
         .add_op(create_op_end())
-        .add_op(create_op_join(Some(b",".to_vec()), None, false))
+        .add_op(create_op_join(
+            Some(MaybeText::from_bytes(b",")),
+            None,
+            false,
+        ))
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(ss.get_data().unwrap().as_slice(), ["foo,foo"]);
@@ -110,7 +115,7 @@ fn forkcat_build_sql_insert() -> Result<(), ScrError> {
             create_op_next(),
             create_op_seq(0, 5, 1).unwrap(),
             create_op_format_from_str("({})").unwrap(),
-            create_op_join(Some(b", ".to_vec()), None, false),
+            create_op_join(Some(MaybeText::from_bytes(b", ")), None, false),
             create_op_next(),
             create_op_str(";"),
             create_op_end(),

@@ -2,9 +2,7 @@ use std::ops::{Deref, DerefMut};
 
 use scr_core::{
     record_data::{
-        custom_data::{
-            format_custom_data_padded, CustomData, FieldValueFormattingError,
-        },
+        custom_data::{format_custom_data_padded, CustomData},
         formattable::RealizedFormatKey,
     },
     utils::text_write::TextWrite,
@@ -40,7 +38,7 @@ impl CustomData for UrlValueType {
         &self,
         w: &mut dyn TextWrite,
         format: &RealizedFormatKey,
-    ) -> Result<(), FieldValueFormattingError> {
+    ) -> std::io::Result<()> {
         format_custom_data_padded(self, false, format, w, |w| {
             w.write_text_fmt(format_args!("{}", self.0))?;
             Ok(())

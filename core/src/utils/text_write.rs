@@ -1,3 +1,4 @@
+use core::panic;
 use std::{
     io::ErrorKind,
     ops::{Deref, DerefMut},
@@ -76,6 +77,37 @@ pub trait TextWrite {
         }
     }
     fn flush_text(&mut self) -> std::io::Result<()>;
+}
+
+impl<W: TextWrite> TextWrite for &mut W {
+    unsafe fn write_text_unchecked(
+        &mut self,
+        buf: &[u8],
+    ) -> std::io::Result<usize> {
+        unsafe { (**self).write_text_unchecked(buf) }
+    }
+
+    fn flush_text(&mut self) -> std::io::Result<()> {
+        (**self).flush_text()
+    }
+
+    unsafe fn write_all_text_unchecked(
+        &mut self,
+        buf: &[u8],
+    ) -> std::io::Result<()> {
+        unsafe { (**self).write_all_text_unchecked(buf) }
+    }
+
+    fn write_all_text(&mut self, buf: &str) -> std::io::Result<()> {
+        (**self).write_all_text(buf)
+    }
+
+    fn write_text_fmt(
+        &mut self,
+        args: std::fmt::Arguments<'_>,
+    ) -> std::io::Result<()> {
+        (**self).write_text_fmt(args)
+    }
 }
 
 #[derive(Default, Clone)]
@@ -172,6 +204,7 @@ impl<W: std::fmt::Write> From<W> for TextWriteFormatAdapter<W> {
         Self(base)
     }
 }
+
 impl<W: std::fmt::Write> std::fmt::Write for TextWriteFormatAdapter<W> {
     fn write_str(&mut self, s: &str) -> std::fmt::Result {
         self.0.write_str(s)
@@ -341,5 +374,44 @@ impl<W: MaybeTextWrite> std::io::Write for MaybeTextWriteFlaggedAdapter<W> {
         Self: Sized,
     {
         self
+    }
+}
+
+pub struct MaybeTextWritePanicAdapter<W: TextWrite>(pub W);
+
+impl<W: TextWrite> std::io::Write for MaybeTextWritePanicAdapter<W> {
+    fn write(&mut self, _buf: &[u8]) -> std::io::Result<usize> {
+        panic!("std::io::Write::write called on a MaybeTextWritePanicAdapter")
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        panic!("std::io::Write::flush called on a MaybeTextWritePanicAdapter")
+    }
+}
+
+impl<W: TextWrite> TextWrite for MaybeTextWritePanicAdapter<W> {
+    unsafe fn write_text_unchecked(
+        &mut self,
+        buf: &[u8],
+    ) -> std::io::Result<usize> {
+        unsafe { self.0.write_text_unchecked(buf) }
+    }
+    fn flush_text(&mut self) -> std::io::Result<()> {
+        self.0.flush_text()
+    }
+    unsafe fn write_all_text_unchecked(
+        &mut self,
+        buf: &[u8],
+    ) -> std::io::Result<()> {
+        unsafe { self.0.write_all_text_unchecked(buf) }
+    }
+    fn write_all_text(&mut self, buf: &str) -> std::io::Result<()> {
+        self.0.write_all_text(buf)
+    }
+    fn write_text_fmt(
+        &mut self,
+        args: std::fmt::Arguments<'_>,
+    ) -> std::io::Result<()> {
+        self.0.write_text_fmt(args)
     }
 }

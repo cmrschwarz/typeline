@@ -27,10 +27,9 @@ use crate::{
         ref_iter::{
             AutoDerefIter, RefAwareBytesBufferIter,
             RefAwareFieldValueSliceIter, RefAwareInlineBytesIter,
-            RefAwareInlineTextIter, RefAwareStreamValueIter,
-            RefAwareTextBufferIter,
+            RefAwareInlineTextIter, RefAwareTextBufferIter,
         },
-        stream_value::{StreamValueData, StreamValueId},
+        stream_value::{StorageAgnosticStreamValueDataRef, StreamValueId},
         varying_type_inserter::VaryingTypeInserter,
     },
     utils::{
@@ -1016,9 +1015,8 @@ pub fn handle_tf_regex(
                 };
             }
             FieldValueSlice::StreamValueId(svs) => {
-                let mut sv_iter =
-                    RefAwareStreamValueIter::from_range(&range, svs);
-                while let Some((sv_id, offsets, rl)) = sv_iter.next() {
+                let mut sv_iter = FieldValueSliceIter::from_range(&range, svs);
+                while let Some((&sv_id, rl)) = sv_iter.next() {
                     let sv = &mut jd.sv_mgr.stream_values[sv_id];
                     if re.streams_kept_alive > 0 {
                         let rc_diff = (rl as usize)
@@ -1027,7 +1025,7 @@ pub fn handle_tf_regex(
                         re.streams_kept_alive -= rc_diff;
                     }
                     if !sv.done {
-                        sv.is_buffered = true;
+                        sv.make_contiguous();
                         sv.subscribe(sv_id, tf_id, rl as usize, true);
                         // PERF: if multimatch is false and we are in optional
                         // mode we can theoretically
@@ -1045,6 +1043,7 @@ pub fn handle_tf_regex(
                             buffer_remaining_stream_values_in_sv_iter(
                                 &mut jd.sv_mgr,
                                 sv_iter,
+                                true,
                             );
                         drop(rmis);
                         re.streams_kept_alive +=
@@ -1053,31 +1052,32 @@ pub fn handle_tf_regex(
                                 &mut jd.sv_mgr,
                                 iter.clone(),
                                 usize::MAX,
+                                true,
                             );
                         break 'batch;
                     }
-                    match &sv.data {
-                        StreamValueData::Error(e) => {
-                            for cgi in
-                                rmis.batch_state.inserters.iter_mut().flatten()
-                            {
-                                cgi.push_error(
-                                    e.clone(),
-                                    rl as usize,
-                                    true,
-                                    false,
-                                );
-                            }
-                            rmis.batch_state.field_pos_input += rl as usize;
-                            rmis.batch_state.field_pos_output += rl as usize;
-                            jd.sv_mgr.check_stream_value_ref_count(sv_id);
-                            continue;
+                    if let Some(e) = &sv.error {
+                        for cgi in
+                            rmis.batch_state.inserters.iter_mut().flatten()
+                        {
+                            cgi.push_error(
+                                (**e).clone(),
+                                rl as usize,
+                                true,
+                                false,
+                            );
                         }
-                        StreamValueData::Bytes(b) => {
+                        rmis.batch_state.field_pos_input += rl as usize;
+                        rmis.batch_state.field_pos_output += rl as usize;
+                        jd.sv_mgr.check_stream_value_ref_count(sv_id);
+                        continue;
+                    }
+                    match &sv.single_data().as_ref().storage_agnostic() {
+                        StorageAgnosticStreamValueDataRef::Bytes(b) => {
                             match_regex_inner::<true, _>(
                                 &mut rmis,
                                 &mut bytes_regex,
-                                &b[offsets.unwrap_or(0..b.len())],
+                                b,
                                 rl,
                                 0,
                             );
@@ -1085,8 +1085,7 @@ pub fn handle_tf_regex(
                                 break 'batch;
                             }
                         }
-                        StreamValueData::Text(t) => {
-                            let t = &t[offsets.unwrap_or(0..t.len())];
+                        StorageAgnosticStreamValueDataRef::Text(t) => {
                             if let Some(tr) = &mut text_regex {
                                 match_regex_inner::<true, _>(
                                     &mut rmis, tr, t, rl, 0,

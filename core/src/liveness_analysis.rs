@@ -17,7 +17,7 @@ use crate::{
         foreach::OpForeach,
         fork::OpFork,
         forkcat::OpForkCat,
-        format::update_op_format_variable_liveness,
+        format::{format_add_var_names, update_op_format_variable_liveness},
         operator::{OperatorData, OperatorId, OperatorOffsetInChain},
         sequence::update_op_sequence_variable_liveness,
     },
@@ -206,7 +206,7 @@ impl LivenessData {
         match &sess.operator_data[op_id as usize] {
             OperatorData::Call(_) => 1,
             OperatorData::CallConcurrent(_) => 1,
-            OperatorData::Cast(_) => 1,
+            OperatorData::ToStr(_) => 1,
             OperatorData::Count(_) => 1,
             OperatorData::Print(_) => 1,
             OperatorData::Join(_) => 1,
@@ -316,11 +316,7 @@ impl LivenessData {
             OperatorData::Select(s) => {
                 self.add_var_name(s.key_interned.unwrap());
             }
-            OperatorData::Format(fmt) => {
-                for r in &fmt.refs_idx {
-                    self.add_var_name_opt(*r);
-                }
-            }
+            OperatorData::Format(fmt) => format_add_var_names(fmt, self),
             OperatorData::Aggregator(agg) => {
                 for &sub_op in &agg.sub_ops {
                     self.setup_op_vars(sess, sub_op);
@@ -331,7 +327,7 @@ impl LivenessData {
             }
             OperatorData::Call(_)
             | OperatorData::CallConcurrent(_)
-            | OperatorData::Cast(_)
+            | OperatorData::ToStr(_)
             | OperatorData::Count(_)
             | OperatorData::Print(_)
             | OperatorData::Join(_)
@@ -446,7 +442,7 @@ impl LivenessData {
                 self.split_bb_at_call(bb_id, op_n);
             }
             OperatorData::Next(_) | OperatorData::End(_) => unreachable!(),
-            OperatorData::Cast(_)
+            OperatorData::ToStr(_)
             | OperatorData::Nop(_)
             | OperatorData::NopCopy(_)
             | OperatorData::Count(_)
@@ -748,7 +744,7 @@ impl LivenessData {
                 flags.may_dup_or_drop = false;
                 flags.non_stringified_input_access = false;
             }
-            OperatorData::FieldValueSink(_) | OperatorData::Cast(_) => {
+            OperatorData::FieldValueSink(_) | OperatorData::ToStr(_) => {
                 flags.may_dup_or_drop = false;
             }
             OperatorData::Next(_) | OperatorData::End(_) => unreachable!(),

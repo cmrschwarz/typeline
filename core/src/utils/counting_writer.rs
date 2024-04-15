@@ -2,7 +2,13 @@ use std::ops::{Deref, DerefMut};
 
 use bstr::ByteSlice;
 
-use super::text_write::{MaybeTextWriteFlaggedAdapter, TextWriteIoAdapter};
+use super::{
+    is_utf8_continuation_byte,
+    text_write::{
+        MaybeTextWriteFlaggedAdapter, TextWrite, TextWriteIoAdapter,
+    },
+    valid_utf8_codepoint_begins,
+};
 
 #[derive(Clone, Copy, Default)]
 pub struct LengthCountingWriter {
@@ -26,6 +32,27 @@ impl std::io::Write for LengthCountingWriter {
     }
 
     fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+impl TextWrite for LengthCountingWriter {
+    unsafe fn write_text_unchecked(
+        &mut self,
+        buf: &[u8],
+    ) -> std::io::Result<usize> {
+        self.len += buf.len();
+        Ok(buf.len())
+    }
+
+    fn flush_text(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+
+    unsafe fn write_all_text_unchecked(
+        &mut self,
+        buf: &[u8],
+    ) -> std::io::Result<()> {
+        self.len += buf.len();
         Ok(())
     }
 }
@@ -64,6 +91,42 @@ impl std::io::Write for LengthAndCharsCountingWriter {
     }
 
     fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+impl TextWrite for LengthAndCharsCountingWriter {
+    unsafe fn write_text_unchecked(
+        &mut self,
+        buf: &[u8],
+    ) -> std::io::Result<usize> {
+        unsafe { self.write_all_text_unchecked(buf).unwrap() }
+        Ok(buf.len())
+    }
+
+    fn flush_text(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+
+    unsafe fn write_all_text_unchecked(
+        &mut self,
+        buf: &[u8],
+    ) -> std::io::Result<()> {
+        self.len += buf.len();
+        self.char_count += valid_utf8_codepoint_begins(buf);
+        Ok(())
+    }
+
+    fn write_all_text(&mut self, buf: &str) -> std::io::Result<()> {
+        self.len += buf.len();
+        self.char_count = buf.chars().count();
+        Ok(())
+    }
+
+    fn write_text_fmt(
+        &mut self,
+        args: std::fmt::Arguments<'_>,
+    ) -> std::io::Result<()> {
+        std::fmt::write(self, args).unwrap();
         Ok(())
     }
 }
@@ -115,17 +178,46 @@ impl std::io::Write for CharLimitedLengthAndCharsCountingWriter {
         let mut len_delta = 0;
         for (start, end, _c) in buf.char_indices() {
             if self.char_count == self.max_char_count {
-                self.len += len_delta;
-                return Ok(len_delta);
+                break;
             }
             len_delta += end - start;
             self.char_count += 1;
         }
         self.len += len_delta;
-        Ok(buf.len())
+        Ok(len_delta)
     }
 
     fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+impl TextWrite for CharLimitedLengthAndCharsCountingWriter {
+    unsafe fn write_text_unchecked(
+        &mut self,
+        buf: &[u8],
+    ) -> std::io::Result<usize> {
+        if self.char_count == self.max_char_count {
+            return Err(std::io::ErrorKind::WriteZero.into());
+        }
+        let mut len_delta = 0;
+        for (start, end, c) in buf.char_indices() {
+            if self.char_count == self.max_char_count {
+                break;
+            }
+            len_delta += end - start;
+            // because we never partially succeed, buf is expected to contain
+            // valid utf8
+            debug_assert!(
+                c != char::REPLACEMENT_CHARACTER
+                    || !is_utf8_continuation_byte(buf[start])
+            );
+            self.char_count += 1;
+        }
+        self.len += len_delta;
+        Ok(len_delta)
+    }
+
+    fn flush_text(&mut self) -> std::io::Result<()> {
         Ok(())
     }
 }

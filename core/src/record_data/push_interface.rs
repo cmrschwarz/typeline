@@ -1,7 +1,4 @@
-use std::{
-    mem::ManuallyDrop,
-    sync::{RwLock, RwLockReadGuard},
-};
+use std::mem::ManuallyDrop;
 
 use num::{BigInt, BigRational};
 
@@ -17,18 +14,17 @@ use super::{
         RunLength,
     },
     field_value::{
-        format_rational, Array, FieldReference, FieldValue, FormattingContext,
-        Object, SlicedFieldReference, RATIONAL_DIGITS,
+        Array, FieldReference, FieldValue, Object, SlicedFieldReference,
     },
     field_value_ref::FieldValueSlice,
     field_value_slice_iter::FieldValueSliceIter,
-    formattable::RealizedFormatKey,
+    formattable::{Formattable, FormattingContext, RealizedFormatKey},
     match_set::MatchSetManager,
     ref_iter::{
         AnyRefSliceIter, RefAwareFieldValueSliceIter, RefAwareInlineBytesIter,
         RefAwareInlineTextIter, RefAwareTypedRange,
     },
-    stream_value::{StreamValueData, StreamValueId, StreamValueManager},
+    stream_value::{StreamValueId, StreamValueManager},
 };
 use crate::{
     operators::errors::OperatorApplicationError,
@@ -39,8 +35,10 @@ use crate::{
     utils::{
         as_u8_slice,
         int_string_conversions::{f64_to_str, i64_to_str},
+        lazy_lock_guard::LazyRwLockGuard,
+        maybe_text::{MaybeText, MaybeTextRef},
         string_store::StringStore,
-        text_write::TextWrite,
+        text_write::MaybeTextWritePanicAdapter,
     },
     NULL_STR, UNDEFINED_STR,
 };
@@ -125,6 +123,47 @@ pub unsafe trait PushInterface {
                 try_header_rle,
                 try_data_rle,
             );
+        }
+    }
+    fn push_inline_maybe_text_ref(
+        &mut self,
+        data: MaybeTextRef,
+        run_length: usize,
+        try_header_rle: bool,
+        try_data_rle: bool,
+    ) {
+        match data {
+            MaybeTextRef::Text(t) => self.push_inline_str(
+                t,
+                run_length,
+                try_header_rle,
+                try_data_rle,
+            ),
+            MaybeTextRef::Bytes(b) => self.push_inline_bytes(
+                b,
+                run_length,
+                try_header_rle,
+                try_data_rle,
+            ),
+        }
+    }
+    fn push_maybe_text(
+        &mut self,
+        data: MaybeText,
+        run_length: usize,
+        try_header_rle: bool,
+        try_data_rle: bool,
+    ) {
+        match data {
+            MaybeText::Text(t) => {
+                self.push_string(t, run_length, try_header_rle, try_data_rle)
+            }
+            MaybeText::Bytes(b) => self.push_bytes_buffer(
+                b,
+                run_length,
+                try_header_rle,
+                try_data_rle,
+            ),
         }
     }
     fn push_fixed_size_type<T: PartialEq + FieldValueType>(
@@ -810,13 +849,12 @@ pub unsafe trait PushInterface {
         }
     }
     #[allow(clippy::fn_params_excessive_bools)]
-    fn extend_from_ref_aware_range_stringified_smart_ref<'a>(
+    fn extend_from_ref_aware_range_stringified_smart_ref(
         &mut self,
         fm: &FieldManager,
         msm: &MatchSetManager,
         sv_mgr: &StreamValueManager,
-        string_store: &'a RwLock<StringStore>,
-        string_store_ref: &mut Option<RwLockReadGuard<'a, StringStore>>,
+        ss: &mut LazyRwLockGuard<StringStore>,
         range: RefAwareTypedRange,
         try_header_rle: bool,
         try_data_rle: bool,
@@ -861,11 +899,16 @@ pub unsafe trait PushInterface {
                 }
             }
             FieldValueSlice::BigInt(vals) => {
+                let mut rfk = RealizedFormatKey::default();
                 for (v, rl) in
                     RefAwareFieldValueSliceIter::from_range(&range, vals)
                 {
-                    let mut stream = self.text_insertion_stream(rl as usize);
-                    stream.write_text_fmt(format_args!("{v}")).unwrap();
+                    let stream = self.text_insertion_stream(rl as usize);
+                    v.format(
+                        &mut rfk,
+                        &mut MaybeTextWritePanicAdapter(stream),
+                    )
+                    .unwrap();
                 }
             }
             FieldValueSlice::Float(vals) => {
@@ -881,18 +924,25 @@ pub unsafe trait PushInterface {
                 }
             }
             FieldValueSlice::Rational(vals) => {
+                let mut fc = FormattingContext {
+                    ss,
+                    fm,
+                    msm,
+                    print_rationals_raw,
+                    is_stream_value: false,
+                    rfk: RealizedFormatKey::default(),
+                };
                 for (v, rl) in
                     RefAwareFieldValueSliceIter::from_range(&range, vals)
                 {
-                    let mut stream = self.text_insertion_stream(rl as usize);
-                    format_rational(&mut stream, v, RATIONAL_DIGITS).unwrap();
+                    let stream = self.text_insertion_stream(rl as usize);
+                    v.format(&mut fc, &mut MaybeTextWritePanicAdapter(stream))
+                        .unwrap();
                 }
             }
 
             FieldValueSlice::Object(vals) => {
-                let ss = string_store_ref
-                    .get_or_insert_with(|| string_store.read().unwrap());
-                let fc = FormattingContext {
+                let mut fc = FormattingContext {
                     ss,
                     fm,
                     msm,
@@ -904,16 +954,14 @@ pub unsafe trait PushInterface {
                     RefAwareFieldValueSliceIter::from_range(&range, vals)
                 {
                     o.format(
-                        &mut self.text_insertion_stream(rl as usize),
-                        &fc,
+                        &mut fc,
+                        &mut self.maybe_text_insertion_stream(rl as usize),
                     )
                     .unwrap();
                 }
             }
             FieldValueSlice::Array(vals) => {
-                let ss = string_store_ref
-                    .get_or_insert_with(|| string_store.read().unwrap());
-                let fc = FormattingContext {
+                let mut fc = FormattingContext {
                     ss,
                     fm,
                     msm,
@@ -924,8 +972,9 @@ pub unsafe trait PushInterface {
                 for (v, rl) in
                     RefAwareFieldValueSliceIter::from_range(&range, vals)
                 {
-                    let mut stream = self.text_insertion_stream(rl as usize);
-                    v.format(&mut stream, &fc).unwrap();
+                    let mut stream =
+                        self.maybe_text_insertion_stream(rl as usize);
+                    v.format(&mut fc, &mut stream).unwrap();
                 }
             }
             FieldValueSlice::Custom(vals) => {
@@ -933,8 +982,9 @@ pub unsafe trait PushInterface {
                 for (v, rl) in
                     RefAwareFieldValueSliceIter::from_range(&range, vals)
                 {
-                    let mut stream = self.text_insertion_stream(rl as usize);
-                    v.format(&mut stream, &rfk).unwrap();
+                    let mut stream =
+                        self.maybe_text_insertion_stream(rl as usize);
+                    v.format_raw(&mut stream, &rfk).unwrap();
                 }
             }
             FieldValueSlice::Error(vals) => {
@@ -952,25 +1002,24 @@ pub unsafe trait PushInterface {
             FieldValueSlice::StreamValueId(vals) => {
                 for (v, rl) in FieldValueSliceIter::from_range(&range, vals) {
                     let sv = &sv_mgr.stream_values[*v];
-                    match &sv.data {
-                        StreamValueData::Error(e) => {
-                            debug_assert!(sv.done);
-                            self.push_error(
-                                e.clone(),
-                                rl as usize,
-                                try_header_rle,
-                                try_data_rle,
-                            )
-                        }
-                        StreamValueData::Text(_)
-                        | StreamValueData::Bytes(_) => self
-                            .push_stream_value_id(
-                                *v,
-                                rl as usize,
-                                try_header_rle,
-                                try_data_rle,
-                            ),
+                    if let Some(e) = &sv.error {
+                        debug_assert!(sv.done);
+                        self.push_error(
+                            (**e).clone(),
+                            rl as usize,
+                            try_header_rle,
+                            try_data_rle,
+                        );
+                        continue;
                     }
+                    // PERF: we might want to do better here if the thing is
+                    // done and small
+                    self.push_stream_value_id(
+                        *v,
+                        rl as usize,
+                        try_header_rle,
+                        try_data_rle,
+                    );
                 }
             }
             FieldValueSlice::FieldReference(_)

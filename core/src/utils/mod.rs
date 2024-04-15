@@ -1,5 +1,7 @@
 use std::ops::{Range, RangeBounds};
 
+use bstr::ByteSlice;
+
 pub mod aligned_buf;
 pub mod counting_writer;
 pub mod debuggable_nonmax;
@@ -10,6 +12,8 @@ pub mod identity_hasher;
 pub mod indexing_type;
 pub mod int_string_conversions;
 pub mod io;
+pub mod lazy_lock_guard;
+pub mod maybe_text;
 pub mod offset_vec_deque;
 pub mod paths_store;
 pub mod phantom_slot;
@@ -128,6 +132,21 @@ pub fn utf8_codepoint_len_from_first_byte(first_byte: u8) -> Option<u8> {
     None
 }
 
+pub fn is_utf8_continuation_byte(b: u8) -> bool {
+    b >> 6 == 0b11
+}
+
+pub fn valid_utf8_codepoint_begins(buf: &[u8]) -> usize {
+    buf.char_indices()
+        .map(|(start, _end, c)| {
+            usize::from(
+                c != char::REPLACEMENT_CHARACTER
+                    || !is_utf8_continuation_byte(buf[start]),
+            )
+        })
+        .sum()
+}
+
 pub fn range_bounds_to_range(
     rb: impl RangeBounds<usize>,
     len: usize,
@@ -143,4 +162,34 @@ pub fn range_bounds_to_range(
         std::ops::Bound::Unbounded => len,
     };
     start..end
+}
+
+pub fn retain_vec_range<T>(v: &mut Vec<T>, range: Range<usize>) {
+    if range == (0..v.len()) {
+        return;
+    }
+    v.truncate(range.end);
+    v.drain(0..range.start);
+}
+
+pub fn retain_string_range(v: &mut String, range: Range<usize>) {
+    if range == (0..v.len()) {
+        return;
+    }
+    v.truncate(range.end);
+    v.drain(0..range.start);
+}
+
+pub fn subrange(
+    range: &Range<usize>,
+    subrange: &Range<usize>,
+) -> Range<usize> {
+    let start = range.start + subrange.start;
+    let end = start + subrange.len();
+    debug_assert!(end <= range.end);
+    start..end
+}
+
+pub fn sub_saturated(v: &mut usize, sub: usize) {
+    *v = (*v).saturating_sub(sub);
 }

@@ -1,20 +1,26 @@
 use crate::record_data::{
     field_data::field_value_flags,
     field_value_ref::FieldValueSlice,
+    field_value_slice_iter::FieldValueSliceIter,
     iters::FieldIterator,
     match_set::MatchSetManager,
-    ref_iter::{AutoDerefIter, RefAwareStreamValueIter},
-    stream_value::StreamValueManager,
+    ref_iter::AutoDerefIter,
+    stream_value::{StreamValueId, StreamValueManager},
 };
 
 pub fn buffer_remaining_stream_values_in_sv_iter(
     sv_mgr: &mut StreamValueManager,
-    iter: RefAwareStreamValueIter,
+    iter: FieldValueSliceIter<StreamValueId>,
+    contiguous: bool,
 ) -> usize {
     let mut lines = 0;
-    for (sv_id, _range, rl) in iter {
-        let sv = &mut sv_mgr.stream_values[sv_id];
-        sv.is_buffered = true;
+    for (sv_id, rl) in iter {
+        let sv = &mut sv_mgr.stream_values[*sv_id];
+        if contiguous {
+            sv.make_contiguous()
+        } else {
+            sv.make_buffered();
+        }
         sv.ref_count += rl as usize;
         lines += rl as usize;
     }
@@ -29,6 +35,7 @@ pub fn buffer_remaining_stream_values_in_auto_deref_iter<
     sv_mgr: &mut StreamValueManager,
     mut iter: AutoDerefIter<'a, I>,
     limit: usize,
+    contiguous: bool,
 ) -> usize {
     let mut lines = 0;
     while let Some(range) =
@@ -37,7 +44,8 @@ pub fn buffer_remaining_stream_values_in_auto_deref_iter<
         if let FieldValueSlice::StreamValueId(svs) = range.base.data {
             lines += buffer_remaining_stream_values_in_sv_iter(
                 sv_mgr,
-                RefAwareStreamValueIter::from_range(&range, svs),
+                FieldValueSliceIter::from_range(&range, svs),
+                contiguous,
             );
         }
     }

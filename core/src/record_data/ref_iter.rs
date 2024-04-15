@@ -9,7 +9,6 @@ use super::{
     field_value::{FieldReference, SlicedFieldReference},
     iters::{DestructuredFieldDataRef, FieldDataRef},
     match_set::MatchSetManager,
-    stream_value::StreamValueId,
 };
 
 use crate::record_data::{
@@ -858,71 +857,6 @@ impl<'a> Iterator for RefAwareTextBufferIter<'a> {
             None => {
                 let (data, rl) = self.iter.next()?;
                 Some((data, rl, 0))
-            }
-        }
-    }
-}
-
-pub struct RefAwareStreamValueIter<'a> {
-    iter: FieldValueSliceIter<'a, StreamValueId>,
-    refs: Option<AnyRefSliceIter<'a>>,
-}
-
-impl<'a> RefAwareStreamValueIter<'a> {
-    pub unsafe fn new(
-        values: &'a [StreamValueId],
-        headers: &'a [FieldValueHeader],
-        first_oversize: RunLength,
-        last_oversize: RunLength,
-        refs: Option<AnyRefSliceIter<'a>>,
-    ) -> Self {
-        Self {
-            iter: unsafe {
-                FieldValueSliceIter::new(
-                    values,
-                    headers,
-                    first_oversize,
-                    last_oversize,
-                )
-            },
-            refs,
-        }
-    }
-    pub fn from_range(
-        range: &'a RefAwareTypedRange,
-        values: &'a [StreamValueId],
-    ) -> Self {
-        Self {
-            iter: FieldValueSliceIter::from_valid_range(&range.base, values),
-            refs: range.refs.clone(),
-        }
-    }
-}
-
-impl<'a> Iterator for RefAwareStreamValueIter<'a> {
-    type Item = (StreamValueId, Option<core::ops::Range<usize>>, RunLength);
-    #[inline(always)]
-    fn next(&mut self) -> Option<Self::Item> {
-        match &mut self.refs {
-            Some(AnyRefSliceIter::FieldRef(refs_iter)) => {
-                let (_fr, rl_ref) = refs_iter.peek()?;
-                let (data, rl_data) = self.iter.peek()?;
-                let run_len = rl_ref.min(rl_data);
-                self.iter.next_n_fields(run_len as usize);
-                refs_iter.next_n_fields(run_len as usize);
-                Some((*data, None, run_len))
-            }
-            Some(AnyRefSliceIter::SlicedFieldRef(refs_iter)) => {
-                let (fr, rl_ref) = refs_iter.peek()?;
-                let (data, rl_data) = self.iter.peek()?;
-                let run_len = rl_ref.min(rl_data);
-                self.iter.next_n_fields(run_len as usize);
-                refs_iter.next_n_fields(run_len as usize);
-                Some((*data, Some(fr.begin..fr.end), run_len))
-            }
-            None => {
-                let (data, rl) = self.iter.next()?;
-                Some((*data, None, rl))
             }
         }
     }

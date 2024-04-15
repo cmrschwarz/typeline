@@ -289,6 +289,30 @@ impl<W: TextWrite> std::io::Write for EscapedWriter<W> {
     }
 }
 
+impl<W: TextWrite> TextWrite for EscapedWriter<W> {
+    unsafe fn write_text_unchecked(
+        &mut self,
+        buf: &[u8],
+    ) -> std::io::Result<usize> {
+        std::io::Write::write(self, buf)
+    }
+
+    fn flush_text(&mut self) -> std::io::Result<()> {
+        std::io::Write::flush(self)
+    }
+
+    unsafe fn write_all_text_unchecked(
+        &mut self,
+        buf: &[u8],
+    ) -> std::io::Result<()> {
+        std::io::Write::write_all(self, buf)
+    }
+
+    fn write_all_text(&mut self, buf: &str) -> std::io::Result<()> {
+        std::io::Write::write_all(self, buf.as_bytes())
+    }
+}
+
 impl<W: TextWrite> Drop for EscapedWriter<W> {
     fn drop(&mut self) {
         let _ = std::io::Write::flush(self);

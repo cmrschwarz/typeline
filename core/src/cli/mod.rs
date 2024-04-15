@@ -7,7 +7,6 @@ use crate::{
         },
         call::parse_op_call,
         call_concurrent::parse_op_call_concurrent,
-        cast::{argument_matches_op_cast, parse_op_cast},
         count::parse_op_count,
         end::parse_op_end,
         errors::OperatorCreationError,
@@ -27,6 +26,7 @@ use crate::{
         regex::{parse_op_regex, try_match_regex_cli_argument},
         select::parse_op_select,
         sequence::{parse_op_seq, OpSequenceMode},
+        to_str::{argument_matches_op_to_str, parse_op_to_str},
     },
     options::{
         argument::CliArgIdx, operator_base_options::OperatorBaseOptions,
@@ -481,8 +481,8 @@ fn try_parse_operator_data(
     if let Some(opts) = try_match_regex_cli_argument(arg.argname, idx)? {
         return Ok(Some(parse_op_regex(arg.value, idx, opts)?));
     }
-    if argument_matches_op_cast(arg.argname, arg.value) {
-        return Ok(Some(parse_op_cast(arg.argname, arg.value, idx)?));
+    if argument_matches_op_to_str(arg.argname, arg.value) {
+        return Ok(Some(parse_op_to_str(arg.argname, arg.value, idx)?));
     }
     if argument_matches_op_literal(arg.argname) {
         return Ok(Some(parse_op_literal(

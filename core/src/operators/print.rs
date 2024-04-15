@@ -14,25 +14,30 @@ use crate::{
     },
     options::argument::CliArgIdx,
     record_data::{
-        custom_data::FieldValueFormattingError,
         field_data::field_value_flags,
-        field_value::{format_rational, FormattingContext, RATIONAL_DIGITS},
         field_value_ref::FieldValueSlice,
         field_value_slice_iter::FieldValueSliceIter,
-        formattable::RealizedFormatKey,
+        formattable::{
+            format_error_raw, format_rational_as_decimals_raw, Formattable,
+            FormattingContext, RealizedFormatKey, RATIONAL_DIGITS,
+        },
         iter_hall::IterId,
         iters::{FieldIterator, UnfoldIterRunLength},
         push_interface::PushInterface,
         ref_iter::{
             AutoDerefIter, RefAwareBytesBufferIter,
             RefAwareFieldValueSliceIter, RefAwareInlineBytesIter,
-            RefAwareInlineTextIter, RefAwareStreamValueIter,
-            RefAwareTextBufferIter, RefAwareUnfoldIterRunLength,
+            RefAwareInlineTextIter, RefAwareTextBufferIter,
+            RefAwareUnfoldIterRunLength,
         },
-        stream_value::{StreamValue, StreamValueData, StreamValueId},
+        stream_value::{
+            StreamValue, StreamValueDataOffset, StreamValueId,
+            StreamValueUpdate,
+        },
     },
     utils::{
-        int_string_conversions::i64_to_str, text_write::TextWriteIoAdapter,
+        int_string_conversions::i64_to_str, lazy_lock_guard::LazyRwLockGuard,
+        text_write::TextWriteIoAdapter,
     },
     NULL_STR, UNDEFINED_STR,
 };
@@ -112,46 +117,32 @@ pub fn write_error(
 pub fn error_to_string(e: &OperatorApplicationError) -> String {
     format_args!("{ERROR_PREFIX_STR}{e}").to_string()
 }
-
+// in case of an error, returns the number of successfully completed
+// elements in addition to the io error
 pub fn write_stream_val_check_done(
-    stream: &mut impl Write,
     sv: &StreamValue,
-    offsets: Option<core::ops::Range<usize>>,
+    offset: StreamValueDataOffset,
+    stream: &mut impl Write,
     run_len: usize,
 ) -> Result<bool, (usize, std::io::Error)> {
     let rl_to_attempt = if sv.done || run_len == 0 { run_len } else { 1 };
-    debug_assert!(sv.done || offsets.is_none());
-    match &sv.data {
-        StreamValueData::Bytes(_) | StreamValueData::Text(_) => {
-            if sv.is_buffered && !sv.done {
-                return Ok(false);
-            }
-            let mut data = sv.data.as_field_value_ref().as_slice().as_bytes();
-            if let Some(offsets) = offsets {
-                debug_assert!(sv.is_buffered);
-                data = &data[offsets];
-            }
-            for i in 0..rl_to_attempt {
-                stream
-                    .write(data)
-                    .and_then(|_| {
-                        if sv.done {
-                            stream.write(b"\n")
-                        } else {
-                            Ok(0)
-                        }
-                    })
-                    .map_err(|e| (i, e))?;
-            }
+    if let Some(e) = &sv.error {
+        debug_assert!(sv.done);
+        let tw = &mut TextWriteIoAdapter(stream);
+        for i in 0..rl_to_attempt {
+            format_error_raw(tw, e).map_err(|e| (i, e))?;
         }
-        StreamValueData::Error(e) => {
-            debug_assert!(sv.done);
-            debug_assert!(offsets.is_none());
-            for i in 0..rl_to_attempt {
-                stream
-                    .write_fmt(format_args!("{ERROR_PREFIX_STR}{e}\n"))
-                    .map_err(|e| (i, e))?;
-            }
+        return Ok(true);
+    }
+    for data in sv.data_iter(offset) {
+        stream.write(data.as_bytes()).map_err(|e| (0, e))?;
+    }
+    if sv.done {
+        stream.write(b"\n").map_err(|e| (0, e))?;
+    }
+    for i in 1..rl_to_attempt {
+        for data in sv.data_iter(offset) {
+            stream.write(data.as_bytes()).map_err(|e| (i, e))?;
         }
     }
     Ok(sv.done)
@@ -165,7 +156,7 @@ pub fn handle_tf_print_raw(
     // we need these even in case of an error, so it's an output parameter :/
     handled_field_count: &mut usize,
     last_group_separator_end: &mut usize,
-) -> Result<(), FieldValueFormattingError> {
+) -> std::io::Result<()> {
     let mut stream = print.target.aquire(true);
     *handled_field_count = 0;
     *last_group_separator_end = 0;
@@ -181,7 +172,7 @@ pub fn handle_tf_print_raw(
         .bounded(0, batch_size);
     let mut iter =
         AutoDerefIter::new(&jd.field_mgr, input_field_id, base_iter);
-    let mut string_store = None;
+    let mut string_store = LazyRwLockGuard::new(&jd.session_data.string_store);
     let print_rationals_raw =
         jd.get_transform_chain(tf_id).settings.print_rationals_raw;
     'iter: while let Some(range) = iter.typed_range_fwd(
@@ -270,16 +261,15 @@ pub fn handle_tf_print_raw(
 
             FieldValueSlice::StreamValueId(svs) => {
                 let mut pos = *handled_field_count;
-                let mut sv_iter =
-                    RefAwareStreamValueIter::from_range(&range, svs);
-                while let Some((sv_id, offsets, rl)) = sv_iter.next() {
+                let mut sv_iter = FieldValueSliceIter::from_range(&range, svs);
+                while let Some((&sv_id, rl)) = sv_iter.next() {
                     pos += rl as usize;
                     *handled_field_count += rl as usize;
                     let sv = &mut jd.sv_mgr.stream_values[sv_id];
                     let done = write_stream_val_check_done(
-                        &mut stream,
                         sv,
-                        offsets,
+                        StreamValueDataOffset::default(),
+                        &mut stream,
                         rl as usize,
                     )
                     .map_err(|(i, e)| {
@@ -297,7 +287,7 @@ pub fn handle_tf_print_raw(
                     } else {
                         print.current_stream_val = Some(sv_id);
                         if rl > 1 {
-                            sv.is_buffered = true;
+                            sv.make_buffered();
                         }
                         sv.subscribe(sv_id, tf_id, rl as usize, false);
                         jd.tf_mgr.unclaim_batch_size(
@@ -308,6 +298,7 @@ pub fn handle_tf_print_raw(
                             buffer_remaining_stream_values_in_sv_iter(
                                 &mut jd.sv_mgr,
                                 sv_iter,
+                                false,
                             );
                         print.streams_kept_alive +=
                             buffer_remaining_stream_values_in_auto_deref_iter(
@@ -315,6 +306,7 @@ pub fn handle_tf_print_raw(
                                 &mut jd.sv_mgr,
                                 iter.clone(),
                                 usize::MAX,
+                                false,
                             );
                         iter.move_to_field_pos(pos);
                         break 'iter;
@@ -348,7 +340,7 @@ pub fn handle_tf_print_raw(
                         if print_rationals_raw {
                             stream.write_fmt(format_args!("{v}\n"))?;
                         } else {
-                            format_rational(
+                            format_rational_as_decimals_raw(
                                 &mut TextWriteIoAdapter(&mut stream),
                                 v,
                                 RATIONAL_DIGITS,
@@ -360,11 +352,8 @@ pub fn handle_tf_print_raw(
                 }
             }
             FieldValueSlice::Array(arrays) => {
-                let ss = string_store.get_or_insert_with(|| {
-                    jd.session_data.string_store.read().unwrap()
-                });
-                let fc = FormattingContext {
-                    ss,
+                let mut fc = FormattingContext {
+                    ss: &mut string_store,
                     fm: &jd.field_mgr,
                     msm: &jd.match_set_mgr,
                     print_rationals_raw,
@@ -375,17 +364,14 @@ pub fn handle_tf_print_raw(
                     RefAwareFieldValueSliceIter::from_range(&range, arrays)
                         .unfold_rl()
                 {
-                    a.format(&mut TextWriteIoAdapter(&mut stream), &fc)?;
+                    a.format(&mut fc, &mut TextWriteIoAdapter(&mut stream))?;
                     stream.write_all(b"\n")?;
                     *handled_field_count += 1;
                 }
             }
             FieldValueSlice::Object(objects) => {
-                let ss = string_store.get_or_insert_with(|| {
-                    jd.session_data.string_store.read().unwrap()
-                });
-                let fc = FormattingContext {
-                    ss,
+                let mut fc = FormattingContext {
+                    ss: &mut string_store,
                     fm: &jd.field_mgr,
                     msm: &jd.match_set_mgr,
                     print_rationals_raw,
@@ -396,7 +382,7 @@ pub fn handle_tf_print_raw(
                     RefAwareFieldValueSliceIter::from_range(&range, objects)
                         .unfold_rl()
                 {
-                    o.format(&mut TextWriteIoAdapter(&mut stream), &fc)?;
+                    o.format(&mut fc, &mut TextWriteIoAdapter(&mut stream))?;
                     stream.write_all(b"\n")?;
                     *handled_field_count += 1;
                 }
@@ -481,21 +467,24 @@ pub fn handle_tf_print(
 
 pub fn handle_tf_print_stream_value_update(
     jd: &mut JobData,
-    tf_id: TransformId,
     print: &mut TfPrint,
-    sv_id: StreamValueId,
-    custom: usize,
+    update: StreamValueUpdate,
 ) {
     // we don't use a buffered writer here because stream chunks
     // are large and we want to avoid the copy
-    let sv = &mut jd.sv_mgr.stream_values[sv_id];
-    let run_len = custom;
+    let sv = &mut jd.sv_mgr.stream_values[update.sv_id];
+    let run_len = update.custom;
     let mut success_count = run_len;
     let mut error_count = 0;
     let mut err_message = None;
 
-    let mut stream = print.target.aquire(true);
-    match write_stream_val_check_done(&mut stream, sv, None, run_len) {
+    let mut stream = print.target.aquire(false);
+    match write_stream_val_check_done(
+        sv,
+        update.data_offset,
+        &mut stream,
+        run_len,
+    ) {
         Ok(false) => {
             return;
         }
@@ -510,7 +499,7 @@ pub fn handle_tf_print_stream_value_update(
     if print.flush_on_every_print {
         let _ = stream.flush();
     }
-    let tf = &jd.tf_mgr.transforms[tf_id];
+    let tf = &jd.tf_mgr.transforms[update.tf_id];
     let mut output_field = jd.field_mgr.fields[tf.output_field].borrow_mut();
     if success_count > 0 {
         output_field.iter_hall.push_null(success_count, true);
@@ -519,15 +508,16 @@ pub fn handle_tf_print_stream_value_update(
         output_field.iter_hall.push_error(
             OperatorApplicationError::new_s(
                 err_message,
-                jd.tf_mgr.transforms[tf_id].op_id.unwrap(),
+                jd.tf_mgr.transforms[update.tf_id].op_id.unwrap(),
             ),
             error_count,
             true,
             false,
         );
-        jd.sv_mgr.drop_field_value_subscription(sv_id, Some(tf_id));
+        jd.sv_mgr
+            .drop_field_value_subscription(update.sv_id, Some(update.tf_id));
     }
 
     print.current_stream_val = None;
-    jd.tf_mgr.push_tf_in_ready_stack(tf_id);
+    jd.tf_mgr.push_tf_in_ready_stack(update.tf_id);
 }

@@ -206,7 +206,7 @@ impl SessionOptions {
             OperatorData::Print(_)
             | OperatorData::Call(_)
             | OperatorData::Count(_)
-            | OperatorData::Cast(_)
+            | OperatorData::ToStr(_)
             | OperatorData::Key(_)
             | OperatorData::Nop(_)
             | OperatorData::NopCopy(_)
@@ -295,7 +295,7 @@ impl SessionOptions {
             OperatorData::Custom(op) => op.on_subchains_added(sc_count_after),
             OperatorData::Call(_)
             | OperatorData::CallConcurrent(_)
-            | OperatorData::Cast(_)
+            | OperatorData::ToStr(_)
             | OperatorData::Count(_)
             | OperatorData::Print(_)
             | OperatorData::Join(_)
@@ -377,7 +377,7 @@ impl SessionOptions {
             OperatorData::Aggregator(_) => {
                 setup_op_aggregator(sess, chain_id, op_id)?;
             }
-            OperatorData::Cast(_)
+            OperatorData::ToStr(_)
             | OperatorData::Count(_)
             | OperatorData::Sequence(_)
             | OperatorData::Literal(_)
@@ -468,7 +468,7 @@ impl SessionOptions {
                     Self::setup_op_liveness(sess, ld, sc_id);
                 }
             }
-            OperatorData::Cast(_)
+            OperatorData::ToStr(_)
             | OperatorData::Call(_)
             | OperatorData::Nop(_)
             | OperatorData::Count(_)

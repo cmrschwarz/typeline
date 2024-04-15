@@ -14,7 +14,7 @@ use scr_core::{
     liveness_analysis::OpOutputIdx,
     operators::{
         errors::OperatorApplicationError,
-        operator::{Operator, OperatorBase, OperatorData},
+        operator::{Operator, OperatorBase, OperatorData, OperatorId},
         transform::{
             basic_transform_update, BasicUpdateData, Transform, TransformData,
             TransformId, TransformState,
@@ -25,7 +25,10 @@ use scr_core::{
         field_value_ref::FieldValueRef,
         iter_hall::{IterId, IterKind},
         push_interface::PushInterface,
-        stream_value::{StreamValue, StreamValueData, StreamValueId},
+        stream_value::{
+            StreamValue, StreamValueBufferMode, StreamValueData,
+            StreamValueDataType, StreamValueId,
+        },
     },
     smallbox,
     utils::{identity_hasher::BuildIdentityHasher, universe::CountedUniverse},
@@ -99,7 +102,6 @@ pub struct TfHttpRequest {
     tls_config: Arc<rustls::ClientConfig>,
     poll: Poll,
     events: Events,
-    stream_buffer_size: usize,
 }
 
 impl Operator for OpHttpRequest {
@@ -142,14 +144,17 @@ impl Operator for OpHttpRequest {
                 tf_state.input_field,
                 IterKind::Transform(jd.tf_mgr.transforms.peek_claim_id()),
             ),
-            stream_buffer_size: jd
-                .get_transform_chain_from_tf_state(tf_state)
-                .settings
-                .stream_buffer_size,
             tls_config: self.client_config.clone(),
         };
         TransformData::Custom(smallbox!(tf))
     }
+}
+
+enum EventResult {
+    Spurious,
+    Update,
+    Done,
+    TryNextIp,
 }
 
 impl TfHttpRequest {
@@ -217,11 +222,15 @@ impl TfHttpRequest {
             self.setup_connection(first_addr, https, hostname, token)?;
 
         let stream_value =
-            bud.sv_mgr
-                .claim_stream_value(StreamValue::from_data_unfinished(
-                    StreamValueData::Bytes(Vec::new()),
-                    false,
-                ));
+            bud.sv_mgr.claim_stream_value(StreamValue::from_data(
+                Some(StreamValueDataType::Bytes),
+                StreamValueData::Bytes {
+                    data: Arc::new(Vec::new()),
+                    range: 0..0,
+                },
+                StreamValueBufferMode::Stream,
+                false,
+            ));
 
         // Accept-Encoding: identity\r\n\
         let httpreq = format!(
@@ -324,6 +333,73 @@ impl TfHttpRequest {
             bud.tf_mgr.make_stream_producer(bud.tf_id);
         }
         (bud.batch_size, bud.ps.input_done)
+    }
+
+    fn handle_event(
+        req: &mut Connection,
+        op_id: OperatorId,
+        event: &Event,
+        buf: &mut Vec<u8>,
+        buffer_size: usize,
+    ) -> Result<EventResult, Arc<OperatorApplicationError>> {
+        let buf_len_before = buf.len();
+        let mut result = EventResult::Spurious;
+        match process_event(event, req, buf, buffer_size) {
+            Err(HttpRequestError::Io(e))
+                if e.kind() == std::io::ErrorKind::ConnectionRefused
+                    && !req.remaining_socket_addresses.is_empty() =>
+            {
+                return Ok(EventResult::TryNextIp);
+            }
+            Err(e) => {
+                return Err(Arc::new(OperatorApplicationError::new_s(
+                    format!("IO Error in HTTP GET Request: {e}"),
+                    op_id,
+                )));
+            }
+            Ok(eof) => {
+                let len_read = buf.len() - buf_len_before;
+                req.response_size += len_read;
+                let update = len_read > 0 || eof;
+                if update && !req.header_parsed && header_completed(req, buf) {
+                    // TODO: proper parsing
+                    buf.drain(0..req.header_parsed_until as usize);
+                    req.header_parsed = true;
+                    if let Some(len) = &mut req.expected_response_size {
+                        *len += req.header_parsed_until as usize;
+                    }
+                    result = EventResult::Update;
+                }
+                if eof {
+                    if !req.header_parsed {
+                        return Err(Arc::new(OperatorApplicationError::new(
+                            if req.response_size == 0 {
+                                "HTTP GET got no response"
+                            } else {
+                                "HTTP GET got invalid response"
+                            },
+                            op_id,
+                        )));
+                    }
+                    result = EventResult::Done;
+                }
+            }
+        }
+        if let Some(len) = req.expected_response_size {
+            if req.header_parsed && req.response_size >= len {
+                if let Some(tls) = &mut req.tls_conn {
+                    tls.send_close_notify();
+                } else {
+                    let _ignored =
+                        req.socket.shutdown(std::net::Shutdown::Both);
+                }
+                if req.response_size > len {
+                    let handled = req.response_size - buf.len();
+                    buf.truncate(len - handled);
+                };
+            }
+        }
+        Ok(result)
     }
 }
 
@@ -459,6 +535,8 @@ impl Transform for TfHttpRequest {
         jd: &mut JobData,
         tf_id: TransformId,
     ) {
+        let stream_batch_size =
+            jd.get_transform_chain(tf_id).settings.stream_buffer_size;
         let op_id = jd.tf_mgr.transforms[tf_id].op_id.unwrap();
         if let Err(e) = self
             .poll
@@ -469,12 +547,10 @@ impl Transform for TfHttpRequest {
                 let _ = pe.socket.shutdown(std::net::Shutdown::Both);
                 let sv_id = pe.stream_value.unwrap();
                 let sv = &mut jd.sv_mgr.stream_values[sv_id];
-                sv.data =
-                    StreamValueData::Error(OperatorApplicationError::new_s(
-                        format!("IO Error in HTTP GET Request: {e}"),
-                        jd.tf_mgr.transforms[tf_id].op_id.unwrap(),
-                    ));
-                sv.done = true;
+                sv.set_error(Arc::new(OperatorApplicationError::new_s(
+                    format!("IO Error in HTTP GET Request: {e}"),
+                    jd.tf_mgr.transforms[tf_id].op_id.unwrap(),
+                )));
                 jd.sv_mgr.inform_stream_value_subscribers(sv_id);
                 jd.sv_mgr.drop_field_value_subscription(sv_id, None);
             }
@@ -484,116 +560,59 @@ impl Transform for TfHttpRequest {
 
         for event in &self.events {
             let Token(token) = event.token();
-            let mut req = &mut self.running_connections[token];
+            let req = &mut self.running_connections[token];
             let sv_id = req.stream_value.unwrap();
             let sv = &mut jd.sv_mgr.stream_values[sv_id];
 
-            let StreamValueData::Bytes(buf) = &mut sv.data else {
-                unreachable!()
-            };
-            if req.header_parsed && !sv.is_buffered {
-                buf.clear();
-            }
-            let buf_len_before = buf.len();
-            let mut update = false;
-            match process_event(event, req, buf, self.stream_buffer_size) {
-                Err(HttpRequestError::Io(e))
-                    if e.kind() == std::io::ErrorKind::ConnectionRefused
-                        && !req.remaining_socket_addresses.is_empty() =>
-                {
+            let mut inserter =
+                sv.data_inserter(stream_batch_size, req.header_parsed);
+            let res = inserter.with_bytes_buffer(|buf| {
+                Self::handle_event(req, op_id, event, buf, stream_batch_size)
+            });
+            drop(inserter);
+            match res {
+                Err(e) => {
+                    sv.set_error(e);
+                    continue;
+                }
+                Ok(EventResult::TryNextIp) => {
                     let addr = req.remaining_socket_addresses.pop().unwrap();
                     let imm_req = &self.running_connections[token];
                     let https = imm_req.tls_conn.is_some();
                     let hostname = &imm_req.hostname;
                     let result =
                         self.setup_connection(addr, https, hostname, token);
-                    req = &mut self.running_connections[token];
+                    let req = &mut self.running_connections[token];
                     match result {
                         Ok((socket, tls_conn)) => {
                             req.tls_conn = tls_conn;
                             req.socket = socket;
                         }
                         Err(e) => {
-                            sv.data = StreamValueData::Error(
+                            sv.set_error(Arc::new(
                                 // ENHANCE: include number of addresses tried
                                 OperatorApplicationError::new_s(
                                     format!("HTTP GET request failed: {e}"),
                                     op_id,
                                 ),
-                            );
-                            sv.done = true;
+                            ));
                         }
                     }
                 }
-                Err(e) => {
-                    sv.data = StreamValueData::Error(
-                        OperatorApplicationError::new_s(
-                            format!("IO Error in HTTP GET Request: {e}"),
-                            op_id,
-                        ),
-                    );
+                Ok(EventResult::Spurious) => {
+                    req.reregister(self.poll.registry(), mio::Token(token));
+                }
+                Ok(EventResult::Update) => {
+                    jd.sv_mgr.inform_stream_value_subscribers(sv_id);
+                    req.reregister(self.poll.registry(), mio::Token(token));
+                }
+                Ok(EventResult::Done) => {
                     sv.done = true;
+                    jd.sv_mgr.inform_stream_value_subscribers(sv_id);
+                    let _ = self.poll.registry().deregister(&mut req.socket);
+                    self.running_connections.release(token);
+                    jd.sv_mgr.drop_field_value_subscription(sv_id, None);
                 }
-                Ok(eof) => {
-                    let len_read = buf.len() - buf_len_before;
-                    req.response_size += len_read;
-                    update = len_read > 0 || eof;
-                    if update && !req.header_parsed {
-                        if header_completed(req, buf) {
-                            // TODO: proper parsing
-                            buf.drain(0..req.header_parsed_until as usize);
-                            req.header_parsed = true;
-                            if let Some(len) = &mut req.expected_response_size
-                            {
-                                *len += req.header_parsed_until as usize;
-                            }
-                        } else {
-                            update = false;
-                        }
-                    }
-                    if eof {
-                        if !req.header_parsed {
-                            sv.data = StreamValueData::Error(
-                                OperatorApplicationError::new(
-                                    if req.response_size == 0 {
-                                        "HTTP GET got no response"
-                                    } else {
-                                        "HTTP GET got invalid response"
-                                    },
-                                    jd.tf_mgr.transforms[tf_id].op_id.unwrap(),
-                                ),
-                            );
-                        }
-                        sv.done = true;
-                    }
-                }
-            }
-            if let Some(len) = req.expected_response_size {
-                if let StreamValueData::Bytes(buf) = &mut sv.data {
-                    if req.header_parsed && req.response_size >= len {
-                        if let Some(tls) = &mut req.tls_conn {
-                            tls.send_close_notify();
-                        } else {
-                            let _ignored =
-                                req.socket.shutdown(std::net::Shutdown::Both);
-                        }
-                        if req.response_size > len {
-                            let handled = req.response_size - buf.len();
-                            buf.truncate(len - handled);
-                        };
-                    }
-                }
-            }
-            let done = sv.done;
-            if done || update {
-                jd.sv_mgr.inform_stream_value_subscribers(sv_id);
-            }
-            if done {
-                let _ = self.poll.registry().deregister(&mut req.socket);
-                self.running_connections.release(token);
-                jd.sv_mgr.drop_field_value_subscription(sv_id, None);
-            } else {
-                req.reregister(self.poll.registry(), mio::Token(token));
             }
         }
         if !self.running_connections.is_empty() {

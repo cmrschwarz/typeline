@@ -22,7 +22,6 @@ use super::{
     aggregator::{OpAggregator, AGGREGATOR_DEFAULT_NAME},
     call::OpCall,
     call_concurrent::OpCallConcurrent,
-    cast::OpCast,
     count::OpCount,
     end::OpEnd,
     errors::OperatorSetupError,
@@ -43,6 +42,7 @@ use super::{
     select::OpSelect,
     sequence::OpSequence,
     string_sink::OpStringSink,
+    to_str::OpToStr,
     transform::{TransformData, TransformState},
 };
 
@@ -54,7 +54,7 @@ pub enum OperatorData {
     NopCopy(OpNopCopy),
     Call(OpCall),
     CallConcurrent(OpCallConcurrent),
-    Cast(OpCast),
+    ToStr(OpToStr),
     Count(OpCount),
     Print(OpPrint),
     Join(OpJoin),
@@ -123,7 +123,7 @@ impl OperatorData {
             OperatorData::Next(_) => "next".into(),
             OperatorData::End(_) => "end".into(),
             OperatorData::Count(_) => "count".into(),
-            OperatorData::Cast(op) => op.default_op_name(),
+            OperatorData::ToStr(op) => op.default_op_name(),
             OperatorData::Call(_) => "call".into(),
             OperatorData::CallConcurrent(_) => "callcc".into(),
             OperatorData::Nop(_) => "nop".into(),
@@ -161,7 +161,7 @@ impl OperatorData {
             | OperatorData::Literal(_)
             | OperatorData::Join(_)
             | OperatorData::Count(_)
-            | OperatorData::Cast(_)
+            | OperatorData::ToStr(_)
             | OperatorData::Call(_)
             | OperatorData::CallConcurrent(_)
             | OperatorData::Nop(_)
@@ -192,7 +192,7 @@ impl OperatorData {
             | OperatorData::Literal(_)
             | OperatorData::Join(_)
             | OperatorData::Count(_)
-            | OperatorData::Cast(_)
+            | OperatorData::ToStr(_)
             | OperatorData::Call(_)
             | OperatorData::CallConcurrent(_)
             | OperatorData::Aggregator(_)

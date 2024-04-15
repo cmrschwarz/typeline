@@ -1,8 +1,7 @@
 use std::borrow::Cow;
 
 use scr::record_data::{
-    custom_data::{CustomData, FieldValueFormattingError},
-    formattable::RealizedFormatKey,
+    custom_data::CustomData, formattable::RealizedFormatKey,
 };
 use scr_core::{
     operators::string_sink::{create_op_string_sink, StringSinkHandle},
@@ -26,8 +25,7 @@ impl CustomData for DummyCustomType {
         &self,
         w: &mut dyn scr::utils::text_write::TextWrite,
         _format: &RealizedFormatKey,
-    ) -> Result<(), scr::record_data::custom_data::FieldValueFormattingError>
-    {
+    ) -> std::io::Result<()> {
         w.write_all_text("dummy")?;
         Ok(())
     }
@@ -47,9 +45,8 @@ impl CustomData for DummyCustomTypeNoStringify {
         &self,
         _w: &mut dyn scr::utils::text_write::TextWrite,
         _format: &RealizedFormatKey,
-    ) -> Result<(), scr::record_data::custom_data::FieldValueFormattingError>
-    {
-        Err(FieldValueFormattingError::NotSupported)
+    ) -> std::io::Result<()> {
+        Err(std::io::ErrorKind::Unsupported.into())
     }
 }
 

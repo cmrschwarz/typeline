@@ -16,8 +16,7 @@ use crate::{
         ref_iter::{
             AutoDerefIter, RefAwareBytesBufferIter,
             RefAwareFieldValueSliceIter, RefAwareInlineBytesIter,
-            RefAwareInlineTextIter, RefAwareStreamValueIter,
-            RefAwareTextBufferIter,
+            RefAwareInlineTextIter, RefAwareTextBufferIter,
         },
         stream_value::StreamValueId,
     },
@@ -242,37 +241,22 @@ pub fn handle_tf_field_value_sink(
             }
             FieldValueSlice::StreamValueId(sv_ids) => {
                 let mut pos = field_pos;
-                for (svid, range, rl) in
-                    RefAwareStreamValueIter::from_range(&range, sv_ids)
+                for (svid, rl) in
+                    FieldValueSliceIter::from_range(&range, sv_ids)
                 {
                     let start_idx = pos;
                     let run_len = rl as usize;
                     pos += run_len;
-                    let sv = &mut jd.sv_mgr.stream_values[svid];
+                    let sv = &mut jd.sv_mgr.stream_values[*svid];
                     if !sv.done {
                         let handle_id =
                             ss.stream_value_handles.claim_with_value(
                                 StreamValueHandle { start_idx, run_len },
                             );
-                        sv.subscribe(svid, tf_id, handle_id, true);
+                        sv.subscribe(*svid, tf_id, handle_id, true);
                         continue;
                     }
-                    if let Some(range) = range {
-                        push_field_values(
-                            &mut fvs,
-                            sv.data
-                                .as_field_value_ref()
-                                .subslice(range)
-                                .to_field_value(),
-                            run_len,
-                        );
-                        continue;
-                    }
-                    push_field_values(
-                        &mut fvs,
-                        sv.data.to_field_value(),
-                        run_len,
-                    );
+                    push_field_values(&mut fvs, sv.to_field_value(), run_len);
                 }
             }
             FieldValueSlice::BigInt(_)
@@ -345,7 +329,7 @@ pub fn handle_tf_field_value_sink_stream_value_update(
     let sv = &mut jd.sv_mgr.stream_values[sv_id];
     debug_assert!(sv.done);
     for fv in &mut fvs[svh.start_idx..svh.start_idx + svh.run_len] {
-        *fv = sv.data.to_field_value();
+        *fv = sv.to_field_value();
     }
     jd.sv_mgr.drop_field_value_subscription(sv_id, None);
     tf.stream_value_handles.release(custom);

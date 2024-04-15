@@ -3,12 +3,11 @@ use std::{
     fs::File,
     io::{stdin, BufRead, BufReader, ErrorKind, IsTerminal, Read, Write},
     path::PathBuf,
-    sync::Mutex,
+    sync::{Arc, Mutex},
 };
 
 use regex::Regex;
 use smallstr::SmallString;
-use smallvec::SmallVec;
 
 use crate::{
     chain::{BufferingMode, Chain},
@@ -21,7 +20,10 @@ use crate::{
         },
         iter_hall::IterId,
         push_interface::PushInterface,
-        stream_value::{StreamValue, StreamValueData, StreamValueId},
+        stream_value::{
+            StreamValue, StreamValueBufferMode, StreamValueData,
+            StreamValueDataType, StreamValueId,
+        },
     },
 };
 
@@ -281,7 +283,6 @@ fn start_streaming_file(
     let mut buf = Vec::with_capacity(fr.stream_buffer_size);
     buf.extend(fdi.data.range(size_before..(size_before + chunk_size)));
     fdi.data.truncate(size_before);
-    let mut done = false;
     let buf_len = buf.len();
     if buf_len < fr.stream_buffer_size {
         match read_chunk(
@@ -291,9 +292,12 @@ fn start_streaming_file(
             fr.line_buffered,
         ) {
             Ok((_size, eof)) => {
-                done = eof;
                 if eof {
                     fr.file.take();
+                    output_field
+                        .iter_hall
+                        .push_bytes_buffer(buf, 1, false, false);
+                    return;
                 }
             }
             Err(e) => {
@@ -307,13 +311,15 @@ fn start_streaming_file(
             }
         }
     };
-    let sv_id = jd.sv_mgr.claim_stream_value(StreamValue {
-        data: StreamValueData::Bytes(buf),
-        done,
-        ref_count: 1,
-        is_buffered: false,
-        subscribers: SmallVec::new(),
-    });
+    let sv_id = jd.sv_mgr.claim_stream_value(StreamValue::from_data(
+        Some(StreamValueDataType::Bytes),
+        StreamValueData::Bytes {
+            range: 0..buf.len(),
+            data: Arc::new(buf),
+        },
+        StreamValueBufferMode::Stream,
+        false,
+    ));
     fr.stream_value = Some(sv_id);
     output_field
         .iter_hall
@@ -340,31 +346,30 @@ pub fn handle_tf_file_reader_stream(
     let tf = &jd.tf_mgr.transforms[tf_id];
     if !tf.predecessor_done {
         // if we aren't done, subsequent records might need the stream
-        sv.is_buffered = true;
+        sv.buffer_mode.require_buffered();
     }
 
-    let res = match &mut sv.data {
-        StreamValueData::Bytes(ref mut bc) => {
-            if !sv.is_buffered {
-                bc.clear();
-            }
-            read_chunk(bc, file, fr.stream_buffer_size, fr.line_buffered)
-        }
-        StreamValueData::Error(_) => Ok((0, true)),
-        StreamValueData::Text(_) => unreachable!(),
-    };
+    let res = sv
+        .data_inserter(fr.stream_buffer_size, true)
+        .with_bytes_buffer(|buf| {
+            read_chunk(buf, file, fr.stream_buffer_size, fr.line_buffered)
+        });
+
     let done = match res {
-        Ok((_size, eof)) => eof,
+        Ok((_size, eof)) => {
+            sv.done = eof;
+            eof
+        }
         Err(err) => {
             let err = io_error_to_op_error(
                 jd.tf_mgr.transforms[tf_id].op_id.unwrap(),
                 &err,
             );
-            sv.data = StreamValueData::Error(err);
+            sv.set_error(Arc::new(err));
             true
         }
     };
-    sv.done = done;
+
     jd.sv_mgr.inform_stream_value_subscribers(sv_id);
     if done {
         fr.file.take();

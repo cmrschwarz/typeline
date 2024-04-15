@@ -1,33 +1,18 @@
-use std::{
-    any::Any,
-    fmt::Display,
-    io::Write,
-    mem::ManuallyDrop,
-    ops::{Add, AddAssign, Div, MulAssign, Rem, Sub},
-};
+use std::{any::Any, fmt::Display, mem::ManuallyDrop};
 
 use indexmap::IndexMap;
-use num::{BigInt, BigRational, FromPrimitive, One, Signed, Zero};
+use num::{BigInt, BigRational};
 
 use crate::{
     operators::errors::OperatorApplicationError,
-    utils::{
-        escaped_writer::EscapedWriter,
-        string_store::{StringStore, StringStoreEntry},
-        text_write::{
-            MaybeTextWrite, TextWrite, TextWriteIoAdapter, TextWriteRefAdapter,
-        },
-    },
-    NULL_STR, UNDEFINED_STR,
+    utils::{maybe_text::MaybeText, string_store::StringStoreEntry},
 };
 
 use super::{
-    custom_data::{CustomDataBox, FieldValueFormattingError},
-    field::{FieldManager, FieldRefOffset},
+    custom_data::CustomDataBox,
+    field::FieldRefOffset,
     field_data::{FieldValueRepr, FieldValueType, FixedSizeFieldValueType},
     field_value_ref::FieldValueRef,
-    formattable::{RealizedFormatKey, ValueFormattingOpts},
-    match_set::MatchSetManager,
     stream_value::StreamValueId,
 };
 
@@ -71,8 +56,12 @@ pub enum FieldValue {
     BigInt(BigInt),
     Float(f64),
     Rational(Box<BigRational>),
+    // PERF: better to use a custom version of Arc<String> for this with only
+    // one indirection (and no weak refs) that still stores the capacity
+    // (unlike `Arc<str>`). Maybe that type stores the meta info at
+    // the end so we can convert to `String` without realloc or memcpy
     Text(String),
-    Bytes(Vec<u8>),
+    Bytes(Vec<u8>), // TODO: same as for `Text`
     Array(Array),
     Object(Object),
     Custom(CustomDataBox),
@@ -392,19 +381,18 @@ impl FieldValue {
             }
         }
     }
-    pub fn format(
-        &self,
-        w: &mut impl TextWrite,
-        fc: &FormattingContext<'_>,
-    ) -> Result<(), FieldValueFormattingError> {
-        self.as_ref().format(w, fc)
+    pub fn from_maybe_text(t: MaybeText) -> Self {
+        match t {
+            MaybeText::Text(t) => FieldValue::Text(t),
+            MaybeText::Bytes(b) => FieldValue::Bytes(b),
+        }
     }
-    pub fn format_raw(
-        &self,
-        w: &mut impl MaybeTextWrite,
-        fc: &FormattingContext<'_>,
-    ) -> Result<(), FieldValueFormattingError> {
-        self.as_ref().format_raw(w, fc)
+    pub fn into_maybe_text(self) -> Option<MaybeText> {
+        match self {
+            FieldValue::Text(t) => Some(MaybeText::Text(t)),
+            FieldValue::Bytes(b) => Some(MaybeText::Bytes(b)),
+            _ => None,
+        }
     }
     pub fn from_fixed_sized_type<T: FixedSizeFieldValueType + Sized>(
         v: T,
@@ -459,223 +447,5 @@ impl FieldValue {
     }
     pub fn is_valid_utf8(&self) -> bool {
         self.kind().is_valid_utf8()
-    }
-}
-
-pub fn format_bytes(w: &mut impl TextWrite, v: &[u8]) -> std::io::Result<()> {
-    w.write_all_text("b'")?;
-    let mut w = EscapedWriter::new(TextWriteRefAdapter(w), b'"');
-    std::io::Write::write_all(&mut w, v)?;
-    w.into_inner().unwrap().write_all_text("'")?;
-    Ok(())
-}
-pub fn format_bytes_raw(
-    w: &mut impl std::io::Write,
-    v: &[u8],
-) -> std::io::Result<()> {
-    // TODO: proper raw encoding
-    format_bytes(&mut TextWriteIoAdapter(w), v)
-}
-
-pub fn format_quoted_string(
-    w: &mut impl TextWrite,
-    v: &str,
-) -> std::io::Result<()> {
-    w.write_all_text("\"")?;
-    let mut w = EscapedWriter::new(TextWriteRefAdapter(w), b'"');
-    w.write_all(v.as_bytes())?;
-    w.into_inner().unwrap().write_all_text("\"")?;
-    Ok(())
-}
-
-pub fn format_error(
-    w: &mut impl TextWrite,
-    v: &OperatorApplicationError,
-) -> std::io::Result<()> {
-    w.write_text_fmt(format_args!("(\"error\")\"{v}\""))
-}
-
-pub struct FormattingContext<'a> {
-    pub ss: &'a StringStore,
-    pub fm: &'a FieldManager,
-    pub msm: &'a MatchSetManager,
-    pub print_rationals_raw: bool,
-    pub is_stream_value: bool,
-    pub rfk: RealizedFormatKey,
-}
-
-impl<'a> FormattingContext<'a> {
-    pub fn value_formatting_opts(&self) -> ValueFormattingOpts {
-        ValueFormattingOpts {
-            is_stream_value: self.is_stream_value,
-            type_repr_format: self.rfk.opts.type_repr,
-        }
-    }
-}
-
-pub const RATIONAL_DIGITS: u32 = 40; // TODO: make this configurable
-
-pub fn format_rational(
-    w: &mut impl TextWrite,
-    v: &BigRational,
-    decimals: u32,
-) -> std::io::Result<()> {
-    // PERF: this function is stupid
-    if v.is_integer() {
-        w.write_text_fmt(format_args!("{v}"))?;
-        return Ok(());
-    }
-    let negative = v.is_negative();
-    let mut whole_number = v.to_integer();
-    let mut v = v.sub(&whole_number).abs();
-    let one_half =
-        BigRational::new(BigInt::one(), BigInt::from_u8(2).unwrap());
-    if decimals == 0 {
-        if v >= one_half {
-            whole_number.add_assign(if negative {
-                -BigInt::one()
-            } else {
-                BigInt::one()
-            });
-        }
-        w.write_text_fmt(format_args!("{whole_number}"))?;
-        return Ok(());
-    }
-    w.write_text_fmt(format_args!("{}.", &whole_number))?;
-
-    v.mul_assign(BigInt::from_u64(10).unwrap().pow(decimals));
-    let mut decimal_part = v.to_integer();
-    v = v.sub(&decimal_part).abs();
-    if v >= one_half {
-        decimal_part.add_assign(BigInt::one());
-    }
-    if !v.is_zero() {
-        w.write_text_fmt(format_args!("{}", &decimal_part))?;
-        return Ok(());
-    }
-    let ten = BigInt::from_u8(10).unwrap();
-    // PERF: really bad
-    loop {
-        let rem = decimal_part.clone().rem(&ten);
-        if !rem.is_zero() {
-            break;
-        }
-        decimal_part = decimal_part.div(&ten).add(rem);
-    }
-    w.write_text_fmt(format_args!("{}", &decimal_part))?;
-    Ok(())
-}
-
-impl Object {
-    pub fn format(
-        &self,
-        w: &mut impl TextWrite,
-        fc: &FormattingContext<'_>,
-    ) -> Result<(), FieldValueFormattingError> {
-        w.write_all_text("{")?;
-        // TODO: escape keys
-        let mut first = true;
-        match self {
-            Object::KeysStored(m) => {
-                for (k, v) in m.iter() {
-                    if first {
-                        first = false;
-                    } else {
-                        w.write_all_text(", ")?;
-                    }
-                    format_quoted_string(w, k)?;
-                    w.write_all_text(": ")?;
-                    v.format(w, fc)?;
-                }
-            }
-            Object::KeysInterned(m) => {
-                for (&k, v) in m.iter() {
-                    if first {
-                        first = false;
-                    } else {
-                        w.write_all_text(", ")?;
-                    }
-                    format_quoted_string(w, fc.ss.lookup(k))?;
-                    w.write_all_text(": ")?;
-                    v.format(w, fc)?;
-                }
-            }
-        }
-        w.write_all_text("}")?;
-        Ok(())
-    }
-}
-
-impl Array {
-    pub fn format(
-        &self,
-        w: &mut impl TextWrite,
-        fc: &FormattingContext<'_>,
-    ) -> Result<(), FieldValueFormattingError> {
-        fn format_array<'a, T: 'a, I: Iterator<Item = &'a T>, W: TextWrite>(
-            w: &mut W,
-            fc: &FormattingContext<'_>,
-            iter: I,
-            mut f: impl FnMut(
-                &mut W,
-                &FormattingContext<'_>,
-                &T,
-            ) -> Result<(), FieldValueFormattingError>,
-        ) -> Result<(), FieldValueFormattingError> {
-            w.write_all_text("[")?;
-            let mut first = true;
-            for i in iter {
-                if first {
-                    first = false;
-                } else {
-                    w.write_all_text(", ")?;
-                }
-                f(w, fc, i)?;
-            }
-            w.write_all_text("]")?;
-            Ok(())
-        }
-        match self {
-            Array::Null(v) => {
-                format_array(w, fc, (0..*v).map(|_| &()), |f, _, ()| {
-                    f.write_all_text(NULL_STR).map_err(Into::into)
-                })
-            }
-            Array::Undefined(v) => {
-                format_array(w, fc, (0..*v).map(|_| &()), |f, _, ()| {
-                    f.write_all_text(UNDEFINED_STR).map_err(Into::into)
-                })
-            }
-            Array::Int(v) => format_array(w, fc, v.iter(), |f, _, v| {
-                f.write_text_fmt(format_args!("{v}")).map_err(Into::into)
-            }),
-            Array::Bytes(v) => format_array(w, fc, v.iter(), |f, _, v| {
-                format_bytes(f, v).map_err(Into::into)
-            }),
-            Array::String(v) => format_array(w, fc, v.iter(), |f, _, v| {
-                format_quoted_string(f, v).map_err(Into::into)
-            }),
-            Array::Error(v) => format_array(w, fc, v.iter(), |f, _, v| {
-                format_error(f, v).map_err(Into::into)
-            }),
-            Array::Array(v) => {
-                format_array(w, fc, v.iter(), |f, fc, v| v.format(f, fc))
-            }
-            Array::Object(v) => {
-                format_array(w, fc, v.iter(), |f, fc, v| v.format(f, fc))
-            }
-            Array::FieldReference(v) => {
-                format_array(w, fc, v.iter(), |_f, _, _v| todo!())
-            }
-            Array::SlicedFieldReference(v) => {
-                format_array(w, fc, v.iter(), |_f, _, _v| todo!())
-            }
-            Array::Custom(v) => {
-                format_array(w, fc, v.iter(), |f, fc, v| v.format(f, &fc.rfk))
-            }
-            Array::Mixed(v) => {
-                format_array(w, fc, v.iter(), |f, fc, v| v.format(f, fc))
-            }
-        }
     }
 }

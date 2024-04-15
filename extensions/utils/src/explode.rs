@@ -51,18 +51,22 @@ pub enum TargetField {
     Pending(u32),
 }
 
+const PENDING_FIELDS_CHUNK_SIZE: usize = 4;
+
 pub struct TfExplode {
     target_fields: IndexMap<Option<StringStoreEntry>, TargetField>,
+    // we need a stable vec so we can use references to it in the inserters
+    pending_fields:
+        StableVec<(RefCell<FieldData>, usize), PENDING_FIELDS_CHUNK_SIZE>,
     inserters: Vec<VaryingTypeInserter<RefMut<'static, FieldData>>>,
-    pending_fields: StableVec<(RefCell<FieldData>, usize)>,
     input_iter_id: IterId,
     input_field_field_ref_offset: FieldRefOffset,
 }
 
-// SAFETY: this type is not automatically sync because of pending_fields:
-// StableVec but we ensure that the StableVec is never exposed and only used
-// by &mut self functions
-unsafe impl Sync for TfExplode {}
+// SAFETY: this type is not automatically sync because of
+// StableVec and RefCell but we ensure that the those fields are
+// always cleared between method calls
+unsafe impl Send for TfExplode {}
 
 pub fn parse_op_explode(
     value: Option<&[u8]>,
@@ -144,7 +148,10 @@ impl Operator for OpExplode {
 }
 
 fn insert_into_key<'a>(
-    pending_fields: &'a StableVec<(RefCell<FieldData>, usize)>,
+    pending_fields: &'a StableVec<
+        (RefCell<FieldData>, usize),
+        PENDING_FIELDS_CHUNK_SIZE,
+    >,
     fm: &'a FieldManager,
     target_fields: &mut IndexMap<Option<StringStoreEntry>, TargetField>,
     inserters: &mut Vec<VaryingTypeInserter<RefMut<'a, FieldData>>>,

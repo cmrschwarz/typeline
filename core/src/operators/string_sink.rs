@@ -13,24 +13,26 @@ use crate::{
     record_data::{
         field::Field,
         field_data::field_value_flags,
-        field_value::FormattingContext,
         field_value_ref::FieldValueSlice,
         field_value_slice_iter::FieldValueSliceIter,
-        formattable::RealizedFormatKey,
+        formattable::{Formattable, FormattingContext, RealizedFormatKey},
         iter_hall::IterId,
         iters::FieldIterator,
         push_interface::PushInterface,
         ref_iter::{
             AutoDerefIter, RefAwareBytesBufferIter,
             RefAwareFieldValueSliceIter, RefAwareInlineBytesIter,
-            RefAwareInlineTextIter, RefAwareStreamValueIter,
-            RefAwareTextBufferIter,
+            RefAwareInlineTextIter, RefAwareTextBufferIter,
         },
-        stream_value::{StreamValue, StreamValueData, StreamValueId},
+        stream_value::{
+            StorageAgnosticStreamValueDataRef, StreamValue,
+            StreamValueDataOffset, StreamValueUpdate,
+        },
     },
     utils::{
         identity_hasher::BuildIdentityHasher,
         int_string_conversions::i64_to_str,
+        lazy_lock_guard::LazyRwLockGuard,
         text_write::{MaybeTextWriteFlaggedAdapter, TextWriteIoAdapter},
         universe::CountedUniverse,
     },
@@ -58,6 +60,12 @@ impl StringSink {
     ) {
         self.error_indices.insert(index, self.errors.len());
         self.errors.push((index, err))
+    }
+    pub fn push_error(&mut self, err: Arc<OperatorApplicationError>) {
+        let idx = self.data.len();
+        self.data.push(error_to_string(&err));
+        self.error_indices.insert(idx, self.errors.len());
+        self.errors.push((idx, err))
     }
     pub fn get_first_error(&self) -> Option<Arc<OperatorApplicationError>> {
         self.errors.first().map(|(_i, e)| e.clone())
@@ -128,7 +136,6 @@ pub fn create_op_string_sink(handle: &'_ StringSinkHandle) -> OperatorData {
 struct StreamValueHandle {
     start_idx: usize,
     run_len: usize,
-    contains_error: bool,
 }
 
 pub struct TfStringSink<'a> {
@@ -201,71 +208,45 @@ fn push_bytes_buffer(
 
 fn append_stream_val(
     op_id: OperatorId,
-    sv: &StreamValue,
-    sv_handle: &mut StreamValueHandle,
+    sv: &mut StreamValue,
     out: &mut StringSink,
     start_idx: usize,
     run_len: usize,
-) {
+    offset: StreamValueDataOffset,
+) -> Result<(), Arc<OperatorApplicationError>> {
     debug_assert!(run_len > 0);
     let end_idx = start_idx + run_len;
-    match &sv.data {
-        StreamValueData::Bytes(b) => {
-            if sv.is_buffered && !sv.done {
-                return;
-            }
-            let buf = if sv.is_buffered {
-                // this could have been promoted to buffer after
-                // we started treating it as a chunk, so skip any
-                // data we already have
-                &b[out.data[start_idx].len()..]
-            } else {
-                b.as_slice()
-            };
-            let Ok(text) = std::str::from_utf8(buf) else {
-                if !sv_handle.contains_error {
-                    sv_handle.contains_error = true;
-                    let err = Arc::new(OperatorApplicationError::new(
+    if let Some(e) = &sv.error {
+        return Err(e.clone());
+    }
+    let mut iter = sv.data_cursor(offset, false);
+    while let Some(data) = iter.next() {
+        match data.storage_agnostic() {
+            StorageAgnosticStreamValueDataRef::Bytes(b) => {
+                let Ok(text) = std::str::from_utf8(b) else {
+                    let lossy = String::from_utf8_lossy(b);
+                    let e = Arc::new(OperatorApplicationError::new(
                         "invalid utf-8",
                         op_id,
                     ));
                     for i in start_idx..end_idx {
-                        out.append_error(i, err.clone());
+                        out.data[i].push_str(&lossy);
+                        out.append_error(i, e.clone());
                     }
-                }
-                let lossy = String::from_utf8_lossy(buf);
+                    return Err(e);
+                };
                 for i in start_idx..end_idx {
-                    out.data[i].push_str(&lossy);
+                    out.data[i].push_str(text);
                 }
-                return;
-            };
-            for i in start_idx..end_idx {
-                out.data[i].push_str(text);
             }
-        }
-        StreamValueData::Text(t) => {
-            if sv.is_buffered && !sv.done {
-                return;
-            }
-            let text = if sv.is_buffered {
-                // same as above for Bytes
-                &t[out.data[start_idx].len()..]
-            } else {
-                t.as_str()
-            };
-            for i in start_idx..end_idx {
-                out.data[i].push_str(text);
-            }
-        }
-        StreamValueData::Error(e) => {
-            debug_assert!(sv.done);
-            let err = Arc::new(e.clone());
-            for i in start_idx..end_idx {
-                out.data[i] = error_to_string(e);
-                out.append_error(i, err.clone());
+            StorageAgnosticStreamValueDataRef::Text(t) => {
+                for i in start_idx..end_idx {
+                    out.data[i].push_str(t);
+                }
             }
         }
     }
+    Ok(())
 }
 pub fn push_errors(
     out: &mut StringSink,
@@ -275,10 +256,9 @@ pub fn push_errors(
     last_interruption_end: &mut usize,
     output_field: &mut Field,
 ) {
-    push_string(out, error_to_string(&err), run_length);
     let e = Arc::new(err.clone());
-    for i in 0..run_length {
-        out.append_error(field_pos + i, e.clone());
+    for _ in 0..run_length {
+        out.push_error(e.clone());
     }
     field_pos += run_length;
     let successes_so_far = field_pos - *last_interruption_end;
@@ -318,7 +298,7 @@ pub fn handle_tf_string_sink(
         AutoDerefIter::new(&jd.field_mgr, tf.input_field, base_iter);
     let mut out = ss.handle.lock().unwrap();
     let mut field_pos = out.data.len();
-    let mut string_store = None;
+    let mut string_store = LazyRwLockGuard::new(&jd.session_data.string_store);
     // interruption meaning error or group separator
     let mut last_interruption_end = 0;
     let print_rationals_raw =
@@ -440,47 +420,41 @@ pub fn handle_tf_string_sink(
             }
             FieldValueSlice::StreamValueId(svs) => {
                 let mut pos = field_pos;
-                for (sv_id, range, rl) in
-                    RefAwareStreamValueIter::from_range(&range, svs)
+                for (sv_id, rl) in FieldValueSliceIter::from_range(&range, svs)
                 {
                     let rl = rl as usize;
-                    let sv = &mut jd.sv_mgr.stream_values[sv_id];
-                    match &sv.data {
-                        StreamValueData::Bytes(bytes) => {
-                            let bytes =
-                                range.map(|r| &bytes[r]).unwrap_or(bytes);
-                            if sv.done || !sv.is_buffered {
-                                push_bytes(op_id, pos, &mut out, bytes, rl);
-                            } else {
-                                push_string(&mut out, String::new(), rl);
-                            }
+                    let sv = &mut jd.sv_mgr.stream_values[*sv_id];
+                    out.data.push(String::new());
+                    let start_idx = out.data.len();
+                    let res = append_stream_val(
+                        op_id,
+                        sv,
+                        &mut out,
+                        start_idx,
+                        1,
+                        StreamValueDataOffset::default(),
+                    );
+                    for i in 1..rl {
+                        let s = out.data[start_idx].clone();
+                        out.data.push(s);
+                        if let Err(e) = &res {
+                            out.append_error(start_idx + i, e.clone());
                         }
-                        StreamValueData::Text(text) => {
-                            let text = range.map(|r| &text[r]).unwrap_or(text);
-                            if sv.done || !sv.is_buffered {
-                                push_str(&mut out, text, rl);
-                            } else {
-                                push_string(&mut out, String::new(), rl);
-                            }
-                        }
-                        StreamValueData::Error(e) => push_errors(
-                            &mut out,
-                            e.clone(),
-                            rl,
-                            pos,
-                            &mut last_interruption_end,
-                            &mut output_field,
-                        ),
                     }
+
                     if !sv.done {
                         let handle_id = ss
                             .stream_value_handles
                             .claim_with_value(StreamValueHandle {
                                 start_idx: pos,
                                 run_len: rl,
-                                contains_error: false,
                             });
-                        sv.subscribe(sv_id, tf_id, handle_id, sv.is_buffered);
+                        sv.subscribe(
+                            *sv_id,
+                            tf_id,
+                            handle_id,
+                            sv.is_buffered(),
+                        );
                     }
                     pos += rl;
                 }
@@ -491,11 +465,8 @@ pub fn handle_tf_string_sink(
                 todo!();
             }
             FieldValueSlice::Array(arrays) => {
-                let ss = string_store.get_or_insert_with(|| {
-                    jd.session_data.string_store.read().unwrap()
-                });
-                let fc = FormattingContext {
-                    ss,
+                let mut fc = FormattingContext {
+                    ss: &mut string_store,
                     fm: &jd.field_mgr,
                     msm: &jd.match_set_mgr,
                     print_rationals_raw,
@@ -506,7 +477,8 @@ pub fn handle_tf_string_sink(
                     RefAwareFieldValueSliceIter::from_range(&range, arrays)
                 {
                     let mut data = Vec::new();
-                    a.format(&mut TextWriteIoAdapter(&mut data), &fc).unwrap();
+                    a.format(&mut fc, &mut TextWriteIoAdapter(&mut data))
+                        .unwrap();
                     push_bytes_buffer(
                         op_id,
                         field_pos,
@@ -517,11 +489,8 @@ pub fn handle_tf_string_sink(
                 }
             }
             FieldValueSlice::Object(object) => {
-                let ss = string_store.get_or_insert_with(|| {
-                    jd.session_data.string_store.read().unwrap()
-                });
-                let fc = FormattingContext {
-                    ss,
+                let mut fc = FormattingContext {
+                    ss: &mut string_store,
                     fm: &jd.field_mgr,
                     msm: &jd.match_set_mgr,
                     print_rationals_raw,
@@ -532,7 +501,8 @@ pub fn handle_tf_string_sink(
                     RefAwareFieldValueSliceIter::from_range(&range, object)
                 {
                     let mut data = Vec::new();
-                    a.format(&mut TextWriteIoAdapter(&mut data), &fc).unwrap();
+                    a.format(&mut fc, &mut TextWriteIoAdapter(&mut data))
+                        .unwrap();
                     push_bytes_buffer(
                         op_id,
                         field_pos,
@@ -572,27 +542,29 @@ pub fn handle_tf_string_sink(
 
 pub fn handle_tf_string_sink_stream_value_update(
     jd: &mut JobData,
-    tf_id: TransformId,
     tf: &mut TfStringSink<'_>,
-    sv_id: StreamValueId,
-    custom: usize,
+    update: StreamValueUpdate,
 ) {
     let mut out = tf.handle.lock().unwrap();
-    let svh = &mut tf.stream_value_handles[custom];
-    let sv = &mut jd.sv_mgr.stream_values[sv_id];
-    append_stream_val(
-        jd.tf_mgr.transforms[tf_id].op_id.unwrap(),
+    let handle_id = update.custom;
+    let svh = &mut tf.stream_value_handles[handle_id];
+    let sv = &mut jd.sv_mgr.stream_values[update.sv_id];
+    if let Err(e) = append_stream_val(
+        jd.tf_mgr.transforms[update.tf_id].op_id.unwrap(),
         sv,
-        svh,
         &mut out,
         svh.start_idx,
         svh.run_len,
-    );
+        update.data_offset,
+    ) {
+        sv.set_error(e);
+    }
     if sv.done {
-        jd.sv_mgr.drop_field_value_subscription(sv_id, Some(tf_id));
-        tf.stream_value_handles.release(custom);
+        jd.sv_mgr
+            .drop_field_value_subscription(update.sv_id, Some(update.tf_id));
+        tf.stream_value_handles.release(handle_id);
         if tf.stream_value_handles.is_empty() {
-            jd.tf_mgr.push_tf_in_ready_stack(tf_id);
+            jd.tf_mgr.push_tf_in_ready_stack(update.tf_id);
         }
     }
 }

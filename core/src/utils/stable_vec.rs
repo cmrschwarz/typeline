@@ -4,24 +4,35 @@ use std::{
     mem::{ManuallyDrop, MaybeUninit},
     ops::{Index, IndexMut},
     ptr::NonNull,
+    usize,
 };
 
-pub const CHUNK_SIZE: usize = 32;
+type Chunk<T, const CHUNK_SIZE: usize> = [MaybeUninit<T>; CHUNK_SIZE];
 
-type Chunk<T> = [MaybeUninit<T>; CHUNK_SIZE];
-
-// this type is !Sync (enforced by NonNull), because we have interior
-// mutabiltiy
-pub struct StableVec<T> {
-    data: Cell<NonNull<*mut Chunk<T>>>,
+/// Like `Vec<T>`, but with chunked allocation and interior mutability.
+/// Main differences:
+/// + `push` only requires a `&self`, not a `&mut self` (!)
+/// - always `!Sync` because of the interior mutabiltiy
+/// + never has to copy elements, only the chunk pointer buffer has to grow
+/// - no Deref to `&[T]`, because it's not contiguous
+/// - many of `Vec<T>`'sconvenience methods are missing
+pub struct StableVec<T, const CHUNK_SIZE: usize = 64> {
+    data: Cell<NonNull<*mut Chunk<T, CHUNK_SIZE>>>,
     chunk_capacity: Cell<usize>,
     len: Cell<usize>,
 }
-
+// `!Sync` is guaranteed by the `data` pointer
 unsafe impl<T: Send> Send for StableVec<T> {}
 
-impl<T> Default for StableVec<T> {
+impl<T, const CHUNK_SIZE: usize> Default for StableVec<T, CHUNK_SIZE> {
     fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<T, const CHUNK_SIZE: usize> StableVec<T, CHUNK_SIZE> {
+    const fn new() -> Self {
+        assert!(CHUNK_SIZE != 0);
         Self {
             data: Cell::new(NonNull::dangling()),
             chunk_capacity: Cell::new(if Self::holds_zsts() {
@@ -32,17 +43,14 @@ impl<T> Default for StableVec<T> {
             len: Cell::new(0),
         }
     }
-}
-
-impl<T> StableVec<T> {
-    fn holds_zsts() -> bool {
+    const fn holds_zsts() -> bool {
         std::mem::size_of::<T>() == 0
     }
     fn chunk_layout() -> Layout {
-        Layout::new::<Chunk<T>>()
+        Layout::new::<Chunk<T, CHUNK_SIZE>>()
     }
     fn layout(chunk_capacity: usize) -> Layout {
-        Layout::array::<Chunk<T>>(chunk_capacity).unwrap()
+        Layout::array::<Chunk<T, CHUNK_SIZE>>(chunk_capacity).unwrap()
     }
     pub fn with_capacity(cap: usize) -> Self {
         let v = Self::default();
@@ -84,7 +92,7 @@ impl<T> StableVec<T> {
                     chunk_count_new,
                 )
             }
-            .cast::<*mut Chunk<T>>();
+            .cast::<*mut Chunk<T, CHUNK_SIZE>>();
 
             for i in self.chunk_capacity.get()..chunk_count_new {
                 data.add(i)
@@ -149,15 +157,15 @@ impl<T> StableVec<T> {
     pub fn first_mut(&mut self) -> Option<&mut T> {
         self.get_mut(0)
     }
-    pub fn iter(&self) -> StableVecIter<T> {
+    pub fn iter(&self) -> StableVecIter<T, CHUNK_SIZE> {
         StableVecIter::new(self)
     }
-    pub fn iter_mut(&mut self) -> StableVecIterMut<T> {
+    pub fn iter_mut(&mut self) -> StableVecIterMut<T, CHUNK_SIZE> {
         StableVecIterMut::new(self)
     }
 }
 
-impl<T> Drop for StableVec<T> {
+impl<T, const CHUNK_SIZE: usize> Drop for StableVec<T, CHUNK_SIZE> {
     fn drop(&mut self) {
         if Self::holds_zsts() || self.chunk_capacity.get() == 0 {
             return;
@@ -204,18 +212,20 @@ impl<T> IndexMut<usize> for StableVec<T> {
     }
 }
 
-pub struct StableVecIter<'a, T> {
-    vec: &'a StableVec<T>,
+pub struct StableVecIter<'a, T, const CHUNK_SIZE: usize> {
+    vec: &'a StableVec<T, CHUNK_SIZE>,
     pos: usize,
 }
 
-impl<'a, T> StableVecIter<'a, T> {
-    pub fn new(vec: &'a StableVec<T>) -> Self {
+impl<'a, T, const CHUNK_SIZE: usize> StableVecIter<'a, T, CHUNK_SIZE> {
+    pub fn new(vec: &'a StableVec<T, CHUNK_SIZE>) -> Self {
         Self { vec, pos: 0 }
     }
 }
 
-impl<'a, T> Iterator for StableVecIter<'a, T> {
+impl<'a, T, const CHUNK_SIZE: usize> Iterator
+    for StableVecIter<'a, T, CHUNK_SIZE>
+{
     type Item = &'a T;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -228,27 +238,31 @@ impl<'a, T> Iterator for StableVecIter<'a, T> {
     }
 }
 
-impl<'a, T> IntoIterator for &'a StableVec<T> {
+impl<'a, T, const CHUNK_SIZE: usize> IntoIterator
+    for &'a StableVec<T, CHUNK_SIZE>
+{
     type Item = &'a T;
-    type IntoIter = StableVecIter<'a, T>;
+    type IntoIter = StableVecIter<'a, T, CHUNK_SIZE>;
 
     fn into_iter(self) -> Self::IntoIter {
         StableVecIter::new(self)
     }
 }
 
-pub struct StableVecIterMut<'a, T> {
-    vec: &'a mut StableVec<T>,
+pub struct StableVecIterMut<'a, T, const CHUNK_SIZE: usize> {
+    vec: &'a mut StableVec<T, CHUNK_SIZE>,
     pos: usize,
 }
 
-impl<'a, T> StableVecIterMut<'a, T> {
-    pub fn new(vec: &'a mut StableVec<T>) -> Self {
+impl<'a, T, const CHUNK_SIZE: usize> StableVecIterMut<'a, T, CHUNK_SIZE> {
+    pub fn new(vec: &'a mut StableVec<T, CHUNK_SIZE>) -> Self {
         Self { vec, pos: 0 }
     }
 }
 
-impl<'a, T> Iterator for StableVecIterMut<'a, T> {
+impl<'a, T, const CHUNK_SIZE: usize> Iterator
+    for StableVecIterMut<'a, T, CHUNK_SIZE>
+{
     type Item = &'a mut T;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -261,22 +275,24 @@ impl<'a, T> Iterator for StableVecIterMut<'a, T> {
     }
 }
 
-impl<'a, T> IntoIterator for &'a mut StableVec<T> {
+impl<'a, T, const CHUNK_SIZE: usize> IntoIterator
+    for &'a mut StableVec<T, CHUNK_SIZE>
+{
     type Item = &'a mut T;
-    type IntoIter = StableVecIterMut<'a, T>;
+    type IntoIter = StableVecIterMut<'a, T, CHUNK_SIZE>;
 
     fn into_iter(self) -> Self::IntoIter {
         StableVecIterMut::new(self)
     }
 }
 
-pub struct StableVecIntoIter<T> {
-    vec: StableVec<T>,
+pub struct StableVecIntoIter<T, const CHUNK_SIZE: usize> {
+    vec: StableVec<T, CHUNK_SIZE>,
     pos: usize,
 }
 
-impl<T> StableVecIntoIter<T> {
-    pub fn new(vec: StableVec<T>) -> Self {
+impl<T, const CHUNK_SIZE: usize> StableVecIntoIter<T, CHUNK_SIZE> {
+    pub fn new(vec: StableVec<T, CHUNK_SIZE>) -> Self {
         Self { vec, pos: 0 }
     }
     unsafe fn drop_remaining_elements(&self) {
@@ -314,7 +330,7 @@ impl<T> StableVecIntoIter<T> {
             }
         }
     }
-    pub fn into_empty_vec(self) -> StableVec<T> {
+    pub fn into_empty_vec(self) -> StableVec<T, CHUNK_SIZE> {
         unsafe { self.drop_remaining_elements() };
         let vec = unsafe { std::ptr::read(std::ptr::addr_of!(self.vec)) };
         vec.len.set(0);
@@ -323,16 +339,18 @@ impl<T> StableVecIntoIter<T> {
     }
 }
 
-impl<T> IntoIterator for StableVec<T> {
+impl<T, const CHUNK_SIZE: usize> IntoIterator for StableVec<T, CHUNK_SIZE> {
     type Item = T;
-    type IntoIter = StableVecIntoIter<T>;
+    type IntoIter = StableVecIntoIter<T, CHUNK_SIZE>;
 
     fn into_iter(self) -> Self::IntoIter {
         StableVecIntoIter::new(self)
     }
 }
 
-impl<T> Iterator for StableVecIntoIter<T> {
+impl<T, const CHUNK_SIZE: usize> Iterator
+    for StableVecIntoIter<T, CHUNK_SIZE>
+{
     type Item = T;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -347,7 +365,7 @@ impl<T> Iterator for StableVecIntoIter<T> {
     }
 }
 
-impl<T> Drop for StableVecIntoIter<T> {
+impl<T, const CHUNK_SIZE: usize> Drop for StableVecIntoIter<T, CHUNK_SIZE> {
     fn drop(&mut self) {
         if StableVec::<T>::holds_zsts() {
             return;

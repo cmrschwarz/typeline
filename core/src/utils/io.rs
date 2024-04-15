@@ -7,7 +7,10 @@ use std::{
 use arrayvec::ArrayVec;
 use bstr::ByteSlice;
 
-use super::{utf8_codepoint_len_from_first_byte, MAX_UTF8_CHAR_LEN};
+use super::{
+    text_write::TextWrite, utf8_codepoint_len_from_first_byte,
+    MAX_UTF8_CHAR_LEN,
+};
 
 pub struct PointerWriter {
     ptr: *mut u8,
@@ -53,6 +56,30 @@ impl std::io::Write for PointerWriter {
     }
     fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
+    }
+}
+
+impl TextWrite for PointerWriter {
+    unsafe fn write_text_unchecked(
+        &mut self,
+        buf: &[u8],
+    ) -> std::io::Result<usize> {
+        std::io::Write::write(self, buf)
+    }
+
+    fn flush_text(&mut self) -> std::io::Result<()> {
+        std::io::Write::flush(self)
+    }
+
+    unsafe fn write_all_text_unchecked(
+        &mut self,
+        buf: &[u8],
+    ) -> std::io::Result<()> {
+        std::io::Write::write_all(self, buf)
+    }
+
+    fn write_all_text(&mut self, buf: &str) -> std::io::Result<()> {
+        std::io::Write::write_all(self, buf.as_bytes())
     }
 }
 

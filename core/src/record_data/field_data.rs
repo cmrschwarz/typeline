@@ -220,8 +220,6 @@ unsafe impl FixedSizeFieldValueType for f64 {
 unsafe impl FixedSizeFieldValueType for StreamValueId {
     const REPR: FieldValueRepr = FieldValueRepr::StreamValueId;
     const TRIVIALLY_COPYABLE: bool = true;
-    // this is useful because of slicing
-    const SUPPORTS_REFS: bool = true;
 }
 unsafe impl FixedSizeFieldValueType for FieldReference {
     const REPR: FieldValueRepr = FieldValueRepr::FieldReference;

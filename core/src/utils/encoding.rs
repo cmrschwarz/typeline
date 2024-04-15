@@ -1,7 +1,7 @@
 use encoding_rs::{Decoder, DecoderResult, Encoder, EncoderResult};
 use thiserror::Error;
 
-pub const UTF8_REPLACEMENT_CHARACTER: [u8; 3] = [0xEF, 0xBF, 0xBD];
+pub const UTF8_REPLACEMENT_CHARACTER_BYTES: [u8; 3] = [0xEF, 0xBF, 0xBD];
 
 // DC00                             // first low surrogate
 // 1101 1100 XXXX YYYY              // surrogate escaped byte
@@ -48,14 +48,14 @@ pub fn utf8_surrogate_unescape<'a>(
     }
     Ok(())
 }
-
+// on success, returns whether the replacement function was called
 pub fn decode_to_utf8<E>(
     decoder: &mut Decoder,
     input: &[u8],
-    replacement_fn: &mut impl FnMut(&[u8], &mut Vec<u8>) -> Result<(), E>,
+    replacement_fn: &mut impl FnMut(usize, &[u8], &mut Vec<u8>) -> Result<(), E>,
     output: &mut Vec<u8>,
     last_chunk: bool,
-) -> Result<bool, (usize, E)> {
+) -> Result<bool, E> {
     let mut replacement_called = false;
     let mut read = 0;
     let mut written = output.len();
@@ -108,10 +108,10 @@ pub fn decode_to_utf8<E>(
                 let malformed_seq_end =
                     read - extra_bytes_read_after_malformed_seq as usize;
                 replacement_fn(
+                    decoder_read,
                     &input[malformed_seq_start..malformed_seq_end],
                     output,
-                )
-                .map_err(|e| (decoder_read, e))?;
+                )?;
                 replacement_called = true;
             }
         }

@@ -18,7 +18,6 @@ use super::{
     aggregator::{TfAggregatorHeader, TfAggregatorTrailer},
     call::TfCall,
     call_concurrent::{TfCallConcurrent, TfCalleeConcurrent},
-    cast::TfCast,
     count::TfCount,
     field_value_sink::TfFieldValueSink,
     file_reader::TfFileReader,
@@ -38,6 +37,7 @@ use super::{
     sequence::TfSequence,
     string_sink::TfStringSink,
     terminator::TfTerminator,
+    to_str::TfToStr,
 };
 
 pub type DefaultTransformName = SmallString<[u8; 16]>;
@@ -53,7 +53,7 @@ pub enum TransformData<'a> {
     Call(TfCall),
     CallConcurrent(TfCallConcurrent<'a>),
     CalleeConcurrent(TfCalleeConcurrent),
-    Cast(TfCast),
+    ToStr(TfToStr),
     Count(TfCount),
     Print(TfPrint),
     Join(TfJoin<'a>),
@@ -89,7 +89,7 @@ impl TransformData<'_> {
             TransformData::Call(_) => "call",
             TransformData::CallConcurrent(_) => "callcc",
             TransformData::CalleeConcurrent(_) => "callcc_callee",
-            TransformData::Cast(_) => "cast",
+            TransformData::ToStr(_) => "cast",
             TransformData::Count(_) => "count",
             TransformData::Print(_) => "print",
             TransformData::Join(_) => "join",
@@ -199,12 +199,12 @@ pub trait Transform: Send {
 // TransformUtils::basic_update needs
 // to borrow the field manager in order to produce the iterator
 // that it forwards into its closure
-pub struct BasicUpdateData<'a, 'b> {
+pub struct BasicUpdateData<'a, 'b, 'c> {
     pub session_data: &'a SessionData,
     pub tf_mgr: &'a mut TransformManager,
     pub match_set_mgr: &'a mut MatchSetManager,
     pub field_mgr: &'a FieldManager,
-    pub sv_mgr: &'a mut StreamValueManager,
+    pub sv_mgr: &'a mut StreamValueManager<'b>,
     pub temp_vec: &'a mut Vec<u8>,
     pub batch_size: usize,
     pub ps: PipelineState,
@@ -213,8 +213,8 @@ pub struct BasicUpdateData<'a, 'b> {
     pub match_set_id: MatchSetId,
     pub tf_id: TransformId,
     pub iter: &'a mut AutoDerefIter<
-        'b,
-        BoundedIter<'b, Iter<'b, DestructuredFieldDataRef<'b>>>,
+        'c,
+        BoundedIter<'c, Iter<'c, DestructuredFieldDataRef<'c>>>,
     >,
 }
 
@@ -225,7 +225,7 @@ pub fn basic_transform_update(
     // is the only output
     extra_output_fields: impl IntoIterator<Item = FieldId>,
     input_iter_id: IterId,
-    mut f: impl for<'b> FnMut(BasicUpdateData<'_, 'b>) -> (usize, bool),
+    mut f: impl for<'c> FnMut(BasicUpdateData<'_, '_, 'c>) -> (usize, bool),
 ) {
     let (batch_size, ps) = jd.tf_mgr.claim_batch(tf_id);
     let tf = &jd.tf_mgr.transforms[tf_id];
