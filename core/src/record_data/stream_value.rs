@@ -222,8 +222,9 @@ impl<'s, 'd> StreamValueDataCursor<'s, 'd> {
         may_consume_data: bool,
     ) -> Option<StreamValueData<'s>> {
         let data = self.stream_value.data.get_mut(self.data_index)?;
+        self.data_index += 1;
         if !self.may_consume_data || !may_consume_data {
-            if self.data_index > self.initial_offset.values_consumed {
+            if self.data_index > self.initial_offset.values_consumed + 1 {
                 return Some(data.clone());
             }
             return Some(data.sliced(
@@ -231,8 +232,7 @@ impl<'s, 'd> StreamValueDataCursor<'s, 'd> {
             ));
         }
         let mut data = std::mem::take(data);
-        self.data_index += 1;
-        if self.data_index > self.initial_offset.values_consumed {
+        if self.data_index > self.initial_offset.values_consumed + 1 {
             return Some(data);
         }
         data.slice(self.initial_offset.current_value_offset..data.len());
