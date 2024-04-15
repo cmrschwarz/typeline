@@ -336,18 +336,18 @@ impl Formattable<'_, '_> for str {
         w: &mut W,
     ) -> std::io::Result<()> {
         if opts.type_repr_format == TypeReprFormat::Regular {
-            w.write_all(self.as_bytes())?;
+            return w.write_all_text(self);
         }
         if opts.is_stream_value
             && opts.type_repr_format == TypeReprFormat::Debug
         {
-            w.write_all(b"~\"")?;
+            w.write_all_text("~\"")?;
         } else {
-            w.write_all(b"\"")?;
+            w.write_all_text("\"")?;
         }
         let mut ew = EscapedWriter::new(w, b'"');
         TextWrite::write_all_text(&mut ew, self)?;
-        ew.into_inner()?.write_all(b"\"")
+        ew.into_inner()?.write_all_text("\"")
     }
     fn length_total(&self, opts: &mut Self::Context) -> usize {
         if opts.type_repr_format == TypeReprFormat::Regular {

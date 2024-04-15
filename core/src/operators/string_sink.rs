@@ -424,8 +424,8 @@ pub fn handle_tf_string_sink(
                 {
                     let rl = rl as usize;
                     let sv = &mut jd.sv_mgr.stream_values[*sv_id];
-                    out.data.push(String::new());
                     let start_idx = out.data.len();
+                    out.data.push(String::new());
                     let res = append_stream_val(
                         op_id,
                         sv,
