@@ -18,7 +18,7 @@ name = "scr"
 test = false
 
 [dev-dependencies]
-rstest = "0.18.2"
+rstest = "0.19.0"
 regex = "1.10"
 scr_ext_utils = { path="./extensions/utils" }
 
