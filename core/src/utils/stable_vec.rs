@@ -4,7 +4,6 @@ use std::{
     mem::{ManuallyDrop, MaybeUninit},
     ops::{Index, IndexMut},
     ptr::NonNull,
-    usize,
 };
 
 type Chunk<T, const CHUNK_SIZE: usize> = [MaybeUninit<T>; CHUNK_SIZE];

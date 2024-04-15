@@ -4,7 +4,6 @@ use std::{
     fmt::{Debug, Display},
     mem::{align_of, size_of, size_of_val, ManuallyDrop},
     ops::{Deref, DerefMut},
-    u8,
 };
 
 use super::{

@@ -167,11 +167,17 @@ impl<'a, R: ReferenceFieldValueType> RefIter<'a, R> {
         field_id: FieldId,
     ) -> (CowFieldDataRef<'a>, Iter<'a, DestructuredFieldDataRef<'a>>) {
         let fr = fm.get_cow_field_ref(msm, field_id);
-        let iter = fm.lookup_iter(
-            field_id,
-            unsafe { std::mem::transmute(&fr) },
-            FIELD_REF_LOOKUP_ITER_ID,
-        );
+        let iter =
+            fm.lookup_iter(
+                field_id,
+                unsafe {
+                    std::mem::transmute::<
+                        &CowFieldDataRef<'_>,
+                        &CowFieldDataRef<'a>,
+                    >(&fr)
+                },
+                FIELD_REF_LOOKUP_ITER_ID,
+            );
         unsafe { std::mem::transmute((fr, iter)) }
     }
     pub fn move_to_field_keep_pos(
