@@ -26,7 +26,9 @@ use scr_core::{
     scr_error::{ChainSetupError, ScrError},
     utils::test_utils::{ErroringStream, SliceReader, TricklingStream},
 };
-use scr_ext_utils::{string_utils::create_op_chars, tail::create_op_tail};
+use scr_ext_utils::{
+    string_utils::create_op_chars, sum::create_op_sum, tail::create_op_tail,
+};
 
 #[test]
 fn string_sink() -> Result<(), ScrError> {
@@ -577,6 +579,17 @@ fn single_operator() -> Result<(), ScrError> {
         .add_op(create_op_seq(0, 10000, 1).unwrap())
         .run()?;
     assert_eq!(ss.get().data.as_slice(), &[] as &[String]);
+    Ok(())
+}
+
+#[test]
+fn big_sum() -> Result<(), ScrError> {
+    let res = ContextBuilder::default()
+        .add_op(create_op_seq(0, 3000, 1).unwrap())
+        .add_op(create_op_sum())
+        .run_collect_as::<i64>()
+        .unwrap();
+    assert_eq!(res, &[4495501]);
     Ok(())
 }
 
