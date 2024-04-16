@@ -82,7 +82,7 @@ impl<R: Read> Read for ErroringStream<R> {
         if self.error_after == 0 {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::Other,
-                "ErroringStream: Expected Debug Error",
+                "ErroringStream: Error",
             ));
         }
         if buf.len() > self.error_after {

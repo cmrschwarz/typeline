@@ -546,6 +546,10 @@ fn error_on_sbs_0() {
 
 #[test]
 fn stream_error_after_regular_error() -> Result<(), ScrError> {
+    // TODO: this test used to test for a stream value error as output of
+    // the format. that is no longer observed since join outputs a stream
+    // so format receives an incomplete stream. We should make a test to
+    // observe that again.
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .set_stream_buffer_size(2)
@@ -561,10 +565,7 @@ fn stream_error_after_regular_error() -> Result<(), ScrError> {
         .run()?;
     assert_eq!(
         ss.get().data.as_slice(),
-        [
-            "(error)\"A\"",
-            "~(error)\"ErroringStream: Expected Debug Error\""
-        ]
+        ["(error)\"A\"", "ERROR: in op id 1: ErroringStream: Error"]
     );
     Ok(())
 }

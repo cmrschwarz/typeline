@@ -979,14 +979,14 @@ impl<'a, 'b> Formattable<'a, 'b> for StreamValue<'_> {
         ctx: &mut Self::Context,
         w: &mut W,
     ) -> std::io::Result<()> {
+        if let Some(e) = &self.error {
+            return e.format(ctx, w);
+        }
+
         fn write_quote<W: MaybeTextWrite>(
             this: &StreamValue,
-            ctx: &mut ValueFormattingOpts,
             w: &mut W,
         ) -> std::io::Result<()> {
-            if !ctx.type_repr_format.is_typed() {
-                return Ok(());
-            }
             match this.data_type.unwrap() {
                 StreamValueDataType::Text | StreamValueDataType::MaybeText => {
                     w.write_all_text("\"")
@@ -998,14 +998,13 @@ impl<'a, 'b> Formattable<'a, 'b> for StreamValue<'_> {
                 }
             }
         }
-        assert!(
-            self.done && self.is_buffered(),
-            "cannot format incomplete stream value"
-        );
+        let typed = ctx.type_repr_format.is_typed();
         if ctx.type_repr_format == TypeReprFormat::Debug {
             w.write_all_text("~")?;
         }
-        write_quote(self, ctx, w)?;
+        if typed {
+            write_quote(self, w)?;
+        }
         for part in &self.data {
             match part {
                 StreamValueData::StaticText(t) => {
@@ -1020,7 +1019,9 @@ impl<'a, 'b> Formattable<'a, 'b> for StreamValue<'_> {
                 }
             }
         }
-        write_quote(self, ctx, w)?;
+        if typed && self.done {
+            write_quote(self, w)?;
+        }
         Ok(())
     }
 }

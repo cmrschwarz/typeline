@@ -1,9 +1,6 @@
 use arrayvec::{ArrayString, ArrayVec};
 use bstr::ByteSlice;
-use smallvec::SmallVec;
-use std::{
-    borrow::Cow, cell::RefMut, collections::VecDeque, ptr::NonNull, sync::Arc,
-};
+use std::{borrow::Cow, cell::RefMut, ptr::NonNull};
 use unicode_ident::is_xid_start;
 
 use smallstr::SmallString;
@@ -47,8 +44,8 @@ use crate::{
         },
         stream_value::{
             StreamValue, StreamValueBufferMode, StreamValueData,
-            StreamValueDataOffset, StreamValueDataType, StreamValueId,
-            StreamValueManager, StreamValueUpdate,
+            StreamValueDataType, StreamValueId, StreamValueManager,
+            StreamValueUpdate,
         },
     },
     utils::{
@@ -166,6 +163,7 @@ pub struct TfFormat<'a> {
     >,
     print_rationals_raw: bool,
     contains_raw_bytes: bool,
+    stream_buffer_size: usize,
 }
 
 impl OutputTarget {
@@ -188,6 +186,13 @@ impl FormatWidthSpec {
             FormatWidthSpec::Value(v) => *v,
             FormatWidthSpec::Ref(_) => lookup_value,
         }
+    }
+}
+
+impl OutputState {
+    pub fn apply_to_rfk(&self, k: &FormatKey, rfk: &mut RealizedFormatKey) {
+        rfk.float_precision = k.realize_float_precision(self.float_precision);
+        rfk.min_char_count = k.realize_min_char_count(self.min_char_count);
     }
 }
 
@@ -287,17 +292,16 @@ pub fn build_tf_format<'a>(
         })
         .collect();
 
+    let settings = &jd.get_transform_chain_from_tf_state(tf_state).settings;
     let tf = TfFormat {
         op,
         refs,
         output_states: Vec::new(),
         output_targets: Vec::new(),
         stream_value_handles: CountedUniverse::default(),
-        print_rationals_raw: jd
-            .get_transform_chain_from_tf_state(tf_state)
-            .settings
-            .print_rationals_raw,
+        print_rationals_raw: settings.print_rationals_raw,
         contains_raw_bytes: op.contains_raw_bytes,
+        stream_buffer_size: settings.stream_buffer_size,
     };
     TransformData::Format(tf)
 }
@@ -948,6 +952,19 @@ pub fn setup_key_output_state(
         type_repr_format: k.opts.type_repr,
     };
 
+    let mut fc = FormattingContext {
+        ss: &mut string_store,
+        fm,
+        msm,
+        print_rationals_raw: fmt.print_rationals_raw,
+        is_stream_value: false,
+        rfk: RealizedFormatKey {
+            min_char_count: 0,
+            float_precision: None,
+            opts: k.opts.clone(),
+        },
+    };
+
     while let Some(range) =
         iter.typed_range_fwd(msm, usize::MAX, field_value_flags::DEFAULT)
     {
@@ -1058,18 +1075,8 @@ pub fn setup_key_output_state(
                     }
 
                     if sv.done {
-                        let mut fc = FormattingContext {
-                            ss: &mut string_store,
-                            fm,
-                            msm,
-                            print_rationals_raw: fmt.print_rationals_raw,
-                            is_stream_value: false,
-                            rfk: RealizedFormatKey::default(),
-                        };
-
                         iter_output_states(fmt, &mut output_index, rl, |o| {
-                            fc.rfk =
-                                k.realize(o.min_char_count, o.float_precision);
+                            o.apply_to_rfk(k, &mut fc.rfk);
                             o.len += calc_fmt_len_ost(
                                 k,
                                 &mut fc.value_formatting_opts(),
@@ -1090,17 +1097,14 @@ pub fn setup_key_output_state(
                     });
                     // TODO: maybe figure this out?;
                     let data_type = Some(StreamValueDataType::MaybeText);
-                    let mut out_data = VecDeque::new();
-                    if !need_buffering {
-                        let mut iter = sv.data_cursor(
-                            StreamValueDataOffset::default(),
-                            false,
-                        );
-                        while let Some(v) = iter.next_steal(false) {
-                            out_data.push_back(v);
-                        }
+                    let len_present = if need_buffering {
+                        0
+                    } else {
+                        sv.length_total(&mut fc.value_formatting_opts())
+                    };
+                    if need_buffering {
+                        sv.make_buffered();
                     }
-
                     iter_output_states_advanced(
                         &mut fmt.output_states,
                         &mut output_index,
@@ -1116,26 +1120,15 @@ pub fn setup_key_output_state(
                                 !need_buffering,
                             );
 
-                            let out_sv = if need_buffering {
-                                StreamValue::new_empty(
+                            let target_sv_id = sv_mgr
+                                .stream_values
+                                .claim_with_value(StreamValue::new_empty(
                                     data_type,
                                     StreamValueBufferMode::Stream,
-                                )
-                            } else {
-                                StreamValue {
-                                    error: None,
-                                    data_type,
-                                    data: out_data.clone(),
-                                    buffer_mode: StreamValueBufferMode::Stream,
-                                    done: false,
-                                    subscribers: SmallVec::new(),
-                                    ref_count: 1,
-                                }
-                            };
-
-                            let target_sv_id =
-                                sv_mgr.stream_values.claim_with_value(out_sv);
-
+                                ));
+                            // TODO: this might be incorrect depending on
+                            // padding?
+                            o.len += len_present;
                             o.incomplete_stream_value_handle = Some(
                                 fmt.stream_value_handles.claim_with_value(
                                     TfFormatStreamValueHandle {
@@ -1226,14 +1219,6 @@ pub fn setup_key_output_state(
                 }
             }
             FieldValueSlice::Rational(vs) => {
-                let mut fc = FormattingContext {
-                    ss: &mut string_store,
-                    fm,
-                    msm,
-                    print_rationals_raw: fmt.print_rationals_raw,
-                    is_stream_value: false,
-                    rfk: RealizedFormatKey::default(),
-                };
                 for (v, rl) in FieldValueSliceIter::from_range(&range, vs) {
                     iter_output_states(fmt, &mut output_index, rl, |o| {
                         fc.rfk =
@@ -1243,14 +1228,6 @@ pub fn setup_key_output_state(
                 }
             }
             FieldValueSlice::Object(objects) => {
-                let mut fc = FormattingContext {
-                    ss: &mut string_store,
-                    fm,
-                    msm,
-                    print_rationals_raw: fmt.print_rationals_raw,
-                    is_stream_value: false,
-                    rfk: RealizedFormatKey::default(),
-                };
                 for (v, rl) in
                     RefAwareFieldValueSliceIter::from_range(&range, objects)
                 {
@@ -1262,20 +1239,11 @@ pub fn setup_key_output_state(
                 }
             }
             FieldValueSlice::Array(arrays) => {
-                let mut fc = FormattingContext {
-                    ss: &mut string_store,
-                    fm,
-                    msm,
-                    print_rationals_raw: fmt.print_rationals_raw,
-                    is_stream_value: false,
-                    rfk: RealizedFormatKey::default(),
-                };
                 for (v, rl) in
                     RefAwareFieldValueSliceIter::from_range(&range, arrays)
                 {
                     iter_output_states(fmt, &mut output_index, rl, |o| {
-                        fc.rfk =
-                            k.realize(o.min_char_count, o.float_precision);
+                        o.apply_to_rfk(k, &mut fc.rfk);
                         o.len += calc_fmt_len_ost(k, &mut fc, o, v);
                     });
                 }
@@ -1462,22 +1430,27 @@ fn insert_output_target(
     if let Some(handle_id) = os.incomplete_stream_value_handle {
         let handle = &mut fmt.stream_value_handles[handle_id];
         let sv = &mut sv_mgr.stream_values[handle.target_sv_id];
-        let buf = match sv.single_data_mut() {
-            StreamValueData::StaticText(_)
-            | StreamValueData::StaticBytes(_) => unreachable!(),
-            StreamValueData::Text { data, range } => {
-                *range = 0..os.len;
-                unsafe { Arc::get_mut(data).unwrap().as_mut_vec() }
-            }
-            StreamValueData::Bytes { data, range } => {
-                *range = 0..os.len;
-                Arc::get_mut(data).unwrap()
-            }
+        let mut data_inserter =
+            sv.data_inserter(fmt.stream_buffer_size, false);
+        let target_ptr = if os.contains_raw_bytes {
+            data_inserter.with_bytes_buffer(|buf| {
+                buf.reserve(os.len);
+                buf.extend(std::iter::repeat(0).take(os.len));
+                unsafe { buf.as_mut_ptr().add(buf.len() - os.len) }
+            })
+        } else {
+            data_inserter
+                .with_text_buffer(|buf| {
+                    buf.reserve(os.len);
+                    buf.extend(std::iter::repeat('0').take(os.len));
+                    unsafe { buf.as_mut_ptr().add(buf.len() - os.len) }
+                })
+                .unwrap()
         };
-        buf.reserve(os.len);
-        let target = unsafe { Some(NonNull::new_unchecked(buf.as_mut_ptr())) };
+
+        let target = unsafe { Some(NonNull::new_unchecked(target_ptr)) };
         // just to be 'rust compliant' ...
-        buf.extend(std::iter::repeat(0).take(os.len));
+
         output_field.iter_hall.push_stream_value_id(
             handle.target_sv_id,
             os.run_len,
@@ -1764,24 +1737,25 @@ fn write_fmt_key(
                         );
                         continue;
                     }
-
-                    if !sv.done && !sv.buffer_mode.is_streaming() {
-                        iter_output_targets(
-                            fmt,
-                            &mut output_index,
-                            rl as usize,
-                            |tgt| {
-                                tgt.target = None;
-                            },
-                        );
-                        continue;
-                    }
                     iter_output_targets(
                         fmt,
                         &mut output_index,
                         rl as usize,
                         |tgt| {
-                            write_formatted(k, &mut formatting_opts, tgt, sv);
+                            let write_eagerly = !k
+                                .realize(
+                                    tgt.min_char_count,
+                                    tgt.float_precision,
+                                )
+                                .must_buffer_stream(sv);
+                            if write_eagerly {
+                                write_formatted(
+                                    k,
+                                    &mut formatting_opts,
+                                    tgt,
+                                    sv,
+                                );
+                            }
                             if !sv.done {
                                 tgt.target = None;
                             }
@@ -2127,7 +2101,7 @@ pub fn handle_tf_format_stream_value_update<'a>(
         }
     }
 
-    let mut i = handle.part_idx as usize;
+    let mut i = handle.part_idx as usize + 1;
     while i < fmt.op.parts.len() {
         match &fmt.op.parts[i] {
             FormatPart::ByteLiteral(l) => {

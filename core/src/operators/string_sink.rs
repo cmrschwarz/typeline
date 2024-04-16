@@ -53,19 +53,21 @@ pub struct StringSink {
 }
 
 impl StringSink {
-    pub fn append_error(
+    pub fn insert_error(
         &mut self,
-        index: usize,
+        data_idx: usize,
         err: Arc<OperatorApplicationError>,
     ) {
-        self.error_indices.insert(index, self.errors.len());
-        self.errors.push((index, err))
+        self.data[data_idx] = error_to_string(&err);
+        self.error_indices.insert(data_idx, self.errors.len());
+        self.errors.push((data_idx, err));
     }
-    pub fn push_error(&mut self, err: Arc<OperatorApplicationError>) {
-        let idx = self.data.len();
+    pub fn append_error(&mut self, err: Arc<OperatorApplicationError>) {
+        let data_idx = self.data.len();
+        let err_idx = self.errors.len();
         self.data.push(error_to_string(&err));
-        self.error_indices.insert(idx, self.errors.len());
-        self.errors.push((idx, err))
+        self.errors.push((data_idx, err));
+        self.error_indices.insert(data_idx, err_idx);
     }
     pub fn get_first_error(&self) -> Option<Arc<OperatorApplicationError>> {
         self.errors.first().map(|(_i, e)| e.clone())
@@ -173,7 +175,7 @@ fn push_invalid_utf8(
 ) {
     let err = Arc::new(OperatorApplicationError::new("invalid utf-8", op_id));
     for i in field_pos..field_pos + run_len {
-        out.append_error(i, err.clone());
+        out.insert_error(i, err.clone());
     }
     push_string(out, String::from_utf8_lossy(bytes).to_string(), run_len);
 }
@@ -231,7 +233,7 @@ fn append_stream_val(
                     ));
                     for i in start_idx..end_idx {
                         out.data[i].push_str(&lossy);
-                        out.append_error(i, e.clone());
+                        out.insert_error(i, e.clone());
                     }
                     return Err(e);
                 };
@@ -258,7 +260,7 @@ pub fn push_errors(
 ) {
     let e = Arc::new(err.clone());
     for _ in 0..run_length {
-        out.push_error(e.clone());
+        out.append_error(e.clone());
     }
     field_pos += run_length;
     let successes_so_far = field_pos - *last_interruption_end;
@@ -438,7 +440,7 @@ pub fn handle_tf_string_sink(
                         let s = out.data[start_idx].clone();
                         out.data.push(s);
                         if let Err(e) = &res {
-                            out.append_error(start_idx + i, e.clone());
+                            out.insert_error(start_idx + i, e.clone());
                         }
                     }
 
@@ -548,19 +550,21 @@ pub fn handle_tf_string_sink_stream_value_update(
 ) {
     let mut out = tf.handle.lock().unwrap();
     let handle_id = update.custom;
-    let svh = &mut tf.stream_value_handles[handle_id];
-    let sv = &mut jd.sv_mgr.stream_values[update.sv_id];
-    if let Err(e) = append_stream_val(
+    let sv_handle = &mut tf.stream_value_handles[handle_id];
+    let sv_in = &mut jd.sv_mgr.stream_values[update.sv_id];
+    if let Err(e) = &append_stream_val(
         jd.tf_mgr.transforms[update.tf_id].op_id.unwrap(),
-        sv,
+        sv_in,
         &mut out,
-        svh.start_idx,
-        svh.run_len,
+        sv_handle.start_idx,
+        sv_handle.run_len,
         update.data_offset,
     ) {
-        sv.set_error(e);
+        for i in sv_handle.start_idx..sv_handle.start_idx + sv_handle.run_len {
+            out.insert_error(i, e.clone());
+        }
     }
-    if sv.done {
+    if sv_in.done {
         jd.sv_mgr
             .drop_field_value_subscription(update.sv_id, Some(update.tf_id));
         tf.stream_value_handles.release(handle_id);
