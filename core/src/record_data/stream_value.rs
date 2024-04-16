@@ -169,9 +169,20 @@ impl StreamValueDataType {
 impl<'s, 'd> StreamValueDataCursor<'s, 'd> {
     pub fn new(
         stream_value: &'d mut StreamValue<'s>,
-        offset: StreamValueDataOffset,
+        mut offset: StreamValueDataOffset,
         may_consume_data: bool,
     ) -> Self {
+        // If the offset points to the end of an element
+        // (that's how we store the offset inside updates to avoid missing
+        // appends), skip the zero length remainder for this cursor.
+        if offset.current_value_offset > 0 {
+            if let Some(d) = stream_value.data.get(offset.values_consumed) {
+                if d.len() == offset.current_value_offset {
+                    offset.values_consumed += 1;
+                    offset.current_value_offset = 0;
+                }
+            }
+        }
         Self {
             stream_value,
             initial_offset: offset,
@@ -640,12 +651,19 @@ impl<'a> StreamValue<'a> {
         tf_id: TransformId,
         custom_data: usize,
         notify_only_once_done: bool,
+        treat_current_data_as_consumed: bool,
     ) {
+        let data_offset =
+            if treat_current_data_as_consumed && self.is_buffered() {
+                self.curr_data_offset()
+            } else {
+                StreamValueDataOffset::default()
+            };
         self.subscribers.push(StreamValueSubscription {
             tf_id,
+            data_offset,
             custom_data,
             notify_only_once_done,
-            data_offset: StreamValueDataOffset::default(),
         });
         self.ref_count += 1;
         #[cfg(feature = "debug_logging")]
@@ -655,6 +673,18 @@ impl<'a> StreamValue<'a> {
             self.ref_count,
             self.data
         );
+    }
+    pub fn curr_data_offset(&self) -> StreamValueDataOffset {
+        // we use the end of the last element, not the start of the next
+        // in case this one gets appended
+        StreamValueDataOffset {
+            values_consumed: self.data.len().saturating_sub(1),
+            current_value_offset: self
+                .data
+                .back()
+                .map(StreamValueData::len)
+                .unwrap_or(0),
+        }
     }
     pub fn make_contiguous(&mut self) {
         if self.buffer_mode == StreamValueBufferMode::Contiguous {
@@ -1506,12 +1536,14 @@ impl<'a> StreamValueManager<'a> {
         tf_id: TransformId,
         custom_data: usize,
         notify_only_once_done: bool,
+        treat_current_data_as_consumed: bool,
     ) {
         self.stream_values[sv_id].subscribe(
             sv_id,
             tf_id,
             custom_data,
             notify_only_once_done,
+            treat_current_data_as_consumed,
         )
     }
 }

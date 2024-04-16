@@ -1113,6 +1113,7 @@ pub fn setup_key_output_state(
                                     .peek_claim_id()
                                     .into(),
                                 need_buffering,
+                                !need_buffering,
                             );
 
                             let out_sv = if need_buffering {

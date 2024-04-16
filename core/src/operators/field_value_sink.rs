@@ -253,7 +253,7 @@ pub fn handle_tf_field_value_sink(
                             ss.stream_value_handles.claim_with_value(
                                 StreamValueHandle { start_idx, run_len },
                             );
-                        sv.subscribe(*svid, tf_id, handle_id, true);
+                        sv.subscribe(*svid, tf_id, handle_id, true, true);
                         continue;
                     }
                     push_field_values(&mut fvs, sv.to_field_value(), run_len);

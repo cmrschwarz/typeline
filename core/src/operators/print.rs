@@ -289,7 +289,7 @@ pub fn handle_tf_print_raw(
                         if rl > 1 {
                             sv.make_buffered();
                         }
-                        sv.subscribe(sv_id, tf_id, rl as usize, false);
+                        sv.subscribe(sv_id, tf_id, rl as usize, false, true);
                         jd.tf_mgr.unclaim_batch_size(
                             tf_id,
                             batch_size - *handled_field_count,

@@ -1026,7 +1026,7 @@ pub fn handle_tf_regex(
                     }
                     if !sv.done {
                         sv.make_contiguous();
-                        sv.subscribe(sv_id, tf_id, rl as usize, true);
+                        sv.subscribe(sv_id, tf_id, rl as usize, true, false);
                         // PERF: if multimatch is false and we are in optional
                         // mode we can theoretically
                         // continue here, because there will always be exactly
@@ -1074,7 +1074,10 @@ pub fn handle_tf_regex(
                     }
                     match &sv.single_data().as_ref().storage_agnostic() {
                         StorageAgnosticStreamValueDataRef::Bytes(b) => {
-                            match_regex_inner::<true, _>(
+                            // PERF: maybe allow for stream values to be
+                            // created to allow references or make the
+                            // text/bytes type arc + range ...
+                            match_regex_inner::<false, _>(
                                 &mut rmis,
                                 &mut bytes_regex,
                                 b,
@@ -1087,11 +1090,11 @@ pub fn handle_tf_regex(
                         }
                         StorageAgnosticStreamValueDataRef::Text(t) => {
                             if let Some(tr) = &mut text_regex {
-                                match_regex_inner::<true, _>(
+                                match_regex_inner::<false, _>(
                                     &mut rmis, tr, t, rl, 0,
                                 )
                             } else {
-                                match_regex_inner::<true, _>(
+                                match_regex_inner::<false, _>(
                                     &mut rmis,
                                     &mut bytes_regex,
                                     t.as_bytes(),

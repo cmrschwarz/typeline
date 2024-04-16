@@ -454,6 +454,7 @@ pub fn handle_tf_string_sink(
                             tf_id,
                             handle_id,
                             sv.is_buffered(),
+                            true,
                         );
                     }
                     pos += rl;

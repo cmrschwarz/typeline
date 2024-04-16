@@ -1,6 +1,7 @@
 use std::{collections::HashMap, io::BufRead};
 
 use scr_core::{
+    extension::ExtensionRegistry,
     job::JobData,
     liveness_analysis::{
         AccessFlags, BasicBlockId, LivenessData, OpOutputIdx,
@@ -92,14 +93,14 @@ impl Operator for OpFromTyson {
 impl TfFromTyson {
     fn push_as_tyson(
         &self,
-        bud: &BasicUpdateData,
+        exts: Option<&ExtensionRegistry>,
         inserter: &mut VaryingTypeInserter<&mut FieldData>,
         data: impl BufRead,
         rl: RunLength,
         op_id: OperatorId,
         fpm: bool,
     ) {
-        match parse_tyson(data, fpm, Some(&bud.session_data.extensions)) {
+        match parse_tyson(data, fpm, exts) {
             Ok(v) => {
                 inserter.push_field_value_unpacked(v, rl as usize, true, false)
             }
@@ -122,6 +123,7 @@ impl TfFromTyson {
             .unwrap() as usize]
             .settings
             .floating_point_math;
+        let exts = Some(&*bud.session_data.extensions);
         while let Some(range) = bud.iter.next_range(bud.match_set_mgr) {
             match range.base.data {
                 FieldValueSlice::TextInline(vals) => {
@@ -129,7 +131,7 @@ impl TfFromTyson {
                         RefAwareInlineTextIter::from_range(&range, vals)
                     {
                         self.push_as_tyson(
-                            &bud,
+                            exts,
                             &mut inserter,
                             v.as_bytes(),
                             rl,
@@ -143,7 +145,7 @@ impl TfFromTyson {
                         RefAwareTextBufferIter::from_range(&range, vals)
                     {
                         self.push_as_tyson(
-                            &bud,
+                            exts,
                             &mut inserter,
                             v.as_bytes(),
                             rl,
@@ -157,7 +159,7 @@ impl TfFromTyson {
                         RefAwareInlineBytesIter::from_range(&range, vals)
                     {
                         self.push_as_tyson(
-                            &bud,
+                            exts,
                             &mut inserter,
                             v,
                             rl,
@@ -171,7 +173,7 @@ impl TfFromTyson {
                         RefAwareBytesBufferIter::from_range(&range, vals)
                     {
                         self.push_as_tyson(
-                            &bud,
+                            exts,
                             &mut inserter,
                             v,
                             rl,
@@ -184,7 +186,7 @@ impl TfFromTyson {
                     for (&sv_id, rl) in
                         FieldValueSliceIter::from_range(&range, vals)
                     {
-                        let sv = &bud.sv_mgr.stream_values[sv_id];
+                        let sv = &mut bud.sv_mgr.stream_values[sv_id];
                         if let Some(err) = &sv.error {
                             inserter.push_error(
                                 (**err).clone(),
@@ -218,7 +220,7 @@ impl TfFromTyson {
                                 }
                             }
                             self.push_as_tyson(
-                                &bud,
+                                exts,
                                 &mut inserter,
                                 sv.data_iter(StreamValueDataOffset::default()),
                                 rl,
@@ -226,6 +228,7 @@ impl TfFromTyson {
                                 fpm,
                             )
                         } else {
+                            sv.make_buffered();
                             let out_sv_id = bud
                                 .sv_mgr
                                 .stream_values
@@ -235,8 +238,9 @@ impl TfFromTyson {
                                     StreamValueBufferMode::Stream,
                                     false,
                                 ));
+
                             bud.sv_mgr.subscribe_to_stream_value(
-                                sv_id, bud.tf_id, out_sv_id, true,
+                                sv_id, bud.tf_id, out_sv_id, true, true,
                             )
                         }
                     }
