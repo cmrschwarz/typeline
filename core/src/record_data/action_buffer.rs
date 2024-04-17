@@ -1,7 +1,7 @@
 use std::{
     cell::{Cell, Ref},
     collections::VecDeque,
-    fmt::Debug,
+    fmt::{Debug, Write},
     mem::size_of,
 };
 
@@ -591,6 +591,11 @@ impl ActionBuffer {
         next_succ: ActionGroupId,
         ag: &ActionGroupIdentifier,
     ) -> ActionGroupIdentifier {
+        #[cfg(feature = "action_group_logging")]
+        eprintln!(
+            "@ appending action group to actor {actor_id} pow2 {pow2} (group count: {}): \n    > {ag:?}",
+            self.actors[actor_id].action_group_queues[pow2 as usize].action_groups.len()
+        );
         let (s1, s2) = self.get_action_group_slices(ag);
         assert!(Self::action_group_not_from_actor_pow2(actor_id, pow2, ag));
         let start = unsafe {
@@ -606,6 +611,7 @@ impl ActionBuffer {
             agq.actions.data.extend(s2);
             start
         };
+
         let actor = &mut self.actors[actor_id];
         let agq = &mut actor.action_group_queues[pow2 as usize];
         agq.action_groups.data.push_back(ActionGroupWithRefs {
@@ -630,6 +636,8 @@ impl ActionBuffer {
     ) -> Option<ActionGroupIdentifier> {
         if let Some(lhs) = lhs {
             if let Some(rhs) = rhs {
+                #[cfg(feature = "action_group_logging")]
+                eprintln!("@ merging into actor {actor_id} pow2 {pow2}:\n    > {:?}\n    > {:?}", lhs, rhs);
                 let (l1, l2) = self.get_action_group_slices(lhs);
                 let (r1, r2) = self.get_action_group_slices(rhs);
                 assert!(Self::action_group_not_from_actor_pow2(
@@ -695,6 +703,11 @@ impl ActionBuffer {
     ) -> Option<ActionGroupIdentifier> {
         if let Some(lhs) = lhs {
             if let Some(rhs) = rhs {
+                #[cfg(feature = "action_group_logging")]
+                eprintln!(
+                    "@ merging into temp:\n    > {:?}\n    > {:?}",
+                    lhs, rhs
+                );
                 let (l1, l2) = self.get_action_group_slices(lhs);
                 let (r1, r2) = self.get_action_group_slices(rhs);
                 let idx = Self::get_free_temp_idx(lhs, rhs);
@@ -1041,6 +1054,32 @@ impl ActionBuffer {
         }
         res
     }
+    pub fn stringify_snapshot(
+        &self,
+        actor_id: ActorId,
+        ss: SnapshotRef,
+    ) -> String {
+        if ss.snapshot_len < SNAPSHOT_LEN_MIN as SnapshotEntry {
+            return "Snapshot { ac: 0, rc: 0, [ ] }".to_string();
+        }
+        let ss = &self.snapshot_freelists
+            [ss.snapshot_len as usize - SNAPSHOT_LEN_MIN][ss.snapshot_id];
+        let ac = ss[SNAPSHOT_ACTOR_COUNT_OFFSET];
+        let rc = ss[SNAPSHOT_REFCOUNT_OFFSET];
+        let data = &ss[SNAPSHOT_PREFIX_LEN..];
+
+        let mut res = format!("Snapshot {{ ac: {ac}, rc: {rc}, [ ");
+        let iter = Pow2LookupStepsIter::new(actor_id, ac);
+        for (i, (ai, pow2)) in iter.enumerate() {
+            res.write_fmt(format_args!(
+                "(ai: {ai}, pow2: {pow2}, gi: {}) ",
+                data[i]
+            ))
+            .unwrap();
+        }
+        res.push_str("] }");
+        res
+    }
     fn update_actor_snapshot(&mut self, actor_id: ActorId) -> SnapshotRef {
         let actor_ss = self.actors[actor_id].latest_snapshot;
         if self.validate_snapshot_and_refresh_action_groups(actor_id, actor_ss)
@@ -1048,6 +1087,16 @@ impl ActionBuffer {
             return actor_ss;
         }
         let new_ss = self.generate_snapshot(actor_id, 1);
+
+        #[cfg(feature = "action_group_logging")]
+        {
+            eprintln!(
+                "updated actor {actor_id} snapshot: \n > prev: {}\n > next: {}",
+                self.stringify_snapshot(actor_id, actor_ss),
+                self.stringify_snapshot(actor_id, new_ss),
+            );
+        }
+
         // we generate the new one first before dropping the reference to
         // the old one to make sure that when we later compare refs to the two
         // they are not the same
