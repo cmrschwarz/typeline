@@ -386,7 +386,8 @@ impl Context {
                         String::new(),
                         |mut s, a| {
                             s.push(' ');
-                            s.push_str(&shlex::quote(&a));
+                            // HACK // TODO: error handling
+                            s.push_str(&shlex::try_quote(&a).unwrap());
                             s
                         },
                     )[1..],

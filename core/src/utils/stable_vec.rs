@@ -21,7 +21,10 @@ pub struct StableVec<T, const CHUNK_SIZE: usize = 64> {
     len: Cell<usize>,
 }
 // `!Sync` is guaranteed by the `data` pointer
-unsafe impl<T: Send> Send for StableVec<T> {}
+unsafe impl<T: Send, const CHUNK_SIZE: usize> Send
+    for StableVec<T, CHUNK_SIZE>
+{
+}
 
 impl<T, const CHUNK_SIZE: usize> Default for StableVec<T, CHUNK_SIZE> {
     fn default() -> Self {
