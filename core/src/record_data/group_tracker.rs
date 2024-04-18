@@ -12,7 +12,9 @@ use crate::utils::{
 };
 
 use super::{
-    action_buffer::{ActionBuffer, ActorId, ActorRef, SnapshotRef},
+    action_buffer::{
+        ActionBuffer, ActorId, ActorRef, ActorSubscriber, SnapshotRef,
+    },
     field_action::{FieldAction, FieldActionKind},
     field_data::FieldValueRepr,
 };
@@ -78,6 +80,7 @@ pub struct GroupListIter<L> {
 }
 pub struct GroupListIterMut<'a, T: DerefMut<Target = GroupList>> {
     base: GroupListIter<T>,
+    list_id: GroupListId,
     tracker: &'a GroupTracker,
     group_len: usize,
     update_group_len: bool,
@@ -420,9 +423,11 @@ impl GroupList {
         #[cfg_attr(not(feature = "debug_logging"), allow(unused))]
         list_id: GroupListId,
     ) {
-        let Some((actor_id, ss_prev)) =
-            ab.update_snapshot(None, &mut self.actor, &mut self.snapshot)
-        else {
+        let Some((actor_id, ss_prev)) = ab.update_snapshot(
+            ActorSubscriber::GroupList(list_id),
+            &mut self.actor,
+            &mut self.snapshot,
+        ) else {
             return;
         };
         let agi = ab.build_actions_from_snapshot(actor_id, ss_prev);
@@ -509,6 +514,7 @@ impl GroupList {
     }
     pub fn lookup_iter_for_deref_mut<'a, T: DerefMut<Target = Self>>(
         tracker: &'a GroupTracker,
+        list_id: GroupListId,
         list: T,
         iter_id: GroupListIterId,
         action_buffer: &'a mut ActionBuffer,
@@ -521,6 +527,7 @@ impl GroupList {
         GroupListIterMut {
             group_len: base.group_len_rem + iter_state.group_offset,
             base,
+            list_id,
             tracker,
             actions_applied_in_parents: false,
             action_count_applied_to_parents: 0,
@@ -728,6 +735,7 @@ impl GroupTracker {
         list.apply_field_actions(action_buffer, list_id);
         GroupList::lookup_iter_for_deref_mut(
             self,
+            list_id,
             list,
             iter_id,
             action_buffer,
@@ -756,9 +764,11 @@ impl GroupTracker {
         loop {
             let mut list_ref = self.lists[list_id].borrow_mut();
             let list = &mut *list_ref;
-            let Some((actor_id, ss_prev)) =
-                ab.update_snapshot(None, &mut list.actor, &mut list.snapshot)
-            else {
+            let Some((actor_id, ss_prev)) = ab.update_snapshot(
+                ActorSubscriber::GroupList(list_id),
+                &mut list.actor,
+                &mut list.snapshot,
+            ) else {
                 return;
             };
             let diff = (ss_prev, list.snapshot);
@@ -974,6 +984,7 @@ impl<'a, T: DerefMut<Target = GroupList>> GroupListIterMut<'a, T> {
         self.update_group();
         self.try_next_group_raw()
     }
+    pub fn apply_new_actions_to_list_and_parents() {}
     pub fn insert_fields(&mut self, repr: FieldValueRepr, count: usize) {
         self.base.list.lookup_and_advance_affected_iters_(
             self.base.group_idx..=self.base.group_idx,
@@ -999,24 +1010,10 @@ impl<'a, T: DerefMut<Target = GroupList>> GroupListIterMut<'a, T> {
                 )
             }
         }
-        let action_count =
-            self.action_buffer.get_curr_action_group_action_count();
-        if action_count != self.action_count_applied_to_parents {
-            let (s1, s2) = subslice_slice_pair(
-                self.action_buffer.get_curr_action_group_slices(),
-                self.action_count_applied_to_parents..action_count,
-            );
-            let actions = s1.iter().chain(s2.iter());
-            let mut parent_opt = self.base.list.parent_list;
-            while let Some(parent) = parent_opt {
-                let mut list = self.tracker.lists[parent].borrow_mut();
-                list.apply_field_actions_list(actions.clone());
-                parent_opt = list.parent_list;
-            }
-            // plus one for the insert action that we are about to add,
-            // that will be applied manually by the code below
-            self.action_count_applied_to_parents = action_count + 1;
-        }
+        self.apply_pending_actions_to_parents();
+        // plus one for the insert action that we are about to add,
+        // that will be applied manually by the code below
+        self.action_count_applied_to_parents += 1;
 
         self.action_buffer.push_action(
             FieldActionKind::InsertZst(repr),
@@ -1293,32 +1290,60 @@ impl<'a, T: DerefMut<Target = GroupList>> GroupListIterMut<'a, T> {
         }
         count
     }
+
+    fn apply_pending_actions_to_parents(&mut self) {
+        let action_count =
+            self.action_buffer.get_curr_action_group_action_count();
+        if action_count == self.action_count_applied_to_parents {
+            return;
+        }
+        let (s1, s2) = subslice_slice_pair(
+            self.action_buffer.get_curr_action_group_slices(),
+            self.action_count_applied_to_parents..action_count,
+        );
+        let actions = s1.iter().chain(s2.iter());
+        let mut parent_id = self.base.list.parent_list;
+        while let Some(parent) = parent_id {
+            let mut list = self.tracker.lists[parent].borrow_mut();
+            list.apply_field_actions_list(actions.clone());
+            parent_id = list.parent_list;
+        }
+        self.action_count_applied_to_parents = action_count;
+    }
 }
 
 impl<'a, T: DerefMut<Target = GroupList>> Drop for GroupListIterMut<'a, T> {
     fn drop(&mut self) {
+        self.update_group();
         self.action_buffer.end_action_group();
-        let list = &mut *self.base.list;
-        if let Some((_actor_id, ss_prev)) = self.action_buffer.update_snapshot(
-            None,
-            &mut list.actor,
-            &mut list.snapshot,
-        ) {
-            self.action_buffer.drop_snapshot_refcount(ss_prev, 1);
-        }
-        if self.action_count_applied_to_parents != 0 {
-            let mut parent_id = list.parent_list;
+
+        if self.actions_applied_in_parents {
+            self.apply_pending_actions_to_parents();
+
+            let mut parent_id = self.base.list.parent_list;
             while let Some(list_id) = parent_id {
                 let mut list_ref = self.tracker.lists[list_id].borrow_mut();
                 let list = &mut *list_ref;
-                if let Some((_actor_id, ss_prev)) = self
-                    .action_buffer
-                    .update_snapshot(None, &mut list.actor, &mut list.snapshot)
+                if let Some((_actor_id, ss_prev)) =
+                    self.action_buffer.update_snapshot(
+                        ActorSubscriber::GroupList(self.list_id),
+                        &mut list.actor,
+                        &mut list.snapshot,
+                    )
                 {
                     self.action_buffer.drop_snapshot_refcount(ss_prev, 1);
                 }
                 parent_id = list.parent_list;
             }
+        }
+
+        let list = &mut *self.base.list;
+        if let Some((_actor_id, ss_prev)) = self.action_buffer.update_snapshot(
+            ActorSubscriber::GroupList(self.list_id),
+            &mut list.actor,
+            &mut list.snapshot,
+        ) {
+            self.action_buffer.drop_snapshot_refcount(ss_prev, 1);
         }
     }
 }

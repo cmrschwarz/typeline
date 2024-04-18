@@ -18,6 +18,7 @@ use super::{
     field_action::{merge_action_lists, FieldAction, FieldActionKind},
     field_action_applicator::FieldActionApplicator,
     field_data::{FieldValueHeader, RunLength, MAX_FIELD_ALIGN},
+    group_tracker::GroupListId,
     iter_hall::{CowVariant, FieldDataSource, IterState},
     match_set::MatchSetId,
 };
@@ -91,10 +92,16 @@ struct ActionGroupQueue {
     refcount: u32,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ActorSubscriber {
+    Field(FieldId),
+    GroupList(GroupListId),
+}
+
 struct Actor {
     action_group_queues: Vec<ActionGroupQueue>,
     merges: Vec<ActionGroupMerges>,
-    subscribers: Vec<FieldId>,
+    subscribers: Vec<ActorSubscriber>,
     latest_snapshot: SnapshotRef,
 }
 
@@ -173,7 +180,8 @@ struct DataCowFieldRef<'a> {
     // `dead_data_trailing` needs to take that into account
     data_end: usize,
     // required for the corresponding full cow fields
-    // (`FullCowFieldRef::data_cow_idx`) that need this do adjust their iterators
+    // (`FullCowFieldRef::data_cow_idx`) that need this do adjust their
+    // iterators
     drop_info: HeaderDropInfo,
 }
 
@@ -1091,7 +1099,7 @@ impl ActionBuffer {
         #[cfg(feature = "action_group_logging")]
         {
             eprintln!(
-                "updated actor {actor_id} snapshot: \n > prev: {}\n > next: {}",
+                "@ updated snapshot for actor {actor_id}: \n - prev: {}\n - next: {}",
                 self.stringify_snapshot(actor_id, actor_ss),
                 self.stringify_snapshot(actor_id, new_ss),
             );
@@ -1106,7 +1114,7 @@ impl ActionBuffer {
     }
     pub(super) fn update_snapshot(
         &mut self,
-        subscriber: Option<FieldId>,
+        subscriber: ActorSubscriber,
         actor_ref: &mut ActorRef,
         snapshot_ref: &mut SnapshotRef,
     ) -> Option<(ActorId, SnapshotRef)> {
@@ -1117,6 +1125,18 @@ impl ActionBuffer {
             return None;
         }
         self.bump_snapshot_refcount(actor_ss, 1);
+        #[cfg(feature = "action_group_logging")]
+        eprintln!(
+            "@ updated snapshot for {}: \n - prev: {}\n - next: {}",
+            match subscriber {
+                ActorSubscriber::Field(field_id) =>
+                    format!("field {field_id}"),
+                ActorSubscriber::GroupList(group_id) =>
+                    format!("group {group_id}"),
+            },
+            self.stringify_snapshot(actor_id, *snapshot_ref),
+            self.stringify_snapshot(actor_id, actor_ss),
+        );
         *snapshot_ref = actor_ss;
         Some((actor_id, prev_ss))
     }
@@ -1618,7 +1638,7 @@ impl ActionBuffer {
         let mut field = fm.fields[field_id].borrow_mut();
         let fr = &mut *field;
         let Some((actor_id, ss_prev)) = self.update_snapshot(
-            Some(field_id),
+            ActorSubscriber::Field(field_id),
             &mut fr.first_actor,
             &mut fr.snapshot,
         ) else {
@@ -1777,7 +1797,7 @@ impl ActionBuffer {
     }
     fn initialize_first_actor(
         &mut self,
-        subscriber: Option<FieldId>,
+        subscriber: ActorSubscriber,
         first_actor: &mut ActorRef,
     ) -> Option<ActorId> {
         match *first_actor {
@@ -1785,9 +1805,7 @@ impl ActionBuffer {
             ActorRef::Unconfirmed(actor) => {
                 if self.actors.next_free_index() > actor {
                     *first_actor = ActorRef::Present(actor);
-                    if let Some(field_id) = subscriber {
-                        self.actors[actor].subscribers.push(field_id);
-                    }
+                    self.actors[actor].subscribers.push(subscriber);
                     Some(actor)
                 } else {
                     None
@@ -1804,9 +1822,10 @@ impl ActionBuffer {
         if self.actors.data.is_empty() {
             return;
         }
-        let Some(actor_id) =
-            self.initialize_first_actor(Some(field_id), first_actor)
-        else {
+        let Some(actor_id) = self.initialize_first_actor(
+            ActorSubscriber::Field(field_id),
+            first_actor,
+        ) else {
             return;
         };
         let ss = self.update_actor_snapshot(actor_id);
@@ -1820,8 +1839,15 @@ impl ActionBuffer {
                 field_id, self.match_set_id, actor_id,
             );
         }
+        #[cfg(feature = "action_group_logging")]
+        eprintln!(
+            "@ updated snapshot for field {field_id}: \n - prev: {}\n - next: {}",
+            self.stringify_snapshot(actor_id, *snapshot),
+            self.stringify_snapshot(actor_id, ss),
+        );
         self.drop_snapshot_refcount(*snapshot, 1);
         self.bump_snapshot_refcount(ss, 1);
+
         *snapshot = ss;
     }
 }
