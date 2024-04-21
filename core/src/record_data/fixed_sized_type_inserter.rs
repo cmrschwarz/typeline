@@ -1,5 +1,7 @@
 use std::marker::PhantomData;
 
+use crate::utils::range_contains;
+
 use super::{
     field_data::{
         field_value_flags::{self, DELETED},
@@ -82,6 +84,10 @@ impl<'a> RawFixedSizedTypeInserter<'a> {
     #[inline(always)]
     unsafe fn push<T>(&mut self, v: T) {
         unsafe {
+            debug_assert!(range_contains(
+                self.fd.data.buffer_range(),
+                self.data_ptr..self.data_ptr.add(std::mem::size_of::<T>())
+            ));
             std::ptr::copy_nonoverlapping(
                 std::ptr::addr_of!(v),
                 self.data_ptr.cast(),
@@ -136,7 +142,7 @@ impl<'a, T: FieldValueType + PartialEq + Clone> FixedSizeTypeInserter<'a, T> {
     }
     #[inline(always)]
     pub fn push(&mut self, v: T) {
-        if self.raw.count == self.raw.max {
+        if self.raw.count >= self.raw.max {
             self.commit_and_reserve(
                 (self.raw.fd.data.len() / std::mem::size_of::<T>()).min(4),
             );

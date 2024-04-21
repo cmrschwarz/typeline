@@ -88,8 +88,8 @@ impl<const ALIGN: usize> RingBuf<ALIGN> {
         self.cap
     }
     pub fn to_physical_idx(&self, logical_idx: usize) -> usize {
-        let space_back = self.cap - self.head - self.back_padding as usize;
-        if logical_idx > space_back {
+        let space_back = self.space_back();
+        if logical_idx >= space_back {
             return logical_idx - space_back + self.front_padding as usize;
         }
         self.head + logical_idx
@@ -290,6 +290,9 @@ impl<const ALIGN: usize> RingBuf<ALIGN> {
         }
         self.head = 0;
     }
+    // `tail_data_to_join_with` is the amount of bytes currently sitting right
+    // before the end of the ringbuffer that we want to also be contiguous
+    // with the space reserved at the end
     pub fn reserve_contiguous(
         &mut self,
         additional_cap: usize,
@@ -367,6 +370,9 @@ impl<const ALIGN: usize> RingBuf<ALIGN> {
         self.len = 0;
         self.head = 0;
     }
+    fn space_front(&self) -> usize {
+        self.head - self.front_padding as usize
+    }
     fn space_back(&self) -> usize {
         self.cap - self.head - self.back_padding as usize
     }
@@ -420,7 +426,7 @@ impl<const ALIGN: usize> RingBuf<ALIGN> {
     pub fn contiguous_tail_space_available(&mut self) -> usize {
         let space_back = self.space_back();
         if self.len >= space_back {
-            return self.head - (self.len - space_back);
+            return self.space_front() - (self.len - space_back);
         }
         space_back - self.len
     }
@@ -468,6 +474,10 @@ impl<const ALIGN: usize> RingBuf<ALIGN> {
         self.back_padding = 0;
         self.front_padding = 0;
         self.len -= count;
+    }
+    pub fn buffer_range(&self) -> Range<*const u8> {
+        let p = self.data.as_ptr() as *const u8;
+        p..unsafe { p.add(self.cap) }
     }
 }
 

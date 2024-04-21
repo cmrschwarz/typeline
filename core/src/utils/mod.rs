@@ -164,6 +164,13 @@ pub fn range_bounds_to_range(
     start..end
 }
 
+pub fn range_contains<I: PartialOrd>(
+    range: Range<I>,
+    subrange: Range<I>,
+) -> bool {
+    range.start <= subrange.start && range.end >= subrange.end
+}
+
 pub fn retain_vec_range<T>(v: &mut Vec<T>, range: Range<usize>) {
     if range == (0..v.len()) {
         return;
