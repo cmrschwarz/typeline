@@ -5,7 +5,7 @@ use std::{
 
 use crate::{
     record_data::{field_data::RunLength, push_interface::PushInterface},
-    utils::integer_sum::integer_sum_with_overflow,
+    utils::integer_sum::try_integer_sum,
 };
 use num::{BigInt, BigRational, FromPrimitive, ToPrimitive};
 
@@ -104,7 +104,7 @@ impl AnyNumber {
         }
     }
     pub fn add_ints(&mut self, v: &[i64], fpm: bool) {
-        match integer_sum_with_overflow(v) {
+        match try_integer_sum(v) {
             Some(res) => self.add_int(res, fpm),
             None => {
                 for &i in v {
