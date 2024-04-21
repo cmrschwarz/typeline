@@ -20,7 +20,17 @@ impl Default for SizeClassedVecDeque {
 
 impl SizeClassedVecDeque {
     fn required_size_class_for_value(value: usize) -> u32 {
-        (usize::BITS - value.max(1).leading_zeros() + 7) / 8 * 8
+        let bytes = (usize::BITS - value.max(1).leading_zeros() + 7) / 8;
+        match bytes {
+            1 => 8,
+            2 => 16,
+            3 | 4 => 32,
+            #[allow(clippy::manual_range_patterns)]
+            // manual range leads to better performance (optimized as lookup
+            // table) see https://godbolt.org/z/88K5M9hjo
+            5 | 6 | 7 | 8 => 64,
+            _ => unsafe { std::hint::unreachable_unchecked() },
+        }
     }
     pub fn promote_to_size_class_of_value(&mut self, value: usize) {
         self.promote_to_size_class(Self::required_size_class_for_value(value));
