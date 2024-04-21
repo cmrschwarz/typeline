@@ -648,7 +648,7 @@ impl FieldManager {
             self.fields[field_id]
                 .borrow()
                 .iter_hall
-                .store_iter_unchecked(iter_id, iter)
+                .store_iter_unchecked(field_id, iter_id, iter)
         }
     }
     pub fn get_auto_deref_iter<'a>(
@@ -712,7 +712,11 @@ impl FieldManager {
                 .get_cow_field_ref_raw(field_id)
                 .destructured_field_ref()
         ));
-        unsafe { field.iter_hall.store_iter_unchecked(iter_id, iter_base) };
+        unsafe {
+            field
+                .iter_hall
+                .store_iter_unchecked(field_id, iter_id, iter_base)
+        };
     }
 
     pub fn bump_field_refcount(&self, field_id: FieldId) {

@@ -576,6 +576,17 @@ impl ActionBuffer {
             agi,
         )
     }
+    #[cfg_attr(not(feature = "action_group_logging"), allow(unused))]
+    pub(super) fn get_action_group_iter(
+        &self,
+        agi: &ActionGroupIdentifier,
+    ) -> std::iter::Chain<
+        std::slice::Iter<FieldAction>,
+        std::slice::Iter<FieldAction>,
+    > {
+        let (s1, s2) = self.get_action_group_slices(agi);
+        s1.iter().chain(s2.iter())
+    }
     fn action_group_not_from_actor_pow2(
         actor_id: ActorId,
         pow2: u8,
@@ -645,7 +656,13 @@ impl ActionBuffer {
         if let Some(lhs) = lhs {
             if let Some(rhs) = rhs {
                 #[cfg(feature = "action_group_logging")]
-                eprintln!("@ merging into actor {actor_id} pow2 {pow2}:\n    > {:?}\n    > {:?}", lhs, rhs);
+                {
+                    eprintln!("@ merging actor {actor_id} pow2 {pow2}:");
+                    eprintln!("  + {lhs:?}");
+                    eprint_action_list(self.get_action_group_iter(lhs));
+                    eprintln!("  + {rhs:?}");
+                    eprint_action_list(self.get_action_group_iter(rhs));
+                }
                 let (l1, l2) = self.get_action_group_slices(lhs);
                 let (r1, r2) = self.get_action_group_slices(rhs);
                 assert!(Self::action_group_not_from_actor_pow2(
@@ -688,10 +705,16 @@ impl ActionBuffer {
                     next_action_group_id_self: next_self,
                     next_action_group_id_succ: next_succ,
                 });
-                return Some(ActionGroupIdentifier {
+                let res = ActionGroupIdentifier {
                     group: ag,
                     location: ActionGroupLocation::Regular { actor_id, pow2 },
-                });
+                };
+                #[cfg(feature = "action_group_logging")]
+                {
+                    eprintln!(" -> {res:?}");
+                    eprint_action_list(self.get_action_group_iter(&res));
+                }
+                return Some(res);
             }
             return Some(self.append_action_group(
                 actor_id, pow2, next_self, next_succ, lhs,
@@ -711,13 +734,18 @@ impl ActionBuffer {
     ) -> Option<ActionGroupIdentifier> {
         if let Some(lhs) = lhs {
             if let Some(rhs) = rhs {
-                #[cfg(feature = "action_group_logging")]
-                eprintln!(
-                    "@ merging into temp:\n    > {:?}\n    > {:?}",
-                    lhs, rhs
-                );
                 let (l1, l2) = self.get_action_group_slices(lhs);
                 let (r1, r2) = self.get_action_group_slices(rhs);
+
+                #[cfg(feature = "action_group_logging")]
+                {
+                    eprintln!("@ merging into temp:");
+                    eprintln!("  + {lhs:?}");
+                    eprint_action_list(l1.iter().chain(l2.iter()));
+                    eprintln!("  + {rhs:?}");
+                    eprint_action_list(r1.iter().chain(r2.iter()));
+                }
+
                 let idx = Self::get_free_temp_idx(lhs, rhs);
                 let (start, length) = unsafe {
                     // SAFETY: get_free_temp_idx makes sure that
@@ -726,6 +754,7 @@ impl ActionBuffer {
                     // a mutable reference to it
                     let (l1, l2) = (launder_slice(l1), launder_slice(l2));
                     let (r1, r2) = (launder_slice(r1), launder_slice(r2));
+
                     let buff = &mut self.action_temp_buffers[idx];
                     let start = buff.len();
                     merge_action_lists(
@@ -733,9 +762,10 @@ impl ActionBuffer {
                         r1.iter().chain(r2),
                         buff,
                     );
+
                     (start, buff.len() - start)
                 };
-                return Some(ActionGroupIdentifier {
+                let res = ActionGroupIdentifier {
                     group: ActionGroup {
                         start,
                         length,
@@ -743,7 +773,13 @@ impl ActionBuffer {
                             + rhs.group.field_count_delta,
                     },
                     location: ActionGroupLocation::TempBuffer { idx },
-                });
+                };
+                #[cfg(feature = "action_group_logging")]
+                {
+                    eprintln!(" -> {res:?}");
+                    eprint_action_list(self.get_action_group_iter(&res));
+                }
+                return Some(res);
             }
             return Some(lhs.clone());
         }
@@ -1095,16 +1131,6 @@ impl ActionBuffer {
             return actor_ss;
         }
         let new_ss = self.generate_snapshot(actor_id, 1);
-
-        #[cfg(feature = "action_group_logging")]
-        {
-            eprintln!(
-                "@ updated snapshot for actor {actor_id}: \n - prev: {}\n - next: {}",
-                self.stringify_snapshot(actor_id, actor_ss),
-                self.stringify_snapshot(actor_id, new_ss),
-            );
-        }
-
         // we generate the new one first before dropping the reference to
         // the old one to make sure that when we later compare refs to the two
         // they are not the same
@@ -1176,10 +1202,14 @@ impl ActionBuffer {
             );
             drop(field);
             eprint_action_list(actions.clone());
+
             eprint!("   + before: ");
             fm.print_field_header_data(field_id, 3);
-            eprint!("\n   ");
-            fm.print_field_iter_data(field_id, 3);
+            #[cfg(feature = "iter_state_logging")]
+            {
+                eprint!("\n   ");
+                fm.print_field_iter_data(field_id, 3);
+            }
             eprintln!();
         }
         let mut field_ref_mut = fm.fields[field_id].borrow_mut();
@@ -1224,8 +1254,11 @@ impl ActionBuffer {
             drop(field_ref_mut);
             eprint!("   + after: ");
             fm.print_field_header_data(field_id, 3);
-            eprint!("\n   ");
-            fm.print_field_iter_data(field_id, 3);
+            #[cfg(feature = "iter_state_logging")]
+            {
+                eprint!("\n   ");
+                fm.print_field_iter_data(field_id, 3);
+            }
             eprintln!();
         }
         // debug_assert!(_field_count_delta == agi.group.field_count_delta);
@@ -1522,8 +1555,11 @@ impl ActionBuffer {
         );
             eprint!("    ");
             fm.print_field_header_data_for_ref(field, 4);
-            eprint!("\n    ");
-            fm.print_field_iter_data_for_ref(field, 4);
+            #[cfg(feature = "iter_state_logging")]
+            {
+                eprint!("\n    ");
+                fm.print_field_iter_data_for_ref(field, 4);
+            }
             eprintln!();
         }
         drop_info

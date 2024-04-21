@@ -226,13 +226,36 @@ pub fn handle_tf_sequence(
     };
 
     match ss.seq.mode {
-        TfSequenceMode::Sequence => handle_seq_mode(ss),
+        TfSequenceMode::Sequence => {
+            let pending_seq_len_claimed = handle_seq_mode(ss);
+            if pending_seq_len_claimed > 0 {
+                // we partially emitted a sequence.
+                // this means that we dup'ed the input element
+                // `pending_seq_len_claimed` many times.
+                // to keep our iterator pointing at the correct field pos
+                // for the next batch, we need to skip those elements
+                drop(ab);
+                drop(input_field);
+                let input_field = jd
+                    .field_mgr
+                    .get_cow_field_ref(&jd.match_set_mgr, input_field_id);
+
+                let mut iter = jd.field_mgr.lookup_iter(
+                    input_field_id,
+                    &input_field,
+                    seq.iter_id,
+                );
+                iter.next_n_fields(pending_seq_len_claimed, true);
+                jd.field_mgr.store_iter(input_field_id, seq.iter_id, iter);
+            }
+        }
         TfSequenceMode::Enum => handle_enum_mode(ss),
         TfSequenceMode::EnumUnbounded => handle_enum_unbounded_mode(ss),
     }
 }
 
-fn handle_seq_mode(mut sbs: SequenceBatchState) {
+// returns the claimed pending sequence len so we can move past it
+fn handle_seq_mode(mut sbs: SequenceBatchState) -> usize {
     sbs.ab.begin_action_group(sbs.seq.actor_id);
     let mut field_pos = sbs.iter.get_next_field_pos();
     let mut field_dup_count = 0;
@@ -243,6 +266,8 @@ fn handle_seq_mode(mut sbs: SequenceBatchState) {
     let seq_len_trunc = usize::try_from(seq_len_total).unwrap_or(0);
 
     let mut seq_len_rem = sbs.seq.ss.remaining_len(sbs.seq.current_value);
+
+    let mut pending_seq_len_claimed = 0;
 
     while field_pos != field_pos_end && out_batch_size_rem != 0 {
         if field_pos == field_pos_end || out_batch_size_rem == 0 {
@@ -273,6 +298,7 @@ fn handle_seq_mode(mut sbs: SequenceBatchState) {
                 field_pos += 1;
             }
             if field_pos == field_pos_end || out_batch_size_rem == 0 {
+                pending_seq_len_claimed = count;
                 break;
             }
             seq_len_rem = seq_len_total;
@@ -309,8 +335,10 @@ fn handle_seq_mode(mut sbs: SequenceBatchState) {
         }
         out_batch_size_rem -= seq_len_trunc * field_count;
     }
+    sbs.ab.end_action_group();
     sbs.fm
         .store_iter(sbs.input_field_id, sbs.seq.iter_id, sbs.iter);
+
     let unclaimed_input = field_pos_end - field_pos;
     sbs.tf_mgr.unclaim_batch_size(sbs.tf_id, unclaimed_input);
     sbs.ps.next_batch_ready |= unclaimed_input > 0;
@@ -319,7 +347,8 @@ fn handle_seq_mode(mut sbs: SequenceBatchState) {
         sbs.desired_batch_size - out_batch_size_rem,
         sbs.ps,
     );
-    sbs.ab.end_action_group();
+
+    pending_seq_len_claimed
 }
 
 fn handle_enum_mode(mut sbs: SequenceBatchState) {

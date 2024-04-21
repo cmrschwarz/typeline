@@ -144,13 +144,14 @@ impl TfSum {
             self.actor_id,
         );
 
-        let mut field_pos = group_iter.field_pos();
         let mut finished_group_count = 0;
-        let mut last_finished_group_end = field_pos;
+        let mut last_finished_group_end = group_iter.field_pos();
+        let mut batch_size_rem = bud.batch_size;
 
         loop {
             if group_iter.is_end_of_group(bud.ps.input_done) {
-                let group_size = field_pos - last_finished_group_end
+                let group_size = group_iter.field_pos()
+                    - last_finished_group_end
                     + usize::from(self.pending_field);
                 self.pending_field = false;
                 let mut zero_count = 0;
@@ -158,10 +159,7 @@ impl TfSum {
                     group_iter.insert_fields(FieldValueRepr::Undefined, 1);
                     zero_count += 1;
                 } else {
-                    group_iter.drop_before(
-                        group_iter.field_pos() - group_size,
-                        group_size - 1,
-                    );
+                    group_iter.drop_backwards(group_size - 1);
                     self.finish_group(op_id, &mut inserter);
                     finished_group_count += 1;
                 }
@@ -175,21 +173,21 @@ impl TfSum {
                     group_iter.insert_fields(FieldValueRepr::Undefined, 1);
                     zero_count += 1;
                 }
-                last_finished_group_end = field_pos;
+                last_finished_group_end = group_iter.field_pos();
                 inserter.push_int(0, zero_count, true, true);
                 finished_group_count += zero_count;
             }
             let Some(range) = bud.iter.typed_range_fwd(
                 bud.match_set_mgr,
-                group_iter.group_len_rem(),
+                group_iter.group_len_rem().min(batch_size_rem),
                 0,
             ) else {
                 break;
             };
 
             let count = range.base.field_count;
+            batch_size_rem -= count;
             group_iter.next_n_fields_in_group(count);
-            field_pos += count;
             match range.base.data {
                 FieldValueSlice::Int(ints) => {
                     for (v, rl) in
@@ -237,15 +235,17 @@ impl TfSum {
                 }
             }
         }
-        let pending_group_size = field_pos - last_finished_group_end;
-        self.pending_field = pending_group_size > 0;
-        if pending_group_size > 1 {
-            let drop_count = pending_group_size - 1;
-            group_iter.drop_before(
-                group_iter.field_pos() - drop_count - 1,
-                drop_count,
-            )
+        let pending_group_size =
+            group_iter.field_pos() - last_finished_group_end;
+
+        if pending_group_size > 0 {
+            let drop_count =
+                pending_group_size - usize::from(!self.pending_field);
+            self.pending_field = true;
+            group_iter.drop_backwards(drop_count);
         }
+        group_iter.store_iter(self.group_list_iter_id);
+
         (finished_group_count, bud.ps.input_done)
     }
 }

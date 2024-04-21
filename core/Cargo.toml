@@ -55,7 +55,9 @@ repl = ["dep:shlex", "dep:reedline"]
 full = ["repl"]
 
 unstable = []
+
 debug_logging = []
 cow_field_logging = []
 output_field_logging = []
 action_group_logging = []
+iter_state_logging = []

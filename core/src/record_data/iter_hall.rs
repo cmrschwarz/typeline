@@ -289,6 +289,8 @@ impl IterHall {
     // SAFETY: caller must ensure that the iter uses the correct data source
     pub unsafe fn store_iter_unchecked<'a, R: FieldDataRef<'a>>(
         &self,
+        #[cfg_attr(not(feature = "iter_state_logging"), allow(unused))]
+        field_id: FieldId,
         iter_id: IterId,
         mut iter: Iter<'a, R>,
     ) {
@@ -315,6 +317,8 @@ impl IterHall {
         }
         state.header_idx = iter.header_idx;
         state.data = iter.data - iter.header_fmt.leading_padding();
+        #[cfg(feature = "iter_state_logging")]
+        eprintln!("storing iter for field {field_id:02}: {state:?}");
         self.iters[iter_id].set(state);
     }
     pub unsafe fn store_iter_state_unchecked(

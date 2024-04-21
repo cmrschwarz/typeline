@@ -589,7 +589,7 @@ fn big_sum() -> Result<(), ScrError> {
         .add_op(create_op_sum())
         .run_collect_as::<i64>()
         .unwrap();
-    assert_eq!(res, &[4495501]);
+    assert_eq!(res, &[4498500]);
     Ok(())
 }
 

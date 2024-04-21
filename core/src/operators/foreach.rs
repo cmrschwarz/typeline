@@ -163,7 +163,7 @@ pub fn handle_tf_foreach_header(
     let mut ab = ms.action_buffer.borrow_mut();
     let mut group_list =
         ms.group_tracker.borrow_group_list_mut(feh.group_list);
-    group_list.apply_field_actions(&mut ab, feh.group_list);
+    group_list.apply_field_actions(&mut ab);
     let mut parent_group_list_iter = ms.group_tracker.lookup_group_list_iter(
         group_list.parent_list_id().unwrap(),
         feh.parent_group_list_iter,
@@ -210,10 +210,7 @@ pub fn handle_tf_foreach_trailer(
     let ms = &mut jd.match_set_mgr.match_sets[tf.match_set_id];
     let mut group_list =
         ms.group_tracker.borrow_group_list_mut(fet.group_list);
-    group_list.apply_field_actions(
-        &mut ms.action_buffer.borrow_mut(),
-        fet.group_list,
-    );
+    group_list.apply_field_actions(&mut ms.action_buffer.borrow_mut());
     group_list.drop_leading_fields(batch_size, ps.input_done);
     jd.tf_mgr.submit_batch(tf_id, batch_size, ps.input_done);
 }
