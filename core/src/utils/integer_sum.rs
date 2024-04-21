@@ -89,3 +89,32 @@ pub fn try_integer_sum(nums: &[i64]) -> Option<i64> {
     }
     Some(sum)
 }
+
+#[cfg(test)]
+mod test {
+    use crate::utils::integer_sum::integer_sum_with_overflow_check;
+
+    #[test]
+    fn integer_overflow_in_avx() {
+        let arr = [i64::MAX, 0, 0, 0, 1, 0, 0, 0];
+        assert_eq!(integer_sum_with_overflow_check(&arr), (i64::MIN, true));
+    }
+
+    #[test]
+    fn integer_underflow_in_avx() {
+        let arr = [i64::MIN, 0, 0, 0, -1, 0, 0, 0];
+        assert_eq!(integer_sum_with_overflow_check(&arr), (i64::MAX, true));
+    }
+
+    #[test]
+    fn integer_overflow_in_overhang() {
+        let arr = [0, 0, 0, 0, 0, 0, 0, 0, i64::MAX, 1];
+        assert_eq!(integer_sum_with_overflow_check(&arr), (i64::MIN, true));
+    }
+
+    #[test]
+    fn integer_overflow_in_final_merge() {
+        let arr = [0, 0, 0, i64::MAX, 0, 0, 0, 0, 0, 1];
+        assert_eq!(integer_sum_with_overflow_check(&arr), (i64::MIN, true));
+    }
+}
