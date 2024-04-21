@@ -6,6 +6,11 @@ use super::{
     ref_iter::RefAwareTypedRange,
 };
 
+pub enum FieldValueBlock<'a, T> {
+    Plain(&'a [T]),
+    WithRunLength(&'a T, RunLength),
+}
+
 #[derive(Clone)]
 pub struct FieldValueSliceIter<'a, T> {
     values: NonNull<T>,
@@ -215,6 +220,26 @@ impl<'a, T: FieldValueType + 'static> FieldValueSliceIter<'a, T> {
     }
     unsafe fn next_value(&mut self) {
         unsafe { self.advance_value(1) };
+    }
+    pub fn next_block(&mut self) -> Option<FieldValueBlock<T>> {
+        if self.header == self.header_end {
+            return None;
+        }
+        unsafe {
+            let value = self.values.as_ref();
+            let h = *self.header;
+            if h.shared_value() {
+                let rl = self.header_rl_rem;
+                self.next_header();
+                return Some(FieldValueBlock::WithRunLength(value, rl));
+            }
+            let res = std::slice::from_raw_parts(
+                self.data_ptr(),
+                self.header_rl_rem as usize,
+            );
+            self.next_header();
+            Some(FieldValueBlock::Plain(res))
+        }
     }
     pub fn has_next(&mut self) -> bool {
         self.header_rl_rem > 0 || self.header != self.header_end

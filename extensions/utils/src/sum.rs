@@ -18,7 +18,7 @@ use scr_core::{
         field::FieldId,
         field_data::{FieldData, FieldValueRepr},
         field_value_ref::FieldValueSlice,
-        field_value_slice_iter::FieldValueSliceIter,
+        field_value_slice_iter::{FieldValueBlock, FieldValueSliceIter},
         group_tracker::{GroupListId, GroupListIterId},
         iter_hall::{IterId, IterKind},
         push_interface::PushInterface,
@@ -190,10 +190,17 @@ impl TfSum {
             group_iter.next_n_fields_in_group(count);
             match range.base.data {
                 FieldValueSlice::Int(ints) => {
-                    for (v, rl) in
-                        FieldValueSliceIter::from_range(&range, ints)
-                    {
-                        self.aggregate.add_int(*v, rl, fpm)
+                    let mut iter =
+                        FieldValueSliceIter::from_range(&range, ints);
+                    while let Some(b) = iter.next_block() {
+                        match b {
+                            FieldValueBlock::Plain(v) => {
+                                self.aggregate.add_ints(v, fpm)
+                            }
+                            FieldValueBlock::WithRunLength(v, rl) => {
+                                self.aggregate.add_int_with_rl(*v, rl, fpm)
+                            }
+                        }
                     }
                 }
                 FieldValueSlice::BigInt(ints) => {

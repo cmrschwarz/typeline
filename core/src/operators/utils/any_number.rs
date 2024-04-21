@@ -3,8 +3,9 @@ use std::{
     ops::{Add, AddAssign, Mul, MulAssign},
 };
 
-use crate::record_data::{
-    field_data::RunLength, push_interface::PushInterface,
+use crate::{
+    record_data::{field_data::RunLength, push_interface::PushInterface},
+    utils::integer_sum::integer_sum_with_overflow,
 };
 use num::{BigInt, BigRational, FromPrimitive, ToPrimitive};
 
@@ -45,53 +46,52 @@ impl AnyNumber {
             }
         }
     }
-    // PERF: this whole thing is slow and stupid
-    pub fn add_int(&mut self, v: i64, rl: RunLength, fpm: bool) {
-        let mut v_x_rl = v;
-        if rl != 1 {
-            let Some(res) = v.checked_mul(i64::from(rl)) else {
-                match self {
-                    AnyNumber::Int(i) => {
-                        *self =
-                            AnyNumber::BigInt(BigInt::from(v).mul(rl).add(*i));
-                    }
-                    AnyNumber::BigInt(i) => {
-                        i.add_assign(BigInt::from(v).mul(rl));
-                    }
-                    AnyNumber::Float(f) => {
-                        if fpm {
-                            #[allow(clippy::cast_precision_loss)]
-                            let v_f = v as f64;
-                            *f = v_f.mul_add(f64::from(rl), *f);
-                        } else if !f.is_nan() && !f.is_infinite() {
-                            *self = AnyNumber::Rational(
-                                BigRational::from_f64(*f)
-                                    .unwrap()
-                                    .add(BigInt::from(v).mul(rl)),
-                            );
-                        }
-                    }
-                    AnyNumber::Rational(r) => {
-                        r.add_assign(BigInt::from(v).mul(rl))
-                    }
-                }
-                return;
-            };
-            v_x_rl = res;
-        }
+    pub fn add_int(&mut self, value: i64, fpm: bool) {
         match self {
             AnyNumber::Int(i) => {
-                if let Some(r) = i.checked_add(v_x_rl) {
+                if let Some(r) = i.checked_add(value) {
                     *self = AnyNumber::Int(r);
                     return;
                 }
-                *self = AnyNumber::BigInt(BigInt::from(*i).add(v_x_rl));
+                *self = AnyNumber::BigInt(BigInt::from(*i).add(value));
             }
-            AnyNumber::BigInt(v) => v.add_assign(v_x_rl),
+            AnyNumber::BigInt(v) => v.add_assign(value),
             AnyNumber::Float(f) => {
                 if fpm {
                     #[allow(clippy::cast_precision_loss)]
-                    f.add_assign(v_x_rl as f64);
+                    f.add_assign(value as f64);
+                } else if !f.is_nan() && !f.is_infinite() {
+                    *self = AnyNumber::Rational(
+                        BigRational::from_f64(*f)
+                            .unwrap()
+                            .add(BigInt::from(value)),
+                    );
+                }
+            }
+            AnyNumber::Rational(r) => r.add_assign(BigInt::from(value)),
+        }
+    }
+    pub fn add_int_with_rl(&mut self, v: i64, rl: RunLength, fpm: bool) {
+        if rl == 1 {
+            self.add_int(v, fpm);
+            return;
+        }
+        if let Some(v_x_rl) = v.checked_mul(i64::from(rl)) {
+            self.add_int(v_x_rl, fpm);
+            return;
+        }
+        match self {
+            AnyNumber::Int(i) => {
+                *self = AnyNumber::BigInt(BigInt::from(v).mul(rl).add(*i));
+            }
+            AnyNumber::BigInt(i) => {
+                i.add_assign(BigInt::from(v).mul(rl));
+            }
+            AnyNumber::Float(f) => {
+                if fpm {
+                    #[allow(clippy::cast_precision_loss)]
+                    let v_f = v as f64;
+                    *f = v_f.mul_add(f64::from(rl), *f);
                 } else if !f.is_nan() && !f.is_infinite() {
                     *self = AnyNumber::Rational(
                         BigRational::from_f64(*f)
@@ -100,7 +100,17 @@ impl AnyNumber {
                     );
                 }
             }
-            AnyNumber::Rational(v) => v.add_assign(BigInt::from(v_x_rl)),
+            AnyNumber::Rational(r) => r.add_assign(BigInt::from(v).mul(rl)),
+        }
+    }
+    pub fn add_ints(&mut self, v: &[i64], fpm: bool) {
+        match integer_sum_with_overflow(v) {
+            Some(res) => self.add_int(res, fpm),
+            None => {
+                for &i in v {
+                    self.add_int(i, fpm);
+                }
+            }
         }
     }
     pub fn add_big_int(&mut self, v: &BigInt, rl: RunLength, fpm: bool) {

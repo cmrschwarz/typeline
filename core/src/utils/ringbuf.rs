@@ -476,7 +476,7 @@ impl<const ALIGN: usize> RingBuf<ALIGN> {
         self.len -= count;
     }
     pub fn buffer_range(&self) -> Range<*const u8> {
-        let p = self.data.as_ptr() as *const u8;
+        let p = self.data.as_ptr().cast_const();
         p..unsafe { p.add(self.cap) }
     }
 }
