@@ -291,6 +291,8 @@ fn join_turns_into_stream(#[case] batch_size: usize) -> Result<(), ScrError> {
 #[case(1)]
 #[case(2)]
 fn join_on_error(#[case] batch_size: usize) -> Result<(), ScrError> {
+    // TODO: used to stringify as '~(error)..', no longer does because `+` is
+    // 'lazy' fix that or add a second test
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .set_batch_size(batch_size)
@@ -301,7 +303,7 @@ fn join_on_error(#[case] batch_size: usize) -> Result<(), ScrError> {
         .add_op(create_op_format("{:#??}").unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
-    assert_eq!(ss.get().data.as_slice(), ["~(error)\"bar\""]);
+    assert_eq!(ss.get().data.as_slice(), ["ERROR: in op id 1: bar"]);
 
     Ok(())
 }

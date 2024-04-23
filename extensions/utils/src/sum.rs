@@ -135,12 +135,10 @@ impl TfSum {
 
         let ms = &bud.match_set_mgr.match_sets[bud.match_set_id];
 
-        let mut ab = ms.action_buffer.borrow_mut();
-
         let mut group_iter = ms.group_tracker.lookup_group_list_iter_mut(
             self.group_list_id,
             self.group_list_iter_id,
-            &mut ab,
+            &ms.action_buffer,
             self.actor_id,
         );
 

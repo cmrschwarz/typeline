@@ -1,3 +1,5 @@
+use std::cell::RefCell;
+
 use arrayvec::ArrayVec;
 
 use crate::{
@@ -159,7 +161,7 @@ struct SequenceBatchState<'a, 'b> {
     tf_id: TransformId,
     input_field_id: FieldId,
     seq: &'a mut TfSequence,
-    ab: &'a mut ActionBuffer,
+    ab: &'a RefCell<ActionBuffer>,
     gt: &'a mut GroupTracker,
     fm: &'a FieldManager,
     tf_mgr: &'a mut TransformManager,
@@ -207,13 +209,12 @@ pub fn handle_tf_sequence(
             .lookup_iter(input_field_id, &input_field, seq.iter_id);
 
     let ms = &mut jd.match_set_mgr.match_sets[ms_id];
-    let mut ab = ms.action_buffer.borrow_mut();
 
     let ss = SequenceBatchState {
         tf_id,
         input_field_id,
         seq,
-        ab: &mut ab,
+        ab: &ms.action_buffer,
         gt: &mut ms.group_tracker,
         fm: &jd.field_mgr,
         tf_mgr: &mut jd.tf_mgr,
@@ -234,7 +235,6 @@ pub fn handle_tf_sequence(
                 // `pending_seq_len_claimed` many times.
                 // to keep our iterator pointing at the correct field pos
                 // for the next batch, we need to skip those elements
-                drop(ab);
                 drop(input_field);
                 let input_field = jd
                     .field_mgr
@@ -256,7 +256,8 @@ pub fn handle_tf_sequence(
 
 // returns the claimed pending sequence len so we can move past it
 fn handle_seq_mode(mut sbs: SequenceBatchState) -> usize {
-    sbs.ab.begin_action_group(sbs.seq.actor_id);
+    let mut ab = sbs.ab.borrow_mut();
+    ab.begin_action_group(sbs.seq.actor_id);
     let mut field_pos = sbs.iter.get_next_field_pos();
     let mut field_dup_count = 0;
     let field_pos_end = field_pos + sbs.batch_size;
@@ -285,7 +286,7 @@ fn handle_seq_mode(mut sbs: SequenceBatchState) -> usize {
                 count,
             );
             let dup_count = count - usize::from(seq_done);
-            sbs.ab.push_action(
+            ab.push_action(
                 FieldActionKind::Dup,
                 field_pos + field_dup_count,
                 dup_count,
@@ -325,7 +326,7 @@ fn handle_seq_mode(mut sbs: SequenceBatchState) -> usize {
         }
         for _ in 0..field_count {
             let dup_count = seq_len_trunc - 1;
-            sbs.ab.push_action(
+            ab.push_action(
                 FieldActionKind::Dup,
                 field_pos + field_dup_count,
                 dup_count,
@@ -335,7 +336,7 @@ fn handle_seq_mode(mut sbs: SequenceBatchState) -> usize {
         }
         out_batch_size_rem -= seq_len_trunc * field_count;
     }
-    sbs.ab.end_action_group();
+    ab.end_action_group();
     sbs.fm
         .store_iter(sbs.input_field_id, sbs.seq.iter_id, sbs.iter);
 

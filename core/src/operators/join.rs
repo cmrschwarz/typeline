@@ -530,12 +530,11 @@ pub fn handle_tf_join<'a>(
     let mut string_store = LazyRwLockGuard::new(&jd.session_data.string_store);
 
     let ms = &jd.match_set_mgr.match_sets[ms_id];
-    let mut ab = ms.action_buffer.borrow_mut();
 
     let mut groups_iter = ms.group_tracker.lookup_group_list_iter_mut(
         join.group_list_iter_ref.list_id,
         join.group_list_iter_ref.iter_id,
-        &mut ab,
+        &ms.action_buffer,
         join.actor_id,
     );
 
