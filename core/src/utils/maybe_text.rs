@@ -290,6 +290,13 @@ impl<'a> MaybeTextCow<'a> {
             MaybeTextCow::BytesRef(_) => todo!(),
         }
     }
+
+    pub(crate) fn from_maybe_text(res: MaybeText) -> MaybeTextCow<'static> {
+        match res {
+            MaybeText::Text(t) => MaybeTextCow::Text(t),
+            MaybeText::Bytes(b) => MaybeTextCow::Bytes(b),
+        }
+    }
 }
 
 impl MaybeTextBoxed {

@@ -38,7 +38,7 @@ use crate::{
         debuggable_nonmax::DebuggableNonMaxUsize,
         int_string_conversions::{i64_to_str, usize_to_str},
         lazy_lock_guard::LazyRwLockGuard,
-        maybe_text::{MaybeText, MaybeTextBoxed, MaybeTextRef},
+        maybe_text::{MaybeText, MaybeTextBoxed, MaybeTextCow, MaybeTextRef},
         universe::Universe,
     },
 };
@@ -49,12 +49,6 @@ use super::{
     print::typed_slice_zst_str,
     transform::{TransformData, TransformId, TransformState},
 };
-
-enum JoinData<'s, 'd> {
-    Owned(MaybeText),
-    Static(MaybeTextRef<'s>),
-    Dynamic(MaybeTextRef<'d>),
-}
 
 #[derive(Clone)]
 pub struct OpJoin {
@@ -289,23 +283,11 @@ fn get_active_group_batch(
     gbi
 }
 
-impl<'s, 'd> JoinData<'s, 'd> {
-    pub fn into_stream_value_data(self) -> StreamValueData<'s> {
-        match self {
-            JoinData::Owned(o) => StreamValueData::from_maybe_text(o),
-            JoinData::Static(s) => StreamValueData::from_maybe_text_ref(s),
-            JoinData::Dynamic(d) => {
-                StreamValueData::from_maybe_text(d.to_owned())
-            }
-        }
-    }
-}
-
-fn write_join_data_to_stream<'a>(
+fn write_join_data_to_stream(
     join: &mut TfJoin,
-    sv_mgr: &mut StreamValueManager<'a>,
+    sv_mgr: &mut StreamValueManager,
     sv_id: StreamValueId,
-    data: JoinData<'a, '_>,
+    data: MaybeTextCow,
     _rl: RunLength,
 ) {
     let sv = &mut sv_mgr.stream_values[sv_id];
@@ -313,20 +295,22 @@ fn write_join_data_to_stream<'a>(
         join.stream_buffer_size,
         !join.active_stream_value_appended,
     )
-    .append(data.into_stream_value_data());
+    .append(StreamValueData::from_maybe_text(data.into_owned()));
     join.active_stream_value_appended = true;
 }
 fn push_join_data<'a>(
     join: &mut TfJoin<'a>,
     sv_mgr: &mut StreamValueManager<'a>,
-    data: JoinData<'a, '_>,
+    data: MaybeTextCow,
     mut rl: RunLength,
 ) {
     if let Some(gbi) = join.active_group_batch {
         let gb = &mut join.group_batches[gbi];
         if !gb.outstanding_values.is_empty() {
             gb.outstanding_values.push_back(GroupBatchEntry {
-                data: GroupBatchEntryData::Data(data.into_stream_value_data()),
+                data: GroupBatchEntryData::Data(
+                    StreamValueData::from_maybe_text(data.into_owned()),
+                ),
                 run_length: rl,
             });
             join.active_group_batch_appended = true;
@@ -337,12 +321,7 @@ fn push_join_data<'a>(
     let first_record_added = join.first_record_added;
     join.first_record_added = true;
 
-    let data_ref = match &data {
-        JoinData::Owned(v) => v.as_ref(),
-        JoinData::Static(v) | JoinData::Dynamic(v) => *v,
-    };
-
-    let data_size = data_ref.len();
+    let data_size = data.len();
     let sep_size = join.separator.map(|s| s.len()).unwrap_or(0);
 
     if join.active_stream_value.is_none() {
@@ -363,6 +342,7 @@ fn push_join_data<'a>(
         return;
     }
 
+    let data_ref = data.as_ref();
     if let Some(sep) = join.separator {
         if !first_record_added {
             join.buffer.extend_with_maybe_text_ref(data_ref);
@@ -648,12 +628,7 @@ pub fn handle_tf_join<'a>(
                 for (v, rl, _offs) in
                     RefAwareInlineTextIter::from_range(&range, text)
                 {
-                    push_join_data(
-                        join,
-                        sv_mgr,
-                        JoinData::Dynamic(MaybeTextRef::Text(v)),
-                        rl,
-                    );
+                    push_join_data(join, sv_mgr, MaybeTextCow::TextRef(v), rl);
                 }
             }
             FieldValueSlice::BytesInline(bytes) => {
@@ -663,7 +638,7 @@ pub fn handle_tf_join<'a>(
                     push_join_data(
                         join,
                         sv_mgr,
-                        JoinData::Dynamic(MaybeTextRef::Bytes(v)),
+                        MaybeTextCow::BytesRef(v),
                         rl,
                     );
                 }
@@ -672,12 +647,7 @@ pub fn handle_tf_join<'a>(
                 for (v, rl, _offs) in
                     RefAwareTextBufferIter::from_range(&range, bytes)
                 {
-                    push_join_data(
-                        join,
-                        sv_mgr,
-                        JoinData::Dynamic(MaybeTextRef::Text(v)),
-                        rl,
-                    );
+                    push_join_data(join, sv_mgr, MaybeTextCow::TextRef(v), rl);
                 }
             }
             FieldValueSlice::BytesBuffer(bytes) => {
@@ -687,7 +657,7 @@ pub fn handle_tf_join<'a>(
                     push_join_data(
                         join,
                         sv_mgr,
-                        JoinData::Dynamic(MaybeTextRef::Bytes(v)),
+                        MaybeTextCow::BytesRef(v),
                         rl,
                     );
                 }
@@ -698,7 +668,7 @@ pub fn handle_tf_join<'a>(
                     push_join_data(
                         join,
                         sv_mgr,
-                        JoinData::Dynamic(MaybeTextRef::Text(&v)),
+                        MaybeTextCow::TextRef(&v),
                         rl,
                     );
                 }
@@ -867,7 +837,7 @@ fn push_custom_type<'a>(
             OperatorApplicationError::new_s(e.to_string(), op_id),
         );
     }
-    push_join_data(join, sv_mgr, JoinData::Owned(res), rl)
+    push_join_data(join, sv_mgr, MaybeTextCow::from_maybe_text(res), rl)
 }
 
 pub fn handle_tf_join_stream_value_update(
