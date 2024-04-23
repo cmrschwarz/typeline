@@ -180,6 +180,18 @@ fn join_after_enum() -> Result<(), ScrError> {
 }
 
 #[test]
+fn join_seq_into_stream() -> Result<(), ScrError> {
+    let res = ContextBuilder::default()
+        .set_stream_size_threshold(2)
+        .add_op(create_op_seqn(1, 5, 1).unwrap())
+        .add_op(create_op_join_str(",", 0))
+        .add_op(create_op_format("{:#??}").unwrap())
+        .run_collect_stringified()?;
+    assert_eq!(res, ["~\"1,2,3,4,5\""]);
+    Ok(())
+}
+
+#[test]
 fn join_dropped_streams() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
