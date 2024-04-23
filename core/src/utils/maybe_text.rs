@@ -10,6 +10,14 @@ pub enum MaybeText {
     Bytes(Vec<u8>),
 }
 
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum MaybeTextCow<'a> {
+    Text(String),
+    Bytes(Vec<u8>),
+    TextRef(&'a str),
+    BytesRef(&'a [u8]),
+}
+
 // slightly more space efficient than MaybeString, at the cost of
 // efficient grow / shrink capabilities
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -32,6 +40,12 @@ pub enum MaybeTextRefMut<'a> {
 impl Default for MaybeText {
     fn default() -> Self {
         MaybeText::Text(String::default())
+    }
+}
+
+impl<'a> Default for MaybeTextCow<'a> {
+    fn default() -> Self {
+        MaybeTextCow::TextRef("")
     }
 }
 
@@ -88,9 +102,6 @@ impl MaybeText {
             MaybeTextRef::Bytes(b) => self.extend_with_bytes(b),
         }
     }
-    pub fn extend_with_maybe_text(&mut self, data: &MaybeText) {
-        self.extend_with_maybe_text_ref(data.as_ref())
-    }
     pub fn as_bytes(&self) -> &[u8] {
         self.as_ref().as_bytes()
     }
@@ -122,6 +133,161 @@ impl MaybeText {
         match self {
             MaybeText::Text(s) => unsafe { s.as_mut_vec() },
             MaybeText::Bytes(b) => b,
+        }
+    }
+}
+
+impl<'a> MaybeTextCow<'a> {
+    pub fn with_capacity(cap: usize) -> Self {
+        MaybeTextCow::Text(String::with_capacity(cap))
+    }
+    pub fn from_vec_try_str(bytes: Vec<u8>) -> Self {
+        match String::from_utf8(bytes) {
+            Ok(s) => MaybeTextCow::Text(s),
+            Err(e) => MaybeTextCow::Bytes(e.into_bytes()),
+        }
+    }
+    pub fn from_bytes_try_str(bytes: &[u8]) -> Self {
+        Self::from_vec_try_str(bytes.to_owned())
+    }
+    pub fn from_bytes(bytes: &[u8]) -> Self {
+        MaybeTextCow::Bytes(bytes.to_owned())
+    }
+    pub fn from_text(text: &str) -> Self {
+        MaybeTextCow::Text(text.to_owned())
+    }
+    pub fn as_ref(&self) -> MaybeTextRef {
+        match self {
+            MaybeTextCow::Text(t) => MaybeTextRef::Text(t),
+            MaybeTextCow::Bytes(b) => MaybeTextRef::Bytes(b),
+            MaybeTextCow::TextRef(t) => MaybeTextRef::Text(t),
+            MaybeTextCow::BytesRef(b) => MaybeTextRef::Bytes(b),
+        }
+    }
+    pub fn make_owned(&mut self) {
+        match self {
+            MaybeTextCow::Text(_) | MaybeTextCow::Bytes(_) => (),
+            MaybeTextCow::TextRef(t) => {
+                *self = MaybeTextCow::Text(t.to_owned())
+            }
+            MaybeTextCow::BytesRef(b) => {
+                *self = MaybeTextCow::Bytes(b.to_owned())
+            }
+        }
+    }
+    pub fn as_ref_mut(&mut self) -> MaybeTextRefMut {
+        self.make_owned();
+        match self {
+            MaybeTextCow::Text(s) => MaybeTextRefMut::Text(s),
+            MaybeTextCow::Bytes(s) => MaybeTextRefMut::Bytes(s),
+            MaybeTextCow::TextRef(_) | MaybeTextCow::BytesRef(_) => {
+                unreachable!()
+            }
+        }
+    }
+    pub fn extend_with_bytes(&mut self, bytes: &[u8]) {
+        match self {
+            MaybeTextCow::Text(v) => {
+                let mut v = std::mem::take(v).into_bytes();
+                v.extend_from_slice(bytes);
+                *self = MaybeTextCow::Bytes(v);
+            }
+            MaybeTextCow::Bytes(v) => v.extend_from_slice(bytes),
+            MaybeTextCow::TextRef(t) => {
+                let mut res = Vec::with_capacity(t.len() + bytes.len());
+                res.extend_from_slice(t.as_bytes());
+                res.extend_from_slice(bytes.as_bytes());
+                *self = MaybeTextCow::Bytes(res);
+            }
+            MaybeTextCow::BytesRef(b) => {
+                let mut res = Vec::with_capacity(b.len() + bytes.len());
+                res.extend_from_slice(b);
+                res.extend_from_slice(bytes.as_bytes());
+                *self = MaybeTextCow::Bytes(res);
+            }
+        }
+    }
+    pub fn extend_with_text(&mut self, text: &str) {
+        match self {
+            MaybeTextCow::Text(v) => v.push_str(text),
+            MaybeTextCow::Bytes(v) => v.extend_from_slice(text.as_bytes()),
+            MaybeTextCow::TextRef(t) => {
+                let mut res = String::with_capacity(t.len() + text.len());
+                res.push_str(t);
+                res.push_str(text);
+                *self = MaybeTextCow::Text(res);
+            }
+            MaybeTextCow::BytesRef(b) => {
+                let mut res = Vec::with_capacity(b.len() + text.len());
+                res.extend_from_slice(b);
+                res.extend_from_slice(text.as_bytes());
+                *self = MaybeTextCow::Bytes(res);
+            }
+        }
+    }
+    pub fn extend_with_maybe_text_ref(&mut self, data: MaybeTextRef) {
+        match data {
+            MaybeTextRef::Text(t) => self.extend_with_text(t),
+            MaybeTextRef::Bytes(b) => self.extend_with_bytes(b),
+        }
+    }
+    pub fn extend_with_maybe_text(&mut self, data: &MaybeText) {
+        self.extend_with_maybe_text_ref(data.as_ref())
+    }
+    pub fn as_bytes(&self) -> &[u8] {
+        self.as_ref().as_bytes()
+    }
+    pub fn as_str(&self) -> Option<&str> {
+        match self {
+            MaybeTextCow::Text(s) => Some(s),
+            MaybeTextCow::TextRef(t) => Some(t),
+            MaybeTextCow::Bytes(_) | MaybeTextCow::BytesRef(_) => None,
+        }
+    }
+    pub fn into_owned(self) -> MaybeText {
+        match self {
+            MaybeTextCow::Text(t) => MaybeText::Text(t),
+            MaybeTextCow::Bytes(b) => MaybeText::Bytes(b),
+            MaybeTextCow::TextRef(t) => MaybeText::Text(t.to_owned()),
+            MaybeTextCow::BytesRef(b) => MaybeText::Bytes(b.to_owned()),
+        }
+    }
+    pub fn into_boxed(self) -> MaybeTextBoxed {
+        self.into_owned().into_boxed()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+    pub fn len(&self) -> usize {
+        match self {
+            MaybeTextCow::Text(s) => s.len(),
+            MaybeTextCow::Bytes(b) => b.len(),
+            MaybeTextCow::TextRef(t) => t.len(),
+            MaybeTextCow::BytesRef(b) => b.len(),
+        }
+    }
+    pub fn capacity(&self) -> usize {
+        match self {
+            MaybeTextCow::Text(s) => s.capacity(),
+            MaybeTextCow::Bytes(b) => b.capacity(),
+            MaybeTextCow::TextRef(t) => t.len(),
+            MaybeTextCow::BytesRef(b) => b.len(),
+        }
+    }
+    pub fn clear(&mut self) {
+        match self {
+            MaybeTextCow::Text(t) => t.clear(),
+            MaybeTextCow::Bytes(b) => b.clear(),
+            MaybeTextCow::TextRef(t) => *t = "",
+            MaybeTextCow::BytesRef(b) => *b = b"",
+        }
+    }
+    pub unsafe fn as_mut_vec(&mut self) -> &mut Vec<u8> {
+        match self {
+            MaybeTextCow::Text(s) => unsafe { s.as_mut_vec() },
+            MaybeTextCow::Bytes(b) => b,
+            MaybeTextCow::TextRef(_) => todo!(),
+            MaybeTextCow::BytesRef(_) => todo!(),
         }
     }
 }

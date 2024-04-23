@@ -3,6 +3,8 @@ use std::{
     ops::{Index, IndexMut},
 };
 
+use arrayvec::ArrayVec;
+
 use super::{
     debuggable_nonmax::DebuggableNonMaxUsize, indexing_type::IndexingType,
 };
@@ -26,6 +28,11 @@ pub struct Universe<I, T> {
     _phantom_data: PhantomData<I>,
 }
 
+pub struct UniverseMultiRefMutHandout<'a, I, T, const CAP: usize = 2> {
+    universe: &'a mut Universe<I, T>,
+    handed_out: ArrayVec<I, CAP>,
+}
+
 impl<T> UniverseEntry<T> {
     pub fn as_option_mut(&mut self) -> Option<&mut T> {
         match self {
@@ -47,6 +54,14 @@ impl<I, T> Default for Universe<I, T> {
 }
 
 impl<I: IndexingType, T> Universe<I, T> {
+    pub fn multi_ref_handout<const CAP: usize>(
+        &mut self,
+    ) -> UniverseMultiRefMutHandout<I, T, CAP> {
+        UniverseMultiRefMutHandout {
+            universe: self,
+            handed_out: ArrayVec::new(),
+        }
+    }
     fn build_vacant_entry(&mut self, index: usize) -> UniverseEntry<T> {
         // SAFETY: we can never have usize::MAX entries before running out of
         // memory
@@ -181,6 +196,26 @@ impl<I: IndexingType, T> Universe<I, T> {
     pub fn two_distinct_mut(&mut self, id1: I, id2: I) -> (&mut T, &mut T) {
         let (a, b) = self.get_two_distinct_mut(id1, id2);
         (a.unwrap(), b.unwrap())
+    }
+}
+
+impl<'a, I: IndexingType, T> UniverseMultiRefMutHandout<'a, I, T> {
+    pub fn claim(&mut self, i: I) -> &'a mut T {
+        assert!(!self.handed_out.contains(&i));
+        self.handed_out.push(i);
+        // SAFETY: this type dynamically ensures that each index is handed out
+        // exactly once through the assert above
+        unsafe {
+            std::mem::transmute::<&'_ mut T, &'a mut T>(&mut self.universe[i])
+        }
+    }
+    pub fn release(&mut self, i: I) {
+        self.handed_out.swap_remove(
+            self.handed_out
+                .iter()
+                .position(|v| *v == i)
+                .expect("index not currently handed out"),
+        );
     }
 }
 

@@ -12,7 +12,7 @@ use smallvec::SmallVec;
 use crate::{
     operators::{errors::OperatorApplicationError, transform::TransformId},
     utils::{
-        maybe_text::{MaybeText, MaybeTextRef},
+        maybe_text::{MaybeText, MaybeTextCow, MaybeTextRef},
         retain_string_range, retain_vec_range, subrange,
         text_write::{TextWrite, TextWriteFormatAdapter, TextWriteIoAdapter},
         universe::Universe,
@@ -916,6 +916,14 @@ impl<'a> StreamValueData<'a> {
         match data {
             MaybeText::Text(s) => Self::from_string(s),
             MaybeText::Bytes(b) => Self::from_bytes(b),
+        }
+    }
+    pub fn from_maybe_text_cow(data: MaybeTextCow<'a>) -> Self {
+        match data {
+            MaybeTextCow::Text(s) => Self::from_string(s),
+            MaybeTextCow::Bytes(b) => Self::from_bytes(b),
+            MaybeTextCow::TextRef(t) => Self::StaticText(t),
+            MaybeTextCow::BytesRef(b) => Self::StaticBytes(b),
         }
     }
     pub fn from_maybe_text_ref(data: MaybeTextRef<'a>) -> Self {

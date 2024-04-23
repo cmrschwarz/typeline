@@ -143,7 +143,7 @@ fn join_streams() -> Result<(), ScrError> {
             0,
         ))
         .add_op(create_op_join(
-            Some(MaybeText::from_bytes(b",")),
+            Some(MaybeText::from_bytes(b", ")),
             None,
             false,
         ))
