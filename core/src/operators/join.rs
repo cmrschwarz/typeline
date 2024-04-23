@@ -81,7 +81,7 @@ impl OpJoin {
 
 #[derive(Debug)]
 enum GroupBatchEntryData<'a> {
-    StreamValueData(StreamValueData<'a>),
+    Data(StreamValueData<'a>),
     StreamValueId {
         id: StreamValueId,
         streaming_emit: bool,
@@ -326,9 +326,7 @@ fn push_join_data<'a>(
         let gb = &mut join.group_batches[gbi];
         if !gb.outstanding_values.is_empty() {
             gb.outstanding_values.push_back(GroupBatchEntry {
-                data: GroupBatchEntryData::StreamValueData(
-                    data.into_stream_value_data(),
-                ),
+                data: GroupBatchEntryData::Data(data.into_stream_value_data()),
                 run_length: rl,
             });
             join.active_group_batch_appended = true;
@@ -341,8 +339,7 @@ fn push_join_data<'a>(
 
     let data_ref = match &data {
         JoinData::Owned(v) => v.as_ref(),
-        JoinData::Static(v) => *v,
-        JoinData::Dynamic(v) => *v,
+        JoinData::Static(v) | JoinData::Dynamic(v) => *v,
     };
 
     let data_size = data_ref.len();
@@ -410,7 +407,7 @@ pub fn drop_group(
         let gb = &mut join.group_batches[gbi];
         for entry in &mut gb.outstanding_values {
             match entry.data {
-                GroupBatchEntryData::StreamValueData(_) => (),
+                GroupBatchEntryData::Data(_) => (),
                 GroupBatchEntryData::StreamValueId { id: sv_id, .. } => {
                     sv_mgr.drop_field_value_subscription(sv_id, None);
                 }
@@ -890,6 +887,36 @@ pub fn handle_tf_join_stream_value_update(
     let group_batch_id = GroupBatchId::try_from(update.custom).unwrap();
     let in_sv_id = update.sv_id;
     let gb = &mut join.group_batches[group_batch_id];
+    let out_sv_id = gb.output_stream_value;
+
+    let stream_buffer_size = jd
+        .get_transform_chain(update.tf_id)
+        .settings
+        .stream_buffer_size;
+
+    let (in_sv, out_sv) = jd
+        .sv_mgr
+        .stream_values
+        .two_distinct_mut(in_sv_id, out_sv_id);
+
+    if out_sv.propagate_error(&in_sv.error) {
+        drop_group_batch_sv_subscriptions(
+            jd,
+            update.tf_id,
+            join,
+            group_batch_id,
+        );
+        join.group_batches.release(group_batch_id);
+        if let Some(idx) = join
+            .pending_group_batches
+            .iter()
+            .position(|gbi| *gbi == group_batch_id)
+        {
+            join.pending_group_batches.swap_remove(idx);
+        }
+        jd.sv_mgr.inform_stream_value_subscribers(out_sv_id);
+        return;
+    }
 
     let Some(GroupBatchEntry {
         data:
@@ -908,19 +935,10 @@ pub fn handle_tf_join_stream_value_update(
     }
 
     debug_assert!(gb.pending_stream_values > 0);
-    let out_sv_id = gb.output_stream_value;
-    let stream_buffer_size = jd
-        .get_transform_chain(update.tf_id)
-        .settings
-        .stream_buffer_size;
-
-    let (in_sv, out_sv) = jd
-        .sv_mgr
-        .stream_values
-        .two_distinct_mut(in_sv_id, out_sv_id);
 
     if *streaming_emit {
         debug_assert!(!out_sv.done);
+
         let mut inserter = out_sv.data_inserter(stream_buffer_size, true);
         inserter
             .extend_from_cursor(&mut in_sv.data_cursor_from_update(&update));
@@ -951,9 +969,10 @@ pub fn handle_tf_join_stream_producer_update<'a>(
     let mut make_producer = false;
     for i in 0..join.pending_group_batches.len() {
         handle_group_batch_producer_update(
+            jd,
+            tf_id,
             join,
             join.pending_group_batches[i],
-            jd,
             &mut make_producer,
         );
     }
@@ -979,10 +998,28 @@ pub fn handle_tf_join_stream_producer_update<'a>(
     }
 }
 
+fn drop_group_batch_sv_subscriptions(
+    jd: &mut JobData,
+    tf_id: TransformId,
+    join: &mut TfJoin,
+    gbi: GroupBatchId,
+) {
+    let gb = &mut join.group_batches[gbi];
+    for v in &gb.outstanding_values {
+        match &v.data {
+            GroupBatchEntryData::Data(_) => (),
+            GroupBatchEntryData::StreamValueId { id, .. } => {
+                jd.sv_mgr.drop_field_value_subscription(*id, Some(tf_id));
+            }
+        }
+    }
+}
+
 fn handle_group_batch_producer_update<'a>(
+    jd: &mut JobData<'a>,
+    tf_id: TransformId,
     join: &mut TfJoin<'a>,
     gbi: GroupBatchId,
-    jd: &mut JobData<'a>,
     make_producer: &mut bool,
 ) {
     let gb = &mut join.group_batches[gbi];
@@ -997,7 +1034,7 @@ fn handle_group_batch_producer_update<'a>(
     while let Some(entry) = gb.outstanding_values.front_mut() {
         let mut rl_consumed = 0;
         match &entry.data {
-            GroupBatchEntryData::StreamValueData(data) => {
+            GroupBatchEntryData::Data(data) => {
                 while rl_consumed < entry.run_length {
                     if let Some(sep) = join.separator {
                         inserter
@@ -1012,6 +1049,12 @@ fn handle_group_batch_producer_update<'a>(
             }
             GroupBatchEntryData::StreamValueId { id, streaming_emit } => {
                 let sv = streams_handout.claim(*id);
+                if inserter.propagate_error(&sv.error) {
+                    drop(inserter);
+                    jd.sv_mgr.inform_stream_value_subscribers(out_sv_id);
+                    drop_group_batch_sv_subscriptions(jd, tf_id, join, gbi);
+                    return;
+                }
                 if !sv.done {
                     // we don't want to set `make_producer` for this case,
                     // as we have to wait on the stream value to proceed
@@ -1052,7 +1095,6 @@ fn handle_group_batch_producer_update<'a>(
         gb.outstanding_values.pop_front();
     }
     drop(inserter);
-    drop(streams_handout);
 
     if gb.outstanding_values.is_empty() && join.active_group_batch != Some(gbi)
     {

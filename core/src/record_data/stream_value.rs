@@ -438,6 +438,12 @@ impl<'a, 'b> StreamValueDataInserter<'a, 'b> {
     pub fn consume_memory_budget_extra_buffered(&mut self, mem: usize) {
         self.consume_memory_budget(mem + STREAM_VALUE_DATA_OVERHEAD);
     }
+    pub fn propagate_error(
+        &mut self,
+        error: &Option<Arc<OperatorApplicationError>>,
+    ) -> bool {
+        self.stream_value.propagate_error(error)
+    }
     pub fn append_copy(&mut self, data: StreamValueDataRef<'a, '_>) {
         match data {
             StreamValueDataRef::StaticText(v) => {

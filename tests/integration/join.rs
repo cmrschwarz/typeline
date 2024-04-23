@@ -230,7 +230,7 @@ fn stream_error_in_join() -> Result<(), ScrError> {
         .run()?;
     assert_eq!(
         ss.get().data.as_slice(),
-        ["ERROR: in op id 1: ErroringStream: Expected Debug Error"]
+        ["ERROR: in op id 1: ErroringStream: Error"]
     );
     Ok(())
 }
