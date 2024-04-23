@@ -1363,11 +1363,17 @@ impl<'a, T: DerefMut<Target = GroupList>> GroupListIterMut<'a, T> {
 impl<'a, T: DerefMut<Target = GroupList>> Drop for GroupListIterMut<'a, T> {
     fn drop(&mut self) {
         self.update_group();
+
+        if self.actions_applied_in_parents {
+            // must be called before ending the action group to get
+            // the action count from the action buffer
+            self.apply_pending_actions_to_parents();
+        }
+
         self.action_buffer.end_action_group();
 
         if self.actions_applied_in_parents {
-            self.apply_pending_actions_to_parents();
-
+            // must be done after ending the action group to have it enlisted
             let mut parent_id = self.base.list.parent_list;
             while let Some(list_id) = parent_id {
                 let mut list_ref = self.tracker.lists[list_id].borrow_mut();
