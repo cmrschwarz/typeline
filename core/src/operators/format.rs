@@ -1120,12 +1120,12 @@ pub fn setup_key_output_state(
                                 !need_buffering,
                             );
 
-                            let target_sv_id = sv_mgr
-                                .stream_values
-                                .claim_with_value(StreamValue::new_empty(
+                            let target_sv_id = sv_mgr.claim_stream_value(
+                                StreamValue::new_empty(
                                     data_type,
                                     StreamValueBufferMode::Stream,
-                                ));
+                                ),
+                            );
                             // TODO: this might be incorrect depending on
                             // padding?
                             o.len += len_present;

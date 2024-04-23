@@ -283,21 +283,46 @@ fn get_active_group_batch(
     gbi
 }
 
-fn write_join_data_to_stream(
-    join: &mut TfJoin,
-    sv_mgr: &mut StreamValueManager,
+fn write_join_data_to_stream<'a>(
+    join: &mut TfJoin<'a>,
+    sv_mgr: &mut StreamValueManager<'a>,
     sv_id: StreamValueId,
     data: MaybeTextCow,
-    _rl: RunLength,
+    rl: RunLength,
 ) {
     let sv = &mut sv_mgr.stream_values[sv_id];
-    sv.data_inserter(
+    let mut inserter = sv.data_inserter(
         join.stream_buffer_size,
         !join.active_stream_value_appended,
-    )
-    .append(StreamValueData::from_maybe_text(data.into_owned()));
+    );
+    let svd = StreamValueData::from_maybe_text(data.into_owned());
+    if let Some(sep) = join.separator {
+        let sep_svd = StreamValueData::from_maybe_text_ref(sep);
+        if join.first_record_added {
+            for _ in 0..rl - 1 {
+                inserter.append(sep_svd.clone());
+                inserter.append(svd.clone());
+            }
+            inserter.append(sep_svd);
+            inserter.append(svd);
+        } else if rl == 1 {
+            inserter.append(svd);
+        } else {
+            for _ in 0..rl - 1 {
+                inserter.append(svd.clone());
+                inserter.append(sep_svd.clone());
+            }
+            inserter.append(svd);
+        }
+    } else {
+        for _ in 0..rl {
+            inserter.append(svd.clone());
+        }
+    }
+    join.first_record_added = true;
     join.active_stream_value_appended = true;
 }
+
 fn push_join_data<'a>(
     join: &mut TfJoin<'a>,
     sv_mgr: &mut StreamValueManager<'a>,
@@ -318,9 +343,6 @@ fn push_join_data<'a>(
         }
     }
 
-    let first_record_added = join.first_record_added;
-    join.first_record_added = true;
-
     let data_size = data.len();
     let sep_size = join.separator.map(|s| s.len()).unwrap_or(0);
 
@@ -336,23 +358,24 @@ fn push_join_data<'a>(
             claim_stream_value(join, sv_mgr);
         }
     }
-
+    let data_ref = data.as_ref();
     if let Some(sv_id) = join.active_stream_value {
         write_join_data_to_stream(join, sv_mgr, sv_id, data, rl);
         return;
     }
 
-    let data_ref = data.as_ref();
     if let Some(sep) = join.separator {
-        if !first_record_added {
+        if !join.first_record_added {
             join.buffer.extend_with_maybe_text_ref(data_ref);
             rl = rl.saturating_sub(1);
+            join.first_record_added = true;
         }
         for _ in 0..rl {
             join.buffer.extend_with_maybe_text_ref(sep);
             join.buffer.extend_with_maybe_text_ref(data_ref);
         }
     } else {
+        join.first_record_added = true;
         for _ in 0..rl {
             join.buffer.extend_with_maybe_text_ref(data_ref);
         }
@@ -404,6 +427,23 @@ pub fn emit_group(
     if let Some(sv_id) = join.active_stream_value {
         join.active_stream_value = None;
 
+        let mut done = true;
+
+        if let Some(gbi) = join.active_group_batch {
+            join.active_group_batch = None;
+            let gb = &join.group_batches[gbi];
+            done = gb.outstanding_values.is_empty();
+            if join.active_group_batch_appended {
+                join.active_group_batch_appended = false;
+                if !done && gb.pending_stream_values == 0 {
+                    tf_mgr.make_stream_producer(tf_id);
+                    join.pending_group_batches.push(gbi);
+                }
+            }
+        }
+
+        sv_mgr.stream_values[sv_id].done = done;
+
         if join.active_stream_value_submitted {
             emitted = false;
             if join.active_stream_value_appended {
@@ -413,19 +453,6 @@ pub fn emit_group(
             output_inserter.push_stream_value_id(sv_id, 1, true, false);
         }
         join.active_stream_value_appended = false;
-        if let Some(gbi) = join.active_group_batch {
-            join.active_group_batch = None;
-            if join.active_group_batch_appended {
-                join.active_group_batch_appended = false;
-                let gb = &join.group_batches[gbi];
-                if !gb.outstanding_values.is_empty()
-                    && gb.pending_stream_values == 0
-                {
-                    tf_mgr.make_stream_producer(tf_id);
-                    join.pending_group_batches.push(gbi);
-                }
-            }
-        }
     } else if let Some(err) = join.current_group_error.take() {
         output_inserter.push_error(err, 1, true, false);
     } else if len < INLINE_STR_MAX_LEN {
@@ -756,10 +783,10 @@ pub fn handle_tf_join<'a>(
     jd.tf_mgr.submit_batch(tf_id, groups_emitted, ps.input_done);
 }
 
-fn try_consume_stream_values(
+fn try_consume_stream_values<'a>(
     tf_id: TransformId,
-    join: &mut TfJoin<'_>,
-    sv_mgr: &mut StreamValueManager,
+    join: &mut TfJoin<'a>,
+    sv_mgr: &mut StreamValueManager<'a>,
     range: &RefAwareTypedRange<'_>,
     svs: &[StreamValueId],
 ) -> Result<(), ()> {
@@ -787,9 +814,9 @@ fn try_consume_stream_values(
     Ok(())
 }
 
-fn push_partial_stream_value_and_sub(
-    join: &mut TfJoin,
-    sv_mgr: &mut StreamValueManager,
+fn push_partial_stream_value_and_sub<'a>(
+    join: &mut TfJoin<'a>,
+    sv_mgr: &mut StreamValueManager<'a>,
     tf_id: TransformId,
     sv_id: usize,
     rl: u32,
@@ -800,16 +827,23 @@ fn push_partial_stream_value_and_sub(
         .stream_values
         .two_distinct_mut(sv_id, gb.output_stream_value);
     let mut buffered = false;
+
     if gb.outstanding_values.is_empty() {
+        let mut inserter = out_sv.data_inserter(join.stream_buffer_size, true);
         let mut iter = sv.data_cursor(StreamValueDataOffset::default(), false);
-        out_sv
-            .data_inserter(join.stream_buffer_size, true)
-            .extend_from_cursor(&mut iter);
+
+        if join.first_record_added {
+            if let Some(sep) = join.separator {
+                inserter.append(StreamValueData::from_maybe_text_ref(sep));
+            }
+        }
+        inserter.extend_from_cursor(&mut iter);
     } else {
         // PERF: we might be able to avoid this if pending_stream_values == 0?
         sv.make_buffered();
         buffered = true;
     }
+    join.first_record_added = true;
     gb.outstanding_values.push_back(GroupBatchEntry {
         data: GroupBatchEntryData::StreamValueId {
             id: sv_id,
