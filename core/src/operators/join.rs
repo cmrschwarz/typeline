@@ -401,18 +401,10 @@ pub fn reset_group_stats(join: &mut TfJoin) {
 pub fn drop_group(
     join: &mut TfJoin,
     sv_mgr: &mut StreamValueManager,
-    _tf_id: TransformId,
+    tf_id: TransformId,
 ) {
     if let Some(gbi) = join.active_group_batch {
-        let gb = &mut join.group_batches[gbi];
-        for entry in &mut gb.outstanding_values {
-            match entry.data {
-                GroupBatchEntryData::Data(_) => (),
-                GroupBatchEntryData::StreamValueId { id: sv_id, .. } => {
-                    sv_mgr.drop_field_value_subscription(sv_id, None);
-                }
-            }
-        }
+        drop_group_batch_sv_subscriptions(sv_mgr, tf_id, join, gbi);
         join.group_batches.release(gbi);
     } else {
         debug_assert!(join.active_stream_value.is_none());
@@ -901,7 +893,7 @@ pub fn handle_tf_join_stream_value_update(
 
     if out_sv.propagate_error(&in_sv.error) {
         drop_group_batch_sv_subscriptions(
-            jd,
+            &mut jd.sv_mgr,
             update.tf_id,
             join,
             group_batch_id,
@@ -999,7 +991,7 @@ pub fn handle_tf_join_stream_producer_update<'a>(
 }
 
 fn drop_group_batch_sv_subscriptions(
-    jd: &mut JobData,
+    sv_mgr: &mut StreamValueManager,
     tf_id: TransformId,
     join: &mut TfJoin,
     gbi: GroupBatchId,
@@ -1009,7 +1001,7 @@ fn drop_group_batch_sv_subscriptions(
         match &v.data {
             GroupBatchEntryData::Data(_) => (),
             GroupBatchEntryData::StreamValueId { id, .. } => {
-                jd.sv_mgr.drop_field_value_subscription(*id, Some(tf_id));
+                sv_mgr.drop_field_value_subscription(*id, Some(tf_id));
             }
         }
     }
@@ -1052,7 +1044,12 @@ fn handle_group_batch_producer_update<'a>(
                 if inserter.propagate_error(&sv.error) {
                     drop(inserter);
                     jd.sv_mgr.inform_stream_value_subscribers(out_sv_id);
-                    drop_group_batch_sv_subscriptions(jd, tf_id, join, gbi);
+                    drop_group_batch_sv_subscriptions(
+                        &mut jd.sv_mgr,
+                        tf_id,
+                        join,
+                        gbi,
+                    );
                     return;
                 }
                 if !sv.done {
