@@ -350,7 +350,7 @@ pub fn handle_tf_file_reader_stream(
     }
 
     let res = sv
-        .data_inserter(fr.stream_buffer_size, true)
+        .data_inserter(sv_id, fr.stream_buffer_size, true)
         .with_bytes_buffer(|buf| {
             read_chunk(buf, file, fr.stream_buffer_size, fr.line_buffered)
         });

@@ -298,8 +298,13 @@ fn handle_seq_mode(mut sbs: SequenceBatchState) -> usize {
                 sbs.seq.current_value = sbs.seq.ss.start;
                 field_pos += 1;
             }
-            if field_pos == field_pos_end || out_batch_size_rem == 0 {
-                pending_seq_len_claimed = count;
+            if out_batch_size_rem == 0 {
+                if !seq_done {
+                    pending_seq_len_claimed = count;
+                }
+                break;
+            }
+            if field_pos == field_pos_end {
                 break;
             }
             seq_len_rem = seq_len_total;

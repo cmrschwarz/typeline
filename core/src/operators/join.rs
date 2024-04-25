@@ -293,6 +293,7 @@ fn write_join_data_to_stream<'a>(
 ) {
     let sv = &mut sv_mgr.stream_values[sv_id];
     let mut inserter = sv.data_inserter(
+        sv_id,
         join.stream_buffer_size,
         !join.active_stream_value_appended,
     );
@@ -451,7 +452,7 @@ pub fn emit_group(
 
         if join.active_stream_value_submitted {
             emitted = false;
-            if join.active_stream_value_appended {
+            if join.active_stream_value_appended || done {
                 sv_mgr.inform_stream_value_subscribers(sv_id);
             }
         } else {
@@ -834,7 +835,11 @@ fn push_partial_stream_value_and_sub<'a>(
     let mut buffered = false;
 
     if gb.outstanding_values.is_empty() {
-        let mut inserter = out_sv.data_inserter(join.stream_buffer_size, true);
+        let mut inserter = out_sv.data_inserter(
+            gb.output_stream_value,
+            join.stream_buffer_size,
+            true,
+        );
         let mut iter = sv.data_cursor(StreamValueDataOffset::default(), false);
 
         if join.first_record_added {
@@ -939,7 +944,8 @@ pub fn handle_tf_join_stream_value_update(
     if *streaming_emit {
         debug_assert!(!out_sv.done);
 
-        let mut inserter = out_sv.data_inserter(stream_buffer_size, true);
+        let mut inserter =
+            out_sv.data_inserter(out_sv_id, stream_buffer_size, true);
         inserter
             .extend_from_cursor(&mut in_sv.data_cursor_from_update(&update));
     }
@@ -1029,7 +1035,8 @@ fn handle_group_batch_producer_update<'a>(
 
     let out_sv = streams_handout.claim(out_sv_id);
 
-    let mut inserter = out_sv.data_inserter(join.stream_buffer_size, true);
+    let mut inserter =
+        out_sv.data_inserter(out_sv_id, join.stream_buffer_size, true);
 
     while let Some(entry) = gb.outstanding_values.front_mut() {
         let mut rl_consumed = 0;

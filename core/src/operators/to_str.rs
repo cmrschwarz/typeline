@@ -243,7 +243,8 @@ pub fn handle_tf_to_str_stream_value_update(
     }
     let input_done = sv_in.done;
     let mut iter = sv_in.data_cursor_from_update(&update);
-    let mut inserter = sv_out.data_inserter(stream_buffer_size, true);
+    let mut inserter =
+        sv_out.data_inserter(sv_out_id, stream_buffer_size, true);
 
     while let Some(mut data) = iter.next_steal(inserter.may_append_buffer()) {
         let input_data = match &mut data {

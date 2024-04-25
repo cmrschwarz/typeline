@@ -1430,8 +1430,11 @@ fn insert_output_target(
     if let Some(handle_id) = os.incomplete_stream_value_handle {
         let handle = &mut fmt.stream_value_handles[handle_id];
         let sv = &mut sv_mgr.stream_values[handle.target_sv_id];
-        let mut data_inserter =
-            sv.data_inserter(fmt.stream_buffer_size, false);
+        let mut data_inserter = sv.data_inserter(
+            handle.target_sv_id,
+            fmt.stream_buffer_size,
+            false,
+        );
         let target_ptr = if os.contains_raw_bytes {
             data_inserter.with_bytes_buffer(|buf| {
                 buf.reserve(os.len);
@@ -2045,7 +2048,8 @@ pub fn handle_tf_format_stream_value_update<'a>(
         return;
     }
 
-    let mut inserter = out_sv.data_inserter(stream_buffer_size, true);
+    let mut inserter =
+        out_sv.data_inserter(out_sv_id, stream_buffer_size, true);
 
     if handle.buffering_needed {
         debug_assert!(in_sv.is_buffered() && in_sv.done);

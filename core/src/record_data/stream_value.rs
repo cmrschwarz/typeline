@@ -126,6 +126,8 @@ pub struct StreamValueDataCursor<'s, 'd> {
 }
 
 pub struct StreamValueDataInserter<'s, 'd> {
+    #[cfg(feature = "debug_logging")]
+    sv_id: StreamValueId,
     stream_value: &'d mut StreamValue<'s>,
     dead_elems_leading: usize,
     memory_budget: usize,
@@ -394,6 +396,8 @@ const STREAM_VALUE_DATA_OVERHEAD: usize =
 
 impl<'a, 'b> StreamValueDataInserter<'a, 'b> {
     pub fn new(
+        #[cfg_attr(not(feature = "debug_logging"), allow(unused))]
+        sv_id: StreamValueId,
         stream_value: &'b mut StreamValue<'a>,
         memory_budget: usize,
         clear_if_streaming: bool,
@@ -424,6 +428,8 @@ impl<'a, 'b> StreamValueDataInserter<'a, 'b> {
             }
         };
         Self {
+            #[cfg(feature = "debug_logging")]
+            sv_id,
             stream_value,
             dead_elems_leading,
             memory_budget,
@@ -646,6 +652,11 @@ impl<'a, 'b> StreamValueDataInserter<'a, 'b> {
 impl<'a, 'b> Drop for StreamValueDataInserter<'a, 'b> {
     fn drop(&mut self) {
         self.stream_value.data.drain(0..self.dead_elems_leading);
+        #[cfg(feature = "debug_logging")]
+        eprintln!(
+            ":: inserted into stream value {:02} [{:?}]",
+            self.sv_id, self.stream_value.data
+        );
     }
 }
 
@@ -880,10 +891,12 @@ impl<'a> StreamValue<'a> {
     }
     pub fn data_inserter(
         &mut self,
+        sv_id: StreamValueId,
         default_batch_size: usize,
         clear_if_streaming: bool,
     ) -> StreamValueDataInserter<'a, '_> {
         StreamValueDataInserter::new(
+            sv_id,
             self,
             default_batch_size,
             clear_if_streaming,

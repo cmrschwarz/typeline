@@ -565,7 +565,7 @@ impl Transform for TfHttpRequest {
             let sv = &mut jd.sv_mgr.stream_values[sv_id];
 
             let mut inserter =
-                sv.data_inserter(stream_batch_size, req.header_parsed);
+                sv.data_inserter(sv_id, stream_batch_size, req.header_parsed);
             let res = inserter.with_bytes_buffer(|buf| {
                 Self::handle_event(req, op_id, event, buf, stream_batch_size)
             });
