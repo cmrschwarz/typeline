@@ -4,7 +4,7 @@ use crate::{
     chain::{ChainId, SubchainOffset},
     cli::reject_operator_argument,
     context::SessionData,
-    job::{add_transform_to_job, Job, JobData, TransformContinuationKind},
+    job::{add_transform_to_job, Job, JobData},
     liveness_analysis::OpOutputIdx,
     options::argument::CliArgIdx,
     record_data::{
@@ -16,7 +16,10 @@ use crate::{
 
 use super::{
     errors::{OperatorCreationError, OperatorSetupError},
-    operator::{OperatorData, OperatorId},
+    operator::{
+        OperatorData, OperatorId, OperatorInstantiation,
+        TransformContinuationKind,
+    },
     transform::{TransformData, TransformId, TransformState},
 };
 
@@ -68,7 +71,7 @@ pub fn insert_tf_foreach(
     chain_id: ChainId,
     op_id: u32,
     prebound_outputs: &HashMap<OpOutputIdx, FieldId, BuildIdentityHasher>,
-) -> (TransformId, TransformId, FieldId, TransformContinuationKind) {
+) -> OperatorInstantiation {
     let subchain_id = job.job_data.session_data.chains[chain_id as usize]
         .subchains[op.subchains_start as usize];
     let sc_start_op_id = job.job_data.session_data.chains
@@ -96,23 +99,28 @@ pub fn insert_tf_foreach(
         }),
     );
     let (last_tf_id, cont) = if let Some(&op_id) = sc_start_op_id {
-        let (first, last, next_input_field, cont) = job
-            .setup_transforms_from_op(
-                ms_id,
-                op_id,
-                input_field,
-                None,
-                prebound_outputs,
-            );
-        trailer_output_field = next_input_field;
-        job.job_data.tf_mgr.transforms[header_tf_id].successor = Some(first);
-        (last, cont)
+        let instantiation = job.setup_transforms_from_op(
+            ms_id,
+            op_id,
+            input_field,
+            None,
+            prebound_outputs,
+        );
+        trailer_output_field = instantiation.next_input_field;
+        job.job_data.tf_mgr.transforms[header_tf_id].successor =
+            Some(instantiation.tfs_begin);
+        (instantiation.tfs_end, instantiation.continuation)
     } else {
         (header_tf_id, TransformContinuationKind::Regular)
     };
     match cont {
         TransformContinuationKind::SelfExpanded => {
-            return (header_tf_id, last_tf_id, trailer_output_field, cont);
+            return OperatorInstantiation {
+                tfs_begin: header_tf_id,
+                tfs_end: last_tf_id,
+                next_input_field: trailer_output_field,
+                continuation: cont,
+            };
         }
         TransformContinuationKind::Regular => (),
     }
@@ -139,12 +147,12 @@ pub fn insert_tf_foreach(
         .group_tracker
         .pop_active_group_list();
 
-    (
-        header_tf_id,
-        trailer_tf_id,
-        trailer_output_field,
-        TransformContinuationKind::Regular,
-    )
+    OperatorInstantiation {
+        tfs_begin: header_tf_id,
+        tfs_end: trailer_tf_id,
+        next_input_field: trailer_output_field,
+        continuation: TransformContinuationKind::Regular,
+    }
 }
 
 pub fn handle_tf_foreach_header(

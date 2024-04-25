@@ -5,7 +5,7 @@ use bitvec::vec::BitVec;
 use crate::{
     chain::{Chain, SubchainOffset},
     context::SessionData,
-    job::{add_transform_to_job, Job, JobData, TransformContinuationKind},
+    job::{add_transform_to_job, Job, JobData},
     liveness_analysis::{
         LivenessData, OpOutputIdx, Var, GLOBAL_SLOTS_OFFSET,
         LOCAL_SLOTS_PER_BASIC_BLOCK, READS_OFFSET,
@@ -25,7 +25,8 @@ use super::{
     errors::{OperatorCreationError, OperatorSetupError},
     input_done_eater::add_input_done_eater,
     operator::{
-        OperatorBase, OperatorData, OperatorId, OperatorOffsetInChain,
+        OperatorBase, OperatorData, OperatorId, OperatorInstantiation,
+        OperatorOffsetInChain, TransformContinuationKind,
     },
     transform::{TransformData, TransformId, TransformState},
 };
@@ -221,7 +222,7 @@ pub fn insert_tf_forkcat<'a>(
     _op_base: &OperatorBase,
     op: &'a OpForkCat,
     tf_state: TransformState,
-) -> (TransformId, TransformId, FieldId, TransformContinuationKind) {
+) -> OperatorInstantiation {
     let tf_data = TransformData::ForkCat(TfForkCat {
         curr_subchain_n: op.subchains_start,
         continuation: None,
@@ -264,22 +265,25 @@ pub fn insert_tf_forkcat<'a>(
         forkcat.input_fields.push(input_field);
     }
 
-    let (cont_start, cont_end, next_input_field, cont) =
-        setup_continuation(job, fc_tf_id);
+    let cont_instantiation = setup_continuation(job, fc_tf_id);
     let TransformData::ForkCat(fc) = &mut job.transform_data[fc_tf_id.get()]
     else {
         unreachable!()
     };
-    fc.continuation = Some(cont_start);
+    fc.continuation = Some(cont_instantiation.tfs_begin);
     expand_for_subchain(job, fc_tf_id, 0);
-    let cont_end = add_terminator_tf_cont_dependant(job, cont_end, cont)
-        .unwrap_or(cont_end);
-    (
-        fc_tf_id,
-        cont_end,
-        next_input_field,
-        TransformContinuationKind::SelfExpanded,
+    let cont_end = add_terminator_tf_cont_dependant(
+        job,
+        cont_instantiation.tfs_end,
+        cont_instantiation.continuation,
     )
+    .unwrap_or(cont_instantiation.tfs_end);
+    OperatorInstantiation {
+        tfs_begin: fc_tf_id,
+        tfs_end: cont_end,
+        next_input_field: cont_instantiation.next_input_field,
+        continuation: TransformContinuationKind::SelfExpanded,
+    }
 }
 
 pub fn handle_tf_forkcat(
@@ -327,7 +331,7 @@ pub fn handle_tf_forkcat(
 fn setup_continuation(
     sess: &mut Job,
     tf_id: TransformId,
-) -> (TransformId, TransformId, FieldId, TransformContinuationKind) {
+) -> OperatorInstantiation {
     let TransformData::ForkCat(forkcat) =
         &mut sess.transform_data[tf_id.get()]
     else {
@@ -365,14 +369,15 @@ fn setup_continuation(
         output_ms_id,
         sc_count as usize - 1,
     );
-    let (_begin, end, next_input_field, cont) = sess.setup_transforms_from_op(
+    let mut instantiation = sess.setup_transforms_from_op(
         output_ms_id,
         cont_op_id,
         cont_input_field,
         Some(begin),
         &HashMap::default(),
     );
-    (begin, end, next_input_field, cont)
+    instantiation.tfs_begin = begin;
+    instantiation
 }
 
 fn expand_for_subchain(sess: &mut Job, tf_id: TransformId, sc_n: u32) {
@@ -437,16 +442,19 @@ fn expand_for_subchain(sess: &mut Job, tf_id: TransformId, sc_n: u32) {
         };
     }
 
-    let (start_tf, end_tf, _next_input_field, cont) = sess
-        .setup_transforms_from_op(
-            tgt_ms_id,
-            sess.job_data.session_data.chains[sc_id as usize].operators[0],
-            subchain_input_field,
-            None,
-            &prebound_outputs,
-        );
-    let end_tf =
-        add_terminator_tf_cont_dependant(sess, end_tf, cont).unwrap_or(end_tf);
+    let instantiation = sess.setup_transforms_from_op(
+        tgt_ms_id,
+        sess.job_data.session_data.chains[sc_id as usize].operators[0],
+        subchain_input_field,
+        None,
+        &prebound_outputs,
+    );
+    let end_tf = add_terminator_tf_cont_dependant(
+        sess,
+        instantiation.tfs_end,
+        instantiation.continuation,
+    )
+    .unwrap_or(instantiation.tfs_end);
     let TransformData::ForkCat(forkcat) =
         &mut sess.transform_data[tf_id.get()]
     else {
@@ -469,7 +477,8 @@ fn expand_for_subchain(sess: &mut Job, tf_id: TransformId, sc_n: u32) {
     sess.job_data.tf_mgr.transforms[end_tf].successor = Some(cont);
     sess.job_data.tf_mgr.transforms[cont].predecessor_done = false;
 
-    sess.job_data.tf_mgr.transforms[tf_id].successor = Some(start_tf);
+    sess.job_data.tf_mgr.transforms[tf_id].successor =
+        Some(instantiation.tfs_begin);
 
     forkcat.prebound_outputs = prebound_outputs;
     #[cfg(feature = "debug_logging")]

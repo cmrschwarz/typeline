@@ -5,7 +5,7 @@ use smallstr::SmallString;
 use crate::{
     chain::{Chain, ChainId},
     context::{SessionData, SessionSettings},
-    job::JobData,
+    job::{add_transform_to_job, Job, JobData},
     liveness_analysis::{
         AccessFlags, BasicBlockId, LivenessData, OpOutputIdx,
     },
@@ -19,31 +19,33 @@ use crate::{
 };
 
 use super::{
-    aggregator::{OpAggregator, AGGREGATOR_DEFAULT_NAME},
-    call::OpCall,
-    call_concurrent::OpCallConcurrent,
-    count::OpCount,
+    aggregator::{
+        insert_tf_aggregator, OpAggregator, AGGREGATOR_DEFAULT_NAME,
+    },
+    call::{build_tf_call, OpCall},
+    call_concurrent::{build_tf_call_concurrent, OpCallConcurrent},
+    count::{build_tf_count, OpCount},
     end::OpEnd,
     errors::OperatorSetupError,
-    field_value_sink::OpFieldValueSink,
-    file_reader::OpFileReader,
-    foreach::OpForeach,
-    fork::OpFork,
-    forkcat::OpForkCat,
-    format::OpFormat,
-    join::OpJoin,
+    field_value_sink::{build_tf_field_value_sink, OpFieldValueSink},
+    file_reader::{build_tf_file_reader, OpFileReader},
+    foreach::{insert_tf_foreach, OpForeach},
+    fork::{build_tf_fork, OpFork},
+    forkcat::{insert_tf_forkcat, OpForkCat},
+    format::{build_tf_format, OpFormat},
+    join::{build_tf_join, OpJoin},
     key::OpKey,
-    literal::OpLiteral,
+    literal::{build_tf_literal, OpLiteral},
     next::OpNext,
-    nop::OpNop,
-    nop_copy::OpNopCopy,
-    print::OpPrint,
-    regex::OpRegex,
-    select::OpSelect,
-    sequence::OpSequence,
-    string_sink::OpStringSink,
-    to_str::OpToStr,
-    transform::{TransformData, TransformState},
+    nop::{build_tf_nop, OpNop},
+    nop_copy::{build_tf_nop_copy, OpNopCopy},
+    print::{build_tf_print, OpPrint},
+    regex::{build_tf_regex, OpRegex},
+    select::{build_tf_select, OpSelect},
+    sequence::{build_tf_sequence, OpSequence},
+    string_sink::{build_tf_string_sink, OpStringSink},
+    to_str::{build_tf_to_str, OpToStr},
+    transform::{TransformData, TransformId, TransformState},
 };
 
 pub type OperatorId = u32;
@@ -90,6 +92,19 @@ pub struct OperatorBase {
     // has concluded
     pub outputs_start: OpOutputIdx,
     pub outputs_end: OpOutputIdx,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum TransformContinuationKind {
+    Regular,
+    SelfExpanded,
+}
+
+pub struct OperatorInstantiation {
+    pub tfs_begin: TransformId,
+    pub tfs_end: TransformId,
+    pub next_input_field: FieldId,
+    pub continuation: TransformContinuationKind,
 }
 
 #[derive(Default, PartialEq, Eq, Clone, Copy)]
@@ -277,4 +292,91 @@ pub trait Operator: Send + Sync {
         tf_state: &mut TransformState,
         prebound_outputs: &HashMap<OpOutputIdx, FieldId, BuildIdentityHasher>,
     ) -> TransformData;
+}
+
+pub fn operator_build_transforms(
+    job: &mut Job,
+    mut tf_state: TransformState,
+    op_id: OperatorId,
+    prebound_outputs: &HashMap<OpOutputIdx, FieldId, BuildIdentityHasher>,
+) -> OperatorInstantiation {
+    let tfs = &mut tf_state;
+    let jd = &mut job.job_data;
+    let op_base = &jd.session_data.operator_bases[op_id as usize];
+    let op_data = &jd.session_data.operator_data[op_id as usize];
+    let tf_data = match op_data {
+        OperatorData::Nop(op) => build_tf_nop(op, tfs),
+        OperatorData::NopCopy(op) => build_tf_nop_copy(jd, op, tfs),
+        OperatorData::ToStr(op) => build_tf_to_str(jd, op_base, op, tfs),
+        OperatorData::Count(op) => build_tf_count(jd, op_base, op, tfs),
+        OperatorData::Foreach(op) => {
+            return insert_tf_foreach(
+                job,
+                op,
+                tf_state,
+                op_base.chain_id.unwrap(),
+                op_id,
+                prebound_outputs,
+            );
+        }
+        OperatorData::Fork(op) => build_tf_fork(jd, op_base, op, tfs),
+        OperatorData::ForkCat(op) => {
+            return insert_tf_forkcat(job, op_base, op, tf_state);
+        }
+        OperatorData::Print(op) => build_tf_print(jd, op_base, op, tfs),
+        OperatorData::Join(op) => build_tf_join(jd, op_base, op, tfs),
+        OperatorData::Regex(op) => {
+            build_tf_regex(jd, op_base, op, tfs, prebound_outputs)
+        }
+        OperatorData::Format(op) => build_tf_format(jd, op_base, op, tfs),
+        OperatorData::StringSink(op) => {
+            build_tf_string_sink(jd, op_base, op, tfs)
+        }
+        OperatorData::FieldValueSink(op) => {
+            build_tf_field_value_sink(jd, op_base, op, tfs)
+        }
+        OperatorData::FileReader(op) => {
+            build_tf_file_reader(jd, op_base, op, tfs)
+        }
+        OperatorData::Literal(op) => build_tf_literal(jd, op_base, op, tfs),
+        OperatorData::Sequence(op) => build_tf_sequence(jd, op_base, op, tfs),
+        OperatorData::Select(op) => build_tf_select(jd, op_base, op, tfs),
+        OperatorData::Call(op) => build_tf_call(jd, op_base, op, tfs),
+        OperatorData::CallConcurrent(op) => {
+            build_tf_call_concurrent(jd, op_base, op, tfs)
+        }
+        OperatorData::Key(_)
+        | OperatorData::Next(_)
+        | OperatorData::End(_) => unreachable!(),
+        OperatorData::Custom(op) => {
+            op.build_transform(jd, op_base, tfs, prebound_outputs)
+        }
+        OperatorData::Aggregator(op) => {
+            return insert_tf_aggregator(
+                job,
+                op,
+                tf_state,
+                op_id,
+                prebound_outputs,
+            );
+        }
+    };
+
+    let next_input_field = if tf_state.is_transparent {
+        tf_state.input_field
+    } else {
+        tf_state.output_field
+    };
+    let tf_id = add_transform_to_job(
+        &mut job.job_data,
+        &mut job.transform_data,
+        tf_state,
+        tf_data,
+    );
+    OperatorInstantiation {
+        tfs_begin: tf_id,
+        tfs_end: tf_id,
+        next_input_field,
+        continuation: TransformContinuationKind::Regular,
+    }
 }

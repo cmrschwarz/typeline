@@ -4,7 +4,7 @@ use bstr::ByteSlice;
 
 use crate::{
     chain::ChainId,
-    job::{Job, JobData, TransformContinuationKind},
+    job::{Job, JobData},
     options::argument::CliArgIdx,
     record_data::{field::FieldId, match_set::MatchSetId},
     utils::{
@@ -15,7 +15,9 @@ use crate::{
 
 use super::{
     errors::{OperatorCreationError, OperatorSetupError},
-    operator::{OperatorBase, OperatorData, OperatorId},
+    operator::{
+        OperatorBase, OperatorData, OperatorId, OperatorInstantiation,
+    },
     transform::{TransformData, TransformId, TransformState},
 };
 
@@ -112,7 +114,7 @@ pub(crate) fn handle_eager_call_expansion(
     ms_id: MatchSetId,
     input_field: FieldId,
     predecessor_tf: Option<TransformId>,
-) -> (TransformId, TransformId, FieldId, TransformContinuationKind) {
+) -> OperatorInstantiation {
     let OperatorData::Call(op) =
         &sess.job_data.session_data.operator_data[op_id as usize]
     else {
@@ -139,16 +141,15 @@ pub(crate) fn handle_lazy_call_expansion(sess: &mut Job, tf_id: TransformId) {
     };
     // TODO: do we need a prebound output so succesor can keep it's input
     // field?
-    let (_target_tf, end_tf, _next_input_field, _cont) = sess
-        .setup_transforms_from_op(
-            ms_id,
-            sess.job_data.session_data.chains[call.target as usize].operators
-                [0],
-            input_field,
-            Some(tf_id),
-            &HashMap::default(),
-        );
-    sess.job_data.tf_mgr.transforms[end_tf].successor = old_successor;
+    let instantiation = sess.setup_transforms_from_op(
+        ms_id,
+        sess.job_data.session_data.chains[call.target as usize].operators[0],
+        input_field,
+        Some(tf_id),
+        &HashMap::default(),
+    );
+    sess.job_data.tf_mgr.transforms[instantiation.tfs_end].successor =
+        old_successor;
     let (batch_size, _input_done) = sess.job_data.tf_mgr.claim_all(tf_id);
     // TODO: is this fine considering e.g. forkcat with no predecessors?
     sess.job_data.unlink_transform(tf_id, batch_size);

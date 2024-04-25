@@ -1,12 +1,15 @@
 use crate::{
-    job::{add_transform_to_job, Job, JobData, TransformContinuationKind},
+    job::{add_transform_to_job, Job, JobData},
     record_data::{
         action_buffer::ActorId, field::VOID_FIELD_ID,
         field_action::FieldActionKind,
     },
 };
 
-use super::transform::{TransformData, TransformId, TransformState};
+use super::{
+    operator::TransformContinuationKind,
+    transform::{TransformData, TransformId, TransformState},
+};
 
 pub struct TfTerminator {
     actor_id: ActorId,

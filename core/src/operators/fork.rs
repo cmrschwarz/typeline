@@ -216,16 +216,19 @@ pub(crate) fn handle_fork_expansion(
         let input_field = chain_input_field.unwrap_or(VOID_FIELD_ID);
         let start_op_id =
             sess.job_data.session_data.chains[subchain_id].operators[0];
-        let (start_tf, end_tf, _next_input_field, cont) = sess
-            .setup_transforms_from_op(
-                target_ms_id,
-                start_op_id,
-                input_field,
-                None,
-                &HashMap::default(),
-            );
-        add_terminator_tf_cont_dependant(sess, end_tf, cont);
-        targets.push(start_tf);
+        let instantiation = sess.setup_transforms_from_op(
+            target_ms_id,
+            start_op_id,
+            input_field,
+            None,
+            &HashMap::default(),
+        );
+        add_terminator_tf_cont_dependant(
+            sess,
+            instantiation.tfs_end,
+            instantiation.continuation,
+        );
+        targets.push(instantiation.tfs_begin);
     }
     sess.log_state("expanded fork");
     if let TransformData::Fork(ref mut fork) =

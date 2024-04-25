@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::{
     context::SessionData,
-    job::{add_transform_to_job, Job, JobData, TransformContinuationKind},
+    job::{add_transform_to_job, Job, JobData},
     liveness_analysis::OpOutputIdx,
     options::{
         operator_base_options::OperatorBaseOptions,
@@ -21,7 +21,10 @@ use crate::{
 use super::{
     errors::OperatorSetupError,
     nop_copy::create_op_nop_copy,
-    operator::{OperatorData, OperatorId},
+    operator::{
+        operator_build_transforms, OperatorData, OperatorId,
+        OperatorInstantiation, TransformContinuationKind,
+    },
     transform::{TransformData, TransformId, TransformState},
 };
 
@@ -130,7 +133,7 @@ pub fn insert_tf_aggregator(
     mut tf_state: TransformState,
     op_id: u32,
     prebound_outputs: &HashMap<OpOutputIdx, FieldId, BuildIdentityHasher>,
-) -> (TransformId, TransformId, FieldId, TransformContinuationKind) {
+) -> OperatorInstantiation {
     let op_count = op.sub_ops.len();
     let in_fid = tf_state.input_field;
     let out_fid = tf_state.output_field;
@@ -181,13 +184,13 @@ pub fn insert_tf_aggregator(
             Some(sub_op_id),
         );
         sub_tf_state.is_split = i + 1 != op.sub_ops.len();
-        let (sub_tf_start, _sub_tf_end, _next_input_field, _diverged) = job
-            .insert_transform_from_op(
-                sub_tf_state,
-                sub_op_id,
-                prebound_outputs,
-            );
-        sub_tfs.push(sub_tf_start);
+        let instantiation = operator_build_transforms(
+            job,
+            sub_tf_state,
+            sub_op_id,
+            prebound_outputs,
+        );
+        sub_tfs.push(instantiation.tfs_begin);
     }
     let trailer_tf_state = TransformState::new(
         out_fid,
@@ -214,14 +217,14 @@ pub fn insert_tf_aggregator(
     header.sub_tfs = sub_tfs;
     job.job_data.tf_mgr.transforms[header_tf_id].successor =
         Some(header.sub_tfs.first().copied().unwrap_or(trailer_tf_id));
-    (
-        header_tf_id,
-        trailer_tf_id,
-        out_fid,
-        TransformContinuationKind::Regular,
-    )
-}
 
+    OperatorInstantiation {
+        tfs_begin: header_tf_id,
+        tfs_end: trailer_tf_id,
+        next_input_field: out_fid,
+        continuation: TransformContinuationKind::Regular,
+    }
+}
 pub fn handle_tf_aggregator_header(
     jd: &mut JobData,
     tf_id: TransformId,
