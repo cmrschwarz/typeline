@@ -183,6 +183,7 @@ fn join_after_enum() -> Result<(), ScrError> {
 fn join_seq_into_stream() -> Result<(), ScrError> {
     let res = ContextBuilder::default()
         .set_stream_size_threshold(2)
+        .set_batch_size(2)
         .add_op(create_op_seqn(1, 5, 1).unwrap())
         .add_op(create_op_join_str(",", 0))
         .add_op(create_op_format("{:#??}").unwrap())

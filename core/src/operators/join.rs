@@ -258,6 +258,7 @@ fn claim_stream_value(
         false,
     ));
     join.active_stream_value = Some(sv_id);
+    join.active_stream_value_appended = true;
     sv_id
 }
 
@@ -295,6 +296,9 @@ fn write_join_data_to_stream<'a>(
         join.stream_buffer_size,
         !join.active_stream_value_appended,
     );
+    // PERF: if these are small (the common case!), we end up appending
+    // a lot of tiny buffers. we should just build a big buffer instead,
+    // or add a way to the inserter to do that heuristically
     let svd = StreamValueData::from_maybe_text(data.into_owned());
     if let Some(sep) = join.separator {
         let sep_svd = StreamValueData::from_maybe_text_ref(sep);
@@ -441,8 +445,9 @@ pub fn emit_group(
                 }
             }
         }
-
-        sv_mgr.stream_values[sv_id].done = done;
+        if done {
+            sv_mgr.stream_values[sv_id].mark_done();
+        }
 
         if join.active_stream_value_submitted {
             emitted = false;
@@ -943,7 +948,7 @@ pub fn handle_tf_join_stream_value_update(
         gb.pending_stream_values -= 1;
         if gb.outstanding_values.is_empty() {
             if Some(group_batch_id) != join.active_group_batch {
-                out_sv.done = true;
+                out_sv.mark_done();
                 join.group_batches.release(group_batch_id);
             }
         } else {
@@ -982,7 +987,7 @@ pub fn handle_tf_join_stream_producer_update<'a>(
         if gb.outstanding_values.is_empty()
             && join.active_group_batch != Some(gbi)
         {
-            jd.sv_mgr.stream_values[gb.output_stream_value].done = true;
+            jd.sv_mgr.stream_values[gb.output_stream_value].mark_done();
             jd.sv_mgr
                 .inform_stream_value_subscribers(gb.output_stream_value);
             join.group_batches.release(gbi);
@@ -1098,7 +1103,7 @@ fn handle_group_batch_producer_update<'a>(
 
     if gb.outstanding_values.is_empty() && join.active_group_batch != Some(gbi)
     {
-        out_sv.done = true;
+        out_sv.mark_done();
     }
     jd.sv_mgr.inform_stream_value_subscribers(out_sv_id);
 }

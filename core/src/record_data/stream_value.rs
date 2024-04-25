@@ -903,6 +903,13 @@ impl<'a> StreamValue<'a> {
         debug_assert!(self.data.len() == 1);
         &mut self.data[0]
     }
+
+    pub fn mark_done(&mut self) {
+        self.done = true;
+        if self.data_type == Some(StreamValueDataType::MaybeText) {
+            self.data_type = Some(StreamValueDataType::Text)
+        }
+    }
 }
 
 impl<'a> StreamValueData<'a> {
