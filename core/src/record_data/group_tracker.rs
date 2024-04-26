@@ -182,7 +182,7 @@ impl<'a> GroupActionsApplicator<'a> {
         }
     }
 
-    fn move_to_action_field_idx(&mut self, field_idx: usize) {
+    fn move_to_field_pos(&mut self, field_idx: usize) {
         if field_idx < self.gl.passed_fields_count {
             return;
         }
@@ -231,8 +231,8 @@ impl<'a> GroupActionsApplicator<'a> {
         self.group_len_rem = self.group_len;
     }
     fn apply_action(&mut self, a: &FieldAction) {
-        self.move_to_action_field_idx(a.field_idx);
         let mut action_run_len = a.run_len as usize;
+        self.move_to_field_pos(a.field_idx);
         match a.kind {
             FieldActionKind::Dup | FieldActionKind::InsertZst(_) => {
                 self.group_len_rem += action_run_len;
@@ -241,13 +241,39 @@ impl<'a> GroupActionsApplicator<'a> {
                 self.modified = true;
             }
             FieldActionKind::Drop => {
-                while action_run_len > self.group_len_rem {
-                    self.group_len -= self.group_len_rem;
-                    self.curr_iters_field_pos_delta -=
-                        self.group_len_rem as isize;
-                    action_run_len -= self.group_len_rem;
-                    self.modified = true;
-                    self.next_group();
+                let group_offset = self.group_len - self.group_len_rem;
+                if action_run_len > self.group_len_rem {
+                    for is_idx in
+                        self.affected_iters_start..self.affected_iters_end
+                    {
+                        let is =
+                            self.gl.iter_states[is_idx as usize].get_mut();
+                        is.field_pos = self.field_pos;
+                        is.group_offset = group_offset;
+                    }
+                    self.affected_iters_start = self.affected_iters_end;
+                    while action_run_len > self.group_len_rem {
+                        self.group_len = group_offset;
+                        self.curr_iters_field_pos_delta -=
+                            self.group_len_rem as isize;
+                        action_run_len -= self.group_len_rem;
+                        self.modified = true;
+                        self.next_group();
+                    }
+                }
+                let field_pos_unmodified = (self.field_pos as isize
+                    - self.curr_iters_field_pos_delta)
+                    as usize;
+                while self.affected_iters_start < self.affected_iters_end {
+                    let is = self.gl.iter_states
+                        [self.affected_iters_start as usize]
+                        .get_mut();
+                    if is.field_pos - field_pos_unmodified > action_run_len {
+                        break;
+                    }
+                    is.field_pos = self.field_pos;
+                    is.group_offset = group_offset;
+                    self.affected_iters_start += 1;
                 }
                 self.curr_iters_field_pos_delta -= action_run_len as isize;
                 self.group_len -= action_run_len;
@@ -315,7 +341,9 @@ impl<'a> GroupActionsApplicator<'a> {
     }
 
     fn advance_affected_iters_to_group_offset(&mut self) {
-        let group_offset = self.group_len - self.group_len_rem;
+        let group_offset = ((self.group_len - self.group_len_rem) as isize
+            - self.curr_iters_field_pos_delta)
+            as usize;
         loop {
             if self.affected_iters_start == self.affected_iters_end {
                 return;
@@ -1514,6 +1542,37 @@ mod test {
                     iter_id: 0,
                 }
             ]
+        );
+    }
+
+    #[test]
+    fn dup_after_drop_does_not_affect_iterator() {
+        let mut gl = GroupList {
+            passed_fields_count: 0,
+            group_lengths: SizeClassedVecDeque::Sc8(VecDeque::from([3])),
+            iter_states: vec![Cell::new(GroupsIterState {
+                field_pos: 2,
+                group_idx: 0,
+                group_offset: 2,
+                iter_id: 0,
+            })],
+            iter_lookup_table: Universe::from([0].into_iter()),
+            ..Default::default()
+        };
+
+        gl.apply_field_actions_list(&[
+            FieldAction::new(FieldActionKind::Drop, 0, 1),
+            FieldAction::new(FieldActionKind::Dup, 1, 2),
+        ]);
+
+        assert_eq!(
+            gl.iter_states[0].get(),
+            GroupsIterState {
+                field_pos: 1,
+                group_idx: 0,
+                group_offset: 1,
+                iter_id: 0,
+            }
         );
     }
 }
