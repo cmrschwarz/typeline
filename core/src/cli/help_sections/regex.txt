@@ -29,7 +29,10 @@ Options:
     -b  Don't attempt to preserve strings as valid utf8 and turn everything
         into byte sequences. This implies -a unless -u is specified.
 
-    -m  Return multiple matches instead of only the first
+    -f  Expand the matched area to the the full input.
+        Syntactic sugar for 'r=^.*?REGEX.*?$'.
+
+    -m  Return multiple matches instead of only the first.
 
     -o  Allow overlapping matches, implies -m.
 

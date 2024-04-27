@@ -112,6 +112,10 @@ pub struct RegexOptions {
 
     // enables case insensitive matches
     pub case_insensitive: bool,
+
+    // return the whole input, not just the matched portion
+    // (incompatible with multimatch)
+    pub full: bool,
 }
 
 impl OpRegex {
@@ -128,6 +132,9 @@ impl OpRegex {
         }
         if self.opts.dotall {
             res.push('d');
+        }
+        if self.opts.full {
+            res.push('f');
         }
         if self.opts.case_insensitive {
             res.push('i');
@@ -155,7 +162,7 @@ impl OpRegex {
 const MAX_DEFAULT_CAPTURE_GROUP_NAME_LEN: usize = USIZE_MAX_DECIMAL_DIGITS + 1;
 lazy_static! {
     static ref REGEX_CLI_ARG_REGEX: Regex =
-        RegexBuilder::new("^(r|regex)(-((?<a>a)|(?<b>b)|(?<d>d)|(?<i>i)|(?<l>l)|(?<m>m)|(?<n>n)|(?<o>o)|(?<u>u))*)?$")
+        RegexBuilder::new("^(r|regex)(-((?<a>a)|(?<b>b)|(?<d>d)|(?<f>f)|(?<i>i)|(?<l>l)|(?<m>m)|(?<n>n)|(?<o>o)|(?<u>u))*)?$")
             .case_insensitive(true)
             .build()
             .unwrap();
@@ -175,6 +182,9 @@ pub fn try_match_regex_cli_argument(
         }
         if c.name("d").is_some() {
             opts.dotall = true;
+        }
+        if c.name("f").is_some() {
+            opts.full = true;
         }
         if c.name("i").is_some() {
             opts.case_insensitive = true;
@@ -198,6 +208,12 @@ pub fn try_match_regex_cli_argument(
         if opts.ascii_mode && unicode_mode {
             return Err(OperatorCreationError::new(
                 "[a]scii and [u]nicode mode on regex are mutually exclusive",
+                idx,
+            ));
+        }
+        if opts.full && opts.multimatch {
+            return Err(OperatorCreationError::new(
+                "[f]ull and [m]ultimatch modes on regex are mutually exclusive",
                 idx,
             ));
         }
@@ -302,13 +318,21 @@ pub fn parse_op_regex(
             )
         })?;
 
-    let (re, empty_group_replacement) = preparse_replace_empty_capture_group(
-        value_str, &opts,
-    )
-    .map_err(|e| OperatorCreationError {
-        cli_arg_idx: arg_idx,
-        message: e,
-    })?;
+    let (mut re, empty_group_replacement) =
+        preparse_replace_empty_capture_group(value_str, &opts).map_err(
+            |e| OperatorCreationError {
+                cli_arg_idx: arg_idx,
+                message: e,
+            },
+        )?;
+
+    if opts.full {
+        let mut res = String::with_capacity(re.len() + 8);
+        res.push_str("^.*?");
+        res.push_str(&re);
+        res.push_str(".*?$");
+        re = Cow::Owned(res);
+    }
 
     let regex = bytes::RegexBuilder::new(&re)
         .multi_line(opts.line_based)
