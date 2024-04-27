@@ -761,23 +761,18 @@ fn iter_output_states_advanced(
     mut run_len: usize,
     mut func: impl FnMut(&mut OutputState),
 ) {
-    if run_len == 0 {
-        return;
-    }
-    let next = output_states.len();
-    let o = &mut output_states[*output_idx];
-    // PERF: we might want to prevent splits if there was already an error?
-    if run_len < o.run_len {
-        let mut o2 = *o;
-        o.next = next;
-        let rl_rem = o.run_len - run_len;
-        o.run_len = run_len;
-        o2.run_len = rl_rem;
-        output_states.push(o2);
-    }
-
     while run_len > 0 {
-        let o = &mut output_states[*output_idx];
+        let mut o = &mut output_states[*output_idx];
+        if run_len < o.run_len {
+            let mut o2 = *o;
+            let rl_rem = o.run_len - run_len;
+            o.run_len = run_len;
+            o2.run_len = rl_rem;
+            let o2_idx = output_states.len();
+            output_states.push(o2);
+            o = &mut output_states[*output_idx];
+            o.next = o2_idx;
+        }
         if o.contained_error.is_none()
             && o.incomplete_stream_value_handle.is_none()
         {

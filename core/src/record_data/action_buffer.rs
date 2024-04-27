@@ -1601,22 +1601,18 @@ impl ActionBuffer {
         let mut dead_data_rem_leading = dead_data_leading;
         let mut dead_headers_leading = 0;
         let mut first_header_dropped_elem_count = 0;
-        let mut final_padding = dead_data_padding;
 
         while dead_headers_leading < headers.len() {
             let h = &mut headers[dead_headers_leading];
             let h_ds = h.total_size_unique();
             if dead_data_rem_leading < h_ds {
                 let header_elem_size = h.fmt.size as usize;
+                let header_padding = h.leading_padding();
                 first_header_dropped_elem_count =
-                    (dead_data_rem_leading / header_elem_size) as RunLength;
+                    ((dead_data_rem_leading - header_padding)
+                        / header_elem_size) as RunLength;
                 h.run_length -= first_header_dropped_elem_count;
-                let padding_drop = dead_data_rem_leading
-                    - first_header_dropped_elem_count as usize
-                        * header_elem_size;
-                final_padding =
-                    h.leading_padding() + dead_data_padding - padding_drop;
-                h.set_leading_padding(final_padding);
+                h.set_leading_padding(dead_data_padding);
                 break;
             }
             dead_data_rem_leading -= h_ds;
@@ -1647,10 +1643,9 @@ impl ActionBuffer {
         headers.drain(last_header_alive..);
         let last_header = headers.back().copied().unwrap_or_default();
 
-        let field_end_new = field_data_size
-            + (dead_data_leading - dead_data_padding)
-            + final_padding
-            - dead_data_trailing;
+        let field_end_new = field_data_size + dead_data_padding
+            - dead_data_trailing
+            - dead_data_leading;
 
         let last_header_size = last_header.total_size_unique();
 
