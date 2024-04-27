@@ -610,6 +610,12 @@ impl<'a, I: FieldIterator<'a>> AutoDerefIter<'a, I> {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RangeOffsets {
+    pub begin: usize,
+    pub end: usize,
+}
+
 pub struct AutoDerefValueRefIter<'a, I> {
     pub msm: &'a MatchSetManager,
     pub iter: AutoDerefIter<'a, I>,
@@ -663,7 +669,7 @@ impl<'a> RefAwareInlineBytesIter<'a> {
 }
 
 impl<'a> Iterator for RefAwareInlineBytesIter<'a> {
-    type Item = (&'a [u8], RunLength, usize);
+    type Item = (&'a [u8], RunLength, RangeOffsets);
 
     // returns a triple of (data, run length, offset)
     // the offset is the position of data in the original data slice
@@ -678,7 +684,7 @@ impl<'a> Iterator for RefAwareInlineBytesIter<'a> {
                 let run_len = rl_ref.min(rl_data);
                 self.iter.next_n_fields(run_len as usize);
                 refs_iter.next_n_fields(run_len as usize);
-                Some((data, run_len, 0))
+                Some((data, run_len, RangeOffsets::default()))
             }
             Some(AnyRefSliceIter::SlicedFieldRef(refs_iter)) => {
                 let (fr, rl_ref) = refs_iter.peek()?;
@@ -686,11 +692,18 @@ impl<'a> Iterator for RefAwareInlineBytesIter<'a> {
                 let run_len = rl_ref.min(rl_data);
                 self.iter.next_n_fields(run_len as usize);
                 refs_iter.next_n_fields(run_len as usize);
-                Some((&data[fr.begin..fr.end], run_len, fr.begin))
+                Some((
+                    &data[fr.begin..fr.end],
+                    run_len,
+                    RangeOffsets {
+                        begin: fr.begin,
+                        end: data.len() - fr.end,
+                    },
+                ))
             }
             None => {
                 let (data, rl) = self.iter.next()?;
-                Some((data, rl, 0))
+                Some((data, rl, RangeOffsets::default()))
             }
         }
     }
@@ -726,14 +739,14 @@ impl<'a> RefAwareInlineTextIter<'a> {
 }
 
 impl<'a> Iterator for RefAwareInlineTextIter<'a> {
-    type Item = (&'a str, RunLength, usize);
+    type Item = (&'a str, RunLength, RangeOffsets);
     #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
-        let (data, rl, offset) = self.iter.next()?;
+        let (data, rl, offsets) = self.iter.next()?;
         return Some((
             unsafe { std::str::from_utf8_unchecked(data) },
             rl,
-            offset,
+            offsets,
         ));
     }
 }
@@ -775,7 +788,7 @@ impl<'a> RefAwareBytesBufferIter<'a> {
 }
 
 impl<'a> Iterator for RefAwareBytesBufferIter<'a> {
-    type Item = (&'a [u8], RunLength, usize);
+    type Item = (&'a [u8], RunLength, RangeOffsets);
     #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
         match &mut self.refs {
@@ -785,7 +798,7 @@ impl<'a> Iterator for RefAwareBytesBufferIter<'a> {
                 let run_len = rl_ref.min(rl_data);
                 self.iter.next_n_fields(run_len as usize);
                 refs_iter.next_n_fields(run_len as usize);
-                Some((data, run_len, 0))
+                Some((data, run_len, RangeOffsets::default()))
             }
             Some(AnyRefSliceIter::SlicedFieldRef(refs_iter)) => {
                 let (fr, rl_ref) = refs_iter.peek()?;
@@ -793,11 +806,18 @@ impl<'a> Iterator for RefAwareBytesBufferIter<'a> {
                 let run_len = rl_ref.min(rl_data);
                 self.iter.next_n_fields(run_len as usize);
                 refs_iter.next_n_fields(run_len as usize);
-                Some((&data[fr.begin..fr.end], run_len, fr.begin))
+                Some((
+                    &data[fr.begin..fr.end],
+                    run_len,
+                    RangeOffsets {
+                        begin: fr.begin,
+                        end: data.len() - fr.end,
+                    },
+                ))
             }
             None => {
                 let (data, rl) = self.iter.next()?;
-                Some((data, rl, 0))
+                Some((data, rl, RangeOffsets::default()))
             }
         }
     }
@@ -840,7 +860,7 @@ impl<'a> RefAwareTextBufferIter<'a> {
 }
 
 impl<'a> Iterator for RefAwareTextBufferIter<'a> {
-    type Item = (&'a str, RunLength, usize);
+    type Item = (&'a str, RunLength, RangeOffsets);
     #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
         match &mut self.refs {
@@ -850,7 +870,7 @@ impl<'a> Iterator for RefAwareTextBufferIter<'a> {
                 let run_len = rl_ref.min(rl_data);
                 self.iter.next_n_fields(run_len as usize);
                 refs_iter.next_n_fields(run_len as usize);
-                Some((data, run_len, 0))
+                Some((data, run_len, RangeOffsets::default()))
             }
             Some(AnyRefSliceIter::SlicedFieldRef(refs_iter)) => {
                 let (fr, rl_ref) = refs_iter.peek()?;
@@ -858,11 +878,16 @@ impl<'a> Iterator for RefAwareTextBufferIter<'a> {
                 let run_len = rl_ref.min(rl_data);
                 self.iter.next_n_fields(run_len as usize);
                 refs_iter.next_n_fields(run_len as usize);
-                Some((&data[fr.begin..fr.end], run_len, fr.begin))
+                Some((&data[fr.begin..fr.end], run_len, {
+                    RangeOffsets {
+                        begin: fr.begin,
+                        end: data.len() - fr.end,
+                    }
+                }))
             }
             None => {
                 let (data, rl) = self.iter.next()?;
-                Some((data, rl, 0))
+                Some((data, rl, RangeOffsets::default()))
             }
         }
     }
@@ -943,7 +968,7 @@ pub struct RefAwareUnfoldRunLength<I, T> {
     remaining_run_len: RunLength,
 }
 
-impl<I: Iterator<Item = (T, RunLength, usize)>, T: Clone>
+impl<I: Iterator<Item = (T, RunLength, RangeOffsets)>, T: Clone>
     RefAwareUnfoldRunLength<I, T>
 {
     pub fn new(iter: I) -> Self {
@@ -959,7 +984,7 @@ pub trait RefAwareUnfoldIterRunLength<T>: Sized {
     fn unfold_rl(self) -> RefAwareUnfoldRunLength<Self, T>;
 }
 
-impl<T: Clone, I: Iterator<Item = (T, RunLength, usize)>>
+impl<T: Clone, I: Iterator<Item = (T, RunLength, RangeOffsets)>>
     RefAwareUnfoldIterRunLength<T> for I
 {
     fn unfold_rl(self) -> RefAwareUnfoldRunLength<Self, T> {
@@ -967,7 +992,7 @@ impl<T: Clone, I: Iterator<Item = (T, RunLength, usize)>>
     }
 }
 
-impl<I: Iterator<Item = (T, RunLength, usize)>, T: Clone> Iterator
+impl<I: Iterator<Item = (T, RunLength, RangeOffsets)>, T: Clone> Iterator
     for RefAwareUnfoldRunLength<I, T>
 {
     type Item = T;
@@ -988,10 +1013,13 @@ impl<I: Iterator<Item = (T, RunLength, usize)>, T: Clone> Iterator
 
 #[cfg(test)]
 mod ref_iter_tests {
-    use super::super::{
-        field::FieldManager,
-        match_set::MatchSetManager,
-        ref_iter::{AutoDerefIter, RefAwareInlineTextIter},
+    use super::{
+        super::{
+            field::FieldManager,
+            match_set::MatchSetManager,
+            ref_iter::{AutoDerefIter, RefAwareInlineTextIter},
+        },
+        RangeOffsets,
     };
     use crate::record_data::{
         action_buffer::ActorRef,
@@ -1009,7 +1037,7 @@ mod ref_iter_tests {
     fn compare_iter_output(
         fd: FieldData,
         fd_refs: FieldData,
-        expected: &[(&'static str, RunLength, usize)],
+        expected: &[(&'static str, RunLength, RangeOffsets)],
     ) {
         let mut match_set_mgr = MatchSetManager::default();
         let ms_id = match_set_mgr.match_sets.claim();
@@ -1093,7 +1121,7 @@ mod ref_iter_tests {
             fd_refs,
             &expected
                 .iter()
-                .map(|(v, rl)| (*v, *rl, 0))
+                .map(|(v, rl)| (*v, *rl, RangeOffsets::default()))
                 .collect::<Vec<_>>(),
         );
     }
@@ -1133,7 +1161,11 @@ mod ref_iter_tests {
         compare_iter_output(
             fd,
             fdr,
-            &[("aa", 1, 1), ("bb", 2, 1), ("cc", 3, 1)],
+            &[
+                ("aa", 1, RangeOffsets { begin: 1, end: 0 }),
+                ("bb", 2, RangeOffsets { begin: 1, end: 1 }),
+                ("cc", 3, RangeOffsets { begin: 1, end: 2 }),
+            ],
         );
     }
 
@@ -1154,7 +1186,14 @@ mod ref_iter_tests {
         fdr.headers[1].set_deleted(true);
         fdr.field_count -= 2;
 
-        compare_iter_output(fd, fdr, &[("a", 1, 0), ("ccc", 3, 0)]);
+        compare_iter_output(
+            fd,
+            fdr,
+            &[
+                ("a", 1, RangeOffsets::default()),
+                ("ccc", 3, RangeOffsets::default()),
+            ],
+        );
     }
 
     #[test]

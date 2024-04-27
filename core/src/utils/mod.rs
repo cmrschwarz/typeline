@@ -1,4 +1,7 @@
-use std::ops::{Range, RangeBounds};
+use std::{
+    borrow::Cow,
+    ops::{Range, RangeBounds},
+};
 
 use bstr::ByteSlice;
 
@@ -11,6 +14,7 @@ pub mod escaped_writer;
 pub mod identity_hasher;
 pub mod indexing_type;
 pub mod int_string_conversions;
+pub mod integer_sum;
 pub mod io;
 pub mod lazy_lock_guard;
 pub mod maybe_text;
@@ -28,7 +32,6 @@ pub mod temp_vec;
 pub mod test_utils;
 pub mod text_write;
 pub mod universe;
-pub mod integer_sum;
 
 pub const fn ilog2_usize(v: usize) -> usize {
     (std::mem::size_of::<usize>() * 8) - v.leading_zeros() as usize
@@ -200,4 +203,26 @@ pub fn subrange(
 
 pub fn sub_saturated(v: &mut usize, sub: usize) {
     *v = (*v).saturating_sub(sub);
+}
+
+pub fn insert_str_cow<'a>(
+    cow: &'a mut Cow<str>,
+    index: usize,
+    string: &str,
+) -> &'a mut String {
+    match cow {
+        Cow::Borrowed(b) => {
+            let mut res = String::with_capacity(b.len() + string.len());
+            res.push_str(&b[0..index]);
+            res.push_str(string);
+            res.push_str(&b[index..]);
+            *cow = Cow::Owned(res);
+            let Cow::Owned(res) = cow else { unreachable!() };
+            res
+        }
+        Cow::Owned(o) => {
+            o.insert_str(index, string);
+            o
+        }
+    }
 }

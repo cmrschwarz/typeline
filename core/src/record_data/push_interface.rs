@@ -781,14 +781,14 @@ pub unsafe trait PushInterface {
                     Some(AnyRefSliceIter::SlicedFieldRef(_)) => {
                         // in this case we need to create sliced field refs
                         // aswell to respect the offset
-                        for (v, rl, offset) in
+                        for (v, rl, offsets) in
                             RefAwareInlineTextIter::from_range(&range, vals)
                         {
                             self.push_sliced_field_reference(
                                 SlicedFieldReference::new(
                                     range.field_ref_offset.unwrap(),
-                                    offset,
-                                    offset + v.len(),
+                                    offsets.begin,
+                                    offsets.begin + v.len(),
                                 ),
                                 rl as usize,
                                 try_header_rle,
@@ -815,14 +815,14 @@ pub unsafe trait PushInterface {
                     Some(AnyRefSliceIter::SlicedFieldRef(_)) => {
                         // in this case we need to create sliced field refs
                         // aswell to respect the offset
-                        for (v, rl, offset) in
+                        for (v, rl, offsets) in
                             RefAwareInlineBytesIter::from_range(&range, vals)
                         {
                             self.push_sliced_field_reference(
                                 SlicedFieldReference::new(
                                     range.field_ref_offset.unwrap(),
-                                    offset,
-                                    offset + v.len(),
+                                    offsets.begin,
+                                    offsets.end + v.len(),
                                 ),
                                 rl as usize,
                                 try_header_rle,

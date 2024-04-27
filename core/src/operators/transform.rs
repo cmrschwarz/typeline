@@ -90,7 +90,7 @@ pub enum TransformData<'a> {
     FieldValueSink(TfFieldValueSink<'a>),
     Fork(TfFork<'a>),
     ForkCat(TfForkCat<'a>),
-    Regex(TfRegex),
+    Regex(TfRegex<'a>),
     Format(TfFormat<'a>),
     FileReader(TfFileReader),
     Literal(TfLiteral<'a>),

@@ -29,8 +29,7 @@ Options:
     -b  Don't attempt to preserve strings as valid utf8 and turn everything
         into byte sequences. This implies -a unless -u is specified.
 
-    -f  Expand the matched area to the the full input.
-        Syntactic sugar for 'r=^.*?REGEX.*?$'.
+    -f  Output the full input instead of the matched range.
 
     -m  Return multiple matches instead of only the first.
 

@@ -16,7 +16,7 @@ use scr_core::{
     scr_error::ScrError,
     utils::{int_string_conversions::i64_to_str, test_utils::SliceReader},
 };
-use scr_ext_utils::dup::create_op_dup;
+use scr_ext_utils::{dup::create_op_dup, string_utils::create_op_lines};
 
 #[test]
 fn lines_regex() -> Result<(), ScrError> {
@@ -320,6 +320,26 @@ fn double_regex() -> Result<(), ScrError> {
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(ss.get_data().unwrap().as_slice(), &["2", "12"]);
+    Ok(())
+}
+
+#[test]
+fn full_match() -> Result<(), ScrError> {
+    let res = ContextBuilder::default()
+        .push_str("foo\nbar", 1)
+        .add_op(create_op_lines())
+        .add_op(
+            create_op_regex_with_opts(
+                ".",
+                RegexOptions {
+                    full: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap(),
+        )
+        .run_collect_stringified()?;
+    assert_eq!(res, &["foo", "bar"]);
     Ok(())
 }
 
