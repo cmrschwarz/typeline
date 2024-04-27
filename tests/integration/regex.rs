@@ -280,10 +280,14 @@ fn regex_match_overlapping(
     Ok(())
 }
 
-#[test]
-fn seq_into_regex_drop_unless_seven() -> Result<(), ScrError> {
-    const COUNT: usize = 5000;
-    let res: Vec<String> = (0..COUNT)
+#[rstest]
+#[case(100, 200)]
+#[case(1024, 5000)]
+fn seq_into_regex_drop_unless_seven(
+    #[case] batch_size: usize,
+    #[case] count: usize,
+) -> Result<(), ScrError> {
+    let res: Vec<String> = (0..count)
         .filter_map(|v| {
             let v = v.to_string();
             if v.contains('7') {
@@ -295,7 +299,8 @@ fn seq_into_regex_drop_unless_seven() -> Result<(), ScrError> {
         .collect();
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
-        .add_op(create_op_seq(0, COUNT as i64, 1).unwrap())
+        .set_batch_size(batch_size)
+        .add_op(create_op_seq(0, count as i64, 1).unwrap())
         .add_op(create_op_regex(".*7.*").unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()

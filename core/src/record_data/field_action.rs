@@ -297,9 +297,19 @@ pub fn merge_action_lists<
                     }
                 }
                 FieldActionKind::Drop => {
-                    outstanding_drops_right += faf.run_len;
-                    faf.run_len = outstanding_drops_right;
-                    outstanding_drops_right -= faf.run_len;
+                    if outstanding_drops_right > 0 {
+                        let consume_from_right =
+                            if let Some(next) = left.peek() {
+                                let gap_to_next_left =
+                                    next.field_idx - action_left.field_idx;
+                                gap_to_next_left.min(outstanding_drops_right)
+                            } else {
+                                outstanding_drops_right
+                            };
+                        faf.run_len += consume_from_right;
+                        outstanding_drops_right -= consume_from_right;
+                        field_pos_offset_left -= consume_from_right as isize;
+                    }
                 }
             }
             push_merged_action(target, &mut prev_action, faf);
@@ -324,6 +334,7 @@ pub fn merge_action_lists<
         }
         push_merged_action(target, &mut prev_action, faf);
     }
+    debug_assert_eq!(outstanding_drops_right, 0);
     for &action in right {
         push_merged_action(target, &mut prev_action, action.into());
     }
@@ -1056,6 +1067,47 @@ mod test {
                 run_len: 1,
             },
         ];
+        compare_merge_result(left, right, merged);
+    }
+
+    #[test]
+    fn drops_are_combined() {
+        // # | BF  L1  L2  L3  R  | BF  M |
+        // 0 | a   c   c   c      | a     |
+        // 1 | b   d   e   e      | b     |
+        // 2 | c   e   f   g      | c     |
+        // 3 | d   f   g          | d     |
+        // 4 | e   g              | e     |
+        // 5 | f                  | f     |
+        // 5 | g                  | g     |
+
+        let left = &[
+            FieldAction {
+                kind: FAK::Drop,
+                field_idx: 0,
+                run_len: 2,
+            },
+            FieldAction {
+                kind: FAK::Drop,
+                field_idx: 1,
+                run_len: 1,
+            },
+            FieldAction {
+                kind: FAK::Drop,
+                field_idx: 2,
+                run_len: 1,
+            },
+        ];
+        let right = &[FieldAction {
+            kind: FAK::Drop,
+            field_idx: 0,
+            run_len: 3,
+        }];
+        let merged = &[FieldAction {
+            kind: FAK::Drop,
+            field_idx: 0,
+            run_len: 7,
+        }];
         compare_merge_result(left, right, merged);
     }
 }
