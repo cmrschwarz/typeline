@@ -1601,6 +1601,7 @@ impl ActionBuffer {
         let mut dead_data_rem_leading = dead_data_leading;
         let mut dead_headers_leading = 0;
         let mut first_header_dropped_elem_count = 0;
+        let mut final_padding = dead_data_padding;
 
         while dead_headers_leading < headers.len() {
             let h = &mut headers[dead_headers_leading];
@@ -1613,7 +1614,7 @@ impl ActionBuffer {
                 let padding_drop = dead_data_rem_leading
                     - first_header_dropped_elem_count as usize
                         * header_elem_size;
-                let final_padding =
+                final_padding =
                     h.leading_padding() + dead_data_padding - padding_drop;
                 h.set_leading_padding(final_padding);
                 break;
@@ -1645,15 +1646,20 @@ impl ActionBuffer {
         }
         headers.drain(last_header_alive..);
         let last_header = headers.back().copied().unwrap_or_default();
+
+        let field_end_new = field_data_size
+            + (dead_data_leading - dead_data_padding)
+            + final_padding
+            - dead_data_trailing;
+
+        let last_header_size = last_header.total_size_unique();
+
         let drop_info = HeaderDropInfo {
             dead_headers_leading,
             first_header_dropped_elem_count,
             header_count_rem: last_header_alive - dead_headers_leading,
             last_header_run_len: last_header.run_length,
-            last_header_data_pos: (field_data_size
-                - (dead_data_leading - dead_data_padding)
-                - dead_data_trailing)
-                - last_header.total_size_unique(),
+            last_header_data_pos: field_end_new - last_header_size,
         };
         if dead_data_leading != 0 || dead_headers_leading != 0 {
             Self::adjust_iters_to_data_drop(
