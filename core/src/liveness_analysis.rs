@@ -581,6 +581,7 @@ impl LivenessData {
                     op_id,
                     bb_id,
                     input_field,
+                    0,
                 );
             match ce {
                 OperatorCallEffect::Basic => (),

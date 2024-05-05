@@ -11,6 +11,7 @@ use smallstr::SmallString;
 
 use crate::{
     chain::{BufferingMode, Chain},
+    cli::reject_operator_argument,
     job::JobData,
     options::argument::CliArgIdx,
     record_data::{
@@ -31,7 +32,9 @@ use super::{
     errors::{
         io_error_to_op_error, OperatorCreationError, OperatorSetupError,
     },
+    multi_op::create_multi_op,
     operator::{DefaultOperatorName, OperatorBase, OperatorData},
+    regex::create_op_regex_lines,
     transform::{TransformData, TransformId, TransformState},
     utils::maintain_single_value::{maintain_single_value, ExplicitCount},
 };
@@ -401,7 +404,7 @@ pub fn handle_tf_file_reader(
 }
 
 lazy_static::lazy_static! {
-    static ref ARG_REGEX: Regex = Regex::new(r"^(?<kind>~bytes|~str|file|stdin)(?<insert_count>[0-9]+)?$").unwrap();
+    static ref ARG_REGEX: Regex = Regex::new(r"^(?<kind>~bytes|~str|file|stdin|in)(?<insert_count>[0-9]+)?(?<lines>-l)?$").unwrap();
 }
 
 pub fn argument_matches_op_file_reader(arg: &str) -> bool {
@@ -431,9 +434,11 @@ pub fn parse_op_file_reader(
             })
         })
         .transpose()?;
+
+    let lines = args.name("lines").is_some();
     match args.name("kind").unwrap().as_str() {
-        "file" => parse_op_file(value, insert_count, arg_idx),
-        "stdin" | "in" => parse_op_stdin(value, insert_count, arg_idx),
+        "file" => parse_op_file(value, insert_count, arg_idx, lines),
+        "stdin" | "in" => parse_op_stdin(value, insert_count, arg_idx, lines),
         _ => unreachable!(),
     }
 }
@@ -442,6 +447,7 @@ pub fn parse_op_file(
     value: Option<&[u8]>,
     insert_count: Option<usize>,
     arg_idx: Option<CliArgIdx>,
+    lines: bool,
 ) -> Result<OperatorData, OperatorCreationError> {
     let path = if let Some(value) = value {
         #[cfg(unix)]
@@ -465,21 +471,27 @@ pub fn parse_op_file(
             arg_idx,
         ));
     };
-    Ok(create_op_file(path, insert_count.unwrap_or(0)))
+    let op = create_op_file(path, insert_count.unwrap_or(0));
+    if lines {
+        // TODO: create optimized version of this
+        return Ok(create_multi_op([op, create_op_regex_lines()]));
+    }
+    Ok(op)
 }
 
 pub fn parse_op_stdin(
     value: Option<&[u8]>,
     insert_count: Option<usize>,
     arg_idx: Option<CliArgIdx>,
+    lines: bool,
 ) -> Result<OperatorData, OperatorCreationError> {
-    if value.is_some() {
-        return Err(OperatorCreationError::new(
-            "stdin does not take arguments",
-            arg_idx,
-        ));
-    };
-    Ok(create_op_stdin(insert_count.unwrap_or(0)))
+    reject_operator_argument("stdin", value, arg_idx)?;
+    let op = create_op_stdin(insert_count.unwrap_or(0));
+    if lines {
+        // TODO: create optimized version of this
+        return Ok(create_multi_op([op, create_op_regex_lines()]));
+    }
+    Ok(op)
 }
 
 // insert count 0 means all input will be consumed

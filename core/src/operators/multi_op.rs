@@ -6,14 +6,13 @@ use crate::{
         OperatorCallEffect,
     },
     options::session_options::SessionOptions,
-    utils::debuggable_nonmax::DebuggableNonMaxUsize,
 };
 
 use super::{
     operator::{
         DefaultOperatorName, Operator, OperatorBase, OperatorData, OperatorId,
-        OperatorInstantiation, OperatorOffsetInChain, OutputFieldKind,
-        PreboundOutputsMap, TransformContinuationKind, TransformInstatiation,
+        OperatorOffsetInChain, OutputFieldKind, PreboundOutputsMap,
+        TransformInstatiation,
     },
     transform::TransformState,
 };
@@ -65,6 +64,7 @@ impl Operator for OpMultiOp {
         }
         let mut i = 0;
         let mut next_input = input_field;
+        let mut outputs_offset = 0;
         loop {
             let op = &self.ops[i];
             let (output, ce) = op.update_liveness_for_op(
@@ -75,8 +75,10 @@ impl Operator for OpMultiOp {
                 op_id,
                 bb_id,
                 next_input,
+                outputs_offset,
             );
             i += 1;
+            outputs_offset += op.output_count(sess, op_id) as OpOutputIdx;
             next_input = output;
             if i == self.ops.len() {
                 return Some((output, ce));
@@ -91,44 +93,27 @@ impl Operator for OpMultiOp {
         }
     }
 
-    fn build_transforms(
-        &self,
-        job: &mut Job,
+    fn build_transforms<'a>(
+        &'a self,
+        job: &mut Job<'a>,
         tf_state: &mut TransformState,
         op_id: OperatorId,
         prebound_outputs: &PreboundOutputsMap,
     ) -> TransformInstatiation {
-        let mut res = OperatorInstantiation {
-            // TODO: predecessor?
-            tfs_begin: DebuggableNonMaxUsize::ZERO,
-            tfs_end: DebuggableNonMaxUsize::ZERO,
-            next_input_field: tf_state.input_field,
-            continuation: TransformContinuationKind::Regular,
-        };
-        for (i, op) in self.ops.iter().enumerate() {
-            let inst = op.operator_build_transforms(
-                job,
-                tf_state.clone(),
-                op_id,
-                prebound_outputs,
-            );
-            if i == 0 {
-                res.tfs_begin = inst.tfs_begin;
-            }
-            if i + 1 == self.ops.len() {
-                res.tfs_end = inst.tfs_end;
-                res.continuation = inst.continuation;
-            } else {
-                assert!(
-                inst.continuation == TransformContinuationKind::Regular,
-                    "non final operator `{}`, index {} inside multi-op (len {}) may not self expand",
-                    i - 1, // we already went to the next index
-                    op.debug_op_name(),
-                    self.ops.len()
-                );
-            }
-        }
-        TransformInstatiation::Multi(res)
+        TransformInstatiation::Multi(job.setup_transforms_for_op_iter(
+            self.ops.iter().map(|op_data| {
+                (
+                    op_id,
+                    &job.job_data.session_data.operator_bases[op_id as usize],
+                    op_data,
+                )
+            }),
+            tf_state.match_set_id,
+            tf_state.input_field,
+            None,
+            None,
+            prebound_outputs,
+        ))
     }
 
     fn output_field_kind(
@@ -205,4 +190,12 @@ impl Operator for OpMultiOp {
             .map(OperatorData::can_be_appended)
             .unwrap_or(true)
     }
+}
+
+pub fn create_multi_op(
+    ops: impl IntoIterator<Item = OperatorData>,
+) -> OperatorData {
+    OperatorData::MultiOp(OpMultiOp {
+        ops: ops.into_iter().collect(),
+    })
 }

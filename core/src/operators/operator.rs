@@ -481,9 +481,11 @@ impl OperatorData {
         op_id: OperatorId,
         bb_id: BasicBlockId,
         input_field: OpOutputIdx,
+        outputs_offset: OpOutputIdx,
     ) -> (OpOutputIdx, OperatorCallEffect) {
         let op_idx = op_id as usize;
-        let output_field = sess.operator_bases[op_idx].outputs_start;
+        let output_field = sess.operator_bases[op_idx].outputs_start
+            + outputs_offset as OpOutputIdx;
         match &self {
             OperatorData::Fork(_)
             | OperatorData::ForkCat(_)
@@ -630,6 +632,7 @@ impl OperatorData {
                             sub_op,
                             bb_id,
                             input_field,
+                            0,
                         );
                     *flags = flags.or(&sub_op_flags);
                     let sub_op = &sess.operator_bases[sub_op as usize];
@@ -793,9 +796,9 @@ impl OperatorData {
             | OperatorData::Join(_) => (),
         }
     }
-    pub fn operator_build_transforms(
-        &self,
-        job: &mut Job,
+    pub fn operator_build_transforms<'a>(
+        &'a self,
+        job: &mut Job<'a>,
         mut tf_state: TransformState,
         op_id: OperatorId,
         prebound_outputs: &PreboundOutputsMap,
@@ -803,8 +806,7 @@ impl OperatorData {
         let tfs = &mut tf_state;
         let jd = &mut job.job_data;
         let op_base = &jd.session_data.operator_bases[op_id as usize];
-        let op_data = &jd.session_data.operator_data[op_id as usize];
-        let data = match op_data {
+        let data = match self {
             OperatorData::Nop(op) => build_tf_nop(op, tfs),
             OperatorData::NopCopy(op) => build_tf_nop_copy(jd, op, tfs),
             OperatorData::ToStr(op) => build_tf_to_str(jd, op_base, op, tfs),
@@ -984,9 +986,9 @@ pub trait Operator: Send + Sync {
     // While lifetimes can be elided here, which is nice for simple TFs,
     // it's good to remember that `TransformData<'a>` comes from `&'a self`
     // and can take full advantage of that for sharing state between instances
-    fn build_transforms(
-        &self,
-        job: &mut Job,
+    fn build_transforms<'a>(
+        &'a self,
+        job: &mut Job<'a>,
         tf_state: &mut TransformState,
         op_id: OperatorId,
         prebound_outputs: &PreboundOutputsMap,

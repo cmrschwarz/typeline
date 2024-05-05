@@ -10,8 +10,8 @@ use crate::{
         call::handle_eager_call_expansion,
         call_concurrent::setup_callee_concurrent,
         operator::{
-            OperatorData, OperatorId, OperatorInstantiation, OutputFieldKind,
-            PreboundOutputsMap, TransformContinuationKind,
+            OperatorBase, OperatorData, OperatorId, OperatorInstantiation,
+            OutputFieldKind, PreboundOutputsMap, TransformContinuationKind,
         },
         terminator::add_terminator_tf_cont_dependant,
         transform::{
@@ -467,21 +467,43 @@ impl<'a> Job<'a> {
         ms_id: MatchSetId,
         start_op_id: OperatorId,
         chain_input_field_id: FieldId,
-        mut predecessor_tf: Option<TransformId>,
+        predecessor_tf: Option<TransformId>,
         prebound_outputs: &PreboundOutputsMap,
     ) -> OperatorInstantiation {
-        let mut start_tf_id = None;
         let start_op =
             &self.job_data.session_data.operator_bases[start_op_id as usize];
-        let mut input_field = chain_input_field_id;
         let ops = &self.job_data.session_data.chains
             [start_op.chain_id.unwrap() as usize]
             .operators[start_op.offset_in_chain as usize..];
-        for &op_id in ops {
-            let op_base =
-                &self.job_data.session_data.operator_bases[op_id as usize];
-            let op_data =
-                &self.job_data.session_data.operator_data[op_id as usize];
+        self.setup_transforms_for_op_iter(
+            ops.iter().map(|op_id| {
+                (
+                    *op_id,
+                    &self.job_data.session_data.operator_bases
+                        [*op_id as usize],
+                    &self.job_data.session_data.operator_data[*op_id as usize],
+                )
+            }),
+            ms_id,
+            chain_input_field_id,
+            predecessor_tf,
+            None,
+            prebound_outputs,
+        )
+    }
+
+    pub fn setup_transforms_for_op_iter(
+        &mut self,
+        ops: impl IntoIterator<
+            Item = (OperatorId, &'a OperatorBase, &'a OperatorData),
+        >,
+        ms_id: MatchSetId,
+        mut input_field: FieldId,
+        mut predecessor_tf: Option<TransformId>,
+        mut start_tf_id: Option<TransformId>,
+        prebound_outputs: &PreboundOutputsMap,
+    ) -> OperatorInstantiation {
+        for (op_id, op_base, op_data) in ops {
             match op_data {
                 OperatorData::Call(op) => {
                     if !op.lazy {
