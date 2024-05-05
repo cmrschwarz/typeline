@@ -34,7 +34,7 @@ use super::{
     },
     multi_op::create_multi_op,
     operator::{DefaultOperatorName, OperatorBase, OperatorData},
-    regex::create_op_regex_lines,
+    regex::{create_op_regex_lines, create_op_regex_trim_trailing_newline},
     transform::{TransformData, TransformId, TransformState},
     utils::maintain_single_value::{maintain_single_value, ExplicitCount},
 };
@@ -474,7 +474,11 @@ pub fn parse_op_file(
     let op = create_op_file(path, insert_count.unwrap_or(0));
     if lines {
         // TODO: create optimized version of this
-        return Ok(create_multi_op([op, create_op_regex_lines()]));
+        return Ok(create_multi_op([
+            op,
+            create_op_regex_trim_trailing_newline(),
+            create_op_regex_lines(),
+        ]));
     }
     Ok(op)
 }
@@ -489,7 +493,11 @@ pub fn parse_op_stdin(
     let op = create_op_stdin(insert_count.unwrap_or(0));
     if lines {
         // TODO: create optimized version of this
-        return Ok(create_multi_op([op, create_op_regex_lines()]));
+        return Ok(create_multi_op([
+            op,
+            create_op_regex_trim_trailing_newline(),
+            create_op_regex_lines(),
+        ]));
     }
     Ok(op)
 }

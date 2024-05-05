@@ -384,15 +384,26 @@ pub fn create_op_regex(
     create_op_regex_with_opts(regex, RegexOptions::default())
 }
 
-// mainly used tests, prefer using
-// `scr_ext_utils::string_utils::create_op_lines`
 pub fn create_op_regex_lines() -> OperatorData {
     parse_op_regex(
-        Some("(?<>.+)\r?\n".as_bytes()),
+        Some("^(?<>.*)$".as_bytes()),
         None,
         RegexOptions {
             ascii_mode: true,
             multimatch: true,
+            line_based: true,
+            ..Default::default()
+        },
+    )
+    .unwrap()
+}
+
+pub fn create_op_regex_trim_trailing_newline() -> OperatorData {
+    parse_op_regex(
+        Some("^(?<>.*?)\n?$".as_bytes()),
+        None,
+        RegexOptions {
+            dotall: true,
             ..Default::default()
         },
     )
