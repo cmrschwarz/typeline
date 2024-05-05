@@ -113,8 +113,11 @@ pub struct RegexOptions {
     pub case_insensitive: bool,
 
     // return the whole input, not just the matched portion
-    // (incompatible with multimatch)
     pub full: bool,
+
+    // If the regex matches, discard. otherwise return the full input
+    // (incompatible with multimatch)
+    pub invert_match: bool,
 }
 
 impl OpRegex {
@@ -153,6 +156,9 @@ impl OpRegex {
         if self.opts.binary_mode && !self.opts.ascii_mode {
             res.push('u');
         }
+        if self.opts.invert_match {
+            res.push('v');
+        }
 
         res
     }
@@ -161,7 +167,7 @@ impl OpRegex {
 const MAX_DEFAULT_CAPTURE_GROUP_NAME_LEN: usize = USIZE_MAX_DECIMAL_DIGITS + 1;
 lazy_static! {
     static ref REGEX_CLI_ARG_REGEX: Regex =
-        RegexBuilder::new("^(r|regex)(-((?<a>a)|(?<b>b)|(?<d>d)|(?<f>f)|(?<i>i)|(?<l>l)|(?<m>m)|(?<n>n)|(?<o>o)|(?<u>u))*)?$")
+        RegexBuilder::new("^(r|regex)(-((?<a>a)|(?<b>b)|(?<d>d)|(?<f>f)|(?<i>i)|(?<l>l)|(?<m>m)|(?<n>n)|(?<o>o)|(?<u>u)|(?<v>v))*)?$")
             .case_insensitive(true)
             .build()
             .unwrap();
@@ -204,9 +210,18 @@ pub fn try_match_regex_cli_argument(
         if c.name("u").is_some() {
             unicode_mode = true;
         }
+        if c.name("v").is_some() {
+            opts.invert_match = true;
+        }
         if opts.ascii_mode && unicode_mode {
             return Err(OperatorCreationError::new(
                 "[a]scii and [u]nicode are mutually exclusive",
+                idx,
+            ));
+        }
+        if opts.invert_match && opts.multimatch {
+            return Err(OperatorCreationError::new(
+                "in[v]ert match and [m]ultimatch are mutually exclusive",
                 idx,
             ));
         }
@@ -565,6 +580,7 @@ trait AnyRegex {
         }
         true
     }
+    fn matches(&mut self, data: &Self::Data) -> bool;
     fn get_byte_slice(data: &Self::Data, start: usize, end: usize) -> &[u8];
     fn get_str_slice(
         data: &Self::Data,
@@ -625,6 +641,10 @@ impl<'a> AnyRegex for TextRegex<'a> {
     ) -> Option<&str> {
         Some(&data[start..end])
     }
+
+    fn matches(&mut self, data: &Self::Data) -> bool {
+        self.re.is_match(data)
+    }
 }
 
 impl<'a> AnyRegex for BytesRegex<'a> {
@@ -663,6 +683,9 @@ impl<'a> AnyRegex for BytesRegex<'a> {
     ) -> Option<&str> {
         None
     }
+    fn matches(&mut self, data: &Self::Data) -> bool {
+        self.re.is_match(data)
+    }
 }
 
 #[inline(always)]
@@ -685,86 +708,82 @@ fn match_regex_inner<const PUSH_REF: bool, R: AnyRegex>(
     let mut match_count: usize = 0;
     let rl = run_length as usize;
     let mut batch_size_exceeded = false;
-    while regex.next(data, &mut rmis.batch_state.next_start) {
-        match_count += 1;
-        for cg_idx in 0..regex.captures_locs_len() {
-            let Some(inserter) = &mut rmis.batch_state.inserters[cg_idx]
-            else {
-                continue;
-            };
-            // no need to check whether the capture locations was matched
-            // as -f is incompatible with (?<>..)
-            if rmis.batch_state.full
-                && cg_idx == rmis.batch_state.main_output_capture_group_idx
-            {
-                if !PUSH_REF {
-                    if let Some(v) = R::as_str(data) {
-                        inserter.push_str(v, rl, true, false);
-                        continue;
-                    }
-                    inserter.push_bytes(R::as_bytes(data), rl, true, false);
+
+    if rmis.batch_state.invert_match {
+        if let Some(inserter) = &mut rmis.batch_state.inserters
+            [rmis.batch_state.main_output_capture_group_idx]
+        {
+            if !regex.matches(data) {
+                push_full::<PUSH_REF, R>(
+                    data,
+                    inserter,
+                    rl,
+                    offsets,
+                    rmis.input_field_ref_offset,
+                );
+                match_count = 1;
+            }
+        };
+    } else {
+        while regex.next(data, &mut rmis.batch_state.next_start) {
+            match_count += 1;
+            for cg_idx in 0..regex.captures_locs_len() {
+                let Some(inserter) = &mut rmis.batch_state.inserters[cg_idx]
+                else {
                     continue;
-                }
-                if offsets == RangeOffsets::default() {
-                    inserter.push_fixed_size_type(
-                        FieldReference {
-                            field_ref_offset: rmis.input_field_ref_offset,
-                        },
+                };
+                // no need to check whether the capture locations was matched
+                // as -f is incompatible with (?<>..)
+                if rmis.batch_state.full
+                    && cg_idx == rmis.batch_state.main_output_capture_group_idx
+                {
+                    push_full::<PUSH_REF, R>(
+                        data,
+                        inserter,
                         rl,
-                        true,
-                        true,
+                        offsets,
+                        rmis.input_field_ref_offset,
                     );
                     continue;
                 }
-                inserter.push_fixed_size_type(
-                    SlicedFieldReference {
-                        field_ref_offset: rmis.input_field_ref_offset,
-                        begin: offsets.begin,
-                        end: offsets.begin + R::data_len(data),
-                    },
-                    rl,
-                    true,
-                    true,
-                );
-                continue;
-            }
-            let Some((cg_begin, cg_end)) = regex.captures_locs_get(cg_idx)
-            else {
-                inserter.push_zst(FieldValueRepr::Null, 1, true);
-                continue;
-            };
-            if PUSH_REF {
-                inserter.push_fixed_size_type(
-                    SlicedFieldReference {
-                        field_ref_offset: rmis.input_field_ref_offset,
-                        begin: offsets.begin + cg_begin,
-                        end: offsets.begin + cg_end,
-                    },
+                let Some((cg_begin, cg_end)) = regex.captures_locs_get(cg_idx)
+                else {
+                    inserter.push_zst(FieldValueRepr::Null, 1, true);
+                    continue;
+                };
+                if PUSH_REF {
+                    inserter.push_fixed_size_type(
+                        SlicedFieldReference {
+                            field_ref_offset: rmis.input_field_ref_offset,
+                            begin: offsets.begin + cg_begin,
+                            end: offsets.begin + cg_end,
+                        },
+                        rl,
+                        true,
+                        false,
+                    );
+                    continue;
+                }
+                if let Some(v) = R::get_str_slice(data, cg_begin, cg_end) {
+                    inserter.push_str(v, rl, true, false);
+                    continue;
+                }
+                inserter.push_bytes(
+                    R::get_byte_slice(data, cg_begin, cg_end),
                     rl,
                     true,
                     false,
                 );
-                continue;
             }
-            if let Some(v) = R::get_str_slice(data, cg_begin, cg_end) {
-                inserter.push_str(v, rl, true, false);
-                continue;
+            if !rmis.batch_state.multimatch {
+                break;
             }
-            inserter.push_bytes(
-                R::get_byte_slice(data, cg_begin, cg_end),
-                rl,
-                true,
-                false,
-            );
-        }
-        if !rmis.batch_state.multimatch {
-            break;
-        }
-        if rmis.batch_state.field_pos_output + match_count
-            == rmis.batch_state.batch_end_field_pos_output
-        {
-            batch_size_exceeded = true;
-            break;
+            if rmis.batch_state.field_pos_output + match_count
+                == rmis.batch_state.batch_end_field_pos_output
+            {
+                batch_size_exceeded = true;
+                break;
+            }
         }
     }
 
@@ -804,6 +823,44 @@ fn match_regex_inner<const PUSH_REF: bool, R: AnyRegex>(
     rmis.batch_state.field_pos_output += match_count;
 }
 
+fn push_full<const PUSH_REF: bool, R: AnyRegex>(
+    data: &<R as AnyRegex>::Data,
+    inserter: &mut VaryingTypeInserter<&mut FieldData>,
+    rl: usize,
+    offsets: RangeOffsets,
+    input_field_ref_offset: FieldRefOffset,
+) {
+    if !PUSH_REF {
+        if let Some(v) = R::as_str(data) {
+            inserter.push_str(v, rl, true, false);
+            return;
+        }
+        inserter.push_bytes(R::as_bytes(data), rl, true, false);
+        return;
+    }
+    if offsets == RangeOffsets::default() {
+        inserter.push_fixed_size_type(
+            FieldReference {
+                field_ref_offset: input_field_ref_offset,
+            },
+            rl,
+            true,
+            true,
+        );
+        return;
+    }
+    inserter.push_fixed_size_type(
+        SlicedFieldReference {
+            field_ref_offset: input_field_ref_offset,
+            begin: offsets.begin,
+            end: offsets.begin + R::data_len(data),
+        },
+        rl,
+        true,
+        true,
+    );
+}
+
 struct RegexBatchState<'a> {
     main_output_capture_group_idx: usize,
     field_pos_input: usize,
@@ -812,6 +869,7 @@ struct RegexBatchState<'a> {
     multimatch: bool,
     non_mandatory: bool,
     full: bool,
+    invert_match: bool,
     next_start: usize,
     inserters: SmallVec<[Option<VaryingTypeInserter<&'a mut FieldData>>; 4]>,
 }
@@ -892,6 +950,7 @@ pub fn handle_tf_regex(
         field_pos_input: field_pos_start,
         field_pos_output: field_pos_start,
         multimatch: re.op.opts.multimatch,
+        invert_match: re.op.opts.invert_match,
         non_mandatory: re.op.opts.non_mandatory,
         next_start: re.unfinished_value_offset,
         inserters: output_field_inserters,

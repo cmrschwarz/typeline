@@ -51,3 +51,5 @@ Options:
         -a, and enabled by default, unless -b is given.
         For byte sequences, having this enabled means that '.' will match
         any byte sequence that looks like a valid UTF-8 character.
+
+    -v  Invert match: Output the input if the regex doesn't match.
