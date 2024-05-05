@@ -13,27 +13,13 @@ use crate::{
     extension::ExtensionRegistry,
     liveness_analysis::{self, LivenessData},
     operators::{
-        aggregator::setup_op_aggregator,
-        call::setup_op_call,
-        call_concurrent::{
-            setup_op_call_concurrent, setup_op_call_concurrent_liveness_data,
-        },
-        end::setup_op_end,
         errors::OperatorSetupError,
-        file_reader::setup_op_file_reader,
-        foreach::{setup_op_foreach, OpForeach},
-        fork::{setup_op_fork, setup_op_fork_liveness_data, OpFork},
-        forkcat::{
-            setup_op_forkcat, setup_op_forkcat_liveness_data, OpForkCat,
+        foreach::OpForeach,
+        fork::OpFork,
+        forkcat::OpForkCat,
+        operator::{
+            Operator, OperatorData, OperatorId, OperatorOffsetInChain,
         },
-        format::setup_op_format,
-        key::setup_op_key,
-        nop::{setup_op_nop, OpNop},
-        nop_copy::on_op_nop_copy_liveness_computed,
-        operator::{OperatorData, OperatorId, OperatorOffsetInChain},
-        regex::setup_op_regex,
-        select::{setup_op_select, setup_op_select_liveness_data},
-        sequence::setup_op_sequence_concurrent_liveness_data,
     },
     scr_error::{
         result_into, ChainSetupError, ContextualizedScrError, ScrError,
@@ -124,102 +110,9 @@ impl SessionOptions {
             op_base_opts.offset_in_chain =
                 chain_opts.operators.len() as OperatorOffsetInChain - 1;
         }
-        match op_data {
-            OperatorData::CallConcurrent(_) => {
-                self.any_threaded_operations = true;
-            }
-            OperatorData::Foreach(OpForeach {
-                subchains_start, ..
-            })
-            | OperatorData::Fork(OpFork {
-                subchains_start, ..
-            })
-            | OperatorData::ForkCat(OpForkCat {
-                subchains_start, ..
-            }) => {
-                *subchains_start =
-                    self.chains[self.curr_chain as usize].subchain_count;
-                self.chains[self.curr_chain as usize].subchain_count += 1;
-                let new_chain = ChainOptions {
-                    parent: self.curr_chain,
-                    ..Default::default()
-                };
-                self.curr_chain = self.chains.len() as ChainId;
-                self.chains.push(new_chain);
-            }
-            OperatorData::Next(_) => {
-                if add_to_chain {
-                    chain_opts.operators.pop();
-                }
-                let parent = self.chains[self.curr_chain as usize].parent;
-                self.chains[parent as usize].subchain_count += 1;
-                let new_chain = ChainOptions {
-                    parent,
-                    ..Default::default()
-                };
-                self.curr_chain = self.chains.len() as ChainId;
-                self.chains.push(new_chain);
-                op_base_opts.chain_id = None;
-            }
-            OperatorData::End(end) => {
-                if add_to_chain {
-                    chain_opts.operators.pop();
-                }
-                end.chain_id_before = self.curr_chain;
-                // the parent of the root chain is itself
-                self.curr_chain = self.chains[self.curr_chain as usize].parent;
-
-                op_base_opts.chain_id = Some(self.curr_chain);
-                end.subchain_count_after =
-                    self.chains[self.curr_chain as usize].subchain_count;
-                let subchain_count_after = end.subchain_count_after;
-                if let Some(&op_id) =
-                    self.chains[self.curr_chain as usize].operators.last()
-                {
-                    Self::on_operator_subchains_ended(
-                        &mut self.operator_data[op_id as usize],
-                        subchain_count_after,
-                    );
-                }
-            }
-            OperatorData::Aggregator(agg) => {
-                for i in 0..agg.sub_ops.len() {
-                    let OperatorData::Aggregator(agg) =
-                        &mut self.operator_data[op_idx]
-                    else {
-                        unreachable!()
-                    };
-                    let sub_op_id = agg.sub_ops[i];
-                    self.init_op(sub_op_id, false);
-                }
-            }
-            OperatorData::Custom(_) => {
-                let OperatorData::Custom(op) = std::mem::replace(
-                    op_data,
-                    OperatorData::Nop(OpNop::default()),
-                ) else {
-                    unreachable!()
-                };
-                op.on_op_added(self);
-                self.operator_data[op_idx] = OperatorData::Custom(op);
-            }
-            OperatorData::Print(_)
-            | OperatorData::Call(_)
-            | OperatorData::Count(_)
-            | OperatorData::ToStr(_)
-            | OperatorData::Key(_)
-            | OperatorData::Nop(_)
-            | OperatorData::NopCopy(_)
-            | OperatorData::Select(_)
-            | OperatorData::Regex(_)
-            | OperatorData::Format(_)
-            | OperatorData::StringSink(_)
-            | OperatorData::FieldValueSink(_)
-            | OperatorData::FileReader(_)
-            | OperatorData::Literal(_)
-            | OperatorData::Sequence(_)
-            | OperatorData::Join(_) => (),
-        }
+        let mut op_data_ext = std::mem::take(op_data);
+        op_data_ext.on_op_added(self, op_id, add_to_chain);
+        self.operator_data[op_idx] = op_data_ext;
     }
     pub fn add_op_uninit(
         &mut self,
@@ -293,6 +186,7 @@ impl SessionOptions {
                 *subchains_end = sc_count_after;
             }
             OperatorData::Custom(op) => op.on_subchains_added(sc_count_after),
+            OperatorData::MultiOp(op) => op.on_subchains_added(sc_count_after),
             OperatorData::Call(_)
             | OperatorData::CallConcurrent(_)
             | OperatorData::ToStr(_)
@@ -315,79 +209,16 @@ impl SessionOptions {
             | OperatorData::Aggregator(_) => (),
         }
     }
-    // we can't reborrow the whole Session because we want the locked string
-    // store
     pub fn setup_operator(
         sess: &mut SessionData,
         chain_id: ChainId,
         op_id: OperatorId,
     ) -> Result<(), OperatorSetupError> {
-        let chain = &sess.chains[chain_id as usize];
-        let op_base = &mut sess.operator_bases[op_id as usize];
-        match &mut sess.operator_data[op_id as usize] {
-            OperatorData::Regex(op) => {
-                setup_op_regex(sess.string_store.get_mut().unwrap(), op)?
-            }
-            OperatorData::Format(op) => {
-                setup_op_format(sess.string_store.get_mut().unwrap(), op)?
-            }
-            OperatorData::Key(op) => {
-                setup_op_key(sess.string_store.get_mut().unwrap(), op)?
-            }
-            OperatorData::Select(op) => {
-                setup_op_select(sess.string_store.get_mut().unwrap(), op)?
-            }
-            OperatorData::FileReader(op) => setup_op_file_reader(chain, op)?,
-            OperatorData::Fork(op) => {
-                setup_op_fork(chain, op_base, op, op_id)?
-            }
-            OperatorData::Foreach(_) => {
-                setup_op_foreach(sess, chain_id, op_id)?;
-            }
-            OperatorData::Nop(op) => setup_op_nop(chain, op_base, op, op_id)?,
-            OperatorData::ForkCat(op) => {
-                setup_op_forkcat(chain, op_base, op, op_id)?
-            }
-
-            OperatorData::Next(_) => unreachable!(),
-            OperatorData::End(op) => {
-                setup_op_end(op, op_id)?;
-            }
-            OperatorData::Call(op) => setup_op_call(
-                &sess.chain_labels,
-                sess.string_store.get_mut().unwrap(),
-                op,
-                op_id,
-            )?,
-            OperatorData::CallConcurrent(op) => setup_op_call_concurrent(
-                &sess.settings,
-                &sess.chain_labels,
-                sess.string_store.get_mut().unwrap(),
-                op,
-                op_id,
-            )?,
-            OperatorData::Custom(op) => op.setup(
-                op_id,
-                op_base,
-                chain,
-                &sess.settings,
-                &sess.chain_labels,
-                sess.string_store.get_mut().unwrap(),
-            )?,
-            OperatorData::Aggregator(_) => {
-                setup_op_aggregator(sess, chain_id, op_id)?;
-            }
-            OperatorData::ToStr(_)
-            | OperatorData::Count(_)
-            | OperatorData::Sequence(_)
-            | OperatorData::Literal(_)
-            | OperatorData::Print(_)
-            | OperatorData::Join(_)
-            | OperatorData::NopCopy(_)
-            | OperatorData::StringSink(_)
-            | OperatorData::FieldValueSink(_) => {}
-        }
-        Ok(())
+        let mut op_data =
+            std::mem::take(&mut sess.operator_data[op_id as usize]);
+        let res = op_data.setup(sess, chain_id, op_id);
+        sess.operator_data[op_id as usize] = op_data;
+        res
     }
     pub fn setup_operators(
         sess: &mut SessionData,
@@ -437,55 +268,10 @@ impl SessionOptions {
         ld: &LivenessData,
         op_id: OperatorId,
     ) {
-        let mut op_data = std::mem::replace(
-            &mut sess.operator_data[op_id as usize],
-            OperatorData::Nop(OpNop::default()),
-        );
-        match &mut op_data {
-            OperatorData::CallConcurrent(op) => {
-                setup_op_call_concurrent_liveness_data(op, op_id, ld)
-            }
-            OperatorData::NopCopy(op) => {
-                on_op_nop_copy_liveness_computed(op, op_id, ld)
-            }
-            OperatorData::Fork(op) => {
-                setup_op_fork_liveness_data(op, op_id, ld)
-            }
-            OperatorData::ForkCat(op) => {
-                setup_op_forkcat_liveness_data(sess, op, op_id, ld)
-            }
-            OperatorData::Select(op) => {
-                setup_op_select_liveness_data(op, op_id, ld)
-            }
-            OperatorData::Sequence(op) => {
-                setup_op_sequence_concurrent_liveness_data(sess, op, op_id, ld)
-            }
-            OperatorData::Custom(op) => {
-                op.on_liveness_computed(sess, op_id, ld)
-            }
-            OperatorData::Aggregator(agg) => {
-                for &sc_id in &agg.sub_ops {
-                    Self::setup_op_liveness(sess, ld, sc_id);
-                }
-            }
-            OperatorData::ToStr(_)
-            | OperatorData::Call(_)
-            | OperatorData::Nop(_)
-            | OperatorData::Count(_)
-            | OperatorData::Print(_)
-            | OperatorData::Join(_)
-            | OperatorData::Foreach(_)
-            | OperatorData::Next(_)
-            | OperatorData::End(_)
-            | OperatorData::Key(_)
-            | OperatorData::Regex(_)
-            | OperatorData::Format(_)
-            | OperatorData::StringSink(_)
-            | OperatorData::FieldValueSink(_)
-            | OperatorData::FileReader(_)
-            | OperatorData::Literal(_) => (),
-        }
-        std::mem::swap(&mut sess.operator_data[op_id as usize], &mut op_data);
+        let mut op_data =
+            std::mem::take(&mut sess.operator_data[op_id as usize]);
+        op_data.on_liveness_computed(sess, ld, op_id);
+        sess.operator_data[op_id as usize] = op_data;
     }
     pub fn compute_liveness(sess: &mut SessionData) {
         let ld = liveness_analysis::compute_liveness_data(sess);

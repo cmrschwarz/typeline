@@ -1,14 +1,19 @@
-use std::{collections::HashMap, io::BufRead};
+use std::io::BufRead;
 
 use scr_core::{
+    context::SessionData,
     extension::ExtensionRegistry,
-    job::JobData,
+    job::{Job, JobData},
     liveness_analysis::{
         AccessFlags, BasicBlockId, LivenessData, OpOutputIdx,
+        OperatorCallEffect,
     },
     operators::{
         errors::OperatorApplicationError,
-        operator::{Operator, OperatorBase, OperatorData, OperatorId},
+        operator::{
+            Operator, OperatorData, OperatorId, OperatorOffsetInChain,
+            PreboundOutputsMap, TransformInstatiation,
+        },
         transform::{
             basic_transform_update, BasicUpdateData, DefaultTransformName,
             Transform, TransformData, TransformId, TransformState,
@@ -16,7 +21,6 @@ use scr_core::{
     },
     record_data::{
         action_buffer::ActorRef,
-        field::FieldId,
         field_data::{FieldData, RunLength},
         field_value_ref::FieldValueSlice,
         field_value_slice_iter::FieldValueSliceIter,
@@ -34,7 +38,6 @@ use scr_core::{
     },
     smallbox,
     tyson::parse_tyson,
-    utils::identity_hasher::BuildIdentityHasher,
 };
 
 #[derive(Clone, Default)]
@@ -51,29 +54,39 @@ impl Operator for OpFromTyson {
         "from-tyson".into()
     }
 
-    fn output_count(&self, _op_base: &OperatorBase) -> usize {
+    fn output_count(&self, _sess: &SessionData, _op_id: OperatorId) -> usize {
         1
     }
 
-    fn has_dynamic_outputs(&self, _op_base: &OperatorBase) -> bool {
+    fn has_dynamic_outputs(
+        &self,
+        _sess: &SessionData,
+        _op_id: OperatorId,
+    ) -> bool {
         false
     }
 
     fn update_variable_liveness(
         &self,
+        _sess: &SessionData,
         _ld: &mut LivenessData,
-        _bb_id: BasicBlockId,
         _access_flags: &mut AccessFlags,
-    ) {
+        _op_offset_after_last_write: OperatorOffsetInChain,
+        _op_id: OperatorId,
+        _bb_id: BasicBlockId,
+        _input_field: OpOutputIdx,
+    ) -> Option<(OpOutputIdx, OperatorCallEffect)> {
+        None
     }
 
-    fn build_transform<'a>(
+    fn build_transforms<'a>(
         &'a self,
-        jd: &mut JobData,
-        _op_base: &OperatorBase,
+        job: &mut Job,
         tf_state: &mut TransformState,
-        _prebound_outputs: &HashMap<OpOutputIdx, FieldId, BuildIdentityHasher>,
-    ) -> TransformData<'a> {
+        _op_id: OperatorId,
+        _prebound_outputs: &PreboundOutputsMap,
+    ) -> TransformInstatiation<'a> {
+        let jd = &mut job.job_data;
         let ab = jd.match_set_mgr.match_sets[tf_state.match_set_id]
             .action_buffer
             .borrow();
@@ -81,12 +94,14 @@ impl Operator for OpFromTyson {
         jd.field_mgr.fields[tf_state.output_field]
             .borrow_mut()
             .first_actor = ActorRef::Unconfirmed(ab.peek_next_actor_id());
-        TransformData::Custom(smallbox!(TfFromTyson {
-            input_iter_id: jd.field_mgr.claim_iter(
-                tf_state.input_field,
-                IterKind::Transform(jd.tf_mgr.transforms.peek_claim_id())
-            ),
-        }))
+        TransformInstatiation::Simple(TransformData::Custom(smallbox!(
+            TfFromTyson {
+                input_iter_id: jd.field_mgr.claim_iter(
+                    tf_state.input_field,
+                    IterKind::Transform(jd.tf_mgr.transforms.peek_claim_id())
+                ),
+            }
+        )))
     }
 }
 

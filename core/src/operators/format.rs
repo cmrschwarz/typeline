@@ -235,8 +235,8 @@ impl FormatKey {
 unsafe impl<'a> Send for TfFormat<'a> {}
 
 pub fn setup_op_format(
-    string_store: &mut StringStore,
     op: &mut OpFormat,
+    string_store: &mut StringStore,
 ) -> Result<(), OperatorSetupError> {
     for r in std::mem::take(&mut op.refs_str) {
         op.refs_idx.push(r.map(|r| string_store.intern_moved(r)));

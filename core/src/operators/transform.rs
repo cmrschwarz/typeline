@@ -142,7 +142,7 @@ impl TransformData<'_> {
         .into()
     }
 }
-
+#[derive(Clone)]
 pub struct TransformState {
     pub successor: Option<TransformId>,
     pub input_field: FieldId,

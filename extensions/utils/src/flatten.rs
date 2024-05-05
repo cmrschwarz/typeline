@@ -1,17 +1,16 @@
-use std::collections::HashMap;
-
 use scr_core::{
     cli::reject_operator_argument,
     context::SessionData,
-    job::JobData,
+    job::{Job, JobData},
     liveness_analysis::{
         AccessFlags, BasicBlockId, LivenessData, OpOutputIdx,
+        OperatorCallEffect,
     },
     operators::{
         errors::OperatorCreationError,
         operator::{
-            DefaultOperatorName, Operator, OperatorBase, OperatorData,
-            OperatorId,
+            DefaultOperatorName, Operator, OperatorData, OperatorId,
+            OperatorOffsetInChain, PreboundOutputsMap, TransformInstatiation,
         },
         transform::{
             basic_transform_update, BasicUpdateData, DefaultTransformName,
@@ -21,7 +20,7 @@ use scr_core::{
     options::argument::CliArgIdx,
     record_data::{
         action_buffer::{ActorId, ActorRef},
-        field::{FieldId, FieldRefOffset},
+        field::FieldRefOffset,
         field_action::FieldActionKind,
         field_data::FieldData,
         field_value::{Array, FieldValue, Object},
@@ -32,7 +31,6 @@ use scr_core::{
         varying_type_inserter::VaryingTypeInserter,
     },
     smallbox,
-    utils::identity_hasher::BuildIdentityHasher,
 };
 
 #[derive(Default)]
@@ -64,37 +62,47 @@ impl Operator for OpFlatten {
     fn default_name(&self) -> DefaultOperatorName {
         "flatten".into()
     }
-    fn output_count(&self, _op_base: &OperatorBase) -> usize {
+    fn output_count(&self, _sess: &SessionData, _op_id: OperatorId) -> usize {
         1
     }
-    fn has_dynamic_outputs(&self, _op_base: &OperatorBase) -> bool {
+    fn has_dynamic_outputs(
+        &self,
+        _sess: &SessionData,
+        _op_id: OperatorId,
+    ) -> bool {
         true
     }
 
     fn on_liveness_computed(
         &mut self,
-        _sess: &SessionData,
-        op_id: OperatorId,
+        _sess: &mut SessionData,
         ld: &LivenessData,
+        op_id: OperatorId,
     ) {
         self.may_consume_input = ld.can_consume_nth_access(op_id, 0);
     }
 
     fn update_variable_liveness(
         &self,
+        _sess: &SessionData,
         _ld: &mut LivenessData,
+        _access_flags: &mut AccessFlags,
+        _op_offset_after_last_write: OperatorOffsetInChain,
+        _op_id: OperatorId,
         _bb_id: BasicBlockId,
-        _flags: &mut AccessFlags,
-    ) {
+        _input_field: OpOutputIdx,
+    ) -> Option<(OpOutputIdx, OperatorCallEffect)> {
+        None
     }
 
-    fn build_transform<'a>(
+    fn build_transforms<'a>(
         &'a self,
-        jd: &mut JobData,
-        _op_base: &OperatorBase,
+        job: &mut Job,
         tf_state: &mut TransformState,
-        _prebound_outputs: &HashMap<OpOutputIdx, FieldId, BuildIdentityHasher>,
-    ) -> TransformData<'a> {
+        _op_id: OperatorId,
+        _prebound_outputs: &PreboundOutputsMap,
+    ) -> TransformInstatiation<'a> {
+        let jd = &mut job.job_data;
         let mut ab = jd.match_set_mgr.match_sets[tf_state.match_set_id]
             .action_buffer
             .borrow_mut();
@@ -114,7 +122,7 @@ impl Operator for OpFlatten {
         jd.field_mgr.fields[tf_state.output_field]
             .borrow_mut()
             .first_actor = ActorRef::Unconfirmed(ab.peek_next_actor_id());
-        TransformData::Custom(smallbox!(tfe))
+        TransformInstatiation::Simple(TransformData::Custom(smallbox!(tfe)))
     }
 }
 

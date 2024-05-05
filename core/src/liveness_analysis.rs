@@ -17,9 +17,7 @@ use crate::{
         foreach::OpForeach,
         fork::OpFork,
         forkcat::OpForkCat,
-        format::{format_add_var_names, update_op_format_variable_liveness},
         operator::{OperatorData, OperatorId, OperatorOffsetInChain},
-        sequence::update_op_sequence_variable_liveness,
     },
     utils::{
         get_two_distinct_mut,
@@ -175,7 +173,8 @@ impl AccessFlags {
     }
 }
 
-enum OperatorCallEffect {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OperatorCallEffect {
     Basic,   // normal operators
     NoCall,  // 'meta' operators like key or select
     Diverge, // diverging operators like call
@@ -200,53 +199,6 @@ impl Var {
 }
 
 impl LivenessData {
-    fn op_output_count(sess: &SessionData, op_id: OperatorId) -> usize {
-        let op_base = &sess.operator_bases[op_id as usize];
-        #[allow(clippy::match_same_arms)]
-        match &sess.operator_data[op_id as usize] {
-            OperatorData::Call(_) => 1,
-            OperatorData::CallConcurrent(_) => 1,
-            OperatorData::ToStr(_) => 1,
-            OperatorData::Count(_) => 1,
-            OperatorData::Print(_) => 1,
-            OperatorData::Join(_) => 1,
-            OperatorData::Fork(_) => 0,
-            OperatorData::Nop(_) => 0,
-            OperatorData::NopCopy(_) => 1,
-            // technically this has output, but it always introduces a
-            // separate BB so we don't want to allocate slots for that
-            OperatorData::ForkCat(_) => 0,
-            OperatorData::Next(_) => 0,
-            OperatorData::End(_) => 0,
-            OperatorData::Key(_) => 1,
-            OperatorData::Select(_) => 0,
-            OperatorData::Regex(re) => {
-                re.capture_group_names
-                    .iter()
-                    .map(|n| n.map(|_| 1).unwrap_or(0))
-                    .sum::<usize>()
-                    + 1
-            }
-            OperatorData::Format(_) => 1,
-            OperatorData::StringSink(_) => 1,
-            OperatorData::FieldValueSink(_) => 1,
-            OperatorData::FileReader(_) => 1,
-            OperatorData::Literal(_) => 1,
-            OperatorData::Sequence(_) => 1,
-            OperatorData::Foreach(_) => 0, // last sc output is output
-            OperatorData::Aggregator(agg) => {
-                let mut op_count = 1;
-                // TODO: do this properly, merging field names etc.
-                for &sub_op in &agg.sub_ops {
-                    op_count +=
-                        Self::op_output_count(sess, sub_op).saturating_sub(1);
-                }
-                op_count
-            }
-            OperatorData::Custom(op) => op.output_count(op_base),
-        }
-    }
-
     pub fn setup_operator_outputs(&mut self, sess: &mut SessionData) {
         self.operator_liveness_data.extend(
             iter::repeat(OperatorLivenessData::default())
@@ -262,8 +214,8 @@ impl LivenessData {
             .take(self.vars.len()),
         );
         for op_id in 0..sess.operator_data.len() {
-            let op_output_count =
-                Self::op_output_count(sess, op_id as OperatorId);
+            let op_output_count = sess.operator_data[op_id]
+                .output_count(sess, op_id as OperatorId);
             let op_base = &mut sess.operator_bases[op_id];
             if op_output_count == 0 {
                 op_base.transparent_mode = true;
@@ -304,46 +256,8 @@ impl LivenessData {
     }
     pub fn setup_op_vars(&mut self, sess: &SessionData, op_id: OperatorId) {
         self.add_var_name_opt(sess.operator_bases[op_id as usize].label);
-        match &sess.operator_data[op_id as usize] {
-            OperatorData::Regex(re) => {
-                for n in &re.capture_group_names {
-                    self.add_var_name_opt(*n);
-                }
-            }
-            OperatorData::Key(k) => {
-                self.add_var_name(k.key_interned.unwrap());
-            }
-            OperatorData::Select(s) => {
-                self.add_var_name(s.key_interned.unwrap());
-            }
-            OperatorData::Format(fmt) => format_add_var_names(fmt, self),
-            OperatorData::Aggregator(agg) => {
-                for &sub_op in &agg.sub_ops {
-                    self.setup_op_vars(sess, sub_op);
-                }
-            }
-            OperatorData::Custom(op) => {
-                op.register_output_var_names(self, sess)
-            }
-            OperatorData::Call(_)
-            | OperatorData::CallConcurrent(_)
-            | OperatorData::ToStr(_)
-            | OperatorData::Count(_)
-            | OperatorData::Print(_)
-            | OperatorData::Join(_)
-            | OperatorData::Fork(_)
-            | OperatorData::ForkCat(_)
-            | OperatorData::Next(_)
-            | OperatorData::End(_)
-            | OperatorData::Nop(_)
-            | OperatorData::Foreach(_)
-            | OperatorData::NopCopy(_)
-            | OperatorData::StringSink(_)
-            | OperatorData::FieldValueSink(_)
-            | OperatorData::FileReader(_)
-            | OperatorData::Literal(_)
-            | OperatorData::Sequence(_) => (),
-        }
+        sess.operator_data[op_id as usize]
+            .register_output_var_names(self, sess, op_id);
     }
     pub fn setup_vars(&mut self, sess: &SessionData) {
         // the order of these special vars has to match the IDs specified
@@ -457,7 +371,7 @@ impl LivenessData {
             | OperatorData::FileReader(_)
             | OperatorData::Literal(_)
             | OperatorData::Sequence(_) => (),
-            OperatorData::Custom(_) => {
+            OperatorData::Custom(_) | OperatorData::MultiOp(_) => {
                 // TODO: maybe support this
             }
             OperatorData::Aggregator(agg) => {
@@ -629,7 +543,7 @@ impl LivenessData {
             self.op_outputs[i].field_references.clear();
         }
     }
-    fn apply_var_remapping(&self, var_id: VarId, target: OpOutputIdx) {
+    pub fn apply_var_remapping(&self, var_id: VarId, target: OpOutputIdx) {
         let offset = NON_STRING_READS_OFFSET * self.op_outputs.len();
         let tgt_idx = offset + target as usize;
         let src_idx = offset + var_id as usize;
@@ -637,149 +551,6 @@ impl LivenessData {
             tgt_idx,
             self.op_outputs_data[tgt_idx] || self.op_outputs_data[src_idx],
         );
-    }
-    fn update_liveness_for_op(
-        &mut self,
-        sess: &SessionData,
-        flags: &mut AccessFlags,
-        op_offset_after_last_write: OperatorOffsetInChain,
-        op_id: OperatorId,
-        bb_id: BasicBlockId,
-        input_field: OpOutputIdx,
-    ) -> (OpOutputIdx, OperatorCallEffect) {
-        let op_idx = op_id as usize;
-        let output_field = sess.operator_bases[op_idx].outputs_start;
-        match &sess.operator_data[op_idx] {
-            OperatorData::Fork(_)
-            | OperatorData::ForkCat(_)
-            | OperatorData::Foreach(_)
-            | OperatorData::Call(_)
-            | OperatorData::CallConcurrent(_) => {
-                return (output_field, OperatorCallEffect::Diverge);
-            }
-            OperatorData::Key(key) => {
-                let var_id = self.var_names[&key.key_interned.unwrap()];
-                self.vars_to_op_outputs_map[var_id as usize] = output_field;
-                self.op_outputs[output_field as usize]
-                    .field_references
-                    .push(input_field);
-                if let Some(prev_tgt) =
-                    self.key_aliases_map.insert(var_id, input_field)
-                {
-                    self.apply_var_remapping(var_id, prev_tgt);
-                }
-                return (input_field, OperatorCallEffect::NoCall);
-            }
-            OperatorData::Select(select) => {
-                let mut var = self.var_names[&select.key_interned.unwrap()];
-                // resolve rebinds
-                loop {
-                    let field = self.vars_to_op_outputs_map[var as usize];
-                    if field >= self.vars.len() as OpOutputIdx {
-                        break;
-                    }
-                    // var points to itself
-                    if field == var {
-                        break;
-                    }
-                    // OpOutput indices below vars.len() are the vars
-                    var = field as VarId;
-                }
-                return (var, OperatorCallEffect::NoCall);
-            }
-            OperatorData::Regex(re) => {
-                flags.may_dup_or_drop =
-                    !re.opts.non_mandatory || re.opts.multimatch;
-                flags.non_stringified_input_access = false;
-                for i in 0..re.capture_group_names.len() {
-                    self.op_outputs[output_field as usize + i]
-                        .field_references
-                        .push(input_field);
-                }
-
-                for (cgi, cgn) in re.capture_group_names.iter().enumerate() {
-                    if let Some(name) = cgn {
-                        let tgt_var_name = self.var_names[name];
-                        self.vars_to_op_outputs_map[tgt_var_name as usize] =
-                            sess.operator_bases[op_idx].outputs_start
-                                + cgi as OpOutputIdx;
-                    }
-                }
-            }
-            OperatorData::NopCopy(_) => {
-                flags.may_dup_or_drop = false;
-                flags.non_stringified_input_access = false;
-                self.op_outputs[output_field as usize]
-                    .field_references
-                    .push(input_field);
-            }
-            OperatorData::Format(fmt) => {
-                update_op_format_variable_liveness(
-                    sess,
-                    fmt,
-                    self,
-                    op_id,
-                    flags,
-                    op_offset_after_last_write,
-                );
-            }
-            OperatorData::FileReader(_) | OperatorData::Count(_) => {
-                // this only inserts if input is done, so no write flag
-                // neccessary
-                flags.input_accessed = false;
-                flags.non_stringified_input_access = false;
-            }
-            OperatorData::Literal(di) => {
-                flags.may_dup_or_drop = di.insert_count.is_some();
-                flags.input_accessed = false;
-                flags.non_stringified_input_access = false;
-            }
-            OperatorData::Join(_) => {}
-            OperatorData::Sequence(seq) => {
-                update_op_sequence_variable_liveness(flags, seq);
-            }
-            OperatorData::Nop(_)
-            | OperatorData::StringSink(_)
-            | OperatorData::Print(_) => {
-                flags.may_dup_or_drop = false;
-                flags.non_stringified_input_access = false;
-            }
-            OperatorData::FieldValueSink(_) | OperatorData::ToStr(_) => {
-                flags.may_dup_or_drop = false;
-            }
-            OperatorData::Next(_) | OperatorData::End(_) => unreachable!(),
-            OperatorData::Custom(op) => {
-                op.update_variable_liveness(self, bb_id, flags)
-            }
-            OperatorData::Aggregator(op) => {
-                flags.may_dup_or_drop = false;
-                flags.non_stringified_input_access = false;
-                flags.input_accessed = false;
-                for &sub_op in &op.sub_ops {
-                    let mut sub_op_flags = AccessFlags {
-                        input_accessed: true,
-                        non_stringified_input_access: true,
-                        may_dup_or_drop: true,
-                    };
-                    self.update_liveness_for_op(
-                        sess,
-                        &mut sub_op_flags,
-                        op_offset_after_last_write,
-                        sub_op,
-                        bb_id,
-                        input_field,
-                    );
-                    *flags = flags.or(&sub_op_flags);
-                    let sub_op = &sess.operator_bases[sub_op as usize];
-                    if sub_op.outputs_start != sub_op.outputs_end {
-                        self.op_outputs[output_field as usize]
-                            .field_references
-                            .push(sub_op.outputs_start);
-                    }
-                }
-            }
-        }
-        (output_field, OperatorCallEffect::Basic)
     }
     fn compute_local_liveness_for_bb(
         &mut self,
@@ -801,14 +572,16 @@ impl LivenessData {
                 non_stringified_input_access: true,
                 may_dup_or_drop: true,
             };
-            let (output_field, ce) = self.update_liveness_for_op(
-                sess,
-                &mut flags,
-                op_offset_after_last_write,
-                op_id,
-                bb_id,
-                input_field,
-            );
+            let (output_field, ce) = sess.operator_data[op_idx]
+                .update_liveness_for_op(
+                    sess,
+                    self,
+                    &mut flags,
+                    op_offset_after_last_write,
+                    op_id,
+                    bb_id,
+                    input_field,
+                );
             match ce {
                 OperatorCallEffect::Basic => (),
                 OperatorCallEffect::NoCall => {

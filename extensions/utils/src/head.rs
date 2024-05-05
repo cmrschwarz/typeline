@@ -1,27 +1,26 @@
-use std::collections::HashMap;
-
 use scr_core::{
     cli::parse_arg_value_as_number,
-    job::JobData,
+    context::SessionData,
+    job::{Job, JobData},
     liveness_analysis::{
-        AccessFlags, BasicBlockId, LivenessData, OpOutputIdx, DYN_VAR_ID,
+        AccessFlags, BasicBlockId, LivenessData, OpOutputIdx,
+        OperatorCallEffect, DYN_VAR_ID,
     },
     operators::{
         errors::OperatorCreationError,
-        operator::{Operator, OperatorBase, OperatorData},
+        operator::{
+            Operator, OperatorData, OperatorId, OperatorOffsetInChain,
+            PreboundOutputsMap, TransformInstatiation,
+        },
         transform::{
             DefaultTransformName, Transform, TransformData, TransformId,
             TransformState,
         },
     },
     options::argument::CliArgIdx,
-    record_data::{
-        action_buffer::ActorId, field::FieldId, field_action::FieldActionKind,
-    },
+    record_data::{action_buffer::ActorId, field_action::FieldActionKind},
     smallbox,
-    utils::{
-        identity_hasher::BuildIdentityHasher, string_store::StringStoreEntry,
-    },
+    utils::string_store::StringStoreEntry,
 };
 
 #[derive(Default)]
@@ -48,19 +47,23 @@ impl Operator for OpHead {
         "head".into()
     }
 
-    fn output_count(&self, _op_base: &OperatorBase) -> usize {
+    fn output_count(&self, _sess: &SessionData, _op_id: OperatorId) -> usize {
         0
     }
 
-    fn has_dynamic_outputs(&self, _op_base: &OperatorBase) -> bool {
+    fn has_dynamic_outputs(
+        &self,
+        _sess: &SessionData,
+        _op_id: OperatorId,
+    ) -> bool {
         false
     }
 
     fn on_liveness_computed(
         &mut self,
-        sess: &scr_core::context::SessionData,
-        op_id: scr_core::operators::operator::OperatorId,
+        sess: &mut SessionData,
         ld: &LivenessData,
+        op_id: OperatorId,
     ) {
         if self.count > 0 {
             // we don't need liveness information for normal mode
@@ -78,20 +81,26 @@ impl Operator for OpHead {
 
     fn update_variable_liveness(
         &self,
+        _sess: &SessionData,
         _ld: &mut LivenessData,
-        _bb_id: BasicBlockId,
         access_flags: &mut AccessFlags,
-    ) {
+        _op_offset_after_last_write: OperatorOffsetInChain,
+        _op_id: OperatorId,
+        _bb_id: BasicBlockId,
+        _input_field: OpOutputIdx,
+    ) -> Option<(OpOutputIdx, OperatorCallEffect)> {
         access_flags.input_accessed = false;
+        None
     }
 
-    fn build_transform(
+    fn build_transforms(
         &self,
-        jd: &mut JobData,
-        _op_base: &OperatorBase,
+        job: &mut Job,
         tf_state: &mut TransformState,
-        _prebound_outputs: &HashMap<OpOutputIdx, FieldId, BuildIdentityHasher>,
-    ) -> TransformData {
+        _op_id: OperatorId,
+        _prebound_outputs: &PreboundOutputsMap,
+    ) -> TransformInstatiation {
+        let jd = &mut job.job_data;
         let actor_id = jd.match_set_mgr.match_sets[tf_state.match_set_id]
             .action_buffer
             .borrow_mut()
@@ -101,16 +110,18 @@ impl Operator for OpHead {
         jd.field_mgr
             .drop_field_refcount(tf_state.output_field, &mut jd.match_set_mgr);
         tf_state.output_field = tf_state.input_field;
-        if self.count < 0 {
-            return TransformData::Custom(smallbox!(TfHeadSubtractive {
+        let res = if self.count < 0 {
+            smallbox!(TfHeadSubtractive {
                 drop_count: (-self.count) as usize,
                 actor_id,
-            }));
-        }
-        TransformData::Custom(smallbox!(TfHead {
-            remaining: self.count as usize,
-            actor_id
-        }))
+            })
+        } else {
+            smallbox!(TfHead {
+                remaining: self.count as usize,
+                actor_id
+            })
+        };
+        TransformInstatiation::Simple(TransformData::Custom(res))
     }
 }
 

@@ -1,21 +1,19 @@
-use std::{
-    cell::{RefCell, RefMut},
-    collections::HashMap,
-};
+use std::cell::{RefCell, RefMut};
 
 use indexmap::{indexmap, IndexMap};
 
 use scr_core::{
     context::SessionData,
-    job::JobData,
+    job::{Job, JobData},
     liveness_analysis::{
         AccessFlags, BasicBlockId, LivenessData, OpOutputIdx,
+        OperatorCallEffect,
     },
     operators::{
         errors::OperatorCreationError,
         operator::{
-            DefaultOperatorName, Operator, OperatorBase, OperatorData,
-            OperatorId,
+            DefaultOperatorName, Operator, OperatorData, OperatorId,
+            OperatorOffsetInChain, PreboundOutputsMap, TransformInstatiation,
         },
         transform::{
             DefaultTransformName, Transform, TransformData, TransformId,
@@ -36,8 +34,8 @@ use scr_core::{
     },
     smallbox,
     utils::{
-        identity_hasher::BuildIdentityHasher, stable_vec::StableVec,
-        string_store::StringStoreEntry, temp_vec::BorrowedVec,
+        stable_vec::StableVec, string_store::StringStoreEntry,
+        temp_vec::BorrowedVec,
     },
 };
 
@@ -89,45 +87,54 @@ impl Operator for OpExplode {
     fn default_name(&self) -> DefaultOperatorName {
         "explode".into()
     }
-    fn output_count(&self, _op_base: &OperatorBase) -> usize {
+    fn output_count(&self, _sess: &SessionData, _op_id: OperatorId) -> usize {
         1
     }
-    fn has_dynamic_outputs(&self, _op_base: &OperatorBase) -> bool {
+    fn has_dynamic_outputs(
+        &self,
+        _sess: &SessionData,
+        _op_id: OperatorId,
+    ) -> bool {
         true
     }
 
     fn on_liveness_computed(
         &mut self,
-        _sess: &SessionData,
-        op_id: OperatorId,
+        _sess: &mut SessionData,
         ld: &LivenessData,
+        op_id: OperatorId,
     ) {
         self.may_consume_input = ld.can_consume_nth_access(op_id, 0);
     }
 
     fn update_variable_liveness(
         &self,
+        _sess: &SessionData,
         _ld: &mut LivenessData,
+        _access_flags: &mut AccessFlags,
+        _op_offset_after_last_write: OperatorOffsetInChain,
+        _op_id: OperatorId,
         _bb_id: BasicBlockId,
-        _flags: &mut AccessFlags,
-    ) {
+        _input_field: OpOutputIdx,
+    ) -> Option<(OpOutputIdx, OperatorCallEffect)> {
         // Counterintuitively, this operator does not impact liveness analysis.
         // LA models the worst case (maximum amount of fields accessed).
         // This op does not *access* any vars other that it's direct input.
         // It may shadow any output, but we have to assume the worst case,
         // which is that it shadowed none. This means that
         // all outputs live before the op stay alive afterwards.
+        None
     }
 
-    fn build_transform<'a>(
+    fn build_transforms<'a>(
         &'a self,
-        jd: &mut JobData,
-        _op_base: &OperatorBase,
+        job: &mut Job,
         tf_state: &mut TransformState,
-        _prebound_outputs: &HashMap<OpOutputIdx, FieldId, BuildIdentityHasher>,
-    ) -> TransformData<'a> {
+        _op_id: OperatorId,
+        _prebound_outputs: &PreboundOutputsMap,
+    ) -> TransformInstatiation<'a> {
         let input_field_field_ref_offset =
-            jd.field_mgr.register_field_reference(
+            job.job_data.field_mgr.register_field_reference(
                 tf_state.output_field,
                 tf_state.input_field,
             );
@@ -137,13 +144,15 @@ impl Operator for OpExplode {
             },
             inserters: Default::default(),
             pending_fields: Default::default(),
-            input_iter_id: jd.field_mgr.claim_iter(
+            input_iter_id: job.job_data.field_mgr.claim_iter(
                 tf_state.input_field,
-                IterKind::Transform(jd.tf_mgr.transforms.peek_claim_id()),
+                IterKind::Transform(
+                    job.job_data.tf_mgr.transforms.peek_claim_id(),
+                ),
             ),
             input_field_field_ref_offset,
         };
-        TransformData::Custom(smallbox!(tfe))
+        TransformInstatiation::Simple(TransformData::Custom(smallbox!(tfe)))
     }
 }
 

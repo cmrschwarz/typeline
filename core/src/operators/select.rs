@@ -44,8 +44,8 @@ pub fn parse_op_select(
 }
 
 pub fn setup_op_select(
-    string_store: &mut StringStore,
     op: &mut OpSelect,
+    string_store: &mut StringStore,
 ) -> Result<(), OperatorSetupError> {
     op.key_interned =
         Some(string_store.intern_moved(std::mem::take(&mut op.key)));

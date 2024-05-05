@@ -1,21 +1,23 @@
-use std::collections::HashMap;
-
 use primes::PrimeSet;
 use scr_core::{
-    job::JobData,
+    context::SessionData,
+    job::{Job, JobData},
     liveness_analysis::{
         AccessFlags, BasicBlockId, LivenessData, OpOutputIdx,
+        OperatorCallEffect,
     },
     operators::{
-        operator::{Operator, OperatorBase, OperatorData},
+        operator::{
+            Operator, OperatorData, OperatorId, OperatorOffsetInChain,
+            PreboundOutputsMap, TransformInstatiation,
+        },
         transform::{
             DefaultTransformName, Transform, TransformData, TransformId,
             TransformState,
         },
     },
-    record_data::{action_buffer::ActorRef, field::FieldId},
+    record_data::action_buffer::ActorRef,
     smallbox,
-    utils::identity_hasher::BuildIdentityHasher,
 };
 
 #[derive(Default)]
@@ -33,41 +35,53 @@ impl Operator for OpPrimes {
         "primes".into()
     }
 
-    fn output_count(&self, _op_base: &OperatorBase) -> usize {
+    fn output_count(&self, _sess: &SessionData, _op_id: OperatorId) -> usize {
         1
     }
 
-    fn has_dynamic_outputs(&self, _op_base: &OperatorBase) -> bool {
+    fn has_dynamic_outputs(
+        &self,
+        _sess: &SessionData,
+        _op_id: OperatorId,
+    ) -> bool {
         false
     }
 
     fn update_variable_liveness(
         &self,
+        _sess: &SessionData,
         _ld: &mut LivenessData,
-        _bb_id: BasicBlockId,
         access_flags: &mut AccessFlags,
-    ) {
+        _op_offset_after_last_write: OperatorOffsetInChain,
+        _op_id: OperatorId,
+        _bb_id: BasicBlockId,
+        _input_field: OpOutputIdx,
+    ) -> Option<(OpOutputIdx, OperatorCallEffect)> {
         access_flags.input_accessed = false;
+        None
     }
 
-    fn build_transform<'a>(
+    fn build_transforms<'a>(
         &'a self,
-        jd: &mut JobData,
-        _op_base: &OperatorBase,
+        job: &mut Job,
         tf_state: &mut TransformState,
-        _prebound_outputs: &HashMap<OpOutputIdx, FieldId, BuildIdentityHasher>,
-    ) -> TransformData<'a> {
-        let actor_id = jd.match_set_mgr.match_sets[tf_state.match_set_id]
+        _op_id: OperatorId,
+        _prebound_outputs: &PreboundOutputsMap,
+    ) -> TransformInstatiation<'a> {
+        let actor_id = job.job_data.match_set_mgr.match_sets
+            [tf_state.match_set_id]
             .action_buffer
             .borrow()
             .peek_next_actor_id();
-        jd.field_mgr.fields[tf_state.output_field]
+        job.job_data.field_mgr.fields[tf_state.output_field]
             .borrow_mut()
             .first_actor = ActorRef::Unconfirmed(actor_id);
-        TransformData::Custom(smallbox!(TfPrimes {
-            sieve: primes::Sieve::new(),
-            count: 0
-        }))
+        TransformInstatiation::Simple(TransformData::Custom(smallbox!(
+            TfPrimes {
+                sieve: primes::Sieve::new(),
+                count: 0
+            }
+        )))
     }
 }
 

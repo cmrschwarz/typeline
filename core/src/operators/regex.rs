@@ -4,7 +4,7 @@ use lazy_static::lazy_static;
 use regex::{bytes, Regex, RegexBuilder};
 use smallstr::SmallString;
 use smallvec::SmallVec;
-use std::{borrow::Cow, cell::RefMut, collections::HashMap};
+use std::{borrow::Cow, cell::RefMut};
 
 use crate::{
     job::JobData,
@@ -33,7 +33,6 @@ use crate::{
         varying_type_inserter::VaryingTypeInserter,
     },
     utils::{
-        identity_hasher::BuildIdentityHasher,
         int_string_conversions::{
             i64_to_str, usize_to_str, USIZE_MAX_DECIMAL_DIGITS,
         },
@@ -47,7 +46,9 @@ use super::{
     errors::{
         OperatorApplicationError, OperatorCreationError, OperatorSetupError,
     },
-    operator::{DefaultOperatorName, OperatorBase, OperatorData},
+    operator::{
+        DefaultOperatorName, OperatorBase, OperatorData, PreboundOutputsMap,
+    },
     transform::{TransformData, TransformId, TransformState},
     utils::buffer_stream_values::{
         buffer_remaining_stream_values_in_auto_deref_iter,
@@ -399,8 +400,8 @@ pub fn create_op_regex_lines() -> OperatorData {
 }
 
 pub fn setup_op_regex(
-    string_store: &mut StringStore,
     op: &mut OpRegex,
+    string_store: &mut StringStore,
 ) -> Result<(), OperatorSetupError> {
     let mut unnamed_capture_groups: usize = 0;
 
@@ -431,7 +432,7 @@ pub fn build_tf_regex<'a>(
     op_base: &OperatorBase,
     op: &'a OpRegex,
     tf_state: &mut TransformState,
-    prebound_outputs: &HashMap<OpOutputIdx, FieldId, BuildIdentityHasher>,
+    prebound_outputs: &PreboundOutputsMap,
 ) -> TransformData<'a> {
     let mut ab = jd.match_set_mgr.match_sets[tf_state.match_set_id]
         .action_buffer

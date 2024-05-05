@@ -1,13 +1,16 @@
-use std::collections::HashMap;
-
 use scr_core::{
-    job::JobData,
+    context::SessionData,
+    job::{Job, JobData},
     liveness_analysis::{
         AccessFlags, BasicBlockId, LivenessData, OpOutputIdx,
+        OperatorCallEffect,
     },
     operators::{
         errors::OperatorApplicationError,
-        operator::{Operator, OperatorBase, OperatorData, OperatorId},
+        operator::{
+            Operator, OperatorData, OperatorId, OperatorOffsetInChain,
+            PreboundOutputsMap, TransformInstatiation,
+        },
         transform::{
             basic_transform_update, BasicUpdateData, DefaultTransformName,
             Transform, TransformData, TransformState,
@@ -15,7 +18,6 @@ use scr_core::{
     },
     record_data::{
         action_buffer::{ActorId, ActorRef},
-        field::FieldId,
         field_data::{FieldData, FieldValueRepr},
         field_value_ref::FieldValueSlice,
         field_value_slice_iter::{FieldValueBlock, FieldValueSliceIter},
@@ -26,7 +28,6 @@ use scr_core::{
         varying_type_inserter::VaryingTypeInserter,
     },
     smallbox,
-    utils::identity_hasher::BuildIdentityHasher,
 };
 
 use scr_core::operators::utils::any_number::AnyNumber;
@@ -52,30 +53,41 @@ impl Operator for OpSum {
         "sum".into()
     }
 
-    fn output_count(&self, _op_base: &OperatorBase) -> usize {
+    fn output_count(&self, _sess: &SessionData, _op_id: OperatorId) -> usize {
         1
     }
 
-    fn has_dynamic_outputs(&self, _op_base: &OperatorBase) -> bool {
+    fn has_dynamic_outputs(
+        &self,
+        _sess: &SessionData,
+        _op_id: OperatorId,
+    ) -> bool {
         false
     }
 
     fn update_variable_liveness(
         &self,
+        _sess: &SessionData,
         _ld: &mut LivenessData,
-        _bb_id: BasicBlockId,
         _access_flags: &mut AccessFlags,
-    ) {
+        _op_offset_after_last_write: OperatorOffsetInChain,
+        _op_id: OperatorId,
+        _bb_id: BasicBlockId,
+        _input_field: OpOutputIdx,
+    ) -> Option<(OpOutputIdx, OperatorCallEffect)> {
+        None
     }
 
-    fn build_transform<'a>(
+    fn build_transforms<'a>(
         &'a self,
-        jd: &mut JobData,
-        op_base: &OperatorBase,
+        job: &mut Job,
         tf_state: &mut TransformState,
-        _prebound_outputs: &HashMap<OpOutputIdx, FieldId, BuildIdentityHasher>,
-    ) -> TransformData<'a> {
+        op_id: OperatorId,
+        _prebound_outputs: &PreboundOutputsMap,
+    ) -> TransformInstatiation<'a> {
+        let jd = &mut job.job_data;
         let ms = &mut jd.match_set_mgr.match_sets[tf_state.match_set_id];
+        let op_base = &jd.session_data.operator_bases[op_id as usize];
         let mut ab = ms.action_buffer.borrow_mut();
         let actor_id = ab.add_actor();
         jd.field_mgr.fields[tf_state.output_field]
@@ -85,21 +97,23 @@ impl Operator for OpSum {
             [op_base.chain_id.unwrap() as usize]
             .settings
             .floating_point_math;
-        TransformData::Custom(smallbox!(TfSum {
-            group_list_id: ms.group_tracker.active_group_list(),
-            group_list_iter_id: ms
-                .group_tracker
-                .claim_group_list_iter_for_active(),
-            input_iter_id: jd.field_mgr.claim_iter(
-                tf_state.input_field,
-                IterKind::Transform(jd.tf_mgr.transforms.peek_claim_id())
-            ),
-            aggregate: AnyNumber::Int(0),
-            actor_id,
-            current_group_error_type: None,
-            floating_point_math,
-            pending_field: false
-        }))
+        TransformInstatiation::Simple(TransformData::Custom(smallbox!(
+            TfSum {
+                group_list_id: ms.group_tracker.active_group_list(),
+                group_list_iter_id: ms
+                    .group_tracker
+                    .claim_group_list_iter_for_active(),
+                input_iter_id: jd.field_mgr.claim_iter(
+                    tf_state.input_field,
+                    IterKind::Transform(jd.tf_mgr.transforms.peek_claim_id())
+                ),
+                aggregate: AnyNumber::Int(0),
+                actor_id,
+                current_group_error_type: None,
+                floating_point_math,
+                pending_field: false
+            }
+        )))
     }
 }
 

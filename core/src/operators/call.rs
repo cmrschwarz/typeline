@@ -109,17 +109,12 @@ pub fn build_tf_call(
     })
 }
 pub(crate) fn handle_eager_call_expansion(
+    op: &OpCall,
     sess: &mut Job,
-    op_id: OperatorId,
     ms_id: MatchSetId,
     input_field: FieldId,
     predecessor_tf: Option<TransformId>,
 ) -> OperatorInstantiation {
-    let OperatorData::Call(op) =
-        &sess.job_data.session_data.operator_data[op_id as usize]
-    else {
-        unreachable!()
-    };
     let chain = &sess.job_data.session_data.chains
         [op.target_resolved.unwrap() as usize];
     sess.setup_transforms_from_op(

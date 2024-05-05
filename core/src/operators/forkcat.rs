@@ -491,10 +491,10 @@ fn expand_for_subchain(sess: &mut Job, tf_id: TransformId, sc_n: u32) {
 }
 
 pub(crate) fn handle_forkcat_subchain_expansion(
-    sess: &mut Job,
+    job: &mut Job,
     tf_id: TransformId,
 ) {
-    let TransformData::ForkCat(fc) = &mut sess.transform_data[tf_id.get()]
+    let TransformData::ForkCat(fc) = &mut job.transform_data[tf_id.get()]
     else {
         unreachable!()
     };
@@ -502,18 +502,18 @@ pub(crate) fn handle_forkcat_subchain_expansion(
     let sc_idx = fc.op.subchains_start + sc_n;
     if sc_idx == fc.op.subchains_end {
         for &f in &fc.output_fields {
-            sess.job_data
+            job.job_data
                 .field_mgr
-                .drop_field_refcount(f, &mut sess.job_data.match_set_mgr);
+                .drop_field_refcount(f, &mut job.job_data.match_set_mgr);
         }
         let _cont_id = fc.continuation.unwrap().get();
         // TODO: unlink the subchain(s) ?
         return;
     }
     for &of in &fc.output_fields {
-        let mut f = sess.job_data.field_mgr.fields[of].borrow_mut();
+        let mut f = job.job_data.field_mgr.fields[of].borrow_mut();
         f.iter_hall.reset_iterators();
-        let msm = &mut sess.job_data.match_set_mgr.match_sets[f.match_set];
+        let msm = &mut job.job_data.match_set_mgr.match_sets[f.match_set];
         let fr = &mut *f;
         msm.action_buffer.borrow_mut().drop_field_commands(
             of,
@@ -521,7 +521,7 @@ pub(crate) fn handle_forkcat_subchain_expansion(
             &mut fr.snapshot,
         );
     }
-    expand_for_subchain(sess, tf_id, sc_n);
+    expand_for_subchain(job, tf_id, sc_n);
 }
 
 pub fn create_op_forkcat() -> OperatorData {

@@ -1,5 +1,4 @@
 use std::{
-    collections::HashMap,
     io::{Read, Write},
     net::{SocketAddr, ToSocketAddrs},
     sync::Arc,
@@ -10,18 +9,24 @@ use mio::{event::Event, net::TcpStream, Events, Interest, Poll, Token};
 use pki_types::InvalidDnsNameError;
 use rustls::ClientConfig;
 use scr_core::{
-    job::JobData,
-    liveness_analysis::OpOutputIdx,
+    context::SessionData,
+    job::{Job, JobData},
+    liveness_analysis::{
+        AccessFlags, BasicBlockId, LivenessData, OpOutputIdx,
+        OperatorCallEffect,
+    },
     operators::{
         errors::OperatorApplicationError,
-        operator::{Operator, OperatorBase, OperatorData, OperatorId},
+        operator::{
+            Operator, OperatorData, OperatorId, OperatorOffsetInChain,
+            PreboundOutputsMap, TransformInstatiation,
+        },
         transform::{
             basic_transform_update, BasicUpdateData, Transform, TransformData,
             TransformId, TransformState,
         },
     },
     record_data::{
-        field::FieldId,
         field_value_ref::FieldValueRef,
         iter_hall::{IterId, IterKind},
         push_interface::PushInterface,
@@ -31,7 +36,7 @@ use scr_core::{
         },
     },
     smallbox,
-    utils::{identity_hasher::BuildIdentityHasher, universe::CountedUniverse},
+    utils::universe::CountedUniverse,
 };
 use std::io::ErrorKind as IoErrorKind;
 use thiserror::Error;
@@ -111,42 +116,53 @@ impl Operator for OpHttpRequest {
         "http-get".into()
     }
 
-    fn output_count(&self, _op_base: &OperatorBase) -> usize {
+    fn output_count(&self, _sess: &SessionData, _op_id: OperatorId) -> usize {
         1
     }
 
-    fn has_dynamic_outputs(&self, _op_base: &OperatorBase) -> bool {
+    fn has_dynamic_outputs(
+        &self,
+        _sess: &SessionData,
+        _op_id: OperatorId,
+    ) -> bool {
         false
     }
 
     fn update_variable_liveness(
         &self,
-        _ld: &mut scr_core::liveness_analysis::LivenessData,
-        _bb_id: scr_core::liveness_analysis::BasicBlockId,
-        access_flags: &mut scr_core::liveness_analysis::AccessFlags,
-    ) {
+        _sess: &SessionData,
+        _ld: &mut LivenessData,
+        access_flags: &mut AccessFlags,
+        _op_offset_after_last_write: OperatorOffsetInChain,
+        _op_id: OperatorId,
+        _bb_id: BasicBlockId,
+        _input_field: OpOutputIdx,
+    ) -> Option<(OpOutputIdx, OperatorCallEffect)> {
         access_flags.non_stringified_input_access = false;
         access_flags.may_dup_or_drop = false;
+        None
     }
 
-    fn build_transform<'a>(
+    fn build_transforms<'a>(
         &'a self,
-        jd: &mut JobData,
-        _op_base: &OperatorBase,
+        job: &mut Job,
         tf_state: &mut TransformState,
-        _prebound_outputs: &HashMap<OpOutputIdx, FieldId, BuildIdentityHasher>,
-    ) -> TransformData<'a> {
+        _op_id: OperatorId,
+        _prebound_outputs: &PreboundOutputsMap,
+    ) -> TransformInstatiation<'a> {
         let tf = TfHttpRequest {
             running_connections: CountedUniverse::default(),
             poll: Poll::new().unwrap(),
             events: Events::with_capacity(64),
-            iter_id: jd.field_mgr.claim_iter(
+            iter_id: job.job_data.field_mgr.claim_iter(
                 tf_state.input_field,
-                IterKind::Transform(jd.tf_mgr.transforms.peek_claim_id()),
+                IterKind::Transform(
+                    job.job_data.tf_mgr.transforms.peek_claim_id(),
+                ),
             ),
             tls_config: self.client_config.clone(),
         };
-        TransformData::Custom(smallbox!(tf))
+        TransformInstatiation::Simple(TransformData::Custom(smallbox!(tf)))
     }
 }
 

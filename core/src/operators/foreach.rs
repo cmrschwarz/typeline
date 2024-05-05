@@ -1,23 +1,17 @@
-use std::{collections::HashMap, iter};
+use std::iter;
 
 use crate::{
     chain::{ChainId, SubchainOffset},
     cli::reject_operator_argument,
-    context::SessionData,
     job::{add_transform_to_job, Job, JobData},
-    liveness_analysis::OpOutputIdx,
     options::argument::CliArgIdx,
-    record_data::{
-        field::FieldId,
-        group_tracker::{GroupListId, GroupListIterId},
-    },
-    utils::identity_hasher::BuildIdentityHasher,
+    record_data::group_tracker::{GroupListId, GroupListIterId},
 };
 
 use super::{
     errors::{OperatorCreationError, OperatorSetupError},
     operator::{
-        OperatorData, OperatorId, OperatorInstantiation,
+        OperatorData, OperatorId, OperatorInstantiation, PreboundOutputsMap,
         TransformContinuationKind,
     },
     transform::{TransformData, TransformId, TransformState},
@@ -48,13 +42,10 @@ pub fn create_op_foreach() -> OperatorData {
 }
 
 pub fn setup_op_foreach(
-    sess: &mut SessionData,
+    op: &mut OpForeach,
     _chain_id: ChainId,
     op_id: OperatorId,
 ) -> Result<(), OperatorSetupError> {
-    let OperatorData::Foreach(op) = &sess.operator_data[op_id as usize] else {
-        unreachable!()
-    };
     if op.subchains_end > op.subchains_start + 1 {
         return Err(OperatorSetupError::new(
             "operator `foreach` does not support multiple subchains",
@@ -70,7 +61,7 @@ pub fn insert_tf_foreach(
     tf_state: TransformState,
     chain_id: ChainId,
     op_id: u32,
-    prebound_outputs: &HashMap<OpOutputIdx, FieldId, BuildIdentityHasher>,
+    prebound_outputs: &PreboundOutputsMap,
 ) -> OperatorInstantiation {
     let subchain_id = job.job_data.session_data.chains[chain_id as usize]
         .subchains[op.subchains_start as usize];

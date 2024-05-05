@@ -164,6 +164,16 @@ impl ContextBuilder {
     pub fn add_op(self, op_data: OperatorData) -> Self {
         self.add_op_with_opts(op_data, None, None, false, false)
     }
+    pub fn add_ops(
+        self,
+        op_data: impl IntoIterator<Item = OperatorData>,
+    ) -> Self {
+        let mut this = self;
+        for op in op_data {
+            this = this.add_op(op);
+        }
+        this
+    }
     pub fn ref_add_op(&mut self, op_data: OperatorData) {
         self.ref_add_op_with_opts(op_data, None, None, false, false)
     }
@@ -203,16 +213,6 @@ impl ContextBuilder {
         label: &str,
     ) -> Self {
         self.add_op_with_opts(op_data, None, Some(label), false, false)
-    }
-    pub fn add_ops(
-        self,
-        op_data: impl IntoIterator<Item = OperatorData>,
-    ) -> Self {
-        let mut this = self;
-        for op in op_data {
-            this = this.add_op(op);
-        }
-        this
     }
     pub fn add_op_appending(self, op_data: OperatorData) -> Self {
         self.add_op_with_opts(op_data, None, None, true, false)

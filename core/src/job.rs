@@ -6,13 +6,12 @@ use std::{
 use crate::{
     chain::Chain,
     context::{ContextData, JobDescription, SessionData, VentureDescription},
-    liveness_analysis::OpOutputIdx,
     operators::{
         call::handle_eager_call_expansion,
         call_concurrent::setup_callee_concurrent,
         operator::{
-            operator_build_transforms, OperatorData, OperatorId,
-            OperatorInstantiation, OutputFieldKind, TransformContinuationKind,
+            OperatorData, OperatorId, OperatorInstantiation, OutputFieldKind,
+            PreboundOutputsMap, TransformContinuationKind,
         },
         terminator::add_terminator_tf_cont_dependant,
         transform::{
@@ -31,7 +30,7 @@ use crate::{
         record_buffer::RecordBuffer,
         stream_value::{StreamValueManager, StreamValueUpdate},
     },
-    utils::{identity_hasher::BuildIdentityHasher, universe::Universe},
+    utils::universe::Universe,
 };
 
 // a helper type so we can pass a transform handler typed
@@ -469,7 +468,7 @@ impl<'a> Job<'a> {
         start_op_id: OperatorId,
         chain_input_field_id: FieldId,
         mut predecessor_tf: Option<TransformId>,
-        prebound_outputs: &HashMap<OpOutputIdx, FieldId, BuildIdentityHasher>,
+        prebound_outputs: &PreboundOutputsMap,
     ) -> OperatorInstantiation {
         let mut start_tf_id = None;
         let start_op =
@@ -487,8 +486,8 @@ impl<'a> Job<'a> {
                 OperatorData::Call(op) => {
                     if !op.lazy {
                         let mut instantiation = handle_eager_call_expansion(
+                            op,
                             self,
-                            op_id,
                             ms_id,
                             input_field,
                             predecessor_tf,
@@ -625,7 +624,7 @@ impl<'a> Job<'a> {
                         .default_op_name()
                         .to_string();
             }
-            let mut instantiation = operator_build_transforms(
+            let mut instantiation = op_data.operator_build_transforms(
                 self,
                 tf_state,
                 op_id,

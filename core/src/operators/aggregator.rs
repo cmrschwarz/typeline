@@ -1,29 +1,24 @@
-use std::collections::HashMap;
-
 use crate::{
     context::SessionData,
     job::{add_transform_to_job, Job, JobData},
-    liveness_analysis::OpOutputIdx,
     options::{
         operator_base_options::OperatorBaseOptions,
         session_options::SessionOptions,
     },
     record_data::{
         action_buffer::{ActorId, ActorRef},
-        field::FieldId,
         field_action::FieldActionKind,
         iter_hall::{IterId, IterKind},
         iters::FieldIterator,
     },
-    utils::identity_hasher::BuildIdentityHasher,
 };
 
 use super::{
     errors::OperatorSetupError,
     nop_copy::create_op_nop_copy,
     operator::{
-        operator_build_transforms, OperatorData, OperatorId,
-        OperatorInstantiation, TransformContinuationKind,
+        OperatorData, OperatorId, OperatorInstantiation, PreboundOutputsMap,
+        TransformContinuationKind,
     },
     transform::{TransformData, TransformId, TransformState},
 };
@@ -80,21 +75,11 @@ pub fn create_op_aggregator_append_leader(
 }
 
 pub fn setup_op_aggregator(
+    agg: &mut OpAggregator,
     sess: &mut SessionData,
     chain_id: u32,
-    // we can't take the operator because the borrow checker hates us
-    op_id: u32,
 ) -> Result<(), OperatorSetupError> {
-    let OperatorData::Aggregator(agg) = &sess.operator_data[op_id as usize]
-    else {
-        unreachable!()
-    };
     for i in 0..agg.sub_ops.len() {
-        let OperatorData::Aggregator(agg) =
-            &sess.operator_data[op_id as usize]
-        else {
-            unreachable!()
-        };
         let sub_op_id = agg.sub_ops[i];
         SessionOptions::setup_operator(sess, chain_id, sub_op_id)?;
     }
@@ -132,7 +117,7 @@ pub fn insert_tf_aggregator(
     op: &OpAggregator,
     mut tf_state: TransformState,
     op_id: u32,
-    prebound_outputs: &HashMap<OpOutputIdx, FieldId, BuildIdentityHasher>,
+    prebound_outputs: &PreboundOutputsMap,
 ) -> OperatorInstantiation {
     let op_count = op.sub_ops.len();
     let in_fid = tf_state.input_field;
@@ -184,12 +169,14 @@ pub fn insert_tf_aggregator(
             Some(sub_op_id),
         );
         sub_tf_state.is_split = i + 1 != op.sub_ops.len();
-        let instantiation = operator_build_transforms(
-            job,
-            sub_tf_state,
-            sub_op_id,
-            prebound_outputs,
-        );
+        let instantiation = job.job_data.session_data.operator_data
+            [sub_op_id as usize]
+            .operator_build_transforms(
+                job,
+                sub_tf_state,
+                sub_op_id,
+                prebound_outputs,
+            );
         sub_tfs.push(instantiation.tfs_begin);
     }
     let trailer_tf_state = TransformState::new(
