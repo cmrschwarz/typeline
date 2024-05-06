@@ -22,7 +22,7 @@ use scr_ext_utils::{dup::create_op_dup, string_utils::create_op_lines};
 fn lines_regex() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
-        .push_str("foo\nbar\nbaz\n", 1)
+        .push_str("foo\nbar\nbaz", 1)
         .add_op(create_op_regex_lines())
         .add_op(create_op_string_sink(&ss))
         .run()?;
@@ -35,7 +35,7 @@ fn regex_drop() -> Result<(), ScrError> {
     let ss1 = StringSinkHandle::default();
     let ss2 = StringSinkHandle::default();
     ContextBuilder::default()
-        .push_str("foo\nbar\nbaz\n", 1)
+        .push_str("foo\nbar\nbaz", 1)
         .add_op(create_op_regex_lines())
         .add_op_transparent(create_op_string_sink(&ss1))
         .add_op(create_op_regex(".*[^r]$").unwrap())
@@ -189,7 +189,7 @@ fn stream_into_regex() -> Result<(), ScrError> {
             }),
             0,
         ))
-        .add_op(create_op_regex_lines())
+        .add_op(create_op_lines())
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(ss.get_data().unwrap().as_slice(), ["1", "2", "3"]);
