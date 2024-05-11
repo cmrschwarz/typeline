@@ -1034,6 +1034,15 @@ impl<'a, T: DerefMut<Target = GroupList>> GroupListIterMut<'a, T> {
         self.try_next_group_raw()
     }
     pub fn insert_fields(&mut self, repr: FieldValueRepr, count: usize) {
+        if count == 0 {
+            return;
+        }
+
+        let field_pos_prev = self.base.field_pos;
+        self.update_group_len = true;
+        self.group_len += count;
+        self.base.field_pos += count;
+
         self.base.list.lookup_and_advance_affected_iters_(
             self.base.group_idx..=self.base.group_idx,
             self.base.field_pos + 1..,
@@ -1043,7 +1052,7 @@ impl<'a, T: DerefMut<Target = GroupList>> GroupListIterMut<'a, T> {
         if self.group_len != 0 {
             self.action_buffer.borrow_mut().push_action(
                 FieldActionKind::InsertZst(repr),
-                self.base.field_pos,
+                field_pos_prev,
                 count,
             );
             return;
@@ -1063,18 +1072,19 @@ impl<'a, T: DerefMut<Target = GroupList>> GroupListIterMut<'a, T> {
         // that will be applied manually by the code below
         self.action_count_applied_to_parents += 1;
 
+        // we don't want to add this earlier because
+        // `apply_pending_actions_to_parents` should not consider it
         self.action_buffer.borrow_mut().push_action(
             FieldActionKind::InsertZst(repr),
-            self.base.field_pos,
+            field_pos_prev,
             count,
         );
 
-        let mut group_index = self.base.group_idx;
-        self.base.list.group_lengths.add_value(group_index, count);
         let Some(mut parent_list_idx) = self.base.list.parent_list else {
             return;
         };
-        group_index = self.base.list.parent_group_idx(group_index);
+        let mut group_index =
+            self.base.list.parent_group_idx(self.base.group_idx);
         loop {
             let mut list = self.tracker.lists[parent_list_idx].borrow_mut();
             list.sort_iters();
@@ -1137,6 +1147,7 @@ impl<'a, T: DerefMut<Target = GroupList>> GroupListIterMut<'a, T> {
             self.group_len_before() > self.base.field_pos - field_pos
         );
         self.group_len += count;
+        self.base.field_pos += count;
         self.update_group_len = true;
         self.action_buffer.borrow_mut().push_action(
             FieldActionKind::Dup,
