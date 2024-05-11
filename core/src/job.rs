@@ -24,6 +24,7 @@ use crate::{
         action_buffer::{ActorId, ActorRef, SnapshotRef},
         field::{FieldId, FieldManager, VOID_FIELD_ID},
         field_action::FieldActionKind,
+        group_tracker::GroupListId,
         iter_hall::{IterId, IterKind},
         match_set::{MatchSetId, MatchSetManager},
         push_interface::PushInterface,
@@ -376,9 +377,10 @@ impl<'a> Job<'a> {
         }
         let input_record_count = input_record_count.max(1);
         let input_field = input_field.unwrap();
-        self.job_data.match_set_mgr.match_sets[ms_id]
-            .group_tracker
-            .append_group_to_all_active_lists(input_record_count);
+        let gt =
+            &mut self.job_data.match_set_mgr.match_sets[ms_id].group_tracker;
+        let input_group_list = gt.add_group_list(None, ActorRef::default());
+        gt.append_group_to_list(input_group_list, input_record_count);
 
         #[cfg(feature = "debug_logging")]
         for (i, f) in input_data_fields.iter().enumerate() {
@@ -390,6 +392,7 @@ impl<'a> Job<'a> {
             ms_id,
             job.operator,
             input_field,
+            input_group_list,
             None,
             &HashMap::default(),
         );
@@ -467,6 +470,7 @@ impl<'a> Job<'a> {
         ms_id: MatchSetId,
         start_op_id: OperatorId,
         chain_input_field_id: FieldId,
+        chain_input_group_list: GroupListId,
         predecessor_tf: Option<TransformId>,
         prebound_outputs: &PreboundOutputsMap,
     ) -> OperatorInstantiation {
@@ -486,6 +490,7 @@ impl<'a> Job<'a> {
             }),
             ms_id,
             chain_input_field_id,
+            chain_input_group_list,
             predecessor_tf,
             None,
             prebound_outputs,
@@ -499,6 +504,7 @@ impl<'a> Job<'a> {
         >,
         ms_id: MatchSetId,
         mut input_field: FieldId,
+        mut input_group_list: GroupListId,
         mut predecessor_tf: Option<TransformId>,
         mut start_tf_id: Option<TransformId>,
         prebound_outputs: &PreboundOutputsMap,
@@ -512,6 +518,7 @@ impl<'a> Job<'a> {
                             self,
                             ms_id,
                             input_field,
+                            input_group_list,
                             predecessor_tf,
                         );
                         if let Some(start) = start_tf_id {
@@ -632,6 +639,7 @@ impl<'a> Job<'a> {
                 ms_id,
                 op_base.desired_batch_size,
                 Some(op_id),
+                input_group_list,
             );
             tf_state.is_transparent = op_base.transparent_mode;
 
@@ -654,6 +662,7 @@ impl<'a> Job<'a> {
             );
 
             input_field = instantiation.next_input_field;
+            input_group_list = instantiation.next_group_list;
 
             if let Some(pred) = predecessor_tf {
                 self.job_data.tf_mgr.transforms[pred].successor =
@@ -680,6 +689,7 @@ impl<'a> Job<'a> {
             tfs_begin: start,
             tfs_end: end,
             next_input_field: input_field,
+            next_group_list: input_group_list,
             continuation: TransformContinuationKind::Regular,
         }
     }
@@ -729,8 +739,8 @@ impl<'a> Job<'a> {
 
         #[cfg(feature = "output_field_logging")]
         {
-            let output_field_id =
-                self.job_data.tf_mgr.transforms[tf_id].output_field;
+            let tf = &self.job_data.tf_mgr.transforms[tf_id];
+            let output_field_id = tf.output_field;
             eprint!(
                 "/> tf {} `{}` output field: ",
                 tf_id,
@@ -740,7 +750,14 @@ impl<'a> Job<'a> {
             self.job_data
                 .field_mgr
                 .print_field_header_data(output_field_id, 0);
+            let group_id = tf.output_group_list_id;
+            let group = self.job_data.match_set_mgr.match_sets
+                [tf.match_set_id]
+                .group_tracker
+                .lists[group_id]
+                .borrow();
             eprintln!();
+            eprintln!("group {group_id} data: {group}");
         }
         Ok(())
     }

@@ -131,10 +131,10 @@ pub fn insert_tf_aggregator(
         .field_mgr
         .inc_field_refcount(out_fid, op_count + 1);
     tf_state.output_field = in_fid;
-    let mut ab = job.job_data.match_set_mgr.match_sets[ms_id]
-        .action_buffer
-        .borrow_mut();
+    let ms = &job.job_data.match_set_mgr.match_sets[ms_id];
+    let mut ab = ms.action_buffer.borrow_mut();
     let actor_id = ab.add_actor();
+    let active_group_list = tf_state.input_group_list_id;
     job.job_data.field_mgr.fields[out_fid]
         .borrow_mut()
         .first_actor = ActorRef::Unconfirmed(ab.peek_next_actor_id());
@@ -145,6 +145,7 @@ pub fn insert_tf_aggregator(
         .claim_iter(IterKind::Transform(
             job.job_data.tf_mgr.transforms.peek_claim_id(),
         ));
+
     let header_tf_id = add_transform_to_job(
         &mut job.job_data,
         &mut job.transform_data,
@@ -158,7 +159,6 @@ pub fn insert_tf_aggregator(
             iter_id,
         }),
     );
-
     let mut sub_tfs = Vec::with_capacity(op_count);
     for (i, &sub_op_id) in op.sub_ops.iter().enumerate() {
         let mut sub_tf_state = TransformState::new(
@@ -167,6 +167,7 @@ pub fn insert_tf_aggregator(
             ms_id,
             desired_batch_size,
             Some(sub_op_id),
+            active_group_list,
         );
         sub_tf_state.is_split = i + 1 != op.sub_ops.len();
         let instantiation = job.job_data.session_data.operator_data
@@ -185,6 +186,7 @@ pub fn insert_tf_aggregator(
         ms_id,
         desired_batch_size,
         Some(op_id),
+        active_group_list,
     );
     let trailer_tf_id = add_transform_to_job(
         &mut job.job_data,
@@ -209,6 +211,7 @@ pub fn insert_tf_aggregator(
         tfs_begin: header_tf_id,
         tfs_end: trailer_tf_id,
         next_input_field: out_fid,
+        next_group_list: active_group_list,
         continuation: TransformContinuationKind::Regular,
     }
 }

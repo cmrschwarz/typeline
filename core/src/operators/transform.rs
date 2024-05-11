@@ -7,6 +7,7 @@ use crate::{
     job::{Job, JobData, PipelineState, TransformManager},
     record_data::{
         field::{FieldId, FieldManager},
+        group_tracker::GroupListId,
         iter_hall::IterId,
         iters::{BoundedIter, DestructuredFieldDataRef, Iter},
         match_set::{MatchSetId, MatchSetManager},
@@ -147,6 +148,8 @@ pub struct TransformState {
     pub successor: Option<TransformId>,
     pub input_field: FieldId,
     pub output_field: FieldId,
+    pub input_group_list_id: GroupListId,
+    pub output_group_list_id: GroupListId,
     pub available_batch_size: usize,
     pub desired_batch_size: usize,
     pub match_set_id: MatchSetId,
@@ -172,6 +175,7 @@ impl TransformState {
         ms_id: MatchSetId,
         desired_batch_size: usize,
         op_id: Option<OperatorId>,
+        input_group_list_id: GroupListId,
     ) -> Self {
         TransformState {
             available_batch_size: 0,
@@ -188,6 +192,8 @@ impl TransformState {
             done: false,
             mark_for_removal: false,
             is_split: false,
+            input_group_list_id,
+            output_group_list_id: input_group_list_id,
         }
     }
 }

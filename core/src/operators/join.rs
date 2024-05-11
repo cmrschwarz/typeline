@@ -187,7 +187,7 @@ pub fn build_tf_join<'a>(
         group_list_iter_ref: jd.match_set_mgr.match_sets
             [tf_state.match_set_id]
             .group_tracker
-            .claim_group_list_iter_ref_for_active(),
+            .claim_group_list_iter_ref(tf_state.input_group_list_id),
         iter_id: jd.field_mgr.claim_iter(
             tf_state.input_field,
             IterKind::Transform(jd.tf_mgr.transforms.peek_claim_id()),

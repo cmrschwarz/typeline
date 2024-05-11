@@ -21,7 +21,7 @@ use scr_core::{
         field_data::{FieldData, FieldValueRepr},
         field_value_ref::FieldValueSlice,
         field_value_slice_iter::{FieldValueBlock, FieldValueSliceIter},
-        group_tracker::{GroupListId, GroupListIterId},
+        group_tracker::GroupListIterRef,
         iter_hall::{IterId, IterKind},
         push_interface::PushInterface,
         ref_iter::RefAwareFieldValueSliceIter,
@@ -37,8 +37,7 @@ pub struct OpSum {}
 
 pub struct TfSum {
     input_iter_id: IterId,
-    group_list_id: GroupListId,
-    group_list_iter_id: GroupListIterId,
+    group_list_iter: GroupListIterRef,
     aggregate: AnyNumber,
     current_group_error_type: Option<FieldValueRepr>,
     actor_id: ActorId,
@@ -99,10 +98,9 @@ impl Operator for OpSum {
             .floating_point_math;
         TransformInstatiation::Simple(TransformData::Custom(smallbox!(
             TfSum {
-                group_list_id: ms.group_tracker.active_group_list(),
-                group_list_iter_id: ms
+                group_list_iter: ms
                     .group_tracker
-                    .claim_group_list_iter_for_active(),
+                    .claim_group_list_iter_ref(tf_state.input_group_list_id),
                 input_iter_id: jd.field_mgr.claim_iter(
                     tf_state.input_field,
                     IterKind::Transform(jd.tf_mgr.transforms.peek_claim_id())
@@ -150,8 +148,8 @@ impl TfSum {
         let ms = &bud.match_set_mgr.match_sets[bud.match_set_id];
 
         let mut group_iter = ms.group_tracker.lookup_group_list_iter_mut(
-            self.group_list_id,
-            self.group_list_iter_id,
+            self.group_list_iter.list_id,
+            self.group_list_iter.iter_id,
             &ms.action_buffer,
             self.actor_id,
         );
@@ -263,7 +261,7 @@ impl TfSum {
             self.pending_field = true;
             group_iter.drop_backwards(drop_count);
         }
-        group_iter.store_iter(self.group_list_iter_id);
+        group_iter.store_iter(self.group_list_iter.iter_id);
 
         (finished_group_count, bud.ps.input_done)
     }

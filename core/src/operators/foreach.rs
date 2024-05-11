@@ -58,7 +58,7 @@ pub fn setup_op_foreach(
 pub fn insert_tf_foreach(
     job: &mut Job,
     op: &OpForeach,
-    tf_state: TransformState,
+    mut tf_state: TransformState,
     chain_id: ChainId,
     op_id: u32,
     prebound_outputs: &PreboundOutputsMap,
@@ -72,14 +72,20 @@ pub fn insert_tf_foreach(
     let ms_id = tf_state.match_set_id;
     let desired_batch_size = tf_state.desired_batch_size;
     let input_field = tf_state.input_field;
-    let mut trailer_output_field = input_field;
 
     let ms = &mut job.job_data.match_set_mgr.match_sets[ms_id];
     let next_actor_id = ms.action_buffer.borrow().next_actor_ref();
+    let parent_group_list = tf_state.input_group_list_id;
     let parent_group_list_iter =
-        ms.group_tracker.claim_group_list_iter_for_active();
-    let group_list = ms.group_tracker.add_group_list(next_actor_id);
-    ms.group_tracker.push_active_group_list(group_list);
+        ms.group_tracker.claim_group_list_iter(parent_group_list);
+    let group_list = ms
+        .group_tracker
+        .add_group_list(Some(parent_group_list), next_actor_id);
+    tf_state.output_group_list_id = group_list;
+
+    let mut trailer_output_field = input_field;
+    let mut trailer_output_group_list = parent_group_list;
+
     let header_tf_id = add_transform_to_job(
         &mut job.job_data,
         &mut job.transform_data,
@@ -94,10 +100,12 @@ pub fn insert_tf_foreach(
             ms_id,
             op_id,
             input_field,
+            group_list,
             None,
             prebound_outputs,
         );
         trailer_output_field = instantiation.next_input_field;
+        trailer_output_group_list = instantiation.next_group_list;
         job.job_data.tf_mgr.transforms[header_tf_id].successor =
             Some(instantiation.tfs_begin);
         (instantiation.tfs_end, instantiation.continuation)
@@ -110,6 +118,7 @@ pub fn insert_tf_foreach(
                 tfs_begin: header_tf_id,
                 tfs_end: last_tf_id,
                 next_input_field: trailer_output_field,
+                next_group_list: trailer_output_group_list,
                 continuation: cont,
             };
         }
@@ -120,13 +129,15 @@ pub fn insert_tf_foreach(
         .field_mgr
         .inc_field_refcount(trailer_output_field, 2);
 
-    let trailer_tf_state = TransformState::new(
+    let mut trailer_tf_state = TransformState::new(
         trailer_output_field,
         trailer_output_field,
         ms_id,
         desired_batch_size,
         Some(op_id),
+        group_list,
     );
+    trailer_tf_state.output_group_list_id = parent_group_list;
     let trailer_tf_id = add_transform_to_job(
         &mut job.job_data,
         &mut job.transform_data,
@@ -134,14 +145,12 @@ pub fn insert_tf_foreach(
         TransformData::ForeachTrailer(TfForeachTrailer { group_list }),
     );
     job.job_data.tf_mgr.transforms[last_tf_id].successor = Some(trailer_tf_id);
-    job.job_data.match_set_mgr.match_sets[ms_id]
-        .group_tracker
-        .pop_active_group_list();
 
     OperatorInstantiation {
         tfs_begin: header_tf_id,
         tfs_end: trailer_tf_id,
         next_input_field: trailer_output_field,
+        next_group_list: parent_group_list,
         continuation: TransformContinuationKind::Regular,
     }
 }

@@ -15,6 +15,7 @@ use crate::{
     record_data::{
         action_buffer::ActorRef,
         field::{FieldId, VOID_FIELD_ID},
+        group_tracker::VOID_GROUP_LIST_ID,
     },
     utils::{
         identity_hasher::BuildIdentityHasher, string_store::StringStoreEntry,
@@ -282,6 +283,7 @@ pub fn insert_tf_forkcat<'a>(
         tfs_begin: fc_tf_id,
         tfs_end: cont_end,
         next_input_field: cont_instantiation.next_input_field,
+        next_group_list: cont_instantiation.next_group_list,
         continuation: TransformContinuationKind::SelfExpanded,
     }
 }
@@ -373,6 +375,8 @@ fn setup_continuation(
         output_ms_id,
         cont_op_id,
         cont_input_field,
+        // TODO: //HACK:
+        VOID_GROUP_LIST_ID,
         Some(begin),
         &HashMap::default(),
     );
@@ -446,6 +450,8 @@ fn expand_for_subchain(sess: &mut Job, tf_id: TransformId, sc_n: u32) {
         tgt_ms_id,
         sess.job_data.session_data.chains[sc_id as usize].operators[0],
         subchain_input_field,
+        // TODO: //HACK
+        VOID_GROUP_LIST_ID,
         None,
         &prebound_outputs,
     );

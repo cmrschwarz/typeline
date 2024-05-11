@@ -83,6 +83,7 @@ pub fn add_terminator(sess: &mut Job, last_tf_id: TransformId) -> TransformId {
         last_tf.match_set_id,
         last_tf.desired_batch_size,
         None,
+        last_tf.output_group_list_id,
     );
     sess.job_data.field_mgr.inc_field_refcount(VOID_FIELD_ID, 2);
     let tf_data = setup_tf_terminator(&mut sess.job_data, &tf_state);

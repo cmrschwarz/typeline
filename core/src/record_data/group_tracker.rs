@@ -26,6 +26,7 @@ pub type GroupLen = usize;
 pub type GroupListIterId = u32;
 type GroupListIterSortedIndex = u32;
 pub type GroupListId = DebuggableNonMaxU32;
+pub const VOID_GROUP_LIST_ID: GroupListId = GroupListId::MAX;
 
 #[derive(Clone, Copy)]
 pub struct GroupListIterRef {
@@ -68,9 +69,8 @@ pub struct GroupList {
 }
 
 pub struct GroupTracker {
-    lists: Universe<GroupListId, RefCell<GroupList>>,
+    pub lists: Universe<GroupListId, RefCell<GroupList>>,
     last_group: GroupListId,
-    active_lists: Vec<GroupListId>,
 }
 
 pub struct GroupListIter<L> {
@@ -127,12 +127,9 @@ impl PartialOrd for GroupsIterState {
 
 impl Default for GroupTracker {
     fn default() -> Self {
-        let mut lists = Universe::default();
-        let dummy_gl = lists.claim();
         Self {
-            lists,
-            last_group: dummy_gl,
-            active_lists: vec![dummy_gl],
+            lists: Universe::default(),
+            last_group: VOID_GROUP_LIST_ID,
         }
     }
 }
@@ -481,10 +478,7 @@ impl GroupList {
                 crate::record_data::action_buffer::eprint_action_list(
                     actions.clone(),
                 );
-                eprint!(
-                    "   before: {} + {:?}",
-                    self.passed_fields_count, self.group_lengths
-                );
+                eprint!("   before: {self}",);
                 #[cfg(feature = "iter_state_logging")]
                 self.eprint_iter_states(4);
                 eprintln!();
@@ -492,10 +486,7 @@ impl GroupList {
             self.apply_field_actions_list(actions);
             #[cfg(feature = "debug_logging")]
             {
-                eprint!(
-                    "   after:  {} + {:?}",
-                    self.passed_fields_count, self.group_lengths
-                );
+                eprint!("   after:  {self}",);
                 #[cfg(feature = "iter_state_logging")]
                 self.eprint_iter_states(4);
                 eprintln!();
@@ -512,10 +503,7 @@ impl GroupList {
                 self.id,
                 if end_of_input { "(eof)" } else { "" }
             );
-            eprint!(
-                "   before:  {} + {:?}",
-                self.passed_fields_count, self.group_lengths
-            );
+            eprint!("   before:  {self}",);
             #[cfg(feature = "iter_state_logging")]
             self.eprint_iter_states(8);
             eprintln!();
@@ -545,10 +533,7 @@ impl GroupList {
         self.passed_fields_count += count;
         #[cfg(feature = "debug_logging")]
         {
-            eprint!(
-                "   after:  {} + {:?}",
-                self.passed_fields_count, self.group_lengths
-            );
+            eprint!("   after:  {self}",);
             #[cfg(feature = "iter_state_logging")]
             self.eprint_iter_states(8);
             eprintln!();
@@ -742,12 +727,16 @@ impl GroupList {
 }
 
 impl GroupTracker {
-    pub fn add_group_list(&mut self, actor: ActorRef) -> GroupListId {
+    pub fn add_group_list(
+        &mut self,
+        parent_list: Option<GroupListId>,
+        actor: ActorRef,
+    ) -> GroupListId {
         let id = self.lists.peek_claim_id();
         self.lists.claim_with_value(RefCell::new(GroupList {
             id,
             actor,
-            parent_list: self.active_lists.last().copied(),
+            parent_list,
             prev_list: Some(self.last_group),
             group_index_offset: 0,
             passed_fields_count: 0,
@@ -760,12 +749,6 @@ impl GroupTracker {
         }));
         self.last_group = id;
         id
-    }
-    pub fn push_active_group_list(&mut self, group_list_id: GroupListId) {
-        self.active_lists.push(group_list_id);
-    }
-    pub fn pop_active_group_list(&mut self) -> Option<GroupListId> {
-        self.active_lists.pop()
     }
     pub fn claim_group_list_iter(
         &mut self,
@@ -781,14 +764,6 @@ impl GroupTracker {
             list_id,
             iter_id: self.claim_group_list_iter(list_id),
         }
-    }
-    pub fn claim_group_list_iter_for_active(&mut self) -> GroupListIterId {
-        self.claim_group_list_iter(self.active_group_list())
-    }
-    pub fn claim_group_list_iter_ref_for_active(
-        &mut self,
-    ) -> GroupListIterRef {
-        self.claim_group_list_iter_ref(self.active_group_list())
     }
     pub fn lookup_group_list_iter(
         &self,
@@ -825,9 +800,6 @@ impl GroupTracker {
         iter: &GroupListIter<L>,
     ) {
         self.lists[list_id].borrow_mut().store_iter(iter_id, iter);
-    }
-    pub fn active_group_list(&self) -> GroupListId {
-        self.active_lists.last().copied().unwrap()
     }
     pub fn apply_actions_to_list_and_parents(
         &self,
@@ -875,19 +847,19 @@ impl GroupTracker {
             .borrow_mut()
             .apply_field_actions(ab)
     }
-    pub fn append_group_to_all_active_lists(&mut self, field_count: usize) {
-        let mut parent_idx = None;
-        let mut prev = None;
-        for &gl_idx in &self.active_lists {
-            let mut gl = self.lists[gl_idx].borrow_mut();
+    pub fn append_group_to_list(
+        &mut self,
+        group_list_id: GroupListId,
+        field_count: usize,
+    ) {
+        let mut gl_id = group_list_id;
+        loop {
+            let mut gl = self.lists[gl_id].borrow_mut();
             gl.group_lengths.push_back(field_count);
-            debug_assert!(gl.parent_list.is_some() == parent_idx.is_some());
-            debug_assert!(gl.parent_list == prev);
-            if let Some(parent_idx) = parent_idx {
-                gl.parent_group_indices_stable.push_back(parent_idx);
-            }
-            parent_idx = Some(gl.next_group_idx());
-            prev = Some(gl_idx);
+            let Some(parent_id) = gl.parent_list else {
+                break;
+            };
+            gl_id = parent_id;
         }
     }
     pub fn borrow_group_list(

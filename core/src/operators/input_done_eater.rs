@@ -2,7 +2,10 @@ use super::transform::{TransformData, TransformId, TransformState};
 use crate::{
     chain::ChainId,
     job::{add_transform_to_job, Job, JobData},
-    record_data::{field::VOID_FIELD_ID, match_set::MatchSetId},
+    record_data::{
+        field::VOID_FIELD_ID, group_tracker::VOID_GROUP_LIST_ID,
+        match_set::MatchSetId,
+    },
 };
 
 // we use this e.g. as the successor of TfForcat subchains, to prevent
@@ -59,6 +62,8 @@ pub fn add_input_done_eater(
         ms_id,
         batch_size,
         None,
+        // TODO: remove this guy completely in favor of foreach trailer
+        VOID_GROUP_LIST_ID,
     );
     sess.job_data.field_mgr.inc_field_refcount(VOID_FIELD_ID, 2);
     let tf_data = setup_tf_input_done_eater(&mut tf_state, input_dones_to_eat);

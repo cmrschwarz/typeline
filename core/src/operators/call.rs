@@ -6,7 +6,9 @@ use crate::{
     chain::ChainId,
     job::{Job, JobData},
     options::argument::CliArgIdx,
-    record_data::{field::FieldId, match_set::MatchSetId},
+    record_data::{
+        field::FieldId, group_tracker::GroupListId, match_set::MatchSetId,
+    },
     utils::{
         identity_hasher::BuildIdentityHasher,
         string_store::{StringStore, StringStoreEntry},
@@ -113,6 +115,7 @@ pub(crate) fn handle_eager_call_expansion(
     sess: &mut Job,
     ms_id: MatchSetId,
     input_field: FieldId,
+    group_list: GroupListId,
     predecessor_tf: Option<TransformId>,
 ) -> OperatorInstantiation {
     let chain = &sess.job_data.session_data.chains
@@ -121,6 +124,7 @@ pub(crate) fn handle_eager_call_expansion(
         ms_id,
         chain.operators[0],
         input_field,
+        group_list,
         predecessor_tf,
         &HashMap::default(),
     )
@@ -130,6 +134,7 @@ pub(crate) fn handle_lazy_call_expansion(sess: &mut Job, tf_id: TransformId) {
     let tf = &mut sess.job_data.tf_mgr.transforms[tf_id];
     let old_successor = tf.successor;
     let input_field = tf.input_field;
+    let input_group_list = tf.input_group_list_id;
     let ms_id = tf.match_set_id;
     let TransformData::Call(call) = &sess.transform_data[tf_id.get()] else {
         unreachable!()
@@ -140,6 +145,7 @@ pub(crate) fn handle_lazy_call_expansion(sess: &mut Job, tf_id: TransformId) {
         ms_id,
         sess.job_data.session_data.chains[call.target as usize].operators[0],
         input_field,
+        input_group_list,
         Some(tf_id),
         &HashMap::default(),
     );
