@@ -24,7 +24,7 @@ use super::{
     field_value_ref::FieldValueRef,
 };
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct StreamValueDataOffset {
     pub values_consumed: usize,
     pub current_value_offset: usize,
@@ -406,6 +406,7 @@ impl<'a, 'b> StreamValueDataInserter<'a, 'b> {
         if clear_if_streaming && !stream_value.is_buffered() {
             stream_value.data.retain(|svd| !svd.is_ref_type());
             dead_elems_leading = stream_value.data.len();
+            stream_value.reset_subscriber_offsets();
         }
         let memory_budget = match stream_value.buffer_mode {
             StreamValueBufferMode::Stream => {
@@ -843,8 +844,14 @@ impl<'a> StreamValue<'a> {
             true,
         )
     }
+    pub fn reset_subscriber_offsets(&mut self) {
+        for sub in &mut self.subscribers {
+            sub.data_offset = StreamValueDataOffset::default();
+        }
+    }
     pub fn clear_buffer(&mut self) {
-        self.data.clear()
+        self.data.clear();
+        self.reset_subscriber_offsets();
     }
     pub fn clear_if_streaming(&mut self) {
         if !self.buffer_mode.is_streaming() {
@@ -1486,9 +1493,10 @@ impl TryFrom<FieldValue> for StreamValueData<'static> {
 
 impl<'a> StreamValueManager<'a> {
     pub fn inform_stream_value_subscribers(&mut self, sv_id: StreamValueId) {
-        let sv = &self.stream_values[sv_id];
+        let sv = &mut self.stream_values[sv_id];
         let last_sub = sv.subscribers.len().saturating_sub(1);
-        for (i, sub) in sv.subscribers.iter().enumerate() {
+        let new_data_offset = sv.curr_data_offset();
+        for (i, sub) in sv.subscribers.iter_mut().enumerate() {
             if !sub.notify_only_once_done || sv.done {
                 self.updates.push_back(StreamValueUpdate {
                     sv_id,
@@ -1497,6 +1505,7 @@ impl<'a> StreamValueManager<'a> {
                     data_offset: sub.data_offset,
                     may_consume_data: i == last_sub,
                 });
+                sub.data_offset = new_data_offset;
             }
         }
         #[cfg(feature = "debug_logging")]

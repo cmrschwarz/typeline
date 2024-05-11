@@ -135,6 +135,7 @@ pub fn write_stream_val_check_done(
         return Ok(true);
     }
     for data in sv.data_iter(offset) {
+        // TODO: handle other data types?
         stream.write(data.as_bytes()).map_err(|e| (0, e))?;
     }
     if sv.done {
@@ -479,6 +480,7 @@ pub fn handle_tf_print_stream_value_update(
     let mut err_message = None;
 
     let mut stream = print.target.aquire(false);
+
     match write_stream_val_check_done(
         sv,
         update.data_offset,
