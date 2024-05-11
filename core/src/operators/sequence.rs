@@ -103,8 +103,7 @@ pub fn build_tf_sequence<'a>(
 
     let group_list_iter_ref = (!matches!(op.mode, OpSequenceMode::Sequence))
         .then(|| {
-            jd.match_set_mgr.match_sets[tf_state.match_set_id]
-                .group_tracker
+            jd.group_tracker
                 .claim_group_list_iter_ref(tf_state.input_group_list_id)
         });
 
@@ -215,7 +214,7 @@ pub fn handle_tf_sequence(
         input_field_id,
         seq,
         ab: &ms.action_buffer,
-        gt: &mut ms.group_tracker,
+        gt: &mut jd.group_tracker,
         fm: &jd.field_mgr,
         tf_mgr: &mut jd.tf_mgr,
         iter,
@@ -406,7 +405,9 @@ fn handle_enum_mode(mut sbs: SequenceBatchState) {
             set_done = false;
             sbs.seq.current_value = sbs.seq.ss.start;
             seq_size_rem = sbs.seq.seq_len_total;
-            group_iter.skip_empty_groups();
+            let groups_skipped = group_iter.skip_empty_groups();
+            // otherwise we would loop infinitely
+            debug_assert!(groups_skipped > 0 || field_count > 0);
         }
     }
     sbs.fm

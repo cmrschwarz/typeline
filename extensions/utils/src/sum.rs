@@ -98,7 +98,7 @@ impl Operator for OpSum {
             .floating_point_math;
         TransformInstatiation::Simple(TransformData::Custom(smallbox!(
             TfSum {
-                group_list_iter: ms
+                group_list_iter: jd
                     .group_tracker
                     .claim_group_list_iter_ref(tf_state.input_group_list_id),
                 input_iter_id: jd.field_mgr.claim_iter(
@@ -147,7 +147,7 @@ impl TfSum {
 
         let ms = &bud.match_set_mgr.match_sets[bud.match_set_id];
 
-        let mut group_iter = ms.group_tracker.lookup_group_list_iter_mut(
+        let mut group_iter = bud.group_tracker.lookup_group_list_iter_mut(
             self.group_list_iter.list_id,
             self.group_list_iter.iter_id,
             &ms.action_buffer,

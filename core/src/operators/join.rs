@@ -184,8 +184,7 @@ pub fn build_tf_join<'a>(
         stream_len_threshold: settings.stream_size_threshold,
         stream_buffer_size: settings.stream_buffer_size,
         input_field_ref_offset,
-        group_list_iter_ref: jd.match_set_mgr.match_sets
-            [tf_state.match_set_id]
+        group_list_iter_ref: jd
             .group_tracker
             .claim_group_list_iter_ref(tf_state.input_group_list_id),
         iter_id: jd.field_mgr.claim_iter(
@@ -542,12 +541,10 @@ pub fn handle_tf_join<'a>(
     let mut prebuffered_record = join.first_record_added;
     let mut string_store = LazyRwLockGuard::new(&jd.session_data.string_store);
 
-    let ms = &jd.match_set_mgr.match_sets[ms_id];
-
-    let mut groups_iter = ms.group_tracker.lookup_group_list_iter_mut(
+    let mut groups_iter = jd.group_tracker.lookup_group_list_iter_mut(
         join.group_list_iter_ref.list_id,
         join.group_list_iter_ref.iter_id,
-        &ms.action_buffer,
+        &jd.match_set_mgr.match_sets[ms_id].action_buffer,
         join.actor_id,
     );
 
