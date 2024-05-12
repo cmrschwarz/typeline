@@ -249,7 +249,7 @@ fn stream_error_in_join() -> Result<(), ScrError> {
 }
 
 #[test]
-fn stream_into_dup_into_join() -> Result<(), ScrError> {
+fn stream_into_dup_into_join_with_regex() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .set_stream_buffer_size(2)
@@ -271,6 +271,28 @@ fn stream_into_dup_into_join() -> Result<(), ScrError> {
             .unwrap(),
         )
         .add_op(create_op_select("foo".to_owned()))
+        .add_op(create_op_join(
+            Some(MaybeText::from_bytes(b",")),
+            Some(3),
+            true,
+        ))
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(ss.get().data.as_slice(), ["foo,foo,foo"]);
+    Ok(())
+}
+
+#[test]
+fn stream_into_dup_into_join() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::default();
+    ContextBuilder::default()
+        .set_stream_buffer_size(2)
+        .set_batch_size(2)
+        .add_op(create_op_file_reader_custom(
+            Box::new(SliceReader::new("foo".as_bytes())),
+            0,
+        ))
+        .add_op(create_op_dup(3))
         .add_op(create_op_join(
             Some(MaybeText::from_bytes(b",")),
             Some(3),

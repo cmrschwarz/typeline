@@ -826,12 +826,30 @@ fn push_partial_stream_value_and_sub<'a>(
 ) {
     let gbi = get_active_group_batch(join, sv_mgr);
     let gb = &mut join.group_batches[gbi];
+
+    if let Some(GroupBatchEntry {
+        data: GroupBatchEntryData::StreamValueId { id, .. },
+        run_length,
+    }) = gb.outstanding_values.back_mut()
+    {
+        // This is not a micro optimization, but neccessary for correctness.
+        // Due to batching, we might hit the same stream value multiple times
+        // directly behind each other. We have to prevent double submits
+        // because otherwise the 'leading stream value done' logic in
+        // `handle_tf_join_stream_value_update` will fire twice
+        if *id == sv_id {
+            *run_length += rl;
+            return;
+        }
+    }
+
     let (sv, out_sv) = sv_mgr
         .stream_values
         .two_distinct_mut(sv_id, gb.output_stream_value);
     let mut buffered = false;
+    let streaming_emit = gb.outstanding_values.is_empty();
 
-    if gb.outstanding_values.is_empty() {
+    if streaming_emit {
         let mut inserter = out_sv.data_inserter(
             gb.output_stream_value,
             join.stream_buffer_size,
@@ -845,7 +863,8 @@ fn push_partial_stream_value_and_sub<'a>(
             }
         }
         inserter.extend_from_cursor(&mut iter);
-    } else {
+    }
+    if !streaming_emit || rl > 1 {
         // PERF: we might be able to avoid this if pending_stream_values == 0?
         sv.make_buffered();
         buffered = true;
@@ -854,12 +873,12 @@ fn push_partial_stream_value_and_sub<'a>(
     gb.outstanding_values.push_back(GroupBatchEntry {
         data: GroupBatchEntryData::StreamValueId {
             id: sv_id,
-            streaming_emit: !buffered,
+            streaming_emit,
         },
         run_length: rl,
     });
     gb.pending_stream_values += 1;
-    sv.subscribe(sv_id, tf_id, gbi.get(), buffered, !buffered);
+    sv.subscribe(sv_id, tf_id, gbi.get(), buffered, streaming_emit);
 }
 
 fn push_custom_type<'a>(
@@ -926,7 +945,7 @@ pub fn handle_tf_join_stream_value_update(
                 id: front_id,
                 streaming_emit,
             },
-        ..
+        run_length: group_batch_run_len,
     }) = gb.outstanding_values.front()
     else {
         return;
@@ -943,8 +962,10 @@ pub fn handle_tf_join_stream_value_update(
 
         let mut inserter =
             out_sv.data_inserter(out_sv_id, stream_buffer_size, true);
-        inserter
-            .extend_from_cursor(&mut in_sv.data_cursor_from_update(&update));
+        inserter.extend_from_cursor(&mut in_sv.data_cursor(
+            update.data_offset,
+            update.may_consume_data && *group_batch_run_len == 1,
+        ));
     }
 
     if in_sv.done {
@@ -1037,7 +1058,7 @@ fn handle_group_batch_producer_update<'a>(
 
     while let Some(entry) = gb.outstanding_values.front_mut() {
         let mut rl_consumed = 0;
-        match &entry.data {
+        match &mut entry.data {
             GroupBatchEntryData::Data(data) => {
                 while rl_consumed < entry.run_length {
                     if let Some(sep) = join.separator {
@@ -1070,27 +1091,26 @@ fn handle_group_batch_producer_update<'a>(
                     break;
                 }
                 if *streaming_emit {
-                    debug_assert!(entry.run_length == 1);
                     rl_consumed += 1;
-                } else {
-                    // PERF: we should make sure to avoid creating the
-                    // same buffer multiple times here
-                    while rl_consumed < entry.run_length {
-                        if let Some(sep) = join.separator {
-                            inserter.append(
-                                StreamValueData::from_maybe_text_ref(sep),
-                            );
-                        }
-                        rl_consumed += 1;
-                        inserter.extend_from_cursor(&mut sv.data_cursor(
-                            StreamValueDataOffset::default(),
-                            rl_consumed == entry.run_length,
-                        ));
-                        if inserter.memory_budget_reached() {
-                            break;
-                        }
+                    *streaming_emit = false;
+                }
+                // PERF: we should make sure to avoid creating the
+                // same buffer multiple times here
+                while rl_consumed < entry.run_length {
+                    if let Some(sep) = join.separator {
+                        inserter
+                            .append(StreamValueData::from_maybe_text_ref(sep));
+                    }
+                    rl_consumed += 1;
+                    inserter.extend_from_cursor(&mut sv.data_cursor(
+                        StreamValueDataOffset::default(),
+                        rl_consumed == entry.run_length,
+                    ));
+                    if inserter.memory_budget_reached() {
+                        break;
                     }
                 }
+
                 if rl_consumed == entry.run_length {
                     streams_handout.release(*id);
                 }

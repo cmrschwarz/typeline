@@ -70,7 +70,7 @@ fn custom_type_that_cannot_stringify() -> Result<(), ScrError> {
         .run()?;
     assert_eq!(
         ss.get().get_first_error_message(),
-        Some("failed to stringify custom type 'dummy_no_stringify': not supported")
+        Some("failed to stringify custom type 'dummy_no_stringify': unsupported")
     );
     Ok(())
 }
