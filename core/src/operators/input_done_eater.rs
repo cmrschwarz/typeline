@@ -36,7 +36,7 @@ pub fn handle_tf_input_done_eater(
         ide.input_dones_to_eat -= 1;
         #[cfg(feature = "debug_logging")]
         println!(
-            "  tf {}: input_done_eater chomped, {} remaining",
+            "  tf {:02}: input_done_eater chomped, {} remaining",
             tf_id, ide.input_dones_to_eat
         );
     }

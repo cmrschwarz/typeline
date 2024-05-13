@@ -469,7 +469,7 @@ impl GroupList {
 
             let actions = s1.iter().chain(s2.iter());
 
-            #[cfg(feature = "debug_logging")]
+            #[cfg(feature = "field_action_logging")]
             {
                 eprintln!(
                     "applying actions to group list {:02} (actor {:02}):",
@@ -484,7 +484,7 @@ impl GroupList {
                 eprintln!();
             }
             self.apply_field_actions_list(actions);
-            #[cfg(feature = "debug_logging")]
+            #[cfg(feature = "field_action_logging")]
             {
                 eprint!("   after:  {self}",);
                 #[cfg(feature = "iter_state_logging")]

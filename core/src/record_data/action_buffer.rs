@@ -374,10 +374,10 @@ impl ActionBuffer {
         let mut agq = &mut self.actors[ai].action_group_queues[0];
         let actions_start =
             agq.actions.next_free_index().wrapping_sub(action_count);
-        #[cfg(feature = "debug_logging")]
+        #[cfg(feature = "field_action_group_logging")]
         {
             eprintln!(
-                "ms {}, actor {}: added action group {}:",
+                "added action group {}, ms {}, actor {}: :",
                 self.match_set_id,
                 ai,
                 agq.action_groups.next_free_index()
@@ -576,7 +576,7 @@ impl ActionBuffer {
             agi,
         )
     }
-    #[cfg_attr(not(feature = "action_group_logging"), allow(unused))]
+    #[cfg_attr(not(feature = "field_action_group_logging"), allow(unused))]
     pub(super) fn get_action_group_iter(
         &self,
         agi: &ActionGroupIdentifier,
@@ -610,7 +610,7 @@ impl ActionBuffer {
         next_succ: ActionGroupId,
         ag: &ActionGroupIdentifier,
     ) -> ActionGroupIdentifier {
-        #[cfg(feature = "action_group_logging")]
+        #[cfg(feature = "field_action_group_logging")]
         eprintln!(
             "@ appending action group to actor {actor_id} pow2 {pow2} (group count: {}): \n    > {ag:?}",
             self.actors[actor_id].action_group_queues[pow2 as usize].action_groups.len()
@@ -655,7 +655,7 @@ impl ActionBuffer {
     ) -> Option<ActionGroupIdentifier> {
         if let Some(lhs) = lhs {
             if let Some(rhs) = rhs {
-                #[cfg(feature = "action_group_logging")]
+                #[cfg(feature = "field_action_group_logging")]
                 {
                     eprintln!("@ merging actor {actor_id} pow2 {pow2}:");
                     eprintln!("  + {lhs:?}");
@@ -709,7 +709,7 @@ impl ActionBuffer {
                     group: ag,
                     location: ActionGroupLocation::Regular { actor_id, pow2 },
                 };
-                #[cfg(feature = "action_group_logging")]
+                #[cfg(feature = "field_action_group_logging")]
                 {
                     eprintln!(" -> {res:?}");
                     eprint_action_list(self.get_action_group_iter(&res));
@@ -737,7 +737,7 @@ impl ActionBuffer {
                 let (l1, l2) = self.get_action_group_slices(lhs);
                 let (r1, r2) = self.get_action_group_slices(rhs);
 
-                #[cfg(feature = "action_group_logging")]
+                #[cfg(feature = "field_action_group_logging")]
                 {
                     eprintln!("@ merging into temp:");
                     eprintln!("  + {lhs:?}");
@@ -774,7 +774,7 @@ impl ActionBuffer {
                     },
                     location: ActionGroupLocation::TempBuffer { idx },
                 };
-                #[cfg(feature = "action_group_logging")]
+                #[cfg(feature = "field_action_group_logging")]
                 {
                     eprintln!(" -> {res:?}");
                     eprint_action_list(self.get_action_group_iter(&res));
@@ -1151,7 +1151,7 @@ impl ActionBuffer {
             return None;
         }
         self.bump_snapshot_refcount(actor_ss, 1);
-        #[cfg(feature = "action_group_logging")]
+        #[cfg(feature = "field_action_group_logging")]
         eprintln!(
             "@ updated snapshot for {}: \n - prev: {}\n - next: {}",
             match subscriber {
@@ -1193,7 +1193,7 @@ impl ActionBuffer {
             agi,
         );
         let actions = s1.iter().chain(s2);
-        #[cfg(feature = "debug_logging")]
+        #[cfg(feature = "field_action_logging")]
         {
             let field = fm.fields[field_id].borrow();
             eprintln!(
@@ -1249,7 +1249,7 @@ impl ActionBuffer {
             field_count,
             iterators,
         );
-        #[cfg(feature = "debug_logging")]
+        #[cfg(feature = "field_action_logging")]
         {
             drop(field_ref_mut);
             eprint!("   + after: ");
@@ -1785,7 +1785,7 @@ impl ActionBuffer {
             && !all_data_dead;
 
         if all_data_dead {
-            if cfg!(feature = "debug_logging") {
+            if cfg!(feature = "field_action_logging") {
                 eprintln!(
                 "clearing field {} (ms {}, first actor: {}, field_count: {}) ({}):",
                 field_id, field_ms_id, actor_id, field_count,
@@ -1876,7 +1876,7 @@ impl ActionBuffer {
                 field_id, self.match_set_id, actor_id,
             );
         }
-        #[cfg(feature = "action_group_logging")]
+        #[cfg(feature = "field_action_group_logging")]
         eprintln!(
             "@ updated snapshot for field {field_id}: \n - prev: {}\n - next: {}",
             self.stringify_snapshot(actor_id, *snapshot),

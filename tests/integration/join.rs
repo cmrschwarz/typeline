@@ -344,10 +344,26 @@ fn join_on_error(#[case] batch_size: usize) -> Result<(), ScrError> {
 }
 
 #[test]
-fn join_with_value_between_streams() -> Result<(), ScrError> {
+fn join_as_stream_producer() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .set_stream_size_threshold(1)
+        .add_op(create_op_str("AAA"))
+        .add_op_appending(create_op_int(42))
+        .add_op_appending(create_op_str("BBB"))
+        .add_op(create_op_join_str(", ", 0))
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(ss.get_data().unwrap().as_slice(), ["AAA, 42, BBB"]);
+    Ok(())
+}
+
+#[test]
+fn join_with_value_between_streams() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::default();
+    ContextBuilder::default()
+        .set_stream_size_threshold(2)
+        .set_stream_buffer_size(2)
         .add_op(create_op_file_reader_custom(
             Box::new(SliceReader::new(b"AAA")),
             0,

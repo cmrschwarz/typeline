@@ -218,10 +218,10 @@ impl TransformManager {
     pub fn make_stream_producer(&mut self, tf_id: TransformId) {
         let tf = &mut self.transforms[tf_id];
         if !tf.is_stream_producer {
-            #[cfg(feature = "debug_logging")]
+            #[cfg(feature = "stream_logging")]
             {
                 eprintln!(
-                    ">> tf {tf_id:02} became a stream producer: {:?}, stack: {:?}, cutoff: {}",
+                    ":: tf {tf_id:02} became a stream producer: {:?}, stack: {:?}, cutoff: {}",
                     self.stream_producers,
                     self.ready_stack,
                     self.pre_stream_transform_stack_cutoff
@@ -334,7 +334,7 @@ impl<'a> Job<'a> {
             for (i, tf) in self.job_data.tf_mgr.transforms.iter_enumerated() {
                 let name = self.transform_data[i.get()].display_name();
                 eprintln!(
-                    "tf {} -> {} [fields {} {} {}] (ms {}): {}",
+                    "tf {:02} -> {} [fields {} {} {}] (ms {}): {}",
                     i,
                     if let Some(s) = tf.successor {
                         format!("{s}")
@@ -699,16 +699,21 @@ impl<'a> Job<'a> {
         {
             let jd = &mut self.job_data;
             eprintln!(
-            "> handling stream value {} update for tf {} (`{}`): producers: {:?}, stack: {:?}, cutoff: {:?}",
-            svu.sv_id,
-            svu.tf_id,
-            self.transform_data[svu.tf_id.get()].display_name(),
-            jd.tf_mgr.stream_producers,
-            jd.tf_mgr.ready_stack,
-            jd.tf_mgr.pre_stream_transform_stack_cutoff
-
-        );
-            eprintln!("     pending updates: {:?}", jd.sv_mgr.updates);
+                ">    stream value update tf {:02} {:>20}, sv: {:02}, producers: {:?}, stack: {:?}, cutoff: {:?}",
+                svu.tf_id,
+                format!("`{}`", self.transform_data[svu.tf_id.get()].display_name()),
+                svu.sv_id,
+                jd.tf_mgr.stream_producers,
+                jd.tf_mgr.ready_stack,
+                jd.tf_mgr.pre_stream_transform_stack_cutoff
+            );
+            #[cfg(feature = "stream_logging")]
+            if !jd.sv_mgr.updates.is_empty() {
+                eprintln!(
+                    "     :: pending sv updates: {:?}",
+                    jd.sv_mgr.updates
+                );
+            }
         }
         transform_stream_value_update(self, svu);
     }
@@ -721,8 +726,8 @@ impl<'a> Job<'a> {
         {
             let tf = &self.job_data.tf_mgr.transforms[tf_id];
             eprintln!(
-            "> handling tf {tf_id} `{}`, in_fid: {}, bsa: {}, pred_done: {}, done: {}, stack: {:?}",
-            self.transform_data[tf_id.get()].display_name(),
+            ">       transform update tf {tf_id:02} {:>20}, in_fid: {}, bsa: {}, pred_done: {:>5}, done: {:>5}, stack:{:?}",
+            format!("`{}`", self.transform_data[tf_id.get()].display_name()),
             tf.input_field,
             tf.available_batch_size,
             tf.predecessor_done,
@@ -743,7 +748,7 @@ impl<'a> Job<'a> {
             let tf = &self.job_data.tf_mgr.transforms[tf_id];
             let output_field_id = tf.output_field;
             eprint!(
-                "/> tf {} `{}` output field: ",
+                "/> tf {:02} `{}` output field: ",
                 tf_id,
                 self.transform_data[tf_id.get()].display_name()
             );
@@ -762,23 +767,15 @@ impl<'a> Job<'a> {
     pub(crate) fn run_stream_producer_update(&mut self, tf_id: TransformId) {
         #[cfg(feature = "debug_logging")]
         eprintln!(
-            "> handling stream producer update for tf {} (`{}`), producers: {:?}, stack: {:?}",
+            "> stream producer update tf {:02} {:>20}, producers: {:?}, stack: {:?}",
             tf_id,
-            self.transform_data[tf_id.get()].display_name(),
+            format!("`{}`", self.transform_data[tf_id.get()].display_name()),
             self.job_data.tf_mgr.stream_producers,
             self.job_data.tf_mgr.ready_stack,
         );
         let tf_state = &mut self.job_data.tf_mgr.transforms[tf_id];
         tf_state.is_stream_producer = false;
         stream_producer_update(self, tf_id);
-        #[cfg(feature = "debug_logging")]
-        eprintln!(
-            "/> finished stream producer update for tf {} (`{}`), producers: {:?}, stack: {:?}",
-            tf_id,
-            self.transform_data[tf_id.get()].display_name(),
-            self.job_data.tf_mgr.stream_producers,
-            self.job_data.tf_mgr.ready_stack,
-        );
     }
     pub fn is_in_streaming_mode(&self) -> bool {
         !self.job_data.tf_mgr.stream_producers.is_empty()
