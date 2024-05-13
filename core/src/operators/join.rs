@@ -89,8 +89,9 @@ struct GroupBatchEntry<'a> {
 
 struct GroupBatch<'a> {
     output_stream_value: StreamValueId,
-    pending_stream_values: usize,
     outstanding_values: VecDeque<GroupBatchEntry<'a>>,
+    has_leading_streaming_input_sv: bool,
+    is_producer: bool,
 }
 
 type GroupBatchId = DebuggableNonMaxUsize;
@@ -123,7 +124,7 @@ pub struct TfJoin<'a> {
     active_group_batch_appended: bool,
 
     group_batches: Universe<GroupBatchId, GroupBatch<'a>>,
-    pending_group_batches: Vec<GroupBatchId>,
+    producing_batches: Vec<GroupBatchId>,
 }
 
 lazy_static::lazy_static! {
@@ -204,7 +205,7 @@ pub fn build_tf_join<'a>(
         active_stream_value_appended: false,
         active_group_batch_appended: false,
         group_batches: Universe::default(),
-        pending_group_batches: Vec::new(),
+        producing_batches: Vec::new(),
     })
 }
 
@@ -276,8 +277,9 @@ fn get_active_group_batch(
     // PERF: we should reuse these..
     let gbi = join.group_batches.claim_with_value(GroupBatch {
         output_stream_value,
-        pending_stream_values: 0,
         outstanding_values: VecDeque::new(),
+        has_leading_streaming_input_sv: false,
+        is_producer: false,
     });
     join.active_group_batch = Some(gbi);
     gbi
@@ -418,6 +420,14 @@ pub fn drop_group(
     }
     reset_group_stats(join);
 }
+fn make_group_batch_producer(join: &mut TfJoin, gbi: GroupBatchId) {
+    join.producing_batches.push(gbi);
+    let gb = &mut join.group_batches[gbi];
+    debug_assert!(!gb.is_producer);
+    debug_assert!(!gb.has_leading_streaming_input_sv);
+    gb.is_producer = true;
+}
+
 pub fn emit_group(
     join: &mut TfJoin,
     sv_mgr: &mut StreamValueManager,
@@ -439,9 +449,9 @@ pub fn emit_group(
             done = gb.outstanding_values.is_empty();
             if join.active_group_batch_appended {
                 join.active_group_batch_appended = false;
-                if !done && gb.pending_stream_values == 0 {
+                if !done && !gb.has_leading_streaming_input_sv {
                     tf_mgr.make_stream_producer(tf_id);
-                    join.pending_group_batches.push(gbi);
+                    make_group_batch_producer(join, gbi);
                 }
             }
         }
@@ -772,9 +782,9 @@ pub fn handle_tf_join<'a>(
         if let Some(gbi) = join.active_group_batch {
             if join.active_group_batch_appended {
                 join.active_group_batch_appended = false;
-                if !join.group_batches[gbi].outstanding_values.is_empty() {
+                if !join.group_batches[gbi].has_leading_streaming_input_sv {
                     jd.tf_mgr.make_stream_producer(tf_id);
-                    join.pending_group_batches.push(gbi);
+                    make_group_batch_producer(join, gbi);
                 }
             }
         }
@@ -870,6 +880,9 @@ fn push_partial_stream_value_and_sub<'a>(
         buffered = true;
     }
     join.first_record_added = true;
+    if streaming_emit && gb.outstanding_values.is_empty() {
+        gb.has_leading_streaming_input_sv = true;
+    }
     gb.outstanding_values.push_back(GroupBatchEntry {
         data: GroupBatchEntryData::StreamValueId {
             id: sv_id,
@@ -877,7 +890,6 @@ fn push_partial_stream_value_and_sub<'a>(
         },
         run_length: rl,
     });
-    gb.pending_stream_values += 1;
     sv.subscribe(sv_id, tf_id, gbi.get(), buffered, streaming_emit);
 }
 
@@ -921,6 +933,15 @@ pub fn handle_tf_join_stream_value_update(
         .two_distinct_mut(in_sv_id, out_sv_id);
 
     if out_sv.propagate_error(&in_sv.error) {
+        if let Some(idx) = join
+            .producing_batches
+            .iter()
+            .position(|gbi| *gbi == group_batch_id)
+        {
+            debug_assert!(gb.is_producer);
+            gb.is_producer = false;
+            join.producing_batches.swap_remove(idx);
+        }
         drop_group_batch_sv_subscriptions(
             &mut jd.sv_mgr,
             update.tf_id,
@@ -928,13 +949,6 @@ pub fn handle_tf_join_stream_value_update(
             group_batch_id,
         );
         join.group_batches.release(group_batch_id);
-        if let Some(idx) = join
-            .pending_group_batches
-            .iter()
-            .position(|gbi| *gbi == group_batch_id)
-        {
-            join.pending_group_batches.swap_remove(idx);
-        }
         jd.sv_mgr.inform_stream_value_subscribers(out_sv_id);
         return;
     }
@@ -955,7 +969,7 @@ pub fn handle_tf_join_stream_value_update(
         return;
     }
 
-    debug_assert!(gb.pending_stream_values > 0);
+    debug_assert!(gb.has_leading_streaming_input_sv);
 
     if *streaming_emit {
         debug_assert!(!out_sv.done);
@@ -969,14 +983,14 @@ pub fn handle_tf_join_stream_value_update(
     }
 
     if in_sv.done {
-        gb.pending_stream_values -= 1;
+        gb.has_leading_streaming_input_sv = false;
         if gb.outstanding_values.is_empty() {
             if Some(group_batch_id) != join.active_group_batch {
                 out_sv.mark_done();
                 join.group_batches.release(group_batch_id);
             }
         } else {
-            join.pending_group_batches.push(group_batch_id);
+            make_group_batch_producer(join, group_batch_id);
             jd.tf_mgr.make_stream_producer(update.tf_id);
         }
         jd.sv_mgr
@@ -991,22 +1005,21 @@ pub fn handle_tf_join_stream_producer_update<'a>(
     tf_id: TransformId,
 ) {
     let mut make_producer = false;
-    for i in 0..join.pending_group_batches.len() {
+    for i in 0..join.producing_batches.len() {
         handle_group_batch_producer_update(
             jd,
             tf_id,
             join,
-            join.pending_group_batches[i],
+            join.producing_batches[i],
             &mut make_producer,
         );
     }
     if make_producer {
         jd.tf_mgr.make_stream_producer(tf_id);
     }
-    let mut pending_gb_idx =
-        join.pending_group_batches.len().saturating_sub(1);
-    while pending_gb_idx > 0 && !join.pending_group_batches.is_empty() {
-        let gbi = join.pending_group_batches[pending_gb_idx];
+    let mut gb_producer_idx = join.producing_batches.len().saturating_sub(1);
+    while gb_producer_idx > 0 && !join.producing_batches.is_empty() {
+        let gbi = join.producing_batches[gb_producer_idx];
         let gb = &mut join.group_batches[gbi];
         if gb.outstanding_values.is_empty()
             && join.active_group_batch != Some(gbi)
@@ -1015,10 +1028,10 @@ pub fn handle_tf_join_stream_producer_update<'a>(
             jd.sv_mgr
                 .inform_stream_value_subscribers(gb.output_stream_value);
             join.group_batches.release(gbi);
-            join.pending_group_batches.swap_remove(pending_gb_idx);
+            join.producing_batches.swap_remove(gb_producer_idx);
             continue;
         }
-        pending_gb_idx -= 1;
+        gb_producer_idx -= 1;
     }
 }
 

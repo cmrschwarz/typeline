@@ -655,7 +655,7 @@ impl<'a, 'b> Drop for StreamValueDataInserter<'a, 'b> {
         self.stream_value.data.drain(0..self.dead_elems_leading);
         #[cfg(feature = "stream_logging")]
         eprintln!(
-            ":: inserted into stream value {:02} [{:?}]",
+            ":: inserted into stream value {:02} {:?}",
             self.sv_id, self.stream_value.data
         );
     }
@@ -1511,13 +1511,26 @@ impl<'a> StreamValueManager<'a> {
         #[cfg(feature = "stream_logging")]
         {
             eprintln!(
-                ":: queued updates to the {} subscriber(s) of stream value {sv_id:02} [{}done: {:?}]: {:?}",
+                ":: queued updates to the {} subscriber(s) of stream value {sv_id:02} (data: {:?}, done: {})",
                 sv.subscribers.len(),
-                if sv.done  {""} else { "not " },
                 sv.data,
-                self.updates
+                sv.done,
             );
+            eprint!("   pending updates: ");
+            self.log_pending_updates(4);
+            eprintln!();
         }
+    }
+    pub fn log_pending_updates(&self, indent_level: usize) {
+        if self.updates.is_empty() {
+            eprint!("[]");
+            return;
+        }
+        eprintln!("[");
+        for u in &self.updates {
+            eprintln!("{:padding$}{u:?},", "", padding = indent_level + 4);
+        }
+        eprint!("{:padding$}]", "", padding = indent_level.saturating_sub(1));
     }
     pub fn release_stream_value(&mut self, sv_id: StreamValueId) {
         #[cfg(feature = "stream_logging")]

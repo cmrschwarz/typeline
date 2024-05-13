@@ -57,6 +57,11 @@ pub struct TransformManager {
     pub transforms: Universe<TransformId, TransformState>,
     pub ready_stack: Vec<TransformId>,
     pub stream_producers: VecDeque<TransformId>,
+    // index of the transform on the stack before the *earliest* stream
+    // we won't update this transform as long as we have stream producers
+    // because we want to drive those streams to completion first.
+    // e.g `bs=42 str=example.com dup=10K GET p`: we want 42 concurrent
+    // connections, not 10K
     pub pre_stream_transform_stack_cutoff: usize,
 }
 
@@ -709,10 +714,9 @@ impl<'a> Job<'a> {
             );
             #[cfg(feature = "stream_logging")]
             if !jd.sv_mgr.updates.is_empty() {
-                eprintln!(
-                    "     :: pending sv updates: {:?}",
-                    jd.sv_mgr.updates
-                );
+                eprint!("     :: pending sv updates: ");
+                jd.sv_mgr.log_pending_updates(4);
+                eprintln!();
             }
         }
         transform_stream_value_update(self, svu);
@@ -784,7 +788,30 @@ impl<'a> Job<'a> {
         &mut self,
         ctx: Option<&Arc<ContextData>>,
     ) -> Result<(), VentureDescription> {
+        // NOTE: we should consider adding a pipeline position attribute on
+        // each transform (in a fork both subchains would start at the
+        // same pipeline position,  continuation would have position
+        // max(subchains) + 1). use this for a priority queue instead of stack
+        // for readyness so we always drive out records as fast as possible.
+        // This might also be neccessary once flatten (stream unfolder) may
+        // produce stream value records (-> array streams) that we have to
+        // propagate eagerly.
+
+        // NOTE: terminology regarding how a transform handles streams:
+        // - stream producer: causes sv updates 'unprovoked' (GET, join)
+        // - stream folder: given records, may cause sv updates (join, collect)
+        // - stream unfolder: given sv updates, may produce records (flatten)
+        // These states are not exclusive.
+        // Before a stream folder can update or stream producer can produce:
+        //      - it's own updates must have been processed
+        //      - it's produced stream values must have been fully propagated
         loop {
+            if let Some(svu) = self.job_data.sv_mgr.updates.pop_back() {
+                self.handle_stream_value_update(svu);
+                continue;
+            }
+            // Transforms before the *earliest* stream are not updated
+            // until pending streams are done.
             if self.job_data.tf_mgr.ready_stack.len()
                 > self.job_data.tf_mgr.pre_stream_transform_stack_cutoff
             {
