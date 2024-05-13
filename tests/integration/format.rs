@@ -206,19 +206,17 @@ fn batched_format_after_drop() -> Result<(), ScrError> {
 
 #[test]
 fn stream_into_format() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    let res = ContextBuilder::default()
         .set_stream_buffer_size(1)
         .add_op(create_op_file_reader_custom(
             Box::new(SliceReader {
-                data: "abc".as_bytes(),
+                data: "xyz".as_bytes(),
             }),
             0,
         ))
         .add_op(create_op_format("a -> {} -> b").unwrap())
-        .add_op(create_op_string_sink(&ss))
-        .run()?;
-    assert_eq!(ss.get_data().unwrap().as_slice(), ["a -> abc -> b"]);
+        .run_collect_stringified()?;
+    assert_eq!(&res, &["a -> xyz -> b"]);
     Ok(())
 }
 

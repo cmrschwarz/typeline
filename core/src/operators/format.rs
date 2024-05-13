@@ -2100,6 +2100,13 @@ pub fn handle_tf_format_stream_value_update<'a>(
         }
     }
 
+    if !done {
+        drop(inserter);
+        jd.sv_mgr
+            .inform_stream_value_subscribers(handle.target_sv_id);
+        return;
+    }
+
     let mut i = handle.part_idx as usize + 1;
     while i < fmt.op.parts.len() {
         match &fmt.op.parts[i] {
@@ -2116,12 +2123,6 @@ pub fn handle_tf_format_stream_value_update<'a>(
         i += 1;
     }
     drop(inserter);
-
-    if !done {
-        jd.sv_mgr
-            .inform_stream_value_subscribers(handle.target_sv_id);
-        return;
-    }
 
     handle.part_idx = i as FormatPartIndex;
     out_sv.done = true;
