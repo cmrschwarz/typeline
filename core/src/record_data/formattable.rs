@@ -977,50 +977,58 @@ impl<'a, 'b> Formattable<'a, 'b> for StreamValue<'_> {
     fn format<W: MaybeTextWrite>(
         &self,
         ctx: &mut Self::Context,
-        w: &mut W,
+        mut w: &mut W,
     ) -> std::io::Result<()> {
         if let Some(e) = &self.error {
             return e.format(ctx, w);
         }
 
-        fn write_quote<W: MaybeTextWrite>(
-            this: &StreamValue,
-            w: &mut W,
-        ) -> std::io::Result<()> {
-            match this.data_type.unwrap() {
+        let typed = ctx.type_repr_format.is_typed();
+        if ctx.type_repr_format == TypeReprFormat::Debug {
+            w.write_all_text("~")?;
+        }
+        if typed {
+            match self.data_type.unwrap() {
                 StreamValueDataType::Text | StreamValueDataType::MaybeText => {
-                    w.write_all_text("\"")
+                    w.write_all_text("\"")?
                 }
-                StreamValueDataType::Bytes => w.write_all_text("\'"),
+                StreamValueDataType::Bytes => w.write_all_text("b\"")?,
                 StreamValueDataType::VariableTypeArray
                 | StreamValueDataType::FixedTypeArray(_) => {
                     todo!()
                 }
             }
         }
-        let typed = ctx.type_repr_format.is_typed();
-        if ctx.type_repr_format == TypeReprFormat::Debug {
-            w.write_all_text("~")?;
-        }
-        if typed {
-            write_quote(self, w)?;
-        }
-        for part in &self.data {
-            match part {
-                StreamValueData::StaticText(t) => {
-                    w.write_all_text(t)?;
-                }
-                StreamValueData::StaticBytes(b) => w.write_all(b)?,
-                StreamValueData::Text { data, range } => {
-                    w.write_all_text(&data[range.clone()])?
-                }
-                StreamValueData::Bytes { data, range } => {
-                    w.write_all(&data[range.clone()])?
+        fn write_parts(
+            this: &StreamValue,
+            w: &mut impl MaybeTextWrite,
+        ) -> std::io::Result<()> {
+            for part in &this.data {
+                match part {
+                    StreamValueData::StaticText(t) => {
+                        w.write_all_text(t)?;
+                    }
+                    StreamValueData::StaticBytes(b) => w.write_all(b)?,
+                    StreamValueData::Text { data, range } => {
+                        w.write_all_text(&data[range.clone()])?
+                    }
+                    StreamValueData::Bytes { data, range } => {
+                        w.write_all(&data[range.clone()])?
+                    }
                 }
             }
+            Ok(())
         }
+        if typed {
+            let mut w_esc = EscapedWriter::new(w, b'"');
+            write_parts(self, &mut w_esc)?;
+            w = w_esc.into_inner()?;
+        } else {
+            write_parts(self, w)?;
+        }
+
         if typed && self.done {
-            write_quote(self, w)?;
+            w.write_all_text("\"")?;
         }
         Ok(())
     }
@@ -1062,10 +1070,10 @@ pub fn calc_fmt_layout<'a, 'b, F: Formattable<'a, 'b> + ?Sized>(
 }
 
 pub fn format_bytes(w: &mut impl TextWrite, v: &[u8]) -> std::io::Result<()> {
-    w.write_all_text("b'")?;
+    w.write_all_text("b\"")?;
     let mut w = EscapedWriter::new(TextWriteRefAdapter(w), b'"');
     std::io::Write::write_all(&mut w, v)?;
-    w.into_inner().unwrap().write_all_text("'")?;
+    w.into_inner().unwrap().write_all_text("\"")?;
     Ok(())
 }
 pub fn format_bytes_raw(

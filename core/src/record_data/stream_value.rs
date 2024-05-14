@@ -12,6 +12,7 @@ use smallvec::SmallVec;
 use crate::{
     operators::{errors::OperatorApplicationError, transform::TransformId},
     utils::{
+        escaped_writer::EscapedWriter,
         maybe_text::{MaybeText, MaybeTextCow, MaybeTextRef},
         retain_string_range, retain_vec_range, subrange,
         text_write::{TextWrite, TextWriteFormatAdapter, TextWriteIoAdapter},
@@ -1349,6 +1350,12 @@ impl<'a> StreamValueData<'a> {
                 Ok(res)
             }
         }
+    }
+    pub fn as_escaped_text(&self, quote_to_escape: u8) -> Self {
+        // PERF: might be able to optimize this
+        let mut w = EscapedWriter::new(String::new(), quote_to_escape);
+        w.write_all(self.as_bytes()).unwrap();
+        Self::from_string(w.into_inner().unwrap())
     }
 }
 

@@ -8,6 +8,8 @@ pub trait TextWrite {
     // SAFETY: assuming that the write succeeds, the result must be valid utf-8
     // If a previous, partial success has split a utf-8 character,
     // the next write must complete it.
+    // NOTE: this means that if writes always succeed, buf must always be valid
+    // utf-8
     unsafe fn write_text_unchecked(
         &mut self,
         buf: &[u8],
@@ -15,6 +17,8 @@ pub trait TextWrite {
     // SAFETY: assuming that the write succeeds, the result must be valid utf-8
     // If a previous, partial success has split a utf-8 character,
     // the next write must complete it.
+    // NOTE: this means that if writes always succeed, buf must always be valid
+    // utf-8
     unsafe fn write_all_text_unchecked(
         &mut self,
         mut buf: &[u8],
@@ -413,5 +417,27 @@ impl<W: TextWrite> TextWrite for MaybeTextWritePanicAdapter<W> {
         args: std::fmt::Arguments<'_>,
     ) -> std::io::Result<()> {
         self.0.write_text_fmt(args)
+    }
+}
+
+impl TextWrite for String {
+    unsafe fn write_text_unchecked(
+        &mut self,
+        buf: &[u8],
+    ) -> std::io::Result<usize> {
+        unsafe { self.write_all_text_unchecked(buf).unwrap_unchecked() }
+        Ok(buf.len())
+    }
+
+    unsafe fn write_all_text_unchecked(
+        &mut self,
+        buf: &[u8],
+    ) -> std::io::Result<()> {
+        self.push_str(unsafe { std::str::from_utf8_unchecked(buf) });
+        Ok(())
+    }
+
+    fn flush_text(&mut self) -> std::io::Result<()> {
+        Ok(())
     }
 }

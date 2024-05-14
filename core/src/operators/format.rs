@@ -1430,17 +1430,21 @@ fn insert_output_target(
             fmt.stream_buffer_size,
             false,
         );
+        // we initialize with a placeholder ('#') value to be rust compliant
+        // for now
+        // PERF: maybe rethink this
         let target_ptr = if os.contains_raw_bytes {
             data_inserter.with_bytes_buffer(|buf| {
                 buf.reserve(os.len);
-                buf.extend(std::iter::repeat(0).take(os.len));
+                buf.extend(std::iter::repeat(b'#').take(os.len));
                 unsafe { buf.as_mut_ptr().add(buf.len() - os.len) }
             })
         } else {
             data_inserter
                 .with_text_buffer(|buf| {
                     buf.reserve(os.len);
-                    buf.extend(std::iter::repeat('0').take(os.len));
+
+                    buf.extend(std::iter::repeat('#').take(os.len));
                     unsafe { buf.as_mut_ptr().add(buf.len() - os.len) }
                 })
                 .unwrap()
@@ -2094,9 +2098,38 @@ pub fn handle_tf_format_stream_value_update<'a>(
             };
         });
     } else {
+        let stream_type = in_sv.data_type.unwrap();
+        let type_repr = format_key.opts.type_repr;
+        let print_plain = type_repr == TypeReprFormat::Regular;
+
         let mut iter = in_sv.data_cursor_from_update(&update);
+
         while let Some(chunk) = iter.next_steal(inserter.may_append_buffer()) {
-            inserter.append(chunk);
+            match chunk {
+                StreamValueData::StaticBytes(_)
+                | StreamValueData::Bytes { .. } => {
+                    if print_plain {
+                        inserter.append(chunk);
+                    } else {
+                        inserter.append(chunk.as_escaped_text(b'"'));
+                    }
+                }
+                StreamValueData::StaticText { .. }
+                | StreamValueData::Text { .. } => {
+                    inserter.append(chunk);
+                }
+            };
+        }
+
+        if done && !print_plain {
+            match stream_type {
+                StreamValueDataType::Text | StreamValueDataType::Bytes => {
+                    inserter.append(StreamValueData::StaticText("\""))
+                }
+                StreamValueDataType::VariableTypeArray
+                | StreamValueDataType::FixedTypeArray(_) => todo!(),
+                StreamValueDataType::MaybeText => unreachable!(),
+            }
         }
     }
 
