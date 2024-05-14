@@ -1,6 +1,6 @@
 use scr::{
     build_extension_registry,
-    cli::{collect_env_args, parse_cli},
+    cli::{collect_env_args, parse_cli, CliOptions},
     options::session_options::SessionOptions,
     record_data::record_set::RecordSet,
     scr_error::ScrError,
@@ -15,7 +15,12 @@ fn run() -> Result<(), String> {
 
     let repl = cfg!(feature = "repl");
 
-    let sess = match parse_cli(args, repl, extensions)
+    let cli_opts = CliOptions {
+        allow_repl: repl,
+        start_with_stdin: true,
+    };
+
+    let sess = match parse_cli(args, cli_opts, extensions)
         .and_then(|sess_opts| sess_opts.build_session())
     {
         Ok(sess) => sess,
@@ -38,7 +43,7 @@ fn run() -> Result<(), String> {
         {
             use scr::context::Context;
             use std::sync::Arc;
-            Context::new(Arc::new(sess)).run_repl();
+            Context::new(Arc::new(sess)).run_repl(cli_opts);
         }
         #[cfg(not(feature = "repl"))]
         unreachable!()

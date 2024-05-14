@@ -6,7 +6,8 @@ pub use scr_core::*;
 
 use extension::ExtensionRegistry;
 use scr_core::{
-    cli::parse_cli, options::session_options::SessionOptions,
+    cli::{parse_cli, CliOptions},
+    options::session_options::SessionOptions,
     scr_error::ContextualizedScrError,
 };
 
@@ -34,13 +35,14 @@ pub fn build_extension_registry() -> Arc<ExtensionRegistry> {
 }
 
 pub fn parse_cli_from_strings<'a>(
+    cli_opts: CliOptions,
     args: impl IntoIterator<Item = impl Into<&'a str>>,
 ) -> Result<SessionOptions, ContextualizedScrError> {
     parse_cli(
         args.into_iter()
             .map(|v| v.into().as_bytes().to_vec())
             .collect(),
-        cfg!(feature = "repl"),
+        cli_opts,
         build_extension_registry(),
     )
 }

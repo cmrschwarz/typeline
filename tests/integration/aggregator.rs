@@ -1,4 +1,4 @@
-use scr::parse_cli_from_strings;
+use scr::{cli::CliOptions, parse_cli_from_strings};
 use scr_core::{
     operators::{
         fork::create_op_fork,
@@ -65,8 +65,10 @@ fn append_after_fork() -> Result<(), ScrError> {
 
 #[test]
 fn parse_forkcat() -> Result<(), ScrError> {
-    let sess_opts =
-        parse_cli_from_strings(["scr", "seqn=10", "forkcat", "r=.*", "end"])?;
+    let sess_opts = parse_cli_from_strings(
+        CliOptions::default(),
+        ["scr", "seqn=10", "forkcat", "r=.*", "end"],
+    )?;
     let res = ContextBuilder::from_session_opts(sess_opts)
         .run_collect_stringified()?;
     assert_eq!(res, int_sequence_strings(1..11));

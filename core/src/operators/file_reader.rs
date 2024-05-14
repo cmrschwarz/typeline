@@ -243,14 +243,22 @@ fn start_streaming_file(
     let fdi = unsafe { output_field.iter_hall.internals_mut() };
 
     let size_before = fdi.data.len();
-    let res = read_chunk(
-        fdi.data,
-        fr.file.as_mut().unwrap(),
-        INLINE_STR_MAX_LEN
-            .min(fr.stream_buffer_size)
-            .min(fr.stream_size_threshold),
-        fr.line_buffered,
-    );
+
+    // we don't want to initially block on stdin in case it isn't ready
+    let skip_initial_read = matches!(fr.file, Some(AnyFileReader::Stdin));
+    let res = if skip_initial_read {
+        Ok((0, false))
+    } else {
+        read_chunk(
+            fdi.data,
+            fr.file.as_mut().unwrap(),
+            INLINE_STR_MAX_LEN
+                .min(fr.stream_buffer_size)
+                .min(fr.stream_size_threshold),
+            fr.line_buffered,
+        )
+    };
+
     let chunk_size = match res {
         Ok((size, eof)) => {
             if eof {
@@ -287,7 +295,7 @@ fn start_streaming_file(
     buf.extend(fdi.data.range(size_before..(size_before + chunk_size)));
     fdi.data.truncate(size_before);
     let buf_len = buf.len();
-    if buf_len < fr.stream_buffer_size {
+    if buf_len < fr.stream_buffer_size && !skip_initial_read {
         match read_chunk(
             &mut buf,
             fr.file.as_mut().unwrap(),

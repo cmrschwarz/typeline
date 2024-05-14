@@ -373,8 +373,9 @@ impl Context {
         self.run_job(self.session.construct_main_chain_job(input_data));
     }
     #[cfg(feature = "repl")]
-    pub fn run_repl(&mut self) {
+    pub fn run_repl(&mut self, cli_opts: crate::cli::CliOptions) {
         use crate::{cli::parse_cli, scr_error::ScrError};
+        debug_assert!(cli_opts.allow_repl);
         if !self.session.has_no_command() {
             self.run_main_chain(RecordSet::default());
         }
@@ -428,10 +429,13 @@ impl Context {
                     let args =
                         shlex.by_ref().map(|s| s.into_bytes()).collect();
                     let mut exit_repl = false;
-                    let sess = if !shlex.had_error {
+                    let sess = if shlex.had_error {
+                        Err("failed to tokenize command line arguments"
+                            .to_string())
+                    } else {
                         let mut sess_opts = parse_cli(
                             args,
-                            true,
+                            cli_opts,
                             Arc::clone(&self.session.extensions),
                         );
                         sess_opts = sess_opts.map(|mut opts| {
@@ -453,9 +457,6 @@ impl Context {
                                 _ => Err(e.contextualized_message),
                             },
                         }
-                    } else {
-                        Err("failed to tokenize command line arguments"
-                            .to_string())
                     };
                     match sess {
                         Ok(sess) => {

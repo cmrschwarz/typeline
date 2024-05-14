@@ -10,7 +10,10 @@ use crate::{
         count::parse_op_count,
         end::parse_op_end,
         errors::OperatorCreationError,
-        file_reader::{argument_matches_op_file_reader, parse_op_file_reader},
+        file_reader::{
+            argument_matches_op_file_reader, create_op_stdin,
+            parse_op_file_reader,
+        },
         foreach::parse_op_foreach,
         fork::parse_op_fork,
         forkcat::parse_op_forkcat,
@@ -49,6 +52,12 @@ use std::{
     sync::Arc,
 };
 use thiserror::Error;
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct CliOptions {
+    pub allow_repl: bool,
+    pub start_with_stdin: bool,
+}
 
 #[must_use]
 #[derive(Error, Debug, Clone, PartialEq, Eq)]
@@ -608,11 +617,11 @@ pub fn try_parse_label(ctx_opts: &mut SessionOptions, arg_str: &[u8]) -> bool {
 
 pub fn parse_cli_retain_args(
     args: &[Vec<u8>],
-    allow_repl: bool,
+    cli_opts: CliOptions,
     extensions: Arc<ExtensionRegistry>,
 ) -> Result<SessionOptions, ScrError> {
     assert!(
-        !allow_repl || cfg!(feature = "repl"),
+        !cli_opts.allow_repl || cfg!(feature = "repl"),
         "the 'repl' feature of this crate is disabled"
     );
 
@@ -620,7 +629,7 @@ pub fn parse_cli_retain_args(
         return Err(MissingArgumentsError.into());
     }
     let mut ctx_opts = SessionOptions {
-        allow_repl,
+        allow_repl: cli_opts.allow_repl,
         extensions,
         ..Default::default()
     };
@@ -628,6 +637,16 @@ pub fn parse_cli_retain_args(
     let mut curr_aggregate = Vec::new();
     let mut last_non_append_op_id = None;
     let mut curr_op_appendable = true;
+    if cli_opts.start_with_stdin {
+        let op_base_opts = OperatorBaseOptions::new(
+            ctx_opts.string_store.intern_cloned("stdin"),
+            None,
+            false,
+            None,
+        );
+        let op_data = create_op_stdin(1);
+        last_non_append_op_id = Some(ctx_opts.add_op(op_base_opts, op_data));
+    }
     while arg_idx < args.len() {
         let arg_str = &args[arg_idx];
         arg_idx += 1;
@@ -723,10 +742,10 @@ pub fn parse_cli_retain_args(
 
 pub fn parse_cli_raw(
     args: Vec<Vec<u8>>,
-    allow_repl: bool,
+    cli_opts: CliOptions,
     extensions: Arc<ExtensionRegistry>,
 ) -> Result<SessionOptions, (Vec<Vec<u8>>, ScrError)> {
-    match parse_cli_retain_args(&args, allow_repl, extensions) {
+    match parse_cli_retain_args(&args, cli_opts, extensions) {
         Ok(mut ctx) => {
             ctx.cli_args = Some(args);
             Ok(ctx)
@@ -737,10 +756,10 @@ pub fn parse_cli_raw(
 
 pub fn parse_cli(
     args: Vec<Vec<u8>>,
-    allow_repl: bool,
+    cli_opts: CliOptions,
     extensions: Arc<ExtensionRegistry>,
 ) -> Result<SessionOptions, ContextualizedScrError> {
-    parse_cli_raw(args, allow_repl, extensions).map_err(|(args, err)| {
+    parse_cli_raw(args, cli_opts, extensions).map_err(|(args, err)| {
         ContextualizedScrError::from_scr_error(err, Some(&args), None, None)
     })
 }
@@ -775,11 +794,11 @@ pub fn collect_env_args() -> Result<Vec<Vec<u8>>, CliArgumentError> {
 }
 
 pub fn parse_cli_from_env(
-    allow_repl: bool,
+    cli_opts: CliOptions,
     extensions: Arc<ExtensionRegistry>,
 ) -> Result<SessionOptions, ContextualizedScrError> {
     let args = collect_env_args().map_err(|e| {
         ContextualizedScrError::from_scr_error(e.into(), None, None, None)
     })?;
-    parse_cli(args, allow_repl, extensions)
+    parse_cli(args, cli_opts, extensions)
 }
