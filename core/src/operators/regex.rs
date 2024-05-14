@@ -168,7 +168,6 @@ const MAX_DEFAULT_CAPTURE_GROUP_NAME_LEN: usize = USIZE_MAX_DECIMAL_DIGITS + 1;
 lazy_static! {
     static ref REGEX_CLI_ARG_REGEX: Regex =
         RegexBuilder::new("^(r|regex)(-((?<a>a)|(?<b>b)|(?<d>d)|(?<f>f)|(?<i>i)|(?<l>l)|(?<m>m)|(?<n>n)|(?<o>o)|(?<u>u)|(?<v>v))*)?$")
-            .case_insensitive(true)
             .build()
             .unwrap();
 }

@@ -1,5 +1,7 @@
 use std::io::{IsTerminal, Write};
 
+use regex::Regex;
+
 use super::{
     errors::{OperatorApplicationError, OperatorCreationError},
     operator::{OperatorBase, OperatorData},
@@ -7,13 +9,15 @@ use super::{
     utils::writable::{AnyWriter, WritableTarget},
 };
 use crate::{
-    job::JobData,
+    cli::reject_operator_argument,
+    job::{JobData, TransformManager},
     operators::utils::buffer_stream_values::{
         buffer_remaining_stream_values_in_auto_deref_iter,
         buffer_remaining_stream_values_in_sv_iter,
     },
     options::argument::CliArgIdx,
     record_data::{
+        field::{Field, FieldManager},
         field_data::field_value_flags,
         field_value_ref::FieldValueSlice,
         field_value_slice_iter::FieldValueSliceIter,
@@ -23,6 +27,7 @@ use crate::{
         },
         iter_hall::IterId,
         iters::{FieldIterator, UnfoldIterRunLength},
+        match_set::MatchSetManager,
         push_interface::PushInterface,
         ref_iter::{
             AutoDerefIter, RefAwareBytesBufferIter,
@@ -32,12 +37,12 @@ use crate::{
         },
         stream_value::{
             StreamValue, StreamValueDataOffset, StreamValueId,
-            StreamValueUpdate,
+            StreamValueManager, StreamValueUpdate,
         },
     },
     utils::{
         int_string_conversions::i64_to_str, lazy_lock_guard::LazyRwLockGuard,
-        text_write::TextWriteIoAdapter,
+        string_store::StringStore, text_write::TextWriteIoAdapter,
     },
     NULL_STR, UNDEFINED_STR,
 };
@@ -45,34 +50,57 @@ use crate::{
 // ENHANCE: bikeshed a better format for this
 const ERROR_PREFIX_STR: &str = "ERROR: ";
 
+#[derive(Debug, Clone, Copy)]
+pub struct PrintOptions {
+    pub ignore_nulls: bool,
+    pub propagate_errors: bool,
+}
+
+impl Default for PrintOptions {
+    fn default() -> Self {
+        Self {
+            ignore_nulls: false,
+            propagate_errors: true,
+        }
+    }
+}
+
 pub struct OpPrint {
     target: WritableTarget,
-    ignore_nulls: bool,
+    opts: PrintOptions,
 }
 
 pub struct TfPrint {
-    flush_on_every_print: bool,
-    ignore_nulls: bool,
     current_stream_val: Option<StreamValueId>,
     iter_id: IterId,
     streams_kept_alive: usize,
     target: AnyWriter,
+    flush_on_every_print: bool,
+    print_rationals_raw: bool,
+    opts: PrintOptions,
+}
+
+lazy_static::lazy_static! {
+    static ref PRINT_CLI_ARG_REGEX: Regex =Regex::new("^(p|print)(-((?<n>n)|(?<e>e))*)?$")
+        .unwrap();
+}
+pub fn argument_matches_op_print(arg: &str) -> Option<PrintOptions> {
+    PRINT_CLI_ARG_REGEX.captures(arg).map(|c| PrintOptions {
+        ignore_nulls: c.name("n").is_some(),
+        propagate_errors: c.name("e").is_some(),
+    })
 }
 
 pub fn parse_op_print(
+    arg: &str,
     value: Option<&[u8]>,
     arg_idx: Option<CliArgIdx>,
-    ignore_nulls: bool,
+    opts: PrintOptions,
 ) -> Result<OperatorData, OperatorCreationError> {
-    if value.is_some() {
-        return Err(OperatorCreationError::new(
-            "print takes no arguments (for now)",
-            arg_idx,
-        ));
-    }
+    reject_operator_argument(arg, value, arg_idx)?;
     Ok(OperatorData::Print(OpPrint {
         target: WritableTarget::Stdout,
-        ignore_nulls,
+        opts,
     }))
 }
 
@@ -86,28 +114,32 @@ pub fn build_tf_print(
         // ENHANCE: should we config options for this stuff?
         flush_on_every_print: matches!(op.target, WritableTarget::Stdout)
             && std::io::stdout().is_terminal(),
+        print_rationals_raw: jd
+            .get_transform_chain_from_tf_state(tf_state)
+            .settings
+            .print_rationals_raw,
         current_stream_val: None,
         streams_kept_alive: 0,
         iter_id: jd.add_iter_for_tf_state(tf_state),
         target: op.target.take_writer(true),
-        ignore_nulls: op.ignore_nulls,
+        opts: op.opts,
     })
 }
 
 pub fn create_op_print() -> OperatorData {
     OperatorData::Print(OpPrint {
         target: WritableTarget::Stdout,
-        ignore_nulls: false,
+        opts: PrintOptions {
+            ignore_nulls: false,
+            propagate_errors: true,
+        },
     })
 }
 pub fn create_op_print_with_opts(
     target: WritableTarget,
-    ignore_nulls: bool,
+    opts: PrintOptions,
 ) -> OperatorData {
-    OperatorData::Print(OpPrint {
-        target,
-        ignore_nulls,
-    })
+    OperatorData::Print(OpPrint { target, opts })
 }
 
 pub fn typed_slice_zst_str(ts: &FieldValueSlice) -> &'static str {
@@ -162,37 +194,34 @@ pub fn write_stream_val_check_done(
 }
 
 pub fn handle_tf_print_raw(
-    jd: &mut JobData,
+    tf_mgr: &mut TransformManager,
+    fm: &FieldManager,
+    msm: &MatchSetManager,
+    sv_mgr: &mut StreamValueManager,
+    mut string_store: LazyRwLockGuard<StringStore>,
     tf_id: TransformId,
     batch_size: usize,
     print: &mut TfPrint,
     // we need these even in case of an error, so it's an output parameter :/
+    outputs_produced: &mut usize,
     handled_field_count: &mut usize,
     last_group_separator_end: &mut usize,
+    output_field: &mut Field,
 ) -> std::io::Result<()> {
     let mut stream = print.target.aquire(true);
     *handled_field_count = 0;
     *last_group_separator_end = 0;
-    let tf = &jd.tf_mgr.transforms[tf_id];
+    let tf = &tf_mgr.transforms[tf_id];
     let input_field_id = tf.input_field;
 
-    let input_field = jd
-        .field_mgr
-        .get_cow_field_ref(&jd.match_set_mgr, input_field_id);
-    let base_iter = jd
-        .field_mgr
+    let input_field = fm.get_cow_field_ref(msm, input_field_id);
+    let base_iter = fm
         .lookup_iter(input_field_id, &input_field, print.iter_id)
         .bounded(0, batch_size);
-    let mut iter =
-        AutoDerefIter::new(&jd.field_mgr, input_field_id, base_iter);
-    let mut string_store = LazyRwLockGuard::new(&jd.session_data.string_store);
-    let print_rationals_raw =
-        jd.get_transform_chain(tf_id).settings.print_rationals_raw;
-    'iter: while let Some(range) = iter.typed_range_fwd(
-        &jd.match_set_mgr,
-        usize::MAX,
-        field_value_flags::DEFAULT,
-    ) {
+    let mut iter = AutoDerefIter::new(fm, input_field_id, base_iter);
+    'iter: while let Some(range) =
+        iter.typed_range_fwd(msm, usize::MAX, field_value_flags::DEFAULT)
+    {
         match range.base.data {
             FieldValueSlice::TextInline(text) => {
                 for v in RefAwareInlineTextIter::from_range(&range, text)
@@ -248,6 +277,16 @@ pub fn handle_tf_print_raw(
                         .write_fmt(format_args!("{ERROR_PREFIX_STR}{v}\n"))?;
                     *handled_field_count += 1;
                 }
+                if print.opts.propagate_errors {
+                    output_field
+                        .iter_hall
+                        .push_null(*handled_field_count, true);
+                    *handled_field_count += range.base.field_count;
+                    output_field
+                        .iter_hall
+                        .extend_from_ref_aware_range(range, true, false);
+                    *outputs_produced = *handled_field_count;
+                }
             }
             FieldValueSlice::Custom(custom_types) => {
                 for v in RefAwareFieldValueSliceIter::from_range(
@@ -264,7 +303,7 @@ pub fn handle_tf_print_raw(
                     *handled_field_count += 1;
                 }
             }
-            FieldValueSlice::Null(_) if print.ignore_nulls => {
+            FieldValueSlice::Null(_) if print.opts.ignore_nulls => {
                 *handled_field_count += range.base.field_count;
             }
             FieldValueSlice::Null(_) | FieldValueSlice::Undefined(_) => {
@@ -281,7 +320,7 @@ pub fn handle_tf_print_raw(
                 while let Some((&sv_id, rl)) = sv_iter.next() {
                     pos += rl as usize;
                     *handled_field_count += rl as usize;
-                    let sv = &mut jd.sv_mgr.stream_values[sv_id];
+                    let sv = &mut sv_mgr.stream_values[sv_id];
                     let done = write_stream_val_check_done(
                         sv,
                         StreamValueDataOffset::default(),
@@ -299,27 +338,25 @@ pub fn handle_tf_print_raw(
                         print.streams_kept_alive -= rc_diff;
                     }
                     if done {
-                        jd.sv_mgr.check_stream_value_ref_count(sv_id);
+                        sv_mgr.check_stream_value_ref_count(sv_id);
                     } else {
                         print.current_stream_val = Some(sv_id);
                         if rl > 1 {
                             sv.make_buffered();
                         }
                         sv.subscribe(sv_id, tf_id, rl as usize, false, true);
-                        jd.tf_mgr.unclaim_batch_size(
+                        tf_mgr.unclaim_batch_size(
                             tf_id,
                             batch_size - *handled_field_count,
                         );
                         print.streams_kept_alive +=
                             buffer_remaining_stream_values_in_sv_iter(
-                                &mut jd.sv_mgr,
-                                sv_iter,
-                                false,
+                                sv_mgr, sv_iter, false,
                             );
                         print.streams_kept_alive +=
                             buffer_remaining_stream_values_in_auto_deref_iter(
-                                &jd.match_set_mgr,
-                                &mut jd.sv_mgr,
+                                msm,
+                                sv_mgr,
                                 iter.clone(),
                                 usize::MAX,
                                 false,
@@ -353,7 +390,7 @@ pub fn handle_tf_print_raw(
                     RefAwareFieldValueSliceIter::from_range(&range, rationals)
                 {
                     for _ in 0..rl {
-                        if print_rationals_raw {
+                        if print.print_rationals_raw {
                             stream.write_fmt(format_args!("{v}\n"))?;
                         } else {
                             format_rational_as_decimals_raw(
@@ -370,9 +407,9 @@ pub fn handle_tf_print_raw(
             FieldValueSlice::Array(arrays) => {
                 let mut fc = FormattingContext {
                     ss: &mut string_store,
-                    fm: &jd.field_mgr,
-                    msm: &jd.match_set_mgr,
-                    print_rationals_raw,
+                    fm,
+                    msm,
+                    print_rationals_raw: print.print_rationals_raw,
                     is_stream_value: false,
                     rfk: RealizedFormatKey::default(),
                 };
@@ -388,9 +425,9 @@ pub fn handle_tf_print_raw(
             FieldValueSlice::Object(objects) => {
                 let mut fc = FormattingContext {
                     ss: &mut string_store,
-                    fm: &jd.field_mgr,
-                    msm: &jd.match_set_mgr,
-                    print_rationals_raw,
+                    fm,
+                    msm,
+                    print_rationals_raw: print.print_rationals_raw,
                     is_stream_value: false,
                     rfk: RealizedFormatKey::default(),
                 };
@@ -414,7 +451,7 @@ pub fn handle_tf_print_raw(
         stream.write_fmt(format_args!("{UNDEFINED_STR}\n"))?;
         *handled_field_count += 1;
     }
-    jd.field_mgr.store_iter(input_field_id, print.iter_id, iter);
+    fm.store_iter(input_field_id, print.iter_id, iter);
     Ok(())
 }
 
@@ -436,31 +473,44 @@ pub fn handle_tf_print(
     );
 
     let mut handled_field_count = 0;
+    let mut outputs_produced = 0;
     let mut last_group_separator = 0;
+    let mut output_field = jd.field_mgr.fields[of_id].borrow_mut();
+    let string_store = LazyRwLockGuard::new(&jd.session_data.string_store);
     let res = handle_tf_print_raw(
-        jd,
+        &mut jd.tf_mgr,
+        &jd.field_mgr,
+        &jd.match_set_mgr,
+        &mut jd.sv_mgr,
+        string_store,
         tf_id,
         batch_size,
         tf,
+        &mut outputs_produced,
         &mut handled_field_count,
         &mut last_group_separator,
+        &mut output_field,
     );
     if tf.flush_on_every_print {
         tf.target.aquire(false).flush().ok();
     }
-    let mut output_field = jd.field_mgr.fields[of_id].borrow_mut();
-    let mut outputs_produced = handled_field_count;
+
     match res {
         Ok(()) => {
             if handled_field_count > 0 {
-                output_field.iter_hall.push_null(handled_field_count, true);
+                output_field
+                    .iter_hall
+                    .push_null(handled_field_count - outputs_produced, true);
             }
+            outputs_produced += handled_field_count;
         }
         Err(err) => {
             let nsucc = handled_field_count;
             let nfail = batch_size - nsucc;
             if nsucc > 0 {
-                output_field.iter_hall.push_null(nsucc, true);
+                output_field
+                    .iter_hall
+                    .push_null(nsucc - outputs_produced, true);
             }
             let e = OperatorApplicationError::new_s(err.to_string(), op_id);
             output_field.iter_hall.push_error(e, nfail, false, true);
