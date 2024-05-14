@@ -17,7 +17,6 @@ use crate::{
         action_buffer::{ActorId, ActorRef},
         field::{FieldId, FieldManager, VOID_FIELD_ID},
         field_action::FieldActionKind,
-        record_group_tracker::VOID_GROUP_LIST_ID,
         iter_hall::{IterId, IterKind},
         iters::FieldIterator,
         match_set::MatchSetId,
@@ -25,6 +24,7 @@ use crate::{
             RecordBuffer, RecordBufferData, RecordBufferField,
             RecordBufferFieldId,
         },
+        record_group_tracker::VOID_GROUP_LIST_ID,
     },
     utils::{
         identity_hasher::BuildIdentityHasher,

@@ -370,6 +370,7 @@ impl LivenessData {
             | OperatorData::FieldValueSink(_)
             | OperatorData::FileReader(_)
             | OperatorData::Literal(_)
+            | OperatorData::SuccessUpdator(_)
             | OperatorData::Sequence(_) => (),
             OperatorData::Custom(_) | OperatorData::MultiOp(_) => {
                 // TODO: maybe support this

@@ -7,10 +7,10 @@ use crate::{
     job::{Job, JobData, PipelineState, TransformManager},
     record_data::{
         field::{FieldId, FieldManager},
-        record_group_tracker::{RecordGroupListId, RecordGroupTracker},
         iter_hall::IterId,
         iters::{BoundedIter, DestructuredFieldDataRef, Iter},
         match_set::{MatchSetId, MatchSetManager},
+        record_group_tracker::{RecordGroupListId, RecordGroupTracker},
         ref_iter::AutoDerefIter,
         stream_value::{StreamValueId, StreamValueManager, StreamValueUpdate},
     },
@@ -63,6 +63,7 @@ use super::{
         handle_tf_string_sink, handle_tf_string_sink_stream_value_update,
         TfStringSink,
     },
+    success_updater::{handle_tf_success_updator, TfSuccessUpdator},
     terminator::{handle_tf_terminator, TfTerminator},
     to_str::{
         handle_tf_to_str, handle_tf_to_str_stream_value_update, TfToStr,
@@ -100,6 +101,7 @@ pub enum TransformData<'a> {
     AggregatorTrailer(TfAggregatorTrailer),
     ForeachHeader(TfForeachHeader),
     ForeachTrailer(TfForeachTrailer),
+    SuccessUpdator(TfSuccessUpdator),
     Custom(SmallBox<dyn Transform, 192>),
 }
 
@@ -138,6 +140,7 @@ impl TransformData<'_> {
             TransformData::ForeachHeader(_) => "each_header",
             TransformData::ForeachTrailer(_) => "each_trailer",
             TransformData::InputDoneEater(_) => "input_done_eater",
+            TransformData::SuccessUpdator(_) => "success_updator",
             TransformData::Custom(tf) => return tf.display_name(),
         }
         .into()
@@ -338,6 +341,7 @@ pub fn transform_pre_update(
         | TransformData::CalleeConcurrent(_)
         | TransformData::ToStr(_)
         | TransformData::Nop(_)
+        | TransformData::SuccessUpdator(_)
         | TransformData::NopCopy(_)
         | TransformData::InputDoneEater(_)
         | TransformData::Count(_)
@@ -384,6 +388,9 @@ pub fn transform_update(job: &mut Job, tf_id: TransformId) {
             handle_tf_forkcat(jd, tf_id, fork);
         }
         TransformData::Nop(tf) => handle_tf_nop(jd, tf_id, tf),
+        TransformData::SuccessUpdator(tf) => {
+            handle_tf_success_updator(jd, tf_id, tf)
+        }
         TransformData::NopCopy(tf) => handle_tf_nop_copy(jd, tf_id, tf),
         TransformData::InputDoneEater(tf) => {
             handle_tf_input_done_eater(jd, tf_id, tf);
@@ -435,6 +442,7 @@ pub fn stream_producer_update(job: &mut Job, tf_id: TransformId) {
     match &mut job.transform_data[tf_id.get()] {
             TransformData::Disabled
             | TransformData::Nop(_)
+            | TransformData::SuccessUpdator(_)
             | TransformData::NopCopy(_)
             | TransformData::InputDoneEater(_)
             | TransformData::Terminator(_)
@@ -522,6 +530,7 @@ pub fn transform_stream_value_update(job: &mut Job, svu: StreamValueUpdate) {
         TransformData::Terminator(_) |
         TransformData::Call(_) |
         TransformData::Nop(_) |
+         TransformData::SuccessUpdator(_) |
         TransformData::NopCopy(_) |
         TransformData::InputDoneEater(_) |
         TransformData::Count(_) |

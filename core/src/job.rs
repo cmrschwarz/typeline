@@ -24,11 +24,11 @@ use crate::{
         action_buffer::{ActorId, ActorRef, SnapshotRef},
         field::{FieldId, FieldManager, VOID_FIELD_ID},
         field_action::FieldActionKind,
-        record_group_tracker::{RecordGroupListId, RecordGroupTracker},
         iter_hall::{IterId, IterKind},
         match_set::{MatchSetId, MatchSetManager},
         push_interface::PushInterface,
         record_buffer::RecordBuffer,
+        record_group_tracker::{RecordGroupListId, RecordGroupTracker},
         stream_value::{StreamValueManager, StreamValueUpdate},
     },
     utils::universe::Universe,
@@ -360,13 +360,13 @@ impl<'a> Job<'a> {
             }
         }
     }
-    pub fn setup_job(&mut self, mut job: JobDescription) {
+    pub fn setup_job(&mut self, mut job_desc: JobDescription) {
         let ms_id = self.job_data.match_set_mgr.add_match_set();
         // TODO: unpack record set properly here
-        let input_record_count = job.data.adjust_field_lengths();
+        let input_record_count = job_desc.data.adjust_field_lengths();
         let mut input_field = None;
         let mut input_data_fields = std::mem::take(&mut self.temp_vec);
-        for mut fd in job.data.fields {
+        for mut fd in job_desc.data.fields {
             if input_record_count == 0 {
                 fd.data.push_null(1, true);
             }
@@ -396,12 +396,13 @@ impl<'a> Job<'a> {
         }
         let instantiation = self.setup_transforms_from_op(
             ms_id,
-            job.operator,
+            job_desc.operator,
             input_field,
             input_group_list,
             None,
             &HashMap::default(),
         );
+
         add_terminator_tf_cont_dependant(
             self,
             instantiation.tfs_end,

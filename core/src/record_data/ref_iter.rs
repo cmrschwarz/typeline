@@ -593,6 +593,7 @@ impl<'a, I: FieldIterator<'a>> AutoDerefIter<'a, I> {
         }
         ri_count + base_count
     }
+
     pub fn into_base_iter(self) -> I {
         self.iter
     }

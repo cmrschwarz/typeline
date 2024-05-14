@@ -582,7 +582,7 @@ pub fn create_op_int(v: i64) -> OperatorData {
 pub fn create_op_null() -> OperatorData {
     create_op_literal(Literal::Null)
 }
-pub fn create_op_success() -> OperatorData {
+pub fn create_op_undefined() -> OperatorData {
     create_op_literal(Literal::Undefined)
 }
 pub fn create_op_v(str: &str) -> Result<OperatorData, OperatorCreationError> {

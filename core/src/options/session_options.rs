@@ -2,7 +2,7 @@ use std::{
     borrow::Cow,
     collections::HashMap,
     num::NonZeroUsize,
-    sync::{Arc, RwLock},
+    sync::{atomic::AtomicBool, Arc, RwLock},
 };
 
 use lazy_static::lazy_static;
@@ -197,6 +197,7 @@ impl SessionOptions {
             | OperatorData::End(_)
             | OperatorData::Nop(_)
             | OperatorData::NopCopy(_)
+            | OperatorData::SuccessUpdator(_)
             | OperatorData::Key(_)
             | OperatorData::Select(_)
             | OperatorData::Regex(_)
@@ -331,6 +332,7 @@ impl SessionOptions {
             chain_labels: HashMap::default(),
             string_store: RwLock::new(self.string_store),
             extensions: self.extensions,
+            success: AtomicBool::new(true),
         };
         SessionOptions::setup_chain_labels(&mut sess);
         let res = SessionOptions::verify_bounds(&sess)

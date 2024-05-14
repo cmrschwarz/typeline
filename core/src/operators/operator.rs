@@ -68,6 +68,7 @@ use super::{
         update_op_sequence_variable_liveness, OpSequence,
     },
     string_sink::{build_tf_string_sink, OpStringSink},
+    success_updater::{build_tf_success_updator, OpSuccessUpdator},
     to_str::{build_tf_to_str, OpToStr},
     transform::{TransformData, TransformId, TransformState},
 };
@@ -102,6 +103,7 @@ pub enum OperatorData {
     Sequence(OpSequence),
     Aggregator(OpAggregator),
     Foreach(OpForeach),
+    SuccessUpdator(OpSuccessUpdator),
     MultiOp(OpMultiOp),
     Custom(SmallBox<dyn Operator, 96>),
 }
@@ -215,6 +217,7 @@ impl OperatorData {
             | OperatorData::Join(_)
             | OperatorData::NopCopy(_)
             | OperatorData::StringSink(_)
+            | OperatorData::SuccessUpdator(_)
             | OperatorData::FieldValueSink(_) => Ok(()),
         }
     }
@@ -235,6 +238,7 @@ impl OperatorData {
             | OperatorData::Fork(_)
             | OperatorData::ForkCat(_)
             | OperatorData::Next(_)
+            | OperatorData::SuccessUpdator(_)
             | OperatorData::End(_)
             | OperatorData::Key(_)
             | OperatorData::Select(_)
@@ -270,6 +274,7 @@ impl OperatorData {
             OperatorData::Join(_) => 1,
             OperatorData::Fork(_) => 0,
             OperatorData::Nop(_) => 0,
+            OperatorData::SuccessUpdator(_) => 0,
             OperatorData::NopCopy(_) => 1,
             // technically this has output, but it always introduces a
             // separate BB so we don't want to allocate slots for that
@@ -334,6 +339,7 @@ impl OperatorData {
             OperatorData::Call(_) => "call".into(),
             OperatorData::CallConcurrent(_) => "callcc".into(),
             OperatorData::Nop(_) => "nop".into(),
+            OperatorData::SuccessUpdator(_) => "success_updator".into(),
             OperatorData::NopCopy(_) => "nop-c".into(),
             OperatorData::Custom(op) => op.default_name(),
             OperatorData::Aggregator(_) => AGGREGATOR_DEFAULT_NAME.into(),
@@ -373,6 +379,7 @@ impl OperatorData {
             | OperatorData::Call(_)
             | OperatorData::CallConcurrent(_)
             | OperatorData::Nop(_)
+            | OperatorData::SuccessUpdator(_)
             | OperatorData::Aggregator(_)
             | OperatorData::NopCopy(_) => true,
             OperatorData::Fork(_)
@@ -407,9 +414,9 @@ impl OperatorData {
             | OperatorData::Aggregator(_)
             | OperatorData::NopCopy(_)
             | OperatorData::Fork(_) => OutputFieldKind::Unique,
-            OperatorData::Foreach(_) | OperatorData::Nop(_) => {
-                OutputFieldKind::SameAsInput
-            }
+            OperatorData::Foreach(_)
+            | OperatorData::Nop(_)
+            | OperatorData::SuccessUpdator(_) => OutputFieldKind::SameAsInput,
             OperatorData::ForkCat(_)
             | OperatorData::Key(_)
             | OperatorData::Select(_)
@@ -464,6 +471,7 @@ impl OperatorData {
             | OperatorData::Next(_)
             | OperatorData::End(_)
             | OperatorData::Nop(_)
+            | OperatorData::SuccessUpdator(_)
             | OperatorData::Foreach(_)
             | OperatorData::NopCopy(_)
             | OperatorData::StringSink(_)
@@ -577,6 +585,7 @@ impl OperatorData {
                 update_op_sequence_variable_liveness(flags, seq);
             }
             OperatorData::Nop(_)
+            | OperatorData::SuccessUpdator(_)
             | OperatorData::StringSink(_)
             | OperatorData::Print(_) => {
                 flags.may_dup_or_drop = false;
@@ -686,6 +695,7 @@ impl OperatorData {
             OperatorData::ToStr(_)
             | OperatorData::Call(_)
             | OperatorData::Nop(_)
+            | OperatorData::SuccessUpdator(_)
             | OperatorData::Count(_)
             | OperatorData::Print(_)
             | OperatorData::Join(_)
@@ -785,6 +795,7 @@ impl OperatorData {
             | OperatorData::ToStr(_)
             | OperatorData::Key(_)
             | OperatorData::Nop(_)
+            | OperatorData::SuccessUpdator(_)
             | OperatorData::NopCopy(_)
             | OperatorData::Select(_)
             | OperatorData::Regex(_)
@@ -809,6 +820,9 @@ impl OperatorData {
         let op_base = &jd.session_data.operator_bases[op_id as usize];
         let data = match self {
             OperatorData::Nop(op) => build_tf_nop(op, tfs),
+            OperatorData::SuccessUpdator(op) => {
+                build_tf_success_updator(jd, op, tfs)
+            }
             OperatorData::NopCopy(op) => build_tf_nop_copy(jd, op, tfs),
             OperatorData::ToStr(op) => build_tf_to_str(jd, op_base, op, tfs),
             OperatorData::Count(op) => build_tf_count(jd, op_base, op, tfs),

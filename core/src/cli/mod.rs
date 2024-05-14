@@ -29,6 +29,7 @@ use crate::{
         regex::{parse_op_regex, try_match_regex_cli_argument},
         select::parse_op_select,
         sequence::{parse_op_seq, OpSequenceMode},
+        success_updater::create_op_success_updator,
         to_str::{argument_matches_op_to_str, parse_op_to_str},
         utils::writable::WritableTarget,
     },
@@ -59,6 +60,7 @@ pub struct CliOptions {
     pub allow_repl: bool,
     pub start_with_stdin: bool,
     pub print_output: bool,
+    pub add_success_updator: bool,
 }
 
 #[must_use]
@@ -741,13 +743,27 @@ pub fn parse_cli_retain_args(
         ctx_opts.init_op(pred, true);
     }
     if cli_opts.print_output {
+        let op_data = create_op_print_with_opts(WritableTarget::Stdout, true);
         let op_base_opts = OperatorBaseOptions::new(
-            ctx_opts.string_store.intern_cloned("print"),
+            ctx_opts
+                .string_store
+                .intern_cloned(&op_data.default_op_name()),
             None,
             false,
             None,
         );
-        let op_data = create_op_print_with_opts(WritableTarget::Stdout, true);
+        ctx_opts.add_op(op_base_opts, op_data);
+    }
+    if cli_opts.add_success_updator {
+        let op_data = create_op_success_updator();
+        let op_base_opts = OperatorBaseOptions::new(
+            ctx_opts
+                .string_store
+                .intern_cloned(&op_data.default_op_name()),
+            None,
+            false,
+            None,
+        );
         ctx_opts.add_op(op_base_opts, op_data);
     }
     Ok(ctx_opts)

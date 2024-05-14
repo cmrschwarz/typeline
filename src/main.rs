@@ -1,13 +1,14 @@
 use scr::{
     build_extension_registry,
     cli::{collect_env_args, parse_cli, CliOptions},
+    context::Context,
     options::session_options::SessionOptions,
     record_data::record_set::RecordSet,
     scr_error::ScrError,
 };
-use std::process::ExitCode;
+use std::{process::ExitCode, sync::Arc};
 
-fn run() -> Result<(), String> {
+fn run() -> Result<bool, String> {
     let args = collect_env_args().map_err(|e| {
         ScrError::from(e).contextualize_message(None, None, None)
     })?;
@@ -19,6 +20,7 @@ fn run() -> Result<(), String> {
         allow_repl: repl,
         start_with_stdin: true,
         print_output: true,
+        add_success_updator: true,
     };
 
     let sess = match parse_cli(args, cli_opts, extensions)
@@ -33,31 +35,37 @@ fn run() -> Result<(), String> {
             }
             ScrError::PrintInfoAndExitError(_) => {
                 println!("{}", e.contextualized_message);
-                return Ok(());
+                return Ok(true);
             }
             _ => return Err(e.contextualized_message),
         },
     };
 
+    #[cfg(feature = "repl")]
     if sess.repl_requested() {
-        #[cfg(feature = "repl")]
-        {
-            use scr::context::Context;
-            use std::sync::Arc;
-            Context::new(Arc::new(sess)).run_repl(cli_opts);
-        }
-        #[cfg(not(feature = "repl"))]
-        unreachable!()
-    } else {
-        let job = sess.construct_main_chain_job(RecordSet::default());
-        sess.run(job);
+        let sess = Arc::new(sess);
+        Context::new(sess.clone()).run_repl(cli_opts);
+        return Ok(sess.get_success());
     }
-    Ok(())
+    let job = sess.construct_main_chain_job(RecordSet::default());
+    if sess.settings.max_threads == 1 {
+        sess.run_job_unthreaded(job);
+        return Ok(sess.get_success());
+    }
+    let sess = Arc::new(sess);
+    Context::new(sess.clone()).run_job(job);
+    Ok(sess.get_success())
 }
 
 fn main() -> ExitCode {
     match run() {
-        Ok(_) => ExitCode::SUCCESS,
+        Ok(success) => {
+            if success {
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::FAILURE
+            }
+        }
         Err(err) => {
             eprintln!("Error: {err}");
             ExitCode::FAILURE

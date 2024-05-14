@@ -1,7 +1,7 @@
 use std::{
     collections::{HashMap, VecDeque},
     io::{stdout, Write},
-    sync::{Arc, Condvar, Mutex, RwLock},
+    sync::{atomic::AtomicBool, Arc, Condvar, Mutex, RwLock},
     thread::JoinHandle,
 };
 
@@ -25,6 +25,7 @@ use crate::{
     record_data::{record_buffer::RecordBuffer, record_set::RecordSet},
     utils::{
         identity_hasher::BuildIdentityHasher,
+        maybe_boxed::MaybeBoxed,
         string_store::{StringStore, StringStoreEntry},
     },
 };
@@ -43,7 +44,7 @@ pub struct VentureDescription {
 pub struct Venture<'a> {
     pub venture_id: usize,
     pub description: VentureDescription,
-    pub source_job_session: Option<Box<Job<'a>>>,
+    pub source_job: Option<Box<Job<'a>>>,
 }
 
 pub struct SessionSettings {
@@ -60,6 +61,7 @@ pub struct SessionData {
     pub cli_args: Option<Vec<Vec<u8>>>,
     pub string_store: RwLock<StringStore>,
     pub extensions: Arc<ExtensionRegistry>,
+    pub success: AtomicBool,
 }
 
 pub struct Session {
@@ -111,60 +113,44 @@ impl WorkerThread {
             waiting: false,
         }
     }
-    pub fn run_venture<'a>(
-        &mut self,
-        sess: &'a SessionData,
-        start_op_id: OperatorId,
-        buffer: Arc<RecordBuffer>,
-        mut starting_job_session: Option<Box<Job<'a>>>,
-    ) {
-        if let Some(ref mut js) = starting_job_session {
-            match js.run(Some(&self.ctx_data)) {
-                Ok(()) => (),
-                Err(venture_desc) => {
-                    self.ctx_data.session.lock().unwrap().submit_venture(
-                        venture_desc,
-                        starting_job_session,
-                        &self.ctx_data,
-                    );
-                }
-            }
-        }
-        let mut js = Job {
-            transform_data: Vec::new(),
-            job_data: JobData::new(sess),
-            temp_vec: Vec::new(),
-        };
-        js.setup_venture(Some(&self.ctx_data), buffer, start_op_id);
-        match js.run(Some(&self.ctx_data)) {
+    pub fn run_job<'a>(&mut self, mut job: impl MaybeBoxed<Job<'a>>) {
+        match job.base_ref_mut().run(Some(&self.ctx_data)) {
             Ok(()) => (),
             Err(venture_desc) => {
                 self.ctx_data.session.lock().unwrap().submit_venture(
                     venture_desc,
-                    Some(Box::new(js)),
+                    Some(job.boxed()),
                     &self.ctx_data,
                 );
             }
         }
     }
-
-    pub fn run_job(&mut self, sess: &SessionData, job: JobDescription) {
-        let mut js = Job {
+    pub fn run_venture(
+        &mut self,
+        sess: &SessionData,
+        start_op_id: OperatorId,
+        buffer: Arc<RecordBuffer>,
+    ) {
+        let mut job = Job {
             transform_data: Vec::new(),
             job_data: JobData::new(sess),
             temp_vec: Vec::new(),
         };
-        js.setup_job(job);
-        match js.run(Some(&self.ctx_data)) {
-            Ok(()) => (),
-            Err(venture_desc) => {
-                self.ctx_data.session.lock().unwrap().submit_venture(
-                    venture_desc,
-                    Some(Box::new(js)),
-                    &self.ctx_data,
-                );
-            }
-        }
+        job.setup_venture(Some(&self.ctx_data), buffer, start_op_id);
+        self.run_job(job)
+    }
+    pub fn run_job_from_desc(
+        &mut self,
+        sess: &SessionData,
+        job_desc: JobDescription,
+    ) {
+        let mut job = Job {
+            transform_data: Vec::new(),
+            job_data: JobData::new(sess),
+            temp_vec: Vec::new(),
+        };
+        job.setup_job(job_desc);
+        self.run_job(job)
     }
 
     pub fn run(&mut self) {
@@ -175,7 +161,7 @@ impl WorkerThread {
                 let waiting_venture_participants =
                     sess_mgr.waiting_venture_participants;
                 if let Some(venture) = sess_mgr.venture_queue.front_mut() {
-                    let job_sess = venture.source_job_session.take();
+                    let source_job = venture.source_job.take();
                     let buffer = venture.description.buffer.clone();
                     let participants_needed =
                         venture.description.participans_needed;
@@ -208,14 +194,18 @@ impl WorkerThread {
                                 .unwrap();
                         }
                     }
-                    self.run_venture(&sess, start_op_id, buffer, job_sess);
+                    if let Some(job) = source_job {
+                        self.run_job(job);
+                    } else {
+                        self.run_venture(&sess, start_op_id, buffer);
+                    }
                     sess_mgr = self.ctx_data.session.lock().unwrap();
                     continue;
                 }
                 if let Some(job) = sess_mgr.job_queue.pop_front() {
                     let sess = sess_mgr.session_data.clone();
                     drop(sess_mgr);
-                    self.run_job(&sess, job);
+                    self.run_job_from_desc(&sess, job);
                     sess_mgr = self.ctx_data.session.lock().unwrap();
                     continue;
                 }
@@ -266,14 +256,14 @@ impl Session {
     pub fn submit_venture<'a>(
         &mut self,
         desc: VentureDescription,
-        starting_job_session: Option<Box<Job<'a>>>,
+        starting_job: Option<Box<Job<'a>>>,
         ctx_data: &Arc<ContextData>,
     ) {
         // SAFETY: this assert ensures that we ourselves hold an Arc<Session>
         // for the Session that causes the lifetime restriction on this
         // JobSession before we ourselves drop the Arc<Session>, we
         // make sure that all ventures are dropped, see set_session
-        assert!(starting_job_session
+        assert!(starting_job
             .as_ref()
             .map(|js| std::ptr::eq(
                 js.job_data.session_data,
@@ -291,11 +281,11 @@ impl Session {
             venture_id: id,
             // SAFETY: see comment above for why transmuting this livetime is
             // justified
-            source_job_session: unsafe {
+            source_job: unsafe {
                 std::mem::transmute::<
                     Option<Box<Job<'a>>>,
                     Option<Box<Job<'static>>>,
-                >(starting_job_session)
+                >(starting_job)
             },
         });
         for _ in 0..threads_needed {
@@ -364,7 +354,7 @@ impl Context {
         &self.session
     }
     pub fn run_job(&mut self, job: JobDescription) {
-        self.main_thread.run_job(&self.session, job);
+        self.main_thread.run_job_from_desc(&self.session, job);
         if self.session.settings.max_threads > 1 {
             self.wait_for_worker_threads();
         }
@@ -547,5 +537,12 @@ impl SessionData {
     }
     pub fn repl_requested(&self) -> bool {
         self.settings.repl
+    }
+    pub fn set_success(&self, success: bool) {
+        self.success
+            .store(success, std::sync::atomic::Ordering::SeqCst)
+    }
+    pub fn get_success(&self) -> bool {
+        self.success.load(std::sync::atomic::Ordering::SeqCst)
     }
 }
