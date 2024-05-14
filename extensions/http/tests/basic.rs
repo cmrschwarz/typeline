@@ -1,6 +1,6 @@
 use scr_core::{
     operators::{
-        format::create_op_format, print::create_op_print_with_target,
+        format::create_op_format, print::create_op_print_with_opts,
         regex::create_op_regex, sequence::create_op_seqn,
     },
     options::context_builder::ContextBuilder,
@@ -74,7 +74,7 @@ fn multi_get_into_print() -> Result<(), ScrError> {
         .add_op(create_op_seqn(1, 3, 1).unwrap())
         .add_op(create_op_format(&fmt).unwrap())
         .add_op(create_op_GET())
-        .add_op(create_op_print_with_target(target.get_target()))
+        .add_op(create_op_print_with_opts(target.get_target(), false))
         .run()?;
     assert_eq!(&*target.get(), "1\n2\n3\n");
     Ok(())

@@ -47,10 +47,12 @@ const ERROR_PREFIX_STR: &str = "ERROR: ";
 
 pub struct OpPrint {
     target: WritableTarget,
+    ignore_nulls: bool,
 }
 
 pub struct TfPrint {
     flush_on_every_print: bool,
+    ignore_nulls: bool,
     current_stream_val: Option<StreamValueId>,
     iter_id: IterId,
     streams_kept_alive: usize,
@@ -60,6 +62,7 @@ pub struct TfPrint {
 pub fn parse_op_print(
     value: Option<&[u8]>,
     arg_idx: Option<CliArgIdx>,
+    ignore_nulls: bool,
 ) -> Result<OperatorData, OperatorCreationError> {
     if value.is_some() {
         return Err(OperatorCreationError::new(
@@ -69,6 +72,7 @@ pub fn parse_op_print(
     }
     Ok(OperatorData::Print(OpPrint {
         target: WritableTarget::Stdout,
+        ignore_nulls,
     }))
 }
 
@@ -86,16 +90,24 @@ pub fn build_tf_print(
         streams_kept_alive: 0,
         iter_id: jd.add_iter_for_tf_state(tf_state),
         target: op.target.take_writer(true),
+        ignore_nulls: op.ignore_nulls,
     })
 }
 
 pub fn create_op_print() -> OperatorData {
     OperatorData::Print(OpPrint {
         target: WritableTarget::Stdout,
+        ignore_nulls: false,
     })
 }
-pub fn create_op_print_with_target(target: WritableTarget) -> OperatorData {
-    OperatorData::Print(OpPrint { target })
+pub fn create_op_print_with_opts(
+    target: WritableTarget,
+    ignore_nulls: bool,
+) -> OperatorData {
+    OperatorData::Print(OpPrint {
+        target,
+        ignore_nulls,
+    })
 }
 
 pub fn typed_slice_zst_str(ts: &FieldValueSlice) -> &'static str {
@@ -251,6 +263,9 @@ pub fn handle_tf_print_raw(
                     stream.write_all(b"\n")?;
                     *handled_field_count += 1;
                 }
+            }
+            FieldValueSlice::Null(_) if print.ignore_nulls => {
+                *handled_field_count += range.base.field_count;
             }
             FieldValueSlice::Null(_) | FieldValueSlice::Undefined(_) => {
                 let zst_str = typed_slice_zst_str(&range.base.data);

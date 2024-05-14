@@ -25,11 +25,12 @@ use crate::{
         nop::parse_op_nop,
         nop_copy::parse_op_nop_copy,
         operator::{OperatorData, OperatorId},
-        print::parse_op_print,
+        print::{create_op_print_with_opts, parse_op_print},
         regex::{parse_op_regex, try_match_regex_cli_argument},
         select::parse_op_select,
         sequence::{parse_op_seq, OpSequenceMode},
         to_str::{argument_matches_op_to_str, parse_op_to_str},
+        utils::writable::WritableTarget,
     },
     options::{
         argument::CliArgIdx, operator_base_options::OperatorBaseOptions,
@@ -57,6 +58,7 @@ use thiserror::Error;
 pub struct CliOptions {
     pub allow_repl: bool,
     pub start_with_stdin: bool,
+    pub print_output: bool,
 }
 
 #[must_use]
@@ -508,7 +510,8 @@ fn try_parse_operator_data(
         return Ok(Some(parse_op_join(arg.argname, arg.value, idx)?));
     }
     if let Some(op) = match arg.argname {
-        "print" | "p" => Some(parse_op_print(arg.value, idx)?),
+        "print" | "p" => Some(parse_op_print(arg.value, idx, false)?),
+        "print-n" | "p-n" => Some(parse_op_print(arg.value, idx, true)?),
         "format" | "f" => Some(parse_op_format(arg.value, idx)?),
         "key" => Some(parse_op_key(arg.value, idx)?),
         "select" => Some(parse_op_select(arg.value, idx)?),
@@ -736,6 +739,16 @@ pub fn parse_cli_retain_args(
     }
     if let Some(pred) = last_non_append_op_id {
         ctx_opts.init_op(pred, true);
+    }
+    if cli_opts.print_output {
+        let op_base_opts = OperatorBaseOptions::new(
+            ctx_opts.string_store.intern_cloned("print"),
+            None,
+            false,
+            None,
+        );
+        let op_data = create_op_print_with_opts(WritableTarget::Stdout, true);
+        ctx_opts.add_op(op_base_opts, op_data);
     }
     Ok(ctx_opts)
 }

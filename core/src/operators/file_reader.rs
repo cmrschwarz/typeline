@@ -354,32 +354,43 @@ pub fn handle_tf_file_reader_stream(
         return;
     };
     let sv = &mut jd.sv_mgr.stream_values[sv_id];
+
+    let mut drop_unused = true;
+
     let tf = &jd.tf_mgr.transforms[tf_id];
     if !tf.predecessor_done {
+        drop_unused = false;
         // if we aren't done, subsequent records might need the stream
         sv.buffer_mode.require_buffered();
     }
 
-    let res = sv
-        .data_inserter(sv_id, fr.stream_buffer_size, true)
-        .with_bytes_buffer(|buf| {
-            read_chunk(buf, file, fr.stream_buffer_size, fr.line_buffered)
-        });
+    if sv.ref_count > 1 {
+        drop_unused = false;
+    }
+    let mut done = drop_unused;
 
-    let done = match res {
-        Ok((_size, eof)) => {
-            sv.done = eof;
-            eof
-        }
-        Err(err) => {
-            let err = io_error_to_op_error(
-                jd.tf_mgr.transforms[tf_id].op_id.unwrap(),
-                &err,
-            );
-            sv.set_error(Arc::new(err));
-            true
-        }
-    };
+    if !drop_unused {
+        let res = sv
+            .data_inserter(sv_id, fr.stream_buffer_size, true)
+            .with_bytes_buffer(|buf| {
+                read_chunk(buf, file, fr.stream_buffer_size, fr.line_buffered)
+            });
+
+        done = match res {
+            Ok((_size, eof)) => {
+                sv.done = eof;
+                eof
+            }
+            Err(err) => {
+                let err = io_error_to_op_error(
+                    jd.tf_mgr.transforms[tf_id].op_id.unwrap(),
+                    &err,
+                );
+                sv.set_error(Arc::new(err));
+                true
+            }
+        };
+    }
 
     jd.sv_mgr.inform_stream_value_subscribers(sv_id);
     if done {

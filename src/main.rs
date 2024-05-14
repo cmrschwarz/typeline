@@ -18,6 +18,7 @@ fn run() -> Result<(), String> {
     let cli_opts = CliOptions {
         allow_repl: repl,
         start_with_stdin: true,
+        print_output: true,
     };
 
     let sess = match parse_cli(args, cli_opts, extensions)

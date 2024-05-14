@@ -40,8 +40,8 @@ impl Extension for MiscCmdsExtension {
         _next_arg_idx: &mut usize,
     ) -> Result<Option<OperatorData>, OperatorCreationError> {
         let ctor_with_arg: Option<fn(_, _) -> _> = match arg.argname {
-            "head" | "h" => Some(parse_op_head),
-            "tail" | "t" => Some(parse_op_tail),
+            "head" => Some(parse_op_head),
+            "tail" => Some(parse_op_tail),
             "dup" => Some(parse_op_dup),
             "drop" => Some(parse_op_drop),
             "explode" => Some(parse_op_explode),

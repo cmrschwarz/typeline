@@ -374,7 +374,10 @@ impl Context {
     }
     #[cfg(feature = "repl")]
     pub fn run_repl(&mut self, cli_opts: crate::cli::CliOptions) {
-        use crate::{cli::parse_cli, scr_error::ScrError};
+        use crate::{
+            cli::parse_cli, options::session_options::SessionOptions,
+            scr_error::ScrError,
+        };
         debug_assert!(cli_opts.allow_repl);
         if !self.session.has_no_command() {
             self.run_main_chain(RecordSet::default());
@@ -427,7 +430,7 @@ impl Context {
                 Ok(Signal::Success(buffer)) => {
                     let mut shlex = Shlex::new(&buffer);
                     let args =
-                        shlex.by_ref().map(|s| s.into_bytes()).collect();
+                        shlex.by_ref().map(String::into_bytes).collect();
                     let mut exit_repl = false;
                     let sess = if shlex.had_error {
                         Err("failed to tokenize command line arguments"
@@ -444,7 +447,8 @@ impl Context {
                             opts.repl.force_set(true, None);
                             opts
                         });
-                        match sess_opts.and_then(|opts| opts.build_session()) {
+                        match sess_opts.and_then(SessionOptions::build_session)
+                        {
                             Ok(opts) => Ok(opts),
                             Err(e) => match e.err {
                                 ScrError::PrintInfoAndExitError(e) => {
