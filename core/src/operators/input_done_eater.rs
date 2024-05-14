@@ -3,7 +3,7 @@ use crate::{
     chain::ChainId,
     job::{add_transform_to_job, Job, JobData},
     record_data::{
-        field::VOID_FIELD_ID, group_tracker::VOID_GROUP_LIST_ID,
+        field::VOID_FIELD_ID, record_group_tracker::VOID_GROUP_LIST_ID,
         match_set::MatchSetId,
     },
 };

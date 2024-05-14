@@ -21,7 +21,7 @@ use scr_core::{
         field_data::{FieldData, FieldValueRepr},
         field_value_ref::FieldValueSlice,
         field_value_slice_iter::{FieldValueBlock, FieldValueSliceIter},
-        group_tracker::GroupListIterRef,
+        record_group_tracker::GroupListIterRef,
         iter_hall::{IterId, IterKind},
         push_interface::PushInterface,
         ref_iter::RefAwareFieldValueSliceIter,
@@ -99,7 +99,7 @@ impl Operator for OpSum {
         TransformInstatiation::Simple(TransformData::Custom(smallbox!(
             TfSum {
                 group_list_iter: jd
-                    .group_tracker
+                    .record_group_tracker
                     .claim_group_list_iter_ref(tf_state.input_group_list_id),
                 input_iter_id: jd.field_mgr.claim_iter(
                     tf_state.input_field,

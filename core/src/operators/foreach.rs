@@ -5,7 +5,7 @@ use crate::{
     cli::reject_operator_argument,
     job::{add_transform_to_job, Job, JobData},
     options::argument::CliArgIdx,
-    record_data::group_tracker::{GroupListId, GroupListIterId},
+    record_data::record_group_tracker::{GroupListIterId, RecordGroupListId},
 };
 
 use super::{
@@ -24,10 +24,10 @@ pub struct OpForeach {
 }
 pub struct TfForeachHeader {
     parent_group_list_iter: GroupListIterId,
-    group_list: GroupListId,
+    group_list: RecordGroupListId,
 }
 pub struct TfForeachTrailer {
-    group_list: GroupListId,
+    group_list: RecordGroupListId,
 }
 
 pub fn parse_op_foreach(
@@ -78,11 +78,11 @@ pub fn insert_tf_foreach(
     let parent_group_list = tf_state.input_group_list_id;
     let parent_group_list_iter = job
         .job_data
-        .group_tracker
+        .record_group_tracker
         .claim_group_list_iter(parent_group_list);
     let group_list = job
         .job_data
-        .group_tracker
+        .record_group_tracker
         .add_group_list(Some(parent_group_list), next_actor_id);
     tf_state.output_group_list_id = group_list;
 
@@ -172,21 +172,23 @@ pub fn handle_tf_foreach_header(
     let tf = &jd.tf_mgr.transforms[tf_id];
     let ms = &mut jd.match_set_mgr.match_sets[tf.match_set_id];
     let mut ab = ms.action_buffer.borrow_mut();
-    let mut group_list =
-        jd.group_tracker.borrow_group_list_mut(feh.group_list);
+    let mut group_list = jd
+        .record_group_tracker
+        .borrow_group_list_mut(feh.group_list);
     group_list.apply_field_actions(&mut ab);
-    let mut parent_group_list_iter = jd.group_tracker.lookup_group_list_iter(
-        group_list.parent_list_id().unwrap(),
-        feh.parent_group_list_iter,
-        &mut ab,
-    );
+    let mut parent_record_group_iter =
+        jd.record_group_tracker.lookup_group_list_iter(
+            group_list.parent_list_id().unwrap(),
+            feh.parent_group_list_iter,
+            &mut ab,
+        );
 
     let mut size_rem = batch_size;
     while size_rem > 0 {
-        let gs_rem = parent_group_list_iter.group_len_rem().min(size_rem);
+        let gs_rem = parent_record_group_iter.group_len_rem().min(size_rem);
         let parent_group_idx_stable =
-            parent_group_list_iter.group_idx_stable();
-        parent_group_list_iter.next_n_fields(gs_rem);
+            parent_record_group_iter.group_idx_stable();
+        parent_record_group_iter.next_n_fields(gs_rem);
         group_list
             .parent_group_indices_stable
             .promote_to_size_class_of_value(parent_group_idx_stable);
@@ -197,9 +199,9 @@ pub fn handle_tf_foreach_header(
             .group_lengths
             .extend_truncated(iter::repeat(1).take(gs_rem));
         size_rem -= gs_rem;
-        parent_group_list_iter.try_next_group();
+        parent_record_group_iter.try_next_group();
     }
-    parent_group_list_iter.store_iter(feh.parent_group_list_iter);
+    parent_record_group_iter.store_iter(feh.parent_group_list_iter);
     jd.tf_mgr.submit_batch_ready_for_more(tf_id, batch_size, ps);
 
     #[cfg(feature = "output_field_logging")]
@@ -218,8 +220,9 @@ pub fn handle_tf_foreach_trailer(
 ) {
     let (batch_size, ps) = jd.tf_mgr.claim_all(tf_id);
     let tf = &jd.tf_mgr.transforms[tf_id];
-    let mut group_list =
-        jd.group_tracker.borrow_group_list_mut(fet.group_list);
+    let mut group_list = jd
+        .record_group_tracker
+        .borrow_group_list_mut(fet.group_list);
     group_list.apply_field_actions(
         &mut jd.match_set_mgr.match_sets[tf.match_set_id]
             .action_buffer

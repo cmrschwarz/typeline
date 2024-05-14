@@ -18,7 +18,7 @@ use super::{
     field_action::{merge_action_lists, FieldAction, FieldActionKind},
     field_action_applicator::FieldActionApplicator,
     field_data::{FieldValueHeader, RunLength, MAX_FIELD_ALIGN},
-    group_tracker::GroupListId,
+    record_group_tracker::RecordGroupListId,
     iter_hall::{CowVariant, FieldDataSource, IterState},
     match_set::MatchSetId,
 };
@@ -95,7 +95,7 @@ struct ActionGroupQueue {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ActorSubscriber {
     Field(FieldId),
-    GroupList(GroupListId),
+    GroupList(RecordGroupListId),
 }
 
 struct Actor {

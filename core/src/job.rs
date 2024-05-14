@@ -24,7 +24,7 @@ use crate::{
         action_buffer::{ActorId, ActorRef, SnapshotRef},
         field::{FieldId, FieldManager, VOID_FIELD_ID},
         field_action::FieldActionKind,
-        group_tracker::{GroupListId, GroupTracker},
+        record_group_tracker::{RecordGroupListId, RecordGroupTracker},
         iter_hall::{IterId, IterKind},
         match_set::{MatchSetId, MatchSetManager},
         push_interface::PushInterface,
@@ -40,7 +40,7 @@ pub struct JobData<'a> {
     pub session_data: &'a SessionData,
     pub tf_mgr: TransformManager,
     pub match_set_mgr: MatchSetManager,
-    pub group_tracker: GroupTracker,
+    pub record_group_tracker: RecordGroupTracker,
     pub field_mgr: FieldManager,
     pub sv_mgr: StreamValueManager<'a>,
     pub temp_vec: Vec<u8>,
@@ -301,7 +301,7 @@ impl<'a> JobData<'a> {
             match_set_mgr: MatchSetManager {
                 match_sets: Universe::default(),
             },
-            group_tracker: GroupTracker::default(),
+            record_group_tracker: RecordGroupTracker::default(),
             sv_mgr: StreamValueManager::default(),
             temp_vec: Vec::default(),
         }
@@ -384,9 +384,9 @@ impl<'a> Job<'a> {
         }
         let input_record_count = input_record_count.max(1);
         let input_field = input_field.unwrap();
-        let gt = &mut self.job_data.group_tracker;
-        let input_group_list = gt.add_group_list(None, ActorRef::default());
-        gt.append_group_to_list(input_group_list, input_record_count);
+        let rgt = &mut self.job_data.record_group_tracker;
+        let input_group_list = rgt.add_group_list(None, ActorRef::default());
+        rgt.append_group_to_list(input_group_list, input_record_count);
 
         #[cfg(feature = "debug_logging")]
         for (i, f) in input_data_fields.iter().enumerate() {
@@ -476,7 +476,7 @@ impl<'a> Job<'a> {
         ms_id: MatchSetId,
         start_op_id: OperatorId,
         chain_input_field_id: FieldId,
-        chain_input_group_list: GroupListId,
+        chain_input_group_list: RecordGroupListId,
         predecessor_tf: Option<TransformId>,
         prebound_outputs: &PreboundOutputsMap,
     ) -> OperatorInstantiation {
@@ -510,7 +510,7 @@ impl<'a> Job<'a> {
         >,
         ms_id: MatchSetId,
         mut input_field: FieldId,
-        mut input_group_list: GroupListId,
+        mut input_group_list: RecordGroupListId,
         mut predecessor_tf: Option<TransformId>,
         mut start_tf_id: Option<TransformId>,
         prebound_outputs: &PreboundOutputsMap,
@@ -761,7 +761,8 @@ impl<'a> Job<'a> {
                 .field_mgr
                 .print_field_header_data(output_field_id, 0);
             let group_id = tf.output_group_list_id;
-            let group = self.job_data.group_tracker.lists[group_id].borrow();
+            let group =
+                self.job_data.record_group_tracker.lists[group_id].borrow();
             eprintln!();
             eprintln!("group {group_id} data: {group}");
         }

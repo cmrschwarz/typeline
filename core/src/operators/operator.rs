@@ -14,7 +14,7 @@ use crate::{
         argument::CliArgIdx, chain_options::ChainOptions,
         session_options::SessionOptions,
     },
-    record_data::{field::FieldId, group_tracker::GroupListId},
+    record_data::{field::FieldId, record_group_tracker::RecordGroupListId},
     utils::{
         identity_hasher::BuildIdentityHasher, small_box::SmallBox,
         string_store::StringStoreEntry,
@@ -132,7 +132,7 @@ pub struct OperatorInstantiation {
     pub tfs_begin: TransformId,
     pub tfs_end: TransformId,
     pub next_input_field: FieldId,
-    pub next_group_list: GroupListId,
+    pub next_group_list: RecordGroupListId,
     pub continuation: TransformContinuationKind,
 }
 

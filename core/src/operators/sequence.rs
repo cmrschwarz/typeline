@@ -13,7 +13,7 @@ use crate::{
         field::{Field, FieldId, FieldManager},
         field_action::FieldActionKind,
         field_data::FieldValueRepr,
-        group_tracker::{GroupListIterRef, GroupTracker},
+        record_group_tracker::{GroupListIterRef, RecordGroupTracker},
         iter_hall::IterId,
         iters::{DestructuredFieldDataRef, FieldIterator, Iter},
         variable_sized_type_inserter::VariableSizeTypeInserter,
@@ -103,7 +103,7 @@ pub fn build_tf_sequence<'a>(
 
     let group_list_iter_ref = (!matches!(op.mode, OpSequenceMode::Sequence))
         .then(|| {
-            jd.group_tracker
+            jd.record_group_tracker
                 .claim_group_list_iter_ref(tf_state.input_group_list_id)
         });
 
@@ -161,7 +161,7 @@ struct SequenceBatchState<'a, 'b> {
     input_field_id: FieldId,
     seq: &'a mut TfSequence,
     ab: &'a RefCell<ActionBuffer>,
-    gt: &'a mut GroupTracker,
+    rgt: &'a mut RecordGroupTracker,
     fm: &'a FieldManager,
     tf_mgr: &'a mut TransformManager,
     iter: Iter<'b, DestructuredFieldDataRef<'b>>,
@@ -214,7 +214,7 @@ pub fn handle_tf_sequence(
         input_field_id,
         seq,
         ab: &ms.action_buffer,
-        gt: &mut jd.group_tracker,
+        rgt: &mut jd.record_group_tracker,
         fm: &jd.field_mgr,
         tf_mgr: &mut jd.tf_mgr,
         iter,
@@ -362,7 +362,7 @@ fn handle_enum_mode(mut sbs: SequenceBatchState) {
     let mut drop_count = 0;
     let mut set_done = false;
     let group_iter_ref = sbs.seq.group_list_iter_ref.unwrap();
-    let mut group_iter = sbs.gt.lookup_group_list_iter_mut(
+    let mut group_iter = sbs.rgt.lookup_group_list_iter_mut(
         group_iter_ref.list_id,
         group_iter_ref.iter_id,
         sbs.ab,
@@ -436,7 +436,7 @@ fn handle_enum_unbounded_mode(mut sbs: SequenceBatchState) {
     let mut seq_len_rem = sbs.seq.ss.remaining_len(sbs.seq.current_value);
 
     let group_iter_ref = sbs.seq.group_list_iter_ref.unwrap();
-    let mut group_iter = sbs.gt.lookup_group_list_iter_mut(
+    let mut group_iter = sbs.rgt.lookup_group_list_iter_mut(
         group_iter_ref.list_id,
         group_iter_ref.iter_id,
         sbs.ab,

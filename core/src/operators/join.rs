@@ -17,7 +17,7 @@ use crate::{
         field_value_ref::FieldValueSlice,
         field_value_slice_iter::FieldValueSliceIter,
         formattable::RealizedFormatKey,
-        group_tracker::GroupListIterRef,
+        record_group_tracker::GroupListIterRef,
         iter_hall::{IterId, IterKind},
         iters::FieldIterator,
         push_interface::PushInterface,
@@ -186,7 +186,7 @@ pub fn build_tf_join<'a>(
         stream_buffer_size: settings.stream_buffer_size,
         input_field_ref_offset,
         group_list_iter_ref: jd
-            .group_tracker
+            .record_group_tracker
             .claim_group_list_iter_ref(tf_state.input_group_list_id),
         iter_id: jd.field_mgr.claim_iter(
             tf_state.input_field,
@@ -551,26 +551,27 @@ pub fn handle_tf_join<'a>(
     let mut prebuffered_record = join.first_record_added;
     let mut string_store = LazyRwLockGuard::new(&jd.session_data.string_store);
 
-    let mut groups_iter = jd.group_tracker.lookup_group_list_iter_mut(
-        join.group_list_iter_ref.list_id,
-        join.group_list_iter_ref.iter_id,
-        &jd.match_set_mgr.match_sets[ms_id].action_buffer,
-        join.actor_id,
-    );
+    let mut record_group_iter =
+        jd.record_group_tracker.lookup_group_list_iter_mut(
+            join.group_list_iter_ref.list_id,
+            join.group_list_iter_ref.iter_id,
+            &jd.match_set_mgr.match_sets[ms_id].action_buffer,
+            join.actor_id,
+        );
 
     'iter: loop {
         if join.current_group_error.is_some() || join.stream_value_error {
             let consumed = iter.next_n_fields(
                 desired_group_len_rem
                     .min(batch_size_rem)
-                    .min(groups_iter.group_len_rem()),
+                    .min(record_group_iter.group_len_rem()),
             );
-            groups_iter.next_n_fields(consumed);
+            record_group_iter.next_n_fields(consumed);
             desired_group_len_rem -= consumed;
             join.curr_group_len += consumed;
             batch_size_rem -= consumed;
         }
-        let end_of_group = groups_iter.is_end_of_group(ps.input_done);
+        let end_of_group = record_group_iter.is_end_of_group(ps.input_done);
         if end_of_group || desired_group_len_rem == 0 {
             let field_pos = iter.get_next_field_pos();
             let should_drop =
@@ -578,13 +579,13 @@ pub fn handle_tf_join<'a>(
             let drop_count = (field_pos - last_group_end
                 + usize::from(prebuffered_record))
             .saturating_sub(1);
-            groups_iter.drop_before(
-                groups_iter.field_pos() - drop_count,
+            record_group_iter.drop_before(
+                record_group_iter.field_pos() - drop_count,
                 drop_count.saturating_sub(usize::from(!should_drop)),
             );
             prebuffered_record = false;
             if join.curr_group_len == 0 && !should_drop {
-                groups_iter.insert_fields(FieldValueRepr::Undefined, 1);
+                record_group_iter.insert_fields(FieldValueRepr::Undefined, 1);
             }
             last_group_end = field_pos;
             if should_drop {
@@ -602,13 +603,14 @@ pub fn handle_tf_join<'a>(
 
             if end_of_group {
                 loop {
-                    if !groups_iter.try_next_group() {
+                    if !record_group_iter.try_next_group() {
                         break;
                     }
-                    if !groups_iter.is_end_of_group(ps.input_done) {
+                    if !record_group_iter.is_end_of_group(ps.input_done) {
                         break;
                     }
-                    groups_iter.insert_fields(FieldValueRepr::Undefined, 1);
+                    record_group_iter
+                        .insert_fields(FieldValueRepr::Undefined, 1);
                 }
             }
             desired_group_len_rem = join.group_capacity.unwrap_or(usize::MAX);
@@ -617,13 +619,13 @@ pub fn handle_tf_join<'a>(
         if batch_size_rem != 0
             && join.curr_group_len == 0
             && join.group_capacity.unwrap_or(1) == 1
-            && groups_iter.group_len_rem() == 1
+            && record_group_iter.group_len_rem() == 1
         {
             // optimized case for groups of length 1,
             // where we can just copy straight to output without any buffering
             // or separators
 
-            let count = groups_iter
+            let count = record_group_iter
                 .skip_single_elem_groups(ps.input_done, batch_size_rem);
             let mut rem = count;
             while rem > 0 {
@@ -658,7 +660,7 @@ pub fn handle_tf_join<'a>(
             &jd.match_set_mgr,
             desired_group_len_rem
                 .min(batch_size_rem)
-                .min(groups_iter.group_len_rem()),
+                .min(record_group_iter.group_len_rem()),
             field_value_flags::DEFAULT,
         ) else {
             break;
@@ -760,11 +762,11 @@ pub fn handle_tf_join<'a>(
         join.curr_group_len += fc;
         desired_group_len_rem -= fc;
         batch_size_rem -= fc;
-        groups_iter.next_n_fields(fc);
+        record_group_iter.next_n_fields(fc);
     }
 
     jd.field_mgr.store_iter(input_field_id, join.iter_id, iter);
-    groups_iter.store_iter(join.group_list_iter_ref.iter_id);
+    record_group_iter.store_iter(join.group_list_iter_ref.iter_id);
 
     drop(input_field);
 

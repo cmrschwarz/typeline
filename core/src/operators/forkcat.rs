@@ -15,7 +15,7 @@ use crate::{
     record_data::{
         action_buffer::ActorRef,
         field::{FieldId, VOID_FIELD_ID},
-        group_tracker::VOID_GROUP_LIST_ID,
+        record_group_tracker::VOID_GROUP_LIST_ID,
     },
     utils::{
         identity_hasher::BuildIdentityHasher, string_store::StringStoreEntry,

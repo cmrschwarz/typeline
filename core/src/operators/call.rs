@@ -7,7 +7,7 @@ use crate::{
     job::{Job, JobData},
     options::argument::CliArgIdx,
     record_data::{
-        field::FieldId, group_tracker::GroupListId, match_set::MatchSetId,
+        field::FieldId, record_group_tracker::RecordGroupListId, match_set::MatchSetId,
     },
     utils::{
         identity_hasher::BuildIdentityHasher,
@@ -115,7 +115,7 @@ pub(crate) fn handle_eager_call_expansion(
     sess: &mut Job,
     ms_id: MatchSetId,
     input_field: FieldId,
-    group_list: GroupListId,
+    group_list: RecordGroupListId,
     predecessor_tf: Option<TransformId>,
 ) -> OperatorInstantiation {
     let chain = &sess.job_data.session_data.chains
