@@ -51,7 +51,7 @@ impl Operator for OpFromTyson {
     fn default_name(
         &self,
     ) -> scr_core::operators::operator::DefaultOperatorName {
-        "from-tyson".into()
+        "from_tyson".into()
     }
 
     fn output_count(&self, _sess: &SessionData, _op_id: OperatorId) -> usize {
@@ -273,7 +273,7 @@ impl TfFromTyson {
                     inserter.push_fixed_size_type(
                         OperatorApplicationError::new_s(
                             format!(
-                                "from-tyson can't handle values of type `{}`",
+                                "from_tyson can't handle values of type `{}`",
                                 range.base.data.repr()
                             ),
                             bud.tf_mgr.transforms[bud.tf_id].op_id.unwrap(),
@@ -293,7 +293,7 @@ impl TfFromTyson {
 
 impl Transform for TfFromTyson {
     fn display_name(&self) -> DefaultTransformName {
-        "sum".into()
+        "from_tyson".into()
     }
 
     fn update(

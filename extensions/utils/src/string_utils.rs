@@ -1,4 +1,5 @@
 use scr_core::operators::{
+    format::create_op_format,
     multi_op::create_multi_op,
     operator::OperatorData,
     regex::{
@@ -39,4 +40,8 @@ pub fn create_op_trim() -> OperatorData {
         },
     )
     .unwrap()
+}
+
+pub fn create_op_to_tyson() -> OperatorData {
+    create_op_format("{:?}").unwrap()
 }

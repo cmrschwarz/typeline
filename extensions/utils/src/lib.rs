@@ -12,7 +12,9 @@ use scr_core::{
     operators::{errors::OperatorCreationError, operator::OperatorData},
     options::session_options::SessionOptions,
 };
-use string_utils::{create_op_chars, create_op_lines, create_op_trim};
+use string_utils::{
+    create_op_chars, create_op_lines, create_op_to_tyson, create_op_trim,
+};
 use sum::create_op_sum;
 use tail::parse_op_tail;
 
@@ -58,7 +60,8 @@ impl Extension for MiscCmdsExtension {
             "lines" | "l" => Some(create_op_lines),
             "chars" => Some(create_op_chars),
             "trim" => Some(create_op_trim),
-            "from-tyson" => Some(create_op_from_tyson),
+            "from_tyson" => Some(create_op_from_tyson),
+            "to_tyson" => Some(create_op_to_tyson),
             _ => None,
         };
         if let Some(ctor) = ctor_without_arg {

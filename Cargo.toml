@@ -1,5 +1,11 @@
 [workspace]
-members = ["core", "extensions/sqlite", "extensions/http", "extensions/utils"]
+members = [
+    "core",
+    "extensions/sqlite",
+    "extensions/http",
+    "extensions/utils",
+    "extensions/python",
+]
 
 [package]
 name = "scr"
@@ -26,6 +32,7 @@ scr_ext_utils = { path = "./extensions/utils" }
 [dependencies]
 scr_core = { path = "./core", default-features = false }
 scr_ext_sqlite = { path = "./extensions/sqlite", optional = true }
+scr_ext_python = { path = "./extensions/python", optional = true }
 scr_ext_http = { path = "./extensions/http", optional = true }
 scr_ext_utils = { path = "./extensions/utils", optional = true }
 
@@ -44,11 +51,12 @@ panic = "unwind"
 [features]
 repl = ["scr_core/repl"]
 sqlite = ["dep:scr_ext_sqlite"]
+python = ["dep:scr_ext_python"]
 http = ["dep:scr_ext_http"]
 utils = ["dep:scr_ext_utils"]
 
 default = ["utils"]
-full = ["scr_core/full", "repl", "sqlite", "http", "utils"]
+full = ["scr_core/full", "repl", "sqlite", "http", "utils", "python"]
 
 unstable = ["scr_core/unstable"]
 debug_logging = ["scr_core/debug_logging"]
