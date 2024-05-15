@@ -16,7 +16,7 @@ use scr_core::{
             TransformState,
         },
     },
-    record_data::action_buffer::ActorRef,
+    record_data::action_buffer::{ActorId, ActorRef},
     smallbox,
 };
 
@@ -26,6 +26,7 @@ pub struct OpPrimes {}
 pub struct TfPrimes {
     sieve: primes::Sieve,
     count: usize,
+    actor_id: ActorId,
 }
 
 impl Operator for OpPrimes {
@@ -68,18 +69,19 @@ impl Operator for OpPrimes {
         _op_id: OperatorId,
         _prebound_outputs: &PreboundOutputsMap,
     ) -> TransformInstatiation<'a> {
-        let actor_id = job.job_data.match_set_mgr.match_sets
+        let mut ab = job.job_data.match_set_mgr.match_sets
             [tf_state.match_set_id]
             .action_buffer
-            .borrow()
-            .peek_next_actor_id();
+            .borrow_mut();
+        let actor_id = ab.add_actor();
         job.job_data.field_mgr.fields[tf_state.output_field]
             .borrow_mut()
-            .first_actor = ActorRef::Unconfirmed(actor_id);
+            .first_actor = ActorRef::Unconfirmed(ab.peek_next_actor_id());
         TransformInstatiation::Simple(TransformData::Custom(smallbox!(
             TfPrimes {
                 sieve: primes::Sieve::new(),
-                count: 0
+                count: 0,
+                actor_id
             }
         )))
     }

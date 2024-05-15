@@ -13,9 +13,9 @@ use crate::{
         field::{Field, FieldId, FieldManager},
         field_action::FieldActionKind,
         field_data::FieldValueRepr,
-        record_group_tracker::{GroupListIterRef, RecordGroupTracker},
         iter_hall::IterId,
         iters::{DestructuredFieldDataRef, FieldIterator, Iter},
+        record_group_tracker::{GroupListIterRef, RecordGroupTracker},
         variable_sized_type_inserter::VariableSizeTypeInserter,
     },
     utils::int_string_conversions::{
@@ -374,10 +374,10 @@ fn handle_enum_mode(mut sbs: SequenceBatchState) {
         if input_rem == 0 {
             break;
         }
-        let field_count = sbs
-            .iter
-            .next_n_fields(input_rem.min(group_iter.group_len_rem()), true);
-        let count = (field_count as u64).min(seq_size_rem) as usize;
+        let field_count = input_rem.min(group_iter.group_len_rem());
+        let advance_count = (field_count as u64).min(seq_size_rem) as usize;
+        let count = sbs.iter.next_n_fields(advance_count, true);
+        debug_assert_eq!(advance_count, count);
         group_iter.next_n_fields_in_group(count);
         sbs.seq.current_value = advance_sequence(
             sbs.seq,
@@ -408,6 +408,8 @@ fn handle_enum_mode(mut sbs: SequenceBatchState) {
             let groups_skipped = group_iter.skip_empty_groups();
             // otherwise we would loop infinitely
             debug_assert!(groups_skipped > 0 || field_count > 0);
+        } else if group_iter.group_len_rem() == 0 {
+            break;
         }
     }
     sbs.fm
