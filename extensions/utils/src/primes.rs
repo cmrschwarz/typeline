@@ -15,8 +15,18 @@ use scr_core::{
             DefaultTransformName, Transform, TransformData, TransformId,
             TransformState,
         },
+        utils::generator_transform_update::{
+            handle_generator_transform_update, GeneratorMode,
+            GeneratorSequence,
+        },
     },
-    record_data::action_buffer::{ActorId, ActorRef},
+    record_data::{
+        action_buffer::{ActorId, ActorRef},
+        field::Field,
+        fixed_sized_type_inserter::FixedSizeTypeInserter,
+        iter_hall::{IterId, IterKind},
+        record_group_tracker::GroupListIterRef,
+    },
     smallbox,
 };
 
@@ -27,6 +37,8 @@ pub struct TfPrimes {
     sieve: primes::Sieve,
     count: usize,
     actor_id: ActorId,
+    iter_id: IterId,
+    group_iter: GroupListIterRef,
 }
 
 impl Operator for OpPrimes {
@@ -69,21 +81,69 @@ impl Operator for OpPrimes {
         _op_id: OperatorId,
         _prebound_outputs: &PreboundOutputsMap,
     ) -> TransformInstatiation<'a> {
-        let mut ab = job.job_data.match_set_mgr.match_sets
-            [tf_state.match_set_id]
+        let jd = &mut job.job_data;
+        let mut ab = jd.match_set_mgr.match_sets[tf_state.match_set_id]
             .action_buffer
             .borrow_mut();
         let actor_id = ab.add_actor();
-        job.job_data.field_mgr.fields[tf_state.output_field]
+        let group_iter = jd
+            .record_group_tracker
+            .claim_group_list_iter_ref(tf_state.input_group_list_id);
+        let iter_id = jd.field_mgr.fields[tf_state.input_field]
+            .borrow_mut()
+            .iter_hall
+            .claim_iter(IterKind::Transform(
+                jd.tf_mgr.transforms.peek_claim_id(),
+            ));
+        jd.field_mgr.fields[tf_state.output_field]
             .borrow_mut()
             .first_actor = ActorRef::Unconfirmed(ab.peek_next_actor_id());
         TransformInstatiation::Simple(TransformData::Custom(smallbox!(
             TfPrimes {
                 sieve: primes::Sieve::new(),
                 count: 0,
-                actor_id
+                actor_id,
+                iter_id,
+                group_iter
             }
         )))
+    }
+}
+
+impl GeneratorSequence for TfPrimes {
+    type Inserter<'a> = FixedSizeTypeInserter<'a, i64>;
+    fn seq_len_total(&self) -> u64 {
+        u64::MAX
+    }
+
+    fn seq_len_rem(&self) -> u64 {
+        u64::MAX
+    }
+
+    fn reset_sequence(&mut self) {
+        todo!()
+    }
+
+    fn create_inserter<'a>(
+        &mut self,
+        field: &'a mut Field,
+    ) -> Self::Inserter<'a> {
+        field.iter_hall.fixed_size_type_inserter()
+    }
+
+    fn advance_sequence(
+        &mut self,
+        inserter: &mut Self::Inserter<'_>,
+        count: usize,
+    ) {
+        inserter.extend(
+            self.sieve
+                .iter()
+                .skip(self.count)
+                .map(|v| v as i64)
+                .take(count),
+        );
+        self.count += count;
     }
 }
 
@@ -93,53 +153,15 @@ impl Transform<'_> for TfPrimes {
     }
 
     fn update(&mut self, jd: &mut JobData, tf_id: TransformId) {
-        let (batch_size, ps) = jd.tf_mgr.claim_batch(tf_id);
-        let tf = &jd.tf_mgr.transforms[tf_id];
-        let output_field = tf.output_field;
-        jd.tf_mgr.prepare_for_output(
-            &mut jd.field_mgr,
-            &mut jd.match_set_mgr,
+        handle_generator_transform_update(
+            jd,
             tf_id,
-            [output_field],
-        );
-        let mut primes_to_produce = batch_size;
-        let mut done = false;
-        if ps.successor_done {
-            if ps.input_done {
-                return;
-            }
-            done = true;
-            primes_to_produce = 0;
-        } else if ps.input_done {
-            if let Some(succ) = jd.tf_mgr.transforms[tf_id].successor {
-                primes_to_produce = primes_to_produce
-                    .max(jd.tf_mgr.transforms[succ].desired_batch_size);
-            } else {
-                done = true;
-                primes_to_produce = 0;
-            }
-        }
-        let mut output_field = jd.field_mgr.fields[output_field].borrow_mut();
-        let mut inserter =
-            output_field.iter_hall.fixed_size_type_inserter::<i64>();
-
-        inserter.extend(
-            self.sieve
-                .iter()
-                .skip(self.count)
-                .map(|v| v as i64)
-                .take(primes_to_produce),
-        );
-        self.count += primes_to_produce;
-
-        if ps.next_batch_ready || (ps.input_done && !done) {
-            jd.tf_mgr.push_tf_in_ready_stack(tf_id);
-        }
-        jd.tf_mgr.submit_batch(
-            tf_id,
-            primes_to_produce,
-            ps.input_done && done,
-        );
+            self.iter_id,
+            self.actor_id,
+            Some(self.group_iter),
+            self,
+            GeneratorMode::AlongsideUnbounded,
+        )
     }
 }
 

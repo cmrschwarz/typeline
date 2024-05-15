@@ -45,11 +45,11 @@ use scr_core::{
 };
 
 struct PyTypes {
-    none_type: *mut pyo3::ffi::PyTypeObject,
-    int_type: *mut pyo3::ffi::PyTypeObject,
-    float_type: *mut pyo3::ffi::PyTypeObject,
-    str_type: *mut pyo3::ffi::PyTypeObject,
-    bytes_type: *mut pyo3::ffi::PyTypeObject,
+    none_type: Py<PyTypeObject>,
+    int_type: Py<PyTypeObject>,
+    float_type: Py<PyTypeObject>,
+    str_type: Py<PyTypeObject>,
+    bytes_type: Py<PyTypeObject>,
 }
 
 pub struct OpPy {
@@ -352,13 +352,13 @@ impl<'a> Transform<'a> for TfPy<'a> {
                         continue;
                     }
                 };
-                let type_ptr = res.get_type_ptr();
+                let type_ptr = res.get_type_ptr().cast::<PyObject>();
                 let pv = &self.op.py_types;
-                if type_ptr == pv.none_type {
+                if type_ptr == pv.none_type.as_ptr() {
                     inserter.push_null(1, true);
                     continue;
                 }
-                if type_ptr == pv.int_type {
+                if type_ptr == pv.int_type.as_ptr() {
                     if let Ok(i) = i64::extract_bound(&res) {
                         inserter.push_int(i, 1, true, true);
                         continue;
@@ -368,19 +368,19 @@ impl<'a> Transform<'a> for TfPy<'a> {
                         continue;
                     }
                 }
-                if type_ptr == pv.float_type {
+                if type_ptr == pv.float_type.as_ptr() {
                     if let Ok(f) = f64::extract_bound(&res) {
                         inserter.push_float(f, 1, true, true);
                         continue;
                     }
                 }
-                if type_ptr == pv.str_type {
+                if type_ptr == pv.str_type.as_ptr() {
                     if let Ok(s) = <&str>::extract_bound(&res) {
                         inserter.push_str(s, 1, true, true);
                         continue;
                     }
                 }
-                if type_ptr == pv.bytes_type {
+                if type_ptr == pv.bytes_type.as_ptr() {
                     if let Ok(b) = <&[u8]>::extract_bound(&res) {
                         // PERF: maybe force inline
                         inserter.push_bytes(b, 1, true, true);
@@ -468,18 +468,25 @@ pub fn parse_op_py(
         let none = pyo3::ffi::Py_None();
         let builtins = pyo3::ffi::PyEval_GetBuiltins();
         unsafe fn get_builtin_type(
+            py: Python,
             builtins: *mut PyObject,
             name: &str,
-        ) -> *mut PyTypeObject {
-            pyo3::ffi::PyDict_GetItemString(builtins, name.as_ptr().cast())
-                .cast()
+        ) -> Py<PyTypeObject> {
+            pyo3::Py::from_borrowed_ptr(
+                py,
+                pyo3::ffi::PyDict_GetItemString(
+                    builtins,
+                    name.as_ptr().cast(),
+                )
+                .cast(),
+            )
         }
         let py_types = PyTypes {
-            none_type: pyo3::ffi::PyObject_Type(none).cast(),
-            int_type: get_builtin_type(builtins, "int\0"),
-            float_type: get_builtin_type(builtins, "float\0"),
-            str_type: get_builtin_type(builtins, "str\0"),
-            bytes_type: get_builtin_type(builtins, "bytes\0"),
+            none_type: pyo3::Py::from_borrowed_ptr(py, none),
+            int_type: get_builtin_type(py, builtins, "int\0"),
+            float_type: get_builtin_type(py, builtins, "float\0"),
+            str_type: get_builtin_type(py, builtins, "str\0"),
+            bytes_type: get_builtin_type(py, builtins, "bytes\0"),
         };
 
         let dunder_builtins_str = pyo3::intern!(py, "__builtins__").as_ptr();
