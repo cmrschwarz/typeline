@@ -16,6 +16,7 @@ use scr_core::{
         int_sequence_newline_separated, int_sequence_strings,
     },
 };
+use scr_ext_utils::string_utils::create_op_lines;
 
 #[bench]
 fn empty_context(b: &mut test::Bencher) {
@@ -35,7 +36,7 @@ const LEN: usize = 2000;
 
 #[bench]
 fn plain_string_sink(b: &mut test::Bencher) {
-    let res = int_sequence_strings(LEN);
+    let res = int_sequence_strings(0..LEN);
     b.iter(|| {
         let ss = StringSinkHandle::default();
         ContextBuilder::default()
@@ -50,13 +51,13 @@ fn plain_string_sink(b: &mut test::Bencher) {
 #[bench]
 fn regex_lines(b: &mut test::Bencher) {
     const COUNT: usize = 1000;
-    let input = int_sequence_newline_separated(COUNT);
-    let res = int_sequence_strings(COUNT);
+    let input = int_sequence_newline_separated(0..COUNT);
+    let res = int_sequence_strings(0..COUNT);
     b.iter(|| {
         let ss = StringSinkHandle::default();
         ContextBuilder::default()
             .push_str(&input, 1)
-            .add_op(create_op_regex_lines())
+            .add_op(create_op_lines())
             .add_op(create_op_string_sink(&ss))
             .run()
             .unwrap();
@@ -67,8 +68,8 @@ fn regex_lines(b: &mut test::Bencher) {
 #[bench]
 fn regex_lines_plus_drop_uneven(b: &mut test::Bencher) {
     const COUNT: usize = 1000;
-    let input = int_sequence_newline_separated(COUNT);
-    let res: Vec<String> = int_sequence_strings(COUNT)
+    let input = int_sequence_newline_separated(0..COUNT);
+    let res: Vec<String> = int_sequence_strings(0..COUNT)
         .into_iter()
         .enumerate()
         .filter_map(|(i, v)| if i % 2 == 0 { Some(v) } else { None })
@@ -88,7 +89,7 @@ fn regex_lines_plus_drop_uneven(b: &mut test::Bencher) {
 
 #[bench]
 fn dummy_format(b: &mut test::Bencher) {
-    let res = int_sequence_strings(LEN);
+    let res = int_sequence_strings(0..LEN);
     b.iter(|| {
         let ss = StringSinkHandle::default();
         ContextBuilder::default()
@@ -103,7 +104,7 @@ fn dummy_format(b: &mut test::Bencher) {
 
 #[bench]
 fn format_twice(b: &mut test::Bencher) {
-    let mut res = int_sequence_strings(LEN);
+    let mut res = int_sequence_strings(0..LEN);
     for v in res.iter_mut() {
         v.extend_from_within(0..);
     }
@@ -122,8 +123,8 @@ fn format_twice(b: &mut test::Bencher) {
 #[bench]
 fn regex_drop_uneven_into_format_twice(b: &mut test::Bencher) {
     const COUNT: usize = 1000;
-    let input = int_sequence_newline_separated(COUNT);
-    let res: Vec<String> = int_sequence_strings(COUNT)
+    let input = int_sequence_newline_separated(0..COUNT);
+    let res: Vec<String> = int_sequence_strings(0..COUNT)
         .into_iter()
         .enumerate()
         .filter_map(|(i, mut v)| {
@@ -152,7 +153,7 @@ fn regex_drop_uneven_into_format_twice(b: &mut test::Bencher) {
 #[bench]
 fn seq_into_regex_drop_unless_seven(b: &mut test::Bencher) {
     const COUNT: usize = 10000;
-    let res: Vec<&str> = int_sequence_strings(COUNT)
+    let res: Vec<&str> = int_sequence_strings(0..COUNT)
         .into_iter()
         .filter_map(|v| if v.contains("7") { Some("7") } else { None })
         .collect();

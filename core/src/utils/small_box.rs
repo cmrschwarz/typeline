@@ -34,8 +34,9 @@ macro_rules! smallbox {
     }};
 }
 
-#[cfg(feature = "generic_const_exprs")]
-type SufficientSmallBox<T: ?Sized, U> = SmallBox<T, { size_of::<U>() }>;
+// NOTE: once we have `#![feature(generic_const_exprs)]` (buggy right now)
+// we can add the following convenience wrapper:
+// `type SufficientSmallBox<T: ?Sized, U> = SmallBox<T, { size_of::<U>() }>;`
 
 /// A small size optimized box
 #[repr(C)]

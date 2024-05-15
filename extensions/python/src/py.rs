@@ -462,15 +462,16 @@ pub fn parse_op_py(
         let builtins = pyo3::ffi::PyEval_GetBuiltins();
         unsafe fn get_builtin_type(
             builtins: *mut PyObject,
-            name: &CStr,
+            name: &str,
         ) -> *mut PyTypeObject {
-            pyo3::ffi::PyDict_GetItemString(builtins, name.as_ptr()).cast()
+            pyo3::ffi::PyDict_GetItemString(builtins, name.as_ptr().cast())
+                .cast()
         }
         let py_types = PyTypes {
             none_type: pyo3::ffi::PyObject_Type(none).cast(),
-            int_type: get_builtin_type(builtins, c"int"),
-            str_type: get_builtin_type(builtins, c"str"),
-            bytes_type: get_builtin_type(builtins, c"bytes"),
+            int_type: get_builtin_type(builtins, "int\0"),
+            str_type: get_builtin_type(builtins, "str\0"),
+            bytes_type: get_builtin_type(builtins, "bytes\0"),
         };
 
         let dunder_builtins_str = pyo3::intern!(py, "__builtins__").as_ptr();

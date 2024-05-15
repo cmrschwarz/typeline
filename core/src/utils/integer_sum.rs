@@ -1,6 +1,7 @@
+#[cfg(target_feature = "avx2")]
 const AVX2_MIN_LEN: usize = 8;
 
-fn add_with_overflow_check(a: i64, b: i64) -> (i64, bool) {
+pub fn add_with_overflow_check(a: i64, b: i64) -> (i64, bool) {
     let sum = a.wrapping_add(b);
 
     // We have an overflow iff the sign of sum is not the same
@@ -15,7 +16,7 @@ fn add_with_overflow_check(a: i64, b: i64) -> (i64, bool) {
     (sum, overflow.is_negative())
 }
 
-fn integer_sum_with_overflow_baseline(nums: &[i64]) -> (i64, bool) {
+pub fn integer_sum_with_overflow_baseline(nums: &[i64]) -> (i64, bool) {
     let mut sum = 0i64;
     let mut overflow = 0i64;
     for &b in nums {
