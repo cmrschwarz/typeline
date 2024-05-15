@@ -3,8 +3,8 @@ use std::ffi::{CStr, CString};
 use num::BigInt;
 use pyo3::{
     ffi::{PyObject, PyTypeObject},
-    types::{PyAnyMethods, PyDict},
-    Py, Python,
+    types::{PyAnyMethods, PyCode, PyDict},
+    Py, PyAny, Python,
 };
 use scr_core::{
     context::SessionData,
@@ -55,9 +55,9 @@ pub struct OpPy {
     free_vars_str: Vec<CString>,
     // populated during setup
     free_vars: Vec<Option<StringStoreEntry>>,
-
-    code_object: *mut pyo3::ffi::PyObject,
-    globals: *mut pyo3::ffi::PyObject,
+    statements: Py<PyAny>, // PyCode or None
+    final_expr: Py<PyCode>,
+    globals: Py<PyDict>,
     py_types: PyTypes,
 }
 unsafe impl Send for OpPy {}
@@ -256,12 +256,20 @@ impl<'a> Transform<'a> for TfPy<'a> {
                     let val = iter
                         .next_value(&jd.match_set_mgr, 1)
                         .map(|(val, _rl, _fr_offs)| val)
-                        .unwrap_or(FieldValueRef::Null);
+                        .unwrap_or(FieldValueRef::Undefined);
 
                     let obj = match val {
                         FieldValueRef::Null => ().to_object(py),
                         // TODO: maybe error / configurable
-                        FieldValueRef::Undefined => ().to_object(py),
+                        FieldValueRef::Undefined => {
+                            unsafe {
+                                pyo3::ffi::PyDict_DelItemString(
+                                    self.locals.as_ptr(),
+                                    self.op.free_vars_str[i].as_ptr(),
+                                );
+                            }
+                            continue;
+                        }
                         FieldValueRef::Int(i) => i.to_object(py),
                         FieldValueRef::BigInt(i) => i.to_object(py),
                         FieldValueRef::Float(f) => f.to_object(py),
@@ -285,9 +293,28 @@ impl<'a> Transform<'a> for TfPy<'a> {
                     }
                 }
                 let res = unsafe {
+                    if !self.op.statements.is_none(py) {
+                        pyo3::ffi::PyEval_EvalCode(
+                            self.op.statements.as_ptr(),
+                            self.op.globals.as_ptr(),
+                            self.locals.as_ptr(),
+                        );
+                        if let Some(e) = pyo3::PyErr::take(py) {
+                            inserter.push_error(
+                                OperatorApplicationError::new_s(
+                                    format!("Python: {e}"),
+                                    op_id,
+                                ),
+                                1,
+                                true,
+                                false,
+                            );
+                            continue;
+                        }
+                    }
                     let res = pyo3::ffi::PyEval_EvalCode(
-                        self.op.code_object,
-                        self.op.globals,
+                        self.op.final_expr.as_ptr(),
+                        self.op.globals.as_ptr(),
                         self.locals.as_ptr(),
                     );
                     pyo3::Bound::from_borrowed_ptr_or_err(py, res)
@@ -298,7 +325,7 @@ impl<'a> Transform<'a> for TfPy<'a> {
                     Err(e) => {
                         inserter.push_error(
                             OperatorApplicationError::new_s(
-                                format!("python error: {e}"),
+                                format!("Python: {e}"),
                                 op_id,
                             ),
                             1,
@@ -382,13 +409,13 @@ unsafe fn debug_print_py_object(
         );
         assert!(pyo3::PyErr::take(py).is_none());
 
-        let code_object_2 = pyo3::ffi::Py_CompileString(
+        let code_object = pyo3::ffi::Py_CompileString(
             "print(var_to_print__)\0".as_ptr().cast(),
             "<string>\0".as_ptr().cast(),
-            pyo3::ffi::Py_eval_input,
+            pyo3::ffi::Py_file_input,
         );
         let code_object_2 =
-            pyo3::Bound::from_owned_ptr_or_err(py, code_object_2).unwrap();
+            pyo3::Bound::from_owned_ptr_or_err(py, code_object).unwrap();
 
         pyo3::ffi::PyEval_EvalCode(code_object_2.as_ptr(), globals, globals);
         assert!(pyo3::PyErr::take(py).is_none());
@@ -453,13 +480,13 @@ pub fn parse_op_py(
 
         let code_object = pyo3::ffi::Py_CompileString(
             command.as_ptr().cast(),
-            "<command>\0".as_ptr().cast(),
-            pyo3::ffi::Py_eval_input,
+            "<cmd>\0".as_ptr().cast(),
+            pyo3::ffi::Py_file_input,
         );
 
         if let Some(err) = pyo3::PyErr::take(py) {
             return Err(OperatorCreationError::new_s(
-                format!("Python: {err}"),
+                format!("Python failed to parse: {err}"),
                 cli_arg_idx,
             ));
         }
@@ -485,11 +512,42 @@ pub fn parse_op_py(
             free_vars_str.push(CStr::from_ptr(var_name).to_owned());
         }
 
+        let locals = PyDict::new_bound(py);
+        locals
+            .set_item("code", command.as_c_str().to_str().unwrap())
+            .unwrap();
+        let code = r#"
+import ast
+body = ast.parse(code, mode="exec").body
+if len(body) > 1:
+    statements = compile(ast.Module(body[:-1], []), "<cmd_stmts>", "exec")
+    expression = compile(ast.Expression(body[-1].value), "<cmd_expr>", "eval")
+else:
+    statements = None
+    expression = compile(code, "<cmd>", "eval")
+"#;
+        if let Err(e) = py.run_bound(code, None, Some(&locals)) {
+            return Err(OperatorCreationError::new_s(
+                format!("Python Command Compilation: {e}"),
+                cli_arg_idx,
+            ));
+        }
+        let statements = locals.get_item("statements").unwrap().unbind();
+
+        let final_expr = locals
+            .get_item("expression")
+            .unwrap()
+            .clone()
+            .downcast_into::<pyo3::types::PyCode>()
+            .unwrap()
+            .unbind();
+
         Ok(OperatorData::Custom(smallbox!(OpPy {
             free_vars_str,
             free_vars: Vec::new(),
-            code_object,
-            globals: module_dict,
+            statements,
+            final_expr,
+            globals: pyo3::Py::from_borrowed_ptr(py, module_dict),
             py_types
         })))
     })

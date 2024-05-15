@@ -47,8 +47,8 @@ pub fn handle_tf_input_done_eater(
     jd.tf_mgr.submit_batch(tf_id, batch_size, ps.input_done);
 }
 
-pub fn add_input_done_eater<'a>(
-    sess: &mut Job<'a>,
+pub fn add_input_done_eater(
+    sess: &mut Job,
     chain_id: ChainId, // to get desired batch size
     ms_id: MatchSetId,
     input_dones_to_eat: usize,
