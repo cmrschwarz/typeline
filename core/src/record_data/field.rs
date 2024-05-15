@@ -27,6 +27,12 @@ use super::{
 
 pub const FIELD_REF_LOOKUP_ITER_ID: IterId = IterId::MIN;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FieldIterRef {
+    pub field_id: FieldId,
+    pub iter_id: IterId,
+}
+
 #[derive(Default)]
 pub struct Field {
     pub shadowed_since: ActorId,

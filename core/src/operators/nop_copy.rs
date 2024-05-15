@@ -51,11 +51,11 @@ pub fn on_op_nop_copy_liveness_computed(
     op.may_consume_input = ld.can_consume_nth_access(op_id, 0);
 }
 
-pub fn build_tf_nop_copy(
+pub fn build_tf_nop_copy<'a>(
     jd: &mut JobData,
     op: &OpNopCopy,
     tf_state: &TransformState,
-) -> TransformData<'static> {
+) -> TransformData<'a> {
     let input_field_ref_offset = jd
         .field_mgr
         .register_field_reference(tf_state.output_field, tf_state.input_field);

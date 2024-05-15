@@ -43,11 +43,11 @@ pub fn setup_op_success_updator(
     Ok(())
 }
 
-pub fn build_tf_success_updator(
+pub fn build_tf_success_updator<'a>(
     jd: &mut JobData,
     _op: &OpSuccessUpdator,
     tf_state: &TransformState,
-) -> TransformData<'static> {
+) -> TransformData<'a> {
     let su = TfSuccessUpdator {
         iter_id: jd.add_iter_for_tf_state(tf_state),
         success: true,

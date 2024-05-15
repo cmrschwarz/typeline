@@ -104,12 +104,12 @@ pub fn parse_op_print(
     }))
 }
 
-pub fn build_tf_print(
+pub fn build_tf_print<'a>(
     jd: &mut JobData,
     _op_base: &OperatorBase,
     op: &OpPrint,
     tf_state: &mut TransformState,
-) -> TransformData<'static> {
+) -> TransformData<'a> {
     TransformData::Print(TfPrint {
         // ENHANCE: should we config options for this stuff?
         flush_on_every_print: matches!(op.target, WritableTarget::Stdout)

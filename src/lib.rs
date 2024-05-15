@@ -30,6 +30,11 @@ pub fn build_extension_registry() -> Arc<ExtensionRegistry> {
         .extensions
         .push(Box::<scr_ext_http::HttpExtension>::default());
 
+    #[cfg(feature = "python")]
+    extensions
+        .extensions
+        .push(Box::<scr_ext_python::PythonExtension>::default());
+
     extensions.setup();
     Arc::new(extensions)
 }

@@ -21,9 +21,9 @@ use scr_core::{
         field_data::{FieldData, FieldValueRepr},
         field_value_ref::FieldValueSlice,
         field_value_slice_iter::{FieldValueBlock, FieldValueSliceIter},
-        record_group_tracker::GroupListIterRef,
         iter_hall::{IterId, IterKind},
         push_interface::PushInterface,
+        record_group_tracker::GroupListIterRef,
         ref_iter::RefAwareFieldValueSliceIter,
         varying_type_inserter::VaryingTypeInserter,
     },
@@ -267,7 +267,7 @@ impl TfSum {
     }
 }
 
-impl Transform for TfSum {
+impl Transform<'_> for TfSum {
     fn display_name(&self) -> DefaultTransformName {
         "sum".into()
     }

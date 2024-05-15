@@ -102,7 +102,7 @@ pub enum TransformData<'a> {
     ForeachHeader(TfForeachHeader),
     ForeachTrailer(TfForeachTrailer),
     SuccessUpdator(TfSuccessUpdator),
-    Custom(SmallBox<dyn Transform, 192>),
+    Custom(SmallBox<dyn Transform<'a>, 192>),
 }
 
 impl Default for TransformData<'_> {
@@ -201,11 +201,11 @@ impl TransformState {
     }
 }
 
-pub trait Transform: Send {
+pub trait Transform<'a>: Send + 'a {
     fn display_name(&self) -> DefaultTransformName;
     fn stream_producer_update(
         &mut self,
-        _jd: &mut JobData,
+        _jd: &mut JobData<'a>,
         _tf_id: TransformId,
     ) {
         unimplemented!(
@@ -215,7 +215,7 @@ pub trait Transform: Send {
     }
     fn handle_stream_value_update(
         &mut self,
-        _jd: &mut JobData,
+        _jd: &mut JobData<'a>,
         _tf_id: TransformId,
         _sv_id: StreamValueId,
         _custom: usize,
@@ -228,8 +228,8 @@ pub trait Transform: Send {
     fn pre_update_required(&self) -> bool {
         false
     }
-    fn pre_update(&mut self, _sess: &mut Job, _tf_id: TransformId) {}
-    fn update(&mut self, jd: &mut JobData, tf_id: TransformId);
+    fn pre_update(&mut self, _sess: &mut Job<'a>, _tf_id: TransformId) {}
+    fn update(&mut self, jd: &mut JobData<'a>, tf_id: TransformId);
 }
 
 // a helper type around JobData that works around the fact that

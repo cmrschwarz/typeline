@@ -201,7 +201,7 @@ fn insert_into_key<'a>(
     );
 }
 
-impl Transform for TfExplode {
+impl Transform<'_> for TfExplode {
     fn display_name(&self) -> DefaultTransformName {
         "explode".into()
     }

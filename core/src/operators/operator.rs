@@ -818,7 +818,7 @@ impl OperatorData {
         let tfs = &mut tf_state;
         let jd = &mut job.job_data;
         let op_base = &jd.session_data.operator_bases[op_id as usize];
-        let data = match self {
+        let data: TransformData<'a> = match self {
             OperatorData::Nop(op) => build_tf_nop(op, tfs),
             OperatorData::SuccessUpdator(op) => {
                 build_tf_success_updator(jd, op, tfs)

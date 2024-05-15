@@ -307,7 +307,9 @@ impl TfHttpRequest {
     fn basic_update(&mut self, mut bud: BasicUpdateData) -> (usize, bool) {
         let mut of = bud.field_mgr.fields[bud.output_field_id].borrow_mut();
         let mut inserter = of.iter_hall.varying_type_inserter();
-        while let Some((v, rl, _)) = bud.iter.next_value(bud.match_set_mgr) {
+        while let Some((v, rl, _)) =
+            bud.iter.next_value(bud.match_set_mgr, usize::MAX)
+        {
             // we properly support fetching from the same url mutliple times,
             // but we don't bother making that fast
             for _ in 0..rl {
@@ -534,7 +536,7 @@ fn header_completed(req: &mut Connection, buf: &[u8]) -> bool {
     end_reached
 }
 
-impl Transform for TfHttpRequest {
+impl Transform<'_> for TfHttpRequest {
     fn display_name(
         &self,
     ) -> scr_core::operators::transform::DefaultTransformName {

@@ -15,12 +15,12 @@ pub struct TfCount {
     count: usize,
 }
 
-pub fn build_tf_count(
+pub fn build_tf_count<'a>(
     _jd: &mut JobData,
     _op_base: &OperatorBase,
     _op: &OpCount,
     _tf_state: &mut TransformState,
-) -> TransformData<'static> {
+) -> TransformData<'a> {
     TransformData::Count(TfCount { count: 0 })
 }
 

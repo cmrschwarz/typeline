@@ -129,7 +129,7 @@ impl Operator for OpTail {
     }
 }
 
-impl Transform for TfTail {
+impl Transform<'_> for TfTail {
     fn display_name(&self) -> DefaultTransformName {
         "tail".into()
     }
@@ -162,7 +162,7 @@ impl Transform for TfTail {
     }
 }
 
-impl Transform for TfTailAdditive {
+impl Transform<'_> for TfTailAdditive {
     fn display_name(&self) -> DefaultTransformName {
         "tail".into()
     }

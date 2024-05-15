@@ -291,7 +291,7 @@ impl TfFromTyson {
     }
 }
 
-impl Transform for TfFromTyson {
+impl Transform<'_> for TfFromTyson {
     fn display_name(&self) -> DefaultTransformName {
         "from_tyson".into()
     }

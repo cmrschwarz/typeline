@@ -347,7 +347,7 @@ impl TfFlatten {
     }
 }
 
-impl Transform for TfFlatten {
+impl Transform<'_> for TfFlatten {
     fn display_name(&self) -> DefaultTransformName {
         "flatten".into()
     }

@@ -85,7 +85,7 @@ impl Operator for OpPrimes {
     }
 }
 
-impl Transform for TfPrimes {
+impl Transform<'_> for TfPrimes {
     fn display_name(&self) -> DefaultTransformName {
         "primes".into()
     }

@@ -16,10 +16,10 @@ pub struct TfTerminator {
     delayed_deletion_row_count: usize,
 }
 
-pub fn setup_tf_terminator(
-    jd: &mut JobData,
+pub fn setup_tf_terminator<'a>(
+    jd: &mut JobData<'a>,
     tf_state: &TransformState,
-) -> TransformData<'static> {
+) -> TransformData<'a> {
     let mut ab = jd.match_set_mgr.match_sets[tf_state.match_set_id]
         .action_buffer
         .borrow_mut();

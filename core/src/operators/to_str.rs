@@ -122,7 +122,7 @@ pub struct TfToStr {
 }
 
 pub fn build_tf_to_str<'a>(
-    jd: &mut JobData,
+    jd: &mut JobData<'a>,
     _op_base: &OperatorBase,
     op: &'a OpToStr,
     tf_state: &mut TransformState,

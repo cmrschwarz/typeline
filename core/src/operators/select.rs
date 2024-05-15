@@ -69,12 +69,12 @@ pub fn create_op_select(key: String) -> OperatorData {
     })
 }
 
-pub fn build_tf_select(
+pub fn build_tf_select<'a>(
     _jd: &mut JobData,
     _op_base: &OperatorBase,
     _op: &OpSelect,
     _tf_state: &mut TransformState,
-) -> TransformData<'static> {
+) -> TransformData<'a> {
     TransformData::Select(TfSelect {})
 }
 

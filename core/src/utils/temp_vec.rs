@@ -93,6 +93,10 @@ pub fn transmute_vec<T, U>(mut v: Vec<T>) -> Vec<U> {
     unsafe { Vec::from_raw_parts(ptr.cast(), len, cap) }
 }
 
+pub fn transmute_vec_take<T, U>(v: &mut Vec<T>) -> Vec<U> {
+    transmute_vec(std::mem::take(v))
+}
+
 pub fn temp_vec<T, U, R>(
     v: &mut Vec<T>,
     f: impl FnOnce(&mut Vec<U>) -> R,

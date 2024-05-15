@@ -125,7 +125,7 @@ impl Operator for OpHead {
     }
 }
 
-impl Transform for TfHead {
+impl Transform<'_> for TfHead {
     fn display_name(&self) -> DefaultTransformName {
         "head".into()
     }
@@ -165,7 +165,7 @@ impl Transform for TfHead {
     }
 }
 
-impl Transform for TfHeadSubtractive {
+impl Transform<'_> for TfHeadSubtractive {
     fn display_name(&self) -> DefaultTransformName {
         "head".into()
     }

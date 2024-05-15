@@ -7,7 +7,8 @@ use crate::{
     job::{Job, JobData},
     options::argument::CliArgIdx,
     record_data::{
-        field::FieldId, record_group_tracker::RecordGroupListId, match_set::MatchSetId,
+        field::FieldId, match_set::MatchSetId,
+        record_group_tracker::RecordGroupListId,
     },
     utils::{
         identity_hasher::BuildIdentityHasher,
@@ -100,12 +101,12 @@ pub fn create_op_call_eager(target: ChainId) -> OperatorData {
     })
 }
 
-pub fn build_tf_call(
+pub fn build_tf_call<'a>(
     _jd: &mut JobData,
     _op_base: &OperatorBase,
     op: &OpCall,
     _tf_state: &mut TransformState,
-) -> TransformData<'static> {
+) -> TransformData<'a> {
     TransformData::Call(TfCall {
         target: op.target_resolved.unwrap(),
     })

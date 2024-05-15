@@ -20,7 +20,7 @@ use crate::{
     liveness_analysis::{AccessFlags, LivenessData},
     options::argument::CliArgIdx,
     record_data::{
-        field::{Field, FieldId, FieldManager},
+        field::{Field, FieldIterRef, FieldManager},
         field_data::{
             field_value_flags, FieldValueRepr, RunLength, INLINE_STR_MAX_LEN,
         },
@@ -33,7 +33,7 @@ use crate::{
             PrettyPrintFormat, RealizedFormatKey, TypeReprFormat,
             ValueFormattingOpts,
         },
-        iter_hall::{IterId, IterKind},
+        iter_hall::IterKind,
         iters::FieldIterator,
         match_set::MatchSetManager,
         push_interface::PushInterface,
@@ -108,12 +108,6 @@ pub struct OpFormat {
     contains_raw_bytes: bool,
 }
 
-#[derive(Clone, Copy)]
-pub struct FormatIdentRef {
-    field_id: FieldId,
-    iter_id: IterId,
-}
-
 struct TfFormatStreamValueHandle {
     part_idx: FormatPartIndex,
     min_char_count: usize,
@@ -154,7 +148,7 @@ struct OutputTarget {
 
 pub struct TfFormat<'a> {
     op: &'a OpFormat,
-    refs: Vec<FormatIdentRef>,
+    refs: Vec<FieldIterRef>,
     output_states: Vec<OutputState>,
     output_targets: Vec<OutputTarget>,
     stream_value_handles: CountedUniverse<
@@ -282,7 +276,7 @@ pub fn build_tf_format<'a>(
                 f.ref_count += 1;
                 tf_state.input_field
             };
-            FormatIdentRef {
+            FieldIterRef {
                 field_id,
                 iter_id: jd.field_mgr.claim_iter(
                     field_id,

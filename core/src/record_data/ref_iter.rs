@@ -570,8 +570,9 @@ impl<'a, I: FieldIterator<'a>> AutoDerefIter<'a, I> {
     pub fn next_value(
         &mut self,
         msm: &MatchSetManager,
+        limit: usize,
     ) -> Option<(FieldValueRef<'a>, RunLength, Option<FieldRefOffset>)> {
-        self.typed_field_fwd(msm, usize::MAX)
+        self.typed_field_fwd(msm, limit)
     }
     pub fn next_n_fields(&mut self, mut limit: usize) -> usize {
         let mut ri_count = 0;
@@ -626,7 +627,7 @@ impl<'a, I: FieldIterator<'a>> Iterator for AutoDerefValueRefIter<'a, I> {
     type Item = (FieldValueRef<'a>, RunLength, Option<FieldRefOffset>);
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.iter.next_value(self.msm)
+        self.iter.next_value(self.msm, usize::MAX)
     }
 }
 

@@ -3,8 +3,8 @@ use crate::{
     chain::ChainId,
     job::{add_transform_to_job, Job, JobData},
     record_data::{
-        field::VOID_FIELD_ID, record_group_tracker::VOID_GROUP_LIST_ID,
-        match_set::MatchSetId,
+        field::VOID_FIELD_ID, match_set::MatchSetId,
+        record_group_tracker::VOID_GROUP_LIST_ID,
     },
 };
 
@@ -15,10 +15,10 @@ pub struct TfInputDoneEater {
     input_dones_to_eat: usize,
 }
 
-pub fn setup_tf_input_done_eater(
+pub fn setup_tf_input_done_eater<'a>(
     tf_state: &mut TransformState,
     input_dones_to_eat: usize,
-) -> TransformData<'static> {
+) -> TransformData<'a> {
     tf_state.is_transparent = true;
     TransformData::InputDoneEater(TfInputDoneEater { input_dones_to_eat })
 }
@@ -47,8 +47,8 @@ pub fn handle_tf_input_done_eater(
     jd.tf_mgr.submit_batch(tf_id, batch_size, ps.input_done);
 }
 
-pub fn add_input_done_eater(
-    sess: &mut Job,
+pub fn add_input_done_eater<'a>(
+    sess: &mut Job<'a>,
     chain_id: ChainId, // to get desired batch size
     ms_id: MatchSetId,
     input_dones_to_eat: usize,

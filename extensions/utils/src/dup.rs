@@ -91,7 +91,7 @@ impl Operator for OpDup {
     }
 }
 
-impl Transform for TfDup {
+impl Transform<'_> for TfDup {
     fn display_name(&self) -> DefaultTransformName {
         if self.count == 0 { "drop" } else { "dup" }.into()
     }
