@@ -16,7 +16,7 @@ use hyper_util::{
     rt::{TokioExecutor, TokioIo},
     server::conn::auto::Builder,
 };
-use rustls::ServerConfig;
+use rustls::{crypto::ring, ServerConfig};
 use tokio::net::TcpListener;
 use tokio_rustls::TlsAcceptor;
 
@@ -91,6 +91,7 @@ pub async fn run_https_test_server<
         listeners.push(TcpListener::bind(&addr_v6).await?);
     }
 
+    let _ = ring::default_provider().install_default();
     let mut server_config = ServerConfig::builder()
         .with_no_client_auth()
         .with_single_cert(certs, key)?;
