@@ -131,15 +131,28 @@ impl Operator for OpPy {
 
     fn update_variable_liveness(
         &self,
-        _sess: &SessionData,
-        _ld: &mut LivenessData,
+        sess: &SessionData,
+        ld: &mut LivenessData,
         access_flags: &mut AccessFlags,
-        _op_offset_after_last_write: OperatorOffsetInChain,
-        _op_id: OperatorId,
+        op_offset_after_last_write: OperatorOffsetInChain,
+        op_id: OperatorId,
         _bb_id: BasicBlockId,
         _input_field: OpOutputIdx,
     ) -> Option<(OpOutputIdx, OperatorCallEffect)> {
-        access_flags.input_accessed = false;
+        for fv in &self.free_vars {
+            if let Some(name) = fv {
+                ld.access_var(
+                    sess,
+                    op_id,
+                    ld.var_names[name],
+                    op_offset_after_last_write,
+                    true,
+                );
+            } else {
+                access_flags.input_accessed = true;
+                access_flags.non_stringified_input_access = true;
+            }
+        }
         None
     }
 
@@ -317,7 +330,7 @@ impl<'a> Transform<'a> for TfPy<'a> {
                         self.op.globals.as_ptr(),
                         self.locals.as_ptr(),
                     );
-                    pyo3::Bound::from_borrowed_ptr_or_err(py, res)
+                    pyo3::Bound::from_owned_ptr_or_err(py, res)
                 };
 
                 let res = match res {
@@ -344,24 +357,25 @@ impl<'a> Transform<'a> for TfPy<'a> {
                 if type_ptr == pv.int_type {
                     if let Ok(i) = i64::extract_bound(&res) {
                         inserter.push_int(i, 1, true, true);
+                        continue;
                     }
                     if let Ok(i) = BigInt::extract_bound(&res) {
                         inserter.push_big_int(i, 1, true, true);
+                        continue;
                     }
-                    continue;
                 }
                 if type_ptr == pv.str_type {
                     if let Ok(s) = <&str>::extract_bound(&res) {
                         inserter.push_str(s, 1, true, true);
+                        continue;
                     }
-                    continue;
                 }
                 if type_ptr == pv.bytes_type {
                     if let Ok(b) = <&[u8]>::extract_bound(&res) {
                         // PERF: maybe force inline
                         inserter.push_bytes(b, 1, true, true);
+                        continue;
                     }
-                    continue;
                 }
                 // TODO:  Handle objects as dicts
                 inserter.push_error(
