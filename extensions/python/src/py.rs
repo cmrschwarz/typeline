@@ -47,6 +47,7 @@ use scr_core::{
 struct PyTypes {
     none_type: *mut pyo3::ffi::PyTypeObject,
     int_type: *mut pyo3::ffi::PyTypeObject,
+    float_type: *mut pyo3::ffi::PyTypeObject,
     str_type: *mut pyo3::ffi::PyTypeObject,
     bytes_type: *mut pyo3::ffi::PyTypeObject,
 }
@@ -367,6 +368,12 @@ impl<'a> Transform<'a> for TfPy<'a> {
                         continue;
                     }
                 }
+                if type_ptr == pv.float_type {
+                    if let Ok(f) = f64::extract_bound(&res) {
+                        inserter.push_float(f, 1, true, true);
+                        continue;
+                    }
+                }
                 if type_ptr == pv.str_type {
                     if let Ok(s) = <&str>::extract_bound(&res) {
                         inserter.push_str(s, 1, true, true);
@@ -470,6 +477,7 @@ pub fn parse_op_py(
         let py_types = PyTypes {
             none_type: pyo3::ffi::PyObject_Type(none).cast(),
             int_type: get_builtin_type(builtins, "int\0"),
+            float_type: get_builtin_type(builtins, "float\0"),
             str_type: get_builtin_type(builtins, "str\0"),
             bytes_type: get_builtin_type(builtins, "bytes\0"),
         };
