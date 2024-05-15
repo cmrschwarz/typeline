@@ -3,7 +3,7 @@ use std::ffi::{CStr, CString};
 use num::BigInt;
 use pyo3::{
     ffi::{PyObject, PyTypeObject},
-    types::{PyAnyMethods, PyCode, PyDict},
+    types::{PyAnyMethods, PyCode, PyDict, PyString},
     Py, PyAny, Python,
 };
 use scr_core::{
@@ -52,9 +52,10 @@ struct PyTypes {
 }
 
 pub struct OpPy {
-    free_vars_str: Vec<CString>,
+    free_vars_str: Vec<String>,
+    free_vars_py_str: Vec<Py<PyString>>,
     // populated during setup
-    free_vars: Vec<Option<StringStoreEntry>>,
+    free_vars_sse: Vec<Option<StringStoreEntry>>,
     statements: Py<PyAny>, // PyCode or None
     final_expr: Py<PyCode>,
     globals: Py<PyDict>,
@@ -90,32 +91,30 @@ impl Operator for OpPy {
         1
     }
 
+    fn register_output_var_names(
+        &self,
+        ld: &mut LivenessData,
+        _sess: &SessionData,
+        _op_id: OperatorId,
+    ) {
+        for &fv in &self.free_vars_sse {
+            ld.add_var_name_opt(fv);
+        }
+    }
+
     fn setup(
         &mut self,
         sess: &mut SessionData,
         _chain_id: OperatorId,
-        op_id: OperatorId,
+        _op_id: OperatorId,
     ) -> Result<(), OperatorSetupError> {
         let mut string_store = sess.string_store.write().unwrap();
         for fvs in &self.free_vars_str {
-            if fvs.as_c_str() == c"_" {
-                self.free_vars.push(None);
+            if fvs == "_" {
+                self.free_vars_sse.push(None);
             } else {
-                match fvs.to_str() {
-                    Ok(s) => {
-                        self.free_vars
-                            .push(Some(string_store.intern_cloned(s)));
-                    }
-                    Err(_) => {
-                        return Err(OperatorSetupError::new_s(
-                            format!(
-                                "free variable name contains invalid unicode: '{}'",
-                                fvs.to_string_lossy()
-                            ),
-                            op_id,
-                        ))
-                    }
-                };
+                self.free_vars_sse
+                    .push(Some(string_store.intern_cloned(fvs)));
             }
         }
         Ok(())
@@ -139,7 +138,7 @@ impl Operator for OpPy {
         _bb_id: BasicBlockId,
         _input_field: OpOutputIdx,
     ) -> Option<(OpOutputIdx, OperatorCallEffect)> {
-        for fv in &self.free_vars {
+        for fv in &self.free_vars_sse {
             if let Some(name) = fv {
                 ld.access_var(
                     sess,
@@ -165,7 +164,7 @@ impl Operator for OpPy {
     ) -> TransformInstatiation<'a> {
         let mut input_fields = Vec::new();
         let jd = &mut job.job_data;
-        for fv in &self.free_vars {
+        for fv in &self.free_vars_sse {
             let field_id = if let Some(name) = fv {
                 if let Some(id) = jd.match_set_mgr.match_sets
                     [tf_state.match_set_id]
@@ -207,8 +206,8 @@ impl Operator for OpPy {
         let locals = Python::with_gil(|py| unsafe {
             let locals = pyo3::ffi::PyDict_New();
             let none = pyo3::ffi::Py_None();
-            for var in &self.free_vars_str {
-                pyo3::ffi::PyDict_SetItemString(locals, var.as_ptr(), none);
+            for var in &self.free_vars_py_str {
+                pyo3::ffi::PyDict_SetItem(locals, var.as_ptr(), none);
             }
             Py::from_owned_ptr(py, locals)
         });
@@ -265,6 +264,7 @@ impl<'a> Transform<'a> for TfPy<'a> {
         }
         Python::with_gil(|py| {
             for _ in 0..batch_size {
+                // PERF: only update when changed!
                 for (i, iter) in input_field_iters.iter_mut().enumerate() {
                     let val = iter
                         .next_value(&jd.match_set_mgr, 1)
@@ -276,9 +276,9 @@ impl<'a> Transform<'a> for TfPy<'a> {
                         // TODO: maybe error / configurable
                         FieldValueRef::Undefined => {
                             unsafe {
-                                pyo3::ffi::PyDict_DelItemString(
+                                pyo3::ffi::PyDict_DelItem(
                                     self.locals.as_ptr(),
-                                    self.op.free_vars_str[i].as_ptr(),
+                                    self.op.free_vars_py_str[i].as_ptr(),
                                 );
                             }
                             continue;
@@ -298,21 +298,23 @@ impl<'a> Transform<'a> for TfPy<'a> {
                         FieldValueRef::SlicedFieldReference(_) => todo!(),
                     };
                     unsafe {
-                        pyo3::ffi::PyDict_SetItemString(
+                        pyo3::ffi::PyDict_SetItem(
                             self.locals.as_ptr(),
-                            self.op.free_vars_str[i].as_ptr(),
+                            self.op.free_vars_py_str[i].as_ptr(),
                             obj.as_ptr(),
                         );
                     }
                 }
                 let res = unsafe {
                     if !self.op.statements.is_none(py) {
-                        pyo3::ffi::PyEval_EvalCode(
+                        let stmts_res = pyo3::ffi::PyEval_EvalCode(
                             self.op.statements.as_ptr(),
                             self.op.globals.as_ptr(),
                             self.locals.as_ptr(),
                         );
-                        if let Some(e) = pyo3::PyErr::take(py) {
+                        if let Err(e) =
+                            pyo3::Bound::from_owned_ptr_or_err(py, stmts_res)
+                        {
                             inserter.push_error(
                                 OperatorApplicationError::new_s(
                                     format!("Python: {e}"),
@@ -325,6 +327,7 @@ impl<'a> Transform<'a> for TfPy<'a> {
                             continue;
                         }
                     }
+
                     let res = pyo3::ffi::PyEval_EvalCode(
                         self.op.final_expr.as_ptr(),
                         self.op.globals.as_ptr(),
@@ -512,7 +515,7 @@ pub fn parse_op_py(
 
         let free_var_count = pyo3::ffi::PyObject_Length(co_names);
         let mut free_vars_str = Vec::with_capacity(free_var_count as usize);
-
+        let mut free_vars_py_str = Vec::with_capacity(free_var_count as usize);
         for fv_i in 0..free_var_count {
             let free_var_name = pyo3::ffi::PyTuple_GetItem(co_names, fv_i);
             if pyo3::ffi::PyDict_Contains(builtins, free_var_name) > 0 {
@@ -521,9 +524,11 @@ pub fn parse_op_py(
             if pyo3::ffi::PyDict_Contains(module_dict, free_var_name) > 0 {
                 continue;
             }
-            let var_name = pyo3::ffi::PyUnicode_AsUTF8(free_var_name);
 
-            free_vars_str.push(CStr::from_ptr(var_name).to_owned());
+            let var_name = pyo3::ffi::PyUnicode_AsUTF8(free_var_name);
+            free_vars_py_str.push(Py::from_owned_ptr(py, free_var_name));
+            free_vars_str
+                .push(CStr::from_ptr(var_name).to_str().unwrap().to_owned());
         }
 
         let locals = PyDict::new_bound(py);
@@ -558,7 +563,8 @@ else:
 
         Ok(OperatorData::Custom(smallbox!(OpPy {
             free_vars_str,
-            free_vars: Vec::new(),
+            free_vars_py_str,
+            free_vars_sse: Vec::new(),
             statements,
             final_expr,
             globals: pyo3::Py::from_borrowed_ptr(py, module_dict),

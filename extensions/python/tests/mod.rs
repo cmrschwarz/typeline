@@ -65,8 +65,8 @@ fn python_undefined_var() -> Result<(), ScrError> {
     assert_eq!(
         res,
         [OperatorApplicationError::new(
-            "python error: NameError: name 'foo' is not defined",
-            1
+            "Python: NameError: name 'foo' is not defined",
+            0
         )]
     );
     Ok(())
