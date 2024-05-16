@@ -408,6 +408,10 @@ impl<'a> Transform<'a> for TfPy<'a> {
             }
         });
 
+        for (i, iter) in input_field_iters.drain(0..).enumerate() {
+            let fr = self.input_fields[i];
+            jd.field_mgr.store_iter(fr.field_id, fr.iter_id, iter);
+        }
         self.input_field_iters = transmute_vec(input_field_iters);
         self.input_field_refs = transmute_vec(input_field_refs);
 
