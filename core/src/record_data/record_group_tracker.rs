@@ -1206,11 +1206,16 @@ impl<'a, T: DerefMut<Target = RecordGroupList>> GroupListIterMut<'a, T> {
                 self.write_back_group_len();
                 self.next_group_raw();
             }
+            todo!("update affected iters")
         }
         self.base.group_len_rem -= count;
         self.group_len -= count;
         self.update_group_len = true;
-        todo!("update iters");
+        self.base.list.lookup_and_advance_affected_iters_(
+            self.base.group_idx..=self.base.group_idx,
+            self.base.field_pos + 1..,
+            count as isize,
+        );
     }
     pub fn drop(&mut self, count: usize) {
         if count == 0 {
@@ -1304,8 +1309,8 @@ impl<'a, T: DerefMut<Target = RecordGroupList>> GroupListIterMut<'a, T> {
     pub fn drop_with_field_pos(&mut self, field_pos: usize, count: usize) {
         match self.base.field_pos.cmp(&field_pos) {
             Ordering::Less => self.drop_before(field_pos, count),
-            Ordering::Equal => self.drop_after(field_pos, count),
-            Ordering::Greater => self.drop(count),
+            Ordering::Equal => self.drop(count),
+            Ordering::Greater => self.drop_after(field_pos, count),
         }
     }
 

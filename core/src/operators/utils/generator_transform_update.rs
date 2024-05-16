@@ -67,8 +67,10 @@ pub fn handle_generator_transform_update<G: GeneratorSequence>(
     let (batch_size, ps) = jd.tf_mgr.claim_batch(tf_id);
     let tf = &mut jd.tf_mgr.transforms[tf_id];
 
-    if ps.input_done && (ps.successor_done || tf.successor.is_none()) {
-        jd.tf_mgr.submit_batch(tf_id, 0, true);
+    if ps.successor_done || tf.successor.is_none() {
+        if !tf.done {
+            jd.tf_mgr.submit_batch(tf_id, 0, true);
+        }
         return;
     }
 
@@ -306,14 +308,11 @@ fn handle_enum_mode<G: GeneratorSequence>(
     gbs.fm
         .store_iter(gbs.input_field_id, gbs.input_iter_id, gbs.iter);
     group_iter.store_iter(group_iter_ref.iter_id);
-    if gbs.ps.next_batch_ready {
+    let done = gbs.ps.input_done || gbs.ps.successor_done || set_done;
+    if gbs.ps.next_batch_ready && !done {
         gbs.tf_mgr.push_successor_in_ready_queue(gbs.tf_id);
     }
-    gbs.tf_mgr.submit_batch(
-        gbs.tf_id,
-        out_batch_size,
-        gbs.ps.input_done || gbs.ps.successor_done || set_done,
-    );
+    gbs.tf_mgr.submit_batch(gbs.tf_id, out_batch_size, done);
 }
 
 fn handle_enum_unbounded_mode<G: GeneratorSequence>(
