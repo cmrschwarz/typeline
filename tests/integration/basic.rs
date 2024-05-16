@@ -1,8 +1,13 @@
 use std::borrow::Cow;
 
 use rstest::rstest;
-use scr::operators::{
-    foreach::create_op_foreach, sequence::create_op_enum_unbounded,
+use scr::{
+    operators::{
+        foreach::create_op_foreach,
+        print::{create_op_print_with_opts, PrintOptions},
+        sequence::create_op_enum_unbounded,
+    },
+    utils::test_utils::DummyWritableTarget,
 };
 use scr_core::{
     operators::{
@@ -671,5 +676,38 @@ fn basic_batched_head() -> Result<(), ScrError> {
         .add_op(create_op_tail(3))
         .run_collect_stringified()?;
     assert_eq!(res, ["2", "3", "4"]);
+    Ok(())
+}
+
+#[test]
+fn stream_error_into_print() -> Result<(), ScrError> {
+    // TODO: this should work with a non zero offset too.
+    // we have to make print take two streams. stdout and stderr respectively
+    // it should then have options about where / if to report errors
+    let offfset = 0;
+    let print_target = DummyWritableTarget::new();
+    let res = ContextBuilder::default()
+        .set_stream_buffer_size(1)
+        .set_stream_size_threshold(1)
+        .add_op(create_op_file_reader_custom(
+            Box::new(ErroringStream::new(
+                offfset,
+                SliceReader::new("foo".as_bytes()),
+            )),
+            0,
+        ))
+        .add_op(create_op_print_with_opts(
+            print_target.get_target(),
+            PrintOptions {
+                ignore_nulls: false,
+                propagate_errors: false,
+            },
+        ))
+        .run_collect_stringified()?;
+    assert_eq!(res, ["null"]);
+    assert_eq!(
+        &*print_target.get(),
+        "ERROR: in op id 0: ErroringStream: Error\n"
+    );
     Ok(())
 }
