@@ -67,6 +67,7 @@ pub struct Connection {
     socket: TcpStream,
     tls_conn: Option<rustls::ClientConnection>,
     stream_value: Option<StreamValueId>,
+    socket_established: bool,
     header_parsed_until: u32,
     header_lines_count: u32,
     header_parsed: bool,
@@ -261,6 +262,7 @@ impl TfHttpRequest {
 
         self.running_connections.claim_with_value(Connection {
             hostname: hostname.to_owned(),
+            socket_established: false,
             socket,
             stream_value: Some(stream_value),
             tls_conn,
@@ -363,19 +365,20 @@ impl TfHttpRequest {
         let buf_len_before = buf.len();
         let mut result = EventResult::Spurious;
         match process_event(event, req, buf, buffer_size) {
-            Err(HttpRequestError::Io(e))
-                if e.kind() == std::io::ErrorKind::ConnectionRefused
-                    && !req.remaining_socket_addresses.is_empty() =>
-            {
-                return Ok(EventResult::TryNextIp);
-            }
             Err(e) => {
+                if !req.socket_established
+                    && !req.remaining_socket_addresses.is_empty()
+                {
+                    return Ok(EventResult::TryNextIp);
+                }
+
                 return Err(Arc::new(OperatorApplicationError::new_s(
                     format!("IO Error in HTTP GET Request: {e}"),
                     op_id,
                 )));
             }
             Ok(eof) => {
+                req.socket_established = true;
                 let len_read = buf.len() - buf_len_before;
                 req.response_size += len_read;
                 let update = len_read > 0 || eof;
@@ -472,8 +475,8 @@ fn process_event(
     }
 
     if !c.request_done() && event.is_writable() {
-        c.request_offset +=
-            c.socket.write(&c.request_data[c.request_offset..])?;
+        let data = &c.request_data[c.request_offset..];
+        c.request_offset += c.socket.write(data)?;
 
         if c.request_done() {
             c.socket.flush()?;
@@ -591,6 +594,9 @@ impl Transform<'_> for TfHttpRequest {
             match res {
                 Err(e) => {
                     sv.set_error(e);
+                    jd.sv_mgr.inform_stream_value_subscribers(sv_id);
+                    jd.sv_mgr.drop_field_value_subscription(sv_id, None);
+                    self.running_connections.release(token);
                     continue;
                 }
                 Ok(EventResult::TryNextIp) => {
