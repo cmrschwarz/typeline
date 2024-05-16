@@ -32,7 +32,8 @@ use scr_core::{
     utils::test_utils::{ErroringStream, SliceReader, TricklingStream},
 };
 use scr_ext_utils::{
-    string_utils::create_op_chars, sum::create_op_sum, tail::create_op_tail,
+    dup::create_op_dup, string_utils::create_op_chars, sum::create_op_sum,
+    tail::create_op_tail,
 };
 
 #[test]
@@ -676,6 +677,21 @@ fn basic_batched_head() -> Result<(), ScrError> {
         .add_op(create_op_tail(3))
         .run_collect_stringified()?;
     assert_eq!(res, ["2", "3", "4"]);
+    Ok(())
+}
+
+#[rstest]
+#[case(1)]
+#[case(2)]
+#[case(3)]
+fn dup_into_sum(#[case] batch_size: usize) -> Result<(), ScrError> {
+    let res = ContextBuilder::default()
+        .set_batch_size(batch_size)
+        .add_op(create_op_seqn(1, 3, 1).unwrap())
+        .add_op(create_op_dup(2))
+        .add_op(create_op_sum())
+        .run_collect_stringified()?;
+    assert_eq!(res, ["12"]);
     Ok(())
 }
 
