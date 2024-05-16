@@ -18,9 +18,9 @@ use super::{
     field_action::{merge_action_lists, FieldAction, FieldActionKind},
     field_action_applicator::FieldActionApplicator,
     field_data::{FieldValueHeader, RunLength, MAX_FIELD_ALIGN},
-    record_group_tracker::RecordGroupListId,
     iter_hall::{CowVariant, FieldDataSource, IterState},
     match_set::MatchSetId,
+    record_group_tracker::RecordGroupListId,
 };
 pub type ActorId = u32;
 pub type ActionGroupId = u32;
@@ -1518,7 +1518,7 @@ impl ActionBuffer {
         lead % MAX_FIELD_ALIGN
     }
     fn drop_dead_field_data(
-        #[cfg_attr(not(feature = "debug_logging"), allow(unused))]
+        #[cfg_attr(not(feature = "field_action_logging"), allow(unused))]
         fm: &FieldManager,
         field: &mut Field,
         dead_data_leading: usize,
@@ -1544,7 +1544,7 @@ impl ActionBuffer {
         fd.data
             .drop_front(dead_data_leading.prev_multiple_of(&MAX_FIELD_ALIGN));
         fd.data.drop_back(dead_data_trailing);
-        #[cfg(feature = "debug_logging")]
+        #[cfg(feature = "field_action_logging")]
         {
             eprintln!(
             "   + dropping dead data (leading: {}, pad: {}, rem: {}, trailing: {})",

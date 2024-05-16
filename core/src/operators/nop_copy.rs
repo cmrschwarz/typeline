@@ -12,10 +12,8 @@ use crate::{
 use super::{
     errors::OperatorCreationError,
     operator::{OperatorData, OperatorId},
-    transform::{
-        basic_transform_update, BasicUpdateData, TransformData, TransformId,
-        TransformState,
-    },
+    transform::{TransformData, TransformId, TransformState},
+    utils::basic_transform_update::{basic_transform_update, BasicUpdateData},
 };
 
 // the main purpose of this op is as a helper operation for an aggregation

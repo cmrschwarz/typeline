@@ -13,8 +13,11 @@ use scr_core::{
             OperatorOffsetInChain, PreboundOutputsMap, TransformInstatiation,
         },
         transform::{
-            basic_transform_update, BasicUpdateData, DefaultTransformName,
-            Transform, TransformData, TransformId, TransformState,
+            DefaultTransformName, Transform, TransformData, TransformId,
+            TransformState,
+        },
+        utils::basic_transform_update::{
+            basic_transform_update, BasicUpdateData,
         },
     },
     options::argument::CliArgIdx,

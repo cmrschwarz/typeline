@@ -12,8 +12,10 @@ use scr_core::{
             PreboundOutputsMap, TransformInstatiation,
         },
         transform::{
-            basic_transform_update, BasicUpdateData, DefaultTransformName,
-            Transform, TransformData, TransformState,
+            DefaultTransformName, Transform, TransformData, TransformState,
+        },
+        utils::basic_transform_update::{
+            basic_transform_update_claim_all, BasicUpdateData,
         },
     },
     record_data::{
@@ -277,9 +279,13 @@ impl Transform<'_> for TfSum {
         jd: &mut JobData,
         tf_id: scr_core::operators::transform::TransformId,
     ) {
-        basic_transform_update(jd, tf_id, [], self.input_iter_id, |bud| {
-            self.transform_update(bud)
-        });
+        basic_transform_update_claim_all(
+            jd,
+            tf_id,
+            [],
+            self.input_iter_id,
+            |bud| self.transform_update(bud),
+        );
     }
 }
 

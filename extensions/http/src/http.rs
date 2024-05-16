@@ -21,9 +21,9 @@ use scr_core::{
             Operator, OperatorData, OperatorId, OperatorOffsetInChain,
             PreboundOutputsMap, TransformInstatiation,
         },
-        transform::{
-            basic_transform_update, BasicUpdateData, Transform, TransformData,
-            TransformId, TransformState,
+        transform::{Transform, TransformData, TransformId, TransformState},
+        utils::basic_transform_update::{
+            basic_transform_update, BasicUpdateData,
         },
     },
     record_data::{
