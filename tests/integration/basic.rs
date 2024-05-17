@@ -681,17 +681,21 @@ fn basic_batched_head() -> Result<(), ScrError> {
 }
 
 #[rstest]
-#[case(1)]
-#[case(2)]
-#[case(3)]
-fn dup_into_sum(#[case] batch_size: usize) -> Result<(), ScrError> {
+#[case(1, 3)]
+#[case(2, 3)]
+#[case(3, 3)]
+#[case(3, 7)]
+fn dup_into_sum(
+    #[case] batch_size: usize,
+    #[case] seq_len: i64,
+) -> Result<(), ScrError> {
     let res = ContextBuilder::default()
         .set_batch_size(batch_size)
-        .add_op(create_op_seqn(1, 3, 1).unwrap())
+        .add_op(create_op_seqn(1, seq_len, 1).unwrap())
         .add_op(create_op_dup(2))
         .add_op(create_op_sum())
         .run_collect_stringified()?;
-    assert_eq!(res, ["12"]);
+    assert_eq!(res, [(seq_len * (seq_len + 1)).to_string()]);
     Ok(())
 }
 

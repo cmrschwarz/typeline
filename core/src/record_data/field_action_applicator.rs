@@ -867,20 +867,22 @@ mod test {
     }
     #[track_caller]
     fn test_actions_on_range_single_type<T: FixedSizeFieldValueType>(
-        input: impl Iterator<Item = (T, RunLength)>,
+        input: impl IntoIterator<Item = (T, RunLength)>,
         header_rle: bool,
         value_rle: bool,
         actions: &[FieldAction],
-        output: &[(T, RunLength)],
+        output: impl IntoIterator<Item = (T, RunLength)>,
         iter_states_in: &[IterState],
         iter_states_out: &[IterState],
     ) {
         let output_fv = output
-            .iter()
-            .map(|(v, rl)| (FieldValue::from_fixed_sized_type(v.clone()), *rl))
+            .into_iter()
+            .map(|(v, rl)| (FieldValue::from_fixed_sized_type(v.clone()), rl))
             .collect::<Vec<_>>();
         test_actions_on_range_raw(
-            input.map(|(v, rl)| (FieldValue::from_fixed_sized_type(v), rl)),
+            input
+                .into_iter()
+                .map(|(v, rl)| (FieldValue::from_fixed_sized_type(v), rl)),
             header_rle,
             value_rle,
             actions,
@@ -901,7 +903,7 @@ mod test {
             true,
             true,
             actions,
-            output,
+            output.iter().cloned(),
             &[],
             &[],
         );
@@ -918,7 +920,7 @@ mod test {
             false,
             false,
             actions,
-            output,
+            output.iter().cloned(),
             &[],
             &[],
         );
@@ -1029,17 +1031,12 @@ mod test {
         //    1
         //    2
         //    3
-        test_actions_on_range_raw(
-            [(0, 3), (1, 2), (2, 1), (3, 1)]
-                .iter()
-                .map(|(i, rl)| (FieldValue::Int(*i), *rl)),
+        test_actions_on_range_single_type(
+            [(0i64, 3), (1, 2), (2, 1), (3, 1)],
             false,
             false,
             &[FieldAction::new(FAK::Drop, 1, 5)],
-            &[(0, 1), (3, 1)]
-                .iter()
-                .map(|(i, rl)| (FieldValue::Int(*i), *rl))
-                .collect::<Vec<_>>(),
+            [(0, 1), (3, 1)],
             // TODO: test iters
             &[],
             &[],
