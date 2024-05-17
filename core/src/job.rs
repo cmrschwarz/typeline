@@ -763,8 +763,9 @@ impl<'a> Job<'a> {
                 self.job_data.tf_mgr.ready_stack
             );
             let group_id = tf.output_group_list_id;
-            let group =
-                self.job_data.record_group_tracker.lists[group_id].borrow();
+            let group = self.job_data.record_group_tracker.record_group_lists
+                [group_id]
+                .borrow();
             eprint!("   - group {group_id} data: {group} (may have pending actions)");
             #[cfg(feature = "iter_state_logging")]
             group.eprint_iter_states(4);

@@ -46,10 +46,11 @@ pub struct RecordGroupIterState {
 #[derive(Default)]
 pub struct RecordGroupList {
     id: RecordGroupListId,
+    cow_source: RecordGroupListId,
+    cow_active: bool,
     ms_id: MatchSetId,
     actor: ActorRef,
     parent_list: Option<RecordGroupListId>,
-    prev_list: Option<RecordGroupListId>,
     group_index_offset: GroupIdx,
 
     iter_lookup_table: Universe<GroupListIterId, GroupListIterSortedIndex>,
@@ -70,9 +71,10 @@ pub struct RecordGroupList {
     pub parent_group_indices_stable: SizeClassedVecDeque,
 }
 
+#[derive(Default)]
 pub struct RecordGroupTracker {
-    pub lists: Universe<RecordGroupListId, RefCell<RecordGroupList>>,
-    last_group: RecordGroupListId,
+    pub record_group_lists:
+        Universe<RecordGroupListId, RefCell<RecordGroupList>>,
 }
 
 pub struct RecordGroupListIter<L> {
@@ -124,15 +126,6 @@ impl Ord for RecordGroupIterState {
 impl PartialOrd for RecordGroupIterState {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
-    }
-}
-
-impl Default for RecordGroupTracker {
-    fn default() -> Self {
-        Self {
-            lists: Universe::default(),
-            last_group: VOID_GROUP_LIST_ID,
-        }
     }
 }
 
@@ -457,6 +450,7 @@ impl RecordGroupList {
         eprint!("{:padding$}]", "", padding = indent_level.saturating_sub(1));
     }
     pub fn apply_field_actions(&mut self, msm: &MatchSetManager) {
+        debug_assert!(!self.cow_active);
         let mut ab = msm.match_sets[self.ms_id].action_buffer.borrow_mut();
         let Some((actor_id, ss_prev)) = ab.update_snapshot(
             ActorSubscriber::GroupList(self.id),
@@ -727,36 +721,66 @@ impl RecordGroupList {
 }
 
 impl RecordGroupTracker {
+    pub fn add_group_list_raw(
+        &mut self,
+        parent_list: Option<RecordGroupListId>,
+        ms_id: MatchSetId,
+        cow_source: Option<RecordGroupListId>,
+        actor: ActorRef,
+    ) -> RecordGroupListId {
+        let id = self.record_group_lists.peek_claim_id();
+        self.record_group_lists.claim_with_value(RefCell::new(
+            RecordGroupList {
+                id,
+                ms_id,
+                cow_active: cow_source.is_some(),
+                cow_source: cow_source.unwrap_or(id),
+                actor,
+                parent_list,
+                group_index_offset: 0,
+                passed_fields_count: 0,
+                group_lengths: SizeClassedVecDeque::default(),
+                parent_group_indices_stable: SizeClassedVecDeque::default(),
+                iter_states: Vec::default(),
+                iter_lookup_table: Universe::default(),
+                snapshot: SnapshotRef::default(),
+                iter_states_sorted: Cell::new(true),
+            },
+        ));
+        id
+    }
     pub fn add_group_list(
         &mut self,
         parent_list: Option<RecordGroupListId>,
         ms_id: MatchSetId,
         actor: ActorRef,
     ) -> RecordGroupListId {
-        let id = self.lists.peek_claim_id();
-        self.lists.claim_with_value(RefCell::new(RecordGroupList {
-            id,
-            ms_id,
-            actor,
+        self.add_group_list_raw(parent_list, ms_id, None, actor)
+    }
+    pub fn add_cow_source(
+        &mut self,
+        cow_source: RecordGroupListId,
+        target_ms_id: MatchSetId,
+        actor: ActorRef,
+    ) -> RecordGroupListId {
+        let cow_source_parent =
+            self.record_group_lists[cow_source].borrow().parent_list;
+
+        let parent_list = cow_source_parent
+            .map(|id| self.add_cow_source(id, target_ms_id, actor));
+
+        self.add_group_list_raw(
             parent_list,
-            prev_list: Some(self.last_group),
-            group_index_offset: 0,
-            passed_fields_count: 0,
-            group_lengths: SizeClassedVecDeque::default(),
-            parent_group_indices_stable: SizeClassedVecDeque::default(),
-            iter_states: Vec::default(),
-            iter_lookup_table: Universe::default(),
-            snapshot: SnapshotRef::default(),
-            iter_states_sorted: Cell::new(true),
-        }));
-        self.last_group = id;
-        id
+            target_ms_id,
+            Some(cow_source),
+            actor,
+        )
     }
     pub fn claim_group_list_iter(
         &mut self,
         list_id: RecordGroupListId,
     ) -> GroupListIterId {
-        self.lists[list_id].borrow_mut().claim_iter()
+        self.record_group_lists[list_id].borrow_mut().claim_iter()
     }
     pub fn claim_group_list_iter_ref(
         &mut self,
@@ -772,11 +796,11 @@ impl RecordGroupTracker {
         iter_ref: RecordGroupListIterRef,
         msm: &MatchSetManager,
     ) -> RecordGroupListIter<Ref<RecordGroupList>> {
-        self.lists[iter_ref.list_id]
+        self.record_group_lists[iter_ref.list_id]
             .borrow_mut()
             .apply_field_actions(msm);
         RecordGroupList::lookup_iter_for_deref(
-            self.lists[iter_ref.list_id].borrow(),
+            self.record_group_lists[iter_ref.list_id].borrow(),
             iter_ref.iter_id,
         )
     }
@@ -799,7 +823,7 @@ impl RecordGroupTracker {
         iter_ref: RecordGroupListIterRef,
         iter: &RecordGroupListIter<L>,
     ) {
-        self.lists[iter_ref.list_id]
+        self.record_group_lists[iter_ref.list_id]
             .borrow()
             .store_iter(iter_ref.iter_id, iter);
     }
@@ -812,7 +836,7 @@ impl RecordGroupTracker {
         let mut agi = None;
         let mut list_id = group_list_id;
         loop {
-            let mut list_ref = self.lists[list_id].borrow_mut();
+            let mut list_ref = self.record_group_lists[list_id].borrow_mut();
             let list = &mut *list_ref;
             let Some((actor_id, ss_prev)) = ab.update_snapshot(
                 ActorSubscriber::GroupList(list_id),
@@ -832,7 +856,7 @@ impl RecordGroupTracker {
                 list.apply_field_actions_list(s1.iter().chain(s2.iter()));
             };
             ab.drop_snapshot_refcount(ss_prev, 1);
-            if let Some(prev) = list.prev_list {
+            if let Some(prev) = list.parent_list {
                 list_id = prev;
             } else {
                 break;
@@ -845,7 +869,7 @@ impl RecordGroupTracker {
         msm: &MatchSetManager,
         group_list_id: RecordGroupListId,
     ) {
-        self.lists[group_list_id]
+        self.record_group_lists[group_list_id]
             .borrow_mut()
             .apply_field_actions(msm)
     }
@@ -856,7 +880,7 @@ impl RecordGroupTracker {
     ) {
         let mut gl_id = group_list_id;
         loop {
-            let mut gl = self.lists[gl_id].borrow_mut();
+            let mut gl = self.record_group_lists[gl_id].borrow_mut();
             gl.group_lengths.push_back(field_count);
             let Some(parent_id) = gl.parent_list else {
                 break;
@@ -868,13 +892,24 @@ impl RecordGroupTracker {
         &self,
         group_list_id: RecordGroupListId,
     ) -> Ref<RecordGroupList> {
-        self.lists[group_list_id].borrow()
+        self.record_group_lists[group_list_id].borrow()
     }
     pub fn borrow_group_list_mut(
         &self,
         group_list_id: RecordGroupListId,
     ) -> RefMut<RecordGroupList> {
-        self.lists[group_list_id].borrow_mut()
+        self.record_group_lists[group_list_id].borrow_mut()
+    }
+    pub fn uncow(&self, rgl_id: RecordGroupListId, msm: &MatchSetManager) {
+        let rgl = self.record_group_lists[rgl_id].borrow_mut();
+        if !rgl.cow_active {
+            return;
+        }
+        debug_assert!(rgl.cow_source != rgl_id);
+        let mut cow_source =
+            self.record_group_lists[rgl.cow_source].borrow_mut();
+        cow_source.apply_field_actions(msm);
+        todo!("copy data")
     }
 }
 
@@ -1088,7 +1123,8 @@ impl<'a, T: DerefMut<Target = RecordGroupList>> GroupListIterMut<'a, T> {
         let mut group_index =
             self.base.list.parent_group_idx(self.base.group_idx);
         loop {
-            let mut list = self.tracker.lists[parent_list_idx].borrow_mut();
+            let mut list =
+                self.tracker.record_group_lists[parent_list_idx].borrow_mut();
             list.sort_iters();
 
             list.lookup_and_advance_affected_iters_(
@@ -1376,7 +1412,8 @@ impl<'a, T: DerefMut<Target = RecordGroupList>> GroupListIterMut<'a, T> {
         let actions = s1.iter().chain(s2.iter());
         let mut parent_id = self.base.list.parent_list;
         while let Some(parent) = parent_id {
-            let mut list = self.tracker.lists[parent].borrow_mut();
+            let mut list =
+                self.tracker.record_group_lists[parent].borrow_mut();
             list.apply_field_actions_list(actions.clone());
             parent_id = list.parent_list;
         }
@@ -1403,7 +1440,8 @@ impl<'a, T: DerefMut<Target = RecordGroupList>> Drop
             // must be done after ending the action group to have it enlisted
             let mut parent_id = self.base.list.parent_list;
             while let Some(list_id) = parent_id {
-                let mut list_ref = self.tracker.lists[list_id].borrow_mut();
+                let mut list_ref =
+                    self.tracker.record_group_lists[list_id].borrow_mut();
                 let list = &mut *list_ref;
                 if let Some((_actor_id, ss_prev)) = ab.update_snapshot(
                     ActorSubscriber::GroupList(self.base.list.id),
