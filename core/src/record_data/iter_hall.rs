@@ -317,8 +317,8 @@ impl IterHall {
         }
         state.header_idx = iter.header_idx;
         state.data = iter.data - iter.header_fmt.leading_padding();
-        #[cfg(feature = "iter_state_logging")]
-        eprintln!("storing iter for field {field_id:02}: {state:?}");
+        // #[cfg(feature = "iter_state_logging")]
+        // eprintln!("storing iter for field {field_id:02}: {state:?}");
         self.iters[iter_id].set(state);
     }
     pub unsafe fn store_iter_state_unchecked(

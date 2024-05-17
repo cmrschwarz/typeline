@@ -731,14 +731,14 @@ impl<'a> Job<'a> {
         {
             let tf = &self.job_data.tf_mgr.transforms[tf_id];
             eprintln!(
-            ">       transform update tf {tf_id:02} {:>20}, in_fid: {}, bsa: {}, pred_done: {:>5}, done: {:>5}, stack:{:?}",
-            format!("`{}`", self.transform_data[tf_id.get()].display_name()),
-            tf.input_field,
-            tf.available_batch_size,
-            tf.predecessor_done,
-            tf.done,
-            self.job_data.tf_mgr.ready_stack
-        );
+                "> transform update tf {tf_id:02} {:>20}, in_fid: {}, bsa: {}, pred_done: {:>5}, done: {:>5}, stack:{:?}",
+                format!("`{}`", self.transform_data[tf_id.get()].display_name()),
+                tf.input_field,
+                tf.available_batch_size,
+                tf.predecessor_done,
+                tf.done,
+                self.job_data.tf_mgr.ready_stack
+            );
         }
         transform_pre_update(self, tf_id, ctx)?;
         transform_update(self, tf_id);
@@ -752,20 +752,31 @@ impl<'a> Job<'a> {
         {
             let tf = &self.job_data.tf_mgr.transforms[tf_id];
             let output_field_id = tf.output_field;
-            eprint!(
-                "/> tf {:02} `{}` output field: ",
-                tf_id,
-                self.transform_data[tf_id.get()].display_name()
+            eprintln!(
+                "/> transform update tf {tf_id:02} {:>20}, in_fid: {}, bsa: {}, pred_done: {:>5}, done: {:>5}, stack:{:?}",
+                format!("`{}`", self.transform_data[tf_id.get()].display_name()),
+                tf.input_field,
+                tf.available_batch_size,
+                tf.predecessor_done,
+                tf.done,
+                self.job_data.tf_mgr.ready_stack
             );
-            self.job_data.field_mgr.print_field_stats(output_field_id);
-            self.job_data
-                .field_mgr
-                .print_field_header_data(output_field_id, 0);
             let group_id = tf.output_group_list_id;
             let group =
                 self.job_data.record_group_tracker.lists[group_id].borrow();
+            eprint!("   - group {group_id} data: {group} (may have pending actions)");
+            #[cfg(feature = "iter_state_logging")]
+            group.eprint_iter_states(4);
+            eprint!("\n   - out ");
+            self.job_data.field_mgr.print_field_stats(output_field_id);
+            self.job_data
+                .field_mgr
+                .print_field_header_data(output_field_id, 4);
+            #[cfg(feature = "iter_state_logging")]
+            self.job_data
+                .field_mgr
+                .print_field_iter_data(output_field_id, 4);
             eprintln!();
-            eprintln!("group {group_id} data: {group}");
         }
         Ok(())
     }

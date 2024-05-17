@@ -79,12 +79,6 @@ pub struct TfSequence {
     group_list_iter_ref: Option<GroupListIterRef>,
 }
 
-impl SequenceSpec {
-    fn remaining_len(&self, value: i64) -> u64 {
-        ((self.end - value) / self.step) as u64
-    }
-}
-
 pub fn build_tf_sequence<'a>(
     jd: &mut JobData,
     _op_base: &OperatorBase,
@@ -349,7 +343,7 @@ fn create_op_sequence_with_opts(
         ss,
         mode,
         non_string_reads: true,
-        seq_len_total: ss.remaining_len(ss.start),
+        seq_len_total: ((ss.end - ss.start) / ss.step) as u64,
     }))
 }
 

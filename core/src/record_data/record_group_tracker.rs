@@ -604,13 +604,9 @@ impl RecordGroupList {
             iter_id,
         };
 
-        #[cfg(feature = "iter_state_logging")]
-        {
-            eprintln!(
-                "storing group {} iter {iter_id}: {iter_state:?}",
-                self.id
-            )
-        }
+        // #[cfg(feature = "iter_state_logging")]
+        // eprintln!("storing group {} iter {iter_id}: {iter_state:?}",
+        // self.id);
 
         self.iter_states[iter_sorting_idx].set(iter_state);
         // PERF: we could do something clever here like checking if it's still
