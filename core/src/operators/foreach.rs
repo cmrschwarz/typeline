@@ -5,7 +5,9 @@ use crate::{
     cli::reject_operator_argument,
     job::{add_transform_to_job, Job, JobData},
     options::argument::CliArgIdx,
-    record_data::record_group_tracker::{GroupListIterId, RecordGroupListId},
+    record_data::record_group_tracker::{
+        GroupListIterId, RecordGroupListId, RecordGroupListIterRef,
+    },
 };
 
 use super::{
@@ -80,10 +82,11 @@ pub fn insert_tf_foreach(
         .job_data
         .record_group_tracker
         .claim_group_list_iter(parent_group_list);
-    let group_list = job
-        .job_data
-        .record_group_tracker
-        .add_group_list(Some(parent_group_list), next_actor_id);
+    let group_list = job.job_data.record_group_tracker.add_group_list(
+        Some(parent_group_list),
+        ms_id,
+        next_actor_id,
+    );
     tf_state.output_group_list_id = group_list;
 
     let mut trailer_output_field = input_field;
@@ -168,19 +171,17 @@ pub fn handle_tf_foreach_header(
         jd.tf_mgr.submit_batch(tf_id, batch_size, ps.input_done);
         return;
     }
-
-    let tf = &jd.tf_mgr.transforms[tf_id];
-    let ms = &mut jd.match_set_mgr.match_sets[tf.match_set_id];
-    let mut ab = ms.action_buffer.borrow_mut();
     let mut group_list = jd
         .record_group_tracker
         .borrow_group_list_mut(feh.group_list);
-    group_list.apply_field_actions(&mut ab);
+    group_list.apply_field_actions(&jd.match_set_mgr);
     let mut parent_record_group_iter =
         jd.record_group_tracker.lookup_group_list_iter(
-            group_list.parent_list_id().unwrap(),
-            feh.parent_group_list_iter,
-            &mut ab,
+            RecordGroupListIterRef {
+                list_id: group_list.parent_list_id().unwrap(),
+                iter_id: feh.parent_group_list_iter,
+            },
+            &jd.match_set_mgr,
         );
 
     let mut size_rem = batch_size;
@@ -219,15 +220,10 @@ pub fn handle_tf_foreach_trailer(
     fet: &TfForeachTrailer,
 ) {
     let (batch_size, ps) = jd.tf_mgr.claim_all(tf_id);
-    let tf = &jd.tf_mgr.transforms[tf_id];
     let mut group_list = jd
         .record_group_tracker
         .borrow_group_list_mut(fet.group_list);
-    group_list.apply_field_actions(
-        &mut jd.match_set_mgr.match_sets[tf.match_set_id]
-            .action_buffer
-            .borrow_mut(),
-    );
+    group_list.apply_field_actions(&jd.match_set_mgr);
     group_list.drop_leading_fields(batch_size, ps.input_done);
     jd.tf_mgr.submit_batch(tf_id, batch_size, ps.input_done);
 }

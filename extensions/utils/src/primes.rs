@@ -25,7 +25,7 @@ use scr_core::{
         field::Field,
         fixed_sized_type_inserter::FixedSizeTypeInserter,
         iter_hall::{IterId, IterKind},
-        record_group_tracker::GroupListIterRef,
+        record_group_tracker::RecordGroupListIterRef,
     },
     smallbox,
 };
@@ -38,7 +38,7 @@ pub struct TfPrimes {
     count: usize,
     actor_id: ActorId,
     iter_id: IterId,
-    group_iter: GroupListIterRef,
+    group_iter: RecordGroupListIterRef,
 }
 
 impl Operator for OpPrimes {

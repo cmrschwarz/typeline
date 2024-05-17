@@ -385,7 +385,8 @@ impl<'a> Job<'a> {
         let input_record_count = input_record_count.max(1);
         let input_field = input_field.unwrap();
         let rgt = &mut self.job_data.record_group_tracker;
-        let input_group_list = rgt.add_group_list(None, ActorRef::default());
+        let input_group_list =
+            rgt.add_group_list(None, ms_id, ActorRef::default());
         rgt.append_group_to_list(input_group_list, input_record_count);
 
         #[cfg(feature = "debug_logging")]

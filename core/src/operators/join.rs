@@ -17,10 +17,10 @@ use crate::{
         field_value_ref::FieldValueSlice,
         field_value_slice_iter::FieldValueSliceIter,
         formattable::RealizedFormatKey,
-        record_group_tracker::GroupListIterRef,
         iter_hall::{IterId, IterKind},
         iters::FieldIterator,
         push_interface::PushInterface,
+        record_group_tracker::RecordGroupListIterRef,
         ref_iter::{
             AutoDerefIter, RefAwareBytesBufferIter,
             RefAwareFieldValueSliceIter, RefAwareInlineBytesIter,
@@ -104,7 +104,7 @@ pub struct TfJoin<'a> {
     stream_buffer_size: usize,
     input_field_ref_offset: FieldRefOffset,
 
-    group_list_iter_ref: GroupListIterRef,
+    group_list_iter_ref: RecordGroupListIterRef,
     iter_id: IterId,
     actor_id: ActorId,
 
@@ -526,7 +526,6 @@ pub fn handle_tf_join<'a>(
         tf_id,
     );
     let tf = &jd.tf_mgr.transforms[tf_id];
-    let ms_id = tf.match_set_id;
     let op_id = tf.op_id.unwrap();
     let mut output_field = jd.field_mgr.fields[tf.output_field].borrow_mut();
 
@@ -555,7 +554,7 @@ pub fn handle_tf_join<'a>(
         jd.record_group_tracker.lookup_group_list_iter_mut(
             join.group_list_iter_ref.list_id,
             join.group_list_iter_ref.iter_id,
-            &jd.match_set_mgr.match_sets[ms_id].action_buffer,
+            &jd.match_set_mgr,
             join.actor_id,
         );
 

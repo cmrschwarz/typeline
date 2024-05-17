@@ -1,16 +1,15 @@
-use std::cell::RefCell;
-
 use crate::{
     job::{JobData, PipelineState, TransformManager},
     operators::transform::TransformId,
     record_data::{
-        action_buffer::{ActionBuffer, ActorId},
+        action_buffer::ActorId,
         field::{Field, FieldId, FieldManager},
         field_action::FieldActionKind,
         field_data::FieldValueRepr,
         iter_hall::IterId,
         iters::{DestructuredFieldDataRef, FieldIterator, Iter},
-        record_group_tracker::{GroupListIterRef, RecordGroupTracker},
+        match_set::{MatchSetId, MatchSetManager},
+        record_group_tracker::{RecordGroupListIterRef, RecordGroupTracker},
     },
 };
 
@@ -43,7 +42,8 @@ pub struct GeneratorBatchState<'a, 'b, G: GeneratorSequence> {
     input_field_id: FieldId,
     input_iter_id: IterId,
     actor_id: ActorId,
-    ab: &'a RefCell<ActionBuffer>,
+    ms_id: MatchSetId,
+    msm: &'a MatchSetManager,
     rgt: &'a mut RecordGroupTracker,
     fm: &'a FieldManager,
     tf_mgr: &'a mut TransformManager,
@@ -60,7 +60,7 @@ pub fn handle_generator_transform_update<G: GeneratorSequence>(
     tf_id: TransformId,
     input_iter_id: IterId,
     actor_id: ActorId,
-    group_iter_ref: Option<GroupListIterRef>,
+    group_iter_ref: Option<RecordGroupListIterRef>,
     generator: &mut G,
     generator_mode: GeneratorMode,
 ) {
@@ -68,6 +68,7 @@ pub fn handle_generator_transform_update<G: GeneratorSequence>(
     let tf = &mut jd.tf_mgr.transforms[tf_id];
 
     if ps.successor_done || tf.successor.is_none() {
+        // TODO: use `help_out_with_output_done`
         if !tf.done {
             jd.tf_mgr.submit_batch(tf_id, 0, true);
         }
@@ -101,17 +102,16 @@ pub fn handle_generator_transform_update<G: GeneratorSequence>(
         jd.field_mgr
             .lookup_iter(input_field_id, &input_field, input_iter_id);
 
-    let ms = &mut jd.match_set_mgr.match_sets[ms_id];
-
     let inserter = generator.create_inserter(&mut output_field);
 
     let ss = GeneratorBatchState {
         tf_id,
         input_iter_id,
         actor_id,
+        ms_id,
         input_field_id,
         generator,
-        ab: &ms.action_buffer,
+        msm: &jd.match_set_mgr,
         rgt: &mut jd.record_group_tracker,
         fm: &jd.field_mgr,
         tf_mgr: &mut jd.tf_mgr,
@@ -159,7 +159,7 @@ pub fn handle_generator_transform_update<G: GeneratorSequence>(
 fn handle_seq_mode<G: GeneratorSequence>(
     mut gbs: GeneratorBatchState<G>,
 ) -> usize {
-    let mut ab = gbs.ab.borrow_mut();
+    let mut ab = gbs.msm.match_sets[gbs.ms_id].action_buffer.borrow_mut();
     ab.begin_action_group(gbs.actor_id);
     let mut field_pos = gbs.iter.get_next_field_pos();
     let mut field_dup_count = 0;
@@ -254,7 +254,7 @@ fn handle_seq_mode<G: GeneratorSequence>(
 
 fn handle_enum_mode<G: GeneratorSequence>(
     mut gbs: GeneratorBatchState<G>,
-    group_iter_ref: GroupListIterRef,
+    group_iter_ref: RecordGroupListIterRef,
 ) {
     let mut seq_size_rem = gbs.generator.seq_len_rem();
     let mut out_batch_size = 0;
@@ -263,7 +263,7 @@ fn handle_enum_mode<G: GeneratorSequence>(
     let mut group_iter = gbs.rgt.lookup_group_list_iter_mut(
         group_iter_ref.list_id,
         group_iter_ref.iter_id,
-        gbs.ab,
+        gbs.msm,
         gbs.actor_id,
     );
 
@@ -316,59 +316,59 @@ fn handle_enum_mode<G: GeneratorSequence>(
 }
 
 fn handle_enum_unbounded_mode<G: GeneratorSequence>(
-    mut sbs: GeneratorBatchState<G>,
-    group_iter_ref: GroupListIterRef,
+    mut bgs: GeneratorBatchState<G>,
+    group_iter_ref: RecordGroupListIterRef,
 ) {
-    let field_pos_end = sbs.iter.get_next_field_pos() + sbs.batch_size;
-    let mut out_batch_size_rem = sbs.desired_batch_size;
+    let field_pos_end = bgs.iter.get_next_field_pos() + bgs.batch_size;
+    let mut out_batch_size_rem = bgs.desired_batch_size;
 
-    let seq_len_total = sbs.generator.seq_len_total();
+    let seq_len_total = bgs.generator.seq_len_total();
     let seq_len_trunc =
         usize::try_from(seq_len_total).unwrap_or(isize::MAX as usize);
 
     let mut yield_to_split = false;
 
-    let mut seq_len_rem = sbs.generator.seq_len_rem();
+    let mut seq_len_rem = bgs.generator.seq_len_rem();
 
-    let mut group_iter = sbs.rgt.lookup_group_list_iter_mut(
+    let mut group_iter = bgs.rgt.lookup_group_list_iter_mut(
         group_iter_ref.list_id,
         group_iter_ref.iter_id,
-        sbs.ab,
-        sbs.actor_id,
+        bgs.msm,
+        bgs.actor_id,
     );
 
     while out_batch_size_rem != 0 {
-        let input_rem = field_pos_end - sbs.iter.get_next_field_pos();
+        let input_rem = field_pos_end - bgs.iter.get_next_field_pos();
         if input_rem == 0 {
             if seq_len_rem == 0 {
-                yield_to_split = sbs.is_split;
+                yield_to_split = bgs.is_split;
                 break;
             }
-            if !sbs.ps.input_done {
+            if !bgs.ps.input_done {
                 break;
             }
         }
-        let field_count = sbs.iter.next_n_fields(
+        let field_count = bgs.iter.next_n_fields(
             out_batch_size_rem
                 .min(input_rem)
                 .min(group_iter.group_len_rem()),
             true,
         );
         group_iter.next_n_fields(field_count);
-        let end_of_group = group_iter.is_end_of_group(sbs.ps.input_done);
+        let end_of_group = group_iter.is_end_of_group(bgs.ps.input_done);
         let seq_adv = if end_of_group {
             seq_len_rem.min(out_batch_size_rem as u64) as usize
         } else {
             seq_len_rem.min(field_count as u64) as usize
         };
-        sbs.generator.advance_sequence(&mut sbs.inserter, seq_adv);
+        bgs.generator.advance_sequence(&mut bgs.inserter, seq_adv);
         seq_len_rem -= seq_adv as u64;
 
         out_batch_size_rem -= seq_adv;
 
         let fields_rem = field_count.saturating_sub(seq_adv);
         if fields_rem > 0 {
-            if sbs.is_split && sbs.ps.input_done && input_rem == field_count {
+            if bgs.is_split && bgs.ps.input_done && input_rem == field_count {
                 yield_to_split = true;
                 break;
             }
@@ -387,34 +387,34 @@ fn handle_enum_unbounded_mode<G: GeneratorSequence>(
         if !group_iter.try_next_group() {
             break;
         }
-        sbs.generator.reset_sequence();
+        bgs.generator.reset_sequence();
         seq_len_rem = seq_len_total;
 
         // PERF: we could optimize this to a memcopy for the subsequent
         // ones
         while group_iter.group_len_rem() == 0 {
-            sbs.generator
-                .advance_sequence(&mut sbs.inserter, seq_len_trunc);
-            sbs.generator.reset_sequence();
+            bgs.generator
+                .advance_sequence(&mut bgs.inserter, seq_len_trunc);
+            bgs.generator.reset_sequence();
             group_iter.insert_fields(FieldValueRepr::Undefined, seq_len_trunc);
             out_batch_size_rem -= seq_len_trunc;
         }
     }
-    let unclaimed_input = field_pos_end - sbs.iter.get_next_field_pos();
-    sbs.fm
-        .store_iter(sbs.input_field_id, sbs.input_iter_id, sbs.iter);
+    let unclaimed_input = field_pos_end - bgs.iter.get_next_field_pos();
+    bgs.fm
+        .store_iter(bgs.input_field_id, bgs.input_iter_id, bgs.iter);
     group_iter.store_iter(group_iter_ref.iter_id);
-    sbs.tf_mgr.unclaim_batch_size(sbs.tf_id, unclaimed_input);
-    sbs.ps.next_batch_ready |= unclaimed_input > 0;
+    bgs.tf_mgr.unclaim_batch_size(bgs.tf_id, unclaimed_input);
+    bgs.ps.next_batch_ready |= unclaimed_input > 0;
     let seq_unfinished = seq_len_rem != 0 && !yield_to_split;
-    if (sbs.ps.next_batch_ready && !yield_to_split)
-        || (sbs.ps.input_done && seq_unfinished)
+    if (bgs.ps.next_batch_ready && !yield_to_split)
+        || (bgs.ps.input_done && seq_unfinished)
     {
-        sbs.tf_mgr.push_tf_in_ready_stack(sbs.tf_id);
+        bgs.tf_mgr.push_tf_in_ready_stack(bgs.tf_id);
     }
-    sbs.tf_mgr.submit_batch(
-        sbs.tf_id,
-        sbs.desired_batch_size - out_batch_size_rem,
-        (sbs.ps.input_done || yield_to_split) && !seq_unfinished,
+    bgs.tf_mgr.submit_batch(
+        bgs.tf_id,
+        bgs.desired_batch_size - out_batch_size_rem,
+        (bgs.ps.input_done || yield_to_split) && !seq_unfinished,
     );
 }

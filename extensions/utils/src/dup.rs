@@ -18,7 +18,10 @@ use scr_core::{
         },
     },
     options::argument::CliArgIdx,
-    record_data::{action_buffer::ActorId, field_action::FieldActionKind},
+    record_data::{
+        action_buffer::ActorId, field_action::FieldActionKind,
+        record_group_tracker::RecordGroupListIterRef,
+    },
     smallbox,
 };
 
@@ -30,6 +33,9 @@ pub struct OpDup {
 pub struct TfDup {
     count: usize,
     actor_id: ActorId,
+    // we neeed *some* iterator to keep track of our position, and the group
+    // iterator is more likely to be simple
+    record_group_list_iter: RecordGroupListIterRef,
 }
 
 impl Operator for OpDup {
@@ -82,10 +88,15 @@ impl Operator for OpDup {
             &mut job.job_data.match_set_mgr,
         );
         tf_state.output_field = tf_state.input_field;
+        let record_group_list_iter = job
+            .job_data
+            .record_group_tracker
+            .claim_group_list_iter_ref(tf_state.input_group_list_id);
         TransformInstatiation::Simple(TransformData::Custom(smallbox!(
             TfDup {
                 count: self.count,
-                actor_id
+                actor_id,
+                record_group_list_iter
             }
         )))
     }
@@ -97,7 +108,15 @@ impl Transform<'_> for TfDup {
     }
 
     fn update(&mut self, jd: &mut JobData, tf_id: TransformId) {
-        let (batch_size, ps) = jd.tf_mgr.claim_all(tf_id);
+        let (batch_size, ps) = jd.tf_mgr.claim_batch(tf_id);
+        let mut iter = jd.record_group_tracker.lookup_group_list_iter(
+            self.record_group_list_iter,
+            &jd.match_set_mgr,
+        );
+        let mut field_pos = iter.field_pos();
+        iter.next_n_fields(batch_size);
+        jd.record_group_tracker
+            .store_record_group_list_iter(self.record_group_list_iter, &iter);
         let tf = &jd.tf_mgr.transforms[tf_id];
 
         if ps.successor_done {
@@ -118,7 +137,6 @@ impl Transform<'_> for TfDup {
             .action_buffer
             .borrow_mut();
         ab.begin_action_group(self.actor_id);
-        let mut field_pos = 0;
         if self.count == 0 {
             ab.push_action(FieldActionKind::Drop, field_pos, batch_size);
         } else {

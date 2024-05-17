@@ -289,8 +289,7 @@ impl IterHall {
     // SAFETY: caller must ensure that the iter uses the correct data source
     pub unsafe fn store_iter_unchecked<'a, R: FieldDataRef<'a>>(
         &self,
-        #[cfg_attr(not(feature = "iter_state_logging"), allow(unused))]
-        field_id: FieldId,
+        #[allow(unused)] field_id: FieldId,
         iter_id: IterId,
         mut iter: Iter<'a, R>,
     ) {

@@ -25,7 +25,7 @@ use scr_core::{
         field_value_slice_iter::{FieldValueBlock, FieldValueSliceIter},
         iter_hall::{IterId, IterKind},
         push_interface::PushInterface,
-        record_group_tracker::GroupListIterRef,
+        record_group_tracker::RecordGroupListIterRef,
         ref_iter::RefAwareFieldValueSliceIter,
         varying_type_inserter::VaryingTypeInserter,
     },
@@ -39,7 +39,7 @@ pub struct OpSum {}
 
 pub struct TfSum {
     input_iter_id: IterId,
-    group_list_iter: GroupListIterRef,
+    group_list_iter: RecordGroupListIterRef,
     aggregate: AnyNumber,
     current_group_error_type: Option<FieldValueRepr>,
     actor_id: ActorId,
@@ -147,12 +147,10 @@ impl TfSum {
             .borrow_field_dealiased_mut(bud.output_field_id);
         let mut inserter = output_field.iter_hall.varying_type_inserter();
 
-        let ms = &bud.match_set_mgr.match_sets[bud.match_set_id];
-
         let mut group_iter = bud.group_tracker.lookup_group_list_iter_mut(
             self.group_list_iter.list_id,
             self.group_list_iter.iter_id,
-            &ms.action_buffer,
+            bud.match_set_mgr,
             self.actor_id,
         );
 

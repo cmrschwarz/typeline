@@ -8,7 +8,7 @@ use crate::{
     options::argument::CliArgIdx,
     record_data::{
         action_buffer::ActorId, field::Field, iter_hall::IterId,
-        record_group_tracker::GroupListIterRef,
+        record_group_tracker::RecordGroupListIterRef,
         variable_sized_type_inserter::VariableSizeTypeInserter,
     },
     utils::int_string_conversions::{
@@ -76,7 +76,7 @@ pub struct TfSequence {
     iter_id: IterId,
     actor_id: ActorId,
     seq_len_total: u64,
-    group_list_iter_ref: Option<GroupListIterRef>,
+    group_list_iter_ref: Option<RecordGroupListIterRef>,
 }
 
 pub fn build_tf_sequence<'a>(

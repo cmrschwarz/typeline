@@ -17,6 +17,7 @@ use super::{
     },
     field_action::{FieldAction, FieldActionKind},
     field_data::FieldValueRepr,
+    match_set::{MatchSetId, MatchSetManager},
 };
 
 pub type GroupIdxStable = usize;
@@ -29,7 +30,7 @@ pub type RecordGroupListId = DebuggableNonMaxU32;
 pub const VOID_GROUP_LIST_ID: RecordGroupListId = RecordGroupListId::MAX;
 
 #[derive(Clone, Copy)]
-pub struct GroupListIterRef {
+pub struct RecordGroupListIterRef {
     pub list_id: RecordGroupListId,
     pub iter_id: GroupListIterId,
 }
@@ -45,6 +46,7 @@ pub struct RecordGroupIterState {
 #[derive(Default)]
 pub struct RecordGroupList {
     id: RecordGroupListId,
+    ms_id: MatchSetId,
     actor: ActorRef,
     parent_list: Option<RecordGroupListId>,
     prev_list: Option<RecordGroupListId>,
@@ -454,7 +456,8 @@ impl RecordGroupList {
         }
         eprint!("{:padding$}]", "", padding = indent_level.saturating_sub(1));
     }
-    pub fn apply_field_actions(&mut self, ab: &mut ActionBuffer) {
+    pub fn apply_field_actions(&mut self, msm: &MatchSetManager) {
+        let mut ab = msm.match_sets[self.ms_id].action_buffer.borrow_mut();
         let Some((actor_id, ss_prev)) = ab.update_snapshot(
             ActorSubscriber::GroupList(self.id),
             &mut self.actor,
@@ -569,9 +572,10 @@ impl RecordGroupList {
         tracker: &'a RecordGroupTracker,
         list: T,
         iter_id: GroupListIterId,
-        action_buffer: &'a RefCell<ActionBuffer>,
+        msm: &'a MatchSetManager,
         actor_id: ActorId,
     ) -> GroupListIterMut<'a, T> {
+        let action_buffer = &msm.match_sets[list.ms_id].action_buffer;
         let iter_index = list.iter_lookup_table[iter_id];
         let iter_state = list.iter_states[iter_index as usize].get();
         let base = Self::build_iter_from_iter_state(list, iter_state);
@@ -726,11 +730,13 @@ impl RecordGroupTracker {
     pub fn add_group_list(
         &mut self,
         parent_list: Option<RecordGroupListId>,
+        ms_id: MatchSetId,
         actor: ActorRef,
     ) -> RecordGroupListId {
         let id = self.lists.peek_claim_id();
         self.lists.claim_with_value(RefCell::new(RecordGroupList {
             id,
+            ms_id,
             actor,
             parent_list,
             prev_list: Some(self.last_group),
@@ -755,50 +761,47 @@ impl RecordGroupTracker {
     pub fn claim_group_list_iter_ref(
         &mut self,
         list_id: RecordGroupListId,
-    ) -> GroupListIterRef {
-        GroupListIterRef {
+    ) -> RecordGroupListIterRef {
+        RecordGroupListIterRef {
             list_id,
             iter_id: self.claim_group_list_iter(list_id),
         }
     }
     pub fn lookup_group_list_iter(
         &self,
-        list_id: RecordGroupListId,
-        iter_id: GroupListIterId,
-        action_buffer: &mut ActionBuffer,
+        iter_ref: RecordGroupListIterRef,
+        msm: &MatchSetManager,
     ) -> RecordGroupListIter<Ref<RecordGroupList>> {
-        self.lists[list_id]
+        self.lists[iter_ref.list_id]
             .borrow_mut()
-            .apply_field_actions(action_buffer);
+            .apply_field_actions(msm);
         RecordGroupList::lookup_iter_for_deref(
-            self.lists[list_id].borrow(),
-            iter_id,
+            self.lists[iter_ref.list_id].borrow(),
+            iter_ref.iter_id,
         )
     }
     pub fn lookup_group_list_iter_mut<'a>(
         &'a self,
         list_id: RecordGroupListId,
         iter_id: GroupListIterId,
-        action_buffer: &'a RefCell<ActionBuffer>,
+        msm: &'a MatchSetManager,
         actor_id: ActorId,
     ) -> GroupListIterMut<RefMut<'a, RecordGroupList>> {
         let mut list = self.borrow_group_list_mut(list_id);
-        list.apply_field_actions(&mut action_buffer.borrow_mut());
+        list.apply_field_actions(msm);
         RecordGroupList::lookup_iter_for_deref_mut(
-            self,
-            list,
-            iter_id,
-            action_buffer,
-            actor_id,
+            self, list, iter_id, msm, actor_id,
         )
     }
-    pub fn store_group_list_iter<L: Deref<Target = RecordGroupList>>(
+
+    pub fn store_record_group_list_iter<L: Deref<Target = RecordGroupList>>(
         &self,
-        list_id: RecordGroupListId,
-        iter_id: GroupListIterId,
+        iter_ref: RecordGroupListIterRef,
         iter: &RecordGroupListIter<L>,
     ) {
-        self.lists[list_id].borrow_mut().store_iter(iter_id, iter);
+        self.lists[iter_ref.list_id]
+            .borrow()
+            .store_iter(iter_ref.iter_id, iter);
     }
     pub fn apply_actions_to_list_and_parents(
         &self,
@@ -839,12 +842,12 @@ impl RecordGroupTracker {
     }
     pub fn apply_actions_to_list(
         &mut self,
-        ab: &mut ActionBuffer,
+        msm: &MatchSetManager,
         group_list_id: RecordGroupListId,
     ) {
         self.lists[group_list_id]
             .borrow_mut()
-            .apply_field_actions(ab)
+            .apply_field_actions(msm)
     }
     pub fn append_group_to_list(
         &mut self,
