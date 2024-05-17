@@ -279,18 +279,24 @@ pub fn merge_action_lists<
 
             match action_left.kind {
                 FieldActionKind::InsertZst(_) | FieldActionKind::Dup => {
-                    let space_to_next: usize = left
-                        .peek()
-                        .map(|a| a.field_idx - action_left.field_idx)
-                        .unwrap_or(usize::MAX);
                     if outstanding_drops_right >= faf.run_len {
-                        outstanding_drops_right -= faf.run_len;
-                        field_pos_offset_left -= faf.run_len as isize;
+                        let dup_to_undo = faf.run_len;
+                        outstanding_drops_right -= dup_to_undo;
+                        field_pos_offset_left -= dup_to_undo as isize;
+
+                        let drop_due = if let Some(next) = left.peek() {
+                            let next_pos = next.field_idx as isize
+                                + field_pos_offset_left;
+                            outstanding_drops_right
+                                .min(next_pos as usize - faf.field_idx)
+                        } else {
+                            outstanding_drops_right
+                        };
+
+                        faf.run_len = drop_due;
+                        outstanding_drops_right -= drop_due;
+                        field_pos_offset_left -= drop_due as isize;
                         faf.kind = FieldActionKind::Drop;
-                        faf.run_len =
-                            outstanding_drops_right.min(space_to_next);
-                        outstanding_drops_right -= faf.run_len;
-                        field_pos_offset_left -= faf.run_len as isize;
                     } else {
                         faf.run_len -= outstanding_drops_right;
                         outstanding_drops_right = 0;
@@ -1000,6 +1006,48 @@ mod test {
             run_len: 2,
         }];
         let merged = &[];
+        compare_merge_result(left, right, merged);
+    }
+
+    #[test]
+    fn drop_erasing_multiple_dups() {
+        // # | BF  L1  L2  L3  R  | BF M |
+        // 0 | a   a   a   a   a  | a  a |
+        // 1 | b   b   b   b   e  | b  e |
+        // 2 | c   b   b   b      | c    |
+        // 3 | d   c   c   c      | d    |
+        // 4 | e   d   c   c      | e    |
+        // 5 |     e   d   d      |      |
+        // 6 |         e   d      |      |
+        // 7 |             e      |      |
+
+        let left = &[
+            FieldAction {
+                kind: FAK::Dup,
+                field_idx: 1,
+                run_len: 1,
+            },
+            FieldAction {
+                kind: FAK::Dup,
+                field_idx: 3,
+                run_len: 1,
+            },
+            FieldAction {
+                kind: FAK::Dup,
+                field_idx: 5,
+                run_len: 1,
+            },
+        ];
+        let right = &[FieldAction {
+            kind: FAK::Drop,
+            field_idx: 1,
+            run_len: 6,
+        }];
+        let merged = &[FieldAction {
+            kind: FAK::Drop,
+            field_idx: 1,
+            run_len: 3,
+        }];
         compare_merge_result(left, right, merged);
     }
 
