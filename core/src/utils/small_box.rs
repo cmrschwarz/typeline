@@ -2,8 +2,6 @@ use core::{
     cmp::Ordering, fmt, hash::Hash, marker::PhantomData, mem::MaybeUninit,
     ops, ptr,
 };
-#[cfg(feature = "unstable")]
-use core::{marker::Unsize, ops::CoerceUnsized};
 use std::{
     alloc::Layout,
     fmt::{Debug, Display, Formatter},
@@ -11,7 +9,10 @@ use std::{
     mem::{align_of, align_of_val, size_of, size_of_val, ManuallyDrop},
 };
 
-#[cfg(feature = "unstable")]
+// would require #![feature(coerce_unsized)]
+#[cfg(not(all()))]
+use core::{marker::Unsize, ops::CoerceUnsized};
+#[cfg(not(all()))]
 impl<T: ?Sized + Unsize<U>, U: ?Sized, const SPACE: usize>
     CoerceUnsized<SmallBox<U, SPACE>> for SmallBox<T, SPACE>
 {
@@ -335,7 +336,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "unstable")]
+    #[cfg(not(all()))]
     fn test_coerce() {
         let is_thirteen: SmallBox<dyn Fn(u8) -> bool, 16> =
             SmallBox::new(|num: u8| num == 13);

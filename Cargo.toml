@@ -37,10 +37,6 @@ scr_ext_http = { path = "./extensions/http", optional = true }
 scr_ext_utils = { path = "./extensions/utils", optional = true }
 
 
-[profile.release-with-debug]
-inherits = "release"
-debug = true
-
 [profile.release]
 panic = "abort"
 lto = "thin"

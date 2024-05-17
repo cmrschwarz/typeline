@@ -365,23 +365,28 @@ impl FieldActionApplicator {
         let rl_pre = (faas.curr_action_pos - faas.field_pos) as RunLength;
         if rl_pre > 0 {
             let rl_rem = header.run_length - rl_pre;
-            if header.shared_value() && drop_count <= rl_rem as usize {
-                let rl_to_del = drop_count as RunLength;
-                header.run_length -= rl_to_del;
-                faas.curr_action_run_length = 0;
-                Self::iters_adjust_drop_before(
-                    faas,
-                    iterators,
-                    faas.field_pos,
-                    rl_to_del,
-                );
+            if header.shared_value() {
+                if drop_count <= rl_rem as usize {
+                    let rl_to_del = drop_count as RunLength;
+                    header.run_length -= rl_to_del;
+                    faas.curr_action_run_length = 0;
+                    Self::iters_adjust_drop_before(
+                        faas,
+                        iterators,
+                        faas.field_pos,
+                        rl_to_del,
+                    );
+                    return;
+                }
+                header.run_length = rl_pre;
+                faas.curr_action_run_length -= rl_rem as usize;
                 return;
             }
             self.push_copy_command(faas);
             self.push_insert_command(faas, header.fmt, rl_pre);
             // this only affects the iterators ones after rl_pre
             // because the earlier ones were already advanced  past
-            // by update_current_iters_start
+            // by `update_current_iters_start`
             Self::iters_to_next_header(
                 faas,
                 iterators,
@@ -837,7 +842,7 @@ mod test {
                 header_rle,
                 value_rle,
             );
-            len_before += 1;
+            len_before += rl as isize;
         }
         let mut faa = FieldActionApplicator::default();
         let mut iter_states = iter_states_in.to_vec();
@@ -1011,6 +1016,33 @@ mod test {
             std::iter::repeat(0i64).take(3),
             &[FieldAction::new(FAK::Drop, 1, 1)],
             &[(0, 1), (0, 1)],
+        );
+    }
+
+    #[test]
+    fn drop_spanning_shared_values() {
+        //  Before   Drop(1, 5)
+        //    0           0
+        //    0           3
+        //    0
+        //    1
+        //    1
+        //    2
+        //    3
+        test_actions_on_range_raw(
+            [(0, 3), (1, 2), (2, 1), (3, 1)]
+                .iter()
+                .map(|(i, rl)| (FieldValue::Int(*i), *rl)),
+            false,
+            false,
+            &[FieldAction::new(FAK::Drop, 1, 5)],
+            &[(0, 1), (3, 1)]
+                .iter()
+                .map(|(i, rl)| (FieldValue::Int(*i), *rl))
+                .collect::<Vec<_>>(),
+            // TODO: test iters
+            &[],
+            &[],
         );
     }
 
