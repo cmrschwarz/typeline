@@ -486,7 +486,10 @@ pub fn parse_op_py(
             )
         }
         let py_types = PyTypes {
-            none_type: pyo3::Py::from_borrowed_ptr(py, none),
+            none_type: pyo3::Py::from_borrowed_ptr(
+                py,
+                pyo3::ffi::PyObject_Type(none),
+            ),
             int_type: get_builtin_type(py, builtins, "int\0"),
             float_type: get_builtin_type(py, builtins, "float\0"),
             str_type: get_builtin_type(py, builtins, "str\0"),
