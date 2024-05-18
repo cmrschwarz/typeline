@@ -1309,29 +1309,9 @@ fn setup_output_targets(
     if fmt.output_states[0].run_len == 0 {
         return;
     }
-    fmt.output_targets.reserve(fmt.output_states.len());
     let mut output_idx = 0;
 
-    let starting_len =
-        unsafe { output_field.iter_hall.internals_mut().data.len() };
-    let mut tgt_len = starting_len;
-    for os in &fmt.output_states {
-        if os.contained_error.is_some() {
-            tgt_len = FieldValueRepr::Error.align_size_up(tgt_len);
-            tgt_len += FieldValueRepr::Error.size();
-        } else if os.incomplete_stream_value_handle.is_some() {
-            tgt_len = FieldValueRepr::StreamValueId.align_size_up(tgt_len);
-            tgt_len += FieldValueRepr::StreamValueId.size();
-        } else if os.len <= INLINE_STR_MAX_LEN {
-            tgt_len += os.len;
-        } else {
-            tgt_len = FieldValueRepr::BytesBuffer.align_size_up(tgt_len);
-            tgt_len += FieldValueRepr::BytesBuffer.size();
-        }
-    }
-    unsafe { output_field.iter_hall.internals_mut() }
-        .data
-        .reserve(tgt_len - starting_len);
+    fmt.output_targets.reserve(fmt.output_states.len());
 
     loop {
         let target = insert_output_target(
