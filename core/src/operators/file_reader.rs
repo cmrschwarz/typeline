@@ -15,10 +15,7 @@ use crate::{
     job::JobData,
     options::argument::CliArgIdx,
     record_data::{
-        field_data::{
-            field_value_flags, FieldValueFormat, FieldValueRepr,
-            FieldValueSize, INLINE_STR_MAX_LEN,
-        },
+        field_data::INLINE_STR_MAX_LEN,
         iter_hall::IterId,
         push_interface::PushInterface,
         stream_value::{
@@ -240,9 +237,7 @@ fn start_streaming_file(
     // SAFETY: this relies on the memory layout in field_data.
     // since that is a submodule of us, this is fine.
     // ideally though, FieldData would expose some way to do this safely.
-    let fdi = unsafe { output_field.iter_hall.internals_mut() };
-
-    let size_before = fdi.data.len();
+    let mut bis = output_field.iter_hall.bytes_insertion_stream(1);
 
     // we don't want to initially block on stdin in case it isn't ready
     let skip_initial_read = matches!(fr.file, Some(AnyFileReader::Stdin));
@@ -250,7 +245,7 @@ fn start_streaming_file(
         Ok((0, false))
     } else {
         read_chunk(
-            fdi.data,
+            &mut bis,
             fr.file.as_mut().unwrap(),
             INLINE_STR_MAX_LEN
                 .min(fr.stream_buffer_size)
@@ -259,29 +254,16 @@ fn start_streaming_file(
         )
     };
 
-    let chunk_size = match res {
-        Ok((size, eof)) => {
+    match res {
+        Ok((_size, eof)) => {
             if eof {
                 fr.file.take();
-                *fdi.field_count += 1;
-                unsafe {
-                    output_field.iter_hall.raw().add_header_for_single_value(
-                        FieldValueFormat {
-                            repr: FieldValueRepr::BytesInline,
-                            flags: field_value_flags::SHARED_VALUE,
-                            size: size as FieldValueSize,
-                        },
-                        1,
-                        false,
-                        false,
-                    );
-                }
+                bis.commit();
                 return;
             }
-            size
         }
         Err(e) => {
-            fdi.data.truncate(size_before);
+            bis.abort();
             let err = io_error_to_op_error(
                 jd.tf_mgr.transforms[tf_id].op_id.unwrap(),
                 &e,
@@ -290,10 +272,10 @@ fn start_streaming_file(
             fr.file.take();
             return;
         }
-    };
+    }
     let mut buf = Vec::with_capacity(fr.stream_buffer_size);
-    buf.extend(fdi.data.range(size_before..(size_before + chunk_size)));
-    fdi.data.truncate(size_before);
+    buf.extend(bis.get_inserted_data());
+    bis.abort();
     let buf_len = buf.len();
     if buf_len < fr.stream_buffer_size && !skip_initial_read {
         match read_chunk(

@@ -1,6 +1,6 @@
 use std::io::Write;
 
-use crate::utils::text_write::TextWrite;
+use crate::utils::{maybe_text::MaybeTextRef, text_write::TextWrite};
 
 use super::{
     field_data::{
@@ -36,12 +36,12 @@ impl<'a> RawBytesInserter<'a> {
         let len_new = self.bytes_inserted + buf_len;
         if len_new > INLINE_STR_MAX_LEN {
             if self.bytes_inserted <= INLINE_STR_MAX_LEN {
-                unsafe {
-                    self.target.extend_from_slice(std::slice::from_raw_parts(
+                self.target.extend_from_slice(unsafe {
+                    std::slice::from_raw_parts(
                         self.ptr.sub(self.bytes_inserted),
                         self.bytes_inserted,
-                    ));
-                }
+                    )
+                });
             }
             self.target.extend(buf);
             self.bytes_inserted = len_new;
@@ -66,14 +66,14 @@ impl<'a> RawBytesInserter<'a> {
         }
         self.bytes_inserted = len_new;
     }
-    fn commit_inline(&mut self, text: bool) {
+    unsafe fn commit_inline(&mut self, text: bool) {
         let fmt = FieldValueFormat {
             repr: if text {
                 FieldValueRepr::TextInline
             } else {
                 FieldValueRepr::BytesInline
             },
-            flags: field_value_flags::DEFAULT,
+            flags: field_value_flags::SHARED_VALUE,
             size: self.bytes_inserted as u16,
         };
         self.fd.field_count += self.run_len;
@@ -93,7 +93,7 @@ impl<'a> RawBytesInserter<'a> {
             )
         }
     }
-    fn commit_heap(&mut self, text: bool) {
+    unsafe fn commit_heap(&mut self, text: bool) {
         let buffer = std::mem::take(&mut self.target);
         if text {
             self.fd.push_string(
@@ -106,15 +106,25 @@ impl<'a> RawBytesInserter<'a> {
             self.fd.push_bytes_buffer(buffer, self.run_len, true, false);
         }
     }
-    fn commit(&mut self, text: bool) {
-        if self.bytes_inserted > INLINE_STR_MAX_LEN {
-            self.commit_heap(text);
-            return;
+    unsafe fn commit(&mut self, text: bool) {
+        unsafe {
+            if self.bytes_inserted > INLINE_STR_MAX_LEN {
+                self.commit_heap(text);
+                return;
+            }
+            self.commit_inline(text);
         }
-        self.commit_inline(text);
     }
     fn free_memory(&mut self) {
         std::mem::take(&mut self.target);
+    }
+    fn get_inserted_data(&self) -> &[u8] {
+        unsafe {
+            std::slice::from_raw_parts(
+                self.ptr.sub(self.bytes_inserted),
+                self.bytes_inserted,
+            )
+        }
     }
 }
 
@@ -130,10 +140,13 @@ impl<'a> BytesInsertionStream<'a> {
         self.0.free_memory();
         std::mem::forget(self);
     }
+    pub fn get_inserted_data(&self) -> &[u8] {
+        self.0.get_inserted_data()
+    }
 }
 impl Drop for BytesInsertionStream<'_> {
     fn drop(&mut self) {
-        self.0.commit(false)
+        unsafe { self.0.commit(false) }
     }
 }
 
@@ -160,6 +173,11 @@ impl<'a> TextInsertionStream<'a> {
         self.0.free_memory();
         std::mem::forget(self);
     }
+    pub fn get_inserted_data(&self) -> &str {
+        // SAFETY: TextWrite guaranteed that only valid utf-8 is in here
+        // (because our `write_text_unchecked` impl never partially succeeds)
+        unsafe { std::str::from_utf8_unchecked(self.0.get_inserted_data()) }
+    }
 }
 impl TextWrite for TextInsertionStream<'_> {
     unsafe fn write_text_unchecked(
@@ -176,7 +194,7 @@ impl TextWrite for TextInsertionStream<'_> {
 }
 impl Drop for TextInsertionStream<'_> {
     fn drop(&mut self) {
-        self.0.commit(true)
+        unsafe { self.0.commit(true) }
     }
 }
 
@@ -203,6 +221,15 @@ impl<'a> MaybeTextInsertionStream<'a> {
     }
     pub fn is_text(&self) -> bool {
         self.is_text
+    }
+    pub fn get_inserted_data(&self) -> MaybeTextRef {
+        let data = self.base.get_inserted_data();
+        if self.is_text {
+            return unsafe {
+                MaybeTextRef::Text(std::str::from_utf8_unchecked(data))
+            };
+        }
+        MaybeTextRef::Bytes(data)
     }
 }
 impl TextWrite for MaybeTextInsertionStream<'_> {
@@ -231,6 +258,6 @@ impl std::io::Write for MaybeTextInsertionStream<'_> {
 }
 impl Drop for MaybeTextInsertionStream<'_> {
     fn drop(&mut self) {
-        self.base.commit(self.is_text)
+        unsafe { self.base.commit(self.is_text) }
     }
 }

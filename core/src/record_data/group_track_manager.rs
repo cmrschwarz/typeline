@@ -46,12 +46,13 @@ pub struct GroupTrackIterState {
 #[derive(Default)]
 pub struct GroupTrack {
     id: GroupTrackId,
-    cow_source: GroupTrackId,
-    cow_active: bool,
     ms_id: MatchSetId,
     actor: ActorRef,
     parent_list: Option<GroupTrackId>,
     group_index_offset: GroupIdx,
+
+    cow_source: GroupTrackId,
+    cow_active: bool,
 
     iter_lookup_table: Universe<GroupTrackIterId, GroupTrackIterSortedIndex>,
     iter_states: Vec<Cell<GroupTrackIterState>>,
