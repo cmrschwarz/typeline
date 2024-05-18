@@ -1,6 +1,5 @@
 use crate::{
-    chain::{BufferingMode, Chain, ChainId, ChainSettings},
-    document::TextEncoding,
+    chain::{BufferingMode, Chain, ChainId, ChainSettings, TextEncoding},
     operators::operator::OperatorId,
     utils::string_store::StringStoreEntry,
 };

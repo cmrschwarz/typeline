@@ -1,6 +1,5 @@
 use crate::{
-    document::TextEncoding, operators::operator::OperatorId,
-    utils::string_store::StringStoreEntry,
+    operators::operator::OperatorId, utils::string_store::StringStoreEntry,
 };
 
 pub type ChainId = u32;
@@ -13,6 +12,15 @@ pub enum BufferingMode {
     LineBufferStdin,
     LineBufferIfTTY,
     LineBufferStdinIfTTY,
+}
+
+#[derive(Default, Clone, Copy)]
+pub enum TextEncoding {
+    #[default]
+    UTF8,
+    UTF16,
+    UTF32,
+    ASCII,
 }
 
 #[derive(Clone)]
