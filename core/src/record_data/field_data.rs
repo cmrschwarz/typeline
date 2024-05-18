@@ -153,6 +153,8 @@ pub mod field_value_flags {
     pub const DELETED_OFFSET: FieldValueFlags = 7;
     // When the run_length is one, `SHARED_VALUE` **must** also be set
     pub const SHARED_VALUE: FieldValueFlags = 1 << SHARED_VALUE_OFFSET;
+    // NOTE(cmrs): RUF MICH NICHT AN ICH BIN TOT (deine augen machen bling
+    // bling und alles ist vergessen)
     pub const DELETED: FieldValueFlags = 1 << DELETED_OFFSET;
     // share data with previous header (potentially across ZSTs)
     // leading padding must be zero if this is set

@@ -51,9 +51,6 @@ pub struct GroupTrack {
     parent_list: Option<GroupTrackId>,
     group_index_offset: GroupIdx,
 
-    cow_source: GroupTrackId,
-    cow_active: bool,
-
     iter_lookup_table: Universe<GroupTrackIterId, GroupTrackIterSortedIndex>,
     iter_states: Vec<Cell<GroupTrackIterState>>,
     // store iter potentially invalidates the sort order of the iter_states
@@ -69,6 +66,10 @@ pub struct GroupTrack {
     // length groups, where we would otherwise lose this connection, since
     // we can't find the right partner by lockstep iterating over both
     // group lists anymore. Used during `insert_fields` to update parents.
+    // TODO: replace this with a bitfield representing whether it has the
+    // same parent as it's predecessor once we nuked the zero insert parent
+    // propagation nonsense in favor of yeeting groups yielded to a
+    // nested foreach into the `passed_fields_count` mechanism
     pub parent_group_indices_stable: SizeClassedVecDeque,
 }
 
@@ -450,7 +451,6 @@ impl GroupTrack {
         eprint!("{:padding$}]", "", padding = indent_level.saturating_sub(1));
     }
     pub fn apply_field_actions(&mut self, msm: &MatchSetManager) {
-        debug_assert!(!self.cow_active);
         let mut ab = msm.match_sets[self.ms_id].action_buffer.borrow_mut();
         let Some((actor_id, ss_prev)) = ab.update_snapshot(
             ActorSubscriber::GroupTrack(self.id),
@@ -721,19 +721,16 @@ impl GroupTrack {
 }
 
 impl GroupTrackManager {
-    pub fn add_group_track_raw(
+    pub fn add_group_track(
         &mut self,
         parent_list: Option<GroupTrackId>,
         ms_id: MatchSetId,
-        cow_source: Option<GroupTrackId>,
         actor: ActorRef,
     ) -> GroupTrackId {
         let id = self.group_tracks.peek_claim_id();
         self.group_tracks.claim_with_value(RefCell::new(GroupTrack {
             id,
             ms_id,
-            cow_active: cow_source.is_some(),
-            cow_source: cow_source.unwrap_or(id),
             actor,
             parent_list,
             group_index_offset: 0,
@@ -746,33 +743,6 @@ impl GroupTrackManager {
             iter_states_sorted: Cell::new(true),
         }));
         id
-    }
-    pub fn add_group_track(
-        &mut self,
-        parent_list: Option<GroupTrackId>,
-        ms_id: MatchSetId,
-        actor: ActorRef,
-    ) -> GroupTrackId {
-        self.add_group_track_raw(parent_list, ms_id, None, actor)
-    }
-    pub fn add_cow_source(
-        &mut self,
-        cow_source: GroupTrackId,
-        target_ms_id: MatchSetId,
-        actor: ActorRef,
-    ) -> GroupTrackId {
-        let cow_source_parent =
-            self.group_tracks[cow_source].borrow().parent_list;
-
-        let parent_list = cow_source_parent
-            .map(|id| self.add_cow_source(id, target_ms_id, actor));
-
-        self.add_group_track_raw(
-            parent_list,
-            target_ms_id,
-            Some(cow_source),
-            actor,
-        )
     }
     pub fn claim_group_track_iter(
         &mut self,
@@ -897,16 +867,6 @@ impl GroupTrackManager {
         group_track_id: GroupTrackId,
     ) -> RefMut<GroupTrack> {
         self.group_tracks[group_track_id].borrow_mut()
-    }
-    pub fn uncow(&self, rgl_id: GroupTrackId, msm: &MatchSetManager) {
-        let rgl = self.group_tracks[rgl_id].borrow_mut();
-        if !rgl.cow_active {
-            return;
-        }
-        debug_assert!(rgl.cow_source != rgl_id);
-        let mut cow_source = self.group_tracks[rgl.cow_source].borrow_mut();
-        cow_source.apply_field_actions(msm);
-        todo!("copy data")
     }
 }
 

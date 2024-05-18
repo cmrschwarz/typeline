@@ -579,6 +579,10 @@ impl FieldManager {
             }
         }
     }
+    // used to also cow in the field refs of a cow field once it is actually
+    // accessed.
+    // sometimes we have to cow a lot of fields (e.g. in case of dyn access)
+    // so it's nice to be a bit lazy about this //TODO: evaluate this?
     pub fn setup_field_refs(
         &mut self,
         msm: &mut MatchSetManager,
@@ -589,32 +593,33 @@ impl FieldManager {
             return;
         }
         let ms_id = field.match_set;
-        if let (Some(cow_src_id), _data_cow) =
+        let (Some(cow_src_id), _data_cow) =
             field.iter_hall.cow_source_field(self)
-        {
-            drop(field);
-            self.setup_field_refs(msm, cow_src_id);
-            let mut field = self.fields[field_id].borrow_mut();
-            let cow_src = self.fields[cow_src_id].borrow();
-            let field_ref_len = cow_src.field_refs.len();
-            field.field_refs.extend_from_slice(&cow_src.field_refs);
-            drop(cow_src);
-            drop(field);
-            for i in 0..field_ref_len {
-                let fr_src = self.fields[field_id].borrow().field_refs[i];
-                let fr = if self.fields[fr_src].borrow().match_set == ms_id {
-                    fr_src
-                } else if let Some(&id) =
-                    msm.match_sets[ms_id].fields_cow_map.get(&fr_src)
-                {
-                    id
-                } else {
-                    let id = self.get_cross_ms_cow_field(msm, ms_id, fr_src);
-                    self.setup_field_refs(msm, id);
-                    id
-                };
-                self.fields[field_id].borrow_mut().field_refs[i] = fr;
-            }
+        else {
+            return;
+        };
+        drop(field);
+        self.setup_field_refs(msm, cow_src_id);
+        let mut field = self.fields[field_id].borrow_mut();
+        let cow_src = self.fields[cow_src_id].borrow();
+        let field_ref_len = cow_src.field_refs.len();
+        field.field_refs.extend_from_slice(&cow_src.field_refs);
+        drop(cow_src);
+        drop(field);
+        for i in 0..field_ref_len {
+            let fr_src = self.fields[field_id].borrow().field_refs[i];
+            let fr = if self.fields[fr_src].borrow().match_set == ms_id {
+                fr_src
+            } else if let Some(&id) =
+                msm.match_sets[ms_id].fields_cow_map.get(&fr_src)
+            {
+                id
+            } else {
+                let id = self.get_cross_ms_cow_field(msm, ms_id, fr_src);
+                self.setup_field_refs(msm, id);
+                id
+            };
+            self.fields[field_id].borrow_mut().field_refs[i] = fr;
         }
     }
     pub(crate) fn get_cow_field_ref_raw(
