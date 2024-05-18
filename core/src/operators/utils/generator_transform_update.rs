@@ -112,7 +112,7 @@ pub fn handle_generator_transform_update<G: GeneratorSequence>(
         input_field_id,
         generator,
         msm: &jd.match_set_mgr,
-        rgt: &mut jd.record_group_tracker,
+        rgt: &mut jd.group_track_manager,
         fm: &jd.field_mgr,
         tf_mgr: &mut jd.tf_mgr,
         iter,

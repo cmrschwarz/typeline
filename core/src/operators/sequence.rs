@@ -93,7 +93,7 @@ pub fn build_tf_sequence<'a>(
 
     let group_track_iter_ref = (!matches!(op.mode, OpSequenceMode::Sequence))
         .then(|| {
-            jd.record_group_tracker
+            jd.group_track_manager
                 .claim_group_track_iter_ref(tf_state.input_group_track_id)
         });
 

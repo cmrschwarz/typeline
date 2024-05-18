@@ -186,7 +186,7 @@ pub fn build_tf_join<'a>(
         stream_buffer_size: settings.stream_buffer_size,
         input_field_ref_offset,
         group_track_iter_ref: jd
-            .record_group_tracker
+            .group_track_manager
             .claim_group_track_iter_ref(tf_state.input_group_track_id),
         iter_id: jd.field_mgr.claim_iter(
             tf_state.input_field,
@@ -551,7 +551,7 @@ pub fn handle_tf_join<'a>(
     let mut string_store = LazyRwLockGuard::new(&jd.session_data.string_store);
 
     let mut record_group_iter =
-        jd.record_group_tracker.lookup_group_track_iter_mut(
+        jd.group_track_manager.lookup_group_track_iter_mut(
             join.group_track_iter_ref.list_id,
             join.group_track_iter_ref.iter_id,
             &jd.match_set_mgr,

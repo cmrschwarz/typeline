@@ -90,7 +90,7 @@ impl Operator for OpDup {
         tf_state.output_field = tf_state.input_field;
         let record_group_track_iter = job
             .job_data
-            .record_group_tracker
+            .group_track_manager
             .claim_group_track_iter_ref(tf_state.input_group_track_id);
         TransformInstatiation::Simple(TransformData::Custom(smallbox!(
             TfDup {
@@ -109,14 +109,16 @@ impl Transform<'_> for TfDup {
 
     fn update(&mut self, jd: &mut JobData, tf_id: TransformId) {
         let (batch_size, ps) = jd.tf_mgr.claim_batch(tf_id);
-        let mut iter = jd.record_group_tracker.lookup_group_track_iter(
+        let mut iter = jd.group_track_manager.lookup_group_track_iter(
             self.record_group_track_iter,
             &jd.match_set_mgr,
         );
         let mut field_pos = iter.field_pos();
         iter.next_n_fields(batch_size);
-        jd.record_group_tracker
-            .store_record_group_track_iter(self.record_group_track_iter, &iter);
+        jd.group_track_manager.store_record_group_track_iter(
+            self.record_group_track_iter,
+            &iter,
+        );
         let tf = &jd.tf_mgr.transforms[tf_id];
 
         if ps.successor_done {

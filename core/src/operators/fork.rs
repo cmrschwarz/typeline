@@ -12,8 +12,11 @@ use crate::{
     liveness_analysis::{LivenessData, GLOBAL_SLOTS_OFFSET, READS_OFFSET},
     options::argument::CliArgIdx,
     record_data::{
+        action_buffer::ActorRef,
         field::{FieldId, VOID_FIELD_ID},
+        group_track_manager::GroupTrackId,
         iter_hall::IterId,
+        match_set::{GroupTrackMapping, MatchSetId},
     },
     utils::string_store::StringStoreEntry,
 };
@@ -166,73 +169,18 @@ pub(crate) fn handle_fork_expansion(
         .subchains
         .len()
     {
-        let subchain_id = sess.job_data.session_data.chains[fork_chain_id]
-            .subchains[i] as usize;
-        let target_ms_id = sess.job_data.match_set_mgr.add_match_set();
-        let field_access_mapping = if let TransformData::Fork(f) =
-            &sess.transform_data[tf_id.get()]
-        {
-            &f.accessed_fields_per_subchain[i]
-        } else {
-            unreachable!();
-        };
-        let mut chain_input_field = None;
-        for &name in field_access_mapping {
-            let src_field_id;
-            if let Some(name) = name {
-                if let Some(field) = sess.job_data.match_set_mgr.match_sets
-                    [fork_ms_id]
-                    .field_name_map
-                    .get(&name)
-                {
-                    // the input field is always first in this iterator
-                    debug_assert!(*field != fork_input_field_id);
-                    src_field_id = *field;
-                } else {
-                    continue;
-                };
-            } else {
-                debug_assert!(chain_input_field.is_none());
-                src_field_id = fork_input_field_id;
-            };
-
-            let mut src_field =
-                sess.job_data.field_mgr.fields[src_field_id].borrow_mut();
-
-            drop(src_field);
-            let target_field_id =
-                sess.job_data.field_mgr.get_cross_ms_cow_field(
-                    &mut sess.job_data.match_set_mgr,
-                    target_ms_id,
-                    src_field_id,
-                );
-            src_field =
-                sess.job_data.field_mgr.fields[src_field_id].borrow_mut();
-
-            if name.is_none() {
-                chain_input_field = Some(target_field_id);
-            }
-            drop(src_field);
-        }
-        let input_field = chain_input_field.unwrap_or(VOID_FIELD_ID);
-        let start_op_id =
-            sess.job_data.session_data.chains[subchain_id].operators[0];
-        let instantiation = sess.setup_transforms_from_op(
-            target_ms_id,
-            start_op_id,
-            input_field,
-            // TODO //HACK: we need to cow this !
-            fork_input_group_track,
-            None,
-            &HashMap::default(),
-        );
-        add_terminator_tf_cont_dependant(
+        let tf_id = setup_fork_subchain(
             sess,
-            instantiation.tfs_end,
-            instantiation.continuation,
+            fork_chain_id,
+            i,
+            tf_id,
+            fork_ms_id,
+            fork_input_field_id,
+            fork_input_group_track,
         );
-        targets.push(instantiation.tfs_begin);
+        targets.push(tf_id);
     }
+
     sess.log_state("expanded fork");
     if let TransformData::Fork(ref mut fork) =
         sess.transform_data[usize::from(tf_id)]
@@ -242,6 +190,94 @@ pub(crate) fn handle_fork_expansion(
     } else {
         unreachable!();
     }
+}
+
+fn setup_fork_subchain(
+    sess: &mut Job,
+    fork_chain_id: usize,
+    subchain_index: usize,
+    tf_id: TransformId,
+    fork_ms_id: MatchSetId,
+    fork_input_field_id: u32,
+    fork_input_group_track: GroupTrackId,
+) -> TransformId {
+    // actual chain id as opposed to the index to the nth subchain
+    let subchain_id = sess.job_data.session_data.chains[fork_chain_id]
+        .subchains[subchain_index] as usize;
+    let target_ms_id = sess.job_data.match_set_mgr.add_match_set();
+
+    sess.job_data.match_set_mgr.match_sets[target_ms_id].group_track_mapping =
+        Some(GroupTrackMapping {
+            source: sess
+                .job_data
+                .group_track_manager
+                .claim_group_track_iter_ref(fork_input_group_track),
+            target: sess.job_data.group_track_manager.add_group_track(
+                None,
+                target_ms_id,
+                ActorRef::Unconfirmed(0),
+            ),
+        });
+    let field_access_mapping =
+        if let TransformData::Fork(f) = &sess.transform_data[tf_id.get()] {
+            &f.accessed_fields_per_subchain[subchain_index]
+        } else {
+            unreachable!();
+        };
+    let mut chain_input_field = None;
+    for &name in field_access_mapping {
+        let src_field_id;
+        if let Some(name) = name {
+            if let Some(field) = sess.job_data.match_set_mgr.match_sets
+                [fork_ms_id]
+                .field_name_map
+                .get(&name)
+            {
+                // the input field is always first in this iterator
+                debug_assert!(*field != fork_input_field_id);
+                src_field_id = *field;
+            } else {
+                continue;
+            };
+        } else {
+            debug_assert!(chain_input_field.is_none());
+            src_field_id = fork_input_field_id;
+        };
+
+        let mut src_field =
+            sess.job_data.field_mgr.fields[src_field_id].borrow_mut();
+
+        drop(src_field);
+        let target_field_id = sess.job_data.field_mgr.get_cross_ms_cow_field(
+            &mut sess.job_data.match_set_mgr,
+            target_ms_id,
+            src_field_id,
+        );
+        src_field = sess.job_data.field_mgr.fields[src_field_id].borrow_mut();
+
+        if name.is_none() {
+            chain_input_field = Some(target_field_id);
+        }
+        drop(src_field);
+    }
+    let input_field = chain_input_field.unwrap_or(VOID_FIELD_ID);
+    let start_op_id =
+        sess.job_data.session_data.chains[subchain_id].operators[0];
+    let instantiation = sess.setup_transforms_from_op(
+        target_ms_id,
+        start_op_id,
+        input_field,
+        // TODO //HACK: we need to cow this !
+        fork_input_group_track,
+        None,
+        &HashMap::default(),
+    );
+    add_terminator_tf_cont_dependant(
+        sess,
+        instantiation.tfs_end,
+        instantiation.continuation,
+    );
+    instantiation.tfs_begin
 }
 
 pub fn create_op_fork() -> OperatorData {

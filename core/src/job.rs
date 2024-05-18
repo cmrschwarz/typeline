@@ -40,7 +40,7 @@ pub struct JobData<'a> {
     pub session_data: &'a SessionData,
     pub tf_mgr: TransformManager,
     pub match_set_mgr: MatchSetManager,
-    pub record_group_tracker: GroupTrackManager,
+    pub group_track_manager: GroupTrackManager,
     pub field_mgr: FieldManager,
     pub sv_mgr: StreamValueManager<'a>,
     pub temp_vec: Vec<u8>,
@@ -301,7 +301,7 @@ impl<'a> JobData<'a> {
             match_set_mgr: MatchSetManager {
                 match_sets: Universe::default(),
             },
-            record_group_tracker: GroupTrackManager::default(),
+            group_track_manager: GroupTrackManager::default(),
             sv_mgr: StreamValueManager::default(),
             temp_vec: Vec::default(),
         }
@@ -384,7 +384,7 @@ impl<'a> Job<'a> {
         }
         let input_record_count = input_record_count.max(1);
         let input_field = input_field.unwrap();
-        let rgt = &mut self.job_data.record_group_tracker;
+        let rgt = &mut self.job_data.group_track_manager;
         let input_group_track =
             rgt.add_group_track(None, ms_id, ActorRef::default());
         rgt.append_group_to_track(input_group_track, input_record_count);
@@ -763,7 +763,7 @@ impl<'a> Job<'a> {
                 self.job_data.tf_mgr.ready_stack
             );
             let group_track_id = tf.output_group_track_id;
-            let group_track = self.job_data.record_group_tracker.group_tracks
+            let group_track = self.job_data.group_track_manager.group_tracks
                 [group_track_id]
                 .borrow();
             eprint!("   - group {group_track_id} data: {group_track} (may have pending actions)");

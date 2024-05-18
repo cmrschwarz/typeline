@@ -71,7 +71,7 @@ fn basic_transform_update_with_batch(
         session_data: jd.session_data,
         tf_mgr: &mut jd.tf_mgr,
         match_set_mgr: &mut jd.match_set_mgr,
-        group_tracker: &mut jd.record_group_tracker,
+        group_tracker: &mut jd.group_track_manager,
         sv_mgr: &mut jd.sv_mgr,
         temp_vec: &mut jd.temp_vec,
         batch_size,

@@ -101,7 +101,7 @@ impl Operator for OpSum {
         TransformInstatiation::Simple(TransformData::Custom(smallbox!(
             TfSum {
                 group_track_iter: jd
-                    .record_group_tracker
+                    .group_track_manager
                     .claim_group_track_iter_ref(tf_state.input_group_track_id),
                 input_iter_id: jd.field_mgr.claim_iter(
                     tf_state.input_field,

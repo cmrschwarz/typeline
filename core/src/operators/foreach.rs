@@ -80,9 +80,9 @@ pub fn insert_tf_foreach(
     let parent_group_track = tf_state.input_group_track_id;
     let parent_group_track_iter = job
         .job_data
-        .record_group_tracker
+        .group_track_manager
         .claim_group_track_iter(parent_group_track);
-    let group_track = job.job_data.record_group_tracker.add_group_track(
+    let group_track = job.job_data.group_track_manager.add_group_track(
         Some(parent_group_track),
         ms_id,
         next_actor_id,
@@ -172,11 +172,11 @@ pub fn handle_tf_foreach_header(
         return;
     }
     let mut group_track = jd
-        .record_group_tracker
+        .group_track_manager
         .borrow_group_track_mut(feh.group_track);
     group_track.apply_field_actions(&jd.match_set_mgr);
     let mut parent_record_group_iter =
-        jd.record_group_tracker.lookup_group_track_iter(
+        jd.group_track_manager.lookup_group_track_iter(
             GroupTrackIterRef {
                 list_id: group_track.parent_list_id().unwrap(),
                 iter_id: feh.parent_group_track_iter,
@@ -221,7 +221,7 @@ pub fn handle_tf_foreach_trailer(
 ) {
     let (batch_size, ps) = jd.tf_mgr.claim_all(tf_id);
     let mut group_track = jd
-        .record_group_tracker
+        .group_track_manager
         .borrow_group_track_mut(fet.group_track);
     group_track.apply_field_actions(&jd.match_set_mgr);
     group_track.drop_leading_fields(batch_size, ps.input_done);

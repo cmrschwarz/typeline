@@ -16,6 +16,7 @@ use crate::{
         action_buffer::ActorRef,
         field::{FieldId, VOID_FIELD_ID},
         group_track_manager::VOID_GROUP_TRACK_ID,
+        match_set::GroupTrackMapping,
     },
     utils::{
         identity_hasher::BuildIdentityHasher, string_store::StringStoreEntry,
@@ -386,12 +387,27 @@ fn setup_continuation(
 
 fn expand_for_subchain(sess: &mut Job, tf_id: TransformId, sc_n: u32) {
     let tgt_ms_id = sess.job_data.match_set_mgr.add_match_set();
+    let tf = &sess.job_data.tf_mgr.transforms[tf_id];
+
+    sess.job_data.match_set_mgr.match_sets[tgt_ms_id].group_track_mapping =
+        Some(GroupTrackMapping {
+            source: sess
+                .job_data
+                .group_track_manager
+                .claim_group_track_iter_ref(tf.input_group_track_id),
+            target: sess.job_data.group_track_manager.add_group_track(
+                None,
+                tgt_ms_id,
+                ActorRef::Unconfirmed(0),
+            ),
+        });
+
     let TransformData::ForkCat(forkcat) =
         &mut sess.transform_data[tf_id.get()]
     else {
         unreachable!()
     };
-    let tf = &sess.job_data.tf_mgr.transforms[tf_id];
+
     let chain_id = sess.job_data.session_data.operator_bases
         [tf.op_id.unwrap() as usize]
         .chain_id
@@ -487,6 +503,7 @@ fn expand_for_subchain(sess: &mut Job, tf_id: TransformId, sc_n: u32) {
         Some(instantiation.tfs_begin);
 
     forkcat.prebound_outputs = prebound_outputs;
+
     #[cfg(feature = "debug_logging")]
     {
         eprintln!("input fields: {:?}", forkcat.input_fields);

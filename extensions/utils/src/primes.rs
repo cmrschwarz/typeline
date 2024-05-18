@@ -87,7 +87,7 @@ impl Operator for OpPrimes {
             .borrow_mut();
         let actor_id = ab.add_actor();
         let group_iter = jd
-            .record_group_tracker
+            .group_track_manager
             .claim_group_track_iter_ref(tf_state.input_group_track_id);
         let iter_id = jd.field_mgr.fields[tf_state.input_field]
             .borrow_mut()
