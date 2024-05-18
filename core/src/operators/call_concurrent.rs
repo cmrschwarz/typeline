@@ -17,6 +17,7 @@ use crate::{
         action_buffer::{ActorId, ActorRef},
         field::{FieldId, FieldManager, VOID_FIELD_ID},
         field_action::FieldActionKind,
+        group_track_manager::VOID_GROUP_TRACK_ID,
         iter_hall::{IterId, IterKind},
         iters::FieldIterator,
         match_set::MatchSetId,
@@ -24,7 +25,6 @@ use crate::{
             RecordBuffer, RecordBufferData, RecordBufferField,
             RecordBufferFieldId,
         },
-        record_group_tracker::VOID_GROUP_LIST_ID,
     },
     utils::{
         identity_hasher::BuildIdentityHasher,
@@ -411,14 +411,14 @@ pub fn setup_callee_concurrent(
         .unwrap();
     let chain = &sess.job_data.session_data.chains[chain_id as usize];
     // TODO //HACK: this is busted
-    let group_list = VOID_GROUP_LIST_ID;
+    let group_track = VOID_GROUP_TRACK_ID;
     let tf_state = TransformState::new(
         VOID_FIELD_ID,
         VOID_FIELD_ID,
         ms_id,
         chain.settings.default_batch_size,
         None,
-        group_list,
+        group_track,
     );
     sess.job_data.field_mgr.inc_field_refcount(VOID_FIELD_ID, 2);
     let mut callee = TfCalleeConcurrent {
@@ -460,7 +460,7 @@ pub fn setup_callee_concurrent(
         ms_id,
         start_op_id,
         input_field.unwrap(),
-        group_list,
+        group_track,
         Some(tf_id),
         &HashMap::default(),
     );

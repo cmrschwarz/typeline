@@ -110,7 +110,7 @@ impl Operator for OpMultiOp {
             }),
             tf_state.match_set_id,
             tf_state.input_field,
-            tf_state.input_group_list_id,
+            tf_state.input_group_track_id,
             None,
             None,
             prebound_outputs,

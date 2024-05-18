@@ -18,9 +18,9 @@ use super::{
     field_action::{merge_action_lists, FieldAction, FieldActionKind},
     field_action_applicator::FieldActionApplicator,
     field_data::{FieldValueHeader, RunLength, MAX_FIELD_ALIGN},
+    group_track_manager::GroupTrackId,
     iter_hall::{CowVariant, FieldDataSource, IterState},
     match_set::MatchSetId,
-    record_group_tracker::RecordGroupListId,
 };
 pub type ActorId = u32;
 pub type ActionGroupId = u32;
@@ -95,7 +95,7 @@ struct ActionGroupQueue {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ActorSubscriber {
     Field(FieldId),
-    GroupList(RecordGroupListId),
+    GroupTrack(GroupTrackId),
 }
 
 struct Actor {
@@ -1155,7 +1155,7 @@ impl ActionBuffer {
             match subscriber {
                 ActorSubscriber::Field(field_id) =>
                     format!("field {field_id}"),
-                ActorSubscriber::GroupList(group_id) =>
+                ActorSubscriber::GroupTrack(group_id) =>
                     format!("group {group_id}"),
             },
             self.stringify_snapshot(actor_id, *snapshot_ref),

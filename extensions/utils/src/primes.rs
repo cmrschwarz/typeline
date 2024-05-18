@@ -24,8 +24,8 @@ use scr_core::{
         action_buffer::{ActorId, ActorRef},
         field::Field,
         fixed_sized_type_inserter::FixedSizeTypeInserter,
+        group_track_manager::GroupTrackIterRef,
         iter_hall::{IterId, IterKind},
-        record_group_tracker::RecordGroupListIterRef,
     },
     smallbox,
 };
@@ -38,7 +38,7 @@ pub struct TfPrimes {
     count: usize,
     actor_id: ActorId,
     iter_id: IterId,
-    group_iter: RecordGroupListIterRef,
+    group_iter: GroupTrackIterRef,
 }
 
 impl Operator for OpPrimes {
@@ -88,7 +88,7 @@ impl Operator for OpPrimes {
         let actor_id = ab.add_actor();
         let group_iter = jd
             .record_group_tracker
-            .claim_group_list_iter_ref(tf_state.input_group_list_id);
+            .claim_group_track_iter_ref(tf_state.input_group_track_id);
         let iter_id = jd.field_mgr.fields[tf_state.input_field]
             .borrow_mut()
             .iter_hall

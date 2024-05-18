@@ -3,8 +3,8 @@ use crate::{
     chain::ChainId,
     job::{add_transform_to_job, Job, JobData},
     record_data::{
-        field::VOID_FIELD_ID, match_set::MatchSetId,
-        record_group_tracker::VOID_GROUP_LIST_ID,
+        field::VOID_FIELD_ID, group_track_manager::VOID_GROUP_TRACK_ID,
+        match_set::MatchSetId,
     },
 };
 
@@ -63,7 +63,7 @@ pub fn add_input_done_eater(
         batch_size,
         None,
         // TODO: remove this guy completely in favor of foreach trailer
-        VOID_GROUP_LIST_ID,
+        VOID_GROUP_TRACK_ID,
     );
     sess.job_data.field_mgr.inc_field_refcount(VOID_FIELD_ID, 2);
     let tf_data = setup_tf_input_done_eater(&mut tf_state, input_dones_to_eat);

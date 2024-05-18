@@ -7,8 +7,8 @@ use crate::{
     job::{Job, JobData},
     record_data::{
         field::FieldId,
+        group_track_manager::GroupTrackId,
         match_set::MatchSetId,
-        record_group_tracker::RecordGroupListId,
         stream_value::{StreamValueId, StreamValueUpdate},
     },
     utils::{debuggable_nonmax::DebuggableNonMaxUsize, small_box::SmallBox},
@@ -148,8 +148,8 @@ pub struct TransformState {
     pub successor: Option<TransformId>,
     pub input_field: FieldId,
     pub output_field: FieldId,
-    pub input_group_list_id: RecordGroupListId,
-    pub output_group_list_id: RecordGroupListId,
+    pub input_group_track_id: GroupTrackId,
+    pub output_group_track_id: GroupTrackId,
     pub available_batch_size: usize,
     pub desired_batch_size: usize,
     pub match_set_id: MatchSetId,
@@ -175,7 +175,7 @@ impl TransformState {
         ms_id: MatchSetId,
         desired_batch_size: usize,
         op_id: Option<OperatorId>,
-        input_group_list_id: RecordGroupListId,
+        input_group_track_id: GroupTrackId,
     ) -> Self {
         TransformState {
             available_batch_size: 0,
@@ -192,8 +192,8 @@ impl TransformState {
             done: false,
             mark_for_removal: false,
             is_split: false,
-            input_group_list_id,
-            output_group_list_id: input_group_list_id,
+            input_group_track_id,
+            output_group_track_id: input_group_track_id,
         }
     }
 }

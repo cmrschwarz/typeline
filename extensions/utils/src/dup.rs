@@ -20,7 +20,7 @@ use scr_core::{
     options::argument::CliArgIdx,
     record_data::{
         action_buffer::ActorId, field_action::FieldActionKind,
-        record_group_tracker::RecordGroupListIterRef,
+        group_track_manager::GroupTrackIterRef,
     },
     smallbox,
 };
@@ -35,7 +35,7 @@ pub struct TfDup {
     actor_id: ActorId,
     // we neeed *some* iterator to keep track of our position, and the group
     // iterator is more likely to be simple
-    record_group_list_iter: RecordGroupListIterRef,
+    record_group_track_iter: GroupTrackIterRef,
 }
 
 impl Operator for OpDup {
@@ -88,15 +88,15 @@ impl Operator for OpDup {
             &mut job.job_data.match_set_mgr,
         );
         tf_state.output_field = tf_state.input_field;
-        let record_group_list_iter = job
+        let record_group_track_iter = job
             .job_data
             .record_group_tracker
-            .claim_group_list_iter_ref(tf_state.input_group_list_id);
+            .claim_group_track_iter_ref(tf_state.input_group_track_id);
         TransformInstatiation::Simple(TransformData::Custom(smallbox!(
             TfDup {
                 count: self.count,
                 actor_id,
-                record_group_list_iter
+                record_group_track_iter
             }
         )))
     }
@@ -109,14 +109,14 @@ impl Transform<'_> for TfDup {
 
     fn update(&mut self, jd: &mut JobData, tf_id: TransformId) {
         let (batch_size, ps) = jd.tf_mgr.claim_batch(tf_id);
-        let mut iter = jd.record_group_tracker.lookup_group_list_iter(
-            self.record_group_list_iter,
+        let mut iter = jd.record_group_tracker.lookup_group_track_iter(
+            self.record_group_track_iter,
             &jd.match_set_mgr,
         );
         let mut field_pos = iter.field_pos();
         iter.next_n_fields(batch_size);
         jd.record_group_tracker
-            .store_record_group_list_iter(self.record_group_list_iter, &iter);
+            .store_record_group_track_iter(self.record_group_track_iter, &iter);
         let tf = &jd.tf_mgr.transforms[tf_id];
 
         if ps.successor_done {

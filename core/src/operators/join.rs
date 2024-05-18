@@ -17,10 +17,10 @@ use crate::{
         field_value_ref::FieldValueSlice,
         field_value_slice_iter::FieldValueSliceIter,
         formattable::RealizedFormatKey,
+        group_track_manager::GroupTrackIterRef,
         iter_hall::{IterId, IterKind},
         iters::FieldIterator,
         push_interface::PushInterface,
-        record_group_tracker::RecordGroupListIterRef,
         ref_iter::{
             AutoDerefIter, RefAwareBytesBufferIter,
             RefAwareFieldValueSliceIter, RefAwareInlineBytesIter,
@@ -104,7 +104,7 @@ pub struct TfJoin<'a> {
     stream_buffer_size: usize,
     input_field_ref_offset: FieldRefOffset,
 
-    group_list_iter_ref: RecordGroupListIterRef,
+    group_track_iter_ref: GroupTrackIterRef,
     iter_id: IterId,
     actor_id: ActorId,
 
@@ -185,9 +185,9 @@ pub fn build_tf_join<'a>(
         stream_len_threshold: settings.stream_size_threshold,
         stream_buffer_size: settings.stream_buffer_size,
         input_field_ref_offset,
-        group_list_iter_ref: jd
+        group_track_iter_ref: jd
             .record_group_tracker
-            .claim_group_list_iter_ref(tf_state.input_group_list_id),
+            .claim_group_track_iter_ref(tf_state.input_group_track_id),
         iter_id: jd.field_mgr.claim_iter(
             tf_state.input_field,
             IterKind::Transform(jd.tf_mgr.transforms.peek_claim_id()),
@@ -551,9 +551,9 @@ pub fn handle_tf_join<'a>(
     let mut string_store = LazyRwLockGuard::new(&jd.session_data.string_store);
 
     let mut record_group_iter =
-        jd.record_group_tracker.lookup_group_list_iter_mut(
-            join.group_list_iter_ref.list_id,
-            join.group_list_iter_ref.iter_id,
+        jd.record_group_tracker.lookup_group_track_iter_mut(
+            join.group_track_iter_ref.list_id,
+            join.group_track_iter_ref.iter_id,
             &jd.match_set_mgr,
             join.actor_id,
         );
@@ -765,7 +765,7 @@ pub fn handle_tf_join<'a>(
     }
 
     jd.field_mgr.store_iter(input_field_id, join.iter_id, iter);
-    record_group_iter.store_iter(join.group_list_iter_ref.iter_id);
+    record_group_iter.store_iter(join.group_track_iter_ref.iter_id);
 
     drop(input_field);
 

@@ -13,6 +13,7 @@ use crate::{
 use super::{
     action_buffer::ActionBuffer,
     field::{FieldId, FieldManager},
+    group_track_manager::GroupTrackId,
 };
 
 pub type MatchSetId = DebuggableNonMaxUsize;
@@ -30,7 +31,9 @@ pub struct MatchSet {
     // field refs once a cow is accessed
     // does *not* increase the refcount of either fields.
     // FieldManager::remove_field removes entries from this
-    pub cow_map: HashMap<FieldId, FieldId, BuildIdentityHasher>,
+    pub fields_cow_map: HashMap<FieldId, FieldId, BuildIdentityHasher>,
+    pub group_tracks_cow_map:
+        HashMap<GroupTrackId, GroupTrackId, BuildIdentityHasher>,
 }
 
 #[derive(Default)]
@@ -84,7 +87,7 @@ impl MatchSetManager {
     }
     #[cfg(feature = "cow_field_logging")]
     fn print_updating_cow_bindings(&self, ms_id: MatchSetId) {
-        let cm = &self.match_sets[ms_id].cow_map;
+        let cm = &self.match_sets[ms_id].fields_cow_map;
         let mut iter = cm.iter().peekable();
         while let Some((src, usr)) = iter.next() {
             eprint!("{src} <- {usr}");
@@ -98,7 +101,7 @@ impl MatchSetManager {
         fm: &FieldManager,
         ms_id: MatchSetId,
     ) {
-        let cm = &self.match_sets[ms_id].cow_map;
+        let cm = &self.match_sets[ms_id].fields_cow_map;
         #[cfg(feature = "cow_field_logging")]
         {
             eprintln!("{:-^80}", " <updating cow bindings> ");

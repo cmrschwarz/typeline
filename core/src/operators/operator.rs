@@ -14,7 +14,7 @@ use crate::{
         argument::CliArgIdx, chain_options::ChainOptions,
         session_options::SessionOptions,
     },
-    record_data::{field::FieldId, record_group_tracker::RecordGroupListId},
+    record_data::{field::FieldId, group_track_manager::GroupTrackId},
     utils::{
         identity_hasher::BuildIdentityHasher, small_box::SmallBox,
         string_store::StringStoreEntry,
@@ -134,7 +134,7 @@ pub struct OperatorInstantiation {
     pub tfs_begin: TransformId,
     pub tfs_end: TransformId,
     pub next_input_field: FieldId,
-    pub next_group_list: RecordGroupListId,
+    pub next_group_track: GroupTrackId,
     pub continuation: TransformContinuationKind,
 }
 
@@ -913,7 +913,7 @@ impl OperatorData {
         } else {
             tf_state.output_field
         };
-        let next_group_list = tf_state.output_group_list_id;
+        let next_group_track = tf_state.output_group_track_id;
         let tf_id = add_transform_to_job(
             &mut job.job_data,
             &mut job.transform_data,
@@ -924,7 +924,7 @@ impl OperatorData {
             tfs_begin: tf_id,
             tfs_end: tf_id,
             next_input_field,
-            next_group_list,
+            next_group_track,
             continuation: TransformContinuationKind::Regular,
         }
     }

@@ -24,37 +24,37 @@ pub type GroupIdxStable = usize;
 pub type GroupIdx = usize;
 pub type GroupLen = usize;
 
-pub type GroupListIterId = u32;
-type GroupListIterSortedIndex = u32;
-pub type RecordGroupListId = DebuggableNonMaxU32;
-pub const VOID_GROUP_LIST_ID: RecordGroupListId = RecordGroupListId::MAX;
+pub type GroupTrackIterId = u32;
+type GroupTrackIterSortedIndex = u32;
+pub type GroupTrackId = DebuggableNonMaxU32;
+pub const VOID_GROUP_TRACK_ID: GroupTrackId = GroupTrackId::MAX;
 
 #[derive(Clone, Copy)]
-pub struct RecordGroupListIterRef {
-    pub list_id: RecordGroupListId,
-    pub iter_id: GroupListIterId,
+pub struct GroupTrackIterRef {
+    pub list_id: GroupTrackId,
+    pub iter_id: GroupTrackIterId,
 }
 
 #[derive(Debug, Default, Clone, Copy)]
-pub struct RecordGroupIterState {
+pub struct GroupTrackIterState {
     field_pos: usize,
     group_idx: GroupIdx,
     group_offset: GroupLen,
-    iter_id: GroupListIterId,
+    iter_id: GroupTrackIterId,
 }
 
 #[derive(Default)]
-pub struct RecordGroupList {
-    id: RecordGroupListId,
-    cow_source: RecordGroupListId,
+pub struct GroupTrack {
+    id: GroupTrackId,
+    cow_source: GroupTrackId,
     cow_active: bool,
     ms_id: MatchSetId,
     actor: ActorRef,
-    parent_list: Option<RecordGroupListId>,
+    parent_list: Option<GroupTrackId>,
     group_index_offset: GroupIdx,
 
-    iter_lookup_table: Universe<GroupListIterId, GroupListIterSortedIndex>,
-    iter_states: Vec<Cell<RecordGroupIterState>>,
+    iter_lookup_table: Universe<GroupTrackIterId, GroupTrackIterSortedIndex>,
+    iter_states: Vec<Cell<GroupTrackIterState>>,
     // store iter potentially invalidates the sort order of the iter_states
     // for performance reasons, it does not eagerly resort
     iter_states_sorted: Cell<bool>,
@@ -72,20 +72,19 @@ pub struct RecordGroupList {
 }
 
 #[derive(Default)]
-pub struct RecordGroupTracker {
-    pub record_group_lists:
-        Universe<RecordGroupListId, RefCell<RecordGroupList>>,
+pub struct GroupTrackManager {
+    pub group_tracks: Universe<GroupTrackId, RefCell<GroupTrack>>,
 }
 
-pub struct RecordGroupListIter<L> {
+pub struct GroupTrackIter<L> {
     list: L,
     field_pos: usize,
     group_idx: GroupIdx,
     group_len_rem: GroupLen,
 }
-pub struct GroupListIterMut<'a, T: DerefMut<Target = RecordGroupList>> {
-    base: RecordGroupListIter<T>,
-    tracker: &'a RecordGroupTracker,
+pub struct GroupTrackIterMut<'a, T: DerefMut<Target = GroupTrack>> {
+    base: GroupTrackIter<T>,
+    tracker: &'a GroupTrackManager,
     group_len: usize,
     update_group_len: bool,
     actions_applied_in_parents: bool,
@@ -93,7 +92,7 @@ pub struct GroupListIterMut<'a, T: DerefMut<Target = RecordGroupList>> {
     action_buffer: &'a RefCell<ActionBuffer>,
 }
 
-impl Display for RecordGroupList {
+impl Display for GroupTrack {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_fmt(format_args!(
             "{} + {:?}",
@@ -102,15 +101,15 @@ impl Display for RecordGroupList {
     }
 }
 
-impl PartialEq for RecordGroupIterState {
+impl PartialEq for GroupTrackIterState {
     fn eq(&self, other: &Self) -> bool {
         self.field_pos == other.field_pos
             && self.group_idx == other.group_idx
             && self.group_offset == other.group_offset
     }
 }
-impl Eq for RecordGroupIterState {}
-impl Ord for RecordGroupIterState {
+impl Eq for GroupTrackIterState {}
+impl Ord for GroupTrackIterState {
     fn cmp(&self, other: &Self) -> Ordering {
         match self.field_pos.cmp(&other.field_pos) {
             Ordering::Equal => (),
@@ -123,14 +122,14 @@ impl Ord for RecordGroupIterState {
         self.group_offset.cmp(&other.group_offset)
     }
 }
-impl PartialOrd for RecordGroupIterState {
+impl PartialOrd for GroupTrackIterState {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
 struct RecordGroupActionsApplicator<'a> {
-    gl: &'a mut RecordGroupList,
+    gl: &'a mut GroupTrack,
     group_idx: GroupIdx,
     inside_passed_elems: bool,
     modified: bool,
@@ -138,15 +137,15 @@ struct RecordGroupActionsApplicator<'a> {
     group_len_rem: usize,
     // Only used to check whether the `affected_iters` are outdated.
     iter_group_idx: GroupIdx,
-    affected_iters_start: GroupListIterSortedIndex,
-    affected_iters_end: GroupListIterSortedIndex,
+    affected_iters_start: GroupTrackIterSortedIndex,
+    affected_iters_end: GroupTrackIterSortedIndex,
     field_pos: usize,
     future_iters_field_pos_delta: isize,
     curr_iters_field_pos_delta: isize,
 }
 
 impl<'a> RecordGroupActionsApplicator<'a> {
-    fn new(gl: &'a mut RecordGroupList) -> Self {
+    fn new(gl: &'a mut GroupTrack) -> Self {
         gl.sort_iters();
 
         let inside_passed_elems = gl.passed_fields_count > 0;
@@ -276,7 +275,7 @@ impl<'a> RecordGroupActionsApplicator<'a> {
     }
     fn apply_iter_field_pos_delta(
         &mut self,
-        iter_idx: GroupListIterSortedIndex,
+        iter_idx: GroupTrackIterSortedIndex,
     ) {
         let is = self.gl.iter_states[iter_idx as usize].get_mut();
         is.field_pos = (is.field_pos as isize
@@ -323,7 +322,7 @@ impl<'a> RecordGroupActionsApplicator<'a> {
         }
     }
 
-    fn apply_curr_iter_offset(&mut self, iter_idx: GroupListIterSortedIndex) {
+    fn apply_curr_iter_offset(&mut self, iter_idx: GroupTrackIterSortedIndex) {
         let is = self.gl.iter_states[iter_idx as usize].get_mut();
         is.group_offset = (is.group_offset as isize
             + self.curr_iters_field_pos_delta)
@@ -368,7 +367,7 @@ impl<'a> RecordGroupActionsApplicator<'a> {
                 as usize;
         }
         self.affected_iters_end =
-            self.gl.iter_states.len() as GroupListIterSortedIndex;
+            self.gl.iter_states.len() as GroupTrackIterSortedIndex;
         self.affected_iters_start = self.affected_iters_end;
     }
 }
@@ -380,8 +379,8 @@ impl<'a> Drop for RecordGroupActionsApplicator<'a> {
     }
 }
 
-impl RecordGroupList {
-    pub fn parent_list_id(&self) -> Option<RecordGroupListId> {
+impl GroupTrack {
+    pub fn parent_list_id(&self) -> Option<GroupTrackId> {
         self.parent_list
     }
     pub fn stable_idx_from_group_idx(
@@ -453,7 +452,7 @@ impl RecordGroupList {
         debug_assert!(!self.cow_active);
         let mut ab = msm.match_sets[self.ms_id].action_buffer.borrow_mut();
         let Some((actor_id, ss_prev)) = ab.update_snapshot(
-            ActorSubscriber::GroupList(self.id),
+            ActorSubscriber::GroupTrack(self.id),
             &mut self.actor,
             &mut self.snapshot,
         ) else {
@@ -538,15 +537,15 @@ impl RecordGroupList {
     }
     pub fn lookup_iter(
         &self,
-        iter_id: GroupListIterId,
-    ) -> RecordGroupListIter<&Self> {
+        iter_id: GroupTrackIterId,
+    ) -> GroupTrackIter<&Self> {
         Self::lookup_iter_for_deref(self, iter_id)
     }
     fn build_iter_from_iter_state<T: Deref<Target = Self>>(
         list: T,
-        iter_state: RecordGroupIterState,
-    ) -> RecordGroupListIter<T> {
-        RecordGroupListIter {
+        iter_state: GroupTrackIterState,
+    ) -> GroupTrackIter<T> {
+        GroupTrackIter {
             field_pos: iter_state.field_pos,
             group_idx: iter_state.group_idx,
             group_len_rem: list.group_len(iter_state.group_idx)
@@ -556,25 +555,25 @@ impl RecordGroupList {
     }
     pub fn lookup_iter_for_deref<T: Deref<Target = Self>>(
         list: T,
-        iter_id: GroupListIterId,
-    ) -> RecordGroupListIter<T> {
+        iter_id: GroupTrackIterId,
+    ) -> GroupTrackIter<T> {
         let iter_index = list.iter_lookup_table[iter_id];
         let iter_state = list.iter_states[iter_index as usize].get();
         Self::build_iter_from_iter_state(list, iter_state)
     }
     pub fn lookup_iter_for_deref_mut<'a, T: DerefMut<Target = Self>>(
-        tracker: &'a RecordGroupTracker,
+        tracker: &'a GroupTrackManager,
         list: T,
-        iter_id: GroupListIterId,
+        iter_id: GroupTrackIterId,
         msm: &'a MatchSetManager,
         actor_id: ActorId,
-    ) -> GroupListIterMut<'a, T> {
+    ) -> GroupTrackIterMut<'a, T> {
         let action_buffer = &msm.match_sets[list.ms_id].action_buffer;
         let iter_index = list.iter_lookup_table[iter_id];
         let iter_state = list.iter_states[iter_index as usize].get();
         let base = Self::build_iter_from_iter_state(list, iter_state);
         action_buffer.borrow_mut().begin_action_group(actor_id);
-        GroupListIterMut {
+        GroupTrackIterMut {
             group_len: base.group_len_rem + iter_state.group_offset,
             base,
             tracker,
@@ -586,11 +585,11 @@ impl RecordGroupList {
     }
     pub fn store_iter<T: Deref<Target = Self>>(
         &self,
-        iter_id: GroupListIterId,
-        iter: &RecordGroupListIter<T>,
+        iter_id: GroupTrackIterId,
+        iter: &GroupTrackIter<T>,
     ) {
         let iter_sorting_idx = self.iter_lookup_table[iter_id] as usize;
-        let iter_state = RecordGroupIterState {
+        let iter_state = GroupTrackIterState {
             field_pos: iter.field_pos,
             group_idx: iter.group_idx,
             group_offset: iter
@@ -615,7 +614,7 @@ impl RecordGroupList {
         &self,
         group_index_range: impl RangeBounds<GroupIdx>,
         field_pos_range: impl RangeBounds<usize>,
-    ) -> Range<GroupListIterSortedIndex> {
+    ) -> Range<GroupTrackIterSortedIndex> {
         let group_index_range =
             range_bounds_to_range(group_index_range, self.iter_states.len());
         let field_pos_range =
@@ -665,11 +664,11 @@ impl RecordGroupList {
         }
         start as u32..end as u32
     }
-    pub fn claim_iter(&mut self) -> GroupListIterId {
+    pub fn claim_iter(&mut self) -> GroupTrackIterId {
         let iter_id = self.iter_lookup_table.claim_with_value(
-            self.iter_states.len() as GroupListIterSortedIndex,
+            self.iter_states.len() as GroupTrackIterSortedIndex,
         );
-        let iter_state = RecordGroupIterState {
+        let iter_state = GroupTrackIterState {
             iter_id,
             ..Default::default()
         };
@@ -689,7 +688,7 @@ impl RecordGroupList {
     }
     fn advance_affected_iters(
         &mut self,
-        iters: Range<GroupListIterSortedIndex>,
+        iters: Range<GroupTrackIterSortedIndex>,
         count: isize,
     ) {
         for i in iters.clone() {
@@ -720,126 +719,124 @@ impl RecordGroupList {
     }
 }
 
-impl RecordGroupTracker {
-    pub fn add_group_list_raw(
+impl GroupTrackManager {
+    pub fn add_group_track_raw(
         &mut self,
-        parent_list: Option<RecordGroupListId>,
+        parent_list: Option<GroupTrackId>,
         ms_id: MatchSetId,
-        cow_source: Option<RecordGroupListId>,
+        cow_source: Option<GroupTrackId>,
         actor: ActorRef,
-    ) -> RecordGroupListId {
-        let id = self.record_group_lists.peek_claim_id();
-        self.record_group_lists.claim_with_value(RefCell::new(
-            RecordGroupList {
-                id,
-                ms_id,
-                cow_active: cow_source.is_some(),
-                cow_source: cow_source.unwrap_or(id),
-                actor,
-                parent_list,
-                group_index_offset: 0,
-                passed_fields_count: 0,
-                group_lengths: SizeClassedVecDeque::default(),
-                parent_group_indices_stable: SizeClassedVecDeque::default(),
-                iter_states: Vec::default(),
-                iter_lookup_table: Universe::default(),
-                snapshot: SnapshotRef::default(),
-                iter_states_sorted: Cell::new(true),
-            },
-        ));
+    ) -> GroupTrackId {
+        let id = self.group_tracks.peek_claim_id();
+        self.group_tracks.claim_with_value(RefCell::new(GroupTrack {
+            id,
+            ms_id,
+            cow_active: cow_source.is_some(),
+            cow_source: cow_source.unwrap_or(id),
+            actor,
+            parent_list,
+            group_index_offset: 0,
+            passed_fields_count: 0,
+            group_lengths: SizeClassedVecDeque::default(),
+            parent_group_indices_stable: SizeClassedVecDeque::default(),
+            iter_states: Vec::default(),
+            iter_lookup_table: Universe::default(),
+            snapshot: SnapshotRef::default(),
+            iter_states_sorted: Cell::new(true),
+        }));
         id
     }
-    pub fn add_group_list(
+    pub fn add_group_track(
         &mut self,
-        parent_list: Option<RecordGroupListId>,
+        parent_list: Option<GroupTrackId>,
         ms_id: MatchSetId,
         actor: ActorRef,
-    ) -> RecordGroupListId {
-        self.add_group_list_raw(parent_list, ms_id, None, actor)
+    ) -> GroupTrackId {
+        self.add_group_track_raw(parent_list, ms_id, None, actor)
     }
     pub fn add_cow_source(
         &mut self,
-        cow_source: RecordGroupListId,
+        cow_source: GroupTrackId,
         target_ms_id: MatchSetId,
         actor: ActorRef,
-    ) -> RecordGroupListId {
+    ) -> GroupTrackId {
         let cow_source_parent =
-            self.record_group_lists[cow_source].borrow().parent_list;
+            self.group_tracks[cow_source].borrow().parent_list;
 
         let parent_list = cow_source_parent
             .map(|id| self.add_cow_source(id, target_ms_id, actor));
 
-        self.add_group_list_raw(
+        self.add_group_track_raw(
             parent_list,
             target_ms_id,
             Some(cow_source),
             actor,
         )
     }
-    pub fn claim_group_list_iter(
+    pub fn claim_group_track_iter(
         &mut self,
-        list_id: RecordGroupListId,
-    ) -> GroupListIterId {
-        self.record_group_lists[list_id].borrow_mut().claim_iter()
+        list_id: GroupTrackId,
+    ) -> GroupTrackIterId {
+        self.group_tracks[list_id].borrow_mut().claim_iter()
     }
-    pub fn claim_group_list_iter_ref(
+    pub fn claim_group_track_iter_ref(
         &mut self,
-        list_id: RecordGroupListId,
-    ) -> RecordGroupListIterRef {
-        RecordGroupListIterRef {
+        list_id: GroupTrackId,
+    ) -> GroupTrackIterRef {
+        GroupTrackIterRef {
             list_id,
-            iter_id: self.claim_group_list_iter(list_id),
+            iter_id: self.claim_group_track_iter(list_id),
         }
     }
-    pub fn lookup_group_list_iter(
+    pub fn lookup_group_track_iter(
         &self,
-        iter_ref: RecordGroupListIterRef,
+        iter_ref: GroupTrackIterRef,
         msm: &MatchSetManager,
-    ) -> RecordGroupListIter<Ref<RecordGroupList>> {
-        self.record_group_lists[iter_ref.list_id]
+    ) -> GroupTrackIter<Ref<GroupTrack>> {
+        self.group_tracks[iter_ref.list_id]
             .borrow_mut()
             .apply_field_actions(msm);
-        RecordGroupList::lookup_iter_for_deref(
-            self.record_group_lists[iter_ref.list_id].borrow(),
+        GroupTrack::lookup_iter_for_deref(
+            self.group_tracks[iter_ref.list_id].borrow(),
             iter_ref.iter_id,
         )
     }
-    pub fn lookup_group_list_iter_mut<'a>(
+    pub fn lookup_group_track_iter_mut<'a>(
         &'a self,
-        list_id: RecordGroupListId,
-        iter_id: GroupListIterId,
+        list_id: GroupTrackId,
+        iter_id: GroupTrackIterId,
         msm: &'a MatchSetManager,
         actor_id: ActorId,
-    ) -> GroupListIterMut<RefMut<'a, RecordGroupList>> {
-        let mut list = self.borrow_group_list_mut(list_id);
+    ) -> GroupTrackIterMut<RefMut<'a, GroupTrack>> {
+        let mut list = self.borrow_group_track_mut(list_id);
         list.apply_field_actions(msm);
-        RecordGroupList::lookup_iter_for_deref_mut(
+        GroupTrack::lookup_iter_for_deref_mut(
             self, list, iter_id, msm, actor_id,
         )
     }
 
-    pub fn store_record_group_list_iter<L: Deref<Target = RecordGroupList>>(
+    pub fn store_record_group_track_iter<L: Deref<Target = GroupTrack>>(
         &self,
-        iter_ref: RecordGroupListIterRef,
-        iter: &RecordGroupListIter<L>,
+        iter_ref: GroupTrackIterRef,
+        iter: &GroupTrackIter<L>,
     ) {
-        self.record_group_lists[iter_ref.list_id]
+        self.group_tracks[iter_ref.list_id]
             .borrow()
             .store_iter(iter_ref.iter_id, iter);
     }
     pub fn apply_actions_to_list_and_parents(
         &self,
         ab: &mut ActionBuffer,
-        group_list_id: RecordGroupListId,
+        group_track_id: GroupTrackId,
     ) {
         let mut prev_diff = (SnapshotRef::default(), SnapshotRef::default());
         let mut agi = None;
-        let mut list_id = group_list_id;
+        let mut list_id = group_track_id;
         loop {
-            let mut list_ref = self.record_group_lists[list_id].borrow_mut();
+            let mut list_ref = self.group_tracks[list_id].borrow_mut();
             let list = &mut *list_ref;
             let Some((actor_id, ss_prev)) = ab.update_snapshot(
-                ActorSubscriber::GroupList(list_id),
+                ActorSubscriber::GroupTrack(list_id),
                 &mut list.actor,
                 &mut list.snapshot,
             ) else {
@@ -867,20 +864,20 @@ impl RecordGroupTracker {
     pub fn apply_actions_to_list(
         &mut self,
         msm: &MatchSetManager,
-        group_list_id: RecordGroupListId,
+        group_track_id: GroupTrackId,
     ) {
-        self.record_group_lists[group_list_id]
+        self.group_tracks[group_track_id]
             .borrow_mut()
             .apply_field_actions(msm)
     }
-    pub fn append_group_to_list(
+    pub fn append_group_to_track(
         &mut self,
-        group_list_id: RecordGroupListId,
+        group_track_id: GroupTrackId,
         field_count: usize,
     ) {
-        let mut gl_id = group_list_id;
+        let mut gl_id = group_track_id;
         loop {
-            let mut gl = self.record_group_lists[gl_id].borrow_mut();
+            let mut gl = self.group_tracks[gl_id].borrow_mut();
             gl.group_lengths.push_back(field_count);
             let Some(parent_id) = gl.parent_list else {
                 break;
@@ -888,32 +885,31 @@ impl RecordGroupTracker {
             gl_id = parent_id;
         }
     }
-    pub fn borrow_group_list(
+    pub fn borrow_group_track(
         &self,
-        group_list_id: RecordGroupListId,
-    ) -> Ref<RecordGroupList> {
-        self.record_group_lists[group_list_id].borrow()
+        group_track_id: GroupTrackId,
+    ) -> Ref<GroupTrack> {
+        self.group_tracks[group_track_id].borrow()
     }
-    pub fn borrow_group_list_mut(
+    pub fn borrow_group_track_mut(
         &self,
-        group_list_id: RecordGroupListId,
-    ) -> RefMut<RecordGroupList> {
-        self.record_group_lists[group_list_id].borrow_mut()
+        group_track_id: GroupTrackId,
+    ) -> RefMut<GroupTrack> {
+        self.group_tracks[group_track_id].borrow_mut()
     }
-    pub fn uncow(&self, rgl_id: RecordGroupListId, msm: &MatchSetManager) {
-        let rgl = self.record_group_lists[rgl_id].borrow_mut();
+    pub fn uncow(&self, rgl_id: GroupTrackId, msm: &MatchSetManager) {
+        let rgl = self.group_tracks[rgl_id].borrow_mut();
         if !rgl.cow_active {
             return;
         }
         debug_assert!(rgl.cow_source != rgl_id);
-        let mut cow_source =
-            self.record_group_lists[rgl.cow_source].borrow_mut();
+        let mut cow_source = self.group_tracks[rgl.cow_source].borrow_mut();
         cow_source.apply_field_actions(msm);
         todo!("copy data")
     }
 }
 
-impl<L: Deref<Target = RecordGroupList>> RecordGroupListIter<L> {
+impl<L: Deref<Target = GroupTrack>> GroupTrackIter<L> {
     pub fn field_pos(&self) -> usize {
         self.field_pos
     }
@@ -926,7 +922,7 @@ impl<L: Deref<Target = RecordGroupList>> RecordGroupListIter<L> {
     pub fn group_len_rem(&self) -> usize {
         self.group_len_rem
     }
-    pub fn store_iter(&self, iter_id: GroupListIterId) {
+    pub fn store_iter(&self, iter_id: GroupTrackIterId) {
         self.list.store_iter(iter_id, self);
     }
     pub fn next_n_fields(&mut self, n: usize) -> usize {
@@ -979,7 +975,7 @@ impl<L: Deref<Target = RecordGroupList>> RecordGroupListIter<L> {
     }
 }
 
-impl<'a, T: DerefMut<Target = RecordGroupList>> GroupListIterMut<'a, T> {
+impl<'a, T: DerefMut<Target = GroupTrack>> GroupTrackIterMut<'a, T> {
     pub fn field_pos(&self) -> usize {
         self.base.field_pos()
     }
@@ -1001,7 +997,7 @@ impl<'a, T: DerefMut<Target = RecordGroupList>> GroupListIterMut<'a, T> {
     pub fn group_len_before(&self) -> usize {
         self.group_len - self.base.group_len_rem
     }
-    pub fn store_iter(mut self, iter_id: GroupListIterId) {
+    pub fn store_iter(mut self, iter_id: GroupTrackIterId) {
         self.update_group();
         self.base.store_iter(iter_id);
     }
@@ -1124,7 +1120,7 @@ impl<'a, T: DerefMut<Target = RecordGroupList>> GroupListIterMut<'a, T> {
             self.base.list.parent_group_idx(self.base.group_idx);
         loop {
             let mut list =
-                self.tracker.record_group_lists[parent_list_idx].borrow_mut();
+                self.tracker.group_tracks[parent_list_idx].borrow_mut();
             list.sort_iters();
 
             list.lookup_and_advance_affected_iters_(
@@ -1412,8 +1408,7 @@ impl<'a, T: DerefMut<Target = RecordGroupList>> GroupListIterMut<'a, T> {
         let actions = s1.iter().chain(s2.iter());
         let mut parent_id = self.base.list.parent_list;
         while let Some(parent) = parent_id {
-            let mut list =
-                self.tracker.record_group_lists[parent].borrow_mut();
+            let mut list = self.tracker.group_tracks[parent].borrow_mut();
             list.apply_field_actions_list(actions.clone());
             parent_id = list.parent_list;
         }
@@ -1421,9 +1416,7 @@ impl<'a, T: DerefMut<Target = RecordGroupList>> GroupListIterMut<'a, T> {
     }
 }
 
-impl<'a, T: DerefMut<Target = RecordGroupList>> Drop
-    for GroupListIterMut<'a, T>
-{
+impl<'a, T: DerefMut<Target = GroupTrack>> Drop for GroupTrackIterMut<'a, T> {
     fn drop(&mut self) {
         self.update_group();
 
@@ -1441,10 +1434,10 @@ impl<'a, T: DerefMut<Target = RecordGroupList>> Drop
             let mut parent_id = self.base.list.parent_list;
             while let Some(list_id) = parent_id {
                 let mut list_ref =
-                    self.tracker.record_group_lists[list_id].borrow_mut();
+                    self.tracker.group_tracks[list_id].borrow_mut();
                 let list = &mut *list_ref;
                 if let Some((_actor_id, ss_prev)) = ab.update_snapshot(
-                    ActorSubscriber::GroupList(self.base.list.id),
+                    ActorSubscriber::GroupTrack(self.base.list.id),
                     &mut list.actor,
                     &mut list.snapshot,
                 ) {
@@ -1456,7 +1449,7 @@ impl<'a, T: DerefMut<Target = RecordGroupList>> Drop
 
         let list = &mut *self.base.list;
         if let Some((_actor_id, ss_prev)) = ab.update_snapshot(
-            ActorSubscriber::GroupList(list.id),
+            ActorSubscriber::GroupTrack(list.id),
             &mut list.actor,
             &mut list.snapshot,
         ) {
@@ -1472,7 +1465,7 @@ mod test {
     use crate::{
         record_data::{
             field_action::{FieldAction, FieldActionKind},
-            record_group_tracker::{RecordGroupIterState, RecordGroupList},
+            group_track_manager::{GroupTrack, GroupTrackIterState},
         },
         utils::{
             size_classed_vec_deque::SizeClassedVecDeque, universe::Universe,
@@ -1481,7 +1474,7 @@ mod test {
 
     #[test]
     fn drop_on_passed_fields() {
-        let mut gl = RecordGroupList {
+        let mut gl = GroupTrack {
             passed_fields_count: 2,
             ..Default::default()
         };
@@ -1497,10 +1490,10 @@ mod test {
 
     #[test]
     fn drop_in_passed_affects_iterator_correctly() {
-        let mut gl = RecordGroupList {
+        let mut gl = GroupTrack {
             passed_fields_count: 2,
             group_lengths: SizeClassedVecDeque::Sc8(VecDeque::from([2])),
-            iter_states: vec![Cell::new(RecordGroupIterState {
+            iter_states: vec![Cell::new(GroupTrackIterState {
                 field_pos: 3,
                 group_idx: 0,
                 group_offset: 1,
@@ -1518,7 +1511,7 @@ mod test {
 
         assert_eq!(
             gl.iter_states[0].get(),
-            RecordGroupIterState {
+            GroupTrackIterState {
                 field_pos: 2,
                 group_idx: 0,
                 group_offset: 1,
@@ -1529,17 +1522,17 @@ mod test {
 
     #[test]
     fn drop_in_group_affects_iterator_correctly() {
-        let mut gl = RecordGroupList {
+        let mut gl = GroupTrack {
             passed_fields_count: 1,
             group_lengths: SizeClassedVecDeque::Sc8(VecDeque::from([3])),
             iter_states: vec![
-                Cell::new(RecordGroupIterState {
+                Cell::new(GroupTrackIterState {
                     field_pos: 2,
                     group_idx: 0,
                     group_offset: 1,
                     iter_id: 0,
                 }),
-                Cell::new(RecordGroupIterState {
+                Cell::new(GroupTrackIterState {
                     field_pos: 3,
                     group_idx: 0,
                     group_offset: 2,
@@ -1559,13 +1552,13 @@ mod test {
         assert_eq!(
             &gl.iter_states.iter().map(Cell::get).collect::<Vec<_>>(),
             &[
-                RecordGroupIterState {
+                GroupTrackIterState {
                     field_pos: 2,
                     group_idx: 0,
                     group_offset: 1,
                     iter_id: 0,
                 },
-                RecordGroupIterState {
+                GroupTrackIterState {
                     field_pos: 2,
                     group_idx: 0,
                     group_offset: 1,
@@ -1577,10 +1570,10 @@ mod test {
 
     #[test]
     fn dup_after_drop_does_not_affect_iterator() {
-        let mut gl = RecordGroupList {
+        let mut gl = GroupTrack {
             passed_fields_count: 0,
             group_lengths: SizeClassedVecDeque::Sc8(VecDeque::from([3])),
-            iter_states: vec![Cell::new(RecordGroupIterState {
+            iter_states: vec![Cell::new(GroupTrackIterState {
                 field_pos: 2,
                 group_idx: 0,
                 group_offset: 2,
@@ -1597,7 +1590,7 @@ mod test {
 
         assert_eq!(
             gl.iter_states[0].get(),
-            RecordGroupIterState {
+            GroupTrackIterState {
                 field_pos: 1,
                 group_idx: 0,
                 group_offset: 1,

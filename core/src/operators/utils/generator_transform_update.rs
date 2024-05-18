@@ -6,10 +6,10 @@ use crate::{
         field::{Field, FieldId, FieldManager},
         field_action::FieldActionKind,
         field_data::FieldValueRepr,
+        group_track_manager::{GroupTrackIterRef, GroupTrackManager},
         iter_hall::IterId,
         iters::{DestructuredFieldDataRef, FieldIterator, Iter},
         match_set::{MatchSetId, MatchSetManager},
-        record_group_tracker::{RecordGroupListIterRef, RecordGroupTracker},
     },
 };
 
@@ -44,7 +44,7 @@ pub struct GeneratorBatchState<'a, 'b, G: GeneratorSequence> {
     actor_id: ActorId,
     ms_id: MatchSetId,
     msm: &'a MatchSetManager,
-    rgt: &'a mut RecordGroupTracker,
+    rgt: &'a mut GroupTrackManager,
     fm: &'a FieldManager,
     tf_mgr: &'a mut TransformManager,
     iter: Iter<'b, DestructuredFieldDataRef<'b>>,
@@ -60,7 +60,7 @@ pub fn handle_generator_transform_update<G: GeneratorSequence>(
     tf_id: TransformId,
     input_iter_id: IterId,
     actor_id: ActorId,
-    group_iter_ref: Option<RecordGroupListIterRef>,
+    group_iter_ref: Option<GroupTrackIterRef>,
     generator: &mut G,
     generator_mode: GeneratorMode,
 ) {
@@ -254,13 +254,13 @@ fn handle_seq_mode<G: GeneratorSequence>(
 
 fn handle_enum_mode<G: GeneratorSequence>(
     mut gbs: GeneratorBatchState<G>,
-    group_iter_ref: RecordGroupListIterRef,
+    group_iter_ref: GroupTrackIterRef,
 ) {
     let mut seq_size_rem = gbs.generator.seq_len_rem();
     let mut out_batch_size = 0;
     let mut drop_count = 0;
     let mut set_done = false;
-    let mut group_iter = gbs.rgt.lookup_group_list_iter_mut(
+    let mut group_iter = gbs.rgt.lookup_group_track_iter_mut(
         group_iter_ref.list_id,
         group_iter_ref.iter_id,
         gbs.msm,
@@ -317,7 +317,7 @@ fn handle_enum_mode<G: GeneratorSequence>(
 
 fn handle_enum_unbounded_mode<G: GeneratorSequence>(
     mut bgs: GeneratorBatchState<G>,
-    group_iter_ref: RecordGroupListIterRef,
+    group_iter_ref: GroupTrackIterRef,
 ) {
     let field_pos_end = bgs.iter.get_next_field_pos() + bgs.batch_size;
     let mut out_batch_size_rem = bgs.desired_batch_size;
@@ -330,7 +330,7 @@ fn handle_enum_unbounded_mode<G: GeneratorSequence>(
 
     let mut seq_len_rem = bgs.generator.seq_len_rem();
 
-    let mut group_iter = bgs.rgt.lookup_group_list_iter_mut(
+    let mut group_iter = bgs.rgt.lookup_group_track_iter_mut(
         group_iter_ref.list_id,
         group_iter_ref.iter_id,
         bgs.msm,

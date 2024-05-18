@@ -416,15 +416,17 @@ impl FieldManager {
         let name = self.fields[src_field_id].borrow().name;
         let field_id =
             self.add_field(msm, tgt_match_set, name, ActorRef::default());
-        let vacant_entry =
-            match msm.match_sets[tgt_match_set].cow_map.entry(src_field_id) {
-                Entry::Occupied(e) => {
-                    let field_id = *e.get();
-                    self.bump_field_refcount(field_id);
-                    return field_id;
-                }
-                Entry::Vacant(e) => e,
-            };
+        let vacant_entry = match msm.match_sets[tgt_match_set]
+            .fields_cow_map
+            .entry(src_field_id)
+        {
+            Entry::Occupied(e) => {
+                let field_id = *e.get();
+                self.bump_field_refcount(field_id);
+                return field_id;
+            }
+            Entry::Vacant(e) => e,
+        };
         let mut src_field = self.fields[src_field_id].borrow_mut();
         src_field.ref_count += 1;
         src_field.iter_hall.cow_targets.push(field_id);
@@ -471,7 +473,7 @@ impl FieldManager {
         }
         let tgt_ms = &mut msm.match_sets[tgt_ms_id];
         tgt_ms
-            .cow_map
+            .fields_cow_map
             .extend(src_field_ids.iter().zip(tgt_field_ids));
         for &tgt_field_id in tgt_field_ids {
             let mut f = self.fields[tgt_field_id].borrow_mut();
@@ -603,7 +605,7 @@ impl FieldManager {
                 let fr = if self.fields[fr_src].borrow().match_set == ms_id {
                     fr_src
                 } else if let Some(&id) =
-                    msm.match_sets[ms_id].cow_map.get(&fr_src)
+                    msm.match_sets[ms_id].fields_cow_map.get(&fr_src)
                 {
                     id
                 } else {

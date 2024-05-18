@@ -7,8 +7,8 @@ use crate::{
     liveness_analysis::{AccessFlags, LivenessData, NON_STRING_READS_OFFSET},
     options::argument::CliArgIdx,
     record_data::{
-        action_buffer::ActorId, field::Field, iter_hall::IterId,
-        record_group_tracker::RecordGroupListIterRef,
+        action_buffer::ActorId, field::Field,
+        group_track_manager::GroupTrackIterRef, iter_hall::IterId,
         variable_sized_type_inserter::VariableSizeTypeInserter,
     },
     utils::int_string_conversions::{
@@ -76,7 +76,7 @@ pub struct TfSequence {
     iter_id: IterId,
     actor_id: ActorId,
     seq_len_total: u64,
-    group_list_iter_ref: Option<RecordGroupListIterRef>,
+    group_track_iter_ref: Option<GroupTrackIterRef>,
 }
 
 pub fn build_tf_sequence<'a>(
@@ -91,10 +91,10 @@ pub fn build_tf_sequence<'a>(
         OpSequenceMode::Sequence => TfSequenceMode::Sequence {},
     };
 
-    let group_list_iter_ref = (!matches!(op.mode, OpSequenceMode::Sequence))
+    let group_track_iter_ref = (!matches!(op.mode, OpSequenceMode::Sequence))
         .then(|| {
             jd.record_group_tracker
-                .claim_group_list_iter_ref(tf_state.input_group_list_id)
+                .claim_group_track_iter_ref(tf_state.input_group_track_id)
         });
 
     TransformData::Sequence(TfSequence {
@@ -105,7 +105,7 @@ pub fn build_tf_sequence<'a>(
         iter_id: jd.add_iter_for_tf_state(tf_state),
         actor_id: jd.add_actor_for_tf_state(tf_state),
         seq_len_total: op.seq_len_total,
-        group_list_iter_ref,
+        group_track_iter_ref,
     })
 }
 
@@ -226,7 +226,7 @@ pub fn handle_tf_sequence(
         tf_id,
         seq.iter_id,
         seq.actor_id,
-        seq.group_list_iter_ref,
+        seq.group_track_iter_ref,
         seq,
         match seq.mode {
             TfSequenceMode::Sequence => GeneratorMode::Foreach,

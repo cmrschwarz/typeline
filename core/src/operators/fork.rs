@@ -155,7 +155,7 @@ pub(crate) fn handle_fork_expansion(
 
     let tf = &sess.job_data.tf_mgr.transforms[tf_id];
     let fork_input_field_id = tf.input_field;
-    let fork_input_group_list = tf.input_group_list_id;
+    let fork_input_group_track = tf.input_group_track_id;
     let fork_ms_id = tf.match_set_id;
     let fork_op_id = tf.op_id.unwrap() as usize;
     let fork_chain_id = sess.job_data.session_data.operator_bases[fork_op_id]
@@ -222,7 +222,7 @@ pub(crate) fn handle_fork_expansion(
             start_op_id,
             input_field,
             // TODO //HACK: we need to cow this !
-            fork_input_group_list,
+            fork_input_group_track,
             None,
             &HashMap::default(),
         );

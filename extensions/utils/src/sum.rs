@@ -23,9 +23,9 @@ use scr_core::{
         field_data::{FieldData, FieldValueRepr},
         field_value_ref::FieldValueSlice,
         field_value_slice_iter::{FieldValueBlock, FieldValueSliceIter},
+        group_track_manager::GroupTrackIterRef,
         iter_hall::{IterId, IterKind},
         push_interface::PushInterface,
-        record_group_tracker::RecordGroupListIterRef,
         ref_iter::RefAwareFieldValueSliceIter,
         varying_type_inserter::VaryingTypeInserter,
     },
@@ -39,7 +39,7 @@ pub struct OpSum {}
 
 pub struct TfSum {
     input_iter_id: IterId,
-    group_list_iter: RecordGroupListIterRef,
+    group_track_iter: GroupTrackIterRef,
     aggregate: AnyNumber,
     current_group_error_type: Option<FieldValueRepr>,
     actor_id: ActorId,
@@ -100,9 +100,9 @@ impl Operator for OpSum {
             .floating_point_math;
         TransformInstatiation::Simple(TransformData::Custom(smallbox!(
             TfSum {
-                group_list_iter: jd
+                group_track_iter: jd
                     .record_group_tracker
-                    .claim_group_list_iter_ref(tf_state.input_group_list_id),
+                    .claim_group_track_iter_ref(tf_state.input_group_track_id),
                 input_iter_id: jd.field_mgr.claim_iter(
                     tf_state.input_field,
                     IterKind::Transform(jd.tf_mgr.transforms.peek_claim_id())
@@ -147,9 +147,9 @@ impl TfSum {
             .borrow_field_dealiased_mut(bud.output_field_id);
         let mut inserter = output_field.iter_hall.varying_type_inserter();
 
-        let mut group_iter = bud.group_tracker.lookup_group_list_iter_mut(
-            self.group_list_iter.list_id,
-            self.group_list_iter.iter_id,
+        let mut group_iter = bud.group_tracker.lookup_group_track_iter_mut(
+            self.group_track_iter.list_id,
+            self.group_track_iter.iter_id,
             bud.match_set_mgr,
             self.actor_id,
         );
@@ -261,7 +261,7 @@ impl TfSum {
             self.pending_field = true;
             group_iter.drop_backwards(drop_count);
         }
-        group_iter.store_iter(self.group_list_iter.iter_id);
+        group_iter.store_iter(self.group_track_iter.iter_id);
 
         (finished_group_count, bud.ps.input_done)
     }

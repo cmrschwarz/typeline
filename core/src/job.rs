@@ -24,11 +24,11 @@ use crate::{
         action_buffer::{ActorId, ActorRef, SnapshotRef},
         field::{FieldId, FieldManager, VOID_FIELD_ID},
         field_action::FieldActionKind,
+        group_track_manager::{GroupTrackId, GroupTrackManager},
         iter_hall::{IterId, IterKind},
         match_set::{MatchSetId, MatchSetManager},
         push_interface::PushInterface,
         record_buffer::RecordBuffer,
-        record_group_tracker::{RecordGroupListId, RecordGroupTracker},
         stream_value::{StreamValueManager, StreamValueUpdate},
     },
     utils::universe::Universe,
@@ -40,7 +40,7 @@ pub struct JobData<'a> {
     pub session_data: &'a SessionData,
     pub tf_mgr: TransformManager,
     pub match_set_mgr: MatchSetManager,
-    pub record_group_tracker: RecordGroupTracker,
+    pub record_group_tracker: GroupTrackManager,
     pub field_mgr: FieldManager,
     pub sv_mgr: StreamValueManager<'a>,
     pub temp_vec: Vec<u8>,
@@ -301,7 +301,7 @@ impl<'a> JobData<'a> {
             match_set_mgr: MatchSetManager {
                 match_sets: Universe::default(),
             },
-            record_group_tracker: RecordGroupTracker::default(),
+            record_group_tracker: GroupTrackManager::default(),
             sv_mgr: StreamValueManager::default(),
             temp_vec: Vec::default(),
         }
@@ -385,9 +385,9 @@ impl<'a> Job<'a> {
         let input_record_count = input_record_count.max(1);
         let input_field = input_field.unwrap();
         let rgt = &mut self.job_data.record_group_tracker;
-        let input_group_list =
-            rgt.add_group_list(None, ms_id, ActorRef::default());
-        rgt.append_group_to_list(input_group_list, input_record_count);
+        let input_group_track =
+            rgt.add_group_track(None, ms_id, ActorRef::default());
+        rgt.append_group_to_track(input_group_track, input_record_count);
 
         #[cfg(feature = "debug_logging")]
         for (i, f) in input_data_fields.iter().enumerate() {
@@ -399,7 +399,7 @@ impl<'a> Job<'a> {
             ms_id,
             job_desc.operator,
             input_field,
-            input_group_list,
+            input_group_track,
             None,
             &HashMap::default(),
         );
@@ -478,7 +478,7 @@ impl<'a> Job<'a> {
         ms_id: MatchSetId,
         start_op_id: OperatorId,
         chain_input_field_id: FieldId,
-        chain_input_group_list: RecordGroupListId,
+        chain_input_group_track: GroupTrackId,
         predecessor_tf: Option<TransformId>,
         prebound_outputs: &PreboundOutputsMap,
     ) -> OperatorInstantiation {
@@ -498,7 +498,7 @@ impl<'a> Job<'a> {
             }),
             ms_id,
             chain_input_field_id,
-            chain_input_group_list,
+            chain_input_group_track,
             predecessor_tf,
             None,
             prebound_outputs,
@@ -512,7 +512,7 @@ impl<'a> Job<'a> {
         >,
         ms_id: MatchSetId,
         mut input_field: FieldId,
-        mut input_group_list: RecordGroupListId,
+        mut input_group_track: GroupTrackId,
         mut predecessor_tf: Option<TransformId>,
         mut start_tf_id: Option<TransformId>,
         prebound_outputs: &PreboundOutputsMap,
@@ -526,7 +526,7 @@ impl<'a> Job<'a> {
                             self,
                             ms_id,
                             input_field,
-                            input_group_list,
+                            input_group_track,
                             predecessor_tf,
                         );
                         if let Some(start) = start_tf_id {
@@ -647,7 +647,7 @@ impl<'a> Job<'a> {
                 ms_id,
                 op_base.desired_batch_size,
                 Some(op_id),
-                input_group_list,
+                input_group_track,
             );
             tf_state.is_transparent = op_base.transparent_mode;
 
@@ -670,7 +670,7 @@ impl<'a> Job<'a> {
             );
 
             input_field = instantiation.next_input_field;
-            input_group_list = instantiation.next_group_list;
+            input_group_track = instantiation.next_group_track;
 
             if let Some(pred) = predecessor_tf {
                 self.job_data.tf_mgr.transforms[pred].successor =
@@ -697,7 +697,7 @@ impl<'a> Job<'a> {
             tfs_begin: start,
             tfs_end: end,
             next_input_field: input_field,
-            next_group_list: input_group_list,
+            next_group_track: input_group_track,
             continuation: TransformContinuationKind::Regular,
         }
     }
@@ -762,13 +762,13 @@ impl<'a> Job<'a> {
                 tf.done,
                 self.job_data.tf_mgr.ready_stack
             );
-            let group_id = tf.output_group_list_id;
-            let group = self.job_data.record_group_tracker.record_group_lists
-                [group_id]
+            let group_track_id = tf.output_group_track_id;
+            let group_track = self.job_data.record_group_tracker.group_tracks
+                [group_track_id]
                 .borrow();
-            eprint!("   - group {group_id} data: {group} (may have pending actions)");
+            eprint!("   - group {group_track_id} data: {group_track} (may have pending actions)");
             #[cfg(feature = "iter_state_logging")]
-            group.eprint_iter_states(4);
+            group_track.eprint_iter_states(4);
             eprint!("\n   - out ");
             self.job_data.field_mgr.print_field_stats(output_field_id);
             self.job_data

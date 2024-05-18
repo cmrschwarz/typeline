@@ -134,7 +134,7 @@ pub fn insert_tf_aggregator(
     let ms = &job.job_data.match_set_mgr.match_sets[ms_id];
     let mut ab = ms.action_buffer.borrow_mut();
     let actor_id = ab.add_actor();
-    let active_group_list = tf_state.input_group_list_id;
+    let active_group_track = tf_state.input_group_track_id;
     job.job_data.field_mgr.fields[out_fid]
         .borrow_mut()
         .first_actor = ActorRef::Unconfirmed(ab.peek_next_actor_id());
@@ -167,7 +167,7 @@ pub fn insert_tf_aggregator(
             ms_id,
             desired_batch_size,
             Some(sub_op_id),
-            active_group_list,
+            active_group_track,
         );
         sub_tf_state.is_split = i + 1 != op.sub_ops.len();
         let instantiation = job.job_data.session_data.operator_data
@@ -186,7 +186,7 @@ pub fn insert_tf_aggregator(
         ms_id,
         desired_batch_size,
         Some(op_id),
-        active_group_list,
+        active_group_track,
     );
     let trailer_tf_id = add_transform_to_job(
         &mut job.job_data,
@@ -211,7 +211,7 @@ pub fn insert_tf_aggregator(
         tfs_begin: header_tf_id,
         tfs_end: trailer_tf_id,
         next_input_field: out_fid,
-        next_group_list: active_group_list,
+        next_group_track: active_group_track,
         continuation: TransformContinuationKind::Regular,
     }
 }
