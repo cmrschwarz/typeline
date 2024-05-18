@@ -219,18 +219,13 @@ fn push_merged_action<T: ActionContainer>(
     *prev_opt = Some(curr);
 }
 
-pub fn merge_action_lists<
-    'a,
-    L: IntoIterator<Item = &'a FieldAction>,
-    R: IntoIterator<Item = &'a FieldAction>,
-    T: ActionContainer,
->(
-    left: L,
-    right: R,
-    target: &mut T,
+pub fn merge_action_lists_inner<'a>(
+    left: impl Iterator<Item = &'a FieldAction>,
+    right: impl Iterator<Item = &'a FieldAction>,
+    target: &mut impl ActionContainer,
 ) {
-    let mut left = left.into_iter().peekable();
-    let mut right = right.into_iter().peekable();
+    let mut left = left.copied().peekable();
+    let mut right = right.copied().peekable();
 
     let mut prev_action = None;
 
@@ -238,8 +233,8 @@ pub fn merge_action_lists<
     let mut next_action_field_idx_right;
     let mut field_pos_offset_left: isize = 0;
     let mut outstanding_drops_right: usize = 0;
-    while let Some(action_left) = left.peek() {
-        let action_right = right.peek();
+    while let Some(action_left) = left.peek().copied() {
+        let action_right = right.peek().copied();
         if let Some(action_right) = action_right {
             next_action_field_idx_right = action_right.field_idx;
         } else {
@@ -267,7 +262,6 @@ pub fn merge_action_lists<
         }
 
         if consume_left {
-            let action_left = *action_left;
             left.next();
             let mut faf = FieldActionFullRl {
                 field_idx: (action_left.field_idx as isize
@@ -284,7 +278,7 @@ pub fn merge_action_lists<
                         outstanding_drops_right -= dup_to_undo;
                         field_pos_offset_left -= dup_to_undo as isize;
 
-                        let drop_due = if let Some(next) = left.peek() {
+                        let drop_due: usize = if let Some(next) = left.peek() {
                             let next_pos = next.field_idx as isize
                                 + field_pos_offset_left;
                             outstanding_drops_right
@@ -322,7 +316,7 @@ pub fn merge_action_lists<
             continue;
         }
 
-        let mut faf = FieldActionFullRl::from(*right.next().unwrap());
+        let mut faf = FieldActionFullRl::from(right.next().unwrap());
 
         match faf.kind {
             FieldActionKind::InsertZst(_) | FieldActionKind::Dup => {
@@ -341,12 +335,23 @@ pub fn merge_action_lists<
         push_merged_action(target, &mut prev_action, faf);
     }
     debug_assert_eq!(outstanding_drops_right, 0);
-    for &action in right {
+    for action in right {
         push_merged_action(target, &mut prev_action, action.into());
     }
     if let Some(prev) = prev_action {
         push_merged_action_raw(target, prev);
     }
+}
+
+pub fn merge_action_lists<'a>(
+    left: impl IntoIterator<Item = &'a FieldAction>,
+    right: impl IntoIterator<Item = &'a FieldAction>,
+    target: &mut impl ActionContainer,
+) {
+    // NOTE(cmrs, 2024-06-18): rust-analyzer currently has problems with
+    // typechecking `IntoIterator`s (#17257), so we isolate the meat of this
+    // algorithm from that problem through this indirection
+    merge_action_lists_inner(left.into_iter(), right.into_iter(), target)
 }
 
 #[cfg(test)]
