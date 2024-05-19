@@ -176,6 +176,10 @@ pub fn range_contains<I: PartialOrd>(
     range.start <= subrange.start && range.end >= subrange.end
 }
 
+fn pointer_range_len<T>(range: &Range<*const T>) -> usize {
+    unsafe { range.end.offset_from(range.start) as usize }
+}
+
 pub fn retain_vec_range<T>(v: &mut Vec<T>, range: Range<usize>) {
     if range == (0..v.len()) {
         return;

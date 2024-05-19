@@ -15,8 +15,7 @@ use crate::{
     record_data::{
         action_buffer::ActorRef,
         field::{FieldId, VOID_FIELD_ID},
-        group_track_manager::VOID_GROUP_TRACK_ID,
-        match_set::GroupTrackMapping,
+        group_track_manager::GroupTrackIterRef,
     },
     utils::{
         identity_hasher::BuildIdentityHasher, string_store::StringStoreEntry,
@@ -68,6 +67,7 @@ pub struct TfForkCat<'a> {
     pub continuation: Option<TransformId>,
     pub buffered_record_count: usize,
     pub input_size: usize,
+    pub group_track_iter: GroupTrackIterRef,
 
     // temp buffer passed to setup_transforms_from_op. contains the fields
     // from output_mappings that the current subchain will write to
@@ -303,10 +303,18 @@ pub fn handle_tf_forkcat(
 
     if fc.curr_subchain_n != 0 {
         jd.tf_mgr.push_tf_in_ready_stack(tf_id);
-        let sc_start = jd.tf_mgr.transforms[tf_id].successor.take().unwrap();
+        let tf = &mut jd.tf_mgr.transforms[tf_id];
+        let parent_group_track = tf.input_group_track_id;
+        let sc_start = tf.successor.take().unwrap();
+        jd.group_track_manager.copy_all_fields_to_children(
+            parent_group_track,
+            std::iter::once(
+                jd.tf_mgr.transforms[sc_start].input_group_track_id,
+            ),
+        );
         jd.tf_mgr.inform_cross_ms_transform_batch_available(
             &jd.field_mgr,
-            &mut jd.match_set_mgr,
+            &jd.match_set_mgr,
             sc_start,
             fc.input_size,
             true,
@@ -316,15 +324,26 @@ pub fn handle_tf_forkcat(
     }
     let (batch_size, ps) = jd.tf_mgr.claim_all(tf_id);
     fc.input_size += batch_size;
-    let curr_subchain_start = jd.tf_mgr.transforms[tf_id].successor.unwrap();
+    let tf = &jd.tf_mgr.transforms[tf_id];
+    let parent_group_track = tf.input_group_track_id;
+    let curr_subchain_start = tf.successor.unwrap();
+    let sc_group_track =
+        jd.tf_mgr.transforms[curr_subchain_start].input_group_track_id;
     if ps.input_done {
         jd.tf_mgr.push_tf_in_ready_stack(tf_id);
         fc.curr_subchain_n += 1;
         jd.tf_mgr.transforms[tf_id].successor = None;
     }
+    jd.group_track_manager.copy_fields_to_children(
+        fc.group_track_iter,
+        batch_size,
+        ps.input_done,
+        std::iter::once(sc_group_track),
+    );
+
     jd.tf_mgr.inform_cross_ms_transform_batch_available(
         &jd.field_mgr,
-        &mut jd.match_set_mgr,
+        &jd.match_set_mgr,
         curr_subchain_start,
         batch_size,
         ps.input_done,
@@ -343,6 +362,22 @@ fn setup_continuation(
     let cont_op_id = forkcat.op.continuation.unwrap();
 
     let output_ms_id = sess.job_data.match_set_mgr.add_match_set();
+
+    let input_group_track =
+        sess.job_data.tf_mgr.transforms[tf_id].input_group_track_id;
+
+    let input_group_track_parent =
+        sess.job_data.group_track_manager.group_tracks[input_group_track]
+            .borrow()
+            .parent_list;
+
+    let output_group_track =
+        sess.job_data.group_track_manager.add_group_track(
+            input_group_track_parent,
+            output_ms_id,
+            ActorRef::Unconfirmed(0),
+        );
+
     for name in &forkcat.op.accessed_names_of_successors {
         let output_field_id = sess.job_data.field_mgr.add_field(
             &mut sess.job_data.match_set_mgr,
@@ -370,14 +405,14 @@ fn setup_continuation(
         sess,
         chain_id,
         output_ms_id,
+        output_group_track,
         sc_count as usize - 1,
     );
     let mut instantiation = sess.setup_transforms_from_op(
         output_ms_id,
         cont_op_id,
         cont_input_field,
-        // TODO: //HACK:
-        VOID_GROUP_TRACK_ID,
+        output_group_track,
         Some(begin),
         &HashMap::default(),
     );
@@ -389,18 +424,10 @@ fn expand_for_subchain(sess: &mut Job, tf_id: TransformId, sc_n: u32) {
     let tgt_ms_id = sess.job_data.match_set_mgr.add_match_set();
     let tf = &sess.job_data.tf_mgr.transforms[tf_id];
 
-    sess.job_data.match_set_mgr.match_sets[tgt_ms_id].group_track_mapping =
-        Some(GroupTrackMapping {
-            source: sess
-                .job_data
-                .group_track_manager
-                .claim_group_track_iter_ref(tf.input_group_track_id),
-            target: sess.job_data.group_track_manager.add_group_track(
-                None,
-                tgt_ms_id,
-                ActorRef::Unconfirmed(0),
-            ),
-        });
+    let subchain_group_track = sess
+        .job_data
+        .group_track_manager
+        .add_group_track(None, tgt_ms_id, ActorRef::Unconfirmed(0));
 
     let TransformData::ForkCat(forkcat) =
         &mut sess.transform_data[tf_id.get()]
@@ -466,8 +493,7 @@ fn expand_for_subchain(sess: &mut Job, tf_id: TransformId, sc_n: u32) {
         tgt_ms_id,
         sess.job_data.session_data.chains[sc_id as usize].operators[0],
         subchain_input_field,
-        // TODO: //HACK
-        VOID_GROUP_TRACK_ID,
+        subchain_group_track,
         None,
         &prebound_outputs,
     );

@@ -16,7 +16,7 @@ use crate::{
         field::{FieldId, VOID_FIELD_ID},
         group_track_manager::GroupTrackId,
         iter_hall::IterId,
-        match_set::{GroupTrackMapping, MatchSetId},
+        match_set::MatchSetId,
     },
     utils::string_store::StringStoreEntry,
 };
@@ -48,9 +48,14 @@ pub struct TfForkFieldMapping {
     pub targets_copy: SmallVec<[FieldId; 4]>,
 }
 
+pub struct ForkTarget {
+    tf_id: TransformId,
+    gt_id: GroupTrackId,
+}
+
 pub struct TfFork<'a> {
     pub expanded: bool,
-    pub targets: Vec<TransformId>,
+    pub targets: Vec<ForkTarget>,
     pub accessed_fields_per_subchain:
         &'a Vec<HashSet<Option<StringStoreEntry>>>,
 }
@@ -134,13 +139,23 @@ pub fn handle_tf_fork(jd: &mut JobData, tf_id: TransformId, sp: &mut TfFork) {
     if ps.next_batch_ready {
         jd.tf_mgr.push_tf_in_ready_stack(tf_id);
     }
+
+    let tf = &jd.tf_mgr.transforms[tf_id];
+
+    jd.group_track_manager.pass_leading_fields_to_children(
+        tf.input_group_track_id,
+        batch_size,
+        ps.input_done,
+        sp.targets.iter().map(|tgt| tgt.gt_id),
+    );
+
     // we reverse to make sure that the first subchain ends up
     // on top of the stack and gets executed first
-    for &tf in sp.targets.iter().rev() {
+    for tgt in sp.targets.iter().rev() {
         jd.tf_mgr.inform_cross_ms_transform_batch_available(
             &jd.field_mgr,
-            &mut jd.match_set_mgr,
-            tf,
+            &jd.match_set_mgr,
+            tgt.tf_id,
             batch_size,
             ps.input_done,
         );
@@ -154,11 +169,10 @@ pub(crate) fn handle_fork_expansion(
 ) {
     // we have to temporarily move the targets out of fork so we can modify
     // sess while accessing them
-    let mut targets = Vec::<TransformId>::new();
+    let mut targets = Vec::new();
 
     let tf = &sess.job_data.tf_mgr.transforms[tf_id];
     let fork_input_field_id = tf.input_field;
-    let fork_input_group_track = tf.input_group_track_id;
     let fork_ms_id = tf.match_set_id;
     let fork_op_id = tf.op_id.unwrap() as usize;
     let fork_chain_id = sess.job_data.session_data.operator_bases[fork_op_id]
@@ -169,16 +183,15 @@ pub(crate) fn handle_fork_expansion(
         .subchains
         .len()
     {
-        let tf_id = setup_fork_subchain(
+        let target = setup_fork_subchain(
             sess,
             fork_chain_id,
             i,
             tf_id,
             fork_ms_id,
             fork_input_field_id,
-            fork_input_group_track,
         );
-        targets.push(tf_id);
+        targets.push(target);
     }
 
     sess.log_state("expanded fork");
@@ -199,25 +212,17 @@ fn setup_fork_subchain(
     tf_id: TransformId,
     fork_ms_id: MatchSetId,
     fork_input_field_id: u32,
-    fork_input_group_track: GroupTrackId,
-) -> TransformId {
+) -> ForkTarget {
     // actual chain id as opposed to the index to the nth subchain
     let subchain_id = sess.job_data.session_data.chains[fork_chain_id]
         .subchains[subchain_index] as usize;
     let target_ms_id = sess.job_data.match_set_mgr.add_match_set();
 
-    sess.job_data.match_set_mgr.match_sets[target_ms_id].group_track_mapping =
-        Some(GroupTrackMapping {
-            source: sess
-                .job_data
-                .group_track_manager
-                .claim_group_track_iter_ref(fork_input_group_track),
-            target: sess.job_data.group_track_manager.add_group_track(
-                None,
-                target_ms_id,
-                ActorRef::Unconfirmed(0),
-            ),
-        });
+    let target_group_track = sess
+        .job_data
+        .group_track_manager
+        .add_group_track(None, target_ms_id, ActorRef::Unconfirmed(0));
+
     let field_access_mapping =
         if let TransformData::Fork(f) = &sess.transform_data[tf_id.get()] {
             &f.accessed_fields_per_subchain[subchain_index]
@@ -267,8 +272,7 @@ fn setup_fork_subchain(
         target_ms_id,
         start_op_id,
         input_field,
-        // TODO //HACK: we need to cow this !
-        fork_input_group_track,
+        target_group_track,
         None,
         &HashMap::default(),
     );
@@ -277,7 +281,10 @@ fn setup_fork_subchain(
         instantiation.tfs_end,
         instantiation.continuation,
     );
-    instantiation.tfs_begin
+    ForkTarget {
+        tf_id: instantiation.tfs_begin,
+        gt_id: target_group_track,
+    }
 }
 
 pub fn create_op_fork() -> OperatorData {

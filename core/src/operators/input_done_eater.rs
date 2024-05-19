@@ -3,7 +3,7 @@ use crate::{
     chain::ChainId,
     job::{add_transform_to_job, Job, JobData},
     record_data::{
-        field::VOID_FIELD_ID, group_track_manager::VOID_GROUP_TRACK_ID,
+        field::VOID_FIELD_ID, group_track_manager::GroupTrackId,
         match_set::MatchSetId,
     },
 };
@@ -44,6 +44,7 @@ pub fn handle_tf_input_done_eater(
         &jd.field_mgr,
         jd.tf_mgr.transforms[tf_id].match_set_id,
     );
+    // TODO: pass groups to continuaton
     jd.tf_mgr.submit_batch(tf_id, batch_size, ps.input_done);
 }
 
@@ -51,6 +52,7 @@ pub fn add_input_done_eater(
     sess: &mut Job,
     chain_id: ChainId, // to get desired batch size
     ms_id: MatchSetId,
+    output_group_track: GroupTrackId,
     input_dones_to_eat: usize,
 ) -> TransformId {
     let batch_size = sess.job_data.session_data.chains[chain_id as usize]
@@ -62,8 +64,7 @@ pub fn add_input_done_eater(
         ms_id,
         batch_size,
         None,
-        // TODO: remove this guy completely in favor of foreach trailer
-        VOID_GROUP_TRACK_ID,
+        output_group_track,
     );
     sess.job_data.field_mgr.inc_field_refcount(VOID_FIELD_ID, 2);
     let tf_data = setup_tf_input_done_eater(&mut tf_state, input_dones_to_eat);

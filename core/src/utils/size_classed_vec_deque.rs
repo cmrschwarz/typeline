@@ -5,6 +5,8 @@ use std::{
     ops::{Range, RangeBounds},
 };
 
+use super::pointer_range_len;
+
 pub enum SizeClassedVecDeque {
     Sc8(VecDeque<u8>),
     Sc16(VecDeque<u16>),
@@ -90,7 +92,7 @@ impl SizeClassedVecDeque {
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
-    pub fn size_class(&self) -> usize {
+    pub fn size_class(&self) -> u32 {
         match self {
             SizeClassedVecDeque::Sc8(_) => 8,
             SizeClassedVecDeque::Sc16(_) => 16,
@@ -334,6 +336,45 @@ impl<'a> Iterator for Iter<'a> {
         unsafe {
             self.range_1.start = self.range_1.start.add(self.stride as usize);
         }
+        Some(res)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let len = self.len();
+        (len, Some(len))
+    }
+}
+
+impl<'a> ExactSizeIterator for Iter<'a> {
+    fn len(&self) -> usize {
+        let size = pointer_range_len(&self.range_1)
+            + pointer_range_len(&self.range_2);
+        let shift = self.stride.ilog2() as usize;
+        size >> shift
+    }
+}
+
+impl<'a> DoubleEndedIterator for Iter<'a> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        if self.range_2.end == self.range_2.start {
+            if self.range_1.is_empty() {
+                return None;
+            }
+            std::mem::swap(&mut self.range_1, &mut self.range_2);
+        }
+        unsafe {
+            self.range_2.end = self.range_2.end.sub(self.stride as usize);
+        }
+        let res = unsafe {
+            #[allow(clippy::cast_ptr_alignment)]
+            match self.stride {
+                1 => *(self.range_2.end.cast::<u8>()) as usize,
+                2 => *(self.range_2.end.cast::<u16>()) as usize,
+                4 => *(self.range_2.end.cast::<u32>()) as usize,
+                8 => *(self.range_2.end.cast::<u64>()) as usize,
+                _ => std::hint::unreachable_unchecked(),
+            }
+        };
         Some(res)
     }
 }

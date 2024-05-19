@@ -145,7 +145,7 @@ impl TransformManager {
     pub fn inform_cross_ms_transform_batch_available(
         &mut self,
         fm: &FieldManager,
-        msm: &mut MatchSetManager,
+        msm: &MatchSetManager,
         tf_id: TransformId,
         batch_size: usize,
         predecessor_done: bool,

@@ -13,18 +13,9 @@ use crate::{
 use super::{
     action_buffer::ActionBuffer,
     field::{FieldId, FieldManager},
-    group_track_manager::{GroupTrackId, GroupTrackIterRef},
 };
 
 pub type MatchSetId = DebuggableNonMaxUsize;
-
-pub struct GroupTrackMapping {
-    // the iter represents the groups already copied over
-    // we copy on `update_cow_targets`
-    pub source: GroupTrackIterRef,
-    // target's the one living inside of the ms that owns this struct
-    pub target: GroupTrackId,
-}
 
 #[repr(C)]
 #[derive(Default)]
@@ -43,10 +34,6 @@ pub struct MatchSet {
     // - avoid duplicates
     // - update our cow's when control flow enters into this match set
     pub fields_cow_map: HashMap<FieldId, FieldId, BuildIdentityHasher>,
-    // present if this match set is a child of some fork.
-    // on control flow entry we have to copy the group data
-    // we formalize this so not every fork has to take care of this bs
-    pub group_track_mapping: Option<GroupTrackMapping>,
 }
 
 #[derive(Default)]
@@ -109,16 +96,10 @@ impl MatchSetManager {
             }
         }
     }
-    // TODO: rename this, put group functionality in here or in some parent
-    // function that calls this
     // the heart of every ms transition. all the cow targets of
     // the ms need to aquire the updated state from their respective
     // sources and the group track has to copy over the new groups
-    pub fn update_cow_targets(
-        &mut self,
-        fm: &FieldManager,
-        ms_id: MatchSetId,
-    ) {
+    pub fn update_cow_targets(&self, fm: &FieldManager, ms_id: MatchSetId) {
         let cm = &self.match_sets[ms_id].fields_cow_map;
         #[cfg(feature = "cow_field_logging")]
         {
