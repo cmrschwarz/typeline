@@ -3,7 +3,7 @@ use std::ffi::{CStr, CString};
 use num::BigInt;
 use pyo3::{
     ffi::{PyObject, PyTypeObject},
-    types::{PyAnyMethods, PyCode, PyDict, PyString},
+    types::{PyAnyMethods, PyBytes, PyCode, PyDict, PyString},
     Py, PyAny, Python,
 };
 use scr_core::{
@@ -289,7 +289,9 @@ impl<'a> Transform<'a> for TfPy<'a> {
                         FieldValueRef::Float(f) => f.to_object(py),
                         FieldValueRef::Rational(_) => todo!(), /* use fractions.Fraction? */
                         FieldValueRef::Text(s) => s.to_object(py),
-                        FieldValueRef::Bytes(b) => b.to_object(py),
+                        FieldValueRef::Bytes(b) => {
+                            PyBytes::new_bound(py, b).into_any().unbind()
+                        }
                         FieldValueRef::Array(_) => todo!(),
                         FieldValueRef::Object(_) => todo!(),
                         FieldValueRef::Custom(_) => todo!(),
