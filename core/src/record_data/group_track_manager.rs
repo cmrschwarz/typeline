@@ -391,6 +391,12 @@ pub struct GroupTrackSlice {
     last_group_len: usize,
 }
 
+pub struct LeadingGroupTrackSlice {
+    full_group_count: usize,
+    full_group_field_count: usize,
+    last_group_len: Option<usize>,
+}
+
 impl GroupTrack {
     pub fn parent_list_id(&self) -> Option<GroupTrackId> {
         self.parent_list
@@ -503,14 +509,16 @@ impl GroupTrack {
         ab.release_temp_action_group(agi);
     }
 
-    pub fn drop_leading_fields_from_gtfi(
+    pub fn drop_leading_fields_precounted(
         &mut self,
-        gtfi: GroupTrackSlice,
+        full_groups_count: usize,
+        full_groups_field_count: usize,
+        remainder_field_count: usize,
         #[cfg_attr(not(feature = "debug_logging"), allow(unused))]
         end_of_input: bool,
     ) {
         let total_field_count =
-            gtfi.full_groups_field_count + gtfi.remainder_field_count;
+            full_groups_field_count + remainder_field_count;
         #[cfg(feature = "debug_logging")]
         {
             eprintln!(
@@ -524,17 +532,16 @@ impl GroupTrack {
             eprintln!();
         }
 
-        if gtfi.remainder_field_count > 0 {
+        if remainder_field_count > 0 {
             self.group_lengths
-                .sub_value(gtfi.full_groups_count, gtfi.remainder_field_count);
+                .sub_value(full_groups_count, remainder_field_count);
         }
-        self.group_lengths.drain(0..gtfi.full_groups_count);
+        self.group_lengths.drain(0..full_groups_count);
         if self.parent_list.is_some() {
-            self.parent_group_indices_stable
-                .drain(0..gtfi.full_groups_count);
+            self.parent_group_indices_stable.drain(0..full_groups_count);
         }
         self.group_index_offset =
-            self.group_index_offset.wrapping_add(gtfi.full_groups_count);
+            self.group_index_offset.wrapping_add(full_groups_count);
         self.passed_fields_count += total_field_count;
         #[cfg(feature = "debug_logging")]
         {
@@ -551,7 +558,8 @@ impl GroupTrack {
 
     pub fn append_leading_groups_to_child(
         &self,
-        gtfi: GroupTrackSlice,
+        full_groups_count: usize,
+        remainder_field_count: usize,
         child: &mut GroupTrack,
     ) {
         child
@@ -564,7 +572,7 @@ impl GroupTrack {
             .wrapping_add(child.group_lengths.len());
         if child_group_index_end == first_group_id {
             child.group_lengths.extend_truncated(
-                self.group_lengths.iter().take(gtfi.full_groups_count),
+                self.group_lengths.iter().take(full_groups_count),
             );
         } else {
             debug_assert!(
@@ -578,12 +586,12 @@ impl GroupTrack {
                 self.group_lengths
                     .iter()
                     .skip(1)
-                    .take(gtfi.full_groups_count - 1),
+                    .take(full_groups_count - 1),
             )
         }
         child
             .group_lengths
-            .push_back_truncated(gtfi.remainder_field_count);
+            .push_back_truncated(remainder_field_count);
     }
 
     pub fn lookup_iter(
