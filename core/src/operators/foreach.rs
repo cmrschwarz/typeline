@@ -224,6 +224,6 @@ pub fn handle_tf_foreach_trailer(
         .group_track_manager
         .borrow_group_track_mut(fet.group_track);
     group_track.apply_field_actions(&jd.match_set_mgr);
-    group_track.drop_leading_fields(batch_size, ps.input_done);
+    group_track.drop_leading_fields(true, batch_size, ps.input_done);
     jd.tf_mgr.submit_batch(tf_id, batch_size, ps.input_done);
 }

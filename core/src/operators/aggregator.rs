@@ -265,6 +265,8 @@ pub fn handle_tf_aggregator_header(
         }
         if !last_sc && !agg_h.elem_buffered && batch_size > 0 {
             batch_size -= 1;
+            // TODO: don't buffer unneccessarily. think of the streams. dup
+            // instead. // HACK
             agg_h.elem_buffered = true;
         }
         iter.next_n_fields(batch_size, true);

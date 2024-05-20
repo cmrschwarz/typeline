@@ -231,6 +231,10 @@ pub fn insert_tf_forkcat<'a>(
         op,
         input_size: 0,
         buffered_record_count: 0,
+        group_track_iter: job
+            .job_data
+            .group_track_manager
+            .claim_group_track_iter_ref(tf_state.input_group_track_id),
         prebound_outputs: HashMap::default(),
         input_fields: Vec::with_capacity(
             op.accessed_names_of_subchains_or_succs.len(),
@@ -325,7 +329,6 @@ pub fn handle_tf_forkcat(
     let (batch_size, ps) = jd.tf_mgr.claim_all(tf_id);
     fc.input_size += batch_size;
     let tf = &jd.tf_mgr.transforms[tf_id];
-    let parent_group_track = tf.input_group_track_id;
     let curr_subchain_start = tf.successor.unwrap();
     let sc_group_track =
         jd.tf_mgr.transforms[curr_subchain_start].input_group_track_id;
@@ -334,12 +337,12 @@ pub fn handle_tf_forkcat(
         fc.curr_subchain_n += 1;
         jd.tf_mgr.transforms[tf_id].successor = None;
     }
-    jd.group_track_manager.copy_fields_to_children(
-        fc.group_track_iter,
-        batch_size,
-        ps.input_done,
-        std::iter::once(sc_group_track),
-    );
+    jd.group_track_manager
+        .append_groups_to_children_advance_iter(
+            fc.group_track_iter,
+            batch_size,
+            std::iter::once(sc_group_track),
+        );
 
     jd.tf_mgr.inform_cross_ms_transform_batch_available(
         &jd.field_mgr,

@@ -343,6 +343,23 @@ impl<'a> Iterator for Iter<'a> {
         let len = self.len();
         (len, Some(len))
     }
+
+    fn nth(&mut self, n: usize) -> Option<Self::Item> {
+        let stride_shift = self.stride.ilog2() as usize;
+        if pointer_range_len(&self.range_1) >> stride_shift > n {
+            self.range_1.start =
+                unsafe { self.range_1.start.add(n << stride_shift) };
+            return self.next();
+        }
+        self.range_1.start = self.range_1.end;
+        if pointer_range_len(&self.range_2) >> stride_shift > n {
+            self.range_2.start =
+                unsafe { self.range_2.start.add(n << stride_shift) };
+            return self.next();
+        }
+        self.range_2.start = self.range_2.end;
+        None
+    }
 }
 
 impl<'a> ExactSizeIterator for Iter<'a> {

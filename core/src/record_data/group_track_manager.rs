@@ -391,10 +391,20 @@ pub struct GroupTrackSlice {
     last_group_len: usize,
 }
 
+#[derive(Debug, Clone, Copy, Default)]
 pub struct LeadingGroupTrackSlice {
     full_group_count: usize,
     full_group_field_count: usize,
     last_group_len: Option<usize>,
+}
+
+impl GroupTrackSlice {
+    pub fn full_group_count(&self) -> usize {
+        if self.group_count <= 2 {
+            return 0;
+        }
+        self.group_count - 2
+    }
 }
 
 impl GroupTrack {
@@ -509,20 +519,53 @@ impl GroupTrack {
         ab.release_temp_action_group(agi);
     }
 
-    pub fn drop_leading_fields_precounted(
+    pub fn count_leading_groups(
         &mut self,
-        full_groups_count: usize,
-        full_groups_field_count: usize,
-        remainder_field_count: usize,
+        count: usize,
+        end_of_input: bool,
+    ) -> LeadingGroupTrackSlice {
+        let mut sum = 0;
+        let mut full_group_count = 0;
+        for group_len in &self.group_lengths {
+            let sum_new = sum + group_len;
+            if sum_new >= count {
+                if sum_new == count && end_of_input {
+                    return LeadingGroupTrackSlice {
+                        full_group_count: full_group_count + 1,
+                        full_group_field_count: count,
+                        last_group_len: None,
+                    };
+                }
+                return LeadingGroupTrackSlice {
+                    full_group_count,
+                    full_group_field_count: sum,
+                    last_group_len: Some(count - sum),
+                };
+            }
+            full_group_count += 1;
+            sum = sum_new;
+        }
+        LeadingGroupTrackSlice {
+            full_group_count,
+            full_group_field_count: sum,
+            last_group_len: None,
+        }
+    }
+
+    pub fn drop_leading_groups(
+        &mut self,
+        pass: bool,
+        lgts: LeadingGroupTrackSlice,
         #[cfg_attr(not(feature = "debug_logging"), allow(unused))]
         end_of_input: bool,
     ) {
         let total_field_count =
-            full_groups_field_count + remainder_field_count;
+            lgts.full_group_field_count + lgts.last_group_len.unwrap_or(0);
         #[cfg(feature = "debug_logging")]
         {
             eprintln!(
-                "dropping {total_field_count} leading fields for group {}{}:",
+                "{} {total_field_count} leading fields for group {}{}:",
+                if pass { "passing" } else { "dropping" },
                 self.id,
                 if end_of_input { "(eof)" } else { "" }
             );
@@ -531,67 +574,158 @@ impl GroupTrack {
             self.eprint_iter_states(8);
             eprintln!();
         }
-
-        if remainder_field_count > 0 {
-            self.group_lengths
-                .sub_value(full_groups_count, remainder_field_count);
-        }
-        self.group_lengths.drain(0..full_groups_count);
+        self.group_lengths.drain(0..lgts.full_group_count);
         if self.parent_list.is_some() {
-            self.parent_group_indices_stable.drain(0..full_groups_count);
+            self.parent_group_indices_stable
+                .drain(0..lgts.full_group_count);
         }
+
+        if let Some(v) = lgts.last_group_len {
+            self.group_lengths.sub_value(0, v);
+        }
+
         self.group_index_offset =
-            self.group_index_offset.wrapping_add(full_groups_count);
-        self.passed_fields_count += total_field_count;
+            self.group_index_offset.wrapping_add(lgts.full_group_count);
+        if pass {
+            self.passed_fields_count += total_field_count;
+        }
         #[cfg(feature = "debug_logging")]
         {
-            eprint!("   after:  {self}",);
+            eprint!("   after:   {self}",);
             #[cfg(feature = "iter_state_logging")]
             self.eprint_iter_states(8);
             eprintln!();
         }
     }
-    pub fn drop_leading_fields(&mut self, count: usize, end_of_input: bool) {
-        let gir = self.count_groups_forwards(count, end_of_input);
-        self.drop_leading_fields_from_gtfi(gir, end_of_input)
+
+    pub fn drop_leading_fields(
+        &mut self,
+        pass: bool,
+        count: usize,
+        end_of_input: bool,
+    ) {
+        let lgts = self.count_leading_groups(count, end_of_input);
+        self.drop_leading_groups(pass, lgts, end_of_input)
     }
 
     pub fn append_leading_groups_to_child(
         &self,
-        full_groups_count: usize,
-        remainder_field_count: usize,
+        lgts: LeadingGroupTrackSlice,
         child: &mut GroupTrack,
     ) {
+        if self.group_lengths.is_empty() {
+            debug_assert_eq!(lgts.full_group_count, 0);
+            debug_assert_eq!(lgts.last_group_len, None);
+            return;
+        }
+
+        #[cfg(feature = "debug_logging")]
+        {
+            eprintln!(
+                "appending leading groups from track {} to {}: full: {}({}) partial: {}({}) ",
+                self.id, child.id,
+                lgts.full_group_count,
+                lgts.full_group_field_count,
+                lgts.last_group_len.map(|_|1).unwrap_or(0),
+                lgts.last_group_len.unwrap_or(0),
+            );
+            eprint!("   before:  {child}",);
+            #[cfg(feature = "iter_state_logging")]
+            self.eprint_iter_states(8);
+            eprintln!();
+        }
+
         child
             .group_lengths
             .promote_to_size_class(self.group_lengths.size_class());
         let first_group_id = self.group_index_offset;
-        let first_group_len = self.group_lengths.get(0);
         let child_group_index_end = child
             .group_index_offset
             .wrapping_add(child.group_lengths.len());
         if child_group_index_end == first_group_id {
             child.group_lengths.extend_truncated(
-                self.group_lengths.iter().take(full_groups_count),
+                self.group_lengths.iter().take(lgts.full_group_count),
             );
+            if let Some(v) = lgts.last_group_len {
+                child.group_lengths.push_back_truncated(v);
+            }
         } else {
             debug_assert!(
                 first_group_id.wrapping_add(1) == child_group_index_end
             );
             let child_last_index = child.group_lengths.len() - 1;
-            child
-                .group_lengths
-                .add_value(child_last_index, first_group_len);
-            child.group_lengths.extend_truncated(
-                self.group_lengths
-                    .iter()
-                    .skip(1)
-                    .take(full_groups_count - 1),
-            )
+            if lgts.full_group_count > 0 {
+                let first_group_len = self.group_lengths.get(0);
+                child
+                    .group_lengths
+                    .add_value(child_last_index, first_group_len);
+                child.group_lengths.extend_truncated(
+                    self.group_lengths
+                        .iter()
+                        .skip(1)
+                        .take(lgts.full_group_count.saturating_sub(1)),
+                );
+                if let Some(v) = lgts.last_group_len {
+                    child.group_lengths.push_back_truncated(v);
+                }
+            } else if let Some(v) = lgts.last_group_len {
+                child.group_lengths.add_value(child_last_index, v);
+            }
         }
+
+        #[cfg(feature = "debug_logging")]
+        {
+            eprint!("   after:   {child}",);
+            #[cfg(feature = "iter_state_logging")]
+            self.eprint_iter_states(8);
+            eprintln!();
+        }
+    }
+
+    pub fn append_groups_to_child(
+        &self,
+        gts: GroupTrackSlice,
+        child: &mut GroupTrack,
+    ) {
+        if gts.group_count == 0 {
+            return;
+        }
+        // PERF: slightly overzealous, but probably fine
         child
             .group_lengths
-            .push_back_truncated(remainder_field_count);
+            .promote_to_size_class(self.group_lengths.size_class());
+        let child_group_index_end =
+            child.stable_idx_from_group_idx(child.group_lengths.len());
+
+        let full_groups_offset = self
+            .group_idx_from_stable_idx(gts.group_index_stable.wrapping_add(1));
+        let full_groups_iter = self
+            .group_lengths
+            .iter()
+            .skip(full_groups_offset)
+            .take(gts.full_group_count());
+
+        if child_group_index_end == gts.group_index_stable {
+            child.group_lengths.push_back_truncated(gts.first_group_len);
+            if gts.group_count == 1 {
+                return;
+            }
+            child.group_lengths.extend_truncated(full_groups_iter);
+            child.group_lengths.push_back_truncated(gts.last_group_len);
+            return;
+        }
+        debug_assert!(
+            gts.group_index_stable.wrapping_add(1) == child_group_index_end
+        );
+        let child_last_index = child.group_lengths.len() - 1;
+        child
+            .group_lengths
+            .add_value(child_last_index, gts.first_group_len);
+        if gts.group_count == 1 {
+            return;
+        }
+        child.group_lengths.extend_truncated(full_groups_iter);
+        child.group_lengths.push_back_truncated(gts.last_group_len);
     }
 
     pub fn lookup_iter(
@@ -926,14 +1060,34 @@ impl GroupTrackManager {
     ) -> RefMut<GroupTrack> {
         self.group_tracks[group_track_id].borrow_mut()
     }
-    pub fn pass_fields_to_children(
+    pub fn pass_leading_groups_to_children(
+        &self,
+        msm: &MatchSetManager,
+        group_track_id: GroupTrackId,
+        count: usize,
+        end_of_input: bool,
+        children: impl IntoIterator<Item = GroupTrackId>,
+    ) {
+        let mut gt = self.group_tracks[group_track_id].borrow_mut();
+        gt.apply_field_actions(msm);
+
+        let lgts = gt.count_leading_groups(count, end_of_input);
+        for child_id in children {
+            gt.append_leading_groups_to_child(
+                lgts,
+                &mut self.group_tracks[child_id].borrow_mut(),
+            );
+        }
+        gt.drop_leading_groups(true, lgts, end_of_input);
+    }
+    pub fn append_groups_to_children_advance_iter(
         &mut self,
         group_track_iter: GroupTrackIterRef,
         count: usize,
         children: impl IntoIterator<Item = GroupTrackId>,
     ) {
-        let mut gt = self.group_tracks[group_track_iter.list_id].borrow_mut();
-        let iter = gt.lookup_iter(group_track_iter.iter_id);
+        let gt = self.group_tracks[group_track_iter.list_id].borrow();
+        let mut iter = gt.lookup_iter(group_track_iter.iter_id);
         let group_slice = iter.consume_group_slice(count);
         gt.store_iter(group_track_iter.iter_id, &iter);
         for c in children {
@@ -942,39 +1096,8 @@ impl GroupTrackManager {
                 &mut self.group_tracks[c].borrow_mut(),
             );
         }
-        gt.drop_leading_fields_from_gtfi(gtfi, end_of_input);
     }
-    pub fn copy_leading_fields_to_children(
-        &mut self,
-        group_track: GroupTrackId,
-        count: usize,
-        end_of_input: bool,
-        children: impl IntoIterator<Item = GroupTrackId>,
-    ) {
-        let gt = self.group_tracks[group_track].borrow();
-        let gtfi = gt.count_groups_forwards(count, end_of_input);
-        for c in children {
-            gt.append_leading_groups_to_child(
-                gtfi,
-                &mut self.group_tracks[c].borrow_mut(),
-            );
-        }
-    }
-    pub fn copy_trailing_fields_to_children(
-        &mut self,
-        group_track: GroupTrackId,
-        count: usize,
-        children: impl IntoIterator<Item = GroupTrackId>,
-    ) {
-        let gt = self.group_tracks[group_track].borrow();
-        let gtbi = gt.count_groups_backwards(count);
-        for c in children {
-            gt.append_trailing_groups_to_child(
-                gtbi,
-                &mut self.group_tracks[c].borrow_mut(),
-            );
-        }
-    }
+
     pub fn copy_all_fields_to_children(
         &mut self,
         group_track: GroupTrackId,
@@ -1060,12 +1183,15 @@ impl<L: Deref<Target = GroupTrack>> GroupTrackIter<L> {
         true
     }
     pub fn consume_group_slice(&mut self, count: usize) -> GroupTrackSlice {
-        let mut gts = GroupTrackSlice::default();
-        gts.group_index_stable = self.group_idx_stable();
-        gts.first_group_len = self.group_len_rem;
-        gts.group_count += 1;
-
+        let mut gts = GroupTrackSlice {
+            group_index_stable: self.group_idx_stable(),
+            group_count: 1,
+            first_group_len: self.group_len_rem,
+            full_groups_field_count: 0,
+            last_group_len: 0,
+        };
         if !self.try_next_group() {
+            self.next_n_fields(self.group_len_rem);
             return gts;
         }
         gts.last_group_len = self.group_len_rem;

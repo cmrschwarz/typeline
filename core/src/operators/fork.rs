@@ -142,7 +142,8 @@ pub fn handle_tf_fork(jd: &mut JobData, tf_id: TransformId, sp: &mut TfFork) {
 
     let tf = &jd.tf_mgr.transforms[tf_id];
 
-    jd.group_track_manager.pass_leading_fields_to_children(
+    jd.group_track_manager.pass_leading_groups_to_children(
+        &jd.match_set_mgr,
         tf.input_group_track_id,
         batch_size,
         ps.input_done,
