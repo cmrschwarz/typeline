@@ -82,6 +82,7 @@ pub struct Connection {
 }
 
 impl Connection {
+    #[allow(unused)] // TODO: do we ever need this?
     fn reregister(&mut self, registry: &mio::Registry, token: mio::Token) {
         let interest = if let Some(c) = &self.tls_conn {
             let mut interest = mio::Interest::READABLE;
@@ -387,8 +388,9 @@ impl TfHttpRequest {
     fn basic_update(&mut self, mut bud: BasicUpdateData) -> (usize, bool) {
         let mut of = bud.field_mgr.fields[bud.output_field_id].borrow_mut();
         let mut inserter = of.iter_hall.varying_type_inserter();
+        let mut bs_rem = bud.batch_size;
         while let Some((v, rl, _)) =
-            bud.iter.next_value(bud.match_set_mgr, usize::MAX)
+            bud.iter.next_value(bud.match_set_mgr, bs_rem)
         {
             // we properly support fetching from the same url mutliple times,
             // but we don't bother making that fast
@@ -410,6 +412,7 @@ impl TfHttpRequest {
                     false,
                 ),
             }
+            bs_rem -= rl as usize;
         }
         if !self.running_connections.is_empty() {
             bud.tf_mgr.make_stream_producer(bud.tf_id);
@@ -494,7 +497,7 @@ fn process_tls_event(
 ) -> Result<bool, HttpRequestError> {
     let request_done = c.request_done();
     let tls_conn = c.tls_conn.as_mut().unwrap();
-    let mut eof = event.is_read_closed();
+    let mut eof = event.is_read_closed() && event.is_write_closed();
 
     if event.is_readable() {
         let read = tls_conn.read_tls(&mut c.socket)?;
@@ -545,7 +548,7 @@ fn process_event(
         }
     }
 
-    let mut eof = event.is_read_closed();
+    let mut eof = event.is_read_closed() && event.is_write_closed();
     if event.is_readable() {
         match std::io::copy(&mut c.socket, tgt) {
             Ok(0) => eof = true,
@@ -686,11 +689,11 @@ impl Transform<'_> for TfHttpRequest {
                     }
                 }
                 Ok(EventResult::Spurious) => {
-                    req.reregister(self.poll.registry(), mio::Token(token));
+                    // req.reregister(self.poll.registry(), mio::Token(token));
                 }
                 Ok(EventResult::Update) => {
                     jd.sv_mgr.inform_stream_value_subscribers(sv_id);
-                    req.reregister(self.poll.registry(), mio::Token(token));
+                    // req.reregister(self.poll.registry(), mio::Token(token));
                 }
                 Ok(EventResult::Done) => {
                     sv.done = true;

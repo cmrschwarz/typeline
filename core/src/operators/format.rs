@@ -1497,7 +1497,7 @@ unsafe fn insert_output_target(
     let mut buf = String::with_capacity(os.len);
     let target = unsafe { Some(NonNull::new_unchecked(buf.as_mut_ptr())) };
     // just to be 'rust compliant' ...
-    buf.extend(std::iter::repeat('\0').take(os.len));
+    buf.extend(std::iter::repeat('#').take(os.len));
     output_field
         .iter_hall
         .push_text_buffer(buf, os.run_len, true, false);
