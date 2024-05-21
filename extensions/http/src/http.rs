@@ -1,4 +1,5 @@
 use std::{
+    collections::{hash_map::Entry, HashMap},
     io::{Read, Write},
     net::{SocketAddr, ToSocketAddrs},
     sync::Arc,
@@ -27,6 +28,7 @@ use scr_core::{
         },
     },
     record_data::{
+        field_data::{FieldData, RunLength},
         field_value_ref::FieldValueRef,
         iter_hall::{IterId, IterKind},
         push_interface::PushInterface,
@@ -34,6 +36,7 @@ use scr_core::{
             StreamValue, StreamValueBufferMode, StreamValueData,
             StreamValueDataType, StreamValueId,
         },
+        varying_type_inserter::VaryingTypeInserter,
     },
     smallbox,
     utils::universe::CountedUniverse,
@@ -104,6 +107,8 @@ impl Connection {
 
 pub struct TfHttpRequest {
     iter_id: IterId,
+    // TODO: lru
+    dns_cache: HashMap<(String, u16), Vec<SocketAddr>>,
     running_connections: CountedUniverse<usize, Connection>,
     tls_config: Arc<rustls::ClientConfig>,
     poll: Poll,
@@ -154,6 +159,7 @@ impl Operator for OpHttpRequest {
         let tf = TfHttpRequest {
             running_connections: CountedUniverse::default(),
             poll: Poll::new().unwrap(),
+            dns_cache: HashMap::new(),
             events: Events::with_capacity(64),
             iter_id: job.job_data.field_mgr.claim_iter(
                 tf_state.input_field,
@@ -174,12 +180,17 @@ enum EventResult {
     TryNextIp,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Proto {
+    Http,
+    Https,
+}
+
 impl TfHttpRequest {
-    fn register_steam(
+    fn lookup_socket_addresses(
         &mut self,
         url: &str,
-        bud: &mut BasicUpdateData,
-    ) -> Result<StreamValueId, HttpRequestError> {
+    ) -> Result<(Url, Vec<SocketAddr>, Proto), HttpRequestError> {
         let mut url_parsed = match Url::parse(url) {
             Ok(u) => u,
             Err(e) => match e {
@@ -220,34 +231,75 @@ impl TfHttpRequest {
         };
         let port = url_parsed.port().unwrap_or(if https { 443 } else { 80 });
 
-        let location = url_parsed.path();
+        let socket_addresses =
+            match self.dns_cache.entry((hostname.to_owned(), port)) {
+                Entry::Occupied(e) => e.get().clone(),
+                // PERF: this is synchronuos, and slow
+                Entry::Vacant(e) => e
+                    .insert(
+                        (hostname, port)
+                            .to_socket_addrs()?
+                            // We pop these, but we want to keep the 'intended'
+                            // order. Usually IPv6 is
+                            // reported first by this etc...
+                            .rev()
+                            .collect::<Vec<_>>(),
+                    )
+                    .clone(),
+            };
 
-        let mut socket_addresses = (hostname, port)
-            .to_socket_addrs()?
-            // We pop these, but we want to keep the 'intended' order.
-            // Usually IPv6 is reported first by this etc...
-            .rev()
-            .collect::<Vec<_>>();
+        let proto = if https { Proto::Https } else { Proto::Http };
+
+        Ok((url_parsed, socket_addresses, proto))
+    }
+
+    fn register_steam(
+        &mut self,
+        url: &str,
+        bud: &mut BasicUpdateData,
+        rl: RunLength,
+        inserter: &mut VaryingTypeInserter<&'_ mut FieldData>,
+    ) {
+        fn fail(
+            inserter: &mut VaryingTypeInserter<&'_ mut FieldData>,
+            bud: &mut BasicUpdateData,
+            e: HttpRequestError,
+            rl: RunLength,
+        ) {
+            inserter.push_error(
+                OperatorApplicationError::new_s(
+                    format!("HTTP GET request failed: {e}"),
+                    bud.tf_mgr.transforms[bud.tf_id].op_id.unwrap(),
+                ),
+                rl as usize,
+                true,
+                false,
+            );
+        }
+
+        let (url, mut socket_addresses, proto) =
+            match self.lookup_socket_addresses(url) {
+                Ok(v) => v,
+                Err(e) => {
+                    fail(inserter, bud, e, rl);
+                    return;
+                }
+            };
+
+        let hostname = url.host_str().unwrap_or("");
+        let location = url.path();
 
         let Some(first_addr) = socket_addresses.pop() else {
-            return Err(HttpRequestError::Other(format!(
-                "failed to resolve hostname '{hostname}'"
-            )));
+            fail(
+                inserter,
+                bud,
+                HttpRequestError::Other(format!(
+                    "failed to resolve hostname '{hostname}'",
+                )),
+                rl,
+            );
+            return;
         };
-        let token = self.running_connections.peek_claim_id();
-        let (socket, tls_conn) =
-            self.setup_connection(first_addr, https, hostname, token)?;
-
-        let stream_value =
-            bud.sv_mgr.claim_stream_value(StreamValue::from_data(
-                Some(StreamValueDataType::Bytes),
-                StreamValueData::Bytes {
-                    data: Arc::new(Vec::new()),
-                    range: 0..0,
-                },
-                StreamValueBufferMode::Stream,
-                false,
-            ));
 
         // Accept-Encoding: identity\r\n\
         let httpreq = format!(
@@ -260,23 +312,49 @@ impl TfHttpRequest {
         .into_bytes()
         .into_boxed_slice();
 
-        self.running_connections.claim_with_value(Connection {
-            hostname: hostname.to_owned(),
-            socket_established: false,
-            socket,
-            stream_value: Some(stream_value),
-            tls_conn,
-            header_parsed: false,
-            header_lines_count: 0,
-            header_parsed_until: 0,
-            request_data: httpreq,
-            request_offset: 0,
-            expected_response_size: None,
-            response_size: 0,
-            remaining_socket_addresses: socket_addresses,
-        });
+        for _ in 0..rl {
+            let token = self.running_connections.peek_claim_id();
+            let (socket, tls_conn) = match self.setup_connection(
+                first_addr,
+                proto == Proto::Https,
+                hostname,
+                token,
+            ) {
+                Ok(v) => v,
+                Err(e) => {
+                    fail(inserter, bud, e, 1);
+                    continue;
+                }
+            };
 
-        Ok(stream_value)
+            let stream_value_id =
+                bud.sv_mgr.claim_stream_value(StreamValue::from_data(
+                    Some(StreamValueDataType::Bytes),
+                    StreamValueData::Bytes {
+                        data: Arc::new(Vec::new()),
+                        range: 0..0,
+                    },
+                    StreamValueBufferMode::Stream,
+                    false,
+                ));
+
+            self.running_connections.claim_with_value(Connection {
+                hostname: hostname.to_owned(),
+                socket_established: false,
+                socket,
+                stream_value: Some(stream_value_id),
+                tls_conn,
+                header_parsed: false,
+                header_lines_count: 0,
+                header_parsed_until: 0,
+                request_data: httpreq.clone(),
+                request_offset: 0,
+                expected_response_size: None,
+                response_size: 0,
+                remaining_socket_addresses: socket_addresses.clone(),
+            });
+            inserter.push_stream_value_id(stream_value_id, 1, true, false);
+        }
     }
 
     fn setup_connection(
@@ -314,39 +392,23 @@ impl TfHttpRequest {
         {
             // we properly support fetching from the same url mutliple times,
             // but we don't bother making that fast
-            for _ in 0..rl {
-                match v {
-                    FieldValueRef::Text(txt) => {
-                        match self.register_steam(txt, &mut bud) {
-                            Ok(sv_id) => inserter
-                                .push_stream_value_id(sv_id, 1, true, false),
-                            Err(e) => inserter.push_error(
-                                OperatorApplicationError::new_s(
-                                    format!("HTTP GET request failed: {e}"),
-                                    bud.tf_mgr.transforms[bud.tf_id]
-                                        .op_id
-                                        .unwrap(),
-                                ),
-                                1,
-                                true,
-                                false,
-                            ),
-                        }
-                    }
-                    FieldValueRef::Bytes(_) => todo!(),
-                    _ => inserter.push_error(
-                        OperatorApplicationError::new_s(
-                            format!(
-                                "unsupported datatype for http-get url: {}",
-                                v.repr()
-                            ),
-                            bud.tf_mgr.transforms[bud.tf_id].op_id.unwrap(),
-                        ),
-                        1,
-                        true,
-                        false,
-                    ),
+            match v {
+                FieldValueRef::Text(txt) => {
+                    self.register_steam(txt, &mut bud, rl, &mut inserter);
                 }
+                FieldValueRef::Bytes(_) => todo!(),
+                _ => inserter.push_error(
+                    OperatorApplicationError::new_s(
+                        format!(
+                            "unsupported datatype for http-get url: {}",
+                            v.repr()
+                        ),
+                        bud.tf_mgr.transforms[bud.tf_id].op_id.unwrap(),
+                    ),
+                    rl as usize,
+                    true,
+                    false,
+                ),
             }
         }
         if !self.running_connections.is_empty() {

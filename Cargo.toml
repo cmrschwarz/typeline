@@ -44,6 +44,10 @@ lto = "thin"
 [profile.dev]
 panic = "unwind"
 
+[profile.bench]
+inherits="release"
+debug=true
+
 [features]
 repl = ["scr_core/repl"]
 sqlite = ["dep:scr_ext_sqlite"]
