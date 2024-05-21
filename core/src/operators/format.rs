@@ -1309,19 +1309,46 @@ fn setup_output_targets(
     if fmt.output_states[0].run_len == 0 {
         return;
     }
+    fmt.output_targets.reserve(fmt.output_states.len());
     let mut output_idx = 0;
 
-    fmt.output_targets.reserve(fmt.output_states.len());
+    let starting_len =
+        unsafe { output_field.iter_hall.internals_mut().data.len() };
+    let mut tgt_len = starting_len;
+    for os in &fmt.output_states {
+        if os.contained_error.is_some() {
+            tgt_len = FieldValueRepr::Error.align_size_up(tgt_len);
+            tgt_len += FieldValueRepr::Error.size();
+        } else if os.incomplete_stream_value_handle.is_some() {
+            tgt_len = FieldValueRepr::StreamValueId.align_size_up(tgt_len);
+            tgt_len += FieldValueRepr::StreamValueId.size();
+        } else if os.len <= INLINE_STR_MAX_LEN {
+            tgt_len += os.len;
+        } else {
+            tgt_len = FieldValueRepr::BytesBuffer.align_size_up(tgt_len);
+            tgt_len += FieldValueRepr::BytesBuffer.size();
+        }
+    }
+    // SAFETY:
+    // in `insert_output_target` we call `push_variable_sized_type_uninit`
+    // multiple times, recording the resulting pointer to fill in the data
+    // later for this to work, we need to reserve all the neccessary space
+    // up front
+    unsafe { output_field.iter_hall.internals_mut() }
+        .data
+        .reserve(tgt_len - starting_len);
 
     loop {
-        let target = insert_output_target(
-            fmt,
-            output_idx,
-            ss,
-            output_field,
-            op_id,
-            sv_mgr,
-        );
+        let target = unsafe {
+            insert_output_target(
+                fmt,
+                output_idx,
+                ss,
+                output_field,
+                op_id,
+                sv_mgr,
+            )
+        };
         let os = &mut fmt.output_states[output_idx];
         fmt.output_targets.push(OutputTarget {
             run_len: os.run_len,
@@ -1338,7 +1365,7 @@ fn setup_output_targets(
     debug_assert!(fmt.output_states.len() == fmt.output_targets.len());
 }
 
-fn insert_output_target(
+unsafe fn insert_output_target(
     fmt: &mut TfFormat<'_>,
     output_idx: usize,
     ss: &StringStore,
@@ -1438,6 +1465,11 @@ fn insert_output_target(
     if os.len <= INLINE_STR_MAX_LEN {
         let target = unsafe {
             Some(NonNull::new_unchecked(
+                // SAFETY: when this function is called multiple times,
+                // the caller needs to make sure that enough space is
+                // reserved up front. otherwise, an internal realloc could
+                // invalidate the pointer that we get here
+                // see `setup_output_targets` for how we currently do this
                 output_field.iter_hall.push_variable_sized_type_uninit(
                     if os.contains_raw_bytes {
                         FieldValueRepr::BytesInline
