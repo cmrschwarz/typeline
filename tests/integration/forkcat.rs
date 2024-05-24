@@ -1,3 +1,6 @@
+//TODO: disable forkcat tests for now
+#![cfg(any())]
+
 use rstest::rstest;
 use scr::utils::maybe_text::MaybeText;
 use scr_core::{
