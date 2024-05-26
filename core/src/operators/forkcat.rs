@@ -32,6 +32,21 @@ use super::{
     transform::{TransformData, TransformId, TransformState},
 };
 
+// Forkcat: split up pipeline into multiple subchains, concatenate the results
+// - create matchset for each subchain
+// - create machset for the continuation
+// - cow all fields accessed by each subchain (or the continuation) into each
+//   subchain
+// - create accessed fields in continuation that all cow a single field also in
+//   the continuation that contains field refs
+// - prebind outputs used in continuation for each subchain
+// - create trailer tf for each subchain that does the following:
+//      - check if current the current group of this sc is ready to be emitted
+//        (have an Arc<RefCell> to figure that out), if no do nothing
+//      - if yes:
+//              - create / append group length
+//              - append to pseudo data column, inform comsumers
+
 #[derive(Clone, Copy)]
 enum OutputMapping {
     // field is produced / shadowed by the subchain
