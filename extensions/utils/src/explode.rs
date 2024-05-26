@@ -111,18 +111,21 @@ impl Operator for OpExplode {
         &self,
         _sess: &SessionData,
         _ld: &mut LivenessData,
-        _access_flags: &mut AccessFlags,
+        access_flags: &mut AccessFlags,
         _op_offset_after_last_write: OperatorOffsetInChain,
         _op_id: OperatorId,
         _bb_id: BasicBlockId,
         _input_field: OpOutputIdx,
     ) -> Option<(OpOutputIdx, OperatorCallEffect)> {
-        // Counterintuitively, this operator does not impact liveness analysis.
-        // LA models the worst case (maximum amount of fields accessed).
-        // This op does not *access* any vars other that it's direct input.
-        // It may shadow any output, but we have to assume the worst case,
-        // which is that it shadowed none. This means that
-        // all outputs live before the op stay alive afterwards.
+        access_flags.may_dup_or_drop = false;
+        // Counterintuitively, this operator does not impact liveness analysis,
+        // except through it's access of it's direct input.
+        // The Liveness Analysis models the worst case (maximum amount of
+        // fields accessed). This op does not *access* any vars other
+        // that it's direct input. It may shadow any output, but we
+        // have to assume the worst case, which is that it shadowed
+        // none. This means that all outputs live before the op stay
+        // alive afterwards.
         None
     }
 

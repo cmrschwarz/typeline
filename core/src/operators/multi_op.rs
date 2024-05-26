@@ -66,6 +66,7 @@ impl Operator for OpMultiOp {
         let mut next_input = input_field;
         let mut outputs_offset = 0;
         loop {
+            // TODO: manage access flags for subsequent ops correctly
             let op = &self.ops[i];
             let (output, ce) = op.update_liveness_for_op(
                 sess,

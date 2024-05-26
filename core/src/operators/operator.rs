@@ -14,7 +14,7 @@ use crate::{
         argument::CliArgIdx, chain_options::ChainOptions,
         session_options::SessionOptions,
     },
-    record_data::{field::FieldId, group_track_manager::GroupTrackId},
+    record_data::{field::FieldId, group_track::GroupTrackId},
     utils::{
         identity_hasher::BuildIdentityHasher, small_box::SmallBox,
         string_store::StringStoreEntry,

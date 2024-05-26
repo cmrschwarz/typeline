@@ -95,10 +95,12 @@ pub struct BasicBlock {
 
     updates_required: bool,
 }
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum Var {
     BBInput,
     VoidVar,
-    AnyVar,
+    // any var of a dynamically generated name (e.g. explode)
     DynVar,
     Named(StringStoreEntry),
 }
@@ -192,7 +194,6 @@ impl Var {
             Var::Named(n) => string_store.lookup(*n),
             Var::BBInput => "<bb input>",
             Var::VoidVar => "<void>",
-            Var::AnyVar => "<any>",
             Var::DynVar => "<dyn>",
         }
     }
@@ -264,7 +265,6 @@ impl LivenessData {
         // at the top of this file for BB_INPUT_VAR_ID etc.
         self.vars.push(Var::BBInput);
         self.vars.push(Var::VoidVar);
-        self.vars.push(Var::AnyVar);
         self.vars.push(Var::DynVar);
         for c in &sess.chains {
             for &op_id in &c.operators {
@@ -277,14 +277,14 @@ impl LivenessData {
         bb_id: BasicBlockId,
         op_n: OperatorOffsetInChain,
     ) {
-        let succ_bb_id = self.basic_blocks.len();
+        let curr_bb_count = self.basic_blocks.len();
         let bb = &mut self.basic_blocks[bb_id];
         let end = bb.operators_end;
         let chain_id = bb.chain_id;
         bb.operators_end = op_n + 1;
         if op_n + 1 != end {
-            bb.successors.push(succ_bb_id);
             bb.operators_end = op_n;
+            bb.successors.push(curr_bb_count);
             self.basic_blocks.push(BasicBlock {
                 chain_id,
                 operators_start: op_n + 1,

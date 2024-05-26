@@ -24,7 +24,7 @@ use crate::{
         action_buffer::{ActorId, ActorRef, SnapshotRef},
         field::{FieldId, FieldManager, VOID_FIELD_ID},
         field_action::FieldActionKind,
-        group_track_manager::{GroupTrackId, GroupTrackManager},
+        group_track::{GroupTrackId, GroupTrackManager},
         iter_hall::{IterId, IterKind},
         match_set::{MatchSetId, MatchSetManager},
         push_interface::PushInterface,

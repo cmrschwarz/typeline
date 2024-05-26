@@ -15,7 +15,7 @@ use crate::{
     record_data::{
         action_buffer::ActorRef,
         field::{FieldId, VOID_FIELD_ID},
-        group_track_manager::GroupTrackIterRef,
+        group_track::GroupTrackIterRef,
     },
     utils::{
         identity_hasher::BuildIdentityHasher, string_store::StringStoreEntry,
@@ -198,7 +198,6 @@ pub fn setup_op_forkcat_liveness_data(
                         Var::Named(name) => Some(name),
                         Var::BBInput => None,
                         Var::DynVar => todo!(),
-                        Var::AnyVar => todo!(),
                         Var::VoidVar => unreachable!(),
                     };
                     if let Some(&idx) = reads_of_succs_idx_map.get(&var_name) {

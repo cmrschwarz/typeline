@@ -17,7 +17,7 @@ use crate::{
         action_buffer::{ActorId, ActorRef},
         field::{FieldId, FieldManager, VOID_FIELD_ID},
         field_action::FieldActionKind,
-        group_track_manager::VOID_GROUP_TRACK_ID,
+        group_track::VOID_GROUP_TRACK_ID,
         iter_hall::{IterId, IterKind},
         iters::FieldIterator,
         match_set::MatchSetId,
@@ -157,7 +157,7 @@ pub fn setup_op_call_concurrent_liveness_data(
             Var::BBInput => {
                 op.target_accessed_fields.push((None, writes));
             }
-            Var::AnyVar | Var::DynVar => todo!(),
+            Var::DynVar => todo!(),
             Var::VoidVar => (),
         }
     }

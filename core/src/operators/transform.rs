@@ -7,7 +7,7 @@ use crate::{
     job::{Job, JobData},
     record_data::{
         field::FieldId,
-        group_track_manager::GroupTrackId,
+        group_track::GroupTrackId,
         match_set::MatchSetId,
         stream_value::{StreamValueId, StreamValueUpdate},
     },

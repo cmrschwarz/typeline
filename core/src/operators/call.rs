@@ -7,7 +7,7 @@ use crate::{
     job::{Job, JobData},
     options::argument::CliArgIdx,
     record_data::{
-        field::FieldId, group_track_manager::GroupTrackId,
+        field::FieldId, group_track::GroupTrackId,
         match_set::MatchSetId,
     },
     utils::{

@@ -18,7 +18,7 @@ use super::{
     field_action::{merge_action_lists, FieldAction, FieldActionKind},
     field_action_applicator::FieldActionApplicator,
     field_data::{FieldValueHeader, RunLength, MAX_FIELD_ALIGN},
-    group_track_manager::GroupTrackId,
+    group_track::GroupTrackId,
     iter_hall::{CowVariant, FieldDataSource, IterState},
     match_set::MatchSetId,
 };

@@ -5,7 +5,7 @@ use crate::{
     cli::reject_operator_argument,
     job::{add_transform_to_job, Job, JobData},
     options::argument::CliArgIdx,
-    record_data::group_track_manager::{
+    record_data::group_track::{
         GroupTrackId, GroupTrackIterId, GroupTrackIterRef,
     },
 };

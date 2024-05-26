@@ -8,7 +8,7 @@ use crate::{
     options::argument::CliArgIdx,
     record_data::{
         action_buffer::ActorId, field::Field,
-        group_track_manager::GroupTrackIterRef, iter_hall::IterId,
+        group_track::GroupTrackIterRef, iter_hall::IterId,
         variable_sized_type_inserter::VariableSizeTypeInserter,
     },
     utils::int_string_conversions::{

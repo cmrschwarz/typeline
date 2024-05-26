@@ -4,7 +4,7 @@ use crate::{
     operators::transform::TransformId,
     record_data::{
         field::{FieldId, FieldManager},
-        group_track_manager::GroupTrackManager,
+        group_track::GroupTrackManager,
         iter_hall::IterId,
         iters::{BoundedIter, DestructuredFieldDataRef, Iter},
         match_set::{MatchSetId, MatchSetManager},

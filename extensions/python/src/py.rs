@@ -139,6 +139,7 @@ impl Operator for OpPy {
         _bb_id: BasicBlockId,
         _input_field: OpOutputIdx,
     ) -> Option<(OpOutputIdx, OperatorCallEffect)> {
+        access_flags.may_dup_or_drop = false;
         for fv in &self.free_vars_sse {
             if let Some(name) = fv {
                 ld.access_var(

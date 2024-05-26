@@ -10,7 +10,7 @@ pub mod field_value_ref;
 pub mod field_value_slice_iter;
 pub mod fixed_sized_type_inserter;
 pub mod formattable;
-pub mod group_track_manager;
+pub mod group_track;
 pub mod iter_hall;
 pub mod iters;
 pub mod match_set;

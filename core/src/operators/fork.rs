@@ -14,7 +14,7 @@ use crate::{
     record_data::{
         action_buffer::ActorRef,
         field::{FieldId, VOID_FIELD_ID},
-        group_track_manager::GroupTrackId,
+        group_track::GroupTrackId,
         iter_hall::IterId,
         match_set::MatchSetId,
     },
