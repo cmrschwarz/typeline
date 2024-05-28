@@ -9,7 +9,9 @@ use crate::{
     chain::{Chain, SubchainOffset},
     context::ContextData,
     job::{Job, JobData},
-    liveness_analysis::{LivenessData, GLOBAL_SLOTS_OFFSET, READS_OFFSET},
+    liveness_analysis::{
+        LivenessData, VarLivenessSlotGroup, VarLivenessSlotKind,
+    },
     options::argument::CliArgIdx,
     record_data::{
         action_buffer::ActorRef,
@@ -105,10 +107,10 @@ pub fn setup_op_fork_liveness_data(
     for &callee_bb_id in &bb.successors {
         let mut accessed_vars = HashSet::new();
         for var_id in ld
-            .get_var_data_field(
+            .get_var_liveness_slot(
                 callee_bb_id,
-                GLOBAL_SLOTS_OFFSET,
-                READS_OFFSET,
+                VarLivenessSlotGroup::Global,
+                VarLivenessSlotKind::Reads,
             )
             .iter_ones()
         {

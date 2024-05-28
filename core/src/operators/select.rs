@@ -2,7 +2,7 @@ use bstr::ByteSlice;
 
 use crate::{
     job::JobData,
-    liveness_analysis::{LivenessData, READS_OFFSET},
+    liveness_analysis::{LivenessData, VarLivenessSlotKind},
     options::argument::CliArgIdx,
     utils::string_store::{StringStore, StringStoreEntry},
 };
@@ -57,8 +57,8 @@ pub fn setup_op_select_liveness_data(
     op_id: OperatorId,
     ld: &LivenessData,
 ) {
-    op.field_is_read = ld.op_outputs_data
-        [READS_OFFSET * ld.op_outputs.len() + op_id as usize];
+    op.field_is_read = ld.op_outputs_data.get_slot(VarLivenessSlotKind::Reads)
+        [op_id as usize];
 }
 
 pub fn create_op_select(key: String) -> OperatorData {

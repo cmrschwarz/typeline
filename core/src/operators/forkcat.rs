@@ -1,14 +1,12 @@
-use std::{cell::Cell, collections::HashMap};
-
-use bitvec::vec::BitVec;
+use std::collections::HashMap;
 
 use crate::{
     chain::{Chain, SubchainOffset},
     context::SessionData,
     job::{add_transform_to_job, Job, JobData},
     liveness_analysis::{
-        LivenessData, OpOutputIdx, Var, GLOBAL_SLOTS_OFFSET,
-        LOCAL_SLOTS_PER_BASIC_BLOCK, READS_OFFSET,
+        LivenessData, OpOutputIdx, Var, VarLivenessSlotGroup,
+        VarLivenessSlotKind,
     },
     operators::terminator::add_terminator_tf_cont_dependant,
     options::argument::CliArgIdx,
@@ -140,15 +138,14 @@ pub fn setup_op_forkcat_liveness_data(
 ) {
     let bb_id = ld.operator_liveness_data[op_id as usize].basic_block_id;
     let bb = &ld.basic_blocks[bb_id];
-    let var_count = ld.vars.len();
+    let mut calls = ld
+        .get_var_liveness_ored(VarLivenessSlotGroup::Global, bb.calls.iter());
+    let mut successors = ld.get_var_liveness_ored(
+        VarLivenessSlotGroup::Global,
+        bb.successors.iter(),
+    );
 
-    let mut successors = BitVec::<Cell<usize>>::new();
-    let mut calls = BitVec::<Cell<usize>>::new();
-    calls.resize(var_count * LOCAL_SLOTS_PER_BASIC_BLOCK, false);
-    successors.resize(var_count * LOCAL_SLOTS_PER_BASIC_BLOCK, false);
-    ld.get_global_var_data_ored(&mut calls, bb.calls.iter());
-    ld.get_global_var_data_ored(&mut successors, bb.successors.iter());
-    let successors_reads = &successors[ld.get_var_slot_range(READS_OFFSET)];
+    let successors_reads = successors.get_slot(VarLivenessSlotKind::Reads);
     let mut reads_of_succs_idx_map = HashMap::new();
     for var_id in successors_reads.iter_ones() {
         let var_name = ld.vars[var_id].get_name();
@@ -158,9 +155,9 @@ pub fn setup_op_forkcat_liveness_data(
             .push(ld.vars[var_id].get_name());
     }
     ld.kill_non_survivors(&calls, &mut successors);
-    calls |= &successors;
+    **calls |= &**successors;
     let reads_of_subchains_or_succs =
-        &calls[ld.get_var_slot_range(READS_OFFSET)];
+        &calls.get_slot(VarLivenessSlotKind::Reads);
 
     let mut reads_of_scs_or_succs_idx_map = HashMap::new();
     for var_id in reads_of_subchains_or_succs.iter_ones() {
@@ -174,10 +171,10 @@ pub fn setup_op_forkcat_liveness_data(
 
     for &callee_id in &bb.calls {
         let mut accessed_names = Vec::default();
-        let call_reads = ld.get_var_data_field(
+        let call_reads = ld.get_var_liveness_slot(
             callee_id,
-            GLOBAL_SLOTS_OFFSET,
-            READS_OFFSET,
+            VarLivenessSlotGroup::Global,
+            VarLivenessSlotKind::Reads,
         );
         let mut reads_of_subchains_or_succs_offset = 0;
         let mut prev = 0;

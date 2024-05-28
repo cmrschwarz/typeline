@@ -4,11 +4,11 @@ use crate::{
     cli::{parse_arg_value_as_str, ParsedCliArgumentParts},
     context::SessionData,
     job::JobData,
-    liveness_analysis::{AccessFlags, LivenessData, NON_STRING_READS_OFFSET},
+    liveness_analysis::{AccessFlags, LivenessData, VarLivenessSlotKind},
     options::argument::CliArgIdx,
     record_data::{
-        action_buffer::ActorId, field::Field,
-        group_track::GroupTrackIterRef, iter_hall::IterId,
+        action_buffer::ActorId, field::Field, group_track::GroupTrackIterRef,
+        iter_hall::IterId,
         variable_sized_type_inserter::VariableSizeTypeInserter,
     },
     utils::int_string_conversions::{
@@ -116,9 +116,9 @@ pub fn setup_op_sequence_concurrent_liveness_data(
     ld: &LivenessData,
 ) {
     let output_id = sess.operator_bases[op_id as usize].outputs_start;
-    let stride = ld.op_outputs.len();
-    op.non_string_reads = ld.op_outputs_data
-        [NON_STRING_READS_OFFSET * stride + output_id as usize];
+    op.non_string_reads = ld
+        .op_outputs_data
+        .get_slot(VarLivenessSlotKind::NonStringReads)[output_id as usize];
 }
 
 pub fn update_op_sequence_variable_liveness(
