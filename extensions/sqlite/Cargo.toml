@@ -1,7 +1,12 @@
 [package]
 name = "scr_ext_sqlite"
 version = "0.1.0"
+
 edition = "2021"
+rust-version = "1.70"
+
+license = "MIT"
+repository = "https://github.com/cmrschwarz/scrr/tree/main/extensions/sqlite"
 
 [lib]
 name = "scr_ext_sqlite"
@@ -9,4 +14,4 @@ test = false
 doctest = false
 
 [dependencies]
-scr_core = {path="../../core"}
+scr_core = { path = "../../core" }

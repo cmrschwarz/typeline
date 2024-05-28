@@ -256,7 +256,7 @@ impl<'a> Default for FieldValueSlice<'a> {
 pub unsafe fn value_as_bytes<T>(v: &T) -> &[u8] {
     unsafe {
         std::slice::from_raw_parts(
-            std::ptr::from_ref(v).cast::<u8>(),
+            (v as *const T).cast::<u8>(),
             std::mem::size_of_val(v),
         )
     }

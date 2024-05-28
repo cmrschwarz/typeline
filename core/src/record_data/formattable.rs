@@ -18,8 +18,7 @@ use crate::{
         lazy_lock_guard::LazyRwLockGuard,
         string_store::StringStore,
         text_write::{
-            MaybeTextWrite, MaybeTextWriteFlaggedAdapter, TextWrite,
-            TextWriteIoAdapter, TextWriteRefAdapter,
+            MaybeTextWrite, TextWrite, TextWriteIoAdapter, TextWriteRefAdapter,
         },
         MAX_UTF8_CHAR_LEN,
     },
@@ -247,13 +246,6 @@ pub trait Formattable<'a, 'b> {
     fn refuses_truncation(&self, _ctx: &mut Self::Context) -> bool {
         true
     }
-    fn formats_as_valid_utf8(&self, ctx: &mut Self::Context) -> bool {
-        let mut stream = MaybeTextWriteFlaggedAdapter::new(
-            TextWriteIoAdapter(std::io::empty()),
-        );
-        self.format(ctx, &mut stream).unwrap();
-        stream.is_utf8()
-    }
     fn total_length_cheap(&self, _ctx: &mut Self::Context) -> bool {
         false
     }
@@ -327,9 +319,6 @@ impl Formattable<'_, '_> for str {
     fn total_length_cheap(&self, opts: &mut Self::Context) -> bool {
         opts.type_repr_format != TypeReprFormat::Regular
     }
-    fn formats_as_valid_utf8(&self, _ctx: &mut Self::Context) -> bool {
-        true
-    }
     fn format<W: MaybeTextWrite>(
         &self,
         opts: &mut Self::Context,
@@ -361,9 +350,6 @@ impl Formattable<'_, '_> for str {
 impl Formattable<'_, '_> for i64 {
     type Context = RealizedFormatKey;
     fn total_length_cheap(&self, _ctx: &mut Self::Context) -> bool {
-        true
-    }
-    fn formats_as_valid_utf8(&self, _ctx: &mut Self::Context) -> bool {
         true
     }
     fn format<W: MaybeTextWrite>(
@@ -510,9 +496,6 @@ impl<'a, 'b: 'a> Formattable<'a, 'b> for Array {
 }
 impl<'a, 'b: 'a> Formattable<'a, 'b> for BigRational {
     type Context = FormattingContext<'a, 'b>;
-    fn formats_as_valid_utf8(&self, _ctx: &mut Self::Context) -> bool {
-        true
-    }
     fn format<W: MaybeTextWrite>(
         &self,
         fc: &mut Self::Context,
@@ -532,9 +515,6 @@ impl<'a, 'b: 'a> Formattable<'a, 'b> for BigRational {
 }
 impl Formattable<'_, '_> for BigInt {
     type Context = RealizedFormatKey;
-    fn formats_as_valid_utf8(&self, _ctx: &mut Self::Context) -> bool {
-        true
-    }
     fn format<W: MaybeTextWrite>(
         &self,
         _fc: &mut Self::Context,
@@ -546,9 +526,6 @@ impl Formattable<'_, '_> for BigInt {
 }
 impl Formattable<'_, '_> for f64 {
     type Context = RealizedFormatKey;
-    fn formats_as_valid_utf8(&self, _ctx: &mut Self::Context) -> bool {
-        true
-    }
     fn format<W: MaybeTextWrite>(
         &self,
         ctx: &mut Self::Context,
@@ -587,9 +564,6 @@ impl Formattable<'_, '_> for f64 {
 }
 impl Formattable<'_, '_> for Null {
     type Context = ();
-    fn formats_as_valid_utf8(&self, _ctx: &mut Self::Context) -> bool {
-        true
-    }
     fn total_length_cheap(&self, _ctx: &mut Self::Context) -> bool {
         true
     }
@@ -613,9 +587,6 @@ impl Formattable<'_, '_> for Undefined {
     fn total_length_cheap(&self, _ctx: &mut Self::Context) -> bool {
         true
     }
-    fn formats_as_valid_utf8(&self, _ctx: &mut Self::Context) -> bool {
-        true
-    }
     fn format<W: MaybeTextWrite>(
         &self,
         _ctx: &mut Self::Context,
@@ -633,9 +604,6 @@ impl Formattable<'_, '_> for Undefined {
 }
 impl Formattable<'_, '_> for OperatorApplicationError {
     type Context = ValueFormattingOpts; // is_stream_value
-    fn formats_as_valid_utf8(&self, _ctx: &mut Self::Context) -> bool {
-        true
-    }
     fn format<W: MaybeTextWrite>(
         &self,
         opts: &mut Self::Context,

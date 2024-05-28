@@ -153,7 +153,7 @@ impl<I: IndexingType, T> Universe<I, T> {
         let offset_in_entry = if let UniverseEntry::Occupied(v) = &self.data[0]
         {
             unsafe {
-                std::ptr::from_ref(v)
+                (v as *const T)
                     .cast::<u8>()
                     .offset_from(self.data.as_ptr().cast())
             }
@@ -161,7 +161,7 @@ impl<I: IndexingType, T> Universe<I, T> {
             panic!("element not in Universe")
         };
         let ptr = unsafe {
-            std::ptr::from_ref(entry)
+            (entry as *const T)
                 .cast::<u8>()
                 .sub(usize::try_from(offset_in_entry).unwrap_unchecked())
                 .cast()

@@ -1,11 +1,11 @@
 #![allow(clippy::too_many_arguments)]
 
+use crate::primes::create_op_primes;
 use dup::{parse_op_drop, parse_op_dup};
 use explode::parse_op_explode;
 use flatten::parse_op_flatten;
 use from_tyson::create_op_from_tyson;
 use head::parse_op_head;
-use primes::create_op_primes;
 use scr_core::{
     cli::ParsedCliArgumentParts,
     extension::Extension,

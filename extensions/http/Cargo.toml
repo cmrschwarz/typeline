@@ -1,7 +1,13 @@
 [package]
 name = "scr_ext_http"
 version = "0.1.0"
+
 edition = "2021"
+rust-version = "1.70"
+
+license = "MIT"
+repository = "https://github.com/cmrschwarz/scrr/tree/main/extensions/http"
+
 
 [lib]
 name = "scr_ext_http"
