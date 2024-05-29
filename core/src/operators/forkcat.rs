@@ -54,6 +54,8 @@ enum OutputMapping {
     InputIndex(u32),
 }
 
+type FcSubchainIdx = u32;
+
 #[derive(Clone, Default)]
 pub struct OpForkCat {
     pub subchains_start: SubchainOffset,
@@ -72,6 +74,10 @@ pub struct OpForkCat {
     // index into accessed_names_of_successors + OutputIdx
     // parallel to accessed_names_of_successors
     output_mappings_per_subchain: Vec<Vec<OutputMapping>>,
+
+    input_mappings: HashMap<Var, Vec<FcSubchainIdx>>,
+    // output var + subchain idx -> var
+    output_mappings: Vec<(Var, Vec<Var>)>,
 }
 
 pub struct TfForkCat<'a> {
@@ -148,6 +154,7 @@ pub fn setup_op_forkcat_liveness_data(
     let successors_reads = successors.get_slot(VarLivenessSlotKind::Reads);
     let mut reads_of_succs_idx_map = HashMap::new();
     for var_id in successors_reads.iter_ones() {
+        op.output_mappings.push((ld.vars[var_id], Vec::new()));
         let var_name = ld.vars[var_id].get_name();
         reads_of_succs_idx_map
             .insert(var_name, op.accessed_names_of_successors.len());
@@ -156,8 +163,9 @@ pub fn setup_op_forkcat_liveness_data(
     }
     ld.kill_non_survivors(&calls, &mut successors);
     **calls |= &**successors;
+    let calls_or_succs = &calls;
     let reads_of_subchains_or_succs =
-        &calls.get_slot(VarLivenessSlotKind::Reads);
+        calls_or_succs.get_slot(VarLivenessSlotKind::Reads);
 
     let mut reads_of_scs_or_succs_idx_map = HashMap::new();
     for var_id in reads_of_subchains_or_succs.iter_ones() {
