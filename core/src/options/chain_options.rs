@@ -1,7 +1,7 @@
 use crate::{
     chain::{BufferingMode, Chain, ChainId, ChainSettings, TextEncoding},
-    operators::operator::OperatorId,
-    utils::string_store::StringStoreEntry,
+    operators::operator::{OperatorId, OperatorOffsetInChain},
+    utils::{index_vec::IndexVec, string_store::StringStoreEntry},
 };
 
 use super::argument::Argument;
@@ -20,7 +20,7 @@ pub struct ChainOptions {
     pub buffering_mode: Argument<BufferingMode>,
     pub parent: ChainId,
     pub subchain_count: u32,
-    pub operators: Vec<OperatorId>,
+    pub operators: IndexVec<OperatorOffsetInChain, OperatorId>,
 }
 
 pub const DEFAULT_CHAIN_OPTIONS: ChainOptions = ChainOptions {
@@ -36,7 +36,7 @@ pub const DEFAULT_CHAIN_OPTIONS: ChainOptions = ChainOptions {
     buffering_mode: Argument::new_v(BufferingMode::LineBufferStdinIfTTY),
     parent: 0,
     subchain_count: 0,
-    operators: Vec::new(),
+    operators: IndexVec::new(),
 };
 impl ChainOptions {
     pub fn build_chain(&self, parent: Option<&Chain>) -> Chain {
@@ -104,7 +104,7 @@ impl ChainOptions {
                     .or_else(|| parent.map(|p| p.settings.buffering_mode))
                     .unwrap_or(DEFAULT_CHAIN_OPTIONS.buffering_mode.unwrap()),
             },
-            subchains: Vec::new(),
+            subchains: IndexVec::new(),
             operators: self.operators.clone(), // PERF: :/
         }
     }

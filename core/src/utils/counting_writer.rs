@@ -1,5 +1,3 @@
-use std::ops::{Deref, DerefMut};
-
 use bstr::ByteSlice;
 
 use super::{

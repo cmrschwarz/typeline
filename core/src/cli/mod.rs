@@ -365,7 +365,7 @@ fn try_parse_as_chain_opt(
     ctx_opts: &mut SessionOptions,
     arg: &ParsedCliArgumentParts,
 ) -> Result<bool, ScrError> {
-    let chain = &mut ctx_opts.chains[ctx_opts.curr_chain as usize];
+    let chain = &mut ctx_opts.chains[ctx_opts.curr_chain];
     let arg_idx = Some(arg.cli_arg.idx);
     match arg.argname {
         "denc" => {

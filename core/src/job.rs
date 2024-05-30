@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::{
-    chain::Chain,
+    chain::{Chain, ChainId},
     context::{ContextData, JobDescription, SessionData, VentureDescription},
     operators::{
         call::handle_eager_call_expansion,
@@ -31,7 +31,7 @@ use crate::{
         record_buffer::RecordBuffer,
         stream_value::{StreamValueManager, StreamValueUpdate},
     },
-    utils::universe::Universe,
+    utils::{index_vec::IndexVec, universe::Universe},
 };
 
 // a helper type so we can pass a transform handler typed
@@ -48,7 +48,7 @@ pub struct JobData<'a> {
 
 pub struct Job<'a> {
     pub job_data: JobData<'a>,
-    pub transform_data: Vec<TransformData<'a>>,
+    pub transform_data: IndexVec<TransformId, TransformData<'a>>,
     pub temp_vec: Vec<FieldId>,
 }
 
@@ -337,7 +337,7 @@ impl<'a> Job<'a> {
         if cfg!(feature = "debug_logging") {
             eprintln!("{message}");
             for (i, tf) in self.job_data.tf_mgr.transforms.iter_enumerated() {
-                let name = self.transform_data[i.get()].display_name();
+                let name = self.transform_data[i].display_name();
                 eprintln!(
                     "tf {:02} -> {} [fields {} {} {}] (ms {}): {}",
                     i,
@@ -454,13 +454,12 @@ impl<'a> Job<'a> {
                     .read()
                     .unwrap()
                     .lookup(
-                        self.job_data.session_data.operator_bases
-                            [op_id as usize]
+                        self.job_data.session_data.operator_bases[op_id]
                             .argname,
                     )
                     .into()
             } else {
-                self.transform_data[tf_id.get()].display_name().to_string()
+                self.transform_data[tf_id].display_name().to_string()
             };
             eprintln!("removing tf id {tf_id}: `{name}`");
         }
@@ -471,36 +470,54 @@ impl<'a> Job<'a> {
             .field_mgr
             .drop_field_refcount(tf_out_fid, &mut self.job_data.match_set_mgr);
         self.job_data.tf_mgr.transforms.release(tf_id);
-        self.transform_data[usize::from(tf_id)] = TransformData::Disabled;
+        self.transform_data[tf_id] = TransformData::Disabled;
+    }
+    pub fn setup_transforms_for_chain(
+        &mut self,
+        ms_id: MatchSetId,
+        chain_id: ChainId,
+        input_field_id: FieldId,
+        input_group_track: GroupTrackId,
+        predecessor_tf: Option<TransformId>,
+        prebound_outputs: &PreboundOutputsMap,
+    ) -> OperatorInstantiation {
+        self.setup_transforms_from_op(
+            ms_id,
+            *self.job_data.session_data.chains[chain_id]
+                .operators
+                .first()
+                .unwrap(),
+            input_field_id,
+            input_group_track,
+            predecessor_tf,
+            prebound_outputs,
+        )
     }
     pub fn setup_transforms_from_op(
         &mut self,
         ms_id: MatchSetId,
         start_op_id: OperatorId,
-        chain_input_field_id: FieldId,
-        chain_input_group_track: GroupTrackId,
+        input_field_id: FieldId,
+        input_group_track: GroupTrackId,
         predecessor_tf: Option<TransformId>,
         prebound_outputs: &PreboundOutputsMap,
     ) -> OperatorInstantiation {
-        let start_op =
-            &self.job_data.session_data.operator_bases[start_op_id as usize];
+        let start_op = &self.job_data.session_data.operator_bases[start_op_id];
         let ops = &self.job_data.session_data.chains
-            [start_op.chain_id.unwrap() as usize]
-            .operators[start_op.offset_in_chain as usize..];
+            [start_op.chain_id.unwrap()]
+        .operators[start_op.offset_in_chain..];
         self.setup_transforms_for_op_iter(
             ops.iter().map(|op_id| {
                 (
                     *op_id,
-                    &self.job_data.session_data.operator_bases
-                        [*op_id as usize],
-                    &self.job_data.session_data.operator_data[*op_id as usize],
+                    &self.job_data.session_data.operator_bases[*op_id],
+                    &self.job_data.session_data.operator_data[*op_id],
                 )
             }),
             ms_id,
-            chain_input_field_id,
-            chain_input_group_track,
+            input_field_id,
+            input_group_track,
             predecessor_tf,
-            None,
             prebound_outputs,
         )
     }
@@ -514,9 +531,9 @@ impl<'a> Job<'a> {
         mut input_field: FieldId,
         mut input_group_track: GroupTrackId,
         mut predecessor_tf: Option<TransformId>,
-        mut start_tf_id: Option<TransformId>,
         prebound_outputs: &PreboundOutputsMap,
     ) -> OperatorInstantiation {
+        let mut start_tf_id = None;
         for (op_id, op_base, op_data) in ops {
             match op_data {
                 OperatorData::Call(op) => {
@@ -658,7 +675,7 @@ impl<'a> Job<'a> {
                 of.producing_transform_id =
                     Some(self.job_data.tf_mgr.transforms.peek_claim_id());
                 of.producing_transform_arg =
-                    self.job_data.session_data.operator_data[op_id as usize]
+                    self.job_data.session_data.operator_data[op_id]
                         .default_op_name()
                         .to_string();
             }
@@ -708,7 +725,7 @@ impl<'a> Job<'a> {
             eprintln!(
                 ">    stream value update tf {:02} {:>20}, sv: {:02}, producers: {:?}, stack: {:?}, cutoff: {:?}",
                 svu.tf_id,
-                format!("`{}`", self.transform_data[svu.tf_id.get()].display_name()),
+                format!("`{}`", self.transform_data[svu.tf_id].display_name()),
                 svu.sv_id,
                 jd.tf_mgr.stream_producers,
                 jd.tf_mgr.ready_stack,
@@ -733,7 +750,7 @@ impl<'a> Job<'a> {
             let tf = &self.job_data.tf_mgr.transforms[tf_id];
             eprintln!(
                 "> transform update tf {tf_id:02} {:>20}, in_fid: {}, bsa: {}, pred_done: {:>5}, done: {:>5}, stack:{:?}",
-                format!("`{}`", self.transform_data[tf_id.get()].display_name()),
+                format!("`{}`", self.transform_data[tf_id].display_name()),
                 tf.input_field,
                 tf.available_batch_size,
                 tf.predecessor_done,
@@ -755,7 +772,7 @@ impl<'a> Job<'a> {
             let output_field_id = tf.output_field;
             eprintln!(
                 "/> transform update tf {tf_id:02} {:>20}, in_fid: {}, bsa: {}, pred_done: {:>5}, done: {:>5}, stack:{:?}",
-                format!("`{}`", self.transform_data[tf_id.get()].display_name()),
+                format!("`{}`", self.transform_data[tf_id].display_name()),
                 tf.input_field,
                 tf.available_batch_size,
                 tf.predecessor_done,
@@ -788,7 +805,7 @@ impl<'a> Job<'a> {
         eprintln!(
             "> stream producer update tf {:02} {:>20}, producers: {:?}, stack: {:?}",
             tf_id,
-            format!("`{}`", self.transform_data[tf_id.get()].display_name()),
+            format!("`{}`", self.transform_data[tf_id].display_name()),
             self.job_data.tf_mgr.stream_producers,
             self.job_data.tf_mgr.ready_stack,
         );
@@ -855,17 +872,24 @@ impl<'a> Job<'a> {
         Ok(())
     }
 }
-
+impl<'a> Job<'a> {
+    pub fn new(sess_data: &'a SessionData) -> Self {
+        Job {
+            job_data: JobData::new(sess_data),
+            transform_data: IndexVec::new(),
+            temp_vec: Vec::new(),
+        }
+    }
+}
 impl JobData<'_> {
     pub fn get_transform_chain_from_tf_state(
         &self,
         tf_state: &TransformState,
     ) -> &Chain {
         let op_id = tf_state.op_id.unwrap();
-        let chain_id = self.session_data.operator_bases[op_id as usize]
-            .chain_id
-            .unwrap();
-        &self.session_data.chains[chain_id as usize]
+        let chain_id =
+            self.session_data.operator_bases[op_id].chain_id.unwrap();
+        &self.session_data.chains[chain_id]
     }
     pub fn get_transform_chain(&self, tf_id: TransformId) -> &Chain {
         self.get_transform_chain_from_tf_state(&self.tf_mgr.transforms[tf_id])

@@ -1,7 +1,7 @@
 use std::iter;
 
 use crate::{
-    chain::{ChainId, SubchainOffset},
+    chain::{ChainId, SubchainIndex},
     cli::reject_operator_argument,
     job::{add_transform_to_job, Job, JobData},
     options::argument::CliArgIdx,
@@ -21,8 +21,8 @@ use super::{
 
 #[derive(Clone, Default)]
 pub struct OpForeach {
-    pub subchains_start: SubchainOffset,
-    pub subchains_end: SubchainOffset,
+    pub subchains_start: SubchainIndex,
+    pub subchains_end: SubchainIndex,
 }
 pub struct TfForeachHeader {
     parent_group_track_iter: GroupTrackIterId,
@@ -65,10 +65,9 @@ pub fn insert_tf_foreach(
     op_id: u32,
     prebound_outputs: &PreboundOutputsMap,
 ) -> OperatorInstantiation {
-    let subchain_id = job.job_data.session_data.chains[chain_id as usize]
-        .subchains[op.subchains_start as usize];
-    let sc_start_op_id = job.job_data.session_data.chains
-        [subchain_id as usize]
+    let subchain_id = job.job_data.session_data.chains[chain_id].subchains
+        [op.subchains_start];
+    let sc_start_op_id = job.job_data.session_data.chains[subchain_id]
         .operators
         .first();
     let ms_id = tf_state.match_set_id;

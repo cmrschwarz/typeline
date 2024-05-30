@@ -105,14 +105,13 @@ impl Operator for OpMultiOp {
             self.ops.iter().map(|op_data| {
                 (
                     op_id,
-                    &job.job_data.session_data.operator_bases[op_id as usize],
+                    &job.job_data.session_data.operator_bases[op_id],
                     op_data,
                 )
             }),
             tf_state.match_set_id,
             tf_state.input_field,
             tf_state.input_group_track_id,
-            None,
             None,
             prebound_outputs,
         ))

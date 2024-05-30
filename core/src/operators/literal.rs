@@ -405,7 +405,7 @@ pub fn parse_op_tyson(
 pub fn use_fpm(sess: Option<&SessionOptions>) -> bool {
     let fpm_default = DEFAULT_CHAIN_OPTIONS.floating_point_math.get().unwrap();
     sess.map(|sess| {
-        sess.chains[sess.curr_chain as usize]
+        sess.chains[sess.curr_chain]
             .floating_point_math
             .get()
             .unwrap_or(fpm_default)

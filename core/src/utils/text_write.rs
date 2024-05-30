@@ -1,8 +1,5 @@
 use core::panic;
-use std::{
-    io::ErrorKind,
-    ops::{Deref, DerefMut},
-};
+use std::io::ErrorKind;
 
 pub trait TextWrite {
     // SAFETY: assuming that the write succeeds, the result must be valid utf-8

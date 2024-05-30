@@ -6,7 +6,7 @@ use std::{
 use smallvec::SmallVec;
 
 use crate::{
-    chain::{Chain, SubchainOffset},
+    chain::{Chain, ChainId, SubchainIndex},
     context::ContextData,
     job::{Job, JobData},
     liveness_analysis::{
@@ -20,7 +20,7 @@ use crate::{
         iter_hall::IterId,
         match_set::MatchSetId,
     },
-    utils::string_store::StringStoreEntry,
+    utils::{index_vec::IndexVec, string_store::StringStoreEntry},
 };
 
 use super::{
@@ -38,9 +38,10 @@ pub struct OpFork {
     // forkcc
     // forkjoin[=merge_col,..] [CC]
     // forkcat [CC]
-    pub subchains_start: SubchainOffset,
-    pub subchains_end: SubchainOffset,
-    pub accessed_fields_per_subchain: Vec<HashSet<Option<StringStoreEntry>>>,
+    pub subchains_start: SubchainIndex,
+    pub subchains_end: SubchainIndex,
+    pub accessed_fields_per_subchain:
+        IndexVec<SubchainIndex, HashSet<Option<StringStoreEntry>>>,
 }
 
 pub struct TfForkFieldMapping {
@@ -59,7 +60,7 @@ pub struct TfFork<'a> {
     pub expanded: bool,
     pub targets: Vec<ForkTarget>,
     pub accessed_fields_per_subchain:
-        &'a Vec<HashSet<Option<StringStoreEntry>>>,
+        &'a IndexVec<SubchainIndex, HashSet<Option<StringStoreEntry>>>,
 }
 
 pub fn parse_op_fork(
@@ -75,7 +76,7 @@ pub fn parse_op_fork(
     Ok(OperatorData::Fork(OpFork {
         subchains_start: 0,
         subchains_end: 0,
-        accessed_fields_per_subchain: Vec::new(),
+        accessed_fields_per_subchain: IndexVec::new(),
     }))
 }
 
@@ -101,7 +102,7 @@ pub fn setup_op_fork_liveness_data(
     op_id: OperatorId,
     ld: &LivenessData,
 ) {
-    let bb_id = ld.operator_liveness_data[op_id as usize].basic_block_id;
+    let bb_id = ld.operator_liveness_data[op_id].basic_block_id;
     debug_assert!(ld.basic_blocks[bb_id].calls.is_empty());
     let bb = &ld.basic_blocks[bb_id];
     for &callee_bb_id in &bb.successors {
@@ -177,14 +178,14 @@ pub(crate) fn handle_fork_expansion(
     let tf = &sess.job_data.tf_mgr.transforms[tf_id];
     let fork_input_field_id = tf.input_field;
     let fork_ms_id = tf.match_set_id;
-    let fork_op_id = tf.op_id.unwrap() as usize;
+    let fork_op_id = tf.op_id.unwrap();
     let fork_chain_id = sess.job_data.session_data.operator_bases[fork_op_id]
         .chain_id
-        .unwrap() as usize;
+        .unwrap();
 
     for i in 0..sess.job_data.session_data.chains[fork_chain_id]
         .subchains
-        .len()
+        .next_free_idx()
     {
         let target = setup_fork_subchain(
             sess,
@@ -198,9 +199,7 @@ pub(crate) fn handle_fork_expansion(
     }
 
     sess.log_state("expanded fork");
-    if let TransformData::Fork(ref mut fork) =
-        sess.transform_data[usize::from(tf_id)]
-    {
+    if let TransformData::Fork(ref mut fork) = sess.transform_data[tf_id] {
         fork.targets = targets;
         fork.expanded = true;
     } else {
@@ -210,15 +209,15 @@ pub(crate) fn handle_fork_expansion(
 
 fn setup_fork_subchain(
     sess: &mut Job,
-    fork_chain_id: usize,
-    subchain_index: usize,
+    fork_chain_id: ChainId,
+    subchain_index: SubchainIndex,
     tf_id: TransformId,
     fork_ms_id: MatchSetId,
     fork_input_field_id: u32,
 ) -> ForkTarget {
     // actual chain id as opposed to the index to the nth subchain
     let subchain_id = sess.job_data.session_data.chains[fork_chain_id]
-        .subchains[subchain_index] as usize;
+        .subchains[subchain_index];
     let target_ms_id = sess.job_data.match_set_mgr.add_match_set();
 
     let target_group_track = sess
@@ -227,7 +226,7 @@ fn setup_fork_subchain(
         .add_group_track(None, target_ms_id, ActorRef::Unconfirmed(0));
 
     let field_access_mapping =
-        if let TransformData::Fork(f) = &sess.transform_data[tf_id.get()] {
+        if let TransformData::Fork(f) = &sess.transform_data[tf_id] {
             &f.accessed_fields_per_subchain[subchain_index]
         } else {
             unreachable!();
@@ -294,6 +293,6 @@ pub fn create_op_fork() -> OperatorData {
     OperatorData::Fork(OpFork {
         subchains_start: 0,
         subchains_end: 0,
-        accessed_fields_per_subchain: Vec::new(),
+        accessed_fields_per_subchain: IndexVec::new(),
     })
 }

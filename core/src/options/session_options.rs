@@ -24,7 +24,7 @@ use crate::{
     scr_error::{
         result_into, ChainSetupError, ContextualizedScrError, ScrError,
     },
-    utils::string_store::StringStore,
+    utils::{index_vec::IndexVec, string_store::StringStore},
 };
 
 use super::{
@@ -39,9 +39,10 @@ pub struct SessionOptions {
     pub repl: Argument<bool>,
     pub exit_repl: Argument<bool>,
     pub(crate) string_store: StringStore,
-    pub(crate) operator_base_options: Vec<OperatorBaseOptions>,
-    pub(crate) operator_data: Vec<OperatorData>,
-    pub(crate) chains: Vec<ChainOptions>,
+    pub(crate) operator_base_options:
+        IndexVec<OperatorId, OperatorBaseOptions>,
+    pub(crate) operator_data: IndexVec<OperatorId, OperatorData>,
+    pub(crate) chains: IndexVec<ChainId, ChainOptions>,
     pub(crate) curr_chain: ChainId,
     pub(crate) allow_repl: bool,
     pub cli_args: Option<Vec<Vec<u8>>>,
@@ -54,10 +55,10 @@ impl Default for SessionOptions {
             max_threads: Argument::default(),
             repl: Argument::default(),
             exit_repl: Argument::default(),
-            chains: vec![ChainOptions::default()],
+            chains: IndexVec::from(vec![ChainOptions::default()]),
             curr_chain: 0,
-            operator_base_options: Vec::new(),
-            operator_data: Vec::new(),
+            operator_base_options: IndexVec::new(),
+            operator_data: IndexVec::new(),
             string_store: StringStore::default(),
             cli_args: None,
             any_threaded_operations: false,
@@ -74,9 +75,9 @@ lazy_static! {
         max_threads: Argument::new_v(0),
         repl: Argument::new_v(false),
         exit_repl: Argument::new_v(false),
-        chains: Vec::new(),
-        operator_base_options: Vec::new(),
-        operator_data: Vec::new(),
+        chains: IndexVec::new(),
+        operator_base_options: IndexVec::new(),
+        operator_data: IndexVec::new(),
         string_store: StringStore::default(),
         cli_args: None,
         curr_chain: 0,
@@ -91,16 +92,14 @@ impl SessionOptions {
         self.curr_chain
     }
     pub fn init_op(&mut self, op_id: OperatorId, add_to_chain: bool) {
-        let op_idx = op_id as usize;
-        let op_base_opts = &mut self.operator_base_options[op_idx];
-        let op_data = &mut self.operator_data[op_idx];
+        let op_base_opts = &mut self.operator_base_options[op_id];
+        let op_data = &mut self.operator_data[op_id];
         op_base_opts.op_id = Some(op_id);
-        op_base_opts.desired_batch_size = self.chains
-            [self.curr_chain as usize]
+        op_base_opts.desired_batch_size = self.chains[self.curr_chain]
             .default_batch_size
             .get()
             .unwrap_or(DEFAULT_CHAIN_OPTIONS.default_batch_size.unwrap());
-        let chain_opts = &mut self.chains[self.curr_chain as usize];
+        let chain_opts = &mut self.chains[self.curr_chain];
         op_base_opts.chain_id = Some(self.curr_chain);
         if add_to_chain {
             op_base_opts.offset_in_chain =
@@ -112,7 +111,7 @@ impl SessionOptions {
         }
         let mut op_data_ext = std::mem::take(op_data);
         op_data_ext.on_op_added(self, op_id, add_to_chain);
-        self.operator_data[op_idx] = op_data_ext;
+        self.operator_data[op_id] = op_data_ext;
     }
     pub fn add_op_uninit(
         &mut self,
@@ -135,7 +134,7 @@ impl SessionOptions {
     }
     pub fn add_label(&mut self, label: String) {
         let new_chain_id = self.chains.len() as ChainId;
-        let curr_chain = &mut self.chains[self.curr_chain as usize];
+        let curr_chain = &mut self.chains[self.curr_chain];
         let new_chain = ChainOptions {
             parent: curr_chain.parent,
             label: Some(self.string_store.intern_moved(label)),
@@ -215,21 +214,20 @@ impl SessionOptions {
         chain_id: ChainId,
         op_id: OperatorId,
     ) -> Result<(), OperatorSetupError> {
-        let mut op_data =
-            std::mem::take(&mut sess.operator_data[op_id as usize]);
+        let mut op_data = std::mem::take(&mut sess.operator_data[op_id]);
         let res = op_data.setup(sess, chain_id, op_id);
-        sess.operator_data[op_id as usize] = op_data;
+        sess.operator_data[op_id] = op_data;
         res
     }
     pub fn setup_operators(
         sess: &mut SessionData,
     ) -> Result<(), OperatorSetupError> {
-        for op_idx in 0..sess.operator_bases.len() {
-            let op_base = &mut sess.operator_bases[op_idx];
+        for op_id in 0..sess.operator_bases.next_free_idx() {
+            let op_base = &mut sess.operator_bases[op_id];
             let Some(chain_id) = op_base.chain_id else {
                 continue;
             };
-            Self::setup_operator(sess, chain_id, op_idx as OperatorId)?;
+            Self::setup_operator(sess, chain_id, op_id)?;
         }
         Ok(())
     }
@@ -237,7 +235,7 @@ impl SessionOptions {
         sess: &SessionData,
         chain_id: ChainId,
     ) -> Result<(), ChainSetupError> {
-        let chain = &sess.chains[chain_id as usize];
+        let chain = &sess.chains[chain_id];
         let mut message = "";
         if chain.operators.is_empty() && !sess.settings.repl {
             message = "chain must have at least one operation";
@@ -252,7 +250,7 @@ impl SessionOptions {
         Ok(())
     }
     pub fn setup_chain_labels(sess: &mut SessionData) {
-        for i in 0..sess.chains.len() {
+        for i in 0..sess.chains.next_free_idx() {
             if let Some(label) = sess.chains[i].label {
                 sess.chain_labels.insert(label, i as ChainId);
             }
@@ -269,10 +267,9 @@ impl SessionOptions {
         ld: &LivenessData,
         op_id: OperatorId,
     ) {
-        let mut op_data =
-            std::mem::take(&mut sess.operator_data[op_id as usize]);
+        let mut op_data = std::mem::take(&mut sess.operator_data[op_id]);
         op_data.on_liveness_computed(sess, ld, op_id);
-        sess.operator_data[op_id as usize] = op_data;
+        sess.operator_data[op_id] = op_data;
     }
     pub fn compute_liveness(sess: &mut SessionData) {
         let ld = liveness_analysis::compute_liveness_data(sess);
@@ -300,14 +297,13 @@ impl SessionOptions {
             1
         };
 
-        let mut chains = Vec::with_capacity(self.chains.len());
-        for i in 0..self.chains.len() {
+        let mut chains = IndexVec::with_capacity(self.chains.len());
+        for i in 0..self.chains.next_free_idx() {
             let parent = if i == 0 {
                 None
             } else {
-                let p: &mut Chain =
-                    &mut chains[self.chains[i].parent as usize];
-                p.subchains.push(i as ChainId);
+                let p: &mut Chain = &mut chains[self.chains[i].parent];
+                p.subchains.push(i);
                 Some(&*p)
             };
             let chain = self.chains[i].build_chain(parent);

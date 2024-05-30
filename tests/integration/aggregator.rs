@@ -63,18 +63,6 @@ fn append_after_fork() -> Result<(), ScrError> {
     Ok(())
 }
 
-#[test]
-fn parse_forkcat() -> Result<(), ScrError> {
-    let sess_opts = parse_cli_from_strings(
-        CliOptions::default(),
-        ["scr", "seqn=10", "forkcat", "r=.*", "end"],
-    )?;
-    let res = ContextBuilder::from_session_opts(sess_opts)
-        .run_collect_stringified()?;
-    assert_eq!(res, int_sequence_strings(1..11));
-    Ok(())
-}
-
 // TODO: this feature is insane. figure out something better
 // #[test]
 // fn parse_aggregation_across_fork() -> Result<(), ScrError> {

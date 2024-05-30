@@ -25,6 +25,7 @@ use crate::{
     record_data::{record_buffer::RecordBuffer, record_set::RecordSet},
     utils::{
         identity_hasher::BuildIdentityHasher,
+        index_vec::IndexVec,
         maybe_boxed::MaybeBoxed,
         string_store::{StringStore, StringStoreEntry},
     },
@@ -54,10 +55,10 @@ pub struct SessionSettings {
 
 pub struct SessionData {
     pub settings: SessionSettings,
-    pub chains: Vec<Chain>,
+    pub chains: IndexVec<ChainId, Chain>,
     pub chain_labels: HashMap<StringStoreEntry, ChainId, BuildIdentityHasher>,
-    pub operator_bases: Vec<OperatorBase>,
-    pub operator_data: Vec<OperatorData>,
+    pub operator_bases: IndexVec<OperatorId, OperatorBase>,
+    pub operator_data: IndexVec<OperatorId, OperatorData>,
     pub cli_args: Option<Vec<Vec<u8>>>,
     pub string_store: RwLock<StringStore>,
     pub extensions: Arc<ExtensionRegistry>,
@@ -131,11 +132,7 @@ impl WorkerThread {
         start_op_id: OperatorId,
         buffer: Arc<RecordBuffer>,
     ) {
-        let mut job = Job {
-            transform_data: Vec::new(),
-            job_data: JobData::new(sess),
-            temp_vec: Vec::new(),
-        };
+        let mut job = Job::new(sess);
         job.setup_venture(Some(&self.ctx_data), buffer, start_op_id);
         self.run_job(job)
     }
@@ -144,11 +141,7 @@ impl WorkerThread {
         sess: &SessionData,
         job_desc: JobDescription,
     ) {
-        let mut job = Job {
-            transform_data: Vec::new(),
-            job_data: JobData::new(sess),
-            temp_vec: Vec::new(),
-        };
+        let mut job = Job::new(sess);
         job.setup_job(job_desc);
         self.run_job(job)
     }
@@ -518,7 +511,7 @@ impl SessionData {
     pub fn run_job_unthreaded(&self, job: JobDescription) {
         assert!(!self.settings.repl);
         let mut js = Job {
-            transform_data: Vec::new(),
+            transform_data: IndexVec::new(),
             job_data: JobData::new(self),
             temp_vec: Vec::default(),
         };

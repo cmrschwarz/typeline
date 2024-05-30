@@ -19,7 +19,6 @@ use crate::{
     operators::errors::OperatorApplicationError,
     record_data::field_data::BytesBufferFile,
 };
-use std::ops::Deref;
 
 #[derive(Clone, Copy)]
 pub enum FieldValueRef<'a> {

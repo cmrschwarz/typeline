@@ -1,9 +1,10 @@
 use crate::{
-    operators::operator::OperatorId, utils::string_store::StringStoreEntry,
+    operators::operator::{OperatorId, OperatorOffsetInChain},
+    utils::{index_vec::IndexVec, string_store::StringStoreEntry},
 };
 
 pub type ChainId = u32;
-pub type SubchainOffset = u32;
+pub type SubchainIndex = u32;
 
 #[derive(Clone, Copy)]
 pub enum BufferingMode {
@@ -40,6 +41,6 @@ pub struct ChainSettings {
 pub struct Chain {
     pub label: Option<StringStoreEntry>,
     pub settings: ChainSettings,
-    pub operators: Vec<OperatorId>,
-    pub subchains: Vec<ChainId>,
+    pub operators: IndexVec<OperatorOffsetInChain, OperatorId>,
+    pub subchains: IndexVec<SubchainIndex, ChainId>,
 }

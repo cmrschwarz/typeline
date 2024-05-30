@@ -135,12 +135,10 @@ impl TfFromTyson {
         let mut output_field =
             bud.field_mgr.fields[bud.output_field_id].borrow_mut();
         let mut inserter = output_field.iter_hall.varying_type_inserter();
-        let fpm = bud.session_data.chains[bud.session_data.operator_bases
-            [op_id as usize]
-            .chain_id
-            .unwrap() as usize]
-            .settings
-            .floating_point_math;
+        let fpm = bud.session_data.chains
+            [bud.session_data.operator_bases[op_id].chain_id.unwrap()]
+        .settings
+        .floating_point_math;
         let exts = Some(&*bud.session_data.extensions);
         while let Some(range) = bud.iter.next_range(bud.match_set_mgr) {
             match range.base.data {

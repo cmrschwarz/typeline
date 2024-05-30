@@ -1,7 +1,6 @@
 use std::{
     alloc::Layout,
     mem::{align_of, size_of, ManuallyDrop},
-    ops::{Deref, DerefMut},
     ptr::NonNull,
 };
 

@@ -1665,6 +1665,7 @@ name = "scr_ext_http"
 version = "0.1.0"
 dependencies = [
  "bstr",
+ "derive_more",
  "futures",
  "http 1.1.0",
  "http-body-util",

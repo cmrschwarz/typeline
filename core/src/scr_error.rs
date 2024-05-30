@@ -147,16 +147,14 @@ fn contextualize_op_id(
     sess: Option<&SessionData>,
 ) -> String {
     let cli_arg_id = ctx_opts
-        .and_then(|o| o.operator_base_options[op_id as usize].cli_arg_idx)
+        .and_then(|o| o.operator_base_options[op_id].cli_arg_idx)
         .or_else(|| {
-            sess.and_then(|sess| {
-                sess.operator_bases[op_id as usize].cli_arg_idx
-            })
+            sess.and_then(|sess| sess.operator_bases[op_id].cli_arg_idx)
         });
     if let (Some(args), Some(cli_arg_id)) = (args, cli_arg_id) {
         contextualize_cli_arg(msg, Some(args), cli_arg_id)
     } else if let Some(sess) = sess {
-        let op_base = &sess.operator_bases[op_id as usize];
+        let op_base = &sess.operator_bases[op_id];
         // TODO: stringify chain id
         format!(
             "in op {} '{}' of chain {}: {}",

@@ -7,8 +7,7 @@ use crate::{
     job::{Job, JobData},
     options::argument::CliArgIdx,
     record_data::{
-        field::FieldId, group_track::GroupTrackId,
-        match_set::MatchSetId,
+        field::FieldId, group_track::GroupTrackId, match_set::MatchSetId,
     },
     utils::{
         identity_hasher::BuildIdentityHasher,
@@ -119,8 +118,8 @@ pub(crate) fn handle_eager_call_expansion(
     group_track: GroupTrackId,
     predecessor_tf: Option<TransformId>,
 ) -> OperatorInstantiation {
-    let chain = &sess.job_data.session_data.chains
-        [op.target_resolved.unwrap() as usize];
+    let chain =
+        &sess.job_data.session_data.chains[op.target_resolved.unwrap()];
     sess.setup_transforms_from_op(
         ms_id,
         chain.operators[0],
@@ -137,14 +136,14 @@ pub(crate) fn handle_lazy_call_expansion(sess: &mut Job, tf_id: TransformId) {
     let input_field = tf.input_field;
     let input_group_track = tf.input_group_track_id;
     let ms_id = tf.match_set_id;
-    let TransformData::Call(call) = &sess.transform_data[tf_id.get()] else {
+    let TransformData::Call(call) = &sess.transform_data[tf_id] else {
         unreachable!()
     };
     // TODO: do we need a prebound output so succesor can keep it's input
     // field?
     let instantiation = sess.setup_transforms_from_op(
         ms_id,
-        sess.job_data.session_data.chains[call.target as usize].operators[0],
+        sess.job_data.session_data.chains[call.target].operators[0],
         input_field,
         input_group_track,
         Some(tf_id),

@@ -37,9 +37,7 @@ use super::{
         TfForeachTrailer,
     },
     fork::{handle_fork_expansion, handle_tf_fork, TfFork},
-    forkcat::{
-        handle_forkcat_subchain_expansion, handle_tf_forkcat, TfForkCat,
-    },
+    forkcat::{handle_tf_forkcat, TfForkCat},
     format::{
         handle_tf_format, handle_tf_format_stream_value_update, TfFormat,
     },
@@ -234,15 +232,10 @@ pub fn transform_pre_update(
     tf_id: TransformId,
     ctx: Option<&Arc<ContextData>>,
 ) -> Result<(), VentureDescription> {
-    match &mut job.transform_data[usize::from(tf_id)] {
+    match &mut job.transform_data[tf_id] {
         TransformData::Fork(fork) => {
             if !fork.expanded {
                 handle_fork_expansion(job, tf_id, ctx);
-            }
-        }
-        TransformData::ForkCat(_) => {
-            if job.job_data.tf_mgr.transforms[tf_id].successor.is_none() {
-                handle_forkcat_subchain_expansion(job, tf_id);
             }
         }
         TransformData::CallConcurrent(callcc) => {
@@ -256,6 +249,7 @@ pub fn transform_pre_update(
             handle_lazy_call_expansion(job, tf_id);
         }
         TransformData::Disabled
+        | TransformData::ForkCat(_)
         | TransformData::ForeachHeader(_)
         | TransformData::ForeachTrailer(_)
         | TransformData::CalleeConcurrent(_)
@@ -281,17 +275,14 @@ pub fn transform_pre_update(
         TransformData::Custom(tf) => {
             if tf.pre_update_required() {
                 let mut tf = std::mem::replace(
-                    &mut job.transform_data[usize::from(tf_id)],
+                    &mut job.transform_data[tf_id],
                     TransformData::Disabled,
                 );
                 let TransformData::Custom(tf_custom) = &mut tf else {
                     unreachable!()
                 };
                 tf_custom.pre_update(job, tf_id);
-                let _ = std::mem::replace(
-                    &mut job.transform_data[usize::from(tf_id)],
-                    tf,
-                );
+                let _ = std::mem::replace(&mut job.transform_data[tf_id], tf);
             }
         }
     }
@@ -300,7 +291,7 @@ pub fn transform_pre_update(
 
 pub fn transform_update(job: &mut Job, tf_id: TransformId) {
     let jd = &mut job.job_data;
-    match &mut job.transform_data[usize::from(tf_id)] {
+    match &mut job.transform_data[tf_id] {
         TransformData::Fork(tf) => {
             handle_tf_fork(jd, tf_id, tf);
         }
@@ -359,7 +350,7 @@ pub fn transform_update(job: &mut Job, tf_id: TransformId) {
 }
 
 pub fn stream_producer_update(job: &mut Job, tf_id: TransformId) {
-    match &mut job.transform_data[tf_id.get()] {
+    match &mut job.transform_data[tf_id] {
             TransformData::Disabled
             | TransformData::Nop(_)
             | TransformData::SuccessUpdator(_)
@@ -402,7 +393,7 @@ pub fn stream_producer_update(job: &mut Job, tf_id: TransformId) {
 
 pub fn transform_stream_value_update(job: &mut Job, svu: StreamValueUpdate) {
     let jd = &mut job.job_data;
-    match &mut job.transform_data[usize::from(svu.tf_id)] {
+    match &mut job.transform_data[svu.tf_id] {
         TransformData::Print(tf) => handle_tf_print_stream_value_update(
             jd,
             tf,

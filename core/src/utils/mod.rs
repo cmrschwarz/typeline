@@ -4,6 +4,7 @@ use std::{
 };
 
 use bstr::ByteSlice;
+use indexing_type::IndexingType;
 
 pub mod aligned_buf;
 pub mod counting_writer;
@@ -153,18 +154,18 @@ pub fn valid_utf8_codepoint_begins(buf: &[u8]) -> usize {
         .sum()
 }
 
-pub fn range_bounds_to_range(
-    rb: impl RangeBounds<usize>,
+pub fn range_bounds_to_range<I: IndexingType>(
+    rb: impl RangeBounds<I>,
     len: usize,
 ) -> Range<usize> {
     let start = match rb.start_bound() {
-        std::ops::Bound::Included(i) => *i,
-        std::ops::Bound::Excluded(i) => *i + 1,
+        std::ops::Bound::Included(i) => i.into_usize(),
+        std::ops::Bound::Excluded(i) => i.into_usize() + 1,
         std::ops::Bound::Unbounded => 0,
     };
     let end = match rb.end_bound() {
-        std::ops::Bound::Included(i) => *i + 1,
-        std::ops::Bound::Excluded(i) => *i,
+        std::ops::Bound::Included(i) => i.into_usize() + 1,
+        std::ops::Bound::Excluded(i) => i.into_usize(),
         std::ops::Bound::Unbounded => len,
     };
     start..end

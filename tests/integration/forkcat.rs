@@ -1,4 +1,4 @@
-//TODO: disable forkcat tests for now
+// TODO: disable forkcat tests for now
 #![cfg(any())]
 
 use rstest::rstest;
@@ -19,6 +19,18 @@ use scr_core::{
     options::context_builder::ContextBuilder,
     scr_error::ScrError,
 };
+
+#[test]
+fn parse_forkcat() -> Result<(), ScrError> {
+    let sess_opts = parse_cli_from_strings(
+        CliOptions::default(),
+        ["scr", "seqn=10", "forkcat", "r=.*", "end"],
+    )?;
+    let res = ContextBuilder::from_session_opts(sess_opts)
+        .run_collect_stringified()?;
+    assert_eq!(res, int_sequence_strings(1..11));
+    Ok(())
+}
 
 #[test]
 fn basic_forkcat() -> Result<(), ScrError> {

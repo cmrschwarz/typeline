@@ -88,16 +88,16 @@ impl Operator for OpSum {
     ) -> TransformInstatiation<'a> {
         let jd = &mut job.job_data;
         let ms = &mut jd.match_set_mgr.match_sets[tf_state.match_set_id];
-        let op_base = &jd.session_data.operator_bases[op_id as usize];
+        let op_base = &jd.session_data.operator_bases[op_id];
         let mut ab = ms.action_buffer.borrow_mut();
         let actor_id = ab.add_actor();
         jd.field_mgr.fields[tf_state.output_field]
             .borrow_mut()
             .first_actor = ActorRef::Unconfirmed(ab.peek_next_actor_id());
         let floating_point_math = jd.session_data.chains
-            [op_base.chain_id.unwrap() as usize]
-            .settings
-            .floating_point_math;
+            [op_base.chain_id.unwrap()]
+        .settings
+        .floating_point_math;
         TransformInstatiation::Simple(TransformData::Custom(smallbox!(
             TfSum {
                 group_track_iter: jd

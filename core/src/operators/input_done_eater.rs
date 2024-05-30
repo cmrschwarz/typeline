@@ -3,8 +3,7 @@ use crate::{
     chain::ChainId,
     job::{add_transform_to_job, Job, JobData},
     record_data::{
-        field::VOID_FIELD_ID, group_track::GroupTrackId,
-        match_set::MatchSetId,
+        field::VOID_FIELD_ID, group_track::GroupTrackId, match_set::MatchSetId,
     },
 };
 
@@ -55,7 +54,7 @@ pub fn add_input_done_eater(
     output_group_track: GroupTrackId,
     input_dones_to_eat: usize,
 ) -> TransformId {
-    let batch_size = sess.job_data.session_data.chains[chain_id as usize]
+    let batch_size = sess.job_data.session_data.chains[chain_id]
         .settings
         .default_batch_size;
     let mut tf_state = TransformState::new(

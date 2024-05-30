@@ -115,7 +115,7 @@ pub fn setup_op_sequence_concurrent_liveness_data(
     op_id: OperatorId,
     ld: &LivenessData,
 ) {
-    let output_id = sess.operator_bases[op_id as usize].outputs_start;
+    let output_id = sess.operator_bases[op_id].outputs_start;
     op.non_string_reads = ld
         .op_outputs_data
         .get_slot(VarLivenessSlotKind::NonStringReads)[output_id as usize];

@@ -141,7 +141,7 @@ pub fn setup_op_call_concurrent_liveness_data(
     op_id: OperatorId,
     ld: &LivenessData,
 ) {
-    let bb_id = ld.operator_liveness_data[op_id as usize].basic_block_id;
+    let bb_id = ld.operator_liveness_data[op_id].basic_block_id;
     debug_assert!(ld.basic_blocks[bb_id].calls.len() == 1);
     let succ_var_data =
         ld.get_var_liveness(bb_id, VarLivenessSlotGroup::Succession);
@@ -299,16 +299,14 @@ pub(crate) fn handle_call_concurrent_expansion(
     tf_id: TransformId,
     ctx: Option<&Arc<ContextData>>,
 ) -> Result<(), VentureDescription> {
-    let TransformData::CallConcurrent(call) =
-        &mut job.transform_data[tf_id.get()]
+    let TransformData::CallConcurrent(call) = &mut job.transform_data[tf_id]
     else {
         unreachable!()
     };
     call.expanded = true;
     setup_target_field_mappings(&mut job.job_data, tf_id, call);
-    let starting_op = job.job_data.session_data.chains
-        [call.target_chain as usize]
-        .operators[0];
+    let starting_op =
+        job.job_data.session_data.chains[call.target_chain].operators[0];
     let mut venture_desc = VentureDescription {
         participans_needed: 2,
         starting_points: smallvec::smallvec![OperatorId::MAX, starting_op],
@@ -406,11 +404,10 @@ pub fn setup_callee_concurrent(
     buffer: Arc<RecordBuffer>,
     start_op_id: OperatorId,
 ) -> OperatorInstantiation {
-    let chain_id = sess.job_data.session_data.operator_bases
-        [start_op_id as usize]
+    let chain_id = sess.job_data.session_data.operator_bases[start_op_id]
         .chain_id
         .unwrap();
-    let chain = &sess.job_data.session_data.chains[chain_id as usize];
+    let chain = &sess.job_data.session_data.chains[chain_id];
     // TODO //HACK: this is busted
     let group_track = VOID_GROUP_TRACK_ID;
     let tf_state = TransformState::new(

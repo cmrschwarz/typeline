@@ -170,8 +170,7 @@ pub fn insert_tf_aggregator(
             active_group_track,
         );
         sub_tf_state.is_split = i + 1 != op.sub_ops.len();
-        let instantiation = job.job_data.session_data.operator_data
-            [sub_op_id as usize]
+        let instantiation = job.job_data.session_data.operator_data[sub_op_id]
             .operator_build_transforms(
                 job,
                 sub_tf_state,
@@ -199,7 +198,7 @@ pub fn insert_tf_aggregator(
             Some(trailer_tf_id);
     }
     let TransformData::AggregatorHeader(header) =
-        &mut job.transform_data[header_tf_id.get()]
+        &mut job.transform_data[header_tf_id]
     else {
         unreachable!()
     };
@@ -321,13 +320,13 @@ pub fn handle_tf_aggregator_trailer(job: &mut Job, tf_id: TransformId) {
 
     if ps.input_done {
         let TransformData::AggregatorTrailer(agg_t) =
-            &mut job.transform_data[tf_id.get()]
+            &mut job.transform_data[tf_id]
         else {
             unreachable!()
         };
         let header_tf_id = agg_t.header_tf_id;
         let TransformData::AggregatorHeader(agg_h) =
-            &mut job.transform_data[header_tf_id.get()]
+            &mut job.transform_data[header_tf_id]
         else {
             unreachable!()
         };

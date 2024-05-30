@@ -79,6 +79,8 @@ pub type OperatorOffsetInChain = u32;
 pub type PreboundOutputsMap =
     HashMap<OpOutputIdx, FieldId, BuildIdentityHasher>;
 
+pub static DUMMY_OP_NOP: OperatorData = OperatorData::Nop(OpNop {});
+
 pub enum OperatorData {
     Nop(OpNop),
     NopCopy(OpNopCopy),
@@ -162,8 +164,8 @@ impl OperatorData {
         chain_id: ChainId,
         op_id: OperatorId,
     ) -> Result<(), OperatorSetupError> {
-        let chain = &sess.chains[chain_id as usize];
-        let op_base = &mut sess.operator_bases[op_id as usize];
+        let chain = &sess.chains[chain_id];
+        let op_base = &mut sess.operator_bases[op_id];
         match self {
             OperatorData::Regex(op) => {
                 setup_op_regex(op, sess.string_store.get_mut().unwrap())
@@ -301,7 +303,7 @@ impl OperatorData {
                 let mut op_count = 1;
                 // TODO: do this properly, merging field names etc.
                 for &sub_op in &agg.sub_ops {
-                    op_count += sess.operator_data[sub_op as usize]
+                    op_count += sess.operator_data[sub_op]
                         .output_count(sess, sub_op)
                         .saturating_sub(1);
                 }
@@ -492,8 +494,7 @@ impl OperatorData {
         input_field: OpOutputIdx,
         outputs_offset: OpOutputIdx,
     ) -> (OpOutputIdx, OperatorCallEffect) {
-        let op_idx = op_id as usize;
-        let output_field = sess.operator_bases[op_idx].outputs_start
+        let output_field = sess.operator_bases[op_id].outputs_start
             + outputs_offset as OpOutputIdx;
         match &self {
             OperatorData::Fork(_)
@@ -505,8 +506,8 @@ impl OperatorData {
             }
             OperatorData::Key(key) => {
                 let var_id = ld.var_names[&key.key_interned.unwrap()];
-                ld.vars_to_op_outputs_map[var_id as usize] = output_field;
-                ld.op_outputs[output_field as usize]
+                ld.vars_to_op_outputs_map[var_id] = output_field;
+                ld.op_outputs[output_field]
                     .field_references
                     .push(input_field);
                 if let Some(prev_tgt) =
@@ -520,7 +521,7 @@ impl OperatorData {
                 let mut var = ld.var_names[&select.key_interned.unwrap()];
                 // resolve rebinds
                 loop {
-                    let field = ld.vars_to_op_outputs_map[var as usize];
+                    let field = ld.vars_to_op_outputs_map[var];
                     if field >= ld.vars.len() as OpOutputIdx {
                         break;
                     }
@@ -538,7 +539,7 @@ impl OperatorData {
                     !re.opts.non_mandatory || re.opts.multimatch;
                 flags.non_stringified_input_access = false;
                 for i in 0..re.capture_group_names.len() {
-                    ld.op_outputs[output_field as usize + i]
+                    ld.op_outputs[output_field + i as OpOutputIdx]
                         .field_references
                         .push(input_field);
                 }
@@ -546,8 +547,8 @@ impl OperatorData {
                 for (cgi, cgn) in re.capture_group_names.iter().enumerate() {
                     if let Some(name) = cgn {
                         let tgt_var_name = ld.var_names[name];
-                        ld.vars_to_op_outputs_map[tgt_var_name as usize] =
-                            sess.operator_bases[op_idx].outputs_start
+                        ld.vars_to_op_outputs_map[tgt_var_name] =
+                            sess.operator_bases[op_id].outputs_start
                                 + cgi as OpOutputIdx;
                     }
                 }
@@ -555,7 +556,7 @@ impl OperatorData {
             OperatorData::NopCopy(_) => {
                 flags.may_dup_or_drop = false;
                 flags.non_stringified_input_access = false;
-                ld.op_outputs[output_field as usize]
+                ld.op_outputs[output_field]
                     .field_references
                     .push(input_field);
             }
@@ -633,21 +634,20 @@ impl OperatorData {
                         non_stringified_input_access: true,
                         may_dup_or_drop: true,
                     };
-                    sess.operator_data[sub_op as usize]
-                        .update_liveness_for_op(
-                            sess,
-                            ld,
-                            &mut sub_op_flags,
-                            op_offset_after_last_write,
-                            sub_op,
-                            bb_id,
-                            input_field,
-                            0,
-                        );
+                    sess.operator_data[sub_op].update_liveness_for_op(
+                        sess,
+                        ld,
+                        &mut sub_op_flags,
+                        op_offset_after_last_write,
+                        sub_op,
+                        bb_id,
+                        input_field,
+                        0,
+                    );
                     *flags = flags.or(&sub_op_flags);
-                    let sub_op = &sess.operator_bases[sub_op as usize];
+                    let sub_op = &sess.operator_bases[sub_op];
                     if sub_op.outputs_start != sub_op.outputs_end {
-                        ld.op_outputs[output_field as usize]
+                        ld.op_outputs[output_field]
                             .field_references
                             .push(sub_op.outputs_start);
                     }
@@ -717,8 +717,8 @@ impl OperatorData {
         op_id: OperatorId,
         add_to_chain: bool,
     ) {
-        let chain_opts = &mut so.chains[so.curr_chain as usize];
-        let op_base_opts = &mut so.operator_base_options[op_id as usize];
+        let chain_opts = &mut so.chains[so.curr_chain];
+        let op_base_opts = &mut so.operator_base_options[op_id];
         match self {
             OperatorData::CallConcurrent(_) => {
                 so.any_threaded_operations = true;
@@ -732,9 +732,8 @@ impl OperatorData {
             | OperatorData::ForkCat(OpForkCat {
                 subchains_start, ..
             }) => {
-                *subchains_start =
-                    so.chains[so.curr_chain as usize].subchain_count;
-                so.chains[so.curr_chain as usize].subchain_count += 1;
+                *subchains_start = so.chains[so.curr_chain].subchain_count;
+                so.chains[so.curr_chain].subchain_count += 1;
                 let new_chain = ChainOptions {
                     parent: so.curr_chain,
                     ..Default::default()
@@ -746,8 +745,8 @@ impl OperatorData {
                 if add_to_chain {
                     chain_opts.operators.pop();
                 }
-                let parent = so.chains[so.curr_chain as usize].parent;
-                so.chains[parent as usize].subchain_count += 1;
+                let parent = so.chains[so.curr_chain].parent;
+                so.chains[parent].subchain_count += 1;
                 let new_chain = ChainOptions {
                     parent,
                     ..Default::default()
@@ -762,17 +761,16 @@ impl OperatorData {
                 }
                 end.chain_id_before = so.curr_chain;
                 // the parent of the root chain is itsess
-                so.curr_chain = so.chains[so.curr_chain as usize].parent;
+                so.curr_chain = so.chains[so.curr_chain].parent;
 
                 op_base_opts.chain_id = Some(so.curr_chain);
                 end.subchain_count_after =
-                    so.chains[so.curr_chain as usize].subchain_count;
+                    so.chains[so.curr_chain].subchain_count;
                 let subchain_count_after = end.subchain_count_after;
-                if let Some(&op_id) =
-                    so.chains[so.curr_chain as usize].operators.last()
+                if let Some(&op_id) = so.chains[so.curr_chain].operators.last()
                 {
                     SessionOptions::on_operator_subchains_ended(
-                        &mut so.operator_data[op_id as usize],
+                        &mut so.operator_data[op_id],
                         subchain_count_after,
                     );
                 }
@@ -817,7 +815,7 @@ impl OperatorData {
     ) -> OperatorInstantiation {
         let tfs = &mut tf_state;
         let jd = &mut job.job_data;
-        let op_base = &jd.session_data.operator_bases[op_id as usize];
+        let op_base = &jd.session_data.operator_bases[op_id];
         let data: TransformData<'a> = match self {
             OperatorData::Nop(op) => build_tf_nop(op, tfs),
             OperatorData::SuccessUpdator(op) => {

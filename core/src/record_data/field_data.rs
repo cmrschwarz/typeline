@@ -3,7 +3,6 @@ use std::{
     collections::VecDeque,
     fmt::{Debug, Display},
     mem::{align_of, size_of, size_of_val, ManuallyDrop},
-    ops::{Deref, DerefMut},
 };
 
 use super::{

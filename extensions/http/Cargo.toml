@@ -27,6 +27,7 @@ memchr = "2.7.2"
 url = "2.5.0"
 lazy_static = "1.4.0"
 regex = "1.10.4"
+derive_more = "0.99.17"
 
 [dev-dependencies]
 tokio = { version = "1.37.0", features = ["rt", "macros", "rt-multi-thread"] }
